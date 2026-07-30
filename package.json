@@ -7,7 +7,8 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "build:client": "vite build",
-    "build:server": "node scripts/build-server.mjs"
+    "build:server": "node scripts/build-server.mjs",
+    "release": "node scripts/release.mjs"
   },
   "devDependencies": {
     "@nuxt/ui": "4.5.1",

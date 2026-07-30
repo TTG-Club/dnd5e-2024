@@ -1,6 +1,6 @@
 # D&D 5e System — Архитектура расчётов
 
-Движок правил D&D 5e: типы, расчёты, боевой пайплайн, SRD-данные.
+Движок правил D&D 5e: типы, расчёты, боевой пайплайн, справочные данные.
 Живёт в `packages/shared/src/system/dnd/`, точка входа — `index.ts`.
 
 ## Границы: ядро не знает D&D
@@ -35,7 +35,7 @@ import { calculateWeaponAttackModifier, dnd5eSystemInstance } from '@vtt/shared/
 | Нейтральные контракты | `system/contracts/**` | `BaseActiveEffect`, `EffectOrigin`, `EffectDuration`, `EffectAura` — кросс-катные VTT-концепты (зрение, ауры, состояния) |
 | Контракт системы | `system/vttSystem.ts` | Интерфейс `VttSystem` — единственная дверь, через которую ядро зовёт правила |
 | D&D-форма | `system/dnd/dndEntities.ts` | `DnDActor`, `DnDCreature`, `DnDGameItem`, `Spell` — сужения нейтральных баз |
-| D&D-правила | остальной `system/dnd/**` | расчёты, эффекты, урон, отдых, SRD |
+| D&D-правила | остальной `system/dnd/**` | расчёты, эффекты, урон, отдых, справочники |
 
 **`shared/types` развязан от `system/dnd`.** Из `types/index.ts` есть ровно один
 импорт в сторону системы — нейтральный контракт
