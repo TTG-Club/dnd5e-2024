@@ -194,7 +194,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '1.0.0';
+  readonly version = '0.1.0';
 
   /**
    * Р’С‹РїРѕР»РЅСЏРµС‚ РІР°Р»РёРґР°С†РёСЋ РґР°РЅРЅС‹С… Р°РєС‚РµСЂР° РїРѕ РїСЂР°РІРёР»Р°Рј СЃРёСЃС‚РµРјС‹ D&D 5e.
