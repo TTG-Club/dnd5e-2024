@@ -11,7 +11,7 @@
   import type { TypedWebSocketClient } from '@vtt/shared';
   import type { BackgroundDefinition } from '@vtt/shared/system/dnd.js';
 
-  import { TOOLS_LABELS } from '@vtt/shared/system/dnd.js';
+  import { toolProficiencyLabel } from '@vtt/shared/system/dnd.js';
   import { computed } from 'vue';
 
   import ToolProficiencyGrant from '../ToolProficiencyGrant.vue';
@@ -116,7 +116,7 @@
           @click.left.exact.prevent="toggleTool(tool)"
         >
           <span class="text-center text-sm font-medium">
-            {{ TOOLS_LABELS[tool] || tool }}
+            {{ toolProficiencyLabel(tool) }}
           </span>
         </button>
       </div>

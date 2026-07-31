@@ -5,6 +5,7 @@
     ClassLevelEntry,
   } from '@vtt/shared/system/dnd.js';
 
+  import { toolProficiencyLabel } from '@vtt/shared/system/dnd.js';
   import { computed, nextTick, ref } from 'vue';
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
@@ -65,6 +66,17 @@
 
   /** Выбранный подкласс для просмотра в таблице (строка) */
   const selectedSubclassName = ref<string | null>(null);
+
+  /**
+   * Строка владения инструментами. Класс хранит его человекочитаемым текстом, а
+   * не ключами словаря, поэтому подпись собирает общий разбор — иначе позиция,
+   * пришедшая ссылкой разметки, показывалась бы этой ссылкой целиком.
+   */
+  const toolProficienciesDisplay = computed(() =>
+    (props.classDefinition?.toolProficiencies ?? [])
+      .map((tool) => TOOL_PROF_LABELS[tool] ?? toolProficiencyLabel(tool))
+      .join(', '),
+  );
 
   /** Все особенности базового класса сгруппированные по уровню */
   const featuresByLevel = computed(() => {
@@ -422,11 +434,7 @@
             >
 
             <p class="mt-0.5 text-sm font-semibold text-highlighted">
-              {{
-                classDefinition.toolProficiencies
-                  ?.map((tool) => TOOL_PROF_LABELS[tool] ?? tool)
-                  .join(', ')
-              }}
+              {{ toolProficienciesDisplay }}
             </p>
           </div>
         </div>

@@ -10,12 +10,17 @@
  * совпадение превращается в ключ, «на выбор» в группу, а незнакомое возвращается
  * отдельно, чтобы UI предложил завести инструмент, а не выдавал ложное владение.
  *
+ * Предыстории приходят не только паками TTG Club: источник может отдать позицию
+ * разметкой описания — `[Набор для фальсификации](https://…)`. Разметка снимается
+ * перед сопоставлением, поэтому такая позиция становится обычным владением, а не
+ * ссылкой в тексте на листе персонажа.
+ *
  * @module system/dnd/toolProficiency
  */
 
 import type { ToolCategory } from '@vtt/shared';
 
-import { TOOLS_LIST } from './consts.js';
+import { TOOLS_LABELS, TOOLS_LIST } from './consts.js';
 
 /** Позиция словаря инструментов: ключ владения и его название. */
 export interface ToolVocabularyEntry {
@@ -61,6 +66,41 @@ const GROUP_STEMS: Array<{ key: string; stems: string[] }> = [
   { key: TOOL_GROUP_KEYS.gaming, stems: ['игров', 'набор'] },
   { key: TOOL_GROUP_KEYS.musical, stems: ['музыкальн', 'инструмент'] },
 ];
+
+/**
+ * Разметка ссылки: `[Набор для фальсификации](https://new.ttg.club/items/…)`.
+ * Так владение приходит из источников, отдающих предысторию не компендиумом
+ * TTG Club, а разметкой описания — адресу на листе персонажа делать нечего,
+ * смысл несёт только подпись ссылки.
+ */
+const MARKDOWN_LINK = /!?\[([^\]]*)\]\([^)]*\)/g;
+
+/** Парные выделения `**жирным**`, `*курсивом*`, `__…__`, `_…_`, `` `код` ``. */
+const MARKDOWN_EMPHASIS = [
+  /\*\*([^*]+)\*\*/g,
+  /\*([^*]+)\*/g,
+  /__([^_]+)__/g,
+  /_([^_]+)_/g,
+  /`([^`]+)`/g,
+];
+
+/**
+ * Оставляет от позиции владения читаемое название: подпись вместо ссылки,
+ * текст вместо выделений. Применяется ПЕРЕД сопоставлением со словарём —
+ * иначе «[Набор для фальсификации](…)» не узнаётся и уходит в `unknown`,
+ * хотя такой инструмент в словаре есть.
+ *
+ * @param source - позиция владения, как её прислал источник
+ */
+function toolProficiencyText(source: string): string {
+  let result = source.replace(MARKDOWN_LINK, '$1');
+
+  for (const pattern of MARKDOWN_EMPHASIS) {
+    result = result.replace(pattern, '$1');
+  }
+
+  return result.replace(/\s+/g, ' ').trim();
+}
 
 /** Хвосты вида «(на ваш выбор)», «любой», «одного вида» — на смысл не влияют. */
 const NOISE_PATTERNS = [
@@ -119,10 +159,11 @@ export function resolveToolProficiency(
   source: string,
   vocabulary: ToolVocabularyEntry[] = TOOLS_LIST,
 ): ResolvedToolProficiency {
-  const trimmed = source.trim();
+  // Разметку снимаем сразу: дальше и сопоставление, и показ идут по названию.
+  const trimmed = toolProficiencyText(source);
 
   if (!trimmed) {
-    return { kind: 'unknown', source };
+    return { kind: 'unknown', source: source.trim() };
   }
 
   // Уже ключ (данные модулей и homebrew хранят владения идентификаторами).
@@ -134,6 +175,20 @@ export function resolveToolProficiency(
       key: byKey.key,
       label: byKey.label,
       source: trimmed,
+    };
+  }
+
+  // Ключ обобщённой группы: так «инструмент на выбор» кладёт форма предыстории
+  // из панели «Предметы» — её список владений собран из `TOOLS_LABELS`, где
+  // группы стоят наравне с инструментами. Без этой ветки такая позиция уходила
+  // в `unknown`, и мастер предлагал завести инструмент с именем `artisans-tools`
+  // вместо выбора из категории.
+  if (TOOL_GROUP_CATEGORY[trimmed]) {
+    return {
+      kind: 'group',
+      key: trimmed,
+      count: 1,
+      source: TOOLS_LABELS[trimmed],
     };
   }
 
@@ -195,7 +250,9 @@ export function resolveToolProficiencies(
       continue;
     }
 
-    const parts = source
+    // Делим уже очищенный текст: запятая внутри адреса ссылки разрезала бы
+    // позицию по живому.
+    const parts = toolProficiencyText(source)
       .split(/,| и /i)
       .map((part) => part.trim())
       .filter(Boolean);
@@ -211,6 +268,32 @@ export function resolveToolProficiencies(
   }
 
   return dedupe(resolved);
+}
+
+/**
+ * Название позиции владения для показа: название словаря, если позиция узнана,
+ * иначе — текст без разметки. Нужен всем местам, где владение только
+ * показывается (карточки класса и предыстории, обзорный шаг мастера): там
+ * ключей словаря ждать нельзя, а показывать `[Название](адрес)` тем более.
+ *
+ * @param source - позиция владения, как её прислал источник
+ * @param vocabulary - словарь владений (системный список плюс заведённые в мире)
+ */
+export function toolProficiencyLabel(
+  source: string,
+  vocabulary: ToolVocabularyEntry[] = TOOLS_LIST,
+): string {
+  // Обобщённые группы («artisans-tools») живут только в подписях, в словаре
+  // инструментов их нет — их название берём напрямую.
+  const known = TOOLS_LABELS[source.trim()];
+
+  if (known) {
+    return known;
+  }
+
+  const resolved = resolveToolProficiency(source, vocabulary);
+
+  return resolved.kind === 'tool' ? resolved.label : resolved.source;
 }
 
 /** Убирает повторы: один и тот же инструмент мог прийти и от класса, и от фона. */

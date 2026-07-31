@@ -19,6 +19,7 @@
   import { generateId } from '@vtt/shared';
   import {
     ABILITY_OPTIONS,
+    resolveToolProficiencies,
     SKILLS_LIST,
     TOOLS_LABELS,
   } from '@vtt/shared/system/dnd.js';
@@ -333,7 +334,13 @@
 
     selectedAbilities.value = [...(bg.abilityGrant?.abilities ?? [])];
     selectedSkills.value = [...(bg.skillGrant?.skills ?? [])];
-    selectedFixedTools.value = [...(bg.toolGrant?.items ?? [])];
+    // Владение приходит не только ключами: компендиум пишет его текстом, а
+    // сторонние источники — ссылкой разметки. Форма же работает ключами
+    // словаря, поэтому разбираем позиции здесь — иначе копия предыстории
+    // показывает в поле разметку и теряет владение при сохранении.
+    selectedFixedTools.value = resolveToolProficiencies(
+      bg.toolGrant?.items ?? [],
+    ).map((entry) => (entry.kind === 'unknown' ? entry.source : entry.key));
 
     if (bg.toolGrant?.choices) {
       choicesToolsCount.value = bg.toolGrant.choices.count || 0;

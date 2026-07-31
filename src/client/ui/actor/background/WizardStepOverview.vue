@@ -2,7 +2,10 @@
   import type { Feature } from '@vtt/shared';
   import type { BackgroundDefinition } from '@vtt/shared/system/dnd.js';
 
-  import { SKILLS_LABELS, TOOLS_LABELS } from '@vtt/shared/system/dnd.js';
+  import {
+    SKILLS_LABELS,
+    toolProficiencyLabel,
+  } from '@vtt/shared/system/dnd.js';
   import { computed } from 'vue';
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
@@ -100,7 +103,7 @@
             color="neutral"
             size="sm"
           >
-            {{ TOOLS_LABELS[tool] || tool }}
+            {{ toolProficiencyLabel(tool) }}
           </UBadge>
 
           <span

@@ -18,16 +18,12 @@ import type { BackgroundDefinition } from './backgroundTypes.js';
 import type { GameItem } from './dndEntities.js';
 import type { FeatData } from './featTypes.js';
 
-import {
-  ABILITY_LABELS,
-  CONDITIONS,
-  SKILLS_LABELS,
-  TOOLS_LABELS,
-} from './consts.js';
+import { ABILITY_LABELS, CONDITIONS, SKILLS_LABELS } from './consts.js';
 import {
   DAMAGE_DEFENSE_KIND_LABELS,
   DAMAGE_TYPE_LABELS,
 } from './damageConstants.js';
+import { toolProficiencyLabel } from './toolProficiency.js';
 
 /** Подписи владения доспехами (нет в shared — компактно дублируем). */
 const ARMOR_LABELS: Record<string, string> = {
@@ -117,7 +113,7 @@ function proficiencyLine(featData: FeatData): string | null {
   if (featData.toolProficiencies?.length) {
     parts.push(
       featData.toolProficiencies
-        .map((tool) => TOOLS_LABELS[tool] ?? tool)
+        .map((tool) => toolProficiencyLabel(tool))
         .join(', '),
     );
   }

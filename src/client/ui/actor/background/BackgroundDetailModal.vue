@@ -6,7 +6,7 @@
     ABILITY_LABELS,
     buildFeatGrantsSummary,
     SKILLS_LABELS,
-    TOOLS_LABELS,
+    toolProficiencyLabel,
   } from '@vtt/shared/system/dnd.js';
   import { computed } from 'vue';
 
@@ -70,7 +70,7 @@
     }
 
     let toolsStr = (data.value.toolGrant.items || [])
-      .map((tool) => TOOLS_LABELS[tool] || tool)
+      .map((tool) => toolProficiencyLabel(tool))
       .join(', ');
 
     if (data.value.toolGrant.choices?.count) {
