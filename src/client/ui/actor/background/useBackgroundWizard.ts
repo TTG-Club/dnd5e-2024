@@ -19,6 +19,7 @@ import {
   appendGrantedSpells,
   BACKGROUND_ORIGIN_PREFIX,
   buildFeatGrantEffect,
+  normalizeBackgroundDefinition,
   prepareTransferredFeatEffects,
   removeGrantedSpellsByFeatureNames,
 } from '@vtt/shared/system/dnd.js';
@@ -79,6 +80,17 @@ export function useBackgroundWizard(
   actorRef: Ref<Actor>,
   isOpenRef: Ref<boolean>,
 ) {
+  /**
+   * Определение с достроенными блоками даров: записи компендиума отдают
+   * `toolGrant`/`skillGrant`/`abilityGrant`/`featGrant`/`equipmentOptions`
+   * частично (в паках TTG Club `toolGrant` не приходит вовсе), а мастер и его
+   * шаги читают их напрямую. Возвращается наружу — шаги должны получать ровно
+   * то же определение, с которым работает мастер.
+   */
+  const definition = computed(() =>
+    normalizeBackgroundDefinition(backgroundDefinitionRef.value),
+  );
+
   // --- Состояние ---
   const currentStepInfo = ref<{
     stepGroup: BackgroundWizardStep;
@@ -96,7 +108,7 @@ export function useBackgroundWizard(
   const selectedFeatId = ref<string>('');
 
   const wizardSteps = computed<BackgroundWizardStep[]>(() => {
-    const def = backgroundDefinitionRef.value;
+    const def = definition.value;
 
     if (!def) {
       return ['overview', 'abilities', 'equipment'];
@@ -119,7 +131,7 @@ export function useBackgroundWizard(
     toolSelections.value = [];
     selectedFeatId.value = '';
 
-    const def = backgroundDefinitionRef.value;
+    const def = definition.value;
 
     if (def) {
       if (def.toolGrant.items.length) {
@@ -142,7 +154,7 @@ export function useBackgroundWizard(
 
   // Инициализация при смене предыстории
   watch(
-    () => backgroundDefinitionRef.value?.key,
+    () => definition.value?.key,
     () => {
       resetState();
     },
@@ -161,7 +173,7 @@ export function useBackgroundWizard(
 
   // Вычисляемое свойство: можно ли перейти дальше
   const canProceed = computed(() => {
-    const def = backgroundDefinitionRef.value;
+    const def = definition.value;
 
     if (!def) {
       return false;
@@ -261,7 +273,7 @@ export function useBackgroundWizard(
     srdFeats: Feature[],
     resolvedGrantedSpells: ResolvedGrantedSpell[] = [],
   ) {
-    const def = backgroundDefinitionRef.value;
+    const def = definition.value;
 
     if (!def) {
       return { systemUpdates: {}, rootUpdates: {} };
@@ -557,6 +569,7 @@ export function useBackgroundWizard(
   }
 
   return {
+    definition,
     currentStepInfo,
     selectedScheme,
     abilityAllocation,

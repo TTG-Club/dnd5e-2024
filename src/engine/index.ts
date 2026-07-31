@@ -3,6 +3,7 @@ export * from './activeEffectTypes.js';
 export * from './actorValidation.js';
 export * from './attackUtils.js';
 export * from './auraMath.js';
+export * from './backgroundNormalize.js';
 export * from './backgroundTypes.js';
 export * from './calculations.js';
 export * from './classTypes.js';

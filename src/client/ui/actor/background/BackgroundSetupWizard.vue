@@ -50,8 +50,10 @@
   const featsData = ref<Feature[]>([]);
   const isLoadingFeats = ref(false);
 
-  // Композабл мастера
+  // Композабл мастера. `definition` — нормализованное определение (компендиум
+  // отдаёт блоки даров частично); шаги получают именно его, а не сырой проп.
   const {
+    definition,
     currentStepInfo,
     selectedScheme,
     abilityAllocation,
@@ -129,7 +131,7 @@
       if (
         !isOpen
         || featsData.value.length > 0
-        || !props.backgroundDefinition
+        || !definition.value
         || !props.socket
       ) {
         return;
@@ -157,7 +159,7 @@
       sources.push(...collectGrantedSpellSources([selectedFeat]));
     }
 
-    const def = props.backgroundDefinition;
+    const def = definition.value;
 
     if (def?.featData) {
       const ownSources = collectFeatGrantedSpellSources({
@@ -209,15 +211,13 @@
     :initial-width="800"
     :min-height="400"
     :title="
-      backgroundDefinition
-        ? `Предыстория: ${backgroundDefinition.name}`
-        : 'Настройка предыстории'
+      definition ? `Предыстория: ${definition.name}` : 'Настройка предыстории'
     "
     @update:open="emit('update:open', $event)"
   >
     <template #body>
       <div
-        v-if="!backgroundDefinition"
+        v-if="!definition"
         class="p-6 text-center text-muted"
       >
         Предыстория не выбрана. Перетащите предысторию из справочника.
@@ -232,13 +232,13 @@
           <div class="flex items-center gap-3">
             <div>
               <h3 class="text-lg font-medium text-highlighted">
-                {{ backgroundDefinition.name }}
+                {{ definition.name }}
               </h3>
 
               <p class="text-sm text-dimmed">
                 Источник:
                 <span class="font-medium text-primary-400">{{
-                  getSourceLabel(backgroundDefinition.sourceKey) || 'PHB'
+                  getSourceLabel(definition.sourceKey) || 'PHB'
                 }}</span>
               </p>
             </div>
@@ -300,7 +300,7 @@
             <WizardStepOverview
               v-if="currentStepInfo.stepGroup === 'overview'"
               v-model:selected-feat-id="selectedFeatId"
-              :background-definition="backgroundDefinition"
+              :background-definition="definition"
               :feats-data="featsData"
             />
 
@@ -308,7 +308,7 @@
             <WizardStepTools
               v-else-if="currentStepInfo.stepGroup === 'tools'"
               v-model:tool-selections="toolSelections"
-              :background-definition="backgroundDefinition"
+              :background-definition="definition"
             />
 
             <!-- Шаг 2: Характеристики -->
@@ -316,14 +316,14 @@
               v-else-if="currentStepInfo.stepGroup === 'abilities'"
               v-model:selected-scheme="selectedScheme"
               v-model:ability-allocation="abilityAllocation"
-              :background-definition="backgroundDefinition"
+              :background-definition="definition"
               :current-abilities="actor.system.abilities"
             />
 
             <!-- Шаг 3: Снаряжение -->
             <WizardStepEquipment
               v-else-if="currentStepInfo.stepGroup === 'equipment'"
-              :equipment-options="backgroundDefinition.equipmentOptions"
+              :equipment-options="definition.equipmentOptions"
             />
           </template>
         </div>
