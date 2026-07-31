@@ -38,7 +38,7 @@ export type SpeciesGrant =
 export interface SkillProficiencyGrant {
   type: 'skillProficiency';
   count: number;
-  from: import('../../types/base.js').SkillType[];
+  from: import('@vtt/shared').SkillType[];
 }
 
 export interface WeaponProficiencyGrant {
@@ -61,7 +61,7 @@ export interface ToolProficiencyGrant {
 
 export interface SavingThrowProficiencyGrant {
   type: 'savingThrowProficiency';
-  abilities: import('../../types/base.js').AbilityType[];
+  abilities: import('@vtt/shared').AbilityType[];
 }
 
 export interface LanguageGrant {
@@ -75,7 +75,7 @@ export interface LanguageGrant {
  * иммунитет или уязвимость (гибко, в отличие от прежнего «только сопротивление»).
  */
 export interface DamageDefenseEntry {
-  damageType: import('../../types/base.js').DefensibleDamageType;
+  damageType: import('@vtt/shared').DefensibleDamageType;
   kind: import('./damageConstants.js').DamageDefenseKind;
 }
 
@@ -189,7 +189,7 @@ export interface SpeciesDefinition {
   isSRD?: boolean;
 
   creatureType: CreatureType;
-  size: import('../../types/base.js').CreatureSize[];
+  size: import('@vtt/shared').CreatureSize[];
   speed: {
     walk: number;
     fly?: number;
@@ -207,7 +207,7 @@ export interface ActorSpeciesEntry {
   speciesKey: string;
   speciesName: string;
   creatureType: CreatureType;
-  size: import('../../types/base.js').CreatureSize;
+  size: import('@vtt/shared').CreatureSize;
   featureChoices: Record<string, string>;
   grantChoices: Record<number, string[]>;
 }

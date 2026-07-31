@@ -107,7 +107,7 @@ export interface CreatureAction {
    * `effectTarget: 'target'` накладываются на цель (опционально через свой
    * `applySave`); с `effectTarget: 'self'` — на само существо.
    */
-  activeEffects?: import('../dnd/activeEffectTypes.js').ActiveEffect[];
+  activeEffects?: import('./activeEffectTypes.js').ActiveEffect[];
 }
 
 // ── Заклинательство ───────────────────────────────────────────────────────
@@ -241,18 +241,18 @@ export interface CreatureSystem {
   // ── Боевые параметры ────────────────────────────────────────────────────
 
   /** Класс доспеха (теперь структурированный объект) */
-  armorClass: import('../../types/base.js').ActorArmorClass;
+  armorClass: import('@vtt/shared').ActorArmorClass;
   /** Хиты */
   hitPoints: CreatureHitPoints;
   /** Структурированное передвижение (аналог ActorMovement) */
-  movement: import('../../types/base.js').ActorMovement;
+  movement: import('@vtt/shared').ActorMovement;
 
   // ── Инициатива ──────────────────────────────────────────────────────────
 
   /** Бонус к инициативе (опционально, по умолчанию используется модификатор Ловкости) */
   initiativeBonus?: number;
   /** Какая характеристика используется для инициативы (обычно dexterity) */
-  initiativeAbility?: import('../../types/base.js').AbilityType;
+  initiativeAbility?: import('@vtt/shared').AbilityType;
 
   // ── Характеристики ──────────────────────────────────────────────────────
 

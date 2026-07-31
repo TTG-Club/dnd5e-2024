@@ -6,6 +6,7 @@
 import type {
   BaseActor,
   BaseCreature,
+  BaseGameItem,
   CustomArea,
   Feature,
   GridSettings,
@@ -22,13 +23,18 @@ import type { ConditionKey } from './consts.js';
 import type { DamageApplyResult } from './damageUtils.js';
 import type {
   DnDActor,
+  DnDCreature,
+  DnDGameItem,
   DnDSceneEntity,
-  GameItem,
   Spell,
 } from './dndEntities.js';
 import type { IncomingAttackContext } from './effectPipeline.js';
 
-import { getHealthCondition, HEALTH_CONDITIONS } from '@vtt/shared';
+import {
+  generateId,
+  getHealthCondition,
+  HEALTH_CONDITIONS,
+} from '@vtt/shared';
 import { isRecord } from '@vtt/shared';
 import { ActiveEffectsArraySchema } from './activeEffectTypes.js';
 import {
@@ -70,10 +76,10 @@ import {
 } from './turnEffects.js';
 
 /**
- * Type-guard: Р·РЅР°С‡РµРЅРёРµ вЂ” РІР°Р»РёРґРЅРѕРµ СЃРѕСЃС‚РѕСЏРЅРёРµ Р·РґРѕСЂРѕРІСЊСЏ (`HealthCondition`).
+ * Type-guard: значение — валидное состояние здоровья (`HealthCondition`).
  *
- * @param value - РїСЂРѕРІРµСЂСЏРµРјС‹Р№ СЌР»РµРјРµРЅС‚
- * @returns true, РµСЃР»Рё value РёРјРµРµС‚ С„РѕСЂРјСѓ HealthCondition
+ * @param value - проверяемый элемент
+ * @returns true, если value имеет форму HealthCondition
  */
 function isHealthCondition(value: unknown): value is HealthCondition {
   return (
@@ -86,33 +92,33 @@ function isHealthCondition(value: unknown): value is HealthCondition {
 }
 
 /**
- * Type-guard: Р·РЅР°С‡РµРЅРёРµ вЂ” РјР°СЃСЃРёРІ РІР°Р»РёРґРЅС‹С… СЃРѕСЃС‚РѕСЏРЅРёР№ Р·РґРѕСЂРѕРІСЊСЏ.
- * Р’РЅРµС€РЅРёРµ `customConditions` РїСЂРёС…РѕРґСЏС‚ РєР°Рє `unknown[]` (РєРѕРЅС‚СЂР°РєС‚ VttSystem)
- * Рё РІР°Р»РёРґРёСЂСѓСЋС‚СЃСЏ Р·РґРµСЃСЊ РїРµСЂРµРґ РїРµСЂРµРґР°С‡РµР№ РІ С‚РёРїРёР·РёСЂРѕРІР°РЅРЅС‹Р№ СЂР°СЃС‡С‘С‚.
+ * Type-guard: значение — массив валидных состояний здоровья.
+ * Внешние `customConditions` приходят как `unknown[]` (контракт VttSystem)
+ * и валидируются здесь перед передачей в типизированный расчёт.
  *
- * @param value - РїСЂРѕРІРµСЂСЏРµРјРѕРµ Р·РЅР°С‡РµРЅРёРµ
- * @returns true, РµСЃР»Рё value вЂ” РјР°СЃСЃРёРІ HealthCondition
+ * @param value - проверяемое значение
+ * @returns true, если value — массив HealthCondition
  */
 function isHealthConditionArray(value: unknown): value is HealthCondition[] {
   return Array.isArray(value) && value.every(isHealthCondition);
 }
 
-/** РџРѕРґРїРёСЃРё С‚РёРїРѕРІ СЃСѓС‰РµСЃС‚РІ РїРѕ РєР»СЋС‡Сѓ (РґР»СЏ С„РѕСЂРјР°С‚С‚РµСЂР° РєРѕРјРїРµРЅРґРёСѓРјР°) */
+/** Подписи типов существ по ключу (для форматтера компендиума) */
 const CREATURE_TYPE_LABELS: Record<string, string> = CREATURE_CATEGORIES;
 
-/** РџРѕРґРїРёСЃРё РєР»Р°СЃСЃРѕРІ РїРѕ РєР»СЋС‡Сѓ (РґР»СЏ С„РѕСЂРјР°С‚С‚РµСЂР° РєРѕРјРїРµРЅРґРёСѓРјР°) */
+/** Подписи классов по ключу (для форматтера компендиума) */
 const CLASS_LABELS: Record<string, string> = Object.fromEntries(
   CLASS_KEY_OPTIONS.map((option) => [option.value, option.label]),
 );
 
 /**
- * РџР°СЂСЃРёС‚ РїРѕРєР°Р·Р°С‚РµР»СЊ РѕРїР°СЃРЅРѕСЃС‚Рё (РџРћ) РІ С‡РёСЃР»Рѕ РґР»СЏ СЃРѕСЂС‚РёСЂРѕРІРєРё.
- * РџСѓСЃС‚Рѕ/В«вЂ”В» в†’ -1 (РёРґСѓС‚ РїРµСЂРІС‹РјРё); РїРѕРґРґРµСЂР¶РёРІР°РµС‚ РґСЂРѕР±Рё В«1/8В», В«1/4В», В«1/2В».
+ * Парсит показатель опасности (ПО) в число для сортировки.
+ * Пусто/«—» → -1 (идут первыми); поддерживает дроби «1/8», «1/4», «1/2».
  *
- * @param cr - СЃС‚СЂРѕРєРѕРІРѕРµ Р·РЅР°С‡РµРЅРёРµ challengeRating
+ * @param cr - строковое значение challengeRating
  */
 function parseChallengeRating(cr: string): number {
-  if (!cr || cr === 'вЂ”') {
+  if (!cr || cr === '—') {
     return -1;
   }
 
@@ -131,14 +137,14 @@ function parseChallengeRating(cr: string): number {
 }
 
 /**
- * Р¤РѕСЂРјР°С‚С‚РµСЂС‹ Р·РЅР°С‡РµРЅРёР№ РєРѕРјРїРµРЅРґРёСѓРјР° D&D РїРѕ РёРјРµРЅРё С„РѕСЂРјР°С‚Р°. РЈРїСЂР°РІР»СЏСЋС‚ РїРѕРґРїРёСЃСЊСЋ
- * Рё СЃРѕСЂС‚РёСЂРѕРІРєРѕР№ РѕРїС†РёР№ С„РёР»СЊС‚СЂРѕРІ Рё Р·Р°РіРѕР»РѕРІРєРѕРІ СЂР°Р·РґРµР»РѕРІ РІ РѕР±РѕР±С‰С‘РЅРЅРѕРј РґРІРёР¶РєРµ
- * РѕС‚РѕР±СЂР°Р¶РµРЅРёСЏ (`useCompendiumView`).
+ * Форматтеры значений компендиума D&D по имени формата. Управляют подписью
+ * и сортировкой опций фильтров и заголовков разделов в обобщённом движке
+ * отображения (`useCompendiumView`).
  */
 const COMPENDIUM_VALUE_FORMATTERS: Record<string, CompendiumValueFormatter> = {
   spellLevel: {
     label: (value) =>
-      Number(value) === 0 ? 'Р—Р°РіРѕРІРѕСЂС‹' : `${Number(value)} РєСЂСѓРі`,
+      Number(value) === 0 ? 'Заговоры' : `${Number(value)} круг`,
     shortLabel: (value) => String(Number(value)),
     sortKey: (value) => Number(value),
   },
@@ -146,12 +152,12 @@ const COMPENDIUM_VALUE_FORMATTERS: Record<string, CompendiumValueFormatter> = {
     label: (value) => {
       const cr = String(value ?? '');
 
-      return !cr || cr === 'вЂ”' ? 'РџРћ вЂ” (Р±РµР· СѓСЂРѕРІРЅСЏ РѕРїР°СЃРЅРѕСЃС‚Рё)' : `РџРћ ${cr}`;
+      return !cr || cr === '—' ? 'ПО — (без уровня опасности)' : `ПО ${cr}`;
     },
     shortLabel: (value) => {
       const cr = String(value ?? '');
 
-      return cr && cr !== 'вЂ”' ? cr : 'вЂ”';
+      return cr && cr !== '—' ? cr : '—';
     },
     sortKey: (value) => parseChallengeRating(String(value ?? '')),
   },
@@ -166,17 +172,27 @@ const COMPENDIUM_VALUE_FORMATTERS: Record<string, CompendiumValueFormatter> = {
 };
 
 /**
- * Type-guard: Р·Р°РїРёСЃСЊ РєРѕРјРїРµРЅРґРёСѓРјР° вЂ” Р·Р°РєР»РёРЅР°РЅРёРµ (РґР»СЏ РїСЂРµРґРёРєР°С‚Р° Р»РµС‡РµРЅРёСЏ).
+ * Type-guard: запись компендиума — заклинание (для предиката лечения).
  *
- * @param entry - РїСЂРѕРІРµСЂСЏРµРјР°СЏ Р·Р°РїРёСЃСЊ
+ * @param entry - проверяемая запись
  */
 function isSpellEntry(entry: unknown): entry is Spell {
   return isRecord(entry) && entry.type === 'spell';
 }
 
 /**
- * РџСЂРѕРёР·РІРѕРґРЅС‹Рµ Р±СѓР»РµРІС‹ РїСЂРµРґРёРєР°С‚С‹ РєРѕРјРїРµРЅРґРёСѓРјР° РїРѕ РєР»СЋС‡Сѓ вЂ” РґР»СЏ С„РёР»СЊС‚СЂРѕРІ, РєРѕС‚РѕСЂС‹Рµ
- * РЅРµР»СЊР·СЏ РІС‹СЂР°Р·РёС‚СЊ РѕРґРЅРёРј РїРѕР»РµРј (Р»РµС‡РµРЅРёРµ РѕРїСЂРµРґРµР»СЏРµС‚СЃСЏ РїРѕ С‡Р°СЃС‚СЏРј СѓСЂРѕРЅР°).
+ * Type-guard: у сущности сцены есть инвентарь, то есть это актёр D&D 5e.
+ * Массив `equipment` объявлен только на `DnDActor` — у существ инвентаря нет.
+ *
+ * @param entity - проверяемая сущность сцены
+ */
+function hasInventory(entity: SceneEntity): entity is DnDActor {
+  return 'equipment' in entity && Array.isArray(entity.equipment);
+}
+
+/**
+ * Производные булевы предикаты компендиума по ключу — для фильтров, которые
+ * нельзя выразить одним полем (лечение определяется по частям урона).
  */
 const COMPENDIUM_PREDICATES: Record<string, (entry: unknown) => boolean> = {
   spellHealing: (entry) =>
@@ -185,9 +201,9 @@ const COMPENDIUM_PREDICATES: Record<string, (entry: unknown) => boolean> = {
 };
 
 /**
- * РРіСЂРѕРІР°СЏ СЃРёСЃС‚РµРјР° D&D 5e (РЇРґСЂРѕ РїСЂР°РІРёР»).
- * РџСЂРµРґРѕСЃС‚Р°РІР»СЏРµС‚ РЇРґСЂСѓ (Core VTT) Р°Р±СЃС‚СЂР°РіРёСЂРѕРІР°РЅРЅС‹Рµ РјРµС‚РѕРґС‹ РґР»СЏ СЂР°Р±РѕС‚С‹
- * СЃ РРЅРёС†РёР°С‚РёРІРѕР№, Р‘РѕРµРІРєРѕР№ Рё С‚.Рґ.
+ * Игровая система D&D 5e (Ядро правил).
+ * Предоставляет Ядру (Core VTT) абстрагированные методы для работы
+ * с Инициативой, Боевкой и т.д.
  */
 export class Dnd5eVttSystem implements VttSystem {
   readonly id = 'dnd5e-2024';
@@ -197,9 +213,9 @@ export class Dnd5eVttSystem implements VttSystem {
   readonly version = '0.1.0';
 
   /**
-   * Р’С‹РїРѕР»РЅСЏРµС‚ РІР°Р»РёРґР°С†РёСЋ РґР°РЅРЅС‹С… Р°РєС‚РµСЂР° РїРѕ РїСЂР°РІРёР»Р°Рј СЃРёСЃС‚РµРјС‹ D&D 5e.
+   * Выполняет валидацию данных актера по правилам системы D&D 5e.
    *
-   * @param actor РћР±СЉРµРєС‚ Р°РєС‚РµСЂР° РґР»СЏ РІР°Р»РёРґР°С†РёРё
+   * @param actor Объект актера для валидации
    */
   // eslint-disable-next-line class-methods-use-this
   validateActor(actor: BaseActor): void {
@@ -217,7 +233,7 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * Р’РѕР·РІСЂР°С‰Р°РµС‚ С€Р°Р±Р»РѕРЅ РЅРѕРІРѕРіРѕ Р°РєС‚С‘СЂР° D&D 5e РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ (Р±РµР· `id`).
+   * Возвращает шаблон нового актёра D&D 5e по умолчанию (без `id`).
    */
   // eslint-disable-next-line class-methods-use-this
   createDefaultActor(): Partial<BaseActor> {
@@ -225,7 +241,7 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * Р’Р°Р»РёРґРёСЂСѓРµС‚ РґР°РЅРЅС‹Рµ Р°РєС‚С‘СЂР° D&D 5e РґР»СЏ С„РѕСЂРјС‹ СЃРѕР·РґР°РЅРёСЏ/СЂРµРґР°РєС‚РёСЂРѕРІР°РЅРёСЏ.
+   * Валидирует данные актёра D&D 5e для формы создания/редактирования.
    */
   // eslint-disable-next-line class-methods-use-this
   validateActorData(actor: Partial<BaseActor>): void {
@@ -233,7 +249,7 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * РќРѕСЂРјР°Р»РёР·СѓРµС‚ С‡Р°СЃС‚РёС‡РЅС‹Рµ РґР°РЅРЅС‹Рµ Р°РєС‚С‘СЂР° D&D 5e (Р·Р°Р¶РёРјР°РµС‚ Р·РЅР°С‡РµРЅРёСЏ РІ РіСЂР°РЅРёС†С‹).
+   * Нормализует частичные данные актёра D&D 5e (зажимает значения в границы).
    */
   // eslint-disable-next-line class-methods-use-this
   normalizeActorData(actor: Partial<BaseActor>): Partial<BaseActor> {
@@ -241,8 +257,8 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * РЎС‚СЂСѓРєС‚СѓСЂРЅРѕ РІР°Р»РёРґРёСЂСѓРµС‚ РґР°РЅРЅС‹Рµ РїСЂРµРґРјРµС‚Р° D&D 5e С‡РµСЂРµР· Zod-СЃС…РµРјСѓ (РѕР±РѕР±С‰С‘РЅРЅС‹Р№
-   * РєРѕРЅРІРµСЂС‚ + Р»РµРЅРёРІРѕ РїРѕ С‚РёРїСѓ). Р‘СЂРѕСЃР°РµС‚ `Error` РїСЂРё РЅР°СЂСѓС€РµРЅРёРё.
+   * Структурно валидирует данные предмета D&D 5e через Zod-схему (обобщённый
+   * конверт + лениво по типу). Бросает `Error` при нарушении.
    */
   // eslint-disable-next-line class-methods-use-this
   validateItemData(item: unknown): void {
@@ -250,31 +266,31 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * РЎС‚СЂРѕРёС‚ Markdown-СЃРІРѕРґРєСѓ РјРµС…Р°РЅРёС‡РµСЃРєРёС… РґР°СЂРѕРІ С‡РµСЂС‚С‹/РїСЂРµРґРјРµС‚Р°/РїСЂРµРґС‹СЃС‚РѕСЂРёРё D&D 5e.
+   * Строит Markdown-сводку механических даров черты/предмета/предыстории D&D 5e.
    */
   // eslint-disable-next-line class-methods-use-this
   getFeatGrantsSummary(feat: unknown): string {
     return buildFeatGrantsSummary(
-      feat as Feature | GameItem | BackgroundDefinition,
+      feat as Feature | DnDGameItem | BackgroundDefinition,
     );
   }
 
   /**
-   * Р’С‹С‡РёСЃР»СЏРµС‚ РјРѕРґРёС„РёРєР°С‚РѕСЂ РёРЅРёС†РёР°С‚РёРІС‹ РґР»СЏ D&D 5e СЃ СѓС‡РµС‚РѕРј Р±Р°С„С„РѕРІ Рё РґРµР±Р°С„С„РѕРІ (Active Effects).
+   * Вычисляет модификатор инициативы для D&D 5e с учетом баффов и дебаффов (Active Effects).
    */
   // eslint-disable-next-line class-methods-use-this
   getInitiativeModifier(actor: BaseActor): number {
-    // Р’ D&D СЃРёСЃС‚РµРјРµ РјС‹ С‚РѕС‡РЅРѕ Р·РЅР°РµРј, С‡С‚Рѕ BaseActor РёРјРµРµС‚ СЃС‚СЂСѓРєС‚СѓСЂСѓ DnDActor
+    // В D&D системе мы точно знаем, что BaseActor имеет структуру DnDActor
     const dndActor = actor as DnDActor;
 
-    // Р’С‹Р·С‹РІР°РµРј РїРѕР»РЅС‹Р№ РїР°Р№РїР»Р°Р№РЅ Р°РєС‚РёРІРЅС‹С… СЌС„С„РµРєС‚РѕРІ, С‡С‚РѕР±С‹ РїРѕР»СѓС‡РёС‚СЊ РёС‚РѕРіРѕРІРѕРµ Р·РЅР°С‡РµРЅРёРµ РёРЅРёС†РёР°С‚РёРІС‹
+    // Вызываем полный пайплайн активных эффектов, чтобы получить итоговое значение инициативы
     const resolvedStats = resolveActorStats(dndActor);
 
     return resolvedStats.initiative;
   }
 
   /**
-   * РЎРѕРІРµСЂС€Р°РµС‚ Р±СЂРѕСЃРѕРє РёРЅРёС†РёР°С‚РёРІС‹ (1Рє20 + РјРѕРґРёС„РёРєР°С‚РѕСЂ)
+   * Совершает бросок инициативы (1к20 + модификатор)
    */
   rollInitiative(
     actor: BaseActor,
@@ -283,18 +299,18 @@ export class Dnd5eVttSystem implements VttSystem {
     const modifier = this.getInitiativeModifier(actor);
 
     if (rollFn) {
-      // РљР»РёРµРЅС‚: Р”РµР»Р°РµРј Р±СЂРѕСЃРѕРє С‡РµСЂРµР· СЃС‚РѕСЂ (DiceRoller)
-      const rollData = rollFn('1Рє20');
+      // Клиент: Делаем бросок через стор (DiceRoller)
+      const rollData = rollFn('1к20');
 
       return {
-        roll: rollData.total, // Р­С‚Рѕ С‡РёСЃС‚РѕРµ Р·РЅР°С‡РµРЅРёРµ РєСѓР±РёРєР° РѕС‚ 1 РґРѕ 20
+        roll: rollData.total, // Это чистое значение кубика от 1 до 20
         modifier,
         total: rollData.total + modifier,
         rollData,
       };
     }
 
-    // РЎРµСЂРІРµСЂ (РёР»Рё РµСЃР»Рё rollFn РЅРµ РїРµСЂРµРґР°РЅ): РђРІС‚РѕРјР°С‚РёС‡РµСЃРєРёР№ РјР°С‚РµРјР°С‚РёС‡РµСЃРєРёР№ Р±СЂРѕСЃРѕРє
+    // Сервер (или если rollFn не передан): Автоматический математический бросок
     const roll = Math.floor(Math.random() * 20) + 1;
 
     return {
@@ -305,26 +321,26 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ СЃРёСЃС‚РµРјС‹ (СЃРµСЂРІРµСЂРЅС‹Р№ lifecycle).
-   * РџСѓСЃС‚Р°СЏ СЂРµР°Р»РёР·Р°С†РёСЏ РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ вЂ” РїРµСЂРµРѕРїСЂРµРґРµР»СЏРµС‚СЃСЏ СЃРµСЂРІРµСЂРЅС‹Рј РїРѕРґРєР»Р°СЃСЃРѕРј.
+   * Инициализация системы (серверный lifecycle).
+   * Пустая реализация по умолчанию — переопределяется серверным подклассом.
    */
   // eslint-disable-next-line class-methods-use-this
   init(_api: unknown): void {
-    // РџСѓСЃС‚Р°СЏ СЂРµР°Р»РёР·Р°С†РёСЏ вЂ” override РІ СЃРµСЂРІРµСЂРЅРѕРј РїРѕРґРєР»Р°СЃСЃРµ
+    // Пустая реализация — override в серверном подклассе
   }
 
   /**
-   * РЈРЅРёС‡С‚РѕР¶РµРЅРёРµ СЃРёСЃС‚РµРјС‹ (СЃРµСЂРІРµСЂРЅС‹Р№ lifecycle).
-   * РџСѓСЃС‚Р°СЏ СЂРµР°Р»РёР·Р°С†РёСЏ РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ вЂ” РїРµСЂРµРѕРїСЂРµРґРµР»СЏРµС‚СЃСЏ СЃРµСЂРІРµСЂРЅС‹Рј РїРѕРґРєР»Р°СЃСЃРѕРј.
+   * Уничтожение системы (серверный lifecycle).
+   * Пустая реализация по умолчанию — переопределяется серверным подклассом.
    */
   // eslint-disable-next-line class-methods-use-this
   destroy(): void {
-    // РџСѓСЃС‚Р°СЏ СЂРµР°Р»РёР·Р°С†РёСЏ вЂ” override РІ СЃРµСЂРІРµСЂРЅРѕРј РїРѕРґРєР»Р°СЃСЃРµ
+    // Пустая реализация — override в серверном подклассе
   }
 
   /**
-   * РџСЂРѕРіРѕРЅСЏРµС‚ РїРµСЂРёРѕРґРёС‡РµСЃРєРёРµ СЌС„С„РµРєС‚С‹ СЃСѓС‰РЅРѕСЃС‚Рё РЅР° РіСЂР°РЅРёС†Рµ С…РѕРґР° (DoT-СѓСЂРѕРЅ +
-   * РїРѕРІС‚РѕСЂРЅС‹Рµ СЃРїР°СЃР±СЂРѕСЃРєРё D&D 5e) Рё РІРѕР·РІСЂР°С‰Р°РµС‚ С„Р»Р°Рі РёР·РјРµРЅРµРЅРёСЏ Рё СЃРІРѕРґРєСѓ РґР»СЏ С‡Р°С‚Р°.
+   * Прогоняет периодические эффекты сущности на границе хода (DoT-урон +
+   * повторные спасброски D&D 5e) и возвращает флаг изменения и сводку для чата.
    */
   // eslint-disable-next-line class-methods-use-this
   runTurnEffects(
@@ -338,7 +354,7 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * РЎРЅРёРјР°РµС‚ С‚РѕС‡РЅС‹Рµ `turn`-СЌС„С„РµРєС‚С‹ РЅР° РіСЂР°РЅРёС†Рµ С…РѕРґР° СѓС‡Р°СЃС‚РЅРёРєР° `turnActorId`.
+   * Снимает точные `turn`-эффекты на границе хода участника `turnActorId`.
    */
   // eslint-disable-next-line class-methods-use-this
   expireTurnEffects(
@@ -354,7 +370,7 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * РЈРјРµРЅСЊС€Р°РµС‚ РґР»РёС‚РµР»СЊРЅРѕСЃС‚СЊ (РІ СЂР°СѓРЅРґР°С…) РІСЃРµС… СЌС„С„РµРєС‚РѕРІ РЅР° СЃСѓС‰РЅРѕСЃС‚Рё, СЃРЅРёРјР°СЏ РёСЃС‚С‘РєС€РёРµ.
+   * Уменьшает длительность (в раундах) всех эффектов на сущности, снимая истёкшие.
    */
   // eslint-disable-next-line class-methods-use-this
   decrementEffectDurations(entity: SceneEntity): boolean {
@@ -362,8 +378,8 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * РЎРёРЅС…СЂРѕРЅРёР·РёСЂСѓРµС‚ СЌС„С„РµРєС‚С‹ Р·РѕРЅ РїСЂРё РїРµСЂРµРјРµС‰РµРЅРёРё С‚РѕРєРµРЅР° Рё С„РѕСЂРјР°С‚РёСЂСѓРµС‚ СЃРІРѕРґРєСѓ
-   * СЃСЂР°Р±РѕС‚Р°РІС€РёС… С‚СЂРёРіРіРµСЂРѕРІ РґР»СЏ С‡Р°С‚Р° (РјРµС‚РєР° В«РѕР±Р»Р°СЃС‚СЊВ»).
+   * Синхронизирует эффекты зон при перемещении токена и форматирует сводку
+   * сработавших триггеров для чата (метка «область»).
    */
   // eslint-disable-next-line class-methods-use-this
   syncAreaEffects(
@@ -383,18 +399,18 @@ export class Dnd5eVttSystem implements VttSystem {
 
     const chatSummary = formatEffectsSummary(
       entity.name,
-      'РѕР±Р»Р°СЃС‚СЊ',
+      'область',
       result.damageOutcomes,
       result.saveOutcomes,
-      (save) => (save.passed ? 'вњ“ СЃРїР°СЃ' : 'вњ— РїСЂРѕРІР°Р»'),
+      (save) => (save.passed ? '✓ спас' : '✗ провал'),
     );
 
     return { changed: result.changed, chatSummary };
   }
 
   /**
-   * РћР±СЂР°Р±Р°С‚С‹РІР°РµС‚ СЂР°Р·РѕРІС‹Рµ С‚СЂРёРіРіРµСЂ-Р°СѓСЂС‹ РїСЂРё РїРµСЂРµРјРµС‰РµРЅРёРё С‚РѕРєРµРЅР° Рё С„РѕСЂРјР°С‚РёСЂСѓРµС‚ РїРѕ
-   * РєР°Р¶РґРѕР№ Р·Р°С‚СЂРѕРЅСѓС‚РѕР№ СЃСѓС‰РЅРѕСЃС‚Рё СЃРІРѕРґРєСѓ РґР»СЏ С‡Р°С‚Р° (РјРµС‚РєР° В«Р°СѓСЂР°В»).
+   * Обрабатывает разовые триггер-ауры при перемещении токена и форматирует по
+   * каждой затронутой сущности сводку для чата (метка «аура»).
    */
   // eslint-disable-next-line class-methods-use-this
   applyAuraTriggerEffects(
@@ -421,17 +437,17 @@ export class Dnd5eVttSystem implements VttSystem {
       changed: outcome.changed,
       chatSummary: formatEffectsSummary(
         outcome.entity.name,
-        'Р°СѓСЂР°',
+        'аура',
         outcome.damageOutcomes,
         outcome.saveOutcomes,
-        (save) => (save.passed ? 'вњ“ СЃРїР°СЃ' : 'вњ— РїСЂРѕРІР°Р»'),
+        (save) => (save.passed ? '✓ спас' : '✗ провал'),
       ),
     }));
   }
 
   /**
-   * РџСЂРѕРІРµСЂСЏРµС‚ РїРѕРїР°РґР°РЅРёРµ С‚РѕС‡РєРё РІ РѕР±Р»Р°СЃС‚СЊ С€Р°Р±Р»РѕРЅР° РёР·РјРµСЂРµРЅРёСЏ РїРѕ РіРµРѕРјРµС‚СЂРёРё D&D 5e
-   * (РєСЂСѓРі/РєРѕРЅСѓСЃ/РєСѓР±/Р»РёРЅРёСЏ).
+   * Проверяет попадание точки в область шаблона измерения по геометрии D&D 5e
+   * (круг/конус/куб/линия).
    */
   // eslint-disable-next-line class-methods-use-this
   isPointInTemplate(
@@ -444,7 +460,7 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * РњРёРЅРёРјР°Р»СЊРЅС‹Р№ Р±СЂРѕСЃРѕРє РєСѓР±РёРєРѕРІРѕР№ С„РѕСЂРјСѓР»С‹ СѓСЂРѕРЅР° D&D (СЃСѓРјРјР° + РІС‹РїР°РІС€РёРµ Р·РЅР°С‡РµРЅРёСЏ).
+   * Минимальный бросок кубиковой формулы урона D&D (сумма + выпавшие значения).
    */
   // eslint-disable-next-line class-methods-use-this
   rollDamageFormula(formula: string): { total: number; values: number[] } {
@@ -452,7 +468,7 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * РЎРѕР±РёСЂР°РµС‚ РІСЃРµ Р°СѓСЂР°-СЌС„С„РµРєС‚С‹ СЃСѓС‰РЅРѕСЃС‚Рё (РЅР° СЃР°РјРѕР№ СЃСѓС‰РЅРѕСЃС‚Рё + СЃ СЌРєРёРїРёСЂРѕРІРєРё).
+   * Собирает все аура-эффекты сущности (на самой сущности + с экипировки).
    */
   // eslint-disable-next-line class-methods-use-this
   collectAuraEffects(entity: SceneEntity): BaseActiveEffect[] {
@@ -460,7 +476,7 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * Р’С‹С‡РёСЃР»СЏРµС‚ РІРЅРµС€РЅРёРµ (ambient) Р°СѓСЂР°-СЌС„С„РµРєС‚С‹, РЅР°РєСЂС‹РІР°СЋС‰РёРµ С†РµР»РµРІРѕР№ С‚РѕРєРµРЅ.
+   * Вычисляет внешние (ambient) аура-эффекты, накрывающие целевой токен.
    */
   // eslint-disable-next-line class-methods-use-this
   calculateAmbientAuras(
@@ -468,8 +484,8 @@ export class Dnd5eVttSystem implements VttSystem {
     sources: Array<{ token: Token; effects: BaseActiveEffect[] }>,
     gridSettings: GridSettings,
   ): BaseActiveEffect[] {
-    // Р“СЂР°РЅРёС†С‹ СЃРёСЃС‚РµРјС‹ D&D: РЅРµР№С‚СЂР°Р»СЊРЅС‹Рµ СЌС„С„РµРєС‚С‹ РєРѕРЅС‚СЂР°РєС‚Р° вЂ” СЌС‚Рѕ D&D-СЌС„С„РµРєС‚С‹
-    // (С‚Р° Р¶Рµ РґРѕРІРµСЂРµРЅРЅРѕСЃС‚СЊ, С‡С‚Рѕ Рё `entity as DnDSceneEntity` РІС‹С€Рµ).
+    // Границы системы D&D: нейтральные эффекты контракта — это D&D-эффекты
+    // (та же доверенность, что и `entity as DnDSceneEntity` выше).
     return computeAmbientAuras(
       targetToken,
       sources as Array<{ token: Token; effects: ActiveEffect[] }>,
@@ -478,8 +494,8 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * РЎСѓРјРјР°СЂРЅР°СЏ СЃРєРѕСЂРѕСЃС‚СЊ СЃСѓС‰РЅРѕСЃС‚Рё РїРѕ РІСЃРµРј СЂРµР¶РёРјР°Рј РґРІРёР¶РµРЅРёСЏ СЃ СѓС‡С‘С‚РѕРј СЌС„С„РµРєС‚РѕРІ вЂ”
-   * СЏРґСЂРѕ РёСЃРїРѕР»СЊР·СѓРµС‚ РµС‘ РєР°Рє РіРµР№С‚ В«РјРѕР¶РµС‚ Р»Рё С‚РѕРєРµРЅ РґРІРёРіР°С‚СЊСЃСЏВ» (0 вЂ” РЅРµР»СЊР·СЏ).
+   * Суммарная скорость сущности по всем режимам движения с учётом эффектов —
+   * ядро использует её как гейт «может ли токен двигаться» (0 — нельзя).
    */
   // eslint-disable-next-line class-methods-use-this
   getTotalMovementSpeed(entity: SceneEntity): number {
@@ -497,8 +513,8 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * РџСЂРёРјРµРЅСЏРµС‚ СѓСЂРѕРЅ/Р»РµС‡РµРЅРёРµ Рє СЃСѓС‰РЅРѕСЃС‚Рё D&D 5e (РјСѓС‚РёСЂСѓРµС‚ РҐРџ СЃ СѓС‡С‘С‚РѕРј Р·Р°С‰РёС‚ Рё
-   * РІСЂРµРјРµРЅРЅС‹С… РҐРџ) Рё РІРѕР·РІСЂР°С‰Р°РµС‚ СЃРІРѕРґРєСѓ РёР·РјРµРЅРµРЅРёСЏ.
+   * Применяет урон/лечение к сущности D&D 5e (мутирует ХП с учётом защит и
+   * временных ХП) и возвращает сводку изменения.
    */
   // eslint-disable-next-line class-methods-use-this
   applyDamageToEntity(
@@ -516,8 +532,8 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * РќР°РєР»Р°РґС‹РІР°РµС‚ СЌС„С„РµРєС‚С‹ РЅР° СЃСѓС‰РЅРѕСЃС‚СЊ D&D 5e (РёРјРјСѓРЅРёС‚РµС‚С‹, condition-СЃР±РѕСЂРєР°,
-   * СЃР»РёСЏРЅРёРµ) Рё РІРѕР·РІСЂР°С‰Р°РµС‚ РѕР±РЅРѕРІР»С‘РЅРЅС‹Р№ СЃРїРёСЃРѕРє `activeEffects`.
+   * Накладывает эффекты на сущность D&D 5e (иммунитеты, condition-сборка,
+   * слияние) и возвращает обновлённый список `activeEffects`.
    */
   // eslint-disable-next-line class-methods-use-this
   applyEffectsToEntity(
@@ -533,7 +549,7 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * Р’РѕР·РІСЂР°С‰Р°РµС‚ РёС‚РѕРіРѕРІС‹Р№ РљР” СЃСѓС‰РЅРѕСЃС‚Рё D&D 5e СЃ СѓС‡С‘С‚РѕРј РєРѕРЅС‚РµРєСЃС‚Р° РІС…РѕРґСЏС‰РµР№ Р°С‚Р°РєРё.
+   * Возвращает итоговый КД сущности D&D 5e с учётом контекста входящей атаки.
    */
   // eslint-disable-next-line class-methods-use-this
   getEntityArmorClass(entity: SceneEntity, attackContext?: unknown): number {
@@ -544,7 +560,7 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * Р’РѕР·РІСЂР°С‰Р°РµС‚ РЅР°Р±РѕСЂ Р°РєС‚РёРІРЅС‹С… Р±РѕРµРІС‹С… С„Р»Р°РіРѕРІ СЃСѓС‰РЅРѕСЃС‚Рё D&D 5e.
+   * Возвращает набор активных боевых флагов сущности D&D 5e.
    */
   // eslint-disable-next-line class-methods-use-this
   getEntityActiveFlags(entity: SceneEntity): ReadonlySet<string> {
@@ -552,7 +568,72 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * Р’С‹С‡РёСЃР»СЏРµС‚ РёС‚РѕРіРѕРІС‹Рµ С…Р°СЂР°РєС‚РµСЂРёСЃС‚РёРєРё Р°РєС‚РµСЂР° СЃ СѓС‡РµС‚РѕРј Р°РєС‚РёРІРЅС‹С… СЌС„С„РµРєС‚РѕРІ.
+   * Переносит предмет из инвентаря отправителя в инвентарь получателя.
+   *
+   * Инвентарь D&D 5e — массив `equipment` актёра, поэтому у сущностей без него
+   * (существа) перенос невозможен. Предмет берётся из инвентаря отправителя, а
+   * не из переданного объекта: так исключается перенос по устаревшему снимку.
+   * Копия у получателя получает новый идентификатор (иначе в мире окажутся два
+   * предмета с одним id) и снимается со снаряжения — слоты у нового владельца
+   * свои. Сущности не мутируются: ядру возвращаются их обновлённые копии.
+   *
+   * Права на перенос (владелец или ГМ) проверяет ядро — это правило VTT, а не
+   * D&D, поэтому здесь их нет.
+   *
+   * @param source - сущность-отправитель
+   * @param target - сущность-получатель
+   * @param item - переносимый предмет
+   * @returns обновлённые копии обеих сущностей либо `null`, если перенос невозможен
+   */
+  // eslint-disable-next-line class-methods-use-this
+  transferItemBetweenEntities(
+    source: SceneEntity,
+    target: SceneEntity,
+    item: BaseGameItem,
+  ): { source: SceneEntity; target: SceneEntity } | null {
+    // Перенос самому себе удалил бы предмет из копии-отправителя и добавил в
+    // копию-получателя: какая из двух копий одной сущности победит при записи —
+    // не определено, поэтому жест игнорируется целиком.
+    if (source.id === target.id) {
+      return null;
+    }
+
+    if (!hasInventory(source) || !hasInventory(target)) {
+      return null;
+    }
+
+    const transferredItem = source.equipment.find(
+      (entry) => entry.id === item.id,
+    );
+
+    if (!transferredItem) {
+      return null;
+    }
+
+    const receivedItem: DnDGameItem = {
+      ...transferredItem,
+      id: generateId('eq'),
+      equipped: false,
+    };
+
+    // Промежуточные переменные, а не литералы прямо в `return`: инвентарь не
+    // входит в нейтральный `SceneEntity`, и проверка лишних свойств отвергла бы
+    // литерал с `equipment`
+    const updatedSource: DnDActor = {
+      ...source,
+      equipment: source.equipment.filter((entry) => entry.id !== item.id),
+    };
+
+    const updatedTarget: DnDActor = {
+      ...target,
+      equipment: [...target.equipment, receivedItem],
+    };
+
+    return { source: updatedSource, target: updatedTarget };
+  }
+
+  /**
+   * Вычисляет итоговые характеристики актера с учетом активных эффектов.
    */
   // eslint-disable-next-line class-methods-use-this
   resolveActorStats(
@@ -566,7 +647,7 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * РЎРѕР±РёСЂР°РµС‚ РІСЃРµ Р°РєС‚РёРІРЅС‹Рµ СЌС„С„РµРєС‚С‹, РїСЂРёРІСЏР·Р°РЅРЅС‹Рµ Рє Р°РєС‚РµСЂСѓ.
+   * Собирает все активные эффекты, привязанные к актеру.
    */
   // eslint-disable-next-line class-methods-use-this
   collectActiveEffects(actor: BaseActor): readonly unknown[] {
@@ -574,7 +655,7 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * РќРѕСЂРјР°Р»РёР·СѓРµС‚ РїРѕР»РЅРѕРіРѕ Р°РєС‚С‘СЂР° D&D РЅР° РјРµСЃС‚Рµ РїСЂРё Р·Р°РіСЂСѓР·РєРµ (РјРёРіСЂР°С†РёСЏ С„РѕСЂРјР°С‚Р°).
+   * Нормализует полного актёра D&D на месте при загрузке (миграция формата).
    */
   // eslint-disable-next-line class-methods-use-this
   normalizeActor(actor: BaseActor): void {
@@ -582,15 +663,17 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * Р’С‹РїРѕР»РЅСЏРµС‚ РЅРѕСЂРјР°Р»РёР·Р°С†РёСЋ РґР°РЅРЅС‹С… СЃСѓС‰РµСЃС‚РІР°.
+   * Выполняет нормализацию данных существа.
    */
   // eslint-disable-next-line class-methods-use-this
-  normalizeCreature(creature: any): void {
-    normalizeCreature(creature);
+  normalizeCreature(creature: BaseCreature): void {
+    // Та же доверенность к границе системы, что и в `normalizeActor` выше:
+    // внутри D&D-системы нейтральное существо ядра — это `DnDCreature`.
+    normalizeCreature(creature as DnDCreature);
   }
 
   /**
-   * Р’РѕР·РІСЂР°С‰Р°РµС‚ СЃРїРёСЃРѕРє РґРѕСЃС‚СѓРїРЅС‹С… РєР»Р°СЃСЃРѕРІ РІ СЃРёСЃС‚РµРјРµ РґР»СЏ РєРѕРјРїРµРЅРґРёСѓРјР°.
+   * Возвращает список доступных классов в системе для компендиума.
    */
   // eslint-disable-next-line class-methods-use-this
   getClassKeyOptions(): Array<{ value: string; label: string }> {
@@ -598,7 +681,7 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * Р’РѕР·РІСЂР°С‰Р°РµС‚ С„РѕСЂРјР°С‚С‚РµСЂ Р·РЅР°С‡РµРЅРёР№ РєРѕРјРїРµРЅРґРёСѓРјР° РїРѕ РёРјРµРЅРё С„РѕСЂРјР°С‚Р°.
+   * Возвращает форматтер значений компендиума по имени формата.
    */
   // eslint-disable-next-line class-methods-use-this
   getCompendiumValueFormatter(
@@ -608,7 +691,7 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * Р’РѕР·РІСЂР°С‰Р°РµС‚ РїСЂРѕРёР·РІРѕРґРЅС‹Р№ Р±СѓР»РµРІ РїСЂРµРґРёРєР°С‚ РєРѕРјРїРµРЅРґРёСѓРјР° РїРѕ РєР»СЋС‡Сѓ.
+   * Возвращает производный булев предикат компендиума по ключу.
    */
   // eslint-disable-next-line class-methods-use-this
   getCompendiumPredicate(
@@ -618,7 +701,7 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * РџСЂРѕРІРµСЂСЏРµС‚, Р°РєС‚РёРІРЅРѕ Р»Рё РєРѕРЅРєСЂРµС‚РЅРѕРµ СЃРѕСЃС‚РѕСЏРЅРёРµ Сѓ Р°РєС‚РѕСЂР°.
+   * Проверяет, активно ли конкретное состояние у актора.
    */
   // eslint-disable-next-line class-methods-use-this
   isConditionActive(
@@ -641,7 +724,7 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * РџРµСЂРµРєР»СЋС‡Р°РµС‚ (РґРѕР±Р°РІР»СЏРµС‚/СѓРґР°Р»СЏРµС‚) СЃРѕСЃС‚РѕСЏРЅРёРµ РІ СЃРїРёСЃРєРµ СЌС„С„РµРєС‚РѕРІ Р°РєС‚РѕСЂР°.
+   * Переключает (добавляет/удаляет) состояние в списке эффектов актора.
    */
 
   toggleCondition(
@@ -668,8 +751,8 @@ export class Dnd5eVttSystem implements VttSystem {
           ),
       );
     } else {
-      // Р•РґРёРЅС‹Р№ РёСЃС‚РѕС‡РЅРёРє РїСЂР°РІРґС‹: builder РїСЂРѕСЃС‚Р°РІР»СЏРµС‚ conditionKey,
-      // conditionImmunities Рё РґРёРЅР°РјРёС‡РµСЃРєРёРµ changes РСЃС‚РѕС‰РµРЅРёСЏ.
+      // Единый источник правды: builder проставляет conditionKey,
+      // conditionImmunities и динамические changes Истощения.
       const newEffect = buildConditionActiveEffect(key);
 
       if (!newEffect) {
@@ -683,7 +766,7 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * РћРїСЂРµРґРµР»СЏРµС‚ СЃРѕСЃС‚РѕСЏРЅРёРµ Р·РґРѕСЂРѕРІСЊСЏ РїРѕ С‚РµРєСѓС‰РёРј Рё РјР°РєСЃРёРјР°Р»СЊРЅС‹Рј РҐРџ РїРѕ РїСЂР°РІРёР»Р°Рј СЃРёСЃС‚РµРјС‹.
+   * Определяет состояние здоровья по текущим и максимальным ХП по правилам системы.
    */
   // eslint-disable-next-line class-methods-use-this
   getHealthCondition(
@@ -703,7 +786,7 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * Р’РѕР·РІСЂР°С‰Р°РµС‚ С‚Р°Р±Р»РёС†Сѓ СЃРѕСЃС‚РѕСЏРЅРёР№ Р·РґРѕСЂРѕРІСЊСЏ D&D 5e РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ (РїРѕСЂРѕРіРё %РҐРџ).
+   * Возвращает таблицу состояний здоровья D&D 5e по умолчанию (пороги %ХП).
    */
   // eslint-disable-next-line class-methods-use-this
   getDefaultHealthConditions(): readonly HealthCondition[] {
@@ -711,9 +794,9 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * Р’РѕР·РІСЂР°С‰Р°РµС‚ СЃРІРѕРґРєСѓ РҐРџ Р°РєС‚С‘СЂР° РґР»СЏ HUD РІС‹Р±СЂР°РЅРЅРѕРіРѕ С‚РѕРєРµРЅР° (РїР°РЅРµР»СЊ РЅР°Рґ СЃС†РµРЅРѕР№).
-   * Р§РёС‚Р°РµС‚ `system.hitPoints` Р·Р°С‰РёС‚РЅРѕ РёР· РЅРµР№С‚СЂР°Р»СЊРЅРѕРіРѕ Р±Р»РѕР±Р° вЂ” СЏРґСЂРѕ РЅРµ Р·РЅР°РµС‚
-   * РёРјС‘РЅ D&D-РїРѕР»РµР№.
+   * Возвращает сводку ХП актёра для HUD выбранного токена (панель над сценой).
+   * Читает `system.hitPoints` защитно из нейтрального блоба — ядро не знает
+   * имён D&D-полей.
    */
   // eslint-disable-next-line class-methods-use-this
   getActorHudSummary(actor: BaseActor): {
@@ -733,27 +816,27 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * Р’РѕР·РІСЂР°С‰Р°РµС‚ Р±РµР№РґР¶ В«РџРћ XВ» (РїРѕРєР°Р·Р°С‚РµР»СЊ РѕРїР°СЃРЅРѕСЃС‚Рё) РґР»СЏ СЃСѓС‰РµСЃС‚РІР° РІ СЃРїРёСЃРєР°С… СЏРґСЂР°.
-   * `undefined` вЂ” Сѓ СЃСѓС‰РµСЃС‚РІР° РЅРµС‚ РїРѕРєР°Р·Р°С‚РµР»СЏ РѕРїР°СЃРЅРѕСЃС‚Рё.
+   * Возвращает бейдж «ПО X» (показатель опасности) для существа в списках ядра.
+   * `undefined` — у существа нет показателя опасности.
    */
   // eslint-disable-next-line class-methods-use-this
   getEntityListBadge(creature: BaseCreature): string | undefined {
     const challengeRating = creature.system.challengeRating;
 
-    // РџРћ С…СЂР°РЅРёС‚СЃСЏ СЃС‚СЂРѕРєРѕР№ ('1/4'), РЅРѕ РІ СЃС‚Р°СЂС‹С… РјРёСЂР°С…/РёРјРїРѕСЂС‚Р°С… РІСЃС‚СЂРµС‡Р°РµС‚СЃСЏ Рё
-    // С‡РёСЃР»РѕРј (normalizeCreature РµРіРѕ Рє СЃС‚СЂРѕРєРµ РЅРµ РєРѕСЌСЂСЃРёС‚) вЂ” Р±РµР№РґР¶ РѕР±СЏР·Р°РЅ
-    // РїРѕРєР°Р·С‹РІР°С‚СЊСЃСЏ РІ РѕР±РѕРёС… СЃР»СѓС‡Р°СЏС…, РєР°Рє РІ UI РґРѕ СЂР°СЃС€РёРІРєРё СЏРґСЂР°.
+    // ПО хранится строкой ('1/4'), но в старых мирах/импортах встречается и
+    // числом (normalizeCreature его к строке не коэрсит) — бейдж обязан
+    // показываться в обоих случаях, как в UI до расшивки ядра.
     if (typeof challengeRating === 'number') {
-      return `РџРћ ${challengeRating}`;
+      return `ПО ${challengeRating}`;
     }
 
     return typeof challengeRating === 'string' && challengeRating.length > 0
-      ? `РџРћ ${challengeRating}`
+      ? `ПО ${challengeRating}`
       : undefined;
   }
 
   /**
-   * Р’РѕР·РІСЂР°С‰Р°РµС‚ СЃРїРёСЃРѕРє РІСЃРµС… РґРѕСЃС‚СѓРїРЅС‹С… СЃРѕСЃС‚РѕСЏРЅРёР№ (conditions) РІ D&D 5e.
+   * Возвращает список всех доступных состояний (conditions) в D&D 5e.
    */
   // eslint-disable-next-line class-methods-use-this
   getConditions(): ConditionDefinition[] {
@@ -768,5 +851,5 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 }
 
-/** Р­РєР·РµРјРїР»СЏСЂ СЃРёСЃС‚РµРјС‹ D&D 5e РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ */
+/** Экземпляр системы D&D 5e по умолчанию */
 export const dnd5eSystemInstance = new Dnd5eVttSystem();
