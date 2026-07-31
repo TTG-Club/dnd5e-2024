@@ -35,6 +35,7 @@ export * from './spellSlotTable.js';
 export * from './spellTypes.js';
 export * from './spellUtils.js';
 export * from './templateGeometry.js';
+export * from './toolProficiency.js';
 export * from './turnEffects.js';
 export * from './types.js';
 export * from './weaponMasteries.js';

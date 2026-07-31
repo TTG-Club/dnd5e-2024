@@ -104,7 +104,12 @@ export function useBackgroundWizard(
 
   const selectedScheme = ref<'+2/+1' | '+1/+1/+1'>('+2/+1');
   const abilityAllocation = ref<Partial<Record<AbilityType, number>>>({});
+  /** Выбранное из собственного списка предыстории (`toolGrant.choices`) */
   const toolSelections = ref<string[]>([]);
+  /** Ключи, разобранные из текстового владения компендиума (`toolGrant.items`) */
+  const grantedTools = ref<string[]>([]);
+  /** Разобрано ли текстовое владение полностью — сообщает шаг инструментов */
+  const grantComplete = ref(true);
   const selectedFeatId = ref<string>('');
 
   const wizardSteps = computed<BackgroundWizardStep[]>(() => {
@@ -116,7 +121,13 @@ export function useBackgroundWizard(
 
     const steps: BackgroundWizardStep[] = ['overview'];
 
-    if (def.toolGrant.choices && def.toolGrant.choices.count > 0) {
+    // Шаг инструментов нужен и когда есть выбор из своего списка (homebrew из
+    // панели «Предметы»), и когда компендиум прислал владение текстом: его надо
+    // сопоставить со словарём, а неузнанное — предложить завести.
+    if (
+      (def.toolGrant.choices && def.toolGrant.choices.count > 0)
+      || def.toolGrant.items.length > 0
+    ) {
       steps.push('tools');
     }
 
@@ -129,15 +140,16 @@ export function useBackgroundWizard(
     selectedScheme.value = '+2/+1';
     abilityAllocation.value = {};
     toolSelections.value = [];
+    grantedTools.value = [];
+    grantComplete.value = true;
     selectedFeatId.value = '';
 
     const def = definition.value;
 
     if (def) {
-      if (def.toolGrant.items.length) {
-        toolSelections.value = [...def.toolGrant.items];
-      }
-
+      // `toolGrant.items` — НЕ готовые ключи: компендиум присылает владение
+      // человекочитаемым текстом. Разбирает его шаг инструментов, здесь список
+      // остаётся пустым, иначе текст уехал бы на лист персонажа как ключ.
       if (def.featGrant.featId) {
         selectedFeatId.value = def.featGrant.featId;
       } else if (def.featGrant.featChoices?.length) {
@@ -187,9 +199,12 @@ export function useBackgroundWizard(
 
     if (currentStepInfo.value.stepGroup === 'tools') {
       const neededCounts = def.toolGrant.choices?.count ?? 0;
-      const fixedCount = def.toolGrant.items.length;
 
-      if (toolSelections.value.length - fixedCount !== neededCounts) {
+      if (toolSelections.value.length !== neededCounts) {
+        return false;
+      }
+
+      if (!grantComplete.value) {
         return false;
       }
     }
@@ -340,8 +355,9 @@ export function useBackgroundWizard(
       }
     }
 
-    // 2. Добавляем инструменты
-    for (const tool of toolSelections.value) {
+    // 2. Добавляем инструменты: выбранное из своего списка и разобранное из
+    // текстового владения компендиума.
+    for (const tool of [...toolSelections.value, ...grantedTools.value]) {
       if (!baseTools.includes(tool)) {
         baseTools.push(tool);
       }
@@ -467,7 +483,7 @@ export function useBackgroundWizard(
       backgroundName: def.name,
       abilityChoices: { ...abilityAllocation.value },
       skillChoices: [...def.skillGrant.skills],
-      toolChoices: [...toolSelections.value],
+      toolChoices: [...toolSelections.value, ...grantedTools.value],
       grantedFeatId,
       grantedFeatName,
     };
@@ -574,6 +590,8 @@ export function useBackgroundWizard(
     selectedScheme,
     abilityAllocation,
     toolSelections,
+    grantedTools,
+    grantComplete,
     selectedFeatId,
     wizardSteps,
     canProceed,

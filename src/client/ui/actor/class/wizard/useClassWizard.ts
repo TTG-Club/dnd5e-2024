@@ -88,6 +88,12 @@ export interface WizardState {
   asi: WizardAsiState;
   /** Заклинания, выбранные на шаге заклинаний */
   selectedSpells: Spell[];
+  /**
+   * Ключи владений инструментами, разобранные на шаге владений. Определение
+   * класса хранит их человекочитаемым текстом, а на лист персонажа уходят
+   * ключи словаря — сопоставление делает шаг, здесь лежит его результат.
+   */
+  toolProficiencies: string[];
 }
 
 /** Особенность класса с указанием источника (базовый класс или подкласс) */
@@ -265,6 +271,7 @@ export function useClassWizard(
       featKey: null,
     },
     selectedSpells: [],
+    toolProficiencies: [],
   });
 
   /** Активный ключ подкласса (выбранный ранее или на текущем шаге) */
@@ -708,6 +715,7 @@ export function useClassWizard(
     wizardState.featureChoices = {};
     wizardState.asi = { mode: 'asi', abilityIncreases: {}, featKey: null };
     wizardState.selectedSpells = [];
+    wizardState.toolProficiencies = [];
   }
 
   watch(isOpen, (opened) => {
@@ -988,7 +996,9 @@ export function useClassWizard(
           }
         }
 
-        for (const tool of classDef.toolProficiencies ?? []) {
+        // Ключи, разобранные шагом владений, — не текст из определения: текст
+        // окно выбора инструментов не узнаёт и молча выбрасывает при сохранении.
+        for (const tool of wizardState.toolProficiencies) {
           if (!proficiencies.tools.includes(tool)) {
             proficiencies.tools.push(tool);
           }
@@ -1021,7 +1031,7 @@ export function useClassWizard(
             }
           }
 
-          for (const tool of multiProf.tools) {
+          for (const tool of wizardState.toolProficiencies) {
             if (!proficiencies.tools.includes(tool)) {
               proficiencies.tools.push(tool);
             }

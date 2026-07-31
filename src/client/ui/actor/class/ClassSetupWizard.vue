@@ -392,9 +392,11 @@
           <!-- Владения -->
           <WizardStepProficiencies
             v-if="activeStepKey === 'proficiencies'"
+            v-model:tool-proficiencies="wizardState.toolProficiencies"
             :class-definition="classDefinition"
             :is-first-class="isFirstClass"
             :is-multiclass="isMulticlass"
+            :socket="socket"
           />
 
           <!-- Навыки -->

@@ -58,6 +58,8 @@
     selectedScheme,
     abilityAllocation,
     toolSelections,
+    grantedTools,
+    grantComplete,
     selectedFeatId,
     wizardSteps: wizardStepKeys,
     canProceed,
@@ -307,8 +309,11 @@
             <!-- Шаг 1.5: Инструменты (условно) -->
             <WizardStepTools
               v-else-if="currentStepInfo.stepGroup === 'tools'"
-              v-model:tool-selections="toolSelections"
+              v-model:choice-selections="toolSelections"
+              v-model:granted-tools="grantedTools"
               :background-definition="definition"
+              :socket="socket"
+              @update:grant-complete="grantComplete = $event"
             />
 
             <!-- Шаг 2: Характеристики -->

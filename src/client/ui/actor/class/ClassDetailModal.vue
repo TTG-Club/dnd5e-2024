@@ -466,11 +466,13 @@
             <div
               v-for="eq in classDefinition.startingEquipment"
               :key="eq.key"
-              class="rounded-md border border-default/50 bg-elevated/30 p-2 text-sm text-toned"
+              class="flex gap-1.5 rounded-md border border-default/50 bg-elevated/30 p-2 text-sm text-toned"
             >
-              <span class="mr-1.5 font-bold text-muted">{{ eq.key }})</span>
+              <span class="font-bold text-muted">{{ eq.key }})</span>
 
-              <span>{{ eq.description }}</span>
+              <!-- Через рендерер: в описании варианта приходят ссылки на предметы
+                   компендиума, интерполяция показала бы их markdown-исходником. -->
+              <ItemDescriptionRenderer :content="eq.description" />
             </div>
           </div>
         </div>

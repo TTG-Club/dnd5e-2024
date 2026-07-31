@@ -5,6 +5,8 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
 
+  import { useToolVocabulary } from '../../composables/useToolVocabulary';
+
   /** Блокирующий модал — фиксированный z-index поверх остальных */
   const MODAL_Z_INDEX = Z_INDEX.MODAL_ELEVATED;
 
@@ -26,6 +28,9 @@
     set: (value) => emit('update:open', value),
   });
 
+  /** Системный список + инструменты, заведённые в мире */
+  const { vocabulary } = useToolVocabulary();
+
   /** Локальная копия владений */
   const localSelected = ref<Set<string>>(new Set());
 
@@ -33,7 +38,10 @@
     () => props.open,
     (opened) => {
       if (opened) {
-        const knownKeys = new Set(TOOLS_LIST.map((token) => token.key));
+        // Незнакомые ключи отсеиваются: сохранить можно только то, что окно
+        // показывает, иначе «Применить» без правок стёрло бы владение. Словарь
+        // включает заведённые в мире инструменты — они сюда и попадают.
+        const knownKeys = new Set(vocabulary.value.map((entry) => entry.key));
 
         localSelected.value = new Set(
           props.selected.filter((key) => knownKeys.has(key)),
@@ -42,6 +50,18 @@
     },
   );
 
+  /**
+   * Инструменты мира, которых нет в системном списке — отдельной панелью, чтобы
+   * категории из системного словаря остались нетронутыми.
+   */
+  const worldTools = computed(() => {
+    const systemKeys = new Set(TOOLS_LIST.map((tool) => tool.key));
+
+    return vocabulary.value
+      .filter((entry) => !systemKeys.has(entry.key))
+      .map((entry) => ({ key: entry.key, name: entry.label }));
+  });
+
   /** Конфигурация панелей */
   const panels = computed(() => {
     // Получаем уникальные категории из TOOLS_LIST
@@ -49,9 +69,14 @@
       new Set(TOOLS_LIST.map((token) => token.category)),
     );
 
-    return categories.map((catKey) => {
+    const result: Array<{
+      key: string;
+      title: string;
+      color: string;
+      items: Array<{ key: string; name: string }>;
+    }> = categories.map((catKey) => {
       return {
-        key: catKey,
+        key: String(catKey),
         title: TOOL_CATEGORIES[catKey],
         color: 'text-gold',
         items: TOOLS_LIST.filter((bt) => bt.category === catKey).map(
@@ -62,6 +87,17 @@
         ),
       };
     });
+
+    if (worldTools.value.length > 0) {
+      result.push({
+        key: 'world',
+        title: 'Заведённые в мире',
+        color: 'text-gold',
+        items: worldTools.value,
+      });
+    }
+
+    return result;
   });
 
   /**

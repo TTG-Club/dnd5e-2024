@@ -5,7 +5,6 @@
   import {
     BASE_UNARMORED_AC,
     calculateAbilityModifier,
-    TOOLS_LABELS,
   } from '@vtt/shared/system/dnd.js';
   import { computed, ref, toRef } from 'vue';
 
@@ -13,6 +12,7 @@
   import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 
   import { useResolvedStats } from '../../composables/useResolvedStats';
+  import { useToolVocabulary } from '../../composables/useToolVocabulary';
   import ArmorClassModal from './ArmorClassModal.vue';
   import ArmorProficiencyModal from './ArmorProficiencyModal.vue';
   import DiceRollModal from './DiceRollModal.vue';
@@ -125,10 +125,15 @@
     return map;
   });
 
+  /** Названия владений: системные плюс заведённые в мире инструменты */
+  const { labels: toolLabels } = useToolVocabulary();
+
   const toolProfBadges = computed(() => {
-    return props.actor.system.proficiencies.tools.map((key) => {
-      return TOOLS_LABELS[key] ?? key;
-    });
+    // Ключ без названия остаётся ключом: предмет мира могли удалить, а владение
+    // на листе — нет, и терять его показ из-за этого нельзя.
+    return props.actor.system.proficiencies.tools.map(
+      (key) => toolLabels.value[key] ?? key,
+    );
   });
 
   /**

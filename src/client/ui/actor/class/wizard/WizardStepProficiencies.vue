@@ -5,22 +5,26 @@
    * Первый класс — показывает полные стартовые владения.
    * Мультикласс — показывает сокращённый набор по PHB 2024.
    */
+  import type { TypedWebSocketClient } from '@vtt/shared';
   import type { ClassDefinition } from '@vtt/shared/system/dnd.js';
 
   import { getMulticlassProficiencies } from '@vtt/shared/system/dnd.js';
   import { computed } from 'vue';
 
-  import {
-    ARMOR_PROF_LABELS,
-    TOOL_PROF_LABELS,
-    WEAPON_PROF_LABELS,
-  } from './constants';
+  import ToolProficiencyGrant from '../../ToolProficiencyGrant.vue';
+  import { ARMOR_PROF_LABELS, WEAPON_PROF_LABELS } from './constants';
 
   const props = defineProps<{
     classDefinition: ClassDefinition;
     isFirstClass: boolean;
     isMulticlass: boolean;
+    socket: TypedWebSocketClient | null;
   }>();
+
+  /** Разобранные ключи владений инструментами — уходят на лист персонажа */
+  const toolProficiencies = defineModel<string[]>('toolProficiencies', {
+    default: () => [],
+  });
 
   /** Владения доспехами для отображения */
   const armorProficiencies = computed(() => {
@@ -52,8 +56,8 @@
     return [];
   });
 
-  /** Владения инструментами для отображения */
-  const toolProficiencies = computed(() => {
+  /** Владения инструментами как их прислал компендиум — текстом */
+  const toolSources = computed(() => {
     if (props.isFirstClass) {
       return props.classDefinition.toolProficiencies ?? [];
     }
@@ -72,7 +76,7 @@
     return (
       armorProficiencies.value.length > 0
       || weaponProficiencies.value.length > 0
-      || toolProficiencies.value.length > 0
+      || toolSources.value.length > 0
     );
   });
 </script>
@@ -126,23 +130,13 @@
         </div>
       </div>
 
-      <!-- Инструменты -->
-      <div v-if="toolProficiencies.length > 0">
-        <span class="mb-1 block text-sm font-medium text-muted"
-          >Инструменты</span
-        >
-
-        <div class="flex flex-wrap gap-1.5">
-          <UBadge
-            v-for="tool in toolProficiencies"
-            :key="tool"
-            :label="TOOL_PROF_LABELS[tool] ?? tool"
-            color="neutral"
-            variant="soft"
-            size="md"
-          />
-        </div>
-      </div>
+      <!-- Инструменты: текст компендиума сопоставляется со словарём владений -->
+      <ToolProficiencyGrant
+        v-if="toolSources.length > 0"
+        v-model:selected="toolProficiencies"
+        :sources="toolSources"
+        :socket="socket"
+      />
     </div>
 
     <!-- Нет владений (Sorcerer, Wizard при мультиклассе) -->
