@@ -1,4 +1,4 @@
-import type { CreatureSize, MovementType } from '@vtt/shared';
+import type { MovementType } from '@vtt/shared';
 import type { GrantedSpellSource } from './grantedSpells.js';
 import type { SpeciesDefinition, SpeciesFeature } from './speciesTypes.js';
 
@@ -192,13 +192,3 @@ export function collectSpeciesGrantedSpellSources(
 
   return sources;
 }
-
-/** Карта размера существа в масштаб токена. */
-export const SPECIES_SIZE_SCALE_MAP: Record<CreatureSize, number> = {
-  tiny: 0.5,
-  small: 0.8,
-  medium: 1,
-  large: 2,
-  huge: 3,
-  gargantuan: 4,
-};

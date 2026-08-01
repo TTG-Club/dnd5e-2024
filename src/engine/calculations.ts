@@ -13,14 +13,17 @@ import type {
   SkillType,
 } from '@vtt/shared';
 import type { DamagePart } from '@vtt/shared';
-import type { DnDActor, GameItem } from './dndEntities.js';
+import type { DnDActor, DnDSceneEntity, GameItem } from './dndEntities.js';
 
 import { getTotalLevel } from './classTypes.js';
 import {
+  CREATURE_SIZE_TO_TOKEN_SCALE,
+  DEFAULT_CREATURE_SIZE,
   EXPERIENCE_TABLE,
   MAX_LEVEL,
   MOVEMENT_LABELS,
   MOVEMENT_PRIORITY,
+  normalizeCreatureSize,
   normalizeSpellUsesRecovery,
   SKILL_ABILITY_MAP,
 } from './consts.js';
@@ -466,6 +469,8 @@ export function normalizeActor(actor: DnDActor): DnDActor {
       actor.system.currency = { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 };
     }
 
+    actor.system.size = normalizeCreatureSize(actor.system.size);
+
     return actor;
   }
 
@@ -477,7 +482,7 @@ export function normalizeActor(actor: DnDActor): DnDActor {
     classes: [],
     experience: (raw.experience as number) ?? 0,
     inspiration: (raw.inspiration as boolean) ?? false,
-    size: (raw.size as string as import('./types.js').CreatureSize) ?? 'medium',
+    size: normalizeCreatureSize(raw.size),
 
     abilities: {
       strength: (raw.strength as number) ?? 10,
@@ -561,7 +566,7 @@ export function normalizeCreature(
   if (!creature.system) {
     // SQL↔TS boundary: legacy существо может не иметь system
     (creature as unknown as Record<string, unknown>).system = {
-      size: 'medium',
+      size: DEFAULT_CREATURE_SIZE,
       type: 'humanoid',
       subtype: '',
       alignment: 'unaligned',
@@ -607,6 +612,11 @@ export function normalizeCreature(
   }
 
   const system = creature.system;
+
+  // Размер приходит из компендиумов и легаси-миров в произвольном виде
+  // (`'Medium'`, пусто, не строка) — приводим к канону здесь, чтобы дальше
+  // по системе он был валиден: на нём завязан масштаб токена на сцене.
+  system.size = normalizeCreatureSize(system.size);
 
   // Заполняем отсутствующие поля
   if (!system.defenses) {
@@ -726,4 +736,27 @@ export function normalizeCreature(
   }
 
   return creature;
+}
+
+/**
+ * Масштаб токена сущности с учётом её размера по правилам D&D.
+ *
+ * У существ из компендиума и персонажей, созданных до синхронизации размера,
+ * масштаб не задан — выводим его из размера, иначе сохранение настроек токена
+ * сбросило бы «Огромный» обратно в «Средний». Функция одна на все места
+ * (начальные значения формы настроек и база сравнения «есть ли изменения»):
+ * разойдись они — модалка открывалась бы уже «изменённой».
+ *
+ * Не путать с нейтральной `resolveTokenScale` хоста (`@/core/entityUtils`):
+ * та разрешает масштаб размещённого на сцене токена и о размерах существ не
+ * знает — её откат по умолчанию всегда `1`.
+ *
+ * @param entity - персонаж или существо сцены
+ * @returns масштаб токена в клетках
+ */
+export function resolveCreatureTokenScale(entity: DnDSceneEntity): number {
+  return (
+    entity.token?.scale
+    ?? CREATURE_SIZE_TO_TOKEN_SCALE[normalizeCreatureSize(entity.system.size)]
+  );
 }

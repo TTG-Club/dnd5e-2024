@@ -20,11 +20,11 @@ import {
   computeSpeciesDarkvision,
   computeSpeciesMovement,
   CONDITIONS,
+  CREATURE_SIZE_TO_TOKEN_SCALE,
   EFFECT_FLAG_LABELS,
   getTotalLevel,
   isSkillType,
   removeGrantedSpellsByFeatureNames,
-  SPECIES_SIZE_SCALE_MAP,
 } from '@vtt/shared/system/dnd.js';
 import { computed, ref, watch } from 'vue';
 
@@ -502,7 +502,8 @@ export function useSpeciesWizard(
       tokenUpdates!.vision!.darkvision = speciesDarkvision;
     }
 
-    tokenUpdates!.scale = SPECIES_SIZE_SCALE_MAP[state.value.selectedSize];
+    tokenUpdates!.scale =
+      CREATURE_SIZE_TO_TOKEN_SCALE[state.value.selectedSize];
 
     // --- Применяем гранты нового вида ---
     definition.grants.forEach((grant, index) => {

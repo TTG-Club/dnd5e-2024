@@ -16,6 +16,7 @@
     CONDITIONS,
     CR_TABLE,
     CREATURE_ENVIRONMENTS,
+    CREATURE_SIZE_TO_TOKEN_SCALE,
     DEFAULT_CREATURE,
     getProficiencyContribution,
     getSkillAbility,
@@ -333,6 +334,18 @@
   function handleSystemUpdate(updates: Partial<Creature['system']>) {
     if (localCreature.value) {
       Object.assign(localCreature.value.system, updates);
+
+      // Размер существа и масштаб его токена — одна величина. Без этой
+      // синхронизации выбранный «Огромный» остаётся токеном 1×1 на сцене, а
+      // сохранение настроек токена возвращает размер обратно в «Средний»
+      // (там size выводится из scale через TOKEN_SCALE_TO_CREATURE_SIZE).
+      if (updates.size) {
+        localCreature.value.token = {
+          ...localCreature.value.token,
+          scale: CREATURE_SIZE_TO_TOKEN_SCALE[updates.size],
+        };
+      }
+
       isDirty.value = true;
       handleImmediateSave();
     }

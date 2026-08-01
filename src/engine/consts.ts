@@ -15,6 +15,7 @@ import type {
 import type { EquipmentCategory } from '@vtt/shared';
 import type { ConditionKey } from './conditionKeys.js';
 import type { DnDActor, SpellUsesRecovery } from './dndEntities.js';
+import type { CreatureSize } from './types.js';
 
 // ============================================================
 // Инструменты
@@ -842,11 +843,56 @@ export function getAlignmentLabel(alignment: string): string | undefined {
 // Существа — Размеры (Creature Sizes)
 // ============================================================
 
+/** Размеры существ D&D 5e — от крошечного к громадному. */
+export const CREATURE_SIZES: readonly CreatureSize[] = [
+  'tiny',
+  'small',
+  'medium',
+  'large',
+  'huge',
+  'gargantuan',
+];
+
+/** Размер существа, когда во внешних данных его нет или он не распознан. */
+export const DEFAULT_CREATURE_SIZE: CreatureSize = 'medium';
+
+/** Множество всех допустимых размеров существ для быстрой проверки */
+const CREATURE_SIZE_SET: ReadonlySet<string> = new Set(CREATURE_SIZES);
+
+/**
+ * Проверяет, что строка — размер существа D&D 5e.
+ *
+ * @param value - произвольная строка для проверки
+ * @returns `true`, если `value` является `CreatureSize`
+ */
+export function isCreatureSize(value: string): value is CreatureSize {
+  return CREATURE_SIZE_SET.has(value);
+}
+
+/**
+ * Приводит размер существа из внешних данных к `CreatureSize`.
+ *
+ * Компендиумы TTG Club и легаси-миры отдают размер как придётся: строкой в
+ * другом регистре (`'Medium'`), пустым значением или вовсе без поля. Разбор
+ * живёт в одном месте, поэтому дальше по системе размер всегда валиден —
+ * таблицам вроде `CREATURE_SIZE_TO_TOKEN_SCALE` не нужны запасные значения
+ * на каждом обращении.
+ *
+ * @param value - размер из внешних данных
+ * @returns распознанный размер или `DEFAULT_CREATURE_SIZE`
+ */
+export function normalizeCreatureSize(value: unknown): CreatureSize {
+  if (typeof value !== 'string') {
+    return DEFAULT_CREATURE_SIZE;
+  }
+
+  const normalized = value.trim().toLowerCase();
+
+  return isCreatureSize(normalized) ? normalized : DEFAULT_CREATURE_SIZE;
+}
+
 /** Локализованные названия размеров существ */
-export const CREATURE_SIZE_LABELS: Record<
-  import('./types.js').CreatureSize,
-  string
-> = {
+export const CREATURE_SIZE_LABELS: Record<CreatureSize, string> = {
   tiny: 'Крошечный',
   small: 'Маленький',
   medium: 'Средний',
@@ -859,6 +905,43 @@ export const CREATURE_SIZE_LABELS: Record<
 export const CREATURE_SIZE_OPTIONS = Object.entries(CREATURE_SIZE_LABELS).map(
   ([value, label]) => ({ value, label }),
 );
+
+/**
+ * Размер существа → масштаб его токена (в клетках).
+ *
+ * Размер существа и масштаб токена — одна и та же величина, показанная в двух
+ * местах интерфейса (селект «Размер» в листе и кнопки «Размер токена» в
+ * настройках), поэтому таблица одна на всю систему. Значения совпадают с
+ * `TOKEN_SIZE_OPTIONS` хоста: ядро знает только нейтральные числовые масштабы,
+ * а их перевод в игровые «размеры существа» — правило D&D.
+ */
+export const CREATURE_SIZE_TO_TOKEN_SCALE: Record<CreatureSize, number> = {
+  tiny: 0.5,
+  small: 0.8,
+  medium: 1,
+  large: 2,
+  huge: 3,
+  gargantuan: 4,
+};
+
+/**
+ * Масштаб токена (в клетках) → размер существа.
+ *
+ * Выводится из `CREATURE_SIZE_TO_TOKEN_SCALE`, а не пишется руками: ручная
+ * копия уже расходилась с прямой таблицей (в ней не было `small`), из-за чего
+ * сохранение настроек токена сбрасывало размер существа.
+ *
+ * Произвольный масштаб (токен растянут на сцене вручную) в таблице
+ * отсутствует — обращение к ней даёт `undefined`, и это не ошибка данных.
+ */
+export const TOKEN_SCALE_TO_CREATURE_SIZE: Record<number, CreatureSize> =
+  CREATURE_SIZES.reduce<Record<number, CreatureSize>>(
+    (accumulator, size) => ({
+      ...accumulator,
+      [CREATURE_SIZE_TO_TOKEN_SCALE[size]]: size,
+    }),
+    {},
+  );
 
 // ============================================================
 // Существа — Показатели опасности (Challenge Ratings)

@@ -4,6 +4,10 @@
 
   import { useToast } from '@nuxt/ui/composables';
   import { createDefaultLightEmitter, getServerBaseUrl } from '@vtt/shared';
+  import {
+    resolveCreatureTokenScale,
+    TOKEN_SCALE_TO_CREATURE_SIZE,
+  } from '@vtt/shared/system/dnd.js';
   import { computed, onMounted, ref, watch } from 'vue';
 
   import { requireSocket } from '@/core/entityUtils';
@@ -26,7 +30,6 @@
   import { useWorldStore } from '@/stores/worldStore';
 
   import { useTokenPreview } from '../../composables/useTokenPreview';
-  import { SCALE_TO_SIZE } from '../../tokenSizeMap';
   import ActorDeleteConfirmModal from './ActorDeleteConfirmModal.vue';
 
   interface Props {
@@ -266,8 +269,7 @@
     const tokenChanged =
       tokenSettings.value.imageUrl !== (actor.value.token?.imageUrl || '')
       || tokenSettings.value.frameUrl !== (actor.value.token?.frameUrl || '')
-      || tokenSettings.value.scale
-        !== (actor.value.token?.scale || TOKEN_SCALE_DEFAULT)
+      || tokenSettings.value.scale !== resolveCreatureTokenScale(actor.value)
       || tokenSettings.value.textureScale
         !== (actor.value.token?.textureScale ?? 1)
       || tokenSettings.value.textureX !== (actor.value.token?.textureX ?? 0.5)
@@ -388,7 +390,7 @@
       tokenSettings.value = {
         imageUrl: actor.value.token?.imageUrl || '',
         frameUrl: actor.value.token?.frameUrl || '',
-        scale: actor.value.token?.scale || TOKEN_SCALE_DEFAULT,
+        scale: resolveCreatureTokenScale(actor.value),
         textureScale: actor.value.token?.textureScale ?? 1,
         textureX: actor.value.token?.textureX ?? 0.5,
         textureY: actor.value.token?.textureY ?? 0.5,
@@ -426,11 +428,9 @@
     isSaving.value = true;
 
     try {
-      actor.value.ownerId = selectedOwner.value;
-      actor.value.isPublic = isPublic.value;
-      actor.value.autoSaves = autoSaves.value;
-
-      actor.value.token = {
+      // Персонаж принадлежит стору хоста — правки собираем в новых объектах
+      // и отправляем через сокет/`onSave`, а состояние возвращается сверху.
+      const updatedToken = {
         ...actor.value.token,
         imageUrl: tokenSettings.value.imageUrl,
         frameUrl: tokenSettings.value.frameUrl,
@@ -452,21 +452,33 @@
         light: { ...lightSettings.value },
       };
 
-      // Синхронизация размера существа с масштабом токена
-      actor.value.system.size =
-        SCALE_TO_SIZE[tokenSettings.value.scale] ?? 'medium';
+      // Синхронизация размера персонажа с масштабом токена. Произвольный
+      // масштаб (токен растянут на сцене вручную) в таблицу не попадает —
+      // тогда оставляем размер персонажа как есть, а не понижаем до среднего.
+      const updatedSystem = {
+        ...actor.value.system,
+        size:
+          TOKEN_SCALE_TO_CREATURE_SIZE[tokenSettings.value.scale]
+          ?? actor.value.system.size,
+      };
+
+      const updates: Partial<Actor> = {
+        ownerId: selectedOwner.value,
+        isPublic: isPublic.value,
+        autoSaves: autoSaves.value,
+        token: updatedToken,
+        system: updatedSystem,
+      };
 
       if (props.actorId) {
-        const cleanActor = JSON.parse(JSON.stringify(actor.value));
+        const cleanActor = JSON.parse(
+          JSON.stringify({ ...actor.value, ...updates }),
+        );
 
         requireSocket(props.socket);
         props.socket.emit('actor:updated', cleanActor);
       } else if (props.onSave) {
-        props.onSave({
-          ownerId: selectedOwner.value,
-          isPublic: isPublic.value,
-          token: actor.value.token,
-        });
+        props.onSave(updates);
       }
 
       toast.add({

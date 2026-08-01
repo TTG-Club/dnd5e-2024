@@ -8,6 +8,8 @@
     CREATURE_CATEGORIES,
     CREATURE_SIZE_LABELS,
     getAlignmentLabel,
+    resolveCreatureTokenScale,
+    TOKEN_SCALE_TO_CREATURE_SIZE,
   } from '@vtt/shared/system/dnd.js';
   import { computed, onMounted, ref, watch } from 'vue';
 
@@ -30,7 +32,6 @@
   import { useWorldStore } from '@/stores/worldStore';
 
   import { useTokenPreview } from '../../composables/useTokenPreview';
-  import { SCALE_TO_SIZE } from '../../tokenSizeMap';
   import CreatureDeleteConfirmModal from './CreatureDeleteConfirmModal.vue';
 
   interface Props {
@@ -268,8 +269,7 @@
     const tokenChanged =
       tokenSettings.value.imageUrl !== (creature.value.token?.imageUrl || '')
       || tokenSettings.value.frameUrl !== (creature.value.token?.frameUrl || '')
-      || tokenSettings.value.scale
-        !== (creature.value.token?.scale || TOKEN_SCALE_DEFAULT)
+      || tokenSettings.value.scale !== resolveCreatureTokenScale(creature.value)
       || tokenSettings.value.textureScale
         !== (creature.value.token?.textureScale ?? 1)
       || tokenSettings.value.textureX
@@ -384,7 +384,7 @@
       tokenSettings.value = {
         imageUrl: creature.value.token?.imageUrl || '',
         frameUrl: creature.value.token?.frameUrl || '',
-        scale: creature.value.token?.scale || TOKEN_SCALE_DEFAULT,
+        scale: resolveCreatureTokenScale(creature.value),
         textureScale: creature.value.token?.textureScale ?? 1,
         textureX: creature.value.token?.textureX ?? 0.5,
         textureY: creature.value.token?.textureY ?? 0.5,
@@ -449,10 +449,14 @@
         light: { ...lightSettings.value },
       };
 
-      // Синхронизация размера существа с масштабом токена
+      // Синхронизация размера существа с масштабом токена. Произвольный
+      // масштаб (токен растянут на сцене вручную) в таблицу не попадает —
+      // тогда оставляем размер существа как есть, а не понижаем до среднего.
       const updatedSystem = {
         ...creature.value.system,
-        size: SCALE_TO_SIZE[tokenSettings.value.scale] ?? 'Medium',
+        size:
+          TOKEN_SCALE_TO_CREATURE_SIZE[tokenSettings.value.scale]
+          ?? creature.value.system.size,
       };
 
       if (props.onSave) {
