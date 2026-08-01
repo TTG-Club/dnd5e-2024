@@ -8,11 +8,18 @@
  * @module systems/dnd5e/modules/items
  */
 
-import type { GameItem } from '@vtt/shared/system/dnd.js';
+import type {
+  GameItem,
+  SpeciesDefinition,
+  Spell,
+} from '@vtt/shared/system/dnd.js';
 
 import type { ClientSystemAPI } from '@/core/systemBootstrap';
 
+import type { KeyedDefinition } from '../../composables/useEntityDetailModals';
+
 import { createDnd5eItemTypeProvider } from '../../composables/dnd5eItemTypes';
+import { useEntityDetailModals } from '../../composables/useEntityDetailModals';
 import { useFeatModal } from '../../composables/useFeatModal';
 import BackgroundListItem from '../../ui/actor/background/BackgroundListItem.vue';
 import ClassListItem from '../../ui/actor/class/ClassListItem.vue';
@@ -28,6 +35,23 @@ import FeatureCardContent from '../../ui/chat/FeatureCardContent.vue';
 import SpellCardContent from '../../ui/chat/SpellCardContent.vue';
 import ToolCardContent from '../../ui/chat/ToolCardContent.vue';
 
+/**
+ * Определение класса/вида из записи: у GameItem мира оно лежит во вложенном поле
+ * (`classData`/`speciesData`), у записи компендиума — на верхнем уровне. Та же
+ * развилка, что в `propsFor` этих карточек.
+ *
+ * @param entry - запись предмета или компендиума
+ * @param nested - имя вложенного поля с определением
+ */
+function definitionOf<T>(
+  entry: unknown,
+  nested: 'classData' | 'speciesData',
+): T {
+  const record = entry as Record<string, unknown>;
+
+  return (record[nested] ?? record) as T;
+}
+
 /** Регистрирует предметы D&D 5e: типы, карточки сущностей и чата (через SDK). */
 export function register(api: ClientSystemAPI): void {
   // Провайдер типов предметов для панели «Предметы» ядра (иконки/подписи,
@@ -36,26 +60,46 @@ export function register(api: ClientSystemAPI): void {
 
   // Карточки сущностей D&D 5e + маппер пропсов (`propsFor`). `spell` разрешает
   // атрибут onShare; остальные типы по умолчанию — { item }.
+  //
+  // `openDetail` — D&D-специфика: ядро (панель предметов, браузер компендиума,
+  // переход по ссылке из описания) открывает деталь через этот хук по типу
+  // записи, не зная ни модалок, ни системных композаблов.
   api.entityCard({
     type: 'spell',
     listItemComponent: SpellListItem,
     allowShareAttr: true,
+    openDetail: (entry, options) => {
+      useEntityDetailModals().openSpellDetail(entry as Spell, options);
+    },
   });
 
-  api.entityCard({ type: 'weapon', listItemComponent: WeaponListItem });
+  api.entityCard({
+    type: 'weapon',
+    listItemComponent: WeaponListItem,
+    openDetail: (entry, options) => {
+      useEntityDetailModals().openItemDetail(entry as GameItem, options);
+    },
+  });
 
   api.entityCard({
     type: 'equipment',
     listItemComponent: EquipmentListItem,
+    openDetail: (entry, options) => {
+      useEntityDetailModals().openItemDetail(entry as GameItem, options);
+    },
   });
 
-  api.entityCard({ type: 'tool', listItemComponent: ToolListItem });
+  api.entityCard({
+    type: 'tool',
+    listItemComponent: ToolListItem,
+    openDetail: (entry, options) => {
+      useEntityDetailModals().openItemDetail(entry as GameItem, options);
+    },
+  });
 
   api.entityCard({
     type: 'feat',
     listItemComponent: FeatListItem,
-    // Просмотр черты — D&D-специфика; ядро (предметы/компендиум) открывает его
-    // через этот хук, не импортируя системный композабл useFeatModal напрямую.
     openDetail: (entry, options) => {
       useFeatModal().openFeatDescription(entry as GameItem, options);
     },
@@ -65,6 +109,12 @@ export function register(api: ClientSystemAPI): void {
     type: 'background',
     listItemComponent: BackgroundListItem,
     propsFor: (entry) => ({ backgroundDefinition: entry }),
+    openDetail: (entry, options) => {
+      useEntityDetailModals().openBackgroundDetail(
+        entry as KeyedDefinition,
+        options,
+      );
+    },
   });
 
   api.entityCard({
@@ -73,6 +123,11 @@ export function register(api: ClientSystemAPI): void {
     // GameItem мира несёт класс во вложенном classData; записи компендиума
     // уже плоские — поэтому fallback на сам entry.
     propsFor: (entry) => ({ classDefinition: entry.classData ?? entry }),
+    openDetail: (entry) => {
+      useEntityDetailModals().openClassDetail(
+        definitionOf<KeyedDefinition>(entry, 'classData'),
+      );
+    },
   });
 
   api.entityCard({
@@ -81,6 +136,11 @@ export function register(api: ClientSystemAPI): void {
     // GameItem мира несёт вид во вложенном speciesData; записи компендиума
     // уже плоские — поэтому fallback на сам entry.
     propsFor: (entry) => ({ speciesDefinition: entry.speciesData ?? entry }),
+    openDetail: (entry) => {
+      useEntityDetailModals().openSpeciesDetail(
+        definitionOf<SpeciesDefinition>(entry, 'speciesData'),
+      );
+    },
   });
 
   // Карточки чата D&D 5e (контент предметов). `systemId` проставляет SDK.

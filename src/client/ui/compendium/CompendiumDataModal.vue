@@ -27,7 +27,6 @@
   import EntityCard from '@/shared_ui/components/EntityCard.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useCompendiumView } from '@/shared_ui/composables/useCompendiumView';
-  import { useModalManager } from '@/shared_ui/composables/useModalManager';
 
   /**
    * Расширенный тип записи компендиума — включает все реальные типы данных,
@@ -434,8 +433,6 @@
   /** Узел определений предысторий (`dataKind: 'background'`) */
   const isBackgroundData = computed(() => dataKind.value === 'background');
 
-  const { openModal } = useModalManager();
-
   const dataModalRef = ref<ComponentPublicInstance | null>(null);
 
   /** Обработчик ответа от сервера */
@@ -573,31 +570,14 @@
    * @param item - предмет для отображения
    */
   function openDetail(item: GameItem): void {
-    if (item.type === 'weapon') {
-      openModal('WeaponDetailModal', {
-        item,
-        showCopyButton: true,
-        onCopy: () => copyToItems(item.id),
-      });
-    } else if (item.type === 'equipment') {
-      openModal('EquipmentDetailModal', {
-        item,
-        showCopyButton: true,
-        onCopy: () => copyToItems(item.id),
-      });
-    } else if (item.type === 'tool') {
-      openModal('ToolDetailModal', {
-        item,
-        showCopyButton: true,
-        onCopy: () => copyToItems(item.id),
-      });
-    } else {
-      openModal('EquipmentDetailModal', {
-        item,
-        showCopyButton: true,
-        onCopy: () => copyToItems(item.id),
-      });
-    }
+    // Незнакомый тип (хоумбрю-пак) показываем как снаряжение — так же, как до
+    // выноса открытия в реестр карточек.
+    const card = getEntityCard(item.type) ?? getEntityCard('equipment');
+
+    card?.openDetail?.(item, {
+      showCopyButton: true,
+      onCopy: () => copyToItems(item.id),
+    });
   }
 
   /**
@@ -606,8 +586,7 @@
    * @param spell - заклинание для отображения
    */
   function openSpellDetail(spell: Spell): void {
-    openModal('SpellDetailModal', {
-      spell,
+    getEntityCard('spell')?.openDetail?.(spell, {
       showCopyButton: true,
       onCopy: () => copySpellToItems(spell),
     });
@@ -727,7 +706,7 @@
     key: string;
     [key: string]: unknown;
   }): void {
-    openModal('ClassDetailModal', { classDefinition: classDef });
+    getEntityCard('class')?.openDetail?.(classDef);
   }
 
   /**
@@ -735,7 +714,7 @@
    * @param species - определение вида
    */
   function openSpeciesDetail(species: SpeciesDefinition): void {
-    openModal('SpeciesDetailModal', { speciesDefinition: species });
+    getEntityCard('species')?.openDetail?.(species);
   }
 
   /**
@@ -747,8 +726,7 @@
     id?: string;
     [key: string]: unknown;
   }): void {
-    openModal('BackgroundDetailModal', {
-      backgroundDefinition: backgroundDef,
+    getEntityCard('background')?.openDetail?.(backgroundDef, {
       showCopyButton: true,
       onCopy: () => copyToItems(backgroundCopyId(backgroundDef)),
     });
@@ -759,10 +737,7 @@
    * @param creatureEntry - запись существа из компендиума
    */
   function openCreatureDetail(creatureEntry: CompendiumCreatureEntry): void {
-    openModal('CreatureSheet', {
-      creatureId: creatureEntry.id,
-      initialData: creatureEntry,
-    });
+    getEntityCard('creature')?.openDetail?.(creatureEntry);
   }
 
   /**
