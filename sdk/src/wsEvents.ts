@@ -19,6 +19,7 @@ import type {
   ClientModuleManifest,
   CompendiumManifest,
   CompendiumSeparator,
+  CompendiumSrcIndex,
   CursorPosition,
   DamageTypeDefinition,
   Drawing,
@@ -215,6 +216,12 @@ export interface ServerToClientEvents {
     dataKind: string,
     items: (BaseGameItem | CompendiumSeparator)[],
   ) => void;
+  /**
+   * Индекс «страница-источник → запись» по всем пакам — ответ на
+   * `compendium:request-src-index`. По нему клиент решает, открывать ли ссылку из
+   * описания внутри приложения или отдать её браузеру.
+   */
+  'compendium:src-index': (index: CompendiumSrcIndex) => void;
   /** Компедиум обновлён на сервере — клиентам перезапросить манифесты/данные */
   'compendium:updated': () => void;
   // System data (свойства оружия и т.д.)
@@ -655,6 +662,14 @@ export interface ClientToServerEvents {
   'initiative:set-manual': (actorId: string, total: number) => void;
   'initiative:select-encounter': (encounterId: string) => void;
   'initiative:delete-encounter': (encounterId: string) => void;
+  /**
+   * Показать бой полосой инициативы на сцене (`sceneId = null` — убрать).
+   * На одной сцене показывается не больше одного боя.
+   */
+  'initiative:set-display-scene': (
+    encounterId: string,
+    sceneId: string | null,
+  ) => void;
   'initiative:request-state': () => void;
   // Sound effects
   'sound:play-effect': (soundUrl: string) => void;
@@ -668,6 +683,11 @@ export interface ClientToServerEvents {
    * (ответ — `compendium:kind-data`). `dataKind`: `spell`/`creature`/`class`/… .
    */
   'compendium:request-kind': (dataKind: string) => void;
+  /**
+   * Запросить индекс страниц-источников всех паков (ответ — `compendium:src-index`).
+   * Клиент шлёт его один раз за сессию и перезапрашивает по `compendium:updated`.
+   */
+  'compendium:request-src-index': () => void;
   // System data
   'system:request-weapon-properties': () => void;
   'system:request-weapon-base-types': () => void;

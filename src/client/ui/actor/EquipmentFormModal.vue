@@ -10,6 +10,7 @@
 
   import { useEquipmentForm } from '../../composables/useEquipmentForm';
   import FormSection from './FormSection.vue';
+  import SourceField from './SourceField.vue';
   import ActiveEffectFormModal from './tabs/ActiveEffectFormModal.vue';
 
   const props = defineProps<{
@@ -58,6 +59,7 @@
     costValue,
     costCurrency,
     sourceKey,
+    source,
     isSRD,
     isMagical,
     magicAttunement,
@@ -68,7 +70,6 @@
     isActualArmor,
     categoryOptions,
     baseTypeOptions,
-    sourceOptions,
     equipmentPropertyOptions,
     selectedEquipmentProperties,
     toggleEquipmentProperty,
@@ -268,12 +269,9 @@
               title="Источник"
               title-color="source"
             >
-              <USelect
-                v-model="sourceKey"
-                :items="sourceOptions"
-                value-key="value"
-                placeholder="Выберите источник..."
-                class="w-full"
+              <SourceField
+                v-model:source-key="sourceKey"
+                v-model:source="source"
               />
 
               <UCheckbox

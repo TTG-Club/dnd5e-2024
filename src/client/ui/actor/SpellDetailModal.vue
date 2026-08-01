@@ -147,6 +147,7 @@
     :title="spell?.name ?? 'Заклинание'"
     :subtitle="spell?.nameEn || undefined"
     :source-key="spell?.sourceKey"
+    :source="spell?.source"
     :is-srd="spell?.isSRD"
     card-type="spell"
     :chat-payload="chatPayload"

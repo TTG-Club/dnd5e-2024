@@ -12,7 +12,7 @@ import type {
 } from '@vtt/shared';
 
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 
 /**
  * Хранилище системных данных D&D (свойства оружия, типы урона и т.д.)
@@ -36,8 +36,40 @@ export const useSystemDataStore = defineStore('systemData', () => {
   /** Определения типов боеприпасов */
   const ammunitionTypes = ref<AmmunitionTypeDefinition[]>([]);
 
-  /** Определения источников контента */
-  const sources = ref<SourceDefinition[]>([]);
+  /** Источники, встроенные в систему (базовые книги из `data/sources.json`) */
+  const builtinSources = ref<SourceDefinition[]>([]);
+
+  /** Источники, приехавшие с паками компендиума (из манифеста пака) */
+  const packSources = ref<SourceDefinition[]>([]);
+
+  /** Источники, вписанные пользователем при создании своего контента */
+  const customSources = ref<SourceDefinition[]>([]);
+
+  /**
+   * Источники контента: вписанные пользователем, приехавшие с паками и
+   * встроенные.
+   *
+   * Система знает только базовые книги, а в компендиуме встречается что угодно
+   * (`lfl`, `efa`, …) — без слияния такие записи оставались бы без подписи, а их
+   * источник нельзя было бы выбрать при создании своего контента. Порядок
+   * приоритета обратный порядку доверия: при совпадении ключа выигрывает
+   * встроенный (его название выверено и от пака не зависит), затем пак, и лишь
+   * потом вписанное вручную — опечатка в своей книге не должна переименовывать
+   * «Книгу игрока».
+   */
+  const sources = computed<SourceDefinition[]>(() => {
+    const byKey = new Map<string, SourceDefinition>();
+
+    for (const source of [
+      ...customSources.value,
+      ...packSources.value,
+      ...builtinSources.value,
+    ]) {
+      byKey.set(source.key, source);
+    }
+
+    return [...byKey.values()];
+  });
 
   /** Определения категорий доспехов */
   const armorCategories = ref<EquipmentCategoryDefinition[]>([]);
@@ -97,11 +129,39 @@ export const useSystemDataStore = defineStore('systemData', () => {
   }
 
   /**
-   * Устанавливает источники контента из серверных данных
+   * Устанавливает встроенные источники системы из серверных данных
    * @param items - массив определений источников
    */
   function setSources(items: SourceDefinition[]): void {
-    sources.value = items;
+    builtinSources.value = items;
+  }
+
+  /**
+   * Устанавливает источники, приехавшие с паками компендиума
+   * @param items - определения источников из манифестов паков
+   */
+  function setPackSources(items: SourceDefinition[]): void {
+    packSources.value = items;
+  }
+
+  /**
+   * Запоминает источник, вписанный пользователем, чтобы он предлагался и в
+   * следующих формах. Записи со своим источником везут его определение с собой,
+   * поэтому подпись не потеряется и без этого списка — здесь копится только
+   * то, что показывать в подсказках при вводе.
+   *
+   * @param definition - определение источника (ключ уже нормализован)
+   */
+  function rememberSource(definition: SourceDefinition): void {
+    if (!definition.key) {
+      return;
+    }
+
+    const rest = customSources.value.filter(
+      (source) => source.key !== definition.key,
+    );
+
+    customSources.value = [...rest, definition];
   }
 
   /**
@@ -155,7 +215,9 @@ export const useSystemDataStore = defineStore('systemData', () => {
     damageTypes.value = [];
     weaponCategories.value = [];
     ammunitionTypes.value = [];
-    sources.value = [];
+    builtinSources.value = [];
+    packSources.value = [];
+    customSources.value = [];
     armorCategories.value = [];
     armorBaseTypes.value = [];
     equipmentProperties.value = [];
@@ -178,6 +240,8 @@ export const useSystemDataStore = defineStore('systemData', () => {
     setWeaponCategories,
     setAmmunitionTypes,
     setSources,
+    setPackSources,
+    rememberSource,
     setArmorCategories,
     setArmorBaseTypes,
     setEquipmentProperties,

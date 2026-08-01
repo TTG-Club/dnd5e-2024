@@ -29,6 +29,7 @@ export * from './hitDiceUtils.js';
 export * from './itemSchemas.js';
 export * from './positionalEffects.js';
 export * from './restEngine.js';
+export * from './sourceKeys.js';
 export * from './speciesGrants.js';
 export * from './speciesTypes.js';
 export * from './spellSlotTable.js';

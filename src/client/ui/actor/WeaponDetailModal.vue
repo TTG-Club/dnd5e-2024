@@ -133,6 +133,7 @@
     :title="item?.name ?? 'Оружие'"
     :subtitle="item?.nameEn || undefined"
     :source-key="item?.sourceKey"
+    :source="item?.source"
     :is-srd="item?.isSRD"
     card-type="equipment"
     :chat-payload="chatPayload"

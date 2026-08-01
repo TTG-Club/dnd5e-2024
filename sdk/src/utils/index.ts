@@ -4,6 +4,7 @@ export * from './generateId.js';
 export * from './geometry.js';
 export * from './getTokenDistance.js';
 export * from './manifestValidation.js';
+export * from './subscriptionStatus.js';
 export * from './typeGuards.js';
 export * from './unitConverter.js';
 

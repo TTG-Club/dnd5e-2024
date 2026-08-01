@@ -240,7 +240,8 @@
               <p class="text-sm text-dimmed">
                 Источник:
                 <span class="font-medium text-primary-400">{{
-                  getSourceLabel(definition.sourceKey) || 'PHB'
+                  getSourceLabel(definition.sourceKey, definition.source) ||
+                  'PHB'
                 }}</span>
               </p>
             </div>

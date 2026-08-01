@@ -1,12 +1,13 @@
 <script setup lang="ts">
-  import type { ChatCardType } from '@vtt/shared';
+  import type { ChatCardType, SourceDefinition } from '@vtt/shared';
 
   import { computed } from 'vue';
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import SendToChatButton from '@/shared_ui/components/SendToChatButton.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
-  import { useSourceLabels } from '@/systems/dnd5e/composables/useSourceLabel';
+
+  import SourceBadge from './SourceBadge.vue';
 
   /** Бейдж внутри поля */
   export interface DescriptionBadge {
@@ -48,8 +49,10 @@
     automation?: string;
     /** Готовый лейбл источника — отображается в header (приоритетнее sourceKey) */
     sourceLabel?: string;
-    /** Ключ источника из sources.json — подпись резолвится автоматически */
+    /** Ключ источника — подпись резолвится автоматически */
     sourceKey?: string;
+    /** Определение источника, вписанное вместе с записью */
+    source?: SourceDefinition;
     /** Принадлежит ли к SRD — показывает бейдж в header */
     isSRD?: boolean;
     /** Данные для кнопки отправки в чат */
@@ -76,6 +79,7 @@
     automation: undefined,
     sourceLabel: undefined,
     sourceKey: undefined,
+    source: undefined,
     isSRD: false,
     shareCard: undefined,
     showCopyButton: false,
@@ -92,13 +96,6 @@
     get: () => props.open,
     set: (value) => emit('update:open', value),
   });
-
-  const { getSourceLabel } = useSourceLabels();
-
-  /** Подпись источника: явная или резолв по ключу */
-  const resolvedSourceLabel = computed(
-    () => props.sourceLabel ?? getSourceLabel(props.sourceKey),
-  );
 
   /** Вкладки тела (когда задана автоматизация). */
   const descriptionTabs = [
@@ -123,14 +120,25 @@
     @bring-to-front="emit('bring-to-front')"
   >
     <template #header-actions>
+      <!--
+        Явная подпись перекрывает резолв по ключу: часть вызывающих (умения
+        класса, особенности вида) передаёт не книгу, а происхождение записи —
+        расшифровывать такую строку нечем и незачем.
+      -->
       <UBadge
-        v-if="resolvedSourceLabel"
+        v-if="sourceLabel"
         color="neutral"
         variant="subtle"
         size="sm"
       >
-        {{ resolvedSourceLabel }}
+        {{ sourceLabel }}
       </UBadge>
+
+      <SourceBadge
+        v-else
+        :source-key="sourceKey"
+        :source="source"
+      />
 
       <UBadge
         v-if="isSRD"

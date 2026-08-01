@@ -5,7 +5,7 @@
  * и запись на акторе (ActorBackgroundEntry).
  */
 
-import type { AbilityType, SkillType } from '@vtt/shared';
+import type { AbilityType, SkillType, SourceDefinition } from '@vtt/shared';
 import type { ActiveEffect } from './activeEffectTypes.js';
 import type { FeatData } from './featTypes.js';
 
@@ -64,8 +64,10 @@ export interface BackgroundDefinition {
   nameEn: string;
   /** Описание (может содержать Markdown) */
   description: string;
-  /** Ключ источника-книги из sources.json (напр. 'phb', 'dmg') */
+  /** Ключ источника-книги — аббревиатура в нижнем регистре (напр. 'phb', 'dmg') */
   sourceKey?: string;
+  /** Название источника, если его нет ни во встроенном справочнике, ни в паке */
+  source?: SourceDefinition;
   /** Принадлежит ли к SRD */
   isSRD?: boolean;
 

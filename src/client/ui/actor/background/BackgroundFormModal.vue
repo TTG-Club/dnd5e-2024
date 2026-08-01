@@ -3,6 +3,7 @@
     AbilityType,
     Feature,
     SkillType,
+    SourceDefinition,
     TypedWebSocketClient,
   } from '@vtt/shared';
   import type {
@@ -36,7 +37,6 @@
     linkGrantedSpellRefs,
     loadSpellPacks,
   } from '@/systems/dnd5e/composables/spellCompendium';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 
   import {
     buildFeatData,
@@ -46,6 +46,7 @@
   import FeatGrantsFields from '../feat/FeatGrantsFields.vue';
   import FormSection from '../FormSection.vue';
   import GrantedSpellsEditor from '../GrantedSpellsEditor.vue';
+  import SourceField from '../SourceField.vue';
   import ActiveEffectFormModal from '../tabs/ActiveEffectFormModal.vue';
   import { slugify } from '../utils/slugify';
 
@@ -78,7 +79,6 @@
   );
 
   const itemsStore = useItemsStore();
-  const systemDataStore = useSystemDataStore();
   const { openModal, getNextZIndex } = useModalManager();
 
   const abilitiesOptions = ABILITY_OPTIONS.map((ability) => ({
@@ -96,14 +96,6 @@
     label,
   }));
 
-  const sourceOptions = computed(() => [
-    { label: 'Свой источник', value: 'local' },
-    ...systemDataStore.sources.map((source) => ({
-      label: `${source.name} (${source.abbreviation})`,
-      value: source.key,
-    })),
-  ]);
-
   const tabItems = [
     { label: 'Основное', slot: 'basic' as const },
     { label: 'Параметры', slot: 'params' as const },
@@ -117,7 +109,8 @@
   const name = ref('');
   const nameEn = ref('');
   const description = ref('');
-  const sourceKey = ref('local');
+  const sourceKey = ref<string | undefined>(undefined);
+  const source = ref<SourceDefinition | undefined>(undefined);
   const isSRD = ref(false);
 
   // Канонические дары предыстории (2024).
@@ -306,7 +299,8 @@
     name.value = '';
     nameEn.value = '';
     description.value = '';
-    sourceKey.value = 'local';
+    sourceKey.value = undefined;
+    source.value = undefined;
     isSRD.value = false;
     selectedAbilities.value = [];
     selectedSkills.value = [];
@@ -329,7 +323,8 @@
     name.value = bg.name || '';
     nameEn.value = bg.nameEn || '';
     description.value = bg.description || '';
-    sourceKey.value = bg.sourceKey ?? 'local';
+    sourceKey.value = bg.sourceKey;
+    source.value = bg.source;
     isSRD.value = bg.isSRD || false;
 
     selectedAbilities.value = [...(bg.abilityGrant?.abilities ?? [])];
@@ -434,6 +429,7 @@
       nameEn: nameEn.value.trim() || undefined,
       description: description.value.trim(),
       sourceKey: sourceKey.value,
+      source: source.value,
       isSRD: isSRD.value,
 
       quantity: 1,
@@ -555,12 +551,9 @@
               title="Источник"
               title-color="source"
             >
-              <USelect
-                v-model="sourceKey"
-                :items="sourceOptions"
-                value-key="value"
-                placeholder="Выберите источник..."
-                class="w-full"
+              <SourceField
+                v-model:source-key="sourceKey"
+                v-model:source="source"
               />
 
               <UCheckbox

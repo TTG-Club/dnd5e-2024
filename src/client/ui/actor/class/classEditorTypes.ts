@@ -14,7 +14,7 @@
  *   `string | number`, разрежённые (пустая ячейка не пишется → рендер «—»).
  */
 
-import type { AbilityType } from '@vtt/shared';
+import type { AbilityType, SourceDefinition } from '@vtt/shared';
 import type {
   CasterType,
   ClassCounterDefinition,
@@ -158,7 +158,8 @@ export interface EditableSubclass {
   nameEn: string;
   description: string;
   unlockLevel: number;
-  sourceKey: string;
+  sourceKey?: string;
+  source?: SourceDefinition;
   features: EditableClassFeature[];
   counters: EditableCounter[];
   spellcasting: EditableSpellcasting;
@@ -529,7 +530,8 @@ export function toEditableSubclass(
     nameEn: subclass.nameEn || '',
     description: subclass.description || '',
     unlockLevel: subclass.unlockLevel ?? 3,
-    sourceKey: subclass.sourceKey || '',
+    sourceKey: subclass.sourceKey,
+    source: subclass.source,
     features: (subclass.features ?? []).map(toEditableFeature),
     counters: (subclass.counters ?? []).map(toEditableCounter),
     spellcasting: toEditableSpellcasting(subclass.spellcasting),
@@ -846,8 +848,9 @@ export function buildSubclass(subclass: EditableSubclass): SubclassDefinition {
     features: [...baseFeatures, ...asiFeatures],
   };
 
-  if (subclass.sourceKey.trim()) {
+  if (subclass.sourceKey?.trim()) {
     built.sourceKey = subclass.sourceKey.trim();
+    built.source = subclass.source;
   }
 
   const counters = subclass.counters

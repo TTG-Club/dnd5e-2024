@@ -23,6 +23,7 @@
   import DamagePartRow from './DamagePartRow.vue';
   import DamagePartsEditor from './DamagePartsEditor.vue';
   import FormSection from './FormSection.vue';
+  import SourceField from './SourceField.vue';
   import ActiveEffectFormModal from './tabs/ActiveEffectFormModal.vue';
 
   defineOptions({ inheritAttrs: false });
@@ -148,6 +149,7 @@
     usesCurrent,
     usesRecovery,
     sourceKey,
+    source,
     isSRD,
     classKeys,
     activeEffects,
@@ -163,7 +165,6 @@
     SAVE_EFFECT_OPTIONS,
     SPELL_LEVEL_OPTIONS,
     damageTypeOptions,
-    sourceOptions,
     buildSpell,
   } = useSpellForm(
     () => targetSpell.value,
@@ -416,21 +417,16 @@
               title="Источник"
               title-color="source"
             >
-              <div class="flex items-center gap-4">
-                <USelect
-                  v-model="sourceKey"
-                  :items="sourceOptions"
-                  value-key="value"
-                  placeholder="Выберите источник..."
-                  class="flex-1"
-                />
+              <SourceField
+                v-model:source-key="sourceKey"
+                v-model:source="source"
+              />
 
-                <UCheckbox
-                  v-model="isSRD"
-                  label="SRD контент"
-                  class="shrink-0"
-                />
-              </div>
+              <UCheckbox
+                v-model="isSRD"
+                label="SRD контент"
+                class="mt-2"
+              />
             </FormSection>
 
             <!-- Доступность классов -->

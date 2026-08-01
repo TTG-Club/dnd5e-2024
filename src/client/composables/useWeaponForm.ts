@@ -4,6 +4,7 @@ import type {
   DamagePart,
   DistanceUnit,
   ItemRarity,
+  SourceDefinition,
   SpellSaveType,
   WeaponCategory,
   WeaponProficiencyMode,
@@ -19,6 +20,7 @@ import type {
 import {
   damagePartIsHealing,
   DEFAULT_CURRENCY,
+  FALLBACK_SOURCE_KEY,
   isDnDEffect,
   parseCost,
   SAVE_EFFECT_OPTIONS,
@@ -77,7 +79,8 @@ export function useWeaponForm(
   const ammunitionType = ref<AmmunitionType | ''>('');
   const mastery = ref<string>(NO_SELECTION);
   const distanceUnit = ref<DistanceUnit>('ft');
-  const sourceKey = ref('hb');
+  const sourceKey = ref<string | undefined>(FALLBACK_SOURCE_KEY);
+  const source = ref<SourceDefinition | undefined>(undefined);
   const isSRD = ref(false);
   const magicAttunement = ref<'none' | 'required' | 'optional'>('none');
   const isAttuned = ref(false);
@@ -163,14 +166,6 @@ export function useWeaponForm(
     })),
   ]);
 
-  /** Опции источников контента */
-  const sourceOptions = computed(() =>
-    systemDataStore.sources.map((src) => ({
-      label: `${src.name} (${src.abbreviation})`,
-      value: src.key,
-    })),
-  );
-
   // --- Заполнение формы при открытии ---
   watch(
     getIsOpen,
@@ -213,7 +208,8 @@ export function useWeaponForm(
         ammunitionType.value = weapon.ammunitionType ?? '';
         mastery.value = weapon.mastery ?? NO_SELECTION;
         distanceUnit.value = weapon.distanceUnit ?? 'ft';
-        sourceKey.value = weapon.sourceKey ?? 'hb';
+        sourceKey.value = weapon.sourceKey ?? FALLBACK_SOURCE_KEY;
+        source.value = weapon.source;
         isSRD.value = weapon.isSRD ?? false;
         rarity.value = weapon.rarity ?? 'none';
 
@@ -265,7 +261,8 @@ export function useWeaponForm(
         ammunitionType.value = '';
         mastery.value = NO_SELECTION;
         distanceUnit.value = 'ft';
-        sourceKey.value = 'hb';
+        sourceKey.value = FALLBACK_SOURCE_KEY;
+        source.value = undefined;
         isSRD.value = false;
         magicAttunement.value = 'none';
         isAttuned.value = false;
@@ -422,6 +419,7 @@ export function useWeaponForm(
         ? ammunitionType.value || undefined
         : undefined,
       sourceKey: sourceKey.value || undefined,
+      source: source.value,
       isSRD: isSRD.value || undefined,
       isReadOnly: false,
       distanceUnit:
@@ -465,6 +463,7 @@ export function useWeaponForm(
     mastery,
     distanceUnit,
     sourceKey,
+    source,
     isSRD,
     isAdamantine,
     isMagical,
@@ -482,7 +481,6 @@ export function useWeaponForm(
     ammunitionTypeOptions,
     proficiencyModeOptions,
     masteryOptions,
-    sourceOptions,
     saveTypeOptions: SAVE_TYPE_OPTIONS,
     saveEffectOptions: SAVE_EFFECT_OPTIONS,
 

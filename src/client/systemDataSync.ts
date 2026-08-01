@@ -16,6 +16,7 @@ import { systemRegistry } from '@vtt/shared';
 import { dnd5eSystemInstance } from '@vtt/shared/system/dnd.js';
 
 import { ClientHooks } from '@/core/clientHooks';
+import { loadCompendiumManifests } from '@/core/compendiumDataClient';
 import { getActiveSocket } from '@/system-runtime/activeSocket';
 
 import { useSystemDataStore } from './stores/systemDataStore';
@@ -85,14 +86,44 @@ function subscribeSystemData(socket: TypedWebSocketClient): void {
     store.setToolProperties(properties);
   });
 
+  // Источники записей приезжают в манифестах паков: система знает только базовые
+  // книги, а в компендиуме встречается что угодно. Перечитываем и при обновлении
+  // паков — вместе с контентом мог измениться и состав источников.
+  socket.on('compendium:updated', () => {
+    void loadPackSources(socket, store);
+  });
+
   // Запрашиваем данные при подключении (и сразу, если сокет уже подключён —
   // случай, когда система загрузилась после установления соединения).
   socket.on('connect', () => {
     socket.emit('system:request-all');
+    void loadPackSources(socket, store);
   });
 
   if (socket.connected) {
     socket.emit('system:request-all');
+    void loadPackSources(socket, store);
+  }
+}
+
+/**
+ * Собирает источники всех паков компендиума в хранилище системы.
+ *
+ * @param socket - активный WebSocket-клиент
+ * @param store - хранилище справочных данных системы
+ */
+async function loadPackSources(
+  socket: TypedWebSocketClient,
+  store: ReturnType<typeof useSystemDataStore>,
+): Promise<void> {
+  try {
+    const manifests = await loadCompendiumManifests(socket);
+
+    store.setPackSources(
+      manifests.flatMap((manifest) => manifest.sources ?? []),
+    );
+  } catch (error) {
+    console.warn('[Dnd5eSystemData] Источники паков не загрузились:', error);
   }
 }
 

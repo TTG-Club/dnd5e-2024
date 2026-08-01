@@ -7,6 +7,7 @@
 
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
 
+  import SourceField from '../SourceField.vue';
   import ClassCountersEditor from './ClassCountersEditor.vue';
   import {
     createEmptyLevelTable,
@@ -155,13 +156,11 @@
           />
         </UFormField>
 
-        <UFormField label="Источник (ключ)">
-          <UInput
-            v-model="selected.sourceKey"
-            placeholder="phb"
-            class="w-full"
-          />
-        </UFormField>
+        <SourceField
+          v-model:source-key="selected.sourceKey"
+          v-model:source="selected.source"
+          class="col-span-2"
+        />
       </div>
 
       <UFormField label="Описание (Markdown)">

@@ -1,20 +1,22 @@
 <script setup lang="ts">
-  import { useSourceLabel } from '@/systems/dnd5e/composables/useSourceLabel';
+  import type { SourceDefinition } from '@vtt/shared';
+
+  import SourceBadge from './SourceBadge.vue';
 
   interface FeatDisplayItem {
     id: string;
     name: string;
     nameEn?: string;
-    /** Ключ источника-книги (sources.json) */
+    /** Ключ источника-книги — аббревиатура в нижнем регистре */
     sourceKey?: string;
+    /** Определение источника, вписанное вместе с записью */
+    source?: SourceDefinition;
     repeatable?: boolean;
   }
 
-  const props = defineProps<{
+  defineProps<{
     item: FeatDisplayItem;
   }>();
-
-  const { sourceLabel } = useSourceLabel(() => props.item.sourceKey);
 </script>
 
 <template>
@@ -26,12 +28,11 @@
     </div>
 
     <div class="mt-0.5 flex items-center gap-3 text-xs text-muted">
-      <span
-        v-if="sourceLabel"
-        class="truncate text-primary-400"
-      >
-        {{ sourceLabel }}
-      </span>
+      <SourceBadge
+        :source-key="item.sourceKey"
+        :source="item.source"
+        variant="text"
+      />
 
       <UBadge
         v-if="item.repeatable"

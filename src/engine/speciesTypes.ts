@@ -183,8 +183,10 @@ export interface SpeciesDefinition {
   nameEn: string;
   description: string;
   icon?: string;
-  /** Ключ источника-книги из sources.json (напр. 'phb', 'dmg') */
+  /** Ключ источника-книги — аббревиатура в нижнем регистре (напр. 'phb', 'dmg') */
   sourceKey?: string;
+  /** Название источника, если его нет ни во встроенном справочнике, ни в паке */
+  source?: import('@vtt/shared').SourceDefinition;
   /** Принадлежит ли виду к System Reference Document (SRD) */
   isSRD?: boolean;
 

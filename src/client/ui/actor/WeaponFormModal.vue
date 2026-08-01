@@ -16,6 +16,7 @@
   import { useWeaponForm } from '../../composables/useWeaponForm';
   import DamagePartsEditor from './DamagePartsEditor.vue';
   import FormSection from './FormSection.vue';
+  import SourceField from './SourceField.vue';
   import ActiveEffectFormModal from './tabs/ActiveEffectFormModal.vue';
 
   const props = defineProps<{
@@ -82,13 +83,13 @@
     ammunitionTypeOptions,
     proficiencyModeOptions,
     masteryOptions,
-    sourceOptions,
     saveTypeOptions,
     saveEffectOptions,
     toggleProperty,
     buildWeapon,
     distanceUnit,
     sourceKey,
+    source,
     isSRD,
     isMagical,
     magicAttunement,
@@ -303,12 +304,9 @@
               title="Источник"
               title-color="source"
             >
-              <USelect
-                v-model="sourceKey"
-                :items="sourceOptions"
-                value-key="value"
-                placeholder="Выберите источник..."
-                class="w-full"
+              <SourceField
+                v-model:source-key="sourceKey"
+                v-model:source="source"
               />
 
               <UCheckbox

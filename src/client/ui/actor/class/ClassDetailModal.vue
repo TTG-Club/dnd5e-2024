@@ -10,8 +10,8 @@
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
-  import { useSourceLabels } from '@/systems/dnd5e/composables/useSourceLabel';
 
+  import SourceBadge from '../SourceBadge.vue';
   import {
     ABILITY_LABELS,
     ARMOR_PROF_SHORT_LABELS,
@@ -55,8 +55,6 @@
     'update:open': [value: boolean];
     'bring-to-front': [];
   }>();
-
-  const { getSourceLabel } = useSourceLabels();
 
   const initialPosition = computed(() =>
     props.positionOffset
@@ -314,12 +312,9 @@
     @bring-to-front="emit('bring-to-front')"
   >
     <template #header-actions>
-      <UBadge
-        v-if="getSourceLabel(classDefinition?.sourceKey)"
-        :label="getSourceLabel(classDefinition?.sourceKey)"
-        color="neutral"
-        variant="subtle"
-        size="sm"
+      <SourceBadge
+        :source-key="classDefinition?.sourceKey"
+        :source="classDefinition?.source"
       />
 
       <UBadge
@@ -726,15 +721,11 @@
 
                   <span class="text-xs text-dimmed">{{ subclass.nameEn }}</span>
 
-                  <UBadge
-                    v-if="getSourceLabel(subclass.sourceKey)"
-                    size="sm"
-                    color="primary"
-                    variant="subtle"
+                  <SourceBadge
+                    :source-key="subclass.sourceKey"
+                    :source="subclass.source"
                     class="ml-2"
-                  >
-                    {{ getSourceLabel(subclass.sourceKey) }}
-                  </UBadge>
+                  />
                 </div>
 
                 <UIcon

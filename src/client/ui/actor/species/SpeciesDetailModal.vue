@@ -14,9 +14,9 @@
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
-  import { useSourceLabels } from '@/systems/dnd5e/composables/useSourceLabel';
 
   import { CREATURE_SIZE_LABELS, CREATURE_TYPE_LABELS } from '../constants';
+  import SourceBadge from '../SourceBadge.vue';
 
   const props = defineProps<{
     open: boolean;
@@ -35,8 +35,6 @@
       ? { x: props.positionOffset, y: props.positionOffset }
       : undefined,
   );
-
-  const { getSourceLabel } = useSourceLabels();
 
   const displayType = computed(() => {
     if (!props.speciesDefinition) {
@@ -246,12 +244,9 @@
     @bring-to-front="emit('bring-to-front')"
   >
     <template #header-actions>
-      <UBadge
-        v-if="getSourceLabel(speciesDefinition?.sourceKey)"
-        :label="getSourceLabel(speciesDefinition?.sourceKey)"
-        color="neutral"
-        variant="subtle"
-        size="sm"
+      <SourceBadge
+        :source-key="speciesDefinition?.sourceKey"
+        :source="speciesDefinition?.source"
       />
 
       <UBadge

@@ -3,6 +3,7 @@
     AbilityType,
     ArmorCategory,
     SkillType,
+    SourceDefinition,
     TypedWebSocketClient,
   } from '@vtt/shared';
   import type {
@@ -35,7 +36,6 @@
     findSpellInPacks,
     loadSpellPacks,
   } from '@/systems/dnd5e/composables/spellCompendium';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 
   import {
     ARMOR_PROF_LABELS,
@@ -43,6 +43,7 @@
     WEAPON_PROF_LABELS,
   } from '../constants';
   import FormSection from '../FormSection.vue';
+  import SourceField from '../SourceField.vue';
   import { slugify } from '../utils/slugify';
   import ClassCountersEditor from './ClassCountersEditor.vue';
   import {
@@ -97,18 +98,9 @@
       : undefined,
   );
 
-  const systemDataStore = useSystemDataStore();
   const { openModal } = useModalManager();
 
   // ── Опции селектов ─────────────────────────────────────────
-  const sourceOptions = computed(() => [
-    { label: 'Свой источник', value: 'local' },
-    ...systemDataStore.sources.map((source) => ({
-      label: `${source.name} (${source.abbreviation})`,
-      value: source.key,
-    })),
-  ]);
-
   const armorOptions: { value: ArmorCategory; label: string }[] = [
     { value: 'light', label: ARMOR_PROF_LABELS.light },
     { value: 'medium', label: ARMOR_PROF_LABELS.medium },
@@ -153,7 +145,8 @@
   const nameEn = ref('');
   const description = ref('');
   const icon = ref('');
-  const sourceKey = ref('local');
+  const sourceKey = ref<string | undefined>(undefined);
+  const source = ref<SourceDefinition | undefined>(undefined);
   const isSRD = ref(false);
   const hitDie = ref<HitDie>(8);
   const subclassLevel = ref(3);
@@ -208,7 +201,8 @@
     nameEn.value = '';
     description.value = '';
     icon.value = '';
-    sourceKey.value = 'local';
+    sourceKey.value = undefined;
+    source.value = undefined;
     isSRD.value = false;
     hitDie.value = 8;
     subclassLevel.value = 3;
@@ -240,7 +234,8 @@
     nameEn.value = definition.nameEn || '';
     description.value = definition.description || '';
     icon.value = definition.icon || '';
-    sourceKey.value = definition.sourceKey || 'local';
+    sourceKey.value = definition.sourceKey;
+    source.value = definition.source;
     isSRD.value = definition.isSRD ?? false;
     hitDie.value = definition.hitDie;
     subclassLevel.value = definition.subclassLevel;
@@ -415,6 +410,7 @@
       description: description.value.trim(),
       icon: icon.value.trim() || undefined,
       sourceKey: sourceKey.value,
+      source: source.value,
       isSRD: isSRD.value,
       hitDie: hitDie.value,
       armorProficiencies: [...armorProficiencies.value],
@@ -493,6 +489,7 @@
       nameEn: definition.nameEn,
       description: definition.description ?? '',
       sourceKey: sourceKey.value,
+      source: source.value,
       isSRD: isSRD.value,
       image: icon.value.trim() || undefined,
       quantity: 1,
@@ -572,14 +569,10 @@
                   />
                 </UFormField>
 
-                <UFormField label="Источник">
-                  <USelect
-                    v-model="sourceKey"
-                    :items="sourceOptions"
-                    value-key="value"
-                    class="w-full"
-                  />
-                </UFormField>
+                <SourceField
+                  v-model:source-key="sourceKey"
+                  v-model:source="source"
+                />
 
                 <UFormField label="Уровень выбора подкласса">
                   <UInputNumber

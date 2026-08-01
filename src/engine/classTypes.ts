@@ -9,6 +9,7 @@ import type {
   AbilityType,
   ArmorCategory,
   SkillType,
+  SourceDefinition,
 } from '@vtt/shared';
 
 // ── Литеральные типы ─────────────────────────────────────────
@@ -155,8 +156,10 @@ export interface SubclassDefinition {
   features: ClassFeature[];
   /** Дополнительные заклинания (для подклассов заклинателей) */
   bonusSpells?: Array<{ spellLevel: number; spells: string[] }>;
-  /** Ключ источника-книги из sources.json (напр. 'phb', 'dmg') */
+  /** Ключ источника-книги — аббревиатура в нижнем регистре (напр. 'phb', 'dmg') */
   sourceKey?: string;
+  /** Название источника, если его нет ни во встроенном справочнике, ни в паке */
+  source?: SourceDefinition;
   /**
    * Заклинательная конфигурация подкласса.
    * Используется для подклассов с собственной магией (например, Мистический рыцарь, Таинственный стрелок).
@@ -248,8 +251,10 @@ export interface ClassDefinition {
   description?: string;
   /** Иконка для UI (формат: 'tabler:icon-name') */
   icon?: string;
-  /** Ключ источника-книги из sources.json (напр. 'phb', 'dmg') */
+  /** Ключ источника-книги — аббревиатура в нижнем регистре (напр. 'phb', 'dmg') */
   sourceKey?: string;
+  /** Название источника, если его нет ни во встроенном справочнике, ни в паке */
+  source?: SourceDefinition;
   /** Принадлежит ли классу к System Reference Document (SRD) */
   isSRD?: boolean;
 

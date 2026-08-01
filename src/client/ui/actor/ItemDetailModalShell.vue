@@ -1,12 +1,12 @@
 <script setup lang="ts">
-  import type { ChatCardType } from '@vtt/shared';
+  import type { ChatCardType, SourceDefinition } from '@vtt/shared';
 
   import { computed } from 'vue';
 
   import SendToChatButton from '@/shared_ui/components/SendToChatButton.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
 
-  import { useSourceLabel } from '../../composables/useSourceLabel';
+  import SourceBadge from './SourceBadge.vue';
 
   const props = defineProps<{
     /** Открыто ли модальное окно */
@@ -17,6 +17,8 @@
     subtitle?: string;
     /** Ключ источника контента для бейджа (PHB, DMG…) */
     sourceKey?: string;
+    /** Определение источника, вписанное вместе с записью (авторская книга) */
+    source?: SourceDefinition;
     /**
      * Является ли контент SRD (для бейджа «SRD»). Имя `isSrd`, а не `isSRD`,
      * намеренно: kebab-привязка `:is-srd` камелизуется в `isSrd` — с тремя
@@ -56,8 +58,6 @@
       ? { x: props.positionOffset, y: props.positionOffset }
       : undefined,
   );
-
-  const { sourceLabel } = useSourceLabel(() => props.sourceKey);
 </script>
 
 <template>
@@ -75,12 +75,9 @@
     @bring-to-front="emit('bring-to-front')"
   >
     <template #header-actions>
-      <UBadge
-        v-if="sourceLabel"
-        :label="sourceLabel"
-        color="neutral"
-        variant="subtle"
-        size="sm"
+      <SourceBadge
+        :source-key="sourceKey"
+        :source="source"
       />
 
       <UBadge

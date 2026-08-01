@@ -2,6 +2,7 @@ import type {
   EquipmentCategory,
   EquipmentCategoryDefinition,
   ItemRarity,
+  SourceDefinition,
 } from '@vtt/shared';
 import type {
   ActiveEffect,
@@ -11,6 +12,7 @@ import type {
 
 import {
   DEFAULT_CURRENCY,
+  FALLBACK_SOURCE_KEY,
   isDnDEffect,
   parseCost,
 } from '@vtt/shared/system/dnd.js';
@@ -44,7 +46,8 @@ export function useEquipmentForm(
   const weight = ref(0);
   const costValue = ref(0);
   const costCurrency = ref<CurrencyType>(DEFAULT_CURRENCY);
-  const sourceKey = ref('hb');
+  const sourceKey = ref<string | undefined>(FALLBACK_SOURCE_KEY);
+  const source = ref<SourceDefinition | undefined>(undefined);
   const isSRD = ref(false);
   const magicAttunement = ref<'none' | 'required' | 'optional'>('none');
   const isAttuned = ref(false);
@@ -124,14 +127,6 @@ export function useEquipmentForm(
     systemDataStore.armorBaseTypes.map((bt) => ({
       label: bt.name,
       value: bt.key,
-    })),
-  );
-
-  /** Опции источников контента */
-  const sourceOptions = computed(() =>
-    systemDataStore.sources.map((src) => ({
-      label: `${src.name} (${src.abbreviation})`,
-      value: src.key,
     })),
   );
 
@@ -241,7 +236,8 @@ export function useEquipmentForm(
 
         costValue.value = parsed.value;
         costCurrency.value = parsed.currency;
-        sourceKey.value = armor.sourceKey ?? 'hb';
+        sourceKey.value = armor.sourceKey ?? FALLBACK_SOURCE_KEY;
+        source.value = armor.source;
         isSRD.value = armor.isSRD ?? false;
 
         // Синхронизируем свойства в selectedEquipmentProperties
@@ -286,7 +282,8 @@ export function useEquipmentForm(
         weight.value = 0;
         costValue.value = 0;
         costCurrency.value = DEFAULT_CURRENCY;
-        sourceKey.value = 'hb';
+        sourceKey.value = FALLBACK_SOURCE_KEY;
+        source.value = undefined;
         isSRD.value = false;
         selectedEquipmentProperties.value = [];
         magicAttunement.value = 'none';
@@ -328,6 +325,7 @@ export function useEquipmentForm(
       strengthRequirement:
         strengthRequirement.value > 0 ? strengthRequirement.value : undefined,
       sourceKey: sourceKey.value || undefined,
+      source: source.value,
       isSRD: isSRD.value || undefined,
       isReadOnly: false,
       isAdamantine: isAdamantine.value || undefined,
@@ -360,6 +358,7 @@ export function useEquipmentForm(
     costValue,
     costCurrency,
     sourceKey,
+    source,
     isSRD,
     isAdamantine,
     isMagical,
@@ -375,7 +374,6 @@ export function useEquipmentForm(
     isActualArmor,
     categoryOptions,
     baseTypeOptions,
-    sourceOptions,
     equipmentPropertyOptions,
     selectedEquipmentProperties,
 

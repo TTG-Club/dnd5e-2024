@@ -4,9 +4,9 @@
   import { computed } from 'vue';
 
   import { useContextMenu } from '../../../composables/useContextMenu';
-  import { useSourceLabels } from '../../../composables/useSourceLabel';
   import { BACKGROUND_DEFINITION_MIME } from '../constants';
   import ContextMenuOverlay from '../ContextMenuOverlay.vue';
+  import SourceBadge from '../SourceBadge.vue';
 
   defineOptions({
     inheritAttrs: false,
@@ -23,8 +23,6 @@
   }>();
 
   const data = computed(() => props.item ?? props.backgroundDefinition!);
-
-  const { getSourceLabel } = useSourceLabels();
 
   const emit = defineEmits<{
     click: [];
@@ -65,12 +63,11 @@
       </div>
 
       <div class="mt-0.5 flex items-center gap-3 text-xs text-muted">
-        <span
-          v-if="getSourceLabel(data.sourceKey)"
-          class="truncate text-primary-400"
-        >
-          {{ getSourceLabel(data.sourceKey) }}
-        </span>
+        <SourceBadge
+          :source-key="data.sourceKey"
+          :source="data.source"
+          variant="text"
+        />
 
         <span v-if="data.skillGrant?.skills?.length"> 2 навыка </span>
 

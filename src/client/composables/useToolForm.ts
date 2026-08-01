@@ -1,6 +1,7 @@
 import type {
   AbilityType,
   ItemRarity,
+  SourceDefinition,
   ToolCategory,
   ToolProficiencyMode,
 } from '@vtt/shared';
@@ -12,6 +13,7 @@ import type {
 
 import {
   DEFAULT_CURRENCY,
+  FALLBACK_SOURCE_KEY,
   isDnDEffect,
   parseCost,
   TOOL_CATEGORIES,
@@ -53,7 +55,8 @@ export function useToolForm(
   const weight = ref(0);
   const costValue = ref(0);
   const costCurrency = ref<CurrencyType>(DEFAULT_CURRENCY);
-  const sourceKey = ref('hb');
+  const sourceKey = ref<string | undefined>(FALLBACK_SOURCE_KEY);
+  const source = ref<SourceDefinition | undefined>(undefined);
   const isSRD = ref(false);
   const magicAttunement = ref<'none' | 'required' | 'optional'>('none');
   const isAttuned = ref(false);
@@ -102,14 +105,6 @@ export function useToolForm(
     }));
   });
 
-  /** Опции источников контента */
-  const sourceOptions = computed(() =>
-    systemDataStore.sources.map((src) => ({
-      label: `${src.name} (${src.abbreviation})`,
-      value: src.key,
-    })),
-  );
-
   /** Опции свойств инструментов */
   const toolPropertyOptions = computed(() =>
     systemDataStore.toolProperties.map((prop) => ({
@@ -154,7 +149,8 @@ export function useToolForm(
 
         costValue.value = parsed.value;
         costCurrency.value = parsed.currency;
-        sourceKey.value = tool.sourceKey ?? 'hb';
+        sourceKey.value = tool.sourceKey ?? FALLBACK_SOURCE_KEY;
+        source.value = tool.source;
         isSRD.value = tool.isSRD ?? false;
 
         // Синхронизируем свойства
@@ -191,7 +187,8 @@ export function useToolForm(
         weight.value = 0;
         costValue.value = 0;
         costCurrency.value = DEFAULT_CURRENCY;
-        sourceKey.value = 'hb';
+        sourceKey.value = FALLBACK_SOURCE_KEY;
+        source.value = undefined;
         isSRD.value = false;
         selectedToolProperties.value = [];
         magicAttunement.value = 'none';
@@ -232,6 +229,7 @@ export function useToolForm(
       toolProficiencyMode: toolProficiencyMode.value,
 
       sourceKey: sourceKey.value || undefined,
+      source: source.value,
       isSRD: isSRD.value || undefined,
       isReadOnly: false,
 
@@ -261,6 +259,7 @@ export function useToolForm(
     costValue,
     costCurrency,
     sourceKey,
+    source,
     isSRD,
     isMagical,
     isFocus,
@@ -273,7 +272,6 @@ export function useToolForm(
     // Computed
     toolCategoryOptions,
     toolBaseTypeOptions,
-    sourceOptions,
     toolPropertyOptions,
 
     // Методы

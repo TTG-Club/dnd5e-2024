@@ -16,7 +16,8 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useChatStore } from '@/stores/chatStore';
-  import { useSourceLabels } from '@/systems/dnd5e/composables/useSourceLabel';
+
+  import SourceBadge from '../SourceBadge.vue';
 
   const props = defineProps<{
     open: boolean;
@@ -93,7 +94,6 @@
   );
 
   const { openModal } = useModalManager();
-  const { getSourceLabel } = useSourceLabels();
   const chatStore = useChatStore();
 
   /**
@@ -160,12 +160,9 @@
     @bring-to-front="emit('bring-to-front')"
   >
     <template #header-actions>
-      <UBadge
-        v-if="getSourceLabel(data?.sourceKey)"
-        :label="getSourceLabel(data?.sourceKey)"
-        color="neutral"
-        variant="subtle"
-        size="sm"
+      <SourceBadge
+        :source-key="data?.sourceKey"
+        :source="data?.source"
       />
 
       <UBadge

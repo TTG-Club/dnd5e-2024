@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import type { TypedWebSocketClient } from '@vtt/shared';
+  import type { SourceDefinition, TypedWebSocketClient } from '@vtt/shared';
   import type {
     ActiveEffect,
     GameItem,
@@ -21,7 +21,6 @@
     linkGrantedSpellRefs,
     loadSpellPacks,
   } from '@/systems/dnd5e/composables/spellCompendium';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 
   import {
     buildFeatData,
@@ -31,6 +30,7 @@
   import FeatGrantsFields from './feat/FeatGrantsFields.vue';
   import FormSection from './FormSection.vue';
   import GrantedSpellsEditor from './GrantedSpellsEditor.vue';
+  import SourceField from './SourceField.vue';
   import ActiveEffectFormModal from './tabs/ActiveEffectFormModal.vue';
 
   const props = defineProps<{
@@ -63,16 +63,7 @@
       : undefined,
   );
 
-  const systemDataStore = useSystemDataStore();
   const { openModal, getNextZIndex } = useModalManager();
-
-  const sourceOptions = computed(() => [
-    { label: 'Свой источник', value: 'local' },
-    ...systemDataStore.sources.map((source) => ({
-      label: `${source.name} (${source.abbreviation})`,
-      value: source.key,
-    })),
-  ]);
 
   const tabItems = [
     { label: 'Основное', slot: 'basic' as const },
@@ -85,7 +76,8 @@
   const name = ref('');
   const nameEn = ref('');
   const description = ref('');
-  const sourceKey = ref('local');
+  const sourceKey = ref<string | undefined>(undefined);
+  const source = ref<SourceDefinition | undefined>(undefined);
   const isSRD = ref(false);
   const repeatable = ref(false);
   const repeatableText = ref('');
@@ -150,7 +142,8 @@
     name.value = '';
     nameEn.value = '';
     description.value = '';
-    sourceKey.value = 'local';
+    sourceKey.value = undefined;
+    source.value = undefined;
     isSRD.value = false;
     repeatable.value = false;
     repeatableText.value = '';
@@ -163,7 +156,8 @@
     name.value = feat.name || '';
     nameEn.value = feat.nameEn || '';
     description.value = feat.description || '';
-    sourceKey.value = feat.sourceKey || 'local';
+    sourceKey.value = feat.sourceKey;
+    source.value = feat.source;
     isSRD.value = feat.isSRD || false;
     repeatable.value = feat.repeatable || false;
     repeatableText.value = feat.repeatableText || '';
@@ -248,6 +242,7 @@
       nameEn: nameEn.value.trim() || undefined,
       description: description.value.trim(),
       sourceKey: sourceKey.value,
+      source: source.value,
       isSRD: isSRD.value,
       repeatable: repeatable.value,
       repeatableText: repeatableText.value.trim() || undefined,
@@ -356,12 +351,9 @@
               title="Источник"
               title-color="source"
             >
-              <USelect
-                v-model="sourceKey"
-                :items="sourceOptions"
-                value-key="value"
-                placeholder="Выберите источник..."
-                class="w-full"
+              <SourceField
+                v-model:source-key="sourceKey"
+                v-model:source="source"
               />
 
               <UCheckbox

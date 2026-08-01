@@ -91,7 +91,7 @@
             }}</span>
 
             <span class="text-xs text-dimmed">{{
-              getSourceLabel(sc.sourceKey)
+              getSourceLabel(sc.sourceKey, sc.source)
             }}</span>
           </div>
 

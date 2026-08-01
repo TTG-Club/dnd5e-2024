@@ -59,6 +59,49 @@ export function validateBaseManifest(
 }
 
 /**
+ * Извлекает человекочитаемого автора из манифеста, понимая ОБА формата: простое
+ * строковое поле `author` (формат VTTG) и массив `authors: [{ name }]` (формат
+ * Foundry, которым пользуются внешние системы, установленные по ссылке).
+ *
+ * Единая точка нормализации автора: и список установленных систем, и библиотека
+ * систем показывают автора одинаково, читая манифест этой функцией (DRY). Без
+ * неё внешняя система с `authors[]` показывалась бы как «автор не указан», хотя
+ * в библиотеке автор виден.
+ *
+ * @param raw - сырой объект манифеста (system.json / module.json) из JSON.parse
+ * @returns автор одной строкой либо `undefined`, если автор не указан
+ */
+export function resolveManifestAuthor(raw: unknown): string | undefined {
+  if (typeof raw !== 'object' || raw === null) {
+    return undefined;
+  }
+
+  if (
+    'author' in raw
+    && typeof raw.author === 'string'
+    && raw.author.trim().length > 0
+  ) {
+    return raw.author;
+  }
+
+  if ('authors' in raw && Array.isArray(raw.authors)) {
+    const names = raw.authors
+      .filter(
+        (entry): entry is Record<string, unknown> =>
+          typeof entry === 'object' && entry !== null,
+      )
+      .map((entry) => (typeof entry.name === 'string' ? entry.name.trim() : ''))
+      .filter((name) => name.length > 0);
+
+    if (names.length > 0) {
+      return names.join(', ');
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * Проверяет совместимость модуля с игровой системой по полю `compatibleSystems`.
  *
  * `undefined` / пустой список / `['*']` — модуль системо-нейтрален (совместим с

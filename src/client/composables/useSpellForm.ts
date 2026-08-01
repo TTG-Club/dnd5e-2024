@@ -2,6 +2,7 @@ import type {
   AbilityType,
   DamagePart,
   DistanceUnit,
+  SourceDefinition,
   SpellAreaShape,
   SpellCastingTimeUnit,
   SpellDeliveryType,
@@ -27,6 +28,7 @@ import {
   damagePartIsHealing,
   DELIVERY_TYPE_OPTIONS,
   DURATION_UNIT_OPTIONS,
+  FALLBACK_SOURCE_KEY,
   getSpellDamageParts,
   PROJECTILE_DISTRIBUTION_OPTIONS,
   SAVE_EFFECT_OPTIONS,
@@ -190,7 +192,8 @@ export function useSpellForm(
   const usesMax = ref(1);
   const usesCurrent = ref(1);
   const usesRecovery = ref<SpellUsesRecovery>('longRest');
-  const sourceKey = ref('hb');
+  const sourceKey = ref<string | undefined>(FALLBACK_SOURCE_KEY);
+  const source = ref<SourceDefinition | undefined>(undefined);
   const isSRD = ref(false);
   /** Классы, которым доступно заклинание (видимость в списках по классу) */
   const classKeys = ref<ClassKey[]>([]);
@@ -205,13 +208,6 @@ export function useSpellForm(
     systemDataStore.damageTypes.map((dt) => ({
       label: dt.name,
       value: dt.key,
-    })),
-  );
-
-  const sourceOptions = computed(() =>
-    systemDataStore.sources.map((src) => ({
-      label: `${src.name} (${src.abbreviation})`,
-      value: src.key,
     })),
   );
 
@@ -327,7 +323,8 @@ export function useSpellForm(
         usesMax.value = spell.uses?.max ?? 1;
         usesCurrent.value = spell.uses?.current ?? spell.uses?.max ?? 1;
         usesRecovery.value = spell.uses?.recovery ?? 'longRest';
-        sourceKey.value = spell.sourceKey ?? 'hb';
+        sourceKey.value = spell.sourceKey ?? FALLBACK_SOURCE_KEY;
+        source.value = spell.source;
         isSRD.value = spell.isSRD ?? false;
         classKeys.value = [...(spell.classKeys ?? [])];
 
@@ -397,7 +394,8 @@ export function useSpellForm(
         usesMax.value = 1;
         usesCurrent.value = 1;
         usesRecovery.value = 'longRest';
-        sourceKey.value = 'hb';
+        sourceKey.value = FALLBACK_SOURCE_KEY;
+        source.value = undefined;
         isSRD.value = false;
         classKeys.value = [];
 
@@ -627,6 +625,7 @@ export function useSpellForm(
       alwaysPrepared: alwaysPrepared.value,
 
       sourceKey: sourceKey.value || undefined,
+      source: source.value,
       isSRD: isSRD.value || undefined,
 
       classKeys: classKeys.value.length > 0 ? classKeys.value : undefined,
@@ -698,6 +697,7 @@ export function useSpellForm(
     usesCurrent,
     usesRecovery,
     sourceKey,
+    source,
     isSRD,
     classKeys,
     activeEffects,
@@ -713,7 +713,6 @@ export function useSpellForm(
     SAVE_EFFECT_OPTIONS,
     SPELL_LEVEL_OPTIONS,
     damageTypeOptions,
-    sourceOptions,
 
     buildSpell,
   };

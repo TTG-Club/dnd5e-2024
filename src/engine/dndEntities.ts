@@ -38,6 +38,7 @@ import type {
   BaseActor,
   BaseCreature,
   BaseGameItem,
+  SourceDefinition,
 } from '@vtt/shared';
 import type { ActiveEffect } from './activeEffectTypes.js';
 import type {
@@ -408,7 +409,10 @@ export interface Spell {
    */
   grantedByFeature?: string;
   // --- Метаданные ---
+  /** Ключ источника-книги — аббревиатура в нижнем регистре (напр. 'phb', 'dmg') */
   sourceKey?: string;
+  /** Название источника, если его нет ни во встроенном справочнике, ни в паке */
+  source?: SourceDefinition;
   isSRD?: boolean;
   /** Ключи классов, которым доступно это заклинание */
   classKeys?: ClassKey[];

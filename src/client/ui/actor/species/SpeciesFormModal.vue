@@ -2,6 +2,7 @@
   import type {
     AbilityType,
     SkillType,
+    SourceDefinition,
     TypedWebSocketClient,
   } from '@vtt/shared';
   import type {
@@ -45,10 +46,10 @@
     linkGrantedSpellRefs,
     loadSpellPacks,
   } from '@/systems/dnd5e/composables/spellCompendium';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 
   import { ARMOR_PROF_LABELS, WEAPON_PROF_LABELS } from '../constants';
   import FormSection from '../FormSection.vue';
+  import SourceField from '../SourceField.vue';
   import { slugify } from '../utils/slugify';
   import DamageDefenseEditor from './DamageDefenseEditor.vue';
   import { createEmptyMovement, MOVEMENT_AXES } from './speciesEditorTypes';
@@ -136,16 +137,7 @@
     { label: 'Особенности', slot: 'features' as const },
   ];
 
-  const systemDataStore = useSystemDataStore();
   const { openModal } = useModalManager();
-
-  const sourceOptions = computed(() => [
-    { label: 'Свой источник', value: 'local' },
-    ...systemDataStore.sources.map((source) => ({
-      label: `${source.name} (${source.abbreviation})`,
-      value: source.key,
-    })),
-  ]);
 
   // ============================================================
   // Состояние формы
@@ -154,7 +146,8 @@
   const nameEn = ref('');
   const description = ref('');
   const icon = ref('');
-  const sourceKey = ref('local');
+  const sourceKey = ref<string | undefined>(undefined);
+  const source = ref<SourceDefinition | undefined>(undefined);
   const isSRD = ref(false);
   const creatureType = ref<CreatureType>('humanoid');
   const selectedSizes = ref<CreatureSize[]>(['medium']);
@@ -332,7 +325,8 @@
     nameEn.value = '';
     description.value = '';
     icon.value = '';
-    sourceKey.value = 'local';
+    sourceKey.value = undefined;
+    source.value = undefined;
     isSRD.value = false;
     creatureType.value = 'humanoid';
     selectedSizes.value = ['medium'];
@@ -371,7 +365,8 @@
     nameEn.value = definition.nameEn || '';
     description.value = definition.description || '';
     icon.value = definition.icon || '';
-    sourceKey.value = definition.sourceKey || 'local';
+    sourceKey.value = definition.sourceKey;
+    source.value = definition.source;
     isSRD.value = definition.isSRD ?? false;
     creatureType.value = definition.creatureType || 'humanoid';
 
@@ -952,6 +947,7 @@
       description: description.value.trim(),
       icon: icon.value.trim() || undefined,
       sourceKey: sourceKey.value,
+      source: source.value,
       isSRD: isSRD.value,
       creatureType: creatureType.value,
       size: [...selectedSizes.value],
@@ -970,6 +966,7 @@
       nameEn: definition.nameEn,
       description: definition.description,
       sourceKey: sourceKey.value,
+      source: source.value,
       isSRD: isSRD.value,
       image: icon.value.trim() || undefined,
       quantity: 1,
@@ -1066,14 +1063,10 @@
                   />
                 </UFormField>
 
-                <UFormField label="Источник">
-                  <USelect
-                    v-model="sourceKey"
-                    :items="sourceOptions"
-                    value-key="value"
-                    class="w-full"
-                  />
-                </UFormField>
+                <SourceField
+                  v-model:source-key="sourceKey"
+                  v-model:source="source"
+                />
 
                 <UFormField label="Иконка (tabler:...)">
                   <UInput
