@@ -99,12 +99,14 @@
   }
 
   function isFeature(value: unknown): value is Feature {
+    // Без требования 'source': у записей компендиума есть только sourceKey,
+    // проверка source отсеивала ВСЕ черты — грант предыстории уходил заглушкой
+    // с пустым описанием.
     return (
       typeof value === 'object'
       && value !== null
       && 'id' in value
       && 'name' in value
-      && 'source' in value
       && 'description' in value
     );
   }
