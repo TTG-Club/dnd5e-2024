@@ -57,7 +57,7 @@ import {
   spellIsHealing,
 } from '@vtt/shared/system/dnd.js';
 
-import { emitEntityUpdate } from '@/core/entityUtils';
+import { emitEntityCombatState, emitEntityUpdate } from '@/core/entityUtils';
 import { registerMacro } from '@/core/registries/macroRegistry';
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useActionPromptStore } from '@/stores/actionPromptStore';
@@ -146,7 +146,9 @@ function consumeTriggeredEffects(
 
   updated.activeEffects = filtered;
 
-  emitEntityUpdate(socket, updated);
+  // Боевым каналом: `attackOnCarrier` снимается с ЦЕЛИ, а её полную замену
+  // сервер принимает только от владельца — иначе расход эффекта не доезжал.
+  emitEntityCombatState(socket, updated);
 }
 
 /**

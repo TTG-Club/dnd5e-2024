@@ -8,6 +8,10 @@
  * `applyDamageToEntity` / `applyEffectsToEntity` / `getEntityArmorClass` /
  * `getEntityActiveFlags`. Стор отвечает лишь за выбор цели и WS-отправку.
  *
+ * Здесь же живёт БОЕВОЕ СОСТОЯНИЕ — `pickCombatState` / `applyCombatState`:
+ * пара, которой ядро переносит исход боя на чужую цель узким каналом
+ * `entity:apply-combat-state` вместо полной замены сущности.
+ *
  * @module system/dnd/damageApplication
  */
 
@@ -17,8 +21,9 @@ import type { DamageApplyResult, DamageDefenseOutcome } from './damageUtils.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type { IncomingAttackContext } from './effectPipeline.js';
 
-import { isActorEntity, isCreatureEntity } from '@vtt/shared';
+import { isActorEntity, isCreatureEntity, isRecord } from '@vtt/shared';
 import { generateId } from '@vtt/shared';
+import { ActiveEffectsArraySchema } from './activeEffectTypes.js';
 import { buildConditionActiveEffect } from './conditionTemplates.js';
 import { CONDITIONS } from './consts.js';
 import { applyDamageDefenses, applyHpChange } from './damageUtils.js';
@@ -128,6 +133,17 @@ function getEntityMaxHp(entity: DnDSceneEntity): number {
 }
 
 /**
+ * Извлекает временные ХП из сущности (актор или существо).
+ * У существ поле необязательное, поэтому отсутствие читается как 0.
+ *
+ * @param entity - сущность (актор или существо)
+ * @returns временные ХП
+ */
+function getEntityTempHp(entity: DnDSceneEntity): number {
+  return entity.system.hitPoints.temp ?? 0;
+}
+
+/**
  * Устанавливает текущие ХП для сущности (мутация).
  *
  * @param entity - сущность (актор или существо)
@@ -192,7 +208,7 @@ export function applyTargetDamage(
     defenseOutcome = defenseResult.outcome;
   }
 
-  const tempBefore = entity.system.hitPoints.temp ?? 0;
+  const tempBefore = getEntityTempHp(entity);
 
   // Урон сначала снимает временные ХП (правило 5e), лечение их не трогает
   const hpChange = applyHpChange({
@@ -253,6 +269,98 @@ export function applyEffectsToEntity(
     existing,
     applicableEffects.map((effect) => buildEffectForTarget(effect, origin)),
   );
+}
+
+/**
+ * Боевое состояние цели D&D 5e — единственное, что участник боя вправе изменить
+ * у ЧУЖОЙ сущности: очки здоровья (текущие и временные) и активные эффекты.
+ *
+ * Максимум ХП, характеристики, инвентарь, владелец и прочий лист в снимок НЕ
+ * входят и каналом `entity:apply-combat-state` недосягаемы — на этом держится
+ * его безопасность.
+ */
+export interface DndCombatState {
+  /** Текущие очки здоровья после применения исхода боя */
+  hpCurrent: number;
+  /** Временные очки здоровья после применения исхода боя */
+  hpTemp: number;
+  /** Полный список активных эффектов цели после применения исхода боя */
+  activeEffects: ActiveEffect[];
+}
+
+/**
+ * Снимает с сущности её боевое состояние для отправки на сервер.
+ *
+ * @param entity - сущность-цель с уже применённым исходом боя
+ * @returns снимок боевого состояния
+ */
+export function pickCombatState(entity: DnDSceneEntity): DndCombatState {
+  return {
+    hpCurrent: getEntityCurrentHp(entity),
+    hpTemp: getEntityTempHp(entity),
+    activeEffects: entity.activeEffects ?? [],
+  };
+}
+
+/**
+ * Записывает боевое состояние в сущность на сервере, мутируя её.
+ *
+ * Снимок пришёл от клиента, поэтому доверия ему нет: ХП проходят через границы
+ * СЕРВЕРНОЙ сущности (максимум ХП каналом не меняется, значит лечением за предел
+ * не выйти и отрицательных хитов не выставить), а эффекты — через ту же
+ * Zod-схему, что и обычное сохранение актёра.
+ *
+ * @param entity - сущность-цель из состояния мира (мутируется)
+ * @param state - снимок боевого состояния от клиента
+ * @returns true, если снимок принят и сущность изменилась
+ */
+export function applyCombatState(
+  entity: DnDSceneEntity,
+  state: unknown,
+): boolean {
+  if (!isRecord(state)) {
+    return false;
+  }
+
+  const { hpCurrent, hpTemp, activeEffects } = state;
+
+  if (typeof hpCurrent !== 'number' || !Number.isFinite(hpCurrent)) {
+    return false;
+  }
+
+  if (typeof hpTemp !== 'number' || !Number.isFinite(hpTemp)) {
+    return false;
+  }
+
+  const parsedEffects = ActiveEffectsArraySchema.safeParse(activeEffects);
+
+  if (!parsedEffects.success) {
+    return false;
+  }
+
+  const nextHp = Math.max(
+    0,
+    Math.min(getEntityMaxHp(entity), Math.trunc(hpCurrent)),
+  );
+
+  const nextTemp = Math.max(0, Math.trunc(hpTemp));
+  const nextEffects = parsedEffects.data;
+
+  const changed =
+    nextHp !== getEntityCurrentHp(entity)
+    || nextTemp !== getEntityTempHp(entity)
+    || JSON.stringify(entity.activeEffects ?? []) !==
+      JSON.stringify(nextEffects);
+
+  if (!changed) {
+    return false;
+  }
+
+  setEntityCurrentHp(entity, nextHp);
+  setEntityTempHp(entity, nextTemp);
+  entity.activeEffects = nextEffects;
+
+  return true;
 }
 
 /**

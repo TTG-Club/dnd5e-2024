@@ -19,6 +19,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, PermissionKey[]> = {
     'CREATE_TOKENS',
     'CREATE_MEASUREMENT_TEMPLATES',
     'DELETE_TOKENS',
+    'APPLY_COMBAT_STATE',
   ],
   admin: [
     'ADD_SCENE_ASSETS',
@@ -34,6 +35,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, PermissionKey[]> = {
     'CREATE_TOKENS',
     'CREATE_MEASUREMENT_TEMPLATES',
     'DELETE_TOKENS',
+    'APPLY_COMBAT_STATE',
     'MANAGE_PLAYLISTS',
     'PLAY_SOUNDS',
     'TOGGLE_PAUSE',

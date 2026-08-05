@@ -60,7 +60,7 @@ import {
   withInitializedDuration,
 } from '@vtt/shared/system/dnd.js';
 
-import { emitEntityUpdate } from '@/core/entityUtils';
+import { emitEntityCombatState } from '@/core/entityUtils';
 import { useChatStore } from '@/stores/chatStore';
 import { useDiceRollerStore } from '@/stores/diceRollerStore';
 import { useTargetStore } from '@/stores/targetStore';
@@ -277,8 +277,9 @@ export function useSpellResolution() {
       }
     }
 
-    // emitEntityUpdate автоматически определяет нужное WS-событие (actor:updated / creature:updated)
-    emitEntityUpdate(socket, updatedEntity);
+    // Боевым каналом, а НЕ полной заменой сущности: цель почти всегда чужая, а
+    // замену целиком сервер принимает только от владельца и ГМа.
+    emitEntityCombatState(socket, updatedEntity);
 
     return {
       hpBefore,

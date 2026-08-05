@@ -20,6 +20,7 @@ import type { SystemRollResult, VttSystem } from '@vtt/shared';
 import type { ActiveEffect, EffectOrigin } from './activeEffectTypes.js';
 import type { BackgroundDefinition } from './backgroundTypes.js';
 import type { ConditionKey } from './consts.js';
+import type { DndCombatState } from './damageApplication.js';
 import type { DamageApplyResult } from './damageUtils.js';
 import type {
   DnDActor,
@@ -50,10 +51,12 @@ import { CLASS_KEY_OPTIONS } from './classTypes.js';
 import { buildConditionActiveEffect } from './conditionTemplates.js';
 import { CONDITIONS, CREATURE_CATEGORIES, DEFAULT_ACTOR } from './consts.js';
 import {
+  applyCombatState as applyCombatStateImpl,
   applyEffectsToEntity as applyEffectsToEntityImpl,
   applyTargetDamage as applyTargetDamageImpl,
   getEntityActiveFlags as getEntityActiveFlagsImpl,
   getEntityArmorClass as getEntityArmorClassImpl,
+  pickCombatState as pickCombatStateImpl,
 } from './damageApplication.js';
 import { getSpellDamageParts } from './damageParts.js';
 import { rollDamageFormula as rollDamageFormulaImpl } from './diceFormula.js';
@@ -514,6 +517,24 @@ export class Dnd5eVttSystem implements VttSystem {
       + (movement.climb || 0)
       + (movement.burrow || 0)
     );
+  }
+
+  /**
+   * Снимает боевое состояние сущности D&D 5e (ХП и активные эффекты) для
+   * отправки на сервер узким каналом `entity:apply-combat-state`.
+   */
+  // eslint-disable-next-line class-methods-use-this
+  pickCombatState(entity: SceneEntity): DndCombatState {
+    return pickCombatStateImpl(entity as DnDSceneEntity);
+  }
+
+  /**
+   * Записывает боевое состояние в сущность D&D 5e на сервере, проверив
+   * пришедший от клиента снимок.
+   */
+  // eslint-disable-next-line class-methods-use-this
+  applyCombatState(entity: SceneEntity, state: unknown): boolean {
+    return applyCombatStateImpl(entity as DnDSceneEntity, state);
   }
 
   /**

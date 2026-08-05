@@ -33,7 +33,7 @@ import {
   withInitializedDuration,
 } from '@vtt/shared/system/dnd.js';
 
-import { emitEntityUpdate } from '@/core/entityUtils';
+import { emitEntityCombatState } from '@/core/entityUtils';
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
 import { useDiceRollerStore } from '@/stores/diceRollerStore';
@@ -194,7 +194,8 @@ export function useSpellDamageWithParts() {
       }
     }
 
-    emitEntityUpdate(socket, updatedEntity);
+    // Боевым каналом: цель чужая, полную замену сущности сервер не примет.
+    emitEntityCombatState(socket, updatedEntity);
 
     return {
       hpBefore,

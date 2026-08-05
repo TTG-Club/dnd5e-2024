@@ -472,6 +472,25 @@ export interface ClientToServerEvents {
     hpOverride?: number,
   ) => void;
 
+  // --- Боевое состояние сущности ---
+  /**
+   * Применить к сущности БОЕВОЕ СОСТОЯНИЕ — узкий канал для урона, лечения и
+   * наложенных эффектов.
+   *
+   * Зачем отдельно от `actor:updated` / `creature:updated`: те события заменяют
+   * сущность ЦЕЛИКОМ, поэтому сервер пускает в них только владельца и ГМа. Атака
+   * же по определению меняет ЧУЖУЮ цель — раньше такое обновление молча
+   * отбрасывалось, и урон игрока «не проходил» (по себе проходил, у ГМа работало).
+   *
+   * `state` — непрозрачный для ядра снимок из `VttSystem.pickCombatState`; сервер
+   * лишь маршрутизирует его в `VttSystem.applyCombatState`, которая записывает
+   * ТОЛЬКО боевые поля. Остальной лист цели каналом недосягаем.
+   *
+   * Fire-and-forget: результат для чата вызывающий считает сам, а фактическое
+   * изменение прилетает обычным `actor:updated` / `creature:updated`.
+   */
+  'entity:apply-combat-state': (entityId: string, state: unknown) => void;
+
   // --- Lighting ---
   'lighting:changed': (sceneId: string, mode: 'day' | 'night') => void;
   'light-source:created': (sceneId: string, lightSource: LightSource) => void;
