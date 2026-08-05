@@ -234,10 +234,14 @@ export class Dnd5eVttSystem implements VttSystem {
 
   /**
    * Возвращает шаблон нового актёра D&D 5e по умолчанию (без `id`).
+   *
+   * Копия глубокая: при мелкой вложенные `system`/`token`/массивы остались бы
+   * общими с константой-шаблоном, и правки одного созданного актёра меняли бы
+   * и шаблон, и всех созданных по нему следом.
    */
   // eslint-disable-next-line class-methods-use-this
   createDefaultActor(): Partial<BaseActor> {
-    return { ...DEFAULT_ACTOR };
+    return structuredClone(DEFAULT_ACTOR);
   }
 
   /**

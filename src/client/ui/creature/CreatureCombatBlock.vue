@@ -4,6 +4,7 @@
 
   import { DISTANCE_UNIT_SHORT } from '@vtt/shared';
   import {
+    calculateAbilityModifier,
     getMovementList,
     rollDamageFormula,
   } from '@vtt/shared/system/dnd.js';
@@ -28,11 +29,9 @@
     'update:system': [updates: Partial<CreatureSystem>];
   }>();
 
-  const dexModifier = computed(() => {
-    const score = props.system.abilities?.dexterity ?? 10;
-
-    return Math.floor((score - 10) / 2);
-  });
+  const dexModifier = computed(() =>
+    calculateAbilityModifier(props.system.abilities?.dexterity ?? 10),
+  );
 
   // --- Передвижение ---
 
@@ -120,10 +119,12 @@
   // --- Инициатива ---
   const initiative = computed(() => {
     const ability = props.system.initiativeAbility ?? 'dexterity';
-    const score = props.system.abilities?.[ability] ?? 10;
-    const mod = Math.floor((score - 10) / 2);
 
-    return mod + (props.system.initiativeBonus ?? 0);
+    const abilityModifier = calculateAbilityModifier(
+      props.system.abilities?.[ability] ?? 10,
+    );
+
+    return abilityModifier + (props.system.initiativeBonus ?? 0);
   });
 
   const formattedInitiative = computed(() => {

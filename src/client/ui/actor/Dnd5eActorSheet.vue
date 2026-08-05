@@ -163,6 +163,48 @@
     return isRecord(value) && value.type === 'background';
   }
 
+  /** Запись справочника базовых типов снаряжения: ключ и категория. */
+  interface EquipmentBaseTypeEntry {
+    key: string;
+    category: string;
+  }
+
+  /**
+   * Разворачивает ключи владений класса в конкретные ключи базовых типов:
+   * категория («light», «simple») превращается во все входящие в неё типы,
+   * точный ключ остаётся собой, а неизвестный справочнику сохраняется как есть —
+   * данные класса могут опережать справочник.
+   *
+   * Доспехи и оружие устроены одинаково, поэтому справочник передаётся
+   * параметром: два одинаковых распаковщика разошлись бы при первой же правке.
+   *
+   * @param proficiencyKeys - ключи владений из определения класса
+   * @param baseTypes - справочник базовых типов (доспехи или оружие)
+   * @returns ключи базовых типов без повторов
+   */
+  function unpackProficiencyKeys(
+    proficiencyKeys: readonly string[],
+    baseTypes: readonly EquipmentBaseTypeEntry[],
+  ): string[] {
+    const result = new Set<string>();
+
+    for (const proficiencyKey of proficiencyKeys) {
+      const matchedTypes = baseTypes.filter(
+        (baseType) =>
+          baseType.category === proficiencyKey
+          || baseType.key === proficiencyKey,
+      );
+
+      if (matchedTypes.length > 0) {
+        matchedTypes.forEach((baseType) => result.add(baseType.key));
+      } else {
+        result.add(proficiencyKey);
+      }
+    }
+
+    return Array.from(result);
+  }
+
   /** Определения классов компендиума (все паки), загружены с сервера */
   const compendiumClassDefinitions = ref<ClassDefinition[]>([]);
 
@@ -477,8 +519,18 @@
     } else {
       const newId = generateEntityId('actor');
 
+      // Шаблон копируем ГЛУБОКО. `DEFAULT_ACTOR` — модульная константа, а лист
+      // пишет во вложенные разделы напрямую (`Object.assign(…system, …)` в
+      // мастерах класса/вида/предыстории, пересборка владений, пересчёт хитов).
+      // При мелком копировании `system`/`token` оставались ОБЩИМИ с шаблоном:
+      // правки первого персонажа утекали в константу, и следующее «Создать
+      // актёра» открывалось уже заполненным предыдущим персонажем.
+      //
+      // `structuredClone`, а не JSON-клон как в `featApply.ts`: там клонируют
+      // реактивный Proxy листа (он бросает `DataCloneError`), здесь — сырую
+      // константу, поэтому ограничения нет, а типы сохраняются без приведений.
       const newActor: Actor = {
-        ...DEFAULT_ACTOR,
+        ...structuredClone(DEFAULT_ACTOR),
         id: newId,
         ownerId: !isAdmin.value ? currentUser.value?.id : undefined,
       };
@@ -755,6 +807,11 @@
       return;
     }
 
+    // Считаем ДО отправки: ветка создания ниже сама выставляет `isCreated`,
+    // поэтому проверка после неё всегда давала «обновлён» — даже при первом
+    // сохранении нового персонажа.
+    const isCreating = !props.actorId && !isCreated.value;
+
     isSaving.value = true;
 
     try {
@@ -783,10 +840,7 @@
 
       toast.add({
         title: 'Успешно',
-        description:
-          props.actorId || isCreated.value
-            ? 'Персонаж обновлен'
-            : 'Персонаж создан',
+        description: isCreating ? 'Персонаж создан' : 'Персонаж обновлён',
         color: 'success',
       });
 
@@ -1295,10 +1349,10 @@
 
     // Пересчитываем макс. ХП из истории бросков
     if (systemUpdates.classes) {
-      const constitutionScore =
-        localActor.value.system.abilities?.constitution ?? 10;
+      const constitutionMod = calculateAbilityModifier(
+        localActor.value.system.abilities?.constitution ?? 10,
+      );
 
-      const constitutionMod = Math.floor((constitutionScore - 10) / 2);
       const previousMax = localActor.value.system.hitPoints?.max ?? 0;
       const newMax = calculateMaxHP(systemUpdates.classes, constitutionMod);
       const hpGain = newMax - previousMax;
@@ -1352,50 +1406,7 @@
       return;
     }
 
-    const systemStore = useSystemDataStore();
     const localClasses = classDefinitions.value;
-
-    /**
-     * Распаковывает ключи доспехов — категории ('light', 'shield') развёрнуты в конкретные baseType ключи
-     */
-    const unpackArmor = (items: string[]): string[] => {
-      const result = new Set<string>();
-
-      for (const item of items) {
-        const matchedTypes = systemStore.armorBaseTypes.filter(
-          (baseType) => baseType.category === item || baseType.key === item,
-        );
-
-        if (matchedTypes.length > 0) {
-          matchedTypes.forEach((baseType) => result.add(baseType.key));
-        } else {
-          result.add(item);
-        }
-      }
-
-      return Array.from(result);
-    };
-
-    /**
-     * Распаковывает ключи оружия — категории ('simple', 'martial') развёрнуты в конкретные baseType ключи
-     */
-    const unpackWeapons = (items: string[]): string[] => {
-      const result = new Set<string>();
-
-      for (const item of items) {
-        const matchedTypes = systemStore.weaponBaseTypes.filter(
-          (baseType) => baseType.category === item || baseType.key === item,
-        );
-
-        if (matchedTypes.length > 0) {
-          matchedTypes.forEach((baseType) => result.add(baseType.key));
-        } else {
-          result.add(item);
-        }
-      }
-
-      return Array.from(result);
-    };
 
     // Собираем все владения из оставшихся классов
     const allArmor = new Set<string>();
@@ -1420,11 +1431,17 @@
 
       if (classIndex === 0) {
         // Первый класс — полные стартовые владения
-        for (const armor of unpackArmor(classDef.armorProficiencies)) {
+        for (const armor of unpackProficiencyKeys(
+          classDef.armorProficiencies,
+          systemDataStore.armorBaseTypes,
+        )) {
           allArmor.add(armor);
         }
 
-        for (const weapon of unpackWeapons(classDef.weaponProficiencies)) {
+        for (const weapon of unpackProficiencyKeys(
+          classDef.weaponProficiencies,
+          systemDataStore.weaponBaseTypes,
+        )) {
           allWeapons.add(weapon);
         }
 
@@ -1440,11 +1457,17 @@
         const multiProf = MULTICLASS_PROFICIENCIES[classDef.key];
 
         if (multiProf) {
-          for (const armor of unpackArmor(multiProf.armor)) {
+          for (const armor of unpackProficiencyKeys(
+            multiProf.armor,
+            systemDataStore.armorBaseTypes,
+          )) {
             allArmor.add(armor);
           }
 
-          for (const weapon of unpackWeapons(multiProf.weapons)) {
+          for (const weapon of unpackProficiencyKeys(
+            multiProf.weapons,
+            systemDataStore.weaponBaseTypes,
+          )) {
             allWeapons.add(weapon);
           }
 
@@ -1542,10 +1565,10 @@
     );
 
     // Пересчитываем HP
-    const constitutionScore =
-      localActor.value.system.abilities?.constitution ?? 10;
+    const constitutionMod = calculateAbilityModifier(
+      localActor.value.system.abilities?.constitution ?? 10,
+    );
 
-    const constitutionMod = Math.floor((constitutionScore - 10) / 2);
     const newMax = calculateMaxHP(remainingClasses, constitutionMod);
 
     localActor.value.system.hitPoints = {
