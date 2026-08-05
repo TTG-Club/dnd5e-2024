@@ -1,5 +1,7 @@
 <script setup lang="ts">
+  import type { ActorClassEntry } from '@vtt/shared';
   import type { Actor } from '@vtt/shared/system/dnd.js';
+  import type { CSSProperties } from 'vue';
 
   import { getAssetUrl } from '@vtt/shared';
   import {
@@ -10,7 +12,12 @@
 
   import { useImageFallback } from '@/shared_ui/composables';
 
-  import { CREATURE_SIZE_LABELS, CREATURE_TYPE_LABELS } from './constants';
+  import ActorHeaderPlaceholder from './ActorHeaderPlaceholder.vue';
+  import {
+    CREATURE_SIZE_LABELS,
+    CREATURE_TYPE_LABELS,
+    MISSING_SHEET_SECTIONS,
+  } from './constants';
   import LevelUpModal from './LevelUpModal.vue';
 
   interface Props {
@@ -30,6 +37,24 @@
     worldPort: undefined,
   });
 
+  /** Данные для запуска мастера повышения уровня */
+  interface LevelUpWizardPayload {
+    /** Очередь уровней, которые нужно провести через мастер */
+    queue: Array<{ classKey: string; targetLevel: number }>;
+    /** Итоговый опыт персонажа */
+    experience: number;
+    /** Классы, применяемые без мастера (принудительное повышение) */
+    forceApplies: ActorClassEntry[];
+  }
+
+  /** Результат повышения уровня из модалки */
+  interface LevelUpResult {
+    /** Обновлённый набор классов персонажа */
+    classes: ActorClassEntry[];
+    /** Итоговый опыт персонажа */
+    experience: number;
+  }
+
   const emit = defineEmits<{
     'update:actor': [updates: Partial<Actor>];
     'toggle-edit-mode': [];
@@ -38,13 +63,7 @@
     'long-rest': [];
     'save': [];
     'close': [];
-    'start-wizard': [
-      data: {
-        queue: Array<{ classKey: string; targetLevel: number }>;
-        experience: number;
-        forceApplies: import('@vtt/shared').ActorClassEntry[];
-      },
-    ];
+    'start-wizard': [payload: LevelUpWizardPayload];
     'remove-class': [classKey: string];
   }>();
 
@@ -152,6 +171,30 @@
     return props.actor.system.background?.backgroundName ?? '';
   });
 
+  /**
+   * Уточнение вида в скобках: "Гуманоид, Средний".
+   *
+   * Незнакомый тип или размер (например, из стороннего компендиума) выводим
+   * как есть — лучше сырой ключ, чем пустое место в шапке.
+   */
+  const speciesDetails = computed(() => {
+    const species = props.actor.system.species;
+
+    if (!species) {
+      return '';
+    }
+
+    const creatureType = species.creatureType
+      ? CREATURE_TYPE_LABELS[species.creatureType] || species.creatureType
+      : '';
+
+    const size = species.size
+      ? CREATURE_SIZE_LABELS[species.size] || species.size
+      : '';
+
+    return [creatureType, size].filter(Boolean).join(', ');
+  });
+
   const nextLevelXP = computed(() => {
     return calculateExperienceForNextLevel(totalLevel.value);
   });
@@ -207,6 +250,9 @@
     return hasInspiration.value ? 'Забрать вдохновение' : 'Дать вдохновение';
   });
 
+  /** Тег блока вдохновения: кнопка у ГМ, обычный блок у игрока */
+  const inspirationTag = computed(() => (props.isAdmin ? 'button' : 'div'));
+
   /** Классы блока вдохновения: активный (золотой) или приглушённый */
   const inspirationClass = computed(() => {
     const interactive = props.isAdmin
@@ -219,6 +265,22 @@
 
     return `${interactive} ${state}`;
   });
+
+  /** Стиль шапки: она же — область перетаскивания окна листа */
+  const headerStyle = computed<CSSProperties>(() => ({
+    cursor: props.canEdit ? 'move' : 'default',
+    userSelect: 'none',
+  }));
+
+  /** Иконка переключателя режима редактирования (замок открыт/закрыт) */
+  const editModeIcon = computed(() =>
+    props.isEditMode ? 'tabler:lock-open' : 'tabler:lock-filled',
+  );
+
+  /** Цвет переключателя режима редактирования */
+  const editModeClass = computed(() =>
+    props.isEditMode ? 'text-gold' : 'text-muted hover:text-highlighted',
+  );
 
   // Модалка повышения уровня
   const isLevelUpOpen = ref(false);
@@ -233,25 +295,39 @@
   /**
    * Применяет изменения уровня (по классам) и опыта
    */
-  function onLevelUpApply(data: {
-    classes: import('@vtt/shared').ActorClassEntry[];
-    experience: number;
-  }) {
+  function onLevelUpApply(result: LevelUpResult) {
     emit('update:actor', {
       system: {
         ...props.actor.system,
-        classes: data.classes,
-        experience: data.experience,
+        classes: result.classes,
+        experience: result.experience,
       },
     });
   }
 
   /**
-   * Скрывает элемент при ошибке загрузки изображения
+   * Пробрасывает запуск мастера повышения уровня на лист персонажа
+   */
+  function onStartWizard(payload: LevelUpWizardPayload) {
+    emit('start-wizard', payload);
+  }
+
+  /**
+   * Пробрасывает удаление класса на лист персонажа
+   */
+  function onRemoveClass(classKey: string) {
+    emit('remove-class', classKey);
+  }
+
+  /**
+   * Скрывает рамку токена, если картинка не загрузилась: битый путь не должен
+   * оставлять пустой прямоугольник поверх аватара.
    */
   function handleImageError(event: Event) {
-    if (event.target) {
-      (event.target as HTMLImageElement).style.display = 'none';
+    const image = event.target;
+
+    if (image instanceof HTMLImageElement) {
+      image.style.display = 'none';
     }
   }
 </script>
@@ -259,7 +335,7 @@
 <template>
   <header
     class="relative overflow-hidden rounded-t-2xl"
-    :style="{ cursor: canEdit ? 'move' : 'default', userSelect: 'none' }"
+    :style="headerStyle"
   >
     <div class="relative z-10 flex w-full items-center gap-6 px-6 pt-8 pb-10">
       <!-- Аватар и Рамка -->
@@ -349,7 +425,7 @@
       <div class="flex min-w-0 flex-1 items-center justify-between">
         <div class="w-full min-w-0 flex-1 space-y-1 pr-4">
           <!-- Имя -->
-          <div class="flex min-h-[44px] items-center">
+          <div class="flex min-h-11 items-center">
             <UInput
               v-if="isEditMode"
               :model-value="actor.name"
@@ -373,40 +449,24 @@
 
           <!-- Раса и класс -->
           <div
-            class="flex min-h-[28px] flex-wrap items-center gap-x-2 gap-y-1 text-toned"
+            class="flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1 text-toned"
           >
             <span
               v-if="actor.system.species?.speciesName"
               class="text-toned"
               >{{ actor.system.species.speciesName }}
               <span
-                v-if="
-                  actor.system.species.creatureType || actor.system.species.size
-                "
+                v-if="speciesDetails"
                 class="text-dimmed"
               >
-                ({{
-                  [
-                    actor.system.species.creatureType
-                      ? CREATURE_TYPE_LABELS[actor.system.species.creatureType]
-                        || actor.system.species.creatureType
-                      : '',
-                    actor.system.species.size
-                      ? CREATURE_SIZE_LABELS[actor.system.species.size]
-                        || actor.system.species.size
-                      : '',
-                  ]
-                    .filter(Boolean)
-                    .join(', ')
-                }})
+                ({{ speciesDetails }})
               </span>
             </span>
 
-            <span
+            <ActorHeaderPlaceholder
               v-else
-              class="text-dimmed italic"
-              >Вид не выбран</span
-            >
+              :section="MISSING_SHEET_SECTIONS.species"
+            />
 
             <span class="text-dimmed">—</span>
 
@@ -416,11 +476,10 @@
               >{{ mainClassLabel }}</span
             >
 
-            <span
+            <ActorHeaderPlaceholder
               v-else
-              class="text-dimmed italic"
-              >Класс не выбран</span
-            >
+              :section="MISSING_SHEET_SECTIONS.class"
+            />
 
             <span class="text-dimmed">—</span>
 
@@ -430,11 +489,10 @@
               >{{ backgroundLabel }}</span
             >
 
-            <span
+            <ActorHeaderPlaceholder
               v-else
-              class="text-dimmed italic"
-              >Предыстория не выбрана</span
-            >
+              :section="MISSING_SHEET_SECTIONS.background"
+            />
           </div>
 
           <!-- Уровень и опыт -->
@@ -446,7 +504,7 @@
             <!-- Прогресс-бар опыта -->
             <div class="relative mx-2 flex-1">
               <div
-                class="h-[2px] w-full overflow-hidden rounded-full bg-elevated"
+                class="h-0.5 w-full overflow-hidden rounded-full bg-elevated"
               >
                 <div
                   class="h-full bg-linear-to-r from-gold/60 to-gold transition-all duration-300"
@@ -501,12 +559,12 @@
       <button
         v-else-if="canEdit"
         class="flex h-8 w-8 items-center justify-center rounded-full border border-default/50 bg-elevated/30 transition-colors hover:bg-accented/50"
-        :class="isEditMode ? 'text-gold' : 'text-muted hover:text-highlighted'"
+        :class="editModeClass"
         title="Режим редактирования"
         @click.left.exact.prevent="emit('toggle-edit-mode')"
       >
         <UIcon
-          :name="isEditMode ? 'tabler:lock-open' : 'tabler:lock-filled'"
+          :name="editModeIcon"
           class="h-4 w-4"
         />
       </button>
@@ -527,21 +585,13 @@
       <!-- Close Button -->
       <button
         class="flex h-8 w-8 items-center justify-center rounded-full border border-default/50 bg-elevated/30 text-muted transition-colors hover:bg-accented/50 hover:text-highlighted"
+        title="Закрыть"
         @click.left.exact.prevent="emit('close')"
       >
-        <svg
+        <UIcon
+          name="tabler:x"
           class="h-5 w-5"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M6 18L18 6M6 6l12 12"
-          />
-        </svg>
+        />
       </button>
     </div>
 
@@ -553,7 +603,7 @@
       <!-- Вдохновение: есть/нет, даёт и забирает только ГМ -->
       <UTooltip :text="inspirationTooltip">
         <component
-          :is="isAdmin ? 'button' : 'div'"
+          :is="inspirationTag"
           class="flex h-9 items-center gap-1.5 rounded-full border px-3 text-sm font-medium transition-colors"
           :class="inspirationClass"
           @click.left.exact.prevent="toggleInspiration"
@@ -614,7 +664,7 @@
     :classes="actor.system.classes"
     :experience="actor.system.experience"
     @apply="onLevelUpApply"
-    @start-wizard="(data) => emit('start-wizard', data)"
-    @remove-class="(classKey) => emit('remove-class', classKey)"
+    @start-wizard="onStartWizard"
+    @remove-class="onRemoveClass"
   />
 </template>
