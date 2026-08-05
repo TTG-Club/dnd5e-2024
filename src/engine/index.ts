@@ -39,4 +39,5 @@ export * from './templateGeometry.js';
 export * from './toolProficiency.js';
 export * from './turnEffects.js';
 export * from './types.js';
+export * from './visionUtils.js';
 export * from './weaponMasteries.js';

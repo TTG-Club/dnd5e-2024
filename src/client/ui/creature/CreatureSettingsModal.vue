@@ -289,10 +289,10 @@
       visionSettings.value.enabled
         !== (creature.value.token?.vision?.enabled || false)
       || visionSettings.value.range
-        !== (creature.value.token?.vision?.range || TOKEN_VISION_RANGE_DEFAULT)
+        !== (creature.value.token?.vision?.range ?? TOKEN_VISION_RANGE_DEFAULT)
       || visionSettings.value.darkvision
         !== (creature.value.token?.vision?.darkvision
-          || TOKEN_DARKVISION_DEFAULT);
+          ?? TOKEN_DARKVISION_DEFAULT);
 
     const autoSavesChanged =
       autoSaves.value !== (creature.value.autoSaves ?? true);
@@ -404,9 +404,9 @@
       visionSettings.value = {
         enabled: creature.value.token?.vision?.enabled || false,
         range:
-          creature.value.token?.vision?.range || TOKEN_VISION_RANGE_DEFAULT,
+          creature.value.token?.vision?.range ?? TOKEN_VISION_RANGE_DEFAULT,
         darkvision:
-          creature.value.token?.vision?.darkvision || TOKEN_DARKVISION_DEFAULT,
+          creature.value.token?.vision?.darkvision ?? TOKEN_DARKVISION_DEFAULT,
       };
 
       lightSettings.value = creature.value.token?.light

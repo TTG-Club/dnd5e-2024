@@ -18,6 +18,7 @@
     CREATURE_ENVIRONMENTS,
     CREATURE_SIZE_TO_TOKEN_SCALE,
     DEFAULT_CREATURE,
+    formatVisionRange,
     getProficiencyContribution,
     getSkillAbility,
     normalizeCreature,
@@ -865,6 +866,14 @@
   });
 
   /**
+   * Подпись дальности обычного зрения. Незаданные настройки зрения
+   * равнозначны нулю — существо видит без ограничения по дистанции.
+   */
+  const creatureVisionRangeLabel = computed(() => {
+    return formatVisionRange(localCreature.value?.token?.vision?.range ?? 0);
+  });
+
+  /**
    * Форматирует модификатор со знаком (+/-)
    */
   function formatModifier(value: number): string {
@@ -1172,9 +1181,7 @@
                   <div class="flex items-center justify-between">
                     <span class="text-dimmed">Зрение:</span>
 
-                    <span
-                      >{{ localCreature.token?.vision?.range ?? 0 }} фт.</span
-                    >
+                    <span>{{ creatureVisionRangeLabel }}</span>
                   </div>
 
                   <div

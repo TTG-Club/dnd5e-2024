@@ -6,6 +6,7 @@
   import { getAssetUrl } from '@vtt/shared';
   import {
     calculateExperienceForNextLevel,
+    formatVisionRange,
     getTotalLevel,
   } from '@vtt/shared/system/dnd.js';
   import { computed, ref } from 'vue';
@@ -138,15 +139,6 @@
 
     return entries;
   });
-
-  /**
-   * Форматирует дальность зрения для отображения.
-   * @param range - дальность в футах (0 = без ограничений)
-   * @returns строка вида "60 фт." или "без ограничений"
-   */
-  function formatVisionRange(range: number): string {
-    return range > 0 ? `${range} фт.` : 'без ограничений';
-  }
 
   /** Суммарный уровень из всех классов */
   const totalLevel = computed(() => {

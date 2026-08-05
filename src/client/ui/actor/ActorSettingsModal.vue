@@ -286,9 +286,9 @@
       visionSettings.value.enabled
         !== (actor.value.token?.vision?.enabled || false)
       || visionSettings.value.range
-        !== (actor.value.token?.vision?.range || TOKEN_VISION_RANGE_DEFAULT)
+        !== (actor.value.token?.vision?.range ?? TOKEN_VISION_RANGE_DEFAULT)
       || visionSettings.value.darkvision
-        !== (actor.value.token?.vision?.darkvision || TOKEN_DARKVISION_DEFAULT);
+        !== (actor.value.token?.vision?.darkvision ?? TOKEN_DARKVISION_DEFAULT);
 
     const lightChanged =
       JSON.stringify(lightSettings.value)
@@ -409,9 +409,9 @@
 
       visionSettings.value = {
         enabled: actor.value.token?.vision?.enabled || false,
-        range: actor.value.token?.vision?.range || TOKEN_VISION_RANGE_DEFAULT,
+        range: actor.value.token?.vision?.range ?? TOKEN_VISION_RANGE_DEFAULT,
         darkvision:
-          actor.value.token?.vision?.darkvision || TOKEN_DARKVISION_DEFAULT,
+          actor.value.token?.vision?.darkvision ?? TOKEN_DARKVISION_DEFAULT,
       };
 
       lightSettings.value = actor.value.token?.light
