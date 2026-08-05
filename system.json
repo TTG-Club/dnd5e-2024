@@ -10,8 +10,8 @@
     }
   ],
   "compatibility": {
-    "minimum": "0.9.266",
-    "verified": "0.9.266"
+    "minimum": "0.9.321",
+    "verified": "0.9.321"
   },
   "url": "https://github.com/ttg-club/vttg-system-dnd5e-test",
   "manifest": "https://raw.githubusercontent.com/ttg-club/vttg-system-dnd5e-test/main/system.json",
