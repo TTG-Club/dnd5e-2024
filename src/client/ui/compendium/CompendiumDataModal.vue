@@ -68,8 +68,9 @@
     /**
      * Канонический тип записей узла из манифеста: одно из зарегистрированных
      * значений (`spell`/`creature`/`weapon`/`equipment`/`tool`/`feat`/`class`/
-     * `species`/`background`), см. docs/CONTENT_AUTHORING.md. Записи с полем
-     * `type` рисуются по нему; `dataKind` нужен для определений без `type`.
+     * `species`/`background`/`glossary`), см. docs/CONTENT_AUTHORING.md. Записи
+     * с полем `type` рисуются по нему; `dataKind` нужен для определений без
+     * `type`.
      */
     dataKind?: string;
     /**
@@ -370,8 +371,9 @@
 
   /**
    * Канонический тип записей узла из манифеста (`dataKind`) — одно из
-   * зарегистрированных значений (`spell`/`creature`/`weapon`/`equipment`/`tool`/
-   * `feat`/`class`/`species`/`background`), см. docs/CONTENT_AUTHORING.md.
+   * зарегистрированных в системе значений (`spell`/`creature`/`weapon`/
+   * `equipment`/`tool`/`feat`/`class`/`species`/`background`/`glossary`), см.
+   * docs/CONTENT_AUTHORING.md.
    *
    * Записи с собственным полем `type` (заклинания, существа, предметы) рисуются
    * по нему напрямую — `dataKind` здесь нужен лишь для определений без `type`
@@ -432,6 +434,43 @@
 
   /** Узел определений предысторий (`dataKind: 'background'`) */
   const isBackgroundData = computed(() => dataKind.value === 'background');
+
+  /**
+   * Тип карточки для записи, не подошедшей ни одной ветке разметки выше: сперва
+   * собственное поле `type` записи, затем `dataKind` узла. Пустая строка — такого
+   * типа в реестре системы нет, рисовать нечем.
+   *
+   * Это и есть обещание документации «добавить новый тип = зарегистрировать
+   * карточку»: узлу с НОВЫМ `dataKind` (глоссарий и любой будущий) правка этой
+   * модалки больше не нужна — хватает `entityCard` в системе. Ветки выше живут
+   * ради своих особенностей (перетаскивание существа, выбор заклинаний, кнопка
+   * копирования) и потому остаются.
+   *
+   * @param entry - запись компендиума
+   */
+  function registeredCardType(entry: CompendiumDataItem): string {
+    const ownType =
+      'type' in entry && typeof entry.type === 'string' ? entry.type : '';
+
+    const type = ownType || dataKind.value;
+
+    return type && getEntityCard(type) ? type : '';
+  }
+
+  /**
+   * Открывает деталь записи хуком её зарегистрированной карточки.
+   * Копирования в инвентарь не предлагаем: подойдёт ли запись в предметы, знает
+   * только система, а общий путь про это ничего не знает.
+   *
+   * @param entry - запись компендиума
+   */
+  function openRegisteredDetail(entry: CompendiumDataItem): void {
+    const type = registeredCardType(entry);
+
+    if (type) {
+      getEntityCard(type)?.openDetail?.(entry);
+    }
+  }
 
   const dataModalRef = ref<ComponentPublicInstance | null>(null);
 
@@ -1221,6 +1260,17 @@
                       Изучено
                     </UBadge>
                   </div>
+                </template>
+
+                <!-- Любой другой тип, ЗАРЕГИСТРИРОВАННЫЙ системой (глоссарий и
+                     всё, что появится дальше): карточка и открытие детали берутся
+                     из реестра, отдельной ветки на модалке заводить не нужно -->
+                <template v-else-if="registeredCardType(entry)">
+                  <EntityCard
+                    :entity-type="registeredCardType(entry)"
+                    :entry="entry"
+                    @click="openRegisteredDetail(entry)"
+                  />
                 </template>
               </template>
             </div>

@@ -1,3 +1,4 @@
+import type { SourceDefinition } from '@vtt/shared';
 import type { EntityDetailOptions } from '@/core/registries';
 import type {
   GameItem,
@@ -18,6 +19,19 @@ export interface KeyedDefinition {
   key: string;
   id?: string;
   [key: string]: unknown;
+}
+
+/** Термин глоссария в объёме, нужном для открытия его описания. */
+export interface GlossaryEntry {
+  id: string;
+  name: string;
+  nameEn?: string;
+  /** Раздел глоссария («Состояния», «Действия») */
+  category?: string;
+  description?: string;
+  sourceKey?: string;
+  source?: SourceDefinition;
+  isSRD?: boolean;
 }
 
 /**
@@ -106,6 +120,30 @@ export function useEntityDetailModals() {
     });
   }
 
+  /**
+   * Открывает описание термина глоссария.
+   *
+   * `options` здесь нет намеренно: копировать термин в инвентарь некуда — это
+   * справочный текст, а не сущность листа. Раздел глоссария показываем бейджем
+   * над описанием, если он у записи есть.
+   *
+   * @param entry - термин глоссария
+   */
+  function openGlossaryDetail(entry: GlossaryEntry): void {
+    openModal('ActorDescriptionModal', {
+      _modalKey: entry.id,
+      title: entry.name,
+      subtitle: entry.nameEn,
+      description: entry.description,
+      sourceKey: entry.sourceKey,
+      source: entry.source,
+      isSRD: entry.isSRD,
+      fields: entry.category
+        ? [{ badges: [{ text: entry.category, color: 'neutral' }] }]
+        : undefined,
+    });
+  }
+
   return {
     openItemDetail,
     openSpellDetail,
@@ -113,5 +151,6 @@ export function useEntityDetailModals() {
     openSpeciesDetail,
     openBackgroundDetail,
     openCreatureDetail,
+    openGlossaryDetail,
   };
 }
