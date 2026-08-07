@@ -326,7 +326,7 @@
           class="h-12 bg-default/20 transition-colors"
           :class="[
             isEditMode
-              ? 'cursor-pointer border-gold/30 hover:border-gold/50'
+              ? 'cursor-pointer border-primary/30 hover:border-primary/50'
               : 'border-muted',
           ]"
           @click.left.exact.prevent="isEditMode && openMovement()"
@@ -372,7 +372,7 @@
           class="h-12 bg-default/20 transition-colors"
           :class="
             props.isEditMode
-              ? 'cursor-pointer border-gold/30 hover:border-gold/50'
+              ? 'cursor-pointer border-primary/30 hover:border-primary/50'
               : 'cursor-pointer border-muted hover:border-primary-500/50'
           "
           @click.left.exact.prevent="handleInitiativeClick"

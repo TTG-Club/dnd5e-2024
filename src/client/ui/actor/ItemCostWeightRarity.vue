@@ -41,7 +41,7 @@
     <div v-if="cost">
       <span class="text-xs text-dimmed">Стоимость</span>
 
-      <p class="text-gold">{{ formatItemCost(cost) }}</p>
+      <p class="text-primary">{{ formatItemCost(cost) }}</p>
     </div>
 
     <div v-if="weight">

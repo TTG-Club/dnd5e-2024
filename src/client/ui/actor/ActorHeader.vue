@@ -248,11 +248,11 @@
   /** Классы блока вдохновения: активный (золотой) или приглушённый */
   const inspirationClass = computed(() => {
     const interactive = props.isAdmin
-      ? 'cursor-pointer hover:border-gold/70'
+      ? 'cursor-pointer hover:border-primary/70'
       : 'cursor-default';
 
     const state = hasInspiration.value
-      ? 'border-gold/60 bg-gold/15 text-gold'
+      ? 'border-primary/60 bg-primary/15 text-primary'
       : 'border-default/50 bg-elevated/30 text-muted';
 
     return `${interactive} ${state}`;
@@ -271,7 +271,7 @@
 
   /** Цвет переключателя режима редактирования */
   const editModeClass = computed(() =>
-    props.isEditMode ? 'text-gold' : 'text-muted hover:text-highlighted',
+    props.isEditMode ? 'text-primary' : 'text-muted hover:text-highlighted',
   );
 
   // Модалка повышения уровня
@@ -381,7 +381,7 @@
           class="absolute -bottom-1 left-1/2 z-20 -translate-x-1/2"
         >
           <div
-            class="flex h-6 w-6 cursor-help items-center justify-center rounded-full border border-gold/40 bg-elevated/95 text-gold shadow-md transition-colors hover:border-gold/80"
+            class="flex h-6 w-6 cursor-help items-center justify-center rounded-full border border-primary/40 bg-elevated/95 text-primary shadow-md transition-colors hover:border-primary/80"
           >
             <UIcon
               name="tabler:eye"
@@ -399,7 +399,7 @@
               >
                 <UIcon
                   :name="entry.icon"
-                  class="h-3.5 w-3.5 shrink-0 text-gold"
+                  class="h-3.5 w-3.5 shrink-0 text-primary"
                 />
 
                 <span class="font-medium">{{ entry.label }}:</span>
@@ -499,7 +499,7 @@
                 class="h-0.5 w-full overflow-hidden rounded-full bg-elevated"
               >
                 <div
-                  class="h-full bg-linear-to-r from-gold/60 to-gold transition-all duration-300"
+                  class="h-full bg-linear-to-r from-primary/60 to-primary transition-all duration-300"
                   :style="{ width: `${xpProgress}%` }"
                 />
               </div>
@@ -520,7 +520,7 @@
                 color="neutral"
                 size="2xs"
                 :ui="{
-                  base: 'text-gold hover:text-gold hover:bg-gold/20',
+                  base: 'text-primary hover:text-primary hover:bg-primary/20',
                 }"
                 title="Добавить опыт"
                 @click.left.exact.prevent="addExperience"
@@ -640,13 +640,13 @@
       </UTooltip>
     </div>
 
-    <!-- Golden Divider -->
+    <!-- Декоративный разделитель шапки: цвет акцента приложения -->
     <div class="absolute bottom-0 left-0 mb-1 flex w-full items-center gap-3">
-      <div class="h-px flex-1 bg-gold/50" />
+      <div class="h-px flex-1 bg-primary/50" />
 
-      <div class="h-3 w-3 rotate-45 border border-gold opacity-80" />
+      <div class="h-3 w-3 rotate-45 border border-primary opacity-80" />
 
-      <div class="h-px flex-1 bg-gold/50" />
+      <div class="h-px flex-1 bg-primary/50" />
     </div>
   </header>
 

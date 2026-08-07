@@ -176,7 +176,7 @@
           <!-- Простое оружие -->
           <div class="rounded-lg border border-default/50 bg-elevated/30 p-2">
             <div
-              class="mb-2 border-b border-default/50 pb-2 text-center text-xs font-bold tracking-wider text-gold uppercase"
+              class="mb-2 border-b border-default/50 pb-2 text-center text-xs font-bold tracking-wider text-primary uppercase"
             >
               Простое
             </div>

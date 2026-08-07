@@ -391,13 +391,13 @@
       </UTooltip>
     </div>
 
-    <!-- Golden Divider -->
+    <!-- Декоративный разделитель шапки: цвет акцента приложения -->
     <div class="absolute bottom-0 left-0 mb-1 flex w-full items-center gap-3">
-      <div class="h-px flex-1 bg-gold/50" />
+      <div class="h-px flex-1 bg-primary/50" />
 
-      <div class="h-3 w-3 rotate-45 border border-gold opacity-80" />
+      <div class="h-3 w-3 rotate-45 border border-primary opacity-80" />
 
-      <div class="h-px flex-1 bg-gold/50" />
+      <div class="h-px flex-1 bg-primary/50" />
     </div>
   </header>
 </template>

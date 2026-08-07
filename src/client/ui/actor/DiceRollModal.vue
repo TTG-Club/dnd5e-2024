@@ -918,7 +918,7 @@
               && spellLevel !== undefined
               && selectedSpellLevel > spellLevel
             "
-            class="rounded border border-gold/20 bg-gold/10 p-2 text-xs text-gold"
+            class="rounded border border-primary/20 bg-primary/10 p-2 text-xs text-primary"
           >
             <strong>Усиление:</strong> +{{ spellScalingDice }} за каждый
             дополнительный круг
@@ -955,7 +955,7 @@
             {{ displayFormula }}
             <span
               v-if="bonusValue !== 0"
-              class="text-gold"
+              class="text-primary"
             >
               {{
                 bonusValue >= 0

@@ -70,7 +70,7 @@
 
   /** Класс значения временных ХП: золото при наличии, приглушённый при нуле */
   const tempHitPointsClass = computed(() =>
-    (props.system.hitPoints?.temp ?? 0) > 0 ? 'text-gold/80' : 'text-dimmed',
+    (props.system.hitPoints?.temp ?? 0) > 0 ? 'text-primary/80' : 'text-dimmed',
   );
 
   function onHitPointsApply(
@@ -174,7 +174,7 @@
         class="group h-full bg-default/20 transition-colors"
         :class="
           isEditMode
-            ? 'cursor-pointer border-gold/30 hover:border-gold/50'
+            ? 'cursor-pointer border-primary/30 hover:border-primary/50'
             : 'border-muted'
         "
         @click.left.exact.prevent="isEditMode && (isArmorClassOpen = true)"
@@ -202,7 +202,7 @@
         class="h-full bg-default/20 transition-colors"
         :class="
           isEditMode
-            ? 'cursor-pointer border-gold/30 hover:border-gold/50'
+            ? 'cursor-pointer border-primary/30 hover:border-primary/50'
             : 'cursor-pointer border-muted hover:border-primary/50'
         "
         @click.left.exact.prevent="handleInitiativeClick"
@@ -224,7 +224,7 @@
       class="group h-full cursor-pointer bg-default/20 transition-colors"
       :class="
         isEditMode
-          ? 'border-gold/30 hover:border-gold/50'
+          ? 'border-primary/30 hover:border-primary/50'
           : 'border-muted hover:border-primary/50'
       "
       @click.left.exact.prevent="isHitPointsOpen = true"
@@ -321,7 +321,7 @@
       class="bg-default/20 transition-colors"
       :class="[
         isEditMode
-          ? 'cursor-pointer border-gold/30 hover:border-gold/50'
+          ? 'cursor-pointer border-primary/30 hover:border-primary/50'
           : 'border-muted',
       ]"
       @click.left.exact.prevent="isEditMode && openMovement()"

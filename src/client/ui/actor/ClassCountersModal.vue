@@ -263,7 +263,7 @@
           <div
             v-for="counter in localCounters"
             :key="createCounterId(counter)"
-            class="relative rounded-lg border border-default/50 bg-elevated/20 p-4 transition-all duration-200 hover:border-gold/30 hover:bg-elevated/30"
+            class="relative rounded-lg border border-default/50 bg-elevated/20 p-4 transition-all duration-200 hover:border-primary/30 hover:bg-elevated/30"
           >
             <!-- Кнопка удаления в правом верхнем углу -->
             <div class="absolute top-4 right-4 z-10">

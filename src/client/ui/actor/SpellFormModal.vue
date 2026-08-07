@@ -653,7 +653,7 @@
               <!-- Длительность -->
               <FormSection
                 title="Длительность"
-                title-color="gold"
+                title-color="primary"
               >
                 <template #actions>
                   <UCheckbox
@@ -773,7 +773,7 @@
                     v-model="hasProjectiles"
                     label="Снаряды (отдельный бросок на каждый)"
                     :ui="{
-                      label: 'text-xs font-semibold tracking-wide text-gold',
+                      label: 'text-xs font-semibold tracking-wide text-primary',
                     }"
                   />
                 </div>
@@ -1193,7 +1193,7 @@
                 <UIcon
                   :name="effect.icon || 'tabler:bolt'"
                   class="size-5 shrink-0"
-                  :class="effect.disabled ? 'text-dimmed' : 'text-gold'"
+                  :class="effect.disabled ? 'text-dimmed' : 'text-primary'"
                 />
 
                 <div class="min-w-0 flex-1">

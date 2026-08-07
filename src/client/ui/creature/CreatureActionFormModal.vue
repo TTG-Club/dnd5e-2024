@@ -613,7 +613,7 @@
                 class="rounded-lg border border-muted/60 bg-elevated/20 px-3 pt-1 pb-3"
               >
                 <div class="mb-2 flex items-center justify-between">
-                  <span class="text-xs font-semibold tracking-wide text-gold">
+                  <span class="text-xs font-semibold tracking-wide text-primary">
                     Дистанция
                   </span>
 

@@ -562,7 +562,7 @@
             <!-- Дальность и досягаемость -->
             <FormSection
               title="Дистанция"
-              title-color="gold"
+              title-color="primary"
             >
               <template #actions>
                 <USelect
@@ -678,7 +678,7 @@
                 <UIcon
                   :name="effect.icon || 'tabler:bolt'"
                   class="size-5 shrink-0"
-                  :class="effect.disabled ? 'text-dimmed' : 'text-gold'"
+                  :class="effect.disabled ? 'text-dimmed' : 'text-primary'"
                 />
 
                 <div class="min-w-0 flex-1">

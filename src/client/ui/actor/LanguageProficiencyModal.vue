@@ -43,19 +43,19 @@
     {
       key: 'standard' as const,
       title: 'Стандартные',
-      color: 'text-gold',
+      color: 'text-primary',
       items: LANGUAGE_TYPES.slice(0, 8),
     },
     {
       key: 'rare' as const,
       title: 'Редкие',
-      color: 'text-gold',
+      color: 'text-primary',
       items: LANGUAGE_TYPES.slice(8, 16),
     },
     {
       key: 'exotic' as const,
       title: 'Экзотические',
-      color: 'text-gold',
+      color: 'text-primary',
       items: LANGUAGE_TYPES.slice(16),
     },
   ]);

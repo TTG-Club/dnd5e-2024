@@ -1356,7 +1356,7 @@
         <div class="flex items-center gap-2">
           <span class="text-xs text-muted">DC спасброска</span>
 
-          <span class="text-lg font-bold text-gold">
+          <span class="text-lg font-bold text-primary">
             {{ resolvedStats.spellSaveDC || '—' }}
           </span>
         </div>

@@ -45,7 +45,7 @@
     {
       key: 'light' as const,
       title: 'Лёгкая',
-      color: 'text-gold',
+      color: 'text-primary',
       items: systemDataStore.armorBaseTypes.filter(
         (bt) => bt.category === 'light',
       ),
@@ -53,7 +53,7 @@
     {
       key: 'medium' as const,
       title: 'Средняя',
-      color: 'text-gold',
+      color: 'text-primary',
       items: systemDataStore.armorBaseTypes.filter(
         (bt) => bt.category === 'medium',
       ),
@@ -61,7 +61,7 @@
     {
       key: 'heavy' as const,
       title: 'Тяжёлая',
-      color: 'text-gold',
+      color: 'text-primary',
       items: systemDataStore.armorBaseTypes.filter(
         (bt) => bt.category === 'heavy',
       ),
@@ -69,7 +69,7 @@
     {
       key: 'shield' as const,
       title: 'Щиты',
-      color: 'text-gold',
+      color: 'text-primary',
       items: systemDataStore.armorBaseTypes.filter(
         (bt) => bt.category === 'shield',
       ),

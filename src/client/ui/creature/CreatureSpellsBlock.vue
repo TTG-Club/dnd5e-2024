@@ -518,7 +518,7 @@
 
           <span
             v-else
-            class="text-lg font-bold text-gold"
+            class="text-lg font-bold text-primary"
           >
             {{ effectiveSaveDC ?? '—' }}
           </span>

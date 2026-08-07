@@ -76,7 +76,7 @@
     <!-- Стоимость -->
     <span
       v-if="item.cost && (showCost ?? true)"
-      class="shrink-0 text-xs text-gold/80"
+      class="shrink-0 text-xs text-primary/80"
     >
       {{ formatItemCost(item.cost) }}
     </span>

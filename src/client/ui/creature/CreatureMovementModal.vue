@@ -104,7 +104,7 @@
                 <input
                   v-model="editMovement.hover"
                   type="checkbox"
-                  class="rounded border-accented bg-elevated text-gold focus:ring-gold/30"
+                  class="rounded border-accented bg-elevated text-primary focus:ring-primary/30"
                 />
                 Парение
               </label>

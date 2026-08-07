@@ -874,7 +874,7 @@
               key: 'gp',
               label: 'ЗМ',
               full: 'Золотые монеты',
-              color: 'text-gold',
+              color: 'text-primary',
             },
             {
               key: 'pp',

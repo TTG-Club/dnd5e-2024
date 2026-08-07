@@ -78,7 +78,7 @@
       return {
         key: String(catKey),
         title: TOOL_CATEGORIES[catKey],
-        color: 'text-gold',
+        color: 'text-primary',
         items: TOOLS_LIST.filter((bt) => bt.category === catKey).map(
           (toolEntry) => ({
             key: toolEntry.key,
@@ -92,7 +92,7 @@
       result.push({
         key: 'world',
         title: 'Заведённые в мире',
-        color: 'text-gold',
+        color: 'text-primary',
         items: worldTools.value,
       });
     }

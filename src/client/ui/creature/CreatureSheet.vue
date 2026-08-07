@@ -1103,7 +1103,7 @@
               <FieldsetLabel
                 label="Спасброски"
                 class="bg-default/20"
-                :class="[isEditMode ? 'border-gold/30' : 'border-muted']"
+                :class="[isEditMode ? 'border-primary/30' : 'border-muted']"
               >
                 <div class="px-2 pb-1">
                   <div class="grid grid-cols-2 gap-x-2 gap-y-1">
@@ -1150,7 +1150,7 @@
                 class="bg-default/20 transition-colors"
                 :class="[
                   isEditMode
-                    ? 'cursor-pointer border-gold/30 hover:border-gold/50'
+                    ? 'cursor-pointer border-primary/30 hover:border-primary/50'
                     : 'border-muted',
                 ]"
                 @click.left.exact.prevent="openSkillsModal"
@@ -1208,7 +1208,7 @@
                 class="bg-default/20 transition-colors"
                 :class="[
                   isEditMode
-                    ? 'cursor-pointer border-gold/30 hover:border-gold/50'
+                    ? 'cursor-pointer border-primary/30 hover:border-primary/50'
                     : 'border-muted',
                 ]"
                 @click.left.exact.prevent="openLanguagesModal"
@@ -1310,7 +1310,7 @@
                     :class="[
                       'relative pb-2 text-xs font-bold tracking-wider uppercase transition-colors',
                       activeTab === tab.id
-                        ? 'border-b-2 border-gold text-gold'
+                        ? 'border-b-2 border-primary text-primary'
                         : 'border-b-2 border-transparent text-muted hover:text-highlighted',
                     ]"
                     @click.left.exact.prevent="activeTab = tab.id"

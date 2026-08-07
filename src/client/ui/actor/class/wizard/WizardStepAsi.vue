@@ -230,14 +230,14 @@
     <!-- Режим Feat — placeholder -->
     <div
       v-else
-      class="rounded-lg border border-gold/30 bg-gold-subtle/10 px-3 py-4 text-center"
+      class="rounded-lg border border-primary/30 bg-primary-950/10 px-3 py-4 text-center"
     >
       <UIcon
         name="tabler:hammer"
-        class="mx-auto mb-2 h-8 w-8 text-gold/60"
+        class="mx-auto mb-2 h-8 w-8 text-primary/60"
       />
 
-      <p class="text-sm text-gold-muted/80">Выбор черты</p>
+      <p class="text-sm text-primary-300/80">Выбор черты</p>
 
       <p class="mt-1 text-sm text-dimmed">
         Каталог черт будет доступен в следующем обновлении.

@@ -646,7 +646,7 @@
           class="h-12 bg-default/20 transition-colors"
           :class="[
             isEditMode
-              ? 'cursor-pointer border-gold/30 hover:border-gold/50'
+              ? 'cursor-pointer border-primary/30 hover:border-primary/50'
               : 'border-muted',
           ]"
           @click.left.exact.prevent="isEditMode && openArmorClass()"
@@ -670,7 +670,7 @@
       class="group cursor-pointer bg-default/20 transition-colors"
       :class="
         isEditMode
-          ? 'border-gold/30 hover:border-gold/50'
+          ? 'border-primary/30 hover:border-primary/50'
           : 'border-muted hover:border-primary/50'
       "
       @click.left.exact.prevent="openHitPoints()"
@@ -696,7 +696,7 @@
             class="flex-1 text-center text-xl font-bold tabular-nums"
             :class="
               (actor.system.hitPoints?.temp ?? 0) > 0
-                ? 'text-gold/80'
+                ? 'text-primary/80'
                 : 'text-dimmed'
             "
             >{{ actor.system.hitPoints?.temp ?? 0 }}</span

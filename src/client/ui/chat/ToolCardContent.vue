@@ -110,7 +110,7 @@
         >
           <span class="text-dimmed">Цена:</span>
 
-          <span class="text-gold">{{ formatItemCost(item.cost) }}</span>
+          <span class="text-primary">{{ formatItemCost(item.cost) }}</span>
         </div>
 
         <!-- Вес -->

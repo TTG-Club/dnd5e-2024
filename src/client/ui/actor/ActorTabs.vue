@@ -142,7 +142,7 @@
     }
 
     return isActive
-      ? 'border-b-2 border-gold text-gold'
+      ? 'border-b-2 border-primary text-primary'
       : 'border-b-2 border-transparent text-muted hover:text-highlighted';
   }
 

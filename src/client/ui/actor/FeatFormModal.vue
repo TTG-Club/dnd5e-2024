@@ -409,7 +409,7 @@
               >
                 <UIcon
                   :name="effect.icon || 'tabler:bolt'"
-                  class="size-5 shrink-0 text-gold"
+                  class="size-5 shrink-0 text-primary"
                 />
 
                 <div class="min-w-0 flex-1">
