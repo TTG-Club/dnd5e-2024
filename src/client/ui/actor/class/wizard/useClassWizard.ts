@@ -7,6 +7,8 @@
  * - Мультикласс: ХП → Владения (сокращённые) → Навыки (если есть) → Особенности → Заклинания
  */
 
+import type { Ref } from 'vue';
+
 import type { AbilityType, ProficiencyLevel, SkillType } from '@vtt/shared';
 import type {
   ActiveEffect,
@@ -20,8 +22,10 @@ import type {
   ResolvedGrantedSpell,
   Spell,
 } from '@vtt/shared/system/dnd.js';
-import type { Ref } from 'vue';
 
+import { computed, reactive, ref, watch } from 'vue';
+
+import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 import { generateId } from '@vtt/shared';
 import {
   ABILITY_LABELS,
@@ -32,9 +36,6 @@ import {
   normalizeSpellName,
   SKILLS_LIST,
 } from '@vtt/shared/system/dnd.js';
-import { computed, reactive, ref, watch } from 'vue';
-
-import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 
 // ── Типы ──────────────────────────────────────────────────────
 

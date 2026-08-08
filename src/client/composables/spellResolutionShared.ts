@@ -15,6 +15,7 @@ import type {
   TargetHpGate,
 } from '@vtt/shared/system/dnd.js';
 
+import { useInitiativeStore } from '@/stores/initiativeStore';
 import { generateId, isCreatureEntity } from '@vtt/shared';
 import {
   DAMAGE_TYPE_LABELS,
@@ -25,8 +26,6 @@ import {
   targetHpGateMatches,
   withInitializedDuration,
 } from '@vtt/shared/system/dnd.js';
-
-import { useInitiativeStore } from '@/stores/initiativeStore';
 
 /** Результат спасброска одной цели */
 export interface SpellTargetResult {

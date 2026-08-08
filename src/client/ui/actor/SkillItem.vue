@@ -1,10 +1,10 @@
 <script setup lang="ts">
   import type { ProficiencyLevel, SkillType } from '@vtt/shared';
 
-  import { getSkillAbility } from '@vtt/shared/system/dnd.js';
   import { computed } from 'vue';
 
   import { ABILITY_SHORT_LABELS } from '@/systems/dnd5e/ui/actor/constants';
+  import { getSkillAbility } from '@vtt/shared/system/dnd.js';
 
   import ProficiencyIndicator from './ProficiencyIndicator.vue';
 

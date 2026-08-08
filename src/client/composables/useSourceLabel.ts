@@ -1,5 +1,6 @@
-import type { SourceDefinition } from '@vtt/shared';
 import type { MaybeRefOrGetter } from 'vue';
+
+import type { SourceDefinition } from '@vtt/shared';
 
 import { computed, toValue } from 'vue';
 

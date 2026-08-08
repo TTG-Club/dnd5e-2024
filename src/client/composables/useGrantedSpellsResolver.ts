@@ -8,13 +8,14 @@
  * заклинаний для отображения в мастерах и записи в лист персонажа.
  */
 
+import type { Ref } from 'vue';
+
 import type { TypedWebSocketClient } from '@vtt/shared';
 import type {
   GrantedSpellSource,
   ResolvedGrantedSpell,
   Spell,
 } from '@vtt/shared/system/dnd.js';
-import type { Ref } from 'vue';
 
 import { computed, ref, watch } from 'vue';
 

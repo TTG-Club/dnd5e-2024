@@ -2,10 +2,10 @@
   import type { SpellOption } from '../grantedSpellsEditorTypes';
   import type { EditableSubclass } from './classEditorTypes';
 
-  import { generateId } from '@vtt/shared';
   import { computed, ref } from 'vue';
 
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
+  import { generateId } from '@vtt/shared';
 
   import SourceField from '../SourceField.vue';
   import ClassCountersEditor from './ClassCountersEditor.vue';

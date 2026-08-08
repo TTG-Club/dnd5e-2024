@@ -8,13 +8,14 @@
  * поиску по `spellId` в любом паке. Это сохраняет переносимость вида.
  */
 
+import type { Ref } from 'vue';
+
 import type { TypedWebSocketClient } from '@vtt/shared';
 import type {
   GrantedSpellSource,
   ResolvedGrantedSpell,
   Spell,
 } from '@vtt/shared/system/dnd.js';
-import type { Ref } from 'vue';
 
 import { computed, ref, watch } from 'vue';
 

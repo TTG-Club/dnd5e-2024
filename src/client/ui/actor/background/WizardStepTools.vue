@@ -11,8 +11,9 @@
   import type { TypedWebSocketClient } from '@vtt/shared';
   import type { BackgroundDefinition } from '@vtt/shared/system/dnd.js';
 
-  import { toolProficiencyLabel } from '@vtt/shared/system/dnd.js';
   import { computed } from 'vue';
+
+  import { toolProficiencyLabel } from '@vtt/shared/system/dnd.js';
 
   import ToolProficiencyGrant from '../ToolProficiencyGrant.vue';
 
@@ -97,9 +98,7 @@
     >
       <p class="text-center text-sm text-muted">
         Выберите дополнительно инструментов:
-        <span class="font-bold text-primary">{{
-          neededSelectionsCount
-        }}</span>
+        <span class="font-bold text-primary">{{ neededSelectionsCount }}</span>
         (выбрано: {{ choiceSelections.length }})
       </p>
 

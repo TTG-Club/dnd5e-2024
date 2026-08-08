@@ -1,9 +1,9 @@
 <script setup lang="ts">
-  import { CREATURE_ENVIRONMENTS } from '@vtt/shared/system/dnd.js';
   import { computed, ref, watch } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
+  import { CREATURE_ENVIRONMENTS } from '@vtt/shared/system/dnd.js';
 
   /** Блокирующий модал — фиксированный z-index поверх остальных */
   const MODAL_Z_INDEX = Z_INDEX.MODAL_ELEVATED;

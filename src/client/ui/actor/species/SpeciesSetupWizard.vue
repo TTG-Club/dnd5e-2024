@@ -140,9 +140,7 @@
               v-if="stepIdx > 0"
               class="h-px flex-1"
               :class="
-                stepIdx <= currentStepIndex
-                  ? 'bg-primary/60'
-                  : 'bg-accented/50'
+                stepIdx <= currentStepIndex ? 'bg-primary/60' : 'bg-accented/50'
               "
             />
 

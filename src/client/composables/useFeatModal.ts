@@ -1,9 +1,8 @@
 import type { Feature } from '@vtt/shared';
 import type { DnDGameItem } from '@vtt/shared/system/dnd.js';
 
-import { systemRegistry } from '@vtt/shared';
-
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
+import { systemRegistry } from '@vtt/shared';
 
 /**
  * Композабл для открытия модального окна просмотра черты (D&D 5e).

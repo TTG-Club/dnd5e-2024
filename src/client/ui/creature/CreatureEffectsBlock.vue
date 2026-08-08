@@ -5,13 +5,13 @@
     DnDCreature,
   } from '@vtt/shared/system/dnd.js';
 
+  import { computed, ref } from 'vue';
+
+  import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import {
     buildConditionActiveEffect,
     CONDITIONS,
   } from '@vtt/shared/system/dnd.js';
-  import { computed, ref } from 'vue';
-
-  import { useModalManager } from '@/shared_ui/composables/useModalManager';
 
   import ActiveEffectFormModal from '../actor/tabs/ActiveEffectFormModal.vue';
 

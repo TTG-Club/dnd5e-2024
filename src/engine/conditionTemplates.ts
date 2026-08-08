@@ -11,6 +11,7 @@
  */
 
 import type { AbilityType, MovementType, SkillType } from '@vtt/shared';
+
 import type {
   ActiveEffect,
   EffectChange,
@@ -21,6 +22,7 @@ import type {
 import type { ConditionKey } from './conditionKeys.js';
 
 import { generateId } from '@vtt/shared';
+
 import { DEFAULT_EFFECT_CHANGE_PRIORITY } from './activeEffectTypes.js';
 import { CONDITIONS } from './consts.js';
 

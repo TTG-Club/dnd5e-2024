@@ -15,6 +15,7 @@ import type {
   ProficiencyLevel,
   SkillType,
 } from '@vtt/shared';
+
 import type {
   ActorClassEntry,
   CounterRecovery,
@@ -121,12 +122,7 @@ export interface DnDActorSystem {
  * Размер существа D&D 5e
  */
 export type CreatureSize =
-  | 'tiny'
-  | 'small'
-  | 'medium'
-  | 'large'
-  | 'huge'
-  | 'gargantuan';
+  'tiny' | 'small' | 'medium' | 'large' | 'huge' | 'gargantuan';
 
 /** Значения характеристик D&D 5e */
 export interface DnDAbilityScores {

@@ -1,14 +1,6 @@
 <script setup lang="ts">
   import type { CreatureSystem, DnDCreature } from '@vtt/shared/system/dnd.js';
 
-  import { getAssetUrl } from '@vtt/shared';
-  import {
-    CR_OPTIONS,
-    CREATURE_ALIGNMENT_OPTIONS,
-    CREATURE_CATEGORY_OPTIONS,
-    CREATURE_SIZE_OPTIONS,
-    getAlignmentLabel,
-  } from '@vtt/shared/system/dnd.js';
   import { computed } from 'vue';
 
   import { useImageFallback } from '@/shared_ui/composables';
@@ -20,6 +12,14 @@
     CREATURE_SIZE_LABELS,
     CREATURE_TYPE_LABELS,
   } from '@/systems/dnd5e/ui/actor/constants';
+  import { getAssetUrl } from '@vtt/shared';
+  import {
+    CR_OPTIONS,
+    CREATURE_ALIGNMENT_OPTIONS,
+    CREATURE_CATEGORY_OPTIONS,
+    CREATURE_SIZE_OPTIONS,
+    getAlignmentLabel,
+  } from '@vtt/shared/system/dnd.js';
 
   interface Props {
     creature: DnDCreature;

@@ -4,7 +4,6 @@
 
   import type { AppliedFeatFeature } from '../feat/featApply';
 
-  import { getTotalLevel } from '@vtt/shared/system/dnd.js';
   import { computed, ref } from 'vue';
 
   import { generateEntityId } from '@/core/entityUtils';
@@ -12,6 +11,7 @@
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useChatStore } from '@/stores/chatStore';
   import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
+  import { getTotalLevel } from '@vtt/shared/system/dnd.js';
 
   import { useFeatModal } from '../../../composables/useFeatModal';
   import { reapplyFeatToActor, removeFeatFromActor } from '../feat/featApply';

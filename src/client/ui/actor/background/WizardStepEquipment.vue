@@ -31,9 +31,7 @@
         <div
           class="mb-3 flex items-center justify-between border-b border-default/50 pb-2"
         >
-          <span
-            class="text-xs font-bold tracking-wider text-primary uppercase"
-          >
+          <span class="text-xs font-bold tracking-wider text-primary uppercase">
             {{ index === 0 ? 'Вариант А' : 'Вариант Б' }}
           </span>
 

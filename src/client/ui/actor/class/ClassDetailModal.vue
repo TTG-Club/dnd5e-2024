@@ -5,13 +5,12 @@
     ClassLevelEntry,
   } from '@vtt/shared/system/dnd.js';
 
-  import { toolProficiencyLabel } from '@vtt/shared/system/dnd.js';
   import { computed, nextTick, ref } from 'vue';
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
+  import { toolProficiencyLabel } from '@vtt/shared/system/dnd.js';
 
-  import SourceBadge from '../SourceBadge.vue';
   import {
     ABILITY_LABELS,
     ARMOR_PROF_SHORT_LABELS,
@@ -20,6 +19,7 @@
     TOOL_PROF_LABELS,
     WEAPON_PROF_SHORT_LABELS,
   } from '../constants';
+  import SourceBadge from '../SourceBadge.vue';
 
   /** Проверяет, является ли особенность генеричной заглушкой подкласса («Умение подкласса», «Подкласс воина») */
   function isSubclassPlaceholder(feature: ClassFeature): boolean {

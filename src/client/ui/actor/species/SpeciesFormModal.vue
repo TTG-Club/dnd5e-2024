@@ -25,16 +25,6 @@
     EditableFeatureFields,
   } from './speciesEditorTypes';
 
-  import { generateId, typedObjectEntries } from '@vtt/shared';
-  import {
-    ABILITY_OPTIONS,
-    CONDITIONS,
-    CREATURE_SIZE_LABELS,
-    CREATURE_TYPE_LABELS,
-    LANGUAGE_TYPES,
-    SKILLS_LIST,
-    TOOLS_LABELS,
-  } from '@vtt/shared/system/dnd.js';
   import { computed, ref, watch } from 'vue';
 
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
@@ -46,6 +36,16 @@
     linkGrantedSpellRefs,
     loadSpellPacks,
   } from '@/systems/dnd5e/composables/spellCompendium';
+  import { generateId, typedObjectEntries } from '@vtt/shared';
+  import {
+    ABILITY_OPTIONS,
+    CONDITIONS,
+    CREATURE_SIZE_LABELS,
+    CREATURE_TYPE_LABELS,
+    LANGUAGE_TYPES,
+    SKILLS_LIST,
+    TOOLS_LABELS,
+  } from '@vtt/shared/system/dnd.js';
 
   import { ARMOR_PROF_LABELS, WEAPON_PROF_LABELS } from '../constants';
   import FormSection from '../FormSection.vue';

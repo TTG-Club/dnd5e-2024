@@ -14,6 +14,17 @@
   } from '../../../composables/useSpellResolution';
 
   import { useToast } from '@nuxt/ui/composables';
+  import { computed, onMounted, ref } from 'vue';
+
+  import { loadCompendiumKind } from '@/core/compendiumDataClient';
+  import { useModalManager } from '@/shared_ui/composables/useModalManager';
+  import { useActionPromptStore } from '@/stores/actionPromptStore';
+  import { useAuraStore } from '@/stores/auraStore';
+  import { useChatStore } from '@/stores/chatStore';
+  import { useHotbarStore } from '@/stores/hotbarStore';
+  import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
+  import { useTargetStore } from '@/stores/targetStore';
+  import { useWorldStore } from '@/stores/worldStore';
   import {
     calculateSpellAttackModifier,
     collectActiveEffects,
@@ -37,17 +48,6 @@
     SPELL_TEMPLATE_DEFAULT_COLOR,
     spellIsHealing,
   } from '@vtt/shared/system/dnd.js';
-  import { computed, onMounted, ref } from 'vue';
-
-  import { loadCompendiumKind } from '@/core/compendiumDataClient';
-  import { useModalManager } from '@/shared_ui/composables/useModalManager';
-  import { useActionPromptStore } from '@/stores/actionPromptStore';
-  import { useAuraStore } from '@/stores/auraStore';
-  import { useChatStore } from '@/stores/chatStore';
-  import { useHotbarStore } from '@/stores/hotbarStore';
-  import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
-  import { useTargetStore } from '@/stores/targetStore';
-  import { useWorldStore } from '@/stores/worldStore';
 
   import {
     getCasterSpellEffects,
@@ -314,7 +314,11 @@
 
   /** Карта casterType для computeSpellSlots */
   const casterTypeMap = computed(() => {
-    const typeMap = new Map<string, import('@vtt/shared/system/dnd.js').CasterType>();
+    const typeMap = new Map<
+      string,
+      import('@vtt/shared/system/dnd.js').CasterType
+    >();
+
     const classes = props.actor.system?.classes ?? [];
 
     for (const entry of classes) {

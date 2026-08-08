@@ -69,7 +69,9 @@ function run(command, args) {
   });
 
   if (result.status !== 0) {
-    fail(`шаг "${command} ${args.join(' ')}" не прошёл — установка остановлена`);
+    fail(
+      `шаг "${command} ${args.join(' ')}" не прошёл — установка остановлена`,
+    );
   }
 }
 
@@ -87,7 +89,9 @@ if (dataArgIndex !== -1 && !dataArg) {
 }
 
 if (versionArgIndex !== -1 && !/^\d+\.\d+\.\d+$/.test(versionArg ?? '')) {
-  fail(`у флага --version ожидается номер вида X.Y.Z, получено "${versionArg ?? ''}"`);
+  fail(
+    `у флага --version ожидается номер вида X.Y.Z, получено "${versionArg ?? ''}"`,
+  );
 }
 
 // 1. Сборка. Она же — единственная проверка годности бандла (см. scripts/build.mjs).
@@ -108,7 +112,11 @@ try {
   if (versionArg) {
     manifest.version = versionArg;
 
-    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf-8');
+    writeFileSync(
+      manifestPath,
+      `${JSON.stringify(manifest, null, 2)}\n`,
+      'utf-8',
+    );
   }
 
   const dataPath = resolveDataPath(dataArg);

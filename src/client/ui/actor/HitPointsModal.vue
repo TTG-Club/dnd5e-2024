@@ -5,11 +5,11 @@
     ManualHitDieGroup,
   } from '@vtt/shared/system/dnd.js';
 
-  import { getHitDiceGroups } from '@vtt/shared/system/dnd.js';
   import { computed, reactive, ref, watch } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
+  import { getHitDiceGroups } from '@vtt/shared/system/dnd.js';
 
   /** Доступные размеры костей хитов */
   const HIT_DIE_OPTIONS: HitDie[] = [6, 8, 10, 12];

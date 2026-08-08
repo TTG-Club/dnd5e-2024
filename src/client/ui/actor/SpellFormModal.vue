@@ -5,6 +5,11 @@
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
+  import { computed, ref, watch } from 'vue';
+
+  import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
+  import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
+  import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { DISTANCE_UNIT_OPTIONS } from '@vtt/shared';
   import {
     ABILITY_OPTIONS,
@@ -13,11 +18,6 @@
     getAreaSizeLabel,
     SPELL_USES_RECOVERY_OPTIONS,
   } from '@vtt/shared/system/dnd.js';
-  import { computed, ref, watch } from 'vue';
-
-  import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
-  import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
-  import { useModalManager } from '@/shared_ui/composables/useModalManager';
 
   import { useSpellForm } from '../../composables/useSpellForm';
   import DamagePartRow from './DamagePartRow.vue';

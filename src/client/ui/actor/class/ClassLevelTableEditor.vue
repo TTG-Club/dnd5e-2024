@@ -7,8 +7,9 @@
     EditableTableColumnChild,
   } from './classEditorTypes';
 
-  import { generateId } from '@vtt/shared';
   import { computed, ref } from 'vue';
+
+  import { generateId } from '@vtt/shared';
 
   import {
     buildPresetColumn,

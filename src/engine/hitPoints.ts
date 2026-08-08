@@ -90,6 +90,8 @@ export function resolveEntityTempHp(entity: DnDSceneEntity): number {
  *
  * @param entity - сущность-цель (обычно глубокая копия для отправки на сервер)
  * @param hitPoints - новые текущие и временные хиты
+ * @param hitPoints.current - текущие хиты
+ * @param hitPoints.temp - временные хиты
  */
 export function writeEntityHitPoints(
   entity: DnDSceneEntity,

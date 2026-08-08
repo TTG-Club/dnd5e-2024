@@ -12,6 +12,7 @@
  */
 
 import type { DamagePart } from '@vtt/shared';
+
 import type {
   ActiveEffect,
   EffectChange,

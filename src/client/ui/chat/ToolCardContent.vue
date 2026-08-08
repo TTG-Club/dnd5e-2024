@@ -1,12 +1,12 @@
 <script setup lang="ts">
   import type { DnDGameItem } from '@vtt/shared/system/dnd.js';
 
-  import { formatItemCost } from '@vtt/shared';
-  import { RARITY_COLORS, RARITY_OPTIONS } from '@vtt/shared/system/dnd.js';
   import { computed } from 'vue';
 
   import CardErrorFallback from '@/shared_ui/components/CardErrorFallback.vue';
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
+  import { formatItemCost } from '@vtt/shared';
+  import { RARITY_COLORS, RARITY_OPTIONS } from '@vtt/shared/system/dnd.js';
 
   import { RARITY_BORDER_CLASSES, RARITY_BORDER_DEFAULT } from './consts';
 

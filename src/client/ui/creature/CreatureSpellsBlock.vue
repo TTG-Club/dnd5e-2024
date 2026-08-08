@@ -13,6 +13,13 @@
   } from '../../composables/useSpellResolution';
 
   import { useToast } from '@nuxt/ui/composables';
+  import { computed, ref } from 'vue';
+
+  import { useModalManager } from '@/shared_ui/composables/useModalManager';
+  import { useChatStore } from '@/stores/chatStore';
+  import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
+  import { useTargetStore } from '@/stores/targetStore';
+  import { useWorldStore } from '@/stores/worldStore';
   import {
     ABILITY_LABELS,
     ABILITY_OPTIONS,
@@ -26,13 +33,6 @@
     SPELL_TEMPLATE_DEFAULT_COLOR,
     spellIsHealing,
   } from '@vtt/shared/system/dnd.js';
-  import { computed, ref } from 'vue';
-
-  import { useModalManager } from '@/shared_ui/composables/useModalManager';
-  import { useChatStore } from '@/stores/chatStore';
-  import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
-  import { useTargetStore } from '@/stores/targetStore';
-  import { useWorldStore } from '@/stores/worldStore';
 
   import { useBonusDamageParts } from '../../composables/useBonusDamageParts';
   import { useSpellResolution } from '../../composables/useSpellResolution';
@@ -277,8 +277,7 @@
         }) => SpellDamagePartInput[])
       | undefined,
     onRollParts: undefined as
-      | ((parts: RolledSpellDamagePart[]) => void)
-      | undefined,
+      ((parts: RolledSpellDamagePart[]) => void) | undefined,
     onHit: undefined as (() => void) | undefined,
   });
 
@@ -290,9 +289,8 @@
     // Стор хоста хранит сущности в нейтральной форме — сужаем к D&D-форме,
     // как и везде на границе с хостом.
     return (
-      (world?.creatures?.find(
-        (entry) => entry.id === props.creatureId,
-      ) as DnDCreature | undefined) ?? null
+      (world?.creatures?.find((entry) => entry.id === props.creatureId) as
+        DnDCreature | undefined) ?? null
     );
   }
 

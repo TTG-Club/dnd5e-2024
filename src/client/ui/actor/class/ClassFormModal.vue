@@ -25,8 +25,6 @@
     EditableTableColumn,
   } from './classEditorTypes';
 
-  import { generateId } from '@vtt/shared';
-  import { ABILITY_OPTIONS, SKILLS_LIST } from '@vtt/shared/system/dnd.js';
   import { computed, ref, watch } from 'vue';
 
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
@@ -36,6 +34,8 @@
     findSpellInPacks,
     loadSpellPacks,
   } from '@/systems/dnd5e/composables/spellCompendium';
+  import { generateId } from '@vtt/shared';
+  import { ABILITY_OPTIONS, SKILLS_LIST } from '@vtt/shared/system/dnd.js';
 
   import {
     ARMOR_PROF_LABELS,

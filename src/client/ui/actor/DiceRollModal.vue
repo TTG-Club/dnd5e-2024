@@ -10,14 +10,6 @@
     SpellDamagePartInput,
   } from '../../composables/useSpellResolution';
 
-  import {
-    buildAttackFormula,
-    doubleDiceInFormula,
-    formatDamageDefenseSuffix,
-    getShortDamageTypeLabel,
-    performTwoStageAttack,
-    scaleDamageFormula,
-  } from '@vtt/shared/system/dnd.js';
   import { promiseTimeout } from '@vueuse/core';
   import { computed, ref, watch } from 'vue';
 
@@ -27,6 +19,14 @@
   import { useDiceRollerStore } from '@/stores/diceRollerStore';
   import { useTargetStore } from '@/stores/targetStore';
   import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
+  import {
+    buildAttackFormula,
+    doubleDiceInFormula,
+    formatDamageDefenseSuffix,
+    getShortDamageTypeLabel,
+    performTwoStageAttack,
+    scaleDamageFormula,
+  } from '@vtt/shared/system/dnd.js';
 
   type RollVisibility = 'public' | 'gm' | 'private';
 

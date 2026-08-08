@@ -5,13 +5,13 @@
     ShortRestHitDiceResult,
   } from '@vtt/shared/system/dnd.js';
 
-  import { getHitDiceGroups, spendHitDice } from '@vtt/shared/system/dnd.js';
   import { computed, reactive, watch } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
   import { useChatStore } from '@/stores/chatStore';
   import { useDiceRollerStore } from '@/stores/diceRollerStore';
+  import { getHitDiceGroups, spendHitDice } from '@vtt/shared/system/dnd.js';
 
   interface Props {
     open: boolean;

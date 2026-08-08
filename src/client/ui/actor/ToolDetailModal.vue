@@ -1,14 +1,14 @@
 <script setup lang="ts">
   import type { DnDGameItem } from '@vtt/shared/system/dnd.js';
 
+  import { computed } from 'vue';
+
+  import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import {
     ABILITY_LABELS,
     TOOL_CATEGORIES,
     TOOLS_LABELS,
   } from '@vtt/shared/system/dnd.js';
-  import { computed } from 'vue';
-
-  import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
 
   import ItemCostWeightRarity from './ItemCostWeightRarity.vue';
   import ItemDetailModalShell from './ItemDetailModalShell.vue';

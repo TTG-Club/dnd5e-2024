@@ -14,6 +14,7 @@
  */
 
 import type { AbilityType, Feature } from '@vtt/shared';
+
 import type { BackgroundDefinition } from './backgroundTypes.js';
 import type { DnDGameItem } from './dndEntities.js';
 import type { FeatData } from './featTypes.js';

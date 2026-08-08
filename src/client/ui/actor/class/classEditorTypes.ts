@@ -78,12 +78,7 @@ export interface EditableLevelRow {
 
 /** Тип значения произвольного поля строки таблицы уровней. */
 type ClassLevelEntryValue =
-  | string
-  | number
-  | boolean
-  | string[]
-  | Record<string, number>
-  | undefined;
+  string | number | boolean | string[] | Record<string, number> | undefined;
 
 // ── Заклинания особенности ───────────────────────────────────
 

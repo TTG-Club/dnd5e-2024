@@ -8,8 +8,9 @@
   import type { TypedWebSocketClient } from '@vtt/shared';
   import type { ClassDefinition } from '@vtt/shared/system/dnd.js';
 
-  import { getMulticlassProficiencies } from '@vtt/shared/system/dnd.js';
   import { computed } from 'vue';
+
+  import { getMulticlassProficiencies } from '@vtt/shared/system/dnd.js';
 
   import ToolProficiencyGrant from '../../ToolProficiencyGrant.vue';
   import { ARMOR_PROF_LABELS, WEAPON_PROF_LABELS } from './constants';

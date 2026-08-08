@@ -18,13 +18,13 @@
     SubclassDefinition,
   } from '@vtt/shared/system/dnd.js';
 
+  import { computed, ref } from 'vue';
+
+  import CompendiumDataModal from '@/systems/dnd5e/ui/compendium/CompendiumDataModal.vue';
   import {
     computeSpellSlots,
     getPactSlotInfo,
   } from '@vtt/shared/system/dnd.js';
-  import { computed, ref } from 'vue';
-
-  import CompendiumDataModal from '@/systems/dnd5e/ui/compendium/CompendiumDataModal.vue';
 
   import { ABILITY_LABELS } from './constants';
 

@@ -1,7 +1,6 @@
 <script setup lang="ts">
-  import type { DnDActor } from '@vtt/shared/system/dnd.js';
-
   import type { ExtensionRegistration } from '@/core/extensionRegistry';
+  import type { DnDActor } from '@vtt/shared/system/dnd.js';
 
   import { computed, toRef } from 'vue';
 

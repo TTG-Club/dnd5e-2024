@@ -11,13 +11,16 @@
  */
 
 import type { TypedWebSocketClient } from '@vtt/shared';
-import type { DnDGameItem, ToolVocabularyEntry } from '@vtt/shared/system/dnd.js';
+import type {
+  DnDGameItem,
+  ToolVocabularyEntry,
+} from '@vtt/shared/system/dnd.js';
 
-import { generateId } from '@vtt/shared';
-import { TOOLS_LIST } from '@vtt/shared/system/dnd.js';
 import { computed } from 'vue';
 
 import { useItemsStore } from '@/stores/itemsStore';
+import { generateId } from '@vtt/shared';
+import { TOOLS_LIST } from '@vtt/shared/system/dnd.js';
 
 /**
  * Ключ владения для предмета-инструмента мира: базовый тип, если он выбран в
@@ -34,11 +37,15 @@ export function toolItemKey(item: DnDGameItem): string {
 
   const source = item.nameEn?.trim() || item.name.trim();
 
-  return source
-    .toLowerCase()
-    .replace(/ё/g, 'е')
-    .replace(/[^a-zа-я0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+  return (
+    source
+      .toLowerCase()
+      .replace(/ё/g, 'е')
+      // `а-я` — это «а-я»: явные коды вместо букв, чтобы диапазон
+      // нельзя было прочитать неправильно (правило `regexp/no-obscure-range`)
+      .replace(/[^a-z\u0430-\u044F0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+  );
 }
 
 /**
@@ -77,7 +84,9 @@ export function useToolVocabulary() {
 
   /** Названия по ключу — для отображения владений, заведённых в мире. */
   const labels = computed<Record<string, string>>(() =>
-    Object.fromEntries(vocabulary.value.map((entry) => [entry.key, entry.label])),
+    Object.fromEntries(
+      vocabulary.value.map((entry) => [entry.key, entry.label]),
+    ),
   );
 
   /**

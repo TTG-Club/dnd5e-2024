@@ -2,8 +2,9 @@ import type { Component } from 'vue';
 
 import type { ClientSystemAPI } from '@/core/systemBootstrap';
 
-import { dnd5eSystemInstance } from '@vtt/shared/system/dnd.js';
 import { defineAsyncComponent } from 'vue';
+
+import { dnd5eSystemInstance } from '@vtt/shared/system/dnd.js';
 
 import { registerDnd5eMacros } from './macros/dnd5eMacros';
 import { registerSystemDataSync } from './systemDataSync';

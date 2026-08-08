@@ -1,4 +1,5 @@
 import type { MovementType } from '@vtt/shared';
+
 import type { GrantedSpellSource } from './grantedSpells.js';
 import type { SpeciesDefinition, SpeciesFeature } from './speciesTypes.js';
 

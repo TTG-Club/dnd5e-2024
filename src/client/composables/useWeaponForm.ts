@@ -17,6 +17,9 @@ import type {
   DnDGameItem,
 } from '@vtt/shared/system/dnd.js';
 
+import { computed, ref, watch } from 'vue';
+
+import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 import {
   damagePartIsHealing,
   DEFAULT_CURRENCY,
@@ -27,9 +30,6 @@ import {
   SAVE_TYPE_OPTIONS,
   WEAPON_MASTERIES,
 } from '@vtt/shared/system/dnd.js';
-import { computed, ref, watch } from 'vue';
-
-import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 
 /**
  * Значение опции «не выбрано» в селектах базового типа/категории/приёма.

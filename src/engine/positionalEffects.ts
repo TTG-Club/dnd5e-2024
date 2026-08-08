@@ -11,11 +11,13 @@
  */
 
 import type { CustomArea, GridSettings, Token } from '@vtt/shared';
+
 import type { AuraSourceToken, TriggerAuraHit } from './auraMath.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type { TurnDamageOutcome, TurnSaveOutcome } from './turnEffects.js';
 
 import { generateId } from '@vtt/shared';
+
 import { isDnDEffect } from './activeEffectTypes.js';
 import {
   collectAllAuraEffects,

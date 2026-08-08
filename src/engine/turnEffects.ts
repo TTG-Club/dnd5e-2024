@@ -10,6 +10,7 @@
  */
 
 import type { AbilityType, DamagePart } from '@vtt/shared';
+
 import type {
   ActiveEffect,
   EffectSaveTiming,
@@ -18,6 +19,7 @@ import type {
 import type { DnDSceneEntity } from './dndEntities.js';
 
 import { generateId } from '@vtt/shared';
+
 import { DAMAGE_TYPE_LABELS } from './damageConstants.js';
 import { applyHpChange, applyMultiTypeDamageDefenses } from './damageUtils.js';
 import { rollDamageFormula } from './diceFormula.js';

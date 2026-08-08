@@ -8,11 +8,12 @@
 import type {
   AbilityType,
   ActorMovement,
+  EquipmentCategory,
   MovementType,
   SkillType,
   ToolCategory,
 } from '@vtt/shared';
-import type { EquipmentCategory } from '@vtt/shared';
+
 import type { ConditionKey } from './conditionKeys.js';
 import type { DnDActor, SpellUsesRecovery } from './dndEntities.js';
 import type { CreatureSize } from './types.js';
@@ -1035,64 +1036,66 @@ export const CR_OPTIONS = CR_TABLE.map((entry) => ({
 // ============================================================
 
 /** Значения по умолчанию для нового существа */
-export const DEFAULT_CREATURE: Omit<import('./dndEntities.js').DnDCreature, 'id'> =
-  {
-    entityType: 'creature',
-    name: 'Новое существо',
-    description: '',
-    autoSaves: true,
-    token: {
-      frameUrl: 'assets/token-frames/0.png',
-      showName: false,
-      hpDisplayMode: 'text',
-      disposition: 'hostile',
+export const DEFAULT_CREATURE: Omit<
+  import('./dndEntities.js').DnDCreature,
+  'id'
+> = {
+  entityType: 'creature',
+  name: 'Новое существо',
+  description: '',
+  autoSaves: true,
+  token: {
+    frameUrl: 'assets/token-frames/0.png',
+    showName: false,
+    hpDisplayMode: 'text',
+    disposition: 'hostile',
+  },
+  activeEffects: [],
+  system: {
+    size: 'medium',
+    type: 'humanoid',
+    subtype: '',
+    alignment: 'unaligned',
+    armorClass: { value: 10, calculation: 'flat', formula: '', flat: 10 },
+    hitPoints: { average: 10, formula: '2к8 + 2' },
+    movement: {
+      walk: 30,
+      swim: 0,
+      fly: 0,
+      climb: 0,
+      burrow: 0,
+      hover: false,
+      units: 'ft',
     },
-    activeEffects: [],
-    system: {
-      size: 'medium',
-      type: 'humanoid',
-      subtype: '',
-      alignment: 'unaligned',
-      armorClass: { value: 10, calculation: 'flat', formula: '', flat: 10 },
-      hitPoints: { average: 10, formula: '2к8 + 2' },
-      movement: {
-        walk: 30,
-        swim: 0,
-        fly: 0,
-        climb: 0,
-        burrow: 0,
-        hover: false,
-        units: 'ft',
-      },
-      abilities: {
-        strength: 10,
-        dexterity: 10,
-        constitution: 10,
-        intelligence: 10,
-        wisdom: 10,
-        charisma: 10,
-      },
-      challengeRating: '0',
-      proficiencyBonus: 2,
-      savingThrows: [],
-      skills: {},
-      defenses: {
-        vulnerabilities: [],
-        resistances: [],
-        immunities: [],
-        conditionImmunities: [],
-      },
-      senses: 'пассивная Внимательность 10',
-      languages: ['Общий'],
-      environments: [],
-      customEnvironments: '',
-      traits: [],
-      actions: [],
-      bonusActions: [],
-      reactions: [],
-      legendary: { count: 0, actions: [] },
+    abilities: {
+      strength: 10,
+      dexterity: 10,
+      constitution: 10,
+      intelligence: 10,
+      wisdom: 10,
+      charisma: 10,
     },
-  };
+    challengeRating: '0',
+    proficiencyBonus: 2,
+    savingThrows: [],
+    skills: {},
+    defenses: {
+      vulnerabilities: [],
+      resistances: [],
+      immunities: [],
+      conditionImmunities: [],
+    },
+    senses: 'пассивная Внимательность 10',
+    languages: ['Общий'],
+    environments: [],
+    customEnvironments: '',
+    traits: [],
+    actions: [],
+    bonusActions: [],
+    reactions: [],
+    legendary: { count: 0, actions: [] },
+  },
+};
 export const CREATURE_ENVIRONMENTS = [
   { key: 'any', label: 'Любая' },
   { key: 'swamp', label: 'Болото' },

@@ -2,15 +2,15 @@
   import type { ActorMovement } from '@vtt/shared';
   import type { CreatureSystem } from '@vtt/shared/system/dnd.js';
 
+  import { computed, ref } from 'vue';
+
+  import FieldsetLabel from '@/shared_ui/components/FieldsetLabel.vue';
   import { DISTANCE_UNIT_SHORT } from '@vtt/shared';
   import {
     calculateAbilityModifier,
     getMovementList,
     rollDamageFormula,
   } from '@vtt/shared/system/dnd.js';
-  import { computed, ref } from 'vue';
-
-  import FieldsetLabel from '@/shared_ui/components/FieldsetLabel.vue';
 
   import ArmorClassModal from '../actor/ArmorClassModal.vue';
   import DiceRollModal from '../actor/DiceRollModal.vue';

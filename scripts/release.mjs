@@ -63,7 +63,9 @@ function capture(command, args) {
   });
 
   if (result.status !== 0) {
-    fail(`команда "${command} ${args.join(' ')}" завершилась с ошибкой:\n${result.stderr}`);
+    fail(
+      `команда "${command} ${args.join(' ')}" завершилась с ошибкой:\n${result.stderr}`,
+    );
   }
 
   return result.stdout.trim();
@@ -145,13 +147,16 @@ function compareVersions(left, right) {
  */
 function writeJsonVersion(filePath, version) {
   const source = readFileSync(filePath, 'utf-8');
+
   const updated = source.replace(
     /("version"\s*:\s*")[^"]+(")/,
     `$1${version}$2`,
   );
 
   if (updated === source) {
-    fail(`в ${path.basename(filePath)} не найдено поле "version" — правьте вручную`);
+    fail(
+      `в ${path.basename(filePath)} не найдено поле "version" — правьте вручную`,
+    );
   }
 
   writeFileSync(filePath, updated, 'utf-8');
@@ -195,7 +200,9 @@ const shouldPush = args.includes('--push');
 const bump = args.find((argument) => !argument.startsWith('--'));
 
 if (!bump) {
-  fail('не указан шаг версии: npm run release -- <patch|minor|major|X.Y.Z> [--push]');
+  fail(
+    'не указан шаг версии: npm run release -- <patch|minor|major|X.Y.Z> [--push]',
+  );
 }
 
 // 1. Рабочее дерево должно быть чистым: в релизный коммит попадут ТОЛЬКО файлы
@@ -211,7 +218,9 @@ if (capture('git', ['status', '--porcelain'])) {
 const branch = capture('git', ['rev-parse', '--abbrev-ref', 'HEAD']);
 
 if (branch !== RELEASE_BRANCH) {
-  fail(`релиз выпускается только с ветки ${RELEASE_BRANCH}, а сейчас "${branch}"`);
+  fail(
+    `релиз выпускается только с ветки ${RELEASE_BRANCH}, а сейчас "${branch}"`,
+  );
 }
 
 const manifest = JSON.parse(readFileSync(MANIFEST_PATH, 'utf-8'));
@@ -220,7 +229,9 @@ const version = nextVersion(currentVersion, bump);
 const tag = `v${version}`;
 
 if (compareVersions(version, currentVersion) <= 0) {
-  fail(`версия ${version} не выше текущей ${currentVersion} — VTTG не увидит обновление`);
+  fail(
+    `версия ${version} не выше текущей ${currentVersion} — VTTG не увидит обновление`,
+  );
 }
 
 if (capture('git', ['tag', '--list', tag])) {

@@ -1,8 +1,9 @@
 <script setup lang="ts">
   import type { DamagePart, DamagePartTarget } from '@vtt/shared';
 
-  import { damagePartIsHealing } from '@vtt/shared/system/dnd.js';
   import { computed, nextTick, ref } from 'vue';
+
+  import { damagePartIsHealing } from '@vtt/shared/system/dnd.js';
 
   import FormSection from './FormSection.vue';
 

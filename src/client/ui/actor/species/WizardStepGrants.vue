@@ -7,8 +7,9 @@
 
   import type { SpeciesWizardState } from './useSpeciesWizard';
 
-  import { SKILLS_LIST } from '@vtt/shared/system/dnd.js';
   import { computed } from 'vue';
+
+  import { SKILLS_LIST } from '@vtt/shared/system/dnd.js';
 
   const props = defineProps<{
     speciesDefinition: SpeciesDefinition;

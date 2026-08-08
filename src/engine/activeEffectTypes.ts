@@ -8,26 +8,27 @@
  * prepareBaseData → applyActiveEffects → prepareDerivedData
  */
 
+// `AreaEffectTrigger`, `BaseActiveEffect`, `EffectAura`, `EffectDuration`,
+// `EffectDurationType`, `EffectTurnAnchor`, `EffectTurnTiming` — нейтральные
+// контрактные типы эффекта (провенанс, длительность, аура, триггер области, база
+// `BaseActiveEffect`): они живут в ядре системного контракта (`../contracts/*`),
+// D&D наследует базу и реэкспортит формы для своих потребителей.
 import type {
   AbilityType,
-  DamagePart,
-  DefensibleDamageType,
-  MovementType,
-  SkillType,
-} from '@vtt/shared';
-// Нейтральные контрактные типы эффекта (провенанс, длительность, аура, триггер
-// области, база `BaseActiveEffect`) живут в ядре системного контракта
-// (`../contracts/*`); D&D наследует базу и реэкспортит формы для своих потребителей.
-import type {
   AreaEffectTrigger,
   BaseActiveEffect,
+  DamagePart,
+  DefensibleDamageType,
   EffectAura,
   EffectDuration,
   EffectDurationType,
+  EffectOrigin,
   EffectTurnAnchor,
   EffectTurnTiming,
+  MovementType,
+  SkillType,
 } from '@vtt/shared';
-import type { EffectOrigin } from '@vtt/shared';
+
 import type { ConditionKey } from './conditionKeys.js';
 
 import { z } from 'zod';
@@ -59,12 +60,7 @@ export type {
  * Порядок применения зависит от `priority` в `EffectChange`.
  */
 export type EffectChangeMode =
-  | 'add'
-  | 'multiply'
-  | 'override'
-  | 'upgrade'
-  | 'downgrade'
-  | 'custom';
+  'add' | 'multiply' | 'override' | 'upgrade' | 'downgrade' | 'custom';
 
 /** Локализованные названия режимов (для UI) */
 export const EFFECT_CHANGE_MODE_LABELS: Record<EffectChangeMode, string> = {
@@ -336,9 +332,7 @@ export type DamageVulnerabilityFlagKey =
  * Генерируются по списку `DEFENSIBLE_DAMAGE_TYPES`.
  */
 export type DamageDefenseFlagKey =
-  | DamageResistanceFlagKey
-  | DamageImmunityFlagKey
-  | DamageVulnerabilityFlagKey;
+  DamageResistanceFlagKey | DamageImmunityFlagKey | DamageVulnerabilityFlagKey;
 
 /**
  * Нечисловые эффекты: помеха, преимущество, иммунитеты.

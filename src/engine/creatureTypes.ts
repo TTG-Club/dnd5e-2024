@@ -15,6 +15,7 @@ import type {
   SpellAreaOfEffect,
   SpellSaveType,
 } from '@vtt/shared';
+
 import type { CreatureSize, DnDAbilityScores } from './types.js';
 
 // ── Категория существа ─────────────────────────────────────────────────────

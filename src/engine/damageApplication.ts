@@ -22,6 +22,7 @@ import type { DnDSceneEntity } from './dndEntities.js';
 import type { IncomingAttackContext } from './effectPipeline.js';
 
 import { generateId, isRecord } from '@vtt/shared';
+
 import { ActiveEffectsArraySchema } from './activeEffectTypes.js';
 import { buildConditionActiveEffect } from './conditionTemplates.js';
 import { CONDITIONS } from './consts.js';
@@ -288,8 +289,8 @@ export function applyCombatState(
   const changed =
     nextHp !== resolveEntityCurrentHp(entity)
     || nextTemp !== resolveEntityTempHp(entity)
-    || JSON.stringify(entity.activeEffects ?? []) !==
-      JSON.stringify(nextEffects);
+    || JSON.stringify(entity.activeEffects ?? [])
+      !== JSON.stringify(nextEffects);
 
   if (!changed) {
     return false;

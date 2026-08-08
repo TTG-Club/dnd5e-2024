@@ -1,11 +1,11 @@
 <script setup lang="ts">
   import type { DnDGameItem } from '@vtt/shared/system/dnd.js';
 
-  import { formatItemCost } from '@vtt/shared';
-  import { EQUIPMENT_CATEGORY_ICONS } from '@vtt/shared/system/dnd.js';
   import { computed } from 'vue';
 
   import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
+  import { formatItemCost } from '@vtt/shared';
+  import { EQUIPMENT_CATEGORY_ICONS } from '@vtt/shared/system/dnd.js';
 
   import { useContextMenu } from '../../composables/useContextMenu';
   import { GAME_ITEM_MIME } from './constants';

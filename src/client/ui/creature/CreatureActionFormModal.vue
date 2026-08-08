@@ -7,6 +7,12 @@
   } from '@vtt/shared';
   import type { ActiveEffect, CreatureAction } from '@vtt/shared/system/dnd.js';
 
+  import { computed, reactive, watch } from 'vue';
+
+  import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
+  import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
+  import { useModalManager } from '@/shared_ui/composables/useModalManager';
+  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { DISTANCE_UNIT_OPTIONS } from '@vtt/shared';
   import {
     AREA_SHAPE_OPTIONS,
@@ -18,12 +24,6 @@
     SAVE_EFFECT_OPTIONS,
     SAVE_TYPE_OPTIONS,
   } from '@vtt/shared/system/dnd.js';
-  import { computed, reactive, watch } from 'vue';
-
-  import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
-  import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
-  import { useModalManager } from '@/shared_ui/composables/useModalManager';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 
   import DamagePartsEditor from '../actor/DamagePartsEditor.vue';
 
@@ -613,7 +613,9 @@
                 class="rounded-lg border border-muted/60 bg-elevated/20 px-3 pt-1 pb-3"
               >
                 <div class="mb-2 flex items-center justify-between">
-                  <span class="text-xs font-semibold tracking-wide text-primary">
+                  <span
+                    class="text-xs font-semibold tracking-wide text-primary"
+                  >
                     Дистанция
                   </span>
 

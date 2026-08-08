@@ -14,6 +14,7 @@ import type { DamageApplyResult } from './damageUtils.js';
 import type { DnDGameItem, Spell } from './dndEntities.js';
 
 import { convertDistance } from '@vtt/shared';
+
 import { getShortDamageTypeLabel } from './damageConstants.js';
 import { formatDamageDefenseSuffix } from './damageUtils.js';
 

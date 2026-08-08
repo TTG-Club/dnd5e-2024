@@ -11,6 +11,9 @@
     DnDActor,
   } from '@vtt/shared/system/dnd.js';
 
+  import { computed, ref, toRef } from 'vue';
+
+  import FieldsetLabel from '@/shared_ui/components/FieldsetLabel.vue';
   import { DISTANCE_UNIT_SHORT } from '@vtt/shared';
   import {
     calculateAbilityModifier,
@@ -19,9 +22,6 @@
     getSkillAbility,
     SKILLS_LIST,
   } from '@vtt/shared/system/dnd.js';
-  import { computed, ref, toRef } from 'vue';
-
-  import FieldsetLabel from '@/shared_ui/components/FieldsetLabel.vue';
 
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import ClassCounters from './ClassCounters.vue';
@@ -462,4 +462,3 @@
 </template>
 
 <!-- Полоса прокрутки описана один раз в system.css: здесь ширина по умолчанию -->
-

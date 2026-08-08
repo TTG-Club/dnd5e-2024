@@ -1,16 +1,17 @@
+import type { Ref } from 'vue';
+
 import type {
   ActiveEffect,
   DnDActor,
   DnDCreature,
   ResolvedActorStats,
 } from '@vtt/shared/system/dnd.js';
-import type { Ref } from 'vue';
 
-import { systemRegistry } from '@vtt/shared';
-import { isDnDEffect, resolveActorStats } from '@vtt/shared/system/dnd.js';
 import { computed, ref } from 'vue';
 
 import { useAuraStore } from '@/stores/auraStore';
+import { systemRegistry } from '@vtt/shared';
+import { isDnDEffect, resolveActorStats } from '@vtt/shared/system/dnd.js';
 
 export const globalDebugError = ref<string | null>(null);
 

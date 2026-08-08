@@ -45,6 +45,7 @@ export function copyDataFiles(sourceDir, targetDir) {
 
     if (entry.isDirectory()) {
       copied += copyDataFiles(sourcePath, targetPath);
+
       continue;
     }
 

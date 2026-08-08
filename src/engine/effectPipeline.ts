@@ -10,15 +10,16 @@
  * значения с учётом всех активных эффектов.
  */
 
+// IncomingAttackContext — нейтральный контрактный тип (system/contracts/combat),
+// D&D его лишь реэкспортит для своих потребителей.
 import type {
   AbilityType,
   DefensibleDamageType,
+  IncomingAttackContext,
   MovementType,
   SkillType,
 } from '@vtt/shared';
-// IncomingAttackContext — нейтральный контрактный тип (system/contracts/combat),
-// D&D его лишь реэкспортит для своих потребителей.
-import type { IncomingAttackContext } from '@vtt/shared';
+
 import type {
   ActiveEffect,
   EffectChange,
@@ -31,8 +32,8 @@ import type { DnDActor, DnDCreature, DnDSceneEntity } from './dndEntities.js';
 import type { FormulaContext } from './formulaParser.js';
 import type { BonusDamageFormula, TargetHpGate } from './spellUtils.js';
 
-import { isActorEntity, isCreatureEntity } from '@vtt/shared';
-import { isRecord } from '@vtt/shared';
+import { isActorEntity, isCreatureEntity, isRecord } from '@vtt/shared';
+
 import { isDnDEffect } from './activeEffectTypes.js';
 import {
   calculateProficiencyBonus,

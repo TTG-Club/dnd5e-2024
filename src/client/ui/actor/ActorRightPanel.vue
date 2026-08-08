@@ -8,12 +8,13 @@
 
   import type { AbilityBonusSource } from './AbilityScore.vue';
 
+  import { ref, toRef } from 'vue';
+
   import {
     ABILITY_SCORE_MAX,
     ABILITY_SCORE_MIN,
     calculateAbilityModifier,
   } from '@vtt/shared/system/dnd.js';
-  import { ref, toRef } from 'vue';
 
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import AbilityScore from './AbilityScore.vue';

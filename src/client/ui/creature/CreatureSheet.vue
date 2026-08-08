@@ -8,6 +8,17 @@
   import type { DnDCreature, RestType, Spell } from '@vtt/shared/system/dnd.js';
 
   import { useToast } from '@nuxt/ui/composables';
+  import { computed, ref, toRef, watch } from 'vue';
+
+  import { generateEntityId, requireSocket } from '@/core/entityUtils';
+  import FieldsetLabel from '@/shared_ui/components/FieldsetLabel.vue';
+  import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
+  import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
+  import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
+  import { useModalManager } from '@/shared_ui/composables/useModalManager';
+  import { Z_INDEX } from '@/shared_ui/consts';
+  import { useWorldStore } from '@/stores/worldStore';
+  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { generateId } from '@vtt/shared';
   import {
     applyCreatureRest,
@@ -24,17 +35,6 @@
     normalizeCreature,
     SKILLS_LABELS,
   } from '@vtt/shared/system/dnd.js';
-  import { computed, ref, toRef, watch } from 'vue';
-
-  import { generateEntityId, requireSocket } from '@/core/entityUtils';
-  import FieldsetLabel from '@/shared_ui/components/FieldsetLabel.vue';
-  import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
-  import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
-  import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
-  import { useModalManager } from '@/shared_ui/composables/useModalManager';
-  import { Z_INDEX } from '@/shared_ui/consts';
-  import { useWorldStore } from '@/stores/worldStore';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import { SPELL_MIME } from '../actor/constants';
@@ -660,7 +660,9 @@
     });
   }
 
-  function handleActionsUpdate(actions: DnDCreature['system']['actions']): void {
+  function handleActionsUpdate(
+    actions: DnDCreature['system']['actions'],
+  ): void {
     handleSystemUpdate({ actions });
   }
 
@@ -684,7 +686,9 @@
    * Обновляет список заклинаний существа (верхний уровень).
    * @param spells - новый список заклинаний
    */
-  function handleSpellsUpdate(spells: NonNullable<DnDCreature['spells']>): void {
+  function handleSpellsUpdate(
+    spells: NonNullable<DnDCreature['spells']>,
+  ): void {
     handleCreatureUpdate({ spells });
   }
 

@@ -8,13 +8,12 @@
  * @module systems/dnd5e/modules/items
  */
 
+import type { ClientSystemAPI } from '@/core/systemBootstrap';
 import type {
   DnDGameItem,
   SpeciesDefinition,
   Spell,
 } from '@vtt/shared/system/dnd.js';
-
-import type { ClientSystemAPI } from '@/core/systemBootstrap';
 
 import type { KeyedDefinition } from '../../composables/useEntityDetailModals';
 

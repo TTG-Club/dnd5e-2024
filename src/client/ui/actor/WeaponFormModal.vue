@@ -1,17 +1,17 @@
 <script setup lang="ts">
   import type { ActiveEffect, DnDGameItem } from '@vtt/shared/system/dnd.js';
 
+  import { computed, ref } from 'vue';
+
+  import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
+  import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
+  import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { DISTANCE_UNIT_OPTIONS } from '@vtt/shared';
   import {
     ABILITY_OPTIONS,
     CURRENCY_OPTIONS,
     RARITY_OPTIONS,
   } from '@vtt/shared/system/dnd.js';
-  import { computed, ref } from 'vue';
-
-  import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
-  import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
-  import { useModalManager } from '@/shared_ui/composables/useModalManager';
 
   import { useWeaponForm } from '../../composables/useWeaponForm';
   import DamagePartsEditor from './DamagePartsEditor.vue';

@@ -11,12 +11,12 @@
  * сопротивления и уязвимости.
  */
 
-import type { DefensibleDamageType } from '@vtt/shared';
 // DamageApplyResult / DamageDefenseOutcome — нейтральные контрактные типы (живут в
 // system/contracts/combat), D&D их лишь реэкспортит для своих потребителей.
 import type {
   DamageApplyResult,
   DamageDefenseOutcome,
+  DefensibleDamageType,
 } from '@vtt/shared';
 
 import { DEFENSIBLE_DAMAGE_TYPES } from './damageConstants.js';

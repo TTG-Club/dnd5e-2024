@@ -1,3 +1,15 @@
+import crypto from 'node:crypto';
+import {
+  appendFileSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  watch,
+  writeFileSync,
+} from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 /**
  * Watch-режим: правишь исходники системы — приложение показывает изменения.
  *
@@ -36,17 +48,6 @@
  * проксирует в Vite вместе с его HMR.
  */
 import { context } from 'esbuild';
-import crypto from 'node:crypto';
-import {
-  appendFileSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  watch,
-  writeFileSync,
-} from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { build as viteBuild } from 'vite';
 
 import { inspectClientBundle } from './lib/bundleChecks.mjs';
@@ -190,6 +191,7 @@ function distSignature(dir) {
 
       if (entry.isDirectory()) {
         walk(full);
+
         continue;
       }
 
@@ -241,9 +243,11 @@ function syncToApp() {
   );
 
   if (problems.length > 0) {
-    log(`✗ бандл не годен, установка пропущена:\n${problems
-      .map((problem) => `        • ${problem}`)
-      .join('\n')}`);
+    log(
+      `✗ бандл не годен, установка пропущена:\n${problems
+        .map((problem) => `        • ${problem}`)
+        .join('\n')}`,
+    );
 
     return;
   }
@@ -285,8 +289,9 @@ function syncToApp() {
   const ms = Number((process.hrtime.bigint() - startedAt) / 1000000n);
 
   log(
-    `✓ установлено за ${ms} мс`
-      + (noReload ? ' — обновите страницу (F5)' : ' — страница перезагрузится сама'),
+    `✓ установлено за ${ms} мс${
+      noReload ? ' — обновите страницу (F5)' : ' — страница перезагрузится сама'
+    }`,
   );
 
   if (serverChanged) {
@@ -378,11 +383,15 @@ await serverContext.watch();
 
 // --- Данные и манифест: в графы сборок они не входят, следим сами.
 const dataWatchers = [
-  watch(path.join(ROOT, 'src', 'engine'), { recursive: true }, (_event, file) => {
-    if (file && isDataFile(file)) {
-      scheduleSync(DATA_DEBOUNCE_MS);
-    }
-  }),
+  watch(
+    path.join(ROOT, 'src', 'engine'),
+    { recursive: true },
+    (_event, file) => {
+      if (file && isDataFile(file)) {
+        scheduleSync(DATA_DEBOUNCE_MS);
+      }
+    },
+  ),
   watch(path.join(ROOT, 'system.json'), () => {
     scheduleSync(DATA_DEBOUNCE_MS);
   }),

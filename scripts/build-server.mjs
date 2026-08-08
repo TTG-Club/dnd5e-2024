@@ -1,3 +1,6 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 /**
  * Сборка СЕРВЕРНОЙ части системы: единый самодостаточный ESM-бандл `dist/index.js`.
  *
@@ -11,8 +14,6 @@
  * который уедет в релиз.
  */
 import { build } from 'esbuild';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { createServerBuildOptions } from './lib/serverBuildOptions.mjs';
 

@@ -3,11 +3,10 @@ import type { DnDSceneEntity } from '@vtt/shared/system/dnd.js';
 
 import type { ActorSaveInfo, SavingThrowResult } from './spellResolutionShared';
 
-import { resolveActorStats, SAVE_TYPE_LABELS } from '@vtt/shared/system/dnd.js';
-
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
 import { useDiceRollerStore } from '@/stores/diceRollerStore';
+import { resolveActorStats, SAVE_TYPE_LABELS } from '@vtt/shared/system/dnd.js';
 
 import { determineRollMode, resolveAutoSaves } from './spellResolutionShared';
 

@@ -12,12 +12,13 @@
   import type { TypedWebSocketClient } from '@vtt/shared';
   import type { ResolvedToolProficiency } from '@vtt/shared/system/dnd.js';
 
+  import { computed, watch } from 'vue';
+
   import {
     resolveToolProficiencies,
     TOOL_GROUP_CATEGORY,
     TOOLS_LIST,
   } from '@vtt/shared/system/dnd.js';
-  import { computed, watch } from 'vue';
 
   import { useToolVocabulary } from '../../composables/useToolVocabulary';
 

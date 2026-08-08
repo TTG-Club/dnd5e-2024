@@ -60,11 +60,7 @@ const stamped = {
   license: `https://github.com/${repository}/blob/main/LICENSE`,
 };
 
-writeFileSync(
-  MANIFEST_PATH,
-  `${JSON.stringify(stamped, null, 2)}\n`,
-  'utf-8',
-);
+writeFileSync(MANIFEST_PATH, `${JSON.stringify(stamped, null, 2)}\n`, 'utf-8');
 
 console.log(`[stamp-manifest] ${manifest.id} → версия ${version}`);
 console.log(`[stamp-manifest] download: ${stamped.download}`);

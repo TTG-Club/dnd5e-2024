@@ -2,12 +2,12 @@
   import type { TypedWebSocketClient } from '@vtt/shared';
   import type { DnDActor, Spell } from '@vtt/shared/system/dnd.js';
 
-  import { generateId } from '@vtt/shared';
   import { computed, ref, watch } from 'vue';
 
   import { requireSocket } from '@/core/entityUtils';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useWorldStore } from '@/stores/worldStore';
+  import { generateId } from '@vtt/shared';
 
   import { SPELL_MIME } from './constants';
   import ActorSpellsTab from './tabs/ActorSpellsTab.vue';
@@ -34,8 +34,7 @@
     // Мир хоста хранит акторов в нейтральной форме — сужаем к D&D-форме.
     return (
       (world?.actors.find((actor) => actor.id === props.actorId) as
-        | DnDActor
-        | undefined) ?? null
+        DnDActor | undefined) ?? null
     );
   });
 

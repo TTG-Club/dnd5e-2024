@@ -9,6 +9,7 @@
  */
 
 import type { DefensibleDamageType } from '@vtt/shared';
+
 import type {
   ActiveEffect,
   EffectChange,
@@ -19,6 +20,7 @@ import type { FeatData } from './featTypes.js';
 import type { GrantedSpellSource } from './grantedSpells.js';
 
 import { generateId } from '@vtt/shared';
+
 import { ABILITY_OPTIONS } from './consts.js';
 
 /**

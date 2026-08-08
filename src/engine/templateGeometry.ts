@@ -6,11 +6,7 @@
  * какие токены попали в область заклинания.
  */
 
-import type {
-  DiagonalRule,
-  MeasurementTemplate,
-  Token,
-} from '@vtt/shared';
+import type { DiagonalRule, MeasurementTemplate, Token } from '@vtt/shared';
 
 import { isPointInCircle } from '@vtt/shared';
 

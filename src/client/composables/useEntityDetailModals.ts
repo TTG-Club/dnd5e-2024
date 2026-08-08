@@ -1,5 +1,5 @@
-import type { SourceDefinition } from '@vtt/shared';
 import type { EntityDetailOptions } from '@/core/registries';
+import type { SourceDefinition } from '@vtt/shared';
 import type {
   DnDGameItem,
   SpeciesDefinition,
@@ -35,6 +35,26 @@ export interface GlossaryEntry {
 }
 
 /**
+ * Окно детального просмотра предмета по его типу.
+ *
+ * Оружие и инструменты показываются своими окнами, всё остальное снаряжение —
+ * общим: у него нет ни свойств оружия, ни владения инструментом.
+ *
+ * @param itemType - тип записи предмета
+ */
+function itemDetailModalName(itemType: DnDGameItem['type']): string {
+  if (itemType === 'weapon') {
+    return 'WeaponDetailModal';
+  }
+
+  if (itemType === 'tool') {
+    return 'ToolDetailModal';
+  }
+
+  return 'EquipmentDetailModal';
+}
+
+/**
  * Открытие детального просмотра записей D&D 5e — какой модалкой показывать
  * заклинание, оружие, класс и т.д.
  *
@@ -53,15 +73,11 @@ export function useEntityDetailModals() {
    * @param item - оружие, снаряжение или инструмент
    * @param options - кнопка копирования в инвентарь и её колбэк
    */
-  function openItemDetail(item: DnDGameItem, options?: EntityDetailOptions): void {
-    const modal =
-      item.type === 'weapon'
-        ? 'WeaponDetailModal'
-        : item.type === 'tool'
-          ? 'ToolDetailModal'
-          : 'EquipmentDetailModal';
-
-    openModal(modal, { item, ...options });
+  function openItemDetail(
+    item: DnDGameItem,
+    options?: EntityDetailOptions,
+  ): void {
+    openModal(itemDetailModalName(item.type), { item, ...options });
   }
 
   /**

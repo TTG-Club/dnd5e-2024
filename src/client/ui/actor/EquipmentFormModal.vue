@@ -1,12 +1,12 @@
 <script setup lang="ts">
   import type { ActiveEffect, DnDGameItem } from '@vtt/shared/system/dnd.js';
 
-  import { CURRENCY_OPTIONS, RARITY_OPTIONS } from '@vtt/shared/system/dnd.js';
   import { computed, ref } from 'vue';
 
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
+  import { CURRENCY_OPTIONS, RARITY_OPTIONS } from '@vtt/shared/system/dnd.js';
 
   import { useEquipmentForm } from '../../composables/useEquipmentForm';
   import FormSection from './FormSection.vue';

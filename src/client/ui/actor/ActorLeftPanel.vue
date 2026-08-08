@@ -2,14 +2,14 @@
   import type { AbilityType, ActorArmorClass } from '@vtt/shared';
   import type { AttackRollMode, DnDActor } from '@vtt/shared/system/dnd.js';
 
-  import {
-    BASE_UNARMORED_AC,
-    calculateAbilityModifier,
-  } from '@vtt/shared/system/dnd.js';
   import { computed, ref, toRef } from 'vue';
 
   import FieldsetLabel from '@/shared_ui/components/FieldsetLabel.vue';
   import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
+  import {
+    BASE_UNARMORED_AC,
+    calculateAbilityModifier,
+  } from '@vtt/shared/system/dnd.js';
 
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import { useToolVocabulary } from '../../composables/useToolVocabulary';
@@ -804,7 +804,9 @@
         <div
           class="mb-2 flex items-center justify-between rounded-lg bg-elevated/40 px-3 py-2"
         >
-          <h4 class="text-xs font-bold tracking-wider text-highlighted uppercase">
+          <h4
+            class="text-xs font-bold tracking-wider text-highlighted uppercase"
+          >
             Снаряжение
           </h4>
 
@@ -838,7 +840,9 @@
         <div
           class="mb-2 flex items-center justify-between rounded-lg bg-elevated/40 px-3 py-2"
         >
-          <h4 class="text-xs font-bold tracking-wider text-highlighted uppercase">
+          <h4
+            class="text-xs font-bold tracking-wider text-highlighted uppercase"
+          >
             Оружие
           </h4>
 
@@ -882,7 +886,9 @@
         <div
           class="mb-2 flex items-center justify-between rounded-lg bg-elevated/40 px-3 py-2"
         >
-          <h4 class="text-xs font-bold tracking-wider text-highlighted uppercase">
+          <h4
+            class="text-xs font-bold tracking-wider text-highlighted uppercase"
+          >
             Инструменты
           </h4>
 
@@ -916,7 +922,9 @@
         <div
           class="mb-2 flex items-center justify-between rounded-lg bg-elevated/40 px-3 py-2"
         >
-          <h4 class="text-xs font-bold tracking-wider text-highlighted uppercase">
+          <h4
+            class="text-xs font-bold tracking-wider text-highlighted uppercase"
+          >
             Языки
           </h4>
 

@@ -27,8 +27,7 @@ export function register(api: ClientSystemAPI): void {
       // Система знает форму своей записи: ПО существа — в `system.challengeRating`
       // (ядровой `EntityCardEntry` держит поле как непрозрачное `[key]: unknown`).
       const system = entry.system as
-        | { challengeRating?: number | string }
-        | undefined;
+        { challengeRating?: number | string } | undefined;
 
       return {
         name: entry.name,

@@ -10,14 +10,13 @@
  * @module systems/dnd5e/composables/dnd5eItemTypes
  */
 
-import type { BaseGameItem, TypedWebSocketClient } from '@vtt/shared';
-import type { DnDGameItem, Spell } from '@vtt/shared/system/dnd.js';
-
 import type {
   ItemFormContext,
   ItemTypeMeta,
   ItemTypeProvider,
 } from '@/core/registries';
+import type { BaseGameItem, TypedWebSocketClient } from '@vtt/shared';
+import type { DnDGameItem, Spell } from '@vtt/shared/system/dnd.js';
 
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';

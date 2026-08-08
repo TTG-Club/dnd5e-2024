@@ -1,10 +1,10 @@
 <script setup lang="ts">
   import type { Spell } from '@vtt/shared/system/dnd.js';
 
-  import { getSpellProjectileCount } from '@vtt/shared/system/dnd.js';
   import { computed, ref, watch } from 'vue';
 
   import { useProjectileStore } from '@/stores/projectileStore';
+  import { getSpellProjectileCount } from '@vtt/shared/system/dnd.js';
 
   defineOptions({
     inheritAttrs: false,

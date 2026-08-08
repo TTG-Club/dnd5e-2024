@@ -1,8 +1,8 @@
 <script setup lang="ts">
-  import { EFFECT_TARGET_SUGGESTIONS } from '@vtt/shared/system/dnd.js';
   import { computed, ref } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
+  import { EFFECT_TARGET_SUGGESTIONS } from '@vtt/shared/system/dnd.js';
 
   interface Props {
     open: boolean;

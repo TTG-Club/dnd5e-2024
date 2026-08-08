@@ -1,13 +1,12 @@
 import type { DistanceUnit, Token } from '@vtt/shared';
 import type { Spell } from '@vtt/shared/system/dnd.js';
 
-import { DISTANCE_UNIT_SHORT, getTokenEdgeDistance } from '@vtt/shared';
-import { checkSpellRange, getSpellMaxRange } from '@vtt/shared/system/dnd.js';
-
 import { resolveTokenScale } from '@/core/entityUtils';
 import { useChatStore } from '@/stores/chatStore';
 import { useTargetStore } from '@/stores/targetStore';
 import { useWorldStore } from '@/stores/worldStore';
+import { DISTANCE_UNIT_SHORT, getTokenEdgeDistance } from '@vtt/shared';
+import { checkSpellRange, getSpellMaxRange } from '@vtt/shared/system/dnd.js';
 
 /** Результат измерения дистанции между токенами на сцене */
 export interface SceneTokenDistance {

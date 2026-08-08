@@ -17,13 +17,6 @@
   import type { EditableFeatGrants } from '../feat/featEditorTypes';
   import type { SpellOption } from '../grantedSpellsEditorTypes';
 
-  import { generateId } from '@vtt/shared';
-  import {
-    ABILITY_OPTIONS,
-    resolveToolProficiencies,
-    SKILLS_LIST,
-    TOOLS_LABELS,
-  } from '@vtt/shared/system/dnd.js';
   import { computed, ref, watch } from 'vue';
 
   import { loadCompendiumKind } from '@/core/compendiumDataClient';
@@ -37,6 +30,13 @@
     linkGrantedSpellRefs,
     loadSpellPacks,
   } from '@/systems/dnd5e/composables/spellCompendium';
+  import { generateId } from '@vtt/shared';
+  import {
+    ABILITY_OPTIONS,
+    resolveToolProficiencies,
+    SKILLS_LIST,
+    TOOLS_LABELS,
+  } from '@vtt/shared/system/dnd.js';
 
   import {
     buildFeatData,
@@ -338,6 +338,7 @@
 
     selectedAbilities.value = [...(bg.abilityGrant?.abilities ?? [])];
     selectedSkills.value = [...(bg.skillGrant?.skills ?? [])];
+
     // Владение приходит не только ключами: компендиум пишет его текстом, а
     // сторонние источники — ссылкой разметки. Форма же работает ключами
     // словаря, поэтому разбираем позиции здесь — иначе копия предыстории

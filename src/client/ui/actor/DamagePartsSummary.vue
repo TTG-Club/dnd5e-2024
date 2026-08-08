@@ -1,10 +1,10 @@
 <script setup lang="ts">
   import type { DamagePart } from '@vtt/shared';
 
-  import { describeDamagePart } from '@vtt/shared/system/dnd.js';
   import { computed } from 'vue';
 
   import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
+  import { describeDamagePart } from '@vtt/shared/system/dnd.js';
 
   const props = defineProps<{
     /** Части урона/лечения для отображения */

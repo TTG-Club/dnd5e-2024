@@ -1,6 +1,10 @@
 <script setup lang="ts">
   import type { Spell } from '@vtt/shared/system/dnd.js';
 
+  import { computed } from 'vue';
+
+  import CardErrorFallback from '@/shared_ui/components/CardErrorFallback.vue';
+  import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import {
     CASTING_TIME_LABELS,
     DURATION_UNIT_LABELS,
@@ -11,10 +15,6 @@
     stripDamageTypeTokens,
     stripHealTokens,
   } from '@vtt/shared/system/dnd.js';
-  import { computed } from 'vue';
-
-  import CardErrorFallback from '@/shared_ui/components/CardErrorFallback.vue';
-  import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
 
   const props = defineProps<{
     /** Сериализованные данные заклинания (JSON-строка) */

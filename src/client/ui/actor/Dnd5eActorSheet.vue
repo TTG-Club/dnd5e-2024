@@ -20,6 +20,18 @@
   import type { AppliedFeatFeature } from './feat/featApply';
 
   import { useToast } from '@nuxt/ui/composables';
+  import { computed, ref, toRef, watch } from 'vue';
+
+  import { ClientHooks } from '@/core/clientHooks';
+  import { loadCompendiumKind } from '@/core/compendiumDataClient';
+  import { generateEntityId, requireSocket } from '@/core/entityUtils';
+  import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
+  import { useActiveTab } from '@/shared_ui/composables/useActiveTab';
+  import { useModalManager } from '@/shared_ui/composables/useModalManager';
+  import { Z_INDEX } from '@/shared_ui/consts';
+  import { useItemsStore } from '@/stores/itemsStore';
+  import { useWorldStore } from '@/stores/worldStore';
+  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { generateId } from '@vtt/shared';
   import {
     applyActorRest,
@@ -33,18 +45,6 @@
     getTotalLevel,
     normalizeActor,
   } from '@vtt/shared/system/dnd.js';
-  import { computed, ref, toRef, watch } from 'vue';
-
-  import { ClientHooks } from '@/core/clientHooks';
-  import { loadCompendiumKind } from '@/core/compendiumDataClient';
-  import { generateEntityId, requireSocket } from '@/core/entityUtils';
-  import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
-  import { useActiveTab } from '@/shared_ui/composables/useActiveTab';
-  import { useModalManager } from '@/shared_ui/composables/useModalManager';
-  import { Z_INDEX } from '@/shared_ui/consts';
-  import { useItemsStore } from '@/stores/itemsStore';
-  import { useWorldStore } from '@/stores/worldStore';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 
   import ActorCenterPanel from './ActorCenterPanel.vue';
   import ActorHeader from './ActorHeader.vue';
@@ -270,7 +270,10 @@
     if (props.socket) {
       // CompendiumEntry[] расширяем до unknown[], т.к. ClassDefinition не
       // подтип CompendiumEntry и guard иначе не сузит при filter.
-      const entries: unknown[] = await loadCompendiumKind(props.socket, 'class');
+      const entries: unknown[] = await loadCompendiumKind(
+        props.socket,
+        'class',
+      );
 
       compendiumClassDefinitions.value = entries.filter(isClassDefinition);
     }
@@ -355,7 +358,9 @@
    *
    * @param actorData - актор с существующим видом
    */
-  async function loadCurrentSpeciesDefinition(actorData: DnDActor): Promise<void> {
+  async function loadCurrentSpeciesDefinition(
+    actorData: DnDActor,
+  ): Promise<void> {
     const speciesKey = actorData.system.species?.speciesKey;
 
     if (!speciesKey) {
@@ -557,9 +562,7 @@
     const world = worldStore.getWorldById(props.worldId);
 
     if (!world) {
-      return props.actors.find(
-        (actorEntry) => actorEntry.id === props.actorId,
-      );
+      return props.actors.find((actorEntry) => actorEntry.id === props.actorId);
     }
 
     // Мир хоста хранит акторов в нейтральной форме (`system` — «чёрный

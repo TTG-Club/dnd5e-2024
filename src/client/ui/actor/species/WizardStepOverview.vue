@@ -6,12 +6,13 @@
 
   import type { SpeciesWizardState } from './useSpeciesWizard';
 
+  import { computed } from 'vue';
+
   import {
     CONDITIONS,
     DAMAGE_DEFENSE_KIND_LABELS,
     DAMAGE_TYPE_LABELS,
   } from '@vtt/shared/system/dnd.js';
-  import { computed } from 'vue';
 
   import {
     ABILITY_LABELS,

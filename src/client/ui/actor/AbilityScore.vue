@@ -254,7 +254,9 @@
 
                 <span
                   class="ml-auto tabular-nums"
-                  :class="row.kind === 'bonus' ? bonusColorClass : 'text-highlighted'"
+                  :class="
+                    row.kind === 'bonus' ? bonusColorClass : 'text-highlighted'
+                  "
                   >{{ row.value }}</span
                 >
               </div>
@@ -297,7 +299,9 @@
 
                 <span
                   class="ml-auto tabular-nums"
-                  :class="row.kind === 'bonus' ? bonusColorClass : 'text-highlighted'"
+                  :class="
+                    row.kind === 'bonus' ? bonusColorClass : 'text-highlighted'
+                  "
                   >{{ row.value }}</span
                 >
               </div>

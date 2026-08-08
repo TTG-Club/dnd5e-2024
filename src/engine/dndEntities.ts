@@ -13,11 +13,15 @@
 import type {
   AbilityType,
   AmmunitionType,
+  BaseActor,
+  BaseCreature,
+  BaseGameItem,
   CompendiumSeparator,
   DamagePart,
   DistanceUnit,
   EquipmentCategory,
   Feature,
+  SourceDefinition,
   SpellAreaOfEffect,
   SpellCastingTimeUnit,
   SpellComponents,
@@ -34,12 +38,7 @@ import type {
   WeaponProperty,
   WeaponRangeType,
 } from '@vtt/shared';
-import type {
-  BaseActor,
-  BaseCreature,
-  BaseGameItem,
-  SourceDefinition,
-} from '@vtt/shared';
+
 import type { ActiveEffect } from './activeEffectTypes.js';
 import type {
   BackgroundAbilityGrant,

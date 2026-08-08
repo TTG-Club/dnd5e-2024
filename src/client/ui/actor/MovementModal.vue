@@ -2,11 +2,11 @@
   import type { ActorMovement, MovementType } from '@vtt/shared';
   import type { ActiveEffect } from '@vtt/shared/system/dnd.js';
 
-  import { DISTANCE_UNIT_OPTIONS } from '@vtt/shared';
   import { computed, reactive, watch } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
+  import { DISTANCE_UNIT_OPTIONS } from '@vtt/shared';
 
   interface Props {
     open: boolean;

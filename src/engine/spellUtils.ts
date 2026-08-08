@@ -5,12 +5,13 @@
  * формул урона с учётом усиления и масштабирования заговоров.
  */
 
-import type { AbilityType } from '@vtt/shared';
 import type {
+  AbilityType,
   DamagePart,
   DamagePartTarget,
   DamageType,
 } from '@vtt/shared';
+
 import type { ResolvedActorStats } from './activeEffectTypes.js';
 import type { DnDActor, Spell, SpellProjectiles } from './dndEntities.js';
 

@@ -5,8 +5,9 @@
     DnDAbilityScores,
   } from '@vtt/shared/system/dnd.js';
 
-  import { ABILITY_LABELS } from '@vtt/shared/system/dnd.js';
   import { computed } from 'vue';
+
+  import { ABILITY_LABELS } from '@vtt/shared/system/dnd.js';
 
   const props = defineProps<{
     backgroundDefinition: BackgroundDefinition;

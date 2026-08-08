@@ -14,6 +14,8 @@ import type {
   SpeciesFeature,
 } from '@vtt/shared/system/dnd.js';
 
+import { computed, ref, watch } from 'vue';
+
 import {
   appendGrantedSpells,
   collectSpeciesGrantedSpellSources,
@@ -26,7 +28,6 @@ import {
   isSkillType,
   removeGrantedSpellsByFeatureNames,
 } from '@vtt/shared/system/dnd.js';
-import { computed, ref, watch } from 'vue';
 
 export interface SpeciesWizardState {
   selectedSize: CreatureSize | null;

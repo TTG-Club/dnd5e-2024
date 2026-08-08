@@ -1,15 +1,15 @@
 <script setup lang="ts">
   import type { ActorClassEntry } from '@vtt/shared/system/dnd.js';
 
+  import { computed, ref, watch } from 'vue';
+
+  import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
+  import { Z_INDEX } from '@/shared_ui/consts';
   import {
     calculateExperienceForNextLevel,
     getTotalLevel,
     MAX_LEVEL,
   } from '@vtt/shared/system/dnd.js';
-  import { computed, ref, watch } from 'vue';
-
-  import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
-  import { Z_INDEX } from '@/shared_ui/consts';
 
   interface Props {
     open: boolean;

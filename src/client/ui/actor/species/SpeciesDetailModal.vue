@@ -5,15 +5,15 @@
     SpeciesFeatureChoice,
   } from '@vtt/shared/system/dnd.js';
 
+  import { computed } from 'vue';
+
+  import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
+  import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import {
     CONDITIONS,
     DAMAGE_DEFENSE_KIND_LABELS,
     DAMAGE_TYPE_LABELS,
   } from '@vtt/shared/system/dnd.js';
-  import { computed } from 'vue';
-
-  import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
-  import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
 
   import { CREATURE_SIZE_LABELS, CREATURE_TYPE_LABELS } from '../constants';
   import SourceBadge from '../SourceBadge.vue';

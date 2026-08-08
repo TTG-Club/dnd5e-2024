@@ -20,6 +20,7 @@
  */
 
 import { isActorEntity } from '@vtt/shared';
+
 import { getTotalLevel } from './classTypes.js';
 
 // ── Типы ──────────────────────────────────────────────────────
@@ -104,11 +105,7 @@ interface FormulaToken {
 
 /** Тип узла AST */
 type AstNodeType =
-  | 'number'
-  | 'variable'
-  | 'binaryOp'
-  | 'unaryOp'
-  | 'functionCall';
+  'number' | 'variable' | 'binaryOp' | 'unaryOp' | 'functionCall';
 
 /** Узел AST */
 interface AstNode {

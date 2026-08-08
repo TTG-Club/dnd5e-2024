@@ -6,9 +6,8 @@
     EditableGrantedSpellLevel,
   } from './classEditorTypes';
 
-  import { generateId } from '@vtt/shared';
-
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
+  import { generateId } from '@vtt/shared';
 
   import GrantedSpellsEditor from '../GrantedSpellsEditor.vue';
 

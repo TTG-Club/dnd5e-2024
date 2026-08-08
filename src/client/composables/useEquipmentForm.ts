@@ -10,15 +10,15 @@ import type {
   DnDGameItem,
 } from '@vtt/shared/system/dnd.js';
 
+import { computed, ref, watch } from 'vue';
+
+import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 import {
   DEFAULT_CURRENCY,
   FALLBACK_SOURCE_KEY,
   isDnDEffect,
   parseCost,
 } from '@vtt/shared/system/dnd.js';
-import { computed, ref, watch } from 'vue';
-
-import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 
 /**
  * Composable для логики формы доспеха.

@@ -1,6 +1,9 @@
 <script setup lang="ts">
   import type { CreatureAction } from '@vtt/shared/system/dnd.js';
 
+  import { computed } from 'vue';
+
+  import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import { DISTANCE_UNIT_SHORT } from '@vtt/shared';
   import {
     AREA_SHAPE_LABELS,
@@ -9,9 +12,6 @@
     SAVE_EFFECT_OPTIONS,
     SAVE_TYPE_LABELS,
   } from '@vtt/shared/system/dnd.js';
-  import { computed } from 'vue';
-
-  import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
 
   import DamagePartsSummary from '../actor/DamagePartsSummary.vue';
   import ItemDetailModalShell from '../actor/ItemDetailModalShell.vue';

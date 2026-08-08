@@ -3,11 +3,6 @@
   import type { DnDActor, HpDisplayMode } from '@vtt/shared/system/dnd.js';
 
   import { useToast } from '@nuxt/ui/composables';
-  import { createDefaultLightEmitter, getServerBaseUrl } from '@vtt/shared';
-  import {
-    resolveCreatureTokenScale,
-    TOKEN_SCALE_TO_CREATURE_SIZE,
-  } from '@vtt/shared/system/dnd.js';
   import { computed, onMounted, ref, watch } from 'vue';
 
   import { requireSocket } from '@/core/entityUtils';
@@ -28,6 +23,11 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useImageFallback } from '@/shared_ui/composables';
   import { useWorldStore } from '@/stores/worldStore';
+  import { createDefaultLightEmitter, getServerBaseUrl } from '@vtt/shared';
+  import {
+    resolveCreatureTokenScale,
+    TOKEN_SCALE_TO_CREATURE_SIZE,
+  } from '@vtt/shared/system/dnd.js';
 
   import {
     TOKEN_TINT_DEFAULT,

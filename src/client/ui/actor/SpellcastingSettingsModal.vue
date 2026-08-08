@@ -1,11 +1,11 @@
 <script setup lang="ts">
   import type { DnDActor } from '@vtt/shared/system/dnd.js';
 
-  import { ABILITY_OPTIONS } from '@vtt/shared/system/dnd.js';
   import { computed, toRef } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
+  import { ABILITY_OPTIONS } from '@vtt/shared/system/dnd.js';
 
   const props = defineProps<{
     open: boolean;

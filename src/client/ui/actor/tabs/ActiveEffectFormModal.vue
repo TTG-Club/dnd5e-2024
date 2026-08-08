@@ -10,6 +10,10 @@
     EffectTurnTiming,
   } from '@vtt/shared/system/dnd.js';
 
+  import { computed, reactive, ref, watch } from 'vue';
+
+  import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
+  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { generateId } from '@vtt/shared';
   import {
     ABILITY_OPTIONS,
@@ -22,10 +26,6 @@
     EFFECT_TURN_ANCHOR_LABELS,
     EFFECT_TURN_TIMING_LABELS,
   } from '@vtt/shared/system/dnd.js';
-  import { computed, reactive, ref, watch } from 'vue';
-
-  import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 
   import DamagePartsEditor from '../DamagePartsEditor.vue';
   import ActiveEffectConditionTemplatesModal from './ActiveEffectConditionTemplatesModal.vue';
@@ -615,7 +615,6 @@
       }
     },
   });
-
 </script>
 
 <template>

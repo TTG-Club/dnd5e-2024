@@ -33,7 +33,9 @@ export function inspectClientBundle(bundle) {
   }
 
   if (!/VTTSystems\.register/.test(bundle)) {
-    problems.push('бандл не вызывает VTTSystems.register — система не поднимется');
+    problems.push(
+      'бандл не вызывает VTTSystems.register — система не поднимется',
+    );
   }
 
   if (/reka-ui/.test(bundle)) {

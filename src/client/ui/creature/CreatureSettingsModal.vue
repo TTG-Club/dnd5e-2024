@@ -3,14 +3,6 @@
   import type { DnDCreature, HpDisplayMode } from '@vtt/shared/system/dnd.js';
 
   import { useToast } from '@nuxt/ui/composables';
-  import { createDefaultLightEmitter, getServerBaseUrl } from '@vtt/shared';
-  import {
-    CREATURE_CATEGORIES,
-    CREATURE_SIZE_LABELS,
-    getAlignmentLabel,
-    resolveCreatureTokenScale,
-    TOKEN_SCALE_TO_CREATURE_SIZE,
-  } from '@vtt/shared/system/dnd.js';
   import { computed, onMounted, ref, watch } from 'vue';
 
   import {
@@ -30,6 +22,14 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useImageFallback } from '@/shared_ui/composables';
   import { useWorldStore } from '@/stores/worldStore';
+  import { createDefaultLightEmitter, getServerBaseUrl } from '@vtt/shared';
+  import {
+    CREATURE_CATEGORIES,
+    CREATURE_SIZE_LABELS,
+    getAlignmentLabel,
+    resolveCreatureTokenScale,
+    TOKEN_SCALE_TO_CREATURE_SIZE,
+  } from '@vtt/shared/system/dnd.js';
 
   import {
     TOKEN_TINT_DEFAULT,

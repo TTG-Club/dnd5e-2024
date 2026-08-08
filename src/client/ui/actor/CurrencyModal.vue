@@ -1,15 +1,15 @@
 <script setup lang="ts">
   import type { DnDCurrency } from '@vtt/shared/system/dnd.js';
 
+  import { computed, reactive, watch } from 'vue';
+
+  import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
+  import { Z_INDEX } from '@/shared_ui/consts';
   import {
     CURRENCY_AMOUNT_MAX,
     CURRENCY_AMOUNT_MIN,
     CURRENCY_OPTIONS,
   } from '@vtt/shared/system/dnd.js';
-  import { computed, reactive, watch } from 'vue';
-
-  import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
-  import { Z_INDEX } from '@/shared_ui/consts';
 
   interface Props {
     open: boolean;

@@ -1,9 +1,10 @@
 <script setup lang="ts">
   import type { DnDGameItem } from '@vtt/shared/system/dnd.js';
 
+  import { computed } from 'vue';
+
   import { formatItemCost } from '@vtt/shared';
   import { RARITY_COLORS, RARITY_LABELS } from '@vtt/shared/system/dnd.js';
-  import { computed } from 'vue';
 
   const props = defineProps<{
     /** Стоимость предмета */

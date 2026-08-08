@@ -247,6 +247,7 @@ export function resolveToolProficiencies(
 
     if (whole.kind !== 'unknown') {
       resolved.push(whole);
+
       continue;
     }
 
@@ -259,6 +260,7 @@ export function resolveToolProficiencies(
 
     if (parts.length < 2) {
       resolved.push(whole);
+
       continue;
     }
 

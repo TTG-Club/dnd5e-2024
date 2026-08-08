@@ -67,8 +67,10 @@
    */
   function seedFromProps(): void {
     const stored =
-      props.source ??
-      systemDataStore.sources.find((source) => source.key === props.sourceKey);
+      props.source
+      ?? systemDataStore.sources.find(
+        (source) => source.key === props.sourceKey,
+      );
 
     // `local` — прежний псевдоисточник формы («Свой источник» в выпадающем
     // списке). Источником он никогда не был: в справочнике его нет, подписи от
@@ -90,9 +92,10 @@
    */
   function emitSource(): void {
     const recognized = known.value;
+
     const definition =
-      recognized ??
-      buildSourceDefinition(abbreviation.value, name.value, nameEn.value);
+      recognized
+      ?? buildSourceDefinition(abbreviation.value, name.value, nameEn.value);
 
     emit('update:sourceKey', definition?.key);
     emit('update:source', definition);

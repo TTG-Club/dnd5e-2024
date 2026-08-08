@@ -2,13 +2,13 @@
   import type { AbilityType } from '@vtt/shared';
   import type { CreatureSystem, DnDCreature } from '@vtt/shared/system/dnd.js';
 
+  import { ref, toRef } from 'vue';
+
+  import { ABILITY_SHORT_LABELS } from '@/systems/dnd5e/ui/actor/constants';
   import {
     ABILITY_LABELS,
     calculateAbilityModifier,
   } from '@vtt/shared/system/dnd.js';
-  import { ref, toRef } from 'vue';
-
-  import { ABILITY_SHORT_LABELS } from '@/systems/dnd5e/ui/actor/constants';
 
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import AbilityScore from '../actor/AbilityScore.vue';

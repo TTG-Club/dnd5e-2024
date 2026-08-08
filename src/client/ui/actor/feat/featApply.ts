@@ -17,6 +17,9 @@ import type {
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
+import { loadCompendiumKind } from '@/core/compendiumDataClient';
+import { generateEntityId } from '@/core/entityUtils';
+import { extractSpellEntries } from '@/systems/dnd5e/composables/spellCompendium';
 import { pushUnique, removeItems } from '@vtt/shared';
 import {
   appendGrantedSpells,
@@ -26,10 +29,6 @@ import {
   prepareTransferredFeatEffects,
   removeGrantedSpellsByFeatureNames,
 } from '@vtt/shared/system/dnd.js';
-
-import { loadCompendiumKind } from '@/core/compendiumDataClient';
-import { generateEntityId } from '@/core/entityUtils';
-import { extractSpellEntries } from '@/systems/dnd5e/composables/spellCompendium';
 
 /** Владения актора (структурно — то, что черта правит). */
 type ActorProficiencies = DnDActor['system']['proficiencies'];

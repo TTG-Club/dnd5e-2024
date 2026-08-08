@@ -2,14 +2,14 @@
   import type { Feature } from '@vtt/shared';
   import type { BackgroundDefinition } from '@vtt/shared/system/dnd.js';
 
-  import {
-    SKILLS_LABELS,
-    toolProficiencyLabel,
-  } from '@vtt/shared/system/dnd.js';
   import { computed } from 'vue';
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
+  import {
+    SKILLS_LABELS,
+    toolProficiencyLabel,
+  } from '@vtt/shared/system/dnd.js';
 
   const props = defineProps<{
     backgroundDefinition: BackgroundDefinition;

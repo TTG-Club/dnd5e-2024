@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Точка входа САМОДОСТАТОЧНОГО клиентского бандла системы D&D 5e (Фаза 5, S6).
  *
  * Собирается `vite.system.config.ts` в один IIFE-файл `dist/systems/dnd5e/client.js`
@@ -18,9 +18,9 @@
 
 import type { ClientSystemAPI } from '@/core/systemBootstrap';
 
-import './system.css';
-
 import { registerClientSystem } from './clientSystem';
+
+import './system.css';
 
 globalThis.VTTSystems.register('dnd5e-2024', (api: ClientSystemAPI) => {
   registerClientSystem(api);

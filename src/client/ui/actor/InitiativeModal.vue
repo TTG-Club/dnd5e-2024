@@ -1,11 +1,11 @@
 <script setup lang="ts">
   import type { AbilityType } from '@vtt/shared';
 
-  import { calculateAbilityModifier } from '@vtt/shared/system/dnd.js';
   import { computed, ref, watch } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
+  import { calculateAbilityModifier } from '@vtt/shared/system/dnd.js';
 
   interface Props {
     open: boolean;

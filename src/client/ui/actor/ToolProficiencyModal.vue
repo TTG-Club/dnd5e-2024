@@ -1,9 +1,9 @@
 <script setup lang="ts">
-  import { TOOL_CATEGORIES, TOOLS_LIST } from '@vtt/shared/system/dnd.js';
   import { computed, ref, watch } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
+  import { TOOL_CATEGORIES, TOOLS_LIST } from '@vtt/shared/system/dnd.js';
 
   import { useToolVocabulary } from '../../composables/useToolVocabulary';
 

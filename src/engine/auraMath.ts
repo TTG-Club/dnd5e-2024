@@ -1,4 +1,5 @@
 import type { GridSettings, Token } from '@vtt/shared';
+
 import type { ActiveEffect } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 

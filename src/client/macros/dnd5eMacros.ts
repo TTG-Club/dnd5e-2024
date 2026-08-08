@@ -19,6 +19,15 @@ import type {
   SpellDamagePartInput,
 } from '../composables/useSpellResolution';
 
+import { emitEntityCombatState, emitEntityUpdate } from '@/core/entityUtils';
+import { registerMacro } from '@/core/registries/macroRegistry';
+import { useModalManager } from '@/shared_ui/composables/useModalManager';
+import { useActionPromptStore } from '@/stores/actionPromptStore';
+import { useAuraStore } from '@/stores/auraStore';
+import { useChatStore } from '@/stores/chatStore';
+import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
+import { useTargetStore } from '@/stores/targetStore';
+import { useWorldStore } from '@/stores/worldStore';
 /**
  * Регистрация макро-executor'ов, специфичных для D&D 5e.
  * Вся боевая логика (бросок атаки, двухэтапная атака, криты, урон) вынесена
@@ -57,16 +66,6 @@ import {
   spellIsHealing,
 } from '@vtt/shared/system/dnd.js';
 
-import { emitEntityCombatState, emitEntityUpdate } from '@/core/entityUtils';
-import { registerMacro } from '@/core/registries/macroRegistry';
-import { useModalManager } from '@/shared_ui/composables/useModalManager';
-import { useActionPromptStore } from '@/stores/actionPromptStore';
-import { useAuraStore } from '@/stores/auraStore';
-import { useChatStore } from '@/stores/chatStore';
-import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
-import { useTargetStore } from '@/stores/targetStore';
-import { useWorldStore } from '@/stores/worldStore';
-
 import {
   getCasterSpellEffects,
   getTargetSpellEffects,
@@ -93,7 +92,9 @@ function isDnDActorEntity(entity: SceneEntity | null): entity is DnDActor {
   return entity !== null && entity.entityType === 'actor';
 }
 
-function isDnDCreatureEntity(entity: SceneEntity | null): entity is DnDCreature {
+function isDnDCreatureEntity(
+  entity: SceneEntity | null,
+): entity is DnDCreature {
   return entity !== null && entity.entityType === 'creature';
 }
 
@@ -188,7 +189,9 @@ function findWeapon(
 ): { weapon: DnDGameItem; actor: DnDActor } | null {
   // Прямой поиск в актора-владельца
   if (actor) {
-    const weapon = actor.equipment?.find((item: DnDGameItem) => item.id === ref);
+    const weapon = actor.equipment?.find(
+      (item: DnDGameItem) => item.id === ref,
+    );
 
     if (weapon) {
       return { weapon, actor };
@@ -216,7 +219,10 @@ function findSpell(
   ref: string,
   actor: DnDActor | null,
   actors: DnDActor[],
-): { spell: import('@vtt/shared/system/dnd.js').Spell; actor: DnDActor } | null {
+): {
+  spell: import('@vtt/shared/system/dnd.js').Spell;
+  actor: DnDActor;
+} | null {
   if (actor) {
     const spell = actor.spells?.find(
       (existingSpell) => existingSpell.id === ref,

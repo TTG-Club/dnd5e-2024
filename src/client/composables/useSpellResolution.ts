@@ -30,6 +30,10 @@ import type {
   SpellTargetResult,
 } from './spellResolutionShared';
 
+import { emitEntityCombatState } from '@/core/entityUtils';
+import { useChatStore } from '@/stores/chatStore';
+import { useDiceRollerStore } from '@/stores/diceRollerStore';
+import { useTargetStore } from '@/stores/targetStore';
 import { generateId, resolveGridCellSize } from '@vtt/shared';
 import {
   applyDamageDefenses,
@@ -58,11 +62,6 @@ import {
   withInitializedDuration,
   writeEntityHitPoints,
 } from '@vtt/shared/system/dnd.js';
-
-import { emitEntityCombatState } from '@/core/entityUtils';
-import { useChatStore } from '@/stores/chatStore';
-import { useDiceRollerStore } from '@/stores/diceRollerStore';
-import { useTargetStore } from '@/stores/targetStore';
 
 import {
   formatRolledPartLine,
@@ -249,13 +248,12 @@ export function useSpellResolution() {
 
       // Один и тот же статус не стакается: повтор ЗАМЕНЯЕТ прежний (5e 2024);
       // разные эффекты складываются.
-      const instantiated = effectsToApply.map(
-        (effect): ActiveEffect =>
-          withInitializedDuration({
-            ...effect,
-            id: generateId('effect'),
-            origin: 'spell',
-          }),
+      const instantiated = effectsToApply.map((effect): ActiveEffect =>
+        withInitializedDuration({
+          ...effect,
+          id: generateId('effect'),
+          origin: 'spell',
+        }),
       );
 
       updatedEntity.activeEffects = mergeAppliedEffects(

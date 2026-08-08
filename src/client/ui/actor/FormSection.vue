@@ -40,9 +40,7 @@
 
   /** Цвет заголовка; без явного значения — приглушённый */
   const titleColorClass = computed(() =>
-    props.titleColor
-      ? TITLE_COLOR_CLASSES[props.titleColor]
-      : 'text-dimmed',
+    props.titleColor ? TITLE_COLOR_CLASSES[props.titleColor] : 'text-dimmed',
   );
 
   /** Нижний отступ секции: у пустой секции паддинги симметричные */

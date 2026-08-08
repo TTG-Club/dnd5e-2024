@@ -6,6 +6,7 @@
  */
 
 import type { DamagePart } from '@vtt/shared';
+
 import type { Spell } from './dndEntities.js';
 
 /**

@@ -6,6 +6,7 @@
  */
 
 import type { AbilityType, SkillType, SourceDefinition } from '@vtt/shared';
+
 import type { ActiveEffect } from './activeEffectTypes.js';
 import type { FeatData } from './featTypes.js';
 

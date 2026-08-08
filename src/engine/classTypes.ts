@@ -218,12 +218,7 @@ export interface ClassLevelEntry {
 
   /** Динамические колонки (например, cantripsKnown, sneakAttack, kiPoints) */
   [key: string]:
-    | string
-    | number
-    | boolean
-    | string[]
-    | Record<string, number>
-    | undefined;
+    string | number | boolean | string[] | Record<string, number> | undefined;
 }
 
 /**

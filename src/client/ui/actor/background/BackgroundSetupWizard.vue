@@ -6,14 +6,14 @@
     GrantedSpellSource,
   } from '@vtt/shared/system/dnd.js';
 
-  import {
-    collectFeatGrantedSpellSources,
-    collectGrantedSpellSources,
-  } from '@vtt/shared/system/dnd.js';
   import { computed, ref, toRef, watch } from 'vue';
 
   import { loadCompendiumKind } from '@/core/compendiumDataClient';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
+  import {
+    collectFeatGrantedSpellSources,
+    collectGrantedSpellSources,
+  } from '@vtt/shared/system/dnd.js';
 
   import { useGrantedSpellsResolver } from '../../../composables/useGrantedSpellsResolver';
   import { useSourceLabels } from '../../../composables/useSourceLabel';
@@ -240,8 +240,8 @@
               <p class="text-sm text-dimmed">
                 Источник:
                 <span class="font-medium text-primary">{{
-                  getSourceLabel(definition.sourceKey, definition.source) ||
-                  'PHB'
+                  getSourceLabel(definition.sourceKey, definition.source)
+                  || 'PHB'
                 }}</span>
               </p>
             </div>

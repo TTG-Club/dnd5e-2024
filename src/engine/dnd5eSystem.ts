@@ -1,22 +1,22 @@
-﻿import type {
-  CompendiumValueFormatter,
-  DiceRollData,
-  HealthCondition,
-} from '@vtt/shared';
 import type {
+  BaseActiveEffect,
   BaseActor,
   BaseCreature,
   BaseGameItem,
+  CompendiumValueFormatter,
+  ConditionDefinition,
   CustomArea,
+  DiceRollData,
   Feature,
   GridSettings,
+  HealthCondition,
   MeasurementTemplate,
   SceneEntity,
+  SystemRollResult,
   Token,
+  VttSystem,
 } from '@vtt/shared';
-import type { BaseActiveEffect } from '@vtt/shared';
-import type { ConditionDefinition } from '@vtt/shared';
-import type { SystemRollResult, VttSystem } from '@vtt/shared';
+
 import type { ActiveEffect, EffectOrigin } from './activeEffectTypes.js';
 import type { BackgroundDefinition } from './backgroundTypes.js';
 import type { ConditionKey } from './consts.js';
@@ -35,8 +35,9 @@ import {
   generateId,
   getHealthCondition,
   HEALTH_CONDITIONS,
+  isRecord,
 } from '@vtt/shared';
-import { isRecord } from '@vtt/shared';
+
 import { ActiveEffectsArraySchema } from './activeEffectTypes.js';
 import {
   normalizeActorData as normalizeDndActorData,
@@ -800,8 +801,7 @@ export class Dnd5eVttSystem implements VttSystem {
     isActor?: boolean,
     customConditions?: unknown[],
   ):
-    | { key: string; nameEn: string; nameRu: string; color: string }
-    | undefined {
+    { key: string; nameEn: string; nameRu: string; color: string } | undefined {
     return getHealthCondition(
       currentHp,
       maxHp,

@@ -29,6 +29,7 @@ if (!assetsDir || !fs.existsSync(assetsDir)) {
   console.error(
     'Использование: node scripts/extract-host-classes.mjs <vttg>/packages/client/dist/web/assets',
   );
+
   process.exit(1);
 }
 
@@ -43,7 +44,7 @@ if (cssFiles.length === 0) {
 }
 
 /** Селекторные классы Tailwind с эскейпами: `.lg\:w-80`, `.bg-elevated\/50`. */
-const CLASS_PATTERN = /\.((?:\\.|[A-Za-z0-9_-])+)/g;
+const CLASS_PATTERN = /\.((?:\\.|[\w-])+)/g;
 
 const classes = new Set();
 
@@ -69,7 +70,17 @@ const header =
   + '// (медиа-варианты решаются порядком, не специфичностью). Не редактировать руками.\n';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-const outPath = path.resolve(scriptDir, '..', 'src', 'client', 'hostClasses.txt');
+
+const outPath = path.resolve(
+  scriptDir,
+  '..',
+  'src',
+  'client',
+  'hostClasses.txt',
+);
 
 fs.writeFileSync(outPath, `${header}${sorted.join('\n')}\n`);
-console.log(`[extract-host-classes] классов: ${sorted.size ?? sorted.length} → ${outPath}`);
+
+console.log(
+  `[extract-host-classes] классов: ${sorted.size ?? sorted.length} → ${outPath}`,
+);

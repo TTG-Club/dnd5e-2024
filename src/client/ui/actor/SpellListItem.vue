@@ -1,6 +1,11 @@
 <script setup lang="ts">
   import type { DnDActor, DnDGameItem, Spell } from '@vtt/shared/system/dnd.js';
 
+  import { computed, ref } from 'vue';
+
+  import { startHotbarDrag } from '@/core/utils/hotbarDrag';
+  import { ContextMenuDangerItem } from '@/shared_ui/components';
+  import FieldGroupReset from '@/shared_ui/components/FieldGroupReset.vue';
   import {
     formatConditionalDamageDisplay,
     getSpellDamageParts,
@@ -10,11 +15,6 @@
     stripDamageTypeTokens,
     stripFormulaVariables,
   } from '@vtt/shared/system/dnd.js';
-  import { computed, ref } from 'vue';
-
-  import { startHotbarDrag } from '@/core/utils/hotbarDrag';
-  import { ContextMenuDangerItem } from '@/shared_ui/components';
-  import FieldGroupReset from '@/shared_ui/components/FieldGroupReset.vue';
 
   import { SPELL_MIME } from './constants';
   import { extractSpellFromGameItem } from './utils/extractSpellFromGameItem';

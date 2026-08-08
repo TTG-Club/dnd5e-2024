@@ -3,15 +3,15 @@
 
   import type { ItemPropertyBadge } from './ItemPropertyBadges.vue';
 
+  import { computed } from 'vue';
+
+  import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
+  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { DISTANCE_UNIT_SHORT } from '@vtt/shared';
   import {
     getWeaponDamageParts,
     WEAPON_MASTERY_MAP,
   } from '@vtt/shared/system/dnd.js';
-  import { computed } from 'vue';
-
-  import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 
   import DamagePartsSummary from './DamagePartsSummary.vue';
   import ItemCostWeightRarity from './ItemCostWeightRarity.vue';

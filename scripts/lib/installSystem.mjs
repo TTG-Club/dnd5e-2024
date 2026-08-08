@@ -144,7 +144,9 @@ export function readManifest(manifestPath) {
   try {
     manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
   } catch (error) {
-    throw new Error(`манифест ${manifestPath} не разбирается: ${error.message}`);
+    throw new Error(
+      `манифест ${manifestPath} не разбирается: ${error.message}`,
+    );
   }
 
   if (typeof manifest.id !== 'string' || !SYSTEM_ID_REGEX.test(manifest.id)) {
@@ -163,7 +165,9 @@ export function readManifest(manifestPath) {
 export function assertDistComplete(distDir) {
   for (const entry of REQUIRED_ENTRIES) {
     if (!existsSync(path.join(distDir, entry))) {
-      throw new Error(`в dist/ нет ${entry} — соберите систему (npm run build)`);
+      throw new Error(
+        `в dist/ нет ${entry} — соберите систему (npm run build)`,
+      );
     }
   }
 }
@@ -233,6 +237,7 @@ export function computeEntryHash(systemDir) {
  */
 export function writeTrustRecord(dataPath, systemId, version, hash) {
   const registryPath = path.join(dataPath, TRUST_REGISTRY_FILENAME);
+
   let registry = {};
 
   if (existsSync(registryPath)) {
@@ -256,7 +261,11 @@ export function writeTrustRecord(dataPath, systemId, version, hash) {
     trustedAt: new Date().toISOString(),
   };
 
-  writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`, 'utf-8');
+  writeFileSync(
+    registryPath,
+    `${JSON.stringify(registry, null, 2)}\n`,
+    'utf-8',
+  );
 }
 
 /**
@@ -302,7 +311,9 @@ export function replaceSystemDir(distDir, dataPath, systemId) {
 
     rmSync(stagingDir, { recursive: true, force: true });
 
-    throw new Error(`не удалось положить систему в ${targetDir}: ${error.message}`);
+    throw new Error(
+      `не удалось положить систему в ${targetDir}: ${error.message}`,
+    );
   }
 
   rmSync(previousDir, { recursive: true, force: true });
@@ -348,7 +359,9 @@ export function confirmTrust(dataPath, targetDir, systemId, version) {
   const hash = computeEntryHash(targetDir);
 
   if (!hash) {
-    throw new Error(`в ${targetDir} не нашлось кодовых файлов — доверие подтвердить нечем`);
+    throw new Error(
+      `в ${targetDir} не нашлось кодовых файлов — доверие подтвердить нечем`,
+    );
   }
 
   writeTrustRecord(dataPath, systemId, version, hash);

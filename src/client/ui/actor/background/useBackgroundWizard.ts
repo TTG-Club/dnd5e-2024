@@ -1,3 +1,5 @@
+import type { Ref } from 'vue';
+
 import type { AbilityType, Feature } from '@vtt/shared';
 import type {
   ActorBackgroundEntry,
@@ -7,7 +9,8 @@ import type {
   EffectTargetKey,
   ResolvedGrantedSpell,
 } from '@vtt/shared/system/dnd.js';
-import type { Ref } from 'vue';
+
+import { computed, ref, watch } from 'vue';
 
 import {
   generateId,
@@ -23,13 +26,9 @@ import {
   prepareTransferredFeatEffects,
   removeGrantedSpellsByFeatureNames,
 } from '@vtt/shared/system/dnd.js';
-import { computed, ref, watch } from 'vue';
 
 export type BackgroundWizardStep =
-  | 'overview'
-  | 'tools'
-  | 'abilities'
-  | 'equipment';
+  'overview' | 'tools' | 'abilities' | 'equipment';
 
 /**
  * Имя-источник заклинаний, выданных СОБСТВЕННЫМ `featData` предыстории —

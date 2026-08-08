@@ -13,6 +13,7 @@ import type {
 
 import type { SpellDamagePartInput } from './useSpellResolution';
 
+import { useTargetStore } from '@/stores/targetStore';
 /**
  * Композабл бонус-частей урона от Active Effects (оружие и заклинания).
  *
@@ -44,8 +45,6 @@ import {
   resolveSpellDamageFormula,
   substituteFormulaVariables,
 } from '@vtt/shared/system/dnd.js';
-
-import { useTargetStore } from '@/stores/targetStore';
 
 /** Контекст броска из модалки (фактический режим преимущества/помехи) */
 interface ModalRollContext {
@@ -198,8 +197,7 @@ export function useBonusDamageParts() {
    * @returns текущее/максимальное HP цели или undefined (цели/HP нет)
    */
   function buildTargetHpContext():
-    | { currentHp: number; maxHp: number }
-    | undefined {
+    { currentHp: number; maxHp: number } | undefined {
     const entity = targetStore.getTargetActor();
 
     if (!entity) {

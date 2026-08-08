@@ -2,16 +2,16 @@
   import type { ProficiencyLevel, SkillType } from '@vtt/shared';
   import type { DnDCreature } from '@vtt/shared/system/dnd.js';
 
-  import {
-    calculateSkillModifier,
-    getSkillAbility,
-    SKILLS_LIST,
-  } from '@vtt/shared/system/dnd.js';
   import { computed, ref, watch } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
   import { ABILITY_SHORT_LABELS } from '@/systems/dnd5e/ui/actor/constants';
+  import {
+    calculateSkillModifier,
+    getSkillAbility,
+    SKILLS_LIST,
+  } from '@vtt/shared/system/dnd.js';
 
   import ProficiencyIndicator from '../actor/ProficiencyIndicator.vue';
 

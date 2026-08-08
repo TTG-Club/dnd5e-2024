@@ -1,7 +1,11 @@
 <script setup lang="ts">
-  import type { ActorClassEntry, DnDActor } from '@vtt/shared/system/dnd.js';
   import type { CSSProperties } from 'vue';
 
+  import type { ActorClassEntry, DnDActor } from '@vtt/shared/system/dnd.js';
+
+  import { computed, ref } from 'vue';
+
+  import { useImageFallback } from '@/shared_ui/composables';
   import { getAssetUrl } from '@vtt/shared';
   import {
     calculateExperienceForNextLevel,
@@ -9,9 +13,6 @@
     getTotalLevel,
     MAX_LEVEL,
   } from '@vtt/shared/system/dnd.js';
-  import { computed, ref } from 'vue';
-
-  import { useImageFallback } from '@/shared_ui/composables';
 
   import ActorHeaderPlaceholder from './ActorHeaderPlaceholder.vue';
   import {
@@ -546,7 +547,7 @@
               </span>
 
               <span
-                class="whitespace-nowrap text-[11px] tracking-widest text-dimmed"
+                class="text-[11px] tracking-widest whitespace-nowrap text-dimmed"
               >
                 {{ actor.system.experience }} / {{ nextLevelXP }} XP
               </span>

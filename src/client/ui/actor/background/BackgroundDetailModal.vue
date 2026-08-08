@@ -2,12 +2,6 @@
   import type { Feature } from '@vtt/shared';
   import type { BackgroundDefinition } from '@vtt/shared/system/dnd.js';
 
-  import {
-    ABILITY_LABELS,
-    buildFeatGrantsSummary,
-    SKILLS_LABELS,
-    toolProficiencyLabel,
-  } from '@vtt/shared/system/dnd.js';
   import { computed } from 'vue';
 
   import { loadCompendiumKind } from '@/core/compendiumDataClient';
@@ -16,6 +10,12 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useChatStore } from '@/stores/chatStore';
+  import {
+    ABILITY_LABELS,
+    buildFeatGrantsSummary,
+    SKILLS_LABELS,
+    toolProficiencyLabel,
+  } from '@vtt/shared/system/dnd.js';
 
   import SourceBadge from '../SourceBadge.vue';
 

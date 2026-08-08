@@ -1,6 +1,9 @@
 <script setup lang="ts">
   import type { Spell } from '@vtt/shared/system/dnd.js';
 
+  import { computed } from 'vue';
+
+  import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import { DISTANCE_UNIT_SHORT } from '@vtt/shared';
   import {
     CASTING_TIME_LABELS,
@@ -13,9 +16,6 @@
     SPELL_SCHOOL_LABELS,
     TARGET_TYPE_LABELS,
   } from '@vtt/shared/system/dnd.js';
-  import { computed } from 'vue';
-
-  import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
 
   import DamagePartsSummary from './DamagePartsSummary.vue';
   import ItemDetailModalShell from './ItemDetailModalShell.vue';

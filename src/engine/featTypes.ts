@@ -10,6 +10,7 @@
  */
 
 import type { AbilityType, SkillType } from '@vtt/shared';
+
 import type { ConditionKey } from './conditionKeys.js';
 import type { DamageDefenseEntry, GrantedSpellRef } from './speciesTypes.js';
 

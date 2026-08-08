@@ -14,6 +14,17 @@
     SpellDamagePartInput,
   } from '../../../composables/useSpellResolution';
 
+  import { computed, ref, toRef } from 'vue';
+
+  import { startHotbarDrag } from '@/core/utils/hotbarDrag';
+  import { ContextMenuDangerItem } from '@/shared_ui/components';
+  import FieldGroupReset from '@/shared_ui/components/FieldGroupReset.vue';
+  import { useModalManager } from '@/shared_ui/composables/useModalManager';
+  import { useChatStore } from '@/stores/chatStore';
+  import { useHotbarStore } from '@/stores/hotbarStore';
+  import { useTargetStore } from '@/stores/targetStore';
+  import { useWorldStore } from '@/stores/worldStore';
+  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import {
     calculateWeaponAttackModifier,
     calculateWeaponDamageModifier,
@@ -26,17 +37,6 @@
     resolveActorStats,
     TOOL_CATEGORIES,
   } from '@vtt/shared/system/dnd.js';
-  import { computed, ref, toRef } from 'vue';
-
-  import { startHotbarDrag } from '@/core/utils/hotbarDrag';
-  import { ContextMenuDangerItem } from '@/shared_ui/components';
-  import FieldGroupReset from '@/shared_ui/components/FieldGroupReset.vue';
-  import { useModalManager } from '@/shared_ui/composables/useModalManager';
-  import { useChatStore } from '@/stores/chatStore';
-  import { useHotbarStore } from '@/stores/hotbarStore';
-  import { useTargetStore } from '@/stores/targetStore';
-  import { useWorldStore } from '@/stores/worldStore';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 
   import { useBonusDamageParts } from '../../../composables/useBonusDamageParts';
   import { useResolvedStats } from '../../../composables/useResolvedStats';
@@ -274,8 +274,7 @@
         }) => SpellDamagePartInput[])
       | undefined,
     onRollParts: undefined as
-      | ((parts: RolledSpellDamagePart[]) => void)
-      | undefined,
+      ((parts: RolledSpellDamagePart[]) => void) | undefined,
     onHit: undefined as (() => void) | undefined,
   });
 

@@ -14,7 +14,6 @@
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
-  import { generateId, getAssetUrl, systemRegistry } from '@vtt/shared';
   import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
   import {
@@ -26,6 +25,7 @@
   import EntityCard from '@/shared_ui/components/EntityCard.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useCompendiumView } from '@/shared_ui/composables/useCompendiumView';
+  import { generateId, getAssetUrl, systemRegistry } from '@vtt/shared';
 
   /**
    * Расширенный тип записи компендиума — включает все реальные типы данных,

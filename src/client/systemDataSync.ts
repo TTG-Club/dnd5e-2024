@@ -12,12 +12,11 @@
 
 import type { TypedWebSocketClient } from '@vtt/shared';
 
-import { systemRegistry } from '@vtt/shared';
-import { dnd5eSystemInstance } from '@vtt/shared/system/dnd.js';
-
 import { ClientHooks } from '@/core/clientHooks';
 import { loadCompendiumManifests } from '@/core/compendiumDataClient';
 import { getActiveSocket } from '@/system-runtime/activeSocket';
+import { systemRegistry } from '@vtt/shared';
+import { dnd5eSystemInstance } from '@vtt/shared/system/dnd.js';
 
 import { useSystemDataStore } from './stores/systemDataStore';
 

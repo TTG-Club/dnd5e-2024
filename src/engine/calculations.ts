@@ -8,11 +8,12 @@
 import type {
   AbilityType,
   ActorMovement,
+  DamagePart,
   MovementType,
   ProficiencyLevel,
   SkillType,
 } from '@vtt/shared';
-import type { DamagePart } from '@vtt/shared';
+
 import type { DnDActor, DnDGameItem, DnDSceneEntity } from './dndEntities.js';
 
 import { getTotalLevel } from './classTypes.js';

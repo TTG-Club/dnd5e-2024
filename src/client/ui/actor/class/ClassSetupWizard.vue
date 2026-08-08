@@ -17,11 +17,11 @@
 
   import type { WizardAsiState } from './wizard';
 
-  import { resolveActorStats } from '@vtt/shared/system/dnd.js';
   import { computed, nextTick, ref, toRef } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
+  import { resolveActorStats } from '@vtt/shared/system/dnd.js';
 
   import { useGrantedSpellsResolver } from '../../../composables/useGrantedSpellsResolver';
   import { useClassWizard } from './wizard';
@@ -341,9 +341,7 @@
               v-if="stepIdx > 0"
               class="h-px flex-1"
               :class="
-                stepIdx <= currentStepIndex
-                  ? 'bg-primary/60'
-                  : 'bg-accented/50'
+                stepIdx <= currentStepIndex ? 'bg-primary/60' : 'bg-accented/50'
               "
             />
 
