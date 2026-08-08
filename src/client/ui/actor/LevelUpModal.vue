@@ -4,6 +4,7 @@
   import {
     calculateExperienceForNextLevel,
     getTotalLevel,
+    MAX_LEVEL,
   } from '@vtt/shared/system/dnd.js';
   import { computed, ref, watch } from 'vue';
 
@@ -37,16 +38,25 @@
   });
 
   const editClasses = ref<ActorClassEntry[]>([]);
-  const editExperience = ref(0);
+
+  /**
+   * Введённый опыт. Тип не только `number`: `UInput` с `type="number"` отдаёт
+   * пустую строку, когда поле очищено или в нём мусор, — `applyLevelUp`
+   * приводит такое значение к 0.
+   */
+  const editExperience = ref<number | string>(0);
+
   const forceLevelUp = ref(false);
 
   /** Ключ класса, ожидающего подтверждения удаления */
   const pendingRemoveKey = ref<string | null>(null);
 
+  /** Суммарный уровень по всем классам в форме */
   const editTotalLevel = computed(() => {
     return getTotalLevel(editClasses.value);
   });
 
+  /** Опыт, нужный для следующего уровня при текущем наборе классов */
   const editNextLevelXP = computed(() => {
     return calculateExperienceForNextLevel(editTotalLevel.value);
   });
@@ -56,7 +66,7 @@
     () => props.open,
     (opened) => {
       if (opened) {
-        editClasses.value = JSON.parse(JSON.stringify(props.classes || []));
+        editClasses.value = JSON.parse(JSON.stringify(props.classes ?? []));
         editExperience.value = props.experience;
         forceLevelUp.value = false;
         pendingRemoveKey.value = null;
@@ -64,12 +74,14 @@
     },
   );
 
+  /** Повышает уровень класса, пока суммарный не упёрся в потолок (20) */
   function incrementClassLevel(index: number) {
-    if (editTotalLevel.value < 20) {
+    if (editTotalLevel.value < MAX_LEVEL) {
       editClasses.value[index].level += 1;
     }
   }
 
+  /** Понижает уровень класса, но не ниже первого */
   function decrementClassLevel(index: number) {
     if (editClasses.value[index].level > 1) {
       editClasses.value[index].level -= 1;
@@ -123,19 +135,23 @@
       // Собираем очередь уровней "пройти через мастер"
       const queue: Array<{ classKey: string; targetLevel: number }> = [];
 
-      for (const editCls of editClasses.value) {
-        const origCls = props.classes.find(
-          (classEntry) => classEntry.classKey === editCls.classKey,
+      for (const editedClass of editClasses.value) {
+        const originalClass = props.classes.find(
+          (classEntry) => classEntry.classKey === editedClass.classKey,
         );
 
-        const origLevel = origCls ? origCls.level : 0;
+        const originalLevel = originalClass ? originalClass.level : 0;
 
         // Добавляем по одному таску на каждый полученный уровень
-        if (editCls.level > origLevel) {
-          for (let lvl = origLevel + 1; lvl <= editCls.level; lvl++) {
+        if (editedClass.level > originalLevel) {
+          for (
+            let level = originalLevel + 1;
+            level <= editedClass.level;
+            level++
+          ) {
             queue.push({
-              classKey: editCls.classKey,
-              targetLevel: lvl,
+              classKey: editedClass.classKey,
+              targetLevel: level,
             });
           }
         }
@@ -181,13 +197,13 @@
           class="space-y-3"
         >
           <div
-            v-for="(cls, index) in editClasses"
-            :key="index"
+            v-for="(classEntry, index) in editClasses"
+            :key="classEntry.classKey"
             class="space-y-2"
           >
             <div class="flex items-center justify-between">
               <span class="text-sm font-medium text-highlighted">{{
-                cls.className || 'Класс'
+                classEntry.className || 'Класс'
               }}</span>
 
               <div class="flex items-center gap-3">
@@ -196,13 +212,13 @@
                   variant="ghost"
                   color="neutral"
                   size="xs"
-                  :disabled="cls.level <= 1"
+                  :disabled="classEntry.level <= 1"
                   @click.left.exact.prevent="decrementClassLevel(index)"
                 />
 
                 <span
                   class="w-8 text-center text-xl font-bold text-highlighted tabular-nums"
-                  >{{ cls.level }}</span
+                  >{{ classEntry.level }}</span
                 >
 
                 <UButton
@@ -210,7 +226,9 @@
                   variant="ghost"
                   color="neutral"
                   size="xs"
-                  :disabled="editTotalLevel >= 20 || cls.level >= 20"
+                  :disabled="
+                    editTotalLevel >= MAX_LEVEL || classEntry.level >= MAX_LEVEL
+                  "
                   @click.left.exact.prevent="incrementClassLevel(index)"
                 />
 
@@ -220,14 +238,16 @@
                   color="error"
                   size="xs"
                   title="Удалить класс и все связанные данные"
-                  @click.left.exact.prevent="requestRemoveClass(cls.classKey)"
+                  @click.left.exact.prevent="
+                    requestRemoveClass(classEntry.classKey)
+                  "
                 />
               </div>
             </div>
 
             <!-- Инлайн-подтверждение удаления -->
             <div
-              v-if="pendingRemoveKey === cls.classKey"
+              v-if="pendingRemoveKey === classEntry.classKey"
               class="flex items-center justify-between rounded-md bg-danger-subtle/30 px-3 py-1.5"
             >
               <span class="text-xs text-danger">
@@ -260,7 +280,7 @@
           У персонажа пока нет классов
         </div>
 
-        <div class="h-px w-full bg-elevated"></div>
+        <div class="h-px w-full bg-elevated" />
 
         <!-- Опыт -->
         <div class="space-y-4">
@@ -273,6 +293,8 @@
               >
             </div>
 
+            <!-- Enter в поле опыта = «Применить»: правка опыта чаще всего
+                 сводится к вводу числа, лишний клик по кнопке не нужен -->
             <UInput
               v-model="editExperience"
               type="number"
@@ -283,6 +305,7 @@
               :ui="{
                 base: 'bg-inverted/5 text-highlighted rounded-lg px-3 py-2 focus:bg-inverted/10 transition-colors tabular-nums',
               }"
+              @keydown.enter.prevent="applyLevelUp"
             />
           </div>
 

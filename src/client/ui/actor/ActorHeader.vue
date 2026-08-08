@@ -7,6 +7,7 @@
     calculateExperienceForNextLevel,
     formatVisionRange,
     getTotalLevel,
+    MAX_LEVEL,
   } from '@vtt/shared/system/dnd.js';
   import { computed, ref } from 'vue';
 
@@ -202,6 +203,37 @@
   });
 
   /**
+   * Полоса опыта разорвана посередине подписью «X / Y XP», поэтому состоит из
+   * двух половин: первая половина прогресса заполняет левый отрезок, вторая —
+   * правый. Вместе они читаются как одна непрерывная линия.
+   */
+  const xpBarLeftWidth = computed(() => Math.min(100, xpProgress.value * 2));
+
+  /** Заполнение правого отрезка полосы опыта, % (см. `xpBarLeftWidth`) */
+  const xpBarRightWidth = computed(() =>
+    Math.max(0, xpProgress.value * 2 - 100),
+  );
+
+  /** Подпись справа от полосы: следующий уровень или «Максимум» на 20-м */
+  const nextLevelLabel = computed(() =>
+    totalLevel.value >= MAX_LEVEL
+      ? 'Максимум'
+      : `Уровень ${totalLevel.value + 1}`,
+  );
+
+  /** Классы строки опыта: кликабельная только у того, кто может править лист */
+  const experienceRowClass = computed(() =>
+    props.canEdit
+      ? 'cursor-pointer hover:bg-inverted/5 hover:text-toned'
+      : 'cursor-default',
+  );
+
+  /** Подсказка строки опыта (без правки прав — без подсказки) */
+  const experienceRowTitle = computed(() =>
+    props.canEdit ? 'Изменить уровень и опыт' : undefined,
+  );
+
+  /**
    * Обновляет поле актёра (name, description — корневые поля)
    */
   function updateField(field: keyof DnDActor, value: DnDActor[keyof DnDActor]) {
@@ -277,9 +309,16 @@
   const isLevelUpOpen = ref(false);
 
   /**
-   * Открывает модалку повышения уровня
+   * Открывает модалку уровня и опыта.
+   *
+   * Доступна и вне режима редактирования: опыт меняется по ходу игры чаще
+   * всего в шапке, ради него незачем снимать замок со всего листа.
    */
-  function addExperience() {
+  function openLevelUp() {
+    if (!props.canEdit) {
+      return;
+    }
+
     isLevelUpOpen.value = true;
   }
 
@@ -440,7 +479,7 @@
 
           <!-- Раса и класс -->
           <div
-            class="flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1 text-toned"
+            class="flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-toned"
           >
             <span
               v-if="actor.system.species?.speciesName"
@@ -486,46 +525,42 @@
             />
           </div>
 
-          <!-- Уровень и опыт -->
-          <div
-            class="flex max-w-xl items-center gap-4 pt-1 text-xs font-medium text-muted"
+          <!-- Уровень и опыт: клик по всей полосе открывает окно уровня -->
+          <button
+            type="button"
+            :disabled="!canEdit"
+            class="-mx-2 flex w-full max-w-xl items-center gap-3 rounded-lg px-2 py-1 text-xs font-medium text-muted transition-colors"
+            :class="experienceRowClass"
+            :title="experienceRowTitle"
+            @click.left.exact.prevent="openLevelUp"
           >
-            <div class="whitespace-nowrap">Уровень {{ totalLevel }}</div>
+            <span class="whitespace-nowrap">Уровень {{ totalLevel }}</span>
 
-            <!-- Прогресс-бар опыта -->
-            <div class="relative mx-2 flex-1">
-              <div
-                class="h-0.5 w-full overflow-hidden rounded-full bg-elevated"
-              >
-                <div
-                  class="h-full bg-linear-to-r from-primary/60 to-primary transition-all duration-300"
-                  :style="{ width: `${xpProgress}%` }"
+            <!-- Полоса опыта: подпись разрывает её посередине -->
+            <span class="flex flex-1 items-center gap-2">
+              <span class="h-1 flex-1 overflow-hidden rounded-full bg-elevated">
+                <span
+                  class="block h-full rounded-full bg-linear-to-r from-primary/60 to-primary transition-all duration-300"
+                  :style="{ width: `${xpBarLeftWidth}%` }"
                 />
-              </div>
+              </span>
 
-              <div
-                class="absolute inset-0 mt-4 flex items-center justify-center text-[10px] tracking-widest text-dimmed"
+              <span
+                class="whitespace-nowrap text-[11px] tracking-widest text-dimmed"
               >
                 {{ actor.system.experience }} / {{ nextLevelXP }} XP
-              </div>
-            </div>
+              </span>
 
-            <div class="flex items-center gap-1 whitespace-nowrap">
-              Уровень {{ totalLevel + 1 }}
-              <UButton
-                v-if="isEditMode"
-                icon="tabler:circle-plus"
-                variant="ghost"
-                color="neutral"
-                size="2xs"
-                :ui="{
-                  base: 'text-primary hover:text-primary hover:bg-primary/20',
-                }"
-                title="Добавить опыт"
-                @click.left.exact.prevent="addExperience"
-              />
-            </div>
-          </div>
+              <span class="h-1 flex-1 overflow-hidden rounded-full bg-elevated">
+                <span
+                  class="block h-full rounded-full bg-primary transition-all duration-300"
+                  :style="{ width: `${xpBarRightWidth}%` }"
+                />
+              </span>
+            </span>
+
+            <span class="whitespace-nowrap">{{ nextLevelLabel }}</span>
+          </button>
         </div>
       </div>
     </div>
