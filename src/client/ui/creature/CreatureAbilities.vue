@@ -2,7 +2,10 @@
   import type { AbilityType } from '@vtt/shared';
   import type { CreatureSystem, DnDCreature } from '@vtt/shared/system/dnd.js';
 
-  import { calculateAbilityModifier } from '@vtt/shared/system/dnd.js';
+  import {
+    ABILITY_LABELS,
+    calculateAbilityModifier,
+  } from '@vtt/shared/system/dnd.js';
   import { ref, toRef } from 'vue';
 
   import { ABILITY_SHORT_LABELS } from '@/systems/dnd5e/ui/actor/constants';
@@ -96,7 +99,8 @@
     <AbilityScore
       v-for="ability in ABILITY_KEYS"
       :key="ability"
-      :label="ABILITY_SHORT_LABELS[ability]"
+      :label="ABILITY_LABELS[ability]"
+      :short-label="ABILITY_SHORT_LABELS[ability]"
       :value="
         isEditMode
           ? creature.system.abilities[ability]

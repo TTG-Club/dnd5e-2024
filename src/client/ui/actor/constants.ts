@@ -132,6 +132,15 @@ export const ABILITY_SHORT_LABELS: Record<string, string> = {
   charisma: 'ХАР',
 };
 
+/**
+ * Запас по бокам названия в шапке блока характеристики (px):
+ * горизонтальные отступы `legend` плюс место до скруглений рамки.
+ *
+ * Если полное название вместе с этим запасом не влезает в ширину блока,
+ * `AbilityScore` показывает аббревиатуру из `ABILITY_SHORT_LABELS`.
+ */
+export const ABILITY_LABEL_SIDE_SPACE = 20;
+
 /** Локализованные названия типов заклинателей */
 export const CASTER_TYPE_LABELS: Record<string, string> = {
   full: 'Полный',

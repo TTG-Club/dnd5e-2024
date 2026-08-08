@@ -1,5 +1,10 @@
 <script setup lang="ts">
-  import { computed } from 'vue';
+  import { useElementSize } from '@vueuse/core';
+  import { computed, useTemplateRef } from 'vue';
+
+  import FieldsetLabel from '@/shared_ui/components/FieldsetLabel.vue';
+
+  import { ABILITY_LABEL_SIDE_SPACE } from './constants';
 
   /** Источник бонуса к характеристике */
   export interface AbilityBonusSource {
@@ -11,6 +16,8 @@
 
   interface Props {
     label: string;
+    /** Аббревиатура из трёх букв — подставляется, когда полное название не влезает */
+    shortLabel: string;
     /** Итоговое значение характеристики (с учётом эффектов) */
     value: number;
     /** Базовое значение характеристики (без эффектов) */
@@ -29,6 +36,39 @@
     'update:value': [value: number];
     'roll': [modifier: number, label: string];
   }>();
+
+  /** Корень блока: его ширина решает, влезает ли полное название в шапку */
+  const rootRef = useTemplateRef<InstanceType<typeof FieldsetLabel>>('root');
+
+  /**
+   * Невидимый образец полного названия. Нужен, чтобы сравнивать ширины по
+   * реальному тексту в реальном шрифте, а не по оценке «символ × ширина».
+   */
+  const labelProbeRef = useTemplateRef<HTMLElement>('labelProbe');
+
+  const { width: blockWidth } = useElementSize(rootRef);
+  const { width: fullLabelWidth } = useElementSize(labelProbeRef);
+
+  /** Полное название с боковым запасом шире блока → нужна аббревиатура */
+  const isLabelCompact = computed(() => {
+    // Нулевые ширины — момент до первого замера ResizeObserver
+    if (blockWidth.value === 0 || fullLabelWidth.value === 0) {
+      return false;
+    }
+
+    return fullLabelWidth.value + ABILITY_LABEL_SIDE_SPACE > blockWidth.value;
+  });
+
+  const displayLabel = computed(() =>
+    isLabelCompact.value ? props.shortLabel : props.label,
+  );
+
+  /** Подсветка и курсор блока: в режиме правки клик по блоку не бросает кубик */
+  const containerClass = computed(() => {
+    return props.isEditMode
+      ? 'hover:border-accented'
+      : 'cursor-pointer hover:border-primary/50';
+  });
 
   const formattedModifier = computed(() => {
     return props.modifier >= 0 ? `+${props.modifier}` : `${props.modifier}`;
@@ -132,32 +172,40 @@
 </script>
 
 <template>
-  <div
-    class="group bg-base relative flex h-16 flex-col items-center justify-start rounded-xl border border-muted/30 pt-1.5 pb-3 transition-colors"
-    :class="
-      isEditMode
-        ? 'hover:border-muted/50'
-        : 'cursor-pointer hover:border-primary/50'
-    "
+  <FieldsetLabel
+    ref="root"
+    :label="displayLabel"
+    :aria-label="label"
+    center
+    class="group relative h-14 border-muted bg-default/20 transition-colors"
+    :class="containerClass"
     @click.left.exact.prevent="handleRoll"
   >
-    <!-- Имя характеристики -->
+    <!-- Модификатор (крупно) -->
+    <div class="flex items-center justify-center px-2 pb-2">
+      <div
+        class="text-xl font-bold"
+        :class="modifierClass"
+      >
+        {{ formattedModifier }}
+      </div>
+    </div>
+
+    <!--
+      Образец для замера: то же начертание, что и у legend, но вне потока и
+      невидимый. Даёт ширину полного названия независимо от того, какое из
+      двух названий сейчас показано, — иначе замер зацикливался бы сам на себе.
+    -->
     <span
-      class="mb-px block text-[8px] font-bold tracking-wider text-muted uppercase"
+      ref="labelProbe"
+      aria-hidden="true"
+      class="pointer-events-none invisible absolute top-0 left-0 text-[10px] font-bold tracking-wider whitespace-nowrap uppercase"
       >{{ label }}</span
     >
 
-    <!-- Модификатор (крупно) -->
-    <div
-      class="mt-1 text-xl leading-none font-bold"
-      :class="modifierClass"
-    >
-      {{ formattedModifier }}
-    </div>
-
     <!-- Значение (в овале снизу) -->
     <div
-      class="absolute -bottom-2 left-1/2 flex h-5 -translate-x-1/2 items-center gap-0.5 rounded-full border border-muted/50 bg-elevated px-1 shadow-sm transition-colors"
+      class="absolute -bottom-2 left-1/2 flex h-5 -translate-x-1/2 items-center gap-0.5 rounded-full border border-muted bg-elevated px-1 shadow-sm transition-colors"
       :class="[
         isEditMode
           ? 'w-[calc(100%-8px)] group-hover:border-accented'
@@ -264,5 +312,5 @@
         >
       </template>
     </div>
-  </div>
+  </FieldsetLabel>
 </template>

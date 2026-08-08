@@ -17,6 +17,7 @@
 
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import AbilityScore from './AbilityScore.vue';
+  import { ABILITY_SHORT_LABELS } from './constants';
   import DiceRollModal from './DiceRollModal.vue';
 
   interface Props {
@@ -144,6 +145,7 @@
       <!-- Сила (Strength) -->
       <AbilityScore
         label="Сила"
+        :short-label="ABILITY_SHORT_LABELS.strength"
         :value="
           isEditMode
             ? actor.system.abilities.strength
@@ -164,6 +166,7 @@
       <!-- Ловкость (Dexterity) -->
       <AbilityScore
         label="Ловкость"
+        :short-label="ABILITY_SHORT_LABELS.dexterity"
         :value="
           isEditMode
             ? actor.system.abilities.dexterity
@@ -184,6 +187,7 @@
       <!-- Телосложение (Constitution) -->
       <AbilityScore
         label="Телосложение"
+        :short-label="ABILITY_SHORT_LABELS.constitution"
         :value="
           isEditMode
             ? actor.system.abilities.constitution
@@ -204,6 +208,7 @@
       <!-- Интеллект (Intelligence) -->
       <AbilityScore
         label="Интеллект"
+        :short-label="ABILITY_SHORT_LABELS.intelligence"
         :value="
           isEditMode
             ? actor.system.abilities.intelligence
@@ -224,6 +229,7 @@
       <!-- Мудрость (Wisdom) -->
       <AbilityScore
         label="Мудрость"
+        :short-label="ABILITY_SHORT_LABELS.wisdom"
         :value="
           isEditMode
             ? actor.system.abilities.wisdom
@@ -243,6 +249,7 @@
       <!-- Харизма (Charisma) -->
       <AbilityScore
         label="Харизма"
+        :short-label="ABILITY_SHORT_LABELS.charisma"
         :value="
           isEditMode
             ? actor.system.abilities.charisma
