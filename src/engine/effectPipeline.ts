@@ -27,7 +27,7 @@ import type {
   EffectTargetKey,
   ResolvedActorStats,
 } from './activeEffectTypes.js';
-import type { Creature, DnDActor, DnDSceneEntity } from './dndEntities.js';
+import type { DnDActor, DnDCreature, DnDSceneEntity } from './dndEntities.js';
 import type { FormulaContext } from './formulaParser.js';
 import type { BonusDamageFormula, TargetHpGate } from './spellUtils.js';
 
@@ -136,7 +136,7 @@ function resolveHitPointsMax(hitPoints: unknown): number {
  * @returns начальные базовые статы
  */
 export function prepareBaseData(
-  actor: DnDActor | Creature,
+  actor: DnDActor | DnDCreature,
 ): ResolvedActorStats {
   const system = actor.system;
 
@@ -219,7 +219,7 @@ export function prepareBaseData(
  * @returns массив активных эффектов (immutable)
  */
 export function collectActiveEffects(
-  actor: DnDActor | Creature,
+  actor: DnDActor | DnDCreature,
 ): readonly ActiveEffect[] {
   const collectedEffects: ActiveEffect[] = [];
 
@@ -967,7 +967,7 @@ function setStatValue(
  * @returns наборы иммунитетов, сопротивлений и уязвимостей
  */
 function resolveDamageDefenses(
-  actor: DnDActor | Creature,
+  actor: DnDActor | DnDCreature,
   activeFlags: ReadonlySet<EffectFlagKey>,
 ): ResolvedActorStats['damageDefenses'] {
   const { immunities, resistances, vulnerabilities } =
@@ -1036,7 +1036,7 @@ export function getEntityConditionImmunities(
  */
 export function prepareDerivedData(
   modifiedStats: ResolvedActorStats,
-  actor: DnDActor | Creature,
+  actor: DnDActor | DnDCreature,
 ): ResolvedActorStats {
   const system = actor.system;
   const derivedStats = cloneResolvedStats(modifiedStats);
@@ -1346,7 +1346,7 @@ export function combineEffectsWithAmbient(
  * @returns полностью вычисленные ResolvedActorStats
  */
 export function resolveActorStats(
-  actor: DnDActor | Creature,
+  actor: DnDActor | DnDCreature,
   ambientEffects: readonly ActiveEffect[] = [],
 ): ResolvedActorStats {
   // Фаза 1: базовые данные
@@ -1384,7 +1384,7 @@ export function resolveActorStats(
  * @returns характеристика заклинателя или null если нет классов-заклинателей
  */
 function getFirstSpellcastingAbility(
-  actor: DnDActor | Creature,
+  actor: DnDActor | DnDCreature,
 ): AbilityType | null {
   // Ручной приоритет в корне персонажа
   const manualSpellcastingAbility = actor.system.spellcastingAbility;

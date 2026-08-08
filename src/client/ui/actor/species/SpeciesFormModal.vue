@@ -10,7 +10,7 @@
     CreatureSize,
     CreatureType,
     DamageDefenseEntry,
-    GameItem,
+    DnDGameItem,
     SpeciesDefinition,
     SpeciesFeature,
     SpeciesGrant,
@@ -76,7 +76,7 @@
 
   const emit = defineEmits<{
     'close': [];
-    'save': [species: GameItem];
+    'save': [species: DnDGameItem];
     'bring-to-front': [];
   }>();
 
@@ -959,7 +959,7 @@
     // При редактировании сохраняем id исходного GameItem (проброшен через
     // speciesItemId), иначе генерируем новый — так правка обновляет запись, а
     // не плодит дубликат (в форму приходит только плоский SpeciesDefinition).
-    const gameItem: GameItem = {
+    const gameItem: DnDGameItem = {
       id: existingId.value ?? `item_${generateId('species')}`,
       type: 'species',
       name: definition.name,
@@ -1015,7 +1015,7 @@
         :ui="{
           list: 'mb-3',
           trigger: 'flex-1 justify-center',
-          content: 'overflow-y-auto max-h-[600px]',
+          content: 'overflow-y-auto max-h-150',
         }"
       >
         <!-- ОСНОВНОЕ -->

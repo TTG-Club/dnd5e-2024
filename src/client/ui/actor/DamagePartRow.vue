@@ -250,7 +250,7 @@
           list: 'border-b border-default mb-2',
           trigger: 'justify-center py-1 text-xs',
           content:
-            'p-2 bg-elevated/20 rounded-lg border border-default/50 min-h-[60px]',
+            'p-2 bg-elevated/20 rounded-lg border border-default/50 min-h-15',
         }"
       >
         <template #modifiers>

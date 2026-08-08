@@ -1,7 +1,7 @@
 import type {
   ActiveEffect,
-  Actor,
-  Creature,
+  DnDActor,
+  DnDCreature,
   ResolvedActorStats,
 } from '@vtt/shared/system/dnd.js';
 import type { Ref } from 'vue';
@@ -19,7 +19,7 @@ export const globalDebugError = ref<string | null>(null);
  * с учетом всех Active Effects и базовых формул системы.
  */
 export function useResolvedStats(
-  actorRef: Ref<Actor | Creature | null | undefined>,
+  actorRef: Ref<DnDActor | DnDCreature | null | undefined>,
 ) {
   const auraStore = useAuraStore();
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
   import type { TypedWebSocketClient } from '@vtt/shared';
-  import type { Actor, SpeciesDefinition } from '@vtt/shared/system/dnd.js';
+  import type { DnDActor, SpeciesDefinition } from '@vtt/shared/system/dnd.js';
 
   import { computed, toRef, watch } from 'vue';
 
@@ -15,7 +15,7 @@
 
   const props = defineProps<{
     open: boolean;
-    actor: Actor;
+    actor: DnDActor;
     speciesDefinition: SpeciesDefinition | null;
     previousSpeciesDefinition?: SpeciesDefinition | null;
     /** Сокет для загрузки granted-заклинаний из компендиума */
@@ -25,8 +25,8 @@
   const emit = defineEmits<{
     'update:open': [value: boolean];
     'apply': [
-      systemUpdates: Partial<Actor['system']>,
-      rootUpdates: Partial<Actor>,
+      systemUpdates: Partial<DnDActor['system']>,
+      rootUpdates: Partial<DnDActor>,
     ];
   }>();
 
@@ -168,7 +168,7 @@
         </div>
 
         <!-- Контент текущего шага -->
-        <div class="min-h-[200px]">
+        <div class="min-h-50">
           <WizardStepOverview
             v-if="activeStepKey === 'overview'"
             v-model:state="state"

@@ -9,9 +9,9 @@
    */
   import type { TypedWebSocketClient } from '@vtt/shared';
   import type {
-    Actor,
     CasterType,
     ClassDefinition,
+    DnDActor,
     GrantedSpellSource,
     ResolvedGrantedSpell,
     Spell,
@@ -49,7 +49,7 @@
      */
     grantedSpells: ResolvedGrantedSpell[];
     /** Персонаж */
-    actor: Actor;
+    actor: DnDActor;
   }>();
 
   const emit = defineEmits<{

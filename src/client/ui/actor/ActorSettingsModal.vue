@@ -1,6 +1,6 @@
 <script setup lang="ts">
   import type { LightEmitter, TypedWebSocketClient } from '@vtt/shared';
-  import type { Actor, HpDisplayMode } from '@vtt/shared/system/dnd.js';
+  import type { DnDActor, HpDisplayMode } from '@vtt/shared/system/dnd.js';
 
   import { useToast } from '@nuxt/ui/composables';
   import { createDefaultLightEmitter, getServerBaseUrl } from '@vtt/shared';
@@ -40,8 +40,8 @@
     zIndex?: number;
     modalId?: string;
     actorId?: string;
-    actorData?: Actor;
-    onSave?: (updates: Partial<Actor>) => void;
+    actorData?: DnDActor;
+    onSave?: (updates: Partial<DnDActor>) => void;
     onDelete?: () => void;
     isAdmin?: boolean;
     worldId?: string;
@@ -161,14 +161,19 @@
     return worldStore.isGM;
   });
 
-  const actor = computed(() => {
+  const actor = computed<DnDActor | null>(() => {
     if (props.actorId && currentWorld.value) {
       // Если actorId задан и мир загружен — ищем только в списке актёров.
       // Возвращаем null если не найден (например, актёр был удалён),
       // чтобы watcher мог среагировать и закрыть модалку.
+      //
+      // Мир хоста хранит акторов в нейтральной форме (`BaseActor`, где
+      // `system` — «чёрный ящик») — сужаем к D&D-форме, иначе `system.race`,
+      // `system.classes` и т.п. в этом файле недоступны.
       return (
-        currentWorld.value.actors.find((entry) => entry.id === props.actorId)
-        ?? null
+        (currentWorld.value.actors.find(
+          (entry) => entry.id === props.actorId,
+        ) as DnDActor | undefined) ?? null
       );
     }
 
@@ -466,7 +471,7 @@
           ?? actor.value.system.size,
       };
 
-      const updates: Partial<Actor> = {
+      const updates: Partial<DnDActor> = {
         ownerId: selectedOwner.value,
         isPublic: isPublic.value,
         autoSaves: autoSaves.value,
@@ -572,7 +577,7 @@
     title="Настройки персонажа"
     :ui="{
       content: 'max-w-2xl',
-      body: 'min-h-[400px]',
+      body: 'min-h-100',
     }"
     @bring-to-front="emit('bring-to-front')"
   >
@@ -862,7 +867,7 @@
           <template #token>
             <div class="flex h-full flex-col gap-4 overflow-hidden pt-4">
               <!-- 1. Превью (Сверху) -->
-              <div class="flex h-[280px] flex-none flex-col">
+              <div class="flex h-70 flex-none flex-col">
                 <div class="mb-2 flex items-center justify-between">
                   <div class="text-sm font-medium text-toned">Превью</div>
 

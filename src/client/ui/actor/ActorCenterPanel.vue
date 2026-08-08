@@ -6,9 +6,9 @@
     SkillType,
   } from '@vtt/shared';
   import type {
-    Actor,
     AttackRollMode,
     ClassCounterDefinition,
+    DnDActor,
   } from '@vtt/shared/system/dnd.js';
 
   import { DISTANCE_UNIT_SHORT } from '@vtt/shared';
@@ -31,7 +31,7 @@
   import SkillItem from './SkillItem.vue';
 
   interface Props {
-    actor: Actor;
+    actor: DnDActor;
     isEditMode: boolean;
     /** Определения счётчиков из компендиума */
     counterDefinitions: ClassCounterDefinition[];
@@ -42,7 +42,7 @@
   const props = defineProps<Props>();
 
   const emit = defineEmits<{
-    'update:actor': [updates: Partial<Actor>];
+    'update:actor': [updates: Partial<DnDActor>];
   }>();
 
   const skills = SKILLS_LIST;

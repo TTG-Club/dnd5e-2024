@@ -8,12 +8,11 @@
   import type {
     ClassDefinition,
     CompendiumEntry,
-    GameItem,
+    DnDGameItem,
     GrantedSpellSource,
     SpeciesDefinition,
     Spell,
   } from '@vtt/shared/system/dnd.js';
-  import type { ComponentPublicInstance } from 'vue';
 
   import { generateId, getAssetUrl, systemRegistry } from '@vtt/shared';
   import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
@@ -49,10 +48,17 @@
     spells?: Spell[];
   }
 
+  // `ClassDefinition`/`SpeciesDefinition` перечислены явно, хотя по форме и
+  // подошли бы под `Record<string, unknown>`: интерфейсу TypeScript индексную
+  // сигнатуру не выводит, поэтому под этот член союза они НЕ подпадают. Без
+  // явного упоминания сужающие предикаты (`isClassDefinition`) отвергались как
+  // несовместимые с типом параметра (TS2677).
   type CompendiumDataItem =
     | CompendiumEntry
     | Spell
     | Feature
+    | ClassDefinition
+    | SpeciesDefinition
     | CompendiumCreatureEntry
     | Record<string, unknown>;
 
@@ -268,11 +274,14 @@
       // При лимите = 1 автоматически отменяем предыдущий выбор той же категории
       if (limit === 1) {
         for (const selectedId of newSet) {
-          const found = items.value.find((item) => item.id === selectedId);
+          // Сужаем ДО чтения `id`: среди записей есть и разделители, и
+          // определения вида/класса — `id` есть не у всех.
+          const found = items.value.find(
+            (item) => isSpellDataItem(item) && item.id === selectedId,
+          );
 
           if (
             found
-            && !isSeparator(found)
             && isSpellDataItem(found)
             && (isCantrip ? found.level === 0 : found.level > 0)
           ) {
@@ -414,6 +423,31 @@
   const modalMinWidth = computed(() => (isWideLayout.value ? 560 : 320));
 
   /**
+   * Приводит запись к форме, которую принимает проп `entry` у `EntityCard`.
+   *
+   * Хост типизировал этот проп как `EntityCardEntry` — тип с индексной
+   * сигнатурой (`[key: string]: unknown`). Наши записи описаны интерфейсами
+   * (`Feature`, `Spell`, `SpeciesDefinition`…), а интерфейсам TypeScript
+   * индексную сигнатуру НЕ выводит — только псевдонимам типов. Отсюда TS2322
+   * на каждой карточке, хотя формы совместимы.
+   *
+   * Гомоморфный mapped-тип даёт ту же форму, но уже как псевдоним — с
+   * подразумеваемой индексной сигнатурой. Приведение чисто типовое: объект
+   * возвращается тот же, без копии (сам `EntityCard` внутри всё равно делает
+   * `{ ...props.entry }`).
+   *
+   * Импортировать `EntityCardEntry` напрямую нельзя: барель
+   * `@/core/registries` его не экспортирует, а хост правим только на его
+   * стороне.
+   *
+   * @param entry - запись компендиума
+   * @returns та же запись в форме, приемлемой для карточки
+   */
+  function toCardEntry<T extends object>(entry: T): { [K in keyof T]: T[K] } {
+    return entry;
+  }
+
+  /**
    * Проверяет, является ли запись разделителем секции
    * @param entry - запись компендиума
    */
@@ -471,8 +505,6 @@
       getEntityCard(type)?.openDetail?.(entry);
     }
   }
-
-  const dataModalRef = ref<ComponentPublicInstance | null>(null);
 
   /** Обработчик ответа от сервера */
   function handleCompendiumData(
@@ -598,7 +630,7 @@
    * @param value - проверяемая запись компендиума
    * @returns `true`, если запись содержит поле `quantity` и является предметом
    */
-  function isGameItem(value: CompendiumDataItem): value is GameItem {
+  function isGameItem(value: CompendiumDataItem): value is DnDGameItem {
     return 'quantity' in value;
   }
 
@@ -608,7 +640,7 @@
    *
    * @param item - предмет для отображения
    */
-  function openDetail(item: GameItem): void {
+  function openDetail(item: DnDGameItem): void {
     // Незнакомый тип (хоумбрю-пак) показываем как снаряжение — так же, как до
     // выноса открытия в реестр карточек.
     const card = getEntityCard(item.type) ?? getEntityCard('equipment');
@@ -686,7 +718,7 @@
       return;
     }
 
-    const itemData: Partial<GameItem> = {
+    const itemData: Partial<DnDGameItem> = {
       name: species.name,
       nameEn: species.nameEn,
       description: species.description,
@@ -718,7 +750,7 @@
       return;
     }
 
-    const itemData: Partial<GameItem> = {
+    const itemData: Partial<DnDGameItem> = {
       name: classDef.name,
       nameEn: classDef.nameEn,
       description: classDef.description ?? '',
@@ -741,10 +773,7 @@
    * Открывает детальный просмотр класса.
    * @param classDef - определение класса
    */
-  function openClassDetail(classDef: {
-    key: string;
-    [key: string]: unknown;
-  }): void {
+  function openClassDetail(classDef: ClassDefinition): void {
     getEntityCard('class')?.openDetail?.(classDef);
   }
 
@@ -789,9 +818,13 @@
    */
   function buildWorldCreature(
     creatureEntry: CompendiumCreatureEntry,
-  ): import('@vtt/shared/system/dnd.js').Creature {
-    const creature: import('@vtt/shared/system/dnd.js').Creature = {
+  ): import('@vtt/shared/system/dnd.js').DnDCreature {
+    const creature: import('@vtt/shared/system/dnd.js').DnDCreature = {
       id: generateId('creature'),
+      // Дискриминатор сущности сцены — по нему ядро отличает существо от
+      // актёра. Без него существо, скопированное из компендиума в мир,
+      // приезжало на сцену неопознанным.
+      entityType: 'creature',
       name: creatureEntry.name,
       nameEn: creatureEntry.nameEn,
       description: creatureEntry.description,
@@ -946,7 +979,6 @@
 
 <template>
   <UDraggableModal
-    ref="dataModalRef"
     v-bind="$attrs"
     :open="open"
     :title="title"
@@ -1128,7 +1160,7 @@
                   <EntityCard
                     class="hover:bg-primary/10"
                     entity-type="species"
-                    :entry="entry"
+                    :entry="toCardEntry(entry)"
                     show-copy
                     @click="openSpeciesDetail(entry)"
                     @copy="copySpeciesToItems(entry)"
@@ -1142,7 +1174,7 @@
                   <EntityCard
                     class="hover:bg-primary/10"
                     entity-type="background"
-                    :entry="entry"
+                    :entry="toCardEntry(entry)"
                     show-copy
                     @click="openBackgroundDetail(entry)"
                     @copy="copyToItems(backgroundCopyId(entry))"
@@ -1154,7 +1186,7 @@
                   <EntityCard
                     class="hover:bg-primary/10"
                     entity-type="class"
-                    :entry="entry"
+                    :entry="toCardEntry(entry)"
                     show-copy
                     @click="openClassDetail(entry)"
                     @copy="copyClassToItems(entry)"
@@ -1165,7 +1197,7 @@
                 <template v-else-if="isFeatsData && isFeature(entry)">
                   <EntityCard
                     entity-type="feat"
-                    :entry="entry"
+                    :entry="toCardEntry(entry)"
                     show-copy
                     @click="openFeatDetail(entry)"
                     @copy="copyToItems(entry.id)"
@@ -1177,7 +1209,7 @@
                 <template v-else-if="isGameItem(entry)">
                   <EntityCard
                     :entity-type="entry.type"
-                    :entry="entry"
+                    :entry="toCardEntry(entry)"
                     show-copy
                     @click="openDetail(entry)"
                     @copy="copyToItems(entry.id)"
@@ -1194,7 +1226,7 @@
                   >
                     <EntityCard
                       entity-type="creature"
-                      :entry="entry"
+                      :entry="toCardEntry(entry)"
                       show-copy
                       @click="openCreatureDetail(entry)"
                       @copy="copyCreature(entry)"
@@ -1233,7 +1265,7 @@
                         'opacity-60': isSelectionMode && isSpellKnown(entry),
                       }"
                       entity-type="spell"
-                      :entry="entry"
+                      :entry="toCardEntry(entry)"
                       :show-copy="!isSelectionMode"
                       @click="handleSpellClick(entry)"
                       @copy="copySpellToItems(entry)"
@@ -1268,7 +1300,7 @@
                 <template v-else-if="registeredCardType(entry)">
                   <EntityCard
                     :entity-type="registeredCardType(entry)"
-                    :entry="entry"
+                    :entry="toCardEntry(entry)"
                     @click="openRegisteredDetail(entry)"
                   />
                 </template>

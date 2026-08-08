@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import type { GameItem } from '@vtt/shared/system/dnd.js';
+  import type { DnDGameItem } from '@vtt/shared/system/dnd.js';
 
   import { formatItemCost } from '@vtt/shared';
   import { formatWeaponDamageFormula } from '@vtt/shared/system/dnd.js';
@@ -11,7 +11,7 @@
 
   const props = defineProps<{
     /** Данные предмета */
-    item: GameItem;
+    item: DnDGameItem;
     /** Показывать «Скопировать в предметы» в контекстном меню */
     showCopy?: boolean;
     /** Показывать «Редактировать» в контекстном меню */
@@ -43,7 +43,7 @@
    * @param event - событие dragstart
    * @param weapon - данные предмета
    */
-  function handleDragStart(event: DragEvent, item: GameItem): void {
+  function handleDragStart(event: DragEvent, item: DnDGameItem): void {
     if (!event.dataTransfer) {
       return;
     }

@@ -1,5 +1,5 @@
 import type { Feature } from '@vtt/shared';
-import type { GameItem } from '@vtt/shared/system/dnd.js';
+import type { DnDGameItem } from '@vtt/shared/system/dnd.js';
 
 import { systemRegistry } from '@vtt/shared';
 
@@ -22,7 +22,7 @@ export function useFeatModal() {
    * @param options.onCopy - колбэк при копировании
    */
   function openFeatDescription(
-    feat: Feature | GameItem,
+    feat: Feature | DnDGameItem,
     options?: { showCopyButton?: boolean; onCopy?: () => void },
   ) {
     const badges = [];

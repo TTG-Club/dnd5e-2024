@@ -5,7 +5,7 @@
     SkillType,
     TypedWebSocketClient,
   } from '@vtt/shared';
-  import type { Creature, RestType, Spell } from '@vtt/shared/system/dnd.js';
+  import type { DnDCreature, RestType, Spell } from '@vtt/shared/system/dnd.js';
 
   import { useToast } from '@nuxt/ui/composables';
   import { generateId } from '@vtt/shared';
@@ -54,7 +54,7 @@
     open: boolean;
     creatureId?: string;
     worldId?: string;
-    creatures?: Creature[];
+    creatures?: DnDCreature[];
     socket?: TypedWebSocketClient | null;
     zIndex?: number;
     modalId?: string;
@@ -66,12 +66,12 @@
       id: string;
       name: string;
       description?: string;
-      system: Creature['system'];
+      system: DnDCreature['system'];
       nameEn?: string;
       header?: string;
-      token?: Creature['token'];
+      token?: DnDCreature['token'];
       spells?: Spell[];
-      activeEffects?: Creature['activeEffects'];
+      activeEffects?: DnDCreature['activeEffects'];
       [key: string]: unknown;
     };
   }
@@ -87,8 +87,8 @@
 
   const emit = defineEmits<{
     'update:open': [value: boolean];
-    'update:creature': [creature: Creature];
-    'save': [creature: Creature];
+    'update:creature': [creature: DnDCreature];
+    'save': [creature: DnDCreature];
     'close': [];
     'bring-to-front': [];
   }>();
@@ -98,8 +98,8 @@
 
   // Состояние
   const isEditMode = ref(false);
-  const localCreature = ref<Creature | null>(null);
-  const savedSnapshot = ref<Creature | null>(null);
+  const localCreature = ref<DnDCreature | null>(null);
+  const savedSnapshot = ref<DnDCreature | null>(null);
   const isDirty = ref(false);
   const isSaving = ref(false);
   const isCreated = ref(false);
@@ -155,7 +155,7 @@
   function initializeCreature() {
     // Режим компендиума — берём данные из initialData
     if (props.initialData) {
-      const creature: Creature = {
+      const creature: DnDCreature = {
         entityType: 'creature',
         id: props.initialData.id,
         name: props.initialData.name,
@@ -198,7 +198,7 @@
     } else if (!props.creatureId) {
       const newId = generateEntityId('creature');
 
-      const newCreature: Creature = JSON.parse(
+      const newCreature: DnDCreature = JSON.parse(
         JSON.stringify({ ...DEFAULT_CREATURE, id: newId }),
       );
 
@@ -316,7 +316,7 @@
     isDirty.value = false;
   }
 
-  function handleCreatureUpdate(updates: Partial<Creature>) {
+  function handleCreatureUpdate(updates: Partial<DnDCreature>) {
     if (localCreature.value) {
       Object.assign(localCreature.value, updates);
       isDirty.value = true;
@@ -332,7 +332,7 @@
     handleCreatureUpdate({ description });
   }
 
-  function handleSystemUpdate(updates: Partial<Creature['system']>) {
+  function handleSystemUpdate(updates: Partial<DnDCreature['system']>) {
     if (localCreature.value) {
       Object.assign(localCreature.value.system, updates);
 
@@ -491,7 +491,7 @@
     openModal('CreatureSettingsModal', {
       creatureId: props.creatureId,
       creatureData: localCreature.value,
-      onSave: (updates: Partial<Creature>) => {
+      onSave: (updates: Partial<DnDCreature>) => {
         if (localCreature.value) {
           Object.assign(localCreature.value, updates);
           isDirty.value = true;
@@ -636,7 +636,7 @@
   );
 
   function handleLegendaryActionsUpdate(
-    legendaryActions: Creature['system']['legendary']['actions'],
+    legendaryActions: DnDCreature['system']['legendary']['actions'],
   ) {
     if (!localCreature.value) {
       return;
@@ -660,23 +660,23 @@
     });
   }
 
-  function handleActionsUpdate(actions: Creature['system']['actions']): void {
+  function handleActionsUpdate(actions: DnDCreature['system']['actions']): void {
     handleSystemUpdate({ actions });
   }
 
   function handleBonusActionsUpdate(
-    bonusActions: Creature['system']['bonusActions'],
+    bonusActions: DnDCreature['system']['bonusActions'],
   ): void {
     handleSystemUpdate({ bonusActions });
   }
 
   function handleReactionsUpdate(
-    reactions: Creature['system']['reactions'],
+    reactions: DnDCreature['system']['reactions'],
   ): void {
     handleSystemUpdate({ reactions });
   }
 
-  function handleTraitsUpdate(traits: Creature['system']['traits']): void {
+  function handleTraitsUpdate(traits: DnDCreature['system']['traits']): void {
     handleSystemUpdate({ traits });
   }
 
@@ -684,7 +684,7 @@
    * Обновляет список заклинаний существа (верхний уровень).
    * @param spells - новый список заклинаний
    */
-  function handleSpellsUpdate(spells: NonNullable<Creature['spells']>): void {
+  function handleSpellsUpdate(spells: NonNullable<DnDCreature['spells']>): void {
     handleCreatureUpdate({ spells });
   }
 
@@ -693,7 +693,7 @@
    * @param spellcasting - новые параметры заклинательства
    */
   function handleSpellcastingUpdate(
-    spellcasting: NonNullable<Creature['system']['spellcasting']>,
+    spellcasting: NonNullable<DnDCreature['system']['spellcasting']>,
   ): void {
     handleSystemUpdate({ spellcasting });
   }
@@ -951,7 +951,7 @@
         <div class="custom-scrollbar flex-1 overflow-y-auto p-4">
           <div class="flex gap-6">
             <!-- Левая колонка -->
-            <div class="flex w-[250px] shrink-0 flex-col gap-3">
+            <div class="flex w-62.5 shrink-0 flex-col gap-3">
               <!-- Боевой блок: КД, ХП, Скорость -->
               <CreatureCombatBlock
                 :system="localCreature.system"
@@ -1422,7 +1422,7 @@
 
                     <div
                       v-else
-                      class="min-h-[200px] rounded-lg bg-accented/30"
+                      class="min-h-50 rounded-lg bg-accented/30"
                     >
                       <ItemDescriptionRenderer
                         v-if="localCreature.description"

@@ -259,7 +259,7 @@
           Нет счётчиков
         </div>
 
-        <div class="flex max-h-[460px] flex-col gap-2 overflow-y-auto pr-1">
+        <div class="flex max-h-115 flex-col gap-2 overflow-y-auto pr-1">
           <div
             v-for="counter in localCounters"
             :key="createCounterId(counter)"

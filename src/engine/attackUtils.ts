@@ -11,7 +11,7 @@ import type { DiceRollData, DistanceUnit } from '@vtt/shared';
 
 import type { CreatureAction } from './creatureTypes.js';
 import type { DamageApplyResult } from './damageUtils.js';
-import type { GameItem, Spell } from './dndEntities.js';
+import type { DnDGameItem, Spell } from './dndEntities.js';
 
 import { convertDistance } from '@vtt/shared';
 import { getShortDamageTypeLabel } from './damageConstants.js';
@@ -349,7 +349,7 @@ export function buildAttackFormula(
  * @returns объект с результатом проверки или null
  */
 export function checkRange(
-  weapon: GameItem,
+  weapon: DnDGameItem,
   distance: number,
 ): { allowed: boolean; disadvantage: boolean } {
   if (weapon.rangeType === 'ranged' && weapon.range) {

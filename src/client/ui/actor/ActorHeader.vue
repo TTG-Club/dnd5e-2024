@@ -1,6 +1,5 @@
 <script setup lang="ts">
-  import type { ActorClassEntry } from '@vtt/shared';
-  import type { Actor } from '@vtt/shared/system/dnd.js';
+  import type { ActorClassEntry, DnDActor } from '@vtt/shared/system/dnd.js';
   import type { CSSProperties } from 'vue';
 
   import { getAssetUrl } from '@vtt/shared';
@@ -22,7 +21,7 @@
   import LevelUpModal from './LevelUpModal.vue';
 
   interface Props {
-    actor: Actor;
+    actor: DnDActor;
     isEditMode: boolean;
     isCreating?: boolean;
     canEdit?: boolean;
@@ -57,7 +56,7 @@
   }
 
   const emit = defineEmits<{
-    'update:actor': [updates: Partial<Actor>];
+    'update:actor': [updates: Partial<DnDActor>];
     'toggle-edit-mode': [];
     'open-settings': [];
     'short-rest': [];
@@ -205,7 +204,7 @@
   /**
    * Обновляет поле актёра (name, description — корневые поля)
    */
-  function updateField(field: keyof Actor, value: Actor[keyof Actor]) {
+  function updateField(field: keyof DnDActor, value: DnDActor[keyof DnDActor]) {
     emit('update:actor', { [field]: value });
   }
 

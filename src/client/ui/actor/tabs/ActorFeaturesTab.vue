@@ -1,6 +1,6 @@
 <script setup lang="ts">
   import type { Feature } from '@vtt/shared';
-  import type { Actor, GameItem } from '@vtt/shared/system/dnd.js';
+  import type { DnDActor, DnDGameItem } from '@vtt/shared/system/dnd.js';
 
   import type { AppliedFeatFeature } from '../feat/featApply';
 
@@ -18,7 +18,7 @@
   import FeatListItem from '../FeatListItem.vue';
 
   interface Props {
-    actor: Actor;
+    actor: DnDActor;
     isEditMode: boolean;
     isDragOver?: boolean;
   }
@@ -26,7 +26,7 @@
   const props = defineProps<Props>();
 
   const emit = defineEmits<{
-    'update:actor': [updates: Partial<Actor>];
+    'update:actor': [updates: Partial<DnDActor>];
     'immediate-save': [];
   }>();
 
@@ -300,7 +300,7 @@
    * Редактирует особенность по объекту (находит индекс по id).
    * @param feature - редактируемая особенность
    */
-  function createFeatGameItem(feature: AppliedFeatFeature): GameItem {
+  function createFeatGameItem(feature: AppliedFeatFeature): DnDGameItem {
     return {
       id: feature.id,
       type: 'feat',
@@ -339,7 +339,7 @@
 
       openModal('FeatFormModal', {
         feat: createFeatGameItem(oldFeature),
-        onSave: (data: GameItem) => {
+        onSave: (data: DnDGameItem) => {
           const updatedFeat: AppliedFeatFeature = {
             ...oldFeature,
             name: data.name,
@@ -501,7 +501,7 @@
 </script>
 
 <template>
-  <div class="flex min-h-[200px] flex-1 flex-col space-y-3">
+  <div class="flex min-h-50 flex-1 flex-col space-y-3">
     <UButton
       v-if="isEditMode"
       icon="tabler:plus"
@@ -528,7 +528,7 @@
       <div
         v-for="feature in regularFeatures"
         :key="feature.id"
-        class="flex min-h-[44px] items-center gap-3 rounded-lg bg-accented/30 px-3 py-2 transition-colors"
+        class="flex min-h-11 items-center gap-3 rounded-lg bg-accented/30 px-3 py-2 transition-colors"
         :class="!isEditMode ? 'cursor-pointer hover:bg-accented/50' : ''"
         @click.left.exact.prevent="
           isEditMode ? undefined : showDescription(feature)
@@ -627,7 +627,7 @@
     <!-- Invisible flex-grow area to ensure bottom space is drop zone -->
     <div
       v-if="featsList.length > 0"
-      class="min-h-[20px] flex-1"
+      class="min-h-5 flex-1"
     />
   </div>
 
@@ -640,7 +640,7 @@
       @contextmenu.prevent="closeContextMenu"
     >
       <div
-        class="absolute min-w-[180px] rounded-lg border border-default bg-default py-1 shadow-xl"
+        class="absolute min-w-45 rounded-lg border border-default bg-default py-1 shadow-xl"
         :style="{ left: `${contextMenuX}px`, top: `${contextMenuY}px` }"
         @click.stop
       >

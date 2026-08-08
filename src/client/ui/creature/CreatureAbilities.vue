@@ -1,6 +1,6 @@
 <script setup lang="ts">
   import type { AbilityType } from '@vtt/shared';
-  import type { Creature, CreatureSystem } from '@vtt/shared/system/dnd.js';
+  import type { CreatureSystem, DnDCreature } from '@vtt/shared/system/dnd.js';
 
   import { calculateAbilityModifier } from '@vtt/shared/system/dnd.js';
   import { ref, toRef } from 'vue';
@@ -12,7 +12,7 @@
   import DiceRollModal from '../actor/DiceRollModal.vue';
 
   interface Props {
-    creature: Creature;
+    creature: DnDCreature;
     isEditMode: boolean;
   }
 

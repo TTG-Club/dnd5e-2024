@@ -1,6 +1,6 @@
 <script setup lang="ts">
   import type { TypedWebSocketClient } from '@vtt/shared';
-  import type { Creature } from '@vtt/shared/system/dnd.js';
+  import type { DnDCreature } from '@vtt/shared/system/dnd.js';
 
   import { useToast } from '@nuxt/ui/composables';
   import { nextTick } from 'vue';
@@ -13,7 +13,7 @@
     /** Открыта ли модалка */
     open: boolean;
     /** Существо для удаления */
-    creature: Creature | null;
+    creature: DnDCreature | null;
     /** WebSocket клиент */
     socket: TypedWebSocketClient | null;
   }

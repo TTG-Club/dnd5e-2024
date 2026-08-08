@@ -6,10 +6,8 @@
  */
 
 import type {
-  MeasurementTemplateType,
   SpellAreaShape,
   SpellCastingTimeUnit,
-  SpellDeliveryType,
   SpellDurationUnit,
   SpellSaveType,
   SpellSchool,
@@ -217,12 +215,6 @@ export const DELIVERY_TYPE_OPTIONS = [
   { value: 'none' as const, label: 'Нет' },
 ] as const;
 
-/** Локализованные названия типов совершения (производные от DELIVERY_TYPE_OPTIONS) */
-export const DELIVERY_TYPE_LABELS: Record<SpellDeliveryType, string> =
-  Object.fromEntries(
-    DELIVERY_TYPE_OPTIONS.map((option) => [option.value, option.label]),
-  ) as Record<SpellDeliveryType, string>;
-
 // ── Круги заклинаний ─────────────────────────────────────────
 
 /** Круги заклинаний для UI-селектов */
@@ -252,19 +244,6 @@ export const SAVE_EFFECT_OPTIONS = [
 ] as const;
 
 // ── Маппинг форм на шаблоны ─────────────────────────────────
-
-/**
- * Возвращает тип MeasurementTemplate для формы области заклинания.
- * Поскольку SpellAreaShape === MeasurementTemplateType, это identity-функция.
- *
- * @param shape - форма области заклинания
- * @returns тип шаблона измерения
- */
-export function getSpellTemplateType(
-  shape: SpellAreaShape,
-): MeasurementTemplateType {
-  return shape;
-}
 
 /** Цвета шаблонов по типу урона заклинания */
 export const SPELL_DAMAGE_TEMPLATE_COLORS: Record<string, number> = {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import type { GameItem } from '@vtt/shared/system/dnd.js';
+  import type { DnDGameItem } from '@vtt/shared/system/dnd.js';
 
   import {
     ABILITY_LABELS,
@@ -20,7 +20,7 @@
     /** Открыто ли модальное окно */
     open: boolean;
     /** Инструмент для отображения */
-    item: GameItem | null;
+    item: DnDGameItem | null;
     /** Z-index модалки (управляется родителем) */
     zIndex?: number;
     /** Смещение позиции для каскадного расположения */
@@ -75,7 +75,7 @@
       label: 'Магическое',
       color: 'primary' as const,
       description: 'Инструмент обладает магическими свойствами.',
-      check: (item: GameItem) => Boolean(item.isMagical),
+      check: (item: DnDGameItem) => Boolean(item.isMagical),
     },
     {
       key: 'focus',
@@ -83,7 +83,7 @@
       color: 'warning' as const,
       description:
         'Может использоваться как магическая фокусировка для заклинаний.',
-      check: (item: GameItem) => Boolean(item.isFocus),
+      check: (item: DnDGameItem) => Boolean(item.isFocus),
     },
   ];
 

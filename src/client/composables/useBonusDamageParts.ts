@@ -1,11 +1,11 @@
 import type {
   ActiveEffect,
-  Creature,
   CreatureAction,
   DnDActor,
+  DnDCreature,
+  DnDGameItem,
   DnDSceneEntity,
   EffectTargetKey,
-  GameItem,
   ResolvedActorStats,
   RollContext,
   Spell,
@@ -61,7 +61,7 @@ type BonusPartsEvaluator = (
 /** Параметры сборки многочастного броска оружия */
 interface WeaponRollSetupOptions {
   /** Оружие */
-  weapon: GameItem;
+  weapon: DnDGameItem;
   /** Актор-владелец (для @-переменных в формулах урона и бонусов) */
   actor: DnDActor;
   /** Активные эффекты владельца (включая ауры) */
@@ -96,7 +96,7 @@ interface CreatureRollSetupOptions {
   /** Действие существа (с damageParts/saveType/areaOfEffect) */
   action: CreatureAction;
   /** Существо-источник (для casterId, эффектов и @-переменных в формулах) */
-  creature: Creature;
+  creature: DnDCreature;
   /** Активные эффекты существа (включая ауры) */
   effects: readonly ActiveEffect[];
   /**
@@ -121,7 +121,7 @@ interface CreatureSpellRollSetupOptions {
   /** Заклинание существа (готовый «псевдо-спелл»: damageParts/saveType/areaOfEffect) */
   spell: Spell;
   /** Существо-заклинатель (для casterId, эффектов и @mod.spell в формулах) */
-  creature: Creature;
+  creature: DnDCreature;
   /** Активные эффекты существа (включая ауры) */
   effects: readonly ActiveEffect[];
   /**
@@ -156,7 +156,7 @@ interface SpellBonusEvaluatorOptions {
  * @param weapon - оружие
  * @returns `damage.ranged` для дальнобойного, иначе `damage.melee`
  */
-function weaponDamageKey(weapon: GameItem): EffectTargetKey {
+function weaponDamageKey(weapon: DnDGameItem): EffectTargetKey {
   return weapon.rangeType === 'ranged' ? 'damage.ranged' : 'damage.melee';
 }
 
@@ -170,7 +170,7 @@ function weaponDamageKey(weapon: GameItem): EffectTargetKey {
  * @returns true если бросок должен идти многочастным путём
  */
 export function hasWeaponBonusDamage(
-  weapon: GameItem,
+  weapon: DnDGameItem,
   effects: readonly ActiveEffect[],
 ): boolean {
   return hasBonusDamageFormulas(effects, weaponDamageKey(weapon));

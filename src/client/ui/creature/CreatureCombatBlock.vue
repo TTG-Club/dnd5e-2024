@@ -74,7 +74,7 @@
   );
 
   function onHitPointsApply(
-    data: Partial<import('@vtt/shared').CreatureHitPoints>,
+    data: Partial<import('@vtt/shared/system/dnd.js').CreatureHitPoints>,
   ) {
     emit('update:system', {
       hitPoints: {

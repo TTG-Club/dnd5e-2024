@@ -616,13 +616,6 @@
     },
   });
 
-  // eslint-disable-next-line unused-imports/no-unused-vars
-  const flagOptions = Object.entries(EFFECT_FLAG_LABELS).map(
-    ([value, label]) => ({
-      value,
-      label,
-    }),
-  );
 </script>
 
 <template>
@@ -659,7 +652,7 @@
               <div class="flex items-center gap-2">
                 <UDropdownMenu
                   :items="conditionPresetItems"
-                  :ui="{ content: 'max-h-[300px] overflow-y-auto' }"
+                  :ui="{ content: 'max-h-75 overflow-y-auto' }"
                 >
                   <UButton
                     icon="tabler:template"
@@ -704,7 +697,7 @@
                   class="sm:col-span-2"
                 >
                   <div
-                    class="flex h-full min-h-[32px] cursor-pointer items-center justify-between rounded-[calc(var(--ui-radius)*1.5)] border border-default/50 bg-elevated/50 px-3 py-1"
+                    class="flex h-full min-h-8 cursor-pointer items-center justify-between rounded-md border border-default/50 bg-elevated/50 px-3 py-1"
                     @click.left.exact.prevent="isAura = !isAura"
                   >
                     <span
@@ -728,7 +721,7 @@
                   class="sm:col-span-2"
                 >
                   <div
-                    class="flex h-full min-h-[32px] cursor-pointer items-center justify-between rounded-[calc(var(--ui-radius)*1.5)] border border-default/50 bg-elevated/50 px-3 py-1"
+                    class="flex h-full min-h-8 cursor-pointer items-center justify-between rounded-md border border-default/50 bg-elevated/50 px-3 py-1"
                     @click.left.exact.prevent="isActive = !isActive"
                   >
                     <span
@@ -835,7 +828,7 @@
                 </div>
 
                 <!-- Тип длительности: селект + инлайн-количество -->
-                <div class="flex min-w-[260px] flex-1 flex-col gap-1.5">
+                <div class="flex min-w-65 flex-1 flex-col gap-1.5">
                   <span
                     class="flex items-center gap-1 text-xs font-medium text-muted"
                   >
@@ -971,7 +964,7 @@
                   class="space-y-4 pb-4"
                 >
                   <div
-                    v-for="(flag, idx) in form.flags"
+                    v-for="(_flag, idx) in form.flags"
                     :key="idx"
                     class="flex flex-col gap-2 rounded-lg border border-default bg-elevated/50 p-3"
                   >
@@ -1146,7 +1139,7 @@
                       </UFormField>
                     </UTooltip>
 
-                    <div class="flex h-8 items-center justify-end pb-[2px]">
+                    <div class="flex h-8 items-center justify-end pb-0.5">
                       <UButton
                         color="error"
                         variant="soft"

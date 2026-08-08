@@ -86,6 +86,18 @@ export type Creature = DnDCreature;
  * встроенной системы через колонки).
  */
 export interface DnDGameItem extends BaseGameItem {
+  /**
+   * Активные эффекты предмета в D&D-форме.
+   *
+   * Сужение поля базы: ядро хранит эффекты опаково (`BaseActiveEffect` —
+   * `changes: unknown[]`, `flags: string[]`), потому что их содержимое
+   * определяет система. Здесь оно определено, и UI системы читает `changes`
+   * и `flags` напрямую. Без этого сужения любой `item.activeEffects`,
+   * переданный в D&D-компонент, ловил бы `unknown[]` вместо `EffectChange[]`.
+   *
+   * Зеркало такого же сужения у `DnDActor`/`DnDCreature`.
+   */
+  activeEffects?: ActiveEffect[];
   /** Универсальное оружие держится двумя руками (только для versatile) */
   twoHandedGrip?: boolean;
   // --- Weapon-specific (только для type === 'weapon') ---
@@ -230,7 +242,7 @@ export type GameItem = DnDGameItem;
  * Элемент данных компедиума — предмет или разделитель секции.
  * Дискриминируется по полю `type`: 'separator' vs 'weapon' и т.д.
  */
-export type CompendiumEntry = GameItem | CompendiumSeparator;
+export type CompendiumEntry = DnDGameItem | CompendiumSeparator;
 /**
  * Тир масштабирования заговора по уровню заклинателя.
  *
@@ -428,7 +440,7 @@ export interface DnDActor extends BaseActor {
   /** Заклинания */
   spells: Spell[];
   /** Снаряжение */
-  equipment: GameItem[];
+  equipment: DnDGameItem[];
   /** Особенности */
   features: Feature[];
   /** Активные эффекты (комбинация изменений и флагов) */

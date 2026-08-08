@@ -415,7 +415,7 @@
                 <UInput
                   v-model="child.label"
                   placeholder="Подзагол. (напр. 1)"
-                  class="w-[140px]"
+                  class="w-35"
                 />
 
                 <UInput
@@ -469,7 +469,7 @@
     <div
       class="custom-scroll w-full overflow-x-auto rounded-lg border border-default/50"
     >
-      <table class="w-full min-w-[640px] text-xs">
+      <table class="w-full min-w-160 text-xs">
         <thead>
           <tr class="bg-elevated/50 text-muted">
             <th class="px-2 py-1.5 text-left">Ур.</th>
@@ -518,7 +518,7 @@
                 :min="0"
                 :max="9"
                 size="xs"
-                :ui="{ base: 'w-[64px]' }"
+                :ui="{ base: 'w-16' }"
               />
             </td>
 
@@ -535,7 +535,7 @@
                 :min="0"
                 :max="20"
                 size="xs"
-                :ui="{ base: 'w-[64px]' }"
+                :ui="{ base: 'w-16' }"
               />
             </td>
 
@@ -548,7 +548,7 @@
                 :min="0"
                 :max="20"
                 size="xs"
-                :ui="{ base: 'w-[64px]' }"
+                :ui="{ base: 'w-16' }"
               />
             </td>
 
@@ -561,7 +561,7 @@
                 v-model="row.columns[col.key]"
                 size="xs"
                 placeholder="—"
-                :ui="{ base: 'w-[56px]' }"
+                :ui="{ base: 'w-14' }"
               />
             </td>
 

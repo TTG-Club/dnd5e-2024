@@ -646,16 +646,12 @@ export function useSpellResolution() {
    *
    * @param targets - массив акторов с ручными спасброками
    * @param context - контекст заклинания
-   * @param isHealing - является ли лечением
-   * @param spellName - название заклинания
    * @param sendSummaryAfter - отправлять ли сводку после завершения ручных бросков
    * @returns промис с массивом результатов
    */
   async function processManualTargetsSequentially(
     targets: SceneEntity[],
     context: SpellResolutionContext,
-    isHealing: boolean,
-    spellName: string,
     sendSummaryAfter: boolean,
   ): Promise<SpellTargetResult[]> {
     const manualResults: SpellTargetResult[] = [];
@@ -766,8 +762,6 @@ export function useSpellResolution() {
         processManualTargetsSequentially(
           manualTargets,
           context,
-          spellIsHealing(spell),
-          spell.name,
           autoTargets.length === 0, // отправлять сводку, только если нет авто-целей
         );
       }
@@ -797,13 +791,7 @@ export function useSpellResolution() {
 
         if (needsManualSave) {
           // Ручной бросок для single-target
-          processManualTargetsSequentially(
-            [targetEntity],
-            context,
-            spellIsHealing(spell),
-            spell.name,
-            true,
-          );
+          processManualTargetsSequentially([targetEntity], context, true);
         } else {
           const result = processTarget(targetEntity, context);
 

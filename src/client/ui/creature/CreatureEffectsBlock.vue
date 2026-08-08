@@ -2,7 +2,7 @@
   import type {
     ActiveEffect,
     ConditionKey,
-    Creature,
+    DnDCreature,
   } from '@vtt/shared/system/dnd.js';
 
   import {
@@ -16,14 +16,14 @@
   import ActiveEffectFormModal from '../actor/tabs/ActiveEffectFormModal.vue';
 
   interface Props {
-    creature: Creature;
+    creature: DnDCreature;
     isEditMode: boolean;
   }
 
   const props = defineProps<Props>();
 
   const emit = defineEmits<{
-    'update:creature': [updates: Partial<Creature>];
+    'update:creature': [updates: Partial<DnDCreature>];
     'immediate-save': [];
   }>();
 
@@ -224,7 +224,7 @@
       <div
         v-for="effect in customEffects"
         :key="effect.id"
-        class="group flex min-h-[44px] items-center gap-2 rounded-lg bg-elevated/50 p-2 transition-colors hover:bg-accented/50"
+        class="group flex min-h-11 items-center gap-2 rounded-lg bg-elevated/50 p-2 transition-colors hover:bg-accented/50"
         :class="{ 'opacity-50 grayscale': effect.disabled }"
       >
         <UIcon

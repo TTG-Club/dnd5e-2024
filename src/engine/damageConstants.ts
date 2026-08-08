@@ -6,7 +6,11 @@
  * образования циклических зависимостей.
  */
 
-import type { DefensibleDamageType } from '@vtt/shared';
+import type {
+  DamagePartTarget,
+  DamageType,
+  DefensibleDamageType,
+} from '@vtt/shared';
 
 /**
  * Все типы урона, к которым применимы защиты (сопротивление, иммунитет,
@@ -28,6 +32,27 @@ export const DEFENSIBLE_DAMAGE_TYPES = [
   'force',
   'psychic',
 ] as const satisfies readonly DefensibleDamageType[];
+
+/**
+ * Все типы урона, включая служебный `choice` (выбор стихии игроком), к
+ * которому защиты неприменимы. Рантайм-зеркало типа `DamageType` — нужно
+ * Zod-схемам, валидирующим `DamagePart.type` у внешних данных.
+ */
+export const DAMAGE_TYPES = [
+  ...DEFENSIBLE_DAMAGE_TYPES,
+  'choice',
+] as const satisfies readonly DamageType[];
+
+/**
+ * Возможные цели части урона/лечения. Рантайм-зеркало `DamagePartTarget`:
+ * сам тип живёт в нейтральном ядре (`@vtt/shared`), а оно вендорное и
+ * значений не отдаёт.
+ */
+export const DAMAGE_PART_TARGETS = [
+  'selected',
+  'self',
+  'choose',
+] as const satisfies readonly DamagePartTarget[];
 
 /**
  * Локализованные русские названия типов урона.

@@ -124,9 +124,10 @@
       return;
     }
 
-    const feats = (await loadCompendiumKind(socket, 'feat')).filter(
-      isFeatureEntry,
-    );
+    // CompendiumEntry[] расширяем до unknown[], т.к. Feature не подтип
+    // CompendiumEntry и guard иначе не сузит при filter.
+    const entries: unknown[] = await loadCompendiumKind(socket, 'feat');
+    const feats = entries.filter(isFeatureEntry);
 
     const feat = feats.find((entry) => entry.id === featId);
 

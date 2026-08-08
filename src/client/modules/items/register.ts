@@ -9,7 +9,7 @@
  */
 
 import type {
-  GameItem,
+  DnDGameItem,
   SpeciesDefinition,
   Spell,
 } from '@vtt/shared/system/dnd.js';
@@ -77,7 +77,7 @@ export function register(api: ClientSystemAPI): void {
     type: 'weapon',
     listItemComponent: WeaponListItem,
     openDetail: (entry, options) => {
-      useEntityDetailModals().openItemDetail(entry as GameItem, options);
+      useEntityDetailModals().openItemDetail(entry as DnDGameItem, options);
     },
   });
 
@@ -85,7 +85,7 @@ export function register(api: ClientSystemAPI): void {
     type: 'equipment',
     listItemComponent: EquipmentListItem,
     openDetail: (entry, options) => {
-      useEntityDetailModals().openItemDetail(entry as GameItem, options);
+      useEntityDetailModals().openItemDetail(entry as DnDGameItem, options);
     },
   });
 
@@ -93,7 +93,7 @@ export function register(api: ClientSystemAPI): void {
     type: 'tool',
     listItemComponent: ToolListItem,
     openDetail: (entry, options) => {
-      useEntityDetailModals().openItemDetail(entry as GameItem, options);
+      useEntityDetailModals().openItemDetail(entry as DnDGameItem, options);
     },
   });
 
@@ -101,7 +101,7 @@ export function register(api: ClientSystemAPI): void {
     type: 'feat',
     listItemComponent: FeatListItem,
     openDetail: (entry, options) => {
-      useFeatModal().openFeatDescription(entry as GameItem, options);
+      useFeatModal().openFeatDescription(entry as DnDGameItem, options);
     },
   });
 

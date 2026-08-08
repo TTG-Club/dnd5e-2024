@@ -78,6 +78,28 @@ export default defineConfig({
   define: {
     'process.env.NODE_ENV': JSON.stringify('production'),
   },
+  // ОБЯЗАТЕЛЬНО: фиксирует семантику полей класса (`[[Define]]` против
+  // `[[Set]]`) для клиентского бандла. Раньше строки не было, и Vite подставлял
+  // свой исторический дефолт `false` (он включает `true` только начиная с
+  // `target: ES2022` в tsconfig); `false` здесь — ровно он, записанный явно.
+  //
+  // Явно он нужен потому, что `tsconfig.json` в корне существует ради редактора
+  // и объявляет `target: ESNext`. Без этой строки Vite вывел бы флаг из того
+  // `target` — то есть настройка РЕДАКТОРА меняла бы бандл. Серверная сборка
+  // закрывает то же место своим `tsconfigRaw` в `scripts/build-server.mjs`, но
+  // противоположным значением: esbuild вызывается там напрямую, а его
+  // собственный дефолт — `true`.
+  //
+  // ⚠️ `tsconfigRaw` ЗАМЕЩАЕТ файл целиком для трансформации esbuild. Это
+  // безопасно: разрешение путей делает сам Vite (`resolve.alias`), а цель
+  // выпуска задаёт `build.target`. Проверено сравнением хешей `dist/`.
+  esbuild: {
+    tsconfigRaw: {
+      compilerOptions: {
+        useDefineForClassFields: false,
+      },
+    },
+  },
   plugins: [
     // enforce:'pre' — помечаем EXTERNAL ДО алиас-резолва, чтобы ключ остался в
     // форме `@/…`/`vue` и совпал с ключами `__VTTHost` / `globalThis.Vue`.

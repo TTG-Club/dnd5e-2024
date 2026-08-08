@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import type { GameItem } from '@vtt/shared/system/dnd.js';
+  import type { DnDGameItem } from '@vtt/shared/system/dnd.js';
 
   import { formatItemCost } from '@vtt/shared';
   import {
@@ -21,9 +21,9 @@
   }>();
 
   /** Десериализованный предмет */
-  const item = computed<GameItem | null>(() => {
+  const item = computed<DnDGameItem | null>(() => {
     try {
-      return JSON.parse(props.payload) as GameItem;
+      return JSON.parse(props.payload) as DnDGameItem;
     } catch {
       return null;
     }

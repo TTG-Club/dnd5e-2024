@@ -1,18 +1,7 @@
 <script setup lang="ts">
-  import type { SourceDefinition } from '@vtt/shared';
+  import type { FeatDisplayItem } from './featListItemTypes';
 
   import SourceBadge from './SourceBadge.vue';
-
-  interface FeatDisplayItem {
-    id: string;
-    name: string;
-    nameEn?: string;
-    /** Ключ источника-книги — аббревиатура в нижнем регистре */
-    sourceKey?: string;
-    /** Определение источника, вписанное вместе с записью */
-    source?: SourceDefinition;
-    repeatable?: boolean;
-  }
 
   defineProps<{
     item: FeatDisplayItem;

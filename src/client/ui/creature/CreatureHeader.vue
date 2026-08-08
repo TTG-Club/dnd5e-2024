@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import type { Creature, CreatureSystem } from '@vtt/shared/system/dnd.js';
+  import type { CreatureSystem, DnDCreature } from '@vtt/shared/system/dnd.js';
 
   import { getAssetUrl } from '@vtt/shared';
   import {
@@ -22,7 +22,7 @@
   } from '@/systems/dnd5e/ui/actor/constants';
 
   interface Props {
-    creature: Creature;
+    creature: DnDCreature;
     isEditMode: boolean;
     isCreating?: boolean;
     canEdit?: boolean;
@@ -36,7 +36,7 @@
   });
 
   const emit = defineEmits<{
-    'update': [updates: Partial<Creature>];
+    'update': [updates: Partial<DnDCreature>];
     'update:system': [updates: Partial<CreatureSystem>];
     'toggle-edit-mode': [];
     'open-settings': [];
@@ -65,7 +65,10 @@
   const { showImage: showTokenImage, handleImageError: onTokenImageError } =
     useImageFallback(() => props.creature.token?.imageUrl);
 
-  function updateField(field: keyof Creature, value: Creature[keyof Creature]) {
+  function updateField(
+    field: keyof DnDCreature,
+    value: DnDCreature[keyof DnDCreature],
+  ) {
     emit('update', { [field]: value });
   }
 
@@ -150,7 +153,7 @@
       <div class="flex min-w-0 flex-1 items-center justify-between">
         <div class="w-full min-w-0 flex-1 space-y-1 pr-4">
           <!-- Имя -->
-          <div class="flex min-h-[44px] items-center">
+          <div class="flex min-h-11 items-center">
             <div
               v-if="isEditMode"
               class="flex w-full items-center gap-2"
@@ -234,7 +237,7 @@
 
           <div
             v-else
-            class="flex min-h-[28px] flex-wrap items-center gap-x-2 gap-y-1 text-toned"
+            class="flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1 text-toned"
           >
             <span class="text-toned">{{ sizeLabel }}</span>
 

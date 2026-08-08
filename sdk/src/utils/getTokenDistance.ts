@@ -90,6 +90,57 @@ export function getTokenDistance(
   return computeDistanceInCells(cellsX, cellsY, rule) * scale;
 }
 
+/** Носитель настроек токена — сущность сцены (актёр или существо) */
+interface TokenScaleSource {
+  token?: { scale?: number };
+}
+
+/**
+ * Определяет фактический масштаб токена на сцене.
+ *
+ * Приоритет: настройки сущности (`entity.token.scale`) → масштаб самого токена
+ * сцены → 1. Значение в токене — лишь кэш: сервер обновляет его при правке
+ * сущности, но до этого момента (и для сущностей без синхронизации) актуален
+ * именно масштаб сущности.
+ *
+ * ЕДИНСТВЕННОЕ место, где это правило записано: клиент и сервер обязаны считать
+ * габарит токена одинаково, иначе коллизии и телепорт разъезжаются между ними.
+ *
+ * @param token - токен сцены (может отсутствовать)
+ * @param entity - сущность токена: актёр или существо (может отсутствовать)
+ * @returns масштаб токена (1 = Medium, 2 = Large, 3 = Huge и т.д.)
+ */
+export function resolveTokenScale(
+  token: { scale?: number } | null | undefined,
+  entity: TokenScaleSource | null | undefined,
+): number {
+  return entity?.token?.scale ?? token?.scale ?? 1;
+}
+
+/**
+ * Вычисляет отступ, центрирующий токен внутри занимаемых им клеток.
+ *
+ * Токен занимает `ceil(scale)` клеток, но рисуется размером `scale`. У токенов
+ * мельче клетки (scale < 1) остаётся зазор — его половина и есть отступ от угла
+ * клетки. Для scale >= 1 отступ нулевой, поэтому забытое центрирование заметно
+ * ИСКЛЮЧИТЕЛЬНО на мелких токенах.
+ *
+ * @param scale - масштаб токена
+ * @param gridSize - размер клетки в пикселях
+ * @returns отступ по обеим осям
+ */
+export function getTokenCenteringOffset(
+  scale: number,
+  gridSize: number,
+): { x: number; y: number } {
+  const spannedCells = Math.max(1, Math.ceil(scale));
+  const tokenSize = scale * gridSize;
+
+  const offset = (spannedCells * gridSize - tokenSize) / 2;
+
+  return { x: offset, y: offset };
+}
+
 /** Токен с координатами и размером для расчёта досягаемости */
 export interface TokenBounds {
   /** Координата X верхнего левого угла (в пикселях) */

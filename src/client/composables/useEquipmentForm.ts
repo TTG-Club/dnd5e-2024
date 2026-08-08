@@ -7,7 +7,7 @@ import type {
 import type {
   ActiveEffect,
   CurrencyType,
-  GameItem,
+  DnDGameItem,
 } from '@vtt/shared/system/dnd.js';
 
 import {
@@ -30,7 +30,7 @@ import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
  * @param getIsOpen - функция получения флага открытости модалки
  */
 export function useEquipmentForm(
-  getArmor: () => GameItem | null,
+  getArmor: () => DnDGameItem | null,
   getIsOpen: () => boolean,
 ) {
   // --- Reactive-поля формы ---
@@ -300,7 +300,7 @@ export function useEquipmentForm(
    * Собирает объект GameItem из текущих полей формы
    * @returns объект GameItem для отправки на сервер
    */
-  function buildArmor(): GameItem {
+  function buildArmor(): DnDGameItem {
     const armor = getArmor();
 
     return {

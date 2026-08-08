@@ -9,7 +9,7 @@
   import type {
     ActiveEffect,
     BackgroundDefinition,
-    GameItem,
+    DnDGameItem,
     GrantedSpellRef,
     Spell,
   } from '@vtt/shared/system/dnd.js';
@@ -52,7 +52,7 @@
 
   const props = defineProps<{
     open: boolean;
-    /** Редактируемая предыстория (GameItem мира). */
+    /** Редактируемая предыстория (DnDGameItem мира). */
     item?: BackgroundDefinition | null;
     /** Совместимость: тот же объект под именем background. */
     background?: BackgroundDefinition | null;
@@ -68,7 +68,7 @@
 
   const emit = defineEmits<{
     'close': [];
-    'save': [background: GameItem];
+    'save': [background: DnDGameItem];
     'bring-to-front': [];
   }>();
 
@@ -148,7 +148,14 @@
 
     const taken = new Set<string>();
 
-    for (const background of itemsStore.itemsByType('background')) {
+    // Стор хоста отдаёт нейтральную форму (`BaseGameItem`), а `key` —
+    // D&D-специфичное поле: сужаем к своей форме, как и в остальных местах
+    // на границе с хостом.
+    const worldBackgrounds = itemsStore.itemsByType(
+      'background',
+    ) as DnDGameItem[];
+
+    for (const background of worldBackgrounds) {
       if (
         background.id !== existingId.value
         && typeof background.key === 'string'
@@ -195,7 +202,9 @@
       return;
     }
 
-    const entries = await loadCompendiumKind(props.socket, 'feat');
+    // CompendiumEntry[] расширяем до unknown[], т.к. Feature не подтип
+    // CompendiumEntry и guard иначе не сузит при filter.
+    const entries: unknown[] = await loadCompendiumKind(props.socket, 'feat');
 
     compendiumFeats.value = entries.filter(isFeature);
   }
@@ -421,7 +430,7 @@
     const { featName, featNameEn } = resolveFeatNames();
     const featData = buildFeatData(grants.value, grantedSpells.value);
 
-    const bg: GameItem = {
+    const bg: DnDGameItem = {
       id: existingId.value || `item_${generateId('bg')}`,
       key: existingKey.value ?? generateBackgroundKey(),
       type: 'background',
@@ -513,7 +522,7 @@
         :ui="{
           list: 'mb-3',
           trigger: 'flex-1 justify-center',
-          content: 'overflow-y-auto max-h-[600px]',
+          content: 'overflow-y-auto max-h-150',
         }"
       >
         <!-- ОСНОВНОЕ -->
@@ -777,7 +786,7 @@
               <div
                 v-for="effect in effects"
                 :key="effect.id"
-                class="flex min-h-[44px] items-center gap-2 rounded-lg bg-elevated/50 p-2 transition-colors hover:bg-accented/50"
+                class="flex min-h-11 items-center gap-2 rounded-lg bg-elevated/50 p-2 transition-colors hover:bg-accented/50"
                 :class="{ 'opacity-50 grayscale': effect.disabled }"
               >
                 <UIcon

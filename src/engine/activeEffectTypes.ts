@@ -32,7 +32,12 @@ import type { ConditionKey } from './conditionKeys.js';
 
 import { z } from 'zod';
 
-import { DAMAGE_TYPE_LABELS } from './damageConstants.js';
+import { CONDITION_KEYS } from './conditionKeys.js';
+import {
+  DAMAGE_PART_TARGETS,
+  DAMAGE_TYPE_LABELS,
+  DAMAGE_TYPES,
+} from './damageConstants.js';
 
 export type {
   AreaEffectTrigger,
@@ -531,16 +536,6 @@ export const EFFECT_FLAG_LABELS: Record<EffectFlagKey, string> = {
 // Тип `EffectOrigin` вынесен в нейтральный контракт (`../contracts/effects`) и
 // реэкспортится выше. Здесь — только D&D-специфичные ярлыки для UI.
 
-/** Локализованные названия источников (для UI) */
-export const EFFECT_ORIGIN_LABELS: Record<EffectOrigin, string> = {
-  item: 'Предмет',
-  spell: 'Заклинание',
-  feature: 'Особенность',
-  condition: 'Состояние',
-  manual: 'Вручную',
-  area: 'Область',
-} as const;
-
 // ── Структуры данных ──────────────────────────────────────────
 
 /**
@@ -801,7 +796,9 @@ export interface ActiveEffect extends BaseActiveEffect {
  * Используется как guard в `.filter(isDnDEffect)` при чтении `activeEffects`/
  * `CustomArea.effects`, типизированных нейтральной базой.
  */
-export function isDnDEffect(effect: BaseActiveEffect): effect is ActiveEffect {
+export function isDnDEffect(
+  _effect: BaseActiveEffect,
+): _effect is ActiveEffect {
   return true;
 }
 
@@ -891,7 +888,20 @@ export const MAX_CHANGES_PER_EFFECT = 40;
  * Используется на сервере для проверки входящих данных от клиента.
  */
 export const EffectChangeSchema = z.object({
-  key: z.string(),
+  /**
+   * Ключ цели модификации.
+   *
+   * Рантайм НАМЕРЕННО остаётся широким: тут проходит любая строка. Сузить до
+   * перечисления `EffectTargetKey` нельзя — разбор идёт целиком
+   * (`if (!parsed.success) return false`), и один незнакомый ключ из хоумбрю или
+   * старого мира отменил бы применение ВСЕГО набора эффектов. Неизвестный ключ
+   * безвреден: конвейер эффектов просто не находит для него обработчик.
+   *
+   * А вот выводимый ТИП обязан совпадать с `EffectChange.key`, иначе результат
+   * разбора не присвоить в `activeEffects` (было `TS2322` в
+   * `damageApplication.ts`). `z.custom` даёт узкий тип без `as` и без `any`.
+   */
+  key: z.custom<EffectTargetKey>((value) => typeof value === 'string'),
   mode: z.enum([
     'add',
     'multiply',
@@ -960,8 +970,8 @@ const RecurringSaveSchema = z.object({
 /** Zod-схема части урона эффекта (подмножество DamagePart) */
 const EffectDamagePartSchema = z.object({
   formula: z.string(),
-  type: z.string().optional(),
-  target: z.string().optional(),
+  type: z.enum(DAMAGE_TYPES).optional(),
+  target: z.enum(DAMAGE_PART_TARGETS).optional(),
   requiresDamage: z.boolean().optional(),
   versatileFormula: z.string().optional(),
 });
@@ -971,6 +981,23 @@ const RecurringDamageSchema = z.object({
   damageParts: z.array(EffectDamagePartSchema),
   timing: z.enum(['startOfTurn', 'endOfTurn']),
 });
+
+/**
+ * Zod-схема ключа флага эффекта.
+ *
+ * Набор ключей закрыт и берётся из `EFFECT_FLAG_LABELS` — того же объекта, по
+ * которому строится список в UI-подборщике флагов
+ * (`ActiveEffectFlagTemplatesModal`, `ActiveEffectFormModal`). Так схема и
+ * список вариантов не могут разойтись: новый флаг добавляется в одном месте.
+ *
+ * Раньше здесь стоял `z.array(z.string())`, и тип `ActiveEffect['flags']`
+ * (`EffectFlagKey[]`) был неправдой: любая строка проходила валидацию и
+ * попадала в `activeFlags`, где не совпадала ни с одной проверкой движка —
+ * то есть флаг молча не работал, а в UI показывался без названия.
+ */
+const EffectFlagKeySchema = z.enum(
+  Object.keys(EFFECT_FLAG_LABELS) as [EffectFlagKey, ...EffectFlagKey[]],
+);
 
 /**
  * Zod-схема для валидации ActiveEffect.
@@ -990,11 +1017,11 @@ export const ActiveEffectSchema = z.object({
   transfer: z.boolean(),
   duration: EffectDurationSchema,
   changes: z.array(EffectChangeSchema).max(MAX_CHANGES_PER_EFFECT),
-  flags: z.array(z.string()),
+  flags: z.array(EffectFlagKeySchema),
   aura: EffectAuraSchema.optional(),
   areaTrigger: z.enum(['stay', 'enter', 'exit']).optional(),
   effectTarget: z.enum(['self', 'target']).optional(),
-  conditionKey: z.string().optional(),
+  conditionKey: z.enum(CONDITION_KEYS).optional(),
   applySave: EffectSaveSchema.optional(),
   applyOnSuccess: z.boolean().optional(),
   applyOnSuccessOnly: z.boolean().optional(),
@@ -1002,7 +1029,7 @@ export const ActiveEffectSchema = z.object({
   damageParts: z.array(EffectDamagePartSchema).optional(),
   recurringSave: RecurringSaveSchema.optional(),
   recurringDamage: RecurringDamageSchema.optional(),
-  conditionImmunities: z.array(z.string()).optional(),
+  conditionImmunities: z.array(z.enum(CONDITION_KEYS)).optional(),
 });
 
 /** Zod-схема для массива ActiveEffect (для валидации actor.activeEffects) */

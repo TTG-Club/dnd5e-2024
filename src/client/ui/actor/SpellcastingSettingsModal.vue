@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import type { Actor } from '@vtt/shared/system/dnd.js';
+  import type { DnDActor } from '@vtt/shared/system/dnd.js';
 
   import { ABILITY_OPTIONS } from '@vtt/shared/system/dnd.js';
   import { computed, toRef } from 'vue';
@@ -9,12 +9,12 @@
 
   const props = defineProps<{
     open: boolean;
-    actor: Actor;
+    actor: DnDActor;
   }>();
 
   const emit = defineEmits<{
     'update:open': [value: boolean];
-    'update:actor': [updates: Partial<Actor>];
+    'update:actor': [updates: Partial<DnDActor>];
   }>();
 
   const isOpen = computed({

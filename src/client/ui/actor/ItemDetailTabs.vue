@@ -32,7 +32,7 @@
     :ui="{
       list: 'mb-3',
       trigger: 'flex-1 justify-center',
-      content: 'overflow-y-auto max-h-[600px]',
+      content: 'overflow-y-auto max-h-150',
     }"
   >
     <template #general>

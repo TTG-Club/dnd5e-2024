@@ -78,7 +78,7 @@
           v-model="feature.level"
           :min="1"
           :max="20"
-          class="w-[110px]"
+          class="w-27.5"
         />
       </UFormField>
     </div>
@@ -162,7 +162,7 @@
               v-model="entry.level"
               :min="1"
               :max="20"
-              class="w-[100px]"
+              class="w-25"
             />
 
             <UButton

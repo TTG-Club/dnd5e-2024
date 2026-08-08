@@ -2,8 +2,8 @@
   import type { MeasurementTemplate, SceneEntity } from '@vtt/shared';
   import type {
     AttackRollMode,
-    Creature,
     CreatureSpellcasting,
+    DnDCreature,
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
@@ -41,7 +41,7 @@
 
   interface Props {
     /** Существо-источник (для авто-вывода DC/бонуса из характеристики) */
-    creature?: Creature;
+    creature?: DnDCreature;
     /** Заклинания существа (верхний уровень `Creature.spells`) */
     spells?: Spell[];
     /** Параметры заклинательства (плоский DC/бонус атаки, характеристика) */
@@ -283,12 +283,16 @@
   });
 
   /** Существо-источник (для casterId, эффектов, @-переменных) */
-  function getCreatureEntity(): Creature | null {
+  function getCreatureEntity(): DnDCreature | null {
     const worldId = worldStore.connectionState.currentWorldId;
     const world = worldStore.worlds.find((entry) => entry.id === worldId);
 
+    // Стор хоста хранит сущности в нейтральной форме — сужаем к D&D-форме,
+    // как и везде на границе с хостом.
     return (
-      world?.creatures?.find((entry) => entry.id === props.creatureId) ?? null
+      (world?.creatures?.find(
+        (entry) => entry.id === props.creatureId,
+      ) as DnDCreature | undefined) ?? null
     );
   }
 
@@ -375,7 +379,7 @@
    */
   function startSpellRoll(
     spell: Spell,
-    creature: Creature,
+    creature: DnDCreature,
     templateId: string | undefined,
   ): void {
     const attackType = getSpellAttackType(spell);
@@ -435,7 +439,7 @@
       damageParts: setup.baseParts,
       evaluateBonusDamageParts: setup.evaluateBonusDamageParts,
       onRollParts: (parts: RolledSpellDamagePart[]) =>
-        applySpellParts(spell, creature, setup.pseudoSpell, parts, templateId),
+        applySpellParts(creature, setup.pseudoSpell, parts, templateId),
       onHit,
     };
 
@@ -447,15 +451,13 @@
    * многочастный оркестратор (спасброски целей, защиты по типу, AoE-шаблон,
    * единый HP-апдейт). DC спасброска — плоский из блока заклинательства.
    *
-   * @param spell - заклинание (источник saveType/saveEffect)
    * @param creature - существо-источник (casterId для self-частей)
    * @param pseudoSpell - псевдо-заклинание (клон с activeEffects для спас/области)
    * @param parts - брошенные части урона
    * @param templateId - id размещённого AoE-шаблона (если был)
    */
   function applySpellParts(
-    spell: Spell,
-    creature: Creature,
+    creature: DnDCreature,
     pseudoSpell: Spell,
     parts: RolledSpellDamagePart[],
     templateId: string | undefined,

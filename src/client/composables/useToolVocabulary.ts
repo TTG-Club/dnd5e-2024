@@ -11,7 +11,7 @@
  */
 
 import type { TypedWebSocketClient } from '@vtt/shared';
-import type { GameItem, ToolVocabularyEntry } from '@vtt/shared/system/dnd.js';
+import type { DnDGameItem, ToolVocabularyEntry } from '@vtt/shared/system/dnd.js';
 
 import { generateId } from '@vtt/shared';
 import { TOOLS_LIST } from '@vtt/shared/system/dnd.js';
@@ -27,7 +27,7 @@ import { useItemsStore } from '@/stores/itemsStore';
  *
  * @param item - предмет мира типа `tool`
  */
-export function toolItemKey(item: GameItem): string {
+export function toolItemKey(item: DnDGameItem): string {
   if (item.baseToolType) {
     return item.baseToolType;
   }
@@ -57,7 +57,11 @@ export function useToolVocabulary() {
 
     const known = new Set(entries.map((entry) => entry.key));
 
-    for (const item of itemsStore.itemsByType('tool')) {
+    // Стор хоста отдаёт нейтральную форму; `toolItemKey` читает D&D-поле
+    // `baseToolType`, поэтому сужаем — как и везде на границе с хостом.
+    const worldTools = itemsStore.itemsByType('tool') as DnDGameItem[];
+
+    for (const item of worldTools) {
       const key = toolItemKey(item);
 
       if (!key || known.has(key)) {
@@ -94,7 +98,7 @@ export function useToolVocabulary() {
       return null;
     }
 
-    const item: GameItem = {
+    const item: DnDGameItem = {
       id: `item_${generateId('tool')}`,
       name: trimmed,
       description: '',

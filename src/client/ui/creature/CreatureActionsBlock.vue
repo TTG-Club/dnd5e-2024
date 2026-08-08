@@ -2,8 +2,8 @@
   import type { MeasurementTemplate, SceneEntity } from '@vtt/shared';
   import type {
     AttackRollMode,
-    Creature,
     CreatureAction,
+    DnDCreature,
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
@@ -345,7 +345,7 @@
   });
 
   /** Существо-источник действий (для casterId, эффектов, @-переменных) */
-  function getCreatureEntity(): Creature | null {
+  function getCreatureEntity(): DnDCreature | null {
     if (!props.creatureId) {
       return null;
     }
@@ -353,8 +353,12 @@
     const worldId = worldStore.connectionState.currentWorldId;
     const world = worldStore.worlds.find((entry) => entry.id === worldId);
 
+    // Стор хоста хранит сущности в нейтральной форме — сужаем к D&D-форме,
+    // как и везде на границе с хостом.
     return (
-      world?.creatures?.find((entry) => entry.id === props.creatureId) ?? null
+      (world?.creatures?.find(
+        (entry) => entry.id === props.creatureId,
+      ) as DnDCreature | undefined) ?? null
     );
   }
 
@@ -443,7 +447,7 @@
    */
   function startActionRoll(
     action: CreatureAction,
-    creature: Creature,
+    creature: DnDCreature,
     isDisadvantage: boolean,
     templateId: string | undefined,
   ): void {
@@ -487,6 +491,9 @@
           parts,
           templateId,
         ),
+      // Сбрасываем явно: `rollConfig` переиспользуется между бросками, и без
+      // этого обработчик от ПРЕДЫДУЩЕГО броска остался бы висеть на текущем.
+      onHit: undefined,
     };
 
     isRollModalOpen.value = true;
@@ -505,7 +512,7 @@
    */
   function applyActionParts(
     action: CreatureAction,
-    creature: Creature,
+    creature: DnDCreature,
     pseudoSpell: Spell,
     parts: RolledSpellDamagePart[],
     templateId: string | undefined,
@@ -812,7 +819,7 @@
         @contextmenu.prevent="closeContextMenu"
       >
         <div
-          class="absolute min-w-[180px] rounded-lg border border-default bg-default py-1 shadow-xl"
+          class="absolute min-w-45 rounded-lg border border-default bg-default py-1 shadow-xl"
           :style="{ left: `${contextMenuX}px`, top: `${contextMenuY}px` }"
           @click.stop
         >

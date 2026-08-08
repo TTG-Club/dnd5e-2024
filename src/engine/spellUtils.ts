@@ -5,7 +5,7 @@
  * формул урона с учётом усиления и масштабирования заговоров.
  */
 
-import type { AbilityType, MeasurementTemplateType } from '@vtt/shared';
+import type { AbilityType } from '@vtt/shared';
 import type {
   DamagePart,
   DamagePartTarget,
@@ -638,37 +638,6 @@ export function getSpellPrimaryDamageType(
 }
 
 /**
- * Устанавливает/заменяет токен `@heal`/`@heal.temp` на ПЕРВОМ слагаемом формулы
- * (аналог {@link setFormulaDamageType}): первое слагаемое — «базовое», его вид
- * наследуют последующие слагаемые без собственного токена.
- *
- * Используется миграцией формы: устаревший флаг `isHealing` переносится в
- * формулу. Пустой `kind` — удаляет токен с первого слагаемого.
- *
- * @param formula - исходная формула
- * @param kind - вид лечения (или пустая строка для удаления)
- * @returns формула с обновлённым токеном лечения на первом слагаемом
- */
-export function setFormulaHealKind(
-  formula: string,
-  kind: HealKind | '',
-): string {
-  const terms = formula.split('+').map((term) => term.trim());
-
-  const firstBase = (terms[0] ?? '').replace(HEAL_TOKEN_STRIP_REGEX, '').trim();
-
-  if (kind) {
-    const token = kind === 'temp' ? '@heal.temp' : '@heal';
-
-    terms[0] = `${firstBase}${token}`;
-  } else {
-    terms[0] = firstBase;
-  }
-
-  return terms.filter((term) => term.length > 0).join(' + ');
-}
-
-/**
  * Удаляет инлайн-токены типа урона `@dmg.<type>` из формулы (для отображения).
  *
  * @param formula - формула с возможными токенами @dmg
@@ -1032,7 +1001,7 @@ export function resolveDamagePartsForCast(
 export function resolveCreatureDamageParts(
   parts: DamagePart[],
   targetIsFull?: boolean,
-  creature?: import('./dndEntities.js').Creature,
+  creature?: import('./dndEntities.js').DnDCreature,
 ): ResolvedDamagePartInput[] {
   return expandDamageParts(parts, targetIsFull, (formula) => {
     if (!formula.includes('@') || !creature) {
@@ -1073,7 +1042,7 @@ export function getCreatureSpellRollButtonText(
  * @returns модификатор `floor((значение - 10) / 2)` или 0
  */
 export function getCreatureSpellMod(
-  creature: import('./dndEntities.js').Creature,
+  creature: import('./dndEntities.js').DnDCreature,
 ): number {
   const ability = creature.system.spellcasting?.ability;
 
@@ -1098,7 +1067,7 @@ export function getCreatureSpellMod(
  * @returns DC спасброска или undefined
  */
 export function getCreatureSpellSaveDC(
-  creature: import('./dndEntities.js').Creature,
+  creature: import('./dndEntities.js').DnDCreature,
 ): number | undefined {
   const block = creature.system.spellcasting;
 
@@ -1125,7 +1094,7 @@ export function getCreatureSpellSaveDC(
  * @returns бонус к атаке или undefined
  */
 export function getCreatureSpellAttackBonus(
-  creature: import('./dndEntities.js').Creature,
+  creature: import('./dndEntities.js').DnDCreature,
 ): number | undefined {
   const block = creature.system.spellcasting;
 
@@ -1157,7 +1126,7 @@ export function getCreatureSpellAttackBonus(
 export function resolveCreatureSpellDamageParts(
   parts: DamagePart[],
   targetIsFull: boolean | undefined,
-  creature: import('./dndEntities.js').Creature,
+  creature: import('./dndEntities.js').DnDCreature,
   spellMod: number,
 ): ResolvedDamagePartInput[] {
   const context = { ...buildFormulaContext(creature), spellMod };
@@ -1481,78 +1450,4 @@ export function scaleDamageFormula(
 
 // ── Маппинг AoE ──────────────────────────────────────────────
 
-/**
- * Маппит область заклинания на параметры MeasurementTemplate.
- *
- * @param spell - заклинание с областью воздействия
- * @returns параметры шаблона или null если нет области
- */
-export function mapSpellAreaToTemplate(
-  spell: Spell,
-): { type: MeasurementTemplateType; size: number } | null {
-  if (!spell.areaOfEffect) {
-    return null;
-  }
-
-  return { type: spell.areaOfEffect.shape, size: spell.areaOfEffect.size };
-}
-
 // ── Лейблы для чата ──────────────────────────────────────────
-
-/**
- * Формирует лейбл для каста заклинания в чате.
- *
- * @param spellName - название заклинания
- * @param castLevel - круг, из которого кастуется
- * @param spellLevel - базовый круг заклинания
- * @returns текст лейбла
- */
-export function buildSpellCastLabel(
-  spellName: string,
-  castLevel: number,
-  spellLevel: number,
-): string {
-  let label = `Заклинание\u00A0—\u00A0${spellName}`;
-
-  if (castLevel > spellLevel) {
-    label += `\u00A0(${castLevel}-й круг)`;
-  }
-
-  return label;
-}
-
-/**
- * Формирует лейбл для урона заклинания с результатом применения.
- *
- * @param spellName - название заклинания
- * @param applyResult - результат применения урона (может отсутствовать)
- * @returns текст лейбла
- */
-export function buildSpellDamageLabel(
-  spellName: string,
-  applyResult?: { actorName: string; hpBefore: number; hpAfter: number } | null,
-): string {
-  let label = `Урон\u00A0—\u00A0${spellName}`;
-
-  if (applyResult) {
-    label += `\u00A0→\u00A0${applyResult.actorName}:\u00A0-${applyResult.hpBefore - applyResult.hpAfter}\u00A0HP`;
-  }
-
-  return label;
-}
-
-/**
- * Формирует лейбл для спасброска от заклинания.
- *
- * @param spellName - название заклинания
- * @param saveAbility - характеристика спасброска
- * @param saveDC - сложность спасброска
- * @returns текст лейбла
- */
-export function buildSpellSaveLabel(
-  spellName: string,
-  saveAbility: string,
-  saveDC: number,
-): string {
-  return `${spellName}\u00A0—\u00A0Спасбросок\u00A0${saveAbility}\u00A0(DC\u00A0${saveDC})`;
-}

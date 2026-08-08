@@ -1,6 +1,6 @@
 <script setup lang="ts">
   import type { AbilityType, ActorArmorClass } from '@vtt/shared';
-  import type { Actor, AttackRollMode } from '@vtt/shared/system/dnd.js';
+  import type { AttackRollMode, DnDActor } from '@vtt/shared/system/dnd.js';
 
   import {
     BASE_UNARMORED_AC,
@@ -26,11 +26,11 @@
   const props = defineProps<Props>();
 
   const emit = defineEmits<{
-    'update:actor': [updates: Partial<Actor>];
+    'update:actor': [updates: Partial<DnDActor>];
   }>();
 
   interface Props {
-    actor: Actor;
+    actor: DnDActor;
     isEditMode: boolean;
   }
 
@@ -500,7 +500,7 @@
     temp: number;
     classes?: typeof props.actor.system.classes;
     manualHitDice?: Array<{
-      die: import('@vtt/shared').HitDie;
+      die: import('@vtt/shared/system/dnd.js').HitDie;
       total: number;
       used: number;
     }>;

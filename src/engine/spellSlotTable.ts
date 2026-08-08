@@ -340,68 +340,6 @@ export function getAvailableSpellLevels(
 }
 
 /**
- * Проверяет, есть ли у актора свободные ячейки заклинаний для указанного уровня.
- * В случае если актор имеет `maxSlots` = 0 (например NPC с врожденным кастом), вернёт `true`,
- * чтобы не блокировать каст заклинаний.
- *
- * @param actor Структура данных актора для получения классов и `spellSlotsUsed`.
- * @param minLevel Минимальный требуемый круг заклинания
- * @returns boolean `true`, если можно произнести заклинание (есть ячейки или они не нужны)
- */
-export function hasAvailableSpellSlot(
-  actor: SpellSlotActorData,
-  minLevel: number,
-): boolean {
-  if (minLevel <= 0) {
-    return true;
-  }
-
-  return getAvailableSpellLevels(actor, minLevel).length > 0;
-}
-
-/**
- * Возвращает максимальный круг ячеек заклинаний, доступный актеру.
- * @param actor Структура данных актора
- * @returns number 0-9 (максимальный круг)
- */
-export function getMaxAvailableSpellLevel(actor: SpellSlotActorData): number {
-  let maxLvl = 0;
-
-  // 1. Проверяем Pact Slots
-  const pactClass = (actor.system?.classes ?? []).find(
-    (entry) => entry.casterType === 'pact',
-  );
-
-  if (pactClass) {
-    const pactInfo = PACT_SLOTS[pactClass.level];
-
-    if (pactInfo && pactInfo.level > maxLvl) {
-      maxLvl = pactInfo.level;
-    }
-  }
-
-  // 2. Проверяем обычные ячейки
-  const typeMap = new Map<string, CasterType>();
-  const classes = actor.system?.classes ?? [];
-
-  for (const entry of classes) {
-    if (entry.casterType) {
-      typeMap.set(entry.classKey, entry.casterType);
-    }
-  }
-
-  const maxSlots = computeSpellSlots(classes, typeMap);
-
-  maxSlots.forEach((max, i) => {
-    if ((max ?? 0) > 0) {
-      maxLvl = Math.max(maxLvl, i + 1);
-    }
-  });
-
-  return maxLvl;
-}
-
-/**
  * Возвращает информацию о Pact-слотах для актора (Warlock).
  *
  * Использует таблицу PACT_SLOTS для определения уровня и количества ячеек.

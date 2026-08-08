@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import type { ActiveEffect, GameItem } from '@vtt/shared/system/dnd.js';
+  import type { ActiveEffect, DnDGameItem } from '@vtt/shared/system/dnd.js';
 
   import {
     ABILITY_OPTIONS,
@@ -26,7 +26,7 @@
     savedPosition?: unknown;
     savedSize?: unknown;
     /** Редактируемый инструмент (null = создание) */
-    item: GameItem | null;
+    item: DnDGameItem | null;
     /** Z-index (управляется родителем для bring-to-front) */
     zIndex?: number;
     /** Смещение позиции для каскадного расположения */
@@ -35,7 +35,7 @@
 
   const emit = defineEmits<{
     'close': [];
-    'save': [item: GameItem];
+    'save': [item: DnDGameItem];
     'bring-to-front': [];
   }>();
 
@@ -191,7 +191,7 @@
         :ui="{
           list: 'mb-3',
           trigger: 'flex-1 justify-center',
-          content: 'overflow-y-auto max-h-[600px]',
+          content: 'overflow-y-auto max-h-150',
         }"
       >
         <!-- Вкладка «Общие» -->
@@ -245,7 +245,7 @@
                       :items="CURRENCY_OPTIONS"
                       value-key="value"
                       label-key="labelShort"
-                      class="w-[80px]"
+                      class="w-20"
                       :portal="false"
                     />
                   </div>
@@ -302,7 +302,7 @@
             >
               <div class="flex flex-col gap-3">
                 <div class="flex items-center gap-3">
-                  <span class="min-w-[140px] shrink-0 text-sm text-muted">
+                  <span class="min-w-35 shrink-0 text-sm text-muted">
                     Категория
                   </span>
 
@@ -317,7 +317,7 @@
                 </div>
 
                 <div class="flex items-center gap-3">
-                  <span class="min-w-[140px] shrink-0 text-sm text-muted">
+                  <span class="min-w-35 shrink-0 text-sm text-muted">
                     Базовый тип
                   </span>
 
@@ -379,7 +379,7 @@
             >
               <div class="flex flex-col gap-3">
                 <div class="flex items-center gap-3">
-                  <span class="min-w-[140px] shrink-0 text-sm text-muted">
+                  <span class="min-w-35 shrink-0 text-sm text-muted">
                     Умение
                   </span>
 
@@ -393,7 +393,7 @@
                 </div>
 
                 <div class="flex items-center gap-3">
-                  <span class="min-w-[140px] shrink-0 text-sm text-muted">
+                  <span class="min-w-35 shrink-0 text-sm text-muted">
                     Характеристика
                   </span>
 
@@ -407,7 +407,7 @@
                 </div>
 
                 <div class="flex items-center gap-3">
-                  <span class="min-w-[140px] shrink-0 text-sm text-muted">
+                  <span class="min-w-35 shrink-0 text-sm text-muted">
                     Бонус инструмента
                   </span>
 
@@ -470,7 +470,7 @@
               <div
                 v-for="effect in activeEffects"
                 :key="effect.id"
-                class="group flex min-h-[44px] items-center gap-2 rounded-lg bg-elevated/50 p-2 transition-colors hover:bg-accented/50"
+                class="group flex min-h-11 items-center gap-2 rounded-lg bg-elevated/50 p-2 transition-colors hover:bg-accented/50"
                 :class="{ 'opacity-50 grayscale': effect.disabled }"
               >
                 <UIcon

@@ -204,7 +204,7 @@
     for (const column of activeTableColumns.value) {
       if (column.children?.length) {
         for (const child of column.children) {
-          cols.push({ key: child.key, widthClass: 'w-[26px]' });
+          cols.push({ key: child.key, widthClass: 'w-6.5' });
         }
       } else if (column.key) {
         cols.push({ key: column.key, widthClass: 'w-16' });
@@ -519,7 +519,7 @@
           <div
             class="custom-scroll w-full overflow-hidden overflow-x-auto rounded-lg border border-default/50"
           >
-            <table class="w-full min-w-[700px] table-fixed text-xs">
+            <table class="w-full min-w-175 table-fixed text-xs">
               <colgroup>
                 <col class="w-10" />
 

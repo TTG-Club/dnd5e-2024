@@ -15,7 +15,7 @@
 
 import type { AbilityType, Feature } from '@vtt/shared';
 import type { BackgroundDefinition } from './backgroundTypes.js';
-import type { GameItem } from './dndEntities.js';
+import type { DnDGameItem } from './dndEntities.js';
 import type { FeatData } from './featTypes.js';
 
 import { ABILITY_LABELS, CONDITIONS, SKILLS_LABELS } from './consts.js';
@@ -181,7 +181,7 @@ function prerequisiteLine(featData: FeatData): string | null {
  *   черта, предмет или предыстория.
  */
 export function buildFeatGrantsSummary(
-  feat: Feature | GameItem | BackgroundDefinition,
+  feat: Feature | DnDGameItem | BackgroundDefinition,
 ): string {
   // `featData`/`activeEffects` есть у GameItem-черты и у применённой черты на
   // акторе (несётся через AppliedFeatFeature). У обычной особенности (Feature)

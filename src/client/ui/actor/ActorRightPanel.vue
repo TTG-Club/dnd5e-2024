@@ -1,8 +1,8 @@
 <script setup lang="ts">
   import type { AbilityType } from '@vtt/shared';
   import type {
-    Actor,
     AttackRollMode,
+    DnDActor,
     EffectTargetKey,
   } from '@vtt/shared/system/dnd.js';
 
@@ -20,14 +20,14 @@
   import DiceRollModal from './DiceRollModal.vue';
 
   interface Props {
-    actor: Actor;
+    actor: DnDActor;
     isEditMode: boolean;
   }
 
   const props = defineProps<Props>();
 
   const emit = defineEmits<{
-    'update:actor': [updates: Partial<Actor>];
+    'update:actor': [updates: Partial<DnDActor>];
   }>();
 
   const { resolvedStats, combinedEffects } = useResolvedStats(

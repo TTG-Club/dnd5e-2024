@@ -10,9 +10,9 @@
 -->
 <script setup lang="ts">
   import type {
-    Actor,
     ActorCounterState,
     ClassCounterDefinition,
+    DnDActor,
   } from '@vtt/shared/system/dnd.js';
 
   import { computed, ref } from 'vue';
@@ -27,13 +27,13 @@
   const props = defineProps<Props>();
 
   const emit = defineEmits<{
-    'update:actor': [updates: Partial<Actor>];
+    'update:actor': [updates: Partial<DnDActor>];
   }>();
 
   const isSettingsOpen = ref(false);
 
   interface Props {
-    actor: Actor;
+    actor: DnDActor;
     /** Определения счётчиков из компендиума (для получения name, icon, recovery) */
     counterDefinitions: ClassCounterDefinition[];
     isEditMode: boolean;
@@ -203,7 +203,7 @@
           </button>
 
           <!-- Текущее / Макс -->
-          <span class="min-w-[3rem] text-center text-sm font-bold tabular-nums">
+          <span class="min-w-12 text-center text-sm font-bold tabular-nums">
             <span
               class="text-highlighted"
               :class="counter.current === 0 ? 'text-dimmed' : ''"

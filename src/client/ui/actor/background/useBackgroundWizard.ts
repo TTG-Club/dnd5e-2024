@@ -1,8 +1,8 @@
 import type { AbilityType, Feature } from '@vtt/shared';
 import type {
-  Actor,
   ActorBackgroundEntry,
   BackgroundDefinition,
+  DnDActor,
   DnDActorSystem,
   EffectTargetKey,
   ResolvedGrantedSpell,
@@ -51,14 +51,14 @@ export function backgroundSpellSource(backgroundName: string): string {
  * @param darkvision - тёмное зрение предыстории (футы)
  */
 function applyBackgroundDarkvision(
-  token: Actor['token'],
+  token: DnDActor['token'],
   darkvision: number,
-): Actor['token'] | undefined {
+): DnDActor['token'] | undefined {
   if (darkvision <= 0) {
     return undefined;
   }
 
-  const next: NonNullable<Actor['token']> = JSON.parse(
+  const next: NonNullable<DnDActor['token']> = JSON.parse(
     JSON.stringify(token ?? {}),
   );
 
@@ -77,7 +77,7 @@ function applyBackgroundDarkvision(
 
 export function useBackgroundWizard(
   backgroundDefinitionRef: Ref<BackgroundDefinition | null>,
-  actorRef: Ref<Actor>,
+  actorRef: Ref<DnDActor>,
   isOpenRef: Ref<boolean>,
 ) {
   /**
@@ -552,7 +552,7 @@ export function useBackgroundWizard(
       || updatedSpells.some((spell, index) => spell !== originalSpells[index]);
 
     // 7. Формируем финальный объект updates
-    const systemUpdates: Partial<Actor['system']> = {
+    const systemUpdates: Partial<DnDActor['system']> = {
       background: entry,
       proficiencies: {
         ...system.proficiencies,
@@ -565,7 +565,7 @@ export function useBackgroundWizard(
       },
     };
 
-    const rootUpdates: Partial<Actor> = {
+    const rootUpdates: Partial<DnDActor> = {
       features: baseFeatures,
       activeEffects: baseEffects,
     };

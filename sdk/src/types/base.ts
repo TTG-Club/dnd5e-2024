@@ -127,14 +127,52 @@ export interface JournalFolder {
   updatedAt: number;
 }
 
+/**
+ * Страница журнала — единица содержимого записи.
+ *
+ * Текст живёт в страницах, а не в самой записи: журнал — это переплёт, а
+ * читают и правят всегда конкретную страницу. Одна запись без страниц
+ * допустима (свежесозданный пустой журнал).
+ */
+export interface NotePage {
+  id: string;
+  /** ID журнала (`Note`), которому принадлежит страница */
+  noteId: string;
+  title: string;
+  /** Markdown-содержимое страницы */
+  content: string;
+  images: string[];
+  /** Страница видна только ГМу и автору журнала */
+  isHidden: boolean;
+  /** Порядок страницы внутри журнала (меньше — выше в списке) */
+  sortOrder: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * Страница в форме сохранения журнала.
+ *
+ * `id === null` — страница создана в модалке и ещё не существует в БД: ID ей
+ * выдаёт сервер. Порядок задаётся позицией в массиве, отдельного поля нет —
+ * иначе клиент мог бы прислать список, чей порядок противоречит индексам.
+ */
+export interface NotePageInput {
+  id: string | null;
+  title: string;
+  content: string;
+  images: string[];
+  isHidden: boolean;
+}
+
 export interface Note {
   id: string;
   worldId: string;
   authorId: string;
   authorName: string;
   title: string;
-  content: string;
-  images: string[];
+  /** Страницы журнала в порядке отображения */
+  pages: NotePage[];
   isHidden: boolean;
   isPinVisible: boolean;
   folderId: string | null;
@@ -144,6 +182,30 @@ export interface Note {
   updatedAt: number;
 }
 
+/** Данные создания журнала: автор, ID и даты проставляет сервер. */
+export interface NoteCreateInput {
+  worldId: string;
+  title: string;
+  isHidden: boolean;
+  isPinVisible: boolean;
+  folderId: string | null;
+  pages: NotePageInput[];
+}
+
+/**
+ * Данные сохранения журнала.
+ *
+ * Страницы приходят снимком: набор заменяет прежний целиком, отсутствующие в
+ * списке страницы удаляются.
+ */
+export interface NoteUpdateInput {
+  id: string;
+  title: string;
+  isHidden: boolean;
+  isPinVisible: boolean;
+  pages: NotePageInput[];
+}
+
 /**
  * Элемент переупорядочивания журнала: папка или заметка.
  * Используется при drag-and-drop сортировке внутри одного уровня дерева,
@@ -151,6 +213,54 @@ export interface Note {
  */
 export interface JournalReorderItem {
   type: 'folder' | 'note';
+  id: string;
+}
+
+/**
+ * Раздел, к которому относится папка сущностей.
+ *
+ * Дискриминатор общей таблицы папок: новый раздел (предметы, сцены)
+ * подключается новым значением, без миграции схемы.
+ */
+export type EntityFolderKind = 'actor' | 'creature';
+
+/** Папка раздела сущностей («Актеры», «Существа»). */
+export interface EntityFolder {
+  id: string;
+  worldId: string;
+  /** Раздел, которому принадлежит папка */
+  kind: EntityFolderKind;
+  name: string;
+  parentId: string | null;
+  isHidden: boolean;
+  /** Порядок сортировки среди соседей одного уровня (меньше — выше) */
+  sortOrder: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * Размещение сущности в дереве папок раздела.
+ *
+ * Живёт отдельно от самой сущности: актёры и существа хранятся JSON-файлами на
+ * диске, и держать раскладку по папкам прямо в них означало бы переписывать
+ * файл и рассылать сущность целиком на каждое перетаскивание.
+ */
+export interface EntityFolderPlacement {
+  kind: EntityFolderKind;
+  entityId: string;
+  /** ID папки или null — сущность лежит в корне раздела */
+  folderId: string | null;
+  /** Порядок сортировки среди соседей одного уровня (меньше — выше) */
+  sortOrder: number;
+}
+
+/**
+ * Элемент переупорядочивания дерева папок: папка или лист.
+ * Папки и листья делят единую последовательность сортировки внутри уровня.
+ */
+export interface FolderReorderItem {
+  type: 'folder' | 'leaf';
   id: string;
 }
 
@@ -185,6 +295,8 @@ export interface SceneAsset {
   opacity: number;
   locked: boolean;
   zIndex: number;
+  /** Скрыт ли ассет от игроков (видит только ГМ) */
+  hidden?: boolean;
   /** Скрыт ли ассет в трансляционной рамке ГМа (на сцене у ГМа виден). */
   hideFromBroadcast?: boolean;
   animation?: SceneAssetAnimation;

@@ -1,5 +1,8 @@
 <script setup lang="ts">
-  import type { DropdownMenuItem } from '@nuxt/ui';
+  // Корневой вход `@nuxt/ui` — это Nuxt-модуль, типы компонентов он не отдаёт
+  // (в Nuxt-приложении их подставляет авто-генерация `#ui`, а мы собираемся
+  // обычным Vite). Берём тип из подпути компонента — он в `exports` пакета.
+  import type { DropdownMenuItem } from '@nuxt/ui/components/DropdownMenu.vue';
   import type { GrantedSpellRef } from '@vtt/shared/system/dnd.js';
 
   import type { SpellOption } from './grantedSpellsEditorTypes';

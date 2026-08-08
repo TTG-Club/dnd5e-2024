@@ -1,9 +1,10 @@
 <script setup lang="ts">
   import type { SceneEntity } from '@vtt/shared';
   import type {
-    Actor,
     AttackRollMode,
-    GameItem,
+    DnDActor,
+    DnDGameItem,
+    DnDSceneEntity,
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
@@ -51,12 +52,12 @@
   );
 
   const emit = defineEmits<{
-    'update:actor': [updates: Partial<Actor>];
+    'update:actor': [updates: Partial<DnDActor>];
     'immediate-save': [];
   }>();
 
   interface Props {
-    actor: Actor;
+    actor: DnDActor;
     isEditMode: boolean;
     isDragOver?: boolean;
   }
@@ -174,7 +175,7 @@
    * Оружие, Доспехи, Прочее
    */
   const equipmentGroups = computed(() => {
-    const groups: Array<{ label: string; items: GameItem[] }> = [];
+    const groups: Array<{ label: string; items: DnDGameItem[] }> = [];
 
     for (const group of EQUIPMENT_GROUP_ORDER) {
       const items = props.actor.equipment.filter(
@@ -227,7 +228,7 @@
    * @param item - предмет для проверки
    * @returns true если кнопка должна быть заблокирована
    */
-  function isEquipDisabled(item: GameItem): boolean {
+  function isEquipDisabled(item: DnDGameItem): boolean {
     // Если предмет уже экипирован — всегда можно снять
     if (item.equipped) {
       return false;
@@ -300,7 +301,7 @@
    * Открывает модалку броска урона для оружия
    * @param weapon - оружие с формулой урона
    */
-  function openRollModal(weapon: GameItem): void {
+  function openRollModal(weapon: DnDGameItem): void {
     if (!weapon.damageParts?.length) {
       return;
     }
@@ -348,7 +349,11 @@
     let targetFlags = new Set<string>();
 
     if (targetActor) {
-      targetFlags = resolveActorStats(targetActor).activeFlags;
+      // Стор целей хоста отдаёт нейтральную сущность — сужаем к D&D-форме,
+      // как и в остальных резолверах бросков.
+      targetFlags = resolveActorStats(
+        targetActor as DnDSceneEntity,
+      ).activeFlags;
     }
 
     const isAdvantage =
@@ -400,6 +405,9 @@
           parts,
           weaponSaveDC,
         ),
+      // Сбрасываем явно: `rollConfig` переиспользуется между бросками, и без
+      // этого обработчик от ПРЕДЫДУЩЕГО броска остался бы висеть на текущем.
+      onHit: undefined,
     };
 
     isRollModalOpen.value = true;
@@ -445,7 +453,7 @@
    * @param event - событие dragstart
    * @param weapon - оружие
    */
-  function handleWeaponDragStart(event: DragEvent, weapon: GameItem): void {
+  function handleWeaponDragStart(event: DragEvent, weapon: DnDGameItem): void {
     if (!weapon.damageParts?.length) {
       return;
     }
@@ -469,7 +477,7 @@
    * @param event - событие dragstart
    * @param item - передаваемый предмет
    */
-  function handleItemDragStart(event: DragEvent, item: GameItem): void {
+  function handleItemDragStart(event: DragEvent, item: DnDGameItem): void {
     if (!event.dataTransfer) {
       return;
     }
@@ -496,7 +504,7 @@
    * Модалки независимы от листа персонажа и остаются при его закрытии.
    * @param item - предмет снаряжения
    */
-  function openDetailModal(item: GameItem): void {
+  function openDetailModal(item: DnDGameItem): void {
     if (item.type === 'equipment') {
       openModal('EquipmentDetailModal', { item, open: true });
     } else if (item.type === 'tool') {
@@ -512,7 +520,7 @@
    * Открывает модалку редактирования предмета в зависимости от типа
    * @param item - предмет снаряжения
    */
-  function openEditModal(item: GameItem): void {
+  function openEditModal(item: DnDGameItem): void {
     const modalMap: Record<string, string> = {
       equipment: 'EquipmentFormModal',
       tool: 'ToolFormModal',
@@ -533,7 +541,7 @@
     } else {
       openModal(modalName, {
         item,
-        onSave: (updated: GameItem) => saveEquipmentEdit(updated, formId),
+        onSave: (updated: DnDGameItem) => saveEquipmentEdit(updated, formId),
         onClose: () => closeModal(formId),
       });
     }
@@ -545,7 +553,7 @@
    * @param updatedItem - обновлённый предмет
    * @param formId - ID модалки для закрытия
    */
-  function saveEquipmentEdit(updatedItem: GameItem, formId: string): void {
+  function saveEquipmentEdit(updatedItem: DnDGameItem, formId: string): void {
     const equipment = props.actor.equipment.map((item) =>
       item.id === updatedItem.id
         ? { ...updatedItem, equipped: item.equipped }
@@ -562,9 +570,9 @@
   function saveSpellEdit(
     updatedSpell: Spell,
     formId: string,
-    originalItem: GameItem,
+    originalItem: DnDGameItem,
   ): void {
-    const updatedSpellItem: GameItem = {
+    const updatedSpellItem: DnDGameItem = {
       ...originalItem,
       name: updatedSpell.name,
       nameEn: updatedSpell.nameEn,
@@ -681,14 +689,14 @@
   const isContextMenuOpen = ref(false);
   const contextMenuX = ref(0);
   const contextMenuY = ref(0);
-  const contextMenuItem = ref<GameItem | null>(null);
+  const contextMenuItem = ref<DnDGameItem | null>(null);
 
   /**
    * Открывает контекстное меню для предмета
    * @param event - Событие мыши
    * @param item - Предмет снаряжения
    */
-  function openContextMenu(event: MouseEvent, item: GameItem): void {
+  function openContextMenu(event: MouseEvent, item: DnDGameItem): void {
     event.preventDefault();
     event.stopPropagation();
 
@@ -729,7 +737,7 @@
    * Отправляет карточку предмета в чат.
    * @param item - предмет для публикации
    */
-  function shareItemToChat(item: GameItem): void {
+  function shareItemToChat(item: DnDGameItem): void {
     chatStore.sendItemCard({
       cardType: 'equipment',
       title: item.name,
@@ -741,7 +749,7 @@
    * Проверяет, является ли оружие универсальным (versatile)
    * @param item - предмет из инвентаря
    */
-  function isVersatile(item: GameItem): boolean {
+  function isVersatile(item: DnDGameItem): boolean {
     return (
       item.type === 'weapon'
       && Boolean(item.weaponProperties?.includes('versatile'))
@@ -751,7 +759,7 @@
   /**
    * Вычисляет и форматирует бонус к броску атаки текущим оружием
    */
-  function getWeaponAttackBonusLabel(weapon: GameItem): string {
+  function getWeaponAttackBonusLabel(weapon: DnDGameItem): string {
     const mod = calculateWeaponAttackModifier(
       props.actor,
       weapon,
@@ -768,7 +776,7 @@
    * @param weapon - оружие
    * @returns строка вида «4к6+4» / «1к8 + 1к6»
    */
-  function weaponDamageFormulaLabel(weapon: GameItem): string {
+  function weaponDamageFormulaLabel(weapon: DnDGameItem): string {
     const base = formatWeaponDamageFormula(weapon);
 
     const mod =
@@ -789,7 +797,7 @@
    * @param weapon - оружие
    * @returns подпись вида «Гром» / «Рубящий + Огонь» / «Лечение»
    */
-  function weaponKindLabel(weapon: GameItem): string {
+  function weaponKindLabel(weapon: DnDGameItem): string {
     const types = new Set<string>();
 
     let hasHealing = false;
@@ -846,7 +854,7 @@
 </script>
 
 <template>
-  <div class="flex min-h-[200px] flex-1 flex-col space-y-1">
+  <div class="flex min-h-50 flex-1 flex-col space-y-1">
     <!-- Деньги / Валюта (Вплотную к табам) -->
     <div class="mb-5 flex flex-col">
       <div class="flex items-center gap-3 rounded-lg bg-accented/30 px-3 py-2">
@@ -1275,7 +1283,7 @@
       @contextmenu.prevent="closeContextMenu"
     >
       <div
-        class="absolute min-w-[180px] rounded-lg border border-default bg-default py-1 shadow-xl"
+        class="absolute min-w-45 rounded-lg border border-default bg-default py-1 shadow-xl"
         :style="{ left: `${contextMenuX}px`, top: `${contextMenuY}px` }"
         @click.stop
       >

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+  import type { FeatDisplayItem } from './featListItemTypes';
+
   import { computed, reactive } from 'vue';
 
   import { useContextMenu } from '../../composables/useContextMenu';
@@ -6,15 +8,6 @@
   import ContextMenuOverlay from './ContextMenuOverlay.vue';
   import FeatListItemCompendium from './FeatListItemCompendium.vue';
   import FeatListItemSheet from './FeatListItemSheet.vue';
-
-  /** Минимальный набор полей, необходимых для отображения черты */
-  interface FeatDisplayItem {
-    id: string;
-    name: string;
-    nameEn?: string;
-    source?: string;
-    repeatable?: boolean;
-  }
 
   const props = defineProps<{
     item: FeatDisplayItem;
@@ -78,7 +71,7 @@
     :class="[
       'flex cursor-grab items-center gap-3 rounded-lg px-3 py-2 transition-colors active:cursor-grabbing',
       isSheet
-        ? 'min-h-[44px] bg-accented/30 hover:bg-accented/50'
+        ? 'min-h-11 bg-accented/30 hover:bg-accented/50'
         : 'bg-elevated/30 hover:bg-accented/40',
     ]"
     @dragstart="handleDragStart"

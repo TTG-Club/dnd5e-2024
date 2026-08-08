@@ -11,6 +11,130 @@
 export const MEDIA_MAX_DIMENSION_PX = 8192;
 
 /**
+ * Пространство файлов, с которым работает файловый менеджер.
+ *
+ * - `world` — папка конкретного мира. Файлы видны только этому миру.
+ * - `shared` — общая папка установки (`<папка данных>/shared`). Файлы видны
+ *   ВСЕМ мирам и переезжают вместе с папкой данных.
+ */
+export type AssetSpaceId = 'world' | 'shared';
+
+/**
+ * Префиксы статической раздачи по пространствам — КОНТРАКТ СЕРВЕРА.
+ *
+ * Сервер строит `url` записи листинга как `<префикс><относительный путь>`,
+ * клиент разбирает обратно через {@link resolveAssetRelativePath}. Менять
+ * только вместе с маршрутами в `staticFiles.ts`.
+ */
+export const ASSET_SPACE_URL_PREFIXES: Record<AssetSpaceId, string> = {
+  world: '/world/',
+  shared: '/shared-assets/',
+};
+
+/**
+ * Имя ОБЩЕЙ папки внутри папки данных приложения (`<папка данных>/shared`).
+ *
+ * Единый источник правды для трёх мест: маршрутов файлового менеджера,
+ * статической раздачи `/shared-assets/*` и списка переносимых элементов при
+ * смене папки данных (`dataMigration`).
+ */
+export const SHARED_ASSETS_DIR_NAME = 'shared';
+
+/**
+ * Расширения (с точкой), которые файловый менеджер показывает в листинге и
+ * которые разрешено раздавать из ОБЩЕЙ папки.
+ *
+ * Единый источник правды для трёх мест: фильтра листинга, белого списка
+ * загрузки в общее пространство и белого списка раздачи `/shared-assets/*`.
+ * Раздача общей папки обязана быть ограничена этим списком: туда пишут ГМы
+ * разных миров, и загруженный `.html`/`.js` не должен отдаваться браузеру.
+ */
+export const BROWSABLE_ASSET_EXTENSIONS = [
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.gif',
+  '.webp',
+  '.mp4',
+  '.webm',
+  '.mkv',
+  '.m4v',
+  '.mp3',
+  '.wav',
+  '.ogg',
+] as const;
+
+/** Множество {@link BROWSABLE_ASSET_EXTENSIONS} для проверки членства строки. */
+const BROWSABLE_ASSET_EXTENSIONS_SET = new Set<string>(
+  BROWSABLE_ASSET_EXTENSIONS,
+);
+
+/**
+ * Классы MIME, допустимые при загрузке медиа. Единый источник правды для
+ * клиентской предпроверки (перетаскивание из ОС) и серверного гейта загрузки в
+ * ОБЩУЮ папку.
+ */
+export const UPLOADABLE_MEDIA_MIME_PREFIXES = [
+  'image/',
+  'video/',
+  'audio/',
+] as const;
+
+/**
+ * Проверяет, что MIME-тип относится к загружаемому медиа.
+ *
+ * @param mimeType - значение заголовка `Content-Type` части формы или `File.type`
+ * @returns true, если тип начинается с одного из {@link UPLOADABLE_MEDIA_MIME_PREFIXES}
+ */
+export function isUploadableMediaMime(
+  mimeType: string | null | undefined,
+): boolean {
+  if (!mimeType) {
+    return false;
+  }
+
+  return UPLOADABLE_MEDIA_MIME_PREFIXES.some((prefix) =>
+    mimeType.startsWith(prefix),
+  );
+}
+
+/**
+ * Проверяет, что расширение файла разрешено к показу и раздаче.
+ *
+ * @param fileName - имя файла или путь (регистр расширения не важен)
+ * @returns true, если расширение входит в {@link BROWSABLE_ASSET_EXTENSIONS}
+ */
+export function isBrowsableAssetFile(
+  fileName: string | null | undefined,
+): boolean {
+  if (!fileName) {
+    return false;
+  }
+
+  const lastDot = fileName.lastIndexOf('.');
+
+  if (lastDot === -1) {
+    return false;
+  }
+
+  return BROWSABLE_ASSET_EXTENSIONS_SET.has(
+    fileName.slice(lastDot).toLowerCase(),
+  );
+}
+
+/**
+ * Максимальный размер файла, загружаемого в ОБЩУЮ папку установки.
+ *
+ * Лимит существует только для общего пространства: туда пишут ГМы разных
+ * миров, а место на диске одно на всю установку. Для папки мира исторически
+ * действует только клиентская предпроверка `MAX_FILE_SIZE`.
+ *
+ * ⚠️ Проверка постфактум: `readMultipartFormData` буферизует тело целиком,
+ * поэтому лимит защищает диск, а не пиковую аллокацию памяти.
+ */
+export const MAX_SHARED_FILE_SIZE = 100 * 1024 * 1024;
+
+/**
  * Проверяет, является ли путь системным для файлового менеджера мира
  * (создание, переименование, перемещение и удаление запрещены).
  *
@@ -93,6 +217,41 @@ export function isVideoPath(path: string | null | undefined): boolean {
   const ext = basePart.slice(lastDot + 1).toLowerCase();
 
   return VIDEO_FILE_EXTENSIONS_SET.has(ext);
+}
+
+/**
+ * Расширения аудиофайлов (без точки), общие для клиента и сервера.
+ * Пара к {@link VIDEO_FILE_EXTENSIONS} — единый источник правды вместо
+ * локальных списков mp3/wav/ogg по коду.
+ */
+export const AUDIO_FILE_EXTENSIONS = ['mp3', 'wav', 'ogg'] as const;
+
+/** Множество аудиорасширений для проверки членства произвольной строки. */
+const AUDIO_FILE_EXTENSIONS_SET = new Set<string>(AUDIO_FILE_EXTENSIONS);
+
+/**
+ * Определяет, является ли путь/URL аудиофайлом по расширению.
+ *
+ * @param path - путь или URL файла (допускаются query/hash)
+ * @returns true, если расширение входит в {@link AUDIO_FILE_EXTENSIONS}
+ */
+export function isAudioPath(path: string | null | undefined): boolean {
+  if (!path) {
+    return false;
+  }
+
+  // Отбрасываем query/hash перед проверкой расширения
+  const queryIndex = path.search(/[?#]/);
+  const basePart = queryIndex === -1 ? path : path.slice(0, queryIndex);
+  const lastDot = basePart.lastIndexOf('.');
+
+  if (lastDot === -1) {
+    return false;
+  }
+
+  return AUDIO_FILE_EXTENSIONS_SET.has(
+    basePart.slice(lastDot + 1).toLowerCase(),
+  );
 }
 
 /**
@@ -235,9 +394,6 @@ export function getAssetUrl(
   return `${baseUrl}${encodedPath}`;
 }
 
-/** Префикс статической раздачи файлов мира в URL (контракт сервера). */
-const WORLD_ASSET_URL_PREFIX = '/world/';
-
 /**
  * Декодирует percent-encoding в каждом сегменте пути, не трогая разделители `/`.
  *
@@ -262,44 +418,62 @@ function decodeAssetPathSegments(encodedPath: string): string {
 }
 
 /**
- * Приводит сохранённую ссылку на ассет мира к относительному пути файлового
+ * Приводит сохранённую ссылку на ассет к относительному пути файлового
  * менеджера (обратная операция к {@link getAssetUrl} и серверному контракту
- * `url = /world/<relativePath>`, см. сборку записей в `assetsRoutes`).
+ * `url = <префикс пространства><relativePath>`, см. сборку записей в
+ * `assetsRoutes`).
  *
  * Понимает все формы хранения ассета в проекте:
- * - URL мира (`/world/maps/bg.png` или `http://host:port/world/...`) — снимает
- *   префикс `/world/`, отбрасывает query/hash и декодирует сегменты;
+ * - URL пространства (`/world/maps/bg.png`, `/shared-assets/sounds/hit.mp3`,
+ *   в том числе абсолютный `http://host:port/...`) — снимает префикс,
+ *   отбрасывает query/hash и декодирует сегменты;
  * - готовый относительный путь (`maps/bg.png`) — возвращает как есть;
  * - внешняя ссылка (`https://…`, `data:`, `blob:`) — возвращает `null`.
  *
- * @param reference - сохранённая ссылка на ассет (URL мира, относительный путь или внешняя ссылка)
- * @returns относительный путь мира или `null` для внешней/пустой ссылки
+ * @param reference - сохранённая ссылка на ассет (URL, относительный путь или внешняя ссылка)
+ * @param space - пространство файлов (по умолчанию `world`)
+ * @returns относительный путь внутри пространства или `null` для внешней/пустой ссылки
  */
-export function resolveWorldAssetRelativePath(
+export function resolveAssetRelativePath(
   reference: string | null | undefined,
+  space: AssetSpaceId = 'world',
 ): string | null {
   if (!reference) {
     return null;
   }
 
   const normalized = reference.replace(/\\/g, '/');
-  const prefixIndex = normalized.indexOf(WORLD_ASSET_URL_PREFIX);
+  const urlPrefix = ASSET_SPACE_URL_PREFIXES[space];
+  const prefixIndex = normalized.indexOf(urlPrefix);
 
-  // URL ассета мира — берём всё после префикса, отбрасываем query/hash
+  // URL пространства — берём всё после префикса, отбрасываем query/hash
   if (prefixIndex !== -1) {
     const pathAfterPrefix =
-      normalized
-        .slice(prefixIndex + WORLD_ASSET_URL_PREFIX.length)
-        .split(/[?#]/)[0] ?? '';
+      normalized.slice(prefixIndex + urlPrefix.length).split(/[?#]/)[0] ?? '';
 
     return decodeAssetPathSegments(pathAfterPrefix);
   }
 
-  // Внешняя ссылка без префикса мира — относительного пути нет
+  // Внешняя ссылка без префикса пространства — относительного пути нет
   if (/^(?:https?:|data:|blob:)/i.test(normalized)) {
     return null;
   }
 
   // Уже относительный путь
   return normalized;
+}
+
+/**
+ * {@link resolveAssetRelativePath} для пространства мира.
+ *
+ * Оставлена ради множества существующих вызовов — новый код может звать
+ * `resolveAssetRelativePath` напрямую.
+ *
+ * @param reference - сохранённая ссылка на ассет мира
+ * @returns относительный путь мира или `null` для внешней/пустой ссылки
+ */
+export function resolveWorldAssetRelativePath(
+  reference: string | null | undefined,
+): string | null {
+  return resolveAssetRelativePath(reference, 'world');
 }

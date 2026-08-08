@@ -9,8 +9,8 @@
 
 import type { ActorClassEntry, CounterRecovery } from './classTypes.js';
 import type {
-  Creature,
   DnDActor,
+  DnDCreature,
   Spell,
   SpellUsesRecovery,
 } from './dndEntities.js';
@@ -296,10 +296,10 @@ export function applyShortRestWithHitDice(
  * @returns частичный патч существа для emit('update:creature', ...)
  */
 export function applyCreatureRest(
-  creature: Creature,
+  creature: DnDCreature,
   restType: RestType,
-): Partial<Creature> {
-  const patch: Partial<Creature> = {
+): Partial<DnDCreature> {
+  const patch: Partial<DnDCreature> = {
     spells: (creature.spells ?? []).map((spell) =>
       restoreSpellUses(spell, restType),
     ),

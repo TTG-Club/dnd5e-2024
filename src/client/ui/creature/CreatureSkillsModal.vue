@@ -1,6 +1,6 @@
 <script setup lang="ts">
   import type { ProficiencyLevel, SkillType } from '@vtt/shared';
-  import type { Creature } from '@vtt/shared/system/dnd.js';
+  import type { DnDCreature } from '@vtt/shared/system/dnd.js';
 
   import {
     calculateSkillModifier,
@@ -19,7 +19,7 @@
 
   interface Props {
     open: boolean;
-    creature: Creature;
+    creature: DnDCreature;
   }
 
   const props = defineProps<Props>();

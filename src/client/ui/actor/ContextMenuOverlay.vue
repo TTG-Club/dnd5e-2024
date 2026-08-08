@@ -35,7 +35,7 @@
       @contextmenu.prevent="emit('close')"
     >
       <div
-        class="absolute min-w-[180px] rounded-lg border border-default bg-default py-1 shadow-xl"
+        class="absolute min-w-45 rounded-lg border border-default bg-default py-1 shadow-xl"
         :style="{ left: `${posX}px`, top: `${posY}px` }"
         @click.stop
       >

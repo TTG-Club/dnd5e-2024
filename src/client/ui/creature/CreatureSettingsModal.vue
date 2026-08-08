@@ -1,6 +1,6 @@
 <script setup lang="ts">
   import type { LightEmitter, TypedWebSocketClient } from '@vtt/shared';
-  import type { Creature, HpDisplayMode } from '@vtt/shared/system/dnd.js';
+  import type { DnDCreature, HpDisplayMode } from '@vtt/shared/system/dnd.js';
 
   import { useToast } from '@nuxt/ui/composables';
   import { createDefaultLightEmitter, getServerBaseUrl } from '@vtt/shared';
@@ -42,8 +42,8 @@
     zIndex?: number;
     modalId?: string;
     creatureId?: string;
-    creatureData?: Creature;
-    onSave?: (updates: Partial<Creature>) => void;
+    creatureData?: DnDCreature;
+    onSave?: (updates: Partial<DnDCreature>) => void;
     onDelete?: () => void;
     isAdmin?: boolean;
     users?: Array<{ id: string; username: string; role: string }>;
@@ -564,7 +564,7 @@
     title="Настройки существа"
     :ui="{
       content: 'max-w-2xl',
-      body: 'min-h-[400px]',
+      body: 'min-h-100',
     }"
     @bring-to-front="emit('bring-to-front')"
   >
@@ -857,7 +857,7 @@
           <template #token>
             <div class="flex h-full flex-col gap-4 overflow-hidden pt-4">
               <!-- 1. Превью (Сверху) -->
-              <div class="flex h-[280px] flex-none flex-col">
+              <div class="flex h-70 flex-none flex-col">
                 <div class="mb-2 flex items-center justify-between">
                   <div class="text-sm font-medium text-toned">Превью</div>
 

@@ -5,11 +5,11 @@
     TypedWebSocketClient,
   } from '@vtt/shared';
   import type {
-    Actor,
     BackgroundDefinition,
     ClassCounterDefinition,
     ClassDefinition,
-    GameItem,
+    DnDActor,
+    DnDGameItem,
     LongRestOptions,
     RestType,
     ShortRestHitDiceResult,
@@ -29,8 +29,8 @@
     computeSpeciesDarkvision,
     computeSpeciesMovement,
     DEFAULT_ACTOR,
+    getMulticlassProficiencies,
     getTotalLevel,
-    MULTICLASS_PROFICIENCIES,
     normalizeActor,
   } from '@vtt/shared/system/dnd.js';
   import { computed, ref, toRef, watch } from 'vue';
@@ -70,7 +70,7 @@
     open: boolean;
     actorId?: string;
     worldId: string;
-    actors: Actor[];
+    actors: DnDActor[];
     socket: TypedWebSocketClient | null;
     zIndex?: number;
     modalId?: string;
@@ -85,7 +85,7 @@
 
   const emit = defineEmits<{
     'update:open': [value: boolean];
-    'save': [actor: Actor];
+    'save': [actor: DnDActor];
     'close': [];
     'bring-to-front': [];
   }>();
@@ -98,8 +98,8 @@
 
   // Состояние
   const isEditMode = ref(false);
-  const localActor = ref<Actor | null>(null);
-  const savedSnapshot = ref<Actor | null>(null); // Снимок для отката изменений
+  const localActor = ref<DnDActor | null>(null);
+  const savedSnapshot = ref<DnDActor | null>(null); // Снимок для отката изменений
   const isDirty = ref(false);
   const isSaving = ref(false);
   const isCreated = ref(false); // Флаг: персонаж уже создан на сервере
@@ -232,7 +232,9 @@
    * @returns массив определений классов мира
    */
   function getWorldClassDefinitions(): ClassDefinition[] {
-    return itemsStore.items
+    // Стор хоста отдаёт нейтральные предметы — сужаем к D&D-форме, `classData`
+    // это её поле.
+    return (itemsStore.items as DnDGameItem[])
       .filter((worldItem) => worldItem.type === 'class')
       .map((worldItem) => worldItem.classData)
       .filter((definition): definition is ClassDefinition =>
@@ -266,7 +268,9 @@
    */
   async function loadClassDefinitions(): Promise<ClassDefinition[]> {
     if (props.socket) {
-      const entries = await loadCompendiumKind(props.socket, 'class');
+      // CompendiumEntry[] расширяем до unknown[], т.к. ClassDefinition не
+      // подтип CompendiumEntry и guard иначе не сузит при filter.
+      const entries: unknown[] = await loadCompendiumKind(props.socket, 'class');
 
       compendiumClassDefinitions.value = entries.filter(isClassDefinition);
     }
@@ -289,7 +293,9 @@
    * @returns массив определений видов мира
    */
   function getWorldSpeciesDefinitions(): SpeciesDefinition[] {
-    return itemsStore.items
+    // Стор хоста отдаёт нейтральные предметы — сужаем к D&D-форме (см.
+    // `getWorldClassDefinitions`).
+    return (itemsStore.items as DnDGameItem[])
       .filter((worldItem) => worldItem.type === 'species')
       .map((worldItem) => worldItem.speciesData)
       .filter((definition): definition is SpeciesDefinition =>
@@ -349,7 +355,7 @@
    *
    * @param actorData - актор с существующим видом
    */
-  async function loadCurrentSpeciesDefinition(actorData: Actor): Promise<void> {
+  async function loadCurrentSpeciesDefinition(actorData: DnDActor): Promise<void> {
     const speciesKey = actorData.system.species?.speciesKey;
 
     if (!speciesKey) {
@@ -493,16 +499,17 @@
     if (props.actorId) {
       const world = worldStore.getWorldById(props.worldId);
 
-      let actor: Actor | undefined;
+      let actor: DnDActor | undefined;
 
       if (world) {
+        // Мир хоста хранит акторов в нейтральной форме — сужаем к D&D-форме.
         actor = world.actors.find(
-          (actorEntry: Actor) => actorEntry.id === props.actorId,
-        );
+          (actorEntry) => actorEntry.id === props.actorId,
+        ) as DnDActor | undefined;
       } else {
         // Веб версия - используем props.actors
         actor = props.actors.find(
-          (actorEntry: Actor) => actorEntry.id === props.actorId,
+          (actorEntry: DnDActor) => actorEntry.id === props.actorId,
         );
       }
 
@@ -529,7 +536,7 @@
       // `structuredClone`, а не JSON-клон как в `featApply.ts`: там клонируют
       // реактивный Proxy листа (он бросает `DataCloneError`), здесь — сырую
       // константу, поэтому ограничения нет, а типы сохраняются без приведений.
-      const newActor: Actor = {
+      const newActor: DnDActor = {
         ...structuredClone(DEFAULT_ACTOR),
         id: newId,
         ownerId: !isAdmin.value ? currentUser.value?.id : undefined,
@@ -542,7 +549,7 @@
     isDirty.value = false;
   }
 
-  const storeActor = computed(() => {
+  const storeActor = computed<DnDActor | null | undefined>(() => {
     if (!props.actorId || !props.worldId) {
       return null;
     }
@@ -551,13 +558,15 @@
 
     if (!world) {
       return props.actors.find(
-        (actorEntry: Actor) => actorEntry.id === props.actorId,
+        (actorEntry) => actorEntry.id === props.actorId,
       );
     }
 
+    // Мир хоста хранит акторов в нейтральной форме (`system` — «чёрный
+    // ящик») — сужаем к D&D-форме, иначе `equipment`/`spells` недоступны.
     return world.actors.find(
-      (actorEntry: Actor) => actorEntry.id === props.actorId,
-    );
+      (actorEntry) => actorEntry.id === props.actorId,
+    ) as DnDActor | undefined;
   });
 
   watch(
@@ -634,7 +643,7 @@
     { deep: true },
   );
 
-  function handleActorUpdate(updates: Partial<Actor>) {
+  function handleActorUpdate(updates: Partial<DnDActor>) {
     if (localActor.value) {
       Object.assign(localActor.value, updates);
       isDirty.value = true;
@@ -771,7 +780,7 @@
     openModal('ActorSettingsModal', {
       actorId: props.actorId,
       actorData: localActor.value, // Передаем текущие данные
-      onSave: (updates: Partial<Actor>) => {
+      onSave: (updates: Partial<DnDActor>) => {
         // Обновляем локальное состояние при сохранении в модалке
         if (localActor.value) {
           Object.assign(localActor.value, updates);
@@ -824,7 +833,7 @@
       } else {
         const rawLocalActor = JSON.parse(JSON.stringify(localActor.value));
 
-        const newActor: Actor = {
+        const newActor: DnDActor = {
           ...rawLocalActor,
           id: rawLocalActor?.id || generateEntityId('actor'),
         };
@@ -977,7 +986,7 @@
 
   // --- Drag and Drop классов ---
 
-  function isDroppedGameItem(value: unknown): value is GameItem {
+  function isDroppedGameItem(value: unknown): value is DnDGameItem {
     return (
       isRecord(value)
       && typeof value.id === 'string'
@@ -1180,7 +1189,7 @@
           );
 
           if (!alreadyExists) {
-            const newItem: GameItem = {
+            const newItem: DnDGameItem = {
               ...parsedItem,
               id: generateId('eq'),
               isReadOnly: false,
@@ -1316,7 +1325,7 @@
   function handleStartWizardSequence(data: {
     queue: Array<{ classKey: string; targetLevel: number }>;
     experience: number;
-    forceApplies: import('@vtt/shared').ActorClassEntry[];
+    forceApplies: import('@vtt/shared/system/dnd.js').ActorClassEntry[];
   }) {
     if (!localActor.value) {
       return;
@@ -1332,8 +1341,8 @@
   }
 
   function handleClassSetupApply(
-    systemUpdates: Partial<Actor['system']>,
-    rootUpdates: Partial<Actor>,
+    systemUpdates: Partial<DnDActor['system']>,
+    rootUpdates: Partial<DnDActor>,
   ) {
     if (!localActor.value) {
       return;
@@ -1389,8 +1398,8 @@
    * @param removedSkills - навыки удалённого класса для исключения
    */
   function rebuildProficienciesFromRemainingClasses(
-    actor: Actor,
-    remainingClasses: Actor['system']['classes'],
+    actor: DnDActor,
+    remainingClasses: DnDActor['system']['classes'],
     removedSkills: string[],
   ): void {
     const proficiencies = actor.system.proficiencies;
@@ -1454,7 +1463,10 @@
         }
       } else {
         // Мультикласс — сокращённые владения (PHB 2024)
-        const multiProf = MULTICLASS_PROFICIENCIES[classDef.key];
+        // Через хелпер, а не индексацией таблицы: у хоумбрю-класса ключ вне
+        // `ClassKey`, и владения мультикласса лежат в его собственном поле
+        // `multiclassProficiencies` — прямая индексация их теряла.
+        const multiProf = getMulticlassProficiencies(classDef);
 
         if (multiProf) {
           for (const armor of unpackProficiencyKeys(
@@ -1591,8 +1603,8 @@
   }
 
   function handleSpeciesSetupApply(
-    systemUpdates: Partial<Actor['system']>,
-    rootUpdates: Partial<Actor>,
+    systemUpdates: Partial<DnDActor['system']>,
+    rootUpdates: Partial<DnDActor>,
   ) {
     if (!localActor.value) {
       return;
@@ -1706,8 +1718,8 @@
   );
 
   function handleBackgroundSetupApply(
-    systemUpdates: Partial<Actor['system']>,
-    rootUpdates: Partial<Actor>,
+    systemUpdates: Partial<DnDActor['system']>,
+    rootUpdates: Partial<DnDActor>,
   ) {
     if (!localActor.value) {
       return;

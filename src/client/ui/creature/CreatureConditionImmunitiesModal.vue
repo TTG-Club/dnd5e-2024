@@ -126,7 +126,7 @@
             </div>
 
             <div
-              class="custom-scrollbar max-h-[380px] space-y-0.5 overflow-y-auto pr-1"
+              class="custom-scrollbar max-h-95 space-y-0.5 overflow-y-auto pr-1"
             >
               <div
                 v-for="option in conditionOptions"

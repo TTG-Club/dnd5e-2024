@@ -2,7 +2,7 @@
   import type { SourceDefinition, TypedWebSocketClient } from '@vtt/shared';
   import type {
     ActiveEffect,
-    GameItem,
+    DnDGameItem,
     GrantedSpellRef,
     Spell,
   } from '@vtt/shared/system/dnd.js';
@@ -42,7 +42,7 @@
     savedPosition?: unknown;
     savedSize?: unknown;
     /** Редактируемая черта (null = создание) */
-    feat: GameItem | null;
+    feat: DnDGameItem | null;
     /** Сокет — для загрузки заклинаний компендиума (подсказки связывания). */
     socket?: TypedWebSocketClient | null;
     /** Z-index (управляется родителем для bring-to-front) */
@@ -53,7 +53,7 @@
 
   const emit = defineEmits<{
     'close': [];
-    'save': [feat: GameItem];
+    'save': [feat: DnDGameItem];
     'bring-to-front': [];
   }>();
 
@@ -152,7 +152,7 @@
     grants.value = createEmptyFeatGrants();
   }
 
-  function hydrateFromFeat(feat: GameItem): void {
+  function hydrateFromFeat(feat: DnDGameItem): void {
     name.value = feat.name || '';
     nameEn.value = feat.nameEn || '';
     description.value = feat.description || '';
@@ -235,7 +235,7 @@
 
     const featData = buildFeatData(grants.value, grantedSpells.value);
 
-    const item: GameItem = {
+    const item: DnDGameItem = {
       id: props.feat?.id || '',
       type: 'feat',
       name: name.value.trim(),
@@ -295,7 +295,7 @@
         :ui="{
           list: 'mb-3',
           trigger: 'flex-1 justify-center',
-          content: 'overflow-y-auto max-h-[600px]',
+          content: 'overflow-y-auto max-h-150',
         }"
       >
         <!-- ОСНОВНОЕ -->
@@ -404,7 +404,7 @@
               <div
                 v-for="effect in effects"
                 :key="effect.id"
-                class="flex min-h-[44px] items-center gap-2 rounded-lg bg-elevated/50 p-2 transition-colors hover:bg-accented/50"
+                class="flex min-h-11 items-center gap-2 rounded-lg bg-elevated/50 p-2 transition-colors hover:bg-accented/50"
                 :class="{ 'opacity-50 grayscale': effect.disabled }"
               >
                 <UIcon

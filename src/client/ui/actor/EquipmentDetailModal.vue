@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import type { GameItem } from '@vtt/shared/system/dnd.js';
+  import type { DnDGameItem } from '@vtt/shared/system/dnd.js';
 
   import { computed } from 'vue';
 
@@ -16,7 +16,7 @@
     /** Открыто ли модальное окно */
     open: boolean;
     /** Доспех для отображения */
-    item: GameItem | null;
+    item: DnDGameItem | null;
     /** Z-index модалки (управляется родителем) */
     zIndex?: number;
     /** Смещение позиции для каскадного расположения */
@@ -121,7 +121,7 @@
       color: 'info' as const,
       description:
         'Критическое попадание по владельцу этого снаряжения считается обычным попаданием.',
-      check: (item: GameItem) => Boolean(item.isAdamantine),
+      check: (item: DnDGameItem) => Boolean(item.isAdamantine),
     },
     {
       key: 'magical',
@@ -129,7 +129,7 @@
       color: 'primary' as const,
       description:
         'Снаряжение обладает магическими свойствами, которые могут давать бонус к КД или иные эффекты.',
-      check: (item: GameItem) => Boolean(item.isMagical),
+      check: (item: DnDGameItem) => Boolean(item.isMagical),
     },
     {
       key: 'stealth-disadvantage',
@@ -137,7 +137,7 @@
       color: 'error' as const,
       description:
         'Владелец совершает проверки Скрытности (Ловкость) с помехой.',
-      check: (item: GameItem) => Boolean(item.stealthDisadvantage),
+      check: (item: DnDGameItem) => Boolean(item.stealthDisadvantage),
     },
     {
       key: 'focus',
@@ -145,7 +145,7 @@
       color: 'warning' as const,
       description:
         'Может использоваться как магическая фокусировка для заклинаний.',
-      check: (item: GameItem) => Boolean(item.isFocus),
+      check: (item: DnDGameItem) => Boolean(item.isFocus),
     },
   ];
 

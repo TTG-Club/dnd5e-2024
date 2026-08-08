@@ -1,12 +1,5 @@
 <script setup lang="ts">
-  interface FeatDisplayItem {
-    id: string;
-    name: string;
-    nameEn?: string;
-    /** Происхождение выданной особенности (класс/вид) — для бейджа */
-    grantedBy?: string;
-    repeatable?: boolean;
-  }
+  import type { FeatDisplayItem } from './featListItemTypes';
 
   defineProps<{
     item: FeatDisplayItem;

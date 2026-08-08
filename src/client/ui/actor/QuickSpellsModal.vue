@@ -1,6 +1,6 @@
 <script setup lang="ts">
   import type { TypedWebSocketClient } from '@vtt/shared';
-  import type { Actor, Spell } from '@vtt/shared/system/dnd.js';
+  import type { DnDActor, Spell } from '@vtt/shared/system/dnd.js';
 
   import { generateId } from '@vtt/shared';
   import { computed, ref, watch } from 'vue';
@@ -28,16 +28,19 @@
   const worldStore = useWorldStore();
 
   /** Реактивный актёр из worldStore (source of truth) */
-  const storeActor = computed(() => {
+  const storeActor = computed<DnDActor | null>(() => {
     const world = worldStore.getWorldById(props.worldId);
 
+    // Мир хоста хранит акторов в нейтральной форме — сужаем к D&D-форме.
     return (
-      world?.actors.find((actor: Actor) => actor.id === props.actorId) ?? null
+      (world?.actors.find((actor) => actor.id === props.actorId) as
+        | DnDActor
+        | undefined) ?? null
     );
   });
 
   /** Локальная копия актёра для компонента (синхронизируется из store) */
-  const localActor = ref<Actor | null>(null);
+  const localActor = ref<DnDActor | null>(null);
 
   watch(
     storeActor,
@@ -60,7 +63,7 @@
    *
    * @param updates - частичные обновления актёра
    */
-  function handleActorUpdate(updates: Partial<Actor>): void {
+  function handleActorUpdate(updates: Partial<DnDActor>): void {
     if (!localActor.value) {
       return;
     }

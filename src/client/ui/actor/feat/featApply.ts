@@ -11,7 +11,7 @@
 import type { Feature, TypedWebSocketClient } from '@vtt/shared';
 import type {
   ActiveEffect,
-  Actor,
+  DnDActor,
   FeatData,
   ResolvedGrantedSpell,
   Spell,
@@ -32,7 +32,7 @@ import { generateEntityId } from '@/core/entityUtils';
 import { extractSpellEntries } from '@/systems/dnd5e/composables/spellCompendium';
 
 /** Владения актора (структурно — то, что черта правит). */
-type ActorProficiencies = Actor['system']['proficiencies'];
+type ActorProficiencies = DnDActor['system']['proficiencies'];
 
 /**
  * Особенность-черта, несущая дары для применения/отката. Базовый `Feature`
@@ -57,7 +57,7 @@ export interface FeatApplyResult {
    * черта повысила тёмное зрение — иначе `undefined` (токен не трогаем, чтобы не
    * затереть его при отсутствии изменений).
    */
-  token?: Actor['token'];
+  token?: DnDActor['token'];
 }
 
 /**
@@ -160,7 +160,7 @@ export async function resolveFeatGrantedSpells(
  * @param resolvedSpells - сопоставленные с компендиумом выдаваемые заклинания
  */
 export function applyFeatToActor(
-  actor: Actor,
+  actor: DnDActor,
   droppedFeat: AppliedFeatFeature,
   resolvedSpells: ResolvedGrantedSpell[],
 ): FeatApplyResult {
@@ -226,14 +226,14 @@ export function applyFeatToActor(
  * @param darkvision - тёмное зрение черты (футы)
  */
 function applyFeatDarkvision(
-  token: Actor['token'],
+  token: DnDActor['token'],
   darkvision: number,
-): Actor['token'] | undefined {
+): DnDActor['token'] | undefined {
   if (darkvision <= 0) {
     return undefined;
   }
 
-  const next: NonNullable<Actor['token']> = JSON.parse(
+  const next: NonNullable<DnDActor['token']> = JSON.parse(
     JSON.stringify(token ?? {}),
   );
 
@@ -265,7 +265,7 @@ function applyFeatDarkvision(
  * @param feature - удаляемая особенность-черта (с `featData` для точного отката)
  */
 export function removeFeatFromActor(
-  actor: Actor,
+  actor: DnDActor,
   feature: AppliedFeatFeature,
 ): FeatApplyResult {
   const features = actor.features.filter((entry) => entry.id !== feature.id);
@@ -299,14 +299,14 @@ export function removeFeatFromActor(
  * @param resolvedSpells - выдаваемые заклинания для повторной выдачи
  */
 export function reapplyFeatToActor(
-  actor: Actor,
+  actor: DnDActor,
   oldFeature: AppliedFeatFeature,
   updatedFeat: AppliedFeatFeature,
   resolvedSpells: ResolvedGrantedSpell[],
 ): FeatApplyResult {
   const removed = removeFeatFromActor(actor, oldFeature);
 
-  const intermediate: Actor = {
+  const intermediate: DnDActor = {
     ...actor,
     features: removed.features,
     spells: removed.spells,

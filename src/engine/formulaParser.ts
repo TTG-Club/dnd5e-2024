@@ -680,7 +680,7 @@ function isAlphaNumeric(char: string): boolean {
 export function buildFormulaContext(
   actor:
     | import('./dndEntities.js').DnDActor
-    | import('./dndEntities.js').Creature,
+    | import('./dndEntities.js').DnDCreature,
 ): FormulaContext {
   const abilityNames = [
     'strength',
@@ -876,94 +876,3 @@ function calculateProficiencyBonus(level: number): number {
 }
 
 // ── Подсказки для UI ──────────────────────────────────────────
-
-/**
- * Все доступные @-переменные для формул Active Effects.
- *
- * Используется в UI автокомплита при вводе формул.
- * Каждая запись содержит ключ, локализованное описание и группу.
- */
-export const FORMULA_VARIABLES: readonly FormulaVariableHint[] = [
-  // Характеристики (значения) — короткий синтаксис @<код>
-  {
-    key: '@str',
-    label: 'Сила (значение)',
-    group: 'Характеристики',
-  },
-  {
-    key: '@dex',
-    label: 'Ловкость (значение)',
-    group: 'Характеристики',
-  },
-  {
-    key: '@con',
-    label: 'Телосложение (значение)',
-    group: 'Характеристики',
-  },
-  {
-    key: '@int',
-    label: 'Интеллект (значение)',
-    group: 'Характеристики',
-  },
-  {
-    key: '@wis',
-    label: 'Мудрость (значение)',
-    group: 'Характеристики',
-  },
-  {
-    key: '@cha',
-    label: 'Харизма (значение)',
-    group: 'Характеристики',
-  },
-  // Характеристики (модификаторы) — короткий синтаксис @mod.<код>
-  {
-    key: '@mod.str',
-    label: 'Сила (модификатор)',
-    group: 'Модификаторы',
-  },
-  {
-    key: '@mod.dex',
-    label: 'Ловкость (модификатор)',
-    group: 'Модификаторы',
-  },
-  {
-    key: '@mod.con',
-    label: 'Телосложение (модификатор)',
-    group: 'Модификаторы',
-  },
-  {
-    key: '@mod.int',
-    label: 'Интеллект (модификатор)',
-    group: 'Модификаторы',
-  },
-  {
-    key: '@mod.wis',
-    label: 'Мудрость (модификатор)',
-    group: 'Модификаторы',
-  },
-  {
-    key: '@mod.cha',
-    label: 'Харизма (модификатор)',
-    group: 'Модификаторы',
-  },
-  {
-    key: '@mod.spell',
-    label: 'Заклинательная характеристика (модификатор)',
-    group: 'Модификаторы',
-  },
-  // Общие
-  { key: '@prof', label: 'Бонус мастерства', group: 'Общее' },
-  { key: '@level', label: 'Уровень персонажа', group: 'Общее' },
-  // Условные токены цели. В формулах урона заклинаний гасят своё слагаемое
-  // (голый токен, без `*`); в Active Effects резолвятся в 1/0 как множитель.
-  {
-    key: '@target.full',
-    label: 'Цель с полным HP (1/0)',
-    group: 'Цель',
-  },
-  {
-    key: '@target.notFull',
-    label: 'Цель ранена / не полное HP (1/0)',
-    group: 'Цель',
-  },
-] as const;

@@ -14,7 +14,7 @@ import type {
 import type {
   ActiveEffect,
   CurrencyType,
-  GameItem,
+  DnDGameItem,
 } from '@vtt/shared/system/dnd.js';
 
 import {
@@ -48,7 +48,7 @@ const NO_SELECTION = 'none';
  * @param getIsOpen - функция получения флага открытости модалки
  */
 export function useWeaponForm(
-  getWeapon: () => GameItem | null,
+  getWeapon: () => DnDGameItem | null,
   getIsOpen: () => boolean,
 ) {
   // --- Reactive-поля формы ---
@@ -375,7 +375,7 @@ export function useWeaponForm(
    * Собирает объект GameItem из текущих полей формы
    * @returns объект GameItem для отправки на сервер
    */
-  function buildWeapon(): GameItem {
+  function buildWeapon(): DnDGameItem {
     const weapon = getWeapon();
 
     return {

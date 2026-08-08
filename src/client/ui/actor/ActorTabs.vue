@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import type { Actor } from '@vtt/shared/system/dnd.js';
+  import type { DnDActor } from '@vtt/shared/system/dnd.js';
 
   import type { ExtensionRegistration } from '@/core/extensionRegistry';
 
@@ -17,7 +17,7 @@
   import ActorSpellsTab from './tabs/ActorSpellsTab.vue';
 
   interface Props {
-    actor: Actor;
+    actor: DnDActor;
     isEditMode: boolean;
     isSpellDragOver?: boolean;
     isEquipmentDragOver?: boolean;
@@ -31,7 +31,7 @@
   });
 
   const emit = defineEmits<{
-    'update:actor': [updates: Partial<Actor>];
+    'update:actor': [updates: Partial<DnDActor>];
     'immediate-save': [];
   }>();
 
@@ -127,7 +127,7 @@
   });
 
   // Проброс обновлений актора
-  function handleUpdate(updates: Partial<Actor>) {
+  function handleUpdate(updates: Partial<DnDActor>) {
     emit('update:actor', updates);
   }
 

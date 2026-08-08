@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import type { GameItem } from '@vtt/shared/system/dnd.js';
+  import type { DnDGameItem } from '@vtt/shared/system/dnd.js';
 
   import type { ItemPropertyBadge } from './ItemPropertyBadges.vue';
 
@@ -24,7 +24,7 @@
     /** Открыто ли модальное окно */
     open: boolean;
     /** Оружие для отображения */
-    item: GameItem | null;
+    item: DnDGameItem | null;
     /** Z-index модалки (управляется родителем) */
     zIndex?: number;
     /** Смещение позиции для каскадного расположения */

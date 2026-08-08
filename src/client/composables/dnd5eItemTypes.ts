@@ -11,7 +11,7 @@
  */
 
 import type { BaseGameItem, TypedWebSocketClient } from '@vtt/shared';
-import type { DnDGameItem, GameItem, Spell } from '@vtt/shared/system/dnd.js';
+import type { DnDGameItem, Spell } from '@vtt/shared/system/dnd.js';
 
 import type {
   ItemFormContext,
@@ -89,7 +89,7 @@ function isSpellEntity(value: unknown): value is Spell {
   );
 }
 
-function isGameItemLike(value: unknown): value is GameItem {
+function isGameItemLike(value: unknown): value is DnDGameItem {
   return (
     isRecord(value)
     && typeof value.id === 'string'
@@ -118,9 +118,11 @@ export function createDnd5eItemTypeProvider(): ItemTypeProvider {
   };
 
   const openDetail = (baseItem: BaseGameItem): void => {
-    // Доверенное сужение: ядро отдаёт нейтральный предмет, но в мире D&D он всегда
-    // D&D-формы (все D&D-поля опциональны → присваивание без каста).
-    const item: DnDGameItem = baseItem;
+    // Доверенное сужение: ядро отдаёт нейтральный предмет, но в мире D&D он
+    // всегда D&D-формы. Каст обязателен: `DnDGameItem` не просто добавляет
+    // опциональные поля, но и СУЖАЕТ `activeEffects` до D&D-формы, поэтому
+    // структурно `BaseGameItem` этому типу уже не соответствует.
+    const item = baseItem as DnDGameItem;
 
     // Заклинание: SpellDetailModal ожидает prop `spell` (плоский Spell из spellData).
     if (item.type === 'spell') {
@@ -167,7 +169,7 @@ export function createDnd5eItemTypeProvider(): ItemTypeProvider {
     ctx: ItemFormContext,
   ): void => {
     // Доверенное сужение к D&D-форме (см. openDetail).
-    const item: DnDGameItem | null = baseItem;
+    const item = baseItem as DnDGameItem | null;
     const socket: TypedWebSocketClient | null = ctx.socket;
     const onSave = ctx.onSave;
     const modalName = getModalName(type, 'FormModal');
@@ -218,7 +220,7 @@ export function createDnd5eItemTypeProvider(): ItemTypeProvider {
    * Сворачивает сохранённый объект в GameItem. Spell из SpellFormModal
    * оборачивается в GameItem-обёртку со spellData; GameItem — как есть.
    */
-  const normalizeSave = (saved: unknown): GameItem | null => {
+  const normalizeSave = (saved: unknown): DnDGameItem | null => {
     if (isSpellEntity(saved)) {
       return {
         id: saved.id,
@@ -251,7 +253,7 @@ export function createDnd5eItemTypeProvider(): ItemTypeProvider {
    */
   const shareToChat = (baseItem: BaseGameItem): void => {
     // Доверенное сужение к D&D-форме (см. openDetail).
-    const item: DnDGameItem = baseItem;
+    const item = baseItem as DnDGameItem;
 
     if (item.type !== 'spell' || !item.spellData) {
       return;

@@ -13,7 +13,7 @@ import type {
   SkillType,
 } from '@vtt/shared';
 import type { DamagePart } from '@vtt/shared';
-import type { DnDActor, DnDSceneEntity, GameItem } from './dndEntities.js';
+import type { DnDActor, DnDGameItem, DnDSceneEntity } from './dndEntities.js';
 
 import { getTotalLevel } from './classTypes.js';
 import {
@@ -64,22 +64,6 @@ export function calculateExperienceForNextLevel(currentLevel: number): number {
   }
 
   return EXPERIENCE_TABLE[currentLevel] || EXPERIENCE_TABLE[MAX_LEVEL - 1];
-}
-
-/**
- * Определяет уровень персонажа на основе опыта
- *
- * @param experience - Текущий опыт персонажа
- * @returns Уровень персонажа (1-20)
- */
-export function calculateLevelFromExperience(experience: number): number {
-  for (let level = MAX_LEVEL; level >= 1; level--) {
-    if (experience >= EXPERIENCE_TABLE[level - 1]) {
-      return level;
-    }
-  }
-
-  return 1;
 }
 
 /**
@@ -177,7 +161,7 @@ export function calculateSkillModifier(
  */
 export function resolveWeaponProficiency(
   actor: DnDActor,
-  weapon: GameItem,
+  weapon: DnDGameItem,
 ): boolean {
   const mode = weapon.proficiencyMode ?? 'auto';
 
@@ -231,7 +215,7 @@ export function resolveWeaponProficiency(
  */
 export function resolveWeaponAbilityScore(
   actor: DnDActor,
-  weapon: GameItem,
+  weapon: DnDGameItem,
 ): number {
   const abilities = actor.system?.abilities;
 
@@ -244,7 +228,7 @@ export function resolveWeaponAbilityScore(
 
 export function calculateWeaponAttackModifier(
   actor: DnDActor,
-  weapon: GameItem,
+  weapon: DnDGameItem,
   resolvedStats?: import('./activeEffectTypes.js').ResolvedActorStats,
 ): number {
   const abilityScore = resolveWeaponAbilityScore(actor, weapon);
@@ -287,7 +271,7 @@ export function calculateWeaponAttackModifier(
  */
 export function calculateWeaponDamageModifier(
   actor: DnDActor,
-  weapon: GameItem,
+  weapon: DnDGameItem,
   resolvedStats?: import('./activeEffectTypes.js').ResolvedActorStats,
 ): number {
   const abilityScore = resolveWeaponAbilityScore(actor, weapon);
@@ -314,7 +298,7 @@ export function calculateWeaponDamageModifier(
  * @param weapon - оружие
  * @returns true, если versatile-оружие в текущий момент удерживается двумя руками
  */
-export function isVersatileTwoHandedGrip(weapon: GameItem): boolean {
+export function isVersatileTwoHandedGrip(weapon: DnDGameItem): boolean {
   return (
     Boolean(weapon.twoHandedGrip)
     && Boolean(weapon.weaponProperties?.includes('versatile'))
@@ -332,7 +316,7 @@ export function isVersatileTwoHandedGrip(weapon: GameItem): boolean {
  * @param weapon - оружие
  * @returns части урона (с применённым versatile-хватом); `[]` если урон не задан
  */
-export function getWeaponDamageParts(weapon: GameItem): DamagePart[] {
+export function getWeaponDamageParts(weapon: DnDGameItem): DamagePart[] {
   const parts = weapon.damageParts ?? [];
 
   if (!isVersatileTwoHandedGrip(weapon)) {
@@ -353,7 +337,7 @@ export function getWeaponDamageParts(weapon: GameItem): DamagePart[] {
  * @returns тип урона первой части или undefined, если урон не задан
  */
 export function getWeaponPrimaryDamageType(
-  weapon: GameItem,
+  weapon: DnDGameItem,
 ): string | undefined {
   const part = getWeaponDamageParts(weapon)[0];
 
@@ -374,7 +358,7 @@ export function getWeaponPrimaryDamageType(
  * @param weapon - оружие
  * @returns строка вида «1к8 + 1к6» или пустая строка, если урон не задан
  */
-export function formatWeaponDamageFormula(weapon: GameItem): string {
+export function formatWeaponDamageFormula(weapon: DnDGameItem): string {
   return getWeaponDamageParts(weapon)
     .map((part) =>
       part.formula
@@ -557,8 +541,8 @@ export function normalizeActor(actor: DnDActor): DnDActor {
  * @returns нормализованное существо с заполненным system
  */
 export function normalizeCreature(
-  creature: import('./dndEntities.js').Creature,
-): import('./dndEntities.js').Creature {
+  creature: import('./dndEntities.js').DnDCreature,
+): import('./dndEntities.js').DnDCreature {
   // Дискриминатор типа сущности
   creature.entityType = 'creature';
 

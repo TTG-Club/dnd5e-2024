@@ -1,7 +1,7 @@
 <script setup lang="ts">
   import type {
     ActiveEffect,
-    GameItem,
+    DnDGameItem,
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
@@ -39,7 +39,7 @@
     /** Редактируемое заклинание (при открытии из листа персонажа) */
     spell?: Spell | null;
     /** Редактируемый предмет (при открытии из ItemsPanel) */
-    item?: GameItem | null;
+    item?: DnDGameItem | null;
     actorId?: string;
     /** Z-index (управляется родителем для bring-to-front) */
     zIndex?: number;
@@ -371,7 +371,7 @@
         :ui="{
           list: 'mb-3',
           trigger: 'flex-1 justify-center',
-          content: 'overflow-y-auto max-h-[600px]',
+          content: 'overflow-y-auto max-h-150',
         }"
       >
         <!-- Вкладка «Общие» -->
@@ -569,7 +569,7 @@
 
                     <UFormField
                       label="Стоимость (з.м.)"
-                      class="w-[120px] shrink-0"
+                      class="w-30 shrink-0"
                     >
                       <UInput
                         v-model.number="materialCost"
@@ -1136,7 +1136,7 @@
                   </div>
 
                   <DamagePartRow
-                    v-for="(part, partIndex) in tier.parts"
+                    v-for="(_part, partIndex) in tier.parts"
                     :key="partIndex"
                     v-model="tier.parts[partIndex]"
                     :index="partIndex"
@@ -1187,7 +1187,7 @@
               <div
                 v-for="effect in activeEffects"
                 :key="effect.id"
-                class="group flex min-h-[44px] items-center gap-2 rounded-lg bg-elevated/50 p-2 transition-colors hover:bg-accented/50"
+                class="group flex min-h-11 items-center gap-2 rounded-lg bg-elevated/50 p-2 transition-colors hover:bg-accented/50"
                 :class="{ 'opacity-50 grayscale': effect.disabled }"
               >
                 <UIcon

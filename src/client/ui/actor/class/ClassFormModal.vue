@@ -8,7 +8,7 @@
   } from '@vtt/shared';
   import type {
     ClassDefinition,
-    GameItem,
+    DnDGameItem,
     GrantedSpellRef,
     HitDie,
     Spell,
@@ -88,7 +88,7 @@
 
   const emit = defineEmits<{
     'close': [];
-    'save': [gameClass: GameItem];
+    'save': [gameClass: DnDGameItem];
     'bring-to-front': [];
   }>();
 
@@ -482,7 +482,7 @@
 
     const definition = buildDefinition();
 
-    const gameItem: GameItem = {
+    const gameItem: DnDGameItem = {
       id: existingId.value ?? `item_${generateId('class')}`,
       type: 'class',
       name: definition.name,
@@ -533,7 +533,7 @@
         :ui="{
           list: 'mb-3 flex-wrap',
           trigger: 'justify-center',
-          content: 'overflow-y-auto max-h-[640px]',
+          content: 'overflow-y-auto max-h-160',
         }"
       >
         <!-- ОСНОВНОЕ -->
@@ -831,7 +831,7 @@
               <UInput
                 v-model="option.key"
                 placeholder="A"
-                class="w-[70px]"
+                class="w-17.5"
               />
 
               <UTextarea

@@ -17,11 +17,14 @@ export * from './src/system/index.js';
 // Export all shared modules
 export * from './src/types/index.js';
 export * from './src/utils/colors.js';
+export * from './src/utils/compendiumEntry.js';
 export * from './src/utils/formatting.js';
 export * from './src/utils/generateId.js';
 export * from './src/utils/geometry.js';
 export * from './src/utils/getTokenDistance.js';
 export * from './src/utils/manifestValidation.js';
+export * from './src/utils/network.js';
+export * from './src/utils/notePages.js';
 export * from './src/utils/subscriptionStatus.js';
 export * from './src/utils/unitConverter.js';
 export * from './src/wsClient.js';

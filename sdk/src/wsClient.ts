@@ -46,6 +46,9 @@ const DEFAULT_RECONNECT: ReconnectOptions = {
  */
 const FAST_FIRST_RECONNECT_DELAY = 250;
 
+/** Причина отклонения ack-промисов, оставшихся без ответа из-за закрытия сокета */
+const ACK_REJECTED_ON_CLOSE = 'WebSocket закрыт до получения ack';
+
 /**
  * Клиентская обёртка WebSocket с авто-реконнектом и типизированными событиями.
  * Аналог Socket из socket.io-client.
@@ -61,6 +64,7 @@ export class TypedWebSocketClient {
     string,
     {
       resolve: (result: unknown[]) => void;
+      reject: (reason: Error) => void;
       timer: ReturnType<typeof setTimeout>;
     }
   > = new Map();
@@ -135,6 +139,12 @@ export class TypedWebSocketClient {
 
     this.ws.onclose = () => {
       this.connected = false;
+
+      // Ответы на in-flight ack-запросы уже не придут: ack-роутинг живёт
+      // в рамках конкретного соединения. Отклоняем сразу, не дожидаясь их
+      // таймаутов (до 10с) — вызывающий код быстрее снимет флаги ожидания.
+      this.rejectPendingAcks();
+
       this.triggerEvent('disconnect');
 
       if (!this.isManuallyClosed) {
@@ -274,7 +284,7 @@ export class TypedWebSocketClient {
         reject(new Error(`Ack timeout for event '${event}' (${timeoutMs}ms)`));
       }, timeoutMs);
 
-      this.pendingAcks.set(ackId, { resolve, timer });
+      this.pendingAcks.set(ackId, { resolve, reject, timer });
 
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         this.ws.send(serializeMessage(event, args, ackId));
@@ -295,12 +305,10 @@ export class TypedWebSocketClient {
       this.reconnectTimer = null;
     }
 
-    // Очищаем pending acks
-    for (const [, pending] of this.pendingAcks) {
-      clearTimeout(pending.timer);
-    }
-
-    this.pendingAcks.clear();
+    // Отклоняем pending acks: молчаливая очистка оставляла бы промисы
+    // emitWithAck зависшими навсегда (ни then, ни catch) — вызывающий код
+    // не мог снять свои флаги ожидания.
+    this.rejectPendingAcks();
 
     if (this.ws) {
       this.ws.close();
@@ -308,6 +316,16 @@ export class TypedWebSocketClient {
     }
 
     this.connected = false;
+  }
+
+  /** Отклоняет все ожидающие ack-промисы и очищает их таймеры */
+  private rejectPendingAcks(): void {
+    for (const [, pending] of this.pendingAcks) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error(ACK_REJECTED_ON_CLOSE));
+    }
+
+    this.pendingAcks.clear();
   }
 
   private triggerEvent(event: string, ...args: unknown[]): void {

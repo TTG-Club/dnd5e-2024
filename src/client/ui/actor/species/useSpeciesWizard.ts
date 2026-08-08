@@ -1,12 +1,12 @@
 import type { DefensibleDamageType } from '@vtt/shared';
 import type {
   ActiveEffect,
-  Actor,
   ActorSpeciesEntry,
   ConditionKey,
   CreatureSize,
   DamageDefenseEntry,
   DamageDefenseKind,
+  DnDActor,
   EffectFlagKey,
   GrantedSpellSource,
   ResolvedGrantedSpell,
@@ -195,7 +195,7 @@ function removeItems<T>(target: T[], itemsToRemove: T[]): void {
 }
 
 export function useSpeciesWizard(
-  actor: import('vue').Ref<Actor>,
+  actor: import('vue').Ref<DnDActor>,
   speciesDef: import('vue').Ref<SpeciesDefinition | null>,
 ) {
   const state = ref<SpeciesWizardState>({
@@ -377,8 +377,8 @@ export function useSpeciesWizard(
     previousSpeciesDef?: SpeciesDefinition | null,
     resolvedGrantedSpells: ResolvedGrantedSpell[] = [],
   ): {
-    systemUpdates: Partial<Actor['system']>;
-    rootUpdates: Partial<Actor>;
+    systemUpdates: Partial<DnDActor['system']>;
+    rootUpdates: Partial<DnDActor>;
   } {
     if (!speciesDef.value || !state.value.selectedSize) {
       return { systemUpdates: {}, rootUpdates: {} };
@@ -403,7 +403,7 @@ export function useSpeciesWizard(
     };
 
     // --- Откат предыдущего вида ---
-    const baseProficiencies: Actor['system']['proficiencies'] = JSON.parse(
+    const baseProficiencies: DnDActor['system']['proficiencies'] = JSON.parse(
       JSON.stringify(actor.value.system.proficiencies),
     );
 
@@ -448,7 +448,7 @@ export function useSpeciesWizard(
       chosenSubspecies,
     );
 
-    const systemUpdates: Partial<Actor['system']> = {
+    const systemUpdates: Partial<DnDActor['system']> = {
       species: speciesEntry,
       size: state.value.selectedSize,
       movement: {
@@ -459,7 +459,7 @@ export function useSpeciesWizard(
       proficiencies: baseProficiencies,
     };
 
-    const tokenUpdates: Partial<Actor['token']> = JSON.parse(
+    const tokenUpdates: Partial<DnDActor['token']> = JSON.parse(
       JSON.stringify(actor.value.token || {}),
     );
 
@@ -574,7 +574,7 @@ export function useSpeciesWizard(
       // resistance — пока без поддержки в proficiencies.
     });
 
-    const rootUpdates: Partial<Actor> = {
+    const rootUpdates: Partial<DnDActor> = {
       token: tokenUpdates,
     };
 

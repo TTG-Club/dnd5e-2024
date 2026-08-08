@@ -1,11 +1,10 @@
 <script setup lang="ts">
   import type { Feature, TypedWebSocketClient } from '@vtt/shared';
   import type {
-    Actor,
     BackgroundDefinition,
+    DnDActor,
     GrantedSpellSource,
   } from '@vtt/shared/system/dnd.js';
-  import type { ComponentPublicInstance } from 'vue';
 
   import {
     collectFeatGrantedSpellSources,
@@ -29,7 +28,7 @@
 
   const props = defineProps<{
     open: boolean;
-    actor: Actor;
+    actor: DnDActor;
     backgroundDefinition: BackgroundDefinition | null;
     socket: TypedWebSocketClient | null;
   }>();
@@ -37,12 +36,10 @@
   const emit = defineEmits<{
     'update:open': [value: boolean];
     'apply': [
-      systemUpdates: Partial<Actor['system']>,
-      rootUpdates: Partial<Actor>,
+      systemUpdates: Partial<DnDActor['system']>,
+      rootUpdates: Partial<DnDActor>,
     ];
   }>();
-
-  const modalRef = ref<ComponentPublicInstance | null>(null);
 
   const { getSourceLabel } = useSourceLabels();
 
@@ -122,7 +119,9 @@
 
     isLoadingFeats.value = true;
 
-    const entries = await loadCompendiumKind(props.socket, 'feat');
+    // CompendiumEntry[] расширяем до unknown[], т.к. Feature не подтип
+    // CompendiumEntry и guard иначе не сузит при filter.
+    const entries: unknown[] = await loadCompendiumKind(props.socket, 'feat');
 
     featsData.value = entries.filter(isFeature);
     isLoadingFeats.value = false;
@@ -205,7 +204,6 @@
 
 <template>
   <UDraggableModal
-    ref="modalRef"
     v-bind="$attrs"
     :open="open"
     :draggable="false"
@@ -289,7 +287,7 @@
         </div>
 
         <!-- Контент текущего шага -->
-        <div class="min-h-[200px]">
+        <div class="min-h-50">
           <div
             v-if="isLoadingFeats"
             class="flex h-full items-center justify-center p-20"

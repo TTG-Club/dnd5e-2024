@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import type { GameItem } from '@vtt/shared/system/dnd.js';
+  import type { DnDGameItem } from '@vtt/shared/system/dnd.js';
 
   import { formatItemCost } from '@vtt/shared';
   import { RARITY_COLORS, RARITY_LABELS } from '@vtt/shared/system/dnd.js';
@@ -7,11 +7,11 @@
 
   const props = defineProps<{
     /** Стоимость предмета */
-    cost: GameItem['cost'];
+    cost: DnDGameItem['cost'];
     /** Вес предмета (фунты) */
-    weight: GameItem['weight'];
+    weight: DnDGameItem['weight'];
     /** Редкость предмета */
-    rarity: GameItem['rarity'];
+    rarity: DnDGameItem['rarity'];
   }>();
 
   /** Показывать ли блок — есть хотя бы одно значимое поле */

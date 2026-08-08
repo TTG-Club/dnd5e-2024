@@ -4,13 +4,13 @@ import type {
   TypedWebSocketClient,
 } from '@vtt/shared';
 import type {
-  Actor,
   AttackRollMode,
-  Creature,
   CreatureAction,
+  DnDActor,
+  DnDCreature,
+  DnDGameItem,
   DnDSceneEntity,
   EffectAttackTrigger,
-  GameItem,
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
@@ -89,11 +89,11 @@ import { checkCreatureActionRangeOnScene } from '../ui/creature/composables/useC
  * Доверенные сужения по дискриминатору `entityType` (без `as`): дают доступ к
  * D&D-полям внутри системы.
  */
-function isDnDActorEntity(entity: SceneEntity | null): entity is Actor {
+function isDnDActorEntity(entity: SceneEntity | null): entity is DnDActor {
   return entity !== null && entity.entityType === 'actor';
 }
 
-function isDnDCreatureEntity(entity: SceneEntity | null): entity is Creature {
+function isDnDCreatureEntity(entity: SceneEntity | null): entity is DnDCreature {
   return entity !== null && entity.entityType === 'creature';
 }
 
@@ -183,12 +183,12 @@ function consumeAttackRollEffects(
  */
 function findWeapon(
   ref: string,
-  actor: Actor | null,
-  actors: Actor[],
-): { weapon: GameItem; actor: Actor } | null {
+  actor: DnDActor | null,
+  actors: DnDActor[],
+): { weapon: DnDGameItem; actor: DnDActor } | null {
   // Прямой поиск в актора-владельца
   if (actor) {
-    const weapon = actor.equipment?.find((item: GameItem) => item.id === ref);
+    const weapon = actor.equipment?.find((item: DnDGameItem) => item.id === ref);
 
     if (weapon) {
       return { weapon, actor };
@@ -198,7 +198,7 @@ function findWeapon(
   // Fallback: перебор всех акторов (обратная совместимость для старых макросов без actorId)
   for (const candidate of actors) {
     const weapon = candidate.equipment?.find(
-      (item: GameItem) => item.id === ref,
+      (item: DnDGameItem) => item.id === ref,
     );
 
     if (weapon) {
@@ -214,9 +214,9 @@ function findWeapon(
  */
 function findSpell(
   ref: string,
-  actor: Actor | null,
-  actors: Actor[],
-): { spell: import('@vtt/shared/system/dnd.js').Spell; actor: Actor } | null {
+  actor: DnDActor | null,
+  actors: DnDActor[],
+): { spell: import('@vtt/shared/system/dnd.js').Spell; actor: DnDActor } | null {
   if (actor) {
     const spell = actor.spells?.find(
       (existingSpell) => existingSpell.id === ref,
@@ -249,7 +249,7 @@ function findSpell(
  * @returns результат проверки дистанции или null
  */
 function checkWeaponRangeOnScene(
-  weapon: GameItem,
+  weapon: DnDGameItem,
   attackerActorId: string,
   targetTokenId: string,
 ): {
@@ -288,7 +288,7 @@ function checkWeaponRangeOnScene(
 function computeAvailableLevels(
   lockedLevel: number | undefined,
   spellLevel: number,
-  actor: Actor,
+  actor: DnDActor,
 ): number[] {
   if (lockedLevel) {
     return [lockedLevel];
@@ -685,7 +685,7 @@ export function registerDnd5eMacros(): void {
  */
 function executeSpellCast(
   spell: import('@vtt/shared/system/dnd.js').Spell,
-  actor: Actor,
+  actor: DnDActor,
   lockedSpellLevel?: number,
 ): void {
   // Если есть область действия — сначала размещаем шаблон на сцене
@@ -763,7 +763,7 @@ function executeSpellCast(
  */
 function openDiceRollForSpell(
   spell: import('@vtt/shared/system/dnd.js').Spell,
-  actor: Actor,
+  actor: DnDActor,
   cachedTemplate?: MeasurementTemplate,
   lockedSpellLevel?: number,
 ): void {
@@ -1202,12 +1202,12 @@ function openDiceRollForSpell(
         const socket = chatStore.getSocket();
 
         // Deep clone для отправки через сокет без реактивных прокси
-        const updatedActor: Actor = JSON.parse(JSON.stringify(actor));
+        const updatedActor: DnDActor = JSON.parse(JSON.stringify(actor));
 
         if (isPactSlot) {
           const newPactUsed = (actor.system?.pactSlotsUsed ?? 0) + 1;
 
-          const pactUpdate: Partial<Actor> = {
+          const pactUpdate: Partial<DnDActor> = {
             system: {
               ...actor.system,
               pactSlotsUsed: newPactUsed,
@@ -1228,7 +1228,7 @@ function openDiceRollForSpell(
 
           newUsed[index] = (newUsed[index] ?? 0) + 1;
 
-          const slotUpdate: Partial<Actor> = {
+          const slotUpdate: Partial<DnDActor> = {
             system: {
               ...actor.system,
               spellSlotsUsed: newUsed,
@@ -1297,7 +1297,7 @@ function applyTargetSpellEffectsMacro(spell: Spell): void {
  */
 function castBuffSpellMacro(
   spell: Spell,
-  actor: Actor,
+  actor: DnDActor,
   lockedSpellLevel?: number,
 ): void {
   const casterEffects = getCasterSpellEffects(spell);
@@ -1311,7 +1311,7 @@ function castBuffSpellMacro(
    *
    * @param target - клон актёра-заклинателя для отправки
    */
-  const appendEffects = (target: Actor): void => {
+  const appendEffects = (target: DnDActor): void => {
     if (casterEffects.length === 0) {
       return;
     }
@@ -1368,7 +1368,7 @@ function castBuffSpellMacro(
         }
 
         const socket = chatStore.getSocket();
-        const updatedActor: Actor = JSON.parse(JSON.stringify(actor));
+        const updatedActor: DnDActor = JSON.parse(JSON.stringify(actor));
 
         if (consumeSlot && castLevel > 0 && updatedActor.system) {
           if (isPactSlot) {
@@ -1412,7 +1412,7 @@ function castBuffSpellMacro(
 
   if (worldId && casterEffects.length > 0) {
     const socket = chatStore.getSocket();
-    const updatedActor: Actor = JSON.parse(JSON.stringify(actor));
+    const updatedActor: DnDActor = JSON.parse(JSON.stringify(actor));
 
     appendEffects(updatedActor);
 
@@ -1436,7 +1436,7 @@ function castBuffSpellMacro(
  * @returns плоский массив всех действий
  */
 function collectCreatureActions(
-  creature: Creature,
+  creature: DnDCreature,
 ): import('@vtt/shared/system/dnd.js').CreatureAction[] {
   return [
     ...(creature.system.traits ?? []),
@@ -1582,7 +1582,7 @@ function registerCreatureActionMacro(): void {
  * @param templateId - id размещённого AoE-шаблона (если действие с областью)
  */
 function openCreatureActionRoll(
-  creature: Creature,
+  creature: DnDCreature,
   action: CreatureAction,
   isDisadvantage: boolean,
   templateId: string | undefined,
@@ -1684,7 +1684,7 @@ function openCreatureActionRoll(
  * @param templateId - id размещённого AoE-шаблона (если был)
  */
 function applyCreatureActionParts(
-  creature: Creature,
+  creature: DnDCreature,
   action: CreatureAction,
   pseudoSpell: import('@vtt/shared/system/dnd.js').Spell,
   parts: RolledSpellDamagePart[],
@@ -1740,7 +1740,7 @@ function applyCreatureActionParts(
  * @param creature - существо-источник
  * @param spell - заклинание
  */
-function consumeCreatureSpellUse(creature: Creature, spell: Spell): void {
+function consumeCreatureSpellUse(creature: DnDCreature, spell: Spell): void {
   if (!spell.uses || spell.uses.recovery === 'atWill') {
     return;
   }
@@ -1869,7 +1869,7 @@ function registerCreatureSpellMacro(): void {
  * @param templateId - id размещённого AoE-шаблона (если область)
  */
 function openCreatureSpellRoll(
-  creature: Creature,
+  creature: DnDCreature,
   spell: Spell,
   templateId: string | undefined,
 ): void {
@@ -1939,13 +1939,7 @@ function openCreatureSpellRoll(
     damageParts: setup.baseParts,
     evaluateBonusDamageParts: setup.evaluateBonusDamageParts,
     onRollParts: (parts: RolledSpellDamagePart[]) =>
-      applyCreatureSpellParts(
-        creature,
-        spell,
-        setup.pseudoSpell,
-        parts,
-        templateId,
-      ),
+      applyCreatureSpellParts(creature, setup.pseudoSpell, parts, templateId),
     onHit,
     // Расход одноразовых эффектов «следующей атаки» на броске атаки существа
     onAttackRolled: usesAttack
@@ -1969,14 +1963,12 @@ function openCreatureSpellRoll(
  * многочастный оркестратор. DC спасброска — плоский из блока заклинательства.
  *
  * @param creature - существо-источник (casterId)
- * @param spell - заклинание (источник saveType/saveEffect)
  * @param pseudoSpell - псевдо-заклинание (клон с activeEffects)
  * @param parts - брошенные части урона
  * @param templateId - id размещённого AoE-шаблона (если был)
  */
 function applyCreatureSpellParts(
-  creature: Creature,
-  spell: Spell,
+  creature: DnDCreature,
   pseudoSpell: Spell,
   parts: RolledSpellDamagePart[],
   templateId: string | undefined,

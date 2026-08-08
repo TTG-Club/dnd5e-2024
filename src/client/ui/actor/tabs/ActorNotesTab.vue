@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import type { Actor } from '@vtt/shared/system/dnd.js';
+  import type { DnDActor } from '@vtt/shared/system/dnd.js';
 
   import { marked, Renderer } from 'marked';
   import { computed, ref, watch } from 'vue';
@@ -8,14 +8,14 @@
   import { useJournalStore } from '@/stores/journalStore';
 
   interface Props {
-    actor: Actor;
+    actor: DnDActor;
     isEditMode: boolean;
   }
 
   const props = defineProps<Props>();
 
   const emit = defineEmits<{
-    'update:actor': [updates: Partial<Actor>];
+    'update:actor': [updates: Partial<DnDActor>];
   }>();
 
   const journalStore = useJournalStore();
@@ -101,7 +101,7 @@
 
     <div
       v-else
-      class="note-view min-h-[200px] rounded-lg bg-accented/30"
+      class="note-view min-h-50 rounded-lg bg-accented/30"
     >
       <!-- eslint-disable-next-line vue/no-v-html -->
       <div

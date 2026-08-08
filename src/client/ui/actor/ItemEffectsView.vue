@@ -23,7 +23,7 @@
       <div
         v-for="effect in effects"
         :key="effect.id"
-        class="flex min-h-[44px] items-center gap-2 rounded-lg bg-elevated/50 p-2"
+        class="flex min-h-11 items-center gap-2 rounded-lg bg-elevated/50 p-2"
         :class="{ 'opacity-50 grayscale': effect.disabled }"
       >
         <UIcon

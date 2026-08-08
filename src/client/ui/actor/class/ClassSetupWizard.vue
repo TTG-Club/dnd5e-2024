@@ -9,9 +9,9 @@
    */
   import type { SkillType, TypedWebSocketClient } from '@vtt/shared';
   import type {
-    Actor,
     ClassDefinition,
     DnDAbilityScores,
+    DnDActor,
     HitPointMethod,
   } from '@vtt/shared/system/dnd.js';
 
@@ -35,7 +35,7 @@
 
   const props = defineProps<{
     open: boolean;
-    actor: Actor;
+    actor: DnDActor;
     classDefinition: ClassDefinition | null;
     /** Сокет для загрузки данных компендиума на шаге заклинаний */
     socket: TypedWebSocketClient | null;
@@ -45,8 +45,8 @@
     'update:open': [value: boolean];
     /** Вызывается после подтверждения, возвращает обновления для записи в актора */
     'apply': [
-      systemUpdates: Partial<Actor['system']>,
-      rootUpdates: Partial<Actor>,
+      systemUpdates: Partial<DnDActor['system']>,
+      rootUpdates: Partial<DnDActor>,
     ];
   }>();
 
@@ -369,7 +369,7 @@
         </div>
 
         <!-- Контент текущего шага -->
-        <div class="min-h-[200px]">
+        <div class="min-h-50">
           <!-- ХП -->
           <WizardStepHitPoints
             v-if="activeStepKey === 'hitPoints'"

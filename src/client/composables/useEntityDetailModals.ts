@@ -1,7 +1,7 @@
 import type { SourceDefinition } from '@vtt/shared';
 import type { EntityDetailOptions } from '@/core/registries';
 import type {
-  GameItem,
+  DnDGameItem,
   SpeciesDefinition,
   Spell,
 } from '@vtt/shared/system/dnd.js';
@@ -53,7 +53,7 @@ export function useEntityDetailModals() {
    * @param item - оружие, снаряжение или инструмент
    * @param options - кнопка копирования в инвентарь и её колбэк
    */
-  function openItemDetail(item: GameItem, options?: EntityDetailOptions): void {
+  function openItemDetail(item: DnDGameItem, options?: EntityDetailOptions): void {
     const modal =
       item.type === 'weapon'
         ? 'WeaponDetailModal'

@@ -13,6 +13,8 @@ import type {
   LightSource,
   MeasurementTemplate,
   Note,
+  NoteCreateInput,
+  NoteUpdateInput,
   OnlineUserData,
   Playlist,
   SceneAsset,
@@ -600,17 +602,8 @@ export interface SocketClientToServerEvents {
     callback: (result: { success: boolean; error?: string }) => void,
   ) => void;
   // Журнал
-  'journal:create': (
-    worldId: string,
-    noteData: Omit<
-      Note,
-      'id' | 'authorId' | 'authorName' | 'createdAt' | 'updatedAt'
-    >,
-  ) => void;
-  'journal:update': (
-    worldId: string,
-    noteData: Pick<Note, 'id' | 'title' | 'content' | 'images' | 'isHidden'>,
-  ) => void;
+  'journal:create': (worldId: string, noteData: NoteCreateInput) => void;
+  'journal:update': (worldId: string, noteData: NoteUpdateInput) => void;
   'journal:delete': (worldId: string, noteId: string) => void;
   'journal:request-list': (worldId: string) => void;
   // Initiative / Encounter

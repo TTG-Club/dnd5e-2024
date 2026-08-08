@@ -8,7 +8,7 @@ import type {
 import type {
   ActiveEffect,
   CurrencyType,
-  GameItem,
+  DnDGameItem,
 } from '@vtt/shared/system/dnd.js';
 
 import {
@@ -43,7 +43,7 @@ function toggleStringProperty(properties: string[], prop: string): void {
  * @param getIsOpen - функция получения флага открытости модалки
  */
 export function useToolForm(
-  getTool: () => GameItem | null,
+  getTool: () => DnDGameItem | null,
   getIsOpen: () => boolean,
 ) {
   // --- Reactive-поля формы ---
@@ -204,7 +204,7 @@ export function useToolForm(
    * Собирает объект GameItem из текущих полей формы
    * @returns объект GameItem для отправки на сервер
    */
-  function buildTool(): GameItem {
+  function buildTool(): DnDGameItem {
     const tool = getTool();
 
     return {

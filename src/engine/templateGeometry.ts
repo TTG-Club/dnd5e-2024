@@ -60,22 +60,6 @@ export function getTemplateGridNorm(
 }
 
 /**
- * Коэффициент стоимости направления: во сколько раз сеточное расстояние
- * вдоль направления `angle` больше евклидова. Евклидов радиус изолинии
- * сеточного расстояния `R` в направлении `angle` равен `R / factor`.
- *
- * @param angle - направление (радианы)
- * @param rule - правило расчёта диагоналей
- * @returns коэффициент (для euclidean всегда 1)
- */
-export function getDiagonalDirectionFactor(
-  angle: number,
-  rule: DiagonalRule,
-): number {
-  return getTemplateGridNorm(Math.cos(angle), Math.sin(angle), rule);
-}
-
-/**
  * Порог (квадрат расстояния в пикселях), при котором точка считается
  * совпадающей с вершиной конуса. `Math.atan2(0, 0)` возвращает 0, из-за чего
  * угловая проверка ложно отсекала точку-источник для конусов, направленных

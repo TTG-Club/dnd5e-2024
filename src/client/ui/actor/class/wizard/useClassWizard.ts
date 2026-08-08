@@ -10,11 +10,11 @@
 import type { AbilityType, ProficiencyLevel, SkillType } from '@vtt/shared';
 import type {
   ActiveEffect,
-  Actor,
   ClassCounterDefinition,
   ClassDefinition,
   ClassFeature,
   DnDAbilityScores,
+  DnDActor,
   GrantedSpellSource,
   HitPointMethod,
   ResolvedGrantedSpell,
@@ -203,7 +203,7 @@ function computeCounterMax(
  */
 export function useClassWizard(
   classDefinition: Ref<ClassDefinition | null>,
-  actor: Ref<Actor>,
+  actor: Ref<DnDActor>,
   isOpen: Ref<boolean>,
 ) {
   // ── Контекст ──────────────────────────────────────────────
@@ -733,8 +733,8 @@ export function useClassWizard(
    * сопоставленные с данными компендиума (добавляются как всегда подготовленные)
    */
   function buildUpdates(resolvedGrantedSpells: ResolvedGrantedSpell[] = []): {
-    systemUpdates: Partial<Actor['system']>;
-    rootUpdates: Partial<Actor>;
+    systemUpdates: Partial<DnDActor['system']>;
+    rootUpdates: Partial<DnDActor>;
   } {
     const classDef = classDefinition.value;
 
@@ -742,8 +742,8 @@ export function useClassWizard(
       return { systemUpdates: {}, rootUpdates: {} };
     }
 
-    const systemUpdates: Partial<Actor['system']> = {};
-    const rootUpdates: Partial<Actor> = {};
+    const systemUpdates: Partial<DnDActor['system']> = {};
+    const rootUpdates: Partial<DnDActor> = {};
     const classes = [...(actor.value.system.classes || [])];
 
     const existingIndex = classes.findIndex(

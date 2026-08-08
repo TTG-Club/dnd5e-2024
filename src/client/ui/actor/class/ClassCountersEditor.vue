@@ -176,7 +176,7 @@
             v-model="entry.level"
             :min="1"
             :max="20"
-            class="w-[90px]"
+            class="w-22.5"
           />
 
           <span class="text-xs text-muted">→ макс.</span>
@@ -185,7 +185,7 @@
             v-model="entry.value"
             :min="0"
             :max="999"
-            class="w-[100px]"
+            class="w-25"
           />
 
           <UButton

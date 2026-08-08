@@ -1,10 +1,10 @@
 <script setup lang="ts">
   import type { SceneEntity } from '@vtt/shared';
   import type {
-    Actor,
     AttackRollMode,
     ClassDefinition,
     ClassLevelEntry,
+    DnDActor,
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
@@ -27,6 +27,7 @@
     getSpellPrimaryDamageType,
     getSpellProjectileCount,
     getTotalLevel,
+    isDnDEffect,
     pickCantripTierParts,
     resolveActorStats,
     resolveDamagePartsForCast,
@@ -64,13 +65,13 @@
   import SpellListItem from '../SpellListItem.vue';
 
   const props = defineProps<{
-    actor: Actor;
+    actor: DnDActor;
     isEditMode: boolean;
     isDragOver?: boolean;
   }>();
 
   const emit = defineEmits<{
-    'update:actor': [updates: Partial<Actor>];
+    'update:actor': [updates: Partial<DnDActor>];
     'immediate-save': [];
   }>();
 
@@ -313,7 +314,7 @@
 
   /** Карта casterType для computeSpellSlots */
   const casterTypeMap = computed(() => {
-    const typeMap = new Map<string, import('@vtt/shared').CasterType>();
+    const typeMap = new Map<string, import('@vtt/shared/system/dnd.js').CasterType>();
     const classes = props.actor.system?.classes ?? [];
 
     for (const entry of classes) {
@@ -349,7 +350,9 @@
       return;
     }
 
-    const entries = await loadCompendiumKind(socket, 'class');
+    // CompendiumEntry[] расширяем до unknown[], т.к. ClassDefinition не подтип
+    // CompendiumEntry и guard иначе не сузит при filter.
+    const entries: unknown[] = await loadCompendiumKind(socket, 'class');
 
     classDefinitions.value = entries.filter(isClassDefinition);
   });
@@ -501,7 +504,7 @@
         ...props.actor.system,
         spellSlotsUsed: slots,
       },
-    } as Partial<Actor>);
+    } as Partial<DnDActor>);
 
     triggerSaveIfNotEdit();
   }
@@ -517,7 +520,7 @@
         ...props.actor.system,
         pactSlotsUsed: count,
       },
-    } as Partial<Actor>);
+    } as Partial<DnDActor>);
 
     triggerSaveIfNotEdit();
   }
@@ -939,7 +942,10 @@
     // (напр. аура союзника, дающая бонус-урон заклинаниям).
     const spellEffects = combineEffectsWithAmbient(
       collectActiveEffects(props.actor),
-      useAuraStore().getAmbientEffectsForActor(props.actor.id),
+      // Ambient-ауры контракт отдаёт нейтральной базой — сужаем к D&D-форме.
+      useAuraStore()
+        .getAmbientEffectsForActor(props.actor.id)
+        .filter(isDnDEffect),
     );
 
     const hasBonusDamage = hasSpellBonusDamage(spellEffects);
@@ -1347,7 +1353,7 @@
 </script>
 
 <template>
-  <div class="relative flex min-h-[200px] flex-col space-y-4">
+  <div class="relative flex min-h-50 flex-col space-y-4">
     <!-- Заголовок: Spell Save DC + Бонус атаки + Настройки -->
     <div
       class="flex items-center justify-between rounded-lg bg-accented/30 px-3 py-2"

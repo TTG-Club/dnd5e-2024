@@ -1,6 +1,6 @@
 <script setup lang="ts">
   import type { TypedWebSocketClient } from '@vtt/shared';
-  import type { Actor } from '@vtt/shared/system/dnd.js';
+  import type { DnDActor } from '@vtt/shared/system/dnd.js';
 
   import { useToast } from '@nuxt/ui/composables';
   import { nextTick } from 'vue';
@@ -13,7 +13,7 @@
     /** Открыта ли модалка */
     open: boolean;
     /** Актор для удаления */
-    actor: Actor | null;
+    actor: DnDActor | null;
     /** WebSocket клиент */
     socket: TypedWebSocketClient | null;
   }

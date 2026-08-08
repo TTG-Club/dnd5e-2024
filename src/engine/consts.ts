@@ -657,12 +657,6 @@ export const CONDITIONS: readonly ConditionEntry[] = [
   },
 ] as const;
 
-/** Текстовые константы для UI вкладки эффектов */
-export const EffectsTabLabels = {
-  EmptyState: 'Нет активных состояний',
-  SectionTitle: 'Состояния',
-} as const;
-
 // ============================================================
 // Валюты (Currency)
 // ============================================================
@@ -1003,7 +997,7 @@ export const CR_OPTIONS = CR_TABLE.map((entry) => ({
 // ============================================================
 
 /** Значения по умолчанию для нового существа */
-export const DEFAULT_CREATURE: Omit<import('./dndEntities.js').Creature, 'id'> =
+export const DEFAULT_CREATURE: Omit<import('./dndEntities.js').DnDCreature, 'id'> =
   {
     entityType: 'creature',
     name: 'Новое существо',

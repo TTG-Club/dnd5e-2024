@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import type { Actor, GameItem, Spell } from '@vtt/shared/system/dnd.js';
+  import type { DnDActor, DnDGameItem, Spell } from '@vtt/shared/system/dnd.js';
 
   import {
     formatConditionalDamageDisplay,
@@ -23,7 +23,7 @@
 
   const props = defineProps<{
     /** Данные заклинания или предмет-заклинание */
-    item: Spell | GameItem;
+    item: Spell | DnDGameItem;
     /** Показывать «Скопировать» в контекстном меню */
     showCopy?: boolean;
     /** Показывать «Редактировать» в контекстном меню */
@@ -42,7 +42,7 @@
      */
     creatureId?: string;
     /** Актор-владелец — для подстановки @-переменных в формуле урона при показе */
-    actor?: Actor;
+    actor?: DnDActor;
     /** Проп для режима редактирования: показывает inline-иконки */
     isEditMode?: boolean;
   }>();
@@ -71,7 +71,7 @@
       && 'spellData' in props.item
       && props.item.spellData
     ) {
-      return extractSpellFromGameItem(props.item as GameItem);
+      return extractSpellFromGameItem(props.item as DnDGameItem);
     }
 
     return props.item as Spell;
@@ -370,7 +370,7 @@
       @contextmenu.prevent="closeMenu"
     >
       <div
-        class="absolute min-w-[180px] rounded-lg border border-default bg-default py-1 shadow-xl"
+        class="absolute min-w-45 rounded-lg border border-default bg-default py-1 shadow-xl"
         :style="{ left: `${menuX}px`, top: `${menuY}px` }"
         @click.stop
       >

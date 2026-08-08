@@ -321,6 +321,38 @@ export interface ServerToClientEvents {
   'journal:reordered': (
     items: import('./types/index.js').JournalReorderItem[],
   ) => void;
+  // Папки сущностей: актёры и существа (Server → Client)
+  /**
+   * `hiddenEntityIds` — сущности из скрытых веток. Игроку их не показываем
+   * вовсе: без этого списка сущность без размещения просто всплыла бы в корень.
+   * Для ГМа список всегда пустой.
+   */
+  'entity-folder:list': (
+    kind: import('./types/index.js').EntityFolderKind,
+    folders: import('./types/index.js').EntityFolder[],
+    placements: import('./types/index.js').EntityFolderPlacement[],
+    hiddenEntityIds: string[],
+  ) => void;
+  'entity-folder:created': (
+    folder: import('./types/index.js').EntityFolder,
+  ) => void;
+  'entity-folder:updated': (
+    folder: import('./types/index.js').EntityFolder,
+  ) => void;
+  'entity-folder:deleted': (
+    kind: import('./types/index.js').EntityFolderKind,
+    folderId: string,
+  ) => void;
+  'entity-folder:entities-moved': (
+    kind: import('./types/index.js').EntityFolderKind,
+    placements: import('./types/index.js').EntityFolderPlacement[],
+    hiddenEntityIds: string[],
+  ) => void;
+  'entity-folder:reordered': (
+    kind: import('./types/index.js').EntityFolderKind,
+    placements: import('./types/index.js').EntityFolderPlacement[],
+    folders: import('./types/index.js').EntityFolder[],
+  ) => void;
   // Lighting (Server → Client)
   'lighting:changed': (sceneId: string, mode: 'day' | 'night') => void;
   'light-source:created': (sceneId: string, lightSource: LightSource) => void;
@@ -465,11 +497,16 @@ export interface ClientToServerEvents {
     sceneId: string,
     token: Token,
     /**
-     * Если задано — текущие и максимальные ХП экземпляра выставляются в это
+     * Если ЧИСЛО — текущие и максимальные ХП экземпляра выставляются в это
      * значение (случайный бросок по формуле хитов на клиенте). Используется при
      * Alt-клике по «+1», чтобы каждая копия получила свой запас ХП.
+     *
+     * `null` в типе не случаен: аргументы событий уезжают через
+     * `JSON.stringify`, и хвостовой `undefined` внутри массива превращается в
+     * `null`. Получатель обязан проверять `typeof === 'number'`, а не
+     * `!== undefined` — иначе «нет перекрытия» затрёт ХП копии нулём.
      */
-    hpOverride?: number,
+    hpOverride?: number | null,
   ) => void;
 
   // --- Боевое состояние сущности ---
@@ -610,17 +647,17 @@ export interface ClientToServerEvents {
   // --- Journal ---
   'journal:create': (
     worldId: string,
-    noteData: Omit<
-      Note,
-      'id' | 'authorId' | 'authorName' | 'createdAt' | 'updatedAt' | 'sortOrder'
-    >,
+    noteData: import('./types/index.js').NoteCreateInput,
   ) => void;
+  /**
+   * Сохранение журнала целиком: набор страниц заменяет прежний (страницы,
+   * которых нет в списке, удаляются). Так модалка редактирования отправляет
+   * ровно то, что видит пользователь, одним снимком — без гонки между
+   * добавлением страницы, её правкой и сортировкой.
+   */
   'journal:update': (
     worldId: string,
-    noteData: Pick<
-      Note,
-      'id' | 'title' | 'content' | 'images' | 'isHidden' | 'isPinVisible'
-    >,
+    noteData: import('./types/index.js').NoteUpdateInput,
   ) => void;
   'journal:delete': (worldId: string, noteId: string) => void;
   'journal:request-list': (worldId: string) => void;
@@ -669,6 +706,46 @@ export interface ClientToServerEvents {
     items: import('./types/index.js').JournalReorderItem[],
   ) => void;
   'journal:request-folders': (worldId: string) => void;
+  // Папки сущностей: актёры и существа (Client → Server)
+  'entity-folder:request-list': (
+    worldId: string,
+    kind: import('./types/index.js').EntityFolderKind,
+  ) => void;
+  'entity-folder:create': (
+    worldId: string,
+    kind: import('./types/index.js').EntityFolderKind,
+    folderData: { name: string; parentId: string | null; isHidden: boolean },
+  ) => void;
+  'entity-folder:update': (
+    worldId: string,
+    kind: import('./types/index.js').EntityFolderKind,
+    folderData: Pick<
+      import('./types/index.js').EntityFolder,
+      'id' | 'name' | 'isHidden'
+    >,
+  ) => void;
+  'entity-folder:delete': (
+    worldId: string,
+    kind: import('./types/index.js').EntityFolderKind,
+    folderId: string,
+  ) => void;
+  'entity-folder:move': (
+    worldId: string,
+    kind: import('./types/index.js').EntityFolderKind,
+    folderId: string,
+    newParentId: string | null,
+  ) => void;
+  'entity-folder:move-entities': (
+    worldId: string,
+    kind: import('./types/index.js').EntityFolderKind,
+    entityIds: string[],
+    folderId: string | null,
+  ) => void;
+  'entity-folder:reorder': (
+    worldId: string,
+    kind: import('./types/index.js').EntityFolderKind,
+    items: import('./types/index.js').FolderReorderItem[],
+  ) => void;
   // Initiative / Encounter
   'initiative:start-encounter': () => void;
   'initiative:add-entries': (actorIds: string[]) => void;

@@ -107,7 +107,7 @@
     <Transition name="slide-up">
       <div
         v-if="open && projectileStore.isActive"
-        class="pointer-events-auto flex min-w-[380px] flex-col gap-3 rounded-xl border border-default/50 bg-default/90 px-4 py-3 text-highlighted shadow-xl ring-accented backdrop-blur-sm"
+        class="pointer-events-auto flex min-w-95 flex-col gap-3 rounded-xl border border-default/50 bg-default/90 px-4 py-3 text-highlighted shadow-xl ring-accented backdrop-blur-sm"
       >
         <div class="flex items-center gap-2 border-b border-muted/50 pb-2">
           <UIcon

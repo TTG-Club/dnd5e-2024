@@ -227,7 +227,7 @@
           </div>
         </div>
 
-        <div class="flex min-h-[250px] flex-1 flex-col gap-1.5">
+        <div class="flex min-h-62.5 flex-1 flex-col gap-1.5">
           <span class="text-sm font-medium text-highlighted">Описание</span>
 
           <JournalEditor

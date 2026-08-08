@@ -1,4 +1,4 @@
-import type { GameItem, Spell } from '@vtt/shared/system/dnd.js';
+import type { DnDGameItem, Spell } from '@vtt/shared/system/dnd.js';
 
 /**
  * Извлекает данные заклинания из GameItem-обёртки.
@@ -10,7 +10,7 @@ import type { GameItem, Spell } from '@vtt/shared/system/dnd.js';
  * @param item - GameItem с type === 'spell' и заполненным spellData
  * @returns объект Spell с мета-полями из GameItem
  */
-export function extractSpellFromGameItem(item: GameItem): Spell {
+export function extractSpellFromGameItem(item: DnDGameItem): Spell {
   return {
     ...item.spellData,
     id: item.id,
