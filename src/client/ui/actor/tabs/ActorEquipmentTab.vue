@@ -856,7 +856,7 @@
               key: 'cp',
               label: 'ММ',
               full: 'Медные монеты',
-              color: 'text-orange-600',
+              color: 'text-danger-muted',
             },
             {
               key: 'sp',
@@ -868,7 +868,7 @@
               key: 'ep',
               label: 'ЭМ',
               full: 'Электрумовые монеты',
-              color: 'text-indigo-300',
+              color: 'text-magic-muted',
             },
             {
               key: 'gp',
@@ -880,7 +880,7 @@
               key: 'pp',
               label: 'ПМ',
               full: 'Платиновые монеты',
-              color: 'text-sky-200',
+              color: 'text-shield',
             },
           ] as const"
           :key="coin.key"
@@ -890,7 +890,7 @@
             :value="actor.system.currency?.[coin.key] ?? 0"
             type="number"
             min="0"
-            class="w-0 min-w-0 flex-1 rounded bg-default/40 px-1.5 py-0.5 text-right text-xs font-semibold text-highlighted ring-1 ring-default/50 transition-shadow outline-none focus:ring-primary-500/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            class="w-0 min-w-0 flex-1 rounded bg-default/40 px-1.5 py-0.5 text-right text-xs font-semibold text-highlighted ring-1 ring-default/50 transition-shadow outline-none focus:ring-primary/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
             @input="
               updateCurrency(
                 coin.key,
@@ -918,7 +918,7 @@
       class="flex flex-1 items-center justify-center rounded-lg border-2 border-dashed px-3 py-8 text-xs transition-colors"
       :class="
         isDragOver
-          ? 'border-primary-500/50 bg-primary-500/5 text-primary-400'
+          ? 'border-primary/50 bg-primary/5 text-primary'
           : 'border-default/30 text-dimmed'
       "
     >
@@ -1124,7 +1124,7 @@
                     type="number"
                     :value="item.quantity ?? 1"
                     min="1"
-                    class="w-8 [appearance:textfield] rounded border border-default bg-elevated/60 text-center text-xs text-highlighted focus:border-primary-500 focus:outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                    class="w-8 [appearance:textfield] rounded border border-default bg-elevated/60 text-center text-xs text-highlighted focus:border-primary focus:outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                     @change="
                       updateItemQuantity(
                         item.id,

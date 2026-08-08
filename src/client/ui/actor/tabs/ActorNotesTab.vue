@@ -126,21 +126,21 @@
     font-size: 1.5em;
     font-weight: 700;
     margin: 0.75em 0 0.3em;
-    color: rgb(243 244 246);
+    color: var(--ui-text-highlighted);
   }
 
   .note-view :deep(h2) {
     font-size: 1.25em;
     font-weight: 600;
     margin: 0.6em 0 0.25em;
-    color: rgb(229 231 235);
+    color: var(--ui-text);
   }
 
   .note-view :deep(h3) {
     font-size: 1.1em;
     font-weight: 600;
     margin: 0.5em 0 0.2em;
-    color: rgb(209 213 219);
+    color: var(--ui-text-toned);
   }
 
   .note-view :deep(ul) {
@@ -157,7 +157,7 @@
     border-left: 3px solid var(--ui-primary);
     padding-left: 1em;
     margin: 0.5em 0;
-    color: rgb(156 163 175);
+    color: var(--ui-text-dimmed);
     font-style: italic;
   }
 
@@ -167,16 +167,16 @@
   }
 
   .note-view :deep(code) {
-    background: rgb(31 41 55);
+    background: var(--ui-bg-elevated);
     padding: 0.15em 0.4em;
     border-radius: 4px;
     font-size: 0.85em;
-    color: rgb(248 113 113);
+    color: var(--color-danger);
   }
 
   .note-view :deep(hr) {
     border: none;
-    border-top: 1px solid rgb(55 65 81);
+    border-top: 1px solid var(--ui-border-accented);
     margin: 1em 0;
   }
 

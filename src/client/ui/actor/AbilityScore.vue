@@ -36,7 +36,7 @@
 
   const modifierClass = computed(() => {
     if (props.modifier > 0) {
-      return 'text-white';
+      return 'text-highlighted';
     } else if (props.modifier < 0) {
       return 'text-danger';
     } else {
@@ -137,7 +137,7 @@
     :class="
       isEditMode
         ? 'hover:border-muted/50'
-        : 'cursor-pointer hover:border-primary-500/50'
+        : 'cursor-pointer hover:border-primary/50'
     "
     @click.left.exact.prevent="handleRoll"
   >
@@ -161,12 +161,12 @@
       :class="[
         isEditMode
           ? 'w-[calc(100%-8px)] group-hover:border-accented'
-          : 'min-w-10 px-2 group-hover:border-primary-500/50',
+          : 'min-w-10 px-2 group-hover:border-primary/50',
       ]"
     >
       <template v-if="isEditMode">
         <button
-          class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-xs text-muted transition-colors hover:bg-accented/50 hover:text-white"
+          class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-xs text-muted transition-colors hover:bg-accented/50 hover:text-highlighted"
           @click.left.exact.prevent="decrement"
         >
           −
@@ -177,7 +177,7 @@
           type="number"
           min="1"
           max="30"
-          class="min-w-0 flex-1 [appearance:textfield] bg-transparent text-center text-[10px] font-bold text-white tabular-nums outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          class="min-w-0 flex-1 [appearance:textfield] bg-transparent text-center text-[10px] font-bold text-highlighted tabular-nums outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           @input="handleInput"
         />
 
@@ -206,7 +206,7 @@
 
                 <span
                   class="ml-auto tabular-nums"
-                  :class="row.kind === 'bonus' ? bonusColorClass : 'text-white'"
+                  :class="row.kind === 'bonus' ? bonusColorClass : 'text-highlighted'"
                   >{{ row.value }}</span
                 >
               </div>
@@ -215,7 +215,7 @@
         </UTooltip>
 
         <button
-          class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-xs text-muted transition-colors hover:bg-accented/50 hover:text-white"
+          class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-xs text-muted transition-colors hover:bg-accented/50 hover:text-highlighted"
           @click.left.exact.prevent="increment"
         >
           +
@@ -249,7 +249,7 @@
 
                 <span
                   class="ml-auto tabular-nums"
-                  :class="row.kind === 'bonus' ? bonusColorClass : 'text-white'"
+                  :class="row.kind === 'bonus' ? bonusColorClass : 'text-highlighted'"
                   >{{ row.value }}</span
                 >
               </div>
@@ -259,7 +259,7 @@
 
         <span
           v-else
-          class="w-full text-center text-[9px] leading-none font-bold text-white"
+          class="w-full text-center text-[9px] leading-none font-bold text-highlighted"
           >{{ value }}</span
         >
       </template>

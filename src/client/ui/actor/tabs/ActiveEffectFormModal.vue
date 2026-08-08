@@ -709,7 +709,7 @@
                   >
                     <span
                       class="text-xs font-medium transition-colors"
-                      :class="isAura ? 'text-indigo-400' : 'text-muted'"
+                      :class="isAura ? 'text-magic' : 'text-muted'"
                     >
                       {{ isAura ? 'Включена' : 'Нет' }}
                     </span>
@@ -897,7 +897,7 @@
                 class="mb-4"
               >
                 <div
-                  class="grid grid-cols-1 items-end gap-4 rounded-lg border border-indigo-800/50 bg-indigo-900/20 p-2 px-3 sm:grid-cols-12"
+                  class="grid grid-cols-1 items-end gap-4 rounded-lg border border-magic-border/50 bg-magic-subtle/20 p-2 px-3 sm:grid-cols-12"
                 >
                   <UFormField
                     label="Радиус (фт)"
@@ -994,7 +994,7 @@
                         />
 
                         <UButton
-                          color="red"
+                          color="error"
                           variant="soft"
                           icon="tabler:trash"
                           size="sm"
@@ -1148,7 +1148,7 @@
 
                     <div class="flex h-8 items-center justify-end pb-[2px]">
                       <UButton
-                        color="red"
+                        color="error"
                         variant="soft"
                         icon="tabler:trash"
                         size="sm"

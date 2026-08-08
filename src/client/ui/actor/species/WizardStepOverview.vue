@@ -237,7 +237,7 @@
           class="flex flex-col rounded-lg bg-elevated p-3"
         >
           <span
-            class="mb-1 text-[10px] font-semibold tracking-wider text-primary-400 uppercase"
+            class="mb-1 text-[10px] font-semibold tracking-wider text-primary uppercase"
           >
             {{ grant.title }}
           </span>

@@ -64,7 +64,7 @@
     <UButton
       v-if="showDelete"
       icon="tabler:trash"
-      color="red"
+      color="error"
       variant="ghost"
       size="xs"
       @click.left.exact.prevent.stop="emit('delete')"

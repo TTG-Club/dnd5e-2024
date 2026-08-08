@@ -31,7 +31,10 @@
   import { useImageFallback } from '@/shared_ui/composables';
   import { useWorldStore } from '@/stores/worldStore';
 
-  import { useTokenPreview } from '../../composables/useTokenPreview';
+  import {
+    TOKEN_TINT_DEFAULT,
+    useTokenPreview,
+  } from '../../composables/useTokenPreview';
   import CreatureDeleteConfirmModal from './CreatureDeleteConfirmModal.vue';
 
   interface Props {
@@ -164,7 +167,7 @@
     textureX: 0.5,
     textureY: 0.5,
     rotation: 0,
-    tint: '#ffffff',
+    tint: TOKEN_TINT_DEFAULT,
     disposition: 'hostile',
     showName: false,
     hpDisplayMode: 'text',
@@ -277,7 +280,8 @@
       || tokenSettings.value.textureY
         !== (creature.value.token?.textureY ?? 0.5)
       || tokenSettings.value.rotation !== (creature.value.token?.rotation ?? 0)
-      || tokenSettings.value.tint !== (creature.value.token?.tint || '#ffffff')
+      || tokenSettings.value.tint
+        !== (creature.value.token?.tint || TOKEN_TINT_DEFAULT)
       || tokenSettings.value.disposition
         !== (creature.value.token?.disposition || 'hostile')
       || tokenSettings.value.showName
@@ -389,7 +393,7 @@
         textureX: creature.value.token?.textureX ?? 0.5,
         textureY: creature.value.token?.textureY ?? 0.5,
         rotation: creature.value.token?.rotation ?? 0,
-        tint: creature.value.token?.tint || '#ffffff',
+        tint: creature.value.token?.tint || TOKEN_TINT_DEFAULT,
         disposition: creature.value.token?.disposition || 'hostile',
         showName: creature.value.token?.showName ?? false,
         hpDisplayMode: creature.value.token?.hpDisplayMode ?? 'text',
@@ -890,7 +894,7 @@
                     class="absolute inset-0 opacity-20"
                     style="
                       background-image: radial-gradient(
-                        #4b5563 1px,
+                        var(--ui-text-muted) 1px,
                         transparent 1px
                       );
                       background-size: 10px 10px;

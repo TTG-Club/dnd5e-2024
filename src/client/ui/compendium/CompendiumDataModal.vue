@@ -1126,7 +1126,7 @@
                   v-else-if="isSpeciesData && isSpeciesDefinition(entry)"
                 >
                   <EntityCard
-                    class="hover:bg-primary-500/10"
+                    class="hover:bg-primary/10"
                     entity-type="species"
                     :entry="entry"
                     show-copy
@@ -1140,7 +1140,7 @@
                   v-else-if="isBackgroundData && isBackgroundDefinition(entry)"
                 >
                   <EntityCard
-                    class="hover:bg-primary-500/10"
+                    class="hover:bg-primary/10"
                     entity-type="background"
                     :entry="entry"
                     show-copy
@@ -1152,7 +1152,7 @@
                 <!-- Предмет: Класс -->
                 <template v-else-if="isClassData && isClassDefinition(entry)">
                   <EntityCard
-                    class="hover:bg-primary-500/10"
+                    class="hover:bg-primary/10"
                     entity-type="class"
                     :entry="entry"
                     show-copy

@@ -60,15 +60,15 @@
     <!-- Выбор подкласса -->
     <div
       v-if="hasSubclassSelection"
-      class="rounded-lg border border-primary-900/50 bg-primary-900/10 p-3"
+      class="rounded-lg border border-primary/50 bg-primary/10 p-3"
     >
       <div class="mb-3 flex items-center gap-2">
         <UIcon
           name="tabler:git-branch"
-          class="h-5 w-5 text-primary-400"
+          class="h-5 w-5 text-primary"
         />
 
-        <span class="font-medium text-primary-300">
+        <span class="font-medium text-primary">
           {{ subclassLabel || 'Выбор подкласса' }}
         </span>
       </div>
@@ -80,7 +80,7 @@
           class="rounded-md border p-2 text-left transition-colors"
           :class="
             subclassKey === sc.key
-              ? 'border-primary-500/50 bg-primary-500/10'
+              ? 'border-primary/50 bg-primary/10'
               : 'border-default/50 bg-default/30 hover:border-accented/50'
           "
           @click.left.exact.prevent="selectSubclass(sc.key)"
@@ -150,7 +150,7 @@
             class="rounded-md border p-2 text-left transition-colors"
             :class="
               featureChoices[feature.key] === choice.key
-                ? 'border-primary-500/50 bg-primary-500/10'
+                ? 'border-primary/50 bg-primary/10'
                 : 'border-default/50 bg-default/30 hover:border-accented/50'
             "
             @click.left.exact.prevent="selectChoice(feature.key, choice.key)"

@@ -639,7 +639,7 @@
         toast.add({
           title: 'Лимит подготовки',
           description: `Вы не можете подготовить больше заклинаний (${maxPreparedSpells.value}).`,
-          color: 'amber',
+          color: 'warning',
         });
 
         return;
@@ -714,7 +714,7 @@
       toast.add({
         title: 'Недоступно',
         description: `У вас нет доступных ячеек заклинаний ${spell.level} круга или выше.`,
-        color: 'rose',
+        color: 'error',
       });
 
       return;
@@ -1613,7 +1613,7 @@
       class="flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 text-center transition-colors"
       :class="
         isDragOver
-          ? 'border-primary-500/50 bg-primary-500/5 text-primary-400'
+          ? 'border-primary/50 bg-primary/5 text-primary'
           : 'border-transparent text-dimmed'
       "
     >

@@ -400,7 +400,7 @@
                 :key="choice.key"
                 class="rounded-lg border border-default/50 bg-elevated/30 p-3"
               >
-                <span class="text-sm font-medium text-primary-400">
+                <span class="text-sm font-medium text-primary">
                   {{ choice.name }}
                 </span>
 

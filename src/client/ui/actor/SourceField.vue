@@ -134,7 +134,7 @@
 
     <p
       v-if="known"
-      class="text-xs text-primary-400"
+      class="text-xs text-primary"
     >
       {{ known.name }}<span v-if="known.nameEn"> · {{ known.nameEn }}</span>
     </p>

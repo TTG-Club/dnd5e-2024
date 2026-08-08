@@ -342,7 +342,7 @@
               class="h-px flex-1"
               :class="
                 stepIdx <= currentStepIndex
-                  ? 'bg-primary-500/60'
+                  ? 'bg-primary/60'
                   : 'bg-accented/50'
               "
             />
@@ -352,7 +352,7 @@
               class="flex items-center gap-1.5 rounded-full px-2 py-1 text-xs transition-colors"
               :class="[
                 stepIdx === currentStepIndex
-                  ? 'bg-primary-500/20 text-primary-400 ring-1 ring-primary-500/40'
+                  ? 'bg-primary/20 text-primary ring-1 ring-primary/40'
                   : stepIdx < currentStepIndex
                     ? 'bg-success/10 text-healing'
                     : 'text-dimmed',

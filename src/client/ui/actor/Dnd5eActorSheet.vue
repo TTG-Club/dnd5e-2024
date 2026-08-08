@@ -1991,17 +1991,9 @@
 </template>
 
 <style scoped>
-  .custom-scrollbar::-webkit-scrollbar {
-    width: 6px;
-  }
-  .custom-scrollbar::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  .custom-scrollbar::-webkit-scrollbar-thumb {
-    background-color: rgb(75 85 99 / 0.5);
-    border-radius: 20px;
-  }
-  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background-color: rgb(107 114 128 / 0.6);
+  /* Сама полоса описана один раз в system.css. Здесь только ширина: лист
+   * прокручивается целиком, и полоса у него шире, чем у панелей внутри. */
+  .custom-scrollbar {
+    --dnd5e-scrollbar-width: 6px;
   }
 </style>

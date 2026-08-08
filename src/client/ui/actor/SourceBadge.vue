@@ -74,7 +74,7 @@
 
     <span
       v-else
-      class="truncate text-primary-400"
+      class="truncate text-primary"
     >
       {{ definition.abbreviation }}
     </span>

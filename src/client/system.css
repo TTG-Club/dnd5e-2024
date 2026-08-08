@@ -85,3 +85,32 @@
   /* Временные ОЗ (temp HP) / щиты */
   --color-shield: var(--color-sky-400);
 }
+
+/* ── Собственные классы системы (НЕ зеркало хоста) ───────────────────────────
+ *
+ * Здесь живёт только то, что нужно НЕСКОЛЬКИМ компонентам сразу: `<style scoped>`
+ * виден исключительно своему шаблону, поэтому `.custom-scrollbar` оформлялся лишь
+ * в двух файлах из пяти, где он стоит в разметке — карточкам существа не
+ * доставалось ничего.
+ *
+ * Имя безопасно: глобального `.custom-scrollbar` у хоста нет, его собственный
+ * лежит внутри scoped-стиля `PlaylistItem.vue` и с нашим не пересекается.
+ * Ширину компонент задаёт переменной — у листа целиком полоса шире, чем у
+ * панелей внутри него. */
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: var(--dnd5e-scrollbar-width, 4px);
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: color-mix(in oklch, var(--ui-text-muted) 50%, transparent);
+  border-radius: 20px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklch, var(--ui-text-toned) 60%, transparent);
+}

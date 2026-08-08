@@ -38,7 +38,7 @@
 <template>
   <div
     v-if="feature"
-    class="overflow-hidden rounded-lg border border-indigo-500/30"
+    class="overflow-hidden rounded-lg border border-arcane/30"
   >
     <!-- Заголовок -->
     <div class="flex items-center gap-2 bg-elevated/60 px-3 py-2">
@@ -53,7 +53,7 @@
     <div class="flex flex-col gap-2 bg-default/40 px-3 py-2">
       <!-- Мета-строка -->
       <div class="flex items-center gap-2 text-xs">
-        <span class="font-medium text-indigo-400">
+        <span class="font-medium text-arcane">
           {{ isFeat ? 'Черта' : 'Особенность' }}
         </span>
       </div>

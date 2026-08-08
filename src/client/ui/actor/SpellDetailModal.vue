@@ -245,7 +245,7 @@
                   <p class="text-highlighted">
                     <span
                       v-if="spell.concentration"
-                      class="font-semibold text-warning-400"
+                      class="font-semibold text-warning"
                       >Концентрация,
                     </span>
 

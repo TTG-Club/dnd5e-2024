@@ -373,7 +373,7 @@
           :class="
             props.isEditMode
               ? 'cursor-pointer border-primary/30 hover:border-primary/50'
-              : 'cursor-pointer border-muted hover:border-primary-500/50'
+              : 'cursor-pointer border-muted hover:border-primary/50'
           "
           @click.left.exact.prevent="handleInitiativeClick"
         >
@@ -461,18 +461,5 @@
   />
 </template>
 
-<style scoped>
-  .custom-scrollbar::-webkit-scrollbar {
-    width: 4px;
-  }
-  .custom-scrollbar::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  .custom-scrollbar::-webkit-scrollbar-thumb {
-    background-color: rgb(75 85 99 / 0.5);
-    border-radius: 20px;
-  }
-  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background-color: rgb(107 114 128 / 0.6);
-  }
-</style>
+<!-- Полоса прокрутки описана один раз в system.css: здесь ширина по умолчанию -->
+

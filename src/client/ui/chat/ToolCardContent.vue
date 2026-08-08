@@ -57,7 +57,7 @@
     <div class="flex items-center gap-2 bg-elevated/60 px-3 py-2">
       <UIcon
         name="tabler:tools"
-        class="size-4 shrink-0 text-primary-400"
+        class="size-4 shrink-0 text-primary"
       />
 
       <span

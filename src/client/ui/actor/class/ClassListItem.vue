@@ -11,7 +11,7 @@
 
   const HIT_DIE_COLORS: Record<number, string> = {
     6: 'text-danger',
-    8: 'text-orange-400',
+    8: 'text-danger-muted',
     10: 'text-warning',
     12: 'text-success',
   };

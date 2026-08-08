@@ -426,7 +426,7 @@
               size="xl"
               class="w-full"
               :ui="{
-                base: 'bg-white/5 text-3xl font-serif text-highlighted placeholder-gray-600 rounded-lg px-3 py-1 focus:bg-white/10 transition-colors',
+                base: 'bg-inverted/5 text-3xl font-serif text-highlighted placeholder:text-dimmed rounded-lg px-3 py-1 focus:bg-inverted/10 transition-colors',
               }"
               @update:model-value="updateField('name', $event)"
             />
@@ -536,7 +536,7 @@
       <!-- Кнопка Создать (при создании нового персонажа) -->
       <button
         v-if="isCreating"
-        class="flex h-8 items-center gap-1.5 rounded-full border border-success/50 bg-success/80 px-3 text-sm font-medium text-white transition-colors hover:bg-success/70"
+        class="flex h-8 items-center gap-1.5 rounded-full border border-success/50 bg-success/80 px-3 text-sm font-medium text-highlighted transition-colors hover:bg-success/70"
         title="Создать персонажа"
         @click.left.exact.prevent="emit('save')"
       >

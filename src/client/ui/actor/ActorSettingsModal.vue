@@ -29,7 +29,10 @@
   import { useImageFallback } from '@/shared_ui/composables';
   import { useWorldStore } from '@/stores/worldStore';
 
-  import { useTokenPreview } from '../../composables/useTokenPreview';
+  import {
+    TOKEN_TINT_DEFAULT,
+    useTokenPreview,
+  } from '../../composables/useTokenPreview';
   import ActorDeleteConfirmModal from './ActorDeleteConfirmModal.vue';
 
   interface Props {
@@ -102,7 +105,7 @@
     textureX: 0.5,
     textureY: 0.5,
     rotation: 0,
-    tint: '#ffffff',
+    tint: TOKEN_TINT_DEFAULT,
     disposition: 'hostile',
     showName: false,
     hpDisplayMode: 'bar',
@@ -275,7 +278,8 @@
       || tokenSettings.value.textureX !== (actor.value.token?.textureX ?? 0.5)
       || tokenSettings.value.textureY !== (actor.value.token?.textureY ?? 0.5)
       || tokenSettings.value.rotation !== (actor.value.token?.rotation ?? 0)
-      || tokenSettings.value.tint !== (actor.value.token?.tint || '#ffffff')
+      || tokenSettings.value.tint
+        !== (actor.value.token?.tint || TOKEN_TINT_DEFAULT)
       || tokenSettings.value.disposition
         !== (actor.value.token?.disposition || 'hostile')
       || tokenSettings.value.showName !== (actor.value.token?.showName ?? false)
@@ -395,7 +399,7 @@
         textureX: actor.value.token?.textureX ?? 0.5,
         textureY: actor.value.token?.textureY ?? 0.5,
         rotation: actor.value.token?.rotation ?? 0,
-        tint: actor.value.token?.tint || '#ffffff',
+        tint: actor.value.token?.tint || TOKEN_TINT_DEFAULT,
         disposition: actor.value.token?.disposition || 'hostile',
         showName: actor.value.token?.showName ?? false,
         hpDisplayMode: actor.value.token?.hpDisplayMode ?? 'bar',
@@ -895,7 +899,7 @@
                     class="absolute inset-0 opacity-20"
                     style="
                       background-image: radial-gradient(
-                        #4b5563 1px,
+                        var(--ui-text-muted) 1px,
                         transparent 1px
                       );
                       background-size: 10px 10px;

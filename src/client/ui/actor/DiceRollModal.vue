@@ -877,7 +877,7 @@
         <!-- Индикатор автопровала -->
         <UAlert
           v-if="autoFail"
-          color="red"
+          color="error"
           variant="soft"
           icon="tabler:skull"
           title="Автоматический провал"
@@ -951,7 +951,7 @@
             >Формула</span
           >
 
-          <div class="mt-1 font-mono text-lg font-bold text-white">
+          <div class="mt-1 font-mono text-lg font-bold text-highlighted">
             {{ displayFormula }}
             <span
               v-if="bonusValue !== 0"

@@ -63,7 +63,7 @@
       </div>
 
       <div class="flex items-center gap-3 text-xs text-muted">
-        <span class="truncate text-primary-400">
+        <span class="truncate text-primary">
           {{
             CREATURE_TYPE_LABELS[speciesDefinition.creatureType]
             || speciesDefinition.creatureType

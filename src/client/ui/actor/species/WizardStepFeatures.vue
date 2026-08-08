@@ -84,7 +84,7 @@
       :key="feature.key"
       class="flex flex-col gap-3 rounded-lg bg-elevated p-4"
     >
-      <span class="font-medium text-primary-400">
+      <span class="font-medium text-primary">
         {{ feature.name }}
       </span>
 

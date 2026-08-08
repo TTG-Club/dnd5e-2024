@@ -97,7 +97,7 @@
     >
       <p class="text-center text-sm text-muted">
         Выберите дополнительно инструментов:
-        <span class="font-bold text-primary-400">{{
+        <span class="font-bold text-primary">{{
           neededSelectionsCount
         }}</span>
         (выбрано: {{ choiceSelections.length }})
@@ -110,7 +110,7 @@
           class="flex flex-col items-center justify-center gap-2 rounded-lg border p-4 transition-all"
           :class="[
             isSelected(tool)
-              ? 'border-primary-500 bg-primary-500/10 text-primary-400 shadow-[0_0_15px_rgba(var(--color-primary-500),0.15)] ring-1 ring-primary-500'
+              ? 'border-primary bg-primary/10 text-primary shadow-[0_0_15px_color-mix(in_oklab,var(--ui-primary)_15%,transparent)] ring-1 ring-primary'
               : 'border-default text-muted hover:border-accented hover:bg-elevated/50',
           ]"
           @click.left.exact.prevent="toggleTool(tool)"

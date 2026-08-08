@@ -158,7 +158,7 @@
 
               <textarea
                 v-model="customValues"
-                class="w-full resize-none rounded border-none bg-black/20 p-2 text-sm text-default outline-none placeholder:text-dimmed focus:ring-1 focus:ring-primary"
+                class="w-full resize-none rounded border-none bg-default/20 p-2 text-sm text-default outline-none placeholder:text-dimmed focus:ring-1 focus:ring-primary"
                 rows="3"
                 placeholder="от заклинаний школы Иллюзии..."
               />

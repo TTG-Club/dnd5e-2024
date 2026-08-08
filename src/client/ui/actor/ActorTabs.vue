@@ -35,6 +35,17 @@
     'immediate-save': [];
   }>();
 
+  /**
+   * Подсветка вкладки, над которой держат перетаскиваемую сущность.
+   *
+   * Свечение берёт цвет из `currentColor`, а не из `rgba(var(--color-primary-400), .8)`:
+   * токены темы хранят цвет в `oklch()`, и подстановка давала `rgba(oklch(…), .8)` —
+   * невалидный CSS, объявление отбрасывалось целиком и подсветки не было вовсе.
+   * Здесь же цвет всегда совпадает с текстом вкладки.
+   */
+  const DRAG_OVER_TAB_CLASS =
+    'border-b-2 border-primary text-primary drop-shadow-[0_0_8px_currentColor] transition-all duration-300';
+
   const { resolvedStats } = useResolvedStats(toRef(() => props.actor));
 
   // Состояние активной вкладки (сохраняется per-actor между переоткрытиями)
@@ -124,15 +135,15 @@
     const isActive = activeTab.value === tabId;
 
     if (tabId === 'spells' && props.isSpellDragOver) {
-      return 'border-b-2 border-primary-500 text-primary-400 drop-shadow-[0_0_8px_rgba(var(--color-primary-400),0.8)] filter transition-all duration-300';
+      return DRAG_OVER_TAB_CLASS;
     }
 
     if (tabId === 'equipment' && props.isEquipmentDragOver) {
-      return 'border-b-2 border-primary-500 text-primary-400 drop-shadow-[0_0_8px_rgba(var(--color-primary-400),0.8)] filter transition-all duration-300';
+      return DRAG_OVER_TAB_CLASS;
     }
 
     if (tabId === 'features' && props.isFeatureDragOver) {
-      return 'border-b-2 border-primary-500 text-primary-400 drop-shadow-[0_0_8px_rgba(var(--color-primary-400),0.8)] filter transition-all duration-300';
+      return DRAG_OVER_TAB_CLASS;
     }
 
     if (tabId === 'equipment' && isOverweight.value) {

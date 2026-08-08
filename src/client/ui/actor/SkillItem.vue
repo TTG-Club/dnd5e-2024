@@ -54,7 +54,7 @@
         :disabled="!isEditMode"
         class="text-muted"
         :class="{
-          'text-white': proficiencyLevel !== 'none',
+          'text-highlighted': proficiencyLevel !== 'none',
         }"
         @cycle="emit('cycle-proficiency')"
       />
@@ -70,7 +70,7 @@
 
     <div class="flex shrink-0 items-center gap-2">
       <!-- Модификатор -->
-      <span class="w-6 text-right text-sm font-bold text-white">{{
+      <span class="w-6 text-right text-sm font-bold text-highlighted">{{
         formattedModifier
       }}</span>
 

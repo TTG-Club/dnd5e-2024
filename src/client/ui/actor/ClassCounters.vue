@@ -159,7 +159,7 @@
         >
           <UIcon
             name="tabler:settings-filled"
-            class="h-4 w-4 cursor-pointer text-dimmed transition-colors outline-none hover:text-white focus:ring-0 focus:outline-none"
+            class="h-4 w-4 cursor-pointer text-dimmed transition-colors outline-none hover:text-highlighted focus:ring-0 focus:outline-none"
             @click.left.exact.prevent="isSettingsOpen = true"
           />
         </UTooltip>
@@ -195,7 +195,7 @@
         <div class="flex shrink-0 items-center gap-1">
           <!-- Кнопка минус -->
           <button
-            class="hover:border-toned flex h-6 w-6 items-center justify-center rounded border border-muted bg-elevated/60 text-sm font-extrabold text-white transition-all hover:scale-105 hover:bg-elevated active:scale-95 disabled:pointer-events-none disabled:opacity-20"
+            class="hover:border-toned flex h-6 w-6 items-center justify-center rounded border border-muted bg-elevated/60 text-sm font-extrabold text-highlighted transition-all hover:scale-105 hover:bg-elevated active:scale-95 disabled:pointer-events-none disabled:opacity-20"
             :disabled="counter.current <= 0"
             @click.left.exact.prevent="decrementCounter(counter)"
           >
@@ -205,7 +205,7 @@
           <!-- Текущее / Макс -->
           <span class="min-w-[3rem] text-center text-sm font-bold tabular-nums">
             <span
-              class="text-white"
+              class="text-highlighted"
               :class="counter.current === 0 ? 'text-dimmed' : ''"
             >
               {{ counter.current }}
@@ -216,7 +216,7 @@
 
           <!-- Кнопка плюс -->
           <button
-            class="hover:border-toned flex h-6 w-6 items-center justify-center rounded border border-muted bg-elevated/60 text-sm font-extrabold text-white transition-all hover:scale-105 hover:bg-elevated active:scale-95 disabled:pointer-events-none disabled:opacity-20"
+            class="hover:border-toned flex h-6 w-6 items-center justify-center rounded border border-muted bg-elevated/60 text-sm font-extrabold text-highlighted transition-all hover:scale-105 hover:bg-elevated active:scale-95 disabled:pointer-events-none disabled:opacity-20"
             :disabled="counter.current >= counter.max"
             @click.left.exact.prevent="incrementCounter(counter)"
           >
@@ -235,7 +235,7 @@
                 ? 'tabler:campfire'
                 : 'tabler:sun'
             "
-            class="h-5.5 w-5.5 shrink-0 text-dimmed transition-colors hover:text-white"
+            class="h-5.5 w-5.5 shrink-0 text-dimmed transition-colors hover:text-highlighted"
           />
         </UTooltip>
       </div>

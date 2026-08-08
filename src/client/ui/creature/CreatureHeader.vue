@@ -162,7 +162,7 @@
                 size="xl"
                 class="flex-1"
                 :ui="{
-                  base: 'bg-white/5 text-3xl font-serif text-highlighted placeholder-muted rounded-lg px-3 py-1 focus:bg-white/10 transition-colors',
+                  base: 'bg-inverted/5 text-3xl font-serif text-highlighted placeholder:text-dimmed rounded-lg px-3 py-1 focus:bg-inverted/10 transition-colors',
                 }"
                 @update:model-value="updateField('name', $event)"
               />
@@ -176,7 +176,7 @@
                 size="xl"
                 class="flex-1"
                 :ui="{
-                  base: 'bg-white/5 text-2xl font-serif text-highlighted placeholder-muted rounded-lg px-3 py-1 focus:bg-white/10 transition-colors',
+                  base: 'bg-inverted/5 text-2xl font-serif text-highlighted placeholder:text-dimmed rounded-lg px-3 py-1 focus:bg-inverted/10 transition-colors',
                 }"
                 @update:model-value="updateField('nameEn', $event)"
               />
@@ -287,7 +287,7 @@
       <!-- Кнопка Создать (только при создании нового существа) -->
       <button
         v-if="isCreating"
-        class="flex h-8 items-center gap-1.5 rounded-full border border-success/50 bg-success/80 px-3 text-sm font-medium text-white transition-colors hover:bg-success/70"
+        class="flex h-8 items-center gap-1.5 rounded-full border border-success/50 bg-success/80 px-3 text-sm font-medium text-highlighted transition-colors hover:bg-success/70"
         title="Создать существо"
         @click.left.exact.prevent="emit('save')"
       >

@@ -281,7 +281,7 @@
               size="lg"
               class="w-full"
               :ui="{
-                base: 'bg-white/5 text-highlighted rounded-lg px-3 py-2 focus:bg-white/10 transition-colors tabular-nums',
+                base: 'bg-inverted/5 text-highlighted rounded-lg px-3 py-2 focus:bg-inverted/10 transition-colors tabular-nums',
               }"
             />
           </div>

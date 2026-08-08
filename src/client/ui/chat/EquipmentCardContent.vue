@@ -84,7 +84,7 @@
     <div class="flex items-start gap-2 bg-elevated/60 px-3 py-2">
       <UIcon
         :name="typeIcon"
-        class="mt-0.5 size-4 shrink-0 text-primary-400"
+        class="mt-0.5 size-4 shrink-0 text-primary"
       />
 
       <span class="flex-1 text-sm font-semibold text-highlighted">

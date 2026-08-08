@@ -137,7 +137,7 @@
               label-key="label"
               class="w-32"
               size="sm"
-              color="white"
+              color="neutral"
               variant="outline"
             />
 

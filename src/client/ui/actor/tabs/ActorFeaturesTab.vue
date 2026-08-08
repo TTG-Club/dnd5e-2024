@@ -574,7 +574,7 @@
           <UButton
             v-if="isEditMode"
             icon="tabler:trash"
-            color="red"
+            color="error"
             variant="ghost"
             size="xs"
             @click.left.exact.prevent="removeFeature(feature)"
@@ -596,7 +596,7 @@
       class="flex flex-1 items-center justify-center rounded-lg border-2 border-dashed px-3 py-4 text-sm transition-colors"
       :class="
         isDragOver
-          ? 'border-primary-500/50 bg-primary-500/5 text-primary-400'
+          ? 'border-primary/50 bg-primary/5 text-primary'
           : 'border-default/30 text-dimmed'
       "
     >

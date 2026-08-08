@@ -139,7 +139,7 @@
         <div class="rounded-lg bg-elevated/50 p-3 text-center">
           <span class="text-xs tracking-wider text-muted uppercase">Итого</span>
 
-          <div class="mt-1 text-2xl font-bold text-white">
+          <div class="mt-1 text-2xl font-bold text-highlighted">
             {{ previewFormatted }}
           </div>
 

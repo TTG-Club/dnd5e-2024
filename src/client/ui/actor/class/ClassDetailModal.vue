@@ -505,7 +505,7 @@
           <UButton
             v-if="selectedSubclassName"
             icon="tabler:x"
-            color="gray"
+            color="neutral"
             variant="ghost"
             size="2xs"
             class="mr-1"
@@ -617,8 +617,8 @@
                           class="transition-colors hover:underline focus:outline-none"
                           :class="
                             feature.subclassKey
-                              ? 'text-primary-400 hover:text-primary-300'
-                              : 'text-toned hover:text-primary-400'
+                              ? 'text-primary'
+                              : 'text-toned hover:text-primary'
                           "
                           @click.left.exact.prevent="scrollToFeature(feature)"
                         >
@@ -679,7 +679,7 @@
 
                 <UBadge
                   size="sm"
-                  color="gray"
+                  color="neutral"
                   variant="subtle"
                   >{{ feature.level }} ур.</UBadge
                 >
@@ -765,7 +765,7 @@
 
                       <UBadge
                         size="sm"
-                        color="gray"
+                        color="neutral"
                         variant="subtle"
                         >{{ feature.level }} ур.</UBadge
                       >

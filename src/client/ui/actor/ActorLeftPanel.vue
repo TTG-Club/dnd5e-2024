@@ -679,7 +679,7 @@
       <div class="p-3 pt-1">
         <div class="flex items-center">
           <span
-            class="flex-1 text-center text-xl font-bold text-white tabular-nums"
+            class="flex-1 text-center text-xl font-bold text-highlighted tabular-nums"
             >{{ actor.system.hitPoints?.current ?? 0 }}</span
           >
 
@@ -795,7 +795,7 @@
             }}</span>
 
             <span
-              class="rounded border border-default bg-elevated px-2 py-0.5 text-sm font-bold text-white shadow-sm"
+              class="rounded border border-default bg-elevated px-2 py-0.5 text-sm font-bold text-highlighted shadow-sm"
             >
               {{ formatModifier(calculateSavingThrow(ability.key)) }}
             </span>
@@ -811,14 +811,14 @@
         <div
           class="mb-2 flex items-center justify-between rounded-lg bg-elevated/40 px-3 py-2"
         >
-          <h4 class="text-xs font-bold tracking-wider text-white uppercase">
+          <h4 class="text-xs font-bold tracking-wider text-highlighted uppercase">
             Снаряжение
           </h4>
 
           <UIcon
             v-if="isEditMode"
             name="tabler:settings-filled"
-            class="h-4 w-4 cursor-pointer text-dimmed transition-colors hover:text-white"
+            class="h-4 w-4 cursor-pointer text-dimmed transition-colors hover:text-highlighted"
             @click.left.exact.prevent="isArmorProfOpen = true"
           />
         </div>
@@ -845,14 +845,14 @@
         <div
           class="mb-2 flex items-center justify-between rounded-lg bg-elevated/40 px-3 py-2"
         >
-          <h4 class="text-xs font-bold tracking-wider text-white uppercase">
+          <h4 class="text-xs font-bold tracking-wider text-highlighted uppercase">
             Оружие
           </h4>
 
           <UIcon
             v-if="isEditMode"
             name="tabler:settings-filled"
-            class="h-4 w-4 cursor-pointer text-dimmed transition-colors hover:text-white"
+            class="h-4 w-4 cursor-pointer text-dimmed transition-colors hover:text-highlighted"
             @click.left.exact.prevent="isWeaponProfOpen = true"
           />
         </div>
@@ -889,14 +889,14 @@
         <div
           class="mb-2 flex items-center justify-between rounded-lg bg-elevated/40 px-3 py-2"
         >
-          <h4 class="text-xs font-bold tracking-wider text-white uppercase">
+          <h4 class="text-xs font-bold tracking-wider text-highlighted uppercase">
             Инструменты
           </h4>
 
           <UIcon
             v-if="isEditMode"
             name="tabler:settings-filled"
-            class="h-4 w-4 cursor-pointer text-dimmed transition-colors hover:text-white"
+            class="h-4 w-4 cursor-pointer text-dimmed transition-colors hover:text-highlighted"
             @click.left.exact.prevent="isToolsProfOpen = true"
           />
         </div>
@@ -923,14 +923,14 @@
         <div
           class="mb-2 flex items-center justify-between rounded-lg bg-elevated/40 px-3 py-2"
         >
-          <h4 class="text-xs font-bold tracking-wider text-white uppercase">
+          <h4 class="text-xs font-bold tracking-wider text-highlighted uppercase">
             Языки
           </h4>
 
           <UIcon
             v-if="isEditMode"
             name="tabler:settings-filled"
-            class="h-4 w-4 cursor-pointer text-dimmed transition-colors hover:text-white"
+            class="h-4 w-4 cursor-pointer text-dimmed transition-colors hover:text-highlighted"
             @click.left.exact.prevent="isLanguagesProfOpen = true"
           />
         </div>

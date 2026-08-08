@@ -281,7 +281,7 @@
             >Формула</span
           >
 
-          <div class="mt-1 font-mono text-lg font-bold text-white">
+          <div class="mt-1 font-mono text-lg font-bold text-highlighted">
             {{ rollFormula }}
           </div>
         </div>

@@ -297,7 +297,7 @@
               icon="tabler:pencil"
               size="xs"
               variant="ghost"
-              color="gray"
+              color="neutral"
               class="px-1.5"
               @click.left.exact.prevent="editCustomEffect(effect)"
             />
@@ -306,7 +306,7 @@
               icon="tabler:trash"
               size="xs"
               variant="ghost"
-              color="red"
+              color="error"
               class="px-1.5"
               @click.left.exact.prevent="deleteCustomEffect(effect.id)"
             />
