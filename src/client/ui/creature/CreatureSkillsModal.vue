@@ -109,7 +109,7 @@
                 :level="getSkillData(skill.key).level"
                 class="text-muted"
                 :class="{
-                  'text-highlighted': getSkillData(skill.key).level !== 'none',
+                  'text-primary': getSkillData(skill.key).level !== 'none',
                 }"
               />
 

@@ -54,7 +54,7 @@
         :disabled="!isEditMode"
         class="text-muted"
         :class="{
-          'text-highlighted': proficiencyLevel !== 'none',
+          'text-primary': proficiencyLevel !== 'none',
         }"
         @cycle="emit('cycle-proficiency')"
       />

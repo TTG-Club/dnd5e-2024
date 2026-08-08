@@ -58,11 +58,7 @@
     <button
       type="button"
       class="shrink-0 transition-opacity"
-      :class="
-        disabled
-          ? 'cursor-default opacity-50'
-          : 'cursor-pointer hover:opacity-80'
-      "
+      :class="disabled ? 'cursor-default' : 'cursor-pointer hover:opacity-80'"
       :disabled="disabled"
       @click.left.exact.prevent="cycleLevel"
     >

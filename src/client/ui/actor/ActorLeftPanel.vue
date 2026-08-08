@@ -772,23 +772,16 @@
             @click.left.exact.prevent="handleSavingThrowClick(ability)"
           >
             <button
-              class="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-accented"
+              class="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border"
               :class="
                 actor.system.proficiencies.savingThrows.includes(ability.key)
-                  ? 'bg-inverted'
-                  : 'bg-transparent'
+                  ? 'border-primary bg-primary'
+                  : 'border-accented bg-transparent'
               "
               @click.left.exact.prevent="
                 isEditMode && toggleSavingThrow(ability.key)
               "
-            >
-              <div
-                v-if="
-                  actor.system.proficiencies.savingThrows.includes(ability.key)
-                "
-                class="h-1.5 w-1.5 rounded-full bg-inverted"
-              />
-            </button>
+            />
 
             <span class="flex-1 truncate text-sm font-medium text-toned">{{
               ability.shortLabel
