@@ -30,12 +30,7 @@ import type {
   SpellTargetResult,
 } from './spellResolutionShared';
 
-import {
-  generateId,
-  isActorEntity,
-  isCreatureEntity,
-  resolveGridCellSize,
-} from '@vtt/shared';
+import { generateId, resolveGridCellSize } from '@vtt/shared';
 import {
   applyDamageDefenses,
   applyHpChange,
@@ -54,10 +49,14 @@ import {
   mergeAppliedEffects,
   resolveActorStats,
   resolveAttackRoll,
+  resolveEntityCurrentHp,
+  resolveEntityMaxHp,
+  resolveEntityTempHp,
   spellHasDamage,
   spellHealsTempHp,
   spellIsHealing,
   withInitializedDuration,
+  writeEntityHitPoints,
 } from '@vtt/shared/system/dnd.js';
 
 import { emitEntityCombatState } from '@/core/entityUtils';
@@ -188,13 +187,8 @@ export function useSpellResolution() {
     // Ядро видит entity как Base*; в D&D-композабле восстанавливаем D&D-форму.
     const dnd = entity as DnDSceneEntity;
 
-    const hpBefore = isCreatureEntity(dnd)
-      ? (dnd.system.hitPoints.current ?? 0)
-      : dnd.system.hitPoints.current;
-
-    const maxHp = isCreatureEntity(dnd)
-      ? (dnd.system.hitPoints.max ?? 0)
-      : dnd.system.hitPoints.max;
+    const hpBefore = resolveEntityCurrentHp(dnd);
+    const maxHp = resolveEntityMaxHp(dnd);
 
     let finalDamage = damage;
     let defenseOutcome: DamageDefenseOutcome = 'normal';
@@ -217,7 +211,7 @@ export function useSpellResolution() {
       finalDamage += extraDamageAfterDefenses;
     }
 
-    const tempBefore = dnd.system.hitPoints.temp ?? 0;
+    const tempBefore = resolveEntityTempHp(dnd);
 
     // Урон сначала снимает временные ХП (правило 5e), лечение их не трогает;
     // @heal.temp не лечит текущие хиты — даёт временные (ниже)
@@ -241,13 +235,10 @@ export function useSpellResolution() {
     // Shallow spread теряет вложенные свойства Vue reactive proxy.
     const updatedEntity: DnDSceneEntity = JSON.parse(JSON.stringify(entity));
 
-    if (isCreatureEntity(updatedEntity)) {
-      updatedEntity.system.hitPoints.current = hpAfter;
-      updatedEntity.system.hitPoints.temp = tempAfter;
-    } else if (isActorEntity(updatedEntity)) {
-      updatedEntity.system.hitPoints.current = hpAfter;
-      updatedEntity.system.hitPoints.temp = tempAfter;
-    }
+    writeEntityHitPoints(updatedEntity, {
+      current: hpAfter,
+      temp: tempAfter,
+    });
 
     const appliedEffects: string[] = [];
 
@@ -993,10 +984,7 @@ export function useSpellResolution() {
         if (hits === 0) {
           // Все снаряды по цели промахнулись — строка в сводке без записи HP
           const targetDnd = targetEntity as DnDSceneEntity;
-
-          const hpCurrent = isCreatureEntity(targetDnd)
-            ? (targetDnd.system.hitPoints.current ?? 0)
-            : targetDnd.system.hitPoints.current;
+          const hpCurrent = resolveEntityCurrentHp(targetDnd);
 
           results.push({
             actorName: `${targetEntity.name} (промах ×${count})`,

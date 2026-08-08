@@ -19,6 +19,8 @@ import { generateId, isCreatureEntity } from '@vtt/shared';
 import {
   DAMAGE_TYPE_LABELS,
   resolveEffectApplication,
+  resolveEntityCurrentHp,
+  resolveEntityMaxHp,
   stampTurnDuration,
   targetHpGateMatches,
   withInitializedDuration,
@@ -230,15 +232,10 @@ function getEntityHp(entity: SceneEntity): { current: number; max: number } {
   // (при isCreatureEntity сужается к DnDCreature, иначе — DnDActor).
   const dnd = entity as DnDSceneEntity;
 
-  const current = isCreatureEntity(dnd)
-    ? (dnd.system.hitPoints.current ?? 0)
-    : dnd.system.hitPoints.current;
-
-  const max = isCreatureEntity(dnd)
-    ? (dnd.system.hitPoints.max ?? 0)
-    : dnd.system.hitPoints.max;
-
-  return { current, max };
+  return {
+    current: resolveEntityCurrentHp(dnd),
+    max: resolveEntityMaxHp(dnd),
+  };
 }
 
 /**

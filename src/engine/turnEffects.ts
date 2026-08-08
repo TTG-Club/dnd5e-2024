@@ -17,12 +17,17 @@ import type {
 } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 
-import { isActorEntity, isCreatureEntity } from '@vtt/shared';
 import { generateId } from '@vtt/shared';
 import { DAMAGE_TYPE_LABELS } from './damageConstants.js';
 import { applyHpChange, applyMultiTypeDamageDefenses } from './damageUtils.js';
 import { rollDamageFormula } from './diceFormula.js';
 import { resolveActorStats } from './effectPipeline.js';
+import {
+  resolveEntityCurrentHp,
+  resolveEntityMaxHp,
+  resolveEntityTempHp,
+  writeEntityHitPoints,
+} from './hitPoints.js';
 import { expandDamageParts } from './spellUtils.js';
 
 /**
@@ -263,10 +268,11 @@ export function applyDamageToEntity(
   entity: DnDSceneEntity,
   damage: number,
 ): void {
-  const hitPoints = entity.system.hitPoints;
-  const hpBefore = hitPoints.current ?? 0;
-  const maxHp = hitPoints.max ?? 0;
-  const tempBefore = hitPoints.temp ?? 0;
+  // Через общие резолверы: у существа без явных `current`/`max` запас хитов
+  // берётся из `average` статблока, иначе периодический урон уходил бы в 0.
+  const hpBefore = resolveEntityCurrentHp(entity);
+  const maxHp = resolveEntityMaxHp(entity);
+  const tempBefore = resolveEntityTempHp(entity);
 
   const hpChange = applyHpChange({
     hpBefore,
@@ -276,14 +282,10 @@ export function applyDamageToEntity(
     heal: 0,
   });
 
-  // Узкая запись по типу сущности — иначе union `system` не сужается для присваивания
-  if (isCreatureEntity(entity)) {
-    entity.system.hitPoints.current = hpChange.hpAfter;
-    entity.system.hitPoints.temp = hpChange.tempAfter;
-  } else if (isActorEntity(entity)) {
-    entity.system.hitPoints.current = hpChange.hpAfter;
-    entity.system.hitPoints.temp = hpChange.tempAfter;
-  }
+  writeEntityHitPoints(entity, {
+    current: hpChange.hpAfter,
+    temp: hpChange.tempAfter,
+  });
 }
 
 /**

@@ -21,8 +21,7 @@ import type { DamageApplyResult, DamageDefenseOutcome } from './damageUtils.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type { IncomingAttackContext } from './effectPipeline.js';
 
-import { isActorEntity, isCreatureEntity, isRecord } from '@vtt/shared';
-import { generateId } from '@vtt/shared';
+import { generateId, isRecord } from '@vtt/shared';
 import { ActiveEffectsArraySchema } from './activeEffectTypes.js';
 import { buildConditionActiveEffect } from './conditionTemplates.js';
 import { CONDITIONS } from './consts.js';
@@ -37,6 +36,12 @@ import {
   getEntityConditionImmunities,
   resolveActorStats,
 } from './effectPipeline.js';
+import {
+  resolveEntityCurrentHp,
+  resolveEntityMaxHp,
+  resolveEntityTempHp,
+  writeEntityHitPoints,
+} from './hitPoints.js';
 import { withInitializedDuration } from './turnEffects.js';
 
 /**
@@ -104,74 +109,6 @@ function buildEffectForTarget(
 }
 
 /**
- * Извлекает текущие ХП из сущности (актор или существо).
- * У обоих типов HP хранятся в `system.hitPoints.current`.
- *
- * @param entity - сущность (актор или существо)
- * @returns текущие ХП
- */
-function getEntityCurrentHp(entity: DnDSceneEntity): number {
-  if (isCreatureEntity(entity)) {
-    return entity.system.hitPoints.current ?? 0;
-  }
-
-  return entity.system.hitPoints.current;
-}
-
-/**
- * Извлекает максимальные ХП из сущности (актор или существо).
- *
- * @param entity - сущность (актор или существо)
- * @returns максимальные ХП
- */
-function getEntityMaxHp(entity: DnDSceneEntity): number {
-  if (isCreatureEntity(entity)) {
-    return entity.system.hitPoints.max ?? 0;
-  }
-
-  return entity.system.hitPoints.max;
-}
-
-/**
- * Извлекает временные ХП из сущности (актор или существо).
- * У существ поле необязательное, поэтому отсутствие читается как 0.
- *
- * @param entity - сущность (актор или существо)
- * @returns временные ХП
- */
-function getEntityTempHp(entity: DnDSceneEntity): number {
-  return entity.system.hitPoints.temp ?? 0;
-}
-
-/**
- * Устанавливает текущие ХП для сущности (мутация).
- *
- * @param entity - сущность (актор или существо)
- * @param hp - новое значение текущих ХП
- */
-function setEntityCurrentHp(entity: DnDSceneEntity, hp: number): void {
-  if (isCreatureEntity(entity)) {
-    entity.system.hitPoints.current = hp;
-  } else if (isActorEntity(entity)) {
-    entity.system.hitPoints.current = hp;
-  }
-}
-
-/**
- * Устанавливает временные ХП для сущности (мутация).
- *
- * @param entity - сущность (актор или существо)
- * @param temp - новое значение временных ХП
- */
-function setEntityTempHp(entity: DnDSceneEntity, temp: number): void {
-  if (isCreatureEntity(entity)) {
-    entity.system.hitPoints.temp = temp;
-  } else if (isActorEntity(entity)) {
-    entity.system.hitPoints.temp = temp;
-  }
-}
-
-/**
  * Применяет урон или лечение к сущности (мутирует её ХП) с учётом защит от урона
  * (иммунитет/сопротивление/уязвимость) и правила временных ХП (урон снимает temp
  * первым, лечение их не трогает). Возвращает сводку изменения для UI/чата.
@@ -188,8 +125,8 @@ export function applyTargetDamage(
   isHealing: boolean,
   damageType?: string,
 ): DamageApplyResult {
-  const hpBefore = getEntityCurrentHp(entity);
-  const maxHp = getEntityMaxHp(entity);
+  const hpBefore = resolveEntityCurrentHp(entity);
+  const maxHp = resolveEntityMaxHp(entity);
 
   let finalAmount = amount;
   let defenseOutcome: DamageDefenseOutcome = 'normal';
@@ -208,7 +145,7 @@ export function applyTargetDamage(
     defenseOutcome = defenseResult.outcome;
   }
 
-  const tempBefore = getEntityTempHp(entity);
+  const tempBefore = resolveEntityTempHp(entity);
 
   // Урон сначала снимает временные ХП (правило 5e), лечение их не трогает
   const hpChange = applyHpChange({
@@ -219,8 +156,10 @@ export function applyTargetDamage(
     heal: isHealing ? finalAmount : 0,
   });
 
-  setEntityCurrentHp(entity, hpChange.hpAfter);
-  setEntityTempHp(entity, hpChange.tempAfter);
+  writeEntityHitPoints(entity, {
+    current: hpChange.hpAfter,
+    temp: hpChange.tempAfter,
+  });
 
   return {
     actorName: entity.name,
@@ -296,8 +235,8 @@ export interface DndCombatState {
  */
 export function pickCombatState(entity: DnDSceneEntity): DndCombatState {
   return {
-    hpCurrent: getEntityCurrentHp(entity),
-    hpTemp: getEntityTempHp(entity),
+    hpCurrent: resolveEntityCurrentHp(entity),
+    hpTemp: resolveEntityTempHp(entity),
     activeEffects: entity.activeEffects ?? [],
   };
 }
@@ -340,15 +279,15 @@ export function applyCombatState(
 
   const nextHp = Math.max(
     0,
-    Math.min(getEntityMaxHp(entity), Math.trunc(hpCurrent)),
+    Math.min(resolveEntityMaxHp(entity), Math.trunc(hpCurrent)),
   );
 
   const nextTemp = Math.max(0, Math.trunc(hpTemp));
   const nextEffects = parsedEffects.data;
 
   const changed =
-    nextHp !== getEntityCurrentHp(entity)
-    || nextTemp !== getEntityTempHp(entity)
+    nextHp !== resolveEntityCurrentHp(entity)
+    || nextTemp !== resolveEntityTempHp(entity)
     || JSON.stringify(entity.activeEffects ?? []) !==
       JSON.stringify(nextEffects);
 
@@ -356,8 +295,7 @@ export function applyCombatState(
     return false;
   }
 
-  setEntityCurrentHp(entity, nextHp);
-  setEntityTempHp(entity, nextTemp);
+  writeEntityHitPoints(entity, { current: nextHp, temp: nextTemp });
   entity.activeEffects = nextEffects;
 
   return true;

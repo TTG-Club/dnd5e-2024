@@ -13,12 +13,7 @@ import type {
   SpellTargetResult,
 } from './spellResolutionShared';
 
-import {
-  generateId,
-  isActorEntity,
-  isCreatureEntity,
-  resolveGridCellSize,
-} from '@vtt/shared';
+import { generateId, resolveGridCellSize } from '@vtt/shared';
 import {
   applyHpChange,
   applyMultiTypeDamageDefenses,
@@ -30,7 +25,11 @@ import {
   mergeAppliedEffects,
   resolveActorStats,
   resolveEffectApplication,
+  resolveEntityCurrentHp,
+  resolveEntityMaxHp,
+  resolveEntityTempHp,
   withInitializedDuration,
+  writeEntityHitPoints,
 } from '@vtt/shared/system/dnd.js';
 
 import { emitEntityCombatState } from '@/core/entityUtils';
@@ -132,15 +131,9 @@ export function useSpellDamageWithParts() {
     // Ядро видит entity как Base*; в D&D-композабле восстанавливаем D&D-форму.
     const dnd = entity as DnDSceneEntity;
 
-    const hpBefore = isCreatureEntity(dnd)
-      ? (dnd.system.hitPoints.current ?? 0)
-      : dnd.system.hitPoints.current;
-
-    const maxHp = isCreatureEntity(dnd)
-      ? (dnd.system.hitPoints.max ?? 0)
-      : dnd.system.hitPoints.max;
-
-    const tempBefore = dnd.system.hitPoints.temp ?? 0;
+    const hpBefore = resolveEntityCurrentHp(dnd);
+    const maxHp = resolveEntityMaxHp(dnd);
+    const tempBefore = resolveEntityTempHp(dnd);
 
     // Урон сначала снимает временные ХП (правило 5e), остаток — текущие
     const hpChange = applyHpChange({
@@ -158,13 +151,10 @@ export function useSpellDamageWithParts() {
 
     const updatedEntity: DnDSceneEntity = JSON.parse(JSON.stringify(entity));
 
-    if (isCreatureEntity(updatedEntity)) {
-      updatedEntity.system.hitPoints.current = hpAfter;
-      updatedEntity.system.hitPoints.temp = tempAfter;
-    } else if (isActorEntity(updatedEntity)) {
-      updatedEntity.system.hitPoints.current = hpAfter;
-      updatedEntity.system.hitPoints.temp = tempAfter;
-    }
+    writeEntityHitPoints(updatedEntity, {
+      current: hpAfter,
+      temp: tempAfter,
+    });
 
     const appliedEffects: string[] = [];
 

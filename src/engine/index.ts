@@ -26,6 +26,7 @@ export * from './featTypes.js';
 export * from './formulaParser.js';
 export * from './grantedSpells.js';
 export * from './hitDiceUtils.js';
+export * from './hitPoints.js';
 export * from './itemSchemas.js';
 export * from './positionalEffects.js';
 export * from './restEngine.js';
