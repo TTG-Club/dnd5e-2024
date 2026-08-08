@@ -6,6 +6,7 @@
   "description": "Игровая система D&D 5e для VTTG — собирается ВНЕ приложения (тестовый форк для отладки внешней доставки систем)",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "dev": "node scripts/dev.mjs",
     "build:client": "vite build",
     "build:server": "node scripts/build-server.mjs",
     "install:local": "node scripts/install-local.mjs",
