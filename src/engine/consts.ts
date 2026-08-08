@@ -664,21 +664,59 @@ export const CONDITIONS: readonly ConditionEntry[] = [
 /** Тип валюты D&D 5e */
 export type CurrencyType = 'cp' | 'sp' | 'ep' | 'gp' | 'pp';
 
-/** Опции валют для выпадающего списка */
+/**
+ * Монеты кошелька — от самой мелкой к самой крупной. Порядок задаёт и порядок
+ * полей в выпадающих списках стоимости, и порядок ячеек в строке валюты листа.
+ */
 export const CURRENCY_OPTIONS: ReadonlyArray<{
   value: CurrencyType;
+  /** Подпись для выпадающего списка стоимости предмета */
   label: string;
+  /** Сокращение для компактных строк («мм», «зм») */
   labelShort: string;
+  /** Полное название монеты — для подсказок и подписей полей */
+  labelFull: string;
 }> = [
-  { value: 'cp', label: 'Медные (мм)', labelShort: 'мм' },
-  { value: 'sp', label: 'Серебряные (см)', labelShort: 'см' },
-  { value: 'ep', label: 'Электрумовые (эм)', labelShort: 'эм' },
-  { value: 'gp', label: 'Золотые (зм)', labelShort: 'зм' },
-  { value: 'pp', label: 'Платиновые (пм)', labelShort: 'пм' },
+  {
+    value: 'cp',
+    label: 'Медные (мм)',
+    labelShort: 'мм',
+    labelFull: 'Медные монеты',
+  },
+  {
+    value: 'sp',
+    label: 'Серебряные (см)',
+    labelShort: 'см',
+    labelFull: 'Серебряные монеты',
+  },
+  {
+    value: 'ep',
+    label: 'Электрумовые (эм)',
+    labelShort: 'эм',
+    labelFull: 'Электрумовые монеты',
+  },
+  {
+    value: 'gp',
+    label: 'Золотые (зм)',
+    labelShort: 'зм',
+    labelFull: 'Золотые монеты',
+  },
+  {
+    value: 'pp',
+    label: 'Платиновые (пм)',
+    labelShort: 'пм',
+    labelFull: 'Платиновые монеты',
+  },
 ] as const;
 
 /** Валюта по умолчанию */
 export const DEFAULT_CURRENCY: CurrencyType = 'gp';
+
+/** Минимальное количество монет одного вида в кошельке */
+export const CURRENCY_AMOUNT_MIN = 0;
+
+/** Максимальное количество монет одного вида в кошельке */
+export const CURRENCY_AMOUNT_MAX = 9_999_999;
 
 /**
  * Парсит строку стоимости (напр. "15 зм") в структурированный объект.

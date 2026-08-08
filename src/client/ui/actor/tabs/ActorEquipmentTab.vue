@@ -3,6 +3,7 @@
   import type {
     AttackRollMode,
     DnDActor,
+    DnDCurrency,
     DnDGameItem,
     DnDSceneEntity,
     Spell,
@@ -16,6 +17,7 @@
   import {
     calculateWeaponAttackModifier,
     calculateWeaponDamageModifier,
+    CURRENCY_OPTIONS,
     describeDamagePart,
     evaluateConditionalBonuses,
     formatWeaponDamageFormula,
@@ -41,6 +43,7 @@
   import { useSpellResolution } from '../../../composables/useSpellResolution';
   import { useWeaponIcon } from '../../../composables/useWeaponIcon';
   import { GAME_ITEM_TRANSFER_MIME } from '../constants';
+  import CurrencyModal from '../CurrencyModal.vue';
   import DiceRollModal from '../DiceRollModal.vue';
   import { extractSpellFromGameItem } from '../utils/extractSpellFromGameItem';
   import WeaponIcon from '../WeaponIcon.vue';
@@ -825,31 +828,51 @@
     return labels.join(' + ');
   }
 
-  /**
-   * Обновляет количество монет
-   */
-  function updateCurrency(
-    coinKey: 'cp' | 'sp' | 'ep' | 'gp' | 'pp',
-    value: string | number,
-  ): void {
-    const numericValue =
-      typeof value === 'string' ? Number.parseInt(value, 10) || 0 : value;
+  // --- Кошелёк ---
 
+  /** Открыта ли модалка редактирования валюты */
+  const isCurrencyModalOpen = ref(false);
+
+  /**
+   * Текущий кошелёк актёра. Нули подставляются намеренно: во вкладку попадает и
+   * актёр из `QuickEquipmentModal`, который берёт его из стора хоста без
+   * `normalizeActor`, — у записи из старого мира поля кошелька может не быть.
+   */
+  const currency = computed<DnDCurrency>(() => ({
+    cp: props.actor.system.currency?.cp ?? 0,
+    sp: props.actor.system.currency?.sp ?? 0,
+    ep: props.actor.system.currency?.ep ?? 0,
+    gp: props.actor.system.currency?.gp ?? 0,
+    pp: props.actor.system.currency?.pp ?? 0,
+  }));
+
+  /** Ячейки строки валюты: количество, сокращение и полное название монеты */
+  const currencyCells = computed(() =>
+    CURRENCY_OPTIONS.map((option) => ({
+      key: option.value,
+      amount: currency.value[option.value],
+      labelShort: option.labelShort,
+      labelFull: option.labelFull,
+    })),
+  );
+
+  /** Открывает модалку редактирования кошелька */
+  function openCurrencyModal(): void {
+    isCurrencyModalOpen.value = true;
+  }
+
+  /**
+   * Сохраняет кошелёк после подтверждения в модалке
+   */
+  function applyCurrency(updated: DnDCurrency): void {
     emit('update:actor', {
       system: {
         ...props.actor.system,
-        currency: {
-          ...(props.actor.system.currency || {
-            cp: 0,
-            sp: 0,
-            ep: 0,
-            gp: 0,
-            pp: 0,
-          }),
-          [coinKey]: numericValue,
-        },
+        currency: updated,
       },
     });
+
+    triggerSaveIfNotEdit();
   }
 </script>
 
@@ -857,66 +880,31 @@
   <div class="flex min-h-50 flex-1 flex-col space-y-1">
     <!-- Деньги / Валюта (Вплотную к табам) -->
     <div class="mb-5 flex flex-col">
-      <div class="flex items-center gap-3 rounded-lg bg-accented/30 px-3 py-2">
-        <div
-          v-for="coin in [
-            {
-              key: 'cp',
-              label: 'ММ',
-              full: 'Медные монеты',
-              color: 'text-danger-muted',
-            },
-            {
-              key: 'sp',
-              label: 'СМ',
-              full: 'Серебряные монеты',
-              color: 'text-muted',
-            },
-            {
-              key: 'ep',
-              label: 'ЭМ',
-              full: 'Электрумовые монеты',
-              color: 'text-magic-muted',
-            },
-            {
-              key: 'gp',
-              label: 'ЗМ',
-              full: 'Золотые монеты',
-              color: 'text-primary',
-            },
-            {
-              key: 'pp',
-              label: 'ПМ',
-              full: 'Платиновые монеты',
-              color: 'text-shield',
-            },
-          ] as const"
-          :key="coin.key"
-          class="flex flex-1 items-center gap-1.5"
+      <div
+        role="button"
+        tabindex="0"
+        aria-label="Редактировать валюту"
+        class="flex cursor-pointer flex-wrap items-center justify-between gap-2 rounded-lg border border-default/50 bg-elevated/20 px-4 py-2 transition-colors hover:border-default hover:bg-elevated/40"
+        @click.left.exact.prevent="openCurrencyModal"
+        @keydown.enter.prevent="openCurrencyModal"
+        @keydown.space.prevent="openCurrencyModal"
+      >
+        <UTooltip
+          v-for="cell in currencyCells"
+          :key="cell.key"
+          :text="cell.labelFull"
         >
-          <input
-            :value="actor.system.currency?.[coin.key] ?? 0"
-            type="number"
-            min="0"
-            class="w-0 min-w-0 flex-1 rounded bg-default/40 px-1.5 py-0.5 text-right text-xs font-semibold text-highlighted ring-1 ring-default/50 transition-shadow outline-none focus:ring-primary/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-            @input="
-              updateCurrency(
-                coin.key,
-                ($event.target as HTMLInputElement).value,
-              )
-            "
-            @blur="triggerSaveIfNotEdit()"
-          />
+          <span class="flex items-baseline gap-1.5">
+            <span class="text-sm font-bold text-highlighted tabular-nums">{{
+              cell.amount
+            }}</span>
 
-          <UTooltip
-            :text="coin.full"
-            :popper="{ placement: 'top' }"
-          >
-            <span :class="['cursor-help text-xs font-bold', coin.color]">
-              {{ coin.label }}
-            </span>
-          </UTooltip>
-        </div>
+            <span
+              class="text-[10px] font-bold tracking-wider text-muted uppercase"
+              >{{ cell.labelShort }}</span
+            >
+          </span>
+        </UTooltip>
       </div>
     </div>
 
@@ -1256,6 +1244,13 @@
       </div>
     </template>
   </div>
+
+  <!-- Модалка редактирования кошелька -->
+  <CurrencyModal
+    v-model:open="isCurrencyModalOpen"
+    :currency="currency"
+    @apply="applyCurrency"
+  />
 
   <DiceRollModal
     v-model:open="isRollModalOpen"
