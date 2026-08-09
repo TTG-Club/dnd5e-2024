@@ -19,6 +19,7 @@
     FEATURE_ORIGIN_HINTS,
     FEATURE_ORIGIN_LABELS,
     FEATURE_ORIGIN_ORDER,
+    FILTER_ROW_CONTROL_SIZE,
   } from '../constants';
   import { reapplyFeatToActor, removeFeatFromActor } from '../feat/featApply';
   import FeatListItem from '../FeatListItem.vue';
@@ -635,38 +636,47 @@
 
 <template>
   <div class="flex min-h-50 flex-1 flex-col space-y-3">
-    <UButton
-      v-if="isEditMode"
-      icon="tabler:plus"
-      color="primary"
-      variant="soft"
-      size="sm"
-      @click.left.exact.prevent="addFeature"
-    >
-      Добавить особенность
-    </UButton>
+    <!-- Шапка вкладки одной строкой: слева чипы источников, справа сброс и
+      добавление. Ряд тот же, что у снаряжения и заклинаний, и высота у кнопки с
+      чипами общая — иначе строка расходится на пару пикселей.
 
-    <!-- Отбор по источнику: чипы идут от самого списка — источника, которого
-      в нём нет, нет и среди чипов. Сброс замыкает ряд и появляется только при
-      отборе: пустой кнопке в ряду делать нечего -->
+      Отбор по источнику: чипы идут от самого списка — источника, которого в нём
+      нет, нет и среди чипов. Сброс появляется только при отборе: пустой кнопке
+      в ряду делать нечего -->
     <div
-      v-if="hasFilterControls"
+      v-if="isEditMode || hasFilterControls"
       class="flex flex-wrap items-center gap-x-1.5 gap-y-2"
     >
-      <FilterChip
-        v-for="originChip in originChips"
-        :key="originChip.origin"
-        :label="originChip.label"
-        :tooltip="originChip.tooltip"
-        :picked="originChip.isPicked"
-        @toggle="toggleOriginFilter(originChip.origin)"
-      />
+      <template v-if="hasFilterControls">
+        <FilterChip
+          v-for="originChip in originChips"
+          :key="originChip.origin"
+          :label="originChip.label"
+          :tooltip="originChip.tooltip"
+          :picked="originChip.isPicked"
+          @toggle="toggleOriginFilter(originChip.origin)"
+        />
+      </template>
 
-      <FilterResetButton
-        v-if="hasActiveFilter"
-        class="ml-auto"
-        @reset="resetFilters"
-      />
+      <!-- Правый край ряда держится одной группой: при переносе сброс уезжает
+        на новую строку вместе с кнопкой, а не отрывается от неё -->
+      <div class="ml-auto flex shrink-0 items-center gap-x-1.5">
+        <FilterResetButton
+          v-if="hasActiveFilter"
+          @reset="resetFilters"
+        />
+
+        <UButton
+          v-if="isEditMode"
+          icon="tabler:plus"
+          color="primary"
+          variant="soft"
+          :size="FILTER_ROW_CONTROL_SIZE"
+          @click.left.exact.prevent="addFeature"
+        >
+          Добавить особенность
+        </UButton>
+      </div>
     </div>
 
     <!-- Список обычных особенностей -->
