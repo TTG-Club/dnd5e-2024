@@ -932,11 +932,14 @@
         />
       </div>
 
+      <!-- Высота строки та же, что у ряда отбора на других вкладках (28px,
+        ступень `sm` компонентов кита) — задана `min-h`, а не отступами: на
+        узком листе монеты переносятся, и строке нужно вырасти -->
       <div
         role="button"
         tabindex="0"
         aria-label="Редактировать валюту"
-        class="flex cursor-pointer flex-wrap items-center justify-between gap-2 rounded-lg border border-default/50 bg-elevated/20 px-4 py-2 transition-colors hover:border-default hover:bg-elevated/40"
+        class="flex min-h-7 cursor-pointer flex-wrap items-center justify-between gap-2 rounded-lg border border-default/50 bg-elevated/20 px-4 py-0.5 transition-colors hover:border-default hover:bg-elevated/40"
         @click.left.exact.prevent="openCurrencyModal"
         @keydown.enter.prevent="openCurrencyModal"
         @keydown.space.prevent="openCurrencyModal"

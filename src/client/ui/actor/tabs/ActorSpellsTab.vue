@@ -1,4 +1,7 @@
 <script setup lang="ts">
+  // Корневой вход `@nuxt/ui` — это Nuxt-модуль, типы компонентов он не отдаёт
+  import type { DropdownMenuItem } from '@nuxt/ui/components/DropdownMenu.vue';
+
   import type { SceneEntity } from '@vtt/shared';
   import type {
     AttackRollMode,
@@ -12,6 +15,7 @@
     RolledSpellDamagePart,
     SpellDamagePartInput,
   } from '../../../composables/useSpellResolution';
+  import type { SpellPropertyFilterKey } from '../constants';
 
   import { useToast } from '@nuxt/ui/composables';
   import { computed, ref } from 'vue';
@@ -26,6 +30,7 @@
   import { useWorldStore } from '@/stores/worldStore';
   import {
     calculateSpellAttackModifier,
+    CANTRIP_SPELL_LEVEL,
     collectActiveEffects,
     combineEffectsWithAmbient,
     computeSpellSlots,
@@ -66,10 +71,19 @@
     isSpellTargetBlockedByRange,
   } from '../../../composables/useSceneRangeCheck';
   import { useSpellResolution } from '../../../composables/useSpellResolution';
+  import {
+    FILTER_ROW_CONTROL_SIZE,
+    SHEET_FILTER_LABELS,
+    SPELL_FILTER_LABELS,
+    SPELL_PROPERTY_FILTERS,
+  } from '../constants';
+  import FilterChip from '../FilterChip.vue';
+  import FilterResetButton from '../FilterResetButton.vue';
   import PreparedSpellsModal from '../PreparedSpellsModal.vue';
   import SheetStatTile from '../SheetStatTile.vue';
   import SpellcastingSettingsModal from '../SpellcastingSettingsModal.vue';
   import SpellListItem from '../SpellListItem.vue';
+  import { getFilterChipClass } from '../utils/filterChipClass';
 
   const props = defineProps<{
     actor: DnDActor;
@@ -192,99 +206,6 @@
   }
 
   const isSettingsModalOpen = ref(false);
-
-  // --- Поиск и фильтры ---
-  const searchQuery = ref('');
-  const filterLevels = ref<Set<number>>(new Set());
-  const filterHealing = ref(false);
-  const filterConcentration = ref(false);
-  const filterRitual = ref(false);
-
-  /** Активен ли хотя бы один фильтр */
-  const hasAnyFilter = computed(
-    () =>
-      searchQuery.value.length > 0
-      || filterLevels.value.size > 0
-      || filterHealing.value
-      || filterConcentration.value
-      || filterRitual.value,
-  );
-
-  /** Сбрасывает все фильтры */
-  function resetFilters(): void {
-    searchQuery.value = '';
-    filterLevels.value = new Set();
-    filterHealing.value = false;
-    filterConcentration.value = false;
-    filterRitual.value = false;
-  }
-
-  /**
-   * Переключает фильтр по кругу заклинания.
-   *
-   * @param level - круг заклинания
-   */
-  function toggleLevelFilter(level: number): void {
-    const newSet = new Set(filterLevels.value);
-
-    if (newSet.has(level)) {
-      newSet.delete(level);
-    } else {
-      newSet.add(level);
-    }
-
-    filterLevels.value = newSet;
-  }
-
-  /** Уникальные круги заклинаний, присутствующие у актора */
-  const availableLevelFilters = computed(() => {
-    const spells = props.actor.spells ?? [];
-    const levels = new Set<number>();
-
-    for (const spell of spells) {
-      levels.add(spell.level);
-    }
-
-    return [...levels].sort((levelA, levelB) => levelA - levelB);
-  });
-
-  /** Отфильтрованные заклинания */
-  const filteredSpells = computed(() => {
-    const spells = props.actor.spells ?? [];
-    const query = searchQuery.value.toLowerCase().trim();
-
-    return spells.filter((spell) => {
-      // Поиск по названию
-      if (query && !spell.name.toLowerCase().includes(query)) {
-        return false;
-      }
-
-      // Фильтр по кругу
-      if (filterLevels.value.size > 0 && !filterLevels.value.has(spell.level)) {
-        return false;
-      }
-
-      // Фильтр: лечение (любая часть — лечащая: токен @heal в формуле)
-      if (
-        filterHealing.value
-        && !getSpellDamageParts(spell).some((part) => damagePartIsHealing(part))
-      ) {
-        return false;
-      }
-
-      // Фильтр: концентрация
-      if (filterConcentration.value && !spell.concentration) {
-        return false;
-      }
-
-      // Фильтр: ритуал
-      if (filterRitual.value && !spell.ritual) {
-        return false;
-      }
-
-      return true;
-    });
-  });
 
   /** Resolved stats для отображения Spell Save DC и бонуса атаки */
   const resolvedStats = computed(() => resolveActorStats(props.actor));
@@ -567,6 +488,260 @@
     () => props.actor.system?.spellSlotsUsed ?? [0, 0, 0, 0, 0, 0, 0, 0, 0],
   );
 
+  // --- Поиск и отбор ---
+
+  const searchQuery = ref('');
+
+  /** Отмеченные чипами круги; пусто — круги списка не сужаются */
+  const filterLevels = ref<Set<number>>(new Set());
+
+  /** Отмечен чип «Подготовленные» */
+  const filterPrepared = ref(false);
+
+  /** Отмеченные чипы свойств заклинания */
+  const propertyFilters = ref<Record<SpellPropertyFilterKey, boolean>>({
+    healing: false,
+    concentration: false,
+    ritual: false,
+  });
+
+  /**
+   * Отбор сужает сам список заклинаний (а не только круги): под ним разделители
+   * пустых кругов уже мешают — показывать нечего, кроме пузырьков ячеек.
+   */
+  const hasSpellFilter = computed(
+    () =>
+      searchQuery.value.trim().length > 0
+      || filterPrepared.value
+      || Object.values(propertyFilters.value).some((isPicked) => isPicked),
+  );
+
+  /** Список сужен: отбор есть что сбросить */
+  const hasAnyFilter = computed(
+    () => hasSpellFilter.value || filterLevels.value.size > 0,
+  );
+
+  /** Нажатие на «Сбросить»: список возвращается целиком */
+  function resetFilters(): void {
+    searchQuery.value = '';
+    filterLevels.value = new Set();
+    filterPrepared.value = false;
+
+    propertyFilters.value = {
+      healing: false,
+      concentration: false,
+      ritual: false,
+    };
+  }
+
+  /** Очистка поля поиска крестиком */
+  function clearSearch(): void {
+    searchQuery.value = '';
+  }
+
+  /** Нажатие на чип подготовленных: тем же чипом отбор и снимается */
+  function togglePreparedFilter(): void {
+    filterPrepared.value = !filterPrepared.value;
+  }
+
+  /**
+   * Нажатие на чип круга: круги набираются по одному, повторное нажатие снимает
+   * круг с отбора.
+   *
+   * @param level - круг заклинания
+   */
+  function toggleLevelFilter(level: number): void {
+    const pickedLevels = new Set(filterLevels.value);
+
+    if (pickedLevels.has(level)) {
+      pickedLevels.delete(level);
+    } else {
+      pickedLevels.add(level);
+    }
+
+    filterLevels.value = pickedLevels;
+  }
+
+  /**
+   * Нажатие на чип свойства заклинания.
+   *
+   * @param key - свойство: лечение, концентрация либо ритуал
+   */
+  function togglePropertyFilter(key: SpellPropertyFilterKey): void {
+    propertyFilters.value = {
+      ...propertyFilters.value,
+      [key]: !propertyFilters.value[key],
+    };
+  }
+
+  /** Круги, у которых класс даёт ячейки заклинаний */
+  const slotLevels = computed(() =>
+    maxSlots.value.reduce<number[]>((levels, max, index) => {
+      if (max > 0) {
+        levels.push(index + 1);
+      }
+
+      return levels;
+    }, []),
+  );
+
+  /**
+   * Круги для чипов отбора: круги заклинаний книги и круги с ячейками — ячейку
+   * тратят и на повышение круга уже известного заклинания, поэтому такой круг
+   * стоит в списке даже без своих заклинаний.
+   */
+  const availableLevelFilters = computed(() => {
+    const levels = new Set<number>(slotLevels.value);
+
+    for (const spell of props.actor.spells ?? []) {
+      levels.add(spell.level);
+    }
+
+    return [...levels].sort((levelA, levelB) => levelA - levelB);
+  });
+
+  /** Кругов больше одного — есть между чем выбирать */
+  const hasLevelChips = computed(() => availableLevelFilters.value.length > 1);
+
+  /**
+   * Подготовку отмечают только у заклинаний книги: в списке из одних заговоров
+   * помечать нечего — чипа отбора нет.
+   */
+  const isPreparedFilterAvailable = computed(() =>
+    (props.actor.spells ?? []).some((spell) => spell.level > 0),
+  );
+
+  /** Ряд отбора: нужен, только когда в списке есть что отбирать */
+  const hasFilterControls = computed(
+    () => (props.actor.spells?.length ?? 0) > 0,
+  );
+
+  /**
+   * Чипы кругов: сам чип — номер круга, у заговоров вместо номера буква.
+   * Полную подпись («Заговоры», «3-й круг») показывает подсказка по наведению —
+   * ей ряд не поместился бы на узком листе. Единственный круг чипов не даёт:
+   * выбирать не из чего.
+   */
+  const levelChips = computed(() => {
+    if (!hasLevelChips.value) {
+      return [];
+    }
+
+    return availableLevelFilters.value.map((level) => ({
+      level,
+      label:
+        level === CANTRIP_SPELL_LEVEL
+          ? SPELL_FILTER_LABELS.cantrip
+          : String(level),
+      tooltip:
+        level === CANTRIP_SPELL_LEVEL
+          ? SPELL_FILTER_LABELS.cantripHint
+          : (SPELL_LEVEL_LABELS[level] ?? `${level}-й круг`),
+      isPicked: filterLevels.value.has(level),
+    }));
+  });
+
+  /** Отмечено хотя бы одно свойство: чип раскрывающегося меню горит тёплым */
+  const hasPropertyFilter = computed(() =>
+    Object.values(propertyFilters.value).some((isPicked) => isPicked),
+  );
+
+  /** Чип, раскрывающий меню свойств: квадрат со значком отбора */
+  const propertyMenuChipClass = computed(() =>
+    getFilterChipClass(hasPropertyFilter.value, 'icon'),
+  );
+
+  /**
+   * Отметка свойства не закрывает меню: свойств три, и ставят их обычно
+   * подряд — закрытие после каждой галочки заставляло бы открывать меню заново.
+   *
+   * @param event - событие выбора пункта меню
+   */
+  function keepMenuOpen(event: Event): void {
+    event.preventDefault();
+  }
+
+  /** Пункты меню свойств: отметка держится галочкой в самом меню */
+  const propertyMenuItems = computed<DropdownMenuItem[]>(() =>
+    SPELL_PROPERTY_FILTERS.map((property) => ({
+      label: property.label,
+      icon: property.icon,
+      type: 'checkbox',
+      checked: propertyFilters.value[property.key],
+      onSelect: keepMenuOpen,
+      onUpdateChecked: () => togglePropertyFilter(property.key),
+    })),
+  );
+
+  /**
+   * Подготовленное заклинание: отметка листа либо всегда подготовленное. У
+   * заговора отметки нет — он при заклинателе всегда и из отбора не выпадает.
+   *
+   * @param spell - заклинание книги
+   * @returns true — заклинание доступно без подготовки
+   */
+  function isSpellReady(spell: Spell): boolean {
+    return (
+      spell.level === CANTRIP_SPELL_LEVEL
+      || Boolean(spell.prepared)
+      || Boolean(spell.alwaysPrepared)
+    );
+  }
+
+  /** Заклинания, прошедшие поиск и отбор */
+  const filteredSpells = computed(() => {
+    const spells = props.actor.spells ?? [];
+    const query = searchQuery.value.toLowerCase().trim();
+
+    return spells.filter((spell) => {
+      if (query && !spell.name.toLowerCase().includes(query)) {
+        return false;
+      }
+
+      if (filterLevels.value.size > 0 && !filterLevels.value.has(spell.level)) {
+        return false;
+      }
+
+      if (filterPrepared.value && !isSpellReady(spell)) {
+        return false;
+      }
+
+      // Лечение: лечащая хотя бы одна часть урона (токен @heal в формуле)
+      if (
+        propertyFilters.value.healing
+        && !getSpellDamageParts(spell).some((part) => damagePartIsHealing(part))
+      ) {
+        return false;
+      }
+
+      if (propertyFilters.value.concentration && !spell.concentration) {
+        return false;
+      }
+
+      if (propertyFilters.value.ritual && !spell.ritual) {
+        return false;
+      }
+
+      return true;
+    });
+  });
+
+  /**
+   * Круги ячеек, чьи разделители остаются в списке: разделитель круга без
+   * заклинаний нужен ради пузырьков — ячейку тратят и на повышение круга уже
+   * известного заклинания. Под отбором по самим заклинаниям пустые разделители
+   * только мешают списку найденного.
+   */
+  const groupSlotLevels = computed(() => {
+    if (hasSpellFilter.value) {
+      return [];
+    }
+
+    return filterLevels.value.size > 0
+      ? slotLevels.value.filter((level) => filterLevels.value.has(level))
+      : slotLevels.value;
+  });
+
   /** Группировка заклинаний по кругам */
   const spellsByLevel = computed(() => {
     const spells = filteredSpells.value;
@@ -579,17 +754,10 @@
       grouped.set(spell.level, existing);
     }
 
-    // Убедимся, что все круги с ячейками отображаются (только если нет активных фильтров)
-    if (!hasAnyFilter.value) {
-      maxSlots.value.forEach((max, index) => {
-        if (max > 0) {
-          const lvl = index + 1;
-
-          if (!grouped.has(lvl)) {
-            grouped.set(lvl, []);
-          }
-        }
-      });
+    for (const level of groupSlotLevels.value) {
+      if (!grouped.has(level)) {
+        grouped.set(level, []);
+      }
     }
 
     // Сортировка по кругу
@@ -1485,109 +1653,108 @@
 
 <template>
   <div class="relative flex min-h-50 flex-col space-y-4">
-    <!-- Шапка вкладки: плитки заклинательства и подготовки -->
-    <div class="flex flex-wrap items-center gap-2">
-      <SheetStatTile
-        :cells="spellcastingCells"
-        aria-label="Настроить заклинательство"
-        clickable
-        @click="isSettingsModalOpen = true"
-      />
+    <!-- Шапка вкладки: ряд плиток и ряд отбора. Оба ряда и промежуток между
+      ними — те же, что у шапки снаряжения: у листа одна шапка на все вкладки,
+      и расходиться она не должна -->
+    <div class="mb-2 flex flex-col gap-2">
+      <!-- Плитки заклинательства и подготовки -->
+      <div class="flex flex-wrap items-center gap-2">
+        <SheetStatTile
+          :cells="spellcastingCells"
+          aria-label="Настроить заклинательство"
+          clickable
+          @click="isSettingsModalOpen = true"
+        />
 
-      <SheetStatTile
-        v-for="tile in preparedTiles"
-        :key="tile.kind"
-        :cells="tile.cells"
-        :tooltip="tile.tooltip"
-        aria-label="Настроить предел подготовки"
-        clickable
-        @click="openPreparedModal(tile.kind)"
-      />
-    </div>
+        <SheetStatTile
+          v-for="tile in preparedTiles"
+          :key="tile.kind"
+          :cells="tile.cells"
+          :tooltip="tile.tooltip"
+          aria-label="Настроить предел подготовки"
+          clickable
+          @click="openPreparedModal(tile.kind)"
+        />
+      </div>
 
-    <!-- Поиск и фильтры -->
-    <div
-      v-if="actor.spells && actor.spells.length > 0"
-      class="space-y-2"
-    >
-      <!-- Поле поиска -->
-      <UInput
-        v-model="searchQuery"
-        icon="tabler:search"
-        placeholder="Поиск по названию..."
-        size="sm"
-        :ui="{ root: 'w-full' }"
-      />
+      <!-- Поиск и отбор одной строкой: слева чипы отбора (подготовка, круги),
+        справа — поле поиска, свойства и сброс. Разносит их распор на поле
+        поиска. Чипы лежат в ряду поштучно, без вложенных групп: иначе круги
+        переносятся на новую строку все разом, даже когда место ещё есть -->
+      <div
+        v-if="hasFilterControls"
+        class="flex flex-wrap items-center gap-x-1.5 gap-y-2"
+      >
+        <FilterChip
+          v-if="isPreparedFilterAvailable"
+          :label="SPELL_FILTER_LABELS.prepared"
+          :tooltip="SPELL_FILTER_LABELS.preparedHint"
+          icon="tabler:wand"
+          :picked="filterPrepared"
+          @toggle="togglePreparedFilter"
+        />
 
-      <!-- Фильтры -->
-      <div class="flex flex-wrap items-center gap-1.5">
-        <!-- Круги заклинаний -->
-        <UBadge
-          v-for="level in availableLevelFilters"
-          :key="`lvl-${level}`"
-          :color="filterLevels.has(level) ? 'primary' : 'neutral'"
-          :variant="filterLevels.has(level) ? 'solid' : 'subtle'"
-          size="sm"
-          class="cursor-pointer transition-all select-none"
-          @click.left.exact.prevent="toggleLevelFilter(level)"
+        <!-- Круги — числами, как в справочнике заклинаний: подписью целиком
+        («Заговоры», «3-й круг») ряд бы не поместился на узком листе, поэтому
+        она уходит в подсказку -->
+        <FilterChip
+          v-for="levelChip in levelChips"
+          :key="levelChip.level"
+          :label="levelChip.label"
+          :tooltip="levelChip.tooltip"
+          :picked="levelChip.isPicked"
+          @toggle="toggleLevelFilter(levelChip.level)"
+        />
+
+        <UInput
+          v-model="searchQuery"
+          icon="tabler:search"
+          :placeholder="SHEET_FILTER_LABELS.search"
+          :size="FILTER_ROW_CONTROL_SIZE"
+          class="ml-auto w-40 shrink-0"
+          :ui="{ trailing: 'pe-0.5' }"
         >
-          {{ level === 0 ? 'Заговор' : `${level} круг` }}
-        </UBadge>
+          <template
+            v-if="searchQuery"
+            #trailing
+          >
+            <UButton
+              icon="tabler:x"
+              color="neutral"
+              variant="link"
+              :size="FILTER_ROW_CONTROL_SIZE"
+              :aria-label="SHEET_FILTER_LABELS.clear"
+              @click.left.exact.prevent="clearSearch"
+            />
+          </template>
+        </UInput>
 
-        <div class="mx-0.5 h-4 w-px bg-accented/50" />
-
-        <!-- Лечение -->
-        <UBadge
-          color="success"
-          :variant="filterHealing ? 'solid' : 'subtle'"
-          size="sm"
-          class="cursor-pointer transition-all select-none"
-          @click.left.exact.prevent="filterHealing = !filterHealing"
+        <!-- Свойства заклинания живут в раскрывающемся меню: обращаются к ним
+        реже, чем к кругам, а места чипами занимали столько же. Отметки стоят
+        галочками в самом меню, и оно не закрывается после каждой -->
+        <UDropdownMenu
+          :items="propertyMenuItems"
+          :content="{ align: 'end' }"
         >
-          <UIcon
-            name="tabler:heart-filled"
-            class="mr-0.5 h-3 w-3"
-          />
-          Лечение
-        </UBadge>
+          <!-- Отметку свойств несут галочки пунктов меню, а не сама кнопка:
+          `aria-pressed` на ней спорил бы с ролью кнопки, раскрывающей меню -->
+          <button
+            type="button"
+            :class="propertyMenuChipClass"
+            :title="SPELL_FILTER_LABELS.propertiesHint"
+            :aria-label="SPELL_FILTER_LABELS.properties"
+          >
+            <UIcon
+              name="tabler:adjustments-horizontal"
+              class="size-4"
+            />
+          </button>
+        </UDropdownMenu>
 
-        <!-- Концентрация -->
-        <UBadge
-          color="warning"
-          :variant="filterConcentration ? 'solid' : 'subtle'"
-          size="sm"
-          class="cursor-pointer transition-all select-none"
-          @click.left.exact.prevent="filterConcentration = !filterConcentration"
-        >
-          К
-        </UBadge>
-
-        <!-- Ритуал -->
-        <UBadge
-          color="info"
-          :variant="filterRitual ? 'solid' : 'subtle'"
-          size="sm"
-          class="cursor-pointer transition-all select-none"
-          @click.left.exact.prevent="filterRitual = !filterRitual"
-        >
-          Р
-        </UBadge>
-
-        <!-- Сброс -->
-        <UBadge
+        <FilterResetButton
           v-if="hasAnyFilter"
-          color="error"
-          variant="subtle"
-          size="sm"
-          class="cursor-pointer transition-all select-none"
-          @click.left.exact.prevent="resetFilters"
-        >
-          <UIcon
-            name="tabler:x"
-            class="mr-0.5 h-3 w-3"
-          />
-          Сброс
-        </UBadge>
+          @reset="resetFilters"
+        />
       </div>
     </div>
 
@@ -1718,6 +1885,14 @@
       />
 
       <p>У данного персонажа пока нет заклинаний.</p>
+    </div>
+
+    <!-- Отбор ничего не оставил: пустое место объясняет, почему список пуст -->
+    <div
+      v-else-if="spellsByLevel.length === 0"
+      class="flex items-center justify-center rounded-lg border border-dashed border-default p-8 text-center text-sm text-dimmed"
+    >
+      {{ SHEET_FILTER_LABELS.empty }}
     </div>
 
     <!-- Настройка предела подготовки (открывается нажатием на плитку) -->

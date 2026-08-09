@@ -1302,7 +1302,9 @@
 
               <!-- Вкладки -->
               <div class="relative mt-2 flex flex-1 flex-col space-y-2">
-                <div class="flex gap-4 border-b border-muted/30">
+                <!-- Линия под вкладками — тем же токеном, что и на листе
+                  персонажа: строка вкладок у обоих листов одна и та же -->
+                <div class="flex gap-4 border-b border-default">
                   <button
                     v-for="tab in tabs"
                     :key="tab.id"

@@ -152,7 +152,10 @@
   <div class="relative flex flex-1 flex-col space-y-4">
     <!-- Overlay удален, вместо этого подсвечиваем кнопку вкладки Заклинания -->
     <!-- Кнопки вкладок -->
-    <div class="mb-4 flex gap-4 border-b border-muted/30">
+    <!-- Линия под вкладками — тем же токеном, что и остальные линии листа
+      (`default`): у `muted` свой, более светлый оттенок, и полоска выбивалась
+      из рамок карточек и разделителей под ней -->
+    <div class="mb-4 flex gap-4 border-b border-default">
       <button
         v-for="tab in allTabs"
         :key="tab.id"

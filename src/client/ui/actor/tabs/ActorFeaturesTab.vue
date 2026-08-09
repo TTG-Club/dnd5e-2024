@@ -2,6 +2,7 @@
   import type { Feature } from '@vtt/shared';
   import type { DnDActor, DnDGameItem } from '@vtt/shared/system/dnd.js';
 
+  import type { FeatureOriginKey } from '../constants';
   import type { AppliedFeatFeature } from '../feat/featApply';
 
   import { computed, ref } from 'vue';
@@ -14,8 +15,15 @@
   import { getTotalLevel } from '@vtt/shared/system/dnd.js';
 
   import { useFeatModal } from '../../../composables/useFeatModal';
+  import {
+    FEATURE_ORIGIN_HINTS,
+    FEATURE_ORIGIN_LABELS,
+    FEATURE_ORIGIN_ORDER,
+  } from '../constants';
   import { reapplyFeatToActor, removeFeatFromActor } from '../feat/featApply';
   import FeatListItem from '../FeatListItem.vue';
+  import FilterChip from '../FilterChip.vue';
+  import FilterResetButton from '../FilterResetButton.vue';
 
   interface Props {
     actor: DnDActor;
@@ -128,6 +136,131 @@
   /** Черты (feats) */
   const featsList = computed(() =>
     props.actor.features.filter((feature) => feature.featureType === 'feat'),
+  );
+
+  // --- Отбор по источнику особенности ---
+
+  /**
+   * Источник особенности. Записи без явного типа считаются своими: их заводят
+   * руками прямо на листе, и отдельного источника у них нет.
+   *
+   * @param feature - особенность списка
+   * @returns источник для чипа отбора
+   */
+  function getFeatureOrigin(feature: Feature): FeatureOriginKey {
+    const featureType = feature.featureType;
+
+    if (
+      featureType === 'species'
+      || featureType === 'class'
+      || featureType === 'subclass'
+      || featureType === 'background'
+    ) {
+      return featureType;
+    }
+
+    return 'custom';
+  }
+
+  /** Отмеченные чипами источники; пусто — список не сужается */
+  const pickedOrigins = ref<Set<FeatureOriginKey>>(new Set());
+
+  /**
+   * Источники, которые есть на вкладке: по ним и отбирают. Черты считаются
+   * наравне с остальными — раздел у них свой, но чип в ряду общий.
+   */
+  const availableOrigins = computed(() => {
+    const origins = new Set(regularFeatures.value.map(getFeatureOrigin));
+
+    if (featsList.value.length > 0) {
+      origins.add('feat');
+    }
+
+    return FEATURE_ORIGIN_ORDER.filter((origin) => origins.has(origin));
+  });
+
+  /** Ряд отбора: одного источника на весь список мало — отбирать нечего */
+  const hasFilterControls = computed(() => availableOrigins.value.length > 1);
+
+  /**
+   * Действующий отбор: источники считаются от доступных, поэтому выбор,
+   * которого в списке уже нет (особенность убрали вместе с последней записью
+   * источника), сам собой перестаёт сужать список.
+   */
+  const activeOrigins = computed(() =>
+    availableOrigins.value.filter((origin) => pickedOrigins.value.has(origin)),
+  );
+
+  /** Список сужен: отбор есть что сбросить */
+  const hasActiveFilter = computed(() => activeOrigins.value.length > 0);
+
+  /**
+   * Чипы источников: подпись целиком («Вид», «Предыстория») — ряд коротких
+   * слов помещается и на узком листе.
+   */
+  const originChips = computed(() =>
+    availableOrigins.value.map((origin) => ({
+      origin,
+      label: FEATURE_ORIGIN_LABELS[origin],
+      tooltip: FEATURE_ORIGIN_HINTS[origin],
+      isPicked: activeOrigins.value.includes(origin),
+    })),
+  );
+
+  /**
+   * Нажатие на чип источника: источники набираются по одному, повторное
+   * нажатие снимает источник с отбора.
+   *
+   * @param origin - источник особенности
+   */
+  function toggleOriginFilter(origin: FeatureOriginKey): void {
+    const nextOrigins = new Set(pickedOrigins.value);
+
+    if (nextOrigins.has(origin)) {
+      nextOrigins.delete(origin);
+    } else {
+      nextOrigins.add(origin);
+    }
+
+    pickedOrigins.value = nextOrigins;
+  }
+
+  /** Нажатие на «Сбросить»: список возвращается целиком */
+  function resetFilters(): void {
+    pickedOrigins.value = new Set();
+  }
+
+  /** Особенности, прошедшие отбор */
+  const displayFeatures = computed(() => {
+    if (!hasActiveFilter.value) {
+      return regularFeatures.value;
+    }
+
+    return regularFeatures.value.filter((feature) =>
+      activeOrigins.value.includes(getFeatureOrigin(feature)),
+    );
+  });
+
+  /**
+   * Виден ли раздел черт. Под отбором без чипа «Черта» он уезжает целиком,
+   * вместе с заголовком: пустой раздел под отбором только сбивает с толку.
+   * Перенос новой черты от этого не страдает — его принимает весь лист, а не
+   * место под заголовком.
+   */
+  const isFeatsSectionVisible = computed(
+    () => !hasActiveFilter.value || activeOrigins.value.includes('feat'),
+  );
+
+  /**
+   * Виден ли список обычных особенностей. Под отбором одних только черт ему на
+   * вкладке делать нечего — иначе над разделом черт висела бы пустота.
+   *
+   * Подписи «под отбор ничего не подошло» здесь нет намеренно: чипы идут от
+   * самого списка, поэтому у любого отмеченного источника есть хотя бы одна
+   * запись, и пустым отбор не бывает.
+   */
+  const isRegularSectionVisible = computed(
+    () => !hasActiveFilter.value || displayFeatures.value.length > 0,
   );
 
   /**
@@ -513,122 +646,151 @@
       Добавить особенность
     </UButton>
 
+    <!-- Отбор по источнику: чипы идут от самого списка — источника, которого
+      в нём нет, нет и среди чипов. Сброс замыкает ряд и появляется только при
+      отборе: пустой кнопке в ряду делать нечего -->
+    <div
+      v-if="hasFilterControls"
+      class="flex flex-wrap items-center gap-x-1.5 gap-y-2"
+    >
+      <FilterChip
+        v-for="originChip in originChips"
+        :key="originChip.origin"
+        :label="originChip.label"
+        :tooltip="originChip.tooltip"
+        :picked="originChip.isPicked"
+        @toggle="toggleOriginFilter(originChip.origin)"
+      />
+
+      <FilterResetButton
+        v-if="hasActiveFilter"
+        class="ml-auto"
+        @reset="resetFilters"
+      />
+    </div>
+
     <!-- Список обычных особенностей -->
-    <div
-      v-if="regularFeatures.length === 0"
-      class="py-4 text-center text-sm text-dimmed"
-    >
-      Нет особенностей
-    </div>
-
-    <div
-      v-else
-      class="space-y-1"
-    >
+    <template v-if="isRegularSectionVisible">
       <div
-        v-for="feature in regularFeatures"
-        :key="feature.id"
-        class="flex min-h-11 items-center gap-3 rounded-lg bg-accented/30 px-3 py-2 transition-colors"
-        :class="!isEditMode ? 'cursor-pointer hover:bg-accented/50' : ''"
-        @click.left.exact.prevent="
-          isEditMode ? undefined : showDescription(feature)
+        v-if="regularFeatures.length === 0"
+        class="py-4 text-center text-sm text-dimmed"
+      >
+        Нет особенностей
+      </div>
+
+      <div
+        v-else
+        class="space-y-1"
+      >
+        <div
+          v-for="feature in displayFeatures"
+          :key="feature.id"
+          class="flex min-h-11 items-center gap-3 rounded-lg bg-accented/30 px-3 py-2 transition-colors"
+          :class="!isEditMode ? 'cursor-pointer hover:bg-accented/50' : ''"
+          @click.left.exact.prevent="
+            isEditMode ? undefined : showDescription(feature)
+          "
+          @contextmenu="openContextMenu($event, feature)"
+        >
+          <div class="flex flex-1 items-center gap-2 overflow-hidden">
+            <UBadge
+              v-if="feature.featureType === 'species'"
+              color="primary"
+              variant="subtle"
+              size="sm"
+              class="shrink-0"
+            >
+              Вид
+            </UBadge>
+
+            <UBadge
+              v-else-if="feature.level"
+              color="primary"
+              variant="subtle"
+              size="sm"
+              class="shrink-0"
+            >
+              {{ feature.level }} ур.
+            </UBadge>
+
+            <span class="truncate text-sm text-highlighted">
+              {{ feature.name }}
+            </span>
+          </div>
+
+          <div class="flex shrink-0 items-center gap-1">
+            <UButton
+              v-if="isEditMode"
+              icon="tabler:pencil"
+              color="neutral"
+              variant="ghost"
+              size="xs"
+              @click.left.exact.prevent="editFeature(feature)"
+            />
+
+            <UButton
+              v-if="isEditMode"
+              icon="tabler:trash"
+              color="error"
+              variant="ghost"
+              size="xs"
+              @click.left.exact.prevent="removeFeature(feature)"
+            />
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- Раздел черт целиком уходит под отбор: чип «Черта» оставляет на вкладке
+      только его, а остальные чипы — только список выше -->
+    <template v-if="isFeatsSectionVisible">
+      <!-- Разделитель: Черты -->
+      <h4
+        class="mt-5 mb-1 text-xs font-semibold tracking-wider text-muted uppercase"
+      >
+        Черты
+      </h4>
+
+      <!-- Список черт -->
+      <div
+        v-if="featsList.length === 0"
+        class="flex flex-1 items-center justify-center rounded-lg border-2 border-dashed px-3 py-4 text-sm transition-colors"
+        :class="
+          isDragOver
+            ? 'border-primary/50 bg-primary/5 text-primary'
+            : 'border-default/30 text-dimmed'
         "
-        @contextmenu="openContextMenu($event, feature)"
       >
-        <div class="flex flex-1 items-center gap-2 overflow-hidden">
-          <UBadge
-            v-if="feature.featureType === 'species'"
-            color="primary"
-            variant="subtle"
-            size="sm"
-            class="shrink-0"
-          >
-            Вид
-          </UBadge>
-
-          <UBadge
-            v-else-if="feature.level"
-            color="primary"
-            variant="subtle"
-            size="sm"
-            class="shrink-0"
-          >
-            {{ feature.level }} ур.
-          </UBadge>
-
-          <span class="truncate text-sm text-highlighted">
-            {{ feature.name }}
-          </span>
-        </div>
-
-        <div class="flex shrink-0 items-center gap-1">
-          <UButton
-            v-if="isEditMode"
-            icon="tabler:pencil"
-            color="neutral"
-            variant="ghost"
-            size="xs"
-            @click.left.exact.prevent="editFeature(feature)"
-          />
-
-          <UButton
-            v-if="isEditMode"
-            icon="tabler:trash"
-            color="error"
-            variant="ghost"
-            size="xs"
-            @click.left.exact.prevent="removeFeature(feature)"
-          />
-        </div>
+        {{ isDragOver ? 'Перетащите сюда' : 'В данный момент черт нет' }}
       </div>
-    </div>
 
-    <!-- Разделитель: Черты -->
-    <h4
-      class="mt-5 mb-1 text-xs font-semibold tracking-wider text-muted uppercase"
-    >
-      Черты
-    </h4>
-
-    <!-- Список черт -->
-    <div
-      v-if="featsList.length === 0"
-      class="flex flex-1 items-center justify-center rounded-lg border-2 border-dashed px-3 py-4 text-sm transition-colors"
-      :class="
-        isDragOver
-          ? 'border-primary/50 bg-primary/5 text-primary'
-          : 'border-default/30 text-dimmed'
-      "
-    >
-      {{ isDragOver ? 'Перетащите сюда' : 'В данный момент черт нет' }}
-    </div>
-
-    <div
-      v-else
-      class="space-y-1"
-    >
       <div
-        v-for="feat in featsList"
-        :key="feat.id"
-        @contextmenu="openContextMenu($event, feat)"
+        v-else
+        class="space-y-1"
       >
-        <FeatListItem
-          :item="feat"
-          variant="sheet"
-          :show-edit="isEditMode"
-          :show-delete="isEditMode"
-          @click="isEditMode ? undefined : showDescription(feat)"
-          @edit="editFeature(feat)"
-          @delete="removeFeature(feat)"
-        />
+        <div
+          v-for="feat in featsList"
+          :key="feat.id"
+          @contextmenu="openContextMenu($event, feat)"
+        >
+          <FeatListItem
+            :item="feat"
+            variant="sheet"
+            :show-edit="isEditMode"
+            :show-delete="isEditMode"
+            @click="isEditMode ? undefined : showDescription(feat)"
+            @edit="editFeature(feat)"
+            @delete="removeFeature(feat)"
+          />
+        </div>
       </div>
-    </div>
 
-    <!-- Invisible flex-grow area to ensure bottom space is drop zone -->
-    <div
-      v-if="featsList.length > 0"
-      class="min-h-5 flex-1"
-    />
+      <!-- Invisible flex-grow area to ensure bottom space is drop zone -->
+      <div
+        v-if="featsList.length > 0"
+        class="min-h-5 flex-1"
+      />
+    </template>
   </div>
 
   <!-- Контекстное меню (Teleport для корректного z-index) -->
