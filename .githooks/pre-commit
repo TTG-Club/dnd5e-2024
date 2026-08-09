@@ -1,0 +1,27 @@
+#!/bin/sh
+# Авто-бамп patch-версии на рабочих ветках: каждый коммит получает свой номер
+# (см. scripts/bump-version.mjs). Хук включается через core.hooksPath — его
+# ставит scripts/install-git-hooks.mjs из `prepare` при npm install.
+#
+# На побочных ветках номер не трогаем: там правки ещё не факт что доедут до
+# main, а расходящаяся версия даёт конфликт при мёрже в трёх файлах сразу.
+branch=$(git rev-parse --abbrev-ref HEAD)
+
+case "$branch" in
+  main | dev) ;;
+  *) exit 0 ;;
+esac
+
+# Частичный коммит (`git commit <путь>`, `git commit -i`) git собирает во
+# ВРЕМЕННОМ индексе: наш `git add` уедет в него, а настоящий индекс останется со
+# старым номером — после коммита файлы версии висят «изменёнными», и следующий
+# коммит с --no-verify откатил бы номер назад. Такой коммит пропускаем.
+case "$GIT_INDEX_FILE" in
+  *next-index*)
+    echo "[bump-version] коммит с перечислением путей — версию не поднимаем;"
+    echo "[bump-version] сделайте обычный git commit, чтобы номер вырос"
+    exit 0
+    ;;
+esac
+
+node scripts/bump-version.mjs || exit 1
