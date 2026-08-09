@@ -8,6 +8,8 @@
 
 import type { WeaponRangeType } from '@vtt/shared';
 
+import { CUSTOM_SKILLS_MAX } from '@vtt/shared/system/dnd.js';
+
 // Реэкспорт из единого shared-источника (производные от ABILITY_OPTIONS и SKILLS_LIST)
 export {
   ABILITY_LABELS,
@@ -205,7 +207,7 @@ export const FILTER_CHIP_SELECTED_CLASS =
 
 /** Подписи строк своего бонуса — они одни у всех настроек листа */
 export const CUSTOM_BONUS_LABELS: Record<
-  'source' | 'flatSource' | 'labelPlaceholder' | 'add' | 'remove',
+  'source' | 'flatSource' | 'labelPlaceholder' | 'add' | 'remove' | 'unnamed',
   string
 > = {
   source: 'Источник бонуса',
@@ -213,6 +215,7 @@ export const CUSTOM_BONUS_LABELS: Record<
   labelPlaceholder: 'Откуда бонус',
   add: 'Добавить бонус',
   remove: 'Удалить бонус',
+  unnamed: 'Свой бонус',
 };
 
 /** Подписи настройки спасбросков */
@@ -233,6 +236,49 @@ export const SAVING_THROW_SETTINGS_LABELS = {
   proficiency: 'Владение спасброском',
   reset: 'Вернуть спасбросок к правилам',
   addBonus: 'Добавить бонус',
+} as const;
+
+/**
+ * Подпись разделителя группы навыков (слот `label` у `USeparator`): мелкие
+ * прописные. Константа общая: разделитель рисуют и список навыков листа, и
+ * окно их настройки — вразнобой группы читались бы как разные списки.
+ */
+export const SKILL_GROUP_LABEL_CLASS =
+  'text-[10px] font-bold tracking-wider text-muted uppercase';
+
+/** Подписи настройки навыков */
+export const SKILL_SETTINGS_LABELS = {
+  title: 'Настройка навыков',
+  open: 'Настроить навыки',
+  hint:
+    'Характеристика задаёт модификатор навыка, к нему добавляется бонус '
+    + 'мастерства по уровню владения. Дополнительные бонусы складываются '
+    + 'сверху — их сколько угодно.',
+  ability: 'Характеристика навыка',
+  proficiency: 'Владение навыком',
+  reset: 'Вернуть навык к правилам',
+  addBonus: 'Добавить бонус',
+  passive: 'Пассивное значение',
+  effects: 'Активные эффекты',
+  overriddenBadge: 'Эффект',
+  overriddenHint:
+    'Итог навыка задан активным эффектом целиком: пока эффект держится, '
+    + 'настройка на число не влияет — она сработает, когда он спадёт.',
+  customTitle: 'Свой навык',
+  customHint:
+    'Навыка нет в правилах: он встанет в общий список по алфавиту и будет '
+    + 'бросаться наравне с остальными.',
+  customNamePlaceholder: 'Название навыка',
+  customAdd: 'Добавить навык',
+  customRemove: 'Удалить свой навык',
+  customBadge: 'Свой',
+  customDuplicate: 'Навык с таким названием уже есть',
+  customLimit: `Своих навыков не больше ${CUSTOM_SKILLS_MAX}`,
+  groupTitle: 'Группировать по характеристикам',
+  groupHint:
+    'Навыки встанут группами под своими характеристиками. Группу задаёт '
+    + 'характеристика самого навыка: дополнительные бонусы от других '
+    + 'характеристик в счёт не идут.',
 } as const;
 
 /** Подписи ряда отбора, общие для вкладок листа */

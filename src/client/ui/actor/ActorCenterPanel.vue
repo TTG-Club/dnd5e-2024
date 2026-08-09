@@ -9,6 +9,8 @@
     AttackRollMode,
     ClassCounterDefinition,
     DnDActor,
+    DnDCustomSkill,
+    DnDSkillSettings,
   } from '@vtt/shared/system/dnd.js';
 
   import { computed, ref, toRef } from 'vue';
@@ -16,19 +18,39 @@
   import FieldsetLabel from '@/shared_ui/components/FieldsetLabel.vue';
   import { DISTANCE_UNIT_SHORT } from '@vtt/shared';
   import {
+    ABILITY_LABELS,
     calculateAbilityModifier,
+    calculateProficiencyBonus,
+    getCustomBonusesValue,
+    getCustomBonusValue,
+    getCustomSkillValue,
     getDisplayMovement,
     getMovementList,
+    getProficiencyContribution,
     getSkillAbility,
+    getSkillRowGroups,
+    getSkillSetting,
+    getSkillSettingAbility,
+    getTotalLevel,
+    isChangedSkill,
+    isProficiencyLevel,
+    SKILL_PROFICIENCY_NEXT,
     SKILLS_LIST,
   } from '@vtt/shared/system/dnd.js';
 
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import ClassCounters from './ClassCounters.vue';
+  import {
+    CUSTOM_BONUS_LABELS,
+    SKILL_GROUP_LABEL_CLASS,
+    SKILL_SETTINGS_LABELS,
+  } from './constants';
   import DiceRollModal from './DiceRollModal.vue';
   import InitiativeModal from './InitiativeModal.vue';
   import MovementModal from './MovementModal.vue';
   import SkillItem from './SkillItem.vue';
+  import SkillSettingsModal from './SkillSettingsModal.vue';
+  import { formatSignedNumber } from './utils/formatSignedNumber';
 
   interface Props {
     actor: DnDActor;
@@ -44,8 +66,6 @@
   const emit = defineEmits<{
     'update:actor': [updates: Partial<DnDActor>];
   }>();
-
-  const skills = SKILLS_LIST;
 
   const { resolvedStats, combinedEffects } = useResolvedStats(
     toRef(() => props.actor),
@@ -222,37 +242,234 @@
 
   // --- Навыки ---
 
-  /** Порядок переключения уровней владения */
-  const LEVEL_ORDER: ProficiencyLevel[] = [
-    'none',
-    'half',
-    'proficient',
-    'expertise',
-  ];
+  /**
+   * Модификаторы характеристик с учётом эффектов — по ним считаются свои
+   * навыки и разбор значений. Без разрешённых статов модификаторы берутся
+   * прямо из значений характеристик листа.
+   */
+  const skillAbilityMods = computed<Record<AbilityType, number>>(() => {
+    const resolvedMods = resolvedStats.value?.abilityMods;
+
+    if (resolvedMods) {
+      return resolvedMods;
+    }
+
+    const scores = props.actor.system.abilities;
+
+    return {
+      strength: calculateAbilityModifier(scores.strength ?? 10),
+      dexterity: calculateAbilityModifier(scores.dexterity ?? 10),
+      constitution: calculateAbilityModifier(scores.constitution ?? 10),
+      intelligence: calculateAbilityModifier(scores.intelligence ?? 10),
+      wisdom: calculateAbilityModifier(scores.wisdom ?? 10),
+      charisma: calculateAbilityModifier(scores.charisma ?? 10),
+    };
+  });
+
+  /**
+   * Бонус мастерства с учётом эффектов; без разрешённых статов — расчёт по
+   * суммарному уровню, как по правилам.
+   */
+  const skillProficiencyBonus = computed(
+    () =>
+      resolvedStats.value?.proficiencyBonus
+      ?? calculateProficiencyBonus(getTotalLevel(props.actor.system.classes)),
+  );
+
+  /** Строка списка навыков: навык правил либо заведённый игроком */
+  interface SkillRow {
+    /** Ключ строки списка */
+    id: string;
+    /** Ключ навыка правил; не задан — свой навык */
+    key?: SkillType;
+    label: string;
+    /** Характеристика расчёта: в настройке её подменяют */
+    ability: AbilityType;
+    proficiencyLevel: ProficiencyLevel;
+    modifier: number;
+    isCustom: boolean;
+    /** Разбор значения; пусто — навык считается по правилам */
+    valueHint: string;
+  }
+
+  /**
+   * Разбор значения навыка: из чего оно сложилось. Показывается только у
+   * навыков не по правилам — у остальных сокращение характеристики в строке и
+   * так всё объясняет.
+   *
+   * Вклад активных эффектов идёт отдельной частью: без него слагаемые в
+   * подсказке не сходились бы с числом в строке, и разбор вводил бы в
+   * заблуждение как раз там, где он нужнее всего.
+   *
+   * @param ability - характеристика расчёта
+   * @param proficiencyLevel - уровень владения
+   * @param bonuses - свои бонусы навыка
+   * @param effectsBonus - вклад активных эффектов
+   * @returns строка разбора
+   */
+  function buildSkillHint(
+    ability: AbilityType,
+    proficiencyLevel: ProficiencyLevel,
+    bonuses: DnDCustomSkill['bonuses'],
+    effectsBonus: number,
+  ): string {
+    const mods = skillAbilityMods.value;
+
+    const parts = [
+      `${ABILITY_LABELS[ability]} ${formatSignedNumber(mods[ability] ?? 0)}`,
+    ];
+
+    const proficiencyPart = getProficiencyContribution(
+      skillProficiencyBonus.value,
+      proficiencyLevel,
+    );
+
+    if (proficiencyPart !== 0) {
+      parts.push(`Мастерство ${formatSignedNumber(proficiencyPart)}`);
+    }
+
+    for (const bonus of bonuses) {
+      const label = bonus.label.trim() || CUSTOM_BONUS_LABELS.unnamed;
+
+      parts.push(
+        `${label} ${formatSignedNumber(getCustomBonusValue(mods, bonus))}`,
+      );
+    }
+
+    if (effectsBonus !== 0) {
+      parts.push(
+        `${SKILL_SETTINGS_LABELS.effects} ${formatSignedNumber(effectsBonus)}`,
+      );
+    }
+
+    return parts.join(' · ');
+  }
+
+  /**
+   * Список навыков листа: навыки правил и свои одним списком по алфавиту —
+   * свой навык ищут по названию наравне с остальными.
+   */
+  const skillRows = computed<SkillRow[]>(() => {
+    const settings = props.actor.system.skillSettings;
+    const proficiencies = props.actor.system.proficiencies.skills;
+    const mods = skillAbilityMods.value;
+
+    const ruleRows = SKILLS_LIST.map<SkillRow>((skill) => {
+      const setting = getSkillSetting(settings, skill.key);
+      const ability = getSkillSettingAbility(setting, skill.key);
+      const rawLevel = proficiencies[skill.key];
+
+      const proficiencyLevel: ProficiencyLevel = isProficiencyLevel(rawLevel)
+        ? rawLevel
+        : 'none';
+
+      // Итог берётся из разрешённых статов: там уже учтены активные эффекты.
+      // Запасной расчёт нужен, пока статы не сошлись, — иначе строка мигает
+      // нулём
+      const fallbackModifier =
+        mods[ability]
+        + getProficiencyContribution(
+          skillProficiencyBonus.value,
+          proficiencyLevel,
+        )
+        + getCustomBonusesValue(mods, setting.bonuses);
+
+      const modifier =
+        resolvedStats.value?.skills[skill.key] ?? fallbackModifier;
+
+      return {
+        id: skill.key,
+        key: skill.key,
+        label: skill.label,
+        ability,
+        proficiencyLevel,
+        modifier,
+        isCustom: false,
+        valueHint: isChangedSkill(setting, skill.key)
+          ? buildSkillHint(
+              ability,
+              proficiencyLevel,
+              setting.bonuses,
+              modifier - fallbackModifier,
+            )
+          : '',
+      };
+    });
+
+    const customRows = (settings?.custom ?? []).map<SkillRow>((skill) => ({
+      id: skill.id,
+      label: skill.name,
+      ability: skill.ability,
+      proficiencyLevel: skill.proficiency,
+      modifier: getCustomSkillValue(mods, skillProficiencyBonus.value, skill),
+      isCustom: true,
+      // Свой навык активные эффекты не задевают: ключа под него в системе нет
+      valueHint: buildSkillHint(
+        skill.ability,
+        skill.proficiency,
+        skill.bonuses,
+        0,
+      ),
+    }));
+
+    return [...ruleRows, ...customRows].sort((left, right) =>
+      left.label.localeCompare(right.label, 'ru'),
+    );
+  });
+
+  /** Группы списка: с группировкой — по характеристикам, иначе одним списком */
+  const skillGroups = computed(() =>
+    getSkillRowGroups(
+      skillRows.value,
+      props.actor.system.skillSettings?.groupByAbility ?? false,
+    ),
+  );
 
   /**
    * Переключает уровень владения навыком по кругу:
    * none → half → proficient → expertise → none
    *
-   * @param skill - Ключ навыка
+   * @param row - строка списка навыков
    */
-  function cycleSkillProficiency(skill: SkillType) {
+  function cycleSkillProficiency(row: SkillRow) {
     if (!props.isEditMode) {
       return;
     }
 
-    const currentLevel =
-      props.actor.system.proficiencies.skills[skill] ?? 'none';
+    const nextLevel = SKILL_PROFICIENCY_NEXT[row.proficiencyLevel];
 
-    const currentIndex = LEVEL_ORDER.indexOf(currentLevel);
-    const nextLevel = LEVEL_ORDER[(currentIndex + 1) % LEVEL_ORDER.length];
+    // Владение своим навыком лежит в самой его записи: ключа под такой навык
+    // в списке владений нет
+    if (row.key === undefined) {
+      const settings = props.actor.system.skillSettings;
+
+      if (!settings) {
+        return;
+      }
+
+      emit('update:actor', {
+        system: {
+          ...props.actor.system,
+          skillSettings: {
+            ...settings,
+            custom: settings.custom.map((skill) =>
+              skill.id === row.id
+                ? { ...skill, proficiency: nextLevel }
+                : skill,
+            ),
+          },
+        },
+      });
+
+      return;
+    }
 
     const updatedSkills = { ...props.actor.system.proficiencies.skills };
 
     if (nextLevel === 'none') {
-      delete updatedSkills[skill];
+      delete updatedSkills[row.key];
     } else {
-      updatedSkills[skill] = nextLevel;
+      updatedSkills[row.key] = nextLevel;
     }
 
     emit('update:actor', {
@@ -261,6 +478,45 @@
         proficiencies: {
           ...props.actor.system.proficiencies,
           skills: updatedSkills,
+        },
+      },
+    });
+  }
+
+  /**
+   * Поля, чей итог задан активным эффектом целиком. Окно настройки берёт
+   * отсюда навыки под перезаписью: их число задаёт эффект, а не расчёт.
+   */
+  const overriddenSkillKeys = computed(
+    () => resolvedStats.value?.overriddenKeys ?? new Set<string>(),
+  );
+
+  const isSkillSettingsOpen = ref(false);
+
+  /** Открывает окно настройки навыков */
+  function openSkillSettings(): void {
+    isSkillSettingsOpen.value = true;
+  }
+
+  /**
+   * Применяет настройку навыков: владения и поправки расчёта приходят из окна
+   * вместе — их правят там одной таблицей.
+   *
+   * @param payload - настройка из окна
+   * @param payload.skills - уровни владения навыками правил
+   * @param payload.settings - поправки расчёта и свои навыки
+   */
+  function onSkillSettingsApply(payload: {
+    skills: Partial<Record<SkillType, ProficiencyLevel>>;
+    settings: DnDSkillSettings;
+  }) {
+    emit('update:actor', {
+      system: {
+        ...props.actor.system,
+        skillSettings: payload.settings,
+        proficiencies: {
+          ...props.actor.system.proficiencies,
+          skills: payload.skills,
         },
       },
     });
@@ -406,21 +662,59 @@
       label="Навыки"
       class="flex flex-col overflow-hidden border-muted"
     >
+      <!-- Шестерёнка ведёт в настройку расчёта: значок в самом списке ставит
+        только владение, а характеристику навыка, свои бонусы и свои навыки
+        правят в окне. Вне правки листа её нет — настраивать там нечего -->
+      <template
+        v-if="isEditMode"
+        #actions
+      >
+        <UTooltip :text="SKILL_SETTINGS_LABELS.open">
+          <UIcon
+            name="tabler:settings-filled"
+            class="h-3.5 w-3.5 cursor-pointer text-primary transition-colors hover:text-primary/80"
+            role="button"
+            tabindex="0"
+            :aria-label="SKILL_SETTINGS_LABELS.open"
+            @click.left.exact.prevent="openSkillSettings"
+            @keydown.enter.prevent="openSkillSettings"
+            @keydown.space.prevent="openSkillSettings"
+          />
+        </UTooltip>
+      </template>
+
       <div class="custom-scrollbar flex-1 overflow-y-auto p-1.5">
         <div class="flex flex-col">
-          <SkillItem
-            v-for="skill in skills"
-            :key="skill.key"
-            :label="skill.label"
-            :skill-key="skill.key"
-            :proficiency-level="
-              actor.system.proficiencies.skills[skill.key] ?? 'none'
-            "
-            :modifier="resolvedStats?.skills[skill.key] ?? 0"
-            :is-edit-mode="isEditMode"
-            @cycle-proficiency="cycleSkillProficiency(skill.key)"
-            @roll="handleSkillRoll"
-          />
+          <template
+            v-for="group in skillGroups"
+            :key="group.key"
+          >
+            <!-- Разделитель группы: подпись слева, линия до края строки. Без
+              группировки группа одна и подписи у неё нет -->
+            <USeparator
+              v-if="group.title"
+              :label="group.title"
+              position="start"
+              class="px-2 pt-2 first:pt-0"
+              :ui="{ label: SKILL_GROUP_LABEL_CLASS }"
+            />
+
+            <SkillItem
+              v-for="row in group.rows"
+              :key="row.id"
+              :label="row.label"
+              :skill-key="row.key"
+              :ability="row.ability"
+              :proficiency-level="row.proficiencyLevel"
+              :modifier="row.modifier"
+              :is-custom="row.isCustom"
+              :value-hint="row.valueHint"
+              :hide-ability="group.ability !== null"
+              :is-edit-mode="isEditMode"
+              @cycle-proficiency="cycleSkillProficiency(row)"
+              @roll="handleSkillRoll"
+            />
+          </template>
         </div>
       </div>
     </FieldsetLabel>
@@ -458,6 +752,17 @@
       charisma: actor.system.abilities.charisma,
     }"
     @apply="onInitiativeApply"
+  />
+
+  <!-- Модалка настройки навыков -->
+  <SkillSettingsModal
+    v-model:open="isSkillSettingsOpen"
+    :actor="actor"
+    :ability-mods="skillAbilityMods"
+    :proficiency-bonus="skillProficiencyBonus"
+    :skills="resolvedStats?.skills ?? {}"
+    :overridden-keys="overriddenSkillKeys"
+    @apply="onSkillSettingsApply"
   />
 </template>
 

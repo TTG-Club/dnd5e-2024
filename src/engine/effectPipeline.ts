@@ -44,17 +44,22 @@ import { getTotalLevel } from './classTypes.js';
 import {
   ABILITY_KEYS,
   BASE_UNARMORED_AC,
-  SKILL_ABILITY_MAP,
   SPELL_SAVE_DC_BASE,
 } from './consts.js';
+import { getCustomBonusesValue } from './customBonuses.js';
 import { DEFENSIBLE_DAMAGE_TYPES } from './damageConstants.js';
 import { collectStaticDamageDefenses } from './damageUtils.js';
 import { buildFormulaContext, evaluateFormula } from './formulaParser.js';
 import {
-  getCustomBonusesValue,
   getSavingThrowSetting,
   parseSavingThrowSettings,
 } from './savingThrows.js';
+import {
+  getSkillEffectKey,
+  getSkillSetting,
+  getSkillSettingAbility,
+  parseSkillSettings,
+} from './skills.js';
 
 export type { IncomingAttackContext };
 
@@ -1135,12 +1140,20 @@ export function prepareDerivedData(
   }
 
   // 4. Навыки
+  const skillSettings = parseSkillSettings(
+    isRecord(system) ? system.skillSettings : undefined,
+  );
+
   for (const skillKey of SKILL_KEYS) {
-    if (derivedStats.overriddenKeys.has(`skill.${skillKey}`)) {
+    if (derivedStats.overriddenKeys.has(getSkillEffectKey(skillKey))) {
       continue;
     }
 
-    const baseAbility = SKILL_ABILITY_MAP[skillKey];
+    const skillSetting = getSkillSetting(skillSettings, skillKey);
+
+    // Характеристика расчёта берётся из настройки: умения и предметы дают
+    // катить проверку от другой, чем та, что у навыка по правилам
+    const baseAbility = getSkillSettingAbility(skillSetting, skillKey);
 
     let profContribution = 0;
 
@@ -1159,6 +1172,7 @@ export function prepareDerivedData(
     derivedStats.skills[skillKey] =
       derivedStats.abilityMods[baseAbility]
       + profContribution
+      + getCustomBonusesValue(derivedStats.abilityMods, skillSetting.bonuses)
       + derivedStats.skills[skillKey];
   }
 
