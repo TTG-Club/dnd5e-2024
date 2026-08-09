@@ -3,6 +3,7 @@
   import type {
     AttackRollMode,
     DnDActor,
+    DnDCarryingCapacity,
     DnDCurrency,
     DnDGameItem,
     DnDSceneEntity,
@@ -29,6 +30,7 @@
     calculateWeaponAttackModifier,
     calculateWeaponDamageModifier,
     CURRENCY_OPTIONS,
+    DEFAULT_CREATURE_SIZE,
     describeDamagePart,
     evaluateConditionalBonuses,
     formatWeaponDamageFormula,
@@ -39,12 +41,15 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { useBonusDamageParts } from '../../../composables/useBonusDamageParts';
+  import { useCarryingCapacity } from '../../../composables/useCarryingCapacity';
   import { useResolvedStats } from '../../../composables/useResolvedStats';
   import { useSpellResolution } from '../../../composables/useSpellResolution';
   import { useWeaponIcon } from '../../../composables/useWeaponIcon';
+  import CarryingCapacityModal from '../CarryingCapacityModal.vue';
   import { GAME_ITEM_TRANSFER_MIME } from '../constants';
   import CurrencyModal from '../CurrencyModal.vue';
   import DiceRollModal from '../DiceRollModal.vue';
+  import SheetStatTile from '../SheetStatTile.vue';
   import { extractSpellFromGameItem } from '../utils/extractSpellFromGameItem';
   import WeaponIcon from '../WeaponIcon.vue';
 
@@ -53,6 +58,13 @@
   const { resolvedStats, combinedEffects } = useResolvedStats(
     toRef(() => props.actor),
   );
+
+  /** Переносимый вес: сумма веса инвентаря и грузоподъёмность актёра */
+  const { weightLabel, isOverweight, capacitySettings, strength } =
+    useCarryingCapacity(
+      toRef(() => props.actor),
+      resolvedStats,
+    );
 
   const emit = defineEmits<{
     'update:actor': [updates: Partial<DnDActor>];
@@ -827,6 +839,35 @@
     return labels.join(' + ');
   }
 
+  // --- Переносимый вес ---
+
+  /** Открыта ли модалка настройки грузоподъёмности */
+  const isCapacityModalOpen = ref(false);
+
+  /** Ячейка плитки переносимого веса */
+  const carryingCapacityCells = computed(() => [
+    { label: 'Переносимый вес', value: weightLabel.value },
+  ]);
+
+  /** Размер актёра для расчёта грузоподъёмности */
+  const actorSize = computed(
+    () => props.actor.system?.size ?? DEFAULT_CREATURE_SIZE,
+  );
+
+  /**
+   * Сохраняет настройку предела переносимого веса
+   */
+  function applyCarryingCapacity(updated: DnDCarryingCapacity): void {
+    emit('update:actor', {
+      system: {
+        ...props.actor.system,
+        carryingCapacity: updated,
+      },
+    });
+
+    triggerSaveIfNotEdit();
+  }
+
   // --- Кошелёк ---
 
   /** Открыта ли модалка редактирования валюты */
@@ -877,8 +918,20 @@
 
 <template>
   <div class="flex min-h-50 flex-1 flex-col space-y-1">
-    <!-- Деньги / Валюта (Вплотную к табам) -->
-    <div class="mb-5 flex flex-col">
+    <!-- Переносимый вес + деньги / валюта (Вплотную к табам) -->
+    <div class="mb-5 flex flex-col gap-2">
+      <!-- Обёртка-flex: плитка занимает ширину по содержимому, а не всю строку -->
+      <div class="flex">
+        <SheetStatTile
+          :cells="carryingCapacityCells"
+          tooltip="Переносимый вес из предела грузоподъёмности — нажмите, чтобы его настроить"
+          aria-label="Настроить грузоподъёмность"
+          clickable
+          :danger="isOverweight"
+          @click="isCapacityModalOpen = true"
+        />
+      </div>
+
       <div
         role="button"
         tabindex="0"
@@ -1243,6 +1296,15 @@
       </div>
     </template>
   </div>
+
+  <!-- Модалка настройки грузоподъёмности -->
+  <CarryingCapacityModal
+    v-model:open="isCapacityModalOpen"
+    :capacity="capacitySettings"
+    :strength="strength"
+    :actor-size="actorSize"
+    @apply="applyCarryingCapacity"
+  />
 
   <!-- Модалка редактирования кошелька -->
   <CurrencyModal

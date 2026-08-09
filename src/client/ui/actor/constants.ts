@@ -141,6 +141,14 @@ export const ABILITY_SHORT_LABELS: Record<string, string> = {
  */
 export const ABILITY_LABEL_SIDE_SPACE = 20;
 
+/**
+ * Формат числовых полей своего бонуса в модалках листа: знак виден и у плюса,
+ * иначе поле читается количеством, а не поправкой.
+ */
+export const BONUS_INPUT_FORMAT_OPTIONS: Intl.NumberFormatOptions = {
+  signDisplay: 'exceptZero',
+};
+
 /** Локализованные названия типов заклинателей */
 export const CASTER_TYPE_LABELS: Record<string, string> = {
   full: 'Полный',

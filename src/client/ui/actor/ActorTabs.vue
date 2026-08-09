@@ -8,6 +8,7 @@
   import { useActiveTab } from '@/shared_ui/composables/useActiveTab';
   import { componentHasProp } from '@/shared_ui/utils/componentUtils';
 
+  import { useCarryingCapacity } from '../../composables/useCarryingCapacity';
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import ActorEffectsTab from './tabs/ActorEffectsTab.vue';
   import ActorEquipmentTab from './tabs/ActorEquipmentTab.vue';
@@ -54,47 +55,19 @@
     'equipment',
   );
 
-  /** Суммарный вес всех предметов в инвентаре */
-  const totalWeight = computed(() => {
-    return props.actor.equipment.reduce(
-      (sum, item) => sum + (item.weight ?? 0) * (item.quantity ?? 1),
-      0,
-    );
-  });
-
-  /** Максимальная грузоподъёмность: Сила × 15 × множитель размера (D&D 5e 2024) */
-  const carryingCapacity = computed(() => {
-    const strength =
-      resolvedStats.value?.abilities.strength
-      ?? props.actor.system?.abilities?.strength
-      ?? 10;
-
-    const size = props.actor.system?.size ?? 'medium';
-
-    /** Множители грузоподъёмности по размеру */
-    const sizeMultiplier: Record<string, number> = {
-      small: 1,
-      medium: 1,
-      large: 2,
-      huge: 4,
-      gargantuan: 8,
-    };
-
-    return strength * 15 * (sizeMultiplier[size] ?? 1);
-  });
-
-  /** Перегрузка: текущий вес превышает грузоподъёмность */
-  const isOverweight = computed(
-    () => totalWeight.value > carryingCapacity.value,
+  /**
+   * Перегрузка: сам переносимый вес показывает вкладка снаряжения, вкладке
+   * остаётся только красная подсветка как сигнал.
+   */
+  const { isOverweight } = useCarryingCapacity(
+    toRef(() => props.actor),
+    resolvedStats,
   );
 
   // Базовые вкладки
   const baseTabs = computed(() => {
     return [
-      {
-        id: 'equipment',
-        label: `Снаряжение (${totalWeight.value} / ${carryingCapacity.value} фнт.)`,
-      },
+      { id: 'equipment', label: 'Снаряжение' },
       { id: 'spells', label: 'Заклинания' },
       { id: 'features', label: 'Особенности' },
       { id: 'effects', label: 'Эффекты' },

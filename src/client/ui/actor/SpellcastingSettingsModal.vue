@@ -1,21 +1,43 @@
 <script setup lang="ts">
+  import type { AbilityType } from '@vtt/shared';
   import type { DnDActor } from '@vtt/shared/system/dnd.js';
 
-  import { computed, toRef } from 'vue';
+  import { computed, ref, toRef, watch } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
-  import { ABILITY_OPTIONS } from '@vtt/shared/system/dnd.js';
+  import {
+    ABILITY_OPTIONS,
+    SPELL_SAVE_DC_BASE,
+  } from '@vtt/shared/system/dnd.js';
 
-  const props = defineProps<{
+  import { formatSignedNumber } from './utils/formatSignedNumber';
+
+  interface Props {
     open: boolean;
     actor: DnDActor;
-  }>();
+    /** Модификаторы характеристик с учётом эффектов — для предпросмотра */
+    abilityMods: Record<AbilityType, number>;
+    /** Бонус мастерства актёра */
+    proficiencyBonus: number;
+    /** Прибавка к Сл спасброска от активных эффектов */
+    saveDcEffectBonus: number;
+    /** Прибавка к бонусу атаки заклинанием от активных эффектов */
+    attackEffectBonus: number;
+  }
+
+  const props = defineProps<Props>();
 
   const emit = defineEmits<{
     'update:open': [value: boolean];
     'update:actor': [updates: Partial<DnDActor>];
   }>();
+
+  /** Значение варианта «по классу» в выборе характеристики */
+  const ABILITY_AUTO = 'auto';
+
+  /** Выбор характеристики: своя либо «по классу» */
+  type AbilityChoice = AbilityType | typeof ABILITY_AUTO;
 
   const isOpen = computed({
     get: () => props.open,
@@ -24,23 +46,25 @@
 
   const actorRef = toRef(props, 'actor');
 
-  const explicitSpellcastingAbility = computed({
-    get: () => actorRef.value.system?.spellcastingAbility ?? 'auto',
-    set: (val: string) => {
-      emit('update:actor', {
-        system: {
-          ...actorRef.value.system,
-          spellcastingAbility:
-            val === 'auto'
-              ? undefined
-              : (val as import('@vtt/shared').AbilityType),
-        },
-      });
-    },
-  });
+  const draftAbility = ref<AbilityChoice>(ABILITY_AUTO);
 
-  // Автоматическая характеристика (из встроенного класса)
-  const defaultClassSpellcastingAbility = computed(() => {
+  /**
+   * Черновик заводится при открытии: окно живёт во вкладке постоянно, и без
+   * этого «Отмена» не отличалась бы от «Применить».
+   */
+  watch(
+    () => props.open,
+    (opened) => {
+      if (opened) {
+        draftAbility.value =
+          actorRef.value.system?.spellcastingAbility ?? ABILITY_AUTO;
+      }
+    },
+    { immediate: true },
+  );
+
+  /** Характеристика из первого заклинательного класса (режим «по классу») */
+  const classAbility = computed<AbilityType | null>(() => {
     const casterClass = actorRef.value.system?.classes?.find(
       (entry) => entry.spellcastingAbility != null,
     );
@@ -48,22 +72,72 @@
     return casterClass?.spellcastingAbility ?? null;
   });
 
-  // Комбинированный список: Авто + Характеристики
-  const options = computed(() => {
-    return [
+  /** Характеристика, по которой считается предпросмотр */
+  const effectiveAbility = computed<AbilityType | null>(() =>
+    draftAbility.value === ABILITY_AUTO
+      ? classAbility.value
+      : draftAbility.value,
+  );
+
+  /** Название характеристики для строки разбора */
+  function abilityLabel(ability: AbilityType): string {
+    return (
+      ABILITY_OPTIONS.find((option) => option.value === ability)?.label
+      ?? ability
+    );
+  }
+
+  const options = computed<Array<{ value: AbilityChoice; label: string }>>(
+    () => [
       {
-        value: 'auto',
-        label: defaultClassSpellcastingAbility.value
-          ? `Авто (из класса: ${
-              ABILITY_OPTIONS.find(
-                (opt) => opt.value === defaultClassSpellcastingAbility.value,
-              )?.label
-            })`
-          : 'Авто',
+        value: ABILITY_AUTO,
+        label: classAbility.value
+          ? `Авто (по классу: ${abilityLabel(classAbility.value)})`
+          : 'Авто (по классу)',
       },
-      ...ABILITY_OPTIONS,
-    ];
+      ...ABILITY_OPTIONS.map((option) => ({
+        value: option.value,
+        label: option.label,
+      })),
+    ],
+  );
+
+  /** Модификатор выбранной характеристики; null — заклинательства нет */
+  const abilityModifier = computed(() =>
+    effectiveAbility.value
+      ? (props.abilityMods[effectiveAbility.value] ?? 0)
+      : null,
+  );
+
+  /**
+   * Предпросмотр чисел заклинательства. Прибавки от эффектов входят в оба, иначе
+   * окно расходилось бы с числами вкладки.
+   */
+  const preview = computed(() => {
+    if (abilityModifier.value === null) {
+      return { saveDc: '—', attack: '—' };
+    }
+
+    const base = props.proficiencyBonus + abilityModifier.value;
+
+    return {
+      saveDc: String(SPELL_SAVE_DC_BASE + base + props.saveDcEffectBonus),
+      attack: formatSignedNumber(base + props.attackEffectBonus),
+    };
   });
+
+  /** Сохраняет выбранную характеристику и закрывает окно */
+  function applySettings(): void {
+    emit('update:actor', {
+      system: {
+        ...actorRef.value.system,
+        spellcastingAbility:
+          draftAbility.value === ABILITY_AUTO ? undefined : draftAbility.value,
+      },
+    });
+
+    isOpen.value = false;
+  }
 </script>
 
 <template>
@@ -72,38 +146,112 @@
     :draggable="false"
     :resizable="false"
     :blocking="true"
-    :min-width="320"
-    :min-height="150"
-    title="Настройки магии"
+    :min-width="420"
+    :min-height="320"
+    title="Заклинательство"
     :z-index="Z_INDEX.MODAL_ELEVATED"
   >
     <template #body>
-      <div class="space-y-4">
-        <div class="space-y-2">
-          <label class="text-sm text-muted">Характеристика заклинаний</label>
+      <div class="space-y-3">
+        <div class="flex items-center justify-between gap-4">
+          <span class="text-sm text-toned">Характеристика</span>
 
           <USelect
-            v-model="explicitSpellcastingAbility"
+            v-model="draftAbility"
             :items="options"
             value-key="value"
-            size="md"
-            class="w-full"
+            label-key="label"
+            size="sm"
+            class="w-56 shrink-0"
           />
         </div>
 
         <p class="text-xs text-dimmed">
-          Если выбрано Авто, будет использоваться характеристика первого
-          магического класса. Выберите конкретную характеристику, чтобы
-          переопределить это поведение.
+          <template v-if="classAbility">
+            Определяется по классу: {{ abilityLabel(classAbility) }}.
+          </template>
+
+          <template v-else>
+            Заклинательного класса нет — выберите характеристику вручную.
+          </template>
         </p>
 
-        <div class="flex justify-end pt-2">
+        <div class="border-t border-muted" />
+
+        <div class="flex items-center justify-between gap-4 text-sm">
+          <span class="text-toned">Модификатор характеристики</span>
+
+          <span class="text-toned tabular-nums">
+            <template v-if="effectiveAbility && abilityModifier !== null">
+              {{ abilityLabel(effectiveAbility) }} ·
+              {{ formatSignedNumber(abilityModifier) }}
+            </template>
+
+            <template v-else>—</template>
+          </span>
+        </div>
+
+        <div class="flex items-center justify-between gap-4 text-sm">
+          <span class="text-toned">Бонус мастерства</span>
+
+          <span class="text-toned tabular-nums">
+            {{ formatSignedNumber(proficiencyBonus) }}
+          </span>
+        </div>
+
+        <!-- Итоговые числа: то же, что показывает шапка вкладки -->
+        <div class="grid grid-cols-2 gap-3">
+          <div
+            class="flex flex-col items-center gap-1 rounded-lg border border-default/50 bg-elevated/20 px-3 py-2"
+          >
+            <span
+              class="text-center text-[10px] font-bold tracking-wider text-muted uppercase"
+            >
+              Сложность спасброска
+            </span>
+
+            <span class="text-2xl font-bold text-highlighted tabular-nums">
+              {{ preview.saveDc }}
+            </span>
+          </div>
+
+          <div
+            class="flex flex-col items-center gap-1 rounded-lg border border-default/50 bg-elevated/20 px-3 py-2"
+          >
+            <span
+              class="text-center text-[10px] font-bold tracking-wider text-muted uppercase"
+            >
+              Атака заклинанием
+            </span>
+
+            <span class="text-2xl font-bold text-highlighted tabular-nums">
+              {{ preview.attack }}
+            </span>
+          </div>
+        </div>
+
+        <p class="text-xs leading-relaxed text-dimmed">
+          Сложность спасброска = 8 + бонус мастерства + модификатор
+          характеристики. Бонус атаки — то же без базового значения.
+        </p>
+
+        <!-- Кнопки -->
+        <div class="flex justify-end gap-2 pt-2">
           <UButton
-            color="primary"
+            variant="ghost"
+            color="neutral"
             size="sm"
             @click.left.exact.prevent="isOpen = false"
           >
-            Готово
+            Отмена
+          </UButton>
+
+          <UButton
+            color="primary"
+            size="sm"
+            @click.left.exact.prevent="applySettings"
+          >
+            Применить
           </UButton>
         </div>
       </div>

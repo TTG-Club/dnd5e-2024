@@ -41,7 +41,11 @@ import {
   isProficiencyLevel,
 } from './calculations.js';
 import { getTotalLevel } from './classTypes.js';
-import { BASE_UNARMORED_AC, SKILL_ABILITY_MAP } from './consts.js';
+import {
+  BASE_UNARMORED_AC,
+  SKILL_ABILITY_MAP,
+  SPELL_SAVE_DC_BASE,
+} from './consts.js';
 import { DEFENSIBLE_DAMAGE_TYPES } from './damageConstants.js';
 import { collectStaticDamageDefenses } from './damageUtils.js';
 import { buildFormulaContext, evaluateFormula } from './formulaParser.js';
@@ -1281,7 +1285,7 @@ export function prepareDerivedData(
 
     derivedStats.spellSaveDC =
       derivedStats.spellSaveDC // бонусы от эффектов (фаза 2)
-      + 8
+      + SPELL_SAVE_DC_BASE
       + derivedStats.proficiencyBonus
       + spellMod;
   }

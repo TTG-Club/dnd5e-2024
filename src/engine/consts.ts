@@ -18,6 +18,9 @@ import type { ConditionKey } from './conditionKeys.js';
 import type { DnDActor, SpellUsesRecovery } from './dndEntities.js';
 import type { CreatureSize } from './types.js';
 
+import { DEFAULT_CARRYING_CAPACITY } from './carryingCapacity.js';
+import { DEFAULT_PREPARED_LIMIT } from './preparedSpells.js';
+
 // ============================================================
 // Инструменты
 // ============================================================
@@ -28,6 +31,9 @@ import type { CreatureSize } from './types.js';
 
 /** Базовый КД без брони (D&D 5e: 10 + DEX mod) */
 export const BASE_UNARMORED_AC = 10;
+
+/** Базовое слагаемое Сл спасброска от заклинаний (8 + мастерство + мод.) */
+export const SPELL_SAVE_DC_BASE = 8;
 
 // ============================================================
 // Характеристики (Abilities)
@@ -484,6 +490,9 @@ export const DEFAULT_ACTOR: Omit<DnDActor, 'id'> = {
       gp: 0,
       pp: 0,
     },
+    carryingCapacity: { ...DEFAULT_CARRYING_CAPACITY },
+    preparedSpells: { ...DEFAULT_PREPARED_LIMIT },
+    preparedCantrips: { ...DEFAULT_PREPARED_LIMIT },
     spellSlotsUsed: [0, 0, 0, 0, 0, 0, 0, 0, 0],
     pactSlotsUsed: 0,
     classCounters: [],

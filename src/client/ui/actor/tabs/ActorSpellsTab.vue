@@ -2,9 +2,9 @@
   import type { SceneEntity } from '@vtt/shared';
   import type {
     AttackRollMode,
-    ClassDefinition,
-    ClassLevelEntry,
     DnDActor,
+    DnDPreparedLimit,
+    PreparedKind,
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
@@ -14,9 +14,8 @@
   } from '../../../composables/useSpellResolution';
 
   import { useToast } from '@nuxt/ui/composables';
-  import { computed, onMounted, ref } from 'vue';
+  import { computed, ref } from 'vue';
 
-  import { loadCompendiumKind } from '@/core/compendiumDataClient';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useActionPromptStore } from '@/stores/actionPromptStore';
   import { useAuraStore } from '@/stores/auraStore';
@@ -31,8 +30,11 @@
     combineEffectsWithAmbient,
     computeSpellSlots,
     damagePartIsHealing,
+    DEFAULT_PREPARED_LIMIT,
     getAvailableSpellLevels,
+    getClassPreparedValue,
     getPactSlotInfo,
+    getPreparedLimitBreakdown,
     getSpellAttackType,
     getSpellDamageParts,
     getSpellPrimaryDamageType,
@@ -40,11 +42,13 @@
     getTotalLevel,
     isDnDEffect,
     pickCantripTierParts,
+    PREPARED_LIMIT_EMPTY_VALUE,
     resolveActorStats,
     resolveDamagePartsForCast,
     resolveSpellDamageFormula,
     SPELL_DAMAGE_TEMPLATE_COLORS,
     SPELL_LEVEL_LABELS,
+    SPELL_SAVE_DC_BASE,
     SPELL_TEMPLATE_DEFAULT_COLOR,
     spellIsHealing,
   } from '@vtt/shared/system/dnd.js';
@@ -55,12 +59,15 @@
     instantiateSpellEffects,
   } from '../../../composables/spellResolutionShared';
   import { useBonusDamageParts } from '../../../composables/useBonusDamageParts';
+  import { useClassDefinitions } from '../../../composables/useClassDefinitions';
   import {
     getSpellMaxRangeOnScene,
     isSpellCastBlockedByRange,
     isSpellTargetBlockedByRange,
   } from '../../../composables/useSceneRangeCheck';
   import { useSpellResolution } from '../../../composables/useSpellResolution';
+  import PreparedSpellsModal from '../PreparedSpellsModal.vue';
+  import SheetStatTile from '../SheetStatTile.vue';
   import SpellcastingSettingsModal from '../SpellcastingSettingsModal.vue';
   import SpellListItem from '../SpellListItem.vue';
 
@@ -335,96 +342,43 @@
     computeSpellSlots(props.actor.system?.classes ?? [], casterTypeMap.value),
   );
 
-  function isClassDefinition(value: unknown): value is ClassDefinition {
-    return (
-      typeof value === 'object'
-      && value !== null
-      && 'type' in value
-      && value.type === 'class'
-    );
-  }
+  /** Классы компендиума и созданные в мире — по ним читается таблица уровней */
+  const { classDefinitions } = useClassDefinitions();
 
-  /** Определения классов компендиума (все паки), загружены с сервера */
-  const classDefinitions = ref<ClassDefinition[]>([]);
+  /**
+   * Предел подготовленных заклинаний: число из таблицы класса компендиума с
+   * поправками листа (своё число либо бонус к числу класса).
+   */
+  const preparedSpellsLimit = computed(() =>
+    getPreparedLimitBreakdown(
+      getClassPreparedValue(
+        props.actor.system?.classes ?? [],
+        classDefinitions.value,
+        'spells',
+      ),
+      props.actor.system?.preparedSpells,
+    ),
+  );
 
-  onMounted(async () => {
-    const socket = getWorldSocket();
+  /** Предел заговоров — тот же расчёт, но по своей колонке таблицы класса */
+  const cantripsLimit = computed(() =>
+    getPreparedLimitBreakdown(
+      getClassPreparedValue(
+        props.actor.system?.classes ?? [],
+        classDefinitions.value,
+        'cantrips',
+      ),
+      props.actor.system?.preparedCantrips,
+    ),
+  );
 
-    if (!socket) {
-      return;
-    }
-
-    // CompendiumEntry[] расширяем до unknown[], т.к. ClassDefinition не подтип
-    // CompendiumEntry и guard иначе не сузит при filter.
-    const entries: unknown[] = await loadCompendiumKind(socket, 'class');
-
-    classDefinitions.value = entries.filter(isClassDefinition);
-  });
-
-  /** Максимальное количество подготовленных заклинаний (из классов) */
-  const maxPreparedSpells = computed(() => {
-    let total = 0;
-
-    const actorClasses = props.actor.system?.classes ?? [];
-
-    const localClasses = classDefinitions.value;
-
-    for (const entry of actorClasses) {
-      let foundInTable = false;
-
-      if (localClasses.length > 0) {
-        const clsDef = localClasses.find(
-          (classDefinition) => classDefinition.key === entry.classKey,
-        );
-
-        if (clsDef) {
-          const lvlEntry = clsDef.levelTable.find(
-            (levelEntry: ClassLevelEntry) => levelEntry.level === entry.level,
-          );
-
-          if (lvlEntry && typeof lvlEntry.preparedSpells === 'number') {
-            total += lvlEntry.preparedSpells;
-            foundInTable = true;
-          }
-        }
-      }
-
-      if (!foundInTable && entry.casterType && entry.spellcastingAbility) {
-        if (entry.casterType === 'full') {
-          // PHB 2024 Wizard/Cleric/Druid Fallback
-          const fallbackTable: Record<number, number> = {
-            1: 4,
-            2: 5,
-            3: 6,
-            4: 7,
-            5: 9,
-            6: 10,
-            7: 11,
-            8: 12,
-            9: 14,
-            10: 15,
-            11: 16,
-            12: 16,
-            13: 17,
-            14: 18,
-            15: 19,
-            16: 21,
-            17: 22,
-            18: 23,
-            19: 24,
-            20: 25,
-          };
-
-          total += fallbackTable[entry.level] ?? 0;
-        } else if (entry.casterType === 'half') {
-          // PHB 2024 Paladin/Ranger approximation
-          total += Math.max(2, entry.level > 1 ? entry.level - 1 : 2);
-        }
-      }
-    }
-
-    return total;
-  });
+  /**
+   * Предел подготовки числом: 0 означает «предела нет» — так его понимает
+   * проверка при отметке заклинания.
+   */
+  const maxPreparedSpells = computed(
+    () => preparedSpellsLimit.value.value ?? 0,
+  );
 
   /** Текущее количество подготовленных заклинаний */
   const currentPreparedSpellsCount = computed(() => {
@@ -434,6 +388,179 @@
       (spell) => spell.prepared && !spell.alwaysPrepared && spell.level > 0,
     ).length;
   });
+
+  /**
+   * Заговоры в книге. Отмечать их подготовку негде — заговор всегда при
+   * заклинателе, поэтому считаются все, а не только помеченные.
+   */
+  const currentCantripsCount = computed(
+    () =>
+      (props.actor.spells ?? []).filter((spell) => spell.level === 0).length,
+  );
+
+  /**
+   * Числа заклинательства для плитки шапки. Подписи короткие, чтобы ряд
+   * помещался на узком листе, — полное название остаётся в подсказке ячейки.
+   */
+  const spellcastingCells = computed(() => [
+    {
+      label: 'Сл. спасбр.',
+      hint: 'Сложность спасброска',
+      value: resolvedStats.value.spellSaveDC || '—',
+    },
+    {
+      label: 'Атака закл.',
+      hint: 'Атака заклинанием',
+      value:
+        displaySpellAttackBonus.value == null
+          ? '—'
+          : `${displaySpellAttackBonus.value >= 0 ? '+' : ''}${displaySpellAttackBonus.value}`,
+    },
+  ]);
+
+  /**
+   * Прибавка к Сл спасброска от активных эффектов. Движок кладёт в
+   * `spellSaveDC` и её, и расчёт по правилам, а окну настройки она нужна
+   * отдельно: иначе предпросмотр для другой характеристики разошёлся бы с
+   * числом на вкладке.
+   */
+  const saveDcEffectBonus = computed(() => {
+    const ability = baseSpellcastingAbility.value;
+
+    if (!ability) {
+      return resolvedStats.value.spellSaveDC;
+    }
+
+    return (
+      resolvedStats.value.spellSaveDC
+      - SPELL_SAVE_DC_BASE
+      - resolvedStats.value.proficiencyBonus
+      - (resolvedStats.value.abilityMods[ability] ?? 0)
+    );
+  });
+
+  /** Сохраняет настройку заклинательства из модалки */
+  function handleSpellcastingUpdate(updates: Partial<DnDActor>): void {
+    emit('update:actor', updates);
+
+    triggerSaveIfNotEdit();
+  }
+
+  /**
+   * Цвет числа в плитке подготовки: предел выбран (info) или превышен (danger).
+   * Неизвестный предел не красится — сравнивать не с чем.
+   *
+   * @param count - сколько отмечено сейчас
+   * @param limit - предел; null — таблица класса его не даёт
+   */
+  function preparedValueClass(count: number, limit: number | null): string {
+    if (limit === null) {
+      return 'text-toned';
+    }
+
+    if (count > limit) {
+      return 'text-danger';
+    }
+
+    return count === limit ? 'text-info' : 'text-toned';
+  }
+
+  /**
+   * Актёр колдует: есть заклинательный класс, характеристика заклинаний либо
+   * сами заклинания. У неписей и невоюющих классов плиткам подготовки в шапке
+   * делать нечего.
+   */
+  const isSpellcaster = computed(
+    () =>
+      (props.actor.system?.classes ?? []).some(
+        (entry) =>
+          entry.spellcastingAbility != null || entry.casterType != null,
+      )
+      || props.actor.system?.spellcastingAbility != null
+      || (props.actor.spells?.length ?? 0) > 0,
+  );
+
+  /**
+   * Плитки подготовки в шапке: заклинания книги и заговоры считаются порознь —
+   * у каждого своя колонка таблицы класса и свой предел.
+   *
+   * У заклинателя видны обе, даже когда таблица класса числа не даёт: вместо
+   * него стоит прочерк, а нажатие открывает настройку своего числа.
+   */
+  const preparedTiles = computed(() => {
+    if (!isSpellcaster.value) {
+      return [];
+    }
+
+    return [
+      {
+        kind: 'spells' as const,
+        label: 'Подгот.',
+        hint: 'Подготовлено заклинаний',
+        limit: preparedSpellsLimit.value,
+        count: currentPreparedSpellsCount.value,
+      },
+      {
+        kind: 'cantrips' as const,
+        label: 'Заговоры',
+        hint: 'Заговоров в книге',
+        limit: cantripsLimit.value,
+        count: currentCantripsCount.value,
+      },
+    ].map((tile) => ({
+      kind: tile.kind,
+      tooltip:
+        tile.limit.value === null
+          ? `${tile.hint}: ${tile.count}. Таблица класса числа не даёт — нажмите, чтобы задать своё`
+          : `${tile.hint}: ${tile.count} из ${tile.limit.value} — нажмите, чтобы настроить`,
+      cells: [
+        {
+          label: tile.label,
+          value: `${tile.count}/${tile.limit.value ?? PREPARED_LIMIT_EMPTY_VALUE}`,
+          valueClass: preparedValueClass(tile.count, tile.limit.value),
+        },
+      ],
+    }));
+  });
+
+  /** Какой предел настраивается в открытой модалке */
+  const editedPreparedKind = ref<PreparedKind>('spells');
+
+  const isPreparedModalOpen = ref(false);
+
+  /** Разбор предела, открытого в модалке */
+  const editedPreparedLimit = computed(() =>
+    editedPreparedKind.value === 'cantrips'
+      ? cantripsLimit.value
+      : preparedSpellsLimit.value,
+  );
+
+  /** Сохранённая настройка предела, открытого в модалке */
+  const editedPreparedSettings = computed<DnDPreparedLimit>(() =>
+    editedPreparedKind.value === 'cantrips'
+      ? (props.actor.system?.preparedCantrips ?? DEFAULT_PREPARED_LIMIT)
+      : (props.actor.system?.preparedSpells ?? DEFAULT_PREPARED_LIMIT),
+  );
+
+  /** Открывает настройку предела подготовки нужного вида */
+  function openPreparedModal(kind: PreparedKind): void {
+    editedPreparedKind.value = kind;
+    isPreparedModalOpen.value = true;
+  }
+
+  /** Сохраняет настройку предела подготовки */
+  function applyPreparedLimit(limit: DnDPreparedLimit): void {
+    emit('update:actor', {
+      system: {
+        ...props.actor.system,
+        ...(editedPreparedKind.value === 'cantrips'
+          ? { preparedCantrips: limit }
+          : { preparedSpells: limit }),
+      },
+    });
+
+    triggerSaveIfNotEdit();
+  }
 
   /** Использованные ячейки */
   const usedSlots = computed(
@@ -1358,65 +1485,23 @@
 
 <template>
   <div class="relative flex min-h-50 flex-col space-y-4">
-    <!-- Заголовок: Spell Save DC + Бонус атаки + Настройки -->
-    <div
-      class="flex items-center justify-between rounded-lg bg-accented/30 px-3 py-2"
-    >
-      <div class="flex items-center gap-4">
-        <div class="flex items-center gap-2">
-          <span class="text-xs text-muted">DC спасброска</span>
+    <!-- Шапка вкладки: плитки заклинательства и подготовки -->
+    <div class="flex flex-wrap items-center gap-2">
+      <SheetStatTile
+        :cells="spellcastingCells"
+        aria-label="Настроить заклинательство"
+        clickable
+        @click="isSettingsModalOpen = true"
+      />
 
-          <span class="text-lg font-bold text-primary">
-            {{ resolvedStats.spellSaveDC || '—' }}
-          </span>
-        </div>
-
-        <div class="h-6 w-px bg-accented" />
-
-        <div class="flex items-center gap-2">
-          <span class="text-xs text-muted">Бонус атаки</span>
-
-          <span class="text-lg font-bold text-healing">
-            {{
-              displaySpellAttackBonus != null && displaySpellAttackBonus >= 0
-                ? '+'
-                : ''
-            }}{{ displaySpellAttackBonus ?? '—' }}
-          </span>
-        </div>
-
-        <template v-if="maxPreparedSpells > 0">
-          <div class="h-6 w-px bg-accented" />
-
-          <div
-            class="flex items-center gap-2"
-            title="Подготовлено заклинаний"
-          >
-            <span class="text-xs tracking-wider text-muted">Подготовлено</span>
-
-            <span
-              class="text-lg font-bold"
-              :class="
-                currentPreparedSpellsCount > maxPreparedSpells
-                  ? 'text-danger'
-                  : currentPreparedSpellsCount === maxPreparedSpells
-                    ? 'text-info'
-                    : 'text-toned'
-              "
-            >
-              {{ currentPreparedSpellsCount }}/{{ maxPreparedSpells }}
-            </span>
-          </div>
-        </template>
-      </div>
-
-      <UButton
-        v-if="isEditMode"
-        icon="tabler:settings"
-        variant="ghost"
-        color="neutral"
-        size="xs"
-        @click.left.exact.prevent="isSettingsModalOpen = true"
+      <SheetStatTile
+        v-for="tile in preparedTiles"
+        :key="tile.kind"
+        :cells="tile.cells"
+        :tooltip="tile.tooltip"
+        aria-label="Настроить предел подготовки"
+        clickable
+        @click="openPreparedModal(tile.kind)"
       />
     </div>
 
@@ -1635,12 +1720,24 @@
       <p>У данного персонажа пока нет заклинаний.</p>
     </div>
 
-    <!-- Модальное окно настроек -->
+    <!-- Настройка предела подготовки (открывается нажатием на плитку) -->
+    <PreparedSpellsModal
+      v-model:open="isPreparedModalOpen"
+      :kind="editedPreparedKind"
+      :limit="editedPreparedSettings"
+      :class-value="editedPreparedLimit.classValue"
+      @apply="applyPreparedLimit"
+    />
+
+    <!-- Настройка заклинательства (открывается нажатием на плитку) -->
     <SpellcastingSettingsModal
-      v-if="isEditMode"
       v-model:open="isSettingsModalOpen"
       :actor="actor"
-      @update:actor="emit('update:actor', $event)"
+      :ability-mods="resolvedStats.abilityMods"
+      :proficiency-bonus="resolvedStats.proficiencyBonus"
+      :save-dc-effect-bonus="saveDcEffectBonus"
+      :attack-effect-bonus="resolvedStats.attackBonuses.spell"
+      @update:actor="handleSpellcastingUpdate"
     />
   </div>
 </template>
