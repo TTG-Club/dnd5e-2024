@@ -203,6 +203,38 @@ export const FILTER_CHIP_IDLE_CLASS =
 export const FILTER_CHIP_SELECTED_CLASS =
   'border-warning bg-warning/10 text-warning';
 
+/** Подписи строк своего бонуса — они одни у всех настроек листа */
+export const CUSTOM_BONUS_LABELS: Record<
+  'source' | 'flatSource' | 'labelPlaceholder' | 'add' | 'remove',
+  string
+> = {
+  source: 'Источник бонуса',
+  flatSource: 'Своё число',
+  labelPlaceholder: 'Откуда бонус',
+  add: 'Добавить бонус',
+  remove: 'Удалить бонус',
+};
+
+/** Подписи настройки спасбросков */
+export const SAVING_THROW_SETTINGS_LABELS = {
+  title: 'Настройка спасбросков',
+  open: 'Настроить спасброски',
+  hint:
+    'Характеристика задаёт модификатор спасброска, при владении к нему '
+    + 'добавляется бонус мастерства. Дополнительные бонусы складываются '
+    + 'сверху — их сколько угодно.',
+  commonTitle: 'Ко всем спасброскам',
+  commonHint:
+    'Бонус идёт в каждый из шести спасбросков: так заводят плащ защиты или '
+    + 'ауру паладина, а не повторяют одно и то же шесть раз.',
+  ability: 'Характеристика спасброска',
+  proficient: 'Владеет спасброском',
+  notProficient: 'Не владеет спасброском',
+  proficiency: 'Владение спасброском',
+  reset: 'Вернуть спасбросок к правилам',
+  addBonus: 'Добавить бонус',
+} as const;
+
 /** Подписи ряда отбора, общие для вкладок листа */
 export const SHEET_FILTER_LABELS: Record<
   'search' | 'clear' | 'reset' | 'resetHint' | 'empty',

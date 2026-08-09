@@ -32,6 +32,7 @@ export * from './itemSchemas.js';
 export * from './positionalEffects.js';
 export * from './preparedSpells.js';
 export * from './restEngine.js';
+export * from './savingThrows.js';
 export * from './sourceKeys.js';
 export * from './speciesGrants.js';
 export * from './speciesTypes.js';

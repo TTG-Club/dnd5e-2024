@@ -1,6 +1,10 @@
 <script setup lang="ts">
   import type { AbilityType, ActorArmorClass } from '@vtt/shared';
-  import type { AttackRollMode, DnDActor } from '@vtt/shared/system/dnd.js';
+  import type {
+    AttackRollMode,
+    DnDActor,
+    DnDSavingThrowSettings,
+  } from '@vtt/shared/system/dnd.js';
 
   import { computed, ref, toRef } from 'vue';
 
@@ -9,15 +13,19 @@
   import {
     BASE_UNARMORED_AC,
     calculateAbilityModifier,
+    calculateProficiencyBonus,
+    getTotalLevel,
   } from '@vtt/shared/system/dnd.js';
 
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import { useToolVocabulary } from '../../composables/useToolVocabulary';
   import ArmorClassModal from './ArmorClassModal.vue';
   import ArmorProficiencyModal from './ArmorProficiencyModal.vue';
+  import { SAVING_THROW_SETTINGS_LABELS } from './constants';
   import DiceRollModal from './DiceRollModal.vue';
   import HitPointsModal from './HitPointsModal.vue';
   import LanguageProficiencyModal from './LanguageProficiencyModal.vue';
+  import SavingThrowSettingsModal from './SavingThrowSettingsModal.vue';
   import ToolProficiencyModal from './ToolProficiencyModal.vue';
   import WeaponProficiencyModal from './WeaponProficiencyModal.vue';
 
@@ -402,6 +410,7 @@
   const isWeaponProfOpen = ref(false);
   const isToolsProfOpen = ref(false);
   const isLanguagesProfOpen = ref(false);
+  const isSavingThrowSettingsOpen = ref(false);
 
   const diceRollConfig = ref({
     modifier: 0,
@@ -524,6 +533,50 @@
     return resolvedStats.value?.saves[abilityKey] ?? 0;
   }
 
+  /**
+   * Модификаторы характеристик с учётом эффектов — окно настройки считает по
+   * ним и сами спасброски, и вклад бонусов-характеристик. Без разрешённых
+   * статов модификаторы берутся прямо из значений характеристик листа.
+   */
+  const savingThrowAbilityMods = computed<Record<AbilityType, number>>(() => {
+    const resolvedMods = resolvedStats.value?.abilityMods;
+
+    if (resolvedMods) {
+      return resolvedMods;
+    }
+
+    const scores = props.actor.system.abilities;
+
+    return {
+      strength: calculateAbilityModifier(scores.strength ?? 10),
+      dexterity: calculateAbilityModifier(scores.dexterity ?? 10),
+      constitution: calculateAbilityModifier(scores.constitution ?? 10),
+      intelligence: calculateAbilityModifier(scores.intelligence ?? 10),
+      wisdom: calculateAbilityModifier(scores.wisdom ?? 10),
+      charisma: calculateAbilityModifier(scores.charisma ?? 10),
+    };
+  });
+
+  /**
+   * Бонус мастерства с учётом эффектов; без разрешённых статов — расчёт по
+   * суммарному уровню, как по правилам.
+   */
+  const savingThrowProficiencyBonus = computed(
+    () =>
+      resolvedStats.value?.proficiencyBonus
+      ?? calculateProficiencyBonus(getTotalLevel(props.actor.system.classes)),
+  );
+
+  /** Итоговые спасброски листа: из них окно берёт вклад активных эффектов */
+  const savingThrowValues = computed<Partial<Record<AbilityType, number>>>(
+    () => resolvedStats.value?.saves ?? {},
+  );
+
+  /** Открывает окно настройки спасбросков */
+  function openSavingThrowSettings(): void {
+    isSavingThrowSettingsOpen.value = true;
+  }
+
   function formatModifier(value: number): string {
     return value >= 0 ? `+${value}` : `${value}`;
   }
@@ -548,6 +601,30 @@
         proficiencies: {
           ...props.actor.system.proficiencies,
           savingThrows,
+        },
+      },
+    });
+  }
+
+  /**
+   * Применяет настройку спасбросков: владения и поправки расчёта приходят из
+   * окна вместе — их правят там одной таблицей.
+   *
+   * @param payload - настройка из окна
+   * @param payload.savingThrows - характеристики, спасбросками которых владеют
+   * @param payload.settings - поправки расчёта спасбросков
+   */
+  function onSavingThrowSettingsApply(payload: {
+    savingThrows: AbilityType[];
+    settings: DnDSavingThrowSettings;
+  }) {
+    emit('update:actor', {
+      system: {
+        ...props.actor.system,
+        savingThrowSettings: payload.settings,
+        proficiencies: {
+          ...props.actor.system.proficiencies,
+          savingThrows: payload.savingThrows,
         },
       },
     });
@@ -763,6 +840,27 @@
       label="Спасброски"
       class="border-muted bg-default/20"
     >
+      <!-- Шестерёнка ведёт в настройку расчёта: кружки в самом блоке ставят
+        только владение, а характеристику спасброска и свои бонусы правят в
+        окне. Вне правки листа её нет — настраивать там нечего -->
+      <template
+        v-if="isEditMode"
+        #actions
+      >
+        <UTooltip :text="SAVING_THROW_SETTINGS_LABELS.open">
+          <UIcon
+            name="tabler:settings-filled"
+            class="h-3.5 w-3.5 cursor-pointer text-primary transition-colors hover:text-primary/80"
+            role="button"
+            tabindex="0"
+            :aria-label="SAVING_THROW_SETTINGS_LABELS.open"
+            @click.left.exact.prevent="openSavingThrowSettings"
+            @keydown.enter.prevent="openSavingThrowSettings"
+            @keydown.space.prevent="openSavingThrowSettings"
+          />
+        </UTooltip>
+      </template>
+
       <div class="px-2 pb-1">
         <div class="grid grid-cols-2 gap-x-2 gap-y-1">
           <div
@@ -1012,5 +1110,15 @@
     v-model:open="isLanguagesProfOpen"
     :selected="actor.system.proficiencies.languages"
     @apply="onLanguagesProfApply"
+  />
+
+  <!-- Модалка настройки спасбросков -->
+  <SavingThrowSettingsModal
+    v-model:open="isSavingThrowSettingsOpen"
+    :actor="actor"
+    :ability-mods="savingThrowAbilityMods"
+    :proficiency-bonus="savingThrowProficiencyBonus"
+    :saves="savingThrowValues"
+    @apply="onSavingThrowSettingsApply"
   />
 </template>

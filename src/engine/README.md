@@ -128,6 +128,7 @@ graph TD
 | `background` | `ActorBackgroundEntry \| null` | Предыстория |
 | `size` | `CreatureSize` | Размер (`tiny` … `gargantuan`) |
 | `proficiencies` | `DnDProficiencies` | Владения: `armor`, `weapons`, `weaponMasteries`, `tools`, `languages`, `savingThrows`, `skills` |
+| `savingThrowSettings` | `DnDSavingThrowSettings?` | Поправки расчёта спасбросков: подменённая характеристика и свои бонусы (`savingThrows.ts`). Поля нет — всё по правилам |
 | `movement` | `ActorMovement` | Типы движения (walk, swim, fly, climb, burrow, hover) + `units` |
 | `armorClass` | `ActorArmorClass` | КД с формулой расчёта |
 | `hitPoints` | `DnDHitPoints` | Хиты: `{ current, max, temp }` |

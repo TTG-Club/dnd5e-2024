@@ -126,6 +126,26 @@ export const ABILITY_LABELS: Record<AbilityType, string> = Object.fromEntries(
   ABILITY_OPTIONS.map((option) => [option.value, option.label]),
 ) as Record<AbilityType, string>;
 
+/** Ключи характеристик в порядке листа — из общего списка вариантов */
+export const ABILITY_KEYS: readonly AbilityType[] = ABILITY_OPTIONS.map(
+  (option) => option.value,
+);
+
+/** Множество всех допустимых ключей характеристик для быстрой проверки */
+const ABILITY_KEY_SET: ReadonlySet<string> = new Set(ABILITY_KEYS);
+
+/**
+ * Проверяет, является ли значение допустимым ключом характеристики
+ * (`AbilityType`). Значение приходит из данных мира, поэтому проверяется и его
+ * тип: в записи актёра на месте ключа может оказаться что угодно.
+ *
+ * @param value - произвольное значение для проверки
+ * @returns `true`, если `value` является `AbilityType`
+ */
+export function isAbilityType(value: unknown): value is AbilityType {
+  return typeof value === 'string' && ABILITY_KEY_SET.has(value);
+}
+
 // ============================================================
 // Типы движения (Movement)
 // ============================================================

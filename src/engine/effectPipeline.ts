@@ -42,6 +42,7 @@ import {
 } from './calculations.js';
 import { getTotalLevel } from './classTypes.js';
 import {
+  ABILITY_KEYS,
   BASE_UNARMORED_AC,
   SKILL_ABILITY_MAP,
   SPELL_SAVE_DC_BASE,
@@ -49,20 +50,15 @@ import {
 import { DEFENSIBLE_DAMAGE_TYPES } from './damageConstants.js';
 import { collectStaticDamageDefenses } from './damageUtils.js';
 import { buildFormulaContext, evaluateFormula } from './formulaParser.js';
+import {
+  getCustomBonusesValue,
+  getSavingThrowSetting,
+  parseSavingThrowSettings,
+} from './savingThrows.js';
 
 export type { IncomingAttackContext };
 
 // ── Константы ─────────────────────────────────────────────────
-
-/** Все ключи характеристик в порядке итерации */
-const ABILITY_KEYS: readonly AbilityType[] = [
-  'strength',
-  'dexterity',
-  'constitution',
-  'intelligence',
-  'wisdom',
-  'charisma',
-] as const;
 
 /** Все ключи навыков в порядке итерации */
 const SKILL_KEYS: readonly SkillType[] = [
@@ -1083,10 +1079,25 @@ export function prepareDerivedData(
   }
 
   // 3. Спасброски
+  const savingThrowSettings = parseSavingThrowSettings(
+    isRecord(system) ? system.savingThrowSettings : undefined,
+  );
+
+  // Бонусы ко всем шести считаются один раз: они у листа общие
+  const commonSaveBonus = getCustomBonusesValue(
+    derivedStats.abilityMods,
+    savingThrowSettings?.common ?? [],
+  );
+
   for (const abilityKey of ABILITY_KEYS) {
     if (derivedStats.overriddenKeys.has(`save.${abilityKey}`)) {
       continue;
     }
+
+    const savingThrowSetting = getSavingThrowSetting(
+      savingThrowSettings,
+      abilityKey,
+    );
 
     let hasProficiency = false;
 
@@ -1108,9 +1119,18 @@ export function prepareDerivedData(
 
     const profBonus = hasProficiency ? derivedStats.proficiencyBonus : 0;
 
+    // Характеристика расчёта берётся из настройки: умения и предметы дают
+    // катить спасбросок от другой, чем та, чьё имя он носит
+    const saveAbility = savingThrowSetting.ability ?? abilityKey;
+
     derivedStats.saves[abilityKey] =
-      derivedStats.abilityMods[abilityKey]
+      derivedStats.abilityMods[saveAbility]
       + profBonus
+      + getCustomBonusesValue(
+        derivedStats.abilityMods,
+        savingThrowSetting.bonuses,
+      )
+      + commonSaveBonus
       + derivedStats.saves[abilityKey];
   }
 
