@@ -1,23 +1,16 @@
 <script setup lang="ts">
-  import type { DnDActor, DnDGameItem, Spell } from '@vtt/shared/system/dnd.js';
+  import type { DnDGameItem, Spell } from '@vtt/shared/system/dnd.js';
 
   import { computed, ref } from 'vue';
 
   import { startHotbarDrag } from '@/core/utils/hotbarDrag';
   import { ContextMenuDangerItem } from '@/shared_ui/components';
   import FieldGroupReset from '@/shared_ui/components/FieldGroupReset.vue';
-  import {
-    formatConditionalDamageDisplay,
-    getSpellDamageParts,
-    resolveActorStats,
-    resolveSpellDamageFormula,
-    SPELL_USES_RECOVERY_LABELS,
-    stripDamageTypeTokens,
-    stripFormulaVariables,
-  } from '@vtt/shared/system/dnd.js';
+  import { SPELL_USES_RECOVERY_LABELS } from '@vtt/shared/system/dnd.js';
 
   import { SPELL_MIME } from './constants';
   import { extractSpellFromGameItem } from './utils/extractSpellFromGameItem';
+  import { formatSpellDamageDisplay } from './utils/formatSpellDamageDisplay';
 
   defineOptions({ inheritAttrs: false });
 
@@ -32,36 +25,28 @@
     showDelete?: boolean;
     /** Показывать «Применить» в контекстном меню */
     showCast?: boolean;
-    /** Показывать чекбокс подготовки */
-    showPrepare?: boolean;
-    /** ID актора-владельца (для перетаскивания на хотбар) */
-    actorId?: string;
     /**
      * ID существа-владельца. Если задан — перетаскивание на хотбар создаёт
      * макрос `creature-spell` (вместо `spell-cast` актора).
      */
     creatureId?: string;
-    /** Актор-владелец — для подстановки @-переменных в формуле урона при показе */
-    actor?: DnDActor;
     /** Проп для режима редактирования: показывает inline-иконки */
     isEditMode?: boolean;
   }>();
 
   const emit = defineEmits<{
     /** Клик по строке (открыть детальник) */
-    'click': [];
+    click: [];
     /** Скопировать */
-    'copy': [];
+    copy: [];
     /** Редактировать */
-    'edit': [];
+    edit: [];
     /** Удалить */
-    'delete': [];
+    delete: [];
     /** Применить */
-    'cast': [];
-    /** Изменить подготовку */
-    'update:prepared': [value: boolean];
+    cast: [];
     /** Отправить в чат */
-    'share': [];
+    share: [];
   }>();
 
   const spellObject = computed<Spell>(() => {
@@ -78,41 +63,13 @@
   });
 
   /**
-   * Формула урона для отображения: при известном акторе подставляет
-   * @-переменные конкретным числом; без актора (глобальный список предметов)
-   * убирает @-токены, оставляя только кубиковую часть. Затем переводит кости
-   * d→к для русского вида.
+   * Формула урона для отображения — общая со строкой листа. Владельца строка не
+   * знает (её показывают панель предметов и лист существа), поэтому от формулы
+   * остаются одни кости, без подстановки характеристик.
    */
-  const damageFormulaDisplay = computed(() => {
-    const stats = props.actor ? resolveActorStats(props.actor) : null;
-
-    const parts = getSpellDamageParts(spellObject.value)
-      .map((part) => {
-        // Инлайн-токены @dmg.<type> — это метки типа, не переменные роллера;
-        // убираем их до подстановки @-переменных (иначе resolveVariable падает).
-        // Условные ветки @target.* показываем через «или» (formatConditional...).
-        const resolveTerm = (subFormula: string): string => {
-          const baseFormula = stripDamageTypeTokens(subFormula);
-
-          return props.actor && stats
-            ? resolveSpellDamageFormula(
-                spellObject.value,
-                props.actor,
-                baseFormula,
-                stats,
-              )
-            : stripFormulaVariables(baseFormula);
-        };
-
-        return formatConditionalDamageDisplay(
-          part.formula,
-          resolveTerm,
-        ).replace(/(\d+)d(\d+)/gi, '$1к$2');
-      })
-      .filter((formula) => formula.length > 0);
-
-    return parts.join(' + ');
-  });
+  const damageFormulaDisplay = computed(() =>
+    formatSpellDamageDisplay(spellObject.value),
+  );
 
   /**
    * Начинает перетаскивание заклинания на хотбар.
@@ -148,7 +105,6 @@
       label: spell.name,
       icon: 'tabler:wand',
       ref: spell.id,
-      actorId: props.actorId,
     });
   }
 
@@ -222,37 +178,10 @@
   function closeMenu(): void {
     isMenuOpen.value = false;
   }
-
-  /** Обработка клика по чекбоксу подготовки */
-  function togglePrepared(): void {
-    emit('update:prepared', !spellObject.value.prepared);
-  }
 </script>
 
 <template>
   <div class="flex items-center gap-2">
-    <!-- Чекбокс подготовки -->
-    <button
-      v-if="showPrepare && spellObject.level > 0"
-      class="flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors"
-      :class="[
-        spellObject.prepared || spellObject.alwaysPrepared
-          ? 'border-success bg-success/20 text-healing'
-          : 'border-accented text-transparent hover:border-accented',
-      ]"
-      :title="
-        spellObject.alwaysPrepared ? 'Всегда подготовлено' : 'Подготовить'
-      "
-      :disabled="spellObject.alwaysPrepared"
-      @click.left.exact.prevent.stop="togglePrepared"
-    >
-      <UIcon
-        v-if="spellObject.prepared || spellObject.alwaysPrepared"
-        name="tabler:check"
-        class="h-3 w-3"
-      />
-    </button>
-
     <UFieldGroup
       size="lg"
       class="group flex min-w-0 flex-1"

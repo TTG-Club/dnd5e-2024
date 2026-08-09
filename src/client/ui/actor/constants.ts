@@ -6,6 +6,8 @@
  * чтобы избежать дублирования в компонентах.
  */
 
+import type { WeaponRangeType } from '@vtt/shared';
+
 // Реэкспорт из единого shared-источника (производные от ABILITY_OPTIONS и SKILLS_LIST)
 export {
   ABILITY_LABELS,
@@ -295,4 +297,204 @@ export const FEATURE_ORIGIN_HINTS: Record<FeatureOriginKey, string> = {
   background: 'Оставить в списке только особенности предыстории',
   feat: 'Оставить на вкладке только раздел черт',
   custom: 'Оставить в списке только записи, заведённые на листе вручную',
+};
+
+// ============================================================
+// Строки списков на вкладках листа (снаряжение и заклинания)
+// ============================================================
+
+/**
+ * Хвост подсказки нажимаемой плитки. Плитка броска отличается от справочной
+ * только цветом рамки, и без этой строки её нажимаемость видна лишь по курсору.
+ */
+export const SHEET_ROLL_HINT_LABEL = 'нажмите, чтобы бросить';
+
+/**
+ * Подписи для скринридера в строках списков листа. К каждой дописывается
+ * название записи («Открыть предмет: Кинжал»): по одной подписи на всю строку
+ * список читался бы набором одинаковых кнопок.
+ */
+export const SHEET_ROW_ARIA_LABELS: Record<
+  | 'openItem'
+  | 'openSpell'
+  | 'roll'
+  | 'decreaseQuantity'
+  | 'increaseQuantity'
+  | 'quantity'
+  | 'itemActions'
+  | 'spellActions',
+  string
+> = {
+  openItem: 'Открыть предмет',
+  openSpell: 'Открыть заклинание',
+  roll: 'Бросок',
+  decreaseQuantity: 'Уменьшить количество',
+  increaseQuantity: 'Увеличить количество',
+  quantity: 'Количество',
+  itemActions: 'Действия с предметом',
+  spellActions: 'Действия с заклинанием',
+};
+
+/**
+ * Подписи пунктов меню, общие для строк снаряжения и заклинаний. Строки обеих
+ * вкладок ведут себя одинаково, и подписи у общих действий обязаны совпадать.
+ */
+export const SHEET_ROW_MENU_LABELS: Record<
+  'edit' | 'share' | 'remove',
+  string
+> = {
+  edit: 'Редактировать',
+  share: 'Поделиться в чат',
+  remove: 'Удалить',
+};
+
+/**
+ * Значки записей по типу предмета. Оружия и снаряжения здесь нет: у оружия
+ * значок рисует `WeaponIcon` по базовому типу, а у снаряжения его выбирает
+ * категория (`getEquipmentCategoryIcon` из движка).
+ */
+export const EQUIPMENT_TYPE_ICONS: Record<string, string> = {
+  'trinket': 'tabler:diamond',
+  'rod': 'tabler:wand',
+  'ring': 'tabler:circle-dotted',
+  'clothing': 'tabler:hanger',
+  'wand': 'tabler:wand',
+  'wondrous': 'tabler:sparkles',
+  'vehicle-equipment': 'tabler:horse',
+  'tool': 'tabler:tools',
+  'spell': 'tabler:sparkles',
+};
+
+/** Значок записи неизвестного типа */
+export const DEFAULT_EQUIPMENT_ICON = 'tabler:box';
+
+/** Подпись типа дальности оружия — вторая часть подписи под названием */
+export const WEAPON_RANGE_TYPE_LABELS: Record<WeaponRangeType, string> = {
+  melee: 'Рукопашное оружие',
+  ranged: 'Дальнобойное оружие',
+};
+
+/** Короткие подписи плиток параметров в строке снаряжения */
+export const EQUIPMENT_STAT_LABELS: Record<
+  'attack' | 'damage' | 'armorClass' | 'toolBonus' | 'cost',
+  string
+> = {
+  attack: 'Атака',
+  damage: 'Урон',
+  armorClass: 'КД',
+  toolBonus: 'Бонус',
+  cost: 'Цена',
+};
+
+/** Единица измерения веса — подпись плитки веса */
+export const WEIGHT_UNIT_LABEL = 'фнт.';
+
+/** Подсказки плиток параметров, у которых своей расшифровки нет */
+export const EQUIPMENT_STAT_HINTS: Record<
+  'attack' | 'armorClass' | 'shieldClass' | 'toolBonus' | 'cost' | 'weight',
+  string
+> = {
+  attack: 'Бонус броска атаки этим оружием',
+  armorClass: 'Класс доспеха, который даёт надетый доспех',
+  shieldClass: 'Бонус к классу доспеха от щита',
+  toolBonus: 'Бонус к проверкам этим инструментом',
+  cost: 'Стоимость одного предмета',
+  weight: 'Вес одного предмета в фунтах',
+};
+
+/** Подписи кнопки надевания и причина, по которой она не нажимается */
+export const EQUIPMENT_EQUIP_ACTION_LABELS: Record<
+  'equip' | 'unequip' | 'blocked',
+  string
+> = {
+  equip: 'Надеть',
+  unequip: 'Снять',
+  blocked: 'Уже надето другое снаряжение: доспех носят только один',
+};
+
+/** Значки состояния предмета рядом с названием */
+export const EQUIPMENT_BADGE_LABELS: Record<
+  'equipped' | 'twoHanded' | 'attuned' | 'attunementRequired',
+  string
+> = {
+  equipped: 'Надет',
+  twoHanded: 'Двуручный хват',
+  attuned: 'Настроен',
+  attunementRequired: 'Нужна настройка',
+};
+
+/** Подсказки значков состояния предмета */
+export const EQUIPMENT_BADGE_HINTS: Record<
+  'twoHanded' | 'attuned' | 'attunementRequired',
+  string
+> = {
+  twoHanded:
+    'Универсальным оружием пользуются двуручным хватом: урон катится большей костью. Хват меняется в меню строки и снятия не боится',
+  attuned: 'Персонаж настроен на предмет — свойства предмета работают',
+  attunementRequired:
+    'Предмет требует настройки: его свойства не работают, пока персонаж на него не настроен — настройка в меню строки',
+};
+
+/**
+ * Подписи пунктов меню строки снаряжения. Меню одно на правую кнопку мыши и на
+ * «⋮» в конце строки: расходиться наборы действий не должны.
+ */
+export const EQUIPMENT_MENU_LABELS: Record<
+  'attack' | 'twoHandedGrip' | 'attune' | 'unattune',
+  string
+> = {
+  attack: 'Атаковать',
+  /** Отметка, а не действие: снята — оружием пользуются одной рукой */
+  twoHandedGrip: 'Двуручный хват',
+  attune: 'Настроить',
+  unattune: 'Снять настройку',
+};
+
+// ============================================================
+// Строка заклинания на вкладке листа
+// ============================================================
+
+/** Короткие подписи плиток параметров в строке заклинания */
+export const SPELL_STAT_LABELS: Record<'damage' | 'uses', string> = {
+  damage: 'Урон',
+  uses: 'Заряды',
+};
+
+/** Подсказки плиток строки заклинания */
+export const SPELL_STAT_HINTS: Record<'damage' | 'usesEmpty', string> = {
+  damage: 'Урон заклинания с учётом характеристик персонажа',
+  usesEmpty: 'Заряды закончились — их вернёт отдых',
+};
+
+/**
+ * Подсказки значка подготовки — он же переключатель. Заговор и всегда
+ * подготовленное заклинание не переключаются: значок у них только горит.
+ */
+export const SPELL_PREPARED_LABELS: Record<
+  'prepare' | 'unprepare' | 'always' | 'cantrip',
+  string
+> = {
+  prepare: 'Подготовить',
+  unprepare: 'Снять подготовку',
+  always: 'Всегда подготовлено',
+  cantrip: 'Заговор доступен всегда — готовить его не нужно',
+};
+
+/** Значки заклинания рядом с названием — буквой, ряд от них не растёт */
+export const SPELL_BADGE_LABELS: Record<'concentration' | 'ritual', string> = {
+  concentration: 'К',
+  ritual: 'Р',
+};
+
+/** Расшифровки буквенных значков заклинания */
+export const SPELL_BADGE_HINTS: Record<'concentration' | 'ritual', string> = {
+  concentration: 'Концентрация',
+  ritual: 'Ритуал',
+};
+
+/** Подписи пунктов меню строки заклинания, кроме общих со снаряжением */
+export const SPELL_MENU_LABELS: Record<'prepared' | 'cast', string> = {
+  /** Отметка, а не действие: снята — заклинание на день не подготовлено */
+  prepared: 'Подготовлено',
+  cast: 'Применить',
 };

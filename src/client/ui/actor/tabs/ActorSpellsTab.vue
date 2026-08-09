@@ -16,10 +16,12 @@
     SpellDamagePartInput,
   } from '../../../composables/useSpellResolution';
   import type { SpellPropertyFilterKey } from '../constants';
+  import type { SheetRowStat } from '../sheetRowTypes';
 
   import { useToast } from '@nuxt/ui/composables';
   import { computed, ref } from 'vue';
 
+  import { startHotbarDrag } from '@/core/utils/hotbarDrag';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useActionPromptStore } from '@/stores/actionPromptStore';
   import { useAuraStore } from '@/stores/auraStore';
@@ -54,7 +56,9 @@
     SPELL_DAMAGE_TEMPLATE_COLORS,
     SPELL_LEVEL_LABELS,
     SPELL_SAVE_DC_BASE,
+    SPELL_SCHOOL_LABELS,
     SPELL_TEMPLATE_DEFAULT_COLOR,
+    SPELL_USES_RECOVERY_LABELS,
     spellIsHealing,
   } from '@vtt/shared/system/dnd.js';
 
@@ -71,19 +75,25 @@
     isSpellTargetBlockedByRange,
   } from '../../../composables/useSceneRangeCheck';
   import { useSpellResolution } from '../../../composables/useSpellResolution';
+  import ActorSpellRow from '../ActorSpellRow.vue';
   import {
     FILTER_ROW_CONTROL_SIZE,
     SHEET_FILTER_LABELS,
+    SHEET_ROW_MENU_LABELS,
     SPELL_FILTER_LABELS,
+    SPELL_MENU_LABELS,
+    SPELL_MIME,
     SPELL_PROPERTY_FILTERS,
+    SPELL_STAT_HINTS,
+    SPELL_STAT_LABELS,
   } from '../constants';
   import FilterChip from '../FilterChip.vue';
   import FilterResetButton from '../FilterResetButton.vue';
   import PreparedSpellsModal from '../PreparedSpellsModal.vue';
   import SheetStatTile from '../SheetStatTile.vue';
   import SpellcastingSettingsModal from '../SpellcastingSettingsModal.vue';
-  import SpellListItem from '../SpellListItem.vue';
   import { getFilterChipClass } from '../utils/filterChipClass';
+  import { formatSpellDamageDisplay } from '../utils/formatSpellDamageDisplay';
 
   const props = defineProps<{
     actor: DnDActor;
@@ -956,6 +966,162 @@
     triggerSaveIfNotEdit();
   }
 
+  /**
+   * Подпись под названием заклинания — школа магии. Круг называть незачем: он
+   * стоит в заголовке раздела, под которым лежит строка.
+   *
+   * @param spell - заклинание
+   * @returns название школы
+   */
+  function getSpellSubtitle(spell: Spell): string {
+    return SPELL_SCHOOL_LABELS[spell.school] ?? '';
+  }
+
+  /**
+   * Плитки строки заклинания: урон (катится по нажатию) и заряды у врождённых
+   * заклинаний, которые ячеек не тратят.
+   *
+   * @param spell - заклинание
+   * @returns плитки в порядке показа
+   */
+  function getSpellStats(spell: Spell): SheetRowStat[] {
+    const stats: SheetRowStat[] = [];
+
+    const damage = formatSpellDamageDisplay(spell, props.actor);
+
+    if (damage) {
+      stats.push({
+        key: 'damage',
+        label: SPELL_STAT_LABELS.damage,
+        value: damage,
+        tooltip: SPELL_STAT_HINTS.damage,
+        accent: true,
+        rollable: true,
+      });
+    }
+
+    // «По желанию» заряды не тратит — считать там нечего
+    if (spell.uses && spell.uses.recovery !== 'atWill') {
+      const isEmpty = spell.uses.current <= 0;
+
+      stats.push({
+        key: 'uses',
+        label: SPELL_STAT_LABELS.uses,
+        value: `${spell.uses.current}/${spell.uses.max}`,
+        tooltip: isEmpty
+          ? SPELL_STAT_HINTS.usesEmpty
+          : SPELL_USES_RECOVERY_LABELS[spell.uses.recovery],
+        accent: !isEmpty,
+      });
+    }
+
+    return stats;
+  }
+
+  /**
+   * Пункты меню строки заклинания. Меню одно на правую кнопку мыши и на «⋮»,
+   * а порядок тот же, что и у снаряжения: сначала состояние, потом действие,
+   * следом правка записи и удаление.
+   *
+   * @param spell - заклинание
+   * @returns группы пунктов для `UContextMenu` и `UDropdownMenu`
+   */
+  function getSpellMenuItems(spell: Spell): DropdownMenuItem[][] {
+    const gameActions: DropdownMenuItem[] = [];
+
+    // Подготовка — отметка, а не действие: у заговора и сигнатурного
+    // заклинания подкласса её нет, они готовы всегда
+    if (spell.level > CANTRIP_SPELL_LEVEL && !spell.alwaysPrepared) {
+      gameActions.push({
+        label: SPELL_MENU_LABELS.prepared,
+        icon: 'tabler:wand',
+        type: 'checkbox',
+        checked: Boolean(spell.prepared),
+        onUpdateChecked: (checked: boolean) =>
+          updatePrepared(spell.id, checked),
+      });
+    }
+
+    gameActions.push({
+      label: SPELL_MENU_LABELS.cast,
+      icon: 'tabler:sparkles',
+      onSelect: () => castSpell(spell),
+    });
+
+    return [
+      gameActions,
+      [
+        {
+          label: SHEET_ROW_MENU_LABELS.edit,
+          icon: 'tabler:edit',
+          onSelect: () => openEditSpell(spell),
+        },
+        {
+          label: SHEET_ROW_MENU_LABELS.share,
+          icon: 'tabler:message-share',
+          onSelect: () => shareSpell(spell),
+        },
+      ],
+      [
+        {
+          label: SHEET_ROW_MENU_LABELS.remove,
+          icon: 'tabler:trash',
+          color: 'error',
+          onSelect: () => deleteSpell(spell.id),
+        },
+      ],
+    ];
+  }
+
+  /**
+   * Начало перетаскивания строки заклинания: на хотбар кладётся макрос каста,
+   * а MIME с самим заклинанием позволяет перенести его на другой лист.
+   *
+   * @param event - событие dragstart
+   * @param spell - заклинание
+   */
+  function handleSpellDragStart(event: DragEvent, spell: Spell): void {
+    if (!event.dataTransfer) {
+      return;
+    }
+
+    event.dataTransfer.effectAllowed = 'copy';
+    event.dataTransfer.setData(SPELL_MIME, JSON.stringify(spell));
+
+    startHotbarDrag(event, {
+      id: spell.id,
+      type: 'spell-cast',
+      label: spell.name,
+      icon: 'tabler:wand',
+      ref: spell.id,
+      actorId: props.actor.id,
+    });
+  }
+
+  /** Переключает подготовку заклинания из строки списка */
+  function toggleSpellPrepared(spell: Spell): void {
+    updatePrepared(spell.id, !spell.prepared);
+  }
+
+  /**
+   * Заклинания по кругам, уже с подписью, плитками и меню каждой строки.
+   *
+   * Собираются вычислимым, а не вызовами из шаблона: разбор формулы урона
+   * поднимает характеристики персонажа, и из шаблона он шёл бы на каждую
+   * перерисовку списка — на книге в полсотни заклинаний это заметно.
+   */
+  const spellRowGroups = computed(() =>
+    spellsByLevel.value.map((group) => ({
+      ...group,
+      rows: group.spells.map((spell) => ({
+        spell,
+        subtitle: getSpellSubtitle(spell),
+        stats: getSpellStats(spell),
+        menuItems: getSpellMenuItems(spell),
+      })),
+    })),
+  );
+
   /** Открыто ли окно детального просмотра (используется для перехвата cast) */
   function openSpellDetail(spell: Spell): void {
     openModal('SpellDetailModal', {
@@ -1804,7 +1970,7 @@
 
     <!-- Заклинания по кругам -->
     <div
-      v-for="group in spellsByLevel"
+      v-for="group in spellRowGroups"
       :key="group.level"
       class="space-y-1"
     >
@@ -1849,23 +2015,17 @@
       </div>
 
       <!-- Список заклинаний в круге -->
-      <SpellListItem
-        v-for="spell in group.spells"
-        :key="spell.id"
-        :item="spell"
-        :actor-id="actor.id"
-        :actor="actor"
-        :is-edit-mode="isEditMode"
-        show-edit
-        show-delete
-        show-cast
-        show-prepare
-        @click="openSpellDetail(spell)"
-        @edit="openEditSpell(spell)"
-        @delete="deleteSpell(spell.id)"
-        @cast="castSpell(spell)"
-        @share="shareSpell(spell)"
-        @update:prepared="updatePrepared(spell.id, $event)"
+      <ActorSpellRow
+        v-for="row in group.rows"
+        :key="row.spell.id"
+        :spell="row.spell"
+        :subtitle="row.subtitle"
+        :stats="row.stats"
+        :menu-items="row.menuItems"
+        @open="openSpellDetail(row.spell)"
+        @cast="castSpell(row.spell)"
+        @toggle-prepared="toggleSpellPrepared(row.spell)"
+        @dragstart="handleSpellDragStart($event, row.spell)"
       />
     </div>
 

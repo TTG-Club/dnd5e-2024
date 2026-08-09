@@ -1,4 +1,7 @@
 <script setup lang="ts">
+  // Корневой вход `@nuxt/ui` — это Nuxt-модуль, типы компонентов он не отдаёт
+  import type { DropdownMenuItem } from '@nuxt/ui/components/DropdownMenu.vue';
+
   import type { SceneEntity } from '@vtt/shared';
   import type {
     AttackRollMode,
@@ -14,18 +17,18 @@
     RolledSpellDamagePart,
     SpellDamagePartInput,
   } from '../../../composables/useSpellResolution';
+  import type { SheetRowStat } from '../sheetRowTypes';
 
   import { computed, ref, toRef } from 'vue';
 
   import { startHotbarDrag } from '@/core/utils/hotbarDrag';
-  import { ContextMenuDangerItem } from '@/shared_ui/components';
-  import FieldGroupReset from '@/shared_ui/components/FieldGroupReset.vue';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useChatStore } from '@/stores/chatStore';
   import { useHotbarStore } from '@/stores/hotbarStore';
   import { useTargetStore } from '@/stores/targetStore';
   import { useWorldStore } from '@/stores/worldStore';
   import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
+  import { formatItemCost } from '@vtt/shared';
   import {
     calculateWeaponAttackModifier,
     calculateWeaponDamageModifier,
@@ -34,7 +37,6 @@
     describeDamagePart,
     evaluateConditionalBonuses,
     formatWeaponDamageFormula,
-    getEquipmentCategoryIcon,
     getWeaponPrimaryDamageType,
     resolveActorStats,
     TOOL_CATEGORIES,
@@ -45,13 +47,23 @@
   import { useResolvedStats } from '../../../composables/useResolvedStats';
   import { useSpellResolution } from '../../../composables/useSpellResolution';
   import { useWeaponIcon } from '../../../composables/useWeaponIcon';
+  import ActorEquipmentRow from '../ActorEquipmentRow.vue';
   import CarryingCapacityModal from '../CarryingCapacityModal.vue';
-  import { GAME_ITEM_TRANSFER_MIME } from '../constants';
+  import {
+    EQUIPMENT_EQUIP_ACTION_LABELS,
+    EQUIPMENT_MENU_LABELS,
+    EQUIPMENT_STAT_HINTS,
+    EQUIPMENT_STAT_LABELS,
+    GAME_ITEM_TRANSFER_MIME,
+    SHEET_ROW_MENU_LABELS,
+    WEAPON_RANGE_TYPE_LABELS,
+    WEIGHT_UNIT_LABEL,
+  } from '../constants';
   import CurrencyModal from '../CurrencyModal.vue';
   import DiceRollModal from '../DiceRollModal.vue';
   import SheetStatTile from '../SheetStatTile.vue';
   import { extractSpellFromGameItem } from '../utils/extractSpellFromGameItem';
-  import WeaponIcon from '../WeaponIcon.vue';
+  import { formatSignedNumber } from '../utils/formatSignedNumber';
 
   const props = defineProps<Props>();
 
@@ -90,22 +102,6 @@
   }
 
   const { getWeaponIcon } = useWeaponIcon();
-
-  /** Иконки по типу предмета (кроме weapon/armor — у них своя логика) */
-  const ITEM_TYPE_ICON_MAP: Record<string, string> = {
-    'trinket': 'tabler:diamond',
-    'rod': 'tabler:wand',
-    'ring': 'tabler:circle-dotted',
-    'clothing': 'tabler:hanger',
-    'wand': 'tabler:wand',
-    'wondrous': 'tabler:sparkles',
-    'vehicle-equipment': 'tabler:horse',
-    'tool': 'tabler:tools',
-    'spell': 'tabler:sparkles',
-  };
-
-  /** Fallback-иконка для неизвестных типов */
-  const DEFAULT_ITEM_ICON = 'tabler:box';
 
   const systemDataStore = useSystemDataStore();
   const hotbarStore = useHotbarStore();
@@ -612,18 +608,18 @@
   // TODO: Вернуть блокировку экипировки при нехватке рук (canEquip / freeHands)
 
   /**
-   * Переключает экипировку предмета
+   * Переключает экипировку предмета.
+   *
+   * Хват универсального оружия снятие не трогает: это выбор игрока, как оружием
+   * пользуются, а не состояние рук. Сбрасывая его, лист забывал бы двуручный
+   * хват при каждом снятии — и после надевания урон молча падал бы до меньшей
+   * кости.
+   *
    * @param itemId - ID предмета
    */
   function toggleEquipped(itemId: string): void {
     const equipment = props.actor.equipment.map((item) =>
-      item.id === itemId
-        ? {
-            ...item,
-            equipped: !item.equipped,
-            twoHandedGrip: item.equipped ? false : item.twoHandedGrip,
-          }
-        : item,
+      item.id === itemId ? { ...item, equipped: !item.equipped } : item,
     );
 
     emit('update:actor', { equipment });
@@ -632,16 +628,15 @@
   }
 
   /**
-   * Переключает хват универсального оружия (1 рука ↔ 2 руки)
+   * Переключает хват универсального оружия (одноручный ↔ двуручный).
+   *
+   * Хват — свойство самого оружия, а не рук: он остаётся выбранным и у снятого
+   * оружия, и после следующего надевания. Поэтому пункт меню виден всегда, а
+   * `toggleEquipped` его не трогает.
+   *
    * @param itemId - ID предмета
    */
   function toggleTwoHandedGrip(itemId: string): void {
-    const target = props.actor.equipment.find((item) => item.id === itemId);
-
-    if (!target || !target.equipped) {
-      return;
-    }
-
     const equipment = props.actor.equipment.map((item) =>
       item.id === itemId
         ? { ...item, twoHandedGrip: !item.twoHandedGrip }
@@ -699,52 +694,91 @@
     triggerSaveIfNotEdit();
   }
 
-  // --- Контекстное меню ---
-  const isContextMenuOpen = ref(false);
-  const contextMenuX = ref(0);
-  const contextMenuY = ref(0);
-  const contextMenuItem = ref<DnDGameItem | null>(null);
+  /** Типы записей, у которых на листе есть своя форма правки */
+  const EDITABLE_ITEM_TYPES = new Set(['weapon', 'equipment', 'spell', 'tool']);
 
   /**
-   * Открывает контекстное меню для предмета
-   * @param event - Событие мыши
-   * @param item - Предмет снаряжения
+   * Пункты меню строки предмета. Меню одно на правую кнопку мыши и на «⋮» в
+   * конце строки: два набора действий у одной строки расходились бы.
+   *
+   * Группы разделяются чертой: сверху игровые действия предметом, ниже —
+   * действия над записью листа, последним — удаление.
+   *
+   * @param item - предмет снаряжения
+   * @returns группы пунктов для `UContextMenu` и `UDropdownMenu`
    */
-  function openContextMenu(event: MouseEvent, item: DnDGameItem): void {
-    event.preventDefault();
-    event.stopPropagation();
+  function getItemMenuItems(item: DnDGameItem): DropdownMenuItem[][] {
+    const gameActions: DropdownMenuItem[] = [];
 
-    contextMenuX.value = event.clientX;
-    contextMenuY.value = event.clientY;
-    contextMenuItem.value = item;
-    isContextMenuOpen.value = true;
-  }
+    // Надевание стоит первым и повторяет кнопку со значком слева: по одному
+    // значку не всякий поймёт, что предмет им и берут в руки. Значок —
+    // человечек: надевают тут и оружие, и кольцо, а рубашка обещала одежду,
+    // щит же — доспех.
+    gameActions.push({
+      label: item.equipped
+        ? EQUIPMENT_EQUIP_ACTION_LABELS.unequip
+        : EQUIPMENT_EQUIP_ACTION_LABELS.equip,
+      icon: item.equipped ? 'tabler:user-off' : 'tabler:user-check',
+      disabled: isEquipDisabled(item),
+      onSelect: () => toggleEquipped(item.id),
+    });
 
-  /** Закрывает контекстное меню */
-  function closeContextMenu(): void {
-    isContextMenuOpen.value = false;
-    contextMenuItem.value = null;
-  }
-
-  /** Обрабатывает выбор пункта меню */
-  function handleContextMenuAction(
-    action: 'attack' | 'edit' | 'delete' | 'share',
-  ): void {
-    if (!contextMenuItem.value) {
-      return;
+    if (item.type === 'weapon' && item.damageParts?.length) {
+      gameActions.push({
+        label: EQUIPMENT_MENU_LABELS.attack,
+        icon: 'tabler:sword',
+        onSelect: () => openRollModal(item),
+      });
     }
 
-    if (action === 'attack') {
-      openRollModal(contextMenuItem.value);
-    } else if (action === 'edit') {
-      openEditModal(contextMenuItem.value);
-    } else if (action === 'delete') {
-      removeItem(contextMenuItem.value.id);
-    } else if (action === 'share') {
-      shareItemToChat(contextMenuItem.value);
+    // Хват — не разовое действие, а способ пользоваться оружием: отметка в
+    // меню показывает, каким хватом оружие идёт в бой сейчас.
+    if (isVersatile(item)) {
+      gameActions.push({
+        label: EQUIPMENT_MENU_LABELS.twoHandedGrip,
+        icon: 'tabler:hand-grab',
+        type: 'checkbox',
+        checked: Boolean(item.twoHandedGrip),
+        onUpdateChecked: () => toggleTwoHandedGrip(item.id),
+      });
     }
 
-    closeContextMenu();
+    if (item.magicAttunement && item.magicAttunement !== 'none') {
+      gameActions.push({
+        label: item.isAttuned
+          ? EQUIPMENT_MENU_LABELS.unattune
+          : EQUIPMENT_MENU_LABELS.attune,
+        icon: 'tabler:sparkles',
+        onSelect: () => toggleAttuned(item.id),
+      });
+    }
+
+    const sheetActions: DropdownMenuItem[] = [];
+
+    if (EDITABLE_ITEM_TYPES.has(item.type)) {
+      sheetActions.push({
+        label: SHEET_ROW_MENU_LABELS.edit,
+        icon: 'tabler:edit',
+        onSelect: () => openEditModal(item),
+      });
+    }
+
+    sheetActions.push({
+      label: SHEET_ROW_MENU_LABELS.share,
+      icon: 'tabler:message-share',
+      onSelect: () => shareItemToChat(item),
+    });
+
+    const removeAction: DropdownMenuItem[] = [
+      {
+        label: SHEET_ROW_MENU_LABELS.remove,
+        icon: 'tabler:trash',
+        color: 'error',
+        onSelect: () => removeItem(item.id),
+      },
+    ];
+
+    return [gameActions, sheetActions, removeAction];
   }
 
   /**
@@ -774,13 +808,9 @@
    * Вычисляет и форматирует бонус к броску атаки текущим оружием
    */
   function getWeaponAttackBonusLabel(weapon: DnDGameItem): string {
-    const mod = calculateWeaponAttackModifier(
-      props.actor,
-      weapon,
-      resolvedStats.value,
+    return formatSignedNumber(
+      calculateWeaponAttackModifier(props.actor, weapon, resolvedStats.value),
     );
-
-    return mod >= 0 ? `+${mod}` : `${mod}`;
   }
 
   /**
@@ -838,6 +868,137 @@
 
     return labels.join(' + ');
   }
+
+  /**
+   * Подпись под названием предмета: категория записи, у оружия — ещё и вид
+   * дальности. Собирается здесь, а не в строке: названия категорий приходят из
+   * справочников хоста.
+   *
+   * @param item - предмет снаряжения
+   * @returns подпись вида «Воинское оружие, Рукопашное оружие»
+   */
+  function getItemSubtitle(item: DnDGameItem): string {
+    if (item.type === 'weapon') {
+      const parts = [
+        getWeaponCategoryLabel(item.baseType),
+        item.rangeType ? WEAPON_RANGE_TYPE_LABELS[item.rangeType] : '',
+      ];
+
+      return parts.filter(Boolean).join(', ');
+    }
+
+    if (item.type === 'equipment') {
+      const category = item.equipmentCategory ?? '';
+
+      return armorCategoryMap.value.get(category) ?? category;
+    }
+
+    if (item.type === 'tool') {
+      const category = item.toolCategory ?? '';
+
+      return toolCategoryMap.value.get(category) ?? category;
+    }
+
+    return item.typeLabel ?? '';
+  }
+
+  /**
+   * Плитки параметров строки: боевой параметр предмета (атака и урон оружия,
+   * КД доспеха, бонус инструмента), затем цена и вес.
+   *
+   * Цена уступает место боевым плиткам: в бою нужны они, а ряд не растёт.
+   *
+   * @param item - предмет снаряжения
+   * @returns плитки в порядке показа
+   */
+  function getItemStats(item: DnDGameItem): SheetRowStat[] {
+    const stats: SheetRowStat[] = [];
+
+    if (item.type === 'weapon' && item.damageParts?.length) {
+      stats.push(
+        {
+          key: 'attack',
+          label: EQUIPMENT_STAT_LABELS.attack,
+          value: getWeaponAttackBonusLabel(item),
+          tooltip: EQUIPMENT_STAT_HINTS.attack,
+          accent: true,
+          rollable: true,
+        },
+        {
+          key: 'damage',
+          label: EQUIPMENT_STAT_LABELS.damage,
+          value: weaponDamageFormulaLabel(item),
+          tooltip: weaponKindLabel(item),
+          accent: true,
+          rollable: true,
+        },
+      );
+    } else if (item.type === 'equipment' && item.baseArmorAC) {
+      // Щит прибавляет к классу доспеха, а не задаёт его — и показан прибавкой
+      const isShield = item.equipmentCategory === 'shield';
+      const armorClass = item.baseArmorAC + (item.magicBonus ?? 0);
+
+      stats.push({
+        key: 'armorClass',
+        label: EQUIPMENT_STAT_LABELS.armorClass,
+        value: isShield ? formatSignedNumber(armorClass) : String(armorClass),
+        tooltip: isShield
+          ? EQUIPMENT_STAT_HINTS.shieldClass
+          : EQUIPMENT_STAT_HINTS.armorClass,
+        accent: true,
+      });
+    } else if (item.type === 'tool' && item.toolBonus) {
+      stats.push({
+        key: 'toolBonus',
+        label: EQUIPMENT_STAT_LABELS.toolBonus,
+        value: formatSignedNumber(item.toolBonus),
+        tooltip: EQUIPMENT_STAT_HINTS.toolBonus,
+        accent: true,
+      });
+    }
+
+    const cost = formatItemCost(item.cost);
+
+    if (cost && stats.length < 2) {
+      stats.push({
+        key: 'cost',
+        label: EQUIPMENT_STAT_LABELS.cost,
+        value: cost,
+        tooltip: EQUIPMENT_STAT_HINTS.cost,
+      });
+    }
+
+    if (item.weight > 0) {
+      stats.push({
+        key: 'weight',
+        label: WEIGHT_UNIT_LABEL,
+        value: String(item.weight),
+        tooltip: EQUIPMENT_STAT_HINTS.weight,
+      });
+    }
+
+    return stats;
+  }
+
+  /**
+   * Разделы снаряжения со строками, уже собранными для показа.
+   *
+   * Собираются вычислимым, а не вызовами из шаблона: бонус атаки и формула
+   * урона считаются по характеристикам персонажа, и из шаблона они шли бы на
+   * каждую перерисовку списка.
+   */
+  const equipmentRowGroups = computed(() =>
+    equipmentGroups.value.map((group) => ({
+      label: group.label,
+      rows: group.items.map((item) => ({
+        item,
+        subtitle: getItemSubtitle(item),
+        stats: getItemStats(item),
+        menuItems: getItemMenuItems(item),
+        isEquipBlocked: isEquipDisabled(item),
+      })),
+    })),
+  );
 
   // --- Переносимый вес ---
 
@@ -979,7 +1140,7 @@
     <!-- Список предметов с разделителями -->
     <template v-if="actor.equipment.length > 0">
       <div
-        v-for="(group, index) in equipmentGroups"
+        v-for="(group, index) in equipmentRowGroups"
         :key="group.label"
         class="flex flex-col"
       >
@@ -991,310 +1152,22 @@
           {{ group.label }}
         </h4>
 
-        <div class="flex flex-col gap-1">
-          <UFieldGroup
-            v-for="item in group.items"
-            :key="item.id"
-            size="lg"
-            class="flex w-full items-stretch"
-          >
-            <!-- Кнопка применения оружия — внешний связанный сегмент
-                 (иконка оружия, подсветка при экипировке) -->
-            <UButton
-              v-if="item.type === 'weapon'"
-              :color="item.equipped ? 'primary' : 'neutral'"
-              variant="soft"
-              class="shrink-0"
-              title="Атаковать"
-              @click.left.exact.prevent.stop="openRollModal(item)"
-            >
-              <WeaponIcon
-                :base-type="item.baseType"
-                class="size-5"
-              />
-            </UButton>
-
-            <!-- Иконка-сегмент для не-оружия (тот же размер для выравнивания) -->
-            <UButton
-              v-else
-              :color="item.equipped ? 'primary' : 'neutral'"
-              variant="soft"
-              class="shrink-0"
-              @click.left.exact.prevent.stop="
-                !isEditMode && openDetailModal(item)
-              "
-            >
-              <UIcon
-                :name="
-                  item.type === 'equipment'
-                    ? getEquipmentCategoryIcon(item.equipmentCategory)
-                    : (ITEM_TYPE_ICON_MAP[item.type] ?? DEFAULT_ITEM_ICON)
-                "
-                class="size-5"
-              />
-            </UButton>
-
-            <!-- Карточка предмета (сетка) -->
-            <div
-              :draggable="true"
-              class="grid flex-1 cursor-grab items-center gap-x-3 rounded-l-none bg-accented/30 px-3 py-2 transition-colors active:cursor-grabbing"
-              :class="[
-                !isEditMode ? 'hover:bg-accented/50' : '',
-                isEditMode ? 'rounded-r-none' : 'rounded-r-lg',
-              ]"
-              :style="{
-                gridTemplateColumns: 'minmax(0, 1fr) 2.75rem 7rem 4.5rem 5rem',
-              }"
-              @click.left.exact.prevent="!isEditMode && openDetailModal(item)"
-              @contextmenu="openContextMenu($event, item)"
-              @dragstart="handleItemDragStart($event, item)"
-            >
-              <!-- Сброс контекста группы, чтобы бейджи сохранили скругление -->
-              <FieldGroupReset>
-                <!-- col 1: Название + категория (две строки) -->
-                <div class="col-start-1 flex min-w-0 flex-col">
-                  <span class="truncate text-xs font-medium text-highlighted">
-                    {{ item.name }}
-                  </span>
-
-                  <span
-                    v-if="
-                      (item.type === 'weapon' && item.baseType)
-                      || (item.type === 'equipment' && item.equipmentCategory)
-                      || (item.type === 'tool' && item.toolCategory)
-                    "
-                    class="truncate text-[10px] leading-tight text-dimmed"
-                  >
-                    <template v-if="item.type === 'weapon'">
-                      {{ getWeaponCategoryLabel(item.baseType) }}
-                    </template>
-
-                    <template v-else-if="item.type === 'equipment'">
-                      {{
-                        armorCategoryMap.get(item.equipmentCategory ?? '')
-                        ?? item.equipmentCategory
-                      }}
-                    </template>
-
-                    <template v-else-if="item.type === 'tool'">
-                      {{
-                        toolCategoryMap.get(item.toolCategory ?? '')
-                        ?? item.toolCategory
-                      }}
-                    </template>
-                  </span>
-                </div>
-
-                <!-- Бонус атаки (оружие) -->
-                <div
-                  v-if="item.type === 'weapon' && item.damageParts?.length"
-                  class="col-start-2 flex flex-col items-start"
-                >
-                  <UBadge
-                    color="neutral"
-                    variant="subtle"
-                    size="sm"
-                    class="font-mono font-bold"
-                  >
-                    {{ getWeaponAttackBonusLabel(item) }}
-                  </UBadge>
-
-                  <span class="mt-0.5 text-[9px] leading-none text-dimmed">
-                    Атака
-                  </span>
-                </div>
-
-                <!-- Урон (оружие) / КД (доспех) / Бонус (инструмент) -->
-                <div
-                  v-if="
-                    (item.type === 'weapon' && item.damageParts?.length)
-                    || (item.type === 'equipment' && item.baseArmorAC)
-                    || (item.type === 'tool' && item.toolBonus)
-                  "
-                  class="col-start-3 flex min-w-0 flex-col items-start"
-                >
-                  <UBadge
-                    v-if="item.type === 'weapon' && item.damageParts?.length"
-                    color="neutral"
-                    variant="subtle"
-                    size="sm"
-                    class="font-mono"
-                  >
-                    {{ weaponDamageFormulaLabel(item) }}
-                  </UBadge>
-
-                  <UBadge
-                    v-else-if="item.type === 'equipment' && item.baseArmorAC"
-                    color="neutral"
-                    variant="subtle"
-                    size="sm"
-                    class="font-mono"
-                  >
-                    КД {{ (item.baseArmorAC ?? 0) + (item.magicBonus ?? 0) }}
-                  </UBadge>
-
-                  <UBadge
-                    v-else-if="item.type === 'tool' && item.toolBonus"
-                    color="neutral"
-                    variant="subtle"
-                    size="sm"
-                    class="font-mono"
-                  >
-                    +{{ item.toolBonus }}
-                  </UBadge>
-
-                  <span
-                    :title="
-                      item.type === 'weapon' ? weaponKindLabel(item) : undefined
-                    "
-                    class="mt-0.5 max-w-full truncate text-left text-[9px] leading-none text-dimmed"
-                  >
-                    {{
-                      (item.type === 'weapon' ? weaponKindLabel(item) : '')
-                      || '\u00A0'
-                    }}
-                  </span>
-                </div>
-
-                <!-- Количество -->
-                <div
-                  class="col-start-4 flex items-center justify-center gap-0.5"
-                >
-                  <UButton
-                    icon="tabler:minus"
-                    color="neutral"
-                    variant="ghost"
-                    size="2xs"
-                    :disabled="item.quantity <= 1"
-                    @click.left.exact.prevent.stop="
-                      updateItemQuantity(item.id, (item.quantity ?? 1) - 1)
-                    "
-                  />
-
-                  <input
-                    type="number"
-                    :value="item.quantity ?? 1"
-                    min="1"
-                    class="w-8 [appearance:textfield] rounded border border-default bg-elevated/60 text-center text-xs text-highlighted focus:border-primary focus:outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                    @change="
-                      updateItemQuantity(
-                        item.id,
-                        Number(($event.target as HTMLInputElement).value),
-                      )
-                    "
-                    @click.stop
-                  />
-
-                  <UButton
-                    icon="tabler:plus"
-                    color="neutral"
-                    variant="ghost"
-                    size="2xs"
-                    @click.left.exact.prevent.stop="
-                      updateItemQuantity(item.id, (item.quantity ?? 1) + 1)
-                    "
-                  />
-                </div>
-
-                <!-- Кнопки экипировки/хвата/настройки (в конце строки) -->
-                <div class="col-start-5 flex items-center justify-end gap-0.5">
-                  <!-- Экипировать/Снять -->
-                  <UTooltip
-                    :text="
-                      isEquipDisabled(item)
-                        ? 'Уже надето другое снаряжение'
-                        : item.equipped
-                          ? 'Снять'
-                          : 'Экипировать'
-                    "
-                  >
-                    <UButton
-                      :icon="
-                        item.equipped ? 'tabler:circle-filled' : 'tabler:circle'
-                      "
-                      :color="item.equipped ? 'primary' : 'neutral'"
-                      variant="ghost"
-                      size="xs"
-                      :disabled="isEquipDisabled(item)"
-                      @click.left.exact.prevent.stop="toggleEquipped(item.id)"
-                    />
-                  </UTooltip>
-
-                  <!-- Хват двумя руками (только versatile) -->
-                  <UTooltip
-                    v-if="
-                      item.type === 'weapon'
-                      && isVersatile(item)
-                      && item.equipped
-                    "
-                    :text="
-                      item.twoHandedGrip
-                        ? 'Взять одной рукой'
-                        : 'Взять двумя руками'
-                    "
-                  >
-                    <UButton
-                      :icon="
-                        item.twoHandedGrip
-                          ? 'tabler:circle-filled'
-                          : 'tabler:circle'
-                      "
-                      :color="item.twoHandedGrip ? 'primary' : 'neutral'"
-                      variant="ghost"
-                      size="xs"
-                      @click.left.exact.prevent.stop="
-                        toggleTwoHandedGrip(item.id)
-                      "
-                    />
-                  </UTooltip>
-
-                  <!-- Настройка (attunement) -->
-                  <UTooltip
-                    v-if="
-                      item.magicAttunement && item.magicAttunement !== 'none'
-                    "
-                    :text="item.isAttuned ? 'Снять настройку' : 'Настроить'"
-                  >
-                    <UButton
-                      :icon="item.isAttuned ? 'tabler:link' : 'tabler:unlink'"
-                      :color="item.isAttuned ? 'warning' : 'neutral'"
-                      variant="ghost"
-                      size="xs"
-                      @click.left.exact.prevent.stop="toggleAttuned(item.id)"
-                    />
-                  </UTooltip>
-                </div>
-              </FieldGroupReset>
-            </div>
-
-            <!-- Редактировать / Удалить — сегменты, появляются в режиме
-                 редактирования и не занимают место в обычном режиме -->
-            <template v-if="isEditMode">
-              <UTooltip
-                v-if="
-                  item.type === 'weapon'
-                  || item.type === 'equipment'
-                  || item.type === 'spell'
-                  || item.type === 'tool'
-                "
-                text="Редактировать"
-              >
-                <UButton
-                  icon="tabler:edit"
-                  color="neutral"
-                  variant="soft"
-                  @click.left.exact.prevent.stop="openEditModal(item)"
-                />
-              </UTooltip>
-
-              <UButton
-                icon="tabler:trash"
-                color="error"
-                variant="soft"
-                @click.left.exact.prevent.stop="removeItem(item.id)"
-              />
-            </template>
-          </UFieldGroup>
+        <div class="flex flex-col gap-2">
+          <ActorEquipmentRow
+            v-for="row in group.rows"
+            :key="row.item.id"
+            :item="row.item"
+            :subtitle="row.subtitle"
+            :stats="row.stats"
+            :menu-items="row.menuItems"
+            :is-equip-blocked="row.isEquipBlocked"
+            :is-edit-mode="isEditMode"
+            @open="openDetailModal(row.item)"
+            @toggle-equip="toggleEquipped(row.item.id)"
+            @roll="openRollModal(row.item)"
+            @update:quantity="updateItemQuantity(row.item.id, $event)"
+            @dragstart="handleItemDragStart($event, row.item)"
+          />
         </div>
       </div>
     </template>
@@ -1332,96 +1205,4 @@
     :on-hit="rollConfig.onHit"
     roll-button-text="Атаковать"
   />
-
-  <!-- Контекстное меню (Teleport для корректного z-index) -->
-  <Teleport to="body">
-    <div
-      v-if="isContextMenuOpen && contextMenuItem"
-      class="fixed inset-0 z-10000"
-      @click.left.exact.prevent="closeContextMenu"
-      @contextmenu.prevent="closeContextMenu"
-    >
-      <div
-        class="absolute min-w-45 rounded-lg border border-default bg-default py-1 shadow-xl"
-        :style="{ left: `${contextMenuX}px`, top: `${contextMenuY}px` }"
-        @click.stop
-      >
-        <!-- Атаковать (только для оружия с формулой урона) -->
-        <button
-          v-if="
-            contextMenuItem.type === 'weapon'
-            && contextMenuItem.damageParts?.length
-          "
-          class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-highlighted transition-colors hover:bg-accented/50"
-          @click.left.exact.prevent="handleContextMenuAction('attack')"
-        >
-          <UIcon
-            name="tabler:sword"
-            class="h-4 w-4 text-muted"
-          />
-          Атаковать
-        </button>
-
-        <!-- Разделитель после «Атаковать» -->
-        <div
-          v-if="
-            contextMenuItem.type === 'weapon'
-            && contextMenuItem.damageParts?.length
-          "
-          class="mx-2"
-        />
-
-        <!-- Редактировать -->
-        <button
-          v-if="
-            contextMenuItem.type === 'weapon'
-            || contextMenuItem.type === 'equipment'
-            || contextMenuItem.type === 'spell'
-            || contextMenuItem.type === 'tool'
-          "
-          class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-highlighted transition-colors hover:bg-accented/50"
-          @click.left.exact.prevent="handleContextMenuAction('edit')"
-        >
-          <UIcon
-            name="tabler:edit"
-            class="h-4 w-4 text-muted"
-          />
-          Редактировать
-        </button>
-
-        <!-- Разделитель -->
-        <div
-          v-if="
-            contextMenuItem.type === 'weapon'
-            || contextMenuItem.type === 'equipment'
-            || contextMenuItem.type === 'spell'
-            || contextMenuItem.type === 'tool'
-          "
-          class="mx-2 my-1 border-t border-default/50"
-        />
-
-        <!-- Поделиться в чат -->
-        <button
-          class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-highlighted transition-colors hover:bg-accented/50"
-          @click.left.exact.prevent="handleContextMenuAction('share')"
-        >
-          <UIcon
-            name="tabler:message-share"
-            class="h-4 w-4 text-muted"
-          />
-          Поделиться в чат
-        </button>
-
-        <!-- Разделитель -->
-
-        <!-- Удалить -->
-        <ContextMenuDangerItem
-          icon="tabler:trash"
-          @click="handleContextMenuAction('delete')"
-        >
-          Удалить
-        </ContextMenuDangerItem>
-      </div>
-    </div>
-  </Teleport>
 </template>
