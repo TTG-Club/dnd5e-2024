@@ -57,6 +57,11 @@
     isEditMode: boolean;
     /** Определения счётчиков из компендиума */
     counterDefinitions: ClassCounterDefinition[];
+    /**
+     * Характеристика под курсором: её навыки подсвечиваются в списке. `null` —
+     * подсвечивать нечего.
+     */
+    highlightedAbility?: AbilityType | null;
   }
 
   defineOptions({ inheritAttrs: false });
@@ -290,6 +295,29 @@
     isCustom: boolean;
     /** Разбор значения; пусто — навык считается по правилам */
     valueHint: string;
+    /**
+     * Характеристики своих бонусов навыка: наведение на любую из них тоже
+     * связывает её с навыком, хоть навык и не её.
+     */
+    bonusAbilities: AbilityType[];
+  }
+
+  /**
+   * Характеристики, от модификаторов которых зависят свои бонусы навыка.
+   *
+   * @param bonuses - свои бонусы навыка
+   * @returns характеристики бонусов без повторов
+   */
+  function getBonusAbilities(
+    bonuses: DnDCustomSkill['bonuses'],
+  ): AbilityType[] {
+    return [
+      ...new Set(
+        bonuses
+          .filter((bonus) => bonus.kind === 'ability')
+          .map((bonus) => bonus.ability),
+      ),
+    ];
   }
 
   /**
@@ -393,6 +421,7 @@
               modifier - fallbackModifier,
             )
           : '',
+        bonusAbilities: getBonusAbilities(setting.bonuses),
       };
     });
 
@@ -410,6 +439,7 @@
         skill.bonuses,
         0,
       ),
+      bonusAbilities: getBonusAbilities(skill.bonuses),
     }));
 
     return [...ruleRows, ...customRows].sort((left, right) =>
@@ -417,13 +447,53 @@
     );
   });
 
-  /** Группы списка: с группировкой — по характеристикам, иначе одним списком */
-  const skillGroups = computed(() =>
-    getSkillRowGroups(
+  /**
+   * Группы списка: с группировкой — по характеристикам, иначе одним списком.
+   * Здесь же строки получают подсветку наведённой характеристики.
+   */
+  const skillGroups = computed(() => {
+    const highlightedAbility = props.highlightedAbility ?? null;
+
+    const groups = getSkillRowGroups(
       skillRows.value,
       props.actor.system.skillSettings?.groupByAbility ?? false,
-    ),
-  );
+    );
+
+    return groups.map((group) => ({
+      key: group.key,
+      title: group.title,
+
+      // С группировкой характеристику называет разделитель, поэтому в строках
+      // она не повторяется — иначе под «Ловкостью» каждая строка твердила бы
+      // «ЛОВ»
+      hideAbility: group.ability !== null,
+
+      titleClass: `${SKILL_GROUP_LABEL_CLASS} ${
+        group.ability !== null && group.ability === highlightedAbility
+          ? 'text-primary'
+          : 'text-muted'
+      }`,
+
+      rows: group.rows.map((row) => {
+        // Характеристика строки, а не правило навыка: в настройке её можно
+        // подменить, и подсвечивается то, от чего навык считается на самом деле
+        const isMainAbility = row.ability === highlightedAbility;
+
+        return {
+          ...row,
+          isMainAbility,
+
+          // Свой бонус от другой характеристики тоже связывает её с навыком:
+          // строка подсвечивается, но сокращение остаётся приглушённым —
+          // навык всё-таки не её
+          isHighlighted:
+            isMainAbility
+            || (highlightedAbility !== null
+              && row.bonusAbilities.includes(highlightedAbility)),
+        };
+      }),
+    }));
+  });
 
   /**
    * Переключает уровень владения навыком по кругу:
@@ -696,7 +766,7 @@
               :label="group.title"
               position="start"
               class="px-2 pt-2 first:pt-0"
-              :ui="{ label: SKILL_GROUP_LABEL_CLASS }"
+              :ui="{ label: group.titleClass }"
             />
 
             <SkillItem
@@ -709,7 +779,9 @@
               :modifier="row.modifier"
               :is-custom="row.isCustom"
               :value-hint="row.valueHint"
-              :hide-ability="group.ability !== null"
+              :hide-ability="group.hideAbility"
+              :is-highlighted="row.isHighlighted"
+              :is-ability-highlighted="row.isMainAbility"
               :is-edit-mode="isEditMode"
               @cycle-proficiency="cycleSkillProficiency(row)"
               @roll="handleSkillRoll"

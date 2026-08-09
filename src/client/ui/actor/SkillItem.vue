@@ -5,7 +5,11 @@
 
   import { PASSIVE_SKILL_BASE } from '@vtt/shared/system/dnd.js';
 
-  import { ABILITY_SHORT_LABELS, SKILL_SETTINGS_LABELS } from './constants';
+  import {
+    ABILITY_SHORT_LABELS,
+    HIGHLIGHTED_SKILL_ROW_CLASS,
+    SKILL_SETTINGS_LABELS,
+  } from './constants';
   import ProficiencyIndicator from './ProficiencyIndicator.vue';
   import { formatSignedNumber } from './utils/formatSignedNumber';
 
@@ -30,6 +34,10 @@
      * разделитель, и в строках она не повторяется.
      */
     hideAbility?: boolean;
+    /** Строка связана с наведённой характеристикой: она подсвечена */
+    isHighlighted?: boolean;
+    /** Наведена та самая характеристика навыка: её сокращение горит тёплым */
+    isAbilityHighlighted?: boolean;
   }
 
   const props = defineProps<Props>();
@@ -52,6 +60,16 @@
     props.proficiencyLevel === 'none' ? 'text-muted' : 'text-primary',
   );
 
+  /** Строка навыка наведённой характеристики: мягкая заливка и обводка */
+  const rowClass = computed(() =>
+    props.isHighlighted ? HIGHLIGHTED_SKILL_ROW_CLASS : undefined,
+  );
+
+  /** Сокращение характеристики: горит только у своей же наведённой */
+  const abilityLabelClass = computed(() =>
+    props.isAbilityHighlighted ? 'text-primary' : 'text-dimmed',
+  );
+
   function handleClick() {
     if (!props.isEditMode) {
       emit('roll', modifier.value, props.label, props.skillKey);
@@ -62,6 +80,7 @@
 <template>
   <div
     class="group flex cursor-pointer items-center justify-between rounded px-2 py-1.5 transition-colors hover:bg-accented/30"
+    :class="rowClass"
     @click.left.exact.prevent="handleClick"
   >
     <div class="flex min-w-0 flex-1 items-center gap-2.5">
@@ -76,7 +95,8 @@
       <!-- Сокращение характеристики -->
       <span
         v-if="!hideAbility"
-        class="w-6 shrink-0 text-[10px] font-bold tracking-wider text-dimmed uppercase"
+        class="w-6 shrink-0 text-[10px] font-bold tracking-wider uppercase transition-colors"
+        :class="abilityLabelClass"
         >{{ attributeShortName }}</span
       >
 

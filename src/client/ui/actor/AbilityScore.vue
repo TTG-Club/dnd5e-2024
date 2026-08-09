@@ -1,6 +1,11 @@
 <script setup lang="ts">
-  import { useElementSize } from '@vueuse/core';
-  import { computed, useTemplateRef } from 'vue';
+  import {
+    unrefElement,
+    useElementHover,
+    useElementSize,
+    useFocusWithin,
+  } from '@vueuse/core';
+  import { computed, useTemplateRef, watch } from 'vue';
 
   import FieldsetLabel from '@/shared_ui/components/FieldsetLabel.vue';
 
@@ -35,6 +40,8 @@
   const emit = defineEmits<{
     'update:value': [value: number];
     'roll': [modifier: number, label: string];
+    /** Плитка под курсором или в фокусе: лист подсвечивает её навыки */
+    'highlight': [isActive: boolean];
   }>();
 
   /** Корень блока: его ширина решает, влезает ли полное название в шапку */
@@ -146,6 +153,20 @@
       emit('roll', props.modifier, props.label);
     }
   }
+
+  // Наведение подсвечивает навыки этой характеристики. Через `unrefElement`:
+  // ref смотрит на компонент рамки, а слушателям нужен её корневой элемент.
+  const isHovered = useElementHover(() => unrefElement(rootRef));
+
+  // Клавиатура доходит до плитки табом: фокус внутри неё подсвечивает навыки
+  // наравне с наведением, иначе связка была бы доступна только мышью. Именно
+  // «внутри»: фокус ходит и по кнопкам правки самой плитки, и на этих шагах
+  // подсветка не должна мигать.
+  const { focused: isFocusWithin } = useFocusWithin(rootRef);
+
+  const isHighlighted = computed(() => isHovered.value || isFocusWithin.value);
+
+  watch(isHighlighted, (highlighted) => emit('highlight', highlighted));
 
   function handleInput(event: Event) {
     const numValue = Number.parseInt(

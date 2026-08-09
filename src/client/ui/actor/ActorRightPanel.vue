@@ -30,7 +30,26 @@
 
   const emit = defineEmits<{
     'update:actor': [updates: Partial<DnDActor>];
+    /** Характеристика под курсором; null — курсор ушёл со всех плиток */
+    'highlight': [abilityKey: AbilityType | null];
   }>();
+
+  /**
+   * Плитка характеристики зажглась или погасла.
+   *
+   * Гашение отдаётся как «нет характеристики», а не как «погасла эта»: уходя
+   * на соседнюю плитку, курсор сперва покидает старую, и только потом входит
+   * в новую — порядок событий сам собой оставляет наверху нужную.
+   *
+   * @param abilityKey - характеристика плитки
+   * @param isActive - плитка под курсором или в фокусе
+   */
+  function handleAbilityHighlight(
+    abilityKey: AbilityType,
+    isActive: boolean,
+  ): void {
+    emit('highlight', isActive ? abilityKey : null);
+  }
 
   const { resolvedStats, combinedEffects } = useResolvedStats(
     toRef(() => props.actor),
@@ -162,6 +181,7 @@
         :bonus-sources="getAbilityBonusSources('strength')"
         @update:value="updateAbility('strength', $event)"
         @roll="(mod, label) => handleAbilityRoll(mod, label, 'strength')"
+        @highlight="handleAbilityHighlight('strength', $event)"
       />
 
       <!-- Ловкость (Dexterity) -->
@@ -183,6 +203,7 @@
         :bonus-sources="getAbilityBonusSources('dexterity')"
         @update:value="updateAbility('dexterity', $event)"
         @roll="(mod, label) => handleAbilityRoll(mod, label, 'dexterity')"
+        @highlight="handleAbilityHighlight('dexterity', $event)"
       />
 
       <!-- Телосложение (Constitution) -->
@@ -204,6 +225,7 @@
         :bonus-sources="getAbilityBonusSources('constitution')"
         @update:value="updateAbility('constitution', $event)"
         @roll="(mod, label) => handleAbilityRoll(mod, label, 'constitution')"
+        @highlight="handleAbilityHighlight('constitution', $event)"
       />
 
       <!-- Интеллект (Intelligence) -->
@@ -225,6 +247,7 @@
         :bonus-sources="getAbilityBonusSources('intelligence')"
         @update:value="updateAbility('intelligence', $event)"
         @roll="(mod, label) => handleAbilityRoll(mod, label, 'intelligence')"
+        @highlight="handleAbilityHighlight('intelligence', $event)"
       />
 
       <!-- Мудрость (Wisdom) -->
@@ -245,6 +268,7 @@
         :bonus-sources="getAbilityBonusSources('wisdom')"
         @update:value="updateAbility('wisdom', $event)"
         @roll="(mod, label) => handleAbilityRoll(mod, label, 'wisdom')"
+        @highlight="handleAbilityHighlight('wisdom', $event)"
       />
 
       <!-- Харизма (Charisma) -->
@@ -266,6 +290,7 @@
         :bonus-sources="getAbilityBonusSources('charisma')"
         @update:value="updateAbility('charisma', $event)"
         @roll="(mod, label) => handleAbilityRoll(mod, label, 'charisma')"
+        @highlight="handleAbilityHighlight('charisma', $event)"
       />
     </div>
 

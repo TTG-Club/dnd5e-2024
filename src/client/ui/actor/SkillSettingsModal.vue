@@ -49,6 +49,9 @@
   import ProficiencyIndicator from './ProficiencyIndicator.vue';
   import { formatSignedNumber } from './utils/formatSignedNumber';
 
+  /** Подпись разделителя группы: в окне настройки она не подсвечивается */
+  const GROUP_LABEL_CLASS = `${SKILL_GROUP_LABEL_CLASS} text-muted`;
+
   interface Props {
     open: boolean;
     /** Актёр листа: из него берутся владения и настройка навыков */
@@ -496,7 +499,7 @@
             :label="group.title"
             position="start"
             class="pt-1"
-            :ui="{ label: SKILL_GROUP_LABEL_CLASS }"
+            :ui="{ label: GROUP_LABEL_CLASS }"
           />
 
           <div

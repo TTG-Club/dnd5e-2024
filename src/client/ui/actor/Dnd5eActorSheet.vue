@@ -104,6 +104,22 @@
   const isSaving = ref(false);
   const isCreated = ref(false); // Флаг: персонаж уже создан на сервере
 
+  /**
+   * Характеристика под курсором: её навыки подсвечиваются в списке. Плитки
+   * характеристик и список навыков стоят в разных колонках листа, поэтому
+   * связывает их лист — общий родитель обеих панелей.
+   */
+  const highlightedAbility = ref<AbilityType | null>(null);
+
+  /**
+   * Запоминает характеристику под курсором для подсветки навыков.
+   *
+   * @param abilityKey - характеристика плитки; null — подсвечивать нечего
+   */
+  function handleAbilityHighlight(abilityKey: AbilityType | null): void {
+    highlightedAbility.value = abilityKey;
+  }
+
   // Модалка подтверждения
   const isConfirmOpen = ref(false);
   const pendingAction = ref<'close' | null>(null);
@@ -1827,6 +1843,7 @@
               :actor="localActor"
               :is-edit-mode="isEditMode"
               :counter-definitions="counterDefinitions"
+              :highlighted-ability="highlightedAbility"
               class="flex h-full flex-col"
               @update:actor="handleActorUpdate"
             />
@@ -1839,6 +1856,7 @@
                 :is-edit-mode="isEditMode"
                 class="mb-6"
                 @update:actor="handleActorUpdate"
+                @highlight="handleAbilityHighlight"
               />
 
               <!-- Вкладки с дополнительной информацией (теперь внутри правой колонки) -->
