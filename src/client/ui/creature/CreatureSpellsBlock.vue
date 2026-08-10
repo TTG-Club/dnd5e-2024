@@ -1,20 +1,26 @@
 <script setup lang="ts">
+  // Корневой вход `@nuxt/ui` — это Nuxt-модуль, типы компонентов он не отдаёт
+  import type { DropdownMenuItem } from '@nuxt/ui/components/DropdownMenu.vue';
+
   import type { MeasurementTemplate, SceneEntity } from '@vtt/shared';
   import type {
     AttackRollMode,
     CreatureSpellcasting,
     DnDCreature,
     Spell,
+    SpellUsesRecovery,
   } from '@vtt/shared/system/dnd.js';
 
   import type {
     RolledSpellDamagePart,
     SpellDamagePartInput,
   } from '../../composables/useSpellResolution';
+  import type { SheetRowStat } from '../actor/sheetRowTypes';
 
   import { useToast } from '@nuxt/ui/composables';
   import { computed, ref } from 'vue';
 
+  import { startHotbarDrag } from '@/core/utils/hotbarDrag';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useChatStore } from '@/stores/chatStore';
   import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
@@ -22,7 +28,6 @@
   import { useWorldStore } from '@/stores/worldStore';
   import {
     ABILITY_LABELS,
-    ABILITY_OPTIONS,
     collectActiveEffects,
     describeDamagePart,
     getCreatureSpellAttackBonus,
@@ -30,14 +35,35 @@
     getCreatureSpellSaveDC,
     getSpellAttackType,
     SPELL_DAMAGE_TEMPLATE_COLORS,
+    SPELL_SCHOOL_LABELS,
     SPELL_TEMPLATE_DEFAULT_COLOR,
+    SPELL_USES_RECOVERY_LABELS,
     spellIsHealing,
   } from '@vtt/shared/system/dnd.js';
 
   import { useBonusDamageParts } from '../../composables/useBonusDamageParts';
   import { useSpellResolution } from '../../composables/useSpellResolution';
+  import {
+    FILTER_ROW_CONTROL_SIZE,
+    SHEET_FILTER_LABELS,
+    SHEET_ROW_MENU_LABELS,
+    SPELL_MENU_LABELS,
+    SPELL_MIME,
+    SPELL_STAT_HINTS,
+    SPELL_STAT_LABELS,
+  } from '../actor/constants';
   import DiceRollModal from '../actor/DiceRollModal.vue';
-  import SpellListItem from '../actor/SpellListItem.vue';
+  import FilterChip from '../actor/FilterChip.vue';
+  import FilterResetButton from '../actor/FilterResetButton.vue';
+  import SheetStatTile from '../actor/SheetStatTile.vue';
+  import { formatSpellDamageDisplay } from '../actor/utils/formatSpellDamageDisplay';
+  import {
+    CREATURE_EMPTY_LABELS,
+    CREATURE_SPELL_RECOVERY_CHIPS,
+    CREATURE_SPELLCASTING_LABELS,
+  } from './constants';
+  import CreatureSpellcastingModal from './CreatureSpellcastingModal.vue';
+  import CreatureSpellRow from './CreatureSpellRow.vue';
 
   interface Props {
     /** Существо-источник (для авто-вывода DC/бонуса из характеристики) */
@@ -50,6 +76,12 @@
     isEditMode: boolean;
     /** Режим только просмотр (компендиум) */
     isReadOnly?: boolean;
+    /**
+     * Пользователь управляет существом. Заклинательство правят и вне режима
+     * правки листа — как на листе персонажа, где настройка открывается прямо с
+     * плитки, а изменение сохраняется сразу.
+     */
+    canEdit?: boolean;
     /** ID существа-источника */
     creatureId: string;
     /** Имя существа (для подписей в хотбаре) */
@@ -61,6 +93,7 @@
     spells: () => [],
     spellcasting: undefined,
     isReadOnly: false,
+    canEdit: false,
   });
 
   const emit = defineEmits<{
@@ -103,41 +136,50 @@
       : block.value.attackBonus,
   );
 
-  /** Подпись бонуса атаки заклинаниями (со знаком) */
-  const attackBonusLabel = computed(() => {
-    const bonus = effectiveAttackBonus.value ?? 0;
+  /**
+   * Числа заклинательства для плитки шапки. Подписи короткие, чтобы плитка
+   * помещалась на узком листе, — полное название остаётся в подсказке ячейки.
+   */
+  const spellcastingCells = computed(() => [
+    {
+      label: CREATURE_SPELLCASTING_LABELS.saveDC,
+      hint: CREATURE_SPELLCASTING_LABELS.saveDCHint,
+      value: effectiveSaveDC.value ?? CREATURE_SPELLCASTING_LABELS.none,
+    },
+    {
+      label: CREATURE_SPELLCASTING_LABELS.attack,
+      hint: CREATURE_SPELLCASTING_LABELS.attackHint,
+      value:
+        effectiveAttackBonus.value === undefined
+          ? CREATURE_SPELLCASTING_LABELS.none
+          : `${effectiveAttackBonus.value >= 0 ? '+' : ''}${effectiveAttackBonus.value}`,
+    },
+    {
+      label: CREATURE_SPELLCASTING_LABELS.ability,
+      hint: CREATURE_SPELLCASTING_LABELS.abilityHint,
+      value: block.value.ability
+        ? ABILITY_LABELS[block.value.ability]
+        : CREATURE_SPELLCASTING_LABELS.none,
+    },
+  ]);
 
-    return `${bonus >= 0 ? '+' : ''}${bonus}`;
-  });
+  /** Открыто ли окно настройки заклинательства */
+  const isSpellcastingModalOpen = ref(false);
 
-  /** Подпись заклинательной характеристики */
-  const abilityLabel = computed(() =>
-    block.value.ability ? ABILITY_LABELS[block.value.ability] : '—',
-  );
-
-  /** Группы заклинаний по способу отката (в порядке отображения) */
-  const RECOVERY_GROUPS = [
-    { recovery: 'atWill', label: 'По желанию' },
-    { recovery: 'shortRest', label: 'Короткий отдых' },
-    { recovery: 'longRest', label: 'Продолжительный отдых' },
-  ] as const;
-
-  /** Заклинания, сгруппированные по способу отката (только непустые группы) */
-  const spellsByRecovery = computed(() =>
-    RECOVERY_GROUPS.map((group) => ({
-      label: group.label,
-      spells: props.spells.filter(
-        (spell) => (spell.uses?.recovery ?? 'atWill') === group.recovery,
-      ),
-    })).filter((group) => group.spells.length > 0),
+  /** Подсказка плитки: нажимается она только у того, кто правит существо */
+  const spellcastingTooltip = computed(() =>
+    props.canEdit ? CREATURE_SPELLCASTING_LABELS.open : undefined,
   );
 
   /**
-   * Обновляет параметры заклинательства частичным патчем (иммутабельно).
-   * @param patch - изменяемые поля
+   * Сохраняет настройку заклинательства из окна. Окно отдаёт блок целиком, а не
+   * патч: способ расчёта выключает соседнее поле (своё число — поправку и
+   * наоборот), и слияние оставило бы в записи оба числа сразу.
+   *
+   * @param updated - параметры заклинательства из окна
    */
-  function updateSpellcasting(patch: Partial<CreatureSpellcasting>): void {
-    emit('update:spellcasting', { ...block.value, ...patch });
+  function applySpellcasting(updated: CreatureSpellcasting): void {
+    emit('update:spellcasting', updated);
   }
 
   /**
@@ -148,34 +190,244 @@
     emit('update:spells', spells);
   }
 
-  /**
-   * Обработчик изменения сложности спасброска.
-   * @param event - событие ввода
-   */
-  function handleSaveDcInput(event: Event): void {
-    const value = Number((event.target as HTMLInputElement).value);
+  // ── Отбор и поиск ─────────────────────────────────────────────────────────
 
-    updateSpellcasting({ saveDC: Number.isFinite(value) ? value : undefined });
+  const searchQuery = ref('');
+
+  /** Отмеченные чипами способы отката; пусто — список не сужается */
+  const pickedRecoveries = ref<Set<SpellUsesRecovery>>(new Set());
+
+  /** Способ отката заклинания: без зарядов оно доступно по желанию */
+  function getSpellRecovery(spell: Spell): SpellUsesRecovery {
+    return spell.uses?.recovery ?? 'atWill';
   }
 
-  /**
-   * Обработчик изменения бонуса атаки заклинаниями.
-   * @param event - событие ввода
-   */
-  function handleAttackBonusInput(event: Event): void {
-    const value = Number((event.target as HTMLInputElement).value);
+  /** Действующий отбор: отмеченные чипами способы отката */
+  const activeRecoveries = computed(() =>
+    CREATURE_SPELL_RECOVERY_CHIPS.map((chip) => chip.key).filter((key) =>
+      pickedRecoveries.value.has(key),
+    ),
+  );
 
-    updateSpellcasting({
-      attackBonus: Number.isFinite(value) ? value : undefined,
+  /**
+   * Чипы отбора по способу отката. Их всегда три, и стоят они в постоянном
+   * порядке: способы задают правила, а не запись существа, поэтому чип
+   * остаётся в ряду и у пустого способа.
+   */
+  const recoveryChips = computed(() =>
+    CREATURE_SPELL_RECOVERY_CHIPS.map((chip) => ({
+      ...chip,
+      isPicked: activeRecoveries.value.includes(chip.key),
+    })),
+  );
+
+  /** Ряд отбора: пустому списку сужать нечего */
+  const hasFilterControls = computed(() => props.spells.length > 0);
+
+  /** Список сужен: отбор есть что сбросить */
+  const hasAnyFilter = computed(
+    () => activeRecoveries.value.length > 0 || searchQuery.value.trim() !== '',
+  );
+
+  /**
+   * Нажатие на чип способа отката: способы набираются по одному, повторное
+   * нажатие снимает способ с отбора.
+   *
+   * @param recovery - способ отката
+   */
+  function toggleRecoveryFilter(recovery: SpellUsesRecovery): void {
+    const next = new Set(pickedRecoveries.value);
+
+    if (next.has(recovery)) {
+      next.delete(recovery);
+    } else {
+      next.add(recovery);
+    }
+
+    pickedRecoveries.value = next;
+  }
+
+  function clearSearch(): void {
+    searchQuery.value = '';
+  }
+
+  /** Нажатие на «Сбросить»: список возвращается целиком */
+  function resetFilters(): void {
+    pickedRecoveries.value = new Set();
+    searchQuery.value = '';
+  }
+
+  /** Заклинания, прошедшие отбор */
+  const filteredSpells = computed(() => {
+    const query = searchQuery.value.trim().toLowerCase();
+
+    return props.spells.filter((spell) => {
+      if (
+        activeRecoveries.value.length > 0
+        && !activeRecoveries.value.includes(getSpellRecovery(spell))
+      ) {
+        return false;
+      }
+
+      if (!query) {
+        return true;
+      }
+
+      return (
+        spell.name.toLowerCase().includes(query)
+        || (spell.nameEn ?? '').toLowerCase().includes(query)
+      );
     });
+  });
+
+  // ── Сборка строк списка ───────────────────────────────────────────────────
+
+  /**
+   * Подпись под названием — школа магии. Способ отката называть незачем: он
+   * стоит в заголовке раздела, под которым лежит строка.
+   *
+   * @param spell - заклинание
+   * @returns название школы
+   */
+  function getSpellSubtitle(spell: Spell): string {
+    return SPELL_SCHOOL_LABELS[spell.school] ?? '';
   }
 
   /**
-   * Обработчик выбора заклинательной характеристики.
-   * @param ability - выбранная характеристика
+   * Плитки строки заклинания: урон (катится по нажатию) и заряды. Те же поля,
+   * что и у строки заклинания на листе персонажа.
+   *
+   * @param spell - заклинание
+   * @returns плитки в порядке показа
    */
-  function handleAbilityChange(ability: CreatureSpellcasting['ability']): void {
-    updateSpellcasting({ ability });
+  function getSpellStats(spell: Spell): SheetRowStat[] {
+    const stats: SheetRowStat[] = [];
+
+    const damage = formatSpellDamageDisplay(spell);
+
+    if (damage) {
+      stats.push({
+        key: 'damage',
+        label: SPELL_STAT_LABELS.damage,
+        value: damage,
+        tooltip: SPELL_STAT_HINTS.damage,
+        accent: true,
+        rollable: !props.isReadOnly,
+      });
+    }
+
+    // «По желанию» заряды не тратит — считать там нечего
+    if (spell.uses && spell.uses.recovery !== 'atWill') {
+      const isEmpty = spell.uses.current <= 0;
+
+      stats.push({
+        key: 'uses',
+        label: SPELL_STAT_LABELS.uses,
+        value: `${spell.uses.current}/${spell.uses.max}`,
+        tooltip: isEmpty
+          ? SPELL_STAT_HINTS.usesEmpty
+          : SPELL_USES_RECOVERY_LABELS[spell.uses.recovery],
+        accent: !isEmpty,
+      });
+    }
+
+    return stats;
+  }
+
+  /**
+   * Пункты меню строки заклинания. Меню одно на правую кнопку мыши и на «⋮»:
+   * сначала игровое действие, ниже — действия над записью, последним удаление.
+   *
+   * @param spell - заклинание
+   * @returns группы пунктов
+   */
+  function getSpellMenuItems(spell: Spell): DropdownMenuItem[][] {
+    const groups: DropdownMenuItem[][] = [];
+
+    if (!props.isReadOnly) {
+      groups.push([
+        {
+          label: SPELL_MENU_LABELS.cast,
+          icon: 'tabler:sparkles',
+          onSelect: () => castSpell(spell),
+        },
+      ]);
+    }
+
+    const sheetActions: DropdownMenuItem[] = [];
+
+    if (!props.isReadOnly) {
+      sheetActions.push({
+        label: SHEET_ROW_MENU_LABELS.edit,
+        icon: 'tabler:edit',
+        onSelect: () => openEditForm(spell),
+      });
+    }
+
+    sheetActions.push({
+      label: SHEET_ROW_MENU_LABELS.share,
+      icon: 'tabler:message-share',
+      onSelect: () => shareSpell(spell),
+    });
+
+    groups.push(sheetActions);
+
+    if (!props.isReadOnly) {
+      groups.push([
+        {
+          label: SHEET_ROW_MENU_LABELS.remove,
+          icon: 'tabler:trash',
+          color: 'error',
+          onSelect: () => deleteSpell(spell.id),
+        },
+      ]);
+    }
+
+    return groups;
+  }
+
+  /**
+   * Разделы по способу отката со строками, уже собранными для показа. Пустые
+   * разделы в список не попадают — под отбором их заголовки висели бы зря.
+   */
+  const spellRowGroups = computed(() =>
+    CREATURE_SPELL_RECOVERY_CHIPS.map((group) => ({
+      key: group.key,
+      label: SPELL_USES_RECOVERY_LABELS[group.key],
+      rows: filteredSpells.value
+        .filter((spell) => getSpellRecovery(spell) === group.key)
+        .map((spell) => ({
+          spell,
+          subtitle: getSpellSubtitle(spell),
+          stats: getSpellStats(spell),
+          menuItems: getSpellMenuItems(spell),
+        })),
+    })).filter((group) => group.rows.length > 0),
+  );
+
+  /**
+   * Начинает перетаскивание заклинания: MIME для переноса на другой лист и
+   * макрос существа для хотбара.
+   *
+   * @param event - событие dragstart
+   * @param spell - заклинание существа
+   */
+  function handleSpellDragStart(event: DragEvent, spell: Spell): void {
+    if (!event.dataTransfer) {
+      return;
+    }
+
+    event.dataTransfer.effectAllowed = 'copy';
+    event.dataTransfer.setData(SPELL_MIME, JSON.stringify(spell));
+
+    startHotbarDrag(event, {
+      id: `${props.creatureId}-spell-${spell.id}`,
+      type: 'creature-spell',
+      label: spell.name,
+      icon: 'tabler:wand',
+      ref: spell.id,
+      actorId: props.creatureId,
+    });
   }
 
   // ── Редактирование / удаление ─────────────────────────────────────────────
@@ -492,127 +744,126 @@
 </script>
 
 <template>
-  <div class="space-y-3">
-    <!-- Параметры заклинательства: DC / бонус атаки / характеристика.
-         Фиксированная высота — чтобы панель не прыгала при переключении
-         в режим редактирования (поля ввода чуть выше текстовых значений). -->
-    <div
-      class="flex min-h-12 items-center justify-between gap-3 rounded-lg bg-accented/30 px-3"
-    >
-      <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <!-- DC спасброска -->
-        <div class="flex items-center gap-2">
-          <span class="text-xs text-muted">DC спасброска</span>
+  <div class="relative flex min-h-50 flex-col space-y-4">
+    <!-- Шапка вкладки: ряд плиток и ряд отбора — те же, что у вкладки
+      заклинаний на листе персонажа -->
+    <div class="mb-2 flex flex-col gap-2">
+      <!-- Обёртка-flex: плитка занимает ширину по содержимому, а не всю строку.
+        Настройка открывается и вне правки листа — как заклинательство на листе
+        персонажа: правка идёт в окне и сохраняется сразу -->
+      <div class="flex flex-wrap items-center gap-2">
+        <SheetStatTile
+          :cells="spellcastingCells"
+          :tooltip="spellcastingTooltip"
+          :aria-label="CREATURE_SPELLCASTING_LABELS.open"
+          :clickable="canEdit"
+          @click="isSpellcastingModalOpen = true"
+        />
+      </div>
 
-          <UInput
-            v-if="isEditMode && !isReadOnly"
-            :model-value="block.saveDC"
-            :placeholder="
-              effectiveSaveDC !== undefined ? String(effectiveSaveDC) : 'авто'
-            "
-            type="number"
-            size="xs"
-            class="w-14"
-            @input="handleSaveDcInput"
-          />
+      <!-- Поиск и отбор одной строкой: слева чипы способов отката, справа поле
+        поиска и сброс. Разносит их распор на поле поиска -->
+      <div
+        v-if="hasFilterControls"
+        class="flex flex-wrap items-center gap-x-1.5 gap-y-2"
+      >
+        <FilterChip
+          v-for="chip in recoveryChips"
+          :key="chip.key"
+          :label="chip.label"
+          :tooltip="chip.hint"
+          :picked="chip.isPicked"
+          @toggle="toggleRecoveryFilter(chip.key)"
+        />
 
-          <span
-            v-else
-            class="text-lg font-bold text-primary"
+        <UInput
+          v-model="searchQuery"
+          icon="tabler:search"
+          :placeholder="SHEET_FILTER_LABELS.search"
+          :size="FILTER_ROW_CONTROL_SIZE"
+          class="ml-auto w-40 shrink-0"
+          :ui="{ trailing: 'pe-0.5' }"
+        >
+          <template
+            v-if="searchQuery"
+            #trailing
           >
-            {{ effectiveSaveDC ?? '—' }}
-          </span>
-        </div>
+            <UButton
+              icon="tabler:x"
+              color="neutral"
+              variant="link"
+              :size="FILTER_ROW_CONTROL_SIZE"
+              :aria-label="SHEET_FILTER_LABELS.clear"
+              @click.left.exact.prevent="clearSearch"
+            />
+          </template>
+        </UInput>
 
-        <div class="h-6 w-px bg-accented" />
-
-        <!-- Бонус атаки -->
-        <div class="flex items-center gap-2">
-          <span class="text-xs text-muted">Бонус атаки</span>
-
-          <UInput
-            v-if="isEditMode && !isReadOnly"
-            :model-value="block.attackBonus"
-            :placeholder="
-              effectiveAttackBonus !== undefined
-                ? String(effectiveAttackBonus)
-                : 'авто'
-            "
-            type="number"
-            size="xs"
-            class="w-14"
-            @input="handleAttackBonusInput"
-          />
-
-          <span
-            v-else
-            class="text-lg font-bold text-healing"
-          >
-            {{ attackBonusLabel }}
-          </span>
-        </div>
-
-        <div class="h-6 w-px bg-accented" />
-
-        <!-- Заклинательная характеристика -->
-        <div class="flex items-center gap-2">
-          <span class="text-xs text-muted">Характеристика</span>
-
-          <USelect
-            v-if="isEditMode && !isReadOnly"
-            :model-value="block.ability"
-            :items="[...ABILITY_OPTIONS]"
-            value-key="value"
-            size="xs"
-            class="w-32"
-            @update:model-value="handleAbilityChange"
-          />
-
-          <span
-            v-else
-            class="text-sm font-semibold text-highlighted"
-          >
-            {{ abilityLabel }}
-          </span>
-        </div>
+        <FilterResetButton
+          v-if="hasAnyFilter"
+          @reset="resetFilters"
+        />
       </div>
     </div>
 
     <!-- Список заклинаний по способу отката -->
     <div
-      v-for="group in spellsByRecovery"
-      :key="group.label"
+      v-for="group in spellRowGroups"
+      :key="group.key"
       class="space-y-1"
     >
-      <h4 class="text-xs font-bold tracking-wider text-muted uppercase">
-        {{ group.label }}
-      </h4>
+      <!-- Заголовок раздела: подпись слева, линия до края строки — как у
+        кругов заклинаний на листе персонажа -->
+      <div class="flex items-center gap-2 px-1 pt-2 pb-1">
+        <span
+          class="shrink-0 text-xs font-semibold tracking-wider text-muted uppercase"
+        >
+          {{ group.label }}
+        </span>
 
-      <SpellListItem
-        v-for="spell in group.spells"
-        :key="spell.id"
-        :item="spell"
-        :creature-id="creatureId"
-        :is-edit-mode="isEditMode && !isReadOnly"
-        :show-cast="!isReadOnly"
-        :show-edit="!isReadOnly"
-        :show-delete="!isReadOnly"
-        @click="openDetail(spell)"
-        @cast="castSpell(spell)"
-        @edit="openEditForm(spell)"
-        @delete="deleteSpell(spell.id)"
-        @share="shareSpell(spell)"
-      />
+        <div class="h-px flex-1 bg-accented/50" />
+      </div>
+
+      <div class="flex flex-col gap-2">
+        <CreatureSpellRow
+          v-for="row in group.rows"
+          :key="row.spell.id"
+          :spell="row.spell"
+          :subtitle="row.subtitle"
+          :stats="row.stats"
+          :menu-items="row.menuItems"
+          :can-cast="!isReadOnly"
+          @open="openDetail(row.spell)"
+          @cast="castSpell(row.spell)"
+          @dragstart="handleSpellDragStart($event, row.spell)"
+        />
+      </div>
     </div>
 
     <!-- Пусто -->
     <p
-      v-if="spellsByRecovery.length === 0"
+      v-if="spells.length === 0"
       class="text-sm text-dimmed"
     >
-      Заклинаний нет. Перетащите заклинание из компендиума или раздела
-      предметов.
+      {{ CREATURE_EMPTY_LABELS.spells }}
     </p>
+
+    <p
+      v-else-if="spellRowGroups.length === 0"
+      class="py-4 text-center text-sm text-dimmed"
+    >
+      {{ SHEET_FILTER_LABELS.empty }}
+    </p>
+
+    <!-- Окно настройки заклинательства -->
+    <CreatureSpellcastingModal
+      v-if="creature"
+      v-model:open="isSpellcastingModalOpen"
+      :spellcasting="spellcasting"
+      :abilities="creature.system.abilities"
+      :proficiency-bonus="creature.system.proficiencyBonus"
+      @apply="applySpellcasting"
+    />
 
     <DiceRollModal
       v-model:open="isRollModalOpen"

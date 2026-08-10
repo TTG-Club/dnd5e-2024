@@ -32,15 +32,20 @@
     formatVisionRange,
     getProficiencyContribution,
     getSkillAbility,
+    isProficiencyLevel,
     normalizeCreature,
-    SKILLS_LABELS,
+    PASSIVE_SKILL_BASE,
+    SKILL_PROFICIENCY_NEXT,
+    SKILLS_LIST,
   } from '@vtt/shared/system/dnd.js';
 
   import { useResolvedStats } from '../../composables/useResolvedStats';
-  import { SPELL_MIME } from '../actor/constants';
+  import { SAVING_THROW_ABILITIES, SPELL_MIME } from '../actor/constants';
+  import DiceRollModal from '../actor/DiceRollModal.vue';
   import LanguageProficiencyModal from '../actor/LanguageProficiencyModal.vue';
+  import SkillItem from '../actor/SkillItem.vue';
+  import { CREATURE_SKILLS_LABELS } from './constants';
   import CreatureAbilities from './CreatureAbilities.vue';
-  import CreatureActionsBlock from './CreatureActionsBlock.vue';
   import CreatureCombatBlock from './CreatureCombatBlock.vue';
   import CreatureConditionImmunitiesModal from './CreatureConditionImmunitiesModal.vue';
   import CreatureDefensesModal from './CreatureDefensesModal.vue';
@@ -49,6 +54,8 @@
   import CreatureHeader from './CreatureHeader.vue';
   import CreatureSkillsModal from './CreatureSkillsModal.vue';
   import CreatureSpellsBlock from './CreatureSpellsBlock.vue';
+  import CreatureActionsTab from './tabs/CreatureActionsTab.vue';
+  import CreatureTraitsTab from './tabs/CreatureTraitsTab.vue';
 
   interface Props {
     open: boolean;
@@ -143,6 +150,46 @@
   ];
 
   const activeTab = ref('actions');
+
+  const { resolvedStats } = useResolvedStats(toRef(() => localCreature.value));
+
+  /**
+   * Характеристика под курсором: её навыки подсвечиваются в списке. `null` —
+   * подсвечивать нечего.
+   */
+  const highlightedAbility = ref<AbilityType | null>(null);
+
+  const isDiceRollOpen = ref(false);
+
+  const diceRollConfig = ref({
+    modifier: 0,
+    title: '',
+    rollLabel: '',
+    rollButtonText: 'Бросить',
+  });
+
+  /**
+   * Открывает окно броска кубиков.
+   *
+   * @param config - настройка броска
+   * @param config.modifier - модификатор броска
+   * @param config.title - заголовок окна
+   * @param config.rollLabel - подпись броска
+   * @param config.rollButtonText - надпись на кнопке броска
+   */
+  function openDiceRoll(config: {
+    modifier: number;
+    title: string;
+    rollLabel: string;
+    rollButtonText?: string;
+  }): void {
+    diceRollConfig.value = {
+      ...config,
+      rollButtonText: config.rollButtonText ?? 'Бросить',
+    };
+
+    isDiceRollOpen.value = true;
+  }
 
   const isOpen = computed({
     get: () => props.open,
@@ -453,39 +500,104 @@
     }
   }
 
-  const formattedSkills = computed(() => {
-    if (!localCreature.value) {
+  /**
+   * Уровень владения навыком. Записи существа держат владения на корне
+   * системы, а не в блоке владений, как у листа персонажа.
+   *
+   * @param key - ключ навыка
+   * @returns уровень владения
+   */
+  function getSkillProficiency(key: SkillType): ProficiencyLevel {
+    const rawLevel = localCreature.value?.system.skills[key];
+
+    return isProficiencyLevel(rawLevel) ? rawLevel : 'none';
+  }
+
+  /**
+   * Список навыков существа: те же строки, что и на листе персонажа, — все
+   * навыки правил по алфавиту, с кружком владения и броском по нажатию.
+   */
+  const skillRows = computed(() => {
+    const creature = localCreature.value;
+
+    if (!creature) {
       return [];
     }
 
-    const skills = localCreature.value.system.skills;
-    const profBonus = localCreature.value.system.proficiencyBonus || 0;
-    const result: string[] = [];
+    const profBonus = creature.system.proficiencyBonus || 0;
 
-    for (const [key, level] of Object.entries(skills)) {
-      if (level === 'none') {
-        continue;
-      }
+    return SKILLS_LIST.map((skill) => {
+      const ability = getSkillAbility(skill.key);
+      const proficiencyLevel = getSkillProficiency(skill.key);
 
-      const ability = getSkillAbility(key as SkillType);
-      const abilityScore = localCreature.value.system.abilities[ability];
-
-      const total = calculateSkillModifier(
-        abilityScore,
+      // Итог берётся из разрешённых статов: там уже учтены активные эффекты.
+      // Запасной расчёт нужен, пока статы не сошлись, — иначе строка мигает
+      // нулём
+      const fallbackModifier = calculateSkillModifier(
+        creature.system.abilities[ability],
         profBonus,
-        level as ProficiencyLevel,
+        proficiencyLevel,
       );
 
-      const formattedTotal = total >= 0 ? `+${total}` : `${total}`;
-      const label = SKILLS_LABELS[key as keyof typeof SKILLS_LABELS];
+      return {
+        key: skill.key,
+        label: skill.label,
+        ability,
+        proficiencyLevel,
+        modifier: resolvedStats.value?.skills[skill.key] ?? fallbackModifier,
+      };
+    }).sort((left, right) => left.label.localeCompare(right.label, 'ru'));
+  });
 
-      if (label) {
-        result.push(`${label} ${formattedTotal}`);
-      }
+  /**
+   * Строки навыков с подсветкой наведённой характеристики: наведение на плитку
+   * характеристики зажигает её навыки — как на листе персонажа.
+   */
+  const highlightedSkillRows = computed(() =>
+    skillRows.value.map((row) => ({
+      ...row,
+      isHighlighted: row.ability === highlightedAbility.value,
+    })),
+  );
+
+  /**
+   * Переключает уровень владения навыком по кругу:
+   * нет → половина → владение → компетенция → нет.
+   *
+   * @param key - ключ навыка
+   * @param level - текущий уровень владения
+   */
+  function cycleSkillProficiency(key: SkillType, level: ProficiencyLevel) {
+    if (!isEditMode.value || !localCreature.value) {
+      return;
     }
 
-    return result.sort();
-  });
+    const nextLevel = SKILL_PROFICIENCY_NEXT[level];
+    const skills = { ...localCreature.value.system.skills };
+
+    if (nextLevel === 'none') {
+      delete skills[key];
+    } else {
+      skills[key] = nextLevel;
+    }
+
+    handleSystemUpdate({ skills });
+  }
+
+  /**
+   * Бросок проверки навыка — вне режима правки листа.
+   *
+   * @param modifier - модификатор навыка
+   * @param label - название навыка
+   */
+  function handleSkillRoll(modifier: number, label: string) {
+    openDiceRoll({
+      modifier,
+      title: `Проверка: ${label}`,
+      rollLabel: `Проверка ${label}`,
+      rollButtonText: 'Бросить проверку',
+    });
+  }
 
   function openSettings() {
     openModal('CreatureSettingsModal', {
@@ -805,21 +917,6 @@
 
   // ── Спасброски ──────────────────────────────────────────────────────────
 
-  const SAVING_THROW_ABILITIES: Array<{
-    key: AbilityType;
-    label: string;
-    shortLabel: string;
-  }> = [
-    { key: 'strength', label: 'Сила', shortLabel: 'Сил.' },
-    { key: 'intelligence', label: 'Интеллект', shortLabel: 'Инт.' },
-    { key: 'dexterity', label: 'Ловкость', shortLabel: 'Лов.' },
-    { key: 'wisdom', label: 'Мудрость', shortLabel: 'Мдр.' },
-    { key: 'constitution', label: 'Телосложение', shortLabel: 'Тел.' },
-    { key: 'charisma', label: 'Харизма', shortLabel: 'Хар.' },
-  ];
-
-  const { resolvedStats } = useResolvedStats(toRef(() => localCreature.value));
-
   /** Спасброски существа как массив AbilityType[] */
   const creatureSavingThrows = computed((): AbilityType[] => {
     return localCreature.value?.system.savingThrows ?? [];
@@ -849,24 +946,27 @@
   }
 
   /**
-   * Вычисляет пассивную Внимательность на основе Мудрости и владения навыком Внимательность (perception).
+   * Пассивная Внимательность: основа плюс значение навыка. Значение берётся
+   * оттуда же, откуда его берёт строка списка навыков, — расходиться числа в
+   * двух местах листа не должны.
    */
   const passivePerception = computed(() => {
     if (!localCreature.value) {
-      return 10;
+      return PASSIVE_SKILL_BASE;
     }
 
-    const wisScore = localCreature.value.system.abilities.wisdom ?? 10;
-    const wisMod = calculateAbilityModifier(wisScore);
+    const fallback =
+      calculateAbilityModifier(
+        localCreature.value.system.abilities.wisdom ?? 10,
+      )
+      + getProficiencyContribution(
+        localCreature.value.system.proficiencyBonus ?? 0,
+        getSkillProficiency('perception'),
+      );
 
-    const perceptionProf =
-      localCreature.value.system.skills.perception ?? 'none';
-
-    const baseProf = localCreature.value.system.proficiencyBonus ?? 0;
-
-    const profBonus = getProficiencyContribution(baseProf, perceptionProf);
-
-    return 10 + wisMod + profBonus;
+    return (
+      PASSIVE_SKILL_BASE + (resolvedStats.value?.skills.perception ?? fallback)
+    );
   });
 
   /**
@@ -882,6 +982,29 @@
    */
   function formatModifier(value: number): string {
     return value >= 0 ? `+${value}` : `${value}`;
+  }
+
+  /**
+   * Нажатие по строке спасброска: вне режима правки катит спасбросок — как на
+   * листе персонажа. В режиме правки строка ничего не бросает: там её кружком
+   * ставят владение.
+   *
+   * @param ability - характеристика спасброска
+   */
+  function handleSavingThrowClick(ability: {
+    key: AbilityType;
+    label: string;
+  }): void {
+    if (isEditMode.value) {
+      return;
+    }
+
+    openDiceRoll({
+      modifier: calculateSavingThrow(ability.key),
+      title: `Спасбросок: ${ability.label}`,
+      rollLabel: `Спасбросок ${ability.label}`,
+      rollButtonText: 'Бросить спасбросок',
+    });
   }
 
   /**
@@ -1114,8 +1237,10 @@
                     <div
                       v-for="ability in SAVING_THROW_ABILITIES"
                       :key="ability.key"
-                      class="flex items-center gap-2 rounded p-1.5 transition-colors"
-                      :class="[!isEditMode ? 'cursor-default' : '']"
+                      class="flex cursor-pointer items-center gap-2 rounded p-1.5 transition-colors hover:bg-elevated"
+                      @click.left.exact.prevent="
+                        handleSavingThrowClick(ability)
+                      "
                     >
                       <button
                         class="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border"
@@ -1144,31 +1269,53 @@
                 </div>
               </FieldsetLabel>
 
+              <!-- Навыки — тот же список, что и на листе персонажа: кружок
+                владения, сокращение характеристики, значение и пассивное
+                число. Своя прокрутка: колонка узкая, а навыков восемнадцать -->
               <FieldsetLabel
                 label="Навыки"
-                class="bg-default/20 transition-colors"
-                :class="[
-                  isEditMode
-                    ? 'cursor-pointer border-primary/30 hover:border-primary/50'
-                    : 'border-muted',
-                ]"
-                @click.left.exact.prevent="openSkillsModal"
+                class="flex flex-col overflow-hidden border-muted bg-default/20"
               >
-                <div class="flex flex-wrap gap-1.5 p-2 pt-1">
-                  <UBadge
-                    v-for="skill in formattedSkills"
-                    :key="skill"
-                    :label="skill"
-                    color="neutral"
-                    variant="subtle"
-                  />
+                <!-- Шестерёнка ведёт в окно настройки: кружки в самом списке
+                  ставят владение по одному, а окно даёт отметить их разом.
+                  Вне правки листа её нет — настраивать там нечего -->
+                <template
+                  v-if="isEditMode"
+                  #actions
+                >
+                  <UTooltip :text="CREATURE_SKILLS_LABELS.open">
+                    <UIcon
+                      name="tabler:settings-filled"
+                      class="h-3.5 w-3.5 cursor-pointer text-primary transition-colors hover:text-primary/80"
+                      role="button"
+                      tabindex="0"
+                      :aria-label="CREATURE_SKILLS_LABELS.open"
+                      @click.left.exact.prevent="openSkillsModal"
+                      @keydown.enter.prevent="openSkillsModal"
+                      @keydown.space.prevent="openSkillsModal"
+                    />
+                  </UTooltip>
+                </template>
 
-                  <span
-                    v-if="formattedSkills.length === 0"
-                    class="text-xs text-dimmed italic"
-                  >
-                    Нет
-                  </span>
+                <div class="custom-scrollbar max-h-80 overflow-y-auto p-1.5">
+                  <div class="flex flex-col">
+                    <SkillItem
+                      v-for="row in highlightedSkillRows"
+                      :key="row.key"
+                      :label="row.label"
+                      :skill-key="row.key"
+                      :ability="row.ability"
+                      :proficiency-level="row.proficiencyLevel"
+                      :modifier="row.modifier"
+                      :is-highlighted="row.isHighlighted"
+                      :is-ability-highlighted="row.isHighlighted"
+                      :is-edit-mode="isEditMode"
+                      @cycle-proficiency="
+                        cycleSkillProficiency(row.key, row.proficiencyLevel)
+                      "
+                      @roll="handleSkillRoll"
+                    />
+                  </div>
                 </div>
               </FieldsetLabel>
 
@@ -1298,13 +1445,16 @@
                 :creature="localCreature"
                 :is-edit-mode="isEditMode"
                 @update:system="handleSystemUpdate"
+                @highlight="highlightedAbility = $event"
               />
 
-              <!-- Вкладки -->
-              <div class="relative mt-2 flex flex-1 flex-col space-y-2">
+              <!-- Вкладки. Промежутки те же, что и у вкладок листа персонажа:
+                строка вкладок у обоих листов одна и та же, и отступ до
+                содержимого не должен расходиться -->
+              <div class="relative mt-2 flex flex-1 flex-col space-y-4">
                 <!-- Линия под вкладками — тем же токеном, что и на листе
-                  персонажа: строка вкладок у обоих листов одна и та же -->
-                <div class="flex gap-4 border-b border-default">
+                  персонажа -->
+                <div class="mb-4 flex gap-4 border-b border-default">
                   <button
                     v-for="tab in tabs"
                     :key="tab.id"
@@ -1321,71 +1471,28 @@
                 </div>
 
                 <!-- Содержимое вкладок -->
-                <div class="flex flex-1 flex-col space-y-3">
+                <div class="flex flex-1 flex-col">
                   <!-- Действия -->
-                  <template v-if="activeTab === 'actions'">
-                    <CreatureActionsBlock
-                      mode="action"
-                      :actions="localCreature.system.actions"
-                      :is-edit-mode="isEditMode"
-                      :is-read-only="isReadOnly"
-                      :creature-id="localCreature.id"
-                      :creature-name="localCreature.name"
-                      @update="handleActionsUpdate"
-                    />
-
-                    <CreatureActionsBlock
-                      title="Бонусные действия"
-                      mode="action"
-                      :actions="localCreature.system.bonusActions"
-                      :is-edit-mode="isEditMode"
-                      :is-read-only="isReadOnly"
-                      :creature-id="localCreature.id"
-                      :creature-name="localCreature.name"
-                      @update="handleBonusActionsUpdate"
-                    />
-
-                    <CreatureActionsBlock
-                      title="Реакции"
-                      mode="action"
-                      :actions="localCreature.system.reactions"
-                      :is-edit-mode="isEditMode"
-                      :is-read-only="isReadOnly"
-                      :creature-id="localCreature.id"
-                      :creature-name="localCreature.name"
-                      @update="handleReactionsUpdate"
-                    />
-
-                    <CreatureActionsBlock
-                      v-if="
-                        isEditMode
-                        || localCreature.system.legendary.actions.length > 0
-                      "
-                      title="Легендарные действия"
-                      mode="action"
-                      :actions="localCreature.system.legendary.actions"
-                      :is-edit-mode="isEditMode"
-                      :is-read-only="isReadOnly"
-                      :creature-id="localCreature.id"
-                      :creature-name="localCreature.name"
-                      :legendary-count="localCreature.system.legendary.count"
-                      @update="handleLegendaryActionsUpdate"
-                      @update:legendary-count="handleLegendaryCountUpdate"
-                    />
-                  </template>
+                  <CreatureActionsTab
+                    v-if="activeTab === 'actions'"
+                    :creature="localCreature"
+                    :is-edit-mode="isEditMode"
+                    :is-read-only="isReadOnly"
+                    @update:actions="handleActionsUpdate"
+                    @update:bonus-actions="handleBonusActionsUpdate"
+                    @update:reactions="handleReactionsUpdate"
+                    @update:legendary-actions="handleLegendaryActionsUpdate"
+                    @update:legendary-count="handleLegendaryCountUpdate"
+                  />
 
                   <!-- Особенности -->
-                  <template v-if="activeTab === 'traits'">
-                    <CreatureActionsBlock
-                      mode="trait"
-                      :actions="localCreature.system.traits"
-                      :is-edit-mode="isEditMode"
-                      :is-read-only="isReadOnly"
-                      :creature-id="localCreature.id"
-                      :creature-name="localCreature.name"
-                      @update="handleTraitsUpdate"
-                    />
-                  </template>
+                  <CreatureTraitsTab
+                    v-if="activeTab === 'traits'"
+                    :creature="localCreature"
+                    :is-edit-mode="isEditMode"
+                    :is-read-only="isReadOnly"
+                    @update:traits="handleTraitsUpdate"
+                  />
 
                   <!-- Заклинания -->
                   <template v-if="activeTab === 'spells'">
@@ -1395,6 +1502,7 @@
                       :spellcasting="localCreature.system.spellcasting"
                       :is-edit-mode="isEditMode"
                       :is-read-only="isReadOnly"
+                      :can-edit="canControl && !isReadOnly"
                       :creature-id="localCreature.id"
                       :creature-name="localCreature.name"
                       @update:spells="handleSpellsUpdate"
@@ -1495,6 +1603,16 @@
       </div>
     </template>
   </UDraggableModal>
+
+  <!-- Броски навыков и спасбросков левой колонки -->
+  <DiceRollModal
+    v-model:open="isDiceRollOpen"
+    :modifier="diceRollConfig.modifier"
+    :title="diceRollConfig.title"
+    :roll-label="diceRollConfig.rollLabel"
+    :roll-button-text="diceRollConfig.rollButtonText"
+    initial-roll-mode="normal"
+  />
 
   <!-- Языки -->
   <LanguageProficiencyModal

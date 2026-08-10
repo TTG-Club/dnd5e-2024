@@ -1158,9 +1158,18 @@ export function prepareDerivedData(
     let profContribution = 0;
 
     const proficiencies = system.proficiencies;
+    const rootSkills = system.skills;
+
+    let rawLevel: unknown;
 
     if (isRecord(proficiencies) && isRecord(proficiencies.skills)) {
-      const rawLevel = proficiencies.skills[skillKey];
+      rawLevel = proficiencies.skills[skillKey];
+    } else if (isRecord(rootSkills)) {
+      // Creature: владения навыками хранятся на корне system
+      rawLevel = rootSkills[skillKey];
+    }
+
+    if (rawLevel !== undefined) {
       const profLevel = isProficiencyLevel(rawLevel) ? rawLevel : 'none';
 
       profContribution = getProficiencyContribution(

@@ -21,7 +21,10 @@
   import { useToolVocabulary } from '../../composables/useToolVocabulary';
   import ArmorClassModal from './ArmorClassModal.vue';
   import ArmorProficiencyModal from './ArmorProficiencyModal.vue';
-  import { SAVING_THROW_SETTINGS_LABELS } from './constants';
+  import {
+    SAVING_THROW_ABILITIES,
+    SAVING_THROW_SETTINGS_LABELS,
+  } from './constants';
   import DiceRollModal from './DiceRollModal.vue';
   import HitPointsModal from './HitPointsModal.vue';
   import LanguageProficiencyModal from './LanguageProficiencyModal.vue';
@@ -41,20 +44,6 @@
     actor: DnDActor;
     isEditMode: boolean;
   }
-
-  // Константы
-  const abilities: Array<{
-    key: AbilityType;
-    label: string;
-    shortLabel: string;
-  }> = [
-    { key: 'strength', label: 'Сила', shortLabel: 'Сил.' },
-    { key: 'intelligence', label: 'Интеллект', shortLabel: 'Инт.' },
-    { key: 'dexterity', label: 'Ловкость', shortLabel: 'Лов.' },
-    { key: 'wisdom', label: 'Мудрость', shortLabel: 'Мдр.' },
-    { key: 'constitution', label: 'Телосложение', shortLabel: 'Тел.' },
-    { key: 'charisma', label: 'Харизма', shortLabel: 'Хар.' },
-  ];
 
   const systemDataStore = useSystemDataStore();
 
@@ -864,7 +853,7 @@
       <div class="px-2 pb-1">
         <div class="grid grid-cols-2 gap-x-2 gap-y-1">
           <div
-            v-for="ability in abilities"
+            v-for="ability in SAVING_THROW_ABILITIES"
             :key="ability.key"
             class="flex cursor-pointer items-center gap-2 rounded p-1.5 transition-colors hover:bg-elevated"
             @click.left.exact.prevent="handleSavingThrowClick(ability)"

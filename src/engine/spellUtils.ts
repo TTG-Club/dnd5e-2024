@@ -13,13 +13,16 @@ import type {
 } from '@vtt/shared';
 
 import type { ResolvedActorStats } from './activeEffectTypes.js';
+import type { CreatureSpellcasting } from './creatureTypes.js';
 import type { DnDActor, Spell, SpellProjectiles } from './dndEntities.js';
+import type { DnDAbilityScores } from './types.js';
 
 import {
   calculateAbilityModifier,
   calculateProficiencyBonus,
 } from './calculations.js';
 import { getTotalLevel } from './classTypes.js';
+import { SPELL_SAVE_DC_BASE } from './consts.js';
 import { getSpellDamageParts } from './damageParts.js';
 import {
   buildFormulaContext,
@@ -1057,12 +1060,76 @@ export function getCreatureSpellMod(
 }
 
 /**
- * Эффективная сложность спасброска заклинаний существа.
+ * Числа заклинательства существа: сложность спасброска и бонус атаки.
  *
- * Если значение задано вручную (`spellcasting.saveDC`) — берётся как есть.
- * Иначе, если выбрана заклинательная характеристика, выводится автоматически:
- * `8 + бонус мастерства + модификатор характеристики` (как у актёров). Без
- * ручного значения и без характеристики — `undefined` (показывать нечего).
+ * Правило у обоих одно. Своё число (`saveDC` / `attackBonus`) берётся как есть —
+ * в стат-блоке уже стоит готовое значение, и характеристика с бонусом мастерства
+ * в счёт не идут. Иначе, если выбрана заклинательная характеристика, число
+ * выводится по правилам (`8 + бонус мастерства + модификатор` у сложности спаса,
+ * то же без восьмёрки у атаки), и сверху ложится поправка (`saveDCBonus` /
+ * `attackBonusExtra`) — плащ, посох и прочее. Без своего числа и без
+ * характеристики — `undefined` (показывать нечего).
+ *
+ * Считается по параметрам, а не по записи существа: окно настройки показывает
+ * теми же числами предпросмотр ещё не сохранённой правки.
+ *
+ * @param spellcasting - параметры заклинательства
+ * @param abilities - значения характеристик существа
+ * @param proficiencyBonus - бонус мастерства существа
+ * @returns сложность спасброска и бонус атаки; поле `undefined` — считать не от чего
+ */
+export function calculateCreatureSpellcasting(
+  spellcasting: CreatureSpellcasting | undefined,
+  abilities: DnDAbilityScores,
+  proficiencyBonus: number,
+): { saveDC: number | undefined; attackBonus: number | undefined } {
+  const ability = spellcasting?.ability;
+
+  const autoBase =
+    ability === undefined
+      ? undefined
+      : proficiencyBonus + calculateAbilityModifier(abilities[ability] ?? 10);
+
+  /**
+   * Итог одного числа: своё главнее расчёта по правилам.
+   *
+   * @param manual - своё число
+   * @param bonus - поправка к расчёту по правилам
+   * @param base - прибавка правил (8 у сложности спасброска)
+   * @returns итог или undefined
+   */
+  function resolve(
+    manual: number | undefined,
+    bonus: number | undefined,
+    base: number,
+  ): number | undefined {
+    if (manual !== undefined) {
+      return manual;
+    }
+
+    if (autoBase === undefined) {
+      return undefined;
+    }
+
+    return base + autoBase + (bonus ?? 0);
+  }
+
+  return {
+    saveDC: resolve(
+      spellcasting?.saveDC,
+      spellcasting?.saveDCBonus,
+      SPELL_SAVE_DC_BASE,
+    ),
+    attackBonus: resolve(
+      spellcasting?.attackBonus,
+      spellcasting?.attackBonusExtra,
+      0,
+    ),
+  };
+}
+
+/**
+ * Эффективная сложность спасброска заклинаний существа.
  *
  * @param creature - существо
  * @returns DC спасброска или undefined
@@ -1070,26 +1137,15 @@ export function getCreatureSpellMod(
 export function getCreatureSpellSaveDC(
   creature: import('./dndEntities.js').DnDCreature,
 ): number | undefined {
-  const block = creature.system.spellcasting;
-
-  if (block?.saveDC !== undefined) {
-    return block.saveDC;
-  }
-
-  if (!block?.ability) {
-    return undefined;
-  }
-
-  return 8 + creature.system.proficiencyBonus + getCreatureSpellMod(creature);
+  return calculateCreatureSpellcasting(
+    creature.system.spellcasting,
+    creature.system.abilities,
+    creature.system.proficiencyBonus,
+  ).saveDC;
 }
 
 /**
  * Эффективный бонус к атаке заклинаниями существа.
- *
- * Если значение задано вручную (`spellcasting.attackBonus`) — берётся как есть.
- * Иначе, если выбрана заклинательная характеристика, выводится автоматически:
- * `бонус мастерства + модификатор характеристики`. Без ручного значения и без
- * характеристики — `undefined`.
  *
  * @param creature - существо
  * @returns бонус к атаке или undefined
@@ -1097,17 +1153,11 @@ export function getCreatureSpellSaveDC(
 export function getCreatureSpellAttackBonus(
   creature: import('./dndEntities.js').DnDCreature,
 ): number | undefined {
-  const block = creature.system.spellcasting;
-
-  if (block?.attackBonus !== undefined) {
-    return block.attackBonus;
-  }
-
-  if (!block?.ability) {
-    return undefined;
-  }
-
-  return creature.system.proficiencyBonus + getCreatureSpellMod(creature);
+  return calculateCreatureSpellcasting(
+    creature.system.spellcasting,
+    creature.system.abilities,
+    creature.system.proficiencyBonus,
+  ).attackBonus;
 }
 
 /**

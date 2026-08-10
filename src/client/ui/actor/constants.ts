@@ -6,7 +6,7 @@
  * чтобы избежать дублирования в компонентах.
  */
 
-import type { WeaponRangeType } from '@vtt/shared';
+import type { AbilityType, WeaponRangeType } from '@vtt/shared';
 
 import { CUSTOM_SKILLS_MAX } from '@vtt/shared/system/dnd.js';
 
@@ -217,6 +217,26 @@ export const CUSTOM_BONUS_LABELS: Record<
   remove: 'Удалить бонус',
   unnamed: 'Свой бонус',
 };
+
+/**
+ * Характеристики спасбросков в порядке показа: список идёт по столбцам сетки
+ * два на три, поэтому пары стоят рядом (Сила — Интеллект и так далее).
+ *
+ * Общий для листа персонажа и листа существа: блок спасбросков у них один и тот
+ * же, и расходиться порядок с сокращениями не должен.
+ */
+export const SAVING_THROW_ABILITIES: Array<{
+  key: AbilityType;
+  label: string;
+  shortLabel: string;
+}> = [
+  { key: 'strength', label: 'Сила', shortLabel: 'Сил.' },
+  { key: 'intelligence', label: 'Интеллект', shortLabel: 'Инт.' },
+  { key: 'dexterity', label: 'Ловкость', shortLabel: 'Лов.' },
+  { key: 'wisdom', label: 'Мудрость', shortLabel: 'Мдр.' },
+  { key: 'constitution', label: 'Телосложение', shortLabel: 'Тел.' },
+  { key: 'charisma', label: 'Харизма', shortLabel: 'Хар.' },
+];
 
 /** Подписи настройки спасбросков */
 export const SAVING_THROW_SETTINGS_LABELS = {
