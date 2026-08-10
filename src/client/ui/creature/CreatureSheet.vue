@@ -5,7 +5,12 @@
     SkillType,
     TypedWebSocketClient,
   } from '@vtt/shared';
-  import type { DnDCreature, RestType, Spell } from '@vtt/shared/system/dnd.js';
+  import type {
+    DnDCreature,
+    DnDSkillSettings,
+    RestType,
+    Spell,
+  } from '@vtt/shared/system/dnd.js';
 
   import { useToast } from '@nuxt/ui/composables';
   import { computed, ref, toRef, watch } from 'vue';
@@ -23,19 +28,20 @@
   import {
     applyCreatureRest,
     calculateAbilityModifier,
-    calculateSkillModifier,
     CONDITIONS,
     CR_TABLE,
     CREATURE_ENVIRONMENTS,
     CREATURE_SIZE_TO_TOKEN_SCALE,
     DEFAULT_CREATURE,
     formatVisionRange,
+    getCustomBonusesValue,
+    getCustomSkillValue,
     getProficiencyContribution,
-    getSkillAbility,
+    getSkillSetting,
+    getSkillSettingAbility,
     isProficiencyLevel,
     normalizeCreature,
     PASSIVE_SKILL_BASE,
-    SKILL_PROFICIENCY_NEXT,
     SKILLS_LIST,
   } from '@vtt/shared/system/dnd.js';
 
@@ -43,8 +49,7 @@
   import { SAVING_THROW_ABILITIES, SPELL_MIME } from '../actor/constants';
   import DiceRollModal from '../actor/DiceRollModal.vue';
   import LanguageProficiencyModal from '../actor/LanguageProficiencyModal.vue';
-  import SkillItem from '../actor/SkillItem.vue';
-  import { CREATURE_SKILLS_LABELS } from './constants';
+  import SkillSettingsModal from '../actor/SkillSettingsModal.vue';
   import CreatureAbilities from './CreatureAbilities.vue';
   import CreatureCombatBlock from './CreatureCombatBlock.vue';
   import CreatureConditionImmunitiesModal from './CreatureConditionImmunitiesModal.vue';
@@ -52,7 +57,6 @@
   import CreatureEffectsBlock from './CreatureEffectsBlock.vue';
   import CreatureEnvironmentsModal from './CreatureEnvironmentsModal.vue';
   import CreatureHeader from './CreatureHeader.vue';
-  import CreatureSkillsModal from './CreatureSkillsModal.vue';
   import CreatureSpellsBlock from './CreatureSpellsBlock.vue';
   import CreatureActionsTab from './tabs/CreatureActionsTab.vue';
   import CreatureTraitsTab from './tabs/CreatureTraitsTab.vue';
@@ -152,12 +156,6 @@
   const activeTab = ref('actions');
 
   const { resolvedStats } = useResolvedStats(toRef(() => localCreature.value));
-
-  /**
-   * Характеристика под курсором: её навыки подсвечиваются в списке. `null` —
-   * подсвечивать нечего.
-   */
-  const highlightedAbility = ref<AbilityType | null>(null);
 
   const isDiceRollOpen = ref(false);
 
@@ -492,12 +490,22 @@
     }
   }
 
-  function onSkillsApply(skills: Partial<Record<SkillType, ProficiencyLevel>>) {
-    if (localCreature.value) {
-      localCreature.value.system.skills = skills;
-      isDirty.value = true;
-      handleImmediateSave();
-    }
+  /**
+   * Применяет владения и настройку навыков: их правят одним окном и одной
+   * таблицей, поэтому и приходят они вместе.
+   *
+   * @param payload - настройка из окна
+   * @param payload.skills - уровни владения навыками правил
+   * @param payload.settings - поправки расчёта и свои навыки
+   */
+  function onSkillsApply(payload: {
+    skills: Partial<Record<SkillType, ProficiencyLevel>>;
+    settings: DnDSkillSettings;
+  }) {
+    handleSystemUpdate({
+      skills: payload.skills,
+      skillSettings: payload.settings,
+    });
   }
 
   /**
@@ -514,90 +522,75 @@
   }
 
   /**
-   * Список навыков существа: те же строки, что и на листе персонажа, — все
-   * навыки правил по алфавиту, с кружком владения и броском по нажатию.
+   * Модификаторы характеристик существа — по ним считаются свои навыки и
+   * запасной расчёт навыков правил.
    */
-  const skillRows = computed(() => {
+  const skillAbilityMods = computed<Record<AbilityType, number>>(() => {
+    const scores = localCreature.value?.system.abilities;
+
+    return {
+      strength: calculateAbilityModifier(scores?.strength ?? 10),
+      dexterity: calculateAbilityModifier(scores?.dexterity ?? 10),
+      constitution: calculateAbilityModifier(scores?.constitution ?? 10),
+      intelligence: calculateAbilityModifier(scores?.intelligence ?? 10),
+      wisdom: calculateAbilityModifier(scores?.wisdom ?? 10),
+      charisma: calculateAbilityModifier(scores?.charisma ?? 10),
+    };
+  });
+
+  /**
+   * Поля, чей итог задан активным эффектом целиком. Окно настройки берёт
+   * отсюда навыки под перезаписью: их число задаёт эффект, а не расчёт.
+   */
+  const overriddenSkillKeys = computed(
+    () => resolvedStats.value?.overriddenKeys ?? new Set<string>(),
+  );
+
+  /**
+   * Навыки существа для показа бейджами: только те, которыми оно владеет, и
+   * все заведённые вручную — их в правилах нет, и отмечать их владением
+   * незачем. Значение берётся из разрешённых статов: там уже учтены и поправки
+   * расчёта, и активные эффекты.
+   */
+  const formattedSkills = computed(() => {
     const creature = localCreature.value;
 
     if (!creature) {
       return [];
     }
 
+    const settings = creature.system.skillSettings;
+    const mods = skillAbilityMods.value;
     const profBonus = creature.system.proficiencyBonus || 0;
+    const result: string[] = [];
 
-    return SKILLS_LIST.map((skill) => {
-      const ability = getSkillAbility(skill.key);
-      const proficiencyLevel = getSkillProficiency(skill.key);
+    for (const skill of SKILLS_LIST) {
+      const level = getSkillProficiency(skill.key);
 
-      // Итог берётся из разрешённых статов: там уже учтены активные эффекты.
-      // Запасной расчёт нужен, пока статы не сошлись, — иначе строка мигает
-      // нулём
-      const fallbackModifier = calculateSkillModifier(
-        creature.system.abilities[ability],
-        profBonus,
-        proficiencyLevel,
-      );
+      if (level === 'none') {
+        continue;
+      }
 
-      return {
-        key: skill.key,
-        label: skill.label,
-        ability,
-        proficiencyLevel,
-        modifier: resolvedStats.value?.skills[skill.key] ?? fallbackModifier,
-      };
-    }).sort((left, right) => left.label.localeCompare(right.label, 'ru'));
+      const setting = getSkillSetting(settings, skill.key);
+
+      const fallback =
+        mods[getSkillSettingAbility(setting, skill.key)]
+        + getProficiencyContribution(profBonus, level)
+        + getCustomBonusesValue(mods, setting.bonuses);
+
+      const total = resolvedStats.value?.skills[skill.key] ?? fallback;
+
+      result.push(`${skill.label} ${formatModifier(total)}`);
+    }
+
+    for (const skill of settings?.custom ?? []) {
+      const total = getCustomSkillValue(mods, profBonus, skill);
+
+      result.push(`${skill.name} ${formatModifier(total)}`);
+    }
+
+    return result.sort();
   });
-
-  /**
-   * Строки навыков с подсветкой наведённой характеристики: наведение на плитку
-   * характеристики зажигает её навыки — как на листе персонажа.
-   */
-  const highlightedSkillRows = computed(() =>
-    skillRows.value.map((row) => ({
-      ...row,
-      isHighlighted: row.ability === highlightedAbility.value,
-    })),
-  );
-
-  /**
-   * Переключает уровень владения навыком по кругу:
-   * нет → половина → владение → компетенция → нет.
-   *
-   * @param key - ключ навыка
-   * @param level - текущий уровень владения
-   */
-  function cycleSkillProficiency(key: SkillType, level: ProficiencyLevel) {
-    if (!isEditMode.value || !localCreature.value) {
-      return;
-    }
-
-    const nextLevel = SKILL_PROFICIENCY_NEXT[level];
-    const skills = { ...localCreature.value.system.skills };
-
-    if (nextLevel === 'none') {
-      delete skills[key];
-    } else {
-      skills[key] = nextLevel;
-    }
-
-    handleSystemUpdate({ skills });
-  }
-
-  /**
-   * Бросок проверки навыка — вне режима правки листа.
-   *
-   * @param modifier - модификатор навыка
-   * @param label - название навыка
-   */
-  function handleSkillRoll(modifier: number, label: string) {
-    openDiceRoll({
-      modifier,
-      title: `Проверка: ${label}`,
-      rollLabel: `Проверка ${label}`,
-      rollButtonText: 'Бросить проверку',
-    });
-  }
 
   function openSettings() {
     openModal('CreatureSettingsModal', {
@@ -1269,53 +1262,34 @@
                 </div>
               </FieldsetLabel>
 
-              <!-- Навыки — тот же список, что и на листе персонажа: кружок
-                владения, сокращение характеристики, значение и пассивное
-                число. Своя прокрутка: колонка узкая, а навыков восемнадцать -->
+              <!-- Навыки — бейджами, как в стат-блоке: у существа отмечены
+                считанные навыки, и полный список правил занимал бы всю колонку
+                ради трёх строк. Владения правят в своём окне -->
               <FieldsetLabel
                 label="Навыки"
-                class="flex flex-col overflow-hidden border-muted bg-default/20"
+                class="bg-default/20 transition-colors"
+                :class="[
+                  isEditMode
+                    ? 'cursor-pointer border-primary/30 hover:border-primary/50'
+                    : 'border-muted',
+                ]"
+                @click.left.exact.prevent="openSkillsModal"
               >
-                <!-- Шестерёнка ведёт в окно настройки: кружки в самом списке
-                  ставят владение по одному, а окно даёт отметить их разом.
-                  Вне правки листа её нет — настраивать там нечего -->
-                <template
-                  v-if="isEditMode"
-                  #actions
-                >
-                  <UTooltip :text="CREATURE_SKILLS_LABELS.open">
-                    <UIcon
-                      name="tabler:settings-filled"
-                      class="h-3.5 w-3.5 cursor-pointer text-primary transition-colors hover:text-primary/80"
-                      role="button"
-                      tabindex="0"
-                      :aria-label="CREATURE_SKILLS_LABELS.open"
-                      @click.left.exact.prevent="openSkillsModal"
-                      @keydown.enter.prevent="openSkillsModal"
-                      @keydown.space.prevent="openSkillsModal"
-                    />
-                  </UTooltip>
-                </template>
+                <div class="flex flex-wrap gap-1.5 p-2 pt-1">
+                  <UBadge
+                    v-for="skill in formattedSkills"
+                    :key="skill"
+                    :label="skill"
+                    color="neutral"
+                    variant="subtle"
+                  />
 
-                <div class="custom-scrollbar max-h-80 overflow-y-auto p-1.5">
-                  <div class="flex flex-col">
-                    <SkillItem
-                      v-for="row in highlightedSkillRows"
-                      :key="row.key"
-                      :label="row.label"
-                      :skill-key="row.key"
-                      :ability="row.ability"
-                      :proficiency-level="row.proficiencyLevel"
-                      :modifier="row.modifier"
-                      :is-highlighted="row.isHighlighted"
-                      :is-ability-highlighted="row.isHighlighted"
-                      :is-edit-mode="isEditMode"
-                      @cycle-proficiency="
-                        cycleSkillProficiency(row.key, row.proficiencyLevel)
-                      "
-                      @roll="handleSkillRoll"
-                    />
-                  </div>
+                  <span
+                    v-if="formattedSkills.length === 0"
+                    class="text-xs text-dimmed italic"
+                  >
+                    Нет
+                  </span>
                 </div>
               </FieldsetLabel>
 
@@ -1445,7 +1419,6 @@
                 :creature="localCreature"
                 :is-edit-mode="isEditMode"
                 @update:system="handleSystemUpdate"
-                @highlight="highlightedAbility = $event"
               />
 
               <!-- Вкладки. Промежутки те же, что и у вкладок листа персонажа:
@@ -1623,10 +1596,17 @@
   />
 
   <!-- Навыки -->
-  <CreatureSkillsModal
+  <!-- Навыки: владение и настройка расчёта — то же окно, что и у листа
+    персонажа. Правила у навыков общие, различаются только места записи -->
+  <SkillSettingsModal
     v-if="localCreature"
     v-model:open="isSkillsOpen"
-    :creature="localCreature"
+    :proficiencies="localCreature.system.skills"
+    :settings="localCreature.system.skillSettings"
+    :ability-mods="skillAbilityMods"
+    :proficiency-bonus="localCreature.system.proficiencyBonus || 0"
+    :skills="resolvedStats?.skills ?? {}"
+    :overridden-keys="overriddenSkillKeys"
     @apply="onSkillsApply"
   />
 

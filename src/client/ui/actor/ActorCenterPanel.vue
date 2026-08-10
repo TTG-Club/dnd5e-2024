@@ -829,7 +829,8 @@
   <!-- Модалка настройки навыков -->
   <SkillSettingsModal
     v-model:open="isSkillSettingsOpen"
-    :actor="actor"
+    :proficiencies="actor.system.proficiencies.skills"
+    :settings="actor.system.skillSettings"
     :ability-mods="skillAbilityMods"
     :proficiency-bonus="skillProficiencyBonus"
     :skills="resolvedStats?.skills ?? {}"

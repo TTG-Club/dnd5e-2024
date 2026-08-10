@@ -1,18 +1,22 @@
 <script setup lang="ts">
   /**
-   * Настройка навыков листа.
+   * Настройка навыков листа — и владение ими.
    *
    * По правилам навык — модификатор своей характеристики плюс бонус мастерства
    * по уровню владения. Здесь этот расчёт правится: проверка катится от другой
    * характеристики, к навыку добавляются свои бонусы, а навык, которого в
-   * правилах нет, заводится прямо здесь же.
+   * правилах нет, заводится прямо здесь же. Значком слева ставится само
+   * владение — у существа его правят только отсюда.
+   *
+   * Окно одно на лист персонажа и лист существа: правила расчёта у них общие, а
+   * различаются только места, откуда взяты владения и настройка, — поэтому
+   * запись листа сюда не приходит, приходят уже её значения.
    *
    * Правки копятся в черновике до «Применить»: числа в окне пересчитываются
    * сразу, а лист узнаёт о них только по кнопке.
    */
   import type { AbilityType, ProficiencyLevel, SkillType } from '@vtt/shared';
   import type {
-    DnDActor,
     DnDCustomBonus,
     DnDSkillSettings,
   } from '@vtt/shared/system/dnd.js';
@@ -54,8 +58,10 @@
 
   interface Props {
     open: boolean;
-    /** Актёр листа: из него берутся владения и настройка навыков */
-    actor: DnDActor;
+    /** Уровни владения навыками правил */
+    proficiencies: Partial<Record<SkillType, ProficiencyLevel>>;
+    /** Поправки расчёта и свои навыки; нет — все навыки по правилам */
+    settings?: DnDSkillSettings;
     /** Модификаторы характеристик с учётом эффектов */
     abilityMods: Record<AbilityType, number>;
     /** Бонус мастерства с учётом эффектов */
@@ -69,7 +75,9 @@
     overriddenKeys: Set<string>;
   }
 
-  const props = defineProps<Props>();
+  const props = withDefaults(defineProps<Props>(), {
+    settings: undefined,
+  });
 
   const emit = defineEmits<{
     'update:open': [value: boolean];
@@ -132,8 +140,8 @@
 
   /**
    * Заводит черновик по данным листа. Окно живёт в листе постоянно, поэтому
-   * черновик собирается на каждом открытии — иначе оно показывало бы того
-   * актёра, с которым его открыли впервые.
+   * черновик собирается на каждом открытии — иначе оно показывало бы тот лист,
+   * с которым его открыли впервые.
    */
   watch(
     () => props.open,
@@ -142,8 +150,8 @@
         return;
       }
 
-      const settings = props.actor.system.skillSettings;
-      const proficiencies = props.actor.system.proficiencies.skills;
+      const settings = props.settings;
+      const proficiencies = props.proficiencies;
       const deltas: Partial<Record<SkillType, number>> = {};
 
       const ruleSkills = SKILLS_LIST.map<SkillDraft>((skill) => {

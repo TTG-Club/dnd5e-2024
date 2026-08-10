@@ -23,26 +23,7 @@
 
   const emit = defineEmits<{
     'update:system': [updates: Partial<CreatureSystem>];
-    /** Характеристика под курсором; null — курсор ушёл со всех плиток */
-    'highlight': [abilityKey: AbilityType | null];
   }>();
-
-  /**
-   * Плитка характеристики зажглась или погасла.
-   *
-   * Гашение отдаётся как «нет характеристики», а не как «погасла эта»: уходя
-   * на соседнюю плитку, курсор сперва покидает старую, и только потом входит
-   * в новую — порядок событий сам собой оставляет наверху нужную.
-   *
-   * @param abilityKey - характеристика плитки
-   * @param isActive - плитка под курсором или в фокусе
-   */
-  function handleAbilityHighlight(
-    abilityKey: AbilityType,
-    isActive: boolean,
-  ): void {
-    emit('highlight', isActive ? abilityKey : null);
-  }
 
   const { resolvedStats, combinedEffects } = useResolvedStats(
     toRef(() => props.creature),
@@ -135,7 +116,6 @@
       :bonus-sources="getAbilityBonusSources(ability)"
       @update:value="handleAbilityChange(ability, $event)"
       @roll="(mod, label) => handleAbilityRoll(mod, label)"
-      @highlight="handleAbilityHighlight(ability, $event)"
     />
   </div>
 

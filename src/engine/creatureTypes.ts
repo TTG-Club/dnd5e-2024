@@ -16,7 +16,11 @@ import type {
   SpellSaveType,
 } from '@vtt/shared';
 
-import type { CreatureSize, DnDAbilityScores } from './types.js';
+import type {
+  CreatureSize,
+  DnDAbilityScores,
+  DnDSkillSettings,
+} from './types.js';
 
 // ── Категория существа ─────────────────────────────────────────────────────
 
@@ -292,6 +296,14 @@ export interface CreatureSystem {
 
   /** Навыки (карта навыков к уровню владения, например, { stealth: 'expertise' }) */
   skills: Partial<Record<SkillType, ProficiencyLevel>>;
+
+  /**
+   * Поправки расчёта навыков: другая характеристика проверки, свои бонусы и
+   * навыки сверх правил. Формат тот же, что у листа персонажа, — движок читает
+   * его одним кодом. Поля нет у существ из старых миров: тогда все навыки
+   * считаются по правилам.
+   */
+  skillSettings?: DnDSkillSettings;
 
   // ── Защиты ──────────────────────────────────────────────────────────────
 

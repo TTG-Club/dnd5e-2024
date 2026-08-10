@@ -125,7 +125,7 @@ export const TOOL_PROF_LABELS: Record<string, string> = {
 /**
  * Короткие аббревиатуры характеристик (для таблиц навыков и способностей)
  *
- * Используется в `SkillItem`, `CreatureAbilities`, `CreatureSkillsModal`.
+ * Используется в `SkillItem`, `CreatureAbilities`, строке действия существа.
  */
 export const ABILITY_SHORT_LABELS: Record<string, string> = {
   strength: 'СИЛ',
