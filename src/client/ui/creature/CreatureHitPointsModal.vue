@@ -6,6 +6,8 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
 
+  import { MODAL_BUTTON_LABELS } from '../actor/constants';
+
   /** Доступные размеры костей хитов */
   const HIT_DIE_OPTIONS: HitDie[] = [6, 8, 10, 12];
 
@@ -243,7 +245,7 @@
             size="sm"
             @click.left.exact.prevent="isOpen = false"
           >
-            Отмена
+            {{ MODAL_BUTTON_LABELS.cancel }}
           </UButton>
 
           <UButton
@@ -251,7 +253,7 @@
             size="sm"
             @click.left.exact.prevent="applyHitPoints"
           >
-            Применить
+            {{ MODAL_BUTTON_LABELS.apply }}
           </UButton>
         </div>
       </div>

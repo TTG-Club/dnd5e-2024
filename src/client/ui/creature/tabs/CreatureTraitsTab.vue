@@ -5,13 +5,11 @@
 
   import {
     FILTER_ROW_CONTROL_SIZE,
+    MODAL_BUTTON_LABELS,
     SHEET_FILTER_LABELS,
   } from '../../actor/constants';
   import FilterResetButton from '../../actor/FilterResetButton.vue';
-  import {
-    CREATURE_ACTION_MENU_LABELS,
-    CREATURE_EMPTY_LABELS,
-  } from '../constants';
+  import { CREATURE_EMPTY_LABELS } from '../constants';
   import CreatureActionsBlock from '../CreatureActionsBlock.vue';
 
   interface Props {
@@ -121,7 +119,7 @@
           :size="FILTER_ROW_CONTROL_SIZE"
           @click.left.exact.prevent="addTrait"
         >
-          {{ CREATURE_ACTION_MENU_LABELS.add }}
+          {{ MODAL_BUTTON_LABELS.add }}
         </UButton>
       </div>
     </div>

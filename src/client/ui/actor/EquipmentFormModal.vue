@@ -9,6 +9,7 @@
   import { CURRENCY_OPTIONS, RARITY_OPTIONS } from '@vtt/shared/system/dnd.js';
 
   import { useEquipmentForm } from '../../composables/useEquipmentForm';
+  import { MODAL_BUTTON_LABELS } from './constants';
   import FormSection from './FormSection.vue';
   import SourceField from './SourceField.vue';
   import ActiveEffectFormModal from './tabs/ActiveEffectFormModal.vue';
@@ -550,14 +551,14 @@
     <template #footer>
       <div class="flex justify-end gap-3">
         <UButton
-          label="Отмена"
+          :label="MODAL_BUTTON_LABELS.cancel"
           color="neutral"
           variant="ghost"
           @click.left.exact.prevent="emit('close')"
         />
 
         <UButton
-          :label="item ? 'Сохранить' : 'Создать'"
+          :label="item ? MODAL_BUTTON_LABELS.save : MODAL_BUTTON_LABELS.create"
           color="primary"
           :disabled="!name.trim()"
           @click.left.exact.prevent="handleSave"

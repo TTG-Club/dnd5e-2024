@@ -11,6 +11,8 @@
     CURRENCY_OPTIONS,
   } from '@vtt/shared/system/dnd.js';
 
+  import { MODAL_BUTTON_LABELS } from './constants';
+
   interface Props {
     open: boolean;
     currency: DnDCurrency;
@@ -127,7 +129,7 @@
             size="sm"
             @click.left.exact.prevent="cancelEdit"
           >
-            Отмена
+            {{ MODAL_BUTTON_LABELS.cancel }}
           </UButton>
 
           <UButton
@@ -135,7 +137,7 @@
             size="sm"
             @click.left.exact.prevent="applyCurrency"
           >
-            Применить
+            {{ MODAL_BUTTON_LABELS.apply }}
           </UButton>
         </div>
       </div>

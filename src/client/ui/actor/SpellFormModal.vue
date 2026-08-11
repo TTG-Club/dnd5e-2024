@@ -20,6 +20,7 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { useSpellForm } from '../../composables/useSpellForm';
+  import { MODAL_BUTTON_LABELS } from './constants';
   import DamagePartRow from './DamagePartRow.vue';
   import DamagePartsEditor from './DamagePartsEditor.vue';
   import FormSection from './FormSection.vue';
@@ -1262,14 +1263,16 @@
     <template #footer>
       <div class="flex justify-end gap-3">
         <UButton
-          label="Отмена"
+          :label="MODAL_BUTTON_LABELS.cancel"
           color="neutral"
           variant="ghost"
           @click.left.exact.prevent="handleCancel"
         />
 
         <UButton
-          :label="isEditing ? 'Сохранить' : 'Создать'"
+          :label="
+            isEditing ? MODAL_BUTTON_LABELS.save : MODAL_BUTTON_LABELS.create
+          "
           color="primary"
           :disabled="!name.trim()"
           @click.left.exact.prevent="handleSave"
@@ -1302,7 +1305,7 @@
             size="sm"
             @click.left.exact.prevent="closeDiscardConfirm"
           >
-            Назад
+            {{ MODAL_BUTTON_LABELS.back }}
           </UButton>
 
           <UButton
@@ -1320,7 +1323,7 @@
             :disabled="!name.trim()"
             @click.left.exact.prevent="confirmSave"
           >
-            Сохранить
+            {{ MODAL_BUTTON_LABELS.save }}
           </UButton>
         </div>
       </div>

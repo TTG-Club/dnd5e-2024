@@ -31,7 +31,10 @@
     toStoredSavingThrowSettings,
   } from '@vtt/shared/system/dnd.js';
 
-  import { SAVING_THROW_SETTINGS_LABELS } from './constants';
+  import {
+    MODAL_BUTTON_LABELS,
+    SAVING_THROW_SETTINGS_LABELS,
+  } from './constants';
   import CustomBonusRows from './CustomBonusRows.vue';
   import { formatSignedNumber } from './utils/formatSignedNumber';
 
@@ -351,7 +354,7 @@
             size="sm"
             @click.left.exact.prevent="isOpen = false"
           >
-            Отмена
+            {{ MODAL_BUTTON_LABELS.cancel }}
           </UButton>
 
           <UButton
@@ -359,7 +362,7 @@
             size="sm"
             @click.left.exact.prevent="applySettings"
           >
-            Применить
+            {{ MODAL_BUTTON_LABELS.apply }}
           </UButton>
         </div>
       </div>

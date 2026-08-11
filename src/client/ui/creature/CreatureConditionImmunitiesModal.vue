@@ -5,6 +5,8 @@
   import { Z_INDEX } from '@/shared_ui/consts';
   import { CONDITIONS } from '@vtt/shared/system/dnd.js';
 
+  import { MODAL_BUTTON_LABELS } from '../actor/constants';
+
   /** Блокирующий модал — фиксированный z-index поверх остальных */
   const MODAL_Z_INDEX = Z_INDEX.MODAL_ELEVATED;
 
@@ -178,7 +180,7 @@
             size="sm"
             @click.left.exact.prevent="isOpen = false"
           >
-            Отмена
+            {{ MODAL_BUTTON_LABELS.cancel }}
           </UButton>
 
           <UButton
@@ -186,7 +188,7 @@
             size="sm"
             @click.left.exact.prevent="applySelection"
           >
-            Применить
+            {{ MODAL_BUTTON_LABELS.apply }}
           </UButton>
         </div>
       </div>

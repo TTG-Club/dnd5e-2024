@@ -11,6 +11,8 @@
   import { Z_INDEX } from '@/shared_ui/consts';
   import { getHitDiceGroups } from '@vtt/shared/system/dnd.js';
 
+  import { MODAL_BUTTON_LABELS } from './constants';
+
   /** Доступные размеры костей хитов */
   const HIT_DIE_OPTIONS: HitDie[] = [6, 8, 10, 12];
 
@@ -287,7 +289,7 @@
               icon="tabler:plus"
               @click.left.exact.prevent="addManualHitDieGroup"
             >
-              Добавить
+              {{ MODAL_BUTTON_LABELS.add }}
             </UButton>
           </div>
 
@@ -392,7 +394,7 @@
             size="sm"
             @click.left.exact.prevent="isOpen = false"
           >
-            Отмена
+            {{ MODAL_BUTTON_LABELS.cancel }}
           </UButton>
 
           <UButton
@@ -400,7 +402,7 @@
             size="sm"
             @click.left.exact.prevent="applyHitPoints"
           >
-            Применить
+            {{ MODAL_BUTTON_LABELS.apply }}
           </UButton>
         </div>
       </div>

@@ -8,6 +8,7 @@
   import { Z_INDEX } from '@/shared_ui/consts';
 
   import { useSpeciesGrantedSpellsResolver } from '../../../composables/useSpeciesGrantedSpellsResolver';
+  import { MODAL_BUTTON_LABELS } from '../constants';
   import { useSpeciesWizard } from './useSpeciesWizard';
   import WizardStepFeatures from './WizardStepFeatures.vue';
   import WizardStepGrants from './WizardStepGrants.vue';
@@ -208,7 +209,7 @@
           :class="{ invisible: currentStepIndex === 0 }"
           @click.left.exact.prevent="prevStep"
         >
-          Назад
+          {{ MODAL_BUTTON_LABELS.back }}
         </UButton>
 
         <div class="flex gap-2">
@@ -217,7 +218,7 @@
             color="neutral"
             @click.left.exact.prevent="handleCancel"
           >
-            Отмена
+            {{ MODAL_BUTTON_LABELS.cancel }}
           </UButton>
 
           <UButton
@@ -226,7 +227,7 @@
             :disabled="!canProceed"
             @click.left.exact.prevent="nextStep"
           >
-            Далее
+            {{ MODAL_BUTTON_LABELS.next }}
             <template #trailing>
               <UIcon name="tabler:arrow-right" />
             </template>
@@ -238,7 +239,7 @@
             :disabled="!canProceed"
             @click.left.exact.prevent="handleApply"
           >
-            Применить
+            {{ MODAL_BUTTON_LABELS.apply }}
           </UButton>
         </div>
       </div>

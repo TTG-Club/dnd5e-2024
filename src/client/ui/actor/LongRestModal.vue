@@ -7,6 +7,8 @@
   import { Z_INDEX } from '@/shared_ui/consts';
   import { summarizeActorLongRest } from '@vtt/shared/system/dnd.js';
 
+  import { MODAL_BUTTON_LABELS } from './constants';
+
   interface Props {
     open: boolean;
     /** Актор, для которого считается предпросмотр восстановления */
@@ -209,7 +211,7 @@
             size="md"
             @click.left.exact.prevent="isOpen = false"
           >
-            Отмена
+            {{ MODAL_BUTTON_LABELS.cancel }}
           </UButton>
 
           <UButton

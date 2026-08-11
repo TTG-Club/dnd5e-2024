@@ -3,6 +3,8 @@
 
   import { ContextMenuDangerItem } from '@/shared_ui/components';
 
+  import { SHEET_ROW_MENU_LABELS } from './constants';
+
   defineProps<{
     /** Показано ли меню */
     isOpen: boolean;
@@ -77,7 +79,7 @@
           icon="tabler:trash"
           @click="emit('action', 'delete')"
         >
-          Удалить
+          {{ SHEET_ROW_MENU_LABELS.remove }}
         </ContextMenuDangerItem>
       </div>
     </div>

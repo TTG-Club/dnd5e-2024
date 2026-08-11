@@ -48,7 +48,11 @@
     toStoredSkillSettings,
   } from '@vtt/shared/system/dnd.js';
 
-  import { SKILL_GROUP_LABEL_CLASS, SKILL_SETTINGS_LABELS } from './constants';
+  import {
+    MODAL_BUTTON_LABELS,
+    SKILL_GROUP_LABEL_CLASS,
+    SKILL_SETTINGS_LABELS,
+  } from './constants';
   import CustomBonusRows from './CustomBonusRows.vue';
   import ProficiencyIndicator from './ProficiencyIndicator.vue';
   import { formatSignedNumber } from './utils/formatSignedNumber';
@@ -641,7 +645,7 @@
             size="sm"
             @click.left.exact.prevent="isOpen = false"
           >
-            Отмена
+            {{ MODAL_BUTTON_LABELS.cancel }}
           </UButton>
 
           <UButton
@@ -649,7 +653,7 @@
             size="sm"
             @click.left.exact.prevent="applySettings"
           >
-            Применить
+            {{ MODAL_BUTTON_LABELS.apply }}
           </UButton>
         </div>
       </div>

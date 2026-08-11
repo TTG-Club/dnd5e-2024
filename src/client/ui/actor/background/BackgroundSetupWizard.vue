@@ -17,6 +17,7 @@
 
   import { useGrantedSpellsResolver } from '../../../composables/useGrantedSpellsResolver';
   import { useSourceLabels } from '../../../composables/useSourceLabel';
+  import { MODAL_BUTTON_LABELS } from '../constants';
   import {
     backgroundSpellSource,
     useBackgroundWizard,
@@ -345,7 +346,7 @@
           icon="tabler:arrow-left"
           @click.left.exact.prevent="previousStep"
         >
-          Назад
+          {{ MODAL_BUTTON_LABELS.back }}
         </UButton>
 
         <div
@@ -359,7 +360,7 @@
             color="neutral"
             @click.left.exact.prevent="handleModalClose"
           >
-            Отмена
+            {{ MODAL_BUTTON_LABELS.cancel }}
           </UButton>
 
           <UButton
@@ -368,7 +369,7 @@
             :disabled="!canProceed || isLoadingFeats"
             @click.left.exact.prevent="nextStep"
           >
-            Далее
+            {{ MODAL_BUTTON_LABELS.next }}
             <template #trailing>
               <UIcon name="tabler:arrow-right" />
             </template>
@@ -380,7 +381,7 @@
             :disabled="isLoadingFeats"
             @click.left.exact.prevent="handleApply"
           >
-            Применить
+            {{ MODAL_BUTTON_LABELS.apply }}
           </UButton>
         </div>
       </div>

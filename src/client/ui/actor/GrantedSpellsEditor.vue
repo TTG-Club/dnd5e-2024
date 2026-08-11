@@ -12,6 +12,8 @@
 
   import { useSourceLabels } from '@/systems/dnd5e/composables/useSourceLabel';
 
+  import { MODAL_BUTTON_LABELS } from './constants';
+
   const props = defineProps<{
     /** Заклинания компендиума по пакам — для подсказок и выбора пака. */
     availableSpells?: SpellOption[];
@@ -345,7 +347,7 @@
 
       <UButton
         icon="tabler:plus"
-        label="Добавить"
+        :label="MODAL_BUTTON_LABELS.add"
         color="neutral"
         variant="soft"
         size="sm"

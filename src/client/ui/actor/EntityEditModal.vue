@@ -5,6 +5,8 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
 
+  import { MODAL_BUTTON_LABELS } from './constants';
+
   interface FeatureChoice {
     key: string;
     name: string;
@@ -245,7 +247,7 @@
           color="neutral"
           @click.left.exact.prevent="handleClose"
         >
-          Отмена
+          {{ MODAL_BUTTON_LABELS.cancel }}
         </UButton>
 
         <UButton
@@ -253,7 +255,7 @@
           :disabled="!form.name.trim()"
           @click.left.exact.prevent="handleSave"
         >
-          Сохранить
+          {{ MODAL_BUTTON_LABELS.save }}
         </UButton>
       </div>
     </template>

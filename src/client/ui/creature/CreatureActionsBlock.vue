@@ -41,6 +41,7 @@
   import {
     ABILITY_SHORT_LABELS,
     FILTER_ROW_CONTROL_SIZE,
+    MODAL_BUTTON_LABELS,
     SHEET_ROW_MENU_LABELS,
     SPELL_DAMAGE_ROLL_BUTTON,
   } from '../actor/constants';
@@ -839,7 +840,7 @@
         :size="FILTER_ROW_CONTROL_SIZE"
         @click.left.exact.prevent="openCreateForm"
       >
-        {{ CREATURE_ACTION_MENU_LABELS.add }}
+        {{ MODAL_BUTTON_LABELS.add }}
       </UButton>
     </div>
 

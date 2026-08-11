@@ -19,6 +19,7 @@
     CREATURE_SIZE_LABELS,
     CREATURE_TYPE_LABELS,
     MISSING_SHEET_SECTIONS,
+    MODAL_BUTTON_LABELS,
   } from './constants';
   import LevelUpModal from './LevelUpModal.vue';
 
@@ -579,7 +580,7 @@
           name="tabler:check"
           class="h-4 w-4"
         />
-        Создать
+        {{ MODAL_BUTTON_LABELS.create }}
       </button>
 
       <!-- Toggle Edit Mode (только для существующих персонажей) -->

@@ -11,6 +11,7 @@
     SPELL_SAVE_DC_BASE,
   } from '@vtt/shared/system/dnd.js';
 
+  import { MODAL_BUTTON_LABELS } from './constants';
   import { formatSignedNumber } from './utils/formatSignedNumber';
 
   interface Props {
@@ -243,7 +244,7 @@
             size="sm"
             @click.left.exact.prevent="isOpen = false"
           >
-            Отмена
+            {{ MODAL_BUTTON_LABELS.cancel }}
           </UButton>
 
           <UButton
@@ -251,7 +252,7 @@
             size="sm"
             @click.left.exact.prevent="applySettings"
           >
-            Применить
+            {{ MODAL_BUTTON_LABELS.apply }}
           </UButton>
         </div>
       </div>

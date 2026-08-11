@@ -11,6 +11,7 @@
   import {
     CREATURE_SIZE_LABELS,
     CREATURE_TYPE_LABELS,
+    MODAL_BUTTON_LABELS,
   } from '@/systems/dnd5e/ui/actor/constants';
   import { getAssetUrl } from '@vtt/shared';
   import {
@@ -298,7 +299,7 @@
           name="tabler:check"
           class="h-4 w-4"
         />
-        Создать
+        {{ MODAL_BUTTON_LABELS.create }}
       </button>
 
       <!-- Toggle Edit Mode -->

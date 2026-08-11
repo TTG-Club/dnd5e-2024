@@ -2,6 +2,8 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
 
+  import { MODAL_BUTTON_LABELS } from './constants';
+
   defineOptions({
     inheritAttrs: false,
   });
@@ -99,7 +101,7 @@
             size="sm"
             @click.left.exact.prevent="handleCancel"
           >
-            Отмена
+            {{ MODAL_BUTTON_LABELS.cancel }}
           </UButton>
         </div>
       </div>

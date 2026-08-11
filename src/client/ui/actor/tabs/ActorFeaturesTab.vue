@@ -20,6 +20,7 @@
     FEATURE_ORIGIN_LABELS,
     FEATURE_ORIGIN_ORDER,
     FILTER_ROW_CONTROL_SIZE,
+    SHEET_ROW_MENU_LABELS,
   } from '../constants';
   import { reapplyFeatToActor, removeFeatFromActor } from '../feat/featApply';
   import FeatListItem from '../FeatListItem.vue';
@@ -848,7 +849,7 @@
           icon="tabler:trash"
           @click="handleContextMenuAction('delete')"
         >
-          Удалить
+          {{ SHEET_ROW_MENU_LABELS.remove }}
         </ContextMenuDangerItem>
       </div>
     </div>

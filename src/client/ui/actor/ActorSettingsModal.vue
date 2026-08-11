@@ -34,6 +34,7 @@
     useTokenPreview,
   } from '../../composables/useTokenPreview';
   import ActorDeleteConfirmModal from './ActorDeleteConfirmModal.vue';
+  import { MODAL_BUTTON_LABELS } from './constants';
 
   interface Props {
     open: boolean;
@@ -1158,7 +1159,7 @@
             icon="tabler:trash"
             @click.left.exact.prevent="isDeleteConfirmOpen = true"
           >
-            Удалить
+            {{ MODAL_BUTTON_LABELS.remove }}
           </UButton>
         </div>
 
@@ -1168,7 +1169,7 @@
             variant="soft"
             @click.left.exact.prevent="isOpen = false"
           >
-            Отмена
+            {{ MODAL_BUTTON_LABELS.cancel }}
           </UButton>
 
           <UButton
@@ -1178,7 +1179,7 @@
             :disabled="!hasChanges"
             @click.left.exact.prevent="saveSettings"
           >
-            Сохранить
+            {{ MODAL_BUTTON_LABELS.save }}
           </UButton>
         </div>
       </div>

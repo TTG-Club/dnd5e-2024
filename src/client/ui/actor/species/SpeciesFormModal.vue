@@ -47,7 +47,11 @@
     TOOLS_LABELS,
   } from '@vtt/shared/system/dnd.js';
 
-  import { ARMOR_PROF_LABELS, WEAPON_PROF_LABELS } from '../constants';
+  import {
+    ARMOR_PROF_LABELS,
+    MODAL_BUTTON_LABELS,
+    WEAPON_PROF_LABELS,
+  } from '../constants';
   import FormSection from '../FormSection.vue';
   import SourceField from '../SourceField.vue';
   import { slugify } from '../utils/slugify';
@@ -1492,7 +1496,7 @@
                     color="error"
                     variant="ghost"
                     size="xs"
-                    aria-label="Удалить"
+                    :aria-label="MODAL_BUTTON_LABELS.remove"
                     @click.left.exact.stop.prevent="deleteNode(item.value)"
                   />
 
@@ -1524,14 +1528,18 @@
 
         <div class="ml-auto flex gap-3">
           <UButton
-            label="Отмена"
+            :label="MODAL_BUTTON_LABELS.cancel"
             color="neutral"
             variant="ghost"
             @click.left.exact.prevent="emit('close')"
           />
 
           <UButton
-            :label="speciesDefinition ? 'Сохранить' : 'Создать'"
+            :label="
+              speciesDefinition
+                ? MODAL_BUTTON_LABELS.save
+                : MODAL_BUTTON_LABELS.create
+            "
             color="primary"
             :disabled="!canSave"
             @click.left.exact.prevent="handleSave"

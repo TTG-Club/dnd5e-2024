@@ -8,7 +8,11 @@
   import FieldGroupReset from '@/shared_ui/components/FieldGroupReset.vue';
   import { SPELL_USES_RECOVERY_LABELS } from '@vtt/shared/system/dnd.js';
 
-  import { SPELL_MIME } from './constants';
+  import {
+    SHEET_ROW_MENU_LABELS,
+    SPELL_MENU_LABELS,
+    SPELL_MIME,
+  } from './constants';
   import { extractSpellFromGameItem } from './utils/extractSpellFromGameItem';
   import { formatSpellDamageDisplay } from './utils/formatSpellDamageDisplay';
 
@@ -313,7 +317,7 @@
             name="tabler:wand"
             class="h-4 w-4 text-muted"
           />
-          Применить
+          {{ SPELL_MENU_LABELS.cast }}
         </button>
 
         <!-- Скопировать -->
@@ -366,7 +370,7 @@
           icon="tabler:trash"
           @click="handleAction('delete')"
         >
-          Удалить
+          {{ SHEET_ROW_MENU_LABELS.remove }}
         </ContextMenuDangerItem>
       </div>
     </div>

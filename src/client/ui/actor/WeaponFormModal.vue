@@ -14,6 +14,7 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { useWeaponForm } from '../../composables/useWeaponForm';
+  import { MODAL_BUTTON_LABELS } from './constants';
   import DamagePartsEditor from './DamagePartsEditor.vue';
   import FormSection from './FormSection.vue';
   import SourceField from './SourceField.vue';
@@ -747,14 +748,14 @@
     <template #footer>
       <div class="flex justify-end gap-3">
         <UButton
-          label="Отмена"
+          :label="MODAL_BUTTON_LABELS.cancel"
           color="neutral"
           variant="ghost"
           @click.left.exact.prevent="emit('close')"
         />
 
         <UButton
-          :label="item ? 'Сохранить' : 'Создать'"
+          :label="item ? MODAL_BUTTON_LABELS.save : MODAL_BUTTON_LABELS.create"
           color="primary"
           :disabled="!name.trim() || damageFormulaInvalid"
           @click.left.exact.prevent="handleSave"

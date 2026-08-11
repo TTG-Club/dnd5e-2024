@@ -10,6 +10,7 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
 
+  import { MODAL_BUTTON_LABELS } from './constants';
   import { findCounterDefinition } from './utils/classCounters';
 
   interface Props {
@@ -248,7 +249,7 @@
             icon="tabler:plus"
             @click.left.exact.prevent="addCounter"
           >
-            Добавить
+            {{ MODAL_BUTTON_LABELS.add }}
           </UButton>
         </div>
 
@@ -386,7 +387,7 @@
           variant="ghost"
           @click.left.exact.prevent="isOpen = false"
         >
-          Отмена
+          {{ MODAL_BUTTON_LABELS.cancel }}
         </UButton>
 
         <UButton
@@ -394,7 +395,7 @@
           :disabled="hasInvalidCounters"
           @click.left.exact.prevent="applyCounters"
         >
-          Сохранить
+          {{ MODAL_BUTTON_LABELS.save }}
         </UButton>
       </div>
     </template>

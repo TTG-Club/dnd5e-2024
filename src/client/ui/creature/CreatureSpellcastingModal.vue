@@ -17,7 +17,10 @@
     calculateCreatureSpellcasting,
   } from '@vtt/shared/system/dnd.js';
 
-  import { BONUS_INPUT_FORMAT_OPTIONS } from '../actor/constants';
+  import {
+    BONUS_INPUT_FORMAT_OPTIONS,
+    MODAL_BUTTON_LABELS,
+  } from '../actor/constants';
   import { formatSignedNumber } from '../actor/utils/formatSignedNumber';
   import {
     CREATURE_SPELLCASTING_LABELS,
@@ -408,7 +411,7 @@
             size="sm"
             @click.left.exact.prevent="isOpen = false"
           >
-            Отмена
+            {{ MODAL_BUTTON_LABELS.cancel }}
           </UButton>
 
           <UButton
@@ -416,7 +419,7 @@
             size="sm"
             @click.left.exact.prevent="applySpellcasting"
           >
-            Применить
+            {{ MODAL_BUTTON_LABELS.apply }}
           </UButton>
         </div>
       </div>

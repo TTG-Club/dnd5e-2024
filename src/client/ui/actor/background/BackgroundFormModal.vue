@@ -38,6 +38,7 @@
     TOOLS_LABELS,
   } from '@vtt/shared/system/dnd.js';
 
+  import { MODAL_BUTTON_LABELS } from '../constants';
   import {
     buildFeatData,
     createEmptyFeatGrants,
@@ -855,14 +856,18 @@
 
         <div class="ml-auto flex gap-3">
           <UButton
-            label="Отмена"
+            :label="MODAL_BUTTON_LABELS.cancel"
             color="neutral"
             variant="ghost"
             @click.left.exact.prevent="emit('close')"
           />
 
           <UButton
-            :label="item || background ? 'Сохранить' : 'Создать'"
+            :label="
+              item || background
+                ? MODAL_BUTTON_LABELS.save
+                : MODAL_BUTTON_LABELS.create
+            "
             color="primary"
             :disabled="!canSave"
             @click.left.exact.prevent="handleSave"

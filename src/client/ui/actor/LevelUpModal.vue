@@ -11,6 +11,8 @@
     MAX_LEVEL,
   } from '@vtt/shared/system/dnd.js';
 
+  import { MODAL_BUTTON_LABELS } from './constants';
+
   interface Props {
     open: boolean;
     classes: ActorClassEntry[];
@@ -259,14 +261,14 @@
                   class="text-xs text-muted transition-colors hover:text-highlighted"
                   @click.left.exact.prevent="cancelRemove"
                 >
-                  Отмена
+                  {{ MODAL_BUTTON_LABELS.cancel }}
                 </button>
 
                 <button
                   class="text-xs font-medium text-danger transition-colors hover:text-danger-muted"
                   @click.left.exact.prevent="confirmRemoveClass"
                 >
-                  Удалить
+                  {{ MODAL_BUTTON_LABELS.remove }}
                 </button>
               </div>
             </div>
@@ -332,7 +334,7 @@
             size="sm"
             @click.left.exact.prevent="isOpen = false"
           >
-            Отмена
+            {{ MODAL_BUTTON_LABELS.cancel }}
           </UButton>
 
           <UButton
@@ -340,7 +342,7 @@
             size="sm"
             @click.left.exact.prevent="applyLevelUp"
           >
-            Применить
+            {{ MODAL_BUTTON_LABELS.apply }}
           </UButton>
         </div>
       </div>

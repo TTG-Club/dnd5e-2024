@@ -58,6 +58,7 @@
     CLASS_DEFINITION_MIME,
     GAME_FEATURE_MIME,
     GAME_ITEM_MIME,
+    MODAL_BUTTON_LABELS,
     SPECIES_DEFINITION_MIME,
     SPELL_MIME,
   } from './constants';
@@ -1902,7 +1903,7 @@
             size="sm"
             @click.left.exact.prevent="onConfirmCancel"
           >
-            Отмена
+            {{ MODAL_BUTTON_LABELS.cancel }}
           </UButton>
 
           <UButton
@@ -1919,7 +1920,7 @@
             size="sm"
             @click.left.exact.prevent="onConfirmSave"
           >
-            Сохранить
+            {{ MODAL_BUTTON_LABELS.save }}
           </UButton>
         </div>
       </div>
@@ -1957,7 +1958,7 @@
           color="neutral"
           @click.left.exact.prevent="onReplaceCancel"
         >
-          Отмена
+          {{ MODAL_BUTTON_LABELS.cancel }}
         </UButton>
 
         <UButton

@@ -6,6 +6,8 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
 
+  import { MODAL_BUTTON_LABELS } from './constants';
+
   interface Props {
     open: boolean;
     armorClass: ActorArmorClass;
@@ -246,7 +248,7 @@
             size="sm"
             @click.left.exact.prevent="isOpen = false"
           >
-            Отмена
+            {{ MODAL_BUTTON_LABELS.cancel }}
           </UButton>
 
           <UButton
@@ -254,7 +256,7 @@
             size="sm"
             @click.left.exact.prevent="applyArmorClass"
           >
-            Применить
+            {{ MODAL_BUTTON_LABELS.apply }}
           </UButton>
         </div>
       </div>

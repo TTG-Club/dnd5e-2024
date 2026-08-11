@@ -80,6 +80,7 @@ import {
   measureTokenDistanceOnScene,
 } from '../composables/useSceneRangeCheck';
 import { useSpellResolution } from '../composables/useSpellResolution';
+import { SPELL_MENU_LABELS } from '../ui/actor/constants';
 import { checkCreatureActionRangeOnScene } from '../ui/creature/composables/useCreatureRangeCheck';
 
 /**
@@ -1353,7 +1354,7 @@ function castBuffSpellMacro(
     openModal('DiceRollModal', {
       title: `Заклинание — ${spell.name}`,
       rollLabel: spell.name,
-      rollButtonText: 'Применить',
+      rollButtonText: SPELL_MENU_LABELS.cast,
       skipRoll: true,
       spellLevel: lockedSpellLevel ?? spell.level,
       availableSpellLevels: computeAvailableLevels(

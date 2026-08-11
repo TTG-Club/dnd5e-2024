@@ -39,6 +39,7 @@
 
   import {
     ARMOR_PROF_LABELS,
+    MODAL_BUTTON_LABELS,
     TOOL_PROF_LABELS,
     WEAPON_PROF_LABELS,
   } from '../constants';
@@ -877,14 +878,18 @@
 
         <div class="ml-auto flex gap-3">
           <UButton
-            label="Отмена"
+            :label="MODAL_BUTTON_LABELS.cancel"
             color="neutral"
             variant="ghost"
             @click.left.exact.prevent="emit('close')"
           />
 
           <UButton
-            :label="classDefinition ? 'Сохранить' : 'Создать'"
+            :label="
+              classDefinition
+                ? MODAL_BUTTON_LABELS.save
+                : MODAL_BUTTON_LABELS.create
+            "
             color="primary"
             :disabled="!canSave"
             @click.left.exact.prevent="handleSave"

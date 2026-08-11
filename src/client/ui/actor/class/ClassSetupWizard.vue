@@ -24,6 +24,7 @@
   import { resolveActorStats } from '@vtt/shared/system/dnd.js';
 
   import { useGrantedSpellsResolver } from '../../../composables/useGrantedSpellsResolver';
+  import { MODAL_BUTTON_LABELS } from '../constants';
   import { useClassWizard } from './wizard';
   import WizardStepAsi from './wizard/WizardStepAsi.vue';
   import WizardStepFeatures from './wizard/WizardStepFeatures.vue';
@@ -134,7 +135,7 @@
   /** Текст кнопки «Применить» */
   const applyButtonLabel = computed(() => {
     if (isFirstClass.value) {
-      return 'Применить';
+      return MODAL_BUTTON_LABELS.apply;
     }
 
     if (isMulticlass.value) {
@@ -458,7 +459,7 @@
           icon="tabler:arrow-left"
           @click.left.exact.prevent="prevStep"
         >
-          Назад
+          {{ MODAL_BUTTON_LABELS.back }}
         </UButton>
 
         <!-- Пустой спейсер если нет кнопки «Назад» -->
@@ -473,7 +474,7 @@
             color="neutral"
             @click.left.exact.prevent="isOpen = false"
           >
-            Отмена
+            {{ MODAL_BUTTON_LABELS.cancel }}
           </UButton>
 
           <UButton
@@ -482,7 +483,7 @@
             :disabled="!canProceed"
             @click.left.exact.prevent="handleNextClick"
           >
-            Далее
+            {{ MODAL_BUTTON_LABELS.next }}
             <template #trailing>
               <UIcon name="tabler:arrow-right" />
             </template>
@@ -538,7 +539,7 @@
           color="neutral"
           @click.left.exact.prevent="cancelSpellWarning"
         >
-          Отмена
+          {{ MODAL_BUTTON_LABELS.cancel }}
         </UButton>
 
         <UButton

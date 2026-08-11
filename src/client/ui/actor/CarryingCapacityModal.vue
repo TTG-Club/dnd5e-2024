@@ -21,7 +21,7 @@
     normalizeCarryingCapacity,
   } from '@vtt/shared/system/dnd.js';
 
-  import { BONUS_INPUT_FORMAT_OPTIONS } from './constants';
+  import { BONUS_INPUT_FORMAT_OPTIONS, MODAL_BUTTON_LABELS } from './constants';
   import { formatSignedNumber } from './utils/formatSignedNumber';
 
   interface Props {
@@ -284,7 +284,7 @@
             size="sm"
             @click.left.exact.prevent="isOpen = false"
           >
-            Отмена
+            {{ MODAL_BUTTON_LABELS.cancel }}
           </UButton>
 
           <UButton
@@ -292,7 +292,7 @@
             size="sm"
             @click.left.exact.prevent="applyCapacity"
           >
-            Применить
+            {{ MODAL_BUTTON_LABELS.apply }}
           </UButton>
         </div>
       </div>

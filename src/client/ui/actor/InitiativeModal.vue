@@ -7,6 +7,8 @@
   import { Z_INDEX } from '@/shared_ui/consts';
   import { calculateAbilityModifier } from '@vtt/shared/system/dnd.js';
 
+  import { MODAL_BUTTON_LABELS } from './constants';
+
   interface Props {
     open: boolean;
     /** Текущий бонус инициативы */
@@ -156,7 +158,7 @@
             size="sm"
             @click.left.exact.prevent="isOpen = false"
           >
-            Отмена
+            {{ MODAL_BUTTON_LABELS.cancel }}
           </UButton>
 
           <UButton
@@ -164,7 +166,7 @@
             size="sm"
             @click.left.exact.prevent="applyChanges"
           >
-            Применить
+            {{ MODAL_BUTTON_LABELS.apply }}
           </UButton>
         </div>
       </div>

@@ -52,6 +52,7 @@
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import {
     DICE_ROLL_DEFAULT_BUTTON,
+    MODAL_BUTTON_LABELS,
     SAVING_THROW_ABILITIES,
     SPELL_MIME,
   } from '../actor/constants';
@@ -1574,7 +1575,7 @@
             size="sm"
             @click.left.exact.prevent="onConfirmCancel"
           >
-            Отмена
+            {{ MODAL_BUTTON_LABELS.cancel }}
           </UButton>
 
           <UButton
@@ -1591,7 +1592,7 @@
             size="sm"
             @click.left.exact.prevent="onConfirmSave"
           >
-            Сохранить
+            {{ MODAL_BUTTON_LABELS.save }}
           </UButton>
         </div>
       </div>

@@ -27,6 +27,7 @@
     EFFECT_TURN_TIMING_LABELS,
   } from '@vtt/shared/system/dnd.js';
 
+  import { MODAL_BUTTON_LABELS } from '../constants';
   import DamagePartsEditor from '../DamagePartsEditor.vue';
   import ActiveEffectConditionTemplatesModal from './ActiveEffectConditionTemplatesModal.vue';
   import ActiveEffectFlagTemplatesModal from './ActiveEffectFlagTemplatesModal.vue';
@@ -947,7 +948,7 @@
                     icon="tabler:plus"
                     @click.left.exact.prevent="addFlag"
                   >
-                    Добавить
+                    {{ MODAL_BUTTON_LABELS.add }}
                   </UButton>
                 </div>
 
@@ -1035,7 +1036,7 @@
                     icon="tabler:plus"
                     @click.left.exact.prevent="addChange"
                   >
-                    Добавить
+                    {{ MODAL_BUTTON_LABELS.add }}
                   </UButton>
                 </div>
 
@@ -1385,14 +1386,14 @@
           variant="ghost"
           color="neutral"
           @click.left.exact.prevent="handleClose"
-          >Отмена</UButton
+          >{{ MODAL_BUTTON_LABELS.cancel }}</UButton
         >
 
         <UButton
           color="primary"
           :disabled="!form.name.trim()"
           @click.left.exact.prevent="handleSave"
-          >Сохранить</UButton
+          >{{ MODAL_BUTTON_LABELS.save }}</UButton
         >
       </div>
     </template>

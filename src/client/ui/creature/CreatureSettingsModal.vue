@@ -35,6 +35,7 @@
     TOKEN_TINT_DEFAULT,
     useTokenPreview,
   } from '../../composables/useTokenPreview';
+  import { MODAL_BUTTON_LABELS } from '../actor/constants';
   import CreatureDeleteConfirmModal from './CreatureDeleteConfirmModal.vue';
 
   interface Props {
@@ -1152,7 +1153,7 @@
             icon="tabler:trash"
             @click.left.exact.prevent="isDeleteConfirmOpen = true"
           >
-            Удалить
+            {{ MODAL_BUTTON_LABELS.remove }}
           </UButton>
         </div>
 
@@ -1162,7 +1163,7 @@
             variant="soft"
             @click.left.exact.prevent="isOpen = false"
           >
-            Отмена
+            {{ MODAL_BUTTON_LABELS.cancel }}
           </UButton>
 
           <UButton
@@ -1172,7 +1173,7 @@
             :disabled="!hasChanges"
             @click.left.exact.prevent="saveSettings"
           >
-            Сохранить
+            {{ MODAL_BUTTON_LABELS.save }}
           </UButton>
         </div>
       </div>

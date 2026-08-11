@@ -22,6 +22,7 @@
     loadSpellPacks,
   } from '@/systems/dnd5e/composables/spellCompendium';
 
+  import { MODAL_BUTTON_LABELS } from './constants';
   import {
     buildFeatData,
     createEmptyFeatGrants,
@@ -477,14 +478,16 @@
 
         <div class="ml-auto flex gap-3">
           <UButton
-            label="Отмена"
+            :label="MODAL_BUTTON_LABELS.cancel"
             color="neutral"
             variant="ghost"
             @click.left.exact.prevent="emit('close')"
           />
 
           <UButton
-            :label="feat ? 'Сохранить' : 'Создать'"
+            :label="
+              feat ? MODAL_BUTTON_LABELS.save : MODAL_BUTTON_LABELS.create
+            "
             color="primary"
             :disabled="!canSave"
             @click.left.exact.prevent="handleSave"

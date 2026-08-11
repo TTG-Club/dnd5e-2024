@@ -13,6 +13,8 @@
   import { useDiceRollerStore } from '@/stores/diceRollerStore';
   import { getHitDiceGroups, spendHitDice } from '@vtt/shared/system/dnd.js';
 
+  import { MODAL_BUTTON_LABELS } from './constants';
+
   interface Props {
     open: boolean;
     /** Классы актора (источник костей хитов и счётчика потраченных) */
@@ -296,7 +298,7 @@
             size="md"
             @click.left.exact.prevent="isOpen = false"
           >
-            Отмена
+            {{ MODAL_BUTTON_LABELS.cancel }}
           </UButton>
 
           <UButton

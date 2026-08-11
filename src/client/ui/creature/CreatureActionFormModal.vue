@@ -25,6 +25,7 @@
     SAVE_TYPE_OPTIONS,
   } from '@vtt/shared/system/dnd.js';
 
+  import { MODAL_BUTTON_LABELS } from '../actor/constants';
   import DamagePartsEditor from '../actor/DamagePartsEditor.vue';
 
   type ActionMode = 'trait' | 'action';
@@ -684,7 +685,7 @@
                   icon="tabler:plus"
                   @click.left.exact.prevent="openEffectEditor(-1)"
                 >
-                  Добавить
+                  {{ MODAL_BUTTON_LABELS.add }}
                 </UButton>
               </div>
 
@@ -769,7 +770,7 @@
           color="neutral"
           @click.left.exact.prevent="isOpen = false"
         >
-          Отмена
+          {{ MODAL_BUTTON_LABELS.cancel }}
         </UButton>
 
         <UButton
@@ -777,7 +778,7 @@
           :disabled="!form.name.trim() || damageFormulaInvalid"
           @click.left.exact.prevent="handleSave"
         >
-          Сохранить
+          {{ MODAL_BUTTON_LABELS.save }}
         </UButton>
       </div>
     </template>

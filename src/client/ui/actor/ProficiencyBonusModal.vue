@@ -26,7 +26,10 @@
     toStoredProficiencySettings,
   } from '@vtt/shared/system/dnd.js';
 
-  import { PROFICIENCY_SETTINGS_LABELS } from './constants';
+  import {
+    MODAL_BUTTON_LABELS,
+    PROFICIENCY_SETTINGS_LABELS,
+  } from './constants';
   import CustomBonusRows from './CustomBonusRows.vue';
   import { formatSignedNumber } from './utils/formatSignedNumber';
 
@@ -279,7 +282,7 @@
             size="sm"
             @click.left.exact.prevent="isOpen = false"
           >
-            Отмена
+            {{ MODAL_BUTTON_LABELS.cancel }}
           </UButton>
 
           <UButton
@@ -287,7 +290,7 @@
             size="sm"
             @click.left.exact.prevent="applySettings"
           >
-            Применить
+            {{ MODAL_BUTTON_LABELS.apply }}
           </UButton>
         </div>
       </div>

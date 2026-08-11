@@ -1706,7 +1706,7 @@
         openModal('DiceRollModal', {
           'title': `Заклинание — ${spell.name}`,
           'rollLabel': spell.name,
-          'rollButtonText': 'Применить',
+          'rollButtonText': SPELL_MENU_LABELS.cast,
           'skipRoll': true,
           'spellLevel': lockedSpellLevel ?? spell.level,
           'availableSpellLevels': availableLevels,

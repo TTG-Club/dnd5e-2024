@@ -121,14 +121,18 @@ export const CREATURE_ROW_ARIA_LABELS: Record<
   spellMenu: 'Действия с заклинанием',
 };
 
-/** Подписи пунктов меню строки действия, кроме общих с листом персонажа */
+/**
+ * Подписи пунктов меню строки действия, кроме общих с листом персонажа.
+ *
+ * Кнопки пополнения списка здесь нет: её подпись общая для всех окон и лежит в
+ * `MODAL_BUTTON_LABELS.add`.
+ */
 export const CREATURE_ACTION_MENU_LABELS: Record<
-  'attack' | 'use' | 'add' | 'effects',
+  'attack' | 'use' | 'effects',
   string
 > = {
   attack: 'Атаковать',
   use: 'Использовать',
-  add: 'Добавить',
   effects: 'Запись накладывает активные эффекты',
 };
 

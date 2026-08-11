@@ -9,6 +9,8 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
 
+  import { MODAL_BUTTON_LABELS } from './constants';
+
   interface Props {
     /** Открыта ли модалка */
     open: boolean;
@@ -115,7 +117,7 @@
           color="neutral"
           @click.left.exact.prevent="closeModal"
         >
-          Отмена
+          {{ MODAL_BUTTON_LABELS.cancel }}
         </UButton>
 
         <UButton
@@ -123,7 +125,7 @@
           icon="tabler:trash"
           @click.left.exact.prevent="executeDelete"
         >
-          Удалить
+          {{ MODAL_BUTTON_LABELS.remove }}
         </UButton>
       </div>
     </template>
