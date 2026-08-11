@@ -64,7 +64,7 @@
             name="tabler:edit"
             class="h-4 w-4 text-muted"
           />
-          Редактировать
+          {{ SHEET_ROW_MENU_LABELS.edit }}
         </button>
 
         <!-- Разделитель -->

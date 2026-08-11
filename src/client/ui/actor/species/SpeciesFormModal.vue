@@ -50,6 +50,7 @@
   import {
     ARMOR_PROF_LABELS,
     MODAL_BUTTON_LABELS,
+    SHEET_ROW_MENU_LABELS,
     WEAPON_PROF_LABELS,
   } from '../constants';
   import FormSection from '../FormSection.vue';
@@ -1487,7 +1488,7 @@
                     color="neutral"
                     variant="ghost"
                     size="xs"
-                    aria-label="Редактировать"
+                    :aria-label="SHEET_ROW_MENU_LABELS.edit"
                     @click.left.exact.stop.prevent="openNodeEditor(item.value)"
                   />
 
@@ -1634,7 +1635,7 @@
     <template #footer>
       <div class="flex justify-end">
         <UButton
-          label="Готово"
+          :label="MODAL_BUTTON_LABELS.done"
           color="primary"
           @click.left.exact.prevent="closeNodeEditor"
         />

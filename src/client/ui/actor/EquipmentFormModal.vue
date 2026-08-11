@@ -541,7 +541,7 @@
               class="mt-1"
               @click.left.exact.prevent="createCustomEffect"
             >
-              Добавить Эффект
+              {{ MODAL_BUTTON_LABELS.addEffect }}
             </UButton>
           </div>
         </template>

@@ -9,7 +9,10 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
 
-  import { MODAL_BUTTON_LABELS } from '../actor/constants';
+  import {
+    DELETE_CONFIRM_TITLE,
+    MODAL_BUTTON_LABELS,
+  } from '../actor/constants';
 
   interface Props {
     /** Открыта ли модалка */
@@ -80,7 +83,7 @@
 <template>
   <UDraggableModal
     :open="open"
-    title="Подтверждение удаления"
+    :title="DELETE_CONFIRM_TITLE"
     :draggable="false"
     blocking
     :z-index="Z_INDEX.MODAL_ELEVATED"

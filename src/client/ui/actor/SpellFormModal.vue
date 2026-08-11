@@ -20,7 +20,7 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { useSpellForm } from '../../composables/useSpellForm';
-  import { MODAL_BUTTON_LABELS } from './constants';
+  import { MODAL_BUTTON_LABELS, UNSAVED_CHANGES_LABELS } from './constants';
   import DamagePartRow from './DamagePartRow.vue';
   import DamagePartsEditor from './DamagePartsEditor.vue';
   import FormSection from './FormSection.vue';
@@ -1253,7 +1253,7 @@
               class="mt-1"
               @click.left.exact.prevent="createCustomEffect"
             >
-              Добавить Эффект
+              {{ MODAL_BUTTON_LABELS.addEffect }}
             </UButton>
           </div>
         </template>
@@ -1290,7 +1290,7 @@
     :min-width="400"
     :min-height="160"
     :z-index="discardConfirmZIndex"
-    title="Несохранённые изменения"
+    :title="UNSAVED_CHANGES_LABELS.title"
   >
     <template #body>
       <div class="space-y-4">
@@ -1314,7 +1314,7 @@
             size="sm"
             @click.left.exact.prevent="confirmDiscard"
           >
-            Отменить изменения
+            {{ UNSAVED_CHANGES_LABELS.discard }}
           </UButton>
 
           <UButton

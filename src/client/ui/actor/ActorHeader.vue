@@ -18,6 +18,7 @@
   import {
     CREATURE_SIZE_LABELS,
     CREATURE_TYPE_LABELS,
+    EDIT_MODE_TOGGLE_TITLE,
     MISSING_SHEET_SECTIONS,
     MODAL_BUTTON_LABELS,
   } from './constants';
@@ -588,7 +589,7 @@
         v-else-if="canEdit"
         class="flex h-8 w-8 items-center justify-center rounded-full border border-default/50 bg-elevated/30 transition-colors hover:bg-accented/50"
         :class="editModeClass"
-        title="Режим редактирования"
+        :title="EDIT_MODE_TOGGLE_TITLE"
         @click.left.exact.prevent="emit('toggle-edit-mode')"
       >
         <UIcon
@@ -613,7 +614,7 @@
       <!-- Close Button -->
       <button
         class="flex h-8 w-8 items-center justify-center rounded-full border border-default/50 bg-elevated/30 text-muted transition-colors hover:bg-accented/50 hover:text-highlighted"
-        title="Закрыть"
+        :title="MODAL_BUTTON_LABELS.close"
         @click.left.exact.prevent="emit('close')"
       >
         <UIcon

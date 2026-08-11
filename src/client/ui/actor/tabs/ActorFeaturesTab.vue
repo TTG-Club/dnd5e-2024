@@ -826,7 +826,7 @@
             name="tabler:edit"
             class="h-4 w-4 text-muted"
           />
-          Редактировать
+          {{ SHEET_ROW_MENU_LABELS.edit }}
         </button>
 
         <!-- Поделиться в чат -->
@@ -838,7 +838,7 @@
             name="tabler:message-share"
             class="h-4 w-4 text-muted"
           />
-          Поделиться в чат
+          {{ SHEET_ROW_MENU_LABELS.share }}
         </button>
 
         <!-- Разделитель -->

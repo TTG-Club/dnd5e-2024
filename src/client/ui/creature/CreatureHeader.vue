@@ -11,6 +11,7 @@
   import {
     CREATURE_SIZE_LABELS,
     CREATURE_TYPE_LABELS,
+    EDIT_MODE_TOGGLE_TITLE,
     MODAL_BUTTON_LABELS,
   } from '@/systems/dnd5e/ui/actor/constants';
   import { getAssetUrl } from '@vtt/shared';
@@ -309,7 +310,7 @@
         :class="
           isEditMode ? 'text-primary' : 'text-muted hover:text-highlighted'
         "
-        title="Режим редактирования"
+        :title="EDIT_MODE_TOGGLE_TITLE"
         @click.left.exact.prevent="emit('toggle-edit-mode')"
       >
         <UIcon

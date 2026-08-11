@@ -61,6 +61,7 @@
     MODAL_BUTTON_LABELS,
     SPECIES_DEFINITION_MIME,
     SPELL_MIME,
+    UNSAVED_CHANGES_LABELS,
   } from './constants';
   import { applyFeatToActor, resolveFeatGrantedSpells } from './feat/featApply';
   import LongRestModal from './LongRestModal.vue';
@@ -1888,7 +1889,7 @@
     :min-width="400"
     :min-height="160"
     :z-index="Z_INDEX.MODAL_ELEVATED"
-    title="Несохранённые изменения"
+    :title="UNSAVED_CHANGES_LABELS.title"
   >
     <template #body>
       <div class="space-y-4">
@@ -1912,7 +1913,7 @@
             size="sm"
             @click.left.exact.prevent="onConfirmDiscard"
           >
-            Отменить изменения
+            {{ UNSAVED_CHANGES_LABELS.discard }}
           </UButton>
 
           <UButton

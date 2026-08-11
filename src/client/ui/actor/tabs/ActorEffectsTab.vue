@@ -14,6 +14,7 @@
     CONDITIONS,
   } from '@vtt/shared/system/dnd.js';
 
+  import { MODAL_BUTTON_LABELS } from '../constants';
   import ActiveEffectFormModal from './ActiveEffectFormModal.vue';
 
   interface Props {
@@ -325,7 +326,7 @@
       class="mt-1"
       @click.left.exact.prevent="createCustomEffect"
     >
-      Добавить Эффект
+      {{ MODAL_BUTTON_LABELS.addEffect }}
     </UButton>
   </div>
 

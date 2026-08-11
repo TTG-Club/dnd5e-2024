@@ -55,6 +55,7 @@
     MODAL_BUTTON_LABELS,
     SAVING_THROW_ABILITIES,
     SPELL_MIME,
+    UNSAVED_CHANGES_LABELS,
   } from '../actor/constants';
   import DiceRollModal from '../actor/DiceRollModal.vue';
   import LanguageProficiencyModal from '../actor/LanguageProficiencyModal.vue';
@@ -1560,7 +1561,7 @@
     :min-width="400"
     :min-height="160"
     :z-index="Z_INDEX.MODAL_ELEVATED"
-    title="Несохранённые изменения"
+    :title="UNSAVED_CHANGES_LABELS.title"
   >
     <template #body>
       <div class="space-y-4">
@@ -1584,7 +1585,7 @@
             size="sm"
             @click.left.exact.prevent="onConfirmDiscard"
           >
-            Отменить изменения
+            {{ UNSAVED_CHANGES_LABELS.discard }}
           </UButton>
 
           <UButton
