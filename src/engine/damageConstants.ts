@@ -38,10 +38,32 @@ export const DEFENSIBLE_DAMAGE_TYPES = [
  * которому защиты неприменимы. Рантайм-зеркало типа `DamageType` — нужно
  * Zod-схемам, валидирующим `DamagePart.type` у внешних данных.
  */
+/**
+ * Служебный «тип урона»: стихию выбирает игрок при броске. Защиты к нему
+ * неприменимы, и в списках выбора типа его не показывают.
+ */
+export const CHOICE_DAMAGE_TYPE = 'choice';
+
 export const DAMAGE_TYPES = [
   ...DEFENSIBLE_DAMAGE_TYPES,
-  'choice',
+  CHOICE_DAMAGE_TYPE,
 ] as const satisfies readonly DamageType[];
+
+/** Набор известных типов урона для быстрой проверки строки */
+const DAMAGE_TYPE_SET: ReadonlySet<string> = new Set(DAMAGE_TYPES);
+
+/**
+ * Проверяет, что строка — известный тип урона.
+ *
+ * Нужна там, где тип приходит извне: справочники мира, компендиумы, формы. Без
+ * проверки чужой ключ уехал бы в расчёт урона и молча выпал бы из защит.
+ *
+ * @param value - произвольная строка (ключ из справочника, поле формы)
+ * @returns `true`, если это тип урона системы
+ */
+export function isDamageType(value: string): value is DamageType {
+  return DAMAGE_TYPE_SET.has(value);
+}
 
 /**
  * Возможные цели части урона/лечения. Рантайм-зеркало `DamagePartTarget`:

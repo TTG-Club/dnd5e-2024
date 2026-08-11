@@ -18,7 +18,7 @@
 
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import AbilityScore from './AbilityScore.vue';
-  import { ABILITY_SHORT_LABELS } from './constants';
+  import { ABILITY_SHORT_LABELS, DICE_ROLL_DEFAULT_BUTTON } from './constants';
   import DiceRollModal from './DiceRollModal.vue';
 
   interface Props {
@@ -99,7 +99,7 @@
     modifier: 0,
     title: '',
     rollLabel: '',
-    rollButtonText: 'Бросить',
+    rollButtonText: DICE_ROLL_DEFAULT_BUTTON,
     initialRollMode: 'normal',
   });
 

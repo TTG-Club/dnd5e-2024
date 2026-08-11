@@ -33,23 +33,32 @@
     CREATURE_ENVIRONMENTS,
     CREATURE_SIZE_TO_TOKEN_SCALE,
     DEFAULT_CREATURE,
+    DEFAULT_PROFICIENCY_BONUS,
     formatVisionRange,
+    getActorAbilityModifiers,
+    getCreatureProficiencyBonus,
     getCustomBonusesValue,
     getCustomSkillValue,
     getProficiencyContribution,
     getSkillSetting,
     getSkillSettingAbility,
     isProficiencyLevel,
+    isSpell,
     normalizeCreature,
     PASSIVE_SKILL_BASE,
     SKILLS_LIST,
   } from '@vtt/shared/system/dnd.js';
 
   import { useResolvedStats } from '../../composables/useResolvedStats';
-  import { SAVING_THROW_ABILITIES, SPELL_MIME } from '../actor/constants';
+  import {
+    DICE_ROLL_DEFAULT_BUTTON,
+    SAVING_THROW_ABILITIES,
+    SPELL_MIME,
+  } from '../actor/constants';
   import DiceRollModal from '../actor/DiceRollModal.vue';
   import LanguageProficiencyModal from '../actor/LanguageProficiencyModal.vue';
   import SkillSettingsModal from '../actor/SkillSettingsModal.vue';
+  import { formatSignedNumber } from '../actor/utils/formatSignedNumber';
   import CreatureAbilities from './CreatureAbilities.vue';
   import CreatureCombatBlock from './CreatureCombatBlock.vue';
   import CreatureConditionImmunitiesModal from './CreatureConditionImmunitiesModal.vue';
@@ -159,11 +168,19 @@
 
   const isDiceRollOpen = ref(false);
 
-  const diceRollConfig = ref({
+  /** Настройка окна броска: собирается перед каждым открытием */
+  interface DiceRollConfig {
+    modifier: number;
+    title: string;
+    rollLabel: string;
+    rollButtonText: string;
+  }
+
+  const diceRollConfig = ref<DiceRollConfig>({
     modifier: 0,
     title: '',
     rollLabel: '',
-    rollButtonText: 'Бросить',
+    rollButtonText: DICE_ROLL_DEFAULT_BUTTON,
   });
 
   /**
@@ -175,15 +192,13 @@
    * @param config.rollLabel - подпись броска
    * @param config.rollButtonText - надпись на кнопке броска
    */
-  function openDiceRoll(config: {
-    modifier: number;
-    title: string;
-    rollLabel: string;
-    rollButtonText?: string;
-  }): void {
+  function openDiceRoll(
+    config: Partial<DiceRollConfig>
+      & Pick<DiceRollConfig, 'modifier' | 'title' | 'rollLabel'>,
+  ): void {
     diceRollConfig.value = {
       ...config,
-      rollButtonText: config.rollButtonText ?? 'Бросить',
+      rollButtonText: config.rollButtonText ?? DICE_ROLL_DEFAULT_BUTTON,
     };
 
     isDiceRollOpen.value = true;
@@ -525,18 +540,20 @@
    * Модификаторы характеристик существа — по ним считаются свои навыки и
    * запасной расчёт навыков правил.
    */
-  const skillAbilityMods = computed<Record<AbilityType, number>>(() => {
-    const scores = localCreature.value?.system.abilities;
+  const skillAbilityMods = computed<Record<AbilityType, number>>(() =>
+    getActorAbilityModifiers(localCreature.value),
+  );
 
-    return {
-      strength: calculateAbilityModifier(scores?.strength ?? 10),
-      dexterity: calculateAbilityModifier(scores?.dexterity ?? 10),
-      constitution: calculateAbilityModifier(scores?.constitution ?? 10),
-      intelligence: calculateAbilityModifier(scores?.intelligence ?? 10),
-      wisdom: calculateAbilityModifier(scores?.wisdom ?? 10),
-      charisma: calculateAbilityModifier(scores?.charisma ?? 10),
-    };
-  });
+  /**
+   * Бонус мастерства существа: по опасности, с поправками своей настройки и с
+   * учётом активных эффектов. Считать его нужно именно так везде — числа в
+   * навыках, спасбросках и заклинательстве идут от него.
+   */
+  const creatureProficiencyBonus = computed(() =>
+    localCreature.value
+      ? getCreatureProficiencyBonus(localCreature.value, resolvedStats.value)
+      : DEFAULT_PROFICIENCY_BONUS,
+  );
 
   /**
    * Поля, чей итог задан активным эффектом целиком. Окно настройки берёт
@@ -561,7 +578,7 @@
 
     const settings = creature.system.skillSettings;
     const mods = skillAbilityMods.value;
-    const profBonus = creature.system.proficiencyBonus || 0;
+    const profBonus = creatureProficiencyBonus.value;
     const result: string[] = [];
 
     for (const skill of SKILLS_LIST) {
@@ -580,13 +597,13 @@
 
       const total = resolvedStats.value?.skills[skill.key] ?? fallback;
 
-      result.push(`${skill.label} ${formatModifier(total)}`);
+      result.push(`${skill.label} ${formatSignedNumber(total)}`);
     }
 
     for (const skill of settings?.custom ?? []) {
       const total = getCustomSkillValue(mods, profBonus, skill);
 
-      result.push(`${skill.name} ${formatModifier(total)}`);
+      result.push(`${skill.name} ${formatSignedNumber(total)}`);
     }
 
     return result.sort();
@@ -863,7 +880,13 @@
     event.preventDefault();
 
     try {
-      const dropped = JSON.parse(data) as Spell;
+      const dropped: unknown = JSON.parse(data);
+
+      // Данные приезжают из события браузера: без проверки испорченная
+      // нагрузка легла бы в запись существа и сломала бы его лист
+      if (!isSpell(dropped)) {
+        return;
+      }
 
       const current = localCreature.value.spells ?? [];
 
@@ -931,9 +954,7 @@
     const abilityMod = calculateAbilityModifier(abilityScore);
     const hasProficiency = creatureSavingThrows.value.includes(abilityKey);
 
-    const profBonus = hasProficiency
-      ? localCreature.value.system.proficiencyBonus || 0
-      : 0;
+    const profBonus = hasProficiency ? creatureProficiencyBonus.value : 0;
 
     return abilityMod + profBonus;
   }
@@ -953,7 +974,7 @@
         localCreature.value.system.abilities.wisdom ?? 10,
       )
       + getProficiencyContribution(
-        localCreature.value.system.proficiencyBonus ?? 0,
+        creatureProficiencyBonus.value,
         getSkillProficiency('perception'),
       );
 
@@ -973,10 +994,6 @@
   /**
    * Форматирует модификатор со знаком (+/-)
    */
-  function formatModifier(value: number): string {
-    return value >= 0 ? `+${value}` : `${value}`;
-  }
-
   /**
    * Нажатие по строке спасброска: вне режима правки катит спасбросок — как на
    * листе персонажа. В режиме правки строка ничего не бросает: там её кружком
@@ -1076,6 +1093,8 @@
               <CreatureCombatBlock
                 :system="localCreature.system"
                 :is-edit-mode="isEditMode"
+                :ability-mods="skillAbilityMods"
+                :proficiency-bonus="creatureProficiencyBonus"
                 @update:system="handleSystemUpdate"
               />
 
@@ -1255,7 +1274,9 @@
                       <span
                         class="rounded border border-default bg-elevated px-2 py-0.5 text-sm font-bold text-highlighted shadow-sm"
                       >
-                        {{ formatModifier(calculateSavingThrow(ability.key)) }}
+                        {{
+                          formatSignedNumber(calculateSavingThrow(ability.key))
+                        }}
                       </span>
                     </div>
                   </div>
@@ -1604,7 +1625,7 @@
     :proficiencies="localCreature.system.skills"
     :settings="localCreature.system.skillSettings"
     :ability-mods="skillAbilityMods"
-    :proficiency-bonus="localCreature.system.proficiencyBonus || 0"
+    :proficiency-bonus="creatureProficiencyBonus"
     :skills="resolvedStats?.skills ?? {}"
     :overridden-keys="overriddenSkillKeys"
     @apply="onSkillsApply"

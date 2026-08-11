@@ -10,12 +10,12 @@
   import { computed, ref } from 'vue';
 
   import { generateId } from '@vtt/shared';
+  import { calculateProficiencyBonus } from '@vtt/shared/system/dnd.js';
 
   import {
     buildPresetColumn,
     collectLeafColumnKeys,
     COLUMN_PRESETS,
-    defaultProficiencyBonus,
     isReservedColumnKey,
     presetKeys,
   } from './classEditorTypes';
@@ -175,7 +175,7 @@
   /** Заполняет бонус мастерства по стандартной прогрессии для всех уровней. */
   function autofillProficiency(): void {
     for (const row of rows.value) {
-      row.proficiencyBonus = defaultProficiencyBonus(row.level);
+      row.proficiencyBonus = calculateProficiencyBonus(row.level);
     }
   }
 

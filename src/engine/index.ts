@@ -32,6 +32,7 @@ export * from './hitPoints.js';
 export * from './itemSchemas.js';
 export * from './positionalEffects.js';
 export * from './preparedSpells.js';
+export * from './proficiencyBonus.js';
 export * from './restEngine.js';
 export * from './savingThrows.js';
 export * from './skills.js';

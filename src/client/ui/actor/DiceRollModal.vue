@@ -21,12 +21,19 @@
   import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import {
     buildAttackFormula,
+    CHOICE_DAMAGE_TYPE,
     doubleDiceInFormula,
     formatDamageDefenseSuffix,
     getShortDamageTypeLabel,
+    isDamageType,
     performTwoStageAttack,
     scaleDamageFormula,
   } from '@vtt/shared/system/dnd.js';
+
+  import {
+    DICE_ROLL_DEFAULT_BUTTON,
+    SPELL_DAMAGE_ROLL_BUTTON,
+  } from './constants';
 
   type RollVisibility = 'public' | 'gm' | 'private';
 
@@ -147,7 +154,7 @@
   }
 
   const props = withDefaults(defineProps<Props>(), {
-    rollButtonText: 'Бросить',
+    rollButtonText: DICE_ROLL_DEFAULT_BUTTON,
     formula: undefined,
     formulaDisplay: undefined,
     modifier: 0,
@@ -214,14 +221,17 @@
     return props.damageType;
   });
 
-  /** Опции для селекта типа урона */
+  /**
+   * Опции для селекта типа урона. Справочник приходит из мира, поэтому ключ
+   * проверяется: чужой тип в списке всё равно не выбрать — защиты его не знают.
+   * Служебный «выбор стихии» в списке не нужен — его выбирают на самом уроне.
+   */
   const damageTypeOptions = computed(() =>
-    systemDataStore.damageTypes
-      .filter((dt) => dt.key !== 'choice')
-      .map((dt) => ({
-        label: dt.name,
-        value: dt.key as DamageType,
-      })),
+    systemDataStore.damageTypes.flatMap((damageType) =>
+      damageType.key !== CHOICE_DAMAGE_TYPE && isDamageType(damageType.key)
+        ? [{ label: damageType.name, value: damageType.key }]
+        : [],
+    ),
   );
 
   /** Показывать ли секцию каста заклинания */
@@ -311,7 +321,7 @@
       && targetAc.value === null
       && props.onProjectileAttack === undefined
     ) {
-      return 'Бросить урон';
+      return SPELL_DAMAGE_ROLL_BUTTON;
     }
 
     return props.rollButtonText;

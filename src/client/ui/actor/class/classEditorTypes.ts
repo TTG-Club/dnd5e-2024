@@ -29,6 +29,7 @@ import type {
 } from '@vtt/shared/system/dnd.js';
 
 import { generateId } from '@vtt/shared';
+import { calculateProficiencyBonus } from '@vtt/shared/system/dnd.js';
 
 // ── Колонки таблицы прогрессии ───────────────────────────────
 
@@ -178,11 +179,6 @@ export interface EditableEquipmentOption {
 // Хелперы
 // ============================================================
 
-/** Стандартный бонус мастерства D&D 5e для уровня (1-20). */
-export function defaultProficiencyBonus(level: number): number {
-  return Math.ceil(level / 4) + 1;
-}
-
 /** Является ли ключ особенности маркером ASI (как у мастера класса). */
 export function isAsiFeatureKey(featureKey: string): boolean {
   return featureKey.startsWith('asi-') || featureKey === 'epic-boon';
@@ -295,7 +291,7 @@ export function createEmptyFeature(name: string): EditableClassFeature {
 export function createEmptyLevelRow(level: number): EditableLevelRow {
   return {
     level,
-    proficiencyBonus: defaultProficiencyBonus(level),
+    proficiencyBonus: calculateProficiencyBonus(level),
     hasAsi: false,
     newCantrips: 0,
     newSpells: 0,
@@ -499,7 +495,8 @@ export function toEditableLevelTable(
     rows[index] = {
       level: sourceRow.level,
       proficiencyBonus:
-        sourceRow.proficiencyBonus ?? defaultProficiencyBonus(sourceRow.level),
+        sourceRow.proficiencyBonus
+        ?? calculateProficiencyBonus(sourceRow.level),
       hasAsi: featureKeys.some((key) => plainAsiKeys.has(key)),
       newCantrips:
         typeof sourceRow.newCantrips === 'number' ? sourceRow.newCantrips : 0,

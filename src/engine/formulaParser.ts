@@ -19,9 +19,17 @@
  * - Отклоняет любой невалидный ввод
  */
 
+import type { AbilityType } from '@vtt/shared';
+
 import { isActorEntity } from '@vtt/shared';
 
+import { calculateProficiencyBonus } from './calculations.js';
 import { getTotalLevel } from './classTypes.js';
+import {
+  DEFAULT_PROFICIENCY_BONUS,
+  getProficiencyBonusBreakdown,
+  parseProficiencySettings,
+} from './proficiencyBonus.js';
 
 // ── Типы ──────────────────────────────────────────────────────
 
@@ -663,6 +671,26 @@ function isAlphaNumeric(char: string): boolean {
   return isAlpha(char) || (char >= '0' && char <= '9');
 }
 
+/**
+ * Модификаторы характеристик из контекста формул: в нём они лежат рядом со
+ * значениями, а расчёту своих бонусов мастерства нужны одни модификаторы.
+ *
+ * @param abilities - характеристики контекста
+ * @returns модификаторы всех шести характеристик
+ */
+function toAbilityModifiers(
+  abilities: Record<string, { value: number; mod: number }>,
+): Record<AbilityType, number> {
+  return {
+    strength: abilities.strength?.mod ?? 0,
+    dexterity: abilities.dexterity?.mod ?? 0,
+    constitution: abilities.constitution?.mod ?? 0,
+    intelligence: abilities.intelligence?.mod ?? 0,
+    wisdom: abilities.wisdom?.mod ?? 0,
+    charisma: abilities.charisma?.mod ?? 0,
+  };
+}
+
 // ── Публичный API ─────────────────────────────────────────────
 
 /**
@@ -700,21 +728,29 @@ export function buildFormulaContext(
   }
 
   let level = 1;
-  let prof = 2;
+  let ruleProficiencyBonus = DEFAULT_PROFICIENCY_BONUS;
 
   if (isActorEntity(actor)) {
     level = getTotalLevel(actor.system.classes);
-    prof = calculateProficiencyBonus(level);
+    ruleProficiencyBonus = calculateProficiencyBonus(level);
   } else if ('proficiencyBonus' in actor.system) {
-    // Существо: классовых уровней нет (@level остаётся 1) — бонус мастерства
-    // берётся напрямую из system.proficiencyBonus.
+    // Существо: классовых уровней нет (@level остаётся 1) — основа бонуса
+    // берётся напрямую из system.proficiencyBonus (бонус по опасности).
     const creatureProficiencyBonus = actor.system.proficiencyBonus;
 
-    prof =
+    ruleProficiencyBonus =
       typeof creatureProficiencyBonus === 'number'
         ? creatureProficiencyBonus
-        : 2;
+        : DEFAULT_PROFICIENCY_BONUS;
   }
+
+  // Настройка листа правит и `@prof`: со своей основой мастерства формулы
+  // эффектов должны считать то же число, что и весь остальной лист
+  const prof = getProficiencyBonusBreakdown({
+    ruleValue: ruleProficiencyBonus,
+    settings: parseProficiencySettings(actor.system.proficiencySettings),
+    abilityMods: toAbilityModifiers(abilities),
+  }).value;
 
   return {
     abilities,
@@ -860,16 +896,6 @@ export function validateFormula(formula: string): FormulaValidationResult {
 
     return { valid: false, error: errorMessage };
   }
-}
-
-/**
- * Вычисляет бонус мастерства по уровню (D&D 5e).
- *
- * @param level - уровень персонажа (1-20)
- * @returns бонус мастерства
- */
-function calculateProficiencyBonus(level: number): number {
-  return Math.ceil(level / 4) + 1;
 }
 
 // ── Подсказки для UI ──────────────────────────────────────────

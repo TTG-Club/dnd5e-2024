@@ -42,6 +42,7 @@
     ABILITY_SHORT_LABELS,
     FILTER_ROW_CONTROL_SIZE,
     SHEET_ROW_MENU_LABELS,
+    SPELL_DAMAGE_ROLL_BUTTON,
   } from '../actor/constants';
   import DiceRollModal from '../actor/DiceRollModal.vue';
   import { formatSignedNumber } from '../actor/utils/formatSignedNumber';
@@ -410,7 +411,7 @@
       title: usesSaveOrArea ? action.name : `Атака — ${action.name}`,
       name: action.name,
       formula: setup.baseParts[0]?.formula ?? '',
-      rollButtonText: usesSaveOrArea ? 'Бросить урон' : 'Атаковать',
+      rollButtonText: usesSaveOrArea ? SPELL_DAMAGE_ROLL_BUTTON : 'Атаковать',
       attackModifier: usesSaveOrArea ? undefined : action.attackBonus,
       initialRollMode: isDisadvantage ? 'disadvantage' : 'normal',
       incomingAttackType: action.rangeType === 'ranged' ? 'ranged' : 'melee',

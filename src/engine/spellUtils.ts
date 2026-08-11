@@ -17,17 +17,47 @@ import type { CreatureSpellcasting } from './creatureTypes.js';
 import type { DnDActor, Spell, SpellProjectiles } from './dndEntities.js';
 import type { DnDAbilityScores } from './types.js';
 
+import { isRecord } from '@vtt/shared';
+
 import {
   calculateAbilityModifier,
-  calculateProficiencyBonus,
+  getActorProficiencyBonus,
+  getCreatureProficiencyBonus,
 } from './calculations.js';
-import { getTotalLevel } from './classTypes.js';
 import { SPELL_SAVE_DC_BASE } from './consts.js';
 import { getSpellDamageParts } from './damageParts.js';
 import {
   buildFormulaContext,
   substituteFormulaVariables,
 } from './formulaParser.js';
+
+// ── Разбор внешних данных ────────────────────────────────────
+
+/**
+ * Проверяет, что значение — заклинание.
+ *
+ * Проверка структурная и намеренно ленивая, как у схем предметов: сверяется
+ * «конверт» заклинания (то, без чего оно не заклинание и без чего сломается
+ * лист), а прочие поля идут как есть. Строже нельзя — заклинания приезжают из
+ * компендиумов и миров разных лет, и полная сверка отвергала бы рабочие записи.
+ *
+ * Нужна там, где заклинание приходит извне: перетаскивание между окнами,
+ * буфер обмена, полезная нагрузка сокета.
+ *
+ * @param value - произвольное значение (разобранный JSON, данные события)
+ * @returns `true`, если значение — заклинание
+ */
+export function isSpell(value: unknown): value is Spell {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    typeof value.id === 'string'
+    && typeof value.name === 'string'
+    && typeof value.level === 'number'
+  );
+}
 
 // ── Расчёт атаки ─────────────────────────────────────────────
 
@@ -97,7 +127,7 @@ export function calculateSpellAttackModifier(
       actor.system?.abilities?.[ability] ?? 10,
     );
 
-    modifier += calculateProficiencyBonus(getTotalLevel(actor.system?.classes));
+    modifier += getActorProficiencyBonus(actor);
   }
 
   // Доп. бонус на заклинании
@@ -1140,7 +1170,7 @@ export function getCreatureSpellSaveDC(
   return calculateCreatureSpellcasting(
     creature.system.spellcasting,
     creature.system.abilities,
-    creature.system.proficiencyBonus,
+    getCreatureProficiencyBonus(creature),
   ).saveDC;
 }
 
@@ -1156,7 +1186,7 @@ export function getCreatureSpellAttackBonus(
   return calculateCreatureSpellcasting(
     creature.system.spellcasting,
     creature.system.abilities,
-    creature.system.proficiencyBonus,
+    getCreatureProficiencyBonus(creature),
   ).attackBonus;
 }
 

@@ -51,6 +51,11 @@ import { DEFENSIBLE_DAMAGE_TYPES } from './damageConstants.js';
 import { collectStaticDamageDefenses } from './damageUtils.js';
 import { buildFormulaContext, evaluateFormula } from './formulaParser.js';
 import {
+  DEFAULT_PROFICIENCY_BONUS,
+  getProficiencyBonusBreakdown,
+  parseProficiencySettings,
+} from './proficiencyBonus.js';
+import {
   getSavingThrowSetting,
   parseSavingThrowSettings,
 } from './savingThrows.js';
@@ -1047,41 +1052,52 @@ export function prepareDerivedData(
   const system = actor.system;
   const derivedStats = cloneResolvedStats(modifiedStats);
 
-  // Вычисляем proficiency bonus
-  let proficiencyBonus = 2;
-
-  if ('classes' in system && Array.isArray(system.classes)) {
-    // DnDActor
-    const level = getTotalLevel(system.classes);
-
-    proficiencyBonus = calculateProficiencyBonus(level);
-  } else if ('details' in system) {
-    // Legacy / Fallback
-    const details = system.details;
-
-    proficiencyBonus =
-      isRecord(details) && typeof details.proficiencyBonus === 'number'
-        ? details.proficiencyBonus
-        : 2;
-  } else if ('proficiencyBonus' in system) {
-    // Creature
-    const creatureProficiencyBonus = system.proficiencyBonus;
-
-    proficiencyBonus =
-      typeof creatureProficiencyBonus === 'number'
-        ? creatureProficiencyBonus
-        : 2;
-  }
-
-  derivedStats.proficiencyBonus =
-    derivedStats.proficiencyBonus || proficiencyBonus;
-
-  // 2. Модификаторы характеристик
+  // 1. Модификаторы характеристик. Считаются первыми: от них зависят и свои
+  // бонусы к мастерству, и всё, что идёт ниже
   for (const abilityKey of ABILITY_KEYS) {
     derivedStats.abilityMods[abilityKey] = Math.floor(
       (derivedStats.abilities[abilityKey] - 10) / 2,
     );
   }
+
+  // 2. Бонус мастерства — по правилам
+  let ruleProficiencyBonus = DEFAULT_PROFICIENCY_BONUS;
+
+  if ('classes' in system && Array.isArray(system.classes)) {
+    // DnDActor
+    const level = getTotalLevel(system.classes);
+
+    ruleProficiencyBonus = calculateProficiencyBonus(level);
+  } else if ('details' in system) {
+    // Legacy / Fallback
+    const details = system.details;
+
+    ruleProficiencyBonus =
+      isRecord(details) && typeof details.proficiencyBonus === 'number'
+        ? details.proficiencyBonus
+        : DEFAULT_PROFICIENCY_BONUS;
+  } else if ('proficiencyBonus' in system) {
+    // Creature
+    const creatureProficiencyBonus = system.proficiencyBonus;
+
+    ruleProficiencyBonus =
+      typeof creatureProficiencyBonus === 'number'
+        ? creatureProficiencyBonus
+        : DEFAULT_PROFICIENCY_BONUS;
+  }
+
+  // Настройка листа заменяет основу расчёта и добавляет свои бонусы: у актёра
+  // она правит бонус по уровню, у существа — бонус по опасности
+  const proficiencyBonus = getProficiencyBonusBreakdown({
+    ruleValue: ruleProficiencyBonus,
+    settings: parseProficiencySettings(
+      isRecord(system) ? system.proficiencySettings : undefined,
+    ),
+    abilityMods: derivedStats.abilityMods,
+  }).value;
+
+  derivedStats.proficiencyBonus =
+    derivedStats.proficiencyBonus || proficiencyBonus;
 
   // 3. Спасброски
   const savingThrowSettings = parseSavingThrowSettings(

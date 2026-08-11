@@ -1,6 +1,9 @@
 <script setup lang="ts">
-  import type { ActorMovement } from '@vtt/shared';
-  import type { CreatureSystem } from '@vtt/shared/system/dnd.js';
+  import type { AbilityType, ActorMovement } from '@vtt/shared';
+  import type {
+    CreatureSystem,
+    DnDProficiencySettings,
+  } from '@vtt/shared/system/dnd.js';
 
   import { computed, ref } from 'vue';
 
@@ -8,19 +11,32 @@
   import { DISTANCE_UNIT_SHORT } from '@vtt/shared';
   import {
     calculateAbilityModifier,
+    getDisplayMovement,
     getMovementList,
     rollDamageFormula,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useProficiencyBonus } from '../../composables/useProficiencyBonus';
   import ArmorClassModal from '../actor/ArmorClassModal.vue';
+  import { SHEET_TILE_LABELS } from '../actor/constants';
   import DiceRollModal from '../actor/DiceRollModal.vue';
   import InitiativeModal from '../actor/InitiativeModal.vue';
+  import ProficiencyBonusModal from '../actor/ProficiencyBonusModal.vue';
+  import { formatSignedNumber } from '../actor/utils/formatSignedNumber';
+  import {
+    CREATURE_MOVEMENT_EMPTY,
+    CREATURE_PROFICIENCY_RULE_TITLE,
+  } from './constants';
   import CreatureHitPointsModal from './CreatureHitPointsModal.vue';
   import CreatureMovementModal from './CreatureMovementModal.vue';
 
   interface Props {
     system: CreatureSystem;
     isEditMode: boolean;
+    /** Модификаторы характеристик листа — для бонусов от характеристики */
+    abilityMods: Record<AbilityType, number>;
+    /** Итоговый бонус мастерства листа с учётом активных эффектов */
+    proficiencyBonus?: number;
   }
 
   const props = defineProps<Props>();
@@ -32,6 +48,48 @@
   const dexModifier = computed(() =>
     calculateAbilityModifier(props.system.abilities?.dexterity ?? 10),
   );
+
+  // --- Бонус мастерства ---
+
+  /** Подпись основы по правилам: показатель опасности существа */
+  const proficiencyRuleTitle = computed(
+    () =>
+      `${CREATURE_PROFICIENCY_RULE_TITLE} ${props.system.challengeRating || '—'}`,
+  );
+
+  const {
+    settings: proficiencySettings,
+    value: proficiencyValue,
+    tooltip: proficiencyTooltip,
+  } = useProficiencyBonus({
+    settings: () => props.system.proficiencySettings,
+    ruleValue: () => props.system.proficiencyBonus,
+    ruleTitle: proficiencyRuleTitle,
+    abilityMods: () => props.abilityMods,
+    resolvedValue: () => props.proficiencyBonus,
+  });
+
+  const formattedProficiency = computed(() =>
+    formatSignedNumber(proficiencyValue.value),
+  );
+
+  const isProficiencyBonusOpen = ref(false);
+
+  /** Открывает окно настройки бонуса мастерства — только в правке */
+  function openProficiencyBonus(): void {
+    if (props.isEditMode) {
+      isProficiencyBonusOpen.value = true;
+    }
+  }
+
+  /**
+   * Применяет настройку бонуса мастерства из окна.
+   *
+   * @param settings - своя основа и свои бонусы
+   */
+  function onProficiencySettingsApply(settings: DnDProficiencySettings): void {
+    emit('update:system', { proficiencySettings: settings });
+  }
 
   // --- Передвижение ---
 
@@ -50,7 +108,17 @@
     () => props.system.movement ?? DEFAULT_MOVEMENT,
   );
 
+  /** Главный вид передвижения — он и стоит в плитке */
+  const displayMovement = computed(() =>
+    getDisplayMovement(creatureMovement.value),
+  );
+
   const movementList = computed(() => getMovementList(creatureMovement.value));
+
+  /** Сокращение единиц измерения — оно одно у плитки и у подсказки */
+  const movementUnitLabel = computed(
+    () => DISTANCE_UNIT_SHORT[creatureMovement.value.units ?? 'ft'],
+  );
 
   const isMovementOpen = ref(false);
 
@@ -166,10 +234,12 @@
 
 <template>
   <div class="flex flex-col gap-3">
-    <div class="grid grid-cols-[1fr_min-content] gap-3">
+    <!-- Плитки стоят сеткой два на два, как в листе персонажа: четыре коротких
+      числа читаются рядом, и ни одно из них не растягивается на всю колонку -->
+    <div class="grid grid-cols-2 gap-3">
       <!-- КД -->
       <FieldsetLabel
-        label="Класс доспеха"
+        :label="SHEET_TILE_LABELS.armorClass"
         center
         class="group h-full bg-default/20 transition-colors"
         :class="
@@ -197,7 +267,7 @@
 
       <!-- Инициатива -->
       <FieldsetLabel
-        label="Инициатива"
+        :label="SHEET_TILE_LABELS.initiative"
         center
         class="h-full bg-default/20 transition-colors"
         :class="
@@ -216,11 +286,98 @@
           </div>
         </div>
       </FieldsetLabel>
+
+      <!-- Мастерство -->
+      <UTooltip
+        :delay-duration="300"
+        :ui="{ content: 'h-auto' }"
+      >
+        <FieldsetLabel
+          :label="SHEET_TILE_LABELS.proficiency"
+          center
+          class="h-full bg-default/20 transition-colors"
+          :class="
+            isEditMode
+              ? 'cursor-pointer border-primary/30 hover:border-primary/50'
+              : 'border-muted'
+          "
+          @click.left.exact.prevent="openProficiencyBonus"
+        >
+          <div class="flex h-full items-center justify-center p-2 pt-0">
+            <div class="text-xl font-bold text-highlighted tabular-nums">
+              {{ formattedProficiency }}
+            </div>
+          </div>
+        </FieldsetLabel>
+
+        <template #content>
+          <span>{{ proficiencyTooltip }}</span>
+        </template>
+      </UTooltip>
+
+      <!-- Скорость: в плитке главный вид передвижения, остальные — в подсказке.
+        Так же она стоит и в листе персонажа -->
+      <UTooltip
+        :delay-duration="300"
+        :ui="{ content: 'h-auto' }"
+      >
+        <FieldsetLabel
+          :label="displayMovement.label"
+          center
+          class="h-full bg-default/20 transition-colors"
+          :class="
+            isEditMode
+              ? 'cursor-pointer border-primary/30 hover:border-primary/50'
+              : 'border-muted'
+          "
+          @click.left.exact.prevent="isEditMode && openMovement()"
+        >
+          <div class="flex h-full items-center justify-center p-2 pt-0">
+            <div class="flex items-baseline gap-1">
+              <span class="text-xl font-bold text-highlighted tabular-nums">
+                {{ displayMovement.value }}
+              </span>
+
+              <span class="text-[10px] font-medium text-dimmed">
+                {{ movementUnitLabel }}
+              </span>
+            </div>
+          </div>
+        </FieldsetLabel>
+
+        <template #content>
+          <div class="flex flex-col gap-1">
+            <div
+              v-for="item in movementList"
+              :key="item.type"
+              class="flex items-center gap-2"
+            >
+              <span class="tabular-nums opacity-70">
+                {{ item.value }} {{ movementUnitLabel }}
+              </span>
+
+              <span>
+                {{ item.label }}
+                <span
+                  v-if="item.type === 'fly' && creatureMovement.hover"
+                  class="text-xs italic opacity-70"
+                >
+                  (зависание)
+                </span>
+              </span>
+            </div>
+
+            <span v-if="movementList.length === 0">
+              {{ CREATURE_MOVEMENT_EMPTY }}
+            </span>
+          </div>
+        </template>
+      </UTooltip>
     </div>
 
     <!-- Здоровье -->
     <FieldsetLabel
-      label="Здоровье"
+      :label="SHEET_TILE_LABELS.hitPoints"
       class="group h-full cursor-pointer bg-default/20 transition-colors"
       :class="
         isEditMode
@@ -314,52 +471,6 @@
         </div>
       </div>
     </FieldsetLabel>
-
-    <!-- Скорость -->
-    <FieldsetLabel
-      label="Скорость"
-      class="bg-default/20 transition-colors"
-      :class="[
-        isEditMode
-          ? 'cursor-pointer border-primary/30 hover:border-primary/50'
-          : 'border-muted',
-      ]"
-      @click.left.exact.prevent="isEditMode && openMovement()"
-    >
-      <div class="flex flex-col gap-0.5 p-2 pt-1">
-        <div
-          v-for="item in movementList"
-          :key="item.type"
-          class="flex items-center justify-between text-sm"
-        >
-          <span class="text-toned">
-            {{ item.label }}
-            <span
-              v-if="item.type === 'fly' && creatureMovement.hover"
-              class="text-xs text-dimmed italic"
-              >(зависание)</span
-            >
-          </span>
-
-          <div class="flex items-baseline gap-0.5">
-            <span class="font-bold text-highlighted tabular-nums">{{
-              item.value
-            }}</span>
-
-            <span class="text-xs text-dimmed">{{
-              DISTANCE_UNIT_SHORT[creatureMovement.units ?? 'ft']
-            }}</span>
-          </div>
-        </div>
-
-        <div
-          v-if="movementList.length === 0"
-          class="text-center text-xs text-dimmed italic"
-        >
-          —
-        </div>
-      </div>
-    </FieldsetLabel>
   </div>
 
   <!-- Модалка передвижения -->
@@ -383,6 +494,17 @@
     :dex-modifier="dexModifier"
     is-creature-mode
     @apply="onArmorClassApply"
+  />
+
+  <!-- Модалка настройки бонуса мастерства -->
+  <ProficiencyBonusModal
+    v-model:open="isProficiencyBonusOpen"
+    :settings="proficiencySettings"
+    :ability-mods="abilityMods"
+    :rule-value="system.proficiencyBonus"
+    :rule-title="proficiencyRuleTitle"
+    :sheet-value="proficiencyValue"
+    @apply="onProficiencySettingsApply"
   />
 
   <!-- Модалка инициативы -->

@@ -29,7 +29,9 @@
   import {
     ABILITY_LABELS,
     collectActiveEffects,
+    DEFAULT_PROFICIENCY_BONUS,
     describeDamagePart,
+    getCreatureProficiencyBonus,
     getCreatureSpellAttackBonus,
     getCreatureSpellRollButtonText,
     getCreatureSpellSaveDC,
@@ -47,6 +49,7 @@
     FILTER_ROW_CONTROL_SIZE,
     SHEET_FILTER_LABELS,
     SHEET_ROW_MENU_LABELS,
+    SPELL_DAMAGE_ROLL_BUTTON,
     SPELL_MENU_LABELS,
     SPELL_MIME,
     SPELL_STAT_HINTS,
@@ -134,6 +137,16 @@
     props.creature
       ? getCreatureSpellAttackBonus(props.creature)
       : block.value.attackBonus,
+  );
+
+  /**
+   * Бонус мастерства существа с поправками его настройки: окно заклинательства
+   * разбирает по нему расчёт, и расходиться с листом это число не должно.
+   */
+  const creatureProficiencyBonus = computed(() =>
+    props.creature
+      ? getCreatureProficiencyBonus(props.creature)
+      : DEFAULT_PROFICIENCY_BONUS,
   );
 
   /**
@@ -511,26 +524,34 @@
 
   const isRollModalOpen = ref(false);
 
-  const rollConfig = ref({
+  /** Настройка окна броска заклинания: собирается перед каждым открытием */
+  interface SpellRollConfig {
+    title: string;
+    name: string;
+    formula: string;
+    rollButtonText: string;
+    attackModifier?: number;
+    initialRollMode: AttackRollMode;
+    incomingAttackType?: 'melee' | 'ranged' | 'spell';
+    damageType?: string;
+    isHealing: boolean;
+    damageParts: SpellDamagePartInput[];
+    evaluateBonusDamageParts?: (context: {
+      hasAdvantage: boolean;
+      hasDisadvantage: boolean;
+    }) => SpellDamagePartInput[];
+    onRollParts?: (parts: RolledSpellDamagePart[]) => void;
+    onHit?: () => void;
+  }
+
+  const rollConfig = ref<SpellRollConfig>({
     title: '',
     name: '',
     formula: '',
-    rollButtonText: 'Бросить урон',
-    attackModifier: undefined as number | undefined,
-    initialRollMode: 'normal' as AttackRollMode,
-    incomingAttackType: undefined as 'melee' | 'ranged' | 'spell' | undefined,
-    damageType: undefined as string | undefined,
+    rollButtonText: SPELL_DAMAGE_ROLL_BUTTON,
+    initialRollMode: 'normal',
     isHealing: false,
-    damageParts: [] as SpellDamagePartInput[],
-    evaluateBonusDamageParts: undefined as
-      | ((context: {
-          hasAdvantage: boolean;
-          hasDisadvantage: boolean;
-        }) => SpellDamagePartInput[])
-      | undefined,
-    onRollParts: undefined as
-      ((parts: RolledSpellDamagePart[]) => void) | undefined,
-    onHit: undefined as (() => void) | undefined,
+    damageParts: [],
   });
 
   /** Существо-источник (для casterId, эффектов, @-переменных) */
@@ -861,7 +882,7 @@
       v-model:open="isSpellcastingModalOpen"
       :spellcasting="spellcasting"
       :abilities="creature.system.abilities"
-      :proficiency-bonus="creature.system.proficiencyBonus"
+      :proficiency-bonus="creatureProficiencyBonus"
       @apply="applySpellcasting"
     />
 

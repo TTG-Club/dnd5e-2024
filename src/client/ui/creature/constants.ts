@@ -12,6 +12,15 @@ import type {
   SpellUsesRecovery,
 } from '@vtt/shared/system/dnd.js';
 
+/**
+ * Подпись основы бонуса мастерства существа: у него нет уровней, и по правилам
+ * бонус берётся из показателя опасности. Сам показатель дописывается на месте.
+ */
+export const CREATURE_PROFICIENCY_RULE_TITLE = 'По опасности';
+
+/** Подсказка плитки скорости, когда существо не двигается вовсе */
+export const CREATURE_MOVEMENT_EMPTY = 'Существо не двигается';
+
 /** Раздел вкладки «Действия»: свой список внутри одной сущности */
 export type CreatureActionSectionKey =
   'actions' | 'bonusActions' | 'reactions' | 'legendary';

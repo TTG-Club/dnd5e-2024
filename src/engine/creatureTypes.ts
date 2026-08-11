@@ -19,6 +19,7 @@ import type {
 import type {
   CreatureSize,
   DnDAbilityScores,
+  DnDProficiencySettings,
   DnDSkillSettings,
 } from './types.js';
 
@@ -279,8 +280,16 @@ export interface CreatureSystem {
 
   /** Показатель опасности (текст, напр. "5" или "1/2" или "—") */
   challengeRating: string;
-  /** Бонус мастерства */
+  /** Бонус мастерства по опасности — основа расчёта */
   proficiencyBonus: number;
+
+  /**
+   * Поправки расчёта бонуса мастерства: своё число вместо бонуса по опасности
+   * и свои бонусы сверху. Формат тот же, что у листа персонажа, — движок читает
+   * его одним кодом. Поля нет у существ из старых миров: тогда бонус считается
+   * по опасности.
+   */
+  proficiencySettings?: DnDProficiencySettings;
 
   // ── Инициатива (D&D 2024) ───────────────────────────────────────────────
 

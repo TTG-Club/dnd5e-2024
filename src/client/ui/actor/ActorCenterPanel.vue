@@ -20,7 +20,8 @@
   import {
     ABILITY_LABELS,
     calculateAbilityModifier,
-    calculateProficiencyBonus,
+    getActorAbilityModifiers,
+    getActorProficiencyBonus,
     getCustomBonusesValue,
     getCustomBonusValue,
     getCustomSkillValue,
@@ -31,7 +32,6 @@
     getSkillRowGroups,
     getSkillSetting,
     getSkillSettingAbility,
-    getTotalLevel,
     isChangedSkill,
     isProficiencyLevel,
     SKILL_PROFICIENCY_NEXT,
@@ -42,6 +42,8 @@
   import ClassCounters from './ClassCounters.vue';
   import {
     CUSTOM_BONUS_LABELS,
+    DICE_ROLL_DEFAULT_BUTTON,
+    SHEET_TILE_LABELS,
     SKILL_GROUP_LABEL_CLASS,
     SKILL_SETTINGS_LABELS,
   } from './constants';
@@ -163,28 +165,34 @@
 
   const isDiceRollOpen = ref(false);
 
-  const diceRollConfig = ref({
+  /** Настройка окна броска: собирается перед каждым открытием */
+  interface DiceRollConfig {
+    modifier: number;
+    title: string;
+    rollLabel: string;
+    rollButtonText: string;
+    initialRollMode: AttackRollMode;
+  }
+
+  const diceRollConfig = ref<DiceRollConfig>({
     modifier: 0,
     title: '',
     rollLabel: '',
-    rollButtonText: 'Бросить',
-    initialRollMode: 'normal' as AttackRollMode,
+    rollButtonText: DICE_ROLL_DEFAULT_BUTTON,
+    initialRollMode: 'normal',
   });
 
   /**
    * Открывает универсальную модалку броска кубиков
    * @param config - конфигурация броска
    */
-  function openDiceRoll(config: {
-    modifier: number;
-    title: string;
-    rollLabel: string;
-    rollButtonText?: string;
-    initialRollMode?: AttackRollMode;
-  }) {
+  function openDiceRoll(
+    config: Partial<DiceRollConfig>
+      & Pick<DiceRollConfig, 'modifier' | 'title' | 'rollLabel'>,
+  ) {
     diceRollConfig.value = {
       ...config,
-      rollButtonText: config.rollButtonText ?? 'Бросить',
+      rollButtonText: config.rollButtonText ?? DICE_ROLL_DEFAULT_BUTTON,
       initialRollMode: config.initialRollMode ?? 'normal',
     };
 
@@ -252,33 +260,17 @@
    * навыки и разбор значений. Без разрешённых статов модификаторы берутся
    * прямо из значений характеристик листа.
    */
-  const skillAbilityMods = computed<Record<AbilityType, number>>(() => {
-    const resolvedMods = resolvedStats.value?.abilityMods;
-
-    if (resolvedMods) {
-      return resolvedMods;
-    }
-
-    const scores = props.actor.system.abilities;
-
-    return {
-      strength: calculateAbilityModifier(scores.strength ?? 10),
-      dexterity: calculateAbilityModifier(scores.dexterity ?? 10),
-      constitution: calculateAbilityModifier(scores.constitution ?? 10),
-      intelligence: calculateAbilityModifier(scores.intelligence ?? 10),
-      wisdom: calculateAbilityModifier(scores.wisdom ?? 10),
-      charisma: calculateAbilityModifier(scores.charisma ?? 10),
-    };
-  });
+  const skillAbilityMods = computed<Record<AbilityType, number>>(
+    () =>
+      resolvedStats.value?.abilityMods ?? getActorAbilityModifiers(props.actor),
+  );
 
   /**
    * Бонус мастерства с учётом эффектов; без разрешённых статов — расчёт по
-   * суммарному уровню, как по правилам.
+   * уровню с поправками настройки листа.
    */
-  const skillProficiencyBonus = computed(
-    () =>
-      resolvedStats.value?.proficiencyBonus
-      ?? calculateProficiencyBonus(getTotalLevel(props.actor.system.classes)),
+  const skillProficiencyBonus = computed(() =>
+    getActorProficiencyBonus(props.actor, resolvedStats.value),
   );
 
   /** Строка списка навыков: навык правил либо заведённый игроком */
@@ -693,7 +685,7 @@
       <!-- Инициатива -->
       <UTooltip :delay-duration="300">
         <FieldsetLabel
-          label="Инициатива"
+          :label="SHEET_TILE_LABELS.initiative"
           center
           class="h-12 bg-default/20 transition-colors"
           :class="

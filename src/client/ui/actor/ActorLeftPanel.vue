@@ -3,6 +3,7 @@
   import type {
     AttackRollMode,
     DnDActor,
+    DnDProficiencySettings,
     DnDSavingThrowSettings,
   } from '@vtt/shared/system/dnd.js';
 
@@ -14,22 +15,29 @@
     BASE_UNARMORED_AC,
     calculateAbilityModifier,
     calculateProficiencyBonus,
+    getActorAbilityModifiers,
     getTotalLevel,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useProficiencyBonus } from '../../composables/useProficiencyBonus';
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import { useToolVocabulary } from '../../composables/useToolVocabulary';
   import ArmorClassModal from './ArmorClassModal.vue';
   import ArmorProficiencyModal from './ArmorProficiencyModal.vue';
   import {
+    DICE_ROLL_DEFAULT_BUTTON,
+    PROFICIENCY_SETTINGS_LABELS,
     SAVING_THROW_ABILITIES,
     SAVING_THROW_SETTINGS_LABELS,
+    SHEET_TILE_LABELS,
   } from './constants';
   import DiceRollModal from './DiceRollModal.vue';
   import HitPointsModal from './HitPointsModal.vue';
   import LanguageProficiencyModal from './LanguageProficiencyModal.vue';
+  import ProficiencyBonusModal from './ProficiencyBonusModal.vue';
   import SavingThrowSettingsModal from './SavingThrowSettingsModal.vue';
   import ToolProficiencyModal from './ToolProficiencyModal.vue';
+  import { formatSignedNumber } from './utils/formatSignedNumber';
   import WeaponProficiencyModal from './WeaponProficiencyModal.vue';
 
   defineOptions({ inheritAttrs: false });
@@ -228,9 +236,39 @@
 
   const { resolvedStats } = useResolvedStats(toRef(() => props.actor));
 
-  // Вычисляемые свойства
-  const proficiencyBonus = computed(() => {
-    return resolvedStats.value?.proficiencyBonus ?? 0;
+  /**
+   * Модификаторы характеристик с учётом эффектов — по ним считаются и сами
+   * спасброски, и вклад бонусов-характеристик в окнах настройки. Без
+   * разрешённых статов модификаторы берутся прямо из значений листа.
+   */
+  const sheetAbilityMods = computed<Record<AbilityType, number>>(
+    () =>
+      resolvedStats.value?.abilityMods ?? getActorAbilityModifiers(props.actor),
+  );
+
+  /** Бонус мастерства по правилам — расчёт по суммарному уровню */
+  const ruleProficiencyBonus = computed(() =>
+    calculateProficiencyBonus(getTotalLevel(props.actor.system.classes)),
+  );
+
+  /** Подпись основы по правилам: уровень персонажа с его бонусом */
+  const proficiencyRuleTitle = computed(
+    () =>
+      `${PROFICIENCY_SETTINGS_LABELS.levelSource} ${getTotalLevel(
+        props.actor.system.classes,
+      )}`,
+  );
+
+  const {
+    settings: proficiencySettings,
+    value: proficiencyBonus,
+    tooltip: proficiencyTooltip,
+  } = useProficiencyBonus({
+    settings: () => props.actor.system.proficiencySettings,
+    ruleValue: ruleProficiencyBonus,
+    ruleTitle: proficiencyRuleTitle,
+    abilityMods: sheetAbilityMods,
+    resolvedValue: () => resolvedStats.value?.proficiencyBonus,
   });
 
   const ARMOR_CALCULATION_LABELS: Record<string, string> = {
@@ -392,6 +430,7 @@
   });
 
   // Модалки
+  const isProficiencyBonusOpen = ref(false);
   const isArmorClassOpen = ref(false);
   const isHitPointsOpen = ref(false);
   const isDiceRollOpen = ref(false);
@@ -401,14 +440,40 @@
   const isLanguagesProfOpen = ref(false);
   const isSavingThrowSettingsOpen = ref(false);
 
-  const diceRollConfig = ref({
+  /** Настройка окна броска: собирается перед каждым открытием */
+  interface DiceRollConfig {
+    modifier: number;
+    title: string;
+    rollLabel: string;
+    rollButtonText: string;
+    initialRollMode: AttackRollMode;
+    autoFail: boolean;
+  }
+
+  const diceRollConfig = ref<DiceRollConfig>({
     modifier: 0,
     title: '',
     rollLabel: '',
-    rollButtonText: 'Бросить',
-    initialRollMode: 'normal' as AttackRollMode,
+    rollButtonText: DICE_ROLL_DEFAULT_BUTTON,
+    initialRollMode: 'normal',
     autoFail: false,
   });
+
+  /** Открывает окно настройки бонуса мастерства */
+  function openProficiencyBonus(): void {
+    isProficiencyBonusOpen.value = true;
+  }
+
+  /**
+   * Применяет настройку бонуса мастерства из окна.
+   *
+   * @param settings - своя основа и свои бонусы
+   */
+  function onProficiencySettingsApply(settings: DnDProficiencySettings): void {
+    emit('update:actor', {
+      system: { ...props.actor.system, proficiencySettings: settings },
+    });
+  }
 
   function openArmorClass() {
     isArmorClassOpen.value = true;
@@ -426,17 +491,13 @@
    * @param config.rollLabel - подпись броска
    * @param config.rollButtonText - текст кнопки броска
    */
-  function openDiceRoll(config: {
-    modifier: number;
-    title: string;
-    rollLabel: string;
-    rollButtonText?: string;
-    initialRollMode?: AttackRollMode;
-    autoFail?: boolean;
-  }) {
+  function openDiceRoll(
+    config: Partial<DiceRollConfig>
+      & Pick<DiceRollConfig, 'modifier' | 'title' | 'rollLabel'>,
+  ) {
     diceRollConfig.value = {
       ...config,
-      rollButtonText: config.rollButtonText ?? 'Бросить',
+      rollButtonText: config.rollButtonText ?? DICE_ROLL_DEFAULT_BUTTON,
       initialRollMode: config.initialRollMode ?? 'normal',
       autoFail: config.autoFail ?? false,
     };
@@ -522,40 +583,6 @@
     return resolvedStats.value?.saves[abilityKey] ?? 0;
   }
 
-  /**
-   * Модификаторы характеристик с учётом эффектов — окно настройки считает по
-   * ним и сами спасброски, и вклад бонусов-характеристик. Без разрешённых
-   * статов модификаторы берутся прямо из значений характеристик листа.
-   */
-  const savingThrowAbilityMods = computed<Record<AbilityType, number>>(() => {
-    const resolvedMods = resolvedStats.value?.abilityMods;
-
-    if (resolvedMods) {
-      return resolvedMods;
-    }
-
-    const scores = props.actor.system.abilities;
-
-    return {
-      strength: calculateAbilityModifier(scores.strength ?? 10),
-      dexterity: calculateAbilityModifier(scores.dexterity ?? 10),
-      constitution: calculateAbilityModifier(scores.constitution ?? 10),
-      intelligence: calculateAbilityModifier(scores.intelligence ?? 10),
-      wisdom: calculateAbilityModifier(scores.wisdom ?? 10),
-      charisma: calculateAbilityModifier(scores.charisma ?? 10),
-    };
-  });
-
-  /**
-   * Бонус мастерства с учётом эффектов; без разрешённых статов — расчёт по
-   * суммарному уровню, как по правилам.
-   */
-  const savingThrowProficiencyBonus = computed(
-    () =>
-      resolvedStats.value?.proficiencyBonus
-      ?? calculateProficiencyBonus(getTotalLevel(props.actor.system.classes)),
-  );
-
   /** Итоговые спасброски листа: из них окно берёт вклад активных эффектов */
   const savingThrowValues = computed<Partial<Record<AbilityType, number>>>(
     () => resolvedStats.value?.saves ?? {},
@@ -564,10 +591,6 @@
   /** Открывает окно настройки спасбросков */
   function openSavingThrowSettings(): void {
     isSavingThrowSettingsOpen.value = true;
-  }
-
-  function formatModifier(value: number): string {
-    return value >= 0 ? `+${value}` : `${value}`;
   }
 
   function toggleSavingThrow(ability: AbilityType) {
@@ -689,17 +712,32 @@
     <!-- Top Stats Grid -->
     <div class="mb-0 grid grid-cols-2 gap-x-3 gap-y-3">
       <!-- Mastery -->
-      <FieldsetLabel
-        label="Мастерство"
-        center
-        class="h-12 border-muted bg-default/20"
+      <UTooltip
+        :delay-duration="300"
+        :ui="{ content: 'h-auto' }"
       >
-        <div class="flex items-center justify-center px-2 pb-2">
-          <div class="text-xl font-bold text-highlighted">
-            +{{ proficiencyBonus }}
+        <FieldsetLabel
+          :label="SHEET_TILE_LABELS.proficiency"
+          center
+          class="h-12 bg-default/20 transition-colors"
+          :class="[
+            isEditMode
+              ? 'cursor-pointer border-primary/30 hover:border-primary/50'
+              : 'border-muted',
+          ]"
+          @click.left.exact.prevent="isEditMode && openProficiencyBonus()"
+        >
+          <div class="flex items-center justify-center px-2 pb-2">
+            <div class="text-xl font-bold text-highlighted tabular-nums">
+              {{ formatSignedNumber(proficiencyBonus) }}
+            </div>
           </div>
-        </div>
-      </FieldsetLabel>
+        </FieldsetLabel>
+
+        <template #content>
+          <span>{{ proficiencyTooltip }}</span>
+        </template>
+      </UTooltip>
 
       <!-- AC -->
       <UTooltip
@@ -707,7 +745,7 @@
         :ui="{ content: 'h-auto' }"
       >
         <FieldsetLabel
-          label="Класс доспеха"
+          :label="SHEET_TILE_LABELS.armorClass"
           center
           class="h-12 bg-default/20 transition-colors"
           :class="[
@@ -732,7 +770,7 @@
 
     <!-- Здоровье + Кости хитов -->
     <FieldsetLabel
-      label="Здоровье"
+      :label="SHEET_TILE_LABELS.hitPoints"
       class="group cursor-pointer bg-default/20 transition-colors"
       :class="
         isEditMode
@@ -877,7 +915,7 @@
             <span
               class="rounded border border-default bg-elevated px-2 py-0.5 text-sm font-bold text-highlighted shadow-sm"
             >
-              {{ formatModifier(calculateSavingThrow(ability.key)) }}
+              {{ formatSignedNumber(calculateSavingThrow(ability.key)) }}
             </span>
           </div>
         </div>
@@ -1101,12 +1139,23 @@
     @apply="onLanguagesProfApply"
   />
 
+  <!-- Модалка настройки бонуса мастерства -->
+  <ProficiencyBonusModal
+    v-model:open="isProficiencyBonusOpen"
+    :settings="proficiencySettings"
+    :ability-mods="sheetAbilityMods"
+    :rule-value="ruleProficiencyBonus"
+    :rule-title="proficiencyRuleTitle"
+    :sheet-value="proficiencyBonus"
+    @apply="onProficiencySettingsApply"
+  />
+
   <!-- Модалка настройки спасбросков -->
   <SavingThrowSettingsModal
     v-model:open="isSavingThrowSettingsOpen"
     :actor="actor"
-    :ability-mods="savingThrowAbilityMods"
-    :proficiency-bonus="savingThrowProficiencyBonus"
+    :ability-mods="sheetAbilityMods"
+    :proficiency-bonus="proficiencyBonus"
     :saves="savingThrowValues"
     @apply="onSavingThrowSettingsApply"
   />

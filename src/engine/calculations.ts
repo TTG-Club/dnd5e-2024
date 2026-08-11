@@ -14,7 +14,13 @@ import type {
   SkillType,
 } from '@vtt/shared';
 
-import type { DnDActor, DnDGameItem, DnDSceneEntity } from './dndEntities.js';
+import type { ResolvedActorStats } from './activeEffectTypes.js';
+import type {
+  DnDActor,
+  DnDCreature,
+  DnDGameItem,
+  DnDSceneEntity,
+} from './dndEntities.js';
 
 import { getTotalLevel } from './classTypes.js';
 import {
@@ -28,6 +34,11 @@ import {
   normalizeSpellUsesRecovery,
   SKILL_ABILITY_MAP,
 } from './consts.js';
+import {
+  DEFAULT_PROFICIENCY_BONUS,
+  getProficiencyBonusBreakdown,
+  parseProficiencySettings,
+} from './proficiencyBonus.js';
 
 /**
  * Вычисляет модификатор характеристики
@@ -51,6 +62,90 @@ export function calculateAbilityModifier(abilityScore: number): number {
  */
 export function calculateProficiencyBonus(level: number): number {
   return Math.floor((level - 1) / 4) + 2;
+}
+
+/**
+ * Модификаторы всех шести характеристик по записи листа — без учёта активных
+ * эффектов.
+ *
+ * Нужны там, где итоговых статов пайплайна под рукой нет: свои бонусы считаются
+ * от модификаторов, а не от значений характеристик. Лист персонажа и лист
+ * существа считают их одинаково.
+ *
+ * Пустая запись даёт нулевые модификаторы: лист рисуется и до того, как в него
+ * подгрузилась сущность, и разбирать эту пустоту на каждой стороне незачем.
+ *
+ * @param actor - актёр или существо листа
+ * @returns модификаторы характеристик
+ */
+export function getActorAbilityModifiers(
+  actor: DnDActor | DnDCreature | null | undefined,
+): Record<AbilityType, number> {
+  const abilities = actor?.system?.abilities;
+
+  return {
+    strength: calculateAbilityModifier(abilities?.strength ?? 10),
+    dexterity: calculateAbilityModifier(abilities?.dexterity ?? 10),
+    constitution: calculateAbilityModifier(abilities?.constitution ?? 10),
+    intelligence: calculateAbilityModifier(abilities?.intelligence ?? 10),
+    wisdom: calculateAbilityModifier(abilities?.wisdom ?? 10),
+    charisma: calculateAbilityModifier(abilities?.charisma ?? 10),
+  };
+}
+
+/**
+ * Бонус мастерства актёра. С итоговыми статами берётся их число — в нём уже
+ * учтены и настройка листа, и активные эффекты; без них считается расчёт по
+ * суммарному уровню с поправками настройки.
+ *
+ * Одна точка расчёта на всю систему: бонус идёт в спасброски, навыки, атаку
+ * оружием и заклинательство, и считать его порознь нельзя — настройка листа
+ * терялась бы в половине мест.
+ *
+ * @param actor - актёр листа
+ * @param resolvedStats - итоговые статы пайплайна, если они есть
+ * @returns бонус мастерства
+ */
+export function getActorProficiencyBonus(
+  actor: DnDActor,
+  resolvedStats?: ResolvedActorStats,
+): number {
+  if (resolvedStats) {
+    return resolvedStats.proficiencyBonus;
+  }
+
+  return getProficiencyBonusBreakdown({
+    ruleValue: calculateProficiencyBonus(getTotalLevel(actor.system?.classes)),
+    settings: parseProficiencySettings(actor.system?.proficiencySettings),
+    abilityMods: getActorAbilityModifiers(actor),
+  }).value;
+}
+
+/**
+ * Бонус мастерства существа. По правилам он берётся из показателя опасности
+ * (`system.proficiencyBonus`), а настройка листа заменяет эту основу своим
+ * числом и добавляет свои бонусы.
+ *
+ * Отдельно от {@link getActorProficiencyBonus}: у существа нет классовых
+ * уровней, и основа расчёта у него своя.
+ *
+ * @param creature - существо листа
+ * @param resolvedStats - итоговые статы пайплайна, если они есть
+ * @returns бонус мастерства
+ */
+export function getCreatureProficiencyBonus(
+  creature: DnDCreature,
+  resolvedStats?: ResolvedActorStats,
+): number {
+  if (resolvedStats) {
+    return resolvedStats.proficiencyBonus;
+  }
+
+  return getProficiencyBonusBreakdown({
+    ruleValue: creature.system?.proficiencyBonus ?? DEFAULT_PROFICIENCY_BONUS,
+    settings: parseProficiencySettings(creature.system?.proficiencySettings),
+    abilityMods: getActorAbilityModifiers(creature),
+  }).value;
 }
 
 /**
@@ -230,14 +325,14 @@ export function resolveWeaponAbilityScore(
 export function calculateWeaponAttackModifier(
   actor: DnDActor,
   weapon: DnDGameItem,
-  resolvedStats?: import('./activeEffectTypes.js').ResolvedActorStats,
+  resolvedStats?: ResolvedActorStats,
 ): number {
   const abilityScore = resolveWeaponAbilityScore(actor, weapon);
 
   let modifier = calculateAbilityModifier(abilityScore);
 
   if (resolveWeaponProficiency(actor, weapon)) {
-    modifier += calculateProficiencyBonus(getTotalLevel(actor.system?.classes));
+    modifier += getActorProficiencyBonus(actor, resolvedStats);
   }
 
   if (weapon.attackBonus) {
@@ -575,7 +670,7 @@ export function normalizeCreature(
         charisma: 10,
       },
       challengeRating: '0',
-      proficiencyBonus: 2,
+      proficiencyBonus: DEFAULT_PROFICIENCY_BONUS,
       savingThrows: [],
       skills: {},
       defenses: {
@@ -628,6 +723,12 @@ export function normalizeCreature(
 
   if (!Array.isArray(system.defenses.conditionImmunities)) {
     system.defenses.conditionImmunities = [];
+  }
+
+  // Бонус мастерства обязателен по типу записи, но у существ старых миров и
+  // части паков его нет: без подстановки от него считались бы NaN
+  if (typeof system.proficiencyBonus !== 'number') {
+    system.proficiencyBonus = DEFAULT_PROFICIENCY_BONUS;
   }
 
   if (!Array.isArray(system.savingThrows)) {

@@ -80,6 +80,7 @@
     FILTER_ROW_CONTROL_SIZE,
     SHEET_FILTER_LABELS,
     SHEET_ROW_MENU_LABELS,
+    SPELL_DAMAGE_ROLL_BUTTON,
     SPELL_FILTER_LABELS,
     SPELL_MENU_LABELS,
     SPELL_MIME,
@@ -1733,7 +1734,7 @@
       ? calculateSpellAttackModifier(props.actor, spell, resolvedStats.value)
       : 0;
 
-    let rollButtonText = 'Бросить урон';
+    let rollButtonText: string = SPELL_DAMAGE_ROLL_BUTTON;
 
     if (incomingAttackType) {
       rollButtonText = 'Бросить атаку';
