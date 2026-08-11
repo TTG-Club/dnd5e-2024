@@ -19,9 +19,12 @@ import CreatureDeleteConfirmModal from './ui/creature/CreatureDeleteConfirmModal
  * выполняется ВНУТРИ чанка системы (`systems/dnd5e/`) — ребра `core → systems`
  * не образует и всё остаётся в ленивом `system-dnd5e` чанке.
  */
-const DND5E_MODAL_MODULES: Record<string, () => Promise<unknown>> = {
-  ...import.meta.glob('./**/*Modal.vue'),
-  ...import.meta.glob('./**/*Sheet.vue'),
+const DND5E_MODAL_MODULES: Record<
+  string,
+  () => Promise<{ default: Component }>
+> = {
+  ...import.meta.glob<{ default: Component }>('./**/*Modal.vue'),
+  ...import.meta.glob<{ default: Component }>('./**/*Sheet.vue'),
 };
 
 /**
@@ -52,7 +55,7 @@ function registerDnd5eModals(api: ClientSystemAPI): void {
       fileName.replace(/\.vue$/, ''),
       // Ленивый async-компонент — как и прежний glob в ModalContainer (код
       // модалки грузится при первом открытии, не при загрузке системы).
-      defineAsyncComponent(importer as () => Promise<Component>),
+      defineAsyncComponent(importer),
     );
   }
 }

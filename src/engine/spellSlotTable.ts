@@ -184,6 +184,30 @@ export const PACT_SLOTS: Record<number, { count: number; level: number }> = {
 /** Пустой массив ячеек (нет заклинаний) */
 const EMPTY_SLOTS: SpellSlotArray = [0, 0, 0, 0, 0, 0, 0, 0, 0];
 
+/**
+ * Свежая копия набора ячеек. Копия обязательна: строки таблиц — общие
+ * константы, и правка ячеек одного листа разошлась бы по всем остальным.
+ *
+ * Копируется поэлементно, а не спредом: спред отдаёт `number[]` без длины,
+ * и набор из девяти кругов пришлось бы объявлять приведением типа.
+ *
+ * @param slots - строка таблицы ячеек
+ * @returns независимая копия набора ячеек
+ */
+function copySlots(slots: SpellSlotArray): SpellSlotArray {
+  return [
+    slots[0],
+    slots[1],
+    slots[2],
+    slots[3],
+    slots[4],
+    slots[5],
+    slots[6],
+    slots[7],
+    slots[8],
+  ];
+}
+
 // ── Маппинг тип заклинателя → таблица ──
 
 /**
@@ -252,12 +276,12 @@ export function getSpellSlots(
   const table = getSlotTable(casterType);
 
   if (!table) {
-    return [...EMPTY_SLOTS] as SpellSlotArray;
+    return copySlots(EMPTY_SLOTS);
   }
 
   const clampedLevel = Math.max(1, Math.min(20, classLevel));
 
-  return [...(table[clampedLevel] ?? EMPTY_SLOTS)] as SpellSlotArray;
+  return copySlots(table[clampedLevel] ?? EMPTY_SLOTS);
 }
 
 /**
@@ -305,7 +329,7 @@ export function computeSpellSlots(
   casterTypeMap: Map<string, CasterType>,
 ): SpellSlotArray {
   if (classes.length === 0) {
-    return [...EMPTY_SLOTS] as SpellSlotArray;
+    return copySlots(EMPTY_SLOTS);
   }
 
   // Одноклассовый — используем таблицу конкретного типа
@@ -319,12 +343,10 @@ export function computeSpellSlots(
   const casterLevel = getMulticlassCasterLevel(classes, casterTypeMap);
 
   if (casterLevel === 0) {
-    return [...EMPTY_SLOTS] as SpellSlotArray;
+    return copySlots(EMPTY_SLOTS);
   }
 
-  return [
-    ...(MULTICLASS_CASTER_SLOTS[casterLevel] ?? EMPTY_SLOTS),
-  ] as SpellSlotArray;
+  return copySlots(MULTICLASS_CASTER_SLOTS[casterLevel] ?? EMPTY_SLOTS);
 }
 
 /**

@@ -17,9 +17,7 @@ import type {
   VttSystem,
 } from '@vtt/shared';
 
-import type { ActiveEffect, EffectOrigin } from './activeEffectTypes.js';
 import type { BackgroundDefinition } from './backgroundTypes.js';
-import type { ConditionKey } from './consts.js';
 import type { DndCombatState } from './damageApplication.js';
 import type { DamageApplyResult } from './damageUtils.js';
 import type {
@@ -38,7 +36,12 @@ import {
   isRecord,
 } from '@vtt/shared';
 
-import { ActiveEffectsArraySchema } from './activeEffectTypes.js';
+import {
+  ActiveEffectsArraySchema,
+  isActiveEffect,
+  isDnDEffect,
+  isEffectOrigin,
+} from './activeEffectTypes.js';
 import {
   normalizeActorData as normalizeDndActorData,
   validateActorData as validateDndActorData,
@@ -50,7 +53,12 @@ import {
 import { normalizeActor, normalizeCreature } from './calculations.js';
 import { CLASS_KEY_OPTIONS } from './classTypes.js';
 import { buildConditionActiveEffect } from './conditionTemplates.js';
-import { CONDITIONS, CREATURE_CATEGORIES, DEFAULT_ACTOR } from './consts.js';
+import {
+  BASE_UNARMORED_AC,
+  CONDITIONS,
+  CREATURE_CATEGORIES,
+  DEFAULT_ACTOR,
+} from './consts.js';
 import {
   applyCombatState as applyCombatStateImpl,
   applyEffectsToEntity as applyEffectsToEntityImpl,
@@ -62,6 +70,7 @@ import {
 import { getSpellDamageParts } from './damageParts.js';
 import { rollDamageFormula as rollDamageFormulaImpl } from './diceFormula.js';
 import { collectActiveEffects, resolveActorStats } from './effectPipeline.js';
+import { isDndSceneEntity } from './entityGuards.js';
 import { buildFeatGrantsSummary } from './featGrantsSummary.js';
 import { validateFormula } from './formulaParser.js';
 import { validateGameItem } from './itemSchemas.js';
@@ -176,6 +185,46 @@ const COMPENDIUM_VALUE_FORMATTERS: Record<string, CompendiumValueFormatter> = {
 };
 
 /**
+ * Проверяет, что значение — запись, по которой строится сводка механических
+ * даров (черта, предмет-черта или предыстория). Все три формы адресуются по
+ * названию, а остальные поля `buildFeatGrantsSummary` читает защитно.
+ *
+ * @param value - запись из контракта ядра
+ * @returns `true`, если по записи можно строить сводку
+ */
+function isFeatSummarySource(
+  value: unknown,
+): value is Feature | DnDGameItem | BackgroundDefinition {
+  return isRecord(value) && typeof value.name === 'string';
+}
+
+/**
+ * Разбирает контекст входящей атаки, приходящий от ядра непрозрачным
+ * значением: КД цели зависит от вида атаки (условные бонусы «+2 против
+ * дальнобойных»), а чужой вид атаки такой бонус молча включил бы.
+ *
+ * @param value - контекст атаки из контракта ядра
+ * @returns контекст атаки либо `undefined`, если вида атаки в нём нет
+ */
+function parseAttackContext(value: unknown): IncomingAttackContext | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const { attackType } = value;
+
+  if (
+    attackType === 'melee'
+    || attackType === 'ranged'
+    || attackType === 'spell'
+  ) {
+    return { attackType };
+  }
+
+  return undefined;
+}
+
+/**
  * Type-guard: запись компендиума — заклинание (для предиката лечения).
  *
  * @param entry - проверяемая запись
@@ -214,7 +263,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.5.10';
+  readonly version = '0.5.11';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -223,15 +272,17 @@ export class Dnd5eVttSystem implements VttSystem {
    */
   // eslint-disable-next-line class-methods-use-this
   validateActor(actor: BaseActor): void {
-    const dndActor = actor as DnDActor;
+    if (!Array.isArray(actor.activeEffects)) {
+      return;
+    }
 
-    if ('activeEffects' in dndActor && Array.isArray(dndActor.activeEffects)) {
-      ActiveEffectsArraySchema.parse(dndActor.activeEffects);
+    // Схема и разбирает список, и типизирует его: дальше `changes` читаются
+    // из её результата, а не из непрозрачной нейтральной базы
+    const effects = ActiveEffectsArraySchema.parse(actor.activeEffects);
 
-      for (const effect of dndActor.activeEffects) {
-        for (const change of effect.changes) {
-          validateFormula(change.value);
-        }
+    for (const effect of effects) {
+      for (const change of effect.changes) {
+        validateFormula(change.value);
       }
     }
   }
@@ -250,6 +301,11 @@ export class Dnd5eVttSystem implements VttSystem {
 
   /**
    * Валидирует данные актёра D&D 5e для формы создания/редактирования.
+   *
+   * Приведение здесь снять нельзя: ядро отдаёт ЧЕРНОВИК формы, в котором
+   * `system` заполнен наполовину, и именно этот метод решает, годится он или
+   * нет. Гвард на форму данных отверг бы черновик раньше проверки — и вместо
+   * человеческого сообщения об ошибке пользователь получил бы молчание.
    */
   // eslint-disable-next-line class-methods-use-this
   validateActorData(actor: Partial<BaseActor>): void {
@@ -258,6 +314,10 @@ export class Dnd5eVttSystem implements VttSystem {
 
   /**
    * Нормализует частичные данные актёра D&D 5e (зажимает значения в границы).
+   *
+   * Приведение остаётся по той же причине, что и в `validateActorData`: на
+   * вход приходит незаполненный черновик, привести его в порядок — задача
+   * этого метода.
    */
   // eslint-disable-next-line class-methods-use-this
   normalizeActorData(actor: Partial<BaseActor>): Partial<BaseActor> {
@@ -278,9 +338,7 @@ export class Dnd5eVttSystem implements VttSystem {
    */
   // eslint-disable-next-line class-methods-use-this
   getFeatGrantsSummary(feat: unknown): string {
-    return buildFeatGrantsSummary(
-      feat as Feature | DnDGameItem | BackgroundDefinition,
-    );
+    return isFeatSummarySource(feat) ? buildFeatGrantsSummary(feat) : '';
   }
 
   /**
@@ -288,11 +346,13 @@ export class Dnd5eVttSystem implements VttSystem {
    */
   // eslint-disable-next-line class-methods-use-this
   getInitiativeModifier(actor: BaseActor): number {
-    // В D&D системе мы точно знаем, что BaseActor имеет структуру DnDActor
-    const dndActor = actor as DnDActor;
+    // Актёр без данных системы в инициативу не вступает: считать её не по чему
+    if (!isDndSceneEntity(actor)) {
+      return 0;
+    }
 
     // Вызываем полный пайплайн активных эффектов, чтобы получить итоговое значение инициативы
-    const resolvedStats = resolveActorStats(dndActor);
+    const resolvedStats = resolveActorStats(actor);
 
     return resolvedStats.initiative;
   }
@@ -355,7 +415,11 @@ export class Dnd5eVttSystem implements VttSystem {
     entity: SceneEntity,
     timing: 'startOfTurn' | 'endOfTurn',
   ): { changed: boolean; chatSummary: string | null } {
-    const result = processTurnEffects(entity as DnDSceneEntity, timing);
+    if (!isDndSceneEntity(entity)) {
+      return { changed: false, chatSummary: null };
+    }
+
+    const result = processTurnEffects(entity, timing);
     const chatSummary = formatTurnEffectsMessage(entity.name, timing, result);
 
     return { changed: result.changed, chatSummary };
@@ -370,11 +434,11 @@ export class Dnd5eVttSystem implements VttSystem {
     turnActorId: string,
     timing: 'start' | 'end',
   ): boolean {
-    return expireEntityTurnEffects(
-      entity as DnDSceneEntity,
-      turnActorId,
-      timing,
-    );
+    if (!isDndSceneEntity(entity)) {
+      return false;
+    }
+
+    return expireEntityTurnEffects(entity, turnActorId, timing);
   }
 
   /**
@@ -382,7 +446,11 @@ export class Dnd5eVttSystem implements VttSystem {
    */
   // eslint-disable-next-line class-methods-use-this
   decrementEffectDurations(entity: SceneEntity): boolean {
-    return decrementActorEffectDurations(entity as DnDSceneEntity);
+    if (!isDndSceneEntity(entity)) {
+      return false;
+    }
+
+    return decrementActorEffectDurations(entity);
   }
 
   /**
@@ -397,8 +465,12 @@ export class Dnd5eVttSystem implements VttSystem {
     areas: CustomArea[],
     options?: { triggerOneShots?: boolean },
   ): { changed: boolean; chatSummary: string | null } {
+    if (!isDndSceneEntity(entity)) {
+      return { changed: false, chatSummary: null };
+    }
+
     const result = syncActorAreaEffects(
-      entity as DnDSceneEntity,
+      entity,
       previousAreaIds,
       currentAreaIds,
       areas,
@@ -432,12 +504,20 @@ export class Dnd5eVttSystem implements VttSystem {
     changed: boolean;
     chatSummary: string | null;
   }> {
+    if (!isDndSceneEntity(movedEntity)) {
+      return [];
+    }
+
     const outcomes = computeAuraTriggerEffects(
       scene,
       movedToken,
-      movedEntity as DnDSceneEntity,
+      movedEntity,
       previousToken,
-      (actorId) => getEntity(actorId) as DnDSceneEntity | undefined,
+      (actorId) => {
+        const entity = getEntity(actorId);
+
+        return entity && isDndSceneEntity(entity) ? entity : undefined;
+      },
     );
 
     return outcomes.map((outcome) => ({
@@ -480,7 +560,7 @@ export class Dnd5eVttSystem implements VttSystem {
    */
   // eslint-disable-next-line class-methods-use-this
   collectAuraEffects(entity: SceneEntity): BaseActiveEffect[] {
-    return collectAllAuraEffects(entity as DnDSceneEntity);
+    return isDndSceneEntity(entity) ? collectAllAuraEffects(entity) : [];
   }
 
   /**
@@ -493,12 +573,13 @@ export class Dnd5eVttSystem implements VttSystem {
     gridSettings: GridSettings,
   ): BaseActiveEffect[] {
     // Границы системы D&D: нейтральные эффекты контракта — это D&D-эффекты
-    // (та же доверенность, что и `entity as DnDSceneEntity` выше).
-    return computeAmbientAuras(
-      targetToken,
-      sources as Array<{ token: Token; effects: ActiveEffect[] }>,
-      gridSettings,
-    );
+    // (`isDnDEffect` — доверенный шов системы к своим же данным).
+    const dndSources = sources.map((source) => ({
+      token: source.token,
+      effects: source.effects.filter(isDnDEffect),
+    }));
+
+    return computeAmbientAuras(targetToken, dndSources, gridSettings);
   }
 
   /**
@@ -507,9 +588,14 @@ export class Dnd5eVttSystem implements VttSystem {
    */
   // eslint-disable-next-line class-methods-use-this
   getTotalMovementSpeed(entity: SceneEntity): number {
-    const dndEntity = entity as DnDSceneEntity;
-    const activeEffects = collectActiveEffects(dndEntity);
-    const { movement } = resolveActorStats(dndEntity, activeEffects);
+    // Сущность без данных системы правилами D&D не двигается: считать её
+    // скорость не по чему, и ядро получит 0 вместо ошибки в обработчике хода
+    if (!isDndSceneEntity(entity)) {
+      return 0;
+    }
+
+    const activeEffects = collectActiveEffects(entity);
+    const { movement } = resolveActorStats(entity, activeEffects);
 
     return (
       (movement.walk || 0)
@@ -526,6 +612,9 @@ export class Dnd5eVttSystem implements VttSystem {
    */
   // eslint-disable-next-line class-methods-use-this
   pickCombatState(entity: SceneEntity): DndCombatState {
+    // Приведение здесь снять нельзя: снимок уходит на сервер и ЗАПИСЫВАЕТСЯ в
+    // мир. Подставить вместо него значение по умолчанию (0 хитов, пустые
+    // эффекты) значило бы затереть настоящее состояние сущности выдуманным.
     return pickCombatStateImpl(entity as DnDSceneEntity);
   }
 
@@ -535,7 +624,9 @@ export class Dnd5eVttSystem implements VttSystem {
    */
   // eslint-disable-next-line class-methods-use-this
   applyCombatState(entity: SceneEntity, state: unknown): boolean {
-    return applyCombatStateImpl(entity as DnDSceneEntity, state);
+    return isDndSceneEntity(entity)
+      ? applyCombatStateImpl(entity, state)
+      : false;
   }
 
   /**
@@ -549,12 +640,13 @@ export class Dnd5eVttSystem implements VttSystem {
     isHealing: boolean,
     damageType?: string,
   ): DamageApplyResult {
-    return applyTargetDamageImpl(
-      entity as DnDSceneEntity,
-      amount,
-      isHealing,
-      damageType,
-    );
+    // Сущность без данных системы урона не получает: её запас хитов неизвестен,
+    // и выдуманное «после» ушло бы в метку и в чат как настоящее
+    if (!isDndSceneEntity(entity)) {
+      return { actorName: entity.name, hpBefore: 0, hpAfter: 0 };
+    }
+
+    return applyTargetDamageImpl(entity, amount, isHealing, damageType);
   }
 
   /**
@@ -567,10 +659,14 @@ export class Dnd5eVttSystem implements VttSystem {
     effects: BaseActiveEffect[],
     origin: string,
   ): BaseActiveEffect[] {
+    if (!isDndSceneEntity(entity) || !isEffectOrigin(origin)) {
+      return entity.activeEffects ?? [];
+    }
+
     return applyEffectsToEntityImpl(
-      entity as DnDSceneEntity,
-      effects as ActiveEffect[],
-      origin as EffectOrigin,
+      entity,
+      effects.filter(isDnDEffect),
+      origin,
     );
   }
 
@@ -579,10 +675,11 @@ export class Dnd5eVttSystem implements VttSystem {
    */
   // eslint-disable-next-line class-methods-use-this
   getEntityArmorClass(entity: SceneEntity, attackContext?: unknown): number {
-    return getEntityArmorClassImpl(
-      entity as DnDSceneEntity,
-      attackContext as IncomingAttackContext | undefined,
-    );
+    if (!isDndSceneEntity(entity)) {
+      return BASE_UNARMORED_AC;
+    }
+
+    return getEntityArmorClassImpl(entity, parseAttackContext(attackContext));
   }
 
   /**
@@ -590,7 +687,9 @@ export class Dnd5eVttSystem implements VttSystem {
    */
   // eslint-disable-next-line class-methods-use-this
   getEntityActiveFlags(entity: SceneEntity): ReadonlySet<string> {
-    return getEntityActiveFlagsImpl(entity as DnDSceneEntity);
+    return isDndSceneEntity(entity)
+      ? getEntityActiveFlagsImpl(entity)
+      : new Set<string>();
   }
 
   /**
@@ -666,10 +765,20 @@ export class Dnd5eVttSystem implements VttSystem {
     actor: BaseActor,
     effects?: readonly unknown[],
   ): Record<string, unknown> {
-    return resolveActorStats(
-      actor as DnDActor,
-      effects as ActiveEffect[],
-    ) as unknown as Record<string, unknown>;
+    if (!isDndSceneEntity(actor)) {
+      return {};
+    }
+
+    const dndEffects = effects?.filter(isActiveEffect);
+
+    // Единственное приведение, которое здесь не снять: контракт ядра объявляет
+    // итог свободной записью, а `ResolvedActorStats` — интерфейс без индексной
+    // сигнатуры, и структурно он такой записи не соответствует. Снять его можно
+    // только правкой контракта в ядре (Rule #0 — не наш файл).
+    return resolveActorStats(actor, dndEffects) as unknown as Record<
+      string,
+      unknown
+    >;
   }
 
   /**
@@ -677,7 +786,7 @@ export class Dnd5eVttSystem implements VttSystem {
    */
   // eslint-disable-next-line class-methods-use-this
   collectActiveEffects(actor: BaseActor): readonly unknown[] {
-    return collectActiveEffects(actor as DnDActor);
+    return isDndSceneEntity(actor) ? collectActiveEffects(actor) : [];
   }
 
   /**
@@ -685,6 +794,9 @@ export class Dnd5eVttSystem implements VttSystem {
    */
   // eslint-disable-next-line class-methods-use-this
   normalizeActor(actor: BaseActor): void {
+    // Приведение здесь снять нельзя: это САМА миграция формата. Актёр старого
+    // мира приходит с полями на корне и без `system.abilities` — проверка
+    // D&D-формы отвергла бы ровно те записи, ради которых метод и существует.
     normalizeActor(actor as DnDActor);
   }
 
@@ -693,8 +805,9 @@ export class Dnd5eVttSystem implements VttSystem {
    */
   // eslint-disable-next-line class-methods-use-this
   normalizeCreature(creature: BaseCreature): void {
-    // Та же доверенность к границе системы, что и в `normalizeActor` выше:
-    // внутри D&D-системы нейтральное существо ядра — это `DnDCreature`.
+    // Приведение здесь снять нельзя по той же причине, что и в
+    // `normalizeActor` выше: существо старого мира приходит вообще без
+    // `system`, и заполняет его именно этот метод.
     normalizeCreature(creature as DnDCreature);
   }
 
@@ -740,13 +853,15 @@ export class Dnd5eVttSystem implements VttSystem {
       return false;
     }
 
-    return (activeEffects as ActiveEffect[]).some(
-      (effect) =>
-        effect.origin === 'condition'
-        && !(effect.aura && !effect.aura.applyToSelf)
-        && (effect.name === condition.nameRu
-          || effect.name === condition.nameEn),
-    );
+    return activeEffects
+      .filter(isActiveEffect)
+      .some(
+        (effect) =>
+          effect.origin === 'condition'
+          && !(effect.aura && !effect.aura.applyToSelf)
+          && (effect.name === condition.nameRu
+            || effect.name === condition.nameEn),
+      );
   }
 
   /**
@@ -761,11 +876,10 @@ export class Dnd5eVttSystem implements VttSystem {
     const condition = CONDITIONS.find((entry) => entry.key === conditionKey);
 
     if (!condition) {
-      return activeEffects as unknown[];
+      return [...activeEffects];
     }
 
-    const effects = activeEffects as ActiveEffect[];
-    const key = conditionKey as ConditionKey;
+    const effects = activeEffects.filter(isActiveEffect);
 
     if (this.isConditionActive(effects, conditionKey)) {
       return effects.filter(
@@ -779,7 +893,9 @@ export class Dnd5eVttSystem implements VttSystem {
     } else {
       // Единый источник правды: builder проставляет conditionKey,
       // conditionImmunities и динамические changes Истощения.
-      const newEffect = buildConditionActiveEffect(key);
+      // Ключ берётся у найденного состояния, а не у входной строки: он уже
+      // типизирован справочником, и лишняя проверка не нужна
+      const newEffect = buildConditionActiveEffect(condition.key);
 
       if (!newEffect) {
         return [...effects];

@@ -30,6 +30,7 @@
   import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
   import { useTargetStore } from '@/stores/targetStore';
   import { useWorldStore } from '@/stores/worldStore';
+  import { isRecord } from '@vtt/shared';
   import {
     calculateSpellAttackModifier,
     CANTRIP_SPELL_LEVEL,
@@ -814,7 +815,7 @@
         ...props.actor.system,
         spellSlotsUsed: slots,
       },
-    } as Partial<DnDActor>);
+    });
 
     triggerSaveIfNotEdit();
   }
@@ -830,7 +831,7 @@
         ...props.actor.system,
         pactSlotsUsed: count,
       },
-    } as Partial<DnDActor>);
+    });
 
     triggerSaveIfNotEdit();
   }
@@ -1369,15 +1370,14 @@
       ? null
       : targetStore.getTargetActor();
 
-    const targetHp = (
-      targetEntity?.system as {
-        hitPoints?: { current?: number; max?: number };
-      }
-    )?.hitPoints;
+    // `system` ядра — непрозрачная запись: хиты читаются полем за полем
+    const rawTargetHp = targetEntity?.system.hitPoints;
+    const targetHp = isRecord(rawTargetHp) ? rawTargetHp : undefined;
 
     const targetIsFull =
-      targetHp && targetHp.max !== undefined
-        ? (targetHp.current ?? 0) >= targetHp.max
+      typeof targetHp?.max === 'number'
+        ? (typeof targetHp.current === 'number' ? targetHp.current : 0)
+          >= targetHp.max
         : undefined;
 
     // Масштабирование заговора: на пороге уровня тир целиком заменяет базовые

@@ -9,7 +9,6 @@
     DnDCarryingCapacity,
     DnDCurrency,
     DnDGameItem,
-    DnDSceneEntity,
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
@@ -38,6 +37,7 @@
     evaluateConditionalBonuses,
     formatWeaponDamageFormula,
     getWeaponPrimaryDamageType,
+    isDndSceneEntity,
     resolveActorStats,
     TOOL_CATEGORIES,
   } from '@vtt/shared/system/dnd.js';
@@ -260,30 +260,37 @@
   // --- Бросок урона (через DiceRollModal) ---
   const isRollModalOpen = ref(false);
 
-  const rollConfig = ref({
+  /** Контекст броска, известный на момент подстановки бонусов */
+  interface RollBonusContext {
+    hasAdvantage: boolean;
+    hasDisadvantage: boolean;
+  }
+
+  /** Настройки окна броска: заполняются перед каждым открытием */
+  interface RollConfig {
+    name: string;
+    formula: string;
+    attackModifier?: number;
+    evaluateBonuses?: (context: RollBonusContext) => {
+      attackBonus: number;
+      damageBonus: number;
+    };
+    initialRollMode: AttackRollMode;
+    incomingAttackType?: 'melee' | 'ranged' | 'spell';
+    damageType?: string;
+    /** Многочастный путь (бонус-части урона от Active Effects) */
+    damageParts?: SpellDamagePartInput[];
+    evaluateBonusDamageParts?: (
+      context: RollBonusContext,
+    ) => SpellDamagePartInput[];
+    onRollParts?: (parts: RolledSpellDamagePart[]) => void;
+    onHit?: () => void;
+  }
+
+  const rollConfig = ref<RollConfig>({
     name: '',
     formula: '',
-    attackModifier: undefined as number | undefined,
-    evaluateBonuses: undefined as
-      | ((context: { hasAdvantage: boolean; hasDisadvantage: boolean }) => {
-          attackBonus: number;
-          damageBonus: number;
-        })
-      | undefined,
-    initialRollMode: 'normal' as AttackRollMode,
-    incomingAttackType: undefined as 'melee' | 'ranged' | 'spell' | undefined,
-    damageType: undefined as string | undefined,
-    // Многочастный путь (бонус-части урона от Active Effects)
-    damageParts: undefined as SpellDamagePartInput[] | undefined,
-    evaluateBonusDamageParts: undefined as
-      | ((context: {
-          hasAdvantage: boolean;
-          hasDisadvantage: boolean;
-        }) => SpellDamagePartInput[])
-      | undefined,
-    onRollParts: undefined as
-      ((parts: RolledSpellDamagePart[]) => void) | undefined,
-    onHit: undefined as (() => void) | undefined,
+    initialRollMode: 'normal',
   });
 
   /**
@@ -358,12 +365,10 @@
 
     let targetFlags = new Set<string>();
 
-    if (targetActor) {
-      // Стор целей хоста отдаёт нейтральную сущность — сужаем к D&D-форме,
-      // как и в остальных резолверах бросков.
-      targetFlags = resolveActorStats(
-        targetActor as DnDSceneEntity,
-      ).activeFlags;
+    // Стор целей хоста отдаёт нейтральную сущность — D&D-форму подтверждает
+    // гвард, как и в остальных резолверах бросков
+    if (targetActor && isDndSceneEntity(targetActor)) {
+      targetFlags = resolveActorStats(targetActor).activeFlags;
     }
 
     const isAdvantage =
@@ -520,7 +525,11 @@
     } else if (item.type === 'tool') {
       openModal('ToolDetailModal', { item, open: true });
     } else if (item.type === 'spell') {
-      openModal('SpellDetailModal', { spell: extractSpellFromGameItem(item) });
+      const spell = extractSpellFromGameItem(item);
+
+      if (spell) {
+        openModal('SpellDetailModal', { spell });
+      }
     } else {
       openModal('WeaponDetailModal', { item, open: true });
     }

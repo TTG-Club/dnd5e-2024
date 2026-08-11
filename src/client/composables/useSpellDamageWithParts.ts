@@ -26,6 +26,7 @@ import {
   findTokensInTemplate,
   formatDamageDefenseSuffix,
   getEntityConditionImmunities,
+  isDndSceneEntity,
   isImmuneToCondition,
   mergeAppliedEffects,
   resolveActorStats,
@@ -127,12 +128,16 @@ export function useSpellDamageWithParts() {
     tempHpGained: number;
     appliedEffects: string[];
   } {
-    // Ядро видит entity как Base*; в D&D-композабле восстанавливаем D&D-форму.
-    const dnd = entity as DnDSceneEntity;
+    // Ядро видит entity как Base*; D&D-форму подтверждает гвард. Без данных
+    // системы писать в хиты нечего — запись пропускается, а не считается от
+    // мусора.
+    if (!isDndSceneEntity(entity)) {
+      return { hpBefore: 0, hpAfter: 0, tempHpGained: 0, appliedEffects: [] };
+    }
 
-    const hpBefore = resolveEntityCurrentHp(dnd);
-    const maxHp = resolveEntityMaxHp(dnd);
-    const tempBefore = resolveEntityTempHp(dnd);
+    const hpBefore = resolveEntityCurrentHp(entity);
+    const maxHp = resolveEntityMaxHp(entity);
+    const tempBefore = resolveEntityTempHp(entity);
 
     // Урон сначала снимает временные ХП (правило 5e), остаток — текущие
     const hpChange = applyHpChange({
@@ -267,7 +272,12 @@ export function useSpellDamageWithParts() {
     outcome: DamageDefenseOutcome;
     lines: EffectDamageLine[];
   } {
-    const stats = resolveActorStats(entity as DnDSceneEntity);
+    // Ядро видит entity как Base*; D&D-форму подтверждает гвард
+    if (!isDndSceneEntity(entity)) {
+      return { damage: 0, outcome: 'normal', lines: [] };
+    }
+
+    const stats = resolveActorStats(entity);
 
     let total = 0;
     let outcome: DamageDefenseOutcome = 'normal';
@@ -524,8 +534,9 @@ export function useSpellDamageWithParts() {
 
       let outcome: DamageDefenseOutcome = 'normal';
 
-      if (types && types.length > 0) {
-        const stats = resolveActorStats(entity as DnDSceneEntity);
+      // Без данных системы защиты цели неизвестны — урон идёт как есть
+      if (types && types.length > 0 && isDndSceneEntity(entity)) {
+        const stats = resolveActorStats(entity);
 
         // Несколько типов на одной кости — защиты по наиболее выгодному цели
         const defenseResult = applyMultiTypeDamageDefenses(
@@ -740,7 +751,10 @@ export function useSpellDamageWithParts() {
       // Приземление: атака/авто (saveType 'none') доходят сюда только попавшими;
       // для landing-спаса «приземлилось» = цель провалила спас.
       const landed = spell.saveType === 'none' || !landingSave?.passed;
-      const immunities = getEntityConditionImmunities(entity as DnDSceneEntity);
+
+      const immunities = isDndSceneEntity(entity)
+        ? getEntityConditionImmunities(entity)
+        : [];
 
       const collected: ActiveEffect[] = [];
       const damageLines: EffectDamageLine[] = [];

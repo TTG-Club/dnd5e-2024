@@ -157,7 +157,7 @@
 
     for (const entry of temporaryClasses.value) {
       if (entry.casterType) {
-        typeMap.set(entry.classKey, entry.casterType as CasterType);
+        typeMap.set(entry.classKey, entry.casterType);
       }
     }
 

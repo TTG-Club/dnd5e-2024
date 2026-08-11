@@ -31,6 +31,7 @@
     DEFAULT_REACH_FEET,
     describeDamagePart,
     getActionDescriptionMarkdown,
+    isDndCreature,
     SAVE_TYPE_LABELS,
     SPELL_DAMAGE_TEMPLATE_COLORS,
     SPELL_TEMPLATE_DEFAULT_COLOR,
@@ -260,25 +261,37 @@
 
   const isRollModalOpen = ref(false);
 
-  const rollConfig = ref({
+  /** Контекст броска, известный на момент подстановки бонусов */
+  interface RollBonusContext {
+    hasAdvantage: boolean;
+    hasDisadvantage: boolean;
+  }
+
+  /** Настройки окна броска: заполняются перед каждым открытием */
+  interface RollConfig {
+    title: string;
+    name: string;
+    formula: string;
+    rollButtonText: string;
+    attackModifier?: number;
+    initialRollMode: AttackRollMode;
+    incomingAttackType?: 'melee' | 'ranged' | 'spell';
+    damageType?: string;
+    damageParts: SpellDamagePartInput[];
+    evaluateBonusDamageParts?: (
+      context: RollBonusContext,
+    ) => SpellDamagePartInput[];
+    onRollParts?: (parts: RolledSpellDamagePart[]) => void;
+    onHit?: () => void;
+  }
+
+  const rollConfig = ref<RollConfig>({
     title: '',
     name: '',
     formula: '',
     rollButtonText: 'Атаковать',
-    attackModifier: undefined as number | undefined,
-    initialRollMode: 'normal' as AttackRollMode,
-    incomingAttackType: undefined as 'melee' | 'ranged' | 'spell' | undefined,
-    damageType: undefined as string | undefined,
-    damageParts: [] as SpellDamagePartInput[],
-    evaluateBonusDamageParts: undefined as
-      | ((context: {
-          hasAdvantage: boolean;
-          hasDisadvantage: boolean;
-        }) => SpellDamagePartInput[])
-      | undefined,
-    onRollParts: undefined as
-      ((parts: RolledSpellDamagePart[]) => void) | undefined,
-    onHit: undefined as (() => void) | undefined,
+    initialRollMode: 'normal',
+    damageParts: [],
   });
 
   /** Существо-источник действий (для casterId, эффектов, @-переменных) */
@@ -290,12 +303,13 @@
     const worldId = worldStore.connectionState.currentWorldId;
     const world = worldStore.worlds.find((entry) => entry.id === worldId);
 
-    // Стор хоста хранит сущности в нейтральной форме — сужаем к D&D-форме,
-    // как и везде на границе с хостом.
-    return (
-      (world?.creatures?.find((entry) => entry.id === props.creatureId) as
-        DnDCreature | undefined) ?? null
+    // Стор хоста хранит сущности в нейтральной форме — D&D-форму подтверждает
+    // гвард, как и везде на границе с хостом.
+    const found = world?.creatures?.find(
+      (entry) => entry.id === props.creatureId,
     );
+
+    return found && isDndCreature(found) ? found : null;
   }
 
   /** Сущности текущего мира (акторы + существа) — цели применения */
@@ -519,10 +533,11 @@
    * @param event - событие ввода
    */
   function handleLegendaryCountInput(event: Event): void {
-    emit(
-      'update:legendaryCount',
-      Number((event.target as HTMLInputElement).value),
-    );
+    if (!(event.target instanceof HTMLInputElement)) {
+      return;
+    }
+
+    emit('update:legendaryCount', Number(event.target.value));
   }
 
   /**

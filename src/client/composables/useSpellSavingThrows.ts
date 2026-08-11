@@ -1,12 +1,15 @@
 import type { AbilityType, SceneEntity } from '@vtt/shared';
-import type { DnDSceneEntity } from '@vtt/shared/system/dnd.js';
 
 import type { ActorSaveInfo, SavingThrowResult } from './spellResolutionShared';
 
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
 import { useDiceRollerStore } from '@/stores/diceRollerStore';
-import { resolveActorStats, SAVE_TYPE_LABELS } from '@vtt/shared/system/dnd.js';
+import {
+  isDndSceneEntity,
+  resolveActorStats,
+  SAVE_TYPE_LABELS,
+} from '@vtt/shared/system/dnd.js';
 
 import { determineRollMode, resolveAutoSaves } from './spellResolutionShared';
 
@@ -29,7 +32,18 @@ export function useSpellSavingThrows() {
     entity: SceneEntity,
     saveAbility: AbilityType,
   ): ActorSaveInfo {
-    const stats = resolveActorStats(entity as DnDSceneEntity);
+    // Ядро видит entity как Base*; D&D-форму подтверждает гвард. Без данных
+    // системы считать нечего: спасбросок идёт «голым» кубиком, а не роняет каст
+    if (!isDndSceneEntity(entity)) {
+      return {
+        modifier: 0,
+        hasAdvantage: false,
+        hasDisadvantage: false,
+        autoFail: false,
+      };
+    }
+
+    const stats = resolveActorStats(entity);
 
     const modifier = stats.saves[saveAbility] ?? 0;
 

@@ -90,7 +90,7 @@ export function useToolForm(
   /** Опции категорий инструментов */
   const toolCategoryOptions = computed(() => {
     return Object.entries(TOOL_CATEGORIES).map(([key, categoryName]) => ({
-      label: categoryName as string,
+      label: categoryName,
       value: key,
     }));
   });

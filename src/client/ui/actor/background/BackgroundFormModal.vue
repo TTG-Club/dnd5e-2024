@@ -33,6 +33,7 @@
   import { generateId } from '@vtt/shared';
   import {
     ABILITY_OPTIONS,
+    isDnDGameItem,
     resolveToolProficiencies,
     SKILLS_LIST,
     TOOLS_LABELS,
@@ -150,11 +151,11 @@
     const taken = new Set<string>();
 
     // Стор хоста отдаёт нейтральную форму (`BaseGameItem`), а `key` —
-    // D&D-специфичное поле: сужаем к своей форме, как и в остальных местах
-    // на границе с хостом.
-    const worldBackgrounds = itemsStore.itemsByType(
-      'background',
-    ) as DnDGameItem[];
+    // D&D-специфичное поле: форму подтверждает гвард, как и в остальных
+    // местах на границе с хостом.
+    const worldBackgrounds = itemsStore
+      .itemsByType('background')
+      .filter(isDnDGameItem);
 
     for (const background of worldBackgrounds) {
       if (

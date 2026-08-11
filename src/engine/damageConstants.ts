@@ -65,6 +65,26 @@ export function isDamageType(value: string): value is DamageType {
   return DAMAGE_TYPE_SET.has(value);
 }
 
+/** Набор типов урона, к которым применимы защиты */
+const DEFENSIBLE_DAMAGE_TYPE_SET: ReadonlySet<string> = new Set(
+  DEFENSIBLE_DAMAGE_TYPES,
+);
+
+/**
+ * Проверяет, что строка — тип урона, к которому применимы защиты.
+ *
+ * Отдельно от {@link isDamageType}: служебный `choice` — тоже тип урона, но у
+ * него нет ни подписи, ни защит, и в справочники по типам он не индексируется.
+ *
+ * @param value - произвольная строка (ключ из справочника, поле формы)
+ * @returns `true`, если к этому типу урона применимы защиты
+ */
+export function isDefensibleDamageType(
+  value: string,
+): value is DefensibleDamageType {
+  return DEFENSIBLE_DAMAGE_TYPE_SET.has(value);
+}
+
 /**
  * Возможные цели части урона/лечения. Рантайм-зеркало `DamagePartTarget`:
  * сам тип живёт в нейтральном ядре (`@vtt/shared`), а оно вендорное и
@@ -116,8 +136,11 @@ export const DAMAGE_DEFENSE_KIND_LABELS: Record<DamageDefenseKind, string> = {
  * Возвращает краткое локализованное название типа урона в нижнем регистре.
  */
 export function getShortDamageTypeLabel(damageType: string): string {
-  const label =
-    DAMAGE_TYPE_LABELS[damageType as DefensibleDamageType] ?? damageType;
+  // Тип приходит строкой из формул и записей мира: у неизвестного показываем
+  // саму строку, как и раньше
+  const label = isDefensibleDamageType(damageType)
+    ? DAMAGE_TYPE_LABELS[damageType]
+    : damageType;
 
   return label
     .replace(/урон\s*|^\s*урон\s*/gi, '')

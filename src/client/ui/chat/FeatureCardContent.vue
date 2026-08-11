@@ -6,6 +6,8 @@
   import CardErrorFallback from '@/shared_ui/components/CardErrorFallback.vue';
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
 
+  import { isNamedCardEntry, parseCardPayload } from './cardPayload';
+
   const props = defineProps<{
     /** Сериализованные данные особенности (JSON-строка) */
     payload: string;
@@ -15,14 +17,20 @@
     type?: string;
   }
 
+  /**
+   * Проверяет, что нагрузка — особенность в объёме, который показывает карточка.
+   *
+   * @param value - разобранная нагрузка
+   * @returns `true`, если запись пригодна для показа
+   */
+  function isFeatureCardEntry(value: unknown): value is ParsedFeature {
+    return isNamedCardEntry(value);
+  }
+
   /** Десериализованная особенность */
-  const feature = computed<ParsedFeature | null>(() => {
-    try {
-      return JSON.parse(props.payload) as ParsedFeature;
-    } catch {
-      return null;
-    }
-  });
+  const feature = computed<ParsedFeature | null>(() =>
+    parseCardPayload(props.payload, isFeatureCardEntry),
+  );
 
   const isFeat = computed(() => {
     if (!feature.value) {

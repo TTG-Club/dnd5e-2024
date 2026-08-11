@@ -7,12 +7,7 @@
  * - Применение урона с учётом результата спасброска (full / half / none)
  * - Отправку результатов в чат
  */
-import type {
-  DiceGroupResult,
-  MeasurementTemplate,
-  Scene,
-  SceneEntity,
-} from '@vtt/shared';
+import type { DiceGroupResult, MeasurementTemplate, Scene } from '@vtt/shared';
 import type {
   ActiveEffect,
   AttackRollMode,
@@ -50,6 +45,7 @@ import {
   getShortDamageTypeLabel,
   getSpellDamageParts,
   getSpellPrimaryDamageType,
+  isDndSceneEntity,
   mergeAppliedEffects,
   resolveActorStats,
   resolveAttackRoll,
@@ -165,7 +161,7 @@ export function useSpellResolution() {
    * @returns результат применения
    */
   function applyResultsToEntity(
-    entity: SceneEntity,
+    entity: DnDSceneEntity,
     damage: number,
     damageType: string | undefined,
     isHealing: boolean,
@@ -183,18 +179,15 @@ export function useSpellResolution() {
     const extraDamageAfterDefenses = options.extraDamageAfterDefenses ?? 0;
     const healTemp = options.healTemp ?? false;
 
-    // Ядро видит entity как Base*; в D&D-композабле восстанавливаем D&D-форму.
-    const dnd = entity as DnDSceneEntity;
-
-    const hpBefore = resolveEntityCurrentHp(dnd);
-    const maxHp = resolveEntityMaxHp(dnd);
+    const hpBefore = resolveEntityCurrentHp(entity);
+    const maxHp = resolveEntityMaxHp(entity);
 
     let finalDamage = damage;
     let defenseOutcome: DamageDefenseOutcome = 'normal';
 
     // Учитываем защиты цели: иммунитет (урон 0), сопротивление (½), уязвимость (×2)
     if (!isHealing && damageType) {
-      const stats = resolveActorStats(dnd);
+      const stats = resolveActorStats(entity);
 
       const defenseResult = applyDamageDefenses(
         damage,
@@ -210,7 +203,7 @@ export function useSpellResolution() {
       finalDamage += extraDamageAfterDefenses;
     }
 
-    const tempBefore = resolveEntityTempHp(dnd);
+    const tempBefore = resolveEntityTempHp(entity);
 
     // Урон сначала снимает временные ХП (правило 5e), лечение их не трогает;
     // @heal.temp не лечит текущие хиты — даёт временные (ниже)
@@ -292,7 +285,7 @@ export function useSpellResolution() {
    * @returns суммарный бонус-урон с учётом гейтов, спасброска и защит
    */
   function computeBonusDamageForEntity(
-    entity: SceneEntity,
+    entity: DnDSceneEntity,
     bonusParts: RolledSpellDamagePart[],
     saveResult: SavingThrowResult | undefined,
     saveEffect: Spell['saveEffect'],
@@ -315,7 +308,7 @@ export function useSpellResolution() {
       }
 
       if (part.type) {
-        const stats = resolveActorStats(entity as DnDSceneEntity);
+        const stats = resolveActorStats(entity);
 
         partDamage = applyDamageDefenses(
           partDamage,
@@ -340,7 +333,7 @@ export function useSpellResolution() {
    * @returns результат обработки цели
    */
   function processTarget(
-    entity: SceneEntity,
+    entity: DnDSceneEntity,
     context: SpellResolutionContext,
     bonusParts: RolledSpellDamagePart[] = [],
   ): SpellTargetResult {
@@ -425,7 +418,7 @@ export function useSpellResolution() {
    * @returns промис с результатом обработки цели
    */
   async function processTargetManualSave(
-    entity: SceneEntity,
+    entity: DnDSceneEntity,
     context: SpellResolutionContext,
   ): Promise<SpellTargetResult> {
     const { spell, damageTotal, spellSaveDC, socket } = context;
@@ -648,7 +641,7 @@ export function useSpellResolution() {
    * @returns промис с массивом результатов
    */
   async function processManualTargetsSequentially(
-    targets: SceneEntity[],
+    targets: DnDSceneEntity[],
     context: SpellResolutionContext,
     sendSummaryAfter: boolean,
   ): Promise<SpellTargetResult[]> {
@@ -707,10 +700,10 @@ export function useSpellResolution() {
       );
 
       /** Сущности с авто-спасброском (NPC/существа и прочие с autoSaves !== false) */
-      const autoTargets: SceneEntity[] = [];
+      const autoTargets: DnDSceneEntity[] = [];
 
       /** Сущности с ручным спасброском (PC с autoSaves === false) */
-      const manualTargets: SceneEntity[] = [];
+      const manualTargets: DnDSceneEntity[] = [];
 
       for (const token of affectedTokens) {
         const entity = actors.find(
@@ -722,7 +715,7 @@ export function useSpellResolution() {
         }
 
         // Пропускаем сущности без корректных данных системы
-        if (!entity.system?.abilities) {
+        if (!isDndSceneEntity(entity)) {
           console.warn(
             `[SpellResolution] Сущность "${entity.name}" (${entity.id}) не имеет system.abilities — пропущена`,
           );
@@ -775,7 +768,7 @@ export function useSpellResolution() {
 
       if (targetEntity) {
         // Пропускаем сущности без корректных данных системы
-        if (!targetEntity.system?.abilities) {
+        if (!isDndSceneEntity(targetEntity)) {
           console.warn(
             `[SpellResolution] Сущность "${targetEntity.name}" (${targetEntity.id}) не имеет system.abilities — пропущена`,
           );
@@ -871,22 +864,20 @@ export function useSpellResolution() {
           (actorEntry) => actorEntry.id === sceneToken.actorId,
         );
 
-        if (!targetEntity) {
+        // Цель без данных системы пропускается: считать по ней нечего
+        if (!targetEntity || !isDndSceneEntity(targetEntity)) {
           continue;
         }
 
         // AC цели с условными защитными бонусами (напр. +2 КД от дальнобойных)
         // и флаги (иммунитет к критам) — per-target, как в targetStore
-        const targetStats = resolveActorStats(targetEntity as DnDSceneEntity);
+        const targetStats = resolveActorStats(targetEntity);
 
         const targetAc =
           targetStats.armorClass
-          + evaluateDefensiveACBonus(
-            collectActiveEffects(targetEntity as DnDSceneEntity),
-            {
-              attackType: attack.attackType,
-            },
-          );
+          + evaluateDefensiveACBonus(collectActiveEffects(targetEntity), {
+            attackType: attack.attackType,
+          });
 
         const hitDamageDetails: number[] = [];
         const rolledBonusParts: RolledSpellDamagePart[] = [];
@@ -969,8 +960,7 @@ export function useSpellResolution() {
 
         if (hits === 0) {
           // Все снаряды по цели промахнулись — строка в сводке без записи HP
-          const targetDnd = targetEntity as DnDSceneEntity;
-          const hpCurrent = resolveEntityCurrentHp(targetDnd);
+          const hpCurrent = resolveEntityCurrentHp(targetEntity);
 
           results.push({
             actorName: `${targetEntity.name} (промах ×${count})`,
@@ -1150,7 +1140,8 @@ export function useSpellResolution() {
               (actorEntry) => actorEntry.id === sceneToken.actorId,
             );
 
-            if (!targetActor) {
+            // Цель без данных системы пропускается: считать по ней нечего
+            if (!targetActor || !isDndSceneEntity(targetActor)) {
               continue;
             }
 

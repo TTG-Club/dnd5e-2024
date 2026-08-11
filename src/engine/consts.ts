@@ -39,15 +39,46 @@ export const SPELL_SAVE_DC_BASE = 8;
 // Характеристики (Abilities)
 // ============================================================
 
+/** Локализованные названия характеристик (ключ → русский лейбл) */
+export const ABILITY_LABELS: Record<AbilityType, string> = {
+  strength: 'Сила',
+  dexterity: 'Ловкость',
+  constitution: 'Телосложение',
+  intelligence: 'Интеллект',
+  wisdom: 'Мудрость',
+  charisma: 'Харизма',
+};
+
+/** Ключи характеристик в порядке листа */
+export const ABILITY_KEYS: readonly AbilityType[] = [
+  'strength',
+  'dexterity',
+  'constitution',
+  'intelligence',
+  'wisdom',
+  'charisma',
+];
+
+/** Множество всех допустимых ключей характеристик для быстрой проверки */
+const ABILITY_KEY_SET: ReadonlySet<string> = new Set(ABILITY_KEYS);
+
+/**
+ * Проверяет, является ли значение допустимым ключом характеристики
+ * (`AbilityType`). Значение приходит из данных мира, поэтому проверяется и его
+ * тип: в записи актёра на месте ключа может оказаться что угодно.
+ *
+ * @param value - произвольное значение для проверки
+ * @returns `true`, если `value` является `AbilityType`
+ */
+export function isAbilityType(value: unknown): value is AbilityType {
+  return typeof value === 'string' && ABILITY_KEY_SET.has(value);
+}
+
 /** Характеристики для выбора в UI-селектах */
-export const ABILITY_OPTIONS = [
-  { value: 'strength' as const, label: 'Сила' },
-  { value: 'dexterity' as const, label: 'Ловкость' },
-  { value: 'constitution' as const, label: 'Телосложение' },
-  { value: 'intelligence' as const, label: 'Интеллект' },
-  { value: 'wisdom' as const, label: 'Мудрость' },
-  { value: 'charisma' as const, label: 'Харизма' },
-] as const;
+export const ABILITY_OPTIONS: ReadonlyArray<{
+  value: AbilityType;
+  label: string;
+}> = ABILITY_KEYS.map((value) => ({ value, label: ABILITY_LABELS[value] }));
 
 // ============================================================
 // Навыки → Характеристики (Skills → Abilities)
@@ -75,41 +106,33 @@ export const SKILL_ABILITY_MAP: Record<SkillType, AbilityType> = {
   religion: 'intelligence',
 };
 
-/** Список всех навыков с их локализованными названиями и базовыми характеристиками */
-export const SKILLS_LIST: Array<{
-  key: SkillType;
-  label: string;
-  ability: AbilityType;
-}> = [
-  { key: 'acrobatics', label: 'Акробатика', ability: 'dexterity' },
-  { key: 'investigation', label: 'Анализ', ability: 'intelligence' },
-  { key: 'arcana', label: 'Аркана', ability: 'intelligence' },
-  { key: 'athletics', label: 'Атлетика', ability: 'strength' },
-  { key: 'perception', label: 'Внимательность', ability: 'wisdom' },
-  { key: 'survival', label: 'Выживание', ability: 'wisdom' },
-  { key: 'performance', label: 'Выступление', ability: 'charisma' },
-  { key: 'intimidation', label: 'Запугивание', ability: 'charisma' },
-  { key: 'history', label: 'История', ability: 'intelligence' },
-  { key: 'sleightOfHand', label: 'Ловкость рук', ability: 'dexterity' },
-  { key: 'medicine', label: 'Медицина', ability: 'wisdom' },
-  { key: 'deception', label: 'Обман', ability: 'charisma' },
-  { key: 'nature', label: 'Природа', ability: 'intelligence' },
-  { key: 'insight', label: 'Проницательность', ability: 'wisdom' },
-  { key: 'religion', label: 'Религия', ability: 'intelligence' },
-  { key: 'stealth', label: 'Скрытность', ability: 'dexterity' },
-  { key: 'persuasion', label: 'Убеждение', ability: 'charisma' },
-  { key: 'animalHandling', label: 'Уход за животными', ability: 'wisdom' },
-];
-
-/** Локализованные названия навыков (ключ → русский лейбл) */
-export const SKILLS_LABELS: Record<SkillType, string> = Object.fromEntries(
-  SKILLS_LIST.map((skill) => [skill.key, skill.label]),
-) as Record<SkillType, string>;
+/**
+ * Локализованные названия навыков (ключ → русский лейбл).
+ * Порядок записей — порядок показа навыков в листе (по алфавиту названий).
+ */
+export const SKILLS_LABELS: Record<SkillType, string> = {
+  acrobatics: 'Акробатика',
+  investigation: 'Анализ',
+  arcana: 'Аркана',
+  athletics: 'Атлетика',
+  perception: 'Внимательность',
+  survival: 'Выживание',
+  performance: 'Выступление',
+  intimidation: 'Запугивание',
+  history: 'История',
+  sleightOfHand: 'Ловкость рук',
+  medicine: 'Медицина',
+  deception: 'Обман',
+  nature: 'Природа',
+  insight: 'Проницательность',
+  religion: 'Религия',
+  stealth: 'Скрытность',
+  persuasion: 'Убеждение',
+  animalHandling: 'Уход за животными',
+};
 
 /** Множество всех допустимых ключей навыков для быстрой проверки */
-const SKILL_KEY_SET: ReadonlySet<string> = new Set(
-  SKILLS_LIST.map((skill) => skill.key),
-);
+const SKILL_KEY_SET: ReadonlySet<string> = new Set(Object.keys(SKILLS_LABELS));
 
 /**
  * Проверяет, является ли строка допустимым ключом навыка (`SkillType`).
@@ -121,30 +144,22 @@ export function isSkillType(value: string): value is SkillType {
   return SKILL_KEY_SET.has(value);
 }
 
-/** Локализованные названия характеристик (ключ → русский лейбл) */
-export const ABILITY_LABELS: Record<AbilityType, string> = Object.fromEntries(
-  ABILITY_OPTIONS.map((option) => [option.value, option.label]),
-) as Record<AbilityType, string>;
-
-/** Ключи характеристик в порядке листа — из общего списка вариантов */
-export const ABILITY_KEYS: readonly AbilityType[] = ABILITY_OPTIONS.map(
-  (option) => option.value,
-);
-
-/** Множество всех допустимых ключей характеристик для быстрой проверки */
-const ABILITY_KEY_SET: ReadonlySet<string> = new Set(ABILITY_KEYS);
-
 /**
- * Проверяет, является ли значение допустимым ключом характеристики
- * (`AbilityType`). Значение приходит из данных мира, поэтому проверяется и его
- * тип: в записи актёра на месте ключа может оказаться что угодно.
+ * Список всех навыков с их локализованными названиями и базовыми
+ * характеристиками — сборка двух справочников выше в порядке показа.
  *
- * @param value - произвольное значение для проверки
- * @returns `true`, если `value` является `AbilityType`
+ * `Object.keys` отдаёт ключи строками, поэтому каждый прогоняется через
+ * {@link isSkillType}: чужой ключ в список не попадёт.
  */
-export function isAbilityType(value: unknown): value is AbilityType {
-  return typeof value === 'string' && ABILITY_KEY_SET.has(value);
-}
+export const SKILLS_LIST: Array<{
+  key: SkillType;
+  label: string;
+  ability: AbilityType;
+}> = Object.keys(SKILLS_LABELS).flatMap((key) =>
+  isSkillType(key)
+    ? [{ key, label: SKILLS_LABELS[key], ability: SKILL_ABILITY_MAP[key] }]
+    : [],
+);
 
 // ============================================================
 // Типы движения (Movement)
@@ -167,6 +182,30 @@ export const MOVEMENT_LABELS: Record<MovementType, string> = {
   swim: 'Плавание',
   walk: 'Ходьба',
 };
+
+/** Ключи типов движения в порядке показа */
+export const MOVEMENT_KEYS: readonly MovementType[] = [
+  'walk',
+  'swim',
+  'fly',
+  'climb',
+  'burrow',
+];
+
+/** Множество всех допустимых типов движения для быстрой проверки */
+const MOVEMENT_KEY_SET: ReadonlySet<string> = new Set(MOVEMENT_KEYS);
+
+/**
+ * Проверяет, является ли значение допустимым типом движения (`MovementType`).
+ * Значение приходит из данных мира и из ключей эффектов (`movement.fly`),
+ * поэтому проверяется и его тип — на месте ключа может оказаться что угодно.
+ *
+ * @param value - произвольное значение для проверки
+ * @returns `true`, если `value` является `MovementType`
+ */
+export function isMovementType(value: unknown): value is MovementType {
+  return typeof value === 'string' && MOVEMENT_KEY_SET.has(value);
+}
 
 /** Локализованные названия категорий инструментов */
 export const TOOL_CATEGORIES: Record<ToolCategory, string> = {
@@ -742,6 +781,23 @@ export const CURRENCY_OPTIONS: ReadonlyArray<{
 /** Валюта по умолчанию */
 export const DEFAULT_CURRENCY: CurrencyType = 'gp';
 
+/** Множество всех допустимых видов монет для быстрой проверки */
+const CURRENCY_TYPE_SET: ReadonlySet<string> = new Set(
+  CURRENCY_OPTIONS.map((option) => option.value),
+);
+
+/**
+ * Проверяет, является ли значение видом монеты (`CurrencyType`).
+ * Стоимость записи компендиума приходит объектом `{ value, currency }`, где
+ * `currency` — произвольная строка: чужая монета не должна уехать в кошелёк.
+ *
+ * @param value - произвольное значение для проверки
+ * @returns `true`, если `value` является `CurrencyType`
+ */
+export function isCurrencyType(value: unknown): value is CurrencyType {
+  return typeof value === 'string' && CURRENCY_TYPE_SET.has(value);
+}
+
 /** Минимальное количество монет одного вида в кошельке */
 export const CURRENCY_AMOUNT_MIN = 0;
 
@@ -764,7 +820,9 @@ export function parseCost(
   if (typeof cost === 'object') {
     return {
       value: cost.value ?? 0,
-      currency: (cost.currency as CurrencyType) || DEFAULT_CURRENCY,
+      currency: isCurrencyType(cost.currency)
+        ? cost.currency
+        : DEFAULT_CURRENCY,
     };
   }
 
@@ -850,6 +908,25 @@ export const CREATURE_TYPE_LABELS: Record<
   monstrosity: 'Монстр',
 };
 
+/** Множество всех допустимых типов существ для быстрой проверки */
+const CREATURE_TYPE_SET: ReadonlySet<string> = new Set(
+  Object.keys(CREATURE_TYPE_LABELS),
+);
+
+/**
+ * Проверяет, является ли значение допустимым типом существа (`CreatureType`).
+ * Значение приходит из записей мира и компендиумов, поэтому проверяется и его
+ * тип: на месте ключа может оказаться что угодно.
+ *
+ * @param value - произвольное значение для проверки
+ * @returns `true`, если `value` является `CreatureType`
+ */
+export function isCreatureType(
+  value: unknown,
+): value is import('./speciesTypes.js').CreatureType {
+  return typeof value === 'string' && CREATURE_TYPE_SET.has(value);
+}
+
 // ============================================================
 // Существа — Мировоззрения (Creature Alignments)
 // ============================================================
@@ -872,6 +949,24 @@ export const CREATURE_ALIGNMENTS: Record<
   'any': 'Любое мировоззрение',
 };
 
+/** Множество всех допустимых мировоззрений для быстрой проверки */
+const CREATURE_ALIGNMENT_SET: ReadonlySet<string> = new Set(
+  Object.keys(CREATURE_ALIGNMENTS),
+);
+
+/**
+ * Проверяет, является ли строка мировоззрением существа.
+ * Ключ приходит из компендиумов и записей мира в произвольном виде.
+ *
+ * @param value - произвольная строка для проверки
+ * @returns `true`, если это известное мировоззрение
+ */
+export function isCreatureAlignment(
+  value: string,
+): value is import('./creatureTypes.js').CreatureAlignment {
+  return CREATURE_ALIGNMENT_SET.has(value);
+}
+
 /** Опции мировоззрений для UI-селектов */
 export const CREATURE_ALIGNMENT_OPTIONS = Object.entries(
   CREATURE_ALIGNMENTS,
@@ -888,17 +983,16 @@ export const CREATURE_ALIGNMENT_OPTIONS = Object.entries(
  * @returns русское название или undefined если ключ неизвестен
  */
 export function getAlignmentLabel(alignment: string): string | undefined {
-  const directMatch =
-    CREATURE_ALIGNMENTS[alignment as keyof typeof CREATURE_ALIGNMENTS];
-
-  if (directMatch) {
-    return directMatch;
+  if (isCreatureAlignment(alignment)) {
+    return CREATURE_ALIGNMENTS[alignment];
   }
 
   // Нормализация: пробелы → дефисы, lowercase
   const normalized = alignment.toLowerCase().replace(/\s+/g, '-');
 
-  return CREATURE_ALIGNMENTS[normalized as keyof typeof CREATURE_ALIGNMENTS];
+  return isCreatureAlignment(normalized)
+    ? CREATURE_ALIGNMENTS[normalized]
+    : undefined;
 }
 
 // ============================================================
@@ -1145,21 +1239,28 @@ export const CREATURE_ENVIRONMENTS = [
 // Заряды заклинаний (восстановление от отдыха)
 // ============================================================
 
+/** Карта значение → подпись для способа восстановления зарядов */
+export const SPELL_USES_RECOVERY_LABELS: Record<SpellUsesRecovery, string> = {
+  atWill: 'По желанию',
+  shortRest: 'Короткий отдых',
+  longRest: 'Продолжительный отдых',
+};
+
+/** Способы восстановления зарядов в порядке показа */
+const SPELL_USES_RECOVERY_KEYS: readonly SpellUsesRecovery[] = [
+  'atWill',
+  'shortRest',
+  'longRest',
+];
+
 /** Опции способа восстановления зарядов заклинания (форма, список, макрос) */
 export const SPELL_USES_RECOVERY_OPTIONS: ReadonlyArray<{
   value: SpellUsesRecovery;
   label: string;
-}> = [
-  { value: 'atWill', label: 'По желанию' },
-  { value: 'shortRest', label: 'Короткий отдых' },
-  { value: 'longRest', label: 'Продолжительный отдых' },
-];
-
-/** Карта значение → подпись для способа восстановления зарядов */
-export const SPELL_USES_RECOVERY_LABELS: Record<SpellUsesRecovery, string> =
-  Object.fromEntries(
-    SPELL_USES_RECOVERY_OPTIONS.map((option) => [option.value, option.label]),
-  ) as Record<SpellUsesRecovery, string>;
+}> = SPELL_USES_RECOVERY_KEYS.map((value) => ({
+  value,
+  label: SPELL_USES_RECOVERY_LABELS[value],
+}));
 
 /**
  * Нормализует способ восстановления зарядов к каноническому union из 3 значений.

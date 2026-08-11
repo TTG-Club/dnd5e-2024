@@ -9,7 +9,6 @@
  */
 
 import type { DnDActor } from './dndEntities.js';
-import type { DnDActorSystem } from './types.js';
 
 import { ABILITY_SCORE_MAX, ABILITY_SCORE_MIN } from './consts.js';
 
@@ -25,7 +24,7 @@ export function validateActorData(actor: Partial<DnDActor>): void {
     throw new Error('Имя персонажа обязательно');
   }
 
-  const system = actor.system as Partial<DnDActorSystem> | undefined;
+  const system = actor.system;
 
   if (!system) {
     return;

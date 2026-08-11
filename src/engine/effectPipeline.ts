@@ -44,6 +44,11 @@ import { getTotalLevel } from './classTypes.js';
 import {
   ABILITY_KEYS,
   BASE_UNARMORED_AC,
+  isAbilityType,
+  isMovementType,
+  isSkillType,
+  MOVEMENT_KEYS,
+  SKILLS_LIST,
   SPELL_SAVE_DC_BASE,
 } from './consts.js';
 import { getCustomBonusesValue } from './customBonuses.js';
@@ -71,47 +76,27 @@ export type { IncomingAttackContext };
 // ── Константы ─────────────────────────────────────────────────
 
 /** Все ключи навыков в порядке итерации */
-const SKILL_KEYS: readonly SkillType[] = [
-  'acrobatics',
-  'animalHandling',
-  'arcana',
-  'athletics',
-  'deception',
-  'history',
-  'insight',
-  'intimidation',
-  'investigation',
-  'medicine',
-  'nature',
-  'perception',
-  'performance',
-  'persuasion',
-  'sleightOfHand',
-  'stealth',
-  'survival',
-  'religion',
-] as const;
+const SKILL_KEYS: readonly SkillType[] = SKILLS_LIST.map((skill) => skill.key);
 
-/** Все типы движения */
-const MOVEMENT_KEYS: readonly MovementType[] = [
-  'walk',
-  'swim',
-  'fly',
-  'climb',
-  'burrow',
-] as const;
+/** Вид атаки/урона, к которому эффект даёт бонус */
+type BonusScope = keyof ResolvedActorStats['attackBonuses'];
 
-/** Множество ключей характеристик для быстрой проверки принадлежности. */
-const ABILITY_KEY_SET = new Set<string>(ABILITY_KEYS);
+/** Все виды атаки/урона */
+const BONUS_SCOPES: readonly BonusScope[] = ['melee', 'ranged', 'spell'];
+
+/** Множество видов атаки/урона для быстрой проверки принадлежности */
+const BONUS_SCOPE_SET: ReadonlySet<string> = new Set(BONUS_SCOPES);
 
 /**
- * Type-guard: значение — допустимый ключ характеристики (`AbilityType`).
+ * Type-guard: строка — вид атаки/урона (`melee` / `ranged` / `spell`).
+ * Нужен при разборе ключей эффектов вида `attack.melee`: хвост ключа приходит
+ * из записи мира, и чужое слово не должно попасть в бонусы.
  *
- * @param value - проверяемое значение
- * @returns true, если value входит в набор характеристик
+ * @param value - хвост ключа эффекта
+ * @returns `true`, если это известный вид атаки/урона
  */
-function isAbilityType(value: unknown): value is AbilityType {
-  return typeof value === 'string' && ABILITY_KEY_SET.has(value);
+function isBonusScope(value: string): value is BonusScope {
+  return BONUS_SCOPE_SET.has(value);
 }
 
 /**
@@ -135,6 +120,61 @@ function resolveHitPointsMax(hitPoints: unknown): number {
   return 10;
 }
 
+/**
+ * Нулевая заготовка значений по характеристикам.
+ * Явный литерал, а не сборка по списку ключей: только он доказывает типу, что
+ * запись заполнена целиком (у собранной из пар запись остаётся неполной).
+ *
+ * @returns запись «характеристика → 0»
+ */
+function createEmptyAbilityRecord(): Record<AbilityType, number> {
+  return {
+    strength: 0,
+    dexterity: 0,
+    constitution: 0,
+    intelligence: 0,
+    wisdom: 0,
+    charisma: 0,
+  };
+}
+
+/**
+ * Нулевая заготовка значений по навыкам.
+ *
+ * @returns запись «навык → 0»
+ */
+function createEmptySkillRecord(): Record<SkillType, number> {
+  return {
+    acrobatics: 0,
+    animalHandling: 0,
+    arcana: 0,
+    athletics: 0,
+    deception: 0,
+    history: 0,
+    insight: 0,
+    intimidation: 0,
+    investigation: 0,
+    medicine: 0,
+    nature: 0,
+    perception: 0,
+    performance: 0,
+    persuasion: 0,
+    religion: 0,
+    sleightOfHand: 0,
+    stealth: 0,
+    survival: 0,
+  };
+}
+
+/**
+ * Нулевая заготовка скоростей по типам движения.
+ *
+ * @returns запись «тип движения → 0»
+ */
+function createEmptyMovementRecord(): Record<MovementType, number> {
+  return { walk: 0, swim: 0, fly: 0, climb: 0, burrow: 0 };
+}
+
 // ── Фаза 1: prepareBaseData ───────────────────────────────────
 
 /**
@@ -151,25 +191,11 @@ export function prepareBaseData(
 ): ResolvedActorStats {
   const system = actor.system;
 
-  const abilities = Object.fromEntries(
-    ABILITY_KEYS.map((key) => [key, 0]),
-  ) as Record<AbilityType, number>;
-
-  const abilityMods = Object.fromEntries(
-    ABILITY_KEYS.map((key) => [key, 0]),
-  ) as Record<AbilityType, number>;
-
-  const saves = Object.fromEntries(
-    ABILITY_KEYS.map((key) => [key, 0]),
-  ) as Record<AbilityType, number>;
-
-  const skills = Object.fromEntries(
-    SKILL_KEYS.map((key) => [key, 0]),
-  ) as Record<SkillType, number>;
-
-  const movement = Object.fromEntries(
-    MOVEMENT_KEYS.map((key) => [key, 0]),
-  ) as Record<MovementType, number>;
+  const abilities = createEmptyAbilityRecord();
+  const abilityMods = createEmptyAbilityRecord();
+  const saves = createEmptyAbilityRecord();
+  const skills = createEmptySkillRecord();
+  const movement = createEmptyMovementRecord();
 
   // Характеристики
   for (const abilityKey of ABILITY_KEYS) {
@@ -249,7 +275,7 @@ export function collectActiveEffects(
 
   // Transferred-эффекты с экипированных предметов (только для DnDActor)
   if ('equipment' in actor) {
-    const equipment = (actor as DnDActor).equipment ?? [];
+    const equipment = actor.equipment ?? [];
 
     for (const item of equipment) {
       if (!item.equipped || !item.activeEffects) {
@@ -805,48 +831,44 @@ function getStatValue(
 ): number {
   // Характеристики
   if (targetKey.startsWith('ability.')) {
-    const abilityName = targetKey.slice(8) as AbilityType;
+    const abilityName = targetKey.slice(8);
 
-    return stats.abilities[abilityName] ?? 0;
+    return isAbilityType(abilityName) ? stats.abilities[abilityName] : 0;
   }
 
   // Спасброски
   if (targetKey.startsWith('save.')) {
-    const abilityName = targetKey.slice(5) as AbilityType;
+    const abilityName = targetKey.slice(5);
 
-    return stats.saves[abilityName] ?? 0;
+    return isAbilityType(abilityName) ? stats.saves[abilityName] : 0;
   }
 
   // Навыки
   if (targetKey.startsWith('skill.')) {
-    const skillName = targetKey.slice(6) as SkillType;
+    const skillName = targetKey.slice(6);
 
-    return stats.skills[skillName] ?? 0;
+    return isSkillType(skillName) ? stats.skills[skillName] : 0;
   }
 
   // Движение
   if (targetKey.startsWith('movement.')) {
-    const movementName = targetKey.slice(9) as MovementType;
+    const movementName = targetKey.slice(9);
 
-    return stats.movement[movementName] ?? 0;
+    return isMovementType(movementName) ? stats.movement[movementName] : 0;
   }
 
   // Атака
   if (targetKey.startsWith('attack.')) {
-    const attackType = targetKey.slice(
-      7,
-    ) as keyof ResolvedActorStats['attackBonuses'];
+    const attackType = targetKey.slice(7);
 
-    return stats.attackBonuses[attackType] ?? 0;
+    return isBonusScope(attackType) ? stats.attackBonuses[attackType] : 0;
   }
 
   // Урон
   if (targetKey.startsWith('damage.')) {
-    const damageType = targetKey.slice(
-      7,
-    ) as keyof ResolvedActorStats['damageBonuses'];
+    const damageType = targetKey.slice(7);
 
-    return stats.damageBonuses[damageType] ?? 0;
+    return isBonusScope(damageType) ? stats.damageBonuses[damageType] : 0;
   }
 
   // Простые поля
@@ -882,58 +904,66 @@ function setStatValue(
 ): void {
   // Характеристики
   if (targetKey.startsWith('ability.')) {
-    const abilityName = targetKey.slice(8) as AbilityType;
+    const abilityName = targetKey.slice(8);
 
-    stats.abilities[abilityName] = statValue;
+    if (isAbilityType(abilityName)) {
+      stats.abilities[abilityName] = statValue;
+    }
 
     return;
   }
 
   // Спасброски
   if (targetKey.startsWith('save.')) {
-    const abilityName = targetKey.slice(5) as AbilityType;
+    const abilityName = targetKey.slice(5);
 
-    stats.saves[abilityName] = statValue;
+    if (isAbilityType(abilityName)) {
+      stats.saves[abilityName] = statValue;
+    }
 
     return;
   }
 
   // Навыки
   if (targetKey.startsWith('skill.')) {
-    const skillName = targetKey.slice(6) as SkillType;
+    const skillName = targetKey.slice(6);
 
-    stats.skills[skillName] = statValue;
+    if (isSkillType(skillName)) {
+      stats.skills[skillName] = statValue;
+    }
 
     return;
   }
 
   // Движение
   if (targetKey.startsWith('movement.')) {
-    const movementName = targetKey.slice(9) as MovementType;
+    const movementName = targetKey.slice(9);
 
-    stats.movement[movementName] = statValue;
+    if (isMovementType(movementName)) {
+      stats.movement[movementName] = statValue;
+    }
 
     return;
   }
 
   // Атака
   if (targetKey.startsWith('attack.')) {
-    const attackType = targetKey.slice(
-      7,
-    ) as keyof ResolvedActorStats['attackBonuses'];
+    const attackType = targetKey.slice(7);
 
-    stats.attackBonuses[attackType] = statValue;
+    if (isBonusScope(attackType)) {
+      stats.attackBonuses[attackType] = statValue;
+    }
 
     return;
   }
 
   // Урон
   if (targetKey.startsWith('damage.')) {
-    const damageType = targetKey.slice(
-      7,
-    ) as keyof ResolvedActorStats['damageBonuses'];
+    const damageType = targetKey.slice(7);
 
-    stats.damageBonuses[damageType] = statValue;
+    if (isBonusScope(damageType)) {
+      stats.damageBonuses[damageType] = statValue;
+    }
 
     return;
   }

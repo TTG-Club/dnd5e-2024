@@ -7,6 +7,7 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
   import { DISTANCE_UNIT_OPTIONS } from '@vtt/shared';
+  import { isMovementType } from '@vtt/shared/system/dnd.js';
 
   import { MODAL_BUTTON_LABELS } from './constants';
 
@@ -68,19 +69,20 @@
     value: number;
   }
 
-  /** Набор валидных ключей движения для проверки без as-каста */
-  const validMovementKeys: Set<string> = new Set(
-    movementTypes.map((entry) => entry.key),
-  );
-
   /**
    * Собирает бонусы к скорости от Active Effects для каждого типа движения
    */
   const movementBonuses = computed<Record<MovementType, MovementBonusSource[]>>(
     () => {
-      const result: Record<string, MovementBonusSource[]> = Object.fromEntries(
-        movementTypes.map((entry) => [entry.key, []]),
-      );
+      // Явный литерал, а не сборка по списку ключей: только он доказывает
+      // типу, что запись заполнена по всем типам движения
+      const result: Record<MovementType, MovementBonusSource[]> = {
+        walk: [],
+        swim: [],
+        fly: [],
+        climb: [],
+        burrow: [],
+      };
 
       const targetPrefix = 'movement.';
 
@@ -92,7 +94,8 @@
 
           const movementKey = change.key.slice(targetPrefix.length);
 
-          if (!validMovementKeys.has(movementKey)) {
+          // Хвост ключа приходит из записи мира — тип подтверждает гвард
+          if (!isMovementType(movementKey)) {
             continue;
           }
 
@@ -107,7 +110,7 @@
         }
       }
 
-      return result as Record<MovementType, MovementBonusSource[]>;
+      return result;
     },
   );
 

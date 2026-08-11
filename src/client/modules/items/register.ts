@@ -9,13 +9,12 @@
  */
 
 import type { ClientSystemAPI } from '@/core/systemBootstrap';
-import type {
-  DnDGameItem,
-  SpeciesDefinition,
-  Spell,
-} from '@vtt/shared/system/dnd.js';
+import type { SpeciesDefinition } from '@vtt/shared/system/dnd.js';
 
 import type { KeyedDefinition } from '../../composables/useEntityDetailModals';
+
+import { isRecord } from '@vtt/shared';
+import { isDnDGameItem, isSpell } from '@vtt/shared/system/dnd.js';
 
 import { createDnd5eItemTypeProvider } from '../../composables/dnd5eItemTypes';
 import { useEntityDetailModals } from '../../composables/useEntityDetailModals';
@@ -41,14 +40,43 @@ import ToolCardContent from '../../ui/chat/ToolCardContent.vue';
  *
  * @param entry - запись предмета или компендиума
  * @param nested - имя вложенного поля с определением
+ * @returns определение в неразобранном виде — форму проверяет вызывающий
  */
-function definitionOf<T>(
+function definitionOf(
   entry: unknown,
   nested: 'classData' | 'speciesData',
-): T {
-  const record = entry as Record<string, unknown>;
+): unknown {
+  if (!isRecord(entry)) {
+    return entry;
+  }
 
-  return (record[nested] ?? record) as T;
+  return entry[nested] ?? entry;
+}
+
+/**
+ * Проверяет, что значение — определение, адресуемое по ключу (класс,
+ * предыстория). Ключ обязателен: без него окно не знает, что показывать.
+ *
+ * @param value - запись предмета или компендиума
+ * @returns `true`, если у записи есть строковый `key`
+ */
+function isKeyedDefinition(value: unknown): value is KeyedDefinition {
+  return isRecord(value) && typeof value.key === 'string';
+}
+
+/**
+ * Проверяет, что значение — определение вида. Как и у {@link isKeyedDefinition},
+ * проверяются поля, по которым окно вида находит запись и подписывает её.
+ *
+ * @param value - запись предмета или компендиума
+ * @returns `true`, если запись похожа на определение вида
+ */
+function isSpeciesDefinition(value: unknown): value is SpeciesDefinition {
+  return (
+    isRecord(value)
+    && typeof value.key === 'string'
+    && typeof value.name === 'string'
+  );
 }
 
 /** Регистрирует предметы D&D 5e: типы, карточки сущностей и чата (через SDK). */
@@ -68,7 +96,9 @@ export function register(api: ClientSystemAPI): void {
     listItemComponent: SpellListItem,
     allowShareAttr: true,
     openDetail: (entry, options) => {
-      useEntityDetailModals().openSpellDetail(entry as Spell, options);
+      if (isSpell(entry)) {
+        useEntityDetailModals().openSpellDetail(entry, options);
+      }
     },
   });
 
@@ -76,7 +106,9 @@ export function register(api: ClientSystemAPI): void {
     type: 'weapon',
     listItemComponent: WeaponListItem,
     openDetail: (entry, options) => {
-      useEntityDetailModals().openItemDetail(entry as DnDGameItem, options);
+      if (isDnDGameItem(entry)) {
+        useEntityDetailModals().openItemDetail(entry, options);
+      }
     },
   });
 
@@ -84,7 +116,9 @@ export function register(api: ClientSystemAPI): void {
     type: 'equipment',
     listItemComponent: EquipmentListItem,
     openDetail: (entry, options) => {
-      useEntityDetailModals().openItemDetail(entry as DnDGameItem, options);
+      if (isDnDGameItem(entry)) {
+        useEntityDetailModals().openItemDetail(entry, options);
+      }
     },
   });
 
@@ -92,7 +126,9 @@ export function register(api: ClientSystemAPI): void {
     type: 'tool',
     listItemComponent: ToolListItem,
     openDetail: (entry, options) => {
-      useEntityDetailModals().openItemDetail(entry as DnDGameItem, options);
+      if (isDnDGameItem(entry)) {
+        useEntityDetailModals().openItemDetail(entry, options);
+      }
     },
   });
 
@@ -100,7 +136,9 @@ export function register(api: ClientSystemAPI): void {
     type: 'feat',
     listItemComponent: FeatListItem,
     openDetail: (entry, options) => {
-      useFeatModal().openFeatDescription(entry as DnDGameItem, options);
+      if (isDnDGameItem(entry)) {
+        useFeatModal().openFeatDescription(entry, options);
+      }
     },
   });
 
@@ -109,10 +147,9 @@ export function register(api: ClientSystemAPI): void {
     listItemComponent: BackgroundListItem,
     propsFor: (entry) => ({ backgroundDefinition: entry }),
     openDetail: (entry, options) => {
-      useEntityDetailModals().openBackgroundDetail(
-        entry as KeyedDefinition,
-        options,
-      );
+      if (isKeyedDefinition(entry)) {
+        useEntityDetailModals().openBackgroundDetail(entry, options);
+      }
     },
   });
 
@@ -123,9 +160,11 @@ export function register(api: ClientSystemAPI): void {
     // уже плоские — поэтому fallback на сам entry.
     propsFor: (entry) => ({ classDefinition: entry.classData ?? entry }),
     openDetail: (entry) => {
-      useEntityDetailModals().openClassDetail(
-        definitionOf<KeyedDefinition>(entry, 'classData'),
-      );
+      const classDefinition = definitionOf(entry, 'classData');
+
+      if (isKeyedDefinition(classDefinition)) {
+        useEntityDetailModals().openClassDetail(classDefinition);
+      }
     },
   });
 
@@ -136,9 +175,11 @@ export function register(api: ClientSystemAPI): void {
     // уже плоские — поэтому fallback на сам entry.
     propsFor: (entry) => ({ speciesDefinition: entry.speciesData ?? entry }),
     openDetail: (entry) => {
-      useEntityDetailModals().openSpeciesDetail(
-        definitionOf<SpeciesDefinition>(entry, 'speciesData'),
-      );
+      const speciesDefinition = definitionOf(entry, 'speciesData');
+
+      if (isSpeciesDefinition(speciesDefinition)) {
+        useEntityDetailModals().openSpeciesDetail(speciesDefinition);
+      }
     },
   });
 

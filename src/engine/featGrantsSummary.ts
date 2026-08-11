@@ -13,13 +13,18 @@
  * @module system/dnd/featGrantsSummary
  */
 
-import type { AbilityType, Feature } from '@vtt/shared';
+import type { Feature } from '@vtt/shared';
 
 import type { BackgroundDefinition } from './backgroundTypes.js';
 import type { DnDGameItem } from './dndEntities.js';
 import type { FeatData } from './featTypes.js';
 
-import { ABILITY_LABELS, CONDITIONS, SKILLS_LABELS } from './consts.js';
+import {
+  ABILITY_LABELS,
+  CONDITIONS,
+  isAbilityType,
+  SKILLS_LABELS,
+} from './consts.js';
 import {
   DAMAGE_DEFENSE_KIND_LABELS,
   DAMAGE_TYPE_LABELS,
@@ -42,7 +47,7 @@ const WEAPON_LABELS: Record<string, string> = {
 
 /** Подпись характеристики по ключу. */
 function abilityLabel(ability: string): string {
-  return ABILITY_LABELS[ability as AbilityType] ?? ability;
+  return isAbilityType(ability) ? ABILITY_LABELS[ability] : ability;
 }
 
 /** Строка повышения характеристик. */

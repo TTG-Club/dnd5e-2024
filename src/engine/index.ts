@@ -22,6 +22,7 @@ export * from './dnd5eSystem.js';
 export * from './dndEntities.js';
 export * from './effectAutomation.js';
 export * from './effectPipeline.js';
+export * from './entityGuards.js';
 export * from './featGrants.js';
 export * from './featGrantsSummary.js';
 export * from './featTypes.js';

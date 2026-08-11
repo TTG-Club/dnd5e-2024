@@ -4,7 +4,6 @@ import type {
   DnDActor,
   DnDCreature,
   DnDGameItem,
-  DnDSceneEntity,
   EffectTargetKey,
   ResolvedActorStats,
   RollContext,
@@ -38,6 +37,7 @@ import {
   getWeaponPrimaryDamageType,
   hasBonusDamageFormulas,
   isDnDEffect,
+  isDndSceneEntity,
   resolveBonusDamageParts,
   resolveCreatureDamageParts,
   resolveCreatureSpellDamageParts,
@@ -204,15 +204,17 @@ export function useBonusDamageParts() {
       return undefined;
     }
 
+    // Ядро видит entity как Base*; D&D-форму подтверждает гвард
+    if (!isDndSceneEntity(entity)) {
+      return undefined;
+    }
+
     let hp: { current?: number; max?: number } | undefined;
 
-    // Ядро видит entity как Base*; в D&D-композабле восстанавливаем D&D-форму.
-    const dnd = entity as DnDSceneEntity;
-
-    if (isActorEntity(dnd)) {
-      hp = dnd.system.hitPoints;
-    } else if (isCreatureEntity(dnd)) {
-      hp = dnd.system.hitPoints;
+    if (isActorEntity(entity)) {
+      hp = entity.system.hitPoints;
+    } else if (isCreatureEntity(entity)) {
+      hp = entity.system.hitPoints;
     }
 
     if (!hp || hp.max === undefined) {

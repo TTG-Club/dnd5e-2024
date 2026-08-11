@@ -6,19 +6,29 @@
   import CardErrorFallback from '@/shared_ui/components/CardErrorFallback.vue';
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
 
+  import { isNamedCardEntry, parseCardPayload } from './cardPayload';
+
   const props = defineProps<{
     /** Сериализованные данные (JSON-строка) */
     payload: string;
   }>();
 
+  /**
+   * Проверяет, что нагрузка — предыстория в объёме, который показывает карточка.
+   *
+   * @param value - разобранная нагрузка
+   * @returns `true`, если запись пригодна для показа
+   */
+  function isBackgroundCardEntry(
+    value: unknown,
+  ): value is BackgroundDefinition {
+    return isNamedCardEntry(value);
+  }
+
   /** Десериализованная предыстория */
-  const item = computed<BackgroundDefinition | null>(() => {
-    try {
-      return JSON.parse(props.payload) as BackgroundDefinition;
-    } catch {
-      return null;
-    }
-  });
+  const item = computed<BackgroundDefinition | null>(() =>
+    parseCardPayload(props.payload, isBackgroundCardEntry),
+  );
 </script>
 
 <template>

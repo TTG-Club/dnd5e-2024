@@ -89,7 +89,7 @@
 
     if (step) {
       currentStepInfo.value = {
-        stepGroup: step.value as typeof currentStepInfo.value.stepGroup,
+        stepGroup: step.value,
         index: targetIndex + 1,
         total: wizardSteps.value.length,
       };

@@ -25,6 +25,7 @@ import {
   getCreatureProficiencyBonus,
 } from './calculations.js';
 import { SPELL_SAVE_DC_BASE } from './consts.js';
+import { isDamageType } from './damageConstants.js';
 import { getSpellDamageParts } from './damageParts.js';
 import {
   buildFormulaContext,
@@ -666,9 +667,12 @@ export function getSpellPrimaryDamageType(
     return undefined;
   }
 
-  return (primaryPart.type
-    ?? detectFormulaDamageType(primaryPart.formula)
-    ?? undefined) as DamageType | undefined;
+  // Тип части и тип из формулы — обычные строки записи мира; неизвестный
+  // системе тип к урону не применяется, и защиты по нему не ищутся
+  const rawType =
+    primaryPart.type ?? detectFormulaDamageType(primaryPart.formula);
+
+  return rawType && isDamageType(rawType) ? rawType : undefined;
 }
 
 /**

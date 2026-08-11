@@ -1638,18 +1638,14 @@
     v-if="localCreature"
     v-model:open="isDefensesOpen"
     :category="activeDefenseCategory"
-    :selected="
-      (localCreature.system.defenses[activeDefenseCategory] as string[]) || []
-    "
+    :selected="localCreature.system.defenses[activeDefenseCategory] || []"
     @apply="onDefensesApply"
   />
 
   <CreatureConditionImmunitiesModal
     v-if="localCreature"
     v-model:open="isConditionImmunitiesOpen"
-    :selected="
-      (localCreature.system.defenses.conditionImmunities as string[]) || []
-    "
+    :selected="localCreature.system.defenses.conditionImmunities || []"
     @apply="onConditionImmunitiesApply"
   />
 

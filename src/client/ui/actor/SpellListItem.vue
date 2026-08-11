@@ -6,7 +6,10 @@
   import { startHotbarDrag } from '@/core/utils/hotbarDrag';
   import { ContextMenuDangerItem } from '@/shared_ui/components';
   import FieldGroupReset from '@/shared_ui/components/FieldGroupReset.vue';
-  import { SPELL_USES_RECOVERY_LABELS } from '@vtt/shared/system/dnd.js';
+  import {
+    isSpell,
+    SPELL_USES_RECOVERY_LABELS,
+  } from '@vtt/shared/system/dnd.js';
 
   import {
     SHEET_ROW_MENU_LABELS,
@@ -53,17 +56,17 @@
     share: [];
   }>();
 
-  const spellObject = computed<Spell>(() => {
-    if (
-      'type' in props.item
-      && props.item.type === 'spell'
-      && 'spellData' in props.item
-      && props.item.spellData
-    ) {
-      return extractSpellFromGameItem(props.item as DnDGameItem);
+  /**
+   * Заклинание строки. Запись компендиума уже плоская — её узнаёт гвард
+   * заклинания; предмет-обёртка мира несёт заклинание во вложенном
+   * `spellData`, откуда оно и разворачивается.
+   */
+  const spellObject = computed<Spell | null>(() => {
+    if (isSpell(props.item)) {
+      return props.item;
     }
 
-    return props.item as Spell;
+    return extractSpellFromGameItem(props.item);
   });
 
   /**
@@ -72,7 +75,7 @@
    * остаются одни кости, без подстановки характеристик.
    */
   const damageFormulaDisplay = computed(() =>
-    formatSpellDamageDisplay(spellObject.value),
+    spellObject.value ? formatSpellDamageDisplay(spellObject.value) : '',
   );
 
   /**
@@ -83,7 +86,7 @@
   function handleDragStart(event: DragEvent): void {
     const spell = spellObject.value;
 
-    if (!event.dataTransfer) {
+    if (!spell || !event.dataTransfer) {
       return;
     }
 
@@ -114,7 +117,7 @@
 
   /** Заряды заклинания для отображения (current/max + способ отката) */
   const usesBadge = computed<{ text: string; title: string } | null>(() => {
-    const uses = spellObject.value.uses;
+    const uses = spellObject.value?.uses;
 
     if (!uses || uses.recovery === 'atWill') {
       return null;
@@ -226,12 +229,12 @@
           <span
             class="min-w-0 flex-1 truncate text-left text-sm font-medium text-highlighted"
           >
-            {{ spellObject.name }}
+            {{ spellObject?.name }}
           </span>
 
           <!-- Бейджи -->
           <UBadge
-            v-if="spellObject.concentration"
+            v-if="spellObject?.concentration"
             color="warning"
             variant="subtle"
             size="xs"
@@ -240,7 +243,7 @@
           </UBadge>
 
           <UBadge
-            v-if="spellObject.ritual"
+            v-if="spellObject?.ritual"
             color="info"
             variant="subtle"
             size="xs"

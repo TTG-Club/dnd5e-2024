@@ -8,6 +8,7 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useWorldStore } from '@/stores/worldStore';
   import { generateId } from '@vtt/shared';
+  import { isSpell } from '@vtt/shared/system/dnd.js';
 
   import { SPELL_MIME } from './constants';
   import ActorSpellsTab from './tabs/ActorSpellsTab.vue';
@@ -124,7 +125,11 @@
     event.preventDefault();
 
     try {
-      const droppedSpell = JSON.parse(spellData) as Spell;
+      const droppedSpell: unknown = JSON.parse(spellData);
+
+      if (!isSpell(droppedSpell)) {
+        return;
+      }
 
       const alreadyExists = (localActor.value.spells ?? []).some(
         (spell) => spell.name === droppedSpell.name,
@@ -156,9 +161,11 @@
     /** Поднимает окно выше всех остальных */
     bringToFront: () => draggableModalRef.value?.bringToFront(),
     /** Текущий z-index окна (Vue auto-unwrap из expose) */
-    localZIndex: computed(
-      () => draggableModalRef.value?.localZIndex as number | undefined,
-    ),
+    localZIndex: computed(() => {
+      const zIndex = draggableModalRef.value?.localZIndex;
+
+      return typeof zIndex === 'number' ? zIndex : undefined;
+    }),
   });
 </script>
 

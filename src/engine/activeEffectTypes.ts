@@ -33,6 +33,8 @@ import type { ConditionKey } from './conditionKeys.js';
 
 import { z } from 'zod';
 
+import { isRecord } from '@vtt/shared';
+
 import { CONDITION_KEYS } from './conditionKeys.js';
 import {
   DAMAGE_PART_TARGETS,
@@ -796,6 +798,58 @@ export function isDnDEffect(
   return true;
 }
 
+/** Все источники эффекта — рантайм-зеркало `EffectOrigin` */
+const EFFECT_ORIGINS: readonly EffectOrigin[] = [
+  'item',
+  'spell',
+  'feature',
+  'condition',
+  'manual',
+  'area',
+];
+
+/** Множество источников эффекта для быстрой проверки строки */
+const EFFECT_ORIGIN_SET: ReadonlySet<string> = new Set(EFFECT_ORIGINS);
+
+/**
+ * Проверяет, что строка — известный источник эффекта.
+ *
+ * Нужна на границе с ядром: в контракте `VttSystem.applyEffectsToEntity`
+ * источник объявлен обычной строкой, а правила слияния эффектов завязаны на
+ * конкретные значения.
+ *
+ * @param value - произвольная строка источника
+ * @returns `true`, если это известный источник эффекта
+ */
+export function isEffectOrigin(value: string): value is EffectOrigin {
+  return EFFECT_ORIGIN_SET.has(value);
+}
+
+/**
+ * Проверяет, что произвольное значение — активный эффект D&D 5e.
+ *
+ * Отличается от {@link isDnDEffect} входом: там эффект уже пришёл нейтральной
+ * базой ядра, здесь — совсем непрозрачным `unknown` (контракт `VttSystem`
+ * объявляет списки эффектов как `readonly unknown[]`). Проверка структурная и
+ * намеренно ленивая, как у схем предметов: сверяется то, по чему эффект
+ * узнают и показывают, — идентификатор и название.
+ *
+ * Источник (`origin`) НЕ проверяется намеренно: у эффектов старых миров его
+ * может не быть, а строже здесь нельзя — отброшенный эффект это потерянные
+ * бонусы листа. Сравнения с источником ниже по коду безопасны на любом
+ * значении.
+ *
+ * @param value - произвольное значение из списка эффектов ядра
+ * @returns `true`, если значение — активный эффект
+ */
+export function isActiveEffect(value: unknown): value is ActiveEffect {
+  return (
+    isRecord(value)
+    && typeof value.id === 'string'
+    && typeof value.name === 'string'
+  );
+}
+
 // ── ResolvedActorStats ────────────────────────────────────────
 
 /**
@@ -989,8 +1043,9 @@ const RecurringDamageSchema = z.object({
  * попадала в `activeFlags`, где не совпадала ни с одной проверкой движка —
  * то есть флаг молча не работал, а в UI показывался без названия.
  */
-const EffectFlagKeySchema = z.enum(
-  Object.keys(EFFECT_FLAG_LABELS) as [EffectFlagKey, ...EffectFlagKey[]],
+const EffectFlagKeySchema = z.custom<EffectFlagKey>(
+  (value) => typeof value === 'string' && value in EFFECT_FLAG_LABELS,
+  { message: 'Неизвестный флаг эффекта' },
 );
 
 /**

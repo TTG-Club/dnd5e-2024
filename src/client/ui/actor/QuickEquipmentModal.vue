@@ -7,7 +7,7 @@
   import { requireSocket } from '@/core/entityUtils';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useWorldStore } from '@/stores/worldStore';
-  import { generateId } from '@vtt/shared';
+  import { generateId, isRecord } from '@vtt/shared';
 
   import { GAME_ITEM_MIME } from './constants';
   import ActorEquipmentTab from './tabs/ActorEquipmentTab.vue';
@@ -106,10 +106,6 @@
     }
   }
 
-  function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-  }
-
   function isGameItem(value: unknown): value is DnDGameItem {
     return (
       isRecord(value)
@@ -175,9 +171,11 @@
     /** Поднимает окно выше всех остальных */
     bringToFront: () => draggableModalRef.value?.bringToFront(),
     /** Текущий z-index окна (Vue auto-unwrap из expose) */
-    localZIndex: computed(
-      () => draggableModalRef.value?.localZIndex as number | undefined,
-    ),
+    localZIndex: computed(() => {
+      const zIndex = draggableModalRef.value?.localZIndex;
+
+      return typeof zIndex === 'number' ? zIndex : undefined;
+    }),
   });
 </script>
 

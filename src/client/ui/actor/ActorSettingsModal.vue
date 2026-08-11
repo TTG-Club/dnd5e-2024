@@ -25,6 +25,7 @@
   import { useWorldStore } from '@/stores/worldStore';
   import { createDefaultLightEmitter, getServerBaseUrl } from '@vtt/shared';
   import {
+    isDndActor,
     resolveCreatureTokenScale,
     TOKEN_SCALE_TO_CREATURE_SIZE,
   } from '@vtt/shared/system/dnd.js';
@@ -169,13 +170,13 @@
       // чтобы watcher мог среагировать и закрыть модалку.
       //
       // Мир хоста хранит акторов в нейтральной форме (`BaseActor`, где
-      // `system` — «чёрный ящик») — сужаем к D&D-форме, иначе `system.race`,
-      // `system.classes` и т.п. в этом файле недоступны.
-      return (
-        (currentWorld.value.actors.find(
-          (entry) => entry.id === props.actorId,
-        ) as DnDActor | undefined) ?? null
+      // `system` — «чёрный ящик») — D&D-форму подтверждает гвард, иначе
+      // `system.race`, `system.classes` и т.п. в этом файле недоступны.
+      const found = currentWorld.value.actors.find(
+        (entry) => entry.id === props.actorId,
       );
+
+      return found && isDndActor(found) ? found : null;
     }
 
     return props.actorData ?? null;

@@ -6,8 +6,13 @@
   import CardErrorFallback from '@/shared_ui/components/CardErrorFallback.vue';
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import { formatItemCost } from '@vtt/shared';
-  import { RARITY_COLORS, RARITY_OPTIONS } from '@vtt/shared/system/dnd.js';
+  import {
+    isDnDGameItem,
+    RARITY_COLORS,
+    RARITY_OPTIONS,
+  } from '@vtt/shared/system/dnd.js';
 
+  import { parseCardPayload } from './cardPayload';
   import { RARITY_BORDER_CLASSES, RARITY_BORDER_DEFAULT } from './consts';
 
   const props = defineProps<{
@@ -16,13 +21,9 @@
   }>();
 
   /** Десериализованный предмет */
-  const item = computed<DnDGameItem | null>(() => {
-    try {
-      return JSON.parse(props.payload) as DnDGameItem;
-    } catch {
-      return null;
-    }
-  });
+  const item = computed<DnDGameItem | null>(() =>
+    parseCardPayload(props.payload, isDnDGameItem),
+  );
 
   /** Цвет рамки карточки по редкости */
   const rarityBorderClass = computed(() => {

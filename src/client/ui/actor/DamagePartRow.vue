@@ -99,7 +99,8 @@
     set: (value) => patch({ requiresDamage: value || undefined }),
   });
 
-  const inputRef = ref<any>(null);
+  /** Ссылка на поле ввода формулы: у компонента поля читается его корневой узел */
+  const inputRef = ref<{ $el?: Element } | null>(null);
 
   /** Вкладки для ввода формулы (лечение/условия скрываются пропами) */
   type DamageTab = {
@@ -164,11 +165,9 @@
 
   /** Вставка токена в формулу на текущую позицию курсора */
   function insertText(text: string): void {
-    const inputEl = inputRef.value?.$el?.querySelector(
-      'input',
-    ) as HTMLInputElement | null;
+    const inputEl = inputRef.value?.$el?.querySelector('input');
 
-    if (!inputEl) {
+    if (!(inputEl instanceof HTMLInputElement)) {
       formula.value = (formula.value || '') + text;
 
       return;

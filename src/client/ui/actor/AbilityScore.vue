@@ -169,10 +169,11 @@
   watch(isHighlighted, (highlighted) => emit('highlight', highlighted));
 
   function handleInput(event: Event) {
-    const numValue = Number.parseInt(
-      (event.target as HTMLInputElement).value,
-      10,
-    );
+    if (!(event.target instanceof HTMLInputElement)) {
+      return;
+    }
+
+    const numValue = Number.parseInt(event.target.value, 10);
 
     if (!Number.isNaN(numValue)) {
       emit('update:value', Math.max(1, Math.min(30, numValue)));

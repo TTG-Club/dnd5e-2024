@@ -54,20 +54,26 @@
       return '';
     }
 
-    return marked.parse(props.actor.notes, {
+    // `async: false` фиксирует синхронный разбор — `marked` в этом режиме
+    // отдаёт строку, но её объявленный тип этого не различает
+    const rendered = marked.parse(props.actor.notes, {
       async: false,
       renderer,
-    }) as string;
+    });
+
+    return typeof rendered === 'string' ? rendered : '';
   });
 
   /**
    * Обрабатывает клики по контенту — перехватывает journal-link
    */
   function handleContentClick(event: MouseEvent) {
-    const target = event.target as HTMLElement;
+    if (!(event.target instanceof Element)) {
+      return;
+    }
 
     // Проверяем journal-link
-    const journalLink = target.closest('[data-note-id]') as HTMLElement | null;
+    const journalLink = event.target.closest('[data-note-id]');
 
     if (journalLink) {
       const noteId = journalLink.getAttribute('data-note-id');

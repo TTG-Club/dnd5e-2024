@@ -1,7 +1,6 @@
 <script setup lang="ts">
   import type {
     ActorClassEntry,
-    HitDie,
     ManualHitDieGroup,
   } from '@vtt/shared/system/dnd.js';
 
@@ -9,12 +8,13 @@
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
-  import { getHitDiceGroups } from '@vtt/shared/system/dnd.js';
+  import {
+    getHitDiceGroups,
+    HIT_DIE_OPTIONS,
+    isHitDie,
+  } from '@vtt/shared/system/dnd.js';
 
   import { MODAL_BUTTON_LABELS } from './constants';
-
-  /** Доступные размеры костей хитов */
-  const HIT_DIE_OPTIONS: HitDie[] = [6, 8, 10, 12];
 
   interface HitPointsData {
     current: number;
@@ -116,6 +116,24 @@
           }
         }
       }
+    }
+  }
+
+  /**
+   * Меняет кость хитов группы: селектор отдаёт значение свободной формы,
+   * поэтому число сверяется со списком костей системы.
+   *
+   * @param group - группа ручных костей хитов
+   * @param value - значение из селектора
+   */
+  function handleGroupDieChange(
+    group: ManualHitDieGroup,
+    value: unknown,
+  ): void {
+    const die = Number(value);
+
+    if (isHitDie(die)) {
+      group.die = die;
     }
   }
 
@@ -368,7 +386,7 @@
                   }))
                 "
                 size="sm"
-                @update:model-value="group.die = Number($event) as HitDie"
+                @update:model-value="handleGroupDieChange(group, $event)"
               />
             </div>
 

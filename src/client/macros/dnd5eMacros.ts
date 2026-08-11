@@ -9,7 +9,6 @@ import type {
   DnDActor,
   DnDCreature,
   DnDGameItem,
-  DnDSceneEntity,
   EffectAttackTrigger,
   Spell,
 } from '@vtt/shared/system/dnd.js';
@@ -33,7 +32,7 @@ import { useWorldStore } from '@/stores/worldStore';
  * Вся боевая логика (бросок атаки, двухэтапная атака, криты, урон) вынесена
  * в attackUtils.ts, а здесь остаётся только оркестрация и контекст выполнения макроса.
  */
-import { isActorEntity, isCreatureEntity } from '@vtt/shared';
+import { isActorEntity, isCreatureEntity, isRecord } from '@vtt/shared';
 import {
   calculateSpellAttackModifier,
   calculateWeaponAttackModifier,
@@ -54,6 +53,7 @@ import {
   getTotalLevel,
   getWeaponPrimaryDamageType,
   isDnDEffect,
+  isDndSceneEntity,
   mergeAppliedEffects,
   pickCantripTierParts,
   resolveActorStats,
@@ -320,15 +320,18 @@ function isTargetFullHp(entity: SceneEntity | null): boolean | undefined {
     return undefined;
   }
 
-  const hp = (
-    entity.system as { hitPoints?: { current?: number; max?: number } }
-  )?.hitPoints;
+  // `system` ядра — непрозрачная запись: хиты читаются полем за полем
+  const hitPoints = isRecord(entity.system.hitPoints)
+    ? entity.system.hitPoints
+    : undefined;
 
-  if (!hp || hp.max === undefined) {
+  if (typeof hitPoints?.max !== 'number') {
     return undefined;
   }
 
-  return (hp.current ?? 0) >= hp.max;
+  const current = typeof hitPoints.current === 'number' ? hitPoints.current : 0;
+
+  return current >= hitPoints.max;
 }
 
 /**
@@ -428,10 +431,8 @@ export function registerDnd5eMacros(): void {
 
       let targetFlags = new Set<string>();
 
-      if (targetActor) {
-        targetFlags = resolveActorStats(
-          targetActor as DnDSceneEntity,
-        ).activeFlags;
+      if (targetActor && isDndSceneEntity(targetActor)) {
+        targetFlags = resolveActorStats(targetActor).activeFlags;
       }
 
       // Единый расчёт режима броска: флаги атакующего (общие + профильные),
@@ -1777,10 +1778,9 @@ function consumeCreatureSpellUse(creature: DnDCreature, spell: Spell): void {
   const socket = chatStore.getSocket();
 
   if (socket) {
-    emitEntityUpdate(socket, {
-      ...creature,
-      spells: updatedSpells,
-    } as DnDSceneEntity);
+    const updatedCreature: DnDCreature = { ...creature, spells: updatedSpells };
+
+    emitEntityUpdate(socket, updatedCreature);
   }
 }
 

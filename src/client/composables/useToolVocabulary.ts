@@ -20,7 +20,7 @@ import { computed } from 'vue';
 
 import { useItemsStore } from '@/stores/itemsStore';
 import { generateId } from '@vtt/shared';
-import { TOOLS_LIST } from '@vtt/shared/system/dnd.js';
+import { isDnDGameItem, TOOLS_LIST } from '@vtt/shared/system/dnd.js';
 
 /**
  * Ключ владения для предмета-инструмента мира: базовый тип, если он выбран в
@@ -65,8 +65,9 @@ export function useToolVocabulary() {
     const known = new Set(entries.map((entry) => entry.key));
 
     // Стор хоста отдаёт нейтральную форму; `toolItemKey` читает D&D-поле
-    // `baseToolType`, поэтому сужаем — как и везде на границе с хостом.
-    const worldTools = itemsStore.itemsByType('tool') as DnDGameItem[];
+    // `baseToolType`, поэтому форму подтверждает гвард — как и везде на
+    // границе с хостом.
+    const worldTools = itemsStore.itemsByType('tool').filter(isDnDGameItem);
 
     for (const item of worldTools) {
       const key = toolItemKey(item);

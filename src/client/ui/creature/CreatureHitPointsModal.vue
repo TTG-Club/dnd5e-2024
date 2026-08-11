@@ -5,11 +5,9 @@
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
+  import { HIT_DIE_OPTIONS, isHitDie } from '@vtt/shared/system/dnd.js';
 
   import { MODAL_BUTTON_LABELS } from '../actor/constants';
-
-  /** Доступные размеры костей хитов */
-  const HIT_DIE_OPTIONS: HitDie[] = [6, 8, 10, 12];
 
   interface Props {
     open: boolean;
@@ -28,14 +26,38 @@
     set: (value) => emit('update:open', value),
   });
 
-  const editHp = reactive({
+  /** Черновик правки хитов существа */
+  interface EditableHitPoints {
+    current: number;
+    max: number;
+    temp: number;
+    hitDie: HitDie;
+    hitDiceCount: number;
+    bonus: number;
+  }
+
+  const editHp = reactive<EditableHitPoints>({
     current: 0,
     max: 1,
     temp: 0,
-    hitDie: 8 as HitDie,
+    hitDie: 8,
     hitDiceCount: 1,
     bonus: 0,
   });
+
+  /**
+   * Меняет кость хитов существа: селектор отдаёт значение свободной формы,
+   * поэтому число сверяется со списком костей системы.
+   *
+   * @param value - значение из селектора
+   */
+  function handleHitDieChange(value: unknown): void {
+    const die = Number(value);
+
+    if (isHitDie(die)) {
+      editHp.hitDie = die;
+    }
+  }
 
   // При открытии — подставляем текущие значения
   watch(
@@ -204,7 +226,7 @@
                   }))
                 "
                 size="sm"
-                @update:model-value="editHp.hitDie = Number($event) as HitDie"
+                @update:model-value="handleHitDieChange"
               />
             </div>
 

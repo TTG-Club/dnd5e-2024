@@ -35,6 +35,24 @@ export type CasterType = 'full' | 'half' | 'third' | 'pact' | 'none';
 /** Тип кости хитов */
 export type HitDie = 6 | 8 | 10 | 12;
 
+/** Кости хитов в порядке показа (селекторы окон хитов актёра и существа) */
+export const HIT_DIE_OPTIONS: readonly HitDie[] = [6, 8, 10, 12];
+
+/** Множество допустимых костей хитов для быстрой проверки */
+const HIT_DIE_SET: ReadonlySet<number> = new Set(HIT_DIE_OPTIONS);
+
+/**
+ * Проверяет, является ли число костью хитов (`HitDie`).
+ * Значение приходит из селектора окна и из записей мира, где на его месте
+ * может оказаться любое число.
+ *
+ * @param value - произвольное число для проверки
+ * @returns `true`, если это кость хитов системы
+ */
+export function isHitDie(value: number): value is HitDie {
+  return HIT_DIE_SET.has(value);
+}
+
 /**
  * Группа костей хитов одного размера без привязки к классу
  * (для NPC и кастомных актёров без классов).
@@ -524,23 +542,38 @@ export function getMulticlassProficiencies(
   )?.[1];
 }
 
-/** Опции классов для UI-селектов (мультиселект владельцев заклинания) */
-export const CLASS_KEY_OPTIONS: { value: ClassKey; label: string }[] = [
-  { value: 'barbarian', label: 'Варвар' },
-  { value: 'bard', label: 'Бард' },
-  { value: 'cleric', label: 'Жрец' },
-  { value: 'druid', label: 'Друид' },
-  { value: 'fighter', label: 'Воин' },
-  { value: 'monk', label: 'Монах' },
-  { value: 'paladin', label: 'Паладин' },
-  { value: 'ranger', label: 'Следопыт' },
-  { value: 'rogue', label: 'Плут' },
-  { value: 'sorcerer', label: 'Чародей' },
-  { value: 'warlock', label: 'Колдун' },
-  { value: 'wizard', label: 'Волшебник' },
+/** Локализованные названия классов */
+export const CLASS_KEY_LABELS: Record<ClassKey, string> = {
+  barbarian: 'Варвар',
+  bard: 'Бард',
+  cleric: 'Жрец',
+  druid: 'Друид',
+  fighter: 'Воин',
+  monk: 'Монах',
+  paladin: 'Паладин',
+  ranger: 'Следопыт',
+  rogue: 'Плут',
+  sorcerer: 'Чародей',
+  warlock: 'Колдун',
+  wizard: 'Волшебник',
+};
+
+/** Ключи классов в порядке показа */
+export const CLASS_KEYS: readonly ClassKey[] = [
+  'barbarian',
+  'bard',
+  'cleric',
+  'druid',
+  'fighter',
+  'monk',
+  'paladin',
+  'ranger',
+  'rogue',
+  'sorcerer',
+  'warlock',
+  'wizard',
 ];
 
-/** Локализованные названия классов (производные от CLASS_KEY_OPTIONS) */
-export const CLASS_KEY_LABELS: Record<ClassKey, string> = Object.fromEntries(
-  CLASS_KEY_OPTIONS.map((option) => [option.value, option.label]),
-) as Record<ClassKey, string>;
+/** Опции классов для UI-селектов (мультиселект владельцев заклинания) */
+export const CLASS_KEY_OPTIONS: { value: ClassKey; label: string }[] =
+  CLASS_KEYS.map((value) => ({ value, label: CLASS_KEY_LABELS[value] }));

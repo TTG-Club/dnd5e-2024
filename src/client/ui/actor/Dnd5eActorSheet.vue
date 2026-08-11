@@ -1,9 +1,5 @@
 <script setup lang="ts">
-  import type {
-    AbilityType,
-    SkillType,
-    TypedWebSocketClient,
-  } from '@vtt/shared';
+  import type { AbilityType, TypedWebSocketClient } from '@vtt/shared';
   import type {
     BackgroundDefinition,
     ClassCounterDefinition,
@@ -32,7 +28,7 @@
   import { useItemsStore } from '@/stores/itemsStore';
   import { useWorldStore } from '@/stores/worldStore';
   import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
-  import { generateId } from '@vtt/shared';
+  import { generateId, isRecord } from '@vtt/shared';
   import {
     applyActorRest,
     applyShortRestWithHitDice,
@@ -43,6 +39,9 @@
     DEFAULT_ACTOR,
     getMulticlassProficiencies,
     getTotalLevel,
+    isDnDGameItem,
+    isSkillType,
+    isSpell,
     normalizeActor,
   } from '@vtt/shared/system/dnd.js';
 
@@ -163,10 +162,6 @@
     'equipment',
   );
 
-  function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-  }
-
   function isClassDefinition(value: unknown): value is ClassDefinition {
     return isRecord(value) && value.type === 'class';
   }
@@ -250,9 +245,10 @@
    * @returns массив определений классов мира
    */
   function getWorldClassDefinitions(): ClassDefinition[] {
-    // Стор хоста отдаёт нейтральные предметы — сужаем к D&D-форме, `classData`
-    // это её поле.
-    return (itemsStore.items as DnDGameItem[])
+    // Стор хоста отдаёт нейтральные предметы — D&D-форму подтверждает гвард,
+    // `classData` это её поле.
+    return itemsStore.items
+      .filter(isDnDGameItem)
       .filter((worldItem) => worldItem.type === 'class')
       .map((worldItem) => worldItem.classData)
       .filter((definition): definition is ClassDefinition =>
@@ -314,9 +310,10 @@
    * @returns массив определений видов мира
    */
   function getWorldSpeciesDefinitions(): SpeciesDefinition[] {
-    // Стор хоста отдаёт нейтральные предметы — сужаем к D&D-форме (см.
-    // `getWorldClassDefinitions`).
-    return (itemsStore.items as DnDGameItem[])
+    // Стор хоста отдаёт нейтральные предметы — D&D-форму подтверждает гвард
+    // (см. `getWorldClassDefinitions`).
+    return itemsStore.items
+      .filter(isDnDGameItem)
       .filter((worldItem) => worldItem.type === 'species')
       .map((worldItem) => worldItem.speciesData)
       .filter((definition): definition is SpeciesDefinition =>
@@ -525,7 +522,10 @@
       let actor: DnDActor | undefined;
 
       if (world) {
-        // Мир хоста хранит акторов в нейтральной форме — сужаем к D&D-форме.
+        // Приведение здесь снять нельзя: строкой ниже актёр прогоняется через
+        // `normalizeActor` — именно он мигрирует записи старых миров, где
+        // `system.abilities` ещё нет. Проверка D&D-формы ДО миграции не
+        // открыла бы такому актёру лист вовсе.
         actor = world.actors.find(
           (actorEntry) => actorEntry.id === props.actorId,
         ) as DnDActor | undefined;
@@ -583,8 +583,9 @@
       return props.actors.find((actorEntry) => actorEntry.id === props.actorId);
     }
 
-    // Мир хоста хранит акторов в нейтральной форме (`system` — «чёрный
-    // ящик») — сужаем к D&D-форме, иначе `equipment`/`spells` недоступны.
+    // Приведение остаётся по той же причине, что и в `initializeActor`: это
+    // тот же актёр из стора мира, ещё до миграции формата. Сужать его формой
+    // D&D можно только после `normalizeActor`.
     return world.actors.find(
       (actorEntry) => actorEntry.id === props.actorId,
     ) as DnDActor | undefined;
@@ -1038,7 +1039,7 @@
     const isClass = types.includes(CLASS_DEFINITION_MIME);
     const isSpecies = types.includes(SPECIES_DEFINITION_MIME);
     const isBackground = types.includes(BACKGROUND_DEFINITION_MIME);
-    const isSpell = types.includes(SPELL_MIME);
+    const hasSpell = types.includes(SPELL_MIME);
     const isEquipment = types.includes(GAME_ITEM_MIME);
     const isFeature = types.includes(GAME_FEATURE_MIME);
 
@@ -1046,14 +1047,14 @@
       isClass
       || isSpecies
       || isBackground
-      || isSpell
+      || hasSpell
       || isEquipment
       || isFeature
     ) {
       event.preventDefault();
       event.dataTransfer.dropEffect = 'copy';
 
-      if (isSpell) {
+      if (hasSpell) {
         isSpellDragOver.value = true;
       }
 
@@ -1164,9 +1165,9 @@
       }
     } else if (spellData) {
       try {
-        const droppedSpell = JSON.parse(spellData) as Spell;
+        const droppedSpell: unknown = JSON.parse(spellData);
 
-        if (localActor.value) {
+        if (isSpell(droppedSpell) && localActor.value) {
           const alreadyExists = (localActor.value.spells ?? []).some(
             (spell) => spell.name === droppedSpell.name,
           );
@@ -1529,8 +1530,11 @@
 
       for (const removedSkill of removedSkills) {
         // Удаляем навык только если его нет ни в одном оставшемся классе
-        if (!remainingChosenSkills.has(removedSkill)) {
-          delete proficiencies.skills[removedSkill as SkillType];
+        if (
+          isSkillType(removedSkill)
+          && !remainingChosenSkills.has(removedSkill)
+        ) {
+          delete proficiencies.skills[removedSkill];
         }
       }
     }

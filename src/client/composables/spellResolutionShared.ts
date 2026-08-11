@@ -10,7 +10,6 @@ import type {
 import type {
   ActiveEffect,
   DamageDefenseOutcome,
-  DnDSceneEntity,
   Spell,
   TargetHpGate,
 } from '@vtt/shared/system/dnd.js';
@@ -19,6 +18,7 @@ import { useInitiativeStore } from '@/stores/initiativeStore';
 import { generateId, isCreatureEntity } from '@vtt/shared';
 import {
   DAMAGE_TYPE_LABELS,
+  isDndSceneEntity,
   resolveEffectApplication,
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
@@ -227,13 +227,16 @@ export function orderTargetsBySaveMode(
  * @returns текущее и максимальное HP
  */
 function getEntityHp(entity: SceneEntity): { current: number; max: number } {
-  // Ядро видит entity как Base*; в D&D-композабле восстанавливаем D&D-форму
-  // (при isCreatureEntity сужается к DnDCreature, иначе — DnDActor).
-  const dnd = entity as DnDSceneEntity;
+  // Ядро видит entity как Base*; D&D-форму подтверждает гвард. Без данных
+  // системы запас хитов неизвестен — гейт по нему считается от нулей, ровно
+  // как и раньше читались отсутствующие хиты.
+  if (!isDndSceneEntity(entity)) {
+    return { current: 0, max: 0 };
+  }
 
   return {
-    current: resolveEntityCurrentHp(dnd),
-    max: resolveEntityMaxHp(dnd),
+    current: resolveEntityCurrentHp(entity),
+    max: resolveEntityMaxHp(entity),
   };
 }
 

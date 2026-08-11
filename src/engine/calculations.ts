@@ -7,8 +7,11 @@
 
 import type {
   AbilityType,
+  ActorArmorClass,
   ActorMovement,
+  ArmorCalculation,
   DamagePart,
+  DistanceUnit,
   MovementType,
   ProficiencyLevel,
   SkillType,
@@ -21,12 +24,19 @@ import type {
   DnDGameItem,
   DnDSceneEntity,
 } from './dndEntities.js';
+import type { ActorSpeciesEntry } from './speciesTypes.js';
+import type { DnDCurrency, DnDProficiencies } from './types.js';
+
+import { isRecord } from '@vtt/shared';
 
 import { getTotalLevel } from './classTypes.js';
 import {
   CREATURE_SIZE_TO_TOKEN_SCALE,
   DEFAULT_CREATURE_SIZE,
   EXPERIENCE_TABLE,
+  isAbilityType,
+  isCreatureType,
+  isSkillType,
   MAX_LEVEL,
   MOVEMENT_LABELS,
   MOVEMENT_PRIORITY,
@@ -518,9 +528,266 @@ export function getMovementList(
     return typeof value === 'number' && value > 0;
   }).map((type) => ({
     type,
-    value: movement[type] as number,
+    value: movement[type],
     label: MOVEMENT_LABELS[type],
   }));
+}
+
+// ── Граница SQL↔TS: разбор legacy-полей актёра ────────────────
+//
+// В старом формате поля актёра лежали на его корне, а не в `system`, и
+// приходят из БД / по сокету в неизвестной форме. Поэтому каждое читается как
+// `unknown` и разбирается поштучно: испорченное поле заменяется значением по
+// правилам, а не роняет лист и не утаскивает за собой соседние.
+
+/**
+ * Разбирает число с границы БД: старые записи хранят числа строками.
+ *
+ * @param value - сырое значение поля
+ * @param fallback - значение по умолчанию
+ * @returns число поля либо значение по умолчанию
+ */
+function parseLegacyNumber(value: unknown, fallback: number): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
+  return fallback;
+}
+
+/**
+ * Разбирает булево поле с границы БД.
+ *
+ * @param value - сырое значение поля
+ * @param fallback - значение по умолчанию
+ * @returns значение поля либо значение по умолчанию
+ */
+function parseLegacyBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback;
+}
+
+/**
+ * Разбирает список строк: нестроковые элементы отбрасываются поштучно.
+ *
+ * @param value - сырое значение поля
+ * @returns список строк (пустой, если разбирать нечего)
+ */
+function parseStringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === 'string')
+    : [];
+}
+
+/**
+ * Type-guard: значение — единица измерения расстояния.
+ *
+ * @param value - сырое значение поля
+ * @returns `true`, если это известная единица измерения
+ */
+function isDistanceUnit(value: unknown): value is DistanceUnit {
+  return value === 'ft' || value === 'm' || value === 'mi' || value === 'km';
+}
+
+/**
+ * Type-guard: значение — способ расчёта КД.
+ *
+ * @param value - сырое значение поля
+ * @returns `true`, если это известный способ расчёта
+ */
+function isArmorCalculation(value: unknown): value is ArmorCalculation {
+  return (
+    value === 'default'
+    || value === 'natural'
+    || value === 'flat'
+    || value === 'custom'
+  );
+}
+
+/**
+ * Разбирает передвижение актёра. Значения берутся по одному, поэтому неполная
+ * legacy-запись (только `walk`) не теряет то, что в ней было.
+ *
+ * @param value - сырое значение поля `movement`
+ * @returns передвижение актёра
+ */
+function parseLegacyMovement(value: unknown): ActorMovement {
+  const source = isRecord(value) ? value : {};
+
+  return {
+    walk: parseLegacyNumber(source.walk, 30),
+    swim: parseLegacyNumber(source.swim, 0),
+    fly: parseLegacyNumber(source.fly, 0),
+    climb: parseLegacyNumber(source.climb, 0),
+    burrow: parseLegacyNumber(source.burrow, 0),
+    hover: parseLegacyBoolean(source.hover, false),
+    units: isDistanceUnit(source.units) ? source.units : 'ft',
+  };
+}
+
+/**
+ * Разбирает класс доспеха актёра.
+ *
+ * @param value - сырое значение поля `armorClass`
+ * @returns класс доспеха
+ */
+function parseLegacyArmorClass(value: unknown): ActorArmorClass {
+  const source = isRecord(value) ? value : {};
+
+  return {
+    value: parseLegacyNumber(source.value, 10),
+    calculation: isArmorCalculation(source.calculation)
+      ? source.calculation
+      : 'default',
+    formula: typeof source.formula === 'string' ? source.formula : '',
+    flat: typeof source.flat === 'number' ? source.flat : null,
+  };
+}
+
+/**
+ * Разбирает владения навыками: чужой ключ навыка или неизвестная степень
+ * владения отбрасываются поштучно.
+ *
+ * @param value - сырое значение поля `proficiencies.skills`
+ * @returns владения навыками
+ */
+function parseSkillProficiencies(
+  value: unknown,
+): Partial<Record<SkillType, ProficiencyLevel>> {
+  const skills: Partial<Record<SkillType, ProficiencyLevel>> = {};
+
+  if (!isRecord(value)) {
+    return skills;
+  }
+
+  for (const [skillKey, level] of Object.entries(value)) {
+    if (isSkillType(skillKey) && isProficiencyLevel(level)) {
+      skills[skillKey] = level;
+    }
+  }
+
+  return skills;
+}
+
+/**
+ * Разбирает владения актёра.
+ *
+ * @param value - сырое значение поля `proficiencies`
+ * @returns владения актёра
+ */
+function parseLegacyProficiencies(value: unknown): DnDProficiencies {
+  const source = isRecord(value) ? value : {};
+
+  return {
+    armor: parseStringList(source.armor),
+    weapons: parseStringList(source.weapons),
+    weaponMasteries: parseStringList(source.weaponMasteries),
+    tools: parseStringList(source.tools),
+    // Общий язык — стартовый по правилам: у актёра без списка языков он есть,
+    // а вот пустой список в записи — уже осознанный выбор, и его не трогаем
+    languages:
+      'languages' in source ? parseStringList(source.languages) : ['Общий'],
+    savingThrows: Array.isArray(source.savingThrows)
+      ? source.savingThrows.filter(isAbilityType)
+      : [],
+    skills: parseSkillProficiencies(source.skills),
+  };
+}
+
+/**
+ * Разбирает кошелёк актёра.
+ *
+ * @param value - сырое значение поля `currency`
+ * @returns монеты актёра
+ */
+function parseLegacyCurrency(value: unknown): DnDCurrency {
+  const source = isRecord(value) ? value : {};
+
+  return {
+    cp: parseLegacyNumber(source.cp, 0),
+    sp: parseLegacyNumber(source.sp, 0),
+    ep: parseLegacyNumber(source.ep, 0),
+    gp: parseLegacyNumber(source.gp, 0),
+    pp: parseLegacyNumber(source.pp, 0),
+  };
+}
+
+/**
+ * Разбирает запись выборов вида «ключ → строка».
+ *
+ * @param value - сырое значение поля
+ * @returns запись выборов (пустая, если разбирать нечего)
+ */
+function parseChoiceRecord(value: unknown): Record<string, string> {
+  const choices: Record<string, string> = {};
+
+  if (!isRecord(value)) {
+    return choices;
+  }
+
+  for (const [choiceKey, choice] of Object.entries(value)) {
+    if (typeof choice === 'string') {
+      choices[choiceKey] = choice;
+    }
+  }
+
+  return choices;
+}
+
+/**
+ * Разбирает выборы даров вида по уровням: ключ уровня — целое число.
+ *
+ * @param value - сырое значение поля `grantChoices`
+ * @returns выборы даров по уровням
+ */
+function parseGrantChoices(value: unknown): Record<number, string[]> {
+  const grantChoices: Record<number, string[]> = {};
+
+  if (!isRecord(value)) {
+    return grantChoices;
+  }
+
+  for (const [levelKey, choices] of Object.entries(value)) {
+    const level = Number(levelKey);
+
+    if (Number.isInteger(level)) {
+      grantChoices[level] = parseStringList(choices);
+    }
+  }
+
+  return grantChoices;
+}
+
+/**
+ * Разбирает запись о виде актёра. Без ключа вида запись бесполезна — такая
+ * отбрасывается целиком, остальные поля дополняются значениями по правилам.
+ *
+ * @param value - сырое значение поля `species`
+ * @returns запись о виде либо `null`
+ */
+function parseLegacySpecies(value: unknown): ActorSpeciesEntry | null {
+  if (!isRecord(value) || typeof value.speciesKey !== 'string') {
+    return null;
+  }
+
+  return {
+    speciesKey: value.speciesKey,
+    speciesName:
+      typeof value.speciesName === 'string'
+        ? value.speciesName
+        : value.speciesKey,
+    creatureType: isCreatureType(value.creatureType)
+      ? value.creatureType
+      : 'humanoid',
+    size: normalizeCreatureSize(value.size),
+    featureChoices: parseChoiceRecord(value.featureChoices),
+    grantChoices: parseGrantChoices(value.grantChoices),
+  };
 }
 
 /**
@@ -534,7 +801,9 @@ export function getMovementList(
  * @returns нормализованный актёр с заполненным system
  */
 export function normalizeActor(actor: DnDActor): DnDActor {
-  const raw = actor as unknown as Record<string, unknown>;
+  // Legacy-поля лежат на корне актёра, а объявленный тип их не знает: читаем
+  // корень как свободную запись и разбираем каждое поле по отдельности.
+  const raw: Record<string, unknown> = isRecord(actor) ? actor : {};
 
   // Дискриминатор типа сущности
   actor.entityType = 'actor';
@@ -555,40 +824,25 @@ export function normalizeActor(actor: DnDActor): DnDActor {
   }
 
   actor.system = {
-    species:
-      (raw.species as import('./speciesTypes.js').ActorSpeciesEntry | null)
-      ?? null,
+    species: parseLegacySpecies(raw.species),
     background: null,
     classes: [],
-    experience: (raw.experience as number) ?? 0,
-    inspiration: (raw.inspiration as boolean) ?? false,
+    experience: parseLegacyNumber(raw.experience, 0),
+    inspiration: parseLegacyBoolean(raw.inspiration, false),
     size: normalizeCreatureSize(raw.size),
 
     abilities: {
-      strength: (raw.strength as number) ?? 10,
-      dexterity: (raw.dexterity as number) ?? 10,
-      constitution: (raw.constitution as number) ?? 10,
-      intelligence: (raw.intelligence as number) ?? 10,
-      wisdom: (raw.wisdom as number) ?? 10,
-      charisma: (raw.charisma as number) ?? 10,
+      strength: parseLegacyNumber(raw.strength, 10),
+      dexterity: parseLegacyNumber(raw.dexterity, 10),
+      constitution: parseLegacyNumber(raw.constitution, 10),
+      intelligence: parseLegacyNumber(raw.intelligence, 10),
+      wisdom: parseLegacyNumber(raw.wisdom, 10),
+      charisma: parseLegacyNumber(raw.charisma, 10),
     },
 
-    movement: (raw.movement as ActorMovement) ?? {
-      walk: 30,
-      swim: 0,
-      fly: 0,
-      climb: 0,
-      burrow: 0,
-      hover: false,
-      units: 'ft',
-    },
+    movement: parseLegacyMovement(raw.movement),
 
-    armorClass: (raw.armorClass as DnDActor['system']['armorClass']) ?? {
-      value: 10,
-      calculation: 'default',
-      formula: '',
-      flat: null,
-    },
+    armorClass: parseLegacyArmorClass(raw.armorClass),
 
     hitPoints: actor.system?.hitPoints ?? {
       current: 10,
@@ -596,29 +850,14 @@ export function normalizeActor(actor: DnDActor): DnDActor {
       temp: 0,
     },
 
-    initiativeBonus: (raw.initiativeBonus as number) ?? 0,
-    initiativeAbility:
-      (raw.initiativeAbility as DnDActor['system']['initiativeAbility'])
-      ?? 'dexterity',
+    initiativeBonus: parseLegacyNumber(raw.initiativeBonus, 0),
+    initiativeAbility: isAbilityType(raw.initiativeAbility)
+      ? raw.initiativeAbility
+      : 'dexterity',
 
-    proficiencies:
-      (raw.proficiencies as DnDActor['system']['proficiencies']) ?? {
-        armor: [],
-        weapons: [],
-        weaponMasteries: [],
-        tools: [],
-        languages: ['Общий'],
-        savingThrows: [],
-        skills: {},
-      },
+    proficiencies: parseLegacyProficiencies(raw.proficiencies),
 
-    currency: (raw.currency as DnDActor['system']['currency']) ?? {
-      cp: 0,
-      sp: 0,
-      ep: 0,
-      gp: 0,
-      pp: 0,
-    },
+    currency: parseLegacyCurrency(raw.currency),
 
     classCounters: [],
   };
@@ -642,10 +881,10 @@ export function normalizeCreature(
   // Дискриминатор типа сущности
   creature.entityType = 'creature';
 
-  // Если system отсутствует — создаём дефолтный
+  // Если system отсутствует — создаём дефолтный.
+  // Граница SQL↔TS: по типу поле обязательное, но у legacy-существа его нет.
   if (!creature.system) {
-    // SQL↔TS boundary: legacy существо может не иметь system
-    (creature as unknown as Record<string, unknown>).system = {
+    creature.system = {
       size: DEFAULT_CREATURE_SIZE,
       type: 'humanoid',
       subtype: '',

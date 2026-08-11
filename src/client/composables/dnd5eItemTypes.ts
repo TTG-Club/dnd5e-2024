@@ -20,6 +20,8 @@ import type { DnDGameItem, Spell } from '@vtt/shared/system/dnd.js';
 
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
+import { isRecord } from '@vtt/shared';
+import { isDnDGameItem } from '@vtt/shared/system/dnd.js';
 
 import { useFeatModal } from './useFeatModal';
 
@@ -69,10 +71,6 @@ function getModalName(type: string, action: string): string {
   return `${prefix}${action}`;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
 /**
  * Заклинание (Spell), а не GameItem: имеет `type: 'spell'`, но НЕ имеет
  * `quantity` (поле GameItem).
@@ -109,19 +107,22 @@ export function createDnd5eItemTypeProvider(): ItemTypeProvider {
     ([type, config]) => ({ type, icon: config.icon, label: config.label }),
   );
 
-  /** Открывает модалку по вычисленному имени (динамическое имя — каст в одном месте). */
+  /** Открывает модалку по вычисленному имени. */
   const openByName = (name: string, props: Record<string, unknown>): void => {
     const { openModal } = useModalManager();
 
-    (openModal as (n: string, p: Record<string, unknown>) => void)(name, props);
+    openModal(name, props);
   };
 
   const openDetail = (baseItem: BaseGameItem): void => {
-    // Доверенное сужение: ядро отдаёт нейтральный предмет, но в мире D&D он
-    // всегда D&D-формы. Каст обязателен: `DnDGameItem` не просто добавляет
-    // опциональные поля, но и СУЖАЕТ `activeEffects` до D&D-формы, поэтому
-    // структурно `BaseGameItem` этому типу уже не соответствует.
-    const item = baseItem as DnDGameItem;
+    // Ядро отдаёт нейтральный предмет — D&D-форму подтверждает гвард. Простым
+    // расширением типа тут не обойтись: `DnDGameItem` не только добавляет поля,
+    // но и СУЖАЕТ `activeEffects` до D&D-формы.
+    if (!isDnDGameItem(baseItem)) {
+      return;
+    }
+
+    const item = baseItem;
 
     // Заклинание: SpellDetailModal ожидает prop `spell` (плоский Spell из spellData).
     if (item.type === 'spell') {
@@ -167,8 +168,9 @@ export function createDnd5eItemTypeProvider(): ItemTypeProvider {
     baseItem: BaseGameItem | null,
     ctx: ItemFormContext,
   ): void => {
-    // Доверенное сужение к D&D-форме (см. openDetail).
-    const item = baseItem as DnDGameItem | null;
+    // Ядро отдаёт нейтральный предмет — D&D-форму подтверждает гвард
+    // (см. openDetail); запись чужой формы открывается как новая.
+    const item = baseItem && isDnDGameItem(baseItem) ? baseItem : null;
     const socket: TypedWebSocketClient | null = ctx.socket;
     const onSave = ctx.onSave;
     const modalName = getModalName(type, 'FormModal');
@@ -251,8 +253,13 @@ export function createDnd5eItemTypeProvider(): ItemTypeProvider {
    * верхнего уровня сливаются со spellData (карточка чата ждёт объект Spell).
    */
   const shareToChat = (baseItem: BaseGameItem): void => {
-    // Доверенное сужение к D&D-форме (см. openDetail).
-    const item = baseItem as DnDGameItem;
+    // Ядро отдаёт нейтральный предмет — D&D-форму подтверждает гвард
+    // (см. openDetail).
+    if (!isDnDGameItem(baseItem)) {
+      return;
+    }
+
+    const item = baseItem;
 
     if (item.type !== 'spell' || !item.spellData) {
       return;

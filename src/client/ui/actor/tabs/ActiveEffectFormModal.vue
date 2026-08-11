@@ -176,7 +176,11 @@
       form.applySave.dc = 1;
     }
 
-    emit('save', JSON.parse(JSON.stringify(form)) as ActiveEffect);
+    // Глубокая копия черновика: мелкий спред оставил бы вложенные разделы
+    // общими с реактивной формой окна
+    const savedEffect: ActiveEffect = JSON.parse(JSON.stringify(form));
+
+    emit('save', savedEffect);
     handleClose();
   }
 
@@ -998,18 +1002,10 @@
                     </UFormField>
 
                     <div
-                      v-if="
-                        EFFECT_FLAG_LABELS[
-                          form.flags[idx] as keyof typeof EFFECT_FLAG_LABELS
-                        ]
-                      "
+                      v-if="EFFECT_FLAG_LABELS[form.flags[idx]]"
                       class="text-xs text-muted italic"
                     >
-                      {{
-                        EFFECT_FLAG_LABELS[
-                          form.flags[idx] as keyof typeof EFFECT_FLAG_LABELS
-                        ]
-                      }}
+                      {{ EFFECT_FLAG_LABELS[form.flags[idx]] }}
                     </div>
 
                     <div

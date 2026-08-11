@@ -26,6 +26,7 @@
   import FormSection from './FormSection.vue';
   import SourceField from './SourceField.vue';
   import ActiveEffectFormModal from './tabs/ActiveEffectFormModal.vue';
+  import { extractSpellFromGameItem } from './utils/extractSpellFromGameItem';
 
   defineOptions({ inheritAttrs: false });
 
@@ -62,16 +63,8 @@
       return props.spell;
     }
 
-    if (props.item && props.item.type === 'spell' && props.item.spellData) {
-      return {
-        ...props.item.spellData,
-        id: props.item.id,
-        name: props.item.name,
-        nameEn: props.item.nameEn,
-        description: props.item.description,
-        isSRD: props.item.isSRD,
-        sourceKey: props.item.sourceKey,
-      } as Spell;
+    if (props.item && props.item.type === 'spell') {
+      return extractSpellFromGameItem(props.item);
     }
 
     return null;

@@ -10,11 +10,14 @@
     DURATION_UNIT_LABELS,
     formatConditionalDamageDisplay,
     getSpellDamageParts,
+    isSpell,
     SPELL_LEVEL_LABELS,
     SPELL_SCHOOL_LABELS,
     stripDamageTypeTokens,
     stripHealTokens,
   } from '@vtt/shared/system/dnd.js';
+
+  import { parseCardPayload } from './cardPayload';
 
   const props = defineProps<{
     /** Сериализованные данные заклинания (JSON-строка) */
@@ -22,13 +25,9 @@
   }>();
 
   /** Десериализованное заклинание */
-  const spell = computed<Spell | null>(() => {
-    try {
-      return JSON.parse(props.payload) as Spell;
-    } catch {
-      return null;
-    }
-  });
+  const spell = computed<Spell | null>(() =>
+    parseCardPayload(props.payload, isSpell),
+  );
 
   /** Формулы частей урона/лечения для отображения (d→к, через « + »). */
   const damagePartsLabel = computed(() => {

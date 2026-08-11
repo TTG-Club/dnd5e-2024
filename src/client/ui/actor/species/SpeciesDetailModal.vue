@@ -162,9 +162,11 @@
    * Каждая группа — это одна особенность-«развилка» (напр. «Наследие
    * драконорождённого») со списком своих вариантов-подвидов и тем, что они дают.
    */
-  const subspeciesGroups = computed(() => {
+  const subspeciesGroups = computed<
+    Array<{ featureName: string; choices: SpeciesFeatureChoice[] }>
+  >(() => {
     if (!props.speciesDefinition) {
-      return [] as { featureName: string; choices: SpeciesFeatureChoice[] }[];
+      return [];
     }
 
     return props.speciesDefinition.features

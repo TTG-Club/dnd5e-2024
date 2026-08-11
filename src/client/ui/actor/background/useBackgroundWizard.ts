@@ -6,7 +6,6 @@ import type {
   BackgroundDefinition,
   DnDActor,
   DnDActorSystem,
-  EffectTargetKey,
   ResolvedGrantedSpell,
 } from '@vtt/shared/system/dnd.js';
 
@@ -299,7 +298,7 @@ export function useBackgroundWizard(
 
     // --- Откат предыдущей предыстории ---
     const baseSkills = { ...(system.proficiencies?.skills || {}) };
-    const baseTools = [...((system.proficiencies?.tools || []) as string[])];
+    const baseTools = [...(system.proficiencies?.tools ?? [])];
     const baseSavingThrows = [...(system.proficiencies?.savingThrows ?? [])];
     const baseArmor = [...(system.proficiencies?.armor ?? [])];
     const baseWeapons = [...(system.proficiencies?.weapons ?? [])];
@@ -378,7 +377,7 @@ export function useBackgroundWizard(
         featureType: 'feat',
       });
     } else {
-      const fallbackFeat: Partial<Feature> = {
+      const fallbackFeat: Feature = {
         id: grantedFeatId,
         name: def.featGrant.featName,
         nameEn: def.featGrant.featNameEn || '',
@@ -387,7 +386,7 @@ export function useBackgroundWizard(
         isSRD: !!def.isSRD,
       };
 
-      baseFeatures.push(fallbackFeat as Feature);
+      baseFeatures.push(fallbackFeat);
     }
 
     // 4. Создаём Active Effect для бонусов характеристик от предыстории
@@ -399,7 +398,7 @@ export function useBackgroundWizard(
     )) {
       if (bonus && bonus > 0) {
         abilityChanges.push({
-          key: `ability.${abilityKey}` as EffectTargetKey,
+          key: `ability.${abilityKey}`,
           mode: 'add',
           value: String(bonus),
           priority: 10,
