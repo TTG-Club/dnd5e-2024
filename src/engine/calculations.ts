@@ -10,6 +10,8 @@ import type {
   ActorArmorClass,
   ActorMovement,
   ArmorCalculation,
+  BaseActor,
+  BaseCreature,
   DamagePart,
   DistanceUnit,
   MovementType,
@@ -25,7 +27,12 @@ import type {
   DnDSceneEntity,
 } from './dndEntities.js';
 import type { ActorSpeciesEntry } from './speciesTypes.js';
-import type { DnDCurrency, DnDProficiencies } from './types.js';
+import type {
+  DnDActorSystem,
+  DnDCurrency,
+  DnDHitPoints,
+  DnDProficiencies,
+} from './types.js';
 
 import { isRecord } from '@vtt/shared';
 
@@ -700,6 +707,23 @@ function parseLegacyProficiencies(value: unknown): DnDProficiencies {
 }
 
 /**
+ * Разбирает хиты актёра. Запас хитов у актёра — три обязательных числа, но у
+ * записи старого мира их может не быть вовсе.
+ *
+ * @param value - сырое значение поля `hitPoints`
+ * @returns хиты актёра
+ */
+function parseLegacyHitPoints(value: unknown): DnDHitPoints {
+  const source = isRecord(value) ? value : {};
+
+  return {
+    current: parseLegacyNumber(source.current, 10),
+    max: parseLegacyNumber(source.max, 10),
+    temp: parseLegacyNumber(source.temp, 0),
+  };
+}
+
+/**
  * Разбирает кошелёк актёра.
  *
  * @param value - сырое значение поля `currency`
@@ -792,16 +816,21 @@ function parseLegacySpecies(value: unknown): ActorSpeciesEntry | null {
 
 /**
  * Нормализует объект актёра: если данные хранятся на корне (legacy-формат),
- * переносит их в `system` (новый формат DnDActorSystem).
+ * переносит их в `system` (новый формат DnDActorSystem), и доводит запись до
+ * формы, которую объявляет `DnDActor`.
+ *
+ * Принимает актёра в НЕЙТРАЛЬНОЙ форме ядра — иначе и быть не может: до этой
+ * функции у записи старого мира нет ни `system.abilities`, ни корневых
+ * коллекций, то есть D&D-формы у неё ещё нет. После вызова она есть, и её
+ * подтверждает `isDndActor`.
  *
  * Вызывать при загрузке актёра из БД или получении по WebSocket.
- * Мутирует объект на месте и возвращает его для удобства.
+ * Мутирует объект на месте — этого ждёт и ядро (контракт `VttSystem`).
  *
  * @param actor - объект актёра (может быть legacy или новый формат)
- * @returns нормализованный актёр с заполненным system
  */
-export function normalizeActor(actor: DnDActor): DnDActor {
-  // Legacy-поля лежат на корне актёра, а объявленный тип их не знает: читаем
+export function normalizeActor(actor: BaseActor): void {
+  // Legacy-поля лежат на корне актёра, а нейтральный тип их не знает: читаем
   // корень как свободную запись и разбираем каждое поле по отдельности.
   const raw: Record<string, unknown> = isRecord(actor) ? actor : {};
 
@@ -812,78 +841,99 @@ export function normalizeActor(actor: DnDActor): DnDActor {
     actor.activeEffects = [];
   }
 
-  // Если system уже заполнен (есть abilities) — просто проверяем currency
-  if (actor.system?.abilities) {
-    if (!actor.system.currency) {
-      actor.system.currency = { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 };
+  const existingSystem = isRecord(actor.system) ? actor.system : undefined;
+
+  if (existingSystem && isRecord(existingSystem.abilities)) {
+    // Новый формат: `system` уже собран — правим только то, чего в нём может
+    // не быть, и ничего больше не трогаем
+    if (!existingSystem.currency) {
+      existingSystem.currency = { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 };
     }
 
-    actor.system.size = normalizeCreatureSize(actor.system.size);
+    existingSystem.size = normalizeCreatureSize(existingSystem.size);
+  } else {
+    const system: DnDActorSystem = {
+      species: parseLegacySpecies(raw.species),
+      background: null,
+      classes: [],
+      experience: parseLegacyNumber(raw.experience, 0),
+      inspiration: parseLegacyBoolean(raw.inspiration, false),
+      size: normalizeCreatureSize(raw.size),
 
-    return actor;
+      abilities: {
+        strength: parseLegacyNumber(raw.strength, 10),
+        dexterity: parseLegacyNumber(raw.dexterity, 10),
+        constitution: parseLegacyNumber(raw.constitution, 10),
+        intelligence: parseLegacyNumber(raw.intelligence, 10),
+        wisdom: parseLegacyNumber(raw.wisdom, 10),
+        charisma: parseLegacyNumber(raw.charisma, 10),
+      },
+
+      movement: parseLegacyMovement(raw.movement),
+
+      armorClass: parseLegacyArmorClass(raw.armorClass),
+
+      hitPoints: parseLegacyHitPoints(existingSystem?.hitPoints),
+
+      initiativeBonus: parseLegacyNumber(raw.initiativeBonus, 0),
+      initiativeAbility: isAbilityType(raw.initiativeAbility)
+        ? raw.initiativeAbility
+        : 'dexterity',
+
+      proficiencies: parseLegacyProficiencies(raw.proficiencies),
+
+      currency: parseLegacyCurrency(raw.currency),
+
+      classCounters: [],
+    };
+
+    actor.system = system;
   }
 
-  actor.system = {
-    species: parseLegacySpecies(raw.species),
-    background: null,
-    classes: [],
-    experience: parseLegacyNumber(raw.experience, 0),
-    inspiration: parseLegacyBoolean(raw.inspiration, false),
-    size: normalizeCreatureSize(raw.size),
+  // Корневые коллекции D&D объявлены обязательными, но у записи старого мира
+  // их нет. Заполняем пустыми — те же значения, что весь лист подставлял через
+  // `?? []`, только теперь запись и по форме соответствует своему типу.
+  if (!Array.isArray(raw.spells)) {
+    raw.spells = [];
+  }
 
-    abilities: {
-      strength: parseLegacyNumber(raw.strength, 10),
-      dexterity: parseLegacyNumber(raw.dexterity, 10),
-      constitution: parseLegacyNumber(raw.constitution, 10),
-      intelligence: parseLegacyNumber(raw.intelligence, 10),
-      wisdom: parseLegacyNumber(raw.wisdom, 10),
-      charisma: parseLegacyNumber(raw.charisma, 10),
-    },
+  if (!Array.isArray(raw.equipment)) {
+    raw.equipment = [];
+  }
 
-    movement: parseLegacyMovement(raw.movement),
+  if (!Array.isArray(raw.features)) {
+    raw.features = [];
+  }
 
-    armorClass: parseLegacyArmorClass(raw.armorClass),
-
-    hitPoints: actor.system?.hitPoints ?? {
-      current: 10,
-      max: 10,
-      temp: 0,
-    },
-
-    initiativeBonus: parseLegacyNumber(raw.initiativeBonus, 0),
-    initiativeAbility: isAbilityType(raw.initiativeAbility)
-      ? raw.initiativeAbility
-      : 'dexterity',
-
-    proficiencies: parseLegacyProficiencies(raw.proficiencies),
-
-    currency: parseLegacyCurrency(raw.currency),
-
-    classCounters: [],
-  };
-
-  return actor;
+  if (typeof raw.notes !== 'string') {
+    raw.notes = '';
+  }
 }
 
 /**
  * Нормализует объект существа: если данные отсутствуют или неполные,
  * заполняет значениями по умолчанию.
  *
+ * Принимает существо в НЕЙТРАЛЬНОЙ форме ядра — как и {@link normalizeActor}:
+ * до этой функции у записи старого мира `system` может не быть вовсе, то есть
+ * D&D-формы у неё ещё нет. После вызова она есть, и её подтверждает
+ * `isDndCreature`.
+ *
  * Вызывать при загрузке существа из БД.
- * Мутирует объект на месте и возвращает его для удобства.
+ * Мутирует объект на месте — этого ждёт и ядро (контракт `VttSystem`).
  *
  * @param creature - объект существа (может быть legacy или новый формат)
- * @returns нормализованное существо с заполненным system
  */
-export function normalizeCreature(
-  creature: import('./dndEntities.js').DnDCreature,
-): import('./dndEntities.js').DnDCreature {
+export function normalizeCreature(creature: BaseCreature): void {
+  // Корневые поля D&D нейтральный тип не знает: читаем корень свободной записью
+  const raw: Record<string, unknown> = isRecord(creature) ? creature : {};
+
   // Дискриминатор типа сущности
   creature.entityType = 'creature';
 
   // Если system отсутствует — создаём дефолтный.
   // Граница SQL↔TS: по типу поле обязательное, но у legacy-существа его нет.
-  if (!creature.system) {
+  if (!isRecord(creature.system)) {
     creature.system = {
       size: DEFAULT_CREATURE_SIZE,
       type: 'humanoid',
@@ -930,7 +980,9 @@ export function normalizeCreature(
     };
   }
 
-  const system = creature.system;
+  const system: Record<string, unknown> = isRecord(creature.system)
+    ? creature.system
+    : {};
 
   // Размер приходит из компендиумов и легаси-миров в произвольном виде
   // (`'Medium'`, пусто, не строка) — приводим к канону здесь, чтобы дальше
@@ -938,7 +990,7 @@ export function normalizeCreature(
   system.size = normalizeCreatureSize(system.size);
 
   // Заполняем отсутствующие поля
-  if (!system.defenses) {
+  if (!isRecord(system.defenses)) {
     system.defenses = {
       vulnerabilities: [],
       resistances: [],
@@ -948,20 +1000,24 @@ export function normalizeCreature(
   }
 
   // Коэрсия legacy-формата (текстовые поля старых миров → пустые структуры)
-  if (!Array.isArray(system.defenses.vulnerabilities)) {
-    system.defenses.vulnerabilities = [];
+  const defenses: Record<string, unknown> = isRecord(system.defenses)
+    ? system.defenses
+    : {};
+
+  if (!Array.isArray(defenses.vulnerabilities)) {
+    defenses.vulnerabilities = [];
   }
 
-  if (!Array.isArray(system.defenses.resistances)) {
-    system.defenses.resistances = [];
+  if (!Array.isArray(defenses.resistances)) {
+    defenses.resistances = [];
   }
 
-  if (!Array.isArray(system.defenses.immunities)) {
-    system.defenses.immunities = [];
+  if (!Array.isArray(defenses.immunities)) {
+    defenses.immunities = [];
   }
 
-  if (!Array.isArray(system.defenses.conditionImmunities)) {
-    system.defenses.conditionImmunities = [];
+  if (!Array.isArray(defenses.conditionImmunities)) {
+    defenses.conditionImmunities = [];
   }
 
   // Бонус мастерства обязателен по типу записи, но у существ старых миров и
@@ -974,7 +1030,7 @@ export function normalizeCreature(
     system.savingThrows = [];
   }
 
-  if (typeof system.skills !== 'object' || system.skills === null) {
+  if (!isRecord(system.skills)) {
     system.skills = {};
   }
 
@@ -982,7 +1038,7 @@ export function normalizeCreature(
     system.languages = [];
   }
 
-  if (!system.legendary) {
+  if (!isRecord(system.legendary)) {
     system.legendary = { count: 0, actions: [] };
   }
 
@@ -1011,7 +1067,7 @@ export function normalizeCreature(
   }
 
   // Нормализация movement: если отсутствует (legacy-существа) — дефолт 30 фт.
-  if (!system.movement) {
+  if (!isRecord(system.movement)) {
     system.movement = {
       walk: 30,
       swim: 0,
@@ -1028,12 +1084,14 @@ export function normalizeCreature(
 
   // Нормализация заклинаний существа: коэрсим в массив и приводим recovery
   // зарядов к каноническому union (алиас 'day' → 'longRest')
-  if (!Array.isArray(creature.spells)) {
-    creature.spells = [];
+  if (!Array.isArray(raw.spells)) {
+    raw.spells = [];
   }
 
-  for (const spell of creature.spells) {
-    if (spell.uses) {
+  const spells: unknown[] = Array.isArray(raw.spells) ? raw.spells : [];
+
+  for (const spell of spells) {
+    if (isRecord(spell) && isRecord(spell.uses)) {
       spell.uses.recovery = normalizeSpellUsesRecovery(spell.uses.recovery);
     }
   }
@@ -1059,8 +1117,6 @@ export function normalizeCreature(
       creature.token.disposition = 'hostile';
     }
   }
-
-  return creature;
 }
 
 /**

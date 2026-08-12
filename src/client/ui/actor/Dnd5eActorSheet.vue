@@ -1,5 +1,9 @@
 <script setup lang="ts">
-  import type { AbilityType, TypedWebSocketClient } from '@vtt/shared';
+  import type {
+    AbilityType,
+    BaseActor,
+    TypedWebSocketClient,
+  } from '@vtt/shared';
   import type {
     BackgroundDefinition,
     ClassCounterDefinition,
@@ -39,6 +43,7 @@
     DEFAULT_ACTOR,
     getMulticlassProficiencies,
     getTotalLevel,
+    isDndActor,
     isDnDGameItem,
     isSkillType,
     isSpell,
@@ -519,30 +524,32 @@
     if (props.actorId) {
       const world = worldStore.getWorldById(props.worldId);
 
-      let actor: DnDActor | undefined;
-
-      if (world) {
-        // Приведение здесь снять нельзя: строкой ниже актёр прогоняется через
-        // `normalizeActor` — именно он мигрирует записи старых миров, где
-        // `system.abilities` ещё нет. Проверка D&D-формы ДО миграции не
-        // открыла бы такому актёру лист вовсе.
-        actor = world.actors.find(
-          (actorEntry) => actorEntry.id === props.actorId,
-        ) as DnDActor | undefined;
-      } else {
-        // Веб версия - используем props.actors
-        actor = props.actors.find(
-          (actorEntry: DnDActor) => actorEntry.id === props.actorId,
-        );
-      }
+      // Мир хоста хранит акторов в НЕЙТРАЛЬНОЙ форме: у записи старого мира
+      // D&D-формы ещё нет — её собирает `normalizeActor` ниже, на копии.
+      const actor: BaseActor | undefined = world
+        ? world.actors.find((actorEntry) => actorEntry.id === props.actorId)
+        : // Веб версия - используем props.actors
+          props.actors.find((actorEntry) => actorEntry.id === props.actorId);
 
       if (actor) {
-        localActor.value = normalizeActor(JSON.parse(JSON.stringify(actor)));
+        // Правится копия, а не запись стора: сущности хоста лист не мутирует
+        const draft: BaseActor = JSON.parse(JSON.stringify(actor));
 
-        isEditMode.value = false;
+        normalizeActor(draft);
 
-        // Загружаем определение текущего вида для отката при смене
-        void loadCurrentSpeciesDefinition(actor);
+        // Гвард — постусловие миграции: после неё форма собрана целиком
+        if (isDndActor(draft)) {
+          localActor.value = draft;
+          isEditMode.value = false;
+
+          // Загружаем определение текущего вида для отката при смене
+          void loadCurrentSpeciesDefinition(draft);
+        } else {
+          console.error(
+            '[ActorModal] Не удалось привести актёра к форме D&D:',
+            props.actorId,
+          );
+        }
       } else {
         console.error('[ActorModal] Actor not found with id:', props.actorId);
       }
@@ -583,12 +590,16 @@
       return props.actors.find((actorEntry) => actorEntry.id === props.actorId);
     }
 
-    // Приведение остаётся по той же причине, что и в `initializeActor`: это
-    // тот же актёр из стора мира, ещё до миграции формата. Сужать его формой
-    // D&D можно только после `normalizeActor`.
-    return world.actors.find(
+    // Запись стора мира — нейтральная, D&D-форму подтверждает гвард. Акторы
+    // мира прогоняются через `normalizeActor` при загрузке мира, поэтому здесь
+    // проверка проходит; если запись всё же не в D&D-форме, лист откроется
+    // (его копия мигрируется в `initializeActor`), но внешние правки в него
+    // подхватываться не будут.
+    const found = world.actors.find(
       (actorEntry) => actorEntry.id === props.actorId,
-    ) as DnDActor | undefined;
+    );
+
+    return found && isDndActor(found) ? found : undefined;
   });
 
   watch(

@@ -20,13 +20,7 @@ import type {
 import type { BackgroundDefinition } from './backgroundTypes.js';
 import type { DndCombatState } from './damageApplication.js';
 import type { DamageApplyResult } from './damageUtils.js';
-import type {
-  DnDActor,
-  DnDCreature,
-  DnDGameItem,
-  DnDSceneEntity,
-  Spell,
-} from './dndEntities.js';
+import type { DnDActor, DnDGameItem, Spell } from './dndEntities.js';
 import type { IncomingAttackContext } from './effectPipeline.js';
 
 import {
@@ -263,7 +257,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.5.11';
+  readonly version = '0.5.12';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -301,27 +295,18 @@ export class Dnd5eVttSystem implements VttSystem {
 
   /**
    * Валидирует данные актёра D&D 5e для формы создания/редактирования.
-   *
-   * Приведение здесь снять нельзя: ядро отдаёт ЧЕРНОВИК формы, в котором
-   * `system` заполнен наполовину, и именно этот метод решает, годится он или
-   * нет. Гвард на форму данных отверг бы черновик раньше проверки — и вместо
-   * человеческого сообщения об ошибке пользователь получил бы молчание.
    */
   // eslint-disable-next-line class-methods-use-this
   validateActorData(actor: Partial<BaseActor>): void {
-    validateDndActorData(actor as Partial<DnDActor>);
+    validateDndActorData(actor);
   }
 
   /**
    * Нормализует частичные данные актёра D&D 5e (зажимает значения в границы).
-   *
-   * Приведение остаётся по той же причине, что и в `validateActorData`: на
-   * вход приходит незаполненный черновик, привести его в порядок — задача
-   * этого метода.
    */
   // eslint-disable-next-line class-methods-use-this
   normalizeActorData(actor: Partial<BaseActor>): Partial<BaseActor> {
-    return normalizeDndActorData(actor as Partial<DnDActor>);
+    return normalizeDndActorData(actor);
   }
 
   /**
@@ -611,11 +596,11 @@ export class Dnd5eVttSystem implements VttSystem {
    * отправки на сервер узким каналом `entity:apply-combat-state`.
    */
   // eslint-disable-next-line class-methods-use-this
-  pickCombatState(entity: SceneEntity): DndCombatState {
-    // Приведение здесь снять нельзя: снимок уходит на сервер и ЗАПИСЫВАЕТСЯ в
-    // мир. Подставить вместо него значение по умолчанию (0 хитов, пустые
-    // эффекты) значило бы затереть настоящее состояние сущности выдуманным.
-    return pickCombatStateImpl(entity as DnDSceneEntity);
+  pickCombatState(entity: SceneEntity): DndCombatState | undefined {
+    // Снимок сущности без данных системы не собрать, а выдумывать его нельзя —
+    // он уходит на сервер и записывается в мир. `undefined` — штатный ответ
+    // контракта: ядро откатится на полную замену сущности.
+    return isDndSceneEntity(entity) ? pickCombatStateImpl(entity) : undefined;
   }
 
   /**
@@ -771,14 +756,11 @@ export class Dnd5eVttSystem implements VttSystem {
 
     const dndEffects = effects?.filter(isActiveEffect);
 
-    // Единственное приведение, которое здесь не снять: контракт ядра объявляет
-    // итог свободной записью, а `ResolvedActorStats` — интерфейс без индексной
-    // сигнатуры, и структурно он такой записи не соответствует. Снять его можно
-    // только правкой контракта в ядре (Rule #0 — не наш файл).
-    return resolveActorStats(actor, dndEffects) as unknown as Record<
-      string,
-      unknown
-    >;
+    // Копией, а не приведением: контракт ядра объявляет итог свободной записью,
+    // а `ResolvedActorStats` — интерфейс без индексной сигнатуры, и структурно
+    // он такой записи не соответствует. Тот же приём, что и в SDK для
+    // `BaseGameItem`: туда, где ждут свободную форму, значение идёт копией.
+    return { ...resolveActorStats(actor, dndEffects) };
   }
 
   /**
@@ -794,10 +776,7 @@ export class Dnd5eVttSystem implements VttSystem {
    */
   // eslint-disable-next-line class-methods-use-this
   normalizeActor(actor: BaseActor): void {
-    // Приведение здесь снять нельзя: это САМА миграция формата. Актёр старого
-    // мира приходит с полями на корне и без `system.abilities` — проверка
-    // D&D-формы отвергла бы ровно те записи, ради которых метод и существует.
-    normalizeActor(actor as DnDActor);
+    normalizeActor(actor);
   }
 
   /**
@@ -805,10 +784,7 @@ export class Dnd5eVttSystem implements VttSystem {
    */
   // eslint-disable-next-line class-methods-use-this
   normalizeCreature(creature: BaseCreature): void {
-    // Приведение здесь снять нельзя по той же причине, что и в
-    // `normalizeActor` выше: существо старого мира приходит вообще без
-    // `system`, и заполняет его именно этот метод.
-    normalizeCreature(creature as DnDCreature);
+    normalizeCreature(creature);
   }
 
   /**

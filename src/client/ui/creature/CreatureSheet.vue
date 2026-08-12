@@ -1,6 +1,7 @@
 <script setup lang="ts">
   import type {
     AbilityType,
+    BaseCreature,
     ProficiencyLevel,
     SkillType,
     TypedWebSocketClient,
@@ -42,6 +43,7 @@
     getProficiencyContribution,
     getSkillSetting,
     getSkillSettingAbility,
+    isDndCreature,
     isProficiencyLevel,
     isSpell,
     normalizeCreature,
@@ -230,12 +232,21 @@
         activeEffects: props.initialData.activeEffects,
       };
 
-      localCreature.value = normalizeCreature(
-        JSON.parse(JSON.stringify(creature)),
-      );
+      const draft: BaseCreature = JSON.parse(JSON.stringify(creature));
 
-      isEditMode.value = false;
-      isDirty.value = false;
+      normalizeCreature(draft);
+
+      // Гвард — постусловие миграции: после неё форма собрана целиком
+      if (isDndCreature(draft)) {
+        localCreature.value = draft;
+        isEditMode.value = false;
+        isDirty.value = false;
+      } else {
+        console.error(
+          '[CreatureSheet] Не удалось привести существо к форме D&D:',
+          props.initialData.id,
+        );
+      }
 
       return;
     }
@@ -246,11 +257,20 @@
       );
 
       if (creature) {
-        localCreature.value = normalizeCreature(
-          JSON.parse(JSON.stringify(creature)),
-        );
+        const draft: BaseCreature = JSON.parse(JSON.stringify(creature));
 
-        isEditMode.value = false;
+        normalizeCreature(draft);
+
+        // Гвард — постусловие миграции: после неё форма собрана целиком
+        if (isDndCreature(draft)) {
+          localCreature.value = draft;
+          isEditMode.value = false;
+        } else {
+          console.error(
+            '[CreatureSheet] Не удалось привести существо к форме D&D:',
+            props.creatureId,
+          );
+        }
       } else {
         console.error(
           '[CreatureSheet] Creature not found with id:',

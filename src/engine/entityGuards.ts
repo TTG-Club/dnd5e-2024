@@ -44,11 +44,27 @@ export function isDndSceneEntity(
 /**
  * Проверяет, что сущность сцены — актёр D&D 5e.
  *
+ * Кроме характеристик сверяются корневые коллекции листа
+ * (`spells`/`equipment`/`features`/`notes`): по типу они обязательны, а у
+ * записи старого мира их нет. Заполняет их `normalizeActor`, и эта проверка —
+ * его постусловие: прошла — форма собрана целиком.
+ *
  * @param entity - сущность сцены в нейтральной форме ядра
  * @returns `true`, если это актёр с данными D&D
  */
 export function isDndActor(entity: SceneEntity): entity is DnDActor {
-  return isActorEntity(entity) && isDndSceneEntity(entity);
+  if (!isActorEntity(entity) || !isDndSceneEntity(entity)) {
+    return false;
+  }
+
+  const actor: Record<string, unknown> = { ...entity };
+
+  return (
+    Array.isArray(actor.spells)
+    && Array.isArray(actor.equipment)
+    && Array.isArray(actor.features)
+    && typeof actor.notes === 'string'
+  );
 }
 
 /**
