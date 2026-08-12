@@ -1,27 +1,51 @@
 <script setup lang="ts">
   import type { ActorArmorClass } from '@vtt/shared';
+  import type {
+    DnDCustomBonus,
+    DnDCustomBonusContext,
+  } from '@vtt/shared/system/dnd.js';
 
-  import { computed, reactive, watch } from 'vue';
+  import { computed, reactive, ref, watch } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
+  import {
+    BASE_UNARMORED_AC,
+    getCustomBonusesValue,
+    toStoredCustomBonus,
+  } from '@vtt/shared/system/dnd.js';
 
-  import { MODAL_BUTTON_LABELS } from './constants';
+  import {
+    ARMOR_CALCULATION_LABELS,
+    ARMOR_CALCULATION_OPTIONS,
+    ARMOR_CLASS_SETTINGS_LABELS,
+    MODAL_BUTTON_LABELS,
+    NATURAL_ARMOR_FORMULA,
+    SHEET_TILE_LABELS,
+  } from './constants';
+  import CustomBonusRows from './CustomBonusRows.vue';
+  import { formatSignedNumber } from './utils/formatSignedNumber';
 
   interface Props {
     open: boolean;
     armorClass: ActorArmorClass;
+    /** Свои бонусы к КД листа */
+    bonuses?: DnDCustomBonus[];
+    /** Числа листа, от которых считается вклад своих бонусов */
+    context: DnDCustomBonusContext;
     /** Модификатор ловкости актора (для превью AC) */
     dexModifier: number;
     /** Флаг существа: природная броня не прибавляет модификатор ловкости */
     isCreatureMode?: boolean;
   }
 
-  const props = defineProps<Props>();
+  const props = withDefaults(defineProps<Props>(), { bonuses: () => [] });
 
   const emit = defineEmits<{
     'update:open': [value: boolean];
-    'apply': [armorClass: ActorArmorClass];
+    'apply': [
+      payload: { armorClass: ActorArmorClass; bonuses: DnDCustomBonus[] },
+    ];
   }>();
 
   const isOpen = computed({
@@ -29,11 +53,11 @@
     set: (value) => emit('update:open', value),
   });
 
-  const calculationOptions = [
-    { label: 'По умолчанию', value: 'default' },
-    { label: 'Природная броня', value: 'natural' },
-    { label: 'Фиксированный', value: 'flat' },
-  ];
+  /** Выбор способа расчёта — из общего списка способов листа */
+  const calculationOptions = ARMOR_CALCULATION_OPTIONS.map((value) => ({
+    value,
+    label: ARMOR_CALCULATION_LABELS[value],
+  }));
 
   const editArmorClass = reactive<ActorArmorClass>({
     value: 10,
@@ -42,12 +66,16 @@
     flat: null,
   });
 
-  // При открытии — подставляем текущие значения
+  const draftBonuses = ref<DnDCustomBonus[]>([]);
+
+  // При открытии — подставляем текущие значения. Бонусы копируются: окно
+  // остаётся открытым до «Применить», и его правки не должны трогать лист
   watch(
     () => props.open,
     (opened) => {
       if (opened) {
         Object.assign(editArmorClass, props.armorClass);
+        draftBonuses.value = props.bonuses.map((bonus) => ({ ...bonus }));
       }
     },
   );
@@ -67,29 +95,68 @@
     },
   );
 
+  /** Модификатор Ловкости со знаком — он стоит в обеих подсказках расчёта */
+  const formattedDexModifier = computed(() =>
+    formatSignedNumber(props.dexModifier),
+  );
+
+  /** Пояснение природной брони: у существа модификатор уже вшит в число */
+  const naturalArmorHint = computed(() =>
+    props.isCreatureMode
+      ? ARMOR_CLASS_SETTINGS_LABELS.naturalCreatureHint
+      : ARMOR_CLASS_SETTINGS_LABELS.naturalHint,
+  );
+
+  /** Стоит ли у фиксированного КД приписка «природный доспех» */
+  const isNaturalArmorMark = computed(
+    () => editArmorClass.formula === NATURAL_ARMOR_FORMULA,
+  );
+
+  /**
+   * Ставит и снимает приписку природной брони.
+   *
+   * @param marked - отмечена ли галочка
+   */
+  function setNaturalArmorMark(marked: boolean): void {
+    editArmorClass.formula = marked ? NATURAL_ARMOR_FORMULA : '';
+  }
+
+  /** Вклад своих бонусов черновика — он идёт поверх любого расчёта */
+  const bonusValue = computed(() =>
+    getCustomBonusesValue(props.context, draftBonuses.value),
+  );
+
   /**
    * Превью итогового AC (с учётом формулы) для отображения в шапке модалки
    */
   const previewAC = computed(() => {
-    switch (editArmorClass.calculation) {
-      case 'default':
-        return 10 + props.dexModifier;
-      case 'natural':
-        return props.isCreatureMode
-          ? editArmorClass.value
-          : editArmorClass.value + props.dexModifier;
-      case 'flat':
-        return editArmorClass.value;
-      default:
-        return editArmorClass.value;
-    }
+    const base = (() => {
+      switch (editArmorClass.calculation) {
+        case 'default':
+          return BASE_UNARMORED_AC + props.dexModifier;
+        case 'natural':
+          return props.isCreatureMode
+            ? editArmorClass.value
+            : editArmorClass.value + props.dexModifier;
+        case 'flat':
+          return editArmorClass.value;
+        default:
+          return editArmorClass.value;
+      }
+    })();
+
+    return base + bonusValue.value;
   });
 
   /**
    * Применяет изменения класса доспеха
    */
   function applyArmorClass() {
-    emit('apply', { ...editArmorClass });
+    emit('apply', {
+      armorClass: { ...editArmorClass },
+      bonuses: draftBonuses.value.map(toStoredCustomBonus),
+    });
+
     isOpen.value = false;
   }
 </script>
@@ -102,7 +169,7 @@
     :blocking="true"
     :min-width="400"
     :min-height="280"
-    title="Класс доспеха"
+    :title="SHEET_TILE_LABELS.armorClass"
     :z-index="Z_INDEX.MODAL_ELEVATED"
   >
     <template #body>
@@ -121,12 +188,14 @@
         <div class="space-y-3">
           <span
             class="text-[10px] font-bold tracking-wider text-muted uppercase"
-            >Формула</span
+            >{{ ARMOR_CLASS_SETTINGS_LABELS.formulaTitle }}</span
           >
 
           <!-- Тип расчёта -->
           <div class="flex items-center gap-3">
-            <span class="w-28 text-sm text-toned">Расчёт</span>
+            <span class="w-28 text-sm text-toned">
+              {{ ARMOR_CLASS_SETTINGS_LABELS.calculation }}
+            </span>
 
             <USelect
               v-model="editArmorClass.calculation"
@@ -144,17 +213,18 @@
           >
             <div class="flex items-center gap-2 text-sm text-toned">
               <span class="font-mono text-lg font-bold text-info-muted">
-                10
+                {{ BASE_UNARMORED_AC }}
               </span>
 
-              <span class="text-muted"
-                >+ мод. Ловкости ({{ dexModifier >= 0 ? '+' : ''
-                }}{{ dexModifier }})</span
-              >
+              <span class="text-muted">
+                + {{ ARMOR_CLASS_SETTINGS_LABELS.dexPart }} ({{
+                  formattedDexModifier
+                }})
+              </span>
             </div>
 
             <p class="mt-1 text-xs leading-relaxed text-dimmed">
-              Без доспеха КД всегда равен 10 + модификатор Ловкости.
+              {{ ARMOR_CLASS_SETTINGS_LABELS.defaultHint }}
             </p>
           </div>
 
@@ -164,7 +234,9 @@
             class="space-y-2"
           >
             <div class="flex items-center gap-3">
-              <span class="w-28 text-sm text-toned">Базовый КД</span>
+              <span class="w-28 text-sm text-toned">
+                {{ ARMOR_CLASS_SETTINGS_LABELS.naturalBase }}
+              </span>
 
               <UInput
                 :model-value="editArmorClass.value"
@@ -187,20 +259,15 @@
                 <span
                   v-if="!isCreatureMode"
                   class="text-muted"
-                  >+ мод. Ловкости ({{ dexModifier >= 0 ? '+' : ''
-                  }}{{ dexModifier }})</span
                 >
+                  + {{ ARMOR_CLASS_SETTINGS_LABELS.dexPart }} ({{
+                    formattedDexModifier
+                  }})
+                </span>
               </div>
 
               <p class="mt-1 text-xs leading-relaxed text-dimmed">
-                <template v-if="isCreatureMode">
-                  Природная броня: фиксированное значение для существа.
-                  Модификатор Ловкости обычно уже учтён в значении.
-                </template>
-
-                <template v-else>
-                  Природная броня: базовое значение + модификатор Ловкости.
-                </template>
+                {{ naturalArmorHint }}
               </p>
             </div>
           </div>
@@ -211,7 +278,9 @@
             class="space-y-2"
           >
             <div class="flex items-center gap-3">
-              <span class="w-28 text-sm text-toned">Значение</span>
+              <span class="w-28 text-sm text-toned">
+                {{ ARMOR_CLASS_SETTINGS_LABELS.flatValue }}
+              </span>
 
               <UInput
                 :model-value="editArmorClass.value"
@@ -225,19 +294,38 @@
 
             <div class="flex items-center gap-3 py-1">
               <UCheckbox
-                :model-value="editArmorClass.formula === 'природный доспех'"
-                label="Природная броня (приписка)"
-                @update:model-value="
-                  editArmorClass.formula = $event ? 'природный доспех' : ''
-                "
+                :model-value="isNaturalArmorMark"
+                :label="ARMOR_CLASS_SETTINGS_LABELS.naturalMark"
+                @update:model-value="setNaturalArmorMark"
               />
             </div>
 
             <p class="text-[11px] leading-relaxed text-dimmed">
-              Фиксированное значение КД. Модификатор Ловкости не учитывается.
-              Позволяет указать, что это значение является природной броней.
+              {{ ARMOR_CLASS_SETTINGS_LABELS.flatHint }}
             </p>
           </div>
+        </div>
+
+        <!-- Разделитель -->
+        <div class="border-t border-muted" />
+
+        <!-- Свои бонусы: идут поверх любого расчёта, поэтому стоят отдельным
+          разделом, а не внутри ветки формулы -->
+        <div class="space-y-3">
+          <span
+            class="text-[10px] font-bold tracking-wider text-muted uppercase"
+          >
+            {{ ARMOR_CLASS_SETTINGS_LABELS.bonusesTitle }}
+          </span>
+
+          <CustomBonusRows
+            v-model="draftBonuses"
+            :context="context"
+          />
+
+          <p class="text-xs leading-relaxed text-dimmed">
+            {{ ARMOR_CLASS_SETTINGS_LABELS.bonusesHint }}
+          </p>
         </div>
 
         <!-- Кнопки -->

@@ -91,8 +91,10 @@ export function getProficiencyBonusBreakdown(
   const isCustomBase = customBase !== null && Number.isFinite(customBase);
   const base = isCustomBase ? customBase : params.ruleValue;
 
+  // Бонусу к самому мастерству источником «мастерство» служит основа, а не
+  // итог: иначе расчёт ссылался бы сам на себя и никогда не сходился
   const bonus = getCustomBonusesValue(
-    params.abilityMods,
+    { abilityMods: params.abilityMods, proficiencyBonus: base },
     params.settings?.bonuses ?? [],
   );
 

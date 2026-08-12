@@ -8,13 +8,13 @@
  * @module system/dnd/customBonuses
  */
 
-import type { AbilityType } from '@vtt/shared';
+import type { AbilityType, MovementType } from '@vtt/shared';
 
 import type { DnDCustomBonus } from './types.js';
 
 import { isRecord } from '@vtt/shared';
 
-import { isAbilityType } from './consts.js';
+import { isAbilityType, isMovementType } from './consts.js';
 
 /** Наименьшее своё число бонуса */
 export const CUSTOM_BONUS_MIN = -20;
@@ -31,9 +31,31 @@ export const CUSTOM_BONUS_LABEL_MAX_LENGTH = 40;
  */
 export const CUSTOM_BONUS_FLAT_SOURCE = 'flat';
 
-/** Источник своего бонуса одним значением: характеристика либо своё число */
+/** Источник бонуса «бонус мастерства» в том же общем списке источников */
+export const CUSTOM_BONUS_PROFICIENCY_SOURCE = 'proficiency';
+
+/**
+ * Источник своего бонуса одним значением: характеристика, бонус мастерства
+ * либо своё число.
+ */
 export type DnDCustomBonusSource =
-  AbilityType | typeof CUSTOM_BONUS_FLAT_SOURCE;
+  | AbilityType
+  | typeof CUSTOM_BONUS_FLAT_SOURCE
+  | typeof CUSTOM_BONUS_PROFICIENCY_SOURCE;
+
+/**
+ * Числа листа, от которых считаются свои бонусы.
+ *
+ * Собирается один раз на лист и передаётся во все расчёты: бонус берёт из него
+ * либо модификатор своей характеристики, либо бонус мастерства.
+ */
+export interface DnDCustomBonusContext {
+  /** Модификаторы характеристик листа с учётом эффектов */
+  abilityMods: Record<AbilityType, number>;
+
+  /** Итоговый бонус мастерства листа */
+  proficiencyBonus: number;
+}
 
 /** Заготовка нового бонуса: «+1» правится прямо в строке */
 export const NEW_CUSTOM_BONUS: Omit<DnDCustomBonus, 'id'> = {
@@ -44,23 +66,27 @@ export const NEW_CUSTOM_BONUS: Omit<DnDCustomBonus, 'id'> = {
 };
 
 /**
- * Вклад одного своего бонуса: модификатор выбранной характеристики либо своё
- * число.
+ * Вклад одного своего бонуса: модификатор выбранной характеристики, бонус
+ * мастерства листа либо своё число.
  *
  * Пустое поле ввода отдаёт NaN, поэтому число подстраховано: черновик модалки
  * считается этой же функцией, и без подстраховки NaN расползся бы по всему
  * предпросмотру.
  *
- * @param abilityMods - модификаторы характеристик листа
+ * @param context - числа листа, от которых считаются бонусы
  * @param bonus - свой бонус
  * @returns вклад бонуса в итог
  */
 export function getCustomBonusValue(
-  abilityMods: Record<AbilityType, number>,
+  context: DnDCustomBonusContext,
   bonus: DnDCustomBonus,
 ): number {
   if (bonus.kind === 'ability') {
-    return abilityMods[bonus.ability] ?? 0;
+    return context.abilityMods[bonus.ability] ?? 0;
+  }
+
+  if (bonus.kind === 'proficiency') {
+    return context.proficiencyBonus;
   }
 
   return Number.isFinite(bonus.value) ? bonus.value : 0;
@@ -69,23 +95,23 @@ export function getCustomBonusValue(
 /**
  * Сумма своих бонусов сверх правил.
  *
- * @param abilityMods - модификаторы характеристик листа
+ * @param context - числа листа, от которых считаются бонусы
  * @param bonuses - свои бонусы
  * @returns суммарный вклад
  */
 export function getCustomBonusesValue(
-  abilityMods: Record<AbilityType, number>,
+  context: DnDCustomBonusContext,
   bonuses: DnDCustomBonus[],
 ): number {
   return bonuses.reduce(
-    (total, bonus) => total + getCustomBonusValue(abilityMods, bonus),
+    (total, bonus) => total + getCustomBonusValue(context, bonus),
     0,
   );
 }
 
 /**
- * Источник бонуса одним значением — для селектора, где своё число и
- * характеристики стоят общим списком.
+ * Источник бонуса одним значением — для селектора, где своё число, мастерство
+ * и характеристики стоят общим списком.
  *
  * @param bonus - свой бонус
  * @returns источник бонуса
@@ -93,7 +119,13 @@ export function getCustomBonusesValue(
 export function getCustomBonusSource(
   bonus: DnDCustomBonus,
 ): DnDCustomBonusSource {
-  return bonus.kind === 'ability' ? bonus.ability : CUSTOM_BONUS_FLAT_SOURCE;
+  if (bonus.kind === 'ability') {
+    return bonus.ability;
+  }
+
+  return bonus.kind === 'proficiency'
+    ? CUSTOM_BONUS_PROFICIENCY_SOURCE
+    : CUSTOM_BONUS_FLAT_SOURCE;
 }
 
 /**
@@ -108,9 +140,15 @@ export function withCustomBonusSource(
   bonus: DnDCustomBonus,
   source: DnDCustomBonusSource,
 ): DnDCustomBonus {
-  return source === CUSTOM_BONUS_FLAT_SOURCE
-    ? { ...bonus, kind: 'flat' }
-    : { ...bonus, kind: 'ability', ability: source };
+  if (source === CUSTOM_BONUS_FLAT_SOURCE) {
+    return { ...bonus, kind: 'flat' };
+  }
+
+  if (source === CUSTOM_BONUS_PROFICIENCY_SOURCE) {
+    return { ...bonus, kind: 'proficiency' };
+  }
+
+  return { ...bonus, kind: 'ability', ability: source };
 }
 
 /**
@@ -144,7 +182,9 @@ function isCustomBonus(value: unknown): value is DnDCustomBonus {
 
   return (
     typeof value.id === 'string'
-    && (value.kind === 'ability' || value.kind === 'flat')
+    && (value.kind === 'ability'
+      || value.kind === 'flat'
+      || value.kind === 'proficiency')
     && isAbilityType(value.ability)
     && typeof value.value === 'number'
     && typeof value.label === 'string'
@@ -164,4 +204,36 @@ export function parseCustomBonuses(value: unknown): DnDCustomBonus[] {
   }
 
   return value.filter(isCustomBonus);
+}
+
+/**
+ * Разбирает свои бонусы к каждому виду передвижения. Ключи приходят из записи
+ * мира, поэтому сверяются гвардом: чужой ключ просто выпадает, а остальные
+ * скорости свои бонусы сохраняют.
+ *
+ * @param value - значение поля `movementBonuses` системных данных
+ * @returns бонусы по видам передвижения (пустая запись — бонусов нет)
+ */
+export function parseMovementBonuses(
+  value: unknown,
+): Partial<Record<MovementType, DnDCustomBonus[]>> {
+  if (!isRecord(value)) {
+    return {};
+  }
+
+  const result: Partial<Record<MovementType, DnDCustomBonus[]>> = {};
+
+  for (const [movementKey, bonuses] of Object.entries(value)) {
+    if (!isMovementType(movementKey)) {
+      continue;
+    }
+
+    const parsed = parseCustomBonuses(bonuses);
+
+    if (parsed.length > 0) {
+      result[movementKey] = parsed;
+    }
+  }
+
+  return result;
 }

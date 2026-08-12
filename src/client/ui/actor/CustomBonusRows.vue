@@ -7,11 +7,13 @@
    * «характеристика» вклад считается сам, поэтому вместо поля ввода там стоит
    * коробка того же размера: колонка значений не едет.
    */
-  import type { AbilityType } from '@vtt/shared';
   import type {
     DnDCustomBonus,
+    DnDCustomBonusContext,
     DnDCustomBonusSource,
   } from '@vtt/shared/system/dnd.js';
+
+  import { computed } from 'vue';
 
   import { generateEntityId } from '@/core/entityUtils';
   import {
@@ -20,6 +22,7 @@
     CUSTOM_BONUS_LABEL_MAX_LENGTH,
     CUSTOM_BONUS_MAX,
     CUSTOM_BONUS_MIN,
+    CUSTOM_BONUS_PROFICIENCY_SOURCE,
     getCustomBonusSource,
     getCustomBonusValue,
     NEW_CUSTOM_BONUS,
@@ -31,38 +34,52 @@
 
   const props = withDefaults(
     defineProps<{
-      /** Модификаторы характеристик листа — для вклада бонусов-характеристик */
-      abilityMods: Record<AbilityType, number>;
+      /** Числа листа, от которых считается вклад бонусов */
+      context: DnDCustomBonusContext;
 
       /**
        * Показывать кнопку «Добавить бонус». У спасброска бонус заводит плюс в
        * шапке строки, и своя кнопка там только дублировала бы его.
        */
       withAdd?: boolean;
+
+      /**
+       * Предлагать источником бонус мастерства. Само окно мастерства его не
+       * предлагает: бонус к мастерству от мастерства ссылался бы сам на себя.
+       */
+      withProficiency?: boolean;
     }>(),
-    { withAdd: true },
+    { withAdd: true, withProficiency: true },
   );
 
   const rows = defineModel<DnDCustomBonus[]>({ required: true });
 
-  /** Источники бонуса: своё число и характеристики одним списком */
-  const sourceOptions = [
+  /** Источники бонуса: своё число, мастерство и характеристики одним списком */
+  const sourceOptions = computed(() => [
     { value: CUSTOM_BONUS_FLAT_SOURCE, label: CUSTOM_BONUS_LABELS.flatSource },
+    ...(props.withProficiency
+      ? [
+          {
+            value: CUSTOM_BONUS_PROFICIENCY_SOURCE,
+            label: CUSTOM_BONUS_LABELS.proficiencySource,
+          },
+        ]
+      : []),
     ...ABILITY_OPTIONS.map((ability) => ({
       value: ability.value,
       label: ability.label,
     })),
-  ];
+  ]);
 
   /**
-   * Вклад бонуса от характеристики: место числа в строке занимает готовый
-   * модификатор — вводить там нечего.
+   * Вклад бонуса, который считается сам (характеристика, мастерство): место
+   * числа в строке занимает готовое значение — вводить там нечего.
    *
    * @param bonus - свой бонус строки
-   * @returns модификатор характеристики со знаком
+   * @returns вклад бонуса со знаком
    */
-  function getAbilityValue(bonus: DnDCustomBonus): string {
-    return formatSignedNumber(getCustomBonusValue(props.abilityMods, bonus));
+  function getDerivedValue(bonus: DnDCustomBonus): string {
+    return formatSignedNumber(getCustomBonusValue(props.context, bonus));
   }
 
   /** Заводит пустой бонус: заготовка «+1» правится тут же в строке */
@@ -136,7 +153,7 @@
         v-else
         class="w-28 shrink-0 rounded-md border border-default/50 bg-elevated/40 px-2 py-1 text-center text-sm font-semibold text-toned tabular-nums"
       >
-        {{ getAbilityValue(row) }}
+        {{ getDerivedValue(row) }}
       </span>
 
       <UTooltip :text="CUSTOM_BONUS_LABELS.remove">

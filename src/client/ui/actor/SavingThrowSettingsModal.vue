@@ -14,6 +14,7 @@
   import type {
     DnDActor,
     DnDCustomBonus,
+    DnDCustomBonusContext,
     DnDSavingThrowSettings,
   } from '@vtt/shared/system/dnd.js';
 
@@ -74,6 +75,12 @@
     bonuses: DnDCustomBonus[];
   }
 
+  /** Числа листа, от которых считается вклад своих бонусов */
+  const bonusContext = computed<DnDCustomBonusContext>(() => ({
+    abilityMods: props.abilityMods,
+    proficiencyBonus: props.proficiencyBonus,
+  }));
+
   const isOpen = computed({
     get: () => props.open,
     set: (value) => emit('update:open', value),
@@ -114,8 +121,8 @@
         const stored =
           props.abilityMods[setting.ability ?? ability.value]
           + (isProficient ? props.proficiencyBonus : 0)
-          + getCustomBonusesValue(props.abilityMods, setting.bonuses)
-          + getCustomBonusesValue(props.abilityMods, settings?.common ?? []);
+          + getCustomBonusesValue(bonusContext.value, setting.bonuses)
+          + getCustomBonusesValue(bonusContext.value, settings?.common ?? []);
 
         deltas[ability.value] = (props.saves[ability.value] ?? 0) - stored;
 
@@ -137,7 +144,7 @@
 
   /** Вклад общих бонусов: он одинаков у всех шести строк */
   const commonBonusValue = computed(() =>
-    getCustomBonusesValue(props.abilityMods, draftCommon.value),
+    getCustomBonusesValue(bonusContext.value, draftCommon.value),
   );
 
   /** Строки окна: черновик плюс всё, что рисуется рядом с ним */
@@ -148,7 +155,7 @@
       const value =
         props.abilityMods[draft.ability]
         + (draft.proficient ? props.proficiencyBonus : 0)
-        + getCustomBonusesValue(props.abilityMods, draft.bonuses)
+        + getCustomBonusesValue(bonusContext.value, draft.bonuses)
         + commonBonusValue.value
         + (effectBonuses.value[draft.key] ?? 0);
 
@@ -255,7 +262,7 @@
 
           <CustomBonusRows
             v-model="draftCommon"
-            :ability-mods="abilityMods"
+            :context="bonusContext"
           />
 
           <p class="text-xs leading-relaxed text-dimmed">
@@ -340,7 +347,7 @@
           <CustomBonusRows
             v-if="row.draft.bonuses.length > 0"
             v-model="row.draft.bonuses"
-            :ability-mods="abilityMods"
+            :context="bonusContext"
             :with-add="false"
             class="border-l-2 border-primary/40 pl-2"
           />

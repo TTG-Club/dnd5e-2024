@@ -8,6 +8,7 @@
   } from '@vtt/shared';
   import type {
     DnDCreature,
+    DnDCustomBonusContext,
     DnDSkillSettings,
     RestType,
     Spell,
@@ -577,6 +578,12 @@
       : DEFAULT_PROFICIENCY_BONUS,
   );
 
+  /** Числа листа, от которых считается вклад своих бонусов */
+  const bonusContext = computed<DnDCustomBonusContext>(() => ({
+    abilityMods: skillAbilityMods.value,
+    proficiencyBonus: creatureProficiencyBonus.value,
+  }));
+
   /**
    * Поля, чей итог задан активным эффектом целиком. Окно настройки берёт
    * отсюда навыки под перезаписью: их число задаёт эффект, а не расчёт.
@@ -615,7 +622,7 @@
       const fallback =
         mods[getSkillSettingAbility(setting, skill.key)]
         + getProficiencyContribution(profBonus, level)
-        + getCustomBonusesValue(mods, setting.bonuses);
+        + getCustomBonusesValue(bonusContext.value, setting.bonuses);
 
       const total = resolvedStats.value?.skills[skill.key] ?? fallback;
 
@@ -623,7 +630,7 @@
     }
 
     for (const skill of settings?.custom ?? []) {
-      const total = getCustomSkillValue(mods, profBonus, skill);
+      const total = getCustomSkillValue(bonusContext.value, skill);
 
       result.push(`${skill.name} ${formatSignedNumber(total)}`);
     }
@@ -1117,6 +1124,8 @@
                 :is-edit-mode="isEditMode"
                 :ability-mods="skillAbilityMods"
                 :proficiency-bonus="creatureProficiencyBonus"
+                :armor-class="resolvedStats?.armorClass"
+                :resolved-movement="resolvedStats?.movement"
                 @update:system="handleSystemUpdate"
               />
 

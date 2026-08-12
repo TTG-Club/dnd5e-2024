@@ -6,7 +6,11 @@
  * чтобы избежать дублирования в компонентах.
  */
 
-import type { AbilityType, WeaponRangeType } from '@vtt/shared';
+import type {
+  AbilityType,
+  ArmorCalculation,
+  WeaponRangeType,
+} from '@vtt/shared';
 
 import { CUSTOM_SKILLS_MAX } from '@vtt/shared/system/dnd.js';
 
@@ -155,6 +159,85 @@ export const DICE_ROLL_DEFAULT_BUTTON = 'Бросить';
 export const SPELL_DAMAGE_ROLL_BUTTON = 'Бросить урон';
 
 /**
+ * Подписи способов расчёта класса доспеха. Список общий у окна КД и подсказки
+ * плитки листа.
+ *
+ * `custom` подписан, хотя в выбор не попадает: способ есть в нейтральном типе
+ * записи, а движок считает его как «по умолчанию» — подпись нужна, чтобы у
+ * записи из чужого мира подсказка не оказалась пустой.
+ */
+export const ARMOR_CALCULATION_LABELS: Record<ArmorCalculation, string> = {
+  default: 'По умолчанию',
+  natural: 'Природная броня',
+  flat: 'Фиксированный',
+  custom: 'По умолчанию',
+};
+
+/**
+ * Способы расчёта КД, которые предлагает окно. `custom` в выбор не входит:
+ * своей формулы у системы нет, и выбор способа, который считается как
+ * «по умолчанию», только вводил бы в заблуждение.
+ */
+export const ARMOR_CALCULATION_OPTIONS: ArmorCalculation[] = [
+  'default',
+  'natural',
+  'flat',
+];
+
+/**
+ * Приписка «природный доспех» в записи класса доспеха. Значение записи, а не
+ * подпись: по нему же ставится галочка в окне.
+ */
+export const NATURAL_ARMOR_FORMULA = 'природный доспех';
+
+/** Подписи настройки класса доспеха */
+export const ARMOR_CLASS_SETTINGS_LABELS = {
+  formulaTitle: 'Формула',
+  calculation: 'Расчёт',
+  naturalBase: 'Базовый КД',
+  flatValue: 'Значение',
+  dexPart: 'мод. Ловкости',
+  defaultHint: 'Без доспеха КД всегда равен 10 + модификатор Ловкости.',
+  naturalHint: 'Природная броня: базовое значение + модификатор Ловкости.',
+  naturalCreatureHint:
+    'Природная броня: фиксированное значение для существа. Модификатор '
+    + 'Ловкости обычно уже учтён в значении.',
+  naturalMark: 'Природная броня (приписка)',
+  flatHint:
+    'Фиксированное значение КД. Модификатор Ловкости не учитывается. Позволяет '
+    + 'указать, что это значение является природной броней.',
+  bonusesTitle: 'Свои бонусы',
+  bonusesHint:
+    'Идут поверх любого расчёта: и по формуле, и с фиксированным значением. '
+    + 'Так заводят кольцо защиты или боевой стиль — щит и активные эффекты '
+    + 'считаются отдельно.',
+} as const;
+
+/** Подписи настройки инициативы */
+export const INITIATIVE_SETTINGS_LABELS = {
+  title: 'Настройка инициативы',
+  ability: 'Характеристика',
+  flatBonus: 'Доп. бонус',
+  total: 'Итого',
+  bonusesTitle: 'Свои бонусы',
+  bonusesHint:
+    'Складываются с модификатором характеристики. Бонус от мастерства нужен '
+    + 'умениям вроде «Ловкача», а не отдельным числом.',
+} as const;
+
+/** Подписи настройки передвижения */
+export const MOVEMENT_SETTINGS_LABELS = {
+  title: 'Передвижение',
+  units: 'Единицы',
+  hover: 'Парение',
+  bonusesHint:
+    'Бонус идёт только в тот вид передвижения, у которого он заведён, и только '
+    + 'если скорость этого вида не нулевая: ноль значит, что так лист не '
+    + 'передвигается вовсе.',
+  addBonus: 'Добавить бонус к виду передвижения',
+} as const;
+
+/**
  * Подписи плиток листа, общие для персонажа и существа. Плитки в обоих листах
  * одни и те же, и расходиться их названия не должны.
  */
@@ -286,11 +369,18 @@ export const FILTER_CHIP_SELECTED_CLASS =
 
 /** Подписи строк своего бонуса — они одни у всех настроек листа */
 export const CUSTOM_BONUS_LABELS: Record<
-  'source' | 'flatSource' | 'labelPlaceholder' | 'add' | 'remove' | 'unnamed',
+  | 'source'
+  | 'flatSource'
+  | 'proficiencySource'
+  | 'labelPlaceholder'
+  | 'add'
+  | 'remove'
+  | 'unnamed',
   string
 > = {
   source: 'Источник бонуса',
   flatSource: 'Своё число',
+  proficiencySource: 'Бонус мастерства',
   labelPlaceholder: 'Откуда бонус',
   add: 'Добавить бонус',
   remove: 'Удалить бонус',

@@ -12,6 +12,7 @@
   import type { AbilityType } from '@vtt/shared';
   import type {
     DnDCustomBonus,
+    DnDCustomBonusContext,
     DnDProficiencySettings,
   } from '@vtt/shared/system/dnd.js';
 
@@ -131,6 +132,15 @@
     }),
   );
 
+  /**
+   * Числа листа для вклада бонусов. Мастерство здесь — основа расчёта, а не
+   * итог: бонус от мастерства к самому мастерству иначе не сошёлся бы.
+   */
+  const bonusContext = computed<DnDCustomBonusContext>(() => ({
+    abilityMods: props.abilityMods,
+    proficiencyBonus: breakdown.value.base,
+  }));
+
   /** Подпись расчёта по правилам: и его основа, и что она даёт */
   const ruleLabel = computed(
     () => `${props.ruleTitle}: ${formatSignedNumber(props.ruleValue)}`,
@@ -230,9 +240,12 @@
             {{ PROFICIENCY_SETTINGS_LABELS.bonusesTitle }}
           </span>
 
+          <!-- Источник «мастерство» здесь не предлагается: бонус к мастерству
+            от мастерства ссылался бы сам на себя -->
           <CustomBonusRows
             v-model="draftBonuses"
-            :ability-mods="abilityMods"
+            :context="bonusContext"
+            :with-proficiency="false"
           />
         </div>
 

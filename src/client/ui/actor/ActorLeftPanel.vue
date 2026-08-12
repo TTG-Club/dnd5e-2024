@@ -3,6 +3,8 @@
   import type {
     AttackRollMode,
     DnDActor,
+    DnDCustomBonus,
+    DnDCustomBonusContext,
     DnDProficiencySettings,
     DnDSavingThrowSettings,
   } from '@vtt/shared/system/dnd.js';
@@ -16,6 +18,7 @@
     calculateAbilityModifier,
     calculateProficiencyBonus,
     getActorAbilityModifiers,
+    getCustomBonusValue,
     getTotalLevel,
   } from '@vtt/shared/system/dnd.js';
 
@@ -25,6 +28,8 @@
   import ArmorClassModal from './ArmorClassModal.vue';
   import ArmorProficiencyModal from './ArmorProficiencyModal.vue';
   import {
+    ARMOR_CALCULATION_LABELS,
+    CUSTOM_BONUS_LABELS,
     DICE_ROLL_DEFAULT_BUTTON,
     PROFICIENCY_SETTINGS_LABELS,
     SAVING_THROW_ABILITIES,
@@ -271,11 +276,11 @@
     resolvedValue: () => resolvedStats.value?.proficiencyBonus,
   });
 
-  const ARMOR_CALCULATION_LABELS: Record<string, string> = {
-    default: 'По умолчанию',
-    natural: 'Природная броня',
-    flat: 'Фиксированный',
-  };
+  /** Числа листа, от которых считается вклад своих бонусов */
+  const bonusContext = computed<DnDCustomBonusContext>(() => ({
+    abilityMods: sheetAbilityMods.value,
+    proficiencyBonus: proficiencyBonus.value,
+  }));
 
   /** Сводка по костям хитов (Hit Dice) для текущего актора */
   const hitDiceSummary = computed(() => {
@@ -352,7 +357,13 @@
     );
   });
 
-  const armorClassTooltip = computed(() => {
+  /**
+   * Разбор класса доспеха по правилам расчёта: без своих бонусов — они у всех
+   * веток одни и приписываются к готовой строке.
+   *
+   * @returns строка разбора
+   */
+  function buildArmorClassText(): string {
     const calculation = props.actor.system.armorClass.calculation;
 
     const label = ARMOR_CALCULATION_LABELS[calculation] ?? 'По умолчанию';
@@ -427,6 +438,23 @@
       default:
         return `КД ${effective} (${label})`;
     }
+  }
+
+  /** Подсказка плитки КД: разбор расчёта и свои бонусы к нему */
+  const armorClassTooltip = computed(() => {
+    const parts = [buildArmorClassText()];
+
+    for (const bonus of props.actor.system.armorClassBonuses ?? []) {
+      const label = bonus.label.trim() || CUSTOM_BONUS_LABELS.unnamed;
+
+      parts.push(
+        `${label} ${formatSignedNumber(
+          getCustomBonusValue(bonusContext.value, bonus),
+        )}`,
+      );
+    }
+
+    return parts.join(' · ');
   });
 
   // Модалки
@@ -547,9 +575,23 @@
     });
   }
 
-  function onArmorClassApply(armorClass: ActorArmorClass) {
+  /**
+   * Применяет класс доспеха из окна: расчёт и свои бонусы правятся там вместе.
+   *
+   * @param payload - настройка из окна
+   * @param payload.armorClass - расчёт класса доспеха
+   * @param payload.bonuses - свои бонусы к классу доспеха
+   */
+  function onArmorClassApply(payload: {
+    armorClass: ActorArmorClass;
+    bonuses: DnDCustomBonus[];
+  }) {
     emit('update:actor', {
-      system: { ...props.actor.system, armorClass },
+      system: {
+        ...props.actor.system,
+        armorClass: payload.armorClass,
+        armorClassBonuses: payload.bonuses,
+      },
     });
   }
 
@@ -1084,6 +1126,8 @@
   <ArmorClassModal
     v-model:open="isArmorClassOpen"
     :armor-class="actor.system.armorClass"
+    :bonuses="actor.system.armorClassBonuses"
+    :context="bonusContext"
     :dex-modifier="dexModifier"
     @apply="onArmorClassApply"
   />

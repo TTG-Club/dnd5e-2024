@@ -18,6 +18,7 @@
   import type { AbilityType, ProficiencyLevel, SkillType } from '@vtt/shared';
   import type {
     DnDCustomBonus,
+    DnDCustomBonusContext,
     DnDSkillSettings,
   } from '@vtt/shared/system/dnd.js';
 
@@ -111,6 +112,12 @@
     bonuses: DnDCustomBonus[];
   }
 
+  /** Числа листа, от которых считается вклад своих бонусов */
+  const bonusContext = computed<DnDCustomBonusContext>(() => ({
+    abilityMods: props.abilityMods,
+    proficiencyBonus: props.proficiencyBonus,
+  }));
+
   const isOpen = computed({
     get: () => props.open,
     set: (value) => emit('update:open', value),
@@ -171,7 +178,7 @@
         const stored =
           props.abilityMods[getSkillSettingAbility(setting, skill.key)]
           + getProficiencyContribution(props.proficiencyBonus, proficiency)
-          + getCustomBonusesValue(props.abilityMods, setting.bonuses);
+          + getCustomBonusesValue(bonusContext.value, setting.bonuses);
 
         deltas[skill.key] = (props.skills[skill.key] ?? stored) - stored;
 
@@ -230,7 +237,7 @@
               props.proficiencyBonus,
               draft.proficiency,
             )
-            + getCustomBonusesValue(props.abilityMods, draft.bonuses)
+            + getCustomBonusesValue(bonusContext.value, draft.bonuses)
             + (draft.key === null ? 0 : (effectBonuses.value[draft.key] ?? 0));
 
       return {
@@ -630,7 +637,7 @@
             <CustomBonusRows
               v-if="row.draft.bonuses.length > 0"
               v-model="row.draft.bonuses"
-              :ability-mods="abilityMods"
+              :context="bonusContext"
               :with-add="false"
               class="border-l-2 border-primary/40 pl-2"
             />

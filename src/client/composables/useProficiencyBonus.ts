@@ -110,7 +110,13 @@ export function useProficiencyBonus(
 
       parts.push(
         `${label} ${formatSignedNumber(
-          getCustomBonusValue(toValue(source.abilityMods), bonus),
+          getCustomBonusValue(
+            {
+              abilityMods: toValue(source.abilityMods),
+              proficiencyBonus: breakdown.value.base,
+            },
+            bonus,
+          ),
         )}`,
       );
     }

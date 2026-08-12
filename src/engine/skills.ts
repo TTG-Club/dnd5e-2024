@@ -11,6 +11,7 @@
 
 import type { AbilityType, ProficiencyLevel, SkillType } from '@vtt/shared';
 
+import type { DnDCustomBonusContext } from './customBonuses.js';
 import type {
   DnDCustomSkill,
   DnDSkillSetting,
@@ -148,20 +149,18 @@ export function isChangedSkill(
  * бонусы. Активные эффекты своих навыков не касаются — ключа под них в
  * системе нет, целиться эффекту некуда.
  *
- * @param abilityMods - модификаторы характеристик листа
- * @param proficiencyBonus - бонус мастерства листа
+ * @param context - числа листа, от которых считаются свои бонусы
  * @param skill - свой навык
  * @returns значение навыка
  */
 export function getCustomSkillValue(
-  abilityMods: Record<AbilityType, number>,
-  proficiencyBonus: number,
+  context: DnDCustomBonusContext,
   skill: DnDCustomSkill,
 ): number {
   return (
-    (abilityMods[skill.ability] ?? 0)
-    + getProficiencyContribution(proficiencyBonus, skill.proficiency)
-    + getCustomBonusesValue(abilityMods, skill.bonuses)
+    (context.abilityMods[skill.ability] ?? 0)
+    + getProficiencyContribution(context.proficiencyBonus, skill.proficiency)
+    + getCustomBonusesValue(context, skill.bonuses)
   );
 }
 

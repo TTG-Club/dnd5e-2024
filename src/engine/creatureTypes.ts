@@ -10,6 +10,7 @@ import type {
   AbilityType,
   DamagePart,
   DistanceUnit,
+  MovementType,
   ProficiencyLevel,
   SkillType,
   SpellAreaOfEffect,
@@ -19,6 +20,7 @@ import type {
 import type {
   CreatureSize,
   DnDAbilityScores,
+  DnDCustomBonus,
   DnDProficiencySettings,
   DnDSkillSettings,
 } from './types.js';
@@ -259,10 +261,20 @@ export interface CreatureSystem {
 
   /** Класс доспеха (теперь структурированный объект) */
   armorClass: import('@vtt/shared').ActorArmorClass;
+
+  /**
+   * Свои бонусы к классу доспеха. Формат тот же, что у листа персонажа, —
+   * движок читает его одним кодом.
+   */
+  armorClassBonuses?: DnDCustomBonus[];
+
   /** Хиты */
   hitPoints: CreatureHitPoints;
   /** Структурированное передвижение (аналог ActorMovement) */
   movement: import('@vtt/shared').ActorMovement;
+
+  /** Свои бонусы к каждому виду передвижения */
+  movementBonuses?: Partial<Record<MovementType, DnDCustomBonus[]>>;
 
   // ── Инициатива ──────────────────────────────────────────────────────────
 
@@ -270,6 +282,9 @@ export interface CreatureSystem {
   initiativeBonus?: number;
   /** Какая характеристика используется для инициативы (обычно dexterity) */
   initiativeAbility?: import('@vtt/shared').AbilityType;
+
+  /** Свои бонусы к инициативе — с пометкой источника, в отличие от `initiativeBonus` */
+  initiativeBonuses?: DnDCustomBonus[];
 
   // ── Характеристики ──────────────────────────────────────────────────────
 

@@ -2,6 +2,7 @@
   import type {
     AbilityType,
     ActorMovement,
+    MovementType,
     ProficiencyLevel,
     SkillType,
   } from '@vtt/shared';
@@ -9,6 +10,8 @@
     AttackRollMode,
     ClassCounterDefinition,
     DnDActor,
+    DnDCustomBonus,
+    DnDCustomBonusContext,
     DnDCustomSkill,
     DnDSkillSettings,
   } from '@vtt/shared/system/dnd.js';
@@ -43,6 +46,7 @@
   import {
     CUSTOM_BONUS_LABELS,
     DICE_ROLL_DEFAULT_BUTTON,
+    INITIATIVE_SETTINGS_LABELS,
     SHEET_TILE_LABELS,
     SKILL_GROUP_LABEL_CLASS,
     SKILL_SETTINGS_LABELS,
@@ -80,6 +84,30 @@
 
   // --- Ходьба ---
 
+  /**
+   * Модификаторы характеристик с учётом эффектов — по ним считаются навыки,
+   * инициатива и разбор значений. Без разрешённых статов модификаторы берутся
+   * прямо из значений характеристик листа.
+   */
+  const sheetAbilityMods = computed<Record<AbilityType, number>>(
+    () =>
+      resolvedStats.value?.abilityMods ?? getActorAbilityModifiers(props.actor),
+  );
+
+  /**
+   * Бонус мастерства с учётом эффектов; без разрешённых статов — расчёт по
+   * уровню с поправками настройки листа.
+   */
+  const sheetProficiencyBonus = computed(() =>
+    getActorProficiencyBonus(props.actor, resolvedStats.value),
+  );
+
+  /** Числа листа, от которых считается вклад своих бонусов */
+  const bonusContext = computed<DnDCustomBonusContext>(() => ({
+    abilityMods: sheetAbilityMods.value,
+    proficiencyBonus: sheetProficiencyBonus.value,
+  }));
+
   /** Конечные скорости передвижения (база + бонусы от эффектов) */
   const resolvedMovement = computed<ActorMovement>(() => {
     const resolved = resolvedStats.value?.movement;
@@ -111,25 +139,28 @@
     isMovementOpen.value = true;
   }
 
-  function onMovementApply(movement: ActorMovement) {
+  /**
+   * Применяет передвижение из окна: скорости и свои бонусы к ним правятся там
+   * вместе.
+   *
+   * @param payload - настройка из окна
+   * @param payload.movement - скорости листа
+   * @param payload.bonuses - свои бонусы по видам передвижения
+   */
+  function onMovementApply(payload: {
+    movement: ActorMovement;
+    bonuses: Partial<Record<MovementType, DnDCustomBonus[]>>;
+  }) {
     emit('update:actor', {
-      system: { ...props.actor.system, movement },
+      system: {
+        ...props.actor.system,
+        movement: payload.movement,
+        movementBonuses: payload.bonuses,
+      },
     });
   }
 
   // --- Инициатива ---
-
-  const abilities: Array<{
-    key: AbilityType;
-    label: string;
-  }> = [
-    { key: 'strength', label: 'Сила' },
-    { key: 'intelligence', label: 'Интеллект' },
-    { key: 'dexterity', label: 'Ловкость' },
-    { key: 'wisdom', label: 'Мудрость' },
-    { key: 'constitution', label: 'Телосложение' },
-    { key: 'charisma', label: 'Харизма' },
-  ];
 
   const initiative = computed(() => {
     return resolvedStats.value?.initiative ?? 0;
@@ -141,24 +172,34 @@
       : `${initiative.value}`;
   });
 
+  /** Подсказка плитки инициативы: из чего сложилось её число */
   const initiativeTooltip = computed(() => {
     const ability = props.actor.system.initiativeAbility ?? 'dexterity';
-
-    const abilityLabel =
-      abilities.find((abilityDef) => abilityDef.key === ability)?.label
-      ?? 'Ловкость';
-
     const abilityScore = props.actor.system.abilities[ability];
     const abilityMod = calculateAbilityModifier(abilityScore);
     const bonus = props.actor.system.initiativeBonus ?? 0;
 
-    let text = `${abilityLabel}: ${abilityMod >= 0 ? '+' : ''}${abilityMod}`;
+    const parts = [
+      `${ABILITY_LABELS[ability]} ${formatSignedNumber(abilityMod)}`,
+    ];
 
     if (bonus !== 0) {
-      text += ` | Бонус: ${bonus >= 0 ? '+' : ''}${bonus}`;
+      parts.push(
+        `${INITIATIVE_SETTINGS_LABELS.flatBonus} ${formatSignedNumber(bonus)}`,
+      );
     }
 
-    return text;
+    for (const customBonus of props.actor.system.initiativeBonuses ?? []) {
+      const label = customBonus.label.trim() || CUSTOM_BONUS_LABELS.unnamed;
+
+      parts.push(
+        `${label} ${formatSignedNumber(
+          getCustomBonusValue(bonusContext.value, customBonus),
+        )}`,
+      );
+    }
+
+    return parts.join(' · ');
   });
 
   const isInitiativeOpen = ref(false);
@@ -244,34 +285,30 @@
     }
   }
 
+  /**
+   * Применяет настройку инициативы из окна.
+   *
+   * @param data - настройка из окна
+   * @param data.initiativeBonus - плоская прибавка к инициативе
+   * @param data.initiativeAbility - характеристика расчёта
+   * @param data.bonuses - свои бонусы к инициативе
+   */
   function onInitiativeApply(data: {
     initiativeBonus: number;
     initiativeAbility: AbilityType;
+    bonuses: DnDCustomBonus[];
   }) {
     emit('update:actor', {
-      system: { ...props.actor.system, ...data },
+      system: {
+        ...props.actor.system,
+        initiativeBonus: data.initiativeBonus,
+        initiativeAbility: data.initiativeAbility,
+        initiativeBonuses: data.bonuses,
+      },
     });
   }
 
   // --- Навыки ---
-
-  /**
-   * Модификаторы характеристик с учётом эффектов — по ним считаются свои
-   * навыки и разбор значений. Без разрешённых статов модификаторы берутся
-   * прямо из значений характеристик листа.
-   */
-  const skillAbilityMods = computed<Record<AbilityType, number>>(
-    () =>
-      resolvedStats.value?.abilityMods ?? getActorAbilityModifiers(props.actor),
-  );
-
-  /**
-   * Бонус мастерства с учётом эффектов; без разрешённых статов — расчёт по
-   * уровню с поправками настройки листа.
-   */
-  const skillProficiencyBonus = computed(() =>
-    getActorProficiencyBonus(props.actor, resolvedStats.value),
-  );
 
   /** Строка списка навыков: навык правил либо заведённый игроком */
   interface SkillRow {
@@ -333,14 +370,14 @@
     bonuses: DnDCustomSkill['bonuses'],
     effectsBonus: number,
   ): string {
-    const mods = skillAbilityMods.value;
+    const mods = sheetAbilityMods.value;
 
     const parts = [
       `${ABILITY_LABELS[ability]} ${formatSignedNumber(mods[ability] ?? 0)}`,
     ];
 
     const proficiencyPart = getProficiencyContribution(
-      skillProficiencyBonus.value,
+      sheetProficiencyBonus.value,
       proficiencyLevel,
     );
 
@@ -352,7 +389,9 @@
       const label = bonus.label.trim() || CUSTOM_BONUS_LABELS.unnamed;
 
       parts.push(
-        `${label} ${formatSignedNumber(getCustomBonusValue(mods, bonus))}`,
+        `${label} ${formatSignedNumber(
+          getCustomBonusValue(bonusContext.value, bonus),
+        )}`,
       );
     }
 
@@ -372,7 +411,7 @@
   const skillRows = computed<SkillRow[]>(() => {
     const settings = props.actor.system.skillSettings;
     const proficiencies = props.actor.system.proficiencies.skills;
-    const mods = skillAbilityMods.value;
+    const mods = sheetAbilityMods.value;
 
     const ruleRows = SKILLS_LIST.map<SkillRow>((skill) => {
       const setting = getSkillSetting(settings, skill.key);
@@ -389,10 +428,10 @@
       const fallbackModifier =
         mods[ability]
         + getProficiencyContribution(
-          skillProficiencyBonus.value,
+          sheetProficiencyBonus.value,
           proficiencyLevel,
         )
-        + getCustomBonusesValue(mods, setting.bonuses);
+        + getCustomBonusesValue(bonusContext.value, setting.bonuses);
 
       const modifier =
         resolvedStats.value?.skills[skill.key] ?? fallbackModifier;
@@ -422,7 +461,7 @@
       label: skill.name,
       ability: skill.ability,
       proficiencyLevel: skill.proficiency,
-      modifier: getCustomSkillValue(mods, skillProficiencyBonus.value, skill),
+      modifier: getCustomSkillValue(bonusContext.value, skill),
       isCustom: true,
       // Свой навык активные эффекты не задевают: ключа под него в системе нет
       valueHint: buildSkillHint(
@@ -798,6 +837,8 @@
   <MovementModal
     v-model:open="isMovementOpen"
     :movement="actor.system.movement"
+    :bonuses="actor.system.movementBonuses"
+    :context="bonusContext"
     :active-effects="combinedEffects"
     @apply="onMovementApply"
   />
@@ -815,6 +856,8 @@
       wisdom: actor.system.abilities.wisdom,
       charisma: actor.system.abilities.charisma,
     }"
+    :bonuses="actor.system.initiativeBonuses"
+    :context="bonusContext"
     @apply="onInitiativeApply"
   />
 
@@ -823,8 +866,8 @@
     v-model:open="isSkillSettingsOpen"
     :proficiencies="actor.system.proficiencies.skills"
     :settings="actor.system.skillSettings"
-    :ability-mods="skillAbilityMods"
-    :proficiency-bonus="skillProficiencyBonus"
+    :ability-mods="sheetAbilityMods"
+    :proficiency-bonus="sheetProficiencyBonus"
     :skills="resolvedStats?.skills ?? {}"
     :overridden-keys="overriddenSkillKeys"
     @apply="onSkillSettingsApply"

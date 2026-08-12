@@ -28,6 +28,7 @@ import type {
   EffectTargetKey,
   ResolvedActorStats,
 } from './activeEffectTypes.js';
+import type { DnDCustomBonusContext } from './customBonuses.js';
 import type { DnDActor, DnDCreature, DnDSceneEntity } from './dndEntities.js';
 import type { FormulaContext } from './formulaParser.js';
 import type { BonusDamageFormula, TargetHpGate } from './spellUtils.js';
@@ -51,7 +52,11 @@ import {
   SKILLS_LIST,
   SPELL_SAVE_DC_BASE,
 } from './consts.js';
-import { getCustomBonusesValue } from './customBonuses.js';
+import {
+  getCustomBonusesValue,
+  parseCustomBonuses,
+  parseMovementBonuses,
+} from './customBonuses.js';
 import { DEFENSIBLE_DAMAGE_TYPES } from './damageConstants.js';
 import { collectStaticDamageDefenses } from './damageUtils.js';
 import { buildFormulaContext, evaluateFormula } from './formulaParser.js';
@@ -1129,6 +1134,14 @@ export function prepareDerivedData(
   derivedStats.proficiencyBonus =
     derivedStats.proficiencyBonus || proficiencyBonus;
 
+  // Числа, от которых считаются свои бонусы листа. Собираются один раз и
+  // передаются во все расчёты ниже: бонус берёт отсюда либо модификатор своей
+  // характеристики, либо бонус мастерства
+  const bonusContext: DnDCustomBonusContext = {
+    abilityMods: derivedStats.abilityMods,
+    proficiencyBonus: derivedStats.proficiencyBonus,
+  };
+
   // 3. Спасброски
   const savingThrowSettings = parseSavingThrowSettings(
     isRecord(system) ? system.savingThrowSettings : undefined,
@@ -1136,7 +1149,7 @@ export function prepareDerivedData(
 
   // Бонусы ко всем шести считаются один раз: они у листа общие
   const commonSaveBonus = getCustomBonusesValue(
-    derivedStats.abilityMods,
+    bonusContext,
     savingThrowSettings?.common ?? [],
   );
 
@@ -1177,10 +1190,7 @@ export function prepareDerivedData(
     derivedStats.saves[abilityKey] =
       derivedStats.abilityMods[saveAbility]
       + profBonus
-      + getCustomBonusesValue(
-        derivedStats.abilityMods,
-        savingThrowSetting.bonuses,
-      )
+      + getCustomBonusesValue(bonusContext, savingThrowSetting.bonuses)
       + commonSaveBonus
       + derivedStats.saves[abilityKey];
   }
@@ -1227,7 +1237,7 @@ export function prepareDerivedData(
     derivedStats.skills[skillKey] =
       derivedStats.abilityMods[baseAbility]
       + profContribution
-      + getCustomBonusesValue(derivedStats.abilityMods, skillSetting.bonuses)
+      + getCustomBonusesValue(bonusContext, skillSetting.bonuses)
       + derivedStats.skills[skillKey];
   }
 
@@ -1238,6 +1248,12 @@ export function prepareDerivedData(
     derivedStats.initiative =
       derivedStats.abilityMods[initAbility]
       + (system.initiativeBonus ?? 0)
+      + getCustomBonusesValue(
+        bonusContext,
+        parseCustomBonuses(
+          isRecord(system) ? system.initiativeBonuses : undefined,
+        ),
+      )
       + derivedStats.initiative;
   }
 
@@ -1363,8 +1379,17 @@ export function prepareDerivedData(
     }
   }
 
-  // Итоговое AC = расчётный КД + щит + бонусы от Active Effects
-  derivedStats.armorClass = calculatedAC + shieldBonus + acEffectBonus;
+  // Итоговое AC = расчётный КД + щит + свои бонусы + бонусы от Active Effects
+  derivedStats.armorClass =
+    calculatedAC
+    + shieldBonus
+    + getCustomBonusesValue(
+      bonusContext,
+      parseCustomBonuses(
+        isRecord(system) ? system.armorClassBonuses : undefined,
+      ),
+    )
+    + acEffectBonus;
 
   // 8. Spell Save DC (8 + бонус мастерства + мод. характеристики заклинателя)
   const spellcastingAbility = getFirstSpellcastingAbility(actor);
@@ -1379,14 +1404,34 @@ export function prepareDerivedData(
       + spellMod;
   }
 
-  // 9. Speed.zero flag — обнуляет все скорости
+  // 9. Свои бонусы к передвижению
+  const movementBonuses = parseMovementBonuses(
+    isRecord(system) ? system.movementBonuses : undefined,
+  );
+
+  for (const movementKey of MOVEMENT_KEYS) {
+    const bonuses = movementBonuses[movementKey];
+
+    // Ноль значит, что такого передвижения у листа нет: прибавка не должна
+    // заводить его сама — этим занимаются активные эффекты
+    if (!bonuses || derivedStats.movement[movementKey] === 0) {
+      continue;
+    }
+
+    derivedStats.movement[movementKey] += getCustomBonusesValue(
+      bonusContext,
+      bonuses,
+    );
+  }
+
+  // 10. Speed.zero flag — обнуляет все скорости
   if (derivedStats.activeFlags.has('speed.zero')) {
     for (const movementKey of MOVEMENT_KEYS) {
       derivedStats.movement[movementKey] = 0;
     }
   }
 
-  // 10. Защиты от урона (статические + от флагов активных эффектов)
+  // 11. Защиты от урона (статические + от флагов активных эффектов)
   derivedStats.damageDefenses = resolveDamageDefenses(
     actor,
     derivedStats.activeFlags,

@@ -1,7 +1,9 @@
 <script setup lang="ts">
-  import type { AbilityType, ActorMovement } from '@vtt/shared';
+  import type { AbilityType, ActorMovement, MovementType } from '@vtt/shared';
   import type {
     CreatureSystem,
+    DnDCustomBonus,
+    DnDCustomBonusContext,
     DnDProficiencySettings,
   } from '@vtt/shared/system/dnd.js';
 
@@ -10,7 +12,9 @@
   import FieldsetLabel from '@/shared_ui/components/FieldsetLabel.vue';
   import { DISTANCE_UNIT_SHORT } from '@vtt/shared';
   import {
+    BASE_UNARMORED_AC,
     calculateAbilityModifier,
+    getCustomBonusesValue,
     getDisplayMovement,
     getMovementList,
     rollDamageFormula,
@@ -21,6 +25,7 @@
   import { SHEET_TILE_LABELS } from '../actor/constants';
   import DiceRollModal from '../actor/DiceRollModal.vue';
   import InitiativeModal from '../actor/InitiativeModal.vue';
+  import MovementModal from '../actor/MovementModal.vue';
   import ProficiencyBonusModal from '../actor/ProficiencyBonusModal.vue';
   import { formatSignedNumber } from '../actor/utils/formatSignedNumber';
   import {
@@ -28,7 +33,6 @@
     CREATURE_PROFICIENCY_RULE_TITLE,
   } from './constants';
   import CreatureHitPointsModal from './CreatureHitPointsModal.vue';
-  import CreatureMovementModal from './CreatureMovementModal.vue';
 
   interface Props {
     system: CreatureSystem;
@@ -37,6 +41,13 @@
     abilityMods: Record<AbilityType, number>;
     /** Итоговый бонус мастерства листа с учётом активных эффектов */
     proficiencyBonus?: number;
+    /**
+     * Итоговый класс доспеха листа: в нём уже учтены свои бонусы и активные
+     * эффекты. Нет — показывается записанное значение.
+     */
+    armorClass?: number;
+    /** Итоговые скорости листа — с теми же поправками */
+    resolvedMovement?: Partial<Record<MovementType, number>>;
   }
 
   const props = defineProps<Props>();
@@ -47,6 +58,12 @@
 
   const dexModifier = computed(() =>
     calculateAbilityModifier(props.system.abilities?.dexterity ?? 10),
+  );
+
+  /** Класс доспеха плитки: итог листа, а без него — записанное значение */
+  const effectiveArmorClass = computed(
+    () =>
+      props.armorClass ?? props.system.armorClass?.value ?? BASE_UNARMORED_AC,
   );
 
   // --- Бонус мастерства ---
@@ -72,6 +89,12 @@
   const formattedProficiency = computed(() =>
     formatSignedNumber(proficiencyValue.value),
   );
+
+  /** Числа листа, от которых считается вклад своих бонусов */
+  const bonusContext = computed<DnDCustomBonusContext>(() => ({
+    abilityMods: props.abilityMods,
+    proficiencyBonus: proficiencyValue.value,
+  }));
 
   const isProficiencyBonusOpen = ref(false);
 
@@ -108,12 +131,34 @@
     () => props.system.movement ?? DEFAULT_MOVEMENT,
   );
 
+  /**
+   * Скорости для показа: итоговые, если лист их посчитал. Правятся при этом
+   * записанные — как и у листа персонажа.
+   */
+  const displayedMovement = computed<ActorMovement>(() => {
+    const resolved = props.resolvedMovement;
+    const base = creatureMovement.value;
+
+    if (!resolved) {
+      return base;
+    }
+
+    return {
+      ...base,
+      walk: resolved.walk ?? base.walk,
+      swim: resolved.swim ?? base.swim,
+      fly: resolved.fly ?? base.fly,
+      climb: resolved.climb ?? base.climb,
+      burrow: resolved.burrow ?? base.burrow,
+    };
+  });
+
   /** Главный вид передвижения — он и стоит в плитке */
   const displayMovement = computed(() =>
-    getDisplayMovement(creatureMovement.value),
+    getDisplayMovement(displayedMovement.value),
   );
 
-  const movementList = computed(() => getMovementList(creatureMovement.value));
+  const movementList = computed(() => getMovementList(displayedMovement.value));
 
   /** Сокращение единиц измерения — оно одно у плитки и у подсказки */
   const movementUnitLabel = computed(
@@ -129,8 +174,22 @@
   /**
    * Применяет обновлённые данные передвижения
    */
-  function onMovementApply(movement: ActorMovement) {
-    emit('update:system', { movement });
+  /**
+   * Применяет передвижение из окна: скорости и свои бонусы к ним правятся там
+   * вместе.
+   *
+   * @param payload - настройка из окна
+   * @param payload.movement - скорости существа
+   * @param payload.bonuses - свои бонусы по видам передвижения
+   */
+  function onMovementApply(payload: {
+    movement: ActorMovement;
+    bonuses: Partial<Record<MovementType, DnDCustomBonus[]>>;
+  }) {
+    emit('update:system', {
+      movement: payload.movement,
+      movementBonuses: payload.bonuses,
+    });
   }
 
   // --- Хиты ---
@@ -178,10 +237,21 @@
   // --- КД ---
   const isArmorClassOpen = ref(false);
 
-  function onArmorClassApply(
-    armorClass: import('@vtt/shared').ActorArmorClass,
-  ) {
-    emit('update:system', { armorClass });
+  /**
+   * Применяет класс доспеха из окна: расчёт и свои бонусы правятся вместе.
+   *
+   * @param payload - настройка из окна
+   * @param payload.armorClass - расчёт класса доспеха
+   * @param payload.bonuses - свои бонусы к классу доспеха
+   */
+  function onArmorClassApply(payload: {
+    armorClass: import('@vtt/shared').ActorArmorClass;
+    bonuses: DnDCustomBonus[];
+  }) {
+    emit('update:system', {
+      armorClass: payload.armorClass,
+      armorClassBonuses: payload.bonuses,
+    });
   }
 
   // --- Инициатива ---
@@ -192,7 +262,14 @@
       props.system.abilities?.[ability] ?? 10,
     );
 
-    return abilityModifier + (props.system.initiativeBonus ?? 0);
+    return (
+      abilityModifier
+      + (props.system.initiativeBonus ?? 0)
+      + getCustomBonusesValue(
+        bonusContext.value,
+        props.system.initiativeBonuses ?? [],
+      )
+    );
   });
 
   const formattedInitiative = computed(() => {
@@ -224,11 +301,24 @@
     }
   }
 
+  /**
+   * Применяет настройку инициативы из окна.
+   *
+   * @param data - настройка из окна
+   * @param data.initiativeBonus - плоская прибавка к инициативе
+   * @param data.initiativeAbility - характеристика расчёта
+   * @param data.bonuses - свои бонусы к инициативе
+   */
   function onInitiativeApply(data: {
     initiativeBonus: number;
-    initiativeAbility: import('@vtt/shared').AbilityType;
+    initiativeAbility: AbilityType;
+    bonuses: DnDCustomBonus[];
   }) {
-    emit('update:system', data);
+    emit('update:system', {
+      initiativeBonus: data.initiativeBonus,
+      initiativeAbility: data.initiativeAbility,
+      initiativeBonuses: data.bonuses,
+    });
   }
 </script>
 
@@ -253,7 +343,7 @@
           <div
             class="text-center text-xl font-bold text-highlighted tabular-nums"
           >
-            {{ system.armorClass?.value ?? 10 }}
+            {{ effectiveArmorClass }}
           </div>
 
           <div
@@ -473,10 +563,12 @@
     </FieldsetLabel>
   </div>
 
-  <!-- Модалка передвижения -->
-  <CreatureMovementModal
+  <!-- Модалка передвижения — та же, что и в листе персонажа -->
+  <MovementModal
     v-model:open="isMovementOpen"
     :movement="creatureMovement"
+    :bonuses="system.movementBonuses"
+    :context="bonusContext"
     @apply="onMovementApply"
   />
 
@@ -491,6 +583,8 @@
   <ArmorClassModal
     v-model:open="isArmorClassOpen"
     :armor-class="system.armorClass"
+    :bonuses="system.armorClassBonuses"
+    :context="bonusContext"
     :dex-modifier="dexModifier"
     is-creature-mode
     @apply="onArmorClassApply"
@@ -513,6 +607,8 @@
     :initiative-bonus="system.initiativeBonus ?? 0"
     :initiative-ability="system.initiativeAbility ?? 'dexterity'"
     :ability-scores="system.abilities"
+    :bonuses="system.initiativeBonuses"
+    :context="bonusContext"
     @apply="onInitiativeApply"
   />
 
