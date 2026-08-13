@@ -16,11 +16,13 @@
 
   import ActorHeaderPlaceholder from './ActorHeaderPlaceholder.vue';
   import {
+    ACTOR_HEADER_LABELS,
     CREATURE_SIZE_LABELS,
     CREATURE_TYPE_LABELS,
     EDIT_MODE_TOGGLE_TITLE,
     MISSING_SHEET_SECTIONS,
     MODAL_BUTTON_LABELS,
+    REST_LABELS,
   } from './constants';
   import LevelUpModal from './LevelUpModal.vue';
 
@@ -127,7 +129,7 @@
     // Обычное зрение (range === 0 трактуется как без ограничений)
     entries.push({
       icon: 'tabler:eye',
-      label: 'Обычное зрение',
+      label: ACTOR_HEADER_LABELS.normalVision,
       range: vision.range,
     });
 
@@ -135,7 +137,7 @@
     if (vision.darkvision > 0) {
       entries.push({
         icon: 'tabler:moon',
-        label: 'Тёмное зрение',
+        label: ACTOR_HEADER_LABELS.darkvision,
         range: vision.darkvision,
       });
     }
@@ -220,8 +222,8 @@
   /** Подпись справа от полосы: следующий уровень или «Максимум» на 20-м */
   const nextLevelLabel = computed(() =>
     totalLevel.value >= MAX_LEVEL
-      ? 'Максимум'
-      : `Уровень ${totalLevel.value + 1}`,
+      ? ACTOR_HEADER_LABELS.experienceMax
+      : `${ACTOR_HEADER_LABELS.nextLevelPrefix}${totalLevel.value + 1}`,
   );
 
   /** Классы строки опыта: кликабельная только у того, кто может править лист */
@@ -233,7 +235,7 @@
 
   /** Подсказка строки опыта (без правки прав — без подсказки) */
   const experienceRowTitle = computed(() =>
-    props.canEdit ? 'Изменить уровень и опыт' : undefined,
+    props.canEdit ? ACTOR_HEADER_LABELS.editLevel : undefined,
   );
 
   /**
@@ -269,11 +271,13 @@
   const inspirationTooltip = computed(() => {
     if (!props.isAdmin) {
       return hasInspiration.value
-        ? 'У персонажа есть вдохновение'
-        : 'У персонажа нет вдохновения';
+        ? ACTOR_HEADER_LABELS.inspirationOn
+        : ACTOR_HEADER_LABELS.inspirationOff;
     }
 
-    return hasInspiration.value ? 'Забрать вдохновение' : 'Дать вдохновение';
+    return hasInspiration.value
+      ? ACTOR_HEADER_LABELS.inspirationTake
+      : ACTOR_HEADER_LABELS.inspirationGive;
   });
 
   /** Тег блока вдохновения: кнопка у ГМ, обычный блок у игрока */
@@ -462,7 +466,7 @@
             <UInput
               v-if="isEditMode"
               :model-value="actor.name"
-              placeholder="Имя персонажа"
+              :placeholder="ACTOR_HEADER_LABELS.namePlaceholder"
               variant="none"
               size="xl"
               class="w-full"
@@ -574,7 +578,7 @@
       <button
         v-if="isCreating"
         class="flex h-8 items-center gap-1.5 rounded-full border border-success/50 bg-success/80 px-3 text-sm font-medium text-highlighted transition-colors hover:bg-success/70"
-        title="Создать персонажа"
+        :title="ACTOR_HEADER_LABELS.createActor"
         @click.left.exact.prevent="emit('save')"
       >
         <UIcon
@@ -602,7 +606,7 @@
       <button
         v-if="canEdit && !isCreating"
         class="flex h-8 w-8 items-center justify-center rounded-full border border-default/50 bg-elevated/30 text-muted transition-colors hover:bg-accented/50 hover:text-highlighted"
-        title="Настройки токена и прав"
+        :title="ACTOR_HEADER_LABELS.tokenSettings"
         @click.left.exact.prevent="emit('open-settings')"
       >
         <UIcon
@@ -642,13 +646,13 @@
             class="h-4 w-4"
           />
 
-          Вдохновение
+          {{ ACTOR_HEADER_LABELS.inspiration }}
         </component>
       </UTooltip>
 
       <UTooltip
         v-if="canEdit"
-        text="Короткий отдых"
+        :text="REST_LABELS.short"
       >
         <UButton
           icon="tabler:campfire"
@@ -663,7 +667,7 @@
 
       <UTooltip
         v-if="canEdit"
-        text="Продолжительный отдых"
+        :text="REST_LABELS.long"
       >
         <UButton
           icon="tabler:moon"

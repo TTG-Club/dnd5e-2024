@@ -21,7 +21,12 @@
     normalizeCarryingCapacity,
   } from '@vtt/shared/system/dnd.js';
 
-  import { BONUS_INPUT_FORMAT_OPTIONS, MODAL_BUTTON_LABELS } from './constants';
+  import {
+    BONUS_INPUT_FORMAT_OPTIONS,
+    CARRYING_CAPACITY_LABELS,
+    MODAL_BUTTON_LABELS,
+    WEIGHT_UNIT_LABEL,
+  } from './constants';
   import { formatSignedNumber } from './utils/formatSignedNumber';
 
   interface Props {
@@ -127,7 +132,11 @@
     () => [
       {
         value: SIZE_AUTO,
-        label: `Как у персонажа (${CREATURE_SIZE_LABELS[props.actorSize].toLowerCase()})`,
+        label:
+          `${CARRYING_CAPACITY_LABELS.sizeAsActorPrefix}`
+          + `${CREATURE_SIZE_LABELS[props.actorSize].toLowerCase()}${
+            CARRYING_CAPACITY_LABELS.sizeAsActorSuffix
+          }`,
       },
       ...CREATURE_SIZES.map((size) => ({
         value: size,
@@ -157,15 +166,15 @@
     :blocking="true"
     :min-width="420"
     :min-height="360"
-    title="Грузоподъёмность"
+    :title="CARRYING_CAPACITY_LABELS.title"
     :z-index="Z_INDEX.MODAL_ELEVATED"
   >
     <template #body>
       <div class="space-y-3">
         <UCheckbox
           v-model="draftCustom"
-          label="Использовать своё значение"
-          description="Предел задаётся числом, а не считается по Силе и размеру"
+          :label="CARRYING_CAPACITY_LABELS.useCustom"
+          :description="CARRYING_CAPACITY_LABELS.useCustomHint"
         />
 
         <div class="border-t border-muted" />
@@ -175,7 +184,9 @@
           v-if="draftCustom"
           class="flex items-center justify-between gap-4"
         >
-          <span class="text-sm text-toned">Предел, фнт.</span>
+          <span class="text-sm text-toned">{{
+            CARRYING_CAPACITY_LABELS.customValue
+          }}</span>
 
           <UInputNumber
             v-model="draftValue"
@@ -189,7 +200,9 @@
         <!-- Расчёт по правилам -->
         <template v-else>
           <div class="flex items-center justify-between gap-4">
-            <span class="text-sm text-toned">Размер для подсчёта</span>
+            <span class="text-sm text-toned">
+              {{ CARRYING_CAPACITY_LABELS.sizeForCalc }}
+            </span>
 
             <USelect
               v-model="draftSize"
@@ -202,17 +215,15 @@
           </div>
 
           <p class="text-xs leading-relaxed text-dimmed">
-            По правилам предел равен значению Силы, умноженному на 15: у
-            Крошечного он вдвое меньше, а с Большого удваивается на каждую
-            категорию размера. Размер для подсчёта задаётся отдельно от размера
-            персонажа — так работает «Мощное телосложение»: существо считается
-            на категорию крупнее только для переносимого веса.
+            {{ CARRYING_CAPACITY_LABELS.rulesHint }}
           </p>
         </template>
 
         <!-- Свой бонус -->
         <div class="flex items-center justify-between gap-4">
-          <span class="text-sm text-toned">Свой бонус, фнт.</span>
+          <span class="text-sm text-toned">{{
+            CARRYING_CAPACITY_LABELS.bonus
+          }}</span>
 
           <UInputNumber
             v-model="draftBonus"
@@ -225,8 +236,7 @@
         </div>
 
         <p class="text-xs leading-relaxed text-dimmed">
-          Свой бонус складывается с пределом в обоих режимах: отрицательный —
-          уменьшает его.
+          {{ CARRYING_CAPACITY_LABELS.bonusHint }}
         </p>
 
         <div class="border-t border-muted" />
@@ -235,7 +245,9 @@
              есть введённое число -->
         <template v-if="!breakdown.custom">
           <div class="flex items-center justify-between gap-4 text-sm">
-            <span class="text-toned">Сила</span>
+            <span class="text-toned">{{
+              CARRYING_CAPACITY_LABELS.strength
+            }}</span>
 
             <span class="text-toned tabular-nums">{{
               breakdown.strength
@@ -243,7 +255,9 @@
           </div>
 
           <div class="flex items-center justify-between gap-4 text-sm">
-            <span class="text-toned">Поправка на размер</span>
+            <span class="text-toned">{{
+              CARRYING_CAPACITY_LABELS.sizeFactor
+            }}</span>
 
             <span class="text-toned tabular-nums">
               {{ multiplierLabel(breakdown.sizeMultiplier) }}
@@ -251,7 +265,9 @@
           </div>
 
           <div class="flex items-center justify-between gap-4 text-sm">
-            <span class="text-toned">По правилам</span>
+            <span class="text-toned">{{
+              CARRYING_CAPACITY_LABELS.byRules
+            }}</span>
 
             <span class="text-toned tabular-nums">
               {{ formatWeight(breakdown.ruleValue) }}
@@ -263,16 +279,20 @@
           v-if="breakdown.bonus !== 0"
           class="flex items-center justify-between gap-4 text-sm"
         >
-          <span class="text-toned">Свой бонус</span>
+          <span class="text-toned">{{
+            CARRYING_CAPACITY_LABELS.bonusShort
+          }}</span>
 
           <span class="text-toned tabular-nums">{{ bonusLabel }}</span>
         </div>
 
         <div class="flex items-center justify-between gap-4">
-          <span class="text-sm text-muted">Предел переносимого веса</span>
+          <span class="text-sm text-muted">{{
+            CARRYING_CAPACITY_LABELS.total
+          }}</span>
 
           <span class="text-xl font-bold text-highlighted tabular-nums">
-            {{ formatWeight(breakdown.value) }} фнт.
+            {{ formatWeight(breakdown.value) }} {{ WEIGHT_UNIT_LABEL }}
           </span>
         </div>
 

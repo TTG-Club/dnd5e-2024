@@ -9,6 +9,7 @@
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
   import { generateId } from '@vtt/shared';
 
+  import { CLASS_FEATURE_LABELS, FORM_FIELD_LABELS } from '../constants';
   import GrantedSpellsEditor from '../GrantedSpellsEditor.vue';
 
   defineProps<{
@@ -64,15 +65,15 @@
 <template>
   <div class="flex flex-col gap-3">
     <div class="grid grid-cols-[1fr_auto] gap-3">
-      <UFormField label="Название">
+      <UFormField :label="FORM_FIELD_LABELS.name">
         <UInput
           v-model="feature.name"
-          placeholder="Название особенности"
+          :placeholder="CLASS_FEATURE_LABELS.namePlaceholder"
           class="w-full"
         />
       </UFormField>
 
-      <UFormField label="Уровень">
+      <UFormField :label="FORM_FIELD_LABELS.level">
         <UInputNumber
           v-model="feature.level"
           :min="1"
@@ -82,17 +83,17 @@
       </UFormField>
     </div>
 
-    <UFormField label="Описание (Markdown)">
+    <UFormField :label="FORM_FIELD_LABELS.descriptionMarkdown">
       <RichTextEditor v-model="feature.description" />
     </UFormField>
 
     <UCheckbox
       v-model="feature.isInformationalOnly"
-      label="Только информационная (заглушка-подсказка, не попадает в умения актёра)"
+      :label="CLASS_FEATURE_LABELS.informationalOnly"
     />
 
     <!-- Варианты-выборы (боевой стиль, манёвры) -->
-    <UFormField label="Варианты на выбор (напр. боевой стиль)">
+    <UFormField :label="CLASS_FEATURE_LABELS.choicesTitle">
       <div class="flex flex-col gap-2">
         <div
           v-for="(choice, choiceIndex) in feature.choices"
@@ -102,7 +103,7 @@
           <div class="flex items-center gap-2">
             <UInput
               v-model="choice.name"
-              placeholder="Название варианта"
+              :placeholder="CLASS_FEATURE_LABELS.choiceName"
               class="flex-1"
             />
 
@@ -111,7 +112,7 @@
               color="error"
               variant="ghost"
               size="xs"
-              aria-label="Удалить вариант"
+              :aria-label="CLASS_FEATURE_LABELS.choiceRemove"
               @click.left.exact.prevent="removeChoice(choiceIndex)"
             />
           </div>
@@ -120,14 +121,14 @@
             v-model="choice.description"
             :rows="2"
             autoresize
-            placeholder="Описание варианта"
+            :placeholder="CLASS_FEATURE_LABELS.choiceDescription"
             class="w-full"
           />
         </div>
 
         <UButton
           icon="tabler:plus"
-          label="Добавить вариант"
+          :label="CLASS_FEATURE_LABELS.choiceAdd"
           color="neutral"
           variant="soft"
           size="xs"
@@ -138,7 +139,7 @@
     </UFormField>
 
     <!-- Заклинания на 1 уровне особенности -->
-    <UFormField label="Заклинания особенности (всегда подготовлены)">
+    <UFormField :label="CLASS_FEATURE_LABELS.grantedSpells">
       <GrantedSpellsEditor
         v-model="feature.grantedSpells"
         :available-spells="availableSpells"
@@ -147,7 +148,7 @@
     </UFormField>
 
     <!-- Поуровневая выдача заклинаний (домены/клятвы/покровители) -->
-    <UFormField label="Поуровневые заклинания (домены/клятвы)">
+    <UFormField :label="CLASS_FEATURE_LABELS.grantedSpellsByLevel">
       <div class="flex flex-col gap-2">
         <div
           v-for="(entry, levelIndex) in feature.grantedSpellsByLevel"
@@ -155,7 +156,9 @@
           class="flex flex-col gap-1.5 rounded-md border border-default bg-elevated/30 p-2"
         >
           <div class="flex items-center gap-2">
-            <span class="text-xs text-muted">Уровень класса:</span>
+            <span class="text-xs text-muted">{{
+              CLASS_FEATURE_LABELS.classLevelPrefix
+            }}</span>
 
             <UInputNumber
               v-model="entry.level"
@@ -170,7 +173,7 @@
               variant="ghost"
               size="xs"
               class="ml-auto"
-              aria-label="Удалить уровень"
+              :aria-label="CLASS_FEATURE_LABELS.levelRemove"
               @click.left.exact.prevent="removeSpellLevel(levelIndex)"
             />
           </div>
@@ -184,7 +187,7 @@
 
         <UButton
           icon="tabler:plus"
-          label="Добавить уровень выдачи"
+          :label="CLASS_FEATURE_LABELS.levelAdd"
           color="neutral"
           variant="soft"
           size="xs"

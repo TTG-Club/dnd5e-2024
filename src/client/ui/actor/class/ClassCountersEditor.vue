@@ -176,9 +176,9 @@
           :key="entry.uid"
           class="flex items-center gap-2"
         >
-          <span class="text-xs text-muted">{{
-            CLASS_COUNTERS_LABELS.level
-          }}</span>
+          <span class="text-xs text-muted">
+            {{ FORM_FIELD_LABELS.level }}
+          </span>
 
           <UInputNumber
             v-model="entry.level"

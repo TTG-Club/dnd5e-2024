@@ -18,6 +18,10 @@
     ABILITY_LABELS,
     CREATURE_SIZE_LABELS,
     CREATURE_TYPE_LABELS,
+    GRANT_FIELD_LABELS,
+    GRANT_SECTION_LABELS,
+    SPECIES_DETAIL_LABELS,
+    WIZARD_OVERVIEW_LABELS,
   } from '../constants';
 
   const props = defineProps<{
@@ -36,22 +40,33 @@
 
   const speedDisplay = computed(() => {
     const spd = props.speciesDefinition.speed;
-    const parts = [`Ходьба ${spd.walk} фт.`];
+
+    const parts = [
+      `${SPECIES_DETAIL_LABELS.speedWalk} ${spd.walk} ${SPECIES_DETAIL_LABELS.speedUnit}`,
+    ];
 
     if (spd.fly) {
-      parts.push(`Полет ${spd.fly} фт.`);
+      parts.push(
+        `${SPECIES_DETAIL_LABELS.speedFly} ${spd.fly} ${SPECIES_DETAIL_LABELS.speedUnit}`,
+      );
     }
 
     if (spd.swim) {
-      parts.push(`Плавание ${spd.swim} фт.`);
+      parts.push(
+        `${SPECIES_DETAIL_LABELS.speedSwim} ${spd.swim} ${SPECIES_DETAIL_LABELS.speedUnit}`,
+      );
     }
 
     if (spd.climb) {
-      parts.push(`Лазание ${spd.climb} фт.`);
+      parts.push(
+        `${SPECIES_DETAIL_LABELS.speedClimb} ${spd.climb} ${SPECIES_DETAIL_LABELS.speedUnit}`,
+      );
     }
 
     if (spd.burrow) {
-      parts.push(`Копание ${spd.burrow} фт.`);
+      parts.push(
+        `${SPECIES_DETAIL_LABELS.speedBurrow} ${spd.burrow} ${SPECIES_DETAIL_LABELS.speedUnit}`,
+      );
     }
 
     return parts.join(', ');
@@ -80,11 +95,14 @@
 
     props.speciesDefinition.grants.forEach((group) => {
       if (group.type === 'darkvision') {
-        grants.push({ title: 'Тёмное зрение', desc: `${group.range} фт.` });
+        grants.push({
+          title: SPECIES_DETAIL_LABELS.darkvision,
+          desc: `${group.range} ${SPECIES_DETAIL_LABELS.speedUnit}`,
+        });
       } else if (group.type === 'savingThrowProficiency') {
         if (group.abilities.length > 0) {
           grants.push({
-            title: 'Спасброски',
+            title: GRANT_SECTION_LABELS.savingThrows,
             desc: group.abilities
               .map((ability) => ABILITY_LABELS[ability] ?? ability)
               .join(', '),
@@ -109,7 +127,7 @@
       } else if (group.type === 'conditionImmunity') {
         if (group.conditions.length > 0) {
           grants.push({
-            title: 'Иммунитет к состояниям',
+            title: GRANT_FIELD_LABELS.conditionImmunities,
             desc: group.conditions
               .map(
                 (key) =>
@@ -124,28 +142,40 @@
         && (!group.choices || group.choices.count === 0)
       ) {
         if (group.items.length > 0) {
-          grants.push({ title: 'Языки', desc: group.items.join(', ') });
+          grants.push({
+            title: GRANT_SECTION_LABELS.languages,
+            desc: group.items.join(', '),
+          });
         }
       } else if (
         group.type === 'weaponProficiency'
         && (!group.choices || group.choices.count === 0)
       ) {
         if (group.items.length > 0) {
-          grants.push({ title: 'Оружие', desc: group.items.join(', ') });
+          grants.push({
+            title: GRANT_SECTION_LABELS.weapons,
+            desc: group.items.join(', '),
+          });
         }
       } else if (
         group.type === 'armorProficiency'
         && (!group.choices || group.choices.count === 0)
       ) {
         if (group.items.length > 0) {
-          grants.push({ title: 'Снаряжение', desc: group.items.join(', ') });
+          grants.push({
+            title: GRANT_SECTION_LABELS.equipment,
+            desc: group.items.join(', '),
+          });
         }
       } else if (
         group.type === 'toolProficiency'
         && (!group.choices || group.choices.count === 0)
       ) {
         if (group.items.length > 0) {
-          grants.push({ title: 'Инструменты', desc: group.items.join(', ') });
+          grants.push({
+            title: GRANT_SECTION_LABELS.tools,
+            desc: group.items.join(', '),
+          });
         }
       }
     });
@@ -167,7 +197,7 @@
         <span
           class="mb-1 text-[10px] font-semibold tracking-wider text-muted uppercase"
         >
-          Тип существа
+          {{ WIZARD_OVERVIEW_LABELS.creatureType }}
         </span>
 
         <span class="font-medium text-highlighted">{{ displayType }}</span>
@@ -177,7 +207,7 @@
         <span
           class="mb-1 text-[10px] font-semibold tracking-wider text-muted uppercase"
         >
-          Скорость
+          {{ WIZARD_OVERVIEW_LABELS.speed }}
         </span>
 
         <span class="font-medium text-highlighted">{{ speedDisplay }}</span>
@@ -192,7 +222,7 @@
       <span
         class="mb-3 text-xs font-semibold tracking-wider text-muted uppercase"
       >
-        Выберите размер
+        {{ WIZARD_OVERVIEW_LABELS.sizePrompt }}
       </span>
 
       <div class="flex gap-4">
@@ -214,7 +244,7 @@
       <span
         class="mb-1 text-[10px] font-semibold tracking-wider text-muted uppercase"
       >
-        Размер
+        {{ WIZARD_OVERVIEW_LABELS.size }}
       </span>
 
       <span class="font-medium text-highlighted">{{
@@ -228,7 +258,7 @@
       class="flex flex-col gap-3"
     >
       <span class="text-xs font-semibold tracking-wider text-muted uppercase">
-        Врождённые особенности
+        {{ WIZARD_OVERVIEW_LABELS.innateFeatures }}
       </span>
 
       <div class="grid grid-cols-2 gap-3">

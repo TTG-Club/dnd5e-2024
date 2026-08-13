@@ -17,7 +17,9 @@
     stripHealTokens,
   } from '@vtt/shared/system/dnd.js';
 
+  import { SPELL_LEVEL_SUFFIX } from '../actor/constants';
   import { parseCardPayload } from './cardPayload';
+  import { DICE_LETTER_REPLACEMENT, SPELL_CARD_LABELS } from './consts';
 
   const props = defineProps<{
     /** Сериализованные данные заклинания (JSON-строка) */
@@ -39,7 +41,7 @@
       .map((part) =>
         formatConditionalDamageDisplay(part.formula, (subFormula) =>
           stripHealTokens(stripDamageTypeTokens(subFormula)),
-        ).replace(/(\d+)d(\d+)/gi, '$1к$2'),
+        ).replace(/(\d+)d(\d+)/gi, DICE_LETTER_REPLACEMENT),
       )
       .filter((formula) => formula.length > 0)
       .join(' + ');
@@ -52,7 +54,8 @@
     }
 
     return (
-      SPELL_LEVEL_LABELS[spell.value.level] ?? `${spell.value.level}-й круг`
+      SPELL_LEVEL_LABELS[spell.value.level]
+      ?? `${spell.value.level}${SPELL_LEVEL_SUFFIX}`
     );
   });
 
@@ -100,7 +103,9 @@
       return unitLabel;
     }
 
-    const prefix = spell.value.concentration ? 'Концентрация, ' : '';
+    const prefix = spell.value.concentration
+      ? SPELL_CARD_LABELS.concentrationPrefix
+      : '';
 
     return `${prefix}${spell.value.durationValue} ${unitLabel.toLowerCase()}`;
   });
@@ -114,15 +119,15 @@
     const parts: string[] = [];
 
     if (spell.value.components.verbal) {
-      parts.push('В');
+      parts.push(SPELL_CARD_LABELS.componentVerbal);
     }
 
     if (spell.value.components.somatic) {
-      parts.push('С');
+      parts.push(SPELL_CARD_LABELS.componentSomatic);
     }
 
     if (spell.value.components.material) {
-      parts.push('М');
+      parts.push(SPELL_CARD_LABELS.componentMaterial);
     }
 
     return parts.join(', ');
@@ -151,7 +156,7 @@
         variant="subtle"
         size="xs"
       >
-        К
+        {{ SPELL_CARD_LABELS.concentrationBadge }}
       </UBadge>
 
       <UBadge
@@ -160,7 +165,7 @@
         variant="subtle"
         size="xs"
       >
-        Р
+        {{ SPELL_CARD_LABELS.ritualBadge }}
       </UBadge>
     </div>
 
@@ -178,13 +183,17 @@
       <!-- Характеристики -->
       <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs">
         <div class="flex items-center gap-1">
-          <span class="text-dimmed">Время:</span>
+          <span class="text-dimmed">{{
+            SPELL_CARD_LABELS.castingTimePrefix
+          }}</span>
 
           <span class="text-toned">{{ castingTimeLabel }}</span>
         </div>
 
         <div class="flex items-center gap-1">
-          <span class="text-dimmed">Длительность:</span>
+          <span class="text-dimmed">{{
+            SPELL_CARD_LABELS.durationPrefix
+          }}</span>
 
           <span class="text-toned">{{ durationLabel }}</span>
         </div>
@@ -193,7 +202,9 @@
           v-if="componentsLabel"
           class="flex items-center gap-1"
         >
-          <span class="text-dimmed">Компоненты:</span>
+          <span class="text-dimmed">{{
+            SPELL_CARD_LABELS.componentsPrefix
+          }}</span>
 
           <span class="text-toned">{{ componentsLabel }}</span>
         </div>
@@ -202,7 +213,7 @@
           v-if="damagePartsLabel"
           class="flex items-center gap-1"
         >
-          <span class="text-dimmed">Урон:</span>
+          <span class="text-dimmed">{{ SPELL_CARD_LABELS.damagePrefix }}</span>
 
           <span class="font-mono font-semibold text-danger-muted">
             {{ damagePartsLabel }}
@@ -223,7 +234,9 @@
         v-if="spell.higherLevelDescription"
         class="border-t border-accented/30 pt-2"
       >
-        <span class="text-xs font-medium text-arcane">На высших кругах:</span>
+        <span class="text-xs font-medium text-arcane">
+          {{ SPELL_CARD_LABELS.higherLevelsPrefix }}
+        </span>
 
         <div class="mt-1 max-h-20 overflow-y-auto">
           <ItemDescriptionRenderer :content="spell.higherLevelDescription" />
@@ -235,6 +248,6 @@
   <!-- Fallback при ошибке десериализации -->
   <CardErrorFallback
     v-else
-    message="Ошибка отображения карточки заклинания"
+    :message="SPELL_CARD_LABELS.error"
   />
 </template>

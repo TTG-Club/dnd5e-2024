@@ -50,6 +50,7 @@
   import ActorEquipmentRow from '../ActorEquipmentRow.vue';
   import CarryingCapacityModal from '../CarryingCapacityModal.vue';
   import {
+    ACTOR_EQUIPMENT_TAB_LABELS,
     EQUIPMENT_EQUIP_ACTION_LABELS,
     EQUIPMENT_MENU_LABELS,
     EQUIPMENT_STAT_HINTS,
@@ -154,8 +155,8 @@
 
   /** Лейблы категорий оружия */
   const WEAPON_CATEGORY_LABELS: Record<string, string> = {
-    simple: 'Простое оружие',
-    martial: 'Воинское оружие',
+    simple: ACTOR_EQUIPMENT_TAB_LABELS.weaponsSimple,
+    martial: ACTOR_EQUIPMENT_TAB_LABELS.weaponsMartial,
   };
 
   /**
@@ -176,9 +177,9 @@
 
   /** Конфигурация групп предметов для разделителей */
   const EQUIPMENT_GROUP_ORDER = [
-    { type: 'weapon', label: 'Оружие' },
-    { type: 'equipment', label: 'Экипировка' },
-    { type: 'tool', label: 'Инструменты' },
+    { type: 'weapon', label: ACTOR_EQUIPMENT_TAB_LABELS.sectionWeapons },
+    { type: 'equipment', label: ACTOR_EQUIPMENT_TAB_LABELS.sectionEquipment },
+    { type: 'tool', label: ACTOR_EQUIPMENT_TAB_LABELS.sectionTools },
   ];
 
   /**
@@ -208,7 +209,10 @@
     );
 
     if (otherItems.length > 0) {
-      groups.push({ label: 'Прочее', items: otherItems });
+      groups.push({
+        label: ACTOR_EQUIPMENT_TAB_LABELS.sectionOther,
+        items: otherItems,
+      });
     }
 
     return groups;
@@ -479,7 +483,7 @@
     startHotbarDrag(event, {
       id: weapon.id,
       type: 'weapon-attack',
-      label: `Атака — ${weapon.name}`,
+      label: `${ACTOR_EQUIPMENT_TAB_LABELS.attackRollPrefix}${weapon.name}`,
       icon: hotbarIcon,
       ref: weapon.id,
       actorId: props.actor.id,
@@ -872,7 +876,7 @@
     );
 
     if (hasHealing) {
-      labels.push('Лечение');
+      labels.push(ACTOR_EQUIPMENT_TAB_LABELS.healing);
     }
 
     return labels.join(' + ');
@@ -1016,7 +1020,10 @@
 
   /** Ячейка плитки переносимого веса */
   const carryingCapacityCells = computed(() => [
-    { label: 'Переносимый вес', value: weightLabel.value },
+    {
+      label: ACTOR_EQUIPMENT_TAB_LABELS.carriedWeight,
+      value: weightLabel.value,
+    },
   ]);
 
   /** Размер актёра для расчёта грузоподъёмности */
@@ -1094,8 +1101,8 @@
       <div class="flex">
         <SheetStatTile
           :cells="carryingCapacityCells"
-          tooltip="Переносимый вес из предела грузоподъёмности — нажмите, чтобы его настроить"
-          aria-label="Настроить грузоподъёмность"
+          :tooltip="ACTOR_EQUIPMENT_TAB_LABELS.carriedWeightHint"
+          :aria-label="ACTOR_EQUIPMENT_TAB_LABELS.carryingCapacitySettings"
           clickable
           :danger="isOverweight"
           @click="isCapacityModalOpen = true"
@@ -1108,7 +1115,7 @@
       <div
         role="button"
         tabindex="0"
-        aria-label="Редактировать валюту"
+        :aria-label="ACTOR_EQUIPMENT_TAB_LABELS.editCurrency"
         class="flex min-h-7 cursor-pointer flex-wrap items-center justify-between gap-2 rounded-lg border border-default/50 bg-elevated/20 px-4 py-0.5 transition-colors hover:border-default hover:bg-elevated/40"
         @click.left.exact.prevent="openCurrencyModal"
         @keydown.enter.prevent="openCurrencyModal"
@@ -1143,7 +1150,7 @@
           : 'border-default/30 text-dimmed'
       "
     >
-      Перетащите сюда
+      {{ ACTOR_EQUIPMENT_TAB_LABELS.dropHere }}
     </div>
 
     <!-- Список предметов с разделителями -->
@@ -1201,7 +1208,7 @@
   <DiceRollModal
     v-model:open="isRollModalOpen"
     :formula="rollConfig.formula"
-    :title="`Атака — ${rollConfig.name}`"
+    :title="`${ACTOR_EQUIPMENT_TAB_LABELS.attackRollPrefix}${rollConfig.name}`"
     :roll-label="rollConfig.name"
     :attack-modifier="rollConfig.attackModifier"
     :evaluate-conditional-bonuses="rollConfig.evaluateBonuses"
@@ -1212,6 +1219,6 @@
     :evaluate-bonus-damage-parts="rollConfig.evaluateBonusDamageParts"
     :on-roll-parts="rollConfig.onRollParts"
     :on-hit="rollConfig.onHit"
-    roll-button-text="Атаковать"
+    :roll-button-text="ACTOR_EQUIPMENT_TAB_LABELS.attack"
   />
 </template>

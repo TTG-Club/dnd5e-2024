@@ -326,6 +326,8 @@ export const FORM_FIELD_LABELS = {
   unitShort: 'Ед.',
   /** Количество там, где на полную подпись места нет */
   amount: 'Кол-во',
+  /** Уровень записи или персонажа */
+  level: 'Уровень',
 } as const;
 
 /**
@@ -1330,6 +1332,99 @@ export const ACTOR_SHEET_LABELS = {
 export const ACTOR_SHEET_LOG_PREFIX =
   '[ActorModal] Не удалось привести актёра к форме D&D:';
 
+/** Подписи окна грузоподъёмности */
+export const CARRYING_CAPACITY_LABELS = {
+  title: 'Грузоподъёмность',
+  /** Пункт выбора «считать по размеру самого персонажа» */
+  sizeAsActorPrefix: 'Как у персонажа (',
+  sizeAsActorSuffix: ')',
+  useCustom: 'Использовать своё значение',
+  useCustomHint: 'Предел задаётся числом, а не считается по Силе и размеру',
+  customValue: 'Предел, фнт.',
+  sizeForCalc: 'Размер для подсчёта',
+  rulesHint:
+    'По правилам предел равен значению Силы, умноженному на 15: у Крошечного '
+    + 'он вдвое меньше, а с Большого удваивается на каждую категорию размера. '
+    + 'Размер для подсчёта задаётся отдельно от размера персонажа — так '
+    + 'работает «Мощное телосложение»: существо считается на категорию крупнее '
+    + 'только для переносимого веса.',
+  bonus: 'Свой бонус, фнт.',
+  bonusHint:
+    'Свой бонус складывается с пределом в обоих режимах: отрицательный — '
+    + 'уменьшает его.',
+  strength: 'Сила',
+  sizeFactor: 'Поправка на размер',
+  byRules: 'По правилам',
+  bonusShort: 'Свой бонус',
+  total: 'Предел переносимого веса',
+} as const;
+
+/** Подписи шага «Обзор» мастеров создания вида и предыстории */
+export const WIZARD_OVERVIEW_LABELS = {
+  creatureType: 'Тип существа',
+  speed: 'Скорость',
+  sizePrompt: 'Выберите размер',
+  size: 'Размер',
+  innateFeatures: 'Врождённые особенности',
+} as const;
+
+/** Подписи шапки листа персонажа */
+export const ACTOR_HEADER_LABELS = {
+  normalVision: 'Обычное зрение',
+  darkvision: 'Тёмное зрение',
+  /** Пометка предела опыта: персонаж уже на двадцатом уровне */
+  experienceMax: 'Максимум',
+  /** Приставка следующего уровня — дальше идёт его номер */
+  nextLevelPrefix: 'Уровень ',
+  editLevel: 'Изменить уровень и опыт',
+  inspirationOn: 'У персонажа есть вдохновение',
+  inspirationOff: 'У персонажа нет вдохновения',
+  inspirationTake: 'Забрать вдохновение',
+  inspirationGive: 'Дать вдохновение',
+  inspiration: 'Вдохновение',
+  namePlaceholder: 'Имя персонажа',
+  createActor: 'Создать персонажа',
+  tokenSettings: 'Настройки токена и прав',
+} as const;
+
+/** Подписи вкладки снаряжения листа персонажа */
+export const ACTOR_EQUIPMENT_TAB_LABELS = {
+  weaponsSimple: 'Простое оружие',
+  weaponsMartial: 'Воинское оружие',
+  sectionWeapons: 'Оружие',
+  sectionEquipment: 'Экипировка',
+  sectionTools: 'Инструменты',
+  sectionOther: 'Прочее',
+  /** Заголовок броска атаки — дальше идёт название оружия */
+  attackRollPrefix: 'Атака — ',
+  healing: 'Лечение',
+  carriedWeight: 'Переносимый вес',
+  carriedWeightHint:
+    'Переносимый вес из предела грузоподъёмности — нажмите, чтобы его '
+    + 'настроить',
+  carryingCapacitySettings: 'Настроить грузоподъёмность',
+  editCurrency: 'Редактировать валюту',
+  dropHere: 'Перетащите сюда',
+  attack: 'Атаковать',
+} as const;
+
+/** Подписи редактора особенности класса */
+export const CLASS_FEATURE_LABELS = {
+  namePlaceholder: 'Название особенности',
+  informationalOnly:
+    'Только информационная (заглушка-подсказка, не попадает в умения актёра)',
+  choicesTitle: 'Варианты на выбор (напр. боевой стиль)',
+  choiceName: 'Название варианта',
+  choiceRemove: 'Удалить вариант',
+  choiceDescription: 'Описание варианта',
+  choiceAdd: 'Добавить вариант',
+  grantedSpells: 'Заклинания особенности (всегда подготовлены)',
+  grantedSpellsByLevel: 'Поуровневые заклинания (домены/клятвы)',
+  classLevelPrefix: 'Уровень класса:',
+  levelRemove: 'Удалить уровень',
+  levelAdd: 'Добавить уровень выдачи',
+} as const;
+
 /** Подписи окна правки черты */
 export const FEAT_FORM_LABELS = {
   editTitle: 'Редактировать черту',
@@ -1476,7 +1571,6 @@ export const CLASS_COUNTERS_LABELS = {
   feature: 'Привязка к особенности',
   descriptionPlaceholder: 'Как работает ресурс, восстановление…',
   maxSource: 'Источник максимума',
-  level: 'Уровень',
   maxArrow: '→ макс.',
   removeStep: 'Удалить ступень',
   addStep: 'Добавить ступень',
