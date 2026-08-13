@@ -78,11 +78,13 @@
   import { useSpellResolution } from '../../../composables/useSpellResolution';
   import ActorSpellRow from '../ActorSpellRow.vue';
   import {
+    ACTOR_SPELLS_TAB_LABELS,
     FILTER_ROW_CONTROL_SIZE,
     SHEET_FILTER_LABELS,
     SHEET_ROW_MENU_LABELS,
     SPELL_DAMAGE_ROLL_BUTTON,
     SPELL_FILTER_LABELS,
+    SPELL_LEVEL_SUFFIX,
     SPELL_MENU_LABELS,
     SPELL_MIME,
     SPELL_PROPERTY_FILTERS,
@@ -337,13 +339,13 @@
    */
   const spellcastingCells = computed(() => [
     {
-      label: 'Сл. спасбр.',
-      hint: 'Сложность спасброска',
+      label: ACTOR_SPELLS_TAB_LABELS.saveDC,
+      hint: ACTOR_SPELLS_TAB_LABELS.saveDCHint,
       value: resolvedStats.value.spellSaveDC || '—',
     },
     {
-      label: 'Атака закл.',
-      hint: 'Атака заклинанием',
+      label: ACTOR_SPELLS_TAB_LABELS.attack,
+      hint: ACTOR_SPELLS_TAB_LABELS.attackHint,
       value:
         displaySpellAttackBonus.value == null
           ? '—'
@@ -428,15 +430,15 @@
     return [
       {
         kind: 'spells' as const,
-        label: 'Подгот.',
-        hint: 'Подготовлено заклинаний',
+        label: ACTOR_SPELLS_TAB_LABELS.prepared,
+        hint: ACTOR_SPELLS_TAB_LABELS.preparedHint,
         limit: preparedSpellsLimit.value,
         count: currentPreparedSpellsCount.value,
       },
       {
         kind: 'cantrips' as const,
-        label: 'Заговоры',
-        hint: 'Заговоров в книге',
+        label: ACTOR_SPELLS_TAB_LABELS.cantrips,
+        hint: ACTOR_SPELLS_TAB_LABELS.cantripsHint,
         limit: cantripsLimit.value,
         count: currentCantripsCount.value,
       },
@@ -444,8 +446,8 @@
       kind: tile.kind,
       tooltip:
         tile.limit.value === null
-          ? `${tile.hint}: ${tile.count}. Таблица класса числа не даёт — нажмите, чтобы задать своё`
-          : `${tile.hint}: ${tile.count} из ${tile.limit.value} — нажмите, чтобы настроить`,
+          ? `${tile.hint}: ${tile.count}. ${ACTOR_SPELLS_TAB_LABELS.tileHintNoLimit}`
+          : `${tile.hint}: ${tile.count} ${ACTOR_SPELLS_TAB_LABELS.tileHintOf} ${tile.limit.value} — ${ACTOR_SPELLS_TAB_LABELS.tileHintLimit}`,
       cells: [
         {
           label: tile.label,
@@ -648,7 +650,7 @@
       tooltip:
         level === CANTRIP_SPELL_LEVEL
           ? SPELL_FILTER_LABELS.cantripHint
-          : (SPELL_LEVEL_LABELS[level] ?? `${level}-й круг`),
+          : (SPELL_LEVEL_LABELS[level] ?? `${level}${SPELL_LEVEL_SUFFIX}`),
       isPicked: filterLevels.value.has(level),
     }));
   });
@@ -788,7 +790,7 @@
 
       return {
         level,
-        label: SPELL_LEVEL_LABELS[level] ?? `${level}-й круг`,
+        label: SPELL_LEVEL_LABELS[level] ?? `${level}${SPELL_LEVEL_SUFFIX}`,
         spells: levelSpells,
         max,
         used,
@@ -951,8 +953,8 @@
         const toast = useToast();
 
         toast.add({
-          title: 'Лимит подготовки',
-          description: `Вы не можете подготовить больше заклинаний (${maxPreparedSpells.value}).`,
+          title: ACTOR_SPELLS_TAB_LABELS.limitTitle,
+          description: `${ACTOR_SPELLS_TAB_LABELS.limitTextPrefix}${maxPreparedSpells.value}${ACTOR_SPELLS_TAB_LABELS.limitTextSuffix}`,
           color: 'warning',
         });
 
@@ -1168,8 +1170,8 @@
       const toast = useToast();
 
       toast.add({
-        title: 'Нет зарядов',
-        description: `У «${spell.name}» не осталось зарядов — нужен отдых.`,
+        title: ACTOR_SPELLS_TAB_LABELS.noUsesTitle,
+        description: `${ACTOR_SPELLS_TAB_LABELS.noUsesTextPrefix}${spell.name}${ACTOR_SPELLS_TAB_LABELS.noUsesTextSuffix}`,
         color: 'warning',
       });
 
@@ -1182,8 +1184,8 @@
       const toast = useToast();
 
       toast.add({
-        title: 'Недоступно',
-        description: `У вас нет доступных ячеек заклинаний ${spell.level} круга или выше.`,
+        title: ACTOR_SPELLS_TAB_LABELS.noSlotsTitle,
+        description: `${ACTOR_SPELLS_TAB_LABELS.noSlotsTextPrefix}${spell.level}${ACTOR_SPELLS_TAB_LABELS.noSlotsTextSuffix}`,
         color: 'error',
       });
 
@@ -1250,7 +1252,7 @@
     promptStore.addPrompt({
       id: promptId,
       icon: 'tabler:wand',
-      title: `Применить заклинание: ${spell.name}?`,
+      title: `${ACTOR_SPELLS_TAB_LABELS.castConfirmPrefix}${spell.name}${ACTOR_SPELLS_TAB_LABELS.castConfirmSuffix}`,
       color: 'neutral',
       actions: [
         {
@@ -1704,7 +1706,7 @@
       // списан в proceedWithCastSpell, ячейка не тратится)
       if (spell.level > 0 && !isInnate) {
         openModal('DiceRollModal', {
-          'title': `Заклинание — ${spell.name}`,
+          'title': `${ACTOR_SPELLS_TAB_LABELS.rollTitlePrefix}${spell.name}`,
           'rollLabel': spell.name,
           'rollButtonText': SPELL_MENU_LABELS.cast,
           'skipRoll': true,
@@ -1737,13 +1739,13 @@
     let rollButtonText: string = SPELL_DAMAGE_ROLL_BUTTON;
 
     if (incomingAttackType) {
-      rollButtonText = 'Бросить атаку';
+      rollButtonText = ACTOR_SPELLS_TAB_LABELS.attackRoll;
     } else if (spellDamageParts.some((part) => damagePartIsHealing(part))) {
-      rollButtonText = 'Лечение';
+      rollButtonText = ACTOR_SPELLS_TAB_LABELS.healing;
     }
 
     openModal('DiceRollModal', {
-      'title': `Заклинание — ${spell.name}`,
+      'title': `${ACTOR_SPELLS_TAB_LABELS.rollTitlePrefix}${spell.name}`,
       'rollLabel': spell.name,
       rollButtonText,
       'formula': resolvedDamageFormula,
@@ -1828,7 +1830,7 @@
       <div class="flex flex-wrap items-center gap-2">
         <SheetStatTile
           :cells="spellcastingCells"
-          aria-label="Настроить заклинательство"
+          :aria-label="ACTOR_SPELLS_TAB_LABELS.spellcastingSettings"
           clickable
           @click="isSettingsModalOpen = true"
         />
@@ -1838,7 +1840,7 @@
           :key="tile.kind"
           :cells="tile.cells"
           :tooltip="tile.tooltip"
-          aria-label="Настроить предел подготовки"
+          :aria-label="ACTOR_SPELLS_TAB_LABELS.preparedLimitSettings"
           clickable
           @click="openPreparedModal(tile.kind)"
         />
@@ -1934,7 +1936,7 @@
         <span
           class="shrink-0 text-xs font-semibold tracking-wider text-magic uppercase"
         >
-          Пакт
+          {{ ACTOR_SPELLS_TAB_LABELS.pact }}
           <template v-if="pactSlotInfo.level"
             >({{ pactSlotInfo.level }})</template
           >
@@ -1954,7 +1956,11 @@
                   ? 'border-magic bg-magic/30'
                   : 'border-accented bg-transparent hover:border-accented'
               "
-              :title="`Пакт: ${slotIndex <= (actor.system?.pactSlotsUsed ?? 0) ? 'Использована' : 'Доступна'}`"
+              :title="`${ACTOR_SPELLS_TAB_LABELS.pact}: ${
+                slotIndex <= (actor.system?.pactSlotsUsed ?? 0)
+                  ? ACTOR_SPELLS_TAB_LABELS.slotUsed
+                  : ACTOR_SPELLS_TAB_LABELS.slotAvailable
+              }`"
               @click.left.exact.prevent="togglePactSlot(slotIndex - 1)"
             />
           </div>
@@ -2001,7 +2007,11 @@
                   ? 'border-success bg-success/30'
                   : 'border-accented bg-transparent hover:border-accented'
               "
-              :title="`${group.label}: ${slotIndex <= group.used ? 'Использована' : 'Доступна'}`"
+              :title="`${group.label}: ${
+                slotIndex <= group.used
+                  ? ACTOR_SPELLS_TAB_LABELS.slotUsed
+                  : ACTOR_SPELLS_TAB_LABELS.slotAvailable
+              }`"
               @click.left.exact.prevent="
                 toggleSlot(group.level - 1, slotIndex - 1)
               "
@@ -2045,7 +2055,7 @@
         class="mb-2 h-8 w-8 opacity-50"
       />
 
-      <p>У данного персонажа пока нет заклинаний.</p>
+      <p>{{ ACTOR_SPELLS_TAB_LABELS.empty }}</p>
     </div>
 
     <!-- Отбор ничего не оставил: пустое место объясняет, почему список пуст -->

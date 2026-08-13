@@ -221,6 +221,52 @@ export const CREATURE_SKILLS_LABELS = {
 } as const;
 
 /**
+ * Подписи листа существа. Общие с листом персонажа (вкладка эффектов, описание,
+ * виды отдыха) берутся из `../actor/constants`.
+ */
+export const CREATURE_SHEET_LABELS = {
+  /**
+   * Вкладка действий. Тем же словом подписан первый раздел внутри неё
+   * (`CREATURE_ACTION_SECTIONS`), но это разные места: вкладка одна, а разделов
+   * в ней четыре.
+   */
+  tabActions: 'Действия',
+  /** Пустое значение блока защит и списков — прочерком его не пишут */
+  empty: 'Нет',
+  vulnerabilities: 'Уязвимости',
+  resistances: 'Сопротивления',
+  immunities: 'Иммунитеты',
+  bypassAdamantine: 'Пробивание: Адамантиновое',
+  bypassMagical: 'Пробивание: Магическое',
+  bypassSilvered: 'Пробивание: Посеребрённое',
+  perception: 'Восприятие',
+  visionPrefix: 'Зрение:',
+  darkvisionPrefix: 'Тёмное зрение:',
+  passivePerceptionPrefix: 'Пассивное Внимание:',
+  environments: 'Среда обитания',
+  environmentSpecialPrefix: 'Особая:',
+  descriptionPlaceholder: 'Описание существа...',
+  descriptionEmpty: 'Нет описания',
+  discardQuestion: 'У вас есть несохранённые изменения. Что сделать?',
+  /** Заголовок сообщения о неверно заполненной форме */
+  validationErrorTitle: 'Ошибка валидации',
+  validationNameRequired: 'Имя существа обязательно',
+  savedTitle: 'Успешно',
+  savedUpdated: 'Существо обновлено',
+  savedCreated: 'Существо создано',
+  saveErrorTitle: 'Ошибка сохранения',
+  saveErrorText: 'Не удалось сохранить существо',
+  longRestDone: 'Заряды заклинаний и хиты восстановлены.',
+  shortRestDone: 'Заряды коротких заклинаний восстановлены.',
+  spellAdded: 'Заклинание добавлено',
+  spellDropFailed: 'Не удалось разобрать заклинание при перетаскивании',
+} as const;
+
+/** Приставка сообщений листа существа в консоли — она одна на весь файл */
+export const CREATURE_SHEET_LOG_PREFIX =
+  '[CreatureSheet] Не удалось привести существо к форме D&D:';
+
+/**
  * Подписи окна правки записи существа — действия или особенности. Общие с
  * окнами листа персонажа (название, описание, спасбросок, область, дальность)
  * берутся из `../actor/constants`.

@@ -28,11 +28,14 @@
   import ArmorClassModal from './ArmorClassModal.vue';
   import ArmorProficiencyModal from './ArmorProficiencyModal.vue';
   import {
+    ACTOR_LEFT_PANEL_LABELS,
     ARMOR_CALCULATION_LABELS,
     CUSTOM_BONUS_LABELS,
     DICE_ROLL_DEFAULT_BUTTON,
+    GRANT_SECTION_LABELS,
     PROFICIENCY_SETTINGS_LABELS,
     SAVING_THROW_ABILITIES,
+    SAVING_THROW_ROLL_LABELS,
     SAVING_THROW_SETTINGS_LABELS,
     SHEET_TILE_LABELS,
   } from './constants';
@@ -79,10 +82,10 @@
 
   /** Категории брони для умных бэйджей */
   const ARMOR_BADGE_CATEGORIES = [
-    { key: 'light', label: 'Вся лёгкая' },
-    { key: 'medium', label: 'Вся средняя' },
-    { key: 'heavy', label: 'Вся тяжёлая' },
-    { key: 'shield', label: 'Все щиты' },
+    { key: 'light', label: ACTOR_LEFT_PANEL_LABELS.armorAllLight },
+    { key: 'medium', label: ACTOR_LEFT_PANEL_LABELS.armorAllMedium },
+    { key: 'heavy', label: ACTOR_LEFT_PANEL_LABELS.armorAllHeavy },
+    { key: 'shield', label: ACTOR_LEFT_PANEL_LABELS.armorAllShields },
   ];
 
   /**
@@ -184,7 +187,10 @@
 
       const allSimpleMastery = simpleMasteries.length === simpleKeys.length;
 
-      badges.push({ label: 'Все простые', hasMastery: allSimpleMastery });
+      badges.push({
+        label: ACTOR_LEFT_PANEL_LABELS.weaponsAllSimple,
+        hasMastery: allSimpleMastery,
+      });
 
       // Если мастерство есть, но не на все — добавляем конкретные
       if (!allSimpleMastery && simpleMasteries.length > 0) {
@@ -213,7 +219,10 @@
 
       const allMartialMastery = martialMasteries.length === martialKeys.length;
 
-      badges.push({ label: 'Все воинские', hasMastery: allMartialMastery });
+      badges.push({
+        label: ACTOR_LEFT_PANEL_LABELS.weaponsAllMartial,
+        hasMastery: allMartialMastery,
+      });
 
       if (!allMartialMastery && martialMasteries.length > 0) {
         for (const key of martialMasteries) {
@@ -316,7 +325,11 @@
     }
 
     if (diceMap.size === 0) {
-      return { totalCount: 0, availableCount: 0, tooltip: 'Нет костей хитов' };
+      return {
+        totalCount: 0,
+        availableCount: 0,
+        tooltip: ACTOR_LEFT_PANEL_LABELS.hitDiceEmpty,
+      };
     }
 
     let totalCount = 0;
@@ -332,7 +345,7 @@
       availableCount += stats.total - stats.used;
 
       tooltipParts.push(
-        `${stats.total - stats.used}к${die} / ${stats.total}к${die}`,
+        `${stats.total - stats.used}${ACTOR_LEFT_PANEL_LABELS.hitDieLetter}${die} / ${stats.total}${ACTOR_LEFT_PANEL_LABELS.hitDieLetter}${die}`,
       );
     }
 
@@ -366,7 +379,8 @@
   function buildArmorClassText(): string {
     const calculation = props.actor.system.armorClass.calculation;
 
-    const label = ARMOR_CALCULATION_LABELS[calculation] ?? 'По умолчанию';
+    const label =
+      ARMOR_CALCULATION_LABELS[calculation] ?? ARMOR_CALCULATION_LABELS.default;
 
     const effective = effectiveAC.value;
     const dexMod = dexModifier.value;
@@ -409,34 +423,34 @@
             ? (shield.baseArmorAC ?? 0) + (shield.magicBonus ?? 0)
             : 0;
 
-          let text = `КД ${effective} = ${armor.baseArmorAC} (${armor.name})`;
+          let text = `${ACTOR_LEFT_PANEL_LABELS.armorClassPrefix}${effective} = ${armor.baseArmorAC} (${armor.name})`;
 
           if (effectiveDex !== 0) {
-            text += ` + ${effectiveDex} Ловк.`;
+            text += ` + ${effectiveDex}${ACTOR_LEFT_PANEL_LABELS.armorClassDexPart}`;
           }
 
           if (magicBonus > 0) {
-            text += ` + ${magicBonus} маг.`;
+            text += ` + ${magicBonus}${ACTOR_LEFT_PANEL_LABELS.armorClassMagicPart}`;
           }
 
           if (shieldVal > 0) {
-            text += ` + ${shieldVal} щит`;
+            text += ` + ${shieldVal}${ACTOR_LEFT_PANEL_LABELS.armorClassShieldPart}`;
           }
 
           return text;
         }
 
-        return `КД ${effective} = ${BASE_UNARMORED_AC} + ${dexMod} Ловк. (${label})`;
+        return `${ACTOR_LEFT_PANEL_LABELS.armorClassPrefix}${effective} = ${BASE_UNARMORED_AC} + ${dexMod}${ACTOR_LEFT_PANEL_LABELS.armorClassDexPart} (${label})`;
       }
       case 'natural': {
         const baseNatural = props.actor.system.armorClass.value;
 
-        return `КД ${effective} = ${baseNatural} + ${dexMod} Ловк. (${label})`;
+        return `${ACTOR_LEFT_PANEL_LABELS.armorClassPrefix}${effective} = ${baseNatural} + ${dexMod}${ACTOR_LEFT_PANEL_LABELS.armorClassDexPart} (${label})`;
       }
       case 'flat':
-        return `КД ${effective} (${label})`;
+        return `${ACTOR_LEFT_PANEL_LABELS.armorClassPrefix}${effective} (${label})`;
       default:
-        return `КД ${effective} (${label})`;
+        return `${ACTOR_LEFT_PANEL_LABELS.armorClassPrefix}${effective} (${label})`;
     }
   }
 
@@ -567,9 +581,9 @@
 
     openDiceRoll({
       modifier: calculateSavingThrow(ability.key),
-      title: `Спасбросок: ${ability.label}`,
-      rollLabel: `Спасбросок ${ability.label}`,
-      rollButtonText: 'Бросить спасбросок',
+      title: `${SAVING_THROW_ROLL_LABELS.titlePrefix}${ability.label}`,
+      rollLabel: `${SAVING_THROW_ROLL_LABELS.rollPrefix}${ability.label}`,
+      rollButtonText: SAVING_THROW_ROLL_LABELS.button,
       initialRollMode,
       autoFail,
     });
@@ -852,22 +866,25 @@
         <div class="mt-0.5 flex items-center">
           <span
             class="flex-1 text-center text-[9px] font-medium tracking-wider text-dimmed uppercase"
-            >Сейчас</span
           >
+            {{ ACTOR_LEFT_PANEL_LABELS.hitPointsCurrent }}
+          </span>
 
           <span class="w-3" />
 
           <span
             class="flex-1 text-center text-[9px] font-medium tracking-wider text-dimmed uppercase"
-            >Всего</span
           >
+            {{ ACTOR_LEFT_PANEL_LABELS.hitPointsTotal }}
+          </span>
 
           <div class="mx-2 w-px" />
 
           <span
             class="flex-1 text-center text-[9px] font-medium tracking-wider text-dimmed uppercase"
-            >Врем.</span
           >
+            {{ ACTOR_LEFT_PANEL_LABELS.hitPointsTemporary }}
+          </span>
         </div>
       </div>
 
@@ -880,7 +897,7 @@
           <span
             class="text-[10px] font-bold tracking-wider text-dimmed uppercase"
           >
-            Кости хитов
+            {{ ACTOR_LEFT_PANEL_LABELS.hitDice }}
           </span>
 
           <span class="text-sm font-bold text-toned tabular-nums">
@@ -906,7 +923,7 @@
 
     <!-- Спасброски -->
     <FieldsetLabel
-      label="Спасброски"
+      :label="GRANT_SECTION_LABELS.savingThrows"
       class="border-muted bg-default/20"
     >
       <!-- Шестерёнка ведёт в настройку расчёта: кружки в самом блоке ставят
@@ -974,7 +991,7 @@
           <h4
             class="text-xs font-bold tracking-wider text-highlighted uppercase"
           >
-            Снаряжение
+            {{ ACTOR_LEFT_PANEL_LABELS.equipment }}
           </h4>
 
           <UIcon
@@ -997,8 +1014,9 @@
           <span
             v-if="armorProfBadges.length === 0"
             class="text-xs text-dimmed italic"
-            >Нет</span
           >
+            {{ ACTOR_LEFT_PANEL_LABELS.empty }}
+          </span>
         </div>
       </div>
 
@@ -1010,7 +1028,7 @@
           <h4
             class="text-xs font-bold tracking-wider text-highlighted uppercase"
           >
-            Оружие
+            {{ GRANT_SECTION_LABELS.weapons }}
           </h4>
 
           <UIcon
@@ -1043,8 +1061,9 @@
           <span
             v-if="weaponProfBadges.length === 0"
             class="text-xs text-dimmed italic"
-            >Нет</span
           >
+            {{ ACTOR_LEFT_PANEL_LABELS.empty }}
+          </span>
         </div>
       </div>
 
@@ -1056,7 +1075,7 @@
           <h4
             class="text-xs font-bold tracking-wider text-highlighted uppercase"
           >
-            Инструменты
+            {{ GRANT_SECTION_LABELS.tools }}
           </h4>
 
           <UIcon
@@ -1079,8 +1098,9 @@
           <span
             v-if="actor.system.proficiencies.tools.length === 0"
             class="text-xs text-dimmed italic"
-            >Нет</span
           >
+            {{ ACTOR_LEFT_PANEL_LABELS.empty }}
+          </span>
         </div>
       </div>
 
@@ -1092,7 +1112,7 @@
           <h4
             class="text-xs font-bold tracking-wider text-highlighted uppercase"
           >
-            Языки
+            {{ GRANT_SECTION_LABELS.languages }}
           </h4>
 
           <UIcon
@@ -1115,8 +1135,9 @@
           <span
             v-if="actor.system.proficiencies.languages.length === 0"
             class="text-xs text-dimmed italic"
-            >Нет</span
           >
+            {{ ACTOR_LEFT_PANEL_LABELS.empty }}
+          </span>
         </div>
       </div>
     </div>

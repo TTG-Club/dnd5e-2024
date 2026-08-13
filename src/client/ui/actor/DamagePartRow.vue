@@ -5,6 +5,7 @@
 
   import { damagePartIsHealing } from '@vtt/shared/system/dnd.js';
 
+  import { DAMAGE_PART_LABELS } from './constants';
   import FormSection from './FormSection.vue';
 
   const props = withDefaults(
@@ -47,9 +48,9 @@
 
   /** Опции цели части */
   const TARGET_OPTIONS: Array<{ label: string; value: DamagePartTarget }> = [
-    { label: 'Выбранная цель', value: 'selected' },
-    { label: 'На себя', value: 'self' },
-    { label: 'Указать отдельно', value: 'choose' },
+    { label: DAMAGE_PART_LABELS.targetSelected, value: 'selected' },
+    { label: DAMAGE_PART_LABELS.targetSelf, value: 'self' },
+    { label: DAMAGE_PART_LABELS.targetSeparate, value: 'choose' },
   ];
 
   /**
@@ -109,18 +110,23 @@
   };
 
   const tabsList = computed<DamageTab[]>(() => {
-    const tabs: DamageTab[] = [{ label: 'Тип урона', slot: 'damageTypes' }];
+    const tabs: DamageTab[] = [
+      { label: DAMAGE_PART_LABELS.damageType, slot: 'damageTypes' },
+    ];
 
     if (!props.hideModifiers) {
-      tabs.unshift({ label: 'Добавить мод', slot: 'modifiers' });
+      tabs.unshift({
+        label: DAMAGE_PART_LABELS.addModifier,
+        slot: 'modifiers',
+      });
     }
 
     if (!props.hideHealing) {
-      tabs.push({ label: 'Лечение', slot: 'healing' });
+      tabs.push({ label: DAMAGE_PART_LABELS.healing, slot: 'healing' });
     }
 
     if (!props.hideConditions) {
-      tabs.push({ label: 'Условия', slot: 'conditions' });
+      tabs.push({ label: DAMAGE_PART_LABELS.conditions, slot: 'conditions' });
     }
 
     return tabs;
@@ -131,18 +137,21 @@
     const buttons = [];
 
     if (props.includeSpellModifier) {
-      buttons.push({ label: 'Заклинание (@mod.spell)', value: '@mod.spell' });
+      buttons.push({
+        label: DAMAGE_PART_LABELS.modSpell,
+        value: '@mod.spell',
+      });
     }
 
     buttons.push(
-      { label: 'Сила (@mod.str)', value: '@mod.str' },
-      { label: 'Ловкость (@mod.dex)', value: '@mod.dex' },
-      { label: 'Телосложение (@mod.con)', value: '@mod.con' },
-      { label: 'Интеллект (@mod.int)', value: '@mod.int' },
-      { label: 'Мудрость (@mod.wis)', value: '@mod.wis' },
-      { label: 'Харизма (@mod.cha)', value: '@mod.cha' },
-      { label: 'Мастерство (@prof)', value: '@prof' },
-      { label: 'Уровень (@level)', value: '@level' },
+      { label: DAMAGE_PART_LABELS.modStrength, value: '@mod.str' },
+      { label: DAMAGE_PART_LABELS.modDexterity, value: '@mod.dex' },
+      { label: DAMAGE_PART_LABELS.modConstitution, value: '@mod.con' },
+      { label: DAMAGE_PART_LABELS.modIntelligence, value: '@mod.int' },
+      { label: DAMAGE_PART_LABELS.modWisdom, value: '@mod.wis' },
+      { label: DAMAGE_PART_LABELS.modCharisma, value: '@mod.cha' },
+      { label: DAMAGE_PART_LABELS.modProficiency, value: '@prof' },
+      { label: DAMAGE_PART_LABELS.modLevel, value: '@level' },
     );
 
     return buttons;
@@ -154,13 +163,13 @@
    * `@heal.temp` даёт временные ХП (с текущими временными — большее).
    */
   const healingButtons = [
-    { label: 'Лечение (@heal)', value: '@heal' },
-    { label: 'Временные ХП (@heal.temp)', value: '@heal.temp' },
+    { label: DAMAGE_PART_LABELS.healFull, value: '@heal' },
+    { label: DAMAGE_PART_LABELS.healTemp, value: '@heal.temp' },
   ];
 
   const conditionButtons = [
-    { label: 'Полное HP (@target.full)', value: '@target.full' },
-    { label: 'Неполное HP (@target.notFull)', value: '@target.notFull' },
+    { label: DAMAGE_PART_LABELS.targetFull, value: '@target.full' },
+    { label: DAMAGE_PART_LABELS.targetNotFull, value: '@target.notFull' },
   ];
 
   /** Вставка токена в формулу на текущую позицию курсора */
@@ -194,7 +203,7 @@
 
 <template>
   <FormSection
-    :title="`Часть ${index + 1}`"
+    :title="`${DAMAGE_PART_LABELS.partPrefix}${index + 1}`"
     title-color="warning"
   >
     <template #actions>
@@ -204,7 +213,7 @@
         color="error"
         variant="ghost"
         size="xs"
-        aria-label="Удалить часть"
+        :aria-label="DAMAGE_PART_LABELS.remove"
         @click.left.exact.prevent="emit('remove')"
       />
     </template>
@@ -212,17 +221,15 @@
     <div class="flex flex-col gap-3">
       <!-- Строка формулы во всю ширину -->
       <UFormField
-        label="Формула"
+        :label="DAMAGE_PART_LABELS.formula"
         :error="
-          modifierTokenError
-            ? 'Убери @mod.* — модификатор характеристики добавляется автоматически'
-            : undefined
+          modifierTokenError ? DAMAGE_PART_LABELS.formulaModHint : undefined
         "
       >
         <UInput
           ref="inputRef"
           v-model="formula"
-          placeholder="8к6"
+          :placeholder="DAMAGE_PART_LABELS.formulaPlaceholder"
           :color="modifierTokenError ? 'error' : undefined"
           class="w-full font-mono"
         />
@@ -231,12 +238,12 @@
       <!-- Versatile-формула (двуручный хват оружия) -->
       <UFormField
         v-if="showVersatile"
-        label="Двумя руками (versatile)"
-        help="Альтернативная формула при удержании двумя руками (напр. 1к10)"
+        :label="DAMAGE_PART_LABELS.versatile"
+        :help="DAMAGE_PART_LABELS.versatileHint"
       >
         <UInput
           v-model="versatileFormula"
-          placeholder="1к10"
+          :placeholder="DAMAGE_PART_LABELS.versatilePlaceholder"
           class="w-full font-mono"
         />
       </UFormField>
@@ -316,7 +323,7 @@
 
       <div class="mt-1 grid grid-cols-2 items-center gap-4">
         <!-- Цель части -->
-        <UFormField label="Цель">
+        <UFormField :label="DAMAGE_PART_LABELS.target">
           <USelect
             v-model="target"
             :items="TARGET_OPTIONS"
@@ -332,7 +339,7 @@
         >
           <UCheckbox
             v-model="requiresDamage"
-            label="Только если нанесён урон"
+            :label="DAMAGE_PART_LABELS.onlyIfDamaged"
           />
         </div>
       </div>

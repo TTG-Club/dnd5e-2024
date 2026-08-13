@@ -55,8 +55,14 @@
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import {
     DICE_ROLL_DEFAULT_BUTTON,
+    FORM_FIELD_LABELS,
+    FORM_TAB_LABELS,
+    GRANT_FIELD_LABELS,
+    GRANT_SECTION_LABELS,
     MODAL_BUTTON_LABELS,
+    REST_LABELS,
     SAVING_THROW_ABILITIES,
+    SAVING_THROW_ROLL_LABELS,
     SPELL_MIME,
     UNSAVED_CHANGES_LABELS,
   } from '../actor/constants';
@@ -64,6 +70,10 @@
   import LanguageProficiencyModal from '../actor/LanguageProficiencyModal.vue';
   import SkillSettingsModal from '../actor/SkillSettingsModal.vue';
   import { formatSignedNumber } from '../actor/utils/formatSignedNumber';
+  import {
+    CREATURE_SHEET_LABELS,
+    CREATURE_SHEET_LOG_PREFIX,
+  } from './constants';
   import CreatureAbilities from './CreatureAbilities.vue';
   import CreatureCombatBlock from './CreatureCombatBlock.vue';
   import CreatureConditionImmunitiesModal from './CreatureConditionImmunitiesModal.vue';
@@ -160,11 +170,11 @@
 
   // Вкладки
   const tabs = [
-    { id: 'actions', label: 'Действия' },
-    { id: 'traits', label: 'Особенности' },
-    { id: 'spells', label: 'Заклинания' },
-    { id: 'effects', label: 'Эффекты' },
-    { id: 'description', label: 'Описание' },
+    { id: 'actions', label: CREATURE_SHEET_LABELS.tabActions },
+    { id: 'traits', label: GRANT_SECTION_LABELS.features },
+    { id: 'spells', label: GRANT_SECTION_LABELS.spells },
+    { id: 'effects', label: FORM_TAB_LABELS.effects },
+    { id: 'description', label: FORM_FIELD_LABELS.description },
   ];
 
   const activeTab = ref('actions');
@@ -243,10 +253,7 @@
         isEditMode.value = false;
         isDirty.value = false;
       } else {
-        console.error(
-          '[CreatureSheet] Не удалось привести существо к форме D&D:',
-          props.initialData.id,
-        );
+        console.error(CREATURE_SHEET_LOG_PREFIX, props.initialData.id);
       }
 
       return;
@@ -267,10 +274,7 @@
           localCreature.value = draft;
           isEditMode.value = false;
         } else {
-          console.error(
-            '[CreatureSheet] Не удалось привести существо к форме D&D:',
-            props.creatureId,
-          );
+          console.error(CREATURE_SHEET_LOG_PREFIX, props.creatureId);
         }
       } else {
         console.error(
@@ -471,9 +475,9 @@
   const defenseLabelMap = computed(() => {
     const labelMap: Record<string, string> = {
       // Ключи физического пробивания
-      'bypass-adamantine': 'Пробивание: Адамантиновое',
-      'bypass-magical': 'Пробивание: Магическое',
-      'bypass-silvered': 'Пробивание: Посеребрённое',
+      'bypass-adamantine': CREATURE_SHEET_LABELS.bypassAdamantine,
+      'bypass-magical': CREATURE_SHEET_LABELS.bypassMagical,
+      'bypass-silvered': CREATURE_SHEET_LABELS.bypassSilvered,
     };
 
     for (const dt of systemDataStore.damageTypes) {
@@ -684,8 +688,8 @@
 
     if (!localCreature.value.name || localCreature.value.name.trim() === '') {
       toast.add({
-        title: 'Ошибка валидации',
-        description: 'Имя существа обязательно',
+        title: CREATURE_SHEET_LABELS.validationErrorTitle,
+        description: CREATURE_SHEET_LABELS.validationNameRequired,
         color: 'error',
       });
 
@@ -712,11 +716,11 @@
       }
 
       toast.add({
-        title: 'Успешно',
+        title: CREATURE_SHEET_LABELS.savedTitle,
         description:
           props.creatureId || isCreated.value
-            ? 'Существо обновлено'
-            : 'Существо создано',
+            ? CREATURE_SHEET_LABELS.savedUpdated
+            : CREATURE_SHEET_LABELS.savedCreated,
         color: 'success',
       });
 
@@ -727,11 +731,11 @@
       console.error('Failed to save creature:', error);
 
       toast.add({
-        title: 'Ошибка сохранения',
+        title: CREATURE_SHEET_LABELS.saveErrorTitle,
         description:
           error instanceof Error
             ? error.message
-            : 'Не удалось сохранить существо',
+            : CREATURE_SHEET_LABELS.saveErrorText,
         color: 'error',
       });
     } finally {
@@ -866,11 +870,11 @@
     handleCreatureUpdate(applyCreatureRest(localCreature.value, restType));
 
     toast.add({
-      title: restType === 'long' ? 'Продолжительный отдых' : 'Короткий отдых',
+      title: restType === 'long' ? REST_LABELS.long : REST_LABELS.short,
       description:
         restType === 'long'
-          ? 'Заряды заклинаний и хиты восстановлены.'
-          : 'Заряды коротких заклинаний восстановлены.',
+          ? CREATURE_SHEET_LABELS.longRestDone
+          : CREATURE_SHEET_LABELS.shortRestDone,
       color: 'success',
     });
   }
@@ -930,15 +934,12 @@
       activeTab.value = 'spells';
 
       toast.add({
-        title: 'Заклинание добавлено',
+        title: CREATURE_SHEET_LABELS.spellAdded,
         description: dropped.name,
         color: 'success',
       });
     } catch (error) {
-      console.error(
-        'Не удалось разобрать заклинание при перетаскивании',
-        error,
-      );
+      console.error(CREATURE_SHEET_LABELS.spellDropFailed, error);
     }
   }
 
@@ -1040,9 +1041,9 @@
 
     openDiceRoll({
       modifier: calculateSavingThrow(ability.key),
-      title: `Спасбросок: ${ability.label}`,
-      rollLabel: `Спасбросок ${ability.label}`,
-      rollButtonText: 'Бросить спасбросок',
+      title: `${SAVING_THROW_ROLL_LABELS.titlePrefix}${ability.label}`,
+      rollLabel: `${SAVING_THROW_ROLL_LABELS.rollPrefix}${ability.label}`,
+      rollButtonText: SAVING_THROW_ROLL_LABELS.button,
     });
   }
 
@@ -1131,7 +1132,7 @@
 
               <!-- Защиты -->
               <FieldsetLabel
-                label="Уязвимости"
+                :label="CREATURE_SHEET_LABELS.vulnerabilities"
                 class="bg-default/20 transition-colors"
                 :class="[
                   isEditMode
@@ -1160,13 +1161,13 @@
                     "
                     class="text-xs text-dimmed italic"
                   >
-                    Нет
+                    {{ CREATURE_SHEET_LABELS.empty }}
                   </span>
                 </div>
               </FieldsetLabel>
 
               <FieldsetLabel
-                label="Сопротивления"
+                :label="CREATURE_SHEET_LABELS.resistances"
                 class="bg-default/20 transition-colors"
                 :class="[
                   isEditMode
@@ -1195,13 +1196,13 @@
                     "
                     class="text-xs text-dimmed italic"
                   >
-                    Нет
+                    {{ CREATURE_SHEET_LABELS.empty }}
                   </span>
                 </div>
               </FieldsetLabel>
 
               <FieldsetLabel
-                label="Иммунитеты"
+                :label="CREATURE_SHEET_LABELS.immunities"
                 class="bg-default/20 transition-colors"
                 :class="[
                   isEditMode
@@ -1228,13 +1229,13 @@
                     v-if="localCreature.system.defenses.immunities.length === 0"
                     class="text-xs text-dimmed italic"
                   >
-                    Нет
+                    {{ CREATURE_SHEET_LABELS.empty }}
                   </span>
                 </div>
               </FieldsetLabel>
 
               <FieldsetLabel
-                label="Иммунитет к состояниям"
+                :label="GRANT_FIELD_LABELS.conditionImmunities"
                 class="bg-default/20 transition-colors"
                 :class="[
                   isEditMode
@@ -1265,13 +1266,13 @@
                     "
                     class="text-xs text-dimmed italic"
                   >
-                    Нет
+                    {{ CREATURE_SHEET_LABELS.empty }}
                   </span>
                 </div>
               </FieldsetLabel>
               <!-- Навыки, Чувства и Языки -->
               <FieldsetLabel
-                label="Спасброски"
+                :label="GRANT_SECTION_LABELS.savingThrows"
                 class="bg-default/20"
                 :class="[isEditMode ? 'border-primary/30' : 'border-muted']"
               >
@@ -1318,7 +1319,7 @@
                 считанные навыки, и полный список правил занимал бы всю колонку
                 ради трёх строк. Владения правят в своём окне -->
               <FieldsetLabel
-                label="Навыки"
+                :label="GRANT_SECTION_LABELS.skills"
                 class="bg-default/20 transition-colors"
                 :class="[
                   isEditMode
@@ -1340,18 +1341,20 @@
                     v-if="formattedSkills.length === 0"
                     class="text-xs text-dimmed italic"
                   >
-                    Нет
+                    {{ CREATURE_SHEET_LABELS.empty }}
                   </span>
                 </div>
               </FieldsetLabel>
 
               <FieldsetLabel
-                label="Восприятие"
+                :label="CREATURE_SHEET_LABELS.perception"
                 class="border-muted bg-default/20"
               >
                 <div class="flex flex-col gap-1 p-2 pt-1 text-sm text-default">
                   <div class="flex items-center justify-between">
-                    <span class="text-dimmed">Зрение:</span>
+                    <span class="text-dimmed">
+                      {{ CREATURE_SHEET_LABELS.visionPrefix }}
+                    </span>
 
                     <span>{{ creatureVisionRangeLabel }}</span>
                   </div>
@@ -1360,13 +1363,17 @@
                     v-if="localCreature.token?.vision?.darkvision"
                     class="flex items-center justify-between"
                   >
-                    <span class="text-dimmed">Тёмное зрение:</span>
+                    <span class="text-dimmed">
+                      {{ CREATURE_SHEET_LABELS.darkvisionPrefix }}
+                    </span>
 
                     <span>{{ localCreature.token.vision.darkvision }} фт.</span>
                   </div>
 
                   <div class="flex items-center justify-between">
-                    <span class="text-dimmed">Пассивное Внимание:</span>
+                    <span class="text-dimmed">
+                      {{ CREATURE_SHEET_LABELS.passivePerceptionPrefix }}
+                    </span>
 
                     <span class="font-bold text-highlighted">{{
                       passivePerception
@@ -1376,7 +1383,7 @@
               </FieldsetLabel>
 
               <FieldsetLabel
-                label="Языки"
+                :label="GRANT_SECTION_LABELS.languages"
                 class="bg-default/20 transition-colors"
                 :class="[
                   isEditMode
@@ -1406,13 +1413,13 @@
                     "
                     class="text-xs text-dimmed italic"
                   >
-                    Нет
+                    {{ CREATURE_SHEET_LABELS.empty }}
                   </span>
                 </div>
               </FieldsetLabel>
 
               <FieldsetLabel
-                label="Среда обитания"
+                :label="CREATURE_SHEET_LABELS.environments"
                 class="bg-default/20 transition-colors"
                 :class="[
                   isEditMode
@@ -1447,7 +1454,7 @@
                       "
                       class="text-xs text-dimmed italic"
                     >
-                      Нет
+                      {{ CREATURE_SHEET_LABELS.empty }}
                     </span>
                   </div>
 
@@ -1455,9 +1462,9 @@
                     v-if="localCreature.system.customEnvironments"
                     class="mt-1 text-sm text-toned"
                   >
-                    <span class="mb-0.5 block text-xs text-dimmed"
-                      >Особая:</span
-                    >
+                    <span class="mb-0.5 block text-xs text-dimmed">
+                      {{ CREATURE_SHEET_LABELS.environmentSpecialPrefix }}
+                    </span>
                     {{ localCreature.system.customEnvironments }}
                   </div>
                 </div>
@@ -1550,7 +1557,9 @@
                     <RichTextEditor
                       v-if="isEditMode"
                       :model-value="localCreature.description ?? ''"
-                      placeholder="Описание существа..."
+                      :placeholder="
+                        CREATURE_SHEET_LABELS.descriptionPlaceholder
+                      "
                       @update:model-value="handleCreatureDescriptionUpdate"
                     />
 
@@ -1568,7 +1577,7 @@
                         v-else
                         class="p-4 text-sm text-dimmed"
                       >
-                        Нет описания
+                        {{ CREATURE_SHEET_LABELS.descriptionEmpty }}
                       </p>
                     </div>
                   </template>
@@ -1595,7 +1604,7 @@
     <template #body>
       <div class="space-y-4">
         <p class="text-sm text-toned">
-          У вас есть несохранённые изменения. Что сделать?
+          {{ CREATURE_SHEET_LABELS.discardQuestion }}
         </p>
 
         <div class="flex justify-end gap-2">
