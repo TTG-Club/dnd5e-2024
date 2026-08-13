@@ -14,7 +14,11 @@
     isHitDie,
   } from '@vtt/shared/system/dnd.js';
 
-  import { MODAL_BUTTON_LABELS } from './constants';
+  import {
+    ACTOR_LEFT_PANEL_LABELS,
+    HIT_POINTS_LABELS,
+    MODAL_BUTTON_LABELS,
+  } from './constants';
 
   interface HitPointsData {
     current: number;
@@ -169,7 +173,7 @@
     :blocking="true"
     :min-width="380"
     :min-height="250"
-    title="Очки здоровья и кости хитов"
+    :title="HIT_POINTS_LABELS.title"
     :z-index="Z_INDEX.MODAL_ELEVATED"
   >
     <template #body>
@@ -179,8 +183,9 @@
           <div class="flex flex-1 flex-col gap-1">
             <span
               class="text-[10px] font-bold tracking-wider text-muted uppercase"
-              >Сейчас</span
             >
+              {{ HIT_POINTS_LABELS.current }}
+            </span>
 
             <UInput
               :model-value="editHp.current"
@@ -196,8 +201,9 @@
           <div class="flex flex-1 flex-col gap-1">
             <span
               class="text-[10px] font-bold tracking-wider text-muted uppercase"
-              >Всего</span
             >
+              {{ HIT_POINTS_LABELS.total }}
+            </span>
 
             <UInput
               :model-value="editHp.max"
@@ -211,8 +217,9 @@
           <div class="flex flex-1 flex-col gap-1">
             <span
               class="text-[10px] font-bold tracking-wider text-muted uppercase"
-              >Врем.</span
             >
+              {{ HIT_POINTS_LABELS.temporary }}
+            </span>
 
             <UInput
               :model-value="editHp.temp"
@@ -234,7 +241,7 @@
           <span
             class="text-[10px] font-bold tracking-wider text-muted uppercase"
           >
-            Кости хитов (из классов)
+            {{ HIT_POINTS_LABELS.classHitDice }}
           </span>
 
           <div
@@ -253,7 +260,7 @@
 
             <div class="flex items-center gap-3">
               <span class="text-sm">
-                Доступно:
+                {{ HIT_POINTS_LABELS.availablePrefix }}
                 <span class="font-bold text-highlighted">{{
                   group.available
                 }}</span>
@@ -296,7 +303,9 @@
               class="text-[10px] font-bold tracking-wider text-muted uppercase"
             >
               {{
-                hasClassHitDice ? 'Дополнительные кости хитов' : 'Кости хитов'
+                hasClassHitDice
+                  ? HIT_POINTS_LABELS.extraHitDice
+                  : ACTOR_LEFT_PANEL_LABELS.hitDice
               }}
             </span>
 
@@ -315,7 +324,7 @@
             v-if="editManualHitDice.length === 0 && !hasClassHitDice"
             class="text-sm text-dimmed"
           >
-            Нет доступных костей хитов.
+            {{ HIT_POINTS_LABELS.hitDiceEmpty }}
           </div>
 
           <div
@@ -328,7 +337,7 @@
               <span
                 class="text-[9px] font-medium tracking-wider text-dimmed uppercase"
               >
-                Сейчас
+                {{ HIT_POINTS_LABELS.current }}
               </span>
 
               <UInput
@@ -353,7 +362,7 @@
               <span
                 class="text-[9px] font-medium tracking-wider text-dimmed uppercase"
               >
-                Всего
+                {{ HIT_POINTS_LABELS.total }}
               </span>
 
               <UInput
@@ -374,14 +383,14 @@
               <span
                 class="text-[9px] font-medium tracking-wider text-dimmed uppercase"
               >
-                Кость
+                {{ HIT_POINTS_LABELS.die }}
               </span>
 
               <USelect
                 :model-value="group.die"
                 :items="
                   HIT_DIE_OPTIONS.map((hitDie) => ({
-                    label: `к${hitDie}`,
+                    label: `${ACTOR_LEFT_PANEL_LABELS.hitDieLetter}${hitDie}`,
                     value: hitDie,
                   }))
                 "

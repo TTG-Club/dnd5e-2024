@@ -18,7 +18,11 @@
     PREPARED_LIMIT_MIN,
   } from '@vtt/shared/system/dnd.js';
 
-  import { BONUS_INPUT_FORMAT_OPTIONS, MODAL_BUTTON_LABELS } from './constants';
+  import {
+    BONUS_INPUT_FORMAT_OPTIONS,
+    MODAL_BUTTON_LABELS,
+    PREPARED_SPELLS_LABELS,
+  } from './constants';
   import { formatSignedNumber } from './utils/formatSignedNumber';
 
   interface Props {
@@ -47,17 +51,16 @@
     { title: string; customValue: string; total: string; unknown: string }
   > = {
     spells: {
-      title: 'Подготовленные заклинания',
-      customValue: 'Число заклинаний',
-      total: 'Всего можно подготовить',
-      unknown:
-        'Таблица класса числа подготовленных заклинаний не даёт — задайте своё число.',
+      title: PREPARED_SPELLS_LABELS.spellsTitle,
+      customValue: PREPARED_SPELLS_LABELS.spellsField,
+      total: PREPARED_SPELLS_LABELS.spellsTotal,
+      unknown: PREPARED_SPELLS_LABELS.spellsNoTable,
     },
     cantrips: {
-      title: 'Заговоры',
-      customValue: 'Число заговоров',
-      total: 'Всего заговоров',
-      unknown: 'Таблица класса числа заговоров не даёт — задайте своё число.',
+      title: PREPARED_SPELLS_LABELS.cantripsTitle,
+      customValue: PREPARED_SPELLS_LABELS.cantripsField,
+      total: PREPARED_SPELLS_LABELS.cantripsTotal,
+      unknown: PREPARED_SPELLS_LABELS.cantripsNoTable,
     },
   };
 
@@ -152,8 +155,8 @@
       <div class="space-y-3">
         <UCheckbox
           v-model="draftCustom"
-          label="Использовать своё число"
-          description="Иначе число считается по таблице класса"
+          :label="PREPARED_SPELLS_LABELS.useCustom"
+          :description="PREPARED_SPELLS_LABELS.useCustomHint"
         />
 
         <div class="border-t border-muted" />
@@ -177,13 +180,17 @@
         <!-- Подсчёт по таблице класса -->
         <template v-else>
           <div class="flex items-center justify-between gap-4 text-sm">
-            <span class="text-toned">Число из таблицы класса</span>
+            <span class="text-toned">{{
+              PREPARED_SPELLS_LABELS.fromTable
+            }}</span>
 
             <span class="text-toned tabular-nums">{{ classValueLabel }}</span>
           </div>
 
           <div class="flex items-center justify-between gap-4">
-            <span class="text-sm text-toned">Бонус к числу класса</span>
+            <span class="text-sm text-toned">{{
+              PREPARED_SPELLS_LABELS.bonus
+            }}</span>
 
             <UInputNumber
               v-model="draftBonus"
@@ -201,9 +208,7 @@
             </template>
 
             <template v-else>
-              Число берётся из таблицы класса компендиума на текущем уровне; у
-              мультикласса складывается по всем классам. Бонус прибавляется к
-              нему — например, от черты или предмета.
+              {{ PREPARED_SPELLS_LABELS.hint }}
             </template>
           </p>
         </template>

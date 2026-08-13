@@ -7,7 +7,11 @@
   import { Z_INDEX } from '@/shared_ui/consts';
   import { HIT_DIE_OPTIONS, isHitDie } from '@vtt/shared/system/dnd.js';
 
-  import { MODAL_BUTTON_LABELS } from '../actor/constants';
+  import {
+    ACTOR_LEFT_PANEL_LABELS,
+    HIT_POINTS_LABELS,
+    MODAL_BUTTON_LABELS,
+  } from '../actor/constants';
 
   interface Props {
     open: boolean;
@@ -78,7 +82,7 @@
 
   /** Генерирует формулу из текущих значений */
   function generateFormula(): string {
-    const dicePart = `${editHp.hitDiceCount}к${editHp.hitDie}`;
+    const dicePart = `${editHp.hitDiceCount}${ACTOR_LEFT_PANEL_LABELS.hitDieLetter}${editHp.hitDie}`;
 
     if (editHp.bonus === 0) {
       return dicePart;
@@ -121,7 +125,7 @@
     :blocking="true"
     :min-width="380"
     :min-height="200"
-    title="Очки здоровья и кости хитов"
+    :title="HIT_POINTS_LABELS.title"
     :z-index="Z_INDEX.MODAL_ELEVATED"
   >
     <template #body>
@@ -131,8 +135,9 @@
           <div class="flex flex-1 flex-col gap-1">
             <span
               class="text-[10px] font-bold tracking-wider text-muted uppercase"
-              >Сейчас</span
             >
+              {{ HIT_POINTS_LABELS.current }}
+            </span>
 
             <UInput
               :model-value="editHp.current"
@@ -148,8 +153,9 @@
           <div class="flex flex-1 flex-col gap-1">
             <span
               class="text-[10px] font-bold tracking-wider text-muted uppercase"
-              >Всего</span
             >
+              {{ HIT_POINTS_LABELS.total }}
+            </span>
 
             <UInput
               :model-value="editHp.max"
@@ -163,8 +169,9 @@
           <div class="flex flex-1 flex-col gap-1">
             <span
               class="text-[10px] font-bold tracking-wider text-muted uppercase"
-              >Врем.</span
             >
+              {{ HIT_POINTS_LABELS.temporary }}
+            </span>
 
             <UInput
               :model-value="editHp.temp"
@@ -183,7 +190,7 @@
           <span
             class="text-[10px] font-bold tracking-wider text-muted uppercase"
           >
-            Формула хитов
+            {{ HIT_POINTS_LABELS.formula }}
           </span>
 
           <div class="flex items-center gap-2 rounded bg-elevated/40 p-2">
@@ -192,7 +199,7 @@
               <span
                 class="text-[9px] font-medium tracking-wider text-dimmed uppercase"
               >
-                Количество
+                {{ HIT_POINTS_LABELS.amount }}
               </span>
 
               <UInput
@@ -207,14 +214,16 @@
               />
             </div>
 
-            <span class="mt-4 font-light text-dimmed">к</span>
+            <span class="mt-4 font-light text-dimmed">
+              {{ ACTOR_LEFT_PANEL_LABELS.hitDieLetter }}
+            </span>
 
             <!-- Размер кости -->
             <div class="flex flex-1 flex-col gap-0.5">
               <span
                 class="text-[9px] font-medium tracking-wider text-dimmed uppercase"
               >
-                Кость
+                {{ HIT_POINTS_LABELS.die }}
               </span>
 
               <USelect
@@ -237,7 +246,7 @@
               <span
                 class="text-[9px] font-medium tracking-wider text-dimmed uppercase"
               >
-                Бонус
+                {{ HIT_POINTS_LABELS.bonus }}
               </span>
 
               <UInput

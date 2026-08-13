@@ -13,6 +13,13 @@
     WEAPON_MASTERY_MAP,
   } from '@vtt/shared/system/dnd.js';
 
+  import { DICE_LETTER_REPLACEMENT } from '../chat/consts';
+  import {
+    COPY_TO_ITEMS_LABEL,
+    FORM_FIELD_LABELS,
+    WEAPON_DETAIL_LABELS,
+    WEAPON_FORM_LABELS,
+  } from './constants';
   import DamagePartsSummary from './DamagePartsSummary.vue';
   import ItemCostWeightRarity from './ItemCostWeightRarity.vue';
   import ItemDetailModalShell from './ItemDetailModalShell.vue';
@@ -130,7 +137,7 @@
 <template>
   <ItemDetailModalShell
     :open="open"
-    :title="item?.name ?? 'Оружие'"
+    :title="item?.name ?? WEAPON_DETAIL_LABELS.fallbackTitle"
     :subtitle="item?.nameEn || undefined"
     :source-key="item?.sourceKey"
     :source="item?.source"
@@ -140,7 +147,7 @@
     :z-index="zIndex"
     :position-offset="positionOffset"
     :show-copy-button="showCopyButton"
-    copy-tooltip="Скопировать в предметы"
+    :copy-tooltip="COPY_TO_ITEMS_LABEL"
     @update:open="emit('update:open', $event)"
     @copy="emit('copy')"
     @bring-to-front="emit('bring-to-front')"
@@ -156,27 +163,36 @@
                 <!-- Урон / Лечение (части) — общий со заклинаниями компонент -->
                 <DamagePartsSummary :parts="weaponDamageParts" />
 
-                <!-- Бонус атаки -->
+                <!-- {{ WEAPON_DETAIL_LABELS.attackBonus }} -->
                 <div>
-                  <span class="text-xs text-dimmed">Бонус атаки</span>
+                  <span class="text-xs text-dimmed">{{
+                    WEAPON_DETAIL_LABELS.attackBonus
+                  }}</span>
 
                   <p class="text-highlighted">+{{ item.attackBonus ?? 0 }}</p>
                 </div>
 
                 <!-- Универсальное -->
                 <div v-if="versatileFormula">
-                  <span class="text-xs text-dimmed">Двумя руками</span>
+                  <span class="text-xs text-dimmed">{{
+                    WEAPON_DETAIL_LABELS.versatile
+                  }}</span>
 
                   <p class="flex items-center gap-1.5 text-highlighted">
                     <span class="font-mono font-semibold">{{
-                      versatileFormula.replace(/(\d+)d(\d+)/gi, '$1к$2')
+                      versatileFormula.replace(
+                        /(\d+)d(\d+)/gi,
+                        DICE_LETTER_REPLACEMENT,
+                      )
                     }}</span>
                   </p>
                 </div>
 
-                <!-- Дальность -->
+                <!-- {{ WEAPON_DETAIL_LABELS.range }} -->
                 <div v-if="item.range">
-                  <span class="text-xs text-dimmed">Дальность</span>
+                  <span class="text-xs text-dimmed">{{
+                    WEAPON_DETAIL_LABELS.range
+                  }}</span>
 
                   <p class="text-highlighted">
                     {{ item.range.normal }}
@@ -185,9 +201,11 @@
                   </p>
                 </div>
 
-                <!-- Категория -->
+                <!-- {{ WEAPON_DETAIL_LABELS.category }} -->
                 <div>
-                  <span class="text-xs text-dimmed">Категория</span>
+                  <span class="text-xs text-dimmed">{{
+                    WEAPON_DETAIL_LABELS.category
+                  }}</span>
 
                   <p class="text-highlighted">
                     {{
@@ -199,16 +217,20 @@
 
                 <!-- Базовый тип -->
                 <div v-if="item.baseType">
-                  <span class="text-xs text-dimmed">Тип оружия</span>
+                  <span class="text-xs text-dimmed">{{
+                    WEAPON_DETAIL_LABELS.weaponType
+                  }}</span>
 
                   <p class="text-highlighted">
                     {{ baseTypeMap.get(item.baseType) ?? item.baseType }}
                   </p>
                 </div>
 
-                <!-- Боеприпасы -->
+                <!-- {{ WEAPON_DETAIL_LABELS.ammunition }} -->
                 <div v-if="item.ammunitionType">
-                  <span class="text-xs text-dimmed">Боеприпасы</span>
+                  <span class="text-xs text-dimmed">{{
+                    WEAPON_DETAIL_LABELS.ammunition
+                  }}</span>
 
                   <p class="text-highlighted">
                     {{
@@ -218,9 +240,11 @@
                   </p>
                 </div>
 
-                <!-- Приём (Mastery) -->
+                <!-- {{ WEAPON_FORM_LABELS.mastery }} -->
                 <div v-if="item.mastery && masteryDetail">
-                  <span class="block text-xs text-dimmed">Приём (Mastery)</span>
+                  <span class="block text-xs text-dimmed">{{
+                    WEAPON_FORM_LABELS.mastery
+                  }}</span>
 
                   <UPopover
                     mode="hover"
@@ -248,7 +272,7 @@
             <!-- Свойства оружия -->
             <ItemPropertyBadges :properties="weaponPropertyBadges" />
 
-            <!-- Особое правило -->
+            <!-- {{ WEAPON_DETAIL_LABELS.special }} -->
             <div
               v-if="item.special"
               class="rounded-lg border border-default/50 bg-elevated/30 p-3"
@@ -256,7 +280,7 @@
               <span
                 class="mb-1.5 block text-xs font-semibold tracking-wider text-dimmed uppercase"
               >
-                Особое правило
+                {{ WEAPON_DETAIL_LABELS.special }}
               </span>
 
               <p class="text-sm leading-relaxed text-toned">
@@ -269,7 +293,7 @@
               <span
                 class="mb-1.5 block text-xs font-semibold tracking-wider text-dimmed uppercase"
               >
-                Описание
+                {{ FORM_FIELD_LABELS.description }}
               </span>
 
               <ItemDescriptionRenderer :content="item.description" />

@@ -10,7 +10,14 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
 
-  import { MODAL_BUTTON_LABELS } from './constants';
+  import {
+    CLASS_COUNTERS_LABELS,
+    CLASS_COUNTERS_MODAL_LABELS,
+    FORM_FIELD_LABELS,
+    MODAL_BUTTON_LABELS,
+    REST_LABELS,
+    SHEET_COUNTER_DEFAULTS,
+  } from './constants';
   import { findCounterDefinition } from './utils/classCounters';
 
   interface Props {
@@ -32,8 +39,8 @@
   });
 
   const recoveryOptions: Array<{ label: string; value: CounterRecovery }> = [
-    { label: 'Короткий отдых', value: 'short' },
-    { label: 'Продолжительный отдых', value: 'long' },
+    { label: REST_LABELS.short, value: 'short' },
+    { label: REST_LABELS.long, value: 'long' },
   ];
 
   const localCounters = ref<ActorCounterState[]>([]);
@@ -188,8 +195,8 @@
       {
         counterKey: createCustomCounterKey(),
         classKey: 'custom',
-        name: 'Новый счётчик',
-        shortName: 'НС',
+        name: SHEET_COUNTER_DEFAULTS.name,
+        shortName: SHEET_COUNTER_DEFAULTS.shortName,
         recovery: 'long',
         current: 1,
         max: 1,
@@ -232,7 +239,7 @@
     :blocking="true"
     :min-width="620"
     :min-height="420"
-    title="Счётчики ресурсов"
+    :title="CLASS_COUNTERS_MODAL_LABELS.title"
     :z-index="Z_INDEX.MODAL_ELEVATED"
   >
     <template #body>
@@ -257,7 +264,7 @@
           v-if="localCounters.length === 0"
           class="rounded-lg border border-dashed border-muted p-4 text-center text-sm text-dimmed"
         >
-          Нет счётчиков
+          {{ CLASS_COUNTERS_MODAL_LABELS.empty }}
         </div>
 
         <div class="flex max-h-115 flex-col gap-2 overflow-y-auto pr-1">
@@ -270,7 +277,7 @@
             <div class="absolute top-4 right-4 z-10">
               <UTooltip
                 :delay-duration="300"
-                text="Удалить счётчик"
+                :text="CLASS_COUNTERS_LABELS.removeCounter"
               >
                 <UButton
                   size="xs"
@@ -291,14 +298,14 @@
                   <span
                     class="text-[10px] font-bold tracking-wider text-toned/80 uppercase"
                   >
-                    Название
+                    {{ FORM_FIELD_LABELS.name }}
                   </span>
 
                   <UInput
                     :model-value="resolveCounterName(counter)"
                     size="sm"
                     class="w-full"
-                    placeholder="Например, Очки чародейства"
+                    :placeholder="CLASS_COUNTERS_MODAL_LABELS.namePlaceholder"
                     @update:model-value="updateCounterName(counter, $event)"
                   />
                 </label>
@@ -307,13 +314,15 @@
                   <span
                     class="text-[10px] font-bold tracking-wider text-toned/80 uppercase"
                   >
-                    Кратко
+                    {{ CLASS_COUNTERS_MODAL_LABELS.shortName }}
                   </span>
 
                   <UInput
                     :model-value="resolveCounterShortName(counter)"
                     size="sm"
-                    placeholder="ОЧ"
+                    :placeholder="
+                      CLASS_COUNTERS_MODAL_LABELS.shortNamePlaceholder
+                    "
                     class="w-full"
                     @update:model-value="
                       updateCounterShortName(counter, $event)
@@ -328,7 +337,7 @@
                   <span
                     class="text-[10px] font-bold tracking-wider text-toned/80 uppercase"
                   >
-                    Восстановление
+                    {{ FORM_FIELD_LABELS.recovery }}
                   </span>
 
                   <USelect
@@ -344,7 +353,7 @@
                   <span
                     class="text-[10px] font-bold tracking-wider text-toned/80 uppercase"
                   >
-                    Сейчас
+                    {{ CLASS_COUNTERS_MODAL_LABELS.current }}
                   </span>
 
                   <UInput
@@ -361,7 +370,7 @@
                   <span
                     class="text-[10px] font-bold tracking-wider text-toned/80 uppercase"
                   >
-                    Максимум
+                    {{ FORM_FIELD_LABELS.max }}
                   </span>
 
                   <UInput

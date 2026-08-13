@@ -1332,6 +1332,98 @@ export const ACTOR_SHEET_LABELS = {
 export const ACTOR_SHEET_LOG_PREFIX =
   '[ActorModal] Не удалось привести актёра к форме D&D:';
 
+/** Подписи окна счётчиков ресурсов класса */
+export const CLASS_COUNTERS_MODAL_LABELS = {
+  title: 'Счётчики ресурсов',
+  empty: 'Нет счётчиков',
+  namePlaceholder: 'Например, Очки чародейства',
+  shortName: 'Кратко',
+  shortNamePlaceholder: 'ОЧ',
+  current: 'Сейчас',
+} as const;
+
+/**
+ * Значения нового счётчика листа. Это данные записи, а не подписи: они уходят
+ * в сохранённого персонажа.
+ */
+export const SHEET_COUNTER_DEFAULTS = {
+  name: 'Новый счётчик',
+  shortName: 'НС',
+} as const;
+
+/** Подписи редактора подклассов */
+export const CLASS_SUBCLASSES_LABELS = {
+  /** Подпись узла, когда подклассу ещё не дали названия */
+  fallbackName: 'Подкласс',
+  empty: 'Выберите или добавьте подкласс.',
+  remove: 'Удалить подкласс',
+  namePlaceholder: 'Чемпион',
+  nameEnShort: 'Англ.',
+  level: 'Уровень получения',
+  spellcasting: 'Заклинательство подкласса',
+  features: 'Особенности подкласса',
+  counters: 'Счётчики подкласса',
+  ownTable: 'Своя таблица прогрессии (напр. Мистический рыцарь)',
+} as const;
+
+/**
+ * Стартовое название нового подкласса. Значение записи, а не подпись: оно
+ * уходит в сохранённый класс.
+ */
+export const CLASS_SUBCLASS_DEFAULT_NAME = 'Новый подкласс';
+
+/** Подписи карточки оружия — окна просмотра записи */
+export const WEAPON_DETAIL_LABELS = {
+  /** Заголовок окна, когда оружия в окне ещё нет */
+  fallbackTitle: 'Оружие',
+  attackBonus: 'Бонус атаки',
+  versatile: 'Двумя руками',
+  range: 'Дальность',
+  category: 'Категория',
+  weaponType: 'Тип оружия',
+  ammunition: 'Боеприпасы',
+  special: 'Особое правило',
+} as const;
+
+/** Подписи окна хитов и костей хитов */
+export const HIT_POINTS_LABELS = {
+  hitDiceEmpty: 'Нет доступных костей хитов.',
+  current: 'Сейчас',
+  total: 'Всего',
+  temporary: 'Врем.',
+  die: 'Кость',
+  formula: 'Формула хитов',
+  amount: 'Количество',
+  bonus: 'Бонус',
+  title: 'Очки здоровья и кости хитов',
+  classHitDice: 'Кости хитов (из классов)',
+  availablePrefix: 'Доступно:',
+  extraHitDice: 'Дополнительные кости хитов',
+} as const;
+
+/** Подписи окна предела подготовленных заклинаний */
+export const PREPARED_SPELLS_LABELS = {
+  spellsTitle: 'Подготовленные заклинания',
+  spellsField: 'Число заклинаний',
+  spellsTotal: 'Всего можно подготовить',
+  spellsNoTable:
+    'Таблица класса числа подготовленных заклинаний не даёт — задайте своё '
+    + 'число.',
+  cantripsTitle: 'Заговоры',
+  cantripsField: 'Число заговоров',
+  cantripsTotal: 'Всего заговоров',
+  cantripsNoTable:
+    'Таблица класса числа заговоров не даёт — задайте своё число.',
+  useCustom: 'Использовать своё число',
+  useCustomHint: 'Иначе число считается по таблице класса',
+  fromTable: 'Число из таблицы класса',
+  bonus: 'Бонус к числу класса',
+  hint:
+    'Число берётся из таблицы класса компендиума на текущем уровне; у '
+    + 'мультикласса складывается по всем классам. Бонус прибавляется к нему — '
+    + 'например, от черты или предмета.',
+} as const;
+
 /** Подписи окна грузоподъёмности */
 export const CARRYING_CAPACITY_LABELS = {
   title: 'Грузоподъёмность',

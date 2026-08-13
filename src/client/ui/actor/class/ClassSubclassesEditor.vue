@@ -7,6 +7,11 @@
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
   import { generateId } from '@vtt/shared';
 
+  import {
+    CLASS_SUBCLASS_DEFAULT_NAME,
+    CLASS_SUBCLASSES_LABELS,
+    FORM_FIELD_LABELS,
+  } from '../constants';
   import SourceField from '../SourceField.vue';
   import ClassCountersEditor from './ClassCountersEditor.vue';
   import {
@@ -86,7 +91,7 @@
       <UButton
         v-for="(subclass, index) in subclasses"
         :key="subclass.key"
-        :label="subclass.name || 'Подкласс'"
+        :label="subclass.name || CLASS_SUBCLASSES_LABELS.fallbackName"
         :color="index === selectedIndex ? 'primary' : 'neutral'"
         :variant="index === selectedIndex ? 'solid' : 'soft'"
         size="xs"
@@ -95,7 +100,7 @@
 
       <UButton
         icon="tabler:plus"
-        label="Подкласс"
+        :label="CLASS_SUBCLASSES_LABELS.fallbackName"
         color="primary"
         variant="soft"
         size="xs"
@@ -107,7 +112,7 @@
       v-if="!selected"
       class="rounded-lg border border-dashed border-default p-4 text-center text-xs text-dimmed italic"
     >
-      Выберите или добавьте подкласс.
+      {{ CLASS_SUBCLASSES_LABELS.empty }}
     </div>
 
     <!-- Детали выбранного подкласса -->
@@ -117,7 +122,7 @@
     >
       <div class="flex items-center gap-2">
         <span class="text-sm font-semibold text-highlighted">
-          {{ selected.name || 'Новый подкласс' }}
+          {{ selected.name || CLASS_SUBCLASS_DEFAULT_NAME }}
         </span>
 
         <UButton
@@ -126,21 +131,21 @@
           variant="ghost"
           size="xs"
           class="ml-auto"
-          label="Удалить подкласс"
+          :label="CLASS_SUBCLASSES_LABELS.remove"
           @click.left.exact.prevent="removeSubclass(selectedIndex)"
         />
       </div>
 
       <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <UFormField label="Название">
+        <UFormField :label="FORM_FIELD_LABELS.name">
           <UInput
             v-model="selected.name"
-            placeholder="Чемпион"
+            :placeholder="CLASS_SUBCLASSES_LABELS.namePlaceholder"
             class="w-full"
           />
         </UFormField>
 
-        <UFormField label="Англ.">
+        <UFormField :label="CLASS_SUBCLASSES_LABELS.nameEnShort">
           <UInput
             v-model="selected.nameEn"
             placeholder="Champion"
@@ -148,7 +153,7 @@
           />
         </UFormField>
 
-        <UFormField label="Уровень получения">
+        <UFormField :label="CLASS_SUBCLASSES_LABELS.level">
           <UInputNumber
             v-model="selected.unlockLevel"
             :min="1"
@@ -163,15 +168,15 @@
         />
       </div>
 
-      <UFormField label="Описание (Markdown)">
+      <UFormField :label="FORM_FIELD_LABELS.descriptionMarkdown">
         <RichTextEditor v-model="selected.description" />
       </UFormField>
 
-      <UFormField label="Заклинательство подкласса">
+      <UFormField :label="CLASS_SUBCLASSES_LABELS.spellcasting">
         <ClassSpellcastingFields v-model="selected.spellcasting" />
       </UFormField>
 
-      <UFormField label="Особенности подкласса">
+      <UFormField :label="CLASS_SUBCLASSES_LABELS.features">
         <ClassFeaturesEditor
           v-model="selected.features"
           :available-spells="availableSpells"
@@ -179,7 +184,7 @@
         />
       </UFormField>
 
-      <UFormField label="Счётчики подкласса">
+      <UFormField :label="CLASS_SUBCLASSES_LABELS.counters">
         <ClassCountersEditor
           v-model="selected.counters"
           :feature-options="featureOptions"
@@ -188,7 +193,7 @@
 
       <UCheckbox
         v-model="selected.hasOwnTable"
-        label="Своя таблица прогрессии (напр. Мистический рыцарь)"
+        :label="CLASS_SUBCLASSES_LABELS.ownTable"
       />
 
       <ClassLevelTableEditor
