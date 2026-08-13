@@ -13,7 +13,13 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { useToolForm } from '../../composables/useToolForm';
-  import { MODAL_BUTTON_LABELS } from './constants';
+  import {
+    FORM_FIELD_LABELS,
+    FORM_TAB_LABELS,
+    ITEM_FORM_LABELS,
+    MODAL_BUTTON_LABELS,
+    TOOL_FORM_LABELS,
+  } from './constants';
   import FormSection from './FormSection.vue';
   import SourceField from './SourceField.vue';
   import ActiveEffectFormModal from './tabs/ActiveEffectFormModal.vue';
@@ -85,15 +91,15 @@
   /** Вкладки формы */
   const tabItems = [
     {
-      label: 'Общие',
+      label: FORM_TAB_LABELS.general,
       slot: 'general' as const,
     },
     {
-      label: 'Подробнее',
+      label: FORM_TAB_LABELS.details,
       slot: 'details' as const,
     },
     {
-      label: 'Эффекты',
+      label: FORM_TAB_LABELS.effects,
       slot: 'effects' as const,
     },
   ];
@@ -146,17 +152,23 @@
 
   /** Опции настройки магического предмета */
   const attunementOptions = [
-    { label: 'Не требуется', value: 'none' as const },
-    { label: 'Требуется', value: 'required' as const },
-    { label: 'Опциональная', value: 'optional' as const },
+    { label: ITEM_FORM_LABELS.attunementNone, value: 'none' as const },
+    { label: ITEM_FORM_LABELS.attunementRequired, value: 'required' as const },
+    { label: ITEM_FORM_LABELS.attunementOptional, value: 'optional' as const },
   ];
 
   const proficiencyModeOptions = [
-    { label: 'Автоматически', value: 'auto' as const },
-    { label: 'Без умения', value: 'none' as const },
-    { label: 'Наполовину', value: 'half' as const },
-    { label: 'Умелый', value: 'proficient' as const },
-    { label: 'Экспертность', value: 'expertise' as const },
+    { label: TOOL_FORM_LABELS.proficiencyAuto, value: 'auto' as const },
+    { label: TOOL_FORM_LABELS.proficiencyNone, value: 'none' as const },
+    { label: TOOL_FORM_LABELS.proficiencyHalf, value: 'half' as const },
+    {
+      label: TOOL_FORM_LABELS.proficiencyProficient,
+      value: 'proficient' as const,
+    },
+    {
+      label: TOOL_FORM_LABELS.proficiencyExpertise,
+      value: 'expertise' as const,
+    },
   ];
 
   /** Сохраняет форму */
@@ -169,7 +181,7 @@
 <template>
   <UDraggableModal
     :open="open"
-    :title="item ? 'Редактировать инструмент' : 'Создать инструмент'"
+    :title="item ? TOOL_FORM_LABELS.editTitle : TOOL_FORM_LABELS.createTitle"
     :initial-width="500"
     :resizable="false"
     :z-index="zIndex"
@@ -200,44 +212,44 @@
           <div class="flex flex-col gap-4">
             <!-- Название -->
             <div class="grid grid-cols-2 gap-3">
-              <UFormField label="Название">
+              <UFormField :label="FORM_FIELD_LABELS.name">
                 <UInput
                   v-model="name"
-                  placeholder="Воровские инструменты"
+                  :placeholder="TOOL_FORM_LABELS.namePlaceholder"
                   class="w-full"
                 />
               </UFormField>
 
-              <UFormField label="Название (English)">
+              <UFormField :label="FORM_FIELD_LABELS.nameEn">
                 <UInput
                   v-model="nameEn"
-                  placeholder="Thieves' Tools"
+                  :placeholder="TOOL_FORM_LABELS.nameEnPlaceholder"
                   class="w-full"
                 />
               </UFormField>
             </div>
 
             <!-- Описание -->
-            <UFormField label="Описание">
+            <UFormField :label="FORM_FIELD_LABELS.description">
               <RichTextEditor
                 v-model="description"
-                placeholder="Описание инструмента..."
+                :placeholder="TOOL_FORM_LABELS.descriptionPlaceholder"
               />
             </UFormField>
 
             <!-- Стоимость + Вес -->
             <FormSection
-              title="Ценность и вес"
+              :title="ITEM_FORM_LABELS.costWeightTitle"
               title-color="healing"
             >
               <div class="grid grid-cols-3 gap-3">
-                <UFormField label="Стоимость">
+                <UFormField :label="ITEM_FORM_LABELS.cost">
                   <div class="flex gap-1.5">
                     <UInput
                       v-model.number="costValue"
                       type="number"
                       :min="0"
-                      placeholder="0"
+                      :placeholder="ITEM_FORM_LABELS.zeroPlaceholder"
                       class="flex-1"
                     />
 
@@ -252,7 +264,7 @@
                   </div>
                 </UFormField>
 
-                <UFormField label="Вес (фнт.)">
+                <UFormField :label="ITEM_FORM_LABELS.weight">
                   <UInput
                     v-model.number="weight"
                     type="number"
@@ -261,12 +273,12 @@
                   />
                 </UFormField>
 
-                <UFormField label="Редкость">
+                <UFormField :label="ITEM_FORM_LABELS.rarity">
                   <USelect
                     v-model="rarity"
                     :items="RARITY_OPTIONS"
                     value-key="value"
-                    placeholder="Редкость"
+                    :placeholder="ITEM_FORM_LABELS.rarity"
                     class="w-full"
                     :portal="false"
                   />
@@ -276,7 +288,7 @@
 
             <!-- Источник -->
             <FormSection
-              title="Источник"
+              :title="FORM_FIELD_LABELS.source"
               title-color="source"
             >
               <SourceField
@@ -286,7 +298,7 @@
 
               <UCheckbox
                 v-model="isSRD"
-                label="SRD контент"
+                :label="FORM_FIELD_LABELS.srd"
                 class="mt-2"
               />
             </FormSection>
@@ -298,13 +310,13 @@
           <div class="flex flex-col gap-4">
             <!-- Основное -->
             <FormSection
-              title="Тип инструмента"
+              :title="TOOL_FORM_LABELS.typeTitle"
               title-color="arcane"
             >
               <div class="flex flex-col gap-3">
                 <div class="flex items-center gap-3">
                   <span class="min-w-35 shrink-0 text-sm text-muted">
-                    Категория
+                    {{ TOOL_FORM_LABELS.category }}
                   </span>
 
                   <USelect
@@ -319,14 +331,14 @@
 
                 <div class="flex items-center gap-3">
                   <span class="min-w-35 shrink-0 text-sm text-muted">
-                    Базовый тип
+                    {{ ITEM_FORM_LABELS.baseType }}
                   </span>
 
                   <USelect
                     v-model="baseToolType"
                     :items="toolBaseTypeOptions"
                     value-key="value"
-                    placeholder="Пользовательский..."
+                    :placeholder="TOOL_FORM_LABELS.baseTypePlaceholder"
                     class="flex-1"
                     :portal="false"
                   />
@@ -336,7 +348,7 @@
 
             <!-- Свойства инструмента -->
             <FormSection
-              title="Свойства инструмента"
+              :title="TOOL_FORM_LABELS.propertiesTitle"
               title-color="info"
             >
               <div class="flex flex-wrap gap-2">
@@ -375,13 +387,13 @@
 
             <!-- Проверка характеристики -->
             <FormSection
-              title="Проверка характеристики"
+              :title="TOOL_FORM_LABELS.checkTitle"
               title-color="success"
             >
               <div class="flex flex-col gap-3">
                 <div class="flex items-center gap-3">
                   <span class="min-w-35 shrink-0 text-sm text-muted">
-                    Умение
+                    {{ TOOL_FORM_LABELS.proficiencyMode }}
                   </span>
 
                   <USelect
@@ -395,7 +407,7 @@
 
                 <div class="flex items-center gap-3">
                   <span class="min-w-35 shrink-0 text-sm text-muted">
-                    Характеристика
+                    {{ FORM_FIELD_LABELS.ability }}
                   </span>
 
                   <USelect
@@ -409,7 +421,7 @@
 
                 <div class="flex items-center gap-3">
                   <span class="min-w-35 shrink-0 text-sm text-muted">
-                    Бонус инструмента
+                    {{ TOOL_FORM_LABELS.bonus }}
                   </span>
 
                   <UInput
@@ -425,12 +437,12 @@
             <!-- Блок «Магическое» -->
             <FormSection
               v-if="isMagical"
-              title="Магическое"
+              :title="ITEM_FORM_LABELS.magicalTitle"
               title-color="arcane"
             >
               <div class="flex flex-col gap-3">
                 <div class="grid grid-cols-2 items-start gap-3">
-                  <UFormField label="Настройка">
+                  <UFormField :label="ITEM_FORM_LABELS.attunement">
                     <USelect
                       v-model="magicAttunement"
                       :items="attunementOptions"
@@ -446,7 +458,7 @@
                       || magicAttunement === 'optional'
                     "
                     v-model="isAttuned"
-                    label="Настроен"
+                    :label="ITEM_FORM_LABELS.attuned"
                   />
                 </div>
               </div>
@@ -461,7 +473,7 @@
               v-if="activeEffects.length === 0"
               class="rounded-lg border border-dashed border-default p-3 text-center text-xs text-dimmed italic"
             >
-              Нет эффектов у данного инструмента
+              {{ TOOL_FORM_LABELS.effectsEmpty }}
             </div>
 
             <div

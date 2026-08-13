@@ -35,7 +35,13 @@
     useTokenPreview,
   } from '../../composables/useTokenPreview';
   import ActorDeleteConfirmModal from './ActorDeleteConfirmModal.vue';
-  import { MODAL_BUTTON_LABELS } from './constants';
+  import {
+    ACTOR_SETTINGS_LABELS,
+    MISSING_SHEET_SECTIONS,
+    MODAL_BUTTON_LABELS,
+    TOAST_TITLES,
+    TOKEN_SETTINGS_LABELS,
+  } from './constants';
 
   interface Props {
     open: boolean;
@@ -216,25 +222,25 @@
   const tabs = [
     {
       key: 'general',
-      label: 'Общее',
+      label: TOKEN_SETTINGS_LABELS.tabGeneral,
       icon: 'tabler:settings-filled',
       slot: 'general',
     },
     {
       key: 'token',
-      label: 'Токен',
+      label: TOKEN_SETTINGS_LABELS.tabToken,
       icon: 'tabler:photo',
       slot: 'token',
     },
     {
       key: 'vision',
-      label: 'Зрение',
+      label: TOKEN_SETTINGS_LABELS.tabVision,
       icon: 'tabler:eye',
       slot: 'vision',
     },
     {
       key: 'light',
-      label: 'Освещение',
+      label: TOKEN_SETTINGS_LABELS.tabLighting,
       icon: 'tabler:bulb',
       slot: 'light',
     },
@@ -254,15 +260,22 @@
     }
 
     if (!users) {
-      return [{ value: undefined, label: 'Не назначен' }];
+      return [{ value: undefined, label: TOKEN_SETTINGS_LABELS.ownerNone }];
     }
 
     const mappedUsers = users.map((user) => ({
       value: user.id,
-      label: `${user.username} (${user.role === 'admin' ? 'GM' : 'Игрок'})`,
+      label: `${user.username} (${
+        user.role === 'admin'
+          ? TOKEN_SETTINGS_LABELS.roleGm
+          : TOKEN_SETTINGS_LABELS.rolePlayer
+      })`,
     }));
 
-    return [{ value: undefined, label: 'Не назначен' }, ...mappedUsers];
+    return [
+      { value: undefined, label: TOKEN_SETTINGS_LABELS.ownerNone },
+      ...mappedUsers,
+    ];
   });
 
   const hasChanges = computed(() => {
@@ -320,14 +333,14 @@
   // Methods
   function getOwnerName(userId?: string) {
     if (!userId) {
-      return 'Не назначен';
+      return TOKEN_SETTINGS_LABELS.ownerNone;
     }
 
     const entry = currentWorld.value?.users.find(
       (worldUser) => worldUser.id === userId,
     );
 
-    return entry ? entry.username : 'Неизвестный пользователь';
+    return entry ? entry.username : TOKEN_SETTINGS_LABELS.ownerUnknown;
   }
 
   const PUBLIC_PREFIX_REGEX = /^public\//;
@@ -493,8 +506,10 @@
       }
 
       toast.add({
-        title: 'Настройки сохранены',
-        description: `Владелец: ${getOwnerName(selectedOwner.value)}`,
+        title: TOKEN_SETTINGS_LABELS.savedTitle,
+        description: `${TOKEN_SETTINGS_LABELS.savedOwnerPrefix}${getOwnerName(
+          selectedOwner.value,
+        )}`,
         color: 'success',
       });
 
@@ -503,8 +518,8 @@
       console.error(error);
 
       toast.add({
-        title: 'Ошибка',
-        description: 'Не удалось сохранить настройки',
+        title: TOAST_TITLES.error,
+        description: TOKEN_SETTINGS_LABELS.errorSave,
         color: 'error',
       });
     } finally {
@@ -576,7 +591,7 @@
     :draggable="true"
     :resizable="true"
     :z-index="props.zIndex"
-    title="Настройки персонажа"
+    :title="ACTOR_SETTINGS_LABELS.title"
     :ui="{
       content: 'max-w-2xl',
       body: 'min-h-100',
@@ -604,20 +619,24 @@
                 }}
               </template>
 
-              <template v-else> Класс не выбран </template>
+              <template v-else>
+                {{ MISSING_SHEET_SECTIONS.class.label }}
+              </template>
             </p>
           </div>
 
           <!-- Выбор владельца -->
           <div class="ml-auto shrink-0 space-y-1">
-            <label class="block text-xs text-muted">Владелец</label>
+            <label class="block text-xs text-muted">
+              {{ TOKEN_SETTINGS_LABELS.owner }}
+            </label>
 
             <USelect
               v-if="isAdmin"
               v-model="selectedOwner"
               :items="userOptions"
               value-key="value"
-              placeholder="Не назначен"
+              :placeholder="TOKEN_SETTINGS_LABELS.ownerNone"
               :portal="false"
               class="w-40"
             />
@@ -631,7 +650,11 @@
                 class="size-3.5"
               />
 
-              <span>{{ getOwnerName(actor.ownerId) || 'Не назначен' }}</span>
+              <span>
+                {{
+                  getOwnerName(actor.ownerId) || TOKEN_SETTINGS_LABELS.ownerNone
+                }}
+              </span>
             </div>
           </div>
         </div>
@@ -650,13 +673,12 @@
                   class="flex items-center justify-between rounded border border-default/50 bg-elevated/30 p-3"
                 >
                   <div class="space-y-0.5">
-                    <label class="text-sm font-medium text-toned"
-                      >Виден всем</label
-                    >
+                    <label class="text-sm font-medium text-toned">
+                      {{ TOKEN_SETTINGS_LABELS.visibleToAll }}
+                    </label>
 
                     <p class="text-xs text-dimmed">
-                      Игроки смогут видеть этого персонажа, но не смогут
-                      управлять им.
+                      {{ ACTOR_SETTINGS_LABELS.visibleToAllHint }}
                     </p>
                   </div>
 
@@ -671,12 +693,12 @@
                   class="flex items-center justify-between rounded border border-default/50 bg-elevated/30 p-3"
                 >
                   <div class="space-y-0.5">
-                    <label class="text-sm font-medium text-toned"
-                      >Авто-спасброски</label
-                    >
+                    <label class="text-sm font-medium text-toned">
+                      {{ TOKEN_SETTINGS_LABELS.autoSaves }}
+                    </label>
 
                     <p class="text-xs text-dimmed">
-                      Спасброски при заклинаниях кидаются автоматически.
+                      {{ TOKEN_SETTINGS_LABELS.autoSavesHint }}
                     </p>
                   </div>
 
@@ -692,13 +714,12 @@
                   class="flex items-center justify-between rounded border border-default/50 bg-elevated/30 p-3"
                 >
                   <div class="space-y-0.5">
-                    <label class="text-sm font-medium text-toned"
-                      >Показывать имя</label
-                    >
+                    <label class="text-sm font-medium text-toned">
+                      {{ TOKEN_SETTINGS_LABELS.showName }}
+                    </label>
 
                     <p class="text-xs text-dimmed">
-                      По умолчанию имя токена скрыто и отображается только при
-                      включении этой опции.
+                      {{ TOKEN_SETTINGS_LABELS.showNameHint }}
                     </p>
                   </div>
 
@@ -718,9 +739,9 @@
                       class="size-4 text-muted"
                     />
 
-                    <label class="flex-1 text-sm font-medium text-toned"
-                      >Отображение ХП</label
-                    >
+                    <label class="flex-1 text-sm font-medium text-toned">
+                      {{ TOKEN_SETTINGS_LABELS.hpDisplay }}
+                    </label>
                   </div>
 
                   <div class="grid grid-cols-2 gap-2">
@@ -738,7 +759,9 @@
                       />
 
                       <div>
-                        <div class="font-medium">Полоска</div>
+                        <div class="font-medium">
+                          {{ TOKEN_SETTINGS_LABELS.hpBar }}
+                        </div>
                       </div>
                     </button>
 
@@ -756,7 +779,9 @@
                       />
 
                       <div>
-                        <div class="font-medium">Состояние</div>
+                        <div class="font-medium">
+                          {{ TOKEN_SETTINGS_LABELS.hpState }}
+                        </div>
                       </div>
                     </button>
                   </div>
@@ -771,9 +796,9 @@
                     class="size-4 text-muted"
                   />
 
-                  <label class="text-sm font-medium text-toned"
-                    >Размер токена</label
-                  >
+                  <label class="text-sm font-medium text-toned">
+                    {{ TOKEN_SETTINGS_LABELS.tokenSize }}
+                  </label>
                 </div>
 
                 <div class="grid grid-cols-3 gap-1.5">
@@ -804,9 +829,9 @@
                     class="h-4 w-4 text-muted"
                   />
 
-                  <label class="text-sm font-medium text-toned"
-                    >Отношение токена (Disposition)</label
-                  >
+                  <label class="text-sm font-medium text-toned">
+                    {{ TOKEN_SETTINGS_LABELS.disposition }}
+                  </label>
                 </div>
 
                 <div class="grid grid-cols-3 gap-2">
@@ -822,7 +847,9 @@
                       tokenSettings.disposition = 'friendly'
                     "
                   >
-                    <span class="text-sm font-medium">Дружелюбный</span>
+                    <span class="text-sm font-medium">
+                      {{ TOKEN_SETTINGS_LABELS.dispositionFriendly }}
+                    </span>
                   </button>
 
                   <button
@@ -837,7 +864,9 @@
                       tokenSettings.disposition = 'neutral'
                     "
                   >
-                    <span class="text-sm font-medium">Нейтральный</span>
+                    <span class="text-sm font-medium">
+                      {{ TOKEN_SETTINGS_LABELS.dispositionNeutral }}
+                    </span>
                   </button>
 
                   <button
@@ -853,13 +882,14 @@
                       tokenSettings.disposition = 'hostile'
                     "
                   >
-                    <span class="text-sm font-medium">Враждебный</span>
+                    <span class="text-sm font-medium">
+                      {{ TOKEN_SETTINGS_LABELS.dispositionHostile }}
+                    </span>
                   </button>
                 </div>
 
                 <p class="mt-2 text-xs text-dimmed">
-                  Влияет на автоматический расчёт радиусов аур. Враждебный по
-                  умолчанию.
+                  {{ TOKEN_SETTINGS_LABELS.dispositionHint }}
                 </p>
               </div>
             </div>
@@ -871,16 +901,20 @@
               <!-- 1. Превью (Сверху) -->
               <div class="flex h-70 flex-none flex-col">
                 <div class="mb-2 flex items-center justify-between">
-                  <div class="text-sm font-medium text-toned">Превью</div>
+                  <div class="text-sm font-medium text-toned">
+                    {{ TOKEN_SETTINGS_LABELS.preview }}
+                  </div>
 
                   <div class="flex gap-2 text-xs text-dimmed">
-                    <span class="flex items-center gap-1"
-                      ><UIcon name="tabler:click" /> Перемещение</span
-                    >
+                    <span class="flex items-center gap-1">
+                      <UIcon name="tabler:click" />
+                      {{ TOKEN_SETTINGS_LABELS.previewMove }}
+                    </span>
 
-                    <span class="flex items-center gap-1"
-                      ><UIcon name="tabler:arrows-maximize" /> Колесо: Зум</span
-                    >
+                    <span class="flex items-center gap-1">
+                      <UIcon name="tabler:arrows-maximize" />
+                      {{ TOKEN_SETTINGS_LABELS.previewZoom }}
+                    </span>
                   </div>
                 </div>
 
@@ -891,7 +925,9 @@
                   <div
                     class="absolute top-2 left-2 z-20 flex items-center gap-1.5 rounded-md bg-default/80 px-2 py-1"
                   >
-                    <span class="text-xs text-muted">Рамка</span>
+                    <span class="text-xs text-muted">
+                      {{ TOKEN_SETTINGS_LABELS.previewFrame }}
+                    </span>
 
                     <USwitch
                       v-model="showFrame"
@@ -1014,10 +1050,10 @@
                     name="tabler:photo"
                     class="h-5 w-5 text-primary"
                   />
-                  Изображение токена
+                  {{ TOKEN_SETTINGS_LABELS.tokenImage }}
                 </h3>
 
-                <UFormField label="URL изображения">
+                <UFormField :label="TOKEN_SETTINGS_LABELS.imageUrl">
                   <UInput
                     v-model="tokenSettings.imageUrl"
                     placeholder="https://..."
@@ -1050,12 +1086,12 @@
                 class="flex items-center justify-between rounded border border-default/50 bg-elevated/30 p-3"
               >
                 <div class="space-y-0.5">
-                  <label class="text-sm font-medium text-toned"
-                    >Зрение включено</label
-                  >
+                  <label class="text-sm font-medium text-toned">
+                    {{ TOKEN_SETTINGS_LABELS.visionEnabled }}
+                  </label>
 
                   <p class="text-xs text-dimmed">
-                    Токен будет ограничен зрением
+                    {{ TOKEN_SETTINGS_LABELS.visionEnabledHint }}
                   </p>
                 </div>
 
@@ -1068,9 +1104,9 @@
               <template v-if="visionSettings.enabled">
                 <div class="grid grid-cols-2 gap-3">
                   <div class="space-y-2">
-                    <label class="block text-sm font-medium text-toned"
-                      >Зрение</label
-                    >
+                    <label class="block text-sm font-medium text-toned">
+                      {{ TOKEN_SETTINGS_LABELS.vision }}
+                    </label>
 
                     <UInput
                       v-model.number="visionSettings.range"
@@ -1081,14 +1117,14 @@
                     />
 
                     <p class="text-xs text-dimmed">
-                      Дальность зрения в футах (0 = безграничное)
+                      {{ TOKEN_SETTINGS_LABELS.visionRangeHint }}
                     </p>
                   </div>
 
                   <div class="space-y-2">
-                    <label class="block text-sm font-medium text-toned"
-                      >Тёмное зрение</label
-                    >
+                    <label class="block text-sm font-medium text-toned">
+                      {{ TOKEN_SETTINGS_LABELS.darkvision }}
+                    </label>
 
                     <UInput
                       v-model.number="visionSettings.darkvision"
@@ -1099,7 +1135,7 @@
                     />
 
                     <p class="text-xs text-dimmed">
-                      Дальность зрения в темноте в футах
+                      {{ TOKEN_SETTINGS_LABELS.darkvisionRangeHint }}
                     </p>
                   </div>
                 </div>
@@ -1107,20 +1143,16 @@
                 <div
                   class="mt-6 rounded border border-default/50 bg-elevated/30 p-3 text-xs text-dimmed"
                 >
-                  <p class="mb-2 font-semibold">Подсказка:</p>
+                  <p class="mb-2 font-semibold">
+                    {{ TOKEN_SETTINGS_LABELS.hintPrefix }}
+                  </p>
 
                   <ul class="list-inside list-disc space-y-1">
-                    <li>Зрение: как далеко токен видит в дневном режиме</li>
+                    <li>{{ TOKEN_SETTINGS_LABELS.hintVision }}</li>
 
-                    <li>
-                      Тёмное зрение: как далеко токен видит в темноте (эльфы,
-                      дварфы)
-                    </li>
+                    <li>{{ TOKEN_SETTINGS_LABELS.hintDarkvision }}</li>
 
-                    <li>
-                      Без тёмного зрения в ночи токен видит только освещённые
-                      области
-                    </li>
+                    <li>{{ TOKEN_SETTINGS_LABELS.hintNoDarkvision }}</li>
                   </ul>
                 </div>
               </template>

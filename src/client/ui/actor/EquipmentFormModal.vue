@@ -9,7 +9,13 @@
   import { CURRENCY_OPTIONS, RARITY_OPTIONS } from '@vtt/shared/system/dnd.js';
 
   import { useEquipmentForm } from '../../composables/useEquipmentForm';
-  import { MODAL_BUTTON_LABELS } from './constants';
+  import {
+    EQUIPMENT_FORM_LABELS,
+    FORM_FIELD_LABELS,
+    FORM_TAB_LABELS,
+    ITEM_FORM_LABELS,
+    MODAL_BUTTON_LABELS,
+  } from './constants';
   import FormSection from './FormSection.vue';
   import SourceField from './SourceField.vue';
   import ActiveEffectFormModal from './tabs/ActiveEffectFormModal.vue';
@@ -84,15 +90,15 @@
   /** Вкладки формы */
   const tabItems = [
     {
-      label: 'Общие',
+      label: FORM_TAB_LABELS.general,
       slot: 'general' as const,
     },
     {
-      label: 'Бой',
+      label: FORM_TAB_LABELS.combat,
       slot: 'details' as const,
     },
     {
-      label: 'Эффекты',
+      label: FORM_TAB_LABELS.effects,
       slot: 'effects' as const,
     },
   ];
@@ -145,9 +151,9 @@
 
   /** Опции настройки магического предмета */
   const attunementOptions = [
-    { label: 'Не требуется', value: 'none' as const },
-    { label: 'Требуется', value: 'required' as const },
-    { label: 'Опциональная', value: 'optional' as const },
+    { label: ITEM_FORM_LABELS.attunementNone, value: 'none' as const },
+    { label: ITEM_FORM_LABELS.attunementRequired, value: 'required' as const },
+    { label: ITEM_FORM_LABELS.attunementOptional, value: 'optional' as const },
   ];
 
   /** Сохраняет форму */
@@ -160,7 +166,9 @@
 <template>
   <UDraggableModal
     :open="open"
-    :title="item ? 'Редактировать снаряжение' : 'Создать снаряжение'"
+    :title="
+      item ? EQUIPMENT_FORM_LABELS.editTitle : EQUIPMENT_FORM_LABELS.createTitle
+    "
     :initial-width="500"
     :resizable="false"
     :z-index="zIndex"
@@ -191,44 +199,44 @@
           <div class="flex flex-col gap-4">
             <!-- Название и Английское название -->
             <div class="grid grid-cols-2 gap-3">
-              <UFormField label="Название">
+              <UFormField :label="FORM_FIELD_LABELS.name">
                 <UInput
                   v-model="name"
-                  placeholder="Например, веревка или зелье"
+                  :placeholder="EQUIPMENT_FORM_LABELS.namePlaceholder"
                   class="w-full"
                 />
               </UFormField>
 
-              <UFormField label="Английское название">
+              <UFormField :label="FORM_FIELD_LABELS.nameEn">
                 <UInput
                   v-model="nameEn"
-                  placeholder="Rope or Potion"
+                  :placeholder="EQUIPMENT_FORM_LABELS.nameEnPlaceholder"
                   class="w-full"
                 />
               </UFormField>
             </div>
 
             <!-- Описание -->
-            <UFormField label="Описание">
+            <UFormField :label="FORM_FIELD_LABELS.description">
               <RichTextEditor
                 v-model="description"
-                placeholder="Описание снаряжения..."
+                :placeholder="EQUIPMENT_FORM_LABELS.descriptionPlaceholder"
               />
             </UFormField>
 
             <!-- Стоимость + Вес -->
             <FormSection
-              title="Ценность и вес"
+              :title="ITEM_FORM_LABELS.costWeightTitle"
               title-color="healing"
             >
               <div class="grid grid-cols-3 gap-3">
-                <UFormField label="Стоимость">
+                <UFormField :label="ITEM_FORM_LABELS.cost">
                   <div class="flex gap-1.5">
                     <UInput
                       v-model.number="costValue"
                       type="number"
                       :min="0"
-                      placeholder="0"
+                      :placeholder="ITEM_FORM_LABELS.zeroPlaceholder"
                       class="flex-1"
                     />
 
@@ -243,7 +251,7 @@
                   </div>
                 </UFormField>
 
-                <UFormField label="Вес (фнт.)">
+                <UFormField :label="ITEM_FORM_LABELS.weight">
                   <UInput
                     v-model.number="weight"
                     type="number"
@@ -252,12 +260,12 @@
                   />
                 </UFormField>
 
-                <UFormField label="Редкость">
+                <UFormField :label="ITEM_FORM_LABELS.rarity">
                   <USelect
                     v-model="rarity"
                     :items="RARITY_OPTIONS"
                     value-key="value"
-                    placeholder="Редкость"
+                    :placeholder="ITEM_FORM_LABELS.rarity"
                     class="w-full"
                     :portal="false"
                   />
@@ -267,7 +275,7 @@
 
             <!-- Источник -->
             <FormSection
-              title="Источник"
+              :title="FORM_FIELD_LABELS.source"
               title-color="source"
             >
               <SourceField
@@ -277,7 +285,7 @@
 
               <UCheckbox
                 v-model="isSRD"
-                label="SRD контент"
+                :label="FORM_FIELD_LABELS.srd"
                 class="mt-2"
               />
             </FormSection>
@@ -289,14 +297,14 @@
           <div class="flex flex-col gap-4">
             <!-- Основное -->
             <FormSection
-              title="Основное"
+              :title="FORM_TAB_LABELS.main"
               title-color="arcane"
             >
               <div class="flex flex-col gap-3">
                 <!-- Тип экипировки -->
                 <div class="flex items-center gap-3">
                   <span class="min-w-35 shrink-0 text-sm text-muted">
-                    Тип экипировки
+                    {{ EQUIPMENT_FORM_LABELS.category }}
                   </span>
 
                   <USelect
@@ -313,14 +321,14 @@
                   class="flex items-center gap-3"
                 >
                   <span class="min-w-35 shrink-0 text-sm text-muted">
-                    Базовый тип
+                    {{ ITEM_FORM_LABELS.baseType }}
                   </span>
 
                   <USelect
                     v-model="baseType"
                     :items="baseTypeOptions"
                     value-key="value"
-                    placeholder="Выберите тип..."
+                    :placeholder="ITEM_FORM_LABELS.selectTypePlaceholder"
                     class="flex-1"
                   />
                 </div>
@@ -329,7 +337,7 @@
 
             <!-- Свойства экипировки -->
             <FormSection
-              title="Свойства экипировки"
+              :title="EQUIPMENT_FORM_LABELS.propertiesTitle"
               title-color="info"
             >
               <div class="flex flex-wrap gap-2">
@@ -371,13 +379,19 @@
             <!-- Защита (только для брони) -->
             <FormSection
               v-if="isActualArmor"
-              title="Защита"
+              :title="EQUIPMENT_FORM_LABELS.protectionTitle"
               title-color="info"
             >
               <div class="flex flex-col gap-3">
                 <!-- КЗ -->
                 <div class="grid grid-cols-2 gap-3">
-                  <UFormField :label="isShield ? 'Бонус к КД' : 'Базовый КД'">
+                  <UFormField
+                    :label="
+                      isShield
+                        ? EQUIPMENT_FORM_LABELS.shieldBonus
+                        : EQUIPMENT_FORM_LABELS.baseArmorClass
+                    "
+                  >
                     <UInput
                       v-model.number="baseArmorAC"
                       type="number"
@@ -389,13 +403,17 @@
                   <!-- Макс. бонус Ловкости (не для щита) -->
                   <UFormField
                     v-if="!isShield"
-                    label="Макс. +Лов."
+                    :label="EQUIPMENT_FORM_LABELS.maxDexBonus"
                   >
                     <UInput
                       v-model.number="maxDexBonus"
                       type="number"
                       :min="0"
-                      :placeholder="equipmentCategory === 'light' ? '∞' : ''"
+                      :placeholder="
+                        equipmentCategory === 'light'
+                          ? EQUIPMENT_FORM_LABELS.unlimitedDexPlaceholder
+                          : ''
+                      "
                       class="w-full"
                     />
                   </UFormField>
@@ -404,13 +422,13 @@
                 <!-- Требование Силы -->
                 <UFormField
                   v-if="!isShield"
-                  label="Требование Силы"
+                  :label="EQUIPMENT_FORM_LABELS.strengthRequirement"
                 >
                   <UInput
                     v-model.number="strengthRequirement"
                     type="number"
                     :min="0"
-                    placeholder="0"
+                    :placeholder="ITEM_FORM_LABELS.zeroPlaceholder"
                     class="w-full"
                   />
                 </UFormField>
@@ -420,12 +438,12 @@
             <!-- Блок «Магическое» -->
             <FormSection
               v-if="isMagical"
-              title="Магическое"
+              :title="ITEM_FORM_LABELS.magicalTitle"
               title-color="arcane"
             >
               <div class="flex flex-col gap-3">
                 <div class="grid grid-cols-2 items-start gap-3">
-                  <UFormField label="Настройка">
+                  <UFormField :label="ITEM_FORM_LABELS.attunement">
                     <USelect
                       v-model="magicAttunement"
                       :items="attunementOptions"
@@ -434,13 +452,13 @@
                     />
                   </UFormField>
 
-                  <UFormField label="Бонус">
+                  <UFormField :label="ITEM_FORM_LABELS.magicBonus">
                     <UInput
                       v-model.number="magicBonus"
                       type="number"
                       :min="0"
                       :max="10"
-                      placeholder="+1"
+                      :placeholder="ITEM_FORM_LABELS.magicBonusPlaceholder"
                       class="w-full"
                     />
                   </UFormField>
@@ -452,7 +470,7 @@
                     || magicAttunement === 'optional'
                   "
                   v-model="isAttuned"
-                  label="Настроен"
+                  :label="ITEM_FORM_LABELS.attuned"
                 />
               </div>
             </FormSection>
@@ -466,7 +484,7 @@
               v-if="activeEffects.length === 0"
               class="rounded-lg border border-dashed border-default p-3 text-center text-xs text-dimmed italic"
             >
-              Нет эффектов у данной экипировки
+              {{ EQUIPMENT_FORM_LABELS.effectsEmpty }}
             </div>
 
             <div

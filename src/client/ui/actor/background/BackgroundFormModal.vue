@@ -39,7 +39,15 @@
     TOOLS_LABELS,
   } from '@vtt/shared/system/dnd.js';
 
-  import { MODAL_BUTTON_LABELS } from '../constants';
+  import {
+    BACKGROUND_FORM_LABELS,
+    BACKGROUND_GOLD_UNIT,
+    FORM_FIELD_LABELS,
+    FORM_TAB_LABELS,
+    GRANT_FIELD_LABELS,
+    GRANT_SECTION_LABELS,
+    MODAL_BUTTON_LABELS,
+  } from '../constants';
   import {
     buildFeatData,
     createEmptyFeatGrants,
@@ -99,12 +107,12 @@
   }));
 
   const tabItems = [
-    { label: 'Основное', slot: 'basic' as const },
-    { label: 'Параметры', slot: 'params' as const },
-    { label: 'Снаряжение', slot: 'equipment' as const },
-    { label: 'Владения', slot: 'grants' as const },
-    { label: 'Заклинания', slot: 'spells' as const },
-    { label: 'Эффекты', slot: 'effects' as const },
+    { label: FORM_TAB_LABELS.main, slot: 'basic' as const },
+    { label: BACKGROUND_FORM_LABELS.tabParams, slot: 'params' as const },
+    { label: GRANT_SECTION_LABELS.equipment, slot: 'equipment' as const },
+    { label: GRANT_SECTION_LABELS.proficiencies, slot: 'grants' as const },
+    { label: GRANT_SECTION_LABELS.spells, slot: 'spells' as const },
+    { label: FORM_TAB_LABELS.effects, slot: 'effects' as const },
   ];
 
   // ── Состояние формы ──────────────────────────────────────────
@@ -482,7 +490,7 @@
       equipmentOptions: [
         { description: equipmentDescription.value.trim() },
         {
-          description: `${equipmentGold.value} зм`,
+          description: `${equipmentGold.value} ${BACKGROUND_GOLD_UNIT}`,
           goldAlternative: equipmentGold.value,
         },
       ],
@@ -506,7 +514,9 @@
   <UDraggableModal
     :open="open"
     :title="
-      item || background ? 'Редактировать предысторию' : 'Создать предысторию'
+      item || background
+        ? BACKGROUND_FORM_LABELS.editTitle
+        : BACKGROUND_FORM_LABELS.createTitle
     "
     :subtitle="nameEn || undefined"
     :initial-width="720"
@@ -532,35 +542,35 @@
         <template #basic>
           <div class="flex flex-col gap-4">
             <div class="grid grid-cols-2 gap-3">
-              <UFormField label="Название">
+              <UFormField :label="FORM_FIELD_LABELS.name">
                 <UInput
                   v-model="name"
-                  placeholder="Послушник"
+                  :placeholder="BACKGROUND_FORM_LABELS.namePlaceholder"
                   class="w-full"
                 />
               </UFormField>
 
-              <UFormField label="Английское название">
+              <UFormField :label="FORM_FIELD_LABELS.nameEn">
                 <UInput
                   v-model="nameEn"
-                  placeholder="Acolyte"
+                  :placeholder="BACKGROUND_FORM_LABELS.nameEnPlaceholder"
                   class="w-full"
                 />
               </UFormField>
             </div>
 
             <p class="-mt-2 text-xs text-dimmed">
-              Машинный ключ:
+              {{ BACKGROUND_FORM_LABELS.keyPrefix }}
               <span class="font-mono text-muted">{{ keyPreview }}</span>
-              — присваивается автоматически, при совпадении добавляется номер.
+              {{ BACKGROUND_FORM_LABELS.keySuffix }}
             </p>
 
-            <UFormField label="Описание (Markdown)">
+            <UFormField :label="FORM_FIELD_LABELS.descriptionMarkdown">
               <RichTextEditor v-model="description" />
             </UFormField>
 
             <FormSection
-              title="Источник"
+              :title="FORM_FIELD_LABELS.source"
               title-color="source"
             >
               <SourceField
@@ -570,7 +580,7 @@
 
               <UCheckbox
                 v-model="isSRD"
-                label="SRD контент"
+                :label="FORM_FIELD_LABELS.srd"
                 class="mt-2"
               />
             </FormSection>
@@ -581,11 +591,11 @@
         <template #params>
           <div class="flex flex-col gap-4">
             <FormSection
-              title="Характеристики и навыки"
+              :title="BACKGROUND_FORM_LABELS.abilitiesTitle"
               title-color="healing"
             >
               <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <UFormField label="Повышение характеристик (обычно 3)">
+                <UFormField :label="BACKGROUND_FORM_LABELS.abilities">
                   <USelectMenu
                     v-model="selectedAbilities"
                     :items="abilitiesOptions"
@@ -593,11 +603,11 @@
                     label-key="label"
                     multiple
                     class="w-full"
-                    placeholder="Выберите характеристики..."
+                    :placeholder="BACKGROUND_FORM_LABELS.abilitiesPlaceholder"
                   />
                 </UFormField>
 
-                <UFormField label="Навыки (обычно 2)">
+                <UFormField :label="BACKGROUND_FORM_LABELS.skills">
                   <USelectMenu
                     v-model="selectedSkills"
                     :items="skillsOptions"
@@ -605,22 +615,21 @@
                     label-key="label"
                     multiple
                     class="w-full"
-                    placeholder="Выберите навыки..."
+                    :placeholder="BACKGROUND_FORM_LABELS.skillsPlaceholder"
                   />
                 </UFormField>
               </div>
 
               <p class="mt-2 text-xs text-dimmed">
-                Игрок распределяет +2/+1 или +1/+1/+1 между этими тремя
-                характеристиками в мастере применения.
+                {{ BACKGROUND_FORM_LABELS.abilitiesHint }}
               </p>
             </FormSection>
 
             <FormSection
-              title="Инструменты"
+              :title="GRANT_SECTION_LABELS.tools"
               title-color="healing"
             >
-              <UFormField label="Фиксированные инструменты">
+              <UFormField :label="BACKGROUND_FORM_LABELS.fixedTools">
                 <USelectMenu
                   v-model="selectedFixedTools"
                   :items="toolsOptions"
@@ -628,13 +637,13 @@
                   label-key="label"
                   multiple
                   class="w-full"
-                  placeholder="Даются всегда..."
+                  :placeholder="BACKGROUND_FORM_LABELS.fixedToolsPlaceholder"
                 />
               </UFormField>
 
               <div class="mt-3 flex items-start gap-3">
                 <UFormField
-                  label="Кол-во на выбор"
+                  :label="GRANT_FIELD_LABELS.choiceCount"
                   class="w-1/3"
                 >
                   <UInputNumber
@@ -645,7 +654,7 @@
                 </UFormField>
 
                 <UFormField
-                  label="Доступно для выбора"
+                  :label="BACKGROUND_FORM_LABELS.choiceTools"
                   class="flex-1"
                 >
                   <USelectMenu
@@ -655,7 +664,7 @@
                     label-key="label"
                     multiple
                     :disabled="choicesToolsCount === 0"
-                    placeholder="Инструменты для выбора..."
+                    :placeholder="BACKGROUND_FORM_LABELS.choiceToolsPlaceholder"
                     class="w-full"
                   />
                 </UFormField>
@@ -663,35 +672,35 @@
             </FormSection>
 
             <FormSection
-              title="Черта-происхождение"
+              :title="BACKGROUND_FORM_LABELS.featTitle"
               title-color="healing"
             >
               <URadioGroup
                 v-model="featSelectionType"
                 :items="[
-                  { value: 'fixed', label: 'Фиксированная черта' },
-                  { value: 'choice', label: 'Выбор из нескольких' },
+                  { value: 'fixed', label: BACKGROUND_FORM_LABELS.featFixed },
+                  { value: 'choice', label: BACKGROUND_FORM_LABELS.featChoice },
                 ]"
                 class="mb-3"
               />
 
               <UFormField
                 v-if="featSelectionType === 'fixed'"
-                label="Черта (необязательно)"
+                :label="BACKGROUND_FORM_LABELS.feat"
               >
                 <USelectMenu
                   v-model="selectedFeatId"
                   :items="featOptions"
                   value-key="value"
                   label-key="label"
-                  placeholder="Выберите черту..."
+                  :placeholder="BACKGROUND_FORM_LABELS.featPlaceholder"
                   class="w-full"
                 />
               </UFormField>
 
               <UFormField
                 v-else
-                label="Связка черт (для выбора)"
+                :label="BACKGROUND_FORM_LABELS.featChoices"
               >
                 <USelectMenu
                   v-model="selectedFeatChoices"
@@ -699,7 +708,7 @@
                   value-key="value"
                   label-key="label"
                   multiple
-                  placeholder="Отметьте черты для выбора..."
+                  :placeholder="BACKGROUND_FORM_LABELS.featChoicesPlaceholder"
                   class="w-full"
                 />
               </UFormField>
@@ -710,19 +719,21 @@
         <!-- СНАРЯЖЕНИЕ -->
         <template #equipment>
           <FormSection
-            title="Стартовое снаряжение"
+            :title="BACKGROUND_FORM_LABELS.equipmentTitle"
             title-color="healing"
           >
             <div class="flex flex-col gap-4">
-              <UFormField label="Предметы снаряжения (Вариант А)">
+              <UFormField :label="BACKGROUND_FORM_LABELS.equipmentItems">
                 <UInput
                   v-model="equipmentDescription"
-                  placeholder="Комплект отличной одежды, кошель..."
+                  :placeholder="
+                    BACKGROUND_FORM_LABELS.equipmentItemsPlaceholder
+                  "
                   class="w-full"
                 />
               </UFormField>
 
-              <UFormField label="Альтернативное золото (Вариант Б)">
+              <UFormField :label="BACKGROUND_FORM_LABELS.equipmentGold">
                 <UInputNumber
                   v-model="equipmentGold"
                   :min="0"
@@ -737,10 +748,7 @@
         <template #grants>
           <div class="flex flex-col gap-2">
             <p class="text-xs text-dimmed">
-              Дополнительные владения и дары, которые предыстория выдаёт сверх
-              канонических характеристик/навыков (доспехи, оружие, языки,
-              защиты, тёмное зрение, предусловия). Применяются при выборе
-              предыстории.
+              {{ BACKGROUND_FORM_LABELS.grantsHint }}
             </p>
 
             <FeatGrantsFields
@@ -755,8 +763,7 @@
         <template #spells>
           <div class="flex flex-col gap-2">
             <p class="text-xs text-dimmed">
-              Заклинания, которые предыстория выдаёт автоматически (всегда
-              подготовлены). Совпавшее с компендиумом выдаётся при применении.
+              {{ BACKGROUND_FORM_LABELS.spellsHint }}
             </p>
 
             <GrantedSpellsEditor
@@ -771,15 +778,14 @@
         <template #effects>
           <div class="flex flex-col gap-2">
             <p class="text-xs text-dimmed">
-              Активные эффекты (бонусы к характеристикам, КД, флаги и т.п.).
-              Переносятся на персонажа при применении предыстории.
+              {{ BACKGROUND_FORM_LABELS.effectsHint }}
             </p>
 
             <div
               v-if="effects.length === 0"
               class="rounded-lg border border-dashed border-default p-3 text-center text-xs text-dimmed italic"
             >
-              Эффектов пока нет.
+              {{ BACKGROUND_FORM_LABELS.effectsEmpty }}
             </div>
 
             <div
@@ -852,7 +858,7 @@
           v-if="!canSave"
           class="text-xs text-dimmed"
         >
-          Укажите название
+          {{ BACKGROUND_FORM_LABELS.saveHint }}
         </span>
 
         <div class="ml-auto flex gap-3">

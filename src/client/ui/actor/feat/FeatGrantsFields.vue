@@ -9,7 +9,13 @@
     TOOLS_LABELS,
   } from '@vtt/shared/system/dnd.js';
 
-  import { ARMOR_PROF_LABELS, WEAPON_PROF_LABELS } from '../constants';
+  import {
+    ARMOR_PROF_LABELS,
+    FEAT_GRANTS_LABELS,
+    GRANT_FIELD_LABELS,
+    GRANT_SECTION_LABELS,
+    WEAPON_PROF_LABELS,
+  } from '../constants';
   import FormSection from '../FormSection.vue';
   import DamageDefenseEditor from '../species/DamageDefenseEditor.vue';
 
@@ -75,7 +81,7 @@
     <!-- Повышение характеристик -->
     <FormSection
       v-if="!hideAbilityScoreIncrease"
-      title="Повышение характеристик"
+      :title="FEAT_GRANTS_LABELS.asiTitle"
       title-color="healing"
     >
       <div class="grid grid-cols-3 gap-2">
@@ -95,12 +101,12 @@
 
       <div class="mt-3 flex flex-col gap-2">
         <p class="text-xs text-dimmed">
-          Прибавка на выбор (напр. +1 к одной из характеристик).
+          {{ FEAT_GRANTS_LABELS.asiChoiceHint }}
         </p>
 
         <div class="flex items-start gap-2">
           <UFormField
-            label="На каждую"
+            :label="FEAT_GRANTS_LABELS.asiChoiceAmount"
             class="w-1/4"
           >
             <UInputNumber
@@ -111,7 +117,7 @@
           </UFormField>
 
           <UFormField
-            label="Кол-во на выбор"
+            :label="GRANT_FIELD_LABELS.choiceCount"
             class="w-1/4"
           >
             <UInputNumber
@@ -122,7 +128,7 @@
           </UFormField>
 
           <UFormField
-            label="Из набора (пусто = любая)"
+            :label="FEAT_GRANTS_LABELS.asiChoiceFrom"
             class="flex-1"
           >
             <USelectMenu
@@ -133,7 +139,7 @@
               multiple
               :disabled="grants.asiChoiceCount === 0"
               class="w-full"
-              placeholder="Любая характеристика..."
+              :placeholder="FEAT_GRANTS_LABELS.asiChoiceFromPlaceholder"
             />
           </UFormField>
         </div>
@@ -142,13 +148,13 @@
 
     <!-- Владения -->
     <FormSection
-      title="Владения"
+      :title="GRANT_SECTION_LABELS.proficiencies"
       title-color="healing"
     >
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <UFormField
           v-if="!hideSkillProficiencies"
-          label="Навыки"
+          :label="GRANT_SECTION_LABELS.skills"
         >
           <USelectMenu
             v-model="grants.skillProficiencies"
@@ -157,11 +163,11 @@
             label-key="label"
             multiple
             class="w-full"
-            placeholder="Навыки..."
+            :placeholder="FEAT_GRANTS_LABELS.skillsPlaceholder"
           />
         </UFormField>
 
-        <UFormField label="Спасброски">
+        <UFormField :label="GRANT_SECTION_LABELS.savingThrows">
           <USelectMenu
             v-model="grants.savingThrowProficiencies"
             :items="abilitiesOptions"
@@ -169,11 +175,11 @@
             label-key="label"
             multiple
             class="w-full"
-            placeholder="Характеристики..."
+            :placeholder="GRANT_FIELD_LABELS.abilitiesPlaceholder"
           />
         </UFormField>
 
-        <UFormField label="Доспехи">
+        <UFormField :label="GRANT_SECTION_LABELS.armor">
           <USelectMenu
             v-model="grants.armorProficiencies"
             :items="armorOptions"
@@ -181,11 +187,11 @@
             label-key="label"
             multiple
             class="w-full"
-            placeholder="Доспехи..."
+            :placeholder="FEAT_GRANTS_LABELS.armorPlaceholder"
           />
         </UFormField>
 
-        <UFormField label="Оружие">
+        <UFormField :label="GRANT_SECTION_LABELS.weapons">
           <USelectMenu
             v-model="grants.weaponProficiencies"
             :items="weaponOptions"
@@ -193,11 +199,11 @@
             label-key="label"
             multiple
             class="w-full"
-            placeholder="Оружие..."
+            :placeholder="FEAT_GRANTS_LABELS.weaponsPlaceholder"
           />
         </UFormField>
 
-        <UFormField label="Инструменты">
+        <UFormField :label="GRANT_SECTION_LABELS.tools">
           <USelectMenu
             v-model="grants.toolProficiencies"
             :items="toolsOptions"
@@ -205,11 +211,11 @@
             label-key="label"
             multiple
             class="w-full"
-            placeholder="Инструменты..."
+            :placeholder="FEAT_GRANTS_LABELS.toolsPlaceholder"
           />
         </UFormField>
 
-        <UFormField label="Языки">
+        <UFormField :label="GRANT_SECTION_LABELS.languages">
           <USelectMenu
             v-model="grants.languages"
             :items="languageOptions"
@@ -217,7 +223,7 @@
             label-key="label"
             multiple
             class="w-full"
-            placeholder="Языки..."
+            :placeholder="FEAT_GRANTS_LABELS.languagesPlaceholder"
           />
         </UFormField>
       </div>
@@ -225,16 +231,16 @@
 
     <!-- Защиты -->
     <FormSection
-      title="Защиты и чувства"
+      :title="FEAT_GRANTS_LABELS.defensesTitle"
       title-color="healing"
     >
       <div class="flex flex-col gap-4">
-        <UFormField label="Защиты от типов урона">
+        <UFormField :label="FEAT_GRANTS_LABELS.damageDefenses">
           <DamageDefenseEditor v-model="grants.damageDefenses" />
         </UFormField>
 
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <UFormField label="Иммунитет к состояниям">
+          <UFormField :label="GRANT_FIELD_LABELS.conditionImmunities">
             <USelectMenu
               v-model="grants.conditionImmunities"
               :items="conditionOptions"
@@ -242,11 +248,11 @@
               label-key="label"
               multiple
               class="w-full"
-              placeholder="Состояния..."
+              :placeholder="GRANT_FIELD_LABELS.conditionsPlaceholder"
             />
           </UFormField>
 
-          <UFormField label="Тёмное зрение (фт., 0 = нет)">
+          <UFormField :label="GRANT_FIELD_LABELS.darkvision">
             <UInputNumber
               v-model="grants.darkvision"
               :min="0"
@@ -261,11 +267,11 @@
 
     <!-- Предусловия -->
     <FormSection
-      title="Предусловия (требования)"
+      :title="FEAT_GRANTS_LABELS.prerequisitesTitle"
       title-color="source"
     >
       <p class="mb-2 text-xs text-dimmed">
-        Информационные — при выдаче черты не проверяются.
+        {{ FEAT_GRANTS_LABELS.prerequisitesHint }}
       </p>
 
       <div class="grid grid-cols-3 gap-2">
@@ -286,7 +292,7 @@
       <div class="mt-3 flex flex-col gap-3">
         <div class="flex items-center gap-4">
           <UFormField
-            label="Мин. уровень"
+            :label="FEAT_GRANTS_LABELS.prerequisiteMinLevel"
             class="w-1/3"
           >
             <UInputNumber
@@ -298,15 +304,15 @@
 
           <UCheckbox
             v-model="grants.prerequisiteSpellcasting"
-            label="Требуется заклинательство"
+            :label="FEAT_GRANTS_LABELS.prerequisiteSpellcasting"
             class="mt-5"
           />
         </div>
 
-        <UFormField label="Произвольное требование">
+        <UFormField :label="FEAT_GRANTS_LABELS.prerequisiteText">
           <UInput
             v-model="grants.prerequisiteText"
-            placeholder="Напр. «Эльф или полуэльф»"
+            :placeholder="FEAT_GRANTS_LABELS.prerequisiteTextPlaceholder"
             class="w-full"
           />
         </UFormField>

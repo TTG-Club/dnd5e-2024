@@ -408,6 +408,11 @@ export const ITEM_FORM_LABELS = {
   attunementOptional: 'Опциональная',
   magicBonus: 'Бонус',
   attuned: 'Настроен',
+  baseType: 'Базовый тип',
+  selectTypePlaceholder: 'Выберите тип...',
+  /** Плейсхолдер числовых полей, у которых ноль — обычное значение */
+  zeroPlaceholder: '0',
+  magicBonusPlaceholder: '+1',
 } as const;
 
 /**
@@ -1117,6 +1122,210 @@ export const SPECIES_FORM_DEFAULT_NAMES = {
 } as const;
 
 /**
+ * Подписи окна правки снаряжения. Общие с окнами оружия и инструмента
+ * (ценность и вес, магический блок, базовый тип) берутся из
+ * `ITEM_FORM_LABELS`.
+ */
+export const EQUIPMENT_FORM_LABELS = {
+  editTitle: 'Редактировать снаряжение',
+  createTitle: 'Создать снаряжение',
+  namePlaceholder: 'Например, веревка или зелье',
+  nameEnPlaceholder: 'Rope or Potion',
+  descriptionPlaceholder: 'Описание снаряжения...',
+  category: 'Тип экипировки',
+  propertiesTitle: 'Свойства экипировки',
+  protectionTitle: 'Защита',
+  shieldBonus: 'Бонус к КД',
+  baseArmorClass: 'Базовый КД',
+  maxDexBonus: 'Макс. +Лов.',
+  /** Лёгкий доспех не ограничивает Ловкость — в поле стоит знак бесконечности */
+  unlimitedDexPlaceholder: '∞',
+  strengthRequirement: 'Требование Силы',
+  effectsEmpty: 'Нет эффектов у данной экипировки',
+} as const;
+
+/**
+ * Подписи окна правки инструмента. Общие с окнами оружия и снаряжения
+ * (ценность и вес, магический блок, базовый тип) берутся из
+ * `ITEM_FORM_LABELS`.
+ *
+ * Английское название здесь подписано `FORM_FIELD_LABELS.nameEn`: своя надпись
+ * «Название (English)» была единственной на девять форм — разнобой убран.
+ */
+export const TOOL_FORM_LABELS = {
+  editTitle: 'Редактировать инструмент',
+  createTitle: 'Создать инструмент',
+  namePlaceholder: 'Воровские инструменты',
+  nameEnPlaceholder: "Thieves' Tools",
+  descriptionPlaceholder: 'Описание инструмента...',
+  typeTitle: 'Тип инструмента',
+  category: 'Категория',
+  baseTypePlaceholder: 'Пользовательский...',
+  propertiesTitle: 'Свойства инструмента',
+  checkTitle: 'Проверка характеристики',
+  proficiencyMode: 'Умение',
+  proficiencyAuto: 'Автоматически',
+  proficiencyNone: 'Без умения',
+  proficiencyHalf: 'Наполовину',
+  proficiencyProficient: 'Умелый',
+  proficiencyExpertise: 'Экспертность',
+  bonus: 'Бонус инструмента',
+  effectsEmpty: 'Нет эффектов у данного инструмента',
+} as const;
+
+/** Заголовки всплывающих уведомлений — они одни у всех окон системы */
+export const TOAST_TITLES = {
+  error: 'Ошибка',
+} as const;
+
+/**
+ * Подписи окна настроек токена. Окно одно и то же у листа персонажа и листа
+ * существа: вкладки, владелец, отображение ХП, отношение и зрение у них
+ * совпадают до буквы. Своё у каждого только заголовок окна и подсказка
+ * «Виден всем» — про персонажа и про существо там сказано по-разному.
+ */
+export const TOKEN_SETTINGS_LABELS = {
+  tabGeneral: 'Общее',
+  tabToken: 'Токен',
+  tabVision: 'Зрение',
+  tabLighting: 'Освещение',
+  ownerNone: 'Не назначен',
+  ownerUnknown: 'Неизвестный пользователь',
+  /** Роль в подписи пользователя: мастер мира */
+  roleGm: 'GM',
+  /** Роль в подписи пользователя: обычный игрок */
+  rolePlayer: 'Игрок',
+  owner: 'Владелец',
+  savedTitle: 'Настройки сохранены',
+  savedOwnerPrefix: 'Владелец: ',
+  errorSave: 'Не удалось сохранить настройки',
+  visibleToAll: 'Виден всем',
+  autoSaves: 'Авто-спасброски',
+  autoSavesHint: 'Спасброски при заклинаниях кидаются автоматически.',
+  showName: 'Показывать имя',
+  showNameHint:
+    'По умолчанию имя токена скрыто и отображается только при включении этой '
+    + 'опции.',
+  hpDisplay: 'Отображение ХП',
+  hpBar: 'Полоска',
+  hpState: 'Состояние',
+  tokenSize: 'Размер токена',
+  disposition: 'Отношение токена (Disposition)',
+  dispositionFriendly: 'Дружелюбный',
+  dispositionNeutral: 'Нейтральный',
+  dispositionHostile: 'Враждебный',
+  dispositionHint:
+    'Влияет на автоматический расчёт радиусов аур. Враждебный по умолчанию.',
+  preview: 'Превью',
+  previewMove: 'Перемещение',
+  previewZoom: 'Колесо: Зум',
+  previewFrame: 'Рамка',
+  tokenImage: 'Изображение токена',
+  imageUrl: 'URL изображения',
+  visionEnabled: 'Зрение включено',
+  visionEnabledHint: 'Токен будет ограничен зрением',
+  vision: 'Зрение',
+  visionRangeHint: 'Дальность зрения в футах (0 = безграничное)',
+  darkvision: 'Тёмное зрение',
+  darkvisionRangeHint: 'Дальность зрения в темноте в футах',
+  hintPrefix: 'Подсказка:',
+  hintVision: 'Зрение: как далеко токен видит в дневном режиме',
+  hintDarkvision:
+    'Тёмное зрение: как далеко токен видит в темноте (эльфы, дварфы)',
+  hintNoDarkvision:
+    'Без тёмного зрения в ночи токен видит только освещённые области',
+} as const;
+
+/** Подписи окна настроек, свои у листа персонажа */
+export const ACTOR_SETTINGS_LABELS = {
+  title: 'Настройки персонажа',
+  visibleToAllHint:
+    'Игроки смогут видеть этого персонажа, но не смогут управлять им.',
+} as const;
+
+/**
+ * Подписи редактора даров черты. Блок общий: его показывают и форма черты, и
+ * форма предыстории — названия разделов владений берутся из
+ * `GRANT_SECTION_LABELS`, поля дара — из `GRANT_FIELD_LABELS`.
+ */
+export const FEAT_GRANTS_LABELS = {
+  asiTitle: 'Повышение характеристик',
+  asiChoiceHint: 'Прибавка на выбор (напр. +1 к одной из характеристик).',
+  asiChoiceAmount: 'На каждую',
+  asiChoiceFrom: 'Из набора (пусто = любая)',
+  asiChoiceFromPlaceholder: 'Любая характеристика...',
+  skillsPlaceholder: 'Навыки...',
+  armorPlaceholder: 'Доспехи...',
+  weaponsPlaceholder: 'Оружие...',
+  toolsPlaceholder: 'Инструменты...',
+  languagesPlaceholder: 'Языки...',
+  defensesTitle: 'Защиты и чувства',
+  damageDefenses: 'Защиты от типов урона',
+  prerequisitesTitle: 'Предусловия (требования)',
+  prerequisitesHint: 'Информационные — при выдаче черты не проверяются.',
+  prerequisiteMinLevel: 'Мин. уровень',
+  prerequisiteSpellcasting: 'Требуется заклинательство',
+  prerequisiteText: 'Произвольное требование',
+  prerequisiteTextPlaceholder: 'Напр. «Эльф или полуэльф»',
+} as const;
+
+/**
+ * Подписи окна правки предыстории. Общие с другими формами (название,
+ * описание, названия блоков даров) берутся из `FORM_FIELD_LABELS`,
+ * `FORM_TAB_LABELS`, `GRANT_SECTION_LABELS` и `GRANT_FIELD_LABELS`.
+ */
+export const BACKGROUND_FORM_LABELS = {
+  editTitle: 'Редактировать предысторию',
+  createTitle: 'Создать предысторию',
+  tabParams: 'Параметры',
+  namePlaceholder: 'Послушник',
+  nameEnPlaceholder: 'Acolyte',
+  keyPrefix: 'Машинный ключ:',
+  keySuffix: '— присваивается автоматически, при совпадении добавляется номер.',
+  abilitiesTitle: 'Характеристики и навыки',
+  abilities: 'Повышение характеристик (обычно 3)',
+  abilitiesPlaceholder: 'Выберите характеристики...',
+  skills: 'Навыки (обычно 2)',
+  skillsPlaceholder: 'Выберите навыки...',
+  abilitiesHint:
+    'Игрок распределяет +2/+1 или +1/+1/+1 между этими тремя характеристиками '
+    + 'в мастере применения.',
+  fixedTools: 'Фиксированные инструменты',
+  fixedToolsPlaceholder: 'Даются всегда...',
+  choiceTools: 'Доступно для выбора',
+  choiceToolsPlaceholder: 'Инструменты для выбора...',
+  featTitle: 'Черта-происхождение',
+  featFixed: 'Фиксированная черта',
+  featChoice: 'Выбор из нескольких',
+  feat: 'Черта (необязательно)',
+  featPlaceholder: 'Выберите черту...',
+  featChoices: 'Связка черт (для выбора)',
+  featChoicesPlaceholder: 'Отметьте черты для выбора...',
+  equipmentTitle: 'Стартовое снаряжение',
+  equipmentItems: 'Предметы снаряжения (Вариант А)',
+  equipmentItemsPlaceholder: 'Комплект отличной одежды, кошель...',
+  equipmentGold: 'Альтернативное золото (Вариант Б)',
+  grantsHint:
+    'Дополнительные владения и дары, которые предыстория выдаёт сверх '
+    + 'канонических характеристик/навыков (доспехи, оружие, языки, защиты, '
+    + 'тёмное зрение, предусловия). Применяются при выборе предыстории.',
+  spellsHint:
+    'Заклинания, которые предыстория выдаёт автоматически (всегда '
+    + 'подготовлены). Совпавшее с компендиумом выдаётся при применении.',
+  effectsHint:
+    'Активные эффекты (бонусы к характеристикам, КД, флаги и т.п.). '
+    + 'Переносятся на персонажа при применении предыстории.',
+  effectsEmpty: 'Эффектов пока нет.',
+  saveHint: 'Укажите название',
+} as const;
+
+/**
+ * Единица золота в описании варианта стартового снаряжения. Значение записи, а
+ * не подпись: строка уходит в сохранённую предысторию рядом с числом.
+ */
+export const BACKGROUND_GOLD_UNIT = 'зм';
+
+/**
  * Подписи окна правки класса. Общие с другими формами (название, описание,
  * шапка определения, названия блоков владений) берутся из `FORM_FIELD_LABELS`,
  * `FORM_TAB_LABELS`, `DEFINITION_FORM_LABELS`, `GRANT_SECTION_LABELS` и
@@ -1174,17 +1383,13 @@ export const WEAPON_FORM_LABELS = {
   namePlaceholder: 'Длинный меч',
   nameEnPlaceholder: 'Longsword',
   descriptionPlaceholder: 'Описание оружия...',
-  /** Плейсхолдер числовых полей, у которых ноль — обычное значение */
-  zeroPlaceholder: '0',
   rangeTypeMelee: 'Рукопашное',
   rangeTypeRanged: 'Дальнобойное',
   baseWeapon: 'Базовое оружие',
-  selectTypePlaceholder: 'Выберите тип...',
   weaponType: 'Тип оружия',
   mastery: 'Приём (Mastery)',
   masteryPlaceholder: 'Нет',
   propertiesTitle: 'Свойства оружия',
-  magicBonusPlaceholder: '+1',
   damageTitle: 'Урон',
   damageHint:
     'Модификатор характеристики и магический бонус добавляются к урону '

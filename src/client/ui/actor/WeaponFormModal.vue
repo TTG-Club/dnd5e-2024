@@ -272,7 +272,7 @@
                       v-model.number="costValue"
                       type="number"
                       :min="0"
-                      :placeholder="WEAPON_FORM_LABELS.zeroPlaceholder"
+                      :placeholder="ITEM_FORM_LABELS.zeroPlaceholder"
                       class="flex-1"
                     />
 
@@ -369,7 +369,7 @@
                     v-model="baseType"
                     :items="baseTypeOptions"
                     value-key="value"
-                    :placeholder="WEAPON_FORM_LABELS.selectTypePlaceholder"
+                    :placeholder="ITEM_FORM_LABELS.selectTypePlaceholder"
                     class="flex-1"
                   />
                 </div>
@@ -466,7 +466,7 @@
                       type="number"
                       :min="0"
                       :max="10"
-                      :placeholder="WEAPON_FORM_LABELS.magicBonusPlaceholder"
+                      :placeholder="ITEM_FORM_LABELS.magicBonusPlaceholder"
                       class="w-full"
                     />
                   </UFormField>
@@ -510,7 +510,7 @@
                     v-model="ammunitionType"
                     :items="ammunitionTypeOptions"
                     value-key="value"
-                    :placeholder="WEAPON_FORM_LABELS.selectTypePlaceholder"
+                    :placeholder="ITEM_FORM_LABELS.selectTypePlaceholder"
                     class="w-full"
                   />
                 </UFormField>
@@ -642,7 +642,7 @@
                   <UInput
                     v-model.number="attackBonus"
                     type="number"
-                    :placeholder="WEAPON_FORM_LABELS.zeroPlaceholder"
+                    :placeholder="ITEM_FORM_LABELS.zeroPlaceholder"
                     class="w-full"
                   />
                 </UFormField>

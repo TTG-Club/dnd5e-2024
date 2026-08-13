@@ -25,8 +25,15 @@
     SAVE_TYPE_OPTIONS,
   } from '@vtt/shared/system/dnd.js';
 
-  import { MODAL_BUTTON_LABELS } from '../actor/constants';
+  import {
+    AREA_FIELD_LABELS,
+    FORM_FIELD_LABELS,
+    FORM_TAB_LABELS,
+    MODAL_BUTTON_LABELS,
+    RANGE_FIELD_LABELS,
+  } from '../actor/constants';
   import DamagePartsEditor from '../actor/DamagePartsEditor.vue';
+  import { CREATURE_ACTION_FORM_LABELS } from './constants';
 
   type ActionMode = 'trait' | 'action';
 
@@ -69,12 +76,13 @@
 
   /** Заголовок модалки */
   const modalTitle = computed(() => {
-    const isEditing = !!props.action?.name;
-    const typeLabel = props.mode === 'trait' ? 'Черта' : 'Действие';
+    if (props.action?.name) {
+      return `${CREATURE_ACTION_FORM_LABELS.editTitlePrefix}${props.action.name}`;
+    }
 
-    return isEditing
-      ? `Редактирование: ${props.action!.name}`
-      : `Новая ${typeLabel === 'Черта' ? 'черта' : 'действие'}`;
+    return props.mode === 'trait'
+      ? CREATURE_ACTION_FORM_LABELS.createTraitTitle
+      : CREATURE_ACTION_FORM_LABELS.createActionTitle;
   });
 
   // ── Локальная форма ────────────────────────────────────────────────────────
@@ -131,14 +139,17 @@
   /** Вкладки формы (боевые параметры — только у действий) */
   const tabItems = computed(() => {
     const items: Array<{ label: string; slot: string }> = [
-      { label: 'Основное', slot: 'general' },
+      { label: FORM_TAB_LABELS.main, slot: 'general' },
     ];
 
     if (hasCombatFields.value) {
-      items.push({ label: 'Боевые параметры', slot: 'combat' });
+      items.push({
+        label: CREATURE_ACTION_FORM_LABELS.tabCombat,
+        slot: 'combat',
+      });
     }
 
-    items.push({ label: 'Эффекты', slot: 'effects' });
+    items.push({ label: FORM_TAB_LABELS.effects, slot: 'effects' });
 
     return items;
   });
@@ -411,15 +422,15 @@
           <template #general>
             <div class="space-y-3">
               <div class="grid grid-cols-2 gap-3">
-                <UFormField label="Название">
+                <UFormField :label="FORM_FIELD_LABELS.name">
                   <UInput
                     v-model="form.name"
-                    placeholder="Название действия или черты"
+                    :placeholder="CREATURE_ACTION_FORM_LABELS.namePlaceholder"
                     class="w-full"
                   />
                 </UFormField>
 
-                <UFormField label="Английское название">
+                <UFormField :label="FORM_FIELD_LABELS.nameEn">
                   <UInput
                     v-model="form.nameEn"
                     placeholder="Multiattack"
@@ -428,10 +439,12 @@
                 </UFormField>
               </div>
 
-              <UFormField label="Описание">
+              <UFormField :label="FORM_FIELD_LABELS.description">
                 <RichTextEditor
                   v-model="form.description"
-                  placeholder="Описание..."
+                  :placeholder="
+                    CREATURE_ACTION_FORM_LABELS.descriptionPlaceholder
+                  "
                 />
               </UFormField>
             </div>
@@ -441,12 +454,18 @@
           <template #combat>
             <div class="space-y-3">
               <div class="grid grid-cols-2 gap-3">
-                <UFormField label="Тип атаки">
+                <UFormField :label="FORM_FIELD_LABELS.attackType">
                   <USelect
                     v-model="form.rangeType"
                     :items="[
-                      { label: 'Ближний бой', value: 'melee' },
-                      { label: 'Дальний бой', value: 'ranged' },
+                      {
+                        label: CREATURE_ACTION_FORM_LABELS.rangeTypeMelee,
+                        value: 'melee',
+                      },
+                      {
+                        label: CREATURE_ACTION_FORM_LABELS.rangeTypeRanged,
+                        value: 'ranged',
+                      },
                     ]"
                     value-key="value"
                     class="w-full"
@@ -456,7 +475,7 @@
 
                 <UFormField
                   v-if="!hasSave"
-                  label="+ к попаданию"
+                  :label="CREATURE_ACTION_FORM_LABELS.attackBonus"
                 >
                   <UInput
                     v-model="form.attackBonus"
@@ -470,12 +489,11 @@
               <!-- Урон (единая со заклинаниями и оружием система частей) -->
               <div class="space-y-2">
                 <span class="text-xs font-semibold tracking-wide text-warning">
-                  Урон / лечение
+                  {{ CREATURE_ACTION_FORM_LABELS.damageTitle }}
                 </span>
 
                 <p class="text-xs text-muted">
-                  Указывайте плоские формулы (модификатор уже вшит, напр. «1к8 +
-                  3»). Тип урона, лечение и условия — токенами в формуле.
+                  {{ CREATURE_ACTION_FORM_LABELS.damageHint }}
                 </p>
 
                 <DamagePartsEditor
@@ -492,11 +510,13 @@
                 class="space-y-2 rounded-lg border border-muted/60 bg-elevated/20 p-3"
               >
                 <span class="text-xs font-semibold tracking-wide text-error">
-                  Спасбросок
+                  {{ FORM_FIELD_LABELS.savingThrow }}
                 </span>
 
                 <div class="grid grid-cols-3 gap-3">
-                  <UFormField label="Тип">
+                  <UFormField
+                    :label="CREATURE_ACTION_FORM_LABELS.saveTypeShort"
+                  >
                     <USelect
                       v-model="form.saveType"
                       :items="SAVE_TYPE_OPTIONS"
@@ -508,7 +528,7 @@
 
                   <UFormField
                     v-if="hasSave"
-                    label="Сложность (DC)"
+                    :label="FORM_FIELD_LABELS.saveDc"
                   >
                     <UInput
                       v-model.number="form.saveDC"
@@ -521,7 +541,7 @@
 
                   <UFormField
                     v-if="hasSave"
-                    label="При успехе"
+                    :label="FORM_FIELD_LABELS.saveEffect"
                   >
                     <USelect
                       v-model="form.saveEffect"
@@ -540,14 +560,14 @@
               >
                 <UCheckbox
                   v-model="form.useArea"
-                  label="Область действия (шаблон)"
+                  :label="CREATURE_ACTION_FORM_LABELS.areaTitle"
                 />
 
                 <div
                   v-if="form.useArea"
                   class="grid grid-cols-3 gap-3"
                 >
-                  <UFormField label="Форма">
+                  <UFormField :label="AREA_FIELD_LABELS.shape">
                     <USelect
                       v-model="form.areaShape"
                       :items="AREA_SHAPE_OPTIONS"
@@ -566,7 +586,7 @@
                     />
                   </UFormField>
 
-                  <UFormField label="Ед.">
+                  <UFormField :label="FORM_FIELD_LABELS.unitShort">
                     <USelect
                       v-model="form.areaUnit"
                       :items="DISTANCE_UNIT_OPTIONS"
@@ -578,7 +598,7 @@
 
                   <UFormField
                     v-if="showAreaWidth"
-                    label="Ширина"
+                    :label="AREA_FIELD_LABELS.width"
                   >
                     <UInput
                       v-model.number="form.areaWidth"
@@ -590,7 +610,7 @@
 
                   <UFormField
                     v-if="showAreaHeight"
-                    label="Высота"
+                    :label="AREA_FIELD_LABELS.height"
                   >
                     <UInput
                       v-model.number="form.areaHeight"
@@ -603,7 +623,7 @@
                   <div class="col-span-3">
                     <UCheckbox
                       v-model="form.areaResizable"
-                      label="Размер можно менять при размещении"
+                      :label="AREA_FIELD_LABELS.resizable"
                     />
                   </div>
                 </div>
@@ -617,7 +637,7 @@
                   <span
                     class="text-xs font-semibold tracking-wide text-primary"
                   >
-                    Дистанция
+                    {{ FORM_FIELD_LABELS.range }}
                   </span>
 
                   <USelect
@@ -632,7 +652,7 @@
 
                 <div class="grid grid-cols-3 gap-3">
                   <!-- Досягаемость -->
-                  <UFormField label="Досягаемость">
+                  <UFormField :label="RANGE_FIELD_LABELS.reach">
                     <UInput
                       v-model.number="form.reach"
                       type="number"
@@ -643,7 +663,7 @@
                   </UFormField>
 
                   <!-- Нормальная -->
-                  <UFormField label="Нормальная">
+                  <UFormField :label="RANGE_FIELD_LABELS.normal">
                     <UInput
                       v-model.number="form.rangeNormal"
                       type="number"
@@ -654,7 +674,7 @@
                   </UFormField>
 
                   <!-- Максимальная -->
-                  <UFormField label="Максимальная">
+                  <UFormField :label="RANGE_FIELD_LABELS.long">
                     <UInput
                       v-model.number="form.rangeLong"
                       type="number"
@@ -675,7 +695,7 @@
                 <span
                   class="text-xs font-semibold tracking-wider text-muted uppercase"
                 >
-                  Активные эффекты
+                  {{ CREATURE_ACTION_FORM_LABELS.effectsTitle }}
                 </span>
 
                 <UButton
@@ -693,8 +713,7 @@
                 v-if="form.activeEffects.length === 0"
                 class="rounded-lg border border-dashed border-default p-4 text-center text-xs text-dimmed italic"
               >
-                Нет активных эффектов. Эффекты применяются при активации черты
-                или попадании атакой.
+                {{ CREATURE_ACTION_FORM_LABELS.effectsEmpty }}
               </div>
 
               <div
@@ -724,9 +743,13 @@
                       class="text-xs text-dimmed"
                     >
                       {{ effect.changes.length }} модификатор{{
-                        effect.changes.length !== 1 ? 'а/ов' : ''
+                        effect.changes.length !== 1
+                          ? CREATURE_ACTION_FORM_LABELS.countSuffix
+                          : ''
                       }}, {{ effect.flags.length }} флаг{{
-                        effect.flags.length !== 1 ? 'а/ов' : ''
+                        effect.flags.length !== 1
+                          ? CREATURE_ACTION_FORM_LABELS.countSuffix
+                          : ''
                       }}
                     </div>
                   </div>
@@ -734,7 +757,11 @@
                   <USwitch
                     :model-value="!effect.disabled"
                     size="sm"
-                    :title="effect.disabled ? 'Включить' : 'Выключить'"
+                    :title="
+                      effect.disabled
+                        ? CREATURE_ACTION_FORM_LABELS.effectEnable
+                        : CREATURE_ACTION_FORM_LABELS.effectDisable
+                    "
                     @update:model-value="toggleEffect(effectIndex)"
                   />
 
@@ -743,7 +770,7 @@
                     variant="ghost"
                     icon="tabler:edit"
                     size="xs"
-                    title="Редактировать эффект"
+                    :title="CREATURE_ACTION_FORM_LABELS.effectEdit"
                     @click.left.exact.prevent="openEffectEditor(effectIndex)"
                   />
 
@@ -752,7 +779,7 @@
                     variant="ghost"
                     icon="tabler:trash"
                     size="xs"
-                    title="Удалить эффект"
+                    :title="CREATURE_ACTION_FORM_LABELS.effectRemove"
                     @click.left.exact.prevent="removeEffect(effectIndex)"
                   />
                 </div>
