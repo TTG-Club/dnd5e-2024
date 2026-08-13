@@ -215,6 +215,26 @@ export const CREATURE_SPELL_RECOVERY_CHIPS: Array<{
   },
 ];
 
+/** Подписи окна защит существа */
+export const CREATURE_DEFENSES_LABELS = {
+  bypassAdamantine: 'Адамантиновое',
+  bypassMagical: 'Магическое',
+  bypassSilvered: 'Посеребрённое',
+  /** Заголовки окна по виду защиты, который в нём правят */
+  titleVulnerabilities: 'Уязвимости',
+  titleResistances: 'Сопротивления',
+  titleImmunities: 'Иммунитеты',
+  /** Заголовок, когда вид защиты в окно не передан */
+  titleFallback: 'Защиты',
+  damageTypes: 'Типы урона',
+  bypassTitle: 'Физическое пробивание',
+  bypassHint:
+    'Предметы с этим свойством игнорируют устойчивость к физическому урону.',
+  customTitle: 'Особое',
+  customPlaceholder: 'от немагического оружия...',
+  customHint: 'Значения разделяются точкой с запятой.',
+} as const;
+
 /** Подписи блока навыков существа */
 export const CREATURE_SKILLS_LABELS = {
   open: 'Настроить навыки',

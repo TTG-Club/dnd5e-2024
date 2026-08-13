@@ -1332,6 +1332,78 @@ export const ACTOR_SHEET_LABELS = {
 export const ACTOR_SHEET_LOG_PREFIX =
   '[ActorModal] Не удалось привести актёра к форме D&D:';
 
+/** Подписи шага заклинательства в мастере создания класса */
+export const WIZARD_SPELLCASTING_LABELS = {
+  abilityPrefix: 'Заклинательная характеристика:',
+  cantrips: 'Заговоры',
+  prepared: 'Подгот.',
+  /** Приписка к числу ячеек, когда они пактовые */
+  pactSuffix: ' (Пакт)',
+  choosePrefix: 'Выберите',
+  chooseCantripsSuffix: 'новых заговоров.',
+  chooseSpells: 'Выберите новые заклинания:',
+  viewSpells: 'Посмотреть заклинания',
+  /** Подпись круга заговора в списке выбора */
+  cantripBadge: 'заговор',
+  /** Приписка круга заклинания: «3» + это = «3 кр.» */
+  levelBadgeSuffix: ' кр.',
+  manualHint:
+    'Выбор конкретных заклинаний доступен в разделе заклинаний персонажа.',
+  title: 'Заклинания',
+  /** Заголовок списка заклинаний от умений — дальше в скобках их число */
+  grantedPrefix: 'Заклинания от умений (',
+  countSuffix: ')',
+  /** Приставка умения-источника у значка заклинания */
+  featurePrefix: 'Умение: ',
+  chooseSpellsSuffix: 'новых заклинаний',
+  circleSuffix: 'круга.',
+  spellsCountSuffix: 'заклинаний',
+  selectedPrefix: 'Выбранные заклинания (',
+} as const;
+
+/** Подписи редактора особенности вида */
+export const SPECIES_FEATURE_LABELS = {
+  namePlaceholder: 'Название особенности',
+  informationalOnly:
+    'Только информационная (без механики — просто текст, не выдаёт '
+    + 'скорость/зрение/заклинания и не попадает в умения)',
+  speedTitle: 'Скорость от особенности (фт., 0 = не даёт)',
+  grantedSpells: 'Заклинания (выдаются особенностью)',
+} as const;
+
+/** Подписи карточки предыстории — окна просмотра записи */
+export const BACKGROUND_DETAIL_LABELS = {
+  /** Заголовок окна, когда предыстории в окне ещё нет */
+  fallbackTitle: 'Предыстория',
+  /** Связка перечисления перед последним пунктом */
+  listAnd: ' и ',
+  /** Хвост строки выбора инструментов — перед ним идёт их число */
+  toolChoiceSuffix: ' на выбор из списка',
+  abilities: 'Характеристики',
+  featTitle: 'ЧЕРТА',
+  featChoicePrefix: 'На выбор одна из черт:',
+  extraGrantsTitle: 'ДОПОЛНИТЕЛЬНЫЕ ДАРЫ',
+  equipmentTitle: 'СНАРЯЖЕНИЕ',
+  /** Буквы вариантов стартового снаряжения */
+  equipmentOptionA: 'А',
+  equipmentOptionB: 'Б',
+} as const;
+
+/** Подписи вкладки особенностей листа персонажа */
+export const ACTOR_FEATURES_TAB_LABELS = {
+  /** Приставка выбранного варианта в описании особенности */
+  selectedChoiceMarkdownPrefix: '\n\n**Выбранный вариант:** ',
+  /** Приписка уровня особенности: «3» + это = «3 ур.» */
+  levelBadgeSuffix: ' ур.',
+  add: 'Добавить особенность',
+  edit: 'Редактировать особенность',
+  selectedChoice: 'Выбранный вариант',
+  empty: 'Нет особенностей',
+  featsTitle: 'Черты',
+  featsDropHere: 'Перетащите сюда',
+  featsEmpty: 'В данный момент черт нет',
+} as const;
+
 /** Подписи окна счётчиков ресурсов класса */
 export const CLASS_COUNTERS_MODAL_LABELS = {
   title: 'Счётчики ресурсов',

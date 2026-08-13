@@ -17,6 +17,11 @@
     toolProficiencyLabel,
   } from '@vtt/shared/system/dnd.js';
 
+  import {
+    BACKGROUND_DETAIL_LABELS,
+    COPY_TO_ITEMS_LABEL,
+    GRANT_SECTION_LABELS,
+  } from '../constants';
   import SourceBadge from '../SourceBadge.vue';
 
   const props = defineProps<{
@@ -76,10 +81,10 @@
 
     if (data.value.toolGrant.choices?.count) {
       if (toolsStr) {
-        toolsStr += ' и ';
+        toolsStr += BACKGROUND_DETAIL_LABELS.listAnd;
       }
 
-      toolsStr += `${data.value.toolGrant.choices.count} на выбор из списка`;
+      toolsStr += `${data.value.toolGrant.choices.count}${BACKGROUND_DETAIL_LABELS.toolChoiceSuffix}`;
     }
 
     return toolsStr;
@@ -148,7 +153,7 @@
 <template>
   <UDraggableModal
     :open="open"
-    :title="data ? data.name : 'Предыстория'"
+    :title="data ? data.name : BACKGROUND_DETAIL_LABELS.fallbackTitle"
     :subtitle="data?.nameEn || undefined"
     :initial-width="800"
     :initial-height="600"
@@ -176,7 +181,7 @@
 
       <UTooltip
         v-if="showCopyButton"
-        text="Скопировать в предметы"
+        :text="COPY_TO_ITEMS_LABEL"
       >
         <UButton
           icon="tabler:copy"
@@ -211,8 +216,9 @@
           >
             <span
               class="block text-[10px] font-medium tracking-wider text-dimmed uppercase"
-              >Характеристики</span
             >
+              {{ BACKGROUND_DETAIL_LABELS.abilities }}
+            </span>
 
             <p class="mt-0.5 text-sm font-semibold text-highlighted">
               {{ abilitiesDisplay }}
@@ -225,8 +231,9 @@
           >
             <span
               class="block text-[10px] font-medium tracking-wider text-dimmed uppercase"
-              >Навыки</span
             >
+              {{ GRANT_SECTION_LABELS.skills }}
+            </span>
 
             <p class="mt-0.5 text-sm font-semibold text-highlighted">
               {{ skillsDisplay }}
@@ -242,8 +249,9 @@
           >
             <span
               class="block text-[10px] font-medium tracking-wider text-dimmed uppercase"
-              >Инструменты</span
             >
+              {{ GRANT_SECTION_LABELS.tools }}
+            </span>
 
             <p class="mt-0.5 text-sm font-semibold text-highlighted">
               {{ toolsDisplay }}
@@ -257,7 +265,7 @@
           class="rounded-lg border border-default/50 p-4"
         >
           <h3 class="mb-3 text-sm font-semibold tracking-wider text-primary">
-            ЧЕРТА
+            {{ BACKGROUND_DETAIL_LABELS.featTitle }}
           </h3>
 
           <!-- Конкретная черта -->
@@ -286,7 +294,9 @@
             v-else-if="data.featGrant.featChoices?.length"
             class="space-y-2"
           >
-            <p class="text-xs text-muted">На выбор одна из черт:</p>
+            <p class="text-xs text-muted">
+              {{ BACKGROUND_DETAIL_LABELS.featChoicePrefix }}
+            </p>
 
             <div class="flex flex-wrap gap-2">
               <UBadge
@@ -309,7 +319,7 @@
           class="rounded-lg border border-default/50 p-4"
         >
           <h3 class="mb-3 text-sm font-semibold tracking-wider text-primary">
-            ДОПОЛНИТЕЛЬНЫЕ ДАРЫ
+            {{ BACKGROUND_DETAIL_LABELS.extraGrantsTitle }}
           </h3>
 
           <ItemDescriptionRenderer :content="grantsSummary" />
@@ -321,7 +331,7 @@
           class="rounded-lg border border-default/50 p-4"
         >
           <h3 class="mb-3 text-sm font-semibold tracking-wider text-primary">
-            СНАРЯЖЕНИЕ
+            {{ BACKGROUND_DETAIL_LABELS.equipmentTitle }}
           </h3>
 
           <ul class="space-y-3">
@@ -333,7 +343,11 @@
               <div
                 class="mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-elevated text-[10px] text-muted"
               >
-                {{ idx === 0 ? 'А' : 'Б' }}
+                {{
+                  idx === 0
+                    ? BACKGROUND_DETAIL_LABELS.equipmentOptionA
+                    : BACKGROUND_DETAIL_LABELS.equipmentOptionB
+                }}
               </div>
 
               <p class="text-sm text-toned">

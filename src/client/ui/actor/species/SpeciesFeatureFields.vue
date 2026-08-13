@@ -4,6 +4,12 @@
 
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
 
+  import {
+    FORM_FIELD_LABELS,
+    GRANT_FIELD_LABELS,
+    SPECIES_FEATURE_LABELS,
+    SPECIES_FORM_LABELS,
+  } from '../constants';
   import GrantedSpellsEditor from '../GrantedSpellsEditor.vue';
 
   defineProps<{
@@ -32,15 +38,15 @@
 <template>
   <div class="flex flex-col gap-3">
     <div class="grid grid-cols-[1fr_auto] gap-3">
-      <UFormField label="Название">
+      <UFormField :label="FORM_FIELD_LABELS.name">
         <UInput
           v-model="feature.name"
-          placeholder="Название особенности"
+          :placeholder="SPECIES_FEATURE_LABELS.namePlaceholder"
           class="w-full"
         />
       </UFormField>
 
-      <UFormField label="Уровень">
+      <UFormField :label="FORM_FIELD_LABELS.level">
         <UInputNumber
           v-model="feature.level"
           :min="1"
@@ -50,26 +56,26 @@
       </UFormField>
     </div>
 
-    <UFormField label="Описание (Markdown)">
+    <UFormField :label="FORM_FIELD_LABELS.descriptionMarkdown">
       <RichTextEditor v-model="feature.description" />
     </UFormField>
 
     <UCheckbox
       v-model="feature.isInformationalOnly"
-      label="Только информационная (без механики — просто текст, не выдаёт скорость/зрение/заклинания и не попадает в умения)"
+      :label="SPECIES_FEATURE_LABELS.informationalOnly"
     />
 
     <!-- Механика особенности скрыта у информационных — она всё равно не
          применяется, чтобы не вводить в заблуждение -->
     <template v-if="!feature.isInformationalOnly">
-      <UFormField label="Скорость от особенности (фт., 0 = не даёт)">
+      <UFormField :label="SPECIES_FEATURE_LABELS.speedTitle">
         <div class="grid grid-cols-2 gap-2 sm:grid-cols-5">
           <UInputNumber
             v-model="feature.movement.walk"
             :min="0"
             :max="200"
             :ui="{ base: 'w-full' }"
-            placeholder="Ходьба"
+            :placeholder="SPECIES_FORM_LABELS.speedWalk"
           />
 
           <UInputNumber
@@ -77,7 +83,7 @@
             :min="0"
             :max="200"
             :ui="{ base: 'w-full' }"
-            placeholder="Полёт"
+            :placeholder="SPECIES_FORM_LABELS.speedFly"
           />
 
           <UInputNumber
@@ -85,7 +91,7 @@
             :min="0"
             :max="200"
             :ui="{ base: 'w-full' }"
-            placeholder="Плавание"
+            :placeholder="SPECIES_FORM_LABELS.speedSwim"
           />
 
           <UInputNumber
@@ -93,7 +99,7 @@
             :min="0"
             :max="200"
             :ui="{ base: 'w-full' }"
-            placeholder="Лазание"
+            :placeholder="SPECIES_FORM_LABELS.speedClimb"
           />
 
           <UInputNumber
@@ -101,12 +107,12 @@
             :min="0"
             :max="200"
             :ui="{ base: 'w-full' }"
-            placeholder="Копание"
+            :placeholder="SPECIES_FORM_LABELS.speedBurrow"
           />
         </div>
       </UFormField>
 
-      <UFormField label="Тёмное зрение (фт., 0 = нет)">
+      <UFormField :label="GRANT_FIELD_LABELS.darkvision">
         <UInputNumber
           v-model="feature.darkvision"
           :min="0"
@@ -115,7 +121,7 @@
         />
       </UFormField>
 
-      <UFormField label="Заклинания (выдаются особенностью)">
+      <UFormField :label="SPECIES_FEATURE_LABELS.grantedSpells">
         <GrantedSpellsEditor
           v-model="feature.grantedSpells"
           :available-spells="availableSpells"

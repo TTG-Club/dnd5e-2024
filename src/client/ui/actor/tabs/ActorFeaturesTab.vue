@@ -16,6 +16,7 @@
 
   import { useFeatModal } from '../../../composables/useFeatModal';
   import {
+    ACTOR_FEATURES_TAB_LABELS,
     FEATURE_ORIGIN_HINTS,
     FEATURE_ORIGIN_LABELS,
     FEATURE_ORIGIN_ORDER,
@@ -358,7 +359,7 @@
       );
 
       if (selectedChoice) {
-        description += `\n\n**Выбранный вариант:** ${selectedChoice.name}\n${selectedChoice.description}`;
+        description += `${ACTOR_FEATURES_TAB_LABELS.selectedChoiceMarkdownPrefix}${selectedChoice.name}\n${selectedChoice.description}`;
       }
     }
 
@@ -380,12 +381,12 @@
 
     if (feature.featureType === 'species') {
       badges.push({
-        text: 'Вид',
+        text: FEATURE_ORIGIN_LABELS.species,
         color: 'primary',
       });
     } else if (feature.level) {
       badges.push({
-        text: `${feature.level} ур.`,
+        text: `${feature.level}${ACTOR_FEATURES_TAB_LABELS.levelBadgeSuffix}`,
         color: 'primary',
       });
     }
@@ -412,7 +413,7 @@
   // --- CRUD особенностей ---
   function addFeature() {
     openModal('EntityEditModal', {
-      title: 'Добавить особенность',
+      title: ACTOR_FEATURES_TAB_LABELS.add,
       showLevel: true,
       onSave: (data: { name: string; description: string; level?: number }) => {
         const newFeature: Feature = {
@@ -525,7 +526,7 @@
       feature.featureType === 'species' || feature.featureType === 'class';
 
     openModal('EntityEditModal', {
-      title: 'Редактировать особенность',
+      title: ACTOR_FEATURES_TAB_LABELS.edit,
       initialName: feature.name,
       initialDescription: isSrdFeature
         ? getEnrichedDescription(feature)
@@ -535,7 +536,9 @@
       // Если есть choices — передаём их
       choices: choicesData?.choices,
       initialChoiceKey: choicesData?.currentChoiceKey,
-      choiceLabel: choicesData ? 'Выбранный вариант' : undefined,
+      choiceLabel: choicesData
+        ? ACTOR_FEATURES_TAB_LABELS.selectedChoice
+        : undefined,
       readonlyCore: isSrdFeature,
       onSave: (data: {
         name: string;
@@ -675,7 +678,7 @@
           :size="FILTER_ROW_CONTROL_SIZE"
           @click.left.exact.prevent="addFeature"
         >
-          Добавить особенность
+          {{ ACTOR_FEATURES_TAB_LABELS.add }}
         </UButton>
       </div>
     </div>
@@ -686,7 +689,7 @@
         v-if="regularFeatures.length === 0"
         class="py-4 text-center text-sm text-dimmed"
       >
-        Нет особенностей
+        {{ ACTOR_FEATURES_TAB_LABELS.empty }}
       </div>
 
       <div
@@ -711,7 +714,7 @@
               size="sm"
               class="shrink-0"
             >
-              Вид
+              {{ FEATURE_ORIGIN_LABELS.species }}
             </UBadge>
 
             <UBadge
@@ -759,7 +762,7 @@
       <h4
         class="mt-5 mb-1 text-xs font-semibold tracking-wider text-muted uppercase"
       >
-        Черты
+        {{ ACTOR_FEATURES_TAB_LABELS.featsTitle }}
       </h4>
 
       <!-- Список черт -->
@@ -772,7 +775,11 @@
             : 'border-default/30 text-dimmed'
         "
       >
-        {{ isDragOver ? 'Перетащите сюда' : 'В данный момент черт нет' }}
+        {{
+          isDragOver
+            ? ACTOR_FEATURES_TAB_LABELS.featsDropHere
+            : ACTOR_FEATURES_TAB_LABELS.featsEmpty
+        }}
       </div>
 
       <div

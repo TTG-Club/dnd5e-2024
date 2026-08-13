@@ -26,6 +26,7 @@
     getPactSlotInfo,
   } from '@vtt/shared/system/dnd.js';
 
+  import { WIZARD_SPELLCASTING_LABELS } from '../../constants';
   import { ABILITY_LABELS } from './constants';
 
   const props = defineProps<{
@@ -401,7 +402,9 @@
 
 <template>
   <div class="space-y-3">
-    <span class="mb-2 block text-sm font-medium text-toned"> Заклинания </span>
+    <span class="mb-2 block text-sm font-medium text-toned">
+      {{ WIZARD_SPELLCASTING_LABELS.title }}
+    </span>
 
     <!-- Заклинания, автоматически предоставленные умениями -->
     <div
@@ -411,7 +414,8 @@
       <span
         class="block text-xs font-semibold tracking-wider text-muted uppercase"
       >
-        Заклинания от умений ({{ grantedSpells.length }})
+        {{ WIZARD_SPELLCASTING_LABELS.grantedPrefix }}{{ grantedSpells.length
+        }}{{ WIZARD_SPELLCASTING_LABELS.countSuffix }}
       </span>
 
       <div class="flex flex-wrap gap-1.5">
@@ -430,7 +434,8 @@
           {{ granted.spell.name }}
 
           <span class="text-[10px] opacity-60">
-            Умение: {{ granted.featureName }}
+            {{ WIZARD_SPELLCASTING_LABELS.featurePrefix
+            }}{{ granted.featureName }}
           </span>
         </UBadge>
       </div>
@@ -444,9 +449,9 @@
       <div
         class="rounded-lg border border-magic-border/40 bg-magic-subtle/10 px-3 py-2"
       >
-        <span class="text-sm text-magic/80"
-          >Заклинательная характеристика:</span
-        >
+        <span class="text-sm text-magic/80">
+          {{ WIZARD_SPELLCASTING_LABELS.abilityPrefix }}
+        </span>
 
         <span class="ml-1 text-sm font-semibold text-magic-muted">{{
           spellcastingAbilityLabel
@@ -459,7 +464,9 @@
           v-if="cantripsKnown !== null"
           class="flex flex-col items-center rounded-md border border-default/50 bg-elevated/30 px-2.5 py-1.5"
         >
-          <span class="text-[10px] font-medium text-dimmed">Заговоры</span>
+          <span class="text-[10px] font-medium text-dimmed">
+            {{ WIZARD_SPELLCASTING_LABELS.cantrips }}
+          </span>
 
           <span class="text-sm font-bold text-highlighted">{{
             cantripsKnown
@@ -470,7 +477,9 @@
           v-if="preparedSpells !== null"
           class="flex flex-col items-center rounded-md border border-default/50 bg-elevated/30 px-2.5 py-1.5"
         >
-          <span class="text-[10px] font-medium text-dimmed">Подгот.</span>
+          <span class="text-[10px] font-medium text-dimmed">
+            {{ WIZARD_SPELLCASTING_LABELS.prepared }}
+          </span>
 
           <span class="text-sm font-bold text-highlighted">{{
             preparedSpells
@@ -482,9 +491,10 @@
           :key="slot.level"
           class="flex flex-col items-center rounded-md border border-default/50 bg-elevated/30 px-2.5 py-1.5"
         >
-          <span class="text-[10px] font-medium text-dimmed"
-            >{{ slot.level }} кр.{{ slot.isPact ? ' (Пакт)' : '' }}</span
-          >
+          <span class="text-[10px] font-medium text-dimmed">
+            {{ slot.level }}{{ WIZARD_SPELLCASTING_LABELS.levelBadgeSuffix
+            }}{{ slot.isPact ? WIZARD_SPELLCASTING_LABELS.pactSuffix : '' }}
+          </span>
 
           <span class="text-sm font-bold text-highlighted">{{
             slot.count
@@ -499,23 +509,29 @@
       >
         <p class="text-sm text-muted">
           <span v-if="cantripsLimit > 0">
-            Выберите <strong>{{ cantripsLimit }}</strong> новых заговоров.
+            {{ WIZARD_SPELLCASTING_LABELS.choosePrefix }}
+            <strong>{{ cantripsLimit }}</strong>
+            {{ WIZARD_SPELLCASTING_LABELS.chooseCantripsSuffix }}
           </span>
 
           <span v-if="spellsLimit > 0">
-            Выберите <strong>{{ spellsLimit }}</strong> новых заклинаний
+            {{ WIZARD_SPELLCASTING_LABELS.choosePrefix }}
+            <strong>{{ spellsLimit }}</strong>
+            {{ WIZARD_SPELLCASTING_LABELS.chooseSpellsSuffix }}
             {{ availableSpellCirclesText }}
-            круга.
+            {{ WIZARD_SPELLCASTING_LABELS.circleSuffix }}
           </span>
 
           <span v-if="spellsByLevel">
-            Выберите новые заклинания:
+            {{ WIZARD_SPELLCASTING_LABELS.chooseSpells }}
             <span
               v-for="(count, levelStr) in spellsByLevel"
               :key="levelStr"
               class="mr-2"
             >
-              <strong>{{ count }}</strong> заклинаний {{ levelStr }} кр.
+              <strong>{{ count }}</strong>
+              {{ WIZARD_SPELLCASTING_LABELS.spellsCountSuffix }} {{ levelStr
+              }}{{ WIZARD_SPELLCASTING_LABELS.levelBadgeSuffix }}
             </span>
           </span>
         </p>
@@ -528,7 +544,7 @@
           block
           @click.left.exact.prevent="openSpellBrowser"
         >
-          Посмотреть заклинания
+          {{ WIZARD_SPELLCASTING_LABELS.viewSpells }}
         </UButton>
       </div>
 
@@ -540,7 +556,9 @@
         <span
           class="block text-xs font-semibold tracking-wider text-muted uppercase"
         >
-          Выбранные заклинания ({{ selectedSpells.length }})
+          {{ WIZARD_SPELLCASTING_LABELS.selectedPrefix
+          }}{{ selectedSpells.length
+          }}{{ WIZARD_SPELLCASTING_LABELS.countSuffix }}
         </span>
 
         <div class="flex flex-wrap gap-1.5">
@@ -554,7 +572,9 @@
           >
             {{ spell.name }}
             <span class="text-[10px] opacity-60">{{
-              spell.level === 0 ? 'заговор' : `${spell.level} кр.`
+              spell.level === 0
+                ? WIZARD_SPELLCASTING_LABELS.cantripBadge
+                : `${spell.level}${WIZARD_SPELLCASTING_LABELS.levelBadgeSuffix}`
             }}</span>
 
             <UIcon
@@ -573,7 +593,7 @@
         "
         class="text-sm text-dimmed italic"
       >
-        Выбор конкретных заклинаний доступен в разделе заклинаний персонажа.
+        {{ WIZARD_SPELLCASTING_LABELS.manualHint }}
       </p>
     </div>
 
@@ -584,7 +604,7 @@
       :open="isSpellBrowserOpen"
       :socket="socket"
       data-file="spells"
-      title="Заклинания"
+      :title="WIZARD_SPELLCASTING_LABELS.title"
       :initial-class-filter="classKeyFilter"
       :initial-level-filter="availableLevelFilter"
       :selection-limit="compendiumSelectionLimit"
