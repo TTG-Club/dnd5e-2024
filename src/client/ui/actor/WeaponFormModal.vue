@@ -14,7 +14,14 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { useWeaponForm } from '../../composables/useWeaponForm';
-  import { MODAL_BUTTON_LABELS } from './constants';
+  import {
+    FORM_FIELD_LABELS,
+    FORM_TAB_LABELS,
+    ITEM_FORM_LABELS,
+    MODAL_BUTTON_LABELS,
+    RANGE_FIELD_LABELS,
+    WEAPON_FORM_LABELS,
+  } from './constants';
   import DamagePartsEditor from './DamagePartsEditor.vue';
   import FormSection from './FormSection.vue';
   import SourceField from './SourceField.vue';
@@ -112,24 +119,24 @@
   /** Вкладки формы */
   const tabItems = [
     {
-      label: 'Общие',
+      label: FORM_TAB_LABELS.general,
       slot: 'general' as const,
     },
     {
-      label: 'Бой',
+      label: FORM_TAB_LABELS.combat,
       slot: 'combat' as const,
     },
     {
-      label: 'Эффекты',
+      label: FORM_TAB_LABELS.effects,
       slot: 'effects' as const,
     },
   ];
 
   /** Опции настройки магического предмета */
   const attunementOptions = [
-    { label: 'Не требуется', value: 'none' as const },
-    { label: 'Требуется', value: 'required' as const },
-    { label: 'Опциональная', value: 'optional' as const },
+    { label: ITEM_FORM_LABELS.attunementNone, value: 'none' as const },
+    { label: ITEM_FORM_LABELS.attunementRequired, value: 'required' as const },
+    { label: ITEM_FORM_LABELS.attunementOptional, value: 'optional' as const },
   ];
 
   function createCustomEffect() {
@@ -195,7 +202,9 @@
 <template>
   <UDraggableModal
     :open="open"
-    :title="item ? 'Редактировать оружие' : 'Создать оружие'"
+    :title="
+      item ? WEAPON_FORM_LABELS.editTitle : WEAPON_FORM_LABELS.createTitle
+    "
     :initial-width="720"
     :resizable="false"
     :z-index="zIndex"
@@ -226,44 +235,44 @@
           <div class="flex flex-col gap-4">
             <!-- Название и Английское название -->
             <div class="grid grid-cols-2 gap-3">
-              <UFormField label="Название">
+              <UFormField :label="FORM_FIELD_LABELS.name">
                 <UInput
                   v-model="name"
-                  placeholder="Длинный меч"
+                  :placeholder="WEAPON_FORM_LABELS.namePlaceholder"
                   class="w-full"
                 />
               </UFormField>
 
-              <UFormField label="Английское название">
+              <UFormField :label="FORM_FIELD_LABELS.nameEn">
                 <UInput
                   v-model="nameEn"
-                  placeholder="Longsword"
+                  :placeholder="WEAPON_FORM_LABELS.nameEnPlaceholder"
                   class="w-full"
                 />
               </UFormField>
             </div>
 
             <!-- Описание -->
-            <UFormField label="Описание">
+            <UFormField :label="FORM_FIELD_LABELS.description">
               <RichTextEditor
                 v-model="description"
-                placeholder="Описание оружия..."
+                :placeholder="WEAPON_FORM_LABELS.descriptionPlaceholder"
               />
             </UFormField>
 
             <!-- Стоимость + Вес + Редкость -->
             <FormSection
-              title="Ценность и вес"
+              :title="ITEM_FORM_LABELS.costWeightTitle"
               title-color="healing"
             >
               <div class="grid grid-cols-3 gap-3">
-                <UFormField label="Стоимость">
+                <UFormField :label="ITEM_FORM_LABELS.cost">
                   <div class="flex gap-1.5">
                     <UInput
                       v-model.number="costValue"
                       type="number"
                       :min="0"
-                      placeholder="0"
+                      :placeholder="WEAPON_FORM_LABELS.zeroPlaceholder"
                       class="flex-1"
                     />
 
@@ -278,7 +287,7 @@
                   </div>
                 </UFormField>
 
-                <UFormField label="Вес (фнт.)">
+                <UFormField :label="ITEM_FORM_LABELS.weight">
                   <UInput
                     v-model.number="weight"
                     type="number"
@@ -287,12 +296,12 @@
                   />
                 </UFormField>
 
-                <UFormField label="Редкость">
+                <UFormField :label="ITEM_FORM_LABELS.rarity">
                   <USelect
                     v-model="rarity"
                     :items="RARITY_OPTIONS"
                     value-key="value"
-                    placeholder="Редкость"
+                    :placeholder="ITEM_FORM_LABELS.rarity"
                     class="w-full"
                     :portal="false"
                   />
@@ -302,7 +311,7 @@
 
             <!-- Источник -->
             <FormSection
-              title="Источник"
+              :title="FORM_FIELD_LABELS.source"
               title-color="source"
             >
               <SourceField
@@ -312,7 +321,7 @@
 
               <UCheckbox
                 v-model="isSRD"
-                label="SRD контент"
+                :label="FORM_FIELD_LABELS.srd"
                 class="mt-2"
               />
             </FormSection>
@@ -323,7 +332,7 @@
           <div class="flex flex-col gap-4">
             <!-- Основное -->
             <FormSection
-              title="Основное"
+              :title="FORM_TAB_LABELS.main"
               title-color="arcane"
             >
               <div class="flex flex-col gap-3">
@@ -336,7 +345,7 @@
                     class="flex-1"
                     @click.left.exact.prevent="rangeType = 'melee'"
                   >
-                    Рукопашное
+                    {{ WEAPON_FORM_LABELS.rangeTypeMelee }}
                   </UButton>
 
                   <UButton
@@ -346,30 +355,30 @@
                     class="flex-1"
                     @click.left.exact.prevent="rangeType = 'ranged'"
                   >
-                    Дальнобойное
+                    {{ WEAPON_FORM_LABELS.rangeTypeRanged }}
                   </UButton>
                 </div>
 
                 <!-- Базовое оружие (inline label) -->
                 <div class="flex items-center gap-3">
-                  <span class="min-w-30 shrink-0 text-sm text-muted"
-                    >Базовое оружие</span
-                  >
+                  <span class="min-w-30 shrink-0 text-sm text-muted">
+                    {{ WEAPON_FORM_LABELS.baseWeapon }}
+                  </span>
 
                   <USelect
                     v-model="baseType"
                     :items="baseTypeOptions"
                     value-key="value"
-                    placeholder="Выберите тип..."
+                    :placeholder="WEAPON_FORM_LABELS.selectTypePlaceholder"
                     class="flex-1"
                   />
                 </div>
 
                 <!-- Тип оружия (inline label) -->
                 <div class="flex items-center gap-3">
-                  <span class="min-w-30 shrink-0 text-sm text-muted"
-                    >Тип оружия</span
-                  >
+                  <span class="min-w-30 shrink-0 text-sm text-muted">
+                    {{ WEAPON_FORM_LABELS.weaponType }}
+                  </span>
 
                   <USelect
                     v-model="weaponCategory"
@@ -381,15 +390,15 @@
 
                 <!-- Оружейный приём (inline label) -->
                 <div class="flex items-center gap-3">
-                  <span class="min-w-30 shrink-0 text-sm text-muted"
-                    >Приём (Mastery)</span
-                  >
+                  <span class="min-w-30 shrink-0 text-sm text-muted">
+                    {{ WEAPON_FORM_LABELS.mastery }}
+                  </span>
 
                   <USelect
                     v-model="mastery"
                     :items="masteryOptions"
                     value-key="value"
-                    placeholder="Нет"
+                    :placeholder="WEAPON_FORM_LABELS.masteryPlaceholder"
                     class="flex-1"
                   />
                 </div>
@@ -397,7 +406,7 @@
             </FormSection>
             <!-- Свойства оружия -->
             <FormSection
-              title="Свойства оружия"
+              :title="WEAPON_FORM_LABELS.propertiesTitle"
               title-color="info"
             >
               <div class="flex flex-wrap gap-2">
@@ -437,12 +446,12 @@
             <!-- Блок «Магическое» (раскрывается при нажатии badge) -->
             <FormSection
               v-if="isMagical"
-              title="Магическое"
+              :title="ITEM_FORM_LABELS.magicalTitle"
               title-color="arcane"
             >
               <div class="flex flex-col gap-3">
                 <div class="grid grid-cols-2 items-start gap-3">
-                  <UFormField label="Настройка">
+                  <UFormField :label="ITEM_FORM_LABELS.attunement">
                     <USelect
                       v-model="magicAttunement"
                       :items="attunementOptions"
@@ -451,13 +460,13 @@
                     />
                   </UFormField>
 
-                  <UFormField label="Бонус">
+                  <UFormField :label="ITEM_FORM_LABELS.magicBonus">
                     <UInput
                       v-model.number="magicBonus"
                       type="number"
                       :min="0"
                       :max="10"
-                      placeholder="+1"
+                      :placeholder="WEAPON_FORM_LABELS.magicBonusPlaceholder"
                       class="w-full"
                     />
                   </UFormField>
@@ -469,20 +478,18 @@
                     || magicAttunement === 'optional'
                   "
                   v-model="isAttuned"
-                  label="Настроен"
+                  :label="ITEM_FORM_LABELS.attuned"
                 />
               </div>
             </FormSection>
             <!-- Урон (единая со заклинаниями система частей) -->
             <FormSection
-              title="Урон"
+              :title="WEAPON_FORM_LABELS.damageTitle"
               title-color="warning"
             >
               <div class="flex flex-col gap-3">
                 <p class="text-xs text-muted">
-                  Модификатор характеристики и магический бонус добавляются к
-                  урону автоматически — в формуле указывайте только кости (напр.
-                  «1к8»).
+                  {{ WEAPON_FORM_LABELS.damageHint }}
                 </p>
 
                 <DamagePartsEditor
@@ -497,13 +504,13 @@
                 <!-- Тип боеприпаса (появляется при свойстве «Боеприпасы») -->
                 <UFormField
                   v-if="selectedProperties.includes('ammunition')"
-                  label="Тип боеприпаса"
+                  :label="WEAPON_FORM_LABELS.ammunitionType"
                 >
                   <USelect
                     v-model="ammunitionType"
                     :items="ammunitionTypeOptions"
                     value-key="value"
-                    placeholder="Выберите тип..."
+                    :placeholder="WEAPON_FORM_LABELS.selectTypePlaceholder"
                     class="w-full"
                   />
                 </UFormField>
@@ -512,11 +519,11 @@
 
             <!-- Спасбросок (оружие, заставляющее цель совершить спасбросок) -->
             <FormSection
-              title="Спасбросок"
+              :title="FORM_FIELD_LABELS.savingThrow"
               title-color="danger"
             >
               <div class="grid grid-cols-2 gap-3">
-                <UFormField label="Тип спасброска">
+                <UFormField :label="WEAPON_FORM_LABELS.saveType">
                   <USelect
                     v-model="saveType"
                     :items="saveTypeOptions"
@@ -527,7 +534,7 @@
 
                 <UFormField
                   v-if="saveType !== 'none'"
-                  label="При успехе"
+                  :label="FORM_FIELD_LABELS.saveEffect"
                 >
                   <USelect
                     v-model="saveEffect"
@@ -541,28 +548,27 @@
 
             <!-- Особые правила (текстовая оговорка оружия) -->
             <FormSection
-              title="Особые правила"
+              :title="WEAPON_FORM_LABELS.specialTitle"
               title-color="arcane"
             >
-              <UFormField label="Текст особого правила (необязательно)">
+              <UFormField :label="WEAPON_FORM_LABELS.special">
                 <UTextarea
                   v-model="special"
                   autoresize
                   :rows="2"
-                  placeholder="Напр.: Вы атакуете с помехой, если цель в пределах 5 футов от вас."
+                  :placeholder="WEAPON_FORM_LABELS.specialPlaceholder"
                   class="w-full"
                 />
               </UFormField>
 
               <p class="mt-2 text-xs text-dimmed">
-                Условие, которое не выражается обычными полями (как у Пики,
-                Сети). Показывается в карточке оружия.
+                {{ WEAPON_FORM_LABELS.specialHint }}
               </p>
             </FormSection>
 
             <!-- Дальность и досягаемость -->
             <FormSection
-              title="Дистанция"
+              :title="FORM_FIELD_LABELS.range"
               title-color="primary"
             >
               <template #actions>
@@ -577,7 +583,7 @@
 
               <div class="grid grid-cols-3 gap-3">
                 <!-- Досягаемость -->
-                <UFormField label="Досягаемость">
+                <UFormField :label="RANGE_FIELD_LABELS.reach">
                   <UInput
                     v-model.number="reach"
                     type="number"
@@ -588,7 +594,7 @@
                 </UFormField>
 
                 <!-- Нормальная -->
-                <UFormField label="Нормальная">
+                <UFormField :label="RANGE_FIELD_LABELS.normal">
                   <UInput
                     v-model.number="rangeNormal"
                     type="number"
@@ -602,7 +608,7 @@
                 </UFormField>
 
                 <!-- Максимальная -->
-                <UFormField label="Максимальная">
+                <UFormField :label="RANGE_FIELD_LABELS.long">
                   <UInput
                     v-model.number="rangeLong"
                     type="number"
@@ -619,11 +625,11 @@
 
             <!-- Показатель атаки -->
             <FormSection
-              title="Показатель атаки"
+              :title="WEAPON_FORM_LABELS.attackTitle"
               title-color="danger"
             >
               <div class="grid grid-cols-2 gap-3">
-                <UFormField label="Характеристика">
+                <UFormField :label="FORM_FIELD_LABELS.ability">
                   <USelect
                     v-model="attackAbility"
                     :items="ABILITY_OPTIONS"
@@ -632,18 +638,18 @@
                   />
                 </UFormField>
 
-                <UFormField label="Доп. бонус">
+                <UFormField :label="WEAPON_FORM_LABELS.attackBonus">
                   <UInput
                     v-model.number="attackBonus"
                     type="number"
-                    placeholder="0"
+                    :placeholder="WEAPON_FORM_LABELS.zeroPlaceholder"
                     class="w-full"
                   />
                 </UFormField>
               </div>
 
               <div class="mt-3">
-                <UFormField label="Уровень умения">
+                <UFormField :label="WEAPON_FORM_LABELS.proficiencyMode">
                   <USelect
                     v-model="proficiencyMode"
                     :items="proficiencyModeOptions"
@@ -663,7 +669,7 @@
               v-if="activeEffects.length === 0"
               class="rounded-lg border border-dashed border-default p-3 text-center text-xs text-dimmed italic"
             >
-              Нет эффектов у данного оружия
+              {{ WEAPON_FORM_LABELS.effectsEmpty }}
             </div>
 
             <div

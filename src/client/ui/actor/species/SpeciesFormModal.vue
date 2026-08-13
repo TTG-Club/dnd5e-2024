@@ -49,8 +49,15 @@
 
   import {
     ARMOR_PROF_LABELS,
+    DEFINITION_FORM_LABELS,
+    FORM_FIELD_LABELS,
+    FORM_TAB_LABELS,
+    GRANT_FIELD_LABELS,
+    GRANT_SECTION_LABELS,
     MODAL_BUTTON_LABELS,
     SHEET_ROW_MENU_LABELS,
+    SPECIES_FORM_DEFAULT_NAMES,
+    SPECIES_FORM_LABELS,
     WEAPON_PROF_LABELS,
   } from '../constants';
   import FormSection from '../FormSection.vue';
@@ -136,10 +143,10 @@
   }));
 
   const tabItems = [
-    { label: 'Основное', slot: 'basic' as const },
-    { label: 'Движение', slot: 'movement' as const },
-    { label: 'Дары', slot: 'grants' as const },
-    { label: 'Особенности', slot: 'features' as const },
+    { label: FORM_TAB_LABELS.main, slot: 'basic' as const },
+    { label: SPECIES_FORM_LABELS.tabMovement, slot: 'movement' as const },
+    { label: SPECIES_FORM_LABELS.tabGrants, slot: 'grants' as const },
+    { label: GRANT_SECTION_LABELS.features, slot: 'features' as const },
   ];
 
   const { openModal } = useModalManager();
@@ -576,15 +583,15 @@
   const featureTreeItems = computed<SpeciesTreeItem[]>(() =>
     features.value.map((feature) => ({
       value: `feature:${feature.key}`,
-      label: feature.name || 'Особенность',
+      label: feature.name || SPECIES_FORM_LABELS.nodeFeature,
       icon: NODE_ICONS.feature,
       children: feature.choices.map((choice) => ({
         value: `choice:${feature.key}:${choice.key}`,
-        label: choice.name || 'Вариант (подвид)',
+        label: choice.name || SPECIES_FORM_LABELS.nodeChoice,
         icon: NODE_ICONS.choice,
         children: choice.features.map((choiceFeature) => ({
           value: `choiceFeature:${feature.key}:${choice.key}:${choiceFeature.key}`,
-          label: choiceFeature.name || 'Особенность подвида',
+          label: choiceFeature.name || SPECIES_FORM_LABELS.nodeChoiceFeature,
           icon: NODE_ICONS.choiceFeature,
         })),
       })),
@@ -604,8 +611,8 @@
   /** Подпись (aria) кнопки добавления дочернего узла. */
   function addNodeLabel(value: string): string {
     return nodeKind(value) === 'feature'
-      ? 'Добавить подвид'
-      : 'Добавить особенность подвида';
+      ? SPECIES_FORM_LABELS.addChoice
+      : SPECIES_FORM_LABELS.addChoiceFeature;
   }
 
   /** Тип узла по его составному ключу. */
@@ -649,14 +656,14 @@
   // ── Попап-редактор выбранного узла ──
   const nodeEditorTitle = computed(() => {
     if (editorNodeKind.value === 'choice') {
-      return 'Подвид';
+      return SPECIES_FORM_LABELS.choiceEditorTitle;
     }
 
     if (editorNodeKind.value === 'choiceFeature') {
-      return 'Особенность подвида';
+      return SPECIES_FORM_LABELS.nodeChoiceFeature;
     }
 
-    return 'Особенность';
+    return SPECIES_FORM_LABELS.nodeFeature;
   });
 
   /**
@@ -696,7 +703,7 @@
 
   function addFeature(): void {
     const newFeature: EditableFeature = {
-      ...createEditableFields('Новая особенность'),
+      ...createEditableFields(SPECIES_FORM_DEFAULT_NAMES.feature),
       choices: [],
     };
 
@@ -721,7 +728,7 @@
     if (nodeKind(value) === 'feature') {
       const newChoice: EditableChoice = {
         key: generateId('sfc'),
-        name: 'Вариант',
+        name: SPECIES_FORM_DEFAULT_NAMES.choice,
         description: '',
         features: [],
         damageDefenses: [],
@@ -740,7 +747,9 @@
       return;
     }
 
-    const newChoiceFeature = createEditableFields('Особенность подвида');
+    const newChoiceFeature = createEditableFields(
+      SPECIES_FORM_DEFAULT_NAMES.choiceFeature,
+    );
 
     choice.features.push(newChoiceFeature);
 
@@ -1002,7 +1011,11 @@
 <template>
   <UDraggableModal
     :open="open"
-    :title="speciesDefinition ? 'Редактировать вид' : 'Создать вид'"
+    :title="
+      speciesDefinition
+        ? SPECIES_FORM_LABELS.editTitle
+        : SPECIES_FORM_LABELS.createTitle
+    "
     :subtitle="nameEn || undefined"
     :initial-width="760"
     :min-width="560"
@@ -1027,27 +1040,27 @@
         <template #basic>
           <div class="flex flex-col gap-4">
             <FormSection
-              title="Общая информация"
+              :title="DEFINITION_FORM_LABELS.generalTitle"
               title-color="healing"
             >
               <div class="grid grid-cols-2 gap-3">
-                <UFormField label="Название">
+                <UFormField :label="FORM_FIELD_LABELS.name">
                   <UInput
                     v-model="name"
-                    placeholder="Человек"
+                    :placeholder="SPECIES_FORM_LABELS.namePlaceholder"
                     class="w-full"
                   />
                 </UFormField>
 
-                <UFormField label="Английское название">
+                <UFormField :label="FORM_FIELD_LABELS.nameEn">
                   <UInput
                     v-model="nameEn"
-                    placeholder="Human"
+                    :placeholder="SPECIES_FORM_LABELS.nameEnPlaceholder"
                     class="w-full"
                   />
                 </UFormField>
 
-                <UFormField label="Тип существа">
+                <UFormField :label="SPECIES_FORM_LABELS.creatureType">
                   <USelect
                     v-model="creatureType"
                     :items="creatureTypeOptions"
@@ -1056,7 +1069,7 @@
                   />
                 </UFormField>
 
-                <UFormField label="Размеры (минимум один)">
+                <UFormField :label="SPECIES_FORM_LABELS.sizes">
                   <USelectMenu
                     v-model="selectedSizes"
                     :items="sizeOptions"
@@ -1064,7 +1077,7 @@
                     label-key="label"
                     multiple
                     class="w-full"
-                    placeholder="Выберите размеры..."
+                    :placeholder="SPECIES_FORM_LABELS.sizesPlaceholder"
                   />
                 </UFormField>
 
@@ -1073,10 +1086,10 @@
                   v-model:source="source"
                 />
 
-                <UFormField label="Иконка (tabler:...)">
+                <UFormField :label="DEFINITION_FORM_LABELS.icon">
                   <UInput
                     v-model="icon"
-                    placeholder="tabler:user"
+                    :placeholder="SPECIES_FORM_LABELS.iconPlaceholder"
                     class="w-full"
                   />
                 </UFormField>
@@ -1084,14 +1097,14 @@
                 <div class="col-span-2 flex items-center">
                   <UCheckbox
                     v-model="isSRD"
-                    label="SRD контент"
+                    :label="FORM_FIELD_LABELS.srd"
                   />
                 </div>
               </div>
             </FormSection>
 
             <FormSection
-              title="Описание (Markdown)"
+              :title="FORM_FIELD_LABELS.descriptionMarkdown"
               title-color="healing"
             >
               <RichTextEditor v-model="description" />
@@ -1102,11 +1115,11 @@
         <!-- ДВИЖЕНИЕ -->
         <template #movement>
           <FormSection
-            title="Базовая скорость (фт.)"
+            :title="SPECIES_FORM_LABELS.speedTitle"
             title-color="healing"
           >
             <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              <UFormField label="Ходьба">
+              <UFormField :label="SPECIES_FORM_LABELS.speedWalk">
                 <UInputNumber
                   v-model="speedWalk"
                   :min="0"
@@ -1114,7 +1127,7 @@
                 />
               </UFormField>
 
-              <UFormField label="Полёт">
+              <UFormField :label="SPECIES_FORM_LABELS.speedFly">
                 <UInputNumber
                   v-model="speedFly"
                   :min="0"
@@ -1122,7 +1135,7 @@
                 />
               </UFormField>
 
-              <UFormField label="Плавание">
+              <UFormField :label="SPECIES_FORM_LABELS.speedSwim">
                 <UInputNumber
                   v-model="speedSwim"
                   :min="0"
@@ -1130,7 +1143,7 @@
                 />
               </UFormField>
 
-              <UFormField label="Лазание">
+              <UFormField :label="SPECIES_FORM_LABELS.speedClimb">
                 <UInputNumber
                   v-model="speedClimb"
                   :min="0"
@@ -1138,7 +1151,7 @@
                 />
               </UFormField>
 
-              <UFormField label="Копание">
+              <UFormField :label="SPECIES_FORM_LABELS.speedBurrow">
                 <UInputNumber
                   v-model="speedBurrow"
                   :min="0"
@@ -1148,8 +1161,7 @@
             </div>
 
             <p class="mt-3 text-xs text-dimmed">
-              Прибавки скорости по уровням (напр. полёт у подвида с 3 уровня)
-              задаются в особенностях на вкладке «Особенности».
+              {{ SPECIES_FORM_LABELS.speedHint }}
             </p>
           </FormSection>
         </template>
@@ -1158,11 +1170,11 @@
         <template #grants>
           <div class="flex flex-col gap-4">
             <FormSection
-              title="Чувства и спасброски"
+              :title="SPECIES_FORM_LABELS.sensesTitle"
               title-color="healing"
             >
               <div class="grid grid-cols-2 gap-3">
-                <UFormField label="Тёмное зрение (фт., 0 = нет)">
+                <UFormField :label="GRANT_FIELD_LABELS.darkvision">
                   <UInputNumber
                     v-model="darkvisionRange"
                     :min="0"
@@ -1171,7 +1183,9 @@
                   />
                 </UFormField>
 
-                <UFormField label="Владение спасбросками">
+                <UFormField
+                  :label="SPECIES_FORM_LABELS.savingThrowsProficiency"
+                >
                   <USelectMenu
                     v-model="savingThrows"
                     :items="abilitiesOptions"
@@ -1179,22 +1193,22 @@
                     label-key="label"
                     multiple
                     class="w-full"
-                    placeholder="Характеристики..."
+                    :placeholder="GRANT_FIELD_LABELS.abilitiesPlaceholder"
                   />
                 </UFormField>
               </div>
             </FormSection>
 
             <FormSection
-              title="Защиты от урона и состояний"
+              :title="SPECIES_FORM_LABELS.defensesTitle"
               title-color="healing"
             >
               <div class="flex flex-col gap-4">
-                <UFormField label="Защиты от типов урона">
+                <UFormField :label="SPECIES_FORM_LABELS.damageDefenses">
                   <DamageDefenseEditor v-model="damageDefenses" />
                 </UFormField>
 
-                <UFormField label="Иммунитет к состояниям">
+                <UFormField :label="GRANT_FIELD_LABELS.conditionImmunities">
                   <USelectMenu
                     v-model="conditionImmunities"
                     :items="conditionOptions"
@@ -1202,19 +1216,19 @@
                     label-key="label"
                     multiple
                     class="w-full"
-                    placeholder="Состояния..."
+                    :placeholder="GRANT_FIELD_LABELS.conditionsPlaceholder"
                   />
                 </UFormField>
               </div>
             </FormSection>
 
             <FormSection
-              title="Владение навыками"
+              :title="SPECIES_FORM_LABELS.skillsTitle"
               title-color="healing"
             >
               <div class="flex items-start gap-3">
                 <UFormField
-                  label="Кол-во на выбор"
+                  :label="GRANT_FIELD_LABELS.choiceCount"
                   class="w-1/3"
                 >
                   <UInputNumber
@@ -1225,7 +1239,7 @@
                 </UFormField>
 
                 <UFormField
-                  label="Из набора (пусто = любой навык)"
+                  :label="SPECIES_FORM_LABELS.skillFrom"
                   class="flex-1"
                 >
                   <USelectMenu
@@ -1236,18 +1250,18 @@
                     multiple
                     :disabled="skillCount === 0"
                     class="w-full"
-                    placeholder="Любой навык..."
+                    :placeholder="SPECIES_FORM_LABELS.skillFromPlaceholder"
                   />
                 </UFormField>
               </div>
             </FormSection>
 
             <FormSection
-              title="Доспехи"
+              :title="GRANT_SECTION_LABELS.armor"
               title-color="healing"
             >
               <div class="flex flex-col gap-3">
-                <UFormField label="Фиксированное владение">
+                <UFormField :label="SPECIES_FORM_LABELS.fixedProficiency">
                   <USelectMenu
                     v-model="armorFixed"
                     :items="armorOptions"
@@ -1255,13 +1269,13 @@
                     label-key="label"
                     multiple
                     class="w-full"
-                    placeholder="Даётся всегда..."
+                    :placeholder="SPECIES_FORM_LABELS.fixedPlaceholder"
                   />
                 </UFormField>
 
                 <div class="flex items-start gap-3">
                   <UFormField
-                    label="На выбор"
+                    :label="SPECIES_FORM_LABELS.choiceLabel"
                     class="w-1/3"
                   >
                     <UInputNumber
@@ -1272,7 +1286,7 @@
                   </UFormField>
 
                   <UFormField
-                    label="Из набора"
+                    :label="GRANT_FIELD_LABELS.choiceFrom"
                     class="flex-1"
                   >
                     <USelectMenu
@@ -1283,7 +1297,7 @@
                       multiple
                       :disabled="armorChoiceCount === 0"
                       class="w-full"
-                      placeholder="Доступно для выбора..."
+                      :placeholder="SPECIES_FORM_LABELS.choiceFromPlaceholder"
                     />
                   </UFormField>
                 </div>
@@ -1291,11 +1305,11 @@
             </FormSection>
 
             <FormSection
-              title="Оружие"
+              :title="GRANT_SECTION_LABELS.weapons"
               title-color="healing"
             >
               <div class="flex flex-col gap-3">
-                <UFormField label="Фиксированное владение">
+                <UFormField :label="SPECIES_FORM_LABELS.fixedProficiency">
                   <USelectMenu
                     v-model="weaponFixed"
                     :items="weaponOptions"
@@ -1303,13 +1317,13 @@
                     label-key="label"
                     multiple
                     class="w-full"
-                    placeholder="Даётся всегда..."
+                    :placeholder="SPECIES_FORM_LABELS.fixedPlaceholder"
                   />
                 </UFormField>
 
                 <div class="flex items-start gap-3">
                   <UFormField
-                    label="На выбор"
+                    :label="SPECIES_FORM_LABELS.choiceLabel"
                     class="w-1/3"
                   >
                     <UInputNumber
@@ -1320,7 +1334,7 @@
                   </UFormField>
 
                   <UFormField
-                    label="Из набора"
+                    :label="GRANT_FIELD_LABELS.choiceFrom"
                     class="flex-1"
                   >
                     <USelectMenu
@@ -1331,7 +1345,7 @@
                       multiple
                       :disabled="weaponChoiceCount === 0"
                       class="w-full"
-                      placeholder="Доступно для выбора..."
+                      :placeholder="SPECIES_FORM_LABELS.choiceFromPlaceholder"
                     />
                   </UFormField>
                 </div>
@@ -1339,11 +1353,11 @@
             </FormSection>
 
             <FormSection
-              title="Инструменты"
+              :title="GRANT_SECTION_LABELS.tools"
               title-color="healing"
             >
               <div class="flex flex-col gap-3">
-                <UFormField label="Фиксированное владение">
+                <UFormField :label="SPECIES_FORM_LABELS.fixedProficiency">
                   <USelectMenu
                     v-model="toolFixed"
                     :items="toolsOptions"
@@ -1351,13 +1365,13 @@
                     label-key="label"
                     multiple
                     class="w-full"
-                    placeholder="Даётся всегда..."
+                    :placeholder="SPECIES_FORM_LABELS.fixedPlaceholder"
                   />
                 </UFormField>
 
                 <div class="flex items-start gap-3">
                   <UFormField
-                    label="На выбор"
+                    :label="SPECIES_FORM_LABELS.choiceLabel"
                     class="w-1/3"
                   >
                     <UInputNumber
@@ -1368,7 +1382,7 @@
                   </UFormField>
 
                   <UFormField
-                    label="Из набора"
+                    :label="GRANT_FIELD_LABELS.choiceFrom"
                     class="flex-1"
                   >
                     <USelectMenu
@@ -1379,7 +1393,7 @@
                       multiple
                       :disabled="toolChoiceCount === 0"
                       class="w-full"
-                      placeholder="Доступно для выбора..."
+                      :placeholder="SPECIES_FORM_LABELS.choiceFromPlaceholder"
                     />
                   </UFormField>
                 </div>
@@ -1387,11 +1401,11 @@
             </FormSection>
 
             <FormSection
-              title="Языки"
+              :title="GRANT_SECTION_LABELS.languages"
               title-color="healing"
             >
               <div class="flex flex-col gap-3">
-                <UFormField label="Фиксированные языки">
+                <UFormField :label="SPECIES_FORM_LABELS.fixedLanguages">
                   <USelectMenu
                     v-model="languageFixed"
                     :items="languageOptions"
@@ -1399,13 +1413,13 @@
                     label-key="label"
                     multiple
                     class="w-full"
-                    placeholder="Даются всегда..."
+                    :placeholder="SPECIES_FORM_LABELS.fixedLanguagesPlaceholder"
                   />
                 </UFormField>
 
                 <div class="flex items-start gap-3">
                   <UFormField
-                    label="На выбор"
+                    :label="SPECIES_FORM_LABELS.choiceLabel"
                     class="w-1/3"
                   >
                     <UInputNumber
@@ -1416,7 +1430,7 @@
                   </UFormField>
 
                   <UFormField
-                    label="Из набора"
+                    :label="GRANT_FIELD_LABELS.choiceFrom"
                     class="flex-1"
                   >
                     <USelectMenu
@@ -1427,7 +1441,7 @@
                       multiple
                       :disabled="languageChoiceCount === 0"
                       class="w-full"
-                      placeholder="Доступно для выбора..."
+                      :placeholder="SPECIES_FORM_LABELS.choiceFromPlaceholder"
                     />
                   </UFormField>
                 </div>
@@ -1441,13 +1455,12 @@
           <div class="flex flex-col gap-3">
             <div class="flex items-center justify-between gap-3">
               <p class="text-xs text-dimmed">
-                Структура: особенность → подвид → особенность подвида. Плюс —
-                добавить вложенное, карандаш — правка, корзина — удалить.
+                {{ SPECIES_FORM_LABELS.featuresHint }}
               </p>
 
               <UButton
                 icon="tabler:plus"
-                label="Особенность"
+                :label="SPECIES_FORM_LABELS.featureButton"
                 color="primary"
                 variant="soft"
                 size="xs"
@@ -1460,7 +1473,7 @@
               v-if="features.length === 0"
               class="rounded-lg border border-dashed border-default p-4 text-center text-xs text-dimmed italic"
             >
-              Особенностей пока нет. Нажмите «Особенность», чтобы добавить.
+              {{ SPECIES_FORM_LABELS.featuresEmpty }}
             </div>
 
             <UTree
@@ -1507,7 +1520,7 @@
                     color="neutral"
                     variant="ghost"
                     size="xs"
-                    aria-label="Свернуть или развернуть"
+                    :aria-label="SPECIES_FORM_LABELS.toggleNode"
                     @click.left.exact.stop.prevent="handleToggle"
                   />
                 </div>
@@ -1524,7 +1537,7 @@
           v-if="!canSave"
           class="text-xs text-dimmed"
         >
-          Укажите название и хотя бы один размер
+          {{ SPECIES_FORM_LABELS.saveHint }}
         </span>
 
         <div class="ml-auto flex gap-3">
@@ -1583,17 +1596,17 @@
         />
 
         <template v-else>
-          <UFormField label="Название подвида">
+          <UFormField :label="SPECIES_FORM_LABELS.choiceName">
             <UInput
               v-model="
                 features[editorFeatureIndex].choices[editorChoiceIndex].name
               "
-              placeholder="Лесной эльф"
+              :placeholder="SPECIES_FORM_LABELS.choiceNamePlaceholder"
               class="w-full"
             />
           </UFormField>
 
-          <UFormField label="Краткое описание подвида">
+          <UFormField :label="SPECIES_FORM_LABELS.choiceDescription">
             <UTextarea
               v-model="
                 features[editorFeatureIndex].choices[editorChoiceIndex]
@@ -1605,7 +1618,7 @@
             />
           </UFormField>
 
-          <UFormField label="Защиты от типов урона (этого подвида)">
+          <UFormField :label="SPECIES_FORM_LABELS.choiceDamageDefenses">
             <DamageDefenseEditor
               v-model="
                 features[editorFeatureIndex].choices[editorChoiceIndex]
@@ -1614,7 +1627,7 @@
             />
           </UFormField>
 
-          <UFormField label="Иммунитет к состояниям (этого подвида)">
+          <UFormField :label="SPECIES_FORM_LABELS.choiceConditionImmunities">
             <USelectMenu
               v-model="
                 features[editorFeatureIndex].choices[editorChoiceIndex]
@@ -1625,7 +1638,7 @@
               label-key="label"
               multiple
               class="w-full"
-              placeholder="Состояния..."
+              :placeholder="GRANT_FIELD_LABELS.conditionsPlaceholder"
             />
           </UFormField>
         </template>

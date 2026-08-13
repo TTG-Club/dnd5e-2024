@@ -20,7 +20,14 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { useSpellForm } from '../../composables/useSpellForm';
-  import { MODAL_BUTTON_LABELS, UNSAVED_CHANGES_LABELS } from './constants';
+  import {
+    AREA_FIELD_LABELS,
+    FORM_FIELD_LABELS,
+    FORM_TAB_LABELS,
+    MODAL_BUTTON_LABELS,
+    SPELL_FORM_LABELS,
+    UNSAVED_CHANGES_LABELS,
+  } from './constants';
   import DamagePartRow from './DamagePartRow.vue';
   import DamagePartsEditor from './DamagePartsEditor.vue';
   import FormSection from './FormSection.vue';
@@ -183,14 +190,14 @@
    */
   const projectileHintText = computed(() => {
     if (autoHit.value) {
-      return 'Снаряды попадают автоматически (как Волшебная стрела): урон со вкладки «Бой» кидается за каждый снаряд отдельно.';
+      return SPELL_FORM_LABELS.projectileHintAuto;
     }
 
     if (['melee', 'ranged'].includes(deliveryType.value)) {
-      return 'Каждый снаряд — отдельный бросок атаки (как Мистический заряд): урон кидается только за попавшие снаряды.';
+      return SPELL_FORM_LABELS.projectileHintAttack;
     }
 
-    return 'Снаряды распределяются по целям; урон кидается за каждый снаряд отдельно.';
+    return SPELL_FORM_LABELS.projectileHintSpread;
   });
 
   /** Подпись поля основного размера области (радиус либо размер стороны) */
@@ -217,10 +224,10 @@
 
   /** Вкладки формы */
   const tabItems = [
-    { label: 'Общие', slot: 'general' as const },
-    { label: 'Подробнее', slot: 'details' as const },
-    { label: 'Бой', slot: 'combat' as const },
-    { label: 'Эффекты', slot: 'effects' as const },
+    { label: FORM_TAB_LABELS.general, slot: 'general' as const },
+    { label: FORM_TAB_LABELS.details, slot: 'details' as const },
+    { label: FORM_TAB_LABELS.combat, slot: 'combat' as const },
+    { label: FORM_TAB_LABELS.effects, slot: 'effects' as const },
   ];
 
   function createCustomEffect() {
@@ -349,7 +356,9 @@
 <template>
   <UDraggableModal
     :open="open"
-    :title="isEditing ? 'Редактировать заклинание' : 'Создать заклинание'"
+    :title="
+      isEditing ? SPELL_FORM_LABELS.editTitle : SPELL_FORM_LABELS.createTitle
+    "
     :initial-width="700"
     :resizable="false"
     :z-index="zIndex"
@@ -373,42 +382,42 @@
           <div class="flex flex-col gap-4">
             <!-- Название и Английское название -->
             <div class="grid grid-cols-2 gap-3">
-              <UFormField label="Название">
+              <UFormField :label="FORM_FIELD_LABELS.name">
                 <UInput
                   v-model="name"
-                  placeholder="Огненный шар"
+                  :placeholder="SPELL_FORM_LABELS.namePlaceholder"
                   class="w-full"
                 />
               </UFormField>
 
-              <UFormField label="Английское название">
+              <UFormField :label="FORM_FIELD_LABELS.nameEn">
                 <UInput
                   v-model="nameEn"
-                  placeholder="Fireball"
+                  :placeholder="SPELL_FORM_LABELS.nameEnPlaceholder"
                   class="w-full"
                 />
               </UFormField>
             </div>
 
             <!-- Описание -->
-            <UFormField label="Описание">
+            <UFormField :label="FORM_FIELD_LABELS.description">
               <RichTextEditor
                 v-model="description"
-                placeholder="Описание заклинания..."
+                :placeholder="SPELL_FORM_LABELS.descriptionPlaceholder"
               />
             </UFormField>
 
             <!-- Описание на высших кругах -->
-            <UFormField label="На высших кругах">
+            <UFormField :label="SPELL_FORM_LABELS.higherLevels">
               <RichTextEditor
                 v-model="higherLevelDescription"
-                placeholder="При использовании ячейки более высокого уровня..."
+                :placeholder="SPELL_FORM_LABELS.higherLevelsPlaceholder"
               />
             </UFormField>
 
             <!-- Источник -->
             <FormSection
-              title="Источник"
+              :title="FORM_FIELD_LABELS.source"
               title-color="source"
             >
               <SourceField
@@ -418,31 +427,30 @@
 
               <UCheckbox
                 v-model="isSRD"
-                label="SRD контент"
+                :label="FORM_FIELD_LABELS.srd"
                 class="mt-2"
               />
             </FormSection>
 
             <!-- Доступность классов -->
             <FormSection
-              title="Доступность классов"
+              :title="SPELL_FORM_LABELS.classAvailabilityTitle"
               title-color="arcane"
             >
-              <UFormField label="Каким классам доступно заклинание">
+              <UFormField :label="SPELL_FORM_LABELS.classKeys">
                 <USelectMenu
                   v-model="classKeys"
                   :items="CLASS_KEY_OPTIONS"
                   value-key="value"
                   label-key="label"
                   multiple
-                  placeholder="Выберите классы..."
+                  :placeholder="SPELL_FORM_LABELS.classKeysPlaceholder"
                   class="w-full"
                 />
               </UFormField>
 
               <p class="mt-2 text-xs text-dimmed">
-                Заклинание появляется в списках выбора только у отмеченных
-                классов. Оставьте пустым, если оно не привязано к классу.
+                {{ SPELL_FORM_LABELS.classKeysHint }}
               </p>
             </FormSection>
           </div>
@@ -453,11 +461,11 @@
           <div class="flex flex-col gap-4">
             <!-- Круг и Школа -->
             <FormSection
-              title="Характеристика"
+              :title="SPELL_FORM_LABELS.characteristicTitle"
               title-color="arcane"
             >
               <div class="grid grid-cols-2 gap-3">
-                <UFormField label="Круг">
+                <UFormField :label="SPELL_FORM_LABELS.level">
                   <USelect
                     v-model="level"
                     :items="SPELL_LEVEL_OPTIONS"
@@ -466,7 +474,7 @@
                   />
                 </UFormField>
 
-                <UFormField label="Школа магии">
+                <UFormField :label="SPELL_FORM_LABELS.school">
                   <USelect
                     v-model="school"
                     :items="SPELL_SCHOOL_OPTIONS"
@@ -479,19 +487,19 @@
 
             <!-- Заряды использования (врождённые/расовые, заклинания существ) -->
             <FormSection
-              title="Заряды (откат от отдыха)"
+              :title="SPELL_FORM_LABELS.usesTitle"
               title-color="warning"
             >
               <UCheckbox
                 v-model="hasUses"
-                label="Ограниченное число использований"
+                :label="SPELL_FORM_LABELS.hasUses"
               />
 
               <div
                 v-if="hasUses"
                 class="mt-3 grid grid-cols-3 gap-3"
               >
-                <UFormField label="Максимум">
+                <UFormField :label="FORM_FIELD_LABELS.max">
                   <UInput
                     v-model.number="usesMax"
                     type="number"
@@ -500,7 +508,7 @@
                   />
                 </UFormField>
 
-                <UFormField label="Текущие">
+                <UFormField :label="SPELL_FORM_LABELS.usesCurrent">
                   <UInput
                     v-model.number="usesCurrent"
                     type="number"
@@ -510,7 +518,7 @@
                   />
                 </UFormField>
 
-                <UFormField label="Восстановление">
+                <UFormField :label="FORM_FIELD_LABELS.recovery">
                   <USelect
                     v-model="usesRecovery"
                     :items="[...SPELL_USES_RECOVERY_OPTIONS]"
@@ -523,7 +531,7 @@
 
             <!-- Компоненты -->
             <FormSection
-              title="Компоненты (V, S, M)"
+              :title="SPELL_FORM_LABELS.componentsTitle"
               title-color="info"
             >
               <div
@@ -532,17 +540,17 @@
               >
                 <UCheckbox
                   v-model="verbal"
-                  label="Вербальный (V)"
+                  :label="SPELL_FORM_LABELS.verbal"
                 />
 
                 <UCheckbox
                   v-model="somatic"
-                  label="Соматический (S)"
+                  :label="SPELL_FORM_LABELS.somatic"
                 />
 
                 <UCheckbox
                   v-model="material"
-                  label="Материальный (M)"
+                  :label="SPELL_FORM_LABELS.material"
                 />
               </div>
 
@@ -550,7 +558,7 @@
                 <div class="rounded bg-elevated/30 p-3">
                   <div class="flex w-full items-start gap-3">
                     <UFormField
-                      label="Описание компонента"
+                      :label="SPELL_FORM_LABELS.materialDescription"
                       class="flex-1"
                     >
                       <UTextarea
@@ -562,7 +570,7 @@
                     </UFormField>
 
                     <UFormField
-                      label="Стоимость (з.м.)"
+                      :label="SPELL_FORM_LABELS.materialCost"
                       class="w-30 shrink-0"
                     >
                       <UInput
@@ -575,7 +583,7 @@
                     <div class="flex h-8 shrink-0 items-center self-end pb-0.5">
                       <UCheckbox
                         v-model="materialConsumed"
-                        label="Расходуется"
+                        :label="SPELL_FORM_LABELS.materialConsumed"
                       />
                     </div>
                   </div>
@@ -586,13 +594,13 @@
             <div class="grid grid-cols-2 gap-4">
               <!-- Время сотворения -->
               <FormSection
-                title="Сотворение"
+                :title="SPELL_FORM_LABELS.castingTitle"
                 title-color="healing"
               >
                 <template #actions>
                   <UCheckbox
                     v-model="ritual"
-                    label="Ритуальное заклинание"
+                    :label="SPELL_FORM_LABELS.ritual"
                     indicator="end"
                     :ui="{
                       label: 'text-xs font-semibold tracking-wide text-dimmed',
@@ -601,7 +609,7 @@
                 </template>
 
                 <div class="grid grid-cols-[100px_1fr] gap-3">
-                  <UFormField label="Кол-во">
+                  <UFormField :label="FORM_FIELD_LABELS.amount">
                     <UInput
                       v-model.number="castingTimeValue"
                       type="number"
@@ -610,7 +618,7 @@
                   </UFormField>
 
                   <UFormField
-                    label="Единица"
+                    :label="SPELL_FORM_LABELS.unit"
                     class="min-w-0"
                   >
                     <USelect
@@ -634,7 +642,7 @@
 
                 <UFormField
                   v-if="castingTimeUnit === 'reaction'"
-                  label="Условие реакции"
+                  :label="SPELL_FORM_LABELS.reactionTrigger"
                   class="mt-3"
                 >
                   <UInput
@@ -646,13 +654,13 @@
 
               <!-- Длительность -->
               <FormSection
-                title="Длительность"
+                :title="SPELL_FORM_LABELS.durationTitle"
                 title-color="primary"
               >
                 <template #actions>
                   <UCheckbox
                     v-model="concentration"
-                    label="Требуется концентрация"
+                    :label="SPELL_FORM_LABELS.concentration"
                     indicator="end"
                     :ui="{
                       label: 'text-xs font-semibold tracking-wide text-dimmed',
@@ -661,7 +669,7 @@
                 </template>
 
                 <div class="grid grid-cols-[100px_1fr] gap-3">
-                  <UFormField label="Кол-во">
+                  <UFormField :label="FORM_FIELD_LABELS.amount">
                     <UInput
                       v-model.number="durationValue"
                       type="number"
@@ -676,7 +684,7 @@
                     />
                   </UFormField>
 
-                  <UFormField label="Единица">
+                  <UFormField :label="SPELL_FORM_LABELS.unit">
                     <USelect
                       v-model="durationUnit"
                       :items="DURATION_UNIT_OPTIONS"
@@ -690,12 +698,12 @@
 
             <!-- Дистанция и Цели -->
             <FormSection
-              title="Дистанция и Цели"
+              :title="SPELL_FORM_LABELS.rangeTitle"
               title-color="warning"
             >
               <div class="grid grid-cols-3 gap-3">
                 <div class="grid grid-cols-[1fr_90px] gap-2">
-                  <UFormField label="Дистанция">
+                  <UFormField :label="FORM_FIELD_LABELS.range">
                     <UInput
                       v-model.number="range"
                       type="number"
@@ -703,7 +711,7 @@
                     />
                   </UFormField>
 
-                  <UFormField label="Ед.">
+                  <UFormField :label="FORM_FIELD_LABELS.unitShort">
                     <USelect
                       v-model="rangeUnit"
                       :items="DISTANCE_UNIT_OPTIONS"
@@ -713,14 +721,14 @@
                   </UFormField>
                 </div>
 
-                <UFormField label="Особая дистанция">
+                <UFormField :label="SPELL_FORM_LABELS.rangeSpecial">
                   <UInput
                     v-model="rangeSpecial"
                     class="w-full"
                   />
                 </UFormField>
 
-                <UFormField label="Тип цели">
+                <UFormField :label="SPELL_FORM_LABELS.targetType">
                   <USelect
                     v-model="targetType"
                     :items="TARGET_TYPE_OPTIONS"
@@ -740,7 +748,7 @@
                   v-if="!hasProjectiles"
                   class="grid grid-cols-3 gap-3"
                 >
-                  <UFormField label="Кол-во целей">
+                  <UFormField :label="SPELL_FORM_LABELS.targetCount">
                     <UInput
                       v-model.number="targetCount"
                       type="number"
@@ -751,7 +759,7 @@
 
                   <UFormField
                     v-if="level > 0"
-                    label="Доп. целей за круг"
+                    :label="SPELL_FORM_LABELS.scalingTargets"
                   >
                     <UInput
                       v-model.number="scalingAdditionalTargets"
@@ -765,7 +773,7 @@
                 <div class="border-t border-default/50 pt-3">
                   <UCheckbox
                     v-model="hasProjectiles"
-                    label="Снаряды (отдельный бросок на каждый)"
+                    :label="SPELL_FORM_LABELS.hasProjectiles"
                     :ui="{
                       label: 'text-xs font-semibold tracking-wide text-primary',
                     }"
@@ -781,7 +789,7 @@
                   </p>
 
                   <div class="grid grid-cols-2 gap-3">
-                    <UFormField label="Базовое число снарядов">
+                    <UFormField :label="SPELL_FORM_LABELS.projectileCount">
                       <UInput
                         v-model.number="projectileCount"
                         type="number"
@@ -792,7 +800,7 @@
 
                     <UFormField
                       v-if="level > 0"
-                      label="Доп. снарядов за круг выше базового"
+                      :label="SPELL_FORM_LABELS.projectilePerSlotLevel"
                     >
                       <UInput
                         v-model.number="projectilePerSlotLevel"
@@ -803,7 +811,7 @@
                     </UFormField>
                   </div>
 
-                  <UFormField label="Распределение по целям">
+                  <UFormField :label="SPELL_FORM_LABELS.projectileDistribution">
                     <URadioGroup
                       v-model="projectileTargetDistribution"
                       :items="[...PROJECTILE_DISTRIBUTION_OPTIONS]"
@@ -814,9 +822,7 @@
                   <!-- Пороги уровня персонажа (заговоры) -->
                   <template v-if="level === 0">
                     <p class="text-xs text-dimmed">
-                      Пороги уровня персонажа: начиная с указанного уровня число
-                      снарядов заменяется целиком (напр. 2 на 5-м, 3 на 11-м, 4
-                      на 17-м).
+                      {{ SPELL_FORM_LABELS.projectileTiersHint }}
                     </p>
 
                     <div
@@ -824,7 +830,9 @@
                       :key="tierIndex"
                       class="grid grid-cols-[1fr_1fr_auto] items-end gap-3"
                     >
-                      <UFormField label="С уровня персонажа">
+                      <UFormField
+                        :label="SPELL_FORM_LABELS.projectileTierLevel"
+                      >
                         <UInput
                           v-model.number="tier.level"
                           type="number"
@@ -834,7 +842,9 @@
                         />
                       </UFormField>
 
-                      <UFormField label="Снарядов">
+                      <UFormField
+                        :label="SPELL_FORM_LABELS.projectileTierCount"
+                      >
                         <UInput
                           v-model.number="tier.count"
                           type="number"
@@ -848,7 +858,7 @@
                         color="error"
                         variant="ghost"
                         size="xs"
-                        aria-label="Удалить порог"
+                        :aria-label="SPELL_FORM_LABELS.projectileTierRemove"
                         class="mb-1"
                         @click.left.exact.prevent="
                           removeProjectileTier(tierIndex)
@@ -863,7 +873,7 @@
                       class="self-start"
                       @click.left.exact.prevent="addProjectileTier"
                     >
-                      Добавить порог
+                      {{ SPELL_FORM_LABELS.projectileTierAdd }}
                     </UButton>
                   </template>
                 </div>
@@ -873,13 +883,13 @@
             <!-- Область действия (Шаблон) -->
             <FormSection
               v-if="targetType === 'area'"
-              title="Область действия (Шаблон)"
+              :title="SPELL_FORM_LABELS.areaTitle"
               title-color="info"
               class="transition-all duration-200"
             >
               <div class="grid grid-cols-3 gap-3">
                 <UFormField
-                  label="Форма"
+                  :label="AREA_FIELD_LABELS.shape"
                   class="col-span-1"
                 >
                   <USelect
@@ -904,7 +914,7 @@
 
                   <UFormField
                     v-if="showAreaWidth"
-                    label="Ширина"
+                    :label="AREA_FIELD_LABELS.width"
                   >
                     <UInput
                       v-model.number="areaWidth"
@@ -915,7 +925,7 @@
 
                   <UFormField
                     v-if="showAreaHeight"
-                    label="Высота"
+                    :label="AREA_FIELD_LABELS.height"
                   >
                     <UInput
                       v-model.number="areaHeight"
@@ -924,7 +934,7 @@
                     />
                   </UFormField>
 
-                  <UFormField label="Ед.">
+                  <UFormField :label="FORM_FIELD_LABELS.unitShort">
                     <USelect
                       v-model="areaUnit"
                       :items="DISTANCE_UNIT_OPTIONS"
@@ -937,8 +947,8 @@
                 <div class="col-span-3 mt-2">
                   <UCheckbox
                     v-model="areaResizable"
-                    label="Размер можно менять при размещении"
-                    help="Полезно, если область заклинания может охватывать разную площадь (например, облако)"
+                    :label="AREA_FIELD_LABELS.resizable"
+                    :help="SPELL_FORM_LABELS.areaResizableHelp"
                   />
                 </div>
               </div>
@@ -958,18 +968,18 @@
               <template #actions>
                 <UCheckbox
                   v-model="autoHit"
-                  label="Автопопадание"
+                  :label="SPELL_FORM_LABELS.autoHit"
                 />
               </template>
             </DamagePartsEditor>
 
             <!-- Точность (Атака и Спасбросок) -->
             <FormSection
-              title="Точность"
+              :title="SPELL_FORM_LABELS.accuracyTitle"
               title-color="danger"
             >
               <div class="grid grid-cols-2 gap-3">
-                <UFormField label="Тип атаки">
+                <UFormField :label="FORM_FIELD_LABELS.attackType">
                   <USelect
                     v-model="deliveryType"
                     :items="DELIVERY_TYPE_OPTIONS"
@@ -982,26 +992,24 @@
                   v-if="['ranged', 'melee'].includes(deliveryType)"
                   class="grid grid-cols-2 gap-3"
                 >
-                  <UFormField label="Характеристика">
+                  <UFormField :label="FORM_FIELD_LABELS.ability">
                     <USelect
                       v-model="attackAbility"
                       :items="ABILITY_OPTIONS"
                       value-key="value"
-                      placeholder="По умолчанию"
+                      :placeholder="SPELL_FORM_LABELS.attackAbilityPlaceholder"
                       class="w-full"
                     />
                   </UFormField>
 
-                  <UFormField label="Бонус к атаке">
+                  <UFormField :label="SPELL_FORM_LABELS.attackBonus">
                     <UInput
                       v-model.number="attackBonus"
                       type="number"
                       class="w-full"
                     >
                       <template #trailing>
-                        <UTooltip
-                          text="Фиксированный модификатор сверх характеристики (напр. +1 от магии)"
-                        >
+                        <UTooltip :text="SPELL_FORM_LABELS.attackBonusHint">
                           <UIcon
                             name="tabler:help-circle-filled"
                             class="size-4.5 cursor-help text-dimmed transition-colors hover:text-default"
@@ -1016,7 +1024,7 @@
               <div
                 class="mt-3 grid grid-cols-2 gap-3 border-t border-default/50 pt-3"
               >
-                <UFormField label="Спасбросок">
+                <UFormField :label="FORM_FIELD_LABELS.savingThrow">
                   <USelect
                     v-model="saveType"
                     :items="SAVE_TYPE_OPTIONS"
@@ -1027,7 +1035,7 @@
 
                 <UFormField
                   v-if="saveType !== 'none'"
-                  label="При успехе"
+                  :label="FORM_FIELD_LABELS.saveEffect"
                 >
                   <USelect
                     v-model="saveEffect"
@@ -1042,7 +1050,9 @@
             <!-- Масштабирование -->
             <FormSection
               class="transition-all duration-200"
-              :title="level === 0 ? 'Масштабирование заговора' : undefined"
+              :title="
+                level === 0 ? SPELL_FORM_LABELS.cantripScalingTitle : undefined
+              "
               :title-color="level === 0 ? 'arcane' : undefined"
               :has-content="level === 0 ? true : hasScaling"
             >
@@ -1053,7 +1063,7 @@
               >
                 <UCheckbox
                   v-model="hasScaling"
-                  label="Усиление на высших кругах"
+                  :label="SPELL_FORM_LABELS.hasScaling"
                   :ui="{
                     label: 'text-xs font-semibold tracking-wide text-arcane',
                   }"
@@ -1069,15 +1079,15 @@
                   v-if="hasScaling"
                   class="flex flex-col gap-3"
                 >
-                  <UFormField label="Доп. урон за каждый круг">
+                  <UFormField :label="SPELL_FORM_LABELS.scalingDice">
                     <UInput
                       v-model="scalingAdditionalDice"
-                      placeholder="1к6"
+                      :placeholder="SPELL_FORM_LABELS.scalingDicePlaceholder"
                       class="w-full"
                     />
                   </UFormField>
 
-                  <UFormField label="Описание усиления">
+                  <UFormField :label="SPELL_FORM_LABELS.scalingDescription">
                     <UInput
                       v-model="scalingDescription"
                       class="w-full"
@@ -1092,9 +1102,7 @@
                 class="flex flex-col gap-3"
               >
                 <p class="text-xs text-dimmed">
-                  Поуровневые тиры: на каждом пороге уровня заклинателя весь
-                  набор частей урона/лечения заменяется целиком. До первого тира
-                  используются базовые части (вкладка «Бой»).
+                  {{ SPELL_FORM_LABELS.cantripTiersHint }}
                 </p>
 
                 <!-- Тиры масштабирования -->
@@ -1105,7 +1113,7 @@
                 >
                   <div class="flex items-center justify-between gap-3">
                     <UFormField
-                      label="С уровня заклинателя"
+                      :label="SPELL_FORM_LABELS.cantripTierLevel"
                       class="flex-1"
                     >
                       <UInput
@@ -1113,7 +1121,9 @@
                         type="number"
                         :min="1"
                         :max="20"
-                        placeholder="5"
+                        :placeholder="
+                          SPELL_FORM_LABELS.cantripTierLevelPlaceholder
+                        "
                         class="w-full"
                       />
                     </UFormField>
@@ -1123,7 +1133,7 @@
                       color="error"
                       variant="ghost"
                       size="xs"
-                      aria-label="Удалить тир"
+                      :aria-label="SPELL_FORM_LABELS.cantripTierRemove"
                       class="mt-5 shrink-0"
                       @click.left.exact.prevent="removeCantripTier(tierIndex)"
                     />
@@ -1146,7 +1156,7 @@
                     class="self-start"
                     @click.left.exact.prevent="addCantripTierPart(tierIndex)"
                   >
-                    Добавить часть
+                    {{ SPELL_FORM_LABELS.cantripTierAddPart }}
                   </UButton>
                 </div>
 
@@ -1157,7 +1167,7 @@
                   class="self-start"
                   @click.left.exact.prevent="addCantripTier"
                 >
-                  Добавить уровень
+                  {{ SPELL_FORM_LABELS.cantripTierAdd }}
                 </UButton>
               </div>
             </FormSection>
@@ -1171,7 +1181,7 @@
               v-if="activeEffects.length === 0"
               class="rounded-lg border border-dashed border-default p-3 text-center text-xs text-dimmed italic"
             >
-              Нет эффектов при применении заклинания
+              {{ SPELL_FORM_LABELS.effectsEmpty }}
             </div>
 
             <div
@@ -1288,7 +1298,7 @@
     <template #body>
       <div class="space-y-4">
         <p class="text-sm text-toned">
-          В форме заклинания есть несохранённые изменения. Сохранить их?
+          {{ SPELL_FORM_LABELS.discardQuestion }}
         </p>
 
         <div class="flex justify-end gap-2">

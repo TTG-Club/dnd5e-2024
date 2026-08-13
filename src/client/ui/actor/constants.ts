@@ -289,6 +289,150 @@ export const MODAL_BUTTON_LABELS = {
 } as const;
 
 /**
+ * Подписи полей, общие для окон правки записей. Название, английское название,
+ * описание и источник спрашивает каждая форма — от заклинания до предыстории,
+ * и расходиться эти подписи между окнами не должны.
+ */
+export const FORM_FIELD_LABELS = {
+  /** Название записи — поле есть в каждой форме */
+  name: 'Название',
+  /** Оригинальное название: по нему запись ищется в англоязычных источниках */
+  nameEn: 'Английское название',
+  /** Описание записи обычным текстом */
+  description: 'Описание',
+  /** То же описание там, где поле принимает разметку */
+  descriptionMarkdown: 'Описание (Markdown)',
+  /** Книга, откуда взята запись */
+  source: 'Источник',
+  /** Отметка «запись входит в SRD» */
+  srd: 'SRD контент',
+  /** Характеристика, от которой считается значение */
+  ability: 'Характеристика',
+  /** Спасбросок, который бросает цель */
+  savingThrow: 'Спасбросок',
+  /** Что происходит при успешном спасброске */
+  saveEffect: 'При успехе',
+  /** Дальность записи */
+  range: 'Дистанция',
+  /** Верхняя граница числового поля */
+  max: 'Максимум',
+  /** Отдых, который возвращает заряды */
+  recovery: 'Восстановление',
+  /** Способ доставки: рукопашная, дальнобойная, на себя */
+  attackType: 'Тип атаки',
+  /** Сложность спасброска числом */
+  saveDc: 'Сложность (DC)',
+  /** Единицы измерения там, где на полную подпись места нет */
+  unitShort: 'Ед.',
+  /** Количество там, где на полную подпись места нет */
+  amount: 'Кол-во',
+} as const;
+
+/**
+ * Подписи, общие для окон правки определений — вида, класса и предыстории.
+ * Шапка у этих форм одна и та же: общий блок и поле значка.
+ */
+export const DEFINITION_FORM_LABELS = {
+  generalTitle: 'Общая информация',
+  icon: 'Иконка (tabler:...)',
+} as const;
+
+/**
+ * Подписи вкладок окон правки. Вкладки у разных записей одни и те же по смыслу,
+ * и расходиться их надписи не должны.
+ *
+ * `general` и `main` — две надписи первой вкладки: форма заклинания зовёт её
+ * «Общие», остальные формы — «Основное». Обе лежат здесь, но в одну подпись не
+ * сведены: это перенос, вид окон он не меняет.
+ */
+export const FORM_TAB_LABELS = {
+  /** Первая вкладка формы заклинания */
+  general: 'Общие',
+  /**
+   * Первая вкладка остальных форм. Тем же словом подписан блок главных полей
+   * там, где форма собирает их не вкладкой, а разделом (окно оружия).
+   */
+  main: 'Основное',
+  /** Вкладка подробностей записи */
+  details: 'Подробнее',
+  /** Вкладка боевых параметров */
+  combat: 'Бой',
+  /** Вкладка активных эффектов записи */
+  effects: 'Эффекты',
+} as const;
+
+/**
+ * Названия разделов, общие для листа и окон правки записей: вкладки листа,
+ * заголовки блоков даров, чипы отбора. Одно и то же слово в разных окнах
+ * должно писаться одинаково.
+ */
+export const GRANT_SECTION_LABELS = {
+  skills: 'Навыки',
+  savingThrows: 'Спасброски',
+  armor: 'Доспехи',
+  weapons: 'Оружие',
+  tools: 'Инструменты',
+  languages: 'Языки',
+  equipment: 'Снаряжение',
+  features: 'Особенности',
+  spells: 'Заклинания',
+  proficiencies: 'Владения',
+} as const;
+
+/**
+ * Подписи полей дара. Дары раздают вид, класс, предыстория и черта — окна у них
+ * разные, а поля этих блоков одни и те же.
+ */
+export const GRANT_FIELD_LABELS = {
+  darkvision: 'Тёмное зрение (фт., 0 = нет)',
+  conditionImmunities: 'Иммунитет к состояниям',
+  conditionsPlaceholder: 'Состояния...',
+  abilitiesPlaceholder: 'Характеристики...',
+  choiceCount: 'Кол-во на выбор',
+  choiceFrom: 'Из набора',
+} as const;
+
+/**
+ * Подписи блоков и полей, общие для окон правки предметов — оружия, снаряжения
+ * и инструмента. Предмет у них один и тот же, различаются только боевые части.
+ */
+export const ITEM_FORM_LABELS = {
+  costWeightTitle: 'Ценность и вес',
+  cost: 'Стоимость',
+  weight: 'Вес (фнт.)',
+  rarity: 'Редкость',
+  magicalTitle: 'Магическое',
+  attunement: 'Настройка',
+  attunementNone: 'Не требуется',
+  attunementRequired: 'Требуется',
+  attunementOptional: 'Опциональная',
+  magicBonus: 'Бонус',
+  attuned: 'Настроен',
+} as const;
+
+/**
+ * Подписи полей дальности. Дальность задают оружие и действие существа — поля
+ * у них одни и те же.
+ */
+export const RANGE_FIELD_LABELS = {
+  reach: 'Досягаемость',
+  normal: 'Нормальная',
+  long: 'Максимальная',
+} as const;
+
+/**
+ * Подписи полей области действия. Область задают и заклинание, и действие
+ * существа — поля у них одни и те же, а подпись основного размера приходит из
+ * движка (`getAreaSizeLabel`) и зависит от формы.
+ */
+export const AREA_FIELD_LABELS = {
+  shape: 'Форма',
+  width: 'Ширина',
+  height: 'Высота',
+  resizable: 'Размер можно менять при размещении',
+} as const;
+
+/**
  * Подписи окна несохранённых правок. Окно одно и то же у листа персонажа,
  * листа существа и формы заклинания — расходиться его подписи не должны.
  *
@@ -791,6 +935,97 @@ export const SPELL_BADGE_HINTS: Record<'concentration' | 'ritual', string> = {
   ritual: 'Ритуал',
 };
 
+/**
+ * Подписи окна правки заклинания. Общие с другими формами (название, описание,
+ * источник, вкладки) сюда не входят — они берутся из `FORM_FIELD_LABELS`,
+ * `FORM_TAB_LABELS` и `AREA_FIELD_LABELS`.
+ */
+export const SPELL_FORM_LABELS = {
+  editTitle: 'Редактировать заклинание',
+  createTitle: 'Создать заклинание',
+  namePlaceholder: 'Огненный шар',
+  nameEnPlaceholder: 'Fireball',
+  descriptionPlaceholder: 'Описание заклинания...',
+  higherLevels: 'На высших кругах',
+  higherLevelsPlaceholder: 'При использовании ячейки более высокого уровня...',
+  classAvailabilityTitle: 'Доступность классов',
+  classKeys: 'Каким классам доступно заклинание',
+  classKeysPlaceholder: 'Выберите классы...',
+  classKeysHint:
+    'Заклинание появляется в списках выбора только у отмеченных классов. '
+    + 'Оставьте пустым, если оно не привязано к классу.',
+  characteristicTitle: 'Характеристика',
+  level: 'Круг',
+  school: 'Школа магии',
+  usesTitle: 'Заряды (откат от отдыха)',
+  hasUses: 'Ограниченное число использований',
+  usesCurrent: 'Текущие',
+  componentsTitle: 'Компоненты (V, S, M)',
+  verbal: 'Вербальный (V)',
+  somatic: 'Соматический (S)',
+  material: 'Материальный (M)',
+  materialDescription: 'Описание компонента',
+  materialCost: 'Стоимость (з.м.)',
+  materialConsumed: 'Расходуется',
+  castingTitle: 'Сотворение',
+  ritual: 'Ритуальное заклинание',
+  unit: 'Единица',
+  reactionTrigger: 'Условие реакции',
+  durationTitle: 'Длительность',
+  concentration: 'Требуется концентрация',
+  rangeTitle: 'Дистанция и Цели',
+  rangeSpecial: 'Особая дистанция',
+  targetType: 'Тип цели',
+  targetCount: 'Кол-во целей',
+  scalingTargets: 'Доп. целей за круг',
+  hasProjectiles: 'Снаряды (отдельный бросок на каждый)',
+  projectileHintAuto:
+    'Снаряды попадают автоматически (как Волшебная стрела): урон со вкладки '
+    + '«Бой» кидается за каждый снаряд отдельно.',
+  projectileHintAttack:
+    'Каждый снаряд — отдельный бросок атаки (как Мистический заряд): урон '
+    + 'кидается только за попавшие снаряды.',
+  projectileHintSpread:
+    'Снаряды распределяются по целям; урон кидается за каждый снаряд отдельно.',
+  projectileCount: 'Базовое число снарядов',
+  projectilePerSlotLevel: 'Доп. снарядов за круг выше базового',
+  projectileDistribution: 'Распределение по целям',
+  projectileTiersHint:
+    'Пороги уровня персонажа: начиная с указанного уровня число снарядов '
+    + 'заменяется целиком (напр. 2 на 5-м, 3 на 11-м, 4 на 17-м).',
+  projectileTierLevel: 'С уровня персонажа',
+  projectileTierCount: 'Снарядов',
+  projectileTierRemove: 'Удалить порог',
+  projectileTierAdd: 'Добавить порог',
+  areaTitle: 'Область действия (Шаблон)',
+  areaResizableHelp:
+    'Полезно, если область заклинания может охватывать разную площадь '
+    + '(например, облако)',
+  autoHit: 'Автопопадание',
+  accuracyTitle: 'Точность',
+  attackAbilityPlaceholder: 'По умолчанию',
+  attackBonus: 'Бонус к атаке',
+  attackBonusHint:
+    'Фиксированный модификатор сверх характеристики (напр. +1 от магии)',
+  cantripScalingTitle: 'Масштабирование заговора',
+  hasScaling: 'Усиление на высших кругах',
+  scalingDice: 'Доп. урон за каждый круг',
+  scalingDicePlaceholder: '1к6',
+  scalingDescription: 'Описание усиления',
+  cantripTiersHint:
+    'Поуровневые тиры: на каждом пороге уровня заклинателя весь набор частей '
+    + 'урона/лечения заменяется целиком. До первого тира используются базовые '
+    + 'части (вкладка «Бой»).',
+  cantripTierLevel: 'С уровня заклинателя',
+  cantripTierLevelPlaceholder: '5',
+  cantripTierRemove: 'Удалить тир',
+  cantripTierAddPart: 'Добавить часть',
+  cantripTierAdd: 'Добавить уровень',
+  effectsEmpty: 'Нет эффектов при применении заклинания',
+  discardQuestion:
+    'В форме заклинания есть несохранённые изменения. Сохранить их?',
+} as const;
+
 /** Подписи пунктов меню строки заклинания, кроме общих со снаряжением */
 export const SPELL_MENU_LABELS: Record<'prepared' | 'cast', string> = {
   /** Отметка, а не действие: снята — заклинание на день не подготовлено */
@@ -802,3 +1037,322 @@ export const SPELL_MENU_LABELS: Record<'prepared' | 'cast', string> = {
    */
   cast: 'Применить',
 };
+
+// ============================================================
+// Окна правки записей компендиума
+// ============================================================
+
+/**
+ * Подписи окна правки вида. Общие с другими формами (название, описание,
+ * источник, названия блоков даров) берутся из `FORM_FIELD_LABELS`,
+ * `FORM_TAB_LABELS`, `GRANT_SECTION_LABELS` и `GRANT_FIELD_LABELS`.
+ */
+export const SPECIES_FORM_LABELS = {
+  editTitle: 'Редактировать вид',
+  createTitle: 'Создать вид',
+  tabMovement: 'Движение',
+  tabGrants: 'Дары',
+  namePlaceholder: 'Человек',
+  nameEnPlaceholder: 'Human',
+  creatureType: 'Тип существа',
+  sizes: 'Размеры (минимум один)',
+  sizesPlaceholder: 'Выберите размеры...',
+  iconPlaceholder: 'tabler:user',
+  speedTitle: 'Базовая скорость (фт.)',
+  speedWalk: 'Ходьба',
+  speedFly: 'Полёт',
+  speedSwim: 'Плавание',
+  speedClimb: 'Лазание',
+  speedBurrow: 'Копание',
+  speedHint:
+    'Прибавки скорости по уровням (напр. полёт у подвида с 3 уровня) задаются '
+    + 'в особенностях на вкладке «Особенности».',
+  sensesTitle: 'Чувства и спасброски',
+  savingThrowsProficiency: 'Владение спасбросками',
+  defensesTitle: 'Защиты от урона и состояний',
+  damageDefenses: 'Защиты от типов урона',
+  skillsTitle: 'Владение навыками',
+  skillFrom: 'Из набора (пусто = любой навык)',
+  skillFromPlaceholder: 'Любой навык...',
+  fixedProficiency: 'Фиксированное владение',
+  fixedPlaceholder: 'Даётся всегда...',
+  choiceLabel: 'На выбор',
+  choiceFromPlaceholder: 'Доступно для выбора...',
+  fixedLanguages: 'Фиксированные языки',
+  fixedLanguagesPlaceholder: 'Даются всегда...',
+  featuresHint:
+    'Структура: особенность → подвид → особенность подвида. Плюс — добавить '
+    + 'вложенное, карандаш — правка, корзина — удалить.',
+  featureButton: 'Особенность',
+  featuresEmpty:
+    'Особенностей пока нет. Нажмите «Особенность», чтобы добавить.',
+  addChoice: 'Добавить подвид',
+  addChoiceFeature: 'Добавить особенность подвида',
+  toggleNode: 'Свернуть или развернуть',
+  /** Подпись узла дерева, когда особенности ещё не дали названия */
+  nodeFeature: 'Особенность',
+  /** То же для узла подвида */
+  nodeChoice: 'Вариант (подвид)',
+  /** То же для особенности подвида */
+  nodeChoiceFeature: 'Особенность подвида',
+  /** Заголовок попапа правки узла-подвида */
+  choiceEditorTitle: 'Подвид',
+  saveHint: 'Укажите название и хотя бы один размер',
+  choiceName: 'Название подвида',
+  choiceNamePlaceholder: 'Лесной эльф',
+  choiceDescription: 'Краткое описание подвида',
+  choiceDamageDefenses: 'Защиты от типов урона (этого подвида)',
+  choiceConditionImmunities: 'Иммунитет к состояниям (этого подвида)',
+} as const;
+
+/**
+ * Стартовые названия новых узлов вида. Это значения записи, а не подписи: они
+ * уходят в сохранённый вид и видны в компендиуме, поэтому лежат отдельно от
+ * `SPECIES_FORM_LABELS`.
+ */
+export const SPECIES_FORM_DEFAULT_NAMES = {
+  feature: 'Новая особенность',
+  choice: 'Вариант',
+  choiceFeature: 'Особенность подвида',
+} as const;
+
+/**
+ * Подписи окна правки класса. Общие с другими формами (название, описание,
+ * шапка определения, названия блоков владений) берутся из `FORM_FIELD_LABELS`,
+ * `FORM_TAB_LABELS`, `DEFINITION_FORM_LABELS`, `GRANT_SECTION_LABELS` и
+ * `GRANT_FIELD_LABELS`.
+ */
+export const CLASS_FORM_LABELS = {
+  editTitle: 'Редактировать класс',
+  createTitle: 'Создать класс',
+  tabProgression: 'Прогрессия',
+  tabSubclasses: 'Подклассы',
+  tabCounters: 'Счётчики',
+  namePlaceholder: 'Воин',
+  nameEnPlaceholder: 'Fighter',
+  hitDie: 'Кость хитов',
+  subclassLevel: 'Уровень выбора подкласса',
+  subclassLabel: 'Название группы подклассов',
+  subclassLabelPlaceholder: 'Воинский архетип',
+  iconPlaceholder: 'tabler:sword',
+  startingProficienciesTitle: 'Стартовые владения (первый класс)',
+  armorPlaceholder: 'Владение доспехами...',
+  weaponsPlaceholder: 'Владение оружием...',
+  toolsPlaceholder: 'Владение инструментами...',
+  skillChoiceTitle: 'Выбор навыков',
+  skillFromPlaceholder: 'Доступные навыки...',
+  multiclassTitle: 'Мультикласс (сокращённые владения)',
+  multiclassEnabled: 'Задать владения при взятии класса мультиклассом',
+  multiclassSkills: 'Навыков на выбор',
+  spellcastingTitle: 'Заклинательная способность класса',
+  equipmentHint:
+    'Варианты стартового снаряжения (описание текстом — мастер не выдаёт '
+    + 'предметы автоматически).',
+  equipmentKeyPlaceholder: 'A',
+  equipmentDescriptionPlaceholder:
+    'кольчуга, длинный меч, набор исследователя…',
+  equipmentRemove: 'Удалить вариант',
+  equipmentAdd: 'Добавить вариант',
+  saveHint: 'Укажите название класса',
+} as const;
+
+/**
+ * Название группы подклассов по умолчанию. Это значение записи, а не подпись:
+ * оно уходит в сохранённый класс и им же подписан раздел на листе персонажа,
+ * если своего названия классу не задали.
+ */
+export const CLASS_DEFAULT_SUBCLASS_LABEL = 'Подкласс';
+
+/**
+ * Подписи окна правки оружия. Общие с другими формами (название, описание,
+ * ценность и вес, дальность, спасбросок) берутся из `FORM_FIELD_LABELS`,
+ * `FORM_TAB_LABELS`, `ITEM_FORM_LABELS` и `RANGE_FIELD_LABELS`.
+ */
+export const WEAPON_FORM_LABELS = {
+  editTitle: 'Редактировать оружие',
+  createTitle: 'Создать оружие',
+  namePlaceholder: 'Длинный меч',
+  nameEnPlaceholder: 'Longsword',
+  descriptionPlaceholder: 'Описание оружия...',
+  /** Плейсхолдер числовых полей, у которых ноль — обычное значение */
+  zeroPlaceholder: '0',
+  rangeTypeMelee: 'Рукопашное',
+  rangeTypeRanged: 'Дальнобойное',
+  baseWeapon: 'Базовое оружие',
+  selectTypePlaceholder: 'Выберите тип...',
+  weaponType: 'Тип оружия',
+  mastery: 'Приём (Mastery)',
+  masteryPlaceholder: 'Нет',
+  propertiesTitle: 'Свойства оружия',
+  magicBonusPlaceholder: '+1',
+  damageTitle: 'Урон',
+  damageHint:
+    'Модификатор характеристики и магический бонус добавляются к урону '
+    + 'автоматически — в формуле указывайте только кости (напр. «1к8»).',
+  ammunitionType: 'Тип боеприпаса',
+  saveType: 'Тип спасброска',
+  specialTitle: 'Особые правила',
+  special: 'Текст особого правила (необязательно)',
+  specialPlaceholder:
+    'Напр.: Вы атакуете с помехой, если цель в пределах 5 футов от вас.',
+  specialHint:
+    'Условие, которое не выражается обычными полями (как у Пики, Сети). '
+    + 'Показывается в карточке оружия.',
+  attackTitle: 'Показатель атаки',
+  attackBonus: 'Доп. бонус',
+  proficiencyMode: 'Уровень умения',
+  effectsEmpty: 'Нет эффектов у данного оружия',
+} as const;
+
+/**
+ * Значения нового активного эффекта. Это данные записи, а не подписи: они
+ * уходят в сохранённый эффект. На них же ссылаются подсказки формы — там, где
+ * плейсхолдер показывает пример («Напр: …») или называет значение по умолчанию.
+ */
+export const ACTIVE_EFFECT_DEFAULTS = {
+  /** Стартовое название нового эффекта */
+  name: 'Новый Эффект',
+  /** Значок нового эффекта */
+  icon: 'tabler:sparkles',
+  /** Флаг, который подставляется в новую строку флагов */
+  flag: 'vision.blinded',
+  /** Ключ атрибута новой строки модификаторов */
+  changeKey: 'armorClass',
+  /** Значение новой строки модификаторов */
+  changeValue: '1',
+  /** Приоритет новой строки модификаторов: меньше — раньше */
+  changePriority: 20,
+} as const;
+
+/**
+ * Подписи окна правки активного эффекта. Общие с другими формами (название,
+ * описание, характеристика, сложность спасброска) берутся из
+ * `FORM_FIELD_LABELS` и `FORM_TAB_LABELS`.
+ */
+export const ACTIVE_EFFECT_FORM_LABELS = {
+  /** Заголовок окна правки: дальше дописывается название эффекта */
+  editTitlePrefix: 'Редактирование: ',
+  /**
+   * Заголовок окна создания. Это же слово стоит в названии нового эффекта:
+   * форма открывается уже заполненной, и заголовок повторяет её поле.
+   */
+  createTitle: ACTIVE_EFFECT_DEFAULTS.name,
+  tabExtra: 'Дополнительная',
+  conditionPreset: 'Шаблон состояния',
+  conditionPresetHint: 'Заполнит форму данными стандартного состояния D&D 5e',
+  icon: 'Иконка',
+  iconPlaceholder: `Напр: ${ACTIVE_EFFECT_DEFAULTS.icon}`,
+  aura: 'Аура',
+  auraOn: 'Включена',
+  auraOff: 'Нет',
+  status: 'Статус',
+  statusActive: 'Работает',
+  statusDisabled: 'Отключен',
+  generateDescription: 'Сгенерировать из настроек',
+  generateDescriptionHint:
+    'Заполнить описание автоматически из модификаторов, флагов и прочих '
+    + 'настроек эффекта',
+  descriptionPlaceholder: 'Краткое описание для тултипа и списка эффектов',
+  effectTarget: 'Цель эффекта',
+  effectTargetOnTarget: 'Цель',
+  effectTargetOnSelf: 'Себе',
+  effectTargetOnTargetHint: 'Накладывается на цель при попадании атакой.',
+  effectTargetOnSelfHint: 'Применяется к владельцу при экипировке.',
+  consumeOn: 'Снять эффект',
+  consumeOnNone: 'Нет',
+  consumeOnCarrierAttack: 'Своя атака',
+  consumeOnAttackOnCarrier: 'Атака по цели',
+  consumeOnHint:
+    '«Своя атака» / «Атака по цели»: эффект сгорает после первого же броска '
+    + 'атаки (помеха/преимущество ровно на одну атаку), не дожидаясь конца '
+    + 'длительности. «Нет» — живёт по длительности.',
+  durationType: 'Тип длительности',
+  durationValuePlaceholder: 'Количество',
+  durationPermanentHint: 'Действует вечно, пока не снят вручную.',
+  durationRoundsHint: 'Снижается автоматически каждый раунд в бою.',
+  durationTurnHint:
+    'Точно спадает на ходу носителя или источника (кастера) — «до конца моего '
+    + 'следующего хода», а не на границе раунда. Работает в бою.',
+  durationSpecialHint: 'Специальное событие, отслеживается Мастером.',
+  durationDefaultHint: 'Информационная подсказка, не пересчитывается.',
+  auraRadius: 'Радиус (фт)',
+  auraTarget: 'Цель ауры',
+  auraTargetAllies: 'Только союзники',
+  auraTargetEnemies: 'Только враги',
+  auraTargetAll: 'Все существа',
+  auraApplyToSelf: 'Применять к источнику',
+  auraVisible: 'Круг на сцене',
+  flagsTitle: 'Флаги (Состояния и иммунитеты)',
+  flagsEmpty: 'Нет активных флагов.',
+  flagPlaceholder: `Напр: ${ACTIVE_EFFECT_DEFAULTS.flag}`,
+  flagLibrary: 'Библиотека флагов',
+  flagRemove: 'Удалить флаг',
+  flagUnknown: 'Кастомный или Неизвестный флаг',
+  changesTitle: 'Модификаторы (Changes)',
+  changesEmpty: 'Нет активных модификаторов.',
+  changeKey: 'Ключ атрибута',
+  changeKeyPlaceholder: `Напр: ${ACTIVE_EFFECT_DEFAULTS.changeKey}`,
+  keyLibrary: 'Библиотека ключей',
+  changeMode: 'Режим',
+  changeValue: 'Значение',
+  changeValuePlaceholder: '+2, 1к4',
+  valueLibrary: 'Библиотека значений',
+  changeCondition: 'Условие',
+  changeConditionPlaceholder: 'roll.hasAdvantage',
+  conditionTemplates: 'Шаблоны условий',
+  changePriority: 'Пр-т',
+  changePriorityPlaceholder: `${ACTIVE_EFFECT_DEFAULTS.changePriority}`,
+  changePriorityHint: `Приоритет: меньше = раньше (дефолт ${ACTIVE_EFFECT_DEFAULTS.changePriority})`,
+  changeRemove: 'Удалить модификатор',
+  damageFormulaHint:
+    'Кроме плоского числа (+2), можно указать формулу костей — она бросается '
+    + 'отдельной частью урона: «2к6», тип через токен «2к6@dmg.fire», условие '
+    + 'по цели — «2к6@dmg.fire@target.full» (только при полном HP) или '
+    + '«@target.notFull» (только по раненой).',
+  modeAdd: 'Добавить (+)',
+  modeMultiply: 'Умножить (*)',
+  modeOverride: 'Перезаписать (=)',
+  modeUpgrade: 'Улучшить (Max)',
+  modeDowngrade: 'Ухудшить (Min)',
+  modeCustom: 'Пользовательский',
+  areaTrigger: 'Триггер области / ауры',
+  areaTriggerEnterHint:
+    'Разовая нагрузка (урон/статус) в момент входа в область/ауру. '
+    + 'Срабатывает на каждый вход.',
+  areaTriggerExitHint:
+    'Разовая нагрузка (урон/статус) в момент выхода из области/ауры.',
+  areaTriggerStayHint:
+    'Эффект висит на цели, пока она внутри области/ауры, и снимается при '
+    + 'выходе.',
+  applyHint:
+    'Срабатывает при наложении эффекта на цель (напр. при попадании атакой). '
+    + 'Для само-баффов можно оставить пустым.',
+  applySave: 'Спасбросок при наложении',
+  applySaveHint:
+    'При попадании цель совершает спасбросок — от результата зависят статус и '
+    + 'урон ниже.',
+  onSuccessNegate: 'Отменяет эффект',
+  onSuccessHalf: 'Половина урона',
+  applyOnSuccess: 'Накладывать эффект даже при успешном спасе',
+  applyOnSuccessHint:
+    'Состояние повиснет на цели, даже если она прошла спасбросок (свой выше '
+    + 'или спасбросок области у действия). Урон при успехе — по правилу '
+    + '«При успехе».',
+  damageTitle: 'Урон при наложении',
+  damageHint:
+    'Наносится цели при наложении. Если включён спасбросок выше — урон '
+    + 'гейтится им (на успехе: нет урона либо половина).',
+  addDamage: 'Добавить урон',
+  recurringSave: 'Периодический спасбросок снимает эффект',
+  recurringSaveHint:
+    'Пока эффект активен, цель повторяет спасбросок и при успехе сбрасывает '
+    + 'его досрочно.',
+  recurringWhen: 'Когда',
+  timingEndOfTurn: 'В конце хода цели',
+  timingStartOfTurn: 'В начале хода цели',
+  recurringDamage: 'Периодический урон (каждый ход)',
+  recurringDamageHint:
+    'Пока эффект висит на цели, наносит урон каждый ход (напр. «Горение»). '
+    + 'Тикает в бою при смене хода.',
+  recurringDamageWhen: 'Когда наносится',
+} as const;

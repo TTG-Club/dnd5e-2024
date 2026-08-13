@@ -27,7 +27,13 @@
     EFFECT_TURN_TIMING_LABELS,
   } from '@vtt/shared/system/dnd.js';
 
-  import { MODAL_BUTTON_LABELS } from '../constants';
+  import {
+    ACTIVE_EFFECT_DEFAULTS,
+    ACTIVE_EFFECT_FORM_LABELS,
+    FORM_FIELD_LABELS,
+    FORM_TAB_LABELS,
+    MODAL_BUTTON_LABELS,
+  } from '../constants';
   import DamagePartsEditor from '../DamagePartsEditor.vue';
   import ActiveEffectConditionTemplatesModal from './ActiveEffectConditionTemplatesModal.vue';
   import ActiveEffectFlagTemplatesModal from './ActiveEffectFlagTemplatesModal.vue';
@@ -82,9 +88,9 @@
   // Локальное состояние формы
   const form = reactive<ActiveEffect>({
     id: '',
-    name: 'Новый Эффект',
+    name: ACTIVE_EFFECT_DEFAULTS.name,
     description: '',
-    icon: 'tabler:sparkles',
+    icon: ACTIVE_EFFECT_DEFAULTS.icon,
     disabled: false,
     origin: 'manual',
     transfer: false,
@@ -102,11 +108,19 @@
 
   /** Сегменты «Снять эффект» (`consumeOn`) — как у «Цели эффекта». */
   const consumeOnTabs = [
-    { value: 'none', label: 'Нет', icon: 'tabler:hourglass' },
-    { value: 'carrierAttack', label: 'Своя атака', icon: 'tabler:sword' },
+    {
+      value: 'none',
+      label: ACTIVE_EFFECT_FORM_LABELS.consumeOnNone,
+      icon: 'tabler:hourglass',
+    },
+    {
+      value: 'carrierAttack',
+      label: ACTIVE_EFFECT_FORM_LABELS.consumeOnCarrierAttack,
+      icon: 'tabler:sword',
+    },
     {
       value: 'attackOnCarrier',
-      label: 'Атака по цели',
+      label: ACTIVE_EFFECT_FORM_LABELS.consumeOnAttackOnCarrier,
       icon: 'tabler:target-arrow',
     },
   ];
@@ -133,8 +147,8 @@
         } else {
           // Дефолтные значения для нового эффекта
           form.id = generateId('effect');
-          form.name = 'Новый Эффект';
-          form.icon = 'tabler:sparkles';
+          form.name = ACTIVE_EFFECT_DEFAULTS.name;
+          form.icon = ACTIVE_EFFECT_DEFAULTS.icon;
           form.disabled = false;
           form.origin = 'manual';
           form.transfer = false;
@@ -186,11 +200,11 @@
 
   function addChange() {
     form.changes.push({
-      key: 'armorClass',
+      key: ACTIVE_EFFECT_DEFAULTS.changeKey,
       mode: 'add',
-      value: '1',
+      value: ACTIVE_EFFECT_DEFAULTS.changeValue,
       condition: '',
-      priority: 20,
+      priority: ACTIVE_EFFECT_DEFAULTS.changePriority,
     });
   }
 
@@ -199,29 +213,37 @@
   }
 
   const modeOptions = [
-    { value: 'add', label: 'Добавить (+)' },
-    { value: 'multiply', label: 'Умножить (*)' },
-    { value: 'override', label: 'Перезаписать (=)' },
-    { value: 'upgrade', label: 'Улучшить (Max)' },
-    { value: 'downgrade', label: 'Ухудшить (Min)' },
-    { value: 'custom', label: 'Пользовательский' },
+    { value: 'add', label: ACTIVE_EFFECT_FORM_LABELS.modeAdd },
+    { value: 'multiply', label: ACTIVE_EFFECT_FORM_LABELS.modeMultiply },
+    { value: 'override', label: ACTIVE_EFFECT_FORM_LABELS.modeOverride },
+    { value: 'upgrade', label: ACTIVE_EFFECT_FORM_LABELS.modeUpgrade },
+    { value: 'downgrade', label: ACTIVE_EFFECT_FORM_LABELS.modeDowngrade },
+    { value: 'custom', label: ACTIVE_EFFECT_FORM_LABELS.modeCustom },
   ];
 
   const auraTargetOptions = [
-    { value: 'allies', label: 'Только союзники' },
-    { value: 'enemies', label: 'Только враги' },
-    { value: 'all', label: 'Все существа' },
+    { value: 'allies', label: ACTIVE_EFFECT_FORM_LABELS.auraTargetAllies },
+    { value: 'enemies', label: ACTIVE_EFFECT_FORM_LABELS.auraTargetEnemies },
+    { value: 'all', label: ACTIVE_EFFECT_FORM_LABELS.auraTargetAll },
   ];
 
   const effectTargetTabs = [
-    { value: 'target', label: 'Цель', icon: 'tabler:crosshair' },
-    { value: 'self', label: 'Себе', icon: 'tabler:user-shield' },
+    {
+      value: 'target',
+      label: ACTIVE_EFFECT_FORM_LABELS.effectTargetOnTarget,
+      icon: 'tabler:crosshair',
+    },
+    {
+      value: 'self',
+      label: ACTIVE_EFFECT_FORM_LABELS.effectTargetOnSelf,
+      icon: 'tabler:user-shield',
+    },
   ];
 
   /** Вкладки редактора эффекта */
   const tabItems = [
-    { label: 'Основное', slot: 'general' as const },
-    { label: 'Дополнительная', slot: 'combat' as const },
+    { label: FORM_TAB_LABELS.main, slot: 'general' as const },
+    { label: ACTIVE_EFFECT_FORM_LABELS.tabExtra, slot: 'combat' as const },
   ];
 
   /**
@@ -357,7 +379,8 @@
   }
 
   function addFlag() {
-    form.flags.push('vision.blinded'); // Дефолтное значение для удобства редактирования или пустая строка
+    // Дефолтное значение для удобства редактирования или пустая строка
+    form.flags.push(ACTIVE_EFFECT_DEFAULTS.flag);
   }
 
   function removeFlag(index: number) {
@@ -405,22 +428,22 @@
   const durationDescription = computed(() => {
     switch (form.duration.type) {
       case 'permanent':
-        return 'Действует вечно, пока не снят вручную.';
+        return ACTIVE_EFFECT_FORM_LABELS.durationPermanentHint;
       case 'rounds':
-        return 'Снижается автоматически каждый раунд в бою.';
+        return ACTIVE_EFFECT_FORM_LABELS.durationRoundsHint;
       case 'turn':
-        return 'Точно спадает на ходу носителя или источника (кастера) — «до конца моего следующего хода», а не на границе раунда. Работает в бою.';
+        return ACTIVE_EFFECT_FORM_LABELS.durationTurnHint;
       case 'special':
-        return 'Специальное событие, отслеживается Мастером.';
+        return ACTIVE_EFFECT_FORM_LABELS.durationSpecialHint;
       default:
-        return 'Информационная подсказка, не пересчитывается.';
+        return ACTIVE_EFFECT_FORM_LABELS.durationDefaultHint;
     }
   });
 
   const effectTargetDescription = computed(() =>
     form.effectTarget === 'target'
-      ? 'Накладывается на цель при попадании атакой.'
-      : 'Применяется к владельцу при экипировке.',
+      ? ACTIVE_EFFECT_FORM_LABELS.effectTargetOnTargetHint
+      : ACTIVE_EFFECT_FORM_LABELS.effectTargetOnSelfHint,
   );
 
   const isAura = computed({
@@ -459,8 +482,8 @@
 
   /** Эффект успешного спасброска наложения */
   const onSuccessOptions: Array<{ value: EffectSaveOutcome; label: string }> = [
-    { value: 'negate', label: 'Отменяет эффект' },
-    { value: 'half', label: 'Половина урона' },
+    { value: 'negate', label: ACTIVE_EFFECT_FORM_LABELS.onSuccessNegate },
+    { value: 'half', label: ACTIVE_EFFECT_FORM_LABELS.onSuccessHalf },
   ];
 
   /** Момент периодического спасброска / урона */
@@ -468,8 +491,11 @@
     value: EffectSaveTiming;
     label: string;
   }> = [
-    { value: 'endOfTurn', label: 'В конце хода цели' },
-    { value: 'startOfTurn', label: 'В начале хода цели' },
+    { value: 'endOfTurn', label: ACTIVE_EFFECT_FORM_LABELS.timingEndOfTurn },
+    {
+      value: 'startOfTurn',
+      label: ACTIVE_EFFECT_FORM_LABELS.timingStartOfTurn,
+    },
   ];
 
   /** Опции триггера области (При входе / При выходе / Пока внутри) */
@@ -490,11 +516,11 @@
   const areaTriggerDescription = computed(() => {
     switch (areaTriggerModel.value) {
       case 'enter':
-        return 'Разовая нагрузка (урон/статус) в момент входа в область/ауру. Срабатывает на каждый вход.';
+        return ACTIVE_EFFECT_FORM_LABELS.areaTriggerEnterHint;
       case 'exit':
-        return 'Разовая нагрузка (урон/статус) в момент выхода из области/ауры.';
+        return ACTIVE_EFFECT_FORM_LABELS.areaTriggerExitHint;
       default:
-        return 'Эффект висит на цели, пока она внутри области/ауры, и снимается при выходе.';
+        return ACTIVE_EFFECT_FORM_LABELS.areaTriggerStayHint;
     }
   });
 
@@ -632,7 +658,11 @@
     :min-width="600"
     :min-height="400"
     :z-index="props.zIndex"
-    :title="effect ? `Редактирование: ${effect.name}` : 'Новый Эффект'"
+    :title="
+      effect
+        ? `${ACTIVE_EFFECT_FORM_LABELS.editTitlePrefix}${effect.name}`
+        : ACTIVE_EFFECT_FORM_LABELS.createTitle
+    "
     :saved-position="savedPosition"
     :saved-size="savedSize"
     @bring-to-front="emit('bring-to-front')"
@@ -660,7 +690,7 @@
                 >
                   <UButton
                     icon="tabler:template"
-                    label="Шаблон состояния"
+                    :label="ACTIVE_EFFECT_FORM_LABELS.conditionPreset"
                     color="neutral"
                     variant="outline"
                     size="xs"
@@ -668,14 +698,14 @@
                 </UDropdownMenu>
 
                 <span class="text-xs text-dimmed italic">
-                  Заполнит форму данными стандартного состояния D&D 5e
+                  {{ ACTIVE_EFFECT_FORM_LABELS.conditionPresetHint }}
                 </span>
               </div>
 
               <!-- Базовые данные -->
               <div class="grid grid-cols-1 gap-3 sm:grid-cols-12">
                 <UFormField
-                  label="Название"
+                  :label="FORM_FIELD_LABELS.name"
                   class="sm:col-span-4"
                 >
                   <UInput
@@ -685,19 +715,19 @@
                 </UFormField>
 
                 <UFormField
-                  label="Иконка"
+                  :label="ACTIVE_EFFECT_FORM_LABELS.icon"
                   class="sm:col-span-4"
                 >
                   <UInput
                     v-model="form.icon"
                     class="w-full"
-                    placeholder="Напр: tabler:sparkles"
+                    :placeholder="ACTIVE_EFFECT_FORM_LABELS.iconPlaceholder"
                   />
                 </UFormField>
 
                 <UFormField
                   v-if="!props.hideAura && form.effectTarget !== 'target'"
-                  label="Аура"
+                  :label="ACTIVE_EFFECT_FORM_LABELS.aura"
                   class="sm:col-span-2"
                 >
                   <div
@@ -708,7 +738,11 @@
                       class="text-xs font-medium transition-colors"
                       :class="isAura ? 'text-magic' : 'text-muted'"
                     >
-                      {{ isAura ? 'Включена' : 'Нет' }}
+                      {{
+                        isAura
+                          ? ACTIVE_EFFECT_FORM_LABELS.auraOn
+                          : ACTIVE_EFFECT_FORM_LABELS.auraOff
+                      }}
                     </span>
 
                     <USwitch
@@ -721,7 +755,7 @@
                 </UFormField>
 
                 <UFormField
-                  label="Статус"
+                  :label="ACTIVE_EFFECT_FORM_LABELS.status"
                   class="sm:col-span-2"
                 >
                   <div
@@ -732,7 +766,11 @@
                       class="text-xs font-medium transition-colors"
                       :class="isActive ? 'text-success' : 'text-muted'"
                     >
-                      {{ isActive ? 'Работает' : 'Отключен' }}
+                      {{
+                        isActive
+                          ? ACTIVE_EFFECT_FORM_LABELS.statusActive
+                          : ACTIVE_EFFECT_FORM_LABELS.statusDisabled
+                      }}
                     </span>
 
                     <USwitch
@@ -747,16 +785,18 @@
               <!-- Описание + авто-генерация -->
               <div class="space-y-1.5">
                 <div class="flex items-center justify-between">
-                  <span class="text-xs font-medium text-muted">Описание</span>
+                  <span class="text-xs font-medium text-muted">
+                    {{ FORM_FIELD_LABELS.description }}
+                  </span>
 
                   <UButton
                     icon="tabler:wand"
-                    label="Сгенерировать из настроек"
+                    :label="ACTIVE_EFFECT_FORM_LABELS.generateDescription"
                     color="neutral"
                     variant="outline"
                     size="xs"
                     :disabled="!generatedDescription"
-                    title="Заполнить описание автоматически из модификаторов, флагов и прочих настроек эффекта"
+                    :title="ACTIVE_EFFECT_FORM_LABELS.generateDescriptionHint"
                     @click.left.exact.prevent="applyGeneratedDescription"
                   />
                 </div>
@@ -766,7 +806,9 @@
                   :rows="2"
                   autoresize
                   class="w-full"
-                  placeholder="Краткое описание для тултипа и списка эффектов"
+                  :placeholder="
+                    ACTIVE_EFFECT_FORM_LABELS.descriptionPlaceholder
+                  "
                 />
               </div>
 
@@ -782,7 +824,7 @@
                   <span
                     class="flex items-center gap-1 text-xs font-medium text-muted"
                   >
-                    Цель эффекта
+                    {{ ACTIVE_EFFECT_FORM_LABELS.effectTarget }}
 
                     <UTooltip :text="effectTargetDescription">
                       <UIcon
@@ -808,11 +850,9 @@
                   <span
                     class="flex items-center gap-1 text-xs font-medium text-muted"
                   >
-                    Снять эффект
+                    {{ ACTIVE_EFFECT_FORM_LABELS.consumeOn }}
 
-                    <UTooltip
-                      text="«Своя атака» / «Атака по цели»: эффект сгорает после первого же броска атаки (помеха/преимущество ровно на одну атаку), не дожидаясь конца длительности. «Нет» — живёт по длительности."
-                    >
+                    <UTooltip :text="ACTIVE_EFFECT_FORM_LABELS.consumeOnHint">
                       <UIcon
                         name="tabler:info-circle"
                         class="size-3.5 text-dimmed transition-colors hover:text-default"
@@ -836,7 +876,7 @@
                   <span
                     class="flex items-center gap-1 text-xs font-medium text-muted"
                   >
-                    Тип длительности
+                    {{ ACTIVE_EFFECT_FORM_LABELS.durationType }}
 
                     <UTooltip :text="durationDescription">
                       <UIcon
@@ -859,7 +899,9 @@
                       v-if="hasDurationValue"
                       v-model="form.duration.value"
                       type="number"
-                      placeholder="Количество"
+                      :placeholder="
+                        ACTIVE_EFFECT_FORM_LABELS.durationValuePlaceholder
+                      "
                       class="w-28 shrink-0"
                     />
                   </div>
@@ -897,7 +939,7 @@
                   class="grid grid-cols-1 items-end gap-4 rounded-lg border border-magic-border/50 bg-magic-subtle/20 p-2 px-3 sm:grid-cols-12"
                 >
                   <UFormField
-                    label="Радиус (фт)"
+                    :label="ACTIVE_EFFECT_FORM_LABELS.auraRadius"
                     class="sm:col-span-2"
                   >
                     <UInput
@@ -910,7 +952,7 @@
                   </UFormField>
 
                   <UFormField
-                    label="Цель ауры"
+                    :label="ACTIVE_EFFECT_FORM_LABELS.auraTarget"
                     class="sm:col-span-4"
                   >
                     <USelect
@@ -927,12 +969,12 @@
                   >
                     <UCheckbox
                       v-model="form.aura.applyToSelf"
-                      label="Применять к источнику"
+                      :label="ACTIVE_EFFECT_FORM_LABELS.auraApplyToSelf"
                     />
 
                     <UCheckbox
                       v-model="form.aura.visible"
-                      label="Круг на сцене"
+                      :label="ACTIVE_EFFECT_FORM_LABELS.auraVisible"
                     />
                   </div>
                 </div>
@@ -941,9 +983,9 @@
               <!-- Флаги (нечисловые эффекты) -->
               <div>
                 <div class="mb-2 flex items-center justify-between">
-                  <span class="text-sm font-medium"
-                    >Флаги (Состояния и иммунитеты)</span
-                  >
+                  <span class="text-sm font-medium">
+                    {{ ACTIVE_EFFECT_FORM_LABELS.flagsTitle }}
+                  </span>
 
                   <UButton
                     color="primary"
@@ -960,7 +1002,7 @@
                   v-if="form.flags.length === 0"
                   class="rounded-lg border border-dashed border-default p-4 text-center text-xs text-dimmed italic"
                 >
-                  Нет активных флагов.
+                  {{ ACTIVE_EFFECT_FORM_LABELS.flagsEmpty }}
                 </div>
 
                 <div
@@ -976,7 +1018,9 @@
                       <div class="flex w-full items-center gap-2">
                         <UInput
                           v-model="form.flags[idx]"
-                          placeholder="Напр: vision.blinded"
+                          :placeholder="
+                            ACTIVE_EFFECT_FORM_LABELS.flagPlaceholder
+                          "
                           size="sm"
                           class="flex-1 font-mono text-xs"
                         />
@@ -986,7 +1030,7 @@
                           variant="soft"
                           icon="tabler:flag"
                           size="sm"
-                          title="Библиотека флагов"
+                          :title="ACTIVE_EFFECT_FORM_LABELS.flagLibrary"
                           @click.left.exact.prevent="openFlagModal(idx)"
                         />
 
@@ -995,7 +1039,7 @@
                           variant="soft"
                           icon="tabler:trash"
                           size="sm"
-                          title="Удалить флаг"
+                          :title="ACTIVE_EFFECT_FORM_LABELS.flagRemove"
                           @click.left.exact.prevent="removeFlag(idx)"
                         />
                       </div>
@@ -1012,7 +1056,7 @@
                       v-else-if="form.flags[idx]"
                       class="text-xs text-warning/80 italic"
                     >
-                      Кастомный или Неизвестный флаг
+                      {{ ACTIVE_EFFECT_FORM_LABELS.flagUnknown }}
                     </div>
                   </div>
                 </div>
@@ -1021,9 +1065,9 @@
               <!-- Список изменений -->
               <div>
                 <div class="mb-2 flex items-center justify-between">
-                  <span class="text-sm font-medium"
-                    >Модификаторы (Changes)</span
-                  >
+                  <span class="text-sm font-medium">
+                    {{ ACTIVE_EFFECT_FORM_LABELS.changesTitle }}
+                  </span>
 
                   <UButton
                     color="primary"
@@ -1040,7 +1084,7 @@
                   v-if="form.changes.length === 0"
                   class="rounded-lg border border-dashed border-default p-4 text-center text-xs text-dimmed italic"
                 >
-                  Нет активных модификаторов.
+                  {{ ACTIVE_EFFECT_FORM_LABELS.changesEmpty }}
                 </div>
 
                 <div
@@ -1052,11 +1096,13 @@
                     :key="idx"
                     class="grid grid-cols-1 items-end gap-2 rounded-lg border border-default bg-elevated/50 p-2 px-3 sm:grid-cols-[200px_140px_1.5fr_2.5fr_70px_auto]"
                   >
-                    <UFormField label="Ключ атрибута">
+                    <UFormField :label="ACTIVE_EFFECT_FORM_LABELS.changeKey">
                       <div class="flex w-full gap-1">
                         <UInput
                           v-model="change.key"
-                          placeholder="Напр: armorClass"
+                          :placeholder="
+                            ACTIVE_EFFECT_FORM_LABELS.changeKeyPlaceholder
+                          "
                           size="sm"
                           class="flex-1 font-mono text-xs"
                         />
@@ -1066,13 +1112,13 @@
                           variant="soft"
                           icon="tabler:target"
                           size="sm"
-                          title="Библиотека ключей"
+                          :title="ACTIVE_EFFECT_FORM_LABELS.keyLibrary"
                           @click.left.exact.prevent="openKeyModal(idx)"
                         />
                       </div>
                     </UFormField>
 
-                    <UFormField label="Режим">
+                    <UFormField :label="ACTIVE_EFFECT_FORM_LABELS.changeMode">
                       <USelect
                         v-model="change.mode"
                         :items="modeOptions"
@@ -1083,11 +1129,13 @@
                       />
                     </UFormField>
 
-                    <UFormField label="Значение">
+                    <UFormField :label="ACTIVE_EFFECT_FORM_LABELS.changeValue">
                       <div class="flex w-full gap-1">
                         <UInput
                           v-model="change.value"
-                          placeholder="+2, 1к4"
+                          :placeholder="
+                            ACTIVE_EFFECT_FORM_LABELS.changeValuePlaceholder
+                          "
                           size="sm"
                           class="flex-1 font-mono text-xs"
                         />
@@ -1097,17 +1145,21 @@
                           variant="soft"
                           icon="tabler:bulb"
                           size="sm"
-                          title="Библиотека значений"
+                          :title="ACTIVE_EFFECT_FORM_LABELS.valueLibrary"
                           @click.left.exact.prevent="openValueModal(idx)"
                         />
                       </div>
                     </UFormField>
 
-                    <UFormField label="Условие">
+                    <UFormField
+                      :label="ACTIVE_EFFECT_FORM_LABELS.changeCondition"
+                    >
                       <div class="flex w-full gap-1">
                         <UInput
                           v-model="change.condition"
-                          placeholder="roll.hasAdvantage"
+                          :placeholder="
+                            ACTIVE_EFFECT_FORM_LABELS.changeConditionPlaceholder
+                          "
                           size="sm"
                           class="flex-1 font-mono text-xs"
                         />
@@ -1117,18 +1169,24 @@
                           variant="soft"
                           icon="tabler:bulb"
                           size="sm"
-                          title="Шаблоны условий"
+                          :title="ACTIVE_EFFECT_FORM_LABELS.conditionTemplates"
                           @click.left.exact.prevent="openTemplateModal(idx)"
                         />
                       </div>
                     </UFormField>
 
-                    <UTooltip text="Приоритет: меньше = раньше (дефолт 20)">
-                      <UFormField label="Пр-т">
+                    <UTooltip
+                      :text="ACTIVE_EFFECT_FORM_LABELS.changePriorityHint"
+                    >
+                      <UFormField
+                        :label="ACTIVE_EFFECT_FORM_LABELS.changePriority"
+                      >
                         <UInput
                           v-model="change.priority"
                           type="number"
-                          placeholder="20"
+                          :placeholder="
+                            ACTIVE_EFFECT_FORM_LABELS.changePriorityPlaceholder
+                          "
                           size="sm"
                           class="w-full px-1 text-center"
                         />
@@ -1141,7 +1199,7 @@
                         variant="soft"
                         icon="tabler:trash"
                         size="sm"
-                        title="Удалить модификатор"
+                        :title="ACTIVE_EFFECT_FORM_LABELS.changeRemove"
                         @click.left.exact.prevent="removeChange(idx)"
                       />
                     </div>
@@ -1150,11 +1208,7 @@
                       v-if="String(change.key).startsWith('damage.')"
                       class="text-xs text-muted italic sm:col-span-6"
                     >
-                      Кроме плоского числа (+2), можно указать формулу костей —
-                      она бросается отдельной частью урона: «2к6», тип через
-                      токен «2к6@dmg.fire», условие по цели —
-                      «2к6@dmg.fire@target.full» (только при полном HP) или
-                      «@target.notFull» (только по раненой).
+                      {{ ACTIVE_EFFECT_FORM_LABELS.damageFormulaHint }}
                     </div>
                   </div>
                 </div>
@@ -1172,7 +1226,7 @@
                 v-if="props.showAreaTrigger || isAura"
                 class="rounded-lg border border-muted bg-elevated/30 p-3"
               >
-                <UFormField label="Триггер области / ауры">
+                <UFormField :label="ACTIVE_EFFECT_FORM_LABELS.areaTrigger">
                   <USelect
                     v-model="areaTriggerModel"
                     :items="areaTriggerOptions"
@@ -1188,8 +1242,7 @@
               </div>
 
               <p class="text-xs text-dimmed italic">
-                Срабатывает при наложении эффекта на цель (напр. при попадании
-                атакой). Для само-баффов можно оставить пустым.
+                {{ ACTIVE_EFFECT_FORM_LABELS.applyHint }}
               </p>
 
               <!-- Спасбросок при наложении -->
@@ -1197,19 +1250,18 @@
                 <UCheckbox
                   v-model="hasApplySave"
                   :ui="{ label: 'font-medium' }"
-                  label="Спасбросок при наложении"
+                  :label="ACTIVE_EFFECT_FORM_LABELS.applySave"
                 />
 
                 <p class="mt-1.5 text-xs text-muted">
-                  При попадании цель совершает спасбросок — от результата
-                  зависят статус и урон ниже.
+                  {{ ACTIVE_EFFECT_FORM_LABELS.applySaveHint }}
                 </p>
 
                 <div
                   v-if="hasApplySave"
                   class="mt-3 grid grid-cols-3 gap-3 border-t border-default/40 pt-3"
                 >
-                  <UFormField label="Характеристика">
+                  <UFormField :label="FORM_FIELD_LABELS.ability">
                     <USelect
                       v-model="applySaveAbility"
                       :items="ABILITY_OPTIONS"
@@ -1219,7 +1271,7 @@
                     />
                   </UFormField>
 
-                  <UFormField label="Сложность (DC)">
+                  <UFormField :label="FORM_FIELD_LABELS.saveDc">
                     <UInput
                       v-model.number="applySaveDc"
                       type="number"
@@ -1228,7 +1280,7 @@
                     />
                   </UFormField>
 
-                  <UFormField label="При успехе">
+                  <UFormField :label="FORM_FIELD_LABELS.saveEffect">
                     <USelect
                       v-model="applySaveOnSuccess"
                       :items="onSuccessOptions"
@@ -1242,13 +1294,11 @@
                 <div class="mt-3 border-t border-default/40 pt-3">
                   <UCheckbox
                     v-model="applyOnSuccess"
-                    label="Накладывать эффект даже при успешном спасе"
+                    :label="ACTIVE_EFFECT_FORM_LABELS.applyOnSuccess"
                   />
 
                   <p class="mt-1.5 text-xs text-muted">
-                    Состояние повиснет на цели, даже если она прошла спасбросок
-                    (свой выше или спасбросок области у действия). Урон при
-                    успехе — по правилу «При успехе».
+                    {{ ACTIVE_EFFECT_FORM_LABELS.applyOnSuccessHint }}
                   </p>
                 </div>
               </div>
@@ -1263,12 +1313,13 @@
                     class="size-4 text-warning"
                   />
 
-                  <span class="text-sm font-medium">Урон при наложении</span>
+                  <span class="text-sm font-medium">
+                    {{ ACTIVE_EFFECT_FORM_LABELS.damageTitle }}
+                  </span>
                 </div>
 
                 <p class="text-xs text-muted">
-                  Наносится цели при наложении. Если включён спасбросок выше —
-                  урон гейтится им (на успехе: нет урона либо половина).
+                  {{ ACTIVE_EFFECT_FORM_LABELS.damageHint }}
                 </p>
 
                 <DamagePartsEditor
@@ -1279,7 +1330,7 @@
                   :hide-healing="true"
                   :hide-conditions="true"
                   :allow-empty="true"
-                  add-label="Добавить урон"
+                  :add-label="ACTIVE_EFFECT_FORM_LABELS.addDamage"
                 />
               </div>
 
@@ -1288,19 +1339,18 @@
                 <UCheckbox
                   v-model="hasRecurringSave"
                   :ui="{ label: 'font-medium' }"
-                  label="Периодический спасбросок снимает эффект"
+                  :label="ACTIVE_EFFECT_FORM_LABELS.recurringSave"
                 />
 
                 <p class="mt-1.5 text-xs text-muted">
-                  Пока эффект активен, цель повторяет спасбросок и при успехе
-                  сбрасывает его досрочно.
+                  {{ ACTIVE_EFFECT_FORM_LABELS.recurringSaveHint }}
                 </p>
 
                 <div
                   v-if="hasRecurringSave"
                   class="mt-3 grid grid-cols-3 gap-3 border-t border-default/40 pt-3"
                 >
-                  <UFormField label="Характеристика">
+                  <UFormField :label="FORM_FIELD_LABELS.ability">
                     <USelect
                       v-model="recurringAbility"
                       :items="ABILITY_OPTIONS"
@@ -1310,7 +1360,7 @@
                     />
                   </UFormField>
 
-                  <UFormField label="Сложность (DC)">
+                  <UFormField :label="FORM_FIELD_LABELS.saveDc">
                     <UInput
                       v-model.number="recurringDc"
                       type="number"
@@ -1319,7 +1369,7 @@
                     />
                   </UFormField>
 
-                  <UFormField label="Когда">
+                  <UFormField :label="ACTIVE_EFFECT_FORM_LABELS.recurringWhen">
                     <USelect
                       v-model="recurringTiming"
                       :items="recurringTimingOptions"
@@ -1336,19 +1386,20 @@
                 <UCheckbox
                   v-model="hasRecurringDamage"
                   :ui="{ label: 'font-medium' }"
-                  label="Периодический урон (каждый ход)"
+                  :label="ACTIVE_EFFECT_FORM_LABELS.recurringDamage"
                 />
 
                 <p class="mt-1.5 text-xs text-muted">
-                  Пока эффект висит на цели, наносит урон каждый ход (напр.
-                  «Горение»). Тикает в бою при смене хода.
+                  {{ ACTIVE_EFFECT_FORM_LABELS.recurringDamageHint }}
                 </p>
 
                 <div
                   v-if="hasRecurringDamage"
                   class="mt-3 space-y-3 border-t border-default/40 pt-3"
                 >
-                  <UFormField label="Когда наносится">
+                  <UFormField
+                    :label="ACTIVE_EFFECT_FORM_LABELS.recurringDamageWhen"
+                  >
                     <USelect
                       v-model="recurringDamageTiming"
                       :items="recurringTimingOptions"
@@ -1366,7 +1417,7 @@
                     :hide-healing="true"
                     :hide-conditions="true"
                     :allow-empty="true"
-                    add-label="Добавить урон"
+                    :add-label="ACTIVE_EFFECT_FORM_LABELS.addDamage"
                   />
                 </div>
               </div>

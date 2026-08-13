@@ -39,6 +39,13 @@
 
   import {
     ARMOR_PROF_LABELS,
+    CLASS_DEFAULT_SUBCLASS_LABEL,
+    CLASS_FORM_LABELS,
+    DEFINITION_FORM_LABELS,
+    FORM_FIELD_LABELS,
+    FORM_TAB_LABELS,
+    GRANT_FIELD_LABELS,
+    GRANT_SECTION_LABELS,
     MODAL_BUTTON_LABELS,
     TOOL_PROF_LABELS,
     WEAPON_PROF_LABELS,
@@ -131,14 +138,17 @@
   }));
 
   const tabItems = [
-    { label: 'Основное', slot: 'basic' as const },
-    { label: 'Владения', slot: 'proficiencies' as const },
-    { label: 'Заклинания', slot: 'spellcasting' as const },
-    { label: 'Прогрессия', slot: 'progression' as const },
-    { label: 'Особенности', slot: 'features' as const },
-    { label: 'Подклассы', slot: 'subclasses' as const },
-    { label: 'Счётчики', slot: 'counters' as const },
-    { label: 'Снаряжение', slot: 'equipment' as const },
+    { label: FORM_TAB_LABELS.main, slot: 'basic' as const },
+    {
+      label: GRANT_SECTION_LABELS.proficiencies,
+      slot: 'proficiencies' as const,
+    },
+    { label: GRANT_SECTION_LABELS.spells, slot: 'spellcasting' as const },
+    { label: CLASS_FORM_LABELS.tabProgression, slot: 'progression' as const },
+    { label: GRANT_SECTION_LABELS.features, slot: 'features' as const },
+    { label: CLASS_FORM_LABELS.tabSubclasses, slot: 'subclasses' as const },
+    { label: CLASS_FORM_LABELS.tabCounters, slot: 'counters' as const },
+    { label: GRANT_SECTION_LABELS.equipment, slot: 'equipment' as const },
   ];
 
   // ── Состояние формы ────────────────────────────────────────
@@ -151,7 +161,7 @@
   const isSRD = ref(false);
   const hitDie = ref<HitDie>(8);
   const subclassLevel = ref(3);
-  const subclassLabel = ref('Подкласс');
+  const subclassLabel = ref<string>(CLASS_DEFAULT_SUBCLASS_LABEL);
 
   const armorProficiencies = ref<ArmorCategory[]>([]);
   const weaponProficiencies = ref<string[]>([]);
@@ -207,7 +217,7 @@
     isSRD.value = false;
     hitDie.value = 8;
     subclassLevel.value = 3;
-    subclassLabel.value = 'Подкласс';
+    subclassLabel.value = CLASS_DEFAULT_SUBCLASS_LABEL;
     armorProficiencies.value = [];
     weaponProficiencies.value = [];
     toolProficiencies.value = [];
@@ -423,7 +433,7 @@
       },
       spellcasting: buildSpellcasting(spellcasting.value),
       subclassLevel: subclassLevel.value,
-      subclassLabel: subclassLabel.value.trim() || 'Подкласс',
+      subclassLabel: subclassLabel.value.trim() || CLASS_DEFAULT_SUBCLASS_LABEL,
       subclasses: subclasses.value
         .filter((subclass) => subclass.name.trim().length > 0)
         .map(buildSubclass),
@@ -516,7 +526,11 @@
 <template>
   <UDraggableModal
     :open="open"
-    :title="classDefinition ? 'Редактировать класс' : 'Создать класс'"
+    :title="
+      classDefinition
+        ? CLASS_FORM_LABELS.editTitle
+        : CLASS_FORM_LABELS.createTitle
+    "
     :subtitle="nameEn || undefined"
     :initial-width="900"
     :min-width="640"
@@ -541,27 +555,27 @@
         <template #basic>
           <div class="flex flex-col gap-4">
             <FormSection
-              title="Общая информация"
+              :title="DEFINITION_FORM_LABELS.generalTitle"
               title-color="healing"
             >
               <div class="grid grid-cols-2 gap-3">
-                <UFormField label="Название">
+                <UFormField :label="FORM_FIELD_LABELS.name">
                   <UInput
                     v-model="name"
-                    placeholder="Воин"
+                    :placeholder="CLASS_FORM_LABELS.namePlaceholder"
                     class="w-full"
                   />
                 </UFormField>
 
-                <UFormField label="Английское название">
+                <UFormField :label="FORM_FIELD_LABELS.nameEn">
                   <UInput
                     v-model="nameEn"
-                    placeholder="Fighter"
+                    :placeholder="CLASS_FORM_LABELS.nameEnPlaceholder"
                     class="w-full"
                   />
                 </UFormField>
 
-                <UFormField label="Кость хитов">
+                <UFormField :label="CLASS_FORM_LABELS.hitDie">
                   <USelect
                     v-model="hitDie"
                     :items="HIT_DIE_OPTIONS"
@@ -575,7 +589,7 @@
                   v-model:source="source"
                 />
 
-                <UFormField label="Уровень выбора подкласса">
+                <UFormField :label="CLASS_FORM_LABELS.subclassLevel">
                   <UInputNumber
                     v-model="subclassLevel"
                     :min="1"
@@ -583,18 +597,18 @@
                   />
                 </UFormField>
 
-                <UFormField label="Название группы подклассов">
+                <UFormField :label="CLASS_FORM_LABELS.subclassLabel">
                   <UInput
                     v-model="subclassLabel"
-                    placeholder="Воинский архетип"
+                    :placeholder="CLASS_FORM_LABELS.subclassLabelPlaceholder"
                     class="w-full"
                   />
                 </UFormField>
 
-                <UFormField label="Иконка (tabler:...)">
+                <UFormField :label="DEFINITION_FORM_LABELS.icon">
                   <UInput
                     v-model="icon"
-                    placeholder="tabler:sword"
+                    :placeholder="CLASS_FORM_LABELS.iconPlaceholder"
                     class="w-full"
                   />
                 </UFormField>
@@ -602,14 +616,14 @@
                 <div class="flex items-center">
                   <UCheckbox
                     v-model="isSRD"
-                    label="SRD контент"
+                    :label="FORM_FIELD_LABELS.srd"
                   />
                 </div>
               </div>
             </FormSection>
 
             <FormSection
-              title="Описание (Markdown)"
+              :title="FORM_FIELD_LABELS.descriptionMarkdown"
               title-color="healing"
             >
               <RichTextEditor v-model="description" />
@@ -621,11 +635,11 @@
         <template #proficiencies>
           <div class="flex flex-col gap-4">
             <FormSection
-              title="Стартовые владения (первый класс)"
+              :title="CLASS_FORM_LABELS.startingProficienciesTitle"
               title-color="healing"
             >
               <div class="flex flex-col gap-3">
-                <UFormField label="Доспехи">
+                <UFormField :label="GRANT_SECTION_LABELS.armor">
                   <USelectMenu
                     v-model="armorProficiencies"
                     :items="armorOptions"
@@ -633,11 +647,11 @@
                     label-key="label"
                     multiple
                     class="w-full"
-                    placeholder="Владение доспехами..."
+                    :placeholder="CLASS_FORM_LABELS.armorPlaceholder"
                   />
                 </UFormField>
 
-                <UFormField label="Оружие">
+                <UFormField :label="GRANT_SECTION_LABELS.weapons">
                   <USelectMenu
                     v-model="weaponProficiencies"
                     :items="weaponOptions"
@@ -645,11 +659,11 @@
                     label-key="label"
                     multiple
                     class="w-full"
-                    placeholder="Владение оружием..."
+                    :placeholder="CLASS_FORM_LABELS.weaponsPlaceholder"
                   />
                 </UFormField>
 
-                <UFormField label="Инструменты">
+                <UFormField :label="GRANT_SECTION_LABELS.tools">
                   <USelectMenu
                     v-model="toolProficiencies"
                     :items="toolOptions"
@@ -657,11 +671,11 @@
                     label-key="label"
                     multiple
                     class="w-full"
-                    placeholder="Владение инструментами..."
+                    :placeholder="CLASS_FORM_LABELS.toolsPlaceholder"
                   />
                 </UFormField>
 
-                <UFormField label="Спасброски">
+                <UFormField :label="GRANT_SECTION_LABELS.savingThrows">
                   <USelectMenu
                     v-model="savingThrowProficiencies"
                     :items="abilityOptions"
@@ -669,19 +683,19 @@
                     label-key="label"
                     multiple
                     class="w-full"
-                    placeholder="Характеристики..."
+                    :placeholder="GRANT_FIELD_LABELS.abilitiesPlaceholder"
                   />
                 </UFormField>
               </div>
             </FormSection>
 
             <FormSection
-              title="Выбор навыков"
+              :title="CLASS_FORM_LABELS.skillChoiceTitle"
               title-color="healing"
             >
               <div class="flex items-start gap-3">
                 <UFormField
-                  label="Кол-во"
+                  :label="FORM_FIELD_LABELS.amount"
                   class="w-1/4"
                 >
                   <UInputNumber
@@ -692,7 +706,7 @@
                 </UFormField>
 
                 <UFormField
-                  label="Из набора"
+                  :label="GRANT_FIELD_LABELS.choiceFrom"
                   class="flex-1"
                 >
                   <USelectMenu
@@ -702,26 +716,26 @@
                     label-key="label"
                     multiple
                     class="w-full"
-                    placeholder="Доступные навыки..."
+                    :placeholder="CLASS_FORM_LABELS.skillFromPlaceholder"
                   />
                 </UFormField>
               </div>
             </FormSection>
 
             <FormSection
-              title="Мультикласс (сокращённые владения)"
+              :title="CLASS_FORM_LABELS.multiclassTitle"
               title-color="healing"
             >
               <UCheckbox
                 v-model="multiclassEnabled"
-                label="Задать владения при взятии класса мультиклассом"
+                :label="CLASS_FORM_LABELS.multiclassEnabled"
               />
 
               <div
                 v-if="multiclassEnabled"
                 class="mt-3 flex flex-col gap-3"
               >
-                <UFormField label="Доспехи">
+                <UFormField :label="GRANT_SECTION_LABELS.armor">
                   <USelectMenu
                     v-model="multiclassArmor"
                     :items="armorOptions"
@@ -732,7 +746,7 @@
                   />
                 </UFormField>
 
-                <UFormField label="Оружие">
+                <UFormField :label="GRANT_SECTION_LABELS.weapons">
                   <USelectMenu
                     v-model="multiclassWeapons"
                     :items="weaponOptions"
@@ -743,7 +757,7 @@
                   />
                 </UFormField>
 
-                <UFormField label="Инструменты">
+                <UFormField :label="GRANT_SECTION_LABELS.tools">
                   <USelectMenu
                     v-model="multiclassTools"
                     :items="toolOptions"
@@ -755,7 +769,7 @@
                 </UFormField>
 
                 <UFormField
-                  label="Навыков на выбор"
+                  :label="CLASS_FORM_LABELS.multiclassSkills"
                   class="w-1/3"
                 >
                   <UInputNumber
@@ -772,7 +786,7 @@
         <!-- ЗАКЛИНАНИЯ -->
         <template #spellcasting>
           <FormSection
-            title="Заклинательная способность класса"
+            :title="CLASS_FORM_LABELS.spellcastingTitle"
             title-color="healing"
           >
             <ClassSpellcastingFields v-model="spellcasting" />
@@ -820,8 +834,7 @@
         <template #equipment>
           <div class="flex flex-col gap-2">
             <p class="text-xs text-dimmed">
-              Варианты стартового снаряжения (описание текстом — мастер не
-              выдаёт предметы автоматически).
+              {{ CLASS_FORM_LABELS.equipmentHint }}
             </p>
 
             <div
@@ -831,7 +844,7 @@
             >
               <UInput
                 v-model="option.key"
-                placeholder="A"
+                :placeholder="CLASS_FORM_LABELS.equipmentKeyPlaceholder"
                 class="w-17.5"
               />
 
@@ -839,7 +852,7 @@
                 v-model="option.description"
                 :rows="2"
                 autoresize
-                placeholder="кольчуга, длинный меч, набор исследователя…"
+                :placeholder="CLASS_FORM_LABELS.equipmentDescriptionPlaceholder"
                 class="flex-1"
               />
 
@@ -848,14 +861,14 @@
                 color="error"
                 variant="ghost"
                 size="xs"
-                aria-label="Удалить вариант"
+                :aria-label="CLASS_FORM_LABELS.equipmentRemove"
                 @click.left.exact.prevent="removeEquipment(optionIndex)"
               />
             </div>
 
             <UButton
               icon="tabler:plus"
-              label="Добавить вариант"
+              :label="CLASS_FORM_LABELS.equipmentAdd"
               color="primary"
               variant="soft"
               size="xs"
@@ -873,7 +886,7 @@
           v-if="!canSave"
           class="text-xs text-dimmed"
         >
-          Укажите название класса
+          {{ CLASS_FORM_LABELS.saveHint }}
         </span>
 
         <div class="ml-auto flex gap-3">
