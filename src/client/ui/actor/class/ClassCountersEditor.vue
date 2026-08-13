@@ -8,6 +8,11 @@
 
   import { generateId } from '@vtt/shared';
 
+  import {
+    CLASS_COUNTER_DEFAULT_NAME,
+    CLASS_COUNTERS_LABELS,
+    FORM_FIELD_LABELS,
+  } from '../constants';
   import { RECOVERY_OPTIONS } from './classEditorTypes';
 
   const props = defineProps<{
@@ -19,12 +24,12 @@
   const counters = defineModel<EditableCounter[]>({ required: true });
 
   const modeOptions = [
-    { value: 'progression', label: 'Таблица по уровням' },
-    { value: 'formula', label: 'Формула' },
+    { value: 'progression', label: CLASS_COUNTERS_LABELS.sourceTable },
+    { value: 'formula', label: CLASS_COUNTERS_LABELS.sourceFormula },
   ];
 
   const featureSelectOptions = computed(() => [
-    { value: '', label: '— не привязан —' },
+    { value: '', label: CLASS_COUNTERS_LABELS.featureNone },
     ...(props.featureOptions ?? []),
   ]);
 
@@ -76,7 +81,7 @@
     >
       <div class="flex items-center gap-2">
         <span class="text-sm font-medium text-highlighted">
-          {{ counter.name || 'Новый счётчик' }}
+          {{ counter.name || CLASS_COUNTER_DEFAULT_NAME }}
         </span>
 
         <UButton
@@ -85,29 +90,29 @@
           variant="ghost"
           size="xs"
           class="ml-auto"
-          aria-label="Удалить счётчик"
+          :aria-label="CLASS_COUNTERS_LABELS.removeCounter"
           @click.left.exact.prevent="removeCounter(counterIndex)"
         />
       </div>
 
       <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <UFormField label="Название">
+        <UFormField :label="FORM_FIELD_LABELS.name">
           <UInput
             v-model="counter.name"
-            placeholder="Ярость"
+            :placeholder="CLASS_COUNTERS_LABELS.namePlaceholder"
             class="w-full"
           />
         </UFormField>
 
-        <UFormField label="Краткое">
+        <UFormField :label="CLASS_COUNTERS_LABELS.shortName">
           <UInput
             v-model="counter.shortName"
-            placeholder="Яр."
+            :placeholder="CLASS_COUNTERS_LABELS.shortNamePlaceholder"
             class="w-full"
           />
         </UFormField>
 
-        <UFormField label="Англ.">
+        <UFormField :label="CLASS_COUNTERS_LABELS.nameEnShort">
           <UInput
             v-model="counter.nameEn"
             placeholder="Rage"
@@ -115,7 +120,7 @@
           />
         </UFormField>
 
-        <UFormField label="Уровень начала">
+        <UFormField :label="CLASS_COUNTERS_LABELS.startLevel">
           <UInputNumber
             v-model="counter.startLevel"
             :min="1"
@@ -123,7 +128,7 @@
           />
         </UFormField>
 
-        <UFormField label="Восстановление">
+        <UFormField :label="FORM_FIELD_LABELS.recovery">
           <USelect
             v-model="counter.recovery"
             :items="RECOVERY_OPTIONS"
@@ -132,7 +137,7 @@
           />
         </UFormField>
 
-        <UFormField label="Привязка к особенности">
+        <UFormField :label="CLASS_COUNTERS_LABELS.feature">
           <USelect
             v-model="counter.featureKey"
             :items="featureSelectOptions"
@@ -142,17 +147,17 @@
         </UFormField>
       </div>
 
-      <UFormField label="Описание">
+      <UFormField :label="FORM_FIELD_LABELS.description">
         <UTextarea
           v-model="counter.description"
           :rows="2"
           autoresize
-          placeholder="Как работает ресурс, восстановление…"
+          :placeholder="CLASS_COUNTERS_LABELS.descriptionPlaceholder"
           class="w-full"
         />
       </UFormField>
 
-      <UFormField label="Источник максимума">
+      <UFormField :label="CLASS_COUNTERS_LABELS.maxSource">
         <USelect
           v-model="counter.mode"
           :items="modeOptions"
@@ -171,7 +176,9 @@
           :key="entry.uid"
           class="flex items-center gap-2"
         >
-          <span class="text-xs text-muted">Уровень</span>
+          <span class="text-xs text-muted">{{
+            CLASS_COUNTERS_LABELS.level
+          }}</span>
 
           <UInputNumber
             v-model="entry.level"
@@ -180,7 +187,9 @@
             class="w-22.5"
           />
 
-          <span class="text-xs text-muted">→ макс.</span>
+          <span class="text-xs text-muted">{{
+            CLASS_COUNTERS_LABELS.maxArrow
+          }}</span>
 
           <UInputNumber
             v-model="entry.value"
@@ -194,14 +203,14 @@
             color="error"
             variant="ghost"
             size="xs"
-            aria-label="Удалить ступень"
+            :aria-label="CLASS_COUNTERS_LABELS.removeStep"
             @click.left.exact.prevent="removeProgression(counter, entryIndex)"
           />
         </div>
 
         <UButton
           icon="tabler:plus"
-          label="Добавить ступень"
+          :label="CLASS_COUNTERS_LABELS.addStep"
           color="neutral"
           variant="soft"
           size="xs"
@@ -210,14 +219,14 @@
         />
 
         <p class="text-[11px] text-dimmed">
-          Указывайте только уровни, где значение МЕНЯЕТСЯ. 999 = без предела.
+          {{ CLASS_COUNTERS_LABELS.stepsHint }}
         </p>
       </div>
 
       <!-- Формула -->
       <UFormField
         v-else
-        label="Формула (level / chaMod / level * N)"
+        :label="CLASS_COUNTERS_LABELS.formulaPlaceholder"
       >
         <UInput
           v-model="counter.formula"
@@ -229,7 +238,7 @@
 
     <UButton
       icon="tabler:plus"
-      label="Добавить счётчик"
+      :label="CLASS_COUNTERS_LABELS.addCounter"
       color="primary"
       variant="soft"
       size="xs"

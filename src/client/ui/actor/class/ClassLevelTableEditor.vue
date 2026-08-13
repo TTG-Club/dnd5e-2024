@@ -12,6 +12,7 @@
   import { generateId } from '@vtt/shared';
   import { calculateProficiencyBonus } from '@vtt/shared/system/dnd.js';
 
+  import { CLASS_LEVEL_TABLE_LABELS, GRANT_SECTION_LABELS } from '../constants';
   import {
     buildPresetColumn,
     collectLeafColumnKeys,
@@ -166,7 +167,7 @@
     const names = [...(featureNamesByLevel.value.get(level) ?? [])];
 
     if (hasAsi) {
-      names.push('Улучшение характеристик');
+      names.push(CLASS_LEVEL_TABLE_LABELS.abilityScoreImprovement);
     }
 
     return names.join(', ') || '—';
@@ -245,13 +246,13 @@
         <span
           class="text-xs font-semibold tracking-wider text-dimmed uppercase"
         >
-          Динамические колонки
+          {{ CLASS_LEVEL_TABLE_LABELS.columnsTitle }}
         </span>
 
         <div class="flex gap-2">
           <UButton
             icon="tabler:plus"
-            label="Колонка"
+            :label="CLASS_LEVEL_TABLE_LABELS.addColumn"
             color="neutral"
             variant="soft"
             size="xs"
@@ -260,7 +261,7 @@
 
           <UButton
             icon="tabler:plus"
-            label="Группа"
+            :label="CLASS_LEVEL_TABLE_LABELS.addGroup"
             color="neutral"
             variant="soft"
             size="xs"
@@ -271,7 +272,9 @@
 
       <!-- Стандартные DND-колонки: добавляются залоченными (ключ/название вшиты) -->
       <div class="flex flex-wrap items-center gap-2">
-        <span class="text-[11px] text-dimmed">Стандартные:</span>
+        <span class="text-[11px] text-dimmed">
+          {{ CLASS_LEVEL_TABLE_LABELS.presetsPrefix }}
+        </span>
 
         <UButton
           v-for="preset in COLUMN_PRESETS"
@@ -290,9 +293,7 @@
         v-if="columns.length === 0"
         class="text-xs text-dimmed italic"
       >
-        Колонок нет. «Стандартные» выше — кнопкой (ключ/название вшиты, не
-        меняются); «Колонка»/«Группа» — своя уникальная с любым
-        ключом/названием.
+        {{ CLASS_LEVEL_TABLE_LABELS.columnsEmpty }}
       </div>
 
       <div
@@ -314,7 +315,7 @@
           type="button"
           class="mt-1.5 shrink-0 cursor-grab text-dimmed transition-colors hover:text-highlighted active:cursor-grabbing"
           draggable="true"
-          aria-label="Перетащите, чтобы изменить порядок колонки"
+          :aria-label="CLASS_LEVEL_TABLE_LABELS.reorderColumn"
           @dragstart="onColumnDragStart(columnIndex, $event)"
           @dragend="onColumnDragEnd"
         >
@@ -354,7 +355,7 @@
               variant="ghost"
               size="xs"
               class="ml-auto shrink-0"
-              aria-label="Удалить колонку"
+              :aria-label="CLASS_LEVEL_TABLE_LABELS.removeColumn"
               @click.left.exact.prevent="removeColumn(columnIndex)"
             />
           </div>
@@ -364,14 +365,14 @@
             <div class="flex items-center gap-2">
               <UInput
                 v-model="column.label"
-                placeholder="Заголовок колонки"
+                :placeholder="CLASS_LEVEL_TABLE_LABELS.columnTitle"
                 class="flex-1"
               />
 
               <UInput
                 v-if="column.children.length === 0"
                 v-model="column.key"
-                placeholder="ключ (напр. sneakAttack)"
+                :placeholder="CLASS_LEVEL_TABLE_LABELS.columnKeyPlaceholder"
                 :color="isReservedColumnKey(column.key) ? 'error' : undefined"
                 class="flex-1"
               />
@@ -380,7 +381,7 @@
                 v-else
                 class="text-[11px] text-dimmed"
               >
-                группа
+                {{ CLASS_LEVEL_TABLE_LABELS.groupBadge }}
               </span>
 
               <UButton
@@ -388,7 +389,7 @@
                 color="error"
                 variant="ghost"
                 size="xs"
-                aria-label="Удалить колонку"
+                :aria-label="CLASS_LEVEL_TABLE_LABELS.removeColumn"
                 @click.left.exact.prevent="removeColumn(columnIndex)"
               />
             </div>
@@ -415,13 +416,13 @@
               >
                 <UInput
                   v-model="child.label"
-                  placeholder="Подзагол. (напр. 1)"
+                  :placeholder="CLASS_LEVEL_TABLE_LABELS.childTitlePlaceholder"
                   class="w-35"
                 />
 
                 <UInput
                   v-model="child.key"
-                  placeholder="ключ (напр. spellSlots1)"
+                  :placeholder="CLASS_LEVEL_TABLE_LABELS.childKeyPlaceholder"
                   :color="isReservedColumnKey(child.key) ? 'error' : undefined"
                   class="flex-1"
                 />
@@ -431,14 +432,14 @@
                   color="error"
                   variant="ghost"
                   size="xs"
-                  aria-label="Удалить подзаголовок"
+                  :aria-label="CLASS_LEVEL_TABLE_LABELS.removeChild"
                   @click.left.exact.prevent="removeChild(column, childIndex)"
                 />
               </div>
 
               <UButton
                 icon="tabler:plus"
-                label="Подзаголовок"
+                :label="CLASS_LEVEL_TABLE_LABELS.addChild"
                 color="neutral"
                 variant="ghost"
                 size="xs"
@@ -454,12 +455,12 @@
     <!-- Таблица 20 уровней -->
     <div class="flex items-center justify-between gap-2">
       <span class="text-xs font-semibold tracking-wider text-dimmed uppercase">
-        Прогрессия по уровням
+        {{ CLASS_LEVEL_TABLE_LABELS.progressionTitle }}
       </span>
 
       <UButton
         icon="tabler:wand"
-        label="Авто-бонус мастерства"
+        :label="CLASS_LEVEL_TABLE_LABELS.autoProficiency"
         color="neutral"
         variant="soft"
         size="xs"
@@ -473,9 +474,13 @@
       <table class="w-full min-w-160 text-xs">
         <thead>
           <tr class="bg-elevated/50 text-muted">
-            <th class="px-2 py-1.5 text-left">Ур.</th>
+            <th class="px-2 py-1.5 text-left">
+              {{ CLASS_LEVEL_TABLE_LABELS.columnLevel }}
+            </th>
 
-            <th class="px-2 py-1.5 text-left">Мас.</th>
+            <th class="px-2 py-1.5 text-left">
+              {{ CLASS_LEVEL_TABLE_LABELS.columnProficiency }}
+            </th>
 
             <th class="px-2 py-1.5 text-center">ASI</th>
 
@@ -483,14 +488,14 @@
               v-if="isCaster"
               class="px-2 py-1.5 text-center"
             >
-              Заговоры+
+              {{ CLASS_LEVEL_TABLE_LABELS.columnCantrips }}
             </th>
 
             <th
               v-if="isCaster"
               class="px-2 py-1.5 text-center"
             >
-              Закл.+
+              {{ CLASS_LEVEL_TABLE_LABELS.columnSpells }}
             </th>
 
             <th
@@ -501,7 +506,9 @@
               {{ col.label }}
             </th>
 
-            <th class="px-2 py-1.5 text-left">Особенности</th>
+            <th class="px-2 py-1.5 text-left">
+              {{ GRANT_SECTION_LABELS.features }}
+            </th>
           </tr>
         </thead>
 
@@ -575,9 +582,7 @@
     </div>
 
     <p class="text-[11px] text-dimmed">
-      «Особенности» уровня выводятся автоматически из уровня каждой особенности
-      (вкладка «Особенности»). Пустая ячейка колонки = «—». Бонус мастерства
-      можно проставить кнопкой авто-заполнения.
+      {{ CLASS_LEVEL_TABLE_LABELS.hint }}
     </p>
   </div>
 </template>

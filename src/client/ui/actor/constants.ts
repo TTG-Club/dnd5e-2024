@@ -1292,6 +1292,210 @@ export const FEAT_GRANTS_LABELS = {
 } as const;
 
 /**
+ * Подписи листа персонажа. Общие с листом существа (виды отдыха, заголовок
+ * ошибки) берутся из `REST_LABELS` и `TOAST_TITLES`.
+ */
+export const ACTOR_SHEET_LABELS = {
+  confirmSave: 'Сохранить изменения перед закрытием?',
+  longRestDone: 'Ячейки, заряды, ресурсы, кости и хиты восстановлены.',
+  shortRestDone: 'Пактовые ячейки, короткие ресурсы и заряды восстановлены.',
+  validationErrorTitle: 'Ошибка валидации',
+  validationNameRequired: 'Имя персонажа обязательно',
+  savedTitle: 'Успешно',
+  savedCreated: 'Персонаж создан',
+  savedUpdated: 'Персонаж обновлён',
+  saveErrorTitle: 'Ошибка сохранения',
+  saveErrorText: 'Не удалось сохранить персонажа',
+  replaceSpeciesTitle: 'Замена вида',
+  replaceBackgroundTitle: 'Замена предыстории',
+  /** Вопрос замены вида: между частями идут названия старого и нового вида */
+  replaceSpeciesPrefix: 'У персонажа уже есть вид «',
+  replaceSpeciesMiddle: '». Если применить вид «',
+  replaceSpeciesSuffix:
+    '», всё связанное с текущим видом (владения, особенности, тёмное зрение, '
+    + 'размер и скорость) будет удалено.',
+  replaceBackgroundPrefix: 'У персонажа уже есть предыстория «',
+  replaceBackgroundMiddle: '». Если применить предысторию «',
+  replaceBackgroundSuffix:
+    '», всё связанное с текущей предысторией (бонусы характеристик, навыки, '
+    + 'инструменты и черта) будет удалено.',
+  replaceConfirm: 'Заменить',
+  classNotFound: 'Определение класса не найдено',
+  classRemovedTitle: 'Класс удалён',
+  /** Хвост сообщения об удалении класса — перед ним идёт его название */
+  classRemovedSuffix: ' и все связанные особенности и эффекты удалены',
+} as const;
+
+/** Приставка сообщений листа персонажа в консоли — она одна на весь файл */
+export const ACTOR_SHEET_LOG_PREFIX =
+  '[ActorModal] Не удалось привести актёра к форме D&D:';
+
+/** Подписи карточки вида — окна просмотра записи */
+export const SPECIES_DETAIL_LABELS = {
+  /** Заголовок окна, когда вида в окне ещё нет */
+  fallbackTitle: 'Вид',
+  /** Связка между размерами, если вид бывает нескольких размеров */
+  sizeSeparator: ' или ',
+  speedWalk: 'Ходьба',
+  speedFly: 'Полет',
+  speedSwim: 'Плавание',
+  speedClimb: 'Лазание',
+  speedBurrow: 'Копание',
+  /** Единица скорости — футы */
+  speedUnit: 'фт.',
+  darkvision: 'Тёмное зрение',
+  /** Приставка значка иммунитета подвида */
+  immunityPrefix: 'Иммунитет: ',
+  tabGeneral: 'Основная часть',
+  tabSubspecies: 'Подвиды',
+  type: 'Тип',
+  size: 'Размер',
+  speed: 'Скорость',
+  subspeciesPrefix: 'Подвиды:',
+} as const;
+
+/** Подписи редактора таблицы уровней класса */
+export const CLASS_LEVEL_TABLE_LABELS = {
+  /** Пометка уровня, на котором класс даёт улучшение характеристик */
+  abilityScoreImprovement: 'Улучшение характеристик',
+  columnsTitle: 'Динамические колонки',
+  addColumn: 'Колонка',
+  addGroup: 'Группа',
+  presetsPrefix: 'Стандартные:',
+  columnsEmpty:
+    'Колонок нет. «Стандартные» выше — кнопкой (ключ/название вшиты, не '
+    + 'меняются); «Колонка»/«Группа» — своя уникальная с любым ключом/названием.',
+  reorderColumn: 'Перетащите, чтобы изменить порядок колонки',
+  removeColumn: 'Удалить колонку',
+  columnTitle: 'Заголовок колонки',
+  columnKeyPlaceholder: 'ключ (напр. sneakAttack)',
+  groupBadge: 'группа',
+  childTitlePlaceholder: 'Подзагол. (напр. 1)',
+  childKeyPlaceholder: 'ключ (напр. spellSlots1)',
+  removeChild: 'Удалить подзаголовок',
+  addChild: 'Подзаголовок',
+  progressionTitle: 'Прогрессия по уровням',
+  autoProficiency: 'Авто-бонус мастерства',
+  columnLevel: 'Ур.',
+  columnProficiency: 'Мас.',
+  columnCantrips: 'Заговоры+',
+  columnSpells: 'Закл.+',
+  hint:
+    '«Особенности» уровня выводятся автоматически из уровня каждой особенности '
+    + '(вкладка «Особенности»). Пустая ячейка колонки = «—». Бонус мастерства '
+    + 'можно проставить кнопкой авто-заполнения.',
+} as const;
+
+/** Подписи редактора счётчиков класса */
+export const CLASS_COUNTERS_LABELS = {
+  sourceTable: 'Таблица по уровням',
+  sourceFormula: 'Формула',
+  featureNone: '— не привязан —',
+  removeCounter: 'Удалить счётчик',
+  namePlaceholder: 'Ярость',
+  shortName: 'Краткое',
+  shortNamePlaceholder: 'Яр.',
+  nameEnShort: 'Англ.',
+  startLevel: 'Уровень начала',
+  feature: 'Привязка к особенности',
+  descriptionPlaceholder: 'Как работает ресурс, восстановление…',
+  maxSource: 'Источник максимума',
+  level: 'Уровень',
+  maxArrow: '→ макс.',
+  removeStep: 'Удалить ступень',
+  addStep: 'Добавить ступень',
+  stepsHint:
+    'Указывайте только уровни, где значение МЕНЯЕТСЯ. 999 = без предела.',
+  formulaPlaceholder: 'Формула (level / chaMod / level * N)',
+  addCounter: 'Добавить счётчик',
+} as const;
+
+/**
+ * Стартовое название нового счётчика класса. Значение записи, а не подпись:
+ * оно уходит в сохранённый класс и видно на листе персонажа.
+ */
+export const CLASS_COUNTER_DEFAULT_NAME = 'Новый счётчик';
+
+/** Подписи карточки заклинания — окна просмотра записи */
+export const SPELL_DETAIL_LABELS = {
+  /** Заголовок окна, когда заклинания в окне ещё нет */
+  fallbackTitle: 'Заклинание',
+  /** Хвост подписи круга у заговора */
+  cantripSuffix: 'заговор',
+  ritualSuffix: ' (ритуал)',
+  castingTime: 'Время сотворения',
+  rangeTouch: 'Касание',
+  rangeSelf: 'На себя',
+  components: 'Компоненты',
+  duration: 'Длительность',
+  concentrationPrefix: 'Концентрация,',
+  targetOrArea: 'Цель или Область',
+  /** Приставка области: дальше в скобках идут размер и единицы */
+  areaPrefix: 'Область (',
+  areaSuffix: ')',
+  areaResizable: '(изм.)',
+  attackType: 'Тип броска',
+  attackMelee: 'Рукопашная атака',
+  attackRanged: 'Дальнобойная атака',
+  projectiles: 'Снаряды',
+  higherLevels: 'На высших кругах',
+  scalingDamagePrefix: 'Урон:',
+  scalingTargetsPrefix: 'Цели:',
+  classesPrefix: 'Классы:',
+  /** Приставка добавки снарядов за круг ячейки */
+  projectilesPerSlotPrefix: ' (+',
+  projectilesPerSlotSuffix: ' за круг)',
+  /** Пороги по уровню персонажа: «2/3/4 с 5/11/17 ур.» */
+  projectilesTiersFrom: ' с ',
+  projectilesTiersSuffix: ' ур.)',
+  projectilesTiersPrefix: ' (',
+  projectilesSingleTarget: ', все в одну цель',
+  projectilesDistinctTargets: ', каждый в свою цель',
+  /** Стоимость материального компонента в золотых монетах */
+  materialCostSuffix: ' з.м.',
+  materialConsumed: ', расходуется',
+} as const;
+
+/**
+ * Подписи окна броска кубиков. Окно одно у листов персонажа и существа, и
+ * подписи в нём общие.
+ */
+export const DICE_ROLL_LABELS = {
+  /** Подпись цели, когда цель броска не выбрана */
+  targetFallback: 'Цель',
+  autoFail: 'Автоматический провал',
+  autoFailHint:
+    'Из-за наложенных состояний (например, Парализованный) этот спасбросок '
+    + 'будет автоматически провален.',
+  spellLevel: 'Круг заклинания',
+  consumeSlot: 'Тратить ячейку заклинаний',
+  usePactSlot: 'Использовать ячейку Пакта (Warlock)',
+  scalingPrefix: 'Усиление:',
+  damageType: 'Тип урона',
+  formula: 'Формула',
+  extraBonus: 'Доп. бонус',
+  rollMode: 'Режим броска',
+  rollModeNormal: 'Обычный',
+  rollModeAdvantage: 'Преим.',
+  rollModeDisadvantage: 'Помеха',
+  visibility: 'Кто увидит',
+  visibilityAll: 'Все',
+  visibilityGm: 'ГМ',
+  visibilityPrivate: 'Скрытый',
+  /** Хвост подписи броска: приставка урона, дальше идёт имя цели и число */
+  damageSuffixPrefix: ' → Урон: ',
+  /** Хвост подписи броска: сколько снято с временных хитов */
+  tempAbsorbedPrefix: ' (врем. -',
+  tempAbsorbedSuffix: ')',
+  outcomeAutoFail: ' ✗ Провал (Автоматический)',
+  outcomeSuccess: ' ✓ Успех',
+  outcomeFail: ' ✗ Провал',
+} as const;
+
+/** Приставка сообщений окна броска в консоли — она одна на весь файл */
+export const DICE_ROLL_LOG_PREFIX = '[DiceRollModal] Ошибка броска:';
+
+/**
  * Приставка круга заклинания: «3» + это = «3-й круг». Её печатают вкладка
  * заклинаний, окно броска и списки ячеек — расходиться она не должна.
  */

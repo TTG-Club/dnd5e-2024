@@ -17,6 +17,11 @@
     TARGET_TYPE_LABELS,
   } from '@vtt/shared/system/dnd.js';
 
+  import {
+    FORM_FIELD_LABELS,
+    SPELL_DETAIL_LABELS,
+    SPELL_LEVEL_SUFFIX,
+  } from './constants';
   import DamagePartsSummary from './DamagePartsSummary.vue';
   import ItemDetailModalShell from './ItemDetailModalShell.vue';
   import ItemDetailTabs from './ItemDetailTabs.vue';
@@ -66,7 +71,7 @@
     let label = String(projectiles.count);
 
     if (projectiles.perSlotLevel) {
-      label += ` (+${projectiles.perSlotLevel} за круг)`;
+      label += `${SPELL_DETAIL_LABELS.projectilesPerSlotPrefix}${projectiles.perSlotLevel}${SPELL_DETAIL_LABELS.projectilesPerSlotSuffix}`;
     }
 
     const tiers = [...(projectiles.countByCharacterLevel ?? [])].sort(
@@ -77,13 +82,13 @@
       const counts = tiers.map((tier) => tier.count).join('/');
       const levels = tiers.map((tier) => tier.level).join('/');
 
-      label += ` (${counts} с ${levels} ур.)`;
+      label += `${SPELL_DETAIL_LABELS.projectilesTiersPrefix}${counts}${SPELL_DETAIL_LABELS.projectilesTiersFrom}${levels}${SPELL_DETAIL_LABELS.projectilesTiersSuffix}`;
     }
 
     if (projectiles.targetDistribution === 'single') {
-      label += ', все в одну цель';
+      label += SPELL_DETAIL_LABELS.projectilesSingleTarget;
     } else if (projectiles.targetDistribution === 'distinct') {
-      label += ', каждый в свою цель';
+      label += SPELL_DETAIL_LABELS.projectilesDistinctTargets;
     }
 
     return label;
@@ -111,16 +116,20 @@
         m += ` (${props.spell.components.materialDescription}`;
 
         if (props.spell.components.materialCost) {
-          m += `, ${props.spell.components.materialCost} з.м.`;
+          m += `, ${props.spell.components.materialCost}${SPELL_DETAIL_LABELS.materialCostSuffix}`;
         }
 
         if (props.spell.components.materialConsumed) {
-          m += ', расходуется';
+          m += SPELL_DETAIL_LABELS.materialConsumed;
         }
 
         m += ')';
       } else if (props.spell.components.materialCost) {
-        m += ` (${props.spell.components.materialCost} з.м.${props.spell.components.materialConsumed ? ', расходуется' : ''})`;
+        m += ` (${props.spell.components.materialCost}${SPELL_DETAIL_LABELS.materialCostSuffix}${
+          props.spell.components.materialConsumed
+            ? SPELL_DETAIL_LABELS.materialConsumed
+            : ''
+        })`;
       }
 
       list.push(m);
@@ -144,7 +153,7 @@
 <template>
   <ItemDetailModalShell
     :open="open"
-    :title="spell?.name ?? 'Заклинание'"
+    :title="spell?.name ?? SPELL_DETAIL_LABELS.fallbackTitle"
     :subtitle="spell?.nameEn || undefined"
     :source-key="spell?.sourceKey"
     :source="spell?.source"
@@ -167,17 +176,19 @@
           <div class="flex flex-col gap-4">
             <!-- Subtitle: Level & School -->
             <div class="text-sm text-muted italic">
-              <span v-if="spell.level === 0"
-                >{{ SPELL_SCHOOL_LABELS[spell.school] ?? spell.school }},
-                заговор</span
-              >
+              <span v-if="spell.level === 0">
+                {{ SPELL_SCHOOL_LABELS[spell.school] ?? spell.school }},
+                {{ SPELL_DETAIL_LABELS.cantripSuffix }}
+              </span>
 
-              <span v-else
-                >{{ spell.level }}-й круг,
-                {{ SPELL_SCHOOL_LABELS[spell.school] ?? spell.school }}</span
-              >
+              <span v-else>
+                {{ spell.level }}{{ SPELL_LEVEL_SUFFIX }},
+                {{ SPELL_SCHOOL_LABELS[spell.school] ?? spell.school }}
+              </span>
 
-              <span v-if="spell.ritual"> (ритуал)</span>
+              <span v-if="spell.ritual">{{
+                SPELL_DETAIL_LABELS.ritualSuffix
+              }}</span>
             </div>
 
             <!-- Основные характеристики -->
@@ -185,7 +196,9 @@
               <div class="grid grid-cols-2 gap-3 text-sm">
                 <!-- Время -->
                 <div>
-                  <span class="text-xs text-dimmed">Время сотворения</span>
+                  <span class="text-xs text-dimmed">
+                    {{ SPELL_DETAIL_LABELS.castingTime }}
+                  </span>
 
                   <p class="text-highlighted">
                     <span v-if="spell.castingTimeValue > 1"
@@ -205,7 +218,9 @@
 
                 <!-- Дистанция -->
                 <div>
-                  <span class="text-xs text-dimmed">Дистанция</span>
+                  <span class="text-xs text-dimmed">
+                    {{ FORM_FIELD_LABELS.range }}
+                  </span>
 
                   <p class="text-highlighted">
                     <template v-if="spell.rangeSpecial">
@@ -213,13 +228,13 @@
                     </template>
 
                     <template v-else-if="spell.deliveryType === 'touch'">
-                      Касание
+                      {{ SPELL_DETAIL_LABELS.rangeTouch }}
                     </template>
 
                     <template
                       v-else-if="spell.range === 0 && spell.rangeUnit === 'ft'"
                     >
-                      На себя
+                      {{ SPELL_DETAIL_LABELS.rangeSelf }}
                     </template>
 
                     <template v-else>
@@ -233,20 +248,25 @@
 
                 <!-- Компоненты -->
                 <div class="col-span-2">
-                  <span class="text-xs text-dimmed">Компоненты</span>
+                  <span class="text-xs text-dimmed">
+                    {{ SPELL_DETAIL_LABELS.components }}
+                  </span>
 
                   <p class="text-highlighted">{{ componentsLabel }}</p>
                 </div>
 
                 <!-- Длительность -->
                 <div class="col-span-2">
-                  <span class="text-xs text-dimmed">Длительность</span>
+                  <span class="text-xs text-dimmed">
+                    {{ SPELL_DETAIL_LABELS.duration }}
+                  </span>
 
                   <p class="text-highlighted">
                     <span
                       v-if="spell.concentration"
                       class="font-semibold text-warning"
-                      >Концентрация,
+                    >
+                      {{ SPELL_DETAIL_LABELS.concentrationPrefix }}
                     </span>
 
                     <template
@@ -269,16 +289,22 @@
 
                 <!-- Цель / Область -->
                 <div class="col-span-2 mt-1 border-t border-default/50 pt-2">
-                  <span class="text-xs text-dimmed">Цель или Область</span>
+                  <span class="text-xs text-dimmed">
+                    {{ SPELL_DETAIL_LABELS.targetOrArea }}
+                  </span>
 
                   <p class="text-highlighted">
                     <template v-if="spell.areaOfEffect">
-                      Область ({{ spell.areaOfEffect.size
-                      }}{{ DISTANCE_UNIT_SHORT[spell.areaOfEffect.unit] }})<span
+                      {{ SPELL_DETAIL_LABELS.areaPrefix
+                      }}{{ spell.areaOfEffect.size
+                      }}{{ DISTANCE_UNIT_SHORT[spell.areaOfEffect.unit]
+                      }}{{ SPELL_DETAIL_LABELS.areaSuffix
+                      }}<span
                         v-if="spell.areaOfEffect.resizable"
                         class="ml-1 text-xs text-dimmed"
-                        >(изм.)</span
                       >
+                        {{ SPELL_DETAIL_LABELS.areaResizable }}
+                      </span>
                     </template>
 
                     <template v-else-if="spell.targetType !== 'none'">
@@ -307,19 +333,23 @@
                     <div
                       v-if="['melee', 'ranged'].includes(spell.deliveryType)"
                     >
-                      <span class="block text-xs text-dimmed">Тип броска</span>
+                      <span class="block text-xs text-dimmed">
+                        {{ SPELL_DETAIL_LABELS.attackType }}
+                      </span>
 
                       <p class="text-highlighted">
                         {{
                           spell.deliveryType === 'melee'
-                            ? 'Рукопашная атака'
-                            : 'Дальнобойная атака'
+                            ? SPELL_DETAIL_LABELS.attackMelee
+                            : SPELL_DETAIL_LABELS.attackRanged
                         }}
                       </p>
                     </div>
 
                     <div v-if="projectilesLabel">
-                      <span class="block text-xs text-dimmed">Снаряды</span>
+                      <span class="block text-xs text-dimmed">
+                        {{ SPELL_DETAIL_LABELS.projectiles }}
+                      </span>
 
                       <p class="text-highlighted">
                         {{ projectilesLabel }}
@@ -327,7 +357,9 @@
                     </div>
 
                     <div v-if="spell.saveType !== 'none'">
-                      <span class="block text-xs text-dimmed">Спасбросок</span>
+                      <span class="block text-xs text-dimmed">
+                        {{ FORM_FIELD_LABELS.savingThrow }}
+                      </span>
 
                       <p
                         class="mt-0.5 text-xs font-semibold tracking-wider text-highlighted uppercase"
@@ -360,7 +392,7 @@
               <span
                 class="mb-1.5 block text-xs font-semibold tracking-wider text-dimmed uppercase"
               >
-                На высших кругах
+                {{ SPELL_DETAIL_LABELS.higherLevels }}
               </span>
 
               <ItemDescriptionRenderer
@@ -373,11 +405,15 @@
                 class="text-sm text-toned"
               >
                 <span v-if="spell.scaling.additionalDice">
-                  <strong>Урон:</strong> +{{ spell.scaling.additionalDice }}
+                  <strong>{{ SPELL_DETAIL_LABELS.scalingDamagePrefix }}</strong>
+                  +{{ spell.scaling.additionalDice }}
                 </span>
 
                 <span v-if="spell.scaling.additionalTargets">
-                  <strong>Цели:</strong> +{{ spell.scaling.additionalTargets }}
+                  <strong>{{
+                    SPELL_DETAIL_LABELS.scalingTargetsPrefix
+                  }}</strong>
+                  +{{ spell.scaling.additionalTargets }}
                 </span>
 
                 <span v-if="spell.scaling.description">
@@ -391,7 +427,9 @@
               v-if="spell.classKeys && spell.classKeys.length > 0"
               class="flex flex-wrap items-center gap-1.5 border-t border-default/50 pt-3"
             >
-              <span class="text-xs text-dimmed">Классы:</span>
+              <span class="text-xs text-dimmed">
+                {{ SPELL_DETAIL_LABELS.classesPrefix }}
+              </span>
 
               <UBadge
                 v-for="classKey in spell.classKeys"

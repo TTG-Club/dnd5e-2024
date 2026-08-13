@@ -32,7 +32,10 @@
 
   import {
     DICE_ROLL_DEFAULT_BUTTON,
+    DICE_ROLL_LABELS,
+    DICE_ROLL_LOG_PREFIX,
     SPELL_DAMAGE_ROLL_BUTTON,
+    SPELL_LEVEL_SUFFIX,
   } from './constants';
 
   type RollVisibility = 'public' | 'gm' | 'private';
@@ -247,7 +250,7 @@
 
     if (props.availableSpellLevels.length > 0) {
       return props.availableSpellLevels.map((lvl) => ({
-        label: `${lvl}-й круг`,
+        label: `${lvl}${SPELL_LEVEL_SUFFIX}`,
         value: lvl,
       }));
     }
@@ -256,7 +259,7 @@
     const baseLevel = props.spellLevel;
 
     for (let idx = baseLevel; idx <= 9; idx++) {
-      items.push({ label: `${idx}-й круг`, value: idx });
+      items.push({ label: `${idx}${SPELL_LEVEL_SUFFIX}`, value: idx });
     }
 
     return items;
@@ -538,7 +541,7 @@
         props.onRoll(damageTotal, resolvedDamageType.value);
       }
     } catch (err) {
-      console.error('[DiceRollModal] Ошибка броска:', err);
+      console.error(DICE_ROLL_LOG_PREFIX, err);
     } finally {
       isOpen.value = false;
 
@@ -561,7 +564,9 @@
       + currentConditionalBonuses.value.attackBonus;
 
     const attackFormula = buildAttackFormula(attackMod, attackRollMode.value);
-    const targetName = targetStore.targetName ?? 'Цель';
+
+    const targetName =
+      targetStore.targetName ?? DICE_ROLL_LABELS.targetFallback;
 
     // Прикрепляем условный бонус урона к формуле урона (props.formula), если он есть
     const damageBonus = currentConditionalBonuses.value.damageBonus;
@@ -701,10 +706,10 @@
 
         const totalDamage = result.hpBefore - result.hpAfter + tempAbsorbed;
 
-        rollLabel += ` → Урон: ${result.actorName} -${totalDamage} HP`;
+        rollLabel += `${DICE_ROLL_LABELS.damageSuffixPrefix}${result.actorName} -${totalDamage} HP`;
 
         if (tempAbsorbed > 0) {
-          rollLabel += ` (врем. -${tempAbsorbed})`;
+          rollLabel += `${DICE_ROLL_LABELS.tempAbsorbedPrefix}${tempAbsorbed}${DICE_ROLL_LABELS.tempAbsorbedSuffix}`;
         }
 
         rollLabel += formatDamageDefenseSuffix(result.defenseOutcome);
@@ -712,12 +717,12 @@
     }
 
     if (props.autoFail) {
-      rollLabel += ' ✗ Провал (Автоматический)';
+      rollLabel += DICE_ROLL_LABELS.outcomeAutoFail;
     } else if (props.targetDc !== undefined) {
       if (rollData.total >= props.targetDc) {
-        rollLabel += ' ✓ Успех';
+        rollLabel += DICE_ROLL_LABELS.outcomeSuccess;
       } else {
-        rollLabel += ' ✗ Провал';
+        rollLabel += DICE_ROLL_LABELS.outcomeFail;
       }
     }
 
@@ -835,7 +840,9 @@
       + currentConditionalBonuses.value.attackBonus;
 
     const attackFormula = buildAttackFormula(attackMod, attackRollMode.value);
-    const targetName = targetStore.targetName ?? 'Цель';
+
+    const targetName =
+      targetStore.targetName ?? DICE_ROLL_LABELS.targetFallback;
 
     // Только бросок попадания (без урона) — получаем hit/crit
     const attackOutput = performTwoStageAttack(
@@ -890,8 +897,8 @@
           color="error"
           variant="soft"
           icon="tabler:skull"
-          title="Автоматический провал"
-          description="Из-за наложенных состояний (например, Парализованный) этот спасбросок будет автоматически провален."
+          :title="DICE_ROLL_LABELS.autoFail"
+          :description="DICE_ROLL_LABELS.autoFailHint"
         />
 
         <!-- Секция каста заклинания -->
@@ -899,9 +906,9 @@
           v-if="hasSpellCast"
           class="space-y-2"
         >
-          <span class="text-xs tracking-wider text-muted uppercase"
-            >Круг заклинания</span
-          >
+          <span class="text-xs tracking-wider text-muted uppercase">
+            {{ DICE_ROLL_LABELS.spellLevel }}
+          </span>
 
           <USelect
             v-model.number="selectedSpellLevel"
@@ -913,13 +920,13 @@
 
           <UCheckbox
             v-model="consumeSpellSlot"
-            label="Тратить ячейку заклинаний"
+            :label="DICE_ROLL_LABELS.consumeSlot"
           />
 
           <UCheckbox
             v-if="canUsePactSlot && consumeSpellSlot"
             v-model="usePactSlot"
-            label="Использовать ячейку Пакта (Warlock)"
+            :label="DICE_ROLL_LABELS.usePactSlot"
           />
 
           <div
@@ -930,8 +937,10 @@
             "
             class="rounded border border-primary/20 bg-primary/10 p-2 text-xs text-primary"
           >
-            <strong>Усиление:</strong> +{{ spellScalingDice }} за каждый
-            дополнительный круг
+            <strong>{{ DICE_ROLL_LABELS.scalingPrefix }}</strong> +{{
+              spellScalingDice
+            }}
+            за каждый дополнительный круг
           </div>
         </div>
 
@@ -940,9 +949,9 @@
           v-if="isDamageTypeChoice && damageTypeOptions.length > 0"
           class="space-y-2"
         >
-          <span class="text-xs tracking-wider text-muted uppercase"
-            >Тип урона</span
-          >
+          <span class="text-xs tracking-wider text-muted uppercase">
+            {{ DICE_ROLL_LABELS.damageType }}
+          </span>
 
           <USelect
             v-model="selectedChoiceDamageType"
@@ -957,9 +966,9 @@
           v-if="!skipRoll"
           class="rounded-lg bg-elevated/50 p-3 text-center"
         >
-          <span class="text-xs tracking-wider text-muted uppercase"
-            >Формула</span
-          >
+          <span class="text-xs tracking-wider text-muted uppercase">
+            {{ DICE_ROLL_LABELS.formula }}
+          </span>
 
           <div class="mt-1 font-mono text-lg font-bold text-highlighted">
             {{ displayFormula }}
@@ -981,7 +990,9 @@
           v-if="!skipRoll"
           class="space-y-2"
         >
-          <span class="text-sm text-toned">Доп. бонус</span>
+          <span class="text-sm text-toned">{{
+            DICE_ROLL_LABELS.extraBonus
+          }}</span>
 
           <UInput
             :model-value="bonusValue"
@@ -999,9 +1010,9 @@
           v-if="showRollModeSection"
           class="space-y-2"
         >
-          <span class="text-xs tracking-wider text-muted uppercase"
-            >Режим броска</span
-          >
+          <span class="text-xs tracking-wider text-muted uppercase">
+            {{ DICE_ROLL_LABELS.rollMode }}
+          </span>
 
           <div class="grid grid-cols-3 gap-2">
             <UButton
@@ -1011,7 +1022,7 @@
               block
               @click.left.exact.prevent="attackRollMode = 'normal'"
             >
-              Обычный
+              {{ DICE_ROLL_LABELS.rollModeNormal }}
             </UButton>
 
             <UButton
@@ -1025,7 +1036,7 @@
                 name="tabler:arrow-big-up-filled"
                 class="mr-1 h-4 w-4"
               />
-              Преим.
+              {{ DICE_ROLL_LABELS.rollModeAdvantage }}
             </UButton>
 
             <UButton
@@ -1039,7 +1050,7 @@
                 name="tabler:arrow-big-down-filled"
                 class="mr-1 h-4 w-4"
               />
-              Помеха
+              {{ DICE_ROLL_LABELS.rollModeDisadvantage }}
             </UButton>
           </div>
         </div>
@@ -1055,9 +1066,9 @@
           v-if="!skipRoll"
           class="space-y-2"
         >
-          <span class="text-xs tracking-wider text-muted uppercase"
-            >Кто увидит</span
-          >
+          <span class="text-xs tracking-wider text-muted uppercase">
+            {{ DICE_ROLL_LABELS.visibility }}
+          </span>
 
           <div class="grid grid-cols-3 gap-2">
             <UButton
@@ -1071,7 +1082,7 @@
                 name="tabler:users"
                 class="mr-1 h-4 w-4"
               />
-              Все
+              {{ DICE_ROLL_LABELS.visibilityAll }}
             </UButton>
 
             <UButton
@@ -1085,7 +1096,7 @@
                 name="tabler:shield"
                 class="mr-1 h-4 w-4"
               />
-              ГМ
+              {{ DICE_ROLL_LABELS.visibilityGm }}
             </UButton>
 
             <UButton
@@ -1099,7 +1110,7 @@
                 name="tabler:eye-off"
                 class="mr-1 h-4 w-4"
               />
-              Скрытый
+              {{ DICE_ROLL_LABELS.visibilityPrivate }}
             </UButton>
           </div>
         </div>

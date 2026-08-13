@@ -58,13 +58,17 @@
   import BackgroundSetupWizard from './background/BackgroundSetupWizard.vue';
   import ClassSetupWizard from './class/ClassSetupWizard.vue';
   import {
+    ACTOR_SHEET_LABELS,
+    ACTOR_SHEET_LOG_PREFIX,
     BACKGROUND_DEFINITION_MIME,
     CLASS_DEFINITION_MIME,
     GAME_FEATURE_MIME,
     GAME_ITEM_MIME,
     MODAL_BUTTON_LABELS,
+    REST_LABELS,
     SPECIES_DEFINITION_MIME,
     SPELL_MIME,
+    TOAST_TITLES,
     UNSAVED_CHANGES_LABELS,
   } from './constants';
   import { applyFeatToActor, resolveFeatGrantedSpells } from './feat/featApply';
@@ -409,7 +413,7 @@
     { immediate: true },
   );
 
-  const confirmMessage = 'Сохранить изменения перед закрытием?';
+  const confirmMessage = ACTOR_SHEET_LABELS.confirmSave;
 
   // Computed
   const isOpen = computed({
@@ -545,10 +549,7 @@
           // Загружаем определение текущего вида для отката при смене
           void loadCurrentSpeciesDefinition(draft);
         } else {
-          console.error(
-            '[ActorModal] Не удалось привести актёра к форме D&D:',
-            props.actorId,
-          );
+          console.error(ACTOR_SHEET_LOG_PREFIX, props.actorId);
         }
       } else {
         console.error('[ActorModal] Actor not found with id:', props.actorId);
@@ -751,8 +752,8 @@
     handleActorUpdate(applyActorRest(localActor.value, 'long', options));
 
     toast.add({
-      title: 'Продолжительный отдых',
-      description: 'Ячейки, заряды, ресурсы, кости и хиты восстановлены.',
+      title: REST_LABELS.long,
+      description: ACTOR_SHEET_LABELS.longRestDone,
       color: 'success',
     });
   }
@@ -770,8 +771,8 @@
     handleActorUpdate(applyShortRestWithHitDice(localActor.value, result));
 
     toast.add({
-      title: 'Короткий отдых',
-      description: 'Пактовые ячейки, короткие ресурсы и заряды восстановлены.',
+      title: REST_LABELS.short,
+      description: ACTOR_SHEET_LABELS.shortRestDone,
       color: 'success',
     });
   }
@@ -841,8 +842,8 @@
 
     if (!localActor.value.name || localActor.value.name.trim() === '') {
       toast.add({
-        title: 'Ошибка валидации',
-        description: 'Имя персонажа обязательно',
+        title: ACTOR_SHEET_LABELS.validationErrorTitle,
+        description: ACTOR_SHEET_LABELS.validationNameRequired,
         color: 'error',
       });
 
@@ -881,8 +882,10 @@
       }
 
       toast.add({
-        title: 'Успешно',
-        description: isCreating ? 'Персонаж создан' : 'Персонаж обновлён',
+        title: ACTOR_SHEET_LABELS.savedTitle,
+        description: isCreating
+          ? ACTOR_SHEET_LABELS.savedCreated
+          : ACTOR_SHEET_LABELS.savedUpdated,
         color: 'success',
       });
 
@@ -893,11 +896,11 @@
       console.error('Failed to save actor:', error);
 
       toast.add({
-        title: 'Ошибка сохранения',
+        title: ACTOR_SHEET_LABELS.saveErrorTitle,
         description:
           error instanceof Error
             ? error.message
-            : 'Не удалось сохранить персонажа',
+            : ACTOR_SHEET_LABELS.saveErrorText,
         color: 'error',
       });
     } finally {
@@ -956,8 +959,8 @@
    */
   const replaceConfirmTitle = computed(() => {
     return replaceConfirmTarget.value === 'species'
-      ? 'Замена вида'
-      : 'Замена предыстории';
+      ? ACTOR_SHEET_LABELS.replaceSpeciesTitle
+      : ACTOR_SHEET_LABELS.replaceBackgroundTitle;
   });
 
   /**
@@ -974,7 +977,12 @@
 
       const newSpeciesName = droppedSpeciesDef.value?.name ?? '';
 
-      return `У персонажа уже есть вид «${currentSpeciesName}». Если применить вид «${newSpeciesName}», всё связанное с текущим видом (владения, особенности, тёмное зрение, размер и скорость) будет удалено.`;
+      return (
+        `${ACTOR_SHEET_LABELS.replaceSpeciesPrefix}${currentSpeciesName}`
+        + `${ACTOR_SHEET_LABELS.replaceSpeciesMiddle}${newSpeciesName}${
+          ACTOR_SHEET_LABELS.replaceSpeciesSuffix
+        }`
+      );
     }
 
     if (replaceConfirmTarget.value === 'background') {
@@ -983,7 +991,12 @@
 
       const newBackgroundName = droppedBackgroundDef.value?.name ?? '';
 
-      return `У персонажа уже есть предыстория «${currentBackgroundName}». Если применить предысторию «${newBackgroundName}», всё связанное с текущей предысторией (бонусы характеристик, навыки, инструменты и черта) будет удалено.`;
+      return (
+        `${ACTOR_SHEET_LABELS.replaceBackgroundPrefix}${currentBackgroundName}`
+        + `${ACTOR_SHEET_LABELS.replaceBackgroundMiddle}${newBackgroundName}${
+          ACTOR_SHEET_LABELS.replaceBackgroundSuffix
+        }`
+      );
     }
 
     return '';
@@ -1346,8 +1359,8 @@
     }
 
     toast.add({
-      title: 'Ошибка',
-      description: 'Определение класса не найдено',
+      title: TOAST_TITLES.error,
+      description: ACTOR_SHEET_LABELS.classNotFound,
       color: 'error',
     });
 
@@ -1632,8 +1645,8 @@
     handleImmediateSave();
 
     toast.add({
-      title: 'Класс удалён',
-      description: `${removedClassName} и все связанные особенности и эффекты удалены`,
+      title: ACTOR_SHEET_LABELS.classRemovedTitle,
+      description: `${removedClassName}${ACTOR_SHEET_LABELS.classRemovedSuffix}`,
       color: 'success',
     });
   }
@@ -1982,7 +1995,7 @@
           icon="tabler:replace"
           @click.left.exact.prevent="onReplaceConfirm"
         >
-          Заменить
+          {{ ACTOR_SHEET_LABELS.replaceConfirm }}
         </UButton>
       </div>
     </template>

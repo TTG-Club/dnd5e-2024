@@ -15,7 +15,13 @@
     DAMAGE_TYPE_LABELS,
   } from '@vtt/shared/system/dnd.js';
 
-  import { CREATURE_SIZE_LABELS, CREATURE_TYPE_LABELS } from '../constants';
+  import {
+    CREATURE_SIZE_LABELS,
+    CREATURE_TYPE_LABELS,
+    GRANT_FIELD_LABELS,
+    GRANT_SECTION_LABELS,
+    SPECIES_DETAIL_LABELS,
+  } from '../constants';
   import SourceBadge from '../SourceBadge.vue';
 
   const props = defineProps<{
@@ -53,7 +59,7 @@
 
     return props.speciesDefinition.size
       .map((sizeValue) => CREATURE_SIZE_LABELS[sizeValue] || sizeValue)
-      .join(' или ');
+      .join(SPECIES_DETAIL_LABELS.sizeSeparator);
   });
 
   const speedDisplay = computed(() => {
@@ -62,22 +68,33 @@
     }
 
     const spd = props.speciesDefinition.speed;
-    const parts = [`Ходьба ${spd.walk} фт.`];
+
+    const parts = [
+      `${SPECIES_DETAIL_LABELS.speedWalk} ${spd.walk} ${SPECIES_DETAIL_LABELS.speedUnit}`,
+    ];
 
     if (spd.fly) {
-      parts.push(`Полет ${spd.fly} фт.`);
+      parts.push(
+        `${SPECIES_DETAIL_LABELS.speedFly} ${spd.fly} ${SPECIES_DETAIL_LABELS.speedUnit}`,
+      );
     }
 
     if (spd.swim) {
-      parts.push(`Плавание ${spd.swim} фт.`);
+      parts.push(
+        `${SPECIES_DETAIL_LABELS.speedSwim} ${spd.swim} ${SPECIES_DETAIL_LABELS.speedUnit}`,
+      );
     }
 
     if (spd.climb) {
-      parts.push(`Лазание ${spd.climb} фт.`);
+      parts.push(
+        `${SPECIES_DETAIL_LABELS.speedClimb} ${spd.climb} ${SPECIES_DETAIL_LABELS.speedUnit}`,
+      );
     }
 
     if (spd.burrow) {
-      parts.push(`Копание ${spd.burrow} фт.`);
+      parts.push(
+        `${SPECIES_DETAIL_LABELS.speedBurrow} ${spd.burrow} ${SPECIES_DETAIL_LABELS.speedUnit}`,
+      );
     }
 
     return parts.join(', ');
@@ -93,7 +110,10 @@
 
     props.speciesDefinition.grants.forEach((grant) => {
       if (grant.type === 'darkvision') {
-        grants.push({ title: 'Тёмное зрение', desc: `${grant.range} фт.` });
+        grants.push({
+          title: SPECIES_DETAIL_LABELS.darkvision,
+          desc: `${grant.range} ${SPECIES_DETAIL_LABELS.speedUnit}`,
+        });
       } else if (grant.type === 'damageDefense') {
         const typesByKind = new Map<DamageDefenseKind, string[]>();
 
@@ -113,7 +133,7 @@
       } else if (grant.type === 'conditionImmunity') {
         if (grant.conditions.length > 0) {
           grants.push({
-            title: 'Иммунитет к состояниям',
+            title: GRANT_FIELD_LABELS.conditionImmunities,
             desc: grant.conditions
               .map(
                 (key) =>
@@ -128,28 +148,40 @@
         && (!grant.choices || grant.choices.count === 0)
       ) {
         if (grant.items.length > 0) {
-          grants.push({ title: 'Языки', desc: grant.items.join(', ') });
+          grants.push({
+            title: GRANT_SECTION_LABELS.languages,
+            desc: grant.items.join(', '),
+          });
         }
       } else if (
         grant.type === 'weaponProficiency'
         && (!grant.choices || grant.choices.count === 0)
       ) {
         if (grant.items.length > 0) {
-          grants.push({ title: 'Оружие', desc: grant.items.join(', ') });
+          grants.push({
+            title: GRANT_SECTION_LABELS.weapons,
+            desc: grant.items.join(', '),
+          });
         }
       } else if (
         grant.type === 'armorProficiency'
         && (!grant.choices || grant.choices.count === 0)
       ) {
         if (grant.items.length > 0) {
-          grants.push({ title: 'Снаряжение', desc: grant.items.join(', ') });
+          grants.push({
+            title: GRANT_SECTION_LABELS.equipment,
+            desc: grant.items.join(', '),
+          });
         }
       } else if (
         grant.type === 'toolProficiency'
         && (!grant.choices || grant.choices.count === 0)
       ) {
         if (grant.items.length > 0) {
-          grants.push({ title: 'Инструменты', desc: grant.items.join(', ') });
+          grants.push({
+            title: GRANT_SECTION_LABELS.tools,
+            desc: grant.items.join(', '),
+          });
         }
       }
     });
@@ -200,7 +232,7 @@
         CONDITIONS.find((condition) => condition.key === conditionKey)?.nameRu
         ?? conditionKey;
 
-      badges.push(`Иммунитет: ${name}`);
+      badges.push(`${SPECIES_DETAIL_LABELS.immunityPrefix}${name}`);
     }
 
     return badges;
@@ -214,15 +246,18 @@
 
   const tabItems = computed(() => {
     const items: { label: string; slot: string }[] = [
-      { label: 'Основная часть', slot: 'general' },
+      { label: SPECIES_DETAIL_LABELS.tabGeneral, slot: 'general' },
     ];
 
     if (hasFeatures.value) {
-      items.push({ label: 'Особенности', slot: 'features' });
+      items.push({ label: GRANT_SECTION_LABELS.features, slot: 'features' });
     }
 
     if (hasSubspecies.value) {
-      items.push({ label: 'Подвиды', slot: 'subspecies' });
+      items.push({
+        label: SPECIES_DETAIL_LABELS.tabSubspecies,
+        slot: 'subspecies',
+      });
     }
 
     return items;
@@ -232,7 +267,7 @@
 <template>
   <UDraggableModal
     :open="open"
-    :title="speciesDefinition?.name ?? 'Вид'"
+    :title="speciesDefinition?.name ?? SPECIES_DETAIL_LABELS.fallbackTitle"
     :subtitle="speciesDefinition?.nameEn || undefined"
     :initial-width="800"
     :initial-height="600"
@@ -283,8 +318,9 @@
               >
                 <span
                   class="block text-[10px] font-medium tracking-wider text-dimmed uppercase"
-                  >Тип</span
                 >
+                  {{ SPECIES_DETAIL_LABELS.type }}
+                </span>
 
                 <p class="mt-0.5 text-sm font-semibold text-highlighted">
                   {{ displayType }}
@@ -297,8 +333,9 @@
               >
                 <span
                   class="block text-[10px] font-medium tracking-wider text-dimmed uppercase"
-                  >Размер</span
                 >
+                  {{ SPECIES_DETAIL_LABELS.size }}
+                </span>
 
                 <p class="mt-0.5 text-sm font-semibold text-highlighted">
                   {{ displaySize }}
@@ -311,8 +348,9 @@
               >
                 <span
                   class="block text-[10px] font-medium tracking-wider text-dimmed uppercase"
-                  >Скорость</span
                 >
+                  {{ SPECIES_DETAIL_LABELS.speed }}
+                </span>
 
                 <p class="mt-0.5 text-sm font-semibold text-highlighted">
                   {{ speedDisplay }}
@@ -373,7 +411,9 @@
                 v-if="feature.choices && feature.choices.length > 0"
                 class="mt-3 border-t border-default/50 pt-2 text-xs text-muted"
               >
-                <span class="font-medium text-toned">Подвиды: </span>
+                <span class="font-medium text-toned">
+                  {{ SPECIES_DETAIL_LABELS.subspeciesPrefix }}
+                </span>
                 {{ feature.choices.map((option) => option.name).join(', ') }}
               </div>
             </div>
