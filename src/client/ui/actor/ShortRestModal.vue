@@ -16,6 +16,7 @@
   import {
     ACTOR_LEFT_PANEL_LABELS,
     DICE_ROLL_LABELS,
+    HIT_DIE_LETTER,
     HIT_POINTS_LABELS,
     MODAL_BUTTON_LABELS,
     REST_LABELS,
@@ -59,6 +60,11 @@
   const hitDiceGroups = computed(() =>
     getHitDiceGroups(props.classes, props.manualHitDice),
   );
+
+  /** Запись кости хитов группы: «к8» */
+  function formatHitDie(die: number): string {
+    return `${HIT_DIE_LETTER}${die}`;
+  }
 
   /** Есть ли вообще кости хитов */
   const hasHitDice = computed(() =>
@@ -255,7 +261,9 @@
                 class="h-4 w-4 text-healing"
               />
 
-              <span class="font-bold text-highlighted">к{{ group.die }}</span>
+              <span class="font-bold text-highlighted">{{
+                formatHitDie(group.die)
+              }}</span>
 
               <span class="text-xs text-dimmed">
                 доступно {{ group.available }} / {{ group.total }}

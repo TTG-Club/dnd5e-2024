@@ -18,6 +18,7 @@
     CLASS_DETAIL_LABELS,
     CLASS_LEVEL_TABLE_LABELS,
     GRANT_SECTION_LABELS,
+    HIT_DIE_LETTER,
     LEVEL_BADGE_SUFFIX,
     SKILL_LABELS,
     TOOL_PROF_LABELS,
@@ -41,6 +42,11 @@
    */
   function formatLevelBadge(level: number): string {
     return `${level}${LEVEL_BADGE_SUFFIX}`;
+  }
+
+  /** Запись кости хитов класса: «к8» */
+  function formatHitDie(die: number): string {
+    return `${HIT_DIE_LETTER}${die}`;
   }
 
   /** Извлекает значение динамической колонки из строки таблицы уровней */
@@ -361,7 +367,7 @@
             </span>
 
             <p class="mt-0.5 font-mono text-base font-bold text-warning">
-              к{{ classDefinition.hitDie }}
+              {{ formatHitDie(classDefinition.hitDie) }}
             </p>
           </div>
 

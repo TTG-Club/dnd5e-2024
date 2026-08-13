@@ -16,6 +16,7 @@
 
   import {
     ACTOR_LEFT_PANEL_LABELS,
+    HIT_DIE_LETTER,
     HIT_POINTS_LABELS,
     MODAL_BUTTON_LABELS,
   } from './constants';
@@ -82,6 +83,11 @@
 
   // Группируем только классовые кости — ручные показываются отдельным блоком
   const hitDiceGroups = computed(() => getHitDiceGroups(editClasses.value));
+
+  /** Запись кости хитов группы: «к8» */
+  function formatHitDie(die: number): string {
+    return `${HIT_DIE_LETTER}${die}`;
+  }
 
   function adjustHitDieUsed(die: number, delta: number) {
     let remainingDelta = Math.abs(delta);
@@ -255,7 +261,9 @@
                 class="h-4 w-4 text-healing"
               />
 
-              <span class="font-bold text-highlighted">к{{ group.die }}</span>
+              <span class="font-bold text-highlighted">{{
+                formatHitDie(group.die)
+              }}</span>
             </div>
 
             <div class="flex items-center gap-3">
