@@ -227,6 +227,22 @@ export const CREATURE_HEADER_LABELS = {
   tokenSettings: 'Настройки токена',
 } as const;
 
+/** Подписи карточки записи существа — окна просмотра действия или особенности */
+export const CREATURE_ACTION_DETAIL_LABELS = {
+  /** Заголовок окна, когда записи в окне ещё нет */
+  fallbackTitle: 'Действие',
+  areaPrefix: 'Область:',
+  rangePrefix: 'Дальность:',
+  reachPrefix: 'Досягаемость:',
+} as const;
+
+/** Подписи боевого блока листа существа */
+export const CREATURE_COMBAT_LABELS = {
+  hoverBadge: '(зависание)',
+  generateHitPoints: 'Сгенерировать здоровье по формуле',
+  formulaPrefix: 'Формула:',
+} as const;
+
 /** Подписи окна защит существа */
 export const CREATURE_DEFENSES_LABELS = {
   bypassAdamantine: 'Адамантиновое',

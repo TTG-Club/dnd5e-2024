@@ -44,8 +44,11 @@
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import ClassCounters from './ClassCounters.vue';
   import {
+    ABILITY_CHECK_ROLL_LABELS,
     CUSTOM_BONUS_LABELS,
     DICE_ROLL_DEFAULT_BUTTON,
+    GRANT_SECTION_LABELS,
+    INITIATIVE_ROLL_LABELS,
     INITIATIVE_SETTINGS_LABELS,
     SHEET_TILE_LABELS,
     SKILL_GROUP_LABEL_CLASS,
@@ -265,9 +268,9 @@
 
     openDiceRoll({
       modifier: initiative.value,
-      title: 'Бросок инициативы',
-      rollLabel: 'Инициатива',
-      rollButtonText: 'Бросить инициативу',
+      title: INITIATIVE_ROLL_LABELS.title,
+      rollLabel: INITIATIVE_ROLL_LABELS.rollLabel,
+      rollButtonText: INITIATIVE_ROLL_LABELS.button,
       initialRollMode,
     });
   }
@@ -382,7 +385,9 @@
     );
 
     if (proficiencyPart !== 0) {
-      parts.push(`Мастерство ${formatSignedNumber(proficiencyPart)}`);
+      parts.push(
+        `${SHEET_TILE_LABELS.proficiency} ${formatSignedNumber(proficiencyPart)}`,
+      );
     }
 
     for (const bonus of bonuses) {
@@ -657,9 +662,9 @@
 
     openDiceRoll({
       modifier,
-      title: `Проверка: ${label}`,
-      rollLabel: `Проверка ${label}`,
-      rollButtonText: 'Бросить проверку',
+      title: `${ABILITY_CHECK_ROLL_LABELS.titlePrefix}${label}`,
+      rollLabel: `${ABILITY_CHECK_ROLL_LABELS.rollPrefix}${label}`,
+      rollButtonText: ABILITY_CHECK_ROLL_LABELS.button,
       initialRollMode,
     });
   }
@@ -760,7 +765,7 @@
 
     <!-- Навыки -->
     <FieldsetLabel
-      label="Навыки"
+      :label="GRANT_SECTION_LABELS.skills"
       class="flex flex-col overflow-hidden border-muted"
     >
       <!-- Шестерёнка ведёт в настройку расчёта: значок в самом списке ставит

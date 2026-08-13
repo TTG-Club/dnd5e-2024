@@ -22,13 +22,18 @@
 
   import { useProficiencyBonus } from '../../composables/useProficiencyBonus';
   import ArmorClassModal from '../actor/ArmorClassModal.vue';
-  import { SHEET_TILE_LABELS } from '../actor/constants';
+  import {
+    HIT_POINTS_LABELS,
+    INITIATIVE_ROLL_LABELS,
+    SHEET_TILE_LABELS,
+  } from '../actor/constants';
   import DiceRollModal from '../actor/DiceRollModal.vue';
   import InitiativeModal from '../actor/InitiativeModal.vue';
   import MovementModal from '../actor/MovementModal.vue';
   import ProficiencyBonusModal from '../actor/ProficiencyBonusModal.vue';
   import { formatSignedNumber } from '../actor/utils/formatSignedNumber';
   import {
+    CREATURE_COMBAT_LABELS,
     CREATURE_MOVEMENT_EMPTY,
     CREATURE_PROFICIENCY_RULE_TITLE,
   } from './constants';
@@ -293,8 +298,8 @@
     } else {
       diceRollConfig.value = {
         modifier: initiative.value,
-        title: 'Бросок инициативы',
-        rollLabel: 'Инициатива',
+        title: INITIATIVE_ROLL_LABELS.title,
+        rollLabel: INITIATIVE_ROLL_LABELS.rollLabel,
       };
 
       isDiceRollOpen.value = true;
@@ -452,7 +457,7 @@
                   v-if="item.type === 'fly' && creatureMovement.hover"
                   class="text-xs italic opacity-70"
                 >
-                  (зависание)
+                  {{ CREATURE_COMBAT_LABELS.hoverBadge }}
                 </span>
               </span>
             </div>
@@ -507,7 +512,7 @@
           <span
             class="flex-1 text-center text-xs font-medium tracking-wider text-dimmed uppercase"
           >
-            Сейчас
+            {{ HIT_POINTS_LABELS.current }}
           </span>
 
           <span class="w-3" />
@@ -515,7 +520,7 @@
           <span
             class="flex-1 text-center text-xs font-medium tracking-wider text-dimmed uppercase"
           >
-            Всего
+            {{ HIT_POINTS_LABELS.total }}
           </span>
 
           <div class="mx-2 w-px" />
@@ -523,7 +528,7 @@
           <span
             class="flex-1 text-center text-xs font-medium tracking-wider text-dimmed uppercase"
           >
-            Врем.
+            {{ HIT_POINTS_LABELS.temporary }}
           </span>
         </div>
 
@@ -532,7 +537,7 @@
         <div class="relative flex w-full items-center justify-center gap-1">
           <UTooltip
             v-if="isEditMode && system.hitPoints?.formula"
-            text="Сгенерировать здоровье по формуле"
+            :text="CREATURE_COMBAT_LABELS.generateHitPoints"
           >
             <UButton
               icon="tabler:dice-5"
@@ -545,7 +550,7 @@
           </UTooltip>
 
           <span class="text-xs font-bold tracking-wider text-dimmed uppercase">
-            Формула:
+            {{ CREATURE_COMBAT_LABELS.formulaPrefix }}
           </span>
 
           <span class="text-xs font-medium text-toned">
@@ -618,7 +623,7 @@
     :modifier="diceRollConfig.modifier"
     :title="diceRollConfig.title"
     :roll-label="diceRollConfig.rollLabel"
-    roll-button-text="Бросить инициативу"
+    :roll-button-text="INITIATIVE_ROLL_LABELS.button"
     initial-roll-mode="normal"
   />
 </template>

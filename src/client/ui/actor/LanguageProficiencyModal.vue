@@ -5,7 +5,7 @@
   import { Z_INDEX } from '@/shared_ui/consts';
   import { LANGUAGE_TYPES } from '@vtt/shared/system/dnd.js';
 
-  import { MODAL_BUTTON_LABELS } from './constants';
+  import { MODAL_BUTTON_LABELS, PROFICIENCY_MODAL_LABELS } from './constants';
 
   /** Блокирующий модал — фиксированный z-index поверх остальных */
   const MODAL_Z_INDEX = Z_INDEX.MODAL_ELEVATED;
@@ -48,19 +48,19 @@
   const panels = computed(() => [
     {
       key: 'standard' as const,
-      title: 'Стандартные',
+      title: PROFICIENCY_MODAL_LABELS.languagesStandard,
       color: 'text-primary',
       items: LANGUAGE_TYPES.slice(0, 8),
     },
     {
       key: 'rare' as const,
-      title: 'Редкие',
+      title: PROFICIENCY_MODAL_LABELS.languagesRare,
       color: 'text-primary',
       items: LANGUAGE_TYPES.slice(8, 16),
     },
     {
       key: 'exotic' as const,
-      title: 'Экзотические',
+      title: PROFICIENCY_MODAL_LABELS.languagesExotic,
       color: 'text-primary',
       items: LANGUAGE_TYPES.slice(16),
     },
@@ -122,7 +122,7 @@
   }
 
   /**
-   * Свои языки: всё отмеченное, чего нет в списках. Порядок — тот, в котором их
+   * {{ PROFICIENCY_MODAL_LABELS.languagesCustomTitle }}: всё отмеченное, чего нет в списках. Порядок — тот, в котором их
    * заводили: `Set` держит порядок вставки, и записи не прыгают при правке.
    */
   const customLanguages = computed(() =>
@@ -187,7 +187,7 @@
     :blocking="true"
     :min-width="800"
     :min-height="350"
-    title="Владение языками"
+    :title="PROFICIENCY_MODAL_LABELS.languagesTitle"
     :z-index="MODAL_Z_INDEX"
   >
     <template #body>
@@ -213,7 +213,7 @@
             >
               <span />
 
-              <UTooltip text="Владение">
+              <UTooltip :text="PROFICIENCY_MODAL_LABELS.proficient">
                 <UIcon
                   name="tabler:circle-dot"
                   class="mx-auto block h-3.5 w-3.5 text-healing"
@@ -253,20 +253,20 @@
           </div>
         </div>
 
-        <!-- Свои языки: списками мир не исчерпывается — тайное наречие стола,
+        <!-- {{ PROFICIENCY_MODAL_LABELS.languagesCustomTitle }}: списками мир не исчерпывается — тайное наречие стола,
           язык из домашнего сеттинга. Заводят их прямо здесь и хранят наравне со
           списочными, поэтому в лист они попадают обычными языками -->
         <div class="rounded-lg border border-default/50 bg-elevated/30 p-2">
           <div
             class="mb-2 border-b border-default/50 pb-2 text-center text-xs font-bold tracking-wider text-primary uppercase"
           >
-            Свои языки
+            {{ PROFICIENCY_MODAL_LABELS.languagesCustomTitle }}
           </div>
 
           <div class="flex items-center gap-2">
             <UInput
               v-model="customLanguage"
-              placeholder="Название языка"
+              :placeholder="PROFICIENCY_MODAL_LABELS.languagesCustomPlaceholder"
               size="sm"
               class="flex-1"
               @keydown.enter.prevent="addCustomLanguage"
@@ -302,7 +302,7 @@
                 color="error"
                 variant="ghost"
                 size="xs"
-                :aria-label="`Убрать язык «${language}»`"
+                :aria-label="`${PROFICIENCY_MODAL_LABELS.languageRemovePrefix}${language}${PROFICIENCY_MODAL_LABELS.languageRemoveSuffix}`"
                 @click.left.exact.prevent="removeCustomLanguage(language)"
               />
             </div>
@@ -312,7 +312,7 @@
             v-else
             class="px-1 py-0.5 text-xs text-dimmed italic"
           >
-            Своих языков нет
+            {{ PROFICIENCY_MODAL_LABELS.languagesCustomEmpty }}
           </div>
         </div>
 

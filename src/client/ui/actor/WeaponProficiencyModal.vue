@@ -5,7 +5,7 @@
   import { Z_INDEX } from '@/shared_ui/consts';
   import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 
-  import { MODAL_BUTTON_LABELS } from './constants';
+  import { MODAL_BUTTON_LABELS, PROFICIENCY_MODAL_LABELS } from './constants';
 
   interface Props {
     open: boolean;
@@ -108,7 +108,7 @@
   }
 
   /**
-   * Переключает «Все Простое» / «Все Воинское»
+   * Переключает «{{ PROFICIENCY_MODAL_LABELS.weaponsAllSimple }}» / «{{ PROFICIENCY_MODAL_LABELS.weaponsAllMartial }}»
    * @param category - 'simple' | 'martial'
    */
   function toggleAllCategory(category: 'simple' | 'martial'): void {
@@ -168,7 +168,7 @@
     :blocking="true"
     :min-width="600"
     :min-height="400"
-    title="Владение и мастерство оружием"
+    :title="PROFICIENCY_MODAL_LABELS.weaponsTitle"
     :z-index="Z_INDEX.MODAL_ELEVATED"
   >
     <template #body>
@@ -180,7 +180,7 @@
             <div
               class="mb-2 border-b border-default/50 pb-2 text-center text-xs font-bold tracking-wider text-primary uppercase"
             >
-              Простое
+              {{ PROFICIENCY_MODAL_LABELS.weaponsSimple }}
             </div>
 
             <!-- Заголовок столбцов -->
@@ -190,14 +190,14 @@
             >
               <span />
 
-              <UTooltip text="Владение">
+              <UTooltip :text="PROFICIENCY_MODAL_LABELS.proficient">
                 <UIcon
                   name="tabler:circle-dot"
                   class="mx-auto block h-3.5 w-3.5 text-healing"
                 />
               </UTooltip>
 
-              <UTooltip text="Мастерство">
+              <UTooltip :text="PROFICIENCY_MODAL_LABELS.mastery">
                 <UIcon
                   name="tabler:medal"
                   class="mx-auto block h-3.5 w-3.5 text-healing"
@@ -205,12 +205,12 @@
               </UTooltip>
             </div>
 
-            <!-- Все Простое -->
+            <!-- {{ PROFICIENCY_MODAL_LABELS.weaponsAllSimple }} -->
             <div
               class="flex items-center gap-2 rounded px-1 py-0.5 transition-colors hover:bg-accented/30"
             >
               <span class="flex-1 text-sm font-semibold text-highlighted">
-                Все Простое
+                Все {{ PROFICIENCY_MODAL_LABELS.weaponsSimple }}
               </span>
 
               <UCheckbox
@@ -249,7 +249,7 @@
             <div
               class="mb-2 border-b border-default/50 pb-2 text-center text-xs font-bold tracking-wider text-danger uppercase"
             >
-              Воинское
+              {{ PROFICIENCY_MODAL_LABELS.weaponsMartial }}
             </div>
 
             <!-- Заголовок столбцов -->
@@ -259,14 +259,14 @@
             >
               <span />
 
-              <UTooltip text="Владение">
+              <UTooltip :text="PROFICIENCY_MODAL_LABELS.proficient">
                 <UIcon
                   name="tabler:circle-dot"
                   class="mx-auto block h-3.5 w-3.5 text-healing"
                 />
               </UTooltip>
 
-              <UTooltip text="Мастерство">
+              <UTooltip :text="PROFICIENCY_MODAL_LABELS.mastery">
                 <UIcon
                   name="tabler:medal"
                   class="mx-auto block h-3.5 w-3.5 text-healing"
@@ -274,12 +274,12 @@
               </UTooltip>
             </div>
 
-            <!-- Все Воинское -->
+            <!-- {{ PROFICIENCY_MODAL_LABELS.weaponsAllMartial }} -->
             <div
               class="flex items-center gap-2 rounded px-1 py-0.5 transition-colors hover:bg-accented/30"
             >
               <span class="flex-1 text-sm font-semibold text-highlighted">
-                Все Воинское
+                Все {{ PROFICIENCY_MODAL_LABELS.weaponsMartial }}
               </span>
 
               <UCheckbox

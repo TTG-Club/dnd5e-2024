@@ -5,7 +5,7 @@
   import { Z_INDEX } from '@/shared_ui/consts';
   import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 
-  import { MODAL_BUTTON_LABELS } from './constants';
+  import { MODAL_BUTTON_LABELS, PROFICIENCY_MODAL_LABELS } from './constants';
 
   /** Блокирующий модал — фиксированный z-index поверх остальных */
   const MODAL_Z_INDEX = Z_INDEX.MODAL_ELEVATED;
@@ -46,7 +46,7 @@
   const panels = computed(() => [
     {
       key: 'light' as const,
-      title: 'Лёгкая',
+      title: PROFICIENCY_MODAL_LABELS.armorLight,
       color: 'text-primary',
       items: systemDataStore.armorBaseTypes.filter(
         (bt) => bt.category === 'light',
@@ -54,7 +54,7 @@
     },
     {
       key: 'medium' as const,
-      title: 'Средняя',
+      title: PROFICIENCY_MODAL_LABELS.armorMedium,
       color: 'text-primary',
       items: systemDataStore.armorBaseTypes.filter(
         (bt) => bt.category === 'medium',
@@ -62,7 +62,7 @@
     },
     {
       key: 'heavy' as const,
-      title: 'Тяжёлая',
+      title: PROFICIENCY_MODAL_LABELS.armorHeavy,
       color: 'text-primary',
       items: systemDataStore.armorBaseTypes.filter(
         (bt) => bt.category === 'heavy',
@@ -70,7 +70,7 @@
     },
     {
       key: 'shield' as const,
-      title: 'Щиты',
+      title: PROFICIENCY_MODAL_LABELS.armorShields,
       color: 'text-primary',
       items: systemDataStore.armorBaseTypes.filter(
         (bt) => bt.category === 'shield',
@@ -152,7 +152,7 @@
     :blocking="true"
     :min-width="600"
     :min-height="350"
-    title="Владение бронёй"
+    :title="PROFICIENCY_MODAL_LABELS.armorTitle"
     :z-index="MODAL_Z_INDEX"
   >
     <template #body>
@@ -178,7 +178,7 @@
             >
               <span />
 
-              <UTooltip text="Владение">
+              <UTooltip :text="PROFICIENCY_MODAL_LABELS.proficient">
                 <UIcon
                   name="tabler:circle-dot"
                   class="mx-auto block h-3.5 w-3.5 text-healing"

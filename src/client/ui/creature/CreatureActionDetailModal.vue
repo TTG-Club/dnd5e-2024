@@ -13,8 +13,17 @@
     SAVE_TYPE_LABELS,
   } from '@vtt/shared/system/dnd.js';
 
+  import {
+    FORM_FIELD_LABELS,
+    FORM_TAB_LABELS,
+    SPELL_DETAIL_LABELS,
+  } from '../actor/constants';
   import DamagePartsSummary from '../actor/DamagePartsSummary.vue';
   import ItemDetailModalShell from '../actor/ItemDetailModalShell.vue';
+  import {
+    CREATURE_ACTION_DETAIL_LABELS,
+    CREATURE_ACTION_MENU_LABELS,
+  } from './constants';
 
   type ActionMode = 'trait' | 'action';
 
@@ -55,8 +64,8 @@
   /** Подпись типа броска (ближний/дальний бой) */
   const attackTypeLabel = computed(() =>
     props.action?.rangeType === 'ranged'
-      ? 'Дальнобойная атака'
-      : 'Рукопашная атака',
+      ? SPELL_DETAIL_LABELS.attackRanged
+      : SPELL_DETAIL_LABELS.attackMelee,
   );
 
   /** Бонус к попаданию со знаком (напр. «+5», «−1»), пусто если не задан */
@@ -122,7 +131,7 @@
 <template>
   <ItemDetailModalShell
     :open="open"
-    :title="action?.name ?? 'Действие'"
+    :title="action?.name ?? CREATURE_ACTION_DETAIL_LABELS.fallbackTitle"
     :subtitle="action?.nameEn || undefined"
     card-type="feature"
     :chat-payload="chatPayload"
@@ -135,7 +144,7 @@
     <template #header-extra>
       <UTooltip
         v-if="showAttackButton"
-        text="Атаковать"
+        :text="CREATURE_ACTION_MENU_LABELS.attack"
       >
         <UButton
           icon="tabler:swords"
@@ -175,7 +184,9 @@
 
             <!-- Спасбросок -->
             <div v-if="hasSave">
-              <span class="block text-xs text-dimmed">Спасбросок</span>
+              <span class="block text-xs text-dimmed">
+                {{ FORM_FIELD_LABELS.savingThrow }}
+              </span>
 
               <p
                 class="mt-0.5 text-xs font-semibold tracking-wider text-highlighted uppercase"
@@ -201,7 +212,9 @@
           class="flex flex-wrap gap-x-6 gap-y-1 text-sm"
         >
           <div v-if="action.areaOfEffect">
-            <span class="text-xs text-dimmed">Область: </span>
+            <span class="text-xs text-dimmed"
+              >{{ CREATURE_ACTION_DETAIL_LABELS.areaPrefix }}
+            </span>
 
             <span class="text-highlighted">
               {{
@@ -213,7 +226,9 @@
           </div>
 
           <div v-else-if="action.rangeType === 'ranged' && action.range">
-            <span class="text-xs text-dimmed">Дальность: </span>
+            <span class="text-xs text-dimmed"
+              >{{ CREATURE_ACTION_DETAIL_LABELS.rangePrefix }}
+            </span>
 
             <span class="text-highlighted">
               {{ action.range.normal
@@ -225,7 +240,9 @@
           </div>
 
           <div v-else-if="action.rangeType === 'melee'">
-            <span class="text-xs text-dimmed">Досягаемость: </span>
+            <span class="text-xs text-dimmed"
+              >{{ CREATURE_ACTION_DETAIL_LABELS.reachPrefix }}
+            </span>
 
             <span class="text-highlighted">
               {{ reachValue }} {{ distanceUnitLabel }}
@@ -246,7 +263,7 @@
           <span
             class="text-xs font-semibold tracking-wider text-dimmed uppercase"
           >
-            Эффекты
+            {{ FORM_TAB_LABELS.effects }}
           </span>
 
           <div class="flex flex-wrap gap-1.5">

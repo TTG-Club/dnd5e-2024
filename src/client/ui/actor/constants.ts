@@ -1404,6 +1404,60 @@ export const ACTOR_FEATURES_TAB_LABELS = {
   featsEmpty: 'В данный момент черт нет',
 } as const;
 
+/**
+ * Подписи окна броска проверки характеристики или навыка. Окно одно у обеих
+ * панелей листа — расходиться подписи не должны.
+ */
+export const ABILITY_CHECK_ROLL_LABELS = {
+  /** Заголовок окна: дальше через двоеточие идёт название проверки */
+  titlePrefix: 'Проверка: ',
+  /** Подпись самого броска: дальше через пробел идёт название */
+  rollPrefix: 'Проверка ',
+  button: 'Бросить проверку',
+} as const;
+
+/**
+ * Подписи броска инициативы. Бросок один у листа персонажа и листа существа.
+ */
+export const INITIATIVE_ROLL_LABELS = {
+  title: 'Бросок инициативы',
+  rollLabel: 'Инициатива',
+  button: 'Бросить инициативу',
+} as const;
+
+/** Подписи вкладок листа персонажа */
+export const ACTOR_TAB_LABELS = {
+  notes: 'Заметки',
+} as const;
+
+/** Подписи окон владения доспехами, оружием и языками */
+export const PROFICIENCY_MODAL_LABELS = {
+  armorTitle: 'Владение бронёй',
+  armorLight: 'Лёгкая',
+  armorMedium: 'Средняя',
+  armorHeavy: 'Тяжёлая',
+  armorShields: 'Щиты',
+  weaponsTitle: 'Владение и мастерство оружием',
+  weaponsSimple: 'Простое',
+  weaponsMartial: 'Воинское',
+  weaponsAllSimple: 'Все Простое',
+  weaponsAllMartial: 'Все Воинское',
+  languagesTitle: 'Владение языками',
+  languagesStandard: 'Стандартные',
+  languagesRare: 'Редкие',
+  languagesExotic: 'Экзотические',
+  languagesCustomTitle: 'Свои языки',
+  languagesCustomPlaceholder: 'Название языка',
+  languagesCustomEmpty: 'Своих языков нет',
+  /** Подпись кнопки удаления своего языка — дальше идёт его название */
+  languageRemovePrefix: 'Убрать язык «',
+  languageRemoveSuffix: '»',
+  /** Заголовок столбца отметок владения */
+  proficient: 'Владение',
+  /** Заголовок столбца отметок мастерства оружия */
+  mastery: 'Мастерство',
+} as const;
+
 /** Подписи мастера добавления класса и повышения уровня */
 export const CLASS_WIZARD_LABELS = {
   addTitle: 'Добавление класса',

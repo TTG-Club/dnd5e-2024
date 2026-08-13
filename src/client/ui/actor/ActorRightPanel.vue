@@ -18,7 +18,12 @@
 
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import AbilityScore from './AbilityScore.vue';
-  import { ABILITY_SHORT_LABELS, DICE_ROLL_DEFAULT_BUTTON } from './constants';
+  import {
+    ABILITY_CHECK_ROLL_LABELS,
+    ABILITY_LABELS,
+    ABILITY_SHORT_LABELS,
+    DICE_ROLL_DEFAULT_BUTTON,
+  } from './constants';
   import DiceRollModal from './DiceRollModal.vue';
 
   interface Props {
@@ -148,9 +153,9 @@
 
     diceRollConfig.value = {
       modifier,
-      title: `Проверка: ${label}`,
-      rollLabel: `Проверка ${label}`,
-      rollButtonText: 'Бросить проверку',
+      title: `${ABILITY_CHECK_ROLL_LABELS.titlePrefix}${label}`,
+      rollLabel: `${ABILITY_CHECK_ROLL_LABELS.rollPrefix}${label}`,
+      rollButtonText: ABILITY_CHECK_ROLL_LABELS.button,
       initialRollMode,
     };
 
@@ -164,7 +169,7 @@
     <div class="grid grid-cols-6 gap-x-2 gap-y-3 lg:gap-x-3">
       <!-- Сила (Strength) -->
       <AbilityScore
-        label="Сила"
+        :label="ABILITY_LABELS.strength"
         :short-label="ABILITY_SHORT_LABELS.strength"
         :value="
           isEditMode
@@ -186,7 +191,7 @@
 
       <!-- Ловкость (Dexterity) -->
       <AbilityScore
-        label="Ловкость"
+        :label="ABILITY_LABELS.dexterity"
         :short-label="ABILITY_SHORT_LABELS.dexterity"
         :value="
           isEditMode
@@ -208,7 +213,7 @@
 
       <!-- Телосложение (Constitution) -->
       <AbilityScore
-        label="Телосложение"
+        :label="ABILITY_LABELS.constitution"
         :short-label="ABILITY_SHORT_LABELS.constitution"
         :value="
           isEditMode
@@ -230,7 +235,7 @@
 
       <!-- Интеллект (Intelligence) -->
       <AbilityScore
-        label="Интеллект"
+        :label="ABILITY_LABELS.intelligence"
         :short-label="ABILITY_SHORT_LABELS.intelligence"
         :value="
           isEditMode
@@ -252,7 +257,7 @@
 
       <!-- Мудрость (Wisdom) -->
       <AbilityScore
-        label="Мудрость"
+        :label="ABILITY_LABELS.wisdom"
         :short-label="ABILITY_SHORT_LABELS.wisdom"
         :value="
           isEditMode
@@ -273,7 +278,7 @@
 
       <!-- Харизма (Charisma) -->
       <AbilityScore
-        label="Харизма"
+        :label="ABILITY_LABELS.charisma"
         :short-label="ABILITY_SHORT_LABELS.charisma"
         :value="
           isEditMode

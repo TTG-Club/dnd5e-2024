@@ -10,6 +10,11 @@
 
   import { useCarryingCapacity } from '../../composables/useCarryingCapacity';
   import { useResolvedStats } from '../../composables/useResolvedStats';
+  import {
+    ACTOR_TAB_LABELS,
+    FORM_TAB_LABELS,
+    GRANT_SECTION_LABELS,
+  } from './constants';
   import ActorEffectsTab from './tabs/ActorEffectsTab.vue';
   import ActorEquipmentTab from './tabs/ActorEquipmentTab.vue';
   import ActorFeaturesTab from './tabs/ActorFeaturesTab.vue';
@@ -67,11 +72,11 @@
   // Базовые вкладки
   const baseTabs = computed(() => {
     return [
-      { id: 'equipment', label: 'Снаряжение' },
-      { id: 'spells', label: 'Заклинания' },
-      { id: 'features', label: 'Особенности' },
-      { id: 'effects', label: 'Эффекты' },
-      { id: 'notes', label: 'Заметки' },
+      { id: 'equipment', label: GRANT_SECTION_LABELS.equipment },
+      { id: 'spells', label: GRANT_SECTION_LABELS.spells },
+      { id: 'features', label: GRANT_SECTION_LABELS.features },
+      { id: 'effects', label: FORM_TAB_LABELS.effects },
+      { id: 'notes', label: ACTOR_TAB_LABELS.notes },
     ];
   });
 
