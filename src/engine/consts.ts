@@ -894,6 +894,24 @@ export const CREATURE_CATEGORY_OPTIONS = Object.entries(
   CREATURE_CATEGORIES,
 ).map(([value, label]) => ({ value, label }));
 
+/** Множество всех допустимых типов существ бестиария для быстрой проверки */
+const CREATURE_CATEGORY_SET: ReadonlySet<string> = new Set(
+  Object.keys(CREATURE_CATEGORIES),
+);
+
+/**
+ * Проверяет, что строка — тип существа бестиария (`CreatureCategory`).
+ * Ключ приходит из списков выбора, компендиумов и записей мира строкой.
+ *
+ * @param value - произвольная строка для проверки
+ * @returns `true`, если это известный тип существа
+ */
+export function isCreatureCategory(
+  value: string,
+): value is import('./creatureTypes.js').CreatureCategory {
+  return CREATURE_CATEGORY_SET.has(value);
+}
+
 /**
  * Локализованные названия типов существ для актёров и видов (Species).
  *

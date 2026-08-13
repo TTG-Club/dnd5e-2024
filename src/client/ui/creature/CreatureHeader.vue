@@ -1,30 +1,32 @@
 <script setup lang="ts">
   import type { CreatureSystem, DnDCreature } from '@vtt/shared/system/dnd.js';
 
-  import { computed } from 'vue';
+  import type { NameEditResult } from '../actor/NameEditModal.vue';
+  import type { CreatureKindResult } from './CreatureKindModal.vue';
+
+  import { computed, reactive } from 'vue';
 
   import { useImageFallback } from '@/shared_ui/composables';
   import {
     getTokenTransformStyle,
     handleImageError,
   } from '@/shared_ui/utils/domUtils';
+  import { getAssetUrl } from '@vtt/shared';
+  import { CR_OPTIONS, getAlignmentLabel } from '@vtt/shared/system/dnd.js';
+
   import {
     CREATURE_SIZE_LABELS,
     CREATURE_TYPE_LABELS,
     EDIT_MODE_TOGGLE_TITLE,
     MODAL_BUTTON_LABELS,
+    NAME_EDIT_LABELS,
     REST_LABELS,
-  } from '@/systems/dnd5e/ui/actor/constants';
-  import { getAssetUrl } from '@vtt/shared';
-  import {
-    CR_OPTIONS,
-    CREATURE_ALIGNMENT_OPTIONS,
-    CREATURE_CATEGORY_OPTIONS,
-    CREATURE_SIZE_OPTIONS,
-    getAlignmentLabel,
-  } from '@vtt/shared/system/dnd.js';
-
+    SHEET_INLINE_EDITABLE_CLASS,
+  } from '../actor/constants';
+  import NameEditModal from '../actor/NameEditModal.vue';
   import { CREATURE_HEADER_LABELS, CREATURE_NO_ALIGNMENT } from './constants';
+  import CreatureChallengeModal from './CreatureChallengeModal.vue';
+  import CreatureKindModal from './CreatureKindModal.vue';
 
   interface Props {
     creature: DnDCreature;
@@ -70,11 +72,87 @@
   const { showImage: showTokenImage, handleImageError: onTokenImageError } =
     useImageFallback(() => props.creature.token?.imageUrl);
 
-  function updateField(
-    field: keyof DnDCreature,
-    value: DnDCreature[keyof DnDCreature],
-  ) {
-    emit('update', { [field]: value });
+  /** Название в шапке: у безымянного листа — заглушка, иначе нажимать не на что */
+  const displayName = computed(
+    () => props.creature.name || NAME_EDIT_LABELS.emptyName,
+  );
+
+  /** Правится ли шапка: только при снятом замке и правах на лист */
+  const isHeaderEditable = computed(() => props.isEditMode && props.canEdit);
+
+  /** Тег правимого значения: в режиме правки — кнопка, открывающая своё окно */
+  const editableTag = computed(() =>
+    isHeaderEditable.value ? 'button' : 'span',
+  );
+
+  /**
+   * Классы названия. Пунктир и подсветка при наведении показывают, что оно
+   * правится, не сдвигая при этом ни само название, ни шапку под ним.
+   */
+  const nameClass = computed(() =>
+    isHeaderEditable.value
+      ? `${SHEET_INLINE_EDITABLE_CLASS} underline-offset-8`
+      : '',
+  );
+
+  /** Классы мелких строк шапки: вида существа и уровня опасности */
+  const rowClass = computed(() =>
+    isHeaderEditable.value
+      ? `${SHEET_INLINE_EDITABLE_CLASS} underline-offset-4`
+      : '',
+  );
+
+  /**
+   * Подсказка правимого значения. Вне режима правки её нет: окно по нажатию
+   * тогда не открывается, и обещать правку нечем.
+   *
+   * @param hint - подсказка значения в режиме правки
+   * @returns подсказка либо ничего
+   */
+  function editableTitle(hint: string): string | undefined {
+    return isHeaderEditable.value ? hint : undefined;
+  }
+
+  /**
+   * Открытые окна шапки: у каждого правимого значения своё. Одним объектом —
+   * чтобы открывались они одной функцией, а не тремя одинаковыми.
+   */
+  const openEditors = reactive({
+    name: false,
+    kind: false,
+    challenge: false,
+  });
+
+  /** Открывает окно правки (вне режима правки шапка только показывает данные) */
+  function openEditor(editor: keyof typeof openEditors): void {
+    if (!isHeaderEditable.value) {
+      return;
+    }
+
+    openEditors[editor] = true;
+  }
+
+  /**
+   * Записывает названия из окна на лист. Русское и английское уходят одной
+   * правкой: в окне они правятся вместе, и раздельные обновления перетирали бы
+   * друг друга на общем объекте существа.
+   */
+  function onNameApply(result: NameEditResult) {
+    emit('update', { name: result.name, nameEn: result.nameEn });
+  }
+
+  /** Записывает размер, вид и мировоззрение из окна на лист */
+  function onKindApply(result: CreatureKindResult) {
+    emit('update:system', {
+      size: result.size,
+      type: result.type,
+      alignment: result.alignment,
+    });
+  }
+
+  /** Записывает уровень опасности из окна на лист */
+  function onChallengeApply(challengeRating: string) {
+    emit('update:system', { challengeRating });
   }
 
   /**
@@ -86,13 +164,6 @@
     emit('update', { isInstance: false });
   }
 
-  function updateSystemField<K extends keyof CreatureSystem>(
-    field: K,
-    value: CreatureSystem[K],
-  ) {
-    emit('update:system', { [field]: value });
-  }
-
   const sizeLabel = computed(() => {
     return CREATURE_SIZE_LABELS[props.creature.system.size];
   });
@@ -100,6 +171,14 @@
   const typeLabel = computed(() => {
     return CREATURE_TYPE_LABELS[props.creature.system.type];
   });
+
+  /** Мировоззрение: локализация, а без неё — сырой ключ либо пометка «нет» */
+  const alignmentLabel = computed(
+    () =>
+      getAlignmentLabel(props.creature.system.alignment)
+      || props.creature.system.alignment
+      || CREATURE_NO_ALIGNMENT,
+  );
 
   const challengeRatingLabel = computed(() => {
     const crValue = props.creature.system.challengeRating;
@@ -157,109 +236,47 @@
       <!-- Основная информация -->
       <div class="flex min-w-0 flex-1 items-center justify-between">
         <div class="w-full min-w-0 flex-1 space-y-1 pr-4">
-          <!-- Имя -->
+          <!-- Имя: в режиме правки подчёркнуто пунктиром и открывает окно -->
           <div class="flex min-h-11 items-center">
-            <div
-              v-if="isEditMode"
-              class="flex w-full items-center gap-2"
-            >
-              <UInput
-                :model-value="creature.name"
-                :placeholder="CREATURE_HEADER_LABELS.namePlaceholder"
-                variant="none"
-                size="xl"
-                class="flex-1"
-                :ui="{
-                  base: 'bg-inverted/5 text-3xl font-serif text-highlighted placeholder:text-dimmed rounded-lg px-3 py-1 focus:bg-inverted/10 transition-colors',
-                }"
-                @update:model-value="updateField('name', $event)"
-              />
-
-              <span class="text-2xl text-muted">/</span>
-
-              <UInput
-                :model-value="creature.nameEn"
-                placeholder="English Name"
-                variant="none"
-                size="xl"
-                class="flex-1"
-                :ui="{
-                  base: 'bg-inverted/5 text-2xl font-serif text-highlighted placeholder:text-dimmed rounded-lg px-3 py-1 focus:bg-inverted/10 transition-colors',
-                }"
-                @update:model-value="updateField('nameEn', $event)"
-              />
-            </div>
-
-            <h2
-              v-else
-              class="font-serif text-3xl tracking-wide text-highlighted"
-            >
-              {{ creature.name }}
-              <span
-                v-if="creature.nameEn"
-                class="text-2xl text-muted"
+            <h2 class="font-serif text-3xl tracking-wide text-highlighted">
+              <component
+                :is="editableTag"
+                :class="nameClass"
+                :title="editableTitle(NAME_EDIT_LABELS.editHint)"
+                @click.left.exact.prevent="openEditor('name')"
               >
-                / {{ creature.nameEn }}
-              </span>
+                {{ displayName }}
+                <span
+                  v-if="creature.nameEn"
+                  class="text-2xl text-muted"
+                >
+                  / {{ creature.nameEn }}
+                </span>
+              </component>
             </h2>
           </div>
 
-          <!-- Размер, Вид, Мировоззрение -->
-          <div
-            v-if="isEditMode"
-            class="mt-2 grid grid-cols-3 gap-2"
-          >
-            <USelect
-              :model-value="creature.system.size"
-              :items="CREATURE_SIZE_OPTIONS"
-              value-key="value"
-              label-key="label"
-              :placeholder="CREATURE_HEADER_LABELS.size"
-              size="xs"
-              @update:model-value="updateSystemField('size', $event)"
-            />
+          <!-- Размер, вид и мировоззрение: в правке открывают своё окно -->
+          <div class="flex min-h-7 flex-wrap items-center text-toned">
+            <component
+              :is="editableTag"
+              :class="rowClass"
+              :title="editableTitle(CREATURE_HEADER_LABELS.editKind)"
+              @click.left.exact.prevent="openEditor('kind')"
+            >
+              <span class="text-toned">{{ sizeLabel }}</span>
 
-            <USelect
-              :model-value="creature.system.type"
-              :items="CREATURE_CATEGORY_OPTIONS"
-              value-key="value"
-              label-key="label"
-              :placeholder="CREATURE_HEADER_LABELS.type"
-              size="xs"
-              @update:model-value="updateSystemField('type', $event)"
-            />
+              <span class="mx-2 text-dimmed">—</span>
 
-            <USelect
-              :model-value="creature.system.alignment"
-              :items="CREATURE_ALIGNMENT_OPTIONS"
-              value-key="value"
-              label-key="label"
-              :placeholder="CREATURE_HEADER_LABELS.alignment"
-              size="xs"
-              @update:model-value="updateSystemField('alignment', $event)"
-            />
+              <span class="text-toned">{{ typeLabel }}</span>
+
+              <span class="mx-2 text-dimmed">—</span>
+
+              <span class="text-toned">{{ alignmentLabel }}</span>
+            </component>
           </div>
 
-          <div
-            v-else
-            class="flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1 text-toned"
-          >
-            <span class="text-toned">{{ sizeLabel }}</span>
-
-            <span class="text-dimmed">—</span>
-
-            <span class="text-toned">{{ typeLabel }}</span>
-
-            <span class="text-dimmed">—</span>
-
-            <span class="text-toned">{{
-              getAlignmentLabel(creature.system.alignment)
-              || creature.system.alignment
-              || CREATURE_NO_ALIGNMENT
-            }}</span>
-          </div>
-
-          <!-- {{ CREATURE_HEADER_LABELS.challengeRating }} -->
+          <!-- Уровень опасности: в правке открывает своё окно -->
           <div
             class="flex items-center gap-2 pt-1 text-xs font-medium text-muted"
           >
@@ -268,24 +285,17 @@
             </div>
 
             <div class="flex items-center whitespace-nowrap">
-              <USelect
-                v-if="isEditMode"
-                :model-value="creature.system.challengeRating"
-                :items="CR_OPTIONS"
-                value-key="value"
-                label-key="label"
-                size="2xs"
-                class="w-32"
-                @update:model-value="
-                  updateSystemField('challengeRating', $event)
-                "
-              />
-
-              <span
-                v-else
+              <component
+                :is="editableTag"
                 class="font-bold text-highlighted"
-                >{{ challengeRatingLabel }}</span
+                :class="rowClass"
+                :title="
+                  editableTitle(CREATURE_HEADER_LABELS.editChallengeRating)
+                "
+                @click.left.exact.prevent="openEditor('challenge')"
               >
+                {{ challengeRatingLabel }}
+              </component>
             </div>
           </div>
         </div>
@@ -410,4 +420,31 @@
       <div class="h-px flex-1 bg-primary/50" />
     </div>
   </header>
+
+  <!-- Окно названия: русское и английское названия правятся вместе -->
+  <NameEditModal
+    v-model:open="openEditors.name"
+    :title="NAME_EDIT_LABELS.creatureTitle"
+    :name="creature.name"
+    :name-en="creature.nameEn"
+    :with-name-en="true"
+    :name-placeholder="CREATURE_HEADER_LABELS.namePlaceholder"
+    @apply="onNameApply"
+  />
+
+  <!-- Окно размера, вида и мировоззрения -->
+  <CreatureKindModal
+    v-model:open="openEditors.kind"
+    :size="creature.system.size"
+    :creature-type="creature.system.type"
+    :alignment="creature.system.alignment"
+    @apply="onKindApply"
+  />
+
+  <!-- Окно уровня опасности -->
+  <CreatureChallengeModal
+    v-model:open="openEditors.challenge"
+    :challenge-rating="creature.system.challengeRating"
+    @apply="onChallengeApply"
+  />
 </template>

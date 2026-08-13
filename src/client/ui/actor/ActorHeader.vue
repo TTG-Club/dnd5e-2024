@@ -3,6 +3,8 @@
 
   import type { ActorClassEntry, DnDActor } from '@vtt/shared/system/dnd.js';
 
+  import type { NameEditResult } from './NameEditModal.vue';
+
   import { computed, ref } from 'vue';
 
   import { useImageFallback } from '@/shared_ui/composables';
@@ -26,9 +28,12 @@
     EDIT_MODE_TOGGLE_TITLE,
     MISSING_SHEET_SECTIONS,
     MODAL_BUTTON_LABELS,
+    NAME_EDIT_LABELS,
     REST_LABELS,
+    SHEET_INLINE_EDITABLE_CLASS,
   } from './constants';
   import LevelUpModal from './LevelUpModal.vue';
+  import NameEditModal from './NameEditModal.vue';
 
   interface Props {
     actor: DnDActor;
@@ -274,11 +279,47 @@
     props.canEdit ? ACTOR_HEADER_LABELS.editLevel : undefined,
   );
 
+  /** Имя в шапке: у безымянного листа — заглушка, иначе нажимать не на что */
+  const displayName = computed(
+    () => props.actor.name || NAME_EDIT_LABELS.emptyName,
+  );
+
+  /** Правится ли имя: только при снятом замке и правах на лист */
+  const isNameEditable = computed(() => props.isEditMode && props.canEdit);
+
+  /** Тег имени: в режиме правки — кнопка, открывающая окно названия */
+  const nameTag = computed(() => (isNameEditable.value ? 'button' : 'span'));
+
   /**
-   * Обновляет поле актёра (name, description — корневые поля)
+   * Классы имени. Пунктир и подсветка при наведении показывают, что имя
+   * правится, не сдвигая при этом ни его само, ни шапку под ним.
    */
-  function updateField(field: keyof DnDActor, value: DnDActor[keyof DnDActor]) {
-    emit('update:actor', { [field]: value });
+  const nameClass = computed(() =>
+    isNameEditable.value
+      ? `${SHEET_INLINE_EDITABLE_CLASS} underline-offset-8`
+      : '',
+  );
+
+  /** Подсказка имени — только когда по нему открывается окно */
+  const nameTitle = computed(() =>
+    isNameEditable.value ? NAME_EDIT_LABELS.editHint : undefined,
+  );
+
+  // Окно названия
+  const isNameEditOpen = ref(false);
+
+  /** Открывает окно названия (вне режима правки имя не трогаем) */
+  function openNameEdit() {
+    if (!isNameEditable.value) {
+      return;
+    }
+
+    isNameEditOpen.value = true;
+  }
+
+  /** Записывает имя из окна названия на лист */
+  function onNameApply(result: NameEditResult) {
+    emit('update:actor', { name: result.name });
   }
 
   /** Есть ли у персонажа вдохновение (у старых актёров поле отсутствует → нет) */
@@ -510,26 +551,17 @@
       <!-- Основная информация -->
       <div class="flex min-w-0 flex-1 items-center justify-between">
         <div class="w-full min-w-0 flex-1 space-y-1 pr-4">
-          <!-- Имя -->
+          <!-- Имя: в режиме правки подчёркнуто пунктиром и открывает окно -->
           <div class="flex min-h-11 items-center">
-            <UInput
-              v-if="isEditMode"
-              :model-value="actor.name"
-              :placeholder="ACTOR_HEADER_LABELS.namePlaceholder"
-              variant="none"
-              size="xl"
-              class="w-full"
-              :ui="{
-                base: 'bg-inverted/5 text-3xl font-serif text-highlighted placeholder:text-dimmed rounded-lg px-3 py-1 focus:bg-inverted/10 transition-colors',
-              }"
-              @update:model-value="updateField('name', $event)"
-            />
-
-            <h2
-              v-else
-              class="font-serif text-3xl tracking-wide text-highlighted"
-            >
-              {{ actor.name }}
+            <h2 class="font-serif text-3xl tracking-wide text-highlighted">
+              <component
+                :is="nameTag"
+                :class="nameClass"
+                :title="nameTitle"
+                @click.left.exact.prevent="openNameEdit"
+              >
+                {{ displayName }}
+              </component>
             </h2>
           </div>
 
@@ -741,6 +773,15 @@
       <div class="h-px flex-1 bg-primary/50" />
     </div>
   </header>
+
+  <!-- Окно названия -->
+  <NameEditModal
+    v-model:open="isNameEditOpen"
+    :title="NAME_EDIT_LABELS.actorTitle"
+    :name="actor.name"
+    :name-placeholder="ACTOR_HEADER_LABELS.namePlaceholder"
+    @apply="onNameApply"
+  />
 
   <!-- Модалка повышения уровня -->
   <LevelUpModal
