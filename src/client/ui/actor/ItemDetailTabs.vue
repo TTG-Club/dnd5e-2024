@@ -1,6 +1,8 @@
 <script setup lang="ts">
   import { computed, useSlots } from 'vue';
 
+  import { FORM_TAB_LABELS } from './constants';
+
   /**
    * Переиспользуемый таб-контейнер для модалок ПРОСМОТРА предметов.
    * Вкладки «Основное» и «Эффекты» — всегда; «Бой» — опциональна и
@@ -11,14 +13,14 @@
 
   const tabItems = computed(() => {
     const items: { label: string; slot: string }[] = [
-      { label: 'Основное', slot: 'general' },
+      { label: FORM_TAB_LABELS.main, slot: 'general' },
     ];
 
     if (slots.combat) {
-      items.push({ label: 'Бой', slot: 'combat' });
+      items.push({ label: FORM_TAB_LABELS.combat, slot: 'combat' });
     }
 
-    items.push({ label: 'Эффекты', slot: 'effects' });
+    items.push({ label: FORM_TAB_LABELS.effects, slot: 'effects' });
 
     return items;
   });

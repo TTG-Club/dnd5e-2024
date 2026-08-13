@@ -6,6 +6,8 @@
   import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { describeDamagePart } from '@vtt/shared/system/dnd.js';
 
+  import { DAMAGE_PART_LABELS } from './constants';
+
   const props = defineProps<{
     /** Части урона/лечения для отображения */
     parts: DamagePart[];
@@ -37,13 +39,15 @@
       );
 
       if (info.isTemp) {
-        labels.push('временные ХП');
+        labels.push(DAMAGE_PART_LABELS.temporaryHitPoints);
       }
 
       return {
         formula: info.formula,
         isHealing: info.isHealing,
-        kind: info.isHealing ? 'Лечение' : 'Урон',
+        kind: info.isHealing
+          ? DAMAGE_PART_LABELS.healing
+          : DAMAGE_PART_LABELS.damage,
         typeLabel: labels.join(' + '),
       };
     }),

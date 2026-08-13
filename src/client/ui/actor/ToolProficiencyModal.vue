@@ -6,7 +6,7 @@
   import { TOOL_CATEGORIES, TOOLS_LIST } from '@vtt/shared/system/dnd.js';
 
   import { useToolVocabulary } from '../../composables/useToolVocabulary';
-  import { MODAL_BUTTON_LABELS } from './constants';
+  import { MODAL_BUTTON_LABELS, PROFICIENCY_MODAL_LABELS } from './constants';
 
   /** Блокирующий модал — фиксированный z-index поверх остальных */
   const MODAL_Z_INDEX = Z_INDEX.MODAL_ELEVATED;
@@ -92,7 +92,7 @@
     if (worldTools.value.length > 0) {
       result.push({
         key: 'world',
-        title: 'Заведённые в мире',
+        title: PROFICIENCY_MODAL_LABELS.toolsWorldPanel,
         color: 'text-primary',
         items: worldTools.value,
       });
@@ -173,7 +173,7 @@
     :blocking="true"
     :min-width="600"
     :min-height="350"
-    title="Владение инструментами"
+    :title="PROFICIENCY_MODAL_LABELS.toolsTitle"
     :z-index="MODAL_Z_INDEX"
   >
     <template #body>
@@ -199,7 +199,7 @@
             >
               <span />
 
-              <UTooltip text="Владение">
+              <UTooltip :text="PROFICIENCY_MODAL_LABELS.proficient">
                 <UIcon
                   name="tabler:circle-dot"
                   class="mx-auto block h-3.5 w-3.5 text-healing"
@@ -212,7 +212,7 @@
               class="flex items-center gap-2 rounded px-1 py-0.5 transition-colors hover:bg-accented/30"
             >
               <span class="flex-1 text-sm font-semibold text-highlighted">
-                Все {{ panel.title }}
+                {{ PROFICIENCY_MODAL_LABELS.allPrefix }}{{ panel.title }}
               </span>
 
               <UCheckbox

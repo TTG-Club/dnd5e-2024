@@ -9,6 +9,7 @@
 import type {
   AbilityType,
   ArmorCalculation,
+  ProficiencyLevel,
   WeaponRangeType,
 } from '@vtt/shared';
 
@@ -183,6 +184,32 @@ export const GRANTED_SPELL_FEATURE_PREFIX = 'Умение: ';
  * и в шаге особенностей мастера вида — список выбора у них один и тот же.
  */
 export const CHOOSE_VARIANT_PLACEHOLDER = 'Выберите вариант...';
+
+/**
+ * Действие «скопировать запись». Кнопка эта стоит в шапке каждой карточки
+ * записи и в строке заклинания компендиума — подпись у неё одна.
+ *
+ * От `COPY_TO_ITEMS_LABEL` отличается адресом: та говорит, куда копируют,
+ * а эта — просто повторяет запись там же, где она лежит.
+ */
+export const COPY_LABEL = 'Скопировать';
+
+/**
+ * Пополнение списка частей урона. Кнопку эту показывают общий редактор урона и
+ * поуровневые тиры заговора — часть урона у них одна и та же.
+ */
+export const ADD_DAMAGE_PART_LABEL = 'Добавить часть';
+
+/**
+ * Названия уровней владения — подсказка переключателя в списках навыков и
+ * спасбросков обоих листов.
+ */
+export const PROFICIENCY_LEVEL_LABELS: Record<ProficiencyLevel, string> = {
+  none: 'Нет владения',
+  half: 'Половинное владение',
+  proficient: 'Владение',
+  expertise: 'Экспертиза',
+};
 
 /**
  * Подписи способов расчёта класса доспеха. Список общий у окна КД и подсказки
@@ -440,6 +467,8 @@ export const ITEM_FORM_LABELS = {
   attuned: 'Настроен',
   baseType: 'Базовый тип',
   selectTypePlaceholder: 'Выберите тип...',
+  /** Вес без единиц — их показывает соседняя строка карточки */
+  weightShort: 'Вес',
   /** Плейсхолдер числовых полей, у которых ноль — обычное значение */
   zeroPlaceholder: '0',
   magicBonusPlaceholder: '+1',
@@ -1067,7 +1096,7 @@ export const SPELL_FORM_LABELS = {
   cantripTierLevel: 'С уровня заклинателя',
   cantripTierLevelPlaceholder: '5',
   cantripTierRemove: 'Удалить тир',
-  cantripTierAddPart: 'Добавить часть',
+  cantripTierAddPart: ADD_DAMAGE_PART_LABEL,
   cantripTierAdd: 'Добавить уровень',
   effectsEmpty: 'Нет эффектов при применении заклинания',
   discardQuestion:
@@ -1456,6 +1485,20 @@ export const INITIATIVE_ROLL_LABELS = {
 /** Подписи вкладок листа персонажа */
 export const ACTOR_TAB_LABELS = {
   notes: 'Заметки',
+  notesEmpty: 'Нет заметок',
+} as const;
+
+/**
+ * Подписи вкладки эффектов. Вкладка одна и та же у листа персонажа и блока
+ * эффектов существа: свои эффекты, эффекты от снаряжения и состояния у них
+ * собраны одинаково.
+ */
+export const EFFECTS_TAB_LABELS = {
+  customEmpty: 'Нет пользовательских эффектов',
+  fromEquipment: 'От снаряжения',
+  /** Значок строки: эффект пришёл не с листа, а с надетого предмета */
+  itemBadge: 'Предмет',
+  conditionsTitle: 'Состояния',
 } as const;
 
 /** Подписи окон владения доспехами, оружием и языками */
@@ -1470,6 +1513,11 @@ export const PROFICIENCY_MODAL_LABELS = {
   weaponsMartial: 'Воинское',
   weaponsAllSimple: 'Все Простое',
   weaponsAllMartial: 'Все Воинское',
+  toolsTitle: 'Владение инструментами',
+  /** Панель окна инструментов: то, что завели в самом мире, а не в правилах */
+  toolsWorldPanel: 'Заведённые в мире',
+  /** Строка «отметить категорию целиком» — дальше идёт её название */
+  allPrefix: 'Все ',
   languagesTitle: 'Владение языками',
   languagesStandard: 'Стандартные',
   languagesRare: 'Редкие',
@@ -1518,7 +1566,46 @@ export const SOURCE_FIELD_LABELS = {
 
 /** Подписи строки заклинания в списке компендиума */
 export const SPELL_LIST_ITEM_LABELS = {
-  copy: 'Скопировать',
+  copy: COPY_LABEL,
+} as const;
+
+/**
+ * Подписи общей рамки карточек записей. Рамку эту делят карточки заклинания,
+ * оружия, снаряжения, инструмента, класса, вида и предыстории — кнопки шапки у
+ * них одни и те же.
+ */
+export const ITEM_DETAIL_SHELL_LABELS = {
+  cast: 'Применить заклинание',
+  /** Подсказка кнопки копирования, когда своей ей не задали */
+  copyFallback: COPY_LABEL,
+} as const;
+
+/** Подписи списка эффектов в карточке записи — он только показывает */
+export const ITEM_EFFECTS_VIEW_LABELS = {
+  empty: 'Нет эффектов',
+  disabled: 'выключен',
+} as const;
+
+/**
+ * Заголовок списка свойств предмета по умолчанию. Окна оружия, снаряжения и
+ * инструмента передают свой («Свойства оружия»), а карточка записи — нет.
+ */
+export const ITEM_PROPERTY_BADGES_LABELS = {
+  defaultTitle: 'Свойства',
+} as const;
+
+/** Подписи вкладок и кнопок карточки описания записи */
+export const ACTOR_DESCRIPTION_MODAL_LABELS = {
+  tabAutomation: 'Автоматизация',
+} as const;
+
+/**
+ * Подписи блока выдачи владения инструментами. Блок общий для мастеров класса и
+ * предыстории: текст компендиума они разбирают одинаково.
+ */
+export const TOOL_PROFICIENCY_GRANT_LABELS = {
+  unknownHint: 'Такого инструмента нет в справочнике — можно завести',
+  createAndGrant: 'Завести и выдать',
 } as const;
 
 /** Подписи карточки инструмента в чате */
@@ -1649,7 +1736,8 @@ export const DAMAGE_DEFENSE_EDITOR_LABELS = {
 export const WIZARD_GRANTS_LABELS = {
   weaponProficiency: 'Владение оружием',
   armorProficiency: 'Владение бронёй',
-  toolProficiency: 'Владение инструментами',
+  /** Дар тот же, что правят в окне владения, — подпись берётся оттуда же */
+  toolProficiency: PROFICIENCY_MODAL_LABELS.toolsTitle,
   /** Пометка дара, который игрок выбирает сам */
   choice: 'Выбор',
 } as const;
@@ -2337,6 +2425,11 @@ export const DAMAGE_PART_LABELS = {
   onlyIfDamaged: 'Только если нанесён урон',
   damageType: 'Тип урона',
   addModifier: 'Добавить мод',
+  add: ADD_DAMAGE_PART_LABEL,
+  /** Подпись части в сводке карточки: урон или лечение */
+  damage: 'Урон',
+  /** Приписка к типам урона, когда лечение идёт временными хитами */
+  temporaryHitPoints: 'временные ХП',
   healing: 'Лечение',
   conditions: 'Условия',
   modSpell: 'Заклинание (@mod.spell)',
@@ -2646,4 +2739,28 @@ export const ACTIVE_EFFECT_FORM_LABELS = {
     'Пока эффект висит на цели, наносит урон каждый ход (напр. «Горение»). '
     + 'Тикает в бою при смене хода.',
   recurringDamageWhen: 'Когда наносится',
+} as const;
+
+/**
+ * Подписи библиотек шаблонов активного эффекта. Окно у всех четырёх одно:
+ * поиск сверху, список подсказок под ним — расходиться должны только слова,
+ * которыми оно называет своё содержимое.
+ *
+ * Заголовки флагов и условий берутся у кнопок формы, которые эти окна
+ * открывают: одна и та же библиотека не может называться по-разному в кнопке и
+ * в шапке.
+ */
+export const ACTIVE_EFFECT_TEMPLATES_LABELS = {
+  keyTitle: 'Ориентиры атрибутов',
+  keySearchPlaceholder: 'Поиск по атрибутам...',
+  keyEmpty: 'Атрибуты не найдены',
+  valueTitle: 'Библиотека значений и формул',
+  valueSearchPlaceholder: 'Поиск по значениям...',
+  valueEmpty: 'Значения не найдены',
+  flagTitle: ACTIVE_EFFECT_FORM_LABELS.flagLibrary,
+  flagSearchPlaceholder: 'Поиск по флагам...',
+  flagEmpty: 'Флаги не найдены',
+  conditionTitle: ACTIVE_EFFECT_FORM_LABELS.conditionTemplates,
+  conditionSearchPlaceholder: 'Поиск по шаблонам...',
+  conditionEmpty: 'Шаблоны не найдены',
 } as const;

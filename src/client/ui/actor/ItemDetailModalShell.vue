@@ -6,6 +6,7 @@
   import SendToChatButton from '@/shared_ui/components/SendToChatButton.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
 
+  import { ITEM_DETAIL_SHELL_LABELS } from './constants';
   import SourceBadge from './SourceBadge.vue';
 
   const props = defineProps<{
@@ -93,7 +94,7 @@
 
       <UTooltip
         v-if="showCastButton"
-        text="Применить заклинание"
+        :text="ITEM_DETAIL_SHELL_LABELS.cast"
       >
         <UButton
           icon="tabler:wand"
@@ -106,7 +107,7 @@
 
       <UTooltip
         v-if="showCopyButton"
-        :text="copyTooltip || 'Скопировать'"
+        :text="copyTooltip || ITEM_DETAIL_SHELL_LABELS.copyFallback"
       >
         <UButton
           icon="tabler:copy"

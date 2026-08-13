@@ -4,6 +4,8 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { EFFECT_CONDITION_SUGGESTIONS } from '@vtt/shared/system/dnd.js';
 
+  import { ACTIVE_EFFECT_TEMPLATES_LABELS } from '../constants';
+
   interface Props {
     open: boolean;
   }
@@ -41,7 +43,7 @@
 <template>
   <UDraggableModal
     v-model:open="isOpen"
-    title="Шаблоны условий"
+    :title="ACTIVE_EFFECT_TEMPLATES_LABELS.conditionTitle"
     :initial-width="400"
     :initial-height="500"
     :min-width="300"
@@ -55,7 +57,9 @@
         <UInput
           v-model="searchQuery"
           icon="tabler:search"
-          placeholder="Поиск по шаблонам..."
+          :placeholder="
+            ACTIVE_EFFECT_TEMPLATES_LABELS.conditionSearchPlaceholder
+          "
           size="sm"
           class="w-full shrink-0"
           clearable
@@ -82,7 +86,7 @@
             v-if="filteredSuggestions.length === 0"
             class="py-8 text-center text-sm text-dimmed"
           >
-            Шаблоны не найдены
+            {{ ACTIVE_EFFECT_TEMPLATES_LABELS.conditionEmpty }}
           </div>
         </div>
       </div>

@@ -226,7 +226,7 @@
               class="flex items-center gap-2 rounded px-1 py-0.5 transition-colors hover:bg-accented/30"
             >
               <span class="flex-1 text-sm font-semibold text-highlighted">
-                Все {{ panel.title }}
+                {{ PROFICIENCY_MODAL_LABELS.allPrefix }}{{ panel.title }}
               </span>
 
               <UCheckbox

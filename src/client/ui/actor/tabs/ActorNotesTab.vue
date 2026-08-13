@@ -7,6 +7,8 @@
   import JournalEditor from '@/shared_ui/components/JournalEditor.vue';
   import { useJournalStore } from '@/stores/journalStore';
 
+  import { ACTOR_TAB_LABELS } from '../constants';
+
   interface Props {
     actor: DnDActor;
     isEditMode: boolean;
@@ -121,7 +123,7 @@
         v-else
         class="p-4 text-sm text-dimmed"
       >
-        Нет заметок
+        {{ ACTOR_TAB_LABELS.notesEmpty }}
       </p>
     </div>
   </div>

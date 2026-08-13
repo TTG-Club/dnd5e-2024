@@ -21,6 +21,10 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { useToolVocabulary } from '../../composables/useToolVocabulary';
+  import {
+    GRANT_SECTION_LABELS,
+    TOOL_PROFICIENCY_GRANT_LABELS,
+  } from './constants';
 
   const props = defineProps<{
     /** Позиции владения, как они пришли из компендиума (текст или готовые ключи) */
@@ -162,7 +166,9 @@
   >
     <!-- Узнанные владения -->
     <div v-if="fixed.length > 0">
-      <span class="mb-1 block text-sm font-medium text-muted">Инструменты</span>
+      <span class="mb-1 block text-sm font-medium text-muted">{{
+        GRANT_SECTION_LABELS.tools
+      }}</span>
 
       <div class="flex flex-wrap gap-1.5">
         <UBadge
@@ -219,7 +225,7 @@
         <p class="truncate text-sm text-toned">{{ entry.source }}</p>
 
         <p class="text-xs text-dimmed">
-          Такого инструмента нет в справочнике — можно завести
+          {{ TOOL_PROFICIENCY_GRANT_LABELS.unknownHint }}
         </p>
       </div>
 
@@ -231,7 +237,7 @@
         :disabled="!socket"
         @click.left.exact.prevent="createAndGrant(entry.source)"
       >
-        Завести и выдать
+        {{ TOOL_PROFICIENCY_GRANT_LABELS.createAndGrant }}
       </UButton>
     </div>
   </div>

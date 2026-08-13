@@ -7,6 +7,11 @@
   import SendToChatButton from '@/shared_ui/components/SendToChatButton.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
 
+  import {
+    ACTOR_DESCRIPTION_MODAL_LABELS,
+    COPY_TO_ITEMS_LABEL,
+    FORM_FIELD_LABELS,
+  } from './constants';
   import SourceBadge from './SourceBadge.vue';
 
   /** Бейдж внутри поля */
@@ -99,8 +104,11 @@
 
   /** Вкладки тела (когда задана автоматизация). */
   const descriptionTabs = [
-    { label: 'Описание', slot: 'description' as const },
-    { label: 'Автоматизация', slot: 'automation' as const },
+    { label: FORM_FIELD_LABELS.description, slot: 'description' as const },
+    {
+      label: ACTOR_DESCRIPTION_MODAL_LABELS.tabAutomation,
+      slot: 'automation' as const,
+    },
   ];
 </script>
 
@@ -151,7 +159,7 @@
 
       <UTooltip
         v-if="showCopyButton"
-        text="Скопировать в предметы"
+        :text="COPY_TO_ITEMS_LABEL"
       >
         <UButton
           icon="tabler:copy"

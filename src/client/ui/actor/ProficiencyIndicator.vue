@@ -3,6 +3,8 @@
 
   import { computed } from 'vue';
 
+  import { PROFICIENCY_LEVEL_LABELS } from './constants';
+
   interface Props {
     /** Текущий уровень владения */
     level: ProficiencyLevel;
@@ -18,14 +20,6 @@
     cycle: [];
   }>();
 
-  /** Названия уровней для подсказки */
-  const LEVEL_TITLES: Record<ProficiencyLevel, string> = {
-    none: 'Нет владения',
-    half: 'Половинное владение',
-    proficient: 'Владение',
-    expertise: 'Экспертиза',
-  };
-
   /** Иконки Tabler для каждого уровня владения */
   const LEVEL_ICONS: Record<ProficiencyLevel, string> = {
     none: 'tabler:circle',
@@ -35,7 +29,7 @@
   };
 
   /** Текст подсказки */
-  const levelTitle = computed(() => LEVEL_TITLES[props.level]);
+  const levelTitle = computed(() => PROFICIENCY_LEVEL_LABELS[props.level]);
 
   /** Иконка текущего уровня */
   const levelIcon = computed(() => LEVEL_ICONS[props.level]);

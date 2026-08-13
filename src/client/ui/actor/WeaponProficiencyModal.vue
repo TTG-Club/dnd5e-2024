@@ -210,7 +210,8 @@
               class="flex items-center gap-2 rounded px-1 py-0.5 transition-colors hover:bg-accented/30"
             >
               <span class="flex-1 text-sm font-semibold text-highlighted">
-                Все {{ PROFICIENCY_MODAL_LABELS.weaponsSimple }}
+                {{ PROFICIENCY_MODAL_LABELS.allPrefix
+                }}{{ PROFICIENCY_MODAL_LABELS.weaponsSimple }}
               </span>
 
               <UCheckbox
@@ -279,7 +280,8 @@
               class="flex items-center gap-2 rounded px-1 py-0.5 transition-colors hover:bg-accented/30"
             >
               <span class="flex-1 text-sm font-semibold text-highlighted">
-                Все {{ PROFICIENCY_MODAL_LABELS.weaponsMartial }}
+                {{ PROFICIENCY_MODAL_LABELS.allPrefix
+                }}{{ PROFICIENCY_MODAL_LABELS.weaponsMartial }}
               </span>
 
               <UCheckbox

@@ -1,6 +1,7 @@
 <script setup lang="ts">
   import type { DamagePart } from '@vtt/shared';
 
+  import { DAMAGE_PART_LABELS } from './constants';
   import DamagePartRow from './DamagePartRow.vue';
 
   const props = withDefaults(
@@ -33,7 +34,7 @@
       hideHealing: false,
       hideConditions: false,
       hideModifiers: false,
-      addLabel: 'Добавить часть',
+      addLabel: DAMAGE_PART_LABELS.add,
       allowEmpty: false,
     },
   );

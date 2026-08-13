@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { ITEM_PROPERTY_BADGES_LABELS } from './constants';
+
   /** Семантические цвета бейджа Nuxt UI */
   export type ItemPropertyBadgeColor =
     | 'primary'
@@ -36,7 +38,7 @@
     <span
       class="mb-1.5 block text-xs font-semibold tracking-wider text-dimmed uppercase"
     >
-      {{ title ?? 'Свойства' }}
+      {{ title ?? ITEM_PROPERTY_BADGES_LABELS.defaultTitle }}
     </span>
 
     <div class="flex flex-wrap gap-1.5">

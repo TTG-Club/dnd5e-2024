@@ -1,6 +1,8 @@
 <script setup lang="ts">
   import type { ActiveEffect } from '@vtt/shared/system/dnd.js';
 
+  import { ITEM_EFFECTS_VIEW_LABELS } from './constants';
+
   defineProps<{
     /** Эффекты предмета для отображения (только просмотр, без редактирования) */
     effects: ActiveEffect[];
@@ -13,7 +15,7 @@
       v-if="effects.length === 0"
       class="rounded-lg border border-dashed border-default p-3 text-center text-xs text-dimmed italic"
     >
-      Нет эффектов
+      {{ ITEM_EFFECTS_VIEW_LABELS.empty }}
     </div>
 
     <div
@@ -38,7 +40,7 @@
 
             <UBadge
               v-if="effect.disabled"
-              label="выключен"
+              :label="ITEM_EFFECTS_VIEW_LABELS.disabled"
               color="neutral"
               variant="subtle"
               size="sm"
