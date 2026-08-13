@@ -20,6 +20,7 @@
     CREATURE_TYPE_LABELS,
     GRANT_FIELD_LABELS,
     GRANT_SECTION_LABELS,
+    LEVEL_BADGE_SUFFIX,
     SPECIES_DETAIL_LABELS,
   } from '../constants';
   import SourceBadge from '../SourceBadge.vue';
@@ -401,7 +402,7 @@
                   variant="subtle"
                   size="sm"
                 >
-                  {{ feature.level }} ур.
+                  {{ feature.level }}{{ LEVEL_BADGE_SUFFIX }}
                 </UBadge>
               </div>
 
@@ -488,7 +489,7 @@
                         variant="subtle"
                         size="sm"
                       >
-                        {{ subFeature.level ?? 1 }} ур.
+                        {{ subFeature.level ?? 1 }}{{ LEVEL_BADGE_SUFFIX }}
                       </UBadge>
                     </div>
 

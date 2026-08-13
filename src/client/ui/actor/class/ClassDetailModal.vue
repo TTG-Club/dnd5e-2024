@@ -18,6 +18,7 @@
     CLASS_DETAIL_LABELS,
     CLASS_LEVEL_TABLE_LABELS,
     GRANT_SECTION_LABELS,
+    LEVEL_BADGE_SUFFIX,
     SKILL_LABELS,
     TOOL_PROF_LABELS,
     WEAPON_PROF_SHORT_LABELS,
@@ -30,6 +31,16 @@
       feature.name === CLASS_DETAIL_LABELS.subclassFeature
       || feature.name.startsWith(CLASS_DETAIL_LABELS.subclassPrefix)
     );
+  }
+
+  /**
+   * Собирает запись уровня для значка: «3 ур.». Приписка идёт из константы и уже
+   * начинается с пробела, поэтому склейку делает функция, а не шаблон: две
+   * подстановки подряд форматтер вправе разорвать переносом, и Vue добавил бы
+   * между ними второй пробел.
+   */
+  function formatLevelBadge(level: number): string {
+    return `${level}${LEVEL_BADGE_SUFFIX}`;
   }
 
   /** Извлекает значение динамической колонки из строки таблицы уровней */
@@ -694,7 +705,7 @@
                   size="sm"
                   color="neutral"
                   variant="subtle"
-                  >{{ feature.level }} ур.</UBadge
+                  >{{ formatLevelBadge(feature.level) }}</UBadge
                 >
               </div>
 
@@ -712,9 +723,8 @@
             class="mb-1.5 block text-xs font-semibold tracking-wider text-dimmed uppercase"
           >
             {{ classDefinition.subclassLabel }} ({{
-              classDefinition.subclassLevel
-            }}
-            ур.)
+              formatLevelBadge(classDefinition.subclassLevel)
+            }})
           </span>
 
           <div class="flex flex-col gap-2">
@@ -780,7 +790,7 @@
                         size="sm"
                         color="neutral"
                         variant="subtle"
-                        >{{ feature.level }} ур.</UBadge
+                        >{{ formatLevelBadge(feature.level) }}</UBadge
                       >
                     </div>
 

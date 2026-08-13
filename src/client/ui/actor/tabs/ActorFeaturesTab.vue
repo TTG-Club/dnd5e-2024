@@ -21,6 +21,7 @@
     FEATURE_ORIGIN_LABELS,
     FEATURE_ORIGIN_ORDER,
     FILTER_ROW_CONTROL_SIZE,
+    LEVEL_BADGE_SUFFIX,
     SHEET_ROW_MENU_LABELS,
   } from '../constants';
   import { reapplyFeatToActor, removeFeatFromActor } from '../feat/featApply';
@@ -724,7 +725,7 @@
               size="sm"
               class="shrink-0"
             >
-              {{ feature.level }} ур.
+              {{ feature.level }}{{ LEVEL_BADGE_SUFFIX }}
             </UBadge>
 
             <span class="truncate text-sm text-highlighted">

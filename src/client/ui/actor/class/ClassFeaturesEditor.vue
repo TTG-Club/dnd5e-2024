@@ -7,6 +7,7 @@
   import {
     CLASS_FEATURE_DEFAULT_NAME,
     CLASS_FEATURES_EDITOR_LABELS,
+    LEVEL_BADGE_SUFFIX,
   } from '../constants';
   import { createEmptyFeature } from './classEditorTypes';
   import ClassFeatureFields from './ClassFeatureFields.vue';
@@ -104,7 +105,7 @@
           variant="subtle"
           size="sm"
         >
-          {{ feature.level }} ур.
+          {{ feature.level }}{{ LEVEL_BADGE_SUFFIX }}
         </UBadge>
 
         <UButton
