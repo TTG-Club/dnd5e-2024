@@ -1,6 +1,6 @@
 <script setup lang="ts">
   /**
-   * Шаг мастера: Увеличение характеристик (ASI) / Черты.
+   * Шаг мастера: {{ WIZARD_ASI_LABELS.title }} (ASI) / Черты.
    *
    * Позволяет выбрать между +2 к одной или +1/+1 к двум характеристикам.
    * Режим «Черта» — placeholder (каталог черт пока не реализован).
@@ -12,6 +12,7 @@
 
   import { computed } from 'vue';
 
+  import { WIZARD_ASI_LABELS } from '../../constants';
   import { ABILITY_LABELS } from './constants';
 
   const props = defineProps<{
@@ -114,7 +115,7 @@
 <template>
   <div class="space-y-3">
     <span class="mb-2 block text-sm font-medium text-toned">
-      Увеличение характеристик
+      {{ WIZARD_ASI_LABELS.title }}
     </span>
 
     <!-- Переключатель ASI / Feat -->
@@ -125,7 +126,7 @@
         :variant="asiState.mode === 'asi' ? 'solid' : 'outline'"
         @click.left.exact.prevent="setMode('asi')"
       >
-        Повысить характеристики
+        {{ WIZARD_ASI_LABELS.raiseAbilities }}
       </UButton>
 
       <UButton
@@ -134,7 +135,7 @@
         :variant="asiState.mode === 'feat' ? 'solid' : 'outline'"
         @click.left.exact.prevent="setMode('feat')"
       >
-        Взять черту
+        {{ WIZARD_ASI_LABELS.takeFeat }}
       </UButton>
     </div>
 
@@ -145,7 +146,7 @@
     >
       <div class="flex items-center justify-between">
         <span class="text-sm text-muted">
-          Распределите 2 очка (+2 к одной или +1 к двум)
+          {{ WIZARD_ASI_LABELS.distributeHint }}
         </span>
 
         <div class="flex items-center gap-2">
@@ -237,10 +238,10 @@
         class="mx-auto mb-2 h-8 w-8 text-primary/60"
       />
 
-      <p class="text-sm text-primary/80">Выбор черты</p>
+      <p class="text-sm text-primary/80">{{ WIZARD_ASI_LABELS.featTitle }}</p>
 
       <p class="mt-1 text-sm text-dimmed">
-        Каталог черт будет доступен в следующем обновлении.
+        {{ WIZARD_ASI_LABELS.featHint }}
       </p>
     </div>
   </div>

@@ -11,6 +11,8 @@
 
   import { SKILLS_LIST } from '@vtt/shared/system/dnd.js';
 
+  import { GRANT_SECTION_LABELS, WIZARD_GRANTS_LABELS } from '../constants';
+
   const props = defineProps<{
     speciesDefinition: SpeciesDefinition;
     state: SpeciesWizardState;
@@ -104,7 +106,9 @@
     >
       <template v-if="grant.type === 'skillProficiency'">
         <div class="flex flex-col gap-1">
-          <span class="text-sm font-medium text-highlighted"> Навыки </span>
+          <span class="text-sm font-medium text-highlighted">
+            {{ GRANT_SECTION_LABELS.skills }}
+          </span>
 
           <span class="text-xs text-muted"> Выберите {{ grant.count }}: </span>
         </div>
@@ -132,14 +136,14 @@
           <span class="text-sm font-medium text-highlighted">
             {{
               grant.type === 'weaponProficiency'
-                ? 'Владение оружием'
+                ? WIZARD_GRANTS_LABELS.weaponProficiency
                 : grant.type === 'armorProficiency'
-                  ? 'Владение бронёй'
+                  ? WIZARD_GRANTS_LABELS.armorProficiency
                   : grant.type === 'toolProficiency'
-                    ? 'Владение инструментами'
+                    ? WIZARD_GRANTS_LABELS.toolProficiency
                     : grant.type === 'language'
-                      ? 'Языки'
-                      : 'Выбор'
+                      ? GRANT_SECTION_LABELS.languages
+                      : WIZARD_GRANTS_LABELS.choice
             }}
           </span>
 

@@ -12,7 +12,7 @@
 
   import { useSourceLabels } from '@/systems/dnd5e/composables/useSourceLabel';
 
-  import { MODAL_BUTTON_LABELS } from './constants';
+  import { GRANTED_SPELLS_LABELS, MODAL_BUTTON_LABELS } from './constants';
 
   const props = defineProps<{
     /** Заклинания компендиума по пакам — для подсказок и выбора пака. */
@@ -117,7 +117,7 @@
 
   /** Подпись источника записи компендиума (напр. «PHB»; иначе «Компендиум»). */
   function optionSourceLabel(option: SpellOption): string {
-    return getSourceLabel(option.sourceKey) ?? 'Компендиум';
+    return getSourceLabel(option.sourceKey) ?? GRANTED_SPELLS_LABELS.compendium;
   }
 
   /** Выбирает пак для заклинания (фиксирует id + предпочтённый пак). */
@@ -258,7 +258,7 @@
           variant="link"
           size="sm"
           class="min-w-0 flex-1 justify-start truncate px-0"
-          title="Открыть заклинание"
+          :title="GRANTED_SPELLS_LABELS.open"
           @click.left.exact.prevent="openSpell(spell)"
         />
 
@@ -281,7 +281,7 @@
             icon="tabler:stack-2"
             trailing-icon="tabler:chevron-down"
             :label="packLabelFor(spell)"
-            title="Есть в нескольких компендиумах — выбрать источник"
+            :title="GRANTED_SPELLS_LABELS.choosePack"
           />
         </UDropdownMenu>
 
@@ -302,7 +302,7 @@
           size="sm"
           icon="tabler:alert-triangle"
         >
-          не найдено
+          {{ GRANTED_SPELLS_LABELS.notFound }}
         </UBadge>
 
         <UButton
@@ -310,7 +310,7 @@
           color="error"
           variant="ghost"
           size="xs"
-          aria-label="Удалить заклинание"
+          :aria-label="GRANTED_SPELLS_LABELS.remove"
           @click.left.exact.prevent="removeSpell(spellIndex)"
         />
       </div>
@@ -321,7 +321,9 @@
         v-if="!resolveOption(spell) && spellMatchOptions(spell).length > 0"
         class="flex flex-wrap items-center gap-1"
       >
-        <span class="text-[11px] text-dimmed">Связать:</span>
+        <span class="text-[11px] text-dimmed">{{
+          GRANTED_SPELLS_LABELS.linkPrefix
+        }}</span>
 
         <UButton
           v-for="option in spellMatchOptions(spell)"
@@ -340,7 +342,7 @@
     <div class="flex items-center gap-2">
       <UInput
         v-model="newSpellName"
-        placeholder="Введите заклинание…"
+        :placeholder="GRANTED_SPELLS_LABELS.placeholder"
         class="flex-1"
         @keydown.enter.prevent="addSpell"
       />

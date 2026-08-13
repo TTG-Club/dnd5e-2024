@@ -4,6 +4,10 @@
 
   import { ref } from 'vue';
 
+  import {
+    CLASS_FEATURE_DEFAULT_NAME,
+    CLASS_FEATURES_EDITOR_LABELS,
+  } from '../constants';
   import { createEmptyFeature } from './classEditorTypes';
   import ClassFeatureFields from './ClassFeatureFields.vue';
 
@@ -36,7 +40,7 @@
 
   /** Добавляет особенность и сразу раскрывает её редактор. */
   function addFeature(): void {
-    const feature = createEmptyFeature('Новая особенность');
+    const feature = createEmptyFeature(CLASS_FEATURE_DEFAULT_NAME);
 
     features.value.push(feature);
     expandedKeys.value.add(feature.key);
@@ -62,7 +66,7 @@
       v-if="features.length === 0"
       class="rounded-lg border border-dashed border-default p-4 text-center text-xs text-dimmed italic"
     >
-      Особенностей пока нет.
+      {{ CLASS_FEATURES_EDITOR_LABELS.empty }}
     </div>
 
     <div
@@ -80,7 +84,11 @@
           color="neutral"
           variant="ghost"
           size="xs"
-          :aria-label="isExpanded(feature.key) ? 'Свернуть' : 'Развернуть'"
+          :aria-label="
+            isExpanded(feature.key)
+              ? CLASS_FEATURES_EDITOR_LABELS.collapse
+              : CLASS_FEATURES_EDITOR_LABELS.expand
+          "
           @click.left.exact.prevent="toggle(feature.key)"
         />
 
@@ -88,7 +96,7 @@
           class="min-w-0 flex-1 truncate text-left text-sm font-medium text-highlighted"
           @click.left.exact.prevent="toggle(feature.key)"
         >
-          {{ feature.name || 'Особенность' }}
+          {{ feature.name || CLASS_FEATURES_EDITOR_LABELS.fallbackName }}
         </button>
 
         <UBadge
@@ -104,7 +112,7 @@
           color="error"
           variant="ghost"
           size="xs"
-          aria-label="Удалить особенность"
+          :aria-label="CLASS_FEATURES_EDITOR_LABELS.remove"
           @click.left.exact.prevent="removeFeature(featureIndex)"
         />
       </div>
@@ -123,7 +131,7 @@
 
     <UButton
       icon="tabler:plus"
-      label="Добавить особенность"
+      :label="CLASS_FEATURES_EDITOR_LABELS.add"
       color="primary"
       variant="soft"
       size="xs"

@@ -11,7 +11,7 @@
     MAX_LEVEL,
   } from '@vtt/shared/system/dnd.js';
 
-  import { MODAL_BUTTON_LABELS } from './constants';
+  import { LEVEL_UP_LABELS, MODAL_BUTTON_LABELS } from './constants';
 
   interface Props {
     open: boolean;
@@ -188,7 +188,7 @@
     :blocking="true"
     :min-width="360"
     :min-height="200"
-    title="Повышение уровня"
+    :title="LEVEL_UP_LABELS.title"
     :z-index="Z_INDEX.MODAL_ELEVATED"
   >
     <template #body>
@@ -205,7 +205,7 @@
           >
             <div class="flex items-center justify-between">
               <span class="text-sm font-medium text-highlighted">{{
-                classEntry.className || 'Класс'
+                classEntry.className || LEVEL_UP_LABELS.classLabel
               }}</span>
 
               <div class="flex items-center gap-3">
@@ -239,7 +239,7 @@
                   variant="ghost"
                   color="error"
                   size="xs"
-                  title="Удалить класс и все связанные данные"
+                  :title="LEVEL_UP_LABELS.removeClass"
                   @click.left.exact.prevent="
                     requestRemoveClass(classEntry.classKey)
                   "
@@ -253,7 +253,7 @@
               class="flex items-center justify-between rounded-md bg-danger-subtle/30 px-3 py-1.5"
             >
               <span class="text-xs text-danger">
-                Все особенности класса будут утеряны
+                {{ LEVEL_UP_LABELS.removeClassHint }}
               </span>
 
               <div class="flex items-center gap-3">
@@ -279,7 +279,7 @@
           v-else
           class="py-2 text-center text-sm text-muted italic"
         >
-          У персонажа пока нет классов
+          {{ LEVEL_UP_LABELS.empty }}
         </div>
 
         <div class="h-px w-full bg-elevated" />
@@ -288,7 +288,9 @@
         <div class="space-y-4">
           <div class="space-y-2">
             <div class="flex items-center justify-between">
-              <span class="text-sm text-muted">Опыт (XP)</span>
+              <span class="text-sm text-muted">{{
+                LEVEL_UP_LABELS.experience
+              }}</span>
 
               <span class="text-xs text-dimmed"
                 >Следующий уровень: {{ editNextLevelXP }} XP</span
@@ -321,7 +323,7 @@
               for="force-levelup-checkbox"
               class="cursor-pointer text-sm leading-none text-muted select-none"
             >
-              Принудительное поднятие уровня (без мастера)
+              {{ LEVEL_UP_LABELS.forceLevelUp }}
             </label>
           </div>
         </div>

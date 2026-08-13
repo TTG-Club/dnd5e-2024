@@ -17,7 +17,11 @@
 
   import { useGrantedSpellsResolver } from '../../../composables/useGrantedSpellsResolver';
   import { useSourceLabels } from '../../../composables/useSourceLabel';
-  import { MODAL_BUTTON_LABELS } from '../constants';
+  import {
+    BACKGROUND_WIZARD_LABELS,
+    GRANT_SECTION_LABELS,
+    MODAL_BUTTON_LABELS,
+  } from '../constants';
   import {
     backgroundSpellSource,
     useBackgroundWizard,
@@ -72,10 +76,10 @@
 
   const wizardSteps = computed(() => {
     const titles: Record<string, string> = {
-      overview: 'Обзор',
-      tools: 'Инструменты',
-      abilities: 'Характеристики',
-      equipment: 'Снаряжение',
+      overview: BACKGROUND_WIZARD_LABELS.tabOverview,
+      tools: GRANT_SECTION_LABELS.tools,
+      abilities: BACKGROUND_WIZARD_LABELS.tabAbilities,
+      equipment: GRANT_SECTION_LABELS.equipment,
     };
 
     return wizardStepKeys.value.map((key) => ({
@@ -214,7 +218,9 @@
     :initial-width="800"
     :min-height="400"
     :title="
-      definition ? `Предыстория: ${definition.name}` : 'Настройка предыстории'
+      definition
+        ? `${BACKGROUND_WIZARD_LABELS.titlePrefix}${definition.name}`
+        : BACKGROUND_WIZARD_LABELS.fallbackTitle
     "
     @update:open="emit('update:open', $event)"
   >
@@ -223,7 +229,7 @@
         v-if="!definition"
         class="p-6 text-center text-muted"
       >
-        Предыстория не выбрана. Перетащите предысторию из справочника.
+        {{ BACKGROUND_WIZARD_LABELS.empty }}
       </div>
 
       <div
@@ -239,7 +245,7 @@
               </h3>
 
               <p class="text-sm text-dimmed">
-                Источник:
+                {{ BACKGROUND_WIZARD_LABELS.sourcePrefix }}
                 <span class="font-medium text-primary">{{
                   getSourceLabel(definition.sourceKey, definition.source)
                   || 'PHB'

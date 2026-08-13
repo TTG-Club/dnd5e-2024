@@ -5,7 +5,11 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
 
-  import { MODAL_BUTTON_LABELS } from './constants';
+  import {
+    ENTITY_EDIT_LABELS,
+    FORM_FIELD_LABELS,
+    MODAL_BUTTON_LABELS,
+  } from './constants';
 
   interface FeatureChoice {
     key: string;
@@ -48,14 +52,14 @@
   }>();
 
   const props = withDefaults(defineProps<Props>(), {
-    title: 'Добавление сущности',
+    title: ENTITY_EDIT_LABELS.title,
     initialName: '',
     initialDescription: '',
     initialLevel: undefined,
     showLevel: false,
     choices: undefined,
     initialChoiceKey: undefined,
-    choiceLabel: 'Выберите вариант',
+    choiceLabel: ENTITY_EDIT_LABELS.chooseVariant,
     readonlyCore: false,
     zIndex: undefined,
     savedPosition: undefined,
@@ -172,12 +176,12 @@
       <div class="flex h-full w-full flex-col gap-4 px-1 pb-1">
         <div class="flex w-full gap-4">
           <UFormField
-            label="Название"
+            :label="FORM_FIELD_LABELS.name"
             class="flex-1"
           >
             <UInput
               v-model="form.name"
-              placeholder="Например: Огненный шар, Зелье лечения..."
+              :placeholder="ENTITY_EDIT_LABELS.namePlaceholder"
               size="md"
               autofocus
               :readonly="readonlyCore"
@@ -188,7 +192,7 @@
 
           <UFormField
             v-if="showLevel"
-            label="Уровень"
+            :label="FORM_FIELD_LABELS.level"
             class="w-32"
           >
             <UInput
@@ -216,7 +220,7 @@
             :items="choiceItems"
             value-key="value"
             label-key="label"
-            placeholder="Выберите вариант..."
+            :placeholder="ENTITY_EDIT_LABELS.variantPlaceholder"
             @update:model-value="handleChoiceSelect"
           />
 
@@ -230,7 +234,9 @@
         </div>
 
         <div class="flex min-h-62.5 flex-1 flex-col gap-1.5">
-          <span class="text-sm font-medium text-highlighted">Описание</span>
+          <span class="text-sm font-medium text-highlighted">
+            {{ FORM_FIELD_LABELS.description }}
+          </span>
 
           <JournalEditor
             v-model="form.description"

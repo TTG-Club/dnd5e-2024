@@ -11,6 +11,8 @@
     toolProficiencyLabel,
   } from '@vtt/shared/system/dnd.js';
 
+  import { BACKGROUND_WIZARD_LABELS, GRANT_SECTION_LABELS } from '../constants';
+
   const props = defineProps<{
     backgroundDefinition: BackgroundDefinition;
     featsData: Feature[];
@@ -71,8 +73,9 @@
       >
         <span
           class="block text-[10px] font-medium tracking-wider text-dimmed uppercase"
-          >Навыки</span
         >
+          {{ GRANT_SECTION_LABELS.skills }}
+        </span>
 
         <div class="mt-1.5 flex flex-wrap gap-1.5">
           <UBadge
@@ -92,8 +95,9 @@
       >
         <span
           class="block text-[10px] font-medium tracking-wider text-dimmed uppercase"
-          >Инструменты</span
         >
+          {{ GRANT_SECTION_LABELS.tools }}
+        </span>
 
         <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
           <UBadge
@@ -110,7 +114,10 @@
             v-if="backgroundDefinition.toolGrant.choices?.count"
             class="text-sm font-semibold text-highlighted"
           >
-            {{ backgroundDefinition.toolGrant.items.length > 0 ? 'и ' : ''
+            {{
+              backgroundDefinition.toolGrant.items.length > 0
+                ? BACKGROUND_WIZARD_LABELS.listAnd
+                : ''
             }}{{ backgroundDefinition.toolGrant.choices.count }} на выбор из
             списка
           </span>
@@ -123,7 +130,7 @@
         <span
           class="block text-[10px] font-medium tracking-wider text-dimmed uppercase"
         >
-          Черта
+          {{ BACKGROUND_WIZARD_LABELS.featTitle }}
         </span>
 
         <template v-if="backgroundDefinition.featGrant.featChoices?.length">
@@ -133,7 +140,7 @@
             value-attribute="id"
             option-attribute="name"
             class="w-full"
-            placeholder="Выберите черту"
+            :placeholder="BACKGROUND_WIZARD_LABELS.featPlaceholder"
           />
 
           <UButton
@@ -143,7 +150,7 @@
             class="h-auto self-start p-0"
             @click.left.exact.prevent="openFeatDescription"
           >
-            Показать описание черты
+            {{ BACKGROUND_WIZARD_LABELS.featShowDescription }}
           </UButton>
         </template>
 

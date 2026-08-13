@@ -14,6 +14,7 @@
     RARITY_OPTIONS,
   } from '@vtt/shared/system/dnd.js';
 
+  import { EQUIPMENT_CARD_LABELS } from '../actor/constants';
   import { parseCardPayload } from './cardPayload';
   import { RARITY_BORDER_CLASSES, RARITY_BORDER_DEFAULT } from './consts';
 
@@ -55,7 +56,9 @@
       return '';
     }
 
-    return item.value.type === 'weapon' ? 'Оружие' : 'Экипировка';
+    return item.value.type === 'weapon'
+      ? EQUIPMENT_CARD_LABELS.kindWeapon
+      : EQUIPMENT_CARD_LABELS.kindEquipment;
   });
 
   /** Иконка по типу */
@@ -119,7 +122,9 @@
           v-if="item.type === 'weapon' && item.damageParts?.length"
           class="flex items-center gap-1"
         >
-          <span class="text-dimmed">Урон:</span>
+          <span class="text-dimmed">{{
+            EQUIPMENT_CARD_LABELS.damagePrefix
+          }}</span>
 
           <span class="font-mono font-semibold text-danger/80">
             {{ formatWeaponDamageFormula(item) }}
@@ -131,7 +136,9 @@
           v-if="item.type === 'equipment' && item.baseArmorAC"
           class="flex items-center gap-1"
         >
-          <span class="text-dimmed">КД:</span>
+          <span class="text-dimmed">{{
+            EQUIPMENT_CARD_LABELS.armorClassPrefix
+          }}</span>
 
           <span class="font-mono font-semibold text-info/80">
             {{
@@ -147,7 +154,9 @@
           v-if="item.cost"
           class="flex items-center gap-1"
         >
-          <span class="text-dimmed">Цена:</span>
+          <span class="text-dimmed">{{
+            EQUIPMENT_CARD_LABELS.costPrefix
+          }}</span>
 
           <span class="text-primary">{{ formatItemCost(item.cost) }}</span>
         </div>
@@ -157,7 +166,9 @@
           v-if="item.weight"
           class="flex items-center gap-1"
         >
-          <span class="text-dimmed">Вес:</span>
+          <span class="text-dimmed">{{
+            EQUIPMENT_CARD_LABELS.weightPrefix
+          }}</span>
 
           <span class="text-toned">{{ item.weight }} фнт.</span>
         </div>
@@ -176,6 +187,6 @@
   <!-- Fallback при ошибке десериализации -->
   <CardErrorFallback
     v-else
-    message="Ошибка отображения карточки"
+    :message="EQUIPMENT_CARD_LABELS.error"
   />
 </template>
