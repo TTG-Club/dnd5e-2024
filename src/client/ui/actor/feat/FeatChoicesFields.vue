@@ -49,6 +49,21 @@
     return selections.value[key] ?? [];
   }
 
+  /** Отмечено ли значение в этом выборе */
+  function isPicked(key: string, value: string): boolean {
+    return chosen(key).includes(value);
+  }
+
+  /** Цвет кнопки варианта: отмеченный подсвечен */
+  function optionColor(key: string, value: string): 'primary' | 'neutral' {
+    return isPicked(key, value) ? 'primary' : 'neutral';
+  }
+
+  /** Вид кнопки варианта: отмеченный залит */
+  function optionVariant(key: string, value: string): 'solid' | 'soft' {
+    return isPicked(key, value) ? 'solid' : 'soft';
+  }
+
   /**
    * Переключает значение с учётом предела. Выбор на одно значение заменяется
    * новым — так же, как это делает шаг навыков мастера класса.
@@ -130,14 +145,8 @@
           v-for="option in entry.pool"
           :key="option.value"
           size="xs"
-          :color="
-            chosen(entry.choice.key).includes(option.value)
-              ? 'primary'
-              : 'neutral'
-          "
-          :variant="
-            chosen(entry.choice.key).includes(option.value) ? 'solid' : 'soft'
-          "
+          :color="optionColor(entry.choice.key, option.value)"
+          :variant="optionVariant(entry.choice.key, option.value)"
           @click.left.exact.prevent="
             toggle(entry.choice.key, option.value, entry.max)
           "

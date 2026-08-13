@@ -28,7 +28,32 @@
     props.options.some(hasGrantableEquipment),
   );
 
+  /** Тег карточки варианта: выбираемый вариант — кнопка, иначе обычный блок */
+  const optionTag = computed(() => (isSelectable.value ? 'button' : 'div'));
+
+  /** Кнопке нужен явный тип, блоку — нет */
+  const optionType = computed(() =>
+    isSelectable.value ? 'button' : undefined,
+  );
+
+  /** Оформление карточки: выбранный вариант подсвечен */
+  function optionClass(index: number): string {
+    return selectedIndex.value === index
+      ? 'border-primary bg-primary/10'
+      : 'border-default/50 bg-elevated/30';
+  }
+
+  /**
+   * Выбирает вариант; повторное нажатие снимает выбор. У вариантов без позиций
+   * выбирать нечего — нажатие там ничего не делает.
+   *
+   * @param index - порядковый номер варианта
+   */
   function selectOption(index: number): void {
+    if (!isSelectable.value) {
+      return;
+    }
+
     selectedIndex.value = selectedIndex.value === index ? null : index;
   }
 </script>
@@ -45,17 +70,13 @@
 
     <div class="grid gap-3 sm:grid-cols-2">
       <component
-        :is="isSelectable ? 'button' : 'div'"
+        :is="optionTag"
         v-for="(option, index) in options"
         :key="option.key"
-        :type="isSelectable ? 'button' : undefined"
+        :type="optionType"
         class="flex flex-col rounded-xl border p-3 text-left"
-        :class="
-          selectedIndex === index
-            ? 'border-primary bg-primary/10'
-            : 'border-default/50 bg-elevated/30'
-        "
-        @click.left.exact.prevent="isSelectable && selectOption(index)"
+        :class="optionClass(index)"
+        @click.left.exact.prevent="selectOption(index)"
       >
         <span
           class="mb-2 text-xs font-bold tracking-wider text-primary uppercase"

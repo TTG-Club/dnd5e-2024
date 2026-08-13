@@ -1338,10 +1338,12 @@
       return;
     }
 
+    // Массив объявлен типом черты: базовый `Feature` о `featData` не знает, и без
+    // объявления пришлось бы приводить тип у каждой найденной особенности
+    const features: AppliedFeatFeature[] = localActor.value.features ?? [];
+
     for (const [featureId, choices] of Object.entries(selections)) {
-      const feature = localActor.value.features?.find(
-        (entry) => entry.id === featureId,
-      ) as AppliedFeatFeature | undefined;
+      const feature = features.find((entry) => entry.id === featureId);
 
       if (!feature) {
         continue;

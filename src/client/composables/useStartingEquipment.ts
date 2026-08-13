@@ -20,6 +20,7 @@ import type {
 import { loadCompendiumKind } from '@/core/compendiumDataClient';
 import { generateId, isRecord } from '@vtt/shared';
 import {
+  isDnDGameItem,
   normalizeCompendiumItem,
   startingEquipmentQuantity,
 } from '@vtt/shared/system/dnd.js';
@@ -82,8 +83,8 @@ export async function resolveStartingEquipment(
 
         // Первая запись с этим слагом и остаётся: у раскрытых магических
         // предметов слаг общий, и якорная запись идёт в паке первой
-        if (srcUrl && !bySrcUrl.has(srcUrl)) {
-          bySrcUrl.set(srcUrl, entry as DnDGameItem);
+        if (srcUrl && !bySrcUrl.has(srcUrl) && isDnDGameItem(entry)) {
+          bySrcUrl.set(srcUrl, entry);
         }
       }
     }

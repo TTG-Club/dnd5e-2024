@@ -1,6 +1,8 @@
 <script setup lang="ts">
   import type { DnDActor } from '@vtt/shared/system/dnd.js';
 
+  import type { AppliedFeatFeature } from './featApply';
+
   import { computed, ref, watch } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
@@ -54,14 +56,10 @@
 
   /** Текущий выбор черты — с ним окно и открывается */
   function currentSelections(featureId: string): Record<string, string[]> {
-    const feature = props.actor.features?.find(
-      (entry) => entry.id === featureId,
-    );
+    // Массив объявлен типом черты: базовый `Feature` о сделанных выборах не знает
+    const features: AppliedFeatFeature[] = props.actor.features ?? [];
 
-    return (
-      (feature as { choices?: Record<string, string[]> } | undefined)?.choices
-      ?? {}
-    );
+    return features.find((entry) => entry.id === featureId)?.choices ?? {};
   }
 
   watch(

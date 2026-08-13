@@ -15,6 +15,8 @@
  * @module system/dnd/actorSenses
  */
 
+import type { Feature } from '@vtt/shared';
+
 import type { DnDActor } from './dndEntities.js';
 import type { FeatData, FeatSenseKind } from './featTypes.js';
 
@@ -42,15 +44,23 @@ export const SENSE_ICONS: Record<FeatSenseKind, string> = {
 /** Порядок показа чувств — от самого частого к редкому. */
 const SENSE_ORDER: FeatSenseKind[] = ['blindsight', 'truesight', 'tremorsense'];
 
-/** «Дары»-блоб особенности листа: у черт и предысторий он один и тот же. */
-interface FeatureWithGrants {
+/**
+ * «Дары»-блоб особенности листа.
+ *
+ * Базовый `Feature` о `featData` не знает — блоб добавляет система, — поэтому
+ * особенность читается через тип с одним необязательным полем: он совместим с
+ * любой особенностью и не требует приведения.
+ */
+interface FeatureWithGrants extends Feature {
   featData?: FeatData;
 }
 
 /** Блобы даров всех особенностей листа. */
 function featureGrants(actor: DnDActor): FeatData[] {
-  return (actor.features ?? [])
-    .map((feature) => (feature as FeatureWithGrants).featData)
+  const features: FeatureWithGrants[] = actor.features ?? [];
+
+  return features
+    .map((feature) => feature.featData)
     .filter((featData): featData is FeatData => Boolean(featData));
 }
 

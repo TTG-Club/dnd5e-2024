@@ -149,10 +149,8 @@
    *
    * @param feature - особенность листа
    */
-  function grantedByBackground(feature: Feature): boolean {
-    return Boolean(
-      (feature as { grantedByBackgroundKey?: string }).grantedByBackgroundKey,
-    );
+  function grantedByBackground(feature: AppliedFeatFeature): boolean {
+    return Boolean(feature.grantedByBackgroundKey);
   }
 
   // --- Отбор по источнику особенности ---

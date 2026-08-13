@@ -54,7 +54,29 @@ function dictionaryKey(value: string): string {
 }
 
 /**
- * Канонический тип боеприпаса. Незнакомое значение возвращается как есть.
+ * Канонические типы боеприпасов. Список нужен гвардом: без него незнакомое
+ * значение пришлось бы приводить к типу насильно, а приведение скрыло бы
+ * расхождение словарей вместо того, чтобы его показать.
+ */
+const AMMUNITION_TYPES: readonly string[] = [
+  'arrows',
+  'bolts',
+  'bullets',
+  'blowgun-needles',
+  'sling-bullets',
+];
+
+/** Знаком ли системе такой тип боеприпаса. */
+function isAmmunitionType(value: string): value is AmmunitionType {
+  return AMMUNITION_TYPES.includes(value);
+}
+
+/**
+ * Канонический тип боеприпаса.
+ *
+ * Синоним переводится, знакомое значение проходит как есть, а незнакомое
+ * отбрасывается: тип боеприпаса нужен только расходу патронов, и чужое значение
+ * там всё равно ни с чем не сойдётся — лучше пусто, чем мусор в поле.
  *
  * @param value - тип боеприпаса из записи компендиума
  */
@@ -65,7 +87,13 @@ export function normalizeAmmunitionType(
     return undefined;
   }
 
-  return AMMUNITION_ALIASES[value.toLowerCase()] ?? (value as AmmunitionType);
+  const alias = AMMUNITION_ALIASES[value.toLowerCase()];
+
+  if (alias) {
+    return alias;
+  }
+
+  return isAmmunitionType(value) ? value : undefined;
 }
 
 /**

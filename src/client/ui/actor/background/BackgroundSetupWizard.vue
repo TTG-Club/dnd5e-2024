@@ -3,9 +3,10 @@
   import type {
     BackgroundDefinition,
     DnDActor,
-    FeatData,
     GrantedSpellSource,
   } from '@vtt/shared/system/dnd.js';
+
+  import type { AppliedFeatFeature } from '../feat/featApply';
 
   import { computed, ref, toRef, watch } from 'vue';
 
@@ -160,10 +161,15 @@
     { immediate: true },
   );
 
-  /** Выбранная черта целиком — из неё берутся дары и выборы */
-  const selectedFeat = computed(() =>
-    featsData.value.find((feat) => feat.id === selectedFeatId.value),
-  );
+  /**
+   * Выбранная черта целиком — из неё берутся дары и выборы. Список объявлен
+   * типом черты: базовый `Feature` о `featData` не знает.
+   */
+  const selectedFeat = computed(() => {
+    const feats: AppliedFeatFeature[] = featsData.value;
+
+    return feats.find((feat) => feat.id === selectedFeatId.value);
+  });
 
   /** Название выбранной черты — заголовок шага её выборов */
   const grantedFeatName = computed(() => selectedFeat.value?.name ?? '');
@@ -180,8 +186,7 @@
   watch(
     selectedFeat,
     (feat) => {
-      grantedFeatData.value =
-        (feat as { featData?: FeatData } | undefined)?.featData ?? null;
+      grantedFeatData.value = feat?.featData ?? null;
 
       selectedFeatChoices.value = {};
     },

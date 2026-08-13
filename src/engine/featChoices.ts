@@ -26,6 +26,8 @@ import type {
 
 import {
   ABILITY_LABELS,
+  isAbilityType,
+  isSkillType,
   LANGUAGE_TYPES,
   SKILLS_LIST,
   TOOLS_LIST,
@@ -37,6 +39,15 @@ import {
 
 /** Владения актора — то, что выбор правит. */
 type ActorProficiencies = DnDActor['system']['proficiencies'];
+
+/** Владения, разложенные по видам: что дали сделанные выборы. */
+export interface FeatChoiceProficiencies {
+  skills: SkillType[];
+  savingThrows: AbilityType[];
+  tools: string[];
+  languages: string[];
+  weapons: string[];
+}
 
 /**
  * Типы выбора, которые лист применяет сам. Остальные записываются и показываются, но
@@ -94,6 +105,13 @@ export function resolveFeatChoiceCount(
   return count === undefined || count < 1 ? 1 : Math.round(count);
 }
 
+/** Заклинательной характеристикой черты бывают только эти три. */
+const SPELLCASTING_ABILITIES: readonly AbilityType[] = [
+  'intelligence',
+  'wisdom',
+  'charisma',
+];
+
 /** Полный набор значений типа — когда у выбора не задан свой список. */
 function defaultPool(type: FeatChoiceType): FeatChoiceOption[] {
   switch (type) {
@@ -109,13 +127,10 @@ function defaultPool(type: FeatChoiceType): FeatChoiceOption[] {
         name,
       }));
     case 'spellcastingAbility':
-      // Заклинательной характеристикой черты бывают только эти три
-      return (['intelligence', 'wisdom', 'charisma'] as AbilityType[]).map(
-        (value) => ({
-          value,
-          name: ABILITY_LABELS[value],
-        }),
-      );
+      return SPELLCASTING_ABILITIES.map((value) => ({
+        value,
+        name: ABILITY_LABELS[value],
+      }));
     case 'tool':
       return TOOLS_LIST.map((tool) => ({ value: tool.key, name: tool.label }));
     case 'language':
@@ -142,13 +157,18 @@ function isProficient(
 
   switch (type) {
     case 'skill': {
-      const level = proficiencies?.skills?.[value as SkillType];
+      if (!isSkillType(value)) {
+        return false;
+      }
+
+      const level = proficiencies?.skills?.[value];
 
       return level === 'proficient' || level === 'expertise';
     }
     case 'savingThrow':
-      return Boolean(
-        proficiencies?.savingThrows?.includes(value as AbilityType),
+      return (
+        isAbilityType(value)
+        && Boolean(proficiencies?.savingThrows?.includes(value))
       );
     case 'tool':
       return Boolean(proficiencies?.tools?.includes(value));
@@ -247,15 +267,15 @@ export function applyFeatChoiceSelections(
     for (const value of selections[choice.key] ?? []) {
       switch (choice.type) {
         case 'skill':
-          proficiencies.skills[value as SkillType] = grantedLevel(
-            choice,
-            actor,
-            value,
-          );
+          if (isSkillType(value)) {
+            proficiencies.skills[value] = grantedLevel(choice, actor, value);
+          }
 
           break;
         case 'savingThrow':
-          addUnique(proficiencies.savingThrows, value as AbilityType);
+          if (isAbilityType(value)) {
+            addUnique(proficiencies.savingThrows, value);
+          }
 
           break;
         case 'tool':
@@ -291,19 +311,13 @@ export function applyFeatChoiceSelections(
 export function collectFeatChoiceProficiencies(
   featData: FeatData | null | undefined,
   selections: Record<string, string[]> | undefined,
-): {
-  skills: SkillType[];
-  savingThrows: AbilityType[];
-  tools: string[];
-  languages: string[];
-  weapons: string[];
-} {
-  const result = {
-    skills: [] as SkillType[],
-    savingThrows: [] as AbilityType[],
-    tools: [] as string[],
-    languages: [] as string[],
-    weapons: [] as string[],
+): FeatChoiceProficiencies {
+  const result: FeatChoiceProficiencies = {
+    skills: [],
+    savingThrows: [],
+    tools: [],
+    languages: [],
+    weapons: [],
   };
 
   if (!featData?.choices || !selections) {
@@ -314,11 +328,15 @@ export function collectFeatChoiceProficiencies(
     for (const value of selections[choice.key] ?? []) {
       switch (choice.type) {
         case 'skill':
-          result.skills.push(value as SkillType);
+          if (isSkillType(value)) {
+            result.skills.push(value);
+          }
 
           break;
         case 'savingThrow':
-          result.savingThrows.push(value as AbilityType);
+          if (isAbilityType(value)) {
+            result.savingThrows.push(value);
+          }
 
           break;
         case 'tool':
@@ -444,7 +462,7 @@ export function resolveChosenAbilities(
     return [];
   }
 
-  return (selections[key] ?? []) as AbilityType[];
+  return (selections[key] ?? []).filter(isAbilityType);
 }
 
 /**
