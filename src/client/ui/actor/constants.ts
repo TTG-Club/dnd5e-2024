@@ -1458,6 +1458,47 @@ export const PROFICIENCY_MODAL_LABELS = {
   mastery: 'Мастерство',
 } as const;
 
+/**
+ * Подписи окна подтверждения удаления записи. Окно одно у листа персонажа и
+ * листа существа — своё у каждого только название удаляемой записи.
+ */
+export const DELETE_CONFIRM_LABELS = {
+  /** Приставка вопроса: дальше идёт название записи */
+  actorQuestion: 'Вы уверены, что хотите удалить персонажа',
+  creatureQuestion: 'Вы уверены, что хотите удалить существо',
+  irreversible: 'Это действие нельзя отменить.',
+  actorDone: 'Персонаж удалён',
+  creatureDone: 'Существо удалено',
+  actorError: 'Не удалось удалить персонажа',
+  creatureError: 'Не удалось удалить существо',
+} as const;
+
+/** Подписи блока классовых ресурсов листа персонажа */
+export const CLASS_COUNTERS_BLOCK_LABELS = {
+  title: 'Ресурсы класса',
+  settings: 'Настроить счётчики',
+  empty: 'Нет ресурсов',
+} as const;
+
+/** Подписи поля источника записи */
+export const SOURCE_FIELD_LABELS = {
+  key: 'Аббревиатура',
+  keyHint:
+    'По ней записи связываются между собой: одна аббревиатура — один источник',
+  namePlaceholder: 'Книга игрока',
+} as const;
+
+/** Подписи строки заклинания в списке компендиума */
+export const SPELL_LIST_ITEM_LABELS = {
+  copy: 'Скопировать',
+} as const;
+
+/** Подписи карточки инструмента в чате */
+export const TOOL_CARD_LABELS = {
+  kind: 'Инструмент',
+  bonusPrefix: 'Бонус:',
+} as const;
+
 /** Подписи редактора выданных заклинаний */
 export const GRANTED_SPELLS_LABELS = {
   /** Значок «заклинание найдено в компендиуме» */

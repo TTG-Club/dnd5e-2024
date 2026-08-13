@@ -215,6 +215,33 @@ export const CREATURE_SPELL_RECOVERY_CHIPS: Array<{
   },
 ];
 
+/** Подписи окна невосприимчивости к состояниям */
+export const CREATURE_CONDITION_IMMUNITIES_LABELS = {
+  title: 'Невосприимчивость к состояниям',
+  conditions: 'Состояния',
+  customPlaceholder: 'от заклинаний школы Иллюзии...',
+} as const;
+
+/** Подписи окна среды обитания */
+export const CREATURE_ENVIRONMENTS_LABELS = {
+  title: 'Среда обитания',
+  category: 'Категория',
+  customTitle: 'Особая',
+  customPlaceholder: 'например: Астральный план...',
+} as const;
+
+/** Подписи блока действий листа существа */
+export const CREATURE_ACTIONS_BLOCK_LABELS = {
+  /** Заголовок броска атаки — дальше идёт название записи */
+  attackRollPrefix: 'Атака — ',
+  /** Сообщение о недосягаемой цели: значок, название и разбор расстояния */
+  outOfRangePrefix: '⛔ ',
+  outOfRangeMiddle: ': цель вне досягаемости (',
+  outOfRangeSuffix: ')',
+  /** Приписка досягаемости в подписи под названием */
+  reachPrefix: ', досягаемость ',
+} as const;
+
 /** Подписи шапки листа существа */
 export const CREATURE_HEADER_LABELS = {
   namePlaceholder: 'Имя существа',

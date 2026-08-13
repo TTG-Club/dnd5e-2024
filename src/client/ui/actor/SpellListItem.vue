@@ -13,6 +13,8 @@
 
   import {
     SHEET_ROW_MENU_LABELS,
+    SPELL_BADGE_LABELS,
+    SPELL_LIST_ITEM_LABELS,
     SPELL_MENU_LABELS,
     SPELL_MIME,
   } from './constants';
@@ -24,7 +26,7 @@
   const props = defineProps<{
     /** Данные заклинания или предмет-заклинание */
     item: Spell | DnDGameItem;
-    /** Показывать «Скопировать» в контекстном меню */
+    /** Показывать «{{ SPELL_LIST_ITEM_LABELS.copy }}» в контекстном меню */
     showCopy?: boolean;
     /** Показывать «Редактировать» в контекстном меню */
     showEdit?: boolean;
@@ -44,7 +46,7 @@
   const emit = defineEmits<{
     /** Клик по строке (открыть детальник) */
     click: [];
-    /** Скопировать */
+    /** {{ SPELL_LIST_ITEM_LABELS.copy }} */
     copy: [];
     /** Редактировать */
     edit: [];
@@ -196,7 +198,7 @@
       <!-- Быстрое применение заклинания -->
       <UTooltip
         v-if="showCast"
-        text="Применить"
+        :text="SPELL_MENU_LABELS.cast"
       >
         <UButton
           icon="tabler:wand"
@@ -239,7 +241,7 @@
             variant="subtle"
             size="xs"
           >
-            К
+            {{ SPELL_BADGE_LABELS.concentration }}
           </UBadge>
 
           <UBadge
@@ -248,7 +250,7 @@
             variant="subtle"
             size="xs"
           >
-            Р
+            {{ SPELL_BADGE_LABELS.ritual }}
           </UBadge>
 
           <!-- Урон -->
@@ -278,7 +280,7 @@
 
       <!-- Кнопки редактирования (видны только в режиме редактирования) -->
       <template v-if="isEditMode">
-        <UTooltip text="Редактировать">
+        <UTooltip :text="SHEET_ROW_MENU_LABELS.edit">
           <UButton
             icon="tabler:edit"
             color="neutral"
@@ -323,7 +325,7 @@
           {{ SPELL_MENU_LABELS.cast }}
         </button>
 
-        <!-- Скопировать -->
+        <!-- {{ SPELL_LIST_ITEM_LABELS.copy }} -->
         <button
           v-if="showCopy"
           class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-highlighted transition-colors hover:bg-accented/50"
@@ -333,7 +335,7 @@
             name="tabler:copy"
             class="h-4 w-4 text-muted"
           />
-          Скопировать
+          {{ SPELL_LIST_ITEM_LABELS.copy }}
         </button>
 
         <!-- Редактировать -->

@@ -9,7 +9,12 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
 
-  import { DELETE_CONFIRM_TITLE, MODAL_BUTTON_LABELS } from './constants';
+  import {
+    DELETE_CONFIRM_LABELS,
+    DELETE_CONFIRM_TITLE,
+    MODAL_BUTTON_LABELS,
+    TOAST_TITLES,
+  } from './constants';
 
   interface Props {
     /** Открыта ли модалка */
@@ -50,7 +55,7 @@
 
       nextTick(() => {
         toast.add({
-          title: 'Персонаж удалён',
+          title: DELETE_CONFIRM_LABELS.actorDone,
           description: actorName,
           color: 'warning',
         });
@@ -59,11 +64,11 @@
       console.error('Failed to delete actor:', error);
 
       toast.add({
-        title: 'Ошибка',
+        title: TOAST_TITLES.error,
         description:
           error instanceof Error
             ? error.message
-            : 'Не удалось удалить персонажа',
+            : DELETE_CONFIRM_LABELS.actorError,
         color: 'error',
       });
     }
@@ -100,12 +105,14 @@
         />
 
         <p class="text-toned">
-          Вы уверены, что хотите удалить персонажа
+          {{ DELETE_CONFIRM_LABELS.actorQuestion }}
           <span class="font-semibold text-highlighted">"{{ actor.name }}"</span>
           ?
           <br />
 
-          <span class="text-xs text-dimmed">Это действие нельзя отменить.</span>
+          <span class="text-xs text-dimmed">{{
+            DELETE_CONFIRM_LABELS.irreversible
+          }}</span>
         </p>
       </div>
     </template>

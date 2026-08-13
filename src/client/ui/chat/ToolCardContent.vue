@@ -12,6 +12,7 @@
     RARITY_OPTIONS,
   } from '@vtt/shared/system/dnd.js';
 
+  import { EQUIPMENT_CARD_LABELS, TOOL_CARD_LABELS } from '../actor/constants';
   import { parseCardPayload } from './cardPayload';
   import { RARITY_BORDER_CLASSES, RARITY_BORDER_DEFAULT } from './consts';
 
@@ -80,7 +81,7 @@
     <div class="flex flex-col gap-2 bg-default/40 px-3 py-2">
       <!-- Мета-строка: тип + редкость -->
       <div class="flex items-center gap-2 text-xs">
-        <span class="text-muted">Инструмент</span>
+        <span class="text-muted">{{ TOOL_CARD_LABELS.kind }}</span>
 
         <span
           v-if="rarityLabel"
@@ -97,7 +98,7 @@
           v-if="item.toolBonus"
           class="flex items-center gap-1"
         >
-          <span class="text-dimmed">Бонус:</span>
+          <span class="text-dimmed">{{ TOOL_CARD_LABELS.bonusPrefix }}</span>
 
           <span class="font-mono font-semibold text-info-muted">
             +{{ item.toolBonus }}
@@ -109,7 +110,9 @@
           v-if="item.cost"
           class="flex items-center gap-1"
         >
-          <span class="text-dimmed">Цена:</span>
+          <span class="text-dimmed">{{
+            EQUIPMENT_CARD_LABELS.costPrefix
+          }}</span>
 
           <span class="text-primary">{{ formatItemCost(item.cost) }}</span>
         </div>
@@ -119,7 +122,9 @@
           v-if="item.weight"
           class="flex items-center gap-1"
         >
-          <span class="text-dimmed">Вес:</span>
+          <span class="text-dimmed">{{
+            EQUIPMENT_CARD_LABELS.weightPrefix
+          }}</span>
 
           <span class="text-toned">{{ item.weight }} фнт.</span>
         </div>
@@ -138,6 +143,6 @@
   <!-- Fallback при ошибке десериализации -->
   <CardErrorFallback
     v-else
-    message="Ошибка отображения карточки"
+    :message="EQUIPMENT_CARD_LABELS.error"
   />
 </template>

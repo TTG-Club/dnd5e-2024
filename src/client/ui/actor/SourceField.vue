@@ -24,6 +24,7 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { useSystemDataStore } from '../../stores/systemDataStore';
+  import { FORM_FIELD_LABELS, SOURCE_FIELD_LABELS } from './constants';
 
   const props = withDefaults(
     defineProps<{
@@ -124,8 +125,8 @@
 <template>
   <div class="flex flex-col gap-2">
     <UFormField
-      label="Аббревиатура"
-      help="По ней записи связываются между собой: одна аббревиатура — один источник"
+      :label="SOURCE_FIELD_LABELS.key"
+      :help="SOURCE_FIELD_LABELS.keyHint"
     >
       <UInput
         v-model="abbreviation"
@@ -143,16 +144,16 @@
     </p>
 
     <template v-else>
-      <UFormField label="Название">
+      <UFormField :label="FORM_FIELD_LABELS.name">
         <UInput
           v-model="name"
-          placeholder="Книга игрока"
+          :placeholder="SOURCE_FIELD_LABELS.namePlaceholder"
           class="w-full"
           @blur="rememberOnBlur"
         />
       </UFormField>
 
-      <UFormField label="Английское название">
+      <UFormField :label="FORM_FIELD_LABELS.nameEn">
         <UInput
           v-model="nameEn"
           placeholder="Player's Handbook"

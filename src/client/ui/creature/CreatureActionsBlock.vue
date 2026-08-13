@@ -51,6 +51,7 @@
   import { checkCreatureActionRangeOnScene } from './composables/useCreatureRangeCheck';
   import {
     CREATURE_ACTION_MENU_LABELS,
+    CREATURE_ACTIONS_BLOCK_LABELS,
     CREATURE_RANGE_TYPE_LABELS,
     CREATURE_ROW_ICONS,
     CREATURE_ROW_STAT_HINTS,
@@ -289,7 +290,7 @@
     title: '',
     name: '',
     formula: '',
-    rollButtonText: 'Атаковать',
+    rollButtonText: CREATURE_ACTION_MENU_LABELS.attack,
     initialRollMode: 'normal',
     damageParts: [],
   });
@@ -354,7 +355,10 @@
 
       if (rangeCheck && !rangeCheck.allowed) {
         chatStore.sendMessage(
-          `⛔ ${action.name}: цель вне досягаемости (${rangeCheck.distance} ${rangeCheck.unitLabel})`,
+          `${CREATURE_ACTIONS_BLOCK_LABELS.outOfRangePrefix}${action.name}`
+            + `${CREATURE_ACTIONS_BLOCK_LABELS.outOfRangeMiddle}${rangeCheck.distance} ${rangeCheck.unitLabel}${
+              CREATURE_ACTIONS_BLOCK_LABELS.outOfRangeSuffix
+            }`,
           'text',
         );
 
@@ -423,10 +427,14 @@
     // оркестратор per-target через `pseudoSpell.activeEffects` (выставлено в
     // buildCreatureRollSetup) — единый путь со заклинаниями и оружием.
     rollConfig.value = {
-      title: usesSaveOrArea ? action.name : `Атака — ${action.name}`,
+      title: usesSaveOrArea
+        ? action.name
+        : `${CREATURE_ACTIONS_BLOCK_LABELS.attackRollPrefix}${action.name}`,
       name: action.name,
       formula: setup.baseParts[0]?.formula ?? '',
-      rollButtonText: usesSaveOrArea ? SPELL_DAMAGE_ROLL_BUTTON : 'Атаковать',
+      rollButtonText: usesSaveOrArea
+        ? SPELL_DAMAGE_ROLL_BUTTON
+        : CREATURE_ACTION_MENU_LABELS.attack,
       attackModifier: usesSaveOrArea ? undefined : action.attackBonus,
       initialRollMode: isDisadvantage ? 'disadvantage' : 'normal',
       incomingAttackType: action.rangeType === 'ranged' ? 'ranged' : 'melee',
@@ -641,7 +649,7 @@
       return `${kind}, ${action.range.normal}${long} ${unit}`;
     }
 
-    return `${kind}, досягаемость ${action.reach ?? DEFAULT_REACH_FEET} ${unit}`;
+    return `${kind}${CREATURE_ACTIONS_BLOCK_LABELS.reachPrefix}${action.reach ?? DEFAULT_REACH_FEET} ${unit}`;
   }
 
   /**

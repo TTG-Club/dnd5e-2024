@@ -6,6 +6,10 @@
   import { CREATURE_ENVIRONMENTS } from '@vtt/shared/system/dnd.js';
 
   import { MODAL_BUTTON_LABELS } from '../actor/constants';
+  import {
+    CREATURE_DEFENSES_LABELS,
+    CREATURE_ENVIRONMENTS_LABELS,
+  } from './constants';
 
   /** Блокирующий модал — фиксированный z-index поверх остальных */
   const MODAL_Z_INDEX = Z_INDEX.MODAL_ELEVATED;
@@ -72,7 +76,7 @@
     :blocking="true"
     :min-width="500"
     :min-height="300"
-    title="Среда обитания"
+    :title="CREATURE_ENVIRONMENTS_LABELS.title"
     :z-index="MODAL_Z_INDEX"
   >
     <template #body>
@@ -84,7 +88,7 @@
           <div
             class="mb-2 border-b border-default/50 pb-2 text-xs font-bold tracking-wider text-warning uppercase"
           >
-            Категория
+            {{ CREATURE_ENVIRONMENTS_LABELS.category }}
           </div>
 
           <div class="grid grid-cols-2 gap-x-4 gap-y-1 pr-1">
@@ -112,17 +116,17 @@
           <div
             class="mb-2 border-b border-default/50 pb-2 text-xs font-bold tracking-wider text-highlighted uppercase"
           >
-            Особая
+            {{ CREATURE_ENVIRONMENTS_LABELS.customTitle }}
           </div>
 
           <UInput
             v-model="localCustom"
             class="w-full"
-            placeholder="например: Астральный план..."
+            :placeholder="CREATURE_ENVIRONMENTS_LABELS.customPlaceholder"
           />
 
           <div class="mt-1 text-xs text-dimmed">
-            Значения разделяются точкой с запятой.
+            {{ CREATURE_DEFENSES_LABELS.customHint }}
           </div>
         </div>
 

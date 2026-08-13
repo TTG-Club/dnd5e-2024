@@ -20,6 +20,7 @@
   import FieldsetLabel from '@/shared_ui/components/FieldsetLabel.vue';
 
   import ClassCountersModal from './ClassCountersModal.vue';
+  import { CLASS_COUNTERS_BLOCK_LABELS, REST_LABELS } from './constants';
   import { findCounterDefinition } from './utils/classCounters';
 
   defineOptions({ inheritAttrs: false });
@@ -85,7 +86,7 @@
 
   /** Лейбл типа восстановления */
   function recoveryLabel(recovery: string): string {
-    return recovery === 'short' ? 'Короткий отдых' : 'Продолжительный отдых';
+    return recovery === 'short' ? REST_LABELS.short : REST_LABELS.long;
   }
 
   /** Увеличить текущее значение счётчика */
@@ -143,7 +144,7 @@
 
 <template>
   <FieldsetLabel
-    label="Ресурсы класса"
+    :label="CLASS_COUNTERS_BLOCK_LABELS.title"
     class="class-counters-fieldset w-full max-w-full border-muted bg-default/20"
   >
     <div class="relative flex max-w-full min-w-0 flex-col gap-1 px-2 pb-2">
@@ -154,7 +155,7 @@
       >
         <UTooltip
           :delay-duration="300"
-          text="Настроить счётчики"
+          :text="CLASS_COUNTERS_BLOCK_LABELS.settings"
           class="outline-none focus:ring-0 focus:outline-none"
         >
           <UIcon
@@ -169,7 +170,7 @@
         v-if="counters.length === 0"
         class="px-1.5 py-1 text-sm text-dimmed"
       >
-        Нет ресурсов
+        {{ CLASS_COUNTERS_BLOCK_LABELS.empty }}
       </div>
 
       <div

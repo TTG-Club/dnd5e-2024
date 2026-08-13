@@ -10,8 +10,10 @@
   import { Z_INDEX } from '@/shared_ui/consts';
 
   import {
+    DELETE_CONFIRM_LABELS,
     DELETE_CONFIRM_TITLE,
     MODAL_BUTTON_LABELS,
+    TOAST_TITLES,
   } from '../actor/constants';
 
   interface Props {
@@ -53,7 +55,7 @@
 
       nextTick(() => {
         toast.add({
-          title: 'Существо удалено',
+          title: DELETE_CONFIRM_LABELS.creatureDone,
           description: creatureName,
           color: 'warning',
         });
@@ -62,11 +64,11 @@
       console.error('Failed to delete creature:', error);
 
       toast.add({
-        title: 'Ошибка',
+        title: TOAST_TITLES.error,
         description:
           error instanceof Error
             ? error.message
-            : 'Не удалось удалить существо',
+            : DELETE_CONFIRM_LABELS.creatureError,
         color: 'error',
       });
     }
@@ -103,14 +105,16 @@
         />
 
         <p class="text-toned">
-          Вы уверены, что хотите удалить существо
+          {{ DELETE_CONFIRM_LABELS.creatureQuestion }}
           <span class="font-semibold text-highlighted"
             >"{{ creature.name }}"</span
           >
           ?
           <br />
 
-          <span class="text-xs text-dimmed">Это действие нельзя отменить.</span>
+          <span class="text-xs text-dimmed">{{
+            DELETE_CONFIRM_LABELS.irreversible
+          }}</span>
         </p>
       </div>
     </template>
