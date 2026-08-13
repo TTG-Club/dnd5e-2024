@@ -21,6 +21,20 @@
     presetKeys,
   } from './classEditorTypes';
 
+  /**
+   * Сообщение о занятом ключе колонки: «Ключ «level» зарезервирован…». Ключ
+   * стоит внутри кавычек, поэтому подпись склеивается строкой, а не шаблоном:
+   * подстановки подряд форматтер вправе разорвать переносом, и Vue развёл бы
+   * кавычки от ключа пробелами.
+   */
+  function reservedKeyMessage(key: string): string {
+    return (
+      CLASS_LEVEL_TABLE_LABELS.reservedKeyPrefix
+      + key.trim()
+      + CLASS_LEVEL_TABLE_LABELS.reservedKeySuffix
+    );
+  }
+
   const props = defineProps<{
     /** Особенности — для предпросмотра «что выдаётся на уровне» (только чтение). */
     features: EditableClassFeature[];
@@ -400,8 +414,7 @@
               "
               class="text-[11px] text-error"
             >
-              Ключ «{{ column.key.trim() }}» зарезервирован встроенной колонкой
-              — задайте другой (эта колонка будет проигнорирована).
+              {{ reservedKeyMessage(column.key) }}
             </p>
 
             <!-- Подзаголовки группы -->

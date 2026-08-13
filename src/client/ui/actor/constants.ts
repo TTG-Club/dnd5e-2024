@@ -1739,6 +1739,11 @@ export const BACKGROUND_WIZARD_LABELS = {
   equipmentGoldSuffix: ' золотых монет',
   /** Шаг инструментов: между приставкой и хвостом идёт число на выбор */
   toolsChoosePrefix: 'Выберите дополнительно инструментов:',
+  /**
+   * Хвост строки «сколько инструментов берут из списка». Тот же, что в карточке
+   * предыстории, и берётся оттуда же: шаг показывает то, что карточка задаёт.
+   */
+  toolChoiceSuffix: BACKGROUND_DETAIL_LABELS.toolChoiceSuffix,
   toolsSelectedPrefix: '(выбрано: ',
   toolsSelectedSuffix: ')',
 } as const;
@@ -1809,6 +1814,11 @@ export const WIZARD_GRANTS_LABELS = {
   toolProficiency: PROFICIENCY_MODAL_LABELS.toolsTitle,
   /** Пометка дара, который игрок выбирает сам */
   choice: 'Выбор',
+  /**
+   * Приставка строки выбора — дальше идёт число даров. Строка та же, что в шаге
+   * заклинательства, и берётся оттуда же: выбор в мастере один и тот же.
+   */
+  choosePrefix: WIZARD_SPELLCASTING_LABELS.choosePrefix,
 } as const;
 
 /** Подписи редактора особенностей класса */
@@ -2184,6 +2194,11 @@ export const CLASS_DETAIL_LABELS = {
   subclassPickerPrefix: 'Подкласс:',
   subclassPickerPlaceholder: 'Выбрать...',
   featuresTitle: 'Особенности класса',
+  /** Шапка плитки магии — дальше через точку идёт тип заклинателя */
+  spellcastingPrefix: 'Магия ·',
+  /** Заголовок списка навыков на выбор: между частями идёт их число */
+  skillChoicesPrefix: 'Можно выбрать ',
+  skillChoicesSuffix: ' навыка',
 } as const;
 
 /** Подписи карточки снаряжения — окна просмотра записи */
@@ -2279,6 +2294,11 @@ export const CLASS_LEVEL_TABLE_LABELS = {
   childKeyPlaceholder: 'ключ (напр. spellSlots1)',
   removeChild: 'Удалить подзаголовок',
   addChild: 'Подзаголовок',
+  /** Ошибка занятого ключа колонки: между частями идёт сам ключ */
+  reservedKeyPrefix: 'Ключ «',
+  reservedKeySuffix:
+    '» зарезервирован встроенной колонкой — задайте другой (эта колонка будет '
+    + 'проигнорирована).',
   progressionTitle: 'Прогрессия по уровням',
   autoProficiency: 'Авто-бонус мастерства',
   columnLevel: 'Ур.',

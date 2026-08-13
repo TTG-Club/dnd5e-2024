@@ -82,6 +82,18 @@
       : undefined,
   );
 
+  /**
+   * Заголовок списка навыков на выбор: «Можно выбрать 2 навыка». Число стоит
+   * между приставкой и хвостом, поэтому подпись склеивается строкой, а не
+   * шаблоном: подстановки подряд форматтер вправе разорвать переносом.
+   */
+  const skillChoicesTitle = computed(
+    () =>
+      CLASS_DETAIL_LABELS.skillChoicesPrefix
+      + (props.classDefinition?.skillChoices.count ?? 0)
+      + CLASS_DETAIL_LABELS.skillChoicesSuffix,
+  );
+
   /** Выбранный подкласс для просмотра в таблице (строка) */
   const selectedSubclassName = ref<string | null>(null);
 
@@ -397,7 +409,7 @@
           >
             <span
               class="block text-[10px] font-medium tracking-wider text-magic/80 uppercase"
-              >Магия ·
+              >{{ CLASS_DETAIL_LABELS.spellcastingPrefix }}
               {{
                 CASTER_TYPE_LABELS[activeSpellcasting.type]
                 ?? activeSpellcasting.type
@@ -464,7 +476,7 @@
           <span
             class="mb-1.5 block text-xs font-semibold tracking-wider text-dimmed uppercase"
           >
-            Можно выбрать {{ classDefinition.skillChoices.count }} навыка
+            {{ skillChoicesTitle }}
           </span>
 
           <div class="flex flex-wrap gap-1.5">

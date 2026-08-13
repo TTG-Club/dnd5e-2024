@@ -45,6 +45,25 @@
     });
   }
 
+  /**
+   * Строка «сколько инструментов на выбор»: перед числом встаёт связка
+   * перечисления, если выданные инструменты уже перечислены до него. Склейка
+   * строкой, а не шаблоном: хвост начинается с пробела, и разорви форматтер
+   * подстановки переносом — пробелов стало бы два.
+   */
+  const toolChoiceLabel = computed(() => {
+    const { toolGrant } = props.backgroundDefinition;
+
+    const listPrefix =
+      toolGrant.items.length > 0 ? BACKGROUND_WIZARD_LABELS.listAnd : '';
+
+    return (
+      listPrefix
+      + (toolGrant.choices?.count ?? 0)
+      + BACKGROUND_WIZARD_LABELS.toolChoiceSuffix
+    );
+  });
+
   // Для SelectMenu нужно преобразовать в объекты { id: string, name: string }
   const featChoiceOptions = computed(() => {
     if (!props.backgroundDefinition.featGrant.featChoices) {
@@ -114,12 +133,7 @@
             v-if="backgroundDefinition.toolGrant.choices?.count"
             class="text-sm font-semibold text-highlighted"
           >
-            {{
-              backgroundDefinition.toolGrant.items.length > 0
-                ? BACKGROUND_WIZARD_LABELS.listAnd
-                : ''
-            }}{{ backgroundDefinition.toolGrant.choices.count }} на выбор из
-            списка
+            {{ toolChoiceLabel }}
           </span>
         </div>
       </div>

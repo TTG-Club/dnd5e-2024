@@ -110,7 +110,9 @@
             {{ GRANT_SECTION_LABELS.skills }}
           </span>
 
-          <span class="text-xs text-muted"> Выберите {{ grant.count }}: </span>
+          <span class="text-xs text-muted">
+            {{ WIZARD_GRANTS_LABELS.choosePrefix }} {{ grant.count }}:
+          </span>
         </div>
 
         <div class="grid grid-cols-2 gap-3">
@@ -148,7 +150,7 @@
           </span>
 
           <span class="text-xs text-muted">
-            Выберите {{ grant.choices.count }}:
+            {{ WIZARD_GRANTS_LABELS.choosePrefix }} {{ grant.choices.count }}:
           </span>
         </div>
 
