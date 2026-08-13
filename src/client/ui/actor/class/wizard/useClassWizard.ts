@@ -15,6 +15,7 @@ import type {
   ClassCounterDefinition,
   ClassDefinition,
   ClassFeature,
+  ClassFeatureSkillChoice,
   DnDAbilityScores,
   DnDActor,
   GrantedSpellSource,
@@ -33,6 +34,8 @@ import {
   calculateAbilityModifier,
   collectGrantedSpellSourcesForClassLevel,
   getMulticlassProficiencies,
+  hasAbilityImprovementAtLevel,
+  isAsiFeature,
   normalizeSpellName,
   SKILLS_LIST,
 } from '@vtt/shared/system/dnd.js';
@@ -46,6 +49,8 @@ export type WizardStepKey =
   | 'proficiencies'
   | 'skills'
   | 'features'
+  | 'featureSkills'
+  | 'equipment'
   | 'spellcasting'
   | 'asi';
 
@@ -84,6 +89,17 @@ export interface SpellSelectionLimits {
 export interface WizardState {
   hitPoints: WizardHitPointsState;
   selectedSkills: SkillType[];
+  /**
+   * Навыки, выбранные на шаге умения («Эксперт» и подобные). Отдельно от
+   * `selectedSkills`: те берут при взятии класса, эти — на уровне умения, и
+   * применяются они разными путями.
+   */
+  selectedFeatureSkills: SkillType[];
+  /**
+   * Выбранный вариант стартового снаряжения; `null` — не выбран. Снаряжение
+   * берут только при взятии класса на 1 уровне.
+   */
+  selectedEquipmentIndex: number | null;
   subclassKey: string | null;
   featureChoices: Record<string, string>;
   asi: WizardAsiState;
@@ -112,20 +128,11 @@ const STEP_DEFINITIONS: Record<WizardStepKey, Omit<WizardStepItem, 'value'>> = {
   proficiencies: { title: 'Владения' },
   skills: { title: 'Навыки' },
   features: { title: 'Особенности' },
+  featureSkills: { title: 'Навыки умения' },
+  equipment: { title: 'Снаряжение' },
   spellcasting: { title: 'Заклинания' },
   asi: { title: 'Характеристики' },
 };
-
-/**
- * Проверяет, является ли ключ особенности класса обозначением ASI
- * (повышением характеристик или эпическим даром).
- *
- * @param featureKey - ключ особенности
- * @returns `true`, если особенность является ASI
- */
-function isAsiFeatureKey(featureKey: string): boolean {
-  return featureKey.startsWith('asi-') || featureKey === 'epic-boon';
-}
 
 // ── Composable ────────────────────────────────────────────────
 /**
@@ -264,6 +271,8 @@ export function useClassWizard(
   const wizardState = reactive<WizardState>({
     hitPoints: { value: 0, method: 'average' },
     selectedSkills: [],
+    selectedFeatureSkills: [],
+    selectedEquipmentIndex: null,
     subclassKey: null,
     featureChoices: {},
     asi: {
@@ -341,6 +350,51 @@ export function useClassWizard(
   });
 
   /**
+   * Выбор владения навыками, который дают умения этого уровня.
+   *
+   * Умений с таким выбором на одном уровне может оказаться несколько (класс и
+   * подкласс), поэтому они складываются в один шаг: количество суммируется, пул
+   * объединяется. Пустой пул хотя бы у одного умения означает «любой навык» и
+   * забирает пул целиком — сузить его было бы неверно.
+   *
+   * `null` — на этом уровне выбирать нечего, шаг не показывается.
+   */
+  const featureSkillChoice = computed((): ClassFeatureSkillChoice | null => {
+    const choices = levelFeatures.value
+      .map((feature) => feature.skillChoice)
+      .filter((choice): choice is ClassFeatureSkillChoice =>
+        Boolean(choice && choice.count > 0),
+      );
+
+    if (choices.length === 0) {
+      return null;
+    }
+
+    const count = choices.reduce((sum, choice) => sum + choice.count, 0);
+    const anySkill = choices.some((choice) => choice.from.length === 0);
+
+    const from = anySkill
+      ? SKILLS_LIST.map((skill) => skill.key)
+      : Array.from(new Set(choices.flatMap((choice) => choice.from)));
+
+    return { count, from };
+  });
+
+  /**
+   * Позиции выбранного варианта стартового снаряжения. Пусто — вариант не
+   * выбран или приехал без позиций; тогда мастер инвентарь не трогает.
+   */
+  const selectedEquipmentItems = computed(() => {
+    const index = wizardState.selectedEquipmentIndex;
+
+    if (index === null) {
+      return [];
+    }
+
+    return classDefinition.value?.startingEquipment?.[index]?.items ?? [];
+  });
+
+  /**
    * Заклинания, автоматически предоставляемые умениями на получаемом уровне:
    * `grantedSpells` умений этого уровня плюс `grantedSpellsByLevel` ранее
    * полученных умений (поуровневые списки доменов/клятв/покровителей).
@@ -383,19 +437,9 @@ export function useClassWizard(
   const hasAsiAtLevel = computed(() => {
     const classDef = classDefinition.value;
 
-    if (!classDef) {
-      return false;
-    }
-
-    const levelEntry = classDef.levelTable.find(
-      (row) => row.level === nextLevel.value,
-    );
-
-    if (!levelEntry) {
-      return false;
-    }
-
-    return levelEntry.featureKeys.some(isAsiFeatureKey);
+    return classDef
+      ? hasAbilityImprovementAtLevel(classDef, nextLevel.value)
+      : false;
   });
 
   /**
@@ -550,6 +594,16 @@ export function useClassWizard(
       steps.push({ value: 'features', ...STEP_DEFINITIONS.features });
     }
 
+    // Навыки от самого умения — сразу за особенностями, которые их дали
+    if (featureSkillChoice.value) {
+      steps.push({ value: 'featureSkills', ...STEP_DEFINITIONS.featureSkills });
+    }
+
+    // Стартовое снаряжение берут один раз — при взятии класса на 1 уровне
+    if (isFirstClass.value && (classDef.startingEquipment?.length ?? 0) > 0) {
+      steps.push({ value: 'equipment', ...STEP_DEFINITIONS.equipment });
+    }
+
     // Заклинания — если класс заклинатель
     if (hasSpellcasting.value) {
       steps.push({ value: 'spellcasting', ...STEP_DEFINITIONS.spellcasting });
@@ -640,6 +694,11 @@ export function useClassWizard(
         return wizardState.hitPoints.value >= 1;
       case 'skills':
         return wizardState.selectedSkills.length === skillChoicesCount.value;
+      case 'featureSkills':
+        return (
+          wizardState.selectedFeatureSkills.length
+          === (featureSkillChoice.value?.count ?? 0)
+        );
       case 'features': {
         if (hasSubclassSelection.value && !wizardState.subclassKey) {
           return false;
@@ -712,6 +771,8 @@ export function useClassWizard(
     }
 
     wizardState.selectedSkills = [];
+    wizardState.selectedFeatureSkills = [];
+    wizardState.selectedEquipmentIndex = null;
     wizardState.subclassKey = null;
     wizardState.featureChoices = {};
     wizardState.asi = { mode: 'asi', abilityIncreases: {}, featKey: null };
@@ -1050,6 +1111,34 @@ export function useClassWizard(
       systemUpdates.proficiencies = proficiencies;
     }
 
+    // Навыки от умения — своим блоком: их дают и на повышении уровня, когда
+    // блок стартовых владений выше не выполняется
+    if (wizardState.selectedFeatureSkills.length > 0) {
+      const existingProf = actor.value.system.proficiencies;
+
+      const skills = {
+        ...(systemUpdates.proficiencies?.skills ?? existingProf?.skills ?? {}),
+      };
+
+      for (const skill of wizardState.selectedFeatureSkills) {
+        skills[skill] = 'proficient';
+      }
+
+      systemUpdates.proficiencies = {
+        ...(systemUpdates.proficiencies
+          ?? existingProf ?? {
+            armor: [],
+            weapons: [],
+            weaponMasteries: [],
+            tools: [],
+            languages: [],
+            savingThrows: [],
+            skills: {},
+          }),
+        skills,
+      };
+    }
+
     // ASI — создаём Active Effect с бонусами к характеристикам (5.5e: ASI — это черта)
     if (hasAsiAtLevel.value && wizardState.asi.mode === 'asi') {
       const asiChanges: ActiveEffect['changes'] = [];
@@ -1107,7 +1196,7 @@ export function useClassWizard(
 
       for (const feature of levelFeatures.value) {
         // Пропускаем информационные особенности и ASI/Feat
-        if (feature.isInformationalOnly || isAsiFeatureKey(feature.key)) {
+        if (feature.isInformationalOnly || isAsiFeature(feature)) {
           continue;
         }
 
@@ -1211,6 +1300,8 @@ export function useClassWizard(
     skillChoicesCount,
     availableSkills,
     alreadyProficientSkills,
+    featureSkillChoice,
+    selectedEquipmentItems,
 
     // Шаги
     wizardSteps,

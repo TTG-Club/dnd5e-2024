@@ -3,6 +3,7 @@
   import type {
     BackgroundDefinition,
     DnDActor,
+    FeatData,
     GrantedSpellSource,
   } from '@vtt/shared/system/dnd.js';
 
@@ -11,17 +12,21 @@
   import { loadCompendiumKind } from '@/core/compendiumDataClient';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import {
+    calculateProficiencyBonus,
     collectFeatGrantedSpellSources,
     collectGrantedSpellSources,
+    getTotalLevel,
   } from '@vtt/shared/system/dnd.js';
 
   import { useGrantedSpellsResolver } from '../../../composables/useGrantedSpellsResolver';
   import { useSourceLabels } from '../../../composables/useSourceLabel';
+  import { resolveStartingEquipment } from '../../../composables/useStartingEquipment';
   import {
     BACKGROUND_WIZARD_LABELS,
     GRANT_SECTION_LABELS,
     MODAL_BUTTON_LABELS,
   } from '../constants';
+  import FeatChoicesFields from '../feat/FeatChoicesFields.vue';
   import {
     backgroundSpellSource,
     useBackgroundWizard,
@@ -63,6 +68,10 @@
     grantedTools,
     grantComplete,
     selectedFeatId,
+    selectedFeatChoices,
+    grantedFeatData,
+    selectedEquipmentIndex,
+    selectedEquipmentItems,
     wizardSteps: wizardStepKeys,
     canProceed,
     nextStep,
@@ -77,6 +86,7 @@
   const wizardSteps = computed(() => {
     const titles: Record<string, string> = {
       overview: BACKGROUND_WIZARD_LABELS.tabOverview,
+      featChoices: BACKGROUND_WIZARD_LABELS.tabFeatChoices,
       tools: GRANT_SECTION_LABELS.tools,
       abilities: BACKGROUND_WIZARD_LABELS.tabAbilities,
       equipment: GRANT_SECTION_LABELS.equipment,
@@ -150,6 +160,34 @@
     { immediate: true },
   );
 
+  /** Выбранная черта целиком — из неё берутся дары и выборы */
+  const selectedFeat = computed(() =>
+    featsData.value.find((feat) => feat.id === selectedFeatId.value),
+  );
+
+  /** Название выбранной черты — заголовок шага её выборов */
+  const grantedFeatName = computed(() => selectedFeat.value?.name ?? '');
+
+  const proficiencyBonus = computed(() =>
+    calculateProficiencyBonus(getTotalLevel(props.actor.system.classes)),
+  );
+
+  /**
+   * Дары выбранной черты уезжают в composable: шаги мастера читают их оттуда, а
+   * компендиум знает только это окно. Смена черты сбрасывает сделанный выбор —
+   * он относился к прежней.
+   */
+  watch(
+    selectedFeat,
+    (feat) => {
+      grantedFeatData.value =
+        (feat as { featData?: FeatData } | undefined)?.featData ?? null;
+
+      selectedFeatChoices.value = {};
+    },
+    { immediate: true },
+  );
+
   /**
    * Заклинания, автоматически предоставляемые предысторией: от выбранной
    * черты-происхождения (`grantedSpells` черты) И от СОБСТВЕННОГО `featData`
@@ -159,12 +197,8 @@
   const grantedSpellSources = computed((): GrantedSpellSource[] => {
     const sources: GrantedSpellSource[] = [];
 
-    const selectedFeat = featsData.value.find(
-      (feat) => feat.id === selectedFeatId.value,
-    );
-
-    if (selectedFeat) {
-      sources.push(...collectGrantedSpellSources([selectedFeat]));
+    if (selectedFeat.value) {
+      sources.push(...collectGrantedSpellSources([selectedFeat.value]));
     }
 
     const def = definition.value;
@@ -192,11 +226,23 @@
     grantedSpellSources,
   );
 
-  function handleApply() {
+  async function handleApply() {
     const { systemUpdates, rootUpdates } = buildUpdates(
       featsData.value,
       resolvedGrantedSpells.value,
     );
+
+    // Стартовое снаряжение — отдельным шагом после сборки даров: позиции надо
+    // сопоставить с компендиумом, а это асинхронно и к остальным дарам
+    // отношения не имеет
+    const granted = await resolveStartingEquipment(
+      props.socket,
+      selectedEquipmentItems.value,
+    );
+
+    if (granted.length > 0) {
+      rootUpdates.equipment = [...(props.actor.equipment ?? []), ...granted];
+    }
 
     emit('apply', systemUpdates, rootUpdates);
     emit('update:open', false);
@@ -314,6 +360,23 @@
               :feats-data="featsData"
             />
 
+            <!-- Шаг 1.2: Выборы внутри выданной черты («Умелый» просит навыки) -->
+            <div
+              v-else-if="currentStepInfo.stepGroup === 'featChoices'"
+              class="space-y-3"
+            >
+              <span class="block text-sm font-medium text-toned">
+                {{ grantedFeatName }}
+              </span>
+
+              <FeatChoicesFields
+                v-model="selectedFeatChoices"
+                :choices="grantedFeatData?.choices ?? []"
+                :actor="actor"
+                :proficiency-bonus="proficiencyBonus"
+              />
+            </div>
+
             <!-- Шаг 1.5: Инструменты (условно) -->
             <WizardStepTools
               v-else-if="currentStepInfo.stepGroup === 'tools'"
@@ -336,6 +399,7 @@
             <!-- Шаг 3: Снаряжение -->
             <WizardStepEquipment
               v-else-if="currentStepInfo.stepGroup === 'equipment'"
+              v-model:selected-index="selectedEquipmentIndex"
               :equipment-options="definition.equipmentOptions"
             />
           </template>

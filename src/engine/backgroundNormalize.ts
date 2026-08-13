@@ -58,6 +58,12 @@ export function normalizeBackgroundDefinition(
     skillGrant: { skills: raw.skillGrant?.skills ?? [] },
     toolGrant: normalizeToolGrant(raw.toolGrant),
     featGrant: { ...raw.featGrant, featName: raw.featGrant?.featName ?? '' },
-    equipmentOptions: raw.equipmentOptions ?? [],
+    equipmentOptions: (raw.equipmentOptions ?? []).map((option) => ({
+      ...option,
+      // Позиции необязательны: у старых паков и своих предысторий вариант — это
+      // только строка. Пустой список позволяет шагу снаряжения читать
+      // `option.items` без проверок.
+      items: option.items ?? [],
+    })),
   };
 }

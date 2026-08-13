@@ -9,9 +9,13 @@
   import { getAssetUrl } from '@vtt/shared';
   import {
     calculateExperienceForNextLevel,
+    collectActorSenses,
+    collectActorTelepathy,
     formatVisionRange,
     getTotalLevel,
     MAX_LEVEL,
+    SENSE_ICONS,
+    SENSE_LABELS,
   } from '@vtt/shared/system/dnd.js';
 
   import ActorHeaderPlaceholder from './ActorHeaderPlaceholder.vue';
@@ -111,6 +115,12 @@
     label: string;
     /** Дальность в футах (0 = без ограничений) */
     range: number;
+    /**
+     * Чувство показано справочно: приложение считает по зрению токена только
+     * обычное и тёмное зрение, поэтому на видимость сцены такая запись не
+     * влияет. Помечается в тултипе, чтобы это не выглядело поломкой.
+     */
+    informational?: boolean;
   }
 
   /**
@@ -118,32 +128,58 @@
    * Расширяемо: при появлении новых типов зрения достаточно добавить запись.
    */
   const visionEntries = computed<VisionEntry[]>(() => {
+    const entries: VisionEntry[] = [];
     const vision = props.actor.token?.vision;
 
-    if (!vision?.enabled) {
-      return [];
+    if (vision?.enabled) {
+      // Обычное зрение (range === 0 трактуется как без ограничений)
+      entries.push({
+        icon: 'tabler:eye',
+        label: ACTOR_HEADER_LABELS.normalVision,
+        range: vision.range,
+      });
+
+      // Тёмное зрение
+      if (vision.darkvision > 0) {
+        entries.push({
+          icon: 'tabler:moon',
+          label: ACTOR_HEADER_LABELS.darkvision,
+          range: vision.darkvision,
+        });
+      }
     }
 
-    const entries: VisionEntry[] = [];
-
-    // Обычное зрение (range === 0 трактуется как без ограничений)
-    entries.push({
-      icon: 'tabler:eye',
-      label: ACTOR_HEADER_LABELS.normalVision,
-      range: vision.range,
-    });
-
-    // Тёмное зрение
-    if (vision.darkvision > 0) {
+    // Прочие чувства — справкой: приложение считает по зрению токена только
+    // тёмное зрение, поэтому на видимость сцены они не влияют. Показываются
+    // независимо от того, включено ли зрение токена: это свойство персонажа,
+    // а не настройка его токена
+    for (const sense of collectActorSenses(props.actor)) {
       entries.push({
-        icon: 'tabler:moon',
-        label: ACTOR_HEADER_LABELS.darkvision,
-        range: vision.darkvision,
+        icon: SENSE_ICONS[sense.type],
+        label: SENSE_LABELS[sense.type],
+        range: sense.range,
+        informational: true,
+      });
+    }
+
+    const telepathy = collectActorTelepathy(props.actor);
+
+    if (telepathy > 0) {
+      entries.push({
+        icon: 'tabler:brain',
+        label: ACTOR_HEADER_LABELS.telepathy,
+        range: telepathy,
+        informational: true,
       });
     }
 
     return entries;
   });
+
+  /** Есть ли среди чувств справочные — под списком тогда идёт пояснение */
+  const hasInformationalVision = computed(() =>
+    visionEntries.value.some((entry) => entry.informational),
+  );
 
   /** Суммарный уровень из всех классов */
   const totalLevel = computed(() => {
@@ -452,6 +488,19 @@
                 <span class="ml-auto text-dimmed">
                   {{ formatVisionRange(entry.range) }}
                 </span>
+
+                <UIcon
+                  v-if="entry.informational"
+                  name="tabler:info-circle"
+                  class="h-3 w-3 shrink-0 text-warning"
+                />
+              </div>
+
+              <div
+                v-if="hasInformationalVision"
+                class="mt-1 border-t border-default/50 pt-1 text-[10px] whitespace-normal text-warning"
+              >
+                {{ ACTOR_HEADER_LABELS.senseInformationalHint }}
               </div>
             </div>
           </template>

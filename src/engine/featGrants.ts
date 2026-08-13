@@ -8,7 +8,7 @@
  * (заклинания-источники, флаги защит, синтетический эффект черты).
  */
 
-import type { DefensibleDamageType } from '@vtt/shared';
+import type { AbilityType, DefensibleDamageType } from '@vtt/shared';
 
 import type {
   ActiveEffect,
@@ -16,7 +16,11 @@ import type {
   EffectFlagKey,
 } from './activeEffectTypes.js';
 import type { DamageDefenseKind } from './damageConstants.js';
-import type { FeatData } from './featTypes.js';
+import type {
+  FeatData,
+  FeatHitPointsModifier,
+  FeatModifiers,
+} from './featTypes.js';
 import type { GrantedSpellSource } from './grantedSpells.js';
 
 import { generateId } from '@vtt/shared';
@@ -48,6 +52,127 @@ function grantEffectId(featureId: string, originPrefix: string): string {
   return `${originPrefix.replace(/:$/, '-grant:')}${featureId}`;
 }
 
+/**
+ * Формула прибавки к максимуму хитов.
+ *
+ * Слагаемое «за каждый уровень после взятия» пишется формулой с `@level`, а не
+ * числом: оно растёт вместе с персонажем, и пересчитывать эффект на каждом
+ * повышении уровня не пришлось бы — пайплайн эффектов считает `value` как
+ * формулу при каждом обращении к листу.
+ *
+ * @param modifier - прибавка к хитам из механики черты
+ * @param acquisitionLevel - уровень персонажа на момент взятия черты
+ * @returns строка формулы или `null`, если прибавки нет
+ */
+function hitPointsFormula(
+  modifier: FeatHitPointsModifier,
+  acquisitionLevel: number,
+): string | null {
+  const parts: string[] = [];
+
+  const flat =
+    (modifier.flat ?? 0)
+    + (modifier.perAcquisitionLevel ?? 0) * acquisitionLevel;
+
+  if (flat !== 0) {
+    parts.push(String(flat));
+  }
+
+  const perLevel = modifier.perLevelAfterAcquisition ?? 0;
+
+  if (perLevel !== 0) {
+    parts.push(`${perLevel} * (@level - ${acquisitionLevel})`);
+  }
+
+  return parts.length > 0 ? parts.join(' + ') : null;
+}
+
+/**
+ * Разворачивает постоянные модификаторы черты в изменения активного эффекта.
+ *
+ * Скорость «равна скорости ходьбы» выражается формулой не может: `@`-переменной
+ * скорости у пайплайна нет. Такой вид движения ставится режимом `upgrade` от
+ * базовой скорости ходьбы персонажа — её передаёт вызывающий; без неё флаг
+ * пропускается, чтобы не выставить полёт нулём.
+ *
+ * @param modifiers - постоянные модификаторы черты
+ * @param context - уровень взятия и базовая скорость ходьбы персонажа
+ */
+function modifierChanges(
+  modifiers: FeatModifiers,
+  context: FeatGrantContext,
+): EffectChange[] {
+  const changes: EffectChange[] = [];
+  const acquisitionLevel = context.acquisitionLevel ?? 1;
+
+  if (modifiers.hitPoints) {
+    const formula = hitPointsFormula(modifiers.hitPoints, acquisitionLevel);
+
+    if (formula) {
+      changes.push({
+        key: 'hitPoints.max',
+        mode: 'add',
+        value: formula,
+        priority: 20,
+      });
+    }
+  }
+
+  const speed = modifiers.speed;
+
+  if (speed) {
+    if (speed.walkBonus) {
+      changes.push({
+        key: 'movement.walk',
+        mode: 'add',
+        value: String(speed.walkBonus),
+        priority: 20,
+      });
+    }
+
+    for (const type of ['fly', 'climb', 'swim'] as const) {
+      const explicit = speed[type];
+
+      const equalsWalk =
+        speed[
+          `${type}EqualsWalk` as
+            'flyEqualsWalk' | 'climbEqualsWalk' | 'swimEqualsWalk'
+        ];
+
+      const value = explicit ?? (equalsWalk ? context.walkSpeed : undefined);
+
+      if (value) {
+        changes.push({
+          key: `movement.${type}`,
+          mode: 'upgrade',
+          value: String(value),
+          priority: 20,
+        });
+      }
+    }
+  }
+
+  if (modifiers.armorClassBonus) {
+    changes.push({
+      key: 'armorClass',
+      mode: 'add',
+      value: String(modifiers.armorClassBonus),
+      priority: 20,
+    });
+  }
+
+  if (modifiers.initiativeProficiencyBonus) {
+    changes.push({
+      key: 'initiative',
+      mode: 'add',
+      value: '@prof',
+      priority: 20,
+    });
+  }
+
+  return changes;
+}
+
 /** Презентация синтетического эффекта-даров (по умолчанию — черта). */
 export interface GrantEffectPresentation {
   /** Префикс провенанса (`originId`). По умолчанию `feat:`. */
@@ -58,6 +183,34 @@ export interface GrantEffectPresentation {
   noun?: string;
   /** Иконка эффекта. По умолчанию `tabler:star`. */
   icon?: string;
+}
+
+/**
+ * Числа персонажа, без которых постоянные модификаторы черты не развернуть.
+ * Передаются на применении: движок даров актора не видит.
+ */
+export interface FeatGrantContext {
+  /**
+   * Суммарный уровень персонажа на момент взятия черты — основа прибавки к
+   * хитам. Не передан — считается первым уровнем.
+   */
+  acquisitionLevel?: number;
+  /**
+   * Базовая скорость ходьбы персонажа: от неё берутся виды движения, заданные
+   * флагом «равна скорости ходьбы». Не передана — такие флаги пропускаются.
+   */
+  walkSpeed?: number;
+  /**
+   * Типы урона, выбранные игроком для сопротивления
+   * ({@code modifiers.resistanceFromChoiceKey}). До выбора черта не знает, к чему
+   * даёт сопротивление, поэтому в её дарах их нет.
+   */
+  chosenResistances?: string[];
+  /**
+   * Характеристики, выбранные игроком для повышения
+   * ({@code abilityScoreIncrease.fromChoiceKey}) — так устроен «Устойчивый».
+   */
+  chosenAbilities?: string[];
 }
 
 /**
@@ -163,6 +316,7 @@ export function buildFeatGrantEffect(
   featName: string,
   featData: FeatData | null | undefined,
   presentation: GrantEffectPresentation = {},
+  context: FeatGrantContext = {},
 ): ActiveEffect | null {
   const {
     originPrefix = FEAT_ORIGIN_PREFIX,
@@ -186,7 +340,35 @@ export function buildFeatGrantEffect(
     }
   }
 
+  if (featData?.modifiers) {
+    changes.push(...modifierChanges(featData.modifiers, context));
+  }
+
   const flags = collectFeatDamageDefenseFlags(featData);
+
+  // Сопротивление по выбору: тип урона известен только после того, как игрок выбрал,
+  // поэтому в дарах черты его нет — он приходит контекстом применения
+  for (const damageType of context.chosenResistances ?? []) {
+    const flag: EffectFlagKey = `resistance.${damageType as DefensibleDamageType}`;
+
+    if (!flags.includes(flag)) {
+      flags.push(flag);
+    }
+  }
+
+  // Повышение выбранной характеристики («Устойчивый» поднимает ту, спасбросками
+  // которой овладел): само число берётся из описания повышения
+  const chosenAmount = featData?.abilityScoreIncrease?.choice?.amount ?? 1;
+
+  for (const ability of context.chosenAbilities ?? []) {
+    changes.push({
+      key: `ability.${ability as AbilityType}`,
+      mode: 'add',
+      value: String(chosenAmount),
+      priority: 20,
+    });
+  }
+
   const conditionImmunities = featData?.conditionImmunities ?? [];
 
   if (

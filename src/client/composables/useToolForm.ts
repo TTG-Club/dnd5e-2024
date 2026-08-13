@@ -23,6 +23,8 @@ import {
   TOOLS_LIST,
 } from '@vtt/shared/system/dnd.js';
 
+import { useItemUsesForm } from './useItemUsesForm';
+
 /**
  * Переключает строку в массиве свойств
  */
@@ -63,6 +65,7 @@ export function useToolForm(
   const rarity = ref<ItemRarity>('none');
   const selectedToolProperties = ref<string[]>([]);
   const activeEffects = ref<ActiveEffect[]>([]);
+  const itemUses = useItemUsesForm();
 
   // Tool specific fields
   const toolBonus = ref(0);
@@ -173,6 +176,8 @@ export function useToolForm(
         activeEffects.value = [...(tool.activeEffects || [])].filter(
           isDnDEffect,
         );
+
+        itemUses.loadItemUses(tool.uses);
       } else {
         // Дефолты для создания
         name.value = '';
@@ -195,6 +200,7 @@ export function useToolForm(
         isAttuned.value = false;
         rarity.value = 'none';
         activeEffects.value = [];
+        itemUses.resetItemUses();
       }
     },
     { immediate: true },
@@ -240,6 +246,7 @@ export function useToolForm(
           ? magicAttunement.value
           : undefined,
       isAttuned: isMagical.value && isAttuned.value ? true : undefined,
+      uses: itemUses.buildItemUses(),
       activeEffects:
         activeEffects.value.length > 0 ? activeEffects.value : undefined,
     };
@@ -268,6 +275,7 @@ export function useToolForm(
     rarity,
     selectedToolProperties,
     activeEffects,
+    ...itemUses,
 
     // Computed
     toolCategoryOptions,

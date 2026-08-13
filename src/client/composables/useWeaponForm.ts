@@ -31,6 +31,8 @@ import {
   WEAPON_MASTERIES,
 } from '@vtt/shared/system/dnd.js';
 
+import { useItemUsesForm } from './useItemUsesForm';
+
 /**
  * Значение опции «не выбрано» в селектах базового типа/категории/приёма.
  * Не пустая строка: Nuxt UI `USelect` резервирует `''` под очистку выбора и
@@ -87,6 +89,7 @@ export function useWeaponForm(
   const magicBonus = ref(0);
   const rarity = ref<ItemRarity>('none');
   const activeEffects = ref<ActiveEffect[]>([]);
+  const itemUses = useItemUsesForm();
 
   /**
    * Адамантиновое — вычисляемое на основе selectedProperties
@@ -232,6 +235,8 @@ export function useWeaponForm(
         activeEffects.value = [...(weapon.activeEffects ?? [])].filter(
           isDnDEffect,
         );
+
+        itemUses.loadItemUses(weapon.uses);
       } else {
         // Дефолты для создания
         name.value = '';
@@ -269,6 +274,7 @@ export function useWeaponForm(
         magicBonus.value = 0;
         rarity.value = 'none';
         activeEffects.value = [];
+        itemUses.resetItemUses();
       }
     },
     { immediate: true },
@@ -433,6 +439,7 @@ export function useWeaponForm(
       isAttuned: isMagical.value && isAttuned.value ? true : undefined,
       magicBonus:
         isMagical.value && magicBonus.value > 0 ? magicBonus.value : undefined,
+      uses: itemUses.buildItemUses(),
       activeEffects: activeEffects.value,
     };
   }
@@ -472,6 +479,7 @@ export function useWeaponForm(
     magicBonus,
     rarity,
     activeEffects,
+    ...itemUses,
 
     // Computed опции
     categoryOptions,

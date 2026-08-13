@@ -3,9 +3,11 @@ import type { Ref } from 'vue';
 import type { AbilityType, Feature } from '@vtt/shared';
 import type {
   ActorBackgroundEntry,
+  AppliedFeatMeta,
   BackgroundDefinition,
   DnDActor,
   DnDActorSystem,
+  FeatData,
   ResolvedGrantedSpell,
 } from '@vtt/shared/system/dnd.js';
 
@@ -19,15 +21,24 @@ import {
 } from '@vtt/shared';
 import {
   appendGrantedSpells,
+  applyFeatChoiceSelections,
   BACKGROUND_ORIGIN_PREFIX,
   buildFeatGrantEffect,
+  calculateProficiencyBonus,
+  collectFeatChoiceProficiencies,
+  getTotalLevel,
+  isFeatOwnedEffect,
   normalizeBackgroundDefinition,
   prepareTransferredFeatEffects,
   removeGrantedSpellsByFeatureNames,
+  resolveChosenAbilities,
+  resolveChosenResistances,
+  resolveFeatChoiceCount,
+  resolveFeatChoicePool,
 } from '@vtt/shared/system/dnd.js';
 
 export type BackgroundWizardStep =
-  'overview' | 'tools' | 'abilities' | 'equipment';
+  'overview' | 'featChoices' | 'tools' | 'abilities' | 'equipment';
 
 /**
  * Имя-источник заклинаний, выданных СОБСТВЕННЫМ `featData` предыстории —
@@ -109,6 +120,22 @@ export function useBackgroundWizard(
   /** Разобрано ли текстовое владение полностью — сообщает шаг инструментов */
   const grantComplete = ref(true);
   const selectedFeatId = ref<string>('');
+  /**
+   * Выборы внутри черты, которую даёт предыстория («Умелый» просит три навыка).
+   * Ключ выбора → выбранные значения; сбрасывается при смене самой черты.
+   */
+  const selectedFeatChoices = ref<Record<string, string[]>>({});
+  /**
+   * Дары черты, которую даёт предыстория. Заполняет мастер, когда подгрузит
+   * компендиум черт: сама composable компендиума не читает — так же, как ключи
+   * инструментов ей приносит шаг владений.
+   */
+  const grantedFeatData = ref<FeatData | null>(null);
+  /**
+   * Выбранный вариант стартового снаряжения; `null` — не выбран. Выбирать есть
+   * что только у вариантов с позициями, поэтому шаг не блокирует переход.
+   */
+  const selectedEquipmentIndex = ref<number | null>(null);
 
   const wizardSteps = computed<BackgroundWizardStep[]>(() => {
     const def = definition.value;
@@ -118,6 +145,12 @@ export function useBackgroundWizard(
     }
 
     const steps: BackgroundWizardStep[] = ['overview'];
+
+    // Выборы внутри выданной черты — сразу за её выбором: пул «Знатока» зависит
+    // от того, чем персонаж уже владеет, и спрашивать раньше нечего
+    if ((grantedFeatData.value?.choices?.length ?? 0) > 0) {
+      steps.push('featChoices');
+    }
 
     // Шаг инструментов нужен и когда есть выбор из своего списка (homebrew из
     // панели «Предметы»), и когда компендиум прислал владение текстом: его надо
@@ -141,6 +174,8 @@ export function useBackgroundWizard(
     grantedTools.value = [];
     grantComplete.value = true;
     selectedFeatId.value = '';
+    selectedFeatChoices.value = {};
+    selectedEquipmentIndex.value = null;
 
     const def = definition.value;
 
@@ -191,6 +226,33 @@ export function useBackgroundWizard(
 
     if (currentStepInfo.value.stepGroup === 'overview') {
       if (def.featGrant.featChoices?.length && !selectedFeatId.value) {
+        return false;
+      }
+    }
+
+    if (currentStepInfo.value.stepGroup === 'featChoices') {
+      const choices = grantedFeatData.value?.choices ?? [];
+
+      const bonus = calculateProficiencyBonus(
+        getTotalLevel(actorRef.value.system.classes),
+      );
+
+      const incomplete = choices.some((choice) => {
+        const pool = resolveFeatChoicePool(choice, actorRef.value);
+
+        if (pool.length === 0) {
+          return false;
+        }
+
+        const max = Math.min(
+          resolveFeatChoiceCount(choice, bonus),
+          pool.length,
+        );
+
+        return (selectedFeatChoices.value[choice.key]?.length ?? 0) < max;
+      });
+
+      if (incomplete) {
         return false;
       }
     }
@@ -273,6 +335,20 @@ export function useBackgroundWizard(
   }
 
   /**
+   * Позиции выбранного варианта снаряжения. Пусто — выбирать было нечего или
+   * вариант не выбран; тогда мастер инвентарь не трогает.
+   */
+  const selectedEquipmentItems = computed(() => {
+    const index = selectedEquipmentIndex.value;
+
+    if (index === null) {
+      return [];
+    }
+
+    return definition.value?.equipmentOptions?.[index]?.items ?? [];
+  });
+
+  /**
    * Применяет выбранные данные и формирует updates для актора.
    * Если у актора уже есть предыстория — откатывает все её бонусы
    * (характеристики, навыки, инструменты, черту, granted-заклинания черты)
@@ -336,10 +412,17 @@ export function useBackgroundWizard(
       removeItems(baseWeapons, previousBackground.weaponProficiencies ?? []);
       removeItems(baseLanguages, previousBackground.languages ?? []);
 
-      // Откат черты
+      // Откат черты: сама особенность и её эффекты. Эффекты помечены провенансом
+      // черты (`feat:<id>`), а не предыстории, поэтому оптовый фильтр по
+      // `background:` выше их не забрал — снимаем адресно по id выданной черты
       if (previousBackground.grantedFeatId) {
-        baseFeatures = baseFeatures.filter(
-          (feat) => feat.id !== previousBackground.grantedFeatId,
+        const grantedId = previousBackground.grantedFeatId;
+
+        baseFeatures = baseFeatures.filter((feat) => feat.id !== grantedId);
+
+        removeItems(
+          baseEffects,
+          baseEffects.filter((effect) => isFeatOwnedEffect(effect, grantedId)),
         );
       }
     }
@@ -371,19 +454,31 @@ export function useBackgroundWizard(
     if (srdFeat) {
       grantedFeatName = srdFeat.name;
 
-      baseFeatures.push({
+      // Уровень взятия и сделанные выборы живут на самой особенности: по первому
+      // считается прибавка к хитам, по вторым видно, что игрок выбрал. Метка
+      // предыстории говорит, откуда черта взялась, — сама она остаётся обычной
+      // чертой со своим провенансом
+      const applied: Feature & AppliedFeatMeta = {
         ...srdFeat,
         id: grantedFeatId,
         featureType: 'feat',
-      });
+        acquisitionLevel: getTotalLevel(actorRef.value.system.classes),
+        grantedByBackgroundKey: def.key,
+        ...(Object.keys(selectedFeatChoices.value).length > 0
+          ? { choices: { ...selectedFeatChoices.value } }
+          : {}),
+      };
+
+      baseFeatures.push(applied);
     } else {
-      const fallbackFeat: Feature = {
+      const fallbackFeat: Feature & AppliedFeatMeta = {
         id: grantedFeatId,
         name: def.featGrant.featName,
         nameEn: def.featGrant.featNameEn || '',
         description: '', // Больше не храним fallback описание
         featureType: 'feat',
         isSRD: !!def.isSRD,
+        grantedByBackgroundKey: def.key,
       };
 
       baseFeatures.push(fallbackFeat);
@@ -428,12 +523,39 @@ export function useBackgroundWizard(
     // каноническими полями, поэтому featData ASI/навыков у фона пуст).
     const featData = def.featData ?? null;
 
-    const extraSkills = featData?.skillProficiencies ?? [];
-    const extraSaves = featData?.savingThrowProficiencies ?? [];
-    const extraArmor = featData?.armorProficiencies ?? [];
-    const extraWeapons = featData?.weaponProficiencies ?? [];
-    const extraTools = featData?.toolProficiencies ?? [];
-    const extraLanguages = featData?.languages ?? [];
+    // Безусловные дары ВЫДАННОЙ ЧЕРТЫ идут в те же списки, что и дары самой
+    // предыстории: их снимает замена предыстории по записи в `entry`.
+    const grantedFeat = grantedFeatData.value;
+
+    const extraSkills = [
+      ...(featData?.skillProficiencies ?? []),
+      ...(grantedFeat?.skillProficiencies ?? []),
+    ];
+
+    const extraSaves = [
+      ...(featData?.savingThrowProficiencies ?? []),
+      ...(grantedFeat?.savingThrowProficiencies ?? []),
+    ];
+
+    const extraArmor = [
+      ...(featData?.armorProficiencies ?? []),
+      ...(grantedFeat?.armorProficiencies ?? []),
+    ];
+
+    const extraWeapons = [
+      ...(featData?.weaponProficiencies ?? []),
+      ...(grantedFeat?.weaponProficiencies ?? []),
+    ];
+
+    const extraTools = [
+      ...(featData?.toolProficiencies ?? []),
+      ...(grantedFeat?.toolProficiencies ?? []),
+    ];
+
+    const extraLanguages = [
+      ...(featData?.languages ?? []),
+      ...(grantedFeat?.languages ?? []),
+    ];
 
     for (const skill of extraSkills) {
       baseSkills[skill] = 'proficient';
@@ -444,6 +566,36 @@ export function useBackgroundWizard(
     pushUnique(baseWeapons, extraWeapons);
     pushUnique(baseTools, extraTools);
     pushUnique(baseLanguages, extraLanguages);
+
+    // Выбранное игроком проставляет движок выборов: уровень владения знает
+    // только он (обычное владение или компетентность — по данным самой черты).
+    applyFeatChoiceSelections(
+      {
+        skills: baseSkills,
+        savingThrows: baseSavingThrows,
+        tools: baseTools,
+        languages: baseLanguages,
+        weapons: baseWeapons,
+        armor: baseArmor,
+        weaponMasteries: [],
+      },
+      grantedFeat,
+      selectedFeatChoices.value,
+      actorRef.value,
+    );
+
+    // ...а в запись предыстории они попадают списком — по нему замена снимет
+    // выданное, не разбирая, что именно было выбрано
+    const chosen = collectFeatChoiceProficiencies(
+      grantedFeat,
+      selectedFeatChoices.value,
+    );
+
+    extraSkills.push(...chosen.skills);
+    extraSaves.push(...chosen.savingThrows);
+    extraWeapons.push(...chosen.weapons);
+    extraTools.push(...chosen.tools);
+    extraLanguages.push(...chosen.languages);
 
     const grantEffect = buildFeatGrantEffect(def.key, def.name, featData, {
       originPrefix: BACKGROUND_ORIGIN_PREFIX,
@@ -456,6 +608,33 @@ export function useBackgroundWizard(
       baseEffects.push(grantEffect);
     }
 
+    // Эффект даров выданной черты — с ЕЁ СОБСТВЕННЫМ провенансом (`feat:<id>`):
+    // черта остаётся чертой, а связь с предысторией держит метка
+    // `grantedByBackgroundKey` на самой особенности. По ней замена предыстории
+    // снимает и черту, и её эффекты (см. откат выше).
+    const featGrantEffect = buildFeatGrantEffect(
+      grantedFeatId,
+      grantedFeatName,
+      grantedFeat,
+      {},
+      {
+        acquisitionLevel: getTotalLevel(actorRef.value.system.classes),
+        walkSpeed: actorRef.value.system.movement?.walk,
+        chosenResistances: resolveChosenResistances(
+          grantedFeat,
+          selectedFeatChoices.value,
+        ),
+        chosenAbilities: resolveChosenAbilities(
+          grantedFeat,
+          selectedFeatChoices.value,
+        ),
+      },
+    );
+
+    if (featGrantEffect) {
+      baseEffects.push(featGrantEffect);
+    }
+
     baseEffects.push(
       ...prepareTransferredFeatEffects(
         def.key,
@@ -464,9 +643,15 @@ export function useBackgroundWizard(
       ),
     );
 
+    // Тёмное зрение: берём наибольшее из своего и того, что даёт выданная черта
+    const darkvision = Math.max(
+      featData?.darkvision ?? 0,
+      grantedFeat?.darkvision ?? 0,
+    );
+
     const updatedToken = applyBackgroundDarkvision(
       actorRef.value.token,
-      featData?.darkvision ?? 0,
+      darkvision,
     );
 
     const ownGrantedSpellSource =
@@ -514,8 +699,8 @@ export function useBackgroundWizard(
       entry.ownGrantedSpellSource = ownGrantedSpellSource;
     }
 
-    if (updatedToken && featData?.darkvision) {
-      entry.darkvisionApplied = featData.darkvision;
+    if (updatedToken && darkvision > 0) {
+      entry.darkvisionApplied = darkvision;
     }
 
     // 6. Granted-заклинания: откатываем заклинания предыдущей предыстории
@@ -591,6 +776,10 @@ export function useBackgroundWizard(
     grantedTools,
     grantComplete,
     selectedFeatId,
+    selectedFeatChoices,
+    grantedFeatData,
+    selectedEquipmentIndex,
+    selectedEquipmentItems,
     wizardSteps,
     canProceed,
     nextStep,

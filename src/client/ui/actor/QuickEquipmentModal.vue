@@ -8,6 +8,7 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useWorldStore } from '@/stores/worldStore';
   import { generateId, isRecord } from '@vtt/shared';
+  import { normalizeCompendiumItem } from '@vtt/shared/system/dnd.js';
 
   import { GAME_ITEM_MIME, QUICK_PANEL_LABELS } from './constants';
   import ActorEquipmentTab from './tabs/ActorEquipmentTab.vue';
@@ -148,12 +149,12 @@
         return;
       }
 
-      const newItem: DnDGameItem = {
+      const newItem: DnDGameItem = normalizeCompendiumItem({
         ...parsedItem,
         id: generateId('eq'),
         isReadOnly: false,
         equipped: false,
-      };
+      });
 
       localActor.value.equipment = [...localActor.value.equipment, newItem];
       handleImmediateSave();

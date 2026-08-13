@@ -9,6 +9,7 @@ import type { AbilityType, SkillType, SourceDefinition } from '@vtt/shared';
 
 import type { ActiveEffect } from './activeEffectTypes.js';
 import type { FeatData } from './featTypes.js';
+import type { StartingEquipmentOption } from './startingEquipment.js';
 
 /** Ключ предыстории (string для поддержки пользовательских предысторий) */
 export type BackgroundKey = string;
@@ -45,10 +46,13 @@ export interface BackgroundFeatGrant {
   featNameEn?: string;
 }
 
-/** Вариант стартового снаряжения */
-export interface BackgroundEquipmentOption {
-  /** Описание варианта снаряжения (текст) */
-  description: string;
+/**
+ * Вариант стартового снаряжения предыстории.
+ *
+ * Позиции ({@link StartingEquipmentOption.items}) необязательны: без них
+ * вариант только показывается строкой, как было до их появления.
+ */
+export interface BackgroundEquipmentOption extends StartingEquipmentOption {
   /** Стоимость альтернативы в зм (вариант Б) */
   goldAlternative?: number;
 }

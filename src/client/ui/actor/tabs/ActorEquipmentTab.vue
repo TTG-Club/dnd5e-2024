@@ -31,6 +31,7 @@
   import {
     calculateWeaponAttackModifier,
     calculateWeaponDamageModifier,
+    canSpendItemUses,
     CURRENCY_OPTIONS,
     DEFAULT_CREATURE_SIZE,
     describeDamagePart,
@@ -39,6 +40,8 @@
     getWeaponPrimaryDamageType,
     isDndSceneEntity,
     resolveActorStats,
+    setItemUsesCurrent,
+    spendItemUses,
     TOOL_CATEGORIES,
   } from '@vtt/shared/system/dnd.js';
 
@@ -693,6 +696,40 @@
   }
 
   /**
+   * Списывает заряд предмета — правило расхода живёт в движке
+   * ({@link spendItemUses}), здесь только запись результата в лист.
+   *
+   * @param itemId - ID предмета
+   */
+  function spendItemCharge(itemId: string): void {
+    const equipment = props.actor.equipment.map((item) =>
+      item.id === itemId ? spendItemUses(item) : item,
+    );
+
+    emit('update:actor', { equipment });
+
+    triggerSaveIfNotEdit();
+  }
+
+  /**
+   * Возвращает один заряд вручную — отмена ошибочной траты. Восстановление
+   * отдыхом идёт своим путём, через движок отдыха.
+   *
+   * @param itemId - ID предмета
+   */
+  function restoreItemCharge(itemId: string): void {
+    const equipment = props.actor.equipment.map((item) =>
+      item.id === itemId && item.uses
+        ? setItemUsesCurrent(item, item.uses.current + 1)
+        : item,
+    );
+
+    emit('update:actor', { equipment });
+
+    triggerSaveIfNotEdit();
+  }
+
+  /**
    * Удаляет предмет из инвентаря
    * @param itemId - ID предмета
    */
@@ -764,6 +801,23 @@
         icon: 'tabler:sparkles',
         onSelect: () => toggleAttuned(item.id),
       });
+    }
+
+    if (item.uses) {
+      gameActions.push({
+        label: EQUIPMENT_MENU_LABELS.spendCharge,
+        icon: 'tabler:battery-vertical-3',
+        disabled: !canSpendItemUses(item),
+        onSelect: () => spendItemCharge(item.id),
+      });
+
+      if (item.uses.current < item.uses.max) {
+        gameActions.push({
+          label: EQUIPMENT_MENU_LABELS.restoreCharge,
+          icon: 'tabler:battery-vertical-charging',
+          onSelect: () => restoreItemCharge(item.id),
+        });
+      }
     }
 
     const sheetActions: DropdownMenuItem[] = [];
@@ -967,6 +1021,18 @@
         value: formatSignedNumber(item.toolBonus),
         tooltip: EQUIPMENT_STAT_HINTS.toolBonus,
         accent: true,
+      });
+    }
+
+    // Заряды идут сразу за боевой плиткой: у предмета с зарядами это главное
+    // число строки — по нему видно, работает предмет ещё или уже пуст
+    if (item.uses) {
+      stats.push({
+        key: 'uses',
+        label: EQUIPMENT_STAT_LABELS.uses,
+        value: `${item.uses.current}/${item.uses.max}`,
+        tooltip: EQUIPMENT_STAT_HINTS.uses,
+        accent: item.uses.current > 0,
       });
     }
 

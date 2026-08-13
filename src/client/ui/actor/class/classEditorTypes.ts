@@ -8,13 +8,14 @@
  * - `featureKeys` строки таблицы прогрессии НЕ редактируются вручную — они
  *   выводятся из `level` каждой особенности при сборке ({@link buildLevelTable}).
  * - ASI на уровне — это чекбокс строки; на сборке вставляется синтетический
- *   ключ `asi-<level>` + синтетическая особенность (детектор мастера —
- *   `key.startsWith('asi-') || key === 'epic-boon'`).
+ *   ключ `asi-<level>` + синтетическая особенность с флагом
+ *   `abilityImprovement`. Ключ сохраняет прежний вид ради записей, где флага
+ *   нет: мастер класса падает на эвристику по ключу (`isAsiFeature`).
  * - Динамические колонки таблицы (ячейки заклинаний, приёмы и т.п.) — значения
  *   `string | number`, разрежённые (пустая ячейка не пишется → рендер «—»).
  */
 
-import type { AbilityType, SourceDefinition } from '@vtt/shared';
+import type { AbilityType, SkillType, SourceDefinition } from '@vtt/shared';
 import type {
   CasterType,
   ClassCounterDefinition,
@@ -29,7 +30,10 @@ import type {
 } from '@vtt/shared/system/dnd.js';
 
 import { generateId } from '@vtt/shared';
-import { calculateProficiencyBonus } from '@vtt/shared/system/dnd.js';
+import {
+  calculateProficiencyBonus,
+  isAsiFeatureKey,
+} from '@vtt/shared/system/dnd.js';
 
 // ── Колонки таблицы прогрессии ───────────────────────────────
 
@@ -112,6 +116,14 @@ export interface EditableClassFeature {
   grantedSpellsByLevel: EditableGrantedSpellLevel[];
   /** Варианты-выборы внутри особенности. */
   choices: EditableClassFeatureChoice[];
+  /**
+   * Сколько навыков даёт умение на выбор; `0` — не даёт. Поле разложено на
+   * число и список, а не хранится объектом: снятый выбор не должен оставлять
+   * в форме полупустой блок.
+   */
+  skillChoiceCount: number;
+  /** Пул навыков выбора; пустой — любой навык */
+  skillChoiceFrom: SkillType[];
 }
 
 // ── Счётчик классового ресурса ───────────────────────────────
@@ -179,11 +191,6 @@ export interface EditableEquipmentOption {
 // Хелперы
 // ============================================================
 
-/** Является ли ключ особенности маркером ASI (как у мастера класса). */
-export function isAsiFeatureKey(featureKey: string): boolean {
-  return featureKey.startsWith('asi-') || featureKey === 'epic-boon';
-}
-
 /** Канонические названия обычного повышения характеристик (генерик ASI). */
 const PLAIN_ASI_NAMES = new Set<string>([
   'Улучшение характеристик',
@@ -199,10 +206,11 @@ const PLAIN_ASI_NAMES = new Set<string>([
 export function isPlainAsiFeature(feature: {
   key: string;
   name: string;
+  abilityImprovement?: boolean;
 }): boolean {
-  return (
-    isAsiFeatureKey(feature.key) && PLAIN_ASI_NAMES.has(feature.name.trim())
-  );
+  const isAsi = feature.abilityImprovement ?? isAsiFeatureKey(feature.key);
+
+  return isAsi && PLAIN_ASI_NAMES.has(feature.name.trim());
 }
 
 /** Стандартное название/текст синтетической особенности повышения характеристик. */
@@ -284,6 +292,8 @@ export function createEmptyFeature(name: string): EditableClassFeature {
     grantedSpells: [],
     grantedSpellsByLevel: [],
     choices: [],
+    skillChoiceCount: 0,
+    skillChoiceFrom: [],
   };
 }
 
@@ -339,6 +349,8 @@ export function toEditableFeature(feature: ClassFeature): EditableClassFeature {
       name: choice.name || '',
       description: choice.description || '',
     })),
+    skillChoiceCount: feature.skillChoice?.count ?? 0,
+    skillChoiceFrom: feature.skillChoice?.from ?? [],
   };
 }
 
@@ -581,6 +593,13 @@ export function buildFeature(
     built.choices = choices;
   }
 
+  if (feature.skillChoiceCount > 0) {
+    built.skillChoice = {
+      count: Math.round(feature.skillChoiceCount),
+      from: [...feature.skillChoiceFrom],
+    };
+  }
+
   const grantedSpells = buildGrantedIds(feature.grantedSpells);
 
   if (grantedSpells.length > 0) {
@@ -811,6 +830,7 @@ export function buildAsiFeatures(
         name: ASI_NAME,
         description: ASI_DESCRIPTION,
         level: row.level,
+        abilityImprovement: true,
       });
     }
   }

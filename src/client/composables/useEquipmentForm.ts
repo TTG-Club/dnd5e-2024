@@ -20,6 +20,8 @@ import {
   parseCost,
 } from '@vtt/shared/system/dnd.js';
 
+import { useItemUsesForm } from './useItemUsesForm';
+
 /**
  * Composable для логики формы доспеха.
  *
@@ -54,6 +56,7 @@ export function useEquipmentForm(
   const magicBonus = ref(0);
   const rarity = ref<ItemRarity>('none');
   const activeEffects = ref<ActiveEffect[]>([]);
+  const itemUses = useItemUsesForm();
 
   /**
    * Помеха скрытности — вычисляемое на основе selectedEquipmentProperties
@@ -269,6 +272,8 @@ export function useEquipmentForm(
         activeEffects.value = [...(armor.activeEffects || [])].filter(
           isDnDEffect,
         );
+
+        itemUses.loadItemUses(armor.uses);
       } else {
         // Дефолты для создания
         name.value = '';
@@ -291,6 +296,7 @@ export function useEquipmentForm(
         magicBonus.value = 0;
         rarity.value = 'none';
         activeEffects.value = [];
+        itemUses.resetItemUses();
       }
     },
     { immediate: true },
@@ -338,6 +344,7 @@ export function useEquipmentForm(
       isAttuned: isMagical.value && isAttuned.value ? true : undefined,
       magicBonus:
         isMagical.value && magicBonus.value > 0 ? magicBonus.value : undefined,
+      uses: itemUses.buildItemUses(),
       activeEffects:
         activeEffects.value.length > 0 ? activeEffects.value : undefined,
     };
@@ -368,6 +375,7 @@ export function useEquipmentForm(
     magicBonus,
     rarity,
     activeEffects,
+    ...itemUses,
 
     // Computed
     isShield,

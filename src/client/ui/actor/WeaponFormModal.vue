@@ -18,12 +18,14 @@
     FORM_FIELD_LABELS,
     FORM_TAB_LABELS,
     ITEM_FORM_LABELS,
+    ITEM_USES_LABELS,
     MODAL_BUTTON_LABELS,
     RANGE_FIELD_LABELS,
     WEAPON_FORM_LABELS,
   } from './constants';
   import DamagePartsEditor from './DamagePartsEditor.vue';
   import FormSection from './FormSection.vue';
+  import ItemUsesFields from './ItemUsesFields.vue';
   import SourceField from './SourceField.vue';
   import ActiveEffectFormModal from './tabs/ActiveEffectFormModal.vue';
 
@@ -105,6 +107,7 @@
     magicBonus,
     rarity,
     activeEffects,
+    itemUses,
   } = useWeaponForm(
     () => props.item,
     () => props.open,
@@ -481,6 +484,15 @@
                   :label="ITEM_FORM_LABELS.attuned"
                 />
               </div>
+            </FormSection>
+
+            <!-- Блок «Заряды» -->
+            <FormSection
+              v-if="isMagical"
+              :title="ITEM_USES_LABELS.title"
+              title-color="arcane"
+            >
+              <ItemUsesFields v-model="itemUses" />
             </FormSection>
             <!-- Урон (единая со заклинаниями система частей) -->
             <FormSection

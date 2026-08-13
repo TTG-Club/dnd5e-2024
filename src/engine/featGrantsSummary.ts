@@ -19,6 +19,7 @@ import type { BackgroundDefinition } from './backgroundTypes.js';
 import type { DnDGameItem } from './dndEntities.js';
 import type { FeatData } from './featTypes.js';
 
+import { SENSE_LABELS } from './actorSenses.js';
 import {
   ABILITY_LABELS,
   CONDITIONS,
@@ -147,6 +148,90 @@ function defenseLine(featData: FeatData): string | null {
   return parts.length > 0 ? `- **Защиты:** ${parts.join(', ')}` : null;
 }
 
+/**
+ * Строка постоянных модификаторов листа (хиты, скорости, КД, инициатива).
+ * Прибавка к хитам показана формулой источника, а не итогом: итог зависит от
+ * уровня взятия, а сводка описывает саму черту, а не конкретное применение.
+ */
+function modifiersLine(featData: FeatData): string | null {
+  const modifiers = featData.modifiers;
+
+  if (!modifiers) {
+    return null;
+  }
+
+  const parts: string[] = [];
+  const hitPoints = modifiers.hitPoints;
+
+  if (hitPoints) {
+    const pieces: string[] = [];
+
+    if (hitPoints.flat) {
+      pieces.push(`${hitPoints.flat}`);
+    }
+
+    if (hitPoints.perAcquisitionLevel) {
+      pieces.push(`${hitPoints.perAcquisitionLevel} за уровень при взятии`);
+    }
+
+    if (hitPoints.perLevelAfterAcquisition) {
+      pieces.push(
+        `${hitPoints.perLevelAfterAcquisition} за каждый следующий уровень`,
+      );
+    }
+
+    if (pieces.length > 0) {
+      parts.push(`хиты +${pieces.join(', +')}`);
+    }
+  }
+
+  const speed = modifiers.speed;
+
+  if (speed) {
+    if (speed.walkBonus) {
+      parts.push(`скорость +${speed.walkBonus} фт.`);
+    }
+
+    const movementLabels: Array<
+      [number | undefined, boolean | undefined, string]
+    > = [
+      [speed.fly, speed.flyEqualsWalk, 'полёт'],
+      [speed.climb, speed.climbEqualsWalk, 'лазание'],
+      [speed.swim, speed.swimEqualsWalk, 'плавание'],
+    ];
+
+    for (const [value, equalsWalk, label] of movementLabels) {
+      if (value) {
+        parts.push(`${label} ${value} фт.`);
+      } else if (equalsWalk) {
+        parts.push(`${label} как скорость ходьбы`);
+      }
+    }
+  }
+
+  if (modifiers.armorClassBonus) {
+    parts.push(`КД +${modifiers.armorClassBonus}`);
+  }
+
+  for (const sense of modifiers.senses ?? []) {
+    if (sense.range > 0) {
+      parts.push(
+        `${SENSE_LABELS[sense.type].toLowerCase()} ${sense.range} фт.`,
+      );
+    }
+  }
+
+  if (modifiers.telepathyRange) {
+    parts.push(`телепатия ${modifiers.telepathyRange} фт.`);
+  }
+
+  if (modifiers.initiativeProficiencyBonus) {
+    parts.push('инициатива + бонус мастерства');
+  }
+
+  return parts.length > 0 ? `- **Модификаторы:** ${parts.join(', ')}` : null;
+}
+
 /** Строка предусловий. */
 function prerequisiteLine(featData: FeatData): string | null {
   const prerequisite = featData.prerequisite;
@@ -241,6 +326,12 @@ export function buildFeatGrantsSummary(
 
     if (featData.darkvision && featData.darkvision > 0) {
       lines.push(`- **Чувства:** тёмное зрение ${featData.darkvision} фт.`);
+    }
+
+    const modifiers = modifiersLine(featData);
+
+    if (modifiers) {
+      lines.push(modifiers);
     }
 
     const prereq = prerequisiteLine(featData);

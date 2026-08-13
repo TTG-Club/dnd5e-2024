@@ -4,6 +4,7 @@ import type { ActiveEffect } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 
 import { isDnDEffect } from './activeEffectTypes.js';
+import { itemEffectsActive } from './effectPipeline.js';
 
 /**
  * Отношение между токенами для вычисления аур.
@@ -56,7 +57,7 @@ export function getAuraEffects(effects?: ActiveEffect[]): ActiveEffect[] {
 /**
  * Собирает все аура-эффекты актора из всех источников:
  * 1. Эффекты напрямую на акторе (actor.activeEffects)
- * 2. Эффекты с экипированных предметов (actor.equipment[].activeEffects)
+ * 2. Эффекты с работающих предметов (`itemEffectsActive`)
  *
  * @param entity - объект сущности (DnDSceneEntity)
  * @returns массив активных аура-эффектов
@@ -70,7 +71,7 @@ export function collectAllAuraEffects(entity: DnDSceneEntity): ActiveEffect[] {
 
   if ('equipment' in entity && entity.equipment) {
     for (const item of entity.equipment) {
-      if (!item.equipped || !item.activeEffects) {
+      if (!itemEffectsActive(item) || !item.activeEffects) {
         continue;
       }
 

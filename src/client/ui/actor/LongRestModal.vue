@@ -5,7 +5,11 @@
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
-  import { summarizeActorLongRest } from '@vtt/shared/system/dnd.js';
+  import { useDiceRollerStore } from '@/stores/diceRollerStore';
+  import {
+    collectItemChargeRolls,
+    summarizeActorLongRest,
+  } from '@vtt/shared/system/dnd.js';
 
   import {
     ACTOR_LEFT_PANEL_LABELS,
@@ -26,6 +30,8 @@
     'update:open': [value: boolean];
     'apply': [options: LongRestOptions];
   }>();
+
+  const diceRollerStore = useDiceRollerStore();
 
   const isOpen = computed({
     get: () => props.open,
@@ -70,8 +76,31 @@
     },
   );
 
+  /**
+   * Бросает формулы возврата зарядов («1к6+4») у предметов, которые их задают.
+   * Кости бросает клиент, движок отдыха получает уже готовые числа — так же,
+   * как это сделано с костями хитов короткого отдыха.
+   *
+   * @returns выпавшие числа по id предмета
+   */
+  function rollItemCharges(): Record<string, number> {
+    const rolls: Record<string, number> = {};
+
+    for (const entry of collectItemChargeRolls(props.actor, 'long')) {
+      rolls[entry.id] = Math.max(
+        0,
+        diceRollerStore.parseAndRoll(entry.formula).total,
+      );
+    }
+
+    return rolls;
+  }
+
   function finishRest() {
-    emit('apply', { recoverAllHitDice: recoverAllHitDice.value });
+    emit('apply', {
+      recoverAllHitDice: recoverAllHitDice.value,
+      itemChargeRolls: rollItemCharges(),
+    });
 
     isOpen.value = false;
   }
@@ -201,6 +230,23 @@
 
             <span class="font-bold text-healing">
               {{ preview.spellChargesRestored }}
+            </span>
+          </div>
+
+          <div
+            v-if="preview.itemChargesRestored > 0"
+            class="flex items-center justify-between rounded bg-elevated/40 p-2 text-sm"
+          >
+            <span class="flex items-center gap-2 text-toned">
+              <UIcon
+                name="tabler:battery-vertical-charging"
+                class="h-4 w-4 text-primary"
+              />
+              {{ LONG_REST_LABELS.itemUses }}
+            </span>
+
+            <span class="font-bold text-healing">
+              {{ preview.itemChargesRestored }}
             </span>
           </div>
 

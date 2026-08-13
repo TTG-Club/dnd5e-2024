@@ -8,9 +8,16 @@
 
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
   import { generateId } from '@vtt/shared';
+  import { SKILLS_LIST } from '@vtt/shared/system/dnd.js';
 
   import { CLASS_FEATURE_LABELS, FORM_FIELD_LABELS } from '../constants';
   import GrantedSpellsEditor from '../GrantedSpellsEditor.vue';
+
+  /** Навыки для выпадающего списка выбора владения */
+  const skillsOptions = SKILLS_LIST.map((skill) => ({
+    value: skill.key,
+    label: skill.label,
+  }));
 
   defineProps<{
     /** Заклинания компендиума по пакам — для подсказок связывания. */
@@ -91,6 +98,39 @@
       v-model="feature.isInformationalOnly"
       :label="CLASS_FEATURE_LABELS.informationalOnly"
     />
+
+    <!-- Владение навыками, которое даёт само умение: мастер класса покажет на
+      его уровне отдельный шаг выбора -->
+    <UFormField :label="CLASS_FEATURE_LABELS.skillChoiceTitle">
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <UFormField
+          :label="CLASS_FEATURE_LABELS.skillChoiceCount"
+          :hint="CLASS_FEATURE_LABELS.skillChoiceCountHint"
+        >
+          <UInput
+            v-model.number="feature.skillChoiceCount"
+            type="number"
+            :min="0"
+            class="w-full"
+          />
+        </UFormField>
+
+        <UFormField
+          v-if="feature.skillChoiceCount > 0"
+          :label="CLASS_FEATURE_LABELS.skillChoiceFrom"
+          :hint="CLASS_FEATURE_LABELS.skillChoiceFromHint"
+        >
+          <USelectMenu
+            v-model="feature.skillChoiceFrom"
+            :items="skillsOptions"
+            value-key="value"
+            label-key="label"
+            multiple
+            class="w-full"
+          />
+        </UFormField>
+      </div>
+    </UFormField>
 
     <!-- Варианты-выборы (боевой стиль, манёвры) -->
     <UFormField :label="CLASS_FEATURE_LABELS.choicesTitle">

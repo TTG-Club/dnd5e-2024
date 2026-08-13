@@ -2,15 +2,19 @@
  * Движок отдыха D&D 5e (короткий / продолжительный).
  *
  * Чистые функции вычисляют патч сущности при отдыхе: восстанавливают
- * счётчики классов, заряды заклинаний, ячейки заклинаний и хиты в
+ * счётчики классов, заряды заклинаний и предметов, ячейки заклинаний и хиты в
  * зависимости от типа отдыха и прописанного для ресурса способа отката.
  * Используется кнопками отдыха в листах актора и существа.
+ *
+ * Трата зарядов предмета живёт отдельно — см. `itemUses.ts`.
  */
 
 import type { ActorClassEntry, CounterRecovery } from './classTypes.js';
 import type {
   DnDActor,
   DnDCreature,
+  DnDGameItem,
+  ItemUsesRecovery,
   Spell,
   SpellUsesRecovery,
 } from './dndEntities.js';
@@ -29,6 +33,13 @@ export type RestType = 'short' | 'long';
 export interface LongRestOptions {
   /** Вернуть ВСЕ потраченные кости хитов (домашнее правило вместо половины) */
   recoverAllHitDice?: boolean;
+  /**
+   * Выпавшие числа возврата зарядов по id предмета — для предметов с формулой
+   * (`uses.formula`). Собирается модалкой отдыха из
+   * {@link collectItemChargeRolls}; предмет без записи здесь восстанавливается
+   * до максимума.
+   */
+  itemChargeRolls?: Record<string, number>;
 }
 
 /**
@@ -53,6 +64,8 @@ export interface LongRestPreview {
   countersRestored: number;
   /** Сколько заклинаний восстановят заряды */
   spellChargesRestored: number;
+  /** Сколько предметов инвентаря восстановят заряды */
+  itemChargesRestored: number;
 }
 
 /**
@@ -78,14 +91,16 @@ export interface ShortRestHitDiceResult {
  * @returns true, если ресурс нужно восстановить до максимума
  */
 function recoveryMatchesRest(
-  recovery: CounterRecovery | SpellUsesRecovery,
+  recovery: CounterRecovery | SpellUsesRecovery | ItemUsesRecovery,
   restType: RestType,
 ): boolean {
   if (recovery === 'short' || recovery === 'shortRest') {
     return true;
   }
 
-  if (recovery === 'long' || recovery === 'longRest') {
+  // «На рассвете» откатывается вместе с продолжительным отдыхом — отдельного
+  // счётчика игрового времени у листа нет (см. `ItemUsesRecovery`).
+  if (recovery === 'long' || recovery === 'longRest' || recovery === 'dawn') {
     return restType === 'long';
   }
 
@@ -136,12 +151,83 @@ function restoreSpellUses(spell: Spell, restType: RestType): Spell {
 }
 
 /**
+ * Восстанавливает ли предмет заряды при этом отдыхе — и не полон ли он уже.
+ * Общая проверка для патча отдыха и для предпросмотра, чтобы модалка и сам
+ * отдых не разошлись в том, что считается восстановлением.
+ *
+ * @param item - предмет инвентаря
+ * @param restType - тип совершённого отдыха
+ */
+function itemUsesRecoverable(item: DnDGameItem, restType: RestType): boolean {
+  return (
+    item.uses !== undefined
+    && item.uses.current < item.uses.max
+    && recoveryMatchesRest(item.uses.recovery, restType)
+  );
+}
+
+/**
+ * Возвращает копию предмета с восстановленными зарядами, если способ отката
+ * соответствует типу отдыха; иначе — исходный предмет.
+ *
+ * Предмет с формулой возврата (`uses.formula`) ждёт результата броска: сам
+ * движок кости не бросает. Пришёл бросок — прибавляем его к остатку, не выше
+ * максимума; не пришёл — восстанавливаем до максимума, чтобы предмет не завис
+ * пустым из-за того, что вызывающий не умеет бросать.
+ *
+ * @param item - предмет инвентаря
+ * @param restType - тип совершённого отдыха
+ * @param roll - выпавшее число возврата для этого предмета
+ * @returns предмет (новый объект при восстановлении зарядов)
+ */
+function restoreItemUses(
+  item: DnDGameItem,
+  restType: RestType,
+  roll: number | undefined,
+): DnDGameItem {
+  if (!item.uses || !itemUsesRecoverable(item, restType)) {
+    return item;
+  }
+
+  const restored =
+    item.uses.formula && roll !== undefined
+      ? Math.min(item.uses.max, item.uses.current + roll)
+      : item.uses.max;
+
+  return { ...item, uses: { ...item.uses, current: restored } };
+}
+
+/**
+ * Предметы, которым для отката зарядов нужен бросок — модалка отдыха бросает их
+ * формулы и передаёт результат в {@link LongRestOptions.itemChargeRolls}.
+ *
+ * @param actor - актор
+ * @param restType - тип совершённого отдыха
+ * @returns предметы с формулой возврата, у которых есть что восстанавливать
+ */
+export function collectItemChargeRolls(
+  actor: DnDActor,
+  restType: RestType,
+): Array<{ id: string; name: string; formula: string }> {
+  return (actor.equipment ?? [])
+    .filter(
+      (item) =>
+        itemUsesRecoverable(item, restType) && Boolean(item.uses?.formula),
+    )
+    .map((item) => ({
+      id: item.id,
+      name: item.name,
+      formula: item.uses?.formula ?? '',
+    }));
+}
+
+/**
  * Вычисляет патч актора при отдыхе.
  *
  * Короткий отдых: пактовые ячейки, счётчики с откатом 'short', заряды
- * заклинаний 'shortRest'. Продолжительный — дополнительно: все ячейки
- * заклинаний, счётчики 'long', заряды 'longRest', хиты до максимума и
- * сброс временных хитов.
+ * заклинаний и предметов 'shortRest'. Продолжительный — дополнительно: все
+ * ячейки заклинаний, счётчики 'long', заряды 'longRest' и 'dawn', хиты до
+ * максимума и сброс временных хитов.
  *
  * @param actor - актор
  * @param restType - тип отдыха
@@ -189,8 +275,13 @@ export function applyActorRest(
     }
   }
 
+  const rolls = options.itemChargeRolls ?? {};
+
   return {
     spells: actor.spells.map((spell) => restoreSpellUses(spell, restType)),
+    equipment: (actor.equipment ?? []).map((item) =>
+      restoreItemUses(item, restType, rolls[item.id]),
+    ),
     system: restoredSystem,
   };
 }
@@ -232,6 +323,10 @@ export function summarizeActorLongRest(actor: DnDActor): LongRestPreview {
     );
   }).length;
 
+  const itemChargesRestored = (actor.equipment ?? []).filter((item) =>
+    itemUsesRecoverable(item, 'long'),
+  ).length;
+
   return {
     hitPoints: {
       current: system.hitPoints.current,
@@ -248,6 +343,7 @@ export function summarizeActorLongRest(actor: DnDActor): LongRestPreview {
     spellSlotsRestored,
     countersRestored,
     spellChargesRestored,
+    itemChargesRestored,
   };
 }
 

@@ -29,7 +29,12 @@ import type {
   ResolvedActorStats,
 } from './activeEffectTypes.js';
 import type { DnDCustomBonusContext } from './customBonuses.js';
-import type { DnDActor, DnDCreature, DnDSceneEntity } from './dndEntities.js';
+import type {
+  DnDActor,
+  DnDCreature,
+  DnDGameItem,
+  DnDSceneEntity,
+} from './dndEntities.js';
 import type { FormulaContext } from './formulaParser.js';
 import type { BonusDamageFormula, TargetHpGate } from './spellUtils.js';
 
@@ -249,11 +254,32 @@ export function prepareBaseData(
 // ── Сбор эффектов ─────────────────────────────────────────────
 
 /**
+ * Работают ли свойства предмета прямо сейчас.
+ *
+ * Предмет должен быть надет, а предмет с обязательной настройкой — ещё и
+ * настроен: по правилам 2024 без настройки магия такого предмета не действует.
+ * Необязательная настройка (`optional`) ничего не гейтит — предмет работает и
+ * без неё, настройка лишь добавляет свойства, описанные текстом.
+ *
+ * Строка снаряжения на листе про это уже предупреждает значком «Нужна
+ * настройка», см. `EQUIPMENT_BADGE_HINTS.attunementRequired`.
+ *
+ * @param item - предмет инвентаря
+ */
+export function itemEffectsActive(item: DnDGameItem): boolean {
+  if (!item.equipped) {
+    return false;
+  }
+
+  return item.magicAttunement !== 'required' || Boolean(item.isAttuned);
+}
+
+/**
  * Собирает все активные эффекты актора.
  *
  * Включает:
  * 1. Эффекты напрямую на акторе (actor.activeEffects)
- * 2. Эффекты с экипированных предметов (transfer === true && equipped)
+ * 2. Эффекты с работающих предметов (см. {@link itemEffectsActive})
  *
  * Исключает отключённые (disabled === true).
  *
@@ -283,7 +309,7 @@ export function collectActiveEffects(
     const equipment = actor.equipment ?? [];
 
     for (const item of equipment) {
-      if (!item.equipped || !item.activeEffects) {
+      if (!itemEffectsActive(item) || !item.activeEffects) {
         continue;
       }
 

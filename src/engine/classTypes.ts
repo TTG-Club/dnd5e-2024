@@ -12,6 +12,8 @@ import type {
   SourceDefinition,
 } from '@vtt/shared';
 
+import type { StartingEquipmentOption } from './startingEquipment.js';
+
 // ── Литеральные типы ─────────────────────────────────────────
 
 /** Уникальный ключ класса */
@@ -125,6 +127,29 @@ export interface ClassFeatureChoice {
   description: string;
 }
 
+/**
+ * Вариант стартового снаряжения класса.
+ *
+ * Позиции ({@link StartingEquipmentOption.items}) необязательны: без них
+ * вариант только показывается строкой, как было до их появления.
+ */
+export interface ClassStartingEquipmentOption extends StartingEquipmentOption {
+  /** Ключ варианта (напр. 'A', 'B', 'C') */
+  key: string;
+}
+
+/**
+ * Выбор владения навыками, который даёт само умение класса или подкласса.
+ * Отдельно от `ClassDefinition.skillChoices`: те навыки берут при взятии
+ * первого уровня класса, эти — на уровне конкретного умения.
+ */
+export interface ClassFeatureSkillChoice {
+  /** Сколько навыков выбирают */
+  count: number;
+  /** Пул навыков; пустой список — любой навык */
+  from: SkillType[];
+}
+
 /** Особенность класса, получаемая на определённом уровне */
 export interface ClassFeature {
   /** Уникальный ключ (напр. 'fighting-style', 'second-wind') */
@@ -139,6 +164,21 @@ export interface ClassFeature {
   subclassKey?: string;
   /** Требуется ли выбор варианта (напр. Боевой стиль) */
   choices?: ClassFeatureChoice[];
+  /**
+   * Умение повышает характеристики: на его уровне мастер класса показывает шаг
+   * «+2 к одной или +1 к двум, либо черта».
+   *
+   * Явный признак вместо угадывания по ключу: до его появления ASI опознавался
+   * по `key.startsWith('asi-')`, и на самописных или переведённых классах шаг
+   * молча пропадал. Эвристика осталась запасным вариантом для записей, где поле
+   * не заполнено, — см. `isAsiFeature` в `classEditorTypes.ts`.
+   */
+  abilityImprovement?: boolean;
+  /**
+   * Умение даёт владение навыками на выбор («Эксперт», умения подклассов).
+   * Мастер класса показывает на его уровне отдельный шаг выбора.
+   */
+  skillChoice?: ClassFeatureSkillChoice;
   /** Если true - особенность не добавляется в финальный лист актора, служит только как инфо в повышении уровня */
   isInformationalOnly?: boolean;
   /**
@@ -293,12 +333,7 @@ export interface ClassDefinition {
   };
 
   /** Начальное снаряжение. Массив вариантов выбора (А, Б, В). */
-  startingEquipment?: Array<{
-    /** Ключ варианта (напр. 'A', 'B', 'C') */
-    key: string;
-    /** Человекочитаемое описание списка предметов в этом варианте */
-    description: string;
-  }>;
+  startingEquipment?: ClassStartingEquipmentOption[];
 
   /** Настраиваемые дополнительные колонки для таблицы уровней (например: Скрытая атака, Второе дыхание) */
   tableColumns?: Array<{
@@ -397,6 +432,77 @@ export interface ActorClassEntry {
 }
 
 // ── Утилиты ──────────────────────────────────────────────────
+
+/**
+ * Опознаёт ASI по ключу умения — запасной вариант для записей без флага
+ * {@link ClassFeature.abilityImprovement}: старые паки компендиума и классы,
+ * созданные до появления поля.
+ *
+ * @param featureKey - ключ умения
+ */
+export function isAsiFeatureKey(featureKey: string): boolean {
+  return featureKey.startsWith('asi-') || featureKey === 'epic-boon';
+}
+
+/**
+ * Повышает ли умение характеристики. Явный флаг важнее эвристики по ключу:
+ * на самописных и переведённых классах ключ произвольный, и шаг повышения по
+ * нему не находился.
+ *
+ * @param feature - умение класса или подкласса
+ */
+export function isAsiFeature(feature: ClassFeature): boolean {
+  return feature.abilityImprovement ?? isAsiFeatureKey(feature.key);
+}
+
+/**
+ * Умения класса и всех его подклассов одним списком — по ним ищут умение по
+ * ключу из строки таблицы уровней.
+ *
+ * @param classDefinition - определение класса
+ */
+export function getAllClassFeatures(
+  classDefinition: ClassDefinition,
+): ClassFeature[] {
+  return [
+    ...classDefinition.features,
+    ...(classDefinition.subclasses ?? []).flatMap(
+      (subclass) => subclass.features,
+    ),
+  ];
+}
+
+/**
+ * Даёт ли класс повышение характеристик на этом уровне.
+ *
+ * Ключи строки таблицы уровней резолвятся в сами умения: флаг живёт на умении,
+ * а в таблице лежит только его ключ. Ключ, которому умения не нашлось, всё ещё
+ * проверяется эвристикой — в старых паках таблица ссылается на «asi-4» без
+ * отдельной записи умения.
+ *
+ * @param classDefinition - определение класса
+ * @param level - уровень класса
+ */
+export function hasAbilityImprovementAtLevel(
+  classDefinition: ClassDefinition,
+  level: number,
+): boolean {
+  const levelEntry = classDefinition.levelTable.find(
+    (row) => row.level === level,
+  );
+
+  if (!levelEntry) {
+    return false;
+  }
+
+  const features = getAllClassFeatures(classDefinition);
+
+  return levelEntry.featureKeys.some((key) => {
+    const feature = features.find((entry) => entry.key === key);
+
+    return feature ? isAsiFeature(feature) : isAsiFeatureKey(key);
+  });
+}
 
 /**
  * Вычисляет суммарный уровень персонажа из массива классов

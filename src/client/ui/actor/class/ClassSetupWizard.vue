@@ -24,9 +24,11 @@
   import { resolveActorStats } from '@vtt/shared/system/dnd.js';
 
   import { useGrantedSpellsResolver } from '../../../composables/useGrantedSpellsResolver';
+  import { resolveStartingEquipment } from '../../../composables/useStartingEquipment';
   import { CLASS_WIZARD_LABELS, MODAL_BUTTON_LABELS } from '../constants';
   import { useClassWizard } from './wizard';
   import WizardStepAsi from './wizard/WizardStepAsi.vue';
+  import WizardStepClassEquipment from './wizard/WizardStepClassEquipment.vue';
   import WizardStepFeatures from './wizard/WizardStepFeatures.vue';
   import WizardStepHitPoints from './wizard/WizardStepHitPoints.vue';
   import WizardStepProficiencies from './wizard/WizardStepProficiencies.vue';
@@ -83,6 +85,8 @@
     skillChoicesCount,
     availableSkills,
     alreadyProficientSkills,
+    featureSkillChoice,
+    selectedEquipmentItems,
 
     wizardSteps,
     activeStepKey,
@@ -172,6 +176,16 @@
   }
 
   /**
+   * Сохраняет навыки, выбранные на шаге умения. Отдельно от классовых: те берут
+   * при взятии класса, эти даёт конкретное умение уровня.
+   *
+   * @param skills - выбранные навыки
+   */
+  function handleFeatureSkillsUpdate(skills: SkillType[]) {
+    wizardState.selectedFeatureSkills = skills;
+  }
+
+  /**
    * Сохраняет выбор опций особенностей класса в состоянии мастера.
    *
    * @param choices - карта «ключ особенности → выбранный вариант»
@@ -198,10 +212,21 @@
    * Завершает работу мастера: собирает обновления актора, эмитит их
    * родителю через событие `apply` и закрывает модальное окно.
    */
-  function handleComplete(): void {
+  async function handleComplete(): Promise<void> {
     const { systemUpdates, rootUpdates } = buildUpdates(
       resolvedGrantedSpells.value,
     );
+
+    // Стартовое снаряжение — отдельным шагом после сборки: позиции надо
+    // сопоставить с компендиумом, а это асинхронно
+    const granted = await resolveStartingEquipment(
+      props.socket,
+      selectedEquipmentItems.value,
+    );
+
+    if (granted.length > 0) {
+      rootUpdates.equipment = [...(props.actor.equipment ?? []), ...granted];
+    }
 
     emit('apply', systemUpdates, rootUpdates);
     isOpen.value = false;
@@ -245,7 +270,7 @@
       return;
     }
 
-    handleComplete();
+    void handleComplete();
   }
 
   /**
@@ -262,7 +287,7 @@
     if (action === 'next') {
       nextStep();
     } else if (action === 'complete') {
-      handleComplete();
+      void handleComplete();
     }
   }
 
@@ -406,6 +431,25 @@
             :max-count="skillChoicesCount"
             :already-proficient-skills="alreadyProficientSkills"
             @update:selected-skills="handleSkillsUpdate"
+          />
+
+          <!-- Навыки от самого умения («Эксперт» и подобные) -->
+          <WizardStepSkills
+            v-if="activeStepKey === 'featureSkills' && featureSkillChoice"
+            :available-skills="featureSkillChoice.from"
+            :selected-skills="wizardState.selectedFeatureSkills"
+            :max-count="featureSkillChoice.count"
+            :already-proficient-skills="alreadyProficientSkills"
+            @update:selected-skills="handleFeatureSkillsUpdate"
+          />
+
+          <!-- Стартовое снаряжение (только на 1 уровне класса) -->
+          <WizardStepClassEquipment
+            v-if="
+              activeStepKey === 'equipment' && classDefinition.startingEquipment
+            "
+            v-model:selected-index="wizardState.selectedEquipmentIndex"
+            :options="classDefinition.startingEquipment"
           />
 
           <!-- Особенности -->

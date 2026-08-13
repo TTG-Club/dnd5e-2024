@@ -38,6 +38,8 @@
     applyShortRestWithHitDice,
     calculateAbilityModifier,
     calculateMaxHP,
+    checkFeatPrerequisites,
+    collectRechoosableFeats,
     computeSpeciesDarkvision,
     computeSpeciesMovement,
     DEFAULT_ACTOR,
@@ -48,6 +50,7 @@
     isSkillType,
     isSpell,
     normalizeActor,
+    normalizeCompendiumItem,
   } from '@vtt/shared/system/dnd.js';
 
   import ActorCenterPanel from './ActorCenterPanel.vue';
@@ -62,6 +65,7 @@
     ACTOR_SHEET_LOG_PREFIX,
     BACKGROUND_DEFINITION_MIME,
     CLASS_DEFINITION_MIME,
+    FEAT_PREREQUISITE_LABELS,
     GAME_FEATURE_MIME,
     GAME_ITEM_MIME,
     MODAL_BUTTON_LABELS,
@@ -71,7 +75,13 @@
     TOAST_TITLES,
     UNSAVED_CHANGES_LABELS,
   } from './constants';
-  import { applyFeatToActor, resolveFeatGrantedSpells } from './feat/featApply';
+  import {
+    applyFeatToActor,
+    reapplyFeatToActor,
+    resolveFeatGrantedSpells,
+  } from './feat/featApply';
+  import FeatChoicesModal from './feat/FeatChoicesModal.vue';
+  import FeatRechooseModal from './feat/FeatRechooseModal.vue';
   import LongRestModal from './LongRestModal.vue';
   import ShortRestModal from './ShortRestModal.vue';
   import SpeciesSetupWizard from './species/SpeciesSetupWizard.vue';
@@ -712,6 +722,11 @@
 
   /** Открыта ли модалка продолжительного отдыха (предпросмотр восстановления) */
   const isLongRestOpen = ref(false);
+  /**
+   * Открыт пересмотр выборов черт. Живёт рядом с отдыхом, а не с выдачей черты:
+   * открывает его именно продолжительный отдых.
+   */
+  const isFeatRechooseOpen = ref(false);
 
   /** Модификатор Телосложения актёра (для броска костей хитов) */
   const constitutionModifier = computed(() =>
@@ -756,6 +771,13 @@
       description: ACTOR_SHEET_LABELS.longRestDone,
       color: 'success',
     });
+
+    // Часть черт («Мастер оружия», «Дар устойчивости к энергиям») позволяет
+    // выбрать заново — предлагаем это сразу после отдыха, а не отдельной кнопкой:
+    // иначе про пересмотр просто забывают
+    if (collectRechoosableFeats(localActor.value).length > 0) {
+      isFeatRechooseOpen.value = true;
+    }
   }
 
   /**
@@ -1235,12 +1257,12 @@
           );
 
           if (!alreadyExists) {
-            const newItem: DnDGameItem = {
+            const newItem: DnDGameItem = normalizeCompendiumItem({
               ...parsedItem,
               id: generateId('eq'),
               isReadOnly: false,
               equipped: false,
-            };
+            });
 
             localActor.value.equipment = [
               ...localActor.value.equipment,
@@ -1298,6 +1320,73 @@
    *
    * @param droppedFeat - перетащенная черта (с featData/activeEffects)
    */
+  /** Черта, ждущая выбора игрока: применяется после закрытия окна выбора */
+  const pendingChoiceFeat = ref<AppliedFeatFeature | null>(null);
+  const isFeatChoicesOpen = ref(false);
+
+  /**
+   * Записывает пересмотренный на отдыхе выбор: снимает старый и применяет новый
+   * через ту же машинерию, что и правка черты, — иначе владения от прежнего
+   * выбора остались бы на листе.
+   *
+   * @param selections - id особенности → (ключ выбора → значения)
+   */
+  function handleFeatRechooseApply(
+    selections: Record<string, Record<string, string[]>>,
+  ): void {
+    if (!localActor.value) {
+      return;
+    }
+
+    for (const [featureId, choices] of Object.entries(selections)) {
+      const feature = localActor.value.features?.find(
+        (entry) => entry.id === featureId,
+      ) as AppliedFeatFeature | undefined;
+
+      if (!feature) {
+        continue;
+      }
+
+      const result = reapplyFeatToActor(
+        localActor.value,
+        feature,
+        { ...feature, choices },
+        [],
+      );
+
+      localActor.value.features = result.features;
+      localActor.value.spells = result.spells;
+      localActor.value.activeEffects = result.activeEffects;
+      localActor.value.system.proficiencies = result.proficiencies;
+    }
+
+    isDirty.value = true;
+
+    if (!isEditMode.value) {
+      handleImmediateSave();
+    }
+  }
+
+  /** Выборы черты, ждущей ответа игрока */
+  const pendingFeatChoices = computed(
+    () => pendingChoiceFeat.value?.featData?.choices ?? [],
+  );
+
+  /**
+   * Принимает сделанный выбор и доводит выдачу черты до конца.
+   *
+   * @param selections - ключ выбора → выбранные значения
+   */
+  function handleFeatChoicesApply(selections: Record<string, string[]>): void {
+    const feat = pendingChoiceFeat.value;
+
+    pendingChoiceFeat.value = null;
+
+    if (feat) {
+      void applyDroppedFeat({ ...feat, choices: selections });
+    }
+  }
+
   async function applyDroppedFeat(
     droppedFeat: AppliedFeatFeature,
   ): Promise<void> {
@@ -1305,10 +1394,45 @@
       return;
     }
 
+    // Черта с выборами сперва спрашивает игрока: применить её до ответа значит
+    // выдать половину даров и потом дописывать вторую половину
+    if (
+      (droppedFeat.featData?.choices?.length ?? 0) > 0
+      && droppedFeat.choices === undefined
+    ) {
+      pendingChoiceFeat.value = droppedFeat;
+      isFeatChoicesOpen.value = true;
+
+      return;
+    }
+
     const resolved = await resolveFeatGrantedSpells(props.socket, droppedFeat);
 
     if (!localActor.value) {
       return;
+    }
+
+    // Требования проверяем, но не запрещаем: за столом мастер разрешает
+    // исключения, а у уже собранных персонажей черта могла быть взята раньше
+    const prerequisites = checkFeatPrerequisites(
+      droppedFeat.featData,
+      localActor.value,
+      {
+        armorCategoryOf: (armorKey) =>
+          systemDataStore.armorBaseTypes.find(
+            (baseType) => baseType.key === armorKey,
+          )?.category,
+      },
+    );
+
+    if (!prerequisites.met) {
+      toast.add({
+        title: FEAT_PREREQUISITE_LABELS.unmetTitle,
+        description:
+          FEAT_PREREQUISITE_LABELS.unmetPrefix
+          + prerequisites.unmet.join(FEAT_PREREQUISITE_LABELS.unmetSeparator),
+        color: 'warning',
+      });
     }
 
     const result = applyFeatToActor(localActor.value, droppedFeat, resolved);
@@ -2050,6 +2174,24 @@
     v-model:open="isLongRestOpen"
     :actor="localActor"
     @apply="handleLongRestApply"
+  />
+
+  <!-- Выбор при взятии черты: навык, оружие, тип урона -->
+  <FeatChoicesModal
+    v-if="localActor && pendingChoiceFeat"
+    v-model:open="isFeatChoicesOpen"
+    :feat-name="pendingChoiceFeat.name"
+    :choices="pendingFeatChoices"
+    :actor="localActor"
+    @apply="handleFeatChoicesApply"
+  />
+
+  <!-- Пересмотр выборов черт после продолжительного отдыха -->
+  <FeatRechooseModal
+    v-if="localActor"
+    v-model:open="isFeatRechooseOpen"
+    :actor="localActor"
+    @apply="handleFeatRechooseApply"
   />
 </template>
 

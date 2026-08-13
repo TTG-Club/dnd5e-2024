@@ -142,6 +142,19 @@
     props.actor.features.filter((feature) => feature.featureType === 'feat'),
   );
 
+  /**
+   * Выдана ли черта предысторией. Метка живёт на самой особенности
+   * (`grantedByBackgroundKey`) — черта при этом обычная, со своим провенансом,
+   * и метка говорит лишь о происхождении.
+   *
+   * @param feature - особенность листа
+   */
+  function grantedByBackground(feature: Feature): boolean {
+    return Boolean(
+      (feature as { grantedByBackgroundKey?: string }).grantedByBackgroundKey,
+    );
+  }
+
   // --- Отбор по источнику особенности ---
 
   /**
@@ -731,6 +744,18 @@
             <span class="truncate text-sm text-highlighted">
               {{ feature.name }}
             </span>
+
+            <!-- Черта не выбрана свободно, а пришла от предыстории: снимется
+              вместе с ней, и это лучше видеть сразу -->
+            <UBadge
+              v-if="grantedByBackground(feature)"
+              color="neutral"
+              variant="subtle"
+              size="sm"
+              class="shrink-0"
+            >
+              {{ FEATURE_ORIGIN_LABELS.background }}
+            </UBadge>
           </div>
 
           <div class="flex shrink-0 items-center gap-1">

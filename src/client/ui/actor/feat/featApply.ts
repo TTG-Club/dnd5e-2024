@@ -11,6 +11,7 @@
 import type { Feature, TypedWebSocketClient } from '@vtt/shared';
 import type {
   ActiveEffect,
+  AppliedFeatMeta,
   DnDActor,
   FeatData,
   ResolvedGrantedSpell,
@@ -23,11 +24,16 @@ import { extractSpellEntries } from '@/systems/dnd5e/composables/spellCompendium
 import { pushUnique, removeItems } from '@vtt/shared';
 import {
   appendGrantedSpells,
+  applyFeatChoiceSelections,
   buildFeatGrantEffect,
   collectFeatGrantedSpellSources,
+  getTotalLevel,
   isFeatOwnedEffect,
   prepareTransferredFeatEffects,
+  removeFeatChoiceSelections,
   removeGrantedSpellsByFeatureNames,
+  resolveChosenAbilities,
+  resolveChosenResistances,
 } from '@vtt/shared/system/dnd.js';
 
 /** Владения актора (структурно — то, что черта правит). */
@@ -40,7 +46,7 @@ type ActorProficiencies = DnDActor['system']['proficiencies'];
  * здесь, на стороне клиента. Эти поля переживают сериализацию актора
  * (`normalizeActor` не трогает `features`).
  */
-export interface AppliedFeatFeature extends Feature {
+export interface AppliedFeatFeature extends Feature, AppliedFeatMeta {
   featData?: FeatData;
   activeEffects?: ActiveEffect[];
 }
@@ -168,8 +174,15 @@ export function applyFeatToActor(
 
   // Конструируем особенность явно (без полей GameItem-обёртки), сохраняя дары
   // для последующего редактирования/отката на акторе.
+  // Уровень взятия фиксируется навсегда: прибавка к хитам у «Крепкого» и
+  // подобных зависит от него, и на следующем повышении она не должна поехать
+  const acquisitionLevel =
+    droppedFeat.acquisitionLevel ?? getTotalLevel(actor.system.classes);
+
   const newFeature: AppliedFeatFeature = {
     id: featureId,
+    acquisitionLevel,
+    ...(droppedFeat.choices ? { choices: droppedFeat.choices } : {}),
     name: droppedFeat.name,
     nameEn: droppedFeat.nameEn,
     description: droppedFeat.description,
@@ -190,6 +203,15 @@ export function applyFeatToActor(
 
   applyFeatProficiencies(proficiencies, featData);
 
+  // Выборы игрока — после безусловных даров: «Знаток» поднимает до компетентности то,
+  // чем персонаж уже владеет, и порядок здесь имеет значение
+  applyFeatChoiceSelections(
+    proficiencies,
+    featData,
+    droppedFeat.choices,
+    actor,
+  );
+
   const spells = appendGrantedSpells(actor.spells ?? [], resolvedSpells);
 
   const transferred = prepareTransferredFeatEffects(
@@ -201,6 +223,18 @@ export function applyFeatToActor(
     featureId,
     newFeature.name,
     featData,
+    {},
+    {
+      acquisitionLevel,
+      walkSpeed: actor.system.movement?.walk,
+      // Сопротивление и повышение характеристик по выбору: сам тип урона и сама
+      // характеристика известны только после того, как игрок выбрал
+      chosenResistances: resolveChosenResistances(
+        featData,
+        droppedFeat.choices,
+      ),
+      chosenAbilities: resolveChosenAbilities(featData, droppedFeat.choices),
+    },
   );
 
   const activeEffects = [
@@ -281,6 +315,12 @@ export function removeFeatFromActor(
 
   removeFeatProficiencies(proficiencies, feature.featData ?? null);
 
+  removeFeatChoiceSelections(
+    proficiencies,
+    feature.featData ?? null,
+    feature.choices,
+  );
+
   return { features, spells, activeEffects, proficiencies };
 }
 
@@ -313,5 +353,18 @@ export function reapplyFeatToActor(
     system: { ...actor.system, proficiencies: removed.proficiencies },
   };
 
-  return applyFeatToActor(intermediate, updatedFeat, resolvedSpells);
+  // Уровень взятия переносим со старой версии: правка черты — не повторное её
+  // получение, и прибавка к хитам от этого меняться не должна
+  return applyFeatToActor(
+    intermediate,
+    {
+      ...updatedFeat,
+      acquisitionLevel:
+        updatedFeat.acquisitionLevel ?? oldFeature.acquisitionLevel,
+      // Сделанные выборы переносим: правка черты — не повторное её получение, и
+      // переспрашивать игрока незачем
+      choices: updatedFeat.choices ?? oldFeature.choices,
+    },
+    resolvedSpells,
+  );
 }
