@@ -2,7 +2,12 @@
   import type { SpeciesDefinition } from '@vtt/shared/system/dnd.js';
 
   import { useContextMenu } from '../../../composables/useContextMenu';
-  import { CREATURE_TYPE_LABELS, SPECIES_DEFINITION_MIME } from '../constants';
+  import {
+    CREATURE_TYPE_LABELS,
+    FEET_UNIT_LABEL,
+    SPECIES_DEFINITION_MIME,
+    SPECIES_DETAIL_LABELS,
+  } from '../constants';
   import ContextMenuOverlay from '../ContextMenuOverlay.vue';
 
   defineOptions({
@@ -70,7 +75,10 @@
           }}
         </span>
 
-        <span> Скорость: {{ speciesDefinition.speed.walk }} фт. </span>
+        <span>
+          {{ SPECIES_DETAIL_LABELS.speed }}: {{ speciesDefinition.speed.walk }}
+          {{ FEET_UNIT_LABEL }}
+        </span>
       </div>
     </div>
 

@@ -27,7 +27,11 @@
   import { useCompendiumView } from '@/shared_ui/composables/useCompendiumView';
   import { generateId, getAssetUrl, systemRegistry } from '@vtt/shared';
 
-  import { COMPENDIUM_LABELS, SHEET_FILTER_LABELS } from '../actor/constants';
+  import {
+    COMPENDIUM_LABELS,
+    GRANTED_SPELL_FEATURE_PREFIX,
+    SHEET_FILTER_LABELS,
+  } from '../actor/constants';
 
   /**
    * Расширенный тип записи компендиума — включает все реальные типы данных,
@@ -1281,7 +1285,8 @@
                       size="sm"
                       class="shrink-0"
                     >
-                      Умение: {{ getGrantedFeatureName(entry) }}
+                      {{ GRANTED_SPELL_FEATURE_PREFIX
+                      }}{{ getGrantedFeatureName(entry) }}
                     </UBadge>
 
                     <UBadge

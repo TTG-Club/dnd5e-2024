@@ -55,6 +55,7 @@
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import {
     DICE_ROLL_DEFAULT_BUTTON,
+    FEET_UNIT_LABEL,
     FORM_FIELD_LABELS,
     FORM_TAB_LABELS,
     GRANT_FIELD_LABELS,
@@ -1367,7 +1368,10 @@
                       {{ CREATURE_SHEET_LABELS.darkvisionPrefix }}
                     </span>
 
-                    <span>{{ localCreature.token.vision.darkvision }} фт.</span>
+                    <span>
+                      {{ localCreature.token.vision.darkvision }}
+                      {{ FEET_UNIT_LABEL }}
+                    </span>
                   </div>
 
                   <div class="flex items-center justify-between">
