@@ -30,6 +30,7 @@ import type {
 } from '@vtt/shared';
 
 import type { ConditionKey } from './conditionKeys.js';
+import type { DnDCustomBonusContext } from './customBonuses.js';
 
 import { z } from 'zod';
 
@@ -908,6 +909,16 @@ export interface ResolvedActorStats {
   };
   /** Ключи полей, перезаписанных режимом 'override' (не добавлять базовые значения в Фазе 3) */
   overriddenKeys: Set<string>;
+
+  /**
+   * Числа листа, от которых посчитаны свои бонусы к характеристикам: сами
+   * характеристики к этому моменту ещё без них.
+   *
+   * Лист берёт их, чтобы показать в подсказке ровно те слагаемые, что взял
+   * расчёт: бонус «+мод. Мудрости к Силе» считается до прибавок, и по
+   * итоговым модификаторам он показал бы другое число.
+   */
+  abilityBonusContext: DnDCustomBonusContext;
 }
 
 // ── Константы ─────────────────────────────────────────────────

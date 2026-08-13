@@ -9,10 +9,13 @@
    *
    * Правки копятся в черновике до «Применить»: числа в окне пересчитываются
    * сразу, а лист узнаёт о них только по кнопке.
+   *
+   * Окно одно у листа персонажа и листа существа: правила спасбросков у них
+   * общие, различаются только места записи — поэтому владения и настройка
+   * приходят готовыми полями, а не вытаскиваются окном из самой записи.
    */
   import type { AbilityType } from '@vtt/shared';
   import type {
-    DnDActor,
     DnDCustomBonus,
     DnDCustomBonusContext,
     DnDSavingThrowSettings,
@@ -41,8 +44,10 @@
 
   interface Props {
     open: boolean;
-    /** Актёр листа: из него берутся владения и настройка спасбросков */
-    actor: DnDActor;
+    /** Характеристики, спасбросками которых лист владеет */
+    savingThrows: AbilityType[];
+    /** Поправки расчёта; нет — все спасброски считаются по правилам */
+    settings?: DnDSavingThrowSettings;
     /** Модификаторы характеристик с учётом эффектов */
     abilityMods: Record<AbilityType, number>;
     /** Бонус мастерства с учётом эффектов */
@@ -51,7 +56,7 @@
     saves: Partial<Record<AbilityType, number>>;
   }
 
-  const props = defineProps<Props>();
+  const props = withDefaults(defineProps<Props>(), { settings: undefined });
 
   const emit = defineEmits<{
     'update:open': [value: boolean];
@@ -98,8 +103,8 @@
 
   /**
    * Заводит черновик по данным листа. Окно живёт в листе постоянно, поэтому
-   * черновик собирается на каждом открытии — иначе оно показывало бы того
-   * актёра, с которым его открыли впервые.
+   * черновик собирается на каждом открытии — иначе оно показывало бы тот лист,
+   * с которым его открыли впервые.
    */
   watch(
     () => props.open,
@@ -108,8 +113,8 @@
         return;
       }
 
-      const settings = props.actor.system.savingThrowSettings;
-      const proficient = props.actor.system.proficiencies.savingThrows;
+      const settings = props.settings;
+      const proficient = props.savingThrows;
       const deltas: Partial<Record<AbilityType, number>> = {};
 
       draftSaves.value = ABILITY_OPTIONS.map((ability) => {

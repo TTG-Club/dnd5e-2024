@@ -23,15 +23,22 @@
   import { useProficiencyBonus } from '../../composables/useProficiencyBonus';
   import ArmorClassModal from '../actor/ArmorClassModal.vue';
   import {
+    ARMOR_CLASS_SETTINGS_LABELS,
     HIT_POINTS_LABELS,
     INITIATIVE_ROLL_LABELS,
+    INITIATIVE_SETTINGS_LABELS,
+    MOVEMENT_SETTINGS_LABELS,
+    PROFICIENCY_SETTINGS_LABELS,
     SHEET_TILE_LABELS,
+    SHEET_TILE_SHORT_LABELS,
   } from '../actor/constants';
   import DiceRollModal from '../actor/DiceRollModal.vue';
   import InitiativeModal from '../actor/InitiativeModal.vue';
   import MovementModal from '../actor/MovementModal.vue';
   import ProficiencyBonusModal from '../actor/ProficiencyBonusModal.vue';
+  import SheetSettingsGear from '../actor/SheetSettingsGear.vue';
   import { formatSignedNumber } from '../actor/utils/formatSignedNumber';
+  import { getSheetBlockClass } from '../actor/utils/sheetBlockClass';
   import {
     CREATURE_COMBAT_LABELS,
     CREATURE_MOVEMENT_EMPTY,
@@ -60,6 +67,34 @@
   const emit = defineEmits<{
     'update:system': [updates: Partial<CreatureSystem>];
   }>();
+
+  /**
+   * Оформление плитки, которую настраивают только в правке: там она нажимается
+   * целиком, а в просмотре лишь показывает число. Правило и цвета — общие с
+   * листом персонажа.
+   */
+  const editableTileClass = computed(() =>
+    getSheetBlockClass({
+      isEditMode: props.isEditMode,
+      isClickable: props.isEditMode,
+    }),
+  );
+
+  /** Оформление блока, нажимаемого в любом режиме: инициатива и здоровье */
+  const clickableBlockClass = computed(() =>
+    getSheetBlockClass({ isEditMode: props.isEditMode, isClickable: true }),
+  );
+
+  /**
+   * Подпись плитки класса доспеха: в правке рядом встаёт шестерёнка, и полное
+   * название перестаёт помещаться — там подпись сокращается. Полное остаётся у
+   * скринридера.
+   */
+  const armorClassLabel = computed(() =>
+    props.isEditMode
+      ? SHEET_TILE_SHORT_LABELS.armorClass
+      : SHEET_TILE_LABELS.armorClass,
+  );
 
   const dexModifier = computed(() =>
     calculateAbilityModifier(props.system.abilities?.dexterity ?? 10),
@@ -200,6 +235,11 @@
   // --- Хиты ---
   const isHitPointsOpen = ref(false);
 
+  /** Открывает окно здоровья: оно правит числа и в просмотре листа */
+  function openHitPoints(): void {
+    isHitPointsOpen.value = true;
+  }
+
   /** Класс значения временных ХП: золото при наличии, приглушённый при нуле */
   const tempHitPointsClass = computed(() =>
     (props.system.hitPoints?.temp ?? 0) > 0 ? 'text-primary/80' : 'text-dimmed',
@@ -241,6 +281,13 @@
 
   // --- КД ---
   const isArmorClassOpen = ref(false);
+
+  /** Открывает окно класса доспеха — только в правке */
+  function openArmorClass(): void {
+    if (props.isEditMode) {
+      isArmorClassOpen.value = true;
+    }
+  }
 
   /**
    * Применяет класс доспеха из окна: расчёт и свои бонусы правятся вместе.
@@ -292,9 +339,14 @@
     rollLabel: '',
   });
 
+  /** Открывает окно настройки инициативы */
+  function openInitiativeSettings(): void {
+    isInitiativeOpen.value = true;
+  }
+
   function handleInitiativeClick() {
     if (props.isEditMode) {
-      isInitiativeOpen.value = true;
+      openInitiativeSettings();
     } else {
       diceRollConfig.value = {
         modifier: initiative.value,
@@ -334,16 +386,25 @@
     <div class="grid grid-cols-2 gap-3">
       <!-- КД -->
       <FieldsetLabel
-        :label="SHEET_TILE_LABELS.armorClass"
+        :label="armorClassLabel"
+        :aria-label="SHEET_TILE_LABELS.armorClass"
         center
         class="group h-full bg-default/20 transition-colors"
-        :class="
-          isEditMode
-            ? 'cursor-pointer border-primary/30 hover:border-primary/50'
-            : 'border-muted'
-        "
-        @click.left.exact.prevent="isEditMode && (isArmorClassOpen = true)"
+        :class="editableTileClass"
+        @click.left.exact.prevent="openArmorClass"
       >
+        <!-- Шестерёнка ведёт в то же окно, что и клик по плитке: значок
+          называет настройку, а не прячет её за догадкой -->
+        <template
+          v-if="isEditMode"
+          #actions
+        >
+          <SheetSettingsGear
+            :label="ARMOR_CLASS_SETTINGS_LABELS.open"
+            @open="openArmorClass"
+          />
+        </template>
+
         <div class="flex h-full flex-col items-center justify-center p-2 pt-0">
           <div
             class="text-center text-xl font-bold text-highlighted tabular-nums"
@@ -365,13 +426,19 @@
         :label="SHEET_TILE_LABELS.initiative"
         center
         class="h-full bg-default/20 transition-colors"
-        :class="
-          isEditMode
-            ? 'cursor-pointer border-primary/30 hover:border-primary/50'
-            : 'cursor-pointer border-muted hover:border-primary/50'
-        "
+        :class="clickableBlockClass"
         @click.left.exact.prevent="handleInitiativeClick"
       >
+        <template
+          v-if="isEditMode"
+          #actions
+        >
+          <SheetSettingsGear
+            :label="INITIATIVE_SETTINGS_LABELS.open"
+            @open="openInitiativeSettings"
+          />
+        </template>
+
         <div class="flex h-full items-center justify-center p-2 pt-0">
           <div
             class="text-xl font-bold tabular-nums"
@@ -383,49 +450,60 @@
       </FieldsetLabel>
 
       <!-- Мастерство -->
-      <UTooltip
-        :delay-duration="300"
-        :ui="{ content: 'h-auto' }"
+      <FieldsetLabel
+        :label="SHEET_TILE_LABELS.proficiency"
+        center
+        class="h-full bg-default/20 transition-colors"
+        :class="editableTileClass"
+        @click.left.exact.prevent="openProficiencyBonus"
       >
-        <FieldsetLabel
-          :label="SHEET_TILE_LABELS.proficiency"
-          center
-          class="h-full bg-default/20 transition-colors"
-          :class="
-            isEditMode
-              ? 'cursor-pointer border-primary/30 hover:border-primary/50'
-              : 'border-muted'
-          "
-          @click.left.exact.prevent="openProficiencyBonus"
+        <template
+          v-if="isEditMode"
+          #actions
+        >
+          <SheetSettingsGear
+            :label="PROFICIENCY_SETTINGS_LABELS.open"
+            @open="openProficiencyBonus"
+          />
+        </template>
+
+        <!-- Подсказка на содержимом, а не на всей плитке: вложенная в неё
+          подсказка шестерёнки показалась бы вместе с этой -->
+        <UTooltip
+          :text="proficiencyTooltip"
+          :delay-duration="300"
+          :ui="{ content: 'h-auto' }"
         >
           <div class="flex h-full items-center justify-center p-2 pt-0">
             <div class="text-xl font-bold text-highlighted tabular-nums">
               {{ formattedProficiency }}
             </div>
           </div>
-        </FieldsetLabel>
-
-        <template #content>
-          <span>{{ proficiencyTooltip }}</span>
-        </template>
-      </UTooltip>
+        </UTooltip>
+      </FieldsetLabel>
 
       <!-- Скорость: в плитке главный вид передвижения, остальные — в подсказке.
         Так же она стоит и в листе персонажа -->
-      <UTooltip
-        :delay-duration="300"
-        :ui="{ content: 'h-auto' }"
+      <FieldsetLabel
+        :label="displayMovement.label"
+        center
+        class="h-full bg-default/20 transition-colors"
+        :class="editableTileClass"
+        @click.left.exact.prevent="isEditMode && openMovement()"
       >
-        <FieldsetLabel
-          :label="displayMovement.label"
-          center
-          class="h-full bg-default/20 transition-colors"
-          :class="
-            isEditMode
-              ? 'cursor-pointer border-primary/30 hover:border-primary/50'
-              : 'border-muted'
-          "
-          @click.left.exact.prevent="isEditMode && openMovement()"
+        <template
+          v-if="isEditMode"
+          #actions
+        >
+          <SheetSettingsGear
+            :label="MOVEMENT_SETTINGS_LABELS.open"
+            @open="openMovement"
+          />
+        </template>
+
+        <UTooltip
+          :delay-duration="300"
+          :ui="{ content: 'h-auto' }"
         >
           <div class="flex h-full items-center justify-center p-2 pt-0">
             <div class="flex items-baseline gap-1">
@@ -438,49 +516,55 @@
               </span>
             </div>
           </div>
-        </FieldsetLabel>
 
-        <template #content>
-          <div class="flex flex-col gap-1">
-            <div
-              v-for="item in movementList"
-              :key="item.type"
-              class="flex items-center gap-2"
-            >
-              <span class="tabular-nums opacity-70">
-                {{ item.value }} {{ movementUnitLabel }}
-              </span>
-
-              <span>
-                {{ item.label }}
-                <span
-                  v-if="item.type === 'fly' && creatureMovement.hover"
-                  class="text-xs italic opacity-70"
-                >
-                  {{ CREATURE_COMBAT_LABELS.hoverBadge }}
+          <template #content>
+            <div class="flex flex-col gap-1">
+              <div
+                v-for="item in movementList"
+                :key="item.type"
+                class="flex items-center gap-2"
+              >
+                <span class="tabular-nums opacity-70">
+                  {{ item.value }} {{ movementUnitLabel }}
                 </span>
+
+                <span>
+                  {{ item.label }}
+                  <span
+                    v-if="item.type === 'fly' && creatureMovement.hover"
+                    class="text-xs italic opacity-70"
+                  >
+                    {{ CREATURE_COMBAT_LABELS.hoverBadge }}
+                  </span>
+                </span>
+              </div>
+
+              <span v-if="movementList.length === 0">
+                {{ CREATURE_MOVEMENT_EMPTY }}
               </span>
             </div>
-
-            <span v-if="movementList.length === 0">
-              {{ CREATURE_MOVEMENT_EMPTY }}
-            </span>
-          </div>
-        </template>
-      </UTooltip>
+          </template>
+        </UTooltip>
+      </FieldsetLabel>
     </div>
 
     <!-- Здоровье -->
     <FieldsetLabel
       :label="SHEET_TILE_LABELS.hitPoints"
-      class="group h-full cursor-pointer bg-default/20 transition-colors"
-      :class="
-        isEditMode
-          ? 'border-primary/30 hover:border-primary/50'
-          : 'border-muted hover:border-primary/50'
-      "
-      @click.left.exact.prevent="isHitPointsOpen = true"
+      class="group h-full bg-default/20 transition-colors"
+      :class="clickableBlockClass"
+      @click.left.exact.prevent="openHitPoints"
     >
+      <template
+        v-if="isEditMode"
+        #actions
+      >
+        <SheetSettingsGear
+          :label="CREATURE_COMBAT_LABELS.hitPointsOpen"
+          @open="openHitPoints"
+        />
+      </template>
+
       <div class="flex h-full flex-col items-center justify-center p-2 pt-0">
         <!-- ХП: цифры + подписи -->
         <div class="flex w-full items-center">

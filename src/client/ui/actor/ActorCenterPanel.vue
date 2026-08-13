@@ -50,6 +50,7 @@
     GRANT_SECTION_LABELS,
     INITIATIVE_ROLL_LABELS,
     INITIATIVE_SETTINGS_LABELS,
+    MOVEMENT_SETTINGS_LABELS,
     SHEET_TILE_LABELS,
     SKILL_GROUP_LABEL_CLASS,
     SKILL_SETTINGS_LABELS,
@@ -57,9 +58,11 @@
   import DiceRollModal from './DiceRollModal.vue';
   import InitiativeModal from './InitiativeModal.vue';
   import MovementModal from './MovementModal.vue';
+  import SheetSettingsGear from './SheetSettingsGear.vue';
   import SkillItem from './SkillItem.vue';
   import SkillSettingsModal from './SkillSettingsModal.vue';
   import { formatSignedNumber } from './utils/formatSignedNumber';
+  import { getSheetBlockClass } from './utils/sheetBlockClass';
 
   interface Props {
     actor: DnDActor;
@@ -83,6 +86,27 @@
 
   const { resolvedStats, combinedEffects } = useResolvedStats(
     toRef(() => props.actor),
+  );
+
+  /**
+   * Оформление плитки, которую настраивают только в правке: там она нажимается
+   * целиком, а в просмотре лишь показывает число.
+   */
+  const editableTileClass = computed(() =>
+    getSheetBlockClass({
+      isEditMode: props.isEditMode,
+      isClickable: props.isEditMode,
+    }),
+  );
+
+  /** Оформление плитки инициативы: вне правки по ней бросают */
+  const initiativeTileClass = computed(() =>
+    getSheetBlockClass({ isEditMode: props.isEditMode, isClickable: true }),
+  );
+
+  /** Оформление блока, который целиком не нажимается: настройка — в шестерёнке */
+  const blockClass = computed(() =>
+    getSheetBlockClass({ isEditMode: props.isEditMode }),
   );
 
   // --- Ходьба ---
@@ -275,6 +299,11 @@
     });
   }
 
+  /** Открывает окно настройки инициативы */
+  function openInitiativeSettings(): void {
+    isInitiativeOpen.value = true;
+  }
+
   /**
    * Обработчик клика по блоку инициативы:
    * - edit mode → модалка настройки
@@ -282,7 +311,7 @@
    */
   function handleInitiativeClick() {
     if (props.isEditMode) {
-      isInitiativeOpen.value = true;
+      openInitiativeSettings();
     } else {
       openInitiativeRoll();
     }
@@ -678,20 +707,30 @@
     <!-- Ходьба + Инициатива -->
     <div class="grid grid-cols-2 gap-3">
       <!-- Ходьба -->
-      <UTooltip
-        :delay-duration="300"
-        :ui="{ content: 'h-auto' }"
+      <FieldsetLabel
+        :label="displayMovement.label"
+        center
+        class="h-12 bg-default/20 transition-colors"
+        :class="editableTileClass"
+        @click.left.exact.prevent="isEditMode && openMovement()"
       >
-        <FieldsetLabel
-          :label="displayMovement.label"
-          center
-          class="h-12 bg-default/20 transition-colors"
-          :class="[
-            isEditMode
-              ? 'cursor-pointer border-primary/30 hover:border-primary/50'
-              : 'border-muted',
-          ]"
-          @click.left.exact.prevent="isEditMode && openMovement()"
+        <!-- Шестерёнка ведёт в то же окно, что и клик по плитке: значок
+          называет настройку, а не прячет её за догадкой -->
+        <template
+          v-if="isEditMode"
+          #actions
+        >
+          <SheetSettingsGear
+            :label="MOVEMENT_SETTINGS_LABELS.open"
+            @open="openMovement"
+          />
+        </template>
+
+        <!-- Подсказка на содержимом, а не на всей плитке: вложенная в неё
+          подсказка шестерёнки показалась бы вместе с этой -->
+        <UTooltip
+          :delay-duration="300"
+          :ui="{ content: 'h-auto' }"
         >
           <div class="flex items-center justify-center px-2 pb-2">
             <div class="flex items-baseline gap-1">
@@ -704,40 +743,49 @@
               }}</span>
             </div>
           </div>
-        </FieldsetLabel>
 
-        <template #content>
-          <div class="flex flex-col gap-1">
-            <div
-              v-for="item in movementList"
-              :key="item.type"
-              class="flex items-center gap-2"
-            >
-              <span class="tabular-nums opacity-70"
-                >{{ item.value }}
-                {{
-                  DISTANCE_UNIT_SHORT[actor.system.movement.units ?? 'ft']
-                }}</span
+          <template #content>
+            <div class="flex flex-col gap-1">
+              <div
+                v-for="item in movementList"
+                :key="item.type"
+                class="flex items-center gap-2"
               >
+                <span class="tabular-nums opacity-70"
+                  >{{ item.value }}
+                  {{
+                    DISTANCE_UNIT_SHORT[actor.system.movement.units ?? 'ft']
+                  }}</span
+                >
 
-              <span>{{ item.label }}</span>
+                <span>{{ item.label }}</span>
+              </div>
             </div>
-          </div>
-        </template>
-      </UTooltip>
+          </template>
+        </UTooltip>
+      </FieldsetLabel>
 
       <!-- Инициатива -->
-      <UTooltip :delay-duration="300">
-        <FieldsetLabel
-          :label="SHEET_TILE_LABELS.initiative"
-          center
-          class="h-12 bg-default/20 transition-colors"
-          :class="
-            props.isEditMode
-              ? 'cursor-pointer border-primary/30 hover:border-primary/50'
-              : 'cursor-pointer border-muted hover:border-primary/50'
-          "
-          @click.left.exact.prevent="handleInitiativeClick"
+      <FieldsetLabel
+        :label="SHEET_TILE_LABELS.initiative"
+        center
+        class="h-12 bg-default/20 transition-colors"
+        :class="initiativeTileClass"
+        @click.left.exact.prevent="handleInitiativeClick"
+      >
+        <template
+          v-if="isEditMode"
+          #actions
+        >
+          <SheetSettingsGear
+            :label="INITIATIVE_SETTINGS_LABELS.open"
+            @open="openInitiativeSettings"
+          />
+        </template>
+
+        <UTooltip
+          :text="initiativeTooltip"
+          :delay-duration="300"
         >
           <div class="flex items-center justify-center px-2 pb-2">
             <div
@@ -747,12 +795,8 @@
               {{ formattedInitiative }}
             </div>
           </div>
-        </FieldsetLabel>
-
-        <template #content>
-          <span>{{ initiativeTooltip }}</span>
-        </template>
-      </UTooltip>
+        </UTooltip>
+      </FieldsetLabel>
     </div>
 
     <!-- Счётчики классовых ресурсов -->
@@ -766,7 +810,8 @@
     <!-- Навыки -->
     <FieldsetLabel
       :label="GRANT_SECTION_LABELS.skills"
-      class="flex flex-col overflow-hidden border-muted"
+      class="flex flex-col overflow-hidden transition-colors"
+      :class="blockClass"
     >
       <!-- Шестерёнка ведёт в настройку расчёта: значок в самом списке ставит
         только владение, а характеристику навыка, свои бонусы и свои навыки
@@ -775,18 +820,10 @@
         v-if="isEditMode"
         #actions
       >
-        <UTooltip :text="SKILL_SETTINGS_LABELS.open">
-          <UIcon
-            name="tabler:settings-filled"
-            class="h-3.5 w-3.5 cursor-pointer text-primary transition-colors hover:text-primary/80"
-            role="button"
-            tabindex="0"
-            :aria-label="SKILL_SETTINGS_LABELS.open"
-            @click.left.exact.prevent="openSkillSettings"
-            @keydown.enter.prevent="openSkillSettings"
-            @keydown.space.prevent="openSkillSettings"
-          />
-        </UTooltip>
+        <SheetSettingsGear
+          :label="SKILL_SETTINGS_LABELS.open"
+          @open="openSkillSettings"
+        />
       </template>
 
       <div class="custom-scrollbar flex-1 overflow-y-auto p-1.5">

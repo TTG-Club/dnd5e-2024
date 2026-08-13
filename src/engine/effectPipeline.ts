@@ -36,6 +36,7 @@ import type {
   DnDSceneEntity,
 } from './dndEntities.js';
 import type { FormulaContext } from './formulaParser.js';
+import type { DnDProficiencyBonusParams } from './proficiencyBonus.js';
 import type { BonusDamageFormula, TargetHpGate } from './spellUtils.js';
 
 import { isActorEntity, isCreatureEntity, isRecord } from '@vtt/shared';
@@ -59,6 +60,7 @@ import {
 } from './consts.js';
 import {
   getCustomBonusesValue,
+  parseAbilityBonuses,
   parseCustomBonuses,
   parseMovementBonuses,
 } from './customBonuses.js';
@@ -248,6 +250,11 @@ export function prepareBaseData(
       vulnerabilities: new Set<DefensibleDamageType>(),
     },
     overriddenKeys: new Set<string>(),
+    // Заполняется в prepareDerivedData: здесь модификаторов ещё нет
+    abilityBonusContext: {
+      abilityMods: createEmptyAbilityRecord(),
+      proficiencyBonus: 0,
+    },
   };
 }
 
@@ -1097,6 +1104,22 @@ export function getEntityConditionImmunities(
 }
 
 /**
+ * Пересчитывает модификаторы характеристик по их текущим значениям.
+ *
+ * Отдельной функцией, потому что считается дважды: до своих бонусов к
+ * характеристикам (от этих чисел бонусы и считаются) и после них.
+ *
+ * @param stats - разрешённые статы листа; правятся на месте
+ */
+function refreshAbilityModifiers(stats: ResolvedActorStats): void {
+  for (const abilityKey of ABILITY_KEYS) {
+    stats.abilityMods[abilityKey] = Math.floor(
+      (stats.abilities[abilityKey] - 10) / 2,
+    );
+  }
+}
+
+/**
  * Вычисляет производные значения на основе модифицированных базовых данных.
  *
  * Эта фаза выполняется ПОСЛЕ применения Active Effects.
@@ -1115,11 +1138,7 @@ export function prepareDerivedData(
 
   // 1. Модификаторы характеристик. Считаются первыми: от них зависят и свои
   // бонусы к мастерству, и всё, что идёт ниже
-  for (const abilityKey of ABILITY_KEYS) {
-    derivedStats.abilityMods[abilityKey] = Math.floor(
-      (derivedStats.abilities[abilityKey] - 10) / 2,
-    );
-  }
+  refreshAbilityModifiers(derivedStats);
 
   // 2. Бонус мастерства — по правилам
   let ruleProficiencyBonus = DEFAULT_PROFICIENCY_BONUS;
@@ -1148,17 +1167,71 @@ export function prepareDerivedData(
   }
 
   // Настройка листа заменяет основу расчёта и добавляет свои бонусы: у актёра
-  // она правит бонус по уровню, у существа — бонус по опасности
-  const proficiencyBonus = getProficiencyBonusBreakdown({
+  // она правит бонус по уровню, у существа — бонус по опасности.
+  // Модификаторы передаются ссылкой на живой объект статов: ниже они
+  // пересчитываются на месте, и повторный разбор берёт уже новые числа
+  const proficiencyParams: DnDProficiencyBonusParams = {
     ruleValue: ruleProficiencyBonus,
     settings: parseProficiencySettings(
       isRecord(system) ? system.proficiencySettings : undefined,
     ),
     abilityMods: derivedStats.abilityMods,
-  }).value;
+  };
+
+  /** Бонус мастерства, заданный активным эффектом: он перебивает расчёт */
+  const effectProficiencyBonus = derivedStats.proficiencyBonus;
 
   derivedStats.proficiencyBonus =
-    derivedStats.proficiencyBonus || proficiencyBonus;
+    effectProficiencyBonus
+    || getProficiencyBonusBreakdown(proficiencyParams).value;
+
+  // 3. Свои бонусы к самим характеристикам (пояс силы, дар вида, домашнее
+  // правило). Прибавка идёт в значение характеристики, а не в модификатор:
+  // так же работают предметы и эффекты, и всё производное ниже считается уже
+  // с ней.
+  //
+  // Источники бонусов берутся из чисел листа ДО этих прибавок — иначе бонус
+  // «+мод. Мудрости к Силе» зависел бы от значения, которое сам же и меняет.
+  // Круг размыкается здесь один раз: сперва прибавки по старым числам, затем
+  // модификаторы и бонус мастерства пересчитываются набело.
+  derivedStats.abilityBonusContext = {
+    abilityMods: { ...derivedStats.abilityMods },
+    proficiencyBonus: derivedStats.proficiencyBonus,
+  };
+
+  const abilityBonuses = parseAbilityBonuses(
+    isRecord(system) ? system.abilityBonuses : undefined,
+  );
+
+  let hasAbilityBonuses = false;
+
+  for (const abilityKey of ABILITY_KEYS) {
+    const bonuses = abilityBonuses[abilityKey];
+
+    // Значение, заданное эффектом целиком, прибавок не принимает: оно и есть
+    // итог, пока эффект держится
+    if (!bonuses || derivedStats.overriddenKeys.has(`ability.${abilityKey}`)) {
+      continue;
+    }
+
+    const bonusValue = getCustomBonusesValue(
+      derivedStats.abilityBonusContext,
+      bonuses,
+    );
+
+    if (bonusValue !== 0) {
+      derivedStats.abilities[abilityKey] += bonusValue;
+      hasAbilityBonuses = true;
+    }
+  }
+
+  if (hasAbilityBonuses) {
+    refreshAbilityModifiers(derivedStats);
+
+    derivedStats.proficiencyBonus =
+      effectProficiencyBonus
+      || getProficiencyBonusBreakdown(proficiencyParams).value;
+  }
 
   // Числа, от которых считаются свои бонусы листа. Собираются один раз и
   // передаются во все расчёты ниже: бонус берёт отсюда либо модификатор своей
@@ -1168,7 +1241,7 @@ export function prepareDerivedData(
     proficiencyBonus: derivedStats.proficiencyBonus,
   };
 
-  // 3. Спасброски
+  // 4. Спасброски
   const savingThrowSettings = parseSavingThrowSettings(
     isRecord(system) ? system.savingThrowSettings : undefined,
   );
@@ -1221,7 +1294,7 @@ export function prepareDerivedData(
       + derivedStats.saves[abilityKey];
   }
 
-  // 4. Навыки
+  // 5. Навыки
   const skillSettings = parseSkillSettings(
     isRecord(system) ? system.skillSettings : undefined,
   );
@@ -1267,7 +1340,7 @@ export function prepareDerivedData(
       + derivedStats.skills[skillKey];
   }
 
-  // 5. Инициатива
+  // 6. Инициатива
   if (!derivedStats.overriddenKeys.has('initiative')) {
     const initAbility = system.initiativeAbility ?? 'dexterity';
 
@@ -1283,7 +1356,7 @@ export function prepareDerivedData(
       + derivedStats.initiative;
   }
 
-  // 6. Класс доспеха (AC)
+  // 7. Класс доспеха (AC)
   const dexMod = derivedStats.abilityMods.dexterity;
 
   let calculatedAC: number;
@@ -1601,5 +1674,9 @@ function cloneResolvedStats(stats: ResolvedActorStats): ResolvedActorStats {
       vulnerabilities: new Set(stats.damageDefenses.vulnerabilities),
     },
     overriddenKeys: new Set(stats.overriddenKeys),
+    abilityBonusContext: {
+      abilityMods: { ...stats.abilityBonusContext.abilityMods },
+      proficiencyBonus: stats.abilityBonusContext.proficiencyBonus,
+    },
   };
 }

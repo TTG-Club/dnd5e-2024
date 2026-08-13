@@ -9,6 +9,7 @@
   import type {
     DnDCreature,
     DnDCustomBonusContext,
+    DnDSavingThrowSettings,
     DnDSkillSettings,
     RestType,
     Spell,
@@ -61,16 +62,23 @@
     GRANT_FIELD_LABELS,
     GRANT_SECTION_LABELS,
     MODAL_BUTTON_LABELS,
+    PROFICIENCY_MODAL_LABELS,
     REST_LABELS,
     SAVING_THROW_ABILITIES,
     SAVING_THROW_ROLL_LABELS,
+    SAVING_THROW_SETTINGS_LABELS,
+    SHEET_BLOCK_VIEW_BORDER_CLASS,
+    SKILL_SETTINGS_LABELS,
     SPELL_MIME,
     UNSAVED_CHANGES_LABELS,
   } from '../actor/constants';
   import DiceRollModal from '../actor/DiceRollModal.vue';
   import LanguageProficiencyModal from '../actor/LanguageProficiencyModal.vue';
+  import SavingThrowSettingsModal from '../actor/SavingThrowSettingsModal.vue';
+  import SheetSettingsGear from '../actor/SheetSettingsGear.vue';
   import SkillSettingsModal from '../actor/SkillSettingsModal.vue';
   import { formatSignedNumber } from '../actor/utils/formatSignedNumber';
+  import { getSheetBlockClass } from '../actor/utils/sheetBlockClass';
   import {
     CREATURE_SHEET_LABELS,
     CREATURE_SHEET_LOG_PREFIX,
@@ -134,6 +142,48 @@
 
   // Состояние
   const isEditMode = ref(false);
+
+  /**
+   * Оформление блоков левой колонки. Правило общее с листом персонажа: в правке
+   * рамка горит цветом настройки, а настраиваемый блок нажимается целиком.
+   * Цвет свой только у защит — тот же, что у значков внутри блока, иначе
+   * уязвимость, сопротивление и иммунитет перестали бы различаться с одного
+   * взгляда.
+   */
+  const blockClasses = computed(() => {
+    const editMode = isEditMode.value;
+
+    return {
+      /** Блок без своего нажатия: настройка живёт в шестерёнке или её нет */
+      plain: getSheetBlockClass({ isEditMode: editMode }),
+      /** Блок, который в правке открывает своё окно нажатием целиком */
+      editable: getSheetBlockClass({
+        isEditMode: editMode,
+        isClickable: editMode,
+      }),
+      vulnerabilities: getSheetBlockClass({
+        isEditMode: editMode,
+        isClickable: editMode,
+        accent: 'error',
+      }),
+      resistances: getSheetBlockClass({
+        isEditMode: editMode,
+        isClickable: editMode,
+        accent: 'info',
+      }),
+      immunities: getSheetBlockClass({
+        isEditMode: editMode,
+        isClickable: editMode,
+        accent: 'warning',
+      }),
+      environments: getSheetBlockClass({
+        isEditMode: editMode,
+        isClickable: editMode,
+        accent: 'success',
+      }),
+    };
+  });
+
   const localCreature = ref<DnDCreature | null>(null);
   const savedSnapshot = ref<DnDCreature | null>(null);
   const isDirty = ref(false);
@@ -534,6 +584,16 @@
   }
 
   /**
+   * Открывает окно иммунитета к состояниям — только в правке, как и остальные
+   * блоки защит: вне её блок ничего не настраивает и нажатия не ждёт.
+   */
+  function openConditionImmunitiesModal(): void {
+    if (isEditMode.value) {
+      isConditionImmunitiesOpen.value = true;
+    }
+  }
+
+  /**
    * Применяет владения и настройку навыков: их правят одним окном и одной
    * таблицей, поэтому и приходят они вместе.
    *
@@ -565,11 +625,17 @@
   }
 
   /**
-   * Модификаторы характеристик существа — по ним считаются свои навыки и
-   * запасной расчёт навыков правил.
+   * Модификаторы характеристик существа — по ним считаются свои навыки,
+   * спасброски и запасной расчёт навыков правил.
+   *
+   * Берутся из разрешённых статов: там уже учтены активные эффекты и свои
+   * бонусы к самим характеристикам. Пока статы не сошлись — расчёт по записи,
+   * иначе числа мигали бы нулями.
    */
-  const skillAbilityMods = computed<Record<AbilityType, number>>(() =>
-    getActorAbilityModifiers(localCreature.value),
+  const skillAbilityMods = computed<Record<AbilityType, number>>(
+    () =>
+      resolvedStats.value?.abilityMods
+      ?? getActorAbilityModifiers(localCreature.value),
   );
 
   /**
@@ -1051,6 +1117,33 @@
   /**
    * Переключает владение спасброском для характеристики
    */
+  const isSavingThrowSettingsOpen = ref(false);
+
+  /** Открывает окно настройки спасбросков — только в правке */
+  function openSavingThrowSettings(): void {
+    if (isEditMode.value) {
+      isSavingThrowSettingsOpen.value = true;
+    }
+  }
+
+  /**
+   * Применяет настройку спасбросков: владения и поправки расчёта приходят из
+   * окна вместе — их правят там одной таблицей.
+   *
+   * @param payload - настройка из окна
+   * @param payload.savingThrows - характеристики, спасбросками которых владеют
+   * @param payload.settings - поправки расчёта спасбросков
+   */
+  function onSavingThrowSettingsApply(payload: {
+    savingThrows: AbilityType[];
+    settings: DnDSavingThrowSettings;
+  }): void {
+    handleSystemUpdate({
+      savingThrows: payload.savingThrows,
+      savingThrowSettings: payload.settings,
+    });
+  }
+
   function toggleSavingThrow(abilityKey: AbilityType): void {
     if (!isEditMode.value || !localCreature.value) {
       return;
@@ -1135,13 +1228,21 @@
               <FieldsetLabel
                 :label="CREATURE_SHEET_LABELS.vulnerabilities"
                 class="bg-default/20 transition-colors"
-                :class="[
-                  isEditMode
-                    ? 'cursor-pointer border-error/30 hover:border-error/50'
-                    : 'border-muted',
-                ]"
+                :class="blockClasses.vulnerabilities"
                 @click.left.exact.prevent="openDefensesModal('vulnerabilities')"
               >
+                <!-- Шестерёнка ведёт в то же окно, что и клик по блоку: значок
+                  называет настройку, а не прячет её за догадкой -->
+                <template
+                  v-if="isEditMode"
+                  #actions
+                >
+                  <SheetSettingsGear
+                    :label="CREATURE_SHEET_LABELS.vulnerabilitiesOpen"
+                    @open="openDefensesModal('vulnerabilities')"
+                  />
+                </template>
+
                 <div class="flex flex-wrap gap-1.5 p-2 pt-1">
                   <UBadge
                     v-for="key in localCreature.system.defenses.vulnerabilities"
@@ -1170,13 +1271,19 @@
               <FieldsetLabel
                 :label="CREATURE_SHEET_LABELS.resistances"
                 class="bg-default/20 transition-colors"
-                :class="[
-                  isEditMode
-                    ? 'cursor-pointer border-info/30 hover:border-info/50'
-                    : 'border-muted',
-                ]"
+                :class="blockClasses.resistances"
                 @click.left.exact.prevent="openDefensesModal('resistances')"
               >
+                <template
+                  v-if="isEditMode"
+                  #actions
+                >
+                  <SheetSettingsGear
+                    :label="CREATURE_SHEET_LABELS.resistancesOpen"
+                    @open="openDefensesModal('resistances')"
+                  />
+                </template>
+
                 <div class="flex flex-wrap gap-1.5 p-2 pt-1">
                   <UBadge
                     v-for="key in localCreature.system.defenses.resistances"
@@ -1205,13 +1312,19 @@
               <FieldsetLabel
                 :label="CREATURE_SHEET_LABELS.immunities"
                 class="bg-default/20 transition-colors"
-                :class="[
-                  isEditMode
-                    ? 'cursor-pointer border-warning/30 hover:border-warning/50'
-                    : 'border-muted',
-                ]"
+                :class="blockClasses.immunities"
                 @click.left.exact.prevent="openDefensesModal('immunities')"
               >
+                <template
+                  v-if="isEditMode"
+                  #actions
+                >
+                  <SheetSettingsGear
+                    :label="CREATURE_SHEET_LABELS.immunitiesOpen"
+                    @open="openDefensesModal('immunities')"
+                  />
+                </template>
+
                 <div class="flex flex-wrap gap-1.5 p-2 pt-1">
                   <UBadge
                     v-for="key in localCreature.system.defenses.immunities"
@@ -1238,13 +1351,19 @@
               <FieldsetLabel
                 :label="GRANT_FIELD_LABELS.conditionImmunities"
                 class="bg-default/20 transition-colors"
-                :class="[
-                  isEditMode
-                    ? 'cursor-pointer border-primary/30 hover:border-primary/50'
-                    : 'border-muted',
-                ]"
-                @click.left.exact.prevent="isConditionImmunitiesOpen = true"
+                :class="blockClasses.editable"
+                @click.left.exact.prevent="openConditionImmunitiesModal"
               >
+                <template
+                  v-if="isEditMode"
+                  #actions
+                >
+                  <SheetSettingsGear
+                    :label="CREATURE_SHEET_LABELS.conditionImmunitiesOpen"
+                    @open="openConditionImmunitiesModal"
+                  />
+                </template>
+
                 <div class="flex flex-wrap gap-1.5 p-2 pt-1">
                   <UBadge
                     v-for="key in localCreature.system.defenses
@@ -1272,11 +1391,25 @@
                 </div>
               </FieldsetLabel>
               <!-- Навыки, Чувства и Языки -->
+              <!-- Спасброски -->
               <FieldsetLabel
                 :label="GRANT_SECTION_LABELS.savingThrows"
-                class="bg-default/20"
-                :class="[isEditMode ? 'border-primary/30' : 'border-muted']"
+                class="bg-default/20 transition-colors"
+                :class="blockClasses.plain"
               >
+                <!-- Шестерёнка ведёт в настройку расчёта: кружки в самом блоке
+                  ставят только владение, а характеристику спасброска и свои
+                  бонусы правят в окне -->
+                <template
+                  v-if="isEditMode"
+                  #actions
+                >
+                  <SheetSettingsGear
+                    :label="SAVING_THROW_SETTINGS_LABELS.open"
+                    @open="openSavingThrowSettings"
+                  />
+                </template>
+
                 <div class="px-2 pb-1">
                   <div class="grid grid-cols-2 gap-x-2 gap-y-1">
                     <div
@@ -1322,13 +1455,19 @@
               <FieldsetLabel
                 :label="GRANT_SECTION_LABELS.skills"
                 class="bg-default/20 transition-colors"
-                :class="[
-                  isEditMode
-                    ? 'cursor-pointer border-primary/30 hover:border-primary/50'
-                    : 'border-muted',
-                ]"
+                :class="blockClasses.editable"
                 @click.left.exact.prevent="openSkillsModal"
               >
+                <template
+                  v-if="isEditMode"
+                  #actions
+                >
+                  <SheetSettingsGear
+                    :label="SKILL_SETTINGS_LABELS.open"
+                    @open="openSkillsModal"
+                  />
+                </template>
+
                 <div class="flex flex-wrap gap-1.5 p-2 pt-1">
                   <UBadge
                     v-for="skill in formattedSkills"
@@ -1347,9 +1486,12 @@
                 </div>
               </FieldsetLabel>
 
+              <!-- Восприятие только считает: зрение существа правят в его
+                настройках токена, поэтому блок не настраивается и в правке -->
               <FieldsetLabel
                 :label="CREATURE_SHEET_LABELS.perception"
-                class="border-muted bg-default/20"
+                class="bg-default/20"
+                :class="SHEET_BLOCK_VIEW_BORDER_CLASS"
               >
                 <div class="flex flex-col gap-1 p-2 pt-1 text-sm text-default">
                   <div class="flex items-center justify-between">
@@ -1389,13 +1531,19 @@
               <FieldsetLabel
                 :label="GRANT_SECTION_LABELS.languages"
                 class="bg-default/20 transition-colors"
-                :class="[
-                  isEditMode
-                    ? 'cursor-pointer border-primary/30 hover:border-primary/50'
-                    : 'border-muted',
-                ]"
+                :class="blockClasses.editable"
                 @click.left.exact.prevent="openLanguagesModal"
               >
+                <template
+                  v-if="isEditMode"
+                  #actions
+                >
+                  <SheetSettingsGear
+                    :label="PROFICIENCY_MODAL_LABELS.languagesOpen"
+                    @open="openLanguagesModal"
+                  />
+                </template>
+
                 <div class="flex flex-wrap gap-1.5 p-2 pt-1">
                   <UBadge
                     v-for="language in localCreature.system.languages"
@@ -1425,13 +1573,19 @@
               <FieldsetLabel
                 :label="CREATURE_SHEET_LABELS.environments"
                 class="bg-default/20 transition-colors"
-                :class="[
-                  isEditMode
-                    ? 'cursor-pointer border-success/30 hover:border-success/50'
-                    : 'border-muted',
-                ]"
+                :class="blockClasses.environments"
                 @click.left.exact.prevent="openEnvironmentsModal"
               >
+                <template
+                  v-if="isEditMode"
+                  #actions
+                >
+                  <SheetSettingsGear
+                    :label="CREATURE_SHEET_LABELS.environmentsOpen"
+                    @open="openEnvironmentsModal"
+                  />
+                </template>
+
                 <div class="flex flex-col gap-1 p-2 pt-1">
                   <div class="flex flex-wrap gap-1.5">
                     <UBadge
@@ -1658,6 +1812,19 @@
     v-model:open="isLanguagesOpen"
     :selected="localCreature.system.languages || []"
     @apply="onLanguagesApply"
+  />
+
+  <!-- Спасброски: владение и настройка расчёта — то же окно, что и у листа
+    персонажа. Правила у спасбросков общие, различаются только места записи -->
+  <SavingThrowSettingsModal
+    v-if="localCreature"
+    v-model:open="isSavingThrowSettingsOpen"
+    :saving-throws="creatureSavingThrows"
+    :settings="localCreature.system.savingThrowSettings"
+    :ability-mods="skillAbilityMods"
+    :proficiency-bonus="creatureProficiencyBonus"
+    :saves="resolvedStats?.saves ?? {}"
+    @apply="onSavingThrowSettingsApply"
   />
 
   <!-- Навыки -->

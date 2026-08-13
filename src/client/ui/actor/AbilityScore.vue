@@ -9,7 +9,14 @@
 
   import FieldsetLabel from '@/shared_ui/components/FieldsetLabel.vue';
 
-  import { ABILITY_LABEL_SIDE_SPACE, ABILITY_SCORE_LABELS } from './constants';
+  import {
+    ABILITY_LABEL_GEAR_SPACE,
+    ABILITY_LABEL_SIDE_SPACE,
+    ABILITY_SCORE_LABELS,
+    ABILITY_SETTINGS_LABELS,
+  } from './constants';
+  import SheetSettingsGear from './SheetSettingsGear.vue';
+  import { getSheetBlockClass } from './utils/sheetBlockClass';
 
   /** Источник бонуса к характеристике */
   export interface AbilityBonusSource {
@@ -23,17 +30,30 @@
     label: string;
     /** Аббревиатура из трёх букв — подставляется, когда полное название не влезает */
     shortLabel: string;
-    /** Итоговое значение характеристики (с учётом эффектов) */
+    /** Значение в овале: в правке — число листа, его же правят кнопками */
     value: number;
-    /** Базовое значение характеристики (без эффектов) */
+    /** Базовое значение характеристики (без эффектов и своих бонусов) */
     baseValue: number;
+    /**
+     * Итог характеристики со всеми прибавками. Отдельно от `value`: в правке в
+     * овале стоит число листа, а разбор в подсказке всё равно должен сходиться
+     * с итогом — иначе слагаемые ведут к числу, которого в строке «Итого» нет.
+     */
+    totalValue: number;
     modifier: number;
     isEditMode: boolean;
-    /** Источники бонусов к характеристике от Active Effects */
+    /**
+     * У характеристики есть своя настройка: в правке в шапке блока появляется
+     * шестерёнка. У существа её нет — своих бонусов к характеристикам его лист
+     * не ведёт, и значок вёл бы в никуда.
+     */
+    withSettings?: boolean;
+    /** Источники прибавок: активные эффекты и свои бонусы листа */
     bonusSources?: AbilityBonusSource[];
   }
 
   const props = withDefaults(defineProps<Props>(), {
+    withSettings: false,
     bonusSources: () => [],
   });
 
@@ -42,7 +62,14 @@
     'roll': [modifier: number, label: string];
     /** Плитка под курсором или в фокусе: лист подсвечивает её навыки */
     'highlight': [isActive: boolean];
+    /** Нажата шестерёнка: лист открывает настройку этой характеристики */
+    'open-settings': [];
   }>();
+
+  /** Подсказка шестерёнки: что именно она настраивает */
+  const settingsLabel = computed(
+    () => `${ABILITY_SETTINGS_LABELS.openPrefix}${props.label}`,
+  );
 
   /** Корень блока: его ширина решает, влезает ли полное название в шапку */
   const rootRef = useTemplateRef<InstanceType<typeof FieldsetLabel>>('root');
@@ -56,6 +83,18 @@
   const { width: blockWidth } = useElementSize(rootRef);
   const { width: fullLabelWidth } = useElementSize(labelProbeRef);
 
+  /** Шестерёнка настройки стоит в шапке блока: только в правке и только у листа */
+  const hasSettingsGear = computed(
+    () => props.withSettings && props.isEditMode,
+  );
+
+  /** Запас по бокам названия: рядом с ним может стоять ещё шестерёнка */
+  const labelSideSpace = computed(
+    () =>
+      ABILITY_LABEL_SIDE_SPACE
+      + (hasSettingsGear.value ? ABILITY_LABEL_GEAR_SPACE : 0),
+  );
+
   /** Полное название с боковым запасом шире блока → нужна аббревиатура */
   const isLabelCompact = computed(() => {
     // Нулевые ширины — момент до первого замера ResizeObserver
@@ -63,19 +102,24 @@
       return false;
     }
 
-    return fullLabelWidth.value + ABILITY_LABEL_SIDE_SPACE > blockWidth.value;
+    return fullLabelWidth.value + labelSideSpace.value > blockWidth.value;
   });
 
   const displayLabel = computed(() =>
     isLabelCompact.value ? props.shortLabel : props.label,
   );
 
-  /** Подсветка и курсор блока: в режиме правки клик по блоку не бросает кубик */
-  const containerClass = computed(() => {
-    return props.isEditMode
-      ? 'hover:border-accented'
-      : 'cursor-pointer hover:border-primary/50';
-  });
+  /**
+   * Рамка и курсор блока: в правке она тёплая, как у прочих настраиваемых
+   * блоков листа, и клик по ней кубик уже не бросает — значение правят
+   * кнопками в овале.
+   */
+  const containerClass = computed(() =>
+    getSheetBlockClass({
+      isEditMode: props.isEditMode,
+      isClickable: !props.isEditMode,
+    }),
+  );
 
   const formattedModifier = computed(() => {
     return props.modifier >= 0 ? `+${props.modifier}` : `${props.modifier}`;
@@ -149,7 +193,7 @@
 
     rows.push({
       label: ABILITY_SCORE_LABELS.tooltipTotal,
-      value: `${props.value}`,
+      value: `${props.totalValue}`,
       kind: 'total',
     });
 
@@ -207,10 +251,22 @@
     :label="displayLabel"
     :aria-label="label"
     center
-    class="group relative h-14 border-muted bg-default/20 transition-colors"
+    class="group relative h-14 bg-default/20 transition-colors"
     :class="containerClass"
     @click.left.exact.prevent="handleRoll"
   >
+    <!-- Шестерёнка ведёт в настройку своих бонусов к значению: кнопки в овале
+      правят только само число листа. Вне правки её нет — настраивать нечего -->
+    <template
+      v-if="hasSettingsGear"
+      #actions
+    >
+      <SheetSettingsGear
+        :label="settingsLabel"
+        @open="emit('open-settings')"
+      />
+    </template>
+
     <!-- Модификатор (крупно) -->
     <div class="flex items-center justify-center px-2 pb-2">
       <div

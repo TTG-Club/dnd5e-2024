@@ -21,7 +21,9 @@
 
   import ClassCountersModal from './ClassCountersModal.vue';
   import { CLASS_COUNTERS_BLOCK_LABELS, REST_LABELS } from './constants';
+  import SheetSettingsGear from './SheetSettingsGear.vue';
   import { findCounterDefinition } from './utils/classCounters';
+  import { getSheetBlockClass } from './utils/sheetBlockClass';
 
   defineOptions({ inheritAttrs: false });
 
@@ -39,6 +41,11 @@
     counterDefinitions: ClassCounterDefinition[];
     isEditMode: boolean;
   }
+
+  /** Оформление блока: настройка живёт в шестерёнке, сам блок не нажимается */
+  const blockClass = computed(() =>
+    getSheetBlockClass({ isEditMode: props.isEditMode }),
+  );
 
   // ── Состояния счётчиков ────────────────────────────────────────
 
@@ -145,27 +152,22 @@
 <template>
   <FieldsetLabel
     :label="CLASS_COUNTERS_BLOCK_LABELS.title"
-    class="class-counters-fieldset w-full max-w-full border-muted bg-default/20"
+    class="class-counters-fieldset w-full max-w-full bg-default/20 transition-colors"
+    :class="blockClass"
   >
-    <div class="relative flex max-w-full min-w-0 flex-col gap-1 px-2 pb-2">
-      <!-- Шестерёнка настроек (абсолютно позиционирована) -->
-      <div
-        v-if="isEditMode"
-        class="absolute top-1.5 right-3 z-10"
-      >
-        <UTooltip
-          :delay-duration="300"
-          :text="CLASS_COUNTERS_BLOCK_LABELS.settings"
-          class="outline-none focus:ring-0 focus:outline-none"
-        >
-          <UIcon
-            name="tabler:settings-filled"
-            class="h-4 w-4 cursor-pointer text-dimmed transition-colors outline-none hover:text-highlighted focus:ring-0 focus:outline-none"
-            @click.left.exact.prevent="isSettingsOpen = true"
-          />
-        </UTooltip>
-      </div>
+    <!-- Шестерёнка стоит в подписи рамки, как у прочих блоков листа: в углу
+      содержимого она читалась бы как кнопка первого счётчика -->
+    <template
+      v-if="isEditMode"
+      #actions
+    >
+      <SheetSettingsGear
+        :label="CLASS_COUNTERS_BLOCK_LABELS.settings"
+        @open="isSettingsOpen = true"
+      />
+    </template>
 
+    <div class="flex max-w-full min-w-0 flex-col gap-1 px-2 pb-2">
       <div
         v-if="counters.length === 0"
         class="px-1.5 py-1 text-sm text-dimmed"

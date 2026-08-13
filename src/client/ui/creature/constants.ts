@@ -267,6 +267,8 @@ export const CREATURE_ACTION_DETAIL_LABELS = {
 
 /** Подписи боевого блока листа существа */
 export const CREATURE_COMBAT_LABELS = {
+  /** Подсказка шестерёнки блока здоровья: костей хитов у существа нет */
+  hitPointsOpen: 'Настроить здоровье',
   hoverBadge: '(зависание)',
   generateHitPoints: 'Сгенерировать здоровье по формуле',
   formulaPrefix: 'Формула:',
@@ -332,6 +334,12 @@ export const CREATURE_SHEET_LABELS = {
   vulnerabilities: 'Уязвимости',
   resistances: 'Сопротивления',
   immunities: 'Иммунитеты',
+  /** Подсказки шестерёнок блоков левой колонки: куда ведёт каждая */
+  vulnerabilitiesOpen: 'Настроить уязвимости',
+  resistancesOpen: 'Настроить сопротивления',
+  immunitiesOpen: 'Настроить иммунитеты',
+  conditionImmunitiesOpen: 'Настроить иммунитет к состояниям',
+  environmentsOpen: 'Настроить среду обитания',
   bypassAdamantine: 'Пробивание: Адамантиновое',
   bypassMagical: 'Пробивание: Магическое',
   bypassSilvered: 'Пробивание: Посеребрённое',

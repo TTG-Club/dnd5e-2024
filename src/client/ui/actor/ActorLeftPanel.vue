@@ -30,22 +30,28 @@
   import {
     ACTOR_LEFT_PANEL_LABELS,
     ARMOR_CALCULATION_LABELS,
+    ARMOR_CLASS_SETTINGS_LABELS,
     CUSTOM_BONUS_LABELS,
     DICE_ROLL_DEFAULT_BUTTON,
     GRANT_SECTION_LABELS,
+    HIT_POINTS_LABELS,
+    PROFICIENCY_MODAL_LABELS,
     PROFICIENCY_SETTINGS_LABELS,
     SAVING_THROW_ABILITIES,
     SAVING_THROW_ROLL_LABELS,
     SAVING_THROW_SETTINGS_LABELS,
     SHEET_TILE_LABELS,
+    SHEET_TILE_SHORT_LABELS,
   } from './constants';
   import DiceRollModal from './DiceRollModal.vue';
   import HitPointsModal from './HitPointsModal.vue';
   import LanguageProficiencyModal from './LanguageProficiencyModal.vue';
   import ProficiencyBonusModal from './ProficiencyBonusModal.vue';
   import SavingThrowSettingsModal from './SavingThrowSettingsModal.vue';
+  import SheetSettingsGear from './SheetSettingsGear.vue';
   import ToolProficiencyModal from './ToolProficiencyModal.vue';
   import { formatSignedNumber } from './utils/formatSignedNumber';
+  import { getSheetBlockClass } from './utils/sheetBlockClass';
   import WeaponProficiencyModal from './WeaponProficiencyModal.vue';
 
   defineOptions({ inheritAttrs: false });
@@ -60,6 +66,38 @@
     actor: DnDActor;
     isEditMode: boolean;
   }
+
+  /**
+   * Оформление плитки, которую настраивают только в правке: там она нажимается
+   * целиком, а в просмотре лишь показывает число.
+   */
+  const editableTileClass = computed(() =>
+    getSheetBlockClass({
+      isEditMode: props.isEditMode,
+      isClickable: props.isEditMode,
+    }),
+  );
+
+  /** Оформление блока здоровья: окно хитов открывают в любом режиме */
+  const hitPointsBlockClass = computed(() =>
+    getSheetBlockClass({ isEditMode: props.isEditMode, isClickable: true }),
+  );
+
+  /** Оформление блока, который целиком не нажимается: настройка — в шестерёнке */
+  const blockClass = computed(() =>
+    getSheetBlockClass({ isEditMode: props.isEditMode }),
+  );
+
+  /**
+   * Подпись плитки класса доспеха: в правке рядом встаёт шестерёнка, и полное
+   * название перестаёт помещаться — там подпись сокращается. Полное остаётся у
+   * скринридера и в подсказке с разбором.
+   */
+  const armorClassLabel = computed(() =>
+    props.isEditMode
+      ? SHEET_TILE_SHORT_LABELS.armorClass
+      : SHEET_TILE_LABELS.armorClass,
+  );
 
   const systemDataStore = useSystemDataStore();
 
@@ -768,73 +806,90 @@
     <!-- Top Stats Grid -->
     <div class="mb-0 grid grid-cols-2 gap-x-3 gap-y-3">
       <!-- Mastery -->
-      <UTooltip
-        :delay-duration="300"
-        :ui="{ content: 'h-auto' }"
+      <FieldsetLabel
+        :label="SHEET_TILE_LABELS.proficiency"
+        center
+        class="h-12 bg-default/20 transition-colors"
+        :class="editableTileClass"
+        @click.left.exact.prevent="isEditMode && openProficiencyBonus()"
       >
-        <FieldsetLabel
-          :label="SHEET_TILE_LABELS.proficiency"
-          center
-          class="h-12 bg-default/20 transition-colors"
-          :class="[
-            isEditMode
-              ? 'cursor-pointer border-primary/30 hover:border-primary/50'
-              : 'border-muted',
-          ]"
-          @click.left.exact.prevent="isEditMode && openProficiencyBonus()"
+        <!-- Шестерёнка ведёт в то же окно, что и клик по плитке: значок
+          называет настройку, а не прячет её за догадкой -->
+        <template
+          v-if="isEditMode"
+          #actions
+        >
+          <SheetSettingsGear
+            :label="PROFICIENCY_SETTINGS_LABELS.open"
+            @open="openProficiencyBonus"
+          />
+        </template>
+
+        <!-- Подсказка на содержимом, а не на всей плитке: вложенная в неё
+          подсказка шестерёнки показалась бы вместе с этой -->
+        <UTooltip
+          :text="proficiencyTooltip"
+          :delay-duration="300"
+          :ui="{ content: 'h-auto' }"
         >
           <div class="flex items-center justify-center px-2 pb-2">
             <div class="text-xl font-bold text-highlighted tabular-nums">
               {{ formatSignedNumber(proficiencyBonus) }}
             </div>
           </div>
-        </FieldsetLabel>
-
-        <template #content>
-          <span>{{ proficiencyTooltip }}</span>
-        </template>
-      </UTooltip>
+        </UTooltip>
+      </FieldsetLabel>
 
       <!-- AC -->
-      <UTooltip
-        :delay-duration="300"
-        :ui="{ content: 'h-auto' }"
+      <FieldsetLabel
+        :label="armorClassLabel"
+        :aria-label="SHEET_TILE_LABELS.armorClass"
+        center
+        class="h-12 bg-default/20 transition-colors"
+        :class="editableTileClass"
+        @click.left.exact.prevent="isEditMode && openArmorClass()"
       >
-        <FieldsetLabel
-          :label="SHEET_TILE_LABELS.armorClass"
-          center
-          class="h-12 bg-default/20 transition-colors"
-          :class="[
-            isEditMode
-              ? 'cursor-pointer border-primary/30 hover:border-primary/50'
-              : 'border-muted',
-          ]"
-          @click.left.exact.prevent="isEditMode && openArmorClass()"
+        <template
+          v-if="isEditMode"
+          #actions
+        >
+          <SheetSettingsGear
+            :label="ARMOR_CLASS_SETTINGS_LABELS.open"
+            @open="openArmorClass"
+          />
+        </template>
+
+        <UTooltip
+          :text="armorClassTooltip"
+          :delay-duration="300"
+          :ui="{ content: 'h-auto' }"
         >
           <div class="flex items-center justify-center px-2 pb-2">
             <span class="text-xl font-bold text-highlighted">{{
               effectiveAC
             }}</span>
           </div>
-        </FieldsetLabel>
-
-        <template #content>
-          <span>{{ armorClassTooltip }}</span>
-        </template>
-      </UTooltip>
+        </UTooltip>
+      </FieldsetLabel>
     </div>
 
     <!-- Здоровье + Кости хитов -->
     <FieldsetLabel
       :label="SHEET_TILE_LABELS.hitPoints"
-      class="group cursor-pointer bg-default/20 transition-colors"
-      :class="
-        isEditMode
-          ? 'border-primary/30 hover:border-primary/50'
-          : 'border-muted hover:border-primary/50'
-      "
+      class="group bg-default/20 transition-colors"
+      :class="hitPointsBlockClass"
       @click.left.exact.prevent="openHitPoints()"
     >
+      <template
+        v-if="isEditMode"
+        #actions
+      >
+        <SheetSettingsGear
+          :label="HIT_POINTS_LABELS.open"
+          @open="openHitPoints"
+        />
+      </template>
+
       <!-- ХП: цифры + подписи -->
       <div class="p-3 pt-1">
         <div class="flex items-center">
@@ -924,7 +979,8 @@
     <!-- Спасброски -->
     <FieldsetLabel
       :label="GRANT_SECTION_LABELS.savingThrows"
-      class="border-muted bg-default/20"
+      class="bg-default/20 transition-colors"
+      :class="blockClass"
     >
       <!-- Шестерёнка ведёт в настройку расчёта: кружки в самом блоке ставят
         только владение, а характеристику спасброска и свои бонусы правят в
@@ -933,18 +989,10 @@
         v-if="isEditMode"
         #actions
       >
-        <UTooltip :text="SAVING_THROW_SETTINGS_LABELS.open">
-          <UIcon
-            name="tabler:settings-filled"
-            class="h-3.5 w-3.5 cursor-pointer text-primary transition-colors hover:text-primary/80"
-            role="button"
-            tabindex="0"
-            :aria-label="SAVING_THROW_SETTINGS_LABELS.open"
-            @click.left.exact.prevent="openSavingThrowSettings"
-            @keydown.enter.prevent="openSavingThrowSettings"
-            @keydown.space.prevent="openSavingThrowSettings"
-          />
-        </UTooltip>
+        <SheetSettingsGear
+          :label="SAVING_THROW_SETTINGS_LABELS.open"
+          @open="openSavingThrowSettings"
+        />
       </template>
 
       <div class="px-2 pb-1">
@@ -982,7 +1030,10 @@
     </FieldsetLabel>
 
     <!-- Владения & Прочее (Броня, Оружие, Инструменты, Языки) -->
-    <div class="space-y-5 rounded-lg border border-muted bg-default/20 p-2">
+    <div
+      class="space-y-5 rounded-lg border bg-default/20 p-2 transition-colors"
+      :class="blockClass"
+    >
       <!-- Броня -->
       <div>
         <div
@@ -994,11 +1045,10 @@
             {{ ACTOR_LEFT_PANEL_LABELS.equipment }}
           </h4>
 
-          <UIcon
+          <SheetSettingsGear
             v-if="isEditMode"
-            name="tabler:settings-filled"
-            class="h-4 w-4 cursor-pointer text-dimmed transition-colors hover:text-highlighted"
-            @click.left.exact.prevent="isArmorProfOpen = true"
+            :label="PROFICIENCY_MODAL_LABELS.armorOpen"
+            @open="isArmorProfOpen = true"
           />
         </div>
 
@@ -1031,11 +1081,10 @@
             {{ GRANT_SECTION_LABELS.weapons }}
           </h4>
 
-          <UIcon
+          <SheetSettingsGear
             v-if="isEditMode"
-            name="tabler:settings-filled"
-            class="h-4 w-4 cursor-pointer text-dimmed transition-colors hover:text-highlighted"
-            @click.left.exact.prevent="isWeaponProfOpen = true"
+            :label="PROFICIENCY_MODAL_LABELS.weaponsOpen"
+            @open="isWeaponProfOpen = true"
           />
         </div>
 
@@ -1078,11 +1127,10 @@
             {{ GRANT_SECTION_LABELS.tools }}
           </h4>
 
-          <UIcon
+          <SheetSettingsGear
             v-if="isEditMode"
-            name="tabler:settings-filled"
-            class="h-4 w-4 cursor-pointer text-dimmed transition-colors hover:text-highlighted"
-            @click.left.exact.prevent="isToolsProfOpen = true"
+            :label="PROFICIENCY_MODAL_LABELS.toolsOpen"
+            @open="isToolsProfOpen = true"
           />
         </div>
 
@@ -1115,11 +1163,10 @@
             {{ GRANT_SECTION_LABELS.languages }}
           </h4>
 
-          <UIcon
+          <SheetSettingsGear
             v-if="isEditMode"
-            name="tabler:settings-filled"
-            class="h-4 w-4 cursor-pointer text-dimmed transition-colors hover:text-highlighted"
-            @click.left.exact.prevent="isLanguagesProfOpen = true"
+            :label="PROFICIENCY_MODAL_LABELS.languagesOpen"
+            @open="isLanguagesProfOpen = true"
           />
         </div>
 
@@ -1218,7 +1265,8 @@
   <!-- Модалка настройки спасбросков -->
   <SavingThrowSettingsModal
     v-model:open="isSavingThrowSettingsOpen"
-    :actor="actor"
+    :saving-throws="actor.system.proficiencies.savingThrows"
+    :settings="actor.system.savingThrowSettings"
     :ability-mods="sheetAbilityMods"
     :proficiency-bonus="proficiencyBonus"
     :saves="savingThrowValues"

@@ -207,6 +207,38 @@ export function parseCustomBonuses(value: unknown): DnDCustomBonus[] {
 }
 
 /**
+ * Разбирает свои бонусы к каждой характеристике. Ключи приходят из записи
+ * мира, поэтому сверяются гвардом: чужой ключ просто выпадает, а остальные
+ * характеристики свои бонусы сохраняют.
+ *
+ * @param value - значение поля `abilityBonuses` системных данных
+ * @returns бонусы по характеристикам (пустая запись — бонусов нет)
+ */
+export function parseAbilityBonuses(
+  value: unknown,
+): Partial<Record<AbilityType, DnDCustomBonus[]>> {
+  if (!isRecord(value)) {
+    return {};
+  }
+
+  const result: Partial<Record<AbilityType, DnDCustomBonus[]>> = {};
+
+  for (const [abilityKey, bonuses] of Object.entries(value)) {
+    if (!isAbilityType(abilityKey)) {
+      continue;
+    }
+
+    const parsed = parseCustomBonuses(bonuses);
+
+    if (parsed.length > 0) {
+      result[abilityKey] = parsed;
+    }
+  }
+
+  return result;
+}
+
+/**
  * Разбирает свои бонусы к каждому виду передвижения. Ключи приходят из записи
  * мира, поэтому сверяются гвардом: чужой ключ просто выпадает, а остальные
  * скорости свои бонусы сохраняют.
