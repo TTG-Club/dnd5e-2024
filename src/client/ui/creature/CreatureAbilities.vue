@@ -4,7 +4,10 @@
 
   import { ref, toRef } from 'vue';
 
-  import { ABILITY_SHORT_LABELS } from '@/systems/dnd5e/ui/actor/constants';
+  import {
+    ABILITY_CHECK_ROLL_LABELS,
+    ABILITY_SHORT_LABELS,
+  } from '@/systems/dnd5e/ui/actor/constants';
   import {
     ABILITY_LABELS,
     calculateAbilityModifier,
@@ -13,6 +16,7 @@
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import AbilityScore from '../actor/AbilityScore.vue';
   import DiceRollModal from '../actor/DiceRollModal.vue';
+  import { CREATURE_ABILITIES_LABELS } from './constants';
 
   interface Props {
     creature: DnDCreature;
@@ -68,16 +72,16 @@
     modifier: 0,
     title: '',
     rollLabel: '',
-    rollButtonText: 'Бросок',
+    rollButtonText: CREATURE_ABILITIES_LABELS.rollButton,
     initialRollMode: 'normal' as 'normal' | 'advantage' | 'disadvantage',
   });
 
   function handleAbilityRoll(mod: number, label: string) {
     diceRollConfig.value = {
       modifier: mod,
-      title: `Проверка: ${label}`,
+      title: `${ABILITY_CHECK_ROLL_LABELS.titlePrefix}${label}`,
       rollLabel: label,
-      rollButtonText: 'Бросок',
+      rollButtonText: CREATURE_ABILITIES_LABELS.rollButton,
       initialRollMode: 'normal',
     };
 

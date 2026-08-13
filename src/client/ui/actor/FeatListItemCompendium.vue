@@ -1,6 +1,7 @@
 <script setup lang="ts">
   import type { FeatDisplayItem } from './featListItemTypes';
 
+  import { FEAT_LIST_ITEM_LABELS } from './constants';
   import SourceBadge from './SourceBadge.vue';
 
   defineProps<{
@@ -29,7 +30,7 @@
         variant="subtle"
         size="sm"
       >
-        Повторяемая
+        {{ FEAT_LIST_ITEM_LABELS.repeatable }}
       </UBadge>
     </div>
   </div>

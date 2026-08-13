@@ -3,7 +3,7 @@
 
   import { ContextMenuDangerItem } from '@/shared_ui/components';
 
-  import { SHEET_ROW_MENU_LABELS } from './constants';
+  import { CONTEXT_MENU_LABELS, SHEET_ROW_MENU_LABELS } from './constants';
 
   defineProps<{
     /** Показано ли меню */
@@ -51,7 +51,8 @@
             name="tabler:copy"
             class="h-4 w-4 text-muted"
           />
-          Скопировать в {{ copyLabel || 'предметы' }}
+          {{ CONTEXT_MENU_LABELS.copyToPrefix
+          }}{{ copyLabel || CONTEXT_MENU_LABELS.copyToDefaultTarget }}
         </button>
 
         <!-- Редактировать -->

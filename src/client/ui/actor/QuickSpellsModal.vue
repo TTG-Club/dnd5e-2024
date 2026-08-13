@@ -10,7 +10,7 @@
   import { generateId } from '@vtt/shared';
   import { isSpell } from '@vtt/shared/system/dnd.js';
 
-  import { SPELL_MIME } from './constants';
+  import { QUICK_PANEL_LABELS, SPELL_MIME } from './constants';
   import ActorSpellsTab from './tabs/ActorSpellsTab.vue';
 
   interface Props {
@@ -179,7 +179,7 @@
     :min-height="300"
     :initial-width="520"
     initial-height="70vh"
-    :title="`Заклинания — ${localActor?.name ?? ''}`"
+    :title="`${QUICK_PANEL_LABELS.spellsTitlePrefix}${localActor?.name ?? ''}`"
   >
     <template #body>
       <div

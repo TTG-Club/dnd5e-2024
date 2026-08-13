@@ -6,6 +6,12 @@
   import { useProjectileStore } from '@/stores/projectileStore';
   import { getSpellProjectileCount } from '@vtt/shared/system/dnd.js';
 
+  import {
+    ACTOR_SPELLS_TAB_LABELS,
+    PROJECTILE_PROMPT_LABELS,
+    SPELL_LEVEL_SUFFIX,
+  } from './constants';
+
   defineOptions({
     inheritAttrs: false,
   });
@@ -44,7 +50,7 @@
 
   const spellLevelItems = computed(() => {
     return props.availableSpellLevels.map((lvl) => ({
-      label: `${lvl}-й круг`,
+      label: `${lvl}${SPELL_LEVEL_SUFFIX}`,
       value: lvl,
     }));
   });
@@ -61,11 +67,11 @@
     const distribution = props.spell.projectiles?.targetDistribution;
 
     if (distribution === 'single') {
-      return 'Все снаряды — в одну цель';
+      return PROJECTILE_PROMPT_LABELS.distributionSingle;
     }
 
     if (distribution === 'distinct') {
-      return 'Каждый снаряд — в отдельную цель';
+      return PROJECTILE_PROMPT_LABELS.distributionDistinct;
     }
 
     return null;
@@ -116,7 +122,8 @@
           />
 
           <span class="text-sm font-medium whitespace-nowrap">
-            Применить заклинание: {{ props.spell.name }}?
+            {{ ACTOR_SPELLS_TAB_LABELS.castConfirmPrefix }}{{ props.spell.name
+            }}{{ ACTOR_SPELLS_TAB_LABELS.castConfirmSuffix }}
           </span>
         </div>
 
@@ -142,7 +149,8 @@
             />
 
             <span class="text-sm font-bold text-toned">
-              Снаряды: {{ projectileStore.assignedProjectilesCount }} /
+              {{ PROJECTILE_PROMPT_LABELS.assignedPrefix
+              }}{{ projectileStore.assignedProjectilesCount }} /
               {{ calculatedMaxProjectiles }}
             </span>
           </div>

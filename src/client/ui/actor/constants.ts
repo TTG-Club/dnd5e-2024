@@ -201,6 +201,12 @@ export const COPY_LABEL = 'Скопировать';
 export const ADD_DAMAGE_PART_LABEL = 'Добавить часть';
 
 /**
+ * Итоговая строка разбора числа. Её показывают подсказка характеристики и
+ * настройка инициативы — обе перечисляют слагаемые и подводят черту.
+ */
+export const TOTAL_LABEL = 'Итого';
+
+/**
  * Названия уровней владения — подсказка переключателя в списках навыков и
  * спасбросков обоих листов.
  */
@@ -271,7 +277,7 @@ export const INITIATIVE_SETTINGS_LABELS = {
   title: 'Настройка инициативы',
   ability: 'Характеристика',
   flatBonus: 'Доп. бонус',
-  total: 'Итого',
+  total: TOTAL_LABEL,
   bonusesTitle: 'Свои бонусы',
   bonusesHint:
     'Складываются с модификатором характеристики. Бонус от мастерства нужен '
@@ -892,6 +898,14 @@ export const DEFAULT_EQUIPMENT_ICON = 'tabler:box';
 export const WEAPON_RANGE_TYPE_LABELS: Record<WeaponRangeType, string> = {
   melee: 'Рукопашное оружие',
   ranged: 'Дальнобойное оружие',
+};
+
+/**
+ * Короткие подписи типа дальности: в узкой строке оружия на полные места нет.
+ */
+export const WEAPON_RANGE_TYPE_SHORT_LABELS: Record<WeaponRangeType, string> = {
+  melee: 'Ближн.',
+  ranged: 'Дальн.',
 };
 
 /** Короткие подписи плиток параметров в строке снаряжения */
@@ -1600,6 +1614,54 @@ export const ACTOR_DESCRIPTION_MODAL_LABELS = {
 } as const;
 
 /**
+ * Подписи подсказки блока характеристики: разбор итогового значения по
+ * слагаемым. Строка «Итого» общая с настройкой инициативы.
+ */
+export const ABILITY_SCORE_LABELS = {
+  tooltipBase: 'Базовое значение',
+  tooltipTotal: TOTAL_LABEL,
+} as const;
+
+/** Подписи окна правки валюты */
+export const CURRENCY_MODAL_LABELS = {
+  title: 'Валюта',
+} as const;
+
+/**
+ * Подписи строки черты. Строка одна и та же в списке компендиума и на вкладке
+ * особенностей листа — значок повторяемости у них общий.
+ */
+export const FEAT_LIST_ITEM_LABELS = {
+  repeatable: 'Повторяемая',
+} as const;
+
+/**
+ * Заголовки быстрых панелей персонажа. Панели разные, а собраны одинаково:
+ * приставка, тире и имя персонажа.
+ */
+export const QUICK_PANEL_LABELS = {
+  equipmentTitlePrefix: 'Инвентарь — ',
+  spellsTitlePrefix: 'Заклинания — ',
+} as const;
+
+/** Подписи окна выбора цели заклинания */
+export const SPELL_CHOOSE_TARGET_LABELS = {
+  empty: 'Нет доступных целей на сцене.',
+} as const;
+
+/**
+ * Подписи окна раздачи снарядов по целям. Вопрос применения заклинания общий с
+ * вкладкой заклинаний и берётся из `ACTOR_SPELLS_TAB_LABELS`.
+ */
+export const PROJECTILE_PROMPT_LABELS = {
+  /** Счётчик розданных снарядов — дальше идут число и предел */
+  assignedPrefix: 'Снаряды: ',
+  /** Подсказки режимов раздачи; свободный режим не подписывается */
+  distributionSingle: 'Все снаряды — в одну цель',
+  distributionDistinct: 'Каждый снаряд — в отдельную цель',
+} as const;
+
+/**
  * Подписи блока выдачи владения инструментами. Блок общий для мастеров класса и
  * предыстории: текст компендиума они разбирают одинаково.
  */
@@ -2149,10 +2211,22 @@ export const TOOL_DETAIL_LABELS = {
 } as const;
 
 /**
- * Действие «скопировать запись компендиума в предметы листа». Кнопка эта стоит
- * в каждой карточке записи, и подпись у неё одна.
+ * Подписи меню строки списка. Меню одно на все списки — компендиума, листа
+ * персонажа и листа существа: своё у каждого только то, куда копируется запись.
  */
-export const COPY_TO_ITEMS_LABEL = 'Скопировать в предметы';
+export const CONTEXT_MENU_LABELS = {
+  /** Приставка действия копирования — дальше идёт, куда копируют */
+  copyToPrefix: 'Скопировать в ',
+  /** Куда копируется запись, если вызывающий не сказал иначе */
+  copyToDefaultTarget: 'предметы',
+} as const;
+
+/**
+ * Действие «скопировать запись компендиума в предметы листа». Кнопка эта стоит
+ * в каждой карточке записи, и подпись у неё одна — та же, что в меню строки.
+ */
+export const COPY_TO_ITEMS_LABEL =
+  CONTEXT_MENU_LABELS.copyToPrefix + CONTEXT_MENU_LABELS.copyToDefaultTarget;
 
 /** Подписи карточки вида — окна просмотра записи */
 export const SPECIES_DETAIL_LABELS = {

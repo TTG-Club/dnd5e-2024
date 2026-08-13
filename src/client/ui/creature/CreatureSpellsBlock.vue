@@ -46,6 +46,7 @@
   import { useBonusDamageParts } from '../../composables/useBonusDamageParts';
   import { useSpellResolution } from '../../composables/useSpellResolution';
   import {
+    ACTOR_SPELLS_TAB_LABELS,
     FILTER_ROW_CONTROL_SIZE,
     SHEET_FILTER_LABELS,
     SHEET_ROW_MENU_LABELS,
@@ -61,6 +62,7 @@
   import SheetStatTile from '../actor/SheetStatTile.vue';
   import { formatSpellDamageDisplay } from '../actor/utils/formatSpellDamageDisplay';
   import {
+    CREATURE_ACTIONS_BLOCK_LABELS,
     CREATURE_EMPTY_LABELS,
     CREATURE_SPELL_RECOVERY_CHIPS,
     CREATURE_SPELLCASTING_LABELS,
@@ -609,8 +611,11 @@
       && spell.uses.current <= 0
     ) {
       toast.add({
-        title: 'Нет зарядов',
-        description: `У «${spell.name}» не осталось зарядов — нужен отдых.`,
+        title: ACTOR_SPELLS_TAB_LABELS.noUsesTitle,
+        description:
+          ACTOR_SPELLS_TAB_LABELS.noUsesTextPrefix
+          + spell.name
+          + ACTOR_SPELLS_TAB_LABELS.noUsesTextSuffix,
         color: 'warning',
       });
 
@@ -696,7 +701,9 @@
     const isHealing = spellIsHealing(spell);
 
     rollConfig.value = {
-      title: usesAttack ? `Атака — ${spell.name}` : spell.name,
+      title: usesAttack
+        ? CREATURE_ACTIONS_BLOCK_LABELS.attackRollPrefix + spell.name
+        : spell.name,
       name: spell.name,
       formula: setup.baseParts[0]?.formula ?? '',
       rollButtonText: getCreatureSpellRollButtonText(usesAttack, isHealing),

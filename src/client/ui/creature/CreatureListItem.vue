@@ -7,6 +7,8 @@
   import { useContextMenu } from '@/systems/dnd5e/composables/useContextMenu';
   import ContextMenuOverlay from '@/systems/dnd5e/ui/actor/ContextMenuOverlay.vue';
 
+  import { CREATURE_LIST_ITEM_LABELS } from './constants';
+
   interface Props {
     /** Название существа */
     name: string;
@@ -69,7 +71,7 @@
       size="xs"
       class="shrink-0"
     >
-      ПО {{ challengeRating }}
+      {{ CREATURE_LIST_ITEM_LABELS.challengeRatingPrefix }}{{ challengeRating }}
     </UBadge>
   </div>
 
@@ -78,7 +80,7 @@
     :pos-x="menuX"
     :pos-y="menuY"
     :show-copy="showCopy"
-    copy-label="существа"
+    :copy-label="CREATURE_LIST_ITEM_LABELS.copyTarget"
     @action="handleAction"
     @close="closeMenu"
   />

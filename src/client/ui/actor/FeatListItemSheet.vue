@@ -1,6 +1,8 @@
 <script setup lang="ts">
   import type { FeatDisplayItem } from './featListItemTypes';
 
+  import { FEAT_LIST_ITEM_LABELS } from './constants';
+
   defineProps<{
     item: FeatDisplayItem;
     showEdit?: boolean;
@@ -37,7 +39,7 @@
       size="sm"
       class="ml-auto shrink-0"
     >
-      Повторяемая
+      {{ FEAT_LIST_ITEM_LABELS.repeatable }}
     </UBadge>
   </div>
 

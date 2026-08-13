@@ -5,7 +5,11 @@
   import { formatWeaponDamageFormula } from '@vtt/shared/system/dnd.js';
 
   import { useContextMenu } from '../../composables/useContextMenu';
-  import { GAME_ITEM_MIME } from './constants';
+  import {
+    GAME_ITEM_MIME,
+    WEAPON_RANGE_TYPE_SHORT_LABELS,
+    WEIGHT_UNIT_LABEL,
+  } from './constants';
   import ContextMenuOverlay from './ContextMenuOverlay.vue';
   import WeaponIcon from './WeaponIcon.vue';
 
@@ -77,7 +81,7 @@
       v-if="item.rangeType"
       class="shrink-0 text-xs text-dimmed"
     >
-      {{ item.rangeType === 'ranged' ? 'Дальн.' : 'Ближн.' }}
+      {{ WEAPON_RANGE_TYPE_SHORT_LABELS[item.rangeType] }}
     </span>
 
     <!-- Урон -->
@@ -104,7 +108,7 @@
       v-if="item.weight && (showWeight ?? true)"
       class="shrink-0 text-xs text-dimmed"
     >
-      {{ item.weight }} фнт.
+      {{ item.weight }} {{ WEIGHT_UNIT_LABEL }}
     </span>
   </div>
 

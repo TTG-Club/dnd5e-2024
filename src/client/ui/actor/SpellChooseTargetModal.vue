@@ -2,7 +2,7 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
 
-  import { MODAL_BUTTON_LABELS } from './constants';
+  import { MODAL_BUTTON_LABELS, SPELL_CHOOSE_TARGET_LABELS } from './constants';
 
   defineOptions({
     inheritAttrs: false,
@@ -91,7 +91,7 @@
           v-else
           class="text-sm text-muted"
         >
-          Нет доступных целей на сцене.
+          {{ SPELL_CHOOSE_TARGET_LABELS.empty }}
         </p>
 
         <div class="flex justify-end pt-1">

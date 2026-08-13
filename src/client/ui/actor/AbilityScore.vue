@@ -9,7 +9,7 @@
 
   import FieldsetLabel from '@/shared_ui/components/FieldsetLabel.vue';
 
-  import { ABILITY_LABEL_SIDE_SPACE } from './constants';
+  import { ABILITY_LABEL_SIDE_SPACE, ABILITY_SCORE_LABELS } from './constants';
 
   /** Источник бонуса к характеристике */
   export interface AbilityBonusSource {
@@ -126,7 +126,11 @@
   /** Строки тултипа: базовое значение, источники бонусов и итог */
   const tooltipRows = computed<TooltipRow[]>(() => {
     const rows: TooltipRow[] = [
-      { label: 'Базовое значение', value: `${props.baseValue}`, kind: 'base' },
+      {
+        label: ABILITY_SCORE_LABELS.tooltipBase,
+        value: `${props.baseValue}`,
+        kind: 'base',
+      },
     ];
 
     for (const source of props.bonusSources) {
@@ -143,7 +147,11 @@
       });
     }
 
-    rows.push({ label: 'Итого', value: `${props.value}`, kind: 'total' });
+    rows.push({
+      label: ABILITY_SCORE_LABELS.tooltipTotal,
+      value: `${props.value}`,
+      kind: 'total',
+    });
 
     return rows;
   });

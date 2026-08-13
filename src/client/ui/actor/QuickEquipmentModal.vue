@@ -9,7 +9,7 @@
   import { useWorldStore } from '@/stores/worldStore';
   import { generateId, isRecord } from '@vtt/shared';
 
-  import { GAME_ITEM_MIME } from './constants';
+  import { GAME_ITEM_MIME, QUICK_PANEL_LABELS } from './constants';
   import ActorEquipmentTab from './tabs/ActorEquipmentTab.vue';
 
   interface Props {
@@ -189,7 +189,7 @@
     :min-height="300"
     :initial-width="520"
     initial-height="70vh"
-    :title="`Инвентарь — ${localActor?.name ?? ''}`"
+    :title="`${QUICK_PANEL_LABELS.equipmentTitlePrefix}${localActor?.name ?? ''}`"
   >
     <template #body>
       <div

@@ -7,6 +7,7 @@
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
 
   import { isNamedCardEntry, parseCardPayload } from './cardPayload';
+  import { BACKGROUND_CARD_LABELS } from './consts';
 
   const props = defineProps<{
     /** Сериализованные данные (JSON-строка) */
@@ -51,7 +52,9 @@
     >
       <!-- Мета-строка -->
       <div class="flex items-center gap-2 text-xs">
-        <span class="font-medium text-source">Предыстория </span>
+        <span class="font-medium text-source">{{
+          BACKGROUND_CARD_LABELS.kind
+        }}</span>
       </div>
 
       <!-- Описание -->
@@ -67,6 +70,6 @@
   <!-- Fallback при ошибке десериализации -->
   <CardErrorFallback
     v-else
-    message="Ошибка отображения карточки предыстории"
+    :message="BACKGROUND_CARD_LABELS.error"
   />
 </template>

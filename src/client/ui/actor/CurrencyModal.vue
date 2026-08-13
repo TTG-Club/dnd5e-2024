@@ -11,7 +11,7 @@
     CURRENCY_OPTIONS,
   } from '@vtt/shared/system/dnd.js';
 
-  import { MODAL_BUTTON_LABELS } from './constants';
+  import { CURRENCY_MODAL_LABELS, MODAL_BUTTON_LABELS } from './constants';
 
   interface Props {
     open: boolean;
@@ -91,7 +91,7 @@
     :blocking="true"
     :min-width="380"
     :min-height="300"
-    title="Валюта"
+    :title="CURRENCY_MODAL_LABELS.title"
     :z-index="Z_INDEX.MODAL_ELEVATED"
   >
     <template #body>

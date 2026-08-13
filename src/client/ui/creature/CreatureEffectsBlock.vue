@@ -13,7 +13,7 @@
     CONDITIONS,
   } from '@vtt/shared/system/dnd.js';
 
-  import { MODAL_BUTTON_LABELS } from '../actor/constants';
+  import { EFFECTS_TAB_LABELS, MODAL_BUTTON_LABELS } from '../actor/constants';
   import ActiveEffectFormModal from '../actor/tabs/ActiveEffectFormModal.vue';
 
   interface Props {
@@ -215,7 +215,7 @@
       v-if="customEffects.length === 0"
       class="rounded-lg border border-dashed border-default p-3 text-center text-xs text-dimmed italic"
     >
-      Нет пользовательских эффектов
+      {{ EFFECTS_TAB_LABELS.customEmpty }}
     </div>
 
     <div
@@ -301,7 +301,7 @@
       <h3
         class="mt-5 mb-1 text-xs font-semibold tracking-wider text-muted uppercase"
       >
-        Состояния
+        {{ EFFECTS_TAB_LABELS.conditionsTitle }}
       </h3>
     </div>
 

@@ -7,6 +7,7 @@
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
 
   import { isNamedCardEntry, parseCardPayload } from './cardPayload';
+  import { FEATURE_CARD_LABELS } from './consts';
 
   const props = defineProps<{
     /** Сериализованные данные особенности (JSON-строка) */
@@ -62,7 +63,11 @@
       <!-- Мета-строка -->
       <div class="flex items-center gap-2 text-xs">
         <span class="font-medium text-arcane">
-          {{ isFeat ? 'Черта' : 'Особенность' }}
+          {{
+            isFeat
+              ? FEATURE_CARD_LABELS.kindFeat
+              : FEATURE_CARD_LABELS.kindFeature
+          }}
         </span>
       </div>
 
@@ -79,6 +84,6 @@
   <!-- Fallback при ошибке десериализации -->
   <CardErrorFallback
     v-else
-    message="Ошибка отображения карточки особенности"
+    :message="FEATURE_CARD_LABELS.error"
   />
 </template>
