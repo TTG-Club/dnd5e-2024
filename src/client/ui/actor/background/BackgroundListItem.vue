@@ -4,7 +4,10 @@
   import { computed } from 'vue';
 
   import { useContextMenu } from '../../../composables/useContextMenu';
-  import { BACKGROUND_DEFINITION_MIME } from '../constants';
+  import {
+    BACKGROUND_DEFINITION_MIME,
+    BACKGROUND_LIST_ITEM_LABELS,
+  } from '../constants';
   import ContextMenuOverlay from '../ContextMenuOverlay.vue';
   import SourceBadge from '../SourceBadge.vue';
 
@@ -69,7 +72,9 @@
           variant="text"
         />
 
-        <span v-if="data.skillGrant?.skills?.length"> 2 навыка </span>
+        <span v-if="data.skillGrant?.skills?.length">
+          {{ BACKGROUND_LIST_ITEM_LABELS.skills }}
+        </span>
 
         <span
           v-if="
@@ -92,7 +97,7 @@
           v-else-if="data.featGrant?.featChoices?.length"
           class="truncate"
         >
-          Черта на выбор
+          {{ BACKGROUND_LIST_ITEM_LABELS.featChoice }}
         </span>
       </div>
     </div>

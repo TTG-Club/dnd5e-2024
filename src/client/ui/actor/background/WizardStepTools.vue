@@ -15,6 +15,7 @@
 
   import { toolProficiencyLabel } from '@vtt/shared/system/dnd.js';
 
+  import { BACKGROUND_WIZARD_LABELS, GRANT_SECTION_LABELS } from '../constants';
   import ToolProficiencyGrant from '../ToolProficiencyGrant.vue';
 
   const props = defineProps<{
@@ -79,7 +80,9 @@
 <template>
   <div class="space-y-6">
     <div class="text-center">
-      <h3 class="text-lg font-medium text-highlighted">Инструменты</h3>
+      <h3 class="text-lg font-medium text-highlighted">
+        {{ GRANT_SECTION_LABELS.tools }}
+      </h3>
     </div>
 
     <!-- Владение из компендиума: текст сопоставляется со словарём -->
@@ -97,9 +100,11 @@
       class="space-y-3"
     >
       <p class="text-center text-sm text-muted">
-        Выберите дополнительно инструментов:
+        {{ BACKGROUND_WIZARD_LABELS.toolsChoosePrefix }}
         <span class="font-bold text-primary">{{ neededSelectionsCount }}</span>
-        (выбрано: {{ choiceSelections.length }})
+        {{ BACKGROUND_WIZARD_LABELS.toolsSelectedPrefix
+        }}{{ choiceSelections.length
+        }}{{ BACKGROUND_WIZARD_LABELS.toolsSelectedSuffix }}
       </p>
 
       <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">

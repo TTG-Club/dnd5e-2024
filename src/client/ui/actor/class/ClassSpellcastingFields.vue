@@ -3,6 +3,10 @@
 
   import { ABILITY_OPTIONS } from '@vtt/shared/system/dnd.js';
 
+  import {
+    CLASS_SPELLCASTING_FIELDS_LABELS,
+    FORM_FIELD_LABELS,
+  } from '../constants';
   import { CASTER_TYPE_OPTIONS } from './classEditorTypes';
 
   /** Заклинательная конфигурация класса или подкласса. */
@@ -18,14 +22,14 @@
   <div class="flex flex-col gap-3">
     <UCheckbox
       v-model="spellcasting.enabled"
-      label="Класс/подкласс владеет заклинаниями"
+      :label="CLASS_SPELLCASTING_FIELDS_LABELS.enabled"
     />
 
     <div
       v-if="spellcasting.enabled"
       class="grid grid-cols-2 gap-3 sm:grid-cols-3"
     >
-      <UFormField label="Тип заклинателя">
+      <UFormField :label="CLASS_SPELLCASTING_FIELDS_LABELS.casterType">
         <USelect
           v-model="spellcasting.type"
           :items="CASTER_TYPE_OPTIONS"
@@ -34,7 +38,7 @@
         />
       </UFormField>
 
-      <UFormField label="Характеристика">
+      <UFormField :label="FORM_FIELD_LABELS.ability">
         <USelect
           v-model="spellcasting.ability"
           :items="abilityOptions"
@@ -43,7 +47,7 @@
         />
       </UFormField>
 
-      <UFormField label="Уровень начала">
+      <UFormField :label="FORM_FIELD_LABELS.startLevel">
         <UInputNumber
           v-model="spellcasting.startLevel"
           :min="1"
@@ -56,9 +60,7 @@
       v-if="spellcasting.enabled"
       class="text-[11px] text-dimmed"
     >
-      Реальные ячейки заклинаний берутся из таблиц по типу заклинателя
-      (полный/половинный/третичный/пакт). Колонки ячеек в таблице прогрессии —
-      только для отображения.
+      {{ CLASS_SPELLCASTING_FIELDS_LABELS.hint }}
     </p>
   </div>
 </template>

@@ -154,7 +154,7 @@
             class="text-sm font-bold"
             :class="pointsRemaining > 0 ? 'text-warning' : 'text-healing'"
           >
-            Осталось: {{ pointsRemaining }}
+            {{ WIZARD_ASI_LABELS.pointsRemainingPrefix }}{{ pointsRemaining }}
           </span>
 
           <UButton

@@ -3,6 +3,8 @@
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
 
+  import { BACKGROUND_WIZARD_LABELS } from '../constants';
+
   defineProps<{
     equipmentOptions: BackgroundEquipmentOption[];
   }>();
@@ -12,13 +14,11 @@
   <div class="space-y-6">
     <div class="space-y-2">
       <h3 class="font-serif text-xl font-medium text-highlighted">
-        Стартовое снаряжение
+        {{ BACKGROUND_WIZARD_LABELS.equipmentTitle }}
       </h3>
 
       <p class="text-sm text-muted">
-        Выберите один из вариантов стартового снаряжения. Пока что выдача
-        предметов не автоматизирована — вам потребуется добавить их из
-        справочника в инвентарь вручную после завершения настройки.
+        {{ BACKGROUND_WIZARD_LABELS.equipmentHint }}
       </p>
     </div>
 
@@ -32,7 +32,11 @@
           class="mb-3 flex items-center justify-between border-b border-default/50 pb-2"
         >
           <span class="text-xs font-bold tracking-wider text-primary uppercase">
-            {{ index === 0 ? 'Вариант А' : 'Вариант Б' }}
+            {{
+              index === 0
+                ? BACKGROUND_WIZARD_LABELS.equipmentOptionA
+                : BACKGROUND_WIZARD_LABELS.equipmentOptionB
+            }}
           </span>
 
           <UIcon
@@ -62,7 +66,8 @@
           />
 
           <span class="text-sm font-semibold"
-            >{{ option.goldAlternative }} золотых монет</span
+            >{{ option.goldAlternative
+            }}{{ BACKGROUND_WIZARD_LABELS.equipmentGoldSuffix }}</span
           >
         </div>
       </div>

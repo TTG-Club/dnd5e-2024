@@ -7,6 +7,7 @@
    */
   import type { ClassDefinition } from '@vtt/shared/system/dnd.js';
 
+  import { CLASS_WIZARD_LABELS, GRANT_SECTION_LABELS } from '../../constants';
   import { ABILITY_LABELS } from './constants';
 
   defineProps<{
@@ -17,12 +18,14 @@
 
 <template>
   <div class="space-y-3">
-    <span class="mb-2 block text-sm font-medium text-toned"> Спасброски </span>
+    <span class="mb-2 block text-sm font-medium text-toned">
+      {{ GRANT_SECTION_LABELS.savingThrows }}
+    </span>
 
     <!-- Первый класс — показываем спасброски -->
     <div v-if="isFirstClass">
       <p class="mb-2 text-sm text-muted">
-        Ваш класс даёт владение следующими спасбросками:
+        {{ CLASS_WIZARD_LABELS.savingThrowsHint }}
       </p>
 
       <div class="flex flex-wrap gap-2">
@@ -43,7 +46,7 @@
       class="rounded-lg border border-default/50 bg-elevated/30 px-3 py-2.5"
     >
       <span class="text-sm text-muted">
-        Спасброски не изменяются при повышении уровня или мультиклассе.
+        {{ CLASS_WIZARD_LABELS.savingThrowsEmpty }}
       </span>
     </div>
   </div>

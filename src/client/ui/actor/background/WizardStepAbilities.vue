@@ -9,6 +9,8 @@
 
   import { ABILITY_LABELS } from '@vtt/shared/system/dnd.js';
 
+  import { BACKGROUND_WIZARD_LABELS, WIZARD_ASI_LABELS } from '../constants';
+
   const props = defineProps<{
     backgroundDefinition: BackgroundDefinition;
     currentAbilities: DnDAbilityScores;
@@ -116,7 +118,7 @@
 <template>
   <div class="space-y-3">
     <span class="mb-2 block text-sm font-medium text-toned">
-      Увеличение характеристик
+      {{ WIZARD_ASI_LABELS.title }}
     </span>
 
     <!-- Переключатель схемы -->
@@ -130,7 +132,9 @@
       >
         <span class="font-medium">+2 / +1</span>
 
-        <span class="text-[10px] opacity-70">распределить вручную</span>
+        <span class="text-[10px] opacity-70">{{
+          BACKGROUND_WIZARD_LABELS.abilitiesSchemeManual
+        }}</span>
       </UButton>
 
       <UButton
@@ -142,7 +146,9 @@
       >
         <span class="font-medium">+1 / +1 / +1</span>
 
-        <span class="text-[10px] opacity-70">сразу +1 всем</span>
+        <span class="text-[10px] opacity-70">{{
+          BACKGROUND_WIZARD_LABELS.abilitiesSchemeEven
+        }}</span>
       </UButton>
     </div>
 
@@ -152,8 +158,8 @@
         <span class="text-sm text-muted">
           {{
             selectedScheme === '+2/+1'
-              ? 'Распределите 3 очка (максимум +2 к одной)'
-              : 'Автоматически по +1 к трем характеристикам'
+              ? BACKGROUND_WIZARD_LABELS.abilitiesManualHint
+              : BACKGROUND_WIZARD_LABELS.abilitiesEvenHint
           }}
         </span>
 
@@ -165,7 +171,7 @@
             class="text-sm font-bold"
             :class="pointsRemaining > 0 ? 'text-warning' : 'text-healing'"
           >
-            Осталось: {{ pointsRemaining }}
+            {{ WIZARD_ASI_LABELS.pointsRemainingPrefix }}{{ pointsRemaining }}
           </span>
 
           <UButton

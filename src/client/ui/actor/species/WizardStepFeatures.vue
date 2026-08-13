@@ -10,6 +10,13 @@
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
 
+  import {
+    CHOOSE_VARIANT_PLACEHOLDER,
+    GRANTED_SPELL_FEATURE_PREFIX,
+    LEVEL_BADGE_SUFFIX,
+    SPECIES_WIZARD_LABELS,
+  } from '../constants';
+
   const props = defineProps<{
     speciesDefinition: SpeciesDefinition;
     state: SpeciesWizardState;
@@ -110,7 +117,7 @@
           {{ granted.spell.name }}
 
           <span class="text-[10px] opacity-60">
-            Умение: {{ granted.featureName }}
+            {{ GRANTED_SPELL_FEATURE_PREFIX }}{{ granted.featureName }}
           </span>
         </UBadge>
       </div>
@@ -121,7 +128,7 @@
         class="mt-2 rounded-lg bg-default/50 p-3"
       >
         <span class="mb-2 block text-xs font-medium text-muted">
-          Сделайте выбор:
+          {{ SPECIES_WIZARD_LABELS.chooseFeatureChoice }}
         </span>
 
         <USelectMenu
@@ -129,7 +136,7 @@
           :items="getFeatureChoiceOptions(feature)"
           value-key="value"
           label-key="label"
-          placeholder="Выберите вариант..."
+          :placeholder="CHOOSE_VARIANT_PLACEHOLDER"
           @update:model-value="selectFeatureChoice(feature.key, $event)"
         />
 
@@ -158,7 +165,7 @@
                   variant="subtle"
                   size="sm"
                 >
-                  {{ subFeature.level ?? 1 }} ур.
+                  {{ subFeature.level ?? 1 }}{{ LEVEL_BADGE_SUFFIX }}
                 </UBadge>
               </div>
 

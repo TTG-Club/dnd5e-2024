@@ -10,8 +10,17 @@
     HitPointMethod,
   } from '@vtt/shared/system/dnd.js';
 
+  import { computed } from 'vue';
+
   import { useChatStore } from '@/stores/chatStore';
   import { useDiceRollerStore } from '@/stores/diceRollerStore';
+
+  import {
+    CLASS_WIZARD_LABELS,
+    DICE_ROLL_DEFAULT_BUTTON,
+    HIT_DIE_LETTER,
+    LEVEL_BADGE_SUFFIX,
+  } from '../../constants';
 
   const props = defineProps<{
     classDefinition: ClassDefinition;
@@ -28,6 +37,40 @@
 
   const chatStore = useChatStore();
   const diceRollerStore = useDiceRollerStore();
+
+  /** Запись кости хитов класса: «к8» */
+  const hitDieLabel = computed(
+    () => `${HIT_DIE_LETTER}${props.classDefinition.hitDie}`,
+  );
+
+  /** Заголовок шага — кость хитов идёт в скобках */
+  const stepTitle = computed(
+    () =>
+      CLASS_WIZARD_LABELS.hitPointsTitlePrefix
+      + hitDieLabel.value
+      + CLASS_WIZARD_LABELS.parenSuffix,
+  );
+
+  /** Кнопка среднего значения — в скобках само число */
+  const averageButtonLabel = computed(
+    () =>
+      CLASS_WIZARD_LABELS.hitPointsAveragePrefix
+      + props.averageHitPoints
+      + CLASS_WIZARD_LABELS.parenSuffix,
+  );
+
+  /** Кнопка максимума — в скобках размер кости */
+  const maxButtonLabel = computed(
+    () =>
+      CLASS_WIZARD_LABELS.hitPointsMaxPrefix
+      + props.classDefinition.hitDie
+      + CLASS_WIZARD_LABELS.parenSuffix,
+  );
+
+  /** Кнопка броска — дальше идёт кость хитов */
+  const rollButtonLabel = computed(
+    () => `${DICE_ROLL_DEFAULT_BUTTON} ${hitDieLabel.value}`,
+  );
 
   /** Устанавливает среднее значение ХП */
   function setAverageHp() {
@@ -50,8 +93,14 @@
     const formula = `1d${props.classDefinition.hitDie}`;
     const rollData = diceRollerStore.parseAndRoll(formula);
 
+    const rollTitle = `${
+      CLASS_WIZARD_LABELS.hitPointsRollPrefix
+    }${props.classDefinition.name}, ${props.nextLevel}${LEVEL_BADGE_SUFFIX}${
+      CLASS_WIZARD_LABELS.parenSuffix
+    }`;
+
     chatStore.sendMessage(
-      `🎲 Очки здоровья (${props.classDefinition.name}, ${props.nextLevel} ур.): ${formula} = ${rollData.total}`,
+      `${rollTitle}: ${formula} = ${rollData.total}`,
       'roll',
       rollData,
     );
@@ -78,7 +127,7 @@
 <template>
   <div class="space-y-3">
     <span class="mb-2 block text-sm font-medium text-toned">
-      Очки здоровья (к{{ classDefinition.hitDie }})
+      {{ stepTitle }}
     </span>
 
     <!-- Первый уровень первого класса — всегда максимум -->
@@ -87,7 +136,7 @@
       class="rounded-lg border border-default/50 bg-elevated/30 px-3 py-2.5"
     >
       <span class="text-sm text-muted">
-        На 1-ом уровне: максимум кости =
+        {{ CLASS_WIZARD_LABELS.hitPointsMaxAtFirstLevel }}
         <span class="font-bold text-warning">{{ classDefinition.hitDie }}</span>
       </span>
     </div>
@@ -103,7 +152,7 @@
         :variant="hitPointMethod === 'average' ? 'solid' : 'outline'"
         @click.left.exact.prevent="setAverageHp"
       >
-        Среднее ({{ averageHitPoints }})
+        {{ averageButtonLabel }}
       </UButton>
 
       <UButton
@@ -112,7 +161,7 @@
         :variant="hitPointMethod === 'max' ? 'solid' : 'outline'"
         @click.left.exact.prevent="setMaxHp"
       >
-        Макс ({{ classDefinition.hitDie }})
+        {{ maxButtonLabel }}
       </UButton>
 
       <UInput
@@ -129,7 +178,7 @@
         icon="tabler:dice"
         @click.left.exact.prevent="rollHitDie"
       >
-        Бросить к{{ classDefinition.hitDie }}
+        {{ rollButtonLabel }}
       </UButton>
     </div>
   </div>

@@ -8,6 +8,8 @@
     DEFENSIBLE_DAMAGE_TYPES,
   } from '@vtt/shared/system/dnd.js';
 
+  import { DAMAGE_DEFENSE_EDITOR_LABELS } from '../constants';
+
   /**
    * Построчный редактор защит от типов урона: для каждого типа — вид защиты
    * (сопротивление/иммунитет/уязвимость). Переиспользуется для основного вида
@@ -60,14 +62,14 @@
         icon="tabler:trash"
         color="error"
         variant="ghost"
-        :aria-label="`Удалить защиту ${index + 1}`"
+        :aria-label="`${DAMAGE_DEFENSE_EDITOR_LABELS.removePrefix}${index + 1}`"
         @click.left.exact.prevent="removeEntry(index)"
       />
     </div>
 
     <UButton
       icon="tabler:plus"
-      label="Добавить защиту"
+      :label="DAMAGE_DEFENSE_EDITOR_LABELS.add"
       color="neutral"
       variant="subtle"
       class="self-start"

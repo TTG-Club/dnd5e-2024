@@ -8,7 +8,7 @@
   import { Z_INDEX } from '@/shared_ui/consts';
 
   import { useSpeciesGrantedSpellsResolver } from '../../../composables/useSpeciesGrantedSpellsResolver';
-  import { MODAL_BUTTON_LABELS } from '../constants';
+  import { MODAL_BUTTON_LABELS, SPECIES_WIZARD_LABELS } from '../constants';
   import { useSpeciesWizard } from './useSpeciesWizard';
   import WizardStepFeatures from './WizardStepFeatures.vue';
   import WizardStepGrants from './WizardStepGrants.vue';
@@ -108,7 +108,7 @@
     :min-width="800"
     :initial-width="800"
     :min-height="400"
-    title="Настройка вида"
+    :title="SPECIES_WIZARD_LABELS.title"
     :z-index="Z_INDEX.MODAL_ELEVATED * 2"
   >
     <template #body>
@@ -123,7 +123,9 @@
               {{ speciesDefinition.name }}
             </h3>
 
-            <p class="text-sm text-dimmed">Создание персонажа</p>
+            <p class="text-sm text-dimmed">
+              {{ SPECIES_WIZARD_LABELS.subtitle }}
+            </p>
           </div>
         </div>
 

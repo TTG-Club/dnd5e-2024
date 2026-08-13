@@ -13,6 +13,8 @@
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import { useSourceLabels } from '@/systems/dnd5e/composables/useSourceLabel';
 
+  import { CLASS_WIZARD_LABELS, LEVEL_BADGE_SUFFIX } from '../../constants';
+
   const { getSourceLabel } = useSourceLabels();
 
   const props = defineProps<{
@@ -45,7 +47,7 @@
 <template>
   <div class="space-y-3">
     <span class="mb-2 block text-sm font-medium text-toned">
-      Особенности уровня
+      {{ CLASS_WIZARD_LABELS.featuresTitle }}
     </span>
 
     <div
@@ -53,7 +55,7 @@
       class="rounded-lg border border-default/50 bg-elevated/30 px-3 py-2.5"
     >
       <span class="text-sm text-muted">
-        На этом уровне нет новых особенностей.
+        {{ CLASS_WIZARD_LABELS.featuresEmpty }}
       </span>
     </div>
 
@@ -69,7 +71,7 @@
         />
 
         <span class="font-medium text-primary">
-          {{ subclassLabel || 'Выбор подкласса' }}
+          {{ subclassLabel || CLASS_WIZARD_LABELS.subclassFallback }}
         </span>
       </div>
 
@@ -121,7 +123,7 @@
         />
 
         <UBadge
-          :label="`${feature.level} ур.`"
+          :label="`${feature.level}${LEVEL_BADGE_SUFFIX}`"
           size="xs"
           color="neutral"
           variant="subtle"
@@ -140,7 +142,7 @@
         class="mt-3 border-t border-default/50 pt-3"
       >
         <span class="mb-2 block text-sm font-medium text-toned">
-          Выберите вариант:
+          {{ CLASS_WIZARD_LABELS.chooseFeatureChoice }}
         </span>
 
         <div class="flex flex-col gap-2">

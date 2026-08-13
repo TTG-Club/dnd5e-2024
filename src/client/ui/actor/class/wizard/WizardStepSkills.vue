@@ -6,6 +6,9 @@
    */
   import type { SkillType } from '@vtt/shared';
 
+  import { computed } from 'vue';
+
+  import { CLASS_WIZARD_LABELS } from '../../constants';
   import { SKILL_LABELS } from './constants';
 
   const props = withDefaults(
@@ -24,6 +27,16 @@
   const emit = defineEmits<{
     'update:selectedSkills': [skills: SkillType[]];
   }>();
+
+  /** Заголовок шага — в скобках выбранное число и предел */
+  const stepTitle = computed(
+    () =>
+      `${
+        CLASS_WIZARD_LABELS.skillsChoosePrefix
+      }${props.selectedSkills.length} / ${props.maxCount}${
+        CLASS_WIZARD_LABELS.parenSuffix
+      }`,
+  );
 
   /** Переключает выбор навыка с учётом лимита */
   function toggleSkill(skill: SkillType) {
@@ -48,7 +61,7 @@
 <template>
   <div class="space-y-3">
     <span class="mb-2 block text-sm font-medium text-toned">
-      Выберите навыки ({{ selectedSkills.length }} / {{ maxCount }})
+      {{ stepTitle }}
     </span>
 
     <div class="flex flex-wrap gap-2">
@@ -64,7 +77,7 @@
 
         <UTooltip
           v-if="alreadyProficientSkills.includes(skill)"
-          text="Этот навык уже получен из другого источника (раса или предыстория)"
+          :text="CLASS_WIZARD_LABELS.skillAlreadyProficient"
         >
           <UIcon
             name="tabler:alert-triangle"

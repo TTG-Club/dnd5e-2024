@@ -1,8 +1,15 @@
 <script setup lang="ts">
   import type { ClassDefinition } from '@vtt/shared/system/dnd.js';
 
+  import { computed } from 'vue';
+
   import { useContextMenu } from '../../../composables/useContextMenu';
-  import { ABILITY_LABELS, CLASS_DEFINITION_MIME } from '../constants';
+  import {
+    ABILITY_LABELS,
+    CLASS_DEFINITION_MIME,
+    CLASS_LIST_ITEM_LABELS,
+    HIT_DIE_LETTER,
+  } from '../constants';
   import ContextMenuOverlay from '../ContextMenuOverlay.vue';
 
   defineOptions({
@@ -36,6 +43,11 @@
 
   const { isMenuOpen, menuX, menuY, openContextMenu, handleAction, closeMenu } =
     useContextMenu(props, emit);
+
+  /** Запись кости хитов класса: «к8» */
+  const hitDieLabel = computed(
+    () => `${HIT_DIE_LETTER}${props.classDefinition.hitDie}`,
+  );
 
   /**
    * Начинает перетаскивание класса на лист персонажа
@@ -79,7 +91,7 @@
       <div class="flex items-center gap-3 text-xs text-muted">
         <!-- Кость хитов -->
         <span :class="HIT_DIE_COLORS[classDefinition.hitDie] ?? 'text-muted'">
-          к{{ classDefinition.hitDie }}
+          {{ hitDieLabel }}
         </span>
 
         <!-- Спасброски -->
@@ -96,7 +108,7 @@
           v-if="classDefinition.spellcasting"
           class="text-magic"
         >
-          Заклинатель
+          {{ CLASS_LIST_ITEM_LABELS.spellcaster }}
         </span>
       </div>
     </div>

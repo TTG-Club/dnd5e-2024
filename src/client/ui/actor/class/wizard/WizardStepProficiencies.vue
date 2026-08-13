@@ -12,6 +12,7 @@
 
   import { getMulticlassProficiencies } from '@vtt/shared/system/dnd.js';
 
+  import { CLASS_WIZARD_LABELS, GRANT_SECTION_LABELS } from '../../constants';
   import ToolProficiencyGrant from '../../ToolProficiencyGrant.vue';
   import { ARMOR_PROF_LABELS, WEAPON_PROF_LABELS } from './constants';
 
@@ -85,11 +86,11 @@
 <template>
   <div class="space-y-3">
     <span class="mb-2 block text-sm font-medium text-toned">
-      Владения
+      {{ GRANT_SECTION_LABELS.proficiencies }}
       <span
         v-if="isMulticlass"
         class="text-sm text-dimmed"
-        >(мультикласс)</span
+        >{{ CLASS_WIZARD_LABELS.multiclassNote }}</span
       >
     </span>
 
@@ -99,9 +100,9 @@
     >
       <!-- Доспехи -->
       <div v-if="armorProficiencies.length > 0">
-        <span class="mb-1 block text-sm font-medium text-muted"
-          >Снаряжение</span
-        >
+        <span class="mb-1 block text-sm font-medium text-muted">{{
+          GRANT_SECTION_LABELS.equipment
+        }}</span>
 
         <div class="flex flex-wrap gap-1.5">
           <UBadge
@@ -117,7 +118,9 @@
 
       <!-- Оружие -->
       <div v-if="weaponProficiencies.length > 0">
-        <span class="mb-1 block text-sm font-medium text-muted">Оружие</span>
+        <span class="mb-1 block text-sm font-medium text-muted">{{
+          GRANT_SECTION_LABELS.weapons
+        }}</span>
 
         <div class="flex flex-wrap gap-1.5">
           <UBadge
@@ -146,7 +149,7 @@
       class="rounded-lg border border-default/50 bg-elevated/30 px-3 py-2.5"
     >
       <span class="text-sm text-muted">
-        Этот класс не даёт дополнительных владений при мультиклассе.
+        {{ CLASS_WIZARD_LABELS.proficienciesEmpty }}
       </span>
     </div>
   </div>
