@@ -4,7 +4,7 @@
   import { formatItemCost } from '@vtt/shared';
 
   import { useContextMenu } from '../../composables/useContextMenu';
-  import { GAME_ITEM_MIME } from './constants';
+  import { GAME_ITEM_MIME, WEIGHT_UNIT_LABEL } from './constants';
   import ContextMenuOverlay from './ContextMenuOverlay.vue';
 
   const props = defineProps<{
@@ -86,7 +86,7 @@
       v-if="item.weight && (showWeight ?? true)"
       class="shrink-0 text-xs text-dimmed"
     >
-      {{ item.weight }} фнт.
+      {{ item.weight }} {{ WEIGHT_UNIT_LABEL }}
     </span>
   </div>
 

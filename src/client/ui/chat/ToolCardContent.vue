@@ -12,7 +12,11 @@
     RARITY_OPTIONS,
   } from '@vtt/shared/system/dnd.js';
 
-  import { EQUIPMENT_CARD_LABELS, TOOL_CARD_LABELS } from '../actor/constants';
+  import {
+    EQUIPMENT_CARD_LABELS,
+    TOOL_CARD_LABELS,
+    WEIGHT_UNIT_LABEL,
+  } from '../actor/constants';
   import { parseCardPayload } from './cardPayload';
   import { RARITY_BORDER_CLASSES, RARITY_BORDER_DEFAULT } from './consts';
 
@@ -126,7 +130,9 @@
             EQUIPMENT_CARD_LABELS.weightPrefix
           }}</span>
 
-          <span class="text-toned">{{ item.weight }} фнт.</span>
+          <span class="text-toned"
+            >{{ item.weight }} {{ WEIGHT_UNIT_LABEL }}</span
+          >
         </div>
       </div>
 
