@@ -22,7 +22,13 @@
     loadSpellPacks,
   } from '@/systems/dnd5e/composables/spellCompendium';
 
-  import { MODAL_BUTTON_LABELS } from './constants';
+  import {
+    FEAT_FORM_LABELS,
+    FORM_FIELD_LABELS,
+    FORM_TAB_LABELS,
+    GRANT_SECTION_LABELS,
+    MODAL_BUTTON_LABELS,
+  } from './constants';
   import {
     buildFeatData,
     createEmptyFeatGrants,
@@ -67,10 +73,10 @@
   const { openModal, getNextZIndex } = useModalManager();
 
   const tabItems = [
-    { label: 'Основное', slot: 'basic' as const },
-    { label: 'Заклинания', slot: 'spells' as const },
-    { label: 'Эффекты', slot: 'effects' as const },
-    { label: 'Владения', slot: 'grants' as const },
+    { label: FORM_TAB_LABELS.main, slot: 'basic' as const },
+    { label: GRANT_SECTION_LABELS.spells, slot: 'spells' as const },
+    { label: FORM_TAB_LABELS.effects, slot: 'effects' as const },
+    { label: GRANT_SECTION_LABELS.proficiencies, slot: 'grants' as const },
   ];
 
   // ── Состояние формы ──────────────────────────────────────────
@@ -278,7 +284,7 @@
 <template>
   <UDraggableModal
     :open="open"
-    :title="feat ? 'Редактировать черту' : 'Создать черту'"
+    :title="feat ? FEAT_FORM_LABELS.editTitle : FEAT_FORM_LABELS.createTitle"
     :subtitle="nameEn || undefined"
     :initial-width="640"
     :min-width="520"
@@ -303,15 +309,15 @@
         <template #basic>
           <div class="flex flex-col gap-4">
             <div class="grid grid-cols-2 gap-3">
-              <UFormField label="Название">
+              <UFormField :label="FORM_FIELD_LABELS.name">
                 <UInput
                   v-model="name"
-                  placeholder="Магический посвящённый"
+                  :placeholder="FEAT_FORM_LABELS.namePlaceholder"
                   class="w-full"
                 />
               </UFormField>
 
-              <UFormField label="Английское название">
+              <UFormField :label="FORM_FIELD_LABELS.nameEn">
                 <UInput
                   v-model="nameEn"
                   placeholder="Magic Initiate"
@@ -320,22 +326,22 @@
               </UFormField>
             </div>
 
-            <UFormField label="Описание">
+            <UFormField :label="FORM_FIELD_LABELS.description">
               <RichTextEditor
                 v-model="description"
-                placeholder="Выберите класс..."
+                :placeholder="FEAT_FORM_LABELS.classPlaceholder"
               />
             </UFormField>
 
             <FormSection>
               <UCheckbox
                 v-model="repeatable"
-                label="Повторяемая черта"
+                :label="FEAT_FORM_LABELS.repeatable"
               />
 
               <UFormField
                 v-if="repeatable"
-                label="Условия повторного выбора"
+                :label="FEAT_FORM_LABELS.repeatableRules"
                 class="mt-2"
               >
                 <UTextarea
@@ -343,13 +349,13 @@
                   :rows="2"
                   autoresize
                   class="w-full"
-                  placeholder="Напр. «нельзя выбрать одну характеристику дважды»"
+                  :placeholder="FEAT_FORM_LABELS.repeatableRulesPlaceholder"
                 />
               </UFormField>
             </FormSection>
 
             <FormSection
-              title="Источник"
+              :title="FORM_FIELD_LABELS.source"
               title-color="source"
             >
               <SourceField
@@ -359,7 +365,7 @@
 
               <UCheckbox
                 v-model="isSRD"
-                label="SRD контент"
+                :label="FORM_FIELD_LABELS.srd"
                 class="mt-2"
               />
             </FormSection>
@@ -370,9 +376,7 @@
         <template #spells>
           <div class="flex flex-col gap-2">
             <p class="text-xs text-dimmed">
-              Заклинания, которые черта выдаёт автоматически (всегда
-              подготовлены). Совпавшее с компендиумом выдаётся при применении
-              черты к персонажу.
+              {{ FEAT_FORM_LABELS.spellsHint }}
             </p>
 
             <GrantedSpellsEditor
@@ -387,15 +391,14 @@
         <template #effects>
           <div class="flex flex-col gap-2">
             <p class="text-xs text-dimmed">
-              Активные эффекты (бонусы к характеристикам, КД, флаги преимущества
-              и т.п.). Переносятся на персонажа при применении черты.
+              {{ FEAT_FORM_LABELS.effectsHint }}
             </p>
 
             <div
               v-if="effects.length === 0"
               class="rounded-lg border border-dashed border-default p-3 text-center text-xs text-dimmed italic"
             >
-              Эффектов пока нет.
+              {{ FEAT_FORM_LABELS.effectsEmpty }}
             </div>
 
             <div
@@ -473,7 +476,7 @@
           v-if="!canSave"
           class="text-xs text-dimmed"
         >
-          Укажите название
+          {{ FEAT_FORM_LABELS.saveHint }}
         </span>
 
         <div class="ml-auto flex gap-3">

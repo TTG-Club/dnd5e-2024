@@ -15,6 +15,9 @@
     ABILITY_LABELS,
     ARMOR_PROF_SHORT_LABELS,
     CASTER_TYPE_LABELS,
+    CLASS_DETAIL_LABELS,
+    CLASS_LEVEL_TABLE_LABELS,
+    GRANT_SECTION_LABELS,
     SKILL_LABELS,
     TOOL_PROF_LABELS,
     WEAPON_PROF_SHORT_LABELS,
@@ -24,8 +27,8 @@
   /** Проверяет, является ли особенность генеричной заглушкой подкласса («Умение подкласса», «Подкласс воина») */
   function isSubclassPlaceholder(feature: ClassFeature): boolean {
     return (
-      feature.name === 'Умение подкласса'
-      || feature.name.startsWith('Подкласс ')
+      feature.name === CLASS_DETAIL_LABELS.subclassFeature
+      || feature.name.startsWith(CLASS_DETAIL_LABELS.subclassPrefix)
     );
   }
 
@@ -219,7 +222,7 @@
     const classDef = props.classDefinition;
 
     if (!classDef || classDef.armorProficiencies.length === 0) {
-      return 'Нет';
+      return CLASS_DETAIL_LABELS.empty;
     }
 
     return classDef.armorProficiencies
@@ -232,7 +235,7 @@
     const classDef = props.classDefinition;
 
     if (!classDef || classDef.weaponProficiencies.length === 0) {
-      return 'Нет';
+      return CLASS_DETAIL_LABELS.empty;
     }
 
     return classDef.weaponProficiencies
@@ -299,7 +302,7 @@
 <template>
   <UDraggableModal
     :open="open"
-    :title="classDefinition?.name ?? 'Класс'"
+    :title="classDefinition?.name ?? CLASS_DETAIL_LABELS.fallbackTitle"
     :subtitle="classDefinition?.nameEn || undefined"
     :initial-width="1000"
     :initial-height="700"
@@ -342,8 +345,9 @@
           >
             <span
               class="block text-[10px] font-medium tracking-wider text-dimmed uppercase"
-              >Кость хитов</span
             >
+              {{ CLASS_DETAIL_LABELS.hitDie }}
+            </span>
 
             <p class="mt-0.5 font-mono text-base font-bold text-warning">
               к{{ classDefinition.hitDie }}
@@ -356,8 +360,9 @@
           >
             <span
               class="block text-[10px] font-medium tracking-wider text-dimmed uppercase"
-              >Спасброски</span
             >
+              {{ GRANT_SECTION_LABELS.savingThrows }}
+            </span>
 
             <p class="mt-0.5 text-sm font-semibold text-highlighted">
               {{
@@ -396,8 +401,9 @@
           >
             <span
               class="block text-[10px] font-medium tracking-wider text-dimmed uppercase"
-              >Владение снаряжением</span
             >
+              {{ CLASS_DETAIL_LABELS.equipmentProficiency }}
+            </span>
 
             <p class="mt-0.5 text-sm font-semibold text-highlighted">
               {{ armorProfLabel }}
@@ -410,8 +416,9 @@
           >
             <span
               class="block text-[10px] font-medium tracking-wider text-dimmed uppercase"
-              >Владение оружием</span
             >
+              {{ CLASS_DETAIL_LABELS.weaponProficiency }}
+            </span>
 
             <p class="mt-0.5 text-sm font-semibold text-highlighted">
               {{ weaponProfLabel }}
@@ -425,8 +432,9 @@
           >
             <span
               class="block text-[10px] font-medium tracking-wider text-dimmed uppercase"
-              >Инструменты</span
             >
+              {{ GRANT_SECTION_LABELS.tools }}
+            </span>
 
             <p class="mt-0.5 text-sm font-semibold text-highlighted">
               {{ toolProficienciesDisplay }}
@@ -462,7 +470,7 @@
           <span
             class="mb-1.5 block text-xs font-semibold tracking-wider text-dimmed uppercase"
           >
-            Начальное снаряжение (на 1-ом уровне)
+            {{ CLASS_DETAIL_LABELS.startingEquipment }}
           </span>
 
           <div class="flex flex-col gap-2">
@@ -485,19 +493,24 @@
           v-if="classDefinition.subclasses?.length > 0"
           class="mt-4 flex w-64 items-center rounded-lg border border-default/50 bg-elevated/30 p-1"
         >
-          <span class="pl-2 text-xs font-medium text-muted">Подкласс:</span>
+          <span class="pl-2 text-xs font-medium text-muted">
+            {{ CLASS_DETAIL_LABELS.subclassPickerPrefix }}
+          </span>
 
           <USelectMenu
             v-model="selectedSubclassName"
             :items="subclassOptions"
-            placeholder="Выбрать..."
+            :placeholder="CLASS_DETAIL_LABELS.subclassPickerPlaceholder"
             variant="none"
             class="min-w-0 flex-1"
             :searchable="false"
           >
             <template #label>
               <span class="truncate">
-                {{ selectedSubclassName || 'Выбрать...' }}
+                {{
+                  selectedSubclassName
+                  || CLASS_DETAIL_LABELS.subclassPickerPlaceholder
+                }}
               </span>
             </template>
           </USelectMenu>
@@ -540,21 +553,21 @@
                     class="w-10 px-2 py-1.5 text-left align-middle text-muted"
                     :rowspan="hasGroupedColumns ? 2 : 1"
                   >
-                    Ур.
+                    {{ CLASS_LEVEL_TABLE_LABELS.columnLevel }}
                   </th>
 
                   <th
                     class="w-12 px-2 py-1.5 text-left align-middle text-muted"
                     :rowspan="hasGroupedColumns ? 2 : 1"
                   >
-                    Мас.
+                    {{ CLASS_LEVEL_TABLE_LABELS.columnProficiency }}
                   </th>
 
                   <th
                     class="px-2 py-1.5 text-left align-middle text-muted"
                     :rowspan="hasGroupedColumns ? 2 : 1"
                   >
-                    Особенности
+                    {{ GRANT_SECTION_LABELS.features }}
                   </th>
 
                   <!-- Динамические колонки (Верхний уровень) -->
@@ -662,7 +675,7 @@
           <span
             class="mb-1.5 block text-xs font-semibold tracking-wider text-dimmed uppercase"
           >
-            Особенности класса
+            {{ CLASS_DETAIL_LABELS.featuresTitle }}
           </span>
 
           <div class="flex flex-col gap-2">
