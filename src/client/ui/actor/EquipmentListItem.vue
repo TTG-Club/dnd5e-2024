@@ -8,7 +8,11 @@
   import { EQUIPMENT_CATEGORY_ICONS } from '@vtt/shared/system/dnd.js';
 
   import { useContextMenu } from '../../composables/useContextMenu';
-  import { GAME_ITEM_MIME, WEIGHT_UNIT_LABEL } from './constants';
+  import {
+    EQUIPMENT_STAT_LABELS,
+    GAME_ITEM_MIME,
+    WEIGHT_UNIT_LABEL,
+  } from './constants';
   import ContextMenuOverlay from './ContextMenuOverlay.vue';
 
   const props = defineProps<{
@@ -133,7 +137,7 @@
       size="sm"
       class="shrink-0 font-mono"
     >
-      КД {{ displayAC }}
+      {{ EQUIPMENT_STAT_LABELS.armorClass }} {{ displayAC }}
     </UBadge>
 
     <!-- Стоимость -->

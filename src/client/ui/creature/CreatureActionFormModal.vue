@@ -300,6 +300,20 @@
     }
   }
 
+  /**
+   * Счётчик состава эффекта: «1 флаг», «2 модификатора». Окончание встаёт сразу
+   * за словом, поэтому строку собирает функция, а не шаблон: подстановки подряд
+   * форматтер вправе разорвать переносом, и Vue развёл бы слово с окончанием
+   * пробелом.
+   * @param count - сколько записей этого вида у эффекта
+   * @param word - слово в единственном числе
+   */
+  function formatCountWord(count: number, word: string): string {
+    const ending = count === 1 ? '' : CREATURE_ACTION_FORM_LABELS.countSuffix;
+
+    return `${count} ${word}${ending}`;
+  }
+
   // ── Сохранение ─────────────────────────────────────────────────────────────
 
   /** Собирает CreatureAction из формы (чистый JSON: пустые значения не пишутся) */
@@ -742,14 +756,17 @@
                       "
                       class="text-xs text-dimmed"
                     >
-                      {{ effect.changes.length }} модификатор{{
-                        effect.changes.length !== 1
-                          ? CREATURE_ACTION_FORM_LABELS.countSuffix
-                          : ''
-                      }}, {{ effect.flags.length }} флаг{{
-                        effect.flags.length !== 1
-                          ? CREATURE_ACTION_FORM_LABELS.countSuffix
-                          : ''
+                      {{
+                        formatCountWord(
+                          effect.changes.length,
+                          CREATURE_ACTION_FORM_LABELS.changesWord,
+                        )
+                      }},
+                      {{
+                        formatCountWord(
+                          effect.flags.length,
+                          CREATURE_ACTION_FORM_LABELS.flagsWord,
+                        )
                       }}
                     </div>
                   </div>

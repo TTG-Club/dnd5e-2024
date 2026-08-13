@@ -45,6 +45,21 @@
       : preview.value.hitDice.recoverHalf,
   );
 
+  /**
+   * Разбор потраченных костей хитов: «(потрачено 2 из 5)». Числа стоят между
+   * приставкой, связкой и хвостом, поэтому строка собирается здесь, а не в
+   * шаблоне: подстановки подряд форматтер вправе разорвать переносом, и Vue
+   * отодвинул бы закрывающую скобку от числа пробелом.
+   */
+  const hitDiceSpentLabel = computed(
+    () =>
+      LONG_REST_LABELS.hitDiceSpentPrefix
+      + preview.value.hitDice.used
+      + LONG_REST_LABELS.hitDiceSpentMiddle
+      + preview.value.hitDice.total
+      + LONG_REST_LABELS.hitDiceSpentSuffix,
+  );
+
   // При открытии сбрасываем галочку к правилам по умолчанию
   watch(
     () => props.open,
@@ -122,8 +137,7 @@
               <span class="text-healing">+{{ hitDiceToRecover }}</span>
 
               <span class="ml-1 text-xs text-dimmed">
-                (потрачено {{ preview.hitDice.used }} из
-                {{ preview.hitDice.total }})
+                {{ hitDiceSpentLabel }}
               </span>
             </span>
           </div>

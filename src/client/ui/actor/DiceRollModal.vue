@@ -940,7 +940,7 @@
             <strong>{{ DICE_ROLL_LABELS.scalingPrefix }}</strong> +{{
               spellScalingDice
             }}
-            за каждый дополнительный круг
+            {{ DICE_ROLL_LABELS.scalingSuffix }}
           </div>
         </div>
 

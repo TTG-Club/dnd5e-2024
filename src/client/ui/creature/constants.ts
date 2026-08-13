@@ -240,6 +240,8 @@ export const CREATURE_ACTIONS_BLOCK_LABELS = {
   outOfRangeSuffix: ')',
   /** Приписка досягаемости в подписи под названием */
   reachPrefix: ', досягаемость ',
+  /** Хвост счётчика легендарных действий — перед ним идёт их число за раунд */
+  legendaryPerRoundSuffix: '/раунд',
 } as const;
 
 /** Подписи шапки листа существа */
@@ -268,6 +270,8 @@ export const CREATURE_COMBAT_LABELS = {
   hoverBadge: '(зависание)',
   generateHitPoints: 'Сгенерировать здоровье по формуле',
   formulaPrefix: 'Формула:',
+  /** Приставка среднего по формуле — дальше идёт само число */
+  averagePrefix: 'Среднее:',
 } as const;
 
 /** Подписи окна защит существа */
@@ -388,6 +392,9 @@ export const CREATURE_ACTION_FORM_LABELS = {
     + 'попадании атакой.',
   /** Окончание множественного числа в строке «N модификатор(а/ов)» */
   countSuffix: 'а/ов',
+  /** Слова счётчиков состава эффекта — окончание к ним даёт `countSuffix` */
+  changesWord: 'модификатор',
+  flagsWord: 'флаг',
   effectEnable: 'Включить',
   effectDisable: 'Выключить',
   effectEdit: 'Редактировать эффект',

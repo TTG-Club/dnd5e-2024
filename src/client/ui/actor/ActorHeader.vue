@@ -541,7 +541,9 @@
             :title="experienceRowTitle"
             @click.left.exact.prevent="openLevelUp"
           >
-            <span class="whitespace-nowrap">Уровень {{ totalLevel }}</span>
+            <span class="whitespace-nowrap"
+              >{{ ACTOR_HEADER_LABELS.nextLevelPrefix }}{{ totalLevel }}</span
+            >
 
             <!-- Полоса опыта: подпись разрывает её посередине -->
             <span class="flex flex-1 items-center gap-2">

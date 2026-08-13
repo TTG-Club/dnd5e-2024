@@ -292,9 +292,10 @@
                 LEVEL_UP_LABELS.experience
               }}</span>
 
-              <span class="text-xs text-dimmed"
-                >Следующий уровень: {{ editNextLevelXP }} XP</span
-              >
+              <span class="text-xs text-dimmed">
+                {{ LEVEL_UP_LABELS.nextLevelXpPrefix }} {{ editNextLevelXP }}
+                {{ LEVEL_UP_LABELS.experienceUnit }}
+              </span>
             </div>
 
             <!-- Enter в поле опыта = «Применить»: правка опыта чаще всего

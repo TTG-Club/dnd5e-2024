@@ -278,7 +278,8 @@
                         ].includes(spell.durationUnit)
                       "
                     >
-                      до {{ spell.durationValue }}
+                      {{ SPELL_DETAIL_LABELS.durationUpToPrefix }}
+                      {{ spell.durationValue }}
                     </template>
                     {{
                       DURATION_UNIT_LABELS[spell.durationUnit]

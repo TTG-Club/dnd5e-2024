@@ -12,6 +12,7 @@
     HIT_POINTS_LABELS,
     MODAL_BUTTON_LABELS,
   } from '../actor/constants';
+  import { CREATURE_COMBAT_LABELS } from './constants';
 
   interface Props {
     open: boolean;
@@ -262,9 +263,14 @@
           <div
             class="mt-1 flex items-center justify-between text-xs text-dimmed"
           >
-            <span>Формула: {{ generateFormula() }}</span>
+            <span>
+              {{ CREATURE_COMBAT_LABELS.formulaPrefix }} {{ generateFormula() }}
+            </span>
 
-            <span>Среднее: {{ calculateAverage() }}</span>
+            <span>
+              {{ CREATURE_COMBAT_LABELS.averagePrefix }}
+              {{ calculateAverage() }}
+            </span>
           </div>
         </div>
 

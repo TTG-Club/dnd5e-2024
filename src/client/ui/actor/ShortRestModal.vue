@@ -266,7 +266,8 @@
               }}</span>
 
               <span class="text-xs text-dimmed">
-                доступно {{ group.available }} / {{ group.total }}
+                {{ SHORT_REST_LABELS.availablePrefix }} {{ group.available }} /
+                {{ group.total }}
               </span>
             </div>
 

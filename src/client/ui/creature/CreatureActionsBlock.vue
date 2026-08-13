@@ -117,6 +117,16 @@
 
   const { resolveSpellDamageWithParts } = useSpellResolution();
 
+  /**
+   * Счётчик легендарных действий за раунд: «3/раунд». Хвост встаёт сразу за
+   * числом, поэтому запись собирается строкой, а не шаблоном: подстановки
+   * подряд форматтер вправе разорвать переносом, и Vue развёл бы их пробелом.
+   */
+  const legendaryPerRound = computed(
+    () =>
+      `${props.legendaryCount}${CREATURE_ACTIONS_BLOCK_LABELS.legendaryPerRoundSuffix}`,
+  );
+
   // ── Просмотр действия (модалка) ──────────────────────────────────────────
 
   const isDetailOpen = ref(false);
@@ -841,7 +851,7 @@
 
         <!-- Счётчик легендарных действий -->
         <template v-if="legendaryCount !== undefined">
-          <span class="text-xs text-dimmed">({{ legendaryCount }}/раунд)</span>
+          <span class="text-xs text-dimmed">({{ legendaryPerRound }})</span>
 
           <input
             v-if="isEditMode"

@@ -77,6 +77,20 @@
     return casterClass?.spellcastingAbility ?? null;
   });
 
+  /**
+   * Подсказка «характеристику задаёт класс»: «Определяется по классу: ХАР.».
+   * Название стоит между приставкой и точкой, поэтому строка собирается здесь, а
+   * не в шаблоне: подстановки подряд форматтер вправе разорвать переносом, и Vue
+   * отодвинул бы точку от названия пробелом.
+   */
+  const classAbilityHint = computed(() =>
+    classAbility.value
+      ? SPELLCASTING_SETTINGS_LABELS.byClassHintPrefix
+        + abilityLabel(classAbility.value)
+        + SPELLCASTING_SETTINGS_LABELS.byClassHintSuffix
+      : '',
+  );
+
   /** Характеристика, по которой считается предпросмотр */
   const effectiveAbility = computed<AbilityType | null>(() =>
     draftAbility.value === ABILITY_AUTO
@@ -175,7 +189,7 @@
 
         <p class="text-xs text-dimmed">
           <template v-if="classAbility">
-            Определяется по классу: {{ abilityLabel(classAbility) }}.
+            {{ classAbilityHint }}
           </template>
 
           <template v-else>

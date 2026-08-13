@@ -246,7 +246,8 @@
       <div class="flex flex-col gap-3">
         <div class="flex items-center justify-between">
           <span class="text-sm text-muted">
-            {{ localCounters.length }} шт.
+            {{ localCounters.length }}
+            {{ CLASS_COUNTERS_MODAL_LABELS.countUnit }}
           </span>
 
           <UButton
