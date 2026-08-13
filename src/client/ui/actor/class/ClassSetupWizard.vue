@@ -24,7 +24,7 @@
   import { resolveActorStats } from '@vtt/shared/system/dnd.js';
 
   import { useGrantedSpellsResolver } from '../../../composables/useGrantedSpellsResolver';
-  import { MODAL_BUTTON_LABELS } from '../constants';
+  import { CLASS_WIZARD_LABELS, MODAL_BUTTON_LABELS } from '../constants';
   import { useClassWizard } from './wizard';
   import WizardStepAsi from './wizard/WizardStepAsi.vue';
   import WizardStepFeatures from './wizard/WizardStepFeatures.vue';
@@ -122,14 +122,14 @@
   /** Заголовок модального окна */
   const modalTitle = computed(() => {
     if (isFirstClass.value) {
-      return 'Добавление класса';
+      return CLASS_WIZARD_LABELS.addTitle;
     }
 
     if (isMulticlass.value) {
-      return 'Мультикласс';
+      return CLASS_WIZARD_LABELS.multiclassTitle;
     }
 
-    return 'Повышение уровня';
+    return CLASS_WIZARD_LABELS.levelUpTitle;
   });
 
   /** Текст кнопки «Применить» */
@@ -139,10 +139,10 @@
     }
 
     if (isMulticlass.value) {
-      return 'Добавить класс';
+      return CLASS_WIZARD_LABELS.addButton;
     }
 
-    return 'Повысить уровень';
+    return CLASS_WIZARD_LABELS.levelUpButton;
   });
 
   // ── Обработчики шагов ─────────────────────────────────────
@@ -322,7 +322,7 @@
             </h3>
 
             <p class="text-sm text-dimmed">
-              Получаемый уровень:
+              {{ CLASS_WIZARD_LABELS.gainedLevelPrefix }}
               <span class="font-bold text-toned">{{ nextLevel }}</span>
             </p>
           </div>
@@ -505,7 +505,7 @@
   <!-- Предупреждение: заклинания не выбраны -->
   <UDraggableModal
     :open="showSpellWarning"
-    title="Заклинания не выбраны"
+    :title="CLASS_WIZARD_LABELS.spellsNotChosenTitle"
     :draggable="false"
     blocking
     :ui="{
@@ -522,11 +522,11 @@
         />
 
         <p class="text-toned">
-          Вы выбрали не все доступные заклинания для этого уровня.
+          {{ CLASS_WIZARD_LABELS.spellsNotChosenHint }}
           <br />
 
           <span class="text-xs text-dimmed">
-            Их можно выбрать позже в разделе заклинаний персонажа.
+            {{ CLASS_WIZARD_LABELS.spellsLaterHint }}
           </span>
         </p>
       </div>
@@ -548,7 +548,7 @@
           icon="tabler:book-2"
           @click.left.exact.prevent="chooseSpellsNow"
         >
-          Выбрать сразу
+          {{ CLASS_WIZARD_LABELS.chooseNow }}
         </UButton>
 
         <UButton
@@ -556,7 +556,7 @@
           icon="tabler:check"
           @click.left.exact.prevent="continueWithoutSpells"
         >
-          Продолжить без них
+          {{ CLASS_WIZARD_LABELS.continueWithout }}
         </UButton>
       </div>
     </template>

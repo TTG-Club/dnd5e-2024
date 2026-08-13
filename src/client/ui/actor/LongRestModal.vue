@@ -7,7 +7,12 @@
   import { Z_INDEX } from '@/shared_ui/consts';
   import { summarizeActorLongRest } from '@vtt/shared/system/dnd.js';
 
-  import { MODAL_BUTTON_LABELS } from './constants';
+  import {
+    ACTOR_LEFT_PANEL_LABELS,
+    LONG_REST_LABELS,
+    MODAL_BUTTON_LABELS,
+    REST_LABELS,
+  } from './constants';
 
   interface Props {
     open: boolean;
@@ -65,20 +70,22 @@
     :blocking="true"
     :min-width="380"
     :min-height="240"
-    title="Продолжительный отдых"
+    :title="REST_LABELS.long"
     :z-index="Z_INDEX.MODAL_ELEVATED"
   >
     <template #body>
       <div class="space-y-4">
         <p class="text-xs text-dimmed">
-          После продолжительного отдыха восстанавливаются:
+          {{ LONG_REST_LABELS.intro }}
         </p>
 
         <!-- Хиты -->
         <div
           class="flex items-center justify-between rounded-lg bg-elevated/50 p-3"
         >
-          <span class="text-xs tracking-wider text-muted uppercase">Хиты</span>
+          <span class="text-xs tracking-wider text-muted uppercase">
+            {{ LONG_REST_LABELS.hitPoints }}
+          </span>
 
           <span class="font-bold text-highlighted">
             {{ preview.hitPoints.current }}
@@ -107,7 +114,7 @@
               />
 
               <span class="text-xs tracking-wider text-muted uppercase">
-                Кости хитов
+                {{ ACTOR_LEFT_PANEL_LABELS.hitDice }}
               </span>
             </div>
 
@@ -125,7 +132,7 @@
             v-model="recoverAllHitDice"
             class="mt-3"
             :disabled="preview.hitDice.used === 0"
-            label="Восстановить все кости хитов"
+            :label="LONG_REST_LABELS.restoreAllHitDice"
             :ui="{ label: 'text-sm text-toned' }"
           />
         </div>
@@ -141,7 +148,7 @@
                 name="tabler:sparkles"
                 class="h-4 w-4 text-primary"
               />
-              Ячейки заклинаний
+              {{ LONG_REST_LABELS.spellSlots }}
             </span>
 
             <span class="font-bold text-healing">
@@ -158,7 +165,7 @@
                 name="tabler:battery-charging"
                 class="h-4 w-4 text-primary"
               />
-              Классовые ресурсы
+              {{ LONG_REST_LABELS.classResources }}
             </span>
 
             <span class="font-bold text-healing">
@@ -175,7 +182,7 @@
                 name="tabler:flame"
                 class="h-4 w-4 text-primary"
               />
-              Заряды заклинаний
+              {{ LONG_REST_LABELS.spellUses }}
             </span>
 
             <span class="font-bold text-healing">
@@ -192,7 +199,7 @@
                 name="tabler:shield-off"
                 class="h-4 w-4 text-dimmed"
               />
-              Временные хиты сброшены
+              {{ LONG_REST_LABELS.temporaryHitPointsCleared }}
             </span>
 
             <span class="font-bold text-dimmed">
@@ -223,7 +230,7 @@
               name="tabler:moon"
               class="mr-1 h-4 w-4"
             />
-            Завершить отдых
+            {{ LONG_REST_LABELS.finish }}
           </UButton>
         </div>
       </div>

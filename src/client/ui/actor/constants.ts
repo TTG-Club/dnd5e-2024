@@ -1404,6 +1404,78 @@ export const ACTOR_FEATURES_TAB_LABELS = {
   featsEmpty: 'В данный момент черт нет',
 } as const;
 
+/** Подписи мастера добавления класса и повышения уровня */
+export const CLASS_WIZARD_LABELS = {
+  addTitle: 'Добавление класса',
+  multiclassTitle: 'Мультикласс',
+  levelUpTitle: 'Повышение уровня',
+  addButton: 'Добавить класс',
+  levelUpButton: 'Повысить уровень',
+  gainedLevelPrefix: 'Получаемый уровень:',
+  spellsNotChosenTitle: 'Заклинания не выбраны',
+  spellsNotChosenHint:
+    'Вы выбрали не все доступные заклинания для этого уровня.',
+  spellsLaterHint: 'Их можно выбрать позже в разделе заклинаний персонажа.',
+  chooseNow: 'Выбрать сразу',
+  continueWithout: 'Продолжить без них',
+} as const;
+
+/** Подписи окна продолжительного отдыха */
+export const LONG_REST_LABELS = {
+  intro: 'После продолжительного отдыха восстанавливаются:',
+  hitPoints: 'Хиты',
+  restoreAllHitDice: 'Восстановить все кости хитов',
+  spellSlots: 'Ячейки заклинаний',
+  classResources: 'Классовые ресурсы',
+  spellUses: 'Заряды заклинаний',
+  temporaryHitPointsCleared: 'Временные хиты сброшены',
+  finish: 'Завершить отдых',
+} as const;
+
+/** Подписи окна короткого отдыха */
+export const SHORT_REST_LABELS = {
+  rollAndFinish: 'Бросить и завершить отдых',
+  finish: 'Завершить отдых',
+  hitPoints: 'Хиты',
+  spendHitDice: 'Потратить кости хитов',
+  constitutionModPrefix: 'мод. ТЕЛ:',
+  /** Заголовок броска: между частями идёт число восстановленных хитов */
+  rollTitlePrefix: 'Короткий отдых — кости хитов (+',
+  rollTitleSuffix: ' HP)',
+} as const;
+
+/** Подписи окна настройки заклинательства персонажа */
+export const SPELLCASTING_SETTINGS_LABELS = {
+  title: 'Заклинательство',
+  /** Пункт «взять характеристику из класса» — в скобках её название */
+  autoByClassPrefix: 'Авто (по классу: ',
+  autoByClassSuffix: ')',
+  /** То же, когда класс характеристики не задаёт */
+  autoByClass: 'Авто (по классу)',
+  noClassHint: 'Заклинательного класса нет — выберите характеристику вручную.',
+  abilityMod: 'Модификатор характеристики',
+  proficiency: 'Бонус мастерства',
+  saveDC: 'Сложность спасброска',
+  attack: 'Атака заклинанием',
+  formula:
+    'Сложность спасброска = 8 + бонус мастерства + модификатор характеристики. '
+    + 'Бонус атаки — то же без базового значения.',
+} as const;
+
+/** Подписи окна данных компендиума */
+export const COMPENDIUM_LABELS = {
+  searchPlaceholder: 'Поиск...',
+  resetAll: 'Сбросить всё',
+  dragHint:
+    'Перетащите на стол, чтобы добавить в список существ и поставить токен',
+  known: 'Изучено',
+  nothingFound: 'Ничего не найдено',
+  noData: 'Нет данных',
+  cantripsPrefix: 'Заговоры:',
+  spellsPrefix: 'Заклинания:',
+  addSelected: 'Добавить выбранные',
+} as const;
+
 /** Подписи окна счётчиков ресурсов класса */
 export const CLASS_COUNTERS_MODAL_LABELS = {
   title: 'Счётчики ресурсов',

@@ -11,7 +11,11 @@
     SPELL_SAVE_DC_BASE,
   } from '@vtt/shared/system/dnd.js';
 
-  import { MODAL_BUTTON_LABELS } from './constants';
+  import {
+    FORM_FIELD_LABELS,
+    MODAL_BUTTON_LABELS,
+    SPELLCASTING_SETTINGS_LABELS,
+  } from './constants';
   import { formatSignedNumber } from './utils/formatSignedNumber';
 
   interface Props {
@@ -19,7 +23,7 @@
     actor: DnDActor;
     /** Модификаторы характеристик с учётом эффектов — для предпросмотра */
     abilityMods: Record<AbilityType, number>;
-    /** Бонус мастерства актёра */
+    /** {{ SPELLCASTING_SETTINGS_LABELS.proficiency }} актёра */
     proficiencyBonus: number;
     /** Прибавка к Сл спасброска от активных эффектов */
     saveDcEffectBonus: number;
@@ -93,8 +97,8 @@
       {
         value: ABILITY_AUTO,
         label: classAbility.value
-          ? `Авто (по классу: ${abilityLabel(classAbility.value)})`
-          : 'Авто (по классу)',
+          ? `${SPELLCASTING_SETTINGS_LABELS.autoByClassPrefix}${abilityLabel(classAbility.value)}${SPELLCASTING_SETTINGS_LABELS.autoByClassSuffix}`
+          : SPELLCASTING_SETTINGS_LABELS.autoByClass,
       },
       ...ABILITY_OPTIONS.map((option) => ({
         value: option.value,
@@ -149,13 +153,15 @@
     :blocking="true"
     :min-width="420"
     :min-height="320"
-    title="Заклинательство"
+    :title="SPELLCASTING_SETTINGS_LABELS.title"
     :z-index="Z_INDEX.MODAL_ELEVATED"
   >
     <template #body>
       <div class="space-y-3">
         <div class="flex items-center justify-between gap-4">
-          <span class="text-sm text-toned">Характеристика</span>
+          <span class="text-sm text-toned">
+            {{ FORM_FIELD_LABELS.ability }}
+          </span>
 
           <USelect
             v-model="draftAbility"
@@ -173,14 +179,16 @@
           </template>
 
           <template v-else>
-            Заклинательного класса нет — выберите характеристику вручную.
+            {{ SPELLCASTING_SETTINGS_LABELS.noClassHint }}
           </template>
         </p>
 
         <div class="border-t border-muted" />
 
         <div class="flex items-center justify-between gap-4 text-sm">
-          <span class="text-toned">Модификатор характеристики</span>
+          <span class="text-toned">{{
+            SPELLCASTING_SETTINGS_LABELS.abilityMod
+          }}</span>
 
           <span class="text-toned tabular-nums">
             <template v-if="effectiveAbility && abilityModifier !== null">
@@ -193,7 +201,9 @@
         </div>
 
         <div class="flex items-center justify-between gap-4 text-sm">
-          <span class="text-toned">Бонус мастерства</span>
+          <span class="text-toned">{{
+            SPELLCASTING_SETTINGS_LABELS.proficiency
+          }}</span>
 
           <span class="text-toned tabular-nums">
             {{ formatSignedNumber(proficiencyBonus) }}
@@ -208,7 +218,7 @@
             <span
               class="text-center text-[10px] font-bold tracking-wider text-muted uppercase"
             >
-              Сложность спасброска
+              {{ SPELLCASTING_SETTINGS_LABELS.saveDC }}
             </span>
 
             <span class="text-2xl font-bold text-highlighted tabular-nums">
@@ -222,7 +232,7 @@
             <span
               class="text-center text-[10px] font-bold tracking-wider text-muted uppercase"
             >
-              Атака заклинанием
+              {{ SPELLCASTING_SETTINGS_LABELS.attack }}
             </span>
 
             <span class="text-2xl font-bold text-highlighted tabular-nums">
@@ -232,8 +242,7 @@
         </div>
 
         <p class="text-xs leading-relaxed text-dimmed">
-          Сложность спасброска = 8 + бонус мастерства + модификатор
-          характеристики. Бонус атаки — то же без базового значения.
+          {{ SPELLCASTING_SETTINGS_LABELS.formula }}
         </p>
 
         <!-- Кнопки -->

@@ -13,7 +13,14 @@
   import { useDiceRollerStore } from '@/stores/diceRollerStore';
   import { getHitDiceGroups, spendHitDice } from '@vtt/shared/system/dnd.js';
 
-  import { MODAL_BUTTON_LABELS } from './constants';
+  import {
+    ACTOR_LEFT_PANEL_LABELS,
+    DICE_ROLL_LABELS,
+    HIT_POINTS_LABELS,
+    MODAL_BUTTON_LABELS,
+    REST_LABELS,
+    SHORT_REST_LABELS,
+  } from './constants';
 
   interface Props {
     open: boolean;
@@ -73,14 +80,19 @@
 
   /** Текст кнопки завершения отдыха (зависит от выбора костей) */
   const finishButtonLabel = computed(() =>
-    totalPending.value > 0 ? 'Бросить и завершить отдых' : 'Завершить отдых',
+    totalPending.value > 0
+      ? SHORT_REST_LABELS.rollAndFinish
+      : SHORT_REST_LABELS.finish,
   );
 
   /** Формула броска выбранных костей (напр. «2к10 + 1к8 + 4») */
   const rollFormula = computed(() => {
     const diceParts = hitDiceGroups.value
       .filter((group) => (pending[group.die] ?? 0) > 0)
-      .map((group) => `${pending[group.die]}к${group.die}`);
+      .map(
+        (group) =>
+          `${pending[group.die]}${ACTOR_LEFT_PANEL_LABELS.hitDieLetter}${group.die}`,
+      );
 
     if (diceParts.length === 0) {
       return '';
@@ -147,9 +159,9 @@
         props.currentHitPoints + healed,
       );
 
-      rollData.label = `Короткий отдых — кости хитов (+${
+      rollData.label = `${SHORT_REST_LABELS.rollTitlePrefix}${
         newCurrent - props.currentHitPoints
-      } HP)`;
+      }${SHORT_REST_LABELS.rollTitleSuffix}`;
 
       chatStore.sendMessage(rollFormula.value, 'roll', rollData);
 
@@ -189,7 +201,7 @@
     :blocking="true"
     :min-width="380"
     :min-height="240"
-    title="Короткий отдых"
+    :title="REST_LABELS.short"
     :z-index="Z_INDEX.MODAL_ELEVATED"
   >
     <template #body>
@@ -198,7 +210,9 @@
         <div
           class="flex items-center justify-between rounded-lg bg-elevated/50 p-3"
         >
-          <span class="text-xs tracking-wider text-muted uppercase">Хиты</span>
+          <span class="text-xs tracking-wider text-muted uppercase">
+            {{ SHORT_REST_LABELS.hitPoints }}
+          </span>
 
           <span class="font-bold text-highlighted">
             {{ currentHitPoints }}
@@ -212,11 +226,11 @@
             <span
               class="text-[10px] font-bold tracking-wider text-muted uppercase"
             >
-              Потратить кости хитов
+              {{ SHORT_REST_LABELS.spendHitDice }}
             </span>
 
             <span class="text-xs text-dimmed">
-              мод. ТЕЛ:
+              {{ SHORT_REST_LABELS.constitutionModPrefix }}
               <span class="font-bold text-highlighted">
                 {{ conModLabel }}
               </span>
@@ -227,7 +241,7 @@
             v-if="!hasHitDice"
             class="text-sm text-dimmed"
           >
-            Нет доступных костей хитов.
+            {{ HIT_POINTS_LABELS.hitDiceEmpty }}
           </div>
 
           <div
@@ -279,9 +293,9 @@
           v-if="totalPending > 0"
           class="rounded-lg bg-elevated/50 p-3 text-center"
         >
-          <span class="text-xs tracking-wider text-muted uppercase"
-            >Формула</span
-          >
+          <span class="text-xs tracking-wider text-muted uppercase">
+            {{ DICE_ROLL_LABELS.formula }}
+          </span>
 
           <div class="mt-1 font-mono text-lg font-bold text-highlighted">
             {{ rollFormula }}

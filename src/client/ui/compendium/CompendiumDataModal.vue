@@ -27,6 +27,8 @@
   import { useCompendiumView } from '@/shared_ui/composables/useCompendiumView';
   import { generateId, getAssetUrl, systemRegistry } from '@vtt/shared';
 
+  import { COMPENDIUM_LABELS, SHEET_FILTER_LABELS } from '../actor/constants';
+
   /**
    * Расширенный тип записи компендиума — включает все реальные типы данных,
    * приходящие из разных data-файлов (classes, species, backgrounds, feats, spells)
@@ -1008,7 +1010,7 @@
           <UInput
             v-model="searchQuery"
             icon="tabler:search"
-            placeholder="Поиск..."
+            :placeholder="COMPENDIUM_LABELS.searchPlaceholder"
             size="sm"
             :ui="{ root: 'w-full' }"
           />
@@ -1090,7 +1092,7 @@
               name="tabler:x"
               class="mr-0.5 size-3.5"
             />
-            Сбросить всё
+            {{ COMPENDIUM_LABELS.resetAll }}
           </UBadge>
         </div>
 
@@ -1104,7 +1106,7 @@
             <UInput
               v-model="searchQuery"
               icon="tabler:search"
-              placeholder="Поиск по названию..."
+              :placeholder="SHEET_FILTER_LABELS.search"
               size="sm"
               :ui="{ root: 'w-full' }"
             />
@@ -1220,7 +1222,7 @@
                 <template v-else-if="isCreatureDataItem(entry)">
                   <div
                     draggable="true"
-                    title="Перетащите на стол, чтобы добавить в список существ и поставить токен"
+                    :title="COMPENDIUM_LABELS.dragHint"
                     @dragstart="onCreatureDragStart(entry, $event)"
                     @dragend="onCreatureDragEnd"
                   >
@@ -1289,7 +1291,7 @@
                       size="sm"
                       class="shrink-0"
                     >
-                      Изучено
+                      {{ COMPENDIUM_LABELS.known }}
                     </UBadge>
                   </div>
                 </template>
@@ -1312,7 +1314,7 @@
               v-else-if="searchQuery.trim() && items.length > 0"
               class="py-8 text-center text-sm text-dimmed"
             >
-              Ничего не найдено
+              {{ COMPENDIUM_LABELS.nothingFound }}
             </div>
 
             <!-- Пусто -->
@@ -1320,7 +1322,7 @@
               v-else
               class="py-8 text-center text-sm text-dimmed"
             >
-              Нет данных
+              {{ COMPENDIUM_LABELS.noData }}
             </div>
           </div>
 
@@ -1332,7 +1334,7 @@
             <div class="flex items-center justify-between gap-3">
               <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted">
                 <span v-if="cantripsLimit !== undefined">
-                  Заговоры:
+                  {{ COMPENDIUM_LABELS.cantripsPrefix }}
                   <span
                     class="font-semibold"
                     :class="
@@ -1350,7 +1352,7 @@
                 </span>
 
                 <span v-if="selectionLimit !== undefined">
-                  Заклинания:
+                  {{ COMPENDIUM_LABELS.spellsPrefix }}
                   <span
                     class="font-semibold"
                     :class="
@@ -1378,7 +1380,7 @@
                   name="tabler:check"
                   class="mr-1 size-4"
                 />
-                Добавить выбранные
+                {{ COMPENDIUM_LABELS.addSelected }}
               </UButton>
             </div>
           </div>

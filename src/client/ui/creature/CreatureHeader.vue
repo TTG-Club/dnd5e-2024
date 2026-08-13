@@ -13,6 +13,7 @@
     CREATURE_TYPE_LABELS,
     EDIT_MODE_TOGGLE_TITLE,
     MODAL_BUTTON_LABELS,
+    REST_LABELS,
   } from '@/systems/dnd5e/ui/actor/constants';
   import { getAssetUrl } from '@vtt/shared';
   import {
@@ -22,6 +23,8 @@
     CREATURE_SIZE_OPTIONS,
     getAlignmentLabel,
   } from '@vtt/shared/system/dnd.js';
+
+  import { CREATURE_HEADER_LABELS, CREATURE_NO_ALIGNMENT } from './constants';
 
   interface Props {
     creature: DnDCreature;
@@ -162,7 +165,7 @@
             >
               <UInput
                 :model-value="creature.name"
-                placeholder="Имя существа"
+                :placeholder="CREATURE_HEADER_LABELS.namePlaceholder"
                 variant="none"
                 size="xl"
                 class="flex-1"
@@ -211,7 +214,7 @@
               :items="CREATURE_SIZE_OPTIONS"
               value-key="value"
               label-key="label"
-              placeholder="Размер"
+              :placeholder="CREATURE_HEADER_LABELS.size"
               size="xs"
               @update:model-value="updateSystemField('size', $event)"
             />
@@ -221,7 +224,7 @@
               :items="CREATURE_CATEGORY_OPTIONS"
               value-key="value"
               label-key="label"
-              placeholder="Вид"
+              :placeholder="CREATURE_HEADER_LABELS.type"
               size="xs"
               @update:model-value="updateSystemField('type', $event)"
             />
@@ -231,7 +234,7 @@
               :items="CREATURE_ALIGNMENT_OPTIONS"
               value-key="value"
               label-key="label"
-              placeholder="Мировоззрение"
+              :placeholder="CREATURE_HEADER_LABELS.alignment"
               size="xs"
               @update:model-value="updateSystemField('alignment', $event)"
             />
@@ -252,15 +255,17 @@
             <span class="text-toned">{{
               getAlignmentLabel(creature.system.alignment)
               || creature.system.alignment
-              || 'Без мировоззрения'
+              || CREATURE_NO_ALIGNMENT
             }}</span>
           </div>
 
-          <!-- Уровень (ПО) -->
+          <!-- {{ CREATURE_HEADER_LABELS.challengeRating }} -->
           <div
             class="flex items-center gap-2 pt-1 text-xs font-medium text-muted"
           >
-            <div class="whitespace-nowrap">Уровень (ПО)</div>
+            <div class="whitespace-nowrap">
+              {{ CREATURE_HEADER_LABELS.challengeRating }}
+            </div>
 
             <div class="flex items-center whitespace-nowrap">
               <USelect
@@ -293,7 +298,7 @@
       <button
         v-if="isCreating"
         class="flex h-8 items-center gap-1.5 rounded-full border border-success/50 bg-success/80 px-3 text-sm font-medium text-highlighted transition-colors hover:bg-success/70"
-        title="Создать существо"
+        :title="CREATURE_HEADER_LABELS.create"
         @click.left.exact.prevent="emit('save')"
       >
         <UIcon
@@ -323,7 +328,7 @@
       <button
         v-if="canEdit && !isCreating && creature.isInstance"
         class="flex h-8 w-8 items-center justify-center rounded-full border border-default/50 bg-elevated/30 text-muted transition-colors hover:bg-accented/50 hover:text-highlighted"
-        title="Вернуть в список существ"
+        :title="CREATURE_HEADER_LABELS.backToList"
         @click.left.exact.prevent="restoreInstanceToList"
       >
         <UIcon
@@ -336,7 +341,7 @@
       <button
         v-if="canEdit && !isCreating"
         class="flex h-8 w-8 items-center justify-center rounded-full border border-default/50 bg-elevated/30 text-muted transition-colors hover:bg-accented/50 hover:text-highlighted"
-        title="Настройки токена"
+        :title="CREATURE_HEADER_LABELS.tokenSettings"
         @click.left.exact.prevent="emit('open-settings')"
       >
         <UIcon
@@ -371,7 +376,7 @@
       v-if="canEdit && !isCreating"
       class="absolute right-4 bottom-10 z-20 flex items-center gap-2"
     >
-      <UTooltip text="Короткий отдых">
+      <UTooltip :text="REST_LABELS.short">
         <UButton
           icon="tabler:campfire"
           color="neutral"
@@ -383,7 +388,7 @@
         />
       </UTooltip>
 
-      <UTooltip text="Продолжительный отдых">
+      <UTooltip :text="REST_LABELS.long">
         <UButton
           icon="tabler:moon"
           color="neutral"

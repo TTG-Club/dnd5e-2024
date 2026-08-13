@@ -215,6 +215,18 @@ export const CREATURE_SPELL_RECOVERY_CHIPS: Array<{
   },
 ];
 
+/** Подписи шапки листа существа */
+export const CREATURE_HEADER_LABELS = {
+  namePlaceholder: 'Имя существа',
+  size: 'Размер',
+  type: 'Вид',
+  alignment: 'Мировоззрение',
+  challengeRating: 'Уровень (ПО)',
+  create: 'Создать существо',
+  backToList: 'Вернуть в список существ',
+  tokenSettings: 'Настройки токена',
+} as const;
+
 /** Подписи окна защит существа */
 export const CREATURE_DEFENSES_LABELS = {
   bypassAdamantine: 'Адамантиновое',
