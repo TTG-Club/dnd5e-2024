@@ -2,6 +2,12 @@
  * Утилиты для работы с путями к ассетам (изображениям, аудио и т.д.)
  */
 
+import {
+  getPublicAccessInfo,
+  readBrowserLocation,
+  resolveServerBaseUrl,
+} from './publicAccess.js';
+
 /**
  * Максимальный размер медиафайла по любой стороне в пикселях.
  *
@@ -81,10 +87,25 @@ export const UPLOADABLE_MEDIA_MIME_PREFIXES = [
 ] as const;
 
 /**
+ * Типы, которые не принимаются, даже если подходят под префикс выше.
+ *
+ * SVG — это документ со скриптами, а не картинка: открытый по прямой ссылке,
+ * он исполняет свой код в origin мира. Поддержки у него и не было — расширения
+ * `.svg` нет в {@link BROWSABLE_ASSET_EXTENSIONS}, то есть отдавать такой файл
+ * никто не собирался. Наружу он пролезал ровно через широкий префикс `image/`.
+ */
+const BLOCKED_UPLOAD_MIME_TYPES = new Set(['image/svg+xml', 'image/svg']);
+
+/** Что показать пользователю, когда файл отклонён по типу */
+export const SVG_UPLOAD_REJECTED_MESSAGE =
+  'SVG не поддерживается, используйте PNG или WebP';
+
+/**
  * Проверяет, что MIME-тип относится к загружаемому медиа.
  *
  * @param mimeType - значение заголовка `Content-Type` части формы или `File.type`
  * @returns true, если тип начинается с одного из {@link UPLOADABLE_MEDIA_MIME_PREFIXES}
+ *   и не входит в список запрещённых
  */
 export function isUploadableMediaMime(
   mimeType: string | null | undefined,
@@ -93,8 +114,32 @@ export function isUploadableMediaMime(
     return false;
   }
 
+  const normalized = mimeType.split(';')[0]?.trim().toLowerCase() ?? '';
+
+  if (BLOCKED_UPLOAD_MIME_TYPES.has(normalized)) {
+    return false;
+  }
+
   return UPLOADABLE_MEDIA_MIME_PREFIXES.some((prefix) =>
-    mimeType.startsWith(prefix),
+    normalized.startsWith(prefix),
+  );
+}
+
+/**
+ * Является ли файл векторной картинкой, которую мы не принимаем.
+ *
+ * Проверка по имени нужна отдельно от MIME: браузер и `multipart` вправе
+ * прислать `application/octet-stream` для любого файла, и тогда тип ни о чём
+ * не говорит.
+ *
+ * @param fileName - имя файла с расширением
+ * @returns true, если это `.svg`
+ */
+export function isBlockedVectorFile(
+  fileName: string | null | undefined,
+): boolean {
+  return (
+    typeof fileName === 'string' && fileName.toLowerCase().endsWith('.svg')
   );
 }
 
@@ -123,14 +168,26 @@ export function isBrowsableAssetFile(
 }
 
 /**
+ * Максимальный размер файла, загружаемого в папку мира (300 МБ).
+ *
+ * Один лимит на клиент (предпроверка в файловом менеджере) и сервер (гейт
+ * загрузки). Значение историческое — менять только вместе с обеими сторонами.
+ */
+export const MAX_FILE_SIZE = 300 * 1024 * 1024;
+
+/**
+ * Максимальный размер изображения, загружаемого как фон мира (100 МБ).
+ *
+ * Тот же принцип: одно значение на предпроверку в окне настроек мира и на
+ * серверный гейт загрузки фона.
+ */
+export const MAX_IMAGE_SIZE = 100 * 1024 * 1024;
+
+/**
  * Максимальный размер файла, загружаемого в ОБЩУЮ папку установки.
  *
- * Лимит существует только для общего пространства: туда пишут ГМы разных
- * миров, а место на диске одно на всю установку. Для папки мира исторически
- * действует только клиентская предпроверка `MAX_FILE_SIZE`.
- *
- * ⚠️ Проверка постфактум: `readMultipartFormData` буферизует тело целиком,
- * поэтому лимит защищает диск, а не пиковую аллокацию памяти.
+ * Лимит строже, чем у папки мира: сюда пишут ГМы разных миров, а место на
+ * диске одно на всю установку.
  */
 export const MAX_SHARED_FILE_SIZE = 100 * 1024 * 1024;
 
@@ -307,21 +364,20 @@ export function getVideoPosterPath(
 }
 
 /**
- * Получает базовый URL сервера мира
+ * Получает базовый URL сервера мира.
+ *
+ * Вся логика — в чистой {@link resolveServerBaseUrl}; здесь только подстановка
+ * источников: что сервер сообщил о публичном доступе и что в адресной строке.
+ *
  * @param worldPort - порт сервера мира. Если не передан, возвращает пустую строку (относительный URL).
  * @returns Базовый URL (например, "http://vds.example.com:30001") или пустую строку
  */
 export function getServerBaseUrl(worldPort?: number): string {
-  if (!worldPort) {
-    return '';
-  }
-
-  // Используем hostname из адресной строки — работает и в Electron (localhost), и на VDS
-  if (typeof window !== 'undefined') {
-    return `http://${window.location.hostname}:${worldPort}`;
-  }
-
-  return `http://localhost:${worldPort}`;
+  return resolveServerBaseUrl(
+    worldPort,
+    getPublicAccessInfo(),
+    readBrowserLocation(),
+  );
 }
 
 const TOKEN_FRAMES_REGEX = /^\/?(public\/)(token-frames\/)/;

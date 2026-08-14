@@ -6,12 +6,12 @@
  * аура (`EffectAura`), триггер области (`AreaEffectTrigger`) и сама нейтральная
  * база эффекта `BaseActiveEffect`. Конкретная система (D&D 5e) наследует базу и
  * уточняет числовые модификаторы/флаги/состояние своими типами
- * (см. `system/dnd/activeEffectTypes.ts` → `ActiveEffect extends BaseActiveEffect`).
+ * (в её движке: `activeEffectTypes` → `ActiveEffect extends BaseActiveEffect`).
  *
- * ЖИВЁТ В КОНТРАКТЕ (а не в system/dnd), чтобы корневой barrel `@vtt/shared` и
- * нейтральные типы (`BaseActor`/`BaseCreature`/`BaseGameItem`/`CustomArea`) могли
- * ссылаться на форму эффекта БЕЗ зависимости от движка D&D (готовность к Ф3 —
- * физическому переезду system/dnd в systems/dnd5e).
+ * ЖИВЁТ В КОНТРАКТЕ, чтобы корневой barrel `@vtt/shared` и нейтральные типы
+ * (`BaseActor`/`BaseCreature`/`BaseGameItem`/`CustomArea`) могли ссылаться на
+ * форму эффекта БЕЗ зависимости от движка D&D. Переезд состоялся: встроенной
+ * копии движка в `shared` больше нет, он едет в поставке самой системы.
  *
  * @module system/contracts/activeEffect
  */

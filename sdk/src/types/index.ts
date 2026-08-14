@@ -189,8 +189,8 @@ export interface BaseGameItem {
  * Элемент компендиума в НЕЙТРАЛЬНОЙ форме — предмет (`BaseGameItem`) или
  * разделитель секции. Ядро (транспорт/кэш компендиума на клиенте и сервере)
  * знает только эту форму и НЕ читает D&D-поля. D&D-форму (`DnDGameItem`-элементы,
- * чтение level/damageParts/spellData в UI компендиума) даёт одноимённый тип на
- * субпути `@vtt/shared/system/dnd.js`, куда система сужает при отображении.
+ * чтение level/damageParts/spellData в UI компендиума) даёт одноимённый тип из
+ * движка самой системы, куда она сужает при отображении.
  */
 export type CompendiumEntry = BaseGameItem | CompendiumSeparator;
 /**

@@ -8,10 +8,13 @@ export {
 export * from './src/assetPaths.js';
 export * from './src/constants/permissions.js';
 export * from './src/initiativeUtils.js';
-// D&D-боёвка на границе хода (system/dnd/turnEffects) БОЛЬШЕ не реэкспортится из
-// корневого barrel: последний не-системный потребитель (initiativeModule) переведён
-// на контракт `VttSystem` (`getSystem()?.expireTurnEffects?.()`). Значение-уровневая
-// расшивка ядра от D&D завершена — core/модули не тянут D&D-значения (§0.4/§0.5).
+export * from './src/publicAccess.js';
+export * from './src/richContentGuard.js';
+// D&D-боёвки на границе хода (`turnEffects`) здесь БОЛЬШЕ НЕТ ВООБЩЕ: последний
+// не-системный потребитель (initiativeModule) переведён на контракт `VttSystem`
+// (`getSystem()?.expireTurnEffects?.()`), после чего встроенная копия движка
+// (`src/system/dnd/`) удалена целиком — движок правил едет в поставке системы.
+// Расшивка ядра от D&D завершена: core/модули не тянут D&D-значения (§0.4/§0.5).
 export * from './src/system/index.js';
 // packages/shared/index.ts
 // Export all shared modules

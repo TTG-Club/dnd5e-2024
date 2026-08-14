@@ -219,12 +219,12 @@ export interface JournalReorderItem {
 /**
  * Раздел, к которому относится папка сущностей.
  *
- * Дискриминатор общей таблицы папок: новый раздел (предметы, сцены)
+ * Дискриминатор общей таблицы папок: новый раздел (например, предметы)
  * подключается новым значением, без миграции схемы.
  */
-export type EntityFolderKind = 'actor' | 'creature';
+export type EntityFolderKind = 'actor' | 'creature' | 'scene';
 
-/** Папка раздела сущностей («Актеры», «Существа»). */
+/** Папка раздела сущностей («Актеры», «Существа», «Сцены»). */
 export interface EntityFolder {
   id: string;
   worldId: string;
@@ -243,8 +243,8 @@ export interface EntityFolder {
  * Размещение сущности в дереве папок раздела.
  *
  * Живёт отдельно от самой сущности: актёры и существа хранятся JSON-файлами на
- * диске, и держать раскладку по папкам прямо в них означало бы переписывать
- * файл и рассылать сущность целиком на каждое перетаскивание.
+ * диске, сцены — в `scenes.db`, и держать раскладку по папкам прямо в них
+ * означало бы переписывать сущность целиком на каждое перетаскивание.
  */
 export interface EntityFolderPlacement {
   kind: EntityFolderKind;
@@ -1495,6 +1495,28 @@ export interface UserSettings {
   isGmOnlyRoll?: boolean;
   /** Позиция уведомлений на экране */
   toastPosition?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+  /**
+   * Показывать ли отрисовку стен (кнопка «Видимость стен» на панели сцены).
+   *
+   * Эта и следующие настройки панели инструментов жили только в localStorage
+   * браузера, а он привязан к origin: тот же мир, открытый по другому адресу
+   * (подключение через сервис TTG вместо локального), выглядел как сброс
+   * настроек. Поэтому источник правды — сервер, а localStorage остаётся лишь
+   * локальным зеркалом.
+   */
+  wallsVisible?: boolean;
+  /** Привязка линейки и областей к сетке */
+  rulerSnapToGrid?: boolean;
+  /** Число делений клетки для привязки линейки */
+  rulerSnapDivisions?: number;
+  /** Привязка инструмента стен к сетке */
+  wallsSnapToGrid?: boolean;
+  /** Число делений клетки для привязки стен */
+  wallsSnapDivisions?: number;
+  /** Размер кисти тумана войны */
+  fogBrushSize?: number;
+  /** Число сторон многоугольника для инструмента стен «круг» */
+  polygonSides?: number;
 }
 /** Значения по умолчанию для UserSettings */
 export const DEFAULT_USER_SETTINGS: UserSettings = {
@@ -1512,6 +1534,13 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   isPrivateRoll: false,
   isGmOnlyRoll: false,
   toastPosition: 'bottom-left',
+  wallsVisible: false,
+  rulerSnapToGrid: false,
+  rulerSnapDivisions: 2,
+  wallsSnapToGrid: false,
+  wallsSnapDivisions: 2,
+  fogBrushSize: 100,
+  polygonSides: 32,
 };
 export interface UserRestrictions {
   isChatBanned?: boolean;
@@ -1547,6 +1576,24 @@ export interface ServerUser {
   settings?: UserSettings;
   restrictions?: UserRestrictions;
 }
+
+/**
+ * Пользователь в том виде, в каком его отдаёт `/api/world` ДО входа.
+ *
+ * Отдельный тип, а не урезанный `ServerUser`, именно чтобы разница была видна
+ * в системе типов: до аутентификации наружу уходит только то, чем экран входа
+ * рисует список и подписывает форму. Ни роли (она указывает, кто здесь мастер),
+ * ни внутреннего `id` тут нет — `loginId` это его непубличная производная,
+ * пригодная только для `POST /api/login`.
+ */
+export interface WorldLoginUser {
+  /** Публичный идентификатор для формы входа */
+  loginId: string;
+  username: string;
+  /** Спрашивать ли пароль */
+  hasPassword: boolean;
+}
+
 /** Аудио-канал плейлиста */
 export type PlaylistChannel = 'ambient' | 'effects' | 'music';
 /** Плейлист — привязан к папке мира с аудио/видео файлами */

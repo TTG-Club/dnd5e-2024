@@ -141,6 +141,16 @@ export interface ServerToClientEvents {
   'asset:updated': (sceneId: string, asset: SceneAsset) => void;
   'asset:deleted': (sceneId: string, assetId: string) => void;
   'world:updated': (world: World) => void;
+  /**
+   * Состав пользователей мира — приходит сразу после `user:register`.
+   *
+   * Отдельное лёгкое событие, а не `world:updated` целиком: тот тянет за собой
+   * сцены, актёров и существ, которые при входе и так пересылаются поштучно.
+   * Раньше состав ехал открытой ручкой `GET /api/world` ДО входа, из-за чего
+   * роли всех участников (в том числе «кто здесь мастер») видел любой, кто
+   * знает адрес мира. Теперь он едет по аутентифицированному каналу.
+   */
+  'world:users': (users: ServerUser[]) => void;
   'module:custom-event': (
     moduleId: string,
     eventName: string,
@@ -257,6 +267,8 @@ export interface ServerToClientEvents {
   'items:updated': (item: BaseGameItem) => void;
   'items:deleted': (itemId: string) => void;
   'items:list': (items: BaseGameItem[]) => void;
+  /** Предмет не принят сервером: в названии или описании исполняемое содержимое */
+  'items:rejected': (reason: string) => void;
   // Chat
   'chat:message': (message: ChatMessage) => void;
   'chat:history': (messages: ChatMessage[]) => void;
@@ -290,6 +302,8 @@ export interface ServerToClientEvents {
   'fog:brush-cleared': (sceneId: string) => void;
   // Journal (Server → Client)
   'journal:created': (note: Note) => void;
+  /** Запись журнала не принята: в заголовке или странице исполняемое содержимое */
+  'journal:rejected': (reason: string) => void;
   'journal:updated': (note: Note) => void;
   'journal:deleted': (noteId: string) => void;
   'journal:list': (notes: Note[]) => void;
