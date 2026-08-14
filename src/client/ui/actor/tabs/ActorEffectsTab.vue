@@ -32,12 +32,10 @@
 </script>
 
 <template>
-  <!-- Шкала Истощения у персонажа стоит в левой колонке под здоровьем -->
   <ActiveEffectsPanel
     :effects="actor.activeEffects ?? []"
     :equipment="actor.equipment ?? []"
     :is-edit-mode="isEditMode"
-    :show-exhaustion="false"
     @update:effects="handleEffectsUpdate"
   />
 </template>

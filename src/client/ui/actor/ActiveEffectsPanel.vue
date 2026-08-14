@@ -1,7 +1,7 @@
 <!--
   Панель активных эффектов сущности — общая для листа персонажа и листа
-  существа: свои эффекты, эффекты работающего снаряжения, шкала Истощения и
-  сетка состояний D&D 5e.
+  существа: свои эффекты, эффекты работающего снаряжения и сетка состояний
+  D&D 5e. Шкала Истощения живёт отдельно — в левой колонке под здоровьем.
 
   Оба листа показывают эффекты одинаково, поэтому разметка живёт здесь одна.
   Лист отдаёт свои эффекты и (у персонажа) снаряжение, а обратно получает новый
@@ -25,7 +25,6 @@
     EFFECTS_TAB_LABELS,
     MODAL_BUTTON_LABELS,
   } from './constants';
-  import ExhaustionPanel from './ExhaustionPanel.vue';
   import ActiveEffectFormModal from './tabs/ActiveEffectFormModal.vue';
 
   interface Props {
@@ -35,18 +34,9 @@
     isEditMode: boolean;
     /** Снаряжение владельца — у листа существа его нет */
     equipment?: readonly DnDGameItem[];
-    /**
-     * Показывать шкалу Истощения. У листа персонажа она стоит в левой колонке
-     * под здоровьем — там степень читается вместе с хитами, — поэтому здесь он
-     * её отключает. У существа такой колонки нет, и шкала живёт тут.
-     */
-    showExhaustion?: boolean;
   }
 
-  const props = withDefaults(defineProps<Props>(), {
-    equipment: () => [],
-    showExhaustion: true,
-  });
+  const props = withDefaults(defineProps<Props>(), { equipment: () => [] });
 
   const emit = defineEmits<{
     /** Новый список эффектов сущности */
@@ -57,10 +47,8 @@
 
   const {
     customEffects,
-    exhaustionLevel,
     isConditionActive,
     toggleCondition,
-    setExhaustionLevel,
     saveEffect,
     deleteEffect,
     toggleEffectStatus,
@@ -116,8 +104,8 @@
   });
 
   /**
-   * Состояния сетки. Истощение исключено: у него своя шкала степеней выше, а
-   * плитка умела бы только включить первую степень.
+   * Состояния сетки. Истощение исключено: у него своя шкала степеней в левой
+   * колонке листа, а плитка умела бы только включить первую степень.
    */
   const gridConditions = computed(() =>
     CONDITIONS.filter((condition) => condition.key !== 'exhaustion'),
@@ -304,18 +292,6 @@
         </span>
       </div>
     </div>
-  </div>
-
-  <!-- Истощение -->
-  <div
-    v-if="showExhaustion"
-    class="mt-5"
-  >
-    <ExhaustionPanel
-      :level="exhaustionLevel"
-      :is-edit-mode="isEditMode"
-      @select="setExhaustionLevel"
-    />
   </div>
 
   <!-- Состояния -->

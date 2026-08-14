@@ -6,9 +6,7 @@ import { computed } from 'vue';
 
 import {
   buildConditionActiveEffect,
-  getEntityExhaustionLevel,
   resolveEffectConditionKey,
-  withExhaustionLevel,
   withInitializedDuration,
 } from '@vtt/shared/system/dnd.js';
 
@@ -27,8 +25,8 @@ export interface EntityActiveEffectsOptions {
 
 /**
  * Общая механика вкладки эффектов для листа персонажа и листа существа:
- * список своих эффектов, включение и удаление, набор активных состояний,
- * переключение состояния и степень Истощения.
+ * список своих эффектов, включение и удаление, набор активных состояний и
+ * переключение состояния.
  *
  * Оба листа показывают эффекты одинаково, поэтому логика живёт здесь одна:
  * пока она была скопирована в два компонента, правки (опознание состояния по
@@ -76,11 +74,6 @@ export function useEntityActiveEffects(options: EntityActiveEffectsOptions) {
     return keys;
   });
 
-  /** Текущая степень Истощения (0 — состояния нет) */
-  const exhaustionLevel = computed<number>(() =>
-    getEntityExhaustionLevel(options.effects.value),
-  );
-
   /**
    * Проверяет, активно ли состояние.
    *
@@ -116,16 +109,6 @@ export function useEntityActiveEffects(options: EntityActiveEffectsOptions) {
     if (newEffect) {
       options.onChange([...currentEffects, newEffect]);
     }
-  }
-
-  /**
-   * Ставит степень Истощения: нулевая снимает состояние, остальные пересобирают
-   * эффект со штрафами этой степени.
-   *
-   * @param level - новая степень (0–6)
-   */
-  function setExhaustionLevel(level: number): void {
-    options.onChange(withExhaustionLevel(options.effects.value, level));
   }
 
   /**
@@ -179,10 +162,8 @@ export function useEntityActiveEffects(options: EntityActiveEffectsOptions) {
   return {
     customEffects,
     activeConditionKeys,
-    exhaustionLevel,
     isConditionActive,
     toggleCondition,
-    setExhaustionLevel,
     saveEffect,
     deleteEffect,
     toggleEffectStatus,

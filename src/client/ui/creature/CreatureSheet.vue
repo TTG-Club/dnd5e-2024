@@ -42,6 +42,7 @@
     getCreatureProficiencyBonus,
     getCustomBonusesValue,
     getCustomSkillValue,
+    getEntityExhaustionLevel,
     getProficiencyContribution,
     getSkillSetting,
     getSkillSettingAbility,
@@ -51,6 +52,7 @@
     normalizeCreature,
     PASSIVE_SKILL_BASE,
     SKILLS_LIST,
+    withExhaustionLevel,
   } from '@vtt/shared/system/dnd.js';
 
   import { useResolvedStats } from '../../composables/useResolvedStats';
@@ -73,6 +75,7 @@
     UNSAVED_CHANGES_LABELS,
   } from '../actor/constants';
   import DiceRollModal from '../actor/DiceRollModal.vue';
+  import ExhaustionPanel from '../actor/ExhaustionPanel.vue';
   import LanguageProficiencyModal from '../actor/LanguageProficiencyModal.vue';
   import SavingThrowSettingsModal from '../actor/SavingThrowSettingsModal.vue';
   import SheetSettingsGear from '../actor/SheetSettingsGear.vue';
@@ -460,6 +463,30 @@
       isDirty.value = true;
       handleImmediateSave();
     }
+  }
+
+  /** Текущая степень Истощения — её несёт эффект-состояние */
+  const exhaustionLevel = computed(() =>
+    getEntityExhaustionLevel(localCreature.value?.activeEffects),
+  );
+
+  /**
+   * Ставит степень Истощения: движок пересобирает эффект со штрафами этой
+   * степени, нулевая — снимает состояние.
+   *
+   * @param level - выбранная степень (0–6)
+   */
+  function handleExhaustionSelect(level: number): void {
+    if (!localCreature.value) {
+      return;
+    }
+
+    handleCreatureUpdate({
+      activeEffects: withExhaustionLevel(
+        localCreature.value.activeEffects ?? [],
+        level,
+      ),
+    });
   }
 
   /**
@@ -1222,6 +1249,14 @@
                 :armor-class="resolvedStats?.armorClass"
                 :resolved-movement="resolvedStats?.movement"
                 @update:system="handleSystemUpdate"
+              />
+
+              <!-- Истощение: сразу под здоровьем — степень штрафует все тесты
+                к20 и скорость, и читается она вместе с хитами -->
+              <ExhaustionPanel
+                :level="exhaustionLevel"
+                :is-edit-mode="isEditMode"
+                @select="handleExhaustionSelect"
               />
 
               <!-- Защиты -->
