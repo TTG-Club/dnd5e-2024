@@ -1190,6 +1190,11 @@
 </script>
 
 <template>
+  <!--
+    `max-h-[100%]` в `ui.body` снимает дефолтный потолок тела окна в 90vh —
+    тот же приём, что в листе персонажа: без него на полной высоте под
+    содержимым оставалась пустая полоса.
+  -->
   <UDraggableModal
     v-model:open="isOpen"
     hide-header
@@ -1203,7 +1208,7 @@
     :saved-size="savedSize"
     :ui="{
       content: 'bg-default rounded-2xl',
-      body: 'p-0 h-full flex flex-col',
+      body: 'p-0 h-full flex flex-col max-h-[100%]',
     }"
     @bring-to-front="emit('bring-to-front')"
   >

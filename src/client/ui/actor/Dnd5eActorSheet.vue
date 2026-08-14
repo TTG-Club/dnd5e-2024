@@ -1931,6 +1931,12 @@
 </script>
 
 <template>
+  <!--
+    `max-h-[100%]` в `ui.body` снимает дефолтный потолок тела окна в 90vh:
+    окно тянется почти на весь экран, и на полной высоте под содержимым
+    оставалась пустая полоса. Класс вычитывает сама модалка и кладёт его
+    значение в inline `max-height`.
+  -->
   <UDraggableModal
     v-model:open="isOpen"
     :draggable="true"
@@ -1944,7 +1950,7 @@
     :saved-size="props.savedSize"
     :ui="{
       content: 'bg-default rounded-2xl',
-      body: 'p-0',
+      body: 'p-0 max-h-[100%]',
     }"
     :hide-header="true"
     @bring-to-front="emit('bring-to-front')"
