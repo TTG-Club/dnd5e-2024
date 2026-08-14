@@ -359,12 +359,15 @@ export function useBonusDamageParts() {
       targetIsFull,
     );
 
-    // Статический урон оружия (мод. характеристики + магический бонус + плоские
-    // бонусы эффектов) вливается в первую урон-часть — как и прежде у одиночной
-    // формулы; ability-мод не дублируется на дополнительные части урона.
-    const flatDamageMod =
-      (weapon.isMagical && weapon.magicBonus ? weapon.magicBonus : 0)
-      + calculateWeaponDamageModifier(actor, weapon, resolvedStats);
+    // Статический урон оружия (мод. характеристики + магический бонус + свои
+    // бонусы оружия + плоские бонусы эффектов) вливается в первую урон-часть —
+    // как и прежде у одиночной формулы; ability-мод не дублируется на
+    // дополнительные части урона.
+    const flatDamageMod = calculateWeaponDamageModifier(
+      actor,
+      weapon,
+      resolvedStats,
+    );
 
     const baseParts = withFlatDamageBonus(resolvedParts, flatDamageMod);
 

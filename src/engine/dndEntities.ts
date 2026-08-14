@@ -51,7 +51,7 @@ import type { ClassDefinition, ClassKey } from './classTypes.js';
 import type { CreatureSystem } from './creatureTypes.js';
 import type { FeatData } from './featTypes.js';
 import type { SpeciesDefinition } from './speciesTypes.js';
-import type { DnDActorSystem } from './types.js';
+import type { DnDActorSystem, DnDCustomBonus } from './types.js';
 
 /**
  * Существо (NPC) D&D 5e — наследует нейтральную базу `BaseCreature` и добавляет
@@ -125,12 +125,30 @@ export interface DnDGameItem extends BaseGameItem {
   /** Тип боеприпаса (только для оружия со свойством ammunition) */
   ammunitionType?: AmmunitionType;
   // --- Поля атаки (бывший Action) ---
-  /** Характеристика для броска атаки */
+  /**
+   * Характеристика для броска атаки. Поля нет — характеристика по правилам:
+   * дальнобойное от Ловкости, рукопашное от Силы, фехтовальное — бо́льшая
+   * из двух.
+   */
   attackAbility?: AbilityType;
   /** Режим учёта бонуса мастерства (auto / always / never) */
   proficiencyMode?: WeaponProficiencyMode;
   /** Дополнительный бонус к атаке */
   attackBonus?: number;
+  /**
+   * Характеристика, чей модификатор идёт в урон. Поля нет — та же, что у атаки
+   * (как по правилам); `none` — урон без прибавки характеристики.
+   */
+  damageAbility?: AbilityType | 'none';
+  /** Дополнительный бонус к урону — пара к {@link attackBonus} */
+  damageBonus?: number;
+  /**
+   * Свои прибавки к броску атаки этим оружием сверх правил (умение, домашнее
+   * правило). Считаются наравне с остальными слагаемыми атаки.
+   */
+  attackCustomBonuses?: DnDCustomBonus[];
+  /** Свои прибавки к урону этим оружием сверх правил */
+  damageCustomBonuses?: DnDCustomBonus[];
   /**
    * Тип спасброска оружия (для оружия, заставляющего цель совершить спасбросок).
    * `none`/undefined — обычная атака с броском попадания.

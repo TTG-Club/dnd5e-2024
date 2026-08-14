@@ -36,6 +36,8 @@
     CURRENCY_OPTIONS,
     DEFAULT_CREATURE_SIZE,
     describeDamagePart,
+    describeWeaponAttack,
+    describeWeaponDamage,
     evaluateConditionalBonuses,
     formatWeaponDamageFormula,
     getWeaponPrimaryDamageType,
@@ -69,6 +71,7 @@
   import SheetStatTile from '../SheetStatTile.vue';
   import { extractSpellFromGameItem } from '../utils/extractSpellFromGameItem';
   import { formatSignedNumber } from '../utils/formatSignedNumber';
+  import { formatWeaponModifierParts } from '../utils/formatWeaponModifierParts';
 
   const props = defineProps<Props>();
 
@@ -545,7 +548,7 @@
         openModal('SpellDetailModal', { spell });
       }
     } else {
-      openModal('WeaponDetailModal', { item, open: true });
+      openModal('WeaponDetailModal', { item, open: true, actor: props.actor });
     }
   }
 
@@ -574,6 +577,10 @@
     } else {
       openModal(modalName, {
         item,
+        // Владелец нужен только форме оружия — для предпросмотра атаки и
+        // урона. Остальным формам его не передаём: необъявленный проп осел бы
+        // атрибутом на корне и дал ворнинг
+        ...(item.type === 'weapon' ? { actor: props.actor } : {}),
         onSave: (updated: DnDGameItem) => saveEquipmentEdit(updated, formId),
         onClose: () => closeModal(formId),
       });
@@ -888,6 +895,37 @@
   }
 
   /**
+   * Расшифровка бонуса атаки для подсказки плитки: из чего сложилось число.
+   * Строка мастерства остаётся в разборе и без владения — по ней видно, почему
+   * бонуса мастерства в атаке нет.
+   *
+   * @param weapon - оружие
+   * @returns строка вида «Ловкость +3 · Мастерство +2»
+   */
+  function weaponAttackHint(weapon: DnDGameItem): string {
+    return formatWeaponModifierParts(
+      describeWeaponAttack(props.actor, weapon, resolvedStats.value),
+    );
+  }
+
+  /**
+   * Подсказка плитки урона: вид урона и расшифровка статической прибавки.
+   *
+   * @param weapon - оружие
+   * @returns строка вида «Колющий · Ловкость +3 · Магия +1»
+   */
+  function weaponDamageHint(weapon: DnDGameItem): string {
+    return [
+      weaponKindLabel(weapon),
+      formatWeaponModifierParts(
+        describeWeaponDamage(props.actor, weapon, resolvedStats.value),
+      ),
+    ]
+      .filter(Boolean)
+      .join(' · ');
+  }
+
+  /**
    * Формула урона оружия для бейджа — симметрично заклинаниям: кости без
    * инлайн-токенов + вложенный модификатор характеристики/магии (как «4к6+4»).
    *
@@ -897,9 +935,12 @@
   function weaponDamageFormulaLabel(weapon: DnDGameItem): string {
     const base = formatWeaponDamageFormula(weapon);
 
-    const mod =
-      calculateWeaponDamageModifier(props.actor, weapon, resolvedStats.value)
-      + (weapon.isMagical && weapon.magicBonus ? weapon.magicBonus : 0);
+    // Магический бонус входит в расчёт прибавки — отдельно его не добавляем
+    const mod = calculateWeaponDamageModifier(
+      props.actor,
+      weapon,
+      resolvedStats.value,
+    );
 
     if (mod === 0) {
       return base;
@@ -994,7 +1035,7 @@
           key: 'attack',
           label: EQUIPMENT_STAT_LABELS.attack,
           value: getWeaponAttackBonusLabel(item),
-          tooltip: EQUIPMENT_STAT_HINTS.attack,
+          tooltip: weaponAttackHint(item),
           accent: true,
           rollable: true,
         },
@@ -1002,7 +1043,7 @@
           key: 'damage',
           label: EQUIPMENT_STAT_LABELS.damage,
           value: weaponDamageFormulaLabel(item),
-          tooltip: weaponKindLabel(item),
+          tooltip: weaponDamageHint(item),
           accent: true,
           rollable: true,
         },

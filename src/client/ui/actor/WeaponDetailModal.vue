@@ -1,18 +1,22 @@
 <script setup lang="ts">
-  import type { DnDGameItem } from '@vtt/shared/system/dnd.js';
+  import type { DnDActor, DnDGameItem } from '@vtt/shared/system/dnd.js';
 
   import type { ItemPropertyBadge } from './ItemPropertyBadges.vue';
 
-  import { computed } from 'vue';
+  import { computed, toRef } from 'vue';
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { DISTANCE_UNIT_SHORT } from '@vtt/shared';
   import {
+    describeWeaponAttack,
+    describeWeaponDamage,
     getWeaponDamageParts,
+    sumWeaponModifierParts,
     WEAPON_MASTERY_MAP,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useResolvedStats } from '../../composables/useResolvedStats';
   import { DICE_LETTER_REPLACEMENT } from '../chat/consts';
   import {
     COPY_TO_ITEMS_LABEL,
@@ -26,12 +30,20 @@
   import ItemDetailTabs from './ItemDetailTabs.vue';
   import ItemEffectsView from './ItemEffectsView.vue';
   import ItemPropertyBadges from './ItemPropertyBadges.vue';
+  import { formatSignedNumber } from './utils/formatSignedNumber';
+  import { formatWeaponModifierParts } from './utils/formatWeaponModifierParts';
 
   const props = defineProps<{
     /** Открыто ли модальное окно */
     open: boolean;
     /** Оружие для отображения */
     item: DnDGameItem | null;
+    /**
+     * Владелец оружия: с ним карточка показывает итоговые атаку и урон с
+     * разбором слагаемых. Без владельца (компендиум) — только бонус самого
+     * оружия: считать итог не от кого.
+     */
+    actor?: DnDActor;
     /** Z-index модалки (управляется родителем) */
     zIndex?: number;
     /** Смещение позиции для каскадного расположения */
@@ -64,6 +76,44 @@
   const versatileFormula = computed(
     () => props.item?.damageParts?.[0]?.versatileFormula,
   );
+
+  const { resolvedStats } = useResolvedStats(toRef(() => props.actor));
+
+  /**
+   * Разбор атаки и урона для владельца: итог со знаком и слагаемые строкой.
+   * Без владельца — `null`, и карточка показывает бонус самого оружия.
+   */
+  const ownerModifiers = computed(() => {
+    const actor = props.actor;
+    const weapon = props.item;
+
+    if (!actor || !weapon) {
+      return null;
+    }
+
+    const attackParts = describeWeaponAttack(
+      actor,
+      weapon,
+      resolvedStats.value,
+    );
+
+    // Не `damageParts`: так в этом окне называются части урона оружия (кости),
+    // а здесь — слагаемые статической прибавки
+    const damageModifierParts = describeWeaponDamage(
+      actor,
+      weapon,
+      resolvedStats.value,
+    );
+
+    return {
+      attackTotal: formatSignedNumber(sumWeaponModifierParts(attackParts)),
+      attackDetails: formatWeaponModifierParts(attackParts),
+      damageTotal: formatSignedNumber(
+        sumWeaponModifierParts(damageModifierParts),
+      ),
+      damageDetails: formatWeaponModifierParts(damageModifierParts),
+    };
+  });
 
   /** Карта key → definition для названия и описания свойства оружия */
   const propertyMap = computed(() => {
@@ -163,13 +213,45 @@
                 <!-- Урон / Лечение (части) — общий со заклинаниями компонент -->
                 <DamagePartsSummary :parts="weaponDamageParts" />
 
-                <!-- {{ WEAPON_DETAIL_LABELS.attackBonus }} -->
-                <div>
+                <!-- Атака: у владельца — итог с разбором, иначе бонус оружия -->
+                <div v-if="ownerModifiers">
+                  <span class="text-xs text-dimmed">{{
+                    WEAPON_DETAIL_LABELS.attack
+                  }}</span>
+
+                  <p class="text-highlighted">
+                    {{ ownerModifiers.attackTotal }}
+                  </p>
+
+                  <p class="text-xs leading-relaxed text-dimmed">
+                    {{ ownerModifiers.attackDetails }}
+                  </p>
+                </div>
+
+                <div v-else>
                   <span class="text-xs text-dimmed">{{
                     WEAPON_DETAIL_LABELS.attackBonus
                   }}</span>
 
                   <p class="text-highlighted">+{{ item.attackBonus ?? 0 }}</p>
+                </div>
+
+                <!-- Прибавка к урону владельца -->
+                <div v-if="ownerModifiers">
+                  <span class="text-xs text-dimmed">{{
+                    WEAPON_DETAIL_LABELS.damageModifier
+                  }}</span>
+
+                  <p class="text-highlighted">
+                    {{ ownerModifiers.damageTotal }}
+                  </p>
+
+                  <p
+                    v-if="ownerModifiers.damageDetails"
+                    class="text-xs leading-relaxed text-dimmed"
+                  >
+                    {{ ownerModifiers.damageDetails }}
+                  </p>
                 </div>
 
                 <!-- Универсальное -->

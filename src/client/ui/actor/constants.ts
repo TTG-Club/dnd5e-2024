@@ -1021,18 +1021,14 @@ export const EQUIPMENT_STAT_LABELS: Record<
 /** Единица измерения веса — подпись плитки веса */
 export const WEIGHT_UNIT_LABEL = 'фнт.';
 
-/** Подсказки плиток параметров, у которых своей расшифровки нет */
+/**
+ * Подсказки плиток параметров, у которых своей расшифровки нет. Атаки и урона
+ * здесь нет: у них подсказка — разбор слагаемых, он собирается по листу.
+ */
 export const EQUIPMENT_STAT_HINTS: Record<
-  | 'attack'
-  | 'armorClass'
-  | 'shieldClass'
-  | 'toolBonus'
-  | 'cost'
-  | 'weight'
-  | 'uses',
+  'armorClass' | 'shieldClass' | 'toolBonus' | 'cost' | 'weight' | 'uses',
   string
 > = {
-  attack: 'Бонус броска атаки этим оружием',
   armorClass: 'Класс доспеха, который даёт надетый доспех',
   shieldClass: 'Бонус к классу доспеха от щита',
   toolBonus: 'Бонус к проверкам этим инструментом',
@@ -2352,6 +2348,10 @@ export const WEAPON_DETAIL_LABELS = {
   /** Заголовок окна, когда оружия в окне ещё нет */
   fallbackTitle: 'Оружие',
   attackBonus: 'Бонус атаки',
+  /** Итоговый бонус атаки владельца — вместо «Бонуса атаки» самого оружия */
+  attack: 'Атака',
+  /** Статическая прибавка к урону владельца */
+  damageModifier: 'Прибавка к урону',
   versatile: 'Двумя руками',
   range: 'Дальность',
   category: 'Категория',
@@ -3070,6 +3070,18 @@ export const WEAPON_FORM_LABELS = {
   attackBonus: 'Доп. бонус',
   proficiencyMode: 'Уровень умения',
   effectsEmpty: 'Нет эффектов у данного оружия',
+  damageAbility: 'Характеристика урона',
+  damageAbilityInherit: 'Как у атаки',
+  damageAbilityNone: 'Без характеристики',
+  damageBonus: 'Доп. бонус',
+  attackBonusesTitle: 'Свои бонусы атаки',
+  damageBonusesTitle: 'Свои бонусы урона',
+  bonusesHint:
+    'Прибавки сверх правил: черта, домашнее правило, предмет. Идут и в '
+    + 'число на листе, и в настоящий бросок.',
+  attackTotal: 'Итог атаки',
+  damageTotal: 'Итог урона',
+  previewHint: 'Расчёт для текущего листа — у другого владельца он свой.',
 } as const;
 
 /**

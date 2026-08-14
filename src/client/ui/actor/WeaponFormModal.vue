@@ -1,7 +1,12 @@
 <script setup lang="ts">
-  import type { ActiveEffect, DnDGameItem } from '@vtt/shared/system/dnd.js';
+  import type {
+    ActiveEffect,
+    DnDActor,
+    DnDCustomBonusContext,
+    DnDGameItem,
+  } from '@vtt/shared/system/dnd.js';
 
-  import { computed, ref } from 'vue';
+  import { computed, ref, toRef } from 'vue';
 
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
@@ -10,10 +15,21 @@
   import {
     ABILITY_OPTIONS,
     CURRENCY_OPTIONS,
+    describeWeaponAttack,
+    describeWeaponDamage,
+    formatWeaponDamageFormula,
+    getActorAbilityModifiers,
+    getActorProficiencyBonus,
     RARITY_OPTIONS,
+    sumWeaponModifierParts,
   } from '@vtt/shared/system/dnd.js';
 
-  import { useWeaponForm } from '../../composables/useWeaponForm';
+  import { useResolvedStats } from '../../composables/useResolvedStats';
+  import {
+    DAMAGE_ABILITY_INHERIT,
+    DAMAGE_ABILITY_NONE,
+    useWeaponForm,
+  } from '../../composables/useWeaponForm';
   import {
     FORM_FIELD_LABELS,
     FORM_TAB_LABELS,
@@ -23,11 +39,14 @@
     RANGE_FIELD_LABELS,
     WEAPON_FORM_LABELS,
   } from './constants';
+  import CustomBonusRows from './CustomBonusRows.vue';
   import DamagePartsEditor from './DamagePartsEditor.vue';
   import FormSection from './FormSection.vue';
   import ItemUsesFields from './ItemUsesFields.vue';
   import SourceField from './SourceField.vue';
   import ActiveEffectFormModal from './tabs/ActiveEffectFormModal.vue';
+  import { formatSignedNumber } from './utils/formatSignedNumber';
+  import { formatWeaponModifierParts } from './utils/formatWeaponModifierParts';
 
   const props = defineProps<{
     /** Открыто ли модальное окно */
@@ -39,6 +58,12 @@
     savedSize?: unknown;
     /** Редактируемое оружие (null = создание) */
     item: DnDGameItem | null;
+    /**
+     * Владелец оружия — для предпросмотра атаки и урона по его характеристикам.
+     * Нет владельца (компендиум) — поля правятся, но чисел не показываем:
+     * считать их не от кого.
+     */
+    actor?: DnDActor;
     /** Z-index (управляется родителем для bring-to-front) */
     zIndex?: number;
     /** Смещение позиции для каскадного расположения */
@@ -83,6 +108,10 @@
     attackAbility,
     proficiencyMode,
     attackBonus,
+    damageAbility,
+    damageBonus,
+    attackCustomBonuses,
+    damageCustomBonuses,
     special,
     ammunitionType,
     mastery,
@@ -111,6 +140,90 @@
   } = useWeaponForm(
     () => props.item,
     () => props.open,
+  );
+
+  const { resolvedStats } = useResolvedStats(toRef(() => props.actor));
+
+  /**
+   * Оружие, как оно выглядит с текущими полями формы: предпросмотр считается по
+   * нему, поэтому число меняется сразу, ещё до сохранения.
+   */
+  const draftWeapon = computed(() => buildWeapon());
+
+  /** Числа листа, от которых считается вклад своих бонусов */
+  const bonusContext = computed<DnDCustomBonusContext>(
+    () =>
+      resolvedStats.value?.abilityBonusContext ?? {
+        abilityMods: getActorAbilityModifiers(props.actor),
+        proficiencyBonus: props.actor
+          ? getActorProficiencyBonus(props.actor)
+          : 0,
+      },
+  );
+
+  /**
+   * Опции характеристики урона: «как у атаки» первой — это значение по
+   * умолчанию, «без характеристики» последней, между ними шесть характеристик.
+   */
+  const damageAbilityOptions = [
+    {
+      label: WEAPON_FORM_LABELS.damageAbilityInherit,
+      value: DAMAGE_ABILITY_INHERIT,
+    },
+    ...ABILITY_OPTIONS,
+    {
+      label: WEAPON_FORM_LABELS.damageAbilityNone,
+      value: DAMAGE_ABILITY_NONE,
+    },
+  ];
+
+  /** Слагаемые атаки текущего черновика (пусто — предпросмотр не от кого считать) */
+  const attackModifierParts = computed(() =>
+    props.actor
+      ? describeWeaponAttack(
+          props.actor,
+          draftWeapon.value,
+          resolvedStats.value,
+        )
+      : [],
+  );
+
+  /** Слагаемые прибавки к урону текущего черновика */
+  const damageModifierParts = computed(() =>
+    props.actor
+      ? describeWeaponDamage(
+          props.actor,
+          draftWeapon.value,
+          resolvedStats.value,
+        )
+      : [],
+  );
+
+  /** Итог атаки со знаком */
+  const attackTotalLabel = computed(() =>
+    formatSignedNumber(sumWeaponModifierParts(attackModifierParts.value)),
+  );
+
+  /** Итог урона: кости оружия и статическая прибавка (как в строке листа) */
+  const damageTotalLabel = computed(() => {
+    const base = formatWeaponDamageFormula(draftWeapon.value);
+    const modifier = sumWeaponModifierParts(damageModifierParts.value);
+
+    if (modifier === 0) {
+      return base;
+    }
+
+    return `${base}${modifier > 0 ? '+' : ''}${modifier}`;
+  });
+
+  /** Расшифровка атаки одной строкой */
+  const attackDetails = computed(() =>
+    formatWeaponModifierParts(attackModifierParts.value),
+  );
+
+  /** Расшифровка прибавки к урону одной строкой */
+  const damageDetails = computed(() =>
+    formatWeaponModifierParts(damageModifierParts.value),
   );
 
   // --- Состояние модалки создания/редактирования эффекта ---
@@ -513,6 +626,62 @@
                   :allow-empty="true"
                 />
 
+                <!-- От чего идёт прибавка к урону -->
+                <div class="grid grid-cols-2 gap-3">
+                  <UFormField :label="WEAPON_FORM_LABELS.damageAbility">
+                    <USelect
+                      v-model="damageAbility"
+                      :items="damageAbilityOptions"
+                      value-key="value"
+                      class="w-full"
+                    />
+                  </UFormField>
+
+                  <UFormField :label="WEAPON_FORM_LABELS.damageBonus">
+                    <UInput
+                      v-model.number="damageBonus"
+                      type="number"
+                      :placeholder="ITEM_FORM_LABELS.zeroPlaceholder"
+                      class="w-full"
+                    />
+                  </UFormField>
+                </div>
+
+                <!-- Свои бонусы урона -->
+                <div class="flex flex-col gap-2">
+                  <span
+                    class="text-[10px] font-bold tracking-wider text-muted uppercase"
+                  >
+                    {{ WEAPON_FORM_LABELS.damageBonusesTitle }}
+                  </span>
+
+                  <CustomBonusRows
+                    v-model="damageCustomBonuses"
+                    :context="bonusContext"
+                  />
+                </div>
+
+                <!-- Предпросмотр: считается по владельцу, в компендиуме его нет -->
+                <div
+                  v-if="actor"
+                  class="rounded-lg bg-elevated/50 p-2 text-center"
+                >
+                  <span class="text-xs tracking-wider text-muted uppercase">
+                    {{ WEAPON_FORM_LABELS.damageTotal }}
+                  </span>
+
+                  <div class="mt-0.5 text-xl font-bold text-highlighted">
+                    {{ damageTotalLabel }}
+                  </div>
+
+                  <div
+                    v-if="damageDetails"
+                    class="mt-0.5 text-xs text-dimmed"
+                  >
+                    {{ damageDetails }}
+                  </div>
+                </div>
+
                 <!-- Тип боеприпаса (появляется при свойстве «Боеприпасы») -->
                 <UFormField
                   v-if="selectedProperties.includes('ammunition')"
@@ -669,6 +838,49 @@
                     class="w-full"
                   />
                 </UFormField>
+              </div>
+
+              <!-- Свои бонусы атаки -->
+              <div class="mt-3 flex flex-col gap-2">
+                <span
+                  class="text-[10px] font-bold tracking-wider text-muted uppercase"
+                >
+                  {{ WEAPON_FORM_LABELS.attackBonusesTitle }}
+                </span>
+
+                <CustomBonusRows
+                  v-model="attackCustomBonuses"
+                  :context="bonusContext"
+                />
+
+                <p class="text-xs leading-relaxed text-dimmed">
+                  {{ WEAPON_FORM_LABELS.bonusesHint }}
+                </p>
+              </div>
+
+              <!-- Предпросмотр: считается по владельцу, в компендиуме его нет -->
+              <div
+                v-if="actor"
+                class="mt-3 rounded-lg bg-elevated/50 p-2 text-center"
+              >
+                <span class="text-xs tracking-wider text-muted uppercase">
+                  {{ WEAPON_FORM_LABELS.attackTotal }}
+                </span>
+
+                <div class="mt-0.5 text-xl font-bold text-highlighted">
+                  {{ attackTotalLabel }}
+                </div>
+
+                <div
+                  v-if="attackDetails"
+                  class="mt-0.5 text-xs text-dimmed"
+                >
+                  {{ attackDetails }}
+                </div>
+
+                <p class="mt-1 text-[10px] text-dimmed">
+                  {{ WEAPON_FORM_LABELS.previewHint }}
+                </p>
               </div>
             </FormSection>
           </div>

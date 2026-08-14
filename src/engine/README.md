@@ -159,25 +159,38 @@ graph TD
 > удалены — источник истины один: `system.hitPoints.{current,max,temp}`.
 > Поле `effects` тоже удалено — актуальное имя `activeEffects: ActiveEffect[]`.
 
-## Расчёт модификатора атаки
+## Расчёт атаки и урона оружием
+
+Итог собирается из разбора: `describeWeapon*` отдаёт слагаемые
+(`WeaponModifierPart[]`), а число — их сумма. Один источник и для бейджа на
+листе, и для расшифровки в подсказке: разойтись им негде.
 
 ```
 calculateWeaponAttackModifier(actor, weapon, resolvedStats?)
-├─ abilityScore = resolveWeaponAbilityScore(actor, weapon)
-│  ├─ if weapon.weaponProperties includes "finesse":
-│  │  └─ max(abilities.strength, abilities.dexterity)   ← фехтовальное
-│  └─ else: abilities[weapon.attackAbility ?? "strength"]
-├─ modifier = calculateAbilityModifier(abilityScore)    ← floor((score - 10) / 2)
-├─ if resolveWeaponProficiency(actor, weapon):
-│  └─ modifier += calculateProficiencyBonus(getTotalLevel(actor.system.classes))
-│                                                       ← floor((level - 1) / 4) + 2
-├─ modifier += weapon.attackBonus
-├─ if weapon.isMagical && weapon.magicBonus:
-│  └─ modifier += weapon.magicBonus                     ← магический бонус
-└─ if resolvedStats:                                    ← Active Effects (ауры, экипировка)
-   └─ modifier += weapon.rangeType !== "ranged"
-        ? resolvedStats.attackBonuses.melee
-        : resolvedStats.attackBonuses.ranged
+└─ sum(describeWeaponAttack(actor, weapon, resolvedStats))
+   ├─ характеристика: модификатор по ключу
+   │  └─ ключ = resolveWeaponAttackAbility(actor, weapon, resolvedStats)
+   │     ├─ "finesse" → та из Силы/Ловкости, что больше   ← фехтовальное
+   │     └─ иначе weapon.attackAbility ?? getDefaultWeaponAbility(rangeType)
+   │        ← без явной характеристики: ranged → Ловкость, melee → Сила
+   ├─ мастерство: resolveWeaponProficiency ? бонус мастерства листа : 0
+   │              ← строка остаётся с нулём и пометкой «нет владения»
+   ├─ weapon.attackBonus                                  ← свой бонус оружия
+   ├─ weapon.magicBonus (при isMagical)                    ← магический бонус
+   ├─ resolvedStats.attackBonuses[melee|ranged]            ← Active Effects
+   └─ weapon.attackCustomBonuses[]                         ← свои бонусы оружия
+
+calculateWeaponDamageModifier(actor, weapon, resolvedStats?)
+└─ sum(describeWeaponDamage(actor, weapon, resolvedStats))
+   ├─ характеристика: resolveWeaponDamageAbility(...)
+   │  ├─ weapon.damageAbility === "none" → слагаемого нет
+   │  ├─ weapon.damageAbility → она
+   │  └─ поля нет → характеристика атаки
+   ├─ weapon.damageBonus
+   ├─ weapon.magicBonus (при isMagical)   ← входит в прибавку урона,
+   │                                        отдельно её не добавляют
+   ├─ resolvedStats.damageBonuses[melee|ranged]
+   └─ weapon.damageCustomBonuses[]
 ```
 
 Реализация — `calculations.ts`.
@@ -199,12 +212,14 @@ calculateWeaponAttackModifier(actor, weapon, resolvedStats?)
 
 | Расчёт | Поле актёра | Поле оружия |
 |--------|-------------|-------------|
-| Модификатор атаки | `system.abilities[attackAbility]` | `attackAbility`, `weaponProperties` (finesse) |
+| Модификатор атаки | `system.abilities[attackAbility]` | `attackAbility` (по умолчанию — от `rangeType`), `weaponProperties` (finesse) |
+| Прибавка к урону | `system.abilities[damageAbility]` | `damageAbility` (нет поля — как у атаки, `none` — без характеристики) |
 | Бонус мастерства | `system.classes` (через `getTotalLevel`) | `proficiencyMode` |
 | Владение оружием | `system.proficiencies.weapons[]` | `baseType`, `weaponCategory` |
-| Бонус к атаке | — | `attackBonus` |
+| Бонус к атаке и урону | — | `attackBonus`, `damageBonus` |
 | Магический бонус | — | `isMagical`, `magicBonus` |
-| Бонусы от эффектов | `ResolvedActorStats.attackBonuses` | `rangeType` (melee/ranged) |
+| Бонусы от эффектов | `ResolvedActorStats.attackBonuses` / `damageBonuses` | `rangeType` (melee/ranged) |
+| Свои бонусы оружия | `ResolvedActorStats.abilityBonusContext` | `attackCustomBonuses`, `damageCustomBonuses` |
 
 ## Единицы измерения расстояния
 

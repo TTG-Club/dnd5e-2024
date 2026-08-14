@@ -14,6 +14,7 @@ import type {
 import type {
   ActiveEffect,
   CurrencyType,
+  DnDCustomBonus,
   DnDGameItem,
 } from '@vtt/shared/system/dnd.js';
 
@@ -24,10 +25,13 @@ import {
   damagePartIsHealing,
   DEFAULT_CURRENCY,
   FALLBACK_SOURCE_KEY,
+  getDefaultWeaponAbility,
   isDnDEffect,
   parseCost,
+  parseCustomBonuses,
   SAVE_EFFECT_OPTIONS,
   SAVE_TYPE_OPTIONS,
+  toStoredCustomBonus,
   WEAPON_MASTERIES,
 } from '@vtt/shared/system/dnd.js';
 
@@ -39,6 +43,20 @@ import { useItemUsesForm } from './useItemUsesForm';
  * запрещает её как значение пункта.
  */
 const NO_SELECTION = 'none';
+
+/**
+ * Значение селектора характеристики урона «как у атаки» — оно же значение по
+ * умолчанию. В записи оружия ему соответствует пустое поле `damageAbility`:
+ * так урон следует за характеристикой атаки, даже если её потом поменяют.
+ */
+export const DAMAGE_ABILITY_INHERIT = 'inherit';
+
+/** Значение селектора характеристики урона «без характеристики» */
+export const DAMAGE_ABILITY_NONE = 'none';
+
+/** Выбор характеристики урона в форме */
+export type DamageAbilityOption =
+  AbilityType | typeof DAMAGE_ABILITY_INHERIT | typeof DAMAGE_ABILITY_NONE;
 
 /**
  * Composable для логики формы оружия.
@@ -77,6 +95,10 @@ export function useWeaponForm(
   const attackAbility = ref<AbilityType>('strength');
   const proficiencyMode = ref<WeaponProficiencyMode>('auto');
   const attackBonus = ref(0);
+  const damageAbility = ref<DamageAbilityOption>(DAMAGE_ABILITY_INHERIT);
+  const damageBonus = ref(0);
+  const attackCustomBonuses = ref<DnDCustomBonus[]>([]);
+  const damageCustomBonuses = ref<DnDCustomBonus[]>([]);
   const special = ref('');
   const ammunitionType = ref<AmmunitionType | ''>('');
   const mastery = ref<string>(NO_SELECTION);
@@ -204,9 +226,25 @@ export function useWeaponForm(
         reach.value = weapon.reach ?? 5;
         rangeNormal.value = weapon.range?.normal ?? 0;
         rangeLong.value = weapon.range?.long ?? 0;
-        attackAbility.value = weapon.attackAbility ?? 'strength';
+
+        attackAbility.value =
+          weapon.attackAbility ?? getDefaultWeaponAbility(weapon.rangeType);
+
         proficiencyMode.value = weapon.proficiencyMode ?? 'auto';
         attackBonus.value = weapon.attackBonus ?? 0;
+        damageAbility.value = weapon.damageAbility ?? DAMAGE_ABILITY_INHERIT;
+        damageBonus.value = weapon.damageBonus ?? 0;
+
+        // Копии, а не сами бонусы предмета: форма живёт до сохранения, и её
+        // правки не должны менять запись раньше времени
+        attackCustomBonuses.value = parseCustomBonuses(
+          weapon.attackCustomBonuses,
+        ).map((bonus) => ({ ...bonus }));
+
+        damageCustomBonuses.value = parseCustomBonuses(
+          weapon.damageCustomBonuses,
+        ).map((bonus) => ({ ...bonus }));
+
         special.value = weapon.special ?? '';
         ammunitionType.value = weapon.ammunitionType ?? '';
         mastery.value = weapon.mastery ?? NO_SELECTION;
@@ -259,9 +297,13 @@ export function useWeaponForm(
         reach.value = 5;
         rangeNormal.value = 0;
         rangeLong.value = 0;
-        attackAbility.value = 'strength';
+        attackAbility.value = getDefaultWeaponAbility(rangeType.value);
         proficiencyMode.value = 'auto';
         attackBonus.value = 0;
+        damageAbility.value = DAMAGE_ABILITY_INHERIT;
+        damageBonus.value = 0;
+        attackCustomBonuses.value = [];
+        damageCustomBonuses.value = [];
         special.value = '';
         ammunitionType.value = '';
         mastery.value = NO_SELECTION;
@@ -286,16 +328,18 @@ export function useWeaponForm(
 
     if (newType === 'ranged' && !hasRange) {
       selectedProperties.value.push('range');
-      attackAbility.value = 'dexterity';
     } else if (newType === 'melee' && hasRange) {
       const index = selectedProperties.value.indexOf('range');
 
       if (index !== -1) {
         selectedProperties.value.splice(index, 1);
       }
-
-      attackAbility.value = 'strength';
     }
+
+    // Характеристика по умолчанию: дальнобойное — Ловкость, рукопашное — Сила.
+    // Вне ветки со свойством «Дальнобойное», иначе у оружия, у которого свойство
+    // уже стоит, характеристика осталась бы от прежнего типа.
+    attackAbility.value = getDefaultWeaponAbility(newType);
   });
 
   /**
@@ -420,6 +464,19 @@ export function useWeaponForm(
       attackAbility: attackAbility.value,
       proficiencyMode: proficiencyMode.value,
       attackBonus: attackBonus.value || undefined,
+      // «Как у атаки» — это отсутствие поля, а не значение: урон обязан
+      // следовать за характеристикой атаки при её смене
+      damageAbility:
+        damageAbility.value === DAMAGE_ABILITY_INHERIT
+          ? undefined
+          : damageAbility.value,
+      damageBonus: damageBonus.value || undefined,
+      attackCustomBonuses: attackCustomBonuses.value.length
+        ? attackCustomBonuses.value.map(toStoredCustomBonus)
+        : undefined,
+      damageCustomBonuses: damageCustomBonuses.value.length
+        ? damageCustomBonuses.value.map(toStoredCustomBonus)
+        : undefined,
       special: special.value.trim() || undefined,
       ammunitionType: selectedProperties.value.includes('ammunition')
         ? ammunitionType.value || undefined
@@ -465,6 +522,10 @@ export function useWeaponForm(
     attackAbility,
     proficiencyMode,
     attackBonus,
+    damageAbility,
+    damageBonus,
+    attackCustomBonuses,
+    damageCustomBonuses,
     special,
     ammunitionType,
     mastery,

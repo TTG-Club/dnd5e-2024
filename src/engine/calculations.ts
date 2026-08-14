@@ -17,9 +17,11 @@ import type {
   MovementType,
   ProficiencyLevel,
   SkillType,
+  WeaponRangeType,
 } from '@vtt/shared';
 
 import type { ResolvedActorStats } from './activeEffectTypes.js';
+import type { DnDCustomBonusContext } from './customBonuses.js';
 import type {
   DnDActor,
   DnDCreature,
@@ -30,6 +32,7 @@ import type { ActorSpeciesEntry } from './speciesTypes.js';
 import type {
   DnDActorSystem,
   DnDCurrency,
+  DnDCustomBonus,
   DnDHitPoints,
   DnDProficiencies,
 } from './types.js';
@@ -38,6 +41,7 @@ import { isRecord } from '@vtt/shared';
 
 import { getTotalLevel } from './classTypes.js';
 import {
+  ABILITY_LABELS,
   CREATURE_SIZE_TO_TOKEN_SCALE,
   DEFAULT_CREATURE_SIZE,
   EXPERIENCE_TABLE,
@@ -51,6 +55,7 @@ import {
   normalizeSpellUsesRecovery,
   SKILL_ABILITY_MAP,
 } from './consts.js';
+import { getCustomBonusValue, parseCustomBonuses } from './customBonuses.js';
 import {
   DEFAULT_PROFICIENCY_BONUS,
   getProficiencyBonusBreakdown,
@@ -307,20 +312,30 @@ export function resolveWeaponProficiency(
 }
 
 /**
- * Рассчитывает модификатор атаки для оружия на основе характеристик актёра.
- * Учитывает модификатор характеристики, бонус мастерства, бонус атаки оружия
- * и бонусы от Active Effects (ауры, экипировка и т.д.).
+ * Возвращает характеристику оружия по умолчанию — когда на самом оружии
+ * `attackAbility` не задана.
  *
- * @param actor - актёр-владелец
- * @param weapon - оружие
- * @param resolvedStats - итоговые статы из пайплайна (для бонусов от эффектов)
- * @returns модификатор атаки
+ * По правилам D&D 5e дальнобойное оружие (луки, арбалеты) бьёт от Ловкости,
+ * рукопашное — от Силы. Метательное рукопашное (`thrown`) остаётся на Силе:
+ * у него `rangeType` — `melee`, а Ловкость подключается только свойством
+ * «Фехтовальное», которое обрабатывается отдельно.
+ *
+ * @param rangeType - тип оружия по дальности
+ * @returns ключ характеристики для атаки и урона
  */
+export function getDefaultWeaponAbility(
+  rangeType?: WeaponRangeType,
+): AbilityType {
+  return rangeType === 'ranged' ? 'dexterity' : 'strength';
+}
+
 /**
- * Возвращает значение характеристики для броска оружия с учётом свойства
- * «Фехтовальное» (finesse): по правилам D&D можно использовать Силу ИЛИ
- * Ловкость — берётся бо́льшая. Без finesse — заданная `attackAbility`
- * (по умолчанию Сила).
+ * Возвращает характеристику броска атаки оружием.
+ *
+ * «Фехтовальное» (finesse) по правилам даёт выбор между Силой и Ловкостью —
+ * берётся та, что даёт больше: иначе выбор пришлось бы хранить на каждом
+ * оружии и переспрашивать при каждой смене характеристик. Без finesse — своя
+ * `attackAbility` оружия, а если её нет — характеристика по типу дальности.
  *
  * Характеристики берутся из итоговых статов листа, когда они переданы: пояс
  * силы, дар вида и свои бонусы листа меняют именно их, и без этого атака
@@ -330,59 +345,366 @@ export function resolveWeaponProficiency(
  * @param actor - актёр-владелец
  * @param weapon - оружие
  * @param resolvedStats - итоговые статы из пайплайна (если посчитаны)
- * @returns значение характеристики (1-30)
+ * @returns ключ характеристики атаки
  */
-export function resolveWeaponAbilityScore(
+export function resolveWeaponAttackAbility(
   actor: DnDActor,
   weapon: DnDGameItem,
   resolvedStats?: ResolvedActorStats,
-): number {
-  const abilities = resolvedStats?.abilities ?? actor.system?.abilities;
-
+): AbilityType {
   if (weapon.weaponProperties?.includes('finesse')) {
-    return Math.max(abilities?.strength ?? 10, abilities?.dexterity ?? 10);
+    const abilities = resolvedStats?.abilities ?? actor.system?.abilities;
+
+    return (abilities?.dexterity ?? 10) > (abilities?.strength ?? 10)
+      ? 'dexterity'
+      : 'strength';
   }
 
-  return abilities?.[weapon.attackAbility ?? 'strength'] ?? 10;
+  // Ключ приходит из записи мира — чужой отбрасывается: иначе он утёк бы
+  // подписью `undefined` в разбор и нулевым модификатором в бросок
+  if (isAbilityType(weapon.attackAbility)) {
+    return weapon.attackAbility;
+  }
+
+  return getDefaultWeaponAbility(weapon.rangeType);
 }
 
+/**
+ * Возвращает характеристику, чей модификатор идёт в урон оружия.
+ *
+ * По правилам это та же характеристика, что и у атаки. Оружие может задать
+ * свою (`damageAbility`) либо отказаться от прибавки вовсе (`none`) — так
+ * описываются предметы вроде метательной сети и домашние правила.
+ *
+ * @param actor - актёр-владелец
+ * @param weapon - оружие
+ * @param resolvedStats - итоговые статы из пайплайна (если посчитаны)
+ * @returns ключ характеристики урона; `null` — урон без характеристики
+ */
+export function resolveWeaponDamageAbility(
+  actor: DnDActor,
+  weapon: DnDGameItem,
+  resolvedStats?: ResolvedActorStats,
+): AbilityType | null {
+  if (weapon.damageAbility === 'none') {
+    return null;
+  }
+
+  // Ключ из записи мира сверяется так же, как у атаки
+  if (isAbilityType(weapon.damageAbility)) {
+    return weapon.damageAbility;
+  }
+
+  return resolveWeaponAttackAbility(actor, weapon, resolvedStats);
+}
+
+/**
+ * Слагаемое итогового числа атаки или урона оружия.
+ *
+ * Разбор — единственный источник и числа, и его расшифровки: итог получается
+ * сложением этих строк, поэтому подсказка на листе не может разойтись с
+ * бейджем.
+ */
+export interface WeaponModifierPart {
+  /** Ключ слагаемого: `ability`, `proficiency`, `weapon`, `magic`, `effects`, `custom-<id>` */
+  key: string;
+
+  /** Подпись слагаемого («Ловкость», «Мастерство», «Эффекты») */
+  label: string;
+
+  /** Вклад слагаемого в итог */
+  value: number;
+
+  /** Пояснение, почему вклада нет (у слагаемого с нулём) */
+  note?: string;
+}
+
+/** Подписи слагаемых атаки и урона оружия */
+export const WEAPON_MODIFIER_PART_LABELS = {
+  /**
+   * Бонус мастерства листа. Не «Мастерство» одним словом: в 2024-й редакции так
+   * называется приём оружия (weapon mastery), и в строке оружия эти два
+   * мастерства спутались бы.
+   */
+  proficiency: 'Бонус мастерства',
+  /** Свой бонус самого оружия (поле «Бонус атаки» / «Бонус урона») */
+  weaponBonus: 'Бонус оружия',
+  /** Магический бонус предмета */
+  magic: 'Магия',
+  /** Плоские бонусы активных эффектов (ауры, экипировка) */
+  effects: 'Эффекты',
+  /** Своя строка бонуса без пометки источника */
+  customUnnamed: 'Свой бонус',
+} as const;
+
+/** Пометка строки мастерства, когда владения этим оружием нет */
+export const WEAPON_NO_PROFICIENCY_NOTE = 'нет владения';
+
+/**
+ * Числа листа, от которых считаются свои бонусы оружия. Итоговые статы держат
+ * готовый контекст; без них он собирается по записи листа.
+ *
+ * @param actor - актёр-владелец
+ * @param resolvedStats - итоговые статы из пайплайна (если посчитаны)
+ * @returns контекст своих бонусов
+ */
+function getWeaponBonusContext(
+  actor: DnDActor,
+  resolvedStats?: ResolvedActorStats,
+): DnDCustomBonusContext {
+  return (
+    resolvedStats?.abilityBonusContext ?? {
+      abilityMods: getActorAbilityModifiers(actor),
+      proficiencyBonus: getActorProficiencyBonus(actor),
+    }
+  );
+}
+
+/**
+ * Слагаемое характеристики: её подпись и модификатор. Характеристики берутся из
+ * итоговых статов листа, когда они есть (пояс силы и прочие эффекты меняют
+ * именно их), иначе — из записи листа.
+ *
+ * @param abilityKey - ключ характеристики
+ * @param actor - актёр-владелец
+ * @param resolvedStats - итоговые статы из пайплайна (если посчитаны)
+ * @returns слагаемое характеристики
+ */
+function getWeaponAbilityPart(
+  abilityKey: AbilityType,
+  actor: DnDActor,
+  resolvedStats?: ResolvedActorStats,
+): WeaponModifierPart {
+  const abilities = resolvedStats?.abilities ?? actor.system?.abilities;
+
+  return {
+    key: 'ability',
+    label: ABILITY_LABELS[abilityKey],
+    value: calculateAbilityModifier(abilities?.[abilityKey] ?? 10),
+  };
+}
+
+/**
+ * Слагаемое своего бонуса оружия («Доп. бонус» атаки или урона).
+ *
+ * Число приходит из записи мира: не число и не конечное — слагаемого нет, иначе
+ * `NaN` расползся бы по всему разбору и итог показал бы пустоту.
+ *
+ * @param bonus - плоский бонус оружия
+ * @returns слагаемое бонуса оружия (пустой список — бонуса нет)
+ */
+function getWeaponFlatBonusParts(
+  bonus: number | undefined,
+): WeaponModifierPart[] {
+  if (typeof bonus !== 'number' || !Number.isFinite(bonus) || bonus === 0) {
+    return [];
+  }
+
+  return [
+    {
+      key: 'weapon',
+      label: WEAPON_MODIFIER_PART_LABELS.weaponBonus,
+      value: bonus,
+    },
+  ];
+}
+
+/**
+ * Слагаемое магического бонуса предмета — одинаковое у атаки и урона: `+1`
+ * магического оружия идёт и туда, и туда.
+ *
+ * @param weapon - оружие
+ * @returns слагаемое магии (пустой список — бонуса нет)
+ */
+function getWeaponMagicParts(weapon: DnDGameItem): WeaponModifierPart[] {
+  if (!weapon.isMagical) {
+    return [];
+  }
+
+  const bonus = Number(weapon.magicBonus);
+
+  if (!Number.isFinite(bonus) || bonus === 0) {
+    return [];
+  }
+
+  return [
+    { key: 'magic', label: WEAPON_MODIFIER_PART_LABELS.magic, value: bonus },
+  ];
+}
+
+/**
+ * Слагаемое плоских бонусов активных эффектов (ауры, экипировка): у оружия
+ * берётся ветка по типу дальности.
+ *
+ * @param bonusesByRange - бонусы эффектов по типу атаки (`attackBonuses` / `damageBonuses`)
+ * @param rangeType - тип оружия по дальности
+ * @returns слагаемое эффектов (пустой список — бонуса нет)
+ */
+function getWeaponEffectsParts(
+  bonusesByRange: { melee: number; ranged: number } | undefined,
+  rangeType: WeaponRangeType | undefined,
+): WeaponModifierPart[] {
+  if (!bonusesByRange) {
+    return [];
+  }
+
+  const value =
+    rangeType === 'ranged' ? bonusesByRange.ranged : bonusesByRange.melee;
+
+  if (value === 0) {
+    return [];
+  }
+
+  return [
+    { key: 'effects', label: WEAPON_MODIFIER_PART_LABELS.effects, value },
+  ];
+}
+
+/**
+ * Строки разбора для своих бонусов оружия. Записи приходят из мира, поэтому
+ * список сверяется `parseCustomBonuses`: испорченная строка выпадает, а
+ * остальные остаются в счёте.
+ *
+ * @param bonuses - свои бонусы оружия
+ * @param actor - актёр-владелец
+ * @param resolvedStats - итоговые статы из пайплайна (если посчитаны)
+ * @returns слагаемые своих бонусов (пустой список — бонусов нет)
+ */
+function getWeaponCustomBonusParts(
+  bonuses: DnDCustomBonus[] | undefined,
+  actor: DnDActor,
+  resolvedStats?: ResolvedActorStats,
+): WeaponModifierPart[] {
+  const parsed = parseCustomBonuses(bonuses);
+
+  if (parsed.length === 0) {
+    return [];
+  }
+
+  const context = getWeaponBonusContext(actor, resolvedStats);
+
+  return parsed.map((bonus) => ({
+    key: `custom-${bonus.id}`,
+    label: bonus.label.trim() || WEAPON_MODIFIER_PART_LABELS.customUnnamed,
+    value: getCustomBonusValue(context, bonus),
+  }));
+}
+
+/**
+ * Разбирает бонус атаки оружием на слагаемые.
+ *
+ * Строка мастерства стоит в разборе и без владения — с нулём и пометкой:
+ * именно она объясняет, почему в атаке не хватает бонуса мастерства.
+ *
+ * @param actor - актёр-владелец
+ * @param weapon - оружие
+ * @param resolvedStats - итоговые статы из пайплайна (для бонусов от эффектов)
+ * @returns слагаемые бонуса атаки в порядке показа
+ */
+export function describeWeaponAttack(
+  actor: DnDActor,
+  weapon: DnDGameItem,
+  resolvedStats?: ResolvedActorStats,
+): WeaponModifierPart[] {
+  const isProficient = resolveWeaponProficiency(actor, weapon);
+
+  const parts: WeaponModifierPart[] = [
+    getWeaponAbilityPart(
+      resolveWeaponAttackAbility(actor, weapon, resolvedStats),
+      actor,
+      resolvedStats,
+    ),
+    {
+      key: 'proficiency',
+      label: WEAPON_MODIFIER_PART_LABELS.proficiency,
+      value: isProficient ? getActorProficiencyBonus(actor, resolvedStats) : 0,
+      note: isProficient ? undefined : WEAPON_NO_PROFICIENCY_NOTE,
+    },
+  ];
+
+  parts.push(
+    ...getWeaponFlatBonusParts(weapon.attackBonus),
+    ...getWeaponMagicParts(weapon),
+    ...getWeaponEffectsParts(resolvedStats?.attackBonuses, weapon.rangeType),
+    ...getWeaponCustomBonusParts(
+      weapon.attackCustomBonuses,
+      actor,
+      resolvedStats,
+    ),
+  );
+
+  return parts;
+}
+
+/**
+ * Разбирает статическую прибавку к урону оружия на слагаемые.
+ *
+ * @param actor - актёр-владелец
+ * @param weapon - оружие
+ * @param resolvedStats - итоговые статы из пайплайна (для бонусов от эффектов)
+ * @returns слагаемые прибавки к урону в порядке показа
+ */
+export function describeWeaponDamage(
+  actor: DnDActor,
+  weapon: DnDGameItem,
+  resolvedStats?: ResolvedActorStats,
+): WeaponModifierPart[] {
+  const parts: WeaponModifierPart[] = [];
+
+  const abilityKey = resolveWeaponDamageAbility(actor, weapon, resolvedStats);
+
+  if (abilityKey) {
+    parts.push(getWeaponAbilityPart(abilityKey, actor, resolvedStats));
+  }
+
+  parts.push(
+    ...getWeaponFlatBonusParts(weapon.damageBonus),
+    ...getWeaponMagicParts(weapon),
+    ...getWeaponEffectsParts(resolvedStats?.damageBonuses, weapon.rangeType),
+    ...getWeaponCustomBonusParts(
+      weapon.damageCustomBonuses,
+      actor,
+      resolvedStats,
+    ),
+  );
+
+  return parts;
+}
+
+/**
+ * Складывает слагаемые разбора в итоговое число.
+ *
+ * @param parts - слагаемые атаки или урона
+ * @returns итоговый модификатор
+ */
+export function sumWeaponModifierParts(parts: WeaponModifierPart[]): number {
+  return parts.reduce((total, part) => total + part.value, 0);
+}
+
+/**
+ * Рассчитывает модификатор атаки для оружия — сумма разбора
+ * {@link describeWeaponAttack}: модификатор характеристики, бонус мастерства,
+ * бонусы самого оружия, бонусы от Active Effects и свои бонусы оружия.
+ *
+ * @param actor - актёр-владелец
+ * @param weapon - оружие
+ * @param resolvedStats - итоговые статы из пайплайна (для бонусов от эффектов)
+ * @returns модификатор атаки
+ */
 export function calculateWeaponAttackModifier(
   actor: DnDActor,
   weapon: DnDGameItem,
   resolvedStats?: ResolvedActorStats,
 ): number {
-  const abilityScore = resolveWeaponAbilityScore(actor, weapon, resolvedStats);
-
-  let modifier = calculateAbilityModifier(abilityScore);
-
-  if (resolveWeaponProficiency(actor, weapon)) {
-    modifier += getActorProficiencyBonus(actor, resolvedStats);
-  }
-
-  if (weapon.attackBonus) {
-    modifier += weapon.attackBonus;
-  }
-
-  // Учёт магического бонуса
-  if (weapon.isMagical && weapon.magicBonus) {
-    modifier += Number(weapon.magicBonus);
-  }
-
-  // Бонусы от Active Effects (ауры, экипировка и т.д.)
-  if (resolvedStats) {
-    const isMelee = weapon.rangeType !== 'ranged';
-
-    modifier += isMelee
-      ? resolvedStats.attackBonuses.melee
-      : resolvedStats.attackBonuses.ranged;
-  }
-
-  return modifier;
+  return sumWeaponModifierParts(
+    describeWeaponAttack(actor, weapon, resolvedStats),
+  );
 }
 
 /**
- * Рассчитывает статический модификатор урона для оружия на основе характеристик актёра.
- * Учитывает модификатор характеристики и статические бонусы урона от Active Effects.
+ * Рассчитывает статическую прибавку к урону оружия — сумма разбора
+ * {@link describeWeaponDamage}. Магический бонус входит в неё, поэтому
+ * отдельно его прибавлять не нужно.
  *
  * @param actor - актёр-владелец
  * @param weapon - оружие
@@ -392,22 +714,11 @@ export function calculateWeaponAttackModifier(
 export function calculateWeaponDamageModifier(
   actor: DnDActor,
   weapon: DnDGameItem,
-  resolvedStats?: import('./activeEffectTypes.js').ResolvedActorStats,
+  resolvedStats?: ResolvedActorStats,
 ): number {
-  const abilityScore = resolveWeaponAbilityScore(actor, weapon, resolvedStats);
-
-  let modifier = calculateAbilityModifier(abilityScore);
-
-  // Бонусы от Active Effects (ауры, экипировка и т.д.)
-  if (resolvedStats) {
-    const isMelee = weapon.rangeType !== 'ranged';
-
-    modifier += isMelee
-      ? resolvedStats.damageBonuses.melee
-      : resolvedStats.damageBonuses.ranged;
-  }
-
-  return modifier;
+  return sumWeaponModifierParts(
+    describeWeaponDamage(actor, weapon, resolvedStats),
+  );
 }
 
 /**
