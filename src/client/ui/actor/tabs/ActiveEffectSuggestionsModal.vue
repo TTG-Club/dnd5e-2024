@@ -1,13 +1,37 @@
+<!--
+  Библиотека подсказок для окна эффекта: ключи модификаторов, значения и
+  формулы, флаги и шаблоны условий.
+
+  Одно окно на все четыре списка: они отличаются только источником данных и
+  подписями, а поиск, разметка и размеры у них общие.
+-->
 <script setup lang="ts">
   import { computed, ref } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
-  import { EFFECT_VALUE_SUGGESTIONS } from '@vtt/shared/system/dnd.js';
 
-  import { ACTIVE_EFFECT_TEMPLATES_LABELS } from '../constants';
+  import { EFFECT_TEMPLATES_MODAL_SIZE } from '../constants';
+
+  /** Строка списка подсказок: что подставится и как это называется */
+  export interface EffectSuggestion {
+    /** Значение, которое подставляется в поле */
+    value: string;
+    /** Человекочитаемое название */
+    label: string;
+  }
 
   interface Props {
     open: boolean;
+    /** Заголовок окна */
+    title: string;
+    /** Подсказка поля поиска */
+    searchPlaceholder: string;
+    /** Текст, когда поиск ничего не нашёл */
+    emptyLabel: string;
+    /** Список подсказок */
+    items: readonly EffectSuggestion[];
+    /** Ключ окна в менеджере окон хоста */
+    modalId: string;
   }
 
   const props = defineProps<Props>();
@@ -29,47 +53,54 @@
     const queryText = searchQuery.value.toLowerCase().trim();
 
     if (!queryText) {
-      return EFFECT_VALUE_SUGGESTIONS;
+      return props.items;
     }
 
-    return EFFECT_VALUE_SUGGESTIONS.filter(
+    return props.items.filter(
       (suggestion) =>
         suggestion.label.toLowerCase().includes(queryText)
         || suggestion.value.toLowerCase().includes(queryText),
     );
   });
+
+  /**
+   * Отдаёт выбранное значение и закрывает окно.
+   *
+   * @param value - значение выбранной строки
+   */
+  function handleSelect(value: string): void {
+    emit('select', value);
+  }
 </script>
 
 <template>
   <UDraggableModal
     v-model:open="isOpen"
-    :title="ACTIVE_EFFECT_TEMPLATES_LABELS.valueTitle"
-    :initial-width="400"
-    :initial-height="500"
-    :min-width="300"
-    :min-height="400"
-    modal-id="effect-value-templates-modal"
+    :title="title"
+    :initial-width="EFFECT_TEMPLATES_MODAL_SIZE.width"
+    :initial-height="EFFECT_TEMPLATES_MODAL_SIZE.height"
+    :min-width="EFFECT_TEMPLATES_MODAL_SIZE.minWidth"
+    :min-height="EFFECT_TEMPLATES_MODAL_SIZE.minHeight"
+    :modal-id="modalId"
     @bring-to-front="emit('bring-to-front')"
   >
     <template #body>
       <div class="flex h-full w-full flex-col gap-3 p-2">
-        <!-- Поиск -->
         <UInput
           v-model="searchQuery"
           icon="tabler:search"
-          :placeholder="ACTIVE_EFFECT_TEMPLATES_LABELS.valueSearchPlaceholder"
+          :placeholder="searchPlaceholder"
           size="sm"
           class="w-full shrink-0"
           clearable
         />
 
-        <!-- Список -->
         <div class="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
           <div
             v-for="suggestion in filteredSuggestions"
             :key="suggestion.value"
             class="group flex cursor-pointer flex-col gap-0.5 rounded border border-transparent px-2 py-1.5 transition-colors hover:border-default/50 hover:bg-elevated/60"
-            @click.left.exact.prevent="$emit('select', suggestion.value)"
+            @click.left.exact.prevent="handleSelect(suggestion.value)"
           >
             <div class="text-[13px] font-medium text-highlighted">
               {{ suggestion.label }}
@@ -84,7 +115,7 @@
             v-if="filteredSuggestions.length === 0"
             class="py-8 text-center text-sm text-dimmed"
           >
-            {{ ACTIVE_EFFECT_TEMPLATES_LABELS.valueEmpty }}
+            {{ emptyLabel }}
           </div>
         </div>
       </div>

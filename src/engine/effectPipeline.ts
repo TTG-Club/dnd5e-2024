@@ -41,7 +41,6 @@ import type { BonusDamageFormula, TargetHpGate } from './spellUtils.js';
 
 import { isActorEntity, isCreatureEntity, isRecord } from '@vtt/shared';
 
-import { isDnDEffect } from './activeEffectTypes.js';
 import {
   calculateProficiencyBonus,
   getProficiencyContribution,
@@ -98,6 +97,45 @@ const BONUS_SCOPES: readonly BonusScope[] = ['melee', 'ranged', 'spell'];
 
 /** Множество видов атаки/урона для быстрой проверки принадлежности */
 const BONUS_SCOPE_SET: ReadonlySet<string> = new Set(BONUS_SCOPES);
+
+/**
+ * Ключи, чьё число лист считает по правилам только в Фазе 3 (КД, инициатива,
+ * бонус мастерства, Сл заклинаний; спасброски и навыки — по префиксу).
+ *
+ * В Фазе 2 такого числа ещё нет: поле там нулевой накопитель. Применять к нему
+ * `override`/`upgrade`/`downgrade`/`multiply` нельзя — они сравнивались бы с
+ * нулём вместо настоящего значения листа («повысить спасбросок до +5» понижал
+ * бы +9 до +5, а «умножить» всегда давало бы 0). Поэтому Фаза 2 такие
+ * изменения пропускает, а Фаза 3 применяет их поверх посчитанного по правилам.
+ */
+const DERIVED_TARGET_KEYS: ReadonlySet<string> = new Set([
+  'armorClass',
+  'initiative',
+  'proficiencyBonus',
+  'spellSaveDC',
+]);
+
+/** Префиксы производных ключей: у спасбросков и навыков их по шесть и восемнадцать */
+const DERIVED_TARGET_PREFIXES: readonly string[] = ['save.', 'skill.'];
+
+/**
+ * Производный ли ключ, то есть считается ли он по правилам в Фазе 3.
+ *
+ * @param targetKey - ключ изменения эффекта
+ * @returns `true`, если изменение нужно применять после расчёта по правилам
+ */
+function isDerivedTargetKey(targetKey: string): boolean {
+  return (
+    DERIVED_TARGET_KEYS.has(targetKey)
+    || DERIVED_TARGET_PREFIXES.some((prefix) => targetKey.startsWith(prefix))
+  );
+}
+
+/**
+ * Изменения производных ключей, сгруппированные по ключу и упорядоченные по
+ * приоритету внутри каждого ключа.
+ */
+export type DerivedChangeMap = ReadonlyMap<string, readonly EffectChange[]>;
 
 /**
  * Type-guard: строка — вид атаки/урона (`melee` / `ranged` / `spell`).
@@ -320,7 +358,7 @@ export function collectActiveEffects(
         continue;
       }
 
-      for (const itemEffect of item.activeEffects.filter(isDnDEffect)) {
+      for (const itemEffect of item.activeEffects) {
         // Игнорируем отключенные эффекты, свойство transfer больше не требуется (все эффекты предметов переносятся)
         if (!itemEffect.disabled) {
           // Эффекты, предназначенные для цели атаки, не применяются к владельцу при экипировке
@@ -368,13 +406,16 @@ export function collectActiveEffects(
 // ── Фаза 2: applyActiveEffects ────────────────────────────────
 
 /**
- * Применяет числовые changes и собирает булевые flags из эффектов.
+ * Применяет числовые changes базовых ключей и собирает булевые flags из эффектов.
  *
  * Шаги:
- * 1. Собирает все changes из всех эффектов
+ * 1. Собирает changes базовых ключей из всех эффектов
  * 2. Сортирует по priority (меньше = раньше)
  * 3. Применяет каждый change к соответствующему полю baseStats
  * 4. Собирает все flags в Set
+ *
+ * Изменения производных ключей (см. {@link isDerivedTargetKey}) здесь
+ * пропускаются: их применяет Фаза 3 поверх посчитанного по правилам числа.
  *
  * Результат — IMMUTABLE: возвращает новый объект, не мутирует baseStats.
  *
@@ -416,6 +457,11 @@ export function applyActiveEffects(
       continue;
     }
 
+    // Производные ключи считаются по правилам только в Фазе 3 — она их и применит
+    if (isDerivedTargetKey(change.key)) {
+      continue;
+    }
+
     // Кость-формулы в damage.* — бонус-части урона, катаются отдельным броском
     // в момент атаки (collectBonusDamageFormulas), в плоские статы не входят.
     if (change.key.startsWith('damage.') && isDiceFormulaValue(change.value)) {
@@ -426,6 +472,47 @@ export function applyActiveEffects(
   }
 
   return modifiedStats;
+}
+
+/**
+ * Собирает безусловные изменения производных ключей, сгруппировав их по ключу
+ * и упорядочив по приоритету.
+ *
+ * Фаза 3 берёт из этой карты изменения ровно того числа, которое только что
+ * посчитала по правилам, и применяет их поверх — так режимы «заменить»,
+ * «повысить до», «понизить до» и «умножить» сравниваются с настоящим значением
+ * листа, а не с нулевым накопителем Фазы 2.
+ *
+ * @param effects - массив активных эффектов
+ * @returns изменения производных ключей по ключу
+ */
+export function collectDerivedChanges(
+  effects: readonly ActiveEffect[],
+): DerivedChangeMap {
+  const grouped = new Map<string, EffectChange[]>();
+
+  for (const effect of effects) {
+    for (const change of effect.changes) {
+      // Условные изменения оцениваются в момент броска, а не на листе
+      if (change.condition || !isDerivedTargetKey(change.key)) {
+        continue;
+      }
+
+      const keyChanges = grouped.get(change.key);
+
+      if (keyChanges) {
+        keyChanges.push(change);
+      } else {
+        grouped.set(change.key, [change]);
+      }
+    }
+  }
+
+  for (const keyChanges of grouped.values()) {
+    keyChanges.sort((left, right) => left.priority - right.priority);
+  }
+
+  return grouped;
 }
 
 // ── Условные бонусы (roll-time evaluation) ─────────────
@@ -588,11 +675,13 @@ function evaluateDefensiveCondition(
  *
  * @param effects - массив активных эффектов защитника
  * @param attackContext - контекст входящей атаки (тип: melee/ranged/spell)
+ * @param formulaContext - контекст @-переменных; без него формулы не считаются
  * @returns суммарный условный бонус к AC
  */
 export function evaluateDefensiveACBonus(
   effects: readonly ActiveEffect[],
   attackContext: IncomingAttackContext,
+  formulaContext?: FormulaContext,
 ): number {
   let bonus = 0;
 
@@ -607,16 +696,37 @@ export function evaluateDefensiveACBonus(
       }
 
       if (evaluateDefensiveCondition(change.condition, attackContext)) {
-        const value = Number(change.value);
-
-        if (!Number.isNaN(value)) {
-          bonus += value;
-        }
+        bonus += resolveConditionalValue(change.value, formulaContext);
       }
     }
   }
 
   return bonus;
+}
+
+/**
+ * Вычисляет значение условного изменения.
+ *
+ * Условные бонусы считаются в момент броска, а не на листе, поэтому контекст
+ * формул сюда доходит не всегда. Когда он есть — значение разбирается так же,
+ * как у безусловных изменений (`@prof`, `@mod.dex` и прочие переменные);
+ * когда нет — берётся только плоское число, а формула даёт 0 вместо `NaN`.
+ *
+ * @param value - строка значения изменения
+ * @param formulaContext - контекст @-переменных, если он известен
+ * @returns числовой вклад изменения
+ */
+function resolveConditionalValue(
+  value: string,
+  formulaContext: FormulaContext | undefined,
+): number {
+  if (formulaContext) {
+    return resolveChangeValue(value, formulaContext);
+  }
+
+  const plainValue = Number(value);
+
+  return Number.isNaN(plainValue) ? 0 : plainValue;
 }
 
 /**
@@ -629,12 +739,14 @@ export function evaluateDefensiveACBonus(
  * @param effects - массив активных эффектов (включая ауры)
  * @param targetKey - ключ, для которого ищем бонусы (например `attack.melee`)
  * @param rollContext - контекст текущего броска
+ * @param formulaContext - контекст @-переменных; без него формулы не считаются
  * @returns суммарный бонус от условных эффектов
  */
 export function evaluateConditionalBonuses(
   effects: readonly ActiveEffect[],
   targetKey: EffectTargetKey,
   rollContext: RollContext,
+  formulaContext?: FormulaContext,
 ): number {
   let bonus = 0;
 
@@ -649,11 +761,7 @@ export function evaluateConditionalBonuses(
       }
 
       if (evaluateCondition(change.condition, rollContext)) {
-        const value = Number(change.value);
-
-        if (!Number.isNaN(value)) {
-          bonus += value;
-        }
+        bonus += resolveConditionalValue(change.value, formulaContext);
       }
     }
   }
@@ -857,6 +965,61 @@ function applyMode(
 }
 
 /**
+ * Применяет изменения эффектов к числу, уже посчитанному по правилам листа.
+ *
+ * Используется Фазой 3 для производных ключей (спасброски, навыки, инициатива,
+ * КД, бонус мастерства, Сл заклинаний): «повысить до» сравнивается с итоговым
+ * значением листа, «заменить» его действительно заменяет, а не прибавляется.
+ * Ключ помечается в `overriddenKeys` — лист рисует по этой пометке значок
+ * «значение задано эффектом» — только когда режим замены ДЕЙСТВИТЕЛЬНО сдвинул
+ * число: «повысить до +3» при своём +5 ничего не меняет, и значок над честным
+ * значением листа обещал бы вмешательство, которого не было.
+ *
+ * @param stats - статы листа; правится только набор `overriddenKeys`
+ * @param targetKey - ключ производного значения
+ * @param ruleValue - число, посчитанное по правилам
+ * @param derivedChanges - изменения производных ключей по ключу
+ * @param formulaContext - контекст для вычисления формул
+ * @returns итоговое значение с учётом эффектов
+ */
+function applyDerivedChanges(
+  stats: ResolvedActorStats,
+  targetKey: EffectTargetKey,
+  ruleValue: number,
+  derivedChanges: DerivedChangeMap,
+  formulaContext: FormulaContext,
+): number {
+  const changes = derivedChanges.get(targetKey);
+
+  if (!changes) {
+    return ruleValue;
+  }
+
+  let value = ruleValue;
+
+  for (const change of changes) {
+    const previousValue = value;
+
+    value = applyMode(
+      value,
+      resolveChangeValue(change.value, formulaContext),
+      change.mode,
+    );
+
+    if (
+      value !== previousValue
+      && (change.mode === 'override'
+        || change.mode === 'upgrade'
+        || change.mode === 'downgrade')
+    ) {
+      stats.overriddenKeys.add(targetKey);
+    }
+  }
+
+  return value;
+}
+
+/**
  * Извлекает текущее значение поля из ResolvedActorStats по EffectTargetKey.
  *
  * @param stats - статы актора
@@ -915,8 +1078,6 @@ function getStatValue(
       return stats.armorClass;
     case 'hitPoints.max':
       return stats.hitPointsMax;
-    case 'hitPoints.temp':
-      return 0; // temp HP не хранятся в resolved stats
     case 'initiative':
       return stats.initiative;
     case 'proficiencyBonus':
@@ -1070,6 +1231,25 @@ function resolveDamageDefenses(
 }
 
 /**
+ * Прибавка к максимуму хитов от активных эффектов (ключ `hitPoints.max`).
+ *
+ * Отдаётся именно разницей: запас хитов читает `hitPoints.ts` по правилам
+ * листа, а пайплайн знает лишь вклад эффектов. Так «Ложная жизнь» поднимает
+ * потолок и у актёра, и у существа с хитами из статблока, не подменяя сам
+ * запас.
+ *
+ * @param entity - актор или существо
+ * @returns насколько эффекты меняют максимум хитов (может быть отрицательной)
+ */
+export function resolveMaxHitPointsDelta(
+  entity: DnDActor | DnDCreature,
+): number {
+  const baseMax = resolveHitPointsMax(entity.system.hitPoints);
+
+  return resolveActorStats(entity).hitPointsMax - baseMax;
+}
+
+/**
  * Собирает иммунитеты сущности к состояниям из двух источников:
  * 1. Статический список существа (`system.defenses.conditionImmunities`).
  * 2. Поля `conditionImmunities` активных эффектов (предметы, виды, состояния) —
@@ -1125,13 +1305,20 @@ function refreshAbilityModifiers(stats: ResolvedActorStats): void {
  * Эта фаза выполняется ПОСЛЕ применения Active Effects.
  * Модификаторы, AC, навыки, спасброски — всё вычисляется здесь.
  *
+ * Изменения эффектов на производные ключи применяются здесь же, поверх числа,
+ * посчитанного по правилам (см. {@link collectDerivedChanges}).
+ *
  * @param modifiedStats - статы после applyActiveEffects
  * @param actor - исходный актор (для proficiencies и настроек)
+ * @param derivedChanges - изменения производных ключей по ключу
+ * @param formulaContext - контекст для вычисления формул
  * @returns финальные resolved статы
  */
 export function prepareDerivedData(
   modifiedStats: ResolvedActorStats,
   actor: DnDActor | DnDCreature,
+  derivedChanges: DerivedChangeMap,
+  formulaContext: FormulaContext,
 ): ResolvedActorStats {
   const system = actor.system;
   const derivedStats = cloneResolvedStats(modifiedStats);
@@ -1178,12 +1365,13 @@ export function prepareDerivedData(
     abilityMods: derivedStats.abilityMods,
   };
 
-  /** Бонус мастерства, заданный активным эффектом: он перебивает расчёт */
-  const effectProficiencyBonus = derivedStats.proficiencyBonus;
-
-  derivedStats.proficiencyBonus =
-    effectProficiencyBonus
-    || getProficiencyBonusBreakdown(proficiencyParams).value;
+  derivedStats.proficiencyBonus = applyDerivedChanges(
+    derivedStats,
+    'proficiencyBonus',
+    getProficiencyBonusBreakdown(proficiencyParams).value,
+    derivedChanges,
+    formulaContext,
+  );
 
   // 3. Свои бонусы к самим характеристикам (пояс силы, дар вида, домашнее
   // правило). Прибавка идёт в значение характеристики, а не в модификатор:
@@ -1228,9 +1416,13 @@ export function prepareDerivedData(
   if (hasAbilityBonuses) {
     refreshAbilityModifiers(derivedStats);
 
-    derivedStats.proficiencyBonus =
-      effectProficiencyBonus
-      || getProficiencyBonusBreakdown(proficiencyParams).value;
+    derivedStats.proficiencyBonus = applyDerivedChanges(
+      derivedStats,
+      'proficiencyBonus',
+      getProficiencyBonusBreakdown(proficiencyParams).value,
+      derivedChanges,
+      formulaContext,
+    );
   }
 
   // Числа, от которых считаются свои бонусы листа. Собираются один раз и
@@ -1253,10 +1445,6 @@ export function prepareDerivedData(
   );
 
   for (const abilityKey of ABILITY_KEYS) {
-    if (derivedStats.overriddenKeys.has(`save.${abilityKey}`)) {
-      continue;
-    }
-
     const savingThrowSetting = getSavingThrowSetting(
       savingThrowSettings,
       abilityKey,
@@ -1286,12 +1474,19 @@ export function prepareDerivedData(
     // катить спасбросок от другой, чем та, чьё имя он носит
     const saveAbility = savingThrowSetting.ability ?? abilityKey;
 
-    derivedStats.saves[abilityKey] =
+    const ruleSave =
       derivedStats.abilityMods[saveAbility]
       + profBonus
       + getCustomBonusesValue(bonusContext, savingThrowSetting.bonuses)
-      + commonSaveBonus
-      + derivedStats.saves[abilityKey];
+      + commonSaveBonus;
+
+    derivedStats.saves[abilityKey] = applyDerivedChanges(
+      derivedStats,
+      `save.${abilityKey}`,
+      ruleSave,
+      derivedChanges,
+      formulaContext,
+    );
   }
 
   // 5. Навыки
@@ -1300,10 +1495,6 @@ export function prepareDerivedData(
   );
 
   for (const skillKey of SKILL_KEYS) {
-    if (derivedStats.overriddenKeys.has(getSkillEffectKey(skillKey))) {
-      continue;
-    }
-
     const skillSetting = getSkillSetting(skillSettings, skillKey);
 
     // Характеристика расчёта берётся из настройки: умения и предметы дают
@@ -1333,42 +1524,48 @@ export function prepareDerivedData(
       );
     }
 
-    derivedStats.skills[skillKey] =
+    const ruleSkill =
       derivedStats.abilityMods[baseAbility]
       + profContribution
-      + getCustomBonusesValue(bonusContext, skillSetting.bonuses)
-      + derivedStats.skills[skillKey];
+      + getCustomBonusesValue(bonusContext, skillSetting.bonuses);
+
+    derivedStats.skills[skillKey] = applyDerivedChanges(
+      derivedStats,
+      getSkillEffectKey(skillKey),
+      ruleSkill,
+      derivedChanges,
+      formulaContext,
+    );
   }
 
   // 6. Инициатива
-  if (!derivedStats.overriddenKeys.has('initiative')) {
-    const initAbility = system.initiativeAbility ?? 'dexterity';
+  const initAbility = system.initiativeAbility ?? 'dexterity';
 
-    derivedStats.initiative =
-      derivedStats.abilityMods[initAbility]
-      + (system.initiativeBonus ?? 0)
-      + getCustomBonusesValue(
-        bonusContext,
-        parseCustomBonuses(
-          isRecord(system) ? system.initiativeBonuses : undefined,
-        ),
-      )
-      + derivedStats.initiative;
-  }
+  const ruleInitiative =
+    derivedStats.abilityMods[initAbility]
+    + (system.initiativeBonus ?? 0)
+    + getCustomBonusesValue(
+      bonusContext,
+      parseCustomBonuses(
+        isRecord(system) ? system.initiativeBonuses : undefined,
+      ),
+    );
+
+  derivedStats.initiative = applyDerivedChanges(
+    derivedStats,
+    'initiative',
+    ruleInitiative,
+    derivedChanges,
+    formulaContext,
+  );
 
   // 7. Класс доспеха (AC)
   const dexMod = derivedStats.abilityMods.dexterity;
 
   let calculatedAC: number;
   let shieldBonus = 0;
-  let acEffectBonus = 0;
 
   if ('equipment' in actor) {
-    // Бонус от Active Effects, применённых в фазе 2 (разница с базовым значением)
-    acEffectBonus =
-      modifiedStats.armorClass
-      - (system.armorClass?.value ?? BASE_UNARMORED_AC);
-
     // Поиск экипированной брони и щита.
     // `'equipment' in actor` уже сузил тип до DnDActor — каст не нужен.
     const equipment = actor.equipment ?? [];
@@ -1397,8 +1594,12 @@ export function prepareDerivedData(
         lacksArmorProficiency = true;
       }
 
+      // Магия брони/щита работает по тем же правилам, что и её эффекты:
+      // предмету с обязательной настройкой без настройки магия не считается
+      const magicBonus = itemEffectsActive(item) ? (item.magicBonus ?? 0) : 0;
+
       if (item.equipmentCategory === 'shield') {
-        shieldBonus += item.baseArmorAC + (item.magicBonus ?? 0);
+        shieldBonus += item.baseArmorAC + magicBonus;
       } else if (item.baseArmorAC > 0) {
         if (item.stealthDisadvantage) {
           hasStealthDisadvantage = true;
@@ -1446,7 +1647,11 @@ export function prepareDerivedData(
         if (equippedArmor) {
           // Есть экипированная броня
           const armorBase = equippedArmor.baseArmorAC ?? BASE_UNARMORED_AC;
-          const armorMagicBonus = equippedArmor.magicBonus ?? 0;
+
+          const armorMagicBonus = itemEffectsActive(equippedArmor)
+            ? (equippedArmor.magicBonus ?? 0)
+            : 0;
+
           const maxDex = equippedArmor.maxDexBonus;
 
           // maxDexBonus: null = без ограничений, 0 = DEX не добавляется, N = cap
@@ -1464,22 +1669,13 @@ export function prepareDerivedData(
         break;
     }
   } else {
-    // Creature
-    const creatureAC = system.armorClass;
-
-    calculatedAC = creatureAC?.value ?? BASE_UNARMORED_AC;
-
-    const modifiedAC = modifiedStats.armorClass;
-
-    acEffectBonus = Number(modifiedAC) - calculatedAC;
-
-    if (Number.isNaN(acEffectBonus)) {
-      acEffectBonus = 0;
-    }
+    // Creature: КД задан статблоком
+    calculatedAC = system.armorClass?.value ?? BASE_UNARMORED_AC;
   }
 
-  // Итоговое AC = расчётный КД + щит + свои бонусы + бонусы от Active Effects
-  derivedStats.armorClass =
+  // КД по правилам: расчётный + щит + свои бонусы листа. Эффекты применяются
+  // поверх — тогда «заменить КД на 13» действительно даёт 13, а не прибавку
+  const ruleArmorClass =
     calculatedAC
     + shieldBonus
     + getCustomBonusesValue(
@@ -1487,20 +1683,32 @@ export function prepareDerivedData(
       parseCustomBonuses(
         isRecord(system) ? system.armorClassBonuses : undefined,
       ),
-    )
-    + acEffectBonus;
+    );
+
+  derivedStats.armorClass = applyDerivedChanges(
+    derivedStats,
+    'armorClass',
+    ruleArmorClass,
+    derivedChanges,
+    formulaContext,
+  );
 
   // 8. Spell Save DC (8 + бонус мастерства + мод. характеристики заклинателя)
   const spellcastingAbility = getFirstSpellcastingAbility(actor);
 
   if (spellcastingAbility) {
-    const spellMod = derivedStats.abilityMods[spellcastingAbility];
-
-    derivedStats.spellSaveDC =
-      derivedStats.spellSaveDC // бонусы от эффектов (фаза 2)
-      + SPELL_SAVE_DC_BASE
+    const ruleSpellSaveDC =
+      SPELL_SAVE_DC_BASE
       + derivedStats.proficiencyBonus
-      + spellMod;
+      + derivedStats.abilityMods[spellcastingAbility];
+
+    derivedStats.spellSaveDC = applyDerivedChanges(
+      derivedStats,
+      'spellSaveDC',
+      ruleSpellSaveDC,
+      derivedChanges,
+      formulaContext,
+    );
   }
 
   // 9. Свои бонусы к передвижению
@@ -1523,11 +1731,14 @@ export function prepareDerivedData(
     );
   }
 
-  // 10. Speed.zero flag — обнуляет все скорости
-  if (derivedStats.activeFlags.has('speed.zero')) {
-    for (const movementKey of MOVEMENT_KEYS) {
-      derivedStats.movement[movementKey] = 0;
-    }
+  // 10. Скорость не бывает отрицательной: флаг `speed.zero` обнуляет её целиком,
+  // а штрафы (Истощение даёт −5 фт за степень) зажимаются нулём снизу
+  const hasZeroSpeed = derivedStats.activeFlags.has('speed.zero');
+
+  for (const movementKey of MOVEMENT_KEYS) {
+    derivedStats.movement[movementKey] = hasZeroSpeed
+      ? 0
+      : Math.max(0, derivedStats.movement[movementKey]);
   }
 
   // 11. Защиты от урона (статические + от флагов активных эффектов)
@@ -1544,10 +1755,14 @@ export function prepareDerivedData(
 /**
  * Объединяет нативные эффекты актора с внешними (ambient, от аур на карте).
  *
- * Ambient-эффект не добавляется, если на акторе УЖЕ есть такой же активный
- * эффект — по правилам D&D 5e эффекты с одинаковым именем не суммируются.
- * Ambient-эффект имеет id `${effect.id}_aura_${source.id}`; совпадение ищется
- * по оригинальному ID или имени.
+ * По правилу PHB 2024 «Combining Game Effects» одноимённые эффекты не
+ * складываются, поэтому отсеиваются два вида дублей:
+ * 1. Аура повторяет эффект, который уже висит на самом акторе.
+ * 2. Одну и ту же ауру излучают сразу несколько источников (два паладина рядом)
+ *    — засчитывается только первая.
+ *
+ * Ambient-эффект имеет id `${effect.id}_aura_${source.id}`; сравнение идёт по
+ * оригинальному id эффекта и по имени.
  *
  * @param nativeEffects - собственные эффекты актора (см. collectActiveEffects)
  * @param ambientEffects - внешние эффекты от аур
@@ -1557,16 +1772,26 @@ export function combineEffectsWithAmbient(
   nativeEffects: readonly ActiveEffect[],
   ambientEffects: readonly ActiveEffect[],
 ): ActiveEffect[] {
-  const filteredAmbient = ambientEffects.filter((ambientEff) => {
-    const ambientBaseId = ambientEff.id.split('_aura_')[0];
+  const takenIds = new Set(nativeEffects.map((effect) => effect.id));
 
-    return !nativeEffects.some(
-      (nativeEff) =>
-        nativeEff.id === ambientBaseId
-        || (nativeEff.name || '').trim().toLowerCase()
-          === (ambientEff.name || '').trim().toLowerCase(),
-    );
-  });
+  const takenNames = new Set(
+    nativeEffects.map((effect) => effect.name.trim().toLowerCase()),
+  );
+
+  const filteredAmbient: ActiveEffect[] = [];
+
+  for (const ambientEffect of ambientEffects) {
+    const ambientBaseId = ambientEffect.id.split('_aura_')[0];
+    const ambientName = ambientEffect.name.trim().toLowerCase();
+
+    if (takenIds.has(ambientBaseId) || takenNames.has(ambientName)) {
+      continue;
+    }
+
+    takenIds.add(ambientBaseId);
+    takenNames.add(ambientName);
+    filteredAmbient.push(ambientEffect);
+  }
 
   return nativeEffects.concat(filteredAmbient);
 }
@@ -1599,15 +1824,21 @@ export function resolveActorStats(
   // Контекст формул (из базовых данных — ДО модификации)
   const formulaContext = buildFormulaContext(actor);
 
-  // Фаза 2: применение эффектов
+  // Фаза 2: применение эффектов к базовым значениям
   const modifiedStats = applyActiveEffects(
     baseStats,
     activeEffects,
     formulaContext,
   );
 
-  // Фаза 3: производные данные
-  return prepareDerivedData(modifiedStats, actor);
+  // Фаза 3: производные данные — считаются по правилам, поверх ложатся
+  // изменения производных ключей (спасброски, навыки, КД, Сл заклинаний…)
+  return prepareDerivedData(
+    modifiedStats,
+    actor,
+    collectDerivedChanges(activeEffects),
+    formulaContext,
+  );
 }
 
 // ── Вспомогательные функции ───────────────────────────────────

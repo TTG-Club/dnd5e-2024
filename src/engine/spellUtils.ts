@@ -1021,6 +1021,69 @@ export function resolveDamagePartsForCast(
 }
 
 /**
+ * Вливает плоский бонус урона в первую урон-часть.
+ *
+ * Плоские бонусы эффектов (`damage.spell`, `damage.melee`, `damage.ranged`)
+ * прибавляются один раз ко всему броску, а не к каждой части: иначе «+2 к урону
+ * заклинаниями» удваивался бы у заклинания с двумя типами урона. Лечащие части
+ * бонус не получают — он про урон.
+ *
+ * @param parts - разрешённые части урона
+ * @param flatBonus - плоский бонус урона (0 — вернуть части как есть)
+ * @returns части с бонусом в первой урон-части
+ */
+export function withFlatDamageBonus<
+  PartType extends { formula: string; isHealing?: boolean },
+>(parts: PartType[], flatBonus: number): PartType[] {
+  if (flatBonus === 0) {
+    return parts;
+  }
+
+  const firstDamageIndex = parts.findIndex((part) => !part.isHealing);
+
+  if (firstDamageIndex === -1) {
+    return parts;
+  }
+
+  const sign = flatBonus > 0 ? '+' : '';
+
+  return parts.map((part, index) =>
+    index === firstDamageIndex
+      ? { ...part, formula: `${part.formula}${sign}${flatBonus}` }
+      : part,
+  );
+}
+
+/**
+ * Вливает плоский бонус урона в ОДИНОЧНУЮ формулу броска.
+ *
+ * Одноформульный путь каста обслуживает и обычное одночастное заклинание, и
+ * СНАРЯДЫ (Волшебная стрела, Мистический заряд). Разница принципиальная: у
+ * снарядов эта формула катается на КАЖДЫЙ снаряд, а по правилам PHB 2024
+ * плоский бонус к урону применяется один раз к броску, а не к каждому снаряду.
+ * Поэтому снарядам бонус сюда не передают — он едет отдельной бонус-частью,
+ * которая катается один раз на каст (см. `buildFlatDamageBonusPart`).
+ *
+ * Лечение бонус не получает: `damage.*` — это про урон.
+ *
+ * @param formula - формула с уже разрешёнными @-переменными
+ * @param flatBonus - плоский бонус урона (0 — вернуть формулу как есть)
+ * @returns формула с бонусом либо исходная
+ */
+export function withFlatFormulaBonus(
+  formula: string,
+  flatBonus: number,
+): string {
+  if (flatBonus === 0 || !formula.trim()) {
+    return formula;
+  }
+
+  const sign = flatBonus > 0 ? '+' : '';
+
+  return `${formula}${sign}${flatBonus}`;
+}
+
+/**
  * Разворачивает части урона существа (`CreatureAction.damageParts`) в готовые к
  * броску части — тот же движок сегментации/гейтов/лечения, что и у заклинаний и
  * оружия, без `DnDActor`.

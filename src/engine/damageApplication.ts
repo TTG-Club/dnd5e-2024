@@ -16,7 +16,6 @@
  */
 
 import type { ActiveEffect, EffectOrigin } from './activeEffectTypes.js';
-import type { ConditionKey } from './consts.js';
 import type { DamageApplyResult, DamageDefenseOutcome } from './damageUtils.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type { IncomingAttackContext } from './effectPipeline.js';
@@ -24,8 +23,10 @@ import type { IncomingAttackContext } from './effectPipeline.js';
 import { generateId, isRecord } from '@vtt/shared';
 
 import { ActiveEffectsArraySchema } from './activeEffectTypes.js';
-import { buildConditionActiveEffect } from './conditionTemplates.js';
-import { CONDITIONS } from './consts.js';
+import {
+  buildConditionActiveEffect,
+  resolveEffectConditionKey,
+} from './conditionTemplates.js';
 import { applyDamageDefenses, applyHpChange } from './damageUtils.js';
 import {
   isImmuneToCondition,
@@ -37,6 +38,7 @@ import {
   getEntityConditionImmunities,
   resolveActorStats,
 } from './effectPipeline.js';
+import { buildFormulaContext } from './formulaParser.js';
 import {
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
@@ -44,30 +46,6 @@ import {
   writeEntityHitPoints,
 } from './hitPoints.js';
 import { withInitializedDuration } from './turnEffects.js';
-
-/**
- * Опознаёт ключ состояния эффекта: по явному `conditionKey` либо по совпадению
- * `id`/имени с записью состояния (легаси-данные без `conditionKey`).
- *
- * @param effect - эффект
- * @returns ключ состояния или `undefined`, если эффект не является состоянием
- */
-function resolveEffectConditionKey(
-  effect: ActiveEffect,
-): ConditionKey | undefined {
-  if (effect.conditionKey) {
-    return effect.conditionKey;
-  }
-
-  const entry = CONDITIONS.find(
-    (conditionEntry) =>
-      conditionEntry.key === effect.id
-      || conditionEntry.nameRu === effect.name
-      || conditionEntry.nameEn === effect.name,
-  );
-
-  return entry?.key;
-}
 
 /**
  * Строит `ActiveEffect` для наложения на цель.
@@ -322,7 +300,11 @@ export function getEntityArmorClass(
   if (attackContext) {
     const effects = collectActiveEffects(entity);
 
-    totalAC += evaluateDefensiveACBonus(effects, attackContext);
+    totalAC += evaluateDefensiveACBonus(
+      effects,
+      attackContext,
+      buildFormulaContext(entity),
+    );
   }
 
   return totalAC;

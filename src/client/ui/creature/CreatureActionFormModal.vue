@@ -270,6 +270,10 @@
     openModal('ActiveEffectFormModal', {
       effect: existingEffect,
       hideAura: true,
+      // Эффект действия по умолчанию летит В ЦЕЛЬ: укус накладывает Отравление
+      // на укушенного. С умолчанием окна (`self`) оркестратор не считает эффект
+      // предназначенным цели и не наложил бы его вовсе
+      defaultEffectTarget: 'target',
       onSave: (savedEffect: ActiveEffect) => {
         if (effectIndex >= 0) {
           form.activeEffects[effectIndex] = savedEffect;

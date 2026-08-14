@@ -20,10 +20,18 @@ import type { DnDSceneEntity } from './dndEntities.js';
 
 import { generateId } from '@vtt/shared';
 
+import { ABILITY_LABELS } from './consts.js';
 import { DAMAGE_TYPE_LABELS } from './damageConstants.js';
 import { applyHpChange, applyMultiTypeDamageDefenses } from './damageUtils.js';
 import { rollDamageFormula } from './diceFormula.js';
-import { resolveActorStats } from './effectPipeline.js';
+import {
+  isImmuneToCondition,
+  mergeAppliedEffects,
+} from './effectAutomation.js';
+import {
+  getEntityConditionImmunities,
+  resolveActorStats,
+} from './effectPipeline.js';
 import {
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
@@ -47,21 +55,31 @@ export function decrementActorEffectDurations(entity: DnDSceneEntity): boolean {
 
   const initialLength = entity.activeEffects.length;
 
-  entity.activeEffects = entity.activeEffects.filter((effect) => {
-    if (
-      effect.duration.type === 'rounds'
-      && typeof effect.duration.remaining === 'number'
-    ) {
-      effect.duration.remaining -= 1;
-      hasChanges = true;
+  // Длительность пересоздаётся, а не правится на месте: копии эффектов
+  // (аура-нагрузка, эффект зоны) делаются мелким спредом и делят один объект
+  // `duration` с оригиналом — правка на месте тикала бы общий счётчик по разу
+  // за каждого носителя
+  entity.activeEffects = entity.activeEffects.reduce<
+    NonNullable<DnDSceneEntity['activeEffects']>
+  >((kept, effect) => {
+    const { duration } = effect;
 
-      if (effect.duration.remaining <= 0) {
-        return false; // Эффект истек, не оставляем в массиве
-      }
+    if (duration.type !== 'rounds' || typeof duration.remaining !== 'number') {
+      kept.push(effect);
+
+      return kept;
     }
 
-    return true;
-  });
+    const remaining = duration.remaining - 1;
+
+    hasChanges = true;
+
+    if (remaining > 0) {
+      kept.push({ ...effect, duration: { ...duration, remaining } });
+    }
+
+    return kept;
+  }, []);
 
   return hasChanges || entity.activeEffects.length !== initialLength;
 }
@@ -130,7 +148,13 @@ export function stampTurnDuration(
   const anchor = duration.turnAnchor ?? 'carrier';
   const timing = duration.turnTiming ?? 'end';
 
-  const anchorId = anchor === 'source' ? context.sourceId : context.carrierId;
+  // Якорь источника без известного кастера деградирует к носителю — ровно так
+  // же, как в `expireTurnEffects`: иначе штамп и снятие эффекта считали бы
+  // границу по разным сущностям, и эффект спадал бы на ход раньше
+  const anchorId =
+    anchor === 'source'
+      ? (context.sourceId ?? context.carrierId)
+      : context.carrierId;
 
   const skipFirst =
     timing === 'end'
@@ -158,12 +182,14 @@ export function stampTurnDuration(
  * @param entity - сущность, чьи эффекты проверяем
  * @param turnActorId - id участника, чей ход сейчас обрабатывается
  * @param timing - граница: начало или конец хода
+ * @param participantIds - состав боя; без него якорь источника не проверяется
  * @returns true, если эффекты сущности изменились
  */
 export function expireTurnEffects(
   entity: DnDSceneEntity,
   turnActorId: string,
   timing: 'start' | 'end',
+  participantIds?: ReadonlySet<string>,
 ): boolean {
   if (!entity.activeEffects || entity.activeEffects.length === 0) {
     return false;
@@ -180,11 +206,19 @@ export function expireTurnEffects(
 
     const anchor = duration.turnAnchor ?? 'carrier';
 
-    // Якорь источника без проставленного sourceActorId (наложен по пути без
-    // контекста кастера) деградирует к носителю — иначе эффект не истёк бы
-    // никогда (anchorId === undefined не совпал бы ни с чьим ходом).
-    const anchorId =
-      anchor === 'source' ? (effect.sourceActorId ?? entity.id) : entity.id;
+    // Якорь источника годится, только если ход источника вообще наступит:
+    // без `sourceActorId` (эффект наложен по пути без контекста кастера) и
+    // когда источника нет в бою (не добавляли либо удалили после смерти) якорь
+    // деградирует к носителю. Иначе эффект ждал бы хода, которого не будет, и
+    // висел бы до конца сессии.
+    const sourceId = effect.sourceActorId;
+
+    const hasReachableSource =
+      anchor === 'source'
+      && sourceId !== undefined
+      && (participantIds?.has(sourceId) ?? true);
+
+    const anchorId = hasReachableSource ? sourceId : entity.id;
 
     if (anchorId !== turnActorId) {
       return true; // граница не нашего якоря
@@ -246,15 +280,65 @@ export interface TurnEffectsResult {
   damageOutcomes: TurnDamageOutcome[];
 }
 
-/** Русские подписи характеристик для сообщений о тиках эффектов */
-const ABILITY_SHORT_LABELS: Record<AbilityType, string> = {
-  strength: 'Сила',
-  dexterity: 'Ловкость',
-  constitution: 'Телосложение',
-  intelligence: 'Интеллект',
-  wisdom: 'Мудрость',
-  charisma: 'Харизма',
-};
+/** Грани кости спасброска */
+const SAVING_THROW_DIE_SIDES = 20;
+
+/**
+ * Катает спасбросок сущности против сложности с учётом флагов её состояний.
+ *
+ * Автопровал (`save.autoFail.<характеристика>` от Парализованного,
+ * Окаменевшего, Ошеломлённого, Находящегося без сознания) проваливает бросок
+ * без кости; преимущество и помеха (`save.advantage`/`save.disadvantage`, общие
+ * и по характеристике) катают две кости и берут лучшую либо худшую, взаимно
+ * гасясь по правилам 5e.
+ *
+ * Общий для всех спасбросков движка: и периодического «спас снимает эффект», и
+ * спасброска при срабатывании области или ауры — иначе один и тот же флаг
+ * обрабатывался бы в двух местах по-разному.
+ *
+ * @param ability - характеристика спасброска
+ * @param dc - сложность
+ * @param stats - разрешённые статы сущности (модификаторы и флаги)
+ * @returns выпавшее значение кости, итог с модификатором и признак успеха
+ */
+export function rollEffectSavingThrow(
+  ability: AbilityType,
+  dc: number,
+  stats: ResolvedActorStats,
+): { roll: number; total: number; passed: boolean } {
+  const { activeFlags } = stats;
+
+  if (activeFlags.has(`save.autoFail.${ability}`)) {
+    return { roll: 1, total: 1, passed: false };
+  }
+
+  const modifier = stats.saves[ability] ?? 0;
+
+  const hasAdvantage =
+    activeFlags.has('save.advantage')
+    || activeFlags.has(`save.advantage.${ability}`);
+
+  const hasDisadvantage =
+    activeFlags.has('save.disadvantage')
+    || activeFlags.has(`save.disadvantage.${ability}`);
+
+  const firstRoll = Math.floor(Math.random() * SAVING_THROW_DIE_SIDES) + 1;
+
+  let roll = firstRoll;
+
+  // Преимущество и помеха гасят друг друга — остаётся обычный бросок
+  if (hasAdvantage !== hasDisadvantage) {
+    const secondRoll = Math.floor(Math.random() * SAVING_THROW_DIE_SIDES) + 1;
+
+    roll = hasAdvantage
+      ? Math.max(firstRoll, secondRoll)
+      : Math.min(firstRoll, secondRoll);
+  }
+
+  const total = roll + modifier;
+
+  return { roll, total, passed: total >= dc };
+}
 
 /**
  * Применяет чистый урон к сущности ОДНИМ изменением HP (сначала временные
@@ -393,11 +477,9 @@ export function resolveEntryEffect(
 
   if (effect.applySave) {
     const { ability, dc } = effect.applySave;
-    const modifier = stats.saves[ability] ?? 0;
-    const roll = Math.floor(Math.random() * 20) + 1;
-    const total = roll + modifier;
+    const { roll, total, passed } = rollEffectSavingThrow(ability, dc, stats);
 
-    savePassed = total >= dc;
+    savePassed = passed;
 
     saveOutcome = {
       effectName: effect.name,
@@ -405,7 +487,7 @@ export function resolveEntryEffect(
       dc,
       roll,
       total,
-      passed: savePassed,
+      passed,
     };
   }
 
@@ -442,26 +524,40 @@ export function resolveEntryEffect(
   const statusNegated =
     savePassed && onSuccess === 'negate' && !effect.applyOnSuccess;
 
+  // Иммунитет к состоянию проверяется здесь так же, как при попадании атакой:
+  // область — такой же путь наложения, и обходить статблок он не должен
+  const conditionBlocked =
+    effect.conditionKey !== undefined
+    && isImmuneToCondition(
+      getEntityConditionImmunities(entity),
+      effect.conditionKey,
+    );
+
   let statusApplied = false;
 
-  if (hasStatusPayload && !statusNegated) {
-    if (!entity.activeEffects) {
-      entity.activeEffects = [];
-    }
+  if (hasStatusPayload && !statusNegated && !conditionBlocked) {
+    const status = withInitializedDuration({
+      ...effect,
+      id: generateId('ae'),
+      origin: 'condition',
+      originId: undefined,
+      areaTrigger: undefined,
+      transfer: false,
+      // Своя длительность: копия не должна делить счётчик с эффектом зоны
+      duration: { ...effect.duration },
+      // Разовая нагрузка уже отыграна — на длящейся копии её не оставляем
+      damageParts: undefined,
+      applySave: undefined,
+      // Аура остаётся у источника: без сброса цель сама начала бы её излучать
+      // (у копии нет `areaTrigger`, и она стала бы постоянной аурой)
+      aura: undefined,
+    });
 
-    entity.activeEffects.push(
-      withInitializedDuration({
-        ...effect,
-        id: generateId('ae'),
-        origin: 'condition',
-        originId: undefined,
-        areaTrigger: undefined,
-        transfer: false,
-        // Разовая нагрузка уже отыграна — на длящейся копии её не оставляем
-        damageParts: undefined,
-        applySave: undefined,
-      }),
-    );
+    // Правило PHB 2024 «Combining Game Effects»: одноимённый статус не
+    // стакается — повторный вход в область обновляет его, а не плодит копии
+    entity.activeEffects = mergeAppliedEffects(entity.activeEffects ?? [], [
+      status,
+    ]);
 
     statusApplied = true;
   }
@@ -506,7 +602,12 @@ export function processTurnEffects(
   for (const effect of entity.activeEffects) {
     const recurringDamage = effect.recurringDamage;
 
-    if (!recurringDamage || recurringDamage.timing !== timing) {
+    // Отключённый эффект не действует — значит, и не бьёт
+    if (
+      effect.disabled
+      || !recurringDamage
+      || recurringDamage.timing !== timing
+    ) {
       continue;
     }
 
@@ -533,14 +634,16 @@ export function processTurnEffects(
   const remaining = entity.activeEffects.filter((effect) => {
     const recurring = effect.recurringSave;
 
-    if (!recurring || recurring.timing !== timing) {
+    // Отключённый эффект не действует — и сам себя спасброском не снимает
+    if (effect.disabled || !recurring || recurring.timing !== timing) {
       return true;
     }
 
-    const modifier = stats.saves[recurring.ability] ?? 0;
-    const roll = Math.floor(Math.random() * 20) + 1;
-    const total = roll + modifier;
-    const passed = total >= recurring.dc;
+    const { roll, total, passed } = rollEffectSavingThrow(
+      recurring.ability,
+      recurring.dc,
+      stats,
+    );
 
     saveOutcomes.push({
       effectName: effect.name,
@@ -632,7 +735,7 @@ export function formatEffectsSummary(
   }
 
   for (const save of saveOutcomes) {
-    const abilityLabel = ABILITY_SHORT_LABELS[save.ability];
+    const abilityLabel = ABILITY_LABELS[save.ability];
 
     lines.push(
       `${save.effectName}: спас ${abilityLabel} [${save.roll}] = ${save.total} vs ${save.dc} — ${formatSaveStatus(save)}`,

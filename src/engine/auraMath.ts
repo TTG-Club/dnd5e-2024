@@ -1,10 +1,35 @@
+/**
+ * Геометрия аур D&D 5e: кто кого достаёт и какие эффекты аура транслирует.
+ *
+ * Круг ауры считается от центра токена-источника: половина его размера плюс
+ * радиус ауры; цель засчитывается по своему хитбоксу. Один и тот же тест
+ * используют и клиентские ambient-ауры, и серверные разовые триггеры входа и
+ * выхода — иначе клиент показывал бы ауру действующей там, где сервер её не
+ * срабатывает.
+ *
+ * @module system/dnd/auraMath
+ */
+
 import type { GridSettings, Token } from '@vtt/shared';
 
 import type { ActiveEffect } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 
-import { isDnDEffect } from './activeEffectTypes.js';
+import { isCreatureEntity } from '@vtt/shared';
+
 import { itemEffectsActive } from './effectPipeline.js';
+
+/** Размер клетки сетки в пикселях, когда сцена его не задала */
+const DEFAULT_CELL_SIZE_PX = 50;
+
+/** Сколько футов в клетке, когда сцена не задала масштаб */
+const DEFAULT_FEET_PER_CELL = 5;
+
+/**
+ * Доля половины токена, которую занимает его хитбокс (TOKEN_HITBOX_SIZE ядра).
+ * Квадратный хитбокс аппроксимируется кругом этого радиуса.
+ */
+const TOKEN_HITBOX_RATIO = 0.2;
 
 /**
  * Отношение между токенами для вычисления аур.
@@ -19,21 +44,28 @@ export interface AuraSourceToken {
 
 /**
  * Определяет относительное отношение между двумя токенами.
+ *
+ * @param source - токен-источник ауры
+ * @param target - целевой токен
+ * @returns союзник, враг или нейтральный
  */
 export function getRelativeDisposition(
   source: Token,
   target: Token,
 ): TokenDisposition {
-  const sourceDisp = source.disposition || 'neutral';
-  const targetDisp = target.disposition || 'neutral';
+  const sourceDisposition = source.disposition ?? 'neutral';
+  const targetDisposition = target.disposition ?? 'neutral';
 
-  if (sourceDisp === targetDisp && sourceDisp !== 'neutral') {
+  if (
+    sourceDisposition === targetDisposition
+    && sourceDisposition !== 'neutral'
+  ) {
     return 'ally';
   }
 
   if (
-    (sourceDisp === 'friendly' && targetDisp === 'hostile')
-    || (sourceDisp === 'hostile' && targetDisp === 'friendly')
+    (sourceDisposition === 'friendly' && targetDisposition === 'hostile')
+    || (sourceDisposition === 'hostile' && targetDisposition === 'friendly')
   ) {
     return 'enemy';
   }
@@ -43,6 +75,9 @@ export function getRelativeDisposition(
 
 /**
  * Фильтрует активные эффекты, возвращая только те, которые имеют активную ауру.
+ *
+ * @param effects - список эффектов носителя (может отсутствовать)
+ * @returns эффекты с ненулевым радиусом ауры, кроме отключённых
  */
 export function getAuraEffects(effects?: ActiveEffect[]): ActiveEffect[] {
   if (!effects) {
@@ -55,19 +90,19 @@ export function getAuraEffects(effects?: ActiveEffect[]): ActiveEffect[] {
 }
 
 /**
- * Собирает все аура-эффекты актора из всех источников:
- * 1. Эффекты напрямую на акторе (actor.activeEffects)
+ * Собирает все аура-эффекты сущности из всех источников:
+ * 1. Эффекты напрямую на сущности (`activeEffects`)
  * 2. Эффекты с работающих предметов (`itemEffectsActive`)
+ * 3. Эффекты черт существа — там живут его постоянные ауры («Аура страха»)
+ *
+ * Набор источников тот же, что и у `collectActiveEffects`: иначе существо
+ * применяло бы ауру черты к себе, но не транслировало бы её на других.
  *
  * @param entity - объект сущности (DnDSceneEntity)
  * @returns массив активных аура-эффектов
  */
 export function collectAllAuraEffects(entity: DnDSceneEntity): ActiveEffect[] {
-  const allEffects: ActiveEffect[] = [];
-
-  const entityAuras = getAuraEffects(entity.activeEffects);
-
-  allEffects.push(...entityAuras);
+  const allEffects: ActiveEffect[] = [...getAuraEffects(entity.activeEffects)];
 
   if ('equipment' in entity && entity.equipment) {
     for (const item of entity.equipment) {
@@ -75,11 +110,17 @@ export function collectAllAuraEffects(entity: DnDSceneEntity): ActiveEffect[] {
         continue;
       }
 
-      const itemAuras = getAuraEffects(
-        item.activeEffects.filter(isDnDEffect),
-      ).filter((auraEffect) => auraEffect.effectTarget !== 'target');
+      const itemAuras = getAuraEffects(item.activeEffects).filter(
+        (auraEffect) => auraEffect.effectTarget !== 'target',
+      );
 
       allEffects.push(...itemAuras);
+    }
+  }
+
+  if (isCreatureEntity(entity)) {
+    for (const trait of entity.system.traits ?? []) {
+      allEffects.push(...getAuraEffects(trait.activeEffects));
     }
   }
 
@@ -106,37 +147,22 @@ export function calculateAmbientAuras(
 ): ActiveEffect[] {
   const ambientEffects: ActiveEffect[] = [];
 
-  const cellSize = gridSettings.cellSize ?? 50;
-  const distancePerCell = gridSettings.scale ?? 5;
-
-  // Центр целевого токена
-  const targetScale = targetToken.scale ?? 1;
-  const targetTokenSizePx = targetScale * cellSize;
-  const targetCenterX = targetToken.x + targetTokenSizePx / 2;
-  const targetCenterY = targetToken.y + targetTokenSizePx / 2;
-
-  // Хитбокс токена: 20% от размера (TOKEN_HITBOX_SIZE = 0.2 из wallsConsts)
-  // Для простоты расчетов мы аппроксимируем квадратный хитбокс кругом его радиуса
-  const targetHitboxRadiusPx = (targetTokenSizePx / 2) * 0.2;
-
   for (const source of sources) {
-    if (!source.effects || source.effects.length === 0) {
+    if (source.effects.length === 0) {
       continue;
     }
 
-    // Центр токена-источника
-    const sourceScale = source.token.scale ?? 1;
-    const sourceTokenSizePx = sourceScale * cellSize;
-    const sourceCenterX = source.token.x + sourceTokenSizePx / 2;
-    const sourceCenterY = source.token.y + sourceTokenSizePx / 2;
+    // Собственные ауры обрабатываются нативно в effectPipeline
+    if (source.token.actorId === targetToken.actorId) {
+      continue;
+    }
 
-    // Евклидово расстояние между центрами (в пикселях)
-    const dxPx = targetCenterX - sourceCenterX;
-    const dyPx = targetCenterY - sourceCenterY;
-    const centerDistancePx = Math.sqrt(dxPx * dxPx + dyPx * dyPx);
+    const disposition = getRelativeDisposition(source.token, targetToken);
 
     for (const effect of source.effects) {
-      if (!effect.aura || effect.disabled) {
+      const aura = effect.aura;
+
+      if (!aura || effect.disabled) {
         continue;
       }
 
@@ -146,32 +172,22 @@ export function calculateAmbientAuras(
         continue;
       }
 
-      // Радиус ауры от центра источника = половина токена + радиус ауры в пикселях
-      const auraRadiusPx = (effect.aura.radius / distancePerCell) * cellSize;
-
-      // Аура действует, когда хитбокс цели (круг) пересекается с кругом ауры
-      const totalReachPx =
-        sourceTokenSizePx / 2 + auraRadiusPx + targetHitboxRadiusPx;
-
-      // Если дистанция между центрами больше суммы радиусов - не достаёт
-      if (centerDistancePx > totalReachPx) {
+      if (aura.target === 'allies' && disposition !== 'ally') {
         continue;
       }
 
-      const isSelf = source.token.actorId === targetToken.actorId;
-
-      // Собственные ауры обрабатываются нативно в effectPipeline
-      if (isSelf) {
+      if (aura.target === 'enemies' && disposition !== 'enemy') {
         continue;
       }
 
-      const disposition = getRelativeDisposition(source.token, targetToken);
-
-      if (effect.aura.target === 'allies' && disposition !== 'ally') {
-        continue;
-      }
-
-      if (effect.aura.target === 'enemies' && disposition !== 'enemy') {
+      if (
+        !isAuraReachingTarget(
+          source.token,
+          targetToken,
+          aura.radius,
+          gridSettings,
+        )
+      ) {
         continue;
       }
 
@@ -186,9 +202,11 @@ export function calculateAmbientAuras(
 }
 
 /**
- * Достаёт ли круг ауры источника до целевого токена. Евклидов тест по той же
- * формуле, что и `calculateAmbientAuras`: радиус ауры + половина токена-источника
- * + хитбокс цели (0.2 от половины размера).
+ * Достаёт ли круг ауры источника до целевого токена.
+ *
+ * Единственный тест попадания ауры в системе: радиус ауры + половина
+ * токена-источника + хитбокс цели против евклидова расстояния между центрами.
+ * Им пользуются и постоянные ambient-ауры, и разовые триггеры входа и выхода.
  *
  * @param sourceToken - токен-источник ауры
  * @param targetToken - целевой токен
@@ -202,23 +220,22 @@ export function isAuraReachingTarget(
   auraRadiusFeet: number,
   gridSettings: GridSettings,
 ): boolean {
-  const cellSize = gridSettings.cellSize ?? 50;
-  const distancePerCell = gridSettings.scale ?? 5;
+  const cellSize = gridSettings.cellSize ?? DEFAULT_CELL_SIZE_PX;
+  const distancePerCell = gridSettings.scale ?? DEFAULT_FEET_PER_CELL;
 
-  const targetScale = targetToken.scale ?? 1;
-  const targetTokenSizePx = targetScale * cellSize;
+  const targetTokenSizePx = (targetToken.scale ?? 1) * cellSize;
   const targetCenterX = targetToken.x + targetTokenSizePx / 2;
   const targetCenterY = targetToken.y + targetTokenSizePx / 2;
-  const targetHitboxRadiusPx = (targetTokenSizePx / 2) * 0.2;
+  const targetHitboxRadiusPx = (targetTokenSizePx / 2) * TOKEN_HITBOX_RATIO;
 
-  const sourceScale = sourceToken.scale ?? 1;
-  const sourceTokenSizePx = sourceScale * cellSize;
+  const sourceTokenSizePx = (sourceToken.scale ?? 1) * cellSize;
   const sourceCenterX = sourceToken.x + sourceTokenSizePx / 2;
   const sourceCenterY = sourceToken.y + sourceTokenSizePx / 2;
 
-  const dxPx = targetCenterX - sourceCenterX;
-  const dyPx = targetCenterY - sourceCenterY;
-  const centerDistancePx = Math.sqrt(dxPx * dxPx + dyPx * dyPx);
+  const deltaXPx = targetCenterX - sourceCenterX;
+  const deltaYPx = targetCenterY - sourceCenterY;
+
+  const centerDistancePx = Math.sqrt(deltaXPx * deltaXPx + deltaYPx * deltaYPx);
 
   const auraRadiusPx = (auraRadiusFeet / distancePerCell) * cellSize;
 

@@ -46,7 +46,10 @@ import {
 } from './auraMath.js';
 import { normalizeActor, normalizeCreature } from './calculations.js';
 import { CLASS_KEY_OPTIONS } from './classTypes.js';
-import { buildConditionActiveEffect } from './conditionTemplates.js';
+import {
+  buildConditionActiveEffect,
+  resolveEffectConditionKey,
+} from './conditionTemplates.js';
 import {
   BASE_UNARMORED_AC,
   CONDITIONS,
@@ -67,6 +70,11 @@ import { collectActiveEffects, resolveActorStats } from './effectPipeline.js';
 import { isDndSceneEntity } from './entityGuards.js';
 import { buildFeatGrantsSummary } from './featGrantsSummary.js';
 import { validateFormula } from './formulaParser.js';
+import {
+  resolveEntityCurrentHp,
+  resolveEntityMaxHp,
+  resolveEntityTempHp,
+} from './hitPoints.js';
 import { validateGameItem } from './itemSchemas.js';
 import {
   applyAuraTriggerEffects as computeAuraTriggerEffects,
@@ -257,7 +265,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.6.2';
+  readonly version = '0.6.3';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -412,18 +420,23 @@ export class Dnd5eVttSystem implements VttSystem {
 
   /**
    * Снимает точные `turn`-эффекты на границе хода участника `turnActorId`.
+   *
+   * Состав боя нужен, чтобы отличить достижимый якорь-источник от недостижимого:
+   * эффект «до конца хода кастера», которого нет в трекере инициативы, ждал бы
+   * хода, который не наступит, — такой якорь деградирует к носителю.
    */
   // eslint-disable-next-line class-methods-use-this
   expireTurnEffects(
     entity: SceneEntity,
     turnActorId: string,
     timing: 'start' | 'end',
+    participantIds: ReadonlySet<string>,
   ): boolean {
     if (!isDndSceneEntity(entity)) {
       return false;
     }
 
-    return expireEntityTurnEffects(entity, turnActorId, timing);
+    return expireEntityTurnEffects(entity, turnActorId, timing, participantIds);
   }
 
   /**
@@ -823,20 +836,12 @@ export class Dnd5eVttSystem implements VttSystem {
     activeEffects: readonly unknown[],
     conditionKey: string,
   ): boolean {
-    const condition = CONDITIONS.find((entry) => entry.key === conditionKey);
-
-    if (!condition) {
-      return false;
-    }
-
     return activeEffects
       .filter(isActiveEffect)
       .some(
         (effect) =>
-          effect.origin === 'condition'
-          && !(effect.aura && !effect.aura.applyToSelf)
-          && (effect.name === condition.nameRu
-            || effect.name === condition.nameEn),
+          !(effect.aura && !effect.aura.applyToSelf)
+          && resolveEffectConditionKey(effect) === conditionKey,
       );
   }
 
@@ -859,12 +864,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
     if (this.isConditionActive(effects, conditionKey)) {
       return effects.filter(
-        (effect) =>
-          !(
-            effect.origin === 'condition'
-            && (effect.name === condition.nameRu
-              || effect.name === condition.nameEn)
-          ),
+        (effect) => resolveEffectConditionKey(effect) !== conditionKey,
       );
     } else {
       // Единый источник правды: builder проставляет conditionKey,
@@ -914,6 +914,11 @@ export class Dnd5eVttSystem implements VttSystem {
    * Возвращает сводку ХП актёра для HUD выбранного токена (панель над сценой).
    * Читает `system.hitPoints` защитно из нейтрального блоба — ядро не знает
    * имён D&D-полей.
+   *
+   * Максимум берётся с учётом эффектов (ключ `hitPoints.max`) — тем же
+   * расчётом, что у плитки хитов листа и у ограничения текущих хитов сверху.
+   * Иначе после «Ложной жизни» HUD показывал бы 25/20: текущие хиты выше
+   * собственного максимума.
    */
   // eslint-disable-next-line class-methods-use-this
   getActorHudSummary(actor: BaseActor): {
@@ -923,12 +928,47 @@ export class Dnd5eVttSystem implements VttSystem {
       ? actor.system.hitPoints
       : undefined;
 
+    const baseMax = typeof hitPoints?.max === 'number' ? hitPoints.max : 0;
+
     return {
       hp: {
         current: typeof hitPoints?.current === 'number' ? hitPoints.current : 0,
-        max: typeof hitPoints?.max === 'number' ? hitPoints.max : 0,
+        max: isDndSceneEntity(actor) ? resolveEntityMaxHp(actor) : baseMax,
         temp: typeof hitPoints?.temp === 'number' ? hitPoints.temp : 0,
       },
+    };
+  }
+
+  /**
+   * Возвращает хиты сущности для полосы и подписи НАД ТОКЕНОМ на сцене.
+   *
+   * Ядро читало `system.hitPoints` непрозрачным блобом и брало поле `max`, где
+   * записан исходный запас листа. Но записанный максимум — не весь максимум:
+   * эффект с ключом `hitPoints.max` («Помощь») поднимает потолок, и вылеченная
+   * до 25 сущность с `max: 20` рисовалась над токеном как «25/20» — полоса
+   * упиралась в край и спорила с листом.
+   *
+   * Поэтому максимум считается тем же `resolveEntityMaxHp`, что и плитка хитов
+   * листа, лечение и ограничение текущих хитов сверху: разнобой не должен
+   * вернуться с другой стороны. Текущие хиты — `resolveEntityCurrentHp`: у
+   * существа без явного `current` это полный запас ЛИСТА (см. `hitPoints.ts`).
+   *
+   * Сущность не в форме D&D — `undefined`, ядро откатится на чтение блоба само.
+   */
+  // eslint-disable-next-line class-methods-use-this
+  getEntityHitPoints(
+    entity: SceneEntity,
+  ): { current: number; max: number; temp: number } | undefined {
+    if (!isDndSceneEntity(entity)) {
+      return undefined;
+    }
+
+    return {
+      current: resolveEntityCurrentHp(entity),
+      max: resolveEntityMaxHp(entity),
+      // Временные хиты необязательны у обоих видов сущностей — читаем защитно,
+      // как это делает `getActorHudSummary`
+      temp: resolveEntityTempHp(entity),
     };
   }
 

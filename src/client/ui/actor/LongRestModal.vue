@@ -266,6 +266,24 @@
               −{{ preview.tempHitPointsCleared }}
             </span>
           </div>
+
+          <div
+            v-if="preview.exhaustion.level > 0"
+            class="flex items-center justify-between rounded bg-elevated/40 p-2 text-sm"
+          >
+            <span class="flex items-center gap-2 text-toned">
+              <UIcon
+                name="tabler:battery-1"
+                class="h-4 w-4 text-dimmed"
+              />
+              {{ LONG_REST_LABELS.exhaustionReduced }}
+            </span>
+
+            <span class="font-bold text-warning">
+              {{ preview.exhaustion.level }} →
+              {{ preview.exhaustion.levelAfterRest }}
+            </span>
+          </div>
         </div>
 
         <div class="border-t border-muted" />

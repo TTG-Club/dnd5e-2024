@@ -5,12 +5,13 @@
  * которые применяются автоматически при активации условия на акторе.
  *
  * Exhaustion — особый случай с уровнями (1-6, PHB 2024):
- * - Каждый уровень: -2 ко всем d20 тестам (атаки, спасброски, проверки/навыки)
+ * - Каждый уровень: -2 ко всем d20 тестам (атаки, спасброски, проверки/навыки,
+ *   инициатива)
  * - Каждый уровень: -5 фт ко всем видам скорости
  * - Смерть на уровне 6
  */
 
-import type { AbilityType, MovementType, SkillType } from '@vtt/shared';
+import type { SkillType } from '@vtt/shared';
 
 import type {
   ActiveEffect,
@@ -24,7 +25,39 @@ import type { ConditionKey } from './conditionKeys.js';
 import { generateId } from '@vtt/shared';
 
 import { DEFAULT_EFFECT_CHANGE_PRIORITY } from './activeEffectTypes.js';
-import { CONDITIONS } from './consts.js';
+import {
+  ABILITY_KEYS,
+  CONDITIONS,
+  MOVEMENT_KEYS,
+  SKILLS_LIST,
+} from './consts.js';
+
+// ── Общие наборы флагов ───────────────────────────────────────
+
+/**
+ * Следствия Недееспособности (PHB 2024): само состояние плюс помеха на
+ * инициативу. Флаг `incapacitated` инертен — механику «нет действий и реакций»
+ * движок не считает, — поэтому помеха на инициативу проставляется явно.
+ *
+ * Вынесено в константу: состояния, включающие Недееспособность (Парализован,
+ * Окаменевший, Ошеломлён, Без сознания), обязаны наследовать её следствия
+ * целиком, а не повторять список по памяти.
+ */
+const INCAPACITATED_FLAGS: readonly EffectFlagKey[] = [
+  'incapacitated',
+  'initiative.disadvantage',
+];
+
+/**
+ * Следствия беспомощности (PHB 2024): автопровал спасбросков Силы и Ловкости и
+ * преимущество атак по существу. Общие у Парализованного, Окаменевшего,
+ * Ошеломлённого и Находящегося без сознания.
+ */
+const HELPLESS_FLAGS: readonly EffectFlagKey[] = [
+  'save.autoFail.strength',
+  'save.autoFail.dexterity',
+  'attacksAgainst.advantage',
+];
 
 // ── Типы ──────────────────────────────────────────────────────
 
@@ -101,7 +134,7 @@ export const CONDITION_EFFECT_TEMPLATES: Record<
 
   incapacitated: {
     changes: [],
-    flags: ['incapacitated', 'initiative.disadvantage'],
+    flags: [...INCAPACITATED_FLAGS],
   },
 
   invisible: {
@@ -116,28 +149,16 @@ export const CONDITION_EFFECT_TEMPLATES: Record<
 
   paralyzed: {
     changes: [],
-    flags: [
-      'incapacitated',
-      // Недееспособность (PHB 2024) даёт помеху на инициативу; флаг
-      // `incapacitated` инертен (его никто не читает), поэтому добавляем явно.
-      'initiative.disadvantage',
-      'speed.zero',
-      'save.autoFail.strength',
-      'save.autoFail.dexterity',
-      'attacksAgainst.advantage',
-    ],
+    flags: [...INCAPACITATED_FLAGS, 'speed.zero', ...HELPLESS_FLAGS],
     // Крит в пределах 5 фт автоматизировать нечем (нет флага «крит по мне»).
   },
 
   petrified: {
     changes: [],
     flags: [
-      'incapacitated',
-      'initiative.disadvantage',
+      ...INCAPACITATED_FLAGS,
       'speed.zero',
-      'save.autoFail.strength',
-      'save.autoFail.dexterity',
-      'attacksAgainst.advantage',
+      ...HELPLESS_FLAGS,
       // Сопротивление всему урону (PHB 2024) — по типу на каждый вид урона.
       'resistance.slashing',
       'resistance.piercing',
@@ -164,9 +185,15 @@ export const CONDITION_EFFECT_TEMPLATES: Record<
 
   prone: {
     changes: [],
-    flags: ['attack.disadvantage'],
-    // Примечание: атаки в пределах 5 фт с преимуществом, дальше — с помехой
-    // Дистанционная логика — будущая итерация
+    flags: [
+      'attack.disadvantage',
+      // PHB 2024: атака по лежащему в пределах 5 футов — с преимуществом,
+      // дальше — с помехой. Дистанцию движок в этом месте не знает, поэтому
+      // правило приближено по виду атаки: рукопашная бьёт вплотную,
+      // дальнобойная — издали. Это ближе к правилу, чем прежнее «ничего».
+      'attacksAgainst.melee.advantage',
+      'attacksAgainst.ranged.disadvantage',
+    ],
   },
 
   restrained: {
@@ -182,30 +209,22 @@ export const CONDITION_EFFECT_TEMPLATES: Record<
 
   stunned: {
     changes: [],
-    flags: [
-      'incapacitated',
-      // Недееспособность (PHB 2024) → помеха на инициативу (флаг `incapacitated`
-      // инертен). Скорость НЕ обнуляется: у Ошеломлённого 2024 нет пункта «не
-      // может двигаться» (в отличие от Парализованного/Без сознания).
-      'initiative.disadvantage',
-      'save.autoFail.strength',
-      'save.autoFail.dexterity',
-      'attacksAgainst.advantage',
-    ],
+    // Скорость НЕ обнуляется: у Ошеломлённого 2024 нет пункта «не может
+    // двигаться» (в отличие от Парализованного и Находящегося без сознания).
+    flags: [...INCAPACITATED_FLAGS, ...HELPLESS_FLAGS],
   },
 
   unconscious: {
     changes: [],
     flags: [
-      'incapacitated',
-      // Недееспособность → помеха на инициативу (флаг `incapacitated` инертен).
-      'initiative.disadvantage',
+      ...INCAPACITATED_FLAGS,
       'speed.zero',
-      'save.autoFail.strength',
-      'save.autoFail.dexterity',
-      'attacksAgainst.advantage',
-      // Без сознания включает Лежащего ничком → помеха на свои броски атаки.
+      ...HELPLESS_FLAGS,
+      // Без сознания включает Лежащего ничком: помеха на свои броски атаки и
+      // те же поправки атак по нему
       'attack.disadvantage',
+      'attacksAgainst.melee.advantage',
+      'attacksAgainst.ranged.disadvantage',
     ],
     // Крит в пределах 5 фт автоматизировать нечем (нет флага «крит по мне»).
   },
@@ -219,65 +238,143 @@ const EXHAUSTION_D20_PENALTY_PER_LEVEL = -2;
 /** Штраф к скорости (в футах) за каждый уровень истощения (PHB 2024) */
 const EXHAUSTION_SPEED_PENALTY_PER_LEVEL = -5;
 
-/** Максимальный уровень истощения (PHB 2024: 6 = смерть) */
-const EXHAUSTION_MAX_LEVEL = 6;
+/** Степень, на которой истощения нет */
+export const EXHAUSTION_LEVEL_MIN = 0;
 
-/** Характеристики для штрафа к спасброскам (часть «всех d20 тестов») */
-const EXHAUSTION_ABILITY_KEYS: readonly AbilityType[] = [
-  'strength',
-  'dexterity',
-  'constitution',
-  'intelligence',
-  'wisdom',
-  'charisma',
-];
+/** Смертельная степень истощения (PHB 2024: 6 = смерть) */
+export const EXHAUSTION_LEVEL_MAX = 6;
+
+/** Сколько степеней истощения снимает продолжительный отдых (PHB 2024) */
+export const EXHAUSTION_LONG_REST_RECOVERY = 1;
+
+/** Деления шкалы истощения: степени от первой до смертельной */
+export const EXHAUSTION_LEVELS: readonly number[] = Array.from(
+  { length: EXHAUSTION_LEVEL_MAX },
+  (_unused, index) => index + 1,
+);
+
+/** Что даёт текущая степень истощения */
+export interface ExhaustionEffects {
+  /** Степень после приведения к границам шкалы */
+  level: number;
+  /** Штраф ко всем тестам к20 (положительное число — величина штрафа) */
+  d20Penalty: number;
+  /** Снижение всех скоростей в футах (положительное число) */
+  speedPenalty: number;
+  /** Смертельная ли степень */
+  isLethal: boolean;
+}
+
+/**
+ * Приводит степень истощения к границам шкалы.
+ *
+ * @param level - произвольная степень
+ * @returns степень в пределах 0…6
+ */
+export function clampExhaustionLevel(level: number): number {
+  return Math.max(
+    EXHAUSTION_LEVEL_MIN,
+    Math.min(Math.trunc(level), EXHAUSTION_LEVEL_MAX),
+  );
+}
+
+/**
+ * Что даёт степень истощения по правилам 2024: каждая степень снижает все тесты
+ * к20 на 2 и все скорости на 5 футов, шестая — смертельна.
+ *
+ * Числа отдаются положительными: панель листа подписывает их со знаком минус
+ * сама, а расчёт штрафа живёт в `buildExhaustionChanges`.
+ *
+ * @param level - степень истощения
+ * @returns штрафы и признак смертельной степени
+ */
+export function getExhaustionEffects(level: number): ExhaustionEffects {
+  const currentLevel = clampExhaustionLevel(level);
+
+  return {
+    level: currentLevel,
+    d20Penalty: currentLevel * Math.abs(EXHAUSTION_D20_PENALTY_PER_LEVEL),
+    speedPenalty: currentLevel * Math.abs(EXHAUSTION_SPEED_PENALTY_PER_LEVEL),
+    isLethal: currentLevel === EXHAUSTION_LEVEL_MAX,
+  };
+}
+
+/**
+ * Текущая степень истощения сущности: её несёт эффект-состояние.
+ *
+ * @param effects - активные эффекты сущности
+ * @returns степень истощения (0, если состояния нет)
+ */
+export function getEntityExhaustionLevel(
+  effects: readonly ActiveEffect[] | undefined,
+): number {
+  for (const effect of effects ?? []) {
+    if (resolveEffectConditionKey(effect) === 'exhaustion') {
+      return clampExhaustionLevel(effect.exhaustionLevel ?? 1);
+    }
+  }
+
+  return EXHAUSTION_LEVEL_MIN;
+}
+
+/**
+ * Заменяет эффект истощения в списке на эффект нужной степени.
+ *
+ * Единая точка смены степени: панель листа, продолжительный отдых и любые
+ * будущие источники обязаны идти через неё, иначе `changes` разойдутся со
+ * степенью. Нулевая степень снимает состояние.
+ *
+ * @param effects - активные эффекты сущности
+ * @param level - новая степень истощения
+ * @returns новый список эффектов
+ */
+export function withExhaustionLevel(
+  effects: readonly ActiveEffect[],
+  level: number,
+): ActiveEffect[] {
+  const withoutExhaustion = effects.filter(
+    (effect) => resolveEffectConditionKey(effect) !== 'exhaustion',
+  );
+
+  const nextLevel = clampExhaustionLevel(level);
+
+  if (nextLevel === EXHAUSTION_LEVEL_MIN) {
+    return withoutExhaustion;
+  }
+
+  const exhaustionEffect = buildConditionActiveEffect('exhaustion', {
+    exhaustionLevel: nextLevel,
+  });
+
+  return exhaustionEffect
+    ? [...withoutExhaustion, exhaustionEffect]
+    : withoutExhaustion;
+}
 
 /**
  * Навыки для штрафа к проверкам (часть «всех d20 тестов»). Движок не имеет
  * единого ключа «проверка характеристики», поэтому штраф разворачивается по
  * навыкам — это покрывает подавляющее большинство проверок (чистые проверки
  * характеристики без навыка штраф не получают — ограничение модели).
+ *
+ * Список берётся из общего справочника: новый навык обязан получать штраф сам,
+ * без правки этого файла.
  */
-const EXHAUSTION_SKILL_KEYS: readonly SkillType[] = [
-  'acrobatics',
-  'animalHandling',
-  'arcana',
-  'athletics',
-  'deception',
-  'history',
-  'insight',
-  'intimidation',
-  'investigation',
-  'medicine',
-  'nature',
-  'perception',
-  'performance',
-  'persuasion',
-  'sleightOfHand',
-  'stealth',
-  'survival',
-  'religion',
-];
-
-/** Виды скорости для штрафа −5 фт/уровень (часть «ко всем видам скорости») */
-const EXHAUSTION_MOVEMENT_KEYS: readonly MovementType[] = [
-  'walk',
-  'fly',
-  'swim',
-  'climb',
-  'burrow',
-];
+const EXHAUSTION_SKILL_KEYS: readonly SkillType[] = SKILLS_LIST.map(
+  (skill) => skill.key,
+);
 
 /**
  * Генерирует числовые изменения для заданного уровня Exhaustion (PHB 2024).
  *
  * PHB 2024 правила:
  * - Каждый уровень: -2 ко ВСЕМ d20 тестам — атаки (рукопашные/дальнобойные/
- *   заклинаниями), спасброски (все 6 характеристик) и проверки (все навыки);
+ *   заклинаниями), спасброски (все 6 характеристик), проверки (все навыки) и
+ *   инициатива (она же проверка Ловкости);
  * - Каждый уровень: -5 фт ко ВСЕМ видам скорости;
  * - Уровень 6 = смерть (обрабатывается UI).
  *
- * Количество changes (до 32 на эффект) укладывается в `MAX_CHANGES_PER_EFFECT`.
+ * Количество changes (до 33 на эффект) укладывается в `MAX_CHANGES_PER_EFFECT`.
  *
  * @param exhaustionLevel - текущий уровень истощения (1-6)
  * @returns массив EffectChange для этого уровня
@@ -285,12 +382,9 @@ const EXHAUSTION_MOVEMENT_KEYS: readonly MovementType[] = [
 export function buildExhaustionChanges(
   exhaustionLevel: number,
 ): EffectChange[] {
-  const clampedLevel = Math.max(
-    0,
-    Math.min(exhaustionLevel, EXHAUSTION_MAX_LEVEL),
-  );
+  const clampedLevel = clampExhaustionLevel(exhaustionLevel);
 
-  if (clampedLevel === 0) {
+  if (clampedLevel === EXHAUSTION_LEVEL_MIN) {
     return [];
   }
 
@@ -316,8 +410,16 @@ export function buildExhaustionChanges(
     });
   }
 
+  // Инициатива — тоже тест к20 (проверка Ловкости), и штраф идёт на неё
+  changes.push({
+    key: 'initiative',
+    mode: 'add',
+    value: d20Penalty,
+    priority: DEFAULT_EFFECT_CHANGE_PRIORITY,
+  });
+
   // Штраф ко всем спасброскам
-  for (const ability of EXHAUSTION_ABILITY_KEYS) {
+  for (const ability of ABILITY_KEYS) {
     changes.push({
       key: `save.${ability}`,
       mode: 'add',
@@ -337,7 +439,7 @@ export function buildExhaustionChanges(
   }
 
   // Штраф ко всем видам скорости
-  for (const movement of EXHAUSTION_MOVEMENT_KEYS) {
+  for (const movement of MOVEMENT_KEYS) {
     changes.push({
       key: `movement.${movement}`,
       mode: 'add',
@@ -347,6 +449,36 @@ export function buildExhaustionChanges(
   }
 
   return changes;
+}
+
+// ── Опознание состояния ───────────────────────────────────────
+
+/**
+ * Опознаёт ключ состояния эффекта: по явному `conditionKey` либо по совпадению
+ * `id`/имени с записью состояния (легаси-данные без `conditionKey`).
+ *
+ * Единственный способ понять «какое это состояние»: сравнение по имени
+ * ненадёжно — переименованный эффект перестал бы опознаваться, — поэтому имя
+ * остаётся лишь откатом для старых записей.
+ *
+ * @param effect - эффект
+ * @returns ключ состояния или `undefined`, если эффект не является состоянием
+ */
+export function resolveEffectConditionKey(
+  effect: ActiveEffect,
+): ConditionKey | undefined {
+  if (effect.conditionKey) {
+    return effect.conditionKey;
+  }
+
+  const entry = CONDITIONS.find(
+    (conditionEntry) =>
+      conditionEntry.key === effect.id
+      || conditionEntry.nameRu === effect.name
+      || conditionEntry.nameEn === effect.name,
+  );
+
+  return entry?.key;
 }
 
 // ── Сборка эффекта состояния ──────────────────────────────────
@@ -385,11 +517,15 @@ export function buildConditionActiveEffect(
   }
 
   const template = CONDITION_EFFECT_TEMPLATES[conditionKey];
+  const isExhaustion = conditionKey === 'exhaustion';
 
-  const changes =
-    conditionKey === 'exhaustion'
-      ? buildExhaustionChanges(options.exhaustionLevel ?? 1)
-      : [...template.changes];
+  const exhaustionLevel = isExhaustion
+    ? clampExhaustionLevel(options.exhaustionLevel ?? 1)
+    : EXHAUSTION_LEVEL_MIN;
+
+  const changes = isExhaustion
+    ? buildExhaustionChanges(exhaustionLevel)
+    : [...template.changes];
 
   const effect: ActiveEffect = {
     id: generateId('effect'),
@@ -404,6 +540,11 @@ export function buildConditionActiveEffect(
     flags: [...template.flags],
     conditionKey,
   };
+
+  // Степень нужна панели истощения: по набору `changes` её уже не восстановить
+  if (isExhaustion) {
+    effect.exhaustionLevel = exhaustionLevel;
+  }
 
   if (options.effectTarget) {
     effect.effectTarget = options.effectTarget;

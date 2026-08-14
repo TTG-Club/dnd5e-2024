@@ -322,15 +322,22 @@ export function resolveWeaponProficiency(
  * Ловкость — берётся бо́льшая. Без finesse — заданная `attackAbility`
  * (по умолчанию Сила).
  *
+ * Характеристики берутся из итоговых статов листа, когда они переданы: пояс
+ * силы, дар вида и свои бонусы листа меняют именно их, и без этого атака
+ * считалась бы от «сырого» числа, а плитка характеристики на листе показывала
+ * бы другое. Без статов — откат на запись листа.
+ *
  * @param actor - актёр-владелец
  * @param weapon - оружие
+ * @param resolvedStats - итоговые статы из пайплайна (если посчитаны)
  * @returns значение характеристики (1-30)
  */
 export function resolveWeaponAbilityScore(
   actor: DnDActor,
   weapon: DnDGameItem,
+  resolvedStats?: ResolvedActorStats,
 ): number {
-  const abilities = actor.system?.abilities;
+  const abilities = resolvedStats?.abilities ?? actor.system?.abilities;
 
   if (weapon.weaponProperties?.includes('finesse')) {
     return Math.max(abilities?.strength ?? 10, abilities?.dexterity ?? 10);
@@ -344,7 +351,7 @@ export function calculateWeaponAttackModifier(
   weapon: DnDGameItem,
   resolvedStats?: ResolvedActorStats,
 ): number {
-  const abilityScore = resolveWeaponAbilityScore(actor, weapon);
+  const abilityScore = resolveWeaponAbilityScore(actor, weapon, resolvedStats);
 
   let modifier = calculateAbilityModifier(abilityScore);
 
@@ -387,7 +394,7 @@ export function calculateWeaponDamageModifier(
   weapon: DnDGameItem,
   resolvedStats?: import('./activeEffectTypes.js').ResolvedActorStats,
 ): number {
-  const abilityScore = resolveWeaponAbilityScore(actor, weapon);
+  const abilityScore = resolveWeaponAbilityScore(actor, weapon, resolvedStats);
 
   let modifier = calculateAbilityModifier(abilityScore);
 

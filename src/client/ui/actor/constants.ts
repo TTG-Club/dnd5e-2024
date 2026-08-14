@@ -1670,6 +1670,30 @@ export const EFFECTS_TAB_LABELS = {
   conditionsTitle: 'Состояния',
 } as const;
 
+/** Подписи блока Истощения на листе */
+export const EXHAUSTION_BLOCK_LABELS = {
+  title: 'Истощение',
+  /** Подпись деления шкалы для программ чтения с экрана */
+  level: 'Степень',
+  none: 'Истощения нет.',
+  death: 'Персонаж умирает.',
+  d20Effect: 'ко всем проверкам к20',
+  speedEffect: 'скорость',
+  rulesTitle: 'Правила истощения',
+} as const;
+
+/**
+ * Пункты правил Истощения (PHB 2024) для справки в блоке. Текст правил, а не
+ * механика: движок считает штрафы сам, здесь — только объяснение игроку.
+ */
+export const EXHAUSTION_RULES: readonly string[] = [
+  'Истощение накапливается: каждый новый источник добавляет 1 степень, а не заменяет прежнюю.',
+  'Каждая степень снижает все проверки к20 на 2: проверки характеристик, броски атаки и спасброски.',
+  `Каждая степень снижает все скорости на 5 ${FEET_UNIT_LABEL}.`,
+  'На 6-й степени персонаж умирает.',
+  'Продолжительный отдых снимает 1 степень; на нулевой состояние заканчивается.',
+];
+
 /** Подписи окон владения доспехами, оружием и языками */
 export const PROFICIENCY_MODAL_LABELS = {
   /** Подсказки шестерёнок блока владений: куда ведёт каждая */
@@ -2114,6 +2138,8 @@ export const LONG_REST_LABELS = {
   spellUses: 'Заряды заклинаний',
   itemUses: 'Заряды предметов',
   temporaryHitPointsCleared: 'Временные хиты сброшены',
+  /** Строка предпросмотра: продолжительный отдых снимает степень Истощения */
+  exhaustionReduced: 'Истощение',
   finish: 'Завершить отдых',
   /** Разбор потраченных костей хитов: «(потрачено 2 из 5)» */
   hitDiceSpentPrefix: '(потрачено ',
@@ -2952,6 +2978,8 @@ export const ACTIVE_EFFECT_DEFAULTS = {
   name: 'Новый Эффект',
   /** Значок нового эффекта */
   icon: 'tabler:sparkles',
+  /** Значок эффекта, у которого свой не задан (строки списков эффектов) */
+  fallbackIcon: 'tabler:bolt',
   /** Флаг, который подставляется в новую строку флагов */
   flag: 'vision.blinded',
   /** Ключ атрибута новой строки модификаторов */
@@ -3025,7 +3053,6 @@ export const ACTIVE_EFFECT_FORM_LABELS = {
   flagPlaceholder: `Напр: ${ACTIVE_EFFECT_DEFAULTS.flag}`,
   flagLibrary: 'Библиотека флагов',
   flagRemove: 'Удалить флаг',
-  flagUnknown: 'Кастомный или Неизвестный флаг',
   changesTitle: 'Модификаторы (Changes)',
   changesEmpty: 'Нет активных модификаторов.',
   changeKey: 'Ключ атрибута',
@@ -3093,6 +3120,22 @@ export const ACTIVE_EFFECT_FORM_LABELS = {
     'Пока эффект висит на цели, наносит урон каждый ход (напр. «Горение»). '
     + 'Тикает в бою при смене хода.',
   recurringDamageWhen: 'Когда наносится',
+} as const;
+
+/** Размеры окна библиотеки подсказок эффекта */
+export const EFFECT_TEMPLATES_MODAL_SIZE = {
+  width: 400,
+  height: 500,
+  minWidth: 300,
+  minHeight: 400,
+} as const;
+
+/** Ключи окон библиотек подсказок в менеджере окон хоста */
+export const EFFECT_TEMPLATES_MODAL_IDS = {
+  key: 'effect-key-templates-modal',
+  value: 'effect-value-templates-modal',
+  flag: 'effect-flag-templates-modal',
+  condition: 'effect-condition-templates-modal',
 } as const;
 
 /**

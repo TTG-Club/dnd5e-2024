@@ -8,7 +8,7 @@
  * (заклинания-источники, флаги защит, синтетический эффект черты).
  */
 
-import type { AbilityType, DefensibleDamageType } from '@vtt/shared';
+import type { DefensibleDamageType } from '@vtt/shared';
 
 import type {
   ActiveEffect,
@@ -25,7 +25,8 @@ import type { GrantedSpellSource } from './grantedSpells.js';
 
 import { generateId } from '@vtt/shared';
 
-import { ABILITY_OPTIONS } from './consts.js';
+import { ABILITY_OPTIONS, isAbilityType } from './consts.js';
+import { isDefensibleDamageType } from './damageConstants.js';
 
 /**
  * Провенанс эффекта/заклинания, выданного чертой. По `originId === feat:<id>`
@@ -347,9 +348,16 @@ export function buildFeatGrantEffect(
   const flags = collectFeatDamageDefenseFlags(featData);
 
   // Сопротивление по выбору: тип урона известен только после того, как игрок выбрал,
-  // поэтому в дарах черты его нет — он приходит контекстом применения
+  // поэтому в дарах черты его нет — он приходит контекстом применения.
+  // Выбор приходит строкой из записи листа, поэтому сверяется гвардом: чужой
+  // тип урона дал бы флаг, который движок не понимает, и сопротивление молча
+  // не работало бы
   for (const damageType of context.chosenResistances ?? []) {
-    const flag: EffectFlagKey = `resistance.${damageType as DefensibleDamageType}`;
+    if (!isDefensibleDamageType(damageType)) {
+      continue;
+    }
+
+    const flag: EffectFlagKey = `resistance.${damageType}`;
 
     if (!flags.includes(flag)) {
       flags.push(flag);
@@ -361,8 +369,13 @@ export function buildFeatGrantEffect(
   const chosenAmount = featData?.abilityScoreIncrease?.choice?.amount ?? 1;
 
   for (const ability of context.chosenAbilities ?? []) {
+    // Характеристика тоже приходит строкой выбора — сверяем со справочником
+    if (!isAbilityType(ability)) {
+      continue;
+    }
+
     changes.push({
-      key: `ability.${ability as AbilityType}`,
+      key: `ability.${ability}`,
       mode: 'add',
       value: String(chosenAmount),
       priority: 20,

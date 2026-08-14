@@ -277,9 +277,12 @@ export interface AttackRollModeParams {
  * Определяет итоговый режим броска атаки D&D 5e по флагам атакующего и цели.
  *
  * Учитывает общие флаги (`attack.advantage`/`attack.disadvantage`), профильные
- * по категории атаки (`attack.<melee|ranged|spell>.*`), флаги «атак по цели»
- * (`attacksAgainst.*`) и внешнюю помеху `forceDisadvantage` (дистанция). По
- * правилу 5e преимущество и помеха взаимно гасятся до «обычного» броска.
+ * по категории атаки (`attack.<melee|ranged|spell>.*`), флаги «атак по цели» —
+ * общие (`attacksAgainst.*`) и профильные по категории
+ * (`attacksAgainst.<melee|ranged|spell>.*`, ими описан Лежащий ничком: рукопашные
+ * по нему с преимуществом, дальнобойные с помехой) — и внешнюю помеху
+ * `forceDisadvantage` (дистанция). По правилу 5e преимущество и помеха взаимно
+ * гасятся до «обычного» броска.
  *
  * Единая точка для всех путей атаки (оружие/заклинания актёра, действия и
  * заклинания существа), чтобы флаги атакующего читались одинаково везде.
@@ -295,13 +298,15 @@ export function resolveAttackRollMode(
   const hasAdvantage =
     attackerFlags.has('attack.advantage')
     || attackerFlags.has(`attack.${attackType}.advantage`)
-    || (targetFlags?.has('attacksAgainst.advantage') ?? false);
+    || (targetFlags?.has('attacksAgainst.advantage') ?? false)
+    || (targetFlags?.has(`attacksAgainst.${attackType}.advantage`) ?? false);
 
   const hasDisadvantage =
     forceDisadvantage === true
     || attackerFlags.has('attack.disadvantage')
     || attackerFlags.has(`attack.${attackType}.disadvantage`)
-    || (targetFlags?.has('attacksAgainst.disadvantage') ?? false);
+    || (targetFlags?.has('attacksAgainst.disadvantage') ?? false)
+    || (targetFlags?.has(`attacksAgainst.${attackType}.disadvantage`) ?? false);
 
   if (hasAdvantage && !hasDisadvantage) {
     return 'advantage';

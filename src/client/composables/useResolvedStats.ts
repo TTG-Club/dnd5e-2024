@@ -7,24 +7,30 @@ import type {
   ResolvedActorStats,
 } from '@vtt/shared/system/dnd.js';
 
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 
 import { useAuraStore } from '@/stores/auraStore';
 import { systemRegistry } from '@vtt/shared';
-import { isDnDEffect, resolveActorStats } from '@vtt/shared/system/dnd.js';
-
-export const globalDebugError = ref<string | null>(null);
+import {
+  combineEffectsWithAmbient,
+  isActiveEffect,
+  isDnDEffect,
+  resolveActorStats,
+} from '@vtt/shared/system/dnd.js';
 
 /**
  * Хук для реактивного получения итоговых статов актера
  * с учетом всех Active Effects и базовых формул системы.
+ *
+ * @param actorRef - ссылка на актёра или существо листа
+ * @returns итоговые статы и полный список действующих эффектов
  */
 export function useResolvedStats(
   actorRef: Ref<DnDActor | DnDCreature | null | undefined>,
 ) {
   const auraStore = useAuraStore();
 
-  const combinedEffects = computed(() => {
+  const combinedEffects = computed<ActiveEffect[]>(() => {
     const actor = actorRef.value;
 
     if (!actor) {
@@ -33,37 +39,19 @@ export function useResolvedStats(
 
     const system = systemRegistry.getSystem();
 
-    const nativeEffectsRaw = system.collectActiveEffects
-      ? system.collectActiveEffects(actor)
-      : [];
+    // Контракт отдаёт эффекты непрозрачным `unknown[]` — сужаем гвардом движка
+    const nativeEffects = (
+      system.collectActiveEffects ? system.collectActiveEffects(actor) : []
+    ).filter(isActiveEffect);
 
-    const nativeEffects = nativeEffectsRaw.filter(
-      (eff): eff is ActiveEffect =>
-        typeof eff === 'object'
-        && eff !== null
-        && 'id' in eff
-        && typeof eff.id === 'string'
-        && 'name' in eff
-        && typeof eff.name === 'string',
-    );
-
-    // Ambient-ауры контракт отдаёт нейтральной базой — сужаем к D&D-форме.
-    const ambient = auraStore
+    // Ambient-ауры контракт отдаёт нейтральной базой — сужаем к D&D-форме
+    const ambientEffects = auraStore
       .getAmbientEffectsForActor(actor.id)
       .filter(isDnDEffect);
 
-    const safeAmbient = ambient.filter((ambientEff: ActiveEffect) => {
-      const ambientBaseId = ambientEff.id.split('_aura_')[0];
-
-      return !nativeEffects.some(
-        (nativeEff) =>
-          nativeEff.id === ambientBaseId
-          || (nativeEff.name || '').trim().toLowerCase()
-            === (ambientEff.name || '').trim().toLowerCase(),
-      );
-    });
-
-    return [...nativeEffects, ...safeAmbient];
+    // Отсев дублей — правило движка «одноимённые эффекты не складываются»:
+    // повторять его здесь нельзя, иначе две реализации разойдутся
+    return combineEffectsWithAmbient(nativeEffects, ambientEffects);
   });
 
   /**

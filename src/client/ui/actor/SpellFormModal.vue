@@ -1339,6 +1339,7 @@
     :z-index="effectModalZIndex"
     :effect="editingEffect"
     :show-effect-target="true"
+    default-effect-target="target"
     @save="saveCustomEffect"
   />
 </template>

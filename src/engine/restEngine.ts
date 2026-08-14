@@ -21,6 +21,11 @@ import type {
 import type { ActorCounterState, DnDActorSystem } from './types.js';
 
 import {
+  EXHAUSTION_LONG_REST_RECOVERY,
+  getEntityExhaustionLevel,
+  withExhaustionLevel,
+} from './conditionTemplates.js';
+import {
   getHalfHitDiceRecovery,
   getHitDiceGroups,
   recoverHitDice,
@@ -66,6 +71,8 @@ export interface LongRestPreview {
   spellChargesRestored: number;
   /** Сколько предметов инвентаря восстановят заряды */
   itemChargesRestored: number;
+  /** Истощение: степень сейчас и какой станет после отдыха */
+  exhaustion: { level: number; levelAfterRest: number };
 }
 
 /**
@@ -277,13 +284,29 @@ export function applyActorRest(
 
   const rolls = options.itemChargeRolls ?? {};
 
-  return {
+  const patch: Partial<DnDActor> = {
     spells: actor.spells.map((spell) => restoreSpellUses(spell, restType)),
     equipment: (actor.equipment ?? []).map((item) =>
       restoreItemUses(item, restType, rolls[item.id]),
     ),
     system: restoredSystem,
   };
+
+  // Продолжительный отдых снимает одну степень Истощения (PHB 2024). Патч
+  // добавляется только когда есть что менять: пустой `activeEffects` перетёр бы
+  // эффекты, которых отдых не касается
+  if (restType === 'long') {
+    const exhaustionLevel = getEntityExhaustionLevel(actor.activeEffects);
+
+    if (exhaustionLevel > 0) {
+      patch.activeEffects = withExhaustionLevel(
+        actor.activeEffects ?? [],
+        exhaustionLevel - EXHAUSTION_LONG_REST_RECOVERY,
+      );
+    }
+  }
+
+  return patch;
 }
 
 /**
@@ -327,6 +350,8 @@ export function summarizeActorLongRest(actor: DnDActor): LongRestPreview {
     itemUsesRecoverable(item, 'long'),
   ).length;
 
+  const exhaustionLevel = getEntityExhaustionLevel(actor.activeEffects);
+
   return {
     hitPoints: {
       current: system.hitPoints.current,
@@ -344,6 +369,13 @@ export function summarizeActorLongRest(actor: DnDActor): LongRestPreview {
     countersRestored,
     spellChargesRestored,
     itemChargesRestored,
+    exhaustion: {
+      level: exhaustionLevel,
+      levelAfterRest: Math.max(
+        0,
+        exhaustionLevel - EXHAUSTION_LONG_REST_RECOVERY,
+      ),
+    },
   };
 }
 

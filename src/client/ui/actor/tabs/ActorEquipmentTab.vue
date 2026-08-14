@@ -29,6 +29,7 @@
   import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { formatItemCost } from '@vtt/shared';
   import {
+    buildFormulaContext,
     calculateWeaponAttackModifier,
     calculateWeaponDamageModifier,
     canSpendItemUses,
@@ -354,16 +355,22 @@
       // HP цели читается в момент броска — для условий target.hp.* («Убийца»)
       const rollContext = { ...context, target: buildTargetHpContext() };
 
+      // Условный бонус может быть формулой (`@prof`, `@mod.dex`) — без
+      // контекста @-переменных она дала бы ноль
+      const formulaContext = buildFormulaContext(props.actor);
+
       return {
         attackBonus: evaluateConditionalBonuses(
           combinedEffects.value,
           attackKey,
           rollContext,
+          formulaContext,
         ),
         damageBonus: evaluateConditionalBonuses(
           combinedEffects.value,
           damageKey,
           rollContext,
+          formulaContext,
         ),
       };
     };

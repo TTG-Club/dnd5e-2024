@@ -44,6 +44,7 @@ import {
   resolveDamagePartsForCast,
   resolveSpellDamageFormula,
   substituteFormulaVariables,
+  withFlatDamageBonus,
 } from '@vtt/shared/system/dnd.js';
 
 /** Контекст броска из модалки (фактический режим преимущества/помехи) */
@@ -186,6 +187,38 @@ export function hasSpellBonusDamage(effects: readonly ActiveEffect[]): boolean {
 }
 
 /**
+ * Собирает плоский бонус урона заклинаниями отдельной бонус-частью каста.
+ *
+ * Нужна СНАРЯДАМ (Волшебная стрела, Мистический заряд): их формула урона
+ * катается на каждый снаряд, и влить бонус в неё значило бы дать «+2 за
+ * снаряд». Бонус-части устроены иначе — они катаются один раз на каст и
+ * применяются каждой задетой цели по разу, что и требует правило PHB 2024
+ * «плоский бонус применяется один раз к броску».
+ *
+ * @param parts - бонус-части, собранные из кость-формул эффектов
+ * @param flatBonus - плоский бонус урона заклинаниями (0 — ничего не добавлять)
+ * @returns бонус-части вместе с плоским бонусом
+ */
+export function withFlatDamageBonusPart(
+  parts: SpellDamagePartInput[],
+  flatBonus: number,
+): SpellDamagePartInput[] {
+  if (flatBonus === 0) {
+    return parts;
+  }
+
+  return [
+    ...parts,
+    {
+      formula: String(flatBonus),
+      isHealing: false,
+      target: 'selected',
+      requiresDamage: false,
+    },
+  ];
+}
+
+/**
  * Композабл бонус-частей урона от Active Effects.
  */
 export function useBonusDamageParts() {
@@ -318,7 +351,7 @@ export function useBonusDamageParts() {
     // Базовые части урона оружия через тот же резолвер, что и заклинания
     // (versatile-хват применён в getWeaponDamageParts; @-переменные, @dmg/@heal/
     // @target-токены и per-target гейты разворачиваются внутри).
-    const baseParts: SpellDamagePartInput[] = resolveDamagePartsForCast(
+    const resolvedParts: SpellDamagePartInput[] = resolveDamagePartsForCast(
       pseudoSpell,
       actor,
       getWeaponDamageParts(weapon),
@@ -333,18 +366,7 @@ export function useBonusDamageParts() {
       (weapon.isMagical && weapon.magicBonus ? weapon.magicBonus : 0)
       + calculateWeaponDamageModifier(actor, weapon, resolvedStats);
 
-    if (flatDamageMod !== 0) {
-      const firstDamageIndex = baseParts.findIndex((part) => !part.isHealing);
-
-      if (firstDamageIndex !== -1) {
-        const sign = flatDamageMod > 0 ? '+' : '';
-
-        baseParts[firstDamageIndex] = {
-          ...baseParts[firstDamageIndex],
-          formula: `${baseParts[firstDamageIndex].formula}${sign}${flatDamageMod}`,
-        };
-      }
-    }
+    const baseParts = withFlatDamageBonus(resolvedParts, flatDamageMod);
 
     const formulaContext = buildFormulaContext(actor);
 

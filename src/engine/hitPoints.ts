@@ -31,16 +31,22 @@ import type { DnDSceneEntity } from './dndEntities.js';
 
 import { isActorEntity, isCreatureEntity } from '@vtt/shared';
 
+import { resolveMaxHitPointsDelta } from './effectPipeline.js';
+
 /**
- * Максимум хитов сущности.
+ * Записанный в лист максимум хитов — БЕЗ активных эффектов.
  *
  * У существа: явный `max`, иначе `average` из статблока, иначе 0 (у существ с
  * текстовыми хитами вида «половина хитов призывателя» `average` равен `null`).
  *
+ * Нужен там, где важен именно запас листа: «полные хиты» существа без явного
+ * `current` и отсчёт самой прибавки эффектов. Все остальные чтения максимума
+ * идут через {@link resolveEntityMaxHp} — с эффектами.
+ *
  * @param entity - сущность (актор или существо)
- * @returns максимум хитов
+ * @returns максимум хитов по записи листа
  */
-export function resolveEntityMaxHp(entity: DnDSceneEntity): number {
+export function resolveBaseMaxHp(entity: DnDSceneEntity): number {
   if (isCreatureEntity(entity)) {
     const { average, max } = entity.system.hitPoints;
 
@@ -48,6 +54,34 @@ export function resolveEntityMaxHp(entity: DnDSceneEntity): number {
   }
 
   return entity.system.hitPoints.max;
+}
+
+/**
+ * Максимум хитов сущности С УЧЁТОМ активных эффектов (ключ `hitPoints.max`).
+ *
+ * Эффекты вроде «Ложной жизни» поднимают потолок хитов, и знать об этом обязаны
+ * все боевые пути разом: лечение до максимума, ограничение текущих хитов сверху,
+ * плитка хитов листа и сводка HUD. Поэтому потолок считается здесь, в
+ * единственной точке чтения хитов, а не у каждого потребителя по-своему — иначе
+ * эффект работал бы в лечении и не работал в ограничении.
+ *
+ * ВНЕ охвата: полоса над токеном рисуется ядром, которое читает `system` как
+ * непрозрачный блоб (`useSceneTokens`) и о ключе `hitPoints.max` не знает —
+ * там показывается запас листа, пока в контракте `VttSystem` нет метода чтения
+ * хитов сущности.
+ *
+ * Считается прибавкой к запасу листа, а не значением из пайплайна целиком:
+ * у пайплайна свой отсчёт для непрозрачного блока хитов (дефолт в 10), и
+ * подменять им запас существа с текстовыми хитами нельзя.
+ *
+ * @param entity - сущность (актор или существо)
+ * @returns максимум хитов с учётом эффектов
+ */
+export function resolveEntityMaxHp(entity: DnDSceneEntity): number {
+  return Math.max(
+    0,
+    resolveBaseMaxHp(entity) + resolveMaxHitPointsDelta(entity),
+  );
 }
 
 /**
@@ -61,7 +95,9 @@ export function resolveEntityMaxHp(entity: DnDSceneEntity): number {
  */
 export function resolveEntityCurrentHp(entity: DnDSceneEntity): number {
   if (isCreatureEntity(entity)) {
-    return entity.system.hitPoints.current ?? resolveEntityMaxHp(entity);
+    // Запас листа, а не потолок с эффектами: статблок описывает существо целым,
+    // а прибавка эффекта — временная надстройка, «полным» её не считают
+    return entity.system.hitPoints.current ?? resolveBaseMaxHp(entity);
   }
 
   return entity.system.hitPoints.current;

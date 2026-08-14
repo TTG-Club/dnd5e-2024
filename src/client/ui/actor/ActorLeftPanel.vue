@@ -20,6 +20,7 @@
     getActorAbilityModifiers,
     getCustomBonusValue,
     getTotalLevel,
+    resolveEntityMaxHp,
   } from '@vtt/shared/system/dnd.js';
 
   import { useProficiencyBonus } from '../../composables/useProficiencyBonus';
@@ -82,6 +83,13 @@
   const hitPointsBlockClass = computed(() =>
     getSheetBlockClass({ isEditMode: props.isEditMode, isClickable: true }),
   );
+
+  /**
+   * Максимум хитов с учётом эффектов: «Ложная жизнь» и подобные поднимают
+   * потолок, и плитка обязана показывать то же число, по которому лечат и
+   * ограничивают текущие хиты.
+   */
+  const maxHitPoints = computed(() => resolveEntityMaxHp(props.actor));
 
   /** Оформление блока, который целиком не нажимается: настройка — в шестерёнке */
   const blockClass = computed(() =>
@@ -902,7 +910,7 @@
 
           <span
             class="flex-1 text-center text-xl font-bold text-muted tabular-nums"
-            >{{ actor.system.hitPoints?.max ?? 0 }}</span
+            >{{ maxHitPoints }}</span
           >
 
           <div class="mx-2 h-6 w-px bg-elevated" />
@@ -1204,7 +1212,7 @@
   <HitPointsModal
     v-model:open="isHitPointsOpen"
     :current-hit-points="actor.system.hitPoints?.current ?? 0"
-    :max-hit-points="actor.system.hitPoints?.max ?? 0"
+    :max-hit-points="maxHitPoints"
     :temp-hit-points="actor.system.hitPoints?.temp ?? 0"
     :classes="actor.system.classes ?? []"
     :manual-hit-dice="actor.system.manualHitDice ?? []"

@@ -96,7 +96,6 @@ export type EffectTargetKey =
   | 'armorClass'
   | `movement.${MovementType}`
   | 'hitPoints.max'
-  | 'hitPoints.temp'
   | 'initiative'
   | 'proficiencyBonus'
   | 'spellSaveDC';
@@ -114,13 +113,13 @@ export const EFFECT_TARGET_SUGGESTIONS: Array<{
   { value: 'proficiencyBonus', label: 'Бонус мастерства' },
   { value: 'spellSaveDC', label: 'Сложность спасброска от заклинаний' },
   { value: 'hitPoints.max', label: 'Макс. здоровье (HP)' },
-  { value: 'hitPoints.temp', label: 'Временные хиты (Temp HP)' },
 
   // Скорости
   { value: 'movement.walk', label: 'Скорость (Ходьба)' },
   { value: 'movement.fly', label: 'Скорость (Полет)' },
   { value: 'movement.swim', label: 'Скорость (Плавание)' },
   { value: 'movement.climb', label: 'Скорость (Лазание)' },
+  { value: 'movement.burrow', label: 'Скорость (Копание)' },
 
   // Характеристики (Скрытые/Явные)
   { value: 'ability.strength', label: 'Сила (Очки)' },
@@ -169,9 +168,34 @@ export const EFFECT_TARGET_SUGGESTIONS: Array<{
   { value: 'skill.survival', label: 'Навык (Выживание)' },
 ];
 
+/** Множество известных ключей изменения — для быстрой проверки строки */
+const EFFECT_TARGET_KEY_SET: ReadonlySet<string> = new Set(
+  EFFECT_TARGET_SUGGESTIONS.map((suggestion) => suggestion.value),
+);
+
 /**
- * Шаблоны логических условий для эффектов (condition field).
- * Позволяют фильтровать применение эффекта по различным обстоятельствам.
+ * Проверяет, что строка — известный ключ изменения эффекта.
+ *
+ * Нужна на границе с UI: подборщик ключей отдаёт строку, а `EffectChange.key`
+ * типизирован. Список тот же, что показывается пользователю, — так проверка и
+ * подсказки не расходятся.
+ *
+ * @param value - произвольная строка ключа
+ * @returns `true`, если такой ключ известен движку
+ */
+export function isEffectTargetKey(value: string): value is EffectTargetKey {
+  return EFFECT_TARGET_KEY_SET.has(value);
+}
+
+/**
+ * Шаблоны логических условий для эффектов (поле `condition`).
+ *
+ * Список закрыт и содержит РОВНО те условия, которые движок умеет вычислять:
+ * `evaluateCondition` (броски и состояние хитов цели) и
+ * `evaluateDefensiveCondition` (вид входящей атаки, только для ключа
+ * `armorClass`) в `effectPipeline`. Неизвестное условие движок молча не
+ * применяет, поэтому предлагать здесь непонятые строки нельзя — эффект
+ * выглядел бы настроенным и не работал.
  */
 export const EFFECT_CONDITION_SUGGESTIONS: Array<{
   value: string;
@@ -180,94 +204,40 @@ export const EFFECT_CONDITION_SUGGESTIONS: Array<{
   // === БРОСКИ ===
   {
     value: 'roll.hasAdvantage === true',
-    label: 'Бросок: Решение с Преимуществом',
+    label: 'Бросок: с преимуществом',
   },
   {
     value: 'roll.hasDisadvantage === true',
-    label: 'Бросок: Решение с Помехой',
-  },
-  {
-    value: 'roll.isCritical === true',
-    label: 'Бросок: Критическое попадание (Крит)',
+    label: 'Бросок: с помехой',
   },
 
-  // === ЦЕЛЬ (TARGET) ===
-  {
-    value: 'target.creatureType === "undead"',
-    label: 'Цель: Нежить (Тип существа)',
-  },
-  {
-    value: 'target.creatureType === "fiend"',
-    label: 'Цель: Исчадие (Тип существа)',
-  },
-  { value: 'target.hasCondition("prone")', label: 'Цель: Сбита с ног' },
-  { value: 'target.hasCondition("poisoned")', label: 'Цель: Отравлена' },
+  // === ХИТЫ ЦЕЛИ ===
   {
     value: 'target.hp.value === target.hp.max',
-    label: 'Цель: Имеет Макс. Хиты (Убийца / Полное HP)',
+    label: 'Цель: с полными хитами (Убийца)',
   },
   {
     value: 'target.hp.value < target.hp.max',
-    label: 'Цель: Ранена (Неполное HP)',
+    label: 'Цель: ранена (неполные хиты)',
   },
   {
     value: 'target.hp.value <= (target.hp.max / 2)',
-    label: 'Цель: Меньше половины HP (Окровавлен)',
+    label: 'Цель: не больше половины хитов (Окровавлен)',
   },
 
-  // === ОРУЖИЕ / ЗАКЛИНАНИЕ (ITEM) ===
-  {
-    value: 'item.system.actionType === "mwak"',
-    label: 'Атака: Рукопашное оружие',
-  },
-  {
-    value: 'item.system.actionType === "rwak"',
-    label: 'Атака: Дальнобойное оружие',
-  },
-  { value: 'item.type === "spell"', label: 'Атака: Заклинанием' },
-  {
-    value: 'item.properties.includes("finesse")',
-    label: 'Оружие: Фехтовальное',
-  },
-  { value: 'item.properties.includes("heavy")', label: 'Оружие: Тяжелое' },
-  {
-    value: 'item.properties.includes("versatile")',
-    label: 'Оружие: Универсальное',
-  },
-
-  // === ДИСТАНЦИЯ ===
-  {
-    value: 'target.distance <= 5',
-    label: 'Дистанция: В пределах 5 футов (Вплотную)',
-  },
-  { value: 'target.distance > 30', label: 'Дистанция: Дальше 30 футов' },
-
-  // === ЗАЩИТА (УСЛОВНЫЙ AC) ===
+  // === ЗАЩИТА (условный КД) ===
   {
     value: 'incoming.attackType === "melee"',
-    label: 'Защита: От рукопашных атак',
+    label: 'Защита: от рукопашных атак (только КД)',
   },
   {
     value: 'incoming.attackType === "ranged"',
-    label: 'Защита: От дальнобойных атак',
+    label: 'Защита: от дальнобойных атак (только КД)',
   },
   {
     value: 'incoming.attackType === "spell"',
-    label: 'Защита: От атак заклинаниями',
+    label: 'Защита: от атак заклинаниями (только КД)',
   },
-
-  // === ПЕРСОНАЖ (ACTOR) ===
-  {
-    value: 'actor.hp.value <= (actor.hp.max / 2)',
-    label: 'Сам Персонаж: Меньше 50% HP',
-  },
-  {
-    value: 'actor.hasCondition("invisible")',
-    label: 'Сам Персонаж: Невидимый',
-  },
-
-  // === ОКРУЖЕНИЕ ===
-  { value: 'scene.isDark === true', label: 'Окружение: Темнота' },
 ];
 
 /**
@@ -354,6 +324,10 @@ export type EffectFlagKey =
   | 'attack.spell.disadvantage'
   | 'attacksAgainst.advantage'
   | 'attacksAgainst.disadvantage'
+  | 'attacksAgainst.melee.advantage'
+  | 'attacksAgainst.melee.disadvantage'
+  | 'attacksAgainst.ranged.advantage'
+  | 'attacksAgainst.ranged.disadvantage'
   | 'abilityCheck.disadvantage'
   | 'abilityCheck.advantage'
   | 'abilityCheck.advantage.strength'
@@ -417,6 +391,14 @@ const BASE_EFFECT_FLAG_LABELS: Record<
   'attack.spell.disadvantage': 'Помеха на атаки заклинаниями',
   'attacksAgainst.advantage': 'Преимущество атак по этому существу',
   'attacksAgainst.disadvantage': 'Помеха атак по этому существу',
+  'attacksAgainst.melee.advantage':
+    'Преимущество рукопашных атак по этому существу',
+  'attacksAgainst.melee.disadvantage':
+    'Помеха рукопашных атак по этому существу',
+  'attacksAgainst.ranged.advantage':
+    'Преимущество дальнобойных атак по этому существу',
+  'attacksAgainst.ranged.disadvantage':
+    'Помеха дальнобойных атак по этому существу',
 
   // Проверки характеристик
   'abilityCheck.disadvantage': 'Помеха на ВСЕ проверки характеристик',
@@ -782,6 +764,16 @@ export interface ActiveEffect extends BaseActiveEffect {
    * приходит именно отсюда; собирается `getEntityConditionImmunities`.
    */
   conditionImmunities?: ConditionKey[];
+
+  /**
+   * Степень Истощения (1–6), если `conditionKey === 'exhaustion'`.
+   *
+   * Хранится на самом эффекте, потому что штрафы Истощения разворачиваются в
+   * набор `changes` и по ним степень уже не восстановить. Панель истощения
+   * читает это поле, а при смене степени эффект пересобирается целиком
+   * (`buildConditionActiveEffect`).
+   */
+  exhaustionLevel?: number;
 }
 
 /**
@@ -799,18 +791,22 @@ export function isDnDEffect(
   return true;
 }
 
-/** Все источники эффекта — рантайм-зеркало `EffectOrigin` */
-const EFFECT_ORIGINS: readonly EffectOrigin[] = [
+/**
+ * Все источники эффекта — рантайм-зеркало `EffectOrigin`.
+ * Кортеж, а не массив: из него же строится Zod-перечисление схемы эффекта,
+ * поэтому список источников живёт ровно в одном месте.
+ */
+const EFFECT_ORIGIN_VALUES = [
   'item',
   'spell',
   'feature',
   'condition',
   'manual',
   'area',
-];
+] as const satisfies readonly EffectOrigin[];
 
 /** Множество источников эффекта для быстрой проверки строки */
-const EFFECT_ORIGIN_SET: ReadonlySet<string> = new Set(EFFECT_ORIGINS);
+const EFFECT_ORIGIN_SET: ReadonlySet<string> = new Set(EFFECT_ORIGIN_VALUES);
 
 /**
  * Проверяет, что строка — известный источник эффекта.
@@ -840,6 +836,12 @@ export function isEffectOrigin(value: string): value is EffectOrigin {
  * бонусы листа. Сравнения с источником ниже по коду безопасны на любом
  * значении.
  *
+ * А вот форма трёх полей проверяется: `changes` и `flags` перебираются циклом
+ * (`applyActiveEffects`, `collectDerivedChanges`, `validateActor`), а
+ * `duration` читается по полю на каждой смене хода. Эффект без них ронял бы
+ * расчёт листа и серверный тик раунда исключением, а терять при этом нечего —
+ * бонусов у такого эффекта всё равно нет.
+ *
  * @param value - произвольное значение из списка эффектов ядра
  * @returns `true`, если значение — активный эффект
  */
@@ -848,6 +850,9 @@ export function isActiveEffect(value: unknown): value is ActiveEffect {
     isRecord(value)
     && typeof value.id === 'string'
     && typeof value.name === 'string'
+    && Array.isArray(value.changes)
+    && Array.isArray(value.flags)
+    && isRecord(value.duration)
   );
 }
 
@@ -1042,42 +1047,60 @@ const RecurringDamageSchema = z.object({
 });
 
 /**
- * Zod-схема ключа флага эффекта.
+ * Проверяет, что строка — известный флаг эффекта.
  *
  * Набор ключей закрыт и берётся из `EFFECT_FLAG_LABELS` — того же объекта, по
  * которому строится список в UI-подборщике флагов
- * (`ActiveEffectFlagTemplatesModal`, `ActiveEffectFormModal`). Так схема и
+ * (`ActiveEffectSuggestionsModal` в `ActiveEffectFormModal`). Так проверка и
  * список вариантов не могут разойтись: новый флаг добавляется в одном месте.
  *
- * Раньше здесь стоял `z.array(z.string())`, и тип `ActiveEffect['flags']`
- * (`EffectFlagKey[]`) был неправдой: любая строка проходила валидацию и
- * попадала в `activeFlags`, где не совпадала ни с одной проверкой движка —
- * то есть флаг молча не работал, а в UI показывался без названия.
+ * @param value - произвольная строка флага
+ * @returns `true`, если такой флаг известен движку
  */
-const EffectFlagKeySchema = z.custom<EffectFlagKey>(
-  (value) => typeof value === 'string' && value in EFFECT_FLAG_LABELS,
-  { message: 'Неизвестный флаг эффекта' },
-);
+export function isEffectFlagKey(value: string): value is EffectFlagKey {
+  return Object.hasOwn(EFFECT_FLAG_LABELS, value);
+}
+
+/**
+ * Zod-схема списка флагов эффекта.
+ *
+ * Неизвестные флаги ОТБРАСЫВАЮТСЯ, а не роняют разбор. Строгий вариант был
+ * опасен: `ActiveEffectsArraySchema` разбирается целиком, поэтому один
+ * хоумбрю-флаг из старого мира (или введённый в поле флага руками) отменял
+ * разбор ВСЕГО списка эффектов — `validateActor` бросал, и лист переставал
+ * сохраняться, а `applyCombatState` молча отказывался записывать урон.
+ * Отброшенный флаг и раньше ничего не делал: движок сверяет флаги по этому же
+ * списку, так что потери поведения нет — только потеря сохранения ушла.
+ */
+const EffectFlagsSchema = z
+  .array(z.string())
+  .transform((flags) => flags.filter(isEffectFlagKey));
 
 /**
  * Zod-схема для валидации ActiveEffect.
  *
  * Используется в `entityManager.updateActor()` для проверки
  * данных перед сохранением (AGENTS.md: "All external data is unknown by default. Use Zod").
+ *
+ * Поля, которых у эффектов старых миров могло не быть (`description`,
+ * `disabled`, `origin`, `transfer`), разбираются с безопасным значением по
+ * умолчанию, а не роняют разбор: та же причина, что и у ключа change и у
+ * `isActiveEffect` — отброшенный эффект это потерянные бонусы листа, а
+ * непрошедший разбор — несохранённый лист целиком.
  */
 export const ActiveEffectSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
-  description: z.string(),
+  description: z.string().catch(''),
   icon: z.string().optional(),
-  disabled: z.boolean(),
-  origin: z.enum(['item', 'spell', 'feature', 'condition', 'manual', 'area']),
+  disabled: z.boolean().catch(false),
+  origin: z.enum(EFFECT_ORIGIN_VALUES).catch('manual'),
   originId: z.string().optional(),
   sourceActorId: z.string().optional(),
-  transfer: z.boolean(),
-  duration: EffectDurationSchema,
-  changes: z.array(EffectChangeSchema).max(MAX_CHANGES_PER_EFFECT),
-  flags: z.array(EffectFlagKeySchema),
+  transfer: z.boolean().catch(false),
+  duration: EffectDurationSchema.catch({ type: 'permanent' }),
+  changes: z.array(EffectChangeSchema).max(MAX_CHANGES_PER_EFFECT).catch([]),
+  flags: EffectFlagsSchema.catch([]),
   aura: EffectAuraSchema.optional(),
   areaTrigger: z.enum(['stay', 'enter', 'exit']).optional(),
   effectTarget: z.enum(['self', 'target']).optional(),
@@ -1090,6 +1113,7 @@ export const ActiveEffectSchema = z.object({
   recurringSave: RecurringSaveSchema.optional(),
   recurringDamage: RecurringDamageSchema.optional(),
   conditionImmunities: z.array(z.enum(CONDITION_KEYS)).optional(),
+  exhaustionLevel: z.number().int().min(0).optional(),
 });
 
 /** Zod-схема для массива ActiveEffect (для валидации actor.activeEffects) */

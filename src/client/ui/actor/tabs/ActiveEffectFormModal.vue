@@ -18,27 +18,31 @@
   import {
     ABILITY_OPTIONS,
     AREA_TRIGGER_LABELS,
-    CONDITION_EFFECT_TEMPLATES,
+    buildConditionActiveEffect,
     CONDITIONS,
     describeActiveEffect,
+    EFFECT_CONDITION_SUGGESTIONS,
     EFFECT_DURATION_LABELS,
     EFFECT_FLAG_LABELS,
+    EFFECT_TARGET_SUGGESTIONS,
     EFFECT_TURN_ANCHOR_LABELS,
     EFFECT_TURN_TIMING_LABELS,
+    EFFECT_VALUE_SUGGESTIONS,
+    isEffectFlagKey,
+    isEffectTargetKey,
   } from '@vtt/shared/system/dnd.js';
 
   import {
     ACTIVE_EFFECT_DEFAULTS,
     ACTIVE_EFFECT_FORM_LABELS,
+    ACTIVE_EFFECT_TEMPLATES_LABELS,
+    EFFECT_TEMPLATES_MODAL_IDS,
     FORM_FIELD_LABELS,
     FORM_TAB_LABELS,
     MODAL_BUTTON_LABELS,
   } from '../constants';
   import DamagePartsEditor from '../DamagePartsEditor.vue';
-  import ActiveEffectConditionTemplatesModal from './ActiveEffectConditionTemplatesModal.vue';
-  import ActiveEffectFlagTemplatesModal from './ActiveEffectFlagTemplatesModal.vue';
-  import ActiveEffectKeyTemplatesModal from './ActiveEffectKeyTemplatesModal.vue';
-  import ActiveEffectValueTemplatesModal from './ActiveEffectValueTemplatesModal.vue';
+  import ActiveEffectSuggestionsModal from './ActiveEffectSuggestionsModal.vue';
 
   interface Props {
     open: boolean;
@@ -52,6 +56,13 @@
     hideAura?: boolean;
     /** Показать переключатель «Цель эффекта» (Себе / Цели при атаке) */
     showEffectTarget?: boolean;
+    /**
+     * Кому адресован НОВЫЙ эффект. По умолчанию владельцу: эффект предмета с
+     * целью `target` движок к владельцу не применяет, и «+1 КД» на плаще молча
+     * не работал бы. Окна, где эффект по смыслу летит в цель (заклинания),
+     * передают `target` явно.
+     */
+    defaultEffectTarget?: 'self' | 'target';
     /** Показать выбор триггера области (При входе / выходе / Пока внутри) */
     showAreaTrigger?: boolean;
   }
@@ -64,6 +75,7 @@
     onSave: () => {},
     hideAura: false,
     showEffectTarget: false,
+    defaultEffectTarget: 'self',
     showAreaTrigger: false,
   });
 
@@ -85,19 +97,49 @@
     },
   });
 
+  /**
+   * Необязательные поля эффекта. Их приходится стирать явно: форма живёт
+   * постоянно смонтированной, а `Object.assign` ключи не удаляет — без этого
+   * спасбросок и урон прошлого эффекта переезжали в следующий.
+   */
+  const OPTIONAL_EFFECT_KEYS = [
+    'icon',
+    'originId',
+    'sourceActorId',
+    'aura',
+    'areaTrigger',
+    'effectTarget',
+    'conditionKey',
+    'applySave',
+    'applyOnSuccess',
+    'applyOnSuccessOnly',
+    'consumeOn',
+    'damageParts',
+    'recurringSave',
+    'recurringDamage',
+    'conditionImmunities',
+  ] as const satisfies readonly (keyof ActiveEffect)[];
+
+  /**
+   * Заготовка нового эффекта: обязательные поля со значениями по умолчанию.
+   */
+  function createEmptyActiveEffect(): ActiveEffect {
+    return {
+      id: generateId('effect'),
+      name: ACTIVE_EFFECT_DEFAULTS.name,
+      description: '',
+      icon: ACTIVE_EFFECT_DEFAULTS.icon,
+      disabled: false,
+      origin: 'manual',
+      transfer: false,
+      duration: { type: 'permanent' },
+      changes: [],
+      flags: [],
+    };
+  }
+
   // Локальное состояние формы
-  const form = reactive<ActiveEffect>({
-    id: '',
-    name: ACTIVE_EFFECT_DEFAULTS.name,
-    description: '',
-    icon: ACTIVE_EFFECT_DEFAULTS.icon,
-    disabled: false,
-    origin: 'manual',
-    transfer: false,
-    duration: { type: 'permanent' },
-    changes: [],
-    flags: [],
-  });
+  const form = reactive<ActiveEffect>(createEmptyActiveEffect());
 
   const isActive = computed({
     get: () => !form.disabled,
@@ -133,31 +175,35 @@
         : undefined;
   }
 
+  /**
+   * Заполняет форму: сначала стирает всё, что осталось от прошлой записи, затем
+   * кладёт заготовку и — при правке — поля редактируемого эффекта.
+   *
+   * Полный сброс обязателен: окно смонтировано постоянно и переиспользует один
+   * объект формы, а выборочный сброс оставлял в новом эффекте чужой спасбросок,
+   * урон при наложении и ключ состояния.
+   *
+   * @param effect - редактируемый эффект; без него готовится новая запись
+   */
+  function fillForm(effect?: ActiveEffect): void {
+    for (const optionalKey of OPTIONAL_EFFECT_KEYS) {
+      delete form[optionalKey];
+    }
+
+    Object.assign(form, createEmptyActiveEffect());
+
+    if (effect) {
+      Object.assign(form, JSON.parse(JSON.stringify(effect)));
+    }
+
+    form.effectTarget = effect?.effectTarget ?? props.defaultEffectTarget;
+  }
+
   watch(
     () => props.open,
     (opened) => {
       if (opened) {
-        if (props.effect) {
-          Object.assign(form, JSON.parse(JSON.stringify(props.effect)));
-
-          // Гарантируем значение по умолчанию для effectTarget
-          if (!form.effectTarget) {
-            form.effectTarget = 'self';
-          }
-        } else {
-          // Дефолтные значения для нового эффекта
-          form.id = generateId('effect');
-          form.name = ACTIVE_EFFECT_DEFAULTS.name;
-          form.icon = ACTIVE_EFFECT_DEFAULTS.icon;
-          form.disabled = false;
-          form.origin = 'manual';
-          form.transfer = false;
-          form.duration = { type: 'permanent' };
-          form.changes = [];
-          form.flags = [];
-          form.effectTarget = 'target';
-          delete form.aura;
-        }
+        fillForm(props.effect);
       }
     },
     { immediate: true },
@@ -273,31 +319,28 @@
   ];
 
   /**
-   * Заполняет форму данными из шаблона стандартного D&D 5e состояния.
-   * Сохраняет текущий id и effectTarget, заменяет остальное.
+   * Заполняет форму данными стандартного состояния D&D 5e.
+   *
+   * Состояние собирает движок: он один знает про `conditionKey`, иммунитеты к
+   * состояниям и динамические изменения Истощения. Форма лишь сохраняет свой
+   * идентификатор и выбранную цель эффекта.
+   *
+   * @param conditionKey - ключ состояния
    */
   function applyConditionPreset(conditionKey: ConditionKey) {
-    const conditionEntry = CONDITIONS.find(
-      (condition) => condition.key === conditionKey,
-    );
+    const builtEffect = buildConditionActiveEffect(conditionKey);
 
-    const template = CONDITION_EFFECT_TEMPLATES[conditionKey];
-
-    if (!conditionEntry || !template) {
+    if (!builtEffect) {
       return;
     }
 
-    form.name = conditionEntry.nameRu;
-    form.icon = conditionEntry.icon;
-    form.description = conditionEntry.description;
-    form.origin = 'condition';
-    form.disabled = false;
-    // conditionKey нужен для проверки иммунитета цели и опознания состояния
-    form.conditionKey = conditionKey;
-    form.changes = template.changes.map((change) => ({ ...change }));
-    form.flags = [...template.flags];
-    form.duration = { type: 'special' };
-    delete form.aura;
+    const currentId = form.id;
+    const currentEffectTarget = form.effectTarget;
+
+    fillForm(builtEffect);
+
+    form.id = currentId;
+    form.effectTarget = currentEffectTarget;
   }
 
   const isTemplateModalOpen = ref(false);
@@ -345,12 +388,15 @@
   }
 
   function applyKeyTemplate(value: string) {
-    if (
-      activeChangeIndex.value !== null
-      && form.changes[activeChangeIndex.value]
-    ) {
-      // @ts-expect-error - Разрешаем любые строковые ключи для динамических эффектов
-      form.changes[activeChangeIndex.value].key = value;
+    const change =
+      activeChangeIndex.value === null
+        ? undefined
+        : form.changes[activeChangeIndex.value];
+
+    // Значения приходят из закрытого списка движка `EFFECT_TARGET_SUGGESTIONS`,
+    // но подборщик отдаёт их строкой — сверяем, чтобы не писать чужой ключ
+    if (change && isEffectTargetKey(value)) {
+      change.key = value;
     }
 
     isKeyModalOpen.value = false;
@@ -360,18 +406,23 @@
   const isFlagModalOpen = ref(false);
   const activeFlagIndex = ref<number | null>(null);
 
+  /** Список флагов для библиотеки: подписи те же, что показывает форма */
+  const flagSuggestions = Object.entries(EFFECT_FLAG_LABELS).map(
+    ([flagKey, flagLabel]) => ({ value: flagKey, label: flagLabel }),
+  );
+
   function openFlagModal(index: number) {
     activeFlagIndex.value = index;
     isFlagModalOpen.value = true;
   }
 
   function applyFlagTemplate(value: string) {
-    if (
-      activeFlagIndex.value !== null
-      && typeof form.flags[activeFlagIndex.value] !== 'undefined'
-    ) {
-      // @ts-expect-error - Разрешаем строковые ключи для динамических эффектов
-      form.flags[activeFlagIndex.value] = value;
+    const flagIndex = activeFlagIndex.value;
+
+    // Неизвестный флаг движок отбрасывает при разборе, поэтому в форму он не
+    // попадает вовсе — иначе пользователь считал бы его настроенным
+    if (flagIndex !== null && isEffectFlagKey(value)) {
+      form.flags[flagIndex] = value;
     }
 
     isFlagModalOpen.value = false;
@@ -1016,23 +1067,22 @@
                   >
                     <UFormField>
                       <div class="flex w-full items-center gap-2">
-                        <UInput
-                          v-model="form.flags[idx]"
-                          :placeholder="
-                            ACTIVE_EFFECT_FORM_LABELS.flagPlaceholder
-                          "
-                          size="sm"
-                          class="flex-1 font-mono text-xs"
-                        />
-
+                        <!-- Флаг выбирается только из библиотеки: движок знает
+                             закрытый набор, а произвольная строка молча не
+                             работала бы и отбрасывалась при разборе -->
                         <UButton
                           color="neutral"
                           variant="soft"
-                          icon="tabler:flag"
                           size="sm"
-                          :title="ACTIVE_EFFECT_FORM_LABELS.flagLibrary"
+                          icon="tabler:flag"
+                          class="flex-1 justify-start font-mono text-xs"
                           @click.left.exact.prevent="openFlagModal(idx)"
-                        />
+                        >
+                          {{
+                            form.flags[idx]
+                            || ACTIVE_EFFECT_FORM_LABELS.flagPlaceholder
+                          }}
+                        </UButton>
 
                         <UButton
                           color="error"
@@ -1045,18 +1095,8 @@
                       </div>
                     </UFormField>
 
-                    <div
-                      v-if="EFFECT_FLAG_LABELS[form.flags[idx]]"
-                      class="text-xs text-muted italic"
-                    >
+                    <div class="text-xs text-muted italic">
                       {{ EFFECT_FLAG_LABELS[form.flags[idx]] }}
-                    </div>
-
-                    <div
-                      v-else-if="form.flags[idx]"
-                      class="text-xs text-warning/80 italic"
-                    >
-                      {{ ACTIVE_EFFECT_FORM_LABELS.flagUnknown }}
                     </div>
                   </div>
                 </div>
@@ -1446,27 +1486,49 @@
     </template>
   </UDraggableModal>
 
-  <!-- Модальное окно библиотеки шаблонов условий -->
-  <ActiveEffectConditionTemplatesModal
+  <!-- Библиотека шаблонов условий -->
+  <ActiveEffectSuggestionsModal
     v-model:open="isTemplateModalOpen"
+    :title="ACTIVE_EFFECT_TEMPLATES_LABELS.conditionTitle"
+    :search-placeholder="
+      ACTIVE_EFFECT_TEMPLATES_LABELS.conditionSearchPlaceholder
+    "
+    :empty-label="ACTIVE_EFFECT_TEMPLATES_LABELS.conditionEmpty"
+    :items="EFFECT_CONDITION_SUGGESTIONS"
+    :modal-id="EFFECT_TEMPLATES_MODAL_IDS.condition"
     @select="applyConditionTemplate"
   />
 
-  <!-- Модальное окно библиотеки ключей атрибутов -->
-  <ActiveEffectKeyTemplatesModal
+  <!-- Библиотека ключей атрибутов -->
+  <ActiveEffectSuggestionsModal
     v-model:open="isKeyModalOpen"
+    :title="ACTIVE_EFFECT_TEMPLATES_LABELS.keyTitle"
+    :search-placeholder="ACTIVE_EFFECT_TEMPLATES_LABELS.keySearchPlaceholder"
+    :empty-label="ACTIVE_EFFECT_TEMPLATES_LABELS.keyEmpty"
+    :items="EFFECT_TARGET_SUGGESTIONS"
+    :modal-id="EFFECT_TEMPLATES_MODAL_IDS.key"
     @select="applyKeyTemplate"
   />
 
-  <!-- Модальное окно библиотеки флагов -->
-  <ActiveEffectFlagTemplatesModal
+  <!-- Библиотека флагов -->
+  <ActiveEffectSuggestionsModal
     v-model:open="isFlagModalOpen"
+    :title="ACTIVE_EFFECT_TEMPLATES_LABELS.flagTitle"
+    :search-placeholder="ACTIVE_EFFECT_TEMPLATES_LABELS.flagSearchPlaceholder"
+    :empty-label="ACTIVE_EFFECT_TEMPLATES_LABELS.flagEmpty"
+    :items="flagSuggestions"
+    :modal-id="EFFECT_TEMPLATES_MODAL_IDS.flag"
     @select="applyFlagTemplate"
   />
 
-  <!-- Модальное окно библиотеки шаблонов значений -->
-  <ActiveEffectValueTemplatesModal
+  <!-- Библиотека значений и формул -->
+  <ActiveEffectSuggestionsModal
     v-model:open="isValueModalOpen"
+    :title="ACTIVE_EFFECT_TEMPLATES_LABELS.valueTitle"
+    :search-placeholder="ACTIVE_EFFECT_TEMPLATES_LABELS.valueSearchPlaceholder"
+    :empty-label="ACTIVE_EFFECT_TEMPLATES_LABELS.valueEmpty"
+    :items="EFFECT_VALUE_SUGGESTIONS"
+    :modal-id="EFFECT_TEMPLATES_MODAL_IDS.value"
     @select="applyValueTemplate"
   />
 </template>

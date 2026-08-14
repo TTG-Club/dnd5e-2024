@@ -61,6 +61,8 @@
     SPELL_TEMPLATE_DEFAULT_COLOR,
     SPELL_USES_RECOVERY_LABELS,
     spellIsHealing,
+    withFlatDamageBonus,
+    withFlatFormulaBonus,
   } from '@vtt/shared/system/dnd.js';
 
   import {
@@ -68,7 +70,10 @@
     getTargetSpellEffects,
     instantiateSpellEffects,
   } from '../../../composables/spellResolutionShared';
-  import { useBonusDamageParts } from '../../../composables/useBonusDamageParts';
+  import {
+    useBonusDamageParts,
+    withFlatDamageBonusPart,
+  } from '../../../composables/useBonusDamageParts';
   import { useClassDefinitions } from '../../../composables/useClassDefinitions';
   import {
     getSpellMaxRangeOnScene,
@@ -1390,14 +1395,25 @@
           ?? getSpellDamageParts(spell))
         : getSpellDamageParts(spell);
 
+    /** Плоский бонус эффектов к урону заклинаниями (`damage.spell`) */
+    const flatSpellDamageBonus = resolvedStats.value?.damageBonuses.spell ?? 0;
+
+    // Снарядам бонус в формулу не вливается — она катается на каждый снаряд;
+    // им он едет отдельной бонус-частью ниже (см. withFlatDamageBonusPart)
+    const formulaFlatBonus =
+      hasProjectiles || spellIsHealing(spell) ? 0 : flatSpellDamageBonus;
+
     // Legacy одиночная формула (снаряды/одночастный путь): первая часть, с
     // разрешёнными @-переменными (@dmg-токены снимаются внутри resolve).
-    const resolvedDamageFormula = resolveSpellDamageFormula(
-      spell,
-      props.actor,
-      spellDamageParts[0]?.formula ?? '',
-      resolvedStats.value,
-      targetIsFull,
+    const resolvedDamageFormula = withFlatFormulaBonus(
+      resolveSpellDamageFormula(
+        spell,
+        props.actor,
+        spellDamageParts[0]?.formula ?? '',
+        resolvedStats.value,
+        targetIsFull,
+      ),
+      formulaFlatBonus,
     );
 
     // --- Многочастный путь (несколько частей / нестандартный таргетинг) ---
@@ -1435,13 +1451,18 @@
             || /@target\./i.test(part.formula),
         ));
 
+    // Плоский бонус эффектов к урону заклинаниями (`damage.spell`) вливается в
+    // первую урон-часть — так же, как статический бонус оружия
     const resolvedParts: SpellDamagePartInput[] = useMultiPart
-      ? resolveDamagePartsForCast(
-          spell,
-          props.actor,
-          spellDamageParts,
-          resolvedStats.value,
-          targetIsFull,
+      ? withFlatDamageBonus(
+          resolveDamagePartsForCast(
+            spell,
+            props.actor,
+            spellDamageParts,
+            resolvedStats.value,
+            targetIsFull,
+          ),
+          flatSpellDamageBonus,
         )
       : [];
 
@@ -1554,13 +1575,17 @@
           // Бонус-части для снарядов собираются здесь (в момент подтверждения
           // броска): снаряды autoHit — броска атаки нет, поэтому преимущество/
           // помеха не определены (false); HP-условия отложены в per-target гейты.
-          const projectileBonusParts =
-            hasProjectiles && evaluateSpellBonusParts
-              ? evaluateSpellBonusParts({
+          // Плоский бонус заклинаниям едет здесь же отдельной частью: она
+          // катается один раз на каст, а не на каждый снаряд
+          const projectileBonusParts = hasProjectiles
+            ? withFlatDamageBonusPart(
+                evaluateSpellBonusParts?.({
                   hasAdvantage: false,
                   hasDisadvantage: false,
-                })
-              : undefined;
+                }) ?? [],
+                spellIsHealing(spell) ? 0 : flatSpellDamageBonus,
+              )
+            : undefined;
 
           resolveSpellDamage(context, {
             hasProjectiles,
@@ -1665,12 +1690,18 @@
         return;
       }
 
-      const projectileBonusParts = evaluateSpellBonusParts
-        ? evaluateSpellBonusParts({
-            hasAdvantage: rollContext.rollMode === 'advantage',
-            hasDisadvantage: rollContext.rollMode === 'disadvantage',
-          })
-        : undefined;
+      // Серия атак (Мистический заряд, Палящий луч): каждый луч — СВОЙ бросок
+      // атаки и свой бросок урона, поэтому плоский бонус получает каждый из
+      // них. Правило «один раз к броску» тут и соблюдается: бросков несколько.
+      // Отличие от автопопаданий (Волшебная стрела) — там бросок урона один на
+      // каст, и бонус там начисляется однократно.
+      const projectileBonusParts = withFlatDamageBonusPart(
+        evaluateSpellBonusParts?.({
+          hasAdvantage: rollContext.rollMode === 'advantage',
+          hasDisadvantage: rollContext.rollMode === 'disadvantage',
+        }) ?? [],
+        spellIsHealing(spell) ? 0 : flatSpellDamageBonus,
+      );
 
       resolveSpellDamage(
         {

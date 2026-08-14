@@ -34,6 +34,7 @@ import { useWorldStore } from '@/stores/worldStore';
  */
 import { isActorEntity, isCreatureEntity, isRecord } from '@vtt/shared';
 import {
+  buildFormulaContext,
   calculateSpellAttackModifier,
   calculateWeaponAttackModifier,
   checkRange,
@@ -64,6 +65,8 @@ import {
   SPELL_TEMPLATE_DEFAULT_COLOR,
   spellHasDamage,
   spellIsHealing,
+  withFlatDamageBonus,
+  withFlatFormulaBonus,
 } from '@vtt/shared/system/dnd.js';
 
 import {
@@ -72,7 +75,10 @@ import {
   instantiateSpellEffects,
   stampEffectTurnDuration,
 } from '../composables/spellResolutionShared';
-import { useBonusDamageParts } from '../composables/useBonusDamageParts';
+import {
+  useBonusDamageParts,
+  withFlatDamageBonusPart,
+} from '../composables/useBonusDamageParts';
 import {
   getSpellMaxRangeOnScene,
   isSpellCastBlockedByRange,
@@ -523,16 +529,22 @@ export function registerDnd5eMacros(): void {
             target: buildTargetHpContext(),
           };
 
+          // Условный бонус может быть формулой (`@prof`, `@mod.dex`) — без
+          // контекста @-переменных она дала бы ноль
+          const formulaContext = buildFormulaContext(foundActor);
+
           return {
             attackBonus: evaluateConditionalBonuses(
               combinedEffects,
               attackKey,
               rollContext,
+              formulaContext,
             ),
             damageBonus: evaluateConditionalBonuses(
               combinedEffects,
               damageKey,
               rollContext,
+              formulaContext,
             ),
           };
         },
@@ -833,12 +845,23 @@ function openDiceRollForSpell(
     // разрешёнными @-переменными (@dmg-токены снимаются внутри resolve).
     const firstPartFormula = spellDamageParts[0]?.formula ?? '';
 
-    const resolvedDamageFormula = resolveSpellDamageFormula(
-      spell,
-      actor,
-      firstPartFormula,
-      resolvedStats,
-      targetIsFull,
+    /** Плоский бонус эффектов к урону заклинаниями (`damage.spell`) */
+    const flatSpellDamageBonus = resolvedStats.damageBonuses.spell;
+
+    // Снарядам бонус в формулу не вливается — она катается на каждый снаряд;
+    // им он едет отдельной бонус-частью ниже (см. withFlatDamageBonusPart)
+    const formulaFlatBonus =
+      hasProjectiles || spellIsHealing(spell) ? 0 : flatSpellDamageBonus;
+
+    const resolvedDamageFormula = withFlatFormulaBonus(
+      resolveSpellDamageFormula(
+        spell,
+        actor,
+        firstPartFormula,
+        resolvedStats,
+        targetIsFull,
+      ),
+      formulaFlatBonus,
     );
 
     // Превью формулы для модалки. Когда состояние цели неизвестно (нет цели / AoE)
@@ -887,13 +910,18 @@ function openDiceRollForSpell(
             || /@target\./i.test(part.formula),
         ));
 
+    // Плоский бонус эффектов к урону заклинаниями (`damage.spell`) вливается в
+    // первую урон-часть — так же, как статический бонус оружия
     const resolvedParts: SpellDamagePartInput[] = useMultiPart
-      ? resolveDamagePartsForCast(
-          spell,
-          actor,
-          spellDamageParts,
-          resolvedStats,
-          targetIsFull,
+      ? withFlatDamageBonus(
+          resolveDamagePartsForCast(
+            spell,
+            actor,
+            spellDamageParts,
+            resolvedStats,
+            targetIsFull,
+          ),
+          flatSpellDamageBonus,
         )
       : [];
 
@@ -1038,13 +1066,17 @@ function openDiceRollForSpell(
       // Бонус-части для снарядов собираются здесь (в момент подтверждения
       // броска): снаряды autoHit — броска атаки нет, поэтому преимущество/
       // помеха не определены (false); HP-условия отложены в per-target гейты.
-      const projectileBonusParts =
-        hasProjectiles && evaluateSpellBonusParts
-          ? evaluateSpellBonusParts({
+      // Плоский бонус заклинаниям едет здесь же отдельной частью: она катается
+      // один раз на каст, а не на каждый снаряд
+      const projectileBonusParts = hasProjectiles
+        ? withFlatDamageBonusPart(
+            evaluateSpellBonusParts?.({
               hasAdvantage: false,
               hasDisadvantage: false,
-            })
-          : undefined;
+            }) ?? [],
+            spellIsHealing(spell) ? 0 : flatSpellDamageBonus,
+          )
+        : undefined;
 
       resolveSpellDamage(context, {
         hasProjectiles,
@@ -1088,12 +1120,18 @@ function openDiceRollForSpell(
         return;
       }
 
-      const projectileBonusParts = evaluateSpellBonusParts
-        ? evaluateSpellBonusParts({
-            hasAdvantage: rollContext.rollMode === 'advantage',
-            hasDisadvantage: rollContext.rollMode === 'disadvantage',
-          })
-        : undefined;
+      // Серия атак (Мистический заряд, Палящий луч): каждый луч — СВОЙ бросок
+      // атаки и свой бросок урона, поэтому плоский бонус получает каждый из
+      // них. Правило «один раз к броску» тут и соблюдается: бросков несколько.
+      // Отличие от автопопаданий (Волшебная стрела) — там бросок урона один на
+      // каст, и бонус там начисляется однократно.
+      const projectileBonusParts = withFlatDamageBonusPart(
+        evaluateSpellBonusParts?.({
+          hasAdvantage: rollContext.rollMode === 'advantage',
+          hasDisadvantage: rollContext.rollMode === 'disadvantage',
+        }) ?? [],
+        spellIsHealing(spell) ? 0 : flatSpellDamageBonus,
+      );
 
       resolveSpellDamage(
         {

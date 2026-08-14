@@ -76,7 +76,7 @@ export const SKILL_PROFICIENCY_NEXT: Record<
  * @param skillKey - ключ навыка
  * @returns ключ поля для активных эффектов
  */
-export function getSkillEffectKey(skillKey: SkillType): string {
+export function getSkillEffectKey(skillKey: SkillType): `skill.${SkillType}` {
   return `skill.${skillKey}`;
 }
 

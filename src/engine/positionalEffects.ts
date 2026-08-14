@@ -23,7 +23,7 @@ import {
   collectAllAuraEffects,
   collectTriggerAurasForTarget,
 } from './auraMath.js';
-import { resolveEntryEffect } from './turnEffects.js';
+import { resolveEntryEffect, withInitializedDuration } from './turnEffects.js';
 
 /**
  * Собирает ID областей, эффекты которых уже применены к актёру.
@@ -176,13 +176,18 @@ export function syncActorAreaEffects(
         continue;
       }
 
-      entity.activeEffects.push({
-        ...effect,
-        id: generateId('ae'),
-        origin: 'area',
-        originId: areaId,
-        transfer: false,
-      });
+      entity.activeEffects.push(
+        withInitializedDuration({
+          ...effect,
+          id: generateId('ae'),
+          origin: 'area',
+          originId: areaId,
+          transfer: false,
+          // Своя длительность: копия не должна делить счётчик раундов с
+          // эффектом самой зоны (объект зоны принадлежит хосту)
+          duration: { ...effect.duration },
+        }),
+      );
 
       changed = true;
     }

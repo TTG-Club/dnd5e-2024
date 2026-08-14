@@ -644,7 +644,7 @@ export const CONDITIONS: readonly ConditionEntry[] = [
     icon: 'tabler:hand-stop',
     customImage: '/assets/status/grappled.svg',
     description:
-      'Скорость равна 0. Перемещение того, кто схватил, стоит дополнительно.',
+      'Скорость равна 0. Помеха на броски атаки по любой цели, кроме схватившего. Схвативший может тащить существо за собой.',
   },
   {
     key: 'incapacitated',
