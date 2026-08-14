@@ -35,9 +35,18 @@
     isEditMode: boolean;
     /** Снаряжение владельца — у листа существа его нет */
     equipment?: readonly DnDGameItem[];
+    /**
+     * Показывать шкалу Истощения. У листа персонажа она стоит в левой колонке
+     * под здоровьем — там степень читается вместе с хитами, — поэтому здесь он
+     * её отключает. У существа такой колонки нет, и шкала живёт тут.
+     */
+    showExhaustion?: boolean;
   }
 
-  const props = defineProps<Props>();
+  const props = withDefaults(defineProps<Props>(), {
+    equipment: () => [],
+    showExhaustion: true,
+  });
 
   const emit = defineEmits<{
     /** Новый список эффектов сущности */
@@ -85,7 +94,7 @@
   const equipmentEffects = computed<EquipmentEffectEntry[]>(() => {
     const entries: EquipmentEffectEntry[] = [];
 
-    for (const item of props.equipment ?? []) {
+    for (const item of props.equipment) {
       if (!itemEffectsActive(item) || !item.activeEffects) {
         continue;
       }
@@ -298,7 +307,10 @@
   </div>
 
   <!-- Истощение -->
-  <div class="mt-5">
+  <div
+    v-if="showExhaustion"
+    class="mt-5"
+  >
     <ExhaustionPanel
       :level="exhaustionLevel"
       :is-edit-mode="isEditMode"

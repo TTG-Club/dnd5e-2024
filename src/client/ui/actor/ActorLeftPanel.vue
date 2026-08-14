@@ -19,8 +19,10 @@
     calculateProficiencyBonus,
     getActorAbilityModifiers,
     getCustomBonusValue,
+    getEntityExhaustionLevel,
     getTotalLevel,
     resolveEntityMaxHp,
+    withExhaustionLevel,
   } from '@vtt/shared/system/dnd.js';
 
   import { useProficiencyBonus } from '../../composables/useProficiencyBonus';
@@ -45,6 +47,7 @@
     SHEET_TILE_SHORT_LABELS,
   } from './constants';
   import DiceRollModal from './DiceRollModal.vue';
+  import ExhaustionPanel from './ExhaustionPanel.vue';
   import HitPointsModal from './HitPointsModal.vue';
   import LanguageProficiencyModal from './LanguageProficiencyModal.vue';
   import ProficiencyBonusModal from './ProficiencyBonusModal.vue';
@@ -90,6 +93,26 @@
    * ограничивают текущие хиты.
    */
   const maxHitPoints = computed(() => resolveEntityMaxHp(props.actor));
+
+  /** Текущая степень Истощения — её несёт эффект-состояние */
+  const exhaustionLevel = computed(() =>
+    getEntityExhaustionLevel(props.actor.activeEffects),
+  );
+
+  /**
+   * Ставит степень Истощения: движок пересобирает эффект со штрафами этой
+   * степени, нулевая — снимает состояние.
+   *
+   * @param level - выбранная степень (0–6)
+   */
+  function handleExhaustionSelect(level: number): void {
+    emit('update:actor', {
+      activeEffects: withExhaustionLevel(
+        props.actor.activeEffects ?? [],
+        level,
+      ),
+    });
+  }
 
   /** Оформление блока, который целиком не нажимается: настройка — в шестерёнке */
   const blockClass = computed(() =>
@@ -983,6 +1006,14 @@
         </template>
       </UTooltip>
     </FieldsetLabel>
+
+    <!-- Истощение: сразу под здоровьем — степень штрафует все тесты к20 и
+      скорость, и читается она вместе с хитами, а не на отдельной вкладке -->
+    <ExhaustionPanel
+      :level="exhaustionLevel"
+      :is-edit-mode="isEditMode"
+      @select="handleExhaustionSelect"
+    />
 
     <!-- Спасброски -->
     <FieldsetLabel
