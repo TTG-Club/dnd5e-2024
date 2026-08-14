@@ -115,10 +115,13 @@
 
 <template>
   <div class="flex flex-col gap-2">
+    <!-- Строка не переносится: корзина ходит за своим бонусом, и на отдельной
+      строке её не с чем связать. Пометка с источником вместо переноса ужимаются
+      — их поля тянутся по остатку ширины -->
     <div
       v-for="row in rows"
       :key="row.id"
-      class="flex flex-wrap items-center gap-2"
+      class="flex items-center gap-2"
     >
       <UInput
         v-model="row.label"
@@ -156,12 +159,14 @@
         {{ getDerivedValue(row) }}
       </span>
 
+      <!-- Размер тот же, что у полей строки: кнопка стоит с ними в ряд, и
+        меньшая ростом сбивала бы линию -->
       <UTooltip :text="CUSTOM_BONUS_LABELS.remove">
         <UButton
           icon="tabler:trash"
           color="error"
           variant="ghost"
-          size="xs"
+          size="sm"
           square
           class="shrink-0"
           :aria-label="CUSTOM_BONUS_LABELS.remove"

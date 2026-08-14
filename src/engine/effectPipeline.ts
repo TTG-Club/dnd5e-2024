@@ -55,7 +55,6 @@ import {
   isSkillType,
   MOVEMENT_KEYS,
   SKILLS_LIST,
-  SPELL_SAVE_DC_BASE,
 } from './consts.js';
 import {
   getCustomBonusesValue,
@@ -81,6 +80,10 @@ import {
   getSkillSettingAbility,
   parseSkillSettings,
 } from './skills.js';
+import {
+  getSpellSaveDCBreakdown,
+  parseSpellcastingSettings,
+} from './spellcastingSettings.js';
 
 export type { IncomingAttackContext };
 
@@ -1696,16 +1699,21 @@ export function prepareDerivedData(
   // 8. Spell Save DC (8 + бонус мастерства + мод. характеристики заклинателя)
   const spellcastingAbility = getFirstSpellcastingAbility(actor);
 
-  if (spellcastingAbility) {
-    const ruleSpellSaveDC =
-      SPELL_SAVE_DC_BASE
-      + derivedStats.proficiencyBonus
-      + derivedStats.abilityMods[spellcastingAbility];
+  // Настройка листа: своё число вместо расчёта по правилам и свои бонусы
+  // сверху. Активные эффекты ложатся уже поверх неё
+  const spellSaveDC = getSpellSaveDCBreakdown({
+    ability: spellcastingAbility,
+    settings: parseSpellcastingSettings(
+      isRecord(system) ? system.spellcastingSettings : undefined,
+    )?.saveDC,
+    context: bonusContext,
+  });
 
+  if (spellSaveDC) {
     derivedStats.spellSaveDC = applyDerivedChanges(
       derivedStats,
       'spellSaveDC',
-      ruleSpellSaveDC,
+      spellSaveDC.value,
       derivedChanges,
       formulaContext,
     );

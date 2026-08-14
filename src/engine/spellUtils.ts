@@ -14,6 +14,7 @@ import type {
 
 import type { ResolvedActorStats } from './activeEffectTypes.js';
 import type { CreatureSpellcasting } from './creatureTypes.js';
+import type { DnDCustomBonusContext } from './customBonuses.js';
 import type { DnDActor, Spell, SpellProjectiles } from './dndEntities.js';
 import type { DnDAbilityScores } from './types.js';
 
@@ -21,6 +22,7 @@ import { isRecord } from '@vtt/shared';
 
 import {
   calculateAbilityModifier,
+  getActorAbilityModifiers,
   getActorProficiencyBonus,
   getCreatureProficiencyBonus,
 } from './calculations.js';
@@ -31,6 +33,10 @@ import {
   buildFormulaContext,
   substituteFormulaVariables,
 } from './formulaParser.js';
+import {
+  getSpellAttackBreakdown,
+  parseSpellcastingSettings,
+} from './spellcastingSettings.js';
 
 // ── Разбор внешних данных ────────────────────────────────────
 
@@ -99,7 +105,8 @@ export function resolveSpellcastingAbility(
 /**
  * Рассчитывает модификатор атаки заклинанием.
  *
- * Формула: мод. характеристики + бонус мастерства + attack.spell + доп. бонус
+ * Формула: мод. характеристики + бонус мастерства + настройка листа +
+ * attack.spell + доп. бонус заклинания
  *
  * @param actor - актор-владелец
  * @param spell - заклинание
@@ -115,21 +122,25 @@ export function calculateSpellAttackModifier(
 
   // Мод характеристики и бонус мастерства берём из ИТОГОВЫХ статов (с учётом
   // Active Effects, в т.ч. бонусов к самому стату), иначе — из базовых значений.
-  let modifier: number;
+  const context: DnDCustomBonusContext = resolvedStats
+    ? {
+        abilityMods: resolvedStats.abilityMods,
+        proficiencyBonus: resolvedStats.proficiencyBonus,
+      }
+    : {
+        abilityMods: getActorAbilityModifiers(actor),
+        proficiencyBonus: getActorProficiencyBonus(actor),
+      };
 
-  if (resolvedStats) {
-    modifier =
-      resolvedStats.abilityMods[ability]
-      ?? calculateAbilityModifier(actor.system?.abilities?.[ability] ?? 10);
-
-    modifier += resolvedStats.proficiencyBonus;
-  } else {
-    modifier = calculateAbilityModifier(
-      actor.system?.abilities?.[ability] ?? 10,
-    );
-
-    modifier += getActorProficiencyBonus(actor);
-  }
+  // Характеристика здесь всегда есть (без своей берётся классовая), поэтому
+  // разбор числом отдаётся всегда — подстраховка нужна только типу
+  let modifier =
+    getSpellAttackBreakdown({
+      ability,
+      settings: parseSpellcastingSettings(actor.system?.spellcastingSettings)
+        ?.attack,
+      context,
+    })?.value ?? 0;
 
   // Доп. бонус на заклинании
   if (spell.attackBonus) {

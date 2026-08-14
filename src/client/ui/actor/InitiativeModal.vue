@@ -140,7 +140,7 @@
     :draggable="false"
     :resizable="false"
     :blocking="true"
-    :min-width="380"
+    :min-width="440"
     :min-height="240"
     :title="INITIATIVE_SETTINGS_LABELS.title"
     :z-index="Z_INDEX.MODAL_ELEVATED"

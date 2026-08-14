@@ -6,6 +6,7 @@
   import type {
     AttackRollMode,
     DnDActor,
+    DnDCustomBonusContext,
     DnDPreparedLimit,
     PreparedKind,
     Spell,
@@ -43,12 +44,15 @@
     getClassPreparedValue,
     getPactSlotInfo,
     getPreparedLimitBreakdown,
+    getSpellAttackBreakdown,
     getSpellAttackType,
     getSpellDamageParts,
     getSpellPrimaryDamageType,
     getSpellProjectileCount,
+    getSpellSaveDCBreakdown,
     getTotalLevel,
     isDnDEffect,
+    parseSpellcastingSettings,
     pickCantripTierParts,
     PREPARED_LIMIT_EMPTY_VALUE,
     resolveActorStats,
@@ -56,7 +60,6 @@
     resolveSpellDamageFormula,
     SPELL_DAMAGE_TEMPLATE_COLORS,
     SPELL_LEVEL_LABELS,
-    SPELL_SAVE_DC_BASE,
     SPELL_SCHOOL_LABELS,
     SPELL_TEMPLATE_DEFAULT_COLOR,
     SPELL_USES_RECOVERY_LABELS,
@@ -102,6 +105,7 @@
   import SheetStatTile from '../SheetStatTile.vue';
   import SpellcastingSettingsModal from '../SpellcastingSettingsModal.vue';
   import { getFilterChipClass } from '../utils/filterChipClass';
+  import { formatSignedNumber } from '../utils/formatSignedNumber';
   import { formatSpellDamageDisplay } from '../utils/formatSpellDamageDisplay';
 
   const props = defineProps<{
@@ -242,22 +246,45 @@
     return casterClass?.spellcastingAbility ?? null;
   });
 
+  /** Настройка заклинательства листа; поля нет у листов старых миров */
+  const spellcastingSettings = computed(() =>
+    parseSpellcastingSettings(props.actor.system?.spellcastingSettings),
+  );
+
+  /** Числа листа, от которых считаются свои бонусы настройки */
+  const spellcastingBonusContext = computed<DnDCustomBonusContext>(() => ({
+    abilityMods: resolvedStats.value.abilityMods,
+    proficiencyBonus: resolvedStats.value.proficiencyBonus,
+  }));
+
+  /**
+   * Сложность спасброска по листу: расчёт по правилам с настройкой, но без
+   * прибавок активных эффектов. Их держит `resolvedStats`, а окну настройки они
+   * нужны отдельным числом.
+   */
+  const sheetSaveDC = computed(() =>
+    getSpellSaveDCBreakdown({
+      ability: baseSpellcastingAbility.value,
+      settings: spellcastingSettings.value?.saveDC,
+      context: spellcastingBonusContext.value,
+    }),
+  );
+
+  /** Бонус атаки заклинанием по листу — тем же расчётом, что и сложность */
+  const sheetSpellAttack = computed(() =>
+    getSpellAttackBreakdown({
+      ability: baseSpellcastingAbility.value,
+      settings: spellcastingSettings.value?.attack,
+      context: spellcastingBonusContext.value,
+    }),
+  );
+
   /** Итоговый бонус атаки заклинаниями для отображения в заголовке */
-  const displaySpellAttackBonus = computed(() => {
-    const ability = baseSpellcastingAbility.value;
-
-    if (!ability) {
-      return null;
-    }
-
-    const spellMod = resolvedStats.value.abilityMods[ability] ?? 0;
-
-    return (
-      resolvedStats.value.proficiencyBonus
-      + spellMod
-      + resolvedStats.value.attackBonuses.spell
-    );
-  });
+  const displaySpellAttackBonus = computed(() =>
+    sheetSpellAttack.value === null
+      ? null
+      : sheetSpellAttack.value.value + resolvedStats.value.attackBonuses.spell,
+  );
 
   /** Карта casterType для computeSpellSlots */
   const casterTypeMap = computed(() => {
@@ -346,38 +373,29 @@
     {
       label: ACTOR_SPELLS_TAB_LABELS.saveDC,
       hint: ACTOR_SPELLS_TAB_LABELS.saveDCHint,
-      value: resolvedStats.value.spellSaveDC || '—',
+      // Прочерк — только когда числа у листа нет вовсе: своя сложность бывает
+      // и нулевой, а `|| '—'` съел бы её
+      value: sheetSaveDC.value === null ? '—' : resolvedStats.value.spellSaveDC,
     },
     {
       label: ACTOR_SPELLS_TAB_LABELS.attack,
       hint: ACTOR_SPELLS_TAB_LABELS.attackHint,
       value:
-        displaySpellAttackBonus.value == null
+        displaySpellAttackBonus.value === null
           ? '—'
-          : `${displaySpellAttackBonus.value >= 0 ? '+' : ''}${displaySpellAttackBonus.value}`,
+          : formatSignedNumber(displaySpellAttackBonus.value),
     },
   ]);
 
   /**
    * Прибавка к Сл спасброска от активных эффектов. Движок кладёт в
-   * `spellSaveDC` и её, и расчёт по правилам, а окну настройки она нужна
-   * отдельно: иначе предпросмотр для другой характеристики разошёлся бы с
-   * числом на вкладке.
+   * `spellSaveDC` и её, и расчёт листа, а окну настройки она нужна отдельно:
+   * иначе предпросмотр для другой характеристики разошёлся бы с числом на
+   * вкладке.
    */
-  const saveDcEffectBonus = computed(() => {
-    const ability = baseSpellcastingAbility.value;
-
-    if (!ability) {
-      return resolvedStats.value.spellSaveDC;
-    }
-
-    return (
-      resolvedStats.value.spellSaveDC
-      - SPELL_SAVE_DC_BASE
-      - resolvedStats.value.proficiencyBonus
-      - (resolvedStats.value.abilityMods[ability] ?? 0)
-    );
-  });
+  const saveDcEffectBonus = computed(
+    () => resolvedStats.value.spellSaveDC - (sheetSaveDC.value?.value ?? 0),
+  );
 
   /** Сохраняет настройку заклинательства из модалки */
   function handleSpellcastingUpdate(updates: Partial<DnDActor>): void {

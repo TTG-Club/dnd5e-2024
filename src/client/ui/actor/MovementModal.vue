@@ -252,7 +252,7 @@
     :draggable="false"
     :resizable="false"
     :blocking="true"
-    :min-width="400"
+    :min-width="440"
     :min-height="300"
     :title="MOVEMENT_SETTINGS_LABELS.title"
     :z-index="Z_INDEX.MODAL_ELEVATED"

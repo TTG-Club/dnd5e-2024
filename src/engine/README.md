@@ -140,6 +140,7 @@ graph TD
 | `spellSlotsUsed` | `number[]?` | Использованные ячейки [1–9 круг], индекс 0 = 1-й круг |
 | `pactSlotsUsed` | `number?` | Использованные ячейки Pact Magic (колдун) |
 | `spellcastingAbility` | `AbilityType?` | Переопределение характеристики заклинаний |
+| `spellcastingSettings` | `DnDSpellcastingSettings?` | Поправки расчёта сложности спасброска и бонуса атаки заклинанием: своё число вместо расчёта по правилам и свои бонусы (`spellcastingSettings.ts`). Поля нет — оба числа по правилам |
 | `inspiration` | `boolean?` | Вдохновение (даёт/забирает только ГМ) |
 | `manualHitDice` | `ManualHitDieGroup[]?` | Ручные кости хитов (NPC/кастомные актёры без классов) |
 

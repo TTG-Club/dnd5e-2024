@@ -46,6 +46,7 @@ export * from './skills.js';
 export * from './sourceKeys.js';
 export * from './speciesGrants.js';
 export * from './speciesTypes.js';
+export * from './spellcastingSettings.js';
 export * from './spellSlotTable.js';
 export * from './spellTypes.js';
 export * from './spellUtils.js';

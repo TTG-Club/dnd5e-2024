@@ -150,7 +150,7 @@
     :draggable="false"
     :resizable="false"
     :blocking="true"
-    :min-width="420"
+    :min-width="440"
     :min-height="240"
     :title="title"
     :z-index="Z_INDEX.MODAL_ELEVATED"

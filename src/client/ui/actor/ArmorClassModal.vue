@@ -167,7 +167,7 @@
     :draggable="false"
     :resizable="false"
     :blocking="true"
-    :min-width="400"
+    :min-width="440"
     :min-height="280"
     :title="SHEET_TILE_LABELS.armorClass"
     :z-index="Z_INDEX.MODAL_ELEVATED"
