@@ -76,7 +76,7 @@
     { label: FORM_TAB_LABELS.main, slot: 'basic' as const },
     { label: GRANT_SECTION_LABELS.spells, slot: 'spells' as const },
     { label: FORM_TAB_LABELS.effects, slot: 'effects' as const },
-    { label: GRANT_SECTION_LABELS.proficiencies, slot: 'grants' as const },
+    { label: FORM_TAB_LABELS.automation, slot: 'grants' as const },
   ];
 
   // ── Состояние формы ──────────────────────────────────────────
@@ -95,7 +95,7 @@
   /** Активные эффекты черты. */
   const effects = ref<ActiveEffect[]>([]);
 
-  /** «Дары» черты (вкладка «Владения»). */
+  /** «Дары» черты (вкладка «Автоматизация»). */
   const grants = ref<EditableFeatGrants>(createEmptyFeatGrants());
 
   /** Заклинания компендиума по пакам (имя, источник, пак) — для подсказок. */
@@ -240,7 +240,11 @@
       return;
     }
 
-    const featData = buildFeatData(grants.value, grantedSpells.value);
+    const featData = buildFeatData(
+      grants.value,
+      grantedSpells.value,
+      props.feat?.featData,
+    );
 
     const item: DnDGameItem = {
       id: props.feat?.id || '',
@@ -463,7 +467,7 @@
           </div>
         </template>
 
-        <!-- ВЛАДЕНИЯ -->
+        <!-- АВТОМАТИЗАЦИЯ -->
         <template #grants>
           <FeatGrantsFields v-model="grants" />
         </template>

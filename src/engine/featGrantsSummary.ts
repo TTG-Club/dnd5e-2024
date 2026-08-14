@@ -229,6 +229,12 @@ function modifiersLine(featData: FeatData): string | null {
     parts.push('инициатива + бонус мастерства');
   }
 
+  if (modifiers.initiativeBonus) {
+    const bonus = modifiers.initiativeBonus;
+
+    parts.push(`инициатива ${bonus > 0 ? '+' : ''}${bonus}`);
+  }
+
   return parts.length > 0 ? `- **Модификаторы:** ${parts.join(', ')}` : null;
 }
 

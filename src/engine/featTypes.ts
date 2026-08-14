@@ -187,6 +187,11 @@ export interface FeatModifiers {
   resistanceFromChoiceKey?: string;
   /** К броску инициативы прибавляется бонус мастерства («Бдительный») */
   initiativeProficiencyBonus?: boolean;
+  /**
+   * Постоянная числовая прибавка к инициативе. Складывается с
+   * {@link initiativeProficiencyBonus}, если стоят оба.
+   */
+  initiativeBonus?: number;
 }
 
 /**

@@ -1,10 +1,13 @@
 <script setup lang="ts">
   import type { EditableFeatGrants } from './featEditorTypes';
 
+  import { computed } from 'vue';
+
   import {
     ABILITY_OPTIONS,
     CONDITIONS,
     LANGUAGE_TYPES,
+    SENSE_LABELS,
     SKILLS_LIST,
     TOOLS_LABELS,
   } from '@vtt/shared/system/dnd.js';
@@ -18,12 +21,21 @@
   } from '../constants';
   import FormSection from '../FormSection.vue';
   import DamageDefenseEditor from '../species/DamageDefenseEditor.vue';
+  import {
+    createEmptyFeatGrants,
+    MODIFIER_FLAG_KEYS,
+    MODIFIER_NUMBER_KEYS,
+    SENSE_KEYS,
+    SPEED_MODIFIER_ROWS,
+  } from './featEditorTypes';
+  import GrantNumberRow from './GrantNumberRow.vue';
 
   /**
    * Переиспользуемый редактор «даров» черты: повышение характеристик, владения
    * (навыки/спасброски/доспехи/оружие/инструменты/языки), защиты от урона и
-   * состояний, предусловия. Двусторонняя привязка через {@link EditableFeatGrants}
-   * — компонент не знает ни о форме-владельце, ни о сериализации в FeatData.
+   * состояний, постоянные модификаторы листа (скорости, хиты, КД, инициатива),
+   * предусловия. Двусторонняя привязка через {@link EditableFeatGrants} —
+   * компонент не знает ни о форме-владельце, ни о сериализации в FeatData.
    *
    * Для предыстории характеристики и навыки выдаются каноническими полями
    * (abilityGrant/skillGrant), поэтому соответствующие секции можно скрыть
@@ -38,9 +50,23 @@
       hideAbilityScoreIncrease?: boolean;
       /** Скрыть поле «Навыки» во владениях (для предыстории). */
       hideSkillProficiencies?: boolean;
+      /**
+       * Скрыть секцию «Модификаторы листа» (для предыстории: скорости, хиты и
+       * КД предыстория по правилам 2024 не выдаёт).
+       */
+      hideModifiers?: boolean;
     }>(),
-    { hideAbilityScoreIncrease: false, hideSkillProficiencies: false },
+    {
+      hideAbilityScoreIncrease: false,
+      hideSkillProficiencies: false,
+      hideModifiers: false,
+    },
   );
+
+  const senseOptions = SENSE_KEYS.map((type) => ({
+    type,
+    label: SENSE_LABELS[type],
+  }));
 
   const skillsOptions = SKILLS_LIST.map((skill) => ({
     value: skill.key,
@@ -74,6 +100,32 @@
     value: condition.key,
     label: condition.nameRu,
   }));
+
+  /** Задан ли хоть один модификатор — от этого зависит кнопка сброса. */
+  const hasModifiers = computed(
+    () =>
+      MODIFIER_NUMBER_KEYS.some((key) => grants.value[key] !== 0)
+      || MODIFIER_FLAG_KEYS.some((key) => grants.value[key]),
+  );
+
+  /**
+   * Обнуляет блок модификаторов. Остальные дары (владения, защиты, чувства,
+   * предусловия) не трогает: кнопка стоит в шапке своей секции.
+   */
+  function resetModifiers(): void {
+    const empty = createEmptyFeatGrants();
+    const next = { ...grants.value };
+
+    for (const key of MODIFIER_NUMBER_KEYS) {
+      next[key] = empty[key];
+    }
+
+    for (const key of MODIFIER_FLAG_KEYS) {
+      next[key] = empty[key];
+    }
+
+    grants.value = next;
+  }
 </script>
 
 <template>
@@ -239,28 +291,188 @@
           <DamageDefenseEditor v-model="grants.damageDefenses" />
         </UFormField>
 
-        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <UFormField :label="GRANT_FIELD_LABELS.conditionImmunities">
-            <USelectMenu
-              v-model="grants.conditionImmunities"
-              :items="conditionOptions"
-              value-key="value"
-              label-key="label"
-              multiple
-              class="w-full"
-              :placeholder="GRANT_FIELD_LABELS.conditionsPlaceholder"
-            />
-          </UFormField>
+        <UFormField :label="GRANT_FIELD_LABELS.conditionImmunities">
+          <USelectMenu
+            v-model="grants.conditionImmunities"
+            :items="conditionOptions"
+            value-key="value"
+            label-key="label"
+            multiple
+            class="w-full"
+            :placeholder="GRANT_FIELD_LABELS.conditionsPlaceholder"
+          />
+        </UFormField>
 
-          <UFormField :label="GRANT_FIELD_LABELS.darkvision">
-            <UInputNumber
-              v-model="grants.darkvision"
-              :min="0"
-              :max="300"
-              :step="30"
-              class="w-full"
-            />
-          </UFormField>
+        <!-- Дистанции чувств: единицы и смысл нуля вынесены в заголовок,
+          чтобы подписи строк остались короткими -->
+        <div>
+          <p class="mb-1 text-xs font-medium text-toned">
+            {{ FEAT_GRANTS_LABELS.sensesTitle }}
+
+            <span class="font-normal text-dimmed">
+              — {{ FEAT_GRANTS_LABELS.sensesHint }}
+            </span>
+          </p>
+
+          <GrantNumberRow
+            v-model="grants.darkvision"
+            :label="FEAT_GRANTS_LABELS.darkvisionShort"
+            :max="300"
+            :step="30"
+          />
+
+          <GrantNumberRow
+            v-for="sense in senseOptions"
+            :key="sense.type"
+            v-model="grants.senses[sense.type]"
+            :label="sense.label"
+            :max="300"
+            :step="10"
+          />
+
+          <GrantNumberRow
+            v-model="grants.telepathyRange"
+            :label="FEAT_GRANTS_LABELS.telepathyRange"
+            :max="300"
+            :step="30"
+          />
+        </div>
+      </div>
+    </FormSection>
+
+    <!-- Модификаторы листа -->
+    <FormSection
+      v-if="!hideModifiers"
+      :title="FEAT_GRANTS_LABELS.modifiersTitle"
+      title-color="healing"
+    >
+      <template #actions>
+        <UTooltip
+          v-if="hasModifiers"
+          :text="FEAT_GRANTS_LABELS.modifiersReset"
+        >
+          <UButton
+            icon="tabler:rotate"
+            color="neutral"
+            variant="ghost"
+            size="xs"
+            square
+            :aria-label="FEAT_GRANTS_LABELS.modifiersReset"
+            @click.left.exact.prevent="resetModifiers"
+          />
+        </UTooltip>
+      </template>
+
+      <p class="mb-3 text-xs text-dimmed">
+        {{ FEAT_GRANTS_LABELS.modifiersHint }}
+      </p>
+
+      <div class="flex flex-col gap-4">
+        <!-- Передвижение -->
+        <div>
+          <p class="mb-1 text-xs font-medium text-toned">
+            {{ FEAT_GRANTS_LABELS.speedTitle }}
+          </p>
+
+          <GrantNumberRow
+            v-model="grants.speedWalkBonus"
+            :label="FEAT_GRANTS_LABELS.speedWalkBonus"
+            :min="-60"
+            :max="120"
+            :step="5"
+          >
+            <template #trailing>
+              <span class="text-xs text-dimmed">
+                {{ FEAT_GRANTS_LABELS.speedWalkHint }}
+              </span>
+            </template>
+          </GrantNumberRow>
+
+          <GrantNumberRow
+            v-for="speed in SPEED_MODIFIER_ROWS"
+            :key="speed.key"
+            v-model="grants[speed.key]"
+            :label="speed.label"
+            :max="200"
+            :step="5"
+            :disabled="grants[speed.equalsWalkKey]"
+          >
+            <template #trailing>
+              <UCheckbox
+                v-model="grants[speed.equalsWalkKey]"
+                :label="speed.equalsWalkLabel"
+                size="sm"
+              />
+            </template>
+          </GrantNumberRow>
+        </div>
+
+        <!-- Хиты -->
+        <div>
+          <div class="mb-1 flex items-center gap-1.5">
+            <span class="text-xs font-medium text-toned">
+              {{ FEAT_GRANTS_LABELS.hitPointsTitle }}
+            </span>
+
+            <UTooltip
+              :text="FEAT_GRANTS_LABELS.hitPointsHint"
+              :ui="{ content: 'h-auto max-w-72 whitespace-normal' }"
+            >
+              <UIcon
+                name="tabler:info-circle"
+                class="size-3.5 text-dimmed"
+              />
+            </UTooltip>
+          </div>
+
+          <GrantNumberRow
+            v-model="grants.hitPointsFlat"
+            :label="FEAT_GRANTS_LABELS.hitPointsFlat"
+            :min="-20"
+            :max="100"
+          />
+
+          <GrantNumberRow
+            v-model="grants.hitPointsPerAcquisitionLevel"
+            :label="FEAT_GRANTS_LABELS.hitPointsPerAcquisitionLevel"
+            :max="10"
+          />
+
+          <GrantNumberRow
+            v-model="grants.hitPointsPerLevelAfterAcquisition"
+            :label="FEAT_GRANTS_LABELS.hitPointsPerLevelAfterAcquisition"
+            :max="10"
+          />
+        </div>
+
+        <!-- КД и инициатива -->
+        <div>
+          <p class="mb-1 text-xs font-medium text-toned">
+            {{ FEAT_GRANTS_LABELS.defenceTitle }}
+          </p>
+
+          <GrantNumberRow
+            v-model="grants.armorClassBonus"
+            :label="FEAT_GRANTS_LABELS.armorClassBonus"
+            :min="-5"
+            :max="10"
+            reserve-trailing
+          />
+
+          <GrantNumberRow
+            v-model="grants.initiativeBonus"
+            :label="FEAT_GRANTS_LABELS.initiativeBonus"
+            :min="-10"
+            :max="20"
+          >
+            <template #trailing>
+              <UCheckbox
+                v-model="grants.initiativeProficiencyBonus"
+                :label="FEAT_GRANTS_LABELS.initiativeProficiencyBonus"
+                size="sm"
+              />
+            </template>
+          </GrantNumberRow>
         </div>
       </div>
     </FormSection>

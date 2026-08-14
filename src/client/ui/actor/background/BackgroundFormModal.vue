@@ -439,7 +439,12 @@
     }
 
     const { featName, featNameEn } = resolveFeatNames();
-    const featData = buildFeatData(grants.value, grantedSpells.value);
+
+    const featData = buildFeatData(
+      grants.value,
+      grantedSpells.value,
+      (props.item ?? props.background)?.featData,
+    );
 
     const bg: DnDGameItem = {
       id: existingId.value || `item_${generateId('bg')}`,
@@ -755,6 +760,7 @@
               v-model="grants"
               hide-ability-score-increase
               hide-skill-proficiencies
+              hide-modifiers
             />
           </div>
         </template>

@@ -171,6 +171,15 @@ function modifierChanges(
     });
   }
 
+  if (modifiers.initiativeBonus) {
+    changes.push({
+      key: 'initiative',
+      mode: 'add',
+      value: String(modifiers.initiativeBonus),
+      priority: 20,
+    });
+  }
+
   return changes;
 }
 
