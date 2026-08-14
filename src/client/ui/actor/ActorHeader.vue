@@ -123,7 +123,7 @@
     /**
      * Чувство показано справочно: приложение считает по зрению токена только
      * обычное и тёмное зрение, поэтому на видимость сцены такая запись не
-     * влияет. Помечается в тултипе, чтобы это не выглядело поломкой.
+     * влияет. Помечается в тултипе звёздочкой, чтобы это не выглядело поломкой.
      */
     informational?: boolean;
   }
@@ -530,16 +530,17 @@
                   {{ formatVisionRange(entry.range) }}
                 </span>
 
-                <UIcon
-                  v-if="entry.informational"
-                  name="tabler:info-circle"
-                  class="h-3 w-3 shrink-0 text-warning"
-                />
+                <!-- Звёздочка-сноска: пояснение к таким чувствам под списком -->
+                <span
+                  v-if="hasInformationalVision"
+                  class="w-1.5 shrink-0 text-warning"
+                  >{{ entry.informational ? '*' : '' }}</span
+                >
               </div>
 
               <div
                 v-if="hasInformationalVision"
-                class="mt-1 border-t border-default/50 pt-1 text-[10px] whitespace-normal text-warning"
+                class="mt-1 max-w-48 border-t border-default/50 pt-1 text-[10px] whitespace-normal text-warning"
               >
                 {{ ACTOR_HEADER_LABELS.senseInformationalHint }}
               </div>
