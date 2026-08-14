@@ -1,5 +1,6 @@
 <script setup lang="ts">
   import type { ChatCardType, SourceDefinition } from '@vtt/shared';
+  import type { ActiveEffect } from '@vtt/shared/system/dnd.js';
 
   import { computed } from 'vue';
 
@@ -11,7 +12,9 @@
     ACTOR_DESCRIPTION_MODAL_LABELS,
     COPY_TO_ITEMS_LABEL,
     FORM_FIELD_LABELS,
+    FORM_TAB_LABELS,
   } from './constants';
+  import ItemEffectsView from './ItemEffectsView.vue';
   import SourceBadge from './SourceBadge.vue';
 
   /** Бейдж внутри поля */
@@ -52,6 +55,16 @@
      * «Описание» и «Автоматизация». Используется в просмотре черты.
      */
     automation?: string;
+    /**
+     * Активные эффекты записи — вкладка «Эффекты».
+     *
+     * Отличие пустого массива от `undefined` намеренное и несёт смысл: массив
+     * (даже пустой) значит «записи такого рода носят эффекты», и вкладка тогда
+     * есть всегда — иначе по её отсутствию нельзя было бы отличить «эффектов
+     * нет» от «здесь их не показывают». `undefined` — у записей без эффектов
+     * вовсе (умение класса, особенность вида).
+     */
+    effects?: ActiveEffect[];
     /** Готовый лейбл источника — отображается в header (приоритетнее sourceKey) */
     sourceLabel?: string;
     /** Ключ источника — подпись резолвится автоматически */
@@ -82,6 +95,7 @@
     fields: () => [],
     description: '',
     automation: undefined,
+    effects: undefined,
     sourceLabel: undefined,
     sourceKey: undefined,
     source: undefined,
@@ -102,14 +116,31 @@
     set: (value) => emit('update:open', value),
   });
 
-  /** Вкладки тела (когда задана автоматизация). */
-  const descriptionTabs = [
-    { label: FORM_FIELD_LABELS.description, slot: 'description' as const },
-    {
-      label: ACTOR_DESCRIPTION_MODAL_LABELS.tabAutomation,
-      slot: 'automation' as const,
-    },
-  ];
+  /**
+   * Вкладки тела. «Описание» есть всегда, остальные — по переданным данным.
+   * Одна вкладка вкладкой не бывает: тело тогда показывается как обычно.
+   */
+  const descriptionTabs = computed(() => {
+    const items: Array<{ label: string; slot: string }> = [
+      { label: FORM_FIELD_LABELS.description, slot: 'description' },
+    ];
+
+    if (props.automation) {
+      items.push({
+        label: ACTOR_DESCRIPTION_MODAL_LABELS.tabAutomation,
+        slot: 'automation',
+      });
+    }
+
+    if (props.effects) {
+      items.push({ label: FORM_TAB_LABELS.effects, slot: 'effects' });
+    }
+
+    return items;
+  });
+
+  /** Тело делится вкладками: кроме описания есть что показать */
+  const hasTabs = computed(() => descriptionTabs.value.length > 1);
 </script>
 
 <template>
@@ -208,9 +239,9 @@
           <span v-if="field.suffix">{{ field.suffix }}</span>
         </div>
 
-        <!-- Две вкладки: «Описание» и «Автоматизация» (если задана). -->
+        <!-- Вкладки: «Описание» и то, что передали сверх него. -->
         <UTabs
-          v-if="automation"
+          v-if="hasTabs"
           :items="descriptionTabs"
           variant="pill"
           :ui="{ list: 'mb-3' }"
@@ -232,12 +263,25 @@
             />
           </template>
 
-          <template #automation>
+          <template
+            v-if="automation"
+            #automation
+          >
             <ItemDescriptionRenderer :content="automation" />
+          </template>
+
+          <template
+            v-if="effects"
+            #effects
+          >
+            <ItemEffectsView
+              :effects="effects"
+              :owner-name="title"
+            />
           </template>
         </UTabs>
 
-        <!-- Без автоматизации — обычный вид (описание + инфо-блок). -->
+        <!-- Одно описание — обычный вид (описание + инфо-блок). -->
         <template v-else>
           <ItemDescriptionRenderer
             v-if="description"

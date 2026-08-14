@@ -277,7 +277,10 @@
 
         <!-- Вкладка «Эффекты» — только просмотр -->
         <template #effects>
-          <ItemEffectsView :effects="item.activeEffects ?? []" />
+          <ItemEffectsView
+            :effects="item.activeEffects ?? []"
+            :owner-name="item.name"
+          />
         </template>
       </ItemDetailTabs>
     </template>

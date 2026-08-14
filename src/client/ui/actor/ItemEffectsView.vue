@@ -1,12 +1,44 @@
 <script setup lang="ts">
   import type { ActiveEffect } from '@vtt/shared/system/dnd.js';
 
-  import { ITEM_EFFECTS_VIEW_LABELS } from './constants';
+  import { useActiveEffectModal } from '../../composables/useActiveEffectModal';
+  import {
+    ACTIVE_EFFECT_DEFAULTS,
+    ACTIVE_EFFECT_ICON_CLASS,
+    ACTIVE_EFFECT_OPEN_HINT,
+    ITEM_EFFECTS_VIEW_LABELS,
+  } from './constants';
 
-  defineProps<{
+  const props = defineProps<{
     /** Эффекты предмета для отображения (только просмотр, без редактирования) */
     effects: ActiveEffect[];
+    /** Название записи-носителя — уходит подзаголовком в карточку эффекта */
+    ownerName?: string;
   }>();
+
+  const { openActiveEffectDetail } = useActiveEffectModal();
+
+  /**
+   * Открывает карточку эффекта: сама строка показывает только название, а что
+   * эффект делает — разбирает карточка.
+   *
+   * @param effect - эффект строки
+   */
+  function openDetail(effect: ActiveEffect): void {
+    openActiveEffectDetail(effect, props.ownerName);
+  }
+
+  /**
+   * Цвет значка эффекта: у отключённого он гаснет.
+   *
+   * @param effect - эффект строки
+   * @returns класс цвета значка
+   */
+  function effectIconClass(effect: ActiveEffect): string {
+    return effect.disabled
+      ? ACTIVE_EFFECT_ICON_CLASS.disabled
+      : ACTIVE_EFFECT_ICON_CLASS.active;
+  }
 </script>
 
 <template>
@@ -22,16 +54,19 @@
       v-else
       class="space-y-1"
     >
-      <div
+      <button
         v-for="effect in effects"
         :key="effect.id"
-        class="flex min-h-11 items-center gap-2 rounded-lg bg-elevated/50 p-2"
+        type="button"
+        :title="ACTIVE_EFFECT_OPEN_HINT"
+        class="flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-lg bg-elevated/50 p-2 text-left transition-colors hover:bg-accented/50"
         :class="{ 'opacity-50 grayscale': effect.disabled }"
+        @click.left.exact.prevent="openDetail(effect)"
       >
         <UIcon
-          :name="effect.icon || 'tabler:bolt'"
+          :name="effect.icon || ACTIVE_EFFECT_DEFAULTS.fallbackIcon"
           class="size-5 shrink-0"
-          :class="effect.disabled ? 'text-dimmed' : 'text-primary'"
+          :class="effectIconClass(effect)"
         />
 
         <div class="min-w-0 flex-1">
@@ -49,12 +84,17 @@
 
           <div
             v-if="effect.description"
-            class="mt-0.5 text-[10px] text-dimmed"
+            class="mt-0.5 text-[10px] wrap-break-word text-dimmed"
           >
             {{ effect.description }}
           </div>
         </div>
-      </div>
+
+        <UIcon
+          name="tabler:chevron-right"
+          class="size-4 shrink-0 text-dimmed"
+        />
+      </button>
     </div>
   </div>
 </template>

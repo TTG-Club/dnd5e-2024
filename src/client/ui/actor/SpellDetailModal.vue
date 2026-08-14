@@ -446,7 +446,10 @@
 
         <!-- Вкладка «Эффекты» — только просмотр -->
         <template #effects>
-          <ItemEffectsView :effects="spell.activeEffects ?? []" />
+          <ItemEffectsView
+            :effects="spell.activeEffects ?? []"
+            :owner-name="spell.name"
+          />
         </template>
       </ItemDetailTabs>
     </template>

@@ -12,6 +12,7 @@ import type {
   ProficiencyLevel,
   WeaponRangeType,
 } from '@vtt/shared';
+import type { ActiveEffectDetailSectionKey } from '@vtt/shared/system/dnd.js';
 
 import { CUSTOM_SKILLS_MAX } from '@vtt/shared/system/dnd.js';
 
@@ -1821,6 +1822,58 @@ export const ITEM_EFFECTS_VIEW_LABELS = {
   empty: 'Нет эффектов',
   disabled: 'выключен',
 } as const;
+
+/**
+ * Подсказка строки эффекта: она открывает карточку разбора. Общая для всех
+ * списков эффектов — карточки записи, вкладки листа и блока существа: строка
+ * эффекта везде ведёт в одно и то же окно.
+ */
+export const ACTIVE_EFFECT_OPEN_HINT = 'Посмотреть, что делает эффект';
+
+/**
+ * Цвет значка эффекта: у отключённого он гаснет. Списки эффектов и карточка
+ * разбора красят значок одинаково — отключённый эффект должен читаться
+ * одинаково везде, где он показан.
+ */
+export const ACTIVE_EFFECT_ICON_CLASS = {
+  active: 'text-primary',
+  disabled: 'text-dimmed',
+} as const;
+
+/** Подписи карточки просмотра активного эффекта */
+export const ACTIVE_EFFECT_DETAIL_LABELS = {
+  /** Название окна, когда эффект почему-то не передан */
+  fallbackTitle: 'Эффект',
+  /** Заголовок блока разбора настроек эффекта */
+  mechanicsTitle: 'Что делает',
+  /** Разбирать нечего: у эффекта нет ни модификаторов, ни флагов, ни урона */
+  mechanicsEmpty:
+    'Эффект ничего не меняет в расчётах листа — он только отмечает состояние.',
+  /** Значок строки: эффект выключен и в расчёт не идёт */
+  disabledBadge: 'Отключён',
+} as const;
+
+/**
+ * Значки разделов разбора эффекта. Живут в UI, а не в движке: движок отдаёт
+ * разбор ключами разделов и о значках не знает.
+ */
+export const ACTIVE_EFFECT_SECTION_ICONS: Record<
+  ActiveEffectDetailSectionKey,
+  string
+> = {
+  changes: 'tabler:adjustments',
+  flags: 'tabler:flag',
+  condition: 'tabler:mood-sick',
+  conditionImmunities: 'tabler:shield-check',
+  applySave: 'tabler:dice',
+  damage: 'tabler:sword',
+  recurringDamage: 'tabler:flame',
+  recurringSave: 'tabler:refresh',
+  aura: 'tabler:circle-dotted',
+  areaTrigger: 'tabler:vector-triangle',
+  application: 'tabler:target',
+  duration: 'tabler:hourglass',
+};
 
 /**
  * Заголовок списка свойств предмета по умолчанию. Окна оружия, снаряжения и

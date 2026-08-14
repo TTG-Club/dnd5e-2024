@@ -7,6 +7,9 @@
  * в редакторе эффекта (предпросмотр + кнопка «Сгенерировать») и пригодна для
  * любого read-only отображения.
  *
+ * `buildActiveEffectDetails` собирает то же самое разделами — для карточки
+ * просмотра эффекта, где одной строкой уже не обойтись.
+ *
  * Сознательно не трогает поле `name` и не зависит от рантайма актора —
  * описывает только то, «как настроен эффект».
  */
@@ -24,6 +27,7 @@ import {
   EFFECT_ATTACK_TRIGGER_LABELS,
   EFFECT_CHANGE_MODE_LABELS,
   EFFECT_CONDITION_SUGGESTIONS,
+  EFFECT_DURATION_LABELS,
   EFFECT_FLAG_LABELS,
   EFFECT_TARGET_SUGGESTIONS,
 } from './activeEffectTypes.js';
@@ -67,6 +71,14 @@ const VALUE_TOKEN_LABELS: Record<string, string> = {
   '@level': 'уровень',
 };
 
+/** Русское название состояния по ключу (неизвестный ключ отдаётся как есть). */
+function conditionLabel(conditionKey: string): string {
+  return (
+    CONDITIONS.find((entry) => entry.key === conditionKey)?.nameRu
+    ?? conditionKey
+  );
+}
+
 /** Русская плюрализация: pluralize(2, ['раунд', 'раунда', 'раундов']). */
 function pluralize(count: number, forms: [string, string, string]): string {
   const abs = Math.abs(count) % 100;
@@ -85,6 +97,11 @@ function pluralize(count: number, forms: [string, string, string]): string {
   }
 
   return forms[2];
+}
+
+/** Заглавная первая буква — строки собираются из разных источников. */
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 /** Проверка, что строка — «голое» число (с опциональным знаком). */
@@ -140,9 +157,9 @@ function describeChange(change: EffectChange): string {
     return base;
   }
 
-  const conditionLabel = CONDITION_LABELS.get(condition) ?? condition;
+  const conditionText = CONDITION_LABELS.get(condition) ?? condition;
 
-  return `${base} (только: ${conditionLabel})`;
+  return `${base} (только: ${conditionText})`;
 }
 
 /** Подписи условия по цели в формуле урона (токен `@target.<cond>`). */
@@ -325,11 +342,7 @@ export function describeActiveEffect(effect: ActiveEffect): string {
 
   // 10. Иммунитет к состояниям
   if (effect.conditionImmunities && effect.conditionImmunities.length > 0) {
-    const names = effect.conditionImmunities
-      .map(
-        (key) => CONDITIONS.find((entry) => entry.key === key)?.nameRu ?? key,
-      )
-      .join(', ');
+    const names = effect.conditionImmunities.map(conditionLabel).join(', ');
 
     clauses.push(`иммунитет к состояниям: ${names}`);
   }
@@ -357,7 +370,260 @@ export function describeActiveEffect(effect: ActiveEffect): string {
 
   // Капитализируем первую букву и завершаем точкой.
   const text = clauses.join('; ');
-  const capitalized = text.charAt(0).toUpperCase() + text.slice(1);
+  const capitalized = capitalize(text);
 
   return capitalized.endsWith('.') ? capitalized : `${capitalized}.`;
+}
+
+// ── Разбор эффекта разделами (карточка просмотра) ─────────────
+
+/**
+ * Раздел разбора эффекта. Ключ нужен показу: по нему подбирается значок
+ * раздела — сами значки живут в UI, движок о них не знает.
+ */
+export type ActiveEffectDetailSectionKey =
+  | 'changes'
+  | 'flags'
+  | 'condition'
+  | 'conditionImmunities'
+  | 'applySave'
+  | 'damage'
+  | 'recurringDamage'
+  | 'recurringSave'
+  | 'aura'
+  | 'areaTrigger'
+  | 'application'
+  | 'duration';
+
+/** Раздел разбора эффекта: заголовок и готовые к показу строки */
+export interface ActiveEffectDetailSection {
+  /** Ключ раздела */
+  key: ActiveEffectDetailSectionKey;
+  /** Заголовок раздела */
+  title: string;
+  /** Строки раздела — уже человекочитаемые, показывать как есть */
+  lines: string[];
+}
+
+/**
+ * Заголовки разделов разбора. Живут рядом с самим разбором: заголовок и
+ * строки под ним пишутся одной формулировкой, и разносить их по файлам значило
+ * бы править перевод в двух местах.
+ */
+const DETAIL_SECTION_TITLES: Record<ActiveEffectDetailSectionKey, string> = {
+  changes: 'Модификаторы',
+  flags: 'Флаги',
+  condition: 'Состояние',
+  conditionImmunities: 'Иммунитет к состояниям',
+  applySave: 'Спасбросок при наложении',
+  damage: 'Урон при наложении',
+  recurringDamage: 'Периодический урон',
+  recurringSave: 'Периодический спасбросок',
+  aura: 'Аура',
+  areaTrigger: 'Триггер области',
+  application: 'Применение',
+  duration: 'Длительность',
+};
+
+/**
+ * Подписи цели эффекта. Только `target`: `self` — поведение по умолчанию, и в
+ * разборе оно не упоминается (см. `applicationLines`).
+ */
+const EFFECT_TARGET_DETAIL_LABELS = {
+  target: 'Накладывается на цель при попадании атакой',
+} as const;
+
+/**
+ * Строки длительности для карточки: в отличие от однострочного описания,
+ * здесь длительность есть всегда — «постоянно» тоже ответ. Остаток раундов
+ * показывается отдельно: он живёт на конкретном наложении эффекта, а не в его
+ * настройке.
+ */
+function durationLines(duration: EffectDuration): string[] {
+  const lines = [
+    describeDuration(duration) ?? EFFECT_DURATION_LABELS[duration.type],
+  ];
+
+  if (duration.type === 'rounds' && duration.remaining !== undefined) {
+    lines.push(
+      `осталось ${duration.remaining} ${pluralize(duration.remaining, [
+        'раунд',
+        'раунда',
+        'раундов',
+      ])}`,
+    );
+  }
+
+  return lines;
+}
+
+/** Строки раздела «Спасбросок при наложении» вместе с оговорками об исходе. */
+function applySaveLines(effect: ActiveEffect): string[] {
+  const lines: string[] = [];
+
+  if (effect.applySave) {
+    const ability = ABILITY_LABELS[effect.applySave.ability];
+
+    const onSuccess =
+      effect.applySave.onSuccess === 'half'
+        ? 'при успехе урон вдвое'
+        : 'при успехе эффект отменяется';
+
+    lines.push(
+      `${ability}, ${formatSaveDc(effect.applySave.dc)} — ${onSuccess}`,
+    );
+  }
+
+  if (effect.applyOnSuccess) {
+    lines.push('накладывается даже при успешном спасброске');
+  }
+
+  if (effect.applyOnSuccessOnly) {
+    lines.push('накладывается только при успешном спасброске');
+  }
+
+  return lines;
+}
+
+/** Строки раздела «Аура»: радиус, кого задевает и что с источником. */
+function auraLines(effect: ActiveEffect): string[] {
+  if (!effect.aura) {
+    return [];
+  }
+
+  const lines = [
+    `радиус ${effect.aura.radius} фт`,
+    `задевает: ${AURA_TARGET_LABELS[effect.aura.target]}`,
+  ];
+
+  if (effect.aura.applyToSelf) {
+    lines.push('действует и на источник ауры');
+  }
+
+  if (effect.aura.visible) {
+    lines.push('круг ауры виден на сцене');
+  }
+
+  return lines;
+}
+
+/**
+ * Строки раздела «Применение»: на кого ложится, переносится ли, когда спадает.
+ *
+ * Цель `self` не упоминается намеренно: это поведение по умолчанию, и строкой
+ * «применяется к владельцу» раздел появлялся бы у каждого эффекта, ничего при
+ * этом не сообщая.
+ */
+function applicationLines(effect: ActiveEffect): string[] {
+  const lines: string[] = [];
+
+  if (effect.effectTarget === 'target') {
+    lines.push(EFFECT_TARGET_DETAIL_LABELS.target);
+  }
+
+  if (effect.transfer) {
+    lines.push('переносится с предмета на владельца при экипировке');
+  }
+
+  if (effect.consumeOn) {
+    lines.push(EFFECT_ATTACK_TRIGGER_LABELS[effect.consumeOn]);
+  }
+
+  return lines;
+}
+
+/**
+ * Разбирает эффект на разделы для карточки просмотра: что он меняет, чем
+ * гейтится, как долго держится. Пустые разделы не возвращаются — показывать
+ * нечего, значит и заголовка быть не должно.
+ *
+ * От `describeActiveEffect` отличается только формой: та собирает ту же
+ * механику одной строкой (описание эффекта, тултип), эта — списком по темам.
+ *
+ * @param effect - активный эффект
+ * @returns разделы разбора в порядке показа
+ */
+export function buildActiveEffectDetails(
+  effect: ActiveEffect,
+): ActiveEffectDetailSection[] {
+  const exhaustionSuffix =
+    effect.exhaustionLevel && effect.exhaustionLevel > 0
+      ? ` (степень ${effect.exhaustionLevel})`
+      : '';
+
+  const sections: Array<{
+    key: ActiveEffectDetailSectionKey;
+    lines: string[];
+  }> = [
+    {
+      key: 'changes',
+      lines: effect.changes
+        .filter((change) => change.value?.trim())
+        .map(describeChange),
+    },
+    {
+      key: 'flags',
+      lines: effect.flags.map((flag) => FLAG_LABELS.get(flag) ?? flag),
+    },
+    {
+      key: 'condition',
+      lines: effect.conditionKey
+        ? [`${conditionLabel(effect.conditionKey)}${exhaustionSuffix}`]
+        : [],
+    },
+    {
+      key: 'conditionImmunities',
+      lines: (effect.conditionImmunities ?? []).map(conditionLabel),
+    },
+    { key: 'applySave', lines: applySaveLines(effect) },
+    {
+      key: 'damage',
+      lines: effect.damageParts?.length
+        ? [describeDamageParts(effect.damageParts)].filter(Boolean)
+        : [],
+    },
+    {
+      key: 'recurringDamage',
+      lines: effect.recurringDamage?.damageParts.length
+        ? [
+            `${describeDamageParts(effect.recurringDamage.damageParts)} — ${
+              effect.recurringDamage.timing === 'startOfTurn'
+                ? 'в начале хода'
+                : 'в конце хода'
+            }`,
+          ]
+        : [],
+    },
+    {
+      key: 'recurringSave',
+      lines: effect.recurringSave
+        ? [
+            `${ABILITY_LABELS[effect.recurringSave.ability]}, ${formatSaveDc(
+              effect.recurringSave.dc,
+            )} ${
+              effect.recurringSave.timing === 'startOfTurn'
+                ? 'в начале хода'
+                : 'в конце хода'
+            } — успех снимает эффект`,
+          ]
+        : [],
+    },
+    { key: 'aura', lines: auraLines(effect) },
+    {
+      key: 'areaTrigger',
+      lines: effect.areaTrigger
+        ? [AREA_TRIGGER_LABELS[effect.areaTrigger]]
+        : [],
+    },
+    { key: 'application', lines: applicationLines(effect) },
+    { key: 'duration', lines: durationLines(effect.duration) },
+  ];
+
+  return sections
+    .filter((section) => section.lines.length > 0)
+    .map((section) => ({
+      key: section.key,
+      title: DETAIL_SECTION_TITLES[section.key],
+      lines: section.lines.map(capitalize),
+    }));
 }

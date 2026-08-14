@@ -50,12 +50,19 @@ export function useFeatModal() {
     const automation =
       systemRegistry.getActiveSystem()?.getFeatGrantsSummary?.(feat) ?? '';
 
+    // Вкладка «Эффекты» у черты есть ВСЕГДА, даже пустая: черта их носит, и по
+    // отсутствию вкладки нельзя было бы понять, эффектов нет или их тут просто
+    // не показывают. Пустой список — осмысленный ответ, а не отсутствие ответа.
+    const activeEffects =
+      'activeEffects' in feat ? (feat.activeEffects ?? []) : [];
+
     openModal('ActorDescriptionModal', {
       _modalKey: feat.id,
       title: feat.name,
       subtitle: nameEn || undefined,
       description: feat.description,
       automation: automation || undefined,
+      effects: activeEffects,
       sourceKey: feat.sourceKey,
       isSRD: feat.isSRD ?? false,
       fields: badges.length > 0 ? [{ badges }] : [],

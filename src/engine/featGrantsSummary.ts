@@ -3,9 +3,13 @@
  * (`featData` + `activeEffects`).
  *
  * Описание черты остаётся чистой прозой; механические дары (владения, языки,
- * защиты, повышение характеристик, заклинания, эффекты, предусловия) выводятся
+ * защиты, повышение характеристик, заклинания, предусловия) выводятся
  * отдельным авто-блоком Markdown в просмотре черты — чтобы мастер сразу видел,
  * как черта настроена, без ручного дублирования в описании.
+ *
+ * Активные эффекты сюда НЕ входят: у них своя вкладка «Эффекты» в просмотре, где
+ * каждый эффект открывается карточкой с полным разбором. Строкой в сводке они
+ * лишь дублировали бы её название.
  *
  * Логика системо-зависима (форма `FeatData` D&D 5e), поэтому живёт в системе и
  * вызывается Ядром через контракт `VttSystem.getFeatGrantsSummary`.
@@ -274,20 +278,17 @@ function prerequisiteLine(featData: FeatData): string | null {
  * в просмотре). Возвращает пустую строку, если черта не несёт механических
  * даров (тогда таб не показывается).
  *
- * @param feat - источник даров с настройками (`featData` / `activeEffects`):
- *   черта, предмет или предыстория.
+ * @param feat - источник даров с настройками (`featData`): черта, предмет или
+ *   предыстория.
  */
 export function buildFeatGrantsSummary(
   feat: Feature | DnDGameItem | BackgroundDefinition,
 ): string {
-  // `featData`/`activeEffects` есть у GameItem-черты и у применённой черты на
-  // акторе (несётся через AppliedFeatFeature). У обычной особенности (Feature)
-  // их нет — сводка тогда пустая.
+  // `featData` есть у GameItem-черты и у применённой черты на акторе (несётся
+  // через AppliedFeatFeature). У обычной особенности (Feature) его нет — сводка
+  // тогда пустая.
   const featData: FeatData | null =
     'featData' in feat ? (feat.featData ?? null) : null;
-
-  const activeEffects =
-    'activeEffects' in feat ? feat.activeEffects : undefined;
 
   const lines: string[] = [];
 
@@ -297,14 +298,6 @@ export function buildFeatGrantsSummary(
         .map((spell) => spell.name)
         .join(', ')}`,
     );
-  }
-
-  if (activeEffects?.length) {
-    const effects = activeEffects
-      .map((effect) => effect.description.trim() || effect.name)
-      .join('; ');
-
-    lines.push(`- **Эффекты:** ${effects}`);
   }
 
   if (featData) {

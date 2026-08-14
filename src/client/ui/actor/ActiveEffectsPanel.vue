@@ -22,9 +22,12 @@
     SELECTABLE_CONDITIONS,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useActiveEffectModal } from '../../composables/useActiveEffectModal';
   import { useEntityActiveEffects } from '../../composables/useEntityActiveEffects';
   import {
     ACTIVE_EFFECT_DEFAULTS,
+    ACTIVE_EFFECT_ICON_CLASS,
+    ACTIVE_EFFECT_OPEN_HINT,
     EFFECTS_TAB_LABELS,
     MODAL_BUTTON_LABELS,
   } from './constants';
@@ -64,6 +67,7 @@
   const isEffectModalOpen = ref(false);
   const effectModalZIndex = ref<number | undefined>(undefined);
   const { getNextZIndex } = useModalManager();
+  const { openActiveEffectDetail } = useActiveEffectModal();
 
   const editingEffect = ref<ActiveEffect | undefined>(undefined);
 
@@ -128,6 +132,16 @@
   }
 
   /**
+   * Открывает карточку эффекта от надетого предмета: своего носителя такой
+   * эффект уже знает, и в карточке он подписан.
+   *
+   * @param entry - строка списка эффектов снаряжения
+   */
+  function openEquipmentEffectDetail(entry: EquipmentEffectEntry): void {
+    openActiveEffectDetail(entry.effect, entry.itemName);
+  }
+
+  /**
    * Оформление карточки состояния.
    *
    * @param key - ключ состояния
@@ -165,7 +179,9 @@
    * @returns строка классов
    */
   function effectIconClass(effect: ActiveEffect): string {
-    return effect.disabled ? 'text-dimmed' : 'text-primary';
+    return effect.disabled
+      ? ACTIVE_EFFECT_ICON_CLASS.disabled
+      : ACTIVE_EFFECT_ICON_CLASS.active;
   }
 </script>
 
@@ -189,24 +205,35 @@
         class="group flex min-h-11 items-center gap-2 rounded-lg bg-elevated/50 p-2 transition-colors hover:bg-accented/50"
         :class="{ 'opacity-50 grayscale': effect.disabled }"
       >
-        <UIcon
-          :name="effect.icon || ACTIVE_EFFECT_DEFAULTS.fallbackIcon"
-          class="size-5 shrink-0"
-          :class="effectIconClass(effect)"
-        />
+        <!-- Название эффекта открывает карточку разбора: она только показывает,
+          что эффект делает, и доступна независимо от режима правки -->
+        <button
+          type="button"
+          :title="ACTIVE_EFFECT_OPEN_HINT"
+          class="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
+          @click.left.exact.prevent="openActiveEffectDetail(effect)"
+        >
+          <UIcon
+            :name="effect.icon || ACTIVE_EFFECT_DEFAULTS.fallbackIcon"
+            class="size-5 shrink-0"
+            :class="effectIconClass(effect)"
+          />
 
-        <div class="min-w-0 flex-1">
-          <div class="flex items-center gap-2 text-sm leading-none font-medium">
-            <span class="truncate">{{ effect.name }}</span>
-          </div>
+          <div class="min-w-0 flex-1">
+            <div
+              class="flex items-center gap-2 text-sm leading-none font-medium"
+            >
+              <span class="truncate">{{ effect.name }}</span>
+            </div>
 
-          <div
-            v-if="effect.description"
-            class="mt-0.5 text-[10px] wrap-break-word text-dimmed"
-          >
-            {{ effect.description }}
+            <div
+              v-if="effect.description"
+              class="mt-0.5 text-[10px] wrap-break-word text-dimmed"
+            >
+              {{ effect.description }}
+            </div>
           </div>
-        </div>
+        </button>
 
         <div class="flex shrink-0 items-center gap-1.5">
           <USwitch
@@ -269,10 +296,13 @@
     </h3>
 
     <div class="space-y-1">
-      <div
+      <button
         v-for="entry in equipmentEffects"
         :key="`${entry.itemName}-${entry.effect.id}`"
-        class="flex min-h-11 items-center gap-2 rounded-lg bg-elevated/50 p-2"
+        type="button"
+        :title="ACTIVE_EFFECT_OPEN_HINT"
+        class="flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-lg bg-elevated/50 p-2 text-left transition-colors hover:bg-accented/50"
+        @click.left.exact.prevent="openEquipmentEffectDetail(entry)"
       >
         <UIcon
           :name="entry.effect.icon || ACTIVE_EFFECT_DEFAULTS.fallbackIcon"
@@ -294,7 +324,7 @@
         >
           {{ EFFECTS_TAB_LABELS.itemBadge }}
         </span>
-      </div>
+      </button>
     </div>
   </div>
 

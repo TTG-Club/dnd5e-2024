@@ -20,6 +20,7 @@
   } from '../actor/constants';
   import DamagePartsSummary from '../actor/DamagePartsSummary.vue';
   import ItemDetailModalShell from '../actor/ItemDetailModalShell.vue';
+  import ItemEffectsView from '../actor/ItemEffectsView.vue';
   import {
     CREATURE_ACTION_DETAIL_LABELS,
     CREATURE_ACTION_MENU_LABELS,
@@ -103,11 +104,8 @@
     );
   });
 
-  /** Эффекты действия, кроме временно отключённых */
-  const enabledEffects = computed(
-    () =>
-      props.action?.activeEffects?.filter((effect) => !effect.disabled) ?? [],
-  );
+  /** Эффекты действия — показываются все, отключённый помечен в самой строке */
+  const actionEffects = computed(() => props.action?.activeEffects ?? []);
 
   /** Markdown-описание действия */
   const descriptionMarkdown = computed(() =>
@@ -255,32 +253,20 @@
           <ItemDescriptionRenderer :content="descriptionMarkdown" />
         </div>
 
-        <!-- Эффекты -->
-        <div
-          v-if="enabledEffects.length > 0"
-          class="flex flex-col gap-1.5 border-t border-default/50 pt-3"
-        >
+        <!-- Эффекты. Раздел стоит всегда, даже пустой: действие эффекты носит,
+          и по отсутствию раздела нельзя было бы понять, их нет или их тут не
+          показывают. Строка эффекта открывает карточку с разбором -->
+        <div class="flex flex-col gap-1.5 border-t border-default/50 pt-3">
           <span
             class="text-xs font-semibold tracking-wider text-dimmed uppercase"
           >
             {{ FORM_TAB_LABELS.effects }}
           </span>
 
-          <div class="flex flex-wrap gap-1.5">
-            <UBadge
-              v-for="effect in enabledEffects"
-              :key="effect.id"
-              color="warning"
-              variant="subtle"
-              size="sm"
-            >
-              <UIcon
-                :name="effect.icon || 'tabler:sparkles'"
-                class="mr-0.5 size-3"
-              />
-              {{ effect.name }}
-            </UBadge>
-          </div>
+          <ItemEffectsView
+            :effects="actionEffects"
+            :owner-name="action.name"
+          />
         </div>
       </div>
     </template>

@@ -8,7 +8,6 @@
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import SendToChatButton from '@/shared_ui/components/SendToChatButton.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
-  import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useChatStore } from '@/stores/chatStore';
   import {
     ABILITY_LABELS,
@@ -17,11 +16,14 @@
     toolProficiencyLabel,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useFeatModal } from '../../../composables/useFeatModal';
   import {
     BACKGROUND_DETAIL_LABELS,
     COPY_TO_ITEMS_LABEL,
+    FORM_TAB_LABELS,
     GRANT_SECTION_LABELS,
   } from '../constants';
+  import ItemEffectsView from '../ItemEffectsView.vue';
   import SourceBadge from '../SourceBadge.vue';
 
   const props = defineProps<{
@@ -98,8 +100,8 @@
     data.value ? buildFeatGrantsSummary(data.value) : '',
   );
 
-  const { openModal } = useModalManager();
   const chatStore = useChatStore();
+  const { openFeatDescription: openFeat } = useFeatModal();
 
   /**
    * Проверяет, что запись компендиума — черта.
@@ -140,13 +142,10 @@
       return;
     }
 
-    openModal('ActorDescriptionModal', {
-      _modalKey: feat.id,
-      title: feat.name,
-      subtitle: feat.nameEn || '',
-      sourceKey: feat.sourceKey,
-      description: feat.description || '',
-    });
+    // Через общий просмотр черты, а не своим `openModal`: черта, открытая из
+    // предыстории, — та же самая черта, и вкладки «Автоматизация»/«Эффекты» у
+    // неё должны быть те же, что и на листе.
+    openFeat(feat);
   }
 </script>
 
@@ -313,7 +312,7 @@
           </div>
         </div>
 
-        <!-- Дополнительные дары (featData / activeEffects) -->
+        <!-- Дополнительные дары (featData) -->
         <div
           v-if="grantsSummary"
           class="rounded-lg border border-default/50 p-4"
@@ -323,6 +322,20 @@
           </h3>
 
           <ItemDescriptionRenderer :content="grantsSummary" />
+        </div>
+
+        <!-- Эффекты предыстории. Блок стоит всегда, даже пустой: предыстория
+          эффекты носит, и по отсутствию блока нельзя было бы понять, их нет или
+          их тут не показывают -->
+        <div class="rounded-lg border border-default/50 p-4">
+          <h3 class="mb-3 text-sm font-semibold tracking-wider text-primary">
+            {{ FORM_TAB_LABELS.effects }}
+          </h3>
+
+          <ItemEffectsView
+            :effects="data.activeEffects ?? []"
+            :owner-name="data.name"
+          />
         </div>
 
         <!-- Стартовое снаряжение -->
