@@ -15,6 +15,14 @@
  * перед сопоставлением, поэтому такая позиция становится обычным владением, а не
  * ссылкой в тексте на листе персонажа.
  *
+ * Одна позиция не равна одному владению. Компендиум перечисляет несколько
+ * владений одной строкой («Воровские инструменты, Инструменты ремонтника и один
+ * тип Ремесленных инструментов на ваш выбор» у изобретателя) и предлагает выбор
+ * между категориями («Выберите инструменты ремесленника или музыкальный
+ * инструмент» у монаха). Перечисление делится на части, а выбор между
+ * категориями остаётся ОДНИМ выбором сразу из нескольких групп — иначе монах
+ * получал бы два инструмента вместо одного.
+ *
  * @module system/dnd/toolProficiency
  */
 
@@ -50,19 +58,25 @@ export const TOOL_GROUP_CATEGORY: Record<string, ToolCategory> = {
 export type ResolvedToolProficiency =
   /** Конкретный инструмент словаря — ставится сразу. */
   | { kind: 'tool'; key: string; label: string; source: string }
-  /** Группа «на выбор» — игрок выбирает `count` инструментов категории. */
-  | { kind: 'group'; key: string; count: number; source: string }
+  /**
+   * Выбор «на выбор»: игрок берёт `count` инструментов из групп `keys`.
+   * Групп больше одной, когда позиция предлагает выбор между категориями
+   * («инструменты ремесленника ИЛИ музыкальный инструмент») — выбор при этом
+   * остаётся один, меняется лишь набор вариантов.
+   */
+  | { kind: 'group'; keys: string[]; count: number; source: string }
   /** Ничего не подошло — текст показывается как есть, ключа для него нет. */
   | { kind: 'unknown'; source: string };
 
 /**
  * Признаки групп «на выбор» — основы слов, а не целые фразы: компендиум пишет их
  * в разных падежах и числах («музыкальный инструмент», «2 музыкальных
- * инструмента»). Группа засчитывается, когда в тексте есть ВСЕ основы. Ищутся
- * ПОСЛЕ точных совпадений, поэтому конкретная «Флейта» группой не станет.
+ * инструмента», «тип Ремесленных инструментов»). Группа засчитывается, когда в
+ * тексте есть ВСЕ её основы. Ищутся ПОСЛЕ точных совпадений, поэтому конкретная
+ * «Флейта» группой не станет.
  */
 const GROUP_STEMS: Array<{ key: string; stems: string[] }> = [
-  { key: TOOL_GROUP_KEYS.artisan, stems: ['инструмент', 'ремесленник'] },
+  { key: TOOL_GROUP_KEYS.artisan, stems: ['инструмент', 'ремеслен'] },
   { key: TOOL_GROUP_KEYS.gaming, stems: ['игров', 'набор'] },
   { key: TOOL_GROUP_KEYS.musical, stems: ['музыкальн', 'инструмент'] },
 ];
@@ -102,15 +116,25 @@ function toolProficiencyText(source: string): string {
   return result.replace(/\s+/g, ' ').trim();
 }
 
-/** Хвосты вида «(на ваш выбор)», «любой», «одного вида» — на смысл не влияют. */
-const NOISE_PATTERNS = [
-  /\([^)]*\)/g,
-  /\bна ваш выбор\b/g,
-  /\bна выбор\b/g,
-  /\bпо вашему выбору\b/g,
-  /\bлюбой\b/g,
-  /\bлюбые\b/g,
-  /\bлюбого вида\b/g,
+/** Скобочное уточнение «(на ваш выбор)» — смысла позиции не меняет. */
+const PARENTHESES = /\([^)]*\)/g;
+
+/**
+ * Служебные хвосты: на то, ЧТО за владение, они не влияют.
+ *
+ * Слова целиком, а сравнение идёт по пробелам вокруг них. Раньше здесь стояли
+ * выражения с `\b`, и они не работали вовсе: границей слова `\b` считает
+ * латиницу с цифрами, а с кириллицей её нет ни с одной стороны. Хвосты
+ * оставались в тексте, и «Инструменты каллиграфа на ваш выбор» не совпадало со
+ * своей же позицией словаря.
+ */
+const NOISE_WORDS = [
+  'на ваш выбор',
+  'на выбор',
+  'по вашему выбору',
+  'любого вида',
+  'любой',
+  'любые',
 ];
 
 /**
@@ -120,33 +144,83 @@ const NOISE_PATTERNS = [
  * @param value - исходная фраза
  */
 function normalize(value: string): string {
-  let result = value.toLowerCase().replace(/ё/g, 'е');
-
-  for (const pattern of NOISE_PATTERNS) {
-    result = result.replace(pattern, ' ');
-  }
-
-  return result
+  const cleaned = value
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+    .replace(PARENTHESES, ' ')
     .replace(/[«»"'.,;:!?]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+
+  // Пробелы по краям — чтобы хвост в начале и в конце фразы тоже оказался
+  // окружён пробелами и отделялся так же, как хвост в середине.
+  let result = ` ${cleaned} `;
+
+  for (const noise of NOISE_WORDS) {
+    result = result.replaceAll(` ${noise} `, ' ');
+  }
+
+  return result.replace(/\s+/g, ' ').trim();
 }
 
 /**
- * Ведущее количество: «2 музыкальных инструмента» → 2. Без числа — 1.
+ * Числительные словами. Компендиум пишет количество и цифрой, и словом («Три
+ * музыкальных инструмента»), и в разных падежах — падежные формы перечислены
+ * рядом с начальной. «Ё» здесь не бывает: {@link normalize} заменяет её на «е»
+ * раньше сравнения.
+ */
+const COUNT_WORDS: Record<string, number> = {
+  один: 1,
+  одно: 1,
+  одного: 1,
+  одним: 1,
+  одну: 1,
+  два: 2,
+  две: 2,
+  двух: 2,
+  двумя: 2,
+  три: 3,
+  трех: 3,
+  тремя: 3,
+  четыре: 4,
+  четырех: 4,
+  четырьмя: 4,
+  пять: 5,
+  пяти: 5,
+  пятью: 5,
+};
+
+/**
+ * Количество инструментов во фразе: «2 музыкальных инструмента» → 2, «Выберите
+ * 3 музыкальных инструмента» → 3, «Три музыкальных инструмента» → 3. Без числа
+ * — 1.
+ *
+ * Число ищется по всей фразе, а не только в начале: компендиум ставит его после
+ * глагола («Выберите 3 …»), и с проверкой одного начала бард получал право на
+ * один инструмент вместо трёх при подписи про три.
  *
  * @param value - нормализованная фраза
  */
-function leadingCount(value: string): number {
-  const match = /^(\d+)\s/.exec(value);
+function phraseCount(value: string): number {
+  const words = value.split(' ');
 
-  if (!match) {
-    return 1;
+  for (const word of words) {
+    if (/^\d+$/.test(word)) {
+      const count = Number.parseInt(word, 10);
+
+      if (Number.isFinite(count) && count > 0) {
+        return count;
+      }
+    }
+
+    const spelled = COUNT_WORDS[word];
+
+    if (spelled) {
+      return spelled;
+    }
   }
 
-  const count = Number.parseInt(match[1], 10);
-
-  return Number.isFinite(count) && count > 0 ? count : 1;
+  return 1;
 }
 
 /**
@@ -186,7 +260,7 @@ export function resolveToolProficiency(
   if (TOOL_GROUP_CATEGORY[trimmed]) {
     return {
       kind: 'group',
-      key: trimmed,
+      keys: [trimmed],
       count: 1,
       source: TOOLS_LABELS[trimmed],
     };
@@ -211,15 +285,18 @@ export function resolveToolProficiency(
     };
   }
 
-  const group = GROUP_STEMS.find((candidate) =>
+  // Берём ВСЕ подошедшие группы: «инструменты ремесленника или музыкальный
+  // инструмент» — это один выбор с вариантами из двух категорий. Перечисление
+  // через запятую и «и» сюда не доходит: его делит `resolveToolProficiencies`.
+  const keys = GROUP_STEMS.filter((candidate) =>
     candidate.stems.every((stem) => normalized.includes(stem)),
-  );
+  ).map((candidate) => candidate.key);
 
-  if (group) {
+  if (keys.length > 0) {
     return {
       kind: 'group',
-      key: group.key,
-      count: leadingCount(normalized),
+      keys,
+      count: phraseCount(normalized),
       source: trimmed,
     };
   }
@@ -228,10 +305,41 @@ export function resolveToolProficiency(
 }
 
 /**
- * Разбирает список позиций владения. Позиция, которая целиком не опозналась,
- * дополнительно делится по запятым и союзу «и» — компендиум нередко пишет
- * несколько инструментов одной строкой. Части, не опознанные и после деления,
- * возвращаются как `unknown` каждая сама по себе.
+ * Делит позицию, перечисляющую несколько владений одной строкой («Воровские
+ * инструменты, Инструменты ремонтника и один тип Ремесленных инструментов на
+ * ваш выбор»).
+ *
+ * Деление принимается, только когда КАЖДАЯ часть несёт название: запятая
+ * встречается и внутри цельной фразы («Один музыкальный инструмент, на ваш
+ * выбор»), а такую строку делить нельзя — вторая половина осталась бы без
+ * смысла и просилась бы завести инструмент с именем «на ваш выбор».
+ *
+ * @param source - позиция владения, как её прислал источник
+ * @returns части перечисления либо пустой список, если позиция цельная
+ */
+function splitEnumeration(source: string): string[] {
+  // Делим уже очищенный текст: запятая внутри адреса ссылки разрезала бы
+  // позицию по живому.
+  const parts = toolProficiencyText(source)
+    .split(/,| и /i)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length < 2) {
+    return [];
+  }
+
+  return parts.every((part) => normalize(part)) ? parts : [];
+}
+
+/**
+ * Разбирает список позиций владения. Позиция-перечисление делится на части, и
+ * каждая разбирается сама по себе: иначе строка изобретателя опозналась бы
+ * одной группой «инструменты ремесленника», а названные в ней воровские
+ * инструменты и инструменты ремонтника пропали бы.
+ *
+ * Позиция, совпавшая со словарём целиком, не делится: название инструмента —
+ * это одно владение, чем бы оно ни было разделено внутри.
  *
  * @param sources - позиции владения из определения класса или предыстории
  * @param vocabulary - словарь владений (системный список плюс заведённые в мире)
@@ -245,20 +353,15 @@ export function resolveToolProficiencies(
   for (const source of sources) {
     const whole = resolveToolProficiency(source, vocabulary);
 
-    if (whole.kind !== 'unknown') {
+    if (whole.kind === 'tool') {
       resolved.push(whole);
 
       continue;
     }
 
-    // Делим уже очищенный текст: запятая внутри адреса ссылки разрезала бы
-    // позицию по живому.
-    const parts = toolProficiencyText(source)
-      .split(/,| и /i)
-      .map((part) => part.trim())
-      .filter(Boolean);
+    const parts = splitEnumeration(source);
 
-    if (parts.length < 2) {
+    if (parts.length === 0) {
       resolved.push(whole);
 
       continue;
@@ -270,6 +373,18 @@ export function resolveToolProficiencies(
   }
 
   return dedupe(resolved);
+}
+
+/**
+ * Опознаёт выбор по набору его групп: позиция предлагает варианты сразу из
+ * нескольких категорий, и различает такие выборы именно набор. Общий и для
+ * отсева повторов, и для показа — разъезжаться им нельзя, иначе один и тот же
+ * выбор считался бы в разных местах разным.
+ *
+ * @param keys - группы, из которых идёт выбор
+ */
+export function toolChoiceGroupId(keys: string[]): string {
+  return keys.join('+');
 }
 
 /**
@@ -298,6 +413,19 @@ export function toolProficiencyLabel(
   return resolved.kind === 'tool' ? resolved.label : resolved.source;
 }
 
+/** Опознаёт позицию для сравнения на повтор. */
+function dedupeId(entry: ResolvedToolProficiency): string {
+  switch (entry.kind) {
+    case 'tool':
+      return `tool:${entry.key}`;
+    case 'group':
+      return `group:${toolChoiceGroupId(entry.keys)}`;
+    default:
+      // `unknown`: ключа у позиции нет, различаем такие позиции по тексту
+      return `unknown:${entry.source.toLowerCase()}`;
+  }
+}
+
 /** Убирает повторы: один и тот же инструмент мог прийти и от класса, и от фона. */
 function dedupe(
   resolved: ResolvedToolProficiency[],
@@ -305,10 +433,7 @@ function dedupe(
   const seen = new Set<string>();
 
   return resolved.filter((entry) => {
-    const id =
-      entry.kind === 'unknown'
-        ? `unknown:${entry.source.toLowerCase()}`
-        : `${entry.kind}:${entry.key}`;
+    const id = dedupeId(entry);
 
     if (seen.has(id)) {
       return false;

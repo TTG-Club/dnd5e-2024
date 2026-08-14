@@ -10,13 +10,17 @@
    * одна, дублировать её по мастерам незачем.
    */
   import type { TypedWebSocketClient } from '@vtt/shared';
-  import type { ResolvedToolProficiency } from '@vtt/shared/system/dnd.js';
+  import type {
+    ResolvedToolProficiency,
+    ToolVocabularyEntry,
+  } from '@vtt/shared/system/dnd.js';
 
   import { computed, watch } from 'vue';
 
   import {
     resolveToolProficiencies,
     TOOL_GROUP_CATEGORY,
+    toolChoiceGroupId,
     TOOLS_LIST,
   } from '@vtt/shared/system/dnd.js';
 
@@ -36,6 +40,27 @@
     /** Все обязательные выборы сделаны — мастер может пускать дальше */
     'update:complete': [value: boolean];
   }>();
+
+  /**
+   * Группа «инструмент на выбор» вместе с вариантами и состоянием набора.
+   * Счётчик и предел выбора у каждой группы свои: позиций «на выбор» может
+   * прийти сразу несколько («три музыкальных инструмента» и «инструмент
+   * ремесленника»), и общий на всех счётчик засчитывал бы выбор одной группы
+   * в другую.
+   */
+  interface ToolChoiceGroup {
+    /** Ключ показа: позиция может предлагать выбор сразу из нескольких групп */
+    key: string;
+    /** Подпись позиции, как её прислал компендиум */
+    source: string;
+    /** Сколько инструментов выбирают в этой группе */
+    required: number;
+    /** Варианты выбора — инструменты категорий группы */
+    options: ToolVocabularyEntry[];
+    /** Выбранное в этой группе, в порядке выбора */
+    chosen: string[];
+    isComplete: boolean;
+  }
 
   /** Ключи владений, которые уедут на лист персонажа */
   const selected = defineModel<string[]>('selected', { default: () => [] });
@@ -73,30 +98,46 @@
   /** Ключи узнанных инструментов — они всегда в выборе */
   const fixedKeys = computed(() => fixed.value.map((entry) => entry.key));
 
-  /** Сколько инструментов игрок должен выбрать сверх узнанных */
-  const requiredChoices = computed(() =>
-    groups.value.reduce((sum, group) => sum + group.count, 0),
+  /** Группы «на выбор» со своими вариантами, счётчиком и пределом */
+  const choiceGroups = computed<ToolChoiceGroup[]>(() =>
+    groups.value.map((group) => {
+      // Категорий может быть несколько: «инструменты ремесленника ИЛИ
+      // музыкальный инструмент» — один выбор, варианты из обеих.
+      const categories = group.keys.map((key) => TOOL_GROUP_CATEGORY[key]);
+
+      // Узнанное владение вариантом не показываем: оно уже выдано, выбирать
+      // его повторно нечего — и место в группе оно не занимает.
+      const options: ToolVocabularyEntry[] = TOOLS_LIST.filter(
+        (tool) =>
+          categories.includes(tool.category)
+          && !fixedKeys.value.includes(tool.key),
+      );
+
+      const optionKeys = new Set(options.map((option) => option.key));
+
+      // Порядок берём из `selected` — это и есть порядок выбора, по нему
+      // вытесняется самый ранний. Заодно в группу не попадает инструмент,
+      // заведённый по неузнанной позиции: его в вариантах категории нет.
+      const chosen = selected.value.filter((key) => optionKeys.has(key));
+
+      return {
+        key: toolChoiceGroupId(group.keys),
+        source: group.source,
+        required: group.count,
+        options,
+        chosen,
+        isComplete: chosen.length >= group.count,
+      };
+    }),
   );
 
-  /** Выбранное игроком сверх узнанных */
-  const chosen = computed(() =>
-    selected.value.filter((key) => !fixedKeys.value.includes(key)),
+  const isComplete = computed(() =>
+    choiceGroups.value.every((group) => group.isComplete),
   );
 
-  const isComplete = computed(
-    () => chosen.value.length >= requiredChoices.value,
-  );
-
-  /** Класс счётчика выбранного: зелёный, когда набрано нужное количество */
-  const counterClass = computed(() =>
-    isComplete.value ? 'text-healing' : 'text-dimmed',
-  );
-
-  /** Варианты выбора для группы — инструменты её категории */
-  function groupOptions(groupKey: string) {
-    const category = TOOL_GROUP_CATEGORY[groupKey];
-
-    return TOOLS_LIST.filter((tool) => tool.category === category);
+  /** Класс счётчика группы: зелёный, когда в ней набрано нужное количество */
+  function counterClass(group: ToolChoiceGroup): string {
+    return group.isComplete ? 'text-healing' : 'text-dimmed';
   }
 
   /** Цвет бейджа варианта: выбранный подсвечен основным цветом */
@@ -109,26 +150,28 @@
     return selected.value.includes(key) ? 'solid' : 'soft';
   }
 
-  function toggleTool(key: string): void {
-    if (fixedKeys.value.includes(key)) {
-      return;
-    }
-
-    if (selected.value.includes(key)) {
+  /**
+   * Переключает выбор инструмента внутри его группы.
+   *
+   * @param group - группа, из вариантов которой выбирают
+   * @param key - ключ инструмента
+   */
+  function toggleTool(group: ToolChoiceGroup, key: string): void {
+    if (group.chosen.includes(key)) {
       selected.value = selected.value.filter((entry) => entry !== key);
 
       return;
     }
 
-    // Достигли нужного количества — новый выбор вытесняет самый ранний,
-    // иначе игрок упирается в предел и не понимает, что снимать.
-    const next = [...chosen.value, key];
+    // Достигли нужного количества — новый выбор вытесняет самый ранний в этой
+    // же группе, иначе игрок упирается в предел и не понимает, что снимать.
+    const excess = group.chosen.length + 1 - group.required;
+    const dropped = excess > 0 ? group.chosen.slice(0, excess) : [];
 
-    if (next.length > requiredChoices.value) {
-      next.splice(0, next.length - requiredChoices.value);
-    }
-
-    selected.value = [...fixedKeys.value, ...next];
+    selected.value = [
+      ...selected.value.filter((entry) => !dropped.includes(entry)),
+      key,
+    ];
   }
 
   /** Заводит неузнанный инструмент предметом мира и сразу выдаёт владение. */
@@ -184,7 +227,7 @@
 
     <!-- Выбор из категории -->
     <div
-      v-for="group in groups"
+      v-for="group in choiceGroups"
       :key="group.key"
       class="rounded-lg border border-default/50 bg-elevated/30 p-3"
     >
@@ -195,22 +238,22 @@
 
         <span
           class="text-xs"
-          :class="counterClass"
+          :class="counterClass(group)"
         >
-          {{ chosen.length }} / {{ requiredChoices }}
+          {{ group.chosen.length }} / {{ group.required }}
         </span>
       </div>
 
       <div class="flex flex-wrap gap-1.5">
         <UBadge
-          v-for="option in groupOptions(group.key)"
+          v-for="option in group.options"
           :key="option.key"
           :label="option.label"
           :color="optionColor(option.key)"
           :variant="optionVariant(option.key)"
           size="md"
           class="cursor-pointer"
-          @click.left.exact.prevent="toggleTool(option.key)"
+          @click.left.exact.prevent="toggleTool(group, option.key)"
         />
       </div>
     </div>

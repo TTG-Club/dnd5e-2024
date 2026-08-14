@@ -353,9 +353,18 @@
     // сторонние источники — ссылкой разметки. Форма же работает ключами
     // словаря, поэтому разбираем позиции здесь — иначе копия предыстории
     // показывает в поле разметку и теряет владение при сохранении.
+    // Позиция «на выбор» может охватывать несколько групп («ремесленника или
+    // музыкальный»): форма — плоский список ключей, поэтому в неё попадают обе
+    // группы. Выбор «одной из» она не выражает, и это её предел, а не потеря.
     selectedFixedTools.value = resolveToolProficiencies(
       bg.toolGrant?.items ?? [],
-    ).map((entry) => (entry.kind === 'unknown' ? entry.source : entry.key));
+    ).flatMap((entry) => {
+      if (entry.kind === 'unknown') {
+        return entry.source;
+      }
+
+      return entry.kind === 'group' ? entry.keys : entry.key;
+    });
 
     if (bg.toolGrant?.choices) {
       choicesToolsCount.value = bg.toolGrant.choices.count || 0;
