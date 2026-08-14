@@ -19,7 +19,6 @@
     ABILITY_OPTIONS,
     AREA_TRIGGER_LABELS,
     buildConditionActiveEffect,
-    CONDITIONS,
     describeActiveEffect,
     EFFECT_CONDITION_SUGGESTIONS,
     EFFECT_DURATION_LABELS,
@@ -30,6 +29,7 @@
     EFFECT_VALUE_SUGGESTIONS,
     isEffectFlagKey,
     isEffectTargetKey,
+    SELECTABLE_CONDITIONS,
   } from '@vtt/shared/system/dnd.js';
 
   import {
@@ -309,13 +309,13 @@
 
   /** Опции пресетов состояний для UDropdownMenu */
   const conditionPresetItems = [
-    CONDITIONS.filter((condition) => condition.key !== 'exhaustion').map(
-      (condition) => ({
-        label: condition.nameRu,
-        icon: condition.icon,
-        onSelect: () => applyConditionPreset(condition.key),
-      }),
-    ),
+    SELECTABLE_CONDITIONS.filter(
+      (condition) => condition.key !== 'exhaustion',
+    ).map((condition) => ({
+      label: condition.nameRu,
+      icon: condition.icon,
+      onSelect: () => applyConditionPreset(condition.key),
+    })),
   ];
 
   /**

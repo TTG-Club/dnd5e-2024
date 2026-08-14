@@ -19,6 +19,7 @@ import type { DnDActor, SpellUsesRecovery } from './dndEntities.js';
 import type { CreatureSize } from './types.js';
 
 import { DEFAULT_CARRYING_CAPACITY } from './carryingCapacity.js';
+import { DEATH_CONDITION_KEY } from './conditionKeys.js';
 import { DEFAULT_PREPARED_LIMIT } from './preparedSpells.js';
 
 // ============================================================
@@ -585,6 +586,12 @@ export interface ConditionEntry {
   customImage?: string;
   /** Описание эффектов состояния */
   description: string;
+  /**
+   * Рисовать значок крупно поверх всей фишки, а не ячейкой в сетке статусов
+   * (Ядро читает признак из `getConditions`). Так помечают состояние, которое
+   * описывает существо целиком, а не временную помеху, — «Мёртв».
+   */
+  overlay?: boolean;
 }
 
 /**
@@ -724,7 +731,29 @@ export const CONDITIONS: readonly ConditionEntry[] = [
     description:
       'Недееспособен + лежащий ничком. Скорость 0. Автопровал СИЛ и ЛОВ. Атаки с преимуществом. Крит в пределах 5 фт. Не осознаёте окружение.',
   },
+  {
+    key: DEATH_CONDITION_KEY,
+    nameRu: 'Мёртв',
+    nameEn: 'Dead',
+    // Своей картинки в наборе хоста (/assets/status/) нет — берём иконку
+    // коллекции, как «Оглохший» и «Недееспособный»
+    icon: 'tabler:skull',
+    description: 'Существо мертво: запас хитов исчерпан.',
+    // Смерть — не помеха на пару ходов, а конец существа: череп рисуется во
+    // весь токен, иначе его теряют среди прочих значков состояний
+    overlay: true,
+  },
 ] as const;
+
+/**
+ * Состояния, которые выбирают руками в интерфейсе системы (тумблеры листа,
+ * списки иммунитетов, выдача от вида и черт).
+ *
+ * «Мёртв» из них исключён: это производная метка, её ставит и снимает запас
+ * хитов существа (`deathState.ts`), и выбор её руками ничего бы не значил.
+ */
+export const SELECTABLE_CONDITIONS: readonly ConditionEntry[] =
+  CONDITIONS.filter((condition) => condition.key !== DEATH_CONDITION_KEY);
 
 // ============================================================
 // Валюты (Currency)

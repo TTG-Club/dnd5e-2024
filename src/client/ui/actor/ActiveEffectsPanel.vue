@@ -17,7 +17,10 @@
   import { computed, ref } from 'vue';
 
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
-  import { CONDITIONS, itemEffectsActive } from '@vtt/shared/system/dnd.js';
+  import {
+    itemEffectsActive,
+    SELECTABLE_CONDITIONS,
+  } from '@vtt/shared/system/dnd.js';
 
   import { useEntityActiveEffects } from '../../composables/useEntityActiveEffects';
   import {
@@ -105,10 +108,11 @@
 
   /**
    * Состояния сетки. Истощение исключено: у него своя шкала степеней в левой
-   * колонке листа, а плитка умела бы только включить первую степень.
+   * колонке листа, а плитка умела бы только включить первую степень («Мёртв»
+   * отсеян раньше — это производная метка, а не выбор игрока).
    */
   const gridConditions = computed(() =>
-    CONDITIONS.filter((condition) => condition.key !== 'exhaustion'),
+    SELECTABLE_CONDITIONS.filter((condition) => condition.key !== 'exhaustion'),
   );
 
   function createCustomEffect(): void {

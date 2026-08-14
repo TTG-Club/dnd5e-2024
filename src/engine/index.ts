@@ -18,6 +18,7 @@ export * from './damageApplication.js';
 export * from './damageConstants.js';
 export * from './damageParts.js';
 export * from './damageUtils.js';
+export * from './deathState.js';
 export * from './diceFormula.js';
 export * from './dnd5eSystem.js';
 export * from './dndEntities.js';

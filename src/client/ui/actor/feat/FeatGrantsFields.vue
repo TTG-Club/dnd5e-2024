@@ -5,8 +5,8 @@
 
   import {
     ABILITY_OPTIONS,
-    CONDITIONS,
     LANGUAGE_TYPES,
+    SELECTABLE_CONDITIONS,
     SENSE_LABELS,
     SKILLS_LIST,
     TOOLS_LABELS,
@@ -96,7 +96,7 @@
     label: language,
   }));
 
-  const conditionOptions = CONDITIONS.map((condition) => ({
+  const conditionOptions = SELECTABLE_CONDITIONS.map((condition) => ({
     value: condition.key,
     label: condition.nameRu,
   }));

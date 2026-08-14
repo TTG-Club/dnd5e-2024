@@ -39,10 +39,10 @@
   import { generateId, typedObjectEntries } from '@vtt/shared';
   import {
     ABILITY_OPTIONS,
-    CONDITIONS,
     CREATURE_SIZE_LABELS,
     CREATURE_TYPE_LABELS,
     LANGUAGE_TYPES,
+    SELECTABLE_CONDITIONS,
     SKILLS_LIST,
     TOOLS_LABELS,
   } from '@vtt/shared/system/dnd.js';
@@ -137,7 +137,7 @@
     label: language,
   }));
 
-  const conditionOptions = CONDITIONS.map((condition) => ({
+  const conditionOptions = SELECTABLE_CONDITIONS.map((condition) => ({
     value: condition.key,
     label: condition.nameRu,
   }));

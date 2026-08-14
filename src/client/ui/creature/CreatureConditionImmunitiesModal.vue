@@ -3,7 +3,7 @@
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
-  import { CONDITIONS } from '@vtt/shared/system/dnd.js';
+  import { SELECTABLE_CONDITIONS } from '@vtt/shared/system/dnd.js';
 
   import { MODAL_BUTTON_LABELS } from '../actor/constants';
   import {
@@ -38,9 +38,9 @@
   /** Строка для особых (кастомных) значений */
   const customValues = ref('');
 
-  /** Опции состояний из констант (CONDITIONS) */
+  /** Опции состояний из констант (SELECTABLE_CONDITIONS) */
   const conditionOptions = computed(() => {
-    return CONDITIONS.map((condition) => ({
+    return SELECTABLE_CONDITIONS.map((condition) => ({
       key: condition.key,
       label: condition.nameRu,
     }));

@@ -65,6 +65,7 @@ import {
   pickCombatState as pickCombatStateImpl,
 } from './damageApplication.js';
 import { getSpellDamageParts } from './damageParts.js';
+import { syncCreatureDeathCondition } from './deathState.js';
 import { rollDamageFormula as rollDamageFormulaImpl } from './diceFormula.js';
 import { collectActiveEffects, resolveActorStats } from './effectPipeline.js';
 import { isDndSceneEntity } from './entityGuards.js';
@@ -265,7 +266,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.6.7';
+  readonly version = '0.6.9';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -794,10 +795,16 @@ export class Dnd5eVttSystem implements VttSystem {
 
   /**
    * Выполняет нормализацию данных существа.
+   *
+   * Здесь же пересчитывается метка смерти: Ядро прогоняет существо через этот
+   * метод при каждом изменении (создание и обновление на клиенте, загрузка мира
+   * на сервере), поэтому череп на токене появляется и снимается одинаково,
+   * какой бы путь ни поменял хиты.
    */
   // eslint-disable-next-line class-methods-use-this
   normalizeCreature(creature: BaseCreature): void {
     normalizeCreature(creature);
+    syncCreatureDeathCondition(creature);
   }
 
   /**
@@ -1004,6 +1011,7 @@ export class Dnd5eVttSystem implements VttSystem {
       description: condition.description,
       systemId: 'dnd5e-2024',
       customImage: condition.customImage,
+      overlay: condition.overlay,
     }));
   }
 }
