@@ -23,6 +23,7 @@
   import {
     AREA_FIELD_LABELS,
     FORM_FIELD_LABELS,
+    FORM_SECTION_TOGGLE_UI,
     FORM_TAB_LABELS,
     MODAL_BUTTON_LABELS,
     SPELL_FORM_LABELS,
@@ -36,15 +37,6 @@
   import { extractSpellFromGameItem } from './utils/extractSpellFromGameItem';
 
   defineOptions({ inheritAttrs: false });
-
-  /**
-   * Стиль чекбокса-переключателя в шапке секции: подпись выглядит как часть
-   * заголовка, а не как обычное поле. Одна константа на все секции — иначе
-   * правка стиля разъезжается по копиям.
-   */
-  const SECTION_TOGGLE_UI = {
-    label: 'text-xs font-semibold tracking-wide text-dimmed',
-  } as const;
 
   const props = defineProps<{
     /** Открыто ли модальное окно */
@@ -529,7 +521,7 @@
                     v-model="ritual"
                     :label="SPELL_FORM_LABELS.ritual"
                     indicator="end"
-                    :ui="SECTION_TOGGLE_UI"
+                    :ui="FORM_SECTION_TOGGLE_UI"
                   />
                 </template>
 
@@ -587,7 +579,7 @@
                     v-model="concentration"
                     :label="SPELL_FORM_LABELS.concentration"
                     indicator="end"
-                    :ui="SECTION_TOGGLE_UI"
+                    :ui="FORM_SECTION_TOGGLE_UI"
                   />
                 </template>
 
@@ -955,7 +947,7 @@
                   v-model="hasProjectiles"
                   :label="SPELL_FORM_LABELS.projectilesEnable"
                   indicator="end"
-                  :ui="SECTION_TOGGLE_UI"
+                  :ui="FORM_SECTION_TOGGLE_UI"
                 />
               </template>
 
@@ -1095,7 +1087,7 @@
                   v-model="autoHit"
                   :label="SPELL_FORM_LABELS.autoHit"
                   indicator="end"
-                  :ui="SECTION_TOGGLE_UI"
+                  :ui="FORM_SECTION_TOGGLE_UI"
                 />
               </template>
 
@@ -1122,7 +1114,7 @@
                   v-model="hasScaling"
                   :label="SPELL_FORM_LABELS.hasScaling"
                   indicator="end"
-                  :ui="SECTION_TOGGLE_UI"
+                  :ui="FORM_SECTION_TOGGLE_UI"
                 />
               </template>
 

@@ -202,10 +202,7 @@
 </script>
 
 <template>
-  <FormSection
-    :title="`${DAMAGE_PART_LABELS.partPrefix}${index + 1}`"
-    title-color="warning"
-  >
+  <FormSection :title="`${DAMAGE_PART_LABELS.partPrefix}${index + 1}`">
     <template #actions>
       <UButton
         v-if="canRemove"
