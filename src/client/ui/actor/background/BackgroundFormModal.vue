@@ -110,7 +110,7 @@
     { label: FORM_TAB_LABELS.main, slot: 'basic' as const },
     { label: BACKGROUND_FORM_LABELS.tabParams, slot: 'params' as const },
     { label: GRANT_SECTION_LABELS.equipment, slot: 'equipment' as const },
-    { label: GRANT_SECTION_LABELS.proficiencies, slot: 'grants' as const },
+    { label: FORM_TAB_LABELS.automation, slot: 'grants' as const },
     { label: GRANT_SECTION_LABELS.spells, slot: 'spells' as const },
     { label: FORM_TAB_LABELS.effects, slot: 'effects' as const },
   ];
@@ -585,7 +585,7 @@
 
             <FormSection
               :title="FORM_FIELD_LABELS.source"
-              title-color="source"
+              icon="tabler:book-2"
             >
               <SourceField
                 v-model:source-key="sourceKey"
@@ -606,7 +606,7 @@
           <div class="flex flex-col gap-4">
             <FormSection
               :title="BACKGROUND_FORM_LABELS.abilitiesTitle"
-              title-color="healing"
+              icon="tabler:arrow-big-up-lines"
             >
               <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <UFormField :label="BACKGROUND_FORM_LABELS.abilities">
@@ -641,7 +641,8 @@
 
             <FormSection
               :title="GRANT_SECTION_LABELS.tools"
-              title-color="healing"
+              icon="tabler:tools"
+              :hint="BACKGROUND_FORM_LABELS.toolsHint"
             >
               <UFormField :label="BACKGROUND_FORM_LABELS.fixedTools">
                 <USelectMenu
@@ -687,7 +688,8 @@
 
             <FormSection
               :title="BACKGROUND_FORM_LABELS.featTitle"
-              title-color="healing"
+              icon="tabler:star"
+              :hint="BACKGROUND_FORM_LABELS.featHint"
             >
               <URadioGroup
                 v-model="featSelectionType"
@@ -734,9 +736,13 @@
         <template #equipment>
           <FormSection
             :title="BACKGROUND_FORM_LABELS.equipmentTitle"
-            title-color="healing"
+            icon="tabler:backpack"
           >
             <div class="flex flex-col gap-4">
+              <p class="text-xs text-dimmed">
+                {{ BACKGROUND_FORM_LABELS.equipmentHelp }}
+              </p>
+
               <UFormField :label="BACKGROUND_FORM_LABELS.equipmentItems">
                 <UInput
                   v-model="equipmentDescription"
@@ -758,7 +764,7 @@
           </FormSection>
         </template>
 
-        <!-- ВЛАДЕНИЯ (дары что угодно) -->
+        <!-- АВТОМАТИЗАЦИЯ (дары что угодно) -->
         <template #grants>
           <div class="flex flex-col gap-2">
             <p class="text-xs text-dimmed">
