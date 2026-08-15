@@ -200,6 +200,25 @@
     return SPELL_FORM_LABELS.projectileHintSpread;
   });
 
+  /** Заголовок секции масштабирования: у заговоров и уровневых свой */
+  const scalingSectionTitle = computed(() =>
+    level.value === 0
+      ? SPELL_FORM_LABELS.cantripScalingTitle
+      : SPELL_FORM_LABELS.scalingTitle,
+  );
+
+  /** Подсказка секции масштабирования: у заговоров и уровневых своя */
+  const scalingSectionHint = computed(() =>
+    level.value === 0
+      ? SPELL_FORM_LABELS.cantripScalingHint
+      : SPELL_FORM_LABELS.scalingHint,
+  );
+
+  /** Есть ли контент у секции масштабирования (у заговоров тиры всегда видны) */
+  const scalingSectionHasContent = computed(
+    () => level.value === 0 || hasScaling.value,
+  );
+
   /** Подпись поля основного размера области (радиус либо размер стороны) */
   const areaSizeLabel = computed(() => getAreaSizeLabel(areaShape.value));
 
@@ -692,13 +711,70 @@
                 </UFormField>
               </div>
             </FormSection>
+          </div>
+        </template>
 
-            <!-- Дистанция и Цели -->
+        <!-- Вкладка «Бой»: как применяется → куда достаёт → во что целится →
+             что происходит → как растёт -->
+        <template #combat>
+          <div class="flex flex-col gap-4">
+            <!-- Способ применения -->
             <FormSection
-              :title="SPELL_FORM_LABELS.rangeTitle"
-              title-color="warning"
+              :title="SPELL_FORM_LABELS.deliveryTitle"
+              icon="tabler:wand"
             >
               <div class="grid grid-cols-3 gap-3">
+                <UFormField :label="SPELL_FORM_LABELS.deliveryType">
+                  <USelect
+                    v-model="deliveryType"
+                    :items="DELIVERY_TYPE_OPTIONS"
+                    value-key="value"
+                    class="w-full"
+                  />
+                </UFormField>
+
+                <template v-if="['ranged', 'melee'].includes(deliveryType)">
+                  <UFormField :label="FORM_FIELD_LABELS.ability">
+                    <USelect
+                      v-model="attackAbility"
+                      :items="ABILITY_OPTIONS"
+                      value-key="value"
+                      :placeholder="SPELL_FORM_LABELS.attackAbilityPlaceholder"
+                      class="w-full"
+                    />
+                  </UFormField>
+
+                  <UFormField :label="SPELL_FORM_LABELS.attackBonus">
+                    <UInput
+                      v-model.number="attackBonus"
+                      type="number"
+                      class="w-full"
+                    >
+                      <template #trailing>
+                        <UTooltip :text="SPELL_FORM_LABELS.attackBonusHint">
+                          <UIcon
+                            name="tabler:help-circle-filled"
+                            class="size-4.5 cursor-help text-dimmed transition-colors hover:text-default"
+                          />
+                        </UTooltip>
+                      </template>
+                    </UInput>
+                  </UFormField>
+                </template>
+              </div>
+
+              <p class="mt-2 text-xs text-dimmed">
+                {{ SPELL_FORM_LABELS.deliveryTypeHelp }}
+              </p>
+            </FormSection>
+
+            <!-- Дистанция -->
+            <FormSection
+              :title="SPELL_FORM_LABELS.rangeTitle"
+              icon="tabler:ruler-measure"
+              :hint="SPELL_FORM_LABELS.rangeHint"
+            >
+              <div class="grid grid-cols-2 gap-3">
                 <div class="grid grid-cols-[1fr_90px] gap-2">
                   <UFormField :label="FORM_FIELD_LABELS.range">
                     <UInput
@@ -724,7 +800,15 @@
                     class="w-full"
                   />
                 </UFormField>
+              </div>
+            </FormSection>
 
+            <!-- Цель -->
+            <FormSection
+              :title="SPELL_FORM_LABELS.targetTitle"
+              icon="tabler:target-arrow"
+            >
+              <div class="grid grid-cols-3 gap-3">
                 <UFormField :label="SPELL_FORM_LABELS.targetType">
                   <USelect
                     v-model="targetType"
@@ -733,17 +817,12 @@
                     class="w-full"
                   />
                 </UFormField>
-              </div>
 
-              <!-- Цели: обычное заклинание — число целей под общий бросок;
-                   снаряды — свой бросок на каждый + режим распределения -->
-              <div
-                v-if="['creature', 'object'].includes(targetType)"
-                class="mt-3 flex flex-col gap-3"
-              >
-                <div
-                  v-if="!hasProjectiles"
-                  class="grid grid-cols-3 gap-3"
+                <template
+                  v-if="
+                    ['creature', 'object'].includes(targetType)
+                    && !hasProjectiles
+                  "
                 >
                   <UFormField :label="SPELL_FORM_LABELS.targetCount">
                     <UInput
@@ -765,123 +844,19 @@
                       class="w-full"
                     />
                   </UFormField>
-                </div>
-
-                <div class="border-t border-default/50 pt-3">
-                  <UCheckbox
-                    v-model="hasProjectiles"
-                    :label="SPELL_FORM_LABELS.hasProjectiles"
-                    :ui="{
-                      label: 'text-xs font-semibold tracking-wide text-primary',
-                    }"
-                  />
-                </div>
-
-                <div
-                  v-if="hasProjectiles"
-                  class="flex flex-col gap-3"
-                >
-                  <p class="text-xs text-dimmed">
-                    {{ projectileHintText }}
-                  </p>
-
-                  <div class="grid grid-cols-2 gap-3">
-                    <UFormField :label="SPELL_FORM_LABELS.projectileCount">
-                      <UInput
-                        v-model.number="projectileCount"
-                        type="number"
-                        :min="1"
-                        class="w-full"
-                      />
-                    </UFormField>
-
-                    <UFormField
-                      v-if="level > 0"
-                      :label="SPELL_FORM_LABELS.projectilePerSlotLevel"
-                    >
-                      <UInput
-                        v-model.number="projectilePerSlotLevel"
-                        type="number"
-                        :min="0"
-                        class="w-full"
-                      />
-                    </UFormField>
-                  </div>
-
-                  <UFormField :label="SPELL_FORM_LABELS.projectileDistribution">
-                    <URadioGroup
-                      v-model="projectileTargetDistribution"
-                      :items="[...PROJECTILE_DISTRIBUTION_OPTIONS]"
-                      value-key="value"
-                    />
-                  </UFormField>
-
-                  <!-- Пороги уровня персонажа (заговоры) -->
-                  <template v-if="level === 0">
-                    <p class="text-xs text-dimmed">
-                      {{ SPELL_FORM_LABELS.projectileTiersHint }}
-                    </p>
-
-                    <div
-                      v-for="(tier, tierIndex) in projectileTiers"
-                      :key="tierIndex"
-                      class="grid grid-cols-[1fr_1fr_auto] items-end gap-3"
-                    >
-                      <UFormField
-                        :label="SPELL_FORM_LABELS.projectileTierLevel"
-                      >
-                        <UInput
-                          v-model.number="tier.level"
-                          type="number"
-                          :min="1"
-                          :max="20"
-                          class="w-full"
-                        />
-                      </UFormField>
-
-                      <UFormField
-                        :label="SPELL_FORM_LABELS.projectileTierCount"
-                      >
-                        <UInput
-                          v-model.number="tier.count"
-                          type="number"
-                          :min="1"
-                          class="w-full"
-                        />
-                      </UFormField>
-
-                      <UButton
-                        icon="tabler:trash"
-                        color="error"
-                        variant="ghost"
-                        size="xs"
-                        :aria-label="SPELL_FORM_LABELS.projectileTierRemove"
-                        class="mb-1"
-                        @click.left.exact.prevent="
-                          removeProjectileTier(tierIndex)
-                        "
-                      />
-                    </div>
-
-                    <UButton
-                      icon="tabler:plus"
-                      variant="soft"
-                      size="sm"
-                      class="self-start"
-                      @click.left.exact.prevent="addProjectileTier"
-                    >
-                      {{ SPELL_FORM_LABELS.projectileTierAdd }}
-                    </UButton>
-                  </template>
-                </div>
+                </template>
               </div>
+
+              <p class="mt-2 text-xs text-dimmed">
+                {{ SPELL_FORM_LABELS.targetTypeHelp }}
+              </p>
             </FormSection>
 
             <!-- Область действия (Шаблон) -->
             <FormSection
               v-if="targetType === 'area'"
               :title="SPELL_FORM_LABELS.areaTitle"
-              title-color="info"
+              icon="tabler:shape"
               class="transition-all duration-200"
             >
               <div class="grid grid-cols-3 gap-3">
@@ -950,77 +925,129 @@
                 </div>
               </div>
             </FormSection>
-          </div>
-        </template>
 
-        <!-- Вкладка «Бой» -->
-        <template #combat>
-          <div class="flex flex-col gap-4">
-            <!-- Эффект (части урона / лечения) -->
-            <DamagePartsEditor
-              v-model="damageParts"
-              :damage-type-options="damageTypeOptions"
-              :allow-empty="true"
+            <!-- Снаряды -->
+            <FormSection
+              v-if="['creature', 'object'].includes(targetType)"
+              :title="SPELL_FORM_LABELS.projectilesTitle"
+              icon="tabler:meteor"
+              :hint="SPELL_FORM_LABELS.projectilesHint"
+              :has-content="hasProjectiles"
+              class="transition-all duration-200"
             >
               <template #actions>
                 <UCheckbox
-                  v-model="autoHit"
-                  :label="SPELL_FORM_LABELS.autoHit"
+                  v-model="hasProjectiles"
+                  :label="SPELL_FORM_LABELS.projectilesEnable"
+                  indicator="end"
+                  :ui="{
+                    label: 'text-xs font-semibold tracking-wide text-dimmed',
+                  }"
                 />
               </template>
-            </DamagePartsEditor>
 
-            <!-- Точность (Атака и Спасбросок) -->
-            <FormSection
-              :title="SPELL_FORM_LABELS.accuracyTitle"
-              title-color="danger"
-            >
-              <div class="grid grid-cols-2 gap-3">
-                <UFormField :label="FORM_FIELD_LABELS.attackType">
-                  <USelect
-                    v-model="deliveryType"
-                    :items="DELIVERY_TYPE_OPTIONS"
-                    value-key="value"
-                    class="w-full"
-                  />
-                </UFormField>
+              <div
+                v-if="hasProjectiles"
+                class="flex flex-col gap-3"
+              >
+                <p class="text-xs text-dimmed">
+                  {{ projectileHintText }}
+                </p>
 
-                <div
-                  v-if="['ranged', 'melee'].includes(deliveryType)"
-                  class="grid grid-cols-2 gap-3"
-                >
-                  <UFormField :label="FORM_FIELD_LABELS.ability">
-                    <USelect
-                      v-model="attackAbility"
-                      :items="ABILITY_OPTIONS"
-                      value-key="value"
-                      :placeholder="SPELL_FORM_LABELS.attackAbilityPlaceholder"
+                <div class="grid grid-cols-2 gap-3">
+                  <UFormField :label="SPELL_FORM_LABELS.projectileCount">
+                    <UInput
+                      v-model.number="projectileCount"
+                      type="number"
+                      :min="1"
                       class="w-full"
                     />
                   </UFormField>
 
-                  <UFormField :label="SPELL_FORM_LABELS.attackBonus">
+                  <UFormField
+                    v-if="level > 0"
+                    :label="SPELL_FORM_LABELS.projectilePerSlotLevel"
+                  >
                     <UInput
-                      v-model.number="attackBonus"
+                      v-model.number="projectilePerSlotLevel"
                       type="number"
+                      :min="0"
                       class="w-full"
-                    >
-                      <template #trailing>
-                        <UTooltip :text="SPELL_FORM_LABELS.attackBonusHint">
-                          <UIcon
-                            name="tabler:help-circle-filled"
-                            class="size-4.5 cursor-help text-dimmed transition-colors hover:text-default"
-                          />
-                        </UTooltip>
-                      </template>
-                    </UInput>
+                    />
                   </UFormField>
                 </div>
-              </div>
 
-              <div
-                class="mt-3 grid grid-cols-2 gap-3 border-t border-default/50 pt-3"
-              >
+                <UFormField :label="SPELL_FORM_LABELS.projectileDistribution">
+                  <URadioGroup
+                    v-model="projectileTargetDistribution"
+                    :items="[...PROJECTILE_DISTRIBUTION_OPTIONS]"
+                    value-key="value"
+                  />
+                </UFormField>
+
+                <!-- Пороги уровня персонажа (заговоры) -->
+                <template v-if="level === 0">
+                  <p class="text-xs text-dimmed">
+                    {{ SPELL_FORM_LABELS.projectileTiersHint }}
+                  </p>
+
+                  <div
+                    v-for="(tier, tierIndex) in projectileTiers"
+                    :key="tierIndex"
+                    class="grid grid-cols-[1fr_1fr_auto] items-end gap-3"
+                  >
+                    <UFormField :label="SPELL_FORM_LABELS.projectileTierLevel">
+                      <UInput
+                        v-model.number="tier.level"
+                        type="number"
+                        :min="1"
+                        :max="20"
+                        class="w-full"
+                      />
+                    </UFormField>
+
+                    <UFormField :label="SPELL_FORM_LABELS.projectileTierCount">
+                      <UInput
+                        v-model.number="tier.count"
+                        type="number"
+                        :min="1"
+                        class="w-full"
+                      />
+                    </UFormField>
+
+                    <UButton
+                      icon="tabler:trash"
+                      color="error"
+                      variant="ghost"
+                      size="xs"
+                      :aria-label="SPELL_FORM_LABELS.projectileTierRemove"
+                      class="mb-1"
+                      @click.left.exact.prevent="
+                        removeProjectileTier(tierIndex)
+                      "
+                    />
+                  </div>
+
+                  <UButton
+                    icon="tabler:plus"
+                    variant="soft"
+                    size="sm"
+                    class="self-start"
+                    @click.left.exact.prevent="addProjectileTier"
+                  >
+                    {{ SPELL_FORM_LABELS.projectileTierAdd }}
+                  </UButton>
+                </template>
+              </div>
+            </FormSection>
+
+            <!-- Спасбросок -->
+            <FormSection
+              :title="SPELL_FORM_LABELS.saveTitle"
+              icon="tabler:shield"
+              :hint="SPELL_FORM_LABELS.saveHint"
+            >
+              <div class="grid grid-cols-2 gap-3">
                 <UFormField :label="FORM_FIELD_LABELS.savingThrow">
                   <USelect
                     v-model="saveType"
@@ -1044,25 +1071,48 @@
               </div>
             </FormSection>
 
+            <!-- Урон и лечение -->
+            <FormSection
+              :title="SPELL_FORM_LABELS.damageTitle"
+              icon="tabler:swords"
+              :hint="SPELL_FORM_LABELS.damageHint"
+            >
+              <template #actions>
+                <UCheckbox
+                  v-model="autoHit"
+                  :label="SPELL_FORM_LABELS.autoHit"
+                  indicator="end"
+                  :ui="{
+                    label: 'text-xs font-semibold tracking-wide text-dimmed',
+                  }"
+                />
+              </template>
+
+              <DamagePartsEditor
+                v-model="damageParts"
+                :damage-type-options="damageTypeOptions"
+                :allow-empty="true"
+              />
+            </FormSection>
+
             <!-- Масштабирование -->
             <FormSection
               class="transition-all duration-200"
-              :title="
-                level === 0 ? SPELL_FORM_LABELS.cantripScalingTitle : undefined
-              "
-              :title-color="level === 0 ? 'arcane' : undefined"
-              :has-content="level === 0 ? true : hasScaling"
+              :title="scalingSectionTitle"
+              icon="tabler:trending-up"
+              :hint="scalingSectionHint"
+              :has-content="scalingSectionHasContent"
             >
-              <!-- Заголовок для заклинаний уровня > 0 -->
               <template
                 v-if="level > 0"
-                #header
+                #actions
               >
                 <UCheckbox
                   v-model="hasScaling"
                   :label="SPELL_FORM_LABELS.hasScaling"
+                  indicator="end"
                   :ui="{
-                    label: 'text-xs font-semibold tracking-wide text-arcane',
+                    label: 'text-xs font-semibold tracking-wide text-dimmed',
                   }"
                 />
               </template>
