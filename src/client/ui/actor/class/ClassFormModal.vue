@@ -43,6 +43,7 @@
     CLASS_FORM_LABELS,
     DEFINITION_FORM_LABELS,
     FORM_FIELD_LABELS,
+    FORM_SECTION_TOGGLE_UI,
     FORM_TAB_LABELS,
     GRANT_FIELD_LABELS,
     GRANT_SECTION_LABELS,
@@ -143,7 +144,7 @@
       label: GRANT_SECTION_LABELS.proficiencies,
       slot: 'proficiencies' as const,
     },
-    { label: GRANT_SECTION_LABELS.spells, slot: 'spellcasting' as const },
+    { label: CLASS_FORM_LABELS.tabSpellcasting, slot: 'spellcasting' as const },
     { label: CLASS_FORM_LABELS.tabProgression, slot: 'progression' as const },
     { label: GRANT_SECTION_LABELS.features, slot: 'features' as const },
     { label: CLASS_FORM_LABELS.tabSubclasses, slot: 'subclasses' as const },
@@ -556,7 +557,7 @@
           <div class="flex flex-col gap-4">
             <FormSection
               :title="DEFINITION_FORM_LABELS.generalTitle"
-              title-color="healing"
+              icon="tabler:id"
             >
               <div class="grid grid-cols-2 gap-3">
                 <UFormField :label="FORM_FIELD_LABELS.name">
@@ -582,6 +583,10 @@
                     value-key="value"
                     class="w-full"
                   />
+
+                  <p class="mt-1 text-xs text-dimmed">
+                    {{ CLASS_FORM_LABELS.hitDieHelp }}
+                  </p>
                 </UFormField>
 
                 <SourceField
@@ -595,6 +600,10 @@
                     :min="1"
                     :max="20"
                   />
+
+                  <p class="mt-1 text-xs text-dimmed">
+                    {{ CLASS_FORM_LABELS.subclassLevelHelp }}
+                  </p>
                 </UFormField>
 
                 <UFormField :label="CLASS_FORM_LABELS.subclassLabel">
@@ -624,7 +633,7 @@
 
             <FormSection
               :title="FORM_FIELD_LABELS.descriptionMarkdown"
-              title-color="healing"
+              icon="tabler:file-text"
             >
               <RichTextEditor v-model="description" />
             </FormSection>
@@ -636,7 +645,8 @@
           <div class="flex flex-col gap-4">
             <FormSection
               :title="CLASS_FORM_LABELS.startingProficienciesTitle"
-              title-color="healing"
+              icon="tabler:certificate"
+              :hint="CLASS_FORM_LABELS.startingProficienciesHint"
             >
               <div class="flex flex-col gap-3">
                 <UFormField :label="GRANT_SECTION_LABELS.armor">
@@ -691,7 +701,8 @@
 
             <FormSection
               :title="CLASS_FORM_LABELS.skillChoiceTitle"
-              title-color="healing"
+              icon="tabler:checklist"
+              :hint="CLASS_FORM_LABELS.skillChoiceHint"
             >
               <div class="flex items-start gap-3">
                 <UFormField
@@ -724,16 +735,23 @@
 
             <FormSection
               :title="CLASS_FORM_LABELS.multiclassTitle"
-              title-color="healing"
+              icon="tabler:stack-2"
+              :hint="CLASS_FORM_LABELS.multiclassHint"
+              :has-content="multiclassEnabled"
+              class="transition-all duration-200"
             >
-              <UCheckbox
-                v-model="multiclassEnabled"
-                :label="CLASS_FORM_LABELS.multiclassEnabled"
-              />
+              <template #actions>
+                <UCheckbox
+                  v-model="multiclassEnabled"
+                  :label="CLASS_FORM_LABELS.multiclassEnabled"
+                  indicator="end"
+                  :ui="FORM_SECTION_TOGGLE_UI"
+                />
+              </template>
 
               <div
                 v-if="multiclassEnabled"
-                class="mt-3 flex flex-col gap-3"
+                class="flex flex-col gap-3"
               >
                 <UFormField :label="GRANT_SECTION_LABELS.armor">
                   <USelectMenu
@@ -783,11 +801,12 @@
           </div>
         </template>
 
-        <!-- ЗАКЛИНАНИЯ -->
+        <!-- ЗАКЛИНАТЕЛЬСТВО -->
         <template #spellcasting>
           <FormSection
             :title="CLASS_FORM_LABELS.spellcastingTitle"
-            title-color="healing"
+            icon="tabler:sparkles"
+            :hint="CLASS_FORM_LABELS.spellcastingHint"
           >
             <ClassSpellcastingFields v-model="spellcasting" />
           </FormSection>
@@ -814,20 +833,32 @@
 
         <!-- ПОДКЛАССЫ -->
         <template #subclasses>
-          <ClassSubclassesEditor
-            v-model="subclasses"
-            :available-spells="availableSpells"
-            :subclass-level="subclassLevel"
-            @open-spell="openSpellDetail"
-          />
+          <div class="flex flex-col gap-2">
+            <p class="text-xs text-dimmed">
+              {{ CLASS_FORM_LABELS.subclassesHint }}
+            </p>
+
+            <ClassSubclassesEditor
+              v-model="subclasses"
+              :available-spells="availableSpells"
+              :subclass-level="subclassLevel"
+              @open-spell="openSpellDetail"
+            />
+          </div>
         </template>
 
         <!-- СЧЁТЧИКИ -->
         <template #counters>
-          <ClassCountersEditor
-            v-model="counters"
-            :feature-options="featureOptions"
-          />
+          <div class="flex flex-col gap-2">
+            <p class="text-xs text-dimmed">
+              {{ CLASS_FORM_LABELS.countersHint }}
+            </p>
+
+            <ClassCountersEditor
+              v-model="counters"
+              :feature-options="featureOptions"
+            />
+          </div>
         </template>
 
         <!-- СНАРЯЖЕНИЕ -->
