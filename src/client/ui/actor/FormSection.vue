@@ -101,15 +101,20 @@
             {{ title }}
           </span>
 
+          <!-- Текст подсказки через слот, а не проп `text`: штатный спан
+               тултипа обрезает текст в одну строку классом `truncate` -->
           <UTooltip
             v-if="hint"
-            :text="hint"
-            :ui="{ content: 'h-auto max-w-72 whitespace-normal' }"
+            :ui="{ content: 'h-auto max-w-72 py-1.5' }"
           >
             <UIcon
-              name="tabler:info-circle"
+              name="tabler:info-circle-filled"
               class="size-3.5 shrink-0 cursor-help text-dimmed transition-colors hover:text-default"
             />
+
+            <template #content>
+              <span class="whitespace-normal">{{ hint }}</span>
+            </template>
           </UTooltip>
         </div>
       </slot>
