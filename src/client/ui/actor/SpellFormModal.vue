@@ -224,8 +224,8 @@
 
   /** Вкладки формы */
   const tabItems = [
-    { label: FORM_TAB_LABELS.general, slot: 'general' as const },
-    { label: FORM_TAB_LABELS.details, slot: 'details' as const },
+    { label: FORM_TAB_LABELS.main, slot: 'main' as const },
+    { label: FORM_TAB_LABELS.usage, slot: 'usage' as const },
     { label: FORM_TAB_LABELS.combat, slot: 'combat' as const },
     { label: FORM_TAB_LABELS.effects, slot: 'effects' as const },
   ];
@@ -377,8 +377,8 @@
           content: 'overflow-y-auto max-h-150',
         }"
       >
-        <!-- Вкладка «Общие» -->
-        <template #general>
+        <!-- Вкладка «Основное» -->
+        <template #main>
           <div class="flex flex-col gap-4">
             <!-- Название и Английское название -->
             <div class="grid grid-cols-2 gap-3">
@@ -394,6 +394,27 @@
                 <UInput
                   v-model="nameEn"
                   :placeholder="SPELL_FORM_LABELS.nameEnPlaceholder"
+                  class="w-full"
+                />
+              </UFormField>
+            </div>
+
+            <!-- Круг и Школа -->
+            <div class="grid grid-cols-2 gap-3">
+              <UFormField :label="SPELL_FORM_LABELS.level">
+                <USelect
+                  v-model="level"
+                  :items="SPELL_LEVEL_OPTIONS"
+                  value-key="value"
+                  class="w-full"
+                />
+              </UFormField>
+
+              <UFormField :label="SPELL_FORM_LABELS.school">
+                <USelect
+                  v-model="school"
+                  :items="SPELL_SCHOOL_OPTIONS"
+                  value-key="value"
                   class="w-full"
                 />
               </UFormField>
@@ -415,27 +436,10 @@
               />
             </UFormField>
 
-            <!-- Источник -->
-            <FormSection
-              :title="FORM_FIELD_LABELS.source"
-              title-color="source"
-            >
-              <SourceField
-                v-model:source-key="sourceKey"
-                v-model:source="source"
-              />
-
-              <UCheckbox
-                v-model="isSRD"
-                :label="FORM_FIELD_LABELS.srd"
-                class="mt-2"
-              />
-            </FormSection>
-
             <!-- Доступность классов -->
             <FormSection
               :title="SPELL_FORM_LABELS.classAvailabilityTitle"
-              title-color="arcane"
+              icon="tabler:school"
             >
               <UFormField :label="SPELL_FORM_LABELS.classKeys">
                 <USelectMenu
@@ -453,149 +457,34 @@
                 {{ SPELL_FORM_LABELS.classKeysHint }}
               </p>
             </FormSection>
+
+            <!-- Источник -->
+            <FormSection
+              :title="FORM_FIELD_LABELS.source"
+              icon="tabler:book-2"
+            >
+              <SourceField
+                v-model:source-key="sourceKey"
+                v-model:source="source"
+              />
+
+              <UCheckbox
+                v-model="isSRD"
+                :label="FORM_FIELD_LABELS.srd"
+                class="mt-2"
+              />
+            </FormSection>
           </div>
         </template>
 
-        <!-- Вкладка «Подробнее» -->
-        <template #details>
+        <!-- Вкладка «Применение» -->
+        <template #usage>
           <div class="flex flex-col gap-4">
-            <!-- Круг и Школа -->
-            <FormSection
-              :title="SPELL_FORM_LABELS.characteristicTitle"
-              title-color="arcane"
-            >
-              <div class="grid grid-cols-2 gap-3">
-                <UFormField :label="SPELL_FORM_LABELS.level">
-                  <USelect
-                    v-model="level"
-                    :items="SPELL_LEVEL_OPTIONS"
-                    value-key="value"
-                    class="w-full"
-                  />
-                </UFormField>
-
-                <UFormField :label="SPELL_FORM_LABELS.school">
-                  <USelect
-                    v-model="school"
-                    :items="SPELL_SCHOOL_OPTIONS"
-                    value-key="value"
-                    class="w-full"
-                  />
-                </UFormField>
-              </div>
-            </FormSection>
-
-            <!-- Заряды использования (врождённые/расовые, заклинания существ) -->
-            <FormSection
-              :title="SPELL_FORM_LABELS.usesTitle"
-              title-color="warning"
-            >
-              <UCheckbox
-                v-model="hasUses"
-                :label="SPELL_FORM_LABELS.hasUses"
-              />
-
-              <div
-                v-if="hasUses"
-                class="mt-3 grid grid-cols-3 gap-3"
-              >
-                <UFormField :label="FORM_FIELD_LABELS.max">
-                  <UInput
-                    v-model.number="usesMax"
-                    type="number"
-                    :min="1"
-                    class="w-full"
-                  />
-                </UFormField>
-
-                <UFormField :label="SPELL_FORM_LABELS.usesCurrent">
-                  <UInput
-                    v-model.number="usesCurrent"
-                    type="number"
-                    :min="0"
-                    :max="usesMax"
-                    class="w-full"
-                  />
-                </UFormField>
-
-                <UFormField :label="FORM_FIELD_LABELS.recovery">
-                  <USelect
-                    v-model="usesRecovery"
-                    :items="[...SPELL_USES_RECOVERY_OPTIONS]"
-                    value-key="value"
-                    class="w-full"
-                  />
-                </UFormField>
-              </div>
-            </FormSection>
-
-            <!-- Компоненты -->
-            <FormSection
-              :title="SPELL_FORM_LABELS.componentsTitle"
-              title-color="info"
-            >
-              <div
-                class="flex flex-wrap gap-4"
-                :class="{ 'mb-3': material }"
-              >
-                <UCheckbox
-                  v-model="verbal"
-                  :label="SPELL_FORM_LABELS.verbal"
-                />
-
-                <UCheckbox
-                  v-model="somatic"
-                  :label="SPELL_FORM_LABELS.somatic"
-                />
-
-                <UCheckbox
-                  v-model="material"
-                  :label="SPELL_FORM_LABELS.material"
-                />
-              </div>
-
-              <template v-if="material">
-                <div class="rounded bg-elevated/30 p-3">
-                  <div class="flex w-full items-start gap-3">
-                    <UFormField
-                      :label="SPELL_FORM_LABELS.materialDescription"
-                      class="flex-1"
-                    >
-                      <UTextarea
-                        v-model="materialDescription"
-                        autoresize
-                        :rows="1"
-                        class="w-full"
-                      />
-                    </UFormField>
-
-                    <UFormField
-                      :label="SPELL_FORM_LABELS.materialCost"
-                      class="w-30 shrink-0"
-                    >
-                      <UInput
-                        v-model.number="materialCost"
-                        type="number"
-                        class="w-full"
-                      />
-                    </UFormField>
-
-                    <div class="flex h-8 shrink-0 items-center self-end pb-0.5">
-                      <UCheckbox
-                        v-model="materialConsumed"
-                        :label="SPELL_FORM_LABELS.materialConsumed"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </template>
-            </FormSection>
-
             <div class="grid grid-cols-2 gap-4">
               <!-- Время сотворения -->
               <FormSection
                 :title="SPELL_FORM_LABELS.castingTitle"
-                title-color="healing"
+                icon="tabler:clock"
               >
                 <template #actions>
                   <UCheckbox
@@ -655,7 +544,7 @@
               <!-- Длительность -->
               <FormSection
                 :title="SPELL_FORM_LABELS.durationTitle"
-                title-color="primary"
+                icon="tabler:hourglass"
               >
                 <template #actions>
                   <UCheckbox
@@ -695,6 +584,114 @@
                 </div>
               </FormSection>
             </div>
+
+            <!-- Компоненты -->
+            <FormSection
+              :title="SPELL_FORM_LABELS.componentsTitle"
+              icon="tabler:puzzle"
+              :hint="SPELL_FORM_LABELS.componentsHint"
+            >
+              <div
+                class="flex flex-wrap gap-4"
+                :class="{ 'mb-3': material }"
+              >
+                <UCheckbox
+                  v-model="verbal"
+                  :label="SPELL_FORM_LABELS.verbal"
+                />
+
+                <UCheckbox
+                  v-model="somatic"
+                  :label="SPELL_FORM_LABELS.somatic"
+                />
+
+                <UCheckbox
+                  v-model="material"
+                  :label="SPELL_FORM_LABELS.material"
+                />
+              </div>
+
+              <template v-if="material">
+                <div class="rounded bg-elevated/30 p-3">
+                  <div class="flex w-full items-start gap-3">
+                    <UFormField
+                      :label="SPELL_FORM_LABELS.materialDescription"
+                      class="flex-1"
+                    >
+                      <UTextarea
+                        v-model="materialDescription"
+                        autoresize
+                        :rows="1"
+                        class="w-full"
+                      />
+                    </UFormField>
+
+                    <UFormField
+                      :label="SPELL_FORM_LABELS.materialCost"
+                      class="w-30 shrink-0"
+                    >
+                      <UInput
+                        v-model.number="materialCost"
+                        type="number"
+                        class="w-full"
+                      />
+                    </UFormField>
+
+                    <div class="flex h-8 shrink-0 items-center self-end pb-0.5">
+                      <UCheckbox
+                        v-model="materialConsumed"
+                        :label="SPELL_FORM_LABELS.materialConsumed"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </FormSection>
+
+            <!-- Заряды использования (врождённые/расовые, заклинания существ) -->
+            <FormSection
+              :title="SPELL_FORM_LABELS.usesTitle"
+              icon="tabler:battery-2"
+              :hint="SPELL_FORM_LABELS.usesHint"
+            >
+              <UCheckbox
+                v-model="hasUses"
+                :label="SPELL_FORM_LABELS.hasUses"
+              />
+
+              <div
+                v-if="hasUses"
+                class="mt-3 grid grid-cols-3 gap-3"
+              >
+                <UFormField :label="FORM_FIELD_LABELS.max">
+                  <UInput
+                    v-model.number="usesMax"
+                    type="number"
+                    :min="1"
+                    class="w-full"
+                  />
+                </UFormField>
+
+                <UFormField :label="SPELL_FORM_LABELS.usesCurrent">
+                  <UInput
+                    v-model.number="usesCurrent"
+                    type="number"
+                    :min="0"
+                    :max="usesMax"
+                    class="w-full"
+                  />
+                </UFormField>
+
+                <UFormField :label="FORM_FIELD_LABELS.recovery">
+                  <USelect
+                    v-model="usesRecovery"
+                    :items="[...SPELL_USES_RECOVERY_OPTIONS]"
+                    value-key="value"
+                    class="w-full"
+                  />
+                </UFormField>
+              </div>
+            </FormSection>
 
             <!-- Дистанция и Цели -->
             <FormSection
