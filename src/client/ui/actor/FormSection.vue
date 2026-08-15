@@ -26,22 +26,40 @@
   const props = withDefaults(
     defineProps<{
       title?: string;
-      /** Цвет заголовка; без значения заголовок приглушённый */
+      /**
+       * Цвет заголовка; без значения заголовок приглушённый.
+       *
+       * @deprecated Легаси-стиль «разноцветных» заголовков. В новых и
+       * редизайненных формах задавайте `icon` — заголовок рендерится в едином
+       * стиле, а `titleColor` игнорируется.
+       */
       titleColor?: FormSectionTitleColor;
+      /** Иконка секции (`tabler:*`/`ttg:*`); включает единый стиль заголовка */
+      icon?: string;
+      /** Подсказка секции: иконка ⓘ с тултипом после текста заголовка */
+      hint?: string;
       /** Есть ли контент у секции (если false, то паддинги будут симметричными) */
       hasContent?: boolean;
     }>(),
     {
       title: undefined,
       titleColor: undefined,
+      icon: undefined,
+      hint: undefined,
       hasContent: true,
     },
   );
 
-  /** Цвет заголовка; без явного значения — приглушённый */
-  const titleColorClass = computed(() =>
-    props.titleColor ? TITLE_COLOR_CLASSES[props.titleColor] : 'text-dimmed',
-  );
+  /** Классы цвета заголовка: с иконкой — единый стиль, иначе легаси-цвет */
+  const titleColorClass = computed(() => {
+    if (props.icon) {
+      return 'text-highlighted';
+    }
+
+    return props.titleColor
+      ? TITLE_COLOR_CLASSES[props.titleColor]
+      : 'text-dimmed';
+  });
 
   /** Нижний отступ секции: у пустой секции паддинги симметричные */
   const sectionPaddingClass = computed(() =>
@@ -66,13 +84,34 @@
       :class="headerSpacingClass"
     >
       <slot name="header">
-        <span
+        <div
           v-if="title"
-          class="text-xs font-semibold tracking-wide"
-          :class="titleColorClass"
+          class="flex min-w-0 items-center gap-1.5"
         >
-          {{ title }}
-        </span>
+          <UIcon
+            v-if="icon"
+            :name="icon"
+            class="size-4 shrink-0 text-primary"
+          />
+
+          <span
+            class="truncate text-xs font-semibold tracking-wide"
+            :class="titleColorClass"
+          >
+            {{ title }}
+          </span>
+
+          <UTooltip
+            v-if="hint"
+            :text="hint"
+            :ui="{ content: 'h-auto max-w-72 whitespace-normal' }"
+          >
+            <UIcon
+              name="tabler:info-circle"
+              class="size-3.5 shrink-0 cursor-help text-dimmed transition-colors hover:text-default"
+            />
+          </UTooltip>
+        </div>
       </slot>
 
       <div class="flex items-center gap-2">
