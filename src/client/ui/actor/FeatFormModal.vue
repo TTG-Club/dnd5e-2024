@@ -333,11 +333,15 @@
             <UFormField :label="FORM_FIELD_LABELS.description">
               <RichTextEditor
                 v-model="description"
-                :placeholder="FEAT_FORM_LABELS.classPlaceholder"
+                :placeholder="FEAT_FORM_LABELS.descriptionPlaceholder"
               />
             </UFormField>
 
-            <FormSection>
+            <FormSection
+              :title="FEAT_FORM_LABELS.repeatableTitle"
+              icon="tabler:repeat"
+              :hint="FEAT_FORM_LABELS.repeatableHint"
+            >
               <UCheckbox
                 v-model="repeatable"
                 :label="FEAT_FORM_LABELS.repeatable"
@@ -360,7 +364,7 @@
 
             <FormSection
               :title="FORM_FIELD_LABELS.source"
-              title-color="source"
+              icon="tabler:book-2"
             >
               <SourceField
                 v-model:source-key="sourceKey"
@@ -469,7 +473,13 @@
 
         <!-- АВТОМАТИЗАЦИЯ -->
         <template #grants>
-          <FeatGrantsFields v-model="grants" />
+          <div class="flex flex-col gap-2">
+            <p class="text-xs text-dimmed">
+              {{ FEAT_FORM_LABELS.grantsHint }}
+            </p>
+
+            <FeatGrantsFields v-model="grants" />
+          </div>
         </template>
       </UTabs>
     </template>

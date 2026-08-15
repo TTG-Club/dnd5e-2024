@@ -34,7 +34,7 @@
    * Переиспользуемый редактор «даров» черты: повышение характеристик, владения
    * (навыки/спасброски/доспехи/оружие/инструменты/языки), защиты от урона и
    * состояний, постоянные модификаторы листа (скорости, хиты, КД, инициатива),
-   * предусловия. Двусторонняя привязка через {@link EditableFeatGrants} —
+   * требования. Двусторонняя привязка через {@link EditableFeatGrants} —
    * компонент не знает ни о форме-владельце, ни о сериализации в FeatData.
    *
    * Для предыстории характеристики и навыки выдаются каноническими полями
@@ -134,7 +134,8 @@
     <FormSection
       v-if="!hideAbilityScoreIncrease"
       :title="FEAT_GRANTS_LABELS.asiTitle"
-      title-color="healing"
+      icon="tabler:arrow-big-up-lines"
+      :hint="FEAT_GRANTS_LABELS.asiSectionHint"
     >
       <div class="grid grid-cols-3 gap-2">
         <UFormField
@@ -201,7 +202,7 @@
     <!-- Владения -->
     <FormSection
       :title="GRANT_SECTION_LABELS.proficiencies"
-      title-color="healing"
+      icon="tabler:certificate"
     >
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <UFormField
@@ -284,7 +285,8 @@
     <!-- Защиты -->
     <FormSection
       :title="FEAT_GRANTS_LABELS.defensesTitle"
-      title-color="healing"
+      icon="tabler:shield-check"
+      :hint="FEAT_GRANTS_LABELS.defensesSectionHint"
     >
       <div class="flex flex-col gap-4">
         <UFormField :label="FEAT_GRANTS_LABELS.damageDefenses">
@@ -344,7 +346,7 @@
     <FormSection
       v-if="!hideModifiers"
       :title="FEAT_GRANTS_LABELS.modifiersTitle"
-      title-color="healing"
+      icon="tabler:adjustments"
     >
       <template #actions>
         <UTooltip
@@ -414,14 +416,19 @@
               {{ FEAT_GRANTS_LABELS.hitPointsTitle }}
             </span>
 
-            <UTooltip
-              :text="FEAT_GRANTS_LABELS.hitPointsHint"
-              :ui="{ content: 'h-auto max-w-72 whitespace-normal' }"
-            >
+            <!-- Текст подсказки через слот, а не проп `text`: штатный спан
+                 тултипа обрезает текст в одну строку классом `truncate` -->
+            <UTooltip :ui="{ content: 'h-auto max-w-72 py-1.5' }">
               <UIcon
-                name="tabler:info-circle"
-                class="size-3.5 text-dimmed"
+                name="tabler:info-circle-filled"
+                class="size-3.5 shrink-0 cursor-help text-dimmed transition-colors hover:text-default"
               />
+
+              <template #content>
+                <span class="whitespace-normal">
+                  {{ FEAT_GRANTS_LABELS.hitPointsHint }}
+                </span>
+              </template>
             </UTooltip>
           </div>
 
@@ -477,10 +484,11 @@
       </div>
     </FormSection>
 
-    <!-- Предусловия -->
+    <!-- Требования -->
     <FormSection
       :title="FEAT_GRANTS_LABELS.prerequisitesTitle"
-      title-color="source"
+      icon="tabler:list-check"
+      :hint="FEAT_GRANTS_LABELS.prerequisitesCategoriesHint"
     >
       <p class="mb-2 text-xs text-dimmed">
         {{ FEAT_GRANTS_LABELS.prerequisitesHint }}
