@@ -1041,7 +1041,7 @@
           <div class="flex flex-col gap-4">
             <FormSection
               :title="DEFINITION_FORM_LABELS.generalTitle"
-              title-color="healing"
+              icon="tabler:id"
             >
               <div class="grid grid-cols-2 gap-3">
                 <UFormField :label="FORM_FIELD_LABELS.name">
@@ -1079,6 +1079,10 @@
                     class="w-full"
                     :placeholder="SPECIES_FORM_LABELS.sizesPlaceholder"
                   />
+
+                  <p class="mt-1 text-xs text-dimmed">
+                    {{ SPECIES_FORM_LABELS.sizesHelp }}
+                  </p>
                 </UFormField>
 
                 <SourceField
@@ -1105,7 +1109,7 @@
 
             <FormSection
               :title="FORM_FIELD_LABELS.descriptionMarkdown"
-              title-color="healing"
+              icon="tabler:file-text"
             >
               <RichTextEditor v-model="description" />
             </FormSection>
@@ -1116,7 +1120,8 @@
         <template #movement>
           <FormSection
             :title="SPECIES_FORM_LABELS.speedTitle"
-            title-color="healing"
+            icon="tabler:run"
+            :hint="SPECIES_FORM_LABELS.speedStackHint"
           >
             <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <UFormField :label="SPECIES_FORM_LABELS.speedWalk">
@@ -1169,9 +1174,14 @@
         <!-- ДАРЫ -->
         <template #grants>
           <div class="flex flex-col gap-4">
+            <p class="text-xs text-dimmed">
+              {{ SPECIES_FORM_LABELS.grantsTabHelp }}
+            </p>
+
             <FormSection
               :title="SPECIES_FORM_LABELS.sensesTitle"
-              title-color="healing"
+              icon="tabler:eye"
+              :hint="SPECIES_FORM_LABELS.sensesHint"
             >
               <div class="grid grid-cols-2 gap-3">
                 <UFormField :label="GRANT_FIELD_LABELS.darkvision">
@@ -1201,7 +1211,8 @@
 
             <FormSection
               :title="SPECIES_FORM_LABELS.defensesTitle"
-              title-color="healing"
+              icon="tabler:shield-check"
+              :hint="SPECIES_FORM_LABELS.defensesHint"
             >
               <div class="flex flex-col gap-4">
                 <UFormField :label="SPECIES_FORM_LABELS.damageDefenses">
@@ -1224,7 +1235,8 @@
 
             <FormSection
               :title="SPECIES_FORM_LABELS.skillsTitle"
-              title-color="healing"
+              icon="tabler:checklist"
+              :hint="SPECIES_FORM_LABELS.skillsHint"
             >
               <div class="flex items-start gap-3">
                 <UFormField
@@ -1258,7 +1270,7 @@
 
             <FormSection
               :title="GRANT_SECTION_LABELS.armor"
-              title-color="healing"
+              icon="tabler:shirt"
             >
               <div class="flex flex-col gap-3">
                 <UFormField :label="SPECIES_FORM_LABELS.fixedProficiency">
@@ -1306,7 +1318,7 @@
 
             <FormSection
               :title="GRANT_SECTION_LABELS.weapons"
-              title-color="healing"
+              icon="tabler:sword"
             >
               <div class="flex flex-col gap-3">
                 <UFormField :label="SPECIES_FORM_LABELS.fixedProficiency">
@@ -1354,7 +1366,7 @@
 
             <FormSection
               :title="GRANT_SECTION_LABELS.tools"
-              title-color="healing"
+              icon="tabler:tools"
             >
               <div class="flex flex-col gap-3">
                 <UFormField :label="SPECIES_FORM_LABELS.fixedProficiency">
@@ -1402,7 +1414,7 @@
 
             <FormSection
               :title="GRANT_SECTION_LABELS.languages"
-              title-color="healing"
+              icon="tabler:language"
             >
               <div class="flex flex-col gap-3">
                 <UFormField :label="SPECIES_FORM_LABELS.fixedLanguages">
