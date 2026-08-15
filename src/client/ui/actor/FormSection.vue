@@ -1,39 +1,9 @@
 <script setup lang="ts">
   import { computed } from 'vue';
 
-  /**
-   * Классы заголовка по имени семантического цвета.
-   *
-   * Карта, а не цепочка тернарников в шаблоне: §286 требует держать вычисление
-   * классов в `computed`, а Tailwind вдобавок обязан увидеть каждый класс в
-   * исходнике буквально — собрать имя из кусков (`text-${color}`) нельзя, правил
-   * под такое не сгенерируется.
-   */
-  const TITLE_COLOR_CLASSES = {
-    danger: 'text-danger',
-    warning: 'text-warning',
-    info: 'text-info',
-    primary: 'text-primary',
-    success: 'text-success',
-    source: 'text-source',
-    arcane: 'text-arcane',
-    healing: 'text-healing',
-  } as const;
-
-  /** Семантический цвет заголовка секции */
-  type FormSectionTitleColor = keyof typeof TITLE_COLOR_CLASSES;
-
   const props = withDefaults(
     defineProps<{
       title?: string;
-      /**
-       * Цвет заголовка; без значения заголовок приглушённый.
-       *
-       * @deprecated Легаси-стиль «разноцветных» заголовков. В новых и
-       * редизайненных формах задавайте `icon` — заголовок рендерится в едином
-       * стиле, а `titleColor` игнорируется.
-       */
-      titleColor?: FormSectionTitleColor;
       /** Иконка секции (`tabler:*`/`ttg:*`); включает единый стиль заголовка */
       icon?: string;
       /** Подсказка секции: иконка ⓘ с тултипом после текста заголовка */
@@ -43,23 +13,16 @@
     }>(),
     {
       title: undefined,
-      titleColor: undefined,
       icon: undefined,
       hint: undefined,
       hasContent: true,
     },
   );
 
-  /** Классы цвета заголовка: с иконкой — единый стиль, иначе легаси-цвет */
-  const titleColorClass = computed(() => {
-    if (props.icon) {
-      return 'text-highlighted';
-    }
-
-    return props.titleColor
-      ? TITLE_COLOR_CLASSES[props.titleColor]
-      : 'text-dimmed';
-  });
+  /** Классы цвета заголовка: с иконкой — основной текст, без — приглушённый */
+  const titleColorClass = computed(() =>
+    props.icon ? 'text-highlighted' : 'text-dimmed',
+  );
 
   /** Нижний отступ секции: у пустой секции паддинги симметричные */
   const sectionPaddingClass = computed(() =>
