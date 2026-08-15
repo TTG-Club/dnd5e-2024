@@ -2783,7 +2783,8 @@ export const SPELL_DETAIL_LABELS = {
   areaPrefix: 'Область (',
   areaSuffix: ')',
   areaResizable: '(изм.)',
-  attackType: 'Тип броска',
+  /** Термин согласован с формой: секция «Способ применения» */
+  deliveryType: 'Способ применения',
   attackMelee: 'Рукопашная атака',
   attackRanged: 'Дальнобойная атака',
   projectiles: 'Снаряды',

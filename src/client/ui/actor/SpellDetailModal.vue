@@ -335,7 +335,7 @@
                       v-if="['melee', 'ranged'].includes(spell.deliveryType)"
                     >
                       <span class="block text-xs text-dimmed">
-                        {{ SPELL_DETAIL_LABELS.attackType }}
+                        {{ SPELL_DETAIL_LABELS.deliveryType }}
                       </span>
 
                       <p class="text-highlighted">
