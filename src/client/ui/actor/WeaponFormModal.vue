@@ -379,7 +379,7 @@
             <!-- Стоимость + Вес + Редкость -->
             <FormSection
               :title="ITEM_FORM_LABELS.costWeightTitle"
-              title-color="healing"
+              icon="tabler:coins"
             >
               <div class="grid grid-cols-3 gap-3">
                 <UFormField :label="ITEM_FORM_LABELS.cost">
@@ -428,7 +428,7 @@
             <!-- Источник -->
             <FormSection
               :title="FORM_FIELD_LABELS.source"
-              title-color="source"
+              icon="tabler:book-2"
             >
               <SourceField
                 v-model:source-key="sourceKey"
@@ -449,7 +449,8 @@
             <!-- Основное -->
             <FormSection
               :title="FORM_TAB_LABELS.main"
-              title-color="arcane"
+              icon="tabler:sword"
+              :hint="WEAPON_FORM_LABELS.mainHint"
             >
               <div class="flex flex-col gap-3">
                 <!-- Тип боя (toggle без заголовка, в начале) -->
@@ -523,39 +524,114 @@
             <!-- Свойства оружия -->
             <FormSection
               :title="WEAPON_FORM_LABELS.propertiesTitle"
-              title-color="info"
+              icon="tabler:tags"
+              :hint="WEAPON_FORM_LABELS.propertiesHint"
             >
-              <div class="flex flex-wrap gap-2">
-                <UPopover
-                  v-for="prop in propertyOptions"
-                  :key="prop.value"
-                  mode="hover"
-                  :open-delay="300"
-                  :ui="{ content: 'max-w-xs p-3' }"
-                >
-                  <UButton
-                    :label="prop.label"
-                    size="xs"
-                    :color="
-                      selectedProperties.includes(prop.value)
-                        ? 'primary'
-                        : 'neutral'
-                    "
-                    :variant="
-                      selectedProperties.includes(prop.value)
-                        ? 'solid'
-                        : 'outline'
-                    "
-                    class="cursor-pointer"
-                    @click.left.exact.prevent="toggleProperty(prop.value)"
-                  />
+              <div class="flex flex-col gap-3">
+                <div class="flex flex-wrap gap-2">
+                  <UPopover
+                    v-for="prop in propertyOptions"
+                    :key="prop.value"
+                    mode="hover"
+                    :open-delay="300"
+                    :ui="{ content: 'max-w-xs p-3' }"
+                  >
+                    <UButton
+                      :label="prop.label"
+                      size="xs"
+                      :color="
+                        selectedProperties.includes(prop.value)
+                          ? 'primary'
+                          : 'neutral'
+                      "
+                      :variant="
+                        selectedProperties.includes(prop.value)
+                          ? 'solid'
+                          : 'outline'
+                      "
+                      class="cursor-pointer"
+                      @click.left.exact.prevent="toggleProperty(prop.value)"
+                    />
 
-                  <template #content>
-                    <p class="text-xs leading-relaxed text-toned">
-                      {{ prop.description }}
-                    </p>
-                  </template>
-                </UPopover>
+                    <template #content>
+                      <p class="text-xs leading-relaxed text-toned">
+                        {{ prop.description }}
+                      </p>
+                    </template>
+                  </UPopover>
+                </div>
+
+                <!-- Тип боеприпаса (появляется при свойстве «Боеприпасы») -->
+                <UFormField
+                  v-if="selectedProperties.includes('ammunition')"
+                  :label="WEAPON_FORM_LABELS.ammunitionType"
+                >
+                  <USelect
+                    v-model="ammunitionType"
+                    :items="ammunitionTypeOptions"
+                    value-key="value"
+                    :placeholder="ITEM_FORM_LABELS.selectTypePlaceholder"
+                    class="w-full"
+                  />
+                </UFormField>
+              </div>
+            </FormSection>
+
+            <!-- Дальность и досягаемость -->
+            <FormSection
+              :title="FORM_FIELD_LABELS.range"
+              icon="tabler:ruler-measure"
+              :hint="WEAPON_FORM_LABELS.rangeHint"
+            >
+              <template #actions>
+                <USelect
+                  v-model="distanceUnit"
+                  :items="DISTANCE_UNIT_OPTIONS"
+                  value-key="value"
+                  size="xs"
+                  class="w-36"
+                />
+              </template>
+
+              <div class="grid grid-cols-3 gap-3">
+                <!-- Досягаемость -->
+                <UFormField :label="RANGE_FIELD_LABELS.reach">
+                  <UInput
+                    v-model.number="reach"
+                    type="number"
+                    :min="5"
+                    :step="5"
+                    class="w-full"
+                  />
+                </UFormField>
+
+                <!-- Нормальная -->
+                <UFormField :label="RANGE_FIELD_LABELS.normal">
+                  <UInput
+                    v-model.number="rangeNormal"
+                    type="number"
+                    :min="0"
+                    :disabled="
+                      rangeType !== 'ranged'
+                      && !selectedProperties.includes('thrown')
+                    "
+                    class="w-full"
+                  />
+                </UFormField>
+
+                <!-- Максимальная -->
+                <UFormField :label="RANGE_FIELD_LABELS.long">
+                  <UInput
+                    v-model.number="rangeLong"
+                    type="number"
+                    :min="0"
+                    :disabled="
+                      rangeType !== 'ranged'
+                      && !selectedProperties.includes('thrown')
+                    "
+                    class="w-full"
+                  />
+                </UFormField>
               </div>
             </FormSection>
 
@@ -563,7 +639,8 @@
             <FormSection
               v-if="isMagical"
               :title="ITEM_FORM_LABELS.magicalTitle"
-              title-color="arcane"
+              icon="tabler:sparkles"
+              :hint="WEAPON_FORM_LABELS.magicalHint"
             >
               <div class="flex flex-col gap-3">
                 <div class="grid grid-cols-2 items-start gap-3">
@@ -603,17 +680,110 @@
             <FormSection
               v-if="isMagical"
               :title="ITEM_USES_LABELS.title"
-              title-color="arcane"
+              icon="tabler:battery-2"
             >
               <ItemUsesFields v-model="itemUses" />
             </FormSection>
+            <!-- Показатель атаки -->
+            <FormSection
+              :title="WEAPON_FORM_LABELS.attackTitle"
+              icon="tabler:crosshair"
+              :hint="WEAPON_FORM_LABELS.attackHint"
+            >
+              <div class="grid grid-cols-2 gap-3">
+                <UFormField :label="FORM_FIELD_LABELS.ability">
+                  <USelect
+                    v-model="attackAbility"
+                    :items="ABILITY_OPTIONS"
+                    value-key="value"
+                    class="w-full"
+                  />
+
+                  <!-- При «Фехтовальном» движок сам берёт большую из Силы и Ловкости -->
+                  <p
+                    v-if="selectedProperties.includes('finesse')"
+                    class="mt-1 text-xs text-dimmed"
+                  >
+                    {{ WEAPON_FORM_LABELS.attackAbilityFinesseHelp }}
+                  </p>
+                </UFormField>
+
+                <UFormField :label="WEAPON_FORM_LABELS.attackBonus">
+                  <UInput
+                    v-model.number="attackBonus"
+                    type="number"
+                    :placeholder="ITEM_FORM_LABELS.zeroPlaceholder"
+                    class="w-full"
+                  />
+                </UFormField>
+              </div>
+
+              <div class="mt-3">
+                <UFormField :label="WEAPON_FORM_LABELS.proficiencyMode">
+                  <USelect
+                    v-model="proficiencyMode"
+                    :items="proficiencyModeOptions"
+                    value-key="value"
+                    class="w-full"
+                  />
+
+                  <p class="mt-1 text-xs text-dimmed">
+                    {{ WEAPON_FORM_LABELS.proficiencyModeHelp }}
+                  </p>
+                </UFormField>
+              </div>
+
+              <!-- Свои бонусы атаки -->
+              <div class="mt-3 flex flex-col gap-2">
+                <span
+                  class="text-[10px] font-bold tracking-wider text-muted uppercase"
+                >
+                  {{ WEAPON_FORM_LABELS.attackBonusesTitle }}
+                </span>
+
+                <CustomBonusRows
+                  v-model="attackCustomBonuses"
+                  :context="bonusContext"
+                />
+
+                <p class="text-xs leading-relaxed text-dimmed">
+                  {{ WEAPON_FORM_LABELS.bonusesHint }}
+                </p>
+              </div>
+
+              <!-- Предпросмотр: считается по владельцу, в компендиуме его нет -->
+              <div
+                v-if="actor"
+                class="mt-3 rounded-lg bg-elevated/50 p-2 text-center"
+              >
+                <span class="text-xs tracking-wider text-muted uppercase">
+                  {{ WEAPON_FORM_LABELS.attackTotal }}
+                </span>
+
+                <div class="mt-0.5 text-xl font-bold text-highlighted">
+                  {{ attackTotalLabel }}
+                </div>
+
+                <div
+                  v-if="attackDetails"
+                  class="mt-0.5 text-xs text-dimmed"
+                >
+                  {{ attackDetails }}
+                </div>
+
+                <p class="mt-1 text-[10px] text-dimmed">
+                  {{ WEAPON_FORM_LABELS.previewHint }}
+                </p>
+              </div>
+            </FormSection>
+
             <!-- Урон (единая со заклинаниями система частей) -->
             <FormSection
               :title="WEAPON_FORM_LABELS.damageTitle"
-              title-color="warning"
+              icon="tabler:swords"
             >
               <div class="flex flex-col gap-3">
-                <p class="text-xs text-muted">
+                <p class="text-xs text-dimmed">
                   {{ WEAPON_FORM_LABELS.damageHint }}
                 </p>
 
@@ -681,30 +851,17 @@
                     {{ damageDetails }}
                   </div>
                 </div>
-
-                <!-- Тип боеприпаса (появляется при свойстве «Боеприпасы») -->
-                <UFormField
-                  v-if="selectedProperties.includes('ammunition')"
-                  :label="WEAPON_FORM_LABELS.ammunitionType"
-                >
-                  <USelect
-                    v-model="ammunitionType"
-                    :items="ammunitionTypeOptions"
-                    value-key="value"
-                    :placeholder="ITEM_FORM_LABELS.selectTypePlaceholder"
-                    class="w-full"
-                  />
-                </UFormField>
               </div>
             </FormSection>
 
             <!-- Спасбросок (оружие, заставляющее цель совершить спасбросок) -->
             <FormSection
               :title="FORM_FIELD_LABELS.savingThrow"
-              title-color="danger"
+              icon="tabler:shield"
+              :hint="WEAPON_FORM_LABELS.saveHint"
             >
               <div class="grid grid-cols-2 gap-3">
-                <UFormField :label="WEAPON_FORM_LABELS.saveType">
+                <UFormField :label="FORM_FIELD_LABELS.ability">
                   <USelect
                     v-model="saveType"
                     :items="saveTypeOptions"
@@ -730,158 +887,19 @@
             <!-- Особые правила (текстовая оговорка оружия) -->
             <FormSection
               :title="WEAPON_FORM_LABELS.specialTitle"
-              title-color="arcane"
+              icon="tabler:asterisk"
             >
-              <UFormField :label="WEAPON_FORM_LABELS.special">
-                <UTextarea
-                  v-model="special"
-                  autoresize
-                  :rows="2"
-                  :placeholder="WEAPON_FORM_LABELS.specialPlaceholder"
-                  class="w-full"
-                />
-              </UFormField>
+              <UTextarea
+                v-model="special"
+                autoresize
+                :rows="2"
+                :placeholder="WEAPON_FORM_LABELS.specialPlaceholder"
+                class="w-full"
+              />
 
               <p class="mt-2 text-xs text-dimmed">
                 {{ WEAPON_FORM_LABELS.specialHint }}
               </p>
-            </FormSection>
-
-            <!-- Дальность и досягаемость -->
-            <FormSection
-              :title="FORM_FIELD_LABELS.range"
-              title-color="primary"
-            >
-              <template #actions>
-                <USelect
-                  v-model="distanceUnit"
-                  :items="DISTANCE_UNIT_OPTIONS"
-                  value-key="value"
-                  size="xs"
-                  class="w-36"
-                />
-              </template>
-
-              <div class="grid grid-cols-3 gap-3">
-                <!-- Досягаемость -->
-                <UFormField :label="RANGE_FIELD_LABELS.reach">
-                  <UInput
-                    v-model.number="reach"
-                    type="number"
-                    :min="5"
-                    :step="5"
-                    class="w-full"
-                  />
-                </UFormField>
-
-                <!-- Нормальная -->
-                <UFormField :label="RANGE_FIELD_LABELS.normal">
-                  <UInput
-                    v-model.number="rangeNormal"
-                    type="number"
-                    :min="0"
-                    :disabled="
-                      rangeType !== 'ranged'
-                      && !selectedProperties.includes('thrown')
-                    "
-                    class="w-full"
-                  />
-                </UFormField>
-
-                <!-- Максимальная -->
-                <UFormField :label="RANGE_FIELD_LABELS.long">
-                  <UInput
-                    v-model.number="rangeLong"
-                    type="number"
-                    :min="0"
-                    :disabled="
-                      rangeType !== 'ranged'
-                      && !selectedProperties.includes('thrown')
-                    "
-                    class="w-full"
-                  />
-                </UFormField>
-              </div>
-            </FormSection>
-
-            <!-- Показатель атаки -->
-            <FormSection
-              :title="WEAPON_FORM_LABELS.attackTitle"
-              title-color="danger"
-            >
-              <div class="grid grid-cols-2 gap-3">
-                <UFormField :label="FORM_FIELD_LABELS.ability">
-                  <USelect
-                    v-model="attackAbility"
-                    :items="ABILITY_OPTIONS"
-                    value-key="value"
-                    class="w-full"
-                  />
-                </UFormField>
-
-                <UFormField :label="WEAPON_FORM_LABELS.attackBonus">
-                  <UInput
-                    v-model.number="attackBonus"
-                    type="number"
-                    :placeholder="ITEM_FORM_LABELS.zeroPlaceholder"
-                    class="w-full"
-                  />
-                </UFormField>
-              </div>
-
-              <div class="mt-3">
-                <UFormField :label="WEAPON_FORM_LABELS.proficiencyMode">
-                  <USelect
-                    v-model="proficiencyMode"
-                    :items="proficiencyModeOptions"
-                    value-key="value"
-                    class="w-full"
-                  />
-                </UFormField>
-              </div>
-
-              <!-- Свои бонусы атаки -->
-              <div class="mt-3 flex flex-col gap-2">
-                <span
-                  class="text-[10px] font-bold tracking-wider text-muted uppercase"
-                >
-                  {{ WEAPON_FORM_LABELS.attackBonusesTitle }}
-                </span>
-
-                <CustomBonusRows
-                  v-model="attackCustomBonuses"
-                  :context="bonusContext"
-                />
-
-                <p class="text-xs leading-relaxed text-dimmed">
-                  {{ WEAPON_FORM_LABELS.bonusesHint }}
-                </p>
-              </div>
-
-              <!-- Предпросмотр: считается по владельцу, в компендиуме его нет -->
-              <div
-                v-if="actor"
-                class="mt-3 rounded-lg bg-elevated/50 p-2 text-center"
-              >
-                <span class="text-xs tracking-wider text-muted uppercase">
-                  {{ WEAPON_FORM_LABELS.attackTotal }}
-                </span>
-
-                <div class="mt-0.5 text-xl font-bold text-highlighted">
-                  {{ attackTotalLabel }}
-                </div>
-
-                <div
-                  v-if="attackDetails"
-                  class="mt-0.5 text-xs text-dimmed"
-                >
-                  {{ attackDetails }}
-                </div>
-
-                <p class="mt-1 text-[10px] text-dimmed">
-                  {{ WEAPON_FORM_LABELS.previewHint }}
-                </p>
-              </div>
             </FormSection>
           </div>
         </template>
