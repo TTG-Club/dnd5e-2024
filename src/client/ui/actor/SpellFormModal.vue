@@ -37,6 +37,15 @@
 
   defineOptions({ inheritAttrs: false });
 
+  /**
+   * Стиль чекбокса-переключателя в шапке секции: подпись выглядит как часть
+   * заголовка, а не как обычное поле. Одна константа на все секции — иначе
+   * правка стиля разъезжается по копиям.
+   */
+  const SECTION_TOGGLE_UI = {
+    label: 'text-xs font-semibold tracking-wide text-dimmed',
+  } as const;
+
   const props = defineProps<{
     /** Открыто ли модальное окно */
     open: boolean;
@@ -173,9 +182,9 @@
   );
 
   /**
-   * Тип атаки «На себя»: атаковать себя не нужно — автоматически проставляем
-   * «Автопопадание», если оно ещё не включено. Чекбокс не блокируем — игрок
-   * при желании может снять галочку вручную.
+   * Способ применения «На себя»: атаковать себя не нужно — автоматически
+   * проставляем «Автопопадание», если оно ещё не включено. Чекбокс не
+   * блокируем — игрок при желании может снять галочку вручную.
    */
   watch(deliveryType, (newDeliveryType) => {
     if (newDeliveryType === 'self' && !autoHit.value) {
@@ -185,8 +194,8 @@
 
   /**
    * Подсказка секции «Снаряды»: нужен ли бросок атаки на каждый снаряд,
-   * не настраивается отдельно — выводится из «Тип атаки»/«Автопопадание»,
-   * поэтому противоречивую комбинацию задать нельзя.
+   * не настраивается отдельно — выводится из «Способа применения» и
+   * «Автопопадания», поэтому противоречивую комбинацию задать нельзя.
    */
   const projectileHintText = computed(() => {
     if (autoHit.value) {
@@ -199,6 +208,16 @@
 
     return SPELL_FORM_LABELS.projectileHintSpread;
   });
+
+  /**
+   * Показывать ли секцию «Снаряды». Снаряды осмысленны при цели-существе или
+   * цели-предмете, но уже включённые не прячем: иначе после смены типа цели
+   * заклинание молча сохраняло бы снаряды, которых в форме не видно.
+   */
+  const showProjectilesSection = computed(
+    () =>
+      ['creature', 'object'].includes(targetType.value) || hasProjectiles.value,
+  );
 
   /** Заголовок секции масштабирования: у заговоров и уровневых свой */
   const scalingSectionTitle = computed(() =>
@@ -510,9 +529,7 @@
                     v-model="ritual"
                     :label="SPELL_FORM_LABELS.ritual"
                     indicator="end"
-                    :ui="{
-                      label: 'text-xs font-semibold tracking-wide text-dimmed',
-                    }"
+                    :ui="SECTION_TOGGLE_UI"
                   />
                 </template>
 
@@ -570,9 +587,7 @@
                     v-model="concentration"
                     :label="SPELL_FORM_LABELS.concentration"
                     indicator="end"
-                    :ui="{
-                      label: 'text-xs font-semibold tracking-wide text-dimmed',
-                    }"
+                    :ui="SECTION_TOGGLE_UI"
                   />
                 </template>
 
@@ -928,7 +943,7 @@
 
             <!-- Снаряды -->
             <FormSection
-              v-if="['creature', 'object'].includes(targetType)"
+              v-if="showProjectilesSection"
               :title="SPELL_FORM_LABELS.projectilesTitle"
               icon="tabler:meteor"
               :hint="SPELL_FORM_LABELS.projectilesHint"
@@ -940,9 +955,7 @@
                   v-model="hasProjectiles"
                   :label="SPELL_FORM_LABELS.projectilesEnable"
                   indicator="end"
-                  :ui="{
-                    label: 'text-xs font-semibold tracking-wide text-dimmed',
-                  }"
+                  :ui="SECTION_TOGGLE_UI"
                 />
               </template>
 
@@ -1043,12 +1056,12 @@
 
             <!-- Спасбросок -->
             <FormSection
-              :title="SPELL_FORM_LABELS.saveTitle"
+              :title="FORM_FIELD_LABELS.savingThrow"
               icon="tabler:shield"
               :hint="SPELL_FORM_LABELS.saveHint"
             >
               <div class="grid grid-cols-2 gap-3">
-                <UFormField :label="FORM_FIELD_LABELS.savingThrow">
+                <UFormField :label="FORM_FIELD_LABELS.ability">
                   <USelect
                     v-model="saveType"
                     :items="SAVE_TYPE_OPTIONS"
@@ -1082,9 +1095,7 @@
                   v-model="autoHit"
                   :label="SPELL_FORM_LABELS.autoHit"
                   indicator="end"
-                  :ui="{
-                    label: 'text-xs font-semibold tracking-wide text-dimmed',
-                  }"
+                  :ui="SECTION_TOGGLE_UI"
                 />
               </template>
 
@@ -1111,9 +1122,7 @@
                   v-model="hasScaling"
                   :label="SPELL_FORM_LABELS.hasScaling"
                   indicator="end"
-                  :ui="{
-                    label: 'text-xs font-semibold tracking-wide text-dimmed',
-                  }"
+                  :ui="SECTION_TOGGLE_UI"
                 />
               </template>
 
