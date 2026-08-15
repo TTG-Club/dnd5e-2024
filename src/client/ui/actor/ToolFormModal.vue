@@ -243,7 +243,7 @@
             <!-- Стоимость + Вес -->
             <FormSection
               :title="ITEM_FORM_LABELS.costWeightTitle"
-              title-color="healing"
+              icon="tabler:coins"
             >
               <div class="grid grid-cols-3 gap-3">
                 <UFormField :label="ITEM_FORM_LABELS.cost">
@@ -292,7 +292,7 @@
             <!-- Источник -->
             <FormSection
               :title="FORM_FIELD_LABELS.source"
-              title-color="source"
+              icon="tabler:book-2"
             >
               <SourceField
                 v-model:source-key="sourceKey"
@@ -311,10 +311,11 @@
         <!-- Вкладка «Подробнее» -->
         <template #details>
           <div class="flex flex-col gap-4">
-            <!-- Основное -->
+            <!-- Тип инструмента -->
             <FormSection
               :title="TOOL_FORM_LABELS.typeTitle"
-              title-color="arcane"
+              icon="tabler:tools"
+              :hint="TOOL_FORM_LABELS.typeHint"
             >
               <div class="flex flex-col gap-3">
                 <div class="flex items-center gap-3">
@@ -352,7 +353,7 @@
             <!-- Свойства инструмента -->
             <FormSection
               :title="TOOL_FORM_LABELS.propertiesTitle"
-              title-color="info"
+              icon="tabler:tags"
             >
               <div class="flex flex-wrap gap-2">
                 <UPopover
@@ -388,10 +389,11 @@
               </div>
             </FormSection>
 
-            <!-- Проверка характеристики -->
+            <!-- Проверка инструмента -->
             <FormSection
               :title="TOOL_FORM_LABELS.checkTitle"
-              title-color="success"
+              icon="tabler:dice"
+              :hint="TOOL_FORM_LABELS.checkHint"
             >
               <div class="flex flex-col gap-3">
                 <div class="flex items-center gap-3">
@@ -407,6 +409,10 @@
                     :portal="false"
                   />
                 </div>
+
+                <p class="text-xs text-dimmed">
+                  {{ TOOL_FORM_LABELS.proficiencyModeHelp }}
+                </p>
 
                 <div class="flex items-center gap-3">
                   <span class="min-w-35 shrink-0 text-sm text-muted">
@@ -441,7 +447,7 @@
             <FormSection
               v-if="isMagical"
               :title="ITEM_FORM_LABELS.magicalTitle"
-              title-color="arcane"
+              icon="tabler:sparkles"
             >
               <div class="flex flex-col gap-3">
                 <div class="grid grid-cols-2 items-start gap-3">
@@ -471,7 +477,7 @@
             <FormSection
               v-if="isMagical"
               :title="ITEM_USES_LABELS.title"
-              title-color="arcane"
+              icon="tabler:battery-2"
             >
               <ItemUsesFields v-model="itemUses" />
             </FormSection>
