@@ -97,7 +97,7 @@
       slot: 'general' as const,
     },
     {
-      label: FORM_TAB_LABELS.combat,
+      label: FORM_TAB_LABELS.details,
       slot: 'details' as const,
     },
     {
@@ -230,7 +230,7 @@
             <!-- Стоимость + Вес -->
             <FormSection
               :title="ITEM_FORM_LABELS.costWeightTitle"
-              title-color="healing"
+              icon="tabler:coins"
             >
               <div class="grid grid-cols-3 gap-3">
                 <UFormField :label="ITEM_FORM_LABELS.cost">
@@ -279,7 +279,7 @@
             <!-- Источник -->
             <FormSection
               :title="FORM_FIELD_LABELS.source"
-              title-color="source"
+              icon="tabler:book-2"
             >
               <SourceField
                 v-model:source-key="sourceKey"
@@ -301,47 +301,45 @@
             <!-- Основное -->
             <FormSection
               :title="FORM_TAB_LABELS.main"
-              title-color="arcane"
+              icon="tabler:category"
+              :hint="EQUIPMENT_FORM_LABELS.categoryHint"
             >
               <div class="flex flex-col gap-3">
                 <!-- Тип экипировки -->
-                <div class="flex items-center gap-3">
-                  <span class="min-w-35 shrink-0 text-sm text-muted">
-                    {{ EQUIPMENT_FORM_LABELS.category }}
-                  </span>
-
+                <UFormField :label="EQUIPMENT_FORM_LABELS.category">
                   <USelect
                     v-model="equipmentCategory"
                     :items="categoryOptions"
                     value-key="value"
-                    class="flex-1"
+                    class="w-full"
                   />
-                </div>
+                </UFormField>
 
                 <!-- Базовый тип (только для брони) -->
-                <div
+                <UFormField
                   v-if="isActualArmor"
-                  class="flex items-center gap-3"
+                  :label="ITEM_FORM_LABELS.baseType"
                 >
-                  <span class="min-w-35 shrink-0 text-sm text-muted">
-                    {{ ITEM_FORM_LABELS.baseType }}
-                  </span>
-
                   <USelect
                     v-model="baseType"
                     :items="baseTypeOptions"
                     value-key="value"
                     :placeholder="ITEM_FORM_LABELS.selectTypePlaceholder"
-                    class="flex-1"
+                    class="w-full"
                   />
-                </div>
+
+                  <p class="mt-1 text-xs text-dimmed">
+                    {{ EQUIPMENT_FORM_LABELS.baseTypeHelp }}
+                  </p>
+                </UFormField>
               </div>
             </FormSection>
 
             <!-- Свойства экипировки -->
             <FormSection
               :title="EQUIPMENT_FORM_LABELS.propertiesTitle"
-              title-color="info"
+              icon="tabler:tags"
+              :hint="EQUIPMENT_FORM_LABELS.propertiesHint"
             >
               <div class="flex flex-wrap gap-2">
                 <UPopover
@@ -383,7 +381,8 @@
             <FormSection
               v-if="isActualArmor"
               :title="EQUIPMENT_FORM_LABELS.protectionTitle"
-              title-color="info"
+              icon="tabler:shield-half"
+              :hint="EQUIPMENT_FORM_LABELS.protectionHint"
             >
               <div class="flex flex-col gap-3">
                 <!-- КЗ -->
@@ -422,6 +421,14 @@
                   </UFormField>
                 </div>
 
+                <!-- Разница пустого значения и нуля у «Макс. +Лов.» -->
+                <p
+                  v-if="!isShield"
+                  class="text-xs text-dimmed"
+                >
+                  {{ EQUIPMENT_FORM_LABELS.maxDexBonusHelp }}
+                </p>
+
                 <!-- Требование Силы -->
                 <UFormField
                   v-if="!isShield"
@@ -434,6 +441,10 @@
                     :placeholder="ITEM_FORM_LABELS.zeroPlaceholder"
                     class="w-full"
                   />
+
+                  <p class="mt-1 text-xs text-dimmed">
+                    {{ EQUIPMENT_FORM_LABELS.strengthRequirementHelp }}
+                  </p>
                 </UFormField>
               </div>
             </FormSection>
@@ -442,7 +453,8 @@
             <FormSection
               v-if="isMagical"
               :title="ITEM_FORM_LABELS.magicalTitle"
-              title-color="arcane"
+              icon="tabler:sparkles"
+              :hint="EQUIPMENT_FORM_LABELS.magicalHint"
             >
               <div class="flex flex-col gap-3">
                 <div class="grid grid-cols-2 items-start gap-3">
@@ -482,7 +494,7 @@
             <FormSection
               v-if="isMagical"
               :title="ITEM_USES_LABELS.title"
-              title-color="arcane"
+              icon="tabler:battery-2"
             >
               <ItemUsesFields v-model="itemUses" />
             </FormSection>
