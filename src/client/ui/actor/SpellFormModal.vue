@@ -674,7 +674,7 @@
               </template>
             </FormSection>
 
-            <!-- Заряды использования (врождённые/расовые, заклинания существ) -->
+            <!-- Заряды использования (врождённая магия вида, заклинания существ) -->
             <FormSection
               :title="SPELL_FORM_LABELS.usesTitle"
               icon="tabler:battery-2"
