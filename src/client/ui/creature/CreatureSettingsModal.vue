@@ -36,9 +36,19 @@
     useTokenPreview,
   } from '../../composables/useTokenPreview';
   import {
+    clampVisionAngle,
     MODAL_BUTTON_LABELS,
     TOAST_TITLES,
+    TOKEN_IMAGE_ROTATION_DEFAULT,
+    TOKEN_IMAGE_ROTATION_MAX,
+    TOKEN_IMAGE_ROTATION_MIN,
+    TOKEN_IMAGE_ROTATION_STEP,
     TOKEN_SETTINGS_LABELS,
+    TOKEN_VISION_ANGLE_DEFAULT,
+    TOKEN_VISION_ANGLE_MAX,
+    TOKEN_VISION_ANGLE_MIN,
+    TOKEN_VISION_ANGLE_PRESETS,
+    TOKEN_VISION_ANGLE_STEP,
   } from '../actor/constants';
   import { CREATURE_NO_ALIGNMENT, CREATURE_SETTINGS_LABELS } from './constants';
   import CreatureDeleteConfirmModal from './CreatureDeleteConfirmModal.vue';
@@ -193,6 +203,7 @@
     enabled: false,
     range: TOKEN_VISION_RANGE_DEFAULT,
     darkvision: TOKEN_DARKVISION_DEFAULT,
+    angle: TOKEN_VISION_ANGLE_DEFAULT,
   });
 
   // Настройки света токена (тот же механизм, что у источников света)
@@ -240,6 +251,46 @@
 
   // Может ли текущий пользователь редактировать токен
   const canEditToken = computed(() => isAdmin.value || isOwner.value);
+
+  /** Подпись угла обзора: полный круг называем словом, а не числом */
+  const visionAngleLabel = computed(() =>
+    visionSettings.value.angle >= TOKEN_VISION_ANGLE_MAX
+      ? TOKEN_SETTINGS_LABELS.visionAngleFull
+      : `${visionSettings.value.angle}°`,
+  );
+
+  /**
+   * Обрезает введённый вручную угол обзора по границам.
+   *
+   * Делается по потере фокуса, а не на каждый символ: иначе набор «130»
+   * схлопывался бы в минимум сразу после первой цифры.
+   */
+  function normalizeVisionAngle(): void {
+    visionSettings.value.angle = clampVisionAngle(visionSettings.value.angle);
+  }
+
+  /**
+   * Цвет кнопки-предустановки угла обзора.
+   *
+   * Вынесено из шаблона: в `v-for` computed не принимает аргумент, а тернарники
+   * классов прямо в разметке правилами проекта запрещены.
+   *
+   * @param preset - угол предустановки в градусах
+   * @returns цвет кнопки Nuxt UI
+   */
+  function getVisionAnglePresetColor(preset: number): 'primary' | 'neutral' {
+    return visionSettings.value.angle === preset ? 'primary' : 'neutral';
+  }
+
+  /**
+   * Вариант отрисовки кнопки-предустановки угла обзора.
+   *
+   * @param preset - угол предустановки в градусах
+   * @returns вариант кнопки Nuxt UI
+   */
+  function getVisionAnglePresetVariant(preset: number): 'solid' | 'subtle' {
+    return visionSettings.value.angle === preset ? 'solid' : 'subtle';
+  }
 
   // Превью токена: размер, стиль изображения, перетаскивание и зум
   const {
@@ -309,7 +360,9 @@
         !== (creature.value.token?.vision?.range ?? TOKEN_VISION_RANGE_DEFAULT)
       || visionSettings.value.darkvision
         !== (creature.value.token?.vision?.darkvision
-          ?? TOKEN_DARKVISION_DEFAULT);
+          ?? TOKEN_DARKVISION_DEFAULT)
+      || visionSettings.value.angle
+        !== (creature.value.token?.vision?.angle ?? TOKEN_VISION_ANGLE_DEFAULT);
 
     const autoSavesChanged =
       autoSaves.value !== (creature.value.autoSaves ?? true);
@@ -424,6 +477,8 @@
           creature.value.token?.vision?.range ?? TOKEN_VISION_RANGE_DEFAULT,
         darkvision:
           creature.value.token?.vision?.darkvision ?? TOKEN_DARKVISION_DEFAULT,
+        angle:
+          creature.value.token?.vision?.angle ?? TOKEN_VISION_ANGLE_DEFAULT,
       };
 
       lightSettings.value = creature.value.token?.light
@@ -461,7 +516,7 @@
           enabled: visionSettings.value.enabled,
           range: visionSettings.value.range,
           darkvision: visionSettings.value.darkvision,
-          angle: 360,
+          angle: visionSettings.value.angle,
         },
         light: { ...lightSettings.value },
       };
@@ -1030,6 +1085,50 @@
                 </div>
               </div>
 
+              <!-- 1.5. Поворот изображения внутри токена -->
+              <!-- Отступы обязательны: вкладка обрезает переполнение
+                   (`overflow-hidden`), и без них круглый бегунок ползунка
+                   срезался бы по обоим краям. -->
+              <div
+                class="flex-none rounded-lg border border-default/50 bg-elevated/50 p-4"
+              >
+                <div class="mb-2 flex items-center justify-between">
+                  <label class="text-sm font-medium text-toned">
+                    {{ TOKEN_SETTINGS_LABELS.imageRotation }}
+                  </label>
+
+                  <div class="flex items-center gap-2">
+                    <span class="text-sm text-muted">
+                      {{ Math.round(tokenSettings.rotation) }}°
+                    </span>
+
+                    <UButton
+                      icon="tabler:rotate-clockwise"
+                      color="neutral"
+                      variant="ghost"
+                      size="xs"
+                      :title="TOKEN_SETTINGS_LABELS.imageRotationReset"
+                      :disabled="!(isAdmin || isOwner)"
+                      @click.left.exact.prevent="
+                        tokenSettings.rotation = TOKEN_IMAGE_ROTATION_DEFAULT
+                      "
+                    />
+                  </div>
+                </div>
+
+                <USlider
+                  v-model.number="tokenSettings.rotation"
+                  :min="TOKEN_IMAGE_ROTATION_MIN"
+                  :max="TOKEN_IMAGE_ROTATION_MAX"
+                  :step="TOKEN_IMAGE_ROTATION_STEP"
+                  :disabled="!(isAdmin || isOwner)"
+                />
+
+                <p class="mt-2 text-xs text-dimmed">
+                  {{ TOKEN_SETTINGS_LABELS.imageRotationHint }}
+                </p>
+              </div>
+
               <!-- 2. Изображение токена (по стилю EditSceneModal) -->
               <div
                 class="flex min-h-0 flex-1 flex-col space-y-4 overflow-hidden rounded-lg border border-default/50 bg-elevated/50 p-4"
@@ -1129,6 +1228,59 @@
                       {{ TOKEN_SETTINGS_LABELS.darkvisionRangeHint }}
                     </p>
                   </div>
+                </div>
+
+                <div
+                  class="mt-4 space-y-3 rounded border border-default/50 bg-elevated/30 p-4"
+                >
+                  <div class="flex items-center justify-between gap-3">
+                    <label class="text-sm font-medium text-toned">
+                      {{ TOKEN_SETTINGS_LABELS.visionAngle }}
+                    </label>
+
+                    <div class="flex items-center gap-2">
+                      <span class="text-sm text-muted">
+                        {{ visionAngleLabel }}
+                      </span>
+
+                      <UInput
+                        v-model.number="visionSettings.angle"
+                        type="number"
+                        class="w-24"
+                        :min="TOKEN_VISION_ANGLE_MIN"
+                        :max="TOKEN_VISION_ANGLE_MAX"
+                        :step="TOKEN_VISION_ANGLE_STEP"
+                        :disabled="!(isAdmin || isOwner)"
+                        @blur="normalizeVisionAngle"
+                      />
+                    </div>
+                  </div>
+
+                  <USlider
+                    v-model.number="visionSettings.angle"
+                    :min="TOKEN_VISION_ANGLE_MIN"
+                    :max="TOKEN_VISION_ANGLE_MAX"
+                    :step="TOKEN_VISION_ANGLE_STEP"
+                    :disabled="!(isAdmin || isOwner)"
+                  />
+
+                  <div class="flex flex-wrap gap-2">
+                    <UButton
+                      v-for="preset in TOKEN_VISION_ANGLE_PRESETS"
+                      :key="preset"
+                      size="xs"
+                      :color="getVisionAnglePresetColor(preset)"
+                      :variant="getVisionAnglePresetVariant(preset)"
+                      :disabled="!(isAdmin || isOwner)"
+                      @click.left.exact.prevent="visionSettings.angle = preset"
+                    >
+                      {{ preset }}°
+                    </UButton>
+                  </div>
+
+                  <p class="text-xs text-dimmed">
+                    {{ TOKEN_SETTINGS_LABELS.visionAngleHint }}
+                  </p>
                 </div>
 
                 <div
