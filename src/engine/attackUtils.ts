@@ -320,6 +320,44 @@ export function resolveAttackRollMode(
 }
 
 /**
+ * Определяет режим броска инициативы по активным флагам сущности.
+ *
+ * Инициатива — проверка Ловкости, поэтому преимущество/помеху ей дают три
+ * группы флагов: свои (`initiative.*`), профильные по Ловкости
+ * (`abilityCheck.*.dexterity`) и общие на все проверки (`abilityCheck.*`).
+ * По правилу 5e преимущество и помеха взаимно гасятся.
+ *
+ * Единая точка для листа персонажа, листа существа и окна броска из трекера
+ * инициативы — чтобы одни и те же флаги везде читались одинаково.
+ *
+ * @param flags - активные флаги сущности (`ResolvedActorStats.activeFlags`)
+ * @returns режим броска: обычный / преимущество / помеха
+ */
+export function resolveInitiativeRollMode(
+  flags: ReadonlySet<string>,
+): AttackRollMode {
+  const hasAdvantage =
+    flags.has('initiative.advantage')
+    || flags.has('abilityCheck.advantage.dexterity')
+    || flags.has('abilityCheck.advantage');
+
+  const hasDisadvantage =
+    flags.has('initiative.disadvantage')
+    || flags.has('abilityCheck.disadvantage.dexterity')
+    || flags.has('abilityCheck.disadvantage');
+
+  if (hasAdvantage && !hasDisadvantage) {
+    return 'advantage';
+  }
+
+  if (hasDisadvantage && !hasAdvantage) {
+    return 'disadvantage';
+  }
+
+  return 'normal';
+}
+
+/**
  * Формирует формулу для броска атаки D&D 5e.
  *
  * - `normal`: `1к20+N`

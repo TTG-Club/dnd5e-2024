@@ -9,6 +9,7 @@
     RolledSpellDamagePart,
     SpellDamagePartInput,
   } from '../../composables/useSpellResolution';
+  import type { CheckRollResult } from './diceRollTypes';
 
   import { promiseTimeout } from '@vueuse/core';
   import { computed, ref, watch } from 'vue';
@@ -122,6 +123,14 @@
       hasAdvantage: boolean;
       hasDisadvantage: boolean;
     }) => SpellDamagePartInput[];
+    /**
+     * Коллбэк чистой d20-проверки (окно без `formula`, без частей урона и без
+     * броска попадания): отдаёт бросок В РАЗБИВКЕ — натуральную кость и
+     * фактический модификатор вместе с добавленным в окне бонусом. Нужен
+     * вызывающему, которому итога мало: инициатива хранит кость и модификатор
+     * порознь (трекер показывает «к20 + мод»).
+     */
+    onCheckRoll?: (result: CheckRollResult) => void;
     /** Коллбэк при попадании атаки (вызывается даже если нет формулы урона). */
     onHit?: () => void;
     /**
@@ -175,6 +184,7 @@
     damageParts: undefined,
     onRollParts: undefined,
     evaluateBonusDamageParts: undefined,
+    onCheckRoll: undefined,
     onHit: undefined,
     onAttackRolled: undefined,
     onProjectileAttack: undefined,
@@ -650,6 +660,9 @@
   function performSimpleRoll(): number {
     let formula: string;
 
+    /** Модификатор чистой d20-проверки — идёт в разбивку `onCheckRoll` */
+    let checkModifier = 0;
+
     if (props.formula) {
       // Суммируем введённый бонус пользователя + условный бонус на урон (если это бросок урона)
       // Если это просто "бросок формулы" не связанный с атакой (проверка хар-ки с кастомной формулой),
@@ -665,12 +678,12 @@
         formula = effectiveFormula.value ?? '';
       }
     } else {
-      const totalModifier =
+      checkModifier =
         props.modifier
         + bonusValue.value
         + currentConditionalBonuses.value.attackBonus;
 
-      formula = buildAttackFormula(totalModifier, attackRollMode.value);
+      formula = buildAttackFormula(checkModifier, attackRollMode.value);
     }
 
     const rollData = diceRollerStore.parseAndRoll(formula);
@@ -730,6 +743,17 @@
 
     if (!props.skipChatMessage) {
       chatStore.sendMessage(formula, 'roll', rollData);
+    }
+
+    // Чистая d20-проверка: отдаём бросок в разбивке. Натуральная кость — итог
+    // минус модификатор: при преимуществе/помехе это оставленная кость, а
+    // сравнивать формулы бросков вызывающему не нужно.
+    if (!props.formula && props.onCheckRoll) {
+      props.onCheckRoll({
+        total: rollData.total,
+        natural: rollData.total - checkModifier,
+        modifier: checkModifier,
+      });
     }
 
     return rollData.total;

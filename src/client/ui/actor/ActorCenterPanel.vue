@@ -37,6 +37,7 @@
     getSkillSettingAbility,
     isChangedSkill,
     isProficiencyLevel,
+    resolveInitiativeRollMode,
     SKILL_PROFICIENCY_NEXT,
     SKILLS_LIST,
   } from '@vtt/shared/system/dnd.js';
@@ -268,34 +269,16 @@
   }
 
   function openInitiativeRoll() {
-    let initialRollMode: AttackRollMode = 'normal';
-
-    const flags = resolvedStats.value?.activeFlags ?? new Set();
-
-    const hasAdvantage =
-      flags.has('initiative.advantage')
-      || flags.has('abilityCheck.advantage.dexterity')
-      || flags.has('abilityCheck.advantage');
-
-    const hasDisadvantage =
-      flags.has('initiative.disadvantage')
-      || flags.has('abilityCheck.disadvantage.dexterity')
-      || flags.has('abilityCheck.disadvantage');
-
-    if (hasAdvantage && !hasDisadvantage) {
-      initialRollMode = 'advantage';
-    }
-
-    if (!hasAdvantage && hasDisadvantage) {
-      initialRollMode = 'disadvantage';
-    }
-
     openDiceRoll({
       modifier: initiative.value,
       title: INITIATIVE_ROLL_LABELS.title,
       rollLabel: INITIATIVE_ROLL_LABELS.rollLabel,
       rollButtonText: INITIATIVE_ROLL_LABELS.button,
-      initialRollMode,
+      // Флаги преимущества/помехи инициативы читает движок — тем же правилом,
+      // что и окно броска из трекера боя
+      initialRollMode: resolveInitiativeRollMode(
+        resolvedStats.value?.activeFlags ?? new Set<string>(),
+      ),
     });
   }
 
