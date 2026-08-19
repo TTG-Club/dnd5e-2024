@@ -188,6 +188,31 @@
                   {{ SPELL_BADGE_LABELS.ritual }}
                 </UBadge>
               </UTooltip>
+
+              <!-- Заклинание выдано умением (черта, вид, предыстория): игроку
+                важно видеть, что оно не выбрано им самим и уйдёт вместе с
+                источником. Название умения бывает длинным — режем его, полное
+                остаётся в подсказке -->
+              <UTooltip
+                v-if="spell.grantedByFeature"
+                :text="`${SPELL_BADGE_HINTS.granted}: ${spell.grantedByFeature}`"
+              >
+                <UBadge
+                  color="neutral"
+                  variant="subtle"
+                  size="sm"
+                  class="relative z-10 min-w-0 shrink-0"
+                >
+                  <UIcon
+                    name="tabler:sparkles"
+                    class="size-3 shrink-0"
+                  />
+
+                  <span class="max-w-32 truncate">
+                    {{ spell.grantedByFeature }}
+                  </span>
+                </UBadge>
+              </UTooltip>
             </span>
 
             <span

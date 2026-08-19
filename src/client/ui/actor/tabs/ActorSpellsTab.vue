@@ -58,6 +58,7 @@
     resolveActorStats,
     resolveDamagePartsForCast,
     resolveSpellDamageFormula,
+    resolveSpellSaveDC,
     SPELL_DAMAGE_TEMPLATE_COLORS,
     SPELL_LEVEL_LABELS,
     SPELL_SCHOOL_LABELS,
@@ -1584,7 +1585,11 @@
           const context = {
             spell,
             damageTotal,
-            spellSaveDC: resolvedStats.value.spellSaveDC,
+            spellSaveDC: resolveSpellSaveDC(
+              props.actor,
+              spell,
+              resolvedStats.value,
+            ),
             actors,
             socket,
             overrideDamageType: chosenDamageType,
@@ -1664,7 +1669,11 @@
           {
             spell,
             damageTotal: 0,
-            spellSaveDC: resolvedStats.value.spellSaveDC,
+            spellSaveDC: resolveSpellSaveDC(
+              props.actor,
+              spell,
+              resolvedStats.value,
+            ),
             actors,
             socket,
             casterId: props.actor.id,
@@ -1725,7 +1734,11 @@
         {
           spell,
           damageTotal: 0,
-          spellSaveDC: resolvedStats.value.spellSaveDC,
+          spellSaveDC: resolveSpellSaveDC(
+            props.actor,
+            spell,
+            resolvedStats.value,
+          ),
           actors,
           socket,
         },

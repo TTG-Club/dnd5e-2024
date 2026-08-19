@@ -34,6 +34,7 @@ import {
   DAMAGE_DEFENSE_KIND_LABELS,
   DAMAGE_TYPE_LABELS,
 } from './damageConstants.js';
+import { CLASS_FEATURE_NAMES } from './featPrerequisites.js';
 import { toolProficiencyLabel } from './toolProficiency.js';
 
 /** Подписи владения доспехами (нет в shared — компактно дублируем). */
@@ -80,6 +81,12 @@ function abilityScoreLine(featData: FeatData): string | null {
     const count = asi.choice.count > 1 ? `${asi.choice.count}× ` : '';
 
     parts.push(`+${asi.choice.amount} к ${count}${from} (на выбор)`);
+  }
+
+  // Предел показываем справкой: сам лист характеристики нигде не ограничивает, и
+  // мастеру важно видеть, докуда черта поднимает — 20 у обычных, 30 у эпических даров
+  if (parts.length > 0 && asi.upto) {
+    parts.push(`не выше ${asi.upto}`);
   }
 
   return parts.length > 0 ? `- **Характеристики:** ${parts.join(', ')}` : null;
@@ -242,7 +249,37 @@ function modifiersLine(featData: FeatData): string | null {
   return parts.length > 0 ? `- **Модификаторы:** ${parts.join(', ')}` : null;
 }
 
-/** Строка предусловий. */
+/**
+ * Подписи разделов требования, которые перечисляют записи справочника. Порядок задаёт
+ * порядок показа в строке требований.
+ */
+const REFERENCE_LABELS = {
+  feats: 'черта',
+  classes: 'класс',
+  species: 'вид',
+  backgrounds: 'предыстория',
+} as const;
+
+/** Требование метки дракона: конкретной черты оно не называет. */
+const ANY_DRAGONMARK_LABEL = 'любая черта метки дракона';
+
+/** Названия записей справочника через «или»: «Волшебник или Чародей». */
+function refNames(
+  refs: ReadonlyArray<{ name: string }> | undefined,
+): string | null {
+  const names = (refs ?? []).map((ref) => ref.name).filter(Boolean);
+
+  return names.length > 0 ? names.join(' или ') : null;
+}
+
+/**
+ * Строка предусловий.
+ *
+ * Разобранные поля и человекочитаемая строка идут вместе: разобрать удаётся не всё, а
+ * показать нужно целиком. Чтобы требование не двоилось («уровень 4+, Уровень 4+, Сила
+ * 13+» — строка из книги перечисляет и то, что уже разобрано), разобранная часть,
+ * которая в строке уже есть, из перечисления убирается.
+ */
 function prerequisiteLine(featData: FeatData): string | null {
   const prerequisite = featData.prerequisite;
 
@@ -258,19 +295,65 @@ function prerequisiteLine(featData: FeatData): string | null {
     }
   }
 
+  for (const requirement of prerequisite.abilityRequirements ?? []) {
+    const abilities = requirement.anyOf.map(abilityLabel).join(' или ');
+
+    parts.push(`${abilities} ${requirement.minValue}+`);
+  }
+
   if (prerequisite.minLevel) {
     parts.push(`уровень ${prerequisite.minLevel}+`);
   }
 
   if (prerequisite.spellcasting) {
-    parts.push('умение творить заклинания');
+    parts.push(CLASS_FEATURE_NAMES.spellcasting);
   }
 
-  if (prerequisite.text) {
-    parts.push(prerequisite.text);
+  for (const feature of prerequisite.classFeatures ?? []) {
+    parts.push(CLASS_FEATURE_NAMES[feature] ?? feature);
   }
 
-  return parts.length > 0 ? `- **Требования:** ${parts.join(', ')}` : null;
+  const references: Array<[string, string | null]> = [
+    [REFERENCE_LABELS.feats, refNames(prerequisite.feats)],
+    [REFERENCE_LABELS.classes, refNames(prerequisite.classes)],
+    [REFERENCE_LABELS.species, refNames(prerequisite.species)],
+    [REFERENCE_LABELS.backgrounds, refNames(prerequisite.backgrounds)],
+  ];
+
+  for (const [label, names] of references) {
+    if (names) {
+      parts.push(`${label}: ${names}`);
+    }
+  }
+
+  const armor = (prerequisite.armorProficiency ?? [])
+    .map((key) => ARMOR_LABELS[key] ?? key)
+    .join(' или ');
+
+  if (armor) {
+    parts.push(`владение: ${armor}`);
+  }
+
+  if (prerequisite.anyDragonmark) {
+    parts.push(ANY_DRAGONMARK_LABEL);
+  }
+
+  if (prerequisite.campaign) {
+    parts.push(prerequisite.campaign);
+  }
+
+  const text = prerequisite.text?.trim();
+  const normalizedText = text?.toLowerCase() ?? '';
+
+  const unique = text
+    ? parts.filter((part) => !normalizedText.includes(part.toLowerCase()))
+    : parts;
+
+  if (text) {
+    unique.push(text);
+  }
+
+  return unique.length > 0 ? `- **Требования:** ${unique.join(', ')}` : null;
 }
 
 /**

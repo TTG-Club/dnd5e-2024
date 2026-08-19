@@ -6,24 +6,28 @@
  * ({@link resolveFeatChoicePool}), сколько ({@link resolveFeatChoiceCount}) и что
  * происходит с выбранным ({@link applyFeatChoiceSelections}).
  *
- * Применяется НЕ всё: заклинания по выбору («Посвящённый в магию») требуют разбора
- * компендиума и остаются записанными, но не выданными — см. {@link isAppliedChoiceType}.
- * Записанный, но не применённый выбор всё равно виден на листе: он показывается в сводке
- * даров черты, и мастер выдаёт заклинание сам.
+ * Применяется почти всё, но по-разному: владения проставляются здесь
+ * ({@link applyFeatChoiceSelections}), а выбранные заклинания уходят в книгу заклинаний
+ * тем же путём, что и выданные чертой без выбора (`collectFeatGrantedSpellSources`).
+ * Не применяется только «вариант» и выбор списка класса: первый у каждой черты свой,
+ * второй лишь сужает пул следующего выбора. Записанный, но не применённый выбор всё
+ * равно виден на листе — он показывается в сводке даров черты.
  *
  * @module system/dnd/featChoices
  */
 
 import type { AbilityType, ProficiencyLevel, SkillType } from '@vtt/shared';
 
-import type { DnDActor } from './dndEntities.js';
+import type { DnDActor, Spell } from './dndEntities.js';
 import type {
   FeatChoice,
   FeatChoiceOption,
+  FeatChoiceSpellFilter,
   FeatChoiceType,
   FeatData,
 } from './featTypes.js';
 
+import { CLASS_KEY_OPTIONS, CLASS_KEYS } from './classTypes.js';
 import {
   ABILITY_LABELS,
   isAbilityType,
@@ -51,8 +55,11 @@ export interface FeatChoiceProficiencies {
 
 /**
  * Типы выбора, которые лист применяет сам. Остальные записываются и показываются, но
- * ничего не проставляют: заклинание надо искать в компендиуме, а «вариант» у каждой
- * черты свой и общего смысла не имеет.
+ * ничего не проставляют: «вариант» у каждой черты свой и общего смысла не имеет, а
+ * выбор списка класса только сужает пул следующего выбора.
+ *
+ * Заклинание и заговор здесь тоже есть, хотя владений они не дают: выбранное заклинание
+ * лист кладёт в книгу сам, наравне с выданными чертой без выбора.
  */
 const APPLIED_CHOICE_TYPES: ReadonlySet<FeatChoiceType> = new Set([
   'skill',
@@ -63,6 +70,8 @@ const APPLIED_CHOICE_TYPES: ReadonlySet<FeatChoiceType> = new Set([
   'damageType',
   'ability',
   'spellcastingAbility',
+  'spell',
+  'cantrip',
 ]);
 
 /** Подписи типов выбора — заголовок шага, когда у выбора нет своей подписи. */
@@ -135,6 +144,13 @@ function defaultPool(type: FeatChoiceType): FeatChoiceOption[] {
       return TOOLS_LIST.map((tool) => ({ value: tool.key, name: tool.label }));
     case 'language':
       return LANGUAGE_TYPES.map((value) => ({ value, name: value }));
+    case 'spellList':
+      // Список класса, из которого потом выбирают заклинания: «Посвящённый в магию»
+      // перечисляет свои три класса сам, но если не перечислил — подойдёт любой
+      return CLASS_KEY_OPTIONS.map((option) => ({
+        value: option.value,
+        name: option.label,
+      }));
     case 'damageType':
       return DEFENSIBLE_DAMAGE_TYPES.map((value) => ({
         value,
@@ -182,21 +198,188 @@ function isProficient(
   }
 }
 
+/** Уровень заговора — им же «заговор» отличается от заклинания в фильтре. */
+const CANTRIP_LEVEL = 0;
+
+/**
+ * Чем пул заклинаний дополняется снаружи: каталогом компендиума и уже сделанными
+ * выборами.
+ *
+ * Заклинания, в отличие от навыков и языков, справочником листа не описаны — их
+ * приходится брать из компендиума, а он грузится асинхронно. Поэтому каталог передаётся
+ * снаружи: движок остаётся синхронным и проверяемым, а загрузка живёт в окне выбора.
+ */
+export interface FeatChoicePoolContext {
+  /** Заклинания компендиума — из них собирается пул выбора заклинания или заговора */
+  spells?: ReadonlyArray<Spell>;
+  /**
+   * Уже сделанные выборы: из ответа на {@link FeatChoiceSpellFilter.classesFromChoiceKey}
+   * берётся класс, которым сужается пул.
+   */
+  selections?: Record<string, string[]>;
+}
+
+/**
+ * Ключи классов, которыми ограничен выбор заклинания.
+ *
+ * Источников два и они складываются: заданные фильтром напрямую и взятые из ответа
+ * игрока — «Посвящённый в магию» сперва спрашивает список класса. Пустой результат
+ * означает «класс не ограничивает», а не «подходящих нет».
+ */
+function filterClassKeys(
+  filter: FeatChoiceSpellFilter,
+  selections: Record<string, string[]> | undefined,
+): string[] {
+  const keys = [...(filter.classKeys ?? [])];
+
+  for (const ref of filter.classes ?? []) {
+    const key = classKeyFromUrl(ref.url);
+
+    if (key) {
+      keys.push(key);
+    }
+  }
+
+  for (const answer of selections?.[filter.classesFromChoiceKey ?? ''] ?? []) {
+    const key = classKeyFromUrl(answer);
+
+    if (key) {
+      keys.push(key);
+    }
+  }
+
+  return [...new Set(keys)];
+}
+
+/**
+ * Канонический ключ класса из ответа или слага страницы: `wizard-phb` → `wizard`.
+ * Слаг сайта несёт суффикс источника, а заклинание помечено голым ключом.
+ */
+function classKeyFromUrl(value: string | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+
+  return (
+    CLASS_KEYS.find(
+      (key) => normalized === key || normalized.startsWith(`${key}-`),
+    ) ?? null
+  );
+}
+
+/**
+ * Подходит ли заклинание под ограничение выбора.
+ *
+ * Незаполненное поле фильтра не ограничивает ничего: у «Ритуального заклинателя» задано
+ * только время накладывания, у «Адепта стихий» — только школа.
+ *
+ * @param spell - заклинание компендиума
+ * @param filter - ограничение выбора
+ * @param classKeys - ключи классов, которыми сужен пул (пусто — не ограничивает)
+ */
+export function matchesFeatSpellFilter(
+  spell: Spell,
+  filter: FeatChoiceSpellFilter | undefined,
+  classKeys: ReadonlyArray<string> = [],
+): boolean {
+  // Заданы оба предела — это диапазон кругов: «Тронутый фейри» берёт заклинание
+  // 1–2 круга. Один только `level` — точный круг: у «Посвящённого в магию» это ноль,
+  // то есть заговор
+  if (filter?.level !== undefined) {
+    const matchesLevel =
+      filter.maxLevel !== undefined
+        ? spell.level >= filter.level
+        : spell.level === filter.level;
+
+    if (!matchesLevel) {
+      return false;
+    }
+  }
+
+  if (filter?.maxLevel !== undefined && spell.level > filter.maxLevel) {
+    return false;
+  }
+
+  if (filter?.schools?.length && !filter.schools.includes(spell.school)) {
+    return false;
+  }
+
+  if (filter?.castingTime) {
+    const matchesTime =
+      filter.castingTime === 'ritual'
+        ? spell.ritual
+        : spell.castingTimeUnit === filter.castingTime;
+
+    if (!matchesTime) {
+      return false;
+    }
+  }
+
+  if (classKeys.length > 0) {
+    const spellClasses = spell.classKeys ?? [];
+
+    if (!spellClasses.some((key) => classKeys.includes(key))) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Пул выбора заклинания или заговора: заклинания каталога, прошедшие фильтр черты.
+ * Значение варианта — id записи компендиума: по нему заклинание и выдаётся.
+ */
+function spellPool(
+  choice: FeatChoice,
+  context: FeatChoicePoolContext | undefined,
+): FeatChoiceOption[] {
+  const catalog = context?.spells ?? [];
+
+  if (catalog.length === 0) {
+    return [];
+  }
+
+  // «Заговор» — тот же выбор заклинания, но нулевого круга: отдельного признака у
+  // заклинания нет, отличает их только уровень
+  const filter: FeatChoiceSpellFilter =
+    choice.type === 'cantrip'
+      ? { ...choice.spellFilter, level: CANTRIP_LEVEL }
+      : (choice.spellFilter ?? {});
+
+  const classKeys = filterClassKeys(filter, context?.selections);
+
+  return catalog
+    .filter((spell) => matchesFeatSpellFilter(spell, filter, classKeys))
+    .map((spell) => ({ value: spell.id, name: spell.name }))
+    .sort((first, second) =>
+      (first.name ?? '').localeCompare(second.name ?? ''),
+    );
+}
+
 /**
  * Из чего выбирают: список самой черты, иначе полный набор типа. Флаги «только то, чем
  * (не) владеешь» сужают набор по листу персонажа.
  *
  * @param choice - выбор черты
  * @param actor - лист персонажа
+ * @param context - каталог заклинаний и уже сделанные выборы (для выбора заклинания)
  * @returns варианты в порядке показа
  */
 export function resolveFeatChoicePool(
   choice: FeatChoice,
   actor: DnDActor,
+  context?: FeatChoicePoolContext,
 ): FeatChoiceOption[] {
+  if (choice.type === 'spell' || choice.type === 'cantrip') {
+    return spellPool(choice, context);
+  }
+
   const pool =
     choice.options && choice.options.length > 0
-      ? choice.options
+      ? withDictionaryLabels(choice.type, choice.options)
       : defaultPool(choice.type);
 
   if (!choice.onlyIfProficient && !choice.onlyIfNotProficient) {
@@ -208,6 +391,32 @@ export function resolveFeatChoicePool(
 
     return choice.onlyIfProficient ? proficient : !proficient;
   });
+}
+
+/**
+ * Достаёт подписи вариантов из справочника типа выбора.
+ *
+ * Черта перечисляет варианты значениями и подпись задаёт не всегда: у «Посвящённого в
+ * магию» заклинательная характеристика записана тремя ключами без единого названия. Без
+ * подстановки игрок увидел бы на кнопках `intelligence` вместо «Интеллект» — само
+ * значение верное, показывать его просто нечем.
+ *
+ * @param type - тип выбора: он задаёт справочник
+ * @param options - варианты, перечисленные чертой
+ */
+function withDictionaryLabels(
+  type: FeatChoiceType,
+  options: ReadonlyArray<FeatChoiceOption>,
+): FeatChoiceOption[] {
+  const labels = new Map(
+    defaultPool(type).map((option) => [option.value, option.name]),
+  );
+
+  return options.map((option) =>
+    option.name
+      ? option
+      : { value: option.value, name: labels.get(option.value) ?? option.value },
+  );
 }
 
 /**

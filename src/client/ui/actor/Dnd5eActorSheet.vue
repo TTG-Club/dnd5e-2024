@@ -2386,6 +2386,7 @@
     :feat-name="pendingChoiceFeat.name"
     :choices="pendingFeatChoices"
     :actor="localActor"
+    :socket="socket"
     @apply="handleFeatChoicesApply"
   />
 

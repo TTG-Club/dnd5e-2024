@@ -71,6 +71,7 @@
     selectedFeatId,
     selectedFeatChoices,
     grantedFeatData,
+    featChoiceSpells,
     selectedEquipmentIndex,
     selectedEquipmentItems,
     wizardSteps: wizardStepKeys,
@@ -82,6 +83,7 @@
     toRef(props, 'backgroundDefinition'),
     toRef(props, 'actor'),
     toRef(props, 'open'),
+    toRef(props, 'socket'),
   );
 
   const wizardSteps = computed(() => {
@@ -203,7 +205,17 @@
     const sources: GrantedSpellSource[] = [];
 
     if (selectedFeat.value) {
-      sources.push(...collectGrantedSpellSources([selectedFeat.value]));
+      // Заклинания черты живут в её дарах, а выбранные игроком — в ответах шага
+      // выборов: и то, и другое выдаётся от имени самой черты, чтобы снятие
+      // предыстории забрало их вместе с ней
+      sources.push(
+        ...collectFeatGrantedSpellSources({
+          name: selectedFeat.value.name,
+          featData: selectedFeat.value.featData,
+          choices: selectedFeatChoices.value,
+        }),
+        ...collectGrantedSpellSources([selectedFeat.value]),
+      );
     }
 
     const def = definition.value;
@@ -379,6 +391,7 @@
                 :choices="grantedFeatData?.choices ?? []"
                 :actor="actor"
                 :proficiency-bonus="proficiencyBonus"
+                :spells="featChoiceSpells"
               />
             </div>
 

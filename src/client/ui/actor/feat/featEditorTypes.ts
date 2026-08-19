@@ -404,6 +404,17 @@ export function buildFeatData(
     data.grantedSpells = refs;
   }
 
+  // Заклинательная характеристика и признак подготовки формой не правятся: они
+  // приходят из компендиума и относятся к выданным заклинаниям целиком. Переносим
+  // из исходного блоба, иначе сохранение черты стёрло бы их
+  if (base?.spellcastingAbility) {
+    data.spellcastingAbility = base.spellcastingAbility;
+  }
+
+  if (base?.grantedSpellsAlwaysPrepared !== undefined) {
+    data.grantedSpellsAlwaysPrepared = base.grantedSpellsAlwaysPrepared;
+  }
+
   // Кроме дискриминанта `type` ничего не задано — блоб не нужен.
   return Object.keys(data).length > 1 ? data : undefined;
 }
@@ -448,6 +459,14 @@ function buildAbilityScoreIncrease(
 
   if (fromChoiceKey) {
     result.fromChoiceKey = fromChoiceKey;
+  }
+
+  // Предел формой не правится — переносим из исходного блоба, иначе сохранение
+  // черты, пришедшей из компендиума, стёрло бы его
+  const upto = base?.abilityScoreIncrease?.upto;
+
+  if (upto) {
+    result.upto = upto;
   }
 
   return result.fixed || result.choice || result.fromChoiceKey
@@ -565,6 +584,9 @@ function buildPrerequisite(
       : {}),
     ...(basePrerequisite?.campaign
       ? { campaign: basePrerequisite.campaign }
+      : {}),
+    ...(basePrerequisite?.anyDragonmark
+      ? { anyDragonmark: basePrerequisite.anyDragonmark }
       : {}),
   };
 

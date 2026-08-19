@@ -1221,10 +1221,17 @@ export const SPELL_BADGE_LABELS: Record<'concentration' | 'ritual', string> = {
   ritual: 'Р',
 };
 
-/** Расшифровки буквенных значков заклинания */
-export const SPELL_BADGE_HINTS: Record<'concentration' | 'ritual', string> = {
+/**
+ * Расшифровки значков заклинания. `granted` — подсказка плашки источника: она
+ * показывает название умения, а подсказка объясняет, что это за плашка.
+ */
+export const SPELL_BADGE_HINTS: Record<
+  'concentration' | 'ritual' | 'granted',
+  string
+> = {
   concentration: 'Концентрация',
   ritual: 'Ритуал',
+  granted: 'Выдано умением',
 };
 
 /**

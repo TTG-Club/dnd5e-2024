@@ -1,7 +1,8 @@
 <script setup lang="ts">
+  import type { TypedWebSocketClient } from '@vtt/shared';
   import type { DnDActor, FeatChoice } from '@vtt/shared/system/dnd.js';
 
-  import { computed, ref, watch } from 'vue';
+  import { computed, ref, toRef, watch } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
@@ -12,6 +13,7 @@
     resolveFeatChoicePool,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useFeatChoiceSpells } from '../../../composables/useFeatChoiceSpells';
   import { FEAT_CHOICES_LABELS, MODAL_BUTTON_LABELS } from '../constants';
   import FeatChoicesFields from './FeatChoicesFields.vue';
 
@@ -32,6 +34,8 @@
     choices: FeatChoice[];
     /** Лист персонажа */
     actor: DnDActor;
+    /** Сокет: нужен выбору заклинания — его пул берётся из компендиума */
+    socket?: TypedWebSocketClient | null;
   }>();
 
   const emit = defineEmits<{
@@ -55,9 +59,17 @@
    * Все обязательные выборы сделаны. Выбор с пустым пулом не считается
    * незавершённым: выбирать в нём нечего.
    */
+  const { spells } = useFeatChoiceSpells(
+    toRef(props, 'socket'),
+    toRef(props, 'choices'),
+  );
+
   const isComplete = computed(() =>
     props.choices.every((choice) => {
-      const pool = resolveFeatChoicePool(choice, props.actor);
+      const pool = resolveFeatChoicePool(choice, props.actor, {
+        spells: spells.value,
+        selections: selections.value,
+      });
 
       if (pool.length === 0) {
         return true;
@@ -104,6 +116,7 @@
           :choices="choices"
           :actor="actor"
           :proficiency-bonus="proficiencyBonus"
+          :spells="spells"
         />
 
         <div class="border-t border-muted" />

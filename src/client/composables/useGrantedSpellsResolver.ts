@@ -87,7 +87,12 @@ export function useGrantedSpellsResolver(
       );
 
       if (spell) {
-        resolved.push({ spell, featureName: source.featureName });
+        resolved.push({
+          spell,
+          featureName: source.featureName,
+          alwaysPrepared: source.alwaysPrepared,
+          castingAbility: source.castingAbility,
+        });
       }
     }
 

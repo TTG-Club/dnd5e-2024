@@ -8,6 +8,8 @@
  * лимит ручного выбора заклинаний.
  */
 
+import type { AbilityType } from '@vtt/shared';
+
 import type { Spell } from './dndEntities.js';
 
 import { generateId } from '@vtt/shared';
@@ -30,6 +32,17 @@ export interface GrantedSpellSource {
   featureName: string;
   /** Предпочтённый пак-компендиум (id манифеста); откат — любой пак по `spellId`. */
   packId?: string;
+  /**
+   * Заклинание не нужно готовить. По умолчанию (`undefined`) — нужно: так устроены
+   * заклинания черт, где выдача занимает подготовку. У врождённых заклинаний вида
+   * источник ставит флаг явно.
+   */
+  alwaysPrepared?: boolean;
+  /**
+   * Заклинательная характеристика умения-источника. Не задана — берётся общая
+   * характеристика листа (класс-заклинатель).
+   */
+  castingAbility?: AbilityType;
 }
 
 /** Заклинание компендиума, сопоставленное с умением-источником */
@@ -38,6 +51,10 @@ export interface ResolvedGrantedSpell {
   spell: Spell;
   /** Название умения, предоставившего заклинание */
   featureName: string;
+  /** Заклинание не нужно готовить (см. {@link GrantedSpellSource.alwaysPrepared}) */
+  alwaysPrepared?: boolean;
+  /** Заклинательная характеристика умения-источника */
+  castingAbility?: AbilityType;
 }
 
 // ── Утилиты ───────────────────────────────────────────────────
@@ -146,9 +163,14 @@ export function normalizeSpellName(name: string): string {
  *
  * Дубликаты отсеиваются по нормализованному названию (при добавлении в лист
  * персонажа заклинанию выдаётся новый id, поэтому id компендиума с ним
- * никогда не совпадает). Каждое добавленное заклинание помечается
- * `prepared`/`alwaysPrepared` и получает `grantedByFeature` с названием
- * умения-источника.
+ * никогда не совпадает). Каждое добавленное заклинание получает
+ * `grantedByFeature` с названием умения-источника.
+ *
+ * Подготовка берётся у источника: врождённые заклинания вида готовить не нужно,
+ * а черта решает сама — по умолчанию заклинание ложится в книгу наравне с
+ * остальными и подготовку занимает. Заклинательная характеристика источника, если
+ * она задана, проставляется заклинанию и потому меняет его атаку и сложность
+ * спасброска.
  *
  * @param existingSpells - текущий список заклинаний актора
  * @param grantedSpells - granted-заклинания с умениями-источниками
@@ -173,11 +195,19 @@ export function appendGrantedSpells(
 
     existingNames.add(normalizedName);
 
+    // Умолчание — «готовить не нужно»: так выдают заклинания вид и класс, и так лист
+    // вёл себя всегда. Черта может сказать обратное, но только явно — иначе уже
+    // собранные персонажи разом потеряли бы подготовку выданных заклинаний
+    const alwaysPrepared = granted.alwaysPrepared ?? true;
+
     result.push({
       ...granted.spell,
       id: generateId('spell'),
-      prepared: true,
-      alwaysPrepared: true,
+      prepared: alwaysPrepared,
+      alwaysPrepared,
+      ...(granted.castingAbility
+        ? { attackAbility: granted.castingAbility }
+        : {}),
       grantedByFeature: granted.featureName,
     });
   }

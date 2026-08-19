@@ -39,7 +39,7 @@ import type { FormulaContext } from './formulaParser.js';
 import type { DnDProficiencyBonusParams } from './proficiencyBonus.js';
 import type { BonusDamageFormula, TargetHpGate } from './spellUtils.js';
 
-import { isActorEntity, isCreatureEntity, isRecord } from '@vtt/shared';
+import { isCreatureEntity, isRecord } from '@vtt/shared';
 
 import {
   calculateProficiencyBonus,
@@ -84,6 +84,7 @@ import {
   getSpellSaveDCBreakdown,
   parseSpellcastingSettings,
 } from './spellcastingSettings.js';
+import { findSpellcastingAbility } from './spellUtils.js';
 
 export type { IncomingAttackContext };
 
@@ -1697,7 +1698,7 @@ export function prepareDerivedData(
   );
 
   // 8. Spell Save DC (8 + бонус мастерства + мод. характеристики заклинателя)
-  const spellcastingAbility = getFirstSpellcastingAbility(actor);
+  const spellcastingAbility = findSpellcastingAbility(actor);
 
   // Настройка листа: своё число вместо расчёта по правилам и свои бонусы
   // сверху. Активные эффекты ложатся уже поверх неё
@@ -1850,39 +1851,6 @@ export function resolveActorStats(
 }
 
 // ── Вспомогательные функции ───────────────────────────────────
-
-/**
- * Определяет характеристику заклинателя из классов актора.
- *
- * Берёт первый класс, у которого заполнено spellcastingAbility
- * (копируется из ClassDefinition.spellcasting.ability при выборе класса).
- *
- * @param actor - актор
- * @returns характеристика заклинателя или null если нет классов-заклинателей
- */
-function getFirstSpellcastingAbility(
-  actor: DnDActor | DnDCreature,
-): AbilityType | null {
-  // Ручной приоритет в корне персонажа
-  const manualSpellcastingAbility = actor.system.spellcastingAbility;
-
-  if (isAbilityType(manualSpellcastingAbility)) {
-    return manualSpellcastingAbility;
-  }
-
-  // Если есть классы
-  if (isActorEntity(actor)) {
-    const casterClass = actor.system.classes.find(
-      (entry) => entry.spellcastingAbility != null,
-    );
-
-    if (casterClass?.spellcastingAbility) {
-      return casterClass.spellcastingAbility;
-    }
-  }
-
-  return null;
-}
 
 /**
  * Создаёт глубокую копию ResolvedActorStats.

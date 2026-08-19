@@ -8,7 +8,7 @@
  * (заклинания-источники, флаги защит, синтетический эффект черты).
  */
 
-import type { DefensibleDamageType } from '@vtt/shared';
+import type { AbilityType, DefensibleDamageType } from '@vtt/shared';
 
 import type {
   ActiveEffect,
@@ -253,32 +253,92 @@ export function isFeatOwnedEffect(
 
 /**
  * Собирает связи «заклинание компендиума → черта-источник» из `featData`.
- * Берёт только связанные с компендиумом (`spellId`) заклинания; дедуп по
- * `spellId`. Используется резолвером granted-заклинаний для подгрузки данных.
  *
- * @param feat - черта (имя-источник + блоб даров)
+ * Источников два, и оба дают заклинание одинаково: выданное чертой без выбора
+ * (`grantedSpells`) и выбранное игроком при взятии (ответ на выбор типа
+ * `spell`/`cantrip` — «Посвящённый в магию»). Берутся только связанные с
+ * компендиумом заклинания; дедуп по `spellId`.
+ *
+ * @param feat - черта (имя-источник + блоб даров + ответы игрока)
  * @param feat.name - имя черты (источник при выдаче/откате)
  * @param feat.featData - блоб даров черты с выдаваемыми заклинаниями
+ * @param feat.choices - ответы игрока: ключ выбора → значения
  */
-export function collectFeatGrantedSpellSources(feat: {
-  name: string;
+/**
+ * Заклинательная характеристика заклинаний черты.
+ *
+ * Задать её черта может двумя путями: назвать прямо (тогда она в дарах) или спросить
+ * игрока — так устроен «Посвящённый в магию», где характеристику выбирают вместе со
+ * списком класса. Ответ игрока и есть характеристика, иначе выбор ни на что не влиял бы.
+ *
+ * Ничего не задано — заклинание считается от характеристики листа, как остальные.
+ *
+ * @param feat - черта с дарами и ответами игрока
+ * @param feat.featData - блоб даров черты
+ * @param feat.choices - ответы игрока: ключ выбора → значения
+ */
+function resolveFeatSpellcastingAbility(feat: {
   featData?: FeatData | null;
-}): GrantedSpellSource[] {
-  const sources: GrantedSpellSource[] = [];
-  const seenSpellIds = new Set<string>();
+  choices?: Record<string, string[]>;
+}): AbilityType | undefined {
+  if (feat.featData?.spellcastingAbility) {
+    return feat.featData.spellcastingAbility;
+  }
 
-  for (const ref of feat.featData?.grantedSpells ?? []) {
-    if (!ref.spellId || seenSpellIds.has(ref.spellId)) {
+  for (const choice of feat.featData?.choices ?? []) {
+    if (choice.type !== 'spellcastingAbility') {
       continue;
     }
 
-    seenSpellIds.add(ref.spellId);
+    const answer = feat.choices?.[choice.key]?.[0];
+
+    if (answer && isAbilityType(answer)) {
+      return answer;
+    }
+  }
+
+  return undefined;
+}
+
+export function collectFeatGrantedSpellSources(feat: {
+  name: string;
+  featData?: FeatData | null;
+  choices?: Record<string, string[]>;
+}): GrantedSpellSource[] {
+  const sources: GrantedSpellSource[] = [];
+  const seenSpellIds = new Set<string>();
+  const castingAbility = resolveFeatSpellcastingAbility(feat);
+
+  const push = (spellId: string | undefined, packId?: string): void => {
+    if (!spellId || seenSpellIds.has(spellId)) {
+      return;
+    }
+
+    seenSpellIds.add(spellId);
 
     sources.push({
-      spellId: ref.spellId,
+      spellId,
       featureName: feat.name,
-      packId: ref.packId,
+      packId,
+      alwaysPrepared: feat.featData?.grantedSpellsAlwaysPrepared,
+      castingAbility,
     });
+  };
+
+  for (const ref of feat.featData?.grantedSpells ?? []) {
+    push(ref.spellId, ref.packId);
+  }
+
+  // Выбранное заклинание — такое же выданное: значение варианта и есть id записи
+  // компендиума, по нему заклинание и кладётся в книгу
+  for (const choice of feat.featData?.choices ?? []) {
+    if (choice.type !== 'spell' && choice.type !== 'cantrip') {
+      continue;
+    }
+
+    for (const spellId of feat.choices?.[choice.key] ?? []) {
+      push(spellId);
+    }
   }
 
   return sources;

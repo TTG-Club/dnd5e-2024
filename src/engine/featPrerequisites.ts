@@ -46,12 +46,13 @@ export interface FeatPrerequisiteContext {
  * названиями умений на листе: они приходят из определения класса, а туда — из
  * того же справочника, что и требование.
  */
-const CLASS_FEATURE_NAMES: Record<FeatClassFeatureRequirement, string> = {
-  spellcasting: 'Использование заклинаний',
-  pactMagic: 'Магия договора',
-  fightingStyle: 'Боевой стиль',
-  weaponMastery: 'Оружейные приёмы',
-};
+export const CLASS_FEATURE_NAMES: Record<FeatClassFeatureRequirement, string> =
+  {
+    spellcasting: 'Использование заклинаний',
+    pactMagic: 'Магия договора',
+    fightingStyle: 'Боевой стиль',
+    weaponMastery: 'Оружейные приёмы',
+  };
 
 /** Подписи требований для списка невыполненных. */
 const UNMET_LABELS = {
@@ -65,8 +66,24 @@ const UNMET_LABELS = {
   species: 'Нужен вид: ',
   backgrounds: 'Нужна предыстория: ',
   armor: 'Нужно владение доспехами: ',
+  anyDragonmark: 'Нужна любая черта метки дракона',
   refSeparator: ' или ',
 } as const;
+
+/**
+ * Черта метки дракона — по названию, а не по ссылке.
+ *
+ * Это единственное требование, которое сверяется названием: остальные приходят ссылками
+ * на записи справочника и сверяются ключом ({@link refMatches}). Здесь ссылки нет и быть
+ * не может — требование говорит «любая метка», а меток в справочнике десяток, и список
+ * пришлось бы держать руками, устаревая с каждой новой.
+ *
+ * Русские названия идут либо «Метка …» («Метка исцеления»), либо через слово «дракон»
+ * («Аберрантная метка дракона», «Малая метка дракона»); английские — «Mark of …» и
+ * «… Dragonmark».
+ */
+const DRAGONMARK_NAME =
+  /(?:^|\s)метк\w*|дракон\w*\s+метк|dragonmark|(?:^|\s)mark\s+of\s/i;
 
 /** Подписи категорий доспехов для читаемого требования. */
 const ARMOR_CATEGORY_LABELS: Record<string, string> = {
@@ -117,6 +134,21 @@ function listRefs(refs: FeatPrerequisiteRef[]): string {
 function featureNames(actor: DnDActor): Set<string> {
   return new Set(
     (actor.features ?? []).map((feature) => feature.name.trim().toLowerCase()),
+  );
+}
+
+/**
+ * Взята ли персонажем хоть одна черта метки дракона.
+ *
+ * Смотрим только на черты: «метка» встречается и в названиях заклинаний
+ * («Метка охотника»), а требование говорит именно о черте.
+ */
+function hasDragonmarkFeat(actor: DnDActor): boolean {
+  return (actor.features ?? []).some(
+    (feature) =>
+      feature.featureType === 'feat'
+      && (DRAGONMARK_NAME.test(feature.name ?? '')
+        || DRAGONMARK_NAME.test(feature.nameEn ?? '')),
   );
 }
 
@@ -332,6 +364,10 @@ export function checkFeatPrerequisites(
           .map((requirement) => CLASS_FEATURE_NAMES[requirement])
           .join(UNMET_LABELS.refSeparator),
     );
+  }
+
+  if (prerequisite.anyDragonmark && !hasDragonmarkFeat(actor)) {
+    unmet.push(UNMET_LABELS.anyDragonmark);
   }
 
   checkReferences(prerequisite, actor, unmet);

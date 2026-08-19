@@ -15,10 +15,15 @@ import type {
 import type { ResolvedActorStats } from './activeEffectTypes.js';
 import type { CreatureSpellcasting } from './creatureTypes.js';
 import type { DnDCustomBonusContext } from './customBonuses.js';
-import type { DnDActor, Spell, SpellProjectiles } from './dndEntities.js';
+import type {
+  DnDActor,
+  DnDCreature,
+  Spell,
+  SpellProjectiles,
+} from './dndEntities.js';
 import type { DnDAbilityScores } from './types.js';
 
-import { isRecord } from '@vtt/shared';
+import { isActorEntity, isRecord } from '@vtt/shared';
 
 import {
   calculateAbilityModifier,
@@ -26,7 +31,7 @@ import {
   getActorProficiencyBonus,
   getCreatureProficiencyBonus,
 } from './calculations.js';
-import { SPELL_SAVE_DC_BASE } from './consts.js';
+import { isAbilityType, SPELL_SAVE_DC_BASE } from './consts.js';
 import { isDamageType } from './damageConstants.js';
 import { getSpellDamageParts } from './damageParts.js';
 import {
@@ -89,17 +94,90 @@ export function resolveSpellcastingAbility(
     return spell.attackAbility;
   }
 
-  const systemAbility = actor.system?.spellcastingAbility;
+  return resolveActorSpellcastingAbility(actor);
+}
 
-  if (systemAbility) {
-    return systemAbility;
+/**
+ * Заклинательная характеристика листа: ручная настройка, иначе первый класс, у
+ * которого она заполнена.
+ *
+ * Отдельной функцией, потому что её спрашивают с разными ожиданиями: расчёт Сл в
+ * конвейере эффектов пропускает лист без заклинательства ({@code null}), а
+ * заклинанию нужна характеристика всегда — см. {@link resolveActorSpellcastingAbility}.
+ *
+ * @param actor - актор или существо
+ * @returns характеристика заклинаний листа либо {@code null}, если её нет
+ */
+export function findSpellcastingAbility(
+  actor: DnDActor | DnDCreature,
+): AbilityType | null {
+  const manualSpellcastingAbility = actor.system?.spellcastingAbility;
+
+  if (isAbilityType(manualSpellcastingAbility)) {
+    return manualSpellcastingAbility;
   }
 
-  const casterClass = actor.system?.classes?.find(
-    (entry) => entry.spellcastingAbility != null,
-  );
+  if (isActorEntity(actor)) {
+    const casterClass = actor.system.classes?.find(
+      (entry) => entry.spellcastingAbility != null,
+    );
 
-  return casterClass?.spellcastingAbility ?? 'intelligence';
+    if (casterClass?.spellcastingAbility) {
+      return casterClass.spellcastingAbility;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Заклинательная характеристика САМОГО ЛИСТА — без учёта переопределения на
+ * заклинании.
+ *
+ * Нужна, чтобы заклинание со своей характеристикой могло сравнить себя с листом:
+ * разница модификаторов и есть поправка к его Сл. Лист без заклинательства
+ * считается по Интеллекту — так же, как это делает расчёт атаки.
+ *
+ * @param actor - актор-владелец
+ * @returns характеристика заклинаний листа
+ */
+export function resolveActorSpellcastingAbility(actor: DnDActor): AbilityType {
+  return findSpellcastingAbility(actor) ?? 'intelligence';
+}
+
+/**
+ * Сл спасброска от КОНКРЕТНОГО заклинания.
+ *
+ * У листа Сл одна и считается от его заклинательной характеристики. Но у
+ * заклинания может стоять своя («Посвящённый в магию» творит по той, что выбрал
+ * игрок, а не по характеристике класса) — тогда меняется и Сл, иначе половина
+ * расчёта шла бы от одной характеристики, а половина от другой.
+ *
+ * Меняется ровно модификатор характеристики: всё остальное — бонус мастерства,
+ * настройки листа, активные эффекты — уже посчитано в Сл листа и остаётся как есть.
+ *
+ * @param actor - актор-владелец
+ * @param spell - заклинание
+ * @param resolvedStats - итоговые статы листа
+ * @returns Сл спасброска для этого заклинания
+ */
+export function resolveSpellSaveDC(
+  actor: DnDActor,
+  spell: Spell,
+  resolvedStats: ResolvedActorStats,
+): number {
+  const spellAbility = resolveSpellcastingAbility(actor, spell);
+  const sheetAbility = resolveActorSpellcastingAbility(actor);
+
+  if (spellAbility === sheetAbility) {
+    return resolvedStats.spellSaveDC;
+  }
+
+  const difference =
+    (resolvedStats.abilityMods[spellAbility] ?? 0)
+    - (resolvedStats.abilityMods[sheetAbility] ?? 0);
+
+  return resolvedStats.spellSaveDC + difference;
 }
 
 /**

@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
 
-import type { AbilityType, Feature } from '@vtt/shared';
+import type { AbilityType, Feature, TypedWebSocketClient } from '@vtt/shared';
 import type {
   ActorBackgroundEntry,
   AppliedFeatMeta,
@@ -30,6 +30,7 @@ import {
   resolveFeatChoicePool,
 } from '@vtt/shared/system/dnd.js';
 
+import { useFeatChoiceSpells } from '../../../composables/useFeatChoiceSpells';
 import {
   rollbackBackgroundEffects,
   rollbackBackgroundFeatures,
@@ -88,6 +89,7 @@ export function useBackgroundWizard(
   backgroundDefinitionRef: Ref<BackgroundDefinition | null>,
   actorRef: Ref<DnDActor>,
   isOpenRef: Ref<boolean>,
+  socketRef: Ref<TypedWebSocketClient | null>,
 ) {
   /**
    * Определение с достроенными блоками даров: записи компендиума отдают
@@ -131,6 +133,17 @@ export function useBackgroundWizard(
    * инструментов ей приносит шаг владений.
    */
   const grantedFeatData = ref<FeatData | null>(null);
+
+  /**
+   * Заклинания каталога для выборов черты. Загружаются здесь, а не в окне: пул
+   * выбора и проверка «все ли ответы даны» обязаны смотреть на один и тот же
+   * список, иначе шаг считался бы завершённым при незаполненном выборе.
+   */
+  const { spells: featChoiceSpells } = useFeatChoiceSpells(
+    socketRef,
+    computed(() => grantedFeatData.value?.choices ?? []),
+  );
+
   /**
    * Выбранный вариант стартового снаряжения; `null` — не выбран. Выбирать есть
    * что только у вариантов с позициями, поэтому шаг не блокирует переход.
@@ -238,7 +251,10 @@ export function useBackgroundWizard(
       );
 
       const incomplete = choices.some((choice) => {
-        const pool = resolveFeatChoicePool(choice, actorRef.value);
+        const pool = resolveFeatChoicePool(choice, actorRef.value, {
+          spells: featChoiceSpells.value,
+          selections: selectedFeatChoices.value,
+        });
 
         if (pool.length === 0) {
           return false;
@@ -736,6 +752,7 @@ export function useBackgroundWizard(
     selectedFeatId,
     selectedFeatChoices,
     grantedFeatData,
+    featChoiceSpells,
     selectedEquipmentIndex,
     selectedEquipmentItems,
     wizardSteps,

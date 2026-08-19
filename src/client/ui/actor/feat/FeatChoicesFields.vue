@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import type { DnDActor, FeatChoice } from '@vtt/shared/system/dnd.js';
+  import type { DnDActor, FeatChoice, Spell } from '@vtt/shared/system/dnd.js';
 
   import { computed } from 'vue';
 
@@ -25,6 +25,12 @@
     actor: DnDActor;
     /** Бонус мастерства — от него зависит количество у некоторых выборов */
     proficiencyBonus: number;
+    /**
+     * Заклинания компендиума — пул выбора заклинания или заговора. Каталог приходит
+     * снаружи, чтобы окно и проверка готовности смотрели на один и тот же список
+     * (см. `useFeatChoiceSpells`). Пусто — такой выбор остаётся без вариантов.
+     */
+    spells?: ReadonlyArray<Spell>;
   }>();
 
   /** Сделанный выбор: ключ выбора → выбранные значения */
@@ -34,7 +40,10 @@
   const resolved = computed(() =>
     props.choices.map((choice) => ({
       choice,
-      pool: resolveFeatChoicePool(choice, props.actor),
+      pool: resolveFeatChoicePool(choice, props.actor, {
+        spells: props.spells,
+        selections: selections.value,
+      }),
       max: resolveFeatChoiceCount(choice, props.proficiencyBonus),
       applied: isAppliedChoiceType(choice.type),
     })),
