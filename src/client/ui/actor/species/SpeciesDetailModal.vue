@@ -21,6 +21,7 @@
     GRANT_FIELD_LABELS,
     GRANT_SECTION_LABELS,
     LEVEL_BADGE_SUFFIX,
+    SELECT_FOR_ACTOR_LABEL,
     SPECIES_DETAIL_LABELS,
   } from '../constants';
   import SourceBadge from '../SourceBadge.vue';
@@ -30,11 +31,15 @@
     speciesDefinition: SpeciesDefinition | null;
     zIndex?: number;
     positionOffset?: number;
+    /** Показать кнопку «Выбрать» (окно открыто из выбора вида для персонажа) */
+    showSelectButton?: boolean;
   }>();
 
   const emit = defineEmits<{
     'update:open': [value: boolean];
     'bring-to-front': [];
+    /** Запись выбрана для листа персонажа */
+    'select': [];
   }>();
 
   const initialPosition = computed(() =>
@@ -294,6 +299,19 @@
         variant="subtle"
         size="sm"
       />
+
+      <UTooltip
+        v-if="showSelectButton"
+        :text="SELECT_FOR_ACTOR_LABEL"
+      >
+        <UButton
+          icon="tabler:check"
+          size="xs"
+          color="primary"
+          variant="soft"
+          @click.left.exact.prevent="emit('select')"
+        />
+      </UTooltip>
     </template>
 
     <template #body>

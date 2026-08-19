@@ -17,6 +17,7 @@
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { MissingSheetSectionKey } from './constants';
   import type { AppliedFeatFeature } from './feat/featApply';
 
   import { useToast } from '@nuxt/ui/composables';
@@ -58,13 +59,16 @@
   import ActorLeftPanel from './ActorLeftPanel.vue';
   import ActorRightPanel from './ActorRightPanel.vue';
   import ActorTabs from './ActorTabs.vue';
+  import { buildBackgroundRemovalUpdates } from './background/backgroundRollback';
   import BackgroundSetupWizard from './background/BackgroundSetupWizard.vue';
   import ClassSetupWizard from './class/ClassSetupWizard.vue';
+  import CompendiumPickerModal from './CompendiumPickerModal.vue';
   import {
     ACTOR_SHEET_LABELS,
     ACTOR_SHEET_LOG_PREFIX,
     BACKGROUND_DEFINITION_MIME,
     CLASS_DEFINITION_MIME,
+    COMPENDIUM_PICKER_LABELS,
     FEAT_PREREQUISITE_LABELS,
     GAME_FEATURE_MIME,
     GAME_ITEM_MIME,
@@ -84,6 +88,7 @@
   import FeatRechooseModal from './feat/FeatRechooseModal.vue';
   import LongRestModal from './LongRestModal.vue';
   import ShortRestModal from './ShortRestModal.vue';
+  import { buildSpeciesRemovalUpdates } from './species/speciesRollback';
   import SpeciesSetupWizard from './species/SpeciesSetupWizard.vue';
 
   interface Props {
@@ -160,6 +165,10 @@
   // Модалка подтверждения замены вида/предыстории
   const isReplaceConfirmOpen = ref(false);
   const replaceConfirmTarget = ref<'species' | 'background' | null>(null);
+
+  // Окно выбора вида/класса/предыстории из компендиума (клик по шапке листа)
+  const isCompendiumPickerOpen = ref(false);
+  const compendiumPickerKind = ref<MissingSheetSectionKey>('species');
 
   /**
    * Определение последнего применённого вида.
@@ -1128,6 +1137,81 @@
     isFeatureDragOver.value = false;
   }
 
+  /**
+   * Запускает мастер настройки класса. Общий вход для переноса из компендиума
+   * и для выбора одного класса в окне компендиума.
+   *
+   * @param definition - определение класса
+   */
+  function startClassSetup(definition: ClassDefinition) {
+    droppedClassDef.value = definition;
+    wizardQueue.value = []; // Очередь уровней тут ни при чём
+    isClassWizardOpen.value = true;
+  }
+
+  /**
+   * Запускает мастеров для нескольких выбранных классов подряд — мультикласс за
+   * один заход. Идёт через ту же очередь, что и повышение уровня: мастер
+   * сбрасывает своё состояние только при повторном открытии, поэтому следующий
+   * класс должен открываться ПОСЛЕ закрытия предыдущего (этим и занимается
+   * `processNextWizardStep`, ожидая загрузку определений).
+   *
+   * @param definitions - определения выбранных классов
+   */
+  function startClassesSetup(definitions: ClassDefinition[]) {
+    const [firstDefinition, ...restDefinitions] = definitions;
+
+    if (!firstDefinition) {
+      return;
+    }
+
+    if (restDefinitions.length === 0) {
+      startClassSetup(firstDefinition);
+
+      return;
+    }
+
+    wizardQueue.value = definitions.map((definition) => ({
+      classKey: definition.key,
+      targetLevel: 1,
+    }));
+
+    void processNextWizardStep();
+  }
+
+  /**
+   * Запускает настройку вида: у персонажа с видом сперва спрашиваем замену.
+   *
+   * @param definition - определение вида
+   */
+  function startSpeciesSetup(definition: SpeciesDefinition) {
+    droppedSpeciesDef.value = definition;
+
+    if (localActor.value?.system.species) {
+      replaceConfirmTarget.value = 'species';
+      isReplaceConfirmOpen.value = true;
+    } else {
+      isSpeciesWizardOpen.value = true;
+    }
+  }
+
+  /**
+   * Запускает настройку предыстории: у персонажа с предысторией сперва
+   * спрашиваем замену.
+   *
+   * @param definition - определение предыстории
+   */
+  function startBackgroundSetup(definition: BackgroundDefinition) {
+    droppedBackgroundDef.value = definition;
+
+    if (localActor.value?.system.background) {
+      replaceConfirmTarget.value = 'background';
+      isReplaceConfirmOpen.value = true;
+    } else {
+      isBackgroundWizardOpen.value = true;
+    }
+  }
+
   function handleDrop(event: DragEvent) {
     isSpellDragOver.value = false;
     isEquipmentDragOver.value = false;
@@ -1156,9 +1240,7 @@
           throw new Error('Dropped class definition has invalid shape');
         }
 
-        droppedClassDef.value = parsedClassDefinition;
-        wizardQueue.value = []; // Сбрасываем очередь при драг-н-дропе
-        isClassWizardOpen.value = true;
+        startClassSetup(parsedClassDefinition);
         event.preventDefault();
         event.stopPropagation();
       } catch (error) {
@@ -1172,15 +1254,7 @@
           throw new Error('Dropped species definition has invalid shape');
         }
 
-        droppedSpeciesDef.value = parsedSpeciesDefinition;
-
-        if (localActor.value?.system.species) {
-          replaceConfirmTarget.value = 'species';
-          isReplaceConfirmOpen.value = true;
-        } else {
-          isSpeciesWizardOpen.value = true;
-        }
-
+        startSpeciesSetup(parsedSpeciesDefinition);
         event.preventDefault();
         event.stopPropagation();
       } catch (error) {
@@ -1195,15 +1269,7 @@
           throw new Error('Dropped background definition has invalid shape');
         }
 
-        droppedBackgroundDef.value = parsedBackgroundDefinition;
-
-        if (localActor.value?.system.background) {
-          replaceConfirmTarget.value = 'background';
-          isReplaceConfirmOpen.value = true;
-        } else {
-          isBackgroundWizardOpen.value = true;
-        }
-
+        startBackgroundSetup(parsedBackgroundDefinition);
         event.preventDefault();
         event.stopPropagation();
       } catch (error) {
@@ -1777,6 +1843,122 @@
     });
   }
 
+  /**
+   * Открывает окно выбора записи компендиума для раздела шапки листа.
+   *
+   * @param kind - вид, класс или предыстория
+   */
+  function openCompendiumPicker(kind: MissingSheetSectionKey) {
+    compendiumPickerKind.value = kind;
+    isCompendiumPickerOpen.value = true;
+  }
+
+  /**
+   * Запускает мастера настройки для записей, отмеченных в окне компендиума.
+   * Ветки те же, что при переносе записи на лист; у классов их может быть
+   * несколько — мастера открываются по очереди.
+   *
+   * @param definitions - определения вида, классов или предыстории
+   */
+  function handleCompendiumPickerSelect(
+    definitions: Array<
+      SpeciesDefinition | ClassDefinition | BackgroundDefinition
+    >,
+  ) {
+    const classDefinitions: ClassDefinition[] = [];
+
+    for (const definition of definitions) {
+      if (definition.type === 'species') {
+        startSpeciesSetup(definition);
+      } else if (definition.type === 'background') {
+        startBackgroundSetup(definition);
+      } else {
+        classDefinitions.push(definition);
+      }
+    }
+
+    if (classDefinitions.length > 0) {
+      startClassesSetup(classDefinitions);
+    }
+  }
+
+  /**
+   * Снимает с персонажа вид: владения, особенности, тёмное зрение, размер и
+   * скорость возвращаются к состоянию «вид не выбран».
+   *
+   * Без определения снимаемого вида (пак компендиума мог исчезнуть) владения
+   * откатить нечем — снимаем всё остальное и предупреждаем об этом.
+   */
+  function handleRemoveSpecies() {
+    if (!localActor.value?.system.species) {
+      return;
+    }
+
+    const hasDefinition = Boolean(appliedSpeciesDef.value);
+
+    const { systemUpdates, rootUpdates } = buildSpeciesRemovalUpdates(
+      localActor.value,
+      appliedSpeciesDef.value,
+    );
+
+    Object.assign(localActor.value.system, systemUpdates);
+    Object.assign(localActor.value, rootUpdates);
+
+    appliedSpeciesDef.value = null;
+    droppedSpeciesDef.value = null;
+
+    isDirty.value = true;
+    handleImmediateSave();
+
+    toast.add({
+      title: COMPENDIUM_PICKER_LABELS.speciesRemovedTitle,
+      description: hasDefinition
+        ? COMPENDIUM_PICKER_LABELS.speciesRemovedText
+        : COMPENDIUM_PICKER_LABELS.speciesRemovedWithoutDefinition,
+      color: hasDefinition ? 'success' : 'warning',
+    });
+  }
+
+  /**
+   * Снимает с персонажа предысторию: бонусы характеристик, владения и
+   * черта-происхождение уходят вместе с ней.
+   */
+  function handleRemoveBackground() {
+    if (!localActor.value?.system.background) {
+      return;
+    }
+
+    const { systemUpdates, rootUpdates } = buildBackgroundRemovalUpdates(
+      localActor.value,
+    );
+
+    Object.assign(localActor.value.system, systemUpdates);
+    Object.assign(localActor.value, rootUpdates);
+
+    droppedBackgroundDef.value = null;
+
+    isDirty.value = true;
+    handleImmediateSave();
+
+    toast.add({
+      title: COMPENDIUM_PICKER_LABELS.backgroundRemovedTitle,
+      description: COMPENDIUM_PICKER_LABELS.backgroundRemovedText,
+      color: 'success',
+    });
+  }
+
+  /**
+   * Снимает с персонажа текущий вид или предысторию — смотря какой раздел
+   * открыт в окне выбора. Класс снимается адресно, своим обработчиком.
+   */
+  function handleCompendiumPickerRemove() {
+    if (compendiumPickerKind.value === 'species') {
+      handleRemoveSpecies();
+    } else if (compendiumPickerKind.value === 'background') {
+      handleRemoveBackground();
+    }
+  }
+
   function handleSpeciesSetupApply(
     systemUpdates: Partial<DnDActor['system']>,
     rootUpdates: Partial<DnDActor>,
@@ -1987,6 +2169,7 @@
           @close="handleCancel"
           @start-wizard="handleStartWizardSequence"
           @remove-class="handleRemoveClass"
+          @open-compendium-picker="openCompendiumPicker"
         />
         <!-- Основной контент (3 колонки) -->
         <div class="custom-scrollbar flex-1 overflow-y-auto px-2 pt-4 pb-2">
@@ -2162,6 +2345,18 @@
     :background-definition="droppedBackgroundDef"
     :socket="socket"
     @apply="handleBackgroundSetupApply"
+  />
+
+  <!-- Выбор вида/класса/предыстории из компендиума (клик по шапке листа) -->
+  <CompendiumPickerModal
+    v-if="localActor && isCompendiumPickerOpen"
+    v-model:open="isCompendiumPickerOpen"
+    :actor="localActor"
+    :kind="compendiumPickerKind"
+    :socket="socket"
+    @select="handleCompendiumPickerSelect"
+    @remove-current="handleCompendiumPickerRemove"
+    @remove-class="handleRemoveClass"
   />
 
   <!-- Короткий отдых: трата костей хитов -->

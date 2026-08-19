@@ -13,12 +13,7 @@ import type {
 
 import { computed, ref, watch } from 'vue';
 
-import {
-  generateId,
-  pushUnique,
-  removeItems,
-  typedObjectEntries,
-} from '@vtt/shared';
+import { generateId, pushUnique, typedObjectEntries } from '@vtt/shared';
 import {
   appendGrantedSpells,
   applyFeatChoiceSelections,
@@ -27,15 +22,20 @@ import {
   calculateProficiencyBonus,
   collectFeatChoiceProficiencies,
   getTotalLevel,
-  isFeatOwnedEffect,
   normalizeBackgroundDefinition,
   prepareTransferredFeatEffects,
-  removeGrantedSpellsByFeatureNames,
   resolveChosenAbilities,
   resolveChosenResistances,
   resolveFeatChoiceCount,
   resolveFeatChoicePool,
 } from '@vtt/shared/system/dnd.js';
+
+import {
+  rollbackBackgroundEffects,
+  rollbackBackgroundFeatures,
+  rollbackBackgroundGrantedSpells,
+  rollbackBackgroundProficiencies,
+} from './backgroundRollback';
 
 export type BackgroundWizardStep =
   'overview' | 'featChoices' | 'tools' | 'abilities' | 'equipment';
@@ -373,59 +373,29 @@ export function useBackgroundWizard(
     const previousBackground = system.background;
 
     // --- Откат предыдущей предыстории ---
-    const baseSkills = { ...(system.proficiencies?.skills || {}) };
-    const baseTools = [...(system.proficiencies?.tools ?? [])];
-    const baseSavingThrows = [...(system.proficiencies?.savingThrows ?? [])];
-    const baseArmor = [...(system.proficiencies?.armor ?? [])];
-    const baseWeapons = [...(system.proficiencies?.weapons ?? [])];
-    const baseLanguages = [...(system.proficiencies?.languages ?? [])];
-
-    let baseFeatures = [...(actorRef.value.features || [])];
-
-    // Убираем старые эффекты предыстории (по префиксу провенанса background:) —
-    // это и бонус характеристик, и синтетический эффект даров, и перенесённые.
-    const baseEffects = [...(actorRef.value.activeEffects ?? [])].filter(
-      (effect) => !effect.originId?.startsWith(BACKGROUND_ORIGIN_PREFIX),
+    const rolledBackProficiencies = rollbackBackgroundProficiencies(
+      system.proficiencies,
+      previousBackground,
     );
 
-    if (previousBackground) {
-      // Откат навыков: канонические + расширенные (из featData)
-      for (const skill of previousBackground.skillChoices ?? []) {
-        Reflect.deleteProperty(baseSkills, skill);
-      }
+    const baseSkills = rolledBackProficiencies.skills;
+    const baseTools = rolledBackProficiencies.tools;
+    const baseSavingThrows = rolledBackProficiencies.savingThrows;
+    const baseArmor = rolledBackProficiencies.armor;
+    const baseWeapons = rolledBackProficiencies.weapons;
+    const baseLanguages = rolledBackProficiencies.languages;
 
-      for (const skill of previousBackground.extraSkillProficiencies ?? []) {
-        Reflect.deleteProperty(baseSkills, skill);
-      }
+    const baseFeatures = rollbackBackgroundFeatures(
+      actorRef.value.features ?? [],
+      previousBackground,
+    );
 
-      // Откат инструментов: канонические + расширенные
-      removeItems(baseTools, previousBackground.toolChoices);
-      removeItems(baseTools, previousBackground.extraToolProficiencies ?? []);
-
-      // Откат расширенных владений (из featData)
-      removeItems(
-        baseSavingThrows,
-        previousBackground.savingThrowProficiencies ?? [],
-      );
-
-      removeItems(baseArmor, previousBackground.armorProficiencies ?? []);
-      removeItems(baseWeapons, previousBackground.weaponProficiencies ?? []);
-      removeItems(baseLanguages, previousBackground.languages ?? []);
-
-      // Откат черты: сама особенность и её эффекты. Эффекты помечены провенансом
-      // черты (`feat:<id>`), а не предыстории, поэтому оптовый фильтр по
-      // `background:` выше их не забрал — снимаем адресно по id выданной черты
-      if (previousBackground.grantedFeatId) {
-        const grantedId = previousBackground.grantedFeatId;
-
-        baseFeatures = baseFeatures.filter((feat) => feat.id !== grantedId);
-
-        removeItems(
-          baseEffects,
-          baseEffects.filter((effect) => isFeatOwnedEffect(effect, grantedId)),
-        );
-      }
-    }
+    // Снимаем эффекты прежней предыстории: и её собственные (бонус
+    // характеристик, дары), и эффекты выданной ею черты.
+    const baseEffects = rollbackBackgroundEffects(
+      actorRef.value.activeEffects ?? [],
+      previousBackground,
+    );
 
     // --- Применение новой предыстории ---
 
@@ -709,22 +679,10 @@ export function useBackgroundWizard(
 
     let updatedSpells = [...originalSpells];
 
-    const previousSpellSources: string[] = [];
-
-    if (previousBackground?.grantedFeatName) {
-      previousSpellSources.push(previousBackground.grantedFeatName);
-    }
-
-    if (previousBackground?.ownGrantedSpellSource) {
-      previousSpellSources.push(previousBackground.ownGrantedSpellSource);
-    }
-
-    if (previousSpellSources.length > 0) {
-      updatedSpells = removeGrantedSpellsByFeatureNames(
-        updatedSpells,
-        previousSpellSources,
-      );
-    }
+    updatedSpells = rollbackBackgroundGrantedSpells(
+      updatedSpells,
+      previousBackground,
+    );
 
     updatedSpells = appendGrantedSpells(updatedSpells, resolvedGrantedSpells);
 

@@ -20,6 +20,7 @@
     GRANT_SECTION_LABELS,
     HIT_DIE_LETTER,
     LEVEL_BADGE_SUFFIX,
+    SELECT_FOR_ACTOR_LABEL,
     SKILL_LABELS,
     TOOL_PROF_LABELS,
     WEAPON_PROF_SHORT_LABELS,
@@ -69,11 +70,15 @@
     zIndex?: number;
     /** Смещение позиции для каскадного расположения */
     positionOffset?: number;
+    /** Показать кнопку «Выбрать» (окно открыто из выбора класса для персонажа) */
+    showSelectButton?: boolean;
   }>();
 
   const emit = defineEmits<{
     'update:open': [value: boolean];
     'bring-to-front': [];
+    /** Запись выбрана для листа персонажа */
+    'select': [];
   }>();
 
   const initialPosition = computed(() =>
@@ -356,6 +361,19 @@
         variant="subtle"
         size="sm"
       />
+
+      <UTooltip
+        v-if="showSelectButton"
+        :text="SELECT_FOR_ACTOR_LABEL"
+      >
+        <UButton
+          icon="tabler:check"
+          size="xs"
+          color="primary"
+          variant="soft"
+          @click.left.exact.prevent="emit('select')"
+        />
+      </UTooltip>
     </template>
 
     <template #body>

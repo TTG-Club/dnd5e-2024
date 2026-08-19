@@ -21,6 +21,7 @@
     BACKGROUND_DETAIL_LABELS,
     COPY_TO_ITEMS_LABEL,
     GRANT_SECTION_LABELS,
+    SELECT_FOR_ACTOR_LABEL,
   } from '../constants';
   import ItemDetailTabs from '../ItemDetailTabs.vue';
   import ItemEffectsView from '../ItemEffectsView.vue';
@@ -33,6 +34,11 @@
     zIndex?: number;
     positionOffset?: number;
     showCopyButton?: boolean;
+    /**
+     * Показать кнопку «Выбрать» (окно открыто из выбора предыстории для
+     * персонажа)
+     */
+    showSelectButton?: boolean;
   }>();
 
   const data = computed(() => props.item ?? props.backgroundDefinition);
@@ -41,6 +47,8 @@
     'update:open': [value: boolean];
     'bring-to-front': [];
     'copy': [];
+    /** Запись выбрана для листа персонажа */
+    'select': [];
   }>();
 
   const initialPosition = computed(() =>
@@ -188,6 +196,19 @@
           color="primary"
           variant="soft"
           @click.left.exact.prevent="emit('copy')"
+        />
+      </UTooltip>
+
+      <UTooltip
+        v-if="showSelectButton"
+        :text="SELECT_FOR_ACTOR_LABEL"
+      >
+        <UButton
+          icon="tabler:check"
+          size="xs"
+          color="primary"
+          variant="soft"
+          @click.left.exact.prevent="emit('select')"
         />
       </UTooltip>
 

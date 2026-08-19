@@ -3,6 +3,7 @@
 
   import type { ActorClassEntry, DnDActor } from '@vtt/shared/system/dnd.js';
 
+  import type { MissingSheetSectionKey } from './constants';
   import type { NameEditResult } from './NameEditModal.vue';
 
   import { computed, ref } from 'vue';
@@ -20,7 +21,7 @@
     SENSE_LABELS,
   } from '@vtt/shared/system/dnd.js';
 
-  import ActorHeaderPlaceholder from './ActorHeaderPlaceholder.vue';
+  import ActorHeaderSection from './ActorHeaderSection.vue';
   import {
     ACTOR_HEADER_LABELS,
     CREATURE_SIZE_LABELS,
@@ -80,6 +81,8 @@
     'close': [];
     'start-wizard': [payload: LevelUpWizardPayload];
     'remove-class': [classKey: string];
+    /** Открыть окно выбора вида/класса/предыстории из компендиума */
+    'open-compendium-picker': [kind: MissingSheetSectionKey];
   }>();
 
   // Вычисляемые свойства
@@ -208,6 +211,35 @@
   const backgroundLabel = computed(() => {
     return props.actor.system.background?.backgroundName ?? '';
   });
+
+  /** Название вида на листе или "" */
+  const speciesLabelValue = computed(
+    () => props.actor.system.species?.speciesName ?? '',
+  );
+
+  /** Текст раздела вида: название либо плейсхолдер «Вид не выбран» */
+  const speciesLabel = computed(
+    () => speciesLabelValue.value || MISSING_SHEET_SECTIONS.species.label,
+  );
+
+  /** Текст раздела классов: перечень либо плейсхолдер */
+  const classLabel = computed(
+    () => mainClassLabel.value || MISSING_SHEET_SECTIONS.class.label,
+  );
+
+  /** Текст раздела предыстории: название либо плейсхолдер */
+  const backgroundSectionLabel = computed(
+    () => backgroundLabel.value || MISSING_SHEET_SECTIONS.background.label,
+  );
+
+  /**
+   * Пробрасывает на лист запрос открыть окно выбора записи компендиума.
+   *
+   * @param kind - раздел шапки: вид, класс или предыстория
+   */
+  function openCompendiumPicker(kind: MissingSheetSectionKey): void {
+    emit('open-compendium-picker', kind);
+  }
 
   /**
    * Уточнение вида в скобках: "Гуманоид, Средний".
@@ -570,10 +602,15 @@
           <div
             class="flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-toned"
           >
-            <span
-              v-if="actor.system.species?.speciesName"
-              class="text-toned"
-              >{{ actor.system.species.speciesName }}
+            <span class="flex items-center gap-1">
+              <ActorHeaderSection
+                :label="speciesLabel"
+                :title="MISSING_SHEET_SECTIONS.species.title"
+                :is-filled="Boolean(speciesLabelValue)"
+                :can-edit="canEdit"
+                @open="openCompendiumPicker('species')"
+              />
+
               <span
                 v-if="speciesDetails"
                 class="text-dimmed"
@@ -582,35 +619,24 @@
               </span>
             </span>
 
-            <ActorHeaderPlaceholder
-              v-else
-              :section="MISSING_SHEET_SECTIONS.species"
+            <span class="text-dimmed">—</span>
+
+            <ActorHeaderSection
+              :label="classLabel"
+              :title="MISSING_SHEET_SECTIONS.class.title"
+              :is-filled="Boolean(mainClassLabel)"
+              :can-edit="canEdit"
+              @open="openCompendiumPicker('class')"
             />
 
             <span class="text-dimmed">—</span>
 
-            <span
-              v-if="mainClassLabel"
-              class="text-toned"
-              >{{ mainClassLabel }}</span
-            >
-
-            <ActorHeaderPlaceholder
-              v-else
-              :section="MISSING_SHEET_SECTIONS.class"
-            />
-
-            <span class="text-dimmed">—</span>
-
-            <span
-              v-if="backgroundLabel"
-              class="text-toned"
-              >{{ backgroundLabel }}</span
-            >
-
-            <ActorHeaderPlaceholder
-              v-else
-              :section="MISSING_SHEET_SECTIONS.background"
+            <ActorHeaderSection
+              :label="backgroundSectionLabel"
+              :title="MISSING_SHEET_SECTIONS.background.title"
+              :is-filled="Boolean(backgroundLabel)"
+              :can-edit="canEdit"
+              @open="openCompendiumPicker('background')"
             />
           </div>
 

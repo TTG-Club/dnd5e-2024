@@ -26,30 +26,20 @@ import {
   EFFECT_FLAG_LABELS,
   getTotalLevel,
   isSkillType,
-  removeGrantedSpellsByFeatureNames,
 } from '@vtt/shared/system/dnd.js';
+
+import {
+  isSpeciesDefenseEffect,
+  rollbackSpeciesFeatures,
+  rollbackSpeciesGrantedSpells,
+  rollbackSpeciesProficiencies,
+  SPECIES_DEFENSE_EFFECT_PREFIX,
+} from './speciesRollback';
 
 export interface SpeciesWizardState {
   selectedSize: CreatureSize | null;
   grantSelections: Record<number, string[]>;
   featureChoices: Record<string, string>;
-}
-
-/**
- * Префиксы стабильного id активного эффекта-защит, выданного видом. По ним
- * эффект прежнего вида снимается при смене/удалении вида, не задевая эффекты
- * из других источников (предметы/заклинания/состояния). Старый префикс
- * (только-сопротивление) тоже снимаем — для миров, где он успел примениться.
- */
-const SPECIES_DEFENSE_EFFECT_PREFIX = 'species-defenses:';
-const SPECIES_LEGACY_RESISTANCE_EFFECT_PREFIX = 'species-resistance:';
-
-/** Принадлежит ли эффект защитам, выданным видом (текущий или старый префикс). */
-function isSpeciesDefenseEffect(effect: ActiveEffect): boolean {
-  return (
-    effect.id.startsWith(SPECIES_DEFENSE_EFFECT_PREFIX)
-    || effect.id.startsWith(SPECIES_LEGACY_RESISTANCE_EFFECT_PREFIX)
-  );
 }
 
 /**
@@ -177,22 +167,6 @@ function buildSpeciesDefenseEffect(
   }
 
   return effect;
-}
-
-/**
- * Удаляет все вхождения указанных элементов из массива (in-place).
- *
- * @param target - массив, из которого удаляются элементы
- * @param itemsToRemove - элементы для удаления
- */
-function removeItems<T>(target: T[], itemsToRemove: T[]): void {
-  for (const item of itemsToRemove) {
-    const index = target.indexOf(item);
-
-    if (index !== -1) {
-      target.splice(index, 1);
-    }
-  }
 }
 
 export function useSpeciesWizard(
@@ -404,39 +378,11 @@ export function useSpeciesWizard(
     };
 
     // --- Откат предыдущего вида ---
-    const baseProficiencies: DnDActor['system']['proficiencies'] = JSON.parse(
-      JSON.stringify(actor.value.system.proficiencies),
+    const baseProficiencies = rollbackSpeciesProficiencies(
+      actor.value.system.proficiencies,
+      previousSpecies,
+      previousSpeciesDef,
     );
-
-    if (previousSpecies && previousSpeciesDef) {
-      // Откат грантов предыдущего вида
-      previousSpeciesDef.grants.forEach((grant, grantIndex) => {
-        const previousUserChoices =
-          previousSpecies.grantChoices[grantIndex] || [];
-
-        if (grant.type === 'skillProficiency') {
-          for (const choice of previousUserChoices) {
-            if (isSkillType(choice)) {
-              Reflect.deleteProperty(baseProficiencies.skills, choice);
-            }
-          }
-        } else if (grant.type === 'weaponProficiency') {
-          removeItems(baseProficiencies.weapons, grant.items ?? []);
-          removeItems(baseProficiencies.weapons, previousUserChoices);
-        } else if (grant.type === 'armorProficiency') {
-          removeItems(baseProficiencies.armor, grant.items ?? []);
-          removeItems(baseProficiencies.armor, previousUserChoices);
-        } else if (grant.type === 'toolProficiency') {
-          removeItems(baseProficiencies.tools, grant.items ?? []);
-          removeItems(baseProficiencies.tools, previousUserChoices);
-        } else if (grant.type === 'language') {
-          removeItems(baseProficiencies.languages, grant.items ?? []);
-          removeItems(baseProficiencies.languages, previousUserChoices);
-        } else if (grant.type === 'savingThrowProficiency') {
-          removeItems(baseProficiencies.savingThrows, grant.abilities);
-        }
-      });
-    }
 
     // Уровне-зависимые дары: скорость и тёмное зрение считаются от текущего
     // суммарного уровня персонажа и выбранного подвида.
@@ -584,9 +530,7 @@ export function useSpeciesWizard(
 
     // Удаляем features от предыдущего вида
     if (previousSpecies) {
-      newFeatures = newFeatures.filter(
-        (feature) => feature.featureType !== 'species',
-      );
+      newFeatures = rollbackSpeciesFeatures(newFeatures);
     }
 
     /**
@@ -713,22 +657,9 @@ export function useSpeciesWizard(
     let updatedSpells = [...originalSpells];
 
     if (previousSpecies && previousSpeciesDef) {
-      // Имена особенностей предыдущего вида, включая особенности подвидов.
-      const previousFeatureNames: string[] = [];
-
-      for (const feature of previousSpeciesDef.features) {
-        previousFeatureNames.push(feature.name);
-
-        for (const choice of feature.choices ?? []) {
-          for (const choiceFeature of choice.features ?? []) {
-            previousFeatureNames.push(choiceFeature.name);
-          }
-        }
-      }
-
-      updatedSpells = removeGrantedSpellsByFeatureNames(
+      updatedSpells = rollbackSpeciesGrantedSpells(
         updatedSpells,
-        previousFeatureNames,
+        previousSpeciesDef,
       );
     }
 
