@@ -13,13 +13,10 @@
     SAVE_TYPE_LABELS,
   } from '@vtt/shared/system/dnd.js';
 
-  import {
-    FORM_FIELD_LABELS,
-    FORM_TAB_LABELS,
-    SPELL_DETAIL_LABELS,
-  } from '../actor/constants';
+  import { FORM_FIELD_LABELS, SPELL_DETAIL_LABELS } from '../actor/constants';
   import DamagePartsSummary from '../actor/DamagePartsSummary.vue';
   import ItemDetailModalShell from '../actor/ItemDetailModalShell.vue';
+  import ItemDetailTabs from '../actor/ItemDetailTabs.vue';
   import ItemEffectsView from '../actor/ItemEffectsView.vue';
   import {
     CREATURE_ACTION_DETAIL_LABELS,
@@ -155,120 +152,117 @@
     </template>
 
     <template #body>
-      <div
-        v-if="action"
-        class="flex flex-col gap-4"
-      >
-        <!-- Боевые параметры -->
-        <div
-          v-if="
-            action.attackBonus !== undefined
-            || hasSave
-            || damageParts.length > 0
-          "
-          class="rounded-lg border border-default/50 bg-elevated/30 p-3"
-        >
-          <div class="flex flex-wrap gap-x-6 gap-y-2 text-sm">
-            <!-- Тип броска / бонус к попаданию -->
-            <div v-if="action.attackBonus !== undefined && !hasSave">
-              <span class="block text-xs text-dimmed">{{
-                attackTypeLabel
-              }}</span>
+      <ItemDetailTabs v-if="action">
+        <!-- Вкладка «Основное» — боевые параметры, дистанция и описание -->
+        <template #general>
+          <div class="flex flex-col gap-4">
+            <!-- Боевые параметры -->
+            <div
+              v-if="
+                action.attackBonus !== undefined
+                || hasSave
+                || damageParts.length > 0
+              "
+              class="rounded-lg border border-default/50 bg-elevated/30 p-3"
+            >
+              <div class="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+                <!-- Тип броска / бонус к попаданию -->
+                <div v-if="action.attackBonus !== undefined && !hasSave">
+                  <span class="block text-xs text-dimmed">{{
+                    attackTypeLabel
+                  }}</span>
 
-              <p class="font-mono font-semibold text-highlighted">
-                {{ attackBonusLabel }}
-              </p>
+                  <p class="font-mono font-semibold text-highlighted">
+                    {{ attackBonusLabel }}
+                  </p>
+                </div>
+
+                <!-- Спасбросок -->
+                <div v-if="hasSave">
+                  <span class="block text-xs text-dimmed">
+                    {{ FORM_FIELD_LABELS.savingThrow }}
+                  </span>
+
+                  <p
+                    class="mt-0.5 text-xs font-semibold tracking-wider text-highlighted uppercase"
+                  >
+                    {{ saveTypeLabel }}
+                    {{ action.saveDC ?? '?'
+                    }}<span
+                      v-if="saveEffectLabel"
+                      class="ml-1 font-normal tracking-normal text-muted normal-case"
+                      >({{ saveEffectLabel }})</span
+                    >
+                  </p>
+                </div>
+
+                <!-- Урон / Лечение -->
+                <DamagePartsSummary :parts="damageParts" />
+              </div>
             </div>
 
-            <!-- Спасбросок -->
-            <div v-if="hasSave">
-              <span class="block text-xs text-dimmed">
-                {{ FORM_FIELD_LABELS.savingThrow }}
-              </span>
+            <!-- Дистанция / Область -->
+            <div
+              v-if="action.areaOfEffect || action.rangeType"
+              class="flex flex-wrap gap-x-6 gap-y-1 text-sm"
+            >
+              <div v-if="action.areaOfEffect">
+                <span class="text-xs text-dimmed"
+                  >{{ CREATURE_ACTION_DETAIL_LABELS.areaPrefix }}
+                </span>
 
-              <p
-                class="mt-0.5 text-xs font-semibold tracking-wider text-highlighted uppercase"
-              >
-                {{ saveTypeLabel }}
-                {{ action.saveDC ?? '?'
-                }}<span
-                  v-if="saveEffectLabel"
-                  class="ml-1 font-normal tracking-normal text-muted normal-case"
-                  >({{ saveEffectLabel }})</span
-                >
-              </p>
+                <span class="text-highlighted">
+                  {{
+                    AREA_SHAPE_LABELS[action.areaOfEffect.shape]
+                    ?? action.areaOfEffect.shape
+                  }}
+                  {{ action.areaOfEffect.size }} {{ distanceUnitLabel }}
+                </span>
+              </div>
+
+              <div v-else-if="action.rangeType === 'ranged' && action.range">
+                <span class="text-xs text-dimmed"
+                  >{{ CREATURE_ACTION_DETAIL_LABELS.rangePrefix }}
+                </span>
+
+                <span class="text-highlighted">
+                  {{ action.range.normal
+                  }}<template v-if="action.range.long"
+                    >/{{ action.range.long }}</template
+                  >
+                  {{ distanceUnitLabel }}
+                </span>
+              </div>
+
+              <div v-else-if="action.rangeType === 'melee'">
+                <span class="text-xs text-dimmed"
+                  >{{ CREATURE_ACTION_DETAIL_LABELS.reachPrefix }}
+                </span>
+
+                <span class="text-highlighted">
+                  {{ reachValue }} {{ distanceUnitLabel }}
+                </span>
+              </div>
             </div>
 
-            <!-- Урон / Лечение -->
-            <DamagePartsSummary :parts="damageParts" />
+            <!-- Описание -->
+            <div v-if="descriptionMarkdown">
+              <ItemDescriptionRenderer :content="descriptionMarkdown" />
+            </div>
           </div>
-        </div>
+        </template>
 
-        <!-- Дистанция / Область -->
-        <div
-          v-if="action.areaOfEffect || action.rangeType"
-          class="flex flex-wrap gap-x-6 gap-y-1 text-sm"
-        >
-          <div v-if="action.areaOfEffect">
-            <span class="text-xs text-dimmed"
-              >{{ CREATURE_ACTION_DETAIL_LABELS.areaPrefix }}
-            </span>
-
-            <span class="text-highlighted">
-              {{
-                AREA_SHAPE_LABELS[action.areaOfEffect.shape]
-                ?? action.areaOfEffect.shape
-              }}
-              {{ action.areaOfEffect.size }} {{ distanceUnitLabel }}
-            </span>
-          </div>
-
-          <div v-else-if="action.rangeType === 'ranged' && action.range">
-            <span class="text-xs text-dimmed"
-              >{{ CREATURE_ACTION_DETAIL_LABELS.rangePrefix }}
-            </span>
-
-            <span class="text-highlighted">
-              {{ action.range.normal
-              }}<template v-if="action.range.long"
-                >/{{ action.range.long }}</template
-              >
-              {{ distanceUnitLabel }}
-            </span>
-          </div>
-
-          <div v-else-if="action.rangeType === 'melee'">
-            <span class="text-xs text-dimmed"
-              >{{ CREATURE_ACTION_DETAIL_LABELS.reachPrefix }}
-            </span>
-
-            <span class="text-highlighted">
-              {{ reachValue }} {{ distanceUnitLabel }}
-            </span>
-          </div>
-        </div>
-
-        <!-- Описание -->
-        <div v-if="descriptionMarkdown">
-          <ItemDescriptionRenderer :content="descriptionMarkdown" />
-        </div>
-
-        <!-- Эффекты. Раздел стоит всегда, даже пустой: действие эффекты носит,
-          и по отсутствию раздела нельзя было бы понять, их нет или их тут не
-          показывают. Строка эффекта открывает карточку с разбором -->
-        <div class="flex flex-col gap-1.5 border-t border-default/50 pt-3">
-          <span
-            class="text-xs font-semibold tracking-wider text-dimmed uppercase"
-          >
-            {{ FORM_TAB_LABELS.effects }}
-          </span>
-
+        <!-- Вкладка «Эффекты» — только просмотр. Вкладка стоит всегда, даже
+          пустая: действие эффекты носит, и по отсутствию вкладки нельзя было бы
+          понять, их нет или их тут не показывают. Строка эффекта открывает
+          карточку с разбором -->
+        <template #effects>
           <ItemEffectsView
             :effects="actionEffects"
             :owner-name="action.name"
           />
-        </div>
-      </div>
+        </template>
+      </ItemDetailTabs>
     </template>
   </ItemDetailModalShell>
 </template>

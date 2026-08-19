@@ -20,9 +20,9 @@
   import {
     BACKGROUND_DETAIL_LABELS,
     COPY_TO_ITEMS_LABEL,
-    FORM_TAB_LABELS,
     GRANT_SECTION_LABELS,
   } from '../constants';
+  import ItemDetailTabs from '../ItemDetailTabs.vue';
   import ItemEffectsView from '../ItemEffectsView.vue';
   import SourceBadge from '../SourceBadge.vue';
 
@@ -200,176 +200,184 @@
     </template>
 
     <template #body>
-      <div
+      <ItemDetailTabs
         v-if="data"
-        class="flex flex-col gap-4"
+        resizable-modal
       >
-        <!-- Описание -->
-        <ItemDescriptionRenderer :content="data.description" />
+        <!-- Вкладка «Основное» — описание, дары и стартовое снаряжение -->
+        <template #general>
+          <div class="flex flex-col gap-4">
+            <!-- Описание -->
+            <ItemDescriptionRenderer :content="data.description" />
 
-        <!-- Основные характеристики в виде сетки -->
-        <div class="grid grid-cols-3 gap-2">
-          <!-- Характеристики -->
-          <div
-            class="rounded-lg border border-default/50 bg-elevated/30 px-3 py-2.5 text-center"
-          >
-            <span
-              class="block text-[10px] font-medium tracking-wider text-dimmed uppercase"
-            >
-              {{ BACKGROUND_DETAIL_LABELS.abilities }}
-            </span>
-
-            <p class="mt-0.5 text-sm font-semibold text-highlighted">
-              {{ abilitiesDisplay }}
-            </p>
-          </div>
-
-          <!-- Навыки -->
-          <div
-            class="rounded-lg border border-default/50 bg-elevated/30 px-3 py-2.5 text-center"
-          >
-            <span
-              class="block text-[10px] font-medium tracking-wider text-dimmed uppercase"
-            >
-              {{ GRANT_SECTION_LABELS.skills }}
-            </span>
-
-            <p class="mt-0.5 text-sm font-semibold text-highlighted">
-              {{ skillsDisplay }}
-            </p>
-          </div>
-
-          <!-- Инструменты -->
-          <div
-            v-if="
-              data.toolGrant?.items?.length || data.toolGrant?.choices?.count
-            "
-            class="rounded-lg border border-default/50 bg-elevated/30 px-3 py-2.5 text-center"
-          >
-            <span
-              class="block text-[10px] font-medium tracking-wider text-dimmed uppercase"
-            >
-              {{ GRANT_SECTION_LABELS.tools }}
-            </span>
-
-            <p class="mt-0.5 text-sm font-semibold text-highlighted">
-              {{ toolsDisplay }}
-            </p>
-          </div>
-        </div>
-
-        <!-- Черта от предыстории -->
-        <div
-          v-if="data.featGrant"
-          class="rounded-lg border border-default/50 p-4"
-        >
-          <h3 class="mb-3 text-sm font-semibold tracking-wider text-primary">
-            {{ BACKGROUND_DETAIL_LABELS.featTitle }}
-          </h3>
-
-          <!-- Конкретная черта -->
-          <div
-            v-if="data.featGrant.featId"
-            class="flex items-center justify-between rounded bg-elevated/50 px-3 py-2 transition-colors hover:bg-elevated"
-          >
-            <span class="text-sm font-medium text-highlighted">
-              {{ data.featGrant.featName }}
-              <span class="text-xs text-dimmed"
-                >({{ data.featGrant.featNameEn }})</span
+            <!-- Основные характеристики в виде сетки -->
+            <div class="grid grid-cols-3 gap-2">
+              <!-- Характеристики -->
+              <div
+                class="rounded-lg border border-default/50 bg-elevated/30 px-3 py-2.5 text-center"
               >
-            </span>
+                <span
+                  class="block text-[10px] font-medium tracking-wider text-dimmed uppercase"
+                >
+                  {{ BACKGROUND_DETAIL_LABELS.abilities }}
+                </span>
 
-            <UButton
-              icon="tabler:info-circle"
-              color="primary"
-              variant="ghost"
-              size="2xs"
-              @click="openFeatDescription()"
-            />
-          </div>
+                <p class="mt-0.5 text-sm font-semibold text-highlighted">
+                  {{ abilitiesDisplay }}
+                </p>
+              </div>
 
-          <!-- Выбор черты -->
-          <div
-            v-else-if="data.featGrant.featChoices?.length"
-            class="space-y-2"
-          >
-            <p class="text-xs text-muted">
-              {{ BACKGROUND_DETAIL_LABELS.featChoicePrefix }}
-            </p>
-
-            <div class="flex flex-wrap gap-2">
-              <UBadge
-                v-for="choice in data.featGrant.featChoices"
-                :key="choice"
-                color="neutral"
-                variant="soft"
-                class="cursor-pointer transition-colors hover:bg-accented"
-                @click="openFeatDescription(choice)"
+              <!-- Навыки -->
+              <div
+                class="rounded-lg border border-default/50 bg-elevated/30 px-3 py-2.5 text-center"
               >
-                {{ choice }}
-              </UBadge>
+                <span
+                  class="block text-[10px] font-medium tracking-wider text-dimmed uppercase"
+                >
+                  {{ GRANT_SECTION_LABELS.skills }}
+                </span>
+
+                <p class="mt-0.5 text-sm font-semibold text-highlighted">
+                  {{ skillsDisplay }}
+                </p>
+              </div>
+
+              <!-- Инструменты -->
+              <div
+                v-if="
+                  data.toolGrant?.items?.length
+                  || data.toolGrant?.choices?.count
+                "
+                class="rounded-lg border border-default/50 bg-elevated/30 px-3 py-2.5 text-center"
+              >
+                <span
+                  class="block text-[10px] font-medium tracking-wider text-dimmed uppercase"
+                >
+                  {{ GRANT_SECTION_LABELS.tools }}
+                </span>
+
+                <p class="mt-0.5 text-sm font-semibold text-highlighted">
+                  {{ toolsDisplay }}
+                </p>
+              </div>
+            </div>
+
+            <!-- Черта от предыстории -->
+            <div
+              v-if="data.featGrant"
+              class="rounded-lg border border-default/50 p-4"
+            >
+              <h3
+                class="mb-3 text-sm font-semibold tracking-wider text-primary"
+              >
+                {{ BACKGROUND_DETAIL_LABELS.featTitle }}
+              </h3>
+
+              <!-- Конкретная черта -->
+              <div
+                v-if="data.featGrant.featId"
+                class="flex items-center justify-between rounded bg-elevated/50 px-3 py-2 transition-colors hover:bg-elevated"
+              >
+                <span class="text-sm font-medium text-highlighted">
+                  {{ data.featGrant.featName }}
+                  <span class="text-xs text-dimmed"
+                    >({{ data.featGrant.featNameEn }})</span
+                  >
+                </span>
+
+                <UButton
+                  icon="tabler:info-circle"
+                  color="primary"
+                  variant="ghost"
+                  size="2xs"
+                  @click="openFeatDescription()"
+                />
+              </div>
+
+              <!-- Выбор черты -->
+              <div
+                v-else-if="data.featGrant.featChoices?.length"
+                class="space-y-2"
+              >
+                <p class="text-xs text-muted">
+                  {{ BACKGROUND_DETAIL_LABELS.featChoicePrefix }}
+                </p>
+
+                <div class="flex flex-wrap gap-2">
+                  <UBadge
+                    v-for="choice in data.featGrant.featChoices"
+                    :key="choice"
+                    color="neutral"
+                    variant="soft"
+                    class="cursor-pointer transition-colors hover:bg-accented"
+                    @click="openFeatDescription(choice)"
+                  >
+                    {{ choice }}
+                  </UBadge>
+                </div>
+              </div>
+            </div>
+
+            <!-- Дополнительные дары (featData) -->
+            <div
+              v-if="grantsSummary"
+              class="rounded-lg border border-default/50 p-4"
+            >
+              <h3
+                class="mb-3 text-sm font-semibold tracking-wider text-primary"
+              >
+                {{ BACKGROUND_DETAIL_LABELS.extraGrantsTitle }}
+              </h3>
+
+              <ItemDescriptionRenderer :content="grantsSummary" />
+            </div>
+
+            <!-- Стартовое снаряжение -->
+            <div
+              v-if="data.equipmentOptions?.length"
+              class="rounded-lg border border-default/50 p-4"
+            >
+              <h3
+                class="mb-3 text-sm font-semibold tracking-wider text-primary"
+              >
+                {{ BACKGROUND_DETAIL_LABELS.equipmentTitle }}
+              </h3>
+
+              <ul class="space-y-3">
+                <li
+                  v-for="(option, idx) in data.equipmentOptions"
+                  :key="idx"
+                  class="flex items-start gap-2"
+                >
+                  <div
+                    class="mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-elevated text-[10px] text-muted"
+                  >
+                    {{
+                      idx === 0
+                        ? BACKGROUND_DETAIL_LABELS.equipmentOptionA
+                        : BACKGROUND_DETAIL_LABELS.equipmentOptionB
+                    }}
+                  </div>
+
+                  <p class="text-sm text-toned">
+                    <ItemDescriptionRenderer :content="option.description" />
+                  </p>
+                </li>
+              </ul>
             </div>
           </div>
-        </div>
+        </template>
 
-        <!-- Дополнительные дары (featData) -->
-        <div
-          v-if="grantsSummary"
-          class="rounded-lg border border-default/50 p-4"
-        >
-          <h3 class="mb-3 text-sm font-semibold tracking-wider text-primary">
-            {{ BACKGROUND_DETAIL_LABELS.extraGrantsTitle }}
-          </h3>
-
-          <ItemDescriptionRenderer :content="grantsSummary" />
-        </div>
-
-        <!-- Эффекты предыстории. Блок стоит всегда, даже пустой: предыстория
-          эффекты носит, и по отсутствию блока нельзя было бы понять, их нет или
-          их тут не показывают -->
-        <div class="rounded-lg border border-default/50 p-4">
-          <h3 class="mb-3 text-sm font-semibold tracking-wider text-primary">
-            {{ FORM_TAB_LABELS.effects }}
-          </h3>
-
+        <!-- Вкладка «Эффекты» — только просмотр. Вкладка стоит всегда, даже
+          пустая: предыстория эффекты носит, и по отсутствию вкладки нельзя
+          было бы понять, их нет или их тут не показывают -->
+        <template #effects>
           <ItemEffectsView
             :effects="data.activeEffects ?? []"
             :owner-name="data.name"
           />
-        </div>
-
-        <!-- Стартовое снаряжение -->
-        <div
-          v-if="data.equipmentOptions?.length"
-          class="rounded-lg border border-default/50 p-4"
-        >
-          <h3 class="mb-3 text-sm font-semibold tracking-wider text-primary">
-            {{ BACKGROUND_DETAIL_LABELS.equipmentTitle }}
-          </h3>
-
-          <ul class="space-y-3">
-            <li
-              v-for="(option, idx) in data.equipmentOptions"
-              :key="idx"
-              class="flex items-start gap-2"
-            >
-              <div
-                class="mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-elevated text-[10px] text-muted"
-              >
-                {{
-                  idx === 0
-                    ? BACKGROUND_DETAIL_LABELS.equipmentOptionA
-                    : BACKGROUND_DETAIL_LABELS.equipmentOptionB
-                }}
-              </div>
-
-              <p class="text-sm text-toned">
-                <ItemDescriptionRenderer :content="option.description" />
-              </p>
-            </li>
-          </ul>
-        </div>
-      </div>
+        </template>
+      </ItemDetailTabs>
     </template>
   </UDraggableModal>
 </template>
