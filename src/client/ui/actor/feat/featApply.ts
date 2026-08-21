@@ -40,7 +40,7 @@ import {
   removeFeatChoiceSelections,
   removeGrantedSpellsByFeatureNames,
   resolveChosenAbilities,
-  resolveChosenResistances,
+  resolveChosenDamageDefenses,
 } from '@vtt/shared/system/dnd.js';
 
 /** Владения актора (структурно — то, что черта правит). */
@@ -310,9 +310,9 @@ export function applyFeatToActor(
     {
       acquisitionLevel,
       walkSpeed: actor.system.movement?.walk,
-      // Сопротивление и повышение характеристик по выбору: сам тип урона и сама
-      // характеристика известны только после того, как игрок выбрал
-      chosenResistances: resolveChosenResistances(featData, answers),
+      // Защита от урона и повышение характеристик по выбору: сам тип урона и
+      // сама характеристика известны только после того, как игрок выбрал
+      chosenDamageDefenses: resolveChosenDamageDefenses(featData, answers),
       chosenAbilities: resolveChosenAbilities(featData, answers),
     },
   );

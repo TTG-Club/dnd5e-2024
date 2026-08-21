@@ -210,7 +210,6 @@
       : next;
 
     row.options = [];
-    row.grantsResistance = false;
 
     if (isChoiceOnlyRow(row)) {
       row.mode = 'choice';
@@ -484,13 +483,6 @@
             <UCheckbox
               v-model="row.rechooseOnLongRest"
               :label="FEAT_GRANTS_LABELS.rechooseOnLongRest"
-            />
-
-            <UCheckbox
-              v-if="hasKind(row, 'damageType')"
-              v-model="row.grantsResistance"
-              :label="FEAT_GRANTS_LABELS.grantsResistance"
-              :description="FEAT_GRANTS_LABELS.grantsResistanceHint"
             />
           </template>
 

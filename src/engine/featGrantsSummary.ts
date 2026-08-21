@@ -34,6 +34,7 @@ import {
   DAMAGE_DEFENSE_KIND_LABELS,
   DAMAGE_TYPE_LABELS,
 } from './damageConstants.js';
+import { listFeatDamageDefenseChoices } from './featChoices.js';
 import { CLASS_FEATURE_NAMES } from './featPrerequisites.js';
 import { toolProficiencyLabel } from './toolProficiency.js';
 
@@ -155,6 +156,14 @@ function defenseLine(featData: FeatData): string | null {
     const kind = DAMAGE_DEFENSE_KIND_LABELS[defense.kind].toLowerCase();
 
     parts.push(`${kind}: ${DAMAGE_TYPE_LABELS[defense.damageType]}`);
+  }
+
+  // Защита по выбору: тип урона называет игрок при взятии черты, поэтому в
+  // сводке самой черты его нет — виден только исход
+  for (const choice of listFeatDamageDefenseChoices(featData)) {
+    const kind = DAMAGE_DEFENSE_KIND_LABELS[choice.kind].toLowerCase();
+
+    parts.push(`${kind}: тип урона на выбор`);
   }
 
   for (const condition of featData.conditionImmunities ?? []) {

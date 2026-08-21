@@ -30,7 +30,7 @@ import {
   prepareTransferredFeatEffects,
   resolveBackgroundFeatClassKey,
   resolveChosenAbilities,
-  resolveChosenResistances,
+  resolveChosenDamageDefenses,
   resolveFeatChoiceCount,
   resolveFeatChoicePool,
 } from '@vtt/shared/system/dnd.js';
@@ -703,7 +703,7 @@ export function useBackgroundWizard(
       {
         acquisitionLevel: getTotalLevel(actorRef.value.system.classes),
         walkSpeed: actorRef.value.system.movement?.walk,
-        chosenResistances: resolveChosenResistances(
+        chosenDamageDefenses: resolveChosenDamageDefenses(
           grantedFeat,
           selectedFeatChoices.value,
         ),

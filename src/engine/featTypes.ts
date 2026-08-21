@@ -13,6 +13,7 @@ import type { AbilityType, SkillType } from '@vtt/shared';
 
 import type { CounterRecovery } from './classTypes.js';
 import type { ConditionKey } from './conditionKeys.js';
+import type { DamageDefenseKind } from './damageConstants.js';
 import type { DamageDefenseEntry, GrantedSpellRef } from './speciesTypes.js';
 
 /**
@@ -192,10 +193,10 @@ export interface FeatModifiers {
   /** Дальность телепатии в футах («Дар Общения» — 120) */
   telepathyRange?: number;
   /**
-   * Ключ выбора ({@link FeatChoice.key}) типа урона, к которому даётся сопротивление:
-   * «Отмеченный драконом» выбирает один тип из пяти, «Закалённая кожа» — дробящий или
-   * рубящий. Сам тип известен только после выбора, поэтому в {@link FeatData.damageDefenses}
-   * его нет.
+   * Легаси-псевдоним первой записи {@link FeatData.damageDefenseChoices} с видом
+   * `resistance`: до появления списка защита по выбору могла быть только
+   * сопротивлением и только одна. Читается, когда списка нет вовсе, — записи,
+   * сделанные до правки, продолжают работать без пересохранения.
    */
   resistanceFromChoiceKey?: string;
   /** К броску инициативы прибавляется бонус мастерства («Бдительный») */
@@ -269,6 +270,20 @@ export interface FeatChoiceSpellFilter {
   classesFromChoiceKey?: string;
   /** Время накладывания (`ritual`, `action`, …) */
   castingTime?: string;
+}
+
+/**
+ * Защита от типа урона, который называет игрок.
+ *
+ * Ссылка на выбор плюс исход, который этот выбор даёт: на момент записи черты
+ * тип урона ещё не назван, а вид защиты известен всегда. Списком, а не одним
+ * полем: черта может дать разными выборами и сопротивление, и иммунитет.
+ */
+export interface FeatDamageDefenseChoice {
+  /** Ключ выбора ({@link FeatChoice.key}), ответ на который даёт тип урона */
+  choiceKey: string;
+  /** Что выбранный тип урона получает */
+  kind: DamageDefenseKind;
 }
 
 /** Выбор, который игрок делает в момент взятия черты. */
@@ -373,6 +388,13 @@ export interface FeatData {
   languages?: string[];
   /** Защиты от типов урона (сопротивление/иммунитет/уязвимость). */
   damageDefenses?: DamageDefenseEntry[];
+  /**
+   * Защиты от типов урона, которые называет игрок: «Закалённая кожа» просит
+   * выбрать дробящий или рубящий и даёт к названному сопротивление. Сам тип
+   * известен только после выбора, поэтому в {@link damageDefenses} такая защита
+   * лечь не может. См. {@link FeatDamageDefenseChoice}.
+   */
+  damageDefenseChoices?: FeatDamageDefenseChoice[];
   /** Иммунитеты к состояниям. */
   conditionImmunities?: ConditionKey[];
   /** Тёмное зрение (футы, 0/undefined = нет). */

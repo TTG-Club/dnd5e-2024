@@ -24,8 +24,10 @@ import type {
   FeatChoiceOption,
   FeatChoiceSpellFilter,
   FeatChoiceType,
+  FeatDamageDefenseChoice,
   FeatData,
 } from './featTypes.js';
+import type { DamageDefenseEntry } from './speciesTypes.js';
 
 import { CLASS_KEY_OPTIONS, classKeyFromUrl } from './classTypes.js';
 import {
@@ -39,6 +41,7 @@ import {
 import {
   DAMAGE_TYPE_LABELS,
   DEFENSIBLE_DAMAGE_TYPES,
+  isDefensibleDamageType,
 } from './damageConstants.js';
 import { RITUAL_CASTING_TIME } from './spellTypes.js';
 
@@ -1025,25 +1028,72 @@ function removeValue(target: string[] | undefined, value: string): void {
 }
 
 /**
- * Тип урона, выбранный для сопротивления. «Отмеченный драконом» выбирает один тип из
- * пяти, и сопротивление даётся именно ему — через
- * {@code modifiers.damage.resistanceFromChoiceKey}.
+ * Защиты по выбору игрока, записанные чертой: список ссылок, а у записей до его
+ * появления — развёрнутое легаси-поле.
+ *
+ * Читается что-то одно: список сильнее, потому что редактор пишет легаси-поле по
+ * нему же, и разойтись они могут только в записи от другого потребителя.
+ *
+ * Единственное место, где легаси-поле разворачивается: и выдача даров, и сводка
+ * черты, и её редактор читают защиту по выбору отсюда — иначе у одной и той же
+ * старой записи вид зависел бы от того, кто её читает.
+ *
+ * @param featData - дары черты
+ * @returns ссылки «ключ выбора → вид защиты»
+ */
+export function listFeatDamageDefenseChoices(
+  featData: FeatData | null | undefined,
+): FeatDamageDefenseChoice[] {
+  const listed = (featData?.damageDefenseChoices ?? []).filter((choice) =>
+    choice.choiceKey.trim(),
+  );
+
+  if (listed.length > 0) {
+    return listed;
+  }
+
+  const legacy = featData?.modifiers?.resistanceFromChoiceKey?.trim();
+
+  return legacy ? [{ choiceKey: legacy, kind: 'resistance' }] : [];
+}
+
+/**
+ * Защиты от урона, которые дал ответ игрока: «Отмеченный драконом» выбирает один
+ * тип из пяти и получает к нему сопротивление, «Закалённая кожа» — дробящий или
+ * рубящий.
+ *
+ * Ответ приходит строкой из записи листа, поэтому сверяется гвардом: незнакомый
+ * тип урона дал бы защиту, которой движок не понимает. Один и тот же тип
+ * возвращается один раз — стойким и уязвимым разом он не бывает, и при
+ * противоречивой записи побеждает первая ссылка.
  *
  * @param featData - дары черты
  * @param selections - что выбрал игрок
- * @returns выбранные типы урона; пусто — черта такого сопротивления не даёт
+ * @returns защиты по выбранным типам; пусто — черта защиты по выбору не даёт
  */
-export function resolveChosenResistances(
+export function resolveChosenDamageDefenses(
   featData: FeatData | null | undefined,
   selections: Record<string, string[]> | undefined,
-): string[] {
-  const key = featData?.modifiers?.resistanceFromChoiceKey;
-
-  if (!key || !selections) {
+): DamageDefenseEntry[] {
+  if (!selections) {
     return [];
   }
 
-  return selections[key] ?? [];
+  const entries: DamageDefenseEntry[] = [];
+  const seen = new Set<string>();
+
+  for (const choice of listFeatDamageDefenseChoices(featData)) {
+    for (const value of selections[choice.choiceKey.trim()] ?? []) {
+      if (!isDefensibleDamageType(value) || seen.has(value)) {
+        continue;
+      }
+
+      seen.add(value);
+      entries.push({ damageType: value, kind: choice.kind });
+    }
+  }
+
+  return entries;
 }
 
 /**

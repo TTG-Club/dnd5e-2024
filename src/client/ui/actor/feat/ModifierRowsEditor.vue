@@ -2,7 +2,11 @@
   // Корневой вход `@nuxt/ui` типов компонентов не отдаёт — берём из подпути
   import type { DropdownMenuItem } from '@nuxt/ui/components/DropdownMenu.vue';
 
-  import type { EditableModifierRow, ModifierRowKind } from './featEditorTypes';
+  import type {
+    DamageDefenseSource,
+    EditableModifierRow,
+    ModifierRowKind,
+  } from './featEditorTypes';
 
   import { typedObjectEntries } from '@vtt/shared';
   import {
@@ -12,10 +16,16 @@
     SELECTABLE_CONDITIONS,
   } from '@vtt/shared/system/dnd.js';
 
-  import { FEAT_GRANTS_LABELS, MODIFIER_ROW_LABELS } from '../constants';
+  import {
+    FEAT_DAMAGE_CHOICE_COUNT,
+    FEAT_GRANTS_LABELS,
+    MODIFIER_ROW_LABELS,
+  } from '../constants';
   import FieldHint from '../FieldHint.vue';
   import {
     createModifierRow,
+    isDamageDefenseChoiceRow,
+    isFixedDamageDefenseRow,
     MODIFIER_ROW_KIND_OPTIONS,
     modifierHasValue,
     modifierSupportsEqualsWalk,
@@ -42,6 +52,12 @@
     value: condition.key,
     label: condition.nameRu,
   }));
+
+  /** Кто называет тип урона: автор черты или игрок при её взятии. */
+  const damageSourceOptions: { value: DamageDefenseSource; label: string }[] = [
+    { value: 'fixed', label: FEAT_GRANTS_LABELS.damageSourceFixed },
+    { value: 'choice', label: FEAT_GRANTS_LABELS.damageSourceChoice },
+  ];
 
   /** Меню «Добавить модификатор»: все виды одним списком. */
   const addMenuItems: DropdownMenuItem[][] = [
@@ -82,69 +98,134 @@
     <div
       v-for="(row, index) in rows"
       :key="row.uid"
-      class="flex items-center gap-2 rounded-lg bg-elevated/40 p-2"
+      class="flex flex-col gap-2 rounded-lg bg-elevated/40 p-2"
     >
-      <span class="min-w-0 flex-1 truncate text-sm">
-        {{ rowLabel(row) }}
-      </span>
+      <div class="flex items-center gap-2">
+        <span class="min-w-0 flex-1 truncate text-sm">
+          {{ rowLabel(row) }}
+        </span>
 
-      <UInputNumber
-        v-if="modifierHasValue(row.kind) && !row.equalsWalk"
-        v-model="row.value"
-        :min="-99"
-        :max="999"
-        size="sm"
-        class="w-28"
-        :aria-label="FEAT_GRANTS_LABELS.modifierValue"
-      />
+        <UInputNumber
+          v-if="modifierHasValue(row.kind) && !row.equalsWalk"
+          v-model="row.value"
+          :min="-99"
+          :max="999"
+          size="sm"
+          class="w-28"
+          :aria-label="FEAT_GRANTS_LABELS.modifierValue"
+        />
 
-      <UCheckbox
-        v-if="modifierSupportsEqualsWalk(row.kind)"
-        v-model="row.equalsWalk"
-        :label="FEAT_GRANTS_LABELS.equalsWalk"
-      />
+        <UCheckbox
+          v-if="modifierSupportsEqualsWalk(row.kind)"
+          v-model="row.equalsWalk"
+          :label="FEAT_GRANTS_LABELS.equalsWalk"
+        />
 
-      <USelect
-        v-if="row.kind === 'damageDefense'"
-        v-model="row.damageType"
-        :items="damageTypeOptions"
-        value-key="value"
-        label-key="label"
-        size="sm"
-        class="w-40"
-        :aria-label="FEAT_GRANTS_LABELS.damageType"
-      />
+        <USelect
+          v-if="row.kind === 'damageDefense'"
+          v-model="row.source"
+          :items="damageSourceOptions"
+          value-key="value"
+          label-key="label"
+          size="sm"
+          class="w-44"
+          :aria-label="FEAT_GRANTS_LABELS.damageSource"
+        />
 
-      <USelect
-        v-if="row.kind === 'damageDefense'"
-        v-model="row.defenseKind"
-        :items="defenseKindOptions"
-        value-key="value"
-        label-key="label"
-        size="sm"
-        class="w-40"
-        :aria-label="FEAT_GRANTS_LABELS.defenseKind"
-      />
+        <FieldHint
+          v-if="row.kind === 'damageDefense'"
+          :text="FEAT_GRANTS_LABELS.damageSourceHint"
+        />
 
-      <USelect
-        v-if="row.kind === 'conditionImmunity'"
-        v-model="row.condition"
-        :items="conditionOptions"
-        value-key="value"
-        label-key="label"
-        size="sm"
-        class="w-48"
-        :aria-label="FEAT_GRANTS_LABELS.condition"
-      />
+        <USelect
+          v-if="isFixedDamageDefenseRow(row)"
+          v-model="row.damageType"
+          :items="damageTypeOptions"
+          value-key="value"
+          label-key="label"
+          size="sm"
+          class="w-40"
+          :aria-label="FEAT_GRANTS_LABELS.damageType"
+        />
 
-      <UButton
-        icon="tabler:trash"
-        color="error"
-        variant="ghost"
-        size="xs"
-        :aria-label="rowLabel(row)"
-        @click.left.exact.prevent="removeRow(index)"
-      />
+        <USelect
+          v-if="row.kind === 'damageDefense'"
+          v-model="row.defenseKind"
+          :items="defenseKindOptions"
+          value-key="value"
+          label-key="label"
+          size="sm"
+          class="w-40"
+          :aria-label="FEAT_GRANTS_LABELS.defenseKind"
+        />
+
+        <USelect
+          v-if="row.kind === 'conditionImmunity'"
+          v-model="row.condition"
+          :items="conditionOptions"
+          value-key="value"
+          label-key="label"
+          size="sm"
+          class="w-48"
+          :aria-label="FEAT_GRANTS_LABELS.condition"
+        />
+
+        <UButton
+          icon="tabler:trash"
+          color="error"
+          variant="ghost"
+          size="xs"
+          :aria-label="rowLabel(row)"
+          @click.left.exact.prevent="removeRow(index)"
+        />
+      </div>
+
+      <!-- Тип урона называет игрок: чем ограничен выбор и как он подписан -->
+      <div
+        v-if="isDamageDefenseChoiceRow(row)"
+        class="flex flex-wrap items-end gap-2"
+      >
+        <UFormField
+          :label="FEAT_GRANTS_LABELS.damageChoicePool"
+          class="min-w-56 flex-1"
+        >
+          <USelectMenu
+            v-model="row.damageTypes"
+            :items="damageTypeOptions"
+            value-key="value"
+            label-key="label"
+            multiple
+            size="sm"
+            :placeholder="FEAT_GRANTS_LABELS.damageChoicePoolPlaceholder"
+            class="w-full"
+          />
+        </UFormField>
+
+        <UFormField
+          :label="FEAT_GRANTS_LABELS.damageChoiceCount"
+          class="w-28"
+        >
+          <UInputNumber
+            v-model="row.count"
+            :min="FEAT_DAMAGE_CHOICE_COUNT.min"
+            :max="FEAT_DAMAGE_CHOICE_COUNT.max"
+            size="sm"
+            class="w-full"
+          />
+        </UFormField>
+
+        <UFormField
+          :label="FEAT_GRANTS_LABELS.damageChoiceLabel"
+          class="min-w-56 flex-1"
+        >
+          <UInput
+            v-model="row.label"
+            size="sm"
+            :placeholder="FEAT_GRANTS_LABELS.damageChoiceLabelPlaceholder"
+            class="w-full"
+          />
+        </UFormField>
+      </div>
     </div>
 
     <UDropdownMenu

@@ -26,14 +26,13 @@ import type {
   FeatSpellListGroup,
 } from './featTypes.js';
 import type { GrantedSpellSource } from './grantedSpells.js';
-import type { GrantedSpellRef } from './speciesTypes.js';
+import type { DamageDefenseEntry, GrantedSpellRef } from './speciesTypes.js';
 import type { ActorCounterState } from './types.js';
 
 import { generateId } from '@vtt/shared';
 
 import { getTotalLevel } from './classTypes.js';
 import { ABILITY_OPTIONS, isAbilityType } from './consts.js';
-import { isDefensibleDamageType } from './damageConstants.js';
 import { ABILITY_INCREASE_CHOICE_KEY } from './featChoices.js';
 import { hasSpellcastingFeature } from './featPrerequisites.js';
 import { buildFormulaContext, evaluateFormula } from './formulaParser.js';
@@ -221,11 +220,11 @@ export interface FeatGrantContext {
    */
   walkSpeed?: number;
   /**
-   * Типы урона, выбранные игроком для сопротивления
-   * ({@code modifiers.resistanceFromChoiceKey}). До выбора черта не знает, к чему
-   * даёт сопротивление, поэтому в её дарах их нет.
+   * Защиты от урона, которые дал ответ игрока
+   * ({@code damageDefenseChoices}). До выбора черта не знает, к какому типу даёт
+   * защиту, поэтому в её дарах таких защит нет.
    */
-  chosenResistances?: string[];
+  chosenDamageDefenses?: DamageDefenseEntry[];
   /**
    * Характеристики, выбранные игроком для повышения
    * ({@code abilityScoreIncrease.fromChoiceKey}) — так устроен «Устойчивый».
@@ -817,17 +816,11 @@ export function buildFeatGrantEffect(
 
   const flags = collectFeatDamageDefenseFlags(featData);
 
-  // Сопротивление по выбору: тип урона известен только после того, как игрок выбрал,
-  // поэтому в дарах черты его нет — он приходит контекстом применения.
-  // Выбор приходит строкой из записи листа, поэтому сверяется гвардом: чужой
-  // тип урона дал бы флаг, который движок не понимает, и сопротивление молча
-  // не работало бы
-  for (const damageType of context.chosenResistances ?? []) {
-    if (!isDefensibleDamageType(damageType)) {
-      continue;
-    }
-
-    const flag: EffectFlagKey = `resistance.${damageType}`;
+  // Защита по выбору: тип урона известен только после того, как игрок выбрал,
+  // поэтому в дарах черты его нет — он приходит контекстом применения уже
+  // сверенным со справочником (см. `resolveChosenDamageDefenses`)
+  for (const defense of context.chosenDamageDefenses ?? []) {
+    const flag: EffectFlagKey = `${defense.kind}.${defense.damageType}`;
 
     if (!flags.includes(flag)) {
       flags.push(flag);
