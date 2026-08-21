@@ -58,6 +58,7 @@
     resolveFeatChoicesToAsk,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useSheetMinimize } from '../../composables/useSheetMinimize';
   import ActorCenterPanel from './ActorCenterPanel.vue';
   import ActorHeader from './ActorHeader.vue';
   import ActorLeftPanel from './ActorLeftPanel.vue';
@@ -964,6 +965,24 @@
     isDirty.value = false;
     savedSnapshot.value = null;
     isOpen.value = false;
+  }
+
+  const { sheetModalRef, minimizedTitle, minimizeSheet } = useSheetMinimize(
+    () => localActor.value?.name,
+    ACTOR_SHEET_LABELS.untitled,
+  );
+
+  /**
+   * Закрытие, пришедшее ОТ окна, а не от крестика в шапке листа: кнопка закрытия
+   * на шторке свёрнутого листа и Escape. Такое закрытие минует `handleCancel`, а
+   * с ним и вопрос о несохранённых правках, — поэтому заворачиваем его туда же.
+   *
+   * Окно шлёт это событие только чтобы закрыться (`update:open` всегда `false`),
+   * поэтому значение не проверяем. Выход из мира приходит сюда же, но лист он
+   * снимает не событием, а вычисткой реестра окон — вопрос показать не успеет.
+   */
+  function handleModalClose(): void {
+    handleCancel();
   }
 
   /**
@@ -2215,7 +2234,9 @@
     значение в inline `max-height`.
   -->
   <UDraggableModal
-    v-model:open="isOpen"
+    ref="sheetModalRef"
+    :open="isOpen"
+    :title="minimizedTitle"
     :draggable="true"
     :resizable="true"
     :min-width="800"
@@ -2230,6 +2251,7 @@
       body: 'p-0 max-h-[100%]',
     }"
     :hide-header="true"
+    @update:open="handleModalClose"
     @bring-to-front="emit('bring-to-front')"
   >
     <template #body>
@@ -2262,6 +2284,7 @@
           @long-rest="handleRest('long')"
           @save="handleSave"
           @close="handleCancel"
+          @minimize="minimizeSheet"
           @start-wizard="handleStartWizardSequence"
           @remove-class="handleRemoveClass"
           @open-compendium-picker="openCompendiumPicker"

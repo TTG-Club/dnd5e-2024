@@ -56,6 +56,7 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { useResolvedStats } from '../../composables/useResolvedStats';
+  import { useSheetMinimize } from '../../composables/useSheetMinimize';
   import {
     DICE_ROLL_DEFAULT_BUTTON,
     FEET_UNIT_LABEL,
@@ -850,6 +851,24 @@
     isOpen.value = false;
   }
 
+  const { sheetModalRef, minimizedTitle, minimizeSheet } = useSheetMinimize(
+    () => localCreature.value?.name,
+    CREATURE_SHEET_LABELS.untitled,
+  );
+
+  /**
+   * Закрытие, пришедшее ОТ окна, а не от крестика в шапке листа: кнопка закрытия
+   * на шторке свёрнутого листа. Такое закрытие минует `handleCancel`, а с ним и
+   * вопрос о несохранённых правках, — поэтому заворачиваем его туда же.
+   *
+   * Окно шлёт это событие только чтобы закрыться (`update:open` всегда `false`),
+   * поэтому значение не проверяем. Выход из мира приходит сюда же, но лист он
+   * снимает не событием, а вычисткой реестра окон — вопрос показать не успеет.
+   */
+  function handleModalClose(): void {
+    handleCancel();
+  }
+
   function onConfirmCancel() {
     isConfirmOpen.value = false;
     pendingAction.value = null;
@@ -1196,7 +1215,9 @@
     содержимым оставалась пустая полоса.
   -->
   <UDraggableModal
-    v-model:open="isOpen"
+    ref="sheetModalRef"
+    :open="isOpen"
+    :title="minimizedTitle"
     hide-header
     :initial-width="940"
     :initial-height="780"
@@ -1210,6 +1231,7 @@
       content: 'bg-default rounded-2xl',
       body: 'p-0 h-full flex flex-col max-h-[100%]',
     }"
+    @update:open="handleModalClose"
     @bring-to-front="emit('bring-to-front')"
   >
     <template #body>
@@ -1238,6 +1260,7 @@
           @short-rest="handleRest('short')"
           @long-rest="handleRest('long')"
           @close="handleCancel"
+          @minimize="minimizeSheet"
           @save="handleSave"
         />
 

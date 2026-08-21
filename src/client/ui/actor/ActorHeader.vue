@@ -79,6 +79,8 @@
     'long-rest': [];
     'save': [];
     'close': [];
+    /** Свернуть лист в шторку — окно остаётся открытым */
+    'minimize': [];
     'start-wizard': [payload: LevelUpWizardPayload];
     'remove-class': [classKey: string];
     /** Открыть окно выбора вида/класса/предыстории из компендиума */
@@ -722,6 +724,18 @@
         <UIcon
           name="tabler:settings-filled"
           class="h-4 w-4"
+        />
+      </button>
+
+      <!-- Minimize Button -->
+      <button
+        class="flex h-8 w-8 items-center justify-center rounded-full border border-default/50 bg-elevated/30 text-muted transition-colors hover:bg-accented/50 hover:text-highlighted"
+        :title="MODAL_BUTTON_LABELS.minimize"
+        @click.left.exact.prevent="emit('minimize')"
+      >
+        <UIcon
+          name="tabler:chevron-up"
+          class="h-5 w-5"
         />
       </button>
 

@@ -344,6 +344,8 @@ export const CREATURE_LIST_ITEM_LABELS = {
  * виды отдыха) берутся из `../actor/constants`.
  */
 export const CREATURE_SHEET_LABELS = {
+  /** Подпись шторки, пока у создаваемого существа ещё нет имени */
+  untitled: 'Новое существо',
   /**
    * Вкладка действий. Тем же словом подписан первый раздел внутри неё
    * (`CREATURE_ACTION_SECTIONS`), но это разные места: вкладка одна, а разделов
