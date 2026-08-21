@@ -23,6 +23,16 @@ import type {
   ManualHitDieGroup,
 } from './classTypes.js';
 
+/** Сколько зарядов возвращает отдых: ничего, все или заданное число */
+export type CounterRecoveryMode = 'none' | 'all' | 'amount';
+
+/** Восстановление счётчика на одном виде отдыха */
+export interface CounterRecoveryRule {
+  mode: CounterRecoveryMode;
+  /** Число возвращаемых зарядов; учитывается только при режиме `amount` */
+  amount: number;
+}
+
 /**
  * Текущее состояние счётчика классового ресурса на акторе
  *
@@ -49,12 +59,32 @@ export interface ActorCounterState {
   name?: string;
   /** Пользовательское краткое название для компактного отображения */
   shortName?: string;
-  /** Пользовательский тип восстановления */
+  /**
+   * Пользовательский тип восстановления — легаси-запись отдыха одним словом.
+   *
+   * Читается, только если не заданы {@link shortRest}/{@link longRest}: старые
+   * листы обходятся без миграции (`counterResource.getCounterRecoveryRules`).
+   */
   recovery?: CounterRecovery;
+  /** Что возвращает короткий отдых; нет — читается легаси-`recovery` */
+  shortRest?: CounterRecoveryRule;
+  /** Что возвращает продолжительный отдых; нет — читается легаси-`recovery` */
+  longRest?: CounterRecoveryRule;
   /** Текущее значение */
   current: number;
-  /** Максимальное значение (вычисляется из progression/formula) */
+  /**
+   * Максимальное значение. При заданной {@link maxFormula} значение
+   * производное: его пересчитывает `resolveCounterMax`, а здесь лежит последнее
+   * посчитанное — по нему читаются листы, собранные до формулы.
+   */
   max: number;
+  /**
+   * Формула максимума: число либо `@prof`, `@level`, `@mod.<abbr>`,
+   * `@mod.spell` со смещением. Есть формула — ресурс растёт вместе с
+   * персонажем: бонус мастерства и модификатор характеристики меняются, а
+   * запись остаётся прежней.
+   */
+  maxFormula?: string;
 }
 
 /** Валюта персонажа D&D 5e */

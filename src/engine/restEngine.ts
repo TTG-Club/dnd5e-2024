@@ -9,7 +9,7 @@
  * Трата зарядов предмета живёт отдельно — см. `itemUses.ts`.
  */
 
-import type { ActorClassEntry, CounterRecovery } from './classTypes.js';
+import type { ActorClassEntry } from './classTypes.js';
 import type {
   DnDActor,
   DnDCreature,
@@ -18,6 +18,7 @@ import type {
   Spell,
   SpellUsesRecovery,
 } from './dndEntities.js';
+import type { FormulaContext } from './formulaParser.js';
 import type { ActorCounterState, DnDActorSystem } from './types.js';
 
 import {
@@ -25,6 +26,12 @@ import {
   getEntityExhaustionLevel,
   withExhaustionLevel,
 } from './conditionTemplates.js';
+import {
+  buildCounterFormulaContext,
+  getCounterRecoveryAmount,
+  getCounterRecoveryRules,
+  resolveCounterMaxIn,
+} from './counterResource.js';
 import {
   getHalfHitDiceRecovery,
   getHitDiceGroups,
@@ -90,24 +97,28 @@ export interface ShortRestHitDiceResult {
 }
 
 /**
- * Восстанавливается ли ресурс с данным способом отката при этом типе отдыха.
+ * Восстанавливаются ли заряды с данным способом отката при этом типе отдыха.
  * Продолжительный отдых включает в себя эффект короткого.
  *
- * @param recovery - способ отката ресурса ('short'/'long' или recovery заряда)
+ * Счётчики ресурсов сюда не ходят: у них восстановление раздельное по видам
+ * отдыха и с количеством (`counterResource.getCounterRecoveryRules`), а не
+ * «всё или ничего».
+ *
+ * @param recovery - способ отката зарядов заклинания или предмета
  * @param restType - тип совершённого отдыха
- * @returns true, если ресурс нужно восстановить до максимума
+ * @returns true, если заряды нужно восстановить до максимума
  */
 function recoveryMatchesRest(
-  recovery: CounterRecovery | SpellUsesRecovery | ItemUsesRecovery,
+  recovery: SpellUsesRecovery | ItemUsesRecovery,
   restType: RestType,
 ): boolean {
-  if (recovery === 'short' || recovery === 'shortRest') {
+  if (recovery === 'shortRest') {
     return true;
   }
 
   // «На рассвете» откатывается вместе с продолжительным отдыхом — отдельного
   // счётчика игрового времени у листа нет (см. `ItemUsesRecovery`).
-  if (recovery === 'long' || recovery === 'longRest' || recovery === 'dawn') {
+  if (recovery === 'longRest' || recovery === 'dawn') {
     return restType === 'long';
   }
 
@@ -115,25 +126,43 @@ function recoveryMatchesRest(
 }
 
 /**
- * Возвращает копию счётчика класса с восстановленным значением, если его
- * способ отката соответствует типу отдыха; иначе — исходный счётчик.
+ * Возвращает копию счётчика класса с зарядами, которые вернул отдых.
+ *
+ * Отдых именно ДОБАВЛЯЕТ заряды, а не выставляет максимум: правило ресурса
+ * может возвращать не всё, а одну штуку («Удача клинка» — заряд за короткий
+ * отдых), и «до максимума» вернуло бы больше положенного.
+ *
+ * Максимум берётся посчитанным, а не записанным: у ресурса с формулой записанное
+ * число — снимок последнего расчёта, и после повышения уровня отдых восполнял бы
+ * его до прежнего потолка. Свежий максимум заодно сохраняется в счётчик.
  *
  * @param counter - текущее состояние счётчика
  * @param restType - тип совершённого отдыха
+ * @param context - `@`-переменные листа для формулы максимума
  * @returns счётчик (новый объект при восстановлении)
  */
 function restoreCounter(
   counter: ActorCounterState,
   restType: RestType,
+  context: FormulaContext,
 ): ActorCounterState {
-  // Без указанного отката восстанавливаем только продолжительным отдыхом
-  const recovery: CounterRecovery = counter.recovery ?? 'long';
+  const max = resolveCounterMaxIn(context, counter);
+  const rules = getCounterRecoveryRules(counter);
 
-  if (recoveryMatchesRest(recovery, restType)) {
-    return { ...counter, current: counter.max };
+  const restored = getCounterRecoveryAmount(
+    restType === 'short' ? rules.shortRest : rules.longRest,
+    max,
+  );
+
+  if (restored === 0 && max === counter.max) {
+    return counter;
   }
 
-  return counter;
+  return {
+    ...counter,
+    max,
+    current: Math.min(Math.max(counter.current + restored, 0), max),
+  };
 }
 
 /**
@@ -248,12 +277,15 @@ export function applyActorRest(
 ): Partial<DnDActor> {
   const system = actor.system;
 
+  // Контекст формул собирается один раз на весь список счётчиков
+  const counterContext = buildCounterFormulaContext(actor);
+
   const restoredSystem: DnDActorSystem = {
     ...system,
     // Пактовая магия восстанавливается и коротким, и продолжительным отдыхом
     pactSlotsUsed: 0,
     classCounters: system.classCounters.map((counter) =>
-      restoreCounter(counter, restType),
+      restoreCounter(counter, restType, counterContext),
     ),
   };
 
@@ -331,9 +363,21 @@ export function summarizeActorLongRest(actor: DnDActor): LongRestPreview {
 
   const spellSlotsRestored = spellSlotsUsed + (system.pactSlotsUsed ?? 0);
 
-  const countersRestored = system.classCounters.filter(
-    (counter) => counter.current < counter.max,
-  ).length;
+  // Считаются только те, кому отдых и правда что-то вернёт: у ресурса с
+  // откатом «ничего» пустой остаток так и останется пустым
+  const counterContext = buildCounterFormulaContext(actor);
+
+  const countersRestored = system.classCounters.filter((counter) => {
+    const max = resolveCounterMaxIn(counterContext, counter);
+
+    return (
+      counter.current < max
+      && getCounterRecoveryAmount(
+        getCounterRecoveryRules(counter).longRest,
+        max,
+      ) > 0
+    );
+  }).length;
 
   const spellChargesRestored = actor.spells.filter((spell) => {
     if (!spell.uses || spell.uses.recovery === 'atWill') {

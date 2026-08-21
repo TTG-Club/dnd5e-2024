@@ -2,28 +2,42 @@
   import type {
     ActorCounterState,
     ClassCounterDefinition,
-    CounterRecovery,
+    CounterRecoveryRule,
+    DnDActor,
   } from '@vtt/shared/system/dnd.js';
 
   import { computed, ref, watch } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
+  import {
+    buildCounterFormulaContext,
+    COUNTER_RECOVERY_AMOUNT_MIN,
+    getCounterRecoveryRules,
+    normalizeCounterRecoveryRule,
+    resolveCounterMaxIn,
+  } from '@vtt/shared/system/dnd.js';
 
   import {
     CLASS_COUNTERS_LABELS,
     CLASS_COUNTERS_MODAL_LABELS,
     FORM_FIELD_LABELS,
     MODAL_BUTTON_LABELS,
-    REST_LABELS,
     SHEET_COUNTER_DEFAULTS,
   } from './constants';
-  import { findCounterDefinition } from './utils/classCounters';
+  import CounterMaxField from './CounterMaxField.vue';
+  import CounterRecoveryFields from './CounterRecoveryFields.vue';
+  import {
+    counterIdentity,
+    findCounterDefinition,
+  } from './utils/classCounters';
 
   interface Props {
     open: boolean;
     counters: ActorCounterState[];
     counterDefinitions: ClassCounterDefinition[];
+    /** Лист персонажа: по нему считается максимум ресурса с формулой */
+    actor: DnDActor;
   }
 
   const props = defineProps<Props>();
@@ -38,20 +52,27 @@
     set: (value) => emit('update:open', value),
   });
 
-  const recoveryOptions: Array<{ label: string; value: CounterRecovery }> = [
-    { label: REST_LABELS.short, value: 'short' },
-    { label: REST_LABELS.long, value: 'long' },
-  ];
+  /**
+   * Счётчик в форме: правила отдыха разложены всегда, даже у записи с одним
+   * легаси-словом. Иначе каждое поле формы носило бы свой запасной вариант.
+   */
+  type CounterDraft = ActorCounterState & {
+    shortRest: CounterRecoveryRule;
+    longRest: CounterRecoveryRule;
+  };
 
-  const localCounters = ref<ActorCounterState[]>([]);
+  const localCounters = ref<CounterDraft[]>([]);
 
+  /** Контекст формул листа: собирается один раз на весь список счётчиков. */
+  const formulaContext = computed(() =>
+    buildCounterFormulaContext(props.actor),
+  );
+
+  // Ресурс без обеих подписей стал бы на листе пустой строкой
   const hasInvalidCounters = computed(() => {
     return localCounters.value.some(
       (counter) =>
-        !resolveCounterName(counter)
-        || !resolveCounterShortName(counter)
-        || counter.max < 1
-        || counter.current < 0,
+        !resolveCounterName(counter) || !resolveCounterShortName(counter),
     );
   });
 
@@ -59,19 +80,28 @@
     () => props.open,
     (opened) => {
       if (opened) {
-        localCounters.value = props.counters.map((counter) => ({
-          ...counter,
-        }));
+        localCounters.value = props.counters.map(toCounterDraft);
       }
     },
   );
 
-  function createCounterId(counter: ActorCounterState): string {
-    return [
-      counter.classKey,
-      counter.subclassKey ?? 'class',
-      counter.counterKey,
-    ].join(':');
+  /**
+   * Копия счётчика для формы с разложенным восстановлением.
+   *
+   * Правила отдыха достаются из легаси-поля `recovery` сразу, а не при
+   * сохранении: иначе форма открывала бы старый счётчик с пустыми плитками
+   * отдыха, и игрок читал бы «ничего не возвращается» там, где отдых работает.
+   *
+   * @param counter - счётчик листа
+   */
+  function toCounterDraft(counter: ActorCounterState): CounterDraft {
+    const rules = getCounterRecoveryRules(counter);
+
+    return {
+      ...counter,
+      shortRest: { ...rules.shortRest },
+      longRest: { ...rules.longRest },
+    };
   }
 
   function resolveCounterName(counter: ActorCounterState): string {
@@ -90,87 +120,96 @@
     );
   }
 
-  function resolveCounterRecovery(counter: ActorCounterState): CounterRecovery {
-    return (
-      counter.recovery
-      || findCounterDefinition(counter, props.counterDefinitions)?.recovery
-      || 'long'
-    );
+  /**
+   * Посчитанный максимум счётчика: с формулой он считается от листа и меняется
+   * прямо в форме, когда игрок правит источник.
+   *
+   * @param counter - счётчик формы
+   */
+  function counterMax(counter: ActorCounterState): number {
+    return resolveCounterMaxIn(formulaContext.value, counter);
   }
 
   function toTextInputValue(value: string | number): string {
     return String(value);
   }
 
-  function toNumberInputValue(value: string | number): number {
-    const numericValue = Number(value);
-
-    return Number.isNaN(numericValue) ? 0 : numericValue;
-  }
-
-  function isCounterRecovery(value: string): value is CounterRecovery {
-    return value === 'short' || value === 'long';
-  }
-
   function updateCounter(
-    targetCounter: ActorCounterState,
-    updates: Partial<ActorCounterState>,
+    targetCounter: CounterDraft,
+    updates: Partial<CounterDraft>,
   ): void {
-    const targetCounterId = createCounterId(targetCounter);
+    const targetCounterId = counterIdentity(targetCounter);
 
     localCounters.value = localCounters.value.map((counter) =>
-      createCounterId(counter) === targetCounterId
+      counterIdentity(counter) === targetCounterId
         ? { ...counter, ...updates }
         : counter,
     );
   }
 
   function updateCounterName(
-    counter: ActorCounterState,
+    counter: CounterDraft,
     value: string | number,
   ): void {
     updateCounter(counter, { name: toTextInputValue(value) });
   }
 
   function updateCounterShortName(
-    counter: ActorCounterState,
+    counter: CounterDraft,
     value: string | number,
   ): void {
     updateCounter(counter, { shortName: toTextInputValue(value) });
   }
 
-  function updateCounterCurrent(
-    counter: ActorCounterState,
-    value: string | number,
+  /**
+   * Записывает правило короткого отдыха.
+   *
+   * @param counter - счётчик формы
+   * @param shortRest - что возвращает короткий отдых
+   */
+  function updateCounterShortRest(
+    counter: CounterDraft,
+    shortRest: CounterRecoveryRule,
   ): void {
-    const current = Math.max(0, toNumberInputValue(value));
-
-    updateCounter(counter, {
-      current: Math.min(current, counter.max),
-    });
+    updateCounter(counter, { shortRest });
   }
 
-  function updateCounterMax(
-    counter: ActorCounterState,
-    value: string | number,
+  /**
+   * Записывает правило продолжительного отдыха.
+   *
+   * @param counter - счётчик формы
+   * @param longRest - что возвращает продолжительный отдых
+   */
+  function updateCounterLongRest(
+    counter: CounterDraft,
+    longRest: CounterRecoveryRule,
   ): void {
-    const max = Math.max(1, toNumberInputValue(value));
+    updateCounter(counter, { longRest });
+  }
+
+  /**
+   * Записывает формулу максимума, приводя остаток.
+   *
+   * Полный ресурс остаётся полным: новый заводится полным и обязан таким и
+   * сохраниться, когда игрок выберет источник максимума, — поля остатка в форме
+   * нет. Начатый ресурс сохраняет потраченное: смена настройки не восполняет
+   * заряды. Снижение максимума остаток подрезает — иначе осталось бы «3/2».
+   *
+   * @param counter - счётчик формы
+   * @param maxFormula - формула максимума
+   */
+  function updateCounterMaxFormula(
+    counter: CounterDraft,
+    maxFormula: string,
+  ): void {
+    const wasFull = counter.current >= counterMax(counter);
+    const max = counterMax({ ...counter, maxFormula });
 
     updateCounter(counter, {
-      current: Math.min(counter.current, max),
+      maxFormula,
       max,
+      current: wasFull ? max : Math.min(counter.current, max),
     });
-  }
-
-  function updateCounterRecovery(
-    counter: ActorCounterState,
-    value: string,
-  ): void {
-    if (!isCounterRecovery(value)) {
-      return;
-    }
-
-    updateCounter(counter, { recovery: value });
   }
 
   function createCustomCounterKey(): string {
@@ -197,29 +236,45 @@
         classKey: 'custom',
         name: SHEET_COUNTER_DEFAULTS.name,
         shortName: SHEET_COUNTER_DEFAULTS.shortName,
-        recovery: 'long',
+        // Новый ресурс — своё число: правило заводится, только если игрок сам
+        // выберет источник. Восстановление по умолчанию продолжительным
+        // целиком: так работает большинство счётчиков
+        maxFormula: '1',
+        shortRest: { mode: 'none', amount: COUNTER_RECOVERY_AMOUNT_MIN },
+        longRest: { mode: 'all', amount: COUNTER_RECOVERY_AMOUNT_MIN },
         current: 1,
         max: 1,
       },
     ];
   }
 
-  function removeCounter(targetCounter: ActorCounterState): void {
-    const targetCounterId = createCounterId(targetCounter);
+  function removeCounter(targetCounter: CounterDraft): void {
+    const targetCounterId = counterIdentity(targetCounter);
 
     localCounters.value = localCounters.value.filter(
-      (counter) => createCounterId(counter) !== targetCounterId,
+      (counter) => counterIdentity(counter) !== targetCounterId,
     );
   }
 
-  function normalizeCounter(counter: ActorCounterState): ActorCounterState {
-    const max = Math.max(1, counter.max);
+  /**
+   * Счётчик к сохранению: подписи достроены, максимум пересчитан, число зарядов
+   * в правилах отдыха приведено к его границам.
+   *
+   * Легаси-поле `recovery` снимается: правила отдыха теперь заданы явно, и
+   * оставленное слово читалось бы вместо них на листах, где правила пустые.
+   *
+   * @param counter - счётчик формы
+   */
+  function normalizeCounter(counter: CounterDraft): ActorCounterState {
+    const max = counterMax(counter);
 
     return {
       ...counter,
+      recovery: undefined,
       name: resolveCounterName(counter),
       shortName: resolveCounterShortName(counter),
-      recovery: resolveCounterRecovery(counter),
+      shortRest: normalizeCounterRecoveryRule(counter.shortRest, max),
+      longRest: normalizeCounterRecoveryRule(counter.longRest, max),
       current: Math.min(Math.max(0, counter.current), max),
       max,
     };
@@ -271,7 +326,7 @@
         <div class="flex max-h-115 flex-col gap-2 overflow-y-auto pr-1">
           <div
             v-for="counter in localCounters"
-            :key="createCounterId(counter)"
+            :key="counterIdentity(counter)"
             class="relative rounded-lg border border-default/50 bg-elevated/20 p-4 transition-all duration-200 hover:border-primary/30 hover:bg-elevated/30"
           >
             <!-- Кнопка удаления в правом верхнем углу -->
@@ -332,58 +387,20 @@
                 </label>
               </div>
 
-              <!-- Второй ряд: Восстановление, Текущее значение, Максимум -->
-              <div class="grid grid-cols-[1fr_6rem_6rem] gap-3">
-                <label class="flex flex-col gap-1">
-                  <span
-                    class="text-[10px] font-bold tracking-wider text-toned/80 uppercase"
-                  >
-                    {{ FORM_FIELD_LABELS.recovery }}
-                  </span>
+              <!-- Второй ряд: от чего считается максимум. Остатка здесь нет:
+                новый ресурс заводится полным, а тратят его кнопками на листе -->
+              <CounterMaxField
+                :model-value="counter.maxFormula ?? String(counter.max)"
+                :computed-max="counterMax(counter)"
+                @update:model-value="updateCounterMaxFormula(counter, $event)"
+              />
 
-                  <USelect
-                    :model-value="resolveCounterRecovery(counter)"
-                    :items="recoveryOptions"
-                    size="sm"
-                    class="w-full"
-                    @update:model-value="updateCounterRecovery(counter, $event)"
-                  />
-                </label>
-
-                <label class="flex flex-col gap-1">
-                  <span
-                    class="text-[10px] font-bold tracking-wider text-toned/80 uppercase"
-                  >
-                    {{ CLASS_COUNTERS_MODAL_LABELS.current }}
-                  </span>
-
-                  <UInput
-                    :model-value="counter.current"
-                    type="number"
-                    :min="0"
-                    size="sm"
-                    class="w-full"
-                    @update:model-value="updateCounterCurrent(counter, $event)"
-                  />
-                </label>
-
-                <label class="flex flex-col gap-1">
-                  <span
-                    class="text-[10px] font-bold tracking-wider text-toned/80 uppercase"
-                  >
-                    {{ FORM_FIELD_LABELS.max }}
-                  </span>
-
-                  <UInput
-                    :model-value="counter.max"
-                    type="number"
-                    :min="1"
-                    size="sm"
-                    class="w-full"
-                    @update:model-value="updateCounterMax(counter, $event)"
-                  />
-                </label>
-              </div>
+              <CounterRecoveryFields
+                :short-rest="counter.shortRest"
+                :long-rest="counter.longRest"
+                @update:short-rest="updateCounterShortRest(counter, $event)"
+                @update:long-rest="updateCounterLongRest(counter, $event)"
+              />
             </div>
           </div>
         </div>

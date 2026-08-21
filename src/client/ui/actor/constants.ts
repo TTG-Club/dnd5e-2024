@@ -12,9 +12,15 @@ import type {
   ProficiencyLevel,
   WeaponRangeType,
 } from '@vtt/shared';
-import type { ActiveEffectDetailSectionKey } from '@vtt/shared/system/dnd.js';
+import type {
+  ActiveEffectDetailSectionKey,
+  CounterRestKey,
+} from '@vtt/shared/system/dnd.js';
 
-import { CUSTOM_SKILLS_MAX } from '@vtt/shared/system/dnd.js';
+import {
+  COUNTER_FORMULA_TOKENS,
+  CUSTOM_SKILLS_MAX,
+} from '@vtt/shared/system/dnd.js';
 
 // Реэкспорт из единого shared-источника (производные от ABILITY_OPTIONS и SKILLS_LIST)
 export {
@@ -1970,9 +1976,10 @@ export const FEAT_GRANTS_LABELS = {
   countersHint: 'Запас, который тратится и восстанавливается на отдыхе.',
   countersHintDetails:
     'Например, «Удачливый» даёт очки удачи: их столько же, сколько бонус '
-    + 'мастерства, и они возвращаются на продолжительном отдыхе. В поле '
-    + '«Максимум» так и пишут: @prof — бонус мастерства, @level — уровень '
-    + 'персонажа, можно и просто число.',
+    + 'мастерства, и они возвращаются на продолжительном отдыхе. Максимум '
+    + 'выбирается списком — «Бонус мастерства», «Уровень персонажа», '
+    + 'модификатор характеристики — и растёт вместе с персонажем; «Прибавка» '
+    + 'сдвигает его («бонус мастерства минус один»).',
   countersEmpty: 'Ресурсов нет.',
   addCounter: 'Добавить ресурс',
   counterName: 'Название',
@@ -2073,13 +2080,12 @@ export const STARTING_EQUIPMENT_EDITOR_LABELS = {
  * Токены формул листа: ими форма собирает значение, которое потом считает
  * движок (`formulaParser`). Здесь, а не у формы черты, потому что формулой
  * задаются и ресурсы, и количество заклинаний ступени, и урон.
+ *
+ * Не свой набор строк, а тот же, которым движок разбирает максимум ресурса:
+ * два списка одних и тех же токенов рано или поздно разошлись бы, и форма
+ * начала бы писать формулы, которых лист не понимает.
  */
-export const FORMULA_TOKENS = {
-  /** Бонус мастерства */
-  proficiencyBonus: '@prof',
-  /** Приставка модификатора характеристики: `@mod.cha` */
-  abilityModifierPrefix: '@mod.',
-} as const;
+export const FORMULA_TOKENS = COUNTER_FORMULA_TOKENS;
 
 /**
  * Подписи таблицы «Заклинания метки» — того, что черта добавляет в список
@@ -3055,10 +3061,61 @@ export const CLASS_COUNTERS_MODAL_LABELS = {
   namePlaceholder: 'Например, Очки чародейства',
   shortName: 'Кратко',
   shortNamePlaceholder: 'ОЧ',
-  current: 'Сейчас',
   /** Единица счёта самих счётчиков — перед ней идёт их число */
   countUnit: 'шт.',
 } as const;
+
+/**
+ * Подписи настройки ресурса: откуда берётся максимум и что возвращает отдых.
+ *
+ * Общие для листа и редактора черты — настройка там одна и та же, и разные
+ * слова для одного поля читались бы как разные поля.
+ */
+export const COUNTER_RESOURCE_LABELS = {
+  /** Ряд максимума */
+  max: 'Максимум',
+  maxSourceAria: 'От чего считается максимум',
+  maxAmount: 'Сколько',
+  offset: 'Прибавка',
+  ability: 'Характеристика',
+  computed: 'Сейчас максимум',
+  formula: 'Формула',
+  formulaPlaceholder: '@prof * 2',
+
+  /** Названия источников максимума */
+  sourceFixed: 'Своё число',
+  sourceProficiency: 'Бонус мастерства',
+  sourceAbility: 'Модификатор характеристики',
+  sourceSpellAbility: 'Заклинательная характеристика',
+  sourceLevel: 'Уровень персонажа',
+  sourceFormula: 'Своя формула',
+
+  /** Блок восстановления */
+  recovery: 'Восстановление',
+  /** Сколько зарядов вернёт отдых */
+  modeNone: 'Ничего',
+  modeAll: 'Все заряды',
+  modeAmount: 'Своё число',
+  /** Компактная пометка режима «все заряды» в строке ресурса на листе */
+  allShort: 'все',
+  /** Единица зарядов в подсказке восстановления */
+  chargesAria: 'Сколько зарядов вернёт отдых',
+} as const;
+
+/**
+ * Вид отдыха в настройке ресурса: подпись и значок.
+ *
+ * Ключ тот же, что у правил восстановления в счётчике, поэтому и плитки формы,
+ * и пометки в строке листа читают одну запись. Подписи взяты из
+ * {@link REST_LABELS}: свои завели бы третье название одного и того же отдыха.
+ */
+export const COUNTER_REST_FIELDS: Record<
+  CounterRestKey,
+  { label: string; icon: string }
+> = {
+  shortRest: { label: REST_LABELS.short, icon: 'tabler:campfire' },
+  longRest: { label: REST_LABELS.long, icon: 'tabler:sun' },
+};
 
 /**
  * Значения нового счётчика листа. Это данные записи, а не подписи: они уходят

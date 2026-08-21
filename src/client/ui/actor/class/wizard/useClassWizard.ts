@@ -37,6 +37,7 @@ import {
   hasAbilityImprovementAtLevel,
   isAsiFeature,
   normalizeSpellName,
+  refreshCounterMaxima,
   refreshFeatCounters,
   SKILLS_LIST,
 } from '@vtt/shared/system/dnd.js';
@@ -979,11 +980,23 @@ export function useClassWizard(
     // Ресурсы черт пересчитываются на каждом повышении уровня: у «Удачливого»
     // максимум равен бонусу мастерства и обязан вырасти вместе с ним. Считаем
     // от уже обновлённого списка счётчиков, чтобы не потерять классовые
+    // Уровень уже новый: формулы ресурсов (`@prof`, `@level`) обязаны считать
+    // от него, иначе очки удачи вырастут только со следующим повышением
+    const leveledActor = {
+      ...actor.value,
+      system: { ...actor.value.system, ...systemUpdates },
+    };
+
     systemUpdates.classCounters = refreshFeatCounters(
-      // Уровень уже новый: формулы ресурсов (`@prof`, `@level`) обязаны считать
-      // от него, иначе очки удачи вырастут только со следующим повышением
-      { ...actor.value, system: { ...actor.value.system, ...systemUpdates } },
+      leveledActor,
       systemUpdates.classCounters ?? actor.value.system.classCounters ?? [],
+    );
+
+    // Свои ресурсы игрока с формулой максимума растут по той же причине: их
+    // `refreshFeatCounters` не трогает — черты им не владеют
+    systemUpdates.classCounters = refreshCounterMaxima(
+      leveledActor,
+      systemUpdates.classCounters,
     );
 
     // Владения — обновляем proficiencies при добавлении нового класса

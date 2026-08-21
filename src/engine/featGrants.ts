@@ -31,8 +31,10 @@ import type { ActorCounterState } from './types.js';
 
 import { generateId } from '@vtt/shared';
 
+import { calculateAbilityModifier } from './calculations.js';
 import { getTotalLevel } from './classTypes.js';
 import { ABILITY_OPTIONS, isAbilityType } from './consts.js';
+import { evaluateCounterMaxFormula } from './counterResource.js';
 import { ABILITY_INCREASE_CHOICE_KEY } from './featChoices.js';
 import { hasSpellcastingFeature } from './featPrerequisites.js';
 import { buildFormulaContext, evaluateFormula } from './formulaParser.js';
@@ -945,10 +947,9 @@ export function buildFeatCounters(
   return definitions
     .filter((definition) => definition.key.trim().length > 0)
     .map((definition) => {
-      const max = Math.max(
-        0,
-        Math.round(evaluateCounterMax(definition.max, context)),
-      );
+      // Тот же расчёт, что у своих ресурсов листа: кривая формула читается
+      // нулём, иначе персонаж остался бы без всей черты из-за одной опечатки
+      const max = evaluateCounterMaxFormula(definition.max, context);
 
       const previous = existing.find(
         (counter) =>
@@ -996,26 +997,7 @@ function featSpellcastingModifier(
     return undefined;
   }
 
-  return Math.floor(((actor.system.abilities[ability] ?? 10) - 10) / 2);
-}
-
-/**
- * Значение формулы максимума ресурса. Кривая формула не должна ронять выдачу
- * черты — тогда персонаж остался бы без всей черты из-за опечатки в одном поле,
- * поэтому неразобранная формула читается как ноль.
- *
- * @param formula - формула максимума из определения ресурса
- * @param context - `@`-переменные листа
- */
-function evaluateCounterMax(
-  formula: string,
-  context: ReturnType<typeof buildFormulaContext>,
-): number {
-  try {
-    return evaluateFormula(formula, context);
-  } catch {
-    return 0;
-  }
+  return calculateAbilityModifier(actor.system.abilities[ability] ?? 10);
 }
 
 /**

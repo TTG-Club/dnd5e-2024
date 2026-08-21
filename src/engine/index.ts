@@ -11,6 +11,7 @@ export * from './carryingCapacity.js';
 export * from './classTypes.js';
 export * from './conditionTemplates.js';
 export * from './consts.js';
+export * from './counterResource.js';
 export * from './creatureTypes.js';
 export * from './creatureUtils.js';
 export * from './customBonuses.js';

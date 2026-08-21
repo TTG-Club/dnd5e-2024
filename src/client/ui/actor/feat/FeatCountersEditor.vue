@@ -2,6 +2,7 @@
   import type { EditableFeatCounter } from './featEditorTypes';
 
   import { FEAT_GRANTS_LABELS } from '../constants';
+  import CounterMaxField from '../CounterMaxField.vue';
   import FieldHint from '../FieldHint.vue';
   import { createFeatCounter } from './featEditorTypes';
 
@@ -9,6 +10,8 @@
    * Редактор ресурсов черты: счётчик с максимумом-формулой и откатом от отдыха.
    * Максимум формулой, а не числом, потому что у большинства таких ресурсов он
    * привязан к бонусу мастерства и обязан расти вместе с ним («Удачливый»).
+   * Формулу автор не набирает — источник выбирается списком
+   * ({@link CounterMaxField}), она лишь остаётся форматом хранения.
    */
   const counters = defineModel<EditableFeatCounter[]>({ required: true });
 
@@ -48,7 +51,7 @@
     <div
       v-for="(counter, index) in counters"
       :key="counter.uid"
-      class="flex items-end gap-2 rounded-lg bg-elevated/40 p-2"
+      class="flex flex-wrap items-end gap-2 rounded-lg bg-elevated/40 p-2"
     >
       <UFormField
         :label="FEAT_GRANTS_LABELS.counterName"
@@ -73,16 +76,10 @@
         />
       </UFormField>
 
-      <UFormField
-        :label="FEAT_GRANTS_LABELS.counterMax"
-        class="w-28"
-      >
-        <UInput
-          v-model="counter.max"
-          size="sm"
-          class="w-full"
-        />
-      </UFormField>
+      <CounterMaxField
+        v-model="counter.max"
+        dense
+      />
 
       <UFormField
         :label="FEAT_GRANTS_LABELS.counterRecovery"
