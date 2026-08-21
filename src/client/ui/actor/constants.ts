@@ -2375,7 +2375,6 @@ export const ACTOR_FEATURES_TAB_LABELS = {
   add: 'Добавить особенность',
   edit: 'Редактировать особенность',
   selectedChoice: 'Выбранный вариант',
-  empty: 'Нет особенностей',
   featsTitle: 'Черты',
   featsDropHere: 'Перетащите сюда',
   featsEmpty: 'В данный момент черт нет',
