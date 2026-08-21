@@ -7,6 +7,7 @@ import type {
   BackgroundDefinition,
   DnDActor,
   DnDActorSystem,
+  FeatChoice,
   FeatData,
   ResolvedGrantedSpell,
 } from '@vtt/shared/system/dnd.js';
@@ -20,10 +21,14 @@ import {
   BACKGROUND_ORIGIN_PREFIX,
   buildFeatGrantEffect,
   calculateProficiencyBonus,
+  classKeyFromUrl,
   collectFeatChoiceProficiencies,
   getTotalLevel,
+  getVisibleFeatChoices,
   normalizeBackgroundDefinition,
+  prepareFeatChoices,
   prepareTransferredFeatEffects,
+  resolveBackgroundFeatClassKey,
   resolveChosenAbilities,
   resolveChosenResistances,
   resolveFeatChoiceCount,
@@ -135,13 +140,103 @@ export function useBackgroundWizard(
   const grantedFeatData = ref<FeatData | null>(null);
 
   /**
+   * Выборы выданной черты в том виде, в каком их задают игроку: с вопросом про
+   * класс у черт, где его в записи нет, и в порядке «класс → заклинания →
+   * характеристика».
+   */
+  const preparedFeatChoices = computed<FeatChoice[]>(() =>
+    prepareFeatChoices(grantedFeatData.value?.choices),
+  );
+
+  /**
+   * Класс, названный самой предысторией: «Мудрец» даёт «Посвящённого в магию
+   * (Волшебник)». Пусто — класс называет игрок.
+   */
+  const namedClassKeys = computed<string[]>(() => {
+    const key = resolveBackgroundFeatClassKey(definition.value?.featGrant);
+
+    return key ? [key] : [];
+  });
+
+  /**
+   * Выборы списка класса, за которые ответила предыстория. Названного класса
+   * среди вариантов нет — выбор остаётся за игроком: иначе черта получила бы
+   * список, которого в ней не перечислено.
+   */
+  const namedClassChoices = computed<FeatChoice[]>(() =>
+    preparedFeatChoices.value.filter(
+      (choice) =>
+        choice.type === 'spellList'
+        && (choice.options ?? []).some((option) =>
+          namedClassKeys.value.includes(classKeyFromUrl(option.value) ?? ''),
+        ),
+    ),
+  );
+
+  /**
+   * Выборы, которые мастер вообще спрашивает: без тех, на которые ответила сама
+   * предыстория. Спрашивать класс второй раз значит предлагать игроку передумать
+   * за неё.
+   */
+  const askedFeatChoices = computed<FeatChoice[]>(() => {
+    const answered = new Set(
+      namedClassChoices.value.map((choice) => choice.key),
+    );
+
+    return preparedFeatChoices.value.filter(
+      (choice) => !answered.has(choice.key),
+    );
+  });
+
+  /** Выборы, которые спрошены прямо сейчас: остальные ждут ответа про класс. */
+  const visibleFeatChoices = computed<FeatChoice[]>(() =>
+    getVisibleFeatChoices(askedFeatChoices.value, selectedFeatChoices.value),
+  );
+
+  // Ответ за игрока: предыстория назвала класс, пикер его не показывает — но
+  // ответ обязан лежать в общем наборе. По нему сужается пул заклинаний, и без
+  // него лист потом не сузил бы его до названного предысторией класса.
+  //
+  // Ответы в источниках потому, что их сбрасывает и смена черты, и закрытие окна:
+  // без пересмотра ответ пропал бы, а список выборов при этом не изменился бы.
+  // Цикл обрывает `hasNewAnswer`: второй проход находит ответ уже записанным и
+  // ничего не пишет.
+  watch(
+    [namedClassChoices, selectedFeatChoices],
+    ([choices]) => {
+      const answered = { ...selectedFeatChoices.value };
+
+      let hasNewAnswer = false;
+
+      for (const choice of choices) {
+        const named = (choice.options ?? []).find((option) =>
+          namedClassKeys.value.includes(classKeyFromUrl(option.value) ?? ''),
+        );
+
+        if (
+          named
+          && selectedFeatChoices.value[choice.key]?.[0] !== named.value
+        ) {
+          answered[choice.key] = [named.value];
+          hasNewAnswer = true;
+        }
+      }
+
+      if (hasNewAnswer) {
+        selectedFeatChoices.value = answered;
+      }
+    },
+    { immediate: true },
+  );
+
+  /**
    * Заклинания каталога для выборов черты. Загружаются здесь, а не в окне: пул
    * выбора и проверка «все ли ответы даны» обязаны смотреть на один и тот же
    * список, иначе шаг считался бы завершённым при незаполненном выборе.
    */
   const { spells: featChoiceSpells } = useFeatChoiceSpells(
     socketRef,
-    computed(() => grantedFeatData.value?.choices ?? []),
+    preparedFeatChoices,
   );
 
   /**
@@ -160,8 +255,9 @@ export function useBackgroundWizard(
     const steps: BackgroundWizardStep[] = ['overview'];
 
     // Выборы внутри выданной черты — сразу за её выбором: пул «Знатока» зависит
-    // от того, чем персонаж уже владеет, и спрашивать раньше нечего
-    if ((grantedFeatData.value?.choices?.length ?? 0) > 0) {
+    // от того, чем персонаж уже владеет, и спрашивать раньше нечего. Шага нет,
+    // когда спрашивать нечего: у «Мудреца» класс называет сама предыстория
+    if (askedFeatChoices.value.length > 0) {
       steps.push('featChoices');
     }
 
@@ -244,16 +340,17 @@ export function useBackgroundWizard(
     }
 
     if (currentStepInfo.value.stepGroup === 'featChoices') {
-      const choices = grantedFeatData.value?.choices ?? [];
-
       const bonus = calculateProficiencyBonus(
         getTotalLevel(actorRef.value.system.classes),
       );
 
-      const incomplete = choices.some((choice) => {
+      // Спрошенные и показанные: выбор заклинания, ждущий ответа про класс, ещё
+      // не показан — требовать ответа на него значило бы запереть шаг
+      const incomplete = visibleFeatChoices.value.some((choice) => {
         const pool = resolveFeatChoicePool(choice, actorRef.value, {
           spells: featChoiceSpells.value,
           selections: selectedFeatChoices.value,
+          namedClassKeys: namedClassKeys.value,
         });
 
         if (pool.length === 0) {
@@ -752,6 +849,8 @@ export function useBackgroundWizard(
     selectedFeatId,
     selectedFeatChoices,
     grantedFeatData,
+    askedFeatChoices,
+    namedClassKeys,
     featChoiceSpells,
     selectedEquipmentIndex,
     selectedEquipmentItems,

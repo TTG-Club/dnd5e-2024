@@ -174,6 +174,25 @@ function hasClassFeature(
   );
 }
 
+/**
+ * Умеет ли персонаж творить заклинания: «Использование заклинаний» либо «Магия
+ * договора».
+ *
+ * Кроме требований черты этим же вопросом проверяется расширение списка
+ * заклинаний (`featData.spellList.requiresSpellcasting`): у черт метки дракона
+ * список расширять нечего, пока заклинательства нет.
+ *
+ * @param actor - лист персонажа
+ */
+export function hasSpellcastingFeature(actor: DnDActor): boolean {
+  const names = featureNames(actor);
+
+  return (
+    hasClassFeature(actor, 'spellcasting', names)
+    || hasClassFeature(actor, 'pactMagic', names)
+  );
+}
+
 /** Проверяет требования к значениям характеристик обеих форм записи. */
 function checkAbilities(
   prerequisite: FeatPrerequisite,

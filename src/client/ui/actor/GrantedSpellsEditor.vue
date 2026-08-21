@@ -4,23 +4,84 @@
   // обычным Vite). Берём тип из подпути компонента — он в `exports` пакета.
   import type { DropdownMenuItem } from '@nuxt/ui/components/DropdownMenu.vue';
 
+  import type { TypedWebSocketClient } from '@vtt/shared';
   import type { GrantedSpellRef } from '@vtt/shared/system/dnd.js';
 
+  import type { PickedCompendiumRef } from './CompendiumRefPickerModal.vue';
   import type { SpellOption } from './grantedSpellsEditorTypes';
 
   import { ref } from 'vue';
 
+  import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useSourceLabels } from '@/systems/dnd5e/composables/useSourceLabel';
 
-  import { GRANTED_SPELLS_LABELS, MODAL_BUTTON_LABELS } from './constants';
+  import CompendiumRefPickerModal from './CompendiumRefPickerModal.vue';
+  import {
+    GRANTED_SPELLS_LABELS,
+    REF_PICKER_LABELS,
+    REF_PICKER_TITLES,
+  } from './constants';
 
-  const props = defineProps<{
-    /** Заклинания компендиума по пакам — для подсказок и выбора пака. */
-    availableSpells?: SpellOption[];
-  }>();
+  const props = withDefaults(
+    defineProps<{
+      /** Заклинания компендиума по пакам — для подсказок и выбора пака. */
+      availableSpells?: SpellOption[];
+      /** WebSocket-клиент: выбор заклинания из компендиума окном */
+      socket?: TypedWebSocketClient | null;
+      /**
+       * Показывать уровень, с которого заклинание доступно. Нужен только черте:
+       * у вида и класса уровень стоит у самой особенности, и второе поле рядом
+       * задавало бы одно и то же дважды.
+       */
+      withRequiredLevel?: boolean;
+    }>(),
+    { availableSpells: () => [], socket: null, withRequiredLevel: false },
+  );
 
   /** Список выдаваемых заклинаний (имя + опц. связь с компендиумом/паком). */
   const spells = defineModel<GrantedSpellRef[]>({ required: true });
+
+  /** Открыто ли окно выбора заклинания из компендиума. */
+  const { getNextZIndex } = useModalManager();
+
+  const isPickerOpen = ref(false);
+
+  /**
+   * Слой окна выбора. Без него окно открылось бы ПОД формой, из которой его
+   * позвали: слои раздаёт менеджер окон, а не порядок в разметке.
+   */
+  const pickerZIndex = ref<number | undefined>(undefined);
+
+  function openPicker(): void {
+    pickerZIndex.value = getNextZIndex();
+    isPickerOpen.value = true;
+  }
+
+  /**
+   * Дописывает выбранные в компендиуме заклинания. Уже выданные пропускаются:
+   * второй раз одно и то же заклинание черта не выдаёт.
+   *
+   * @param picked - выбранные записи компендиума
+   */
+  function addPickedSpells(picked: PickedCompendiumRef[]): void {
+    const taken = new Set(
+      spells.value
+        .map((spell) => spell.spellId)
+        .filter((spellId): spellId is string => Boolean(spellId)),
+    );
+
+    for (const entry of picked) {
+      if (taken.has(entry.url)) {
+        continue;
+      }
+
+      spells.value.push({
+        name: entry.name,
+        spellId: entry.url,
+        packId: entry.packId,
+      });
+    }
+  }
 
   const emit = defineEmits<{
     /** Открыть детальный просмотр заклинания (id + предпочтённый пак). */
@@ -28,9 +89,6 @@
   }>();
 
   const { getSourceLabel } = useSourceLabels();
-
-  /** Ввод названия нового заклинания. */
-  const newSpellName = ref('');
 
   /** Нормализует строку для поиска совпадений (нижний регистр + обрезка). */
   function normalizeForSearch(value: string): string {
@@ -141,39 +199,6 @@
       icon: option.packId === currentPackId ? 'tabler:check' : undefined,
       onSelect: () => choosePack(spell, option),
     }));
-  }
-
-  /** Добавляет заклинание; точное уникальное совпадение сразу связывается. */
-  function addSpell(): void {
-    const spellName = newSpellName.value.trim();
-
-    if (!spellName) {
-      return;
-    }
-
-    const exactId = findExactSpellId(spellName);
-
-    if (!exactId) {
-      spells.value.push({ name: spellName });
-      newSpellName.value = '';
-
-      return;
-    }
-
-    const options = packOptionsForId(exactId);
-    const [firstOption] = options;
-
-    const newEntry: GrantedSpellRef = {
-      name: firstOption?.name ?? spellName,
-      spellId: exactId,
-    };
-
-    if (options.length === 1 && firstOption) {
-      newEntry.packId = firstOption.packId;
-    }
-
-    spells.value.push(newEntry);
-    newSpellName.value = '';
   }
 
   /** Удаляет заклинание по индексу. */
@@ -305,6 +330,29 @@
           {{ GRANTED_SPELLS_LABELS.notFound }}
         </UBadge>
 
+        <!-- Уровень доступа — в строку, а не полем с подписью сверху: подпись
+             над каждой строкой удваивала бы её высоту, а смысл поля читается
+             из подсказки раздела -->
+        <div
+          v-if="props.withRequiredLevel"
+          class="flex shrink-0 items-center gap-1"
+          :title="GRANTED_SPELLS_LABELS.requiredLevelHint"
+        >
+          <span class="text-[11px] whitespace-nowrap text-dimmed">
+            {{ GRANTED_SPELLS_LABELS.requiredLevelShort }}
+          </span>
+
+          <UInputNumber
+            v-model="spell.requiredLevel"
+            :min="1"
+            :max="20"
+            size="xs"
+            class="w-24"
+            :aria-label="GRANTED_SPELLS_LABELS.requiredLevelHint"
+            :placeholder="GRANTED_SPELLS_LABELS.requiredLevelAny"
+          />
+        </div>
+
         <UButton
           icon="tabler:trash"
           color="error"
@@ -339,24 +387,33 @@
       </div>
     </div>
 
-    <div class="flex items-center gap-2">
-      <UInput
-        v-model="newSpellName"
-        :placeholder="GRANTED_SPELLS_LABELS.placeholder"
-        class="flex-1"
-        @keydown.enter.prevent="addSpell"
-      />
+    <UButton
+      v-if="props.socket"
+      icon="tabler:books"
+      :label="REF_PICKER_LABELS.open"
+      color="primary"
+      variant="soft"
+      size="sm"
+      class="self-start"
+      @click.left.exact.prevent="openPicker"
+    />
 
-      <UButton
-        icon="tabler:plus"
-        :label="MODAL_BUTTON_LABELS.add"
-        color="neutral"
-        variant="soft"
-        size="sm"
-        :disabled="!newSpellName.trim()"
-        @click.left.exact.prevent="addSpell"
-      />
-    </div>
+    <p
+      v-else
+      class="text-xs text-dimmed italic"
+    >
+      {{ REF_PICKER_LABELS.noSocket }}
+    </p>
+
+    <CompendiumRefPickerModal
+      v-if="props.socket"
+      v-model:open="isPickerOpen"
+      :socket="props.socket"
+      kind="spell"
+      :title="REF_PICKER_TITLES.spell"
+      :z-index="pickerZIndex"
+      @select="addPickedSpells"
+    />
 
     <p class="text-[11px] text-dimmed">
       {{ GRANTED_SPELLS_LABELS.hint }}

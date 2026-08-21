@@ -10,6 +10,7 @@
     ClassDefinition,
     DnDActor,
     DnDGameItem,
+    FeatAwaitingChoices,
     LongRestOptions,
     RestType,
     ShortRestHitDiceResult,
@@ -35,11 +36,13 @@
   import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { generateId, isRecord } from '@vtt/shared';
   import {
+    appendGrantedSpells,
     applyActorRest,
     applyShortRestWithHitDice,
     calculateAbilityModifier,
     calculateMaxHP,
     checkFeatPrerequisites,
+    collectFeatsAwaitingSpellListChoices,
     collectRechoosableFeats,
     computeSpeciesDarkvision,
     computeSpeciesMovement,
@@ -52,6 +55,7 @@
     isSpell,
     normalizeActor,
     normalizeCompendiumItem,
+    resolveFeatChoicesToAsk,
   } from '@vtt/shared/system/dnd.js';
 
   import ActorCenterPanel from './ActorCenterPanel.vue';
@@ -69,6 +73,7 @@
     BACKGROUND_DEFINITION_MIME,
     CLASS_DEFINITION_MIME,
     COMPENDIUM_PICKER_LABELS,
+    FEAT_CHOICES_LABELS,
     FEAT_PREREQUISITE_LABELS,
     GAME_FEATURE_MIME,
     GAME_ITEM_MIME,
@@ -82,6 +87,7 @@
   import {
     applyFeatToActor,
     reapplyFeatToActor,
+    resolveActorFeatSpells,
     resolveFeatGrantedSpells,
   } from './feat/featApply';
   import FeatChoicesModal from './feat/FeatChoicesModal.vue';
@@ -737,6 +743,12 @@
    */
   const isFeatRechooseOpen = ref(false);
 
+  /**
+   * Черты, у которых на новом уровне открылась ступень таблицы заклинаний.
+   * Пусто — окно выбора работает по своему обычному поводу (отдых).
+   */
+  const featsAwaitingSpellLists = ref<FeatAwaitingChoices[] | null>(null);
+
   /** Модификатор Телосложения актёра (для броска костей хитов) */
   const constitutionModifier = computed(() =>
     calculateAbilityModifier(
@@ -785,6 +797,8 @@
     // выбрать заново — предлагаем это сразу после отдыха, а не отдельной кнопкой:
     // иначе про пересмотр просто забывают
     if (collectRechoosableFeats(localActor.value).length > 0) {
+      // Повод другой — окно спрашивает про пересмотр, а не про ступени списка
+      featsAwaitingSpellLists.value = null;
       isFeatRechooseOpen.value = true;
     }
   }
@@ -1397,35 +1411,53 @@
    *
    * @param selections - id особенности → (ключ выбора → значения)
    */
-  function handleFeatRechooseApply(
+  async function handleFeatRechooseApply(
     selections: Record<string, Record<string, string[]>>,
-  ): void {
+  ): Promise<void> {
     if (!localActor.value) {
       return;
     }
 
-    // Массив объявлен типом черты: базовый `Feature` о `featData` не знает, и без
-    // объявления пришлось бы приводить тип у каждой найденной особенности
-    const features: AppliedFeatFeature[] = localActor.value.features ?? [];
+    featsAwaitingSpellLists.value = null;
 
     for (const [featureId, choices] of Object.entries(selections)) {
+      // Массив объявлен типом черты: базовый `Feature` о `featData` не знает, и
+      // без объявления пришлось бы приводить тип у каждой найденной особенности
+      const features: AppliedFeatFeature[] = localActor.value.features ?? [];
+
       const feature = features.find((entry) => entry.id === featureId);
 
       if (!feature) {
         continue;
       }
 
+      const updated: AppliedFeatFeature = { ...feature, choices };
+
+      // Пере-применение снимает заклинания черты и выдаёт их заново, поэтому их
+      // обязательно нужно разрешить: с пустым списком новый выбор стоил бы
+      // персонажу всех заклинаний этой черты
+      const resolved = await resolveFeatGrantedSpells(
+        props.socket,
+        updated,
+        localActor.value,
+      );
+
+      if (!localActor.value) {
+        return;
+      }
+
       const result = reapplyFeatToActor(
         localActor.value,
         feature,
-        { ...feature, choices },
-        [],
+        updated,
+        resolved,
       );
 
       localActor.value.features = result.features;
       localActor.value.spells = result.spells;
       localActor.value.activeEffects = result.activeEffects;
       localActor.value.system.proficiencies = result.proficiencies;
+      localActor.value.system.classCounters = result.classCounters;
     }
 
     isDirty.value = true;
@@ -1435,9 +1467,18 @@
     }
   }
 
-  /** Выборы черты, ждущей ответа игрока */
-  const pendingFeatChoices = computed(
-    () => pendingChoiceFeat.value?.featData?.choices ?? [],
+  /**
+   * Выборы черты, ждущей ответа игрока: заданные автором плюс заведённые листом
+   * под открытые ступени расширенного списка заклинаний («возьмите два из
+   * пяти»). Что открыто — решает уровень персонажа, поэтому спрашиваем от листа.
+   */
+  const pendingFeatChoices = computed(() =>
+    localActor.value
+      ? resolveFeatChoicesToAsk(
+          pendingChoiceFeat.value?.featData,
+          localActor.value,
+        )
+      : (pendingChoiceFeat.value?.featData?.choices ?? []),
   );
 
   /**
@@ -1465,7 +1506,7 @@
     // Черта с выборами сперва спрашивает игрока: применить её до ответа значит
     // выдать половину даров и потом дописывать вторую половину
     if (
-      (droppedFeat.featData?.choices?.length ?? 0) > 0
+      resolveFeatChoicesToAsk(droppedFeat.featData, localActor.value).length > 0
       && droppedFeat.choices === undefined
     ) {
       pendingChoiceFeat.value = droppedFeat;
@@ -1474,7 +1515,11 @@
       return;
     }
 
-    const resolved = await resolveFeatGrantedSpells(props.socket, droppedFeat);
+    const resolved = await resolveFeatGrantedSpells(
+      props.socket,
+      droppedFeat,
+      localActor.value,
+    );
 
     if (!localActor.value) {
       return;
@@ -1509,6 +1554,7 @@
     localActor.value.spells = result.spells;
     localActor.value.activeEffects = result.activeEffects;
     localActor.value.system.proficiencies = result.proficiencies;
+    localActor.value.system.classCounters = result.classCounters;
 
     if (result.token) {
       localActor.value.token = result.token;
@@ -1617,10 +1663,59 @@
     isDirty.value = true;
     handleImmediateSave();
 
+    void unlockFeatSpellsForLevel();
+
     // Если мы повышаем уровень по очереди — переходим к следующему
     if (wizardQueue.value.length > 0) {
       wizardQueue.value.shift(); // удаляем выполненный шаг
       void processNextWizardStep();
+    }
+  }
+
+  /**
+   * Открывает на новом уровне то, что черты выдают ступенями: заклинание с
+   * уровнем доступа («Малое восстановление» метки исцеления приходит на третьем)
+   * и очередную ступень таблицы заклинаний класса.
+   *
+   * Без этого прохода такие заклинания не появились бы никогда: черту применяют
+   * один раз, на взятии, и повторно её дары никто не пересчитывает. Уже выданное
+   * не задваивается — совпадения отсеиваются по названию.
+   */
+  async function unlockFeatSpellsForLevel(): Promise<void> {
+    if (!localActor.value) {
+      return;
+    }
+
+    const resolved = await resolveActorFeatSpells(
+      props.socket,
+      localActor.value,
+    );
+
+    if (!localActor.value) {
+      return;
+    }
+
+    const before = localActor.value.spells?.length ?? 0;
+    const spells = appendGrantedSpells(localActor.value.spells ?? [], resolved);
+
+    if (spells.length > before) {
+      localActor.value.spells = spells;
+      isDirty.value = true;
+      handleImmediateSave();
+    }
+
+    // Ступень, из которой берут не всё, сама не откроется: сперва игрок выбирает.
+    // Посреди очереди повышений не спрашиваем — окно встало бы поверх мастера
+    // класса; последний шаг очереди спросит про всё разом
+    if (wizardQueue.value.length > 0) {
+      return;
+    }
+
+    const awaiting = collectFeatsAwaitingSpellListChoices(localActor.value);
+
+    if (awaiting.length > 0) {
+      featsAwaitingSpellLists.value = awaiting;
+      isFeatRechooseOpen.value = true;
     }
   }
 
@@ -2209,6 +2304,7 @@
                 v-if="localActor"
                 :actor="localActor"
                 :is-edit-mode="isEditMode"
+                :socket="socket"
                 :is-spell-drag-over="isSpellDragOver"
                 :is-equipment-drag-over="isEquipmentDragOver"
                 :is-feature-drag-over="isFeatureDragOver"
@@ -2390,11 +2486,22 @@
     @apply="handleFeatChoicesApply"
   />
 
-  <!-- Пересмотр выборов черт после продолжительного отдыха -->
+  <!-- Выбор у взятых черт: пересмотр на отдыхе и новые ступени списка -->
   <FeatRechooseModal
     v-if="localActor"
     v-model:open="isFeatRechooseOpen"
     :actor="localActor"
+    :feats="featsAwaitingSpellLists"
+    :title="
+      featsAwaitingSpellLists ? FEAT_CHOICES_LABELS.spellListTitle : undefined
+    "
+    :hint="
+      featsAwaitingSpellLists ? FEAT_CHOICES_LABELS.spellListHint : undefined
+    "
+    :confirm-label="
+      featsAwaitingSpellLists ? MODAL_BUTTON_LABELS.apply : undefined
+    "
+    :socket="socket"
     @apply="handleFeatRechooseApply"
   />
 </template>

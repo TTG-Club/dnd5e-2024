@@ -9,6 +9,8 @@
   import {
     calculateProficiencyBonus,
     getTotalLevel,
+    getVisibleFeatChoices,
+    prepareFeatChoices,
     resolveFeatChoiceCount,
     resolveFeatChoicePool,
   } from '@vtt/shared/system/dnd.js';
@@ -56,30 +58,40 @@
   );
 
   /**
-   * Все обязательные выборы сделаны. Выбор с пустым пулом не считается
-   * незавершённым: выбирать в нём нечего.
+   * Выборы в том виде, в каком их задают игроку: с вопросом про класс у черт,
+   * где его в записи нет, и в порядке «класс → заклинания → характеристика».
    */
+  const preparedChoices = computed(() => prepareFeatChoices(props.choices));
+
   const { spells } = useFeatChoiceSpells(
     toRef(props, 'socket'),
-    toRef(props, 'choices'),
+    preparedChoices,
   );
 
+  /**
+   * Все обязательные выборы сделаны. Проверяются только спрошенные: выбор
+   * заклинания, ждущий ответа про класс, ещё не показан — требовать ответа на
+   * него значило бы запереть кнопку. Выбор с пустым пулом незавершённым не
+   * считается: выбирать в нём нечего.
+   */
   const isComplete = computed(() =>
-    props.choices.every((choice) => {
-      const pool = resolveFeatChoicePool(choice, props.actor, {
-        spells: spells.value,
-        selections: selections.value,
-      });
+    getVisibleFeatChoices(preparedChoices.value, selections.value).every(
+      (choice) => {
+        const pool = resolveFeatChoicePool(choice, props.actor, {
+          spells: spells.value,
+          selections: selections.value,
+        });
 
-      if (pool.length === 0) {
-        return true;
-      }
+        if (pool.length === 0) {
+          return true;
+        }
 
-      const max = resolveFeatChoiceCount(choice, proficiencyBonus.value);
-      const chosen = selections.value[choice.key]?.length ?? 0;
+        const max = resolveFeatChoiceCount(choice, proficiencyBonus.value);
+        const chosen = selections.value[choice.key]?.length ?? 0;
 
-      return chosen >= Math.min(max, pool.length);
-    }),
+        return chosen >= Math.min(max, pool.length);
+      },
+    ),
   );
 
   // Открытие — это новая черта: старый выбор к ней отношения не имеет
@@ -113,7 +125,7 @@
       <div class="space-y-4">
         <FeatChoicesFields
           v-model="selections"
-          :choices="choices"
+          :choices="preparedChoices"
           :actor="actor"
           :proficiency-bonus="proficiencyBonus"
           :spells="spells"

@@ -4,19 +4,26 @@
   import { computed } from 'vue';
 
   import {
+    clearSpellChoicesOfClass,
     FEAT_CHOICE_TYPE_LABELS,
+    getVisibleFeatChoices,
     isAppliedChoiceType,
     resolveFeatChoiceCount,
     resolveFeatChoicePool,
   } from '@vtt/shared/system/dnd.js';
 
-  import { FEAT_CHOICES_LABELS } from '../constants';
+  import { FEAT_CHOICE_BADGES_LIMIT, FEAT_CHOICES_LABELS } from '../constants';
 
   /**
    * Список выборов черты с уже разрешёнными пулами вариантов.
    *
    * Компонент общий для двух окон: выдачи черты и пересмотра выборов на
    * продолжительном отдыхе — набор выборов там разный, а сама работа одна.
+   *
+   * Выборы приходят уже разложенные по порядку (`prepareFeatChoices`): сперва
+   * список класса, потом заклинания из него, потом характеристика. Спрашиваются
+   * не все сразу — выбор заклинания ждёт ответа про класс, иначе пул собран не
+   * из того списка.
    */
   const props = defineProps<{
     /** Выборы, которые предстоит сделать */
@@ -31,22 +38,49 @@
      * (см. `useFeatChoiceSpells`). Пусто — такой выбор остаётся без вариантов.
      */
     spells?: ReadonlyArray<Spell>;
+    /**
+     * Классы, названные источником черты: предыстория «Мудрец» выдаёт
+     * «Посвящённого в магию (Волшебник)» — пул сужается до её класса.
+     */
+    namedClassKeys?: ReadonlyArray<string>;
   }>();
 
   /** Сделанный выбор: ключ выбора → выбранные значения */
   const selections = defineModel<Record<string, string[]>>({ required: true });
 
+  /** Выборы, которые спрашиваются сейчас: остальные ждут ответа про класс */
+  const visible = computed(() =>
+    getVisibleFeatChoices(props.choices, selections.value),
+  );
+
   /** Выборы с разрешённым пулом и пределом — считаем один раз, а не в шаблоне */
   const resolved = computed(() =>
-    props.choices.map((choice) => ({
-      choice,
-      pool: resolveFeatChoicePool(choice, props.actor, {
+    visible.value.map((choice) => {
+      const pool = resolveFeatChoicePool(choice, props.actor, {
         spells: props.spells,
         selections: selections.value,
-      }),
-      max: resolveFeatChoiceCount(choice, props.proficiencyBonus),
-      applied: isAppliedChoiceType(choice.type),
-    })),
+        namedClassKeys: props.namedClassKeys,
+      });
+
+      return {
+        choice,
+        pool,
+        // Подпись у значения есть не всегда: у оружия и заклинаний её задаёт
+        // сама черта, а у ключа словаря — справочник
+        items: pool.map((option) => ({
+          value: option.value,
+          label: option.name ?? option.value,
+        })),
+        // Список заклинаний класса в бейджи не помещается: заговоров волшебника
+        // под два десятка, и выбирать их проще списком с поиском
+        searchable: pool.length > FEAT_CHOICE_BADGES_LIMIT,
+        max: resolveFeatChoiceCount(choice, props.proficiencyBonus),
+        // Предупреждение о ручной механике не для выбора списка класса: он
+        // ничего и не должен применять — он лишь сужает следующий вопрос
+        manual:
+          !isAppliedChoiceType(choice.type) && choice.type !== 'spellList',
+      };
+    }),
   );
 
   /** Заголовок выбора: своя подпись черты, иначе название типа */
@@ -74,24 +108,55 @@
   }
 
   /**
+   * Ответы после смены значения. Смена списка класса вдобавок стирает выбранные
+   * из прежнего списка заклинания: в новом пуле их нет, и оставленный ответ выдал
+   * бы персонажу заклинание, которого черта уже не даёт.
+   *
+   * @param choice - выбор, на который отвечают
+   * @param values - выбранные значения
+   */
+  function withAnswer(
+    choice: FeatChoice,
+    values: string[],
+  ): Record<string, string[]> {
+    const answered = { ...selections.value, [choice.key]: values };
+
+    return choice.type === 'spellList'
+      ? clearSpellChoicesOfClass(props.choices, answered, choice.key)
+      : answered;
+  }
+
+  /**
+   * Записывает выбранное списком с поиском. Лишнее сверх предела отбрасывается:
+   * список сам его не ограничивает, а предел задаёт черта.
+   *
+   * @param choice - выбор, на который отвечают
+   * @param values - отмеченные значения
+   * @param max - сколько значений выбирают
+   */
+  function setValues(choice: FeatChoice, values: string[], max: number): void {
+    selections.value = withAnswer(choice, values.slice(0, max));
+  }
+
+  /**
    * Переключает значение с учётом предела. Выбор на одно значение заменяется
    * новым — так же, как это делает шаг навыков мастера класса.
    */
-  function toggle(key: string, value: string, max: number): void {
-    const current = [...chosen(key)];
+  function toggle(choice: FeatChoice, value: string, max: number): void {
+    const current = [...chosen(choice.key)];
     const index = current.indexOf(value);
 
     if (index !== -1) {
       current.splice(index, 1);
     } else if (max === 1) {
-      selections.value = { ...selections.value, [key]: [value] };
+      selections.value = withAnswer(choice, [value]);
 
       return;
     } else if (current.length < max) {
       current.push(value);
     }
 
-    selections.value = { ...selections.value, [key]: current };
+    selections.value = withAnswer(choice, current);
   }
 </script>
 
@@ -133,7 +198,7 @@
       </div>
 
       <p
-        v-if="!entry.applied"
+        v-if="entry.manual"
         class="text-xs text-warning"
       >
         {{ FEAT_CHOICES_LABELS.manualType }}
@@ -146,6 +211,18 @@
         {{ FEAT_CHOICES_LABELS.emptyPool }}
       </p>
 
+      <USelectMenu
+        v-else-if="entry.searchable"
+        :model-value="chosen(entry.choice.key)"
+        :items="entry.items"
+        value-key="value"
+        label-key="label"
+        multiple
+        :placeholder="FEAT_CHOICES_LABELS.searchPlaceholder"
+        class="w-full"
+        @update:model-value="setValues(entry.choice, $event, entry.max)"
+      />
+
       <div
         v-else
         class="flex flex-wrap gap-2"
@@ -157,7 +234,7 @@
           :color="optionColor(entry.choice.key, option.value)"
           :variant="optionVariant(entry.choice.key, option.value)"
           @click.left.exact.prevent="
-            toggle(entry.choice.key, option.value, entry.max)
+            toggle(entry.choice, option.value, entry.max)
           "
         >
           {{ option.name ?? option.value }}

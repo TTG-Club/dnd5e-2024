@@ -15,10 +15,10 @@
   } from '@vtt/shared/system/dnd.js';
 
   import type { SpellOption } from '../grantedSpellsEditorTypes';
+  import type { EditableStartingEquipmentOption } from '../startingEquipmentEditorTypes';
   import type {
     EditableClassFeature,
     EditableCounter,
-    EditableEquipmentOption,
     EditableLevelRow,
     EditableSpellcasting,
     EditableSubclass,
@@ -53,6 +53,11 @@
   } from '../constants';
   import FormSection from '../FormSection.vue';
   import SourceField from '../SourceField.vue';
+  import StartingEquipmentEditor from '../StartingEquipmentEditor.vue';
+  import {
+    buildClassEquipmentOptions,
+    toEditableEquipmentOption,
+  } from '../startingEquipmentEditorTypes';
   import { slugify } from '../utils/slugify';
   import ClassCountersEditor from './ClassCountersEditor.vue';
   import {
@@ -185,7 +190,7 @@
   const features = ref<EditableClassFeature[]>([]);
   const subclasses = ref<EditableSubclass[]>([]);
   const counters = ref<EditableCounter[]>([]);
-  const equipment = ref<EditableEquipmentOption[]>([]);
+  const equipment = ref<EditableStartingEquipmentOption[]>([]);
 
   const existingKey = ref<string | null>(null);
   const existingId = ref<string | null>(null);
@@ -286,11 +291,9 @@
     subclasses.value = (definition.subclasses ?? []).map(toEditableSubclass);
     counters.value = (definition.counters ?? []).map(toEditableCounter);
 
-    equipment.value = (definition.startingEquipment ?? []).map((option) => ({
-      uid: generateId('eq'),
-      key: option.key,
-      description: option.description,
-    }));
+    equipment.value = (definition.startingEquipment ?? []).map(
+      toEditableEquipmentOption,
+    );
 
     if (definition.multiclassProficiencies) {
       multiclassEnabled.value = true;
@@ -385,19 +388,6 @@
     { immediate: true },
   );
 
-  // ── Снаряжение ─────────────────────────────────────────────
-  function addEquipment(): void {
-    equipment.value.push({
-      uid: generateId('eq'),
-      key: String.fromCharCode(65 + equipment.value.length),
-      description: '',
-    });
-  }
-
-  function removeEquipment(index: number): void {
-    equipment.value.splice(index, 1);
-  }
-
   // ── Валидация и сохранение ─────────────────────────────────
   const canSave = computed(() => name.value.trim().length > 0);
 
@@ -464,12 +454,7 @@
       definition.counters = builtCounters;
     }
 
-    const builtEquipment = equipment.value
-      .filter((option) => option.key.trim().length > 0)
-      .map((option) => ({
-        key: option.key.trim(),
-        description: option.description.trim(),
-      }));
+    const builtEquipment = buildClassEquipmentOptions(equipment.value);
 
     if (builtEquipment.length > 0) {
       definition.startingEquipment = builtEquipment;
@@ -868,43 +853,9 @@
               {{ CLASS_FORM_LABELS.equipmentHint }}
             </p>
 
-            <div
-              v-for="(option, optionIndex) in equipment"
-              :key="option.uid"
-              class="flex items-start gap-2 rounded-md border border-default bg-elevated/30 p-2"
-            >
-              <UInput
-                v-model="option.key"
-                :placeholder="CLASS_FORM_LABELS.equipmentKeyPlaceholder"
-                class="w-17.5"
-              />
-
-              <UTextarea
-                v-model="option.description"
-                :rows="2"
-                autoresize
-                :placeholder="CLASS_FORM_LABELS.equipmentDescriptionPlaceholder"
-                class="flex-1"
-              />
-
-              <UButton
-                icon="tabler:trash"
-                color="error"
-                variant="ghost"
-                size="xs"
-                :aria-label="CLASS_FORM_LABELS.equipmentRemove"
-                @click.left.exact.prevent="removeEquipment(optionIndex)"
-              />
-            </div>
-
-            <UButton
-              icon="tabler:plus"
-              :label="CLASS_FORM_LABELS.equipmentAdd"
-              color="primary"
-              variant="soft"
-              size="xs"
-              class="self-start"
-              @click.left.exact.prevent="addEquipment"
+            <StartingEquipmentEditor
+              v-model="equipment"
+              show-key
             />
           </div>
         </template>

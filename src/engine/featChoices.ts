@@ -27,7 +27,7 @@ import type {
   FeatData,
 } from './featTypes.js';
 
-import { CLASS_KEY_OPTIONS, CLASS_KEYS } from './classTypes.js';
+import { CLASS_KEY_OPTIONS, classKeyFromUrl } from './classTypes.js';
 import {
   ABILITY_LABELS,
   isAbilityType,
@@ -40,6 +40,7 @@ import {
   DAMAGE_TYPE_LABELS,
   DEFENSIBLE_DAMAGE_TYPES,
 } from './damageConstants.js';
+import { RITUAL_CASTING_TIME } from './spellTypes.js';
 
 /** Владения актора — то, что выбор правит. */
 type ActorProficiencies = DnDActor['system']['proficiencies'];
@@ -51,6 +52,9 @@ export interface FeatChoiceProficiencies {
   tools: string[];
   languages: string[];
   weapons: string[];
+  /** Оружейные приёмы (2024) — свой список на листе, не подмножество владений */
+  weaponMasteries: string[];
+  armor: string[];
 }
 
 /**
@@ -67,6 +71,9 @@ const APPLIED_CHOICE_TYPES: ReadonlySet<FeatChoiceType> = new Set([
   'tool',
   'language',
   'weapon',
+  'weaponMastery',
+  'armor',
+  'skillOrTool',
   'damageType',
   'ability',
   'spellcastingAbility',
@@ -87,12 +94,59 @@ export const FEAT_CHOICE_TYPE_LABELS: Record<FeatChoiceType, string> = {
   spellList: 'Список заклинаний',
   spellcastingAbility: 'Заклинательная характеристика',
   weapon: 'Оружие',
+  weaponMastery: 'Оружейный приём',
+  armor: 'Доспехи',
+  skillOrTool: 'Навык или инструмент',
   option: 'Вариант',
 };
 
 /** Применяет ли лист выбор этого типа сам. */
 export function isAppliedChoiceType(type: FeatChoiceType): boolean {
   return APPLIED_CHOICE_TYPES.has(type);
+}
+
+/**
+ * Виды выбора: один или несколько, если выбирают из нескольких справочников
+ * сразу. Легаси-значение `skillOrTool` разворачивается здесь — дальше по коду
+ * смешанный набор везде выглядит одинаково.
+ *
+ * @param choice - выбор черты
+ * @returns виды в порядке, заданном автором; минимум один
+ */
+export function resolveFeatChoiceTypes(
+  choice: Pick<FeatChoice, 'type' | 'types'>,
+): FeatChoiceType[] {
+  if (choice.types?.length) {
+    return [...choice.types];
+  }
+
+  return choice.type === 'skillOrTool' ? ['skill', 'tool'] : [choice.type];
+}
+
+/**
+ * Какому виду принадлежит выбранное значение. У смешанного набора это решает
+ * сам справочник: `sleightOfHand` есть среди навыков, `thieves-tools` — среди
+ * инструментов. Не нашлось нигде — берётся первый вид набора: у видов без
+ * справочника (оружие, «вариант») значения свои, и разбирать их нечем.
+ *
+ * @param choice - выбор черты
+ * @param value - выбранное значение
+ */
+export function resolveFeatChoiceValueType(
+  choice: Pick<FeatChoice, 'type' | 'types'>,
+  value: string,
+): FeatChoiceType {
+  const types = resolveFeatChoiceTypes(choice);
+
+  if (types.length === 1) {
+    return types[0];
+  }
+
+  const owner = types.find((type) =>
+    getFeatChoiceDefaultPool(type).some((option) => option.value === value),
+  );
+
+  return owner ?? types[0];
 }
 
 /**
@@ -114,6 +168,17 @@ export function resolveFeatChoiceCount(
   return count === undefined || count < 1 ? 1 : Math.round(count);
 }
 
+/**
+ * Категории доспехов — тот же набор, которым владение записано на листе
+ * (`proficiencies.armor`) и в требованиях черты.
+ */
+const ARMOR_CATEGORY_OPTIONS: FeatChoiceOption[] = [
+  { value: 'light', name: 'Лёгкие доспехи' },
+  { value: 'medium', name: 'Средние доспехи' },
+  { value: 'heavy', name: 'Тяжёлые доспехи' },
+  { value: 'shield', name: 'Щиты' },
+];
+
 /** Заклинательной характеристикой черты бывают только эти три. */
 const SPELLCASTING_ABILITIES: readonly AbilityType[] = [
   'intelligence',
@@ -121,8 +186,19 @@ const SPELLCASTING_ABILITIES: readonly AbilityType[] = [
   'charisma',
 ];
 
-/** Полный набор значений типа — когда у выбора не задан свой список. */
-function defaultPool(type: FeatChoiceType): FeatChoiceOption[] {
+/**
+ * Полный набор значений типа — когда у выбора не задан свой список.
+ *
+ * Экспортируется ради редактора черты: там из этого же набора отмечают, чем
+ * ограничить выбор. Свои списки в окне завели бы вторую копию справочников, и
+ * пул выбора разошёлся бы с тем, что потом покажет лист.
+ *
+ * @param type - тип выбора черты
+ * @returns варианты в порядке показа; пусто у типов без общего справочника
+ */
+export function getFeatChoiceDefaultPool(
+  type: FeatChoiceType,
+): FeatChoiceOption[] {
   switch (type) {
     case 'skill':
       return SKILLS_LIST.map((skill) => ({
@@ -151,14 +227,17 @@ function defaultPool(type: FeatChoiceType): FeatChoiceOption[] {
         value: option.value,
         name: option.label,
       }));
+    case 'armor':
+      return [...ARMOR_CATEGORY_OPTIONS];
     case 'damageType':
       return DEFENSIBLE_DAMAGE_TYPES.map((value) => ({
         value,
         name: DAMAGE_TYPE_LABELS[value],
       }));
     default:
-      // Оружие, заклинания и «варианты» перечисляет сама черта: общего справочника,
-      // из которого их можно взять, у листа нет
+      // Оружие, приёмы оружия, заклинания и «варианты» перечисляет сама черта:
+      // общего справочника, из которого их можно взять, у движка нет — виды
+      // оружия живут в данных мира, а не в правилах
       return [];
   }
 }
@@ -192,6 +271,10 @@ function isProficient(
       return Boolean(proficiencies?.languages?.includes(value));
     case 'weapon':
       return Boolean(proficiencies?.weapons?.includes(value));
+    case 'weaponMastery':
+      return Boolean(proficiencies?.weaponMasteries?.includes(value));
+    case 'armor':
+      return Boolean(proficiencies?.armor?.includes(value));
     default:
       // У остальных типов владения нет, и фильтровать по нему нечего
       return false;
@@ -217,19 +300,20 @@ export interface FeatChoicePoolContext {
    * берётся класс, которым сужается пул.
    */
   selections?: Record<string, string[]>;
+  /**
+   * Классы, названные источником черты: предыстория «Мудрец» выдаёт «Посвящённого в
+   * магию (Волшебник)» — класс назван ею самой, и спрашивать его у игрока незачем.
+   * Пусто — источник класса не называет.
+   */
+  namedClassKeys?: ReadonlyArray<string>;
 }
 
 /**
- * Ключи классов, которыми ограничен выбор заклинания.
+ * Классы, перечисленные самим фильтром: заданные ключами и ссылками на страницы.
  *
- * Источников два и они складываются: заданные фильтром напрямую и взятые из ответа
- * игрока — «Посвящённый в магию» сперва спрашивает список класса. Пустой результат
- * означает «класс не ограничивает», а не «подходящих нет».
+ * @param filter - ограничение выбора заклинания
  */
-function filterClassKeys(
-  filter: FeatChoiceSpellFilter,
-  selections: Record<string, string[]> | undefined,
-): string[] {
+function listedClassKeys(filter: FeatChoiceSpellFilter): string[] {
   const keys = [...(filter.classKeys ?? [])];
 
   for (const ref of filter.classes ?? []) {
@@ -240,33 +324,48 @@ function filterClassKeys(
     }
   }
 
-  for (const answer of selections?.[filter.classesFromChoiceKey ?? ''] ?? []) {
-    const key = classKeyFromUrl(answer);
-
-    if (key) {
-      keys.push(key);
-    }
-  }
-
   return [...new Set(keys)];
 }
 
 /**
- * Канонический ключ класса из ответа или слага страницы: `wizard-phb` → `wizard`.
- * Слаг сайта несёт суффикс источника, а заклинание помечено голым ключом.
+ * Ключи классов, которыми ограничен выбор заклинания.
+ *
+ * Список ОДИН, а не объединение перечисленных: «Посвящённый в магию» называет жреца,
+ * друида и волшебника, но берут заклинания из списка одного из них. Поэтому названный
+ * класс вытесняет перечисленные, а не добавляется к ним. Назвать его могут двумя путями:
+ * ответом игрока на выбор списка ({@link FeatChoiceSpellFilter.classesFromChoiceKey}) и
+ * источником черты — предыстория «Мудрец» выдаёт «Посвящённого в магию (Волшебник)» и
+ * уже ответила за игрока.
+ *
+ * Класс источника сужает пул и тогда, когда черта классов не перечисляет вовсе: она и
+ * определяет, чей это список. А вот перечисленных им не подменить — иначе черта дала бы
+ * список, которого в ней нет.
+ *
+ * Пустой результат означает «класс не ограничивает», а не «подходящих нет».
  */
-function classKeyFromUrl(value: string | undefined): string | null {
-  if (!value) {
-    return null;
+function filterClassKeys(
+  filter: FeatChoiceSpellFilter,
+  context: FeatChoicePoolContext | undefined,
+): string[] {
+  const answered = (
+    context?.selections?.[filter.classesFromChoiceKey ?? ''] ?? []
+  ).flatMap((answer) => {
+    const key = classKeyFromUrl(answer);
+
+    return key ? [key] : [];
+  });
+
+  if (answered.length > 0) {
+    return [...new Set(answered)];
   }
 
-  const normalized = value.trim().toLowerCase();
+  const listed = listedClassKeys(filter);
 
-  return (
-    CLASS_KEYS.find(
-      (key) => normalized === key || normalized.startsWith(`${key}-`),
-    ) ?? null
+  const named = (context?.namedClassKeys ?? []).filter(
+    (key) => listed.length === 0 || listed.includes(key),
   );
+
+  return named.length > 0 ? [...new Set(named)] : listed;
 }
 
 /**
@@ -308,7 +407,7 @@ export function matchesFeatSpellFilter(
 
   if (filter?.castingTime) {
     const matchesTime =
-      filter.castingTime === 'ritual'
+      filter.castingTime === RITUAL_CASTING_TIME
         ? spell.ritual
         : spell.castingTimeUnit === filter.castingTime;
 
@@ -338,6 +437,23 @@ function spellPool(
 ): FeatChoiceOption[] {
   const catalog = context?.spells ?? [];
 
+  // Черта перечислила заклинания сама — они и есть пул: фильтр каталога тут ни
+  // при чём. Так устроены ступени расширенного списка («возьмите два из пяти»),
+  // и без этой ветки игроку показали бы весь компендиум
+  if (choice.options?.length) {
+    const names = new Map(catalog.map((spell) => [spell.id, spell.name]));
+
+    return choice.options
+      .map((option) => ({
+        value: option.value,
+        // Название из каталога свежее: в записи лежит снимок на момент сохранения
+        name: names.get(option.value) ?? option.name,
+      }))
+      .sort((first, second) =>
+        (first.name ?? '').localeCompare(second.name ?? ''),
+      );
+  }
+
   if (catalog.length === 0) {
     return [];
   }
@@ -349,7 +465,7 @@ function spellPool(
       ? { ...choice.spellFilter, level: CANTRIP_LEVEL }
       : (choice.spellFilter ?? {});
 
-  const classKeys = filterClassKeys(filter, context?.selections);
+  const classKeys = filterClassKeys(filter, context);
 
   return catalog
     .filter((spell) => matchesFeatSpellFilter(spell, filter, classKeys))
@@ -377,20 +493,245 @@ export function resolveFeatChoicePool(
     return spellPool(choice, context);
   }
 
+  const types = resolveFeatChoiceTypes(choice);
+
+  // Набор из нескольких справочников склеивается: «Умелый» выбирает три штуки
+  // вперемешку из навыков и инструментов, и порядок здесь — заданный автором
   const pool =
     choice.options && choice.options.length > 0
-      ? withDictionaryLabels(choice.type, choice.options)
-      : defaultPool(choice.type);
+      ? withDictionaryLabels(choice, choice.options)
+      : dedupeOptions(types.flatMap(getFeatChoiceDefaultPool));
 
   if (!choice.onlyIfProficient && !choice.onlyIfNotProficient) {
     return pool;
   }
 
   return pool.filter((option) => {
-    const proficient = isProficient(actor, choice.type, option.value);
+    const proficient = isProficient(
+      actor,
+      resolveFeatChoiceValueType(choice, option.value),
+      option.value,
+    );
 
     return choice.onlyIfProficient ? proficient : !proficient;
   });
+}
+
+/**
+ * Ключ выбора списка класса, который лист заводит сам записям без него. Ключ выдуманный,
+ * в самой черте его нет: он живёт ровно столько, сколько игрок отвечает на выборы.
+ */
+export const FEAT_SPELL_CLASS_CHOICE_KEY = 'spellClassList#auto';
+
+/**
+ * Порядок выборов заклинаний: сперва класс, потом заклинания из его списка, потом
+ * характеристика, от которой они считаются. Иначе игрок выбирал бы заклинания раньше,
+ * чем известно, чей это список.
+ */
+const SPELL_CHOICE_ORDER: Partial<Record<FeatChoiceType, number>> = {
+  spellList: 0,
+  spell: 1,
+  cantrip: 1,
+  spellcastingAbility: 2,
+};
+
+/** Выбирают ли этим выбором само заклинание (а не список класса и не характеристику). */
+function isSpellPickChoice(choice: FeatChoice): boolean {
+  return choice.type === 'spell' || choice.type === 'cantrip';
+}
+
+/**
+ * Выбор списка класса, на который ссылается выбор заклинания; `undefined` — выбор ни на
+ * какой список не ссылается либо названного списка в черте нет.
+ *
+ * @param choice - выбор заклинания
+ * @param choices - все выборы черты
+ */
+function findSpellClassChoice(
+  choice: FeatChoice,
+  choices: ReadonlyArray<FeatChoice>,
+): FeatChoice | undefined {
+  const key = choice.spellFilter?.classesFromChoiceKey;
+
+  if (!key) {
+    return undefined;
+  }
+
+  return choices.find(
+    (candidate) => candidate.type === 'spellList' && candidate.key === key,
+  );
+}
+
+/**
+ * Выборы черты вместе с вопросом про класс — для записей, где его нет.
+ *
+ * Выбор заклинания перечисляет несколько классов («Посвящённый в магию» назвал жреца,
+ * друида и волшебника), но по правилам список ОДИН, а не объединение трёх. Черты,
+ * сохранённые до того, как форма стала заводить вопрос сама, такого выбора не содержат —
+ * и пул у них собирался из всех классов разом. Вопрос заводится на лету: сама запись не
+ * меняется, пересохранять черту незачем.
+ *
+ * @param choices - выборы черты
+ * @returns выборы вместе с вопросом про класс; без нескольких классов — как есть
+ */
+function withSpellClassChoice(
+  choices: ReadonlyArray<FeatChoice>,
+): FeatChoice[] {
+  // Вопрос уже есть — второй не нужен: на него и ссылаются выборы заклинаний
+  if (choices.some((choice) => choice.type === 'spellList')) {
+    return [...choices];
+  }
+
+  const unlinked = choices.filter(
+    (choice) =>
+      isSpellPickChoice(choice)
+      && !choice.spellFilter?.classesFromChoiceKey
+      && listedClassKeys(choice.spellFilter ?? {}).length > 1,
+  );
+
+  const [first] = unlinked;
+
+  if (!first) {
+    return [...choices];
+  }
+
+  const listed = new Set(listedClassKeys(first.spellFilter ?? {}));
+
+  const classChoice: FeatChoice = {
+    key: FEAT_SPELL_CLASS_CHOICE_KEY,
+    type: 'spellList',
+    count: 1,
+    options: getFeatChoiceDefaultPool('spellList').filter((option) =>
+      listed.has(option.value),
+    ),
+  };
+
+  const linked = new Set(unlinked);
+
+  const prepared = choices.map((choice) =>
+    linked.has(choice)
+      ? {
+          ...choice,
+          spellFilter: {
+            ...choice.spellFilter,
+            classesFromChoiceKey: FEAT_SPELL_CLASS_CHOICE_KEY,
+          },
+        }
+      : choice,
+  );
+
+  // Вопрос встаёт перед первым же выбором заклинания, а не в начало списка:
+  // выборы, заданные автором раньше (навык, повышение характеристики), к списку
+  // класса отношения не имеют и вперёд него не просятся
+  prepared.splice(choices.indexOf(first), 0, classChoice);
+
+  return prepared;
+}
+
+/**
+ * Выборы заклинаний в порядке показа. Переставляются только они: остальные остаются на
+ * своих местах, потому что их порядок задал автор черты и смысла в нём не меньше.
+ *
+ * @param choices - выборы черты
+ */
+function orderSpellChoices(choices: ReadonlyArray<FeatChoice>): FeatChoice[] {
+  const positions = choices.flatMap((choice, index) =>
+    SPELL_CHOICE_ORDER[choice.type] === undefined ? [] : [index],
+  );
+
+  if (positions.length < 2) {
+    return [...choices];
+  }
+
+  // Сортировка устойчива, поэтому выборы одного ранга сохраняют порядок автора:
+  // «два заговора, потом одно заклинание первого круга» так и остаётся
+  const ordered = positions
+    .map((index) => choices[index])
+    .sort(
+      (first, second) =>
+        (SPELL_CHOICE_ORDER[first.type] ?? 0)
+        - (SPELL_CHOICE_ORDER[second.type] ?? 0),
+    );
+
+  const result = [...choices];
+
+  positions.forEach((index, slot) => {
+    result[index] = ordered[slot];
+  });
+
+  return result;
+}
+
+/**
+ * Выборы черты в том виде, в каком их задают игроку: с вопросом про класс у старых
+ * записей и в правильном порядке (класс → заклинания → характеристика).
+ *
+ * Через неё проходят все окна, где черту берут: и выдача черты, и мастер предыстории, и
+ * пересмотр выборов на отдыхе — иначе одна и та же черта спрашивала бы разное.
+ *
+ * @param choices - выборы из механики черты
+ * @returns выборы для показа игроку
+ */
+export function prepareFeatChoices(
+  choices: ReadonlyArray<FeatChoice> | undefined,
+): FeatChoice[] {
+  return orderSpellChoices(withSpellClassChoice(choices ?? []));
+}
+
+/**
+ * Выборы, которые показываются игроку прямо сейчас.
+ *
+ * Выбор заклинания ждёт ответа про класс: пока список не назван, пул собран не из того
+ * справочника, и игрок выбирал бы заклинания, которых черта не даёт.
+ *
+ * @param choices - выборы черты (уже прошедшие {@link prepareFeatChoices})
+ * @param selections - ответы игрока: ключ выбора → значения
+ * @returns выборы, которые спрашиваются сейчас
+ */
+export function getVisibleFeatChoices(
+  choices: ReadonlyArray<FeatChoice>,
+  selections: Record<string, string[]> | undefined,
+): FeatChoice[] {
+  return choices.filter((choice) => {
+    if (!isSpellPickChoice(choice)) {
+      return true;
+    }
+
+    const source = findSpellClassChoice(choice, choices);
+
+    return !source || (selections?.[source.key]?.length ?? 0) > 0;
+  });
+}
+
+/**
+ * Ответы, из которых убраны заклинания, выбранные из прежнего списка класса.
+ *
+ * Смена списка меняет пул: заклинания жреца в списке друида не найдутся, и оставленный
+ * ответ выдал бы персонажу заклинание, которого черта уже не даёт.
+ *
+ * @param choices - выборы черты (уже прошедшие {@link prepareFeatChoices})
+ * @param selections - ответы игрока: ключ выбора → значения
+ * @param classChoiceKey - ключ выбора списка, который игрок только что переназвал
+ * @returns ответы без заклинаний, выбранных из прежнего списка
+ */
+export function clearSpellChoicesOfClass(
+  choices: ReadonlyArray<FeatChoice>,
+  selections: Record<string, string[]>,
+  classChoiceKey: string,
+): Record<string, string[]> {
+  const stale = new Set(
+    choices
+      .filter(
+        (choice) =>
+          isSpellPickChoice(choice)
+          && choice.spellFilter?.classesFromChoiceKey === classChoiceKey,
+      )
+      .map((choice) => choice.key),
+  );
+
+  return Object.fromEntries(
+    Object.entries(selections).filter(([key]) => !stale.has(key)),
+  );
 }
 
 /**
@@ -401,15 +742,17 @@ export function resolveFeatChoicePool(
  * подстановки игрок увидел бы на кнопках `intelligence` вместо «Интеллект» — само
  * значение верное, показывать его просто нечем.
  *
- * @param type - тип выбора: он задаёт справочник
+ * @param choice - выбор черты: его виды задают справочники подписей
  * @param options - варианты, перечисленные чертой
  */
 function withDictionaryLabels(
-  type: FeatChoiceType,
+  choice: Pick<FeatChoice, 'type' | 'types'>,
   options: ReadonlyArray<FeatChoiceOption>,
 ): FeatChoiceOption[] {
   const labels = new Map(
-    defaultPool(type).map((option) => [option.value, option.name]),
+    resolveFeatChoiceTypes(choice)
+      .flatMap(getFeatChoiceDefaultPool)
+      .map((option) => [option.value, option.name]),
   );
 
   return options.map((option) =>
@@ -417,6 +760,25 @@ function withDictionaryLabels(
       ? option
       : { value: option.value, name: labels.get(option.value) ?? option.value },
   );
+}
+
+/** Склеенный набор без повторов: справочники видов могут пересекаться. */
+function dedupeOptions(
+  options: ReadonlyArray<FeatChoiceOption>,
+): FeatChoiceOption[] {
+  const seen = new Set<string>();
+  const result: FeatChoiceOption[] = [];
+
+  for (const option of options) {
+    if (seen.has(option.value)) {
+      continue;
+    }
+
+    seen.add(option.value);
+    result.push(option);
+  }
+
+  return result;
 }
 
 /**
@@ -435,7 +797,10 @@ function grantedLevel(
     return 'expertise';
   }
 
-  if (choice.expertiseIfProficient && isProficient(actor, choice.type, value)) {
+  if (
+    choice.expertiseIfProficient
+    && isProficient(actor, resolveFeatChoiceValueType(choice, value), value)
+  ) {
     return 'expertise';
   }
 
@@ -474,7 +839,10 @@ export function applyFeatChoiceSelections(
 
   for (const choice of featData.choices) {
     for (const value of selections[choice.key] ?? []) {
-      switch (choice.type) {
+      // Вид берётся у самого значения: у смешанного набора («навык или
+      // инструмент») тип выбора один на всю строку, а лечь значения должны в
+      // разные списки владений
+      switch (resolveFeatChoiceValueType(choice, value)) {
         case 'skill':
           if (isSkillType(value)) {
             proficiencies.skills[value] = grantedLevel(choice, actor, value);
@@ -497,6 +865,14 @@ export function applyFeatChoiceSelections(
           break;
         case 'weapon':
           addUnique(proficiencies.weapons, value);
+
+          break;
+        case 'weaponMastery':
+          addUnique(proficiencies.weaponMasteries, value);
+
+          break;
+        case 'armor':
+          addUnique(proficiencies.armor, value);
 
           break;
         default:
@@ -527,6 +903,8 @@ export function collectFeatChoiceProficiencies(
     tools: [],
     languages: [],
     weapons: [],
+    weaponMasteries: [],
+    armor: [],
   };
 
   if (!featData?.choices || !selections) {
@@ -535,7 +913,7 @@ export function collectFeatChoiceProficiencies(
 
   for (const choice of featData.choices) {
     for (const value of selections[choice.key] ?? []) {
-      switch (choice.type) {
+      switch (resolveFeatChoiceValueType(choice, value)) {
         case 'skill':
           if (isSkillType(value)) {
             result.skills.push(value);
@@ -558,6 +936,14 @@ export function collectFeatChoiceProficiencies(
           break;
         case 'weapon':
           result.weapons.push(value);
+
+          break;
+        case 'weaponMastery':
+          result.weaponMasteries.push(value);
+
+          break;
+        case 'armor':
+          result.armor.push(value);
 
           break;
         default:
@@ -589,7 +975,7 @@ export function removeFeatChoiceSelections(
 
   for (const choice of featData.choices) {
     for (const value of selections[choice.key] ?? []) {
-      switch (choice.type) {
+      switch (resolveFeatChoiceValueType(choice, value)) {
         case 'skill':
           Reflect.deleteProperty(proficiencies.skills, value);
 
@@ -608,6 +994,14 @@ export function removeFeatChoiceSelections(
           break;
         case 'weapon':
           removeValue(proficiencies.weapons, value);
+
+          break;
+        case 'weaponMastery':
+          removeValue(proficiencies.weaponMasteries, value);
+
+          break;
+        case 'armor':
+          removeValue(proficiencies.armor, value);
 
           break;
         default:
@@ -653,9 +1047,22 @@ export function resolveChosenResistances(
 }
 
 /**
+ * Ключ выбора, который лист заводит сам под повышение характеристики.
+ *
+ * Нужен, когда повышение «на выбор» ни к какому выбору не привязано: в записи
+ * компендиума у большинства черт 2024 стоит один `abilityScoreIncrease.choice`
+ * без {@code fromChoiceKey} — «+1 к Силе или Телосложению» и есть весь выбор,
+ * отдельной строкой его никто не описывает. Само по себе такое повышение
+ * движок не применяет, поэтому лист спрашивает характеристику под этим ключом
+ * и по нему же её и поднимает.
+ */
+export const ABILITY_INCREASE_CHOICE_KEY = 'abilityScoreIncrease#';
+
+/**
  * Характеристики, выбранные для повышения. «Устойчивый» поднимает ту характеристику,
  * спасбросками которой персонаж овладел, — повышение ссылается на выбор через
- * {@code fromChoiceKey}.
+ * {@code fromChoiceKey}. Привязки нет — ответ ищется под собственным ключом листа
+ * ({@link ABILITY_INCREASE_CHOICE_KEY}).
  *
  * @param featData - дары черты
  * @param selections - что выбрал игрок
@@ -665,9 +1072,15 @@ export function resolveChosenAbilities(
   featData: FeatData | null | undefined,
   selections: Record<string, string[]> | undefined,
 ): AbilityType[] {
-  const key = featData?.abilityScoreIncrease?.fromChoiceKey;
+  const increase = featData?.abilityScoreIncrease;
 
-  if (!key || !selections) {
+  if (!increase?.choice && !increase?.fromChoiceKey) {
+    return [];
+  }
+
+  const key = increase.fromChoiceKey ?? ABILITY_INCREASE_CHOICE_KEY;
+
+  if (!selections) {
     return [];
   }
 

@@ -78,9 +78,15 @@ export function isSpell(value: unknown): value is Spell {
  *
  * Приоритет:
  * 1. `spell.attackAbility` (переопределение на самом заклинании)
- * 2. `actor.system.spellcastingAbility` (глобальное переопределение)
- * 3. `ActorClassEntry.spellcastingAbility` (из класса)
- * 4. Fallback: 'intelligence'
+ * 2. `spell.spellcastingAbility` (характеристика записи справочника)
+ * 3. `actor.system.spellcastingAbility` (глобальное переопределение)
+ * 4. `ActorClassEntry.spellcastingAbility` (из класса)
+ * 5. Fallback: 'intelligence'
+ *
+ * Запись справочника идёт после переопределения на листе и перед классом:
+ * заклинание, считающееся не от класса, называет свою характеристику само
+ * (так приезжают заклинания черт и хоумбрю из компендиума), но передумать за
+ * игрока, если он задал характеристику руками, оно не должно.
  *
  * @param actor - актор-владелец
  * @param spell - заклинание
@@ -92,6 +98,10 @@ export function resolveSpellcastingAbility(
 ): AbilityType {
   if (spell.attackAbility) {
     return spell.attackAbility;
+  }
+
+  if (spell.spellcastingAbility) {
+    return spell.spellcastingAbility;
   }
 
   return resolveActorSpellcastingAbility(actor);
@@ -514,7 +524,7 @@ export function formatConditionalDamageDisplay(
  * Подставляет числовые значения вместо `@mod.str`, `@mod.spell`, `@prof` и т.д.,
  * оставляя кубиковую нотацию (`1к4`) нетронутой — результат готов для роллера.
  * Токен `@mod.spell` разрешается в модификатор заклинательной характеристики
- * (с учётом возможного переопределения через `spell.attackAbility`).
+ * (с учётом характеристики самого заклинания — см. {@link resolveSpellcastingAbility}).
  *
  * Используется во всех точках броска урона заклинанием (хотбар, лист персонажа),
  * чтобы поведение `@`-переменных было единым.

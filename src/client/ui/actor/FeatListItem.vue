@@ -9,6 +9,13 @@
   import FeatListItemCompendium from './FeatListItemCompendium.vue';
   import FeatListItemSheet from './FeatListItemSheet.vue';
 
+  // Корней у карточки два (сама строка и всплывающее меню), поэтому классы от
+  // родителя вешаются на строку вручную: иначе Vue не знает, к какому из корней
+  // их прикрепить, и ругается на «Extraneous non-props attributes»
+  defineOptions({
+    inheritAttrs: false,
+  });
+
   const props = defineProps<{
     item: FeatDisplayItem;
     showEdit?: boolean;
@@ -67,6 +74,7 @@
 
 <template>
   <div
+    v-bind="$attrs"
     draggable="true"
     :class="[
       'flex cursor-grab items-center gap-3 rounded-lg px-3 py-2 transition-colors active:cursor-grabbing',

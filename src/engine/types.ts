@@ -32,8 +32,17 @@ import type {
 export interface ActorCounterState {
   /** Ключ счётчика (из ClassCounterDefinition.key) */
   counterKey: string;
-  /** Ключ класса-владельца */
-  classKey: string;
+  /**
+   * Ключ класса-владельца. Нет у ресурсов черт — у них владелец в
+   * {@link featureId}; вместе с `counterKey` даёт идентичность счётчика
+   * (`counterIdentity` в `ui/actor/utils/classCounters.ts`).
+   */
+  classKey?: string;
+  /**
+   * Id особенности-черты, выдавшей ресурс («Удачливый» — очки удачи). По нему
+   * счётчик снимается вместе с чертой и пересчитывается при повышении уровня.
+   */
+  featureId?: string;
   /** Ключ подкласса (если счётчик от подкласса) */
   subclassKey?: string;
   /** Пользовательское название счётчика */

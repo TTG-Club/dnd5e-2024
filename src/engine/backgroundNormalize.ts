@@ -18,8 +18,54 @@
 
 import type {
   BackgroundDefinition,
+  BackgroundFeatGrant,
   BackgroundToolGrant,
 } from './backgroundTypes.js';
+
+import { classKeyByName, classKeyFromUrl } from './classTypes.js';
+
+/** Уточнение в скобках: «Посвящённый в магию (Волшебник)», «(Волшебник)». */
+const SUBCHOICE_BRACKETS = /\(([^()]+)\)\s*$/;
+
+/**
+ * Уточнение из текста: скобка, если она есть, иначе сам текст. Одним разбором на
+ * все источники — уточнение приезжает и отдельным полем, и хвостом названия.
+ *
+ * @param value - поле уточнения либо название черты
+ */
+function subchoiceText(value: string | undefined): string {
+  const text = value?.trim() ?? '';
+
+  return SUBCHOICE_BRACKETS.exec(text)?.[1]?.trim() ?? text;
+}
+
+/**
+ * Класс, который предыстория называет за игрока: «Мудрец» даёт «Посвящённого в
+ * магию (Волшебник)» — список заклинаний задан ею самой, и спрашивать его у
+ * игрока незачем.
+ *
+ * Источников три, потому что уточнение приезжает по-разному: поле нашей формы
+ * ({@link BackgroundFeatGrant.featClassKey} — ключом или названием), уточнение
+ * выгрузки TTG Club ({@link BackgroundFeatGrant.featSuffix} — названием) и
+ * скобка в названии черты у записей, сделанных до появления полей. Разбор
+ * нестрогий: уточнение, за которым не стоит известный класс («Мастер оружия
+ * (алебарда)»), ничего не задаёт.
+ *
+ * @param grant - грант черты предыстории
+ * @returns канонический ключ класса; `null` — класс называет игрок
+ */
+export function resolveBackgroundFeatClassKey(
+  grant: BackgroundFeatGrant | undefined,
+): string | null {
+  const named = [grant?.featClassKey, grant?.featSuffix, grant?.featName].map(
+    subchoiceText,
+  );
+
+  return named.reduce<string | null>(
+    (found, value) => found ?? classKeyFromUrl(value) ?? classKeyByName(value),
+    null,
+  );
+}
 
 /** Достраивает грант инструментов: пустой список + валидный блок выбора. */
 function normalizeToolGrant(

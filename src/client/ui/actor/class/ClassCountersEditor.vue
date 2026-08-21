@@ -12,6 +12,7 @@
     CLASS_COUNTER_DEFAULT_NAME,
     CLASS_COUNTERS_LABELS,
     FORM_FIELD_LABELS,
+    NO_SELECTION,
   } from '../constants';
   import { RECOVERY_OPTIONS } from './classEditorTypes';
 
@@ -29,9 +30,30 @@
   ];
 
   const featureSelectOptions = computed(() => [
-    { value: '', label: CLASS_COUNTERS_LABELS.featureNone },
+    { value: NO_SELECTION, label: CLASS_COUNTERS_LABELS.featureNone },
     ...(props.featureOptions ?? []),
   ]);
+
+  /**
+   * Привязка к умению в виде значения селекта: «без привязки» хранится пустой
+   * строкой, а `reka-ui` пустую строку в `<SelectItem>` не принимает — она у
+   * него зарезервирована под сброс выбора.
+   *
+   * @param counter - редактируемый счётчик
+   */
+  function featureSelectValue(counter: EditableCounter): string {
+    return counter.featureKey || NO_SELECTION;
+  }
+
+  /**
+   * Обратно: признак «без привязки» ложится в счётчик пустой строкой.
+   *
+   * @param counter - редактируемый счётчик
+   * @param value - значение селекта
+   */
+  function setFeatureKey(counter: EditableCounter, value: string): void {
+    counter.featureKey = value === NO_SELECTION ? '' : value;
+  }
 
   /** Добавляет новый счётчик. */
   function addCounter(): void {
@@ -139,10 +161,11 @@
 
         <UFormField :label="CLASS_COUNTERS_LABELS.feature">
           <USelect
-            v-model="counter.featureKey"
+            :model-value="featureSelectValue(counter)"
             :items="featureSelectOptions"
             value-key="value"
             class="w-full"
+            @update:model-value="setFeatureKey(counter, $event)"
           />
         </UFormField>
       </div>

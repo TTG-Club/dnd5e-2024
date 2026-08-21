@@ -179,14 +179,6 @@ export interface EditableSubclass {
   preservedBonusSpells?: SubclassDefinition['bonusSpells'];
 }
 
-// ── Стартовое снаряжение ─────────────────────────────────────
-
-export interface EditableEquipmentOption {
-  uid: string;
-  key: string;
-  description: string;
-}
-
 // ============================================================
 // Хелперы
 // ============================================================

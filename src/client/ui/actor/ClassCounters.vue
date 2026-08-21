@@ -22,7 +22,11 @@
   import ClassCountersModal from './ClassCountersModal.vue';
   import { CLASS_COUNTERS_BLOCK_LABELS, REST_LABELS } from './constants';
   import SheetSettingsGear from './SheetSettingsGear.vue';
-  import { findCounterDefinition } from './utils/classCounters';
+  import {
+    counterIdentity,
+    findCounterDefinition,
+    isSameCounter,
+  } from './utils/classCounters';
   import { getSheetBlockClass } from './utils/sheetBlockClass';
 
   defineOptions({ inheritAttrs: false });
@@ -103,8 +107,7 @@
     }
 
     const updatedCounters = counters.value.map((entry) =>
-      entry.counterKey === counter.counterKey
-      && entry.classKey === counter.classKey
+      isSameCounter(entry, counter)
         ? { ...entry, current: entry.current + 1 }
         : entry,
     );
@@ -124,8 +127,7 @@
     }
 
     const updatedCounters = counters.value.map((entry) =>
-      entry.counterKey === counter.counterKey
-      && entry.classKey === counter.classKey
+      isSameCounter(entry, counter)
         ? { ...entry, current: entry.current - 1 }
         : entry,
     );
@@ -177,7 +179,7 @@
 
       <div
         v-for="{ counter, definition } in displayCounters"
-        :key="`${counter.classKey}-${counter.counterKey}`"
+        :key="counterIdentity(counter)"
         class="flex max-w-full min-w-0 items-center gap-2 rounded p-1.5"
       >
         <!-- Название -->

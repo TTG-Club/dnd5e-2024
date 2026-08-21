@@ -11,6 +11,7 @@
 import type { Feature, TypedWebSocketClient } from '@vtt/shared';
 import type {
   ActiveEffect,
+  ActorCounterState,
   AppliedFeatMeta,
   DnDActor,
   FeatData,
@@ -20,12 +21,18 @@ import type {
 
 import { loadCompendiumKind } from '@/core/compendiumDataClient';
 import { generateEntityId } from '@/core/entityUtils';
-import { extractSpellEntries } from '@/systems/dnd5e/composables/spellCompendium';
+import { useItemsStore } from '@/stores/itemsStore';
+import {
+  extractSpellEntries,
+  extractWorldSpells,
+} from '@/systems/dnd5e/composables/spellCompendium';
 import { pushUnique, removeItems } from '@vtt/shared';
 import {
   appendGrantedSpells,
   applyFeatChoiceSelections,
+  buildFeatCounters,
   buildFeatGrantEffect,
+  collectActorFeatChoiceAnswers,
   collectFeatGrantedSpellSources,
   getTotalLevel,
   isFeatOwnedEffect,
@@ -57,6 +64,12 @@ export interface FeatApplyResult {
   spells: Spell[];
   activeEffects: ActiveEffect[];
   proficiencies: ActorProficiencies;
+  /**
+   * Счётчики ресурсов актора с учётом ресурсов черты. Задаётся всегда: список
+   * общий с классовыми счётчиками, и вернуть только «свои» нельзя — вызывающий
+   * записывает его целиком.
+   */
+  classCounters: ActorCounterState[];
   /**
    * Обновлённые настройки токена (поднятое тёмное зрение). Задаётся только если
    * черта повысила тёмное зрение — иначе `undefined` (токен не трогаем, чтобы не
@@ -90,6 +103,7 @@ function applyFeatProficiencies(
   }
 
   pushUnique(proficiencies.weapons, featData?.weaponProficiencies ?? []);
+  pushUnique(proficiencies.weaponMasteries, featData?.weaponMasteries ?? []);
   pushUnique(proficiencies.armor, featData?.armorProficiencies ?? []);
   pushUnique(proficiencies.tools, featData?.toolProficiencies ?? []);
   pushUnique(proficiencies.languages, featData?.languages ?? []);
@@ -110,6 +124,7 @@ function removeFeatProficiencies(
   }
 
   removeItems(proficiencies.weapons, featData?.weaponProficiencies ?? []);
+  removeItems(proficiencies.weaponMasteries, featData?.weaponMasteries ?? []);
   removeItems(proficiencies.armor, featData?.armorProficiencies ?? []);
   removeItems(proficiencies.tools, featData?.toolProficiencies ?? []);
   removeItems(proficiencies.languages, featData?.languages ?? []);
@@ -125,22 +140,77 @@ function removeFeatProficiencies(
  * черты с их полными данными. Без сокета или связей — пустой список.
  *
  * @param socket - WebSocket-клиент (для загрузки компендиума)
- * @param feat - перетаскиваемая черта (имя + блоб даров)
+ * @param feat - перетаскиваемая черта (имя + блоб даров + ответы игрока)
  * @param feat.name - имя черты (источник при выдаче заклинаний)
  * @param feat.featData - блоб даров черты с выдаваемыми заклинаниями
+ * @param feat.choices - ответы игрока: из них берутся выбранные заклинания
+ * @param actor - лист персонажа: его уровень решает, что уже открыто. Без него
+ *   уровни доступа не проверяются, а расширенный список не раскрывается вовсе
  */
-export async function resolveFeatGrantedSpells(
+export function resolveFeatGrantedSpells(
   socket: TypedWebSocketClient | null | undefined,
-  feat: { name: string; featData?: FeatData | null },
+  feat: {
+    name: string;
+    featData?: FeatData | null;
+    choices?: Record<string, string[]>;
+  },
+  actor?: DnDActor | null,
 ): Promise<ResolvedGrantedSpell[]> {
-  const sources = collectFeatGrantedSpellSources(feat);
+  return resolveGrantedSpellSources(
+    socket,
+    collectFeatGrantedSpellSources(feat, actor),
+  );
+}
 
+/**
+ * Пере-собирает заклинания ВСЕХ черт листа на текущем уровне персонажа.
+ *
+ * Нужен при повышении уровня: у метки дракона заклинания приходят ступенями
+ * («Малое восстановление» — с третьего уровня), и без пересборки они остались бы
+ * недоступными навсегда. Уже выданные заклинания повторно не добавляются —
+ * `appendGrantedSpells` отсеивает их по названию.
+ *
+ * @param socket - WebSocket-клиент (для загрузки компендиума)
+ * @param actor - лист персонажа с уже обновлённым уровнем
+ * @returns заклинания черт, доступные на текущем уровне
+ */
+export function resolveActorFeatSpells(
+  socket: TypedWebSocketClient | null | undefined,
+  actor: DnDActor,
+): Promise<ResolvedGrantedSpell[]> {
+  const features: AppliedFeatFeature[] = actor.features ?? [];
+
+  const sources = features
+    .filter((feature) => feature.featData)
+    .flatMap((feature) => collectFeatGrantedSpellSources(feature, actor));
+
+  return resolveGrantedSpellSources(socket, sources);
+}
+
+/**
+ * Сопоставляет связи «заклинание → черта-источник» с записями компендиума и
+ * мира. Несопоставленное пропускается: связь могла указывать на пак, которого у
+ * этого мастера нет, и ронять из-за неё выдачу целиком неправильно.
+ *
+ * @param socket - WebSocket-клиент (для загрузки компендиума)
+ * @param sources - связи «заклинание → черта-источник»
+ */
+async function resolveGrantedSpellSources(
+  socket: TypedWebSocketClient | null | undefined,
+  sources: ReturnType<typeof collectFeatGrantedSpellSources>,
+): Promise<ResolvedGrantedSpell[]> {
   if (sources.length === 0 || !socket) {
     return [];
   }
 
   const entries = await loadCompendiumKind(socket, 'spell');
-  const spells = extractSpellEntries(entries);
+
+  // Свои заклинания мира ищутся наравне с компендиумными: черта может выдавать
+  // заклинание, заведённое в панели «Предметы»
+  const spells = [
+    ...extractSpellEntries(entries),
+    ...extractWorldSpells(useItemsStore().itemsByType('spell')),
+  ];
 
   const resolved: ResolvedGrantedSpell[] = [];
 
@@ -224,6 +294,14 @@ export function applyFeatToActor(
     droppedFeat.activeEffects,
   );
 
+  // Ответы других черт — на случай привязки к чужому выбору: «Мощная метка
+  // дракона» поднимает характеристику, названную заклинательной у самой метки.
+  // Свои ответы поверх: одноимённый ключ всегда про эту черту
+  const answers = {
+    ...collectActorFeatChoiceAnswers(actor),
+    ...(droppedFeat.choices ?? {}),
+  };
+
   const grantEffect = buildFeatGrantEffect(
     featureId,
     newFeature.name,
@@ -234,11 +312,8 @@ export function applyFeatToActor(
       walkSpeed: actor.system.movement?.walk,
       // Сопротивление и повышение характеристик по выбору: сам тип урона и сама
       // характеристика известны только после того, как игрок выбрал
-      chosenResistances: resolveChosenResistances(
-        featData,
-        droppedFeat.choices,
-      ),
-      chosenAbilities: resolveChosenAbilities(featData, droppedFeat.choices),
+      chosenResistances: resolveChosenResistances(featData, answers),
+      chosenAbilities: resolveChosenAbilities(featData, answers),
     },
   );
 
@@ -252,7 +327,23 @@ export function applyFeatToActor(
   // Не понижаем — у тёмного зрения может быть другой источник (вид/класс).
   const token = applyFeatDarkvision(actor.token, featData?.darkvision ?? 0);
 
-  return { features, spells, activeEffects, proficiencies, token };
+  const classCounters = [
+    ...(actor.system.classCounters ?? []),
+    ...buildFeatCounters(
+      { id: featureId, featData, choices: droppedFeat.choices },
+      actor,
+      actor.system.classCounters ?? [],
+    ),
+  ];
+
+  return {
+    features,
+    spells,
+    activeEffects,
+    proficiencies,
+    classCounters,
+    token,
+  };
 }
 
 /**
@@ -326,7 +417,11 @@ export function removeFeatFromActor(
     feature.choices,
   );
 
-  return { features, spells, activeEffects, proficiencies };
+  const classCounters = (actor.system.classCounters ?? []).filter(
+    (counter) => counter.featureId !== feature.id,
+  );
+
+  return { features, spells, activeEffects, proficiencies, classCounters };
 }
 
 /**
@@ -355,7 +450,13 @@ export function reapplyFeatToActor(
     features: removed.features,
     spells: removed.spells,
     activeEffects: removed.activeEffects,
-    system: { ...actor.system, proficiencies: removed.proficiencies },
+    system: {
+      ...actor.system,
+      proficiencies: removed.proficiencies,
+      // Счётчики снятой версии уже вычтены: иначе новая версия увидела бы
+      // старый ресурс и второй раз его не завела бы
+      classCounters: removed.classCounters,
+    },
   };
 
   // Уровень взятия переносим со старой версии: правка черты — не повторное её

@@ -39,6 +39,7 @@
     EFFECT_TEMPLATES_MODAL_IDS,
     FORM_FIELD_LABELS,
     FORM_TAB_LABELS,
+    GRANT_FIELD_LABELS,
     MODAL_BUTTON_LABELS,
   } from '../constants';
   import DamagePartsEditor from '../DamagePartsEditor.vue';
@@ -118,6 +119,7 @@
     'recurringSave',
     'recurringDamage',
     'conditionImmunities',
+    'exhaustionLevel',
   ] as const satisfies readonly (keyof ActiveEffect)[];
 
   /**
@@ -306,6 +308,12 @@
       delete form.aura;
     }
   }
+
+  /** Состояния, к которым эффект может дать иммунитет */
+  const conditionImmunityOptions = SELECTABLE_CONDITIONS.map((condition) => ({
+    value: condition.key,
+    label: condition.nameRu,
+  }));
 
   /** Опции пресетов состояний для UDropdownMenu */
   const conditionPresetItems = [
@@ -617,6 +625,32 @@
     get: () => form.applyOnSuccess === true,
     set: (value) => {
       form.applyOnSuccess = value ? true : undefined;
+
+      // Взаимоисключающие: «даже при успехе» и «только при успехе» вместе не
+      // читаются, и движок бы всё равно выбрал одно
+      if (value) {
+        form.applyOnSuccessOnly = undefined;
+      }
+    },
+  });
+
+  /** Накладывать эффект только при успешном спасброске (зеркало предыдущего) */
+  const applyOnSuccessOnly = computed({
+    get: () => form.applyOnSuccessOnly === true,
+    set: (value) => {
+      form.applyOnSuccessOnly = value ? true : undefined;
+
+      if (value) {
+        form.applyOnSuccess = undefined;
+      }
+    },
+  });
+
+  /** Состояния, к которым эффект даёт иммунитет носителю */
+  const conditionImmunities = computed<ConditionKey[]>({
+    get: () => form.conditionImmunities ?? [],
+    set: (keys) => {
+      form.conditionImmunities = keys.length > 0 ? keys : undefined;
     },
   });
 
@@ -1340,6 +1374,16 @@
                   <p class="mt-1.5 text-xs text-muted">
                     {{ ACTIVE_EFFECT_FORM_LABELS.applyOnSuccessHint }}
                   </p>
+
+                  <UCheckbox
+                    v-model="applyOnSuccessOnly"
+                    :label="ACTIVE_EFFECT_FORM_LABELS.applyOnSuccessOnly"
+                    class="mt-3"
+                  />
+
+                  <p class="mt-1.5 text-xs text-muted">
+                    {{ ACTIVE_EFFECT_FORM_LABELS.applyOnSuccessOnlyHint }}
+                  </p>
                 </div>
               </div>
 
@@ -1460,6 +1504,35 @@
                     :add-label="ACTIVE_EFFECT_FORM_LABELS.addDamage"
                   />
                 </div>
+              </div>
+
+              <!-- Иммунитет к состояниям -->
+              <div class="rounded-lg border border-muted bg-elevated/30 p-3">
+                <div class="flex items-center gap-2">
+                  <UIcon
+                    name="tabler:shield-check"
+                    class="size-4 text-success"
+                  />
+
+                  <span class="text-sm font-medium">
+                    {{ ACTIVE_EFFECT_FORM_LABELS.conditionImmunitiesTitle }}
+                  </span>
+                </div>
+
+                <p class="mt-1.5 text-xs text-muted">
+                  {{ ACTIVE_EFFECT_FORM_LABELS.conditionImmunitiesHint }}
+                </p>
+
+                <USelectMenu
+                  v-model="conditionImmunities"
+                  :items="conditionImmunityOptions"
+                  value-key="value"
+                  label-key="label"
+                  multiple
+                  class="mt-3 w-full"
+                  :placeholder="GRANT_FIELD_LABELS.conditionsPlaceholder"
+                  :portal="false"
+                />
               </div>
             </div>
           </template>

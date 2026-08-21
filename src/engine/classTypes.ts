@@ -683,3 +683,48 @@ export const CLASS_KEYS: readonly ClassKey[] = [
 /** Опции классов для UI-селектов (мультиселект владельцев заклинания) */
 export const CLASS_KEY_OPTIONS: { value: ClassKey; label: string }[] =
   CLASS_KEYS.map((value) => ({ value, label: CLASS_KEY_LABELS[value] }));
+
+/**
+ * Канонический ключ класса из ответа игрока или слага страницы: `wizard-phb` → `wizard`.
+ * Слаг сайта несёт суффикс источника, а заклинание помечено голым ключом.
+ *
+ * @param value - ключ, ответ игрока или слаг страницы класса
+ * @returns канонический ключ; `null` — такого класса в правилах нет
+ */
+export function classKeyFromUrl(value: string | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+
+  return (
+    CLASS_KEYS.find(
+      (key) => normalized === key || normalized.startsWith(`${key}-`),
+    ) ?? null
+  );
+}
+
+/**
+ * Ключ класса по его названию: «Волшебник» → `wizard`.
+ *
+ * Нужен там, где класс назван словом, а не ключом: предыстория выдаёт черту
+ * «Посвящённый в магию (Волшебник)», и класс её списка приезжает только в этой
+ * скобке. Сверка нестрогая по регистру и пробелам — подписи в паках приходят с
+ * разным оформлением.
+ *
+ * @param name - название класса
+ * @returns ключ класса; `null` — такого класса в правилах нет
+ */
+export function classKeyByName(name: string | undefined): ClassKey | null {
+  const normalized = name?.trim().toLowerCase();
+
+  if (!normalized) {
+    return null;
+  }
+
+  return (
+    CLASS_KEYS.find((key) => CLASS_KEY_LABELS[key].toLowerCase() === normalized)
+    ?? null
+  );
+}

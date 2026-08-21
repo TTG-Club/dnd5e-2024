@@ -273,7 +273,12 @@ export function useSpellForm(
         autoHit.value = spell.autoHit ?? false;
         saveType.value = spell.saveType;
         saveEffect.value = spell.saveEffect ?? 'none';
-        attackAbility.value = spell.attackAbility ?? '';
+
+        // Характеристику записи справочника форма показывает как свою: сохранение
+        // собирает заклинание заново, и незаписанное поле потерялось бы
+        attackAbility.value =
+          spell.attackAbility ?? spell.spellcastingAbility ?? '';
+
         attackBonus.value = spell.attackBonus ?? 0;
 
         // Явный блок снарядов — единственный источник истины снарядности

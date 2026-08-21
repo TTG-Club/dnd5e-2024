@@ -71,6 +71,8 @@
     selectedFeatId,
     selectedFeatChoices,
     grantedFeatData,
+    askedFeatChoices,
+    namedClassKeys,
     featChoiceSpells,
     selectedEquipmentIndex,
     selectedEquipmentItems,
@@ -209,11 +211,16 @@
       // выборов: и то, и другое выдаётся от имени самой черты, чтобы снятие
       // предыстории забрало их вместе с ней
       sources.push(
-        ...collectFeatGrantedSpellSources({
-          name: selectedFeat.value.name,
-          featData: selectedFeat.value.featData,
-          choices: selectedFeatChoices.value,
-        }),
+        // Лист передаётся ради уровней доступа: заклинание черты, доступное
+        // только с третьего уровня, на первом выдаваться не должно
+        ...collectFeatGrantedSpellSources(
+          {
+            name: selectedFeat.value.name,
+            featData: selectedFeat.value.featData,
+            choices: selectedFeatChoices.value,
+          },
+          props.actor,
+        ),
         ...collectGrantedSpellSources([selectedFeat.value]),
       );
     }
@@ -221,10 +228,10 @@
     const def = definition.value;
 
     if (def?.featData) {
-      const ownSources = collectFeatGrantedSpellSources({
-        name: def.name,
-        featData: def.featData,
-      });
+      const ownSources = collectFeatGrantedSpellSources(
+        { name: def.name, featData: def.featData },
+        props.actor,
+      );
 
       for (const source of ownSources) {
         sources.push({
@@ -388,10 +395,11 @@
 
               <FeatChoicesFields
                 v-model="selectedFeatChoices"
-                :choices="grantedFeatData?.choices ?? []"
+                :choices="askedFeatChoices"
                 :actor="actor"
                 :proficiency-bonus="proficiencyBonus"
                 :spells="featChoiceSpells"
+                :named-class-keys="namedClassKeys"
               />
             </div>
 

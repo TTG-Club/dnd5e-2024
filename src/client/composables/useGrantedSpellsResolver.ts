@@ -20,8 +20,9 @@ import type {
 import { computed, ref, watch } from 'vue';
 
 import { loadCompendiumKind } from '@/core/compendiumDataClient';
+import { useItemsStore } from '@/stores/itemsStore';
 
-import { extractSpellEntries } from './spellCompendium';
+import { extractSpellEntries, extractWorldSpells } from './spellCompendium';
 
 /**
  * Composable сопоставления granted-заклинаний с данными компендиума.
@@ -55,7 +56,12 @@ export function useGrantedSpellsResolver(
 
     const entries = await loadCompendiumKind(socketClient, 'spell');
 
-    compendiumSpells.value = extractSpellEntries(entries);
+    // Заклинания, созданные в самом мире, ищутся наравне с компендиумными:
+    // черта может выдавать своё заклинание, заведённое в панели «Предметы»
+    compendiumSpells.value = [
+      ...extractSpellEntries(entries),
+      ...extractWorldSpells(useItemsStore().itemsByType('spell')),
+    ];
   }
 
   watch(

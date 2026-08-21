@@ -1,5 +1,6 @@
 <script setup lang="ts">
   import type { ExtensionRegistration } from '@/core/extensionRegistry';
+  import type { TypedWebSocketClient } from '@vtt/shared';
   import type { DnDActor } from '@vtt/shared/system/dnd.js';
 
   import { computed, toRef } from 'vue';
@@ -24,12 +25,18 @@
   interface Props {
     actor: DnDActor;
     isEditMode: boolean;
+    /**
+     * WebSocket-клиент. Нужен вкладке особенностей: окно правки черты выбирает
+     * из компендиума требуемые записи и выдаваемые заклинания.
+     */
+    socket?: TypedWebSocketClient | null;
     isSpellDragOver?: boolean;
     isEquipmentDragOver?: boolean;
     isFeatureDragOver?: boolean;
   }
 
   const props = withDefaults(defineProps<Props>(), {
+    socket: null,
     isSpellDragOver: false,
     isEquipmentDragOver: false,
     isFeatureDragOver: false,
@@ -198,6 +205,7 @@
         v-if="activeTab === 'features'"
         :actor="actor"
         :is-edit-mode="isEditMode"
+        :socket="socket"
         :is-drag-over="props.isFeatureDragOver"
         @update:actor="handleUpdate"
         @immediate-save="emit('immediate-save')"

@@ -16,6 +16,7 @@
 
   import type { EditableFeatGrants } from '../feat/featEditorTypes';
   import type { SpellOption } from '../grantedSpellsEditorTypes';
+  import type { EditableStartingEquipmentOption } from '../startingEquipmentEditorTypes';
 
   import { computed, ref, watch } from 'vue';
 
@@ -33,7 +34,9 @@
   import { generateId } from '@vtt/shared';
   import {
     ABILITY_OPTIONS,
+    CLASS_KEY_OPTIONS,
     isDnDGameItem,
+    resolveBackgroundFeatClassKey,
     resolveToolProficiencies,
     SKILLS_LIST,
     TOOLS_LABELS,
@@ -41,22 +44,32 @@
 
   import {
     BACKGROUND_FORM_LABELS,
-    BACKGROUND_GOLD_UNIT,
     FORM_FIELD_LABELS,
     FORM_TAB_LABELS,
     GRANT_FIELD_LABELS,
     GRANT_SECTION_LABELS,
+    GRANTED_SPELLS_LABELS,
     MODAL_BUTTON_LABELS,
+    NO_SELECTION,
+    SPELL_CHOICE_LABELS,
   } from '../constants';
   import {
     buildFeatData,
     createEmptyFeatGrants,
     featDataToGrants,
+    usedChoiceKeys,
   } from '../feat/featEditorTypes';
-  import FeatGrantsFields from '../feat/FeatGrantsFields.vue';
+  import FeatSpellcastingFields from '../feat/FeatSpellcastingFields.vue';
+  import GrantRowsEditor from '../feat/GrantRowsEditor.vue';
+  import FieldHint from '../FieldHint.vue';
   import FormSection from '../FormSection.vue';
   import GrantedSpellsEditor from '../GrantedSpellsEditor.vue';
   import SourceField from '../SourceField.vue';
+  import StartingEquipmentEditor from '../StartingEquipmentEditor.vue';
+  import {
+    buildBackgroundEquipmentOptions,
+    toEditableEquipmentOption,
+  } from '../startingEquipmentEditorTypes';
   import ActiveEffectFormModal from '../tabs/ActiveEffectFormModal.vue';
   import { slugify } from '../utils/slugify';
 
@@ -133,12 +146,29 @@
   const featSelectionType = ref<'fixed' | 'choice'>('fixed');
   const selectedFeatId = ref<string>('');
   const selectedFeatChoices = ref<string[]>([]);
+  /**
+   * Класс, который предыстория называет за игрока: «Мудрец» даёт «Посвящённого в
+   * магию (Волшебник)». Мастер тогда не спрашивает список — он уже назван.
+   */
+  const selectedFeatClassKey = ref<string>(NO_SELECTION);
 
-  const equipmentDescription = ref('');
-  const equipmentGold = ref(50);
+  /** Классы с пунктом «не назван» — им же выбор класса и снимается. */
+  const featClassOptions: { value: string; label: string }[] = [
+    { value: NO_SELECTION, label: BACKGROUND_FORM_LABELS.featClassNone },
+    ...CLASS_KEY_OPTIONS.map((option) => ({
+      value: option.value,
+      label: option.label,
+    })),
+  ];
+
+  /** Варианты стартового снаряжения — строкой, позициями и монетами. */
+  const equipmentOptions = ref<EditableStartingEquipmentOption[]>([]);
 
   // Расширенные «дары что угодно» (как у черты).
   const grants = ref<EditableFeatGrants>(createEmptyFeatGrants());
+
+  /** Ключи занятых выборов: все они лежат в одном списке блоба. */
+  const takenChoiceKeys = computed(() => [...usedChoiceKeys(grants.value)]);
   const grantedSpells = ref<GrantedSpellRef[]>([]);
   const effects = ref<ActiveEffect[]>([]);
 
@@ -329,8 +359,8 @@
     featSelectionType.value = 'fixed';
     selectedFeatId.value = '';
     selectedFeatChoices.value = [];
-    equipmentDescription.value = '';
-    equipmentGold.value = 50;
+    selectedFeatClassKey.value = NO_SELECTION;
+    equipmentOptions.value = [];
     grants.value = createEmptyFeatGrants();
     grantedSpells.value = [];
     effects.value = [];
@@ -379,22 +409,22 @@
       selectedFeatId.value = bg.featGrant?.featId ?? '';
     }
 
-    if (bg.equipmentOptions?.length) {
-      equipmentDescription.value = bg.equipmentOptions[0]?.description ?? '';
+    // Уточнение приезжает из выгрузки TTG Club текстом («Волшебник»), а форма
+    // хранит ключ: без приведения сохранение записало бы «выбирает игрок» и
+    // компендиумная предыстория потеряла бы названный класс
+    selectedFeatClassKey.value =
+      resolveBackgroundFeatClassKey(bg.featGrant) ?? NO_SELECTION;
 
-      const goldOption = bg.equipmentOptions.find(
-        (option) => typeof option.goldAlternative === 'number',
-      );
-
-      equipmentGold.value = goldOption?.goldAlternative ?? 50;
-    }
+    equipmentOptions.value = (bg.equipmentOptions ?? []).map(
+      toEditableEquipmentOption,
+    );
 
     grants.value = featDataToGrants(bg.featData);
 
+    // Копия целиком, а не по полям: у ссылки бывает уровень доступа, и поле,
+    // не показанное в этой форме, всё равно не должно теряться при сохранении
     grantedSpells.value = (bg.featData?.grantedSpells ?? []).map((spell) => ({
-      name: spell.name,
-      spellId: spell.spellId,
-      packId: spell.packId,
+      ...spell,
     }));
 
     effects.value = (bg.activeEffects ?? []).map((effect) => ({ ...effect }));
@@ -449,11 +479,7 @@
 
     const { featName, featNameEn } = resolveFeatNames();
 
-    const featData = buildFeatData(
-      grants.value,
-      grantedSpells.value,
-      (props.item ?? props.background)?.featData,
-    );
+    const featData = buildFeatData(grants.value, grantedSpells.value);
 
     const bg: DnDGameItem = {
       id: existingId.value || `item_${generateId('bg')}`,
@@ -500,14 +526,12 @@
             : undefined,
         featName,
         featNameEn,
+        featClassKey:
+          selectedFeatClassKey.value === NO_SELECTION
+            ? undefined
+            : selectedFeatClassKey.value,
       },
-      equipmentOptions: [
-        { description: equipmentDescription.value.trim() },
-        {
-          description: `${equipmentGold.value} ${BACKGROUND_GOLD_UNIT}`,
-          goldAlternative: equipmentGold.value,
-        },
-      ],
+      equipmentOptions: buildBackgroundEquipmentOptions(equipmentOptions.value),
 
       activeEffects: effects.value.length > 0 ? effects.value : undefined,
       featData,
@@ -728,40 +752,39 @@
                   class="w-full"
                 />
               </UFormField>
+
+              <UFormField class="mt-3">
+                <template #label>
+                  <span class="flex items-center gap-1">
+                    {{ BACKGROUND_FORM_LABELS.featClass }}
+                    <FieldHint :text="BACKGROUND_FORM_LABELS.featClassHint" />
+                  </span>
+                </template>
+
+                <USelect
+                  v-model="selectedFeatClassKey"
+                  :items="featClassOptions"
+                  value-key="value"
+                  label-key="label"
+                  class="w-full"
+                />
+              </UFormField>
             </FormSection>
           </div>
         </template>
 
         <!-- СНАРЯЖЕНИЕ -->
         <template #equipment>
-          <FormSection
-            :title="BACKGROUND_FORM_LABELS.equipmentTitle"
-            icon="tabler:backpack"
-          >
-            <div class="flex flex-col gap-4">
-              <p class="text-xs text-dimmed">
-                {{ BACKGROUND_FORM_LABELS.equipmentHelp }}
-              </p>
+          <div class="flex flex-col gap-2">
+            <p class="text-xs text-dimmed">
+              {{ BACKGROUND_FORM_LABELS.equipmentHelp }}
+            </p>
 
-              <UFormField :label="BACKGROUND_FORM_LABELS.equipmentItems">
-                <UInput
-                  v-model="equipmentDescription"
-                  :placeholder="
-                    BACKGROUND_FORM_LABELS.equipmentItemsPlaceholder
-                  "
-                  class="w-full"
-                />
-              </UFormField>
-
-              <UFormField :label="BACKGROUND_FORM_LABELS.equipmentGold">
-                <UInputNumber
-                  v-model="equipmentGold"
-                  :min="0"
-                  :max="999"
-                />
-              </UFormField>
-            </div>
-          </FormSection>
+            <StartingEquipmentEditor
+              v-model="equipmentOptions"
+              show-gold-alternative
+            />
+          </div>
         </template>
 
         <!-- АВТОМАТИЗАЦИЯ (дары что угодно) -->
@@ -771,27 +794,38 @@
               {{ BACKGROUND_FORM_LABELS.grantsHint }}
             </p>
 
-            <FeatGrantsFields
-              v-model="grants"
-              hide-ability-score-increase
-              hide-skill-proficiencies
-              hide-modifiers
+            <GrantRowsEditor
+              v-model="grants.grantRows"
+              hide-ability
+              hide-skill
+              :taken-keys="takenChoiceKeys"
             />
           </div>
         </template>
 
         <!-- ЗАКЛИНАНИЯ -->
         <template #spells>
-          <div class="flex flex-col gap-2">
-            <p class="text-xs text-dimmed">
-              {{ BACKGROUND_FORM_LABELS.spellsHint }}
-            </p>
+          <div class="flex flex-col gap-4">
+            <FormSection
+              :title="GRANTED_SPELLS_LABELS.title"
+              icon="tabler:sparkles"
+              :hint="BACKGROUND_FORM_LABELS.spellsHint"
+            >
+              <GrantedSpellsEditor
+                v-model="grantedSpells"
+                :available-spells="availableSpells"
+                :socket="socket"
+                @open-spell="openSpellDetail"
+              />
+            </FormSection>
 
-            <GrantedSpellsEditor
-              v-model="grantedSpells"
-              :available-spells="availableSpells"
-              @open-spell="openSpellDetail"
-            />
+            <FormSection
+              :title="SPELL_CHOICE_LABELS.spellcastingAbility"
+              icon="tabler:wand"
+              :hint="SPELL_CHOICE_LABELS.spellcastingAbilityHint"
+            >
+              <FeatSpellcastingFields v-model="grants" />
+            </FormSection>
           </div>
         </template>
 

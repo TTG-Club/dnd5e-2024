@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import type { Feature } from '@vtt/shared';
+  import type { Feature, TypedWebSocketClient } from '@vtt/shared';
   import type { DnDActor, DnDGameItem } from '@vtt/shared/system/dnd.js';
 
   import type { FeatureOriginKey } from '../constants';
@@ -32,6 +32,11 @@
   interface Props {
     actor: DnDActor;
     isEditMode: boolean;
+    /**
+     * WebSocket-клиент: окно правки черты берёт из компендиума требуемые
+     * записи и выдаваемые заклинания. Без него эти выборы недоступны.
+     */
+    socket?: TypedWebSocketClient | null;
     isDragOver?: boolean;
   }
 
@@ -486,6 +491,7 @@
       const oldFeature = props.actor.features[index];
 
       openModal('FeatFormModal', {
+        socket: props.socket,
         feat: createFeatGameItem(oldFeature),
         onSave: (data: DnDGameItem) => {
           const updatedFeat: AppliedFeatFeature = {
@@ -523,6 +529,7 @@
             system: {
               ...props.actor.system,
               proficiencies: result.proficiencies,
+              classCounters: result.classCounters,
             },
             ...(result.token ? { token: result.token } : {}),
           });
@@ -633,6 +640,7 @@
         system: {
           ...props.actor.system,
           proficiencies: result.proficiencies,
+          classCounters: result.classCounters,
         },
       });
 

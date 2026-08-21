@@ -52,6 +52,39 @@ export function extractSpellEntries(entries: ReadonlyArray<unknown>): Spell[] {
 }
 
 /**
+ * Достаёт заклинания, созданные в самом мире (панель «Предметы»).
+ *
+ * В мире заклинание лежит обёрнутым в предмет: сама запись — в `spellData`, а у
+ * обёртки тот же `id`. Без разворачивания такие заклинания не находились по
+ * ссылке, и выданное чертой своё заклинание молча не доезжало до листа.
+ *
+ * @param items - предметы мира типа `spell`
+ * @returns плоские записи заклинаний
+ */
+export function extractWorldSpells(items: ReadonlyArray<unknown>): Spell[] {
+  const spells: Spell[] = [];
+
+  for (const item of items) {
+    if (isSpellEntry(item)) {
+      spells.push(item);
+
+      continue;
+    }
+
+    if (
+      typeof item === 'object'
+      && item !== null
+      && 'spellData' in item
+      && isSpellEntry(item.spellData)
+    ) {
+      spells.push(item.spellData);
+    }
+  }
+
+  return spells;
+}
+
+/**
  * Находит заклинание по id среди паков: сперва в предпочтённом паке, затем в
  * любом. Откат по id сохраняет переносимость (у другого мастера может не быть
  * предпочтённого пака).

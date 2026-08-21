@@ -127,6 +127,13 @@ export function useWeaponForm(
     selectedProperties.value.includes('magical'),
   );
 
+  /**
+   * Фокусирующее: магический посох или жезл-оружие годится заклинательной
+   * фокусировкой. У снаряжения это свойство есть в справочнике, а среди свойств
+   * оружия его нет — поэтому здесь оно отдельной галочкой.
+   */
+  const isFocus = ref(false);
+
   const systemDataStore = useSystemDataStore();
 
   // --- Computed-опции из systemDataStore ---
@@ -269,6 +276,7 @@ export function useWeaponForm(
         magicAttunement.value = weapon.magicAttunement ?? 'none';
         isAttuned.value = weapon.isAttuned ?? false;
         magicBonus.value = weapon.magicBonus ?? 0;
+        isFocus.value = weapon.isFocus ?? false;
 
         activeEffects.value = [...(weapon.activeEffects ?? [])].filter(
           isDnDEffect,
@@ -314,6 +322,7 @@ export function useWeaponForm(
         magicAttunement.value = 'none';
         isAttuned.value = false;
         magicBonus.value = 0;
+        isFocus.value = false;
         rarity.value = 'none';
         activeEffects.value = [];
         itemUses.resetItemUses();
@@ -489,6 +498,7 @@ export function useWeaponForm(
         distanceUnit.value !== 'ft' ? distanceUnit.value : undefined,
       isAdamantine: isAdamantine.value || undefined,
       isMagical: isMagical.value || undefined,
+      isFocus: isFocus.value || undefined,
       magicAttunement:
         isMagical.value && magicAttunement.value !== 'none'
           ? magicAttunement.value
@@ -535,6 +545,7 @@ export function useWeaponForm(
     isSRD,
     isAdamantine,
     isMagical,
+    isFocus,
     magicAttunement,
     isAttuned,
     magicBonus,

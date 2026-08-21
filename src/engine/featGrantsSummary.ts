@@ -128,6 +128,14 @@ function proficiencyLine(featData: FeatData): string | null {
     );
   }
 
+  if (featData.weaponMasteries?.length) {
+    parts.push(
+      `приёмы оружия: ${featData.weaponMasteries
+        .map((weapon) => WEAPON_LABELS[weapon] ?? weapon)
+        .join(', ')}`,
+    );
+  }
+
   if (featData.toolProficiencies?.length) {
     parts.push(
       featData.toolProficiencies
@@ -157,6 +165,72 @@ function defenseLine(featData: FeatData): string | null {
   }
 
   return parts.length > 0 ? `- **Защиты:** ${parts.join(', ')}` : null;
+}
+
+/**
+ * Строка расширения списка заклинаний класса — таблицы «Заклинания метки».
+ *
+ * Ступени показаны как есть, без учёта уровня персонажа: сводка описывает саму
+ * черту, а что из неё уже открыто, видно по книге заклинаний листа. Количество
+ * показано формулой источника по той же причине, что и максимум ресурса.
+ */
+function spellListLine(featData: FeatData): string | null {
+  const groups = featData.spellList?.groups ?? [];
+
+  if (groups.length === 0) {
+    return null;
+  }
+
+  const parts = groups
+    .filter((group) => group.spells?.length)
+    .map((group) => {
+      const names = group.spells.map((spell) => spell.name).join(', ');
+
+      const conditions = [
+        group.requiredLevel && group.requiredLevel > 1
+          ? `с ${group.requiredLevel} ур.`
+          : null,
+        group.count?.trim() ? `выбрать ${group.count.trim()}` : null,
+      ].filter(Boolean);
+
+      return conditions.length > 0
+        ? `${names} (${conditions.join(', ')})`
+        : names;
+    });
+
+  if (parts.length === 0) {
+    return null;
+  }
+
+  const suffix = featData.spellList?.requiresSpellcasting
+    ? ' — при наличии способности творить заклинания'
+    : '';
+
+  return `- **Список заклинаний класса:** ${parts.join('; ')}${suffix}`;
+}
+
+/**
+ * Строка ресурсов черты: название и способ восстановления. Максимум показан
+ * формулой источника, а не числом: у «Удачливого» он равен бонусу мастерства и
+ * зависит от уровня конкретного персонажа, а сводка описывает саму черту.
+ */
+function countersLine(featData: FeatData): string | null {
+  const counters = featData.counters ?? [];
+
+  if (counters.length === 0) {
+    return null;
+  }
+
+  const parts = counters.map(
+    (counter) =>
+      `${counter.name} (${counter.max}, ${
+        counter.recovery === 'short'
+          ? 'короткий отдых'
+          : 'продолжительный отдых'
+      })`,
+  );
+
+  return `- **Ресурсы:** ${parts.join('; ')}`;
 }
 
 /**
@@ -378,12 +452,22 @@ export function buildFeatGrantsSummary(
   if (featData?.grantedSpells?.length) {
     lines.push(
       `- **Заклинания:** ${featData.grantedSpells
-        .map((spell) => spell.name)
+        .map((spell) =>
+          spell.requiredLevel && spell.requiredLevel > 1
+            ? `${spell.name} (с ${spell.requiredLevel} ур.)`
+            : spell.name,
+        )
         .join(', ')}`,
     );
   }
 
   if (featData) {
+    const spellList = spellListLine(featData);
+
+    if (spellList) {
+      lines.push(spellList);
+    }
+
     const asiLine = abilityScoreLine(featData);
 
     if (asiLine) {
@@ -414,6 +498,12 @@ export function buildFeatGrantsSummary(
 
     if (modifiers) {
       lines.push(modifiers);
+    }
+
+    const counters = countersLine(featData);
+
+    if (counters) {
+      lines.push(counters);
     }
 
     const prereq = prerequisiteLine(featData);

@@ -72,6 +72,15 @@ const CASTING_TIME_KEYS: readonly SpellCastingTimeUnit[] = [
   'hour',
 ];
 
+/**
+ * «Ритуал» в фильтре времени накладывания у выбора заклинания черты.
+ *
+ * Не единица времени, а признак самого заклинания ({@link Spell.ritual}): «Ритуальный
+ * заклинатель» берёт только ритуалы. Ключ живёт рядом с единицами времени, потому что
+ * стоит в том же поле фильтра и разбирается вместе с ними.
+ */
+export const RITUAL_CASTING_TIME = 'ritual';
+
 /** Единицы времени сотворения для UI-селектов */
 export const CASTING_TIME_OPTIONS: ReadonlyArray<{
   value: SpellCastingTimeUnit;

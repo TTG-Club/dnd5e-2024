@@ -131,6 +131,7 @@
     source,
     isSRD,
     isMagical,
+    isFocus,
     magicAttunement,
     isAttuned,
     magicBonus,
@@ -673,6 +674,17 @@
                   v-model="isAttuned"
                   :label="ITEM_FORM_LABELS.attuned"
                 />
+
+                <div>
+                  <UCheckbox
+                    v-model="isFocus"
+                    :label="ITEM_FORM_LABELS.focus"
+                  />
+
+                  <p class="mt-1.5 text-xs text-muted">
+                    {{ ITEM_FORM_LABELS.focusHint }}
+                  </p>
+                </div>
               </div>
             </FormSection>
 

@@ -24,17 +24,28 @@
 
   import {
     FEAT_FORM_LABELS,
+    FEAT_GRANTS_LABELS,
     FORM_FIELD_LABELS,
     FORM_TAB_LABELS,
     GRANT_SECTION_LABELS,
+    GRANTED_SPELLS_LABELS,
     MODAL_BUTTON_LABELS,
+    SPELL_CHOICE_LABELS,
+    SPELL_LIST_LABELS,
   } from './constants';
+  import FeatCountersEditor from './feat/FeatCountersEditor.vue';
   import {
     buildFeatData,
     createEmptyFeatGrants,
     featDataToGrants,
+    usedChoiceKeys,
   } from './feat/featEditorTypes';
-  import FeatGrantsFields from './feat/FeatGrantsFields.vue';
+  import FeatSpellcastingFields from './feat/FeatSpellcastingFields.vue';
+  import FeatSpellListEditor from './feat/FeatSpellListEditor.vue';
+  import GrantRowsEditor from './feat/GrantRowsEditor.vue';
+  import ModifierRowsEditor from './feat/ModifierRowsEditor.vue';
+  import PrerequisiteRowsEditor from './feat/PrerequisiteRowsEditor.vue';
+  import SpellChoiceRowsEditor from './feat/SpellChoiceRowsEditor.vue';
   import FormSection from './FormSection.vue';
   import GrantedSpellsEditor from './GrantedSpellsEditor.vue';
   import SourceField from './SourceField.vue';
@@ -74,9 +85,11 @@
 
   const tabItems = [
     { label: FORM_TAB_LABELS.main, slot: 'basic' as const },
+    { label: GRANT_SECTION_LABELS.proficiencies, slot: 'grants' as const },
     { label: GRANT_SECTION_LABELS.spells, slot: 'spells' as const },
+    { label: FORM_TAB_LABELS.automation, slot: 'automation' as const },
+    { label: FORM_TAB_LABELS.prerequisites, slot: 'prerequisites' as const },
     { label: FORM_TAB_LABELS.effects, slot: 'effects' as const },
-    { label: FORM_TAB_LABELS.automation, slot: 'grants' as const },
   ];
 
   // ── Состояние формы ──────────────────────────────────────────
@@ -95,8 +108,14 @@
   /** Активные эффекты черты. */
   const effects = ref<ActiveEffect[]>([]);
 
-  /** «Дары» черты (вкладка «Автоматизация»). */
+  /** Механика черты: дары, выборы, модификаторы, требования, ресурсы. */
   const grants = ref<EditableFeatGrants>(createEmptyFeatGrants());
+
+  /**
+   * Ключи всех выборов черты: они лежат в одном списке блоба, поэтому новый
+   * ключ на любой вкладке обязан не совпасть с занятым на другой.
+   */
+  const takenChoiceKeys = computed(() => [...usedChoiceKeys(grants.value)]);
 
   /** Заклинания компендиума по пакам (имя, источник, пак) — для подсказок. */
   const availableSpells = ref<SpellOption[]>([]);
@@ -170,9 +189,7 @@
     repeatableText.value = feat.repeatableText || '';
 
     grantedSpells.value = (feat.featData?.grantedSpells ?? []).map((spell) => ({
-      name: spell.name,
-      spellId: spell.spellId,
-      packId: spell.packId,
+      ...spell,
     }));
 
     effects.value = (feat.activeEffects ?? []).map((effect) => ({
@@ -240,11 +257,7 @@
       return;
     }
 
-    const featData = buildFeatData(
-      grants.value,
-      grantedSpells.value,
-      props.feat?.featData,
-    );
+    const featData = buildFeatData(grants.value, grantedSpells.value);
 
     const item: DnDGameItem = {
       id: props.feat?.id || '',
@@ -290,8 +303,8 @@
     :open="open"
     :title="feat ? FEAT_FORM_LABELS.editTitle : FEAT_FORM_LABELS.createTitle"
     :subtitle="nameEn || undefined"
-    :initial-width="640"
-    :min-width="520"
+    :initial-width="900"
+    :min-width="640"
     :resizable="false"
     :z-index="zIndex"
     :saved-position="initialPosition"
@@ -380,18 +393,52 @@
           </div>
         </template>
 
-        <!-- ЗАКЛИНАНИЯ -->
+        <!-- ЗАКЛИНАНИЯ: выдача, её настройки, выборы и список класса -->
         <template #spells>
-          <div class="flex flex-col gap-2">
-            <p class="text-xs text-dimmed">
-              {{ FEAT_FORM_LABELS.spellsHint }}
-            </p>
+          <div class="flex flex-col gap-4">
+            <FormSection
+              :title="GRANTED_SPELLS_LABELS.title"
+              icon="tabler:sparkles"
+              :hint="FEAT_FORM_LABELS.spellsHint"
+            >
+              <GrantedSpellsEditor
+                v-model="grantedSpells"
+                :available-spells="availableSpells"
+                :socket="socket"
+                with-required-level
+                @open-spell="openSpellDetail"
+              />
+            </FormSection>
 
-            <GrantedSpellsEditor
-              v-model="grantedSpells"
-              :available-spells="availableSpells"
-              @open-spell="openSpellDetail"
-            />
+            <FormSection
+              :title="SPELL_CHOICE_LABELS.spellcastingAbility"
+              icon="tabler:wand"
+              :hint="SPELL_CHOICE_LABELS.spellcastingAbilityHint"
+            >
+              <FeatSpellcastingFields v-model="grants" />
+            </FormSection>
+
+            <FormSection
+              :title="SPELL_CHOICE_LABELS.title"
+              icon="tabler:hand-click"
+            >
+              <SpellChoiceRowsEditor
+                v-model="grants.spellChoice"
+                :taken-keys="takenChoiceKeys"
+              />
+            </FormSection>
+
+            <FormSection
+              :title="SPELL_LIST_LABELS.title"
+              icon="tabler:list-details"
+            >
+              <FeatSpellListEditor
+                v-model="grants.spellList"
+                :available-spells="availableSpells"
+                :socket="socket"
+                @open-spell="openSpellDetail"
+              />
+            </FormSection>
           </div>
         </template>
 
@@ -471,15 +518,39 @@
           </div>
         </template>
 
-        <!-- АВТОМАТИЗАЦИЯ -->
+        <!-- ВЛАДЕНИЯ -->
         <template #grants>
-          <div class="flex flex-col gap-2">
-            <p class="text-xs text-dimmed">
-              {{ FEAT_FORM_LABELS.grantsHint }}
-            </p>
+          <GrantRowsEditor
+            v-model="grants.grantRows"
+            :taken-keys="takenChoiceKeys"
+          />
+        </template>
 
-            <FeatGrantsFields v-model="grants" />
+        <!-- АВТОМАТИЗАЦИЯ: модификаторы листа и ресурсы -->
+        <template #automation>
+          <div class="flex flex-col gap-4">
+            <FormSection
+              :title="FEAT_GRANTS_LABELS.modifiersTitle"
+              icon="tabler:adjustments-filled"
+            >
+              <ModifierRowsEditor v-model="grants.modifiers" />
+            </FormSection>
+
+            <FormSection
+              :title="FEAT_GRANTS_LABELS.countersTitle"
+              icon="tabler:battery-2"
+            >
+              <FeatCountersEditor v-model="grants.counters" />
+            </FormSection>
           </div>
+        </template>
+
+        <!-- ТРЕБОВАНИЯ -->
+        <template #prerequisites>
+          <PrerequisiteRowsEditor
+            v-model="grants.prerequisites"
+            :socket="socket"
+          />
         </template>
       </UTabs>
     </template>

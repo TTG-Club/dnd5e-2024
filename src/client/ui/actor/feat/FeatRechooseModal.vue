@@ -1,9 +1,13 @@
 <script setup lang="ts">
-  import type { DnDActor } from '@vtt/shared/system/dnd.js';
+  import type { TypedWebSocketClient } from '@vtt/shared';
+  import type {
+    DnDActor,
+    FeatAwaitingChoices,
+  } from '@vtt/shared/system/dnd.js';
 
   import type { AppliedFeatFeature } from './featApply';
 
-  import { computed, ref, watch } from 'vue';
+  import { computed, ref, toRef, watch } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
@@ -13,6 +17,7 @@
     getTotalLevel,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useFeatChoiceSpells } from '../../../composables/useFeatChoiceSpells';
   import {
     FEAT_CHOICES_LABELS,
     MODAL_BUTTON_LABELS,
@@ -21,17 +26,42 @@
   import FeatChoicesFields from './FeatChoicesFields.vue';
 
   /**
-   * Пересмотр выборов черт на продолжительном отдыхе: «Мастер оружия» меняет вид
-   * оружия, «Дар устойчивости к энергиям» — типы урона.
+   * Выбор у черт, которые персонаж уже взял.
    *
-   * Открывается сразу после отдыха, когда такие черты есть. Уже сделанный выбор
-   * подставлен: закрыть окно, ничего не трогая, — законный исход, менять выбор
-   * никто не обязан.
+   * Поводов два, и работа у них одна. Продолжительный отдых пересматривает то,
+   * что черта разрешает менять («Мастер оружия» — вид оружия). Повышение уровня
+   * открывает новую ступень таблицы заклинаний, и её спрашивают впервые: на
+   * взятии черты этой ступени ещё не было.
+   *
+   * Уже сделанный выбор подставлен: закрыть окно, ничего не трогая, — законный
+   * исход, менять выбор никто не обязан.
    */
-  const props = defineProps<{
-    open: boolean;
-    actor: DnDActor;
-  }>();
+  const props = withDefaults(
+    defineProps<{
+      open: boolean;
+      actor: DnDActor;
+      /**
+       * Что спрашивать. Не задано — пересматриваемые на отдыхе выборы: так окно
+       * открывает отдых, и знать про его повод больше никому не нужно.
+       */
+      feats?: FeatAwaitingChoices[] | null;
+      /** Заголовок окна; не задан — про пересмотр на отдыхе */
+      title?: string;
+      /** Подпись под заголовком */
+      hint?: string;
+      /** Надпись на кнопке подтверждения */
+      confirmLabel?: string;
+      /** Сокет: пул выбора заклинания берётся из компендиума */
+      socket?: TypedWebSocketClient | null;
+    }>(),
+    {
+      feats: null,
+      title: FEAT_CHOICES_LABELS.rechooseTitle,
+      hint: FEAT_CHOICES_LABELS.rechooseHint,
+      confirmLabel: REST_LABELS.long,
+      socket: null,
+    },
+  );
 
   const emit = defineEmits<{
     'update:open': [value: boolean];
@@ -44,8 +74,20 @@
     set: (value) => emit('update:open', value),
   });
 
-  /** Черты с пересматриваемыми выборами */
-  const feats = computed(() => collectRechoosableFeats(props.actor));
+  /** Черты, у которых есть что выбрать */
+  const feats = computed(
+    () => props.feats ?? collectRechoosableFeats(props.actor),
+  );
+
+  /**
+   * Каталог заклинаний для пула: ступень таблицы перечисляет заклинания
+   * ссылками, и без каталога игрок увидел бы список без названий.
+   */
+  const choiceList = computed(() =>
+    feats.value.flatMap((entry) => entry.choices),
+  );
+
+  const { spells } = useFeatChoiceSpells(toRef(props, 'socket'), choiceList);
 
   /** Выбор по каждой черте: id особенности → (ключ выбора → значения) */
   const selections = ref<Record<string, Record<string, string[]>>>({});
@@ -104,13 +146,13 @@
     :blocking="true"
     :min-width="420"
     :min-height="260"
-    :title="FEAT_CHOICES_LABELS.rechooseTitle"
+    :title="title"
     :z-index="Z_INDEX.MODAL_ELEVATED"
   >
     <template #body>
       <div class="space-y-4">
         <p class="text-xs text-dimmed">
-          {{ FEAT_CHOICES_LABELS.rechooseHint }}
+          {{ hint }}
         </p>
 
         <div
@@ -127,6 +169,7 @@
             :choices="entry.choices"
             :actor="actor"
             :proficiency-bonus="proficiencyBonus"
+            :spells="spells"
           />
         </div>
 
@@ -147,7 +190,7 @@
             size="md"
             @click.left.exact.prevent="apply"
           >
-            {{ REST_LABELS.long }}
+            {{ confirmLabel }}
           </UButton>
         </div>
       </div>
