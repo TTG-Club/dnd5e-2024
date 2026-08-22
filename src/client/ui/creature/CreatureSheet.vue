@@ -31,7 +31,6 @@
   import {
     applyCreatureRest,
     calculateAbilityModifier,
-    CONDITIONS,
     CR_TABLE,
     CREATURE_ENVIRONMENTS,
     CREATURE_SIZE_TO_TOKEN_SCALE,
@@ -49,6 +48,7 @@
     isDndCreature,
     isProficiencyLevel,
     isSpell,
+    listConditions,
     normalizeCreature,
     PASSIVE_SKILL_BASE,
     SKILLS_LIST,
@@ -563,7 +563,7 @@
       labelMap[dt.key] = dt.name;
     }
 
-    for (const condition of CONDITIONS) {
+    for (const condition of listConditions()) {
       labelMap[condition.key] = condition.nameRu;
     }
 

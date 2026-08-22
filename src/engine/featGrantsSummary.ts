@@ -24,12 +24,8 @@ import type { DnDGameItem } from './dndEntities.js';
 import type { FeatData } from './featTypes.js';
 
 import { SENSE_LABELS } from './actorSenses.js';
-import {
-  ABILITY_LABELS,
-  CONDITIONS,
-  isAbilityType,
-  SKILLS_LABELS,
-} from './consts.js';
+import { getConditionEntry } from './conditionTemplates.js';
+import { ABILITY_LABELS, isAbilityType, SKILLS_LABELS } from './consts.js';
 import {
   DAMAGE_DEFENSE_KIND_LABELS,
   DAMAGE_TYPE_LABELS,
@@ -167,8 +163,7 @@ function defenseLine(featData: FeatData): string | null {
   }
 
   for (const condition of featData.conditionImmunities ?? []) {
-    const label =
-      CONDITIONS.find((entry) => entry.key === condition)?.nameRu ?? condition;
+    const label = getConditionEntry(condition)?.nameRu ?? condition;
 
     parts.push(`иммунитет к состоянию «${label}»`);
   }

@@ -48,11 +48,12 @@ import { normalizeActor, normalizeCreature } from './calculations.js';
 import { CLASS_KEY_OPTIONS } from './classTypes.js';
 import {
   buildConditionActiveEffect,
+  getConditionEntry,
+  listConditions,
   resolveEffectConditionKey,
 } from './conditionTemplates.js';
 import {
   BASE_UNARMORED_AC,
-  CONDITIONS,
   CREATURE_CATEGORIES,
   DEFAULT_ACTOR,
 } from './consts.js';
@@ -266,7 +267,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.6.52';
+  readonly version = '0.6.53';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -861,7 +862,7 @@ export class Dnd5eVttSystem implements VttSystem {
     conditionKey: string,
     generateIdFn: (prefix: string) => string,
   ): unknown[] {
-    const condition = CONDITIONS.find((entry) => entry.key === conditionKey);
+    const condition = getConditionEntry(conditionKey);
 
     if (!condition) {
       return [...activeEffects];
@@ -1000,11 +1001,12 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * Возвращает список всех доступных состояний (conditions) в D&D 5e.
+   * Возвращает список всех доступных состояний: канон PHB плюс состояния,
+   * заведённые в мире («Мастерская» → «Состояния»).
    */
   // eslint-disable-next-line class-methods-use-this
   getConditions(): ConditionDefinition[] {
-    return CONDITIONS.map((condition) => ({
+    return listConditions().map((condition) => ({
       key: condition.key,
       label: condition.nameRu,
       icon: condition.icon,

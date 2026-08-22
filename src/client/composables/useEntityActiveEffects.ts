@@ -1,6 +1,6 @@
 import type { ComputedRef, Ref } from 'vue';
 
-import type { ActiveEffect, ConditionKey } from '@vtt/shared/system/dnd.js';
+import type { ActiveEffect, ConditionRef } from '@vtt/shared/system/dnd.js';
 
 import { computed } from 'vue';
 
@@ -55,8 +55,8 @@ export function useEntityActiveEffects(options: EntityActiveEffectsOptions) {
    * оставаться Испуганным, иначе плитка не подсвечена, а клик по ней плодит
    * второе такое же состояние.
    */
-  const activeConditionKeys = computed<Set<ConditionKey>>(() => {
-    const keys = new Set<ConditionKey>();
+  const activeConditionKeys = computed<Set<ConditionRef>>(() => {
+    const keys = new Set<ConditionRef>();
 
     for (const effect of options.effects.value) {
       // Аура с applyToSelf=false на источника не действует — не считаем активной
@@ -80,7 +80,7 @@ export function useEntityActiveEffects(options: EntityActiveEffectsOptions) {
    * @param key - ключ состояния
    * @returns `true`, если состояние активно
    */
-  function isConditionActive(key: ConditionKey): boolean {
+  function isConditionActive(key: ConditionRef): boolean {
     return activeConditionKeys.value.has(key);
   }
 
@@ -89,7 +89,7 @@ export function useEntityActiveEffects(options: EntityActiveEffectsOptions) {
    *
    * @param key - ключ состояния
    */
-  function toggleCondition(key: ConditionKey): void {
+  function toggleCondition(key: ConditionRef): void {
     const currentEffects = options.effects.value;
 
     if (isConditionActive(key)) {

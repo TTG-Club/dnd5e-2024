@@ -35,7 +35,11 @@
     loadSpellPacks,
   } from '@/systems/dnd5e/composables/spellCompendium';
   import { generateId } from '@vtt/shared';
-  import { ABILITY_OPTIONS, SKILLS_LIST } from '@vtt/shared/system/dnd.js';
+  import {
+    ABILITY_OPTIONS,
+    SKILLS_LIST,
+    slugify,
+  } from '@vtt/shared/system/dnd.js';
 
   import {
     ARMOR_PROF_LABELS,
@@ -58,7 +62,6 @@
     buildClassEquipmentOptions,
     toEditableEquipmentOption,
   } from '../startingEquipmentEditorTypes';
-  import { slugify } from '../utils/slugify';
   import ClassCountersEditor from './ClassCountersEditor.vue';
   import {
     buildAsiFeatures,

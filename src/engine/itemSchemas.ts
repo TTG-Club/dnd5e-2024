@@ -32,6 +32,9 @@ const ITEM_TYPES = [
   'species',
   'class',
   'spell',
+  // Состояние («Отравленный», своё состояние стола): не предмет склада, но
+  // хранится записью мира — у неё уже есть права, рассылка и копирование
+  'condition',
 ] as const;
 
 /**
@@ -85,6 +88,7 @@ export const GameItemSchema = z.discriminatedUnion('type', [
   GameItemEnvelopeSchema.extend({ type: z.literal('species') }).passthrough(),
   GameItemEnvelopeSchema.extend({ type: z.literal('class') }).passthrough(),
   GameItemEnvelopeSchema.extend({ type: z.literal('spell') }).passthrough(),
+  GameItemEnvelopeSchema.extend({ type: z.literal('condition') }).passthrough(),
 ]);
 
 /** Список известных типов предметов (для потребителей вне схемы). */

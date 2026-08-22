@@ -21,7 +21,7 @@ import type { DnDGameItem, Spell } from '@vtt/shared/system/dnd.js';
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
 import { isRecord } from '@vtt/shared';
-import { isDnDGameItem } from '@vtt/shared/system/dnd.js';
+import { CONDITION_ITEM_TYPE, isDnDGameItem } from '@vtt/shared/system/dnd.js';
 
 import { useFeatModal } from './useFeatModal';
 
@@ -54,6 +54,11 @@ const ITEM_TYPE_CONFIG: Record<string, ItemTypeConfig> = {
     label: 'Классы',
   },
   spell: { icon: 'tabler:wand', modalPrefix: 'Spell', label: 'Заклинания' },
+  [CONDITION_ITEM_TYPE]: {
+    icon: 'tabler:activity-heartbeat',
+    modalPrefix: 'Condition',
+    label: 'Состояния',
+  },
 };
 
 /**
@@ -209,6 +214,13 @@ export function createDnd5eItemTypeProvider(): ItemTypeProvider {
         classItemId: item?.id ?? null,
         socket,
       });
+
+      return;
+    }
+
+    // Состояние: форме нужен сокет — «Сбросить к канону» удаляет запись мира.
+    if (type === CONDITION_ITEM_TYPE) {
+      openByName(modalName, { item, onSave, socket });
 
       return;
     }

@@ -31,7 +31,8 @@ import {
   EFFECT_FLAG_LABELS,
   EFFECT_TARGET_SUGGESTIONS,
 } from './activeEffectTypes.js';
-import { ABILITY_LABELS, CONDITIONS } from './consts.js';
+import { getConditionEntry } from './conditionTemplates.js';
+import { ABILITY_LABELS } from './consts.js';
 import { getShortDamageTypeLabel } from './damageConstants.js';
 
 /** Подпись ключа модификатора (`armorClass` → «Класс доспеха (AC)»). */
@@ -73,10 +74,7 @@ const VALUE_TOKEN_LABELS: Record<string, string> = {
 
 /** Русское название состояния по ключу (неизвестный ключ отдаётся как есть). */
 function conditionLabel(conditionKey: string): string {
-  return (
-    CONDITIONS.find((entry) => entry.key === conditionKey)?.nameRu
-    ?? conditionKey
-  );
+  return getConditionEntry(conditionKey)?.nameRu ?? conditionKey;
 }
 
 /** Русская плюрализация: pluralize(2, ['раунд', 'раунда', 'раундов']). */
@@ -266,11 +264,9 @@ export function describeActiveEffect(effect: ActiveEffect): string {
     clauses.push(FLAG_LABELS.get(flag) ?? flag);
   }
 
-  // 3. Стандартное состояние D&D 5e
+  // 3. Состояние — канонное или заведённое в мире
   if (effect.conditionKey) {
-    const condition = CONDITIONS.find(
-      (entry) => entry.key === effect.conditionKey,
-    );
+    const condition = getConditionEntry(effect.conditionKey);
 
     if (condition) {
       clauses.push(`Состояние: ${condition.nameRu}`);

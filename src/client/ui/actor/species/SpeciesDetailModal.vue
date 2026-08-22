@@ -10,9 +10,9 @@
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import {
-    CONDITIONS,
     DAMAGE_DEFENSE_KIND_LABELS,
     DAMAGE_TYPE_LABELS,
+    getConditionEntry,
   } from '@vtt/shared/system/dnd.js';
 
   import {
@@ -141,11 +141,7 @@
           grants.push({
             title: GRANT_FIELD_LABELS.conditionImmunities,
             desc: grant.conditions
-              .map(
-                (key) =>
-                  CONDITIONS.find((condition) => condition.key === key)?.nameRu
-                  ?? key,
-              )
+              .map((key) => getConditionEntry(key)?.nameRu ?? key)
               .join(', '),
           });
         }
@@ -234,9 +230,7 @@
     }
 
     for (const conditionKey of choice.conditionImmunities ?? []) {
-      const name =
-        CONDITIONS.find((condition) => condition.key === conditionKey)?.nameRu
-        ?? conditionKey;
+      const name = getConditionEntry(conditionKey)?.nameRu ?? conditionKey;
 
       badges.push(`${SPECIES_DETAIL_LABELS.immunityPrefix}${name}`);
     }

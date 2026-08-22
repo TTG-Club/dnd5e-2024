@@ -14,7 +14,7 @@ import type {
   ToolCategory,
 } from '@vtt/shared';
 
-import type { ConditionKey } from './conditionKeys.js';
+import type { ConditionKey, ConditionRef } from './conditionKeys.js';
 import type { DnDActor, SpellUsesRecovery } from './dndEntities.js';
 import type { CreatureSize } from './types.js';
 
@@ -569,20 +569,26 @@ export const DEFAULT_ACTOR: Omit<DnDActor, 'id'> = {
 // Состояния (Conditions) D&D 5e (PHB 2024)
 // ============================================================
 
-/** Ключ состояния D&D 5e (определён в leaf-модуле `conditionKeys`) */
-export type { ConditionKey };
+/** Ключи состояний (определены в leaf-модуле `conditionKeys`) */
+export type { ConditionKey, ConditionRef };
 
-/** Данные одного состояния D&D 5e */
+/**
+ * Данные одного состояния.
+ *
+ * Форма общая для канона PHB и для состояний, заведённых в мире, — поэтому ключ
+ * `ConditionRef`, а не канонный union: в списках, сетках и иммунитетах те и
+ * другие ходят вперемешку.
+ */
 export interface ConditionEntry {
   /** Уникальный ключ состояния */
-  key: ConditionKey;
+  key: ConditionRef;
   /** Название на русском */
   nameRu: string;
   /** Название на английском */
   nameEn: string;
-  /** Иконка из коллекции fluent (как fallback) */
+  /** Иконка из коллекции (как fallback) */
   icon: string;
-  /** Путь к кастомной SVG-иконке в public/assets/status/ (имеет приоритет над icon) */
+  /** Картинка-значок: ассет мира или файл из `public/assets/status/` */
   customImage?: string;
   /** Описание эффектов состояния */
   description: string;

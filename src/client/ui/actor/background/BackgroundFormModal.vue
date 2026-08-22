@@ -39,6 +39,7 @@
     resolveBackgroundFeatClassKey,
     resolveToolProficiencies,
     SKILLS_LIST,
+    slugify,
     TOOLS_LABELS,
   } from '@vtt/shared/system/dnd.js';
 
@@ -71,7 +72,6 @@
     toEditableEquipmentOption,
   } from '../startingEquipmentEditorTypes';
   import ActiveEffectFormModal from '../tabs/ActiveEffectFormModal.vue';
-  import { slugify } from '../utils/slugify';
 
   const props = defineProps<{
     open: boolean;

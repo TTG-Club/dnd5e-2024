@@ -10,20 +10,24 @@
 <script setup lang="ts">
   import type {
     ActiveEffect,
-    ConditionKey,
+    ConditionRef,
     DnDGameItem,
   } from '@vtt/shared/system/dnd.js';
 
   import { computed, ref } from 'vue';
 
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
+  import { useItemsStore } from '@/stores/itemsStore';
+  import { getActiveSocket } from '@/system-runtime/activeSocket';
   import {
+    buildRuntimeConditionRecord,
     itemEffectsActive,
-    SELECTABLE_CONDITIONS,
+    listSelectableConditions,
   } from '@vtt/shared/system/dnd.js';
 
   import { useActiveEffectModal } from '../../composables/useActiveEffectModal';
   import { useEntityActiveEffects } from '../../composables/useEntityActiveEffects';
+  import { CONDITION_MODALS } from '../condition/conditionConsts';
   import {
     ACTIVE_EFFECT_DEFAULTS,
     ACTIVE_EFFECT_ICON_CLASS,
@@ -66,10 +70,54 @@
   const effectModalId = 'active-effect-form-modal';
   const isEffectModalOpen = ref(false);
   const effectModalZIndex = ref<number | undefined>(undefined);
-  const { getNextZIndex } = useModalManager();
+  const { getNextZIndex, openModal } = useModalManager();
   const { openActiveEffectDetail } = useActiveEffectModal();
 
   const editingEffect = ref<ActiveEffect | undefined>(undefined);
+
+  const itemsStore = useItemsStore();
+
+  /**
+   * Открывает карточку состояния: описание и вкладка «Эффекты» с разбором того,
+   * что состояние накладывает. Плитка состояние ВКЛЮЧАЕТ, поэтому посмотреть, из
+   * чего оно состоит, можно только отдельной кнопкой.
+   *
+   * @param conditionKey - ключ состояния
+   */
+  function openConditionDetail(conditionKey: ConditionRef): void {
+    const record = buildRuntimeConditionRecord(conditionKey);
+
+    if (record) {
+      openModal(CONDITION_MODALS.detail, { item: record });
+    }
+  }
+
+  /**
+   * Открывает форму нового состояния прямо с листа: состояние заводится в мире
+   * (как из «Мастерской») и сразу появляется в сетке ниже.
+   */
+  function createCondition(): void {
+    openModal(CONDITION_MODALS.form, {
+      item: null,
+      socket: getActiveSocket(),
+      onSave: saveConditionRecord,
+    });
+  }
+
+  /**
+   * Сохраняет состояние, собранное формой, записью мира.
+   *
+   * @param saved - запись состояния из формы
+   */
+  function saveConditionRecord(saved: DnDGameItem): void {
+    const socket = getActiveSocket();
+
+    if (!socket) {
+      return;
+    }
+
+    itemsStore.saveItem(socket, saved, true);
+  }
 
   /** Эффект работающего предмета с указанием источника */
   interface EquipmentEffectEntry {
@@ -116,7 +164,9 @@
    * отсеян раньше — это производная метка, а не выбор игрока).
    */
   const gridConditions = computed(() =>
-    SELECTABLE_CONDITIONS.filter((condition) => condition.key !== 'exhaustion'),
+    listSelectableConditions().filter(
+      (condition) => condition.key !== 'exhaustion',
+    ),
   );
 
   function createCustomEffect(): void {
@@ -147,7 +197,7 @@
    * @param key - ключ состояния
    * @returns строка классов
    */
-  function conditionCardClass(key: ConditionKey): string {
+  function conditionCardClass(key: ConditionRef): string {
     const base =
       'flex items-center gap-2 p-2 rounded-lg transition-all duration-200 w-full cursor-pointer';
 
@@ -164,7 +214,7 @@
    * @param key - ключ состояния
    * @returns строка классов
    */
-  function conditionIconClass(key: ConditionKey): string {
+  function conditionIconClass(key: ConditionRef): string {
     const base = 'size-5 shrink-0 transition-colors duration-200';
 
     return isConditionActive(key)
@@ -346,43 +396,58 @@
         :open-delay="300"
         :close-delay="100"
       >
-        <button
-          :class="conditionCardClass(condition.key)"
-          type="button"
-          @click.left.exact.prevent="toggleCondition(condition.key)"
-        >
-          <span
-            v-if="condition.customImage"
-            :class="conditionIconClass(condition.key)"
-            :style="{
-              maskImage: `url('${condition.customImage}')`,
-              WebkitMaskImage: `url('${condition.customImage}')`,
-              maskSize: 'contain',
-              WebkitMaskSize: 'contain',
-              maskPosition: 'center',
-              WebkitMaskPosition: 'center',
-              maskRepeat: 'no-repeat',
-              WebkitMaskRepeat: 'no-repeat',
-              backgroundColor: 'currentColor',
-            }"
+        <div :class="conditionCardClass(condition.key)">
+          <button
+            type="button"
+            class="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
+            @click.left.exact.prevent="toggleCondition(condition.key)"
+          >
+            <span
+              v-if="condition.customImage"
+              :class="conditionIconClass(condition.key)"
+              :style="{
+                maskImage: `url('${condition.customImage}')`,
+                WebkitMaskImage: `url('${condition.customImage}')`,
+                maskSize: 'contain',
+                WebkitMaskSize: 'contain',
+                maskPosition: 'center',
+                WebkitMaskPosition: 'center',
+                maskRepeat: 'no-repeat',
+                WebkitMaskRepeat: 'no-repeat',
+                backgroundColor: 'currentColor',
+              }"
+            />
+
+            <UIcon
+              v-else
+              :name="condition.icon"
+              :class="conditionIconClass(condition.key)"
+            />
+
+            <div class="min-w-0 flex-1 text-left">
+              <p class="truncate text-xs leading-tight font-medium">
+                {{ condition.nameRu }}
+              </p>
+
+              <p class="truncate text-[10px] leading-tight opacity-50">
+                {{ condition.nameEn }}
+              </p>
+            </div>
+          </button>
+
+          <!-- Плитка ВКЛЮЧАЕТ состояние, поэтому карточка открывается отдельной
+            кнопкой: иначе посмотреть, из чего состояние состоит, было бы нельзя,
+            не навесив его на сущность -->
+          <UButton
+            icon="tabler:info-circle"
+            size="xs"
+            variant="ghost"
+            color="neutral"
+            class="shrink-0 px-1"
+            :title="EFFECTS_TAB_LABELS.conditionDetailHint"
+            @click.left.exact.prevent="openConditionDetail(condition.key)"
           />
-
-          <UIcon
-            v-else
-            :name="condition.icon"
-            :class="conditionIconClass(condition.key)"
-          />
-
-          <div class="min-w-0 flex-1 text-left">
-            <p class="truncate text-xs leading-tight font-medium">
-              {{ condition.nameRu }}
-            </p>
-
-            <p class="truncate text-[10px] leading-tight opacity-50">
-              {{ condition.nameEn }}
-            </p>
-          </div>
-        </button>
+        </div>
 
         <template #content>
           <div class="max-w-xs p-3">
@@ -397,6 +462,19 @@
         </template>
       </UPopover>
     </div>
+
+    <UButton
+      v-if="isEditMode"
+      size="sm"
+      color="primary"
+      variant="soft"
+      icon="tabler:plus"
+      block
+      class="mt-2"
+      @click.left.exact.prevent="createCondition"
+    >
+      {{ EFFECTS_TAB_LABELS.addCondition }}
+    </UButton>
   </div>
 
   <ActiveEffectFormModal

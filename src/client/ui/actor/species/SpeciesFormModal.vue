@@ -42,8 +42,9 @@
     CREATURE_SIZE_LABELS,
     CREATURE_TYPE_LABELS,
     LANGUAGE_TYPES,
-    SELECTABLE_CONDITIONS,
+    listSelectableConditions,
     SKILLS_LIST,
+    slugify,
     TOOLS_LABELS,
   } from '@vtt/shared/system/dnd.js';
 
@@ -62,7 +63,6 @@
   } from '../constants';
   import FormSection from '../FormSection.vue';
   import SourceField from '../SourceField.vue';
-  import { slugify } from '../utils/slugify';
   import DamageDefenseEditor from './DamageDefenseEditor.vue';
   import { createEmptyMovement, MOVEMENT_AXES } from './speciesEditorTypes';
   import SpeciesFeatureFields from './SpeciesFeatureFields.vue';
@@ -137,10 +137,13 @@
     label: language,
   }));
 
-  const conditionOptions = SELECTABLE_CONDITIONS.map((condition) => ({
-    value: condition.key,
-    label: condition.nameRu,
-  }));
+  // Вычисляемый: помимо канона в списке состояния, заведённые в мире
+  const conditionOptions = computed(() =>
+    listSelectableConditions().map((condition) => ({
+      value: condition.key,
+      label: condition.nameRu,
+    })),
+  );
 
   const tabItems = [
     { label: FORM_TAB_LABELS.main, slot: 'basic' as const },

@@ -29,14 +29,13 @@ import type {
   SkillType,
 } from '@vtt/shared';
 
-import type { ConditionKey } from './conditionKeys.js';
+import type { ConditionRef } from './conditionKeys.js';
 import type { DnDCustomBonusContext } from './customBonuses.js';
 
 import { z } from 'zod';
 
 import { isRecord } from '@vtt/shared';
 
-import { CONDITION_KEYS } from './conditionKeys.js';
 import {
   DAMAGE_PART_TARGETS,
   DAMAGE_TYPE_LABELS,
@@ -713,12 +712,12 @@ export interface ActiveEffect extends BaseActiveEffect {
   effectTarget?: 'self' | 'target';
 
   /**
-   * Ключ состояния D&D 5e, если эффект представляет стандартное состояние
-   * (Испуганный, Отравленный и т.п.). Используется для проверки иммунитета цели
-   * к состоянию и устойчивого опознания состояния (надёжнее сопоставления по
-   * имени). Для обычных числовых баффов не задаётся.
+   * Ключ состояния, если эффект представляет состояние — канонное (Испуганный,
+   * Отравленный) либо заведённое в мире. Используется для проверки иммунитета
+   * цели к состоянию и устойчивого опознания состояния (надёжнее сопоставления
+   * по имени). Для обычных числовых баффов не задаётся.
    */
-  conditionKey?: ConditionKey;
+  conditionKey?: ConditionRef;
 
   /**
    * Спасбросок при наложении: если задан, цель кидает спас в момент применения
@@ -777,7 +776,7 @@ export interface ActiveEffect extends BaseActiveEffect {
    * отравлению»). У актёров нет `system.defenses` — иммунитет к состояниям
    * приходит именно отсюда; собирается `getEntityConditionImmunities`.
    */
-  conditionImmunities?: ConditionKey[];
+  conditionImmunities?: ConditionRef[];
 
   /**
    * Степень Истощения (1–6), если `conditionKey === 'exhaustion'`.
@@ -1118,7 +1117,11 @@ export const ActiveEffectSchema = z.object({
   aura: EffectAuraSchema.optional(),
   areaTrigger: z.enum(['stay', 'enter', 'exit']).optional(),
   effectTarget: z.enum(['self', 'target']).optional(),
-  conditionKey: z.enum(CONDITION_KEYS).optional(),
+  // Ключи состояний — СТРОКА, а не перечень канона: состояния заводятся в мире
+  // («Мастерская» → «Состояния»), и перечень канона молча выбрасывал бы у
+  // эффекта ключ своего состояния — вместе с ним пропадали бы значок на токене
+  // и проверка иммунитета.
+  conditionKey: z.string().min(1).optional(),
   applySave: EffectSaveSchema.optional(),
   applyOnSuccess: z.boolean().optional(),
   applyOnSuccessOnly: z.boolean().optional(),
@@ -1126,7 +1129,7 @@ export const ActiveEffectSchema = z.object({
   damageParts: z.array(EffectDamagePartSchema).optional(),
   recurringSave: RecurringSaveSchema.optional(),
   recurringDamage: RecurringDamageSchema.optional(),
-  conditionImmunities: z.array(z.enum(CONDITION_KEYS)).optional(),
+  conditionImmunities: z.array(z.string().min(1)).optional(),
   exhaustionLevel: z.number().int().min(0).optional(),
 });
 

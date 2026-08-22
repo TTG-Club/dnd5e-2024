@@ -8,12 +8,14 @@
     ModifierRowKind,
   } from './featEditorTypes';
 
+  import { computed } from 'vue';
+
   import { typedObjectEntries } from '@vtt/shared';
   import {
     DAMAGE_DEFENSE_KIND_LABELS,
     DAMAGE_TYPE_LABELS,
     DEFENSIBLE_DAMAGE_TYPES,
-    SELECTABLE_CONDITIONS,
+    listSelectableConditions,
   } from '@vtt/shared/system/dnd.js';
 
   import {
@@ -48,10 +50,13 @@
     ([value, label]) => ({ value, label }),
   );
 
-  const conditionOptions = SELECTABLE_CONDITIONS.map((condition) => ({
-    value: condition.key,
-    label: condition.nameRu,
-  }));
+  // Вычисляемый: помимо канона в списке состояния, заведённые в мире
+  const conditionOptions = computed(() =>
+    listSelectableConditions().map((condition) => ({
+      value: condition.key,
+      label: condition.nameRu,
+    })),
+  );
 
   /** Кто называет тип урона: автор черты или игрок при её взятии. */
   const damageSourceOptions: { value: DamageDefenseSource; label: string }[] = [

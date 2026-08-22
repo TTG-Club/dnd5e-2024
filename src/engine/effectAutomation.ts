@@ -8,7 +8,7 @@
  */
 
 import type { ActiveEffect } from './activeEffectTypes.js';
-import type { ConditionKey } from './conditionKeys.js';
+import type { ConditionRef } from './conditionKeys.js';
 
 /**
  * Проверяет, иммунна ли цель к состоянию.
@@ -19,7 +19,7 @@ import type { ConditionKey } from './conditionKeys.js';
  */
 export function isImmuneToCondition(
   conditionImmunities: readonly string[],
-  conditionKey: ConditionKey,
+  conditionKey: ConditionRef,
 ): boolean {
   return conditionImmunities.includes(conditionKey);
 }

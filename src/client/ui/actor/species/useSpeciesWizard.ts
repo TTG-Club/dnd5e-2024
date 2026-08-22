@@ -21,9 +21,9 @@ import {
   collectSpeciesGrantedSpellSources,
   computeSpeciesDarkvision,
   computeSpeciesMovement,
-  CONDITIONS,
   CREATURE_SIZE_TO_TOKEN_SCALE,
   EFFECT_FLAG_LABELS,
+  getConditionEntry,
   getTotalLevel,
   isSkillType,
 } from '@vtt/shared/system/dnd.js';
@@ -142,9 +142,7 @@ function buildSpeciesDefenseEffect(
   }
 
   for (const conditionKey of conditionImmunities) {
-    const label =
-      CONDITIONS.find((condition) => condition.key === conditionKey)?.nameRu
-      ?? conditionKey;
+    const label = getConditionEntry(conditionKey)?.nameRu ?? conditionKey;
 
     summaryParts.push(`Иммунитет к состоянию: ${label}`);
   }

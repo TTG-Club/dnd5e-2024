@@ -3,7 +3,7 @@
   import type {
     ActiveEffect,
     AreaEffectTrigger,
-    ConditionKey,
+    ConditionRef,
     EffectSaveOutcome,
     EffectSaveTiming,
     EffectTurnAnchor,
@@ -29,7 +29,7 @@
     EFFECT_VALUE_SUGGESTIONS,
     isEffectFlagKey,
     isEffectTargetKey,
-    SELECTABLE_CONDITIONS,
+    listSelectableConditions,
   } from '@vtt/shared/system/dnd.js';
 
   import {
@@ -66,6 +66,14 @@
     defaultEffectTarget?: 'self' | 'target';
     /** Показать выбор триггера области (При входе / выходе / Пока внутри) */
     showAreaTrigger?: boolean;
+    /**
+     * Скрыть кнопку «Шаблон состояния».
+     *
+     * Нужна форме самого СОСТОЯНИЯ: там правится эффект состояния, и предложить
+     * заполнить его другим состоянием значило бы предложить состоянию сослаться
+     * на соседнее.
+     */
+    hideConditionPreset?: boolean;
   }
 
   const props = withDefaults(defineProps<Props>(), {
@@ -78,6 +86,7 @@
     showEffectTarget: false,
     defaultEffectTarget: 'self',
     showAreaTrigger: false,
+    hideConditionPreset: false,
   });
 
   const emit = defineEmits<{
@@ -309,22 +318,27 @@
     }
   }
 
+  // Списки состояний ВЫЧИСЛЯЕМЫЕ: помимо канона в них входят состояния,
+  // заведённые в мире, — они появляются и исчезают, пока окно открыто.
+
   /** Состояния, к которым эффект может дать иммунитет */
-  const conditionImmunityOptions = SELECTABLE_CONDITIONS.map((condition) => ({
-    value: condition.key,
-    label: condition.nameRu,
-  }));
+  const conditionImmunityOptions = computed(() =>
+    listSelectableConditions().map((condition) => ({
+      value: condition.key,
+      label: condition.nameRu,
+    })),
+  );
 
   /** Опции пресетов состояний для UDropdownMenu */
-  const conditionPresetItems = [
-    SELECTABLE_CONDITIONS.filter(
-      (condition) => condition.key !== 'exhaustion',
-    ).map((condition) => ({
-      label: condition.nameRu,
-      icon: condition.icon,
-      onSelect: () => applyConditionPreset(condition.key),
-    })),
-  ];
+  const conditionPresetItems = computed(() => [
+    listSelectableConditions()
+      .filter((condition) => condition.key !== 'exhaustion')
+      .map((condition) => ({
+        label: condition.nameRu,
+        icon: condition.icon,
+        onSelect: () => applyConditionPreset(condition.key),
+      })),
+  ]);
 
   /**
    * Заполняет форму данными стандартного состояния D&D 5e.
@@ -335,7 +349,7 @@
    *
    * @param conditionKey - ключ состояния
    */
-  function applyConditionPreset(conditionKey: ConditionKey) {
+  function applyConditionPreset(conditionKey: ConditionRef) {
     const builtEffect = buildConditionActiveEffect(conditionKey);
 
     if (!builtEffect) {
@@ -647,7 +661,7 @@
   });
 
   /** Состояния, к которым эффект даёт иммунитет носителю */
-  const conditionImmunities = computed<ConditionKey[]>({
+  const conditionImmunities = computed<ConditionRef[]>({
     get: () => form.conditionImmunities ?? [],
     set: (keys) => {
       form.conditionImmunities = keys.length > 0 ? keys : undefined;
@@ -768,7 +782,10 @@
           <template #general>
             <div class="space-y-4">
               <!-- Кнопка «Шаблон состояния» -->
-              <div class="flex items-center gap-2">
+              <div
+                v-if="!hideConditionPreset"
+                class="flex items-center gap-2"
+              >
                 <UDropdownMenu
                   :items="conditionPresetItems"
                   :ui="{ content: 'max-h-75 overflow-y-auto' }"

@@ -20,11 +20,15 @@ import type {
   EffectFlagKey,
   EffectOrigin,
 } from './activeEffectTypes.js';
-import type { ConditionKey } from './conditionKeys.js';
+import type { ConditionKey, ConditionRef } from './conditionKeys.js';
+import type { WorldConditionDefinition } from './conditionRegistry.js';
+import type { ConditionEntry } from './consts.js';
 
 import { generateId } from '@vtt/shared';
 
 import { DEFAULT_EFFECT_CHANGE_PRIORITY } from './activeEffectTypes.js';
+import { DEATH_CONDITION_KEY, isCanonConditionKey } from './conditionKeys.js';
+import { readWorldConditions } from './conditionRegistry.js';
 import {
   ABILITY_KEYS,
   CONDITIONS,
@@ -72,7 +76,7 @@ export interface ConditionEffectTemplate {
    * иммунитет к Отравлению). Прокидывается в `ActiveEffect.conditionImmunities`
    * и блокирует наложение состояния через `getEntityConditionImmunities`.
    */
-  conditionImmunities?: ConditionKey[];
+  conditionImmunities?: ConditionRef[];
   /** Есть ли уровни (для Exhaustion) */
   hasLevels?: boolean;
   /** Максимальный уровень (для Exhaustion) */
@@ -238,6 +242,217 @@ export const CONDITION_EFFECT_TEMPLATES: Record<
     flags: [],
   },
 };
+
+// ── Канон + состояния мира ────────────────────────────────────
+
+/**
+ * Значок состояния мира, для которого не выбрали ни иконку, ни картинку.
+ *
+ * Пустой значок в сетке статусов неотличим от «состояния нет», поэтому
+ * умолчание обязано быть видимым.
+ */
+export const DEFAULT_CONDITION_ICON = 'tabler:activity-heartbeat';
+
+/**
+ * Состояния, у которых шаблон эффекта правке из мира НЕ подлежит.
+ *
+ * У Истощения `changes` собираются по текущей степени (`buildExhaustionChanges`),
+ * и записанный в мире набор всё равно был бы затёрт при смене степени — правка
+ * такого шаблона обещала бы то, чего не будет. Оформление (название, значок,
+ * описание) правится и у него.
+ */
+const TEMPLATE_LOCKED_KEYS: readonly ConditionRef[] = ['exhaustion'];
+
+/**
+ * Шаблон эффекта этого состояния правке из мира не подлежит.
+ *
+ * Читает форма состояния: у такого состояния она правит только оформление и
+ * прямо об этом говорит, вместо того чтобы принять правку и потерять её.
+ *
+ * @param conditionKey - ключ состояния
+ * @returns `true`, если эффект состояния считается кодом
+ */
+export function isConditionTemplateLocked(conditionKey: ConditionRef): boolean {
+  return TEMPLATE_LOCKED_KEYS.includes(conditionKey);
+}
+
+/** Состояние в собранном виде: справка, шаблон эффекта и происхождение. */
+export interface RuntimeCondition {
+  /** Справочная часть: название, значок, описание */
+  entry: ConditionEntry;
+  /** Шаблон эффекта, который состояние накладывает */
+  template: ConditionEffectTemplate;
+  /** Канонное состояние системы — удалить его из мира нельзя */
+  isCanon: boolean;
+  /** Канон, перекрытый записью мира */
+  isOverridden: boolean;
+}
+
+/** Пустой шаблон — состоянию мира без эффекта. */
+const EMPTY_TEMPLATE: ConditionEffectTemplate = { changes: [], flags: [] };
+
+/** Список мира, по которому собран текущий кэш слияния. */
+let cachedWorldConditions: readonly WorldConditionDefinition[] | null = null;
+
+/** Последнее собранное слияние канона с состояниями мира. */
+let cachedRuntimeConditions: RuntimeCondition[] = [];
+
+/**
+ * Собирает справочную запись состояния из определения мира.
+ *
+ * @param definition - состояние, заведённое в мире
+ * @returns справочная часть состояния
+ */
+function toConditionEntry(
+  definition: WorldConditionDefinition,
+): ConditionEntry {
+  return {
+    key: definition.key,
+    nameRu: definition.nameRu,
+    nameEn: definition.nameEn ?? definition.nameRu,
+    icon: definition.icon ?? DEFAULT_CONDITION_ICON,
+    customImage: definition.customImage,
+    description: definition.description,
+    overlay: definition.overlay,
+  };
+}
+
+/**
+ * Все состояния рантайма: канон PHB, где записи мира заменяют одноимённые
+ * канонные, плюс свои состояния стола в конце.
+ *
+ * Порядок канона сохраняется: правка «Отравленного» остаётся на месте
+ * «Отравленного», иначе сетка состояний на листе перетасовывалась бы от одной
+ * правки описания.
+ *
+ * @returns состояния со шаблонами и признаком происхождения
+ */
+export function listRuntimeConditions(): RuntimeCondition[] {
+  const worldConditions = readWorldConditions();
+
+  // Слияние КЭШИРУЕТСЯ по самому списку мира: справочник дёргают в горячих
+  // местах (опознание состояния у каждого эффекта, подписи иммунитетов), а
+  // список мира — стабильная ссылка, пока записи не менялись.
+  if (cachedWorldConditions === worldConditions) {
+    return cachedRuntimeConditions;
+  }
+
+  const overrides = new Map<ConditionRef, WorldConditionDefinition>();
+  const own: WorldConditionDefinition[] = [];
+
+  for (const definition of worldConditions) {
+    if (isCanonConditionKey(definition.key)) {
+      overrides.set(definition.key, definition);
+    } else {
+      own.push(definition);
+    }
+  }
+
+  const canon = CONDITIONS.map((entry) => {
+    const canonTemplate = isCanonConditionKey(entry.key)
+      ? CONDITION_EFFECT_TEMPLATES[entry.key]
+      : EMPTY_TEMPLATE;
+
+    const override = overrides.get(entry.key);
+
+    if (!override) {
+      return {
+        entry,
+        template: canonTemplate,
+        isCanon: true,
+        isOverridden: false,
+      };
+    }
+
+    return {
+      entry: toConditionEntry(override),
+      template: TEMPLATE_LOCKED_KEYS.includes(entry.key)
+        ? canonTemplate
+        : {
+            ...override.template,
+            // Степени — свойство самого состояния, а не его шаблона: их знает
+            // только код (шкала Истощения на листе), и правка из мира их не
+            // заводит и не отменяет.
+            hasLevels: canonTemplate.hasLevels,
+            maxLevel: canonTemplate.maxLevel,
+          },
+      isCanon: true,
+      isOverridden: true,
+    };
+  });
+
+  cachedWorldConditions = worldConditions;
+
+  cachedRuntimeConditions = [
+    ...canon,
+    ...own.map((definition) => ({
+      entry: toConditionEntry(definition),
+      template: definition.template,
+      isCanon: false,
+      isOverridden: false,
+    })),
+  ];
+
+  return cachedRuntimeConditions;
+}
+
+/**
+ * Справочник состояний рантайма — замена канонному `CONDITIONS` для всего, что
+ * показывает состояния пользователю.
+ *
+ * @returns справочные записи всех состояний
+ */
+export function listConditions(): ConditionEntry[] {
+  return listRuntimeConditions().map((condition) => condition.entry);
+}
+
+/**
+ * Состояния, доступные для выбора руками: всё, кроме метки смерти (её ставит и
+ * снимает запас хитов).
+ *
+ * @returns справочные записи выбираемых состояний
+ */
+export function listSelectableConditions(): ConditionEntry[] {
+  return listConditions().filter((entry) => entry.key !== DEATH_CONDITION_KEY);
+}
+
+/**
+ * Находит состояние по ключу среди канона и состояний мира.
+ *
+ * @param conditionKey - ключ состояния
+ * @returns состояние со шаблоном или `undefined`, если ключ неизвестен
+ */
+export function getRuntimeCondition(
+  conditionKey: ConditionRef,
+): RuntimeCondition | undefined {
+  return listRuntimeConditions().find(
+    (condition) => condition.entry.key === conditionKey,
+  );
+}
+
+/**
+ * Справочная запись состояния по ключу.
+ *
+ * @param conditionKey - ключ состояния
+ * @returns запись или `undefined`, если ключ неизвестен
+ */
+export function getConditionEntry(
+  conditionKey: ConditionRef,
+): ConditionEntry | undefined {
+  return getRuntimeCondition(conditionKey)?.entry;
+}
+
+/**
+ * Шаблон эффекта состояния по ключу.
+ *
+ * @param conditionKey - ключ состояния
+ * @returns шаблон или `undefined`, если ключ неизвестен
+ */
+export function getConditionTemplate(
+  conditionKey: ConditionRef,
+): ConditionEffectTemplate | undefined {
+  return getRuntimeCondition(conditionKey)?.template;
+}
 
 // ── Exhaustion ────────────────────────────────────────────────
 
@@ -475,12 +690,12 @@ export function buildExhaustionChanges(
  */
 export function resolveEffectConditionKey(
   effect: ActiveEffect,
-): ConditionKey | undefined {
+): ConditionRef | undefined {
   if (effect.conditionKey) {
     return effect.conditionKey;
   }
 
-  const entry = CONDITIONS.find(
+  const entry = listConditions().find(
     (conditionEntry) =>
       conditionEntry.key === effect.id
       || conditionEntry.nameRu === effect.name
@@ -516,16 +731,17 @@ export interface BuildConditionEffectOptions {
  * @returns готовый ActiveEffect или `null`, если состояние неизвестно
  */
 export function buildConditionActiveEffect(
-  conditionKey: ConditionKey,
+  conditionKey: ConditionRef,
   options: BuildConditionEffectOptions = {},
 ): ActiveEffect | null {
-  const condition = CONDITIONS.find((entry) => entry.key === conditionKey);
+  const runtimeCondition = getRuntimeCondition(conditionKey);
 
-  if (!condition) {
+  if (!runtimeCondition) {
     return null;
   }
 
-  const template = CONDITION_EFFECT_TEMPLATES[conditionKey];
+  const condition = runtimeCondition.entry;
+  const template = runtimeCondition.template;
   const isExhaustion = conditionKey === 'exhaustion';
 
   const exhaustionLevel = isExhaustion
