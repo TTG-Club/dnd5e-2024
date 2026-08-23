@@ -11,6 +11,7 @@ import type {
   GridSettings,
   HealthCondition,
   MeasurementTemplate,
+  MovementRange,
   SceneEntity,
   SystemRollResult,
   Token,
@@ -267,7 +268,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.6.56';
+  readonly version = '0.6.57';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -604,6 +605,42 @@ export class Dnd5eVttSystem implements VttSystem {
       + (movement.climb || 0)
       + (movement.burrow || 0)
     );
+  }
+
+  /**
+   * Дальность хода сущности за один ход — ядро рисует по ней зону перемещения.
+   *
+   * Скорость по правилам D&D 2024 — это Скорость ходьбы. Существо, которое
+   * ходить не умеет (парящее, плавающее, роющее), перемещается своим режимом,
+   * поэтому при нулевой ходьбе берётся самый быстрый из остальных: иначе у
+   * дракона в полёте зона хода схлопнулась бы в точку.
+   *
+   * «Рывок» даёт прибавку, равную Скорости, — отсюда удвоение предела.
+   */
+  // eslint-disable-next-line class-methods-use-this
+  getMovementRange(entity: SceneEntity): MovementRange | null {
+    // Сущность без данных системы считать не по чему
+    if (!isDndSceneEntity(entity)) {
+      return null;
+    }
+
+    const activeEffects = collectActiveEffects(entity);
+    const { movement } = resolveActorStats(entity, activeEffects);
+
+    const base =
+      movement.walk
+      || Math.max(
+        movement.fly || 0,
+        movement.swim || 0,
+        movement.climb || 0,
+        movement.burrow || 0,
+      );
+
+    if (base <= 0) {
+      return { base: 0, extended: 0 };
+    }
+
+    return { base, extended: base * 2 };
   }
 
   /**
