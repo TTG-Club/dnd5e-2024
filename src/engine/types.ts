@@ -340,6 +340,16 @@ export interface DnDActorSystem {
   inspiration?: boolean;
   /** Размер существа (D&D 5e 2024) */
   size: CreatureSize;
+  /**
+   * Тип существа, заданный руками. По правилам его определяет вид, поэтому
+   * обычно поля нет — тип читается из {@link species}. Заполняется, только если
+   * мастер выбрал тип сам: тогда он и главнее вида.
+   *
+   * Ни вида, ни своего выбора — лист считается гуманоидом: это самый частый
+   * случай, и без него гейты урона «по такому-то типу» не срабатывали бы на
+   * персонаже вовсе. См. `resolveEntityCreatureType`.
+   */
+  creatureType?: import('./speciesTypes.js').CreatureType;
 
   /** Значения характеристик (ability scores) */
   abilities: DnDAbilityScores;

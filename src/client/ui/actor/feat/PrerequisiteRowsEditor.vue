@@ -13,7 +13,11 @@
 
   import { ABILITY_OPTIONS } from '@vtt/shared/system/dnd.js';
 
-  import { ARMOR_PROF_LABELS, FEAT_GRANTS_LABELS } from '../constants';
+  import {
+    ARMOR_PROF_LABELS,
+    FEAT_GRANTS_LABELS,
+    SCROLLABLE_DROPDOWN_UI,
+  } from '../constants';
   import FieldHint from '../FieldHint.vue';
   import EntityRefRows from './EntityRefRows.vue';
   import {
@@ -287,6 +291,7 @@
     <UDropdownMenu
       :items="addMenuItems"
       :content="{ align: 'start' }"
+      :ui="SCROLLABLE_DROPDOWN_UI"
     >
       <UButton
         icon="tabler:plus"

@@ -419,6 +419,7 @@
       effects: combinedEffects.value,
       resolvedStats: resolvedStats.value,
       targetIsFull,
+      targetType: targetHp?.creatureType,
     });
 
     rollConfig.value = {

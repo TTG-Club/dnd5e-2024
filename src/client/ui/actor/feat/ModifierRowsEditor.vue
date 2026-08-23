@@ -22,6 +22,7 @@
     FEAT_DAMAGE_CHOICE_COUNT,
     FEAT_GRANTS_LABELS,
     MODIFIER_ROW_LABELS,
+    SCROLLABLE_DROPDOWN_UI,
   } from '../constants';
   import FieldHint from '../FieldHint.vue';
   import {
@@ -236,6 +237,7 @@
     <UDropdownMenu
       :items="addMenuItems"
       :content="{ align: 'start' }"
+      :ui="SCROLLABLE_DROPDOWN_UI"
     >
       <UButton
         icon="tabler:plus"

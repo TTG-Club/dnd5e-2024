@@ -13,7 +13,10 @@ import type {
 } from '@vtt/shared';
 
 import type { ResolvedActorStats } from './activeEffectTypes.js';
-import type { CreatureSpellcasting } from './creatureTypes.js';
+import type {
+  CreatureCategory,
+  CreatureSpellcasting,
+} from './creatureTypes.js';
 import type { DnDCustomBonusContext } from './customBonuses.js';
 import type {
   DnDActor,
@@ -32,6 +35,10 @@ import {
   getCreatureProficiencyBonus,
 } from './calculations.js';
 import { isAbilityType, SPELL_SAVE_DC_BASE } from './consts.js';
+import {
+  parseTargetTypeToken,
+  TARGET_TYPE_STRIP_REGEX,
+} from './creatureTypeGate.js';
 import { isDamageType } from './damageConstants.js';
 import { getSpellDamageParts } from './damageParts.js';
 import {
@@ -368,6 +375,9 @@ const TARGET_CONDITION_STRIP_REGEX = /\s*@target\.(?:full|notFull)\b\s*/gi;
 /** Регэксп определения ветки условного токена цели в слагаемом. */
 const TARGET_CONDITION_DETECT_REGEX = /@target\.(full|notFull)\b/i;
 
+/** Регэксп «в строке есть токен типа цели» (без захвата самого типа). */
+const TARGET_TYPE_DETECT_ANY_REGEX = /@target\.type\.[a-z]+\b/i;
+
 /**
  * Снимает условные токены цели `@target.full`/`@target.notFull` из формулы
  * (для отображения, когда состояние цели неизвестно). Кубиковая нотация не
@@ -385,8 +395,139 @@ export function stripTargetTokens(formula: string): string {
 
   return formula
     .replace(TARGET_CONDITION_STRIP_REGEX, '')
+    .replace(TARGET_TYPE_STRIP_REGEX, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
+}
+
+// ── Условные слагаемые по типу цели (@target.type.<тип>) ──
+
+/**
+ * Ветка формулы, применяемая только к целям одного типа существа.
+ *
+ * В отличие от веток по хитам, эти ветки НЕ взаимоисключающие: безусловное
+ * слагаемое достаётся любой цели, а типовое ложится сверху только «своим». Из
+ * этого следует правило слот-скейлинга — усиление круга получает ровно одна
+ * ветка, иначе оно удвоится.
+ */
+export interface TargetTypeBranch {
+  /** Тип цели, к которой применяется ветка; пусто — ко всем */
+  typeGate?: CreatureCategory;
+  /** Формула ветки с уже снятыми типовыми токенами */
+  formula: string;
+}
+
+/**
+ * Применяет токены типа цели к формуле как ГЕЙТ НА СЛАГАЕМОЕ — цель известна.
+ *
+ * Слагаемое с `@target.type.undead` остаётся только у цели-нежити, иначе
+ * удаляется целиком (той же логикой, что и `@target.full`: зануление оставило бы
+ * «осиротевший» типизированный урон). Слагаемое с неизвестным типом в токене
+ * тоже удаляется: автор явно ограничил его целями, которых не бывает.
+ *
+ * @param formula - формула с возможными токенами `@target.type.*`
+ * @param targetType - тип цели; `undefined` — тип неизвестен, типовые слагаемые
+ *   не применяются
+ * @returns формула с оставленными слагаемыми (токены сняты)
+ */
+export function applyTargetTypeConditionals(
+  formula: string,
+  targetType: CreatureCategory | undefined,
+): string {
+  if (!formula || !TARGET_TYPE_DETECT_ANY_REGEX.test(formula)) {
+    return formula ?? '';
+  }
+
+  const kept: string[] = [];
+
+  for (const rawTerm of formula.split('+')) {
+    if (!TARGET_TYPE_DETECT_ANY_REGEX.test(rawTerm)) {
+      const term = rawTerm.trim();
+
+      if (term.length > 0) {
+        kept.push(term);
+      }
+
+      continue;
+    }
+
+    const termType = parseTargetTypeToken(rawTerm);
+
+    if (!termType || termType !== targetType) {
+      continue;
+    }
+
+    const cleaned = rawTerm.replace(TARGET_TYPE_STRIP_REGEX, '').trim();
+
+    if (cleaned.length > 0) {
+      kept.push(cleaned);
+    }
+  }
+
+  return kept.join(' + ').trim();
+}
+
+/**
+ * Раскладывает формулу по веткам типа цели — цель НЕизвестна (AoE, цель не
+ * выбрана).
+ *
+ * Веток ровно столько, сколько типов реально вписано в формулу, плюс одна
+ * безусловная — перебирать все четырнадцать типов незачем. Порядок: безусловная
+ * ветка первой (она и получает слот-скейлинг), дальше типовые.
+ *
+ * @param formula - формула с возможными токенами `@target.type.*`
+ * @returns ветки с непустыми формулами
+ */
+export function splitByTargetTypeGate(formula: string): TargetTypeBranch[] {
+  if (!formula || !TARGET_TYPE_DETECT_ANY_REGEX.test(formula)) {
+    return [{ formula: formula ?? '' }];
+  }
+
+  const unconditional: string[] = [];
+  const byType = new Map<CreatureCategory, string[]>();
+
+  for (const rawTerm of formula.split('+')) {
+    if (!TARGET_TYPE_DETECT_ANY_REGEX.test(rawTerm)) {
+      const term = rawTerm.trim();
+
+      if (term.length > 0) {
+        unconditional.push(term);
+      }
+
+      continue;
+    }
+
+    const termType = parseTargetTypeToken(rawTerm);
+
+    // Неизвестный тип в токене — слагаемое отбрасывается: цели такого типа не
+    // существует, и без отбрасывания оно досталось бы всем
+    if (!termType) {
+      continue;
+    }
+
+    const cleaned = rawTerm.replace(TARGET_TYPE_STRIP_REGEX, '').trim();
+
+    if (cleaned.length === 0) {
+      continue;
+    }
+
+    const terms = byType.get(termType) ?? [];
+
+    terms.push(cleaned);
+    byType.set(termType, terms);
+  }
+
+  const branches: TargetTypeBranch[] = [];
+
+  if (unconditional.length > 0) {
+    branches.push({ formula: unconditional.join(' + ') });
+  }
+
+  for (const [typeGate, terms] of byType) {
+    branches.push({ typeGate, formula: terms.join(' + ') });
+  }
+
+  return branches;
 }
 
 /**
@@ -482,7 +623,15 @@ export function formatConditionalDamageDisplay(
 
   for (const rawTerm of formula.split('+')) {
     const match = rawTerm.match(TARGET_CONDITION_DETECT_REGEX);
-    const cleaned = rawTerm.replace(TARGET_CONDITION_STRIP_REGEX, '').trim();
+
+    // Токен типа цели снимается вместе с токенами хитов: «или» показывает
+    // взаимоисключающие ветки, а слагаемое «по нежити» не исключает никакое
+    // другое — оно просто достаётся не всем. Не сняв его, превью показало бы
+    // сырой токен пользователю.
+    const cleaned = rawTerm
+      .replace(TARGET_CONDITION_STRIP_REGEX, '')
+      .replace(TARGET_TYPE_STRIP_REGEX, '')
+      .trim();
 
     if (cleaned.length === 0) {
       continue;
@@ -546,6 +695,7 @@ export function resolveSpellDamageFormula(
   baseFormula?: string,
   resolvedStats?: ResolvedActorStats,
   targetIsFull?: boolean,
+  targetType?: CreatureCategory,
 ): string {
   // Инлайн-токены типа урона @dmg.<type> и лечения @heal/@heal.temp — это
   // метки, НЕ переменные роллера. Снимаем их до подстановки, иначе
@@ -558,15 +708,22 @@ export function resolveSpellDamageFormula(
     ),
   );
 
-  // Условные слагаемые по состоянию цели (@target.full/@target.notFull):
-  // при известном состоянии цели (каст) — гасим неактивные слагаемые целиком;
-  // без контекста цели (отображение) — просто снимаем токены, показывая
-  // базовые кости. После этого @target в формуле не остаётся.
+  // Условные слагаемые по цели (`@target.full`/`@target.notFull` и
+  // `@target.type.<тип>`): при известной цели (каст) — гасим неактивные
+  // слагаемые целиком; без контекста цели (отображение) — просто снимаем
+  // токены, показывая базовые кости.
+  //
+  // После этого `@target` в формуле не остаётся НИ В ОДНОЙ ветке — это условие,
+  // а не переменная: доживи токен до подстановки, он превратился бы в число
+  // прямо посреди формулы («2к6@target.type.undead» → «2к61»).
   if (formula.includes('@target')) {
     formula =
       targetIsFull === undefined
         ? stripTargetTokens(formula)
-        : applyTargetConditionals(formula, targetIsFull);
+        : applyTargetTypeConditionals(
+            applyTargetConditionals(formula, targetIsFull),
+            targetType,
+          );
   }
 
   if (!formula || !formula.includes('@')) {
@@ -1002,6 +1159,40 @@ export interface BonusDamageFormula {
    * гейт — оркестратор проверит HP каждой цели в момент применения.
    */
   conditionGate?: TargetHpGate;
+  /**
+   * Отложенное условие `target.creatureType`: на касте единой цели нет,
+   * поэтому условие change превращено в per-target гейт по типу — оркестратор
+   * проверит тип каждой цели в момент применения. Симметрично
+   * {@link conditionGate}.
+   */
+  conditionTypeGate?: CreatureCategory;
+}
+
+/**
+ * Сводит отложенное условие по типу цели и типовую ветку токенов.
+ *
+ * Два разных типа означают, что часть не применится ни к одной цели — ветка
+ * отбрасывается (`null`). Совпадающие или одиночный — берётся он.
+ *
+ * @param conditionTypeGate - тип из отложенного условия change
+ * @param branchTypeGate - тип ветки токенов `@target.type.*`
+ * @returns итоговый тип (возможно undefined) или null (отбросить ветку)
+ */
+function combineTargetTypeGates(
+  conditionTypeGate: CreatureCategory | undefined,
+  branchTypeGate: CreatureCategory | undefined,
+): { typeGate: CreatureCategory | undefined } | null {
+  if (!conditionTypeGate) {
+    return { typeGate: branchTypeGate };
+  }
+
+  if (!branchTypeGate) {
+    return { typeGate: conditionTypeGate };
+  }
+
+  return conditionTypeGate === branchTypeGate
+    ? { typeGate: conditionTypeGate }
+    : null;
 }
 
 /**
@@ -1066,9 +1257,19 @@ export interface ResolvedDamagePartInput {
    */
   targetGate?: TargetHpGate;
   /**
+   * Гейт по типу существа цели: часть применяется только к целям этого типа.
+   * Появляется, когда тип цели на касте неизвестен (AoE / цель не выбрана) и
+   * формула содержит `@target.type.*` — оркестратор проверяет тип каждой цели.
+   */
+  targetTypeGate?: CreatureCategory;
+  /**
    * Часть получает усиление высших кругов (слот-скейлинг) в модалке броска.
    * Помечается первый сегмент КАЖДОЙ гейт-ветки первой урон-части: к цели
-   * применяется только одна из веток, поэтому двойного усиления нет.
+   * применяется только одна из веток по хитам, поэтому двойного усиления нет.
+   *
+   * Типовые ветки внутри одной ветки по хитам НЕ взаимоисключающие (безусловное
+   * слагаемое достаётся всем, типовое ложится сверху), поэтому усиление внутри
+   * ветки по хитам получает только ПЕРВАЯ типовая ветка.
    */
   applySlotScaling: boolean;
 }
@@ -1095,6 +1296,7 @@ export interface ResolvedDamagePartInput {
  * @param resolvedStats - итоговые статы (для @mod.* с учётом эффектов)
  * @param targetIsFull - состояние HP цели для @target.* (одиночная цель);
  *   undefined — состояние неизвестно, ветки раскладываются per-target
+ * @param targetType - тип существа цели для `@target.type.*` (одиночная цель)
  * @returns массив разрешённых частей (по сегментам)
  */
 export function resolveDamagePartsForCast(
@@ -1103,6 +1305,7 @@ export function resolveDamagePartsForCast(
   parts: DamagePart[],
   resolvedStats?: ResolvedActorStats,
   targetIsFull?: boolean,
+  targetType?: CreatureCategory,
 ): ResolvedDamagePartInput[] {
   return expandDamageParts(
     parts,
@@ -1114,8 +1317,9 @@ export function resolveDamagePartsForCast(
         formula,
         resolvedStats,
         targetIsFull,
+        targetType,
       ),
-    { assignScaling: true },
+    { assignScaling: true, targetType },
   );
 }
 
@@ -1196,24 +1400,34 @@ export function withFlatFormulaBonus(
  * @param parts - части урона/лечения действия существа
  * @param targetIsFull - состояние HP цели для @target.* (undefined — per-target)
  * @param creature - существо-источник (для редких @-переменных в формуле)
+ * @param targetType - тип существа цели для `@target.type.*` (одиночная цель)
  * @returns массив разрешённых частей (по сегментам)
  */
 export function resolveCreatureDamageParts(
   parts: DamagePart[],
   targetIsFull?: boolean,
   creature?: import('./dndEntities.js').DnDCreature,
+  targetType?: CreatureCategory,
 ): ResolvedDamagePartInput[] {
-  return expandDamageParts(parts, targetIsFull, (formula) => {
-    if (!formula.includes('@') || !creature) {
-      return formula;
-    }
+  return expandDamageParts(
+    parts,
+    targetIsFull,
+    (formula) => {
+      if (!formula.includes('@') || !creature) {
+        return formula;
+      }
 
-    try {
-      return substituteFormulaVariables(formula, buildFormulaContext(creature));
-    } catch {
-      return formula;
-    }
-  });
+      try {
+        return substituteFormulaVariables(
+          formula,
+          buildFormulaContext(creature),
+        );
+      } catch {
+        return formula;
+      }
+    },
+    { targetType },
+  );
 }
 
 /**
@@ -1368,6 +1582,7 @@ export function getCreatureSpellAttackBonus(
  * @param targetIsFull - состояние HP цели для @target.* (undefined — per-target)
  * @param creature - существо-заклинатель
  * @param spellMod - модификатор заклинательной характеристики (см. {@link getCreatureSpellMod})
+ * @param targetType - тип существа цели для `@target.type.*` (одиночная цель)
  * @returns массив разрешённых частей (по сегментам)
  */
 export function resolveCreatureSpellDamageParts(
@@ -1375,20 +1590,26 @@ export function resolveCreatureSpellDamageParts(
   targetIsFull: boolean | undefined,
   creature: import('./dndEntities.js').DnDCreature,
   spellMod: number,
+  targetType?: CreatureCategory,
 ): ResolvedDamagePartInput[] {
   const context = { ...buildFormulaContext(creature), spellMod };
 
-  return expandDamageParts(parts, targetIsFull, (formula) => {
-    if (!formula.includes('@')) {
-      return formula;
-    }
+  return expandDamageParts(
+    parts,
+    targetIsFull,
+    (formula) => {
+      if (!formula.includes('@')) {
+        return formula;
+      }
 
-    try {
-      return substituteFormulaVariables(formula, context);
-    } catch {
-      return formula;
-    }
-  });
+      try {
+        return substituteFormulaVariables(formula, context);
+      } catch {
+        return formula;
+      }
+    },
+    { targetType },
+  );
 }
 
 /**
@@ -1402,22 +1623,28 @@ export function resolveCreatureSpellDamageParts(
  * @param resolveFormula - резолвер сегмента (подстановка @-переменных)
  * @param options - опции развёртывания
  * @param options.assignScaling - помечать ли получателя слот-скейлинга (заклинания)
+ * @param options.targetType - тип существа цели для `@target.type.*`; читается,
+ *   только когда цель одна (`targetIsFull !== undefined`)
  * @returns массив разрешённых частей (по сегментам)
  */
 export function expandDamageParts(
   parts: DamagePart[],
   targetIsFull: boolean | undefined,
   resolveFormula: (formula: string) => string,
-  options: { assignScaling?: boolean } = {},
+  options: { assignScaling?: boolean; targetType?: CreatureCategory } = {},
 ): ResolvedDamagePartInput[] {
   const result: ResolvedDamagePartInput[] = [];
+
+  // Одна ли цель у броска — решает состояние HP: оба признака цели читаются с
+  // одной и той же сущности, и второго сигнала заводить незачем
+  const hasSingleTarget = targetIsFull !== undefined;
 
   // Метаданные сегментов для пост-назначения слот-скейлинга: лечение теперь
   // определяется на уровне СЕГМЕНТА (@heal в формуле), поэтому получатель
   // усиления выбирается после полного развёртывания.
   const segmentMeta: {
     partIndex: number;
-    branchIndex: number;
+    scalingGroup: number;
     isHealing: boolean;
   }[] = [];
 
@@ -1425,16 +1652,19 @@ export function expandDamageParts(
     // Гасим условные слагаемые @target.* ДО разбиения по типам: удалённые
     // слагаемые не оставляют «осиротевших» типизированных модификаторов, а
     // хвостовой @mod.spell прилипает к типу активной ветки.
-    const branches: { gate?: TargetHpGate; formula: string }[] = [];
+    const hpBranches: { gate?: TargetHpGate; formula: string }[] = [];
 
-    if (!part.formula.includes('@target')) {
-      branches.push({ formula: part.formula });
-    } else if (targetIsFull !== undefined) {
-      branches.push({
+    // Проверяем именно токены ХИТОВ, а не любой `@target`: формула с одним лишь
+    // `@target.type.*` в ветках по хитам не нуждается, и разбиение на них дало
+    // бы части с бессмысленной пометкой «при полном HP»
+    if (!TARGET_CONDITION_DETECT_REGEX.test(part.formula)) {
+      hpBranches.push({ formula: part.formula });
+    } else if (hasSingleTarget) {
+      hpBranches.push({
         formula: applyTargetConditionals(part.formula, targetIsFull),
       });
     } else {
-      branches.push(
+      hpBranches.push(
         { gate: 'full', formula: applyTargetConditionals(part.formula, true) },
         {
           gate: 'notFull',
@@ -1443,7 +1673,42 @@ export function expandDamageParts(
       );
     }
 
-    for (const [branchIndex, branch] of branches.entries()) {
+    // Ветки по хитам взаимоисключающие, а типовые внутри них — нет: безусловное
+    // слагаемое достаётся любой цели, типовое ложится сверху только «своим».
+    // Поэтому группой слот-скейлинга остаётся ветка ПО ХИТАМ: внутри неё
+    // усиление круга получает ровно одна (первая) типовая ветка.
+    const branches: {
+      gate?: TargetHpGate;
+      typeGate?: CreatureCategory;
+      formula: string;
+      scalingGroup: number;
+    }[] = [];
+
+    for (const [hpIndex, hpBranch] of hpBranches.entries()) {
+      if (hasSingleTarget) {
+        branches.push({
+          gate: hpBranch.gate,
+          formula: applyTargetTypeConditionals(
+            hpBranch.formula,
+            options.targetType,
+          ),
+          scalingGroup: hpIndex,
+        });
+
+        continue;
+      }
+
+      for (const typeBranch of splitByTargetTypeGate(hpBranch.formula)) {
+        branches.push({
+          gate: hpBranch.gate,
+          typeGate: typeBranch.typeGate,
+          formula: typeBranch.formula,
+          scalingGroup: hpIndex,
+        });
+      }
+    }
+
+    for (const branch of branches) {
       if (branch.formula.trim().length === 0) {
         continue;
       }
@@ -1466,12 +1731,13 @@ export function expandDamageParts(
           target: part.target ?? 'selected',
           requiresDamage: part.requiresDamage ?? false,
           targetGate: branch.gate,
+          targetTypeGate: branch.typeGate,
           applySlotScaling: false,
         });
 
         segmentMeta.push({
           partIndex,
-          branchIndex,
+          scalingGroup: branch.scalingGroup,
           isHealing: segment.healing !== undefined,
         });
       }
@@ -1488,18 +1754,25 @@ export function expandDamageParts(
 /**
  * Помечает части-получатели усиления высших кругов (слот-скейлинг).
  *
- * Получатель — первая часть, породившая урон-сегмент; в каждой её гейт-ветке
- * помечается первый урон-сегмент (к цели применяется только одна ветка —
- * двойного усиления нет). Если урон-сегментов нет вообще (чисто лечащее
- * заклинание, напр. «Лечение ран») — усиление достаётся первому лечащему
- * сегменту каждой ветки первой части, иначе апкаст лечения терялся бы.
+ * Получатель — первая часть, породившая урон-сегмент; в каждой её ветке ПО
+ * ХИТАМ помечается первый урон-сегмент (к цели применяется только одна такая
+ * ветка — двойного усиления нет). Типовые ветки внутри одной ветки по хитам
+ * НЕ взаимоисключающие, поэтому усиление достаётся только первой из них.
+ *
+ * Если урон-сегментов нет вообще (чисто лечащее заклинание, напр. «Лечение
+ * ран») — усиление достаётся первому лечащему сегменту каждой ветки первой
+ * части, иначе апкаст лечения терялся бы.
  *
  * @param result - развёрнутые части (мутируются: applySlotScaling)
  * @param segmentMeta - метаданные сегментов (параллельны result)
  */
 function assignSlotScaling(
   result: ResolvedDamagePartInput[],
-  segmentMeta: { partIndex: number; branchIndex: number; isHealing: boolean }[],
+  segmentMeta: {
+    partIndex: number;
+    scalingGroup: number;
+    isHealing: boolean;
+  }[],
 ): void {
   const hasDamageSegment = segmentMeta.some((meta) => !meta.isHealing);
 
@@ -1522,11 +1795,11 @@ function assignSlotScaling(
       continue;
     }
 
-    if (markedBranches.has(meta.branchIndex)) {
+    if (markedBranches.has(meta.scalingGroup)) {
       continue;
     }
 
-    markedBranches.add(meta.branchIndex);
+    markedBranches.add(meta.scalingGroup);
     result[index].applySlotScaling = true;
   }
 }
@@ -1554,6 +1827,8 @@ function assignSlotScaling(
  * @param defaultType - тип урона для сегментов без токена @dmg
  * @param targetIsFull - состояние HP цели (undefined — неизвестно, ветки per-target)
  * @param resolveFormula - резолвер @-переменных сегмента (контекст вызова)
+ * @param targetType - тип существа цели для `@target.type.*`; читается, только
+ *   когда цель одна (`targetIsFull !== undefined`)
  * @returns массив разрешённых бонус-частей
  */
 export function resolveBonusDamageParts(
@@ -1561,26 +1836,59 @@ export function resolveBonusDamageParts(
   defaultType: string | undefined,
   targetIsFull: boolean | undefined,
   resolveFormula: (subFormula: string) => string,
+  targetType?: CreatureCategory,
 ): ResolvedDamagePartInput[] {
   const result: ResolvedDamagePartInput[] = [];
 
-  for (const { formula: rawFormula, conditionGate } of formulas) {
-    const branches: { gate?: TargetHpGate; formula: string }[] = [];
+  const hasSingleTarget = targetIsFull !== undefined;
 
-    if (!rawFormula.includes('@target')) {
-      branches.push({ formula: rawFormula });
-    } else if (targetIsFull !== undefined) {
-      branches.push({
+  for (const {
+    formula: rawFormula,
+    conditionGate,
+    conditionTypeGate,
+  } of formulas) {
+    const hpBranches: { gate?: TargetHpGate; formula: string }[] = [];
+
+    // Токены хитов, а не любой `@target` — см. `expandDamageParts`
+    if (!TARGET_CONDITION_DETECT_REGEX.test(rawFormula)) {
+      hpBranches.push({ formula: rawFormula });
+    } else if (hasSingleTarget) {
+      hpBranches.push({
         formula: applyTargetConditionals(rawFormula, targetIsFull),
       });
     } else {
-      branches.push(
+      hpBranches.push(
         { gate: 'full', formula: applyTargetConditionals(rawFormula, true) },
         {
           gate: 'notFull',
           formula: applyTargetConditionals(rawFormula, false),
         },
       );
+    }
+
+    const branches: {
+      gate?: TargetHpGate;
+      typeGate?: CreatureCategory;
+      formula: string;
+    }[] = [];
+
+    for (const hpBranch of hpBranches) {
+      if (hasSingleTarget) {
+        branches.push({
+          gate: hpBranch.gate,
+          formula: applyTargetTypeConditionals(hpBranch.formula, targetType),
+        });
+
+        continue;
+      }
+
+      for (const typeBranch of splitByTargetTypeGate(hpBranch.formula)) {
+        branches.push({
+          gate: hpBranch.gate,
+          typeGate: typeBranch.typeGate,
+          formula: typeBranch.formula,
+        });
+      }
     }
 
     for (const branch of branches) {
@@ -1591,6 +1899,15 @@ export function resolveBonusDamageParts(
       const combined = combineTargetGates(conditionGate, branch.gate);
 
       if (combined === null) {
+        continue;
+      }
+
+      const combinedType = combineTargetTypeGates(
+        conditionTypeGate,
+        branch.typeGate,
+      );
+
+      if (combinedType === null) {
         continue;
       }
 
@@ -1613,6 +1930,7 @@ export function resolveBonusDamageParts(
           target: 'selected',
           requiresDamage: false,
           targetGate: combined.gate,
+          targetTypeGate: combinedType.typeGate,
           applySlotScaling: false,
         });
       }

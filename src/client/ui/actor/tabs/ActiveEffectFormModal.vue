@@ -1,9 +1,15 @@
 <script setup lang="ts">
+  // Корневой вход `@nuxt/ui` типов компонентов не отдаёт — берём из подпути
+  import type { DropdownMenuItem } from '@nuxt/ui/components/DropdownMenu.vue';
+
   import type { AbilityType, DamagePart } from '@vtt/shared';
   import type {
     ActiveEffect,
     AreaEffectTrigger,
     ConditionRef,
+    EffectFlagKey,
+    EffectFlagMenuGroup,
+    EffectModifierPreset,
     EffectSaveOutcome,
     EffectSaveTiming,
     EffectTurnAnchor,
@@ -23,6 +29,8 @@
     EFFECT_CONDITION_SUGGESTIONS,
     EFFECT_DURATION_LABELS,
     EFFECT_FLAG_LABELS,
+    EFFECT_FLAG_MENU,
+    EFFECT_MODIFIER_MENU,
     EFFECT_TARGET_SUGGESTIONS,
     EFFECT_TURN_ANCHOR_LABELS,
     EFFECT_TURN_TIMING_LABELS,
@@ -41,6 +49,7 @@
     FORM_TAB_LABELS,
     GRANT_FIELD_LABELS,
     MODAL_BUTTON_LABELS,
+    SCROLLABLE_DROPDOWN_UI,
   } from '../constants';
   import DamagePartsEditor from '../DamagePartsEditor.vue';
   import ActiveEffectSuggestionsModal from './ActiveEffectSuggestionsModal.vue';
@@ -265,6 +274,44 @@
     });
   }
 
+  /**
+   * Добавляет строку модификатора по готовому пункту меню: ключ, режим и (где
+   * он осмыслен) значение уже проставлены — автору остаётся поправить число.
+   *
+   * @param preset - пункт меню «Добавить модификатор»
+   */
+  function addChangeFromPreset(preset: EffectModifierPreset): void {
+    // Пункт-условие оставляет ключ и значение пустыми намеренно: он отвечает
+    // только за «когда», а «что менять» автор называет сам
+    const isConditionPreset = Boolean(preset.condition);
+
+    form.changes.push({
+      key: preset.key,
+      mode: preset.mode,
+      value:
+        preset.value
+        ?? (isConditionPreset ? '' : ACTIVE_EFFECT_DEFAULTS.changeValue),
+      condition: preset.condition ?? '',
+      priority: ACTIVE_EFFECT_DEFAULTS.changePriority,
+    });
+  }
+
+  /**
+   * Меню «Добавить модификатор»: раздел — вложенное подменю. Ключей полсотни, и
+   * одним списком они на экран не помещаются.
+   */
+  const modifierMenuItems: DropdownMenuItem[][] = EFFECT_MODIFIER_MENU.map(
+    (group) => [
+      {
+        label: group.label,
+        children: group.items.map((preset) => ({
+          label: preset.label,
+          onSelect: () => addChangeFromPreset(preset),
+        })),
+      },
+    ],
+  );
+
   function removeChange(index: number) {
     form.changes.splice(index, 1);
   }
@@ -455,6 +502,52 @@
     // Дефолтное значение для удобства редактирования или пустая строка
     form.flags.push(ACTIVE_EFFECT_DEFAULTS.flag);
   }
+
+  /**
+   * Добавляет флаг по готовому пункту меню.
+   *
+   * Уже стоящий флаг молча пропускается: список флагов — набор, повторная
+   * запись ничего не добавляет, а в блоке выглядела бы дублем.
+   *
+   * @param flag - ключ флага из меню
+   */
+  function addFlagFromMenu(flag: EffectFlagKey): void {
+    if (form.flags.includes(flag)) {
+      return;
+    }
+
+    form.flags.push(flag);
+  }
+
+  /**
+   * Разворачивает раздел флагов в пункт меню: у защит от урона внутри лежат свои
+   * разделы (сопротивление, иммунитет, уязвимость), у остальных — сразу флаги.
+   *
+   * @param group - раздел меню флагов
+   * @returns пункт выпадающего меню со вложенным списком
+   */
+  function flagGroupItem(group: EffectFlagMenuGroup): DropdownMenuItem {
+    const nested = group.groups?.map(flagGroupItem) ?? [];
+
+    return {
+      label: group.label,
+      children: [
+        ...nested,
+        ...group.items.map((item) => ({
+          label: item.label,
+          onSelect: () => addFlagFromMenu(item.key),
+        })),
+      ],
+    };
+  }
+
+  /**
+   * Меню «Готовые» для флагов: раздел — вложенное подменю, как у модификаторов.
+   * Флагов под сотню, одним списком они на экран не помещаются.
+   */
+  const flagMenuItems: DropdownMenuItem[][] = EFFECT_FLAG_MENU.map((group) => [
+    flagGroupItem(group),
+  ]);
 
   function removeFlag(index: number) {
     form.flags.splice(index, 1);
@@ -788,7 +881,7 @@
               >
                 <UDropdownMenu
                   :items="conditionPresetItems"
-                  :ui="{ content: 'max-h-75 overflow-y-auto' }"
+                  :ui="SCROLLABLE_DROPDOWN_UI"
                 >
                   <UButton
                     icon="tabler:template"
@@ -1089,15 +1182,34 @@
                     {{ ACTIVE_EFFECT_FORM_LABELS.flagsTitle }}
                   </span>
 
-                  <UButton
-                    color="primary"
-                    variant="ghost"
-                    size="xs"
-                    icon="tabler:plus"
-                    @click.left.exact.prevent="addFlag"
-                  >
-                    {{ MODAL_BUTTON_LABELS.add }}
-                  </UButton>
+                  <div class="flex items-center gap-1">
+                    <!-- Готовые флаги: ключ подставляется сам -->
+                    <UDropdownMenu
+                      :items="flagMenuItems"
+                      :content="{ align: 'end' }"
+                      :ui="SCROLLABLE_DROPDOWN_UI"
+                    >
+                      <UButton
+                        color="primary"
+                        variant="soft"
+                        size="xs"
+                        icon="tabler:list-search"
+                        :title="ACTIVE_EFFECT_FORM_LABELS.flagPresetHint"
+                      >
+                        {{ ACTIVE_EFFECT_FORM_LABELS.changePreset }}
+                      </UButton>
+                    </UDropdownMenu>
+
+                    <UButton
+                      color="primary"
+                      variant="ghost"
+                      size="xs"
+                      icon="tabler:plus"
+                      @click.left.exact.prevent="addFlag"
+                    >
+                      {{ MODAL_BUTTON_LABELS.add }}
+                    </UButton>
+                  </div>
                 </div>
 
                 <div
@@ -1160,15 +1272,34 @@
                     {{ ACTIVE_EFFECT_FORM_LABELS.changesTitle }}
                   </span>
 
-                  <UButton
-                    color="primary"
-                    variant="ghost"
-                    size="xs"
-                    icon="tabler:plus"
-                    @click.left.exact.prevent="addChange"
-                  >
-                    {{ MODAL_BUTTON_LABELS.add }}
-                  </UButton>
+                  <div class="flex items-center gap-1">
+                    <!-- Готовые модификаторы: ключ и режим подставляются сами -->
+                    <UDropdownMenu
+                      :items="modifierMenuItems"
+                      :content="{ align: 'end' }"
+                      :ui="SCROLLABLE_DROPDOWN_UI"
+                    >
+                      <UButton
+                        color="primary"
+                        variant="soft"
+                        size="xs"
+                        icon="tabler:list-search"
+                        :title="ACTIVE_EFFECT_FORM_LABELS.changePresetHint"
+                      >
+                        {{ ACTIVE_EFFECT_FORM_LABELS.changePreset }}
+                      </UButton>
+                    </UDropdownMenu>
+
+                    <UButton
+                      color="primary"
+                      variant="ghost"
+                      size="xs"
+                      icon="tabler:plus"
+                      @click.left.exact.prevent="addChange"
+                    >
+                      {{ MODAL_BUTTON_LABELS.add }}
+                    </UButton>
+                  </div>
                 </div>
 
                 <div
@@ -1429,7 +1560,6 @@
                   :include-spell-modifier="false"
                   :hide-modifiers="true"
                   :hide-healing="true"
-                  :hide-conditions="true"
                   :allow-empty="true"
                   :add-label="ACTIVE_EFFECT_FORM_LABELS.addDamage"
                 />
@@ -1516,7 +1646,6 @@
                     :include-spell-modifier="false"
                     :hide-modifiers="true"
                     :hide-healing="true"
-                    :hide-conditions="true"
                     :allow-empty="true"
                     :add-label="ACTIVE_EFFECT_FORM_LABELS.addDamage"
                   />

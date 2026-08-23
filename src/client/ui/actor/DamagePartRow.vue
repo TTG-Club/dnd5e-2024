@@ -3,7 +3,12 @@
 
   import { computed, nextTick, ref } from 'vue';
 
-  import { damagePartIsHealing } from '@vtt/shared/system/dnd.js';
+  import { typedObjectEntries } from '@vtt/shared';
+  import {
+    CREATURE_CATEGORIES,
+    damagePartIsHealing,
+    targetTypeToken,
+  } from '@vtt/shared/system/dnd.js';
 
   import { DAMAGE_PART_LABELS } from './constants';
   import FormSection from './FormSection.vue';
@@ -106,7 +111,8 @@
   /** Вкладки для ввода формулы (лечение/условия скрываются пропами) */
   type DamageTab = {
     label: string;
-    slot: 'modifiers' | 'damageTypes' | 'healing' | 'conditions';
+    slot:
+      'modifiers' | 'damageTypes' | 'healing' | 'conditions' | 'creatureTypes';
   };
 
   const tabsList = computed<DamageTab[]>(() => {
@@ -126,7 +132,15 @@
     }
 
     if (!props.hideConditions) {
-      tabs.push({ label: DAMAGE_PART_LABELS.conditions, slot: 'conditions' });
+      tabs.push(
+        { label: DAMAGE_PART_LABELS.conditions, slot: 'conditions' },
+        // Тип существа — такое же условие по цели, как и её хиты, поэтому
+        // прячется тем же пропом
+        {
+          label: DAMAGE_PART_LABELS.creatureTypes,
+          slot: 'creatureTypes',
+        },
+      );
     }
 
     return tabs;
@@ -166,6 +180,14 @@
     { label: DAMAGE_PART_LABELS.healFull, value: '@heal' },
     { label: DAMAGE_PART_LABELS.healTemp, value: '@heal.temp' },
   ];
+
+  /**
+   * Кнопки типов существ. Свой список, а не готовые опции справочника: там
+   * ключ разобран как строка, а токену нужен именно тип существа.
+   */
+  const creatureTypeButtons = typedObjectEntries(CREATURE_CATEGORIES).map(
+    ([value, label]) => ({ value, label }),
+  );
 
   const conditionButtons = [
     { label: DAMAGE_PART_LABELS.targetFull, value: '@target.full' },
@@ -313,6 +335,24 @@
               variant="subtle"
               class="cursor-pointer font-medium"
               @click.left.exact.prevent="insertText(cond.value)"
+            />
+          </div>
+        </template>
+
+        <!-- Слагаемое достаётся только целям названного типа -->
+        <template #creatureTypes>
+          <div class="flex flex-wrap gap-1.5">
+            <UButton
+              v-for="creatureType in creatureTypeButtons"
+              :key="creatureType.value"
+              :label="creatureType.label"
+              size="xs"
+              color="neutral"
+              variant="subtle"
+              class="cursor-pointer font-medium"
+              @click.left.exact.prevent="
+                insertText(targetTypeToken(creatureType.value))
+              "
             />
           </div>
         </template>

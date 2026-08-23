@@ -22,6 +22,7 @@ import { generateId } from '@vtt/shared';
 
 import { ABILITY_LABELS } from './consts.js';
 import { DAMAGE_TYPE_LABELS } from './damageConstants.js';
+import { damageReachesTarget } from './damageTargetGate.js';
 import { applyHpChange, applyMultiTypeDamageDefenses } from './damageUtils.js';
 import { rollDamageFormula } from './diceFormula.js';
 import {
@@ -381,15 +382,22 @@ export function applyDamageToEntity(
  * `@`-формулы пропускаются (сервер их не катает). Возвращает `null`, если урона
  * не получилось (нет ненулевых сегментов).
  *
+ * Условные слагаемые (`@target.full`, `@target.type.undead`) ядро развернуло в
+ * ветки с гейтами — здесь они сверяются с самой целью
+ * ({@link damageReachesTarget}). Без сверки катались бы ВСЕ ветки сразу, и
+ * «взаимоисключающие» `@target.full`/`@target.notFull` давали бы двойной урон.
+ *
  * @param effectName - название эффекта (для подписи)
  * @param damageParts - части урона эффекта
  * @param stats - resolved-статы цели (нужны защиты от урона)
+ * @param entity - сущность-цель (нужна для гейтов условных веток)
  * @returns исход урона или `null`
  */
 export function rollEffectDamage(
   effectName: string,
   damageParts: DamagePart[],
   stats: ResolvedActorStats,
+  entity: DnDSceneEntity,
 ): TurnDamageOutcome | null {
   const segments = expandDamageParts(
     damageParts,
@@ -405,6 +413,11 @@ export function rollEffectDamage(
   for (const segment of segments) {
     // Урон не лечит; @-формулы (контекстные) сервер не катает
     if (segment.isHealing || segment.formula.includes('@')) {
+      continue;
+    }
+
+    // Ветка условного слагаемого — только «своей» цели
+    if (!damageReachesTarget(segment, entity)) {
       continue;
     }
 
@@ -498,7 +511,12 @@ export function resolveEntryEffect(
   const damageNegated = savePassed && onSuccess === 'negate';
 
   if (effect.damageParts && effect.damageParts.length > 0 && !damageNegated) {
-    const rolled = rollEffectDamage(effect.name, effect.damageParts, stats);
+    const rolled = rollEffectDamage(
+      effect.name,
+      effect.damageParts,
+      stats,
+      entity,
+    );
 
     if (rolled) {
       const halved = savePassed && onSuccess === 'half';
@@ -615,6 +633,7 @@ export function processTurnEffects(
       effect.name,
       recurringDamage.damageParts,
       stats,
+      entity,
     );
 
     if (outcome) {

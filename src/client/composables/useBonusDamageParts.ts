@@ -1,6 +1,7 @@
 import type {
   ActiveEffect,
   CreatureAction,
+  CreatureCategory,
   DnDActor,
   DnDCreature,
   DnDGameItem,
@@ -42,6 +43,7 @@ import {
   resolveCreatureDamageParts,
   resolveCreatureSpellDamageParts,
   resolveDamagePartsForCast,
+  resolveEntityCreatureType,
   resolveSpellDamageFormula,
   substituteFormulaVariables,
   withFlatDamageBonus,
@@ -73,6 +75,11 @@ interface WeaponRollSetupOptions {
    * `undefined` (нет цели) — части раскладываются на per-target гейт-ветки.
    */
   targetIsFull?: boolean;
+  /**
+   * Тип существа выбранной цели для токенов `@target.type.<тип>`.
+   * `undefined` (нет цели / AoE) — части раскладываются на per-target гейт-ветки.
+   */
+  targetType?: CreatureCategory;
 }
 
 /** Результат сборки многочастного броска оружия */
@@ -104,6 +111,11 @@ interface CreatureRollSetupOptions {
    * `undefined` (нет цели / AoE) — части раскладываются на per-target гейт-ветки.
    */
   targetIsFull?: boolean;
+  /**
+   * Тип существа выбранной цели для токенов `@target.type.<тип>`.
+   * `undefined` (нет цели / AoE) — части раскладываются на per-target гейт-ветки.
+   */
+  targetType?: CreatureCategory;
 }
 
 /** Результат сборки многочастного броска действия существа */
@@ -129,6 +141,11 @@ interface CreatureSpellRollSetupOptions {
    * `undefined` (нет цели / AoE) — части раскладываются на per-target гейт-ветки.
    */
   targetIsFull?: boolean;
+  /**
+   * Тип существа выбранной цели для токенов `@target.type.<тип>`.
+   * `undefined` (нет цели / AoE) — части раскладываются на per-target гейт-ветки.
+   */
+  targetType?: CreatureCategory;
 }
 
 /** Параметры сборщика бонус-частей урона заклинания */
@@ -230,7 +247,8 @@ export function useBonusDamageParts() {
    * @returns текущее/максимальное HP цели или undefined (цели/HP нет)
    */
   function buildTargetHpContext():
-    { currentHp: number; maxHp: number } | undefined {
+    | { currentHp: number; maxHp: number; creatureType?: CreatureCategory }
+    | undefined {
     const entity = targetStore.getTargetActor();
 
     if (!entity) {
@@ -254,7 +272,28 @@ export function useBonusDamageParts() {
       return undefined;
     }
 
-    return { currentHp: hp.current ?? 0, maxHp: hp.max };
+    return {
+      currentHp: hp.current ?? 0,
+      maxHp: hp.max,
+      // Тип цели — для условий `target.creatureType` и токенов `@target.type.*`:
+      // читается с той же сущности, отдельного источника цели заводить незачем
+      creatureType: resolveEntityCreatureType(entity),
+    };
+  }
+
+  /**
+   * Тип существа текущей цели (читается в момент вызова).
+   *
+   * @returns канонический тип цели либо undefined (цели нет / тип неизвестен)
+   */
+  function buildTargetTypeContext(): CreatureCategory | undefined {
+    const entity = targetStore.getTargetActor();
+
+    if (!entity || !isDndSceneEntity(entity)) {
+      return undefined;
+    }
+
+    return resolveEntityCreatureType(entity);
   }
 
   /**
@@ -273,6 +312,7 @@ export function useBonusDamageParts() {
    * @param defaultType - тип урона сегментов без токена @dmg
    * @param useTargetState - оценивать ли состояние единой цели (false для AoE/снарядов)
    * @param resolveFormula - резолвер @-переменных сегмента
+   * @param carrierType - тип существа носителя эффектов (для `self.creatureType`)
    * @returns бонус-части урона
    */
   function collectParts(
@@ -282,6 +322,7 @@ export function useBonusDamageParts() {
     defaultType: string | undefined,
     useTargetState: boolean,
     resolveFormula: (subFormula: string) => string,
+    carrierType: CreatureCategory | undefined,
   ): SpellDamagePartInput[] {
     const targetHp = useTargetState ? buildTargetHpContext() : undefined;
 
@@ -289,6 +330,9 @@ export function useBonusDamageParts() {
       hasAdvantage: modalContext.hasAdvantage,
       hasDisadvantage: modalContext.hasDisadvantage,
       target: targetHp,
+      // Кость-формулы с условием по типу носителя в плоские статы не попадают —
+      // здесь это условие и оценивается
+      self: { creatureType: carrierType },
     };
 
     const formulas = collectBonusDamageFormulas(
@@ -306,6 +350,7 @@ export function useBonusDamageParts() {
       defaultType,
       targetIsFull,
       resolveFormula,
+      targetHp?.creatureType,
     );
   }
 
@@ -319,7 +364,8 @@ export function useBonusDamageParts() {
   function buildWeaponRollSetup(
     options: WeaponRollSetupOptions,
   ): WeaponRollSetup {
-    const { weapon, actor, effects, resolvedStats, targetIsFull } = options;
+    const { weapon, actor, effects, resolvedStats, targetIsFull, targetType } =
+      options;
 
     const damageKey = weaponDamageKey(weapon);
     const defaultType = getWeaponPrimaryDamageType(weapon);
@@ -357,6 +403,7 @@ export function useBonusDamageParts() {
       getWeaponDamageParts(weapon),
       resolvedStats,
       targetIsFull,
+      targetType,
     );
 
     // Статический урон оружия (мод. характеристики + магический бонус + свои
@@ -407,6 +454,7 @@ export function useBonusDamageParts() {
         defaultType,
         true,
         resolveFormula,
+        resolveEntityCreatureType(actor),
       );
 
     return { baseParts, evaluateBonusDamageParts, pseudoSpell };
@@ -458,6 +506,7 @@ export function useBonusDamageParts() {
         undefined,
         !multiTarget,
         resolveFormula,
+        resolveEntityCreatureType(actor),
       );
   }
 
@@ -477,7 +526,7 @@ export function useBonusDamageParts() {
   function buildCreatureRollSetup(
     options: CreatureRollSetupOptions,
   ): CreatureRollSetup {
-    const { action, creature, effects, targetIsFull } = options;
+    const { action, creature, effects, targetIsFull, targetType } = options;
 
     const damageKey: EffectTargetKey =
       action.rangeType === 'ranged' ? 'damage.ranged' : 'damage.melee';
@@ -519,6 +568,7 @@ export function useBonusDamageParts() {
       baseDamageParts,
       targetIsFull,
       creature,
+      targetType,
     );
 
     const formulaContext = buildFormulaContext(creature);
@@ -557,6 +607,7 @@ export function useBonusDamageParts() {
         defaultType,
         true,
         resolveFormula,
+        resolveEntityCreatureType(creature),
       );
 
     return { baseParts, evaluateBonusDamageParts, pseudoSpell };
@@ -575,7 +626,7 @@ export function useBonusDamageParts() {
   function buildCreatureSpellRollSetup(
     options: CreatureSpellRollSetupOptions,
   ): CreatureRollSetup {
-    const { spell, creature, effects, targetIsFull } = options;
+    const { spell, creature, effects, targetIsFull, targetType } = options;
 
     const baseDamageParts = spell.damageParts ?? [];
 
@@ -594,6 +645,7 @@ export function useBonusDamageParts() {
       targetIsFull,
       creature,
       spellMod,
+      targetType,
     );
 
     const formulaContext = buildFormulaContext(creature);
@@ -633,6 +685,7 @@ export function useBonusDamageParts() {
         defaultType,
         true,
         resolveFormula,
+        resolveEntityCreatureType(creature),
       );
 
     return { baseParts, evaluateBonusDamageParts, pseudoSpell };
@@ -646,5 +699,6 @@ export function useBonusDamageParts() {
     buildCreatureSpellRollSetup,
     buildSpellBonusEvaluator,
     buildTargetHpContext,
+    buildTargetTypeContext,
   };
 }

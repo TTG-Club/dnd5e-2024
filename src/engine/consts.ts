@@ -922,6 +922,7 @@ export const CREATURE_CATEGORIES: Record<
   ooze: 'Слизь',
   plant: 'Растение',
   undead: 'Нежить',
+  swarm: 'Рой',
 };
 
 /** Опции типов существ для UI-селектов */
@@ -942,43 +943,30 @@ const CREATURE_CATEGORY_SET: ReadonlySet<string> = new Set(
  * @returns `true`, если это известный тип существа
  */
 export function isCreatureCategory(
-  value: string,
+  value: unknown,
 ): value is import('./creatureTypes.js').CreatureCategory {
-  return CREATURE_CATEGORY_SET.has(value);
+  return typeof value === 'string' && CREATURE_CATEGORY_SET.has(value);
 }
 
 /**
  * Локализованные названия типов существ для актёров и видов (Species).
  *
- * Включает `swarm`, в отличие от `CREATURE_CATEGORIES` (только бестиарные типы).
+ * Словарь типов один на всю систему ({@link CREATURE_CATEGORIES}) — расходиться
+ * им нельзя: один и тот же тип задают и статблок существа, и вид персонажа, и
+ * гейт урона «по такому-то типу». Отличается только подпись `monstrosity`:
+ * в бестиарии это «Чудовище», у видов исторически «Монстр».
  */
 export const CREATURE_TYPE_LABELS: Record<
   import('./speciesTypes.js').CreatureType,
   string
 > = {
   ...CREATURE_CATEGORIES,
-  swarm: 'Рой',
   monstrosity: 'Монстр',
 };
 
-/** Множество всех допустимых типов существ для быстрой проверки */
-const CREATURE_TYPE_SET: ReadonlySet<string> = new Set(
-  Object.keys(CREATURE_TYPE_LABELS),
-);
-
-/**
- * Проверяет, является ли значение допустимым типом существа (`CreatureType`).
- * Значение приходит из записей мира и компендиумов, поэтому проверяется и его
- * тип: на месте ключа может оказаться что угодно.
- *
- * @param value - произвольное значение для проверки
- * @returns `true`, если `value` является `CreatureType`
- */
-export function isCreatureType(
-  value: unknown,
-): value is import('./speciesTypes.js').CreatureType {
-  return typeof value === 'string' && CREATURE_TYPE_SET.has(value);
-}
+// Второго множества типов здесь нет намеренно: словарь один
+// (`CREATURE_CATEGORIES`), и проверка у него одна — `isCreatureCategory`.
+// Прежний `isCreatureType` был её точной копией по другому справочнику.
 
 // ============================================================
 // Существа — Мировоззрения (Creature Alignments)

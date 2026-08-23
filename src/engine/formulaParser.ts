@@ -19,12 +19,13 @@
  * - Отклоняет любой невалидный ввод
  */
 
-import type { AbilityType } from '@vtt/shared';
+import type { AbilityType, MovementType } from '@vtt/shared';
 
 import { isActorEntity } from '@vtt/shared';
 
 import { calculateProficiencyBonus } from './calculations.js';
 import { getTotalLevel } from './classTypes.js';
+import { isCreatureCategory, isMovementType, MOVEMENT_KEYS } from './consts.js';
 import {
   DEFAULT_PROFICIENCY_BONUS,
   getProficiencyBonusBreakdown,
@@ -41,6 +42,16 @@ export interface FormulaContext {
   prof: number;
   /** Уровень персонажа */
   level: number;
+  /**
+   * Скорости передвижения листа в футах — токены `@speed.walk`, `@speed.fly`
+   * и т.д. Ими задаётся «полёт равен скорости ходьбы»: эффект пишет не число, а
+   * ссылку на скорость, и та едет за листом сама.
+   *
+   * Это БАЗОВЫЕ скорости листа, а не итоговые: итоговые считает пайплайн
+   * эффектов, и формула эффекта, читающая их, зависела бы от собственного
+   * результата. По той же причине число берёт из базы и механика черты.
+   */
+  movement: Record<MovementType, number>;
   /**
    * Модификатор заклинательной характеристики (для токена `@mod.spell`).
    *
@@ -59,6 +70,11 @@ export interface FormulaContext {
   target?: {
     /** У цели полный запас хитов */
     isFull: boolean;
+    /**
+     * Тип существа цели — для токенов `@target.type.<тип>`. Не задан (цели нет
+     * или у неё нет типа) — такой токен считается как `0`.
+     */
+    creatureType?: import('./creatureTypes.js').CreatureCategory;
   };
 }
 
@@ -560,6 +576,21 @@ function resolveVariable(
     );
   }
 
+  // Скорости листа: @speed.walk, @speed.fly, @speed.climb, @speed.swim,
+  // @speed.burrow. Ими эффект выражает «полёт равен скорости ходьбы»
+  if (parts[0] === 'speed' && parts.length === 2) {
+    const movementType = parts[1];
+
+    if (!isMovementType(movementType)) {
+      throw new FormulaError(
+        `Неизвестный вид движения: @speed.${movementType}. `
+          + `Допустимо: ${MOVEMENT_KEYS.join(', ')}`,
+      );
+    }
+
+    return context.movement[movementType] ?? 0;
+  }
+
   // Условные токены цели: @target.full / @target.notFull → 1 или 0.
   // В Active Effects используются как множитель/значение; в формулах урона
   // заклинаний обрабатываются раньше (гейт на слагаемое, см. applyTargetConditionals).
@@ -575,8 +606,24 @@ function resolveVariable(
     }
 
     throw new FormulaError(
-      `Неизвестный токен цели: @target.${parts[1]}. Допустимо: full, notFull`,
+      `Неизвестный токен цели: @target.${parts[1]}. Допустимо: full, notFull, type.<тип>`,
     );
+  }
+
+  // Тип существа цели: @target.type.undead → 1 у нежити, иначе 0. В формулах
+  // урона этот токен гасит своё слагаемое ещё до парсера
+  // (`applyTargetTypeConditionals`); здесь он нужен значениям эффектов и тому,
+  // чтобы токен нигде не ронял формулу «неизвестной переменной»
+  if (parts[0] === 'target' && parts[1] === 'type' && parts.length === 3) {
+    const wanted = parts[2].toLowerCase();
+
+    if (!isCreatureCategory(wanted)) {
+      throw new FormulaError(
+        `Неизвестный тип существа: @target.type.${parts[2]}`,
+      );
+    }
+
+    return context.target?.creatureType === wanted ? 1 : 0;
   }
 
   throw new FormulaError(`Неизвестная переменная: @${variablePath}`);
@@ -694,6 +741,39 @@ function toAbilityModifiers(
 // ── Публичный API ─────────────────────────────────────────────
 
 /**
+ * Базовые скорости сущности для токенов `@speed.*`.
+ *
+ * У существа поля скоростей может не быть вовсе — тогда все нули: формула
+ * посчитается, а не упадёт, и «равен скорости ходьбы» просто ничего не даст.
+ *
+ * @param entity - лист персонажа или существо
+ * @returns запись «вид движения → футы»
+ */
+function readMovement(
+  entity:
+    | import('./dndEntities.js').DnDActor
+    | import('./dndEntities.js').DnDCreature,
+): Record<MovementType, number> {
+  const movement: Record<MovementType, number> = {
+    walk: 0,
+    swim: 0,
+    fly: 0,
+    climb: 0,
+    burrow: 0,
+  };
+
+  const system = entity.system;
+
+  if ('movement' in system && system.movement) {
+    for (const movementKey of MOVEMENT_KEYS) {
+      movement[movementKey] = system.movement[movementKey] ?? 0;
+    }
+  }
+
+  return movement;
+}
+
+/**
  * Строит контекст формул из данных актора D&D 5e.
  *
  * Извлекает из актора все значения, доступные через @-переменные
@@ -756,6 +836,7 @@ export function buildFormulaContext(
     abilities,
     prof,
     level,
+    movement: readMovement(actor),
   };
 }
 

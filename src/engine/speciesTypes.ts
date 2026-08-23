@@ -7,22 +7,14 @@
  */
 export type SpeciesKey = string;
 
-export type CreatureType =
-  | 'humanoid'
-  | 'fey'
-  | 'construct'
-  | 'celestial'
-  | 'fiend'
-  | 'undead'
-  | 'elemental'
-  | 'monstrosity'
-  | 'aberration'
-  | 'dragon'
-  | 'beast'
-  | 'giant'
-  | 'ooze'
-  | 'plant'
-  | 'swarm';
+/**
+ * Тип существа вида — тот же словарь, что и у статблока существа.
+ *
+ * Раньше это был свой союз с теми же значениями, и «Рой» жил только здесь:
+ * статблок его не знал, а гейт урона «по такому-то типу» не срабатывал ни на
+ * ком с этим типом. Один союз на оба места чинит расхождение навсегда.
+ */
+export type CreatureType = import('./creatureTypes.js').CreatureCategory;
 
 export type SpeciesGrant =
   | SkillProficiencyGrant

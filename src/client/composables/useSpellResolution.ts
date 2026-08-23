@@ -954,6 +954,7 @@ export function useSpellResolution() {
               target: 'selected',
               requiresDamage: false,
               targetGate: bonusPart.targetGate,
+              targetTypeGate: bonusPart.targetTypeGate,
             });
           }
         }
@@ -1122,6 +1123,7 @@ export function useSpellResolution() {
               target: 'selected',
               requiresDamage: false,
               targetGate: bonusPart.targetGate,
+              targetTypeGate: bonusPart.targetTypeGate,
             });
 
             grandTotal += bonusRoll.total;

@@ -22,6 +22,7 @@ import { generateId, resolveGridCellSize } from '@vtt/shared';
 import {
   applyHpChange,
   applyMultiTypeDamageDefenses,
+  damageReachesTarget,
   expandDamageParts,
   findTokensInTemplate,
   formatDamageDefenseSuffix,
@@ -233,7 +234,7 @@ export function useSpellDamageWithParts() {
       const description = chooseParts
         .map(
           (part) =>
-            `${getPartKindLabel(part)} ${part.formula}${formatTargetGateSuffix(part.targetGate)}`,
+            `${getPartKindLabel(part)} ${part.formula}${formatTargetGateSuffix(part.targetGate, part.targetTypeGate)}`,
         )
         .join(', ');
 
@@ -293,6 +294,12 @@ export function useSpellDamageWithParts() {
     for (const segment of segments) {
       // Урон эффекта не лечит (редактор скрывает @heal) — на всякий случай.
       if (segment.isHealing) {
+        continue;
+      }
+
+      // Ветка условного слагаемого (`@target.full`, `@target.type.undead`) —
+      // только «своей» цели: без сверки катались бы обе ветки сразу
+      if (!damageReachesTarget(segment, entity)) {
         continue;
       }
 
@@ -930,7 +937,7 @@ export function useSpellDamageWithParts() {
       }
 
       const contributions = partContributions.get(part);
-      const header = `${getPartKindLabel(part)}${formatTargetGateSuffix(part.targetGate)}`;
+      const header = `${getPartKindLabel(part)}${formatTargetGateSuffix(part.targetGate, part.targetTypeGate)}`;
 
       const diceBreakdown =
         part.values.length > 0 ? `[${part.values.join(', ')}] = ` : '';

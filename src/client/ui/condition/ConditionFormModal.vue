@@ -30,7 +30,10 @@
     readConditionSystemData,
   } from '@vtt/shared/system/dnd.js';
 
-  import { MODAL_BUTTON_LABELS } from '../actor/constants';
+  import {
+    MODAL_BUTTON_LABELS,
+    SCROLLABLE_DROPDOWN_UI,
+  } from '../actor/constants';
   import ActiveEffectFormModal from '../actor/tabs/ActiveEffectFormModal.vue';
   import ConditionBadge from './ConditionBadge.vue';
   import {
@@ -336,7 +339,7 @@
         >
           <UDropdownMenu
             :items="presetMenuItems"
-            :ui="{ content: 'max-h-75 overflow-y-auto' }"
+            :ui="SCROLLABLE_DROPDOWN_UI"
           >
             <UButton
               icon="tabler:template"

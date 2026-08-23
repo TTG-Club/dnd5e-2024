@@ -27,7 +27,9 @@ import type {
   EffectFlagKey,
   EffectTargetKey,
   ResolvedActorStats,
+  SenseType,
 } from './activeEffectTypes.js';
+import type { CreatureCategory } from './creatureTypes.js';
 import type { DnDCustomBonusContext } from './customBonuses.js';
 import type {
   DnDActor,
@@ -41,6 +43,7 @@ import type { BonusDamageFormula, TargetHpGate } from './spellUtils.js';
 
 import { isCreatureEntity, isRecord } from '@vtt/shared';
 
+import { isSenseType } from './activeEffectTypes.js';
 import {
   calculateProficiencyBonus,
   getProficiencyContribution,
@@ -51,11 +54,13 @@ import {
   ABILITY_KEYS,
   BASE_UNARMORED_AC,
   isAbilityType,
+  isCreatureCategory,
   isMovementType,
   isSkillType,
   MOVEMENT_KEYS,
   SKILLS_LIST,
 } from './consts.js';
+import { resolveEntityCreatureType } from './creatureTypeGate.js';
 import {
   getCustomBonusesValue,
   parseAbilityBonuses,
@@ -229,6 +234,25 @@ function createEmptyMovementRecord(): Record<MovementType, number> {
   return { walk: 0, swim: 0, fly: 0, climb: 0, burrow: 0 };
 }
 
+/**
+ * Нулевая заготовка дальностей чувств.
+ *
+ * Базы у чувств нет: ни у актора, ни у существа нет числового поля чувств —
+ * дальность целиком приходит эффектами (`sense.*`). Поэтому фаза 1 ставит нули,
+ * а не читает `system`.
+ *
+ * @returns запись «вид чувства → 0»
+ */
+function createEmptySenseRecord(): Record<SenseType, number> {
+  return {
+    darkvision: 0,
+    blindsight: 0,
+    truesight: 0,
+    tremorsense: 0,
+    telepathy: 0,
+  };
+}
+
 // ── Фаза 1: prepareBaseData ───────────────────────────────────
 
 /**
@@ -250,6 +274,7 @@ export function prepareBaseData(
   const saves = createEmptyAbilityRecord();
   const skills = createEmptySkillRecord();
   const movement = createEmptyMovementRecord();
+  const senses = createEmptySenseRecord();
 
   // Характеристики
   for (const abilityKey of ABILITY_KEYS) {
@@ -281,6 +306,7 @@ export function prepareBaseData(
     initiative: 0,
     proficiencyBonus: 0,
     movement,
+    senses,
     hitPointsMax: resolveHitPointsMax(system.hitPoints),
     attackBonuses: { melee: 0, ranged: 0, spell: 0 },
     damageBonuses: { melee: 0, ranged: 0, spell: 0 },
@@ -426,12 +452,14 @@ export function collectActiveEffects(
  * @param baseStats - базовые статы из prepareBaseData
  * @param effects - массив активных эффектов
  * @param formulaContext - контекст для вычисления формул
+ * @param carrierType - тип существа носителя для условий `self.creatureType`
  * @returns модифицированные статы
  */
 export function applyActiveEffects(
   baseStats: ResolvedActorStats,
   effects: readonly ActiveEffect[],
   formulaContext: FormulaContext,
+  carrierType?: CreatureCategory,
 ): ResolvedActorStats {
   // Клонируем baseStats (immutable transforms)
   const modifiedStats = cloneResolvedStats(baseStats);
@@ -455,9 +483,11 @@ export function applyActiveEffects(
     (itemA, itemB) => itemA.change.priority - itemB.change.priority,
   );
 
-  // Применяем каждый change (без условий — условные бонусы оцениваются в момент броска)
+  // Применяем каждый change. Условия броска (преимущество, хиты цели, вид
+  // входящей атаки) на листе не считаются — их оценивают в момент броска;
+  // условие по типу носителя, наоборот, считается здесь: тип от броска не зависит
   for (const { change } of allChanges) {
-    if (change.condition) {
+    if (skipChangeOnSheet(change, carrierType)) {
       continue;
     }
 
@@ -488,17 +518,24 @@ export function applyActiveEffects(
  * листа, а не с нулевым накопителем Фазы 2.
  *
  * @param effects - массив активных эффектов
+ * @param carrierType - тип существа носителя для условий `self.creatureType`
  * @returns изменения производных ключей по ключу
  */
 export function collectDerivedChanges(
   effects: readonly ActiveEffect[],
+  carrierType?: CreatureCategory,
 ): DerivedChangeMap {
   const grouped = new Map<string, EffectChange[]>();
 
   for (const effect of effects) {
     for (const change of effect.changes) {
-      // Условные изменения оцениваются в момент броска, а не на листе
-      if (change.condition || !isDerivedTargetKey(change.key)) {
+      // Условия броска оцениваются в момент броска, а не на листе; условие по
+      // типу носителя считается здесь — тем же правилом, что и в фазе 2
+      if (skipChangeOnSheet(change, carrierType)) {
+        continue;
+      }
+
+      if (!isDerivedTargetKey(change.key)) {
         continue;
       }
 
@@ -532,10 +569,23 @@ export interface RollContext {
   /** Бросок с помехой */
   hasDisadvantage: boolean;
   /**
-   * Состояние HP цели — для условий `target.hp.*` (напр. «Убийца»/«Окровавлен»).
-   * Отсутствует вне таргет-контекста; такие условия тогда не срабатывают.
+   * Состояние HP цели — для условий `target.hp.*` (напр. «Убийца»/«Окровавлен»),
+   * и её тип — для условий `target.creatureType`. Отсутствует вне
+   * таргет-контекста; такие условия тогда не срабатывают.
    */
-  target?: { currentHp: number; maxHp: number };
+  target?: {
+    currentHp: number;
+    maxHp: number;
+    creatureType?: CreatureCategory;
+  };
+  /**
+   * Тип существа НОСИТЕЛЯ эффекта — для условий `self.creatureType`.
+   *
+   * Плоские бонусы с таким условием считаются уже на листе (фазы 2 и 3), и при
+   * броске их повторно НЕ суммируют; здесь тип нужен кость-формулам бонус-урона,
+   * которые в статы не попадают никогда.
+   */
+  self?: { creatureType?: CreatureCategory };
 }
 
 // Тип `IncomingAttackContext` вынесен в нейтральный контракт
@@ -591,6 +641,96 @@ export function targetHpGateMatches(
   return currentHp < maxHp;
 }
 
+// ── Условия по типу существа ──────────────────────────────────
+
+/** Приставка условия по типу НОСИТЕЛЯ эффекта. */
+const CARRIER_TYPE_CONDITION_PREFIX = 'self.creatureType === ';
+
+/** Приставка условия по типу ЦЕЛИ броска. */
+const TARGET_TYPE_CONDITION_PREFIX = 'target.creatureType === ';
+
+/**
+ * Тип существа, названный условием с указанной приставкой.
+ *
+ * Условие пишется как `self.creatureType === "humanoid"` — в кавычках, как и
+ * остальные закрытые условия движка (`incoming.attackType === "melee"`).
+ *
+ * @param condition - строка условия
+ * @param prefix - приставка семейства условий
+ * @returns тип существа либо undefined (условие другого семейства/неизвестный тип)
+ */
+function parseTypeCondition(
+  condition: string,
+  prefix: string,
+): CreatureCategory | undefined {
+  const trimmed = condition.trim();
+
+  if (!trimmed.startsWith(prefix)) {
+    return undefined;
+  }
+
+  const quoted = trimmed.slice(prefix.length).trim();
+  const value = quoted.replace(/^["']|["']$/g, '');
+
+  return isCreatureCategory(value) ? value : undefined;
+}
+
+/**
+ * Условие ли это по типу НОСИТЕЛЯ эффекта.
+ *
+ * Такие условия статические: тип носителя известен на листе, поэтому они
+ * считаются в фазах 2 и 3 пайплайна, а не в момент броска. Отличать их
+ * необходимо: плоский бонус с таким условием уже сидит в статах, и при броске
+ * его нельзя прибавлять второй раз.
+ *
+ * @param condition - строка условия
+ * @returns `true`, если условие про тип носителя
+ */
+function isCarrierCondition(condition: string): boolean {
+  return condition.trim().startsWith(CARRIER_TYPE_CONDITION_PREFIX);
+}
+
+/**
+ * Выполняется ли условие носителя при данном типе носителя.
+ *
+ * @param condition - строка условия
+ * @param carrierType - тип существа носителя (undefined — вид не выбран)
+ * @returns `true`, если условие выполняется
+ */
+function carrierConditionMatches(
+  condition: string,
+  carrierType: CreatureCategory | undefined,
+): boolean {
+  const wanted = parseTypeCondition(condition, CARRIER_TYPE_CONDITION_PREFIX);
+
+  return wanted !== undefined && wanted === carrierType;
+}
+
+/**
+ * Пропускает ли фаза листа это условное изменение.
+ *
+ * Условия броска (преимущество, хиты цели, вид входящей атаки) на листе не
+ * считаются — их оценивают в момент броска. Условие носителя, наоборот, тут и
+ * считается: тип носителя от броска не зависит.
+ *
+ * @param change - изменение эффекта
+ * @param carrierType - тип существа носителя
+ * @returns `true`, если изменение на листе применять не нужно
+ */
+function skipChangeOnSheet(
+  change: EffectChange,
+  carrierType: CreatureCategory | undefined,
+): boolean {
+  if (!change.condition) {
+    return false;
+  }
+
+  return (
+    !isCarrierCondition(change.condition)
+    || !carrierConditionMatches(change.condition, carrierType)
+  );
+}
+
 /**
  * Оценивает условие EffectChange против контекста броска.
  *
@@ -634,8 +774,39 @@ function evaluateCondition(
       : false;
   }
 
+  // Тип носителя: известен вне броска, поэтому и здесь берётся из контекста,
+  // а не из цели
+  if (isCarrierCondition(trimmed)) {
+    return carrierConditionMatches(trimmed, rollContext.self?.creatureType);
+  }
+
+  // Тип цели
+  const wantedTargetType = parseTypeCondition(
+    trimmed,
+    TARGET_TYPE_CONDITION_PREFIX,
+  );
+
+  if (wantedTargetType !== undefined) {
+    return target?.creatureType === wantedTargetType;
+  }
+
   // Неизвестное условие — не применяем
   return false;
+}
+
+/**
+ * Тип цели, названный условием `target.creatureType` (если это оно).
+ *
+ * Нужен для отложенной per-target оценки, когда единой цели на броске нет, —
+ * так же, как {@link targetHpGateForCondition} для условий по хитам.
+ *
+ * @param condition - строка условия
+ * @returns тип существа или undefined (условие не про тип цели)
+ */
+function targetTypeGateForCondition(
+  condition: string,
+): CreatureCategory | undefined {
+  return parseTypeCondition(condition, TARGET_TYPE_CONDITION_PREFIX);
 }
 
 /**
@@ -764,6 +935,12 @@ export function evaluateConditionalBonuses(
         continue;
       }
 
+      // Условие носителя уже посчитано на листе (фазы 2 и 3), и его вклад сидит
+      // в итоговых статах. Прибавить его здесь значило бы учесть бонус дважды
+      if (isCarrierCondition(change.condition)) {
+        continue;
+      }
+
       if (evaluateCondition(change.condition, rollContext)) {
         bonus += resolveConditionalValue(change.value, formulaContext);
       }
@@ -868,6 +1045,17 @@ export function collectBonusDamageFormulas(
           continue;
         }
 
+        const conditionTypeGate = targetTypeGateForCondition(change.condition);
+
+        if (conditionTypeGate && rollContext.target === undefined) {
+          // Условие по типу цели без единой цели: тем же приёмом откладываем
+          formulas.push({ formula: change.value, conditionTypeGate });
+
+          continue;
+        }
+
+        // Условие носителя здесь, наоборот, ОЦЕНИВАЕТСЯ: кость-формулы в
+        // плоские статы не попадают никогда, и задвоения быть не может
         if (!evaluateCondition(change.condition, rollContext)) {
           continue;
         }
@@ -892,6 +1080,12 @@ function applyChange(
   change: EffectChange,
   formulaContext: FormulaContext,
 ): void {
+  // Ключ ещё не выбран: строка заведена готовым пунктом меню ради условия, а что
+  // менять, автор пока не назвал — менять нечего
+  if (change.key === '') {
+    return;
+  }
+
   try {
     const resolvedValue = resolveChangeValue(change.value, formulaContext);
     const currentValue = getStatValue(stats, change.key);
@@ -1062,6 +1256,13 @@ function getStatValue(
     return isMovementType(movementName) ? stats.movement[movementName] : 0;
   }
 
+  // Чувства
+  if (targetKey.startsWith('sense.')) {
+    const senseName = targetKey.slice(6);
+
+    return isSenseType(senseName) ? stats.senses[senseName] : 0;
+  }
+
   // Атака
   if (targetKey.startsWith('attack.')) {
     const attackType = targetKey.slice(7);
@@ -1144,6 +1345,17 @@ function setStatValue(
 
     if (isMovementType(movementName)) {
       stats.movement[movementName] = statValue;
+    }
+
+    return;
+  }
+
+  // Чувства
+  if (targetKey.startsWith('sense.')) {
+    const senseName = targetKey.slice(6);
+
+    if (isSenseType(senseName)) {
+      stats.senses[senseName] = statValue;
     }
 
     return;
@@ -1833,11 +2045,16 @@ export function resolveActorStats(
   // Контекст формул (из базовых данных — ДО модификации)
   const formulaContext = buildFormulaContext(actor);
 
+  // Тип носителя — для условий `self.creatureType`: он известен на листе, и
+  // такие условия считаются здесь, а не при броске
+  const carrierType = resolveEntityCreatureType(actor);
+
   // Фаза 2: применение эффектов к базовым значениям
   const modifiedStats = applyActiveEffects(
     baseStats,
     activeEffects,
     formulaContext,
+    carrierType,
   );
 
   // Фаза 3: производные данные — считаются по правилам, поверх ложатся
@@ -1845,7 +2062,7 @@ export function resolveActorStats(
   return prepareDerivedData(
     modifiedStats,
     actor,
-    collectDerivedChanges(activeEffects),
+    collectDerivedChanges(activeEffects, carrierType),
     formulaContext,
   );
 }
@@ -1870,6 +2087,7 @@ function cloneResolvedStats(stats: ResolvedActorStats): ResolvedActorStats {
     initiative: stats.initiative,
     proficiencyBonus: stats.proficiencyBonus,
     movement: { ...stats.movement },
+    senses: { ...stats.senses },
     hitPointsMax: stats.hitPointsMax,
     attackBonuses: { ...stats.attackBonuses },
     damageBonuses: { ...stats.damageBonuses },

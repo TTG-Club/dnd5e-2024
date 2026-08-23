@@ -431,6 +431,7 @@
       creature,
       effects,
       targetIsFull,
+      targetType: targetHp?.creatureType,
     });
 
     // Эффекты действия (статус/урон со своим applySave) обрабатывает

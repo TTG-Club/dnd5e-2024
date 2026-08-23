@@ -6,7 +6,7 @@
   import type { MissingSheetSectionKey } from './constants';
   import type { NameEditResult } from './NameEditModal.vue';
 
-  import { computed, ref } from 'vue';
+  import { computed, ref, toRef } from 'vue';
 
   import { useImageFallback } from '@/shared_ui/composables';
   import { getAssetUrl } from '@vtt/shared';
@@ -21,6 +21,7 @@
     SENSE_LABELS,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useResolvedStats } from '../../composables/useResolvedStats';
   import ActorHeaderSection from './ActorHeaderSection.vue';
   import {
     ACTOR_HEADER_LABELS,
@@ -133,13 +134,20 @@
     informational?: boolean;
   }
 
+  // Чувства приходят двумя путями: чертами (их читает `collectActorSenses`) и
+  // активными эффектами — ключи `sense.*` считает тот же пайплайн, что КД и
+  // скорости. Разрешаем статы здесь же, как это делают боковые панели листа
+  const { resolvedStats } = useResolvedStats(toRef(() => props.actor));
+
   /**
-   * Доступные типы зрения актёра из `token.vision`.
-   * Расширяемо: при появлении новых типов зрения достаточно добавить запись.
+   * Доступные типы зрения актёра: зрение токена, чувства черт и чувства
+   * активных эффектов. Расширяемо: при появлении новых типов зрения достаточно
+   * добавить запись.
    */
   const visionEntries = computed<VisionEntry[]>(() => {
     const entries: VisionEntry[] = [];
     const vision = props.actor.token?.vision;
+    const senses = resolvedStats.value?.senses;
 
     if (vision?.enabled) {
       // Обычное зрение (range === 0 трактуется как без ограничений)
@@ -148,22 +156,29 @@
         label: ACTOR_HEADER_LABELS.normalVision,
         range: vision.range,
       });
+    }
 
-      // Тёмное зрение
-      if (vision.darkvision > 0) {
-        entries.push({
-          icon: 'tabler:moon',
-          label: ACTOR_HEADER_LABELS.darkvision,
-          range: vision.darkvision,
-        });
-      }
+    // Тёмное зрение: на токене оно настоящее (по нему считается видимость), от
+    // эффекта — только справка, настройки токена эффект не переписывает.
+    // Показывается большее из двух, звёздочка появляется, когда верх взял эффект
+    const tokenDarkvision = vision?.enabled ? vision.darkvision : 0;
+    const effectDarkvision = senses?.darkvision ?? 0;
+    const darkvision = Math.max(tokenDarkvision, effectDarkvision);
+
+    if (darkvision > 0) {
+      entries.push({
+        icon: 'tabler:moon',
+        label: ACTOR_HEADER_LABELS.darkvision,
+        range: darkvision,
+        informational: darkvision > tokenDarkvision,
+      });
     }
 
     // Прочие чувства — справкой: приложение считает по зрению токена только
     // тёмное зрение, поэтому на видимость сцены они не влияют. Показываются
     // независимо от того, включено ли зрение токена: это свойство персонажа,
     // а не настройка его токена
-    for (const sense of collectActorSenses(props.actor)) {
+    for (const sense of collectActorSenses(props.actor, senses)) {
       entries.push({
         icon: SENSE_ICONS[sense.type],
         label: SENSE_LABELS[sense.type],
@@ -172,7 +187,7 @@
       });
     }
 
-    const telepathy = collectActorTelepathy(props.actor);
+    const telepathy = collectActorTelepathy(props.actor, senses);
 
     if (telepathy > 0) {
       entries.push({

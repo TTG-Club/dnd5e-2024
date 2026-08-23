@@ -60,6 +60,7 @@ import {
   resolveActorStats,
   resolveAttackRollMode,
   resolveDamagePartsForCast,
+  resolveEntityCreatureType,
   resolveSpellDamageFormula,
   SPELL_DAMAGE_TEMPLATE_COLORS,
   SPELL_TEMPLATE_DEFAULT_COLOR,
@@ -452,8 +453,11 @@ export function registerDnd5eMacros(): void {
 
       const { openModal } = useModalManager();
 
-      const { buildWeaponRollSetup, buildTargetHpContext } =
-        useBonusDamageParts();
+      const {
+        buildWeaponRollSetup,
+        buildTargetHpContext,
+        buildTargetTypeContext,
+      } = useBonusDamageParts();
 
       // Единая со заклинаниями система урона: бросок ВСЕГДА идёт многочастным
       // путём (части урона оружия + бонус-части эффектов). Состояние HP цели
@@ -466,6 +470,7 @@ export function registerDnd5eMacros(): void {
         effects: combinedEffects,
         resolvedStats,
         targetIsFull,
+        targetType: buildTargetTypeContext(),
       });
 
       /**
@@ -833,6 +838,15 @@ function openDiceRollForSpell(
       ? undefined
       : isTargetFullHp(selectedTargetActor);
 
+    // Тип цели — для токенов @target.type.<тип>. Как и состояние хитов, читается
+    // только у одиночной цели: у области тип проверяется по каждой цели отдельно
+    const targetType =
+      spell.areaOfEffect
+      || !selectedTargetActor
+      || !isDndSceneEntity(selectedTargetActor)
+        ? undefined
+        : resolveEntityCreatureType(selectedTargetActor);
+
     // Масштабирование заговора: на пороге уровня тир целиком заменяет базовые
     // части урона (см. cantripScalingTiers). Авто-умножение кубиков отключено.
     const spellDamageParts =
@@ -860,6 +874,7 @@ function openDiceRollForSpell(
         firstPartFormula,
         resolvedStats,
         targetIsFull,
+        targetType,
       ),
       formulaFlatBonus,
     );
@@ -920,6 +935,7 @@ function openDiceRollForSpell(
             spellDamageParts,
             resolvedStats,
             targetIsFull,
+            targetType,
           ),
           flatSpellDamageBonus,
         )
@@ -1654,6 +1670,7 @@ function openCreatureActionRoll(
     creature,
     effects,
     targetIsFull,
+    targetType: targetHp?.creatureType,
   });
 
   const enabledEffects = action.activeEffects?.filter(
@@ -1937,6 +1954,7 @@ function openCreatureSpellRoll(
     creature,
     effects,
     targetIsFull: undefined,
+    targetType: undefined,
   });
 
   const enabledEffects = spell.activeEffects?.filter(

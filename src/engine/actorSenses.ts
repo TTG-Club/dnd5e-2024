@@ -2,9 +2,16 @@
  * Чувства персонажа сверх тёмного зрения: слепое зрение, истинное зрение,
  * чувство вибрации, телепатия.
  *
- * Считаются НА ЛЕТУ по применённым чертам, а не хранятся на акторе: так они не
- * расходятся с набором черт и не требуют отката при удалении черты — ровно как
- * тёмное зрение вида в `speciesGrants.ts`.
+ * Источников два, и оба считаются НА ЛЕТУ, а не хранятся на акторе — так они не
+ * расходятся со своим источником и не требуют отката при его удалении (ровно
+ * как тёмное зрение вида в `speciesGrants.ts`):
+ *
+ * 1. Применённые черты — `featData.modifiers.senses` / `telepathyRange`;
+ * 2. Активные эффекты — ключи `sense.*`, посчитанные пайплайном в
+ *    `ResolvedActorStats.senses`. Этим путём чувство может дать что угодно:
+ *    предмет, заклинание, состояние, аура.
+ *
+ * Два источника одного чувства НЕ складываются — берётся большая дальность.
  *
  * **Это справка, а не механика.** Зрение токена в контракте приложения знает
  * только тёмное зрение (`Token.vision.darkvision`), поэтому на видимость в
@@ -17,8 +24,16 @@
 
 import type { Feature } from '@vtt/shared';
 
+import type { SenseType } from './activeEffectTypes.js';
 import type { DnDActor } from './dndEntities.js';
 import type { FeatData, FeatSenseKind } from './featTypes.js';
+
+/**
+ * Дальности чувств, посчитанные пайплайном эффектов
+ * (`ResolvedActorStats.senses`). Необязательны: лист может спросить чувства и до
+ * разрешения эффектов — тогда учитываются только черты.
+ */
+export type ResolvedSenseRanges = Readonly<Record<SenseType, number>>;
 
 /** Чувство персонажа с итоговой дистанцией. */
 export interface ActorSense {
@@ -65,14 +80,18 @@ function featureGrants(actor: DnDActor): FeatData[] {
 }
 
 /**
- * Чувства персонажа: по каждому виду берётся НАИБОЛЬШАЯ дистанция из всех
- * источников — два источника одного чувства не складываются, как и у тёмного
- * зрения.
+ * Чувства персонажа сверх тёмного зрения и телепатии: по каждому виду берётся
+ * НАИБОЛЬШАЯ дистанция из всех источников — два источника одного чувства не
+ * складываются, как и у тёмного зрения.
  *
  * @param actor - лист персонажа
+ * @param resolvedSenses - дальности чувств от эффектов (`sense.*`)
  * @returns чувства в порядке показа; пусто — ни одного нет
  */
-export function collectActorSenses(actor: DnDActor): ActorSense[] {
+export function collectActorSenses(
+  actor: DnDActor,
+  resolvedSenses?: ResolvedSenseRanges,
+): ActorSense[] {
   const ranges = new Map<FeatSenseKind, number>();
 
   for (const featData of featureGrants(actor)) {
@@ -89,20 +108,37 @@ export function collectActorSenses(actor: DnDActor): ActorSense[] {
     }
   }
 
-  return SENSE_ORDER.filter((type) => ranges.has(type)).map((type) => ({
-    type,
-    range: ranges.get(type) ?? 0,
-  }));
+  // Чувства от эффектов — тем же правилом «берём большее». Тёмное зрение и
+  // телепатия сюда не идут: у них свой бейдж в шапке, и попади они в общий
+  // список — показались бы дважды
+  for (const type of SENSE_ORDER) {
+    const granted = resolvedSenses?.[type] ?? 0;
+
+    if (granted > (ranges.get(type) ?? 0)) {
+      ranges.set(type, granted);
+    }
+  }
+
+  return SENSE_ORDER.filter((type) => (ranges.get(type) ?? 0) > 0).map(
+    (type) => ({
+      type,
+      range: ranges.get(type) ?? 0,
+    }),
+  );
 }
 
 /**
- * Дальность телепатии персонажа — наибольшая из выданных чертами.
+ * Дальность телепатии персонажа — наибольшая из выданных чертами и эффектами.
  *
  * @param actor - лист персонажа
+ * @param resolvedSenses - дальности чувств от эффектов (`sense.telepathy`)
  * @returns дистанция в футах; `0` — телепатии нет
  */
-export function collectActorTelepathy(actor: DnDActor): number {
-  let range = 0;
+export function collectActorTelepathy(
+  actor: DnDActor,
+  resolvedSenses?: ResolvedSenseRanges,
+): number {
+  let range = resolvedSenses?.telepathy ?? 0;
 
   for (const featData of featureGrants(actor)) {
     const granted = featData.modifiers?.telepathyRange ?? 0;

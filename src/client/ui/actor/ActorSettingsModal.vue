@@ -1,6 +1,10 @@
 <script setup lang="ts">
   import type { LightEmitter, TypedWebSocketClient } from '@vtt/shared';
-  import type { DnDActor, HpDisplayMode } from '@vtt/shared/system/dnd.js';
+  import type {
+    CreatureType,
+    DnDActor,
+    HpDisplayMode,
+  } from '@vtt/shared/system/dnd.js';
 
   import { useToast } from '@nuxt/ui/composables';
   import { computed, onMounted, ref, watch } from 'vue';
@@ -23,8 +27,15 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useImageFallback } from '@/shared_ui/composables';
   import { useWorldStore } from '@/stores/worldStore';
-  import { createDefaultLightEmitter, getServerBaseUrl } from '@vtt/shared';
   import {
+    createDefaultLightEmitter,
+    getServerBaseUrl,
+    typedObjectEntries,
+  } from '@vtt/shared';
+  import {
+    CREATURE_CATEGORIES,
+    DEFAULT_ACTOR_CREATURE_TYPE,
+    isCreatureCategory,
     isDndActor,
     resolveCreatureTokenScale,
     TOKEN_SCALE_TO_CREATURE_SIZE,
@@ -95,6 +106,7 @@
   const selectedOwner = ref<string | undefined>(undefined);
   const isPublic = ref(false);
   const autoSaves = ref(false);
+  const selectedCreatureType = ref<CreatureType>(DEFAULT_ACTOR_CREATURE_TYPE);
   const isSaving = ref(false);
   const isDeleteConfirmOpen = ref(false);
 
@@ -329,6 +341,47 @@
     ];
   });
 
+  /** Тип, который задаёт выбранный вид; пусто — вид не выбран */
+  const speciesCreatureType = computed<CreatureType | undefined>(() => {
+    const fromSpecies = actor.value?.system.species?.creatureType;
+
+    return isCreatureCategory(fromSpecies) ? fromSpecies : undefined;
+  });
+
+  /** Тип листа сейчас: свой выбор → вид → гуманоид (правило движка) */
+  const effectiveCreatureType = computed<CreatureType>(() => {
+    const chosen = actor.value?.system.creatureType;
+
+    if (isCreatureCategory(chosen)) {
+      return chosen;
+    }
+
+    return speciesCreatureType.value ?? DEFAULT_ACTOR_CREATURE_TYPE;
+  });
+
+  /** Опции выбора типа существа — единый словарь системы */
+  const creatureTypeOptions = typedObjectEntries(CREATURE_CATEGORIES).map(
+    ([value, label]) => ({ value, label }),
+  );
+
+  /**
+   * Откуда взят показанный тип: от вида или из умолчания. Свой выбор, совпавший
+   * с видом, не сохраняется — связь с видом остаётся живой, и подпись честна.
+   */
+  const creatureTypeSourceLabel = computed(() => {
+    if (selectedCreatureType.value !== effectiveCreatureType.value) {
+      return '';
+    }
+
+    if (actor.value?.system.creatureType) {
+      return '';
+    }
+
+    return speciesCreatureType.value
+      ? ACTOR_SETTINGS_LABELS.creatureTypeFromSpecies
+      : ACTOR_SETTINGS_LABELS.creatureTypeDefault;
+  });
+
   const hasChanges = computed(() => {
     if (!actor.value) {
       return false;
@@ -373,10 +426,14 @@
         actor.value.token?.light ?? createDefaultLightEmitter(),
       );
 
+    const creatureTypeChanged =
+      selectedCreatureType.value !== effectiveCreatureType.value;
+
     return (
       ownerChanged
       || publicChanged
       || autoSavesChanged
+      || creatureTypeChanged
       || tokenChanged
       || visionChanged
       || lightChanged
@@ -463,6 +520,7 @@
       selectedOwner.value = actor.value.ownerId;
       isPublic.value = actor.value.isPublic || false;
       autoSaves.value = actor.value.autoSaves ?? false;
+      selectedCreatureType.value = effectiveCreatureType.value;
 
       tokenSettings.value = {
         imageUrl: actor.value.token?.imageUrl || '',
@@ -533,11 +591,19 @@
       // Синхронизация размера персонажа с масштабом токена. Произвольный
       // масштаб (токен растянут на сцене вручную) в таблицу не попадает —
       // тогда оставляем размер персонажа как есть, а не понижаем до среднего.
+      // Свой тип хранится, только если он отличается от вида: совпал — поле
+      // снимается, и лист снова следует за видом (сменит вид — сменится тип)
+      const ownCreatureType =
+        selectedCreatureType.value === speciesCreatureType.value
+          ? undefined
+          : selectedCreatureType.value;
+
       const updatedSystem = {
         ...actor.value.system,
         size:
           TOKEN_SCALE_TO_CREATURE_SIZE[tokenSettings.value.scale]
           ?? actor.value.system.size,
+        creatureType: ownCreatureType,
       };
 
       const updates: Partial<DnDActor> = {
@@ -839,6 +905,43 @@
                       </div>
                     </button>
                   </div>
+                </div>
+
+                <!-- Тип существа: по нему срабатывают гейты урона и эффектов -->
+                <div
+                  class="col-span-2 rounded border border-default/50 bg-elevated/30 p-3"
+                >
+                  <div class="mb-2 flex items-center gap-2">
+                    <UIcon
+                      name="tabler:paw"
+                      class="size-4 text-muted"
+                    />
+
+                    <label class="flex-1 text-sm font-medium text-toned">
+                      {{ ACTOR_SETTINGS_LABELS.creatureType }}
+                    </label>
+
+                    <span
+                      v-if="creatureTypeSourceLabel"
+                      class="text-xs text-dimmed"
+                    >
+                      {{ creatureTypeSourceLabel }}
+                    </span>
+                  </div>
+
+                  <USelect
+                    v-model="selectedCreatureType"
+                    :items="creatureTypeOptions"
+                    value-key="value"
+                    label-key="label"
+                    size="sm"
+                    class="w-full"
+                    :disabled="!(isAdmin || isOwner)"
+                  />
+
+                  <p class="mt-1.5 text-xs text-dimmed">
+                    {{ ACTOR_SETTINGS_LABELS.creatureTypeHint }}
+                  </p>
                 </div>
               </div>
 

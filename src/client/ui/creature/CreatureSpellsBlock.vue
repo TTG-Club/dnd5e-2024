@@ -678,6 +678,7 @@
       creature,
       effects,
       targetIsFull,
+      targetType: targetHp?.creatureType,
     });
 
     // Эффекты заклинания: у атак — на цель при попадании; у спаса/области —

@@ -46,7 +46,7 @@ import {
   DEFAULT_CREATURE_SIZE,
   EXPERIENCE_TABLE,
   isAbilityType,
-  isCreatureType,
+  isCreatureCategory,
   isSkillType,
   MAX_LEVEL,
   MOVEMENT_LABELS,
@@ -1123,7 +1123,7 @@ function parseLegacySpecies(value: unknown): ActorSpeciesEntry | null {
       typeof value.speciesName === 'string'
         ? value.speciesName
         : value.speciesKey,
-    creatureType: isCreatureType(value.creatureType)
+    creatureType: isCreatureCategory(value.creatureType)
       ? value.creatureType
       : 'humanoid',
     size: normalizeCreatureSize(value.size),

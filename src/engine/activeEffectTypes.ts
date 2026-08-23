@@ -34,8 +34,9 @@ import type { DnDCustomBonusContext } from './customBonuses.js';
 
 import { z } from 'zod';
 
-import { isRecord } from '@vtt/shared';
+import { isRecord, typedObjectEntries } from '@vtt/shared';
 
+import { CREATURE_CATEGORIES } from './consts.js';
 import {
   DAMAGE_PART_TARGETS,
   DAMAGE_TYPE_LABELS,
@@ -74,6 +75,44 @@ export const EFFECT_CHANGE_MODE_LABELS: Record<EffectChangeMode, string> = {
   custom: 'Особое',
 } as const;
 
+// ── Чувства ───────────────────────────────────────────────────
+
+/**
+ * Чувство сущности с дальностью в футах.
+ *
+ * Тёмное зрение здесь наравне с остальными: у эффекта нет своего токена, и
+ * задать он может только число — поднять ли по нему зрение токена, решает уже
+ * лист (см. `actorSenses.ts`). Телепатия чувством в строгом смысле не является,
+ * но задаётся так же — дальностью в футах — и показывается тем же бейджем.
+ */
+export type SenseType =
+  'darkvision' | 'blindsight' | 'truesight' | 'tremorsense' | 'telepathy';
+
+/** Все виды чувств — порядок задаёт и порядок пунктов в подсказках UI. */
+const SENSE_TYPES: readonly SenseType[] = [
+  'darkvision',
+  'blindsight',
+  'truesight',
+  'tremorsense',
+  'telepathy',
+];
+
+/** Множество видов чувств — для быстрой проверки хвоста ключа `sense.*`. */
+const SENSE_TYPE_SET: ReadonlySet<string> = new Set(SENSE_TYPES);
+
+/**
+ * Type-guard: строка — известный вид чувства.
+ *
+ * Нужен при разборе ключа `sense.blindsight`: хвост приходит из записи мира, и
+ * чужое слово не должно завести в статах поле, которого нет.
+ *
+ * @param value - хвост ключа эффекта
+ * @returns `true`, если это известный вид чувства
+ */
+export function isSenseType(value: string): value is SenseType {
+  return SENSE_TYPE_SET.has(value);
+}
+
 // ── Ключи числовых изменений ──────────────────────────────────
 
 /**
@@ -97,7 +136,18 @@ export type EffectTargetKey =
   | 'hitPoints.max'
   | 'initiative'
   | 'proficiencyBonus'
-  | 'spellSaveDC';
+  | 'spellSaveDC'
+  | `sense.${SenseType}`;
+
+/**
+ * Ключ строки модификатора: известный ключ движка либо ПУСТАЯ строка — «ключ
+ * ещё не выбран».
+ *
+ * Пустой ключ появляется, когда строку заводит готовый пункт меню, задающий
+ * только условие: что именно менять, автор называет сам. На расчёт такая строка
+ * не влияет — конвейер её пропускает.
+ */
+export type EffectChangeKey = EffectTargetKey | '';
 
 /**
  * Популярные ключи для подсказок в UI при настройке эффекта
@@ -119,6 +169,13 @@ export const EFFECT_TARGET_SUGGESTIONS: Array<{
   { value: 'movement.swim', label: 'Скорость (Плавание)' },
   { value: 'movement.climb', label: 'Скорость (Лазание)' },
   { value: 'movement.burrow', label: 'Скорость (Копание)' },
+
+  // Чувства (дальность в футах)
+  { value: 'sense.darkvision', label: 'Чувство: Тёмное зрение' },
+  { value: 'sense.blindsight', label: 'Чувство: Слепое зрение' },
+  { value: 'sense.truesight', label: 'Чувство: Истинное зрение' },
+  { value: 'sense.tremorsense', label: 'Чувство: Чувство вибрации' },
+  { value: 'sense.telepathy', label: 'Чувство: Телепатия' },
 
   // Характеристики (Скрытые/Явные)
   { value: 'ability.strength', label: 'Сила (Очки)' },
@@ -190,11 +247,16 @@ export function isEffectTargetKey(value: string): value is EffectTargetKey {
  * Шаблоны логических условий для эффектов (поле `condition`).
  *
  * Список закрыт и содержит РОВНО те условия, которые движок умеет вычислять:
- * `evaluateCondition` (броски и состояние хитов цели) и
+ * `evaluateCondition` (броски, состояние хитов цели, тип носителя и тип цели) и
  * `evaluateDefensiveCondition` (вид входящей атаки, только для ключа
  * `armorClass`) в `effectPipeline`. Неизвестное условие движок молча не
  * применяет, поэтому предлагать здесь непонятые строки нельзя — эффект
  * выглядел бы настроенным и не работал.
+ *
+ * Условия «Носитель: …» отличаются от прочих временем счёта: тип носителя
+ * известен на листе, поэтому они работают и для постоянных значений — скорости,
+ * класса доспеха, максимума хитов. Остальные условия оцениваются только в момент
+ * броска и на числа листа не влияют.
  */
 export const EFFECT_CONDITION_SUGGESTIONS: Array<{
   value: string;
@@ -237,6 +299,18 @@ export const EFFECT_CONDITION_SUGGESTIONS: Array<{
     value: 'incoming.attackType === "spell"',
     label: 'Защита: от атак заклинаниями (только КД)',
   },
+
+  // === ТИП СУЩЕСТВА ===
+  // Собираются по справочнику, а не переписаны руками: список типов один на всю
+  // систему, и вручную повторённый разошёлся бы с ним при первой же правке
+  ...typedObjectEntries(CREATURE_CATEGORIES).map(([creatureType, label]) => ({
+    value: `self.creatureType === "${creatureType}"`,
+    label: `Носитель: ${label}`,
+  })),
+  ...typedObjectEntries(CREATURE_CATEGORIES).map(([creatureType, label]) => ({
+    value: `target.creatureType === "${creatureType}"`,
+    label: `Цель: ${label}`,
+  })),
 ];
 
 /**
@@ -256,6 +330,13 @@ export const EFFECT_VALUE_SUGGESTIONS: Array<{
   { value: '@mod.cha', label: 'Модификатор Харизмы' },
   { value: '@prof', label: 'Бонус мастерства актора (@prof)' },
   { value: '@level', label: 'Общий уровень персонажа (@level)' },
+
+  // Скорости листа: ими задаётся «полёт равен скорости ходьбы»
+  { value: '@speed.walk', label: 'Скорость ходьбы листа' },
+  { value: '@speed.fly', label: 'Скорость полёта листа' },
+  { value: '@speed.swim', label: 'Скорость плавания листа' },
+  { value: '@speed.climb', label: 'Скорость лазания листа' },
+  { value: '@speed.burrow', label: 'Скорость копания листа' },
 
   // Типы урона (с токенами)
   { value: '1к6@dmg.fire', label: 'Урон: Огонь (например, 1к6)' },
@@ -539,7 +620,7 @@ export const EFFECT_ORIGIN_LABELS: Record<EffectOrigin, string> = {
  */
 export interface EffectChange {
   /** Какой параметр модифицировать */
-  key: EffectTargetKey;
+  key: EffectChangeKey;
   /** Как модифицировать */
   mode: EffectChangeMode;
   /** Числовое значение или формула с @-переменными */
@@ -894,6 +975,15 @@ export interface ResolvedActorStats {
   proficiencyBonus: number;
   /** Скорости передвижения */
   movement: Record<MovementType, number>;
+  /**
+   * Дальности чувств в футах (`0` — чувства нет).
+   *
+   * Это справка листа, а не механика сцены: зрение токена в контракте
+   * приложения знает только тёмное зрение, поэтому числа отсюда показываются
+   * бейджем в шапке, но на видимость не влияют (README, § «Чего не хватает для
+   * полноценного SDK», п. 12).
+   */
+  senses: Record<SenseType, number>;
   /** Максимум хитов */
   hitPointsMax: number;
   /** Бонусы к атаке */
@@ -978,7 +1068,7 @@ export const EffectChangeSchema = z.object({
    * разбора не присвоить в `activeEffects` (было `TS2322` в
    * `damageApplication.ts`). `z.custom` даёт узкий тип без `as` и без `any`.
    */
-  key: z.custom<EffectTargetKey>((value) => typeof value === 'string'),
+  key: z.custom<EffectChangeKey>((value) => typeof value === 'string'),
   mode: z.enum([
     'add',
     'multiply',

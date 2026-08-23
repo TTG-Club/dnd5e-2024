@@ -43,7 +43,8 @@ export type CreatureCategory =
   | 'monstrosity'
   | 'ooze'
   | 'plant'
-  | 'undead';
+  | 'undead'
+  | 'swarm';
 
 // ── Мировоззрение ───────────────────────────────────────────────────────────
 

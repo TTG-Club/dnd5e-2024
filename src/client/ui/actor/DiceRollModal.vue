@@ -828,6 +828,7 @@
         target: part.target,
         requiresDamage: part.requiresDamage,
         targetGate: part.targetGate,
+        targetTypeGate: part.targetTypeGate,
       });
     }
 

@@ -9,6 +9,7 @@ import type {
 } from '@vtt/shared';
 import type {
   ActiveEffect,
+  CreatureCategory,
   DamageDefenseOutcome,
   Spell,
   TargetHpGate,
@@ -17,13 +18,14 @@ import type {
 import { useInitiativeStore } from '@/stores/initiativeStore';
 import { generateId, isCreatureEntity } from '@vtt/shared';
 import {
+  CREATURE_TYPE_LABELS,
   DAMAGE_TYPE_LABELS,
+  damageReachesTarget,
   isDndSceneEntity,
   resolveEffectApplication,
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
   stampTurnDuration,
-  targetHpGateMatches,
   withInitializedDuration,
 } from '@vtt/shared/system/dnd.js';
 
@@ -93,6 +95,8 @@ export interface SpellDamagePartInput {
   requiresDamage: boolean;
   /** Гейт по состоянию HP цели (per-target ветка @target.full/@target.notFull) */
   targetGate?: TargetHpGate;
+  /** Гейт по типу существа цели (per-target ветка @target.type.<тип>) */
+  targetTypeGate?: CreatureCategory;
   /** Часть получает усиление высших кругов (слот-скейлинг) при броске */
   applySlotScaling?: boolean;
 }
@@ -121,6 +125,8 @@ export interface RolledSpellDamagePart {
   requiresDamage: boolean;
   /** Гейт по состоянию HP цели (per-target ветка @target.full/@target.notFull) */
   targetGate?: TargetHpGate;
+  /** Гейт по типу существа цели (per-target ветка @target.type.<тип>) */
+  targetTypeGate?: CreatureCategory;
 }
 
 /** Контекст AoE шаблона */
@@ -269,13 +275,13 @@ export function partPassesTargetGate(
   part: RolledSpellDamagePart,
   entity: SceneEntity,
 ): boolean {
-  if (!part.targetGate) {
+  if (!part.targetGate && !part.targetTypeGate) {
     return true;
   }
 
-  const { current, max } = getEntityHp(entity);
-
-  return targetHpGateMatches(part.targetGate, current, max);
+  // Чужая запись ни хитов, ни типа в D&D-форме не несёт — условная ветка ей не
+  // достаётся вовсе, а не «проходит по умолчанию»
+  return isDndSceneEntity(entity) && damageReachesTarget(part, entity);
 }
 
 /** Подписи гейт-веток состояния HP цели (для чата и описаний выбора цели). */
@@ -288,13 +294,27 @@ export const TARGET_GATE_LABELS: Record<TargetHpGate, string> = {
 /**
  * Формирует суффикс гейт-ветки для строки части в чате.
  *
- * @param targetGate - гейт части (если есть)
- * @returns суффикс вида « (при полном HP)» или пустая строка
+ * Гейты складываются: часть может быть и «по нежити», и «при полном HP».
+ *
+ * @param targetGate - гейт по состоянию HP (если есть)
+ * @param targetTypeGate - гейт по типу существа (если есть)
+ * @returns суффикс вида « (по нежити, при полном HP)» или пустая строка
  */
 export function formatTargetGateSuffix(
   targetGate: TargetHpGate | undefined,
+  targetTypeGate?: CreatureCategory,
 ): string {
-  return targetGate ? ` (${TARGET_GATE_LABELS[targetGate]})` : '';
+  const parts: string[] = [];
+
+  if (targetTypeGate) {
+    parts.push(`по цели: ${CREATURE_TYPE_LABELS[targetTypeGate]}`);
+  }
+
+  if (targetGate) {
+    parts.push(TARGET_GATE_LABELS[targetGate]);
+  }
+
+  return parts.length > 0 ? ` (${parts.join(', ')})` : '';
 }
 
 /**
@@ -506,7 +526,10 @@ export function formatRolledPartLine(
 ): string {
   const label = getPartKindLabel(rolledPart);
 
-  const gateSuffix = formatTargetGateSuffix(rolledPart.targetGate);
+  const gateSuffix = formatTargetGateSuffix(
+    rolledPart.targetGate,
+    rolledPart.targetTypeGate,
+  );
 
   const diceBreakdown =
     rolledPart.values.length > 0 ? `[${rolledPart.values.join(', ')}] = ` : '';

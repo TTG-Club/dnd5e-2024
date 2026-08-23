@@ -52,11 +52,13 @@
     getSpellSaveDCBreakdown,
     getTotalLevel,
     isDnDEffect,
+    isDndSceneEntity,
     parseSpellcastingSettings,
     pickCantripTierParts,
     PREPARED_LIMIT_EMPTY_VALUE,
     resolveActorStats,
     resolveDamagePartsForCast,
+    resolveEntityCreatureType,
     resolveSpellDamageFormula,
     resolveSpellSaveDC,
     SPELL_DAMAGE_TEMPLATE_COLORS,
@@ -1406,6 +1408,13 @@
           >= targetHp.max
         : undefined;
 
+    // Тип цели — для токенов @target.type.<тип>. Как и состояние хитов, читается
+    // только у одиночной цели: у области тип проверяется по каждой цели отдельно
+    const targetType =
+      targetEntity && isDndSceneEntity(targetEntity)
+        ? resolveEntityCreatureType(targetEntity)
+        : undefined;
+
     // Масштабирование заговора: на пороге уровня тир целиком заменяет базовые
     // части урона (см. cantripScalingTiers). Авто-умножение кубиков отключено.
     const spellDamageParts =
@@ -1431,6 +1440,7 @@
         spellDamageParts[0]?.formula ?? '',
         resolvedStats.value,
         targetIsFull,
+        targetType,
       ),
       formulaFlatBonus,
     );
@@ -1480,6 +1490,7 @@
             spellDamageParts,
             resolvedStats.value,
             targetIsFull,
+            targetType,
           ),
           flatSpellDamageBonus,
         )
