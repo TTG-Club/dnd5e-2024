@@ -52,6 +52,8 @@
     system: Record<string, unknown>;
     /** Заклинания существа (верхний уровень, D&D 2024) */
     spells?: Spell[];
+    /** Инвентарь существа (верхний уровень, как `spells`) */
+    equipment?: import('@vtt/shared/system/dnd.js').DnDGameItem[];
   }
 
   // `ClassDefinition`/`SpeciesDefinition` перечислены явно, хотя по форме и
@@ -840,6 +842,9 @@
       system: JSON.parse(JSON.stringify(creatureEntry.system)),
       spells: creatureEntry.spells
         ? JSON.parse(JSON.stringify(creatureEntry.spells))
+        : undefined,
+      equipment: creatureEntry.equipment
+        ? JSON.parse(JSON.stringify(creatureEntry.equipment))
         : undefined,
     };
 

@@ -5,6 +5,7 @@ import type {
   DnDActor,
   DnDCreature,
   DnDGameItem,
+  DnDSceneEntity,
   EffectTargetKey,
   ResolvedActorStats,
   RollContext,
@@ -64,8 +65,8 @@ type BonusPartsEvaluator = (
 interface WeaponRollSetupOptions {
   /** Оружие */
   weapon: DnDGameItem;
-  /** Актор-владелец (для @-переменных в формулах урона и бонусов) */
-  actor: DnDActor;
+  /** Владелец оружия — персонаж или существо (для @-переменных в формулах) */
+  actor: DnDSceneEntity;
   /** Активные эффекты владельца (включая ауры) */
   effects: readonly ActiveEffect[];
   /** Итоговые статы (для @mod.* и статического урона с учётом эффектов) */

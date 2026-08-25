@@ -1,9 +1,9 @@
 <script setup lang="ts">
   import type {
     ActiveEffect,
-    DnDActor,
     DnDCustomBonusContext,
     DnDGameItem,
+    DnDSceneEntity,
   } from '@vtt/shared/system/dnd.js';
 
   import { computed, ref, toRef } from 'vue';
@@ -19,7 +19,7 @@
     describeWeaponDamage,
     formatWeaponDamageFormula,
     getActorAbilityModifiers,
-    getActorProficiencyBonus,
+    getEntityProficiencyBonus,
     RARITY_OPTIONS,
     sumWeaponModifierParts,
   } from '@vtt/shared/system/dnd.js';
@@ -63,7 +63,8 @@
      * Нет владельца (компендиум) — поля правятся, но чисел не показываем:
      * считать их не от кого.
      */
-    actor?: DnDActor;
+    /** Владелец оружия: и персонаж, и существо — предпросмотр у них общий */
+    actor?: DnDSceneEntity;
     /** Z-index (управляется родителем для bring-to-front) */
     zIndex?: number;
     /** Смещение позиции для каскадного расположения */
@@ -157,7 +158,7 @@
       resolvedStats.value?.abilityBonusContext ?? {
         abilityMods: getActorAbilityModifiers(props.actor),
         proficiencyBonus: props.actor
-          ? getActorProficiencyBonus(props.actor)
+          ? getEntityProficiencyBonus(props.actor)
           : 0,
       },
   );

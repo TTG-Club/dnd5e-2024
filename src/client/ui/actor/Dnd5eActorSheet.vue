@@ -58,6 +58,7 @@
     resolveFeatChoicesToAsk,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useItemTransfer } from '../../composables/useItemTransfer';
   import { useSheetMinimize } from '../../composables/useSheetMinimize';
   import ActorCenterPanel from './ActorCenterPanel.vue';
   import ActorHeader from './ActorHeader.vue';
@@ -74,6 +75,7 @@
     BACKGROUND_DEFINITION_MIME,
     CLASS_DEFINITION_MIME,
     COMPENDIUM_PICKER_LABELS,
+    DRAG_OVER_RESET_DELAY_MS,
     FEAT_CHOICES_LABELS,
     FEAT_PREREQUISITE_LABELS,
     GAME_FEATURE_MIME,
@@ -967,6 +969,8 @@
     isOpen.value = false;
   }
 
+  const { receiveTransferredItem } = useItemTransfer();
+
   const { sheetModalRef, minimizedTitle, minimizeSheet } = useSheetMinimize(
     () => localActor.value?.name,
     ACTOR_SHEET_LABELS.untitled,
@@ -1160,7 +1164,7 @@
         isSpellDragOver.value = false;
         isEquipmentDragOver.value = false;
         isFeatureDragOver.value = false;
-      }, 100);
+      }, DRAG_OVER_RESET_DELAY_MS);
     }
   }
 
@@ -1245,12 +1249,62 @@
     }
   }
 
+  /**
+   * Принимает предмет, переданный с другого листа: предмет уходит из инвентаря
+   * отправителя и появляется здесь.
+   *
+   * Отправителя обновляет композабл переноса — его лист может быть закрыт.
+   * Сюда возвращается только новый инвентарь получателя.
+   *
+   * @param event - событие drop
+   * @returns `true`, если нагрузка была передачей предмета
+   */
+  function handleItemTransferDrop(event: DragEvent): boolean {
+    // В режиме правки жест не принимается: у отправителя предмет уходит сразу и
+    // на сервер, а здесь правки копятся до «Сохранить» — «Отмена» стёрла бы
+    // предмет уже после того, как его отдали, и он пропал бы у обоих
+    if (isEditMode.value || !localActor.value) {
+      return false;
+    }
+
+    const received = receiveTransferredItem(
+      event,
+      localActor.value,
+      props.socket,
+    );
+
+    if (!received) {
+      return false;
+    }
+
+    localActor.value.equipment = received.equipment;
+    isDirty.value = true;
+
+    handleImmediateSave();
+
+    activeTab.value = 'equipment';
+
+    toast.add({
+      title: ACTOR_SHEET_LABELS.itemReceived,
+      description: received.itemName,
+      color: 'success',
+    });
+
+    return true;
+  }
+
   function handleDrop(event: DragEvent) {
     isSpellDragOver.value = false;
     isEquipmentDragOver.value = false;
     isFeatureDragOver.value = false;
 
     if (!canEdit.value || !event.dataTransfer) {
+      return;
+    }
+
+    // Передача с другого листа идёт первой: у неё свой MIME, и по нему предмет
+    // ПЕРЕЕЗЖАЕТ, а не копируется, как запись компендиума ниже
+    if (handleItemTransferDrop(event)) {
       return;
     }
 

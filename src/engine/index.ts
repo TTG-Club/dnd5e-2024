@@ -44,6 +44,7 @@ export * from './hitDiceUtils.js';
 export * from './hitPoints.js';
 export * from './itemNormalize.js';
 export * from './itemSchemas.js';
+export * from './itemTransfer.js';
 export * from './itemUses.js';
 export * from './positionalEffects.js';
 export * from './preparedSpells.js';

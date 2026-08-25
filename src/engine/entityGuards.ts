@@ -17,7 +17,12 @@
 
 import type { SceneEntity } from '@vtt/shared';
 
-import type { DnDActor, DnDCreature, DnDSceneEntity } from './dndEntities.js';
+import type {
+  DnDActor,
+  DnDCreature,
+  DnDGameItem,
+  DnDSceneEntity,
+} from './dndEntities.js';
 
 import { isActorEntity, isCreatureEntity, isRecord } from '@vtt/shared';
 
@@ -75,4 +80,34 @@ export function isDndActor(entity: SceneEntity): entity is DnDActor {
  */
 export function isDndCreature(entity: SceneEntity): entity is DnDCreature {
   return isCreatureEntity(entity) && isDndSceneEntity(entity);
+}
+
+/**
+ * Сущность сцены с инвентарём — та, у которой снаряжение лежит корневым
+ * массивом `equipment`.
+ *
+ * Намеренно НЕ союз конкретных типов (`DnDActor | DnDCreature`): инвентарь —
+ * это свойство записи, а не сорт сущности. Появится третий носитель предметов
+ * (сундук, транспорт, фамильяр) — он подойдёт под этот тип, как только заведёт
+ * у себя `equipment`, и передача предметов заработает для него без единой
+ * правки в правилах переноса.
+ */
+export type DnDInventoryEntity = SceneEntity & { equipment: DnDGameItem[] };
+
+/**
+ * Проверяет, что сущность сцены несёт инвентарь.
+ *
+ * Проверка структурная, а не по `entityType`: так предикат не приходится
+ * расширять при каждом новом носителе предметов. Массив обязателен именно
+ * массивом — это постусловие нормализации (`normalizeActor`/`normalizeCreature`
+ * заводят пустой список), и запись, до которой нормализация не дошла, в перенос
+ * не пускается: иначе `push` ушёл бы в `undefined`.
+ *
+ * @param entity - сущность сцены в нейтральной форме ядра
+ * @returns `true`, если у сущности есть массив снаряжения
+ */
+export function hasInventory(
+  entity: SceneEntity,
+): entity is DnDInventoryEntity {
+  return 'equipment' in entity && Array.isArray(entity.equipment);
 }

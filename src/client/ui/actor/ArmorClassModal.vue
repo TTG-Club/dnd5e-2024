@@ -53,11 +53,27 @@
     set: (value) => emit('update:open', value),
   });
 
-  /** Выбор способа расчёта — из общего списка способов листа */
-  const calculationOptions = ARMOR_CALCULATION_OPTIONS.map((value) => ({
-    value,
-    label: ARMOR_CALCULATION_LABELS[value],
-  }));
+  /**
+   * Выбор способа расчёта — из общего списка способов листа. У существа способ
+   * «по умолчанию» подписан своим словом: там он включает расчёт от инвентаря,
+   * которого у монстра до этого выбора не было вовсе.
+   */
+  const calculationOptions = computed(() =>
+    ARMOR_CALCULATION_OPTIONS.map((value) => ({
+      value,
+      label:
+        props.isCreatureMode && value === 'default'
+          ? ARMOR_CLASS_SETTINGS_LABELS.defaultCreatureLabel
+          : ARMOR_CALCULATION_LABELS[value],
+    })),
+  );
+
+  /** Пояснение расчёта «по умолчанию»: у существа оно про инвентарь */
+  const defaultCalculationHint = computed(() =>
+    props.isCreatureMode
+      ? ARMOR_CLASS_SETTINGS_LABELS.defaultCreatureHint
+      : ARMOR_CLASS_SETTINGS_LABELS.defaultHint,
+  );
 
   const editArmorClass = reactive<ActorArmorClass>({
     value: 10,
@@ -69,12 +85,26 @@
   const draftBonuses = ref<DnDCustomBonus[]>([]);
 
   // При открытии — подставляем текущие значения. Бонусы копируются: окно
-  // остаётся открытым до «Применить», и его правки не должны трогать лист
+  // остаётся открытым до «Применить», и его правки не должны трогать лист.
+  //
+  // Способ расчёта подставляется ЯВНО, а не через `Object.assign`: тот не
+  // перезаписывает отсутствующий ключ, и у записи без `calculation` в черновике
+  // осталось бы засеянное `'default'`. У существа это уже не безобидно —
+  // «по умолчанию» означает «считать КД от снаряжения», и одно открытие окна с
+  // «Применить» молча увело бы монстра со статблочного КД на расчётный.
   watch(
     () => props.open,
     (opened) => {
       if (opened) {
-        Object.assign(editArmorClass, props.armorClass);
+        // Блок класса доспеха приезжает из записи мира: у существа компендиума
+        // и у листа старого мира его может не быть вовсе
+        const armorClass: Partial<ActorArmorClass> = props.armorClass ?? {};
+
+        Object.assign(editArmorClass, armorClass);
+
+        editArmorClass.calculation =
+          armorClass.calculation ?? (props.isCreatureMode ? 'flat' : 'default');
+
         draftBonuses.value = props.bonuses.map((bonus) => ({ ...bonus }));
       }
     },
@@ -224,7 +254,7 @@
             </div>
 
             <p class="mt-1 text-xs leading-relaxed text-dimmed">
-              {{ ARMOR_CLASS_SETTINGS_LABELS.defaultHint }}
+              {{ defaultCalculationHint }}
             </p>
           </div>
 

@@ -42,6 +42,19 @@ import { calculateWeaponAttackModifier, dnd5eSystemInstance } from '@vtt/shared/
 `system/contracts/activeEffect.js` (`BaseActiveEffect`). Ссылок на `system/dnd`
 нет: `base.ts` — примитивный leaf, тянуть в него `system/dnd` нельзя (цикл).
 
+### Носитель инвентаря — свойство записи, а не сорт сущности
+
+Обмен предметами не спрашивает, кто перед ним. `entityGuards.ts` объявляет тип
+`DnDInventoryEntity` (сущность сцены с массивом `equipment`) и структурный гвард
+`hasInventory`; правило переноса живёт отдельным модулем `itemTransfer.ts` и
+знает только этот тип.
+
+Следствие: появится третий носитель предметов — сундук, транспорт, фамильяр —
+он вступит в обмен, как только заведёт у себя `equipment`. Править правила
+переноса при этом не придётся. Метод контракта
+`Dnd5eVttSystem.transferItemBetweenEntities` — тонкая обёртка над
+`transferItem`, чтобы у ядра и у листа был один расчёт, а не две копии.
+
 ### `dndEntities.ts` — D&D-сущности верхнего уровня
 
 Определения `DnDActor`/`DnDCreature`/`DnDGameItem`/`Spell` **переехали сюда из
@@ -155,6 +168,11 @@ graph TD
 - **Добавляет `DnDActor`:** `spells`, `equipment`, `features`, `activeEffects`, `notes`
 - **Наследует от `BaseActor`:** `id`, `entityType`, `name`, `description`, `avatar`, `token`, `ownerId`, `isPublic`, `autoSaves`, `system`
 
+**У `DnDCreature` корневые коллекции свои и все необязательные:** `spells?`,
+`equipment?`, `activeEffects?`. Нейтральные базы (`BaseActor`/`BaseCreature`) о
+корневых коллекциях не знают вовсе — их описывает наследник конкретной системы,
+а хост хранит запись целиком (`JSON.stringify`) и ничего не вырезает.
+
 > **Хиты на корне отсутствуют.** `currentHitPoints`/`maxHitPoints`/`tempHitPoints`
 > удалены — источник истины один: `system.hitPoints.{current,max,temp}`.
 > Поле `effects` тоже удалено — актуальное имя `activeEffects: ActiveEffect[]`.
@@ -164,6 +182,11 @@ graph TD
 Итог собирается из разбора: `describeWeapon*` отдаёт слагаемые
 (`WeaponModifierPart[]`), а число — их сумма. Один источник и для бейджа на
 листе, и для расшифровки в подсказке: разойтись им негде.
+
+Владелец оружия — `DnDSceneEntity`, то есть **и персонаж, и существо**: инвентарь
+есть у обоих, и весь расчёт ниже общий. Расходятся они ровно в двух точках —
+владение оружием (см. ниже) и основа бонуса мастерства (`getEntityProficiencyBonus`:
+у актёра от суммарного уровня классов, у существа от показателя опасности).
 
 ```
 calculateWeaponAttackModifier(actor, weapon, resolvedStats?)
@@ -203,6 +226,17 @@ calculateWeaponDamageModifier(actor, weapon, resolvedStats?)
 2. **never** — бонус никогда не добавляется
 3. **auto** — сверяет `weapon.baseType` и `weapon.weaponCategory` со списком
    `actor.system.proficiencies.weapons[]`. Без `baseType` → `false`
+
+**У существа список владений не заводится.** По статблокам 2024-й монстр умеет
+то, чем вооружён, поэтому в режиме `auto` он владеет любым своим оружием, и
+бонус мастерства по показателю опасности идёт в атаку всегда. Снять его точечно
+можно режимом `never` на самом предмете — он проверяется раньше.
+
+⚠️ Заводить существу `system.proficiencies` **нельзя**: ветка `system.savingThrows`
+существа стоит в `effectPipeline` третьим `else if` и перехватывается ЛЮБЫМ
+объектом `proficiencies` — владения спасбросками погаснут безусловно. Навыки
+переживут (у них есть запасная ветка по `system.skills`) и погаснут, только если
+завести в `proficiencies` ещё и `skills`.
 
 Профициенции хранятся **по английским ключам**:
 - Конкретные: `"longsword"`, `"shortbow"`, `"handaxe"`

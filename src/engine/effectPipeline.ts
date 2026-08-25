@@ -1781,13 +1781,30 @@ export function prepareDerivedData(
   let calculatedAC: number;
   let shieldBonus = 0;
 
-  if ('equipment' in actor) {
-    // Поиск экипированной брони и щита.
-    // `'equipment' in actor` уже сузил тип до DnDActor — каст не нужен.
-    const equipment = actor.equipment ?? [];
+  // Инвентарь теперь есть у обоих листов, поэтому ветку выбирает ТИП сущности,
+  // а не наличие поля: у существа класс доспеха задан статблоком, и надетая
+  // броня его не трогает. Иначе весь бестиарий поехал бы от одного факта
+  // появления инвентаря — вместе с помехой за «чужую» броню на каждой атаке.
+  //
+  // Единственный вход в общий расчёт для существа — осознанный выбор мастера:
+  // способ «По умолчанию» и означает «считать от снаряжения». Способ, которого
+  // у записи нет, читается как «фиксированный»: так ведёт себя статблок.
+  const isActorSheet = actor.entityType === 'actor';
 
-    // Список ключей базовых типов брони/щитов, которыми актёр владеет.
-    const armorProficiencies = actor.system.proficiencies?.armor ?? [];
+  const calculation =
+    system.armorClass?.calculation ?? (isActorSheet ? 'default' : 'flat');
+
+  // Список ключей базовых типов брони/щитов, которыми владеет актёр. У существа
+  // владений нет вовсе: монстр умеет то, чем вооружён, и помеха за незнакомую
+  // броню ему не грозит — поэтому здесь `undefined`, а не пустой список.
+  const armorProficiencies =
+    actor.entityType === 'actor'
+      ? (actor.system.proficiencies?.armor ?? [])
+      : undefined;
+
+  if (isActorSheet || calculation === 'default') {
+    // Поиск экипированной брони и щита.
+    const equipment = actor.equipment ?? [];
 
     let equippedArmor: (typeof equipment)[number] | undefined;
     // Носит броню или щит, которым не владеет → помеха по правилам D&D 5e
@@ -1806,7 +1823,12 @@ export function prepareDerivedData(
 
       // Владение: baseType надетого предмета должен быть в списке владений.
       // Если baseType неизвестен (кастомный предмет) — не штрафуем.
-      if (item.baseType && !armorProficiencies.includes(item.baseType)) {
+      // Списка нет (существо) — владение не проверяется вовсе.
+      if (
+        armorProficiencies
+        && item.baseType
+        && !armorProficiencies.includes(item.baseType)
+      ) {
         lacksArmorProficiency = true;
       }
 
@@ -1844,8 +1866,6 @@ export function prepareDerivedData(
     if (hasStealthDisadvantage) {
       derivedStats.activeFlags.add('skill.stealth.disadvantage');
     }
-
-    const calculation = system.armorClass?.calculation ?? 'default';
 
     switch (calculation) {
       case 'flat': {
@@ -1885,7 +1905,9 @@ export function prepareDerivedData(
         break;
     }
   } else {
-    // Creature: КД задан статблоком
+    // Существо без расчёта от снаряжения: КД задан статблоком как есть.
+    // Ни надетая броня, ни щит сюда не приходят — только свои бонусы листа и
+    // активные эффекты ниже, как это было до появления инвентаря.
     calculatedAC = system.armorClass?.value ?? BASE_UNARMORED_AC;
   }
 

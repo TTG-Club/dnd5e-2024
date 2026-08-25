@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import type { DnDActor, DnDGameItem } from '@vtt/shared/system/dnd.js';
+  import type { DnDGameItem, DnDSceneEntity } from '@vtt/shared/system/dnd.js';
 
   import type { ItemPropertyBadge } from './ItemPropertyBadges.vue';
 
@@ -43,7 +43,8 @@
      * разбором слагаемых. Без владельца (компендиум) — только бонус самого
      * оружия: считать итог не от кого.
      */
-    actor?: DnDActor;
+    /** Владелец оружия: и персонаж, и существо — разбор атаки у них общий */
+    actor?: DnDSceneEntity;
     /** Z-index модалки (управляется родителем) */
     zIndex?: number;
     /** Смещение позиции для каскадного расположения */

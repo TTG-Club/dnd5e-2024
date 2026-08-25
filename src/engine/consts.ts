@@ -1215,6 +1215,7 @@ export const DEFAULT_CREATURE: Omit<
     disposition: 'hostile',
   },
   activeEffects: [],
+  equipment: [],
   system: {
     size: 'medium',
     type: 'humanoid',
