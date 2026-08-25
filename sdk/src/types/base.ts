@@ -5,16 +5,39 @@ export type UserRole = 'admin' | 'user' | 'guest';
 
 export type GridType = 'fixed' | 'custom';
 
+/**
+ * Форма клетки сетки.
+ *
+ * НЕ путать с {@link GridType}: тот говорит, ОТКУДА берётся размер клетки
+ * (фиксированные 50px или произвольный `cellSize`), а форма — КАК клетка
+ * выглядит и по каким правилам считаются соседи, дистанции и привязка.
+ *
+ * - `square` — квадраты, диагональ считается по `diagonalRule`;
+ * - `hexPointy` — гексы остриём вверх, ряды со сдвигом;
+ * - `hexFlat` — гексы плоской стороной вверх, колонки со сдвигом.
+ *
+ * На гексах у клетки ШЕСТЬ равноудалённых соседей, поэтому `diagonalRule`
+ * не применяется.
+ */
+export type GridShape = 'square' | 'hexPointy' | 'hexFlat';
+
 export interface GridSettings {
   type: GridType;
   cellSize: number;
   color: string;
   visible: boolean;
+  /**
+   * Форма клетки (default: 'square').
+   *
+   * Поле необязательное: сцены, созданные до появления гексов, его не имеют —
+   * и обязаны открываться квадратными.
+   */
+  shape?: GridShape;
   offsetX?: number;
   offsetY?: number;
   scale?: number; // Scale of one cell (default: 5)
   units?: DistanceUnit; // Unit of measurement (default: 'ft')
-  diagonalRule?: DiagonalRule; // Правило расчёта диагонального движения (default: 'chebyshev')
+  diagonalRule?: DiagonalRule; // Правило расчёта диагонального движения (default: 'chebyshev'); на гексах не применяется
   opacity?: number; // Opacity of the grid lines (0-1, default 0.5)
 }
 
@@ -374,7 +397,11 @@ export interface LightSource {
   intensity: number; // Интенсивность света (0-1)
   color: string; // Цвет света (hex)
   angle: number; // Угол конуса света в градусах (360 = полный круг)
-  rotation: number; // Направление конуса в градусах (0 = вправо)
+  // Направление конуса в градусах, где 0 — ВПРАВО (математический ноль).
+  // Это абсолютное направление на сцене: у размещённого источника света
+  // поворачивать нечего, кроме самого конуса. Не путать с LightEmitter.rotation
+  // (там то же поле означает смещение относительно взгляда носителя).
+  rotation: number;
   animation?: {
     type: 'none' | 'pulse' | 'flicker' | 'torch' | 'strobe';
     speed: number;
@@ -443,7 +470,16 @@ export interface LightEmitter {
   color: string;
   /** Угол конуса света в градусах (360 = полный круг) */
   angle: number;
-  /** Направление конуса в градусах (0 = вправо) */
+  /**
+   * Смещение конуса относительно взгляда носителя, в градусах.
+   *
+   * Излучатель едет на токене, поэтому абсолютного направления у него нет:
+   * конус светит туда, куда смотрит токен, а это поле лишь доворачивает его
+   * (0 — светит строго вперёд, 180 — назад). В абсолютное направление
+   * (`LightSource.rotation`, 0 — вправо) смещение переводит
+   * `resolveTokenLightCone` на клиенте — единственное место, где взгляд токена
+   * и настройка излучателя сводятся вместе.
+   */
   rotation: number;
   /** Анимация света (та же модель, что у LightSource) */
   animation?: {
@@ -461,11 +497,20 @@ export interface LightEmitter {
 /**
  * Преобразует «излучатель света» (единицы сцены) в пиксельный LightSource
  * для рендера. Позиция и id задаются носителем (токеном).
- * @param emitter - Конфигурация излучателя (радиусы в футах)
+ *
+ * Дистанции меряются ОТ КРАЯ носителя, а не от его центра — так же, как
+ * досягаемость (`getTokenEdgeDistance`) и дальность зрения. Для этого вызывающий
+ * передаёт `edgeOffsetPx` — расстояние от центра носителя до его края. Без него
+ * свет на токене отставал от его же зрения ровно на половину габарита: у
+ * среднего токена свет обрывался на полклетки раньше границы зрения.
+ *
+ * @param emitter - Конфигурация излучателя (радиусы в единицах сцены)
  * @param id - Идентификатор результирующего источника
  * @param x - X центра в пикселях сцены
  * @param y - Y центра в пикселях сцены
  * @param pixelsPerUnit - Сколько пикселей в одной единице сцены (cellSize/scale)
+ * @param edgeOffsetPx - Расстояние от центра носителя до края (0 у точечного
+ *   источника на карте, половина габарита у света, привязанного к токену)
  */
 export function lightEmitterToSource(
   emitter: LightEmitter,
@@ -473,16 +518,21 @@ export function lightEmitterToSource(
   x: number,
   y: number,
   pixelsPerUnit: number,
+  edgeOffsetPx: number = 0,
 ): LightSource {
   const dim = Math.max(0, emitter.dimRadius);
   const bright = Math.max(0, Math.min(emitter.brightRadius, dim));
+
+  // Нулевой радиус означает «света нет» — его запас краем не раздуваем
+  const dimRadius = dim > 0 ? dim * pixelsPerUnit + edgeOffsetPx : 0;
+  const brightRadius = bright > 0 ? bright * pixelsPerUnit + edgeOffsetPx : 0;
 
   return {
     id,
     x,
     y,
-    brightRadius: bright * pixelsPerUnit,
-    dimRadius: dim * pixelsPerUnit,
+    brightRadius,
+    dimRadius,
     intensity: emitter.intensity,
     color: emitter.color,
     angle: emitter.angle,
@@ -513,6 +563,73 @@ export function createDefaultLightEmitter(): LightEmitter {
     animation: { type: 'torch', speed: 1.2, intensity: 0.4 },
     darknessActivation: { min: 0, max: 1 },
   };
+}
+
+/**
+ * Угол освещения, означающий круговой источник.
+ *
+ * Всё, что меньше, — конус: и рендер, и туман, и проверка освещённости
+ * сравниваются именно с этим значением (парная константа зрения —
+ * `TOKEN_VISION_ANGLE_FULL`).
+ */
+export const LIGHT_CONE_ANGLE_FULL = 360;
+
+/**
+ * Минимальный угол освещения в градусах.
+ *
+ * Ноль запрещён не из вкусовых соображений: развёртка луча при нулевом угле
+ * делит на число лучей, которых нет, и отдаёт полигон из `NaN`-координат.
+ */
+export const LIGHT_CONE_ANGLE_MIN = 5;
+
+/** Шаг ползунка угла освещения в градусах */
+export const LIGHT_CONE_ANGLE_STEP = 5;
+
+/** Шаг ползунка направления конуса в градусах */
+export const LIGHT_CONE_DIRECTION_STEP = 5;
+
+/** Предустановки угла освещения (те же, что у угла обзора) */
+export const LIGHT_CONE_ANGLE_PRESETS = [360, 180, 120, 90, 60];
+
+/**
+ * Предел тусклого радиуса источника света в единицах сцены (футах).
+ *
+ * Один и тот же потолок и у ползунка в форме, и у растягивания кольца прямо на
+ * сцене — иначе мышью можно было бы выйти за то, что позволяет форма.
+ */
+export const MAX_LIGHT_DIM_UNITS = 200;
+
+/**
+ * Приводит угол освещения к допустимому диапазону.
+ * @param angle - Угол конуса в градусах (возможно, из старых или битых данных)
+ * @returns Угол в диапазоне от `LIGHT_CONE_ANGLE_MIN` до `LIGHT_CONE_ANGLE_FULL`
+ */
+export function clampLightConeAngle(angle: number): number {
+  if (!Number.isFinite(angle)) {
+    return LIGHT_CONE_ANGLE_FULL;
+  }
+
+  return Math.min(LIGHT_CONE_ANGLE_FULL, Math.max(LIGHT_CONE_ANGLE_MIN, angle));
+}
+
+/**
+ * Приводит направление конуса к диапазону `[0, 360)`.
+ *
+ * Единственная точка нормализации направления: её зовут и форма редактора, и
+ * расчёт конуса токена. Нечисло превращается в ноль, а не расходится дальше:
+ * направление приходит из JSON мира и из поля ввода, и `NaN` отсюда отравил бы
+ * всю цепочку — полигон, маску и поворот спрайта.
+ * @param degrees - Направление в градусах (любое, в том числе отрицательное)
+ * @returns Направление в диапазоне от 0 включительно до 360 исключительно
+ */
+export function normalizeLightConeDirection(degrees: number): number {
+  if (!Number.isFinite(degrees)) {
+    return 0;
+  }
+
+  const remainder = degrees % LIGHT_CONE_ANGLE_FULL;
+
+  return remainder < 0 ? remainder + LIGHT_CONE_ANGLE_FULL : remainder;
 }
 
 /** Готовый пресет освещения (радиусы в единицах сцены/футах). */
@@ -1757,6 +1874,22 @@ export interface CursorPosition {
   x: number;
   y: number;
   color: string;
+}
+/**
+ * Отметка «участник взял этот токен в цель».
+ *
+ * Рассылается всем зрителям сцены: игроки видят цель мастера, мастер — цели
+ * игроков. Цвет — тот же личный цвет участника, что и у его курсора
+ * (`resolveParticipantColor`), поэтому кружки читаются без подписей.
+ */
+export interface TokenTargetMark {
+  userId: string;
+  username: string;
+  /** Личный цвет участника (hex), общий с курсором */
+  color: string;
+  sceneId: string;
+  /** ID токена-цели; null — участник снял цель */
+  tokenId: string | null;
 }
 /**
  * Синхронизируемое состояние трансляционной рамки ГМа.

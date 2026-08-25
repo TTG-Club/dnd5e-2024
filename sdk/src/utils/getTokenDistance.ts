@@ -1,59 +1,17 @@
-import type { DiagonalRule, GridSettings } from '../types/index.js';
+import type { GridSettings } from '../types/index.js';
 
-/** Размер клетки по умолчанию (в пикселях) */
-const DEFAULT_CELL_SIZE = 50;
-
-/** Масштаб клетки по умолчанию (единиц на клетку) */
-const DEFAULT_SCALE = 5;
-
-/** Правило расчёта диагоналей по умолчанию (D&D 5e) */
-export const DEFAULT_DIAGONAL_RULE: DiagonalRule = 'chebyshev';
-
-/**
- * Извлекает размер клетки из настроек сетки.
- *
- * @param gridSettings - настройки сетки сцены
- * @returns размер клетки в пикселях
- */
-export function resolveGridCellSize(gridSettings: GridSettings): number {
-  return gridSettings.type === 'fixed'
-    ? DEFAULT_CELL_SIZE
-    : gridSettings.cellSize;
-}
-
-/**
- * Вычисляет расстояние в клетках между двумя величинами по осям.
- *
- * @param cellsX - расстояние по оси X (в клетках)
- * @param cellsY - расстояние по оси Y (в клетках)
- * @param rule - правило расчёта диагонали
- * @returns расстояние в клетках
- */
-function computeDistanceInCells(
-  cellsX: number,
-  cellsY: number,
-  rule: GridSettings['diagonalRule'],
-): number {
-  switch (rule) {
-    case 'chebyshev': {
-      // D&D 5e: диагональ = 1 клетка (max из двух осей)
-      return Math.max(cellsX, cellsY);
-    }
-    case 'alternating': {
-      // D&D 3.5e / Pathfinder: каждая вторая диагональ стоит 2 клетки
-      const straight = Math.abs(cellsX - cellsY);
-      const diagonal = Math.min(cellsX, cellsY);
-      const doubleDiagonals = Math.floor(diagonal / 2);
-
-      return straight + diagonal + doubleDiagonals;
-    }
-    case 'euclidean':
-    default: {
-      // Геометрическое расстояние
-      return Math.sqrt(cellsX * cellsX + cellsY * cellsY);
-    }
-  }
-}
+import {
+  computeSquareDistanceInCells,
+  getTokenFootprintCells,
+} from './grid.js';
+import {
+  DEFAULT_DIAGONAL_RULE,
+  DEFAULT_GRID_SCALE,
+  isHexGrid,
+  resolveGridCellSize,
+  resolveHexMetrics,
+} from './gridMetrics.js';
+import { hexDistance, pointDistanceInHexes } from './hexGrid.js';
 
 /**
  * Вычисляет расстояние между двумя точками на сцене в единицах сетки.
@@ -61,10 +19,14 @@ function computeDistanceInCells(
  * Универсальная pure-функция, не зависит от системы правил.
  * Результат в тех же единицах, что задан в gridSettings (футы, метры и т.д.).
  *
- * Поддерживает три режима расчёта диагонали (`diagonalRule`):
+ * На квадратной сетке поддерживает три режима расчёта диагонали
+ * (`diagonalRule`):
  * - `chebyshev` (по умолчанию в D&D 5e): диагональ = 1 клетка
  * - `alternating` (D&D 3.5e/PF): 5-10-5-10 за каждую диагональную клетку
  * - `euclidean`: реальное геометрическое расстояние
+ *
+ * На гексовой сетке диагоналей нет: все шесть соседей равноудалены, и правило
+ * диагонали не применяется.
  *
  * @param pointA - координаты первой точки (в пикселях сцены)
  * @param pointA.x - координата X первой точки
@@ -80,14 +42,22 @@ export function getTokenDistance(
   pointB: { x: number; y: number },
   gridSettings: GridSettings,
 ): number {
+  const scale = gridSettings.scale ?? DEFAULT_GRID_SCALE;
+
+  if (isHexGrid(gridSettings)) {
+    return (
+      pointDistanceInHexes(resolveHexMetrics(gridSettings), pointA, pointB)
+      * scale
+    );
+  }
+
   const cellSize = resolveGridCellSize(gridSettings);
-  const scale = gridSettings.scale ?? DEFAULT_SCALE;
   const rule = gridSettings.diagonalRule ?? DEFAULT_DIAGONAL_RULE;
 
   const cellsX = Math.abs(pointB.x - pointA.x) / cellSize;
   const cellsY = Math.abs(pointB.y - pointA.y) / cellSize;
 
-  return computeDistanceInCells(cellsX, cellsY, rule) * scale;
+  return computeSquareDistanceInCells(cellsX, cellsY, rule) * scale;
 }
 
 /** Носитель настроек токена — сущность сцены (актёр или существо) */
@@ -117,30 +87,6 @@ export function resolveTokenScale(
   return entity?.token?.scale ?? token?.scale ?? 1;
 }
 
-/**
- * Вычисляет отступ, центрирующий токен внутри занимаемых им клеток.
- *
- * Токен занимает `ceil(scale)` клеток, но рисуется размером `scale`. У токенов
- * мельче клетки (scale < 1) остаётся зазор — его половина и есть отступ от угла
- * клетки. Для scale >= 1 отступ нулевой, поэтому забытое центрирование заметно
- * ИСКЛЮЧИТЕЛЬНО на мелких токенах.
- *
- * @param scale - масштаб токена
- * @param gridSize - размер клетки в пикселях
- * @returns отступ по обеим осям
- */
-export function getTokenCenteringOffset(
-  scale: number,
-  gridSize: number,
-): { x: number; y: number } {
-  const spannedCells = Math.max(1, Math.ceil(scale));
-  const tokenSize = scale * gridSize;
-
-  const offset = (spannedCells * gridSize - tokenSize) / 2;
-
-  return { x: offset, y: offset };
-}
-
 /** Токен с координатами и размером для расчёта досягаемости */
 export interface TokenBounds {
   /** Координата X верхнего левого угла (в пикселях) */
@@ -154,26 +100,62 @@ export interface TokenBounds {
 /**
  * Вычисляет расстояние между ближайшими краями двух токенов в единицах сетки.
  *
- * В D&D 5e расстояние между существами измеряется от ближайшего края
- * одного существа до ближайшего края другого. Для больших (Large, 2×2)
- * и более крупных существ это критически важно: досягаемость атаки
- * отмеряется от края занимаемой области, а не от одной точки.
+ * В D&D расстояние между существами измеряется от ближайшего края одного
+ * существа до ближайшего края другого. Для больших (Large) и более крупных
+ * существ это критически важно: досягаемость атаки отмеряется от края
+ * занимаемой области, а не от одной точки.
  *
- * Алгоритм: вычисляет зазор между прямоугольниками двух токенов
- * по каждой оси (в клетках), затем применяет правило диагонали.
+ * На квадратной сетке считается зазор между прямоугольниками по каждой оси
+ * с применением правила диагонали. На гексовой — минимальное число шагов между
+ * занятыми гексами двух отпечатков: у гексов нет осей, вдоль которых можно
+ * мерить зазор по отдельности.
  *
  * @param tokenA - первый токен (с координатами и масштабом)
  * @param tokenB - второй токен (с координатами и масштабом)
  * @param gridSettings - настройки сетки сцены
- * @returns расстояние в единицах сетки (например, в футах). Возвращает 0 если токены смежны или перекрываются.
+ * @returns расстояние в единицах сетки (например, в футах); 0 если токены перекрываются
  */
 export function getTokenEdgeDistance(
   tokenA: TokenBounds,
   tokenB: TokenBounds,
   gridSettings: GridSettings,
 ): number {
+  const scale = gridSettings.scale ?? DEFAULT_GRID_SCALE;
+
+  if (isHexGrid(gridSettings)) {
+    const cellsA = getTokenFootprintCells(
+      gridSettings,
+      tokenA.x,
+      tokenA.y,
+      tokenA.scale,
+    );
+
+    const cellsB = getTokenFootprintCells(
+      gridSettings,
+      tokenB.x,
+      tokenB.y,
+      tokenB.scale,
+    );
+
+    let nearest = Number.POSITIVE_INFINITY;
+
+    for (const cellA of cellsA) {
+      for (const cellB of cellsB) {
+        const steps = hexDistance(
+          { q: cellA.col, r: cellA.row },
+          { q: cellB.col, r: cellB.row },
+        );
+
+        if (steps < nearest) {
+          nearest = steps;
+        }
+      }
+    }
+
+    return Number.isFinite(nearest) ? nearest * scale : 0;
+  }
+
   const cellSize = resolveGridCellSize(gridSettings);
-  const scale = gridSettings.scale ?? DEFAULT_SCALE;
   const rule = gridSettings.diagonalRule ?? DEFAULT_DIAGONAL_RULE;
 
   // Определяем количество клеток, которые занимают токены
@@ -209,5 +191,5 @@ export function getTokenEdgeDistance(
     Math.max(startRowA, startRowB) - Math.min(endRowA, endRowB),
   );
 
-  return computeDistanceInCells(cellsX, cellsY, rule) * scale;
+  return computeSquareDistanceInCells(cellsX, cellsY, rule) * scale;
 }

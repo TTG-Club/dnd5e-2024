@@ -31,6 +31,7 @@ import type {
 // Реэкспортируем все независимые базовые типы
 export * from './assets.js';
 export * from './base.js';
+export * from './graph.js';
 export * from './module.js';
 /** Пользовательская область на сцене (произвольный полигон) */
 export interface CustomArea {
@@ -60,6 +61,13 @@ export interface CustomArea {
 export interface Scene {
   id: string;
   name: string;
+  /**
+   * Вид сцены: 'map' — обычная карта (PixiJS-канвас), 'graph' — псевдо-сцена
+   * «Графа приключения» (DOM-канвас Vue Flow, контент в graphs.db).
+   * Отсутствие поля = 'map' (старые данные). Иммутабельно после создания:
+   * updateScene в БД поле не перезаписывает.
+   */
+  kind?: 'map' | 'graph';
   width: number;
   height: number;
   backgroundImage: string;
@@ -609,7 +617,13 @@ export interface SocketClientToServerEvents {
   // Initiative / Encounter
   'initiative:start-encounter': () => void;
   'initiative:add-entries': (actorIds: string[]) => void;
-  'initiative:roll': (actorId: string, roll: number, modifier: number) => void;
+  /** `announced` — о броске уже написала в чат система (её окно броска) */
+  'initiative:roll': (
+    actorId: string,
+    roll: number,
+    modifier: number,
+    announced?: boolean,
+  ) => void;
   'initiative:next-turn': () => void;
   'initiative:prev-turn': () => void;
   'initiative:end-encounter': () => void;
