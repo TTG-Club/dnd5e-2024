@@ -10,7 +10,13 @@
   import { generateId } from '@vtt/shared';
   import { SKILLS_LIST } from '@vtt/shared/system/dnd.js';
 
-  import { CLASS_FEATURE_LABELS, FORM_FIELD_LABELS } from '../constants';
+  import {
+    CLASS_FEATURE_LABELS,
+    CLASS_FORM_LABELS,
+    FORM_FIELD_LABELS,
+    FORM_TAB_LABELS,
+  } from '../constants';
+  import EntityEffectsEditor from '../EntityEffectsEditor.vue';
   import GrantedSpellsEditor from '../GrantedSpellsEditor.vue';
 
   /** Навыки для выпадающего списка выбора владения */
@@ -235,6 +241,16 @@
           @click.left.exact.prevent="addSpellLevel"
         />
       </div>
+    </UFormField>
+
+    <UFormField :label="FORM_TAB_LABELS.effects">
+      <EntityEffectsEditor
+        v-model="feature.activeEffects"
+        :modal-id="`class-feature-effect-form-modal-${feature.key}`"
+        :hint="CLASS_FORM_LABELS.featureEffectsHint"
+        :empty-text="CLASS_FORM_LABELS.featureEffectsEmpty"
+        hide-aura
+      />
     </UFormField>
   </div>
 </template>

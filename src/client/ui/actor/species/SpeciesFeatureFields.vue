@@ -10,6 +10,7 @@
     SPECIES_FEATURE_LABELS,
     SPECIES_FORM_LABELS,
   } from '../constants';
+  import EntityEffectsEditor from '../EntityEffectsEditor.vue';
   import GrantedSpellsEditor from '../GrantedSpellsEditor.vue';
 
   defineProps<{
@@ -126,6 +127,16 @@
           v-model="feature.grantedSpells"
           :available-spells="availableSpells"
           @open-spell="forwardOpenSpell"
+        />
+      </UFormField>
+
+      <UFormField :label="SPECIES_FORM_LABELS.tabEffects">
+        <EntityEffectsEditor
+          v-model="feature.activeEffects"
+          :modal-id="`species-feature-effect-form-modal-${feature.key}`"
+          :hint="SPECIES_FORM_LABELS.featureEffectsHint"
+          :empty-text="SPECIES_FORM_LABELS.featureEffectsEmpty"
+          hide-aura
         />
       </UFormField>
     </template>

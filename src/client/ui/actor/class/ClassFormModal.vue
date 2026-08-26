@@ -7,6 +7,7 @@
     TypedWebSocketClient,
   } from '@vtt/shared';
   import type {
+    ActiveEffect,
     ClassDefinition,
     DnDGameItem,
     GrantedSpellRef,
@@ -55,6 +56,7 @@
     TOOL_PROF_LABELS,
     WEAPON_PROF_LABELS,
   } from '../constants';
+  import EntityEffectsEditor from '../EntityEffectsEditor.vue';
   import FormSection from '../FormSection.vue';
   import SourceField from '../SourceField.vue';
   import StartingEquipmentEditor from '../StartingEquipmentEditor.vue';
@@ -158,6 +160,7 @@
     { label: CLASS_FORM_LABELS.tabSubclasses, slot: 'subclasses' as const },
     { label: CLASS_FORM_LABELS.tabCounters, slot: 'counters' as const },
     { label: GRANT_SECTION_LABELS.equipment, slot: 'equipment' as const },
+    { label: FORM_TAB_LABELS.effects, slot: 'effects' as const },
   ];
 
   // ── Состояние формы ────────────────────────────────────────
@@ -194,6 +197,7 @@
   const subclasses = ref<EditableSubclass[]>([]);
   const counters = ref<EditableCounter[]>([]);
   const equipment = ref<EditableStartingEquipmentOption[]>([]);
+  const activeEffects = ref<ActiveEffect[]>([]);
 
   const existingKey = ref<string | null>(null);
   const existingId = ref<string | null>(null);
@@ -245,6 +249,7 @@
     subclasses.value = [];
     counters.value = [];
     equipment.value = [];
+    activeEffects.value = [];
     existingKey.value = null;
     existingId.value = null;
   }
@@ -297,6 +302,10 @@
     equipment.value = (definition.startingEquipment ?? []).map(
       toEditableEquipmentOption,
     );
+
+    activeEffects.value = (definition.activeEffects ?? []).map((effect) => ({
+      ...effect,
+    }));
 
     if (definition.multiclassProficiencies) {
       multiclassEnabled.value = true;
@@ -461,6 +470,10 @@
 
     if (builtEquipment.length > 0) {
       definition.startingEquipment = builtEquipment;
+    }
+
+    if (activeEffects.value.length > 0) {
+      definition.activeEffects = activeEffects.value;
     }
 
     if (multiclassEnabled.value) {
@@ -861,6 +874,17 @@
               show-key
             />
           </div>
+        </template>
+
+        <!-- ЭФФЕКТЫ -->
+        <template #effects>
+          <EntityEffectsEditor
+            v-model="activeEffects"
+            modal-id="class-effect-form-modal"
+            :hint="CLASS_FORM_LABELS.effectsHint"
+            :empty-text="CLASS_FORM_LABELS.effectsEmpty"
+            hide-aura
+          />
         </template>
       </UTabs>
     </template>

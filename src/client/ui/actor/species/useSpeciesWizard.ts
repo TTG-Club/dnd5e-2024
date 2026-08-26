@@ -29,11 +29,12 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import {
-  isSpeciesDefenseEffect,
+  isSpeciesProvidedEffect,
   rollbackSpeciesFeatures,
   rollbackSpeciesGrantedSpells,
   rollbackSpeciesProficiencies,
   SPECIES_DEFENSE_EFFECT_PREFIX,
+  SPECIES_OWN_EFFECT_PREFIX,
 } from './speciesRollback';
 
 export interface SpeciesWizardState {
@@ -120,6 +121,55 @@ function collectSpeciesConditionImmunities(
   }
 
   return [...conditions];
+}
+
+/**
+ * Собирает эффекты, заявленные самим видом и его умениями в компендиуме.
+ *
+ * Умение отдаёт эффекты, только когда оно уже действует: у умения с уровнем это
+ * уровень персонажа, у подвида — сделанный игроком выбор. Иначе эльф получал бы
+ * «Туманный шаг» пятого уровня на первом.
+ *
+ * @param definition - определение вида
+ * @param chosenSubspecies - выбранные ключи вариантов-подвидов
+ * @param characterLevel - суммарный уровень персонажа
+ * @returns эффекты вида с id, привязанными к ключу вида
+ */
+function collectSpeciesDeclaredEffects(
+  definition: SpeciesDefinition,
+  chosenSubspecies: ReadonlyArray<string>,
+  characterLevel: number,
+): ActiveEffect[] {
+  const collected: ActiveEffect[] = [...(definition.activeEffects ?? [])];
+
+  const addFeature = (feature: SpeciesFeature): void => {
+    if ((feature.level ?? 1) > characterLevel) {
+      return;
+    }
+
+    collected.push(...(feature.activeEffects ?? []));
+
+    for (const choice of feature.choices ?? []) {
+      if (!chosenSubspecies.includes(choice.key)) {
+        continue;
+      }
+
+      for (const nested of choice.features ?? []) {
+        addFeature(nested);
+      }
+    }
+  };
+
+  for (const feature of definition.features) {
+    addFeature(feature);
+  }
+
+  return collected.map((effect) => ({
+    ...effect,
+    id: `${SPECIES_OWN_EFFECT_PREFIX}${definition.key}:${effect.id}`,
+    origin: 'feature',
+    originId: definition.key,
+  }));
 }
 
 /**
@@ -695,22 +745,29 @@ export function useSpeciesWizard(
     );
 
     const baseEffects = (actor.value.activeEffects ?? []).filter(
-      (effect) => !isSpeciesDefenseEffect(effect),
+      (effect) => !isSpeciesProvidedEffect(effect),
     );
 
     const hasDefenses =
       damageDefenseFlags.length > 0 || speciesConditionImmunities.length > 0;
 
-    const updatedEffects = hasDefenses
-      ? [
-          ...baseEffects,
-          buildSpeciesDefenseEffect(
-            definition,
-            damageDefenseFlags,
-            speciesConditionImmunities,
-          ),
-        ]
-      : baseEffects;
+    const updatedEffects = [
+      ...baseEffects,
+      ...(hasDefenses
+        ? [
+            buildSpeciesDefenseEffect(
+              definition,
+              damageDefenseFlags,
+              speciesConditionImmunities,
+            ),
+          ]
+        : []),
+      ...collectSpeciesDeclaredEffects(
+        definition,
+        chosenSubspecies,
+        getTotalLevel(actor.value.system.classes),
+      ),
+    ];
 
     const originalEffects = actor.value.activeEffects ?? [];
 

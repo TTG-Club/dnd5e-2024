@@ -1,5 +1,6 @@
 <script setup lang="ts">
   import type {
+    ActiveEffect,
     DamageDefenseKind,
     SpeciesDefinition,
     SpeciesFeatureChoice,
@@ -23,7 +24,9 @@
     LEVEL_BADGE_SUFFIX,
     SELECT_FOR_ACTOR_LABEL,
     SPECIES_DETAIL_LABELS,
+    SPECIES_FORM_LABELS,
   } from '../constants';
+  import ItemEffectsView from '../ItemEffectsView.vue';
   import SourceBadge from '../SourceBadge.vue';
 
   const props = defineProps<{
@@ -244,6 +247,28 @@
       && props.speciesDefinition.features.length > 0,
   );
 
+  /**
+   * Эффекты вида и его умений одним списком.
+   *
+   * Вкладка появляется, только когда эффекты есть: у большинства видов их нет, и
+   * пустая вкладка была бы шумом в каждом окне.
+   */
+  const effects = computed<ActiveEffect[]>(() => {
+    const definition = props.speciesDefinition;
+
+    if (!definition) {
+      return [];
+    }
+
+    const collected = [...(definition.activeEffects ?? [])];
+
+    for (const feature of definition.features ?? []) {
+      collected.push(...(feature.activeEffects ?? []));
+    }
+
+    return collected;
+  });
+
   const tabItems = computed(() => {
     const items: { label: string; slot: string }[] = [
       { label: SPECIES_DETAIL_LABELS.tabGeneral, slot: 'general' },
@@ -258,6 +283,10 @@
         label: SPECIES_DETAIL_LABELS.tabSubspecies,
         slot: 'subspecies',
       });
+    }
+
+    if (effects.value.length > 0) {
+      items.push({ label: SPECIES_FORM_LABELS.tabEffects, slot: 'effects' });
     }
 
     return items;
@@ -538,6 +567,14 @@
               </div>
             </div>
           </div>
+        </template>
+
+        <!-- Эффекты — только просмотр: их правит форма вида -->
+        <template #effects>
+          <ItemEffectsView
+            :effects="effects"
+            :owner-name="speciesDefinition?.name"
+          />
         </template>
       </UTabs>
     </template>

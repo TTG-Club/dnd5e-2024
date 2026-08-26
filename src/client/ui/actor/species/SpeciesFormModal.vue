@@ -6,6 +6,7 @@
     TypedWebSocketClient,
   } from '@vtt/shared';
   import type {
+    ActiveEffect,
     ConditionKey,
     CreatureSize,
     CreatureType,
@@ -61,6 +62,7 @@
     SPECIES_FORM_LABELS,
     WEAPON_PROF_LABELS,
   } from '../constants';
+  import EntityEffectsEditor from '../EntityEffectsEditor.vue';
   import FormSection from '../FormSection.vue';
   import SourceField from '../SourceField.vue';
   import DamageDefenseEditor from './DamageDefenseEditor.vue';
@@ -150,6 +152,7 @@
     { label: SPECIES_FORM_LABELS.tabMovement, slot: 'movement' as const },
     { label: SPECIES_FORM_LABELS.tabGrants, slot: 'grants' as const },
     { label: GRANT_SECTION_LABELS.features, slot: 'features' as const },
+    { label: SPECIES_FORM_LABELS.tabEffects, slot: 'effects' as const },
   ];
 
   const { openModal } = useModalManager();
@@ -205,6 +208,7 @@
 
   // Особенности
   const features = ref<EditableFeature[]>([]);
+  const activeEffects = ref<ActiveEffect[]>([]);
 
   /** Заклинания компендиума по пакам (имя, источник, пак) — для подсказок. */
   const availableSpells = ref<SpellOption[]>([]);
@@ -256,6 +260,9 @@
         spellId: spell.spellId,
         packId: spell.packId,
       })),
+      activeEffects: (feature.activeEffects ?? []).map((effect) => ({
+        ...effect,
+      })),
     };
   }
 
@@ -274,6 +281,7 @@
       movement: createEmptyMovement(),
       darkvision: 0,
       grantedSpells: [],
+      activeEffects: [],
     };
   }
 
@@ -329,6 +337,10 @@
       built.grantedSpells = grantedSpells;
     }
 
+    if (fields.activeEffects.length > 0) {
+      built.activeEffects = fields.activeEffects;
+    }
+
     return built;
   }
 
@@ -370,6 +382,7 @@
     languageChoiceFrom.value = [];
     preservedGrants.value = [];
     features.value = [];
+    activeEffects.value = [];
     isNodeEditorOpen.value = false;
     existingKey.value = null;
     existingId.value = null;
@@ -474,6 +487,10 @@
         })),
         conditionImmunities: [...(choice.conditionImmunities ?? [])],
       })),
+    }));
+
+    activeEffects.value = (definition.activeEffects ?? []).map((effect) => ({
+      ...effect,
     }));
   }
 
@@ -972,6 +989,10 @@
       grants: buildGrants(),
       features: buildFeatures(),
     };
+
+    if (activeEffects.value.length > 0) {
+      definition.activeEffects = activeEffects.value;
+    }
 
     // При редактировании сохраняем id исходного GameItem (проброшен через
     // speciesItemId), иначе генерируем новый — так правка обновляет запись, а
@@ -1542,6 +1563,17 @@
               </template>
             </UTree>
           </div>
+        </template>
+
+        <!-- ЭФФЕКТЫ -->
+        <template #effects>
+          <EntityEffectsEditor
+            v-model="activeEffects"
+            modal-id="species-effect-form-modal"
+            :hint="SPECIES_FORM_LABELS.effectsHint"
+            :empty-text="SPECIES_FORM_LABELS.effectsEmpty"
+            hide-aura
+          />
         </template>
       </UTabs>
     </template>

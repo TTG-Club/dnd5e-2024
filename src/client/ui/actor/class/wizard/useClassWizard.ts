@@ -42,6 +42,13 @@ import {
   SKILLS_LIST,
 } from '@vtt/shared/system/dnd.js';
 
+import {
+  collectClassEffects,
+  collectFeatureEffects,
+  collectSubclassEffects,
+  mergeClassEffects,
+} from '../classEffects';
+
 // ── Типы ──────────────────────────────────────────────────────
 
 /** Ключ шага мастера */
@@ -1207,10 +1214,34 @@ export function useClassWizard(
           flags: [],
         };
 
-        const existingEffects = [...(actor.value.activeEffects ?? [])];
+        rootUpdates.activeEffects = [
+          ...(actor.value.activeEffects ?? []),
+          asiEffect,
+        ];
+      }
+    }
 
-        existingEffects.push(asiEffect);
-        rootUpdates.activeEffects = existingEffects;
+    // Эффекты, заявленные классом, подклассом и умениями уровня. Считаются
+    // поверх ASI-эффекта выше: тот уже мог занять rootUpdates.activeEffects, и
+    // второй список затёр бы первый
+    const declaredEffects = [
+      ...collectClassEffects(classDef, levelGained),
+      ...collectSubclassEffects(
+        classDef,
+        chosenSubclass,
+        Boolean(wizardState.subclassKey),
+      ),
+      ...collectFeatureEffects(classDef, levelFeatures.value),
+    ];
+
+    if (declaredEffects.length > 0) {
+      const before =
+        rootUpdates.activeEffects ?? actor.value.activeEffects ?? [];
+
+      const merged = mergeClassEffects(before, declaredEffects);
+
+      if (merged.length !== before.length) {
+        rootUpdates.activeEffects = merged;
       }
     }
 

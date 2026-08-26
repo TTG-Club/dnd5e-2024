@@ -44,6 +44,16 @@ export const SPECIES_DEFENSE_EFFECT_PREFIX = 'species-defenses:';
 export const SPECIES_LEGACY_RESISTANCE_EFFECT_PREFIX = 'species-resistance:';
 
 /**
+ * Префикс id эффекта, заявленного самим видом или его умением в компендиуме.
+ *
+ * Собственный id эффекта в записи вида не уникален на акторе: тот же эффект
+ * может прийти с предмета или заклинания, а два вида подряд принесли бы копию
+ * друг друга. Префикс с ключом вида делает id своим и позволяет снять ровно
+ * эффекты вида при его смене.
+ */
+export const SPECIES_OWN_EFFECT_PREFIX = 'species-effect:';
+
+/**
  * Проверяет, принадлежит ли эффект защитам, выданным видом (текущий или старый
  * префикс id).
  *
@@ -53,6 +63,19 @@ export function isSpeciesDefenseEffect(effect: ActiveEffect): boolean {
   return (
     effect.id.startsWith(SPECIES_DEFENSE_EFFECT_PREFIX)
     || effect.id.startsWith(SPECIES_LEGACY_RESISTANCE_EFFECT_PREFIX)
+  );
+}
+
+/**
+ * Проверяет, поставлен ли эффект видом: и сведённые защиты, и то, что вид или
+ * его умение заявили эффектом в компендиуме.
+ *
+ * @param effect - активный эффект актёра
+ */
+export function isSpeciesProvidedEffect(effect: ActiveEffect): boolean {
+  return (
+    isSpeciesDefenseEffect(effect)
+    || effect.id.startsWith(SPECIES_OWN_EFFECT_PREFIX)
   );
 }
 
@@ -250,7 +273,7 @@ export function buildSpeciesRemovalUpdates(
     token: buildTokenWithoutSpecies(actor, previousSpeciesDef),
     features: rollbackSpeciesFeatures(actor.features),
     activeEffects: actor.activeEffects.filter(
-      (effect) => !isSpeciesDefenseEffect(effect),
+      (effect) => !isSpeciesProvidedEffect(effect),
     ),
     spells: rollbackSpeciesGrantedSpells(actor.spells, previousSpeciesDef),
   };
