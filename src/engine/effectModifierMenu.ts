@@ -17,19 +17,13 @@
 import type { EffectChangeKey, EffectChangeMode } from './activeEffectTypes.js';
 
 import {
+  CARRIER_ARMOR_CONDITION_PREFIX,
+  CARRIER_TYPE_CONDITION_PREFIX,
   EFFECT_CONDITION_SUGGESTIONS,
   EFFECT_TARGET_SUGGESTIONS,
   isEffectTargetKey,
+  TARGET_TYPE_CONDITION_PREFIX,
 } from './activeEffectTypes.js';
-
-/** Приставка условий по типу НОСИТЕЛЯ — по ней пункты отбираются из подсказок. */
-const CARRIER_TYPE_CONDITION_PREFIX = 'self.creatureType === ';
-
-/** Приставка условия по надетому доспеху носителя. */
-const CARRIER_ARMOR_CONDITION_PREFIX = 'self.armor === ';
-
-/** Приставка условий по типу ЦЕЛИ. */
-const TARGET_TYPE_CONDITION_PREFIX = 'target.creatureType === ';
 
 /** Раздел меню модификаторов. */
 export type EffectModifierGroup =

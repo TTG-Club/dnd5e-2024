@@ -1,5 +1,6 @@
 import type {
   ActiveEffect,
+  CarrierContext,
   CreatureAction,
   CreatureCategory,
   DnDActor,
@@ -34,6 +35,7 @@ import {
   calculateWeaponDamageModifier,
   collectBonusDamageFormulas,
   describeDamagePart,
+  getCarrierArmorState,
   getCreatureSpellMod,
   getWeaponDamageParts,
   getWeaponPrimaryDamageType,
@@ -298,6 +300,26 @@ export function useBonusDamageParts() {
   }
 
   /**
+   * Свойства носителя эффектов для условий семейства `self.*`.
+   *
+   * Собирается целиком, а не одним типом существа: кость-формулы бонус-урона в
+   * плоские статы не попадают никогда, поэтому условие о доспехе оценивается
+   * только здесь — передай сюда меньше, и «+1к6, пока вы в доспехе» не сработал
+   * бы ни разу.
+   *
+   * @param carrier - носитель эффектов
+   * @returns свойства носителя для оценки условий
+   */
+  function buildCarrierContext(
+    carrier: DnDActor | DnDCreature,
+  ): CarrierContext {
+    return {
+      creatureType: resolveEntityCreatureType(carrier),
+      armor: getCarrierArmorState(carrier),
+    };
+  }
+
+  /**
    * Собирает бонус-части по контексту броска: условия change оцениваются по
    * фактическому режиму и HP цели, формулы раскладываются на гейт-ветки и
    * типизированные сегменты.
@@ -313,7 +335,7 @@ export function useBonusDamageParts() {
    * @param defaultType - тип урона сегментов без токена @dmg
    * @param useTargetState - оценивать ли состояние единой цели (false для AoE/снарядов)
    * @param resolveFormula - резолвер @-переменных сегмента
-   * @param carrierType - тип существа носителя эффектов (для `self.creatureType`)
+   * @param carrier - свойства носителя эффектов (для условий `self.*`)
    * @returns бонус-части урона
    */
   function collectParts(
@@ -323,7 +345,7 @@ export function useBonusDamageParts() {
     defaultType: string | undefined,
     useTargetState: boolean,
     resolveFormula: (subFormula: string) => string,
-    carrierType: CreatureCategory | undefined,
+    carrier: CarrierContext,
   ): SpellDamagePartInput[] {
     const targetHp = useTargetState ? buildTargetHpContext() : undefined;
 
@@ -331,9 +353,9 @@ export function useBonusDamageParts() {
       hasAdvantage: modalContext.hasAdvantage,
       hasDisadvantage: modalContext.hasDisadvantage,
       target: targetHp,
-      // Кость-формулы с условием по типу носителя в плоские статы не попадают —
-      // здесь это условие и оценивается
-      self: { creatureType: carrierType },
+      // Кость-формулы с условием о носителе в плоские статы не попадают —
+      // здесь эти условия и оцениваются
+      self: carrier,
     };
 
     const formulas = collectBonusDamageFormulas(
@@ -455,7 +477,7 @@ export function useBonusDamageParts() {
         defaultType,
         true,
         resolveFormula,
-        resolveEntityCreatureType(actor),
+        buildCarrierContext(actor),
       );
 
     return { baseParts, evaluateBonusDamageParts, pseudoSpell };
@@ -507,7 +529,7 @@ export function useBonusDamageParts() {
         undefined,
         !multiTarget,
         resolveFormula,
-        resolveEntityCreatureType(actor),
+        buildCarrierContext(actor),
       );
   }
 
@@ -608,7 +630,7 @@ export function useBonusDamageParts() {
         defaultType,
         true,
         resolveFormula,
-        resolveEntityCreatureType(creature),
+        buildCarrierContext(creature),
       );
 
     return { baseParts, evaluateBonusDamageParts, pseudoSpell };
@@ -686,7 +708,7 @@ export function useBonusDamageParts() {
         defaultType,
         true,
         resolveFormula,
-        resolveEntityCreatureType(creature),
+        buildCarrierContext(creature),
       );
 
     return { baseParts, evaluateBonusDamageParts, pseudoSpell };

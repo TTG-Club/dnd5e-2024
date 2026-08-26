@@ -258,6 +258,44 @@ export function isEffectTargetKey(value: string): value is EffectTargetKey {
  * класса доспеха, максимума хитов. Остальные условия оцениваются только в момент
  * броска и на числа листа не влияют.
  */
+// ── Строение строк условий ────────────────────────────────────
+
+/** Приставка условия по типу НОСИТЕЛЯ эффекта. */
+export const CARRIER_TYPE_CONDITION_PREFIX = 'self.creatureType === ';
+
+/** Приставка условия по надетому доспеху НОСИТЕЛЯ. */
+export const CARRIER_ARMOR_CONDITION_PREFIX = 'self.armor === ';
+
+/** Приставка условия по типу ЦЕЛИ броска. */
+export const TARGET_TYPE_CONDITION_PREFIX = 'target.creatureType === ';
+
+/**
+ * Разделитель условий, соединённых «и»: `self.armor === "none" && ...`.
+ *
+ * Это НЕ выражение и не шаг к нему: каждая часть по-прежнему обязана быть
+ * строкой из закрытого словаря, а `&&` только позволяет требовать нескольких
+ * условий разом — «нет доспеха И нет щита» у наручей защиты. Другой связки
+ * (`||`, отрицания, скобок) намеренно нет: разбирать их пришлось бы парсером,
+ * а словарь должен оставаться перечнем.
+ */
+export const CONDITION_AND_SEPARATOR = '&&';
+
+/**
+ * Части составного условия.
+ *
+ * Одиночное условие — тоже список, из одного элемента: так весь дальнейший
+ * разбор работает единообразно, без ветки «а если разделителя нет».
+ *
+ * @param condition - строка условия
+ * @returns непустые части, каждая обрезана по краям
+ */
+export function splitConditionParts(condition: string): string[] {
+  return condition
+    .split(CONDITION_AND_SEPARATOR)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+}
+
 export const EFFECT_CONDITION_SUGGESTIONS: Array<{
   value: string;
   label: string;

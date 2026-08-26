@@ -44,7 +44,13 @@ import type { BonusDamageFormula, TargetHpGate } from './spellUtils.js';
 
 import { isCreatureEntity, isRecord } from '@vtt/shared';
 
-import { isSenseType } from './activeEffectTypes.js';
+import {
+  CARRIER_ARMOR_CONDITION_PREFIX,
+  CARRIER_TYPE_CONDITION_PREFIX,
+  isSenseType,
+  splitConditionParts,
+  TARGET_TYPE_CONDITION_PREFIX,
+} from './activeEffectTypes.js';
 import {
   armorConditionMatches,
   getCarrierArmorState,
@@ -663,41 +669,6 @@ export function targetHpGateMatches(
 
 // ── Условия по типу существа ──────────────────────────────────
 
-// ── Составные условия ─────────────────────────────────────────
-
-/**
- * Разделитель условий, соединённых «и»: `self.armor === "none" && ...`.
- *
- * Это НЕ выражение и не шаг к нему: каждая часть по-прежнему обязана быть
- * строкой из закрытого словаря, а `&&` только позволяет требовать нескольких
- * условий разом — «нет доспеха И нет щита» у наручей защиты. Другой связки
- * (`||`, отрицания, скобок) намеренно нет: разбирать их пришлось бы парсером,
- * а словарь должен оставаться перечнем.
- */
-const CONDITION_AND_SEPARATOR = '&&';
-
-/**
- * Части составного условия.
- *
- * Одиночное условие — тоже список, из одного элемента: так весь дальнейший
- * разбор работает единообразно, без ветки «а если разделителя нет».
- *
- * @param condition - строка условия
- * @returns непустые части, каждая обрезана по краям
- */
-function splitConditionParts(condition: string): string[] {
-  return condition
-    .split(CONDITION_AND_SEPARATOR)
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0);
-}
-
-/** Приставка условия по типу НОСИТЕЛЯ эффекта. */
-const CARRIER_TYPE_CONDITION_PREFIX = 'self.creatureType === ';
-
-/** Приставка условия по типу ЦЕЛИ броска. */
-const TARGET_TYPE_CONDITION_PREFIX = 'target.creatureType === ';
-
 /**
  * Тип существа, названный условием с указанной приставкой.
  *
@@ -723,9 +694,6 @@ function parseTypeCondition(
 
   return isCreatureCategory(value) ? value : undefined;
 }
-
-/** Приставка условия по надетому доспеху НОСИТЕЛЯ. */
-const CARRIER_ARMOR_CONDITION_PREFIX = 'self.armor === ';
 
 /**
  * Вид доспеха, названный условием `self.armor === "heavy"`.

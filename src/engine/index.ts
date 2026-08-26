@@ -2,6 +2,7 @@ export * from './activeEffectDescribe.js';
 export * from './activeEffectTypes.js';
 export * from './actorSenses.js';
 export * from './actorValidation.js';
+export * from './armorState.js';
 export * from './attackUtils.js';
 export * from './auraMath.js';
 export * from './backgroundNormalize.js';

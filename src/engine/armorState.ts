@@ -96,12 +96,12 @@ export function getCarrierArmorState(
   let bestArmorClass = 0;
   let hasShield = false;
 
-  for (const item of carrier.equipment ?? []) {
-    if (!item.equipped || item.type !== 'equipment') {
+  for (const equipmentItem of carrier.equipment ?? []) {
+    if (!equipmentItem.equipped || equipmentItem.type !== 'equipment') {
       continue;
     }
 
-    const itemCategory = item.equipmentCategory;
+    const itemCategory = equipmentItem.equipmentCategory;
 
     if (itemCategory === 'shield') {
       hasShield = true;
@@ -113,7 +113,7 @@ export function getCarrierArmorState(
       continue;
     }
 
-    const armorClass = item.baseArmorAC ?? 0;
+    const armorClass = equipmentItem.baseArmorAC ?? 0;
 
     if (!category || armorClass > bestArmorClass) {
       category = itemCategory;

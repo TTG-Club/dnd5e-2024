@@ -30,6 +30,7 @@ import {
   EFFECT_DURATION_LABELS,
   EFFECT_FLAG_LABELS,
   EFFECT_TARGET_SUGGESTIONS,
+  splitConditionParts,
 } from './activeEffectTypes.js';
 import { getConditionEntry } from './conditionTemplates.js';
 import { ABILITY_LABELS } from './consts.js';
@@ -172,10 +173,7 @@ function describeChange(change: EffectChange): string {
  * @returns человекочитаемая подпись
  */
 function describeCondition(condition: string): string {
-  return condition
-    .split('&&')
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0)
+  return splitConditionParts(condition)
     .map((part) => CONDITION_LABELS.get(part) ?? part)
     .join(' и ');
 }
