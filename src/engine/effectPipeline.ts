@@ -663,6 +663,35 @@ export function targetHpGateMatches(
 
 // ── Условия по типу существа ──────────────────────────────────
 
+// ── Составные условия ─────────────────────────────────────────
+
+/**
+ * Разделитель условий, соединённых «и»: `self.armor === "none" && ...`.
+ *
+ * Это НЕ выражение и не шаг к нему: каждая часть по-прежнему обязана быть
+ * строкой из закрытого словаря, а `&&` только позволяет требовать нескольких
+ * условий разом — «нет доспеха И нет щита» у наручей защиты. Другой связки
+ * (`||`, отрицания, скобок) намеренно нет: разбирать их пришлось бы парсером,
+ * а словарь должен оставаться перечнем.
+ */
+const CONDITION_AND_SEPARATOR = '&&';
+
+/**
+ * Части составного условия.
+ *
+ * Одиночное условие — тоже список, из одного элемента: так весь дальнейший
+ * разбор работает единообразно, без ветки «а если разделителя нет».
+ *
+ * @param condition - строка условия
+ * @returns непустые части, каждая обрезана по краям
+ */
+function splitConditionParts(condition: string): string[] {
+  return condition
+    .split(CONDITION_AND_SEPARATOR)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+}
+
 /** Приставка условия по типу НОСИТЕЛЯ эффекта. */
 const CARRIER_TYPE_CONDITION_PREFIX = 'self.creatureType === ';
 
@@ -720,6 +749,19 @@ function parseArmorCondition(
 }
 
 /**
+ * Условие ли это о НОСИТЕЛЕ эффекта — про одну часть составного условия.
+ *
+ * @param part - часть условия
+ * @returns `true`, если часть о носителе
+ */
+function isCarrierConditionPart(part: string): boolean {
+  return (
+    part.startsWith(CARRIER_TYPE_CONDITION_PREFIX)
+    || part.startsWith(CARRIER_ARMOR_CONDITION_PREFIX)
+  );
+}
+
+/**
  * Условие ли это о НОСИТЕЛЕ эффекта.
  *
  * Такие условия статические: свойства носителя известны по листу, поэтому они
@@ -727,41 +769,58 @@ function parseArmorCondition(
  * необходимо: плоский бонус с таким условием уже сидит в статах, и при броске
  * его нельзя прибавлять второй раз.
  *
+ * Составное условие считается «о носителе», только если о носителе КАЖДАЯ его
+ * часть. Смешанное («в доспехе И цель ранена») проверить по листу нечем, и оно
+ * целиком уходит в оценку при броске.
+ *
  * @param condition - строка условия
  * @returns `true`, если условие о носителе
  */
 function isCarrierCondition(condition: string): boolean {
-  const trimmed = condition.trim();
+  const parts = splitConditionParts(condition);
 
-  return (
-    trimmed.startsWith(CARRIER_TYPE_CONDITION_PREFIX)
-    || trimmed.startsWith(CARRIER_ARMOR_CONDITION_PREFIX)
-  );
+  return parts.length > 0 && parts.every(isCarrierConditionPart);
 }
 
 /**
- * Выполняется ли условие носителя при данных его свойствах.
+ * Выполняется ли одна часть условия носителя при данных его свойствах.
  *
- * @param condition - строка условия
+ * @param part - часть условия
  * @param carrier - свойства носителя (undefined — считать нечем)
- * @returns `true`, если условие выполняется
+ * @returns `true`, если часть выполняется
  */
-function carrierConditionMatches(
-  condition: string,
+function carrierConditionPartMatches(
+  part: string,
   carrier: CarrierContext | undefined,
 ): boolean {
-  const wantedArmor = parseArmorCondition(condition);
+  const wantedArmor = parseArmorCondition(part);
 
   if (wantedArmor !== undefined) {
     return armorConditionMatches(wantedArmor, carrier?.armor);
   }
 
-  const wantedType = parseTypeCondition(
-    condition,
-    CARRIER_TYPE_CONDITION_PREFIX,
-  );
+  const wantedType = parseTypeCondition(part, CARRIER_TYPE_CONDITION_PREFIX);
 
   return wantedType !== undefined && wantedType === carrier?.creatureType;
+}
+
+/**
+ * Выполняется ли условие носителя целиком: части соединены «и».
+ *
+ * @param condition - строка условия
+ * @param carrier - свойства носителя (undefined — считать нечем)
+ * @returns `true`, если выполняются все части
+ */
+function carrierConditionMatches(
+  condition: string,
+  carrier: CarrierContext | undefined,
+): boolean {
+  const parts = splitConditionParts(condition);
+
+  return (
+    parts.length > 0
+    && parts.every((part) => carrierConditionPartMatches(part, carrier))
+  );
 }
 
 /**
@@ -802,7 +861,10 @@ function skipChangeOnSheet(
  * Условия `target.hp.*` срабатывают только если в контексте есть HP цели;
  * иначе возвращают false (нет цели — нет состояния). Для кость-формул
  * бонус-урона без единой цели такие условия не гасятся, а откладываются в
- * per-target гейт ({@link collectBonusDamageFormulas}).
+ * per-target гейт ({@link collectBonusDamageFormulas}); отложить умеет только
+ * одиночное условие, составное с частью о цели там просто не сработает.
+ *
+ * Части, соединённые `&&`, обязаны выполниться все.
  *
  * @param condition - строка условия
  * @param rollContext - контекст текущего броска
@@ -812,8 +874,25 @@ function evaluateCondition(
   condition: string,
   rollContext: RollContext,
 ): boolean {
-  const trimmed = condition.trim();
+  const parts = splitConditionParts(condition);
 
+  return (
+    parts.length > 0
+    && parts.every((part) => evaluateConditionPart(part, rollContext))
+  );
+}
+
+/**
+ * Оценивает одну часть условия против контекста броска.
+ *
+ * @param trimmed - часть условия, уже обрезанная по краям
+ * @param rollContext - контекст текущего броска
+ * @returns true если часть выполняется
+ */
+function evaluateConditionPart(
+  trimmed: string,
+  rollContext: RollContext,
+): boolean {
   if (trimmed === 'roll.hasAdvantage === true') {
     return rollContext.hasAdvantage;
   }
@@ -834,8 +913,8 @@ function evaluateCondition(
 
   // Свойства носителя: известны вне броска, поэтому и здесь берутся из
   // контекста, а не из цели
-  if (isCarrierCondition(trimmed)) {
-    return carrierConditionMatches(trimmed, rollContext.self);
+  if (isCarrierConditionPart(trimmed)) {
+    return carrierConditionPartMatches(trimmed, rollContext.self);
   }
 
   // Тип цели
