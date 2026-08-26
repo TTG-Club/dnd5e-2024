@@ -80,6 +80,34 @@ export function getSkillEffectKey(skillKey: SkillType): `skill.${SkillType}` {
   return `skill.${skillKey}`;
 }
 
+/**
+ * Ключ понавыкового флага преимущества (`skill.stealth.advantage`).
+ *
+ * Отдельно от {@link getSkillEffectKey}: тот про числовую перезапись итога, а
+ * этот — про булев флаг режима броска. Собирается функцией по той же причине:
+ * панель спрашивает ровно тем ключом, каким флаг ставит эффект.
+ *
+ * @param skillKey - ключ навыка
+ * @returns ключ флага преимущества на проверки этого навыка
+ */
+export function getSkillAdvantageFlagKey(
+  skillKey: SkillType,
+): `skill.${SkillType}.advantage` {
+  return `skill.${skillKey}.advantage`;
+}
+
+/**
+ * Ключ понавыкового флага помехи (`skill.stealth.disadvantage`).
+ *
+ * @param skillKey - ключ навыка
+ * @returns ключ флага помехи на проверки этого навыка
+ */
+export function getSkillDisadvantageFlagKey(
+  skillKey: SkillType,
+): `skill.${SkillType}.disadvantage` {
+  return `skill.${skillKey}.disadvantage`;
+}
+
 /** Навык по правилам: своя характеристика и без своих бонусов */
 export const DEFAULT_SKILL_SETTING: DnDSkillSetting = {
   ability: null,

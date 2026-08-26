@@ -8,6 +8,7 @@ import { useDiceRollerStore } from '@/stores/diceRollerStore';
 import {
   isDndSceneEntity,
   resolveActorStats,
+  resolveSavingThrowRollMode,
   SAVE_TYPE_LABELS,
 } from '@vtt/shared/system/dnd.js';
 
@@ -47,16 +48,17 @@ export function useSpellSavingThrows() {
 
     const modifier = stats.saves[saveAbility] ?? 0;
 
-    // Проверяем флаги преимущества/помехи на спасброски.
-    // Шаблонные строки уже получают точный тип `save.*.${AbilityType}`
-    // из `saveAbility: AbilityType` — приведение типов не требуется.
-    const hasAdvantage =
-      stats.activeFlags.has('save.advantage')
-      || stats.activeFlags.has(`save.advantage.${saveAbility}`);
+    // Сюда попадают только спасброски, навязанные заклинанием, поэтому
+    // `againstMagic` истинно всегда: Мантия сопротивления заклинаниям должна
+    // сработать здесь и промолчать на спасброске от яда.
+    const rollMode = resolveSavingThrowRollMode({
+      flags: stats.activeFlags,
+      ability: saveAbility,
+      againstMagic: true,
+    });
 
-    const hasDisadvantage =
-      stats.activeFlags.has('save.disadvantage')
-      || stats.activeFlags.has(`save.disadvantage.${saveAbility}`);
+    const hasAdvantage = rollMode === 'advantage';
+    const hasDisadvantage = rollMode === 'disadvantage';
 
     const autoFail = stats.activeFlags.has(`save.autoFail.${saveAbility}`);
 

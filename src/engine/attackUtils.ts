@@ -7,7 +7,7 @@
  * Используется в dnd5eMacros.ts (хотбар) и DiceRollModal.vue (лист персонажа).
  */
 
-import type { DiceRollData, DistanceUnit } from '@vtt/shared';
+import type { AbilityType, DiceRollData, DistanceUnit } from '@vtt/shared';
 
 import type { CreatureAction } from './creatureTypes.js';
 import type { DamageApplyResult } from './damageUtils.js';
@@ -345,6 +345,61 @@ export function resolveInitiativeRollMode(
     flags.has('initiative.disadvantage')
     || flags.has('abilityCheck.disadvantage.dexterity')
     || flags.has('abilityCheck.disadvantage');
+
+  if (hasAdvantage && !hasDisadvantage) {
+    return 'advantage';
+  }
+
+  if (hasDisadvantage && !hasAdvantage) {
+    return 'disadvantage';
+  }
+
+  return 'normal';
+}
+
+/** Параметры расчёта режима спасброска по флагам существа */
+export interface SavingThrowRollModeParams {
+  /** Активные флаги существа (`ResolvedActorStats.activeFlags`) */
+  flags: ReadonlySet<string>;
+  /** Характеристика спасброска */
+  ability: AbilityType;
+  /**
+   * Спасбросок вызван заклинанием или иным магическим эффектом.
+   *
+   * Отдельным признаком, а не флагом существа: «против магии» — свойство
+   * броска, а не носителя. Мантия сопротивления заклинаниям даёт преимущество
+   * только тут и молчит на спасброске от яда.
+   */
+  againstMagic?: boolean;
+}
+
+/**
+ * Определяет режим спасброска D&D 5e по активным флагам существа.
+ *
+ * Учитывает общие флаги (`save.advantage`/`save.disadvantage`), профильные по
+ * характеристике (`save.*.<ability>`) и — когда спасбросок вызван магией —
+ * `save.*.vsMagic`. По правилу 5e преимущество и помеха взаимно гасятся.
+ *
+ * Единая точка для листа персонажа и для спасбросков, которые навязывает
+ * заклинание, чтобы одни и те же флаги читались одинаково.
+ *
+ * @param params - флаги, характеристика и признак магического источника
+ * @returns режим броска: обычный / преимущество / помеха
+ */
+export function resolveSavingThrowRollMode(
+  params: SavingThrowRollModeParams,
+): AttackRollMode {
+  const { flags, ability, againstMagic } = params;
+
+  const hasAdvantage =
+    flags.has('save.advantage')
+    || flags.has(`save.advantage.${ability}`)
+    || (againstMagic === true && flags.has('save.advantage.vsMagic'));
+
+  const hasDisadvantage =
+    flags.has('save.disadvantage')
+    || flags.has(`save.disadvantage.${ability}`)
+    || (againstMagic === true && flags.has('save.disadvantage.vsMagic'));
 
   if (hasAdvantage && !hasDisadvantage) {
     return 'advantage';

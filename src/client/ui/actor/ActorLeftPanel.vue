@@ -22,6 +22,7 @@
     getEntityExhaustionLevel,
     getTotalLevel,
     resolveEntityMaxHp,
+    resolveSavingThrowRollMode,
     withExhaustionLevel,
   } from '@vtt/shared/system/dnd.js';
 
@@ -624,28 +625,21 @@
       return;
     }
 
-    let initialRollMode: AttackRollMode = 'normal';
     let autoFail = false;
 
     const flags = resolvedStats.value?.activeFlags ?? new Set();
 
-    const hasAdvantage =
-      flags.has(`save.advantage.${ability.key}`) || flags.has('save.advantage');
-
-    const hasDisadvantage =
-      flags.has(`save.disadvantage.${ability.key}`)
-      || flags.has('save.disadvantage');
+    // Спасбросок с панели катится по своей воле, и источник его неизвестен,
+    // поэтому `save.*.vsMagic` тут не применяется: выдать преимущество против
+    // яда по предмету «против заклинаний» хуже, чем не выдать вовсе. Когда
+    // спасбросок навязывает заклинание, его считает `useSpellSavingThrows`.
+    const initialRollMode: AttackRollMode = resolveSavingThrowRollMode({
+      flags,
+      ability: ability.key,
+    });
 
     if (flags.has(`save.autoFail.${ability.key}`)) {
       autoFail = true;
-    }
-
-    if (hasAdvantage && !hasDisadvantage) {
-      initialRollMode = 'advantage';
-    }
-
-    if (!hasAdvantage && hasDisadvantage) {
-      initialRollMode = 'disadvantage';
     }
 
     openDiceRoll({

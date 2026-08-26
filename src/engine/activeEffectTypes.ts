@@ -36,7 +36,7 @@ import { z } from 'zod';
 
 import { isRecord, typedObjectEntries } from '@vtt/shared';
 
-import { CREATURE_CATEGORIES } from './consts.js';
+import { CREATURE_CATEGORIES, SKILLS_LABELS } from './consts.js';
 import {
   DAMAGE_PART_TARGETS,
   DAMAGE_TYPE_LABELS,
@@ -387,6 +387,19 @@ export type DamageVulnerabilityFlagKey =
 export type DamageDefenseFlagKey =
   DamageResistanceFlagKey | DamageImmunityFlagKey | DamageVulnerabilityFlagKey;
 
+/** Флаг преимущества на проверки конкретного навыка */
+export type SkillAdvantageFlagKey = `skill.${SkillType}.advantage`;
+
+/** Флаг помехи на проверки конкретного навыка */
+export type SkillDisadvantageFlagKey = `skill.${SkillType}.disadvantage`;
+
+/**
+ * Все понавыковые флаги. Генерируются по списку навыков: преимущество на
+ * Скрытность и помеха на Скрытность — один и тот же род данных, и держать
+ * второй перечислением значило бы дописывать союз при каждом новом предмете.
+ */
+export type SkillFlagKey = SkillAdvantageFlagKey | SkillDisadvantageFlagKey;
+
 /**
  * Нечисловые эффекты: помеха, преимущество, иммунитеты.
  *
@@ -422,9 +435,10 @@ export type EffectFlagKey =
   | 'abilityCheck.disadvantage.intelligence'
   | 'abilityCheck.disadvantage.wisdom'
   | 'abilityCheck.disadvantage.charisma'
-  | 'skill.stealth.disadvantage'
   | 'save.advantage'
   | 'save.disadvantage'
+  | 'save.advantage.vsMagic'
+  | 'save.disadvantage.vsMagic'
   | 'save.advantage.strength'
   | 'save.advantage.dexterity'
   | 'save.advantage.constitution'
@@ -450,14 +464,16 @@ export type EffectFlagKey =
   | 'vision.blinded'
   | 'vision.invisible'
   | 'defense.critImmunity'
-  | DamageDefenseFlagKey;
+  | DamageDefenseFlagKey
+  | SkillFlagKey;
 
 /**
- * Локализованные названия статических флагов (без флагов защит от урона).
- * Флаги защит генерируются отдельно — см. `buildDamageDefenseFlagLabels`.
+ * Локализованные названия статических флагов (без генерируемых семейств).
+ * Защиты от урона и понавыковые флаги собираются отдельно — см.
+ * `DAMAGE_DEFENSE_FLAG_LABELS` и `buildSkillFlagLabels`.
  */
 const BASE_EFFECT_FLAG_LABELS: Record<
-  Exclude<EffectFlagKey, DamageDefenseFlagKey>,
+  Exclude<EffectFlagKey, DamageDefenseFlagKey | SkillFlagKey>,
   string
 > = {
   // Атаки
@@ -497,12 +513,13 @@ const BASE_EFFECT_FLAG_LABELS: Record<
   'abilityCheck.disadvantage.wisdom': 'Помеха на проверки: Мудрость',
   'abilityCheck.disadvantage.charisma': 'Помеха на проверки: Харизма',
 
-  // Навыки (специфические помехи отдельных навыков)
-  'skill.stealth.disadvantage': 'Помеха на проверки: Скрытность',
-
   // Спасброски
   'save.advantage': 'Преимущество на ВСЕ спасброски',
   'save.disadvantage': 'Помеха на ВСЕ спасброски',
+  'save.advantage.vsMagic':
+    'Преимущество на спасброски против заклинаний и магических эффектов',
+  'save.disadvantage.vsMagic':
+    'Помеха на спасброски против заклинаний и магических эффектов',
   'save.advantage.strength': 'Преимущество на спасброски: Сила',
   'save.advantage.dexterity': 'Преимущество на спасброски: Ловкость',
   'save.advantage.constitution': 'Преимущество на спасброски: Телосложение',
@@ -585,10 +602,61 @@ const DAMAGE_DEFENSE_FLAG_LABELS: Record<DamageDefenseFlagKey, string> = {
   'vulnerability.psychic': `Уязвимость: ${DAMAGE_TYPE_LABELS.psychic}`,
 };
 
-/** Локализованные названия флагов эффектов (статические + защиты от урона) */
+/**
+ * Подписи понавыковых флагов — по паре на каждый навык.
+ *
+ * Выписаны перечислением, как и защиты от урона выше: тип
+ * `Record<SkillFlagKey, string>` тогда гарантирует полноту на этапе компиляции,
+ * а новый навык в справочнике сразу ломает сборку и не забывается. Значения
+ * переиспользуют `SKILLS_LABELS`, чтобы русские названия не задваивались.
+ */
+const SKILL_FLAG_LABELS: Record<SkillFlagKey, string> = {
+  'skill.acrobatics.advantage': `Преимущество на проверки: ${SKILLS_LABELS.acrobatics}`,
+  'skill.animalHandling.advantage': `Преимущество на проверки: ${SKILLS_LABELS.animalHandling}`,
+  'skill.arcana.advantage': `Преимущество на проверки: ${SKILLS_LABELS.arcana}`,
+  'skill.athletics.advantage': `Преимущество на проверки: ${SKILLS_LABELS.athletics}`,
+  'skill.deception.advantage': `Преимущество на проверки: ${SKILLS_LABELS.deception}`,
+  'skill.history.advantage': `Преимущество на проверки: ${SKILLS_LABELS.history}`,
+  'skill.insight.advantage': `Преимущество на проверки: ${SKILLS_LABELS.insight}`,
+  'skill.intimidation.advantage': `Преимущество на проверки: ${SKILLS_LABELS.intimidation}`,
+  'skill.investigation.advantage': `Преимущество на проверки: ${SKILLS_LABELS.investigation}`,
+  'skill.medicine.advantage': `Преимущество на проверки: ${SKILLS_LABELS.medicine}`,
+  'skill.nature.advantage': `Преимущество на проверки: ${SKILLS_LABELS.nature}`,
+  'skill.perception.advantage': `Преимущество на проверки: ${SKILLS_LABELS.perception}`,
+  'skill.performance.advantage': `Преимущество на проверки: ${SKILLS_LABELS.performance}`,
+  'skill.persuasion.advantage': `Преимущество на проверки: ${SKILLS_LABELS.persuasion}`,
+  'skill.religion.advantage': `Преимущество на проверки: ${SKILLS_LABELS.religion}`,
+  'skill.sleightOfHand.advantage': `Преимущество на проверки: ${SKILLS_LABELS.sleightOfHand}`,
+  'skill.stealth.advantage': `Преимущество на проверки: ${SKILLS_LABELS.stealth}`,
+  'skill.survival.advantage': `Преимущество на проверки: ${SKILLS_LABELS.survival}`,
+  'skill.acrobatics.disadvantage': `Помеха на проверки: ${SKILLS_LABELS.acrobatics}`,
+  'skill.animalHandling.disadvantage': `Помеха на проверки: ${SKILLS_LABELS.animalHandling}`,
+  'skill.arcana.disadvantage': `Помеха на проверки: ${SKILLS_LABELS.arcana}`,
+  'skill.athletics.disadvantage': `Помеха на проверки: ${SKILLS_LABELS.athletics}`,
+  'skill.deception.disadvantage': `Помеха на проверки: ${SKILLS_LABELS.deception}`,
+  'skill.history.disadvantage': `Помеха на проверки: ${SKILLS_LABELS.history}`,
+  'skill.insight.disadvantage': `Помеха на проверки: ${SKILLS_LABELS.insight}`,
+  'skill.intimidation.disadvantage': `Помеха на проверки: ${SKILLS_LABELS.intimidation}`,
+  'skill.investigation.disadvantage': `Помеха на проверки: ${SKILLS_LABELS.investigation}`,
+  'skill.medicine.disadvantage': `Помеха на проверки: ${SKILLS_LABELS.medicine}`,
+  'skill.nature.disadvantage': `Помеха на проверки: ${SKILLS_LABELS.nature}`,
+  'skill.perception.disadvantage': `Помеха на проверки: ${SKILLS_LABELS.perception}`,
+  'skill.performance.disadvantage': `Помеха на проверки: ${SKILLS_LABELS.performance}`,
+  'skill.persuasion.disadvantage': `Помеха на проверки: ${SKILLS_LABELS.persuasion}`,
+  'skill.religion.disadvantage': `Помеха на проверки: ${SKILLS_LABELS.religion}`,
+  'skill.sleightOfHand.disadvantage': `Помеха на проверки: ${SKILLS_LABELS.sleightOfHand}`,
+  'skill.stealth.disadvantage': `Помеха на проверки: ${SKILLS_LABELS.stealth}`,
+  'skill.survival.disadvantage': `Помеха на проверки: ${SKILLS_LABELS.survival}`,
+};
+
+/**
+ * Локализованные названия флагов эффектов: статические, защиты от урона и
+ * понавыковые.
+ */
 export const EFFECT_FLAG_LABELS: Record<EffectFlagKey, string> = {
   ...BASE_EFFECT_FLAG_LABELS,
   ...DAMAGE_DEFENSE_FLAG_LABELS,
+  ...SKILL_FLAG_LABELS,
 };
 
 // ── Источник эффекта ──────────────────────────────────────────
