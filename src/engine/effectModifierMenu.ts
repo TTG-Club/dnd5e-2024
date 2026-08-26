@@ -25,6 +25,9 @@ import {
 /** Приставка условий по типу НОСИТЕЛЯ — по ней пункты отбираются из подсказок. */
 const CARRIER_TYPE_CONDITION_PREFIX = 'self.creatureType === ';
 
+/** Приставка условия по надетому доспеху носителя. */
+const CARRIER_ARMOR_CONDITION_PREFIX = 'self.armor === ';
+
 /** Приставка условий по типу ЦЕЛИ. */
 const TARGET_TYPE_CONDITION_PREFIX = 'target.creatureType === ';
 
@@ -39,6 +42,7 @@ export type EffectModifierGroup =
   | 'attack'
   | 'damage'
   | 'carrierType'
+  | 'carrierArmor'
   | 'targetType';
 
 /** Подписи разделов меню. */
@@ -52,6 +56,7 @@ const EFFECT_MODIFIER_GROUP_LABELS: Record<EffectModifierGroup, string> = {
   attack: 'Атака',
   damage: 'Урон',
   carrierType: 'Условие: тип носителя',
+  carrierArmor: 'Условие: доспех носителя',
   targetType: 'Условие: тип цели',
 };
 
@@ -66,6 +71,7 @@ const GROUP_ORDER: readonly EffectModifierGroup[] = [
   'attack',
   'damage',
   'carrierType',
+  'carrierArmor',
   'targetType',
 ];
 
@@ -281,6 +287,8 @@ function buildMenu(): EffectModifierMenuGroup[] {
   }
 
   byGroup.set('carrierType', conditionPresets(CARRIER_TYPE_CONDITION_PREFIX));
+
+  byGroup.set('carrierArmor', conditionPresets(CARRIER_ARMOR_CONDITION_PREFIX));
 
   byGroup.set('targetType', conditionPresets(TARGET_TYPE_CONDITION_PREFIX));
 

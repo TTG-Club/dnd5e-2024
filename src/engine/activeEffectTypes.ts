@@ -272,6 +272,38 @@ export const EFFECT_CONDITION_SUGGESTIONS: Array<{
     label: 'Бросок: с помехой',
   },
 
+  // === ДОСПЕХ НОСИТЕЛЯ ===
+  // Считаются по самому листу, без броска: прибавка с таким условием попадает
+  // в постоянные числа (КД «Обороны» видно в блоке защиты, а не только в бою).
+  {
+    value: 'self.armor === "any"',
+    label: 'Носитель: в доспехе (любом)',
+  },
+  {
+    value: 'self.armor === "none"',
+    label: 'Носитель: без доспеха',
+  },
+  {
+    value: 'self.armor === "light"',
+    label: 'Носитель: в лёгком доспехе',
+  },
+  {
+    value: 'self.armor === "medium"',
+    label: 'Носитель: в среднем доспехе',
+  },
+  {
+    value: 'self.armor === "heavy"',
+    label: 'Носитель: в тяжёлом доспехе',
+  },
+  {
+    value: 'self.armor === "shield"',
+    label: 'Носитель: со щитом',
+  },
+  {
+    value: 'self.armor === "noShield"',
+    label: 'Носитель: без щита',
+  },
+
   // === ХИТЫ ЦЕЛИ ===
   {
     value: 'target.hp.value === target.hp.max',
