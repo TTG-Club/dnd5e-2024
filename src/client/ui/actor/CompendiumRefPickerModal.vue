@@ -1,8 +1,8 @@
 <script setup lang="ts">
   /**
    * Окно выбора записи компендиума — для полей, где запись задаётся ССЫЛКОЙ:
-   * требования черты (нужна черта, класс, вид, предыстория) и выдаваемые
-   * заклинания.
+   * требования черты (нужна черта, класс, вид, предыстория), выдаваемые
+   * заклинания и основной вид у происхождения.
    *
    * Слева перечислены компендиумы (паки сервера плюс записи, созданные в самом
    * мире) — их бывает много, и надо понимать, откуда берётся запись; справа —
@@ -44,11 +44,16 @@
     packName: string;
   }
 
-  /** Запись компендиума, годная в ссылку: у неё есть ключ и название. */
-  interface PickerEntry {
+  /** Чем запись адресуется и как называется — то, что окно берёт из записи. */
+  export interface PickerEntryFields {
+    /** Ключ записи: он уходит в `url` выбранной ссылки */
     key: string;
     name: string;
     nameEn: string;
+  }
+
+  /** Запись компендиума, годная в ссылку: у неё есть ключ и название. */
+  interface PickerEntry extends PickerEntryFields {
     packId: string;
     packName: string;
     /** Исходная запись — её показывает карточка сущности */
@@ -60,18 +65,58 @@
   /** Псевдо-пак записей, созданных в самом мире (панель «Предметы») */
   const WORLD_PACK_ID = '__world__';
 
-  const props = defineProps<{
-    /** Открыто ли окно */
-    open: boolean;
-    /** WebSocket-клиент: загрузка записей компендиума по пакам */
-    socket: TypedWebSocketClient | null;
-    /** Тип записей компендиума (`feat`, `class`, `species`, `background`, `spell`) */
-    kind: string;
-    /** Заголовок окна — что именно выбирают */
-    title: string;
-    /** Z-index (управляется вызывающим для bring-to-front) */
-    zIndex?: number;
-  }>();
+  /**
+   * Поля записи по умолчанию: ключ считает общий `compendiumEntryKey`, название
+   * берётся у самой записи. Без ключа или названия запись в ссылку не годится —
+   * по ним требование и сверяется.
+   *
+   * @param entry - запись компендиума
+   * @returns поля записи либо `null`, если в ссылку она не годится
+   */
+  function defaultEntryFields(
+    entry: CompendiumEntry,
+  ): PickerEntryFields | null {
+    const key = compendiumEntryKey(entry);
+
+    if (!key || !isRecord(entry) || typeof entry.name !== 'string') {
+      return null;
+    }
+
+    return {
+      key,
+      name: entry.name,
+      nameEn: typeof entry.nameEn === 'string' ? entry.nameEn : '',
+    };
+  }
+
+  const props = withDefaults(
+    defineProps<{
+      /** Открыто ли окно */
+      open: boolean;
+      /** WebSocket-клиент: загрузка записей компендиума по пакам */
+      socket: TypedWebSocketClient | null;
+      /** Тип записей компендиума (`feat`, `class`, `species`, `background`, `spell`) */
+      kind: string;
+      /** Заголовок окна — что именно выбирают */
+      title: string;
+      /** Z-index (управляется вызывающим для bring-to-front) */
+      zIndex?: number;
+      /**
+       * Множественный выбор. Выключенный — новая отметка вытесняет прежнюю: в
+       * поле-ссылку вроде основного вида влезает ровно одна запись, и молча
+       * отбрасывать лишние отметки хуже, чем не давать их поставить.
+       */
+      multiple?: boolean;
+      /**
+       * Своя подготовка записи: чем она адресуется и как называется. `null`
+       * убирает запись из списка. Нужна там, где общий ключ записи не годится
+       * (у вида мира ключ вида лежит в `speciesData`, а `id` предмета в ссылку
+       * не подходит) или где подходят не все записи типа.
+       */
+      resolveEntry?: (entry: CompendiumEntry) => PickerEntryFields | null;
+    }>(),
+    { zIndex: undefined, multiple: true, resolveEntry: undefined },
+  );
 
   const emit = defineEmits<{
     'update:open': [value: boolean];
@@ -93,8 +138,8 @@
   const selectedEntries = ref<PickerEntry[]>([]);
 
   /**
-   * Приводит запись компендиума к строке выбора. Без ключа или названия запись
-   * в ссылку не годится — по ним требование и сверяется.
+   * Приводит запись компендиума к строке выбора. Поля берёт `resolveEntry`
+   * вызывающего, а без него — общее правило {@link defaultEntryFields}.
    *
    * @param entry - запись компендиума
    * @param packId - идентификатор пака-источника
@@ -105,20 +150,15 @@
     packId: string,
     packName: string,
   ): PickerEntry | null {
-    const key = compendiumEntryKey(entry);
+    const fields = props.resolveEntry
+      ? props.resolveEntry(entry)
+      : defaultEntryFields(entry);
 
-    if (!key || !isRecord(entry) || typeof entry.name !== 'string') {
+    if (!fields) {
       return null;
     }
 
-    return {
-      key,
-      name: entry.name,
-      nameEn: typeof entry.nameEn === 'string' ? entry.nameEn : '',
-      packId,
-      packName,
-      raw: entry,
-    };
+    return { ...fields, packId, packName, raw: entry };
   }
 
   /**
@@ -214,16 +254,32 @@
   const canConfirm = computed(() => selectedEntries.value.length > 0);
 
   /**
-   * Отмечает или снимает отметку. Выбор всегда множественный: требование
+   * Подпись подтверждения: множественный выбор пополняет список, одиночный
+   * занимает единственное поле — «Добавить» там читалось бы как ещё одна запись.
+   */
+  const confirmLabel = computed(() =>
+    props.multiple ? MODAL_BUTTON_LABELS.add : REF_PICKER_LABELS.pick,
+  );
+
+  /**
+   * Отмечает или снимает отметку. По умолчанию выбор множественный: требование
    * «нужен класс» читается как «любой из перечисленных», а заклинаний черта
-   * выдаёт сколько угодно.
+   * выдаёт сколько угодно. Одиночный выбор вытесняет прежнюю отметку.
    *
    * @param entry - запись компендиума
    */
   function toggleSelection(entry: PickerEntry): void {
-    selectedEntries.value = selectedKeys.value.has(entry.key)
-      ? selectedEntries.value.filter((selected) => selected.key !== entry.key)
-      : [...selectedEntries.value, entry];
+    if (selectedKeys.value.has(entry.key)) {
+      selectedEntries.value = selectedEntries.value.filter(
+        (selected) => selected.key !== entry.key,
+      );
+
+      return;
+    }
+
+    selectedEntries.value = props.multiple
+      ? [...selectedEntries.value, entry]
+      : [entry];
   }
 
   /** Отдаёт отмеченные записи вызывающему и закрывает окно */
@@ -439,7 +495,7 @@
           />
 
           <UButton
-            :label="MODAL_BUTTON_LABELS.add"
+            :label="confirmLabel"
             color="primary"
             :disabled="!canConfirm"
             @click.left.exact.prevent="confirmSelection"

@@ -1,5 +1,10 @@
 <script setup lang="ts">
-  import type { SourceDefinition, TypedWebSocketClient } from '@vtt/shared';
+  import type { PackKindEntries } from '@/core/compendiumDataClient';
+  import type {
+    CompendiumEntry,
+    SourceDefinition,
+    TypedWebSocketClient,
+  } from '@vtt/shared';
   import type {
     ActiveEffect,
     CreatureSize,
@@ -14,11 +19,16 @@
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
+  import type {
+    PickedCompendiumRef,
+    PickerEntryFields,
+  } from '../CompendiumRefPickerModal.vue';
   import type { SpellOption } from '../grantedSpellsEditorTypes';
   import type { EditableFeature } from './speciesEditorTypes';
 
   import { computed, ref, watch } from 'vue';
 
+  import { loadCompendiumKindByPack } from '@/core/compendiumDataClient';
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
@@ -33,12 +43,12 @@
   import {
     CREATURE_SIZE_LABELS,
     CREATURE_TYPE_LABELS,
-    isDnDGameItem,
     slugify,
   } from '@vtt/shared/system/dnd.js';
 
-  import { useSystemDataStore } from '../../../stores/systemDataStore';
+  import CompendiumRefPickerModal from '../CompendiumRefPickerModal.vue';
   import {
+    COMPENDIUM_PICKER_LABELS,
     DEFINITION_FORM_LABELS,
     FORM_FIELD_LABELS,
     FORM_TAB_LABELS,
@@ -62,6 +72,12 @@
   import SpeciesFeaturesEditor from './SpeciesFeaturesEditor.vue';
 
   defineOptions({ inheritAttrs: false });
+
+  /** Основной вид, показанный в поле: как называется и откуда взят. */
+  interface ParentSpeciesInfo {
+    name: string;
+    packName: string;
+  }
 
   const props = defineProps<{
     open: boolean;
@@ -110,8 +126,7 @@
     { label: SPECIES_FORM_LABELS.tabEffects, slot: 'effects' as const },
   ];
 
-  const { openModal } = useModalManager();
-  const systemDataStore = useSystemDataStore();
+  const { getNextZIndex, openModal } = useModalManager();
   const itemsStore = useItemsStore();
 
   // ============================================================
@@ -130,11 +145,26 @@
   /** Ключ основного вида; пустая строка — запись самостоятельная. */
   const parentKey = ref('');
 
+  /** Название и пак только что выбранного основного вида — для показа в поле. */
+  const pickedParent = ref<ParentSpeciesInfo | null>(null);
+
+  /** Открыто ли окно выбора основного вида */
+  const isParentPickerOpen = ref(false);
+
+  /**
+   * Слой окна выбора. Без него оно открылось бы ПОД формой, которая его
+   * позвала: слои раздаёт менеджер окон, а не порядок в разметке.
+   */
+  const parentPickerZIndex = ref<number | undefined>(undefined);
+
   const speedWalk = ref(30);
   const speedFly = ref(0);
   const speedSwim = ref(0);
   const speedClimb = ref(0);
   const speedBurrow = ref(0);
+
+  /** Обычное зрение в футах; 0 — не задано (в запись не пишется). */
+  const speciesVision = ref(0);
 
   /**
    * Дары записи строками — та же редактируемая модель, что у черты и
@@ -174,48 +204,171 @@
   // ============================================================
 
   /**
-   * Виды, созданные в мире (GameItem с type==='species'), развёрнутые в плоский
-   * SpeciesDefinition из вложенного speciesData.
+   * Похоже ли значение на определение вида. Отдельным предикатом, а не
+   * проверкой по месту: `isRecord` сужает лишь до записи, а нужен
+   * `SpeciesDefinition`.
+   *
+   * @param value - произвольное значение
    */
-  function worldSpeciesDefinitions(): SpeciesDefinition[] {
-    return itemsStore.items
-      .filter(isDnDGameItem)
-      .filter((worldItem) => worldItem.type === 'species')
-      .map((worldItem) => worldItem.speciesData)
-      .filter(
-        (definition): definition is SpeciesDefinition =>
-          isRecord(definition) && definition.type === 'species',
-      );
+  function isSpeciesDefinitionRecord(
+    value: unknown,
+  ): value is SpeciesDefinition {
+    return isRecord(value) && value.type === 'species';
   }
 
   /**
-   * Кандидаты в родители: верхнеуровневые записи видов (компендиум + мир), без
-   * самой редактируемой записи — вид не может быть происхождением самого себя.
+   * Достаёт определение вида из записи справочника: предмет мира прячет его в
+   * `speciesData`, а запись компендиума приходит плоской.
+   *
+   * Смотрим именно на вложенный блоб, а не на «предмет ли это»: у записи вида в
+   * компендиуме есть и `id`, и `name`, и `type: 'species'` — по признакам
+   * предмета она от предмета мира неотличима, и проверка «предмет ⇒ speciesData»
+   * оставляла бы от всего компендиума пустой список.
+   *
+   * @param entry - запись компендиума или предмет мира
+   * @returns определение вида либо `null`
    */
-  const parentOptions = computed(() => {
-    const byKey = new Map<string, SpeciesDefinition>();
+  function readSpeciesDefinition(entry: unknown): SpeciesDefinition | null {
+    if (isRecord(entry) && isSpeciesDefinitionRecord(entry.speciesData)) {
+      return entry.speciesData;
+    }
 
-    for (const definition of [
-      ...systemDataStore.speciesDefinitions,
-      ...worldSpeciesDefinitions(),
-    ]) {
-      if (!definition.parentKey && definition.key !== existingKey.value) {
-        byKey.set(definition.key, definition);
+    return isSpeciesDefinitionRecord(entry) ? entry : null;
+  }
+
+  /**
+   * Годится ли запись в основной вид и чем она адресуется. Ключ берём у самого
+   * определения: у вида мира `id` принадлежит предмету, а в `parentKey` нужен
+   * ключ вида — по нему подвид и находит родителя.
+   *
+   * Отсеиваются подвиды (цепочку «подвид подвида» модель не знает) и сама
+   * редактируемая запись — вид не бывает происхождением самого себя.
+   *
+   * @param entry - запись компендиума или предмет мира
+   * @returns поля записи для окна выбора либо `null`
+   */
+  function resolveParentCandidate(
+    entry: CompendiumEntry,
+  ): PickerEntryFields | null {
+    const definition = readSpeciesDefinition(entry);
+
+    if (
+      !definition
+      || definition.parentKey
+      || definition.key === existingKey.value
+    ) {
+      return null;
+    }
+
+    return {
+      key: definition.key,
+      name: definition.name,
+      nameEn: definition.nameEn,
+    };
+  }
+
+  /**
+   * Виды справочника (компендиум + мир) по ключу. В записи лежит один ключ
+   * родителя, а показать в поле надо название — вот откуда оно берётся.
+   */
+  const knownSpeciesByKey = ref(new Map<string, ParentSpeciesInfo>());
+
+  /** Загружает виды справочника — по ним поле узнаёт название основного вида. */
+  async function loadKnownSpecies(): Promise<void> {
+    const known = new Map<string, ParentSpeciesInfo>();
+
+    if (props.socket) {
+      const packs: PackKindEntries[] = await loadCompendiumKindByPack(
+        props.socket,
+        'species',
+      );
+
+      for (const pack of packs) {
+        for (const entry of pack.entries) {
+          const definition = readSpeciesDefinition(entry);
+
+          if (definition && !known.has(definition.key)) {
+            known.set(definition.key, {
+              name: definition.name,
+              packName: pack.packName,
+            });
+          }
+        }
       }
     }
 
-    return [
-      { value: '', label: SPECIES_FORM_LABELS.parentNone },
-      ...[...byKey.values()]
-        .sort((first, second) =>
-          first.name.localeCompare(second.name, 'ru', { sensitivity: 'base' }),
-        )
-        .map((definition) => ({
-          value: definition.key,
-          label: definition.name,
-        })),
-    ];
+    for (const worldItem of itemsStore.items) {
+      const definition = readSpeciesDefinition(worldItem);
+
+      if (definition && !known.has(definition.key)) {
+        known.set(definition.key, {
+          name: definition.name,
+          packName: COMPENDIUM_PICKER_LABELS.worldPack,
+        });
+      }
+    }
+
+    knownSpeciesByKey.value = known;
+  }
+
+  /** Запись справочника, стоящая за выбранным ключом родителя. */
+  const knownParent = computed(() =>
+    parentKey.value ? knownSpeciesByKey.value.get(parentKey.value) : undefined,
+  );
+
+  /**
+   * Название основного вида. Свежий выбор знает его сам; у записи, открытой на
+   * правку, есть только ключ — название ищем в справочнике. Не нашлось (пак с
+   * родителем не подключён) — показываем ключ, а не пустое место.
+   */
+  const parentLabel = computed(() => {
+    if (!parentKey.value) {
+      return SPECIES_FORM_LABELS.parentNone;
+    }
+
+    return (
+      pickedParent.value?.name ?? knownParent.value?.name ?? parentKey.value
+    );
   });
+
+  /** Пока основной вид не выбран, в поле стоит подсказка — её и приглушаем. */
+  const parentLabelClass = computed(() =>
+    parentKey.value ? 'text-default' : 'text-dimmed',
+  );
+
+  /** Компендиум основного вида — пусто, если запись в справочнике не нашлась. */
+  const parentPackLabel = computed(
+    () => pickedParent.value?.packName ?? knownParent.value?.packName ?? '',
+  );
+
+  /** Открывает окно выбора основного вида поверх формы. */
+  function openParentPicker(): void {
+    parentPickerZIndex.value = getNextZIndex();
+    isParentPickerOpen.value = true;
+  }
+
+  /**
+   * Принимает выбор. Окно отдаёт список, но выбор здесь одиночный — берём
+   * первую и единственную ссылку.
+   *
+   * @param picked - выбранные записи
+   */
+  function applyParentPick(picked: PickedCompendiumRef[]): void {
+    const parent = picked[0];
+
+    if (!parent) {
+      return;
+    }
+
+    parentKey.value = parent.url;
+    pickedParent.value = { name: parent.name, packName: parent.packName };
+  }
+
+  /** Снимает основной вид — запись снова самостоятельная. */
+  function clearParent(): void {
+    parentKey.value = '';
+    pickedParent.value = null;
+  }
 
   // ============================================================
   // Конвертация легаси-грантов в блок даров featData
@@ -573,11 +726,13 @@
     creatureType.value = 'humanoid';
     selectedSizes.value = ['medium'];
     parentKey.value = '';
+    pickedParent.value = null;
     speedWalk.value = 30;
     speedFly.value = 0;
     speedSwim.value = 0;
     speedClimb.value = 0;
     speedBurrow.value = 0;
+    speciesVision.value = 0;
     recordGrants.value = createEmptyFeatGrants();
     preservedGrants.value = [];
     features.value = [];
@@ -607,6 +762,7 @@
     speedSwim.value = definition.speed?.swim ?? 0;
     speedClimb.value = definition.speed?.climb ?? 0;
     speedBurrow.value = definition.speed?.burrow ?? 0;
+    speciesVision.value = definition.vision ?? 0;
     existingKey.value = definition.key;
 
     // Легаси-гранты известных типов конвертируются в строки даров; неизвестные
@@ -709,6 +865,7 @@
       }
 
       void loadAvailableSpells();
+      void loadKnownSpecies();
     },
     { immediate: true },
   );
@@ -813,6 +970,10 @@
       definition.parentKey = parentKey.value;
     }
 
+    if (speciesVision.value > 0) {
+      definition.vision = Math.round(speciesVision.value);
+    }
+
     const recordFeatData = buildFeatData(recordGrants.value, []);
 
     if (recordFeatData) {
@@ -870,23 +1031,29 @@
         : SPECIES_FORM_LABELS.createTitle
     "
     :subtitle="nameEn || undefined"
-    :initial-width="760"
+    :initial-width="960"
+    :initial-height="700"
     :min-width="560"
-    :resizable="false"
+    :min-height="420"
+    :resizable="true"
     :z-index="zIndex"
     :saved-position="initialPosition"
+    :ui="{ body: 'flex min-h-0 flex-col' }"
     @update:open="handleOpenChange"
     @bring-to-front="emit('bring-to-front')"
   >
+    <!-- Тело окна — колонка на всю высоту, а прокручивается только содержимое
+      вкладки: у окна с изменяемым размером фиксированная высота вкладок
+      оставляла бы под ними пустоту, сколько окно ни растягивай -->
     <template #body>
       <UTabs
         :items="tabItems"
         variant="pill"
-        class="flex flex-col"
+        class="flex min-h-0 flex-1 flex-col"
         :ui="{
-          list: 'mb-3',
+          list: 'mb-3 shrink-0',
           trigger: 'flex-1 justify-center',
-          content: 'overflow-y-auto max-h-150',
+          content: 'min-h-0 flex-1 overflow-y-auto',
         }"
       >
         <!-- ОСНОВНОЕ -->
@@ -942,13 +1109,51 @@
                   class="col-span-2"
                   :label="SPECIES_FORM_LABELS.parent"
                 >
-                  <USelectMenu
-                    v-model="parentKey"
-                    :items="parentOptions"
-                    value-key="value"
-                    label-key="label"
-                    class="w-full"
-                  />
+                  <div class="flex items-center gap-2">
+                    <div
+                      class="flex min-w-0 flex-1 items-center gap-2 rounded-lg bg-elevated/40 px-2.5 py-1.5"
+                    >
+                      <span
+                        class="min-w-0 flex-1 truncate text-sm"
+                        :class="parentLabelClass"
+                      >
+                        {{ parentLabel }}
+                      </span>
+
+                      <UBadge
+                        v-if="parentPackLabel"
+                        color="success"
+                        variant="subtle"
+                        size="sm"
+                        icon="tabler:book"
+                        class="shrink-0"
+                      >
+                        {{ parentPackLabel }}
+                      </UBadge>
+                    </div>
+
+                    <UButton
+                      icon="tabler:books"
+                      :label="SPECIES_FORM_LABELS.parentPick"
+                      color="primary"
+                      variant="soft"
+                      size="sm"
+                      class="shrink-0"
+                      @click.left.exact.prevent="openParentPicker"
+                    />
+
+                    <UButton
+                      v-if="parentKey"
+                      icon="tabler:x"
+                      color="error"
+                      variant="ghost"
+                      size="sm"
+                      class="shrink-0"
+                      :title="SPECIES_FORM_LABELS.parentClear"
+                      :aria-label="SPECIES_FORM_LABELS.parentClear"
+                      @click.left.exact.prevent="clearParent"
+                    />
+                  </div>
 
                   <p class="mt-1 text-xs text-dimmed">
                     {{ SPECIES_FORM_LABELS.parentHint }}
@@ -1038,6 +1243,21 @@
             <p class="mt-3 text-xs text-dimmed">
               {{ SPECIES_FORM_LABELS.speedHint }}
             </p>
+          </FormSection>
+
+          <FormSection
+            :title="SPECIES_FORM_LABELS.visionTitle"
+            icon="tabler:eye"
+            :hint="SPECIES_FORM_LABELS.visionHint"
+            class="mt-4"
+          >
+            <UInputNumber
+              v-model="speciesVision"
+              :min="0"
+              :max="1000"
+              :step="5"
+              class="w-40"
+            />
           </FormSection>
         </template>
 
@@ -1130,4 +1350,17 @@
       </div>
     </template>
   </UDraggableModal>
+
+  <!-- Выбор основного вида стоит рядом с формой, а не внутри её вкладки:
+    вкладка при переключении размонтируется и унесла бы окно выбора с собой -->
+  <CompendiumRefPickerModal
+    v-model:open="isParentPickerOpen"
+    :socket="props.socket ?? null"
+    kind="species"
+    :title="SPECIES_FORM_LABELS.parentPickTitle"
+    :multiple="false"
+    :resolve-entry="resolveParentCandidate"
+    :z-index="parentPickerZIndex"
+    @select="applyParentPick"
+  />
 </template>

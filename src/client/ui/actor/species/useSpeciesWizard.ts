@@ -39,6 +39,7 @@ import {
   resolveChosenAbilities,
   resolveChosenDamageDefenses,
   resolveFeatChoiceCount,
+  resolveSpeciesVision,
 } from '@vtt/shared/system/dnd.js';
 
 import {
@@ -641,6 +642,14 @@ export function useSpeciesWizard(
 
     if (speciesDarkvision > tokenUpdates!.vision!.darkvision) {
       tokenUpdates!.vision!.darkvision = speciesDarkvision;
+    }
+
+    // Обычное зрение вида — дальность зрения токена днём; не задано — токен
+    // остаётся со своей
+    const speciesVision = resolveSpeciesVision(definition, subspecies);
+
+    if (speciesVision !== undefined) {
+      tokenUpdates!.vision!.range = speciesVision;
     }
 
     tokenUpdates!.scale =

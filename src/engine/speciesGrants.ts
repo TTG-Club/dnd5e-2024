@@ -195,6 +195,22 @@ export function computeSpeciesDarkvision(
   return darkvision;
 }
 
+/**
+ * Дальность обычного зрения вида: запись-подвид переопределяет родителя, как
+ * и скоростью. Ни у кого не задано — `undefined`: токен оставляет свою
+ * дальность, а не сбрасывается в «без ограничений».
+ *
+ * @param definition - определение вида
+ * @param subspecies - выбранная запись-подвид; пусто — не выбрана
+ * @returns дальность в футах либо `undefined`
+ */
+export function resolveSpeciesVision(
+  definition: SpeciesDefinition,
+  subspecies?: SpeciesDefinition | null,
+): number | undefined {
+  return subspecies?.vision ?? definition.vision;
+}
+
 /** Один источник блока даров `featData` у вида: запись целиком или особенность. */
 export interface SpeciesFeatDataSource {
   /** Стабильный ключ источника — им подписываются эффект даров и ответы игрока. */
