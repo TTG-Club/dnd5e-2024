@@ -320,81 +320,86 @@
         </template>
 
         <div class="flex flex-col gap-2">
-          <div class="flex items-end gap-2">
-            <UFormField class="w-64">
-              <template #label>
-                <span class="flex items-center gap-1">
-                  {{ FEAT_GRANTS_LABELS.kind }}
-                  <FieldHint :text="FEAT_GRANTS_LABELS.kindHint" />
-                </span>
-              </template>
+          <!-- Поля строки в одну линию. Подсказка про второй вид вынесена ПОД
+            строку: внутри ячейки она распирала её, и соседние поля съезжали
+            вниз на её высоту -->
+          <div class="flex flex-col gap-1">
+            <div class="flex flex-wrap items-end gap-2">
+              <UFormField class="min-w-56 flex-1">
+                <template #label>
+                  <span class="flex items-center gap-1">
+                    {{ FEAT_GRANTS_LABELS.kind }}
+                    <FieldHint :text="FEAT_GRANTS_LABELS.kindHint" />
+                  </span>
+                </template>
 
-              <USelectMenu
-                :model-value="row.kinds"
-                :items="kindOptions"
-                value-key="value"
-                label-key="label"
-                multiple
-                class="w-full"
-                @update:model-value="setKinds(row, $event)"
+                <USelectMenu
+                  :model-value="row.kinds"
+                  :items="kindOptions"
+                  value-key="value"
+                  label-key="label"
+                  multiple
+                  class="w-full"
+                  @update:model-value="setKinds(row, $event)"
+                >
+                  <!-- Отмеченные виды читаются как «или»: выбирают из общей кучи -->
+                  <span class="truncate">{{ kindsLabel(row) }}</span>
+                </USelectMenu>
+              </UFormField>
+
+              <UFormField class="w-40 shrink-0">
+                <template #label>
+                  <span class="flex items-center gap-1">
+                    {{ FEAT_GRANTS_LABELS.mode }}
+                    <FieldHint :text="FEAT_GRANTS_LABELS.modeHint" />
+                  </span>
+                </template>
+
+                <USelect
+                  v-model="row.mode"
+                  :items="modeOptions"
+                  value-key="value"
+                  label-key="label"
+                  :disabled="isChoiceOnlyRow(row)"
+                  class="w-full"
+                />
+              </UFormField>
+
+              <UFormField
+                v-if="row.mode === 'choice'"
+                :label="FEAT_GRANTS_LABELS.count"
+                class="w-24 shrink-0"
               >
-                <!-- Отмеченные виды читаются как «или»: выбирают из общей кучи -->
-                <span class="truncate">{{ kindsLabel(row) }}</span>
-              </USelectMenu>
+                <UInputNumber
+                  v-model="row.count"
+                  :min="1"
+                  :max="10"
+                  :disabled="row.countEqualsProficiencyBonus"
+                  class="w-full"
+                />
+              </UFormField>
 
-              <p
-                v-if="row.kinds.length === 1 && isMixableKind(primaryKind(row))"
-                class="mt-1 text-xs text-dimmed"
+              <div
+                v-if="row.mode === 'choice'"
+                class="mb-2 flex shrink-0 items-center gap-1"
               >
-                {{ FEAT_GRANTS_LABELS.kindSingleHint }}
-              </p>
-            </UFormField>
+                <UCheckbox
+                  v-model="row.countEqualsProficiencyBonus"
+                  :label="FEAT_GRANTS_LABELS.countEqualsProficiencyBonus"
+                />
 
-            <UFormField class="w-40">
-              <template #label>
-                <span class="flex items-center gap-1">
-                  {{ FEAT_GRANTS_LABELS.mode }}
-                  <FieldHint :text="FEAT_GRANTS_LABELS.modeHint" />
-                </span>
-              </template>
-
-              <USelect
-                v-model="row.mode"
-                :items="modeOptions"
-                value-key="value"
-                label-key="label"
-                :disabled="isChoiceOnlyRow(row)"
-                class="w-full"
-              />
-            </UFormField>
-
-            <UFormField
-              v-if="row.mode === 'choice'"
-              :label="FEAT_GRANTS_LABELS.count"
-              class="w-24"
-            >
-              <UInputNumber
-                v-model="row.count"
-                :min="1"
-                :max="10"
-                :disabled="row.countEqualsProficiencyBonus"
-                class="w-full"
-              />
-            </UFormField>
-
-            <div
-              v-if="row.mode === 'choice'"
-              class="mb-2 flex items-center gap-1"
-            >
-              <UCheckbox
-                v-model="row.countEqualsProficiencyBonus"
-                :label="FEAT_GRANTS_LABELS.countEqualsProficiencyBonus"
-              />
-
-              <FieldHint
-                :text="FEAT_GRANTS_LABELS.countEqualsProficiencyBonusHint"
-              />
+                <FieldHint
+                  :text="FEAT_GRANTS_LABELS.countEqualsProficiencyBonusHint"
+                />
+              </div>
             </div>
+
+            <p
+              v-if="row.kinds.length === 1 && isMixableKind(primaryKind(row))"
+              class="text-xs text-dimmed"
+            >
+              {{ FEAT_GRANTS_LABELS.kindSingleHint }}
+            </p>
           </div>
 
           <!-- Что выдаётся / из чего выбирают -->
