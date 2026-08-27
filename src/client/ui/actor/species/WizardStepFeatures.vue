@@ -1,12 +1,19 @@
 <script setup lang="ts">
   import type {
+    DnDActor,
     ResolvedGrantedSpell,
     SpeciesDefinition,
     SpeciesFeature,
     SpeciesFeatureChoice,
+    Spell,
   } from '@vtt/shared/system/dnd.js';
 
-  import type { SpeciesWizardState } from './useSpeciesWizard';
+  import type {
+    SpeciesFeatDataSourceView,
+    SpeciesWizardState,
+  } from './useSpeciesWizard';
+
+  import { computed } from 'vue';
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
 
@@ -16,17 +23,50 @@
     LEVEL_BADGE_SUFFIX,
     SPECIES_WIZARD_LABELS,
   } from '../constants';
+  import FeatChoicesFields from '../feat/FeatChoicesFields.vue';
 
   const props = defineProps<{
     speciesDefinition: SpeciesDefinition;
     state: SpeciesWizardState;
     /** Granted-заклинания особенностей вида с данными из компендиума */
     grantedSpells: ResolvedGrantedSpell[];
+    /** Лист персонажа: по нему сужаются пулы выборов даров */
+    actor: DnDActor;
+    /** Бонус мастерства — от него зависит количество у некоторых выборов */
+    proficiencyBonus: number;
+    /** Источники блоков даров featData с подготовленными вопросами */
+    featDataSources: SpeciesFeatDataSourceView[];
+    /** Заклинания компендиума — пул для выборов заклинаний в дарах */
+    featChoiceSpells: ReadonlyArray<Spell>;
   }>();
 
   const emit = defineEmits<{
     'update:state': [value: SpeciesWizardState];
   }>();
+
+  /** Источники, у которых есть вопросы к игроку. */
+  const sourcesWithChoices = computed(() =>
+    props.featDataSources.filter((source) => source.preparedChoices.length > 0),
+  );
+
+  /**
+   * Записывает ответы одного блока даров в состояние мастера.
+   *
+   * @param sourceKey - ключ источника блока
+   * @param answers - ответы блока: ключ выбора → выбранные значения
+   */
+  function updateFeatDataChoices(
+    sourceKey: string,
+    answers: Record<string, string[]>,
+  ) {
+    emit('update:state', {
+      ...props.state,
+      featDataChoices: {
+        ...props.state.featDataChoices,
+        [sourceKey]: answers,
+      },
+    });
+  }
 
   /**
    * Обновляет выбранный вариант для особенности вида.
@@ -177,6 +217,27 @@
           </div>
         </template>
       </div>
+    </div>
+
+    <!-- Выборы блоков даров featData: по блоку на источник — ключи выборов у
+      разных особенностей могут совпадать, и общий список их бы склеил -->
+    <div
+      v-for="source in sourcesWithChoices"
+      :key="source.sourceKey"
+      class="flex flex-col gap-3 rounded-lg bg-elevated p-4"
+    >
+      <span class="font-medium text-primary">
+        {{ SPECIES_WIZARD_LABELS.featDataChoicesPrefix }}{{ source.sourceName }}
+      </span>
+
+      <FeatChoicesFields
+        :choices="source.preparedChoices"
+        :actor="actor"
+        :proficiency-bonus="proficiencyBonus"
+        :spells="featChoiceSpells"
+        :model-value="state.featDataChoices[source.sourceKey] ?? {}"
+        @update:model-value="updateFeatDataChoices(source.sourceKey, $event)"
+      />
     </div>
   </div>
 </template>

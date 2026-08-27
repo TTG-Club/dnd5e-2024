@@ -84,6 +84,7 @@
     MODAL_BUTTON_LABELS,
     REST_LABELS,
     SPECIES_DEFINITION_MIME,
+    SPECIES_WIZARD_LABELS,
     SPELL_MIME,
     TOAST_TITLES,
     UNSAVED_CHANGES_LABELS,
@@ -185,6 +186,9 @@
    * Сохраняется после каждого применения вида для корректного отката при смене.
    */
   const appliedSpeciesDef = ref<SpeciesDefinition | null>(null);
+
+  /** Определение применённого подвида-записи — для точного отката при смене. */
+  const appliedSubspeciesDef = ref<SpeciesDefinition | null>(null);
 
   // Очередь для последовательного повышения уровней (Wizard)
   const wizardQueue = ref<Array<{ classKey: string; targetLevel: number }>>([]);
@@ -428,6 +432,13 @@
     if (found) {
       appliedSpeciesDef.value = found;
     }
+
+    const subspeciesKey = actorData.system.species?.subspeciesKey;
+
+    appliedSubspeciesDef.value = subspeciesKey
+      ? (definitions.find((definition) => definition.key === subspeciesKey)
+        ?? null)
+      : null;
   }
 
   // Предзагрузка определений компендиума при появлении сокета (и смене мира).
@@ -1220,10 +1231,34 @@
   /**
    * Запускает настройку вида: у персонажа с видом сперва спрашиваем замену.
    *
+   * Запись-подвид самостоятельным видом не применяется: вместо неё открывается
+   * мастер её родителя, а происхождение игрок выбирает шагом мастера. Родителя
+   * нет среди записей (пак не подключён) — настройка не начинается.
+   *
    * @param definition - определение вида
    */
   function startSpeciesSetup(definition: SpeciesDefinition) {
-    droppedSpeciesDef.value = definition;
+    let target = definition;
+
+    if (definition.parentKey) {
+      const parent = speciesDefinitions.value.find(
+        (entry) => entry.key === definition.parentKey,
+      );
+
+      if (!parent) {
+        toast.add({
+          title: SPECIES_WIZARD_LABELS.subspeciesParentMissingTitle,
+          description: SPECIES_WIZARD_LABELS.subspeciesParentMissingText,
+          color: 'warning',
+        });
+
+        return;
+      }
+
+      target = parent;
+    }
+
+    droppedSpeciesDef.value = target;
 
     if (localActor.value?.system.species) {
       replaceConfirmTarget.value = 'species';
@@ -2073,12 +2108,14 @@
     const { systemUpdates, rootUpdates } = buildSpeciesRemovalUpdates(
       localActor.value,
       appliedSpeciesDef.value,
+      appliedSubspeciesDef.value,
     );
 
     Object.assign(localActor.value.system, systemUpdates);
     Object.assign(localActor.value, rootUpdates);
 
     appliedSpeciesDef.value = null;
+    appliedSubspeciesDef.value = null;
     droppedSpeciesDef.value = null;
 
     isDirty.value = true;
@@ -2150,6 +2187,14 @@
     // Сохраняем определение применённого вида для отката при следующей смене
     appliedSpeciesDef.value = droppedSpeciesDef.value;
 
+    const subspeciesKey = localActor.value.system.species?.subspeciesKey;
+
+    appliedSubspeciesDef.value = subspeciesKey
+      ? (speciesDefinitions.value.find(
+          (definition) => definition.key === subspeciesKey,
+        ) ?? null)
+      : null;
+
     isDirty.value = true;
     handleImmediateSave();
   }
@@ -2178,16 +2223,24 @@
     const totalLevel = getTotalLevel(actorData.system.classes);
     const chosenSubspecies = Object.values(speciesEntry.featureChoices ?? {});
 
+    const subspecies = speciesEntry.subspeciesKey
+      ? (speciesDefinitions.value.find(
+          (entry) => entry.key === speciesEntry.subspeciesKey,
+        ) ?? null)
+      : null;
+
     const movement = computeSpeciesMovement(
       definition,
       totalLevel,
       chosenSubspecies,
+      subspecies,
     );
 
     const darkvision = computeSpeciesDarkvision(
       definition,
       totalLevel,
       chosenSubspecies,
+      subspecies,
     );
 
     let changed = false;
@@ -2237,7 +2290,9 @@
         ',',
       );
 
-      return `${speciesEntry.speciesKey}|${totalLevel}|${choices}`;
+      const subspecies = speciesEntry.subspeciesKey ?? '';
+
+      return `${speciesEntry.speciesKey}|${subspecies}|${totalLevel}|${choices}`;
     },
     (signature, previousSignature) => {
       if (!signature || signature === previousSignature) {
@@ -2512,6 +2567,8 @@
     :actor="localActor"
     :species-definition="droppedSpeciesDef"
     :previous-species-definition="appliedSpeciesDef"
+    :previous-subspecies-definition="appliedSubspeciesDef"
+    :species-records="speciesDefinitions"
     :socket="socket"
     @apply="handleSpeciesSetupApply"
   />

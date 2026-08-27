@@ -274,4 +274,11 @@ export interface ActorSpeciesEntry {
   /** Ответы по легаси-вариантам: ключ особенности → ключ выбранного варианта. */
   featureChoices: Record<string, string>;
   grantChoices: Record<number, string[]>;
+  /**
+   * Ответы на выборы блоков даров `featData`: ключ источника
+   * ({@link import('./speciesGrants.js').SpeciesFeatDataSource.sourceKey}) →
+   * ответы этого блока (ключ выбора → выбранные значения). По ним откат снимает
+   * выданное выбором, не переспрашивая игрока.
+   */
+  featDataChoices?: Record<string, Record<string, string[]>>;
 }

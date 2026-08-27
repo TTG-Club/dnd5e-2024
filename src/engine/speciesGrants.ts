@@ -1,5 +1,6 @@
 import type { MovementType } from '@vtt/shared';
 
+import type { FeatData } from './featTypes.js';
 import type { GrantedSpellSource } from './grantedSpells.js';
 import type { SpeciesDefinition, SpeciesFeature } from './speciesTypes.js';
 
@@ -192,6 +193,78 @@ export function computeSpeciesDarkvision(
   }
 
   return darkvision;
+}
+
+/** Один источник блока даров `featData` у вида: запись целиком или особенность. */
+export interface SpeciesFeatDataSource {
+  /** Стабильный ключ источника — им подписываются эффект даров и ответы игрока. */
+  sourceKey: string;
+  /** Название источника — им подписывается эффект даров на акторе. */
+  sourceName: string;
+  featData: FeatData;
+}
+
+/**
+ * Собирает источники блоков даров `featData` вида: сама запись, запись-подвид и
+ * активные на текущем уровне особенности (включая особенности подвида и
+ * выбранных легаси-вариантов). Информационные особенности даров не дают.
+ *
+ * Общий для мастера (применение и вопросы к игроку) и отката: оба обязаны
+ * видеть один и тот же список источников, иначе снятие вида оставило бы дары.
+ *
+ * @param definition - определение вида
+ * @param totalLevel - суммарный уровень персонажа
+ * @param chosenSubspecies - выбранные ключи легаси-вариантов
+ * @param subspecies - выбранная запись-подвид; пусто — не выбрана
+ * @returns источники блоков даров в порядке применения
+ */
+export function collectSpeciesFeatDataSources(
+  definition: SpeciesDefinition,
+  totalLevel: number,
+  chosenSubspecies: ReadonlyArray<string>,
+  subspecies?: SpeciesDefinition | null,
+): SpeciesFeatDataSource[] {
+  const sources: SpeciesFeatDataSource[] = [];
+
+  if (definition.featData) {
+    sources.push({
+      sourceKey: definition.key,
+      sourceName: definition.name,
+      featData: definition.featData,
+    });
+  }
+
+  if (subspecies?.featData) {
+    sources.push({
+      sourceKey: subspecies.key,
+      sourceName: subspecies.name,
+      featData: subspecies.featData,
+    });
+  }
+
+  const features = collectSpeciesFeatures(
+    definition,
+    chosenSubspecies,
+    subspecies,
+  );
+
+  for (const feature of features) {
+    if (!feature.featData || feature.isInformationalOnly) {
+      continue;
+    }
+
+    if (!isSpeciesFeatureActive(feature, totalLevel)) {
+      continue;
+    }
+
+    sources.push({
+      sourceKey: `feature:${feature.key}`,
+      sourceName: feature.name,
+      featData: feature.featData,
+    });
+  }
+
+  return sources;
 }
 
 /**

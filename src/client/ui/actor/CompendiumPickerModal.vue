@@ -123,6 +123,9 @@
    * Проверяет, что запись — определение нужного нам типа. Дискриминант `type`
    * есть у всех трёх определений; по нему же их отбирает лист персонажа.
    *
+   * Записи-подвиды (`parentKey`) самостоятельным видом не предлагаются:
+   * происхождение выбирается внутри мастера настройки после выбора родителя.
+   *
    * @param value - запись компендиума или предмета мира
    * @param kind - тип выбираемой записи
    */
@@ -130,9 +133,15 @@
     value: unknown,
     kind: MissingSheetSectionKey,
   ): value is PickerDefinition {
-    return (
-      isRecord(value) && value.type === kind && typeof value.key === 'string'
-    );
+    if (
+      !isRecord(value)
+      || value.type !== kind
+      || typeof value.key !== 'string'
+    ) {
+      return false;
+    }
+
+    return kind !== 'species' || !value.parentKey;
   }
 
   /**

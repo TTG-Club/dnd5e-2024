@@ -2909,6 +2909,13 @@ export const SPECIES_WIZARD_LABELS = {
   title: 'Настройка вида',
   subtitle: 'Создание персонажа',
   chooseFeatureChoice: 'Сделайте выбор:',
+  chooseSubspecies: 'Выберите происхождение:',
+  subspeciesHint:
+    'Происхождение — самостоятельная запись вида: его особенности и дары применяются вместе с особенностями основного вида.',
+  featDataChoicesPrefix: 'Выборы дара: ',
+  subspeciesParentMissingTitle: 'Это происхождение вида',
+  subspeciesParentMissingText:
+    'Основной вид этого происхождения не найден среди записей — подключите пак с ним и начните с основного вида.',
 } as const;
 
 /**
