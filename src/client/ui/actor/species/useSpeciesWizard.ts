@@ -42,6 +42,10 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import {
+  SPECIES_GRANT_EFFECT_PRESENTATION,
+  SPECIES_WIZARD_LABELS,
+} from '../constants';
+import {
   isSpeciesProvidedEffect,
   rollbackSpeciesFeatures,
   rollbackSpeciesGrantedSpells,
@@ -377,7 +381,10 @@ export function useSpeciesWizard(
     const result = [{ key: 'overview', title: 'Обзор' }];
 
     if (subspeciesOptions.value.length > 0) {
-      result.push({ key: 'subspecies', title: 'Происхождение' });
+      result.push({
+        key: 'subspecies',
+        title: SPECIES_WIZARD_LABELS.stepSubspecies,
+      });
     }
 
     // Есть ли гранты с выбором?
@@ -850,19 +857,21 @@ export function useSpeciesWizard(
     });
 
     // Особенности записи-подвида — своей записью-источником.
-    for (const subspeciesFeature of subspecies?.features ?? []) {
-      if (subspeciesFeature.isInformationalOnly) {
-        continue;
+    if (subspecies) {
+      for (const subspeciesFeature of subspecies.features) {
+        if (subspeciesFeature.isInformationalOnly) {
+          continue;
+        }
+
+        pushSpeciesFeature(
+          subspeciesFeature.name,
+          describeGrantedSpells(subspeciesFeature),
+          subspeciesFeature.level ?? 1,
+          subspecies.name,
+        );
+
+        appliedFeatureNames.add(subspeciesFeature.name);
       }
-
-      pushSpeciesFeature(
-        subspeciesFeature.name,
-        describeGrantedSpells(subspeciesFeature),
-        subspeciesFeature.level ?? 1,
-        subspecies!.name,
-      );
-
-      appliedFeatureNames.add(subspeciesFeature.name);
     }
 
     rootUpdates.features = newFeatures;
@@ -936,9 +945,7 @@ export function useSpeciesWizard(
         source.featData,
         {
           originPrefix: SPECIES_GRANT_EFFECT_PREFIX,
-          namePrefix: 'Вид',
-          noun: 'вида',
-          icon: 'tabler:dna',
+          ...SPECIES_GRANT_EFFECT_PRESENTATION,
         },
         {
           acquisitionLevel: characterLevel,

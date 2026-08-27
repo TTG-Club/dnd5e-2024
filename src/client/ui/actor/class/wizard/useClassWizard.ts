@@ -54,6 +54,7 @@ import {
   SKILLS_LIST,
 } from '@vtt/shared/system/dnd.js';
 
+import { CLASS_GRANT_EFFECT_PRESENTATION } from '../../constants';
 import {
   buildClassEffectId,
   collectClassEffects,
@@ -1560,7 +1561,7 @@ export function useClassWizard(
         source.sourceKey,
         source.sourceName,
         source.featData,
-        { namePrefix: 'Класс', noun: 'класса', icon: 'tabler:school' },
+        CLASS_GRANT_EFFECT_PRESENTATION,
         {
           acquisitionLevel: getTotalLevel(actor.value.system.classes) + 1,
           walkSpeed: actor.value.system.movement?.walk,
@@ -1598,7 +1599,7 @@ export function useClassWizard(
     // Тёмное зрение из даров уровня: дальность зрения токена поднимается до
     // максимума и не понижается — источник мог быть и другой (вид/черта)
     const featDataDarkvision = levelFeatData.value.reduce(
-      (best, data) => Math.max(best, data.darkvision ?? 0),
+      (best, block) => Math.max(best, block.darkvision ?? 0),
       0,
     );
 

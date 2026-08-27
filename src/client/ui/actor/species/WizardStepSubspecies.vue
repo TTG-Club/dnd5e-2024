@@ -50,7 +50,7 @@
    *
    * @param subspeciesKey - ключ выбранной записи-подвида
    */
-  function selectSubspecies(subspeciesKey: string) {
+  function selectSubspecies(subspeciesKey: string): void {
     emit('update:state', {
       ...props.state,
       subspeciesKey,

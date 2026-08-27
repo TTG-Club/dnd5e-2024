@@ -58,7 +58,7 @@
   function updateFeatDataChoices(
     sourceKey: string,
     answers: Record<string, string[]>,
-  ) {
+  ): void {
     emit('update:state', {
       ...props.state,
       featDataChoices: {

@@ -2941,6 +2941,7 @@ export const SPECIES_WIZARD_LABELS = {
   title: 'Настройка вида',
   subtitle: 'Создание персонажа',
   chooseFeatureChoice: 'Сделайте выбор:',
+  stepSubspecies: 'Происхождение',
   chooseSubspecies: 'Выберите происхождение:',
   subspeciesHint:
     'Происхождение — самостоятельная запись вида: его особенности и дары применяются вместе с особенностями основного вида.',
@@ -2948,6 +2949,20 @@ export const SPECIES_WIZARD_LABELS = {
   subspeciesParentMissingTitle: 'Это происхождение вида',
   subspeciesParentMissingText:
     'Основной вид этого происхождения не найден среди записей — подключите пак с ним и начните с основного вида.',
+} as const;
+
+/** Подписи и значок синтетического эффекта даров вида на акторе. */
+export const SPECIES_GRANT_EFFECT_PRESENTATION = {
+  namePrefix: 'Вид',
+  noun: 'вида',
+  icon: 'tabler:dna',
+} as const;
+
+/** Подписи и значок синтетического эффекта даров класса на акторе. */
+export const CLASS_GRANT_EFFECT_PRESENTATION = {
+  namePrefix: 'Класс',
+  noun: 'класса',
+  icon: 'tabler:school',
 } as const;
 
 /**

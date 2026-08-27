@@ -29,7 +29,6 @@
     linkGrantedSpellRefs,
     loadSpellPacks,
   } from '@/systems/dnd5e/composables/spellCompendium';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { generateId, isRecord, typedObjectEntries } from '@vtt/shared';
   import {
     CREATURE_SIZE_LABELS,
@@ -38,6 +37,7 @@
     slugify,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useSystemDataStore } from '../../../stores/systemDataStore';
   import {
     DEFINITION_FORM_LABELS,
     FORM_FIELD_LABELS,
@@ -252,7 +252,7 @@
     converted: FeatData | null;
     preserved: SpeciesGrant[];
   } {
-    const data: FeatData = { type: 'feat' };
+    const built: FeatData = { type: 'feat' };
     const choices: FeatChoice[] = [];
     const preserved: SpeciesGrant[] = [];
     const takenKeys = new Set<string>();
@@ -288,14 +288,14 @@
         return;
       }
 
-      data[field] = [...(data[field] ?? []), ...items];
+      built[field] = [...(built[field] ?? []), ...items];
       hasContent = true;
     };
 
     for (const grant of grants) {
       switch (grant.type) {
         case 'darkvision':
-          data.darkvision = Math.max(data.darkvision ?? 0, grant.range);
+          built.darkvision = Math.max(built.darkvision ?? 0, grant.range);
           hasContent = true;
 
           break;
@@ -306,8 +306,8 @@
 
           break;
         case 'savingThrowProficiency':
-          data.savingThrowProficiencies = [
-            ...(data.savingThrowProficiencies ?? []),
+          built.savingThrowProficiencies = [
+            ...(built.savingThrowProficiencies ?? []),
             ...grant.abilities,
           ];
 
@@ -315,8 +315,8 @@
 
           break;
         case 'damageDefense':
-          data.damageDefenses = [
-            ...(data.damageDefenses ?? []),
+          built.damageDefenses = [
+            ...(built.damageDefenses ?? []),
             ...grant.entries.map((entry) => ({ ...entry })),
           ];
 
@@ -324,8 +324,8 @@
 
           break;
         case 'conditionImmunity':
-          data.conditionImmunities = [
-            ...(data.conditionImmunities ?? []),
+          built.conditionImmunities = [
+            ...(built.conditionImmunities ?? []),
             ...grant.conditions,
           ];
 
@@ -370,10 +370,10 @@
     }
 
     if (choices.length > 0) {
-      data.choices = choices;
+      built.choices = choices;
     }
 
-    return { converted: hasContent ? data : null, preserved };
+    return { converted: hasContent ? built : null, preserved };
   }
 
   /**
