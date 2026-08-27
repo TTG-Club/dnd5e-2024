@@ -3,17 +3,13 @@
   import type { CompendiumEntry, TypedWebSocketClient } from '@vtt/shared';
   import type { FeatPrerequisiteRef } from '@vtt/shared/system/dnd.js';
 
-  import type { PickedCompendiumRef } from '../CompendiumRefPickerModal.vue';
-
   import { computed, ref, watch } from 'vue';
 
   import { loadCompendiumKindByPack } from '@/core/compendiumDataClient';
   import { getEntityCard } from '@/core/registries';
-  import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { compendiumEntryKey, isRecord } from '@vtt/shared';
 
-  import CompendiumRefPickerModal from '../CompendiumRefPickerModal.vue';
-  import { REF_PICKER_LABELS, REF_PICKER_TITLES } from '../constants';
+  import { REF_PICKER_LABELS } from '../constants';
 
   /**
    * Список требуемых записей справочника: черты, классы, виды, предыстории.
@@ -22,7 +18,7 @@
    * сверяется с листом по ключу и названию записи, и набранное руками расходится
    * с справочником от одной опечатки. Своя черта или предыстория сперва
    * заводится в мире (панель «Предметы»), а потом выбирается отсюда наравне с
-   * записями компендиума — мир показан в окне выбора отдельным разделом.
+   * записями компендиума.
    */
   const refs = defineModel<FeatPrerequisiteRef[]>({ required: true });
 
@@ -43,25 +39,35 @@
     raw: CompendiumEntry;
   }
 
-  const { getNextZIndex } = useModalManager();
-
-  const isPickerOpen = ref(false);
-
-  /**
-   * Слой окна выбора. Без него окно открылось бы ПОД формой, из которой его
-   * позвали: слои раздаёт менеджер окон, а не порядок в разметке.
-   */
-  const pickerZIndex = ref<number | undefined>(undefined);
+  /** Одна опция поля добавления. */
+  interface RefPickItem {
+    value: string;
+    label: string;
+    description: string;
+  }
 
   /** Записи справочника по ключу — по ним строка узнаёт свою запись. */
   const knownByKey = ref(new Map<string, KnownEntry>());
 
-  /** Можно ли открыть выбор из компендиума. */
-  const canPick = computed(() => Boolean(props.kind && props.socket));
+  /** Значение поля добавления: после выбора оно сбрасывается. */
+  const pickedKeys = ref<string[]>([]);
 
-  const pickerTitle = computed(
-    () => REF_PICKER_TITLES[props.kind] ?? REF_PICKER_LABELS.open,
-  );
+  /**
+   * Пул выбора: уже перечисленные не предлагаются — повтор в требовании ничего
+   * не добавляет.
+   */
+  const entryItems = computed<RefPickItem[]>(() => {
+    const taken = new Set(refs.value.map((entry) => entry.url));
+
+    return [...knownByKey.value.entries()]
+      .filter(([key]) => !taken.has(key))
+      .map(([key, known]) => ({
+        value: key,
+        label: known.name,
+        description: known.packName,
+      }))
+      .sort((left, right) => left.label.localeCompare(right.label));
+  });
 
   /**
    * Запись, стоящая за ссылкой. Сверяем по ключу, а если его нет — по названию:
@@ -140,31 +146,27 @@
     knownByKey.value = known;
   }
 
-  function openPicker(): void {
-    pickerZIndex.value = getNextZIndex();
-    isPickerOpen.value = true;
-  }
-
   function removeRef(index: number): void {
     refs.value = refs.value.filter((_, rowIndex) => rowIndex !== index);
   }
 
   /**
-   * Дописывает выбранные записи. Уже перечисленные пропускаются: повтор в
-   * требовании ничего не добавляет.
+   * Дописывает выбранные записи и очищает поле.
    *
-   * @param picked - выбранные записи
+   * @param keys - ключи выбранных записей справочника
    */
-  function addPicked(picked: PickedCompendiumRef[]): void {
-    const taken = new Set(refs.value.map((entry) => entry.url));
+  function addPicked(keys: string[]): void {
+    const added = keys.flatMap((key) => {
+      const known = knownByKey.value.get(key);
 
-    const added = picked
-      .filter((entry) => !taken.has(entry.url))
-      .map((entry) => ({ url: entry.url, name: entry.name }));
+      return known ? [{ url: key, name: known.name }] : [];
+    });
 
     if (added.length > 0) {
       refs.value = [...refs.value, ...added];
     }
+
+    pickedKeys.value = [];
   }
 
   watch(
@@ -234,32 +236,27 @@
       />
     </div>
 
-    <UButton
-      v-if="canPick"
-      icon="tabler:books"
-      :label="REF_PICKER_LABELS.open"
-      color="primary"
-      variant="soft"
-      size="xs"
-      class="self-start"
-      @click.left.exact.prevent="openPicker"
+    <!-- Поле добавления под списком — тот же порядок, что у выдаваемых
+      заклинаний и в редакторах ссылок на сайте -->
+    <USelectMenu
+      :model-value="pickedKeys"
+      :items="entryItems"
+      label-key="label"
+      value-key="value"
+      multiple
+      size="sm"
+      icon="tabler:plus"
+      :search-input="{ placeholder: REF_PICKER_LABELS.searchPlaceholder }"
+      :placeholder="REF_PICKER_LABELS.placeholder"
+      :disabled="entryItems.length === 0"
+      @update:model-value="addPicked"
     />
 
     <p
-      v-else
+      v-if="knownByKey.size === 0"
       class="text-xs text-dimmed italic"
     >
       {{ REF_PICKER_LABELS.noSocket }}
     </p>
-
-    <CompendiumRefPickerModal
-      v-if="canPick"
-      v-model:open="isPickerOpen"
-      :socket="props.socket"
-      :kind="props.kind"
-      :title="pickerTitle"
-      :z-index="pickerZIndex"
-      @select="addPicked"
-    />
   </div>
 </template>

@@ -1,6 +1,4 @@
 <script setup lang="ts" generic="T extends EditableFeatureFields">
-  import type { TypedWebSocketClient } from '@vtt/shared';
-
   import type { SpellOption } from '../grantedSpellsEditorTypes';
   import type { EditableFeatureFields } from './speciesEditorTypes';
 
@@ -15,14 +13,9 @@
   import EntityEffectsEditor from '../EntityEffectsEditor.vue';
   import GrantedSpellsEditor from '../GrantedSpellsEditor.vue';
 
-  const props = defineProps<{
+  defineProps<{
     /** Заклинания компендиума по пакам — пробрасываются в редактор заклинаний. */
     availableSpells?: SpellOption[];
-    /**
-     * Сокет для окна выбора заклинания из компендиума. Без него добавить
-     * заклинание нечем: другого способа завести запись у редактора нет.
-     */
-    socket?: TypedWebSocketClient | null;
   }>();
 
   /**
@@ -133,7 +126,6 @@
         <GrantedSpellsEditor
           v-model="feature.grantedSpells"
           :available-spells="availableSpells"
-          :socket="props.socket"
           @open-spell="forwardOpenSpell"
         />
       </UFormField>

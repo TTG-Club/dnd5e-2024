@@ -1628,7 +1628,6 @@
           v-if="editorNodeKind === 'feature'"
           v-model="features[editorFeatureIndex]"
           :available-spells="availableSpells"
-          :socket="props.socket"
           @open-spell="openSpellDetail"
         />
 
@@ -1640,7 +1639,6 @@
             ]
           "
           :available-spells="availableSpells"
-          :socket="props.socket"
           @open-spell="openSpellDetail"
         />
 

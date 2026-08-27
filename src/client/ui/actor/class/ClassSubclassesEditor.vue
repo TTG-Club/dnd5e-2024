@@ -1,6 +1,4 @@
 <script setup lang="ts">
-  import type { TypedWebSocketClient } from '@vtt/shared';
-
   import type { SpellOption } from '../grantedSpellsEditorTypes';
   import type { EditableSubclass } from './classEditorTypes';
 
@@ -27,11 +25,6 @@
   const props = defineProps<{
     /** Заклинания компендиума по пакам — для подсказок связывания. */
     availableSpells?: SpellOption[];
-    /**
-     * Сокет для окна выбора заклинания из компендиума. Без него добавить
-     * заклинание нечем: другого способа завести запись у редактора нет.
-     */
-    socket?: TypedWebSocketClient | null;
     /** Уровень получения подкласса из базового класса (по умолч. unlockLevel). */
     subclassLevel: number;
   }>();
@@ -187,7 +180,6 @@
         <ClassFeaturesEditor
           v-model="selected.features"
           :available-spells="availableSpells"
-          :socket="socket"
           @open-spell="forwardOpenSpell"
         />
       </UFormField>

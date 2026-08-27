@@ -1,6 +1,4 @@
 <script setup lang="ts">
-  import type { TypedWebSocketClient } from '@vtt/shared';
-
   import type { SpellOption } from '../grantedSpellsEditorTypes';
   import type {
     EditableClassFeature,
@@ -27,14 +25,9 @@
     label: skill.label,
   }));
 
-  const props = defineProps<{
+  defineProps<{
     /** Заклинания компендиума по пакам — для подсказок связывания. */
     availableSpells?: SpellOption[];
-    /**
-     * Сокет для окна выбора заклинания из компендиума. Без него добавить
-     * заклинание нечем: другого способа завести запись у редактора нет.
-     */
-    socket?: TypedWebSocketClient | null;
   }>();
 
   /** Редактируемая особенность класса/подкласса. */
@@ -196,7 +189,6 @@
       <GrantedSpellsEditor
         v-model="feature.grantedSpells"
         :available-spells="availableSpells"
-        :socket="props.socket"
         @open-spell="forwardOpenSpell"
       />
     </UFormField>
@@ -235,7 +227,6 @@
           <GrantedSpellsEditor
             v-model="entry.spells"
             :available-spells="availableSpells"
-            :socket="props.socket"
             @open-spell="forwardOpenSpell"
           />
         </div>

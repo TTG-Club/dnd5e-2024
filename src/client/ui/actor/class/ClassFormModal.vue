@@ -833,7 +833,6 @@
           <ClassFeaturesEditor
             v-model="features"
             :available-spells="availableSpells"
-            :socket="props.socket"
             @open-spell="openSpellDetail"
           />
         </template>
@@ -848,7 +847,6 @@
             <ClassSubclassesEditor
               v-model="subclasses"
               :available-spells="availableSpells"
-              :socket="props.socket"
               :subclass-level="subclassLevel"
               @open-spell="openSpellDetail"
             />

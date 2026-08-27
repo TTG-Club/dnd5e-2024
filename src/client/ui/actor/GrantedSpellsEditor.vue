@@ -4,30 +4,20 @@
   // обычным Vite). Берём тип из подпути компонента — он в `exports` пакета.
   import type { DropdownMenuItem } from '@nuxt/ui/components/DropdownMenu.vue';
 
-  import type { TypedWebSocketClient } from '@vtt/shared';
   import type { GrantedSpellRef } from '@vtt/shared/system/dnd.js';
 
-  import type { PickedCompendiumRef } from './CompendiumRefPickerModal.vue';
   import type { SpellOption } from './grantedSpellsEditorTypes';
 
-  import { ref } from 'vue';
+  import { computed, ref } from 'vue';
 
-  import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useSourceLabels } from '@/systems/dnd5e/composables/useSourceLabel';
 
-  import CompendiumRefPickerModal from './CompendiumRefPickerModal.vue';
-  import {
-    GRANTED_SPELLS_LABELS,
-    REF_PICKER_LABELS,
-    REF_PICKER_TITLES,
-  } from './constants';
+  import { GRANTED_SPELLS_LABELS } from './constants';
 
   const props = withDefaults(
     defineProps<{
-      /** Заклинания компендиума по пакам — для подсказок и выбора пака. */
+      /** Заклинания компендиума по пакам — пул выбора и подписи источника. */
       availableSpells?: SpellOption[];
-      /** WebSocket-клиент: выбор заклинания из компендиума окном */
-      socket?: TypedWebSocketClient | null;
       /**
        * Показывать уровень, с которого заклинание доступно. Нужен только черте:
        * у вида и класса уровень стоит у самой особенности, и второе поле рядом
@@ -35,52 +25,74 @@
        */
       withRequiredLevel?: boolean;
     }>(),
-    { availableSpells: () => [], socket: null, withRequiredLevel: false },
+    { availableSpells: () => [], withRequiredLevel: false },
   );
 
   /** Список выдаваемых заклинаний (имя + опц. связь с компендиумом/паком). */
   const spells = defineModel<GrantedSpellRef[]>({ required: true });
 
-  /** Открыто ли окно выбора заклинания из компендиума. */
-  const { getNextZIndex } = useModalManager();
-
-  const isPickerOpen = ref(false);
-
-  /**
-   * Слой окна выбора. Без него окно открылось бы ПОД формой, из которой его
-   * позвали: слои раздаёт менеджер окон, а не порядок в разметке.
-   */
-  const pickerZIndex = ref<number | undefined>(undefined);
-
-  function openPicker(): void {
-    pickerZIndex.value = getNextZIndex();
-    isPickerOpen.value = true;
+  /** Одна опция поля добавления. */
+  interface SpellPickItem {
+    value: string;
+    label: string;
+    description: string;
   }
 
+  /** Значение поля добавления: после выбора оно сбрасывается. */
+  const pickedIds = ref<string[]>([]);
+
   /**
-   * Дописывает выбранные в компендиуме заклинания. Уже выданные пропускаются:
-   * второй раз одно и то же заклинание черта не выдаёт.
+   * Пул выбора: по одной опции на заклинание, а не на пак.
    *
-   * @param picked - выбранные записи компендиума
+   * Одно и то же заклинание лежит в нескольких паках, и показывать его столько
+   * же раз значило бы предлагать выбрать между одинаковыми строками. Пак у
+   * записи выбирается потом, прямо в её строке, — и только когда паков правда
+   * несколько.
+   *
+   * Уже выданные не предлагаются: второй раз одно и то же заклинание запись не
+   * выдаёт.
    */
-  function addPickedSpells(picked: PickedCompendiumRef[]): void {
+  const spellItems = computed<SpellPickItem[]>(() => {
     const taken = new Set(
-      spells.value
-        .map((spell) => spell.spellId)
-        .filter((spellId): spellId is string => Boolean(spellId)),
+      spells.value.flatMap((spell) => (spell.spellId ? [spell.spellId] : [])),
     );
 
-    for (const entry of picked) {
-      if (taken.has(entry.url)) {
+    const byId = new Map<string, SpellPickItem>();
+
+    for (const option of props.availableSpells ?? []) {
+      if (taken.has(option.id) || byId.has(option.id)) {
         continue;
       }
 
-      spells.value.push({
-        name: entry.name,
-        spellId: entry.url,
-        packId: entry.packId,
+      byId.set(option.id, {
+        value: option.id,
+        label: option.name,
+        description: optionSourceLabel(option),
       });
     }
+
+    return [...byId.values()].sort((left, right) =>
+      left.label.localeCompare(right.label),
+    );
+  });
+
+  /**
+   * Дописывает выбранные заклинания и очищает поле.
+   *
+   * @param ids - id выбранных заклинаний
+   */
+  function addPickedSpells(ids: string[]): void {
+    for (const spellId of ids) {
+      const [option] = packOptionsForId(spellId);
+
+      if (!option) {
+        continue;
+      }
+
+      spells.value.push({ name: option.name, spellId });
+    }
+
+    pickedIds.value = [];
   }
 
   const emit = defineEmits<{
@@ -387,35 +399,32 @@
       </div>
     </div>
 
-    <UButton
-      v-if="props.socket"
-      icon="tabler:books"
-      :label="REF_PICKER_LABELS.open"
-      color="primary"
-      variant="soft"
-      size="sm"
-      class="self-start"
-      @click.left.exact.prevent="openPicker"
+    <!-- Поле добавления под списком — тот же порядок, что во всех редакторах
+      ссылок на сайте: сперва набранное, под ним одно поле поиска -->
+    <USelectMenu
+      :model-value="pickedIds"
+      :items="spellItems"
+      label-key="label"
+      value-key="value"
+      multiple
+      :search-input="{ placeholder: GRANTED_SPELLS_LABELS.searchPlaceholder }"
+      :placeholder="GRANTED_SPELLS_LABELS.placeholder"
+      :disabled="spellItems.length === 0"
+      icon="tabler:plus"
+      @update:model-value="addPickedSpells"
     />
 
     <p
-      v-else
+      v-if="(props.availableSpells ?? []).length === 0"
       class="text-xs text-dimmed italic"
     >
-      {{ REF_PICKER_LABELS.noSocket }}
+      {{ GRANTED_SPELLS_LABELS.empty }}
     </p>
 
-    <CompendiumRefPickerModal
-      v-if="props.socket"
-      v-model:open="isPickerOpen"
-      :socket="props.socket"
-      kind="spell"
-      :title="REF_PICKER_TITLES.spell"
-      :z-index="pickerZIndex"
-      @select="addPickedSpells"
-    />
-
-    <p class="text-[11px] text-dimmed">
+    <p
+      v-else
+      class="text-[11px] text-dimmed"
+    >
       {{ GRANTED_SPELLS_LABELS.hint }}
     </p>
   </div>
