@@ -88,6 +88,15 @@ export interface DarkvisionGrant {
   range: number;
 }
 
+/**
+ * Встроенный вариант-подвид ЛЕГАСИ-формата.
+ *
+ * @deprecated Подвид теперь — самостоятельная запись вида со ссылкой
+ * {@link SpeciesDefinition.parentKey} на родителя (как на сайте TTG Club).
+ * Старые паки и хоумбрю-виды со встроенными вариантами продолжают читаться
+ * (дуал-рид в мастере и просмотре), но новый редактор и новая выгрузка
+ * встроенные варианты не пишут.
+ */
 export interface SpeciesFeatureChoice {
   key: string;
   name: string;
@@ -165,8 +174,17 @@ export interface SpeciesFeature {
   movement?: SpeciesMovementGrant;
   /** Тёмное зрение (футы), выдаваемое особенностью. */
   darkvision?: number;
+  /** @deprecated Встроенные варианты-подвиды легаси-формата; см. {@link SpeciesFeatureChoice}. */
   choices?: SpeciesFeatureChoice[];
   isInformationalOnly?: boolean;
+  /**
+   * Дары особенности блоком {@link import('./featTypes.js').FeatData} — той же
+   * формы, что у черты, предыстории и умения класса: владения, модификаторы
+   * листа, выборы игрока, счётчики, тёмное зрение. Так приезжает выгрузка сайта;
+   * поля `movement`/`darkvision` выше остаются для легаси-паков и простых
+   * хоумбрю-записей.
+   */
+  featData?: import('./featTypes.js').FeatData;
   /**
    * Заклинания, выдаваемые особенностью. Автор вписывает имя; при совпадении с
    * компендиумом связывает по `spellId` (тогда авто-выдача). Без связи —
@@ -187,6 +205,13 @@ export interface SpeciesDefinition {
   /** Дискриминантное поле типа записи компендиума */
   type: 'species';
   key: SpeciesKey;
+  /**
+   * Ключ родительского вида. Задан — запись является подвидом (происхождением)
+   * этого вида: она не предлагается как самостоятельный вид, а появляется
+   * вариантом после выбора родителя. Подвид — полноценная запись со своими
+   * характеристиками, особенностями и дарами (как на сайте TTG Club).
+   */
+  parentKey?: SpeciesKey;
   name: string;
   nameEn: string;
   description: string;
@@ -208,7 +233,18 @@ export interface SpeciesDefinition {
     burrow?: number;
   };
 
+  /**
+   * Дары записи легаси-формата (9 фиксированных типов). Читаются по-прежнему;
+   * новый редактор и новая выгрузка пишут дары блоком {@link SpeciesDefinition.featData}.
+   */
   grants: SpeciesGrant[];
+
+  /**
+   * Дары записи блоком {@link import('./featTypes.js').FeatData} — механика вида
+   * или происхождения целиком, той же формы, что у черты. Нужен прежде всего
+   * подвидам без особенностей: приписать дар им больше некуда.
+   */
+  featData?: import('./featTypes.js').FeatData;
 
   features: SpeciesFeature[];
 
@@ -227,6 +263,15 @@ export interface ActorSpeciesEntry {
   speciesName: string;
   creatureType: CreatureType;
   size: import('@vtt/shared').CreatureSize;
+  /**
+   * Ключ выбранной записи-подвида (новая модель: подвид — самостоятельная
+   * запись с {@link SpeciesDefinition.parentKey}). Пусто — подвид не выбран либо
+   * вид использует легаси-варианты ({@link ActorSpeciesEntry.featureChoices}).
+   */
+  subspeciesKey?: string;
+  /** Название выбранного подвида — снимок для показа без резолва записи. */
+  subspeciesName?: string;
+  /** Ответы по легаси-вариантам: ключ особенности → ключ выбранного варианта. */
   featureChoices: Record<string, string>;
   grantChoices: Record<number, string[]>;
 }

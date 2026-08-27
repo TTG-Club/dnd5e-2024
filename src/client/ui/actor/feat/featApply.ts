@@ -12,6 +12,7 @@ import type { Feature, TypedWebSocketClient } from '@vtt/shared';
 import type {
   ActiveEffect,
   ActorCounterState,
+  ActorProficiencies,
   AppliedFeatMeta,
   DnDActor,
   FeatData,
@@ -26,25 +27,25 @@ import {
   extractSpellEntries,
   extractWorldSpells,
 } from '@/systems/dnd5e/composables/spellCompendium';
-import { pushUnique, removeItems } from '@vtt/shared';
 import {
   appendGrantedSpells,
   applyFeatChoiceSelections,
+  applyFeatDataProficiencies,
   buildFeatCounters,
   buildFeatGrantEffect,
+  cloneActorProficiencies,
   collectActorFeatChoiceAnswers,
   collectFeatGrantedSpellSources,
   getTotalLevel,
   isFeatOwnedEffect,
   prepareTransferredFeatEffects,
+  raiseTokenDarkvision,
   removeFeatChoiceSelections,
+  removeFeatDataProficiencies,
   removeGrantedSpellsByFeatureNames,
   resolveChosenAbilities,
   resolveChosenDamageDefenses,
 } from '@vtt/shared/system/dnd.js';
-
-/** Владения актора (структурно — то, что черта правит). */
-type ActorProficiencies = DnDActor['system']['proficiencies'];
 
 /**
  * Особенность-черта, несущая дары для применения/отката. Базовый `Feature`
@@ -76,63 +77,6 @@ export interface FeatApplyResult {
    * затереть его при отсутствии изменений).
    */
   token?: DnDActor['token'];
-}
-
-/**
- * Глубокая копия владений (чтобы не мутировать исходный объект актора).
- *
- * Клонируем через JSON, а НЕ `structuredClone`: актор приходит из `ref` листа
- * (`localActor`), поэтому `actor.system.proficiencies` — реактивный Proxy Vue, на
- * котором `structuredClone` бросает `DataCloneError` («could not be cloned»).
- * Владения — чистый JSON (массивы строк + запись строка→строка), так что клон
- * без потерь. Тот же приём используется в `applyFeatDarkvision` ниже.
- */
-function cloneProficiencies(
-  proficiencies: ActorProficiencies,
-): ActorProficiencies {
-  return JSON.parse(JSON.stringify(proficiencies));
-}
-
-/** Применяет владения черты к копии владений актора (in-place). */
-function applyFeatProficiencies(
-  proficiencies: ActorProficiencies,
-  featData: FeatData | null | undefined,
-): void {
-  for (const skill of featData?.skillProficiencies ?? []) {
-    proficiencies.skills[skill] = 'proficient';
-  }
-
-  pushUnique(proficiencies.weapons, featData?.weaponProficiencies ?? []);
-  pushUnique(proficiencies.weaponMasteries, featData?.weaponMasteries ?? []);
-  pushUnique(proficiencies.armor, featData?.armorProficiencies ?? []);
-  pushUnique(proficiencies.tools, featData?.toolProficiencies ?? []);
-  pushUnique(proficiencies.languages, featData?.languages ?? []);
-
-  pushUnique(
-    proficiencies.savingThrows,
-    featData?.savingThrowProficiencies ?? [],
-  );
-}
-
-/** Откатывает владения черты из копии владений актора (in-place). */
-function removeFeatProficiencies(
-  proficiencies: ActorProficiencies,
-  featData: FeatData | null | undefined,
-): void {
-  for (const skill of featData?.skillProficiencies ?? []) {
-    Reflect.deleteProperty(proficiencies.skills, skill);
-  }
-
-  removeItems(proficiencies.weapons, featData?.weaponProficiencies ?? []);
-  removeItems(proficiencies.weaponMasteries, featData?.weaponMasteries ?? []);
-  removeItems(proficiencies.armor, featData?.armorProficiencies ?? []);
-  removeItems(proficiencies.tools, featData?.toolProficiencies ?? []);
-  removeItems(proficiencies.languages, featData?.languages ?? []);
-
-  removeItems(
-    proficiencies.savingThrows,
-    featData?.savingThrowProficiencies ?? [],
-  );
 }
 
 /**
@@ -274,9 +218,9 @@ export function applyFeatToActor(
 
   const features = [...actor.features, newFeature];
 
-  const proficiencies = cloneProficiencies(actor.system.proficiencies);
+  const proficiencies = cloneActorProficiencies(actor.system.proficiencies);
 
-  applyFeatProficiencies(proficiencies, featData);
+  applyFeatDataProficiencies(proficiencies, featData);
 
   // Выборы игрока — после безусловных даров: «Знаток» поднимает до компетентности то,
   // чем персонаж уже владеет, и порядок здесь имеет значение
@@ -325,7 +269,7 @@ export function applyFeatToActor(
 
   // Тёмное зрение: поднимаем дальность зрения токена до максимума (как у вида).
   // Не понижаем — у тёмного зрения может быть другой источник (вид/класс).
-  const token = applyFeatDarkvision(actor.token, featData?.darkvision ?? 0);
+  const token = raiseTokenDarkvision(actor.token, featData?.darkvision ?? 0);
 
   const classCounters = [
     ...(actor.system.classCounters ?? []),
@@ -344,39 +288,6 @@ export function applyFeatToActor(
     classCounters,
     token,
   };
-}
-
-/**
- * Возвращает обновлённые настройки токена с поднятым до `darkvision` тёмным
- * зрением, либо `undefined`, если поднимать нечего (черта не даёт тёмного зрения
- * или у токена оно уже не ниже).
- *
- * @param token - текущие настройки токена актора
- * @param darkvision - тёмное зрение черты (футы)
- */
-function applyFeatDarkvision(
-  token: DnDActor['token'],
-  darkvision: number,
-): DnDActor['token'] | undefined {
-  if (darkvision <= 0) {
-    return undefined;
-  }
-
-  const next: NonNullable<DnDActor['token']> = JSON.parse(
-    JSON.stringify(token ?? {}),
-  );
-
-  if (!next.vision) {
-    next.vision = { enabled: true, range: 60, darkvision: 0, angle: 360 };
-  }
-
-  if (darkvision <= next.vision.darkvision) {
-    return undefined;
-  }
-
-  next.vision.darkvision = darkvision;
-
-  return next;
 }
 
 /**
@@ -407,9 +318,9 @@ export function removeFeatFromActor(
     (effect) => !isFeatOwnedEffect(effect, feature.id),
   );
 
-  const proficiencies = cloneProficiencies(actor.system.proficiencies);
+  const proficiencies = cloneActorProficiencies(actor.system.proficiencies);
 
-  removeFeatProficiencies(proficiencies, feature.featData ?? null);
+  removeFeatDataProficiencies(proficiencies, feature.featData ?? null);
 
   removeFeatChoiceSelections(
     proficiencies,
