@@ -178,7 +178,7 @@
   const speedClimb = ref(0);
   const speedBurrow = ref(0);
 
-  /** Обычное зрение в футах; 0 — не задано (в запись не пишется). */
+  /** Обычное зрение в футах; 0 — без ограничений (как у токена). */
   const speciesVision = ref(0);
 
   /**
@@ -1125,9 +1125,8 @@
       definition.parentKey = parentKey.value;
     }
 
-    if (speciesVision.value > 0) {
-      definition.vision = Math.round(speciesVision.value);
-    }
+    // Ноль — «без ограничений», поэтому пишется всегда, а не только положительное
+    definition.vision = Math.max(0, Math.round(speciesVision.value));
 
     const recordFeatData = buildFeatData(recordGrants.value, []);
 
