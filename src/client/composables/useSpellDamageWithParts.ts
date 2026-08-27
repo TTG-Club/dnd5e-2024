@@ -27,6 +27,7 @@ import {
   findTokensInTemplate,
   formatDamageDefenseSuffix,
   getEntityConditionImmunities,
+  getSpellSaveCondition,
   isDndSceneEntity,
   isImmuneToCondition,
   mergeAppliedEffects,
@@ -647,6 +648,7 @@ export function useSpellDamageWithParts() {
             entity,
             spell.saveType,
             spellSaveDC,
+            getSpellSaveCondition(spell),
           );
         }
 
@@ -679,6 +681,7 @@ export function useSpellDamageWithParts() {
             chooseEntity,
             spell.saveType,
             spellSaveDC,
+            getSpellSaveCondition(spell),
           );
         }
 
@@ -719,6 +722,7 @@ export function useSpellDamageWithParts() {
             entity,
             spell.saveType,
             spellSaveDC,
+            getSpellSaveCondition(spell),
           );
         }
       }
@@ -777,6 +781,7 @@ export function useSpellDamageWithParts() {
             entity,
             effect.applySave.ability,
             effect.applySave.dc,
+            effect.conditionKey,
           );
 
           applySaveSucceeded = saveResult.passed;

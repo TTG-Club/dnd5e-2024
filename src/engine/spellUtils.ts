@@ -13,6 +13,7 @@ import type {
 } from '@vtt/shared';
 
 import type { ResolvedActorStats } from './activeEffectTypes.js';
+import type { ConditionRef } from './conditionKeys.js';
 import type {
   CreatureCategory,
   CreatureSpellcasting,
@@ -2019,3 +2020,22 @@ export function scaleDamageFormula(
 // ── Маппинг AoE ──────────────────────────────────────────────
 
 // ── Лейблы для чата ──────────────────────────────────────────
+
+/**
+ * Состояние, которого спасбросок от заклинания позволяет избежать.
+ *
+ * Берётся у первого эффекта заклинания, который состояние накладывает:
+ * спасбросок один, и «преимущество против отравления» с «преимуществом против
+ * страха» на нём всё равно не сложить. Заклинание без состояния отдаёт
+ * `undefined` — тогда бросок считается только по характеристике и магии.
+ *
+ * @param spell - заклинание
+ * @returns ключ состояния либо `undefined`
+ */
+export function getSpellSaveCondition(spell: Spell): ConditionRef | undefined {
+  const carrier = (spell.activeEffects ?? []).find(
+    (effect) => effect.conditionKey,
+  );
+
+  return carrier?.conditionKey;
+}

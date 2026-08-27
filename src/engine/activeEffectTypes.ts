@@ -29,14 +29,18 @@ import type {
   SkillType,
 } from '@vtt/shared';
 
-import type { ConditionRef } from './conditionKeys.js';
+import type {
+  ConditionKey,
+  ConditionRef,
+  DEATH_CONDITION_KEY,
+} from './conditionKeys.js';
 import type { DnDCustomBonusContext } from './customBonuses.js';
 
 import { z } from 'zod';
 
 import { isRecord, typedObjectEntries } from '@vtt/shared';
 
-import { CREATURE_CATEGORIES, SKILLS_LABELS } from './consts.js';
+import { CONDITIONS, CREATURE_CATEGORIES, SKILLS_LABELS } from './consts.js';
 import {
   DAMAGE_PART_TARGETS,
   DAMAGE_TYPE_LABELS,
@@ -471,6 +475,38 @@ export type SkillDisadvantageFlagKey = `skill.${SkillType}.disadvantage`;
 export type SkillFlagKey = SkillAdvantageFlagKey | SkillDisadvantageFlagKey;
 
 /**
+ * Состояние, против которого бывает преимущество или помеха на спасбросок.
+ *
+ * Метка смерти сюда не идёт: спасброска против неё не бывает — её ставит и
+ * снимает запас хитов существа.
+ */
+export type SaveConditionKey = Exclude<
+  ConditionKey,
+  typeof DEATH_CONDITION_KEY
+>;
+
+/** Флаг преимущества на спасбросок против состояния. */
+export type SaveVsConditionAdvantageFlagKey =
+  `save.advantage.vs${Capitalize<SaveConditionKey>}`;
+
+/** Флаг помехи на спасбросок против состояния. */
+export type SaveVsConditionDisadvantageFlagKey =
+  `save.disadvantage.vs${Capitalize<SaveConditionKey>}`;
+
+/**
+ * Флаги спасброска против состояния — «преимущество на спасброски, чтобы
+ * избежать или прекратить состояние Отравлен».
+ *
+ * Семейством по списку состояний, а не отдельными флагами: так написана
+ * половина видов справочника (дварфийская стойкость, храбрость полурослика,
+ * наследие фей), и держать их перечислением значило бы дописывать союз при
+ * каждом новом виде. Признак «против чего спасаемся» — параметр броска, а не
+ * свойство носителя, как и `vsMagic`.
+ */
+export type SaveVsConditionFlagKey =
+  SaveVsConditionAdvantageFlagKey | SaveVsConditionDisadvantageFlagKey;
+
+/**
  * Нечисловые эффекты: помеха, преимущество, иммунитеты.
  *
  * Флаги не имеют числового значения — они либо активны, либо нет.
@@ -535,7 +571,8 @@ export type EffectFlagKey =
   | 'vision.invisible'
   | 'defense.critImmunity'
   | DamageDefenseFlagKey
-  | SkillFlagKey;
+  | SkillFlagKey
+  | SaveVsConditionFlagKey;
 
 /**
  * Локализованные названия статических флагов (без генерируемых семейств).
@@ -543,7 +580,10 @@ export type EffectFlagKey =
  * `DAMAGE_DEFENSE_FLAG_LABELS` и `buildSkillFlagLabels`.
  */
 const BASE_EFFECT_FLAG_LABELS: Record<
-  Exclude<EffectFlagKey, DamageDefenseFlagKey | SkillFlagKey>,
+  Exclude<
+    EffectFlagKey,
+    DamageDefenseFlagKey | SkillFlagKey | SaveVsConditionFlagKey
+  >,
   string
 > = {
   // Атаки
@@ -719,14 +759,132 @@ const SKILL_FLAG_LABELS: Record<SkillFlagKey, string> = {
   'skill.survival.disadvantage': `Помеха на проверки: ${SKILLS_LABELS.survival}`,
 };
 
+/** Русские названия состояний по ключу — из единственного перечня системы. */
+const CONDITION_NAME_BY_KEY = new Map(
+  CONDITIONS.map((entry) => [entry.key, entry.nameRu]),
+);
+
 /**
- * Локализованные названия флагов эффектов: статические, защиты от урона и
- * понавыковые.
+ * Подпись флага спасброска против состояния.
+ *
+ * @param mode - «Преимущество» либо «Помеха»
+ * @param condition - ключ состояния
+ * @returns подпись для списка флагов
+ */
+function saveVsConditionLabel(
+  mode: string,
+  condition: SaveConditionKey,
+): string {
+  return `${mode} на спасброски против состояния: ${CONDITION_NAME_BY_KEY.get(condition) ?? condition}`;
+}
+
+/**
+ * Подписи флагов спасброска против состояния — по паре на каждое состояние.
+ *
+ * Выписаны перечислением, как защиты от урона и понавыковые флаги выше: тип
+ * `Record<SaveVsConditionFlagKey, string>` тогда гарантирует полноту на этапе
+ * компиляции, а новое состояние в перечне сразу ломает сборку и не забывается.
+ */
+const SAVE_VS_CONDITION_FLAG_LABELS: Record<SaveVsConditionFlagKey, string> = {
+  'save.advantage.vsBlinded': saveVsConditionLabel('Преимущество', 'blinded'),
+  'save.advantage.vsCharmed': saveVsConditionLabel('Преимущество', 'charmed'),
+  'save.advantage.vsDeafened': saveVsConditionLabel('Преимущество', 'deafened'),
+  'save.advantage.vsExhaustion': saveVsConditionLabel(
+    'Преимущество',
+    'exhaustion',
+  ),
+  'save.advantage.vsFrightened': saveVsConditionLabel(
+    'Преимущество',
+    'frightened',
+  ),
+  'save.advantage.vsGrappled': saveVsConditionLabel('Преимущество', 'grappled'),
+  'save.advantage.vsIncapacitated': saveVsConditionLabel(
+    'Преимущество',
+    'incapacitated',
+  ),
+  'save.advantage.vsInvisible': saveVsConditionLabel(
+    'Преимущество',
+    'invisible',
+  ),
+  'save.advantage.vsParalyzed': saveVsConditionLabel(
+    'Преимущество',
+    'paralyzed',
+  ),
+  'save.advantage.vsPetrified': saveVsConditionLabel(
+    'Преимущество',
+    'petrified',
+  ),
+  'save.advantage.vsPoisoned': saveVsConditionLabel('Преимущество', 'poisoned'),
+  'save.advantage.vsProne': saveVsConditionLabel('Преимущество', 'prone'),
+  'save.advantage.vsRestrained': saveVsConditionLabel(
+    'Преимущество',
+    'restrained',
+  ),
+  'save.advantage.vsStunned': saveVsConditionLabel('Преимущество', 'stunned'),
+  'save.advantage.vsUnconscious': saveVsConditionLabel(
+    'Преимущество',
+    'unconscious',
+  ),
+  'save.disadvantage.vsBlinded': saveVsConditionLabel('Помеха', 'blinded'),
+  'save.disadvantage.vsCharmed': saveVsConditionLabel('Помеха', 'charmed'),
+  'save.disadvantage.vsDeafened': saveVsConditionLabel('Помеха', 'deafened'),
+  'save.disadvantage.vsExhaustion': saveVsConditionLabel(
+    'Помеха',
+    'exhaustion',
+  ),
+  'save.disadvantage.vsFrightened': saveVsConditionLabel(
+    'Помеха',
+    'frightened',
+  ),
+  'save.disadvantage.vsGrappled': saveVsConditionLabel('Помеха', 'grappled'),
+  'save.disadvantage.vsIncapacitated': saveVsConditionLabel(
+    'Помеха',
+    'incapacitated',
+  ),
+  'save.disadvantage.vsInvisible': saveVsConditionLabel('Помеха', 'invisible'),
+  'save.disadvantage.vsParalyzed': saveVsConditionLabel('Помеха', 'paralyzed'),
+  'save.disadvantage.vsPetrified': saveVsConditionLabel('Помеха', 'petrified'),
+  'save.disadvantage.vsPoisoned': saveVsConditionLabel('Помеха', 'poisoned'),
+  'save.disadvantage.vsProne': saveVsConditionLabel('Помеха', 'prone'),
+  'save.disadvantage.vsRestrained': saveVsConditionLabel(
+    'Помеха',
+    'restrained',
+  ),
+  'save.disadvantage.vsStunned': saveVsConditionLabel('Помеха', 'stunned'),
+  'save.disadvantage.vsUnconscious': saveVsConditionLabel(
+    'Помеха',
+    'unconscious',
+  ),
+};
+
+/**
+ * Ключ флага спасброска против состояния.
+ *
+ * Собирается здесь, а не у потребителя: строка ключа обязана совпадать с типом
+ * семейства, и второе место сборки разошлось бы с ним на первом же состоянии.
+ *
+ * @param mode - вид флага
+ * @param condition - ключ состояния
+ * @returns ключ флага
+ */
+export function buildSaveVsConditionFlag(
+  mode: 'advantage' | 'disadvantage',
+  condition: ConditionRef,
+): string {
+  const capitalized = condition.charAt(0).toUpperCase() + condition.slice(1);
+
+  return `save.${mode}.vs${capitalized}`;
+}
+
+/**
+ * Локализованные названия флагов эффектов: статические, защиты от урона,
+ * понавыковые и спасброски против состояния.
  */
 export const EFFECT_FLAG_LABELS: Record<EffectFlagKey, string> = {
   ...BASE_EFFECT_FLAG_LABELS,
   ...DAMAGE_DEFENSE_FLAG_LABELS,
   ...SKILL_FLAG_LABELS,
+  ...SAVE_VS_CONDITION_FLAG_LABELS,
 };
 
 // ── Источник эффекта ──────────────────────────────────────────
