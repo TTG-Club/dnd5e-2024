@@ -1,4 +1,6 @@
 <script setup lang="ts">
+  import type { TypedWebSocketClient } from '@vtt/shared';
+
   import type { SpellOption } from '../grantedSpellsEditorTypes';
   import type { EditableSpellListExpansion } from './featEditorTypes';
 
@@ -27,8 +29,10 @@
     defineProps<{
       /** Заклинания компендиума по пакам — для подсказок и выбора пака */
       availableSpells?: SpellOption[];
+      /** WebSocket-клиент: выбор заклинания из компендиума окном */
+      socket?: TypedWebSocketClient | null;
     }>(),
-    { availableSpells: () => [] },
+    { availableSpells: () => [], socket: null },
   );
 
   const emit = defineEmits<{
@@ -123,6 +127,7 @@
         <GrantedSpellsEditor
           v-model="group.spells"
           :available-spells="props.availableSpells"
+          :socket="props.socket"
           @open-spell="forwardOpenSpell"
         />
       </div>

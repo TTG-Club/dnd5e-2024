@@ -780,6 +780,7 @@
               <GrantedSpellsEditor
                 v-model="grantedSpells"
                 :available-spells="availableSpells"
+                :socket="socket"
                 @open-spell="openSpellDetail"
               />
             </FormSection>

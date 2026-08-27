@@ -370,6 +370,7 @@
               <GrantedSpellsEditor
                 v-model="grantedSpells"
                 :available-spells="availableSpells"
+                :socket="socket"
                 with-required-level
                 @open-spell="openSpellDetail"
               />
@@ -400,6 +401,7 @@
               <FeatSpellListEditor
                 v-model="grants.spellList"
                 :available-spells="availableSpells"
+                :socket="socket"
                 @open-spell="openSpellDetail"
               />
             </FormSection>
