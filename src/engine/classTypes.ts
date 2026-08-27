@@ -13,6 +13,7 @@ import type {
 } from '@vtt/shared';
 
 import type { ActiveEffect } from './activeEffectTypes.js';
+import type { FeatData } from './featTypes.js';
 import type { StartingEquipmentOption } from './startingEquipment.js';
 
 // ── Литеральные типы ─────────────────────────────────────────
@@ -203,6 +204,19 @@ export interface ClassFeature {
    * живёт на акторе своей записью, и её видно на вкладке эффектов.
    */
   activeEffects?: ActiveEffect[];
+  /**
+   * Дары умения: владения, языки, защиты, чувства, выборы игрока, расширение
+   * списка заклинаний.
+   *
+   * Той же моделью, что у черты и предыстории ({@link FeatData}): набор даров у
+   * них общий, лист применяет их одним и тем же кодом, и своя модель для того
+   * же смысла означала бы второй разбор и второе применение.
+   *
+   * Заклинаний и ресурсов здесь не бывает: у умения класса они выведены своими
+   * полями — {@link ClassFeature.grantedSpells} и счётчиками класса, — и повтор
+   * выдал бы то же самое дважды.
+   */
+  featData?: FeatData;
 }
 
 // ── Подкласс ─────────────────────────────────────────────────
@@ -261,6 +275,8 @@ export interface SubclassDefinition {
   counters?: ClassCounterDefinition[];
   /** Активные эффекты подкласса; переносятся на актора при его выборе. */
   activeEffects?: ActiveEffect[];
+  /** Дары подкласса той же моделью, что у черты; см. {@link ClassFeature.featData}. */
+  featData?: FeatData;
 }
 
 // ── Определение класса (SRD) ─────────────────────────────────
@@ -407,6 +423,12 @@ export interface ClassDefinition {
    * лист применяет эффект одинаково, откуда бы тот ни пришёл.
    */
   activeEffects?: ActiveEffect[];
+
+  /**
+   * Дары самого класса той же моделью, что у черты. Применяются при взятии
+   * первого уровня в классе; см. {@link ClassFeature.featData}.
+   */
+  featData?: FeatData;
 }
 
 // ── Класс на акторе ──────────────────────────────────────────

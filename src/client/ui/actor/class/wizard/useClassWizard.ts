@@ -18,6 +18,8 @@ import type {
   ClassFeatureSkillChoice,
   DnDAbilityScores,
   DnDActor,
+  FeatChoice,
+  FeatData,
   GrantedSpellSource,
   HitPointMethod,
   ResolvedGrantedSpell,
@@ -32,13 +34,19 @@ import {
   ABILITY_LABELS,
   appendGrantedSpells,
   calculateAbilityModifier,
+  calculateProficiencyBonus,
+  collectFeatChoiceProficiencies,
   collectGrantedSpellSourcesForClassLevel,
   getMulticlassProficiencies,
+  getTotalLevel,
+  getVisibleFeatChoices,
   hasAbilityImprovementAtLevel,
   isAsiFeature,
   normalizeSpellName,
+  prepareFeatChoices,
   refreshCounterMaxima,
   refreshFeatCounters,
+  resolveFeatChoiceCount,
   SKILLS_LIST,
 } from '@vtt/shared/system/dnd.js';
 
@@ -120,6 +128,14 @@ export interface WizardState {
    * ключи словаря — сопоставление делает шаг, здесь лежит его результат.
    */
   toolProficiencies: string[];
+  /**
+   * Ответы на выборы даров умений уровня по ключу выбора.
+   *
+   * Отдельно от `featureChoices`: там варианты самого умения («Боевой стиль»),
+   * а здесь — выборы даров той же модели, что у черты, и применяет их общий
+   * код черты.
+   */
+  featDataChoices: Record<string, string[]>;
 }
 
 /** Особенность класса с указанием источника (базовый класс или подкласс) */
@@ -142,6 +158,95 @@ const STEP_DEFINITIONS: Record<WizardStepKey, Omit<WizardStepItem, 'value'>> = {
   spellcasting: { title: 'Заклинания' },
   asi: { title: 'Характеристики' },
 };
+
+/** Владения актора — то, что дары уровня правят. */
+type WizardProficiencies = DnDActor['system']['proficiencies'];
+
+/**
+ * Копия владений актора: обновления собираются на копии, а сам актор приходит из
+ * листа реактивным объектом — менять его на месте нельзя.
+ *
+ * @param proficiencies - владения актора
+ * @returns независимая копия
+ */
+function cloneWizardProficiencies(
+  proficiencies: WizardProficiencies,
+): WizardProficiencies {
+  return {
+    armor: [...(proficiencies?.armor ?? [])],
+    weapons: [...(proficiencies?.weapons ?? [])],
+    weaponMasteries: [...(proficiencies?.weaponMasteries ?? [])],
+    tools: [...(proficiencies?.tools ?? [])],
+    languages: [...(proficiencies?.languages ?? [])],
+    savingThrows: [...(proficiencies?.savingThrows ?? [])],
+    skills: { ...(proficiencies?.skills ?? {}) },
+  };
+}
+
+/**
+ * Дописывает значения, которых ещё нет: одно и то же владение из двух умений —
+ * это одно владение.
+ *
+ * @param target - список владений
+ * @param values - что дописать
+ */
+function pushUniqueValues(target: string[], values: string[]): void {
+  for (const value of values) {
+    if (!target.includes(value)) {
+      target.push(value);
+    }
+  }
+}
+
+/**
+ * Дописывает во владения дары уровня: безусловные — из самих блоков, выбранные
+ * игроком — общим разбором ответов черты.
+ *
+ * Выборы применяются после безусловных даров: выбор, который поднимает владение
+ * до компетентности, обязан видеть уже выданное.
+ *
+ * @param base - владения, к которым дописываются дары
+ * @param featData - дары уровня: класса, подкласса и умений
+ * @param selections - ответы игрока на выборы даров
+ * @returns владения с дарами уровня
+ */
+function applyLevelFeatData(
+  base: WizardProficiencies,
+  featData: ReadonlyArray<FeatData>,
+  selections: Record<string, string[]>,
+): WizardProficiencies {
+  const result = cloneWizardProficiencies(base);
+
+  for (const data of featData) {
+    for (const skill of data.skillProficiencies ?? []) {
+      result.skills[skill] = 'proficient';
+    }
+
+    pushUniqueValues(result.weapons, data.weaponProficiencies ?? []);
+    pushUniqueValues(result.weaponMasteries, data.weaponMasteries ?? []);
+    pushUniqueValues(result.armor, data.armorProficiencies ?? []);
+    pushUniqueValues(result.tools, data.toolProficiencies ?? []);
+    pushUniqueValues(result.languages, data.languages ?? []);
+    pushUniqueValues(result.savingThrows, data.savingThrowProficiencies ?? []);
+  }
+
+  for (const data of featData) {
+    const chosen = collectFeatChoiceProficiencies(data, selections);
+
+    for (const skill of chosen.skills) {
+      result.skills[skill] = 'proficient';
+    }
+
+    pushUniqueValues(result.weapons, chosen.weapons);
+    pushUniqueValues(result.weaponMasteries, chosen.weaponMasteries);
+    pushUniqueValues(result.armor, chosen.armor);
+    pushUniqueValues(result.tools, chosen.tools);
+    pushUniqueValues(result.languages, chosen.languages);
+    pushUniqueValues(result.savingThrows, chosen.savingThrows);
+  }
+
+  return result;
+}
 
 // ── Composable ────────────────────────────────────────────────
 /**
@@ -291,6 +396,7 @@ export function useClassWizard(
     },
     selectedSpells: [],
     toolProficiencies: [],
+    featDataChoices: {},
   });
 
   /** Активный ключ подкласса (выбранный ранее или на текущем шаге) */
@@ -357,6 +463,73 @@ export function useClassWizard(
 
     return baseFeatures;
   });
+
+  /**
+   * Бонус мастерства персонажа после этого уровня: от него зависит количество у
+   * выборов вида «столько, сколько бонус мастерства».
+   */
+  const featChoiceProficiencyBonus = computed(() =>
+    calculateProficiencyBonus(getTotalLevel(actor.value.system.classes) + 1),
+  );
+
+  /**
+   * Дары, которые приносит этот уровень: сам класс на первом уровне, выбранный
+   * прямо сейчас подкласс и каждое умение уровня.
+   *
+   * Информационные умения даров не дают: их и в списке умений листа нет.
+   */
+  const levelFeatData = computed<FeatData[]>(() => {
+    const classDef = classDefinition.value;
+
+    if (!classDef) {
+      return [];
+    }
+
+    const collected: FeatData[] = [];
+
+    if (nextLevel.value === 1 && classDef.featData) {
+      collected.push(classDef.featData);
+    }
+
+    if (wizardState.subclassKey && activeSubclass.value?.featData) {
+      collected.push(activeSubclass.value.featData);
+    }
+
+    for (const feature of levelFeatures.value) {
+      if (!feature.isInformationalOnly && feature.featData) {
+        collected.push(feature.featData);
+      }
+    }
+
+    return collected;
+  });
+
+  /**
+   * Выборы даров уровня — в том же порядке и тем же разбором, что у черты:
+   * сперва список класса, потом заклинания из него, потом характеристика.
+   */
+  const preparedFeatChoices = computed<FeatChoice[]>(() =>
+    prepareFeatChoices(
+      levelFeatData.value.flatMap((data) => data.choices ?? []),
+    ),
+  );
+
+  /** Выборы, спрошенные прямо сейчас: остальные ждут ответа про класс. */
+  const visibleFeatChoices = computed<FeatChoice[]>(() =>
+    getVisibleFeatChoices(
+      preparedFeatChoices.value,
+      wizardState.featDataChoices,
+    ),
+  );
+
+  /** Все выборы уровня отвечены — без этого шаг умений не пройти. */
+  const areFeatChoicesComplete = computed(() =>
+    visibleFeatChoices.value.every(
+      (choice) =>
+        (wizardState.featDataChoices[choice.key] ?? []).length
+        >= resolveFeatChoiceCount(choice, featChoiceProficiencyBonus.value),
+    ),
+  );
 
   /**
    * Выбор владения навыками, который дают умения этого уровня.
@@ -718,9 +891,13 @@ export function useClassWizard(
           (feature) => feature.choices && feature.choices.length > 0,
         );
 
-        return featuresWithChoices.every(
+        const variantsChosen = featuresWithChoices.every(
           (feature) => wizardState.featureChoices[feature.key] !== undefined,
         );
+
+        // Дары уровня спрашивают своё: без ответа игрок ушёл бы с уровня, не
+        // получив того, что умение выдаёт
+        return variantsChosen && areFeatChoicesComplete.value;
       }
       case 'asi': {
         if (wizardState.asi.mode === 'feat') {
@@ -1170,6 +1347,17 @@ export function useClassWizard(
       };
     }
 
+    // Дары уровня: то, что класс, подкласс и умения этого уровня выдают сами, и
+    // то, что игрок назвал в их выборах. Модель та же, что у черты, поэтому и
+    // разбор ответов общий с ней — второй бы разошёлся с первым
+    if (levelFeatData.value.length > 0) {
+      systemUpdates.proficiencies = applyLevelFeatData(
+        systemUpdates.proficiencies ?? actor.value.system.proficiencies,
+        levelFeatData.value,
+        wizardState.featDataChoices,
+      );
+    }
+
     // ASI — создаём Active Effect с бонусами к характеристикам (5.5e: ASI — это черта)
     if (hasAsiAtLevel.value && wizardState.asi.mode === 'asi') {
       const asiChanges: ActiveEffect['changes'] = [];
@@ -1368,6 +1556,8 @@ export function useClassWizard(
     // Состояние
     wizardState,
     canProceed,
+    visibleFeatChoices,
+    featChoiceProficiencyBonus,
     isSpellSelectionComplete,
     spellSelectionLimits,
     grantedSpellSources,

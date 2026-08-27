@@ -26,6 +26,7 @@
   import { useGrantedSpellsResolver } from '../../../composables/useGrantedSpellsResolver';
   import { resolveStartingEquipment } from '../../../composables/useStartingEquipment';
   import { CLASS_WIZARD_LABELS, MODAL_BUTTON_LABELS } from '../constants';
+  import FeatChoicesFields from '../feat/FeatChoicesFields.vue';
   import { useClassWizard } from './wizard';
   import WizardStepAsi from './wizard/WizardStepAsi.vue';
   import WizardStepClassEquipment from './wizard/WizardStepClassEquipment.vue';
@@ -96,6 +97,8 @@
 
     wizardState,
     canProceed,
+    visibleFeatChoices,
+    featChoiceProficiencyBonus,
     isSpellSelectionComplete,
     spellSelectionLimits,
     grantedSpellSources,
@@ -453,17 +456,28 @@
           />
 
           <!-- Особенности -->
-          <WizardStepFeatures
-            v-if="activeStepKey === 'features'"
-            :features="levelFeatures"
-            :feature-choices="wizardState.featureChoices"
-            :has-subclass-selection="hasSubclassSelection"
-            :subclasses="classDefinition.subclasses"
-            :subclass-key="wizardState.subclassKey"
-            :subclass-label="classDefinition.subclassLabel"
-            @update:feature-choices="handleFeatureChoicesUpdate"
-            @update:subclass-key="wizardState.subclassKey = $event"
-          />
+          <template v-if="activeStepKey === 'features'">
+            <WizardStepFeatures
+              :features="levelFeatures"
+              :feature-choices="wizardState.featureChoices"
+              :has-subclass-selection="hasSubclassSelection"
+              :subclasses="classDefinition.subclasses"
+              :subclass-key="wizardState.subclassKey"
+              :subclass-label="classDefinition.subclassLabel"
+              @update:feature-choices="handleFeatureChoicesUpdate"
+              @update:subclass-key="wizardState.subclassKey = $event"
+            />
+
+            <!-- Выборы даров уровня: те же поля, что у черты, — набор выборов
+              у них общий, и второй такой же список разошёлся бы с первым -->
+            <FeatChoicesFields
+              v-if="visibleFeatChoices.length"
+              v-model="wizardState.featDataChoices"
+              :choices="visibleFeatChoices"
+              :actor="actorRef"
+              :proficiency-bonus="featChoiceProficiencyBonus"
+            />
+          </template>
 
           <!-- Заклинания -->
           <WizardStepSpellcasting
