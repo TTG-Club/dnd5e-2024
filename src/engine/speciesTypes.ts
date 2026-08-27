@@ -201,6 +201,17 @@ export interface SpeciesFeature {
   activeEffects?: import('./activeEffectTypes.js').ActiveEffect[];
 }
 
+/**
+ * Рост вида в футах для одного размера: границы «от» и «до». Задавать можно
+ * любую одну — у «Средний, от 5 фт.» верхней границы попросту нет.
+ */
+export interface SpeciesHeightRange {
+  /** Нижняя граница роста в футах; пусто — не указана */
+  from?: number;
+  /** Верхняя граница роста в футах; пусто — не указана */
+  to?: number;
+}
+
 export interface SpeciesDefinition {
   /** Дискриминантное поле типа записи компендиума */
   type: 'species';
@@ -225,6 +236,17 @@ export interface SpeciesDefinition {
 
   creatureType: CreatureType;
   size: import('@vtt/shared').CreatureSize[];
+
+  /**
+   * Рост в футах по каждому размеру из {@link SpeciesDefinition.size} — так же,
+   * как его задаёт мастерская сайта. Величина справочная: на механику она не
+   * влияет, но помогает игроку выбрать размер в мастере и стоит в карточке
+   * вида. Ключи — только те размеры, у которых рост указан.
+   */
+  heights?: Partial<
+    Record<import('@vtt/shared').CreatureSize, SpeciesHeightRange>
+  >;
+
   speed: {
     walk: number;
     fly?: number;
@@ -243,8 +265,13 @@ export interface SpeciesDefinition {
   /**
    * Дары записи легаси-формата (9 фиксированных типов). Читаются по-прежнему;
    * новый редактор и новая выгрузка пишут дары блоком {@link SpeciesDefinition.featData}.
+   *
+   * Поле НЕОБЯЗАТЕЛЬНОЕ: записи нового формата его не содержат вовсе — ни одна
+   * запись вида в компендиуме TTG Club его уже не пишет. Читать `grants` как
+   * гарантированный массив нельзя: мастер настройки так и падал на первой же
+   * записи из компендиума.
    */
-  grants: SpeciesGrant[];
+  grants?: SpeciesGrant[];
 
   /**
    * Дары записи блоком {@link import('./featTypes.js').FeatData} — механика вида

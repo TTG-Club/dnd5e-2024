@@ -97,7 +97,7 @@ function collectDamageDefenseFlags(
     }
   };
 
-  for (const grant of definition.grants) {
+  for (const grant of definition.grants ?? []) {
     if (grant.type === 'damageDefense') {
       addEntries(grant.entries);
     }
@@ -144,7 +144,7 @@ function collectSpeciesConditionImmunities(
   const conditions = new Set<ConditionKey>();
 
   const addGrants = (record: SpeciesDefinition): void => {
-    for (const grant of record.grants) {
+    for (const grant of record.grants ?? []) {
       if (grant.type === 'conditionImmunity') {
         for (const conditionKey of grant.conditions) {
           conditions.add(conditionKey);
@@ -299,7 +299,7 @@ export function useSpeciesWizard(
       // 1. Инициализация grantSelections массивами нужной длины или пустыми
       const grantSelections: Record<number, string[]> = {};
 
-      definition.grants.forEach((grant, index) => {
+      (definition.grants ?? []).forEach((grant, index) => {
         if ('count' in grant || ('choices' in grant && grant.choices?.count)) {
           grantSelections[index] = [];
         }
@@ -389,7 +389,7 @@ export function useSpeciesWizard(
     }
 
     // Есть ли гранты с выбором?
-    const hasGrantChoices = speciesDef.value.grants.some((grant) => {
+    const hasGrantChoices = (speciesDef.value.grants ?? []).some((grant) => {
       if (grant.type === 'skillProficiency' && grant.count > 0) {
         return true;
       }
@@ -465,7 +465,7 @@ export function useSpeciesWizard(
     }
 
     if (stepKey === 'grants') {
-      return speciesDef.value.grants.every((grant, index) => {
+      return (speciesDef.value.grants ?? []).every((grant, index) => {
         if (grant.type === 'skillProficiency' && grant.count > 0) {
           return state.value.grantSelections[index]?.length === grant.count;
         }
@@ -656,7 +656,7 @@ export function useSpeciesWizard(
       CREATURE_SIZE_TO_TOKEN_SCALE[state.value.selectedSize];
 
     // --- Применяем легаси-гранты нового вида ---
-    definition.grants.forEach((grant, index) => {
+    (definition.grants ?? []).forEach((grant, index) => {
       const userChoices = state.value.grantSelections[index] || [];
 
       if (grant.type === 'skillProficiency') {

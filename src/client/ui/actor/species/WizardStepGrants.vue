@@ -28,7 +28,7 @@
   });
 
   const grantsWithChoices = computed(() => {
-    return props.speciesDefinition.grants
+    return (props.speciesDefinition.grants ?? [])
       .map((grant, index) => ({ grant, index }))
       .filter(({ grant }) => {
         if (grant.type === 'skillProficiency' && grant.count > 0) {

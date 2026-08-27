@@ -15,6 +15,7 @@
     SpeciesDefinition,
     SpeciesFeature,
     SpeciesGrant,
+    SpeciesHeightRange,
     SpeciesMovementGrant,
     Spell,
   } from '@vtt/shared/system/dnd.js';
@@ -50,6 +51,7 @@
   import {
     COMPENDIUM_PICKER_LABELS,
     DEFINITION_FORM_LABELS,
+    FEET_UNIT_LABEL,
     FORM_FIELD_LABELS,
     FORM_TAB_LABELS,
     GRANT_SECTION_LABELS,
@@ -77,6 +79,12 @@
   interface ParentSpeciesInfo {
     name: string;
     packName: string;
+  }
+
+  /** Строка роста в правке: обе границы всегда числа, 0 — «не указана». */
+  interface EditableHeightRow {
+    from: number;
+    to: number;
   }
 
   const props = defineProps<{
@@ -120,7 +128,7 @@
 
   const tabItems = [
     { label: FORM_TAB_LABELS.main, slot: 'basic' as const },
-    { label: SPECIES_FORM_LABELS.tabMovement, slot: 'movement' as const },
+    { label: SPECIES_FORM_LABELS.tabProperties, slot: 'properties' as const },
     { label: SPECIES_FORM_LABELS.tabGrants, slot: 'grants' as const },
     { label: GRANT_SECTION_LABELS.features, slot: 'features' as const },
     { label: SPECIES_FORM_LABELS.tabEffects, slot: 'effects' as const },
@@ -141,6 +149,13 @@
   const isSRD = ref(false);
   const creatureType = ref<CreatureType>('humanoid');
   const selectedSizes = ref<CreatureSize[]>(['medium']);
+
+  /**
+   * Рост по размерам в правке: строка на каждый выбранный размер. Ноль в
+   * границе — «не указана»: у `UInputNumber` пустого значения нет, а в запись
+   * такая граница не пишется.
+   */
+  const heightRows = ref<Partial<Record<CreatureSize, EditableHeightRow>>>({});
 
   /** Ключ основного вида; пустая строка — запись самостоятельная. */
   const parentKey = ref('');
@@ -198,6 +213,142 @@
   const recordTakenKeys = computed(() => [
     ...usedChoiceKeys(recordGrants.value),
   ]);
+
+  // ============================================================
+  // Рост по размерам
+  // ============================================================
+
+  /**
+   * Разворачивает рост записи в строки правки. Незаданная граница становится
+   * нулём: поле ввода числовое, пустого значения у него нет.
+   *
+   * @param heights - рост записи по размерам
+   */
+  function heightsToRows(
+    heights: SpeciesDefinition['heights'],
+  ): Partial<Record<CreatureSize, EditableHeightRow>> {
+    const rows: Partial<Record<CreatureSize, EditableHeightRow>> = {};
+
+    for (const [size, range] of typedObjectEntries(heights ?? {})) {
+      rows[size] = { from: range?.from ?? 0, to: range?.to ?? 0 };
+    }
+
+    return rows;
+  }
+
+  /**
+   * Заводит строку роста каждому выбранному размеру. Строки снятых размеров не
+   * стираем: размер часто снимают и возвращают, а введённый рост при этом
+   * терять обидно — в запись он всё равно попадёт только для выбранных.
+   */
+  watch(
+    selectedSizes,
+    (sizes) => {
+      const rows = { ...heightRows.value };
+
+      let added = false;
+
+      for (const size of sizes) {
+        if (!rows[size]) {
+          rows[size] = { from: 0, to: 0 };
+          added = true;
+        }
+      }
+
+      // Пишем только когда строка реально добавилась: иначе каждый выбор
+      // размера подменял бы объект строк и зря перерисовывал их поля
+      if (added) {
+        heightRows.value = rows;
+      }
+    },
+    { immediate: true },
+  );
+
+  /**
+   * Строка роста размера для полей ввода. Размер только что отметили, а сторож
+   * ещё не отработал — отдаём пустую: разбирать это в разметке не дело, она
+   * остаётся декларативной.
+   *
+   * @param size - размер, чей рост показывают
+   */
+  function heightRow(size: CreatureSize): EditableHeightRow {
+    return heightRows.value[size] ?? { from: 0, to: 0 };
+  }
+
+  /**
+   * Ставит границу роста размеру. Пишем через замену объекта, а не правкой поля
+   * на месте: строки заводятся не всегда заранее, а `UInputNumber` при очистке
+   * отдаёт `undefined`.
+   *
+   * @param size - размер, у которого правят рост
+   * @param bound - какая граница правится
+   * @param value - новое значение; пусто — граница снята
+   */
+  function setHeightBound(
+    size: CreatureSize,
+    bound: 'from' | 'to',
+    value: number | undefined,
+  ): void {
+    const row = heightRows.value[size] ?? { from: 0, to: 0 };
+
+    heightRows.value = {
+      ...heightRows.value,
+      [size]: { ...row, [bound]: value ?? 0 },
+    };
+  }
+
+  /**
+   * Обработчик нижней границы роста — шаблон не зовёт `setHeightBound` напрямую,
+   * потому что многострочные обработчики в разметке запрещены.
+   *
+   * @param size - размер, у которого правят рост
+   * @param value - новое значение
+   */
+  function setHeightFrom(size: CreatureSize, value: number | undefined): void {
+    setHeightBound(size, 'from', value);
+  }
+
+  /**
+   * Обработчик верхней границы роста.
+   *
+   * @param size - размер, у которого правят рост
+   * @param value - новое значение
+   */
+  function setHeightTo(size: CreatureSize, value: number | undefined): void {
+    setHeightBound(size, 'to', value);
+  }
+
+  /**
+   * Рост для записи: только выбранные размеры и только заданные границы.
+   * Ничего не задано — `undefined`, и поле в запись не пишется вовсе.
+   */
+  function buildHeights(): SpeciesDefinition['heights'] {
+    const heights: NonNullable<SpeciesDefinition['heights']> = {};
+
+    for (const size of selectedSizes.value) {
+      const row = heightRows.value[size];
+
+      if (!row) {
+        continue;
+      }
+
+      const range: SpeciesHeightRange = {};
+
+      if (row.from > 0) {
+        range.from = row.from;
+      }
+
+      if (row.to > 0) {
+        range.to = row.to;
+      }
+
+      if (range.from !== undefined || range.to !== undefined) {
+        heights[size] = range;
+      }
+    }
+
+    return Object.keys(heights).length > 0 ? heights : undefined;
+  }
 
   // ============================================================
   // Родительский вид (запись — происхождение)
@@ -725,6 +876,7 @@
     isSRD.value = false;
     creatureType.value = 'humanoid';
     selectedSizes.value = ['medium'];
+    heightRows.value = {};
     parentKey.value = '';
     pickedParent.value = null;
     speedWalk.value = 30;
@@ -756,6 +908,8 @@
       definition.size && definition.size.length > 0
         ? [...definition.size]
         : ['medium'];
+
+    heightRows.value = heightsToRows(definition.heights);
 
     speedWalk.value = definition.speed?.walk ?? 30;
     speedFly.value = definition.speed?.fly ?? 0;
@@ -959,6 +1113,7 @@
       isSRD: isSRD.value,
       creatureType: creatureType.value,
       size: [...selectedSizes.value],
+      heights: buildHeights(),
       speed,
       // Известные легаси-типы конвертированы в featData; остаются только те,
       // которые форма не знает и потому не редактирует
@@ -1080,31 +1235,6 @@
                   />
                 </UFormField>
 
-                <UFormField :label="SPECIES_FORM_LABELS.creatureType">
-                  <USelect
-                    v-model="creatureType"
-                    :items="creatureTypeOptions"
-                    value-key="value"
-                    class="w-full"
-                  />
-                </UFormField>
-
-                <UFormField :label="SPECIES_FORM_LABELS.sizes">
-                  <USelectMenu
-                    v-model="selectedSizes"
-                    :items="sizeOptions"
-                    value-key="value"
-                    label-key="label"
-                    multiple
-                    class="w-full"
-                    :placeholder="SPECIES_FORM_LABELS.sizesPlaceholder"
-                  />
-
-                  <p class="mt-1 text-xs text-dimmed">
-                    {{ SPECIES_FORM_LABELS.sizesHelp }}
-                  </p>
-                </UFormField>
-
                 <UFormField
                   class="col-span-2"
                   :label="SPECIES_FORM_LABELS.parent"
@@ -1191,8 +1321,106 @@
           </div>
         </template>
 
-        <!-- ДВИЖЕНИЕ -->
-        <template #movement>
+        <!-- ХАРАКТЕРИСТИКИ: тип существа, размер, скорости, зрение — тот же
+          набор, что на одноимённой вкладке редактора вида на сайте -->
+        <template #properties>
+          <FormSection
+            :title="SPECIES_FORM_LABELS.bodyTitle"
+            icon="tabler:ruler-measure"
+            class="mb-4"
+          >
+            <div class="grid grid-cols-2 gap-3">
+              <UFormField :label="SPECIES_FORM_LABELS.creatureType">
+                <USelect
+                  v-model="creatureType"
+                  :items="creatureTypeOptions"
+                  value-key="value"
+                  class="w-full"
+                />
+              </UFormField>
+
+              <UFormField :label="SPECIES_FORM_LABELS.sizes">
+                <USelectMenu
+                  v-model="selectedSizes"
+                  :items="sizeOptions"
+                  value-key="value"
+                  label-key="label"
+                  multiple
+                  class="w-full"
+                  :placeholder="SPECIES_FORM_LABELS.sizesPlaceholder"
+                />
+              </UFormField>
+
+              <p class="col-span-2 text-xs text-dimmed">
+                {{ SPECIES_FORM_LABELS.sizesHelp }}
+              </p>
+
+              <!-- Рост: по строке на выбранный размер. Размер строке не
+                выбирают — его уже выбрали выше, и второй список размеров
+                разошёлся бы с первым -->
+              <div
+                v-if="selectedSizes.length > 0"
+                class="col-span-2 flex flex-col gap-3 border-t border-default/50 pt-3"
+              >
+                <p class="text-xs font-medium text-muted">
+                  {{ SPECIES_FORM_LABELS.heightsTitle }}
+                </p>
+
+                <div
+                  v-for="sizeKey in selectedSizes"
+                  :key="sizeKey"
+                  class="flex flex-wrap items-end gap-3"
+                >
+                  <span class="min-w-24 pb-1.5 text-sm">
+                    {{ CREATURE_SIZE_LABELS[sizeKey] }}
+                  </span>
+
+                  <UFormField :label="SPECIES_FORM_LABELS.heightFrom">
+                    <UFieldGroup>
+                      <UInputNumber
+                        :model-value="heightRow(sizeKey).from"
+                        :min="0"
+                        :max="200"
+                        class="w-32"
+                        @update:model-value="setHeightFrom(sizeKey, $event)"
+                      />
+
+                      <UBadge
+                        color="neutral"
+                        variant="subtle"
+                      >
+                        {{ FEET_UNIT_LABEL }}
+                      </UBadge>
+                    </UFieldGroup>
+                  </UFormField>
+
+                  <UFormField :label="SPECIES_FORM_LABELS.heightTo">
+                    <UFieldGroup>
+                      <UInputNumber
+                        :model-value="heightRow(sizeKey).to"
+                        :min="0"
+                        :max="200"
+                        class="w-32"
+                        @update:model-value="setHeightTo(sizeKey, $event)"
+                      />
+
+                      <UBadge
+                        color="neutral"
+                        variant="subtle"
+                      >
+                        {{ FEET_UNIT_LABEL }}
+                      </UBadge>
+                    </UFieldGroup>
+                  </UFormField>
+                </div>
+
+                <p class="text-xs text-dimmed">
+                  {{ SPECIES_FORM_LABELS.heightsHint }}
+                </p>
+              </div>
+            </div>
+          </FormSection>
+
           <FormSection
             :title="SPECIES_FORM_LABELS.speedTitle"
             icon="tabler:run"

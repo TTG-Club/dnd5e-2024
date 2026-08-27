@@ -164,7 +164,7 @@ export function computeSpeciesDarkvision(
   };
 
   for (const record of subspecies ? [definition, subspecies] : [definition]) {
-    for (const grant of record.grants) {
+    for (const grant of record.grants ?? []) {
       if (grant.type === 'darkvision') {
         raise(grant.range);
       }

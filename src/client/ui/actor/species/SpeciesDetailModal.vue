@@ -13,6 +13,7 @@
   import {
     DAMAGE_DEFENSE_KIND_LABELS,
     DAMAGE_TYPE_LABELS,
+    formatSpeciesSizeWithHeight,
     getConditionEntry,
   } from '@vtt/shared/system/dnd.js';
 
@@ -66,8 +67,15 @@
       return '';
     }
 
+    const heights = props.speciesDefinition.heights;
+
     return props.speciesDefinition.size
-      .map((sizeValue) => CREATURE_SIZE_LABELS[sizeValue] || sizeValue)
+      .map((sizeValue) =>
+        formatSpeciesSizeWithHeight(
+          CREATURE_SIZE_LABELS[sizeValue] || sizeValue,
+          heights?.[sizeValue],
+        ),
+      )
       .join(SPECIES_DETAIL_LABELS.sizeSeparator);
   });
 
@@ -117,7 +125,7 @@
 
     const grants: { title: string; desc: string }[] = [];
 
-    props.speciesDefinition.grants.forEach((grant) => {
+    (props.speciesDefinition.grants ?? []).forEach((grant) => {
       if (grant.type === 'darkvision') {
         grants.push({
           title: SPECIES_DETAIL_LABELS.darkvision,

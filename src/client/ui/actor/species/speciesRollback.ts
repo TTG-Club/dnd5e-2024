@@ -121,7 +121,7 @@ export function rollbackSpeciesProficiencies(
   const savingThrows = [...proficiencies.savingThrows];
 
   if (previousSpecies && previousSpeciesDef) {
-    previousSpeciesDef.grants.forEach((grant, grantIndex) => {
+    (previousSpeciesDef.grants ?? []).forEach((grant, grantIndex) => {
       const previousUserChoices =
         previousSpecies.grantChoices[grantIndex] || [];
 
