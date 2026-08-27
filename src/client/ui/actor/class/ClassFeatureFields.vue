@@ -1,4 +1,6 @@
 <script setup lang="ts">
+  import type { TypedWebSocketClient } from '@vtt/shared';
+
   import type { SpellOption } from '../grantedSpellsEditorTypes';
   import type {
     EditableClassFeature,
@@ -10,7 +12,13 @@
   import { generateId } from '@vtt/shared';
   import { SKILLS_LIST } from '@vtt/shared/system/dnd.js';
 
-  import { CLASS_FEATURE_LABELS, FORM_FIELD_LABELS } from '../constants';
+  import {
+    CLASS_FEATURE_LABELS,
+    CLASS_FORM_LABELS,
+    FORM_FIELD_LABELS,
+    FORM_TAB_LABELS,
+  } from '../constants';
+  import EntityEffectsEditor from '../EntityEffectsEditor.vue';
   import GrantedSpellsEditor from '../GrantedSpellsEditor.vue';
 
   /** Навыки для выпадающего списка выбора владения */
@@ -19,9 +27,14 @@
     label: skill.label,
   }));
 
-  defineProps<{
+  const props = defineProps<{
     /** Заклинания компендиума по пакам — для подсказок связывания. */
     availableSpells?: SpellOption[];
+    /**
+     * Сокет для окна выбора заклинания из компендиума. Без него добавить
+     * заклинание нечем: другого способа завести запись у редактора нет.
+     */
+    socket?: TypedWebSocketClient | null;
   }>();
 
   /** Редактируемая особенность класса/подкласса. */
@@ -183,6 +196,7 @@
       <GrantedSpellsEditor
         v-model="feature.grantedSpells"
         :available-spells="availableSpells"
+        :socket="props.socket"
         @open-spell="forwardOpenSpell"
       />
     </UFormField>
@@ -221,6 +235,7 @@
           <GrantedSpellsEditor
             v-model="entry.spells"
             :available-spells="availableSpells"
+            :socket="props.socket"
             @open-spell="forwardOpenSpell"
           />
         </div>
@@ -235,6 +250,16 @@
           @click.left.exact.prevent="addSpellLevel"
         />
       </div>
+    </UFormField>
+
+    <UFormField :label="FORM_TAB_LABELS.effects">
+      <EntityEffectsEditor
+        v-model="feature.activeEffects"
+        :modal-id="`class-feature-effect-form-modal-${feature.key}`"
+        :hint="CLASS_FORM_LABELS.featureEffectsHint"
+        :empty-text="CLASS_FORM_LABELS.featureEffectsEmpty"
+        hide-aura
+      />
     </UFormField>
   </div>
 </template>

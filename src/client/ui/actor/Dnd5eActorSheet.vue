@@ -67,6 +67,7 @@
   import ActorTabs from './ActorTabs.vue';
   import { buildBackgroundRemovalUpdates } from './background/backgroundRollback';
   import BackgroundSetupWizard from './background/BackgroundSetupWizard.vue';
+  import { isClassEffect } from './class/classEffects';
   import ClassSetupWizard from './class/ClassSetupWizard.vue';
   import CompendiumPickerModal from './CompendiumPickerModal.vue';
   import {
@@ -1971,10 +1972,15 @@
       );
     }
 
-    // Удаляем activeEffects, связанные с этим классом (ASI, черты)
+    // Удаляем activeEffects, связанные с этим классом. Эффекты, заявленные
+    // записью класса, узнаются по провенансу в id; эффекты повышения
+    // характеристик его не имеют — они собираются мастером на месте и несут
+    // название класса в подписи
     if (localActor.value.activeEffects) {
       localActor.value.activeEffects = localActor.value.activeEffects.filter(
-        (effect) => !effect.name.includes(removedClassName),
+        (effect) =>
+          !isClassEffect(effect, classKey)
+          && !effect.name.includes(removedClassName),
       );
     }
 

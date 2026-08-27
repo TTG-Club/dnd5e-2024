@@ -6,6 +6,7 @@
  */
 
 import type {
+  ActiveEffect,
   ConditionKey,
   DamageDefenseEntry,
   GrantedSpellRef,
@@ -33,6 +34,8 @@ export interface EditableFeatureFields {
   darkvision: number;
   /** Выдаваемые заклинания: имя + опц. связь с компендиумом (`spellId`). */
   grantedSpells: GrantedSpellRef[];
+  /** Активные эффекты особенности; переносятся на персонажа вместе с ней. */
+  activeEffects: ActiveEffect[];
 }
 
 /** Вариант особенности (подвид) с собственными вложенными особенностями. */

@@ -482,7 +482,7 @@
     </div>
 
     <div
-      class="custom-scroll w-full overflow-x-auto rounded-lg border border-default/50"
+      class="custom-scrollbar w-full overflow-x-auto rounded-lg border border-default/50"
     >
       <table class="w-full min-w-160 text-xs">
         <thead>

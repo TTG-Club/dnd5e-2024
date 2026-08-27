@@ -17,6 +17,7 @@
     CASTER_TYPE_LABELS,
     CLASS_DETAIL_LABELS,
     CLASS_LEVEL_TABLE_LABELS,
+    FORM_TAB_LABELS,
     GRANT_SECTION_LABELS,
     HIT_DIE_LETTER,
     LEVEL_BADGE_SUFFIX,
@@ -25,6 +26,7 @@
     TOOL_PROF_LABELS,
     WEAPON_PROF_SHORT_LABELS,
   } from '../constants';
+  import ItemEffectsView from '../ItemEffectsView.vue';
   import SourceBadge from '../SourceBadge.vue';
 
   /** Проверяет, является ли особенность генеричной заглушкой подкласса («Умение подкласса», «Подкласс воина») */
@@ -577,7 +579,7 @@
         <!-- Таблица уровней (компактная) -->
         <div>
           <div
-            class="custom-scroll w-full overflow-hidden overflow-x-auto rounded-lg border border-default/50"
+            class="custom-scrollbar w-full overflow-hidden overflow-x-auto rounded-lg border border-default/50"
           >
             <table class="w-full min-w-175 table-fixed text-xs">
               <colgroup>
@@ -746,8 +748,34 @@
               </div>
 
               <ItemDescriptionRenderer :content="feature.description" />
+
+              <ItemEffectsView
+                v-if="feature.activeEffects?.length"
+                :effects="feature.activeEffects"
+                :owner-name="feature.name"
+                class="mt-2"
+              />
             </div>
           </div>
+        </div>
+
+        <!-- Эффекты самого класса. Своим блоком, а не рядом с умениями: их
+          даёт класс целиком, и приписывать их первому попавшемуся умению
+          значило бы соврать об источнике -->
+        <div
+          v-if="classDefinition.activeEffects?.length"
+          class="pt-2"
+        >
+          <span
+            class="mb-1.5 block text-xs font-semibold tracking-wider text-dimmed uppercase"
+          >
+            {{ FORM_TAB_LABELS.effects }}
+          </span>
+
+          <ItemEffectsView
+            :effects="classDefinition.activeEffects"
+            :owner-name="classDefinition.name"
+          />
         </div>
 
         <!-- Подклассы -->

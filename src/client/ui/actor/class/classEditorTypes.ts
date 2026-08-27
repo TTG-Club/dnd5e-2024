@@ -17,6 +17,7 @@
 
 import type { AbilityType, SkillType, SourceDefinition } from '@vtt/shared';
 import type {
+  ActiveEffect,
   CasterType,
   ClassCounterDefinition,
   ClassDefinition,
@@ -124,6 +125,8 @@ export interface EditableClassFeature {
   skillChoiceCount: number;
   /** Пул навыков выбора; пустой — любой навык */
   skillChoiceFrom: SkillType[];
+  /** Активные эффекты умения; переносятся на персонажа вместе с ним. */
+  activeEffects: ActiveEffect[];
 }
 
 // ── Счётчик классового ресурса ───────────────────────────────
@@ -286,6 +289,7 @@ export function createEmptyFeature(name: string): EditableClassFeature {
     choices: [],
     skillChoiceCount: 0,
     skillChoiceFrom: [],
+    activeEffects: [],
   };
 }
 
@@ -343,6 +347,9 @@ export function toEditableFeature(feature: ClassFeature): EditableClassFeature {
     })),
     skillChoiceCount: feature.skillChoice?.count ?? 0,
     skillChoiceFrom: feature.skillChoice?.from ?? [],
+    activeEffects: (feature.activeEffects ?? []).map((effect) => ({
+      ...effect,
+    })),
   };
 }
 
@@ -610,6 +617,10 @@ export function buildFeature(
 
   if (Object.keys(byLevel).length > 0) {
     built.grantedSpellsByLevel = byLevel;
+  }
+
+  if (feature.activeEffects.length > 0) {
+    built.activeEffects = feature.activeEffects;
   }
 
   return built;

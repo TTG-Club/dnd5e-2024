@@ -173,6 +173,14 @@ export interface SpeciesFeature {
    * информационно. См. {@link GrantedSpellRef}.
    */
   grantedSpells?: GrantedSpellRef[];
+  /**
+   * Активные эффекты умения: то, что меняет числа листа готовой формулой.
+   *
+   * Соседом даров, а не их частью: дар лист проставляет сам — владение, чувство,
+   * скорость, — а эффект приезжает готовым, живёт на акторе своей записью, и её
+   * видно на вкладке эффектов и можно временно отключить.
+   */
+  activeEffects?: import('./activeEffectTypes.js').ActiveEffect[];
 }
 
 export interface SpeciesDefinition {
@@ -203,6 +211,15 @@ export interface SpeciesDefinition {
   grants: SpeciesGrant[];
 
   features: SpeciesFeature[];
+
+  /**
+   * Активные эффекты самого вида или происхождения. Переносятся на актора при
+   * выборе вида — так же, как эффекты предыстории при её применении.
+   *
+   * Нужны прежде всего происхождениям: умений у них не бывает, и приписать
+   * эффект там было бы некуда.
+   */
+  activeEffects?: import('./activeEffectTypes.js').ActiveEffect[];
 }
 
 export interface ActorSpeciesEntry {
