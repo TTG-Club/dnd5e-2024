@@ -3139,6 +3139,7 @@ export const COUNTER_RESOURCE_LABELS = {
   max: 'Максимум',
   maxSourceAria: 'От чего считается максимум',
   maxAmount: 'Сколько',
+  multiplier: 'Множитель',
   offset: 'Прибавка',
   ability: 'Характеристика',
   computed: 'Сейчас максимум',

@@ -9,6 +9,8 @@
     COUNTER_COUNT_MAX,
     COUNTER_COUNT_MIN,
     COUNTER_MAX_DEFAULT_ABILITY,
+    COUNTER_MAX_MULTIPLIER_MAX,
+    COUNTER_MAX_MULTIPLIER_MIN,
     COUNTER_MAX_OFFSET_MAX,
     COUNTER_MAX_OFFSET_MIN,
     counterMaxFormula,
@@ -86,6 +88,8 @@
 
   const offset = computed(() => rule.value?.offset ?? 0);
 
+  const multiplier = computed(() => rule.value?.multiplier ?? 1);
+
   const ability = computed<AbilityType>(
     () => rule.value?.ability ?? COUNTER_MAX_DEFAULT_ABILITY,
   );
@@ -124,6 +128,22 @@
    */
   function setFixedAmount(value: number | undefined): void {
     model.value = String(value ?? COUNTER_COUNT_MIN);
+  }
+
+  /**
+   * Записывает множитель значения источника.
+   *
+   * @param value - множитель; единица убирает его из формулы
+   */
+  function setMultiplier(value: number | undefined): void {
+    if (!rule.value) {
+      return;
+    }
+
+    model.value = counterMaxFormula({
+      ...rule.value,
+      multiplier: Math.max(COUNTER_MAX_MULTIPLIER_MIN, value ?? 1),
+    });
   }
 
   /**
@@ -214,6 +234,21 @@
           size="sm"
           class="w-full"
           @update:model-value="setAbility"
+        />
+      </UFormField>
+
+      <UFormField
+        :label="COUNTER_RESOURCE_LABELS.multiplier"
+        class="w-24"
+      >
+        <UInputNumber
+          :model-value="multiplier"
+          :min="COUNTER_MAX_MULTIPLIER_MIN"
+          :max="COUNTER_MAX_MULTIPLIER_MAX"
+          :aria-label="COUNTER_RESOURCE_LABELS.multiplier"
+          size="sm"
+          class="w-full"
+          @update:model-value="setMultiplier"
         />
       </UFormField>
 

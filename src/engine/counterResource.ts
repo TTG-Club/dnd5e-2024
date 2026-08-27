@@ -67,6 +67,13 @@ export interface CounterMaxRule {
   ability: AbilityType;
   /** Прибавка к значению источника; может быть отрицательной */
   offset: number;
+  /**
+   * Множитель значения источника; нет — единица.
+   *
+   * Нужен ресурсам, у которых запас кратен растущему значению: «Возложение
+   * рук» паладина — это пять хитов за уровень.
+   */
+  multiplier?: number;
 }
 
 /** Характеристика правила по умолчанию: поле обязано быть заполненным. */
@@ -77,6 +84,12 @@ export const COUNTER_COUNT_MIN = 0;
 
 /** Максимальное количество зарядов ресурса. */
 export const COUNTER_COUNT_MAX = 99;
+
+/** Наименьший множитель значения источника: единица его не меняет. */
+export const COUNTER_MAX_MULTIPLIER_MIN = 1;
+
+/** Наибольший множитель значения источника: «Возложение рук» — пять за уровень. */
+export const COUNTER_MAX_MULTIPLIER_MAX = 20;
 
 /** Минимальная прибавка к значению источника максимума. */
 export const COUNTER_MAX_OFFSET_MIN = -9;
@@ -106,13 +119,50 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+/** Целое число без знака — им записаны и своё число максимума, и множитель. */
+const NUMBER_PATTERN = /^\d+$/;
+
+/**
+ * Источник максимума и его множитель, отделённые от формулы.
+ *
+ * Множитель ищется отдельно по той же причине, что и смещение: у общего разбора
+ * всей строки они перетягивают друг у друга пробелы и знак. Записать его можно
+ * с любой стороны — «5 × уровень» и «уровень × 5» читаются одинаково.
+ *
+ * @param base - часть формулы без смещения
+ * @returns источник без множителя и сам множитель (нет — единица)
+ */
+function splitCounterMaxMultiplier(base: string): {
+  source: string;
+  multiplier: number;
+} {
+  const parts = base.split('*');
+
+  const left = parts[0]?.trim() ?? '';
+  const right = parts[1]?.trim() ?? '';
+
+  if (parts.length !== 2 || !left || !right) {
+    return { source: base, multiplier: 1 };
+  }
+
+  if (NUMBER_PATTERN.test(right)) {
+    return { source: left, multiplier: Number(right) };
+  }
+
+  if (NUMBER_PATTERN.test(left)) {
+    return { source: right, multiplier: Number(left) };
+  }
+
+  return { source: base, multiplier: 1 };
+}
+
 /**
  * Разбирает формулу максимума в правило для формы.
  *
  * Грамматика: число, `@prof`, `@level`, `@mod.spell` или `@mod.<аббревиатура>`,
- * любое из них со смещением (`@prof - 1`). Смещение всегда в хвосте и ищется
- * отдельно от источника: у общего разбора всей строки источник и смещение
- * перетягивают друг у друга пробелы и знак.
+ * любое из них с множителем (`@level * 5`) и смещением (`@prof - 1`). Смещение
+ * всегда в хвосте и ищется отдельно от источника: у общего разбора всей строки
+ * источник и смещение перетягивают друг у друга пробелы и знак.
  *
  * @param formula - формула максимума
  * @returns правило; null — формула пуста либо написана руками и не разбирается
@@ -130,7 +180,12 @@ export function parseCounterMaxFormula(formula: string): CounterMaxRule | null {
     ? Number(offsetMatch[2]) * (offsetMatch[1] === '-' ? -1 : 1)
     : 0;
 
-  const base = trimmed.slice(0, offsetMatch?.index ?? trimmed.length).trim();
+  const withMultiplier = trimmed
+    .slice(0, offsetMatch?.index ?? trimmed.length)
+    .trim();
+
+  const { source: base, multiplier } =
+    splitCounterMaxMultiplier(withMultiplier);
 
   if (!base) {
     // Формула из одного числа: «10» разобралось как смещение без источника
@@ -143,7 +198,7 @@ export function parseCounterMaxFormula(formula: string): CounterMaxRule | null {
     return {
       source: 'fixed',
       ability: COUNTER_MAX_DEFAULT_ABILITY,
-      offset: Number(base) + offset,
+      offset: Number(base) * multiplier + offset,
     };
   }
 
@@ -152,11 +207,17 @@ export function parseCounterMaxFormula(formula: string): CounterMaxRule | null {
       source: 'proficiency',
       ability: COUNTER_MAX_DEFAULT_ABILITY,
       offset,
+      multiplier,
     };
   }
 
   if (base === COUNTER_FORMULA_TOKENS.level) {
-    return { source: 'level', ability: COUNTER_MAX_DEFAULT_ABILITY, offset };
+    return {
+      source: 'level',
+      ability: COUNTER_MAX_DEFAULT_ABILITY,
+      offset,
+      multiplier,
+    };
   }
 
   if (base === COUNTER_FORMULA_TOKENS.spellAbilityModifier) {
@@ -164,6 +225,7 @@ export function parseCounterMaxFormula(formula: string): CounterMaxRule | null {
       source: 'spellAbility',
       ability: COUNTER_MAX_DEFAULT_ABILITY,
       offset,
+      multiplier,
     };
   }
 
@@ -176,7 +238,7 @@ export function parseCounterMaxFormula(formula: string): CounterMaxRule | null {
     // Приставка знакома, а характеристика за ней — нет: формулу правили руками,
     // и подставлять вместо неё чужую характеристику хуже, чем отдать её как есть
     return isAbilityType(ability)
-      ? { source: 'ability', ability, offset }
+      ? { source: 'ability', ability, offset, multiplier }
       : null;
   }
 
@@ -201,7 +263,11 @@ export function counterMaxFormula(rule: CounterMaxRule): string {
     return String(Math.max(COUNTER_COUNT_MIN, offset));
   }
 
-  const base = counterMaxSourceToken(rule);
+  const multiplier = Math.trunc(rule.multiplier ?? 1);
+
+  const token = counterMaxSourceToken(rule);
+
+  const base = multiplier > 1 ? `${token} * ${multiplier}` : token;
 
   return offset === 0
     ? base
