@@ -473,6 +473,46 @@ export function useClassWizard(
   );
 
   /**
+   * Выборы умений прошлых уровней, открывающиеся ровно на этом уровне.
+   *
+   * Отдаются пустыми дарами с одними выборами: умение уже выдано, и повторить
+   * его владения и заклинания значило бы выдать их дважды.
+   */
+  const reopenedFeatData = computed<FeatData[]>(() => {
+    const classDef = classDefinition.value;
+    const level = nextLevel.value;
+
+    if (!classDef) {
+      return [];
+    }
+
+    const gainedKeys = new Set(levelFeatures.value.map((entry) => entry.key));
+
+    const features = [
+      ...classDef.features,
+      ...(activeSubclass.value?.features ?? []),
+    ];
+
+    const collected: FeatData[] = [];
+
+    for (const feature of features) {
+      if (gainedKeys.has(feature.key) || feature.isInformationalOnly) {
+        continue;
+      }
+
+      const reopened = (feature.featData?.choices ?? []).filter(
+        (choice) => choice.requiredLevel === level,
+      );
+
+      if (reopened.length) {
+        collected.push({ type: 'feat', choices: reopened });
+      }
+    }
+
+    return collected;
+  });
+
+  /**
    * Дары, которые приносит этот уровень: сам класс на первом уровне, выбранный
    * прямо сейчас подкласс и каждое умение уровня.
    *
@@ -497,12 +537,42 @@ export function useClassWizard(
 
     for (const feature of levelFeatures.value) {
       if (!feature.isInformationalOnly && feature.featData) {
-        collected.push(feature.featData);
+        collected.push(openedFeatData(feature.featData, nextLevel.value));
       }
+    }
+
+    // Умения прошлых уровней, у которых на этом уровне открывается ещё один
+    // вопрос: компетентность плут получает на 1 уровне и снова на 6, а умение
+    // в книге одно. Берутся ТОЛЬКО их выборы — остальные дары уже выданы, и
+    // повтор выдал бы их дважды
+    for (const featData of reopenedFeatData.value) {
+      collected.push(featData);
     }
 
     return collected;
   });
+
+  /**
+   * Дары умения без выборов, до которых персонаж ещё не дорос.
+   *
+   * @param featData - дары умения из справочника
+   * @param level - уровень, который берут сейчас
+   * @returns дары с отобранными выборами
+   */
+  function openedFeatData(featData: FeatData, level: number): FeatData {
+    const choices = featData.choices;
+
+    if (!choices?.length) {
+      return featData;
+    }
+
+    return {
+      ...featData,
+      choices: choices.filter(
+        (choice) => !choice.requiredLevel || choice.requiredLevel <= level,
+      ),
+    };
+  }
 
   /**
    * Выборы даров уровня — в том же порядке и тем же разбором, что у черты:
