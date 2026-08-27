@@ -579,7 +579,7 @@
         <!-- Таблица уровней (компактная) -->
         <div>
           <div
-            class="custom-scroll w-full overflow-hidden overflow-x-auto rounded-lg border border-default/50"
+            class="custom-scrollbar w-full overflow-hidden overflow-x-auto rounded-lg border border-default/50"
           >
             <table class="w-full min-w-175 table-fixed text-xs">
               <colgroup>

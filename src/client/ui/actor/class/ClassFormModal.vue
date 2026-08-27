@@ -543,13 +543,18 @@
     @bring-to-front="emit('bring-to-front')"
   >
     <template #body>
+      <!-- Вкладки не переносятся, а прокручиваются лентой: у варианта «pill»
+        каждая вкладка растёт по ширине, и одинокая вкладка второй строки
+        занимала всю ширину окна. Индикатор активной вкладки при переносе тоже
+        ломался — Reka считает ему только горизонтальное положение и на второй
+        строке оставлял его под чужой вкладкой -->
       <UTabs
         :items="tabItems"
         variant="pill"
         class="flex flex-col"
         :ui="{
-          list: 'mb-3 flex-wrap',
-          trigger: 'justify-center',
+          list: 'custom-scrollbar mb-3 overflow-x-auto',
+          trigger: 'shrink-0 justify-center',
           content: 'overflow-y-auto max-h-160',
         }"
       >
