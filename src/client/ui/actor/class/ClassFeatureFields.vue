@@ -20,6 +20,7 @@
   } from '../constants';
   import EntityEffectsEditor from '../EntityEffectsEditor.vue';
   import GrantedSpellsEditor from '../GrantedSpellsEditor.vue';
+  import ClassGrantsFields from './ClassGrantsFields.vue';
 
   /** Навыки для выпадающего списка выбора владения */
   const skillsOptions = SKILLS_LIST.map((skill) => ({
@@ -250,6 +251,12 @@
           @click.left.exact.prevent="addSpellLevel"
         />
       </div>
+    </UFormField>
+
+    <!-- Дары умения тем же блоком, что у класса и у черты: ресурс умения
+      заводится прямо здесь, а не привязкой к нему из счётчиков класса -->
+    <UFormField :label="CLASS_FORM_LABELS.featureGrantsTitle">
+      <ClassGrantsFields v-model="feature.grants" />
     </UFormField>
 
     <UFormField :label="FORM_TAB_LABELS.effects">

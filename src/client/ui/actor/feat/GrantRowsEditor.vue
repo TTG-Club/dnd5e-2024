@@ -5,11 +5,14 @@
 
   import { computed } from 'vue';
 
+  import { generateId } from '@vtt/shared';
   import { getFeatChoiceDefaultPool } from '@vtt/shared/system/dnd.js';
 
   import { useSystemDataStore } from '../../../stores/systemDataStore';
   import {
     ARMOR_PROF_LABELS,
+    CHOICE_COUNT_MAX,
+    CLASS_LEVEL_MAX,
     FEAT_GRANTS_LABELS,
     WEAPON_PROF_LABELS,
   } from '../constants';
@@ -235,6 +238,35 @@
 
   function removeRow(index: number): void {
     rows.value = rows.value.filter((_, rowIndex) => rowIndex !== index);
+  }
+
+  /**
+   * Заводит ступень роста: следующая начинается уровнем позже последней и даёт
+   * на один выбор больше.
+   *
+   * @param row - строка дара
+   */
+  function addScaling(row: EditableGrantRow): void {
+    const last = row.scaling.at(-1);
+
+    row.scaling = [
+      ...row.scaling,
+      {
+        uid: generateId('choice-step'),
+        level: Math.min(CLASS_LEVEL_MAX, (last?.level ?? 0) + 1),
+        count: Math.min(CHOICE_COUNT_MAX, (last?.count ?? row.count) + 1),
+      },
+    ];
+  }
+
+  /**
+   * Убирает ступень роста.
+   *
+   * @param row - строка дара
+   * @param index - номер ступени
+   */
+  function removeScaling(row: EditableGrantRow, index: number): void {
+    row.scaling = row.scaling.filter((_, stepIndex) => stepIndex !== index);
   }
 
   /**
@@ -485,10 +517,120 @@
               />
             </div>
 
-            <UCheckbox
-              v-model="row.rechooseOnLongRest"
-              :label="FEAT_GRANTS_LABELS.rechooseOnLongRest"
-            />
+            <div class="flex flex-wrap items-end gap-4">
+              <UCheckbox
+                v-model="row.rechooseOnLongRest"
+                :label="FEAT_GRANTS_LABELS.rechooseOnLongRest"
+                class="mb-2"
+              />
+
+              <UFormField
+                :label="FEAT_GRANTS_LABELS.choiceRequiredLevel"
+                :help="FEAT_GRANTS_LABELS.choiceRequiredLevelHint"
+                class="w-40"
+              >
+                <UInputNumber
+                  v-model="row.requiredLevel"
+                  :min="0"
+                  :max="CLASS_LEVEL_MAX"
+                  class="w-full"
+                />
+              </UFormField>
+            </div>
+
+            <!-- Рост по уровням: оружейных приёмов у воина три с 1 уровня,
+              четыре с 4, пять с 10. Ступень называет, сколько всего выбрано к
+              этому уровню, а не сколько добавилось -->
+            <div class="flex flex-col gap-2">
+              <span class="text-xs font-medium text-muted">
+                {{ FEAT_GRANTS_LABELS.choiceScalingTitle }}
+              </span>
+
+              <p
+                v-if="row.scaling.length === 0"
+                class="text-xs text-dimmed italic"
+              >
+                {{ FEAT_GRANTS_LABELS.choiceScalingEmpty }}
+              </p>
+
+              <div
+                v-for="(step, stepIndex) in row.scaling"
+                :key="step.uid"
+                class="flex items-end gap-2"
+              >
+                <UFormField
+                  :label="FEAT_GRANTS_LABELS.choiceScalingLevel"
+                  class="w-28"
+                >
+                  <UInputNumber
+                    v-model="step.level"
+                    :min="1"
+                    :max="CLASS_LEVEL_MAX"
+                    size="sm"
+                    class="w-full"
+                  />
+                </UFormField>
+
+                <UFormField
+                  :label="FEAT_GRANTS_LABELS.choiceScalingCount"
+                  class="w-28"
+                >
+                  <UInputNumber
+                    v-model="step.count"
+                    :min="1"
+                    :max="CHOICE_COUNT_MAX"
+                    size="sm"
+                    class="w-full"
+                  />
+                </UFormField>
+
+                <UButton
+                  icon="tabler:trash"
+                  color="error"
+                  variant="ghost"
+                  size="xs"
+                  class="mb-1"
+                  :aria-label="FEAT_GRANTS_LABELS.choiceScalingTitle"
+                  @click.left.exact.prevent="removeScaling(row, stepIndex)"
+                />
+              </div>
+
+              <UButton
+                icon="tabler:plus"
+                :label="FEAT_GRANTS_LABELS.addChoiceScaling"
+                color="neutral"
+                variant="soft"
+                size="xs"
+                class="self-start"
+                @click.left.exact.prevent="addScaling(row)"
+              />
+            </div>
+
+            <!-- Ряд по уровням соберётся из ступеней: колонкой его набирать не
+              нужно -->
+            <div
+              v-if="row.scaling.length > 0"
+              class="flex flex-wrap items-end gap-4"
+            >
+              <UCheckbox
+                v-model="row.showInTable"
+                :label="FEAT_GRANTS_LABELS.choiceShowInTable"
+                :description="FEAT_GRANTS_LABELS.choiceShowInTableHint"
+              />
+
+              <UFormField
+                v-if="row.showInTable"
+                :label="FEAT_GRANTS_LABELS.choiceShortName"
+                class="w-56"
+              >
+                <UInput
+                  v-model="row.shortName"
+                  :placeholder="FEAT_GRANTS_LABELS.choiceShortNamePlaceholder"
+                  size="sm"
+                  class="w-full"
+                />
+              </UFormField>
+            </div>
           </template>
 
           <!-- Повышение характеристики: и у фиксированного дара, и у выбора -->

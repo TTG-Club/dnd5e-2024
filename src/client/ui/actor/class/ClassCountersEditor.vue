@@ -4,8 +4,6 @@
     EditableProgressionEntry,
   } from './classEditorTypes';
 
-  import { computed } from 'vue';
-
   import { generateId } from '@vtt/shared';
   import {
     COUNTER_COUNT_MIN,
@@ -17,13 +15,7 @@
     CLASS_COUNTERS_LABELS,
     COUNTER_RECOVERY_OPTIONS,
     FORM_FIELD_LABELS,
-    NO_SELECTION,
   } from '../constants';
-
-  const props = defineProps<{
-    /** Особенности (для привязки счётчика к особенности по ключу). */
-    featureOptions?: { value: string; label: string }[];
-  }>();
 
   /** Список счётчиков классовых ресурсов. */
   const counters = defineModel<EditableCounter[]>({ required: true });
@@ -33,32 +25,6 @@
     { value: 'formula', label: CLASS_COUNTERS_LABELS.sourceFormula },
   ];
 
-  const featureSelectOptions = computed(() => [
-    { value: NO_SELECTION, label: CLASS_COUNTERS_LABELS.featureNone },
-    ...(props.featureOptions ?? []),
-  ]);
-
-  /**
-   * Привязка к умению в виде значения селекта: «без привязки» хранится пустой
-   * строкой, а `reka-ui` пустую строку в `<SelectItem>` не принимает — она у
-   * него зарезервирована под сброс выбора.
-   *
-   * @param counter - редактируемый счётчик
-   */
-  function featureSelectValue(counter: EditableCounter): string {
-    return counter.featureKey || NO_SELECTION;
-  }
-
-  /**
-   * Обратно: признак «без привязки» ложится в счётчик пустой строкой.
-   *
-   * @param counter - редактируемый счётчик
-   * @param value - значение селекта
-   */
-  function setFeatureKey(counter: EditableCounter, value: string): void {
-    counter.featureKey = value === NO_SELECTION ? '' : value;
-  }
-
   /** Добавляет новый счётчик. */
   function addCounter(): void {
     counters.value.push({
@@ -66,7 +32,6 @@
       name: '',
       shortName: '',
       nameEn: '',
-      description: '',
       startLevel: 1,
       recovery: 'long',
       min: 0,
@@ -74,7 +39,6 @@
       mode: 'progression',
       progression: [],
       formula: 'level',
-      featureKey: '',
     });
   }
 
@@ -178,27 +142,7 @@
             class="w-full"
           />
         </UFormField>
-
-        <UFormField :label="CLASS_COUNTERS_LABELS.feature">
-          <USelect
-            :model-value="featureSelectValue(counter)"
-            :items="featureSelectOptions"
-            value-key="value"
-            class="w-full"
-            @update:model-value="setFeatureKey(counter, $event)"
-          />
-        </UFormField>
       </div>
-
-      <UFormField :label="FORM_FIELD_LABELS.description">
-        <UTextarea
-          v-model="counter.description"
-          :rows="2"
-          autoresize
-          :placeholder="CLASS_COUNTERS_LABELS.descriptionPlaceholder"
-          class="w-full"
-        />
-      </UFormField>
 
       <div class="flex flex-wrap items-end gap-4">
         <UFormField

@@ -199,6 +199,24 @@ export interface EditableGrantRow {
   abilityAmount: number;
   /** Предел повышения: 20 у обычных черт, 30 у эпических даров (0 — не задан) */
   abilityUpto: number;
+  /** Уровень, с которого выбор спрашивают; 0 — сразу */
+  requiredLevel: number;
+  /**
+   * Ступени количества по уровням: сколько ВСЕГО выбирают к каждому уровню.
+   * Пусто — количество не растёт и задано {@link count}.
+   */
+  scaling: EditableChoiceScaling[];
+  /** Показывать количество колонкой таблицы прогрессии класса */
+  showInTable: boolean;
+  /** Краткая подпись колонки таблицы; пусто — берётся подпись выбора */
+  shortName: string;
+}
+
+/** Ступень количества выбора в форме: уровень и сколько всего выбрано к нему. */
+export interface EditableChoiceScaling {
+  uid: string;
+  level: number;
+  count: number;
 }
 
 // ── Выбор заклинаний (вкладка «Заклинания») ───────────────────
@@ -917,6 +935,10 @@ export function createGrantRow(
     rechooseOnLongRest: false,
     abilityAmount: kind === 'ability' ? 1 : 0,
     abilityUpto: kind === 'ability' ? 20 : 0,
+    requiredLevel: 0,
+    scaling: [],
+    showInTable: false,
+    shortName: '',
   };
 }
 
@@ -1048,6 +1070,16 @@ function choiceGrantRow(choice: FeatChoice): EditableGrantRow {
     rechooseOnLongRest: choice.rechooseOnLongRest ?? false,
     abilityAmount: 0,
     abilityUpto: 0,
+    requiredLevel: choice.requiredLevel ?? 0,
+    scaling: Object.entries(choice.scaling ?? {})
+      .map(([level, count]) => ({
+        uid: generateId('choice-step'),
+        level: Number(level),
+        count,
+      }))
+      .sort((first, second) => first.level - second.level),
+    showInTable: choice.showInTable ?? false,
+    shortName: choice.shortName ?? '',
   };
 }
 
@@ -1601,6 +1633,31 @@ function grantRowToChoice(row: EditableGrantRow): FeatChoice {
 
   if (row.expertiseIfProficient) {
     built.expertiseIfProficient = true;
+  }
+
+  if (row.requiredLevel > 0) {
+    built.requiredLevel = row.requiredLevel;
+  }
+
+  // Ступень без уровня или без количества ничего не описывает: у потребителя она
+  // превратилась бы в выбор ни из чего
+  const scaling = row.scaling
+    .filter((step) => step.level > 0 && step.count > 0)
+    .sort((first, second) => first.level - second.level);
+
+  if (scaling.length > 0) {
+    built.scaling = Object.fromEntries(
+      scaling.map((step) => [String(step.level), step.count]),
+    );
+
+    // Колонка выводится из ступеней: без них показывать в таблице нечего
+    if (row.showInTable) {
+      built.showInTable = true;
+    }
+
+    if (row.shortName.trim()) {
+      built.shortName = row.shortName.trim();
+    }
   }
 
   return built;

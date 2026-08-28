@@ -3,6 +3,7 @@
     ClassDefinition,
     ClassFeature,
     ClassLevelEntry,
+    FeatChoice,
   } from '@vtt/shared/system/dnd.js';
 
   import { computed, nextTick, ref } from 'vue';
@@ -178,6 +179,25 @@
     return map;
   });
 
+  /**
+   * Выборы даров записи и её умений: из них выводятся колонки количества
+   * («Приёмы» воина). Ряд по уровням у выбора задан ступенями, и колонкой его
+   * набирать второй раз не нужно.
+   *
+   * @param definition - класс либо подкласс
+   */
+  function classChoices(
+    definition: Pick<ClassDefinition, 'featData' | 'features'>,
+  ): FeatChoice[] {
+    const own = definition.featData?.choices ?? [];
+
+    const fromFeatures = (definition.features ?? []).flatMap(
+      (feature) => feature.featData?.choices ?? [],
+    );
+
+    return [...own, ...fromFeatures];
+  }
+
   /** Выбранный подкласс записи; null — подкласс не выбран. */
   const selectedSubclass = computed(() => {
     if (!selectedSubclassName.value) {
@@ -210,6 +230,7 @@
       definition.levelTable ?? [],
       definition.tableColumns ?? [],
       definition.counters,
+      classChoices(definition),
     );
   });
 
@@ -225,6 +246,7 @@
       subclass.levelTable ?? [],
       subclass.tableColumns ?? [],
       subclass.counters,
+      classChoices(subclass),
     );
   });
 

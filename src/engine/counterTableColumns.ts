@@ -22,6 +22,7 @@ import type {
   ClassLevelEntry,
   ClassTableColumnDefinition,
 } from './classTypes.js';
+import type { FeatChoice } from './featTypes.js';
 
 import { calculateProficiencyBonus } from './calculations.js';
 import { COUNTER_FORMULA_TOKENS } from './counterResource.js';
@@ -163,6 +164,46 @@ function withMinimum(value: number, counter: ClassCounterDefinition): number {
 }
 
 /**
+ * Значения выбора по уровням: сколько всего выбрано к каждому уровню.
+ *
+ * Ступень держится до следующей, а до уровня открытия выбора его нет вовсе.
+ *
+ * @param choice - выбор механики
+ * @returns значения по уровням; null — ступеней нет
+ */
+export function choiceValuesByLevel(
+  choice: FeatChoice,
+): Record<number, number> | null {
+  const steps = Object.entries(choice.scaling ?? {})
+    .map(([level, count]) => ({ level: Number(level), count }))
+    .filter((step) => Number.isFinite(step.level) && step.count > 0)
+    .sort((first, second) => first.level - second.level);
+
+  if (steps.length === 0) {
+    return null;
+  }
+
+  const startLevel = Math.max(1, choice.requiredLevel ?? 1);
+  const values: Record<number, number> = {};
+
+  let current: number | null = null;
+
+  for (let level = 1; level <= MAX_LEVEL; level++) {
+    for (const step of steps) {
+      if (step.level <= level) {
+        current = step.count;
+      }
+    }
+
+    if (current !== null && level >= startLevel) {
+      values[level] = current;
+    }
+  }
+
+  return values;
+}
+
+/**
  * Таблица прогрессии, дополненная колонками отмеченных ресурсов.
  *
  * Ресурс, у которого колонка уже есть в записи, второй раз не показывается: ключ
@@ -171,12 +212,14 @@ function withMinimum(value: number, counter: ClassCounterDefinition): number {
  * @param table - таблица уровней записи
  * @param columns - колонки, заданные в записи
  * @param counters - счётчики ресурсов записи
+ * @param choices - выборы даров записи и её умений
  * @returns таблица и колонки для показа
  */
 export function withCounterTableColumns(
   table: ClassLevelEntry[],
   columns: ClassTableColumnDefinition[],
   counters: ClassCounterDefinition[] | undefined,
+  choices: FeatChoice[] = [],
 ): CounterTable {
   const takenKeys = new Set(
     columns.map((column) => column.key).filter((key): key is string => !!key),
@@ -204,6 +247,26 @@ export function withCounterTableColumns(
     derived.push({
       key: counter.key,
       label: counter.shortName || counter.name || counter.key,
+    });
+  }
+
+  for (const choice of choices) {
+    if (!choice.showInTable || !choice.key || takenKeys.has(choice.key)) {
+      continue;
+    }
+
+    const values = choiceValuesByLevel(choice);
+
+    if (!values) {
+      continue;
+    }
+
+    takenKeys.add(choice.key);
+    valuesByKey.set(choice.key, values);
+
+    derived.push({
+      key: choice.key,
+      label: choice.shortName || choice.label || choice.key,
     });
   }
 

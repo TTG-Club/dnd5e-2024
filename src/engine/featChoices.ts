@@ -695,6 +695,58 @@ export function prepareFeatChoices(
 }
 
 /**
+ * Выбор со ступенями роста — по одному выбору на ступень, с ПРИБАВКОЙ вместо итога.
+ *
+ * Ступень называет, сколько всего выбрано к её уровню, а спрашивать нужно разницу с
+ * предыдущей: оружейных приёмов у воина три с 1 уровня и четыре с 4, то есть на четвёртом
+ * игрок выбирает один новый, а не четыре заново. Уровень ступени становится уровнем
+ * открытия выбора, и дальше его отбирают те же правила, что и выбор, заданный уровнем
+ * вручную.
+ *
+ * Выбор без ступеней возвращается как есть.
+ *
+ * @param choices - выборы механики
+ * @returns выборы, разложенные по ступеням
+ */
+export function expandChoiceScaling(
+  choices: ReadonlyArray<FeatChoice> | undefined,
+): FeatChoice[] {
+  return (choices ?? []).flatMap((choice) => {
+    const steps = Object.entries(choice.scaling ?? {})
+      .map(([level, count]) => ({ level: Number(level), count }))
+      .filter((step) => Number.isFinite(step.level) && step.count > 0)
+      .sort((first, second) => first.level - second.level);
+
+    if (steps.length === 0) {
+      return [choice];
+    }
+
+    const expanded: FeatChoice[] = [];
+
+    let previous = 0;
+
+    for (const step of steps) {
+      const added = step.count - previous;
+
+      previous = step.count;
+
+      // Ступень, не добавившая ничего, вопросом не становится: выбирать на ней
+      // нечего, и шаг мастера повышения уровня был бы пустым
+      if (added > 0) {
+        expanded.push({
+          ...choice,
+          count: added,
+          requiredLevel: step.level,
+          scaling: undefined,
+        });
+      }
+    }
+
+    return expanded;
+  });
+}
+
+/**
  * Выборы, которые показываются игроку прямо сейчас.
  *
  * Выбор заклинания ждёт ответа про класс: пока список не назван, пул собран не из того

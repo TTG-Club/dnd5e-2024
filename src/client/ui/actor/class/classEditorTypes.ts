@@ -31,11 +31,19 @@ import type {
   SubclassDefinition,
 } from '@vtt/shared/system/dnd.js';
 
+import type { EditableFeatGrants } from '../feat/featEditorTypes';
+
 import { generateId } from '@vtt/shared';
 import {
   calculateProficiencyBonus,
   isAsiFeatureKey,
 } from '@vtt/shared/system/dnd.js';
+
+import {
+  buildFeatData,
+  createEmptyFeatGrants,
+  featDataToGrants,
+} from '../feat/featEditorTypes';
 
 // ── Колонки таблицы прогрессии ───────────────────────────────
 
@@ -129,11 +137,17 @@ export interface EditableClassFeature {
   /** Активные эффекты умения; переносятся на персонажа вместе с ним. */
   activeEffects: ActiveEffect[];
   /**
-   * Дары умения блоком `featData` (round-trip; форма их не редактирует).
-   * Без протаскивания сохранение класса, приехавшего с сайта, теряло их —
-   * умение оставалось без владений, модификаторов и выборов.
+   * Дары умения: владения, выборы, правки листа и ресурсы — тем же блоком, что
+   * у черты. Форма правит их на своей вкладке «Дары», как на сайте, поэтому
+   * ресурс умения заводится прямо у него, а не привязкой к нему из счётчиков
+   * класса.
    */
-  featData?: FeatData;
+  grants: EditableFeatGrants;
+
+  /**
+   * Заклинания, которые умение даёт знать; правятся отдельным полем формы.
+   */
+  grantedSpellRefs: GrantedSpellRef[];
 }
 
 // ── Счётчик классового ресурса ───────────────────────────────
@@ -149,7 +163,6 @@ export interface EditableCounter {
   name: string;
   shortName: string;
   nameEn: string;
-  description: string;
   startLevel: number;
   recovery: CounterRecovery;
   /**
@@ -163,7 +176,6 @@ export interface EditableCounter {
   mode: 'progression' | 'formula';
   progression: EditableProgressionEntry[];
   formula: string;
-  featureKey: string;
 }
 
 // ── Заклинательство ──────────────────────────────────────────
@@ -306,6 +318,8 @@ export function createEmptyFeature(name: string): EditableClassFeature {
     skillChoiceCount: 0,
     skillChoiceFrom: [],
     activeEffects: [],
+    grants: createEmptyFeatGrants(),
+    grantedSpellRefs: [],
   };
 }
 
@@ -366,7 +380,8 @@ export function toEditableFeature(feature: ClassFeature): EditableClassFeature {
     activeEffects: (feature.activeEffects ?? []).map((effect) => ({
       ...effect,
     })),
-    ...(feature.featData ? { featData: feature.featData } : {}),
+    grants: featDataToGrants(feature.featData),
+    grantedSpellRefs: [...(feature.featData?.grantedSpells ?? [])],
   };
 }
 
@@ -389,7 +404,6 @@ export function toEditableCounter(
     name: counter.name || '',
     shortName: counter.shortName || '',
     nameEn: counter.nameEn || '',
-    description: counter.description || '',
     startLevel: counter.startLevel ?? 1,
     recovery: counter.recovery ?? 'long',
     min: counter.min ?? 0,
@@ -397,7 +411,6 @@ export function toEditableCounter(
     mode: counter.progression ? 'progression' : 'formula',
     progression,
     formula: counter.formula || 'level',
-    featureKey: counter.featureKey || '',
   };
 }
 
@@ -643,8 +656,10 @@ export function buildFeature(
     built.activeEffects = feature.activeEffects;
   }
 
-  if (feature.featData) {
-    built.featData = feature.featData;
+  const featData = buildFeatData(feature.grants, feature.grantedSpellRefs);
+
+  if (featData) {
+    built.featData = featData;
   }
 
   return built;
@@ -677,14 +692,6 @@ export function buildCounter(
 
   if (counter.nameEn.trim()) {
     built.nameEn = counter.nameEn.trim();
-  }
-
-  if (counter.description.trim()) {
-    built.description = counter.description.trim();
-  }
-
-  if (counter.featureKey.trim()) {
-    built.featureKey = counter.featureKey.trim();
   }
 
   if (subclassKey) {

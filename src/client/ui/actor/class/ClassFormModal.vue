@@ -15,6 +15,7 @@
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { EditableFeatGrants } from '../feat/featEditorTypes';
   import type { SpellOption } from '../grantedSpellsEditorTypes';
   import type { EditableStartingEquipmentOption } from '../startingEquipmentEditorTypes';
   import type {
@@ -52,12 +53,21 @@
     FORM_TAB_LABELS,
     GRANT_FIELD_LABELS,
     GRANT_SECTION_LABELS,
+    GRANTED_SPELLS_LABELS,
     MODAL_BUTTON_LABELS,
+    SPELL_LIST_LABELS,
     TOOL_PROF_LABELS,
     WEAPON_PROF_LABELS,
   } from '../constants';
   import EntityEffectsEditor from '../EntityEffectsEditor.vue';
+  import {
+    buildFeatData,
+    createEmptyFeatGrants,
+    featDataToGrants,
+  } from '../feat/featEditorTypes';
+  import FeatSpellListEditor from '../feat/FeatSpellListEditor.vue';
   import FormSection from '../FormSection.vue';
+  import GrantedSpellsEditor from '../GrantedSpellsEditor.vue';
   import SourceField from '../SourceField.vue';
   import StartingEquipmentEditor from '../StartingEquipmentEditor.vue';
   import {
@@ -85,6 +95,7 @@
     toEditableSubclass,
   } from './classEditorTypes';
   import ClassFeaturesEditor from './ClassFeaturesEditor.vue';
+  import ClassGrantsFields from './ClassGrantsFields.vue';
   import ClassLevelTableEditor from './ClassLevelTableEditor.vue';
   import ClassSpellcastingFields from './ClassSpellcastingFields.vue';
   import ClassSubclassesEditor from './ClassSubclassesEditor.vue';
@@ -157,6 +168,7 @@
     { label: CLASS_FORM_LABELS.tabSpellcasting, slot: 'spellcasting' as const },
     { label: CLASS_FORM_LABELS.tabProgression, slot: 'progression' as const },
     { label: GRANT_SECTION_LABELS.features, slot: 'features' as const },
+    { label: CLASS_FORM_LABELS.tabGrants, slot: 'grants' as const },
     { label: CLASS_FORM_LABELS.tabSubclasses, slot: 'subclasses' as const },
     { label: CLASS_FORM_LABELS.tabCounters, slot: 'counters' as const },
     { label: GRANT_SECTION_LABELS.equipment, slot: 'equipment' as const },
@@ -199,8 +211,17 @@
   const equipment = ref<EditableStartingEquipmentOption[]>([]);
   const activeEffects = ref<ActiveEffect[]>([]);
 
-  /** Дары самого класса блоком `featData` (round-trip; форма их не редактирует). */
-  const preservedFeatData = ref<ClassDefinition['featData']>(undefined);
+  /**
+   * Дары самого класса: владения, выборы, правки листа и ресурсы — тем же
+   * блоком, что у черты. Форма правит их на вкладке «Дары», как на сайте.
+   */
+  const grants = ref<EditableFeatGrants>(createEmptyFeatGrants());
+
+  /**
+   * Заклинания, которые даёт сам класс. Живут в тех же дарах, но правятся на
+   * вкладке «Заклинательство»: там их и ищут.
+   */
+  const grantedSpells = ref<GrantedSpellRef[]>([]);
 
   const existingKey = ref<string | null>(null);
   const existingId = ref<string | null>(null);
@@ -214,13 +235,6 @@
   >([]);
 
   const isCaster = computed(() => spellcasting.value.enabled);
-
-  /** Особенности базового класса как опции привязки счётчиков. */
-  const featureOptions = computed(() =>
-    features.value
-      .filter((feature) => feature.name.trim().length > 0)
-      .map((feature) => ({ value: feature.key, label: feature.name })),
-  );
 
   // ── Инициализация ──────────────────────────────────────────
   function resetForm(): void {
@@ -253,7 +267,8 @@
     counters.value = [];
     equipment.value = [];
     activeEffects.value = [];
-    preservedFeatData.value = undefined;
+    grants.value = createEmptyFeatGrants();
+    grantedSpells.value = [];
     existingKey.value = null;
     existingId.value = null;
   }
@@ -311,7 +326,8 @@
       ...effect,
     }));
 
-    preservedFeatData.value = definition.featData;
+    grants.value = featDataToGrants(definition.featData);
+    grantedSpells.value = [...(definition.featData?.grantedSpells ?? [])];
 
     if (definition.multiclassProficiencies) {
       multiclassEnabled.value = true;
@@ -482,8 +498,10 @@
       definition.activeEffects = activeEffects.value;
     }
 
-    if (preservedFeatData.value) {
-      definition.featData = preservedFeatData.value;
+    const featData = buildFeatData(grants.value, grantedSpells.value);
+
+    if (featData) {
+      definition.featData = featData;
     }
 
     if (multiclassEnabled.value) {
@@ -826,6 +844,39 @@
           >
             <ClassSpellcastingFields v-model="spellcasting" />
           </FormSection>
+
+          <!-- Заклинания класса и расширение его списка — здесь, а не в дарах:
+            на сайте они на этой же вкладке, и искать их дважды не приходится -->
+          <FormSection
+            :title="GRANTED_SPELLS_LABELS.title"
+            icon="tabler:sparkles"
+            :hint="CLASS_FORM_LABELS.spellsHint"
+          >
+            <GrantedSpellsEditor
+              v-model="grantedSpells"
+              :available-spells="availableSpells"
+              :socket="socket"
+              with-required-level
+              @open-spell="openSpellDetail"
+            />
+          </FormSection>
+
+          <FormSection
+            :title="SPELL_LIST_LABELS.title"
+            icon="tabler:list-details"
+          >
+            <FeatSpellListEditor
+              v-model="grants.spellList"
+              :available-spells="availableSpells"
+              :socket="socket"
+              @open-spell="openSpellDetail"
+            />
+          </FormSection>
+        </template>
+
+        <!-- ДАРЫ: то, что даёт взятие класса целиком -->
+        <template #grants>
+          <ClassGrantsFields v-model="grants" />
         </template>
 
         <!-- ПРОГРЕССИЯ -->
@@ -872,10 +923,7 @@
               {{ CLASS_FORM_LABELS.countersHint }}
             </p>
 
-            <ClassCountersEditor
-              v-model="counters"
-              :feature-options="featureOptions"
-            />
+            <ClassCountersEditor v-model="counters" />
           </div>
         </template>
 

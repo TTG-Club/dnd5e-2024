@@ -50,13 +50,6 @@
     () => subclasses.value[selectedIndex.value] ?? null,
   );
 
-  /** Особенности выбранного подкласса как опции привязки счётчиков. */
-  const featureOptions = computed(() =>
-    (selected.value?.features ?? [])
-      .filter((feature) => feature.name.trim().length > 0)
-      .map((feature) => ({ value: feature.key, label: feature.name })),
-  );
-
   /** Добавляет подкласс и выбирает его. */
   function addSubclass(): void {
     subclasses.value.push({
@@ -193,10 +186,7 @@
       </UFormField>
 
       <UFormField :label="CLASS_SUBCLASSES_LABELS.counters">
-        <ClassCountersEditor
-          v-model="selected.counters"
-          :feature-options="featureOptions"
-        />
+        <ClassCountersEditor v-model="selected.counters" />
       </UFormField>
 
       <UCheckbox

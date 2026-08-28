@@ -44,6 +44,7 @@ import {
   COUNTER_FORMULA_TOKENS,
   counterAbilityModifierFormula,
   evaluateCounterMaxFormula,
+  expandChoiceScaling,
   getMulticlassProficiencies,
   getTotalLevel,
   getVisibleFeatChoices,
@@ -584,7 +585,7 @@ export function useClassWizard(
         continue;
       }
 
-      const reopened = (feature.featData?.choices ?? []).filter(
+      const reopened = expandChoiceScaling(feature.featData?.choices).filter(
         (choice) => choice.requiredLevel === level,
       );
 
@@ -702,9 +703,11 @@ export function useClassWizard(
       return featData;
     }
 
+    // Ступени роста разворачиваются в отдельные выборы со своим уровнем: дальше
+    // их отбирает то же правило, что и выбор, которому уровень задали вручную
     return {
       ...featData,
-      choices: choices.filter(
+      choices: expandChoiceScaling(choices).filter(
         (choice) => !choice.requiredLevel || choice.requiredLevel <= level,
       ),
     };
