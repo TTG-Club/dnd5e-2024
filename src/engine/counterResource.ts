@@ -15,6 +15,7 @@
 
 import type { AbilityType } from '@vtt/shared';
 
+import type { CounterRecovery } from './classTypes.js';
 import type { DnDActor } from './dndEntities.js';
 import type { FormulaContext } from './formulaParser.js';
 import type { ActorCounterState, CounterRecoveryRule } from './types.js';
@@ -99,6 +100,21 @@ export const COUNTER_MAX_OFFSET_MAX = 9;
 
 /** Минимальное число зарядов, возвращаемых отдыхом. */
 export const COUNTER_RECOVERY_AMOUNT_MIN = 1;
+
+/**
+ * Сколько зарядов возвращает короткий отдых ресурсу с откатом «один заряд
+ * коротким, все продолжительным»: ровно один — так написано у «Второго
+ * дыхания» и вдохновения барда правил 2024 года.
+ */
+export const COUNTER_SHORT_REST_ONE_AMOUNT = 1;
+
+/**
+ * Наибольшая нижняя граница максимума: выше неё запас уже не «минимум».
+ *
+ * Рядом с прочими границами полей ресурса, а не в подписях интерфейса: их
+ * читает и редактор класса, и редактор черты, и окно ресурсов листа.
+ */
+export const COUNTER_MINIMUM_MAX = 20;
 
 /** Сокращение характеристики для формулы (`charisma` → `cha`). */
 const ABILITY_ABBREVIATION_BY_KEY: Record<string, string> = Object.fromEntries(
@@ -373,10 +389,38 @@ export function resolveCounterMaxIn(
   const formula = counter.maxFormula?.trim();
 
   if (!formula) {
-    return Math.max(COUNTER_COUNT_MIN, counter.max);
+    return withCounterMinimum(
+      Math.max(COUNTER_COUNT_MIN, counter.max),
+      counter.min,
+    );
   }
 
-  return evaluateCounterMaxFormula(formula, context);
+  return withCounterMinimum(
+    evaluateCounterMaxFormula(formula, context),
+    counter.min,
+  );
+}
+
+/**
+ * Максимум с оглядкой на нижнюю границу счётчика.
+ *
+ * Граница подпирает расчёт снизу, а не складывается с ним: вдохновение барда
+ * равно модификатору Харизмы, но не меньше одного — с Харизмой +0 вдохновение
+ * одно, а с Харизмой +2 их два, а не три.
+ *
+ * @param max - посчитанный максимум
+ * @param min - нижняя граница максимума; нет или 0 — границы нет
+ * @returns максимум не ниже границы
+ */
+export function withCounterMinimum(
+  max: number,
+  min: number | undefined,
+): number {
+  if (!min || min <= COUNTER_COUNT_MIN) {
+    return max;
+  }
+
+  return Math.max(max, clamp(min, COUNTER_COUNT_MIN, COUNTER_COUNT_MAX));
 }
 
 /**
@@ -450,6 +494,15 @@ const FULL_RECOVERY: CounterRecoveryRule = {
 };
 
 /**
+ * Правило «отдых возвращает один заряд»: так короткий отдых восстанавливает
+ * «Второе дыхание» и вдохновение барда правил 2024 года.
+ */
+const ONE_CHARGE_RECOVERY: CounterRecoveryRule = {
+  mode: 'amount',
+  amount: COUNTER_SHORT_REST_ONE_AMOUNT,
+};
+
+/**
  * Правила восстановления счётчика по видам отдыха.
  *
  * Без своих правил читается легаси-поле `recovery`, где отдых назван один:
@@ -471,9 +524,25 @@ export function getCounterRecoveryRules(
   }
 
   return {
-    shortRest: counter.recovery === 'short' ? FULL_RECOVERY : NO_RECOVERY,
+    shortRest: shortRestRuleOf(counter.recovery),
     longRest: FULL_RECOVERY,
   };
+}
+
+/**
+ * Что возвращает короткий отдых ресурсу, у которого отдых назван одним словом.
+ *
+ * @param recovery - вид отката счётчика
+ * @returns правило короткого отдыха
+ */
+function shortRestRuleOf(
+  recovery: CounterRecovery | undefined,
+): CounterRecoveryRule {
+  if (recovery === 'short') {
+    return FULL_RECOVERY;
+  }
+
+  return recovery === 'short-one' ? ONE_CHARGE_RECOVERY : NO_RECOVERY;
 }
 
 /**

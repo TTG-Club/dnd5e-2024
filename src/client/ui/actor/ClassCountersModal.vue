@@ -12,6 +12,7 @@
   import { Z_INDEX } from '@/shared_ui/consts';
   import {
     buildCounterFormulaContext,
+    COUNTER_COUNT_MIN,
     COUNTER_RECOVERY_AMOUNT_MIN,
     getCounterRecoveryRules,
     normalizeCounterRecoveryRule,
@@ -212,6 +213,27 @@
     });
   }
 
+  /**
+   * Записывает нижнюю граница максимума, приводя остаток.
+   *
+   * Граница поднимает максимум так же, как это делает формула, поэтому остаток
+   * подрезается по тому же правилу: полный ресурс остаётся полным, начатый
+   * сохраняет потраченное.
+   *
+   * @param counter - счётчик формы
+   * @param minimum - нижняя граница максимума; 0 — границы нет
+   */
+  function updateCounterMinimum(counter: CounterDraft, minimum: number): void {
+    const wasFull = counter.current >= counterMax(counter);
+    const max = counterMax({ ...counter, min: minimum });
+
+    updateCounter(counter, {
+      min: minimum,
+      max,
+      current: wasFull ? max : Math.min(counter.current, max),
+    });
+  }
+
   function createCustomCounterKey(): string {
     const existingKeys = new Set(
       localCounters.value.map((counter) => counter.counterKey),
@@ -391,8 +413,10 @@
                 новый ресурс заводится полным, а тратят его кнопками на листе -->
               <CounterMaxField
                 :model-value="counter.maxFormula ?? String(counter.max)"
+                :minimum="counter.min ?? COUNTER_COUNT_MIN"
                 :computed-max="counterMax(counter)"
                 @update:model-value="updateCounterMaxFormula(counter, $event)"
+                @update:minimum="updateCounterMinimum(counter, $event)"
               />
 
               <CounterRecoveryFields

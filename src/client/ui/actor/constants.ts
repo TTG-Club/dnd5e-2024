@@ -14,6 +14,7 @@ import type {
 } from '@vtt/shared';
 import type {
   ActiveEffectDetailSectionKey,
+  CounterRecovery,
   CounterRestKey,
 } from '@vtt/shared/system/dnd.js';
 
@@ -2071,7 +2072,9 @@ export const FEAT_GRANTS_LABELS = {
     + 'мастерства, и они возвращаются на продолжительном отдыхе. Максимум '
     + 'выбирается списком — «Бонус мастерства», «Уровень персонажа», '
     + 'модификатор характеристики — и растёт вместе с персонажем; «Прибавка» '
-    + 'сдвигает его («бонус мастерства минус один»).',
+    + 'сдвигает его («бонус мастерства минус один»), а «Минимум» подпирает '
+    + 'снизу: вдохновение барда равно модификатору Харизмы, но не меньше '
+    + 'одного, и с Харизмой +0 бард всё равно вдохновляет один раз.',
   countersEmpty: 'Ресурсов нет.',
   addCounter: 'Добавить ресурс',
   counterName: 'Название',
@@ -2079,8 +2082,6 @@ export const FEAT_GRANTS_LABELS = {
   counterShortName: 'Кратко',
   counterMax: 'Максимум',
   counterRecovery: 'Восстановление',
-  recoveryShort: 'Короткий отдых',
-  recoveryLong: 'Продолжительный отдых',
 
   /** Вкладка «Требования» */
   prerequisitesTitle: 'Требования',
@@ -3257,6 +3258,7 @@ export const COUNTER_RESOURCE_LABELS = {
   maxAmount: 'Сколько',
   multiplier: 'Множитель',
   offset: 'Прибавка',
+  minimum: 'Минимум',
   ability: 'Характеристика',
   computed: 'Сейчас максимум',
   formula: 'Формула',
@@ -3702,6 +3704,10 @@ export const CLASS_COUNTERS_LABELS = {
   feature: 'Привязка к особенности',
   descriptionPlaceholder: 'Как работает ресурс, восстановление…',
   maxSource: 'Источник максимума',
+  minimum: 'Минимум',
+  minimumHint:
+    'Сколько зарядов есть в любом случае: вдохновение барда равно модификатору '
+    + 'Харизмы, но не меньше одного. Ноль — нижней границы нет.',
   maxArrow: '→ макс.',
   removeStep: 'Удалить ступень',
   addStep: 'Добавить ступень',
@@ -3710,6 +3716,25 @@ export const CLASS_COUNTERS_LABELS = {
   formulaPlaceholder: 'Формула (level / chaMod / level * N)',
   addCounter: 'Добавить счётчик',
 } as const;
+
+/**
+ * Откат ресурса как варианты селекта: один список на редактор класса и редактор
+ * черты — двумя списками один и тот же откат назывался бы по-разному.
+ *
+ * Подписи короткого и продолжительного отдыха берутся из {@link REST_LABELS}:
+ * свои завели бы третье название одного и того же отдыха.
+ */
+export const COUNTER_RECOVERY_OPTIONS: ReadonlyArray<{
+  value: CounterRecovery;
+  label: string;
+}> = [
+  { value: 'short', label: REST_LABELS.short },
+  { value: 'long', label: REST_LABELS.long },
+  {
+    value: 'short-one',
+    label: 'Один заряд на коротком, все на продолжительном',
+  },
+];
 
 /**
  * Стартовое название нового счётчика класса. Значение записи, а не подпись:

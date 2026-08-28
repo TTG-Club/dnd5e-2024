@@ -152,6 +152,11 @@ export interface EditableCounter {
   description: string;
   startLevel: number;
   recovery: CounterRecovery;
+  /**
+   * Нижняя граница максимума; 0 — границы нет. Подпирает расчёт снизу:
+   * вдохновение барда равно модификатору Харизмы, но не меньше одного.
+   */
+  min: number;
   /** Источник максимума: таблица прогрессии или формула. */
   mode: 'progression' | 'formula';
   progression: EditableProgressionEntry[];
@@ -385,6 +390,7 @@ export function toEditableCounter(
     description: counter.description || '',
     startLevel: counter.startLevel ?? 1,
     recovery: counter.recovery ?? 'long',
+    min: counter.min ?? 0,
     mode: counter.progression ? 'progression' : 'formula',
     progression,
     formula: counter.formula || 'level',
@@ -652,6 +658,11 @@ export function buildCounter(
     startLevel: Math.max(1, Math.round(counter.startLevel || 1)),
     recovery: counter.recovery,
   };
+
+  // Нулевая граница ничего не описывает: у ресурса без неё поля быть не должно
+  if (counter.min > 0) {
+    built.min = Math.round(counter.min);
+  }
 
   if (counter.shortName.trim()) {
     built.shortName = counter.shortName.trim();
@@ -932,11 +943,6 @@ export const CASTER_TYPE_OPTIONS: { value: CasterType; label: string }[] = [
 ];
 
 /** Опции восстановления счётчика. */
-export const RECOVERY_OPTIONS: { value: CounterRecovery; label: string }[] = [
-  { value: 'short', label: 'Короткий отдых' },
-  { value: 'long', label: 'Продолжительный отдых' },
-];
-
 /** Опции кости хитов. */
 export const HIT_DIE_OPTIONS: { value: HitDie; label: string }[] = [
   { value: 6, label: 'к6' },

@@ -16,10 +16,10 @@ import type {
   ClassDefinition,
   ClassFeature,
   ClassFeatureSkillChoice,
-  DnDAbilityScores,
   DnDActor,
   FeatChoice,
   FeatData,
+  FormulaContext,
   GrantedSpellSource,
   HitPointMethod,
   ResolvedGrantedSpell,
@@ -35,12 +35,15 @@ import { generateId } from '@vtt/shared';
 import {
   ABILITY_LABELS,
   appendGrantedSpells,
+  buildCounterFormulaContext,
   buildFeatGrantEffect,
-  calculateAbilityModifier,
   calculateProficiencyBonus,
   collectFeatChoiceProficiencies,
   collectFeatGrantedSpellSources,
   collectGrantedSpellSourcesForClassLevel,
+  COUNTER_FORMULA_TOKENS,
+  counterAbilityModifierFormula,
+  evaluateCounterMaxFormula,
   getMulticlassProficiencies,
   getTotalLevel,
   getVisibleFeatChoices,
@@ -56,6 +59,7 @@ import {
   resolveChosenDamageDefenses,
   resolveFeatChoiceCount,
   SKILLS_LIST,
+  withCounterMinimum,
 } from '@vtt/shared/system/dnd.js';
 
 import {
@@ -279,66 +283,109 @@ function applyLevelFeatData(
 }
 
 // ── Composable ────────────────────────────────────────────────
+
 /**
- * Вычисляет максимальное значение счётчика на основе определения и уровня класса.
+ * Слова формулы максимума из редактора класса прежних лет: тогда её набирали
+ * руками и своими словами, а не выбирали источник списком.
+ */
+const LEGACY_COUNTER_FORMULAS = {
+  level: 'level',
+  charismaModifier: 'chaMod',
+} as const;
+
+/**
+ * Формула максимума счётчика в диалекте листа (`@prof`, `@level`,
+ * `@mod.<abbr>`); пустая строка — максимум задан прогрессией по уровням.
  *
- * Приоритет: progression (таблица уровней) > formula (формула).
- * Если formula === "level" — возвращает уровень.
- * Если formula === "chaMod" — возвращает модификатор Харизмы (заглушка, требует actor).
- * Если formula содержит "*" — парсит выражение вида "level * N".
+ * Компендиум TTG Club пишет формулу сразу в этом диалекте, а класс, собранный
+ * в редакторе системы, — своими словами прежних лет (`level`, `chaMod`,
+ * `level * 5`). Перевод здесь один на оба случая: считать формулу дальше умеет
+ * только движок листа, и второй его разбор разошёлся бы с первым.
+ *
+ * @param definition - определение счётчика из компендиума
+ * @returns формула в диалекте листа; пустая строка — формулы нет
+ */
+function counterMaxFormulaOf(definition: ClassCounterDefinition): string {
+  const formula = definition.formula?.trim();
+
+  if (definition.progression || !formula) {
+    return '';
+  }
+
+  if (formula === LEGACY_COUNTER_FORMULAS.level) {
+    return COUNTER_FORMULA_TOKENS.level;
+  }
+
+  if (formula === LEGACY_COUNTER_FORMULAS.charismaModifier) {
+    return counterAbilityModifierFormula('charisma');
+  }
+
+  const multiplyMatch = /^level\s*\*\s*(\d+)$/.exec(formula);
+
+  return multiplyMatch
+    ? `${COUNTER_FORMULA_TOKENS.level} * ${multiplyMatch[1]}`
+    : formula;
+}
+
+/**
+ * Вычисляет максимальное значение счётчика по определению и листу персонажа.
+ *
+ * Приоритет: прогрессия по уровням старше формулы — ряд, который формулой не
+ * пишется, задан ею же и точнее любого выражения. Нижняя граница
+ * ({@link ClassCounterDefinition.min}) подпирает результат снизу: вдохновение
+ * барда равно модификатору Харизмы, но не меньше одного.
+ *
+ * @param definition - определение счётчика
+ * @param classLevel - уровень персонажа в этом классе
+ * @param context - `@`-переменные листа для расчёта формулы
+ * @returns максимум зарядов
  */
 function computeCounterMax(
   definition: ClassCounterDefinition,
   classLevel: number,
-  abilityScores?: DnDAbilityScores,
+  context: FormulaContext,
 ): number {
-  // Если есть progression — ищем точное совпадение по уровню
   if (definition.progression) {
-    const levelKey = String(classLevel);
-
-    if (definition.progression[levelKey] !== undefined) {
-      return definition.progression[levelKey];
-    }
-
-    // Ищем ближайший меньший уровень
-    const availableLevels = Object.keys(definition.progression)
-      .map(Number)
-      .filter((level) => level <= classLevel)
-      .sort((levelA, levelB) => levelB - levelA);
-
-    if (availableLevels.length > 0) {
-      return definition.progression[String(availableLevels[0])];
-    }
-
-    return 0;
+    return withCounterMinimum(
+      progressionCounterMax(definition.progression, classLevel),
+      definition.min,
+    );
   }
 
-  // Если есть formula
-  if (definition.formula) {
-    if (definition.formula === 'level') {
-      return classLevel;
-    }
+  const formula = counterMaxFormulaOf(definition);
 
-    // chaMod — модификатор Харизмы (минимум 1)
-    if (definition.formula === 'chaMod') {
-      if (abilityScores?.charisma !== undefined) {
-        const modifier = calculateAbilityModifier(abilityScores.charisma);
+  return withCounterMinimum(
+    formula ? evaluateCounterMaxFormula(formula, context) : 0,
+    definition.min,
+  );
+}
 
-        return Math.max(1, modifier);
-      }
+/**
+ * Максимум по таблице прогрессии: берётся старшая ступень, до которой персонаж
+ * дорос.
+ *
+ * @param progression - максимум по уровням: ключ — уровень строкой
+ * @param classLevel - уровень персонажа в этом классе
+ * @returns максимум зарядов; 0 — персонаж не дорос до первой ступени
+ */
+function progressionCounterMax(
+  progression: Record<string, number>,
+  classLevel: number,
+): number {
+  const levelKey = String(classLevel);
 
-      return 1; // fallback если abilityScores не переданы
-    }
-
-    // Парсинг "level * N"
-    const multiplyMatch = definition.formula.match(/^level\s*\*\s*(\d+)$/);
-
-    if (multiplyMatch) {
-      return classLevel * Number(multiplyMatch[1]);
-    }
+  if (progression[levelKey] !== undefined) {
+    return progression[levelKey];
   }
 
-  return 0;
+  const availableLevels = Object.keys(progression)
+    .map(Number)
+    .filter((level) => level <= classLevel)
+    .sort((levelA, levelB) => levelB - levelA);
+
+  return availableLevels.length > 0
+    ? progression[String(availableLevels[0])]
+    : 0;
 }
 
 /**
@@ -1334,6 +1381,19 @@ export function useClassWizard(
       const classLevel =
         existingIndex !== -1 ? classes[existingIndex].level : 1;
 
+      // Контекст формул собирается один раз на весь список счётчиков. Уровень в
+      // нём — уровень В ЭТОМ КЛАССЕ, а не суммарный: классовый ресурс растёт
+      // вместе со своим классом, и у чародея 3 / воина 2 очков чародейства три,
+      // а не пять. Бонус мастерства при этом остаётся общим — он считается по
+      // суммарному уровню и классу не принадлежит
+      const counterContext: FormulaContext = {
+        ...buildCounterFormulaContext({
+          ...actor.value,
+          system: { ...actor.value.system, classes },
+        }),
+        level: classLevel,
+      };
+
       for (const counterDef of counterDefinitions) {
         // Проверяем, что уровень персонажа достаточен для этого счётчика
         if (classLevel < counterDef.startLevel) {
@@ -1359,7 +1419,7 @@ export function useClassWizard(
             const newMax = computeCounterMax(
               counterDef,
               classLevel,
-              actor.value.system.abilities,
+              counterContext,
             );
 
             existingCounter.max = newMax;
@@ -1380,6 +1440,10 @@ export function useClassWizard(
             }
 
             existingCounter.recovery ??= counterDef.recovery;
+
+            // Нижняя граница появилась у счётчика позже: у записей, добавленных
+            // до неё, её нет вовсе
+            existingCounter.min ??= counterDef.min;
           }
 
           continue;
@@ -1389,7 +1453,7 @@ export function useClassWizard(
         const maxValue = computeCounterMax(
           counterDef,
           classLevel,
-          actor.value.system.abilities,
+          counterContext,
         );
 
         existingCounters.push({
@@ -1402,6 +1466,11 @@ export function useClassWizard(
           name: counterDef.name,
           shortName: counterDef.shortName,
           recovery: counterDef.recovery,
+          // Нижняя граница живёт на счётчике: её читают и панель ресурсов, и
+          // отдых. Формула НЕ сохраняется: её `@level` — уровень в этом классе,
+          // а пересчёт вне мастера знает только суммарный, и у мультикласса
+          // максимум разошёлся бы с выданным
+          ...(counterDef.min ? { min: counterDef.min } : {}),
           current: maxValue,
           max: maxValue,
         });

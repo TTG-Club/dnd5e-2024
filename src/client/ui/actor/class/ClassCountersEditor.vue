@@ -7,14 +7,18 @@
   import { computed } from 'vue';
 
   import { generateId } from '@vtt/shared';
+  import {
+    COUNTER_COUNT_MIN,
+    COUNTER_MINIMUM_MAX,
+  } from '@vtt/shared/system/dnd.js';
 
   import {
     CLASS_COUNTER_DEFAULT_NAME,
     CLASS_COUNTERS_LABELS,
+    COUNTER_RECOVERY_OPTIONS,
     FORM_FIELD_LABELS,
     NO_SELECTION,
   } from '../constants';
-  import { RECOVERY_OPTIONS } from './classEditorTypes';
 
   const props = defineProps<{
     /** Особенности (для привязки счётчика к особенности по ключу). */
@@ -65,6 +69,7 @@
       description: '',
       startLevel: 1,
       recovery: 'long',
+      min: 0,
       mode: 'progression',
       progression: [],
       formula: 'level',
@@ -153,8 +158,22 @@
         <UFormField :label="FORM_FIELD_LABELS.recovery">
           <USelect
             v-model="counter.recovery"
-            :items="RECOVERY_OPTIONS"
+            :items="COUNTER_RECOVERY_OPTIONS"
             value-key="value"
+            class="w-full"
+          />
+        </UFormField>
+
+        <!-- Нижняя граница максимума: вдохновение барда равно модификатору
+          Харизмы, но с Харизмой +0 бард всё равно вдохновляет один раз -->
+        <UFormField
+          :label="CLASS_COUNTERS_LABELS.minimum"
+          :help="CLASS_COUNTERS_LABELS.minimumHint"
+        >
+          <UInputNumber
+            v-model="counter.min"
+            :min="COUNTER_COUNT_MIN"
+            :max="COUNTER_MINIMUM_MAX"
             class="w-full"
           />
         </UFormField>

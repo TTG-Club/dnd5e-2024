@@ -468,6 +468,11 @@ export interface EditableFeatCounter {
   shortName: string;
   /** Формула максимума: число либо `@prof`, `@level`, `@mod.<abbr>` */
   max: string;
+  /**
+   * Нижняя граница максимума; 0 — границы нет. Подпирает формулу снизу:
+   * вдохновение барда равно модификатору Харизмы, но не меньше одного.
+   */
+  min: number;
   recovery: CounterRecovery;
 }
 
@@ -995,6 +1000,7 @@ export function createFeatCounter(
     name: '',
     shortName: '',
     max: FORMULA_TOKENS.proficiencyBonus,
+    min: 0,
     recovery: 'long',
   };
 }
@@ -1489,6 +1495,7 @@ export function featDataToGrants(
     name: counter.name,
     shortName: counter.shortName ?? '',
     max: counter.max,
+    min: counter.min ?? 0,
     recovery: counter.recovery,
   }));
 
@@ -2344,6 +2351,12 @@ export function buildFeatData(
 
       if (counter.shortName.trim()) {
         builtCounter.shortName = counter.shortName.trim();
+      }
+
+      // Нулевая граница ничего не описывает: у ресурса без неё поля быть не
+      // должно
+      if (counter.min > 0) {
+        builtCounter.min = Math.round(counter.min);
       }
 
       return builtCounter;

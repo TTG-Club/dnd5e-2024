@@ -13,6 +13,7 @@
     COUNTER_MAX_MULTIPLIER_MIN,
     COUNTER_MAX_OFFSET_MAX,
     COUNTER_MAX_OFFSET_MIN,
+    COUNTER_MINIMUM_MAX,
     counterMaxFormula,
     parseCounterMaxFormula,
   } from '@vtt/shared/system/dnd.js';
@@ -30,6 +31,18 @@
    * написанное.
    */
   const model = defineModel<string>({ required: true });
+
+  /**
+   * Нижняя граница максимума; 0 — границы нет.
+   *
+   * Отдельным полем, а не частью формулы: она подпирает расчёт снизу, а не
+   * участвует в нём, и `max(@mod.cha, 1)` пришлось бы учить понимать и разбор
+   * формулы, и все её потребители. Вдохновение барда равно модификатору
+   * Харизмы, но не меньше одного.
+   */
+  const minimum = defineModel<number>('minimum', {
+    default: COUNTER_COUNT_MIN,
+  });
 
   const props = defineProps<{
     /**
@@ -267,6 +280,23 @@
         />
       </UFormField>
     </template>
+
+    <!-- Нижняя граница нужна только считаемому максимуму: у своего числа
+      меньше него ресурс и так не бывает -->
+    <UFormField
+      v-if="kind !== 'fixed'"
+      :label="COUNTER_RESOURCE_LABELS.minimum"
+      class="w-24"
+    >
+      <UInputNumber
+        v-model="minimum"
+        :min="COUNTER_COUNT_MIN"
+        :max="COUNTER_MINIMUM_MAX"
+        :aria-label="COUNTER_RESOURCE_LABELS.minimum"
+        size="sm"
+        class="w-full"
+      />
+    </UFormField>
 
     <p
       v-if="isComputed && props.computedMax !== undefined"

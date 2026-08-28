@@ -34,7 +34,10 @@ import { generateId } from '@vtt/shared';
 import { calculateAbilityModifier } from './calculations.js';
 import { getTotalLevel } from './classTypes.js';
 import { ABILITY_OPTIONS, isAbilityType } from './consts.js';
-import { evaluateCounterMaxFormula } from './counterResource.js';
+import {
+  evaluateCounterMaxFormula,
+  withCounterMinimum,
+} from './counterResource.js';
 import { ABILITY_INCREASE_CHOICE_KEY } from './featChoices.js';
 import { hasSpellcastingFeature } from './featPrerequisites.js';
 import { buildFormulaContext, evaluateFormula } from './formulaParser.js';
@@ -949,7 +952,10 @@ export function buildFeatCounters(
     .map((definition) => {
       // Тот же расчёт, что у своих ресурсов листа: кривая формула читается
       // нулём, иначе персонаж остался бы без всей черты из-за одной опечатки
-      const max = evaluateCounterMaxFormula(definition.max, context);
+      const max = withCounterMinimum(
+        evaluateCounterMaxFormula(definition.max, context),
+        definition.min,
+      );
 
       const previous = existing.find(
         (counter) =>
@@ -963,6 +969,10 @@ export function buildFeatCounters(
         name: definition.name,
         shortName: definition.shortName,
         recovery: definition.recovery,
+        // Формула и граница живут на счётчике: отдых пересчитывает максимум по
+        // ним, не заглядывая в определение черты
+        maxFormula: definition.max,
+        ...(definition.min ? { min: definition.min } : {}),
         current: previous ? Math.min(previous.current, max) : max,
         max,
       };

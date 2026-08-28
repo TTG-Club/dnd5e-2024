@@ -1,7 +1,7 @@
 <script setup lang="ts">
   import type { EditableFeatCounter } from './featEditorTypes';
 
-  import { FEAT_GRANTS_LABELS } from '../constants';
+  import { COUNTER_RECOVERY_OPTIONS, FEAT_GRANTS_LABELS } from '../constants';
   import CounterMaxField from '../CounterMaxField.vue';
   import FieldHint from '../FieldHint.vue';
   import { createFeatCounter } from './featEditorTypes';
@@ -14,11 +14,6 @@
    * ({@link CounterMaxField}), она лишь остаётся форматом хранения.
    */
   const counters = defineModel<EditableFeatCounter[]>({ required: true });
-
-  const recoveryOptions = [
-    { value: 'short', label: FEAT_GRANTS_LABELS.recoveryShort },
-    { value: 'long', label: FEAT_GRANTS_LABELS.recoveryLong },
-  ];
 
   function addCounter(): void {
     counters.value = [
@@ -76,18 +71,21 @@
         />
       </UFormField>
 
+      <!-- Нижняя граница максимума рисуется тем же полем, что и сам максимум:
+        вдохновение барда равно модификатору Харизмы, но не меньше одного -->
       <CounterMaxField
         v-model="counter.max"
+        v-model:minimum="counter.min"
         dense
       />
 
       <UFormField
         :label="FEAT_GRANTS_LABELS.counterRecovery"
-        class="w-52"
+        class="w-64"
       >
         <USelect
           v-model="counter.recovery"
-          :items="recoveryOptions"
+          :items="COUNTER_RECOVERY_OPTIONS"
           value-key="value"
           label-key="label"
           size="sm"
