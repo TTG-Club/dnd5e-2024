@@ -6,14 +6,19 @@
    * Для особенностей с вариантами выбора (Fighting Style и т.д.)
    * предоставляет UI выбора.
    */
-  import type { SubclassDefinition } from '@vtt/shared/system/dnd.js';
+  import type { DnDActor, SubclassDefinition } from '@vtt/shared/system/dnd.js';
 
-  import type { WizardFeatureItem } from './useClassWizard';
+  import type {
+    CompendiumFeat,
+    WizardFeatPick,
+    WizardFeatureItem,
+  } from './useClassWizard';
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import { useSourceLabels } from '@/systems/dnd5e/composables/useSourceLabel';
 
   import { CLASS_WIZARD_LABELS, LEVEL_BADGE_SUFFIX } from '../../constants';
+  import WizardFeatPicker from './WizardFeatPicker.vue';
 
   const { getSourceLabel } = useSourceLabels();
 
@@ -24,12 +29,30 @@
     subclasses?: SubclassDefinition[];
     subclassKey?: string | null;
     subclassLabel?: string;
+    /** Выборы черты умений уровня: боевой стиль и подобные */
+    featPicks?: WizardFeatPick[];
+    /** Черты компендиума — пул пикеров черт */
+    feats?: ReadonlyArray<CompendiumFeat>;
+    /** Лист персонажа: по нему из пула уходят уже взятые черты */
+    actor: DnDActor;
+    /** Ответы на выборы даров уровня: ключ выбора → значения */
+    featSelections?: Record<string, string[]>;
   }>();
 
   const emit = defineEmits<{
     'update:featureChoices': [choices: Record<string, string>];
     'update:subclassKey': [key: string];
+    'update:featSelection': [key: string, featId: string | null];
   }>();
+
+  /**
+   * Выбранная в пикере черта по ключу выбора.
+   *
+   * @param key - ключ выбора черты
+   */
+  function selectedFeatId(key: string): string | null {
+    return props.featSelections?.[key]?.[0] ?? null;
+  }
 
   /** Выбирает вариант для особенности */
   function selectChoice(featureKey: string, choiceKey: string) {
@@ -169,5 +192,31 @@
         </div>
       </div>
     </div>
+
+    <!-- Выборы черты умений уровня — боевой стиль и подобные: пул берётся из
+      компендиума черт, поэтому у них свой пикер, а не общие поля выбора -->
+    <template v-if="featPicks?.length">
+      <span class="mb-2 block text-sm font-medium text-toned">
+        {{ CLASS_WIZARD_LABELS.featPicksTitle }}
+      </span>
+
+      <div
+        v-for="pick in featPicks"
+        :key="pick.choice.key"
+        class="flex flex-col gap-1"
+      >
+        <span class="text-xs text-dimmed">{{ pick.sourceName }}</span>
+
+        <WizardFeatPicker
+          :choice="pick.choice"
+          :feats="feats ?? []"
+          :actor="actor"
+          :model-value="selectedFeatId(pick.choice.key)"
+          @update:model-value="
+            emit('update:featSelection', pick.choice.key, $event)
+          "
+        />
+      </div>
+    </template>
   </div>
 </template>

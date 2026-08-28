@@ -2,22 +2,34 @@
   /**
    * Шаг мастера: {{ WIZARD_ASI_LABELS.title }} (ASI) / Черты.
    *
-   * Позволяет выбрать между +2 к одной или +1/+1 к двум характеристикам.
-   * Режим «Черта» — placeholder (каталог черт пока не реализован).
+   * Позволяет выбрать между +2 к одной или +1/+1 к двум характеристикам либо
+   * взять черту из компендиума: по правилам 2024 года повышение характеристик
+   * — тоже черта, и пул выбора задаёт само умение класса.
    */
   import type { AbilityType } from '@vtt/shared';
-  import type { DnDAbilityScores } from '@vtt/shared/system/dnd.js';
+  import type {
+    DnDAbilityScores,
+    DnDActor,
+    FeatChoice,
+  } from '@vtt/shared/system/dnd.js';
 
-  import type { WizardAsiState } from './useClassWizard';
+  import type { CompendiumFeat, WizardAsiState } from './useClassWizard';
 
   import { computed } from 'vue';
 
   import { WIZARD_ASI_LABELS } from '../../constants';
   import { ABILITY_LABELS } from './constants';
+  import WizardFeatPicker from './WizardFeatPicker.vue';
 
   const props = defineProps<{
     currentAbilities: DnDAbilityScores;
     asiState: WizardAsiState;
+    /** Черты компендиума — пул режима «Взять черту» */
+    feats: ReadonlyArray<CompendiumFeat>;
+    /** Лист персонажа: по нему из пула уходят уже взятые черты */
+    actor: DnDActor;
+    /** Выбор черты из даров умения; null — пул по правилу листа */
+    featChoice: FeatChoice | null;
   }>();
 
   const emit = defineEmits<{
@@ -109,6 +121,15 @@
       ...props.asiState,
       abilityIncreases: {},
     });
+  }
+
+  /**
+   * Записывает черту, взятую вместо повышения характеристик.
+   *
+   * @param featKey - ключ черты компендиума; null — выбор снят
+   */
+  function setFeatKey(featKey: string | null) {
+    emit('update:asiState', { ...props.asiState, featKey });
   }
 </script>
 
@@ -228,21 +249,22 @@
       </div>
     </div>
 
-    <!-- Режим Feat — placeholder -->
+    <!-- Режим черты: пикер компендиума, пул задан умением класса -->
     <div
       v-else
-      class="rounded-lg border border-primary/30 bg-primary/10 px-3 py-4 text-center"
+      class="space-y-2"
     >
-      <UIcon
-        name="tabler:hammer"
-        class="mx-auto mb-2 h-8 w-8 text-primary/60"
-      />
-
-      <p class="text-sm text-primary/80">{{ WIZARD_ASI_LABELS.featTitle }}</p>
-
-      <p class="mt-1 text-sm text-dimmed">
+      <p class="text-sm text-dimmed">
         {{ WIZARD_ASI_LABELS.featHint }}
       </p>
+
+      <WizardFeatPicker
+        :choice="featChoice"
+        :feats="feats"
+        :actor="actor"
+        :model-value="asiState.featKey"
+        @update:model-value="setFeatKey"
+      />
     </div>
   </div>
 </template>
