@@ -70,6 +70,7 @@
       startLevel: 1,
       recovery: 'long',
       min: 0,
+      showInTable: false,
       mode: 'progression',
       progression: [],
       formula: 'level',
@@ -199,14 +200,32 @@
         />
       </UFormField>
 
-      <UFormField :label="CLASS_COUNTERS_LABELS.maxSource">
-        <USelect
-          v-model="counter.mode"
-          :items="modeOptions"
-          value-key="value"
+      <div class="flex flex-wrap items-end gap-4">
+        <UFormField
+          :label="CLASS_COUNTERS_LABELS.maxSource"
           class="w-full sm:w-1/2"
-        />
-      </UFormField>
+        >
+          <USelect
+            v-model="counter.mode"
+            :items="modeOptions"
+            value-key="value"
+            class="w-full"
+          />
+        </UFormField>
+
+        <!-- Ряд по уровням у ресурса уже задан ступенями либо формулой: колонка
+          книги собирается из него, второй раз его не набирают -->
+        <UTooltip
+          :delay-duration="300"
+          :text="CLASS_COUNTERS_LABELS.showInTableHint"
+        >
+          <UCheckbox
+            v-model="counter.showInTable"
+            :label="CLASS_COUNTERS_LABELS.showInTable"
+            class="mb-2"
+          />
+        </UTooltip>
+      </div>
 
       <!-- Таблица прогрессии -->
       <div

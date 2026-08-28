@@ -157,6 +157,8 @@ export interface EditableCounter {
    * вдохновение барда равно модификатору Харизмы, но не меньше одного.
    */
   min: number;
+  /** Показывать ресурс колонкой таблицы прогрессии. */
+  showInTable: boolean;
   /** Источник максимума: таблица прогрессии или формула. */
   mode: 'progression' | 'formula';
   progression: EditableProgressionEntry[];
@@ -391,6 +393,7 @@ export function toEditableCounter(
     startLevel: counter.startLevel ?? 1,
     recovery: counter.recovery ?? 'long',
     min: counter.min ?? 0,
+    showInTable: counter.showInTable ?? false,
     mode: counter.progression ? 'progression' : 'formula',
     progression,
     formula: counter.formula || 'level',
@@ -662,6 +665,10 @@ export function buildCounter(
   // Нулевая граница ничего не описывает: у ресурса без неё поля быть не должно
   if (counter.min > 0) {
     built.min = Math.round(counter.min);
+  }
+
+  if (counter.showInTable) {
+    built.showInTable = true;
   }
 
   if (counter.shortName.trim()) {

@@ -16,6 +16,7 @@ export * from './conditionRegistry.js';
 export * from './conditionTemplates.js';
 export * from './consts.js';
 export * from './counterResource.js';
+export * from './counterTableColumns.js';
 export * from './creatureTypeGate.js';
 export * from './creatureTypes.js';
 export * from './creatureUtils.js';

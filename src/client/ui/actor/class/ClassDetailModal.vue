@@ -9,7 +9,10 @@
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
-  import { toolProficiencyLabel } from '@vtt/shared/system/dnd.js';
+  import {
+    toolProficiencyLabel,
+    withCounterTableColumns,
+  } from '@vtt/shared/system/dnd.js';
 
   import {
     ABILITY_LABELS,
@@ -175,19 +178,67 @@
     return map;
   });
 
+  /** Выбранный подкласс записи; null — подкласс не выбран. */
+  const selectedSubclass = computed(() => {
+    if (!selectedSubclassName.value) {
+      return null;
+    }
+
+    return (
+      props.classDefinition?.subclasses.find(
+        (subclass) => subclass.name === selectedSubclassName.value,
+      ) ?? null
+    );
+  });
+
+  /**
+   * Таблица класса вместе с колонками его ресурсов: ресурс, отмеченный
+   * «Показывать в таблице», рисуется колонкой, а её ряд по уровням берётся из
+   * прогрессии либо формулы самого ресурса — второй раз автор их не набирает.
+   *
+   * Считается при показе, а не хранится: иначе колонка разошлась бы с ресурсом
+   * при первой же его правке.
+   */
+  const classTable = computed(() => {
+    const definition = props.classDefinition;
+
+    if (!definition) {
+      return { levelTable: [], tableColumns: [] };
+    }
+
+    return withCounterTableColumns(
+      definition.levelTable ?? [],
+      definition.tableColumns ?? [],
+      definition.counters,
+    );
+  });
+
+  /** То же для выбранного подкласса: его ресурсы дают свои колонки. */
+  const subclassTable = computed(() => {
+    const subclass = selectedSubclass.value;
+
+    if (!subclass) {
+      return null;
+    }
+
+    return withCounterTableColumns(
+      subclass.levelTable ?? [],
+      subclass.tableColumns ?? [],
+      subclass.counters,
+    );
+  });
+
   /** Активная таблица уровней — базовые данные, дополненные колонками подкласса */
   const activeLevelTable = computed(() => {
-    const baseTable = props.classDefinition?.levelTable ?? [];
+    const baseTable = classTable.value.levelTable;
 
     if (selectedSubclassName.value) {
-      const subclass = props.classDefinition?.subclasses.find(
-        (sc) => sc.name === selectedSubclassName.value,
-      );
+      const subclassRows = subclassTable.value?.levelTable ?? [];
 
-      if (subclass?.levelTable) {
+      if (subclassRows.length > 0) {
         // Мержим строки: базовые данные + данные подкласса для каждого уровня
         return baseTable.map((baseRow) => {
-          const subclassRow = subclass.levelTable!.find(
+          const subclassRow = subclassRows.find(
             (subRow) => subRow.level === baseRow.level,
           );
 
@@ -201,19 +252,12 @@
 
   /** Активные колонки таблицы — базовые + колонки подкласса (если есть) */
   const activeTableColumns = computed(() => {
-    const baseColumns = props.classDefinition?.tableColumns ?? [];
+    const baseColumns = classTable.value.tableColumns;
+    const subclassColumns = subclassTable.value?.tableColumns ?? [];
 
-    if (selectedSubclassName.value) {
-      const subclass = props.classDefinition?.subclasses.find(
-        (sc) => sc.name === selectedSubclassName.value,
-      );
-
-      if (subclass?.tableColumns) {
-        return [...baseColumns, ...subclass.tableColumns];
-      }
-    }
-
-    return baseColumns;
+    return subclassColumns.length > 0
+      ? [...baseColumns, ...subclassColumns]
+      : baseColumns;
   });
 
   /** Активная заклинательная конфигурация — подкласса (если выбран и имеет свою) или базового класса */

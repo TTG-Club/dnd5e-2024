@@ -106,6 +106,15 @@ export interface ClassCounterDefinition {
   /** Тип восстановления */
   recovery: CounterRecovery;
   /**
+   * Показывать ресурс колонкой таблицы прогрессии.
+   *
+   * Ряд по уровням у ресурса уже задан прогрессией либо формулой, и колонка
+   * собирается из него ({@link withCounterTableColumns}): второй раз те же числа
+   * автор не набирает. Колонка выводится, только если ряд считается от одного
+   * уровня — у максимума по модификатору характеристики его нет.
+   */
+  showInTable?: boolean;
+  /**
    * Нижняя граница максимума; нет или 0 — границы нет.
    *
    * Подпирает расчёт снизу, а не складывается с ним: вдохновение барда равно
@@ -278,14 +287,7 @@ export interface SubclassDefinition {
    * Колонки таблицы прогрессии подкласса.
    * Используется совместно с levelTable.
    */
-  tableColumns?: Array<{
-    key?: string;
-    label: string;
-    children?: Array<{
-      key: string;
-      label: string;
-    }>;
-  }>;
+  tableColumns?: ClassTableColumnDefinition[];
   /** Счётчики подклассовых ресурсов (напр. кости превосходства) */
   counters?: ClassCounterDefinition[];
   /** Активные эффекты подкласса; переносятся на актора при его выборе. */
@@ -297,6 +299,24 @@ export interface SubclassDefinition {
 // ── Определение класса (SRD) ─────────────────────────────────
 
 /** Запись таблицы прогрессии класса (для каждого уровня 1-20) */
+/**
+ * Колонка таблицы прогрессии: ключ значения в строке уровня и подпись.
+ *
+ * Одним типом на класс и подкласс: форма у них общая, а две копии разошлись бы
+ * при первой же правке.
+ */
+export interface ClassTableColumnDefinition {
+  /** Ключ значения в строке {@link ClassLevelEntry} */
+  key?: string;
+  /** Человекочитаемое название колонки */
+  label: string;
+  /** Подколонки для группировки заголовков (Ячейки заклинаний → 1, 2, 3…) */
+  children?: Array<{
+    key: string;
+    label: string;
+  }>;
+}
+
 export interface ClassLevelEntry {
   /** Уровень (1-20) */
   level: number;
@@ -378,17 +398,7 @@ export interface ClassDefinition {
   startingEquipment?: ClassStartingEquipmentOption[];
 
   /** Настраиваемые дополнительные колонки для таблицы уровней (например: Скрытая атака, Второе дыхание) */
-  tableColumns?: Array<{
-    /** Ключ значения в массиве levelTable */
-    key?: string;
-    /** Человекочитаемое название колонки */
-    label: string;
-    /** Подколонки для группировки заголовков (например: Ячейки заклинаний -> 1, 2, 3...) */
-    children?: Array<{
-      key: string;
-      label: string;
-    }>;
-  }>;
+  tableColumns?: ClassTableColumnDefinition[];
 
   // --- Заклинательная способность ---
   /** Конфигурация заклинаний (null = нет заклинаний) */
