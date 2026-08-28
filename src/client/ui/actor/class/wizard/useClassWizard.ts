@@ -54,7 +54,10 @@ import {
   SKILLS_LIST,
 } from '@vtt/shared/system/dnd.js';
 
-import { CLASS_GRANT_EFFECT_PRESENTATION } from '../../constants';
+import {
+  CLASS_EQUIPMENT_NONE_INDEX,
+  CLASS_GRANT_EFFECT_PRESENTATION,
+} from '../../constants';
 import {
   buildClassEffectId,
   collectClassEffects,
@@ -119,8 +122,9 @@ export interface WizardState {
    */
   selectedFeatureSkills: SkillType[];
   /**
-   * Выбранный вариант стартового снаряжения; `null` — не выбран. Снаряжение
-   * берут только при взятии класса на 1 уровне.
+   * Выбранный вариант стартового снаряжения; `null` — не выбран,
+   * `CLASS_EQUIPMENT_NONE_INDEX` — выбран явный отказ. Снаряжение берут только
+   * при взятии класса на 1 уровне.
    */
   selectedEquipmentIndex: number | null;
   subclassKey: string | null;
@@ -692,12 +696,13 @@ export function useClassWizard(
 
   /**
    * Позиции выбранного варианта стартового снаряжения. Пусто — вариант не
-   * выбран или приехал без позиций; тогда мастер инвентарь не трогает.
+   * выбран, выбран отказ или приехал без позиций; тогда мастер инвентарь
+   * не трогает.
    */
   const selectedEquipmentItems = computed(() => {
     const index = wizardState.selectedEquipmentIndex;
 
-    if (index === null) {
+    if (index === null || index === CLASS_EQUIPMENT_NONE_INDEX) {
       return [];
     }
 
