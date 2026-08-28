@@ -11,7 +11,10 @@ import { isRecord } from '@vtt/shared';
 import {
   SPELL_LEVEL_LABELS,
   SPELL_LEVEL_OPTIONS,
+  STARTING_EQUIPMENT_ITEM_KINDS,
 } from '@vtt/shared/system/dnd.js';
+
+import { itemTypeLabel } from '../../composables/dnd5eItemTypes';
 
 /**
  * Категория черты («Боевой стиль», «Черта происхождения») — её отдаёт выгрузка
@@ -52,3 +55,23 @@ export function spellLevelFilterValue(entry: unknown): string | undefined {
 export const SPELL_LEVEL_FILTER_ORDER: string[] = SPELL_LEVEL_OPTIONS.map(
   (option) => option.label,
 );
+
+/**
+ * Раздел предмета подписью («Оружие»). Предметы стартового снаряжения приезжают
+ * тремя разделами компендиума разом, и в общем списке надо понимать, откуда
+ * строка. Подпись берётся из общего словаря типов предметов.
+ *
+ * Принимает `unknown` по той же причине, что и {@link featCategoryFilterValue}.
+ *
+ * @param entry - запись компендиума
+ * @returns подпись раздела либо `undefined` у записи неизвестного типа
+ */
+export function equipmentTypeFilterValue(entry: unknown): string | undefined {
+  return isRecord(entry) && typeof entry.type === 'string'
+    ? itemTypeLabel(entry.type)
+    : undefined;
+}
+
+/** Порядок разделов в панели фильтра — тот же, что у списка разделов. */
+export const EQUIPMENT_TYPE_FILTER_ORDER: string[] =
+  STARTING_EQUIPMENT_ITEM_KINDS.map((kind) => itemTypeLabel(kind) ?? kind);

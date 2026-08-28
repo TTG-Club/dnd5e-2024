@@ -98,8 +98,13 @@
       open: boolean;
       /** WebSocket-клиент: загрузка записей компендиума по пакам */
       socket: TypedWebSocketClient | null;
-      /** Тип записей компендиума (`feat`, `class`, `species`, `background`, `spell`) */
-      kind: string;
+      /**
+       * Тип записей компендиума (`feat`, `class`, `species`, `background`,
+       * `spell`). Списком — когда записи одного смысла разложены по разным
+       * разделам: предметы снаряжения лежат сразу в трёх (`equipment`,
+       * `weapon`, `tool`), а выбирать их надо одним списком.
+       */
+      kind: string | readonly string[];
       /** Заголовок окна — что именно выбирают */
       title: string;
       /** Z-index (управляется вызывающим для bring-to-front) */
@@ -149,6 +154,11 @@
     /** Отмеченные записи подтверждены */
     'select': [refs: PickedCompendiumRef[]];
   }>();
+
+  /** Типы записей списком: проп принимает и один тип, и несколько. */
+  const kinds = computed<readonly string[]>(() =>
+    typeof props.kind === 'string' ? [props.kind] : props.kind,
+  );
 
   const itemsStore = useItemsStore();
   const { getSourceDefinition } = useSourceLabels();
@@ -224,8 +234,8 @@
    * нельзя было бы выбрать.
    */
   const worldEntries = computed<PickerEntry[]>(() =>
-    itemsStore
-      .itemsByType(props.kind)
+    kinds.value
+      .flatMap((kind) => itemsStore.itemsByType(kind))
       .map((worldItem) =>
         toPickerEntry(
           worldItem,
@@ -464,9 +474,11 @@
     emit('update:open', false);
   }
 
-  /** Загружает записи выбранного типа по пакам компендиума. */
+  /** Загружает записи выбранных типов по пакам компендиума. */
   async function loadEntries(): Promise<void> {
-    if (!props.socket) {
+    const socket = props.socket;
+
+    if (!socket) {
       compendiumPacks.value = [];
 
       return;
@@ -475,10 +487,26 @@
     isLoading.value = true;
 
     try {
-      compendiumPacks.value = await loadCompendiumKindByPack(
-        props.socket,
-        props.kind,
-      );
+      // Несколько типов сливаются в ОДИН список паков: пак предметов держит и
+      // снаряжение, и оружие, и инструменты, а в левой колонке он должен
+      // остаться одной строкой. Записи копируются — списки в кеше общие.
+      const merged = new Map<string, PackKindEntries>();
+
+      for (const kind of kinds.value) {
+        const packsOfKind = await loadCompendiumKindByPack(socket, kind);
+
+        for (const pack of packsOfKind) {
+          const known = merged.get(pack.packId);
+
+          if (known) {
+            known.entries = [...known.entries, ...pack.entries];
+          } else {
+            merged.set(pack.packId, { ...pack, entries: [...pack.entries] });
+          }
+        }
+      }
+
+      compendiumPacks.value = [...merged.values()];
     } finally {
       isLoading.value = false;
     }
@@ -487,7 +515,7 @@
   // Открытие окна (и смена типа записей) сбрасывает поиск и отметки и
   // запрашивает записи нужного типа.
   watch(
-    () => [props.open, props.kind] as const,
+    () => [props.open, kinds.value.join(',')] as const,
     ([isOpen]) => {
       if (!isOpen) {
         return;

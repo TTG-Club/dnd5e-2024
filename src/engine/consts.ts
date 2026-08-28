@@ -843,6 +843,22 @@ export function isCurrencyType(value: unknown): value is CurrencyType {
   return typeof value === 'string' && CURRENCY_TYPE_SET.has(value);
 }
 
+/**
+ * Краткая подпись монеты («зм»). Своей константы под неё быть не должно:
+ * подписи монет живут одной таблицей, и вторая копия разошлась бы с ней.
+ *
+ * @param currency - вид монеты; по умолчанию золотые
+ * @returns краткая подпись либо код монеты, если такой в таблице нет
+ */
+export function currencyShortLabel(
+  currency: CurrencyType = DEFAULT_CURRENCY,
+): string {
+  return (
+    CURRENCY_OPTIONS.find((option) => option.value === currency)?.labelShort
+    ?? currency
+  );
+}
+
 /** Минимальное количество монет одного вида в кошельке */
 export const CURRENCY_AMOUNT_MIN = 0;
 

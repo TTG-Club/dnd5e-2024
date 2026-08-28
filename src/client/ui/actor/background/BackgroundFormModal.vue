@@ -749,6 +749,7 @@
             <StartingEquipmentEditor
               v-model="equipmentOptions"
               show-gold-alternative
+              :socket="props.socket"
             />
           </div>
         </template>

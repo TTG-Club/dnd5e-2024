@@ -22,11 +22,9 @@ import { generateId, isRecord } from '@vtt/shared';
 import {
   isDnDGameItem,
   normalizeCompendiumItem,
+  STARTING_EQUIPMENT_ITEM_KINDS,
   startingEquipmentQuantity,
 } from '@vtt/shared/system/dnd.js';
-
-/** Разделы компендиума, в которых живут предметы стартового снаряжения. */
-const ITEM_KINDS = ['equipment', 'weapon', 'tool'] as const;
 
 /** Слаг страницы записи компендиума; пусто — запись в индекс не попадает. */
 function entrySrcUrl(entry: unknown): string | undefined {
@@ -75,7 +73,7 @@ export async function resolveStartingEquipment(
   const bySrcUrl = new Map<string, DnDGameItem>();
 
   if (socket) {
-    for (const kind of ITEM_KINDS) {
+    for (const kind of STARTING_EQUIPMENT_ITEM_KINDS) {
       const entries = await loadCompendiumKind(socket, kind);
 
       for (const entry of entries) {

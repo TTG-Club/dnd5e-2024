@@ -32,6 +32,7 @@
   } from '../constants';
   import ItemEffectsView from '../ItemEffectsView.vue';
   import SourceBadge from '../SourceBadge.vue';
+  import StartingEquipmentOptionBody from '../StartingEquipmentOptionBody.vue';
 
   /** Проверяет, является ли особенность генеричной заглушкой подкласса («Умение подкласса», «Подкласс воина») */
   function isSubclassPlaceholder(feature: ClassFeature): boolean {
@@ -596,9 +597,7 @@
             >
               <span class="font-bold text-muted">{{ eq.key }})</span>
 
-              <!-- Через рендерер: в описании варианта приходят ссылки на предметы
-                   компендиума, интерполяция показала бы их markdown-исходником. -->
-              <ItemDescriptionRenderer :content="eq.description" />
+              <StartingEquipmentOptionBody :option="eq" />
             </div>
           </div>
         </div>

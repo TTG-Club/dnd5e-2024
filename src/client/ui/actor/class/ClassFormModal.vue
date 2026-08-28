@@ -940,6 +940,7 @@
             <StartingEquipmentEditor
               v-model="equipment"
               show-key
+              :socket="props.socket"
             />
           </div>
         </template>
