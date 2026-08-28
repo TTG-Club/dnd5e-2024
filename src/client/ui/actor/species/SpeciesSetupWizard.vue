@@ -7,18 +7,24 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
 
+  import { useFeatChoiceSpells } from '../../../composables/useFeatChoiceSpells';
   import { useSpeciesGrantedSpellsResolver } from '../../../composables/useSpeciesGrantedSpellsResolver';
   import { MODAL_BUTTON_LABELS, SPECIES_WIZARD_LABELS } from '../constants';
   import { useSpeciesWizard } from './useSpeciesWizard';
   import WizardStepFeatures from './WizardStepFeatures.vue';
   import WizardStepGrants from './WizardStepGrants.vue';
   import WizardStepOverview from './WizardStepOverview.vue';
+  import WizardStepSubspecies from './WizardStepSubspecies.vue';
 
   const props = defineProps<{
     open: boolean;
     actor: DnDActor;
     speciesDefinition: SpeciesDefinition | null;
     previousSpeciesDefinition?: SpeciesDefinition | null;
+    /** Прежний подвид-запись — для точного отката при смене вида */
+    previousSubspeciesDefinition?: SpeciesDefinition | null;
+    /** Все записи видов (мир + компендиум) — из них собираются подвиды */
+    speciesRecords: SpeciesDefinition[];
     /** Сокет для загрузки granted-заклинаний из компендиума */
     socket: TypedWebSocketClient | null;
   }>();
@@ -38,6 +44,7 @@
 
   const actorRef = computed(() => props.actor);
   const speciesDefRef = computed(() => props.speciesDefinition);
+  const speciesRecordsRef = computed(() => props.speciesRecords);
 
   const {
     state,
@@ -49,13 +56,31 @@
     canProceed,
     isFinalStep,
     grantedSpellSources,
+    subspeciesOptions,
+    featDataSources,
+    proficiencyBonus,
     buildUpdates,
-  } = useSpeciesWizard(actorRef, speciesDefRef);
+  } = useSpeciesWizard(actorRef, speciesDefRef, speciesRecordsRef);
 
   /** Granted-заклинания особенностей вида с данными из компендиума (по пакам) */
   const { resolvedGrantedSpells } = useSpeciesGrantedSpellsResolver(
     toRef(props, 'socket'),
     grantedSpellSources,
+  );
+
+  /**
+   * Все вопросы блоков даров одним списком — только для загрузки каталога
+   * заклинаний: пул выбора и проверка готовности обязаны смотреть на один и тот
+   * же список.
+   */
+  const allPreparedFeatChoices = computed(() =>
+    featDataSources.value.flatMap((source) => source.preparedChoices),
+  );
+
+  /** Заклинания каталога для выборов даров (заговор эльфа и подобные) */
+  const { spells: featChoiceSpells } = useFeatChoiceSpells(
+    toRef(props, 'socket'),
+    allPreparedFeatChoices,
   );
 
   watch(
@@ -92,6 +117,7 @@
     const { systemUpdates, rootUpdates } = buildUpdates(
       props.previousSpeciesDefinition,
       resolvedGrantedSpells.value,
+      props.previousSubspeciesDefinition,
     );
 
     emit('apply', systemUpdates, rootUpdates);
@@ -176,6 +202,12 @@
             :species-definition="speciesDefinition"
           />
 
+          <WizardStepSubspecies
+            v-if="activeStepKey === 'subspecies'"
+            v-model:state="state"
+            :subspecies-options="subspeciesOptions"
+          />
+
           <WizardStepGrants
             v-if="activeStepKey === 'grants'"
             v-model:state="state"
@@ -187,6 +219,10 @@
             v-model:state="state"
             :species-definition="speciesDefinition"
             :granted-spells="resolvedGrantedSpells"
+            :actor="actor"
+            :proficiency-bonus="proficiencyBonus"
+            :feat-data-sources="featDataSources"
+            :feat-choice-spells="featChoiceSpells"
           />
         </div>
       </div>

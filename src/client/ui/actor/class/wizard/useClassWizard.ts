@@ -33,6 +33,7 @@ import { generateId } from '@vtt/shared';
 import {
   ABILITY_LABELS,
   appendGrantedSpells,
+  buildFeatGrantEffect,
   calculateAbilityModifier,
   calculateProficiencyBonus,
   collectFeatChoiceProficiencies,
@@ -44,13 +45,21 @@ import {
   isAsiFeature,
   normalizeSpellName,
   prepareFeatChoices,
+  raiseTokenDarkvision,
   refreshCounterMaxima,
   refreshFeatCounters,
+  resolveChosenAbilities,
+  resolveChosenDamageDefenses,
   resolveFeatChoiceCount,
   SKILLS_LIST,
 } from '@vtt/shared/system/dnd.js';
 
 import {
+  CLASS_EQUIPMENT_NONE_INDEX,
+  CLASS_GRANT_EFFECT_PRESENTATION,
+} from '../../constants';
+import {
+  buildClassEffectId,
   collectClassEffects,
   collectFeatureEffects,
   collectSubclassEffects,
@@ -113,8 +122,9 @@ export interface WizardState {
    */
   selectedFeatureSkills: SkillType[];
   /**
-   * Выбранный вариант стартового снаряжения; `null` — не выбран. Снаряжение
-   * берут только при взятии класса на 1 уровне.
+   * Выбранный вариант стартового снаряжения; `null` — не выбран,
+   * `CLASS_EQUIPMENT_NONE_INDEX` — выбран явный отказ. Снаряжение берут только
+   * при взятии класса на 1 уровне.
    */
   selectedEquipmentIndex: number | null;
   subclassKey: string | null;
@@ -553,6 +563,58 @@ export function useClassWizard(
   });
 
   /**
+   * Источники даров уровня с ключами — для синтетических эффектов даров.
+   *
+   * Параллельно {@link levelFeatData}, но без переоткрытых выборов прошлых
+   * уровней: у тех одни вопросы, модификаторов они не несут, и эффект по ним
+   * пуст. Ключ источника стабилен — по нему эффект не ставится второй копией
+   * при переоткрытии мастера.
+   */
+  const levelFeatDataSources = computed<
+    { sourceKey: string; sourceName: string; featData: FeatData }[]
+  >(() => {
+    const classDef = classDefinition.value;
+
+    if (!classDef) {
+      return [];
+    }
+
+    const collected: {
+      sourceKey: string;
+      sourceName: string;
+      featData: FeatData;
+    }[] = [];
+
+    if (nextLevel.value === 1 && classDef.featData) {
+      collected.push({
+        sourceKey: classDef.key,
+        sourceName: classDef.name,
+        featData: classDef.featData,
+      });
+    }
+
+    if (wizardState.subclassKey && activeSubclass.value?.featData) {
+      collected.push({
+        sourceKey: activeSubclass.value.key,
+        sourceName: activeSubclass.value.name,
+        featData: activeSubclass.value.featData,
+      });
+    }
+
+    for (const feature of levelFeatures.value) {
+      if (!feature.isInformationalOnly && feature.featData) {
+        collected.push({
+          sourceKey: feature.key,
+          sourceName: feature.name,
+          featData: openedFeatData(feature.featData, nextLevel.value),
+        });
+      }
+    }
+
+    return collected;
+  });
+
+  /**
    * Дары умения без выборов, до которых персонаж ещё не дорос.
    *
    * @param featData - дары умения из справочника
@@ -634,12 +696,13 @@ export function useClassWizard(
 
   /**
    * Позиции выбранного варианта стартового снаряжения. Пусто — вариант не
-   * выбран или приехал без позиций; тогда мастер инвентарь не трогает.
+   * выбран, выбран отказ или приехал без позиций; тогда мастер инвентарь
+   * не трогает.
    */
   const selectedEquipmentItems = computed(() => {
     const index = wizardState.selectedEquipmentIndex;
 
-    if (index === null) {
+    if (index === null || index === CLASS_EQUIPMENT_NONE_INDEX) {
       return [];
     }
 
@@ -1492,6 +1555,41 @@ export function useClassWizard(
       ...collectFeatureEffects(classDef, levelFeatures.value),
     ];
 
+    // Синтетические эффекты даров featData уровня: модификаторы листа, защиты
+    // (включая выбранные игроком), прибавки — тот же сборщик, что у черты.
+    // Раньше из featData применялись только владения, и модификаторы с
+    // защитами до листа не доезжали. Id стабилен по источнику, поэтому
+    // mergeClassEffects не поставит вторую копию при переоткрытии мастера, а
+    // снятие класса снимет эффект по префиксу класса.
+    for (const source of levelFeatDataSources.value) {
+      const grantEffect = buildFeatGrantEffect(
+        source.sourceKey,
+        source.sourceName,
+        source.featData,
+        CLASS_GRANT_EFFECT_PRESENTATION,
+        {
+          acquisitionLevel: getTotalLevel(actor.value.system.classes) + 1,
+          walkSpeed: actor.value.system.movement?.walk,
+          chosenDamageDefenses: resolveChosenDamageDefenses(
+            source.featData,
+            wizardState.featDataChoices,
+          ),
+          chosenAbilities: resolveChosenAbilities(
+            source.featData,
+            wizardState.featDataChoices,
+          ),
+        },
+      );
+
+      if (grantEffect) {
+        declaredEffects.push({
+          ...grantEffect,
+          id: buildClassEffectId(classDef.key, `grant:${source.sourceKey}`),
+          originId: classDef.key,
+        });
+      }
+    }
+
     if (declaredEffects.length > 0) {
       const before =
         rootUpdates.activeEffects ?? actor.value.activeEffects ?? [];
@@ -1501,6 +1599,22 @@ export function useClassWizard(
       if (merged.length !== before.length) {
         rootUpdates.activeEffects = merged;
       }
+    }
+
+    // Тёмное зрение из даров уровня: дальность зрения токена поднимается до
+    // максимума и не понижается — источник мог быть и другой (вид/черта)
+    const featDataDarkvision = levelFeatData.value.reduce(
+      (best, block) => Math.max(best, block.darkvision ?? 0),
+      0,
+    );
+
+    const raisedToken = raiseTokenDarkvision(
+      actor.value.token,
+      featDataDarkvision,
+    );
+
+    if (raisedToken) {
+      rootUpdates.token = raisedToken;
     }
 
     // Особенности — добавляем в общий список features актора

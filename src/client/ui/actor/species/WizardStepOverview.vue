@@ -11,6 +11,7 @@
   import {
     DAMAGE_DEFENSE_KIND_LABELS,
     DAMAGE_TYPE_LABELS,
+    formatSpeciesSizeWithHeight,
     getConditionEntry,
   } from '@vtt/shared/system/dnd.js';
 
@@ -78,10 +79,17 @@
     return CREATURE_TYPE_LABELS[creatureType] || creatureType;
   });
 
+  // Рост стоит прямо в подписи размера: именно по нему игрок и выбирает между
+  // «средним» и «маленьким», а искать его в описании вида — лишний шаг
   const sizeOptions = computed(() => {
+    const heights = props.speciesDefinition.heights;
+
     return props.speciesDefinition.size.map((sizeValue) => ({
       value: sizeValue,
-      label: CREATURE_SIZE_LABELS[sizeValue] || sizeValue,
+      label: formatSpeciesSizeWithHeight(
+        CREATURE_SIZE_LABELS[sizeValue] || sizeValue,
+        heights?.[sizeValue],
+      ),
     }));
   });
 
@@ -93,7 +101,7 @@
   const infoGrants = computed(() => {
     const grants: { title: string; desc: string }[] = [];
 
-    props.speciesDefinition.grants.forEach((group) => {
+    (props.speciesDefinition.grants ?? []).forEach((group) => {
       if (group.type === 'darkvision') {
         grants.push({
           title: SPECIES_DETAIL_LABELS.darkvision,

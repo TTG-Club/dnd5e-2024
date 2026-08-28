@@ -199,6 +199,9 @@
   const equipment = ref<EditableStartingEquipmentOption[]>([]);
   const activeEffects = ref<ActiveEffect[]>([]);
 
+  /** Дары самого класса блоком `featData` (round-trip; форма их не редактирует). */
+  const preservedFeatData = ref<ClassDefinition['featData']>(undefined);
+
   const existingKey = ref<string | null>(null);
   const existingId = ref<string | null>(null);
 
@@ -250,6 +253,7 @@
     counters.value = [];
     equipment.value = [];
     activeEffects.value = [];
+    preservedFeatData.value = undefined;
     existingKey.value = null;
     existingId.value = null;
   }
@@ -306,6 +310,8 @@
     activeEffects.value = (definition.activeEffects ?? []).map((effect) => ({
       ...effect,
     }));
+
+    preservedFeatData.value = definition.featData;
 
     if (definition.multiclassProficiencies) {
       multiclassEnabled.value = true;
@@ -474,6 +480,10 @@
 
     if (activeEffects.value.length > 0) {
       definition.activeEffects = activeEffects.value;
+    }
+
+    if (preservedFeatData.value) {
+      definition.featData = preservedFeatData.value;
     }
 
     if (multiclassEnabled.value) {

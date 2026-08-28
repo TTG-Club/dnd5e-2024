@@ -25,6 +25,7 @@ import type {
   ClassFeatureChoice,
   ClassLevelEntry,
   CounterRecovery,
+  FeatData,
   GrantedSpellRef,
   HitDie,
   SubclassDefinition,
@@ -127,6 +128,12 @@ export interface EditableClassFeature {
   skillChoiceFrom: SkillType[];
   /** Активные эффекты умения; переносятся на персонажа вместе с ним. */
   activeEffects: ActiveEffect[];
+  /**
+   * Дары умения блоком `featData` (round-trip; форма их не редактирует).
+   * Без протаскивания сохранение класса, приехавшего с сайта, теряло их —
+   * умение оставалось без владений, модификаторов и выборов.
+   */
+  featData?: FeatData;
 }
 
 // ── Счётчик классового ресурса ───────────────────────────────
@@ -180,6 +187,8 @@ export interface EditableSubclass {
   levelTable: EditableLevelRow[];
   /** Бонус-заклинания подкласса (round-trip; форма их не редактирует). */
   preservedBonusSpells?: SubclassDefinition['bonusSpells'];
+  /** Дары подкласса блоком `featData` (round-trip; форма их не редактирует). */
+  preservedFeatData?: FeatData;
 }
 
 // ============================================================
@@ -350,6 +359,7 @@ export function toEditableFeature(feature: ClassFeature): EditableClassFeature {
     activeEffects: (feature.activeEffects ?? []).map((effect) => ({
       ...effect,
     })),
+    ...(feature.featData ? { featData: feature.featData } : {}),
   };
 }
 
@@ -542,6 +552,7 @@ export function toEditableSubclass(
     tableColumns,
     levelTable: toEditableLevelTable(subclass.levelTable, tableColumns),
     preservedBonusSpells: subclass.bonusSpells,
+    preservedFeatData: subclass.featData,
   };
 }
 
@@ -621,6 +632,10 @@ export function buildFeature(
 
   if (feature.activeEffects.length > 0) {
     built.activeEffects = feature.activeEffects;
+  }
+
+  if (feature.featData) {
+    built.featData = feature.featData;
   }
 
   return built;
@@ -894,6 +909,10 @@ export function buildSubclass(subclass: EditableSubclass): SubclassDefinition {
       subclass.features,
       subclass.tableColumns,
     );
+  }
+
+  if (subclass.preservedFeatData) {
+    built.featData = subclass.preservedFeatData;
   }
 
   if (subclass.preservedBonusSpells) {

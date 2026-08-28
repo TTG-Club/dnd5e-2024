@@ -4,6 +4,8 @@
   import type { SpellOption } from '../grantedSpellsEditorTypes';
   import type { EditableFeatureFields } from './speciesEditorTypes';
 
+  import { computed } from 'vue';
+
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
 
   import {
@@ -13,6 +15,9 @@
     SPECIES_FORM_LABELS,
   } from '../constants';
   import EntityEffectsEditor from '../EntityEffectsEditor.vue';
+  import { usedChoiceKeys } from '../feat/featEditorTypes';
+  import GrantRowsEditor from '../feat/GrantRowsEditor.vue';
+  import ModifierRowsEditor from '../feat/ModifierRowsEditor.vue';
   import GrantedSpellsEditor from '../GrantedSpellsEditor.vue';
 
   const props = defineProps<{
@@ -41,6 +46,11 @@
   function forwardOpenSpell(spellId: string, packId?: string): void {
     emit('open-spell', spellId, packId);
   }
+
+  /** Занятые ключи выборов даров — чтобы новый выбор не столкнулся со старым. */
+  const takenChoiceKeys = computed(() => [
+    ...usedChoiceKeys(feature.value.grants),
+  ]);
 </script>
 
 <template>
@@ -127,6 +137,24 @@
           :max="300"
           :step="30"
         />
+      </UFormField>
+
+      <UFormField
+        :label="SPECIES_FORM_LABELS.featureGrantsTitle"
+        :help="SPECIES_FORM_LABELS.featureGrantsHint"
+      >
+        <GrantRowsEditor
+          v-model="feature.grants.grantRows"
+          hide-ability
+          :taken-keys="takenChoiceKeys"
+        />
+      </UFormField>
+
+      <UFormField
+        :label="SPECIES_FORM_LABELS.featureModifiersTitle"
+        :help="SPECIES_FORM_LABELS.featureModifiersHint"
+      >
+        <ModifierRowsEditor v-model="feature.grants.modifiers" />
       </UFormField>
 
       <UFormField :label="SPECIES_FEATURE_LABELS.grantedSpells">
