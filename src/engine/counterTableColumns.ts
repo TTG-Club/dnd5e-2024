@@ -204,6 +204,34 @@ export function choiceValuesByLevel(
 }
 
 /**
+ * Подпись колонки для сверки: без краёв и регистра — «Ярость» и «ярость» это одно.
+ *
+ * @param label - подпись колонки
+ */
+function columnLabel(label: string | undefined): string {
+  return (label ?? '').trim().toLowerCase();
+}
+
+/**
+ * Место в таблице занято: ключ или подпись там уже есть. Свободное помечается,
+ * чтобы вторая такая колонка не пролезла следом.
+ *
+ * @param taken - занятые ключи и подписи; пополняется на месте
+ * @param key - ключ выведенной колонки
+ * @param label - подпись выведенной колонки
+ */
+function isTaken(taken: Set<string>, key: string, label: string): boolean {
+  if (taken.has(key) || taken.has(columnLabel(label))) {
+    return true;
+  }
+
+  taken.add(key);
+  taken.add(columnLabel(label));
+
+  return false;
+}
+
+/**
  * Таблица прогрессии, дополненная колонками отмеченных ресурсов.
  *
  * Ресурс, у которого колонка уже есть в записи, второй раз не показывается: ключ
@@ -221,15 +249,26 @@ export function withCounterTableColumns(
   counters: ClassCounterDefinition[] | undefined,
   choices: FeatChoice[] = [],
 ): CounterTable {
-  const takenKeys = new Set(
-    columns.map((column) => column.key).filter((key): key is string => !!key),
+  // Подпись занимает место наравне с ключом: у подкласса лежит своя копия
+  // родительской колонки, и ключа у неё чаще всего нет вовсе. Без сверки по
+  // подписи «Ярость» встала бы в таблицу дважды — своя и выведенная
+  const taken = new Set(
+    columns.flatMap((column) => [column.key ?? '', columnLabel(column.label)]),
   );
 
   const derived: ClassTableColumnDefinition[] = [];
   const valuesByKey = new Map<string, Record<number, number>>();
 
   for (const counter of counters ?? []) {
-    if (!counter.showInTable || !counter.key || takenKeys.has(counter.key)) {
+    // Краткое название старше полного: колонка таблицы узкая, и «БК» в шапке
+    // читается лучше «Божественного канала»
+    const label = counter.shortName || counter.name || counter.key;
+
+    if (
+      !counter.showInTable
+      || !counter.key
+      || isTaken(taken, counter.key, label)
+    ) {
       continue;
     }
 
@@ -239,19 +278,18 @@ export function withCounterTableColumns(
       continue;
     }
 
-    takenKeys.add(counter.key);
     valuesByKey.set(counter.key, values);
-
-    // Краткое название старше полного: колонка таблицы узкая, и «БК» в шапке
-    // читается лучше «Божественного канала»
-    derived.push({
-      key: counter.key,
-      label: counter.shortName || counter.name || counter.key,
-    });
+    derived.push({ key: counter.key, label });
   }
 
   for (const choice of choices) {
-    if (!choice.showInTable || !choice.key || takenKeys.has(choice.key)) {
+    const label = choice.shortName || choice.label || choice.key;
+
+    if (
+      !choice.showInTable
+      || !choice.key
+      || isTaken(taken, choice.key, label)
+    ) {
       continue;
     }
 
@@ -261,13 +299,8 @@ export function withCounterTableColumns(
       continue;
     }
 
-    takenKeys.add(choice.key);
     valuesByKey.set(choice.key, values);
-
-    derived.push({
-      key: choice.key,
-      label: choice.shortName || choice.label || choice.key,
-    });
+    derived.push({ key: choice.key, label });
   }
 
   if (derived.length === 0) {
