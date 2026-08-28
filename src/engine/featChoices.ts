@@ -101,11 +101,24 @@ export const FEAT_CHOICE_TYPE_LABELS: Record<FeatChoiceType, string> = {
   armor: 'Доспехи',
   skillOrTool: 'Навык или инструмент',
   option: 'Вариант',
+  feat: 'Черта',
 };
 
 /** Применяет ли лист выбор этого типа сам. */
 export function isAppliedChoiceType(type: FeatChoiceType): boolean {
   return APPLIED_CHOICE_TYPES.has(type);
+}
+
+/**
+ * Выбор черты: пул берётся из компендиума черт, а не из справочника правил,
+ * поэтому такой выбор спрашивает свой пикер, а не общие поля выбора.
+ *
+ * @param choice - выбор черты
+ */
+export function isFeatPickChoice(
+  choice: Pick<FeatChoice, 'type' | 'types'>,
+): boolean {
+  return resolveFeatChoiceTypes(choice).includes('feat');
 }
 
 /**
@@ -238,9 +251,9 @@ export function getFeatChoiceDefaultPool(
         name: DAMAGE_TYPE_LABELS[value],
       }));
     default:
-      // Оружие, приёмы оружия, заклинания и «варианты» перечисляет сама черта:
-      // общего справочника, из которого их можно взять, у движка нет — виды
-      // оружия живут в данных мира, а не в правилах
+      // Оружие, приёмы оружия, заклинания, черты и «варианты» перечисляет сама
+      // черта либо компендиум: общего справочника, из которого их можно взять,
+      // у движка нет — виды оружия живут в данных мира, а не в правилах
       return [];
   }
 }

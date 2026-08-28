@@ -15,10 +15,11 @@
     HitPointMethod,
   } from '@vtt/shared/system/dnd.js';
 
-  import type { WizardAsiState } from './wizard';
+  import type { CompendiumFeat, WizardAsiState } from './wizard';
 
-  import { computed, nextTick, ref, toRef } from 'vue';
+  import { computed, nextTick, ref, toRef, watch } from 'vue';
 
+  import { loadCompendiumKind } from '@/core/compendiumDataClient';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
   import { resolveActorStats } from '@vtt/shared/system/dnd.js';
@@ -63,6 +64,49 @@
   const actorRef = toRef(props, 'actor');
 
   /**
+   * Черты компендиума для выборов черты умений и режима «Взять черту» шага
+   * характеристик. Грузятся при открытии мастера — как в мастере предыстории.
+   */
+  const compendiumFeats = ref<CompendiumFeat[]>([]);
+
+  /**
+   * Запись компендиума — черта. Требования `source` нет: у записей компендиума
+   * есть только `sourceKey`, и проверка `source` отсеяла бы все черты.
+   *
+   * @param value - запись компендиума
+   */
+  function isCompendiumFeat(value: unknown): value is CompendiumFeat {
+    return (
+      typeof value === 'object'
+      && value !== null
+      && 'id' in value
+      && 'name' in value
+      && 'description' in value
+    );
+  }
+
+  /** Загружает черты компендиума (агрегировано по всем пакам) */
+  async function loadCompendiumFeats(): Promise<void> {
+    if (!props.socket) {
+      return;
+    }
+
+    const entries: unknown[] = await loadCompendiumKind(props.socket, 'feat');
+
+    compendiumFeats.value = entries.filter(isCompendiumFeat);
+  }
+
+  watch(
+    () => props.open,
+    (opened) => {
+      if (opened && compendiumFeats.value.length === 0) {
+        void loadCompendiumFeats();
+      }
+    },
+    { immediate: true },
+  );
+
+  /**
    * Итоговые характеристики с учётом активных эффектов
    * (бонусы предыстории, прошлые повышения характеристик).
    */
@@ -98,6 +142,8 @@
     wizardState,
     canProceed,
     visibleFeatChoices,
+    featPickChoices,
+    asiFeatChoice,
     featChoiceProficiencyBonus,
     isSpellSelectionComplete,
     spellSelectionLimits,
@@ -107,7 +153,7 @@
     prevStep,
 
     buildUpdates,
-  } = useClassWizard(classDefRef, actorRef, isOpen);
+  } = useClassWizard(classDefRef, actorRef, isOpen, compendiumFeats);
 
   /** Granted-заклинания умений текущего уровня с данными из компендиума */
   const { resolvedGrantedSpells } = useGrantedSpellsResolver(
@@ -204,6 +250,20 @@
    */
   function handleAsiUpdate(asiState: WizardAsiState) {
     wizardState.asi = asiState;
+  }
+
+  /**
+   * Сохраняет черту, выбранную в умении уровня. Ответ лежит там же, где ответы
+   * на остальные выборы даров: ключ выбора → значения.
+   *
+   * @param key - ключ выбора черты
+   * @param featId - ключ черты компендиума; null — выбор снят
+   */
+  function handleFeatSelection(key: string, featId: string | null) {
+    wizardState.featDataChoices = {
+      ...wizardState.featDataChoices,
+      [key]: featId ? [featId] : [],
+    };
   }
 
   /** Переход к конкретному шагу по индексу */
@@ -464,8 +524,13 @@
               :subclasses="classDefinition.subclasses"
               :subclass-key="wizardState.subclassKey"
               :subclass-label="classDefinition.subclassLabel"
+              :feat-picks="featPickChoices"
+              :feats="compendiumFeats"
+              :actor="actor"
+              :feat-selections="wizardState.featDataChoices"
               @update:feature-choices="handleFeatureChoicesUpdate"
               @update:subclass-key="wizardState.subclassKey = $event"
+              @update:feat-selection="handleFeatSelection"
             />
 
             <!-- Выборы даров уровня: те же поля, что у черты, — набор выборов
@@ -501,6 +566,9 @@
             v-if="activeStepKey === 'asi'"
             :current-abilities="resolvedAbilities"
             :asi-state="wizardState.asi"
+            :feats="compendiumFeats"
+            :actor="actor"
+            :feat-choice="asiFeatChoice"
             @update:asi-state="handleAsiUpdate"
           />
         </div>

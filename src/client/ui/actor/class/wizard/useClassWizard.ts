@@ -26,6 +26,8 @@ import type {
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
+import type { AppliedFeatFeature } from '../../feat/featApply';
+
 import { computed, reactive, ref, watch } from 'vue';
 
 import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
@@ -37,12 +39,14 @@ import {
   calculateAbilityModifier,
   calculateProficiencyBonus,
   collectFeatChoiceProficiencies,
+  collectFeatGrantedSpellSources,
   collectGrantedSpellSourcesForClassLevel,
   getMulticlassProficiencies,
   getTotalLevel,
   getVisibleFeatChoices,
   hasAbilityImprovementAtLevel,
   isAsiFeature,
+  isFeatPickChoice,
   normalizeSpellName,
   prepareFeatChoices,
   raiseTokenDarkvision,
@@ -58,6 +62,7 @@ import {
   CLASS_EQUIPMENT_NONE_INDEX,
   CLASS_GRANT_EFFECT_PRESENTATION,
 } from '../../constants';
+import { applyFeatToActor } from '../../feat/featApply';
 import {
   buildClassEffectId,
   collectClassEffects,
@@ -152,6 +157,21 @@ export interface WizardState {
 export interface WizardFeatureItem extends ClassFeature {
   sourceName?: string;
   isSubclass?: boolean;
+}
+
+/**
+ * Черта компендиума с полями, которых базовый тип особенности не знает:
+ * категория нужна пикеру, чтобы сузить пул выбора черты умения.
+ */
+export interface CompendiumFeat extends AppliedFeatFeature {
+  /** Категория черты подписью записи компендиума («Боевой стиль») */
+  category?: string;
+}
+
+/** Выбор черты умения уровня вместе с названием умения-источника */
+export interface WizardFeatPick {
+  choice: FeatChoice;
+  sourceName: string;
 }
 
 // ── Константы ─────────────────────────────────────────────────
@@ -337,6 +357,13 @@ export function useClassWizard(
   classDefinition: Ref<ClassDefinition | null>,
   actor: Ref<DnDActor>,
   isOpen: Ref<boolean>,
+  /**
+   * Черты компендиума: из них собирается пул выбора черты умения и берётся
+   * сама черта при применении. Пусто — выбирать нечего.
+   */
+  compendiumFeats: Ref<ReadonlyArray<CompendiumFeat>> = ref<
+    ReadonlyArray<CompendiumFeat>
+  >([]),
 ) {
   // ── Контекст ──────────────────────────────────────────────
 
@@ -646,21 +673,105 @@ export function useClassWizard(
     ),
   );
 
-  /** Выборы, спрошенные прямо сейчас: остальные ждут ответа про класс. */
+  /**
+   * Ключи умений уровня с повышением характеристик: их выбор черты
+   * спрашивается на шаге характеристик, а не среди даров умений.
+   */
+  const asiFeatureKeys = computed(
+    () =>
+      new Set(
+        levelFeatures.value
+          .filter((feature) => isAsiFeature(feature))
+          .map((feature) => feature.key),
+      ),
+  );
+
+  /**
+   * Выборы черты умений уровня — боевой стиль и подобные — со своим
+   * умением-источником: спрашиваются пикером компендиума, а не общими полями
+   * выбора, потому что пул у них не из справочника правил.
+   */
+  const featPickChoices = computed<WizardFeatPick[]>(() =>
+    levelFeatDataSources.value
+      .filter((source) => !asiFeatureKeys.value.has(source.sourceKey))
+      .flatMap((source) =>
+        (source.featData.choices ?? [])
+          .filter(isFeatPickChoice)
+          .map((choice) => ({ choice, sourceName: source.sourceName })),
+      ),
+  );
+
+  /**
+   * Выбор черты умения повышения характеристик: им сужается пул на шаге
+   * характеристик в режиме «Взять черту». `null` — умение описано одним
+   * флагом, и пул берётся по правилу листа.
+   */
+  const asiFeatChoice = computed<FeatChoice | null>(
+    () =>
+      levelFeatDataSources.value
+        .filter((source) => asiFeatureKeys.value.has(source.sourceKey))
+        .flatMap((source) =>
+          (source.featData.choices ?? []).filter(isFeatPickChoice),
+        )[0] ?? null,
+  );
+
+  /**
+   * Выборы, спрошенные прямо сейчас: остальные ждут ответа про класс. Выбор
+   * черты сюда не входит — у него свой пикер.
+   */
   const visibleFeatChoices = computed<FeatChoice[]>(() =>
     getVisibleFeatChoices(
       preparedFeatChoices.value,
       wizardState.featDataChoices,
-    ),
+    ).filter((choice) => !isFeatPickChoice(choice)),
   );
 
   /** Все выборы уровня отвечены — без этого шаг умений не пройти. */
-  const areFeatChoicesComplete = computed(() =>
-    visibleFeatChoices.value.every(
-      (choice) =>
-        (wizardState.featDataChoices[choice.key] ?? []).length
-        >= resolveFeatChoiceCount(choice, featChoiceProficiencyBonus.value),
-    ),
+  const areFeatChoicesComplete = computed(
+    () =>
+      visibleFeatChoices.value.every(
+        (choice) =>
+          (wizardState.featDataChoices[choice.key] ?? []).length
+          >= resolveFeatChoiceCount(choice, featChoiceProficiencyBonus.value),
+      )
+      && featPickChoices.value.every(
+        ({ choice }) =>
+          (wizardState.featDataChoices[choice.key] ?? []).length > 0,
+      ),
+  );
+
+  /**
+   * Ключи черт компендиума, которые уровень кладёт на лист: выбранные в умениях,
+   * взятая вместо повышения характеристик и выданные умениями без выбора.
+   */
+  const chosenFeatIds = computed<string[]>(() => {
+    const classDef = classDefinition.value;
+
+    const asiFeatKey =
+      classDef
+      && hasAbilityImprovementAtLevel(classDef, nextLevel.value)
+      && wizardState.asi.mode === 'feat'
+        ? wizardState.asi.featKey
+        : null;
+
+    return [
+      ...featPickChoices.value.flatMap(
+        ({ choice }) => wizardState.featDataChoices[choice.key] ?? [],
+      ),
+      ...(asiFeatKey ? [asiFeatKey] : []),
+      ...levelFeatData.value.flatMap((data) =>
+        (data.grantedFeats ?? []).map((feat) => feat.featId),
+      ),
+    ];
+  });
+
+  /** Записи компендиума для взятых уровнем черт; неизвестные ключи пропускаются */
+  const chosenCompendiumFeats = computed<CompendiumFeat[]>(() =>
+    chosenFeatIds.value.flatMap((featId) => {
+      const feat = compendiumFeats.value.find((entry) => entry.id === featId);
+
+      return feat ? [feat] : [];
+    }),
   );
 
   /**
@@ -727,10 +838,15 @@ export function useClassWizard(
       ...(activeSubclass.value?.features ?? []),
     ];
 
-    return collectGrantedSpellSourcesForClassLevel(
-      allFeatures,
-      nextLevel.value,
-    );
+    // Заклинания черт, взятых уровнем, идут тем же путём, что и заклинания
+    // умений: «Посвящённый в магию» вместо повышения характеристик обязан
+    // положить свои заговоры в книгу
+    return [
+      ...collectGrantedSpellSourcesForClassLevel(allFeatures, nextLevel.value),
+      ...chosenCompendiumFeats.value.flatMap((feat) =>
+        collectFeatGrantedSpellSources(feat, actor.value),
+      ),
+    ];
   });
 
   /** Требуется ли выбор подкласса на этом уровне */
@@ -1034,8 +1150,7 @@ export function useClassWizard(
       }
       case 'asi': {
         if (wizardState.asi.mode === 'feat') {
-          // Placeholder — черты пока не реализованы, всегда разрешаем
-          return true;
+          return wizardState.asi.featKey !== null;
         }
 
         // Сумма прибавок должна быть ровно 2
@@ -1094,6 +1209,7 @@ export function useClassWizard(
     wizardState.selectedEquipmentIndex = null;
     wizardState.subclassKey = null;
     wizardState.featureChoices = {};
+    wizardState.featDataChoices = {};
     wizardState.asi = { mode: 'asi', abilityIncreases: {}, featKey: null };
     wizardState.selectedSpells = [];
     wizardState.toolProficiencies = [];
@@ -1709,6 +1825,58 @@ export function useClassWizard(
       rootUpdates.spells = existingSpells;
     }
 
+    // Черты, взятые уровнем: выбранные в умениях (боевой стиль), взятая вместо
+    // повышения характеристик и выданные без выбора. Применяются тем же кодом,
+    // что и черта, перетащенная на лист, — поверх уже собранных обновлений,
+    // чтобы владения и эффекты легли на итог уровня. Заклинания черт уже
+    // добавлены выше вместе с заклинаниями умений
+    if (chosenCompendiumFeats.value.length > 0) {
+      let intermediate: DnDActor = {
+        ...actor.value,
+        ...rootUpdates,
+        system: { ...actor.value.system, ...systemUpdates },
+      };
+
+      const acquisitionLevel = getTotalLevel(actor.value.system.classes) + 1;
+
+      for (const feat of chosenCompendiumFeats.value) {
+        const applied = applyFeatToActor(
+          intermediate,
+          { ...feat, acquisitionLevel },
+          [],
+        );
+
+        // Провенанс класса: по нему удаление класса снимет и выданную им черту
+        const features = applied.features.map((feature, index) =>
+          index === applied.features.length - 1
+            ? { ...feature, grantedBy: classDef.name, level: levelGained }
+            : feature,
+        );
+
+        intermediate = {
+          ...intermediate,
+          features,
+          spells: applied.spells,
+          activeEffects: applied.activeEffects,
+          system: {
+            ...intermediate.system,
+            proficiencies: applied.proficiencies,
+            classCounters: applied.classCounters,
+          },
+          ...(applied.token ? { token: applied.token } : {}),
+        };
+      }
+
+      rootUpdates.features = intermediate.features;
+      rootUpdates.activeEffects = intermediate.activeEffects;
+      systemUpdates.proficiencies = intermediate.system.proficiencies;
+      systemUpdates.classCounters = intermediate.system.classCounters;
+
+      if (intermediate.token !== actor.value.token) {
+        rootUpdates.token = intermediate.token;
+      }
+    }
+
     return { systemUpdates, rootUpdates };
   }
 
@@ -1741,6 +1909,8 @@ export function useClassWizard(
     wizardState,
     canProceed,
     visibleFeatChoices,
+    featPickChoices,
+    asiFeatChoice,
     featChoiceProficiencyBonus,
     isSpellSelectionComplete,
     spellSelectionLimits,
