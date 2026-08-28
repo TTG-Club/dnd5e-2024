@@ -20,11 +20,11 @@
   import { computed, ref, watch } from 'vue';
 
   import { loadCompendiumKindByPack } from '@/core/compendiumDataClient';
-  import EntityCard from '@/shared_ui/components/EntityCard.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useItemsStore } from '@/stores/itemsStore';
   import { compendiumEntryKey, isRecord } from '@vtt/shared';
 
+  import { useSourceLabels } from '../../composables/useSourceLabel';
   import {
     COMPENDIUM_LABELS,
     COMPENDIUM_PACK_BUTTON_CLASS,
@@ -34,6 +34,7 @@
     MODAL_BUTTON_LABELS,
     REF_PICKER_LABELS,
   } from './constants';
+  import PickerListRow from './PickerListRow.vue';
 
   /** Выбранная ссылка: чем запись адресуется и откуда она взята. */
   export interface PickedCompendiumRef {
@@ -56,8 +57,10 @@
   interface PickerEntry extends PickerEntryFields {
     packId: string;
     packName: string;
-    /** Исходная запись — её показывает карточка сущности */
-    raw: CompendiumEntry;
+    /** Ключ источника — пометкой справа в строке списка */
+    sourceKey: string;
+    /** Значение фильтра записи (напр. категория черты); пусто — не задано */
+    filterValue: string;
   }
 
   /** Псевдо-пак «все компендиумы» — выбран по умолчанию */
@@ -114,8 +117,31 @@
        * не подходит) или где подходят не все записи типа.
        */
       resolveEntry?: (entry: CompendiumEntry) => PickerEntryFields | null;
+      /**
+       * По какому полю записи фильтровать список — напр. категория черты
+       * («Боевой стиль»). Не задана — панели фильтра нет.
+       *
+       * Набор значений окно собирает из того, что реально приехало в паках, а
+       * не из зашитого справочника: категории задаёт сайт, и свой список здесь
+       * разошёлся бы с ним у первой же новой категории.
+       */
+      filterValue?: (entry: CompendiumEntry) => string | undefined;
+      /** Подпись фильтра — что именно выбирают в панели */
+      filterLabel?: string;
+      /**
+       * Порядок значений фильтра. Пусто — по алфавиту; кругам заклинаний он не
+       * годится: «Заговор» уехал бы в конец, за девятый круг.
+       */
+      filterOrder?: string[];
     }>(),
-    { zIndex: undefined, multiple: true, resolveEntry: undefined },
+    {
+      zIndex: undefined,
+      multiple: true,
+      resolveEntry: undefined,
+      filterValue: undefined,
+      filterLabel: '',
+      filterOrder: () => [],
+    },
   );
 
   const emit = defineEmits<{
@@ -125,11 +151,33 @@
   }>();
 
   const itemsStore = useItemsStore();
+  const { getSourceDefinition } = useSourceLabels();
+
+  /**
+   * Пометка строки: сокращение источника («PHB»), а без него — компендиум, из
+   * которого запись приехала. Пустой пометки не бывает: по ней и различают
+   * одноимённые записи разных книг.
+   *
+   * @param entry - строка списка
+   */
+  function entryBadge(entry: PickerEntry): string {
+    return (
+      getSourceDefinition(entry.sourceKey)?.abbreviation ?? entry.filterValue
+    );
+  }
 
   const compendiumPacks = ref<PackKindEntries[]>([]);
   const isLoading = ref(false);
   const searchQuery = ref('');
   const selectedPackId = ref<string>(ALL_PACKS_ID);
+
+  /** Отмеченные значения фильтра; пусто — фильтр ничего не сужает */
+  const selectedFilterValues = ref<string[]>([]);
+
+  /** Подпись панели фильтра: вызывающий мог её и не назвать */
+  const filterPlaceholder = computed(
+    () => props.filterLabel || REF_PICKER_LABELS.filterPlaceholder,
+  );
 
   /**
    * Отмеченные записи. Храним их целиком, а не ключи: отметку не должны терять
@@ -158,7 +206,16 @@
       return null;
     }
 
-    return { ...fields, packId, packName, raw: entry };
+    return {
+      ...fields,
+      packId,
+      packName,
+      sourceKey:
+        isRecord(entry) && typeof entry.sourceKey === 'string'
+          ? entry.sourceKey
+          : '',
+      filterValue: props.filterValue?.(entry)?.trim() ?? '',
+    };
   }
 
   /**
@@ -231,24 +288,102 @@
     return merged;
   });
 
-  /** Записи после поиска по названию (русскому и английскому) */
-  const visibleEntries = computed<PickerEntry[]>(() => {
-    const query = searchQuery.value.trim().toLowerCase();
-
-    if (!query) {
-      return packEntries.value;
+  /**
+   * Значения фильтра, которые встречаются в записях. Считаются по всем пакам, а
+   * не по выбранному: иначе отметка исчезала бы при переключении компендиума, а
+   * вместе с ней и половина списка.
+   */
+  const filterOptions = computed<string[]>(() => {
+    if (!props.filterValue) {
+      return [];
     }
 
-    return packEntries.value.filter(
-      (entry) =>
+    const values = new Set<string>();
+
+    for (const pack of packs.value) {
+      for (const entry of pack.entries) {
+        if (entry.filterValue) {
+          values.add(entry.filterValue);
+        }
+      }
+    }
+
+    const order = props.filterOrder;
+
+    return [...values].sort((first, second) => {
+      const firstIndex = order.indexOf(first);
+      const secondIndex = order.indexOf(second);
+
+      // Незнакомые порядку значения уходят в конец и там равняются по алфавиту
+      if (firstIndex !== secondIndex) {
+        return (
+          (firstIndex < 0 ? order.length : firstIndex)
+          - (secondIndex < 0 ? order.length : secondIndex)
+        );
+      }
+
+      return first.localeCompare(second);
+    });
+  });
+
+  /**
+   * Переключает значение фильтра.
+   *
+   * @param value - значение фильтра
+   */
+  function toggleFilterValue(value: string): void {
+    selectedFilterValues.value = selectedFilterValues.value.includes(value)
+      ? selectedFilterValues.value.filter((selected) => selected !== value)
+      : [...selectedFilterValues.value, value];
+  }
+
+  /**
+   * Оформление кнопки фильтра — тем же приёмом, что у компендиумов слева.
+   *
+   * @param value - значение фильтра
+   */
+  function filterButtonClass(value: string): string {
+    const stateClass = selectedFilterValues.value.includes(value)
+      ? COMPENDIUM_PACK_BUTTON_SELECTED_CLASS
+      : COMPENDIUM_PACK_BUTTON_IDLE_CLASS;
+
+    return `${COMPENDIUM_PACK_BUTTON_CLASS} ${stateClass}`;
+  }
+
+  /** Записи после поиска по названию (русскому и английскому) и фильтра */
+  const visibleEntries = computed<PickerEntry[]>(() => {
+    const query = searchQuery.value.trim().toLowerCase();
+    const allowed = new Set(selectedFilterValues.value);
+
+    return packEntries.value.filter((entry) => {
+      if (allowed.size > 0 && !allowed.has(entry.filterValue)) {
+        return false;
+      }
+
+      if (!query) {
+        return true;
+      }
+
+      return (
         entry.name.toLowerCase().includes(query)
-        || entry.nameEn.toLowerCase().includes(query),
-    );
+        || entry.nameEn.toLowerCase().includes(query)
+      );
+    });
   });
 
   /** Ключи отмеченных записей */
   const selectedKeys = computed(
     () => new Set(selectedEntries.value.map((entry) => entry.key)),
+  );
+
+  /**
+   * Что показать вместо списка: под поиском и фильтром «ничего не нашлось», а
+   * без них записей этого типа в мире просто нет — и чинить это надо по-разному.
+   */
+  const emptyMessage = computed(() =>
+    searchQuery.value.trim() || selectedFilterValues.value.length > 0
+      ? COMPENDIUM_LABELS.nothingFound
+      : REF_PICKER_LABELS.empty,
   );
 
   const canConfirm = computed(() => selectedEntries.value.length > 0);
@@ -325,16 +460,6 @@
     return `${COMPENDIUM_PACK_BUTTON_CLASS} ${stateClass}`;
   }
 
-  /**
-   * Приводит запись к форме, которую принимает проп `entry` у `EntityCard`:
-   * у интерфейсов нет неявной индексной сигнатуры, а карточка ждёт именно её.
-   *
-   * @param entry - запись компендиума
-   */
-  function toCardEntry<T extends object>(entry: T): { [K in keyof T]: T[K] } {
-    return entry;
-  }
-
   function handleModalClose(): void {
     emit('update:open', false);
   }
@@ -370,6 +495,7 @@
 
       searchQuery.value = '';
       selectedPackId.value = ALL_PACKS_ID;
+      selectedFilterValues.value = [];
       selectedEntries.value = [];
       void loadEntries();
     },
@@ -386,6 +512,7 @@
     :min-width="620"
     :min-height="420"
     :z-index="zIndex"
+    :ui="{ body: 'overflow-hidden p-0 flex flex-col' }"
     @update:open="handleModalClose"
   >
     <template #body>
@@ -394,6 +521,17 @@
         <div
           class="flex w-52 shrink-0 flex-col gap-1 overflow-y-auto border-r border-accented/30 p-3"
         >
+          <!-- Поиск здесь же, а не над списком: справа тогда остаётся ровно
+            список, и прокручивается он один — как в окне компендиума -->
+          <UInput
+            v-model="searchQuery"
+            icon="tabler:search"
+            :placeholder="COMPENDIUM_LABELS.searchPlaceholder"
+            size="sm"
+            class="mb-2"
+            :ui="{ root: 'w-full' }"
+          />
+
           <button
             type="button"
             :class="packButtonClass(ALL_PACKS_ID)"
@@ -417,21 +555,53 @@
               {{ pack.entries.length }}
             </span>
           </button>
+
+          <!-- Фильтр — под компендиумами той же колонкой: сначала выбирают,
+            ОТКУДА берут запись, потом сужают, КАКУЮ именно -->
+          <template v-if="filterOptions.length > 0">
+            <div
+              class="mt-2 flex items-center justify-between gap-2 border-t border-accented/30 px-1 pt-3"
+            >
+              <span
+                class="truncate text-xs font-semibold tracking-wider text-muted uppercase"
+              >
+                {{ filterPlaceholder }}
+              </span>
+
+              <UButton
+                v-if="selectedFilterValues.length > 0"
+                icon="tabler:x"
+                color="neutral"
+                variant="ghost"
+                size="xs"
+                :aria-label="REF_PICKER_LABELS.filterReset"
+                @click.left.exact.prevent="selectedFilterValues = []"
+              />
+            </div>
+
+            <button
+              v-for="value in filterOptions"
+              :key="value"
+              type="button"
+              :class="filterButtonClass(value)"
+              @click.left.exact.prevent="toggleFilterValue(value)"
+            >
+              <span class="truncate">{{ value }}</span>
+
+              <!-- Галочка: фильтр набирают отметками, а компендиум выше —
+                переключением, и на вид их путать нельзя -->
+              <UIcon
+                v-if="selectedFilterValues.includes(value)"
+                name="tabler:check"
+                class="h-4 w-4 shrink-0 text-primary"
+              />
+            </button>
+          </template>
         </div>
 
         <!-- Записи выбранного компендиума -->
         <div class="flex min-h-0 min-w-0 flex-1 flex-col">
-          <div class="shrink-0 px-4 pt-3 pb-2">
-            <UInput
-              v-model="searchQuery"
-              icon="tabler:search"
-              :placeholder="COMPENDIUM_LABELS.searchPlaceholder"
-              size="sm"
-              :ui="{ root: 'w-full' }"
-            />
-          </div>
-
-          <div class="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+          <div class="min-h-0 flex-1 overflow-y-auto px-2 py-2">
             <div
               v-if="isLoading"
               class="flex items-center justify-center py-8"
@@ -444,36 +614,24 @@
 
             <div
               v-else-if="visibleEntries.length > 0"
-              class="flex flex-col gap-1"
+              class="flex flex-col divide-y divide-accented/25"
             >
-              <div
+              <PickerListRow
                 v-for="entry in visibleEntries"
                 :key="`${entry.packId}-${entry.key}`"
-                class="flex items-center gap-2"
-              >
-                <UCheckbox
-                  :model-value="selectedKeys.has(entry.key)"
-                  @update:model-value="toggleSelection(entry)"
-                />
-
-                <EntityCard
-                  class="flex-1 cursor-pointer hover:bg-primary/10"
-                  :entity-type="kind"
-                  :entry="toCardEntry(entry.raw)"
-                  @click="toggleSelection(entry)"
-                />
-              </div>
+                :name="entry.name"
+                :name-en="entry.nameEn"
+                :badge="entryBadge(entry)"
+                :selected="selectedKeys.has(entry.key)"
+                @toggle="toggleSelection(entry)"
+              />
             </div>
 
             <div
               v-else
               class="py-8 text-center text-sm text-dimmed"
             >
-              {{
-                searchQuery.trim()
-                  ? COMPENDIUM_LABELS.nothingFound
-                  : REF_PICKER_LABELS.empty
-              }}
+              {{ emptyMessage }}
             </div>
           </div>
         </div>

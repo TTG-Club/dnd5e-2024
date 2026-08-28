@@ -496,6 +496,14 @@ export interface DnDProficiencies {
   weapons: string[];
   /** Мастерство оружия (D&D 5.5e Weapon Mastery) — подмножество weapons */
   weaponMasteries: string[];
+  /**
+   * Сами оружейные приёмы (`cleave`, `topple`, …), а не оружие, у которого они
+   * есть. Отдельный список: «Оружейный приём» воина называет ВИДЫ ОРУЖИЯ и
+   * ложится в {@link weaponMasteries}, а «Тактический мастер» 9 уровня даёт
+   * право подменять приём на Толкание/Изнурение/Замедление — там персонаж
+   * владеет самим приёмом, безотносительно оружия.
+   */
+  masteryProperties?: string[];
   tools: string[];
   languages: string[];
   savingThrows: AbilityType[];

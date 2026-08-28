@@ -140,7 +140,7 @@ graph TD
 | `species` | `ActorSpeciesEntry \| null` | Вид (бывшая раса) + выборы особенностей |
 | `background` | `ActorBackgroundEntry \| null` | Предыстория |
 | `size` | `CreatureSize` | Размер (`tiny` … `gargantuan`) |
-| `proficiencies` | `DnDProficiencies` | Владения: `armor`, `weapons`, `weaponMasteries`, `tools`, `languages`, `savingThrows`, `skills` |
+| `proficiencies` | `DnDProficiencies` | Владения: `armor`, `weapons`, `weaponMasteries` (ключи ОРУЖИЯ, чей приём достался персонажу), `masteryProperties` (сами приёмы — «Тактический мастер»), `tools`, `languages`, `savingThrows`, `skills` |
 | `savingThrowSettings` | `DnDSavingThrowSettings?` | Поправки расчёта спасбросков: подменённая характеристика и свои бонусы (`savingThrows.ts`). Поля нет — всё по правилам |
 | `skillSettings` | `DnDSkillSettings?` | Поправки расчёта навыков: подменённая характеристика, свои бонусы, свои навыки и группировка списка (`skills.ts`). Поля нет — всё по правилам |
 | `movement` | `ActorMovement` | Типы движения (walk, swim, fly, climb, burrow, hover) + `units` |

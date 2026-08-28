@@ -10,7 +10,7 @@ import type { ClientSystemAPI } from '@/core/systemBootstrap';
 
 import type { CreatureEntry } from '../../composables/useEntityDetailModals';
 
-import { isRecord } from '@vtt/shared';
+import { getAssetUrl, isRecord } from '@vtt/shared';
 
 import { useEntityDetailModals } from '../../composables/useEntityDetailModals';
 import CreatureListItem from '../../ui/creature/CreatureListItem.vue';
@@ -44,10 +44,21 @@ export function register(api: ClientSystemAPI): void {
       const system = isRecord(entry.system) ? entry.system : undefined;
       const challengeRating = system?.challengeRating;
 
+      // Картинка токена — вместо значка в строке списка: одинаковый «пришелец»
+      // у всех существ ничего не различал, а морда различает сразу.
+      const token = isRecord(entry.token) ? entry.token : undefined;
+
+      const imageUrl =
+        typeof token?.imageUrl === 'string' ? token.imageUrl : undefined;
+
       return {
         name: entry.name,
         nameEn: entry.nameEn,
-        header: entry.header,
+        // Порт мира не нужен: картинки токенов компендиума отдаёт статика
+        imageUrl: imageUrl ? getAssetUrl(imageUrl) : undefined,
+        // Источник — бейджем справа в строке списка, как у остальных записей
+        sourceKey: entry.sourceKey,
+        source: entry.source,
         challengeRating:
           typeof challengeRating === 'number'
           || typeof challengeRating === 'string'

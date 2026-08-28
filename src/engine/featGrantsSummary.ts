@@ -34,6 +34,7 @@ import {
 import { listFeatDamageDefenseChoices } from './featChoices.js';
 import { CLASS_FEATURE_NAMES } from './featPrerequisites.js';
 import { toolProficiencyLabel } from './toolProficiency.js';
+import { WEAPON_MASTERY_MAP } from './weaponMasteries.js';
 
 /** Подписи владения доспехами (нет в shared — компактно дублируем). */
 const ARMOR_LABELS: Record<string, string> = {
@@ -130,6 +131,14 @@ function proficiencyLine(featData: FeatData): string | null {
     parts.push(
       `приёмы оружия: ${featData.weaponMasteries
         .map((weapon) => WEAPON_LABELS[weapon] ?? weapon)
+        .join(', ')}`,
+    );
+  }
+
+  if (featData.masteryProperties?.length) {
+    parts.push(
+      `приёмы: ${featData.masteryProperties
+        .map((key) => WEAPON_MASTERY_MAP.get(key)?.name.ru ?? key)
         .join(', ')}`,
     );
   }

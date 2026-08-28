@@ -29,6 +29,9 @@
 
   import {
     COMPENDIUM_LABELS,
+    COMPENDIUM_PACK_BUTTON_CLASS,
+    COMPENDIUM_PACK_BUTTON_IDLE_CLASS,
+    COMPENDIUM_PACK_BUTTON_SELECTED_CLASS,
     GRANTED_SPELL_FEATURE_PREFIX,
     SHEET_FILTER_LABELS,
   } from '../actor/constants';
@@ -421,6 +424,35 @@
     items,
     searchQuery,
   });
+
+  /**
+   * Оформление строки фильтра — то же, что у компендиумов и видов дара в окнах
+   * выбора: отмеченная подсвечена, прочие теплеют только под курсором. Разметка
+   * одна на все три окна: строка фильтра везде означает одно и то же, и разный
+   * вид сбивал бы — по этим окнам ходят подряд.
+   *
+   * @param isActive - отмечено ли значение
+   */
+  function filterRowClass(isActive: boolean): string {
+    const stateClass = isActive
+      ? COMPENDIUM_PACK_BUTTON_SELECTED_CLASS
+      : COMPENDIUM_PACK_BUTTON_IDLE_CLASS;
+
+    return `${COMPENDIUM_PACK_BUTTON_CLASS} ${stateClass}`;
+  }
+
+  /**
+   * Цвет значка переключателя. Картой, а не строкой на лету: Tailwind собирает
+   * классы статическим просмотром исходников, и `text-${color}` в сборку не
+   * попадёт — значок остался бы бесцветным.
+   */
+  const TOGGLE_ICON_CLASS: Record<string, string> = {
+    success: 'text-success',
+    warning: 'text-warning',
+    error: 'text-error',
+    info: 'text-info',
+    primary: 'text-primary',
+  };
 
   /** Нужен ли широкий макет с сайдбаром фильтров */
   const isWideLayout = computed(() => viewLayout.value === 'filtered');
@@ -1036,14 +1068,11 @@
               {{ section.label }}
             </span>
 
-            <!-- enum: значения поля (бейджи в ряд или список) -->
+            <!-- Короткие значения (круги, ПО) остаются бейджами в ряд: рядом
+              они читаются шкалой, а строками заняли бы всю колонку -->
             <div
-              v-if="section.type === 'enum'"
-              :class="
-                section.style === 'badges'
-                  ? 'flex flex-wrap gap-1'
-                  : 'flex flex-col gap-1'
-              "
+              v-if="section.type === 'enum' && section.style === 'badges'"
+              class="flex flex-wrap gap-1"
             >
               <UBadge
                 v-for="option in section.options"
@@ -1058,33 +1087,62 @@
                 class="cursor-pointer transition-all select-none"
                 @click.left.exact.prevent="toggleEnum(section.id, option.value)"
               >
-                {{ section.style === 'badges' ? option.short : option.label }}
+                {{ option.short }}
               </UBadge>
             </div>
 
-            <!-- toggles: булевы переключатели -->
+            <!-- Названия (классы, категории) — строками во всю колонку, как в
+              окнах выбора: в узкой плашке они не помещались -->
+            <div
+              v-else-if="section.type === 'enum'"
+              class="flex flex-col gap-1"
+            >
+              <button
+                v-for="option in section.options"
+                :key="option.value"
+                type="button"
+                :class="filterRowClass(isEnumActive(section.id, option.value))"
+                @click.left.exact.prevent="toggleEnum(section.id, option.value)"
+              >
+                <span class="truncate">{{ option.label }}</span>
+
+                <UIcon
+                  v-if="isEnumActive(section.id, option.value)"
+                  name="tabler:check"
+                  class="h-4 w-4 shrink-0 text-primary"
+                />
+              </button>
+            </div>
+
+            <!-- toggles: булевы переключатели — теми же строками -->
             <div
               v-else
               class="flex flex-col gap-1"
             >
-              <UBadge
+              <button
                 v-for="toggle in section.toggles"
                 :key="toggle.key"
-                :color="toggle.color"
-                :variant="
-                  isToggleActive(section.id, toggle.key) ? 'solid' : 'subtle'
-                "
-                size="sm"
-                class="cursor-pointer transition-all select-none"
+                type="button"
+                :class="filterRowClass(isToggleActive(section.id, toggle.key))"
                 @click.left.exact.prevent="toggleBool(section.id, toggle.key)"
               >
+                <span class="flex min-w-0 items-center gap-1.5">
+                  <UIcon
+                    v-if="toggle.icon"
+                    :name="toggle.icon"
+                    class="size-3.5 shrink-0"
+                    :class="TOGGLE_ICON_CLASS[toggle.color] ?? 'text-muted'"
+                  />
+
+                  <span class="truncate">{{ toggle.label }}</span>
+                </span>
+
                 <UIcon
-                  v-if="toggle.icon"
-                  :name="toggle.icon"
-                  class="mr-0.5 size-3.5"
+                  v-if="isToggleActive(section.id, toggle.key)"
+                  name="tabler:check"
+                  class="h-4 w-4 shrink-0 text-primary"
                 />
-                {{ toggle.label }}
-              </UBadge>
+              </button>
             </div>
           </div>
 
@@ -1134,10 +1192,12 @@
               />
             </div>
 
-            <!-- Список предметов с разделителями -->
+            <!-- Список записей: строки разделены линией, как в окнах выбора.
+              Собственная плашка строки снята пропом `flat` — вместе с
+              промежутками она превращала список в лесенку из таблеток -->
             <div
               v-else-if="filteredEntries.length > 0"
-              class="flex flex-col gap-1"
+              class="flex flex-col divide-y divide-accented/25"
             >
               <template
                 v-for="(entry, index) in filteredEntries"
@@ -1169,7 +1229,7 @@
                   v-else-if="isSpeciesData && isSpeciesDefinition(entry)"
                 >
                   <EntityCard
-                    class="hover:bg-primary/10"
+                    flat
                     entity-type="species"
                     :entry="toCardEntry(entry)"
                     show-copy
@@ -1183,7 +1243,7 @@
                   v-else-if="isBackgroundData && isBackgroundDefinition(entry)"
                 >
                   <EntityCard
-                    class="hover:bg-primary/10"
+                    flat
                     entity-type="background"
                     :entry="toCardEntry(entry)"
                     show-copy
@@ -1195,7 +1255,7 @@
                 <!-- Предмет: Класс -->
                 <template v-else-if="isClassData && isClassDefinition(entry)">
                   <EntityCard
-                    class="hover:bg-primary/10"
+                    flat
                     entity-type="class"
                     :entry="toCardEntry(entry)"
                     show-copy
@@ -1207,6 +1267,7 @@
                 <!-- Предмет: Черта -->
                 <template v-else-if="isFeatsData && isFeature(entry)">
                   <EntityCard
+                    flat
                     entity-type="feat"
                     :entry="toCardEntry(entry)"
                     show-copy
@@ -1219,6 +1280,7 @@
                      карточки берётся из собственного поля `type` записи -->
                 <template v-else-if="isGameItem(entry)">
                   <EntityCard
+                    flat
                     :entity-type="entry.type"
                     :entry="toCardEntry(entry)"
                     show-copy
@@ -1236,6 +1298,7 @@
                     @dragend="onCreatureDragEnd"
                   >
                     <EntityCard
+                      flat
                       entity-type="creature"
                       :entry="toCardEntry(entry)"
                       show-copy
@@ -1270,8 +1333,12 @@
                       @update:model-value="toggleSpellSelection(entry)"
                     />
 
+                    <!-- Строка занимает всю ширину: рядом с ней в режиме
+                      выбора стоит чекбокс, поэтому строка тут флекс-элемент, а
+                      не блок, и ширину надо назначить -->
                     <EntityCard
-                      class="flex-1"
+                      class="min-w-0 flex-1"
+                      flat
                       :class="{
                         'opacity-60': isSelectionMode && isSpellKnown(entry),
                       }"
@@ -1311,6 +1378,7 @@
                      из реестра, отдельной ветки на модалке заводить не нужно -->
                 <template v-else-if="registeredCardType(entry)">
                   <EntityCard
+                    flat
                     :entity-type="registeredCardType(entry)"
                     :entry="toCardEntry(entry)"
                     @click="openRegisteredDetail(entry)"

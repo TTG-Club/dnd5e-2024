@@ -88,11 +88,13 @@ export type GrantRowKind = Extract<
   | 'armor'
   | 'weapon'
   | 'weaponMastery'
+  | 'masteryProperty'
   | 'tool'
   | 'language'
   | 'ability'
   | 'damageType'
   | 'option'
+  | 'feat'
 >;
 
 /** Виды дара в порядке показа — они же множество для проверки строки. */
@@ -104,9 +106,11 @@ const GRANT_ROW_KINDS: readonly GrantRowKind[] = [
   'armor',
   'weapon',
   'weaponMastery',
+  'masteryProperty',
   'ability',
   'damageType',
   'option',
+  'feat',
 ];
 
 const GRANT_ROW_KIND_SET: ReadonlySet<string> = new Set(GRANT_ROW_KINDS);
@@ -127,8 +131,8 @@ export function isGrantRowKind(type: FeatChoiceType): type is GrantRowKind {
  * справочниками правил, поэтому выбранное раскладывается по принадлежности:
  * `sleightOfHand` — навык, `thieves-tools` — инструмент.
  *
- * Оружие, приёмы оружия и «вариант» сюда не входят: их значения приходят из
- * данных мира и самой черты, и разобрать их по справочнику нечем.
+ * Оружие, приёмы, черта и «вариант» сюда не входят: их значения приходят из
+ * данных мира, компендиума и самой черты, и разобрать их по справочнику нечем.
  */
 const MIXABLE_KINDS: ReadonlySet<GrantRowKind> = new Set([
   'skill',
@@ -176,6 +180,12 @@ export interface EditableGrantRow {
   mode: GrantRowMode;
   /** `all` — что выдаётся; `choice` — набор для выбора (пусто = весь справочник) */
   options: FeatChoiceOption[];
+  /**
+   * Категории черт, из которых выбирают, — только у вида «Черта» в режиме
+   * выбора. Пусто — категория не ограничена. Складывается с набором: перечень
+   * черт сужает пул внутри названных категорий.
+   */
+  featCategories: string[];
   /** Машинный ключ выбора: по нему лист хранит ответ игрока */
   key: string;
   /** Подпись для игрока */
@@ -741,9 +751,14 @@ export const GRANT_ROW_KIND_OPTIONS: {
   { value: 'armor', label: FEAT_GRANTS_LABELS.kindArmor },
   { value: 'weapon', label: FEAT_CHOICE_TYPE_LABELS.weapon },
   { value: 'weaponMastery', label: FEAT_CHOICE_TYPE_LABELS.weaponMastery },
+  {
+    value: 'masteryProperty',
+    label: FEAT_CHOICE_TYPE_LABELS.masteryProperty,
+  },
   { value: 'ability', label: FEAT_CHOICE_TYPE_LABELS.ability },
   { value: 'damageType', label: FEAT_CHOICE_TYPE_LABELS.damageType },
   { value: 'option', label: FEAT_CHOICE_TYPE_LABELS.option },
+  { value: 'feat', label: FEAT_CHOICE_TYPE_LABELS.feat },
 ];
 
 /**
@@ -922,8 +937,11 @@ export function createGrantRow(
   return {
     uid: generateId('grant'),
     kinds: [kind],
-    mode: 'all',
+    // Черту без выбора выдают редко, а вот «дать выбрать боевой стиль» — это
+    // и есть обычный случай: строке черты выбор ставится сразу
+    mode: kind === 'feat' ? 'choice' : 'all',
     options: [],
+    featCategories: [],
     key: freeKey(kind, taken),
     label: '',
     count: 1,
@@ -1059,6 +1077,7 @@ function choiceGrantRow(choice: FeatChoice): EditableGrantRow {
     kinds: resolveFeatChoiceTypes(choice).filter(isGrantRowKind),
     mode: 'choice',
     options: (choice.options ?? []).map((option) => ({ ...option })),
+    featCategories: [...(choice.featCategories ?? [])],
     key: choice.key,
     label: choice.label ?? '',
     count: choice.count && choice.count > 0 ? choice.count : 1,
@@ -1450,6 +1469,7 @@ export function featDataToGrants(
     ['armor', featData.armorProficiencies],
     ['weapon', featData.weaponProficiencies],
     ['weaponMastery', featData.weaponMasteries],
+    ['masteryProperty', featData.masteryProperties],
     ['tool', featData.toolProficiencies],
     ['language', featData.languages],
   ];
@@ -1458,6 +1478,23 @@ export function featDataToGrants(
     if (values?.length) {
       grants.grantRows.push(fixedGrantRow(kind, values, taken));
     }
+  }
+
+  // Черта, выданная без выбора, — та же строка дара в режиме «выдать все»:
+  // снимок названия держится за `id`, потому что записи может не оказаться в
+  // паках, а показать выданное надо всё равно
+  if (featData.grantedFeats?.length) {
+    const row = createGrantRow('feat', taken);
+
+    taken.add(row.key);
+    row.mode = 'all';
+
+    row.options = featData.grantedFeats.map((granted) => ({
+      value: granted.featId,
+      name: granted.name,
+    }));
+
+    grants.grantRows.push(row);
   }
 
   const increase = featData.abilityScoreIncrease;
@@ -1637,6 +1674,12 @@ function grantRowToChoice(row: EditableGrantRow): FeatChoice {
 
   if (row.requiredLevel > 0) {
     built.requiredLevel = row.requiredLevel;
+  }
+
+  // Категории сужают пул черт наравне с перечнем: без них мастер предложит
+  // любую черту, кроме тех, что лист исключает своим правилом
+  if (hasKind(row, 'feat') && row.featCategories.length > 0) {
+    built.featCategories = [...row.featCategories];
   }
 
   // Ступень без уровня или без количества ничего не описывает: у потребителя она
@@ -2186,6 +2229,7 @@ const FIXED_GRANT_FIELDS = {
   armor: 'armorProficiencies',
   weapon: 'weaponProficiencies',
   weaponMastery: 'weaponMasteries',
+  masteryProperty: 'masteryProperties',
   tool: 'toolProficiencies',
   language: 'languages',
 } as const;
@@ -2236,6 +2280,27 @@ function applyFixedGrantRow(data: FeatData, row: EditableGrantRow): void {
     if (kind === 'skill' && isSkillType(value)) {
       (data.skillProficiencies ??= []).push(value);
     }
+  }
+}
+
+/**
+ * Кладёт черты строки в список выданных без выбора. Своё поле, а не общий
+ * разбор: черта — запись компендиума, и рядом с `id` нужен снимок названия,
+ * иначе выданное нечем показать, когда пака в мире нет.
+ *
+ * @param data - собираемый блоб
+ * @param row - строка дара вида «Черта» в режиме «выдать все»
+ */
+function applyGrantedFeatRow(data: FeatData, row: EditableGrantRow): void {
+  const granted = row.options
+    .filter((option) => option.value.trim().length > 0)
+    .map((option) => ({
+      featId: option.value.trim(),
+      name: option.name?.trim() ?? '',
+    }));
+
+  if (granted.length > 0) {
+    (data.grantedFeats ??= []).push(...granted);
   }
 }
 
@@ -2319,6 +2384,12 @@ export function buildFeatData(
     if (row.mode === 'all') {
       // Характеристики раскладывает повышение, а у «варианта» и типа урона
       // фиксированной выдачи нет — их значения имеют смысл только как набор
+      if (hasKind(row, 'feat')) {
+        applyGrantedFeatRow(data, row);
+
+        continue;
+      }
+
       if (
         !hasKind(row, 'ability')
         && !hasKind(row, 'damageType')

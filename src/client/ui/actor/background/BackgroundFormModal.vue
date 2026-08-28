@@ -764,7 +764,9 @@
               v-model="grants.grantRows"
               hide-ability
               hide-skill
+              hide-feat
               :taken-keys="takenChoiceKeys"
+              :socket="props.socket"
             />
           </div>
         </template>

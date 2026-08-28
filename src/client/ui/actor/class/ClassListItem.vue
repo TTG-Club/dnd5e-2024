@@ -4,13 +4,16 @@
   import { computed } from 'vue';
 
   import { useContextMenu } from '../../../composables/useContextMenu';
+  import { useListRowClass } from '../../../composables/useListRowClass';
   import {
     ABILITY_LABELS,
     CLASS_DEFINITION_MIME,
     CLASS_LIST_ITEM_LABELS,
     HIT_DIE_LETTER,
+    LIST_ROW_CARD_BORDERED_CLASS,
   } from '../constants';
   import ContextMenuOverlay from '../ContextMenuOverlay.vue';
+  import EntityRowBody from '../EntityRowBody.vue';
 
   defineOptions({
     inheritAttrs: false,
@@ -31,7 +34,19 @@
     showCopy?: boolean;
     showCost?: boolean;
     showWeight?: boolean;
+    /**
+     * Плоская строка списка: без своей плашки и скругления. Так строка встаёт в
+     * список с разделителями (компендиум и окна выбора); на листе персонажа
+     * строки стоят порознь, и плашка им нужна.
+     */
+    flat?: boolean;
   }>();
+
+  /** Оформление строки: плоская в списке, плашкой на листе персонажа */
+  const rowClass = useListRowClass(
+    () => Boolean(props.flat),
+    LIST_ROW_CARD_BORDERED_CLASS,
+  );
 
   const emit = defineEmits<{
     /** Клик по строке (открыть детальник) */
@@ -71,13 +86,26 @@
   <div
     v-bind="$attrs"
     draggable="true"
-    class="group flex cursor-grab items-center gap-3 rounded-lg border border-transparent bg-elevated/30 px-3 py-2 transition-colors hover:border-default/50 hover:bg-accented/40 active:cursor-grabbing"
+    class="group flex cursor-grab items-center gap-3 border border-transparent py-2 transition-colors active:cursor-grabbing"
+    :class="rowClass"
     @dragstart="handleDragStart"
     @click.left.exact.prevent="emit('click')"
     @contextmenu="openContextMenu"
   >
+    <!-- Строка списка: название, английское название и источник справа -->
+    <EntityRowBody
+      v-if="flat"
+      :name="classDefinition.name"
+      :name-en="classDefinition.nameEn"
+      :source-key="classDefinition.sourceKey"
+      :source="classDefinition.source"
+    />
+
     <!-- Название и описание -->
-    <div class="min-w-0 flex-1">
+    <div
+      v-else
+      class="min-w-0 flex-1"
+    >
       <div class="flex items-center gap-2">
         <span class="truncate text-sm font-medium text-highlighted">
           {{ classDefinition.name }}

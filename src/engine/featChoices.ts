@@ -44,6 +44,7 @@ import {
   isDefensibleDamageType,
 } from './damageConstants.js';
 import { RITUAL_CASTING_TIME } from './spellTypes.js';
+import { WEAPON_MASTERIES } from './weaponMasteries.js';
 
 /** Владения актора — то, что выбор правит. */
 type ActorProficiencies = DnDActor['system']['proficiencies'];
@@ -57,6 +58,8 @@ export interface FeatChoiceProficiencies {
   weapons: string[];
   /** Оружейные приёмы (2024) — свой список на листе, не подмножество владений */
   weaponMasteries: string[];
+  /** Сами приёмы (`cleave`, …) — ещё один список, не пересекающийся с оружием */
+  masteryProperties: string[];
   armor: string[];
 }
 
@@ -75,6 +78,7 @@ const APPLIED_CHOICE_TYPES: ReadonlySet<FeatChoiceType> = new Set([
   'language',
   'weapon',
   'weaponMastery',
+  'masteryProperty',
   'armor',
   'skillOrTool',
   'damageType',
@@ -97,7 +101,8 @@ export const FEAT_CHOICE_TYPE_LABELS: Record<FeatChoiceType, string> = {
   spellList: 'Список заклинаний',
   spellcastingAbility: 'Заклинательная характеристика',
   weapon: 'Оружие',
-  weaponMastery: 'Оружейный приём',
+  weaponMastery: 'Оружие с приёмом',
+  masteryProperty: 'Оружейный приём',
   armor: 'Доспехи',
   skillOrTool: 'Навык или инструмент',
   option: 'Вариант',
@@ -250,10 +255,17 @@ export function getFeatChoiceDefaultPool(
         value,
         name: DAMAGE_TYPE_LABELS[value],
       }));
+    case 'masteryProperty':
+      // Приёмов ровно восемь, и это правило, а не данные мира: в отличие от
+      // оружия, их справочник у движка свой
+      return WEAPON_MASTERIES.map((mastery) => ({
+        value: mastery.key,
+        name: mastery.name.ru,
+      }));
     default:
-      // Оружие, приёмы оружия, заклинания, черты и «варианты» перечисляет сама
-      // черта либо компендиум: общего справочника, из которого их можно взять,
-      // у движка нет — виды оружия живут в данных мира, а не в правилах
+      // Оружие, заклинания, черты и «варианты» перечисляет сама черта либо
+      // компендиум: общего справочника, из которого их можно взять, у движка
+      // нет — виды оружия живут в данных мира, а не в правилах
       return [];
   }
 }
@@ -289,6 +301,8 @@ function isProficient(
       return Boolean(proficiencies?.weapons?.includes(value));
     case 'weaponMastery':
       return Boolean(proficiencies?.weaponMasteries?.includes(value));
+    case 'masteryProperty':
+      return Boolean(proficiencies?.masteryProperties?.includes(value));
     case 'armor':
       return Boolean(proficiencies?.armor?.includes(value));
     default:
@@ -939,6 +953,10 @@ export function applyFeatChoiceSelections(
           addUnique(proficiencies.weaponMasteries, value);
 
           break;
+        case 'masteryProperty':
+          addUnique((proficiencies.masteryProperties ??= []), value);
+
+          break;
         case 'armor':
           addUnique(proficiencies.armor, value);
 
@@ -972,6 +990,7 @@ export function collectFeatChoiceProficiencies(
     languages: [],
     weapons: [],
     weaponMasteries: [],
+    masteryProperties: [],
     armor: [],
   };
 
@@ -1008,6 +1027,10 @@ export function collectFeatChoiceProficiencies(
           break;
         case 'weaponMastery':
           result.weaponMasteries.push(value);
+
+          break;
+        case 'masteryProperty':
+          result.masteryProperties.push(value);
 
           break;
         case 'armor':
@@ -1066,6 +1089,10 @@ export function removeFeatChoiceSelections(
           break;
         case 'weaponMastery':
           removeValue(proficiencies.weaponMasteries, value);
+
+          break;
+        case 'masteryProperty':
+          removeValue(proficiencies.masteryProperties ?? [], value);
 
           break;
         case 'armor':

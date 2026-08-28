@@ -229,7 +229,17 @@ export type FeatChoiceType =
   | 'spellList'
   | 'spellcastingAbility'
   | 'weapon'
+  /**
+   * Оружие, приёмом которого персонаж овладевает: «Оружейный приём» воина
+   * называет три ВИДА ОРУЖИЯ, а приём у каждого свой. Значение — ключ оружия.
+   */
   | 'weaponMastery'
+  /**
+   * Сам приём (`cleave`, `topple`, …) — так его выбирает «Тактический мастер»:
+   * приём подменяется на Толкание, Изнурение или Замедление независимо от того,
+   * каким оружием бьют. Значение — ключ приёма из `WEAPON_MASTERIES`.
+   */
+  | 'masteryProperty'
   | 'armor'
   /**
    * @deprecated Смешанный набор задаётся списком {@link FeatChoice.types}.
@@ -435,6 +445,12 @@ export interface FeatData {
    * разные списки на листе (`proficiencies.weaponMasteries`).
    */
   weaponMasteries?: string[];
+  /**
+   * Сами приёмы (`cleave`, `topple`, …), которыми запись наделяет безотносительно
+   * оружия. Отдельно от {@link weaponMasteries}: там ключи ОРУЖИЯ, здесь ключи
+   * ПРИЁМОВ, и на листе это тоже разные списки (`proficiencies.masteryProperties`).
+   */
+  masteryProperties?: string[];
   /** Владение инструментами (ключи). */
   toolProficiencies?: string[];
   /** Известные языки. */

@@ -256,7 +256,10 @@
     <!-- Дары умения тем же блоком, что у класса и у черты: ресурс умения
       заводится прямо здесь, а не привязкой к нему из счётчиков класса -->
     <UFormField :label="CLASS_FORM_LABELS.featureGrantsTitle">
-      <ClassGrantsFields v-model="feature.grants" />
+      <ClassGrantsFields
+        v-model="feature.grants"
+        :socket="props.socket"
+      />
     </UFormField>
 
     <UFormField :label="FORM_TAB_LABELS.effects">

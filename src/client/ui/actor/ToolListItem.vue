@@ -4,8 +4,10 @@
   import { formatItemCost } from '@vtt/shared';
 
   import { useContextMenu } from '../../composables/useContextMenu';
+  import { useListRowClass } from '../../composables/useListRowClass';
   import { GAME_ITEM_MIME, WEIGHT_UNIT_LABEL } from './constants';
   import ContextMenuOverlay from './ContextMenuOverlay.vue';
+  import EntityRowBody from './EntityRowBody.vue';
 
   const props = defineProps<{
     /** Данные предмета */
@@ -20,7 +22,16 @@
     showCost?: boolean;
     /** Показывать вес (по умолчанию true) */
     showWeight?: boolean;
+    /**
+     * Плоская строка списка: без своей плашки и скругления. Так строка встаёт в
+     * список с разделителями (компендиум и окна выбора); на листе персонажа
+     * строки стоят порознь, и плашка им нужна.
+     */
+    flat?: boolean;
   }>();
+
+  /** Оформление строки: плоская в списке, плашкой на листе персонажа */
+  const rowClass = useListRowClass(() => Boolean(props.flat));
 
   const emit = defineEmits<{
     /** Клик по строке (открыть детальник) */
@@ -52,42 +63,55 @@
 <template>
   <div
     draggable="true"
-    class="flex cursor-grab items-center gap-3 rounded-lg bg-elevated/30 px-3 py-2 transition-colors hover:bg-accented/40 active:cursor-grabbing"
+    class="flex cursor-grab items-center gap-3 py-2 transition-colors active:cursor-grabbing"
+    :class="rowClass"
     @click.left.exact.prevent="$emit('click')"
     @contextmenu="openContextMenu"
     @dragstart="handleDragStart($event, item)"
   >
-    <!-- Название -->
-    <span class="flex-1 truncate text-sm font-medium text-highlighted">
-      {{ item.name }}
-    </span>
+    <!-- Строка списка: название с английским и источник справа -->
+    <EntityRowBody
+      v-if="flat"
+      :name="item.name"
+      :name-en="item.nameEn"
+      :source-key="item.sourceKey"
+      :source="item.source"
+    />
 
-    <!-- Бонус badge -->
-    <UBadge
-      v-if="item.toolBonus"
-      color="neutral"
-      variant="subtle"
-      size="sm"
-      class="shrink-0 font-mono"
-    >
-      +{{ item.toolBonus }}
-    </UBadge>
+    <!-- Строка листа персонажа: показатели важнее книги, из которой запись -->
+    <template v-else>
+      <!-- Название -->
+      <span class="flex-1 truncate text-sm font-medium text-highlighted">
+        {{ item.name }}
+      </span>
 
-    <!-- Стоимость -->
-    <span
-      v-if="item.cost && (showCost ?? true)"
-      class="shrink-0 text-xs text-primary/80"
-    >
-      {{ formatItemCost(item.cost) }}
-    </span>
+      <!-- Бонус badge -->
+      <UBadge
+        v-if="item.toolBonus"
+        color="neutral"
+        variant="subtle"
+        size="sm"
+        class="shrink-0 font-mono"
+      >
+        +{{ item.toolBonus }}
+      </UBadge>
 
-    <!-- Вес -->
-    <span
-      v-if="item.weight && (showWeight ?? true)"
-      class="shrink-0 text-xs text-dimmed"
-    >
-      {{ item.weight }} {{ WEIGHT_UNIT_LABEL }}
-    </span>
+      <!-- Стоимость -->
+      <span
+        v-if="item.cost && (showCost ?? true)"
+        class="shrink-0 text-xs text-primary/80"
+      >
+        {{ formatItemCost(item.cost) }}
+      </span>
+
+      <!-- Вес -->
+      <span
+        v-if="item.weight && (showWeight ?? true)"
+        class="shrink-0 text-xs text-dimmed"
+      >
+        {{ item.weight }} {{ WEIGHT_UNIT_LABEL }}
+      </span>
+    </template>
   </div>
 
   <ContextMenuOverlay

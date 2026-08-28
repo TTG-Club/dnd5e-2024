@@ -1049,6 +1049,7 @@ function parseLegacyProficiencies(value: unknown): DnDProficiencies {
     armor: parseStringList(source.armor),
     weapons: parseStringList(source.weapons),
     weaponMasteries: parseStringList(source.weaponMasteries),
+    masteryProperties: parseStringList(source.masteryProperties),
     tools: parseStringList(source.tools),
     // Общий язык — стартовый по правилам: у актёра без списка языков он есть,
     // а вот пустой список в записи — уже осознанный выбор, и его не трогаем

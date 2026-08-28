@@ -876,7 +876,10 @@
 
         <!-- ДАРЫ: то, что даёт взятие класса целиком -->
         <template #grants>
-          <ClassGrantsFields v-model="grants" />
+          <ClassGrantsFields
+            v-model="grants"
+            :socket="props.socket"
+          />
         </template>
 
         <!-- ПРОГРЕССИЯ -->

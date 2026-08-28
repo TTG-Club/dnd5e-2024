@@ -1503,7 +1503,9 @@
               <GrantRowsEditor
                 v-model="recordGrants.grantRows"
                 hide-ability
+                hide-feat
                 :taken-keys="recordTakenKeys"
+                :socket="props.socket"
               />
             </FormSection>
 

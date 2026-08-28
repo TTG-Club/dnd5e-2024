@@ -146,7 +146,9 @@
         <GrantRowsEditor
           v-model="feature.grants.grantRows"
           hide-ability
+          hide-feat
           :taken-keys="takenChoiceKeys"
+          :socket="props.socket"
         />
       </UFormField>
 

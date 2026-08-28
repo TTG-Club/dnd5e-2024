@@ -423,7 +423,9 @@
         <template #grants>
           <GrantRowsEditor
             v-model="grants.grantRows"
+            hide-feat
             :taken-keys="takenChoiceKeys"
+            :socket="props.socket"
           />
         </template>
 

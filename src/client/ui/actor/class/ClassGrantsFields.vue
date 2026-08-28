@@ -1,4 +1,6 @@
 <script setup lang="ts">
+  import type { TypedWebSocketClient } from '@vtt/shared';
+
   import type { EditableFeatGrants } from '../feat/featEditorTypes';
 
   import { computed } from 'vue';
@@ -20,6 +22,14 @@
    */
   const grants = defineModel<EditableFeatGrants>({ required: true });
 
+  const props = withDefaults(
+    defineProps<{
+      /** WebSocket-клиент: им строка дара «Черта» открывает компендиум. */
+      socket?: TypedWebSocketClient | null;
+    }>(),
+    { socket: null },
+  );
+
   /** Занятые ключи выборов: два выбора с одним ключом схлопнулись бы в один. */
   const takenChoiceKeys = computed(() => [...usedChoiceKeys(grants.value)]);
 </script>
@@ -34,6 +44,7 @@
       <GrantRowsEditor
         v-model="grants.grantRows"
         :taken-keys="takenChoiceKeys"
+        :socket="props.socket"
       />
     </FormSection>
 

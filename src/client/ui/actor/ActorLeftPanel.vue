@@ -23,6 +23,7 @@
     getTotalLevel,
     resolveEntityMaxHp,
     resolveSavingThrowRollMode,
+    WEAPON_MASTERY_MAP,
     withExhaustionLevel,
   } from '@vtt/shared/system/dnd.js';
 
@@ -218,6 +219,17 @@
       (key) => toolLabels.value[key] ?? key,
     );
   });
+
+  /**
+   * Приёмы, которыми персонаж владеет сам по себе — безотносительно оружия
+   * («Тактический мастер»). Отдельной плашкой от 🏅 у оружия: там приём привязан
+   * к виду оружия, здесь он сам по себе.
+   */
+  const masteryPropertyBadges = computed(() =>
+    (props.actor.system.proficiencies.masteryProperties ?? []).map(
+      (key) => WEAPON_MASTERY_MAP.get(key)?.name.ru ?? key,
+    ),
+  );
 
   /**
    * Умные бэйджи владения оружием:
@@ -779,7 +791,11 @@
   /**
    * Применяет выбор владения и мастерства оружием из модалки
    */
-  function onWeaponProfApply(weapons: string[], masteries: string[]) {
+  function onWeaponProfApply(
+    weapons: string[],
+    masteries: string[],
+    masteryProperties: string[],
+  ) {
     emit('update:actor', {
       system: {
         ...props.actor.system,
@@ -787,6 +803,7 @@
           ...props.actor.system.proficiencies,
           weapons,
           weaponMasteries: masteries,
+          masteryProperties,
         },
       },
     });
@@ -1149,6 +1166,31 @@
         </div>
       </div>
 
+      <!-- Оружейные приёмы: показываются, только когда они есть — у
+        большинства персонажей приём привязан к оружию и живёт плашкой 🏅 -->
+      <div v-if="masteryPropertyBadges.length > 0">
+        <div
+          class="mb-2 flex items-center justify-between rounded-lg bg-elevated/40 px-3 py-2"
+        >
+          <h4
+            class="text-xs font-bold tracking-wider text-highlighted uppercase"
+          >
+            {{ GRANT_SECTION_LABELS.masteryProperties }}
+          </h4>
+        </div>
+
+        <div class="flex flex-wrap gap-1.5">
+          <UBadge
+            v-for="mastery in masteryPropertyBadges"
+            :key="mastery"
+            :label="mastery"
+            color="neutral"
+            variant="subtle"
+            icon="tabler:medal"
+          />
+        </div>
+      </div>
+
       <!-- Инструменты -->
       <div>
         <div
@@ -1267,6 +1309,9 @@
     v-model:open="isWeaponProfOpen"
     :selected-weapons="actor.system.proficiencies.weapons"
     :selected-masteries="actor.system.proficiencies.weaponMasteries ?? []"
+    :selected-mastery-properties="
+      actor.system.proficiencies.masteryProperties ?? []
+    "
     @apply="onWeaponProfApply"
   />
 
