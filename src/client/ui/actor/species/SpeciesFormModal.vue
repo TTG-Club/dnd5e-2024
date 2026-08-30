@@ -58,8 +58,8 @@
     MODAL_BUTTON_LABELS,
     SPECIES_FORM_LABELS,
   } from '../constants';
+  import CounterRowsEditor from '../CounterRowsEditor.vue';
   import EntityEffectsEditor from '../EntityEffectsEditor.vue';
-  import FeatCountersEditor from '../feat/FeatCountersEditor.vue';
   import {
     buildFeatData,
     createEmptyFeatGrants,
@@ -1520,7 +1520,7 @@
               :title="SPECIES_FORM_LABELS.recordCountersTitle"
               icon="tabler:hexagons"
             >
-              <FeatCountersEditor v-model="recordGrants.counters" />
+              <CounterRowsEditor v-model="recordGrants.counters" />
             </FormSection>
           </div>
         </template>

@@ -15,9 +15,11 @@
   import {
     CLASS_FEATURE_LABELS,
     CLASS_FORM_LABELS,
+    FEAT_GRANTS_LABELS,
     FORM_FIELD_LABELS,
     FORM_TAB_LABELS,
   } from '../constants';
+  import CounterRowsEditor from '../CounterRowsEditor.vue';
   import EntityEffectsEditor from '../EntityEffectsEditor.vue';
   import GrantedSpellsEditor from '../GrantedSpellsEditor.vue';
   import ClassGrantsFields from './ClassGrantsFields.vue';
@@ -38,7 +40,7 @@
     socket?: TypedWebSocketClient | null;
   }>();
 
-  /** Редактируемая особенность класса/подкласса. */
+  /** Редактируемое умение класса/подкласса. */
   const feature = defineModel<EditableClassFeature>({ required: true });
 
   const emit = defineEmits<{
@@ -192,7 +194,7 @@
       </div>
     </UFormField>
 
-    <!-- Заклинания на 1 уровне особенности -->
+    <!-- Заклинания на 1 уровне умения -->
     <UFormField :label="CLASS_FEATURE_LABELS.grantedSpells">
       <GrantedSpellsEditor
         v-model="feature.grantedSpells"
@@ -259,6 +261,15 @@
       <ClassGrantsFields
         v-model="feature.grants"
         :socket="props.socket"
+      />
+    </UFormField>
+
+    <!-- Ресурс умения — ресурсом дара: он появляется вместе с самим умением, и
+      ни ступеней, ни своей колонки в таблице класса у него нет -->
+    <UFormField :label="FEAT_GRANTS_LABELS.countersTitle">
+      <CounterRowsEditor
+        v-model="feature.grants.counters"
+        with-table-column
       />
     </UFormField>
 

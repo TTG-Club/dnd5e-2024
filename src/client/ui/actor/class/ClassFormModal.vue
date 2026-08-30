@@ -22,12 +22,12 @@
     PickedCompendiumRef,
     PickerEntryFields,
   } from '../CompendiumRefPickerModal.vue';
+  import type { EditableResourceCounter } from '../counterEditorTypes';
   import type { EditableFeatGrants } from '../feat/featEditorTypes';
   import type { SpellOption } from '../grantedSpellsEditorTypes';
   import type { EditableStartingEquipmentOption } from '../startingEquipmentEditorTypes';
   import type {
     EditableClassFeature,
-    EditableCounter,
     EditableLevelRow,
     EditableSpellcasting,
     EditableSubclass,
@@ -61,6 +61,7 @@
     CLASS_FORM_LABELS,
     COMPENDIUM_PICKER_LABELS,
     DEFINITION_FORM_LABELS,
+    FEAT_GRANTS_LABELS,
     FORM_FIELD_LABELS,
     FORM_SECTION_TOGGLE_UI,
     FORM_TAB_LABELS,
@@ -72,6 +73,7 @@
     TOOL_PROF_LABELS,
     WEAPON_PROF_LABELS,
   } from '../constants';
+  import CounterRowsEditor from '../CounterRowsEditor.vue';
   import EntityEffectsEditor from '../EntityEffectsEditor.vue';
   import {
     buildFeatData,
@@ -87,21 +89,21 @@
     buildClassEquipmentOptions,
     toEditableEquipmentOption,
   } from '../startingEquipmentEditorTypes';
-  import ClassCountersEditor from './ClassCountersEditor.vue';
   import {
     buildAsiFeatures,
     buildColumns,
     buildCounter,
     buildFeature,
+    buildFeatureCounters,
     buildLevelTable,
     buildSpellcasting,
     buildSubclass,
     createEmptyLevelTable,
     createEmptySpellcasting,
+    distributeFeatureCounters,
     HIT_DIE_OPTIONS,
     isPlainAsiFeature,
     toEditableColumns,
-    toEditableCounter,
     toEditableFeature,
     toEditableLevelTable,
     toEditableSpellcasting,
@@ -187,10 +189,9 @@
     },
     { label: CLASS_FORM_LABELS.tabSpellcasting, slot: 'spellcasting' as const },
     { label: CLASS_FORM_LABELS.tabProgression, slot: 'progression' as const },
-    { label: GRANT_SECTION_LABELS.features, slot: 'features' as const },
+    { label: CLASS_FORM_LABELS.tabFeatures, slot: 'features' as const },
     { label: CLASS_FORM_LABELS.tabGrants, slot: 'grants' as const },
     { label: CLASS_FORM_LABELS.tabSubclasses, slot: 'subclasses' as const },
-    { label: CLASS_FORM_LABELS.tabCounters, slot: 'counters' as const },
     { label: GRANT_SECTION_LABELS.equipment, slot: 'equipment' as const },
     { label: FORM_TAB_LABELS.effects, slot: 'effects' as const },
   ];
@@ -220,7 +221,9 @@
   const parentClassKey = ref('');
 
   const armorProficiencies = ref<ArmorCategory[]>([]);
+  const armorProficienciesCustom = ref('');
   const weaponProficiencies = ref<string[]>([]);
+  const weaponProficienciesCustom = ref('');
   const toolProficiencies = ref<string[]>([]);
   const savingThrowProficiencies = ref<AbilityType[]>([]);
   const skillCount = ref(2);
@@ -228,7 +231,9 @@
 
   const multiclassEnabled = ref(false);
   const multiclassArmor = ref<ArmorCategory[]>([]);
+  const multiclassArmorCustom = ref('');
   const multiclassWeapons = ref<string[]>([]);
+  const multiclassWeaponsCustom = ref('');
   const multiclassTools = ref<string[]>([]);
   const multiclassSkillChoices = ref(0);
 
@@ -239,7 +244,7 @@
 
   const features = ref<EditableClassFeature[]>([]);
   const subclasses = ref<EditableSubclass[]>([]);
-  const counters = ref<EditableCounter[]>([]);
+  const counters = ref<EditableResourceCounter[]>([]);
   const equipment = ref<EditableStartingEquipmentOption[]>([]);
   const activeEffects = ref<ActiveEffect[]>([]);
 
@@ -475,14 +480,18 @@
     parentClassKey.value = '';
     pickedParent.value = null;
     armorProficiencies.value = [];
+    armorProficienciesCustom.value = '';
     weaponProficiencies.value = [];
+    weaponProficienciesCustom.value = '';
     toolProficiencies.value = [];
     savingThrowProficiencies.value = [];
     skillCount.value = 2;
     skillFrom.value = [];
     multiclassEnabled.value = false;
     multiclassArmor.value = [];
+    multiclassArmorCustom.value = '';
     multiclassWeapons.value = [];
+    multiclassWeaponsCustom.value = '';
     multiclassTools.value = [];
     multiclassSkillChoices.value = 0;
     spellcasting.value = createEmptySpellcasting();
@@ -516,7 +525,12 @@
     existingKey.value = definition.key;
 
     armorProficiencies.value = [...definition.armorProficiencies];
+    armorProficienciesCustom.value = definition.armorProficienciesCustom ?? '';
     weaponProficiencies.value = [...definition.weaponProficiencies];
+
+    weaponProficienciesCustom.value =
+      definition.weaponProficienciesCustom ?? '';
+
     toolProficiencies.value = [...(definition.toolProficiencies ?? [])];
     savingThrowProficiencies.value = [...definition.savingThrowProficiencies];
     skillCount.value = definition.skillChoices.count;
@@ -527,7 +541,7 @@
     tableColumns.value = toEditableColumns(definition.tableColumns);
 
     // Только «обычные» ASI представляем чекбоксом строки; эпические дары и любые
-    // asi-*, имеющие своё название/описание, сохраняем как настоящие особенности.
+    // asi-*, имеющие своё название/описание, сохраняем как настоящие умения.
     const plainAsiKeys = new Set(
       (definition.features ?? [])
         .filter(isPlainAsiFeature)
@@ -545,7 +559,12 @@
       .map(toEditableFeature);
 
     subclasses.value = (definition.subclasses ?? []).map(toEditableSubclass);
-    counters.value = (definition.counters ?? []).map(toEditableCounter);
+
+    // Раздаём ПОСЛЕ разбора умений: ресурс возвращается в своё умение по ключу
+    counters.value = distributeFeatureCounters(
+      definition.counters,
+      features.value,
+    );
 
     equipment.value = (definition.startingEquipment ?? []).map(
       toEditableEquipmentOption,
@@ -558,10 +577,25 @@
     grants.value = featDataToGrants(definition.featData);
     grantedSpells.value = [...(definition.featData?.grantedSpells ?? [])];
 
+    // Ресурсы у класса одни — его счётчики. Заведённые когда-то в блоке даров
+    // переносим сюда: модель у них теперь общая, а редактора там больше нет
+    if (grants.value.counters.length > 0) {
+      counters.value = [...counters.value, ...grants.value.counters];
+      grants.value.counters = [];
+    }
+
     if (definition.multiclassProficiencies) {
       multiclassEnabled.value = true;
       multiclassArmor.value = [...definition.multiclassProficiencies.armor];
+
+      multiclassArmorCustom.value =
+        definition.multiclassProficiencies.armorCustom ?? '';
+
       multiclassWeapons.value = [...definition.multiclassProficiencies.weapons];
+
+      multiclassWeaponsCustom.value =
+        definition.multiclassProficiencies.weaponsCustom ?? '';
+
       multiclassTools.value = [...definition.multiclassProficiencies.tools];
 
       multiclassSkillChoices.value =
@@ -714,6 +748,16 @@
       definition.primaryAbilitiesDelimiter = primaryAbilitiesDelimiter.value;
     }
 
+    if (armorProficienciesCustom.value.trim()) {
+      definition.armorProficienciesCustom =
+        armorProficienciesCustom.value.trim();
+    }
+
+    if (weaponProficienciesCustom.value.trim()) {
+      definition.weaponProficienciesCustom =
+        weaponProficienciesCustom.value.trim();
+    }
+
     if (toolProficiencies.value.length > 0) {
       definition.toolProficiencies = [...toolProficiencies.value];
     }
@@ -724,9 +768,13 @@
       definition.tableColumns = columns;
     }
 
-    const builtCounters = counters.value
-      .filter((counter) => counter.name.trim().length > 0)
-      .map((counter) => buildCounter(counter));
+    // Ресурсы умений — тоже счётчики класса: от уровня класса идут их ступени
+    const builtCounters = [
+      ...counters.value
+        .filter((counter) => counter.name.trim().length > 0)
+        .map((counter) => buildCounter(counter)),
+      ...buildFeatureCounters(features.value),
+    ];
 
     if (builtCounters.length > 0) {
       definition.counters = builtCounters;
@@ -755,6 +803,16 @@
         tools: [...multiclassTools.value],
         skillChoices: multiclassSkillChoices.value,
       };
+
+      if (multiclassArmorCustom.value.trim()) {
+        definition.multiclassProficiencies.armorCustom =
+          multiclassArmorCustom.value.trim();
+      }
+
+      if (multiclassWeaponsCustom.value.trim()) {
+        definition.multiclassProficiencies.weaponsCustom =
+          multiclassWeaponsCustom.value.trim();
+      }
     }
 
     return definition;
@@ -1045,7 +1103,9 @@
               icon="tabler:certificate"
               :hint="CLASS_FORM_LABELS.startingProficienciesHint"
             >
-              <div class="flex flex-col gap-3">
+              <!-- Приписка стоит рядом со своим списком, а не отдельной
+                строкой: она уточняет именно его («только щиты») -->
+              <div class="grid grid-cols-2 gap-3">
                 <UFormField :label="GRANT_SECTION_LABELS.armor">
                   <USelectMenu
                     v-model="armorProficiencies"
@@ -1055,6 +1115,14 @@
                     multiple
                     class="w-full"
                     :placeholder="CLASS_FORM_LABELS.armorPlaceholder"
+                  />
+                </UFormField>
+
+                <UFormField :label="CLASS_FORM_LABELS.proficiencyCustom">
+                  <UInput
+                    v-model="armorProficienciesCustom"
+                    :placeholder="CLASS_FORM_LABELS.armorCustomPlaceholder"
+                    class="w-full"
                   />
                 </UFormField>
 
@@ -1070,7 +1138,18 @@
                   />
                 </UFormField>
 
-                <UFormField :label="GRANT_SECTION_LABELS.tools">
+                <UFormField :label="CLASS_FORM_LABELS.proficiencyCustom">
+                  <UInput
+                    v-model="weaponProficienciesCustom"
+                    :placeholder="CLASS_FORM_LABELS.weaponsCustomPlaceholder"
+                    class="w-full"
+                  />
+                </UFormField>
+
+                <UFormField
+                  class="col-span-2"
+                  :label="GRANT_SECTION_LABELS.tools"
+                >
                   <USelectMenu
                     v-model="toolProficiencies"
                     :items="toolOptions"
@@ -1136,7 +1215,7 @@
 
               <div
                 v-if="multiclassEnabled"
-                class="flex flex-col gap-3"
+                class="grid grid-cols-2 gap-3"
               >
                 <UFormField :label="GRANT_SECTION_LABELS.armor">
                   <USelectMenu
@@ -1145,6 +1224,14 @@
                     value-key="value"
                     label-key="label"
                     multiple
+                    class="w-full"
+                  />
+                </UFormField>
+
+                <UFormField :label="CLASS_FORM_LABELS.proficiencyCustom">
+                  <UInput
+                    v-model="multiclassArmorCustom"
+                    :placeholder="CLASS_FORM_LABELS.armorCustomPlaceholder"
                     class="w-full"
                   />
                 </UFormField>
@@ -1160,6 +1247,14 @@
                   />
                 </UFormField>
 
+                <UFormField :label="CLASS_FORM_LABELS.proficiencyCustom">
+                  <UInput
+                    v-model="multiclassWeaponsCustom"
+                    :placeholder="CLASS_FORM_LABELS.weaponsCustomPlaceholder"
+                    class="w-full"
+                  />
+                </UFormField>
+
                 <UFormField :label="GRANT_SECTION_LABELS.tools">
                   <USelectMenu
                     v-model="multiclassTools"
@@ -1171,10 +1266,7 @@
                   />
                 </UFormField>
 
-                <UFormField
-                  :label="CLASS_FORM_LABELS.multiclassSkills"
-                  class="w-1/3"
-                >
+                <UFormField :label="CLASS_FORM_LABELS.multiclassSkills">
                   <UInputNumber
                     v-model="multiclassSkillChoices"
                     :min="0"
@@ -1188,49 +1280,68 @@
 
         <!-- ЗАКЛИНАТЕЛЬСТВО -->
         <template #spellcasting>
-          <FormSection
-            :title="CLASS_FORM_LABELS.spellcastingTitle"
-            icon="tabler:sparkles"
-            :hint="CLASS_FORM_LABELS.spellcastingHint"
-          >
-            <ClassSpellcastingFields v-model="spellcasting" />
-          </FormSection>
+          <div class="flex flex-col gap-4">
+            <FormSection
+              :title="CLASS_FORM_LABELS.spellcastingTitle"
+              icon="tabler:sparkles"
+              :hint="CLASS_FORM_LABELS.spellcastingHint"
+            >
+              <ClassSpellcastingFields v-model="spellcasting" />
+            </FormSection>
 
-          <!-- Заклинания класса и расширение его списка — здесь, а не в дарах:
-            на сайте они на этой же вкладке, и искать их дважды не приходится -->
-          <FormSection
-            :title="GRANTED_SPELLS_LABELS.title"
-            icon="tabler:sparkles"
-            :hint="CLASS_FORM_LABELS.spellsHint"
-          >
-            <GrantedSpellsEditor
-              v-model="grantedSpells"
-              :available-spells="availableSpells"
-              :socket="socket"
-              with-required-level
-              @open-spell="openSpellDetail"
-            />
-          </FormSection>
+            <!-- Заклинания класса и расширение его списка — здесь, а не в дарах:
+              на сайте они на этой же вкладке, и искать их дважды не приходится -->
+            <FormSection
+              :title="GRANTED_SPELLS_LABELS.title"
+              icon="tabler:sparkles"
+              :hint="CLASS_FORM_LABELS.spellsHint"
+            >
+              <GrantedSpellsEditor
+                v-model="grantedSpells"
+                :available-spells="availableSpells"
+                :socket="socket"
+                with-required-level
+                @open-spell="openSpellDetail"
+              />
+            </FormSection>
 
-          <FormSection
-            :title="SPELL_LIST_LABELS.title"
-            icon="tabler:list-details"
-          >
-            <FeatSpellListEditor
-              v-model="grants.spellList"
-              :available-spells="availableSpells"
-              :socket="socket"
-              @open-spell="openSpellDetail"
-            />
-          </FormSection>
+            <FormSection
+              :title="SPELL_LIST_LABELS.title"
+              icon="tabler:list-details"
+            >
+              <FeatSpellListEditor
+                v-model="grants.spellList"
+                :available-spells="availableSpells"
+                :socket="socket"
+                @open-spell="openSpellDetail"
+              />
+            </FormSection>
+          </div>
         </template>
 
         <!-- ДАРЫ: то, что даёт взятие класса целиком -->
         <template #grants>
-          <ClassGrantsFields
-            v-model="grants"
-            :socket="props.socket"
-          />
+          <div class="flex flex-col gap-4">
+            <ClassGrantsFields
+              v-model="grants"
+              :socket="props.socket"
+            />
+
+            <!-- Ресурсы класса стоят среди остальных даров, а не отдельной
+              вкладкой: это то же самое «что даёт класс», и искать их в двух
+              местах не приходится -->
+            <FormSection
+              :title="FEAT_GRANTS_LABELS.countersTitle"
+              icon="tabler:battery-2"
+              :hint="CLASS_FORM_LABELS.countersHint"
+            >
+              <CounterRowsEditor
+                v-model="counters"
+                with-start-level
+                with-table-column
+              />
+            </FormSection>
+          </div>
         </template>
 
         <!-- ПРОГРЕССИЯ -->
@@ -1267,17 +1378,6 @@
               :subclass-level="subclassLevel"
               @open-spell="openSpellDetail"
             />
-          </div>
-        </template>
-
-        <!-- СЧЁТЧИКИ -->
-        <template #counters>
-          <div class="flex flex-col gap-2">
-            <p class="text-xs text-dimmed">
-              {{ CLASS_FORM_LABELS.countersHint }}
-            </p>
-
-            <ClassCountersEditor v-model="counters" />
           </div>
         </template>
 

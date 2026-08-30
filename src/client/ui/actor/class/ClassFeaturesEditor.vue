@@ -24,14 +24,14 @@
     socket?: TypedWebSocketClient | null;
   }>();
 
-  /** Список особенностей класса/подкласса. */
+  /** Список умений класса/подкласса. */
   const features = defineModel<EditableClassFeature[]>({ required: true });
 
   const emit = defineEmits<{
     'open-spell': [spellId: string, packId?: string];
   }>();
 
-  /** Ключи раскрытых (редактируемых) особенностей. */
+  /** Ключи раскрытых (редактируемых) умений. */
   const expandedKeys = ref<Set<string>>(new Set());
 
   function isExpanded(key: string): boolean {
@@ -46,7 +46,7 @@
     }
   }
 
-  /** Добавляет особенность и сразу раскрывает её редактор. */
+  /** Добавляет умение и сразу раскрывает его редактор. */
   function addFeature(): void {
     const feature = createEmptyFeature(CLASS_FEATURE_DEFAULT_NAME);
 
@@ -54,7 +54,7 @@
     expandedKeys.value.add(feature.key);
   }
 
-  /** Удаляет особенность по индексу. */
+  /** Удаляет умение по индексу. */
   function removeFeature(index: number): void {
     const [removed] = features.value.splice(index, 1);
 

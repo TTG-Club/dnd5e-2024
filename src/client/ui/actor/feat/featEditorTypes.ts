@@ -17,7 +17,6 @@
 import type { AbilityType, DefensibleDamageType } from '@vtt/shared';
 import type {
   ConditionKey,
-  CounterRecovery,
   DamageDefenseKind,
   FeatAbilityScoreIncrease,
   FeatChoice,
@@ -36,6 +35,8 @@ import type {
   FeatSpellListGroup,
   GrantedSpellRef,
 } from '@vtt/shared/system/dnd.js';
+
+import type { EditableResourceCounter } from '../counterEditorTypes';
 
 import { generateId, typedObjectEntries } from '@vtt/shared';
 import {
@@ -64,6 +65,10 @@ import {
   SPELL_COUNT_TEXT,
   SPELL_LIST_LABELS,
 } from '../constants';
+import {
+  entriesToProgression,
+  progressionToEntries,
+} from '../counterEditorTypes';
 
 /** Характеристики в порядке вывода. */
 export const ABILITY_KEYS: readonly AbilityType[] = [
@@ -489,21 +494,6 @@ export function isRefPrerequisite(
 // ── Ресурс черты (вкладка «Автоматизация») ────────────────────
 
 /** Строка ресурса черты. */
-export interface EditableFeatCounter {
-  uid: string;
-  key: string;
-  name: string;
-  shortName: string;
-  /** Формула максимума: число либо `@prof`, `@level`, `@mod.<abbr>` */
-  max: string;
-  /**
-   * Нижняя граница максимума; 0 — границы нет. Подпирает формулу снизу:
-   * вдохновение барда равно модификатору Харизмы, но не меньше одного.
-   */
-  min: number;
-  recovery: CounterRecovery;
-}
-
 // ── Список заклинаний класса (вкладка «Заклинания») ───────────
 
 /**
@@ -717,7 +707,7 @@ export interface EditableFeatGrants {
   /** Требования черты */
   prerequisites: EditablePrerequisiteRow[];
   /** Ресурсы со своим счётчиком */
-  counters: EditableFeatCounter[];
+  counters: EditableResourceCounter[];
   /** Заклинания, которые черта добавляет в список заклинаний класса */
   spellList: EditableSpellListExpansion;
   /** Выданные чертой заклинания не нужно готовить */
@@ -1031,20 +1021,6 @@ export function createPrerequisiteRow(
 }
 
 /** Заводит строку ресурса. */
-export function createFeatCounter(
-  taken: ReadonlySet<string>,
-): EditableFeatCounter {
-  return {
-    uid: generateId('counter'),
-    key: freeKey('resource', taken),
-    name: '',
-    shortName: '',
-    max: FORMULA_TOKENS.proficiencyBonus,
-    min: 0,
-    recovery: 'long',
-  };
-}
-
 // ── Блоб → форма ──────────────────────────────────────────────
 
 /** Копия списка ссылок справочника — форма правит их независимо от блоба. */
@@ -1566,6 +1542,10 @@ export function featDataToGrants(
     max: counter.max,
     min: counter.min ?? 0,
     recovery: counter.recovery,
+    progression: progressionToEntries(counter.progression),
+    // Своего ряда уровней у ресурса записи нет: он появляется вместе с ней
+    startLevel: 1,
+    showInTable: false,
   }));
 
   grants.spellList = {
@@ -2485,6 +2465,12 @@ export function buildFeatData(
       // должно
       if (counter.min > 0) {
         builtCounter.min = Math.round(counter.min);
+      }
+
+      const progression = entriesToProgression(counter.progression);
+
+      if (progression) {
+        builtCounter.progression = progression;
       }
 
       return builtCounter;

@@ -12,7 +12,7 @@
   import { generateId } from '@vtt/shared';
   import { calculateProficiencyBonus } from '@vtt/shared/system/dnd.js';
 
-  import { CLASS_LEVEL_TABLE_LABELS, GRANT_SECTION_LABELS } from '../constants';
+  import { CLASS_LEVEL_TABLE_LABELS } from '../constants';
   import {
     buildPresetColumn,
     collectLeafColumnKeys,
@@ -36,7 +36,7 @@
   }
 
   const props = defineProps<{
-    /** Особенности — для предпросмотра «что выдаётся на уровне» (только чтение). */
+    /** Умения — для предпросмотра «что выдаётся на уровне» (только чтение). */
     features: EditableClassFeature[];
     /** Заклинатель ли класс/подкласс (показывать колонки выбора заклинаний). */
     isCaster: boolean;
@@ -157,7 +157,7 @@
     columns.value.push(buildPresetColumn(preset));
   }
 
-  /** Имена особенностей, выдаваемых на каждом уровне (предпросмотр). */
+  /** Имена умений, выдаваемых на каждом уровне (предпросмотр). */
   const featureNamesByLevel = computed(() => {
     const map = new Map<number, string[]>();
 
@@ -176,7 +176,7 @@
     return map;
   });
 
-  /** Текст предпросмотра особенностей уровня (с пометкой ASI). */
+  /** Текст предпросмотра умений уровня (с пометкой ASI). */
   function levelFeaturePreview(level: number, hasAsi: boolean): string {
     const names = [...(featureNamesByLevel.value.get(level) ?? [])];
 
@@ -520,7 +520,7 @@
             </th>
 
             <th class="px-2 py-1.5 text-left">
-              {{ GRANT_SECTION_LABELS.features }}
+              {{ CLASS_LEVEL_TABLE_LABELS.columnFeatures }}
             </th>
           </tr>
         </thead>

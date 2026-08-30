@@ -6,7 +6,6 @@
   import { computed } from 'vue';
 
   import { CLASS_FORM_LABELS, FEAT_GRANTS_LABELS } from '../constants';
-  import FeatCountersEditor from '../feat/FeatCountersEditor.vue';
   import { usedChoiceKeys } from '../feat/featEditorTypes';
   import GrantRowsEditor from '../feat/GrantRowsEditor.vue';
   import ModifierRowsEditor from '../feat/ModifierRowsEditor.vue';
@@ -19,6 +18,10 @@
    * класса и умения применяет один и тот же код, и вторая форма для того же
    * смысла означала бы второй разбор. Ровно так же устроена вкладка «Дары» на
    * сайте.
+   *
+   * Ресурсы блок не рисует: у класса и у его умения они хранятся по-разному —
+   * класс своими счётчиками (ступени, уровень появления, колонка таблицы),
+   * умение — ресурсом дара. Каждый вызывающий рисует свой.
    */
   const grants = defineModel<EditableFeatGrants>({ required: true });
 
@@ -53,13 +56,6 @@
       icon="tabler:adjustments-filled"
     >
       <ModifierRowsEditor v-model="grants.modifiers" />
-    </FormSection>
-
-    <FormSection
-      :title="FEAT_GRANTS_LABELS.countersTitle"
-      icon="tabler:battery-2"
-    >
-      <FeatCountersEditor v-model="grants.counters" />
     </FormSection>
   </div>
 </template>

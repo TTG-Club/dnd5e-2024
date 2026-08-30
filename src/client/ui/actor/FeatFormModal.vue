@@ -33,8 +33,8 @@
     SPELL_CHOICE_LABELS,
     SPELL_LIST_LABELS,
   } from './constants';
+  import CounterRowsEditor from './CounterRowsEditor.vue';
   import EntityEffectsEditor from './EntityEffectsEditor.vue';
-  import FeatCountersEditor from './feat/FeatCountersEditor.vue';
   import {
     buildFeatData,
     createEmptyFeatGrants,
@@ -443,7 +443,7 @@
               :title="FEAT_GRANTS_LABELS.countersTitle"
               icon="tabler:battery-2"
             >
-              <FeatCountersEditor v-model="grants.counters" />
+              <CounterRowsEditor v-model="grants.counters" />
             </FormSection>
           </div>
         </template>

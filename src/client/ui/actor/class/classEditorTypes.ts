@@ -6,9 +6,9 @@
  *
  * Ключевые решения модели:
  * - `featureKeys` строки таблицы прогрессии НЕ редактируются вручную — они
- *   выводятся из `level` каждой особенности при сборке ({@link buildLevelTable}).
+ *   выводятся из `level` каждого умения при сборке ({@link buildLevelTable}).
  * - ASI на уровне — это чекбокс строки; на сборке вставляется синтетический
- *   ключ `asi-<level>` + синтетическая особенность с флагом
+ *   ключ `asi-<level>` + синтетическое умение с флагом
  *   `abilityImprovement`. Ключ сохраняет прежний вид ради записей, где флага
  *   нет: мастер класса падает на эвристику по ключу (`isAsiFeature`).
  * - Динамические колонки таблицы (ячейки заклинаний, приёмы и т.п.) — значения
@@ -24,13 +24,13 @@ import type {
   ClassFeature,
   ClassFeatureChoice,
   ClassLevelEntry,
-  CounterRecovery,
   FeatData,
   GrantedSpellRef,
   HitDie,
   SubclassDefinition,
 } from '@vtt/shared/system/dnd.js';
 
+import type { EditableResourceCounter } from '../counterEditorTypes';
 import type { EditableFeatGrants } from '../feat/featEditorTypes';
 
 import { generateId } from '@vtt/shared';
@@ -39,6 +39,10 @@ import {
   isAsiFeatureKey,
 } from '@vtt/shared/system/dnd.js';
 
+import {
+  entriesToProgression,
+  progressionToEntries,
+} from '../counterEditorTypes';
 import {
   buildFeatData,
   createEmptyFeatGrants,
@@ -95,18 +99,18 @@ export interface EditableLevelRow {
 type ClassLevelEntryValue =
   string | number | boolean | string[] | Record<string, number> | undefined;
 
-// ── Заклинания особенности ───────────────────────────────────
+// ── Заклинания умения ────────────────────────────────────────
 
-/** Поуровневая выдача заклинаний особенностью (домены/клятвы). */
+/** Поуровневая выдача заклинаний умением (домены/клятвы). */
 export interface EditableGrantedSpellLevel {
   uid: string;
   level: number;
   spells: GrantedSpellRef[];
 }
 
-// ── Особенность класса/подкласса ─────────────────────────────
+// ── Умение класса/подкласса ──────────────────────────────────
 
-/** Вариант особенности (боевой стиль, манёвры). */
+/** Вариант умения (боевой стиль, манёвры). */
 export interface EditableClassFeatureChoice {
   uid: string;
   key: string;
@@ -120,11 +124,11 @@ export interface EditableClassFeature {
   description: string;
   level: number;
   isInformationalOnly: boolean;
-  /** Заклинания, выдаваемые особенностью (всегда подготовлены). */
+  /** Заклинания, выдаваемые умением (всегда подготовлены). */
   grantedSpells: GrantedSpellRef[];
   /** Поуровневая выдача заклинаний (домены/клятвы/покровители). */
   grantedSpellsByLevel: EditableGrantedSpellLevel[];
-  /** Варианты-выборы внутри особенности. */
+  /** Варианты-выборы внутри умения. */
   choices: EditableClassFeatureChoice[];
   /**
    * Сколько навыков даёт умение на выбор; `0` — не даёт. Поле разложено на
@@ -150,34 +154,6 @@ export interface EditableClassFeature {
   grantedSpellRefs: GrantedSpellRef[];
 }
 
-// ── Счётчик классового ресурса ───────────────────────────────
-
-export interface EditableProgressionEntry {
-  uid: string;
-  level: number;
-  value: number;
-}
-
-export interface EditableCounter {
-  key: string;
-  name: string;
-  shortName: string;
-  nameEn: string;
-  startLevel: number;
-  recovery: CounterRecovery;
-  /**
-   * Нижняя граница максимума; 0 — границы нет. Подпирает расчёт снизу:
-   * вдохновение барда равно модификатору Харизмы, но не меньше одного.
-   */
-  min: number;
-  /** Показывать ресурс колонкой таблицы прогрессии. */
-  showInTable: boolean;
-  /** Источник максимума: таблица прогрессии или формула. */
-  mode: 'progression' | 'formula';
-  progression: EditableProgressionEntry[];
-  formula: string;
-}
-
 // ── Заклинательство ──────────────────────────────────────────
 
 export interface EditableSpellcasting {
@@ -198,7 +174,7 @@ export interface EditableSubclass {
   sourceKey?: string;
   source?: SourceDefinition;
   features: EditableClassFeature[];
-  counters: EditableCounter[];
+  counters: EditableResourceCounter[];
   spellcasting: EditableSpellcasting;
   /** Есть ли у подкласса своя таблица прогрессии (Мистический рыцарь). */
   hasOwnTable: boolean;
@@ -221,10 +197,10 @@ const PLAIN_ASI_NAMES = new Set<string>([
 ]);
 
 /**
- * «Обычное» ли это повышение характеристик — то есть ASI-особенность без своего
+ * «Обычное» ли это повышение характеристик — то есть ASI-умение без своего
  * содержания, которую безопасно представить чекбоксом строки и пересобрать
  * синтетически. Эпические дары (свои название/описание/механика) сюда НЕ входят
- * — их надо сохранять как настоящие особенности.
+ * — их надо сохранять как настоящие умения.
  */
 export function isPlainAsiFeature(feature: {
   key: string;
@@ -236,7 +212,7 @@ export function isPlainAsiFeature(feature: {
   return isAsi && PLAIN_ASI_NAMES.has(feature.name.trim());
 }
 
-/** Стандартное название/текст синтетической особенности повышения характеристик. */
+/** Стандартное название/текст синтетического умения повышения характеристик. */
 const ASI_NAME = 'Улучшение характеристик';
 
 const ASI_DESCRIPTION =
@@ -245,7 +221,7 @@ const ASI_DESCRIPTION =
 
 /**
  * Зарезервированные ключи колонок: они обслуживаются встроенными колонками/
- * полями таблицы (уровень, бонус мастерства, особенности, выбор новых заговоров/
+ * полями таблицы (уровень, бонус мастерства, умения, выбор новых заговоров/
  * заклинаний) и НЕ должны задаваться кастомной колонкой — иначе перезапишут
  * встроенное значение. Дизайнер их игнорирует и предупреждает.
  */
@@ -304,7 +280,7 @@ export function createEmptySpellcasting(): EditableSpellcasting {
   };
 }
 
-/** Создаёт пустую особенность класса/подкласса. */
+/** Создаёт пустое умение класса/подкласса. */
 export function createEmptyFeature(name: string): EditableClassFeature {
   return {
     key: generateId('cf'),
@@ -349,7 +325,7 @@ function toGrantedRefs(ids: string[] | undefined): GrantedSpellRef[] {
   return (ids ?? []).map((id) => ({ name: id, spellId: id }));
 }
 
-/** Разворачивает особенность класса в редактируемые поля. */
+/** Разворачивает умение класса в редактируемые поля. */
 export function toEditableFeature(feature: ClassFeature): EditableClassFeature {
   const byLevel: EditableGrantedSpellLevel[] = Object.entries(
     feature.grantedSpellsByLevel ?? {},
@@ -388,29 +364,20 @@ export function toEditableFeature(feature: ClassFeature): EditableClassFeature {
 /** Разворачивает счётчик ресурса в редактируемые поля. */
 export function toEditableCounter(
   counter: ClassCounterDefinition,
-): EditableCounter {
-  const progression: EditableProgressionEntry[] = Object.entries(
-    counter.progression ?? {},
-  )
-    .map(([levelKey, value]) => ({
-      uid: generateId('cpe'),
-      level: Number(levelKey) || 1,
-      value,
-    }))
-    .sort((entryA, entryB) => entryA.level - entryB.level);
-
+): EditableResourceCounter {
   return {
+    uid: generateId('counter'),
     key: counter.key || generateId('cnt'),
     name: counter.name || '',
     shortName: counter.shortName || '',
-    nameEn: counter.nameEn || '',
-    startLevel: counter.startLevel ?? 1,
-    recovery: counter.recovery ?? 'long',
+    // Формула счётчика класса пишется в диалекте листа теми же словами, что и
+    // у ресурса записи, — поле максимума у них общее
+    max: counter.formula || '',
     min: counter.min ?? 0,
+    recovery: counter.recovery ?? 'long',
+    progression: progressionToEntries(counter.progression),
+    startLevel: counter.startLevel ?? 1,
     showInTable: counter.showInTable ?? false,
-    mode: counter.progression ? 'progression' : 'formula',
-    progression,
-    formula: counter.formula || 'level',
   };
 }
 
@@ -499,9 +466,9 @@ const KNOWN_ROW_KEYS = new Set<string>([
  * листовым ключам объявленных колонок; всё прочее (`newSpellsByLevel` и др.)
  * складывается в `preserved` для round-trip.
  *
- * `plainAsiKeys` — ключи особенностей «обычного» ASI (генерик), которые форма
+ * `plainAsiKeys` — ключи умений «обычного» ASI (генерик), которые форма
  * исключает из списка и представляет чекбоксом `hasAsi`. Эпические дары туда не
- * входят (остаются настоящими особенностями), поэтому их строки `hasAsi` не
+ * входят (остаются настоящими умениями), поэтому их строки `hasAsi` не
  * получают — иначе синтезировался бы дубль.
  */
 export function toEditableLevelTable(
@@ -558,6 +525,7 @@ export function toEditableSubclass(
   subclass: SubclassDefinition,
 ): EditableSubclass {
   const tableColumns = toEditableColumns(subclass.tableColumns);
+  const features = (subclass.features ?? []).map(toEditableFeature);
 
   return {
     key: subclass.key || generateId('sub'),
@@ -567,8 +535,8 @@ export function toEditableSubclass(
     unlockLevel: subclass.unlockLevel ?? 3,
     sourceKey: subclass.sourceKey,
     source: subclass.source,
-    features: (subclass.features ?? []).map(toEditableFeature),
-    counters: (subclass.counters ?? []).map(toEditableCounter),
+    features,
+    counters: distributeFeatureCounters(subclass.counters, features),
     spellcasting: toEditableSpellcasting(subclass.spellcasting),
     hasOwnTable: Boolean(subclass.levelTable?.length),
     tableColumns,
@@ -593,7 +561,7 @@ function buildGrantedIds(refs: GrantedSpellRef[]): string[] {
   return ids;
 }
 
-/** Собирает особенность класса/подкласса из редактируемых полей. */
+/** Собирает умение класса/подкласса из редактируемых полей. */
 export function buildFeature(
   feature: EditableClassFeature,
   subclassKey?: string,
@@ -656,7 +624,13 @@ export function buildFeature(
     built.activeEffects = feature.activeEffects;
   }
 
-  const featData = buildFeatData(feature.grants, feature.grantedSpellRefs);
+  // Ресурсы умения собираются отдельно, в счётчики записи
+  // ({@link buildFeatureCounters}): там известен уровень класса, от которого
+  // идут их ступени. Здесь их надо снять, иначе они уехали бы двумя копиями
+  const featData = buildFeatData(
+    { ...feature.grants, counters: [] },
+    feature.grantedSpellRefs,
+  );
 
   if (featData) {
     built.featData = featData;
@@ -665,9 +639,81 @@ export function buildFeature(
   return built;
 }
 
+/**
+ * Счётчики записи из ресурсов её умений.
+ *
+ * Ресурс, заведённый в умении, живёт счётчиком класса, а не даром умения: от
+ * уровня класса идут его ступени и уровень появления, а у дара такого уровня
+ * нет. Уровень появления берётся у самого умения, ключ умения остаётся на
+ * счётчике — по нему форма вернёт ресурс в его умение при открытии записи.
+ *
+ * @param features - умения записи
+ * @param subclassKey - ключ подкласса, если умения его
+ * @returns счётчики для {@link ClassDefinition.counters}
+ */
+export function buildFeatureCounters(
+  features: ReadonlyArray<EditableClassFeature>,
+  subclassKey?: string,
+): ClassCounterDefinition[] {
+  return (
+    features
+      // Умение без названия в запись не попадает — не должен и его ресурс:
+      // иначе счётчик остался бы со ссылкой на несуществующее умение
+      .filter((feature) => feature.name.trim().length > 0)
+      .flatMap((feature) =>
+        feature.grants.counters
+          .filter((counter) => counter.name.trim().length > 0)
+          .map((counter) => ({
+            ...buildCounter(
+              {
+                ...counter,
+                startLevel: Math.max(1, Math.round(feature.level || 1)),
+              },
+              subclassKey,
+            ),
+            featureKey: feature.key,
+          })),
+      )
+  );
+}
+
+/**
+ * Возвращает ресурсы умений в их умения и отдаёт остальные счётчики записи.
+ *
+ * Обратная сторона {@link buildFeatureCounters}: в записи ресурс умения лежит
+ * счётчиком, а правится внутри своего умения. Счётчик, чьего умения среди
+ * записи нет (умение удалили в обход формы), остаётся собственным счётчиком
+ * записи — молча терять его нельзя.
+ *
+ * @param counters - счётчики записи
+ * @param features - умения записи; их ресурсы заполняются на месте
+ * @returns счётчики, оставшиеся за самой записью
+ */
+export function distributeFeatureCounters(
+  counters: ClassCounterDefinition[] | undefined,
+  features: EditableClassFeature[],
+): EditableResourceCounter[] {
+  const byKey = new Map(features.map((feature) => [feature.key, feature]));
+  const own: EditableResourceCounter[] = [];
+
+  for (const counter of counters ?? []) {
+    const feature = counter.featureKey
+      ? byKey.get(counter.featureKey)
+      : undefined;
+
+    if (feature) {
+      feature.grants.counters.push(toEditableCounter(counter));
+    } else {
+      own.push(toEditableCounter(counter));
+    }
+  }
+
+  return own;
+}
+
 /** Собирает счётчик ресурса из редактируемых полей. */
 export function buildCounter(
-  counter: EditableCounter,
+  counter: EditableResourceCounter,
   subclassKey?: string,
 ): ClassCounterDefinition {
   const built: ClassCounterDefinition = {
@@ -690,26 +736,18 @@ export function buildCounter(
     built.shortName = counter.shortName.trim();
   }
 
-  if (counter.nameEn.trim()) {
-    built.nameEn = counter.nameEn.trim();
-  }
-
   if (subclassKey) {
     built.subclassKey = subclassKey;
   }
 
-  if (counter.mode === 'progression') {
-    const progression: Record<string, number> = {};
+  // Ступени старше формулы — тот же порядок, что и при расчёте на листе:
+  // заданный ими ряд формулой не пишется
+  const progression = entriesToProgression(counter.progression);
 
-    for (const entry of counter.progression) {
-      progression[String(entry.level)] = entry.value;
-    }
-
-    if (Object.keys(progression).length > 0) {
-      built.progression = progression;
-    }
-  } else if (counter.formula.trim()) {
-    built.formula = counter.formula.trim();
+  if (progression) {
+    built.progression = progression;
+  } else if (counter.max.trim()) {
+    built.formula = counter.max.trim();
   }
 
   return built;
@@ -853,9 +891,9 @@ export function buildLevelTable(
 }
 
 /**
- * Синтетические особенности ASI для уровней с включённым чекбоксом, ключей
- * которых ещё нет среди обычных особенностей. Добавляются в `features`, чтобы
- * детальник показывал «Улучшение характеристик» и мастер находил особенность.
+ * Синтетические умения ASI для уровней с включённым чекбоксом, ключей
+ * которых ещё нет среди обычных умений. Добавляются в `features`, чтобы
+ * детальник показывал «Улучшение характеристик» и мастер находил умение.
  */
 export function buildAsiFeatures(
   rows: EditableLevelRow[],
@@ -908,9 +946,12 @@ export function buildSubclass(subclass: EditableSubclass): SubclassDefinition {
     built.source = subclass.source;
   }
 
-  const counters = subclass.counters
-    .filter((counter) => counter.name.trim().length > 0)
-    .map((counter) => buildCounter(counter, subclass.key));
+  const counters = [
+    ...subclass.counters
+      .filter((counter) => counter.name.trim().length > 0)
+      .map((counter) => buildCounter(counter, subclass.key)),
+    ...buildFeatureCounters(subclass.features, subclass.key),
+  ];
 
   if (counters.length > 0) {
     built.counters = counters;

@@ -1,9 +1,9 @@
 <script setup lang="ts">
   /**
-   * Шаг мастера: Особенности класса.
+   * Шаг мастера: Умения класса.
    *
-   * Отображает список особенностей текущего уровня.
-   * Для особенностей с вариантами выбора (Fighting Style и т.д.)
+   * Отображает список умений текущего уровня.
+   * Для умений с вариантами выбора (Fighting Style и т.д.)
    * предоставляет UI выбора.
    */
   import type { DnDActor, SubclassDefinition } from '@vtt/shared/system/dnd.js';
@@ -54,7 +54,7 @@
     return props.featSelections?.[key]?.[0] ?? null;
   }
 
-  /** Выбирает вариант для особенности */
+  /** Выбирает вариант для умения */
   function selectChoice(featureKey: string, choiceKey: string) {
     emit('update:featureChoices', {
       ...props.featureChoices,
@@ -133,7 +133,7 @@
       :key="feature.key"
       class="rounded-lg border border-default/50 bg-elevated/30 p-3"
     >
-      <!-- Заголовок особенности -->
+      <!-- Заголовок умения -->
       <div class="mb-1.5 flex items-center gap-2">
         <span class="text-sm font-medium text-healing">{{ feature.name }}</span>
 

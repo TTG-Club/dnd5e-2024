@@ -2,9 +2,9 @@
  * Composable для управления пошаговым мастером добавления/повышения класса.
  *
  * Формирует список шагов динамически на основе контекста:
- * - Первый класс (1 уровень): все шаги (ХП, Спасброски, Владения, Навыки, Особенности, Заклинания)
- * - Level Up: ХП → Особенности → Заклинания → ASI (если нужен)
- * - Мультикласс: ХП → Владения (сокращённые) → Навыки (если есть) → Особенности → Заклинания
+ * - Первый класс (1 уровень): все шаги (ХП, Спасброски, Владения, Навыки, Умения, Заклинания)
+ * - Level Up: ХП → Умения → Заклинания → ASI (если нужен)
+ * - Мультикласс: ХП → Владения (сокращённые) → Навыки (если есть) → Умения → Заклинания
  */
 
 import type { Ref } from 'vue';
@@ -53,6 +53,7 @@ import {
   isFeatPickChoice,
   normalizeSpellName,
   prepareFeatChoices,
+  progressionCounterMax,
   raiseTokenDarkvision,
   refreshCounterMaxima,
   refreshFeatCounters,
@@ -158,14 +159,14 @@ export interface WizardState {
   featDataChoices: Record<string, string[]>;
 }
 
-/** Особенность класса с указанием источника (базовый класс или подкласс) */
+/** Умение класса с указанием источника (базовый класс или подкласс) */
 export interface WizardFeatureItem extends ClassFeature {
   sourceName?: string;
   isSubclass?: boolean;
 }
 
 /**
- * Черта компендиума с полями, которых базовый тип особенности не знает:
+ * Черта компендиума с полями, которых базовый тип умения не знает:
  * категория нужна пикеру, чтобы сузить пул выбора черты умения.
  */
 export interface CompendiumFeat extends AppliedFeatFeature {
@@ -187,7 +188,7 @@ const STEP_DEFINITIONS: Record<WizardStepKey, Omit<WizardStepItem, 'value'>> = {
   savingThrows: { title: 'Спасброски' },
   proficiencies: { title: 'Владения' },
   skills: { title: 'Навыки' },
-  features: { title: 'Особенности' },
+  features: { title: 'Умения' },
   featureSkills: { title: 'Навыки умения' },
   equipment: { title: 'Снаряжение' },
   spellcasting: { title: 'Заклинания' },
@@ -375,38 +376,10 @@ function computeCounterMax(
 }
 
 /**
- * Максимум по таблице прогрессии: берётся старшая ступень, до которой персонаж
- * дорос.
- *
- * @param progression - максимум по уровням: ключ — уровень строкой
- * @param classLevel - уровень персонажа в этом классе
- * @returns максимум зарядов; 0 — персонаж не дорос до первой ступени
- */
-function progressionCounterMax(
-  progression: Record<string, number>,
-  classLevel: number,
-): number {
-  const levelKey = String(classLevel);
-
-  if (progression[levelKey] !== undefined) {
-    return progression[levelKey];
-  }
-
-  const availableLevels = Object.keys(progression)
-    .map(Number)
-    .filter((level) => level <= classLevel)
-    .sort((levelA, levelB) => levelB - levelA);
-
-  return availableLevels.length > 0
-    ? progression[String(availableLevels[0])]
-    : 0;
-}
-
-/**
  * Composable мастера настройки класса (добавление, мультикласс, повышение уровня).
  *
  * Формирует список шагов на основе контекста актора, хранит состояние выбора
- * (хиты, навыки, особенности, заклинания, ASI) и собирает итоговые обновления
+ * (хиты, навыки, умения, заклинания, ASI) и собирает итоговые обновления
  * актора для применения.
  *
  * @param classDefinition - определение выбранного класса (реактивная ссылка)
@@ -517,7 +490,7 @@ export function useClassWizard(
     );
   });
 
-  /** Особенности, доступные на текущем уровне */
+  /** Умения, доступные на текущем уровне */
   const levelFeatures = computed((): WizardFeatureItem[] => {
     const classDef = classDefinition.value;
 
@@ -544,7 +517,7 @@ export function useClassWizard(
         isSubclass: false,
       }));
 
-    // Добавляем особенности подкласса, если он выбран
+    // Добавляем умения подкласса, если он выбран
     const subclassDef = activeSubclass.value;
 
     if (subclassDef) {
@@ -1065,7 +1038,7 @@ export function useClassWizard(
     steps.push({ value: 'hitPoints', ...STEP_DEFINITIONS.hitPoints });
 
     if (isFirstClass.value) {
-      // Первый класс: Спасброски → Владения → Навыки → Особенности → Заклинания
+      // Первый класс: Спасброски → Владения → Навыки → Умения → Заклинания
       steps.push({ value: 'savingThrows', ...STEP_DEFINITIONS.savingThrows });
       steps.push({ value: 'proficiencies', ...STEP_DEFINITIONS.proficiencies });
 
@@ -1083,12 +1056,12 @@ export function useClassWizard(
       }
     }
 
-    // Особенности — если есть на текущем уровне или нужен выбор подкласса
+    // Умения — если есть на текущем уровне или нужен выбор подкласса
     if (levelFeatures.value.length > 0 || hasSubclassSelection.value) {
       steps.push({ value: 'features', ...STEP_DEFINITIONS.features });
     }
 
-    // Навыки от самого умения — сразу за особенностями, которые их дали
+    // Навыки от самого умения — сразу за умениями, которые их дали
     if (featureSkillChoice.value) {
       steps.push({ value: 'featureSkills', ...STEP_DEFINITIONS.featureSkills });
     }
@@ -1822,12 +1795,12 @@ export function useClassWizard(
       rootUpdates.token = raisedToken;
     }
 
-    // Особенности — добавляем в общий список features актора
+    // Умения — добавляем в общий список features актора
     if (levelFeatures.value.length > 0) {
       const newFeatures = [...(actor.value.features || [])];
 
       for (const feature of levelFeatures.value) {
-        // Пропускаем информационные особенности и ASI/Feat
+        // Пропускаем информационные умения и ASI/Feat
         if (feature.isInformationalOnly || isAsiFeature(feature)) {
           continue;
         }
@@ -1835,7 +1808,7 @@ export function useClassWizard(
         let featureName = feature.name;
         let featureDesc = feature.description;
 
-        // Если у особенности есть выбор, и пользователь его сделал
+        // Если у умения есть выбор, и пользователь его сделал
         if (feature.choices && feature.choices.length > 0) {
           const choiceKey = wizardState.featureChoices[feature.key];
 
@@ -1851,7 +1824,7 @@ export function useClassWizard(
           }
         }
 
-        // Защита от дублей: если такая особенность уже добавлена
+        // Защита от дублей: если такое умение уже добавлено
         const alreadyExists = newFeatures.some(
           (existing) => existing.name === featureName,
         );

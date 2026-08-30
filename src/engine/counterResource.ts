@@ -412,6 +412,35 @@ export function resolveCounterMaxIn(
  * @param min - нижняя граница максимума; нет или 0 — границы нет
  * @returns максимум не ниже границы
  */
+/**
+ * Максимум по ступеням: берётся старшая ступень, до которой персонаж дорос.
+ *
+ * Ступени задают ряд, который формулой не пишется («на 3-м два заряда, на 7-м
+ * три»), поэтому там, где они есть, формула не считается вовсе. Не дорос до
+ * первой ступени — зарядов нет.
+ *
+ * @param progression - максимум по уровням: ключ — уровень строкой
+ * @param level - уровень, от которого считаем (класса либо персонажа)
+ * @returns максимум зарядов; 0 — персонаж не дорос до первой ступени
+ */
+export function progressionCounterMax(
+  progression: Record<string, number>,
+  level: number,
+): number {
+  const exact = progression[String(level)];
+
+  if (exact !== undefined) {
+    return exact;
+  }
+
+  const reached = Object.keys(progression)
+    .map(Number)
+    .filter((step) => step <= level)
+    .sort((stepA, stepB) => stepB - stepA);
+
+  return reached.length > 0 ? (progression[String(reached[0])] ?? 0) : 0;
+}
+
 export function withCounterMinimum(
   max: number,
   min: number | undefined,

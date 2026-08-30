@@ -14,8 +14,8 @@
     CLASS_SUBCLASSES_LABELS,
     FORM_FIELD_LABELS,
   } from '../constants';
+  import CounterRowsEditor from '../CounterRowsEditor.vue';
   import SourceField from '../SourceField.vue';
-  import ClassCountersEditor from './ClassCountersEditor.vue';
   import {
     createEmptyLevelTable,
     createEmptySpellcasting,
@@ -186,7 +186,11 @@
       </UFormField>
 
       <UFormField :label="CLASS_SUBCLASSES_LABELS.counters">
-        <ClassCountersEditor v-model="selected.counters" />
+        <CounterRowsEditor
+          v-model="selected.counters"
+          with-start-level
+          with-table-column
+        />
       </UFormField>
 
       <UCheckbox

@@ -37,7 +37,21 @@
   import SourceBadge from '../SourceBadge.vue';
   import StartingEquipmentOptionBody from '../StartingEquipmentOptionBody.vue';
 
-  /** Проверяет, является ли особенность генеричной заглушкой подкласса («Умение подкласса», «Подкласс воина») */
+  /**
+   * Строка владения: подписи категорий и приписка свободным текстом через запятую.
+   * Так же их склеивает сайт — приписка там дополняет список, а не заменяет его.
+   *
+   * @param labels - подписи выбранных категорий
+   * @param custom - приписка записи; пусто — её нет
+   * @returns строка для плитки; «Нет», когда не задано ничего
+   */
+  function joinProficiency(labels: string[], custom?: string): string {
+    const parts = custom?.trim() ? [...labels, custom.trim()] : labels;
+
+    return parts.length > 0 ? parts.join(', ') : CLASS_DETAIL_LABELS.empty;
+  }
+
+  /** Проверяет, является ли умение генеричной заглушкой подкласса («Умение подкласса», «Подкласс воина») */
   function isSubclassPlaceholder(feature: ClassFeature): boolean {
     return (
       feature.name === CLASS_DETAIL_LABELS.subclassFeature
@@ -160,7 +174,7 @@
       .join(', '),
   );
 
-  /** Все особенности базового класса сгруппированные по уровню */
+  /** Все умения базового класса сгруппированные по уровню */
   const featuresByLevel = computed(() => {
     const classDef = displayedClass.value;
 
@@ -170,7 +184,7 @@
 
     const map = new Map<number, ClassFeature[]>();
 
-    // Особенности ТОЛЬКО базового класса
+    // Умения ТОЛЬКО базового класса
     for (const feature of classDef.features) {
       if (selectedSubclassName.value && isSubclassPlaceholder(feature)) {
         continue;
@@ -183,7 +197,7 @@
       map.set(level, existing);
     }
 
-    // Особенности выбранного подкласса
+    // Умения выбранного подкласса
     if (selectedSubclassName.value) {
       const subclass = classDef.subclasses.find(
         (subclass) => subclass.name === selectedSubclassName.value,
@@ -364,29 +378,35 @@
   const armorProfLabel = computed(() => {
     const classDef = displayedClass.value;
 
-    if (!classDef || classDef.armorProficiencies.length === 0) {
+    if (!classDef) {
       return CLASS_DETAIL_LABELS.empty;
     }
 
-    return classDef.armorProficiencies
-      .map((armor) => ARMOR_PROF_SHORT_LABELS[armor] ?? armor)
-      .join(', ');
+    return joinProficiency(
+      classDef.armorProficiencies.map(
+        (armor) => ARMOR_PROF_SHORT_LABELS[armor] ?? armor,
+      ),
+      classDef.armorProficienciesCustom,
+    );
   });
 
   /** Строка владений оружием */
   const weaponProfLabel = computed(() => {
     const classDef = displayedClass.value;
 
-    if (!classDef || classDef.weaponProficiencies.length === 0) {
+    if (!classDef) {
       return CLASS_DETAIL_LABELS.empty;
     }
 
-    return classDef.weaponProficiencies
-      .map((weapon) => WEAPON_PROF_SHORT_LABELS[weapon] ?? weapon)
-      .join(', ');
+    return joinProficiency(
+      classDef.weaponProficiencies.map(
+        (weapon) => WEAPON_PROF_SHORT_LABELS[weapon] ?? weapon,
+      ),
+      classDef.weaponProficienciesCustom,
+    );
   });
 
-  /** Отсортированные особенности класса по уровню */
+  /** Отсортированные умения класса по уровню */
   const sortedFeatures = computed(() => {
     if (!displayedClass.value) {
       return [];
@@ -735,7 +755,7 @@
                     class="px-2 py-1.5 text-left align-middle text-muted"
                     :rowspan="hasGroupedColumns ? 2 : 1"
                   >
-                    {{ GRANT_SECTION_LABELS.features }}
+                    {{ CLASS_LEVEL_TABLE_LABELS.columnFeatures }}
                   </th>
 
                   <!-- Динамические колонки (Верхний уровень) -->
@@ -835,7 +855,7 @@
           </div>
         </div>
 
-        <!-- Особенности класса -->
+        <!-- Умения класса -->
         <div
           v-if="displayedClass.features.length > 0"
           class="pt-2"
@@ -953,7 +973,7 @@
                   class="text-muted"
                 />
 
-                <!-- Особенности подкласса -->
+                <!-- Умения подкласса -->
                 <div
                   v-if="subclass.features?.length"
                   class="mt-3 grid grid-cols-2 gap-2 border-t border-default/50 pt-3"
