@@ -807,13 +807,19 @@
     "
     :subtitle="nameEn || undefined"
     :initial-width="1100"
+    :initial-height="800"
     :min-width="640"
+    :min-height="480"
     :resizable="true"
     :z-index="zIndex"
     :saved-position="initialPosition"
+    :ui="{ body: 'flex min-h-0 flex-col' }"
     @update:open="handleOpenChange"
     @bring-to-front="emit('bring-to-front')"
   >
+    <!-- Тело окна — колонка на всю высоту, а прокручивается только содержимое
+      вкладки: у окна с изменяемым размером фиксированная высота вкладок
+      оставляла бы под ними пустоту, сколько окно ни растягивай -->
     <template #body>
       <!-- Вкладки не переносятся, а прокручиваются лентой: у варианта «pill»
         каждая вкладка растёт по ширине, и одинокая вкладка второй строки
@@ -823,11 +829,11 @@
       <UTabs
         :items="visibleTabItems"
         variant="pill"
-        class="flex flex-col"
+        class="flex min-h-0 flex-1 flex-col"
         :ui="{
-          list: 'custom-scrollbar mb-3 overflow-x-auto',
+          list: 'custom-scrollbar mb-3 shrink-0 overflow-x-auto',
           trigger: 'shrink-0 justify-center',
-          content: 'overflow-y-auto max-h-160',
+          content: 'min-h-0 flex-1 overflow-y-auto',
         }"
       >
         <!-- ОСНОВНОЕ -->
