@@ -1278,7 +1278,10 @@ export function useClassWizard(
     wizardState.toolProficiencies = [];
   }
 
-  watch(isOpen, (opened) => {
+  // Класс приходит и ПОСЛЕ открытия: мастер открывается со скелетоном, пока
+  // грузится список классов. Начальные хиты берутся из кости хитов, поэтому
+  // состояние пересобирается и на смену класса, а не только на открытие
+  watch([isOpen, classDefinition], ([opened]) => {
     if (opened) {
       resetState();
     }

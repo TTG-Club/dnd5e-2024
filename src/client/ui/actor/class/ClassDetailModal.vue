@@ -13,9 +13,12 @@
   import {
     toolProficiencyLabel,
     withCounterTableColumns,
+    withSubclassRecords,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useClassDefinitions } from '../../../composables/useClassDefinitions';
   import {
+    ABILITY_DELIMITER_LABELS,
     ABILITY_LABELS,
     ARMOR_PROF_SHORT_LABELS,
     CASTER_TYPE_LABELS,
@@ -88,6 +91,19 @@
     'select': [];
   }>();
 
+  const { classRecords } = useClassDefinitions();
+
+  /**
+   * Класс, который показываем: к записи приклеены подклассы, заведённые в мире
+   * отдельными записями. Окно открывают по самой записи (панель предметов,
+   * браузер компендиума, ссылка из описания), а там их ещё нет.
+   */
+  const displayedClass = computed(() =>
+    props.classDefinition
+      ? withSubclassRecords(props.classDefinition, classRecords.value)
+      : null,
+  );
+
   const initialPosition = computed(() =>
     props.positionOffset
       ? { x: props.positionOffset, y: props.positionOffset }
@@ -102,9 +118,33 @@
   const skillChoicesTitle = computed(
     () =>
       CLASS_DETAIL_LABELS.skillChoicesPrefix
-      + (props.classDefinition?.skillChoices.count ?? 0)
+      + (displayedClass.value?.skillChoices.count ?? 0)
       + CLASS_DETAIL_LABELS.skillChoicesSuffix,
   );
+
+  /**
+   * Основные характеристики строкой: «Сила и Телосложение», «Сила или
+   * Ловкость». Разделитель приходит записью — у одной характеристики его нет,
+   * а у списка без разделителя остаётся запятая.
+   */
+  const primaryAbilitiesLabel = computed(() => {
+    const abilities = displayedClass.value?.primaryAbilities ?? [];
+
+    const labels = abilities.map(
+      (ability) => ABILITY_LABELS[ability] ?? ability,
+    );
+
+    const delimiter = displayedClass.value?.primaryAbilitiesDelimiter;
+
+    if (labels.length < 2 || !delimiter) {
+      return labels.join(', ');
+    }
+
+    const head = labels.slice(0, -1).join(', ');
+    const last = labels[labels.length - 1];
+
+    return `${head} ${ABILITY_DELIMITER_LABELS[delimiter]} ${last}`;
+  });
 
   /** Выбранный подкласс для просмотра в таблице (строка) */
   const selectedSubclassName = ref<string | null>(null);
@@ -115,14 +155,14 @@
    * пришедшая ссылкой разметки, показывалась бы этой ссылкой целиком.
    */
   const toolProficienciesDisplay = computed(() =>
-    (props.classDefinition?.toolProficiencies ?? [])
+    (displayedClass.value?.toolProficiencies ?? [])
       .map((tool) => TOOL_PROF_LABELS[tool] ?? toolProficiencyLabel(tool))
       .join(', '),
   );
 
   /** Все особенности базового класса сгруппированные по уровню */
   const featuresByLevel = computed(() => {
-    const classDef = props.classDefinition;
+    const classDef = displayedClass.value;
 
     if (!classDef) {
       return new Map<number, ClassFeature[]>();
@@ -206,7 +246,7 @@
     }
 
     return (
-      props.classDefinition?.subclasses.find(
+      displayedClass.value?.subclasses.find(
         (subclass) => subclass.name === selectedSubclassName.value,
       ) ?? null
     );
@@ -221,7 +261,7 @@
    * при первой же его правке.
    */
   const classTable = computed(() => {
-    const definition = props.classDefinition;
+    const definition = displayedClass.value;
 
     if (!definition) {
       return { levelTable: [], tableColumns: [] };
@@ -286,7 +326,7 @@
   /** Активная заклинательная конфигурация — подкласса (если выбран и имеет свою) или базового класса */
   const activeSpellcasting = computed(() => {
     if (selectedSubclassName.value) {
-      const subclass = props.classDefinition?.subclasses.find(
+      const subclass = displayedClass.value?.subclasses.find(
         (sc) => sc.name === selectedSubclassName.value,
       );
 
@@ -295,7 +335,7 @@
       }
     }
 
-    return props.classDefinition?.spellcasting ?? null;
+    return displayedClass.value?.spellcasting ?? null;
   });
 
   /** Есть ли у таблицы колонки с группировкой (двухуровневая шапка) */
@@ -322,7 +362,7 @@
 
   /** Строка владений доспехами */
   const armorProfLabel = computed(() => {
-    const classDef = props.classDefinition;
+    const classDef = displayedClass.value;
 
     if (!classDef || classDef.armorProficiencies.length === 0) {
       return CLASS_DETAIL_LABELS.empty;
@@ -335,7 +375,7 @@
 
   /** Строка владений оружием */
   const weaponProfLabel = computed(() => {
-    const classDef = props.classDefinition;
+    const classDef = displayedClass.value;
 
     if (!classDef || classDef.weaponProficiencies.length === 0) {
       return CLASS_DETAIL_LABELS.empty;
@@ -348,13 +388,11 @@
 
   /** Отсортированные особенности класса по уровню */
   const sortedFeatures = computed(() => {
-    if (!props.classDefinition) {
+    if (!displayedClass.value) {
       return [];
     }
 
-    return [...props.classDefinition.features].sort(
-      (a, b) => a.level - b.level,
-    );
+    return [...displayedClass.value.features].sort((a, b) => a.level - b.level);
   });
 
   /** Хранит ID развернутых подклассов */
@@ -362,7 +400,7 @@
 
   /** Опции для выбора подкласса (простые строки) */
   const subclassOptions = computed(() => {
-    const classDef = props.classDefinition;
+    const classDef = displayedClass.value;
 
     if (!classDef || !classDef.subclasses) {
       return [];
@@ -405,8 +443,8 @@
 <template>
   <UDraggableModal
     :open="open"
-    :title="classDefinition?.name ?? CLASS_DETAIL_LABELS.fallbackTitle"
-    :subtitle="classDefinition?.nameEn || undefined"
+    :title="displayedClass?.name ?? CLASS_DETAIL_LABELS.fallbackTitle"
+    :subtitle="displayedClass?.nameEn || undefined"
     :initial-width="1000"
     :initial-height="700"
     :min-width="600"
@@ -419,12 +457,12 @@
   >
     <template #header-actions>
       <SourceBadge
-        :source-key="classDefinition?.sourceKey"
-        :source="classDefinition?.source"
+        :source-key="displayedClass?.sourceKey"
+        :source="displayedClass?.source"
       />
 
       <UBadge
-        v-if="classDefinition?.isSRD !== false"
+        v-if="displayedClass?.isSRD !== false"
         label="SRD"
         color="primary"
         variant="subtle"
@@ -447,14 +485,30 @@
 
     <template #body>
       <div
-        v-if="classDefinition"
+        v-if="displayedClass"
         class="flex flex-col gap-4"
       >
         <!-- Описание -->
-        <ItemDescriptionRenderer :content="classDefinition.description ?? ''" />
+        <ItemDescriptionRenderer :content="displayedClass.description ?? ''" />
 
         <!-- Базовая механика -->
         <div class="flex flex-wrap gap-2">
+          <!-- Основная характеристика -->
+          <div
+            v-if="primaryAbilitiesLabel"
+            class="min-w-28 flex-1 rounded-lg border border-default/50 bg-elevated/30 px-3 py-2.5 text-center"
+          >
+            <span
+              class="block text-[10px] font-medium tracking-wider text-dimmed uppercase"
+            >
+              {{ CLASS_DETAIL_LABELS.primaryAbilities }}
+            </span>
+
+            <p class="mt-0.5 text-sm font-semibold text-highlighted">
+              {{ primaryAbilitiesLabel }}
+            </p>
+          </div>
+
           <!-- Кость хитов -->
           <div
             class="min-w-20 flex-1 rounded-lg border border-default/50 bg-elevated/30 px-3 py-2.5 text-center"
@@ -466,7 +520,7 @@
             </span>
 
             <p class="mt-0.5 font-mono text-base font-bold text-warning">
-              {{ formatHitDie(classDefinition.hitDie) }}
+              {{ formatHitDie(displayedClass.hitDie) }}
             </p>
           </div>
 
@@ -482,7 +536,7 @@
 
             <p class="mt-0.5 text-sm font-semibold text-highlighted">
               {{
-                classDefinition.savingThrowProficiencies
+                displayedClass.savingThrowProficiencies
                   .map((ability) => ABILITY_LABELS[ability] ?? ability)
                   .join(', ')
               }}
@@ -543,7 +597,7 @@
 
           <!-- Инструменты (если есть) -->
           <div
-            v-if="classDefinition.toolProficiencies?.length"
+            v-if="displayedClass.toolProficiencies?.length"
             class="min-w-24 flex-1 rounded-lg border border-default/50 bg-elevated/30 px-3 py-2.5 text-center"
           >
             <span
@@ -568,7 +622,7 @@
 
           <div class="flex flex-wrap gap-1.5">
             <UBadge
-              v-for="skill in classDefinition.skillChoices.from"
+              v-for="skill in displayedClass.skillChoices.from"
               :key="skill"
               :label="SKILL_LABELS[skill] ?? skill"
               color="neutral"
@@ -580,7 +634,7 @@
 
         <!-- Снаряжение -->
         <div
-          v-if="classDefinition.startingEquipment?.length"
+          v-if="displayedClass.startingEquipment?.length"
           class="mt-4"
         >
           <span
@@ -591,7 +645,7 @@
 
           <div class="flex flex-col gap-2">
             <div
-              v-for="eq in classDefinition.startingEquipment"
+              v-for="eq in displayedClass.startingEquipment"
               :key="eq.key"
               class="flex gap-1.5 rounded-md border border-default/50 bg-elevated/30 p-2 text-sm text-toned"
             >
@@ -604,7 +658,7 @@
 
         <!-- Выбор подкласса для таблицы -->
         <div
-          v-if="classDefinition.subclasses?.length > 0"
+          v-if="displayedClass.subclasses?.length > 0"
           class="mt-4 flex w-64 items-center rounded-lg border border-default/50 bg-elevated/30 p-1"
         >
           <span class="pl-2 text-xs font-medium text-muted">
@@ -783,7 +837,7 @@
 
         <!-- Особенности класса -->
         <div
-          v-if="classDefinition.features.length > 0"
+          v-if="displayedClass.features.length > 0"
           class="pt-2"
         >
           <span
@@ -828,7 +882,7 @@
           даёт класс целиком, и приписывать их первому попавшемуся умению
           значило бы соврать об источнике -->
         <div
-          v-if="classDefinition.activeEffects?.length"
+          v-if="displayedClass.activeEffects?.length"
           class="pt-2"
         >
           <span
@@ -838,27 +892,27 @@
           </span>
 
           <ItemEffectsView
-            :effects="classDefinition.activeEffects"
-            :owner-name="classDefinition.name"
+            :effects="displayedClass.activeEffects"
+            :owner-name="displayedClass.name"
           />
         </div>
 
         <!-- Подклассы -->
         <div
-          v-if="classDefinition.subclasses.length > 0"
+          v-if="displayedClass.subclasses.length > 0"
           class="pt-2"
         >
           <span
             class="mb-1.5 block text-xs font-semibold tracking-wider text-dimmed uppercase"
           >
-            {{ classDefinition.subclassLabel }} ({{
-              formatLevelBadge(classDefinition.subclassLevel)
+            {{ displayedClass.subclassLabel }} ({{
+              formatLevelBadge(displayedClass.subclassLevel)
             }})
           </span>
 
           <div class="flex flex-col gap-2">
             <div
-              v-for="subclass in classDefinition.subclasses"
+              v-for="subclass in displayedClass.subclasses"
               :key="subclass.key"
               class="flex flex-col overflow-hidden rounded-lg border border-default/50 bg-elevated/30 transition-colors"
             >

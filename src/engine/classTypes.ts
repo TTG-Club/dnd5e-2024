@@ -16,6 +16,8 @@ import type { ActiveEffect } from './activeEffectTypes.js';
 import type { FeatData } from './featTypes.js';
 import type { StartingEquipmentOption } from './startingEquipment.js';
 
+import { isRecord } from '@vtt/shared';
+
 // ── Литеральные типы ─────────────────────────────────────────
 
 /** Уникальный ключ класса */
@@ -35,6 +37,13 @@ export type ClassKey =
 
 /** Тип заклинателя */
 export type CasterType = 'full' | 'half' | 'third' | 'pact' | 'none';
+
+/**
+ * Как читать список основных характеристик класса: «Сила И Телосложение» или
+ * «Сила ИЛИ Ловкость». Разделитель приходит из источника отдельным значением —
+ * вывести его из самого списка нельзя.
+ */
+export type AbilityDelimiter = 'and' | 'or';
 
 /** Тип кости хитов */
 export type HitDie = 6 | 8 | 10 | 12;
@@ -406,9 +415,32 @@ export interface ClassDefinition {
   /** Принадлежит ли классу к System Reference Document (SRD) */
   isSRD?: boolean;
 
+  /**
+   * Ключ родительского класса: запись — не самостоятельный класс, а его
+   * подкласс, заведённый отдельной записью (как подвид у вида: `parentKey`
+   * в `speciesTypes.ts`). Разбор такой записи — в `classLineage.ts`.
+   *
+   * Так на сайте TTG Club и устроены подклассы: `CharacterClass.parentUrl`.
+   * В компендиум подклассы приезжают свёрнутыми в {@link subclasses} родителя,
+   * поэтому поле заполняется только у записей, созданных в самом мире.
+   */
+  parentClassKey?: string;
+
   // --- Базовая механика ---
   /** Кость хитов (d6/d8/d10/d12) */
   hitDie: HitDie;
+
+  /**
+   * Основные характеристики класса («Сила», «Харизма»). Определяют, что
+   * повышать в первую очередь, и требования мультиклассирования.
+   */
+  primaryAbilities?: AbilityType[];
+
+  /**
+   * Как читать список {@link primaryAbilities}, когда характеристик больше
+   * одной. Пусто — характеристика одна либо в источнике не указано.
+   */
+  primaryAbilitiesDelimiter?: AbilityDelimiter;
 
   // --- Владения ---
   /** Владения: доспехи */
@@ -554,6 +586,17 @@ export function isAsiFeatureKey(featureKey: string): boolean {
  */
 export function isAsiFeature(feature: ClassFeature): boolean {
   return feature.abilityImprovement ?? isAsiFeatureKey(feature.key);
+}
+
+/**
+ * Проверяет, что значение — определение класса. Хватает дискриминанта: он и
+ * отличает запись класса от любой другой записи компендиума или предмета мира.
+ *
+ * @param value - произвольное значение (запись компендиума, предмет мира)
+ * @returns `true`, если значение является определением класса
+ */
+export function isClassDefinition(value: unknown): value is ClassDefinition {
+  return isRecord(value) && value.type === 'class';
 }
 
 /**

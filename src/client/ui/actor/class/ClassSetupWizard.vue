@@ -26,7 +26,11 @@
 
   import { useGrantedSpellsResolver } from '../../../composables/useGrantedSpellsResolver';
   import { resolveStartingEquipment } from '../../../composables/useStartingEquipment';
-  import { CLASS_WIZARD_LABELS, MODAL_BUTTON_LABELS } from '../constants';
+  import {
+    CLASS_WIZARD_LABELS,
+    MODAL_BUTTON_LABELS,
+    WIZARD_SKELETON_STEPS,
+  } from '../constants';
   import FeatChoicesFields from '../feat/FeatChoicesFields.vue';
   import { useClassWizard } from './wizard';
   import WizardStepAsi from './wizard/WizardStepAsi.vue';
@@ -44,6 +48,12 @@
     classDefinition: ClassDefinition | null;
     /** Сокет для загрузки данных компендиума на шаге заклинаний */
     socket: TypedWebSocketClient | null;
+    /**
+     * Класс ещё грузится: вместо шагов показываем скелетон. Список классов
+     * нужен целиком — по нему находится и родитель записи-подкласса, и
+     * хоумбрю-подклассы к классу компендиума.
+     */
+    loading?: boolean;
   }>();
 
   const emit = defineEmits<{
@@ -398,8 +408,31 @@
     :title="modalTitle"
   >
     <template #body>
+      <!-- Скелетон повторяет разметку мастера: шапка класса, лента шагов и
+        поле шага — окно не прыгает, когда класс доезжает -->
       <div
-        v-if="classDefinition"
+        v-if="loading"
+        class="flex flex-col gap-4"
+      >
+        <div class="rounded-lg border border-default/50 bg-elevated/30 p-3">
+          <USkeleton class="h-6 w-48" />
+
+          <USkeleton class="mt-2 h-4 w-32" />
+        </div>
+
+        <div class="flex items-center gap-1">
+          <USkeleton
+            v-for="step in WIZARD_SKELETON_STEPS"
+            :key="step"
+            class="h-6 flex-1 rounded-full"
+          />
+        </div>
+
+        <USkeleton class="min-h-50 w-full" />
+      </div>
+
+      <div
+        v-else-if="classDefinition"
         class="flex flex-col gap-4"
       >
         <!-- Инфо о классе -->
@@ -576,8 +609,25 @@
     </template>
 
     <template #footer>
+      <!-- Пока класс грузится, из навигации осмысленна одна «Отмена» -->
+      <div
+        v-if="loading"
+        class="flex justify-end"
+      >
+        <UButton
+          variant="ghost"
+          color="neutral"
+          @click.left.exact.prevent="isOpen = false"
+        >
+          {{ MODAL_BUTTON_LABELS.cancel }}
+        </UButton>
+      </div>
+
       <!-- Навигация: Назад / Далее / Применить -->
-      <div class="flex justify-between">
+      <div
+        v-else
+        class="flex justify-between"
+      >
         <UButton
           v-if="!isFirstStep"
           variant="ghost"

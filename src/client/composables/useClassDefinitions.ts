@@ -5,20 +5,10 @@ import { computed, onMounted, ref } from 'vue';
 import { loadCompendiumKind } from '@/core/compendiumDataClient';
 import { useChatStore } from '@/stores/chatStore';
 import { useItemsStore } from '@/stores/itemsStore';
-
-/**
- * Проверяет, что значение — определение класса.
- *
- * @param value - произвольное значение
- */
-function isClassDefinition(value: unknown): value is ClassDefinition {
-  return (
-    typeof value === 'object'
-    && value !== null
-    && 'type' in value
-    && value.type === 'class'
-  );
-}
+import {
+  isClassDefinition,
+  mergeSubclassRecords,
+} from '@vtt/shared/system/dnd.js';
 
 /**
  * Определения классов, доступные листу: компендиум (все паки) плюс классы,
@@ -30,6 +20,9 @@ function isClassDefinition(value: unknown): value is ClassDefinition {
  *
  * Компендиум приоритетен при совпадении ключей — как и при сборке списка в
  * листе актёра.
+ *
+ * Записи-подклассы (`parentClassKey`) в списке не остаются: они сворачиваются
+ * внутрь своих родителей, и дальше лист знает одну форму подкласса.
  */
 export function useClassDefinitions() {
   const chatStore = useChatStore();
@@ -67,7 +60,12 @@ export function useClassDefinitions() {
       .filter(isClassDefinition),
   );
 
-  const classDefinitions = computed(() => {
+  /**
+   * Все записи как есть — вместе с записями-подклассами. Нужны тому, кто клеит
+   * подклассы к одному классу сам ({@link withSubclassRecords}): в итоговом
+   * списке таких записей уже нет.
+   */
+  const classRecords = computed(() => {
     const merged = [...compendiumClasses.value];
 
     for (const worldClass of worldClasses.value) {
@@ -79,5 +77,9 @@ export function useClassDefinitions() {
     return merged;
   });
 
-  return { classDefinitions };
+  const classDefinitions = computed(() =>
+    mergeSubclassRecords(classRecords.value),
+  );
+
+  return { classDefinitions, classRecords };
 }

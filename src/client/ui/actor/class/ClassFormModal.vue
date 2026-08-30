@@ -1,12 +1,15 @@
 <script setup lang="ts">
+  import type { PackKindEntries } from '@/core/compendiumDataClient';
   import type {
     AbilityType,
     ArmorCategory,
+    CompendiumEntry,
     SkillType,
     SourceDefinition,
     TypedWebSocketClient,
   } from '@vtt/shared';
   import type {
+    AbilityDelimiter,
     ActiveEffect,
     ClassDefinition,
     DnDGameItem,
@@ -15,6 +18,10 @@
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
+  import type {
+    PickedCompendiumRef,
+    PickerEntryFields,
+  } from '../CompendiumRefPickerModal.vue';
   import type { EditableFeatGrants } from '../feat/featEditorTypes';
   import type { SpellOption } from '../grantedSpellsEditorTypes';
   import type { EditableStartingEquipmentOption } from '../startingEquipmentEditorTypes';
@@ -29,24 +36,30 @@
 
   import { computed, ref, watch } from 'vue';
 
+  import { loadCompendiumKindByPack } from '@/core/compendiumDataClient';
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
+  import { useItemsStore } from '@/stores/itemsStore';
   import {
     findSpellInPacks,
     loadSpellPacks,
   } from '@/systems/dnd5e/composables/spellCompendium';
-  import { generateId } from '@vtt/shared';
+  import { generateId, isRecord } from '@vtt/shared';
   import {
     ABILITY_OPTIONS,
+    isClassDefinition,
     SKILLS_LIST,
     slugify,
   } from '@vtt/shared/system/dnd.js';
 
+  import CompendiumRefPickerModal from '../CompendiumRefPickerModal.vue';
   import {
+    ABILITY_DELIMITER_OPTIONS,
     ARMOR_PROF_LABELS,
     CLASS_DEFAULT_SUBCLASS_LABEL,
     CLASS_FORM_LABELS,
+    COMPENDIUM_PICKER_LABELS,
     DEFINITION_FORM_LABELS,
     FORM_FIELD_LABELS,
     FORM_SECTION_TOGGLE_UI,
@@ -100,6 +113,12 @@
   import ClassSpellcastingFields from './ClassSpellcastingFields.vue';
   import ClassSubclassesEditor from './ClassSubclassesEditor.vue';
 
+  /** Родительский класс, показанный в поле: как называется и откуда взят. */
+  interface ParentClassInfo {
+    name: string;
+    packName: string;
+  }
+
   const props = defineProps<{
     open: boolean;
     /** Редактируемый класс (null = создание). Всегда плоский ClassDefinition. */
@@ -128,7 +147,8 @@
       : undefined,
   );
 
-  const { openModal } = useModalManager();
+  const { getNextZIndex, openModal } = useModalManager();
+  const itemsStore = useItemsStore();
 
   // ── Опции селектов ─────────────────────────────────────────
   const armorOptions: { value: ArmorCategory; label: string }[] = [
@@ -179,6 +199,10 @@
   const name = ref('');
   const nameEn = ref('');
   const description = ref('');
+  /**
+   * Иконка записи. Поля в форме у неё нет, но значение читается и пишется
+   * обратно: иначе правка записи компендиума стирала бы её иконку.
+   */
   const icon = ref('');
   const sourceKey = ref<string | undefined>(undefined);
   const source = ref<SourceDefinition | undefined>(undefined);
@@ -186,6 +210,14 @@
   const hitDie = ref<HitDie>(8);
   const subclassLevel = ref(3);
   const subclassLabel = ref<string>(CLASS_DEFAULT_SUBCLASS_LABEL);
+  const primaryAbilities = ref<AbilityType[]>([]);
+
+  const primaryAbilitiesDelimiter = ref<AbilityDelimiter | undefined>(
+    undefined,
+  );
+
+  /** Ключ родительского класса: заполнен — запись является его подклассом. */
+  const parentClassKey = ref('');
 
   const armorProficiencies = ref<ArmorCategory[]>([]);
   const weaponProficiencies = ref<string[]>([]);
@@ -236,6 +268,196 @@
 
   const isCaster = computed(() => spellcasting.value.enabled);
 
+  /**
+   * Является ли редактируемая запись подклассом. Подкласс подкласса модель не
+   * знает, поэтому у такой записи нет ни своей группы подклассов, ни вкладки с
+   * ними — ровно как у происхождения вида.
+   */
+  const isSubclass = computed(() => parentClassKey.value.length > 0);
+
+  /** Вкладки формы: у записи-подкласса «Подклассы» среди них нет. */
+  const visibleTabItems = computed(() =>
+    isSubclass.value
+      ? tabItems.filter((tab) => tab.slot !== 'subclasses')
+      : tabItems,
+  );
+
+  // ── Родительский класс ─────────────────────────────────────
+
+  /** Свежий выбор родителя: окно выбора отдаёт и название, и пак. */
+  const pickedParent = ref<ParentClassInfo | null>(null);
+
+  /** Открыто ли окно выбора родительского класса. */
+  const isParentPickerOpen = ref(false);
+
+  /** z-index окна выбора родителя — оно встаёт поверх формы. */
+  const parentPickerZIndex = ref<number | undefined>(undefined);
+
+  /** Классы справочника (компендиум + мир) по ключу — источник названий. */
+  const knownClassesByKey = ref(new Map<string, ParentClassInfo>());
+
+  /**
+   * Читает определение класса из записи: у предмета мира оно лежит во
+   * вложенном `classData`, у записи компендиума — на верхнем уровне.
+   *
+   * @param entry - запись компендиума или предмет мира
+   * @returns определение класса либо `null`
+   */
+  function readClassDefinition(entry: unknown): ClassDefinition | null {
+    if (isRecord(entry) && isClassDefinition(entry.classData)) {
+      return entry.classData;
+    }
+
+    return isClassDefinition(entry) ? entry : null;
+  }
+
+  /**
+   * Годится ли запись в родительский класс и чем она адресуется. Ключ берётся у
+   * самого определения: у класса мира `id` принадлежит предмету, а в
+   * `parentClassKey` нужен ключ класса.
+   *
+   * Отсеиваются записи-подклассы (цепочку «подкласс подкласса» модель не знает)
+   * и сама редактируемая запись — класс не бывает подклассом самого себя.
+   *
+   * @param entry - запись компендиума или предмет мира
+   * @returns поля записи для окна выбора либо `null`
+   */
+  function resolveParentCandidate(
+    entry: CompendiumEntry,
+  ): PickerEntryFields | null {
+    const definition = readClassDefinition(entry);
+
+    if (
+      !definition
+      || definition.parentClassKey
+      || definition.key === existingKey.value
+    ) {
+      return null;
+    }
+
+    return {
+      key: definition.key,
+      name: definition.name,
+      nameEn: definition.nameEn ?? definition.name,
+    };
+  }
+
+  /** Загружает классы справочника — по ним поле узнаёт название родителя. */
+  async function loadKnownClasses(): Promise<void> {
+    const known = new Map<string, ParentClassInfo>();
+
+    if (props.socket) {
+      const packs: PackKindEntries[] = await loadCompendiumKindByPack(
+        props.socket,
+        'class',
+      );
+
+      for (const pack of packs) {
+        for (const entry of pack.entries) {
+          const definition = readClassDefinition(entry);
+
+          if (definition && !known.has(definition.key)) {
+            known.set(definition.key, {
+              name: definition.name,
+              packName: pack.packName,
+            });
+          }
+        }
+      }
+    }
+
+    for (const worldItem of itemsStore.items) {
+      const definition = readClassDefinition(worldItem);
+
+      if (definition && !known.has(definition.key)) {
+        known.set(definition.key, {
+          name: definition.name,
+          packName: COMPENDIUM_PICKER_LABELS.worldPack,
+        });
+      }
+    }
+
+    knownClassesByKey.value = known;
+  }
+
+  /** Запись справочника, стоящая за выбранным ключом родителя. */
+  const knownParent = computed(() =>
+    parentClassKey.value
+      ? knownClassesByKey.value.get(parentClassKey.value)
+      : undefined,
+  );
+
+  /**
+   * Название родительского класса. Свежий выбор знает его сам; у записи,
+   * открытой на правку, есть только ключ — название ищем в справочнике. Не
+   * нашлось (пак с родителем не подключён) — показываем ключ, а не пустое
+   * место.
+   */
+  const parentLabel = computed(() => {
+    if (!parentClassKey.value) {
+      return CLASS_FORM_LABELS.parentNone;
+    }
+
+    return (
+      pickedParent.value?.name
+      ?? knownParent.value?.name
+      ?? parentClassKey.value
+    );
+  });
+
+  /** Пока родитель не выбран, в поле стоит подсказка — её и приглушаем. */
+  const parentLabelClass = computed(() =>
+    parentClassKey.value ? 'text-default' : 'text-dimmed',
+  );
+
+  /** Компендиум родителя — пусто, если запись в справочнике не нашлась. */
+  const parentPackLabel = computed(
+    () => pickedParent.value?.packName ?? knownParent.value?.packName ?? '',
+  );
+
+  /** Открывает окно выбора родительского класса поверх формы. */
+  function openParentPicker(): void {
+    parentPickerZIndex.value = getNextZIndex();
+    isParentPickerOpen.value = true;
+  }
+
+  /**
+   * Принимает выбор. Окно отдаёт список, но выбор здесь одиночный — берём
+   * первую и единственную ссылку.
+   *
+   * @param picked - выбранные записи
+   */
+  function applyParentPick(picked: PickedCompendiumRef[]): void {
+    const parent = picked[0];
+
+    if (!parent) {
+      return;
+    }
+
+    parentClassKey.value = parent.url;
+    pickedParent.value = { name: parent.name, packName: parent.packName };
+  }
+
+  /** Снимает родителя — запись снова самостоятельный класс. */
+  function clearParent(): void {
+    parentClassKey.value = '';
+    pickedParent.value = null;
+  }
+
+  /**
+   * Разделитель нужен, только когда характеристик больше одной: у одной ему
+   * нечего разделять, и оставленное значение уехало бы в запись мусором.
+   */
+  const isDelimiterDisabled = computed(
+    () => primaryAbilities.value.length <= 1,
+  );
+
+  watch(isDelimiterDisabled, (isDisabled) => {
+    if (isDisabled) {
+      primaryAbilitiesDelimiter.value = undefined;
+    }
+  });
+
   // ── Инициализация ──────────────────────────────────────────
   function resetForm(): void {
     name.value = '';
@@ -248,6 +470,10 @@
     hitDie.value = 8;
     subclassLevel.value = 3;
     subclassLabel.value = CLASS_DEFAULT_SUBCLASS_LABEL;
+    primaryAbilities.value = [];
+    primaryAbilitiesDelimiter.value = undefined;
+    parentClassKey.value = '';
+    pickedParent.value = null;
     armorProficiencies.value = [];
     weaponProficiencies.value = [];
     toolProficiencies.value = [];
@@ -284,6 +510,9 @@
     hitDie.value = definition.hitDie;
     subclassLevel.value = definition.subclassLevel;
     subclassLabel.value = definition.subclassLabel;
+    primaryAbilities.value = [...(definition.primaryAbilities ?? [])];
+    primaryAbilitiesDelimiter.value = definition.primaryAbilitiesDelimiter;
+    parentClassKey.value = definition.parentClassKey ?? '';
     existingKey.value = definition.key;
 
     armorProficiencies.value = [...definition.armorProficiencies];
@@ -418,6 +647,7 @@
       }
 
       void loadAvailableSpells();
+      void loadKnownClasses();
     },
     { immediate: true },
   );
@@ -469,6 +699,20 @@
         tableColumns.value,
       ),
     };
+
+    if (parentClassKey.value) {
+      definition.parentClassKey = parentClassKey.value;
+    }
+
+    if (primaryAbilities.value.length > 0) {
+      definition.primaryAbilities = [...primaryAbilities.value];
+    }
+
+    // Разделитель имеет смысл только у списка из двух и более характеристик —
+    // проверяем сам список, а не флаг поля: он вычислен для disabled селекта
+    if (primaryAbilities.value.length > 1 && primaryAbilitiesDelimiter.value) {
+      definition.primaryAbilitiesDelimiter = primaryAbilitiesDelimiter.value;
+    }
 
     if (toolProficiencies.value.length > 0) {
       definition.toolProficiencies = [...toolProficiencies.value];
@@ -562,7 +806,7 @@
         : CLASS_FORM_LABELS.createTitle
     "
     :subtitle="nameEn || undefined"
-    :initial-width="900"
+    :initial-width="1100"
     :min-width="640"
     :resizable="true"
     :z-index="zIndex"
@@ -577,7 +821,7 @@
         ломался — Reka считает ему только горизонтальное положение и на второй
         строке оставлял его под чужой вкладкой -->
       <UTabs
-        :items="tabItems"
+        :items="visibleTabItems"
         variant="pill"
         class="flex flex-col"
         :ui="{
@@ -628,6 +872,142 @@
                   v-model:source="source"
                 />
 
+                <UFormField
+                  class="col-span-2"
+                  :label="CLASS_FORM_LABELS.parent"
+                >
+                  <div class="flex items-center gap-2">
+                    <div
+                      class="flex min-w-0 flex-1 items-center gap-2 rounded-lg bg-elevated/40 px-2.5 py-1.5"
+                    >
+                      <span
+                        class="min-w-0 flex-1 truncate text-sm"
+                        :class="parentLabelClass"
+                      >
+                        {{ parentLabel }}
+                      </span>
+
+                      <UBadge
+                        v-if="parentPackLabel"
+                        color="success"
+                        variant="subtle"
+                        size="sm"
+                        icon="tabler:book"
+                        class="shrink-0"
+                      >
+                        {{ parentPackLabel }}
+                      </UBadge>
+                    </div>
+
+                    <UButton
+                      icon="tabler:books"
+                      :label="CLASS_FORM_LABELS.parentPick"
+                      color="primary"
+                      variant="soft"
+                      size="sm"
+                      class="shrink-0"
+                      @click.left.exact.prevent="openParentPicker"
+                    />
+
+                    <UButton
+                      v-if="parentClassKey"
+                      icon="tabler:x"
+                      color="error"
+                      variant="ghost"
+                      size="sm"
+                      class="shrink-0"
+                      :title="CLASS_FORM_LABELS.parentClear"
+                      :aria-label="CLASS_FORM_LABELS.parentClear"
+                      @click.left.exact.prevent="clearParent"
+                    />
+                  </div>
+
+                  <p class="mt-1 text-xs text-dimmed">
+                    {{ CLASS_FORM_LABELS.parentHint }}
+                  </p>
+                </UFormField>
+
+                <div class="col-span-2 flex items-center">
+                  <UCheckbox
+                    v-model="isSRD"
+                    :label="FORM_FIELD_LABELS.srd"
+                  />
+                </div>
+              </div>
+            </FormSection>
+
+            <!-- Характеристики класса: что он повышает в первую очередь и в чём
+              владеет спасбросками. Стоят рядом, как в мастерской на сайте, —
+              обе строки про характеристики, а не про владения -->
+            <FormSection
+              :title="CLASS_FORM_LABELS.abilitiesSectionTitle"
+              icon="tabler:chart-arrows-vertical"
+              :hint="CLASS_FORM_LABELS.primaryAbilitiesHint"
+            >
+              <div class="flex items-start gap-3">
+                <UFormField
+                  :label="CLASS_FORM_LABELS.primaryAbilities"
+                  class="flex-1"
+                >
+                  <USelectMenu
+                    v-model="primaryAbilities"
+                    :items="abilityOptions"
+                    value-key="value"
+                    label-key="label"
+                    multiple
+                    class="w-full"
+                    :placeholder="CLASS_FORM_LABELS.primaryAbilitiesPlaceholder"
+                  />
+                </UFormField>
+
+                <UFormField
+                  :label="CLASS_FORM_LABELS.primaryAbilitiesDelimiter"
+                  class="w-28"
+                >
+                  <USelect
+                    v-model="primaryAbilitiesDelimiter"
+                    :items="ABILITY_DELIMITER_OPTIONS"
+                    value-key="value"
+                    :disabled="isDelimiterDisabled"
+                    :placeholder="CLASS_FORM_LABELS.primaryAbilitiesDelimiter"
+                    class="w-full"
+                  />
+                </UFormField>
+
+                <UFormField
+                  :label="GRANT_SECTION_LABELS.savingThrows"
+                  class="flex-1"
+                >
+                  <USelectMenu
+                    v-model="savingThrowProficiencies"
+                    :items="abilityOptions"
+                    value-key="value"
+                    label-key="label"
+                    multiple
+                    class="w-full"
+                    :placeholder="GRANT_FIELD_LABELS.abilitiesPlaceholder"
+                  />
+                </UFormField>
+              </div>
+            </FormSection>
+
+            <!-- Группа подклассов отдельным блоком: подпись и уровень выбора
+              читаются как одна настройка, а среди общих полей терялись -->
+            <FormSection
+              v-if="!isSubclass"
+              :title="CLASS_FORM_LABELS.subclassesSectionTitle"
+              icon="tabler:hierarchy-2"
+              :hint="CLASS_FORM_LABELS.subclassesSectionHint"
+            >
+              <div class="grid grid-cols-2 gap-3">
+                <UFormField :label="CLASS_FORM_LABELS.subclassLabel">
+                  <UInput
+                    v-model="subclassLabel"
+                    :placeholder="CLASS_FORM_LABELS.subclassLabelPlaceholder"
+                    class="w-full"
+                  />
+                </UFormField>
+
                 <UFormField :label="CLASS_FORM_LABELS.subclassLevel">
                   <UInputNumber
                     v-model="subclassLevel"
@@ -639,29 +1019,6 @@
                     {{ CLASS_FORM_LABELS.subclassLevelHelp }}
                   </p>
                 </UFormField>
-
-                <UFormField :label="CLASS_FORM_LABELS.subclassLabel">
-                  <UInput
-                    v-model="subclassLabel"
-                    :placeholder="CLASS_FORM_LABELS.subclassLabelPlaceholder"
-                    class="w-full"
-                  />
-                </UFormField>
-
-                <UFormField :label="DEFINITION_FORM_LABELS.icon">
-                  <UInput
-                    v-model="icon"
-                    :placeholder="CLASS_FORM_LABELS.iconPlaceholder"
-                    class="w-full"
-                  />
-                </UFormField>
-
-                <div class="flex items-center">
-                  <UCheckbox
-                    v-model="isSRD"
-                    :label="FORM_FIELD_LABELS.srd"
-                  />
-                </div>
               </div>
             </FormSection>
 
@@ -716,18 +1073,6 @@
                     multiple
                     class="w-full"
                     :placeholder="CLASS_FORM_LABELS.toolsPlaceholder"
-                  />
-                </UFormField>
-
-                <UFormField :label="GRANT_SECTION_LABELS.savingThrows">
-                  <USelectMenu
-                    v-model="savingThrowProficiencies"
-                    :items="abilityOptions"
-                    value-key="value"
-                    label-key="label"
-                    multiple
-                    class="w-full"
-                    :placeholder="GRANT_FIELD_LABELS.abilitiesPlaceholder"
                   />
                 </UFormField>
               </div>
@@ -989,4 +1334,17 @@
       </div>
     </template>
   </UDraggableModal>
+
+  <!-- Выбор родительского класса стоит рядом с формой, а не внутри её вкладки:
+    вкладка при переключении размонтируется и унесла бы окно выбора с собой -->
+  <CompendiumRefPickerModal
+    v-model:open="isParentPickerOpen"
+    :socket="props.socket ?? null"
+    kind="class"
+    :title="CLASS_FORM_LABELS.parentPickTitle"
+    :multiple="false"
+    :resolve-entry="resolveParentCandidate"
+    :z-index="parentPickerZIndex"
+    @select="applyParentPick"
+  />
 </template>

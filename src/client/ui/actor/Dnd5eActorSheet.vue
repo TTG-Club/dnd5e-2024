@@ -49,10 +49,12 @@
     DEFAULT_ACTOR,
     getMulticlassProficiencies,
     getTotalLevel,
+    isClassDefinition,
     isDndActor,
     isDnDGameItem,
     isSkillType,
     isSpell,
+    mergeSubclassRecords,
     normalizeActor,
     normalizeCompendiumItem,
     resolveFeatChoicesToAsk,
@@ -75,6 +77,7 @@
     ACTOR_SHEET_LOG_PREFIX,
     BACKGROUND_DEFINITION_MIME,
     CLASS_DEFINITION_MIME,
+    CLASS_WIZARD_LABELS,
     COMPENDIUM_PICKER_LABELS,
     DRAG_OVER_RESET_DELAY_MS,
     FEAT_CHOICES_LABELS,
@@ -164,6 +167,9 @@
   const isClassWizardOpen = ref(false);
   const droppedClassDef = ref<ClassDefinition | null>(null);
 
+  /** Мастер класса открыт, но список классов ещё грузится — показываем скелетон. */
+  const isClassSetupLoading = ref(false);
+
   // Модалка мастера видов
   const isSpeciesWizardOpen = ref(false);
 
@@ -203,10 +209,6 @@
     toRef(() => localActor.value?.id),
     'equipment',
   );
-
-  function isClassDefinition(value: unknown): value is ClassDefinition {
-    return isRecord(value) && value.type === 'class';
-  }
 
   function isSpeciesDefinition(value: unknown): value is SpeciesDefinition {
     return isRecord(value) && value.type === 'species';
@@ -302,6 +304,9 @@
    * Пересобирает итоговый список классов из кеша компендиума и классов мира
    * (компендиум приоритетен при совпадении ключей — копия SRD-класса получает
    * новый ключ и не перекрывает оригинал).
+   *
+   * Записи-подклассы сворачиваются внутрь родителей: дальше по листу подкласс
+   * мира и подкласс компендиума неразличимы.
    */
   function rebuildClassDefinitions(): void {
     const merged = [...compendiumClassDefinitions.value];
@@ -312,7 +317,7 @@
       }
     }
 
-    classDefinitions.value = merged;
+    classDefinitions.value = mergeSubclassRecords(merged);
   }
 
   /**
@@ -1192,10 +1197,43 @@
    *
    * @param definition - определение класса
    */
-  function startClassSetup(definition: ClassDefinition) {
-    droppedClassDef.value = definition;
+  async function startClassSetup(definition: ClassDefinition): Promise<void> {
+    droppedClassDef.value = null;
     wizardQueue.value = []; // Очередь уровней тут ни при чём
+
+    // Окно открываем сразу, со скелетоном: список классов мог ещё не догрузиться
+    // (лист только открылся), а молчать в ответ на перенос нельзя
+    isClassSetupLoading.value = true;
     isClassWizardOpen.value = true;
+
+    const classes = await loadClassDefinitions();
+
+    isClassSetupLoading.value = false;
+
+    // Перенесли запись-подкласс: настройку ведёт мастер её родителя, а подкласс
+    // игрок выбирает шагом мастера
+    const targetKey = definition.parentClassKey ?? definition.key;
+
+    // Берём запись из общего списка, а не саму перенесённую: в списке подклассы,
+    // заведённые отдельными записями, уже свёрнуты внутрь родителя, — иначе
+    // мастер не предложил бы хоумбрю-подкласс к компендиумному классу
+    const target = classes.find((entry) => entry.key === targetKey);
+
+    // Родителя нет среди записей (пак не подключён) — настройка не начинается:
+    // у самого подкласса нет ни таблицы уровней, ни владений
+    if (!target && definition.parentClassKey) {
+      isClassWizardOpen.value = false;
+
+      toast.add({
+        title: CLASS_WIZARD_LABELS.subclassParentMissingTitle,
+        description: CLASS_WIZARD_LABELS.subclassParentMissingText,
+        color: 'warning',
+      });
+
+      return;
+    }
+
+    droppedClassDef.value = target ?? definition;
   }
 
   /**
@@ -1215,7 +1253,7 @@
     }
 
     if (restDefinitions.length === 0) {
-      startClassSetup(firstDefinition);
+      void startClassSetup(firstDefinition);
 
       return;
     }
@@ -1363,7 +1401,7 @@
           throw new Error('Dropped class definition has invalid shape');
         }
 
-        startClassSetup(parsedClassDefinition);
+        void startClassSetup(parsedClassDefinition);
         event.preventDefault();
         event.stopPropagation();
       } catch (error) {
@@ -1700,6 +1738,7 @@
 
     if (targetDef) {
       droppedClassDef.value = targetDef;
+      isClassSetupLoading.value = false;
       isClassWizardOpen.value = true;
 
       return;
@@ -2556,6 +2595,7 @@
     v-model:open="isClassWizardOpen"
     :actor="localActor"
     :class-definition="droppedClassDef"
+    :loading="isClassSetupLoading"
     :socket="socket"
     @apply="handleClassSetupApply"
   />
