@@ -13,7 +13,7 @@
     CLASS_DETAIL_LABELS,
     CLASS_FEATURE_CHOICE_LABELS,
   } from '../constants';
-  import ClassFeatureSection from './ClassFeatureSection.vue';
+  import EditorNestedSection from '../EditorNestedSection.vue';
 
   /**
    * Варианты умения в карточке класса: манёвры, воззвания, боевые стили.
@@ -81,7 +81,7 @@
 </script>
 
 <template>
-  <ClassFeatureSection
+  <EditorNestedSection
     v-if="visibleChoices.length > 0"
     :title="title"
     :count="visibleChoices.length"
@@ -144,5 +144,5 @@
         />
       </div>
     </div>
-  </ClassFeatureSection>
+  </EditorNestedSection>
 </template>

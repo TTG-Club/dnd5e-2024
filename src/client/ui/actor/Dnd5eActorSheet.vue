@@ -2,6 +2,7 @@
   import type {
     AbilityType,
     BaseActor,
+    Feature,
     TypedWebSocketClient,
   } from '@vtt/shared';
   import type {
@@ -57,6 +58,8 @@
     mergeSubclassRecords,
     normalizeActor,
     normalizeCompendiumItem,
+    refreshFeatCounters,
+    removeGrantedSpellsByFeatureNames,
     resolveFeatChoicesToAsk,
   } from '@vtt/shared/system/dnd.js';
 
@@ -82,6 +85,8 @@
     DRAG_OVER_RESET_DELAY_MS,
     FEAT_CHOICES_LABELS,
     FEAT_PREREQUISITE_LABELS,
+    FEATURE_OPTION_SEPARATOR,
+    FEATURE_SOURCE_SEPARATOR,
     GAME_FEATURE_MIME,
     GAME_ITEM_MIME,
     MODAL_BUTTON_LABELS,
@@ -2000,6 +2005,48 @@
   }
 
   /**
+   * Имена источников, которыми помечены заклинания снимаемого класса.
+   *
+   * Одним именем не обойтись: заклинание, выданное блоком даров класса, помечено
+   * названием класса, выданное вариантом умения — названием САМОГО варианта, а
+   * запись варианта на листе названа «умение: вариант». Дары подкласса помечены
+   * его названием, а оно живёт в происхождении записи («Колдун — Покровитель»).
+   * Поэтому имя каждой снимаемой записи разбирается на составляющие.
+   *
+   * @param className - название снимаемого класса
+   * @param features - записи листа, которые уходят вместе с классом
+   * @returns имена источников для отката выданных заклинаний
+   */
+  function collectGrantedSpellSourceNames(
+    className: string,
+    features: ReadonlyArray<Feature>,
+  ): string[] {
+    const names = new Set<string>([className]);
+
+    /**
+     * Добавляет хвост строки после последнего разделителя.
+     *
+     * @param value - строка с разделителем
+     * @param separator - разделитель
+     */
+    const addTail = (value: string, separator: string): void => {
+      const index = value.lastIndexOf(separator);
+
+      if (index !== -1) {
+        names.add(value.slice(index + separator.length));
+      }
+    };
+
+    for (const feature of features) {
+      names.add(feature.name);
+      addTail(feature.name, FEATURE_OPTION_SEPARATOR);
+      addTail(feature.grantedBy ?? '', FEATURE_SOURCE_SEPARATOR);
+    }
+
+    return [...names];
+  }
+
+  /**
    * Удаляет класс у актёра и все связанные с ним данные:
    * - Запись из system.classes
    * - Особенности (features) с featureType 'class' или 'subclass', привязанные к этому классу
@@ -2028,6 +2075,8 @@
     localActor.value.system.classes = remainingClasses;
 
     // Удаляем все features, связанные с этим классом
+    const removedFeatures: Feature[] = [];
+
     if (localActor.value.features) {
       localActor.value.features = localActor.value.features.filter(
         (feature) => {
@@ -2041,8 +2090,23 @@
 
           // grantedBy содержит название класса (напр. «Волшебник» или
           // «Волшебник — Школа воплощения»)
-          return !feature.grantedBy?.includes(removedClassName);
+          const isOwn = Boolean(feature.grantedBy?.includes(removedClassName));
+
+          if (isOwn) {
+            removedFeatures.push(feature);
+          }
+
+          return !isOwn;
         },
+      );
+    }
+
+    // Заклинания, выданные снятыми умениями и их вариантами: воззвание колдуна
+    // положило своё заклинание в книгу, и без класса ему там делать нечего
+    if (localActor.value.spells) {
+      localActor.value.spells = removeGrantedSpellsByFeatureNames(
+        localActor.value.spells,
+        collectGrantedSpellSourceNames(removedClassName, removedFeatures),
       );
     }
 
@@ -2057,6 +2121,17 @@
           && !effect.name.includes(removedClassName),
       );
     }
+
+    // Счётчики удалённого класса и ресурсы его умений. Классовые отбираются по
+    // ключу класса, а ресурс выбранного варианта умения живёт на записи самого
+    // варианта — вместе с ней он и уходит: пересборка от оставшихся
+    // особенностей забирает всё, чему больше нечем владеть
+    localActor.value.system.classCounters = refreshFeatCounters(
+      localActor.value,
+      (localActor.value.system.classCounters ?? []).filter(
+        (counter) => counter.classKey !== classKey,
+      ),
+    );
 
     // Пересобираем proficiencies из SRD-данных оставшихся классов
     rebuildProficienciesFromRemainingClasses(

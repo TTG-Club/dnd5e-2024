@@ -159,13 +159,19 @@
   }
 
   /**
-   * Скругление плашки: у раскрытого умения снизу идёт редактор, и нижние углы
-   * подсветки не должны срезать разделитель.
+   * Оформление плашки умения.
+   *
+   * У раскрытого умения снизу идёт редактор — нижние углы подсветки не должны
+   * срезать разделитель, — и его шапка прилипает к верху окна: механика уезжает
+   * на несколько экранов вглубь, и без прилипшей шапки не видно, чьё это умение.
+   * Прилипает только раскрытая: списку свёрнутых умений это лишь мешало бы.
    *
    * @param key - ключ умения
    */
-  function headerRoundingClass(key: string): string {
-    return isExpanded(key) ? 'rounded-t-lg' : 'rounded-lg';
+  function headerClass(key: string): string {
+    return isExpanded(key)
+      ? 'sticky top-0 z-20 rounded-t-lg border-b border-default bg-elevated'
+      : 'rounded-lg';
   }
 
   /** Добавляет умение и сразу раскрывает его редактор. */
@@ -246,7 +252,7 @@
         название незачем, промахи мимо них раньше просто ничего не делали -->
       <div
         class="flex min-h-11 cursor-pointer items-center gap-2 p-2 transition-colors hover:bg-elevated/50"
-        :class="headerRoundingClass(feature.key)"
+        :class="headerClass(feature.key)"
         role="button"
         tabindex="0"
         :aria-expanded="isExpanded(feature.key)"

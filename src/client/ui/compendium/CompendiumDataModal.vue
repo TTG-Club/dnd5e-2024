@@ -1,6 +1,8 @@
 <script setup lang="ts">
   import type {
+    CompendiumManifest,
     CompendiumSeparator,
+    CompendiumTreeNode,
     CompendiumView,
     Feature,
     TypedWebSocketClient,
@@ -21,6 +23,10 @@
     setActorDragPayload,
   } from '@/core/actorDragState';
   import { getChatService } from '@/core/api/chatService';
+  import {
+    loadCompendiumKind,
+    loadCompendiumManifests,
+  } from '@/core/compendiumDataClient';
   import { getEntityCard } from '@/core/registries';
   import EntityCard from '@/shared_ui/components/EntityCard.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
@@ -59,6 +65,13 @@
     equipment?: import('@vtt/shared/system/dnd.js').DnDGameItem[];
   }
 
+  /**
+   * Настройка показа по типу записей, узнанная из манифеста. Общая на все окна
+   * и на всю сессию: манифест за неё не меняется, а перечитывать его на каждое
+   * открытие — значит каждый раз открывать окно не в своём макете.
+   */
+  const kindViewCache = new Map<string, CompendiumView>();
+
   // `ClassDefinition`/`SpeciesDefinition` перечислены явно, хотя по форме и
   // подошли бы под `Record<string, unknown>`: интерфейсу TypeScript индексную
   // сигнатуру не выводит, поэтому под этот член союза они НЕ подпадают. Без
@@ -79,7 +92,7 @@
     /** Экземпляр WebSocket-клиента */
     socket: TypedWebSocketClient | null;
     /** Имя data-файла для загрузки */
-    dataFile: string;
+    dataFile?: string;
     /** Заголовок модалки */
     title: string;
     /**
@@ -142,6 +155,20 @@
   }>();
 
   const items = ref<CompendiumDataItem[]>([]);
+
+  /**
+   * Настройка показа, взятая из манифеста при загрузке по типу записей. Проп
+   * `view` главнее: его задаёт вызывающий, открывший конкретный узел.
+   *
+   * Начальное значение — из общего запаса: настройка приезжает вместе с
+   * данными, следующим тиком после открытия, и без запаса окно каждый раз
+   * успевало открыться узким и лишь потом раздаться. Манифест за сессию не
+   * меняется, поэтому со второго раза макет известен сразу.
+   */
+  const kindView = ref<CompendiumView | undefined>(
+    props.dataKind ? kindViewCache.get(props.dataKind) : undefined,
+  );
+
   const isLoading = ref(false);
   const loadedFile = ref('');
   const searchQuery = ref('');
@@ -420,7 +447,7 @@
     resetFilters,
     setEnumSelection,
   } = useCompendiumView({
-    view: () => props.view,
+    view: () => props.view ?? kindView.value,
     items,
     searchQuery,
   });
@@ -457,10 +484,111 @@
   /** Нужен ли широкий макет с сайдбаром фильтров */
   const isWideLayout = computed(() => viewLayout.value === 'filtered');
 
+  /**
+   * Доля окна приложения, которую занимает окно с фильтрами при открытии.
+   *
+   * От доли, а не от жёсткого размера: на широком мониторе фиксированные
+   * пиксели выглядят маленьким окошком посреди пустоты, а на тесном экране —
+   * вылезают за край. Доля даёт соразмерное окно и там, и там.
+   *
+   * По ширине доля меньше, чем по высоте, и потолок ниже: в строке списка
+   * стоят название, оригинал и пара значков — на широком окне строка
+   * растягивается пустотой, а глаз теряет её край. Расти окну полезно вниз,
+   * а не вбок: вниз идут сами записи.
+   */
+  const WIDE_MODAL_VIEWPORT_RATIO = { width: 0.45, height: 0.85 };
+
+  /**
+   * Размер, больше которого окно не открывается даже на очень широком
+   * мониторе.
+   */
+  const WIDE_MODAL_MAXIMUM = { width: 780, height: 1000 };
+
+  /**
+   * Размер, меньше которого окно не открывается, пока экран позволяет. Рядом со
+   * списком стоит колонка фильтров, и в тесном окне на сам список оставалось
+   * несколько строк — в справочнике на полтысячи заклинаний листать его нечем.
+   */
+  const WIDE_MODAL_MINIMUM = { width: 620, height: 640 };
+
+  /**
+   * Размер окна по одной оси: доля экрана, подпёртая снизу и сверху.
+   *
+   * Экран меньше нижней границы — окно занимает его целиком: вылезти за край
+   * оно не должно, иначе до нижних кнопок не добраться.
+   *
+   * @param available - размер окна приложения по этой оси
+   * @param ratio - доля экрана по этой оси
+   * @param minimum - размер, ниже которого не опускаемся, пока экран позволяет
+   * @param maximum - размер, выше которого не поднимаемся
+   * @returns размер окна в пикселях
+   */
+  function fitToViewport(
+    available: number,
+    ratio: number,
+    minimum: number,
+    maximum: number,
+  ): number {
+    const preferred = Math.round(available * ratio);
+
+    return Math.max(Math.min(minimum, available), Math.min(preferred, maximum));
+  }
+
+  /**
+   * Размер окна приложения на момент открытия окна.
+   *
+   * Снимком, а не живой величиной: дальше размером владеет пользователь — он
+   * тянет окно за угол, — и пересчёт на каждое изменение размера приложения
+   * отменял бы его правку. Снимок свежий у каждого открытия: окно
+   * перемонтируется вместе с ним.
+   */
+  const viewportSize = {
+    width: window.innerWidth,
+    height: window.innerHeight,
+  };
+
   /** Размеры модалки: увеличенные для макета с фильтрами */
-  const modalWidth = computed(() => (isWideLayout.value ? 720 : 380));
-  const modalHeight = computed(() => (isWideLayout.value ? 680 : 460));
+  const modalWidth = computed(() =>
+    isWideLayout.value
+      ? fitToViewport(
+          viewportSize.width,
+          WIDE_MODAL_VIEWPORT_RATIO.width,
+          WIDE_MODAL_MINIMUM.width,
+          WIDE_MODAL_MAXIMUM.width,
+        )
+      : 380,
+  );
+
+  const modalHeight = computed(() =>
+    isWideLayout.value
+      ? fitToViewport(
+          viewportSize.height,
+          WIDE_MODAL_VIEWPORT_RATIO.height,
+          WIDE_MODAL_MINIMUM.height,
+          WIDE_MODAL_MAXIMUM.height,
+        )
+      : 460,
+  );
+
   const modalMinWidth = computed(() => (isWideLayout.value ? 560 : 320));
+
+  /**
+   * Размер окна, который окно применяет НА ХОДУ.
+   *
+   * Начальный размер (`initial-width`/`initial-height`) окно спрашивает при
+   * открытии — а макет к этому моменту ещё не известен: настройка показа с
+   * фильтрами приезжает вместе с данными, следующим тиком. Поэтому окно
+   * открывалось узким и таким и оставалось, сколько бы ни было прописано для
+   * широкого макета.
+   *
+   * `saved-size` окно, в отличие от начального размера, отслеживает и применяет
+   * при каждой смене — колонка фильтров появилась, окно тут же и раздалось.
+   * Размер, сохранённый вызывающим, главнее: его задал сам пользователь.
+   */
+  const autoSize = computed(() => ({
+    width: modalWidth.value,
+    height: modalHeight.value,
+  }));
 
   /**
    * Приводит запись к форме, которую принимает проп `entry` у `EntityCard`.
@@ -577,7 +705,16 @@
 
   /** Запрашивает данные из data-файла */
   function requestData(): void {
-    if (!props.socket || !props.dataFile) {
+    if (!props.socket) {
+      return;
+    }
+
+    // Узел не назван — грузим ВЕСЬ канонический тип, со всех паков сразу:
+    // `dataFile` узла несёт префикс пака (`merged:ttg-club/spells`), и назвать
+    // его снаружи нечем, а заклинания одного пака показали бы не весь список
+    if (!props.dataFile) {
+      void requestKindData();
+
       return;
     }
 
@@ -588,6 +725,81 @@
 
     isLoading.value = true;
     props.socket.emit('compendium:request-data', props.dataFile);
+  }
+
+  /**
+   * Загружает записи канонического типа со всех паков и настройку показа к ним.
+   *
+   * Настройка (`view`) живёт у УЗЛА манифеста, а не у типа: без неё не собрать
+   * ни боковых фильтров, ни подписей — окно выбора заклинаний осталось бы и без
+   * фильтра по классу, и без фильтра по кругам. Узлы одного типа объявляют её
+   * одинаково, поэтому берётся первая найденная.
+   */
+  async function requestKindData(): Promise<void> {
+    const socket = props.socket;
+    const kind = props.dataKind;
+
+    if (!socket || !kind || loadedFile.value === kind) {
+      return;
+    }
+
+    isLoading.value = true;
+
+    const [entries, manifests] = await Promise.all([
+      loadCompendiumKind(socket, kind),
+      loadCompendiumManifests(socket),
+    ]);
+
+    const view = findKindView(manifests, kind);
+
+    if (view) {
+      kindViewCache.set(kind, view);
+    }
+
+    items.value = [...entries];
+    kindView.value = view;
+    loadedFile.value = kind;
+    isLoading.value = false;
+  }
+
+  /**
+   * Настройка показа для узлов заданного типа записей.
+   *
+   * @param manifests - манифесты всех паков
+   * @param kind - канонический тип записей
+   * @returns настройка показа; `undefined` — ни один узел её не объявил
+   */
+  function findKindView(
+    manifests: ReadonlyArray<CompendiumManifest>,
+    kind: string,
+  ): CompendiumView | undefined {
+    const walk = (
+      nodes: ReadonlyArray<CompendiumTreeNode>,
+    ): CompendiumView | undefined => {
+      for (const node of nodes) {
+        if (node.dataKind === kind && node.view) {
+          return node.view;
+        }
+
+        const nested = node.children ? walk(node.children) : undefined;
+
+        if (nested) {
+          return nested;
+        }
+      }
+
+      return undefined;
+    };
+
+    for (const manifest of manifests) {
+      const view = walk(manifest.tree ?? []);
+
+      if (view) {
+        return view;
+      }
+    }
+
+    return undefined;
   }
 
   /**
@@ -1031,7 +1243,7 @@
     :min-height="250"
     :z-index="zIndex"
     :saved-position="savedPosition"
-    :saved-size="savedSize"
+    :saved-size="savedSize ?? autoSize"
     :ui="{ body: 'overflow-hidden p-0 flex flex-col' }"
     @update:open="emit('update:open', $event)"
     @bring-to-front="emit('bring-to-front')"

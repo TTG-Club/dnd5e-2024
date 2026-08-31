@@ -114,6 +114,36 @@ export function collectFeatureEffects(
 }
 
 /**
+ * Эффекты вариантов умений, выбранных прямо сейчас.
+ *
+ * Отдельно от эффектов самих умений: эффект варианта действует, только пока
+ * вариант выбран, и в общих эффектах умения достался бы игроку вместе с
+ * воззванием, которого он не брал. В id входят и умение, и вариант — у двух
+ * умений с одинаково названным вариантом эффекты иначе слиплись бы в один.
+ *
+ * @param definition - определение класса (ради ключа провенанса)
+ * @param grants - дары выбранных вариантов
+ * @returns эффекты выбранных вариантов
+ */
+export function collectClassOptionEffects(
+  definition: ClassDefinition,
+  grants: ReadonlyArray<{
+    featureKey: string;
+    optionKey: string;
+    activeEffects: ActiveEffect[];
+  }>,
+): ActiveEffect[] {
+  const scoped = grants.flatMap((grant) =>
+    grant.activeEffects.map((effect) => ({
+      ...effect,
+      id: `${grant.featureKey}:${grant.optionKey}:${effect.id}`,
+    })),
+  );
+
+  return withClassProvenance(scoped, definition.key);
+}
+
+/**
  * Проставляет эффектам провенанс класса: свой id, источник и ссылку на класс.
  *
  * @param effects - эффекты записи компендиума

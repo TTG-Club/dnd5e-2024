@@ -12,16 +12,16 @@
   import FormSection from '../FormSection.vue';
 
   /**
-   * Дары класса или его умения — тем же блоком, что у черты.
+   * Дары класса целиком — тем же блоком, что у черты.
    *
    * Одна форма на всех, кто что-то выдаёт листу: у потребителя дары черты,
    * класса и умения применяет один и тот же код, и вторая форма для того же
    * смысла означала бы второй разбор. Ровно так же устроена вкладка «Дары» на
    * сайте.
    *
-   * Ресурсы блок не рисует: у класса и у его умения они хранятся по-разному —
-   * класс своими счётчиками (ступени, уровень появления, колонка таблицы),
-   * умение — ресурсом дара. Каждый вызывающий рисует свой.
+   * Дары умения и его варианта рисует свой блок (`ClassMechanicsFields`): там к
+   * тем же строкам добавлены ресурсы, заклинания и эффекты записи, а у класса
+   * они стоят своими разделами вкладки.
    */
   const grants = defineModel<EditableFeatGrants>({ required: true });
 
@@ -29,20 +29,8 @@
     defineProps<{
       /** WebSocket-клиент: им строка дара «Черта» открывает компендиум. */
       socket?: TypedWebSocketClient | null;
-      /**
-       * Заголовки блоков. Блок стоит и у класса целиком, и внутри его умения, а
-       * «Дары класса» внутри умения вводили бы в заблуждение: выдаёт их умение.
-       */
-      grantsTitle?: string;
-      grantsHint?: string;
-      modifiersTitle?: string;
     }>(),
-    {
-      socket: null,
-      grantsTitle: CLASS_FORM_LABELS.grantsTitle,
-      grantsHint: CLASS_FORM_LABELS.grantsHint,
-      modifiersTitle: FEAT_GRANTS_LABELS.modifiersTitle,
-    },
+    { socket: null },
   );
 
   /** Занятые ключи выборов: два выбора с одним ключом схлопнулись бы в один. */
@@ -52,9 +40,9 @@
 <template>
   <div class="flex flex-col gap-4">
     <FormSection
-      :title="props.grantsTitle"
+      :title="CLASS_FORM_LABELS.grantsTitle"
       icon="tabler:gift"
-      :hint="props.grantsHint"
+      :hint="CLASS_FORM_LABELS.grantsHint"
     >
       <GrantRowsEditor
         v-model="grants.grantRows"
@@ -64,7 +52,7 @@
     </FormSection>
 
     <FormSection
-      :title="props.modifiersTitle"
+      :title="FEAT_GRANTS_LABELS.modifiersTitle"
       icon="tabler:adjustments-filled"
     >
       <ModifierRowsEditor v-model="grants.modifiers" />

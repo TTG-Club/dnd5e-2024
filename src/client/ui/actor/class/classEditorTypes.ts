@@ -118,8 +118,50 @@ export interface EditableGrantedSpellLevel {
 
 // ── Умение класса/подкласса ──────────────────────────────────
 
+/**
+ * Носитель механики формы класса: и умение, и его вариант.
+ *
+ * Одной моделью, потому что и то, и другое делает с листом одно и то же —
+ * выдаёт владения, правит числа, заводит ресурс, даёт заклинание, — и вторая
+ * копия тех же полей разошлась бы с первой при первой же правке. Ровно так же
+ * устроена мастерская сайта.
+ */
+export interface EditableClassMechanics {
+  /**
+   * Дары: владения, выборы, правки листа и ресурсы — тем же блоком, что у
+   * черты. Форма правит их строками, а `featData` собирается из них при
+   * сохранении.
+   */
+  grants: EditableFeatGrants;
+  /** Заклинания, которые запись даёт знать. */
+  grantedSpellRefs: GrantedSpellRef[];
+  /** Активные эффекты; переносятся на персонажа вместе с записью. */
+  activeEffects: ActiveEffect[];
+}
+
+/**
+ * Подписи блока «Механика и эффекты». Блок один на двоих — умение и его
+ * вариант, — а называть источник даров в подписях нужно по-разному: «Дары
+ * умения» внутри варианта вводили бы в заблуждение, выдаёт их вариант.
+ */
+export interface ClassMechanicsTitles {
+  grants: string;
+  grantsHint: string;
+  modifiers: string;
+  counters: string;
+  spells: string;
+  spellsHint: string;
+  spellChoice: string;
+  spellChoiceHint: string;
+  spellList: string;
+  spellListHint: string;
+  effects: string;
+  effectsHint: string;
+  effectsEmpty: string;
+}
+
 /** Вариант умения (боевой стиль, манёвры). */
-export interface EditableClassFeatureChoice {
+export interface EditableClassFeatureChoice extends EditableClassMechanics {
   uid: string;
   key: string;
   name: string;
@@ -171,7 +213,14 @@ export interface EditableClassFeatureScaling {
   description: string;
 }
 
-export interface EditableClassFeature {
+/**
+ * Умение класса или подкласса в состоянии формы.
+ *
+ * Механику наследует от общего носителя ({@link EditableClassMechanics}) — ту
+ * же, что у варианта, — и добавляет своё: уровень получения, рост по уровням,
+ * список вариантов и заклинания, выведенные полями самой записи.
+ */
+export interface EditableClassFeature extends EditableClassMechanics {
   key: string;
   name: string;
   description: string;
@@ -205,20 +254,6 @@ export interface EditableClassFeature {
    * открытие и сохранение класса молча снимало бы выбор навыка с уровня.
    */
   preservedSkillChoice?: ClassFeatureSkillChoice;
-  /** Активные эффекты умения; переносятся на персонажа вместе с ним. */
-  activeEffects: ActiveEffect[];
-  /**
-   * Дары умения: владения, выборы, правки листа и ресурсы — тем же блоком, что
-   * у черты. Форма правит их на своей вкладке «Дары», как на сайте, поэтому
-   * ресурс умения заводится прямо у него, а не привязкой к нему из счётчиков
-   * класса.
-   */
-  grants: EditableFeatGrants;
-
-  /**
-   * Заклинания, которые умение даёт знать; правятся отдельным полем формы.
-   */
-  grantedSpellRefs: GrantedSpellRef[];
 }
 
 // ── Заклинательство ──────────────────────────────────────────
@@ -376,6 +411,15 @@ export function createEmptySpellcasting(): EditableSpellcasting {
   };
 }
 
+/** Пустая механика: с неё начинают и умение, и его вариант. */
+function createEmptyMechanics(): EditableClassMechanics {
+  return {
+    grants: createEmptyFeatGrants(),
+    grantedSpellRefs: [],
+    activeEffects: [],
+  };
+}
+
 /** Создаёт пустое умение класса/подкласса. */
 export function createEmptyFeature(name: string): EditableClassFeature {
   return {
@@ -388,30 +432,60 @@ export function createEmptyFeature(name: string): EditableClassFeature {
     grantedSpellsByLevel: [],
     choices: [],
     scaling: [],
-    activeEffects: [],
-    grants: createEmptyFeatGrants(),
-    grantedSpellRefs: [],
+    ...createEmptyMechanics(),
+  };
+}
+
+/** Создаёт пустой вариант умения (боевой стиль, манёвр, воззвание). */
+export function createEmptyFeatureChoice(): EditableClassFeatureChoice {
+  return {
+    uid: generateId('cfc'),
+    key: generateId('cfc'),
+    name: '',
+    nameEn: '',
+    description: '',
+    additional: '',
+    prerequisite: '',
+    hideInSubclasses: false,
+    repeatable: false,
+    ...createEmptyMechanics(),
   };
 }
 
 /**
- * Сколько блоков механики у умения заполнено. Считаются именно блоки, а не
- * записи: и в шапке умения, и в шапке свёрнутого блока автору важно, где
- * что-то есть, а длину списка он увидит, раскрыв блок.
+ * Носитель механики глазами счётчика блоков.
  *
- * @param feature - умение формы
+ * Поля заклинаний необязательны, потому что у умения и варианта они лежат
+ * по-разному: у умения — своими полями записи, у варианта — внутри даров.
+ * Счётчику важно лишь, пуст блок или нет, и различать носителей ему незачем.
+ */
+type MechanicsBlocksSource = EditableClassMechanics & {
+  grantedSpells?: GrantedSpellRef[];
+  grantedSpellsByLevel?: EditableGrantedSpellLevel[];
+};
+
+/**
+ * Сколько блоков механики заполнено у умения или его варианта. Считаются именно
+ * блоки, а не записи: и в шапке записи, и в шапке свёрнутого блока автору важно,
+ * где что-то есть, а длину списка он увидит, раскрыв блок.
+ *
+ * @param holder - умение или вариант формы
  * @returns число непустых блоков механики
  */
 export function countFilledMechanicsBlocks(
-  feature: EditableClassFeature,
+  holder: MechanicsBlocksSource,
 ): number {
   return [
-    feature.grants.grantRows.length,
-    feature.grants.modifiers.length,
-    feature.grants.counters.length,
-    feature.grantedSpells.length,
-    feature.grantedSpellsByLevel.length,
-    feature.activeEffects.length,
+    holder.grants.grantRows.length,
+    holder.grants.modifiers.length,
+    holder.grants.counters.length,
+    holder.grants.spellChoice.picks.length,
+    holder.grants.spellList.groups.length,
+    // Заклинания умения лежат своим полем записи, у варианта — внутри даров:
+    // считаются оба, пустое слагаемое блоком не считается
+    (holder.grantedSpells?.length ?? 0) + holder.grantedSpellRefs.length,
+    holder.grantedSpellsByLevel?.length ?? 0,
+    holder.activeEffects.length,
   ].filter(Boolean).length;
 }
 
@@ -469,6 +543,36 @@ function toEditableChoiceConfig(
   };
 }
 
+/**
+ * Разворачивает вариант умения в редактируемые поля — вместе с его механикой:
+ * дары, заклинания и эффекты у варианта те же, что у самого умения, и
+ * разворачивает их тот же разбор.
+ *
+ * @param choice - вариант умения из записи класса
+ * @returns редактируемый вариант
+ */
+function toEditableFeatureChoice(
+  choice: ClassFeatureChoice,
+): EditableClassFeatureChoice {
+  return {
+    uid: generateId('cfc'),
+    key: choice.key || generateId('cfc'),
+    name: choice.name || '',
+    nameEn: choice.nameEn || '',
+    description: choice.description || '',
+    additional: choice.additional || '',
+    prerequisite: choice.prerequisite || '',
+    hideInSubclasses: choice.hideInSubclasses ?? false,
+    requiredLevel: choice.requiredLevel,
+    repeatable: choice.repeatable ?? false,
+    grants: featDataToGrants(choice.featData),
+    grantedSpellRefs: [...(choice.featData?.grantedSpells ?? [])],
+    activeEffects: (choice.activeEffects ?? []).map((effect) => ({
+      ...effect,
+    })),
+  };
+}
+
 /** Разворачивает умение класса в редактируемые поля. */
 export function toEditableFeature(feature: ClassFeature): EditableClassFeature {
   const byLevel: EditableGrantedSpellLevel[] = Object.entries(
@@ -489,18 +593,7 @@ export function toEditableFeature(feature: ClassFeature): EditableClassFeature {
     isInformationalOnly: feature.isInformationalOnly ?? false,
     grantedSpells: toGrantedRefs(feature.grantedSpells),
     grantedSpellsByLevel: byLevel,
-    choices: (feature.choices ?? []).map((choice) => ({
-      uid: generateId('cfc'),
-      key: choice.key || generateId('cfc'),
-      name: choice.name || '',
-      nameEn: choice.nameEn || '',
-      description: choice.description || '',
-      additional: choice.additional || '',
-      prerequisite: choice.prerequisite || '',
-      hideInSubclasses: choice.hideInSubclasses ?? false,
-      requiredLevel: choice.requiredLevel,
-      repeatable: choice.repeatable ?? false,
-    })),
+    choices: (feature.choices ?? []).map(toEditableFeatureChoice),
     // Ступени роста собирает toEditableFeatures: по одному умению их не
     // видно — ступень лежит отдельной записью рядом со своим умением
     scaling: [],
@@ -881,6 +974,23 @@ export function buildFeature(
         name: choice.name.trim(),
         description: choice.description.trim(),
       };
+
+      // Дары варианта — блоком целиком, вместе с ресурсами и заклинаниями. Тем
+      // и отличается от умения (ниже): у умения ресурсы уезжают в счётчики
+      // записи, где известен уровень их появления, а дары варианта действуют,
+      // только пока он выбран, и в общих полях класса им места нет
+      const optionFeatData = buildFeatData(
+        choice.grants,
+        choice.grantedSpellRefs,
+      );
+
+      if (optionFeatData) {
+        builtChoice.featData = optionFeatData;
+      }
+
+      if (choice.activeEffects.length > 0) {
+        builtChoice.activeEffects = choice.activeEffects;
+      }
 
       // Пустые поля не пишутся: у варианта их и в выгрузке сайта нет, а пустая
       // строка в записи класса читалась бы заполненной подписью

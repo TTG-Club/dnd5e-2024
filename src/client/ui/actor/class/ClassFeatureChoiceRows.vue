@@ -1,4 +1,7 @@
 <script setup lang="ts">
+  import type { TypedWebSocketClient } from '@vtt/shared';
+
+  import type { SpellOption } from '../grantedSpellsEditorTypes';
   import type { EditableClassFeatureChoice } from './classEditorTypes';
 
   import { watch } from 'vue';
@@ -10,8 +13,12 @@
     CLASS_FEATURE_CHOICE_LABELS,
     CLASS_FEATURE_LABELS,
     CLASS_LEVEL_MAX,
+    CLASS_OPTION_MECHANICS_TITLES,
   } from '../constants';
+  import EditorNestedSection from '../EditorNestedSection.vue';
   import FieldHint from '../FieldHint.vue';
+  import { countFilledMechanicsBlocks } from './classEditorTypes';
+  import ClassMechanicsFields from './ClassMechanicsFields.vue';
 
   /**
    * Варианты умения строками: манёвры, воззвания, боевые стили.
@@ -26,7 +33,25 @@
    */
   const choices = defineModel<EditableClassFeatureChoice[]>({ required: true });
 
+  const props = withDefaults(
+    defineProps<{
+      /** Заклинания компендиума по пакам — для подсказок связывания. */
+      availableSpells?: SpellOption[];
+      /** Сокет для окна выбора заклинания из компендиума. */
+      socket?: TypedWebSocketClient | null;
+    }>(),
+    { availableSpells: () => [], socket: null },
+  );
+
+  const emit = defineEmits<{
+    'open-spell': [spellId: string, packId?: string];
+  }>();
+
   const { isExpanded, expand, toggle, drop } = useExpandedRows();
+
+  function forwardOpenSpell(spellId: string, packId?: string): void {
+    emit('open-spell', spellId, packId);
+  }
 
   /**
    * Добавленный вариант раскрывается сам: заводят его пустым, и свёрнутая
@@ -83,6 +108,31 @@
   }
 
   /**
+   * Оформление шапки варианта: у раскрытого она прилипает к верху окна, под
+   * шапкой своего умения. Правя механику варианта на несколько экранов вглубь,
+   * видно и чьё это умение, и какой вариант. Прилипает только раскрытая: списку
+   * из двух десятков свёрнутых манёвров это лишь мешало бы.
+   *
+   * @param uid - ключ строки варианта
+   */
+  function headerClass(uid: string): string {
+    return isExpanded(uid)
+      ? 'sticky top-11 z-10 rounded-t-md border-b border-default bg-elevated'
+      : '';
+  }
+
+  /**
+   * Сколько блоков механики заполнено у варианта — бейдж свёрнутой строки.
+   * Списки вариантов длинные, и без пометки автор не видит, у какого манёвра
+   * что настроено.
+   *
+   * @param choice - вариант строки
+   */
+  function mechanicsCount(choice: EditableClassFeatureChoice): number {
+    return countFilledMechanicsBlocks(choice);
+  }
+
+  /**
    * Убирает вариант.
    *
    * @param index - позиция варианта в списке
@@ -114,6 +164,7 @@
         мимо неё раньше просто ничего не делали -->
       <div
         class="flex min-h-10 cursor-pointer items-center gap-2 p-2 transition-colors hover:bg-elevated/50"
+        :class="headerClass(choice.uid)"
         role="button"
         tabindex="0"
         :aria-expanded="isExpanded(choice.uid)"
@@ -140,6 +191,17 @@
         <span class="min-w-0 flex-1 truncate text-sm text-highlighted">
           {{ choice.name || CLASS_FEATURE_CHOICE_LABELS.unnamed }}
         </span>
+
+        <UBadge
+          v-if="mechanicsCount(choice)"
+          size="sm"
+          color="primary"
+          variant="subtle"
+          class="shrink-0 tabular-nums"
+        >
+          {{ CLASS_FEATURE_CHOICE_LABELS.mechanicsBadge
+          }}{{ mechanicsCount(choice) }}
+        </UBadge>
 
         <!-- Бейджи прячутся на узком окне: там их место нужнее названию -->
         <UBadge
@@ -269,6 +331,26 @@
         <UFormField :label="CLASS_FEATURE_CHOICE_LABELS.description">
           <RichTextEditor v-model="choice.description" />
         </UFormField>
+
+        <!-- Механика варианта той же формой, что у умения: воззвание выдаёт
+          заклинание, манёвр — владение приёмом, и лист применяет их одинаково,
+          откуда бы они ни пришли -->
+        <EditorNestedSection
+          :title="CLASS_FEATURE_CHOICE_LABELS.mechanicsTitle"
+          :hint="CLASS_FEATURE_CHOICE_LABELS.mechanicsHint"
+          :count="mechanicsCount(choice)"
+        >
+          <ClassMechanicsFields
+            v-model:grants="choice.grants"
+            v-model:granted-spells="choice.grantedSpellRefs"
+            v-model:active-effects="choice.activeEffects"
+            :titles="CLASS_OPTION_MECHANICS_TITLES"
+            :effects-modal-id="`class-option-effect-form-modal-${choice.uid}`"
+            :available-spells="props.availableSpells"
+            :socket="props.socket"
+            @open-spell="forwardOpenSpell"
+          />
+        </EditorNestedSection>
       </div>
     </div>
   </div>

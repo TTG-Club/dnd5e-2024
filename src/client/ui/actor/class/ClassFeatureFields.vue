@@ -4,7 +4,6 @@
   import type { SpellOption } from '../grantedSpellsEditorTypes';
   import type {
     EditableClassFeature,
-    EditableClassFeatureChoice,
     EditableClassFeatureScaling,
     EditableGrantedSpellLevel,
   } from './classEditorTypes';
@@ -16,20 +15,20 @@
 
   import {
     CLASS_FEATURE_LABELS,
-    CLASS_FORM_LABELS,
+    CLASS_FEATURE_MECHANICS_TITLES,
     CLASS_LEVEL_MAX,
     FORM_FIELD_LABELS,
   } from '../constants';
-  import CounterRowsEditor from '../CounterRowsEditor.vue';
-  import EntityEffectsEditor from '../EntityEffectsEditor.vue';
-  import FormSection from '../FormSection.vue';
+  import EditorNestedSection from '../EditorNestedSection.vue';
   import GrantedSpellsEditor from '../GrantedSpellsEditor.vue';
-  import { countFilledMechanicsBlocks } from './classEditorTypes';
+  import {
+    countFilledMechanicsBlocks,
+    createEmptyFeatureChoice,
+  } from './classEditorTypes';
   import ClassFeatureChoiceConfigFields from './ClassFeatureChoiceConfigFields.vue';
   import ClassFeatureChoiceRows from './ClassFeatureChoiceRows.vue';
   import ClassFeatureScalingRows from './ClassFeatureScalingRows.vue';
-  import ClassFeatureSection from './ClassFeatureSection.vue';
-  import ClassGrantsFields from './ClassGrantsFields.vue';
+  import ClassMechanicsFields from './ClassMechanicsFields.vue';
 
   const props = defineProps<{
     /** Заклинания компендиума по пакам — для подсказок связывания. */
@@ -79,19 +78,7 @@
 
   /** Добавляет вариант-выбор (боевой стиль / манёвр). */
   function addChoice(): void {
-    const choice: EditableClassFeatureChoice = {
-      uid: generateId('cfc'),
-      key: generateId('cfc'),
-      name: '',
-      nameEn: '',
-      description: '',
-      additional: '',
-      prerequisite: '',
-      hideInSubclasses: false,
-      repeatable: false,
-    };
-
-    feature.value.choices.push(choice);
+    feature.value.choices.push(createEmptyFeatureChoice());
   }
 
   /** Добавляет уровень поуровневой выдачи заклинаний. */
@@ -141,9 +128,9 @@
       :label="CLASS_FEATURE_LABELS.informationalOnly"
     />
 
-    <!-- Три свёрнутых блока, как на сайте: у большинства умений они пусты, а
+    <!-- Три свёрнутых раздела, как на сайте: у большинства умений они пусты, а
       развёрнутые все разом заслоняли бы список умений -->
-    <ClassFeatureSection
+    <EditorNestedSection
       :title="CLASS_FEATURE_LABELS.scalingTitle"
       :hint="CLASS_FEATURE_LABELS.scalingHint"
       :count="feature.scaling.length"
@@ -151,72 +138,52 @@
       @add="addScalingStep"
     >
       <ClassFeatureScalingRows v-model="feature.scaling" />
-    </ClassFeatureSection>
+    </EditorNestedSection>
 
-    <ClassFeatureSection
+    <EditorNestedSection
       :title="CLASS_FEATURE_LABELS.choicesTitle"
       :hint="CLASS_FEATURE_LABELS.choicesHint"
       :count="feature.choices.length"
       :add-label="CLASS_FEATURE_LABELS.choiceAdd"
       @add="addChoice"
     >
-      <div class="flex flex-col gap-2">
-        <!-- Настройка выбора идёт перед списком: сначала автор решает,
-          выбирают из списка или он справочный, и лишь потом набирает варианты -->
-        <ClassFeatureChoiceConfigFields v-model="feature.choiceConfig" />
+      <!-- Настройка выбора идёт перед списком: сначала автор решает,
+        выбирают из списка или он справочный, и лишь потом набирает варианты -->
+      <ClassFeatureChoiceConfigFields v-model="feature.choiceConfig" />
 
-        <ClassFeatureChoiceRows v-model="feature.choices" />
-      </div>
-    </ClassFeatureSection>
+      <ClassFeatureChoiceRows
+        v-model="feature.choices"
+        :available-spells="props.availableSpells"
+        :socket="props.socket"
+        @open-spell="forwardOpenSpell"
+      />
+    </EditorNestedSection>
 
-    <ClassFeatureSection
+    <EditorNestedSection
       :title="CLASS_FEATURE_LABELS.mechanicsTitle"
       :hint="CLASS_FEATURE_LABELS.mechanicsHint"
       :count="filledMechanicsCount"
     >
-      <div class="flex flex-col gap-4">
-        <!-- Дары умения тем же блоком, что у класса и у черты: ресурс умения
-          заводится прямо здесь, а не привязкой к нему из счётчиков класса -->
-        <ClassGrantsFields
-          v-model="feature.grants"
-          :socket="props.socket"
-          :grants-title="CLASS_FORM_LABELS.featureGrantsTitle"
-          :grants-hint="CLASS_FORM_LABELS.featureGrantsHint"
-          :modifiers-title="CLASS_FORM_LABELS.featureModifiersTitle"
-        />
-
-        <!-- Ресурс умения — ресурсом дара: он появляется вместе с самим
-          умением, и ни ступеней, ни своей колонки в таблице класса у него нет -->
-        <FormSection
-          :title="CLASS_FORM_LABELS.featureCountersTitle"
-          icon="tabler:battery-2"
-        >
-          <CounterRowsEditor
-            v-model="feature.grants.counters"
-            with-table-column
-          />
-        </FormSection>
-
-        <FormSection
-          :title="CLASS_FEATURE_LABELS.grantedSpells"
-          icon="tabler:sparkles"
-          :hint="CLASS_FEATURE_LABELS.grantedSpellsHint"
-        >
-          <GrantedSpellsEditor
-            v-model="feature.grantedSpells"
-            :available-spells="availableSpells"
-            :socket="props.socket"
-            @open-spell="forwardOpenSpell"
-          />
-        </FormSection>
-
+      <ClassMechanicsFields
+        v-model:grants="feature.grants"
+        v-model:granted-spells="feature.grantedSpells"
+        v-model:active-effects="feature.activeEffects"
+        :titles="CLASS_FEATURE_MECHANICS_TITLES"
+        :effects-modal-id="`class-feature-effect-form-modal-${feature.key}`"
+        :available-spells="props.availableSpells"
+        :socket="props.socket"
+        with-table-column
+        @open-spell="forwardOpenSpell"
+      >
         <!-- Поуровневая выдача заклинаний (домены/клятвы/покровители) -->
-        <FormSection
-          :title="CLASS_FEATURE_LABELS.grantedSpellsByLevel"
-          icon="tabler:chart-arrows-vertical"
-          :hint="CLASS_FEATURE_LABELS.grantedSpellsByLevelHint"
-        >
-          <div class="flex flex-col gap-2">
+        <template #spells-extra>
+          <EditorNestedSection
+            :title="CLASS_FEATURE_LABELS.grantedSpellsByLevel"
+            :hint="CLASS_FEATURE_LABELS.grantedSpellsByLevelHint"
+            :count="feature.grantedSpellsByLevel.length"
+            :add-label="CLASS_FEATURE_LABELS.levelAdd"
+            @add="addSpellLevel"
+          >
             <div
               v-for="(entry, levelIndex) in feature.grantedSpellsByLevel"
               :key="entry.uid"
@@ -247,37 +214,14 @@
 
               <GrantedSpellsEditor
                 v-model="entry.spells"
-                :available-spells="availableSpells"
+                :available-spells="props.availableSpells"
                 :socket="props.socket"
                 @open-spell="forwardOpenSpell"
               />
             </div>
-
-            <UButton
-              icon="tabler:plus"
-              :label="CLASS_FEATURE_LABELS.levelAdd"
-              color="neutral"
-              variant="soft"
-              size="xs"
-              class="self-start"
-              @click.left.exact.prevent="addSpellLevel"
-            />
-          </div>
-        </FormSection>
-
-        <FormSection
-          :title="CLASS_FORM_LABELS.featureEffectsTitle"
-          icon="tabler:bolt"
-        >
-          <EntityEffectsEditor
-            v-model="feature.activeEffects"
-            :modal-id="`class-feature-effect-form-modal-${feature.key}`"
-            :hint="CLASS_FORM_LABELS.featureEffectsHint"
-            :empty-text="CLASS_FORM_LABELS.featureEffectsEmpty"
-            hide-aura
-          />
-        </FormSection>
-      </div>
-    </ClassFeatureSection>
+          </EditorNestedSection>
+        </template>
+      </ClassMechanicsFields>
+    </EditorNestedSection>
   </div>
 </template>

@@ -9,6 +9,7 @@ export * from './backgroundNormalize.js';
 export * from './backgroundTypes.js';
 export * from './calculations.js';
 export * from './carryingCapacity.js';
+export * from './classFeatureOptions.js';
 export * from './classLineage.js';
 export * from './classTypes.js';
 export * from './conditionKeys.js';

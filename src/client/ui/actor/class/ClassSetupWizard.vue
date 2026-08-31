@@ -24,6 +24,7 @@
   import { Z_INDEX } from '@/shared_ui/consts';
   import { resolveActorStats } from '@vtt/shared/system/dnd.js';
 
+  import { useFeatChoiceSpells } from '../../../composables/useFeatChoiceSpells';
   import { useGrantedSpellsResolver } from '../../../composables/useGrantedSpellsResolver';
   import { resolveStartingEquipment } from '../../../composables/useStartingEquipment';
   import {
@@ -152,7 +153,9 @@
 
     wizardState,
     canProceed,
-    visibleFeatChoices,
+    preparedFeatChoices,
+    ownFeatChoices,
+    optionChoicesByFeature,
     featPickChoices,
     asiFeatChoice,
     featChoiceProficiencyBonus,
@@ -170,6 +173,19 @@
   const { resolvedGrantedSpells } = useGrantedSpellsResolver(
     toRef(props, 'socket'),
     grantedSpellSources,
+  );
+
+  /**
+   * Каталог заклинаний для выборов уровня: «Договор Гримуара» даёт выбрать три
+   * заговора, и без каталога такой вопрос остался бы без вариантов вовсе.
+   *
+   * От всех выборов уровня, а не только от показанных сейчас: выбор заклинания
+   * ждёт ответа про класс, и грузить каталог после ответа значило бы показать
+   * игроку пустой список.
+   */
+  const { spells: featChoiceSpells } = useFeatChoiceSpells(
+    toRef(props, 'socket'),
+    preparedFeatChoices,
   );
 
   /** Ссылка на шаг заклинаний — для открытия компендиума из предупреждения */
@@ -252,6 +268,16 @@
    */
   function handleFeatureChoicesUpdate(choices: Record<string, string[]>) {
     wizardState.featureChoices = choices;
+  }
+
+  /**
+   * Сохраняет ответы на вопросы вариантов, заданные в карточке умения. Список
+   * ответов общий с полями выбора внизу: у обоих один и тот же набор ключей.
+   *
+   * @param selections - ответы: ключ выбора → значения
+   */
+  function handleFeatSelectionsUpdate(selections: Record<string, string[]>) {
+    wizardState.featDataChoices = selections;
   }
 
   /**
@@ -563,19 +589,26 @@
               :feats="compendiumFeats"
               :actor="actor"
               :feat-selections="wizardState.featDataChoices"
+              :option-choices="optionChoicesByFeature"
+              :proficiency-bonus="featChoiceProficiencyBonus"
+              :spells="featChoiceSpells"
               @update:feature-choices="handleFeatureChoicesUpdate"
               @update:subclass-key="wizardState.subclassKey = $event"
               @update:feat-selection="handleFeatSelection"
+              @update:feat-selections="handleFeatSelectionsUpdate"
             />
 
             <!-- Выборы даров уровня: те же поля, что у черты, — набор выборов
-              у них общий, и второй такой же список разошёлся бы с первым -->
+              у них общий, и второй такой же список разошёлся бы с первым.
+              Вопросы вариантов сюда не попадают: их задаёт карточка своего
+              умения, рядом с самим выбором варианта -->
             <FeatChoicesFields
-              v-if="visibleFeatChoices.length"
+              v-if="ownFeatChoices.length"
               v-model="wizardState.featDataChoices"
-              :choices="visibleFeatChoices"
+              :choices="ownFeatChoices"
               :actor="actorRef"
               :proficiency-bonus="featChoiceProficiencyBonus"
+              :spells="featChoiceSpells"
             />
           </template>
 

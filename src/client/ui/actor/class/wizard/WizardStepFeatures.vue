@@ -11,7 +11,12 @@
    * лежит внутри, и без пометки игрок упёрся бы в неактивную кнопку «Далее», не
    * понимая, где его спрашивают.
    */
-  import type { DnDActor, SubclassDefinition } from '@vtt/shared/system/dnd.js';
+  import type {
+    DnDActor,
+    FeatChoice,
+    Spell,
+    SubclassDefinition,
+  } from '@vtt/shared/system/dnd.js';
 
   import type {
     CompendiumFeat,
@@ -24,9 +29,11 @@
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import { useSourceLabels } from '@/systems/dnd5e/composables/useSourceLabel';
+  import { resolveFeatChoiceCount } from '@vtt/shared/system/dnd.js';
 
   import { useExpandedRows } from '../../../../composables/useExpandedRows';
   import { CLASS_WIZARD_LABELS, LEVEL_BADGE_SUFFIX } from '../../constants';
+  import FeatChoicesFields from '../../feat/FeatChoicesFields.vue';
   import WizardFeatPicker from './WizardFeatPicker.vue';
   import WizardFeatureChoicePicker from './WizardFeatureChoicePicker.vue';
 
@@ -54,12 +61,23 @@
     actor: DnDActor;
     /** Ответы на выборы даров уровня: ключ выбора → значения */
     featSelections?: Record<string, string[]>;
+    /**
+     * Вопросы вариантов по ключу их умения: задаются прямо в карточке умения,
+     * под выбором варианта. Спрошенные общим списком ниже, они выглядели бы
+     * вопросами ниоткуда — игрок не связал бы их с манёвром, который отметил.
+     */
+    optionChoices?: Record<string, FeatChoice[]>;
+    /** Бонус мастерства: от него зависит количество у части выборов */
+    proficiencyBonus: number;
+    /** Заклинания каталога — пул выбора заклинания у варианта */
+    spells?: ReadonlyArray<Spell>;
   }>();
 
   const emit = defineEmits<{
     'update:featureChoices': [choices: Record<string, string[]>];
     'update:subclassKey': [key: string];
     'update:featSelection': [key: string, featId: string | null];
+    'update:featSelections': [selections: Record<string, string[]>];
   }>();
 
   /**
@@ -151,8 +169,16 @@
         selected.includes(choice.key),
       ).length;
 
+      // Вопросы взятого варианта считаются наравне с самим выбором: манёвр
+      // отмечен, а навык к нему не назван — умение ещё не готово
+      const answered = optionChoicesFor(pick.featureKey).every(
+        (choice) =>
+          (props.featSelections?.[choice.key]?.length ?? 0)
+          >= resolveFeatChoiceCount(choice, props.proficiencyBonus),
+      );
+
       byKey[pick.featureKey] =
-        chosen >= pick.count
+        chosen >= pick.count && answered
           ? { label: CLASS_WIZARD_LABELS.choiceDoneBadge, color: 'success' }
           : { label: CLASS_WIZARD_LABELS.choiceNeededBadge, color: 'warning' };
     }
@@ -162,6 +188,26 @@
 
   function selectSubclass(key: string) {
     emit('update:subclassKey', key);
+  }
+
+  /**
+   * Вопросы вариантов этого умения; пусто — взятые варианты ни о чём не
+   * спрашивают.
+   *
+   * @param featureKey - ключ умения
+   */
+  function optionChoicesFor(featureKey: string): FeatChoice[] {
+    return props.optionChoices?.[featureKey] ?? [];
+  }
+
+  /**
+   * Записывает ответы на вопросы вариантов. Список ответов общий на весь
+   * уровень — карточка правит его целиком, как и поля выбора внизу.
+   *
+   * @param selections - ответы: ключ выбора → значения
+   */
+  function updateFeatSelections(selections: Record<string, string[]>): void {
+    emit('update:featSelections', selections);
   }
 </script>
 
@@ -298,6 +344,19 @@
             :selected="selectedFor(feature.key)"
             @update:selected="selectChoice"
           />
+
+          <!-- Вопросы взятого варианта — здесь же, под ним: «Договор Гримуара»
+            даёт выбрать навык, и спрашивать его надо там, где вариант отметили -->
+          <FeatChoicesFields
+            v-if="optionChoicesFor(feature.key).length"
+            class="mt-3 border-t border-default/50 pt-3"
+            :model-value="featSelections ?? {}"
+            :choices="optionChoicesFor(feature.key)"
+            :actor="actor"
+            :proficiency-bonus="proficiencyBonus"
+            :spells="spells"
+            @update:model-value="updateFeatSelections"
+          />
         </div>
       </div>
     </div>
@@ -322,6 +381,17 @@
           :pick="pick"
           :selected="selectedFor(pick.featureKey)"
           @update:selected="selectChoice"
+        />
+
+        <FeatChoicesFields
+          v-if="optionChoicesFor(pick.featureKey).length"
+          class="mt-3 border-t border-default/50 pt-3"
+          :model-value="featSelections ?? {}"
+          :choices="optionChoicesFor(pick.featureKey)"
+          :actor="actor"
+          :proficiency-bonus="proficiencyBonus"
+          :spells="spells"
+          @update:model-value="updateFeatSelections"
         />
       </div>
     </template>

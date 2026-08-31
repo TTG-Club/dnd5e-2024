@@ -17,6 +17,7 @@ import type {
   ClassFeature,
   ClassFeatureChoice,
   ClassFeatureSkillChoice,
+  ClassOptionGrant,
   DnDActor,
   FeatChoice,
   FeatData,
@@ -39,6 +40,8 @@ import {
   buildCounterFormulaContext,
   buildFeatGrantEffect,
   calculateProficiencyBonus,
+  classOptionFeatureScope,
+  collectClassOptionGrants,
   collectFeatChoiceProficiencies,
   collectFeatGrantedSpellSources,
   collectGrantedSpellSourcesForClassLevel,
@@ -73,11 +76,14 @@ import {
 import {
   CLASS_EQUIPMENT_NONE_INDEX,
   CLASS_GRANT_EFFECT_PRESENTATION,
+  FEATURE_OPTION_SEPARATOR,
+  FEATURE_SOURCE_SEPARATOR,
 } from '../../constants';
 import { applyFeatToActor } from '../../feat/featApply';
 import {
   buildClassEffectId,
   collectClassEffects,
+  collectClassOptionEffects,
   collectFeatureEffects,
   collectSubclassEffects,
   mergeClassEffects,
@@ -722,6 +728,63 @@ export function useClassWizard(
   }
 
   /**
+   * Дары вариантов, выбранных прямо сейчас: и у умений, которые выдаются на
+   * этом уровне, и у добора вариантов к умениям прошлых уровней.
+   *
+   * Только выбранных: вариант, от которого игрок отказался, листу ничего не
+   * даёт, и его вопросы задавать некому — ответ на них так и остался бы пустым.
+   * Ключи выборов при этом сужаются до области варианта, иначе два манёвра со
+   * своим «выбери навык» слились бы в один вопрос на двоих.
+   */
+  const selectedOptionGrants = computed<ClassOptionGrant[]>(() =>
+    featureChoicePicks.value.flatMap((pick) =>
+      // Варианты берутся из самого предложения, а не поиском умения по ключу:
+      // ключ умения уникален не всегда — у класса с сайта умение класса и
+      // умение подкласса носят один ключ («Таинственные воззвания» повторены на
+      // странице покровителя), — и поиск отдавал бы вторую запись, у которой
+      // вариантов нет вовсе. Предложение же собрано из того самого умения,
+      // которое игрок сейчас и видит
+      collectClassOptionGrants(
+        { key: pick.featureKey, choices: pick.options },
+        selectedChoicesFor(pick.featureKey).map((choice) => choice.key),
+      ),
+    ),
+  );
+
+  /** Дары выбранных вариантов по ключу «умение:вариант» — их ищет сборка записей. */
+  const optionGrantByKey = computed(() => {
+    const byKey = new Map<string, ClassOptionGrant>();
+
+    for (const grant of selectedOptionGrants.value) {
+      byKey.set(`${grant.featureKey}:${grant.optionKey}`, grant);
+    }
+
+    return byKey;
+  });
+
+  /**
+   * Ответы игрока на вопросы одного варианта. Отбираются по области его ключей:
+   * на запись варианта ложатся только его собственные ответы — по ним лист
+   * считает максимум ресурса и держит выбор рядом с тем, кто его спросил.
+   *
+   * @param grant - дары выбранного варианта
+   * @returns ответы варианта; пусто — вариант ни о чём не спрашивал
+   */
+  function optionChoiceAnswers(
+    grant: ClassOptionGrant,
+  ): Record<string, string[]> {
+    const answers: Record<string, string[]> = {};
+
+    for (const [key, values] of Object.entries(wizardState.featDataChoices)) {
+      if (key.startsWith(grant.scope)) {
+        answers[key] = values;
+      }
+    }
+
+    return answers;
+  }
+
+  /**
    * Бонус мастерства персонажа после этого уровня: от него зависит количество у
    * выборов вида «столько, сколько бонус мастерства».
    */
@@ -806,6 +869,15 @@ export function useClassWizard(
       collected.push(featData);
     }
 
+    // Дары выбранных вариантов: воззвание выдаёт заклинание, манёвр — владение
+    // приёмом. Идут наравне с дарами самих умений — лист применяет их одним и
+    // тем же кодом, откуда бы они ни пришли
+    for (const grant of selectedOptionGrants.value) {
+      if (grant.featData) {
+        collected.push(openedFeatData(grant.featData, nextLevel.value));
+      }
+    }
+
     return collected;
   });
 
@@ -854,6 +926,19 @@ export function useClassWizard(
           sourceKey: feature.key,
           sourceName: feature.name,
           featData: openedFeatData(feature.featData, nextLevel.value),
+        });
+      }
+    }
+
+    // Выбранные варианты — своим источником: их эффект даров подписан названием
+    // варианта, а ключ несёт и умение, и вариант, чтобы у двух умений с
+    // одинаковым вариантом эффекты не слиплись
+    for (const grant of selectedOptionGrants.value) {
+      if (grant.featData) {
+        collected.push({
+          sourceKey: `${grant.featureKey}:${grant.optionKey}`,
+          sourceName: grant.name,
+          featData: openedFeatData(grant.featData, nextLevel.value),
         });
       }
     }
@@ -969,6 +1054,49 @@ export function useClassWizard(
       wizardState.featDataChoices,
     ).filter((choice) => !isFeatPickChoice(choice)),
   );
+
+  /**
+   * Вопросы вариантов по ключу их умения: мастер задаёт их прямо в карточке
+   * умения, под выбором варианта.
+   *
+   * Отдельно от остальных, потому что вопрос варианта появляется ТОЛЬКО после
+   * того, как вариант взяли: спрошенный общим списком где-то ниже, под всеми
+   * умениями уровня, он выглядит вопросом ниоткуда — игрок его попросту не
+   * связывает с манёвром, который только что отметил.
+   */
+  const optionChoicesByFeature = computed<Record<string, FeatChoice[]>>(() => {
+    const byFeature: Record<string, FeatChoice[]> = {};
+
+    for (const pick of featureChoicePicks.value) {
+      const scope = classOptionFeatureScope(pick.featureKey);
+
+      const own = visibleFeatChoices.value.filter((choice) =>
+        choice.key.startsWith(scope),
+      );
+
+      if (own.length > 0) {
+        byFeature[pick.featureKey] = own;
+      }
+    }
+
+    return byFeature;
+  });
+
+  /**
+   * Выборы, которые задаёт сама запись — класс, подкласс и умения уровня.
+   *
+   * Вопросы вариантов сюда не входят: их задаёт карточка своего умения, и
+   * вторым списком они спросились бы дважды.
+   */
+  const ownFeatChoices = computed<FeatChoice[]>(() => {
+    const scoped = new Set(
+      Object.values(optionChoicesByFeature.value).flatMap((choices) =>
+        choices.map((choice) => choice.key),
+      ),
+    );
+
+    return visibleFeatChoices.value.filter((choice) => !scoped.has(choice.key));
+  });
 
   /** Все выборы уровня отвечены — без этого шаг умений не пройти. */
   const areFeatChoicesComplete = computed(
@@ -1087,6 +1215,22 @@ export function useClassWizard(
     // положить свои заговоры в книгу
     return [
       ...collectGrantedSpellSourcesForClassLevel(allFeatures, nextLevel.value),
+      // Заклинания из блоков даров уровня — класса, подкласса, умений и
+      // выбранных вариантов: и выданные без выбора, и названные самим игроком
+      // («Договор Гримуара» даёт выбрать три заговора). Тем же кодом, что у
+      // черты: набор даров у них общий, и второй разбор разошёлся бы с первым.
+      // Повтор с заклинаниями умения выше не страшен — лист отсеивает их по
+      // названию
+      ...levelFeatDataSources.value.flatMap((source) =>
+        collectFeatGrantedSpellSources(
+          {
+            name: source.sourceName,
+            featData: source.featData,
+            choices: wizardState.featDataChoices,
+          },
+          actor.value,
+        ),
+      ),
       ...chosenCompendiumFeats.value.flatMap((feat) =>
         collectFeatGrantedSpellSources(feat, actor.value),
       ),
@@ -1936,6 +2080,8 @@ export function useClassWizard(
         Boolean(wizardState.subclassKey),
       ),
       ...collectFeatureEffects(classDef, levelFeatures.value),
+      // Эффекты выбранных вариантов: они ложатся, только пока вариант выбран
+      ...collectClassOptionEffects(classDef, selectedOptionGrants.value),
     ];
 
     // Синтетические эффекты даров featData уровня: модификаторы листа, защиты
@@ -2028,6 +2174,7 @@ export function useClassWizard(
        * @param level - уровень, на котором запись получена
        * @param isSubclass - умение подкласса
        * @param sourceName - название подкласса-источника
+       * @param grant - дары выбранного варианта; запись варианта несёт их сама
        */
       function pushFeature(
         name: string,
@@ -2035,11 +2182,14 @@ export function useClassWizard(
         level: number,
         isSubclass: boolean,
         sourceName?: string,
+        grant?: ClassOptionGrant,
       ): void {
         // grantedBy включает класс (и подкласс): имя класса обязано остаться
         // в строке — по нему удаление класса находит свои умения
         const grantedBy =
-          isSubclass && sourceName ? `${className} — ${sourceName}` : className;
+          isSubclass && sourceName
+            ? `${className}${FEATURE_SOURCE_SEPARATOR}${sourceName}`
+            : className;
 
         const alreadyExists = newFeatures.some(
           (existing) =>
@@ -2051,14 +2201,28 @@ export function useClassWizard(
           return;
         }
 
-        newFeatures.push({
+        // Дары варианта живут на его собственной записи: по ней лист считает
+        // ресурс варианта и его заклинания на следующих уровнях, в сводке
+        // видно, что именно дало владение, а снятие класса забирает дары
+        // вместе с записью. У самого умения дары остаются в записи класса — там
+        // они выведены её полями, и копия на листе выдала бы то же дважды
+        const answers = grant ? optionChoiceAnswers(grant) : {};
+
+        const record: AppliedFeatFeature = {
           id: generateId('feature'),
           name,
           grantedBy,
           description,
           level,
           featureType: isSubclass ? 'subclass' : 'class',
-        });
+          ...(grant?.featData ? { featData: grant.featData } : {}),
+          ...(Object.keys(answers).length > 0 ? { choices: answers } : {}),
+          ...(grant?.activeEffects.length
+            ? { activeEffects: grant.activeEffects }
+            : {}),
+        };
+
+        newFeatures.push(record);
       }
 
       for (const feature of levelFeatures.value) {
@@ -2092,11 +2256,12 @@ export function useClassWizard(
 
         for (const choice of selected) {
           pushFeature(
-            `${feature.name}: ${choice.name}`,
+            `${feature.name}${FEATURE_OPTION_SEPARATOR}${choice.name}`,
             choice.description,
             feature.level,
             feature.isSubclass ?? false,
             feature.sourceName,
+            optionGrantByKey.value.get(`${feature.key}:${choice.key}`),
           );
         }
       }
@@ -2106,17 +2271,32 @@ export function useClassWizard(
       for (const pick of reopenedPicks) {
         for (const choice of selectedChoicesFor(pick.featureKey)) {
           pushFeature(
-            `${pick.featureName}: ${choice.name}`,
+            `${pick.featureName}${FEATURE_OPTION_SEPARATOR}${choice.name}`,
             choice.description,
             nextLevel.value,
             pick.isSubclass,
             pick.sourceName,
+            optionGrantByKey.value.get(`${pick.featureKey}:${choice.key}`),
           );
         }
       }
 
       if (newFeatures.length > actor.value.features?.length) {
         rootUpdates.features = newFeatures;
+
+        // Ресурсы выбранных вариантов: у варианта они лежат ВНУТРИ его даров —
+        // ни уровня появления, ни ряда по уровню класса у них нет, — и завести
+        // их может только запись самого варианта. Пересборка идёт от уже
+        // обновлённого листа: формулы `@prof` и `@level` обязаны видеть новый
+        // уровень, иначе ресурс застрял бы на значении прошлого
+        systemUpdates.classCounters = refreshFeatCounters(
+          {
+            ...actor.value,
+            ...rootUpdates,
+            system: { ...actor.value.system, ...systemUpdates },
+          },
+          systemUpdates.classCounters ?? actor.value.system.classCounters ?? [],
+        );
       }
     }
 
@@ -2238,7 +2418,10 @@ export function useClassWizard(
     // Состояние
     wizardState,
     canProceed,
+    preparedFeatChoices,
     visibleFeatChoices,
+    ownFeatChoices,
+    optionChoicesByFeature,
     featPickChoices,
     asiFeatChoice,
     featChoiceProficiencyBonus,
