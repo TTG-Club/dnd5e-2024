@@ -36,6 +36,7 @@
   import ItemEffectsView from '../ItemEffectsView.vue';
   import SourceBadge from '../SourceBadge.vue';
   import StartingEquipmentOptionBody from '../StartingEquipmentOptionBody.vue';
+  import ClassFeatureChoicesView from './ClassFeatureChoicesView.vue';
 
   /**
    * Строка владения: подписи категорий и приписка свободным текстом через запятую.
@@ -888,6 +889,14 @@
 
               <ItemDescriptionRenderer :content="feature.description" />
 
+              <!-- Варианты умения: манёвры, воззвания, боевые стили. Свёрнуты:
+                развёрнутыми они закрыли бы собой весь класс -->
+              <ClassFeatureChoicesView
+                v-if="feature.choices?.length"
+                :choices="feature.choices"
+                :config="feature.choiceConfig"
+              />
+
               <ItemEffectsView
                 v-if="feature.activeEffects?.length"
                 :effects="feature.activeEffects"
@@ -1001,6 +1010,13 @@
                       :content="feature.description"
                       class="mt-1 line-clamp-3 text-sm text-muted"
                       :title="feature.description"
+                    />
+
+                    <ClassFeatureChoicesView
+                      v-if="feature.choices?.length"
+                      :choices="feature.choices"
+                      :config="feature.choiceConfig"
+                      is-subclass
                     />
                   </div>
                 </div>

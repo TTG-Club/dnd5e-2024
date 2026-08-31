@@ -161,16 +161,35 @@
   const featureNamesByLevel = computed(() => {
     const map = new Map<number, string[]>();
 
+    /**
+     * Ставит название умения на его уровень.
+     *
+     * @param level - уровень класса
+     * @param name - название умения или его ступени роста
+     */
+    function addName(level: number, name: string): void {
+      const list = map.get(Math.max(1, Math.round(level || 1))) ?? [];
+
+      list.push(name);
+      map.set(Math.max(1, Math.round(level || 1)), list);
+    }
+
     for (const feature of props.features) {
-      if (!feature.name.trim()) {
+      const name = feature.name.trim();
+
+      if (!name) {
         continue;
       }
 
-      const level = Math.max(1, Math.round(feature.level || 1));
-      const list = map.get(level) ?? [];
+      addName(feature.level, name);
 
-      list.push(feature.name.trim());
-      map.set(level, list);
+      // Ступени роста стоят в таблице своими строками — умение получают на
+      // каждом их уровне заново, и предпросмотр обязан их показывать
+      for (const step of feature.scaling) {
+        if (step.description.trim() || step.name.trim()) {
+          addName(step.level, step.name.trim() || name);
+        }
+      }
     }
 
     return map;

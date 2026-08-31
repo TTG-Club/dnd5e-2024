@@ -27,7 +27,6 @@
   import { computed, ref, watch } from 'vue';
 
   import { loadCompendiumKindByPack } from '@/core/compendiumDataClient';
-  import EntityCard from '@/shared_ui/components/EntityCard.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
   import { useItemsStore } from '@/stores/itemsStore';
@@ -46,6 +45,7 @@
     COMPENDIUM_PICKER_TITLES,
     MODAL_BUTTON_LABELS,
   } from './constants';
+  import PickerListRow from './PickerListRow.vue';
   import SpeciesDetailModal from './species/SpeciesDetailModal.vue';
 
   /** Определение, выбираемое этим окном */
@@ -333,16 +333,6 @@
 
     return definition && definition.type === 'background' ? definition : null;
   });
-
-  /**
-   * Приводит определение к свободной форме записи карточки: у интерфейсов нет
-   * неявной индексной сигнатуры, а `EntityCard` ждёт именно её.
-   *
-   * @param entry - определение вида, класса или предыстории
-   */
-  function toCardEntry<T extends object>(entry: T): { [K in keyof T]: T[K] } {
-    return entry;
-  }
 
   /**
    * Загружает записи выбранного типа по пакам компендиума.
@@ -676,28 +666,27 @@
               />
             </div>
 
+            <!-- Строка списка общая со всеми окнами выбора: название,
+              английское название второй строкой и источник справа. Показатели
+              записи уступили им место — за ними открывают карточку кнопкой -->
             <div
               v-else-if="visibleEntries.length > 0"
-              class="flex flex-col gap-1"
+              class="flex flex-col divide-y divide-accented/25"
             >
               <div
                 v-for="entry in visibleEntries"
                 :key="entry.key"
-                class="flex items-center gap-2"
+                class="flex items-stretch gap-1"
               >
-                <!-- Отметка: клик по самой карточке открывает просмотр -->
-                <UCheckbox
-                  :model-value="selectedKeys.has(entry.key)"
+                <PickerListRow
+                  class="min-w-0 flex-1"
+                  :name="entry.name"
+                  :name-en="entry.nameEn"
+                  :source-key="entry.sourceKey"
+                  :source="entry.source"
+                  :selected="selectedKeys.has(entry.key)"
                   :disabled="!isSelectable(entry)"
-                  @update:model-value="toggleSelection(entry)"
-                />
-
-                <EntityCard
-                  class="flex-1 hover:bg-primary/10"
-                  :class="{ 'opacity-60': !isSelectable(entry) }"
-                  :entity-type="kind"
-                  :entry="toCardEntry(entry)"
-                  @click="openDetail(entry)"
+                  @toggle="toggleSelection(entry)"
                 />
 
                 <UBadge
@@ -705,10 +694,24 @@
                   color="success"
                   variant="subtle"
                   size="sm"
-                  class="shrink-0"
+                  class="shrink-0 self-center"
                 >
                   {{ COMPENDIUM_PICKER_LABELS.taken }}
                 </UBadge>
+
+                <!-- Карточка записи: нажимается вся отведённая кнопке область,
+                  во всю высоту строки — в мелкий значок целиться неудобно -->
+                <button
+                  type="button"
+                  class="flex shrink-0 cursor-pointer items-center justify-center rounded-md px-3 text-dimmed transition-colors hover:bg-primary/10 hover:text-default"
+                  :aria-label="COMPENDIUM_PICKER_LABELS.openDetail"
+                  @click.left.exact.prevent="openDetail(entry)"
+                >
+                  <UIcon
+                    name="tabler:info-circle"
+                    class="size-5"
+                  />
+                </button>
               </div>
             </div>
 

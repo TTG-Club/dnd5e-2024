@@ -135,6 +135,7 @@
     isMaxHitDieLevel,
     averageHitPoints,
     levelFeatures,
+    featureChoicePicks,
     hasSubclassSelection,
     activeSubclass,
     skillChoicesCount,
@@ -245,11 +246,11 @@
   }
 
   /**
-   * Сохраняет выбор опций умений класса в состоянии мастера.
+   * Сохраняет выбор вариантов умений класса в состоянии мастера.
    *
-   * @param choices - карта «ключ умения → выбранный вариант»
+   * @param choices - карта «ключ умения → ключи выбранных вариантов»
    */
-  function handleFeatureChoicesUpdate(choices: Record<string, string>) {
+  function handleFeatureChoicesUpdate(choices: Record<string, string[]>) {
     wizardState.featureChoices = choices;
   }
 
@@ -553,6 +554,7 @@
             <WizardStepFeatures
               :features="levelFeatures"
               :feature-choices="wizardState.featureChoices"
+              :choice-picks="featureChoicePicks"
               :has-subclass-selection="hasSubclassSelection"
               :subclasses="classDefinition.subclasses"
               :subclass-key="wizardState.subclassKey"

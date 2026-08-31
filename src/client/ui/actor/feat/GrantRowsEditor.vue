@@ -12,7 +12,6 @@
   import { computed, ref, watch } from 'vue';
 
   import { loadCompendiumKind } from '@/core/compendiumDataClient';
-  import { generateId } from '@vtt/shared';
   import {
     ABILITY_LABELS,
     getFeatChoiceDefaultPool,
@@ -25,11 +24,11 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { useSystemDataStore } from '../../../stores/systemDataStore';
+  import ChoiceScalingRows from '../ChoiceScalingRows.vue';
   import { featCategoryFilterValue } from '../compendiumFilters';
   import CompendiumRefPickerModal from '../CompendiumRefPickerModal.vue';
   import {
     ARMOR_PROF_LABELS,
-    CHOICE_COUNT_MAX,
     CLASS_LEVEL_MAX,
     FEAT_GRANTS_LABELS,
     POOL_PICKER_LABELS,
@@ -650,35 +649,6 @@
   }
 
   /**
-   * Заводит ступень роста: следующая начинается уровнем позже последней и даёт
-   * на один выбор больше.
-   *
-   * @param row - строка дара
-   */
-  function addScaling(row: EditableGrantRow): void {
-    const last = row.scaling.at(-1);
-
-    row.scaling = [
-      ...row.scaling,
-      {
-        uid: generateId('choice-step'),
-        level: Math.min(CLASS_LEVEL_MAX, (last?.level ?? 0) + 1),
-        count: Math.min(CHOICE_COUNT_MAX, (last?.count ?? row.count) + 1),
-      },
-    ];
-  }
-
-  /**
-   * Убирает ступень роста.
-   *
-   * @param row - строка дара
-   * @param index - номер ступени
-   */
-  function removeScaling(row: EditableGrantRow, index: number): void {
-    row.scaling = row.scaling.filter((_, stepIndex) => stepIndex !== index);
-  }
-
-  /**
    * Отмеченные виды одной строкой. Несколько читаются как «или»: игрок выбирает
    * из общей кучи, а не получает всё перечисленное.
    *
@@ -1000,11 +970,19 @@
                 class="mb-2"
               />
 
-              <UFormField
-                :label="FEAT_GRANTS_LABELS.choiceRequiredLevel"
-                :help="FEAT_GRANTS_LABELS.choiceRequiredLevelHint"
-                class="w-40"
-              >
+              <!-- Пояснение под полем разъезжалось на четыре строки в узкой
+                колонке и растаскивало соседей — оно ушло под ⓘ у подписи -->
+              <UFormField class="w-40">
+                <template #label>
+                  <span class="flex items-center gap-1">
+                    {{ FEAT_GRANTS_LABELS.choiceRequiredLevel }}
+
+                    <FieldHint
+                      :text="FEAT_GRANTS_LABELS.choiceRequiredLevelHint"
+                    />
+                  </span>
+                </template>
+
                 <UInputNumber
                   v-model="row.requiredLevel"
                   :min="0"
@@ -1017,70 +995,11 @@
             <!-- Рост по уровням: оружейных приёмов у воина три с 1 уровня,
               четыре с 4, пять с 10. Ступень называет, сколько всего выбрано к
               этому уровню, а не сколько добавилось -->
-            <div class="flex flex-col gap-2">
-              <span class="text-xs font-medium text-muted">
-                {{ FEAT_GRANTS_LABELS.choiceScalingTitle }}
-              </span>
-
-              <p
-                v-if="row.scaling.length === 0"
-                class="text-xs text-dimmed italic"
-              >
-                {{ FEAT_GRANTS_LABELS.choiceScalingEmpty }}
-              </p>
-
-              <div
-                v-for="(step, stepIndex) in row.scaling"
-                :key="step.uid"
-                class="flex items-end gap-2"
-              >
-                <UFormField
-                  :label="FEAT_GRANTS_LABELS.choiceScalingLevel"
-                  class="w-28"
-                >
-                  <UInputNumber
-                    v-model="step.level"
-                    :min="1"
-                    :max="CLASS_LEVEL_MAX"
-                    size="sm"
-                    class="w-full"
-                  />
-                </UFormField>
-
-                <UFormField
-                  :label="FEAT_GRANTS_LABELS.choiceScalingCount"
-                  class="w-28"
-                >
-                  <UInputNumber
-                    v-model="step.count"
-                    :min="1"
-                    :max="CHOICE_COUNT_MAX"
-                    size="sm"
-                    class="w-full"
-                  />
-                </UFormField>
-
-                <UButton
-                  icon="tabler:trash"
-                  color="error"
-                  variant="ghost"
-                  size="xs"
-                  class="mb-1"
-                  :aria-label="FEAT_GRANTS_LABELS.choiceScalingTitle"
-                  @click.left.exact.prevent="removeScaling(row, stepIndex)"
-                />
-              </div>
-
-              <UButton
-                icon="tabler:plus"
-                :label="FEAT_GRANTS_LABELS.addChoiceScaling"
-                color="neutral"
-                variant="soft"
-                size="xs"
-                class="self-start"
-                @click.left.exact.prevent="addScaling(row)"
-              />
-            </div>
+            <ChoiceScalingRows
+              v-model="row.scaling"
+              :base-count="row.count"
+              :empty-text="FEAT_GRANTS_LABELS.choiceScalingEmpty"
+            />
 
             <!-- Ряд по уровням соберётся из ступеней: колонкой его набирать не
               нужно -->

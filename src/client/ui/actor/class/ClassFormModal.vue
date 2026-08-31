@@ -12,6 +12,7 @@
     AbilityDelimiter,
     ActiveEffect,
     ClassDefinition,
+    ClassFeature,
     DnDGameItem,
     GrantedSpellRef,
     HitDie,
@@ -96,15 +97,16 @@
     buildFeature,
     buildFeatureCounters,
     buildLevelTable,
+    buildScalingFeatures,
     buildSpellcasting,
     buildSubclass,
+    collectPlainAsiKeys,
     createEmptyLevelTable,
     createEmptySpellcasting,
     distributeFeatureCounters,
     HIT_DIE_OPTIONS,
-    isPlainAsiFeature,
     toEditableColumns,
-    toEditableFeature,
+    toEditableFeatures,
     toEditableLevelTable,
     toEditableSpellcasting,
     toEditableSubclass,
@@ -243,6 +245,15 @@
   const levelTable = ref<EditableLevelRow[]>(createEmptyLevelTable());
 
   const features = ref<EditableClassFeature[]>([]);
+
+  /**
+   * Умения-повышения характеристик записи как они пришли. В форме их место —
+   * галочка ASI строки уровня, а собственные дары (категории черт, из которых
+   * берут черту вместо прибавки) правке не подлежат: без переноса сохранение
+   * записи снимало бы с шага характеристик список категорий класса.
+   */
+  const preservedAsiFeatures = ref<ClassFeature[]>([]);
+
   const subclasses = ref<EditableSubclass[]>([]);
   const counters = ref<EditableResourceCounter[]>([]);
   const equipment = ref<EditableStartingEquipmentOption[]>([]);
@@ -498,6 +509,7 @@
     tableColumns.value = [];
     levelTable.value = createEmptyLevelTable();
     features.value = [];
+    preservedAsiFeatures.value = [];
     subclasses.value = [];
     counters.value = [];
     equipment.value = [];
@@ -542,10 +554,10 @@
 
     // Только «обычные» ASI представляем чекбоксом строки; эпические дары и любые
     // asi-*, имеющие своё название/описание, сохраняем как настоящие умения.
-    const plainAsiKeys = new Set(
-      (definition.features ?? [])
-        .filter(isPlainAsiFeature)
-        .map((feature) => feature.key),
+    const plainAsiKeys = collectPlainAsiKeys(definition.features ?? []);
+
+    preservedAsiFeatures.value = (definition.features ?? []).filter((feature) =>
+      plainAsiKeys.has(feature.key),
     );
 
     levelTable.value = toEditableLevelTable(
@@ -554,9 +566,11 @@
       plainAsiKeys,
     );
 
-    features.value = (definition.features ?? [])
-      .filter((feature) => !isPlainAsiFeature(feature))
-      .map(toEditableFeature);
+    features.value = toEditableFeatures(
+      (definition.features ?? []).filter(
+        (feature) => !plainAsiKeys.has(feature.key),
+      ),
+    );
 
     subclasses.value = (definition.subclasses ?? []).map(toEditableSubclass);
 
@@ -698,9 +712,16 @@
 
     const baseFeatures = features.value
       .filter((feature) => feature.name.trim().length > 0)
-      .map((feature) => buildFeature(feature));
+      .flatMap((feature) => [
+        buildFeature(feature),
+        ...buildScalingFeatures(feature),
+      ]);
 
-    const asiFeatures = buildAsiFeatures(levelTable.value, baseFeatures);
+    const asiFeatures = buildAsiFeatures(
+      levelTable.value,
+      baseFeatures,
+      preservedAsiFeatures.value,
+    );
 
     const definition: ClassDefinition = {
       type: 'class',

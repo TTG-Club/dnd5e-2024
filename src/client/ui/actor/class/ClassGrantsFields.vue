@@ -29,8 +29,20 @@
     defineProps<{
       /** WebSocket-клиент: им строка дара «Черта» открывает компендиум. */
       socket?: TypedWebSocketClient | null;
+      /**
+       * Заголовки блоков. Блок стоит и у класса целиком, и внутри его умения, а
+       * «Дары класса» внутри умения вводили бы в заблуждение: выдаёт их умение.
+       */
+      grantsTitle?: string;
+      grantsHint?: string;
+      modifiersTitle?: string;
     }>(),
-    { socket: null },
+    {
+      socket: null,
+      grantsTitle: CLASS_FORM_LABELS.grantsTitle,
+      grantsHint: CLASS_FORM_LABELS.grantsHint,
+      modifiersTitle: FEAT_GRANTS_LABELS.modifiersTitle,
+    },
   );
 
   /** Занятые ключи выборов: два выбора с одним ключом схлопнулись бы в один. */
@@ -40,9 +52,9 @@
 <template>
   <div class="flex flex-col gap-4">
     <FormSection
-      :title="CLASS_FORM_LABELS.grantsTitle"
+      :title="props.grantsTitle"
       icon="tabler:gift"
-      :hint="CLASS_FORM_LABELS.grantsHint"
+      :hint="props.grantsHint"
     >
       <GrantRowsEditor
         v-model="grants.grantRows"
@@ -52,7 +64,7 @@
     </FormSection>
 
     <FormSection
-      :title="FEAT_GRANTS_LABELS.modifiersTitle"
+      :title="props.modifiersTitle"
       icon="tabler:adjustments-filled"
     >
       <ModifierRowsEditor v-model="grants.modifiers" />

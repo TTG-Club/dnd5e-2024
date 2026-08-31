@@ -4,10 +4,9 @@
   import type { SpellOption } from '../grantedSpellsEditorTypes';
   import type { EditableFeature } from './speciesEditorTypes';
 
-  import { ref } from 'vue';
-
   import { generateId } from '@vtt/shared';
 
+  import { useExpandedRows } from '../../../composables/useExpandedRows';
   import {
     LEVEL_BADGE_SUFFIX,
     SPECIES_FEATURES_EDITOR_LABELS,
@@ -44,20 +43,7 @@
     'open-spell': [spellId: string, packId?: string];
   }>();
 
-  /** Ключи раскрытых (редактируемых) особенностей. */
-  const expandedKeys = ref<Set<string>>(new Set());
-
-  function isExpanded(key: string): boolean {
-    return expandedKeys.value.has(key);
-  }
-
-  function toggle(key: string): void {
-    if (expandedKeys.value.has(key)) {
-      expandedKeys.value.delete(key);
-    } else {
-      expandedKeys.value.add(key);
-    }
-  }
+  const { isExpanded, expand, toggle, drop } = useExpandedRows();
 
   /** Добавляет особенность и сразу раскрывает её редактор. */
   function addFeature(): void {
@@ -76,7 +62,7 @@
     };
 
     features.value.push(feature);
-    expandedKeys.value.add(feature.key);
+    expand(feature.key);
   }
 
   /** Удаляет особенность по индексу. */
@@ -84,7 +70,7 @@
     const [removed] = features.value.splice(index, 1);
 
     if (removed) {
-      expandedKeys.value.delete(removed.key);
+      drop(removed.key);
     }
   }
 

@@ -150,8 +150,9 @@ export interface ClassCounterDefinition {
    * известен уровень КЛАССА, от которого идут ступени и уровень появления — у
    * дара такого уровня нет, он считался бы от общего уровня персонажа и при
    * мультиклассе завышал числа. Ключ нужен форме: по нему ресурс возвращается
-   * в своё умение при открытии записи. Компендиум его не присылает — там
-   * ресурс умения приезжает обычным счётчиком класса.
+   * в своё умение при открытии записи. В паках, выгруженных до появления поля,
+   * его нет — там ресурс умения приезжает обычным счётчиком класса и остаётся
+   * ресурсом записи.
    */
   featureKey?: string;
 }
@@ -164,8 +165,29 @@ export interface ClassFeatureChoice {
   key: string;
   /** Название на русском */
   name: string;
+  /** Название на английском — как у самого класса и подкласса */
+  nameEn?: string;
   /** Описание варианта */
   description: string;
+  /**
+   * Короткая подпись рядом с названием («1 круг», «только в доспехе»). Ею
+   * список вариантов читается, не разворачивая каждый.
+   */
+  additional?: string;
+  /**
+   * Требования к варианту текстом («7 уровень, заклинание „Вызов страха“»).
+   *
+   * Текстом, а не разбором: у воззваний колдуна требования пишутся живой
+   * фразой и упоминают заклинания, умения и уровень разом — проверить их
+   * листом всё равно нечем, и игрок читает их глазами.
+   */
+  prerequisite?: string;
+  /**
+   * Вариант не показывается на странице подкласса. Правило показа самого
+   * класса; листу персонажа оно ничего не меняет — вариант спрашивается там,
+   * где заведён.
+   */
+  hideInSubclasses?: boolean;
   /**
    * Уровень класса, с которого вариант доступен; нет — доступен сразу.
    *
@@ -173,6 +195,15 @@ export interface ClassFeatureChoice {
    * 5 уровня» на первом ещё не предлагают, хотя умение получено на первом.
    */
   requiredLevel?: number;
+  /**
+   * Вариант берут повторно: на следующей ступени выбора он снова в списке,
+   * хотя игрок его уже брал. Нет — берут один раз, и взятое из списка уходит.
+   *
+   * Так же выгружает флаг компендиум TTG Club ({@code VttgClass.Choice}):
+   * поле есть только у повторяемого варианта, и потребитель, который его не
+   * читает, ведёт себя как прежде.
+   */
+  repeatable?: boolean;
 }
 
 /**
@@ -575,8 +606,15 @@ export interface ActorClassEntry {
   hitPointsGained: HitPointGain[];
   /** Выбранные навыки при получении класса */
   chosenSkills: SkillType[];
-  /** Выбранные варианты особенностей (featureKey → choiceKey) */
-  featureChoices: Record<string, string>;
+  /**
+   * Выбранные варианты умений: ключ умения → ключи взятых вариантов.
+   *
+   * Список, а не один ключ: из выбираемого списка берут столько вариантов,
+   * сколько назначено настройкой выбора, и число растёт по уровням — у колдуна
+   * к 18 уровню десять воззваний. Записи, сделанные до этого, хранят один ключ
+   * строкой; читать их полагается через {@link toFeatureChoiceKeys}.
+   */
+  featureChoices: Record<string, string[]>;
   /** Характеристика заклинателя (копия из ClassDefinition.spellcasting.ability) */
   spellcastingAbility?: AbilityType;
   /** Тип заклинателя (копия из ClassDefinition.spellcasting.type) */
@@ -605,6 +643,212 @@ export function isAsiFeatureKey(featureKey: string): boolean {
  */
 export function isAsiFeature(feature: ClassFeature): boolean {
   return feature.abilityImprovement ?? isAsiFeatureKey(feature.key);
+}
+
+/** Ключ ступени роста умения: `<ключ умения>-<уровень>`. */
+const SCALING_FEATURE_KEY_PATTERN = /^(.+)-(\d+)$/;
+
+/**
+ * Ключ ступени роста умения. Вид ключа задан выгрузкой компендиума TTG Club
+ * (`VttgClassMapper.appendScaling`); формат и его разбор
+ * ({@link findScalingParentFeature}) живут рядом, чтобы не разойтись.
+ *
+ * @param featureKey - ключ самого умения
+ * @param level - уровень ступени
+ * @returns ключ отдельной записи ступени
+ */
+export function scalingFeatureKey(featureKey: string, level: number): string {
+  return `${featureKey}-${level}`;
+}
+
+/**
+ * Умение, ступенью роста которого является запись.
+ *
+ * Компендиум TTG Club разворачивает «рост по уровням» в отдельные умения с
+ * ключом `<ключ умения>-<уровень>`, оставляя им только название с описанием:
+ * флаги и механика живут у родителя. Без него ступень читается пустой строкой
+ * — а «Улучшение характеристик» на 8 уровне барда именно такая ступень.
+ *
+ * @param feature - умение записи
+ * @param features - все умения класса (с подклассами)
+ * @returns умение-родитель; `undefined` — запись не ступень
+ */
+export function findScalingParentFeature(
+  feature: ClassFeature,
+  features: ReadonlyArray<ClassFeature>,
+): ClassFeature | undefined {
+  const match = SCALING_FEATURE_KEY_PATTERN.exec(feature.key);
+
+  if (!match) {
+    return undefined;
+  }
+
+  const [, parentKey, levelText] = match;
+
+  // Уровень ключа обязан совпасть с уровнем записи: иначе умение с числом в
+  // собственном ключе («weapon-mastery-2») сочли бы ступенью чужого роста
+  if (Number(levelText) !== feature.level) {
+    return undefined;
+  }
+
+  const parent = features.find((entry) => entry.key === parentKey);
+
+  return parent === feature ? undefined : parent;
+}
+
+/**
+ * Повышает ли умение характеристики — с оглядкой на рост по уровням.
+ *
+ * Ступени роста приезжают из компендиума без флага родителя, и по одному
+ * умению их не отличить от обычной строки: бард на 8, 12 и 16 уровнях получал
+ * запись «Улучшение характеристик» и ни прибавки, ни черты.
+ *
+ * @param feature - умение класса или подкласса
+ * @param features - все умения класса (с подклассами)
+ * @returns `true` — на уровне этого умения игрок повышает характеристики
+ */
+export function isAsiFeatureInClass(
+  feature: ClassFeature,
+  features: ReadonlyArray<ClassFeature>,
+): boolean {
+  if (isAsiFeature(feature)) {
+    return true;
+  }
+
+  const parent = findScalingParentFeature(feature, features);
+
+  return parent ? isAsiFeature(parent) : false;
+}
+
+/**
+ * Варианты умения, открытые на уровне класса.
+ *
+ * Вариант с уровнем доступа выше спрашивать рано: у колдуна воззвания «для
+ * колдуна 5 уровня» лежат в том же списке, что и остальные, и на первом уровне
+ * игрок выбрал бы то, чего ещё не заслужил.
+ *
+ * @param feature - умение класса или подкласса
+ * @param classLevel - уровень класса, который берут сейчас
+ * @returns варианты уровня; `undefined` — у умения списка нет
+ */
+export function openClassFeatureChoices(
+  feature: ClassFeature,
+  classLevel: number,
+): ClassFeatureChoice[] | undefined {
+  if (!feature.choices) {
+    return undefined;
+  }
+
+  return feature.choices.filter(
+    (choice) => !choice.requiredLevel || choice.requiredLevel <= classLevel,
+  );
+}
+
+/**
+ * Сколько вариантов умения выбрано ВСЕГО к уровню класса.
+ *
+ * Ступени {@link ClassFeatureChoiceConfig.progression} называют итог к своему
+ * уровню, а не прибавку: у колдуна одно воззвание с первого уровня и три со
+ * второго. Без настройки выбора умение спрашивает ровно один вариант — так его
+ * читали до её появления, и записи старых паков ведут себя как прежде.
+ *
+ * @param feature - умение класса или подкласса
+ * @param classLevel - уровень класса
+ * @returns сколько вариантов выбрано всего; ноль — умения ещё нет
+ */
+export function classFeatureChoiceTotalAt(
+  feature: ClassFeature,
+  classLevel: number,
+): number {
+  if (classLevel < feature.level || !feature.choices?.length) {
+    return 0;
+  }
+
+  const config = feature.choiceConfig;
+
+  if (!config) {
+    return 1;
+  }
+
+  let total = config.count ?? 1;
+  let reachedLevel = feature.level;
+
+  for (const [levelKey, count] of Object.entries(config.progression ?? {})) {
+    const level = Number(levelKey);
+
+    if (!Number.isFinite(level) || level > classLevel || level < reachedLevel) {
+      continue;
+    }
+
+    reachedLevel = level;
+    total = count;
+  }
+
+  return total;
+}
+
+/**
+ * Сколько НОВЫХ вариантов умения берут на этом уровне класса.
+ *
+ * Разница со ступенью прошлого уровня: у колдуна на втором уровне воззваний
+ * становится три при одном на первом — значит, спрашивают два новых.
+ *
+ * @param feature - умение класса или подкласса
+ * @param classLevel - уровень класса, который берут сейчас
+ * @returns сколько вариантов спросить; ноль — на этом уровне не спрашивают
+ */
+export function newClassFeatureChoicesAt(
+  feature: ClassFeature,
+  classLevel: number,
+): number {
+  return Math.max(
+    0,
+    classFeatureChoiceTotalAt(feature, classLevel)
+      - classFeatureChoiceTotalAt(feature, classLevel - 1),
+  );
+}
+
+/**
+ * Сколько вариантов берут из списка, строкой: «1» либо «1–10».
+ *
+ * Число выбранного растёт по уровням, и говорить о списке одним числом нельзя:
+ * у колдуна одно воззвание на первом уровне и десять к восемнадцатому. Формат
+ * общий у карточки класса и у формы — иначе один и тот же список читался бы в
+ * них по-разному.
+ *
+ * @param count - сколько берут на уровне самого умения
+ * @param totals - итоги ступеней роста (сколько выбрано ВСЕГО к их уровню)
+ * @returns подпись количества
+ */
+export function formatChoiceCountRange(
+  count: number | undefined,
+  totals: ReadonlyArray<number>,
+): string {
+  const start = count ?? totals[0] ?? 1;
+  const total = Math.max(start, ...totals);
+
+  return total > start ? `${start}–${total}` : `${start}`;
+}
+
+/**
+ * Ключи выбранных вариантов умения из записи класса на листе.
+ *
+ * Записи, сделанные до появления выбора нескольких вариантов, хранят один ключ
+ * строкой: их читают так же, иначе взятое раньше воззвание предложили бы снова.
+ *
+ * @param value - значение из `ActorClassEntry.featureChoices`
+ * @returns ключи выбранных вариантов
+ */
+export function toFeatureChoiceKeys(value: unknown): string[] {
+  if (typeof value === 'string') {
+    return [value];
+  }
+
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((key) => typeof key === 'string');
 }
 
 /**
@@ -663,7 +907,9 @@ export function hasAbilityImprovementAtLevel(
   return levelEntry.featureKeys.some((key) => {
     const feature = features.find((entry) => entry.key === key);
 
-    return feature ? isAsiFeature(feature) : isAsiFeatureKey(key);
+    return feature
+      ? isAsiFeatureInClass(feature, features)
+      : isAsiFeatureKey(key);
   });
 }
 

@@ -15,7 +15,7 @@
  *   `string | number`, разрежённые (пустая ячейка не пишется → рендер «—»).
  */
 
-import type { AbilityType, SkillType, SourceDefinition } from '@vtt/shared';
+import type { AbilityType, SourceDefinition } from '@vtt/shared';
 import type {
   ActiveEffect,
   CasterType,
@@ -23,6 +23,8 @@ import type {
   ClassDefinition,
   ClassFeature,
   ClassFeatureChoice,
+  ClassFeatureChoiceConfig,
+  ClassFeatureSkillChoice,
   ClassLevelEntry,
   FeatData,
   GrantedSpellRef,
@@ -31,14 +33,20 @@ import type {
 } from '@vtt/shared/system/dnd.js';
 
 import type { EditableResourceCounter } from '../counterEditorTypes';
-import type { EditableFeatGrants } from '../feat/featEditorTypes';
+import type {
+  EditableChoiceScaling,
+  EditableFeatGrants,
+} from '../feat/featEditorTypes';
 
 import { generateId } from '@vtt/shared';
 import {
   calculateProficiencyBonus,
+  findScalingParentFeature,
   isAsiFeatureKey,
+  scalingFeatureKey,
 } from '@vtt/shared/system/dnd.js';
 
+import { CHOICE_CONFIG_DEFAULT_COUNT, CHOICE_COUNT_MIN } from '../constants';
 import {
   entriesToProgression,
   progressionToEntries,
@@ -115,6 +123,51 @@ export interface EditableClassFeatureChoice {
   uid: string;
   key: string;
   name: string;
+  /** Английское название — по нему вариант ищут в книге. */
+  nameEn: string;
+  description: string;
+  /** Короткая подпись рядом с названием в свёрнутой строке. */
+  additional: string;
+  /** Требования к варианту живой фразой. */
+  prerequisite: string;
+  /** Вариант не показывается на странице подкласса. */
+  hideInSubclasses: boolean;
+  /**
+   * Уровень класса, с которого вариант доступен; пусто — сразу. Мастер уровня
+   * по нему и отбирает, что предложить: воззвание «для колдуна 5 уровня» на
+   * первом уровне игрок не увидит.
+   */
+  requiredLevel?: number;
+  /** Вариант берут повторно на следующей ступени выбора. */
+  repeatable: boolean;
+}
+
+/**
+ * Настройка выбора из вариантов умения: сколько их берут и как это число
+ * растёт по уровням.
+ *
+ * Есть она только у выбираемого списка — по её наличию потребитель и отличает
+ * выбираемый список от справочного, который лишь показывается описанием. Так
+ * же устроена мастерская сайта.
+ */
+export interface EditableClassFeatureChoiceConfig {
+  /** Подпись выбора («Таинственные воззвания»); пусто — название умения. */
+  label: string;
+  /** Сколько вариантов берут на уровне получения умения. */
+  count: number;
+  /** Рост количества по уровням — тот же ряд, что у выбора в дарах. */
+  scaling: EditableChoiceScaling[];
+}
+
+/**
+ * Ступень роста умения по уровням: уровень, на котором умение повторяется или
+ * усиливается («Дополнительная атака» на 11-м, ASI на 8, 12, 16).
+ */
+export interface EditableClassFeatureScaling {
+  uid: string;
+  level: number;
+  /** Название ступени; пусто — берётся название самого умения. */
+  name: string;
   description: string;
 }
 
@@ -131,13 +184,27 @@ export interface EditableClassFeature {
   /** Варианты-выборы внутри умения. */
   choices: EditableClassFeatureChoice[];
   /**
-   * Сколько навыков даёт умение на выбор; `0` — не даёт. Поле разложено на
-   * число и список, а не хранится объектом: снятый выбор не должен оставлять
-   * в форме полупустой блок.
+   * Рост умения по уровням. В самой записи класса ступени лежат НЕ здесь, а
+   * отдельными умениями с ключом `<ключ умения>-<уровень>`: по ключу их
+   * адресует таблица прогрессии, и ровно так же разворачивает их выгрузка
+   * сайта (`VttgClassMapper.appendScaling`). Форма сворачивает их обратно к
+   * своему умению при открытии записи — автор правит рост там же, где само
+   * умение, а потребитель видит привычный плоский список.
    */
-  skillChoiceCount: number;
-  /** Пул навыков выбора; пустой — любой навык */
-  skillChoiceFrom: SkillType[];
+  scaling: EditableClassFeatureScaling[];
+  /**
+   * Настройка выбора из вариантов; нет — список справочный, его варианты
+   * только показываются описанием умения.
+   */
+  choiceConfig?: EditableClassFeatureChoiceConfig;
+  /**
+   * Владение навыками на выбор от самого умения (round-trip; форма его не
+   * редактирует). Своего блока у него нет: то же самое задаётся строкой даров
+   * «Навык → дать выбрать», и два поля об одном расходились бы. У записей,
+   * пришедших с сайта, поле бывает заполнено — сохраняем как есть, иначе
+   * открытие и сохранение класса молча снимало бы выбор навыка с уровня.
+   */
+  preservedSkillChoice?: ClassFeatureSkillChoice;
   /** Активные эффекты умения; переносятся на персонажа вместе с ним. */
   activeEffects: ActiveEffect[];
   /**
@@ -210,6 +277,35 @@ export function isPlainAsiFeature(feature: {
   const isAsi = feature.abilityImprovement ?? isAsiFeatureKey(feature.key);
 
   return isAsi && PLAIN_ASI_NAMES.has(feature.name.trim());
+}
+
+/**
+ * Ключи умений записи, которые форма показывает чекбоксом ASI строки уровня, а
+ * не отдельным умением.
+ *
+ * Ступени роста повышения характеристик считаются здесь вместе с самим
+ * умением: из компендиума они приезжают голыми записями без флага, и без
+ * такого разбора бард показывал бы «Улучшение характеристик» умением на 8, 12
+ * и 16 уровнях, а сохранение записи оставляло бы эти уровни без повышения.
+ *
+ * @param features - умения класса или подкласса
+ * @returns ключи умений-повышений и их ступеней
+ */
+export function collectPlainAsiKeys(
+  features: ReadonlyArray<ClassFeature>,
+): Set<string> {
+  const keys = new Set<string>();
+
+  for (const feature of features) {
+    const parent = findScalingParentFeature(feature, features);
+    const source = isPlainAsiFeature(feature) ? feature : parent;
+
+    if (source && isPlainAsiFeature(source)) {
+      keys.add(feature.key);
+    }
+  }
+
+  return keys;
 }
 
 /** Стандартное название/текст синтетического умения повышения характеристик. */
@@ -291,12 +387,32 @@ export function createEmptyFeature(name: string): EditableClassFeature {
     grantedSpells: [],
     grantedSpellsByLevel: [],
     choices: [],
-    skillChoiceCount: 0,
-    skillChoiceFrom: [],
+    scaling: [],
     activeEffects: [],
     grants: createEmptyFeatGrants(),
     grantedSpellRefs: [],
   };
+}
+
+/**
+ * Сколько блоков механики у умения заполнено. Считаются именно блоки, а не
+ * записи: и в шапке умения, и в шапке свёрнутого блока автору важно, где
+ * что-то есть, а длину списка он увидит, раскрыв блок.
+ *
+ * @param feature - умение формы
+ * @returns число непустых блоков механики
+ */
+export function countFilledMechanicsBlocks(
+  feature: EditableClassFeature,
+): number {
+  return [
+    feature.grants.grantRows.length,
+    feature.grants.modifiers.length,
+    feature.grants.counters.length,
+    feature.grantedSpells.length,
+    feature.grantedSpellsByLevel.length,
+    feature.activeEffects.length,
+  ].filter(Boolean).length;
 }
 
 /** Создаёт пустую строку таблицы для уровня. */
@@ -325,6 +441,34 @@ function toGrantedRefs(ids: string[] | undefined): GrantedSpellRef[] {
   return (ids ?? []).map((id) => ({ name: id, spellId: id }));
 }
 
+/**
+ * Разворачивает настройку выбора из вариантов в редактируемые поля.
+ *
+ * @param config - настройка выбора из записи класса
+ * @returns редактируемая настройка; `undefined` — список справочный
+ */
+function toEditableChoiceConfig(
+  config: ClassFeatureChoiceConfig | undefined,
+): EditableClassFeatureChoiceConfig | undefined {
+  if (!config) {
+    return undefined;
+  }
+
+  const scaling = Object.entries(config.progression ?? {})
+    .map(([levelKey, count]) => ({
+      uid: generateId('choice-step'),
+      level: Number(levelKey) || 1,
+      count,
+    }))
+    .sort((stepA, stepB) => stepA.level - stepB.level);
+
+  return {
+    label: config.label ?? '',
+    count: config.count ?? CHOICE_CONFIG_DEFAULT_COUNT,
+    scaling,
+  };
+}
+
 /** Разворачивает умение класса в редактируемые поля. */
 export function toEditableFeature(feature: ClassFeature): EditableClassFeature {
   const byLevel: EditableGrantedSpellLevel[] = Object.entries(
@@ -349,16 +493,120 @@ export function toEditableFeature(feature: ClassFeature): EditableClassFeature {
       uid: generateId('cfc'),
       key: choice.key || generateId('cfc'),
       name: choice.name || '',
+      nameEn: choice.nameEn || '',
       description: choice.description || '',
+      additional: choice.additional || '',
+      prerequisite: choice.prerequisite || '',
+      hideInSubclasses: choice.hideInSubclasses ?? false,
+      requiredLevel: choice.requiredLevel,
+      repeatable: choice.repeatable ?? false,
     })),
-    skillChoiceCount: feature.skillChoice?.count ?? 0,
-    skillChoiceFrom: feature.skillChoice?.from ?? [],
+    // Ступени роста собирает toEditableFeatures: по одному умению их не
+    // видно — ступень лежит отдельной записью рядом со своим умением
+    scaling: [],
+    choiceConfig: toEditableChoiceConfig(feature.choiceConfig),
+    preservedSkillChoice: feature.skillChoice,
     activeEffects: (feature.activeEffects ?? []).map((effect) => ({
       ...effect,
     })),
     grants: featDataToGrants(feature.featData),
     grantedSpellRefs: [...(feature.featData?.grantedSpells ?? [])],
   };
+}
+
+/**
+ * Умение, ступенью роста которого форма считает запись.
+ *
+ * Ключ разбирает движок ({@link findScalingParentFeature}) — формат ключа задан
+ * компендиумом, и знать о нём двум слоям незачем. Здесь остаётся правило самой
+ * формы: своего содержания у ступени нет — только название, описание и уровень.
+ * Запись с механикой ступенью не считается: она умение сама по себе, и свернуть
+ * её внутрь соседа значило бы потерять её дары. Пометка «только информационная»
+ * содержанием не считается, когда она стоит и у родителя: ступень строки
+ * таблицы — такая же строка таблицы.
+ *
+ * @param feature - умение записи
+ * @param features - умения класса или подкласса
+ * @returns умение-родитель; `undefined` — это обычное умение
+ */
+function findScalingParentInForm(
+  feature: ClassFeature,
+  features: ReadonlyArray<ClassFeature>,
+): ClassFeature | undefined {
+  const parent = findScalingParentFeature(feature, features);
+
+  if (!parent) {
+    return undefined;
+  }
+
+  const hasOwnContent =
+    Boolean(feature.choices?.length)
+    || Boolean(feature.choiceConfig)
+    || Boolean(feature.abilityImprovement)
+    || Boolean(feature.skillChoice)
+    || Boolean(feature.grantedSpells?.length)
+    || Boolean(feature.grantedSpellsByLevel)
+    || Boolean(feature.activeEffects?.length)
+    || Boolean(feature.featData)
+    || (Boolean(feature.isInformationalOnly) && !parent.isInformationalOnly);
+
+  return hasOwnContent ? undefined : parent;
+}
+
+/**
+ * Разворачивает умения записи в редактируемые, сворачивая ступени роста внутрь
+ * их умений: в записи ступень лежит отдельным умением, а правится строкой
+ * внутри родителя.
+ *
+ * Ресурс, привязанный к ступени, при этом остаётся счётчиком самой записи —
+ * его вернёт `distributeFeatureCounters` в общий список: у ступени полей для
+ * ресурса нет, а молча терять счётчик нельзя.
+ *
+ * @param features - умения класса или подкласса
+ * @returns редактируемые умения в порядке записи
+ */
+export function toEditableFeatures(
+  features: ReadonlyArray<ClassFeature>,
+): EditableClassFeature[] {
+  const editableByKey = new Map<string, EditableClassFeature>();
+  const result: EditableClassFeature[] = [];
+
+  // Родители заводятся первым проходом: ступень стоит в записи и раньше своего
+  // умения — список отсортирован по уровню
+  for (const feature of features) {
+    if (findScalingParentInForm(feature, features)) {
+      continue;
+    }
+
+    const editable = toEditableFeature(feature);
+
+    editableByKey.set(feature.key, editable);
+    result.push(editable);
+  }
+
+  for (const feature of features) {
+    const parentFeature = findScalingParentInForm(feature, features);
+    const parent = parentFeature && editableByKey.get(parentFeature.key);
+
+    if (!parentFeature || !parent) {
+      continue;
+    }
+
+    parent.scaling.push({
+      uid: generateId('cfs'),
+      level: feature.level,
+      // Название, повторяющее умение, ступени не принадлежит: так его пишет
+      // выгрузка сайта, когда своего названия у ступени нет
+      name: feature.name === parentFeature.name ? '' : feature.name || '',
+      description: feature.description || '',
+    });
+  }
+
+  for (const feature of result) {
+    feature.scaling.sort((stepA, stepB) => stepA.level - stepB.level);
+  }
+
+  return result;
 }
 
 /** Разворачивает счётчик ресурса в редактируемые поля. */
@@ -525,7 +773,7 @@ export function toEditableSubclass(
   subclass: SubclassDefinition,
 ): EditableSubclass {
   const tableColumns = toEditableColumns(subclass.tableColumns);
-  const features = (subclass.features ?? []).map(toEditableFeature);
+  const features = toEditableFeatures(subclass.features ?? []);
 
   return {
     key: subclass.key || generateId('sub'),
@@ -561,6 +809,50 @@ function buildGrantedIds(refs: GrantedSpellRef[]): string[] {
   return ids;
 }
 
+/**
+ * Собирает настройку выбора из вариантов обратно в запись класса.
+ *
+ * Пустая подпись и пустой рост не пишутся: у настройки, пришедшей с сайта, их
+ * тоже нет, а пустая строка читалась бы заданной подписью.
+ *
+ * @param config - редактируемая настройка выбора
+ * @returns настройка записи; `undefined` — список справочный
+ */
+function buildChoiceConfig(
+  config: EditableClassFeatureChoiceConfig | undefined,
+): ClassFeatureChoiceConfig | undefined {
+  if (!config) {
+    return undefined;
+  }
+
+  const built: ClassFeatureChoiceConfig = {
+    count: Math.max(
+      CHOICE_COUNT_MIN,
+      Math.round(config.count || CHOICE_CONFIG_DEFAULT_COUNT),
+    ),
+  };
+
+  const label = config.label.trim();
+
+  if (label) {
+    built.label = label;
+  }
+
+  const progression: Record<string, number> = {};
+
+  for (const step of [...config.scaling].sort(
+    (stepA, stepB) => stepA.level - stepB.level,
+  )) {
+    progression[String(step.level)] = step.count;
+  }
+
+  if (Object.keys(progression).length > 0) {
+    built.progression = progression;
+  }
+
+  return built;
+}
+
 /** Собирает умение класса/подкласса из редактируемых полей. */
 export function buildFeature(
   feature: EditableClassFeature,
@@ -583,21 +875,62 @@ export function buildFeature(
 
   const choices: ClassFeatureChoice[] = feature.choices
     .filter((choice) => choice.name.trim().length > 0)
-    .map((choice) => ({
-      key: choice.key,
-      name: choice.name.trim(),
-      description: choice.description.trim(),
-    }));
+    .map((choice) => {
+      const builtChoice: ClassFeatureChoice = {
+        key: choice.key,
+        name: choice.name.trim(),
+        description: choice.description.trim(),
+      };
+
+      // Пустые поля не пишутся: у варианта их и в выгрузке сайта нет, а пустая
+      // строка в записи класса читалась бы заполненной подписью
+      const nameEn = choice.nameEn.trim();
+
+      if (nameEn) {
+        builtChoice.nameEn = nameEn;
+      }
+
+      const additional = choice.additional.trim();
+
+      if (additional) {
+        builtChoice.additional = additional;
+      }
+
+      const prerequisite = choice.prerequisite.trim();
+
+      if (prerequisite) {
+        builtChoice.prerequisite = prerequisite;
+      }
+
+      if (choice.hideInSubclasses) {
+        builtChoice.hideInSubclasses = true;
+      }
+
+      if (choice.requiredLevel) {
+        builtChoice.requiredLevel = choice.requiredLevel;
+      }
+
+      if (choice.repeatable) {
+        builtChoice.repeatable = true;
+      }
+
+      return builtChoice;
+    });
 
   if (choices.length > 0) {
     built.choices = choices;
+
+    // Настройка без вариантов ничего не описывает: список у умения стёрли —
+    // значит, и считать в нём больше нечего
+    const choiceConfig = buildChoiceConfig(feature.choiceConfig);
+
+    if (choiceConfig) {
+      built.choiceConfig = choiceConfig;
+    }
   }
 
-  if (feature.skillChoiceCount > 0) {
-    built.skillChoice = {
-      count: Math.round(feature.skillChoiceCount),
-      from: [...feature.skillChoiceFrom],
-    };
+  if (feature.preservedSkillChoice) {
+    built.skillChoice = feature.preservedSkillChoice;
   }
 
   const grantedSpells = buildGrantedIds(feature.grantedSpells);
@@ -637,6 +970,47 @@ export function buildFeature(
   }
 
   return built;
+}
+
+/**
+ * Ступени роста умения — отдельными умениями записи, как их разворачивает
+ * выгрузка сайта: только название, описание и свой уровень. Механики у ступени
+ * нет — всё, что умение даёт листу, выдаётся один раз самим умением.
+ *
+ * @param feature - умение формы
+ * @param subclassKey - ключ подкласса, если умение его
+ * @returns записи ступеней; пустой список — роста у умения нет
+ */
+export function buildScalingFeatures(
+  feature: EditableClassFeature,
+  subclassKey?: string,
+): ClassFeature[] {
+  const name = feature.name.trim();
+
+  return feature.scaling
+    .filter((step) => step.description.trim() || step.name.trim())
+    .map((step) => {
+      const level = Math.max(1, Math.round(step.level || 1));
+
+      const built: ClassFeature = {
+        key: scalingFeatureKey(feature.key, level),
+        name: step.name.trim() || name,
+        description: step.description.trim(),
+        level,
+      };
+
+      if (subclassKey) {
+        built.subclassKey = subclassKey;
+      }
+
+      // Ступень строки таблицы — такая же строка таблицы: без этой пометки
+      // рост «Подкласса барда» уезжал бы на лист персонажа отдельным умением
+      if (feature.isInformationalOnly) {
+        built.isInformationalOnly = true;
+      }
+
+      return built;
+    });
 }
 
 /**
@@ -843,16 +1217,31 @@ export function buildLevelTable(
 
   const keysByLevel = new Map<number, string[]>();
 
+  /**
+   * Ставит ключ умения на его уровень.
+   *
+   * @param level - уровень класса
+   * @param key - ключ умения или его ступени роста
+   */
+  function addKey(level: number, key: string): void {
+    const list = keysByLevel.get(level) ?? [];
+
+    list.push(key);
+    keysByLevel.set(level, list);
+  }
+
   for (const feature of features) {
     if (!feature.name.trim()) {
       continue;
     }
 
-    const level = Math.max(1, Math.round(feature.level || 1));
-    const list = keysByLevel.get(level) ?? [];
+    addKey(Math.max(1, Math.round(feature.level || 1)), feature.key);
 
-    list.push(feature.key);
-    keysByLevel.set(level, list);
+    // Ступени роста стоят в таблице своими строками: на их уровне игрок
+    // получает запись умения заново, и без ключа строка уровня была бы пуста
+    for (const built of buildScalingFeatures(feature)) {
+      addKey(built.level, built.key);
+    }
   }
 
   return rows.map((row) => {
@@ -898,21 +1287,37 @@ export function buildLevelTable(
 export function buildAsiFeatures(
   rows: EditableLevelRow[],
   existing: ClassFeature[],
+  preserved: ReadonlyArray<ClassFeature> = [],
 ): ClassFeature[] {
   const existingKeys = new Set(existing.map((feature) => feature.key));
   const asiFeatures: ClassFeature[] = [];
+
+  // Дары умения-повышения: класс называет в них категории черт, из которых
+  // игрок берёт черту вместо прибавки. Форма их не правит, но и потерять не
+  // должна — иначе на шаге характеристик предлагалась бы любая черта.
+  // Правило у всех уровней повышения одно, поэтому дары берутся у того, у кого
+  // они есть: у ступеней роста своих нет — механика умения выдаётся один раз
+  const preservedFeatData = preserved.find(
+    (feature) => feature.featData,
+  )?.featData;
 
   for (const row of rows) {
     const key = `asi-${row.level}`;
 
     if (row.hasAsi && !existingKeys.has(key)) {
-      asiFeatures.push({
+      const built: ClassFeature = {
         key,
         name: ASI_NAME,
         description: ASI_DESCRIPTION,
         level: row.level,
         abilityImprovement: true,
-      });
+      };
+
+      if (preservedFeatData) {
+        built.featData = preservedFeatData;
+      }
+
+      asiFeatures.push(built);
     }
   }
 
@@ -923,7 +1328,10 @@ export function buildAsiFeatures(
 export function buildSubclass(subclass: EditableSubclass): SubclassDefinition {
   const baseFeatures = subclass.features
     .filter((feature) => feature.name.trim().length > 0)
-    .map((feature) => buildFeature(feature, subclass.key));
+    .flatMap((feature) => [
+      buildFeature(feature, subclass.key),
+      ...buildScalingFeatures(feature, subclass.key),
+    ]);
 
   const asiFeatures = subclass.hasOwnTable
     ? buildAsiFeatures(subclass.levelTable, baseFeatures).map((feature) => ({
