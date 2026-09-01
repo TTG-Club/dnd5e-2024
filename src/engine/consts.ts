@@ -322,6 +322,11 @@ export const TOOLS_LIST: Array<{
   { key: 'pan-flute', label: 'Флейта Пана', category: 'musical' },
   { key: 'shawm', label: 'Шалмей', category: 'musical' },
   { key: 'viol', label: 'Виола', category: 'musical' },
+  // Фаэрунские инструменты (FRHoF): в пул «музыкальный инструмент» их кладут
+  // предыстории Забытых Королевств и черта «Музыкант»
+  { key: 'bandore', label: 'Бандора', category: 'musical' },
+  { key: 'cittern', label: 'Цистра', category: 'musical' },
+  { key: 'yarting', label: 'Яртинг', category: 'musical' },
   // Прочие инструменты
   { key: 'disguise-kit', label: 'Набор для маскировки', category: 'other' },
   { key: 'forgery-kit', label: 'Набор для фальсификации', category: 'other' },
