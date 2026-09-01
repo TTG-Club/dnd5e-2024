@@ -26,6 +26,7 @@
 
   import { useSourceLabels } from '../../composables/useSourceLabel';
   import {
+    ALL_PACKS_ID,
     COMPENDIUM_LABELS,
     COMPENDIUM_PACK_BUTTON_CLASS,
     COMPENDIUM_PACK_BUTTON_IDLE_CLASS,
@@ -33,8 +34,10 @@
     COMPENDIUM_PICKER_LABELS,
     MODAL_BUTTON_LABELS,
     REF_PICKER_LABELS,
+    WORLD_PACK_ID,
   } from './constants';
   import PickerListRow from './PickerListRow.vue';
+  import { pickerRowId, sortPickerRowsByName } from './utils/pickerRows';
 
   /** Выбранная ссылка: чем запись адресуется и откуда она взята. */
   export interface PickedCompendiumRef {
@@ -55,6 +58,12 @@
 
   /** Запись компендиума, годная в ссылку: у неё есть ключ и название. */
   interface PickerEntry extends PickerEntryFields {
+    /**
+     * Ключ строки: ключ записи вместе с паком. В режиме «все компендиумы» одна
+     * и та же запись приезжает из нескольких паков и стоит отдельной строкой —
+     * различать их одним ключом записи нельзя.
+     */
+    rowId: string;
     packId: string;
     packName: string;
     /** Ключ источника — пометкой справа в строке списка */
@@ -62,11 +71,6 @@
     /** Значение фильтра записи (напр. категория черты); пусто — не задано */
     filterValue: string;
   }
-
-  /** Псевдо-пак «все компендиумы» — выбран по умолчанию */
-  const ALL_PACKS_ID = '__all__';
-  /** Псевдо-пак записей, созданных в самом мире (панель «Предметы») */
-  const WORLD_PACK_ID = '__world__';
 
   /**
    * Поля записи по умолчанию: ключ считает общий `compendiumEntryKey`, название
@@ -218,6 +222,7 @@
 
     return {
       ...fields,
+      rowId: pickerRowId(packId, fields.key),
       packId,
       packName,
       sourceKey:
@@ -269,33 +274,35 @@
     return result;
   });
 
+  /** Показываем ли сразу все компендиумы */
+  const isAllPacks = computed(() => selectedPackId.value === ALL_PACKS_ID);
+
   /**
-   * Записи выбранного компендиума. В режиме «все» одинаковые ключи из разных
-   * паков схлопываются — приоритет у пака, который идёт раньше.
+   * Название компендиума в строке. Показывается только в режиме «все»: внутри
+   * выбранного пака он и так назван слева, и повторять его в каждой строке
+   * незачем.
+   *
+   * @param entry - строка списка
+   */
+  function packLabel(entry: PickerEntry): string {
+    return isAllPacks.value ? entry.packName : '';
+  }
+
+  /**
+   * Записи выбранного компендиума. В режиме «все» одинаковые записи разных
+   * паков НЕ схлопываются: копия из тестового компендиума может отличаться от
+   * рабочей, и брать вместо неё «ту, что нашлась первой», нельзя — каждая копия
+   * стоит своей строкой с названием пака.
    */
   const packEntries = computed<PickerEntry[]>(() => {
-    if (selectedPackId.value !== ALL_PACKS_ID) {
+    if (!isAllPacks.value) {
       return (
         packs.value.find((pack) => pack.packId === selectedPackId.value)
           ?.entries ?? []
       );
     }
 
-    const seenKeys = new Set<string>();
-    const merged: PickerEntry[] = [];
-
-    for (const pack of packs.value) {
-      for (const entry of pack.entries) {
-        if (seenKeys.has(entry.key)) {
-          continue;
-        }
-
-        seenKeys.add(entry.key);
-        merged.push(entry);
-      }
-    }
-
-    return merged;
+    return sortPickerRowsByName(packs.value.flatMap((pack) => pack.entries));
   });
 
   /**
@@ -381,9 +388,9 @@
     });
   });
 
-  /** Ключи отмеченных записей */
-  const selectedKeys = computed(
-    () => new Set(selectedEntries.value.map((entry) => entry.key)),
+  /** Отмеченные строки — по паре «пак + ключ» */
+  const selectedRowIds = computed(
+    () => new Set(selectedEntries.value.map((entry) => entry.rowId)),
   );
 
   /**
@@ -411,19 +418,27 @@
    * «нужен класс» читается как «любой из перечисленных», а заклинаний черта
    * выдаёт сколько угодно. Одиночный выбор вытесняет прежнюю отметку.
    *
+   * Копии одной записи из разных компендиумов вытесняют друг друга и при
+   * множественном выборе: ссылка адресуется ключом записи, и две копии дали бы
+   * одну и ту же ссылку дважды — берётся та, чью строку отметили последней.
+   *
    * @param entry - запись компендиума
    */
   function toggleSelection(entry: PickerEntry): void {
-    if (selectedKeys.value.has(entry.key)) {
+    if (selectedRowIds.value.has(entry.rowId)) {
       selectedEntries.value = selectedEntries.value.filter(
-        (selected) => selected.key !== entry.key,
+        (selected) => selected.rowId !== entry.rowId,
       );
 
       return;
     }
 
+    const withoutSameKey = selectedEntries.value.filter(
+      (selected) => selected.key !== entry.key,
+    );
+
     selectedEntries.value = props.multiple
-      ? [...selectedEntries.value, entry]
+      ? [...withoutSameKey, entry]
       : [entry];
   }
 
@@ -646,11 +661,12 @@
             >
               <PickerListRow
                 v-for="entry in visibleEntries"
-                :key="`${entry.packId}-${entry.key}`"
+                :key="entry.rowId"
                 :name="entry.name"
                 :name-en="entry.nameEn"
+                :pack-name="packLabel(entry)"
                 :badge="entryBadge(entry)"
-                :selected="selectedKeys.has(entry.key)"
+                :selected="selectedRowIds.has(entry.rowId)"
                 @toggle="toggleSelection(entry)"
               />
             </div>
