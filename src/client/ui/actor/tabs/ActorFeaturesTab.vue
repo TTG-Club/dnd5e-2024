@@ -158,6 +158,16 @@
     return Boolean(feature.grantedByBackgroundKey);
   }
 
+  /**
+   * Выдана ли черта видом — даром вроде «Универсальности» человека. Метка та же
+   * по смыслу, что и у предыстории: черта обычная, снимется вместе с видом.
+   *
+   * @param feature - особенность листа
+   */
+  function grantedBySpecies(feature: AppliedFeatFeature): boolean {
+    return Boolean(feature.grantedBySpeciesKey);
+  }
+
   // --- Отбор по источнику особенности ---
 
   /**
@@ -745,8 +755,8 @@
               {{ feature.name }}
             </span>
 
-            <!-- Черта не выбрана свободно, а пришла от предыстории: снимется
-              вместе с ней, и это лучше видеть сразу -->
+            <!-- Черта не выбрана свободно, а пришла от предыстории или вида:
+              снимется вместе с ними, и это лучше видеть сразу -->
             <UBadge
               v-if="grantedByBackground(feature)"
               color="neutral"
@@ -755,6 +765,16 @@
               class="shrink-0"
             >
               {{ FEATURE_ORIGIN_LABELS.background }}
+            </UBadge>
+
+            <UBadge
+              v-else-if="grantedBySpecies(feature)"
+              color="neutral"
+              variant="subtle"
+              size="sm"
+              class="shrink-0"
+            >
+              {{ FEATURE_ORIGIN_LABELS.species }}
             </UBadge>
           </div>
 

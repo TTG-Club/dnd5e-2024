@@ -34,7 +34,7 @@
   import { useExpandedRows } from '../../../../composables/useExpandedRows';
   import { CLASS_WIZARD_LABELS, LEVEL_BADGE_SUFFIX } from '../../constants';
   import FeatChoicesFields from '../../feat/FeatChoicesFields.vue';
-  import WizardFeatPicker from './WizardFeatPicker.vue';
+  import WizardFeatPicker from '../../feat/WizardFeatPicker.vue';
   import WizardFeatureChoicePicker from './WizardFeatureChoicePicker.vue';
 
   /** Цвет пометки строки умения: ждём выбора или он уже сделан. */

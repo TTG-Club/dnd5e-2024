@@ -59,6 +59,15 @@ export interface AppliedFeatFeature extends Feature, AppliedFeatMeta {
   activeEffects?: ActiveEffect[];
 }
 
+/**
+ * Черта компендиума с полями, которых базовый тип умения не знает: категория
+ * нужна пикеру, чтобы сузить пул выбора черты.
+ */
+export interface CompendiumFeat extends AppliedFeatFeature {
+  /** Категория черты подписью записи компендиума («Боевой стиль») */
+  category?: string;
+}
+
 /** Обновления актора, получаемые при применении/откате черты. */
 export interface FeatApplyResult {
   features: Feature[];

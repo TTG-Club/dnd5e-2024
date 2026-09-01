@@ -2,11 +2,12 @@
   import type { TypedWebSocketClient } from '@vtt/shared';
   import type { DnDActor, SpeciesDefinition } from '@vtt/shared/system/dnd.js';
 
-  import { computed, toRef, watch } from 'vue';
+  import { computed, ref, toRef, watch } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
 
+  import { useFeatChoiceFeats } from '../../../composables/useFeatChoiceFeats';
   import { useFeatChoiceSpells } from '../../../composables/useFeatChoiceSpells';
   import { useSpeciesGrantedSpellsResolver } from '../../../composables/useSpeciesGrantedSpellsResolver';
   import { MODAL_BUTTON_LABELS, SPECIES_WIZARD_LABELS } from '../constants';
@@ -46,6 +47,19 @@
   const speciesDefRef = computed(() => props.speciesDefinition);
   const speciesRecordsRef = computed(() => props.speciesRecords);
 
+  /**
+   * Черты компендиума — пул выбора черты в дарах вида («Универсальность»
+   * человека просит черту происхождения) и записи черт, выдаваемых без выбора.
+   * Мастеру они нужны дважды: пикеру — показать список, `buildUpdates` — взять
+   * дары выбранной черты, поэтому каталог создаётся до мастера и отдаётся ему.
+   */
+  const needsFeats = ref(false);
+
+  const { feats: featChoiceFeats } = useFeatChoiceFeats(
+    toRef(props, 'socket'),
+    needsFeats,
+  );
+
   const {
     state,
     steps,
@@ -58,9 +72,22 @@
     grantedSpellSources,
     subspeciesOptions,
     featDataSources,
+    featPickChoices,
+    needsCompendiumFeats,
     proficiencyBonus,
     buildUpdates,
-  } = useSpeciesWizard(actorRef, speciesDefRef, speciesRecordsRef);
+  } = useSpeciesWizard(
+    actorRef,
+    speciesDefRef,
+    speciesRecordsRef,
+    featChoiceFeats,
+  );
+
+  // Надобность каталога знает мастер, а грузит его composable выше: связываем
+  // их через флаг — иначе получилась бы ссылка на ещё не созданный мастер
+  watch(needsCompendiumFeats, (value) => (needsFeats.value = value), {
+    immediate: true,
+  });
 
   /** Granted-заклинания особенностей вида с данными из компендиума (по пакам) */
   const { resolvedGrantedSpells } = useSpeciesGrantedSpellsResolver(
@@ -69,13 +96,15 @@
   );
 
   /**
-   * Все вопросы блоков даров одним списком — только для загрузки каталога
-   * заклинаний: пул выбора и проверка готовности обязаны смотреть на один и тот
-   * же список.
+   * Все вопросы одним списком — только для загрузки каталога заклинаний: пул
+   * выбора и проверка готовности обязаны смотреть на один и тот же список.
+   * Вопросы выбранной черты сюда тоже входят: «Посвящённый в магию» черта
+   * происхождения, и заговоры ей выбирают прямо здесь.
    */
-  const allPreparedFeatChoices = computed(() =>
-    featDataSources.value.flatMap((source) => source.preparedChoices),
-  );
+  const allPreparedFeatChoices = computed(() => [
+    ...featDataSources.value.flatMap((source) => source.preparedChoices),
+    ...featPickChoices.value.flatMap((pick) => pick.ownChoices),
+  ]);
 
   /** Заклинания каталога для выборов даров (заговор эльфа и подобные) */
   const { spells: featChoiceSpells } = useFeatChoiceSpells(
@@ -223,6 +252,8 @@
             :proficiency-bonus="proficiencyBonus"
             :feat-data-sources="featDataSources"
             :feat-choice-spells="featChoiceSpells"
+            :feat-picks="featPickChoices"
+            :feat-choice-feats="featChoiceFeats"
           />
         </div>
       </div>

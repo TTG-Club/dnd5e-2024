@@ -44,7 +44,7 @@ import {
   isDefensibleDamageType,
 } from './damageConstants.js';
 import { RITUAL_CASTING_TIME } from './spellTypes.js';
-import { WEAPON_MASTERIES } from './weaponMasteries.js';
+import { WEAPON_MASTERIES, weaponMasteryName } from './weaponMasteries.js';
 
 /** Владения актора — то, что выбор правит. */
 type ActorProficiencies = DnDActor['system']['proficiencies'];
@@ -200,6 +200,9 @@ const ARMOR_CATEGORY_OPTIONS: FeatChoiceOption[] = [
   { value: 'shield', name: 'Щиты' },
 ];
 
+/** Чем подпись оружия отделена от названия его приёма. */
+const WEAPON_MASTERY_NAME_SEPARATOR = ' — ';
+
 /** Заклинательной характеристикой черты бывают только эти три. */
 const SPELLCASTING_ABILITIES: readonly AbilityType[] = [
   'intelligence',
@@ -215,10 +218,13 @@ const SPELLCASTING_ABILITIES: readonly AbilityType[] = [
  * пул выбора разошёлся бы с тем, что потом покажет лист.
  *
  * @param type - тип выбора черты
+ * @param weapons - виды оружия мира: справочника оружия у движка нет, и без
+ * него выбор оружия и оружейного приёма остаётся без вариантов
  * @returns варианты в порядке показа; пусто у типов без общего справочника
  */
 export function getFeatChoiceDefaultPool(
   type: FeatChoiceType,
+  weapons: ReadonlyArray<FeatChoiceOption> = [],
 ): FeatChoiceOption[] {
   switch (type) {
     case 'skill':
@@ -262,10 +268,26 @@ export function getFeatChoiceDefaultPool(
         value: mastery.key,
         name: mastery.name.ru,
       }));
+    case 'weapon':
+      return [...weapons];
+    case 'weaponMastery':
+      // Приём есть не у всякого оружия: дубину выбирать незачем. Подпись
+      // приёмом — чтобы игрок видел, что именно достаётся вместе с оружием
+      return weapons.flatMap((weapon) => {
+        const mastery = weaponMasteryName(weapon.value);
+
+        return mastery
+          ? [
+              {
+                value: weapon.value,
+                name: `${weapon.name ?? weapon.value}${WEAPON_MASTERY_NAME_SEPARATOR}${mastery}`,
+              },
+            ]
+          : [];
+      });
     default:
-      // Оружие, заклинания, черты и «варианты» перечисляет сама черта либо
-      // компендиум: общего справочника, из которого их можно взять, у движка
-      // нет — виды оружия живут в данных мира, а не в правилах
+      // Заклинания, черты и «варианты» перечисляет сама черта либо компендиум:
+      // общего справочника, из которого их можно взять, у движка нет
       return [];
   }
 }
@@ -336,6 +358,12 @@ export interface FeatChoicePoolContext {
    * Пусто — источник класса не называет.
    */
   namedClassKeys?: ReadonlyArray<string>;
+  /**
+   * Виды оружия мира — из них собирается пул выбора оружия и оружейного приёма.
+   * Справочника оружия у движка нет: виды живут в данных мира, а не в правилах,
+   * поэтому список приходит снаружи. Пусто — выбирать нечего.
+   */
+  weapons?: ReadonlyArray<FeatChoiceOption>;
 }
 
 /**
@@ -529,8 +557,12 @@ export function resolveFeatChoicePool(
   // вперемешку из навыков и инструментов, и порядок здесь — заданный автором
   const pool =
     choice.options && choice.options.length > 0
-      ? withDictionaryLabels(choice, choice.options)
-      : dedupeOptions(types.flatMap(getFeatChoiceDefaultPool));
+      ? withDictionaryLabels(choice, choice.options, context?.weapons)
+      : dedupeOptions(
+          types.flatMap((type) =>
+            getFeatChoiceDefaultPool(type, context?.weapons),
+          ),
+        );
 
   if (!choice.onlyIfProficient && !choice.onlyIfNotProficient) {
     return pool;
@@ -545,6 +577,32 @@ export function resolveFeatChoicePool(
 
     return choice.onlyIfProficient ? proficient : !proficient;
   });
+}
+
+/**
+ * Отвечать на выбор нечем: пул пуст. Требовать ответа в таком случае — значит запереть
+ * шаг мастера: игрок видит подпись «вариантов нет» и неактивную кнопку, а сделать ничего
+ * не может. Пустым пул бывает законно: «Знаток» просит навык, которым персонаж ещё не
+ * владеет, а тот владеет уже всеми.
+ *
+ * Выбор заклинания сюда НЕ идёт: его пул собирается из каталога компендиума, который
+ * приходит контекстом, и пустым он бывает просто потому, что каталог ещё не загрузился.
+ * Считать такой выбор безответным значило бы пропустить шаг, ничего не спросив.
+ *
+ * @param choice - выбор черты
+ * @param actor - лист персонажа
+ * @param context - каталоги и уже сделанные выборы, из которых собирается пул
+ */
+export function hasNoFeatChoiceOptions(
+  choice: FeatChoice,
+  actor: DnDActor,
+  context?: FeatChoicePoolContext,
+): boolean {
+  if (choice.type === 'spell' || choice.type === 'cantrip') {
+    return false;
+  }
+
+  return resolveFeatChoicePool(choice, actor, context).length === 0;
 }
 
 /**
@@ -826,14 +884,16 @@ export function clearSpellChoicesOfClass(
  *
  * @param choice - выбор черты: его виды задают справочники подписей
  * @param options - варианты, перечисленные чертой
+ * @param weapons - виды оружия мира: у оружия справочник подписей тоже свой
  */
 function withDictionaryLabels(
   choice: Pick<FeatChoice, 'type' | 'types'>,
   options: ReadonlyArray<FeatChoiceOption>,
+  weapons: ReadonlyArray<FeatChoiceOption> = [],
 ): FeatChoiceOption[] {
   const labels = new Map(
     resolveFeatChoiceTypes(choice)
-      .flatMap(getFeatChoiceDefaultPool)
+      .flatMap((type) => getFeatChoiceDefaultPool(type, weapons))
       .map((option) => [option.value, option.name]),
   );
 

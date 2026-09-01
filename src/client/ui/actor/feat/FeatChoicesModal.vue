@@ -16,6 +16,7 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { useFeatChoiceSpells } from '../../../composables/useFeatChoiceSpells';
+  import { useFeatChoiceWeapons } from '../../../composables/useFeatChoiceWeapons';
   import { FEAT_CHOICES_LABELS, MODAL_BUTTON_LABELS } from '../constants';
   import FeatChoicesFields from './FeatChoicesFields.vue';
 
@@ -68,6 +69,9 @@
     preparedChoices,
   );
 
+  /** Виды оружия мира — пул выбора оружия и оружейного приёма */
+  const { weaponOptions } = useFeatChoiceWeapons();
+
   /**
    * Все обязательные выборы сделаны. Проверяются только спрошенные: выбор
    * заклинания, ждущий ответа про класс, ещё не показан — требовать ответа на
@@ -80,6 +84,7 @@
         const pool = resolveFeatChoicePool(choice, props.actor, {
           spells: spells.value,
           selections: selections.value,
+          weapons: weaponOptions.value,
         });
 
         if (pool.length === 0) {

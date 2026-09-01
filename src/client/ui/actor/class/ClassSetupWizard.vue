@@ -15,15 +15,15 @@
     HitPointMethod,
   } from '@vtt/shared/system/dnd.js';
 
-  import type { CompendiumFeat, WizardAsiState } from './wizard';
+  import type { WizardAsiState } from './wizard';
 
-  import { computed, nextTick, ref, toRef, watch } from 'vue';
+  import { computed, nextTick, ref, toRef } from 'vue';
 
-  import { loadCompendiumKind } from '@/core/compendiumDataClient';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
   import { resolveActorStats } from '@vtt/shared/system/dnd.js';
 
+  import { useFeatChoiceFeats } from '../../../composables/useFeatChoiceFeats';
   import { useFeatChoiceSpells } from '../../../composables/useFeatChoiceSpells';
   import { useGrantedSpellsResolver } from '../../../composables/useGrantedSpellsResolver';
   import { resolveStartingEquipment } from '../../../composables/useStartingEquipment';
@@ -78,43 +78,9 @@
    * Черты компендиума для выборов черты умений и режима «Взять черту» шага
    * характеристик. Грузятся при открытии мастера — как в мастере предыстории.
    */
-  const compendiumFeats = ref<CompendiumFeat[]>([]);
-
-  /**
-   * Запись компендиума — черта. Требования `source` нет: у записей компендиума
-   * есть только `sourceKey`, и проверка `source` отсеяла бы все черты.
-   *
-   * @param value - запись компендиума
-   */
-  function isCompendiumFeat(value: unknown): value is CompendiumFeat {
-    return (
-      typeof value === 'object'
-      && value !== null
-      && 'id' in value
-      && 'name' in value
-      && 'description' in value
-    );
-  }
-
-  /** Загружает черты компендиума (агрегировано по всем пакам) */
-  async function loadCompendiumFeats(): Promise<void> {
-    if (!props.socket) {
-      return;
-    }
-
-    const entries: unknown[] = await loadCompendiumKind(props.socket, 'feat');
-
-    compendiumFeats.value = entries.filter(isCompendiumFeat);
-  }
-
-  watch(
-    () => props.open,
-    (opened) => {
-      if (opened && compendiumFeats.value.length === 0) {
-        void loadCompendiumFeats();
-      }
-    },
-    { immediate: true },
+  const { feats: compendiumFeats } = useFeatChoiceFeats(
+    toRef(props, 'socket'),
+    toRef(props, 'open'),
   );
 
   /**
@@ -515,8 +481,11 @@
           </template>
         </div>
 
-        <!-- Контент текущего шага -->
-        <div class="min-h-50">
+        <!-- Контент текущего шага. Отступ между блоками задан здесь: шаг умений
+          рисуется двумя соседями — карточками умений и общими выборами даров, —
+          и без него они слипаются в одну стену. Шагам с одним блоком отступ
+          ничего не меняет -->
+        <div class="min-h-50 space-y-3">
           <!-- ХП -->
           <WizardStepHitPoints
             v-if="activeStepKey === 'hitPoints'"

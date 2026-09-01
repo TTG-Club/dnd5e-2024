@@ -16,6 +16,8 @@ import type {
   SpeciesFeature,
 } from '@vtt/shared/system/dnd.js';
 
+import type { CompendiumFeat } from '../feat/featApply';
+
 import { computed, ref, watch } from 'vue';
 
 import {
@@ -34,21 +36,27 @@ import {
   getConditionEntry,
   getTotalLevel,
   getVisibleFeatChoices,
+  hasNoFeatChoiceOptions,
+  isFeatPickChoice,
   isSkillType,
   prepareFeatChoices,
   resolveChosenAbilities,
   resolveChosenDamageDefenses,
   resolveFeatChoiceCount,
+  resolveFeatChoicesToAsk,
   resolveSpeciesVision,
 } from '@vtt/shared/system/dnd.js';
 
+import { useFeatChoiceWeapons } from '../../../composables/useFeatChoiceWeapons';
 import {
   SPECIES_GRANT_EFFECT_PRESENTATION,
   SPECIES_WIZARD_LABELS,
 } from '../constants';
+import { applyFeatToActor } from '../feat/featApply';
 import {
   isSpeciesProvidedEffect,
   rollbackSpeciesFeatures,
+  rollbackSpeciesGrantedFeats,
   rollbackSpeciesGrantedSpells,
   rollbackSpeciesProficiencies,
   SPECIES_DEFENSE_EFFECT_PREFIX,
@@ -64,6 +72,16 @@ export interface SpeciesWizardState {
   subspeciesKey: string | null;
   /** Ответы на выборы блоков даров: ключ источника → ответы блока. */
   featDataChoices: Record<string, Record<string, string[]>>;
+  /**
+   * Ответы на СОБСТВЕННЫЕ выборы выбранной черты: ключ вопроса о черте
+   * ({@link SpeciesFeatPick.pickKey}) → ответы черты.
+   *
+   * Отдельно от {@link featDataChoices}: там ответы дарам вида, а это ответы
+   * другой записи — самой черты, — и лягут они на неё же, в
+   * `AppliedFeatMeta.choices`. Сложи их в один словарь, ключи бы столкнулись:
+   * у «Одарённого» свой выбор навыка ничем не отличается от выбора навыка вида.
+   */
+  featPickAnswers: Record<string, Record<string, string[]>>;
 }
 
 /** Источник блока даров вместе с подготовленными вопросами к игроку. */
@@ -71,6 +89,32 @@ export interface SpeciesFeatDataSourceView extends SpeciesFeatDataSource {
   /** Вопросы блока в порядке показа (`prepareFeatChoices`). */
   preparedChoices: FeatChoice[];
 }
+
+/**
+ * Выбор черты из даров вида вместе с блоком-источником. Спрашивается пикером
+ * компендиума, а не общими полями выбора: пул черт живёт в компендиуме, а не в
+ * справочнике правил, и общие поля показали бы пустой список.
+ */
+export interface SpeciesFeatPick {
+  /** Ключ вопроса целиком — под ним лежат ответы самой выбранной черты */
+  pickKey: string;
+  /** Ключ блока даров: в нём и лежит выбранная черта */
+  sourceKey: string;
+  /** Название записи-источника — подпись над пикером */
+  sourceName: string;
+  choice: FeatChoice;
+  /** Выбранная черта компендиума; `null` — ещё не выбрана либо не нашлась */
+  feat: CompendiumFeat | null;
+  /**
+   * Собственные вопросы выбранной черты в порядке показа. Спрашиваются здесь
+   * же: «Одарённый» без ответов лёг бы на лист пустым — ни прибавки к
+   * характеристике, ни навыка.
+   */
+  ownChoices: FeatChoice[];
+}
+
+/** Разделитель составного ключа вопроса о черте: источник и сам выбор. */
+const FEAT_PICK_KEY_SEPARATOR = '::';
 
 /**
  * Собирает флаги защит от урона (`resistance.*`/`immunity.*`/`vulnerability.*`)
@@ -267,17 +311,87 @@ function buildSpeciesDefenseEffect(
   return effect;
 }
 
+/**
+ * Кладёт на лист черты, которые даёт вид, и снимает выданные прежним видом.
+ *
+ * Применяются они ТЕМ ЖЕ кодом, что и черта, перетащенная на лист
+ * (`applyFeatToActor`), — иначе владения, эффекты и ресурсы черты пришлось бы
+ * собирать здесь заново, и два способа выдачи разошлись бы. Прежние снимаются
+ * по метке `grantedBySpeciesKey`: по типу особенности выданную видом черту не
+ * отличить от взятой игроком.
+ *
+ * @param actorWithUpdates - лист с уже собранными обновлениями вида
+ * @param feats - черты, которые кладёт вид, вместе с ответами игрока
+ * @param definition - запись вида: её имя и ключ идут в провенанс черты
+ * @param acquisitionLevel - суммарный уровень персонажа на момент выдачи
+ * @returns лист с обновлёнными чертами; менять было нечего — тот же объект
+ */
+function applySpeciesGrantedFeats(
+  actorWithUpdates: DnDActor,
+  feats: ReadonlyArray<CompendiumFeat>,
+  definition: SpeciesDefinition,
+  acquisitionLevel: number,
+): DnDActor {
+  let current = rollbackSpeciesGrantedFeats(actorWithUpdates);
+
+  for (const feat of feats) {
+    const applied = applyFeatToActor(
+      current,
+      { ...feat, acquisitionLevel },
+      [],
+    );
+
+    // Провенанс вида: по нему смена и удаление вида снимут выданную черту
+    // вместе с её дарами, а лист покажет игроку, что черта не выбрана свободно
+    const features = applied.features.map((feature, index) =>
+      index === applied.features.length - 1
+        ? {
+            ...feature,
+            grantedBy: definition.name,
+            grantedBySpeciesKey: definition.key,
+          }
+        : feature,
+    );
+
+    current = {
+      ...current,
+      features,
+      spells: applied.spells,
+      activeEffects: applied.activeEffects,
+      system: {
+        ...current.system,
+        proficiencies: applied.proficiencies,
+        classCounters: applied.classCounters,
+      },
+      ...(applied.token ? { token: applied.token } : {}),
+    };
+  }
+
+  return current;
+}
+
 export function useSpeciesWizard(
   actor: import('vue').Ref<DnDActor>,
   speciesDef: import('vue').Ref<SpeciesDefinition | null>,
   speciesRecords: import('vue').Ref<SpeciesDefinition[]>,
+  /**
+   * Черты компендиума — пул выбора черты в дарах вида и записи выдаваемых черт.
+   * Пусто — пикеру нечего предложить, а выдаваемая черта на лист не ляжет.
+   */
+  compendiumFeats: import('vue').Ref<ReadonlyArray<CompendiumFeat>> = ref<
+    ReadonlyArray<CompendiumFeat>
+  >([]),
 ) {
+  /** Виды оружия мира — пул выбора оружия и оружейного приёма */
+  const { weaponOptions } = useFeatChoiceWeapons();
+
   const state = ref<SpeciesWizardState>({
     selectedSize: null,
     grantSelections: {},
     featureChoices: {},
     subspeciesKey: null,
     featDataChoices: {},
+    featPickAnswers: {},
   });
 
   // Инициализация при смене вида
@@ -291,6 +405,7 @@ export function useSpeciesWizard(
           featureChoices: {},
           subspeciesKey: null,
           featDataChoices: {},
+          featPickAnswers: {},
         };
 
         return;
@@ -311,6 +426,7 @@ export function useSpeciesWizard(
         featureChoices: {},
         subspeciesKey: null,
         featDataChoices: {},
+        featPickAnswers: {},
       };
     },
     { immediate: true },
@@ -361,6 +477,88 @@ export function useSpeciesWizard(
     }));
   });
 
+  /**
+   * Выборы черты в дарах вида: «Универсальность» человека просит черту
+   * происхождения. Отделены от остальных вопросов — их спрашивает пикер
+   * компендиума, а общие поля выбора показали бы пустой список.
+   */
+  const featPickChoices = computed<SpeciesFeatPick[]>(() =>
+    featDataSources.value.flatMap((source) =>
+      source.preparedChoices.filter(isFeatPickChoice).map((choice) => {
+        const featId =
+          state.value.featDataChoices[source.sourceKey]?.[choice.key]?.[0];
+
+        const feat = featId
+          ? (compendiumFeats.value.find((entry) => entry.id === featId) ?? null)
+          : null;
+
+        return {
+          pickKey: `${source.sourceKey}${FEAT_PICK_KEY_SEPARATOR}${choice.key}`,
+          sourceKey: source.sourceKey,
+          sourceName: source.sourceName,
+          choice,
+          feat,
+          ownChoices: feat
+            ? prepareFeatChoices(
+                resolveFeatChoicesToAsk(feat.featData, actor.value),
+              )
+            : [],
+        };
+      }),
+    ),
+  );
+
+  /**
+   * Отвечены ли все вопросы о черте: сама черта выбрана и её собственные выборы
+   * сделаны. Без этого черта легла бы на лист без своих даров.
+   */
+  const areFeatPicksComplete = computed(() =>
+    featPickChoices.value.every((pick) => {
+      if (!pick.feat) {
+        return false;
+      }
+
+      const answers = state.value.featPickAnswers[pick.pickKey];
+
+      return getVisibleFeatChoices(pick.ownChoices, answers).every(
+        (choice) =>
+          hasNoOptions(choice, answers)
+          || (answers?.[choice.key] ?? []).length
+            >= resolveFeatChoiceCount(choice, proficiencyBonus.value),
+      );
+    }),
+  );
+
+  /**
+   * Нужен ли мастеру каталог черт компендиума: есть ли выбор черты или черта,
+   * выдаваемая дарами без выбора.
+   */
+  const needsCompendiumFeats = computed(
+    () =>
+      featPickChoices.value.length > 0
+      || featDataSources.value.some(
+        (source) => (source.featData.grantedFeats ?? []).length > 0,
+      ),
+  );
+
+  /**
+   * Отвечать на вопрос нечем — пул пуст, и требовать ответа значит запереть шаг.
+   * Правило общее с мастером класса и живёт в движке; здесь к нему подставлены
+   * лист и оружие мира, чтобы оба места ниже спрашивали одинаково.
+   *
+   * @param choice - вопрос блока даров
+   * @param answers - ответы блока: от них зависит пул выбора заклинания
+   */
+  function hasNoOptions(
+    choice: FeatChoice,
+    answers: Record<string, string[]> | undefined,
+  ): boolean {
+    return hasNoFeatChoiceOptions(choice, actor.value, {
+      selections: answers,
+      weapons: weaponOptions.value,
+    });
+  }
+
   /** Отвечены ли все видимые вопросы всех блоков даров. */
   const areFeatDataChoicesComplete = computed(() =>
     featDataSources.value.every((source) => {
@@ -368,11 +566,42 @@ export function useSpeciesWizard(
 
       return getVisibleFeatChoices(source.preparedChoices, answers).every(
         (choice) =>
-          (answers?.[choice.key] ?? []).length
-          >= resolveFeatChoiceCount(choice, proficiencyBonus.value),
+          hasNoOptions(choice, answers)
+          || (answers?.[choice.key] ?? []).length
+            >= resolveFeatChoiceCount(choice, proficiencyBonus.value),
       );
     }),
   );
+
+  /**
+   * Записи компендиума для черт, которые вид кладёт на лист: выбранные игроком
+   * и выданные дарами без выбора. Неизвестные ключи пропускаются — черта могла
+   * уехать из компендиума вместе с паком.
+   */
+  const chosenCompendiumFeats = computed<CompendiumFeat[]>(() => {
+    const picked = featPickChoices.value.flatMap((pick) =>
+      pick.feat
+        ? [
+            {
+              ...pick.feat,
+              choices: state.value.featPickAnswers[pick.pickKey] ?? {},
+            },
+          ]
+        : [],
+    );
+
+    const granted = featDataSources.value
+      .flatMap((source) => source.featData.grantedFeats ?? [])
+      .flatMap((grantedRef) => {
+        const feat = compendiumFeats.value.find(
+          (entry) => entry.id === grantedRef.featId,
+        );
+
+        return feat ? [feat] : [];
+      });
+
+    return [...picked, ...granted];
+  });
 
   const steps = computed(() => {
     if (!speciesDef.value) {
@@ -489,7 +718,11 @@ export function useSpeciesWizard(
         (feature) => !!state.value.featureChoices[feature.key],
       );
 
-      return legacyChoicesAnswered && areFeatDataChoicesComplete.value;
+      return (
+        legacyChoicesAnswered
+        && areFeatDataChoicesComplete.value
+        && areFeatPicksComplete.value
+      );
     }
 
     return true;
@@ -1009,6 +1242,31 @@ export function useSpeciesWizard(
       rootUpdates.activeEffects = updatedEffects;
     }
 
+    // --- Черты, которые даёт вид: выбранные игроком и выданные дарами без
+    // выбора. Считаются от листа с уже собранными обновлениями — чтобы владения
+    // и эффекты черты легли на итог вида ---
+    const withSpeciesUpdates: DnDActor = {
+      ...actor.value,
+      ...rootUpdates,
+      system: { ...actor.value.system, ...systemUpdates },
+    };
+
+    const withFeats = applySpeciesGrantedFeats(
+      withSpeciesUpdates,
+      chosenCompendiumFeats.value,
+      definition,
+      characterLevel,
+    );
+
+    if (withFeats !== withSpeciesUpdates) {
+      rootUpdates.features = withFeats.features;
+      rootUpdates.spells = withFeats.spells;
+      rootUpdates.activeEffects = withFeats.activeEffects;
+      rootUpdates.token = withFeats.token;
+      systemUpdates.proficiencies = withFeats.system.proficiencies;
+      systemUpdates.classCounters = withFeats.system.classCounters;
+    }
+
     return { systemUpdates, rootUpdates };
   }
 
@@ -1025,6 +1283,8 @@ export function useSpeciesWizard(
     subspeciesOptions,
     selectedSubspecies,
     featDataSources,
+    featPickChoices,
+    needsCompendiumFeats,
     proficiencyBonus,
     buildUpdates,
   };

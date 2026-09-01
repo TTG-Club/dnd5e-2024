@@ -20,6 +20,8 @@ import type {
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
+import type { AppliedFeatFeature } from '../feat/featApply';
+
 import { removeItems } from '@vtt/shared';
 import {
   collectSpeciesFeatDataSources,
@@ -32,6 +34,8 @@ import {
   removeFeatDataProficiencies,
   removeGrantedSpellsByFeatureNames,
 } from '@vtt/shared/system/dnd.js';
+
+import { removeFeatFromActor } from '../feat/featApply';
 
 /**
  * Префикс стабильного id активного эффекта-защит, выданного видом. По нему
@@ -228,6 +232,64 @@ export function rollbackSpeciesFeatures(
 }
 
 /**
+ * Выдана ли особенность видом как черта — по метке `grantedBySpeciesKey`.
+ *
+ * Гардом, а не приведением типа: базовый `Feature` о дарах черты не знает, и
+ * утверждать за него, что перед нами применённая черта, нечем — метка и есть
+ * единственное доказательство.
+ *
+ * @param feature - особенность листа
+ */
+function isSpeciesGrantedFeat(feature: Feature): feature is AppliedFeatFeature {
+  return (
+    'grantedBySpeciesKey' in feature && Boolean(feature.grantedBySpeciesKey)
+  );
+}
+
+/**
+ * Снимает с листа черты, выданные видом (выбором дара вроде «Универсальности»
+ * человека либо перечнем выдаваемых черт), вместе со ВСЕМИ их дарами: владения,
+ * заклинания, эффекты, ресурсы.
+ *
+ * Отдельно от {@link rollbackSpeciesFeatures}: выданная черта остаётся обычной
+ * чертой (`featureType: 'feat'`) со своим провенансом, и по типу особенности её
+ * не отличить от черты, взятой игроком, — связь с видом держит метка
+ * `grantedBySpeciesKey`. Снимается она тем же кодом, что и черта, удалённая с
+ * листа вручную, иначе на персонаже остались бы владения и эффекты от вида,
+ * которого у него уже нет.
+ *
+ * @param actor - актёр, с которого снимается вид
+ * @returns актёр без выданных видом черт; черт не было — тот же объект
+ */
+export function rollbackSpeciesGrantedFeats(actor: DnDActor): DnDActor {
+  const granted = actor.features.filter(isSpeciesGrantedFeat);
+
+  if (granted.length === 0) {
+    return actor;
+  }
+
+  let current = actor;
+
+  for (const feature of granted) {
+    const removed = removeFeatFromActor(current, feature);
+
+    current = {
+      ...current,
+      features: removed.features,
+      spells: removed.spells,
+      activeEffects: removed.activeEffects,
+      system: {
+        ...current.system,
+        proficiencies: removed.proficiencies,
+        classCounters: removed.classCounters,
+      },
+    };
+  }
+
+  return current;
+}
+
+/**
  * Убирает заклинания, выданные особенностями прежнего вида.
  *
  * @param spells - заклинания актёра
@@ -313,31 +375,40 @@ export function buildSpeciesRemovalUpdates(
 } {
   const previousSpecies = actor.system.species;
 
+  // Черты, выданные видом, снимаются ПЕРВЫМИ: остальной откат считается уже от
+  // листа без них — иначе выданные чертой владения и эффекты остались бы на
+  // персонаже, у которого вида больше нет
+  const cleaned = rollbackSpeciesGrantedFeats(actor);
+
   const systemUpdates: Partial<DnDActor['system']> = {
     species: null,
     size: DEFAULT_ACTOR.system.size,
     movement: { ...DEFAULT_ACTOR.system.movement },
     proficiencies: rollbackSpeciesProficiencies(
-      actor.system.proficiencies,
+      cleaned.system.proficiencies,
       previousSpecies,
       previousSpeciesDef,
       previousSubspeciesDef,
-      getTotalLevel(actor.system.classes),
+      getTotalLevel(cleaned.system.classes),
     ),
   };
 
+  if (cleaned !== actor) {
+    systemUpdates.classCounters = cleaned.system.classCounters;
+  }
+
   const rootUpdates: Partial<DnDActor> = {
     token: buildTokenWithoutSpecies(
-      actor,
+      cleaned,
       previousSpeciesDef,
       previousSubspeciesDef ?? null,
     ),
-    features: rollbackSpeciesFeatures(actor.features),
-    activeEffects: actor.activeEffects.filter(
+    features: rollbackSpeciesFeatures(cleaned.features),
+    activeEffects: cleaned.activeEffects.filter(
       (effect) => !isSpeciesProvidedEffect(effect),
     ),
     spells: rollbackSpeciesGrantedSpells(
-      actor.spells,
+      cleaned.spells,
       previousSpeciesDef,
       previousSubspeciesDef,
     ),

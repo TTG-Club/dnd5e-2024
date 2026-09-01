@@ -37,6 +37,7 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { useFeatChoiceSpells } from '../../../composables/useFeatChoiceSpells';
+import { useFeatChoiceWeapons } from '../../../composables/useFeatChoiceWeapons';
 import {
   rollbackBackgroundEffects,
   rollbackBackgroundFeatures,
@@ -202,6 +203,9 @@ export function useBackgroundWizard(
    * выбора и проверка «все ли ответы даны» обязаны смотреть на один и тот же
    * список, иначе шаг считался бы завершённым при незаполненном выборе.
    */
+  /** Виды оружия мира — пул выбора оружия и оружейного приёма */
+  const { weaponOptions } = useFeatChoiceWeapons();
+
   const { spells: featChoiceSpells } = useFeatChoiceSpells(
     socketRef,
     preparedFeatChoices,
@@ -319,6 +323,7 @@ export function useBackgroundWizard(
           spells: featChoiceSpells.value,
           selections: selectedFeatChoices.value,
           namedClassKeys: namedClassKeys.value,
+          weapons: weaponOptions.value,
         });
 
         if (pool.length === 0) {

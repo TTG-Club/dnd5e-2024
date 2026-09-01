@@ -12,6 +12,7 @@
     resolveFeatChoicePool,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useFeatChoiceWeapons } from '../../../composables/useFeatChoiceWeapons';
   import { FEAT_CHOICE_BADGES_LIMIT, FEAT_CHOICES_LABELS } from '../constants';
 
   /**
@@ -48,6 +49,9 @@
   /** Сделанный выбор: ключ выбора → выбранные значения */
   const selections = defineModel<Record<string, string[]>>({ required: true });
 
+  /** Виды оружия мира — пул выбора оружия и оружейного приёма */
+  const { weaponOptions } = useFeatChoiceWeapons();
+
   /** Выборы, которые спрашиваются сейчас: остальные ждут ответа про класс */
   const visible = computed(() =>
     getVisibleFeatChoices(props.choices, selections.value),
@@ -60,11 +64,19 @@
         spells: props.spells,
         selections: selections.value,
         namedClassKeys: props.namedClassKeys,
+        weapons: weaponOptions.value,
       });
 
       return {
         choice,
         pool,
+        // Пустой пул объясняется по-разному: «уже владеет всем» верно только
+        // там, где выбор сузили флагом владения. Иначе вариантов нет вовсе —
+        // справочник не загрузился либо запись их не назвала
+        emptyText:
+          choice.onlyIfProficient || choice.onlyIfNotProficient
+            ? FEAT_CHOICES_LABELS.emptyPool
+            : FEAT_CHOICES_LABELS.emptyPoolNoOptions,
         // Подпись у значения есть не всегда: у оружия и заклинаний её задаёт
         // сама черта, а у ключа словаря — справочник
         items: pool.map((option) => ({
@@ -208,7 +220,7 @@
         v-if="entry.pool.length === 0"
         class="text-xs text-dimmed italic"
       >
-        {{ FEAT_CHOICES_LABELS.emptyPool }}
+        {{ entry.emptyText }}
       </p>
 
       <USelectMenu

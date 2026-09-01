@@ -28,7 +28,7 @@ import type {
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
-import type { AppliedFeatFeature } from '../../feat/featApply';
+import type { AppliedFeatFeature, CompendiumFeat } from '../../feat/featApply';
 
 import { computed, reactive, ref, watch } from 'vue';
 
@@ -55,6 +55,7 @@ import {
   getTotalLevel,
   getVisibleFeatChoices,
   hasAbilityImprovementAtLevel,
+  hasNoFeatChoiceOptions,
   isAsiFeatureInClass,
   isFeatPickChoice,
   newClassFeatureChoicesAt,
@@ -73,6 +74,7 @@ import {
   withCounterMinimum,
 } from '@vtt/shared/system/dnd.js';
 
+import { useFeatChoiceWeapons } from '../../../../composables/useFeatChoiceWeapons';
 import {
   CLASS_EQUIPMENT_NONE_INDEX,
   CLASS_GRANT_EFFECT_PRESENTATION,
@@ -185,13 +187,10 @@ export interface WizardFeatureItem extends ClassFeature {
 }
 
 /**
- * Черта компендиума с полями, которых базовый тип умения не знает:
- * категория нужна пикеру, чтобы сузить пул выбора черты умения.
+ * Черта компендиума: живёт рядом с применением черты — пикером её выбирают и
+ * мастер класса, и мастер вида.
  */
-export interface CompendiumFeat extends AppliedFeatFeature {
-  /** Категория черты подписью записи компендиума («Боевой стиль») */
-  category?: string;
-}
+export type { CompendiumFeat };
 
 /**
  * Выбор вариантов одного умения на этом уровне: что предлагают, сколько берут
@@ -477,6 +476,9 @@ export function useClassWizard(
   >([]),
 ) {
   // ── Контекст ──────────────────────────────────────────────
+
+  /** Виды оружия мира — пул выбора оружия и оружейного приёма */
+  const { weaponOptions } = useFeatChoiceWeapons();
 
   /** Это первый класс персонажа (нет ни одного класса) */
   const isFirstClass = computed(() => {
@@ -1103,8 +1105,12 @@ export function useClassWizard(
     () =>
       visibleFeatChoices.value.every(
         (choice) =>
-          (wizardState.featDataChoices[choice.key] ?? []).length
-          >= resolveFeatChoiceCount(choice, featChoiceProficiencyBonus.value),
+          hasNoFeatChoiceOptions(choice, actor.value, {
+            selections: wizardState.featDataChoices,
+            weapons: weaponOptions.value,
+          })
+          || (wizardState.featDataChoices[choice.key] ?? []).length
+            >= resolveFeatChoiceCount(choice, featChoiceProficiencyBonus.value),
       )
       && featPickChoices.value.every(
         ({ choice }) =>

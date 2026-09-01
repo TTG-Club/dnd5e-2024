@@ -1,7 +1,6 @@
 <script setup lang="ts">
   import type {
     AbilityType,
-    Feature,
     SkillType,
     SourceDefinition,
     TypedWebSocketClient,
@@ -18,9 +17,8 @@
   import type { SpellOption } from '../grantedSpellsEditorTypes';
   import type { EditableStartingEquipmentOption } from '../startingEquipmentEditorTypes';
 
-  import { computed, ref, watch } from 'vue';
+  import { computed, ref, toRef, watch } from 'vue';
 
-  import { loadCompendiumKind } from '@/core/compendiumDataClient';
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
@@ -43,6 +41,7 @@
     TOOLS_LABELS,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useFeatChoiceFeats } from '../../../composables/useFeatChoiceFeats';
   import {
     BACKGROUND_FORM_LABELS,
     FORM_FIELD_LABELS,
@@ -224,30 +223,10 @@
   );
 
   // ── Черты компендиума (для выбора черты-происхождения) ───────
-  const compendiumFeats = ref<Feature[]>([]);
-
-  function isFeature(value: unknown): value is Feature {
-    return (
-      typeof value === 'object'
-      && value !== null
-      && 'id' in value
-      && 'name' in value
-      && 'description' in value
-    );
-  }
-
-  /** Загружает черты компендиума (бандл + скачиваемые + модули). */
-  async function loadCompendiumFeats(): Promise<void> {
-    if (!props.socket) {
-      return;
-    }
-
-    // CompendiumEntry[] расширяем до unknown[], т.к. Feature не подтип
-    // CompendiumEntry и guard иначе не сузит при filter.
-    const entries: unknown[] = await loadCompendiumKind(props.socket, 'feat');
-
-    compendiumFeats.value = entries.filter(isFeature);
-  }
+  const { feats: compendiumFeats } = useFeatChoiceFeats(
+    toRef(props, 'socket'),
+    toRef(props, 'open'),
+  );
 
   /** Опции выбора черт: пользовательские из items.db + черты компендиума. */
   const featOptions = computed(() => {
@@ -412,10 +391,6 @@
 
       if (bg) {
         hydrateFromBackground(bg);
-      }
-
-      if (compendiumFeats.value.length === 0) {
-        void loadCompendiumFeats();
       }
 
       void loadAvailableSpells();

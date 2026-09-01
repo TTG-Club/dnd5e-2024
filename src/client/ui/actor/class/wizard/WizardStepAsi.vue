@@ -18,8 +18,8 @@
   import { computed } from 'vue';
 
   import { WIZARD_ASI_LABELS } from '../../constants';
+  import WizardFeatPicker from '../../feat/WizardFeatPicker.vue';
   import { ABILITY_LABELS } from './constants';
-  import WizardFeatPicker from './WizardFeatPicker.vue';
 
   const props = defineProps<{
     currentAbilities: DnDAbilityScores;

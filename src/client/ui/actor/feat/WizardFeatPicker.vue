@@ -1,17 +1,18 @@
 <script setup lang="ts">
   /**
-   * Пикер черты компендиума для выбора черты в умении класса: боевой стиль,
-   * черта вместо повышения характеристик, любой другой выбор черты из даров.
+   * Пикер черты компендиума для выбора черты в дарах: боевой стиль умения
+   * класса, черта вместо повышения характеристик, черта происхождения от дара
+   * вида («Универсальность» человека) — любой выбор вида `feat`.
    *
    * Пул собирается по записи выбора: перечисленные черты — самый узкий
-   * список, иначе категории, иначе правило листа — любая черта, кроме черт
-   * происхождения, эпических и боевых стилей: их дают предыстория, умение
-   * 19 уровня и своё умение. Уже взятые черты уходят из пула, повторяемые
-   * остаются.
+   * список, иначе категории, иначе правило вызывающего — набор категорий,
+   * которые он не предлагает (у класса это черты происхождения, эпические и
+   * боевые стили: их дают предыстория, умение 19 уровня и своё умение). Уже
+   * взятые черты уходят из пула, повторяемые остаются.
    */
   import type { DnDActor, FeatChoice } from '@vtt/shared/system/dnd.js';
 
-  import type { CompendiumFeat } from './useClassWizard';
+  import type { CompendiumFeat } from './featApply';
 
   import { computed } from 'vue';
 
@@ -20,7 +21,7 @@
   import {
     CLASS_FEAT_DEFAULT_EXCLUDED_CATEGORIES,
     WIZARD_ASI_LABELS,
-  } from '../../constants';
+  } from '../constants';
 
   const props = defineProps<{
     /** Выбор черты из даров умения; null — пул по правилу листа. */
@@ -29,6 +30,12 @@
     feats: ReadonlyArray<CompendiumFeat>;
     /** Лист персонажа: по нему из пула уходят уже взятые черты */
     actor: DnDActor;
+    /**
+     * Категории, которые не предлагаются, когда выбор не назвал ни перечня, ни
+     * своих категорий. По умолчанию — правило класса; мастер вида передаёт своё
+     * (черта происхождения там как раз к месту).
+     */
+    excludedCategories?: ReadonlyArray<string>;
   }>();
 
   /** Ключ выбранной черты компендиума; null — не выбрана */
@@ -52,6 +59,9 @@
 
     const categories = new Set(props.choice?.featCategories ?? []);
 
+    const excluded =
+      props.excludedCategories ?? CLASS_FEAT_DEFAULT_EXCLUDED_CATEGORIES;
+
     return props.feats.filter((feat) => {
       if (feat.id === model.value) {
         return true;
@@ -65,10 +75,7 @@
         if (!feat.category || !categories.has(feat.category)) {
           return false;
         }
-      } else if (
-        feat.category
-        && CLASS_FEAT_DEFAULT_EXCLUDED_CATEGORIES.includes(feat.category)
-      ) {
+      } else if (feat.category && excluded.includes(feat.category)) {
         return false;
       }
 
