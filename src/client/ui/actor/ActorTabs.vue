@@ -1,7 +1,12 @@
 <script setup lang="ts">
   import type { ExtensionRegistration } from '@/core/extensionRegistry';
   import type { TypedWebSocketClient } from '@vtt/shared';
-  import type { DnDActor } from '@vtt/shared/system/dnd.js';
+  import type {
+    DnDActor,
+    DnDCarryingCapacity,
+    DnDCurrency,
+    DnDGameItem,
+  } from '@vtt/shared/system/dnd.js';
 
   import { computed, toRef } from 'vue';
 
@@ -115,6 +120,36 @@
     emit('update:actor', updates);
   }
 
+  /**
+   * Кладёт новый инвентарь в актора. Панель снаряжения отдаёт только сам
+   * список: куда его положить, знает лист, а не она.
+   *
+   * @param equipment - новый инвентарь
+   */
+  function handleEquipmentUpdate(equipment: DnDGameItem[]): void {
+    handleUpdate({ equipment });
+  }
+
+  /**
+   * Кладёт новый кошелёк в блок `system` актора.
+   *
+   * @param currency - новый кошелёк
+   */
+  function handleCurrencyUpdate(currency: DnDCurrency): void {
+    handleUpdate({ system: { ...props.actor.system, currency } });
+  }
+
+  /**
+   * Кладёт настройку предела переносимого веса в блок `system` актора.
+   *
+   * @param carryingCapacity - новая настройка предела
+   */
+  function handleCarryingCapacityUpdate(
+    carryingCapacity: DnDCarryingCapacity,
+  ): void {
+    handleUpdate({ system: { ...props.actor.system, carryingCapacity } });
+  }
+
   function getTabClass(tabId: string): string {
     const isActive = activeTab.value === tabId;
 
@@ -185,10 +220,15 @@
     <div class="flex flex-1 flex-col">
       <ActorEquipmentTab
         v-if="activeTab === 'equipment'"
-        :actor="actor"
+        :entity="actor"
         :is-edit-mode="isEditMode"
         :is-drag-over="props.isEquipmentDragOver"
-        @update:actor="handleUpdate"
+        show-currency
+        show-carrying-capacity
+        allow-hotbar-drag
+        @update:equipment="handleEquipmentUpdate"
+        @update:currency="handleCurrencyUpdate"
+        @update:carrying-capacity="handleCarryingCapacityUpdate"
         @immediate-save="emit('immediate-save')"
       />
 

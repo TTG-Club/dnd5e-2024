@@ -4,16 +4,21 @@
    *
    * Показывается один раз — при взятии класса на 1 уровне. Вариант с позициями
    * выбирается и уезжает в инвентарь; вариант без позиций (старые паки, свои
-   * классы) только показывается строкой.
+   * классы) только показывается строкой. Там, где выбор вообще есть, к нему
+   * всегда добавляется отказ: снаряжение бывает уже собрано вручную, и тогда
+   * выдавать нечего.
    */
   import type { ClassStartingEquipmentOption } from '@vtt/shared/system/dnd.js';
 
   import { computed } from 'vue';
 
-  import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import { hasGrantableEquipment } from '@vtt/shared/system/dnd.js';
 
-  import { CLASS_EQUIPMENT_STEP_LABELS } from '../../constants';
+  import {
+    CLASS_EQUIPMENT_NONE_INDEX,
+    CLASS_EQUIPMENT_STEP_LABELS,
+  } from '../../constants';
+  import StartingEquipmentOptionBody from '../../StartingEquipmentOptionBody.vue';
 
   const props = defineProps<{
     options: ClassStartingEquipmentOption[];
@@ -56,6 +61,16 @@
 
     selectedIndex.value = selectedIndex.value === index ? null : index;
   }
+
+  /** Оформление карточки отказа — индекс у неё один и тот же */
+  const noneOptionClass = computed(() =>
+    optionClass(CLASS_EQUIPMENT_NONE_INDEX),
+  );
+
+  /** Отказ от снаряжения: инвентарь остаётся как есть */
+  function selectNone(): void {
+    selectOption(CLASS_EQUIPMENT_NONE_INDEX);
+  }
 </script>
 
 <template>
@@ -84,22 +99,31 @@
           {{ CLASS_EQUIPMENT_STEP_LABELS.optionPrefix }}{{ option.key }}
         </span>
 
-        <div class="flex-1 text-sm text-toned">
-          <ItemDescriptionRenderer :content="option.description" />
-        </div>
-
-        <div
-          v-if="option.coins"
-          class="mt-3 flex items-center gap-2 text-sm text-warning"
-        >
-          <UIcon
-            name="tabler:coin"
-            class="h-4 w-4"
-          />
-
-          {{ option.coins }}
-        </div>
+        <!-- Позиции, а не строка варианта: строка досталась варианту из
+          выгрузки сайта, а лягут в инвентарь именно позиции -->
+        <StartingEquipmentOptionBody
+          :option="option"
+          class="flex-1"
+        />
       </component>
+
+      <button
+        v-if="isSelectable"
+        type="button"
+        class="flex flex-col rounded-xl border p-3 text-left sm:col-span-2"
+        :class="noneOptionClass"
+        @click.left.exact.prevent="selectNone"
+      >
+        <span
+          class="mb-2 text-xs font-bold tracking-wider text-primary uppercase"
+        >
+          {{ CLASS_EQUIPMENT_STEP_LABELS.noneTitle }}
+        </span>
+
+        <span class="text-sm text-toned">
+          {{ CLASS_EQUIPMENT_STEP_LABELS.noneDescription }}
+        </span>
+      </button>
     </div>
   </div>
 </template>

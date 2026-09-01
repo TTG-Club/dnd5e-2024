@@ -8,12 +8,14 @@
   import { EQUIPMENT_CATEGORY_ICONS } from '@vtt/shared/system/dnd.js';
 
   import { useContextMenu } from '../../composables/useContextMenu';
+  import { useListRowClass } from '../../composables/useListRowClass';
   import {
     EQUIPMENT_STAT_LABELS,
     GAME_ITEM_MIME,
     WEIGHT_UNIT_LABEL,
   } from './constants';
   import ContextMenuOverlay from './ContextMenuOverlay.vue';
+  import EntityRowBody from './EntityRowBody.vue';
 
   const props = defineProps<{
     /** Данные предмета */
@@ -30,7 +32,16 @@
     showCost?: boolean;
     /** Показывать вес (по умолчанию true) */
     showWeight?: boolean;
+    /**
+     * Плоская строка списка: без своей плашки и скругления. Так строка встаёт в
+     * список с разделителями (компендиум и окна выбора); на листе персонажа
+     * строки стоят порознь, и плашка им нужна.
+     */
+    flat?: boolean;
   }>();
+
+  /** Оформление строки: плоская в списке, плашкой на листе персонажа */
+  const rowClass = useListRowClass(() => Boolean(props.flat));
 
   const emit = defineEmits<{
     /** Клик по строке (открыть детальник) */
@@ -105,56 +116,76 @@
 <template>
   <div
     draggable="true"
-    class="flex cursor-grab items-center gap-3 rounded-lg bg-elevated/30 px-3 py-2 transition-colors hover:bg-accented/40 active:cursor-grabbing"
+    class="flex cursor-grab items-center gap-3 py-2 transition-colors active:cursor-grabbing"
+    :class="rowClass"
     @click.left.exact.prevent="$emit('click')"
     @contextmenu="openContextMenu"
     @dragstart="handleDragStart($event, item)"
   >
-    <!-- Иконка доспеха -->
-    <UIcon
-      v-if="showIcon ?? true"
-      :name="equipmentIcon"
-      class="h-4 w-4 shrink-0 text-muted"
-    />
+    <!-- Строка списка: значок, название с английским и источник справа -->
+    <template v-if="flat">
+      <UIcon
+        v-if="showIcon ?? true"
+        :name="equipmentIcon"
+        class="h-4 w-4 shrink-0 text-muted"
+      />
 
-    <!-- Название -->
-    <span class="flex-1 truncate text-sm font-medium text-highlighted">
-      {{ item.name }}
-    </span>
+      <EntityRowBody
+        :name="item.name"
+        :name-en="item.nameEn"
+        :source-key="item.sourceKey"
+        :source="item.source"
+      />
+    </template>
 
-    <!-- Помеха Скрытности -->
-    <UIcon
-      v-if="item.stealthDisadvantage"
-      name="tabler:eye-off"
-      class="h-3.5 w-3.5 shrink-0 text-danger/60"
-    />
+    <!-- Строка листа персонажа: показатели важнее книги, из которой запись -->
+    <template v-else>
+      <!-- Иконка доспеха -->
+      <UIcon
+        v-if="showIcon ?? true"
+        :name="equipmentIcon"
+        class="h-4 w-4 shrink-0 text-muted"
+      />
 
-    <!-- КЗ badge -->
-    <UBadge
-      v-if="displayAC"
-      color="neutral"
-      variant="subtle"
-      size="sm"
-      class="shrink-0 font-mono"
-    >
-      {{ EQUIPMENT_STAT_LABELS.armorClass }} {{ displayAC }}
-    </UBadge>
+      <!-- Название -->
+      <span class="flex-1 truncate text-sm font-medium text-highlighted">
+        {{ item.name }}
+      </span>
 
-    <!-- Стоимость -->
-    <span
-      v-if="item.cost && (showCost ?? true)"
-      class="shrink-0 text-xs text-primary/80"
-    >
-      {{ formatItemCost(item.cost) }}
-    </span>
+      <!-- Помеха Скрытности -->
+      <UIcon
+        v-if="item.stealthDisadvantage"
+        name="tabler:eye-off"
+        class="h-3.5 w-3.5 shrink-0 text-danger/60"
+      />
 
-    <!-- Вес -->
-    <span
-      v-if="item.weight && (showWeight ?? true)"
-      class="shrink-0 text-xs text-dimmed"
-    >
-      {{ item.weight }} {{ WEIGHT_UNIT_LABEL }}
-    </span>
+      <!-- КЗ badge -->
+      <UBadge
+        v-if="displayAC"
+        color="neutral"
+        variant="subtle"
+        size="sm"
+        class="shrink-0 font-mono"
+      >
+        {{ EQUIPMENT_STAT_LABELS.armorClass }} {{ displayAC }}
+      </UBadge>
+
+      <!-- Стоимость -->
+      <span
+        v-if="item.cost && (showCost ?? true)"
+        class="shrink-0 text-xs text-primary/80"
+      >
+        {{ formatItemCost(item.cost) }}
+      </span>
+
+      <!-- Вес -->
+      <span
+        v-if="item.weight && (showWeight ?? true)"
+        class="shrink-0 text-xs text-dimmed"
+      >
+        {{ item.weight }} {{ WEIGHT_UNIT_LABEL }}
+      </span>
+    </template>
   </div>
 
   <ContextMenuOverlay

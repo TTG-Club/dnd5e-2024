@@ -2,16 +2,16 @@
   // Корневой вход `@nuxt/ui` — это Nuxt-модуль, типы компонентов он не отдаёт
   import type { DropdownMenuItem } from '@nuxt/ui/components/DropdownMenu.vue';
 
-  import type { SceneEntity } from '@vtt/shared';
   import type {
     AttackRollMode,
-    DnDActor,
     DnDCarryingCapacity,
     DnDCurrency,
     DnDGameItem,
+    DnDSceneEntity,
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { ItemTransferPayload } from '../../../composables/useItemTransfer';
   import type {
     RolledSpellDamagePart,
     SpellDamagePartInput,
@@ -53,6 +53,7 @@
   import { useResolvedStats } from '../../../composables/useResolvedStats';
   import { useSpellResolution } from '../../../composables/useSpellResolution';
   import { useWeaponIcon } from '../../../composables/useWeaponIcon';
+  import { useWorldEntities } from '../../../composables/useWorldEntities';
   import ActorEquipmentRow from '../ActorEquipmentRow.vue';
   import CarryingCapacityModal from '../CarryingCapacityModal.vue';
   import {
@@ -76,26 +77,58 @@
   const props = defineProps<Props>();
 
   const { resolvedStats, combinedEffects } = useResolvedStats(
-    toRef(() => props.actor),
+    toRef(() => props.entity),
   );
 
-  /** Переносимый вес: сумма веса инвентаря и грузоподъёмность актёра */
+  /** Переносимый вес: сумма веса инвентаря и грузоподъёмность листа */
   const { weightLabel, isOverweight, capacitySettings, strength } =
     useCarryingCapacity(
-      toRef(() => props.actor),
+      toRef(() => props.entity),
       resolvedStats,
     );
 
+  // События точечные, а не одно «вот тебе кусок листа»: у актёра и существа
+  // разные `system`, и общий тип обновления схлопнулся бы до полей, которые
+  // есть у обоих. Панель отдаёт только то, что сама поменяла, а куда это
+  // положить — знает хозяин листа
   const emit = defineEmits<{
-    'update:actor': [updates: Partial<DnDActor>];
+    'update:equipment': [equipment: DnDGameItem[]];
+    'update:currency': [currency: DnDCurrency];
+    'update:carrying-capacity': [capacity: DnDCarryingCapacity];
     'immediate-save': [];
   }>();
 
   interface Props {
-    actor: DnDActor;
+    /**
+     * Лист-владелец инвентаря. И персонаж, и существо: механика снаряжения у
+     * них общая — бросок атаки, урон и вес считаются одним кодом.
+     */
+    entity: DnDSceneEntity;
     isEditMode: boolean;
     isDragOver?: boolean;
+    /** Показывать кошелёк. Есть у обоих листов, но не везде уместен */
+    showCurrency?: boolean;
+    /** Показывать плитку переносимого веса и её настройку */
+    showCarryingCapacity?: boolean;
+    /**
+     * Разрешать перетаскивание оружия на панель быстрого доступа. У существа
+     * выключено: макрос атаки ищет владельца среди актёров, и кнопка вышла бы
+     * мёртвой — это хуже, чем её отсутствие
+     */
+    allowHotbarDrag?: boolean;
+    /**
+     * Лист только для чтения: инвентарь показывается, но не правится. Так лист
+     * существа закрывает мешок чужого монстра от игрока без контроля над ним —
+     * у листа персонажа для этого своя проверка владельца выше по дереву
+     */
+    isReadOnly?: boolean;
   }
+
+  /**
+   * Инвентарь листа. Читается со страховкой: у существа поле необязательное, а
+   * в быстром окне лист приезжает из стора хоста без нормализации
+   */
+  const inventory = computed<DnDGameItem[]>(() => props.entity.equipment ?? []);
 
   /**
    * Запрашивает у хозяина вкладки немедленное сохранение актёра — только вне
@@ -109,6 +142,25 @@
     }
   }
 
+  /**
+   * Отдаёт новый инвентарь хозяину листа и просит сохранить.
+   *
+   * Единственный выход правки наружу — поэтому здесь же стоит и проверка режима
+   * только для чтения: разложи её по девяти операциям, и следующая десятая
+   * приехала бы без неё.
+   *
+   * @param equipment - новый инвентарь листа
+   */
+  function commitEquipment(equipment: DnDGameItem[]): void {
+    if (props.isReadOnly) {
+      return;
+    }
+
+    emit('update:equipment', equipment);
+
+    triggerSaveIfNotEdit();
+  }
+
   const { getWeaponIcon } = useWeaponIcon();
 
   const systemDataStore = useSystemDataStore();
@@ -120,6 +172,8 @@
   const { resolveSpellDamageWithParts } = useSpellResolution();
 
   const { buildWeaponRollSetup, buildTargetHpContext } = useBonusDamageParts();
+
+  const { getCurrentWorldEntities } = useWorldEntities();
 
   /**
    * Карта key → name для локализации типов урона
@@ -197,9 +251,7 @@
     const groups: Array<{ label: string; items: DnDGameItem[] }> = [];
 
     for (const group of EQUIPMENT_GROUP_ORDER) {
-      const items = props.actor.equipment.filter(
-        (item) => item.type === group.type,
-      );
+      const items = inventory.value.filter((item) => item.type === group.type);
 
       if (items.length > 0) {
         groups.push({ label: group.label, items });
@@ -211,7 +263,7 @@
       EQUIPMENT_GROUP_ORDER.map((group) => group.type),
     );
 
-    const otherItems = props.actor.equipment.filter(
+    const otherItems = inventory.value.filter(
       (item) => !knownTypes.has(item.type),
     );
 
@@ -233,7 +285,7 @@
    * По правилам D&D можно носить только один доспех.
    */
   const equippedArmorId = computed(() => {
-    const found = props.actor.equipment.find(
+    const found = inventory.value.find(
       (item) =>
         item.type === 'equipment'
         && item.equipped
@@ -305,27 +357,6 @@
   });
 
   /**
-   * Сущности текущего мира (акторы + существа) — цели многочастного применения.
-   */
-  function getCurrentWorldEntities(): SceneEntity[] {
-    const worldId = worldStore.connectionState.currentWorldId;
-
-    if (!worldId) {
-      return [];
-    }
-
-    const world = worldStore.worlds.find(
-      (worldEntry) => worldEntry.id === worldId,
-    );
-
-    if (!world) {
-      return [];
-    }
-
-    return [...(world.actors ?? []), ...(world.creatures ?? [])];
-  }
-
-  /**
    * Открывает модалку броска урона для оружия
    * @param weapon - оружие с формулой урона
    */
@@ -338,7 +369,7 @@
     const hasSave = !!weapon.saveType && weapon.saveType !== 'none';
 
     const baseMod = calculateWeaponAttackModifier(
-      props.actor,
+      props.entity,
       weapon,
       resolvedStats.value,
     );
@@ -360,7 +391,7 @@
 
       // Условный бонус может быть формулой (`@prof`, `@mod.dex`) — без
       // контекста @-переменных она дала бы ноль
-      const formulaContext = buildFormulaContext(props.actor);
+      const formulaContext = buildFormulaContext(props.entity);
 
       return {
         attackBonus: evaluateConditionalBonuses(
@@ -415,7 +446,7 @@
 
     const weaponPartsSetup = buildWeaponRollSetup({
       weapon,
-      actor: props.actor,
+      actor: props.entity,
       effects: combinedEffects.value,
       resolvedStats: resolvedStats.value,
       targetIsFull,
@@ -474,7 +505,7 @@
         spellSaveDC,
         actors,
         socket,
-        casterId: props.actor.id,
+        casterId: props.entity.id,
       },
       parts,
       { scene: worldStore.currentScene },
@@ -487,7 +518,7 @@
    * @param weapon - оружие
    */
   function handleWeaponDragStart(event: DragEvent, weapon: DnDGameItem): void {
-    if (!weapon.damageParts?.length) {
+    if (!weapon.damageParts?.length || !props.allowHotbarDrag) {
       return;
     }
 
@@ -500,7 +531,7 @@
       label: `${ACTOR_EQUIPMENT_TAB_LABELS.attackRollPrefix}${weapon.name}`,
       icon: hotbarIcon,
       ref: weapon.id,
-      actorId: props.actor.id,
+      actorId: props.entity.id,
     });
   }
 
@@ -511,15 +542,23 @@
    * @param item - передаваемый предмет
    */
   function handleItemDragStart(event: DragEvent, item: DnDGameItem): void {
-    if (!event.dataTransfer) {
+    // Из листа в режиме чтения и из листа в режиме правки предмет не вынимается:
+    // у получателя он появится сразу, а здесь правка либо запрещена, либо ещё
+    // не сохранена, и предмет бы размножился
+    if (!event.dataTransfer || props.isReadOnly || props.isEditMode) {
       return;
     }
 
-    // Для любого предмета — MIME передачи между токенами
-    const transferPayload = JSON.stringify({
+    // Для любого предмета — MIME передачи между листами и токенами. Нагрузка
+    // собирается по объявленному типу, а не безымянным литералом: иначе
+    // переименование поля не поймал бы никто, а перенос просто перестал бы
+    // срабатывать — молча, без ошибки
+    const payload: ItemTransferPayload = {
       item,
-      sourceActorId: props.actor.id,
-    });
+      sourceActorId: props.entity.id,
+    };
+
+    const transferPayload = JSON.stringify(payload);
 
     event.dataTransfer.setData(GAME_ITEM_TRANSFER_MIME, transferPayload);
     event.dataTransfer.effectAllowed = 'copyMove';
@@ -549,7 +588,7 @@
         openModal('SpellDetailModal', { spell });
       }
     } else {
-      openModal('WeaponDetailModal', { item, open: true, actor: props.actor });
+      openModal('WeaponDetailModal', { item, open: true, actor: props.entity });
     }
   }
 
@@ -581,7 +620,7 @@
         // Владелец нужен только форме оружия — для предпросмотра атаки и
         // урона. Остальным формам его не передаём: необъявленный проп осел бы
         // атрибутом на корне и дал ворнинг
-        ...(item.type === 'weapon' ? { actor: props.actor } : {}),
+        ...(item.type === 'weapon' ? { actor: props.entity } : {}),
         onSave: (updated: DnDGameItem) => saveEquipmentEdit(updated, formId),
         onClose: () => closeModal(formId),
       });
@@ -595,16 +634,14 @@
    * @param formId - ID модалки для закрытия
    */
   function saveEquipmentEdit(updatedItem: DnDGameItem, formId: string): void {
-    const equipment = props.actor.equipment.map((item) =>
+    const equipment = inventory.value.map((item) =>
       item.id === updatedItem.id
         ? { ...updatedItem, equipped: item.equipped }
         : item,
     );
 
-    emit('update:actor', { equipment });
+    commitEquipment(equipment);
     closeModal(formId);
-
-    triggerSaveIfNotEdit();
   }
 
   /** Сохраняет редактированное заклинание-предмет в equipment */
@@ -621,14 +658,12 @@
       spellData: updatedSpell,
     };
 
-    const equipment = props.actor.equipment.map((item) =>
+    const equipment = inventory.value.map((item) =>
       item.id === originalItem.id ? updatedSpellItem : item,
     );
 
-    emit('update:actor', { equipment });
+    commitEquipment(equipment);
     closeModal(formId);
-
-    triggerSaveIfNotEdit();
   }
 
   // --- Действия ---
@@ -649,13 +684,11 @@
    * @param itemId - ID предмета
    */
   function toggleEquipped(itemId: string): void {
-    const equipment = props.actor.equipment.map((item) =>
+    const equipment = inventory.value.map((item) =>
       item.id === itemId ? { ...item, equipped: !item.equipped } : item,
     );
 
-    emit('update:actor', { equipment });
-
-    triggerSaveIfNotEdit();
+    commitEquipment(equipment);
   }
 
   /**
@@ -668,15 +701,13 @@
    * @param itemId - ID предмета
    */
   function toggleTwoHandedGrip(itemId: string): void {
-    const equipment = props.actor.equipment.map((item) =>
+    const equipment = inventory.value.map((item) =>
       item.id === itemId
         ? { ...item, twoHandedGrip: !item.twoHandedGrip }
         : item,
     );
 
-    emit('update:actor', { equipment });
-
-    triggerSaveIfNotEdit();
+    commitEquipment(equipment);
   }
 
   /**
@@ -687,13 +718,11 @@
   function updateItemQuantity(itemId: string, newQuantity: number): void {
     const clampedQuantity = Math.max(1, Math.floor(newQuantity));
 
-    const equipment = props.actor.equipment.map((item) =>
+    const equipment = inventory.value.map((item) =>
       item.id === itemId ? { ...item, quantity: clampedQuantity } : item,
     );
 
-    emit('update:actor', { equipment });
-
-    triggerSaveIfNotEdit();
+    commitEquipment(equipment);
   }
 
   /**
@@ -701,13 +730,11 @@
    * @param itemId - ID предмета
    */
   function toggleAttuned(itemId: string): void {
-    const equipment = props.actor.equipment.map((item) =>
+    const equipment = inventory.value.map((item) =>
       item.id === itemId ? { ...item, isAttuned: !item.isAttuned } : item,
     );
 
-    emit('update:actor', { equipment });
-
-    triggerSaveIfNotEdit();
+    commitEquipment(equipment);
   }
 
   /**
@@ -717,13 +744,11 @@
    * @param itemId - ID предмета
    */
   function spendItemCharge(itemId: string): void {
-    const equipment = props.actor.equipment.map((item) =>
+    const equipment = inventory.value.map((item) =>
       item.id === itemId ? spendItemUses(item) : item,
     );
 
-    emit('update:actor', { equipment });
-
-    triggerSaveIfNotEdit();
+    commitEquipment(equipment);
   }
 
   /**
@@ -733,15 +758,13 @@
    * @param itemId - ID предмета
    */
   function restoreItemCharge(itemId: string): void {
-    const equipment = props.actor.equipment.map((item) =>
+    const equipment = inventory.value.map((item) =>
       item.id === itemId && item.uses
         ? setItemUsesCurrent(item, item.uses.current + 1)
         : item,
     );
 
-    emit('update:actor', { equipment });
-
-    triggerSaveIfNotEdit();
+    commitEquipment(equipment);
   }
 
   /**
@@ -749,14 +772,18 @@
    * @param itemId - ID предмета
    */
   function removeItem(itemId: string): void {
-    const equipment = props.actor.equipment.filter(
-      (item) => item.id !== itemId,
-    );
+    if (props.isReadOnly) {
+      return;
+    }
 
-    emit('update:actor', { equipment });
+    const equipment = inventory.value.filter((item) => item.id !== itemId);
+
+    commitEquipment(equipment);
+
+    // Кнопка удалённого предмета на панели быстрого доступа снимается ТОЛЬКО
+    // вместе с успешной правкой: иначе лист в режиме просмотра чистил бы чужой
+    // хотбар, ничего при этом не удалив
     hotbarStore.removeByRef(itemId);
-
-    triggerSaveIfNotEdit();
   }
 
   /** Типы записей, у которых на листе есть своя форма правки */
@@ -891,7 +918,7 @@
    */
   function getWeaponAttackBonusLabel(weapon: DnDGameItem): string {
     return formatSignedNumber(
-      calculateWeaponAttackModifier(props.actor, weapon, resolvedStats.value),
+      calculateWeaponAttackModifier(props.entity, weapon, resolvedStats.value),
     );
   }
 
@@ -905,7 +932,7 @@
    */
   function weaponAttackHint(weapon: DnDGameItem): string {
     return formatWeaponModifierParts(
-      describeWeaponAttack(props.actor, weapon, resolvedStats.value),
+      describeWeaponAttack(props.entity, weapon, resolvedStats.value),
     );
   }
 
@@ -919,7 +946,7 @@
     return [
       weaponKindLabel(weapon),
       formatWeaponModifierParts(
-        describeWeaponDamage(props.actor, weapon, resolvedStats.value),
+        describeWeaponDamage(props.entity, weapon, resolvedStats.value),
       ),
     ]
       .filter(Boolean)
@@ -938,7 +965,7 @@
 
     // Магический бонус входит в расчёт прибавки — отдельно его не добавляем
     const mod = calculateWeaponDamageModifier(
-      props.actor,
+      props.entity,
       weapon,
       resolvedStats.value,
     );
@@ -1141,21 +1168,24 @@
     },
   ]);
 
-  /** Размер актёра для расчёта грузоподъёмности */
+  /** Размер листа для расчёта грузоподъёмности */
   const actorSize = computed(
-    () => props.actor.system?.size ?? DEFAULT_CREATURE_SIZE,
+    () => props.entity.system?.size ?? DEFAULT_CREATURE_SIZE,
   );
 
   /**
-   * Сохраняет настройку предела переносимого веса
+   * Сохраняет настройку предела переносимого веса.
+   *
+   * Настройка живёт в блоке `system` листа персонажа, поэтому окно и не
+   * показывается существу: предел у него считается по правилам от Силы и
+   * размера, и менять там нечего
    */
   function applyCarryingCapacity(updated: DnDCarryingCapacity): void {
-    emit('update:actor', {
-      system: {
-        ...props.actor.system,
-        carryingCapacity: updated,
-      },
-    });
+    if (props.isReadOnly) {
+      return;
+    }
+
+    emit('update:carrying-capacity', updated);
 
     triggerSaveIfNotEdit();
   }
@@ -1170,13 +1200,17 @@
    * актёр из `QuickEquipmentModal`, который берёт его из стора хоста без
    * `normalizeActor`, — у записи из старого мира поля кошелька может не быть.
    */
-  const currency = computed<DnDCurrency>(() => ({
-    cp: props.actor.system.currency?.cp ?? 0,
-    sp: props.actor.system.currency?.sp ?? 0,
-    ep: props.actor.system.currency?.ep ?? 0,
-    gp: props.actor.system.currency?.gp ?? 0,
-    pp: props.actor.system.currency?.pp ?? 0,
-  }));
+  const currency = computed<DnDCurrency>(() => {
+    const wallet = props.entity.system.currency;
+
+    return {
+      cp: wallet?.cp ?? 0,
+      sp: wallet?.sp ?? 0,
+      ep: wallet?.ep ?? 0,
+      gp: wallet?.gp ?? 0,
+      pp: wallet?.pp ?? 0,
+    };
+  });
 
   /** Ячейки строки валюты: количество, сокращение и полное название монеты */
   const currencyCells = computed(() =>
@@ -1188,8 +1222,16 @@
     })),
   );
 
-  /** Открывает модалку редактирования кошелька */
+  /**
+   * Открывает окно правки кошелька. В режиме чтения не открывается вовсе:
+   * иначе игрок «поменял» бы монеты чужого монстра, сервер молча отверг бы
+   * запись, и лист врал бы до следующей синхронизации.
+   */
   function openCurrencyModal(): void {
+    if (props.isReadOnly) {
+      return;
+    }
+
     isCurrencyModalOpen.value = true;
   }
 
@@ -1197,12 +1239,11 @@
    * Сохраняет кошелёк после подтверждения в модалке
    */
   function applyCurrency(updated: DnDCurrency): void {
-    emit('update:actor', {
-      system: {
-        ...props.actor.system,
-        currency: updated,
-      },
-    });
+    if (props.isReadOnly) {
+      return;
+    }
+
+    emit('update:currency', updated);
 
     triggerSaveIfNotEdit();
   }
@@ -1211,9 +1252,15 @@
 <template>
   <div class="flex min-h-50 flex-1 flex-col space-y-1">
     <!-- Переносимый вес + деньги / валюта (Вплотную к табам) -->
-    <div class="mb-5 flex flex-col gap-2">
+    <div
+      v-if="showCarryingCapacity || showCurrency"
+      class="mb-5 flex flex-col gap-2"
+    >
       <!-- Обёртка-flex: плитка занимает ширину по содержимому, а не всю строку -->
-      <div class="flex">
+      <div
+        v-if="showCarryingCapacity"
+        class="flex"
+      >
         <SheetStatTile
           :cells="carryingCapacityCells"
           :tooltip="ACTOR_EQUIPMENT_TAB_LABELS.carriedWeightHint"
@@ -1228,8 +1275,9 @@
         ступень `sm` компонентов кита) — задана `min-h`, а не отступами: на
         узком листе монеты переносятся, и строке нужно вырасти -->
       <div
-        role="button"
-        tabindex="0"
+        v-if="showCurrency"
+        :role="isReadOnly ? undefined : 'button'"
+        :tabindex="isReadOnly ? undefined : 0"
         :aria-label="ACTOR_EQUIPMENT_TAB_LABELS.editCurrency"
         class="flex min-h-7 cursor-pointer flex-wrap items-center justify-between gap-2 rounded-lg border border-default/50 bg-elevated/20 px-4 py-0.5 transition-colors hover:border-default hover:bg-elevated/40"
         @click.left.exact.prevent="openCurrencyModal"
@@ -1257,7 +1305,7 @@
 
     <!-- Индикатор пустого списка -->
     <div
-      v-if="actor.equipment.length === 0"
+      v-if="inventory.length === 0"
       class="flex flex-1 items-center justify-center rounded-lg border-2 border-dashed px-3 py-8 text-xs transition-colors"
       :class="
         isDragOver
@@ -1269,7 +1317,7 @@
     </div>
 
     <!-- Список предметов с разделителями -->
-    <template v-if="actor.equipment.length > 0">
+    <template v-if="inventory.length > 0">
       <div
         v-for="(group, index) in equipmentRowGroups"
         :key="group.label"
@@ -1306,6 +1354,7 @@
 
   <!-- Модалка настройки грузоподъёмности -->
   <CarryingCapacityModal
+    v-if="showCarryingCapacity"
     v-model:open="isCapacityModalOpen"
     :capacity="capacitySettings"
     :strength="strength"
@@ -1315,6 +1364,7 @@
 
   <!-- Модалка редактирования кошелька -->
   <CurrencyModal
+    v-if="showCurrency"
     v-model:open="isCurrencyModalOpen"
     :currency="currency"
     @apply="applyCurrency"

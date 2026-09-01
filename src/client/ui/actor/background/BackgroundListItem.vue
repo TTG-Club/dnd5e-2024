@@ -4,11 +4,13 @@
   import { computed } from 'vue';
 
   import { useContextMenu } from '../../../composables/useContextMenu';
+  import { useListRowClass } from '../../../composables/useListRowClass';
   import {
     BACKGROUND_DEFINITION_MIME,
     BACKGROUND_LIST_ITEM_LABELS,
   } from '../constants';
   import ContextMenuOverlay from '../ContextMenuOverlay.vue';
+  import EntityRowBody from '../EntityRowBody.vue';
   import SourceBadge from '../SourceBadge.vue';
 
   defineOptions({
@@ -23,7 +25,16 @@
     showCopy?: boolean;
     showCost?: boolean;
     showWeight?: boolean;
+    /**
+     * Плоская строка списка: без своей плашки и скругления. Так строка встаёт в
+     * список с разделителями (компендиум и окна выбора); на листе персонажа
+     * строки стоят порознь, и плашка им нужна.
+     */
+    flat?: boolean;
   }>();
+
+  /** Оформление строки: плоская в списке, плашкой на листе персонажа */
+  const rowClass = useListRowClass(() => Boolean(props.flat));
 
   const data = computed(() => props.item ?? props.backgroundDefinition!);
 
@@ -53,12 +64,25 @@
   <div
     v-bind="$attrs"
     draggable="true"
-    class="flex cursor-grab items-center gap-3 rounded-lg bg-elevated/30 px-3 py-2 transition-colors hover:bg-accented/40 active:cursor-grabbing"
+    class="flex cursor-grab items-center gap-3 py-2 transition-colors active:cursor-grabbing"
+    :class="rowClass"
     @dragstart="onDragStart"
     @click.left.exact.prevent="emit('click')"
     @contextmenu="openContextMenu"
   >
-    <div class="min-w-0 flex-1">
+    <!-- Строка списка: название, английское название и источник справа -->
+    <EntityRowBody
+      v-if="flat"
+      :name="data.name"
+      :name-en="data.nameEn"
+      :source-key="data.sourceKey"
+      :source="data.source"
+    />
+
+    <div
+      v-else
+      class="min-w-0 flex-1"
+    >
       <div class="flex items-center gap-2">
         <span class="truncate text-sm font-medium text-highlighted">
           {{ data.name }}

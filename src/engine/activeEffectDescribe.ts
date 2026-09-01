@@ -30,6 +30,7 @@ import {
   EFFECT_DURATION_LABELS,
   EFFECT_FLAG_LABELS,
   EFFECT_TARGET_SUGGESTIONS,
+  splitConditionParts,
 } from './activeEffectTypes.js';
 import { getConditionEntry } from './conditionTemplates.js';
 import { ABILITY_LABELS } from './consts.js';
@@ -160,9 +161,21 @@ function describeChange(change: EffectChange): string {
     return base;
   }
 
-  const conditionText = CONDITION_LABELS.get(condition) ?? condition;
+  return `${base} (только: ${describeCondition(condition)})`;
+}
 
-  return `${base} (только: ${conditionText})`;
+/**
+ * Подпись условия, в том числе составного: части, соединённые `&&`, читаются
+ * как «… и …». Незнакомая часть отдаётся кодом — лучше показать автору
+ * непонятную строку, чем скрыть от него условие целиком.
+ *
+ * @param condition - строка условия
+ * @returns человекочитаемая подпись
+ */
+function describeCondition(condition: string): string {
+  return splitConditionParts(condition)
+    .map((part) => CONDITION_LABELS.get(part) ?? part)
+    .join(' и ');
 }
 
 /** Подписи условия по цели в формуле урона (токен `@target.<cond>`). */

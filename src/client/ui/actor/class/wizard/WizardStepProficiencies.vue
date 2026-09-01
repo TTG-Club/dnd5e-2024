@@ -58,6 +58,36 @@
     return [];
   });
 
+  /** Приписка к владению доспехами: показывается, но владением не выдаётся */
+  const armorCustom = computed(() => {
+    if (props.isFirstClass) {
+      return props.classDefinition.armorProficienciesCustom ?? '';
+    }
+
+    if (props.isMulticlass) {
+      return (
+        getMulticlassProficiencies(props.classDefinition)?.armorCustom ?? ''
+      );
+    }
+
+    return '';
+  });
+
+  /** Приписка к владению оружием; см. {@link armorCustom} */
+  const weaponCustom = computed(() => {
+    if (props.isFirstClass) {
+      return props.classDefinition.weaponProficienciesCustom ?? '';
+    }
+
+    if (props.isMulticlass) {
+      return (
+        getMulticlassProficiencies(props.classDefinition)?.weaponsCustom ?? ''
+      );
+    }
+
+    return '';
+  });
+
   /** Владения инструментами как их прислал компендиум — текстом */
   const toolSources = computed(() => {
     if (props.isFirstClass) {
@@ -79,6 +109,8 @@
       armorProficiencies.value.length > 0
       || weaponProficiencies.value.length > 0
       || toolSources.value.length > 0
+      || armorCustom.value.length > 0
+      || weaponCustom.value.length > 0
     );
   });
 </script>
@@ -98,13 +130,17 @@
       v-if="hasProficiencies"
       class="space-y-3"
     >
-      <!-- Доспехи -->
-      <div v-if="armorProficiencies.length > 0">
+      <!-- Доспехи. Приписка идёт строкой под значками: значком её не сделать —
+        в владение листа она не превращается, её только читают -->
+      <div v-if="armorProficiencies.length > 0 || armorCustom">
         <span class="mb-1 block text-sm font-medium text-muted">{{
           GRANT_SECTION_LABELS.equipment
         }}</span>
 
-        <div class="flex flex-wrap gap-1.5">
+        <div
+          v-if="armorProficiencies.length > 0"
+          class="flex flex-wrap gap-1.5"
+        >
           <UBadge
             v-for="armor in armorProficiencies"
             :key="armor"
@@ -114,15 +150,25 @@
             size="md"
           />
         </div>
+
+        <p
+          v-if="armorCustom"
+          class="mt-1 text-xs text-dimmed"
+        >
+          {{ armorCustom }}
+        </p>
       </div>
 
       <!-- Оружие -->
-      <div v-if="weaponProficiencies.length > 0">
+      <div v-if="weaponProficiencies.length > 0 || weaponCustom">
         <span class="mb-1 block text-sm font-medium text-muted">{{
           GRANT_SECTION_LABELS.weapons
         }}</span>
 
-        <div class="flex flex-wrap gap-1.5">
+        <div
+          v-if="weaponProficiencies.length > 0"
+          class="flex flex-wrap gap-1.5"
+        >
           <UBadge
             v-for="weapon in weaponProficiencies"
             :key="weapon"
@@ -132,6 +178,13 @@
             size="md"
           />
         </div>
+
+        <p
+          v-if="weaponCustom"
+          class="mt-1 text-xs text-dimmed"
+        >
+          {{ weaponCustom }}
+        </p>
       </div>
 
       <!-- Инструменты: текст компендиума сопоставляется со словарём владений -->

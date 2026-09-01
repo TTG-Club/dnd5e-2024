@@ -1,74 +1,91 @@
 <script setup lang="ts">
+  import type { PackKindEntries } from '@/core/compendiumDataClient';
   import type {
-    AbilityType,
-    SkillType,
+    CompendiumEntry,
     SourceDefinition,
     TypedWebSocketClient,
   } from '@vtt/shared';
   import type {
-    ConditionKey,
+    ActiveEffect,
     CreatureSize,
     CreatureType,
-    DamageDefenseEntry,
     DnDGameItem,
+    FeatChoice,
+    FeatData,
     SpeciesDefinition,
     SpeciesFeature,
     SpeciesGrant,
+    SpeciesHeightRange,
     SpeciesMovementGrant,
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
-  import type { SpellOption } from '../grantedSpellsEditorTypes';
   import type {
-    EditableChoice,
-    EditableFeature,
-    EditableFeatureFields,
-  } from './speciesEditorTypes';
+    PickedCompendiumRef,
+    PickerEntryFields,
+  } from '../CompendiumRefPickerModal.vue';
+  import type { SpellOption } from '../grantedSpellsEditorTypes';
+  import type { EditableFeature } from './speciesEditorTypes';
 
   import { computed, ref, watch } from 'vue';
 
+  import { loadCompendiumKindByPack } from '@/core/compendiumDataClient';
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
+  import { useItemsStore } from '@/stores/itemsStore';
   import {
     buildSpellLinkIndex,
     findSpellInPacks,
     linkGrantedSpellRefs,
     loadSpellPacks,
   } from '@/systems/dnd5e/composables/spellCompendium';
-  import { generateId, typedObjectEntries } from '@vtt/shared';
+  import { generateId, isRecord, typedObjectEntries } from '@vtt/shared';
   import {
-    ABILITY_OPTIONS,
     CREATURE_SIZE_LABELS,
     CREATURE_TYPE_LABELS,
-    LANGUAGE_TYPES,
-    listSelectableConditions,
-    SKILLS_LIST,
     slugify,
-    TOOLS_LABELS,
   } from '@vtt/shared/system/dnd.js';
 
+  import CompendiumRefPickerModal from '../CompendiumRefPickerModal.vue';
   import {
-    ARMOR_PROF_LABELS,
+    COMPENDIUM_PICKER_LABELS,
     DEFINITION_FORM_LABELS,
+    FEET_UNIT_LABEL,
     FORM_FIELD_LABELS,
     FORM_TAB_LABELS,
-    GRANT_FIELD_LABELS,
     GRANT_SECTION_LABELS,
     MODAL_BUTTON_LABELS,
-    SHEET_ROW_MENU_LABELS,
-    SPECIES_FORM_DEFAULT_NAMES,
     SPECIES_FORM_LABELS,
-    WEAPON_PROF_LABELS,
   } from '../constants';
+  import CounterRowsEditor from '../CounterRowsEditor.vue';
+  import EntityEffectsEditor from '../EntityEffectsEditor.vue';
+  import {
+    buildFeatData,
+    createEmptyFeatGrants,
+    featDataToGrants,
+    usedChoiceKeys,
+  } from '../feat/featEditorTypes';
+  import GrantRowsEditor from '../feat/GrantRowsEditor.vue';
+  import ModifierRowsEditor from '../feat/ModifierRowsEditor.vue';
   import FormSection from '../FormSection.vue';
   import SourceField from '../SourceField.vue';
-  import DamageDefenseEditor from './DamageDefenseEditor.vue';
-  import { createEmptyMovement, MOVEMENT_AXES } from './speciesEditorTypes';
-  import SpeciesFeatureFields from './SpeciesFeatureFields.vue';
+  import { MOVEMENT_AXES } from './speciesEditorTypes';
+  import SpeciesFeaturesEditor from './SpeciesFeaturesEditor.vue';
 
-  // Два корневых узла (форма + попап-редактор узла) — отключаем проброс атрибутов.
   defineOptions({ inheritAttrs: false });
+
+  /** Основной вид, показанный в поле: как называется и откуда взят. */
+  interface ParentSpeciesInfo {
+    name: string;
+    packName: string;
+  }
+
+  /** Строка роста в правке: обе границы всегда числа, 0 — «не указана». */
+  interface EditableHeightRow {
+    from: number;
+    to: number;
+  }
 
   const props = defineProps<{
     open: boolean;
@@ -109,50 +126,16 @@
     ([value, label]) => ({ value, label }),
   );
 
-  const skillsOptions = SKILLS_LIST.map((skill) => ({
-    value: skill.key,
-    label: skill.label,
-  }));
-
-  const abilitiesOptions = ABILITY_OPTIONS.map((ability) => ({
-    value: ability.value,
-    label: ability.label,
-  }));
-
-  const armorOptions = Object.entries(ARMOR_PROF_LABELS).map(
-    ([value, label]) => ({ value, label }),
-  );
-
-  const weaponOptions = Object.entries(WEAPON_PROF_LABELS).map(
-    ([value, label]) => ({ value, label }),
-  );
-
-  const toolsOptions = Object.entries(TOOLS_LABELS).map(([value, label]) => ({
-    value,
-    label,
-  }));
-
-  const languageOptions = LANGUAGE_TYPES.map((language) => ({
-    value: language,
-    label: language,
-  }));
-
-  // Вычисляемый: помимо канона в списке состояния, заведённые в мире
-  const conditionOptions = computed(() =>
-    listSelectableConditions().map((condition) => ({
-      value: condition.key,
-      label: condition.nameRu,
-    })),
-  );
-
   const tabItems = [
     { label: FORM_TAB_LABELS.main, slot: 'basic' as const },
-    { label: SPECIES_FORM_LABELS.tabMovement, slot: 'movement' as const },
+    { label: SPECIES_FORM_LABELS.tabProperties, slot: 'properties' as const },
     { label: SPECIES_FORM_LABELS.tabGrants, slot: 'grants' as const },
     { label: GRANT_SECTION_LABELS.features, slot: 'features' as const },
+    { label: SPECIES_FORM_LABELS.tabEffects, slot: 'effects' as const },
   ];
 
-  const { openModal } = useModalManager();
+  const { getNextZIndex, openModal } = useModalManager();
+  const itemsStore = useItemsStore();
 
   // ============================================================
   // Состояние формы
@@ -167,44 +150,53 @@
   const creatureType = ref<CreatureType>('humanoid');
   const selectedSizes = ref<CreatureSize[]>(['medium']);
 
+  /**
+   * Рост по размерам в правке: строка на каждый выбранный размер. Ноль в
+   * границе — «не указана»: у `UInputNumber` пустого значения нет, а в запись
+   * такая граница не пишется.
+   */
+  const heightRows = ref<Partial<Record<CreatureSize, EditableHeightRow>>>({});
+
+  /** Ключ основного вида; пустая строка — запись самостоятельная. */
+  const parentKey = ref('');
+
+  /** Название и пак только что выбранного основного вида — для показа в поле. */
+  const pickedParent = ref<ParentSpeciesInfo | null>(null);
+
+  /** Открыто ли окно выбора основного вида */
+  const isParentPickerOpen = ref(false);
+
+  /**
+   * Слой окна выбора. Без него оно открылось бы ПОД формой, которая его
+   * позвала: слои раздаёт менеджер окон, а не порядок в разметке.
+   */
+  const parentPickerZIndex = ref<number | undefined>(undefined);
+
   const speedWalk = ref(30);
   const speedFly = ref(0);
   const speedSwim = ref(0);
   const speedClimb = ref(0);
   const speedBurrow = ref(0);
 
-  // Дары (уровень 1, фиксированные для вида)
-  const darkvisionRange = ref(0);
-  const skillCount = ref(0);
-  const skillFrom = ref<SkillType[]>([]);
-  const savingThrows = ref<AbilityType[]>([]);
-  const damageDefenses = ref<DamageDefenseEntry[]>([]);
-  const conditionImmunities = ref<ConditionKey[]>([]);
-
-  const armorFixed = ref<string[]>([]);
-  const armorChoiceCount = ref(0);
-  const armorChoiceFrom = ref<string[]>([]);
-
-  const weaponFixed = ref<string[]>([]);
-  const weaponChoiceCount = ref(0);
-  const weaponChoiceFrom = ref<string[]>([]);
-
-  const toolFixed = ref<string[]>([]);
-  const toolChoiceCount = ref(0);
-  const toolChoiceFrom = ref<string[]>([]);
-
-  const languageFixed = ref<string[]>([]);
-  const languageChoiceCount = ref(0);
-  const languageChoiceFrom = ref<string[]>([]);
+  /** Обычное зрение в футах; 0 — без ограничений (как у токена). */
+  const speciesVision = ref(0);
 
   /**
-   * Дары будущих/неотображаемых типов, которые форма не редактирует, но обязана
+   * Дары записи строками — та же редактируемая модель, что у черты и
+   * предыстории (`featDataToGrants`/`buildFeatData`). Легаси-гранты известных
+   * типов конвертируются в неё при открытии; сохранение пишет только `featData`.
+   */
+  const recordGrants = ref(createEmptyFeatGrants());
+
+  /**
+   * Легаси-гранты неизвестных типов, которые форма не редактирует, но обязана
    * сохранить при редактировании, чтобы не потерять (страховка совместимости).
    */
   const preservedGrants = ref<SpeciesGrant[]>([]);
 
   // Особенности
   const features = ref<EditableFeature[]>([]);
+  const activeEffects = ref<ActiveEffect[]>([]);
 
   /** Заклинания компендиума по пакам (имя, источник, пак) — для подсказок. */
   const availableSpells = ref<SpellOption[]>([]);
@@ -214,18 +206,558 @@
     { packId: string; packName: string; spells: Spell[] }[]
   >([]);
 
-  /** Тип узла дерева особенностей. */
-  type SpeciesNodeKind = 'feature' | 'choice' | 'choiceFeature';
-
-  // Попап-редактор выбранного узла дерева особенностей
-  const isNodeEditorOpen = ref(false);
-  const editorNodeKind = ref<SpeciesNodeKind>('feature');
-  const editorFeatureIndex = ref(-1);
-  const editorChoiceIndex = ref(-1);
-  const editorChoiceFeatureIndex = ref(-1);
-
   const existingKey = ref<string | null>(null);
   const existingId = ref<string | null>(null);
+
+  /** Занятые ключи выборов даров записи. */
+  const recordTakenKeys = computed(() => [
+    ...usedChoiceKeys(recordGrants.value),
+  ]);
+
+  // ============================================================
+  // Рост по размерам
+  // ============================================================
+
+  /**
+   * Разворачивает рост записи в строки правки. Незаданная граница становится
+   * нулём: поле ввода числовое, пустого значения у него нет.
+   *
+   * @param heights - рост записи по размерам
+   */
+  function heightsToRows(
+    heights: SpeciesDefinition['heights'],
+  ): Partial<Record<CreatureSize, EditableHeightRow>> {
+    const rows: Partial<Record<CreatureSize, EditableHeightRow>> = {};
+
+    for (const [size, range] of typedObjectEntries(heights ?? {})) {
+      rows[size] = { from: range?.from ?? 0, to: range?.to ?? 0 };
+    }
+
+    return rows;
+  }
+
+  /**
+   * Заводит строку роста каждому выбранному размеру. Строки снятых размеров не
+   * стираем: размер часто снимают и возвращают, а введённый рост при этом
+   * терять обидно — в запись он всё равно попадёт только для выбранных.
+   */
+  watch(
+    selectedSizes,
+    (sizes) => {
+      const rows = { ...heightRows.value };
+
+      let added = false;
+
+      for (const size of sizes) {
+        if (!rows[size]) {
+          rows[size] = { from: 0, to: 0 };
+          added = true;
+        }
+      }
+
+      // Пишем только когда строка реально добавилась: иначе каждый выбор
+      // размера подменял бы объект строк и зря перерисовывал их поля
+      if (added) {
+        heightRows.value = rows;
+      }
+    },
+    { immediate: true },
+  );
+
+  /**
+   * Строка роста размера для полей ввода. Размер только что отметили, а сторож
+   * ещё не отработал — отдаём пустую: разбирать это в разметке не дело, она
+   * остаётся декларативной.
+   *
+   * @param size - размер, чей рост показывают
+   */
+  function heightRow(size: CreatureSize): EditableHeightRow {
+    return heightRows.value[size] ?? { from: 0, to: 0 };
+  }
+
+  /**
+   * Ставит границу роста размеру. Пишем через замену объекта, а не правкой поля
+   * на месте: строки заводятся не всегда заранее, а `UInputNumber` при очистке
+   * отдаёт `undefined`.
+   *
+   * @param size - размер, у которого правят рост
+   * @param bound - какая граница правится
+   * @param value - новое значение; пусто — граница снята
+   */
+  function setHeightBound(
+    size: CreatureSize,
+    bound: 'from' | 'to',
+    value: number | undefined,
+  ): void {
+    const row = heightRows.value[size] ?? { from: 0, to: 0 };
+
+    heightRows.value = {
+      ...heightRows.value,
+      [size]: { ...row, [bound]: value ?? 0 },
+    };
+  }
+
+  /**
+   * Обработчик нижней границы роста — шаблон не зовёт `setHeightBound` напрямую,
+   * потому что многострочные обработчики в разметке запрещены.
+   *
+   * @param size - размер, у которого правят рост
+   * @param value - новое значение
+   */
+  function setHeightFrom(size: CreatureSize, value: number | undefined): void {
+    setHeightBound(size, 'from', value);
+  }
+
+  /**
+   * Обработчик верхней границы роста.
+   *
+   * @param size - размер, у которого правят рост
+   * @param value - новое значение
+   */
+  function setHeightTo(size: CreatureSize, value: number | undefined): void {
+    setHeightBound(size, 'to', value);
+  }
+
+  /**
+   * Рост для записи: только выбранные размеры и только заданные границы.
+   * Ничего не задано — `undefined`, и поле в запись не пишется вовсе.
+   */
+  function buildHeights(): SpeciesDefinition['heights'] {
+    const heights: NonNullable<SpeciesDefinition['heights']> = {};
+
+    for (const size of selectedSizes.value) {
+      const row = heightRows.value[size];
+
+      if (!row) {
+        continue;
+      }
+
+      const range: SpeciesHeightRange = {};
+
+      if (row.from > 0) {
+        range.from = row.from;
+      }
+
+      if (row.to > 0) {
+        range.to = row.to;
+      }
+
+      if (range.from !== undefined || range.to !== undefined) {
+        heights[size] = range;
+      }
+    }
+
+    return Object.keys(heights).length > 0 ? heights : undefined;
+  }
+
+  // ============================================================
+  // Родительский вид (запись — происхождение)
+  // ============================================================
+
+  /**
+   * Похоже ли значение на определение вида. Отдельным предикатом, а не
+   * проверкой по месту: `isRecord` сужает лишь до записи, а нужен
+   * `SpeciesDefinition`.
+   *
+   * @param value - произвольное значение
+   */
+  function isSpeciesDefinitionRecord(
+    value: unknown,
+  ): value is SpeciesDefinition {
+    return isRecord(value) && value.type === 'species';
+  }
+
+  /**
+   * Достаёт определение вида из записи справочника: предмет мира прячет его в
+   * `speciesData`, а запись компендиума приходит плоской.
+   *
+   * Смотрим именно на вложенный блоб, а не на «предмет ли это»: у записи вида в
+   * компендиуме есть и `id`, и `name`, и `type: 'species'` — по признакам
+   * предмета она от предмета мира неотличима, и проверка «предмет ⇒ speciesData»
+   * оставляла бы от всего компендиума пустой список.
+   *
+   * @param entry - запись компендиума или предмет мира
+   * @returns определение вида либо `null`
+   */
+  function readSpeciesDefinition(entry: unknown): SpeciesDefinition | null {
+    if (isRecord(entry) && isSpeciesDefinitionRecord(entry.speciesData)) {
+      return entry.speciesData;
+    }
+
+    return isSpeciesDefinitionRecord(entry) ? entry : null;
+  }
+
+  /**
+   * Годится ли запись в основной вид и чем она адресуется. Ключ берём у самого
+   * определения: у вида мира `id` принадлежит предмету, а в `parentKey` нужен
+   * ключ вида — по нему подвид и находит родителя.
+   *
+   * Отсеиваются подвиды (цепочку «подвид подвида» модель не знает) и сама
+   * редактируемая запись — вид не бывает происхождением самого себя.
+   *
+   * @param entry - запись компендиума или предмет мира
+   * @returns поля записи для окна выбора либо `null`
+   */
+  function resolveParentCandidate(
+    entry: CompendiumEntry,
+  ): PickerEntryFields | null {
+    const definition = readSpeciesDefinition(entry);
+
+    if (
+      !definition
+      || definition.parentKey
+      || definition.key === existingKey.value
+    ) {
+      return null;
+    }
+
+    return {
+      key: definition.key,
+      name: definition.name,
+      nameEn: definition.nameEn,
+    };
+  }
+
+  /**
+   * Виды справочника (компендиум + мир) по ключу. В записи лежит один ключ
+   * родителя, а показать в поле надо название — вот откуда оно берётся.
+   */
+  const knownSpeciesByKey = ref(new Map<string, ParentSpeciesInfo>());
+
+  /** Загружает виды справочника — по ним поле узнаёт название основного вида. */
+  async function loadKnownSpecies(): Promise<void> {
+    const known = new Map<string, ParentSpeciesInfo>();
+
+    if (props.socket) {
+      const packs: PackKindEntries[] = await loadCompendiumKindByPack(
+        props.socket,
+        'species',
+      );
+
+      for (const pack of packs) {
+        for (const entry of pack.entries) {
+          const definition = readSpeciesDefinition(entry);
+
+          if (definition && !known.has(definition.key)) {
+            known.set(definition.key, {
+              name: definition.name,
+              packName: pack.packName,
+            });
+          }
+        }
+      }
+    }
+
+    for (const worldItem of itemsStore.items) {
+      const definition = readSpeciesDefinition(worldItem);
+
+      if (definition && !known.has(definition.key)) {
+        known.set(definition.key, {
+          name: definition.name,
+          packName: COMPENDIUM_PICKER_LABELS.worldPack,
+        });
+      }
+    }
+
+    knownSpeciesByKey.value = known;
+  }
+
+  /** Запись справочника, стоящая за выбранным ключом родителя. */
+  const knownParent = computed(() =>
+    parentKey.value ? knownSpeciesByKey.value.get(parentKey.value) : undefined,
+  );
+
+  /**
+   * Название основного вида. Свежий выбор знает его сам; у записи, открытой на
+   * правку, есть только ключ — название ищем в справочнике. Не нашлось (пак с
+   * родителем не подключён) — показываем ключ, а не пустое место.
+   */
+  const parentLabel = computed(() => {
+    if (!parentKey.value) {
+      return SPECIES_FORM_LABELS.parentNone;
+    }
+
+    return (
+      pickedParent.value?.name ?? knownParent.value?.name ?? parentKey.value
+    );
+  });
+
+  /** Пока основной вид не выбран, в поле стоит подсказка — её и приглушаем. */
+  const parentLabelClass = computed(() =>
+    parentKey.value ? 'text-default' : 'text-dimmed',
+  );
+
+  /** Компендиум основного вида — пусто, если запись в справочнике не нашлась. */
+  const parentPackLabel = computed(
+    () => pickedParent.value?.packName ?? knownParent.value?.packName ?? '',
+  );
+
+  /** Открывает окно выбора основного вида поверх формы. */
+  function openParentPicker(): void {
+    parentPickerZIndex.value = getNextZIndex();
+    isParentPickerOpen.value = true;
+  }
+
+  /**
+   * Принимает выбор. Окно отдаёт список, но выбор здесь одиночный — берём
+   * первую и единственную ссылку.
+   *
+   * @param picked - выбранные записи
+   */
+  function applyParentPick(picked: PickedCompendiumRef[]): void {
+    const parent = picked[0];
+
+    if (!parent) {
+      return;
+    }
+
+    parentKey.value = parent.url;
+    pickedParent.value = { name: parent.name, packName: parent.packName };
+  }
+
+  /** Снимает основной вид — запись снова самостоятельная. */
+  function clearParent(): void {
+    parentKey.value = '';
+    pickedParent.value = null;
+  }
+
+  // ============================================================
+  // Конвертация легаси-грантов в блок даров featData
+  // ============================================================
+
+  /**
+   * Свободный ключ выбора: первый незанятый из `<база>`, `<база>-2`, ...
+   *
+   * @param base - базовый ключ по виду выбора
+   * @param taken - уже занятые ключи (набор пополняется)
+   */
+  function freeChoiceKey(base: string, taken: Set<string>): string {
+    let candidate = base;
+    let suffix = 2;
+
+    while (taken.has(candidate)) {
+      candidate = `${base}-${suffix}`;
+      suffix += 1;
+    }
+
+    taken.add(candidate);
+
+    return candidate;
+  }
+
+  /**
+   * Конвертирует легаси-гранты известных типов в блок даров `featData`.
+   * Неизвестные типы возвращаются как есть — их сохранит `preservedGrants`.
+   *
+   * @param grants - легаси-гранты записи
+   * @returns конвертированный блок (null — конвертировать нечего) и остаток
+   */
+  function legacyGrantsToFeatData(grants: ReadonlyArray<SpeciesGrant>): {
+    converted: FeatData | null;
+    preserved: SpeciesGrant[];
+  } {
+    const built: FeatData = { type: 'feat' };
+    const choices: FeatChoice[] = [];
+    const preserved: SpeciesGrant[] = [];
+    const takenKeys = new Set<string>();
+
+    let hasContent = false;
+
+    const pushChoice = (
+      type: FeatChoice['type'],
+      count: number,
+      from: ReadonlyArray<string>,
+    ): void => {
+      choices.push({
+        key: freeChoiceKey(type, takenKeys),
+        type,
+        count,
+        ...(from.length > 0
+          ? { options: from.map((value) => ({ value })) }
+          : {}),
+      });
+
+      hasContent = true;
+    };
+
+    const pushItems = (
+      field:
+        | 'armorProficiencies'
+        | 'weaponProficiencies'
+        | 'toolProficiencies'
+        | 'languages',
+      items: ReadonlyArray<string>,
+    ): void => {
+      if (items.length === 0) {
+        return;
+      }
+
+      built[field] = [...(built[field] ?? []), ...items];
+      hasContent = true;
+    };
+
+    for (const grant of grants) {
+      switch (grant.type) {
+        case 'darkvision':
+          built.darkvision = Math.max(built.darkvision ?? 0, grant.range);
+          hasContent = true;
+
+          break;
+        case 'skillProficiency':
+          if (grant.count > 0) {
+            pushChoice('skill', grant.count, grant.from ?? []);
+          }
+
+          break;
+        case 'savingThrowProficiency':
+          built.savingThrowProficiencies = [
+            ...(built.savingThrowProficiencies ?? []),
+            ...grant.abilities,
+          ];
+
+          hasContent = true;
+
+          break;
+        case 'damageDefense':
+          built.damageDefenses = [
+            ...(built.damageDefenses ?? []),
+            ...grant.entries.map((entry) => ({ ...entry })),
+          ];
+
+          hasContent = true;
+
+          break;
+        case 'conditionImmunity':
+          built.conditionImmunities = [
+            ...(built.conditionImmunities ?? []),
+            ...grant.conditions,
+          ];
+
+          hasContent = true;
+
+          break;
+        case 'armorProficiency':
+          pushItems('armorProficiencies', grant.items ?? []);
+
+          if (grant.choices) {
+            pushChoice('armor', grant.choices.count, grant.choices.from);
+          }
+
+          break;
+        case 'weaponProficiency':
+          pushItems('weaponProficiencies', grant.items ?? []);
+
+          if (grant.choices) {
+            pushChoice('weapon', grant.choices.count, grant.choices.from);
+          }
+
+          break;
+        case 'toolProficiency':
+          pushItems('toolProficiencies', grant.items ?? []);
+
+          if (grant.choices) {
+            pushChoice('tool', grant.choices.count, grant.choices.from);
+          }
+
+          break;
+        case 'language':
+          pushItems('languages', grant.items ?? []);
+
+          if (grant.choices) {
+            pushChoice('language', grant.choices.count, grant.choices.from);
+          }
+
+          break;
+        default:
+          preserved.push(grant);
+      }
+    }
+
+    if (choices.length > 0) {
+      built.choices = choices;
+    }
+
+    return { converted: hasContent ? built : null, preserved };
+  }
+
+  /**
+   * Объединяет два необязательных массива; пустой результат схлопывается в
+   * `undefined`, чтобы не плодить пустые поля в блоке даров.
+   *
+   * @param first - первый массив
+   * @param second - второй массив
+   */
+  function mergeDefinedArrays<T>(
+    first: ReadonlyArray<T> | undefined,
+    second: ReadonlyArray<T> | undefined,
+  ): T[] | undefined {
+    const merged = [...(first ?? []), ...(second ?? [])];
+
+    return merged.length > 0 ? merged : undefined;
+  }
+
+  /**
+   * Сливает блок даров записи с конвертированными легаси-грантами. В реальных
+   * записях источник один (новая выгрузка несёт featData, старая — гранты), но
+   * при смешении ничего не должно потеряться.
+   *
+   * @param base - блок даров записи (`featData`)
+   * @param extra - конвертированные легаси-гранты
+   */
+  function mergeFeatData(
+    base: FeatData | undefined,
+    extra: FeatData | null,
+  ): FeatData | null {
+    if (!base) {
+      return extra;
+    }
+
+    if (!extra) {
+      return base;
+    }
+
+    const takenKeys = new Set((base.choices ?? []).map((choice) => choice.key));
+
+    const mergedChoices = [
+      ...(base.choices ?? []),
+      ...(extra.choices ?? []).map((choice) => ({
+        ...choice,
+        key: freeChoiceKey(choice.key, takenKeys),
+      })),
+    ];
+
+    return {
+      ...base,
+      darkvision:
+        Math.max(base.darkvision ?? 0, extra.darkvision ?? 0) || undefined,
+      savingThrowProficiencies: mergeDefinedArrays(
+        base.savingThrowProficiencies,
+        extra.savingThrowProficiencies,
+      ),
+      armorProficiencies: mergeDefinedArrays(
+        base.armorProficiencies,
+        extra.armorProficiencies,
+      ),
+      weaponProficiencies: mergeDefinedArrays(
+        base.weaponProficiencies,
+        extra.weaponProficiencies,
+      ),
+      toolProficiencies: mergeDefinedArrays(
+        base.toolProficiencies,
+        extra.toolProficiencies,
+      ),
+      languages: mergeDefinedArrays(base.languages, extra.languages),
+      damageDefenses: mergeDefinedArrays(
+        base.damageDefenses,
+        extra.damageDefenses,
+      ),
+      conditionImmunities: mergeDefinedArrays(
+        base.conditionImmunities,
+        extra.conditionImmunities,
+      ),
+      ...(mergedChoices.length > 0 ? { choices: mergedChoices } : {}),
+    };
+  }
 
   // ============================================================
   // Преобразование между моделью данных и редактируемыми полями
@@ -234,9 +766,11 @@
   /**
    * Разворачивает особенность вида в редактируемые поля.
    *
-   * @param feature - особенность вида (базовая или особенность подвида)
+   * @param feature - особенность вида (базовая или особенность легаси-варианта)
    */
-  function toEditableFields(feature: SpeciesFeature): EditableFeatureFields {
+  function toEditableFields(
+    feature: SpeciesFeature,
+  ): Omit<EditableFeature, 'choices'> {
     return {
       key: feature.key || generateId('sf'),
       name: feature.name || '',
@@ -256,24 +790,10 @@
         spellId: spell.spellId,
         packId: spell.packId,
       })),
-    };
-  }
-
-  /**
-   * Создаёт пустые редактируемые поля для новой особенности.
-   *
-   * @param name - стартовое название
-   */
-  function createEditableFields(name: string): EditableFeatureFields {
-    return {
-      key: generateId('sf'),
-      name,
-      description: '',
-      level: 1,
-      isInformationalOnly: false,
-      movement: createEmptyMovement(),
-      darkvision: 0,
-      grantedSpells: [],
+      activeEffects: (feature.activeEffects ?? []).map((effect) => ({
+        ...effect,
+      })),
+      grants: featDataToGrants(feature.featData),
     };
   }
 
@@ -283,7 +803,7 @@
    * @param fields - редактируемые поля особенности
    */
   function buildFeatureFromFields(
-    fields: EditableFeatureFields,
+    fields: Omit<EditableFeature, 'choices'>,
   ): SpeciesFeature {
     const built: SpeciesFeature = {
       key: fields.key,
@@ -329,6 +849,17 @@
       built.grantedSpells = grantedSpells;
     }
 
+    if (fields.activeEffects.length > 0) {
+      built.activeEffects = fields.activeEffects;
+    }
+
+    // Заклинания особенности живут своим полем, поэтому в блок даров не идут
+    const featData = buildFeatData(fields.grants, []);
+
+    if (featData) {
+      built.featData = featData;
+    }
+
     return built;
   }
 
@@ -345,32 +876,19 @@
     isSRD.value = false;
     creatureType.value = 'humanoid';
     selectedSizes.value = ['medium'];
+    heightRows.value = {};
+    parentKey.value = '';
+    pickedParent.value = null;
     speedWalk.value = 30;
     speedFly.value = 0;
     speedSwim.value = 0;
     speedClimb.value = 0;
     speedBurrow.value = 0;
-    darkvisionRange.value = 0;
-    skillCount.value = 0;
-    skillFrom.value = [];
-    savingThrows.value = [];
-    damageDefenses.value = [];
-    conditionImmunities.value = [];
-    armorFixed.value = [];
-    armorChoiceCount.value = 0;
-    armorChoiceFrom.value = [];
-    weaponFixed.value = [];
-    weaponChoiceCount.value = 0;
-    weaponChoiceFrom.value = [];
-    toolFixed.value = [];
-    toolChoiceCount.value = 0;
-    toolChoiceFrom.value = [];
-    languageFixed.value = [];
-    languageChoiceCount.value = 0;
-    languageChoiceFrom.value = [];
+    speciesVision.value = 0;
+    recordGrants.value = createEmptyFeatGrants();
     preservedGrants.value = [];
     features.value = [];
-    isNodeEditorOpen.value = false;
+    activeEffects.value = [];
     existingKey.value = null;
     existingId.value = null;
   }
@@ -384,83 +902,34 @@
     source.value = definition.source;
     isSRD.value = definition.isSRD ?? false;
     creatureType.value = definition.creatureType || 'humanoid';
+    parentKey.value = definition.parentKey ?? '';
 
     selectedSizes.value =
       definition.size && definition.size.length > 0
         ? [...definition.size]
         : ['medium'];
 
+    heightRows.value = heightsToRows(definition.heights);
+
     speedWalk.value = definition.speed?.walk ?? 30;
     speedFly.value = definition.speed?.fly ?? 0;
     speedSwim.value = definition.speed?.swim ?? 0;
     speedClimb.value = definition.speed?.climb ?? 0;
     speedBurrow.value = definition.speed?.burrow ?? 0;
+    speciesVision.value = definition.vision ?? 0;
     existingKey.value = definition.key;
 
-    for (const grant of definition.grants ?? []) {
-      switch (grant.type) {
-        case 'darkvision':
-          darkvisionRange.value = grant.range;
+    // Легаси-гранты известных типов конвертируются в строки даров; неизвестные
+    // сохраняются как есть и при сохранении вернутся в grants нетронутыми
+    const { converted, preserved } = legacyGrantsToFeatData(
+      definition.grants ?? [],
+    );
 
-          break;
-        case 'skillProficiency':
-          skillCount.value = grant.count;
-          skillFrom.value = [...(grant.from ?? [])];
+    preservedGrants.value = preserved;
 
-          break;
-        case 'savingThrowProficiency':
-          savingThrows.value = [...grant.abilities];
-
-          break;
-        case 'damageDefense':
-          damageDefenses.value = grant.entries.map((entry) => ({ ...entry }));
-
-          break;
-        case 'conditionImmunity':
-          conditionImmunities.value = [...grant.conditions];
-
-          break;
-        case 'armorProficiency':
-          armorFixed.value = [...grant.items];
-
-          if (grant.choices) {
-            armorChoiceCount.value = grant.choices.count;
-            armorChoiceFrom.value = [...grant.choices.from];
-          }
-
-          break;
-        case 'weaponProficiency':
-          weaponFixed.value = [...grant.items];
-
-          if (grant.choices) {
-            weaponChoiceCount.value = grant.choices.count;
-            weaponChoiceFrom.value = [...grant.choices.from];
-          }
-
-          break;
-        case 'toolProficiency':
-          toolFixed.value = [...grant.items];
-
-          if (grant.choices) {
-            toolChoiceCount.value = grant.choices.count;
-            toolChoiceFrom.value = [...grant.choices.from];
-          }
-
-          break;
-        case 'language':
-          languageFixed.value = [...grant.items];
-
-          if (grant.choices) {
-            languageChoiceCount.value = grant.choices.count;
-            languageChoiceFrom.value = [...grant.choices.from];
-          }
-
-          break;
-        default:
-          // resistance и прочие неотображаемые дары — сохраняем как есть
-          preservedGrants.value.push(grant);
-      }
-    }
+    recordGrants.value = featDataToGrants(
+      mergeFeatData(definition.featData, converted) ?? undefined,
+    );
 
     features.value = (definition.features ?? []).map((feature) => ({
       ...toEditableFields(feature),
@@ -474,6 +943,10 @@
         })),
         conditionImmunities: [...(choice.conditionImmunities ?? [])],
       })),
+    }));
+
+    activeEffects.value = (definition.activeEffects ?? []).map((effect) => ({
+      ...effect,
     }));
   }
 
@@ -499,7 +972,7 @@
   /**
    * Авто-связывает заклинания особенностей с компендиумом по ТОЧНОМУ
    * уникальному (по id) совпадению имени — для базовых особенностей и для
-   * вложенных особенностей подвидов (обход дерева; связывание — общий хелпер).
+   * вложенных особенностей легаси-вариантов.
    */
   function autoLinkExactMatches(): void {
     const index = buildSpellLinkIndex(availableSpells.value);
@@ -546,246 +1019,10 @@
       }
 
       void loadAvailableSpells();
+      void loadKnownSpecies();
     },
     { immediate: true },
   );
-
-  // ============================================================
-  // Управление особенностями
-  // ============================================================
-  /** Элемент дерева UTree вкладки «Особенности». */
-  interface SpeciesTreeItem {
-    /** Составной уникальный ключ узла: `<тип>:<ключи по пути>`. */
-    value: string;
-    label: string;
-    icon: string;
-    children?: SpeciesTreeItem[];
-  }
-
-  /** Индексы узла в модели формы (−1, если уровень не применим). */
-  interface SpeciesNodeIndices {
-    featureIndex: number;
-    choiceIndex: number;
-    choiceFeatureIndex: number;
-  }
-
-  /** Иконки узлов дерева по типу. */
-  const NODE_ICONS: Record<SpeciesNodeKind, string> = {
-    feature: 'tabler:list-details',
-    choice: 'tabler:git-branch',
-    choiceFeature: 'tabler:sparkles',
-  };
-
-  /**
-   * Узлы дерева рендерим как `div`, а не `button` — иначе кнопки действий
-   * (добавить/правка/удалить) оказались бы вложены в `button` (невалидный HTML).
-   */
-  const treeRenderAs = { link: 'div' };
-
-  // ── Дерево особенностей (особенность → подвид → особенность подвида) ──
-  const featureTreeItems = computed<SpeciesTreeItem[]>(() =>
-    features.value.map((feature) => ({
-      value: `feature:${feature.key}`,
-      label: feature.name || SPECIES_FORM_LABELS.nodeFeature,
-      icon: NODE_ICONS.feature,
-      children: feature.choices.map((choice) => ({
-        value: `choice:${feature.key}:${choice.key}`,
-        label: choice.name || SPECIES_FORM_LABELS.nodeChoice,
-        icon: NODE_ICONS.choice,
-        children: choice.features.map((choiceFeature) => ({
-          value: `choiceFeature:${feature.key}:${choice.key}:${choiceFeature.key}`,
-          label: choiceFeature.name || SPECIES_FORM_LABELS.nodeChoiceFeature,
-          icon: NODE_ICONS.choiceFeature,
-        })),
-      })),
-    })),
-  );
-
-  /** Уникальный ключ узла дерева для UTree. */
-  function getNodeKey(item: SpeciesTreeItem): string {
-    return item.value;
-  }
-
-  /** Иконка-шеврон по состоянию раскрытия узла дерева. */
-  function chevronIcon(expanded: boolean): string {
-    return expanded ? 'tabler:chevron-down' : 'tabler:chevron-right';
-  }
-
-  /** Подпись (aria) кнопки добавления дочернего узла. */
-  function addNodeLabel(value: string): string {
-    return nodeKind(value) === 'feature'
-      ? SPECIES_FORM_LABELS.addChoice
-      : SPECIES_FORM_LABELS.addChoiceFeature;
-  }
-
-  /** Тип узла по его составному ключу. */
-  function nodeKind(value: string): SpeciesNodeKind {
-    const prefix = value.split(':')[0];
-
-    if (prefix === 'choice') {
-      return 'choice';
-    }
-
-    if (prefix === 'choiceFeature') {
-      return 'choiceFeature';
-    }
-
-    return 'feature';
-  }
-
-  /** Находит индексы узла по ключам, зашитым в его составной `value`. */
-  function resolveNodeIndices(value: string): SpeciesNodeIndices {
-    const parts = value.split(':');
-
-    const featureIndex = features.value.findIndex(
-      (feature) => feature.key === parts[1],
-    );
-
-    const feature = features.value[featureIndex];
-
-    const choiceIndex =
-      feature?.choices.findIndex((choice) => choice.key === parts[2]) ?? -1;
-
-    const choice = feature?.choices[choiceIndex];
-
-    const choiceFeatureIndex =
-      choice?.features.findIndex(
-        (choiceFeature) => choiceFeature.key === parts[3],
-      ) ?? -1;
-
-    return { featureIndex, choiceIndex, choiceFeatureIndex };
-  }
-
-  // ── Попап-редактор выбранного узла ──
-  const nodeEditorTitle = computed(() => {
-    if (editorNodeKind.value === 'choice') {
-      return SPECIES_FORM_LABELS.choiceEditorTitle;
-    }
-
-    if (editorNodeKind.value === 'choiceFeature') {
-      return SPECIES_FORM_LABELS.nodeChoiceFeature;
-    }
-
-    return SPECIES_FORM_LABELS.nodeFeature;
-  });
-
-  /**
-   * Открывает попап-редактор узла дерева.
-   *
-   * @param value - составной ключ узла
-   */
-  function openNodeEditor(value: string): void {
-    const indices = resolveNodeIndices(value);
-
-    if (indices.featureIndex < 0) {
-      return;
-    }
-
-    editorNodeKind.value = nodeKind(value);
-    editorFeatureIndex.value = indices.featureIndex;
-    editorChoiceIndex.value = indices.choiceIndex;
-    editorChoiceFeatureIndex.value = indices.choiceFeatureIndex;
-    isNodeEditorOpen.value = true;
-  }
-
-  /** Закрывает попап-редактор узла. */
-  function closeNodeEditor(): void {
-    isNodeEditorOpen.value = false;
-  }
-
-  /**
-   * Обрабатывает закрытие попап-редактора (крестик/клик мимо).
-   *
-   * @param value - новое состояние открытости
-   */
-  function handleNodeEditorOpenChange(value: boolean): void {
-    if (!value) {
-      closeNodeEditor();
-    }
-  }
-
-  function addFeature(): void {
-    const newFeature: EditableFeature = {
-      ...createEditableFields(SPECIES_FORM_DEFAULT_NAMES.feature),
-      choices: [],
-    };
-
-    features.value.push(newFeature);
-    openNodeEditor(`feature:${newFeature.key}`);
-  }
-
-  /**
-   * Кнопка «+» на узле: добавляет дочерний узел (подвид у особенности либо
-   * особенность у подвида) и сразу открывает его редактор.
-   *
-   * @param value - составной ключ родительского узла
-   */
-  function addUnderNode(value: string): void {
-    const { featureIndex, choiceIndex } = resolveNodeIndices(value);
-    const feature = features.value[featureIndex];
-
-    if (!feature) {
-      return;
-    }
-
-    if (nodeKind(value) === 'feature') {
-      const newChoice: EditableChoice = {
-        key: generateId('sfc'),
-        name: SPECIES_FORM_DEFAULT_NAMES.choice,
-        description: '',
-        features: [],
-        damageDefenses: [],
-        conditionImmunities: [],
-      };
-
-      feature.choices.push(newChoice);
-      openNodeEditor(`choice:${feature.key}:${newChoice.key}`);
-
-      return;
-    }
-
-    const choice = feature.choices[choiceIndex];
-
-    if (!choice) {
-      return;
-    }
-
-    const newChoiceFeature = createEditableFields(
-      SPECIES_FORM_DEFAULT_NAMES.choiceFeature,
-    );
-
-    choice.features.push(newChoiceFeature);
-
-    openNodeEditor(
-      `choiceFeature:${feature.key}:${choice.key}:${newChoiceFeature.key}`,
-    );
-  }
-
-  /**
-   * Удаляет узел дерева (особенность / подвид / особенность подвида).
-   *
-   * @param value - составной ключ удаляемого узла
-   */
-  function deleteNode(value: string): void {
-    const { featureIndex, choiceIndex, choiceFeatureIndex } =
-      resolveNodeIndices(value);
-
-    const kind = nodeKind(value);
-
-    if (kind === 'feature') {
-      features.value.splice(featureIndex, 1);
-    } else if (kind === 'choice') {
-      features.value[featureIndex]?.choices.splice(choiceIndex, 1);
-    } else {
-      features.value[featureIndex]?.choices[choiceIndex]?.features.splice(
-        choiceFeatureIndex,
-        1,
-      );
-    }
-
-    // Узел мог редактироваться — закрываем редактор, чтобы индексы не устарели.
-    closeNodeEditor();
-  }
 
   // ============================================================
   // Валидация и сохранение
@@ -793,98 +1030,6 @@
   const canSave = computed(
     () => name.value.trim().length > 0 && selectedSizes.value.length > 0,
   );
-
-  function buildGrants(): SpeciesGrant[] {
-    const grants: SpeciesGrant[] = [];
-
-    if (darkvisionRange.value > 0) {
-      grants.push({ type: 'darkvision', range: darkvisionRange.value });
-    }
-
-    if (skillCount.value > 0) {
-      grants.push({
-        type: 'skillProficiency',
-        count: skillCount.value,
-        from: [...skillFrom.value],
-      });
-    }
-
-    if (savingThrows.value.length > 0) {
-      grants.push({
-        type: 'savingThrowProficiency',
-        abilities: [...savingThrows.value],
-      });
-    }
-
-    if (damageDefenses.value.length > 0) {
-      grants.push({
-        type: 'damageDefense',
-        entries: damageDefenses.value.map((entry) => ({ ...entry })),
-      });
-    }
-
-    if (conditionImmunities.value.length > 0) {
-      grants.push({
-        type: 'conditionImmunity',
-        conditions: [...conditionImmunities.value],
-      });
-    }
-
-    if (armorFixed.value.length > 0 || armorChoiceCount.value > 0) {
-      grants.push({
-        type: 'armorProficiency',
-        items: [...armorFixed.value],
-        choices:
-          armorChoiceCount.value > 0
-            ? {
-                count: armorChoiceCount.value,
-                from: [...armorChoiceFrom.value],
-              }
-            : undefined,
-      });
-    }
-
-    if (weaponFixed.value.length > 0 || weaponChoiceCount.value > 0) {
-      grants.push({
-        type: 'weaponProficiency',
-        items: [...weaponFixed.value],
-        choices:
-          weaponChoiceCount.value > 0
-            ? {
-                count: weaponChoiceCount.value,
-                from: [...weaponChoiceFrom.value],
-              }
-            : undefined,
-      });
-    }
-
-    if (toolFixed.value.length > 0 || toolChoiceCount.value > 0) {
-      grants.push({
-        type: 'toolProficiency',
-        items: [...toolFixed.value],
-        choices:
-          toolChoiceCount.value > 0
-            ? { count: toolChoiceCount.value, from: [...toolChoiceFrom.value] }
-            : undefined,
-      });
-    }
-
-    if (languageFixed.value.length > 0 || languageChoiceCount.value > 0) {
-      grants.push({
-        type: 'language',
-        items: [...languageFixed.value],
-        choices:
-          languageChoiceCount.value > 0
-            ? {
-                count: languageChoiceCount.value,
-                from: [...languageChoiceFrom.value],
-              }
-            : undefined,
-      });
-    }
-
-    return [...grants, ...preservedGrants.value];
-  }
 
   function buildFeatures(): SpeciesFeature[] {
     return features.value
@@ -968,10 +1113,30 @@
       isSRD: isSRD.value,
       creatureType: creatureType.value,
       size: [...selectedSizes.value],
+      heights: buildHeights(),
       speed,
-      grants: buildGrants(),
+      // Известные легаси-типы конвертированы в featData; остаются только те,
+      // которые форма не знает и потому не редактирует
+      grants: [...preservedGrants.value],
       features: buildFeatures(),
     };
+
+    if (parentKey.value) {
+      definition.parentKey = parentKey.value;
+    }
+
+    // Ноль — «без ограничений», поэтому пишется всегда, а не только положительное
+    definition.vision = Math.max(0, Math.round(speciesVision.value));
+
+    const recordFeatData = buildFeatData(recordGrants.value, []);
+
+    if (recordFeatData) {
+      definition.featData = recordFeatData;
+    }
+
+    if (activeEffects.value.length > 0) {
+      definition.activeEffects = activeEffects.value;
+    }
 
     // При редактировании сохраняем id исходного GameItem (проброшен через
     // speciesItemId), иначе генерируем новый — так правка обновляет запись, а
@@ -1020,23 +1185,29 @@
         : SPECIES_FORM_LABELS.createTitle
     "
     :subtitle="nameEn || undefined"
-    :initial-width="760"
+    :initial-width="960"
+    :initial-height="700"
     :min-width="560"
-    :resizable="false"
+    :min-height="420"
+    :resizable="true"
     :z-index="zIndex"
     :saved-position="initialPosition"
+    :ui="{ body: 'flex min-h-0 flex-col' }"
     @update:open="handleOpenChange"
     @bring-to-front="emit('bring-to-front')"
   >
+    <!-- Тело окна — колонка на всю высоту, а прокручивается только содержимое
+      вкладки: у окна с изменяемым размером фиксированная высота вкладок
+      оставляла бы под ними пустоту, сколько окно ни растягивай -->
     <template #body>
       <UTabs
         :items="tabItems"
         variant="pill"
-        class="flex flex-col"
+        class="flex min-h-0 flex-1 flex-col"
         :ui="{
-          list: 'mb-3',
+          list: 'mb-3 shrink-0',
           trigger: 'flex-1 justify-center',
-          content: 'overflow-y-auto max-h-150',
+          content: 'min-h-0 flex-1 overflow-y-auto',
         }"
       >
         <!-- ОСНОВНОЕ -->
@@ -1063,28 +1234,58 @@
                   />
                 </UFormField>
 
-                <UFormField :label="SPECIES_FORM_LABELS.creatureType">
-                  <USelect
-                    v-model="creatureType"
-                    :items="creatureTypeOptions"
-                    value-key="value"
-                    class="w-full"
-                  />
-                </UFormField>
+                <UFormField
+                  class="col-span-2"
+                  :label="SPECIES_FORM_LABELS.parent"
+                >
+                  <div class="flex items-center gap-2">
+                    <div
+                      class="flex min-w-0 flex-1 items-center gap-2 rounded-lg bg-elevated/40 px-2.5 py-1.5"
+                    >
+                      <span
+                        class="min-w-0 flex-1 truncate text-sm"
+                        :class="parentLabelClass"
+                      >
+                        {{ parentLabel }}
+                      </span>
 
-                <UFormField :label="SPECIES_FORM_LABELS.sizes">
-                  <USelectMenu
-                    v-model="selectedSizes"
-                    :items="sizeOptions"
-                    value-key="value"
-                    label-key="label"
-                    multiple
-                    class="w-full"
-                    :placeholder="SPECIES_FORM_LABELS.sizesPlaceholder"
-                  />
+                      <UBadge
+                        v-if="parentPackLabel"
+                        color="success"
+                        variant="subtle"
+                        size="sm"
+                        icon="tabler:book"
+                        class="shrink-0"
+                      >
+                        {{ parentPackLabel }}
+                      </UBadge>
+                    </div>
+
+                    <UButton
+                      icon="tabler:books"
+                      :label="SPECIES_FORM_LABELS.parentPick"
+                      color="primary"
+                      variant="soft"
+                      size="sm"
+                      class="shrink-0"
+                      @click.left.exact.prevent="openParentPicker"
+                    />
+
+                    <UButton
+                      v-if="parentKey"
+                      icon="tabler:x"
+                      color="error"
+                      variant="ghost"
+                      size="sm"
+                      class="shrink-0"
+                      :title="SPECIES_FORM_LABELS.parentClear"
+                      :aria-label="SPECIES_FORM_LABELS.parentClear"
+                      @click.left.exact.prevent="clearParent"
+                    />
+                  </div>
 
                   <p class="mt-1 text-xs text-dimmed">
-                    {{ SPECIES_FORM_LABELS.sizesHelp }}
+                    {{ SPECIES_FORM_LABELS.parentHint }}
                   </p>
                 </UFormField>
 
@@ -1119,8 +1320,106 @@
           </div>
         </template>
 
-        <!-- ДВИЖЕНИЕ -->
-        <template #movement>
+        <!-- ХАРАКТЕРИСТИКИ: тип существа, размер, скорости, зрение — тот же
+          набор, что на одноимённой вкладке редактора вида на сайте -->
+        <template #properties>
+          <FormSection
+            :title="SPECIES_FORM_LABELS.bodyTitle"
+            icon="tabler:ruler-measure"
+            class="mb-4"
+          >
+            <div class="grid grid-cols-2 gap-3">
+              <UFormField :label="SPECIES_FORM_LABELS.creatureType">
+                <USelect
+                  v-model="creatureType"
+                  :items="creatureTypeOptions"
+                  value-key="value"
+                  class="w-full"
+                />
+              </UFormField>
+
+              <UFormField :label="SPECIES_FORM_LABELS.sizes">
+                <USelectMenu
+                  v-model="selectedSizes"
+                  :items="sizeOptions"
+                  value-key="value"
+                  label-key="label"
+                  multiple
+                  class="w-full"
+                  :placeholder="SPECIES_FORM_LABELS.sizesPlaceholder"
+                />
+              </UFormField>
+
+              <p class="col-span-2 text-xs text-dimmed">
+                {{ SPECIES_FORM_LABELS.sizesHelp }}
+              </p>
+
+              <!-- Рост: по строке на выбранный размер. Размер строке не
+                выбирают — его уже выбрали выше, и второй список размеров
+                разошёлся бы с первым -->
+              <div
+                v-if="selectedSizes.length > 0"
+                class="col-span-2 flex flex-col gap-3 border-t border-default/50 pt-3"
+              >
+                <p class="text-xs font-medium text-muted">
+                  {{ SPECIES_FORM_LABELS.heightsTitle }}
+                </p>
+
+                <div
+                  v-for="sizeKey in selectedSizes"
+                  :key="sizeKey"
+                  class="flex flex-wrap items-end gap-3"
+                >
+                  <span class="min-w-24 pb-1.5 text-sm">
+                    {{ CREATURE_SIZE_LABELS[sizeKey] }}
+                  </span>
+
+                  <UFormField :label="SPECIES_FORM_LABELS.heightFrom">
+                    <UFieldGroup>
+                      <UInputNumber
+                        :model-value="heightRow(sizeKey).from"
+                        :min="0"
+                        :max="200"
+                        class="w-32"
+                        @update:model-value="setHeightFrom(sizeKey, $event)"
+                      />
+
+                      <UBadge
+                        color="neutral"
+                        variant="subtle"
+                      >
+                        {{ FEET_UNIT_LABEL }}
+                      </UBadge>
+                    </UFieldGroup>
+                  </UFormField>
+
+                  <UFormField :label="SPECIES_FORM_LABELS.heightTo">
+                    <UFieldGroup>
+                      <UInputNumber
+                        :model-value="heightRow(sizeKey).to"
+                        :min="0"
+                        :max="200"
+                        class="w-32"
+                        @update:model-value="setHeightTo(sizeKey, $event)"
+                      />
+
+                      <UBadge
+                        color="neutral"
+                        variant="subtle"
+                      >
+                        {{ FEET_UNIT_LABEL }}
+                      </UBadge>
+                    </UFieldGroup>
+                  </UFormField>
+                </div>
+
+                <p class="text-xs text-dimmed">
+                  {{ SPECIES_FORM_LABELS.heightsHint }}
+                </p>
+              </div>
+            </div>
+          </FormSection>
+
           <FormSection
             :title="SPECIES_FORM_LABELS.speedTitle"
             icon="tabler:run"
@@ -1172,6 +1471,21 @@
               {{ SPECIES_FORM_LABELS.speedHint }}
             </p>
           </FormSection>
+
+          <FormSection
+            :title="SPECIES_FORM_LABELS.visionTitle"
+            icon="tabler:eye"
+            :hint="SPECIES_FORM_LABELS.visionHint"
+            class="mt-4"
+          >
+            <UInputNumber
+              v-model="speciesVision"
+              :min="0"
+              :max="1000"
+              :step="5"
+              class="w-40"
+            />
+          </FormSection>
         </template>
 
         <!-- ДАРЫ -->
@@ -1182,366 +1496,54 @@
             </p>
 
             <FormSection
-              :title="SPECIES_FORM_LABELS.sensesTitle"
-              icon="tabler:eye"
-              :hint="SPECIES_FORM_LABELS.sensesHint"
+              :title="SPECIES_FORM_LABELS.recordGrantsTitle"
+              icon="tabler:gift"
+              :hint="SPECIES_FORM_LABELS.recordGrantsHint"
             >
-              <div class="grid grid-cols-2 gap-3">
-                <UFormField :label="GRANT_FIELD_LABELS.darkvision">
-                  <UInputNumber
-                    v-model="darkvisionRange"
-                    :min="0"
-                    :max="300"
-                    :step="30"
-                  />
-                </UFormField>
-
-                <UFormField
-                  :label="SPECIES_FORM_LABELS.savingThrowsProficiency"
-                >
-                  <USelectMenu
-                    v-model="savingThrows"
-                    :items="abilitiesOptions"
-                    value-key="value"
-                    label-key="label"
-                    multiple
-                    class="w-full"
-                    :placeholder="GRANT_FIELD_LABELS.abilitiesPlaceholder"
-                  />
-                </UFormField>
-              </div>
+              <GrantRowsEditor
+                v-model="recordGrants.grantRows"
+                hide-ability
+                hide-feat
+                :taken-keys="recordTakenKeys"
+                :socket="props.socket"
+              />
             </FormSection>
 
             <FormSection
-              :title="SPECIES_FORM_LABELS.defensesTitle"
-              icon="tabler:shield-check"
-              :hint="SPECIES_FORM_LABELS.defensesHint"
+              :title="SPECIES_FORM_LABELS.recordModifiersTitle"
+              icon="tabler:adjustments"
             >
-              <div class="flex flex-col gap-4">
-                <UFormField :label="SPECIES_FORM_LABELS.damageDefenses">
-                  <DamageDefenseEditor v-model="damageDefenses" />
-                </UFormField>
-
-                <UFormField :label="GRANT_FIELD_LABELS.conditionImmunities">
-                  <USelectMenu
-                    v-model="conditionImmunities"
-                    :items="conditionOptions"
-                    value-key="value"
-                    label-key="label"
-                    multiple
-                    class="w-full"
-                    :placeholder="GRANT_FIELD_LABELS.conditionsPlaceholder"
-                  />
-                </UFormField>
-              </div>
+              <ModifierRowsEditor v-model="recordGrants.modifiers" />
             </FormSection>
 
             <FormSection
-              :title="SPECIES_FORM_LABELS.skillsTitle"
-              icon="tabler:checklist"
-              :hint="SPECIES_FORM_LABELS.skillsHint"
+              :title="SPECIES_FORM_LABELS.recordCountersTitle"
+              icon="tabler:hexagons"
             >
-              <div class="flex items-start gap-3">
-                <UFormField
-                  :label="GRANT_FIELD_LABELS.choiceCount"
-                  class="w-1/3"
-                >
-                  <UInputNumber
-                    v-model="skillCount"
-                    :min="0"
-                    :max="6"
-                  />
-                </UFormField>
-
-                <UFormField
-                  :label="SPECIES_FORM_LABELS.skillFrom"
-                  class="flex-1"
-                >
-                  <USelectMenu
-                    v-model="skillFrom"
-                    :items="skillsOptions"
-                    value-key="value"
-                    label-key="label"
-                    multiple
-                    :disabled="skillCount === 0"
-                    class="w-full"
-                    :placeholder="SPECIES_FORM_LABELS.skillFromPlaceholder"
-                  />
-                </UFormField>
-              </div>
-            </FormSection>
-
-            <FormSection
-              :title="GRANT_SECTION_LABELS.armor"
-              icon="tabler:shirt"
-            >
-              <div class="flex flex-col gap-3">
-                <UFormField :label="SPECIES_FORM_LABELS.fixedProficiency">
-                  <USelectMenu
-                    v-model="armorFixed"
-                    :items="armorOptions"
-                    value-key="value"
-                    label-key="label"
-                    multiple
-                    class="w-full"
-                    :placeholder="SPECIES_FORM_LABELS.fixedPlaceholder"
-                  />
-                </UFormField>
-
-                <div class="flex items-start gap-3">
-                  <UFormField
-                    :label="SPECIES_FORM_LABELS.choiceLabel"
-                    class="w-1/3"
-                  >
-                    <UInputNumber
-                      v-model="armorChoiceCount"
-                      :min="0"
-                      :max="4"
-                    />
-                  </UFormField>
-
-                  <UFormField
-                    :label="GRANT_FIELD_LABELS.choiceFrom"
-                    class="flex-1"
-                  >
-                    <USelectMenu
-                      v-model="armorChoiceFrom"
-                      :items="armorOptions"
-                      value-key="value"
-                      label-key="label"
-                      multiple
-                      :disabled="armorChoiceCount === 0"
-                      class="w-full"
-                      :placeholder="SPECIES_FORM_LABELS.choiceFromPlaceholder"
-                    />
-                  </UFormField>
-                </div>
-              </div>
-            </FormSection>
-
-            <FormSection
-              :title="GRANT_SECTION_LABELS.weapons"
-              icon="tabler:sword"
-            >
-              <div class="flex flex-col gap-3">
-                <UFormField :label="SPECIES_FORM_LABELS.fixedProficiency">
-                  <USelectMenu
-                    v-model="weaponFixed"
-                    :items="weaponOptions"
-                    value-key="value"
-                    label-key="label"
-                    multiple
-                    class="w-full"
-                    :placeholder="SPECIES_FORM_LABELS.fixedPlaceholder"
-                  />
-                </UFormField>
-
-                <div class="flex items-start gap-3">
-                  <UFormField
-                    :label="SPECIES_FORM_LABELS.choiceLabel"
-                    class="w-1/3"
-                  >
-                    <UInputNumber
-                      v-model="weaponChoiceCount"
-                      :min="0"
-                      :max="4"
-                    />
-                  </UFormField>
-
-                  <UFormField
-                    :label="GRANT_FIELD_LABELS.choiceFrom"
-                    class="flex-1"
-                  >
-                    <USelectMenu
-                      v-model="weaponChoiceFrom"
-                      :items="weaponOptions"
-                      value-key="value"
-                      label-key="label"
-                      multiple
-                      :disabled="weaponChoiceCount === 0"
-                      class="w-full"
-                      :placeholder="SPECIES_FORM_LABELS.choiceFromPlaceholder"
-                    />
-                  </UFormField>
-                </div>
-              </div>
-            </FormSection>
-
-            <FormSection
-              :title="GRANT_SECTION_LABELS.tools"
-              icon="tabler:tools"
-            >
-              <div class="flex flex-col gap-3">
-                <UFormField :label="SPECIES_FORM_LABELS.fixedProficiency">
-                  <USelectMenu
-                    v-model="toolFixed"
-                    :items="toolsOptions"
-                    value-key="value"
-                    label-key="label"
-                    multiple
-                    class="w-full"
-                    :placeholder="SPECIES_FORM_LABELS.fixedPlaceholder"
-                  />
-                </UFormField>
-
-                <div class="flex items-start gap-3">
-                  <UFormField
-                    :label="SPECIES_FORM_LABELS.choiceLabel"
-                    class="w-1/3"
-                  >
-                    <UInputNumber
-                      v-model="toolChoiceCount"
-                      :min="0"
-                      :max="4"
-                    />
-                  </UFormField>
-
-                  <UFormField
-                    :label="GRANT_FIELD_LABELS.choiceFrom"
-                    class="flex-1"
-                  >
-                    <USelectMenu
-                      v-model="toolChoiceFrom"
-                      :items="toolsOptions"
-                      value-key="value"
-                      label-key="label"
-                      multiple
-                      :disabled="toolChoiceCount === 0"
-                      class="w-full"
-                      :placeholder="SPECIES_FORM_LABELS.choiceFromPlaceholder"
-                    />
-                  </UFormField>
-                </div>
-              </div>
-            </FormSection>
-
-            <FormSection
-              :title="GRANT_SECTION_LABELS.languages"
-              icon="tabler:language"
-            >
-              <div class="flex flex-col gap-3">
-                <UFormField :label="SPECIES_FORM_LABELS.fixedLanguages">
-                  <USelectMenu
-                    v-model="languageFixed"
-                    :items="languageOptions"
-                    value-key="value"
-                    label-key="label"
-                    multiple
-                    class="w-full"
-                    :placeholder="SPECIES_FORM_LABELS.fixedLanguagesPlaceholder"
-                  />
-                </UFormField>
-
-                <div class="flex items-start gap-3">
-                  <UFormField
-                    :label="SPECIES_FORM_LABELS.choiceLabel"
-                    class="w-1/3"
-                  >
-                    <UInputNumber
-                      v-model="languageChoiceCount"
-                      :min="0"
-                      :max="4"
-                    />
-                  </UFormField>
-
-                  <UFormField
-                    :label="GRANT_FIELD_LABELS.choiceFrom"
-                    class="flex-1"
-                  >
-                    <USelectMenu
-                      v-model="languageChoiceFrom"
-                      :items="languageOptions"
-                      value-key="value"
-                      label-key="label"
-                      multiple
-                      :disabled="languageChoiceCount === 0"
-                      class="w-full"
-                      :placeholder="SPECIES_FORM_LABELS.choiceFromPlaceholder"
-                    />
-                  </UFormField>
-                </div>
-              </div>
+              <CounterRowsEditor v-model="recordGrants.counters" />
             </FormSection>
           </div>
         </template>
 
         <!-- ОСОБЕННОСТИ -->
         <template #features>
-          <div class="flex flex-col gap-3">
-            <div class="flex items-center justify-between gap-3">
-              <p class="text-xs text-dimmed">
-                {{ SPECIES_FORM_LABELS.featuresHint }}
-              </p>
+          <SpeciesFeaturesEditor
+            v-model="features"
+            :available-spells="availableSpells"
+            :socket="socket"
+            @open-spell="openSpellDetail"
+          />
+        </template>
 
-              <UButton
-                icon="tabler:plus"
-                :label="SPECIES_FORM_LABELS.featureButton"
-                color="primary"
-                variant="soft"
-                size="xs"
-                class="shrink-0"
-                @click.left.exact.prevent="addFeature"
-              />
-            </div>
-
-            <div
-              v-if="features.length === 0"
-              class="rounded-lg border border-dashed border-default p-4 text-center text-xs text-dimmed italic"
-            >
-              {{ SPECIES_FORM_LABELS.featuresEmpty }}
-            </div>
-
-            <UTree
-              v-else
-              :items="featureTreeItems"
-              :get-key="getNodeKey"
-              :as="treeRenderAs"
-              color="neutral"
-              class="rounded-lg border border-default bg-elevated/20 p-1.5"
-            >
-              <template #item-trailing="{ item, expanded, handleToggle }">
-                <div class="flex items-center gap-0.5">
-                  <UButton
-                    v-if="nodeKind(item.value) !== 'choiceFeature'"
-                    icon="tabler:plus"
-                    color="primary"
-                    variant="ghost"
-                    size="xs"
-                    :aria-label="addNodeLabel(item.value)"
-                    @click.left.exact.stop.prevent="addUnderNode(item.value)"
-                  />
-
-                  <UButton
-                    icon="tabler:pencil"
-                    color="neutral"
-                    variant="ghost"
-                    size="xs"
-                    :aria-label="SHEET_ROW_MENU_LABELS.edit"
-                    @click.left.exact.stop.prevent="openNodeEditor(item.value)"
-                  />
-
-                  <UButton
-                    icon="tabler:trash"
-                    color="error"
-                    variant="ghost"
-                    size="xs"
-                    :aria-label="MODAL_BUTTON_LABELS.remove"
-                    @click.left.exact.stop.prevent="deleteNode(item.value)"
-                  />
-
-                  <UButton
-                    v-if="item.children?.length"
-                    :icon="chevronIcon(expanded)"
-                    color="neutral"
-                    variant="ghost"
-                    size="xs"
-                    :aria-label="SPECIES_FORM_LABELS.toggleNode"
-                    @click.left.exact.stop.prevent="handleToggle"
-                  />
-                </div>
-              </template>
-            </UTree>
-          </div>
+        <!-- ЭФФЕКТЫ -->
+        <template #effects>
+          <EntityEffectsEditor
+            v-model="activeEffects"
+            modal-id="species-effect-form-modal"
+            :hint="SPECIES_FORM_LABELS.effectsHint"
+            :empty-text="SPECIES_FORM_LABELS.effectsEmpty"
+            hide-aura
+          />
         </template>
       </UTabs>
     </template>
@@ -1578,96 +1580,16 @@
     </template>
   </UDraggableModal>
 
-  <!-- Попап-редактор выбранного узла дерева особенностей -->
-  <UDraggableModal
-    :open="isNodeEditorOpen"
-    :title="nodeEditorTitle"
-    :initial-width="640"
-    :min-width="480"
-    :resizable="false"
-    @update:open="handleNodeEditorOpenChange"
-  >
-    <template #body>
-      <div
-        v-if="isNodeEditorOpen"
-        class="flex flex-col gap-3"
-      >
-        <SpeciesFeatureFields
-          v-if="editorNodeKind === 'feature'"
-          v-model="features[editorFeatureIndex]"
-          :available-spells="availableSpells"
-          @open-spell="openSpellDetail"
-        />
-
-        <SpeciesFeatureFields
-          v-else-if="editorNodeKind === 'choiceFeature'"
-          v-model="
-            features[editorFeatureIndex].choices[editorChoiceIndex].features[
-              editorChoiceFeatureIndex
-            ]
-          "
-          :available-spells="availableSpells"
-          @open-spell="openSpellDetail"
-        />
-
-        <template v-else>
-          <UFormField :label="SPECIES_FORM_LABELS.choiceName">
-            <UInput
-              v-model="
-                features[editorFeatureIndex].choices[editorChoiceIndex].name
-              "
-              :placeholder="SPECIES_FORM_LABELS.choiceNamePlaceholder"
-              class="w-full"
-            />
-          </UFormField>
-
-          <UFormField :label="SPECIES_FORM_LABELS.choiceDescription">
-            <UTextarea
-              v-model="
-                features[editorFeatureIndex].choices[editorChoiceIndex]
-                  .description
-              "
-              :rows="2"
-              autoresize
-              class="w-full"
-            />
-          </UFormField>
-
-          <UFormField :label="SPECIES_FORM_LABELS.choiceDamageDefenses">
-            <DamageDefenseEditor
-              v-model="
-                features[editorFeatureIndex].choices[editorChoiceIndex]
-                  .damageDefenses
-              "
-            />
-          </UFormField>
-
-          <UFormField :label="SPECIES_FORM_LABELS.choiceConditionImmunities">
-            <USelectMenu
-              v-model="
-                features[editorFeatureIndex].choices[editorChoiceIndex]
-                  .conditionImmunities
-              "
-              :items="conditionOptions"
-              value-key="value"
-              label-key="label"
-              multiple
-              class="w-full"
-              :placeholder="GRANT_FIELD_LABELS.conditionsPlaceholder"
-            />
-          </UFormField>
-        </template>
-      </div>
-    </template>
-
-    <template #footer>
-      <div class="flex justify-end">
-        <UButton
-          :label="MODAL_BUTTON_LABELS.done"
-          color="primary"
-          @click.left.exact.prevent="closeNodeEditor"
-        />
-      </div>
-    </template>
-  </UDraggableModal>
+  <!-- Выбор основного вида стоит рядом с формой, а не внутри её вкладки:
+    вкладка при переключении размонтируется и унесла бы окно выбора с собой -->
+  <CompendiumRefPickerModal
+    v-model:open="isParentPickerOpen"
+    :socket="props.socket ?? null"
+    kind="species"
+    :title="SPECIES_FORM_LABELS.parentPickTitle"
+    :multiple="false"
+    :resolve-entry="resolveParentCandidate"
+    :z-index="parentPickerZIndex"
+    @select="applyParentPick"
+  />
 </template>

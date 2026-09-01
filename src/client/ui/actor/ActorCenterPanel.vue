@@ -32,6 +32,8 @@
     getMovementList,
     getProficiencyContribution,
     getSkillAbility,
+    getSkillAdvantageFlagKey,
+    getSkillDisadvantageFlagKey,
     getSkillRowGroups,
     getSkillSetting,
     getSkillSettingAbility,
@@ -655,13 +657,15 @@
 
       const hasAdvantage =
         flags.has('abilityCheck.advantage')
-        || flags.has(`abilityCheck.advantage.${ability}`);
+        || flags.has(`abilityCheck.advantage.${ability}`)
+        // Преимущество конкретного навыка (напр. Скрытность от эльфийских сапог)
+        || flags.has(getSkillAdvantageFlagKey(key));
 
       const hasDisadvantage =
         flags.has('abilityCheck.disadvantage')
         || flags.has(`abilityCheck.disadvantage.${ability}`)
         // Помеха конкретного навыка (напр. Скрытность от брони)
-        || (key === 'stealth' && flags.has('skill.stealth.disadvantage'));
+        || flags.has(getSkillDisadvantageFlagKey(key));
 
       if (hasAdvantage && !hasDisadvantage) {
         initialRollMode = 'advantage';

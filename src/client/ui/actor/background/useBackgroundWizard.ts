@@ -28,6 +28,7 @@ import {
   normalizeBackgroundDefinition,
   prepareFeatChoices,
   prepareTransferredFeatEffects,
+  raiseTokenDarkvision,
   resolveBackgroundFeatClassKey,
   resolveChosenAbilities,
   resolveChosenDamageDefenses,
@@ -55,39 +56,6 @@ export type BackgroundWizardStep =
  */
 export function backgroundSpellSource(backgroundName: string): string {
   return `Предыстория: ${backgroundName}`;
-}
-
-/**
- * Поднимает тёмное зрение токена до `darkvision` (не понижает — у тёмного зрения
- * может быть другой источник). Возвращает обновлённый токен или `undefined`,
- * если поднимать нечего. По образцу `featApply.applyFeatDarkvision`.
- *
- * @param token - текущие настройки токена
- * @param darkvision - тёмное зрение предыстории (футы)
- */
-function applyBackgroundDarkvision(
-  token: DnDActor['token'],
-  darkvision: number,
-): DnDActor['token'] | undefined {
-  if (darkvision <= 0) {
-    return undefined;
-  }
-
-  const next: NonNullable<DnDActor['token']> = JSON.parse(
-    JSON.stringify(token ?? {}),
-  );
-
-  if (!next.vision) {
-    next.vision = { enabled: true, range: 60, darkvision: 0, angle: 360 };
-  }
-
-  if (darkvision <= next.vision.darkvision) {
-    return undefined;
-  }
-
-  next.vision.darkvision = darkvision;
-
-  return next;
 }
 
 export function useBackgroundWizard(
@@ -732,10 +700,7 @@ export function useBackgroundWizard(
       grantedFeat?.darkvision ?? 0,
     );
 
-    const updatedToken = applyBackgroundDarkvision(
-      actorRef.value.token,
-      darkvision,
-    );
+    const updatedToken = raiseTokenDarkvision(actorRef.value.token, darkvision);
 
     const ownGrantedSpellSource =
       featData?.grantedSpells && featData.grantedSpells.length > 0

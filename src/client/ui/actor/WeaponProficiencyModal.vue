@@ -4,6 +4,10 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
   import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
+  import {
+    WEAPON_MASTERIES,
+    WEAPON_MASTERY_MAP,
+  } from '@vtt/shared/system/dnd.js';
 
   import { MODAL_BUTTON_LABELS, PROFICIENCY_MODAL_LABELS } from './constants';
 
@@ -13,13 +17,23 @@
     selectedWeapons: string[];
     /** Текущие мастерства оружием (ключи) */
     selectedMasteries: string[];
+    /**
+     * Приёмы, которыми персонаж владеет сам по себе (ключи из `WEAPON_MASTERIES`).
+     * Отдельно от {@link selectedMasteries}: там ключи ОРУЖИЯ, чей приём достался
+     * персонажу, здесь — сами приёмы, безотносительно оружия.
+     */
+    selectedMasteryProperties: string[];
   }
 
   const props = defineProps<Props>();
 
   const emit = defineEmits<{
     'update:open': [value: boolean];
-    'apply': [weapons: string[], masteries: string[]];
+    'apply': [
+      weapons: string[],
+      masteries: string[],
+      masteryProperties: string[],
+    ];
   }>();
 
   const isOpen = computed({
@@ -34,6 +48,9 @@
 
   /** Локальная копия мастерств */
   const localMasteries = ref<Set<string>>(new Set());
+
+  /** Локальная копия приёмов, которыми персонаж владеет сам по себе */
+  const localMasteryProperties = ref<Set<string>>(new Set());
 
   watch(
     () => props.open,
@@ -50,6 +67,12 @@
 
         localMasteries.value = new Set(
           props.selectedMasteries.filter((key) => validKeys.has(key)),
+        );
+
+        localMasteryProperties.value = new Set(
+          props.selectedMasteryProperties.filter((key) =>
+            WEAPON_MASTERY_MAP.has(key),
+          ),
         );
       }
     },
@@ -151,10 +174,32 @@
   }
 
   /**
-   * Применяет выбранные владения и мастерства
+   * Переключает владение самим приёмом — без привязки к оружию.
+   *
+   * @param key - ключ приёма
+   */
+  function toggleMasteryProperty(key: string): void {
+    const set = new Set(localMasteryProperties.value);
+
+    if (set.has(key)) {
+      set.delete(key);
+    } else {
+      set.add(key);
+    }
+
+    localMasteryProperties.value = set;
+  }
+
+  /**
+   * Применяет выбранные владения, мастерства и приёмы
    */
   function applySelection(): void {
-    emit('apply', [...localWeapons.value], [...localMasteries.value]);
+    emit(
+      'apply',
+      [...localWeapons.value],
+      [...localMasteries.value],
+      [...localMasteryProperties.value],
+    );
 
     isOpen.value = false;
   }
@@ -313,6 +358,27 @@
                 @update:model-value="toggleMastery(weapon.key)"
               />
             </div>
+          </div>
+        </div>
+
+        <!-- Приёмы сами по себе: их даёт «Тактический мастер» и подобные
+          умения, где приём не привязан к виду оружия -->
+        <div class="rounded-lg border border-default/50 bg-elevated/30 p-2">
+          <div
+            class="mb-2 border-b border-default/50 pb-2 text-center text-xs font-bold tracking-wider text-primary uppercase"
+          >
+            {{ PROFICIENCY_MODAL_LABELS.masteryProperties }}
+          </div>
+
+          <div class="grid grid-cols-4 gap-1">
+            <UCheckbox
+              v-for="mastery in WEAPON_MASTERIES"
+              :key="mastery.key"
+              :model-value="localMasteryProperties.has(mastery.key)"
+              :label="mastery.name.ru"
+              size="sm"
+              @update:model-value="toggleMasteryProperty(mastery.key)"
+            />
           </div>
         </div>
 

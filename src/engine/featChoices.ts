@@ -44,6 +44,7 @@ import {
   isDefensibleDamageType,
 } from './damageConstants.js';
 import { RITUAL_CASTING_TIME } from './spellTypes.js';
+import { WEAPON_MASTERIES } from './weaponMasteries.js';
 
 /** Владения актора — то, что выбор правит. */
 type ActorProficiencies = DnDActor['system']['proficiencies'];
@@ -57,6 +58,8 @@ export interface FeatChoiceProficiencies {
   weapons: string[];
   /** Оружейные приёмы (2024) — свой список на листе, не подмножество владений */
   weaponMasteries: string[];
+  /** Сами приёмы (`cleave`, …) — ещё один список, не пересекающийся с оружием */
+  masteryProperties: string[];
   armor: string[];
 }
 
@@ -75,6 +78,7 @@ const APPLIED_CHOICE_TYPES: ReadonlySet<FeatChoiceType> = new Set([
   'language',
   'weapon',
   'weaponMastery',
+  'masteryProperty',
   'armor',
   'skillOrTool',
   'damageType',
@@ -97,15 +101,29 @@ export const FEAT_CHOICE_TYPE_LABELS: Record<FeatChoiceType, string> = {
   spellList: 'Список заклинаний',
   spellcastingAbility: 'Заклинательная характеристика',
   weapon: 'Оружие',
-  weaponMastery: 'Оружейный приём',
+  weaponMastery: 'Оружие с приёмом',
+  masteryProperty: 'Оружейный приём',
   armor: 'Доспехи',
   skillOrTool: 'Навык или инструмент',
   option: 'Вариант',
+  feat: 'Черта',
 };
 
 /** Применяет ли лист выбор этого типа сам. */
 export function isAppliedChoiceType(type: FeatChoiceType): boolean {
   return APPLIED_CHOICE_TYPES.has(type);
+}
+
+/**
+ * Выбор черты: пул берётся из компендиума черт, а не из справочника правил,
+ * поэтому такой выбор спрашивает свой пикер, а не общие поля выбора.
+ *
+ * @param choice - выбор черты
+ */
+export function isFeatPickChoice(
+  choice: Pick<FeatChoice, 'type' | 'types'>,
+): boolean {
+  return resolveFeatChoiceTypes(choice).includes('feat');
 }
 
 /**
@@ -237,10 +255,17 @@ export function getFeatChoiceDefaultPool(
         value,
         name: DAMAGE_TYPE_LABELS[value],
       }));
+    case 'masteryProperty':
+      // Приёмов ровно восемь, и это правило, а не данные мира: в отличие от
+      // оружия, их справочник у движка свой
+      return WEAPON_MASTERIES.map((mastery) => ({
+        value: mastery.key,
+        name: mastery.name.ru,
+      }));
     default:
-      // Оружие, приёмы оружия, заклинания и «варианты» перечисляет сама черта:
-      // общего справочника, из которого их можно взять, у движка нет — виды
-      // оружия живут в данных мира, а не в правилах
+      // Оружие, заклинания, черты и «варианты» перечисляет сама черта либо
+      // компендиум: общего справочника, из которого их можно взять, у движка
+      // нет — виды оружия живут в данных мира, а не в правилах
       return [];
   }
 }
@@ -276,6 +301,8 @@ function isProficient(
       return Boolean(proficiencies?.weapons?.includes(value));
     case 'weaponMastery':
       return Boolean(proficiencies?.weaponMasteries?.includes(value));
+    case 'masteryProperty':
+      return Boolean(proficiencies?.masteryProperties?.includes(value));
     case 'armor':
       return Boolean(proficiencies?.armor?.includes(value));
     default:
@@ -682,6 +709,58 @@ export function prepareFeatChoices(
 }
 
 /**
+ * Выбор со ступенями роста — по одному выбору на ступень, с ПРИБАВКОЙ вместо итога.
+ *
+ * Ступень называет, сколько всего выбрано к её уровню, а спрашивать нужно разницу с
+ * предыдущей: оружейных приёмов у воина три с 1 уровня и четыре с 4, то есть на четвёртом
+ * игрок выбирает один новый, а не четыре заново. Уровень ступени становится уровнем
+ * открытия выбора, и дальше его отбирают те же правила, что и выбор, заданный уровнем
+ * вручную.
+ *
+ * Выбор без ступеней возвращается как есть.
+ *
+ * @param choices - выборы механики
+ * @returns выборы, разложенные по ступеням
+ */
+export function expandChoiceScaling(
+  choices: ReadonlyArray<FeatChoice> | undefined,
+): FeatChoice[] {
+  return (choices ?? []).flatMap((choice) => {
+    const steps = Object.entries(choice.scaling ?? {})
+      .map(([level, count]) => ({ level: Number(level), count }))
+      .filter((step) => Number.isFinite(step.level) && step.count > 0)
+      .sort((first, second) => first.level - second.level);
+
+    if (steps.length === 0) {
+      return [choice];
+    }
+
+    const expanded: FeatChoice[] = [];
+
+    let previous = 0;
+
+    for (const step of steps) {
+      const added = step.count - previous;
+
+      previous = step.count;
+
+      // Ступень, не добавившая ничего, вопросом не становится: выбирать на ней
+      // нечего, и шаг мастера повышения уровня был бы пустым
+      if (added > 0) {
+        expanded.push({
+          ...choice,
+          count: added,
+          requiredLevel: step.level,
+          scaling: undefined,
+        });
+      }
+    }
+
+    return expanded;
+  });
+}
+
+/**
  * Выборы, которые показываются игроку прямо сейчас.
  *
  * Выбор заклинания ждёт ответа про класс: пока список не назван, пул собран не из того
@@ -874,6 +953,10 @@ export function applyFeatChoiceSelections(
           addUnique(proficiencies.weaponMasteries, value);
 
           break;
+        case 'masteryProperty':
+          addUnique((proficiencies.masteryProperties ??= []), value);
+
+          break;
         case 'armor':
           addUnique(proficiencies.armor, value);
 
@@ -907,6 +990,7 @@ export function collectFeatChoiceProficiencies(
     languages: [],
     weapons: [],
     weaponMasteries: [],
+    masteryProperties: [],
     armor: [],
   };
 
@@ -943,6 +1027,10 @@ export function collectFeatChoiceProficiencies(
           break;
         case 'weaponMastery':
           result.weaponMasteries.push(value);
+
+          break;
+        case 'masteryProperty':
+          result.masteryProperties.push(value);
 
           break;
         case 'armor':
@@ -1001,6 +1089,10 @@ export function removeFeatChoiceSelections(
           break;
         case 'weaponMastery':
           removeValue(proficiencies.weaponMasteries, value);
+
+          break;
+        case 'masteryProperty':
+          removeValue(proficiencies.masteryProperties ?? [], value);
 
           break;
         case 'armor':

@@ -27,7 +27,6 @@
   import { computed, ref, watch } from 'vue';
 
   import { loadCompendiumKindByPack } from '@/core/compendiumDataClient';
-  import EntityCard from '@/shared_ui/components/EntityCard.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
   import { useItemsStore } from '@/stores/itemsStore';
@@ -37,6 +36,7 @@
   import BackgroundDetailModal from './background/BackgroundDetailModal.vue';
   import ClassDetailModal from './class/ClassDetailModal.vue';
   import {
+    ALL_PACKS_ID,
     COMPENDIUM_LABELS,
     COMPENDIUM_PACK_BUTTON_CLASS,
     COMPENDIUM_PACK_BUTTON_IDLE_CLASS,
@@ -45,8 +45,11 @@
     COMPENDIUM_PICKER_LABELS,
     COMPENDIUM_PICKER_TITLES,
     MODAL_BUTTON_LABELS,
+    WORLD_PACK_ID,
   } from './constants';
+  import PickerListRow from './PickerListRow.vue';
   import SpeciesDetailModal from './species/SpeciesDetailModal.vue';
+  import { pickerRowId, sortPickerRowsByName } from './utils/pickerRows';
 
   /** Определение, выбираемое этим окном */
   type PickerDefinition =
@@ -59,16 +62,27 @@
     entries: PickerDefinition[];
   }
 
+  /**
+   * Строка списка: запись вместе с компендиумом, из которого она приехала.
+   *
+   * Строка адресуется парой «пак + ключ», а не одним ключом записи: в режиме
+   * «все компендиумы» один и тот же класс приезжает из нескольких паков, и
+   * каждая копия стоит своей строкой — их надо различать и в отметках.
+   */
+  interface PickerRow {
+    rowId: string;
+    packId: string;
+    packName: string;
+    /** Название записи — им список выстраивается в общем порядке */
+    name: string;
+    definition: PickerDefinition;
+  }
+
   /** Уже выбранное персонажем: подпись в полосе и ключ для удаления */
   interface CurrentEntry {
     key: string;
     label: string;
   }
-
-  /** Псевдо-пак «все компендиумы» — выбран по умолчанию */
-  const ALL_PACKS_ID = '__all__';
-  /** Псевдо-пак записей, созданных в самом мире (панель «Предметы») */
-  const WORLD_PACK_ID = '__world__';
 
   const props = defineProps<{
     /** Открыто ли окно */
@@ -104,13 +118,14 @@
   const selectedPackId = ref<string>(ALL_PACKS_ID);
 
   /**
-   * Отмеченные записи. Храним сами определения, а не ключи: отметку не должны
-   * терять ни переключение компендиума, ни поиск.
+   * Отмеченные строки. Храним их целиком, а не ключи: отметку не должны терять
+   * ни переключение компендиума, ни поиск, — а вместе со строкой запоминается и
+   * пак, из которого берётся запись.
    */
-  const selectedDefinitions = ref<PickerDefinition[]>([]);
+  const selectedRows = ref<PickerRow[]>([]);
 
-  /** Запись, открытая на просмотр — из её окна её тоже можно отметить */
-  const detailDefinition = ref<PickerDefinition | null>(null);
+  /** Строка, открытая на просмотр — из её окна её тоже можно отметить */
+  const detailRow = ref<PickerRow | null>(null);
   const isDetailOpen = ref(false);
 
   /**
@@ -123,6 +138,10 @@
    * Проверяет, что запись — определение нужного нам типа. Дискриминант `type`
    * есть у всех трёх определений; по нему же их отбирает лист персонажа.
    *
+   * Записи-подвиды (`parentKey`) и записи-подклассы (`parentClassKey`)
+   * самостоятельной записью не предлагаются: и происхождение, и подкласс
+   * выбираются внутри мастера настройки после выбора родителя.
+   *
    * @param value - запись компендиума или предмета мира
    * @param kind - тип выбираемой записи
    */
@@ -130,9 +149,23 @@
     value: unknown,
     kind: MissingSheetSectionKey,
   ): value is PickerDefinition {
-    return (
-      isRecord(value) && value.type === kind && typeof value.key === 'string'
-    );
+    if (
+      !isRecord(value)
+      || value.type !== kind
+      || typeof value.key !== 'string'
+    ) {
+      return false;
+    }
+
+    if (kind === 'species') {
+      return !value.parentKey;
+    }
+
+    if (kind === 'class') {
+      return !value.parentClassKey;
+    }
+
+    return true;
   }
 
   /**
@@ -183,49 +216,47 @@
     return result;
   });
 
+  /** Показываем ли сразу все компендиумы */
+  const isAllPacks = computed(() => selectedPackId.value === ALL_PACKS_ID);
+
   /**
-   * Записи выбранного компендиума. В режиме «все» одинаковые ключи из разных
-   * паков схлопываются — приоритет у того пака, что идёт раньше (так же
-   * собирает свои списки сам лист персонажа).
+   * Строки выбранного компендиума. В режиме «все» одинаковые записи разных
+   * паков НЕ схлопываются: копия из тестового компендиума может отличаться от
+   * рабочей, и брать вместо неё «ту, что нашлась первой», нельзя — каждая копия
+   * стоит своей строкой с названием пака.
    */
-  const packEntries = computed<PickerDefinition[]>(() => {
-    if (selectedPackId.value !== ALL_PACKS_ID) {
-      const pack = packs.value.find(
-        (candidate) => candidate.packId === selectedPackId.value,
-      );
+  const packRows = computed<PickerRow[]>(() => {
+    const shownPacks = isAllPacks.value
+      ? packs.value
+      : packs.value.filter((pack) => pack.packId === selectedPackId.value);
 
-      return pack?.entries ?? [];
-    }
+    const rows = shownPacks.flatMap((pack) =>
+      pack.entries.map((definition) => ({
+        rowId: pickerRowId(pack.packId, definition.key),
+        packId: pack.packId,
+        packName: pack.packName,
+        name: definition.name,
+        definition,
+      })),
+    );
 
-    const seenKeys = new Set<string>();
-    const merged: PickerDefinition[] = [];
-
-    for (const pack of packs.value) {
-      for (const entry of pack.entries) {
-        if (seenKeys.has(entry.key)) {
-          continue;
-        }
-
-        seenKeys.add(entry.key);
-        merged.push(entry);
-      }
-    }
-
-    return merged;
+    // Внутри выбранного пака порядок его же: копий там нет, и переставлять
+    // записи не за чем.
+    return isAllPacks.value ? sortPickerRowsByName(rows) : rows;
   });
 
-  /** Записи после поиска по названию (русскому и английскому) */
-  const visibleEntries = computed<PickerDefinition[]>(() => {
+  /** Строки после поиска по названию (русскому и английскому) */
+  const visibleRows = computed<PickerRow[]>(() => {
     const query = searchQuery.value.trim().toLowerCase();
 
     if (!query) {
-      return packEntries.value;
+      return packRows.value;
     }
 
-    return packEntries.value.filter(
-      (entry) =>
-        entry.name.toLowerCase().includes(query)
-        || (entry.nameEn ?? '').toLowerCase().includes(query),
+    return packRows.value.filter(
+      (row) =>
+        row.name.toLowerCase().includes(query)
+        || (row.definition.nameEn ?? '').toLowerCase().includes(query),
     );
   });
 
@@ -264,15 +295,13 @@
    */
   const isMultiSelect = computed(() => props.kind === 'class');
 
-  /** Ключи отмеченных записей */
-  const selectedKeys = computed(
-    () => new Set(selectedDefinitions.value.map((entry) => entry.key)),
+  /** Отмеченные строки — по паре «пак + ключ» */
+  const selectedRowIds = computed(
+    () => new Set(selectedRows.value.map((row) => row.rowId)),
   );
 
   /** Можно ли подтвердить выбор */
-  const canConfirmSelection = computed(
-    () => selectedDefinitions.value.length > 0,
-  );
+  const canConfirmSelection = computed(() => selectedRows.value.length > 0);
 
   /** Текст подтверждения удаления — свой у каждого типа записи */
   const removalConfirmText = computed(() => {
@@ -295,6 +324,11 @@
     );
   });
 
+  /** Запись, открытая на просмотр */
+  const detailDefinition = computed<PickerDefinition | null>(
+    () => detailRow.value?.definition ?? null,
+  );
+
   /** Открытая на просмотр запись, суженная до вида */
   const detailSpecies = computed<SpeciesDefinition | null>(() => {
     const definition = detailDefinition.value;
@@ -315,16 +349,6 @@
 
     return definition && definition.type === 'background' ? definition : null;
   });
-
-  /**
-   * Приводит определение к свободной форме записи карточки: у интерфейсов нет
-   * неявной индексной сигнатуры, а `EntityCard` ждёт именно её.
-   *
-   * @param entry - определение вида, класса или предыстории
-   */
-  function toCardEntry<T extends object>(entry: T): { [K in keyof T]: T[K] } {
-    return entry;
-  }
 
   /**
    * Загружает записи выбранного типа по пакам компендиума.
@@ -381,59 +405,76 @@
    * Открывает запись на просмотр: описание, дары, особенности. Отметку клик по
    * карточке не меняет — за неё отвечает флажок слева.
    *
-   * @param entry - запись компендиума
+   * @param row - строка списка
    */
-  function openDetail(entry: PickerDefinition): void {
-    detailDefinition.value = entry;
+  function openDetail(row: PickerRow): void {
+    detailRow.value = row;
     isDetailOpen.value = true;
+  }
+
+  /**
+   * Название компендиума в строке. Показывается только в режиме «все»: внутри
+   * выбранного пака он и так назван слева, и повторять его в каждой строке
+   * незачем.
+   *
+   * @param row - строка списка
+   */
+  function packLabel(row: PickerRow): string {
+    return isAllPacks.value ? row.packName : '';
   }
 
   /**
    * Можно ли отметить запись. Класс, который у персонажа уже есть, из этого
    * окна не берут: его следующий уровень выдаёт окно повышения уровня.
    *
-   * @param entry - запись компендиума
+   * @param row - строка списка
    */
-  function isSelectable(entry: PickerDefinition): boolean {
-    return !(props.kind === 'class' && takenKeys.value.has(entry.key));
+  function isSelectable(row: PickerRow): boolean {
+    return !(props.kind === 'class' && takenKeys.value.has(row.definition.key));
   }
 
   /**
-   * Отмечает или снимает отметку с записи. У вида и предыстории отметка одна:
+   * Отмечает или снимает отметку со строки. У вида и предыстории отметка одна:
    * новая заменяет прежнюю.
    *
-   * @param entry - запись компендиума
+   * Копии одной записи из разных компендиумов вытесняют друг друга и при
+   * мультиклассе: класс-то один и тот же, взять его дважды нельзя — берётся
+   * тот, чью строку отметили последней.
+   *
+   * @param row - строка списка
    */
-  function toggleSelection(entry: PickerDefinition): void {
-    if (!isSelectable(entry)) {
+  function toggleSelection(row: PickerRow): void {
+    if (!isSelectable(row)) {
       return;
     }
 
-    if (selectedKeys.value.has(entry.key)) {
-      selectedDefinitions.value = selectedDefinitions.value.filter(
-        (selected) => selected.key !== entry.key,
+    if (selectedRowIds.value.has(row.rowId)) {
+      selectedRows.value = selectedRows.value.filter(
+        (selected) => selected.rowId !== row.rowId,
       );
 
       return;
     }
 
-    selectedDefinitions.value = isMultiSelect.value
-      ? [...selectedDefinitions.value, entry]
-      : [entry];
+    const withoutSameKey = selectedRows.value.filter(
+      (selected) => selected.definition.key !== row.definition.key,
+    );
+
+    selectedRows.value = isMultiSelect.value ? [...withoutSameKey, row] : [row];
   }
 
   /** Отмечает запись из окна её просмотра и возвращает к списку */
   function handleDetailSelect(): void {
-    const definition = detailDefinition.value;
+    const row = detailRow.value;
 
-    if (!definition) {
+    if (!row) {
       return;
     }
 
     isDetailOpen.value = false;
 
-    if (!selectedKeys.value.has(definition.key)) {
-      toggleSelection(definition);
+    if (!selectedRowIds.value.has(row.rowId)) {
+      toggleSelection(row);
     }
   }
 
@@ -443,7 +484,11 @@
       return;
     }
 
-    emit('select', [...selectedDefinitions.value]);
+    emit(
+      'select',
+      selectedRows.value.map((row) => row.definition),
+    );
+
     emit('update:open', false);
   }
 
@@ -517,9 +562,9 @@
 
       searchQuery.value = '';
       selectedPackId.value = ALL_PACKS_ID;
-      selectedDefinitions.value = [];
+      selectedRows.value = [];
       pendingRemovalKey.value = null;
-      detailDefinition.value = null;
+      detailRow.value = null;
       isDetailOpen.value = false;
       compendiumPacks.value = [];
 
@@ -658,39 +703,54 @@
               />
             </div>
 
+            <!-- Строка списка общая со всеми окнами выбора: название,
+              английское название второй строкой, компендиум и источник справа.
+              Показатели записи уступили им место — за ними открывают карточку
+              кнопкой -->
             <div
-              v-else-if="visibleEntries.length > 0"
-              class="flex flex-col gap-1"
+              v-else-if="visibleRows.length > 0"
+              class="flex flex-col divide-y divide-accented/25"
             >
               <div
-                v-for="entry in visibleEntries"
-                :key="entry.key"
-                class="flex items-center gap-2"
+                v-for="row in visibleRows"
+                :key="row.rowId"
+                class="flex items-stretch gap-1"
               >
-                <!-- Отметка: клик по самой карточке открывает просмотр -->
-                <UCheckbox
-                  :model-value="selectedKeys.has(entry.key)"
-                  :disabled="!isSelectable(entry)"
-                  @update:model-value="toggleSelection(entry)"
-                />
-
-                <EntityCard
-                  class="flex-1 hover:bg-primary/10"
-                  :class="{ 'opacity-60': !isSelectable(entry) }"
-                  :entity-type="kind"
-                  :entry="toCardEntry(entry)"
-                  @click="openDetail(entry)"
+                <PickerListRow
+                  class="min-w-0 flex-1"
+                  :name="row.name"
+                  :name-en="row.definition.nameEn"
+                  :pack-name="packLabel(row)"
+                  :source-key="row.definition.sourceKey"
+                  :source="row.definition.source"
+                  :selected="selectedRowIds.has(row.rowId)"
+                  :disabled="!isSelectable(row)"
+                  @toggle="toggleSelection(row)"
                 />
 
                 <UBadge
-                  v-if="takenKeys.has(entry.key)"
+                  v-if="takenKeys.has(row.definition.key)"
                   color="success"
                   variant="subtle"
                   size="sm"
-                  class="shrink-0"
+                  class="shrink-0 self-center"
                 >
                   {{ COMPENDIUM_PICKER_LABELS.taken }}
                 </UBadge>
+
+                <!-- Карточка записи: нажимается вся отведённая кнопке область,
+                  во всю высоту строки — в мелкий значок целиться неудобно -->
+                <button
+                  type="button"
+                  class="flex shrink-0 cursor-pointer items-center justify-center rounded-md px-3 text-dimmed transition-colors hover:bg-primary/10 hover:text-default"
+                  :aria-label="COMPENDIUM_PICKER_LABELS.openDetail"
+                  @click.left.exact.prevent="openDetail(row)"
+                >
+                  <UIcon
+                    name="tabler:info-circle"
+                    class="size-5"
+                  />
+                </button>
               </div>
             </div>
 
@@ -716,7 +776,7 @@
                 <span>
                   {{ COMPENDIUM_PICKER_LABELS.selectedCount }}
                   <span class="font-semibold text-toned">
-                    {{ selectedDefinitions.length }}
+                    {{ selectedRows.length }}
                   </span>
                 </span>
 

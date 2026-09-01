@@ -45,6 +45,7 @@ import {
   getShortDamageTypeLabel,
   getSpellDamageParts,
   getSpellPrimaryDamageType,
+  getSpellSaveCondition,
   isDndSceneEntity,
   mergeAppliedEffects,
   resolveActorStats,
@@ -344,7 +345,12 @@ export function useSpellResolution() {
 
     // Спасбросок (проверка `!== 'none'` сужает saveType до AbilityType)
     if (spell.saveType !== 'none') {
-      saveResult = rollSavingThrow(entity, spell.saveType, spellSaveDC);
+      saveResult = rollSavingThrow(
+        entity,
+        spell.saveType,
+        spellSaveDC,
+        getSpellSaveCondition(spell),
+      );
 
       if (saveResult.passed) {
         switch (spell.saveEffect) {
@@ -437,6 +443,7 @@ export function useSpellResolution() {
       entity,
       spell.saveType,
       spellSaveDC,
+      getSpellSaveCondition(spell),
     );
 
     if (saveResult.passed) {

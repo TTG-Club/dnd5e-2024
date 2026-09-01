@@ -1,4 +1,5 @@
 import type { AbilityType, SceneEntity } from '@vtt/shared';
+import type { ConditionRef } from '@vtt/shared/system/dnd.js';
 
 import type { ActorSaveInfo, SavingThrowResult } from './spellResolutionShared';
 
@@ -8,6 +9,7 @@ import { useDiceRollerStore } from '@/stores/diceRollerStore';
 import {
   isDndSceneEntity,
   resolveActorStats,
+  resolveSavingThrowRollMode,
   SAVE_TYPE_LABELS,
 } from '@vtt/shared/system/dnd.js';
 
@@ -26,11 +28,13 @@ export function useSpellSavingThrows() {
    *
    * @param entity - сущность-цель
    * @param saveAbility - характеристика спасброска
+   * @param againstCondition - состояние, которого спасбросок позволяет избежать
    * @returns модификатор спасброска и флаги (преимущество/помеха/автопровал)
    */
   function getActorSaveInfo(
     entity: SceneEntity,
     saveAbility: AbilityType,
+    againstCondition?: ConditionRef,
   ): ActorSaveInfo {
     // Ядро видит entity как Base*; D&D-форму подтверждает гвард. Без данных
     // системы считать нечего: спасбросок идёт «голым» кубиком, а не роняет каст
@@ -47,16 +51,18 @@ export function useSpellSavingThrows() {
 
     const modifier = stats.saves[saveAbility] ?? 0;
 
-    // Проверяем флаги преимущества/помехи на спасброски.
-    // Шаблонные строки уже получают точный тип `save.*.${AbilityType}`
-    // из `saveAbility: AbilityType` — приведение типов не требуется.
-    const hasAdvantage =
-      stats.activeFlags.has('save.advantage')
-      || stats.activeFlags.has(`save.advantage.${saveAbility}`);
+    // Сюда попадают только спасброски, навязанные заклинанием, поэтому
+    // `againstMagic` истинно всегда: Мантия сопротивления заклинаниям должна
+    // сработать здесь и промолчать на спасброске от яда.
+    const rollMode = resolveSavingThrowRollMode({
+      flags: stats.activeFlags,
+      ability: saveAbility,
+      againstMagic: true,
+      againstCondition,
+    });
 
-    const hasDisadvantage =
-      stats.activeFlags.has('save.disadvantage')
-      || stats.activeFlags.has(`save.disadvantage.${saveAbility}`);
+    const hasAdvantage = rollMode === 'advantage';
+    const hasDisadvantage = rollMode === 'disadvantage';
 
     const autoFail = stats.activeFlags.has(`save.autoFail.${saveAbility}`);
 
@@ -69,15 +75,17 @@ export function useSpellSavingThrows() {
    * @param entity - сущность-цель
    * @param saveAbility - характеристика спасброска
    * @param saveDC - сложность спасброска
+   * @param againstCondition - состояние, которого спасбросок позволяет избежать
    * @returns результат спасброска
    */
   function rollSavingThrow(
     entity: SceneEntity,
     saveAbility: AbilityType,
     saveDC: number,
+    againstCondition?: ConditionRef,
   ): SavingThrowResult {
     const { modifier, hasAdvantage, hasDisadvantage, autoFail } =
-      getActorSaveInfo(entity, saveAbility);
+      getActorSaveInfo(entity, saveAbility, againstCondition);
 
     if (autoFail) {
       return { roll: 1, modifier, total: 1 + modifier, passed: false };
@@ -128,16 +136,18 @@ export function useSpellSavingThrows() {
    * @param entity - сущность-цель
    * @param saveAbility - характеристика спасброска
    * @param saveDC - сложность спасброска
+   * @param againstCondition - состояние, которого спасбросок позволяет избежать
    * @returns промис с результатом спасброска
    */
   function requestManualSavingThrow(
     entity: SceneEntity,
     saveAbility: AbilityType,
     saveDC: number,
+    againstCondition?: ConditionRef,
   ): Promise<SavingThrowResult> {
     return new Promise((resolve) => {
       const { modifier, hasAdvantage, hasDisadvantage, autoFail } =
-        getActorSaveInfo(entity, saveAbility);
+        getActorSaveInfo(entity, saveAbility, againstCondition);
 
       const saveLabel = SAVE_TYPE_LABELS[saveAbility] ?? saveAbility;
       const rollMode = determineRollMode(hasAdvantage, hasDisadvantage);
@@ -175,18 +185,27 @@ export function useSpellSavingThrows() {
    * @param entity - сущность-цель
    * @param saveAbility - характеристика спасброска
    * @param saveDC - сложность спасброска
+   * @param againstCondition - состояние, которого спасбросок позволяет избежать
    * @returns промис с результатом спасброска
    */
   function resolveSavingThrowForTarget(
     entity: SceneEntity,
     saveAbility: AbilityType,
     saveDC: number,
+    againstCondition?: ConditionRef,
   ): Promise<SavingThrowResult> {
     if (resolveAutoSaves(entity)) {
-      return Promise.resolve(rollSavingThrow(entity, saveAbility, saveDC));
+      return Promise.resolve(
+        rollSavingThrow(entity, saveAbility, saveDC, againstCondition),
+      );
     }
 
-    return requestManualSavingThrow(entity, saveAbility, saveDC);
+    return requestManualSavingThrow(
+      entity,
+      saveAbility,
+      saveDC,
+      againstCondition,
+    );
   }
 
   return {

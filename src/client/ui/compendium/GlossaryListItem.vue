@@ -9,7 +9,8 @@
 
   import type { SourceDefinition } from '@vtt/shared';
 
-  import SourceBadge from '../actor/SourceBadge.vue';
+  import { useListRowClass } from '../../composables/useListRowClass';
+  import EntityRowBody from '../actor/EntityRowBody.vue';
 
   /** Поля термина, нужные для отрисовки строки */
   interface GlossaryDisplayItem {
@@ -24,9 +25,18 @@
     source?: SourceDefinition;
   }
 
-  defineProps<{
+  const props = defineProps<{
     item: GlossaryDisplayItem;
+    /**
+     * Плоская строка списка: без своей плашки и скругления. Так строка встаёт в
+     * список с разделителями (компендиум и окна выбора); на листе персонажа
+     * строки стоят порознь, и плашка им нужна.
+     */
+    flat?: boolean;
   }>();
+
+  /** Оформление строки: плоская в списке, плашкой на листе персонажа */
+  const rowClass = useListRowClass(() => Boolean(props.flat));
 
   const emit = defineEmits<{
     /** Клик по строке (открыть описание) */
@@ -36,38 +46,28 @@
 
 <template>
   <div
-    class="flex cursor-pointer items-center gap-3 rounded-lg bg-elevated/30 px-3 py-2 transition-colors hover:bg-accented/40"
+    class="flex cursor-pointer items-center gap-3 py-2 transition-colors"
+    :class="rowClass"
     @click.left.exact.prevent="emit('click')"
   >
-    <!-- Название и английское название -->
-    <div class="flex min-w-0 flex-1 items-baseline gap-2">
-      <span class="truncate text-sm font-medium text-highlighted">
-        {{ item.name }}
-      </span>
-
-      <span
-        v-if="item.nameEn"
-        class="truncate text-xs text-dimmed"
-      >
-        {{ item.nameEn }}
-      </span>
-    </div>
-
-    <!-- Раздел глоссария -->
-    <UBadge
-      v-if="item.category"
-      color="neutral"
-      variant="subtle"
-      size="sm"
-      class="shrink-0"
-    >
-      {{ item.category }}
-    </UBadge>
-
-    <SourceBadge
+    <EntityRowBody
+      :name="item.name"
+      :name-en="item.nameEn"
       :source-key="item.sourceKey"
       :source="item.source"
-      variant="text"
-    />
+    >
+      <template #badges>
+        <!-- Раздел глоссария («Состояния», «Действия») -->
+        <UBadge
+          v-if="item.category"
+          color="neutral"
+          variant="subtle"
+          size="sm"
+          class="shrink-0"
+        >
+          {{ item.category }}
+        </UBadge>
+      </template>
+    </EntityRowBody>
   </div>
 </template>

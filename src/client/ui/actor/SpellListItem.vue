@@ -18,9 +18,21 @@
     SPELL_MENU_LABELS,
     SPELL_MIME,
   } from './constants';
+  import EntityRowBody from './EntityRowBody.vue';
   import { extractSpellFromGameItem } from './utils/extractSpellFromGameItem';
   import { formatSpellDamageDisplay } from './utils/formatSpellDamageDisplay';
 
+  /**
+   * Атрибуты вызывающего компонент переносит на строку САМ (`v-bind="$attrs"` на
+   * обоих корнях шаблона): корней у него два — сама строка и портал
+   * контекстного меню, — а таким Vue `class` и `style` автоматически не отдаёт.
+   * Без этого до строки не доезжали ни `flex-1` из компендиума (строка не
+   * растягивалась во всю ширину, и бейджи липли к названию), ни приглушение уже
+   * изученного заклинания.
+   *
+   * Обработчики в `$attrs` не попадают: все события объявлены в `defineEmits`, а
+   * объявленные Vue оттуда исключает.
+   */
   defineOptions({ inheritAttrs: false });
 
   const props = defineProps<{
@@ -41,6 +53,12 @@
     creatureId?: string;
     /** Проп для режима редактирования: показывает inline-иконки */
     isEditMode?: boolean;
+    /**
+     * Плоская строка списка: без своей плашки и скругления. Так строка встаёт в
+     * список с разделителями (компендиум и окна выбора); на листе персонажа
+     * строки стоят порознь, и плашка им нужна.
+     */
+    flat?: boolean;
   }>();
 
   const emit = defineEmits<{
@@ -78,6 +96,14 @@
    */
   const damageFormulaDisplay = computed(() =>
     spellObject.value ? formatSpellDamageDisplay(spellObject.value) : '',
+  );
+
+  /**
+   * Источник записи: у заклинания компендиума он на самом заклинании, у
+   * предмета-заклинания — на предмете. Показывается бейджем в строке списка.
+   */
+  const sourceKey = computed<string | undefined>(
+    () => spellObject.value?.sourceKey ?? props.item.sourceKey,
   );
 
   /**
@@ -190,7 +216,54 @@
 </script>
 
 <template>
-  <div class="flex items-center gap-2">
+  <!-- Строка списка: простой ряд, а не группа кнопок, — подсветка тогда идёт во
+    всю строку, а не по кнопке внутри неё -->
+  <div
+    v-if="flat"
+    v-bind="$attrs"
+    draggable="true"
+    class="flex cursor-grab items-center gap-3 px-2 py-2 transition-colors hover:bg-primary/10 active:cursor-grabbing"
+    @click.left.exact.prevent="emit('click')"
+    @contextmenu="openContextMenu"
+    @dragstart="handleDragStart($event)"
+  >
+    <!-- Значка в списке нет: он одинаков у всех строк и только съедает место.
+      На листе персонажа палочка остаётся — там строка стоит среди других -->
+    <EntityRowBody
+      :name="spellObject?.name ?? ''"
+      :name-en="spellObject?.nameEn"
+      :source-key="sourceKey"
+      :source="item.source"
+    >
+      <template #badges>
+        <UBadge
+          v-if="spellObject?.concentration"
+          color="warning"
+          variant="subtle"
+          size="xs"
+          class="shrink-0"
+        >
+          {{ SPELL_BADGE_LABELS.concentration }}
+        </UBadge>
+
+        <UBadge
+          v-if="spellObject?.ritual"
+          color="info"
+          variant="subtle"
+          size="xs"
+          class="shrink-0"
+        >
+          {{ SPELL_BADGE_LABELS.ritual }}
+        </UBadge>
+      </template>
+    </EntityRowBody>
+  </div>
+
+  <div
+    v-else
+    v-bind="$attrs"
+    class="flex items-center gap-2"
+  >
     <UFieldGroup
       size="lg"
       class="group flex min-w-0 flex-1"

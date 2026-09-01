@@ -1,55 +1,84 @@
 <script setup lang="ts">
+  import type { TypedWebSocketClient } from '@vtt/shared';
+
   import type { SpellOption } from '../grantedSpellsEditorTypes';
   import type {
     EditableClassFeature,
-    EditableClassFeatureChoice,
+    EditableClassFeatureScaling,
     EditableGrantedSpellLevel,
   } from './classEditorTypes';
 
+  import { computed } from 'vue';
+
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
   import { generateId } from '@vtt/shared';
-  import { SKILLS_LIST } from '@vtt/shared/system/dnd.js';
 
-  import { CLASS_FEATURE_LABELS, FORM_FIELD_LABELS } from '../constants';
+  import {
+    CLASS_FEATURE_LABELS,
+    CLASS_FEATURE_MECHANICS_TITLES,
+    CLASS_LEVEL_MAX,
+    FORM_FIELD_LABELS,
+  } from '../constants';
+  import EditorNestedSection from '../EditorNestedSection.vue';
   import GrantedSpellsEditor from '../GrantedSpellsEditor.vue';
+  import {
+    countFilledMechanicsBlocks,
+    createEmptyFeatureChoice,
+  } from './classEditorTypes';
+  import ClassFeatureChoiceConfigFields from './ClassFeatureChoiceConfigFields.vue';
+  import ClassFeatureChoiceRows from './ClassFeatureChoiceRows.vue';
+  import ClassFeatureScalingRows from './ClassFeatureScalingRows.vue';
+  import ClassMechanicsFields from './ClassMechanicsFields.vue';
 
-  /** Навыки для выпадающего списка выбора владения */
-  const skillsOptions = SKILLS_LIST.map((skill) => ({
-    value: skill.key,
-    label: skill.label,
-  }));
-
-  defineProps<{
+  const props = defineProps<{
     /** Заклинания компендиума по пакам — для подсказок связывания. */
     availableSpells?: SpellOption[];
+    /**
+     * Сокет для окна выбора заклинания из компендиума. Без него добавить
+     * заклинание нечем: другого способа завести запись у редактора нет.
+     */
+    socket?: TypedWebSocketClient | null;
   }>();
 
-  /** Редактируемая особенность класса/подкласса. */
+  /** Редактируемое умение класса/подкласса. */
   const feature = defineModel<EditableClassFeature>({ required: true });
 
   const emit = defineEmits<{
     'open-spell': [spellId: string, packId?: string];
   }>();
 
+  /** Сколько блоков механики заполнено — бейдж свёрнутого блока. */
+  const filledMechanicsCount = computed(() =>
+    countFilledMechanicsBlocks(feature.value),
+  );
+
   function forwardOpenSpell(spellId: string, packId?: string): void {
     emit('open-spell', spellId, packId);
   }
 
-  /** Добавляет вариант-выбор (боевой стиль / манёвр). */
-  function addChoice(): void {
-    const choice: EditableClassFeatureChoice = {
-      uid: generateId('cfc'),
-      key: generateId('cfc'),
+  /**
+   * Добавляет ступень роста. Следующая начинается уровнем позже последней —
+   * ряд «8, 12, 16» набирается без возврата к уровню самого умения.
+   */
+  function addScalingStep(): void {
+    const last = feature.value.scaling.at(-1);
+
+    const step: EditableClassFeatureScaling = {
+      uid: generateId('cfs'),
+      level: Math.min(
+        CLASS_LEVEL_MAX,
+        (last?.level ?? feature.value.level) + 1,
+      ),
       name: '',
       description: '',
     };
 
-    feature.value.choices.push(choice);
+    feature.value.scaling.push(step);
   }
 
-  /** Удаляет вариант по индексу. */
-  function removeChoice(index: number): void {
-    feature.value.choices.splice(index, 1);
+  /** Добавляет вариант-выбор (боевой стиль / манёвр). */
+  function addChoice(): void {
+    feature.value.choices.push(createEmptyFeatureChoice());
   }
 
   /** Добавляет уровень поуровневой выдачи заклинаний. */
@@ -84,7 +113,7 @@
         <UInputNumber
           v-model="feature.level"
           :min="1"
-          :max="20"
+          :max="CLASS_LEVEL_MAX"
           class="w-27.5"
         />
       </UFormField>
@@ -99,142 +128,100 @@
       :label="CLASS_FEATURE_LABELS.informationalOnly"
     />
 
-    <!-- Владение навыками, которое даёт само умение: мастер класса покажет на
-      его уровне отдельный шаг выбора -->
-    <UFormField :label="CLASS_FEATURE_LABELS.skillChoiceTitle">
-      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <UFormField
-          :label="CLASS_FEATURE_LABELS.skillChoiceCount"
-          :hint="CLASS_FEATURE_LABELS.skillChoiceCountHint"
-        >
-          <UInput
-            v-model.number="feature.skillChoiceCount"
-            type="number"
-            :min="0"
-            class="w-full"
-          />
-        </UFormField>
+    <!-- Три свёрнутых раздела, как на сайте: у большинства умений они пусты, а
+      развёрнутые все разом заслоняли бы список умений -->
+    <EditorNestedSection
+      :title="CLASS_FEATURE_LABELS.scalingTitle"
+      :hint="CLASS_FEATURE_LABELS.scalingHint"
+      :count="feature.scaling.length"
+      :add-label="CLASS_FEATURE_LABELS.scalingAdd"
+      @add="addScalingStep"
+    >
+      <ClassFeatureScalingRows v-model="feature.scaling" />
+    </EditorNestedSection>
 
-        <UFormField
-          v-if="feature.skillChoiceCount > 0"
-          :label="CLASS_FEATURE_LABELS.skillChoiceFrom"
-          :hint="CLASS_FEATURE_LABELS.skillChoiceFromHint"
-        >
-          <USelectMenu
-            v-model="feature.skillChoiceFrom"
-            :items="skillsOptions"
-            value-key="value"
-            label-key="label"
-            multiple
-            class="w-full"
-          />
-        </UFormField>
-      </div>
-    </UFormField>
+    <EditorNestedSection
+      :title="CLASS_FEATURE_LABELS.choicesTitle"
+      :hint="CLASS_FEATURE_LABELS.choicesHint"
+      :count="feature.choices.length"
+      :add-label="CLASS_FEATURE_LABELS.choiceAdd"
+      @add="addChoice"
+    >
+      <!-- Настройка выбора идёт перед списком: сначала автор решает,
+        выбирают из списка или он справочный, и лишь потом набирает варианты -->
+      <ClassFeatureChoiceConfigFields v-model="feature.choiceConfig" />
 
-    <!-- Варианты-выборы (боевой стиль, манёвры) -->
-    <UFormField :label="CLASS_FEATURE_LABELS.choicesTitle">
-      <div class="flex flex-col gap-2">
-        <div
-          v-for="(choice, choiceIndex) in feature.choices"
-          :key="choice.uid"
-          class="flex flex-col gap-1.5 rounded-md border border-default bg-elevated/30 p-2"
-        >
-          <div class="flex items-center gap-2">
-            <UInput
-              v-model="choice.name"
-              :placeholder="CLASS_FEATURE_LABELS.choiceName"
-              class="flex-1"
-            />
-
-            <UButton
-              icon="tabler:trash"
-              color="error"
-              variant="ghost"
-              size="xs"
-              :aria-label="CLASS_FEATURE_LABELS.choiceRemove"
-              @click.left.exact.prevent="removeChoice(choiceIndex)"
-            />
-          </div>
-
-          <UTextarea
-            v-model="choice.description"
-            :rows="2"
-            autoresize
-            :placeholder="CLASS_FEATURE_LABELS.choiceDescription"
-            class="w-full"
-          />
-        </div>
-
-        <UButton
-          icon="tabler:plus"
-          :label="CLASS_FEATURE_LABELS.choiceAdd"
-          color="neutral"
-          variant="soft"
-          size="xs"
-          class="self-start"
-          @click.left.exact.prevent="addChoice"
-        />
-      </div>
-    </UFormField>
-
-    <!-- Заклинания на 1 уровне особенности -->
-    <UFormField :label="CLASS_FEATURE_LABELS.grantedSpells">
-      <GrantedSpellsEditor
-        v-model="feature.grantedSpells"
-        :available-spells="availableSpells"
+      <ClassFeatureChoiceRows
+        v-model="feature.choices"
+        :available-spells="props.availableSpells"
+        :socket="props.socket"
         @open-spell="forwardOpenSpell"
       />
-    </UFormField>
+    </EditorNestedSection>
 
-    <!-- Поуровневая выдача заклинаний (домены/клятвы/покровители) -->
-    <UFormField :label="CLASS_FEATURE_LABELS.grantedSpellsByLevel">
-      <div class="flex flex-col gap-2">
-        <div
-          v-for="(entry, levelIndex) in feature.grantedSpellsByLevel"
-          :key="entry.uid"
-          class="flex flex-col gap-1.5 rounded-md border border-default bg-elevated/30 p-2"
-        >
-          <div class="flex items-center gap-2">
-            <span class="text-xs text-muted">{{
-              CLASS_FEATURE_LABELS.classLevelPrefix
-            }}</span>
+    <EditorNestedSection
+      :title="CLASS_FEATURE_LABELS.mechanicsTitle"
+      :hint="CLASS_FEATURE_LABELS.mechanicsHint"
+      :count="filledMechanicsCount"
+    >
+      <ClassMechanicsFields
+        v-model:grants="feature.grants"
+        v-model:granted-spells="feature.grantedSpells"
+        v-model:active-effects="feature.activeEffects"
+        :titles="CLASS_FEATURE_MECHANICS_TITLES"
+        :effects-modal-id="`class-feature-effect-form-modal-${feature.key}`"
+        :available-spells="props.availableSpells"
+        :socket="props.socket"
+        with-table-column
+        @open-spell="forwardOpenSpell"
+      >
+        <!-- Поуровневая выдача заклинаний (домены/клятвы/покровители) -->
+        <template #spells-extra>
+          <EditorNestedSection
+            :title="CLASS_FEATURE_LABELS.grantedSpellsByLevel"
+            :hint="CLASS_FEATURE_LABELS.grantedSpellsByLevelHint"
+            :count="feature.grantedSpellsByLevel.length"
+            :add-label="CLASS_FEATURE_LABELS.levelAdd"
+            @add="addSpellLevel"
+          >
+            <div
+              v-for="(entry, levelIndex) in feature.grantedSpellsByLevel"
+              :key="entry.uid"
+              class="flex flex-col gap-1.5 rounded-md border border-default bg-elevated/30 p-2"
+            >
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-muted">{{
+                  CLASS_FEATURE_LABELS.classLevelPrefix
+                }}</span>
 
-            <UInputNumber
-              v-model="entry.level"
-              :min="1"
-              :max="20"
-              class="w-25"
-            />
+                <UInputNumber
+                  v-model="entry.level"
+                  :min="1"
+                  :max="CLASS_LEVEL_MAX"
+                  class="w-25"
+                />
 
-            <UButton
-              icon="tabler:trash"
-              color="error"
-              variant="ghost"
-              size="xs"
-              class="ml-auto"
-              :aria-label="CLASS_FEATURE_LABELS.levelRemove"
-              @click.left.exact.prevent="removeSpellLevel(levelIndex)"
-            />
-          </div>
+                <UButton
+                  icon="tabler:trash"
+                  color="error"
+                  variant="ghost"
+                  size="xs"
+                  class="ml-auto"
+                  :aria-label="CLASS_FEATURE_LABELS.levelRemove"
+                  @click.left.exact.prevent="removeSpellLevel(levelIndex)"
+                />
+              </div>
 
-          <GrantedSpellsEditor
-            v-model="entry.spells"
-            :available-spells="availableSpells"
-            @open-spell="forwardOpenSpell"
-          />
-        </div>
-
-        <UButton
-          icon="tabler:plus"
-          :label="CLASS_FEATURE_LABELS.levelAdd"
-          color="neutral"
-          variant="soft"
-          size="xs"
-          class="self-start"
-          @click.left.exact.prevent="addSpellLevel"
-        />
-      </div>
-    </UFormField>
+              <GrantedSpellsEditor
+                v-model="entry.spells"
+                :available-spells="props.availableSpells"
+                :socket="props.socket"
+                @open-spell="forwardOpenSpell"
+              />
+            </div>
+          </EditorNestedSection>
+        </template>
+      </ClassMechanicsFields>
+    </EditorNestedSection>
   </div>
 </template>

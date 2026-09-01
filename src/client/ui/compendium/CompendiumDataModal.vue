@@ -1,6 +1,8 @@
 <script setup lang="ts">
   import type {
+    CompendiumManifest,
     CompendiumSeparator,
+    CompendiumTreeNode,
     CompendiumView,
     Feature,
     TypedWebSocketClient,
@@ -21,6 +23,10 @@
     setActorDragPayload,
   } from '@/core/actorDragState';
   import { getChatService } from '@/core/api/chatService';
+  import {
+    loadCompendiumKind,
+    loadCompendiumManifests,
+  } from '@/core/compendiumDataClient';
   import { getEntityCard } from '@/core/registries';
   import EntityCard from '@/shared_ui/components/EntityCard.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
@@ -29,6 +35,9 @@
 
   import {
     COMPENDIUM_LABELS,
+    COMPENDIUM_PACK_BUTTON_CLASS,
+    COMPENDIUM_PACK_BUTTON_IDLE_CLASS,
+    COMPENDIUM_PACK_BUTTON_SELECTED_CLASS,
     GRANTED_SPELL_FEATURE_PREFIX,
     SHEET_FILTER_LABELS,
   } from '../actor/constants';
@@ -52,7 +61,16 @@
     system: Record<string, unknown>;
     /** Заклинания существа (верхний уровень, D&D 2024) */
     spells?: Spell[];
+    /** Инвентарь существа (верхний уровень, как `spells`) */
+    equipment?: import('@vtt/shared/system/dnd.js').DnDGameItem[];
   }
+
+  /**
+   * Настройка показа по типу записей, узнанная из манифеста. Общая на все окна
+   * и на всю сессию: манифест за неё не меняется, а перечитывать его на каждое
+   * открытие — значит каждый раз открывать окно не в своём макете.
+   */
+  const kindViewCache = new Map<string, CompendiumView>();
 
   // `ClassDefinition`/`SpeciesDefinition` перечислены явно, хотя по форме и
   // подошли бы под `Record<string, unknown>`: интерфейсу TypeScript индексную
@@ -74,7 +92,7 @@
     /** Экземпляр WebSocket-клиента */
     socket: TypedWebSocketClient | null;
     /** Имя data-файла для загрузки */
-    dataFile: string;
+    dataFile?: string;
     /** Заголовок модалки */
     title: string;
     /**
@@ -137,6 +155,20 @@
   }>();
 
   const items = ref<CompendiumDataItem[]>([]);
+
+  /**
+   * Настройка показа, взятая из манифеста при загрузке по типу записей. Проп
+   * `view` главнее: его задаёт вызывающий, открывший конкретный узел.
+   *
+   * Начальное значение — из общего запаса: настройка приезжает вместе с
+   * данными, следующим тиком после открытия, и без запаса окно каждый раз
+   * успевало открыться узким и лишь потом раздаться. Манифест за сессию не
+   * меняется, поэтому со второго раза макет известен сразу.
+   */
+  const kindView = ref<CompendiumView | undefined>(
+    props.dataKind ? kindViewCache.get(props.dataKind) : undefined,
+  );
+
   const isLoading = ref(false);
   const loadedFile = ref('');
   const searchQuery = ref('');
@@ -415,18 +447,148 @@
     resetFilters,
     setEnumSelection,
   } = useCompendiumView({
-    view: () => props.view,
+    view: () => props.view ?? kindView.value,
     items,
     searchQuery,
   });
 
+  /**
+   * Оформление строки фильтра — то же, что у компендиумов и видов дара в окнах
+   * выбора: отмеченная подсвечена, прочие теплеют только под курсором. Разметка
+   * одна на все три окна: строка фильтра везде означает одно и то же, и разный
+   * вид сбивал бы — по этим окнам ходят подряд.
+   *
+   * @param isActive - отмечено ли значение
+   */
+  function filterRowClass(isActive: boolean): string {
+    const stateClass = isActive
+      ? COMPENDIUM_PACK_BUTTON_SELECTED_CLASS
+      : COMPENDIUM_PACK_BUTTON_IDLE_CLASS;
+
+    return `${COMPENDIUM_PACK_BUTTON_CLASS} ${stateClass}`;
+  }
+
+  /**
+   * Цвет значка переключателя. Картой, а не строкой на лету: Tailwind собирает
+   * классы статическим просмотром исходников, и `text-${color}` в сборку не
+   * попадёт — значок остался бы бесцветным.
+   */
+  const TOGGLE_ICON_CLASS: Record<string, string> = {
+    success: 'text-success',
+    warning: 'text-warning',
+    error: 'text-error',
+    info: 'text-info',
+    primary: 'text-primary',
+  };
+
   /** Нужен ли широкий макет с сайдбаром фильтров */
   const isWideLayout = computed(() => viewLayout.value === 'filtered');
 
+  /**
+   * Доля окна приложения, которую занимает окно с фильтрами при открытии.
+   *
+   * От доли, а не от жёсткого размера: на широком мониторе фиксированные
+   * пиксели выглядят маленьким окошком посреди пустоты, а на тесном экране —
+   * вылезают за край. Доля даёт соразмерное окно и там, и там.
+   *
+   * По ширине доля меньше, чем по высоте, и потолок ниже: в строке списка
+   * стоят название, оригинал и пара значков — на широком окне строка
+   * растягивается пустотой, а глаз теряет её край. Расти окну полезно вниз,
+   * а не вбок: вниз идут сами записи.
+   */
+  const WIDE_MODAL_VIEWPORT_RATIO = { width: 0.45, height: 0.85 };
+
+  /**
+   * Размер, больше которого окно не открывается даже на очень широком
+   * мониторе.
+   */
+  const WIDE_MODAL_MAXIMUM = { width: 780, height: 1000 };
+
+  /**
+   * Размер, меньше которого окно не открывается, пока экран позволяет. Рядом со
+   * списком стоит колонка фильтров, и в тесном окне на сам список оставалось
+   * несколько строк — в справочнике на полтысячи заклинаний листать его нечем.
+   */
+  const WIDE_MODAL_MINIMUM = { width: 620, height: 640 };
+
+  /**
+   * Размер окна по одной оси: доля экрана, подпёртая снизу и сверху.
+   *
+   * Экран меньше нижней границы — окно занимает его целиком: вылезти за край
+   * оно не должно, иначе до нижних кнопок не добраться.
+   *
+   * @param available - размер окна приложения по этой оси
+   * @param ratio - доля экрана по этой оси
+   * @param minimum - размер, ниже которого не опускаемся, пока экран позволяет
+   * @param maximum - размер, выше которого не поднимаемся
+   * @returns размер окна в пикселях
+   */
+  function fitToViewport(
+    available: number,
+    ratio: number,
+    minimum: number,
+    maximum: number,
+  ): number {
+    const preferred = Math.round(available * ratio);
+
+    return Math.max(Math.min(minimum, available), Math.min(preferred, maximum));
+  }
+
+  /**
+   * Размер окна приложения на момент открытия окна.
+   *
+   * Снимком, а не живой величиной: дальше размером владеет пользователь — он
+   * тянет окно за угол, — и пересчёт на каждое изменение размера приложения
+   * отменял бы его правку. Снимок свежий у каждого открытия: окно
+   * перемонтируется вместе с ним.
+   */
+  const viewportSize = {
+    width: window.innerWidth,
+    height: window.innerHeight,
+  };
+
   /** Размеры модалки: увеличенные для макета с фильтрами */
-  const modalWidth = computed(() => (isWideLayout.value ? 720 : 380));
-  const modalHeight = computed(() => (isWideLayout.value ? 680 : 460));
+  const modalWidth = computed(() =>
+    isWideLayout.value
+      ? fitToViewport(
+          viewportSize.width,
+          WIDE_MODAL_VIEWPORT_RATIO.width,
+          WIDE_MODAL_MINIMUM.width,
+          WIDE_MODAL_MAXIMUM.width,
+        )
+      : 380,
+  );
+
+  const modalHeight = computed(() =>
+    isWideLayout.value
+      ? fitToViewport(
+          viewportSize.height,
+          WIDE_MODAL_VIEWPORT_RATIO.height,
+          WIDE_MODAL_MINIMUM.height,
+          WIDE_MODAL_MAXIMUM.height,
+        )
+      : 460,
+  );
+
   const modalMinWidth = computed(() => (isWideLayout.value ? 560 : 320));
+
+  /**
+   * Размер окна, который окно применяет НА ХОДУ.
+   *
+   * Начальный размер (`initial-width`/`initial-height`) окно спрашивает при
+   * открытии — а макет к этому моменту ещё не известен: настройка показа с
+   * фильтрами приезжает вместе с данными, следующим тиком. Поэтому окно
+   * открывалось узким и таким и оставалось, сколько бы ни было прописано для
+   * широкого макета.
+   *
+   * `saved-size` окно, в отличие от начального размера, отслеживает и применяет
+   * при каждой смене — колонка фильтров появилась, окно тут же и раздалось.
+   * Размер, сохранённый вызывающим, главнее: его задал сам пользователь.
+   */
+  const autoSize = computed(() => ({
+    width: modalWidth.value,
+    height: modalHeight.value,
+  }));
 
   /**
    * Приводит запись к форме, которую принимает проп `entry` у `EntityCard`.
@@ -543,7 +705,16 @@
 
   /** Запрашивает данные из data-файла */
   function requestData(): void {
-    if (!props.socket || !props.dataFile) {
+    if (!props.socket) {
+      return;
+    }
+
+    // Узел не назван — грузим ВЕСЬ канонический тип, со всех паков сразу:
+    // `dataFile` узла несёт префикс пака (`merged:ttg-club/spells`), и назвать
+    // его снаружи нечем, а заклинания одного пака показали бы не весь список
+    if (!props.dataFile) {
+      void requestKindData();
+
       return;
     }
 
@@ -554,6 +725,81 @@
 
     isLoading.value = true;
     props.socket.emit('compendium:request-data', props.dataFile);
+  }
+
+  /**
+   * Загружает записи канонического типа со всех паков и настройку показа к ним.
+   *
+   * Настройка (`view`) живёт у УЗЛА манифеста, а не у типа: без неё не собрать
+   * ни боковых фильтров, ни подписей — окно выбора заклинаний осталось бы и без
+   * фильтра по классу, и без фильтра по кругам. Узлы одного типа объявляют её
+   * одинаково, поэтому берётся первая найденная.
+   */
+  async function requestKindData(): Promise<void> {
+    const socket = props.socket;
+    const kind = props.dataKind;
+
+    if (!socket || !kind || loadedFile.value === kind) {
+      return;
+    }
+
+    isLoading.value = true;
+
+    const [entries, manifests] = await Promise.all([
+      loadCompendiumKind(socket, kind),
+      loadCompendiumManifests(socket),
+    ]);
+
+    const view = findKindView(manifests, kind);
+
+    if (view) {
+      kindViewCache.set(kind, view);
+    }
+
+    items.value = [...entries];
+    kindView.value = view;
+    loadedFile.value = kind;
+    isLoading.value = false;
+  }
+
+  /**
+   * Настройка показа для узлов заданного типа записей.
+   *
+   * @param manifests - манифесты всех паков
+   * @param kind - канонический тип записей
+   * @returns настройка показа; `undefined` — ни один узел её не объявил
+   */
+  function findKindView(
+    manifests: ReadonlyArray<CompendiumManifest>,
+    kind: string,
+  ): CompendiumView | undefined {
+    const walk = (
+      nodes: ReadonlyArray<CompendiumTreeNode>,
+    ): CompendiumView | undefined => {
+      for (const node of nodes) {
+        if (node.dataKind === kind && node.view) {
+          return node.view;
+        }
+
+        const nested = node.children ? walk(node.children) : undefined;
+
+        if (nested) {
+          return nested;
+        }
+      }
+
+      return undefined;
+    };
+
+    for (const manifest of manifests) {
+      const view = walk(manifest.tree ?? []);
+
+      if (view) {
+        return view;
+      }
+    }
+
+    return undefined;
   }
 
   /**
@@ -841,6 +1087,9 @@
       spells: creatureEntry.spells
         ? JSON.parse(JSON.stringify(creatureEntry.spells))
         : undefined,
+      equipment: creatureEntry.equipment
+        ? JSON.parse(JSON.stringify(creatureEntry.equipment))
+        : undefined,
     };
 
     // Применяем нормализацию, чтобы перевести старые поля токена (hasVision -> enabled)
@@ -994,7 +1243,7 @@
     :min-height="250"
     :z-index="zIndex"
     :saved-position="savedPosition"
-    :saved-size="savedSize"
+    :saved-size="savedSize ?? autoSize"
     :ui="{ body: 'overflow-hidden p-0 flex flex-col' }"
     @update:open="emit('update:open', $event)"
     @bring-to-front="emit('bring-to-front')"
@@ -1031,14 +1280,11 @@
               {{ section.label }}
             </span>
 
-            <!-- enum: значения поля (бейджи в ряд или список) -->
+            <!-- Короткие значения (круги, ПО) остаются бейджами в ряд: рядом
+              они читаются шкалой, а строками заняли бы всю колонку -->
             <div
-              v-if="section.type === 'enum'"
-              :class="
-                section.style === 'badges'
-                  ? 'flex flex-wrap gap-1'
-                  : 'flex flex-col gap-1'
-              "
+              v-if="section.type === 'enum' && section.style === 'badges'"
+              class="flex flex-wrap gap-1"
             >
               <UBadge
                 v-for="option in section.options"
@@ -1053,33 +1299,62 @@
                 class="cursor-pointer transition-all select-none"
                 @click.left.exact.prevent="toggleEnum(section.id, option.value)"
               >
-                {{ section.style === 'badges' ? option.short : option.label }}
+                {{ option.short }}
               </UBadge>
             </div>
 
-            <!-- toggles: булевы переключатели -->
+            <!-- Названия (классы, категории) — строками во всю колонку, как в
+              окнах выбора: в узкой плашке они не помещались -->
+            <div
+              v-else-if="section.type === 'enum'"
+              class="flex flex-col gap-1"
+            >
+              <button
+                v-for="option in section.options"
+                :key="option.value"
+                type="button"
+                :class="filterRowClass(isEnumActive(section.id, option.value))"
+                @click.left.exact.prevent="toggleEnum(section.id, option.value)"
+              >
+                <span class="truncate">{{ option.label }}</span>
+
+                <UIcon
+                  v-if="isEnumActive(section.id, option.value)"
+                  name="tabler:check"
+                  class="h-4 w-4 shrink-0 text-primary"
+                />
+              </button>
+            </div>
+
+            <!-- toggles: булевы переключатели — теми же строками -->
             <div
               v-else
               class="flex flex-col gap-1"
             >
-              <UBadge
+              <button
                 v-for="toggle in section.toggles"
                 :key="toggle.key"
-                :color="toggle.color"
-                :variant="
-                  isToggleActive(section.id, toggle.key) ? 'solid' : 'subtle'
-                "
-                size="sm"
-                class="cursor-pointer transition-all select-none"
+                type="button"
+                :class="filterRowClass(isToggleActive(section.id, toggle.key))"
                 @click.left.exact.prevent="toggleBool(section.id, toggle.key)"
               >
+                <span class="flex min-w-0 items-center gap-1.5">
+                  <UIcon
+                    v-if="toggle.icon"
+                    :name="toggle.icon"
+                    class="size-3.5 shrink-0"
+                    :class="TOGGLE_ICON_CLASS[toggle.color] ?? 'text-muted'"
+                  />
+
+                  <span class="truncate">{{ toggle.label }}</span>
+                </span>
+
                 <UIcon
-                  v-if="toggle.icon"
-                  :name="toggle.icon"
-                  class="mr-0.5 size-3.5"
+                  v-if="isToggleActive(section.id, toggle.key)"
+                  name="tabler:check"
+                  class="h-4 w-4 shrink-0 text-primary"
                 />
-                {{ toggle.label }}
-              </UBadge>
+              </button>
             </div>
           </div>
 
@@ -1129,10 +1404,12 @@
               />
             </div>
 
-            <!-- Список предметов с разделителями -->
+            <!-- Список записей: строки разделены линией, как в окнах выбора.
+              Собственная плашка строки снята пропом `flat` — вместе с
+              промежутками она превращала список в лесенку из таблеток -->
             <div
               v-else-if="filteredEntries.length > 0"
-              class="flex flex-col gap-1"
+              class="flex flex-col divide-y divide-accented/25"
             >
               <template
                 v-for="(entry, index) in filteredEntries"
@@ -1164,7 +1441,7 @@
                   v-else-if="isSpeciesData && isSpeciesDefinition(entry)"
                 >
                   <EntityCard
-                    class="hover:bg-primary/10"
+                    flat
                     entity-type="species"
                     :entry="toCardEntry(entry)"
                     show-copy
@@ -1178,7 +1455,7 @@
                   v-else-if="isBackgroundData && isBackgroundDefinition(entry)"
                 >
                   <EntityCard
-                    class="hover:bg-primary/10"
+                    flat
                     entity-type="background"
                     :entry="toCardEntry(entry)"
                     show-copy
@@ -1190,7 +1467,7 @@
                 <!-- Предмет: Класс -->
                 <template v-else-if="isClassData && isClassDefinition(entry)">
                   <EntityCard
-                    class="hover:bg-primary/10"
+                    flat
                     entity-type="class"
                     :entry="toCardEntry(entry)"
                     show-copy
@@ -1202,6 +1479,7 @@
                 <!-- Предмет: Черта -->
                 <template v-else-if="isFeatsData && isFeature(entry)">
                   <EntityCard
+                    flat
                     entity-type="feat"
                     :entry="toCardEntry(entry)"
                     show-copy
@@ -1214,6 +1492,7 @@
                      карточки берётся из собственного поля `type` записи -->
                 <template v-else-if="isGameItem(entry)">
                   <EntityCard
+                    flat
                     :entity-type="entry.type"
                     :entry="toCardEntry(entry)"
                     show-copy
@@ -1231,6 +1510,7 @@
                     @dragend="onCreatureDragEnd"
                   >
                     <EntityCard
+                      flat
                       entity-type="creature"
                       :entry="toCardEntry(entry)"
                       show-copy
@@ -1265,8 +1545,12 @@
                       @update:model-value="toggleSpellSelection(entry)"
                     />
 
+                    <!-- Строка занимает всю ширину: рядом с ней в режиме
+                      выбора стоит чекбокс, поэтому строка тут флекс-элемент, а
+                      не блок, и ширину надо назначить -->
                     <EntityCard
-                      class="flex-1"
+                      class="min-w-0 flex-1"
+                      flat
                       :class="{
                         'opacity-60': isSelectionMode && isSpellKnown(entry),
                       }"
@@ -1306,6 +1590,7 @@
                      из реестра, отдельной ветки на модалке заводить не нужно -->
                 <template v-else-if="registeredCardType(entry)">
                   <EntityCard
+                    flat
                     :entity-type="registeredCardType(entry)"
                     :entry="toCardEntry(entry)"
                     @click="openRegisteredDetail(entry)"

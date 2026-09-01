@@ -1,4 +1,6 @@
 <script setup lang="ts">
+  import type { TypedWebSocketClient } from '@vtt/shared';
+
   import type { SpellOption } from '../grantedSpellsEditorTypes';
   import type { EditableSubclass } from './classEditorTypes';
 
@@ -12,8 +14,8 @@
     CLASS_SUBCLASSES_LABELS,
     FORM_FIELD_LABELS,
   } from '../constants';
+  import CounterRowsEditor from '../CounterRowsEditor.vue';
   import SourceField from '../SourceField.vue';
-  import ClassCountersEditor from './ClassCountersEditor.vue';
   import {
     createEmptyLevelTable,
     createEmptySpellcasting,
@@ -25,6 +27,11 @@
   const props = defineProps<{
     /** Заклинания компендиума по пакам — для подсказок связывания. */
     availableSpells?: SpellOption[];
+    /**
+     * Сокет для окна выбора заклинания из компендиума. Без него добавить
+     * заклинание нечем: другого способа завести запись у редактора нет.
+     */
+    socket?: TypedWebSocketClient | null;
     /** Уровень получения подкласса из базового класса (по умолч. unlockLevel). */
     subclassLevel: number;
   }>();
@@ -41,13 +48,6 @@
 
   const selected = computed<EditableSubclass | null>(
     () => subclasses.value[selectedIndex.value] ?? null,
-  );
-
-  /** Особенности выбранного подкласса как опции привязки счётчиков. */
-  const featureOptions = computed(() =>
-    (selected.value?.features ?? [])
-      .filter((feature) => feature.name.trim().length > 0)
-      .map((feature) => ({ value: feature.key, label: feature.name })),
   );
 
   /** Добавляет подкласс и выбирает его. */
@@ -180,14 +180,16 @@
         <ClassFeaturesEditor
           v-model="selected.features"
           :available-spells="availableSpells"
+          :socket="socket"
           @open-spell="forwardOpenSpell"
         />
       </UFormField>
 
       <UFormField :label="CLASS_SUBCLASSES_LABELS.counters">
-        <ClassCountersEditor
+        <CounterRowsEditor
           v-model="selected.counters"
-          :feature-options="featureOptions"
+          with-start-level
+          with-table-column
         />
       </UFormField>
 

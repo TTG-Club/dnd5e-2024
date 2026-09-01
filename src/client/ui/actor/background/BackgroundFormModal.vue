@@ -54,6 +54,7 @@
     NO_SELECTION,
     SPELL_CHOICE_LABELS,
   } from '../constants';
+  import EntityEffectsEditor from '../EntityEffectsEditor.vue';
   import {
     buildFeatData,
     createEmptyFeatGrants,
@@ -71,7 +72,6 @@
     buildBackgroundEquipmentOptions,
     toEditableEquipmentOption,
   } from '../startingEquipmentEditorTypes';
-  import ActiveEffectFormModal from '../tabs/ActiveEffectFormModal.vue';
 
   const props = defineProps<{
     open: boolean;
@@ -102,7 +102,7 @@
   );
 
   const itemsStore = useItemsStore();
-  const { openModal, getNextZIndex } = useModalManager();
+  const { openModal } = useModalManager();
 
   const abilitiesOptions = ABILITY_OPTIONS.map((ability) => ({
     value: ability.value,
@@ -308,40 +308,6 @@
   }
 
   // ── Редактор активных эффектов ───────────────────────────────
-  const isEffectModalOpen = ref(false);
-  const effectModalZIndex = ref<number | undefined>(undefined);
-  const editingEffect = ref<ActiveEffect | undefined>(undefined);
-
-  function createEffect(): void {
-    editingEffect.value = undefined;
-    effectModalZIndex.value = getNextZIndex();
-    isEffectModalOpen.value = true;
-  }
-
-  function editEffect(effect: ActiveEffect): void {
-    editingEffect.value = effect;
-    effectModalZIndex.value = getNextZIndex();
-    isEffectModalOpen.value = true;
-  }
-
-  function deleteEffect(effectId: string): void {
-    effects.value = effects.value.filter((effect) => effect.id !== effectId);
-  }
-
-  function saveEffect(effect: ActiveEffect): void {
-    const index = effects.value.findIndex(
-      (existing) => existing.id === effect.id,
-    );
-
-    if (index !== -1) {
-      const updated = [...effects.value];
-
-      updated[index] = effect;
-      effects.value = updated;
-    } else {
-      effects.value = [...effects.value, effect];
-    }
-  }
 
   // ── Инициализация при открытии ───────────────────────────────
   function resetForm(): void {
@@ -783,6 +749,7 @@
             <StartingEquipmentEditor
               v-model="equipmentOptions"
               show-gold-alternative
+              :socket="props.socket"
             />
           </div>
         </template>
@@ -798,7 +765,9 @@
               v-model="grants.grantRows"
               hide-ability
               hide-skill
+              hide-feat
               :taken-keys="takenChoiceKeys"
+              :socket="props.socket"
             />
           </div>
         </template>
@@ -831,78 +800,13 @@
 
         <!-- ЭФФЕКТЫ -->
         <template #effects>
-          <div class="flex flex-col gap-2">
-            <p class="text-xs text-dimmed">
-              {{ BACKGROUND_FORM_LABELS.effectsHint }}
-            </p>
-
-            <div
-              v-if="effects.length === 0"
-              class="rounded-lg border border-dashed border-default p-3 text-center text-xs text-dimmed italic"
-            >
-              {{ BACKGROUND_FORM_LABELS.effectsEmpty }}
-            </div>
-
-            <div
-              v-else
-              class="space-y-1"
-            >
-              <div
-                v-for="effect in effects"
-                :key="effect.id"
-                class="flex min-h-11 items-center gap-2 rounded-lg bg-elevated/50 p-2 transition-colors hover:bg-accented/50"
-                :class="{ 'opacity-50 grayscale': effect.disabled }"
-              >
-                <UIcon
-                  :name="effect.icon || 'tabler:bolt'"
-                  class="size-5 shrink-0 text-primary"
-                />
-
-                <div class="min-w-0 flex-1">
-                  <span class="truncate text-sm font-medium">
-                    {{ effect.name }}
-                  </span>
-
-                  <div
-                    v-if="effect.description"
-                    class="mt-0.5 truncate text-[10px] text-dimmed"
-                  >
-                    {{ effect.description }}
-                  </div>
-                </div>
-
-                <div class="flex shrink-0 items-center gap-1">
-                  <UButton
-                    icon="tabler:pencil"
-                    size="xs"
-                    variant="ghost"
-                    color="neutral"
-                    @click.left.exact.prevent="editEffect(effect)"
-                  />
-
-                  <UButton
-                    icon="tabler:trash"
-                    size="xs"
-                    variant="ghost"
-                    color="error"
-                    @click.left.exact.prevent="deleteEffect(effect.id)"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <UButton
-              size="sm"
-              color="primary"
-              variant="soft"
-              icon="tabler:plus"
-              block
-              class="mt-1"
-              @click.left.exact.prevent="createEffect"
-            >
-              {{ MODAL_BUTTON_LABELS.addEffect }}
-            </UButton>
-          </div>
+          <EntityEffectsEditor
+            v-model="effects"
+            modal-id="background-effect-form-modal"
+            :hint="BACKGROUND_FORM_LABELS.effectsHint"
+            :empty-text="BACKGROUND_FORM_LABELS.effectsEmpty"
+            hide-aura
+          />
         </template>
       </UTabs>
     </template>
@@ -938,14 +842,4 @@
       </div>
     </template>
   </UDraggableModal>
-
-  <!-- Редактор активного эффекта -->
-  <ActiveEffectFormModal
-    v-model:open="isEffectModalOpen"
-    modal-id="background-effect-form-modal"
-    :z-index="effectModalZIndex"
-    :effect="editingEffect"
-    hide-aura
-    @save="saveEffect"
-  />
 </template>

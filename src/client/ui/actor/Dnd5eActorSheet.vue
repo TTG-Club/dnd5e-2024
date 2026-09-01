@@ -2,6 +2,7 @@
   import type {
     AbilityType,
     BaseActor,
+    Feature,
     TypedWebSocketClient,
   } from '@vtt/shared';
   import type {
@@ -49,15 +50,20 @@
     DEFAULT_ACTOR,
     getMulticlassProficiencies,
     getTotalLevel,
+    isClassDefinition,
     isDndActor,
     isDnDGameItem,
     isSkillType,
     isSpell,
+    mergeSubclassRecords,
     normalizeActor,
     normalizeCompendiumItem,
+    refreshFeatCounters,
+    removeGrantedSpellsByFeatureNames,
     resolveFeatChoicesToAsk,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useItemTransfer } from '../../composables/useItemTransfer';
   import { useSheetMinimize } from '../../composables/useSheetMinimize';
   import ActorCenterPanel from './ActorCenterPanel.vue';
   import ActorHeader from './ActorHeader.vue';
@@ -66,6 +72,7 @@
   import ActorTabs from './ActorTabs.vue';
   import { buildBackgroundRemovalUpdates } from './background/backgroundRollback';
   import BackgroundSetupWizard from './background/BackgroundSetupWizard.vue';
+  import { isClassEffect } from './class/classEffects';
   import ClassSetupWizard from './class/ClassSetupWizard.vue';
   import CompendiumPickerModal from './CompendiumPickerModal.vue';
   import {
@@ -73,14 +80,19 @@
     ACTOR_SHEET_LOG_PREFIX,
     BACKGROUND_DEFINITION_MIME,
     CLASS_DEFINITION_MIME,
+    CLASS_WIZARD_LABELS,
     COMPENDIUM_PICKER_LABELS,
+    DRAG_OVER_RESET_DELAY_MS,
     FEAT_CHOICES_LABELS,
     FEAT_PREREQUISITE_LABELS,
+    FEATURE_OPTION_SEPARATOR,
+    FEATURE_SOURCE_SEPARATOR,
     GAME_FEATURE_MIME,
     GAME_ITEM_MIME,
     MODAL_BUTTON_LABELS,
     REST_LABELS,
     SPECIES_DEFINITION_MIME,
+    SPECIES_WIZARD_LABELS,
     SPELL_MIME,
     TOAST_TITLES,
     UNSAVED_CHANGES_LABELS,
@@ -160,6 +172,9 @@
   const isClassWizardOpen = ref(false);
   const droppedClassDef = ref<ClassDefinition | null>(null);
 
+  /** Мастер класса открыт, но список классов ещё грузится — показываем скелетон. */
+  const isClassSetupLoading = ref(false);
+
   // Модалка мастера видов
   const isSpeciesWizardOpen = ref(false);
 
@@ -183,6 +198,9 @@
    */
   const appliedSpeciesDef = ref<SpeciesDefinition | null>(null);
 
+  /** Определение применённого подвида-записи — для точного отката при смене. */
+  const appliedSubspeciesDef = ref<SpeciesDefinition | null>(null);
+
   // Очередь для последовательного повышения уровней (Wizard)
   const wizardQueue = ref<Array<{ classKey: string; targetLevel: number }>>([]);
 
@@ -196,10 +214,6 @@
     toRef(() => localActor.value?.id),
     'equipment',
   );
-
-  function isClassDefinition(value: unknown): value is ClassDefinition {
-    return isRecord(value) && value.type === 'class';
-  }
 
   function isSpeciesDefinition(value: unknown): value is SpeciesDefinition {
     return isRecord(value) && value.type === 'species';
@@ -295,6 +309,9 @@
    * Пересобирает итоговый список классов из кеша компендиума и классов мира
    * (компендиум приоритетен при совпадении ключей — копия SRD-класса получает
    * новый ключ и не перекрывает оригинал).
+   *
+   * Записи-подклассы сворачиваются внутрь родителей: дальше по листу подкласс
+   * мира и подкласс компендиума неразличимы.
    */
   function rebuildClassDefinitions(): void {
     const merged = [...compendiumClassDefinitions.value];
@@ -305,7 +322,7 @@
       }
     }
 
-    classDefinitions.value = merged;
+    classDefinitions.value = mergeSubclassRecords(merged);
   }
 
   /**
@@ -425,6 +442,13 @@
     if (found) {
       appliedSpeciesDef.value = found;
     }
+
+    const subspeciesKey = actorData.system.species?.subspeciesKey;
+
+    appliedSubspeciesDef.value = subspeciesKey
+      ? (definitions.find((definition) => definition.key === subspeciesKey)
+        ?? null)
+      : null;
   }
 
   // Предзагрузка определений компендиума при появлении сокета (и смене мира).
@@ -967,6 +991,8 @@
     isOpen.value = false;
   }
 
+  const { receiveTransferredItem } = useItemTransfer();
+
   const { sheetModalRef, minimizedTitle, minimizeSheet } = useSheetMinimize(
     () => localActor.value?.name,
     ACTOR_SHEET_LABELS.untitled,
@@ -1160,7 +1186,7 @@
         isSpellDragOver.value = false;
         isEquipmentDragOver.value = false;
         isFeatureDragOver.value = false;
-      }, 100);
+      }, DRAG_OVER_RESET_DELAY_MS);
     }
   }
 
@@ -1176,10 +1202,43 @@
    *
    * @param definition - определение класса
    */
-  function startClassSetup(definition: ClassDefinition) {
-    droppedClassDef.value = definition;
+  async function startClassSetup(definition: ClassDefinition): Promise<void> {
+    droppedClassDef.value = null;
     wizardQueue.value = []; // Очередь уровней тут ни при чём
+
+    // Окно открываем сразу, со скелетоном: список классов мог ещё не догрузиться
+    // (лист только открылся), а молчать в ответ на перенос нельзя
+    isClassSetupLoading.value = true;
     isClassWizardOpen.value = true;
+
+    const classes = await loadClassDefinitions();
+
+    isClassSetupLoading.value = false;
+
+    // Перенесли запись-подкласс: настройку ведёт мастер её родителя, а подкласс
+    // игрок выбирает шагом мастера
+    const targetKey = definition.parentClassKey ?? definition.key;
+
+    // Берём запись из общего списка, а не саму перенесённую: в списке подклассы,
+    // заведённые отдельными записями, уже свёрнуты внутрь родителя, — иначе
+    // мастер не предложил бы хоумбрю-подкласс к компендиумному классу
+    const target = classes.find((entry) => entry.key === targetKey);
+
+    // Родителя нет среди записей (пак не подключён) — настройка не начинается:
+    // у самого подкласса нет ни таблицы уровней, ни владений
+    if (!target && definition.parentClassKey) {
+      isClassWizardOpen.value = false;
+
+      toast.add({
+        title: CLASS_WIZARD_LABELS.subclassParentMissingTitle,
+        description: CLASS_WIZARD_LABELS.subclassParentMissingText,
+        color: 'warning',
+      });
+
+      return;
+    }
+
+    droppedClassDef.value = target ?? definition;
   }
 
   /**
@@ -1199,7 +1258,7 @@
     }
 
     if (restDefinitions.length === 0) {
-      startClassSetup(firstDefinition);
+      void startClassSetup(firstDefinition);
 
       return;
     }
@@ -1215,10 +1274,34 @@
   /**
    * Запускает настройку вида: у персонажа с видом сперва спрашиваем замену.
    *
+   * Запись-подвид самостоятельным видом не применяется: вместо неё открывается
+   * мастер её родителя, а происхождение игрок выбирает шагом мастера. Родителя
+   * нет среди записей (пак не подключён) — настройка не начинается.
+   *
    * @param definition - определение вида
    */
   function startSpeciesSetup(definition: SpeciesDefinition) {
-    droppedSpeciesDef.value = definition;
+    let target = definition;
+
+    if (definition.parentKey) {
+      const parent = speciesDefinitions.value.find(
+        (entry) => entry.key === definition.parentKey,
+      );
+
+      if (!parent) {
+        toast.add({
+          title: SPECIES_WIZARD_LABELS.subspeciesParentMissingTitle,
+          description: SPECIES_WIZARD_LABELS.subspeciesParentMissingText,
+          color: 'warning',
+        });
+
+        return;
+      }
+
+      target = parent;
+    }
+
+    droppedSpeciesDef.value = target;
 
     if (localActor.value?.system.species) {
       replaceConfirmTarget.value = 'species';
@@ -1245,12 +1328,62 @@
     }
   }
 
+  /**
+   * Принимает предмет, переданный с другого листа: предмет уходит из инвентаря
+   * отправителя и появляется здесь.
+   *
+   * Отправителя обновляет композабл переноса — его лист может быть закрыт.
+   * Сюда возвращается только новый инвентарь получателя.
+   *
+   * @param event - событие drop
+   * @returns `true`, если нагрузка была передачей предмета
+   */
+  function handleItemTransferDrop(event: DragEvent): boolean {
+    // В режиме правки жест не принимается: у отправителя предмет уходит сразу и
+    // на сервер, а здесь правки копятся до «Сохранить» — «Отмена» стёрла бы
+    // предмет уже после того, как его отдали, и он пропал бы у обоих
+    if (isEditMode.value || !localActor.value) {
+      return false;
+    }
+
+    const received = receiveTransferredItem(
+      event,
+      localActor.value,
+      props.socket,
+    );
+
+    if (!received) {
+      return false;
+    }
+
+    localActor.value.equipment = received.equipment;
+    isDirty.value = true;
+
+    handleImmediateSave();
+
+    activeTab.value = 'equipment';
+
+    toast.add({
+      title: ACTOR_SHEET_LABELS.itemReceived,
+      description: received.itemName,
+      color: 'success',
+    });
+
+    return true;
+  }
+
   function handleDrop(event: DragEvent) {
     isSpellDragOver.value = false;
     isEquipmentDragOver.value = false;
     isFeatureDragOver.value = false;
 
     if (!canEdit.value || !event.dataTransfer) {
+      return;
+    }
+
+    // Передача с другого листа идёт первой: у неё свой MIME, и по нему предмет
+    // ПЕРЕЕЗЖАЕТ, а не копируется, как запись компендиума ниже
+    if (handleItemTransferDrop(event)) {
       return;
     }
 
@@ -1273,7 +1406,7 @@
           throw new Error('Dropped class definition has invalid shape');
         }
 
-        startClassSetup(parsedClassDefinition);
+        void startClassSetup(parsedClassDefinition);
         event.preventDefault();
         event.stopPropagation();
       } catch (error) {
@@ -1610,6 +1743,7 @@
 
     if (targetDef) {
       droppedClassDef.value = targetDef;
+      isClassSetupLoading.value = false;
       isClassWizardOpen.value = true;
 
       return;
@@ -1871,6 +2005,48 @@
   }
 
   /**
+   * Имена источников, которыми помечены заклинания снимаемого класса.
+   *
+   * Одним именем не обойтись: заклинание, выданное блоком даров класса, помечено
+   * названием класса, выданное вариантом умения — названием САМОГО варианта, а
+   * запись варианта на листе названа «умение: вариант». Дары подкласса помечены
+   * его названием, а оно живёт в происхождении записи («Колдун — Покровитель»).
+   * Поэтому имя каждой снимаемой записи разбирается на составляющие.
+   *
+   * @param className - название снимаемого класса
+   * @param features - записи листа, которые уходят вместе с классом
+   * @returns имена источников для отката выданных заклинаний
+   */
+  function collectGrantedSpellSourceNames(
+    className: string,
+    features: ReadonlyArray<Feature>,
+  ): string[] {
+    const names = new Set<string>([className]);
+
+    /**
+     * Добавляет хвост строки после последнего разделителя.
+     *
+     * @param value - строка с разделителем
+     * @param separator - разделитель
+     */
+    const addTail = (value: string, separator: string): void => {
+      const index = value.lastIndexOf(separator);
+
+      if (index !== -1) {
+        names.add(value.slice(index + separator.length));
+      }
+    };
+
+    for (const feature of features) {
+      names.add(feature.name);
+      addTail(feature.name, FEATURE_OPTION_SEPARATOR);
+      addTail(feature.grantedBy ?? '', FEATURE_SOURCE_SEPARATOR);
+    }
+
+    return [...names];
+  }
+
+  /**
    * Удаляет класс у актёра и все связанные с ним данные:
    * - Запись из system.classes
    * - Особенности (features) с featureType 'class' или 'subclass', привязанные к этому классу
@@ -1899,6 +2075,8 @@
     localActor.value.system.classes = remainingClasses;
 
     // Удаляем все features, связанные с этим классом
+    const removedFeatures: Feature[] = [];
+
     if (localActor.value.features) {
       localActor.value.features = localActor.value.features.filter(
         (feature) => {
@@ -1912,17 +2090,48 @@
 
           // grantedBy содержит название класса (напр. «Волшебник» или
           // «Волшебник — Школа воплощения»)
-          return !feature.grantedBy?.includes(removedClassName);
+          const isOwn = Boolean(feature.grantedBy?.includes(removedClassName));
+
+          if (isOwn) {
+            removedFeatures.push(feature);
+          }
+
+          return !isOwn;
         },
       );
     }
 
-    // Удаляем activeEffects, связанные с этим классом (ASI, черты)
-    if (localActor.value.activeEffects) {
-      localActor.value.activeEffects = localActor.value.activeEffects.filter(
-        (effect) => !effect.name.includes(removedClassName),
+    // Заклинания, выданные снятыми умениями и их вариантами: воззвание колдуна
+    // положило своё заклинание в книгу, и без класса ему там делать нечего
+    if (localActor.value.spells) {
+      localActor.value.spells = removeGrantedSpellsByFeatureNames(
+        localActor.value.spells,
+        collectGrantedSpellSourceNames(removedClassName, removedFeatures),
       );
     }
+
+    // Удаляем activeEffects, связанные с этим классом. Эффекты, заявленные
+    // записью класса, узнаются по провенансу в id; эффекты повышения
+    // характеристик его не имеют — они собираются мастером на месте и несут
+    // название класса в подписи
+    if (localActor.value.activeEffects) {
+      localActor.value.activeEffects = localActor.value.activeEffects.filter(
+        (effect) =>
+          !isClassEffect(effect, classKey)
+          && !effect.name.includes(removedClassName),
+      );
+    }
+
+    // Счётчики удалённого класса и ресурсы его умений. Классовые отбираются по
+    // ключу класса, а ресурс выбранного варианта умения живёт на записи самого
+    // варианта — вместе с ней он и уходит: пересборка от оставшихся
+    // особенностей забирает всё, чему больше нечем владеть
+    localActor.value.system.classCounters = refreshFeatCounters(
+      localActor.value,
+      (localActor.value.system.classCounters ?? []).filter(
+        (counter) => counter.classKey !== classKey,
+      ),
+    );
 
     // Пересобираем proficiencies из SRD-данных оставшихся классов
     rebuildProficienciesFromRemainingClasses(
@@ -2013,12 +2222,14 @@
     const { systemUpdates, rootUpdates } = buildSpeciesRemovalUpdates(
       localActor.value,
       appliedSpeciesDef.value,
+      appliedSubspeciesDef.value,
     );
 
     Object.assign(localActor.value.system, systemUpdates);
     Object.assign(localActor.value, rootUpdates);
 
     appliedSpeciesDef.value = null;
+    appliedSubspeciesDef.value = null;
     droppedSpeciesDef.value = null;
 
     isDirty.value = true;
@@ -2090,6 +2301,14 @@
     // Сохраняем определение применённого вида для отката при следующей смене
     appliedSpeciesDef.value = droppedSpeciesDef.value;
 
+    const subspeciesKey = localActor.value.system.species?.subspeciesKey;
+
+    appliedSubspeciesDef.value = subspeciesKey
+      ? (speciesDefinitions.value.find(
+          (definition) => definition.key === subspeciesKey,
+        ) ?? null)
+      : null;
+
     isDirty.value = true;
     handleImmediateSave();
   }
@@ -2118,16 +2337,24 @@
     const totalLevel = getTotalLevel(actorData.system.classes);
     const chosenSubspecies = Object.values(speciesEntry.featureChoices ?? {});
 
+    const subspecies = speciesEntry.subspeciesKey
+      ? (speciesDefinitions.value.find(
+          (entry) => entry.key === speciesEntry.subspeciesKey,
+        ) ?? null)
+      : null;
+
     const movement = computeSpeciesMovement(
       definition,
       totalLevel,
       chosenSubspecies,
+      subspecies,
     );
 
     const darkvision = computeSpeciesDarkvision(
       definition,
       totalLevel,
       chosenSubspecies,
+      subspecies,
     );
 
     let changed = false;
@@ -2177,7 +2404,9 @@
         ',',
       );
 
-      return `${speciesEntry.speciesKey}|${totalLevel}|${choices}`;
+      const subspecies = speciesEntry.subspeciesKey ?? '';
+
+      return `${speciesEntry.speciesKey}|${subspecies}|${totalLevel}|${choices}`;
     },
     (signature, previousSignature) => {
       if (!signature || signature === previousSignature) {
@@ -2441,6 +2670,7 @@
     v-model:open="isClassWizardOpen"
     :actor="localActor"
     :class-definition="droppedClassDef"
+    :loading="isClassSetupLoading"
     :socket="socket"
     @apply="handleClassSetupApply"
   />
@@ -2452,6 +2682,8 @@
     :actor="localActor"
     :species-definition="droppedSpeciesDef"
     :previous-species-definition="appliedSpeciesDef"
+    :previous-subspecies-definition="appliedSubspeciesDef"
+    :species-records="speciesDefinitions"
     :socket="socket"
     @apply="handleSpeciesSetupApply"
   />

@@ -37,7 +37,7 @@ import type {
   DnDProficiencies,
 } from './types.js';
 
-import { isRecord } from '@vtt/shared';
+import { isCreatureEntity, isRecord } from '@vtt/shared';
 
 import { getTotalLevel } from './classTypes.js';
 import {
@@ -171,6 +171,35 @@ export function getCreatureProficiencyBonus(
 }
 
 /**
+ * Бонус мастерства листа — любого. Основа расчёта у листов разная (у актёра
+ * суммарный уровень, у существа показатель опасности), и оружейный разбор не
+ * должен знать, чей лист перед ним: он спрашивает число здесь.
+ *
+ * @param entity - актёр или существо листа
+ * @param resolvedStats - итоговые статы пайплайна, если они есть
+ * @returns бонус мастерства
+ */
+export function getEntityProficiencyBonus(
+  entity: DnDSceneEntity,
+  resolvedStats?: ResolvedActorStats,
+): number {
+  if (resolvedStats) {
+    return resolvedStats.proficiencyBonus;
+  }
+
+  // Сущность различает нейтральный гвард ядра, а не метка типа напрямую:
+  // `entityType` у актёра объявлен широким union'ом и на отрицательное сужение
+  // не годится, а у существа это литерал — предикат фильтрует союз в обе
+  // стороны. Полный гвард D&D (`isDndCreature`) здесь не подходит: он вдобавок
+  // требует шесть характеристик числами, и существо с испорченной записью ушло
+  // бы считаться по классовым уровням, которых у него нет, — молча получая
+  // бонус 2 вместо бонуса по опасности
+  return isCreatureEntity(entity)
+    ? getCreatureProficiencyBonus(entity)
+    : getActorProficiencyBonus(entity);
+}
+
+/**
  * Возвращает требуемый опыт для следующего уровня
  *
  * @param currentLevel - Текущий уровень персонажа (1-20)
@@ -273,12 +302,12 @@ export function calculateSkillModifier(
  * 1. Ключу базового типа (baseType, например "longsword")
  * 2. Категории оружия ("simple" / "martial")
  *
- * @param actor - актёр-владелец
+ * @param owner - актёр или существо, владеющее оружием
  * @param weapon - оружие
  * @returns true если бонус мастерства должен применяться
  */
 export function resolveWeaponProficiency(
-  actor: DnDActor,
+  owner: DnDSceneEntity,
   weapon: DnDGameItem,
 ): boolean {
   const mode = weapon.proficiencyMode ?? 'auto';
@@ -291,8 +320,16 @@ export function resolveWeaponProficiency(
     return false;
   }
 
+  // У существа владений нет и не заводится: по статблокам 2024-й монстр умеет
+  // то, чем вооружён, и бонус мастерства по опасности идёт в атаку всегда.
+  // Снять его точечно можно на самом предмете — режимом `never`, который
+  // проверен выше: отдельного списка владений для этого не требуется.
+  if (owner.entityType === 'creature') {
+    return true;
+  }
+
   // auto: сверяем baseType оружия со списком владений актёра
-  const actorWeapons = actor.system?.proficiencies?.weapons ?? [];
+  const actorWeapons = owner.system?.proficiencies?.weapons ?? [];
 
   if (!weapon.baseType) {
     return false;
@@ -342,13 +379,13 @@ export function getDefaultWeaponAbility(
  * считалась бы от «сырого» числа, а плитка характеристики на листе показывала
  * бы другое. Без статов — откат на запись листа.
  *
- * @param actor - актёр-владелец
+ * @param actor - владелец оружия: актёр или существо
  * @param weapon - оружие
  * @param resolvedStats - итоговые статы из пайплайна (если посчитаны)
  * @returns ключ характеристики атаки
  */
 export function resolveWeaponAttackAbility(
-  actor: DnDActor,
+  actor: DnDSceneEntity,
   weapon: DnDGameItem,
   resolvedStats?: ResolvedActorStats,
 ): AbilityType {
@@ -376,13 +413,13 @@ export function resolveWeaponAttackAbility(
  * свою (`damageAbility`) либо отказаться от прибавки вовсе (`none`) — так
  * описываются предметы вроде метательной сети и домашние правила.
  *
- * @param actor - актёр-владелец
+ * @param actor - владелец оружия: актёр или существо
  * @param weapon - оружие
  * @param resolvedStats - итоговые статы из пайплайна (если посчитаны)
  * @returns ключ характеристики урона; `null` — урон без характеристики
  */
 export function resolveWeaponDamageAbility(
-  actor: DnDActor,
+  actor: DnDSceneEntity,
   weapon: DnDGameItem,
   resolvedStats?: ResolvedActorStats,
 ): AbilityType | null {
@@ -444,18 +481,18 @@ export const WEAPON_NO_PROFICIENCY_NOTE = 'нет владения';
  * Числа листа, от которых считаются свои бонусы оружия. Итоговые статы держат
  * готовый контекст; без них он собирается по записи листа.
  *
- * @param actor - актёр-владелец
+ * @param actor - владелец оружия: актёр или существо
  * @param resolvedStats - итоговые статы из пайплайна (если посчитаны)
  * @returns контекст своих бонусов
  */
 function getWeaponBonusContext(
-  actor: DnDActor,
+  actor: DnDSceneEntity,
   resolvedStats?: ResolvedActorStats,
 ): DnDCustomBonusContext {
   return (
     resolvedStats?.abilityBonusContext ?? {
       abilityMods: getActorAbilityModifiers(actor),
-      proficiencyBonus: getActorProficiencyBonus(actor),
+      proficiencyBonus: getEntityProficiencyBonus(actor),
     }
   );
 }
@@ -466,13 +503,13 @@ function getWeaponBonusContext(
  * именно их), иначе — из записи листа.
  *
  * @param abilityKey - ключ характеристики
- * @param actor - актёр-владелец
+ * @param actor - владелец оружия: актёр или существо
  * @param resolvedStats - итоговые статы из пайплайна (если посчитаны)
  * @returns слагаемое характеристики
  */
 function getWeaponAbilityPart(
   abilityKey: AbilityType,
-  actor: DnDActor,
+  actor: DnDSceneEntity,
   resolvedStats?: ResolvedActorStats,
 ): WeaponModifierPart {
   const abilities = resolvedStats?.abilities ?? actor.system?.abilities;
@@ -566,13 +603,13 @@ function getWeaponEffectsParts(
  * остальные остаются в счёте.
  *
  * @param bonuses - свои бонусы оружия
- * @param actor - актёр-владелец
+ * @param actor - владелец оружия: актёр или существо
  * @param resolvedStats - итоговые статы из пайплайна (если посчитаны)
  * @returns слагаемые своих бонусов (пустой список — бонусов нет)
  */
 function getWeaponCustomBonusParts(
   bonuses: DnDCustomBonus[] | undefined,
-  actor: DnDActor,
+  actor: DnDSceneEntity,
   resolvedStats?: ResolvedActorStats,
 ): WeaponModifierPart[] {
   const parsed = parseCustomBonuses(bonuses);
@@ -596,13 +633,13 @@ function getWeaponCustomBonusParts(
  * Строка мастерства стоит в разборе и без владения — с нулём и пометкой:
  * именно она объясняет, почему в атаке не хватает бонуса мастерства.
  *
- * @param actor - актёр-владелец
+ * @param actor - владелец оружия: актёр или существо
  * @param weapon - оружие
  * @param resolvedStats - итоговые статы из пайплайна (для бонусов от эффектов)
  * @returns слагаемые бонуса атаки в порядке показа
  */
 export function describeWeaponAttack(
-  actor: DnDActor,
+  actor: DnDSceneEntity,
   weapon: DnDGameItem,
   resolvedStats?: ResolvedActorStats,
 ): WeaponModifierPart[] {
@@ -617,7 +654,7 @@ export function describeWeaponAttack(
     {
       key: 'proficiency',
       label: WEAPON_MODIFIER_PART_LABELS.proficiency,
-      value: isProficient ? getActorProficiencyBonus(actor, resolvedStats) : 0,
+      value: isProficient ? getEntityProficiencyBonus(actor, resolvedStats) : 0,
       note: isProficient ? undefined : WEAPON_NO_PROFICIENCY_NOTE,
     },
   ];
@@ -639,13 +676,13 @@ export function describeWeaponAttack(
 /**
  * Разбирает статическую прибавку к урону оружия на слагаемые.
  *
- * @param actor - актёр-владелец
+ * @param actor - владелец оружия: актёр или существо
  * @param weapon - оружие
  * @param resolvedStats - итоговые статы из пайплайна (для бонусов от эффектов)
  * @returns слагаемые прибавки к урону в порядке показа
  */
 export function describeWeaponDamage(
-  actor: DnDActor,
+  actor: DnDSceneEntity,
   weapon: DnDGameItem,
   resolvedStats?: ResolvedActorStats,
 ): WeaponModifierPart[] {
@@ -686,13 +723,13 @@ export function sumWeaponModifierParts(parts: WeaponModifierPart[]): number {
  * {@link describeWeaponAttack}: модификатор характеристики, бонус мастерства,
  * бонусы самого оружия, бонусы от Active Effects и свои бонусы оружия.
  *
- * @param actor - актёр-владелец
+ * @param actor - владелец оружия: актёр или существо
  * @param weapon - оружие
  * @param resolvedStats - итоговые статы из пайплайна (для бонусов от эффектов)
  * @returns модификатор атаки
  */
 export function calculateWeaponAttackModifier(
-  actor: DnDActor,
+  actor: DnDSceneEntity,
   weapon: DnDGameItem,
   resolvedStats?: ResolvedActorStats,
 ): number {
@@ -706,13 +743,13 @@ export function calculateWeaponAttackModifier(
  * {@link describeWeaponDamage}. Магический бонус входит в неё, поэтому
  * отдельно его прибавлять не нужно.
  *
- * @param actor - актёр-владелец
+ * @param actor - владелец оружия: актёр или существо
  * @param weapon - оружие
  * @param resolvedStats - итоговые статы из пайплайна (для бонусов от эффектов)
  * @returns статический бонус к урону
  */
 export function calculateWeaponDamageModifier(
-  actor: DnDActor,
+  actor: DnDSceneEntity,
   weapon: DnDGameItem,
   resolvedStats?: ResolvedActorStats,
 ): number {
@@ -1012,6 +1049,7 @@ function parseLegacyProficiencies(value: unknown): DnDProficiencies {
     armor: parseStringList(source.armor),
     weapons: parseStringList(source.weapons),
     weaponMasteries: parseStringList(source.weaponMasteries),
+    masteryProperties: parseStringList(source.masteryProperties),
     tools: parseStringList(source.tools),
     // Общий язык — стартовый по правилам: у актёра без списка языков он есть,
     // а вот пустой список в записи — уже осознанный выбор, и его не трогаем
@@ -1404,6 +1442,30 @@ export function normalizeCreature(creature: BaseCreature): void {
   // зарядов к каноническому union (алиас 'day' → 'longRest')
   if (!Array.isArray(raw.spells)) {
     raw.spells = [];
+  }
+
+  // Инвентарь существа: у записей старых миров и у существ компендиума поля
+  // нет вовсе, а панель снаряжения и расчёты читают его как массив
+  if (!Array.isArray(raw.equipment)) {
+    raw.equipment = [];
+  }
+
+  // Разовая коэрсия способа расчёта КД. До появления инвентаря расчёт существа
+  // это поле игнорировал и всегда брал число статблока, а окно КД записывало в
+  // него «по умолчанию» просто открытием. Теперь «по умолчанию» означает
+  // «считать от снаряжения», и такая запись увела бы монстра с его КД на
+  // «10 + мод. Ловкости». Пустой мешок доказывает, что выбор был не осознанным:
+  // при нём возвращаем «фиксированный». Существо с непустым инвентарём не
+  // трогаем — там расчёт от снаряжения мог быть выбран намеренно.
+  const armorClass = system.armorClass;
+
+  if (
+    isRecord(armorClass)
+    && armorClass.calculation === 'default'
+    && Array.isArray(raw.equipment)
+    && raw.equipment.length === 0
+  ) {
+    armorClass.calculation = 'flat';
   }
 
   const spells: unknown[] = Array.isArray(raw.spells) ? raw.spells : [];

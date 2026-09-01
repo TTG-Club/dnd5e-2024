@@ -9,8 +9,11 @@
     COUNTER_COUNT_MAX,
     COUNTER_COUNT_MIN,
     COUNTER_MAX_DEFAULT_ABILITY,
+    COUNTER_MAX_MULTIPLIER_MAX,
+    COUNTER_MAX_MULTIPLIER_MIN,
     COUNTER_MAX_OFFSET_MAX,
     COUNTER_MAX_OFFSET_MIN,
+    COUNTER_MINIMUM_MAX,
     counterMaxFormula,
     parseCounterMaxFormula,
   } from '@vtt/shared/system/dnd.js';
@@ -28,6 +31,18 @@
    * написанное.
    */
   const model = defineModel<string>({ required: true });
+
+  /**
+   * Нижняя граница максимума; 0 — границы нет.
+   *
+   * Отдельным полем, а не частью формулы: она подпирает расчёт снизу, а не
+   * участвует в нём, и `max(@mod.cha, 1)` пришлось бы учить понимать и разбор
+   * формулы, и все её потребители. Вдохновение барда равно модификатору
+   * Харизмы, но не меньше одного.
+   */
+  const minimum = defineModel<number>('minimum', {
+    default: COUNTER_COUNT_MIN,
+  });
 
   const props = defineProps<{
     /**
@@ -86,6 +101,8 @@
 
   const offset = computed(() => rule.value?.offset ?? 0);
 
+  const multiplier = computed(() => rule.value?.multiplier ?? 1);
+
   const ability = computed<AbilityType>(
     () => rule.value?.ability ?? COUNTER_MAX_DEFAULT_ABILITY,
   );
@@ -124,6 +141,22 @@
    */
   function setFixedAmount(value: number | undefined): void {
     model.value = String(value ?? COUNTER_COUNT_MIN);
+  }
+
+  /**
+   * Записывает множитель значения источника.
+   *
+   * @param value - множитель; единица убирает его из формулы
+   */
+  function setMultiplier(value: number | undefined): void {
+    if (!rule.value) {
+      return;
+    }
+
+    model.value = counterMaxFormula({
+      ...rule.value,
+      multiplier: Math.max(COUNTER_MAX_MULTIPLIER_MIN, value ?? 1),
+    });
   }
 
   /**
@@ -218,6 +251,21 @@
       </UFormField>
 
       <UFormField
+        :label="COUNTER_RESOURCE_LABELS.multiplier"
+        class="w-24"
+      >
+        <UInputNumber
+          :model-value="multiplier"
+          :min="COUNTER_MAX_MULTIPLIER_MIN"
+          :max="COUNTER_MAX_MULTIPLIER_MAX"
+          :aria-label="COUNTER_RESOURCE_LABELS.multiplier"
+          size="sm"
+          class="w-full"
+          @update:model-value="setMultiplier"
+        />
+      </UFormField>
+
+      <UFormField
         :label="COUNTER_RESOURCE_LABELS.offset"
         class="w-24"
       >
@@ -232,6 +280,23 @@
         />
       </UFormField>
     </template>
+
+    <!-- Нижняя граница нужна только считаемому максимуму: у своего числа
+      меньше него ресурс и так не бывает -->
+    <UFormField
+      v-if="kind !== 'fixed'"
+      :label="COUNTER_RESOURCE_LABELS.minimum"
+      class="w-24"
+    >
+      <UInputNumber
+        v-model="minimum"
+        :min="COUNTER_COUNT_MIN"
+        :max="COUNTER_MINIMUM_MAX"
+        :aria-label="COUNTER_RESOURCE_LABELS.minimum"
+        size="sm"
+        class="w-full"
+      />
+    </UFormField>
 
     <p
       v-if="isComputed && props.computedMax !== undefined"

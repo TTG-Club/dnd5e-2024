@@ -4,8 +4,15 @@
   import { computed, reactive } from 'vue';
 
   import { useContextMenu } from '../../composables/useContextMenu';
-  import { GAME_FEATURE_MIME } from './constants';
+  import {
+    FEAT_LIST_ITEM_LABELS,
+    GAME_FEATURE_MIME,
+    LIST_ROW_CARD_CLASS,
+    LIST_ROW_FLAT_CLASS,
+    LIST_ROW_SHEET_FEAT_CLASS,
+  } from './constants';
   import ContextMenuOverlay from './ContextMenuOverlay.vue';
+  import EntityRowBody from './EntityRowBody.vue';
   import FeatListItemCompendium from './FeatListItemCompendium.vue';
   import FeatListItemSheet from './FeatListItemSheet.vue';
 
@@ -24,9 +31,27 @@
     showCost?: boolean;
     showWeight?: boolean;
     variant?: 'sheet' | 'compendium';
+    /**
+     * Плоская строка списка: без своей плашки и скругления. Так строка встаёт в
+     * список с разделителями (компендиум и окна выбора); на листе персонажа
+     * строки стоят порознь, и плашка им нужна.
+     */
+    flat?: boolean;
   }>();
 
   const isSheet = computed(() => props.variant === 'sheet');
+
+  /**
+   * Оформление строки. Видов три: на листе персонажа она выше и темнее (там с
+   * ней работают руками), в списке — плоская, в остальных местах — плашкой.
+   */
+  const rowClass = computed(() => {
+    if (isSheet.value) {
+      return LIST_ROW_SHEET_FEAT_CLASS;
+    }
+
+    return props.flat ? LIST_ROW_FLAT_CLASS : LIST_ROW_CARD_CLASS;
+  });
 
   const emit = defineEmits<{
     click: [];
@@ -76,12 +101,8 @@
   <div
     v-bind="$attrs"
     draggable="true"
-    :class="[
-      'flex cursor-grab items-center gap-3 rounded-lg px-3 py-2 transition-colors active:cursor-grabbing',
-      isSheet
-        ? 'min-h-11 bg-accented/30 hover:bg-accented/50'
-        : 'bg-elevated/30 hover:bg-accented/40',
-    ]"
+    class="flex cursor-grab items-center gap-3 py-2 transition-colors active:cursor-grabbing"
+    :class="rowClass"
     @dragstart="handleDragStart"
     @click.left.exact.prevent="emit('click')"
     @contextmenu="openContextMenu"
@@ -95,6 +116,28 @@
       @edit="emit('edit')"
       @delete="emit('delete')"
     />
+
+    <!-- Строка списка: название, английское название и источник справа -->
+    <EntityRowBody
+      v-else-if="flat"
+      :name="item.name"
+      :name-en="item.nameEn"
+      :source-key="item.sourceKey"
+      :source="item.source"
+    >
+      <template #badges>
+        <!-- Повторяемость меняет смысл черты, а не уточняет числа -->
+        <UBadge
+          v-if="item.repeatable"
+          color="warning"
+          variant="subtle"
+          size="sm"
+          class="shrink-0"
+        >
+          {{ FEAT_LIST_ITEM_LABELS.repeatable }}
+        </UBadge>
+      </template>
+    </EntityRowBody>
 
     <!-- Классический вид для компендиума -->
     <FeatListItemCompendium

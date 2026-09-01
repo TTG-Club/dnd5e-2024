@@ -31,6 +31,9 @@ import type {
   FogLoadSceneResponse,
   FogSavePayload,
   GmBroadcastFrameSync,
+  GraphEdge,
+  GraphNode,
+  GraphNodeMove,
   LightSource,
   MeasurementTemplate,
   Note,
@@ -41,6 +44,7 @@ import type {
   ServerUser,
   SourceDefinition,
   Token,
+  TokenTargetMark,
   ToolPropertyDefinition,
   TransitionArea,
   UserSettings,
@@ -190,6 +194,9 @@ export interface ServerToClientEvents {
   }) => void;
   'cursor:update': (cursor: CursorPosition) => void;
   'cursor:remove': (userId: string) => void;
+  // --- Кто взял токен в цель (кружки над токеном) ---
+  'target:update': (mark: TokenTargetMark) => void;
+  'target:state': (sceneId: string, marks: TokenTargetMark[]) => void;
   // --- Трансляционные рамки ГМа (только между ГМами) ---
   'gm-broadcast:upsert': (frame: GmBroadcastFrameSync) => void;
   'gm-broadcast:remove': (frameId: string) => void;
@@ -335,6 +342,28 @@ export interface ServerToClientEvents {
   'journal:reordered': (
     items: import('./types/index.js').JournalReorderItem[],
   ) => void;
+  // Граф приключения (Server → Client).
+  // Сервер фильтрует ПЕРЕД отправкой: игроки получают только revealed-узлы
+  // без gmNotes и рёбра, у которых раскрыты оба конца. Reveal-переходы сервер
+  // транслирует игрокам явными created/deleted (паттерн журнала).
+  /** Полный (для игрока — отфильтрованный) снапшот графа в ответ на graph:request */
+  'graph:data': (
+    sceneId: string,
+    nodes: GraphNode[],
+    edges: GraphEdge[],
+  ) => void;
+  'graph:node-created': (node: GraphNode) => void;
+  /**
+   * Полный объект узла (не патч) — обходит ловушку JSON-сериализации
+   * хвостовых undefined. Клиент делает upsert: узел мог стать видимым.
+   */
+  'graph:node-updated': (node: GraphNode) => void;
+  'graph:node-deleted': (sceneId: string, nodeId: string) => void;
+  /** Батч перемещений (drag); игрокам — только revealed-узлы */
+  'graph:nodes-moved': (sceneId: string, moves: GraphNodeMove[]) => void;
+  'graph:edge-created': (edge: GraphEdge) => void;
+  'graph:edge-updated': (edge: GraphEdge) => void;
+  'graph:edge-deleted': (sceneId: string, edgeId: string) => void;
   // Папки сущностей: актёры и существа (Server → Client)
   /**
    * `hiddenEntityIds` — сущности из скрытых веток. Игроку их не показываем
@@ -493,6 +522,29 @@ export interface ClientToServerEvents {
   'actor:updated': (actor: BaseActor) => void;
   'actor:deleted': (actorId: string) => void;
   'actor:duplicate': (actorId: string) => void;
+  /**
+   * Продублировать актёра и сразу поставить копию токеном на стол
+   * (копирование токена через Ctrl + C / Ctrl + V). Сервер клонирует актёра
+   * с ассетами, даёт копии уникальное имя (суффикс " 1", " 2"), создаёт токен
+   * (actorId выставляется на id копии) и рассылает actor:created +
+   * token:created. Fire-and-forget (без ack), как и `creature:instantiate`.
+   *
+   * Своё событие, а не пара `actor:duplicate` + `token:created`: без атомарной
+   * операции токен и карточка копии расходятся.
+   */
+  'actor:instantiate': (
+    sourceActorId: string,
+    sceneId: string,
+    token: Token,
+    /**
+     * ID будущей копии — его придумывает КЛИЕНТ (формат `generateId('actor')`).
+     * Иначе id копии знал бы только сервер, и Ctrl + Z умел бы убрать токен, но
+     * не карточку. Сервер сверяет формат (`isGeneratedId`) и занятость: чужой
+     * или кривой id — отказ целиком, потому что «молча выдать другой» превратило
+     * бы отмену в удаление постороннего актёра.
+     */
+    newActorId: string,
+  ) => void;
 
   // --- Creature ---
   'creature:created': (creature: BaseCreature) => void;
@@ -639,6 +691,10 @@ export interface ClientToServerEvents {
   'cursor:gm-ping': (sceneId: string, x: number, y: number) => void;
   'cursor:hide': () => void;
 
+  // --- Выбор цели (общая для всех отметка над токеном) ---
+  'target:set': (sceneId: string, tokenId: string | null) => void;
+  'target:request-state': (sceneId: string) => void;
+
   // --- Трансляционные рамки ГМа (только ГМ; сервер гейтит по роли) ---
   'gm-broadcast:upsert': (frame: GmBroadcastFrameSync) => void;
   'gm-broadcast:remove': (frameId: string) => void;
@@ -720,6 +776,32 @@ export interface ClientToServerEvents {
     items: import('./types/index.js').JournalReorderItem[],
   ) => void;
   'journal:request-folders': (worldId: string) => void;
+  // Граф приключения (Client → Server).
+  // Все мутации — только админ (withAdmin); graph:request — любой
+  // аутентифицированный, но игроку сервер отвечает только по графу
+  // с visibility !== 'hidden' и отдаёт отфильтрованный снапшот.
+  'graph:request': (sceneId: string) => void;
+  /** Сервер форсит revealed=false при создании — узлы рождаются скрытыми */
+  'graph:node-create': (node: GraphNode) => void;
+  /** Полный объект узла (не патч) — см. graph:node-updated */
+  'graph:node-update': (node: GraphNode) => void;
+  /** Каскадно удаляет инцидентные рёбра */
+  'graph:node-delete': (sceneId: string, nodeId: string) => void;
+  /** Батч перемещений по окончании drag */
+  'graph:node-move': (sceneId: string, moves: GraphNodeMove[]) => void;
+  'graph:node-reveal': (
+    sceneId: string,
+    nodeId: string,
+    revealed: boolean,
+  ) => void;
+  'graph:edge-create': (edge: GraphEdge) => void;
+  'graph:edge-update': (edge: GraphEdge) => void;
+  'graph:edge-delete': (sceneId: string, edgeId: string) => void;
+  'graph:edge-reveal': (
+    sceneId: string,
+    edgeId: string,
+    revealed: boolean,
+  ) => void;
   // Папки сущностей: актёры и существа (Client → Server)
   'entity-folder:request-list': (
     worldId: string,
@@ -763,7 +845,19 @@ export interface ClientToServerEvents {
   // Initiative / Encounter
   'initiative:start-encounter': () => void;
   'initiative:add-entries': (actorIds: string[]) => void;
-  'initiative:roll': (actorId: string, roll: number, modifier: number) => void;
+  /**
+   * Результат броска инициативы участника.
+   *
+   * `announced` — о броске уже написала в чат система (её окно броска ведёт
+   * свою запись: формула, преимущество/помеха, выбранная видимость). Сервер
+   * тогда своё сообщение не дублирует; без флага пишет как раньше.
+   */
+  'initiative:roll': (
+    actorId: string,
+    roll: number,
+    modifier: number,
+    announced?: boolean,
+  ) => void;
   'initiative:next-turn': () => void;
   'initiative:prev-turn': () => void;
   'initiative:end-encounter': () => void;

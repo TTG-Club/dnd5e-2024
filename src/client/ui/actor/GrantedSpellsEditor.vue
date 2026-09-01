@@ -15,6 +15,10 @@
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useSourceLabels } from '@/systems/dnd5e/composables/useSourceLabel';
 
+  import {
+    SPELL_LEVEL_FILTER_ORDER,
+    spellLevelFilterValue,
+  } from './compendiumFilters';
   import CompendiumRefPickerModal from './CompendiumRefPickerModal.vue';
   import {
     GRANTED_SPELLS_LABELS,
@@ -411,6 +415,9 @@
       :socket="props.socket"
       kind="spell"
       :title="REF_PICKER_TITLES.spell"
+      :filter-value="spellLevelFilterValue"
+      :filter-label="REF_PICKER_LABELS.filterSpellLevel"
+      :filter-order="SPELL_LEVEL_FILTER_ORDER"
       :z-index="pickerZIndex"
       @select="addPickedSpells"
     />

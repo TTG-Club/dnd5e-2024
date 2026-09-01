@@ -6,10 +6,13 @@
  */
 
 import type {
+  ActiveEffect,
   ConditionKey,
   DamageDefenseEntry,
   GrantedSpellRef,
 } from '@vtt/shared/system/dnd.js';
+
+import type { EditableFeatGrants } from '../feat/featEditorTypes';
 
 /** Оси скорости движения, редактируемые у особенности вида. */
 export const MOVEMENT_AXES = [
@@ -33,6 +36,14 @@ export interface EditableFeatureFields {
   darkvision: number;
   /** Выдаваемые заклинания: имя + опц. связь с компендиумом (`spellId`). */
   grantedSpells: GrantedSpellRef[];
+  /** Активные эффекты особенности; переносятся на персонажа вместе с ней. */
+  activeEffects: ActiveEffect[];
+  /**
+   * Дары особенности строками — та же редактируемая модель, что у черты
+   * (`featDataToGrants`/`buildFeatData`): владения, выборы, правки листа.
+   * Простые поля `movement`/`darkvision` выше остаются как быстрый путь.
+   */
+  grants: EditableFeatGrants;
 }
 
 /** Вариант особенности (подвид) с собственными вложенными особенностями. */

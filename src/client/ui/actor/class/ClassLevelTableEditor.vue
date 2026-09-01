@@ -12,7 +12,7 @@
   import { generateId } from '@vtt/shared';
   import { calculateProficiencyBonus } from '@vtt/shared/system/dnd.js';
 
-  import { CLASS_LEVEL_TABLE_LABELS, GRANT_SECTION_LABELS } from '../constants';
+  import { CLASS_LEVEL_TABLE_LABELS } from '../constants';
   import {
     buildPresetColumn,
     collectLeafColumnKeys,
@@ -36,7 +36,7 @@
   }
 
   const props = defineProps<{
-    /** Особенности — для предпросмотра «что выдаётся на уровне» (только чтение). */
+    /** Умения — для предпросмотра «что выдаётся на уровне» (только чтение). */
     features: EditableClassFeature[];
     /** Заклинатель ли класс/подкласс (показывать колонки выбора заклинаний). */
     isCaster: boolean;
@@ -157,26 +157,45 @@
     columns.value.push(buildPresetColumn(preset));
   }
 
-  /** Имена особенностей, выдаваемых на каждом уровне (предпросмотр). */
+  /** Имена умений, выдаваемых на каждом уровне (предпросмотр). */
   const featureNamesByLevel = computed(() => {
     const map = new Map<number, string[]>();
 
+    /**
+     * Ставит название умения на его уровень.
+     *
+     * @param level - уровень класса
+     * @param name - название умения или его ступени роста
+     */
+    function addName(level: number, name: string): void {
+      const list = map.get(Math.max(1, Math.round(level || 1))) ?? [];
+
+      list.push(name);
+      map.set(Math.max(1, Math.round(level || 1)), list);
+    }
+
     for (const feature of props.features) {
-      if (!feature.name.trim()) {
+      const name = feature.name.trim();
+
+      if (!name) {
         continue;
       }
 
-      const level = Math.max(1, Math.round(feature.level || 1));
-      const list = map.get(level) ?? [];
+      addName(feature.level, name);
 
-      list.push(feature.name.trim());
-      map.set(level, list);
+      // Ступени роста стоят в таблице своими строками — умение получают на
+      // каждом их уровне заново, и предпросмотр обязан их показывать
+      for (const step of feature.scaling) {
+        if (step.description.trim() || step.name.trim()) {
+          addName(step.level, step.name.trim() || name);
+        }
+      }
     }
 
     return map;
   });
 
-  /** Текст предпросмотра особенностей уровня (с пометкой ASI). */
+  /** Текст предпросмотра умений уровня (с пометкой ASI). */
   function levelFeaturePreview(level: number, hasAsi: boolean): string {
     const names = [...(featureNamesByLevel.value.get(level) ?? [])];
 
@@ -482,7 +501,7 @@
     </div>
 
     <div
-      class="custom-scroll w-full overflow-x-auto rounded-lg border border-default/50"
+      class="custom-scrollbar w-full overflow-x-auto rounded-lg border border-default/50"
     >
       <table class="w-full min-w-160 text-xs">
         <thead>
@@ -520,7 +539,7 @@
             </th>
 
             <th class="px-2 py-1.5 text-left">
-              {{ GRANT_SECTION_LABELS.features }}
+              {{ CLASS_LEVEL_TABLE_LABELS.columnFeatures }}
             </th>
           </tr>
         </thead>

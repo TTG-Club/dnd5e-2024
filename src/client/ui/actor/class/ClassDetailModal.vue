@@ -3,20 +3,28 @@
     ClassDefinition,
     ClassFeature,
     ClassLevelEntry,
+    FeatChoice,
   } from '@vtt/shared/system/dnd.js';
 
   import { computed, nextTick, ref } from 'vue';
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
-  import { toolProficiencyLabel } from '@vtt/shared/system/dnd.js';
-
   import {
+    toolProficiencyLabel,
+    withCounterTableColumns,
+    withSubclassRecords,
+  } from '@vtt/shared/system/dnd.js';
+
+  import { useClassDefinitions } from '../../../composables/useClassDefinitions';
+  import {
+    ABILITY_DELIMITER_LABELS,
     ABILITY_LABELS,
     ARMOR_PROF_SHORT_LABELS,
     CASTER_TYPE_LABELS,
     CLASS_DETAIL_LABELS,
     CLASS_LEVEL_TABLE_LABELS,
+    FORM_TAB_LABELS,
     GRANT_SECTION_LABELS,
     HIT_DIE_LETTER,
     LEVEL_BADGE_SUFFIX,
@@ -25,9 +33,26 @@
     TOOL_PROF_LABELS,
     WEAPON_PROF_SHORT_LABELS,
   } from '../constants';
+  import ItemEffectsView from '../ItemEffectsView.vue';
   import SourceBadge from '../SourceBadge.vue';
+  import StartingEquipmentOptionBody from '../StartingEquipmentOptionBody.vue';
+  import ClassFeatureChoicesView from './ClassFeatureChoicesView.vue';
 
-  /** Проверяет, является ли особенность генеричной заглушкой подкласса («Умение подкласса», «Подкласс воина») */
+  /**
+   * Строка владения: подписи категорий и приписка свободным текстом через запятую.
+   * Так же их склеивает сайт — приписка там дополняет список, а не заменяет его.
+   *
+   * @param labels - подписи выбранных категорий
+   * @param custom - приписка записи; пусто — её нет
+   * @returns строка для плитки; «Нет», когда не задано ничего
+   */
+  function joinProficiency(labels: string[], custom?: string): string {
+    const parts = custom?.trim() ? [...labels, custom.trim()] : labels;
+
+    return parts.length > 0 ? parts.join(', ') : CLASS_DETAIL_LABELS.empty;
+  }
+
+  /** Проверяет, является ли умение генеричной заглушкой подкласса («Умение подкласса», «Подкласс воина») */
   function isSubclassPlaceholder(feature: ClassFeature): boolean {
     return (
       feature.name === CLASS_DETAIL_LABELS.subclassFeature
@@ -81,6 +106,19 @@
     'select': [];
   }>();
 
+  const { classRecords } = useClassDefinitions();
+
+  /**
+   * Класс, который показываем: к записи приклеены подклассы, заведённые в мире
+   * отдельными записями. Окно открывают по самой записи (панель предметов,
+   * браузер компендиума, ссылка из описания), а там их ещё нет.
+   */
+  const displayedClass = computed(() =>
+    props.classDefinition
+      ? withSubclassRecords(props.classDefinition, classRecords.value)
+      : null,
+  );
+
   const initialPosition = computed(() =>
     props.positionOffset
       ? { x: props.positionOffset, y: props.positionOffset }
@@ -95,9 +133,33 @@
   const skillChoicesTitle = computed(
     () =>
       CLASS_DETAIL_LABELS.skillChoicesPrefix
-      + (props.classDefinition?.skillChoices.count ?? 0)
+      + (displayedClass.value?.skillChoices.count ?? 0)
       + CLASS_DETAIL_LABELS.skillChoicesSuffix,
   );
+
+  /**
+   * Основные характеристики строкой: «Сила и Телосложение», «Сила или
+   * Ловкость». Разделитель приходит записью — у одной характеристики его нет,
+   * а у списка без разделителя остаётся запятая.
+   */
+  const primaryAbilitiesLabel = computed(() => {
+    const abilities = displayedClass.value?.primaryAbilities ?? [];
+
+    const labels = abilities.map(
+      (ability) => ABILITY_LABELS[ability] ?? ability,
+    );
+
+    const delimiter = displayedClass.value?.primaryAbilitiesDelimiter;
+
+    if (labels.length < 2 || !delimiter) {
+      return labels.join(', ');
+    }
+
+    const head = labels.slice(0, -1).join(', ');
+    const last = labels[labels.length - 1];
+
+    return `${head} ${ABILITY_DELIMITER_LABELS[delimiter]} ${last}`;
+  });
 
   /** Выбранный подкласс для просмотра в таблице (строка) */
   const selectedSubclassName = ref<string | null>(null);
@@ -108,14 +170,14 @@
    * пришедшая ссылкой разметки, показывалась бы этой ссылкой целиком.
    */
   const toolProficienciesDisplay = computed(() =>
-    (props.classDefinition?.toolProficiencies ?? [])
+    (displayedClass.value?.toolProficiencies ?? [])
       .map((tool) => TOOL_PROF_LABELS[tool] ?? toolProficiencyLabel(tool))
       .join(', '),
   );
 
-  /** Все особенности базового класса сгруппированные по уровню */
+  /** Все умения базового класса сгруппированные по уровню */
   const featuresByLevel = computed(() => {
-    const classDef = props.classDefinition;
+    const classDef = displayedClass.value;
 
     if (!classDef) {
       return new Map<number, ClassFeature[]>();
@@ -123,7 +185,7 @@
 
     const map = new Map<number, ClassFeature[]>();
 
-    // Особенности ТОЛЬКО базового класса
+    // Умения ТОЛЬКО базового класса
     for (const feature of classDef.features) {
       if (selectedSubclassName.value && isSubclassPlaceholder(feature)) {
         continue;
@@ -136,7 +198,7 @@
       map.set(level, existing);
     }
 
-    // Особенности выбранного подкласса
+    // Умения выбранного подкласса
     if (selectedSubclassName.value) {
       const subclass = classDef.subclasses.find(
         (subclass) => subclass.name === selectedSubclassName.value,
@@ -173,19 +235,88 @@
     return map;
   });
 
+  /**
+   * Выборы даров записи и её умений: из них выводятся колонки количества
+   * («Приёмы» воина). Ряд по уровням у выбора задан ступенями, и колонкой его
+   * набирать второй раз не нужно.
+   *
+   * @param definition - класс либо подкласс
+   */
+  function classChoices(
+    definition: Pick<ClassDefinition, 'featData' | 'features'>,
+  ): FeatChoice[] {
+    const own = definition.featData?.choices ?? [];
+
+    const fromFeatures = (definition.features ?? []).flatMap(
+      (feature) => feature.featData?.choices ?? [],
+    );
+
+    return [...own, ...fromFeatures];
+  }
+
+  /** Выбранный подкласс записи; null — подкласс не выбран. */
+  const selectedSubclass = computed(() => {
+    if (!selectedSubclassName.value) {
+      return null;
+    }
+
+    return (
+      displayedClass.value?.subclasses.find(
+        (subclass) => subclass.name === selectedSubclassName.value,
+      ) ?? null
+    );
+  });
+
+  /**
+   * Таблица класса вместе с колонками его ресурсов: ресурс, отмеченный
+   * «Показывать в таблице», рисуется колонкой, а её ряд по уровням берётся из
+   * прогрессии либо формулы самого ресурса — второй раз автор их не набирает.
+   *
+   * Считается при показе, а не хранится: иначе колонка разошлась бы с ресурсом
+   * при первой же его правке.
+   */
+  const classTable = computed(() => {
+    const definition = displayedClass.value;
+
+    if (!definition) {
+      return { levelTable: [], tableColumns: [] };
+    }
+
+    return withCounterTableColumns(
+      definition.levelTable ?? [],
+      definition.tableColumns ?? [],
+      definition.counters,
+      classChoices(definition),
+    );
+  });
+
+  /** То же для выбранного подкласса: его ресурсы дают свои колонки. */
+  const subclassTable = computed(() => {
+    const subclass = selectedSubclass.value;
+
+    if (!subclass) {
+      return null;
+    }
+
+    return withCounterTableColumns(
+      subclass.levelTable ?? [],
+      subclass.tableColumns ?? [],
+      subclass.counters,
+      classChoices(subclass),
+    );
+  });
+
   /** Активная таблица уровней — базовые данные, дополненные колонками подкласса */
   const activeLevelTable = computed(() => {
-    const baseTable = props.classDefinition?.levelTable ?? [];
+    const baseTable = classTable.value.levelTable;
 
     if (selectedSubclassName.value) {
-      const subclass = props.classDefinition?.subclasses.find(
-        (sc) => sc.name === selectedSubclassName.value,
-      );
+      const subclassRows = subclassTable.value?.levelTable ?? [];
 
-      if (subclass?.levelTable) {
+      if (subclassRows.length > 0) {
         // Мержим строки: базовые данные + данные подкласса для каждого уровня
         return baseTable.map((baseRow) => {
-          const subclassRow = subclass.levelTable!.find(
+          const subclassRow = subclassRows.find(
             (subRow) => subRow.level === baseRow.level,
           );
 
@@ -199,25 +330,18 @@
 
   /** Активные колонки таблицы — базовые + колонки подкласса (если есть) */
   const activeTableColumns = computed(() => {
-    const baseColumns = props.classDefinition?.tableColumns ?? [];
+    const baseColumns = classTable.value.tableColumns;
+    const subclassColumns = subclassTable.value?.tableColumns ?? [];
 
-    if (selectedSubclassName.value) {
-      const subclass = props.classDefinition?.subclasses.find(
-        (sc) => sc.name === selectedSubclassName.value,
-      );
-
-      if (subclass?.tableColumns) {
-        return [...baseColumns, ...subclass.tableColumns];
-      }
-    }
-
-    return baseColumns;
+    return subclassColumns.length > 0
+      ? [...baseColumns, ...subclassColumns]
+      : baseColumns;
   });
 
   /** Активная заклинательная конфигурация — подкласса (если выбран и имеет свою) или базового класса */
   const activeSpellcasting = computed(() => {
     if (selectedSubclassName.value) {
-      const subclass = props.classDefinition?.subclasses.find(
+      const subclass = displayedClass.value?.subclasses.find(
         (sc) => sc.name === selectedSubclassName.value,
       );
 
@@ -226,7 +350,7 @@
       }
     }
 
-    return props.classDefinition?.spellcasting ?? null;
+    return displayedClass.value?.spellcasting ?? null;
   });
 
   /** Есть ли у таблицы колонки с группировкой (двухуровневая шапка) */
@@ -253,39 +377,43 @@
 
   /** Строка владений доспехами */
   const armorProfLabel = computed(() => {
-    const classDef = props.classDefinition;
+    const classDef = displayedClass.value;
 
-    if (!classDef || classDef.armorProficiencies.length === 0) {
+    if (!classDef) {
       return CLASS_DETAIL_LABELS.empty;
     }
 
-    return classDef.armorProficiencies
-      .map((armor) => ARMOR_PROF_SHORT_LABELS[armor] ?? armor)
-      .join(', ');
+    return joinProficiency(
+      classDef.armorProficiencies.map(
+        (armor) => ARMOR_PROF_SHORT_LABELS[armor] ?? armor,
+      ),
+      classDef.armorProficienciesCustom,
+    );
   });
 
   /** Строка владений оружием */
   const weaponProfLabel = computed(() => {
-    const classDef = props.classDefinition;
+    const classDef = displayedClass.value;
 
-    if (!classDef || classDef.weaponProficiencies.length === 0) {
+    if (!classDef) {
       return CLASS_DETAIL_LABELS.empty;
     }
 
-    return classDef.weaponProficiencies
-      .map((weapon) => WEAPON_PROF_SHORT_LABELS[weapon] ?? weapon)
-      .join(', ');
+    return joinProficiency(
+      classDef.weaponProficiencies.map(
+        (weapon) => WEAPON_PROF_SHORT_LABELS[weapon] ?? weapon,
+      ),
+      classDef.weaponProficienciesCustom,
+    );
   });
 
-  /** Отсортированные особенности класса по уровню */
+  /** Отсортированные умения класса по уровню */
   const sortedFeatures = computed(() => {
-    if (!props.classDefinition) {
+    if (!displayedClass.value) {
       return [];
     }
 
-    return [...props.classDefinition.features].sort(
-      (a, b) => a.level - b.level,
-    );
+    return [...displayedClass.value.features].sort((a, b) => a.level - b.level);
   });
 
   /** Хранит ID развернутых подклассов */
@@ -293,7 +421,7 @@
 
   /** Опции для выбора подкласса (простые строки) */
   const subclassOptions = computed(() => {
-    const classDef = props.classDefinition;
+    const classDef = displayedClass.value;
 
     if (!classDef || !classDef.subclasses) {
       return [];
@@ -336,8 +464,8 @@
 <template>
   <UDraggableModal
     :open="open"
-    :title="classDefinition?.name ?? CLASS_DETAIL_LABELS.fallbackTitle"
-    :subtitle="classDefinition?.nameEn || undefined"
+    :title="displayedClass?.name ?? CLASS_DETAIL_LABELS.fallbackTitle"
+    :subtitle="displayedClass?.nameEn || undefined"
     :initial-width="1000"
     :initial-height="700"
     :min-width="600"
@@ -350,12 +478,12 @@
   >
     <template #header-actions>
       <SourceBadge
-        :source-key="classDefinition?.sourceKey"
-        :source="classDefinition?.source"
+        :source-key="displayedClass?.sourceKey"
+        :source="displayedClass?.source"
       />
 
       <UBadge
-        v-if="classDefinition?.isSRD !== false"
+        v-if="displayedClass?.isSRD !== false"
         label="SRD"
         color="primary"
         variant="subtle"
@@ -378,14 +506,30 @@
 
     <template #body>
       <div
-        v-if="classDefinition"
+        v-if="displayedClass"
         class="flex flex-col gap-4"
       >
         <!-- Описание -->
-        <ItemDescriptionRenderer :content="classDefinition.description ?? ''" />
+        <ItemDescriptionRenderer :content="displayedClass.description ?? ''" />
 
         <!-- Базовая механика -->
         <div class="flex flex-wrap gap-2">
+          <!-- Основная характеристика -->
+          <div
+            v-if="primaryAbilitiesLabel"
+            class="min-w-28 flex-1 rounded-lg border border-default/50 bg-elevated/30 px-3 py-2.5 text-center"
+          >
+            <span
+              class="block text-[10px] font-medium tracking-wider text-dimmed uppercase"
+            >
+              {{ CLASS_DETAIL_LABELS.primaryAbilities }}
+            </span>
+
+            <p class="mt-0.5 text-sm font-semibold text-highlighted">
+              {{ primaryAbilitiesLabel }}
+            </p>
+          </div>
+
           <!-- Кость хитов -->
           <div
             class="min-w-20 flex-1 rounded-lg border border-default/50 bg-elevated/30 px-3 py-2.5 text-center"
@@ -397,7 +541,7 @@
             </span>
 
             <p class="mt-0.5 font-mono text-base font-bold text-warning">
-              {{ formatHitDie(classDefinition.hitDie) }}
+              {{ formatHitDie(displayedClass.hitDie) }}
             </p>
           </div>
 
@@ -413,7 +557,7 @@
 
             <p class="mt-0.5 text-sm font-semibold text-highlighted">
               {{
-                classDefinition.savingThrowProficiencies
+                displayedClass.savingThrowProficiencies
                   .map((ability) => ABILITY_LABELS[ability] ?? ability)
                   .join(', ')
               }}
@@ -474,7 +618,7 @@
 
           <!-- Инструменты (если есть) -->
           <div
-            v-if="classDefinition.toolProficiencies?.length"
+            v-if="displayedClass.toolProficiencies?.length"
             class="min-w-24 flex-1 rounded-lg border border-default/50 bg-elevated/30 px-3 py-2.5 text-center"
           >
             <span
@@ -499,7 +643,7 @@
 
           <div class="flex flex-wrap gap-1.5">
             <UBadge
-              v-for="skill in classDefinition.skillChoices.from"
+              v-for="skill in displayedClass.skillChoices.from"
               :key="skill"
               :label="SKILL_LABELS[skill] ?? skill"
               color="neutral"
@@ -511,7 +655,7 @@
 
         <!-- Снаряжение -->
         <div
-          v-if="classDefinition.startingEquipment?.length"
+          v-if="displayedClass.startingEquipment?.length"
           class="mt-4"
         >
           <span
@@ -522,22 +666,20 @@
 
           <div class="flex flex-col gap-2">
             <div
-              v-for="eq in classDefinition.startingEquipment"
+              v-for="eq in displayedClass.startingEquipment"
               :key="eq.key"
               class="flex gap-1.5 rounded-md border border-default/50 bg-elevated/30 p-2 text-sm text-toned"
             >
               <span class="font-bold text-muted">{{ eq.key }})</span>
 
-              <!-- Через рендерер: в описании варианта приходят ссылки на предметы
-                   компендиума, интерполяция показала бы их markdown-исходником. -->
-              <ItemDescriptionRenderer :content="eq.description" />
+              <StartingEquipmentOptionBody :option="eq" />
             </div>
           </div>
         </div>
 
         <!-- Выбор подкласса для таблицы -->
         <div
-          v-if="classDefinition.subclasses?.length > 0"
+          v-if="displayedClass.subclasses?.length > 0"
           class="mt-4 flex w-64 items-center rounded-lg border border-default/50 bg-elevated/30 p-1"
         >
           <span class="pl-2 text-xs font-medium text-muted">
@@ -577,7 +719,7 @@
         <!-- Таблица уровней (компактная) -->
         <div>
           <div
-            class="custom-scroll w-full overflow-hidden overflow-x-auto rounded-lg border border-default/50"
+            class="custom-scrollbar w-full overflow-hidden overflow-x-auto rounded-lg border border-default/50"
           >
             <table class="w-full min-w-175 table-fixed text-xs">
               <colgroup>
@@ -614,7 +756,7 @@
                     class="px-2 py-1.5 text-left align-middle text-muted"
                     :rowspan="hasGroupedColumns ? 2 : 1"
                   >
-                    {{ GRANT_SECTION_LABELS.features }}
+                    {{ CLASS_LEVEL_TABLE_LABELS.columnFeatures }}
                   </th>
 
                   <!-- Динамические колонки (Верхний уровень) -->
@@ -714,9 +856,9 @@
           </div>
         </div>
 
-        <!-- Особенности класса -->
+        <!-- Умения класса -->
         <div
-          v-if="classDefinition.features.length > 0"
+          v-if="displayedClass.features.length > 0"
           class="pt-2"
         >
           <span
@@ -746,26 +888,60 @@
               </div>
 
               <ItemDescriptionRenderer :content="feature.description" />
+
+              <!-- Варианты умения: манёвры, воззвания, боевые стили. Свёрнуты:
+                развёрнутыми они закрыли бы собой весь класс -->
+              <ClassFeatureChoicesView
+                v-if="feature.choices?.length"
+                :choices="feature.choices"
+                :config="feature.choiceConfig"
+              />
+
+              <ItemEffectsView
+                v-if="feature.activeEffects?.length"
+                :effects="feature.activeEffects"
+                :owner-name="feature.name"
+                class="mt-2"
+              />
             </div>
           </div>
         </div>
 
-        <!-- Подклассы -->
+        <!-- Эффекты самого класса. Своим блоком, а не рядом с умениями: их
+          даёт класс целиком, и приписывать их первому попавшемуся умению
+          значило бы соврать об источнике -->
         <div
-          v-if="classDefinition.subclasses.length > 0"
+          v-if="displayedClass.activeEffects?.length"
           class="pt-2"
         >
           <span
             class="mb-1.5 block text-xs font-semibold tracking-wider text-dimmed uppercase"
           >
-            {{ classDefinition.subclassLabel }} ({{
-              formatLevelBadge(classDefinition.subclassLevel)
+            {{ FORM_TAB_LABELS.effects }}
+          </span>
+
+          <ItemEffectsView
+            :effects="displayedClass.activeEffects"
+            :owner-name="displayedClass.name"
+          />
+        </div>
+
+        <!-- Подклассы -->
+        <div
+          v-if="displayedClass.subclasses.length > 0"
+          class="pt-2"
+        >
+          <span
+            class="mb-1.5 block text-xs font-semibold tracking-wider text-dimmed uppercase"
+          >
+            {{ displayedClass.subclassLabel }} ({{
+              formatLevelBadge(displayedClass.subclassLevel)
             }})
           </span>
 
           <div class="flex flex-col gap-2">
             <div
-              v-for="subclass in classDefinition.subclasses"
+              v-for="subclass in displayedClass.subclasses"
               :key="subclass.key"
               class="flex flex-col overflow-hidden rounded-lg border border-default/50 bg-elevated/30 transition-colors"
             >
@@ -806,7 +982,7 @@
                   class="text-muted"
                 />
 
-                <!-- Особенности подкласса -->
+                <!-- Умения подкласса -->
                 <div
                   v-if="subclass.features?.length"
                   class="mt-3 grid grid-cols-2 gap-2 border-t border-default/50 pt-3"
@@ -834,6 +1010,13 @@
                       :content="feature.description"
                       class="mt-1 line-clamp-3 text-sm text-muted"
                       :title="feature.description"
+                    />
+
+                    <ClassFeatureChoicesView
+                      v-if="feature.choices?.length"
+                      :choices="feature.choices"
+                      :config="feature.choiceConfig"
+                      is-subclass
                     />
                   </div>
                 </div>

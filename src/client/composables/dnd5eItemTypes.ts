@@ -62,6 +62,18 @@ const ITEM_TYPE_CONFIG: Record<string, ItemTypeConfig> = {
 };
 
 /**
+ * Подпись типа предмета («Оружие»). Словарь типов один на систему: панель
+ * предметов, карточки и фильтры окна выбора подписывают тип одинаково, и вторая
+ * копия подписей разошлась бы с ним у первого же переименования.
+ *
+ * @param type - тип предмета (`weapon`, `equipment`, `tool`, …)
+ * @returns подпись либо `undefined` у незнакомого типа
+ */
+export function itemTypeLabel(type: string): string | undefined {
+  return ITEM_TYPE_CONFIG[type]?.label;
+}
+
+/**
  * Формирует имя модалки по типу и действию (`weapon`+`FormModal`→`WeaponFormModal`).
  *
  * @param type - тип предмета

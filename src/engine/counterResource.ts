@@ -15,6 +15,7 @@
 
 import type { AbilityType } from '@vtt/shared';
 
+import type { CounterRecovery } from './classTypes.js';
 import type { DnDActor } from './dndEntities.js';
 import type { FormulaContext } from './formulaParser.js';
 import type { ActorCounterState, CounterRecoveryRule } from './types.js';
@@ -67,6 +68,13 @@ export interface CounterMaxRule {
   ability: AbilityType;
   /** Прибавка к значению источника; может быть отрицательной */
   offset: number;
+  /**
+   * Множитель значения источника; нет — единица.
+   *
+   * Нужен ресурсам, у которых запас кратен растущему значению: «Возложение
+   * рук» паладина — это пять хитов за уровень.
+   */
+  multiplier?: number;
 }
 
 /** Характеристика правила по умолчанию: поле обязано быть заполненным. */
@@ -78,6 +86,12 @@ export const COUNTER_COUNT_MIN = 0;
 /** Максимальное количество зарядов ресурса. */
 export const COUNTER_COUNT_MAX = 99;
 
+/** Наименьший множитель значения источника: единица его не меняет. */
+export const COUNTER_MAX_MULTIPLIER_MIN = 1;
+
+/** Наибольший множитель значения источника: «Возложение рук» — пять за уровень. */
+export const COUNTER_MAX_MULTIPLIER_MAX = 20;
+
 /** Минимальная прибавка к значению источника максимума. */
 export const COUNTER_MAX_OFFSET_MIN = -9;
 
@@ -86,6 +100,21 @@ export const COUNTER_MAX_OFFSET_MAX = 9;
 
 /** Минимальное число зарядов, возвращаемых отдыхом. */
 export const COUNTER_RECOVERY_AMOUNT_MIN = 1;
+
+/**
+ * Сколько зарядов возвращает короткий отдых ресурсу с откатом «один заряд
+ * коротким, все продолжительным»: ровно один — так написано у «Второго
+ * дыхания» и вдохновения барда правил 2024 года.
+ */
+export const COUNTER_SHORT_REST_ONE_AMOUNT = 1;
+
+/**
+ * Наибольшая нижняя граница максимума: выше неё запас уже не «минимум».
+ *
+ * Рядом с прочими границами полей ресурса, а не в подписях интерфейса: их
+ * читает и редактор класса, и редактор черты, и окно ресурсов листа.
+ */
+export const COUNTER_MINIMUM_MAX = 20;
 
 /** Сокращение характеристики для формулы (`charisma` → `cha`). */
 const ABILITY_ABBREVIATION_BY_KEY: Record<string, string> = Object.fromEntries(
@@ -106,13 +135,50 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+/** Целое число без знака — им записаны и своё число максимума, и множитель. */
+const NUMBER_PATTERN = /^\d+$/;
+
+/**
+ * Источник максимума и его множитель, отделённые от формулы.
+ *
+ * Множитель ищется отдельно по той же причине, что и смещение: у общего разбора
+ * всей строки они перетягивают друг у друга пробелы и знак. Записать его можно
+ * с любой стороны — «5 × уровень» и «уровень × 5» читаются одинаково.
+ *
+ * @param base - часть формулы без смещения
+ * @returns источник без множителя и сам множитель (нет — единица)
+ */
+function splitCounterMaxMultiplier(base: string): {
+  source: string;
+  multiplier: number;
+} {
+  const parts = base.split('*');
+
+  const left = parts[0]?.trim() ?? '';
+  const right = parts[1]?.trim() ?? '';
+
+  if (parts.length !== 2 || !left || !right) {
+    return { source: base, multiplier: 1 };
+  }
+
+  if (NUMBER_PATTERN.test(right)) {
+    return { source: left, multiplier: Number(right) };
+  }
+
+  if (NUMBER_PATTERN.test(left)) {
+    return { source: right, multiplier: Number(left) };
+  }
+
+  return { source: base, multiplier: 1 };
+}
+
 /**
  * Разбирает формулу максимума в правило для формы.
  *
  * Грамматика: число, `@prof`, `@level`, `@mod.spell` или `@mod.<аббревиатура>`,
- * любое из них со смещением (`@prof - 1`). Смещение всегда в хвосте и ищется
- * отдельно от источника: у общего разбора всей строки источник и смещение
- * перетягивают друг у друга пробелы и знак.
+ * любое из них с множителем (`@level * 5`) и смещением (`@prof - 1`). Смещение
+ * всегда в хвосте и ищется отдельно от источника: у общего разбора всей строки
+ * источник и смещение перетягивают друг у друга пробелы и знак.
  *
  * @param formula - формула максимума
  * @returns правило; null — формула пуста либо написана руками и не разбирается
@@ -130,7 +196,12 @@ export function parseCounterMaxFormula(formula: string): CounterMaxRule | null {
     ? Number(offsetMatch[2]) * (offsetMatch[1] === '-' ? -1 : 1)
     : 0;
 
-  const base = trimmed.slice(0, offsetMatch?.index ?? trimmed.length).trim();
+  const withMultiplier = trimmed
+    .slice(0, offsetMatch?.index ?? trimmed.length)
+    .trim();
+
+  const { source: base, multiplier } =
+    splitCounterMaxMultiplier(withMultiplier);
 
   if (!base) {
     // Формула из одного числа: «10» разобралось как смещение без источника
@@ -143,7 +214,7 @@ export function parseCounterMaxFormula(formula: string): CounterMaxRule | null {
     return {
       source: 'fixed',
       ability: COUNTER_MAX_DEFAULT_ABILITY,
-      offset: Number(base) + offset,
+      offset: Number(base) * multiplier + offset,
     };
   }
 
@@ -152,11 +223,17 @@ export function parseCounterMaxFormula(formula: string): CounterMaxRule | null {
       source: 'proficiency',
       ability: COUNTER_MAX_DEFAULT_ABILITY,
       offset,
+      multiplier,
     };
   }
 
   if (base === COUNTER_FORMULA_TOKENS.level) {
-    return { source: 'level', ability: COUNTER_MAX_DEFAULT_ABILITY, offset };
+    return {
+      source: 'level',
+      ability: COUNTER_MAX_DEFAULT_ABILITY,
+      offset,
+      multiplier,
+    };
   }
 
   if (base === COUNTER_FORMULA_TOKENS.spellAbilityModifier) {
@@ -164,6 +241,7 @@ export function parseCounterMaxFormula(formula: string): CounterMaxRule | null {
       source: 'spellAbility',
       ability: COUNTER_MAX_DEFAULT_ABILITY,
       offset,
+      multiplier,
     };
   }
 
@@ -176,7 +254,7 @@ export function parseCounterMaxFormula(formula: string): CounterMaxRule | null {
     // Приставка знакома, а характеристика за ней — нет: формулу правили руками,
     // и подставлять вместо неё чужую характеристику хуже, чем отдать её как есть
     return isAbilityType(ability)
-      ? { source: 'ability', ability, offset }
+      ? { source: 'ability', ability, offset, multiplier }
       : null;
   }
 
@@ -201,7 +279,11 @@ export function counterMaxFormula(rule: CounterMaxRule): string {
     return String(Math.max(COUNTER_COUNT_MIN, offset));
   }
 
-  const base = counterMaxSourceToken(rule);
+  const multiplier = Math.trunc(rule.multiplier ?? 1);
+
+  const token = counterMaxSourceToken(rule);
+
+  const base = multiplier > 1 ? `${token} * ${multiplier}` : token;
 
   return offset === 0
     ? base
@@ -307,10 +389,67 @@ export function resolveCounterMaxIn(
   const formula = counter.maxFormula?.trim();
 
   if (!formula) {
-    return Math.max(COUNTER_COUNT_MIN, counter.max);
+    return withCounterMinimum(
+      Math.max(COUNTER_COUNT_MIN, counter.max),
+      counter.min,
+    );
   }
 
-  return evaluateCounterMaxFormula(formula, context);
+  return withCounterMinimum(
+    evaluateCounterMaxFormula(formula, context),
+    counter.min,
+  );
+}
+
+/**
+ * Максимум с оглядкой на нижнюю границу счётчика.
+ *
+ * Граница подпирает расчёт снизу, а не складывается с ним: вдохновение барда
+ * равно модификатору Харизмы, но не меньше одного — с Харизмой +0 вдохновение
+ * одно, а с Харизмой +2 их два, а не три.
+ *
+ * @param max - посчитанный максимум
+ * @param min - нижняя граница максимума; нет или 0 — границы нет
+ * @returns максимум не ниже границы
+ */
+/**
+ * Максимум по ступеням: берётся старшая ступень, до которой персонаж дорос.
+ *
+ * Ступени задают ряд, который формулой не пишется («на 3-м два заряда, на 7-м
+ * три»), поэтому там, где они есть, формула не считается вовсе. Не дорос до
+ * первой ступени — зарядов нет.
+ *
+ * @param progression - максимум по уровням: ключ — уровень строкой
+ * @param level - уровень, от которого считаем (класса либо персонажа)
+ * @returns максимум зарядов; 0 — персонаж не дорос до первой ступени
+ */
+export function progressionCounterMax(
+  progression: Record<string, number>,
+  level: number,
+): number {
+  const exact = progression[String(level)];
+
+  if (exact !== undefined) {
+    return exact;
+  }
+
+  const reached = Object.keys(progression)
+    .map(Number)
+    .filter((step) => step <= level)
+    .sort((stepA, stepB) => stepB - stepA);
+
+  return reached.length > 0 ? (progression[String(reached[0])] ?? 0) : 0;
+}
+
+export function withCounterMinimum(
+  max: number,
+  min: number | undefined,
+): number {
+  if (!min || min <= COUNTER_COUNT_MIN) {
+    return max;
+  }
+
+  return Math.max(max, clamp(min, COUNTER_COUNT_MIN, COUNTER_COUNT_MAX));
 }
 
 /**
@@ -384,6 +523,15 @@ const FULL_RECOVERY: CounterRecoveryRule = {
 };
 
 /**
+ * Правило «отдых возвращает один заряд»: так короткий отдых восстанавливает
+ * «Второе дыхание» и вдохновение барда правил 2024 года.
+ */
+const ONE_CHARGE_RECOVERY: CounterRecoveryRule = {
+  mode: 'amount',
+  amount: COUNTER_SHORT_REST_ONE_AMOUNT,
+};
+
+/**
  * Правила восстановления счётчика по видам отдыха.
  *
  * Без своих правил читается легаси-поле `recovery`, где отдых назван один:
@@ -405,9 +553,25 @@ export function getCounterRecoveryRules(
   }
 
   return {
-    shortRest: counter.recovery === 'short' ? FULL_RECOVERY : NO_RECOVERY,
+    shortRest: shortRestRuleOf(counter.recovery),
     longRest: FULL_RECOVERY,
   };
+}
+
+/**
+ * Что возвращает короткий отдых ресурсу, у которого отдых назван одним словом.
+ *
+ * @param recovery - вид отката счётчика
+ * @returns правило короткого отдыха
+ */
+function shortRestRuleOf(
+  recovery: CounterRecovery | undefined,
+): CounterRecoveryRule {
+  if (recovery === 'short') {
+    return FULL_RECOVERY;
+  }
+
+  return recovery === 'short-one' ? ONE_CHARGE_RECOVERY : NO_RECOVERY;
 }
 
 /**

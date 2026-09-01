@@ -3,9 +3,9 @@
    * Пошаговый мастер добавления / повышения уровня класса (D&D 5.5 2024).
    *
    * Динамически формирует шаги на основе контекста:
-   * - Первый класс: ХП → Спасброски → Владения → Навыки → Особенности → Заклинания
-   * - Level Up: ХП → Особенности → Заклинания → ASI (при необходимости)
-   * - Мультикласс: ХП → Владения (сокращённые) → Навыки → Особенности → Заклинания
+   * - Первый класс: ХП → Спасброски → Владения → Навыки → Умения → Заклинания
+   * - Level Up: ХП → Умения → Заклинания → ASI (при необходимости)
+   * - Мультикласс: ХП → Владения (сокращённые) → Навыки → Умения → Заклинания
    */
   import type { SkillType, TypedWebSocketClient } from '@vtt/shared';
   import type {
@@ -15,17 +15,24 @@
     HitPointMethod,
   } from '@vtt/shared/system/dnd.js';
 
-  import type { WizardAsiState } from './wizard';
+  import type { CompendiumFeat, WizardAsiState } from './wizard';
 
-  import { computed, nextTick, ref, toRef } from 'vue';
+  import { computed, nextTick, ref, toRef, watch } from 'vue';
 
+  import { loadCompendiumKind } from '@/core/compendiumDataClient';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
   import { resolveActorStats } from '@vtt/shared/system/dnd.js';
 
+  import { useFeatChoiceSpells } from '../../../composables/useFeatChoiceSpells';
   import { useGrantedSpellsResolver } from '../../../composables/useGrantedSpellsResolver';
   import { resolveStartingEquipment } from '../../../composables/useStartingEquipment';
-  import { CLASS_WIZARD_LABELS, MODAL_BUTTON_LABELS } from '../constants';
+  import {
+    CLASS_WIZARD_LABELS,
+    MODAL_BUTTON_LABELS,
+    WIZARD_SKELETON_STEPS,
+  } from '../constants';
+  import FeatChoicesFields from '../feat/FeatChoicesFields.vue';
   import { useClassWizard } from './wizard';
   import WizardStepAsi from './wizard/WizardStepAsi.vue';
   import WizardStepClassEquipment from './wizard/WizardStepClassEquipment.vue';
@@ -42,6 +49,12 @@
     classDefinition: ClassDefinition | null;
     /** Сокет для загрузки данных компендиума на шаге заклинаний */
     socket: TypedWebSocketClient | null;
+    /**
+     * Класс ещё грузится: вместо шагов показываем скелетон. Список классов
+     * нужен целиком — по нему находится и родитель записи-подкласса, и
+     * хоумбрю-подклассы к классу компендиума.
+     */
+    loading?: boolean;
   }>();
 
   const emit = defineEmits<{
@@ -62,6 +75,49 @@
   const actorRef = toRef(props, 'actor');
 
   /**
+   * Черты компендиума для выборов черты умений и режима «Взять черту» шага
+   * характеристик. Грузятся при открытии мастера — как в мастере предыстории.
+   */
+  const compendiumFeats = ref<CompendiumFeat[]>([]);
+
+  /**
+   * Запись компендиума — черта. Требования `source` нет: у записей компендиума
+   * есть только `sourceKey`, и проверка `source` отсеяла бы все черты.
+   *
+   * @param value - запись компендиума
+   */
+  function isCompendiumFeat(value: unknown): value is CompendiumFeat {
+    return (
+      typeof value === 'object'
+      && value !== null
+      && 'id' in value
+      && 'name' in value
+      && 'description' in value
+    );
+  }
+
+  /** Загружает черты компендиума (агрегировано по всем пакам) */
+  async function loadCompendiumFeats(): Promise<void> {
+    if (!props.socket) {
+      return;
+    }
+
+    const entries: unknown[] = await loadCompendiumKind(props.socket, 'feat');
+
+    compendiumFeats.value = entries.filter(isCompendiumFeat);
+  }
+
+  watch(
+    () => props.open,
+    (opened) => {
+      if (opened && compendiumFeats.value.length === 0) {
+        void loadCompendiumFeats();
+      }
+    },
+    { immediate: true },
+  );
+
+  /**
    * Итоговые характеристики с учётом активных эффектов
    * (бонусы предыстории, прошлые повышения характеристик).
    */
@@ -80,6 +136,7 @@
     isMaxHitDieLevel,
     averageHitPoints,
     levelFeatures,
+    featureChoicePicks,
     hasSubclassSelection,
     activeSubclass,
     skillChoicesCount,
@@ -96,6 +153,12 @@
 
     wizardState,
     canProceed,
+    preparedFeatChoices,
+    ownFeatChoices,
+    optionChoicesByFeature,
+    featPickChoices,
+    asiFeatChoice,
+    featChoiceProficiencyBonus,
     isSpellSelectionComplete,
     spellSelectionLimits,
     grantedSpellSources,
@@ -104,12 +167,25 @@
     prevStep,
 
     buildUpdates,
-  } = useClassWizard(classDefRef, actorRef, isOpen);
+  } = useClassWizard(classDefRef, actorRef, isOpen, compendiumFeats);
 
   /** Granted-заклинания умений текущего уровня с данными из компендиума */
   const { resolvedGrantedSpells } = useGrantedSpellsResolver(
     toRef(props, 'socket'),
     grantedSpellSources,
+  );
+
+  /**
+   * Каталог заклинаний для выборов уровня: «Договор Гримуара» даёт выбрать три
+   * заговора, и без каталога такой вопрос остался бы без вариантов вовсе.
+   *
+   * От всех выборов уровня, а не только от показанных сейчас: выбор заклинания
+   * ждёт ответа про класс, и грузить каталог после ответа значило бы показать
+   * игроку пустой список.
+   */
+  const { spells: featChoiceSpells } = useFeatChoiceSpells(
+    toRef(props, 'socket'),
+    preparedFeatChoices,
   );
 
   /** Ссылка на шаг заклинаний — для открытия компендиума из предупреждения */
@@ -186,12 +262,22 @@
   }
 
   /**
-   * Сохраняет выбор опций особенностей класса в состоянии мастера.
+   * Сохраняет выбор вариантов умений класса в состоянии мастера.
    *
-   * @param choices - карта «ключ особенности → выбранный вариант»
+   * @param choices - карта «ключ умения → ключи выбранных вариантов»
    */
-  function handleFeatureChoicesUpdate(choices: Record<string, string>) {
+  function handleFeatureChoicesUpdate(choices: Record<string, string[]>) {
     wizardState.featureChoices = choices;
+  }
+
+  /**
+   * Сохраняет ответы на вопросы вариантов, заданные в карточке умения. Список
+   * ответов общий с полями выбора внизу: у обоих один и тот же набор ключей.
+   *
+   * @param selections - ответы: ключ выбора → значения
+   */
+  function handleFeatSelectionsUpdate(selections: Record<string, string[]>) {
+    wizardState.featDataChoices = selections;
   }
 
   /**
@@ -201,6 +287,20 @@
    */
   function handleAsiUpdate(asiState: WizardAsiState) {
     wizardState.asi = asiState;
+  }
+
+  /**
+   * Сохраняет черту, выбранную в умении уровня. Ответ лежит там же, где ответы
+   * на остальные выборы даров: ключ выбора → значения.
+   *
+   * @param key - ключ выбора черты
+   * @param featId - ключ черты компендиума; null — выбор снят
+   */
+  function handleFeatSelection(key: string, featId: string | null) {
+    wizardState.featDataChoices = {
+      ...wizardState.featDataChoices,
+      [key]: featId ? [featId] : [],
+    };
   }
 
   /** Переход к конкретному шагу по индексу */
@@ -335,8 +435,31 @@
     :title="modalTitle"
   >
     <template #body>
+      <!-- Скелетон повторяет разметку мастера: шапка класса, лента шагов и
+        поле шага — окно не прыгает, когда класс доезжает -->
       <div
-        v-if="classDefinition"
+        v-if="loading"
+        class="flex flex-col gap-4"
+      >
+        <div class="rounded-lg border border-default/50 bg-elevated/30 p-3">
+          <USkeleton class="h-6 w-48" />
+
+          <USkeleton class="mt-2 h-4 w-32" />
+        </div>
+
+        <div class="flex items-center gap-1">
+          <USkeleton
+            v-for="step in WIZARD_SKELETON_STEPS"
+            :key="step"
+            class="h-6 flex-1 rounded-full"
+          />
+        </div>
+
+        <USkeleton class="min-h-50 w-full" />
+      </div>
+
+      <div
+        v-else-if="classDefinition"
         class="flex flex-col gap-4"
       >
         <!-- Инфо о классе -->
@@ -452,18 +575,42 @@
             :options="classDefinition.startingEquipment"
           />
 
-          <!-- Особенности -->
-          <WizardStepFeatures
-            v-if="activeStepKey === 'features'"
-            :features="levelFeatures"
-            :feature-choices="wizardState.featureChoices"
-            :has-subclass-selection="hasSubclassSelection"
-            :subclasses="classDefinition.subclasses"
-            :subclass-key="wizardState.subclassKey"
-            :subclass-label="classDefinition.subclassLabel"
-            @update:feature-choices="handleFeatureChoicesUpdate"
-            @update:subclass-key="wizardState.subclassKey = $event"
-          />
+          <!-- Умения -->
+          <template v-if="activeStepKey === 'features'">
+            <WizardStepFeatures
+              :features="levelFeatures"
+              :feature-choices="wizardState.featureChoices"
+              :choice-picks="featureChoicePicks"
+              :has-subclass-selection="hasSubclassSelection"
+              :subclasses="classDefinition.subclasses"
+              :subclass-key="wizardState.subclassKey"
+              :subclass-label="classDefinition.subclassLabel"
+              :feat-picks="featPickChoices"
+              :feats="compendiumFeats"
+              :actor="actor"
+              :feat-selections="wizardState.featDataChoices"
+              :option-choices="optionChoicesByFeature"
+              :proficiency-bonus="featChoiceProficiencyBonus"
+              :spells="featChoiceSpells"
+              @update:feature-choices="handleFeatureChoicesUpdate"
+              @update:subclass-key="wizardState.subclassKey = $event"
+              @update:feat-selection="handleFeatSelection"
+              @update:feat-selections="handleFeatSelectionsUpdate"
+            />
+
+            <!-- Выборы даров уровня: те же поля, что у черты, — набор выборов
+              у них общий, и второй такой же список разошёлся бы с первым.
+              Вопросы вариантов сюда не попадают: их задаёт карточка своего
+              умения, рядом с самим выбором варианта -->
+            <FeatChoicesFields
+              v-if="ownFeatChoices.length"
+              v-model="wizardState.featDataChoices"
+              :choices="ownFeatChoices"
+              :actor="actorRef"
+              :proficiency-bonus="featChoiceProficiencyBonus"
+              :spells="featChoiceSpells"
+            />
+          </template>
 
           <!-- Заклинания -->
           <WizardStepSpellcasting
@@ -487,6 +634,9 @@
             v-if="activeStepKey === 'asi'"
             :current-abilities="resolvedAbilities"
             :asi-state="wizardState.asi"
+            :feats="compendiumFeats"
+            :actor="actor"
+            :feat-choice="asiFeatChoice"
             @update:asi-state="handleAsiUpdate"
           />
         </div>
@@ -494,8 +644,25 @@
     </template>
 
     <template #footer>
+      <!-- Пока класс грузится, из навигации осмысленна одна «Отмена» -->
+      <div
+        v-if="loading"
+        class="flex justify-end"
+      >
+        <UButton
+          variant="ghost"
+          color="neutral"
+          @click.left.exact.prevent="isOpen = false"
+        >
+          {{ MODAL_BUTTON_LABELS.cancel }}
+        </UButton>
+      </div>
+
       <!-- Навигация: Назад / Далее / Применить -->
-      <div class="flex justify-between">
+      <div
+        v-else
+        class="flex justify-between"
+      >
         <UButton
           v-if="!isFirstStep"
           variant="ghost"

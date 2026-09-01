@@ -255,6 +255,94 @@ function isSameHost(origin: string, location: BrowserLocationParts): boolean {
 }
 
 /**
+ * Пришла ли текущая страница через сервис TTG (по любому публичному адресу).
+ *
+ * Проверяются оба вида публичных хостов: собственный `publicOrigin` сервера
+ * (у панели управления это хост аккаунта) и все поддомены миров из карты.
+ * Совпадение хоть с одним означает, что браузер СНАРУЖИ: до машины ГМа он
+ * дошёл через ноду, и прямые адреса `hostname:порт` ему не видны.
+ *
+ * @param access - данные сервера о публичном доступе
+ * @param location - части адресной строки
+ * @returns true, если страница открыта по публичному адресу сервиса
+ */
+function isPublicAccessHost(
+  access: PublicAccessInfo | null | undefined,
+  location: BrowserLocationParts,
+): boolean {
+  if (!access) {
+    return false;
+  }
+
+  const ownOrigin = normalizePublicOrigin(access.publicOrigin);
+
+  if (ownOrigin && isSameHost(ownOrigin, location)) {
+    return true;
+  }
+
+  for (const rawWorldOrigin of Object.values(access.worldOrigins)) {
+    const worldOrigin = normalizePublicOrigin(rawWorldOrigin);
+
+    if (worldOrigin && isSameHost(worldOrigin, location)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Собирает адрес, по которому мир ОТКРЫВАЕТСЯ из панели управления.
+ *
+ * Решает ровно один вопрос: вести человека напрямую или через сервис TTG.
+ * Ответ даёт не наличие туннеля, а то, откуда открыта сама панель:
+ *
+ * 1. панель открыта НЕ по публичному адресу сервиса (настольное приложение —
+ *    это всегда `localhost`, плюс любой заход из локальной сети) — значит
+ *    браузер уже дотянулся до машины ГМа напрямую, и мир на том же хосте
+ *    доступен тем же путём. Гнать этот трафик через ноду незачем: лишний
+ *    сетевой прыжок, лишняя задержка и расход квоты сервиса на ровном месте;
+ * 2. панель открыта по публичному адресу — браузер снаружи, прямой адрес ему
+ *    не виден, ведём в мир по его публичному поддомену;
+ * 3. публичного адреса у мира ещё нет (нода не подтвердила хост) — вести
+ *    некуда: `публичный-хост-панели:порт мира` наружу не отвечает. Возвращаем
+ *    `null`, чтобы интерфейс сказал об этом, а не открыл мёртвую вкладку.
+ *
+ * Это тот же принцип, что и в {@link resolveServerBaseUrl}: публичный адрес
+ * применяется только к тем, кто реально пришёл снаружи.
+ *
+ * @param worldPort - локальный порт сервера мира
+ * @param access - данные сервера о публичном доступе
+ * @param location - части адресной строки (null вне браузера)
+ * @returns origin мира без завершающего слэша либо null, если адреса нет
+ */
+export function resolveWorldEntryOrigin(
+  worldPort: number,
+  access: PublicAccessInfo | null | undefined,
+  location: BrowserLocationParts | null,
+): string | null {
+  if (!location) {
+    return `http://localhost:${worldPort}`;
+  }
+
+  if (!isPublicAccessHost(access, location)) {
+    // Схема ПРИБИТА к http, и наследовать её из адресной строки нельзя.
+    // Наши серверы TLS не терминируют никогда: панель отвечает по https
+    // только за чужим обратным прокси, а тот фронтит её порт — не порты
+    // миров. `https://хост:<порт мира>` в такой раскладке мёртв: рукопожатие
+    // обрывается на первом же байте, вкладка остаётся пустой, и человек видит
+    // адрес корня вместо сцены. Понижение схемы браузер не блокирует: это
+    // переход верхнего уровня, а не подгрузка ассета.
+    //
+    // В {@link resolveServerBaseUrl} наоборот — там схему берут со страницы
+    // САМОГО мира, и она уже говорит правду о том, как до мира дошли.
+    return `http://${location.hostname}:${worldPort}`;
+  }
+
+  return resolvePublicOriginForPort(access, worldPort);
+}
+
+/**
  * Считывает нужные части адресной строки браузера.
  *
  * @returns части адресной строки либо null вне браузера (SSR, тесты, сервер)

@@ -20,6 +20,7 @@
 import type { Feature } from '@vtt/shared';
 
 import type { BackgroundDefinition } from './backgroundTypes.js';
+import type { CounterRecovery } from './classTypes.js';
 import type { DnDGameItem } from './dndEntities.js';
 import type { FeatData } from './featTypes.js';
 
@@ -33,6 +34,7 @@ import {
 import { listFeatDamageDefenseChoices } from './featChoices.js';
 import { CLASS_FEATURE_NAMES } from './featPrerequisites.js';
 import { toolProficiencyLabel } from './toolProficiency.js';
+import { WEAPON_MASTERY_MAP } from './weaponMasteries.js';
 
 /** Подписи владения доспехами (нет в shared — компактно дублируем). */
 const ARMOR_LABELS: Record<string, string> = {
@@ -133,6 +135,14 @@ function proficiencyLine(featData: FeatData): string | null {
     );
   }
 
+  if (featData.masteryProperties?.length) {
+    parts.push(
+      `приёмы: ${featData.masteryProperties
+        .map((key) => WEAPON_MASTERY_MAP.get(key)?.name.ru ?? key)
+        .join(', ')}`,
+    );
+  }
+
   if (featData.toolProficiencies?.length) {
     parts.push(
       featData.toolProficiencies
@@ -213,6 +223,13 @@ function spellListLine(featData: FeatData): string | null {
   return `- **Список заклинаний класса:** ${parts.join('; ')}${suffix}`;
 }
 
+/** Подписи отката ресурса в сводке даров. */
+const COUNTER_RECOVERY_SUMMARY: Record<CounterRecovery, string> = {
+  'short': 'короткий отдых',
+  'long': 'продолжительный отдых',
+  'short-one': 'один заряд за короткий отдых, все за продолжительный',
+};
+
 /**
  * Строка ресурсов черты: название и способ восстановления. Максимум показан
  * формулой источника, а не числом: у «Удачливого» он равен бонусу мастерства и
@@ -227,14 +244,20 @@ function countersLine(featData: FeatData): string | null {
 
   const parts = counters.map(
     (counter) =>
-      `${counter.name} (${counter.max}, ${
-        counter.recovery === 'short'
-          ? 'короткий отдых'
-          : 'продолжительный отдых'
-      })`,
+      `${counter.name} (${counter.max}${counterMinimumLine(counter.min)}, ${COUNTER_RECOVERY_SUMMARY[counter.recovery]})`,
   );
 
   return `- **Ресурсы:** ${parts.join('; ')}`;
+}
+
+/**
+ * Приписка о нижней границе максимума; пустая строка — границы нет.
+ *
+ * @param min - нижняя граница максимума
+ * @returns приписка к формуле максимума
+ */
+function counterMinimumLine(min: number | undefined): string {
+  return min && min > 0 ? `, минимум ${min}` : '';
 }
 
 /**

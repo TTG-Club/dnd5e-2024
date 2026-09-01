@@ -2,13 +2,16 @@
   import type { SpeciesDefinition } from '@vtt/shared/system/dnd.js';
 
   import { useContextMenu } from '../../../composables/useContextMenu';
+  import { useListRowClass } from '../../../composables/useListRowClass';
   import {
     CREATURE_TYPE_LABELS,
     FEET_UNIT_LABEL,
+    LIST_ROW_CARD_BORDERED_CLASS,
     SPECIES_DEFINITION_MIME,
     SPECIES_DETAIL_LABELS,
   } from '../constants';
   import ContextMenuOverlay from '../ContextMenuOverlay.vue';
+  import EntityRowBody from '../EntityRowBody.vue';
 
   defineOptions({
     inheritAttrs: false,
@@ -21,7 +24,19 @@
     showCopy?: boolean;
     showCost?: boolean;
     showWeight?: boolean;
+    /**
+     * Плоская строка списка: без своей плашки и скругления. Так строка встаёт в
+     * список с разделителями (компендиум и окна выбора); на листе персонажа
+     * строки стоят порознь, и плашка им нужна.
+     */
+    flat?: boolean;
   }>();
+
+  /** Оформление строки: плоская в списке, плашкой на листе персонажа */
+  const rowClass = useListRowClass(
+    () => Boolean(props.flat),
+    LIST_ROW_CARD_BORDERED_CLASS,
+  );
 
   const emit = defineEmits<{
     click: [];
@@ -51,12 +66,25 @@
   <div
     v-bind="$attrs"
     draggable="true"
-    class="group flex cursor-grab items-center gap-3 rounded-lg border border-transparent bg-elevated/30 px-3 py-2 transition-colors hover:border-default/50 hover:bg-accented/40 active:cursor-grabbing"
+    class="group flex cursor-grab items-center gap-3 border border-transparent py-2 transition-colors active:cursor-grabbing"
+    :class="rowClass"
     @dragstart="handleDragStart"
     @click.left.exact.prevent="emit('click')"
     @contextmenu="openContextMenu"
   >
-    <div class="min-w-0 flex-1">
+    <!-- Строка списка: название, английское название и источник справа -->
+    <EntityRowBody
+      v-if="flat"
+      :name="speciesDefinition.name"
+      :name-en="speciesDefinition.nameEn"
+      :source-key="speciesDefinition.sourceKey"
+      :source="speciesDefinition.source"
+    />
+
+    <div
+      v-else
+      class="min-w-0 flex-1"
+    >
       <div class="flex items-center gap-2">
         <span class="truncate text-sm font-medium text-highlighted">
           {{ speciesDefinition.name }}

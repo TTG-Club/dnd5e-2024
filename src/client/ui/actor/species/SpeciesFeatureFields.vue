@@ -1,6 +1,10 @@
 <script setup lang="ts" generic="T extends EditableFeatureFields">
+  import type { TypedWebSocketClient } from '@vtt/shared';
+
   import type { SpellOption } from '../grantedSpellsEditorTypes';
   import type { EditableFeatureFields } from './speciesEditorTypes';
+
+  import { computed } from 'vue';
 
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
 
@@ -10,11 +14,20 @@
     SPECIES_FEATURE_LABELS,
     SPECIES_FORM_LABELS,
   } from '../constants';
+  import EntityEffectsEditor from '../EntityEffectsEditor.vue';
+  import { usedChoiceKeys } from '../feat/featEditorTypes';
+  import GrantRowsEditor from '../feat/GrantRowsEditor.vue';
+  import ModifierRowsEditor from '../feat/ModifierRowsEditor.vue';
   import GrantedSpellsEditor from '../GrantedSpellsEditor.vue';
 
-  defineProps<{
+  const props = defineProps<{
     /** Заклинания компендиума по пакам — пробрасываются в редактор заклинаний. */
     availableSpells?: SpellOption[];
+    /**
+     * Сокет для окна выбора заклинания из компендиума. Без него добавить
+     * заклинание нечем: другого способа завести запись у редактора нет.
+     */
+    socket?: TypedWebSocketClient | null;
   }>();
 
   /**
@@ -33,6 +46,11 @@
   function forwardOpenSpell(spellId: string, packId?: string): void {
     emit('open-spell', spellId, packId);
   }
+
+  /** Занятые ключи выборов даров — чтобы новый выбор не столкнулся со старым. */
+  const takenChoiceKeys = computed(() => [
+    ...usedChoiceKeys(feature.value.grants),
+  ]);
 </script>
 
 <template>
@@ -121,11 +139,42 @@
         />
       </UFormField>
 
+      <UFormField
+        :label="SPECIES_FORM_LABELS.featureGrantsTitle"
+        :help="SPECIES_FORM_LABELS.featureGrantsHint"
+      >
+        <GrantRowsEditor
+          v-model="feature.grants.grantRows"
+          hide-ability
+          hide-feat
+          :taken-keys="takenChoiceKeys"
+          :socket="props.socket"
+        />
+      </UFormField>
+
+      <UFormField
+        :label="SPECIES_FORM_LABELS.featureModifiersTitle"
+        :help="SPECIES_FORM_LABELS.featureModifiersHint"
+      >
+        <ModifierRowsEditor v-model="feature.grants.modifiers" />
+      </UFormField>
+
       <UFormField :label="SPECIES_FEATURE_LABELS.grantedSpells">
         <GrantedSpellsEditor
           v-model="feature.grantedSpells"
           :available-spells="availableSpells"
+          :socket="props.socket"
           @open-spell="forwardOpenSpell"
+        />
+      </UFormField>
+
+      <UFormField :label="SPECIES_FORM_LABELS.tabEffects">
+        <EntityEffectsEditor
+          v-model="feature.activeEffects"
+          :modal-id="`species-feature-effect-form-modal-${feature.key}`"
+          :hint="SPECIES_FORM_LABELS.featureEffectsHint"
+          :empty-text="SPECIES_FORM_LABELS.featureEffectsEmpty"
+          hide-aura
         />
       </UFormField>
     </template>

@@ -166,6 +166,16 @@ export const SKILLS_LIST: Array<{
 // Типы движения (Movement)
 // ============================================================
 
+/**
+ * Единица длины — футы. Расстояния в системе меряются только в них, поэтому
+ * подпись одна на всех: карточку вида, строку вида в компендиуме, блок зрения
+ * листа существа и подписи, которые собирает сам движок (рост вида, зрение).
+ *
+ * Живёт в движке, а не в подписях клиента: клиент импортирует из движка, а
+ * наоборот нельзя — слои так не ходят.
+ */
+export const FEET_UNIT_LABEL = 'фт.';
+
 /** Приоритет типов движения (от высшего к низшему) */
 export const MOVEMENT_PRIORITY: MovementType[] = [
   'burrow',
@@ -833,6 +843,22 @@ export function isCurrencyType(value: unknown): value is CurrencyType {
   return typeof value === 'string' && CURRENCY_TYPE_SET.has(value);
 }
 
+/**
+ * Краткая подпись монеты («зм»). Своей константы под неё быть не должно:
+ * подписи монет живут одной таблицей, и вторая копия разошлась бы с ней.
+ *
+ * @param currency - вид монеты; по умолчанию золотые
+ * @returns краткая подпись либо код монеты, если такой в таблице нет
+ */
+export function currencyShortLabel(
+  currency: CurrencyType = DEFAULT_CURRENCY,
+): string {
+  return (
+    CURRENCY_OPTIONS.find((option) => option.value === currency)?.labelShort
+    ?? currency
+  );
+}
+
 /** Минимальное количество монет одного вида в кошельке */
 export const CURRENCY_AMOUNT_MIN = 0;
 
@@ -1215,6 +1241,7 @@ export const DEFAULT_CREATURE: Omit<
     disposition: 'hostile',
   },
   activeEffects: [],
+  equipment: [],
   system: {
     size: 'medium',
     type: 'humanoid',

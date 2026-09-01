@@ -22,6 +22,7 @@
 
   import CompendiumDataModal from '@/systems/dnd5e/ui/compendium/CompendiumDataModal.vue';
   import {
+    canonicalClassKey,
     computeSpellSlots,
     getPactSlotInfo,
   } from '@vtt/shared/system/dnd.js';
@@ -239,9 +240,11 @@
    * и не привязаны к ключу базового класса в компендиуме.
    */
   const classKeyFilter = computed((): string | undefined => {
-    // Если магия от класса — фильтруем по ключу класса
+    // Если магия от класса — фильтруем по КАНОНИЧЕСКОМУ ключу: у класса,
+    // созданного или скопированного в мире, ключ свой, а заклинания
+    // компендиума помечены ключом правил — по своему не нашлось бы ни одного
     if (props.classDefinition.spellcasting) {
-      return props.classDefinition.key;
+      return canonicalClassKey(props.classDefinition) ?? undefined;
     }
 
     // Для подклассов-заклинателей не устанавливаем фильтр по классу
@@ -603,7 +606,7 @@
       :key="spellBrowserKey"
       :open="isSpellBrowserOpen"
       :socket="socket"
-      data-file="spells"
+      data-kind="spell"
       :title="WIZARD_SPELLCASTING_LABELS.title"
       :initial-class-filter="classKeyFilter"
       :initial-level-filter="availableLevelFilter"

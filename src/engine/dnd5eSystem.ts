@@ -21,15 +21,10 @@ import type {
 import type { BackgroundDefinition } from './backgroundTypes.js';
 import type { DndCombatState } from './damageApplication.js';
 import type { DamageApplyResult } from './damageUtils.js';
-import type { DnDActor, DnDGameItem, Spell } from './dndEntities.js';
+import type { DnDGameItem, Spell } from './dndEntities.js';
 import type { IncomingAttackContext } from './effectPipeline.js';
 
-import {
-  generateId,
-  getHealthCondition,
-  HEALTH_CONDITIONS,
-  isRecord,
-} from '@vtt/shared';
+import { getHealthCondition, HEALTH_CONDITIONS, isRecord } from '@vtt/shared';
 
 import {
   ActiveEffectsArraySchema,
@@ -79,6 +74,7 @@ import {
   resolveEntityTempHp,
 } from './hitPoints.js';
 import { validateGameItem } from './itemSchemas.js';
+import { transferItem } from './itemTransfer.js';
 import {
   applyAuraTriggerEffects as computeAuraTriggerEffects,
   syncActorAreaEffects,
@@ -239,16 +235,6 @@ function isSpellEntry(entry: unknown): entry is Spell {
 }
 
 /**
- * Type-guard: у сущности сцены есть инвентарь, то есть это актёр D&D 5e.
- * Массив `equipment` объявлен только на `DnDActor` — у существ инвентаря нет.
- *
- * @param entity - проверяемая сущность сцены
- */
-function hasInventory(entity: SceneEntity): entity is DnDActor {
-  return 'equipment' in entity && Array.isArray(entity.equipment);
-}
-
-/**
  * Производные булевы предикаты компендиума по ключу — для фильтров, которые
  * нельзя выразить одним полем (лечение определяется по частям урона).
  */
@@ -268,7 +254,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.6.60';
+  readonly version = '0.6.83';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -732,12 +718,10 @@ export class Dnd5eVttSystem implements VttSystem {
   /**
    * Переносит предмет из инвентаря отправителя в инвентарь получателя.
    *
-   * Инвентарь D&D 5e — массив `equipment` актёра, поэтому у сущностей без него
-   * (существа) перенос невозможен. Предмет берётся из инвентаря отправителя, а
-   * не из переданного объекта: так исключается перенос по устаревшему снимку.
-   * Копия у получателя получает новый идентификатор (иначе в мире окажутся два
-   * предмета с одним id) и снимается со снаряжения — слоты у нового владельца
-   * свои. Сущности не мутируются: ядру возвращаются их обновлённые копии.
+   * Правило переноса живёт в движке ({@link transferItem}) и одно на все пути:
+   * этот метод контракта зовёт ядро при перетаскивании токена на токен, а тот
+   * же расчёт вызывает лист, на который предмет бросили мышью. Стороны — любые
+   * сущности с инвентарём, а не только актёры.
    *
    * Права на перенос (владелец или ГМ) проверяет ядро — это правило VTT, а не
    * D&D, поэтому здесь их нет.
@@ -753,45 +737,7 @@ export class Dnd5eVttSystem implements VttSystem {
     target: SceneEntity,
     item: BaseGameItem,
   ): { source: SceneEntity; target: SceneEntity } | null {
-    // Перенос самому себе удалил бы предмет из копии-отправителя и добавил в
-    // копию-получателя: какая из двух копий одной сущности победит при записи —
-    // не определено, поэтому жест игнорируется целиком.
-    if (source.id === target.id) {
-      return null;
-    }
-
-    if (!hasInventory(source) || !hasInventory(target)) {
-      return null;
-    }
-
-    const transferredItem = source.equipment.find(
-      (entry) => entry.id === item.id,
-    );
-
-    if (!transferredItem) {
-      return null;
-    }
-
-    const receivedItem: DnDGameItem = {
-      ...transferredItem,
-      id: generateId('eq'),
-      equipped: false,
-    };
-
-    // Промежуточные переменные, а не литералы прямо в `return`: инвентарь не
-    // входит в нейтральный `SceneEntity`, и проверка лишних свойств отвергла бы
-    // литерал с `equipment`
-    const updatedSource: DnDActor = {
-      ...source,
-      equipment: source.equipment.filter((entry) => entry.id !== item.id),
-    };
-
-    const updatedTarget: DnDActor = {
-      ...target,
-      equipment: [...target.equipment, receivedItem],
-    };
-
-    return { source: updatedSource, target: updatedTarget };
+    return transferItem(source, target, item);
   }
 
   /**

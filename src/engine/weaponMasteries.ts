@@ -105,3 +105,70 @@ export const WEAPON_MASTERIES: WeaponMastery[] = [
 export const WEAPON_MASTERY_MAP = new Map<string, WeaponMastery>(
   WEAPON_MASTERIES.map((mastery) => [mastery.key, mastery]),
 );
+
+/**
+ * Приём каждого вида оружия PHB 2024: ключ базового вида → ключ приёма.
+ *
+ * Живёт здесь, а не в `weapon-base-types.json`: базовый вид описан типом SDK
+ * (`WeaponBaseTypeDefinition`), у которого поля приёма нет, — а знать, какой
+ * приём даёт «Секира», нужно уже в редакторе даров, чтобы автор видел, что
+ * именно он выдаёт вместе с оружием.
+ */
+export const WEAPON_MASTERY_BY_WEAPON: Readonly<Record<string, string>> = {
+  // Простое рукопашное
+  'club': 'slow',
+  'dagger': 'nick',
+  'greatclub': 'push',
+  'handaxe': 'vex',
+  'javelin': 'slow',
+  'light-hammer': 'nick',
+  'mace': 'sap',
+  'quarterstaff': 'topple',
+  'sickle': 'nick',
+  'spear': 'sap',
+  // Простое дальнобойное
+  'dart': 'vex',
+  'shortbow': 'vex',
+  'light-crossbow': 'slow',
+  'sling': 'slow',
+  // Воинское рукопашное
+  'battleaxe': 'topple',
+  'flail': 'sap',
+  'glaive': 'graze',
+  'greataxe': 'cleave',
+  'greatsword': 'graze',
+  'halberd': 'cleave',
+  'lance': 'topple',
+  'longsword': 'sap',
+  'maul': 'topple',
+  'morningstar': 'sap',
+  'pike': 'push',
+  'rapier': 'vex',
+  'scimitar': 'nick',
+  'shortsword': 'vex',
+  'trident': 'topple',
+  'war-pick': 'sap',
+  'warhammer': 'push',
+  'whip': 'slow',
+  // Воинское дальнобойное
+  'blowgun': 'vex',
+  'hand-crossbow': 'vex',
+  'heavy-crossbow': 'push',
+  'longbow': 'slow',
+  'musket': 'slow',
+  'pistol': 'vex',
+};
+
+/**
+ * Название приёма, который даёт этот вид оружия.
+ *
+ * @param weaponKey - ключ базового вида оружия
+ * @returns русское название приёма либо `null`, если приёма у вида нет
+ */
+export function weaponMasteryName(weaponKey: string): string | null {
+  const masteryKey = WEAPON_MASTERY_BY_WEAPON[weaponKey];
+
+  return masteryKey
+    ? (WEAPON_MASTERY_MAP.get(masteryKey)?.name.ru ?? null)
+    : null;
+}

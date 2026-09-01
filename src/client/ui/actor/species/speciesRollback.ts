@@ -22,11 +22,14 @@ import type {
 
 import { removeItems } from '@vtt/shared';
 import {
+  collectSpeciesFeatDataSources,
   computeSpeciesDarkvision,
   CREATURE_SIZE_TO_TOKEN_SCALE,
   DEFAULT_ACTOR,
   getTotalLevel,
   isSkillType,
+  removeFeatChoiceSelections,
+  removeFeatDataProficiencies,
   removeGrantedSpellsByFeatureNames,
 } from '@vtt/shared/system/dnd.js';
 
@@ -44,6 +47,24 @@ export const SPECIES_DEFENSE_EFFECT_PREFIX = 'species-defenses:';
 export const SPECIES_LEGACY_RESISTANCE_EFFECT_PREFIX = 'species-resistance:';
 
 /**
+ * Префикс id эффекта, заявленного самим видом или его умением в компендиуме.
+ *
+ * Собственный id эффекта в записи вида не уникален на акторе: тот же эффект
+ * может прийти с предмета или заклинания, а два вида подряд принесли бы копию
+ * друг друга. Префикс с ключом вида делает id своим и позволяет снять ровно
+ * эффекты вида при его смене.
+ */
+export const SPECIES_OWN_EFFECT_PREFIX = 'species-effect:';
+
+/**
+ * Префикс id и провенанса синтетического эффекта даров `featData` вида: по
+ * блоку на источник (запись, подвид, особенность). Тот же префикс идёт в
+ * `originId` через `buildFeatGrantEffect` — эффект снимается при смене и
+ * удалении вида вместе с остальными видовыми.
+ */
+export const SPECIES_GRANT_EFFECT_PREFIX = 'species-grant:';
+
+/**
  * Проверяет, принадлежит ли эффект защитам, выданным видом (текущий или старый
  * префикс id).
  *
@@ -57,6 +78,20 @@ export function isSpeciesDefenseEffect(effect: ActiveEffect): boolean {
 }
 
 /**
+ * Проверяет, поставлен ли эффект видом: и сведённые защиты, и то, что вид или
+ * его умение заявили эффектом в компендиуме.
+ *
+ * @param effect - активный эффект актёра
+ */
+export function isSpeciesProvidedEffect(effect: ActiveEffect): boolean {
+  return (
+    isSpeciesDefenseEffect(effect)
+    || effect.id.startsWith(SPECIES_OWN_EFFECT_PREFIX)
+    || effect.id.startsWith(SPECIES_GRANT_EFFECT_PREFIX)
+  );
+}
+
+/**
  * Снимает владения, выданные прежним видом: и фиксированные позиции гранта, и
  * то, что игрок выбрал сам (`grantChoices` записи вида).
  *
@@ -66,11 +101,17 @@ export function isSpeciesDefenseEffect(effect: ActiveEffect): boolean {
  * @param previousSpecies - запись прежнего вида на листе
  * @param previousSpeciesDef - определение прежнего вида (нужно ради
  * фиксированных позиций гранта; без него откатить нечего)
+ * @param previousSubspeciesDef - определение прежнего подвида-записи; пусто —
+ * подвид не выбирался либо запись не нашлась
+ * @param totalLevel - суммарный уровень персонажа: по нему собираются активные
+ * источники `featData` — те же, что применял мастер
  */
 export function rollbackSpeciesProficiencies(
   proficiencies: DnDProficiencies,
   previousSpecies: ActorSpeciesEntry | null | undefined,
   previousSpeciesDef: SpeciesDefinition | null | undefined,
+  previousSubspeciesDef: SpeciesDefinition | null | undefined,
+  totalLevel: number,
 ): DnDProficiencies {
   const skills = { ...proficiencies.skills };
   const weapons = [...proficiencies.weapons];
@@ -80,7 +121,7 @@ export function rollbackSpeciesProficiencies(
   const savingThrows = [...proficiencies.savingThrows];
 
   if (previousSpecies && previousSpeciesDef) {
-    previousSpeciesDef.grants.forEach((grant, grantIndex) => {
+    (previousSpeciesDef.grants ?? []).forEach((grant, grantIndex) => {
       const previousUserChoices =
         previousSpecies.grantChoices[grantIndex] || [];
 
@@ -108,7 +149,7 @@ export function rollbackSpeciesProficiencies(
     });
   }
 
-  return {
+  const rolledBack: DnDProficiencies = {
     ...proficiencies,
     skills,
     weapons,
@@ -117,6 +158,29 @@ export function rollbackSpeciesProficiencies(
     languages,
     savingThrows,
   };
+
+  // Дары featData: снимаем безусловные владения и ответы игрока по тем же
+  // источникам, что применял мастер (запись + подвид + активные особенности)
+  if (previousSpecies && previousSpeciesDef) {
+    const sources = collectSpeciesFeatDataSources(
+      previousSpeciesDef,
+      totalLevel,
+      Object.values(previousSpecies.featureChoices ?? {}),
+      previousSubspeciesDef,
+    );
+
+    for (const source of sources) {
+      removeFeatDataProficiencies(rolledBack, source.featData);
+
+      removeFeatChoiceSelections(
+        rolledBack,
+        source.featData,
+        previousSpecies.featDataChoices?.[source.sourceKey],
+      );
+    }
+  }
+
+  return rolledBack;
 }
 
 /**
@@ -127,9 +191,11 @@ export function rollbackSpeciesProficiencies(
  * могло быть выдано, а имена особенностей внутри одного вида уникальны.
  *
  * @param definition - определение вида
+ * @param subspecies - запись-подвид; пусто — подвид не выбирался
  */
 export function collectSpeciesFeatureNames(
   definition: SpeciesDefinition,
+  subspecies?: SpeciesDefinition | null,
 ): string[] {
   const names: string[] = [];
 
@@ -141,6 +207,10 @@ export function collectSpeciesFeatureNames(
         names.push(choiceFeature.name);
       }
     }
+  }
+
+  for (const feature of subspecies?.features ?? []) {
+    names.push(feature.name);
   }
 
   return names;
@@ -162,10 +232,12 @@ export function rollbackSpeciesFeatures(
  *
  * @param spells - заклинания актёра
  * @param previousSpeciesDef - определение прежнего вида
+ * @param previousSubspeciesDef - определение прежнего подвида-записи
  */
 export function rollbackSpeciesGrantedSpells(
   spells: ReadonlyArray<Spell>,
   previousSpeciesDef: SpeciesDefinition | null | undefined,
+  previousSubspeciesDef?: SpeciesDefinition | null,
 ): Spell[] {
   if (!previousSpeciesDef) {
     return [...spells];
@@ -173,7 +245,7 @@ export function rollbackSpeciesGrantedSpells(
 
   return removeGrantedSpellsByFeatureNames(
     [...spells],
-    collectSpeciesFeatureNames(previousSpeciesDef),
+    collectSpeciesFeatureNames(previousSpeciesDef, previousSubspeciesDef),
   );
 }
 
@@ -186,11 +258,13 @@ export function rollbackSpeciesGrantedSpells(
  *
  * @param actor - актёр, с которого снимается вид
  * @param previousSpeciesDef - определение снимаемого вида
+ * @param previousSubspeciesDef - определение снимаемого подвида-записи
  * @returns новые настройки токена — исходные не меняются
  */
 function buildTokenWithoutSpecies(
   actor: DnDActor,
   previousSpeciesDef: SpeciesDefinition | null | undefined,
+  previousSubspeciesDef: SpeciesDefinition | null | undefined,
 ): DnDActor['token'] {
   const token = actor.token ?? {};
   const scale = CREATURE_SIZE_TO_TOKEN_SCALE[DEFAULT_ACTOR.system.size];
@@ -205,6 +279,7 @@ function buildTokenWithoutSpecies(
     previousSpeciesDef,
     getTotalLevel(actor.system.classes),
     Object.values(previousSpecies.featureChoices),
+    previousSubspeciesDef,
   );
 
   if (vision.darkvision !== previousDarkvision) {
@@ -225,10 +300,13 @@ function buildTokenWithoutSpecies(
  * @param previousSpeciesDef - определение снимаемого вида. Без него владения
  * откатить нечем (определение могло исчезнуть вместе с паком компендиума) —
  * снимаем всё остальное, а владения остаются на листе
+ * @param previousSubspeciesDef - определение снимаемого подвида-записи; пусто —
+ * подвид не выбирался либо запись не нашлась
  */
 export function buildSpeciesRemovalUpdates(
   actor: DnDActor,
   previousSpeciesDef: SpeciesDefinition | null | undefined,
+  previousSubspeciesDef?: SpeciesDefinition | null,
 ): {
   systemUpdates: Partial<DnDActor['system']>;
   rootUpdates: Partial<DnDActor>;
@@ -243,16 +321,26 @@ export function buildSpeciesRemovalUpdates(
       actor.system.proficiencies,
       previousSpecies,
       previousSpeciesDef,
+      previousSubspeciesDef,
+      getTotalLevel(actor.system.classes),
     ),
   };
 
   const rootUpdates: Partial<DnDActor> = {
-    token: buildTokenWithoutSpecies(actor, previousSpeciesDef),
+    token: buildTokenWithoutSpecies(
+      actor,
+      previousSpeciesDef,
+      previousSubspeciesDef ?? null,
+    ),
     features: rollbackSpeciesFeatures(actor.features),
     activeEffects: actor.activeEffects.filter(
-      (effect) => !isSpeciesDefenseEffect(effect),
+      (effect) => !isSpeciesProvidedEffect(effect),
     ),
-    spells: rollbackSpeciesGrantedSpells(actor.spells, previousSpeciesDef),
+    spells: rollbackSpeciesGrantedSpells(
+      actor.spells,
+      previousSpeciesDef,
+      previousSubspeciesDef,
+    ),
   };
 
   return { systemUpdates, rootUpdates };

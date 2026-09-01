@@ -13,6 +13,7 @@ import type {
 } from '@vtt/shared';
 
 import type { ResolvedActorStats } from './activeEffectTypes.js';
+import type { ConditionRef } from './conditionKeys.js';
 import type {
   CreatureCategory,
   CreatureSpellcasting,
@@ -21,6 +22,7 @@ import type { DnDCustomBonusContext } from './customBonuses.js';
 import type {
   DnDActor,
   DnDCreature,
+  DnDSceneEntity,
   Spell,
   SpellProjectiles,
 } from './dndEntities.js';
@@ -95,12 +97,12 @@ export function isSpell(value: unknown): value is Spell {
  * (так приезжают заклинания черт и хоумбрю из компендиума), но передумать за
  * игрока, если он задал характеристику руками, оно не должно.
  *
- * @param actor - актор-владелец
+ * @param actor - лист-владелец: актёр или существо
  * @param spell - заклинание
  * @returns характеристика заклинания
  */
 export function resolveSpellcastingAbility(
-  actor: DnDActor,
+  actor: DnDSceneEntity,
   spell: Spell,
 ): AbilityType {
   if (spell.attackAbility) {
@@ -155,10 +157,12 @@ export function findSpellcastingAbility(
  * разница модификаторов и есть поправка к его Сл. Лист без заклинательства
  * считается по Интеллекту — так же, как это делает расчёт атаки.
  *
- * @param actor - актор-владелец
+ * @param actor - лист-владелец: актёр или существо
  * @returns характеристика заклинаний листа
  */
-export function resolveActorSpellcastingAbility(actor: DnDActor): AbilityType {
+export function resolveActorSpellcastingAbility(
+  actor: DnDSceneEntity,
+): AbilityType {
   return findSpellcastingAbility(actor) ?? 'intelligence';
 }
 
@@ -683,7 +687,7 @@ export function formatConditionalDamageDisplay(
  * используется базовое значение характеристики (legacy-поведение).
  *
  * @param spell - заклинание
- * @param actor - актор-заклинатель
+ * @param actor - лист-заклинатель: актёр или существо
  * @param baseFormula - формула для подстановки (по умолчанию — первая часть
  *   из `getSpellDamageParts`)
  * @param resolvedStats - итоговые статы из пайплайна (для бонусов от эффектов)
@@ -691,7 +695,7 @@ export function formatConditionalDamageDisplay(
  */
 export function resolveSpellDamageFormula(
   spell: Spell,
-  actor: DnDActor,
+  actor: DnDSceneEntity,
   baseFormula?: string,
   resolvedStats?: ResolvedActorStats,
   targetIsFull?: boolean,
@@ -1301,7 +1305,7 @@ export interface ResolvedDamagePartInput {
  */
 export function resolveDamagePartsForCast(
   spell: Spell,
-  actor: DnDActor,
+  actor: DnDSceneEntity,
   parts: DamagePart[],
   resolvedStats?: ResolvedActorStats,
   targetIsFull?: boolean,
@@ -2016,3 +2020,22 @@ export function scaleDamageFormula(
 // ── Маппинг AoE ──────────────────────────────────────────────
 
 // ── Лейблы для чата ──────────────────────────────────────────
+
+/**
+ * Состояние, которого спасбросок от заклинания позволяет избежать.
+ *
+ * Берётся у первого эффекта заклинания, который состояние накладывает:
+ * спасбросок один, и «преимущество против отравления» с «преимуществом против
+ * страха» на нём всё равно не сложить. Заклинание без состояния отдаёт
+ * `undefined` — тогда бросок считается только по характеристике и магии.
+ *
+ * @param spell - заклинание
+ * @returns ключ состояния либо `undefined`
+ */
+export function getSpellSaveCondition(spell: Spell): ConditionRef | undefined {
+  const carrier = (spell.activeEffects ?? []).find(
+    (effect) => effect.conditionKey,
+  );
+
+  return carrier?.conditionKey;
+}

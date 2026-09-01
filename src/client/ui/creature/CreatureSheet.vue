@@ -9,6 +9,7 @@
   import type {
     DnDCreature,
     DnDCustomBonusContext,
+    DnDGameItem,
     DnDSavingThrowSettings,
     DnDSkillSettings,
     RestType,
@@ -46,22 +47,28 @@
     getSkillSetting,
     getSkillSettingAbility,
     isDndCreature,
+    isDnDGameItem,
     isProficiencyLevel,
     isSpell,
     listConditions,
+    normalizeCompendiumItem,
     normalizeCreature,
     PASSIVE_SKILL_BASE,
     SKILLS_LIST,
     withExhaustionLevel,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useItemTransfer } from '../../composables/useItemTransfer';
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import { useSheetMinimize } from '../../composables/useSheetMinimize';
   import {
     DICE_ROLL_DEFAULT_BUTTON,
+    DRAG_OVER_RESET_DELAY_MS,
     FEET_UNIT_LABEL,
     FORM_FIELD_LABELS,
     FORM_TAB_LABELS,
+    GAME_ITEM_MIME,
+    GAME_ITEM_TRANSFER_MIME,
     GRANT_FIELD_LABELS,
     GRANT_SECTION_LABELS,
     MODAL_BUTTON_LABELS,
@@ -93,6 +100,7 @@
   import CreatureDefensesModal from './CreatureDefensesModal.vue';
   import CreatureEffectsBlock from './CreatureEffectsBlock.vue';
   import CreatureEnvironmentsModal from './CreatureEnvironmentsModal.vue';
+  import CreatureEquipmentBlock from './CreatureEquipmentBlock.vue';
   import CreatureHeader from './CreatureHeader.vue';
   import CreatureSpellsBlock from './CreatureSpellsBlock.vue';
   import CreatureActionsTab from './tabs/CreatureActionsTab.vue';
@@ -119,6 +127,7 @@
       header?: string;
       token?: DnDCreature['token'];
       spells?: Spell[];
+      equipment?: DnDCreature['equipment'];
       activeEffects?: DnDCreature['activeEffects'];
       [key: string]: unknown;
     };
@@ -226,6 +235,7 @@
   // Вкладки
   const tabs = [
     { id: 'actions', label: CREATURE_SHEET_LABELS.tabActions },
+    { id: 'equipment', label: CREATURE_SHEET_LABELS.tabEquipment },
     { id: 'traits', label: GRANT_SECTION_LABELS.features },
     { id: 'spells', label: GRANT_SECTION_LABELS.spells },
     { id: 'effects', label: FORM_TAB_LABELS.effects },
@@ -235,6 +245,8 @@
   const activeTab = ref('actions');
 
   const { resolvedStats } = useResolvedStats(toRef(() => localCreature.value));
+
+  const { receiveTransferredItem } = useItemTransfer();
 
   const isDiceRollOpen = ref(false);
 
@@ -295,6 +307,7 @@
         header: props.initialData.header,
         token: props.initialData.token,
         spells: props.initialData.spells,
+        equipment: props.initialData.equipment,
         activeEffects: props.initialData.activeEffects,
       };
 
@@ -435,6 +448,24 @@
       if (localCreature.value && newActiveEffects && !isEditMode.value) {
         localCreature.value.activeEffects = JSON.parse(
           JSON.stringify(newActiveEffects),
+        );
+      }
+    },
+    { deep: true },
+  );
+
+  /**
+   * Синхронизация инвентаря из store в localCreature. Нужна по той же причине,
+   * что и у эффектов: пока лист открыт, инвентарь могли поменять снаружи —
+   * передачей предмета или списанием заряда. Без этого следующая правка листа
+   * отправила бы на сервер устаревший инвентарь и затёрла бы чужую.
+   */
+  watch(
+    () => storeCreature.value?.equipment,
+    (newEquipment) => {
+      if (localCreature.value && newEquipment && !isEditMode.value) {
+        localCreature.value.equipment = JSON.parse(
+          JSON.stringify(newEquipment),
         );
       }
     },
@@ -737,6 +768,37 @@
     return result.sort();
   });
 
+  /**
+   * Какие блоки левой колонки показывать.
+   *
+   * В просмотре пустые прячутся: в статблоке 2024-й строку «Уязвимости — нет»
+   * не пишут, и лист без семи прочерков читается как книга, а не как форма.
+   * В правке видны все — иначе пустой блок нечем было бы заполнить.
+   *
+   * Спасброски и чувства сюда не входят намеренно: они пустыми не бывают —
+   * шесть спасбросков и пассивная Внимательность есть у любого существа.
+   */
+  const visibleBlocks = computed(() => {
+    const system = localCreature.value?.system;
+    const defenses = system?.defenses;
+    const isEditing = isEditMode.value;
+
+    return {
+      exhaustion: isEditing || exhaustionLevel.value > 0,
+      vulnerabilities: isEditing || Boolean(defenses?.vulnerabilities.length),
+      resistances: isEditing || Boolean(defenses?.resistances.length),
+      immunities: isEditing || Boolean(defenses?.immunities.length),
+      conditionImmunities:
+        isEditing || Boolean(defenses?.conditionImmunities.length),
+      skills: isEditing || formattedSkills.value.length > 0,
+      languages: isEditing || Boolean(system?.languages?.length),
+      environments:
+        isEditing
+        || Boolean(system?.environments?.length)
+        || Boolean(system?.customEnvironments),
+    };
+  });
+
   function openSettings() {
     openModal('CreatureSettingsModal', {
       creatureId: props.creatureId,
@@ -992,19 +1054,158 @@
     });
   }
 
+  /** Тащат ли на лист предмет — для подсветки зоны приёма во вкладке */
+  const isItemDragOver = ref(false);
+
   /**
-   * Разрешает перетаскивание заклинания из компендиума на лист существа.
+   * Отложенное гашение подсветки. `dragleave` срабатывает и при переходе между
+   * вложенными элементами листа, поэтому подсветку гасит не он, а пауза без
+   * единого `dragover`: каждое движение мыши над листом отодвигает её заново.
+   * Тот же приём, что на листе персонажа.
+   */
+  let itemDragLeaveTimeout: number | undefined;
+
+  /**
+   * Разрешает перетаскивание заклинания или предмета из панели «Предметы» и
+   * компендиума на лист существа.
    * @param event - событие dragover
    */
-  function handleSpellDragOver(event: DragEvent): void {
+  function handleSheetDragOver(event: DragEvent): void {
     if (isReadOnly.value || !event.dataTransfer) {
       return;
     }
 
-    if (event.dataTransfer.types.includes(SPELL_MIME)) {
-      event.preventDefault();
-      event.dataTransfer.dropEffect = 'copy';
+    const types = event.dataTransfer.types;
+
+    const hasItem =
+      types.includes(GAME_ITEM_MIME) || types.includes(GAME_ITEM_TRANSFER_MIME);
+
+    if (!types.includes(SPELL_MIME) && !hasItem) {
+      return;
     }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+
+    if (hasItem) {
+      isItemDragOver.value = true;
+    }
+
+    window.clearTimeout(itemDragLeaveTimeout);
+
+    itemDragLeaveTimeout = window.setTimeout(() => {
+      isItemDragOver.value = false;
+    }, DRAG_OVER_RESET_DELAY_MS);
+  }
+
+  /** Гасит подсветку зоны приёма, когда предмет увели с листа */
+  function handleSheetDragLeave(): void {
+    isItemDragOver.value = false;
+  }
+
+  /**
+   * Принимает предмет, переданный с другого листа: предмет уходит из инвентаря
+   * отправителя и появляется здесь.
+   *
+   * Отправителя обновляет композабл переноса — его лист может быть закрыт.
+   * Сюда возвращается только новый инвентарь получателя, и он сохраняется
+   * обычным путём листа.
+   *
+   * @param event - событие drop
+   * @returns `true`, если нагрузка была передачей предмета — принята она или
+   *   отброшена. `false` значит «это не передача», и лист идёт дальше по цепочке
+   */
+  function handleItemTransferDrop(event: DragEvent): boolean {
+    // В режиме правки жест не принимается: у отправителя предмет уходит сразу и
+    // на сервер, а здесь правки копятся до «Сохранить» — «Отмена» стёрла бы
+    // предмет уже после того, как его отдали, и он пропал бы у обоих
+    if (isEditMode.value || !localCreature.value) {
+      return false;
+    }
+
+    const received = receiveTransferredItem(
+      event,
+      localCreature.value,
+      props.socket,
+    );
+
+    if (!received) {
+      return false;
+    }
+
+    handleCreatureUpdate({ equipment: received.equipment });
+
+    activeTab.value = 'equipment';
+
+    toast.add({
+      title: CREATURE_SHEET_LABELS.itemReceived,
+      description: received.itemName,
+      color: 'success',
+    });
+
+    return true;
+  }
+
+  /**
+   * Добавляет перетащенный из панели «Предметы» или компендиума предмет в
+   * инвентарь существа: новый идентификатор, снятая пометка «только чтение» и
+   * снятая экипировка.
+   *
+   * Запись, которая уже лежит в этом мешке, игнорируется по идентификатору —
+   * так гасится перетаскивание предмета из списка на тот же лист. Одинаковые
+   * предметы из компендиума при этом кладутся сколько угодно раз: каждому
+   * достаётся свой новый идентификатор, а два кинжала в мешке — нормальный
+   * случай (для стопки есть счётчик количества в строке).
+   *
+   * @param event - событие drop
+   * @returns `true`, если нагрузка была предметом — принят он или отброшен.
+   *   `false` значит только «это не предмет», и лист идёт проверять заклинание
+   */
+  function handleCompendiumItemDrop(event: DragEvent): boolean {
+    const itemPayload = event.dataTransfer?.getData(GAME_ITEM_MIME);
+
+    if (!itemPayload || !localCreature.value) {
+      return false;
+    }
+
+    event.preventDefault();
+
+    try {
+      const dropped: unknown = JSON.parse(itemPayload);
+
+      // Испорченная нагрузка и предмет, уже лежащий в этом мешке, отбрасываются
+      // молча: событие всё равно наше, и передавать его дальше нечего
+      if (!isDnDGameItem(dropped)) {
+        return true;
+      }
+
+      const current = localCreature.value.equipment ?? [];
+
+      if (current.some((entry) => entry.id === dropped.id)) {
+        return true;
+      }
+
+      const newItem: DnDGameItem = normalizeCompendiumItem({
+        ...dropped,
+        id: generateId('eq'),
+        isReadOnly: false,
+        equipped: false,
+      });
+
+      handleCreatureUpdate({ equipment: [...current, newItem] });
+
+      activeTab.value = 'equipment';
+
+      toast.add({
+        title: CREATURE_SHEET_LABELS.itemAdded,
+        description: dropped.name,
+        color: 'success',
+      });
+    } catch (error) {
+      console.error(CREATURE_SHEET_LABELS.itemDropFailed, error);
+    }
+
+    return true;
   }
 
   /**
@@ -1012,21 +1213,27 @@
    * (новый id, дубликат по имени игнорируется).
    * @param event - событие drop
    */
-  function handleSpellDrop(event: DragEvent): void {
-    if (isReadOnly.value || !localCreature.value) {
+  function handleSheetDrop(event: DragEvent): void {
+    isItemDragOver.value = false;
+
+    if (isReadOnly.value || !canControl.value || !localCreature.value) {
       return;
     }
 
-    const data = event.dataTransfer?.getData(SPELL_MIME);
+    if (handleItemTransferDrop(event) || handleCompendiumItemDrop(event)) {
+      return;
+    }
 
-    if (!data) {
+    const spellPayload = event.dataTransfer?.getData(SPELL_MIME);
+
+    if (!spellPayload) {
       return;
     }
 
     event.preventDefault();
 
     try {
-      const dropped: unknown = JSON.parse(data);
+      const dropped: unknown = JSON.parse(spellPayload);
 
       // Данные приезжают из события браузера: без проверки испорченная
       // нагрузка легла бы в запись существа и сломала бы его лист
@@ -1238,8 +1445,9 @@
       <div
         v-if="localCreature"
         class="relative flex h-full flex-col"
-        @dragover="handleSpellDragOver"
-        @drop="handleSpellDrop"
+        @dragover="handleSheetDragOver"
+        @dragleave="handleSheetDragLeave"
+        @drop="handleSheetDrop"
       >
         <!-- Фоновая картинка с затуханием -->
         <img
@@ -1282,6 +1490,7 @@
               <!-- Истощение: сразу под здоровьем — степень штрафует все тесты
                 к20 и скорость, и читается она вместе с хитами -->
               <ExhaustionPanel
+                v-if="visibleBlocks.exhaustion"
                 :level="exhaustionLevel"
                 :is-edit-mode="isEditMode"
                 @select="handleExhaustionSelect"
@@ -1289,6 +1498,7 @@
 
               <!-- Защиты -->
               <FieldsetLabel
+                v-if="visibleBlocks.vulnerabilities"
                 :label="CREATURE_SHEET_LABELS.vulnerabilities"
                 class="bg-default/20 transition-colors"
                 :class="blockClasses.vulnerabilities"
@@ -1332,6 +1542,7 @@
               </FieldsetLabel>
 
               <FieldsetLabel
+                v-if="visibleBlocks.resistances"
                 :label="CREATURE_SHEET_LABELS.resistances"
                 class="bg-default/20 transition-colors"
                 :class="blockClasses.resistances"
@@ -1373,6 +1584,7 @@
               </FieldsetLabel>
 
               <FieldsetLabel
+                v-if="visibleBlocks.immunities"
                 :label="CREATURE_SHEET_LABELS.immunities"
                 class="bg-default/20 transition-colors"
                 :class="blockClasses.immunities"
@@ -1412,6 +1624,7 @@
               </FieldsetLabel>
 
               <FieldsetLabel
+                v-if="visibleBlocks.conditionImmunities"
                 :label="GRANT_FIELD_LABELS.conditionImmunities"
                 class="bg-default/20 transition-colors"
                 :class="blockClasses.editable"
@@ -1516,6 +1729,7 @@
                 считанные навыки, и полный список правил занимал бы всю колонку
                 ради трёх строк. Владения правят в своём окне -->
               <FieldsetLabel
+                v-if="visibleBlocks.skills"
                 :label="GRANT_SECTION_LABELS.skills"
                 class="bg-default/20 transition-colors"
                 :class="blockClasses.editable"
@@ -1592,6 +1806,7 @@
               </FieldsetLabel>
 
               <FieldsetLabel
+                v-if="visibleBlocks.languages"
                 :label="GRANT_SECTION_LABELS.languages"
                 class="bg-default/20 transition-colors"
                 :class="blockClasses.editable"
@@ -1634,6 +1849,7 @@
               </FieldsetLabel>
 
               <FieldsetLabel
+                v-if="visibleBlocks.environments"
                 :label="CREATURE_SHEET_LABELS.environments"
                 class="bg-default/20 transition-colors"
                 :class="blockClasses.environments"
@@ -1737,6 +1953,17 @@
                     @update:legendary-actions="handleLegendaryActionsUpdate"
                     @update:legendary-count="handleLegendaryCountUpdate"
                   />
+
+                  <!-- Инвентарь -->
+                  <template v-if="activeTab === 'equipment'">
+                    <CreatureEquipmentBlock
+                      :creature="localCreature"
+                      :is-edit-mode="isEditMode"
+                      :is-drag-over="isItemDragOver"
+                      :is-read-only="isReadOnly || !canControl"
+                      @update:creature="handleCreatureUpdate"
+                    />
+                  </template>
 
                   <!-- Особенности -->
                   <CreatureTraitsTab

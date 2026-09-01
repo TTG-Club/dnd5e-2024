@@ -32,9 +32,15 @@
 </script>
 
 <template>
+  <!--
+    Снаряжение отдаётся панели, чтобы раздел «От снаряжения» показывал эффекты
+    надетых предметов: движок их существу уже применяет, и лист без этого прятал
+    бы бонус, который на листе есть.
+  -->
   <ActiveEffectsPanel
     :effects="creature.activeEffects ?? []"
     :is-edit-mode="isEditMode"
+    :equipment="creature.equipment ?? []"
     @update:effects="handleEffectsUpdate"
   />
 </template>

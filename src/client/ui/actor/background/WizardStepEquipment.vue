@@ -3,10 +3,10 @@
 
   import { computed } from 'vue';
 
-  import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import { hasGrantableEquipment } from '@vtt/shared/system/dnd.js';
 
   import { BACKGROUND_WIZARD_LABELS } from '../constants';
+  import StartingEquipmentOptionBody from '../StartingEquipmentOptionBody.vue';
 
   const props = defineProps<{
     equipmentOptions: BackgroundEquipmentOption[];
@@ -105,9 +105,10 @@
           />
         </div>
 
-        <div class="flex-1 text-sm text-toned">
-          <ItemDescriptionRenderer :content="option.description" />
-        </div>
+        <StartingEquipmentOptionBody
+          :option="option"
+          class="flex-1"
+        />
 
         <div
           v-if="option.goldAlternative"

@@ -1,5 +1,6 @@
 <script setup lang="ts">
   import type {
+    ActiveEffect,
     DamageDefenseKind,
     SpeciesDefinition,
     SpeciesFeatureChoice,
@@ -12,6 +13,7 @@
   import {
     DAMAGE_DEFENSE_KIND_LABELS,
     DAMAGE_TYPE_LABELS,
+    formatSpeciesSizeWithHeight,
     getConditionEntry,
   } from '@vtt/shared/system/dnd.js';
 
@@ -23,7 +25,9 @@
     LEVEL_BADGE_SUFFIX,
     SELECT_FOR_ACTOR_LABEL,
     SPECIES_DETAIL_LABELS,
+    SPECIES_FORM_LABELS,
   } from '../constants';
+  import ItemEffectsView from '../ItemEffectsView.vue';
   import SourceBadge from '../SourceBadge.vue';
 
   const props = defineProps<{
@@ -63,8 +67,15 @@
       return '';
     }
 
+    const heights = props.speciesDefinition.heights;
+
     return props.speciesDefinition.size
-      .map((sizeValue) => CREATURE_SIZE_LABELS[sizeValue] || sizeValue)
+      .map((sizeValue) =>
+        formatSpeciesSizeWithHeight(
+          CREATURE_SIZE_LABELS[sizeValue] || sizeValue,
+          heights?.[sizeValue],
+        ),
+      )
       .join(SPECIES_DETAIL_LABELS.sizeSeparator);
   });
 
@@ -114,7 +125,7 @@
 
     const grants: { title: string; desc: string }[] = [];
 
-    props.speciesDefinition.grants.forEach((grant) => {
+    (props.speciesDefinition.grants ?? []).forEach((grant) => {
       if (grant.type === 'darkvision') {
         grants.push({
           title: SPECIES_DETAIL_LABELS.darkvision,
@@ -244,6 +255,28 @@
       && props.speciesDefinition.features.length > 0,
   );
 
+  /**
+   * Эффекты вида и его умений одним списком.
+   *
+   * Вкладка появляется, только когда эффекты есть: у большинства видов их нет, и
+   * пустая вкладка была бы шумом в каждом окне.
+   */
+  const effects = computed<ActiveEffect[]>(() => {
+    const definition = props.speciesDefinition;
+
+    if (!definition) {
+      return [];
+    }
+
+    const collected = [...(definition.activeEffects ?? [])];
+
+    for (const feature of definition.features ?? []) {
+      collected.push(...(feature.activeEffects ?? []));
+    }
+
+    return collected;
+  });
+
   const tabItems = computed(() => {
     const items: { label: string; slot: string }[] = [
       { label: SPECIES_DETAIL_LABELS.tabGeneral, slot: 'general' },
@@ -258,6 +291,10 @@
         label: SPECIES_DETAIL_LABELS.tabSubspecies,
         slot: 'subspecies',
       });
+    }
+
+    if (effects.value.length > 0) {
+      items.push({ label: SPECIES_FORM_LABELS.tabEffects, slot: 'effects' });
     }
 
     return items;
@@ -538,6 +575,14 @@
               </div>
             </div>
           </div>
+        </template>
+
+        <!-- Эффекты — только просмотр: их правит форма вида -->
+        <template #effects>
+          <ItemEffectsView
+            :effects="effects"
+            :owner-name="speciesDefinition?.name"
+          />
         </template>
       </UTabs>
     </template>
