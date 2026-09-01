@@ -1408,8 +1408,15 @@ export function useClassWizard(
       }
     }
 
-    // Умения — если есть на текущем уровне или нужен выбор подкласса
-    if (levelFeatures.value.length > 0 || hasSubclassSelection.value) {
+    // Умения — если есть на текущем уровне, нужен выбор подкласса или пришёл
+    // добор вариантов к умению прошлых уровней: у колдуна на 5 уровне новых
+    // умений нет вовсе, а воззваний становится пять вместо трёх, и без шага
+    // мастер молча уводил игрока с уровня без двух положенных воззваний
+    if (
+      levelFeatures.value.length > 0
+      || hasSubclassSelection.value
+      || featureChoicePicks.value.length > 0
+    ) {
       steps.push({ value: 'features', ...STEP_DEFINITIONS.features });
     }
 

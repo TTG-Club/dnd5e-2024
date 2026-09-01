@@ -97,6 +97,19 @@
     props.choicePicks.filter((pick) => !pick.isGainedNow),
   );
 
+  /**
+   * На уровне и правда нечего показать: ни умений, ни выбора подкласса, ни
+   * добора вариантов. Добор считается наравне с умением — у колдуна на 5
+   * уровне новых умений нет, а воззвания берут, и строка «умений нет» стояла
+   * бы прямо над вопросом о них.
+   */
+  const isLevelEmpty = computed(
+    () =>
+      props.features.length === 0
+      && !props.hasSubclassSelection
+      && reopenedPicks.value.length === 0,
+  );
+
   /** Выборы вариантов по ключу умения — их ищет карточка умения. */
   const picksByFeatureKey = computed(() => {
     const byKey: Record<string, WizardFeatureChoicePick> = {};
@@ -218,7 +231,7 @@
     </span>
 
     <div
-      v-if="features.length === 0 && !hasSubclassSelection"
+      v-if="isLevelEmpty"
       class="rounded-lg border border-default/50 bg-elevated/30 px-3 py-2.5"
     >
       <span class="text-sm text-muted">
