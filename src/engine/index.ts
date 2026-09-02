@@ -70,6 +70,7 @@ export * from './spellTypes.js';
 export * from './spellUtils.js';
 export * from './startingEquipment.js';
 export * from './templateGeometry.js';
+export * from './terrainCost.js';
 export * from './toolProficiency.js';
 export * from './turnEffects.js';
 export * from './types.js';

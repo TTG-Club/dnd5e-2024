@@ -82,6 +82,10 @@ import {
 import { damagePartIsHealing } from './spellUtils.js';
 import { isPointInTemplate as isPointInTemplateGeometry } from './templateGeometry.js';
 import {
+  entityIgnoresTerrainCost as entityIgnoresTerrainCostImpl,
+  resolveAreaTerrainCost,
+} from './terrainCost.js';
+import {
   decrementActorEffectDurations,
   expireTurnEffects as expireEntityTurnEffects,
   formatEffectsSummary,
@@ -254,7 +258,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.7.3';
+  readonly version = '0.7.4';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -450,7 +454,10 @@ export class Dnd5eVttSystem implements VttSystem {
     previousAreaIds: ReadonlySet<string>,
     currentAreaIds: ReadonlySet<string>,
     areas: CustomArea[],
-    options?: { triggerOneShots?: boolean },
+    options?: {
+      triggerOneShots?: boolean;
+      alreadyEnteredAreaIds?: ReadonlySet<string>;
+    },
   ): { changed: boolean; chatSummary: string | null } {
     if (!isDndSceneEntity(entity)) {
       return { changed: false, chatSummary: null };
@@ -627,6 +634,32 @@ export class Dnd5eVttSystem implements VttSystem {
     }
 
     return { base, extended: base * 2 };
+  }
+
+  /**
+   * Множитель цены клетки внутри зоны — труднопроходимая местность.
+   *
+   * Правило мастер задаёт строкой модификатора `terrain.movementCost` в
+   * эффектах зоны, поэтому читается оно отсюда, а не из полей самой зоны.
+   */
+  // eslint-disable-next-line class-methods-use-this
+  getAreaMovementCost(area: CustomArea): number {
+    return resolveAreaTerrainCost(area);
+  }
+
+  /**
+   * Не смотрит ли сущность на труднопроходимость вовсе (флаг
+   * `terrain.ignoreDifficult` — сапоги, черта, форма движения).
+   */
+  // eslint-disable-next-line class-methods-use-this
+  entityIgnoresTerrainCost(entity: SceneEntity): boolean {
+    // Сущность без данных системы правилами D&D не описана: считать её
+    // игнорирующей нельзя, иначе болото перестало бы работать на всех подряд
+    if (!isDndSceneEntity(entity)) {
+      return false;
+    }
+
+    return entityIgnoresTerrainCostImpl(entity);
   }
 
   /**

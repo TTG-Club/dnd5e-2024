@@ -76,6 +76,11 @@ export interface AreaEffectsSyncResult {
  *   (по умолчанию `true`); отключается при ре-синке после правки области (токен
  *   не двигался — урон/статус срабатывать не должны, нужна лишь реконсиляция
  *   stay-эффектов)
+ * @param options.alreadyEnteredAreaIds - области, чей триггер входа уже
+ *   отработал на этом перемещении. Ядро ведёт токен по маршруту клетка за
+ *   клеткой, а урон входа по правилам берут «при первом входе за ход»:
+ *   извилистый путь, дважды заходящий в одно болото, бьёт один раз. Триггеров
+ *   выхода и реконсиляции stay набор не касается
  * @returns изменения и исходы триггеров для чата
  */
 export function syncActorAreaEffects(
@@ -83,9 +88,12 @@ export function syncActorAreaEffects(
   previousAreaIds: ReadonlySet<string>,
   currentAreaIds: ReadonlySet<string>,
   areas: CustomArea[],
-  options: { triggerOneShots?: boolean } = {},
+  options: {
+    triggerOneShots?: boolean;
+    alreadyEnteredAreaIds?: ReadonlySet<string>;
+  } = {},
 ): AreaEffectsSyncResult {
-  const { triggerOneShots = true } = options;
+  const { triggerOneShots = true, alreadyEnteredAreaIds } = options;
   const damageOutcomes: TurnDamageOutcome[] = [];
   const saveOutcomes: TurnSaveOutcome[] = [];
 
@@ -96,7 +104,8 @@ export function syncActorAreaEffects(
   }
 
   const enteredAreaIds = [...currentAreaIds].filter(
-    (areaId) => !previousAreaIds.has(areaId),
+    (areaId) =>
+      !previousAreaIds.has(areaId) && !alreadyEnteredAreaIds?.has(areaId),
   );
 
   const exitedAreaIds = [...previousAreaIds].filter(

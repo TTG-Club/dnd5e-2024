@@ -133,6 +133,19 @@ export interface ServerToClientEvents {
     targetY: number,
     waypoints: Array<{ x: number; y: number }>,
   ) => void;
+  /**
+   * Движение оборвано на полпути: зона отняла у сущности возможность двигаться
+   * (окаменение, опутывание, спас провален). Токен уже стоит в клетке обрыва —
+   * позицию персистит и рассылает обычный `token:updated`, а это событие говорит
+   * клиентам ОСТАНОВИТЬ едущую анимацию там же и объяснить игроку причину.
+   */
+  'token:movement-stopped': (
+    sceneId: string,
+    tokenId: string,
+    x: number,
+    y: number,
+    reason: string,
+  ) => void;
   // Мгновенная перестановка токена без анимации (повторный DnD из списка)
   'token:teleported': (
     sceneId: string,
@@ -489,7 +502,21 @@ export interface ClientToServerEvents {
 
   // --- Token ---
   'token:created': (sceneId: string, token: Token) => void;
-  'token:updated': (sceneId: string, token: Token) => void;
+  /**
+   * Перемещение (и любая другая правка) токена.
+   *
+   * `movementPath` — центры клеток пройденного маршрута, от клетки старта до
+   * клетки финиша. Нужен зонам сцены: их разовые триггеры срабатывают на
+   * ПЕРЕСЕЧЕНИИ, а по двум точкам «откуда» и «куда» пробежка насквозь неотличима
+   * от обхода стороной. Сервер маршруту не верит на слово — проверяет связность
+   * и концы (см. `tokensModule`), и при непройденной проверке считает по двум
+   * точкам, как раньше. Без пути (стрелки, перестановка из списка) поле опущено.
+   */
+  'token:updated': (
+    sceneId: string,
+    token: Token,
+    movementPath?: Array<{ x: number; y: number }>,
+  ) => void;
   'token:route-moved': (
     sceneId: string,
     tokenId: string,

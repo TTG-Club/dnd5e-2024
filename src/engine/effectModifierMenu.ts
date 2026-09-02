@@ -30,6 +30,7 @@ export type EffectModifierGroup =
   | 'core'
   | 'senses'
   | 'movement'
+  | 'terrain'
   | 'abilities'
   | 'saves'
   | 'skills'
@@ -44,6 +45,7 @@ const EFFECT_MODIFIER_GROUP_LABELS: Record<EffectModifierGroup, string> = {
   core: 'Основное',
   senses: 'Чувства',
   movement: 'Скорости',
+  terrain: 'Местность (только для зоны сцены)',
   abilities: 'Характеристики',
   saves: 'Спасброски',
   skills: 'Навыки',
@@ -59,6 +61,7 @@ const GROUP_ORDER: readonly EffectModifierGroup[] = [
   'core',
   'senses',
   'movement',
+  'terrain',
   'abilities',
   'saves',
   'skills',
@@ -130,6 +133,12 @@ function groupOfKey(key: string): EffectModifierGroup {
     return 'movement';
   }
 
+  // Своим разделом, а не среди скоростей: это правило ЗОНЫ, а не носителя.
+  // На листе такая строка не считается вовсе, и путать её со Скоростью нельзя.
+  if (key.startsWith('terrain.')) {
+    return 'terrain';
+  }
+
   if (key.startsWith('sense.')) {
     return 'senses';
   }
@@ -151,6 +160,12 @@ function defaultModeOfKey(key: string): EffectChangeMode {
     return 'upgrade';
   }
 
+  // Цена клетки — не прибавка к чему-то, а само значение: «здесь клетка стоит
+  // вдвое». Прибавка тут читалась бы как «+2 к обычной цене», то есть ×3.
+  if (key.startsWith('terrain.')) {
+    return 'override';
+  }
+
   if (key.startsWith('movement.') && key !== 'movement.walk') {
     return 'upgrade';
   }
@@ -159,12 +174,17 @@ function defaultModeOfKey(key: string): EffectChangeMode {
 }
 
 /**
- * Значение по умолчанию для ключа: только там, где единица выглядела бы
- * ошибкой — чувство «1 фут» или скорость полёта «1 фут».
+ * Значение по умолчанию для раздела: только там, где единица выглядела бы
+ * ошибкой — чувство «1 фут», скорость полёта «1 фут» или цена клетки «×1»
+ * (то есть «зона ничего не меняет»).
  *
  * @param group - раздел меню
  */
 function defaultValueOfGroup(group: EffectModifierGroup): string | undefined {
+  if (group === 'terrain') {
+    return '2';
+  }
+
   if (group === 'senses') {
     return '60';
   }

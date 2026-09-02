@@ -141,7 +141,8 @@ export type EffectTargetKey =
   | 'initiative'
   | 'proficiencyBonus'
   | 'spellSaveDC'
-  | `sense.${SenseType}`;
+  | `sense.${SenseType}`
+  | 'terrain.movementCost';
 
 /**
  * Ключ строки модификатора: известный ключ движка либо ПУСТАЯ строка — «ключ
@@ -166,6 +167,12 @@ export const EFFECT_TARGET_SUGGESTIONS: Array<{
   { value: 'proficiencyBonus', label: 'Бонус мастерства' },
   { value: 'spellSaveDC', label: 'Сложность спасброска от заклинаний' },
   { value: 'hitPoints.max', label: 'Макс. здоровье (HP)' },
+
+  // Местность
+  {
+    value: 'terrain.movementCost',
+    label: 'Труднопроходимость (цена клетки)',
+  },
 
   // Скорости
   { value: 'movement.walk', label: 'Скорость (Ходьба)' },
@@ -564,6 +571,7 @@ export type EffectFlagKey =
   | 'save.autoFail.wisdom'
   | 'save.autoFail.charisma'
   | 'speed.zero'
+  | 'terrain.ignoreDifficult'
   | 'incapacitated'
   | 'initiative.advantage'
   | 'initiative.disadvantage'
@@ -653,6 +661,8 @@ const BASE_EFFECT_FLAG_LABELS: Record<
 
   // Прочее
   'speed.zero': 'Скорость равна нулю',
+  'terrain.ignoreDifficult':
+    'Игнорирует труднопроходимую местность (клетки зон стоят как обычные)',
   'incapacitated': 'Недееспособен (Не может совершать действия/реакции)',
   'initiative.advantage': 'Преимущество на бросок инициативы',
   'initiative.disadvantage': 'Помеха на бросок инициативы',
