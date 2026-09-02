@@ -3982,6 +3982,8 @@ export const CLASS_DETAIL_LABELS = {
   startingEquipment: 'Начальное снаряжение (на 1-ом уровне)',
   subclassPickerPrefix: 'Подкласс:',
   subclassPickerPlaceholder: 'Выбрать...',
+  /** Между названием подкласса и его книгой в списке выбора: «Чемпион · PHB» */
+  subclassSourceSeparator: ' · ',
   featuresTitle: 'Умения класса',
   /** Заголовок списка вариантов умения, когда своей подписи у выбора нет */
   choicesTitle: 'Варианты',

@@ -5,6 +5,7 @@ import type { SourceDefinition } from '@vtt/shared';
 import { computed, toValue } from 'vue';
 
 import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
+import { fallbackSourceDefinition } from '@vtt/shared/system/dnd.js';
 
 /**
  * Определение источника для записи.
@@ -12,6 +13,9 @@ import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
  * Сначала берётся то, что запись везёт с собой (`source`): у авторской книги
  * расшифровки нет больше нигде. Если своего определения нет — ищем ключ в
  * словаре системы (встроенные книги плюс приехавшие с паками компендиума).
+ * Ключ, которого не знает никто, подписывается им самим: книга подкласса в
+ * словарь пака не попадает, а без подписи два одноимённых подкласса разных
+ * выпусков неразличимы.
  *
  * @param store - хранилище справочных данных системы
  * @param sourceKey - ключ источника записи
@@ -30,7 +34,7 @@ function resolveSource(
 
   // Словарь приоритетнее вписанного вручную: у книги из пака название выверено,
   // а на записи могло остаться сокращение, набранное автором на бегу.
-  return known ?? source;
+  return known ?? source ?? fallbackSourceDefinition(sourceKey);
 }
 
 /**

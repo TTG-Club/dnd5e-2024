@@ -49,9 +49,12 @@
   import { generateId, isRecord } from '@vtt/shared';
   import {
     ABILITY_OPTIONS,
+    classOwnCounterDefinitions,
     isClassDefinition,
     SKILLS_LIST,
     slugify,
+    subclassCounterDefinitions,
+    withUniqueSubclassKeys,
   } from '@vtt/shared/system/dnd.js';
 
   import CompendiumRefPickerModal from '../CompendiumRefPickerModal.vue';
@@ -520,7 +523,12 @@
     existingId.value = null;
   }
 
-  function hydrateFromDefinition(definition: ClassDefinition): void {
+  function hydrateFromDefinition(rawDefinition: ClassDefinition): void {
+    // Ключи подклассов — уникальные, как их видит лист: у копии записи с сайта
+    // два выпуска одного подкласса приезжают с одним ключом, и форма иначе
+    // сохранила бы двойника как есть
+    const definition = withUniqueSubclassKeys(rawDefinition);
+
     name.value = definition.name || '';
     nameEn.value = definition.nameEn || '';
     description.value = definition.description || '';
@@ -572,11 +580,19 @@
       ),
     );
 
-    subclasses.value = (definition.subclasses ?? []).map(toEditableSubclass);
+    // Ресурсы подкласса в выгрузке лежат в общем списке класса с ключом
+    // подкласса — форма возвращает их подклассу, иначе они стали бы ресурсами
+    // самого класса и достались бы персонажу любого подкласса
+    subclasses.value = (definition.subclasses ?? []).map((subclass) =>
+      toEditableSubclass({
+        ...subclass,
+        counters: subclassCounterDefinitions(definition, subclass.key),
+      }),
+    );
 
     // Раздаём ПОСЛЕ разбора умений: ресурс возвращается в своё умение по ключу
     counters.value = distributeFeatureCounters(
-      definition.counters,
+      classOwnCounterDefinitions(definition),
       features.value,
     );
 

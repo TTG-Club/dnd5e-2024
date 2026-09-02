@@ -41,6 +41,7 @@ import {
   buildFeatGrantEffect,
   calculateProficiencyBonus,
   classOptionFeatureScope,
+  collectClassCounterDefinitions,
   collectClassOptionGrants,
   collectFeatChoiceProficiencies,
   collectFeatGrantedSpellSources,
@@ -57,7 +58,9 @@ import {
   hasAbilityImprovementAtLevel,
   hasNoFeatChoiceOptions,
   isAsiFeatureInClass,
+  isCounterOfDefinition,
   isFeatPickChoice,
+  isForeignSubclassCounter,
   newClassFeatureChoicesAt,
   normalizeSpellName,
   openClassFeatureChoices,
@@ -1723,15 +1726,20 @@ export function useClassWizard(
     systemUpdates.classes = classes;
 
     // ── Счётчики классовых ресурсов ──────────────────────────────
-    // Собираем определения счётчиков из класса и выбранного подкласса
-    const counterDefinitions: ClassCounterDefinition[] = [
-      ...(classDef.counters ?? []),
-      ...(chosenSubclass?.counters ?? []),
-    ];
+    // Ресурсы класса и ТОЛЬКО выбранного подкласса: в выгрузке ресурсы всех
+    // подклассов лежат в общем списке класса, и список целиком выдавал воину
+    // кости превосходства вместе с костями психической энергии
+    const counterDefinitions: ClassCounterDefinition[] =
+      collectClassCounterDefinitions(classDef, chosenSubclassKey);
+
+    // Ресурсы чужих подклассов этого класса снимаются: они могли попасть на
+    // лист только той же ошибкой, и повышение уровня — момент прибраться
+    const existingCounters = (actor.value.system.classCounters ?? []).filter(
+      (counter) =>
+        !isForeignSubclassCounter(counter, classDef.key, chosenSubclassKey),
+    );
 
     if (counterDefinitions.length > 0) {
-      const existingCounters = [...(actor.value.system.classCounters ?? [])];
-
       const classLevel =
         existingIndex !== -1 ? classes[existingIndex].level : 1;
 
@@ -1754,51 +1762,43 @@ export function useClassWizard(
           continue;
         }
 
-        // Проверяем, что счётчик ещё не добавлен (защита от дублей)
-        const alreadyExists = existingCounters.some(
-          (existing) =>
-            existing.counterKey === counterDef.key
-            && existing.classKey === classDef.key,
+        // Счётчик уже заведён (мастер переоткрыли или это повышение уровня):
+        // сверка и по подклассу, иначе ресурс подкласса с ключом ресурса
+        // класса сошёл бы за уже выданный
+        const existingCounter = existingCounters.find((existing) =>
+          isCounterOfDefinition(existing, classDef.key, counterDef),
         );
 
-        if (alreadyExists) {
+        if (existingCounter) {
           // Обновляем max при level-up
-          const existingCounter = existingCounters.find(
-            (entry) =>
-              entry.counterKey === counterDef.key
-              && entry.classKey === classDef.key,
+          const newMax = computeCounterMax(
+            counterDef,
+            classLevel,
+            counterContext,
           );
 
-          if (existingCounter) {
-            const newMax = computeCounterMax(
-              counterDef,
-              classLevel,
-              counterContext,
-            );
+          existingCounter.max = newMax;
 
-            existingCounter.max = newMax;
-
-            // current не может превышать новый max
-            if (existingCounter.current > newMax) {
-              existingCounter.current = newMax;
-            }
-
-            // Backfill названия для счётчиков, добавленных до этого фикса
-            // (раньше имя не сохранялось и подставлялось только в рантайме).
-            if (!existingCounter.name?.trim()) {
-              existingCounter.name = counterDef.name;
-            }
-
-            if (!existingCounter.shortName?.trim()) {
-              existingCounter.shortName = counterDef.shortName;
-            }
-
-            existingCounter.recovery ??= counterDef.recovery;
-
-            // Нижняя граница появилась у счётчика позже: у записей, добавленных
-            // до неё, её нет вовсе
-            existingCounter.min ??= counterDef.min;
+          // current не может превышать новый max
+          if (existingCounter.current > newMax) {
+            existingCounter.current = newMax;
           }
+
+          // Backfill названия для счётчиков, добавленных до этого фикса
+          // (раньше имя не сохранялось и подставлялось только в рантайме).
+          if (!existingCounter.name?.trim()) {
+            existingCounter.name = counterDef.name;
+          }
+
+          if (!existingCounter.shortName?.trim()) {
+            existingCounter.shortName = counterDef.shortName;
+          }
+
+          existingCounter.recovery ??= counterDef.recovery;
+
+          // Нижняя граница появилась у счётчика позже: у записей, добавленных
+          // до неё, её нет вовсе
+          existingCounter.min ??= counterDef.min;
 
           continue;
         }
@@ -1829,9 +1829,9 @@ export function useClassWizard(
           max: maxValue,
         });
       }
-
-      systemUpdates.classCounters = existingCounters;
     }
+
+    systemUpdates.classCounters = existingCounters;
 
     // Ресурсы черт пересчитываются на каждом повышении уровня: у «Удачливого»
     // максимум равен бонусу мастерства и обязан вырасти вместе с ним. Считаем

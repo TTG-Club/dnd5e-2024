@@ -43,6 +43,7 @@
     calculateAbilityModifier,
     calculateMaxHP,
     checkFeatPrerequisites,
+    collectClassCounterDefinitions,
     collectFeatsAwaitingSpellListChoices,
     collectRechoosableFeats,
     computeSpeciesDarkvision,
@@ -508,8 +509,11 @@
   });
 
   /**
-   * Собирает определения счётчиков из компендиума для всех классов актора.
-   * Используется для отображения name, icon, recovery в ClassCounters.
+   * Определения счётчиков из компендиума для всех классов актора — по ним
+   * ClassCounters подписывает ресурсы. Свои ресурсы класса и ресурсы его
+   * выбранного подкласса: ресурсы других подклассов персонажу не положены, а
+   * попавший на лист по ошибке ресурс подписан своим именем и в определении не
+   * нуждается.
    */
   const counterDefinitions = computed((): ClassCounterDefinition[] => {
     if (!localActor.value) {
@@ -523,55 +527,21 @@
     }
 
     const classDefs = classDefinitions.value;
-    const result: ClassCounterDefinition[] = [];
 
-    for (const classEntry of classes) {
+    return classes.flatMap((classEntry) => {
       const classDef = classDefs.find(
         (definition) => definition.key === classEntry.classKey,
       );
 
       if (!classDef) {
-        continue;
+        return [];
       }
 
-      if (classDef.counters) {
-        for (const counter of classDef.counters) {
-          if (classEntry.level >= counter.startLevel) {
-            result.push(counter);
-          }
-        }
-      }
-
-      if (classDef.subclasses) {
-        const subclassKeys = new Set<string>();
-
-        if (classEntry.subclassKey) {
-          subclassKeys.add(classEntry.subclassKey);
-        }
-
-        for (const counter of localActor.value.system.classCounters ?? []) {
-          if (counter.classKey === classEntry.classKey && counter.subclassKey) {
-            subclassKeys.add(counter.subclassKey);
-          }
-        }
-
-        for (const subclassKey of subclassKeys) {
-          const subclass = classDef.subclasses.find(
-            (entry) => entry.key === subclassKey,
-          );
-
-          if (subclass?.counters) {
-            for (const counter of subclass.counters) {
-              if (classEntry.level >= counter.startLevel) {
-                result.push(counter);
-              }
-            }
-          }
-        }
-      }
-    }
-
-    return result;
+      return collectClassCounterDefinitions(
+        classDef,
+        classEntry.subclassKey,
+      ).filter((counter) => classEntry.level >= counter.startLevel);
+    });
   });
 
   function initializeActor() {

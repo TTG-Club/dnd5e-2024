@@ -4,6 +4,7 @@
     ClassFeature,
     ClassLevelEntry,
     FeatChoice,
+    SubclassDefinition,
   } from '@vtt/shared/system/dnd.js';
 
   import { computed, nextTick, ref } from 'vue';
@@ -11,12 +12,15 @@
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import {
+    classOwnCounterDefinitions,
+    subclassCounterDefinitions,
     toolProficiencyLabel,
     withCounterTableColumns,
     withSubclassRecords,
   } from '@vtt/shared/system/dnd.js';
 
   import { useClassDefinitions } from '../../../composables/useClassDefinitions';
+  import { useSourceLabels } from '../../../composables/useSourceLabel';
   import {
     ABILITY_DELIMITER_LABELS,
     ABILITY_LABELS,
@@ -161,8 +165,28 @@
     return `${head} ${ABILITY_DELIMITER_LABELS[delimiter]} ${last}`;
   });
 
-  /** Выбранный подкласс для просмотра в таблице (строка) */
-  const selectedSubclassName = ref<string | null>(null);
+  const { getSourceLabel } = useSourceLabels();
+
+  /**
+   * Ключ подкласса, выбранного для просмотра таблицы; `null` — не выбран.
+   *
+   * Ключ, а не название: два выпуска одного подкласса носят одно имя, и по
+   * имени выбор всегда попадал бы в первый из них.
+   */
+  const selectedSubclassKey = ref<string | null>(null);
+
+  /** Выбранный подкласс записи; null — подкласс не выбран. */
+  const selectedSubclass = computed(() => {
+    if (!selectedSubclassKey.value) {
+      return null;
+    }
+
+    return (
+      displayedClass.value?.subclasses.find(
+        (subclass) => subclass.key === selectedSubclassKey.value,
+      ) ?? null
+    );
+  });
 
   /**
    * Строка владения инструментами. Класс хранит его человекочитаемым текстом, а
@@ -187,7 +211,7 @@
 
     // Умения ТОЛЬКО базового класса
     for (const feature of classDef.features) {
-      if (selectedSubclassName.value && isSubclassPlaceholder(feature)) {
+      if (selectedSubclass.value && isSubclassPlaceholder(feature)) {
         continue;
       }
 
@@ -199,19 +223,13 @@
     }
 
     // Умения выбранного подкласса
-    if (selectedSubclassName.value) {
-      const subclass = classDef.subclasses.find(
-        (subclass) => subclass.name === selectedSubclassName.value,
-      );
+    if (selectedSubclass.value) {
+      for (const feature of selectedSubclass.value.features) {
+        const level = feature.level;
+        const existing = map.get(level) ?? [];
 
-      if (subclass && subclass.features) {
-        for (const feature of subclass.features) {
-          const level = feature.level;
-          const existing = map.get(level) ?? [];
-
-          existing.push(feature);
-          map.set(level, existing);
-        }
+        existing.push(feature);
+        map.set(level, existing);
       }
     }
 
@@ -254,19 +272,6 @@
     return [...own, ...fromFeatures];
   }
 
-  /** Выбранный подкласс записи; null — подкласс не выбран. */
-  const selectedSubclass = computed(() => {
-    if (!selectedSubclassName.value) {
-      return null;
-    }
-
-    return (
-      displayedClass.value?.subclasses.find(
-        (subclass) => subclass.name === selectedSubclassName.value,
-      ) ?? null
-    );
-  });
-
   /**
    * Таблица класса вместе с колонками его ресурсов: ресурс, отмеченный
    * «Показывать в таблице», рисуется колонкой, а её ряд по уровням берётся из
@@ -282,26 +287,29 @@
       return { levelTable: [], tableColumns: [] };
     }
 
+    // Свои ресурсы класса: ресурсы подклассов из общего списка выгрузки в
+    // таблицу самого класса не идут — колонку даёт выбранный подкласс
     return withCounterTableColumns(
       definition.levelTable ?? [],
       definition.tableColumns ?? [],
-      definition.counters,
+      classOwnCounterDefinitions(definition),
       classChoices(definition),
     );
   });
 
   /** То же для выбранного подкласса: его ресурсы дают свои колонки. */
   const subclassTable = computed(() => {
+    const definition = displayedClass.value;
     const subclass = selectedSubclass.value;
 
-    if (!subclass) {
+    if (!definition || !subclass) {
       return null;
     }
 
     return withCounterTableColumns(
       subclass.levelTable ?? [],
       subclass.tableColumns ?? [],
-      subclass.counters,
+      subclassCounterDefinitions(definition, subclass.key),
       classChoices(subclass),
     );
   });
@@ -310,7 +318,7 @@
   const activeLevelTable = computed(() => {
     const baseTable = classTable.value.levelTable;
 
-    if (selectedSubclassName.value) {
+    if (selectedSubclass.value) {
       const subclassRows = subclassTable.value?.levelTable ?? [];
 
       if (subclassRows.length > 0) {
@@ -340,14 +348,8 @@
 
   /** Активная заклинательная конфигурация — подкласса (если выбран и имеет свою) или базового класса */
   const activeSpellcasting = computed(() => {
-    if (selectedSubclassName.value) {
-      const subclass = displayedClass.value?.subclasses.find(
-        (sc) => sc.name === selectedSubclassName.value,
-      );
-
-      if (subclass?.spellcasting) {
-        return subclass.spellcasting;
-      }
+    if (selectedSubclass.value?.spellcasting) {
+      return selectedSubclass.value.spellcasting;
     }
 
     return displayedClass.value?.spellcasting ?? null;
@@ -419,16 +421,46 @@
   /** Хранит ID развернутых подклассов */
   const expandedSubclasses = ref<Set<string>>(new Set());
 
-  /** Опции для выбора подкласса (простые строки) */
-  const subclassOptions = computed(() => {
+  /** Пункт выбора подкласса: подпись с источником и ключ-значение. */
+  interface SubclassOption {
+    label: string;
+    value: string;
+  }
+
+  /**
+   * Подпись подкласса в списке выбора: название и книга. Книга нужна там же,
+   * где ключ, — одноимённые выпуски подкласса без неё выглядят повтором.
+   *
+   * @param subclass - подкласс записи
+   */
+  function subclassOptionLabel(
+    subclass: Pick<SubclassDefinition, 'name' | 'sourceKey' | 'source'>,
+  ): string {
+    const sourceLabel = getSourceLabel(subclass.sourceKey, subclass.source);
+
+    return sourceLabel
+      ? `${subclass.name}${CLASS_DETAIL_LABELS.subclassSourceSeparator}${sourceLabel}`
+      : subclass.name;
+  }
+
+  /** Опции для выбора подкласса */
+  const subclassOptions = computed((): SubclassOption[] => {
     const classDef = displayedClass.value;
 
     if (!classDef || !classDef.subclasses) {
       return [];
     }
 
-    return classDef.subclasses.map((subclass) => subclass.name);
+    return classDef.subclasses.map((subclass) => ({
+      label: subclassOptionLabel(subclass),
+      value: subclass.key,
+    }));
   });
+
+  /** Подпись выбранного подкласса в поле выбора; пусто — не выбран. */
+  const selectedSubclassLabel = computed(() =>
+    selectedSubclass.value ? subclassOptionLabel(selectedSubclass.value) : '',
+  );
 
   function toggleSubclass(key: string) {
     if (expandedSubclasses.value.has(key)) {
@@ -687,8 +719,9 @@
           </span>
 
           <USelectMenu
-            v-model="selectedSubclassName"
+            v-model="selectedSubclassKey"
             :items="subclassOptions"
+            value-key="value"
             :placeholder="CLASS_DETAIL_LABELS.subclassPickerPlaceholder"
             variant="none"
             class="min-w-0 flex-1"
@@ -697,7 +730,7 @@
             <template #label>
               <span class="truncate">
                 {{
-                  selectedSubclassName
+                  selectedSubclassLabel
                   || CLASS_DETAIL_LABELS.subclassPickerPlaceholder
                 }}
               </span>
@@ -705,14 +738,14 @@
           </USelectMenu>
 
           <UButton
-            v-if="selectedSubclassName"
+            v-if="selectedSubclassKey"
             icon="tabler:x"
             color="neutral"
             variant="ghost"
             size="2xs"
             class="mr-1"
             :padded="false"
-            @click.left.exact.prevent="selectedSubclassName = null"
+            @click.left.exact.prevent="selectedSubclassKey = null"
           />
         </div>
 

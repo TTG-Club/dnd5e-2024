@@ -1,4 +1,5 @@
 import type {
+  ClassCounterDefinition,
   ClassDefinition,
   ClassFeature,
   SubclassDefinition,
@@ -14,6 +15,13 @@ import type {
  * (мастер настройки, просмотр класса, счётчики) не знал про две формы записи,
  * список классов собирают через {@link mergeSubclassRecords}: после него
  * подкласс мира лежит там же, где подкласс компендиума.
+ *
+ * Ключ подкласса — его единственная идентичность на листе (`subclassKey` записи
+ * класса у персонажа), поэтому внутри класса ключи обязаны быть уникальными.
+ * Выгрузка выводит ключ из английского названия, и два издания одного
+ * подкласса (UA-версии «Арканного лучника») приезжают с одним ключом: список
+ * показывал их двумя строками, а выбор одной отмечал обе. Правило уникальности —
+ * {@link withUniqueSubclassKeys}, то же, что у `VttgClassMapper` в core-api.
  */
 
 /** Запись-подкласс: ключ родителя у неё заполнен всегда. */
@@ -145,16 +153,154 @@ export function withSubclassRecords(
   parent: ClassDefinition,
   records: ReadonlyArray<ClassDefinition>,
 ): ClassDefinition {
-  const own = parent.subclasses ?? [];
+  // Сначала — уникальные ключи своих подклассов: по ним же отсеиваются копии
+  // из мира, и записи с одним ключом иначе слиплись бы в одну
+  const base = withUniqueSubclassKeys(parent);
+  const own = base.subclasses ?? [];
   const ownKeys = new Set(own.map((subclass) => subclass.key));
 
-  const added = collectSubclassRecords(parent.key, records)
+  const added = collectSubclassRecords(base.key, records)
     .filter((record) => !ownKeys.has(record.key))
-    .map((record) => toSubclassDefinition(record, parent.subclassLevel));
+    .map((record) => toSubclassDefinition(record, base.subclassLevel));
 
-  return added.length > 0
-    ? { ...parent, subclasses: [...own, ...added] }
-    : parent;
+  return added.length > 0 ? { ...base, subclasses: [...own, ...added] } : base;
+}
+
+/** Первый порядковый суффикс, когда ключ не удалось развести источником. */
+const FIRST_KEY_ORDINAL = 2;
+
+/**
+ * Уникальные ключи подклассов в порядке списка.
+ *
+ * Правило одно с выгрузкой (`VttgClassMapper.subclassKeys` в core-api), чтобы
+ * ключ на листе персонажа пережил переустановку пака: ключ, встречающийся у
+ * нескольких подклассов, у КАЖДОГО из них дополняется ключом источника
+ * (`arcane-archer-uaau`); остающийся повтор (тот же источник дважды или
+ * источника нет) получает порядковый номер. Подкласс с уникальным ключом не
+ * переименовывается никогда.
+ *
+ * @param subclasses - подклассы записи
+ * @returns ключи по индексам подклассов
+ */
+export function uniqueSubclassKeys(
+  subclasses: ReadonlyArray<Pick<SubclassDefinition, 'key' | 'sourceKey'>>,
+): string[] {
+  const occurrences = new Map<string, number>();
+
+  for (const subclass of subclasses) {
+    occurrences.set(subclass.key, (occurrences.get(subclass.key) ?? 0) + 1);
+  }
+
+  const used = new Set<string>();
+
+  return subclasses.map((subclass) => {
+    const isShared = (occurrences.get(subclass.key) ?? 0) > 1;
+
+    const bySource =
+      isShared && subclass.sourceKey
+        ? `${subclass.key}-${subclass.sourceKey}`
+        : subclass.key;
+
+    let candidate = bySource;
+
+    for (let ordinal = FIRST_KEY_ORDINAL; used.has(candidate); ordinal += 1) {
+      candidate = `${bySource}-${ordinal}`;
+    }
+
+    used.add(candidate);
+
+    return candidate;
+  });
+}
+
+/**
+ * Переводит подкласс на новый ключ вместе со всем, что на него ссылается
+ * внутри самого подкласса: умениями и собственными ресурсами.
+ *
+ * @param subclass - подкласс записи
+ * @param key - новый ключ
+ * @returns подкласс с новым ключом
+ */
+function renameSubclass(
+  subclass: SubclassDefinition,
+  key: string,
+): SubclassDefinition {
+  const renamed: SubclassDefinition = {
+    ...subclass,
+    key,
+    features: subclass.features.map((feature) =>
+      feature.subclassKey === subclass.key
+        ? { ...feature, subclassKey: key }
+        : feature,
+    ),
+  };
+
+  if (subclass.counters) {
+    renamed.counters = subclass.counters.map((counter) =>
+      counter.subclassKey === subclass.key
+        ? { ...counter, subclassKey: key }
+        : counter,
+    );
+  }
+
+  return renamed;
+}
+
+/**
+ * Возвращает класс, у которого ключи подклассов уникальны
+ * ({@link uniqueSubclassKeys}). Переименовывать нечего — исходный объект.
+ *
+ * Ресурс из общего списка класса, помеченный переименованным ключом, достаётся
+ * каждому подклассу, носившему этот ключ: выгрузка не говорит, чьим из двух
+ * изданий он был, а потерять ресурс обоих — хуже, чем выдать его обоим.
+ *
+ * @param parent - запись класса
+ * @returns класс с уникальными ключами подклассов
+ */
+export function withUniqueSubclassKeys(
+  parent: ClassDefinition,
+): ClassDefinition {
+  const own = parent.subclasses ?? [];
+  const keys = uniqueSubclassKeys(own);
+
+  if (keys.every((key, index) => key === own[index].key)) {
+    return parent;
+  }
+
+  const renamedKeys = new Map<string, string[]>();
+
+  const subclasses = own.map((subclass, index) => {
+    const key = keys[index];
+
+    if (key === subclass.key) {
+      return subclass;
+    }
+
+    renamedKeys.set(subclass.key, [
+      ...(renamedKeys.get(subclass.key) ?? []),
+      key,
+    ]);
+
+    return renameSubclass(subclass, key);
+  });
+
+  const result: ClassDefinition = { ...parent, subclasses };
+
+  if (parent.counters) {
+    result.counters = parent.counters.flatMap(
+      (counter): ClassCounterDefinition[] => {
+        const targets = counter.subclassKey
+          ? renamedKeys.get(counter.subclassKey)
+          : undefined;
+
+        return targets
+          ? targets.map((key) => ({ ...counter, subclassKey: key }))
+          : [counter];
+      },
+    );
+  }
+
+  return result;
 }
 
 /**
@@ -173,8 +319,10 @@ export function mergeSubclassRecords(
 ): ClassDefinition[] {
   const subclassRecords = records.filter(isSubclassRecord);
 
+  // Без записей-подклассов клеить нечего, но ключи своих подклассов всё равно
+  // приводятся к уникальным — двойники приезжают из самого компендиума
   if (subclassRecords.length === 0) {
-    return [...records];
+    return records.map(withUniqueSubclassKeys);
   }
 
   const parents = records.filter((record) => !isSubclassRecord(record));
