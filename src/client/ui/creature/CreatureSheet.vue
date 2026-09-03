@@ -532,6 +532,24 @@
     handleCreatureUpdate({ description });
   }
 
+  /**
+   * Пересобирает хиты по правилам после правки размера или Телосложения.
+   * Движок отдаёт тот же объект, когда менять нечего, а у существа без блока
+   * хитов (запись старого мира или компендиума) — ничего: тогда запись не
+   * трогается, и смена размера не спотыкается об отсутствующую формулу.
+   */
+  function syncHitPointsWithRules(): void {
+    if (!localCreature.value) {
+      return;
+    }
+
+    const ruledHitPoints = resolveCreatureHitPointsByRules(localCreature.value);
+
+    if (ruledHitPoints) {
+      localCreature.value.system.hitPoints = ruledHitPoints;
+    }
+  }
+
   function handleSystemUpdate(updates: Partial<DnDCreature['system']>) {
     if (localCreature.value) {
       Object.assign(localCreature.value.system, updates);
@@ -548,14 +566,11 @@
       }
 
       // Формула хитов — производная от размера и Телосложения (D&D 2024):
-      // Большое существо с Тел. 16 не может жить с «2к8 + 2» из заготовки.
-      // Движок отдаёт тот же объект, когда менять нечего, — запись не дёргается
+      // Большое существо с Тел. 16 не может жить с «2к8 + 2» из заготовки
       if (
         CREATURE_HIT_DICE_RULE_KEYS.some((key) => updates[key] !== undefined)
       ) {
-        localCreature.value.system.hitPoints = resolveCreatureHitPointsByRules(
-          localCreature.value,
-        );
+        syncHitPointsWithRules();
       }
 
       isDirty.value = true;
@@ -837,8 +852,7 @@
           // Настройки токена меняют размер существа через масштаб — в обход
           // `handleSystemUpdate`, и формула хитов обязана сойтись и здесь
           if (localCreature.value.system.size !== previousSize) {
-            localCreature.value.system.hitPoints =
-              resolveCreatureHitPointsByRules(localCreature.value);
+            syncHitPointsWithRules();
           }
 
           isDirty.value = true;

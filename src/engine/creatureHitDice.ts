@@ -80,10 +80,20 @@ export function getCreatureHitDieBySize(size: CreatureSize): CreatureHitDie {
  * `hitDie`/`hitDiceCount`: число костей — единственное, что из неё нужно, кость
  * и бонус дальше считаются заново по правилам.
  *
+ * Строка формулы приходит из записи мира или компендиума и там бывает пустой,
+ * `null` или отсутствует вовсе (текстовые хиты, старые миры) — такая запись
+ * читается как «костей нет», а не роняет смену размера.
+ *
  * @param formula - формула хитов (напр. «4к10 + 4»)
  * @returns число костей, либо `undefined`, если кубикового слагаемого нет
  */
-export function parseCreatureHitDiceCount(formula: string): number | undefined {
+export function parseCreatureHitDiceCount(
+  formula: unknown,
+): number | undefined {
+  if (typeof formula !== 'string') {
+    return undefined;
+  }
+
   const count = findFirstDiceTerm(formula)?.count;
 
   return count !== undefined && count > 0 ? count : undefined;
@@ -293,13 +303,23 @@ export function buildCreatureHitPoints(
  * настройках, Телосложение — плиткой и своими бонусами, а формула обязана
  * сойтись по любому из путей.
  *
+ * Запись старого мира или компендиума может прийти без блока хитов вовсе —
+ * тогда пересчитывать нечего, и смена размера об это не спотыкается.
+ *
  * @param creature - существо
- * @returns хиты по правилам либо исходный объект, если менять нечего
+ * @returns хиты по правилам, исходный объект, если менять нечего, либо
+ * `undefined` у существа без блока хитов
  */
 export function resolveCreatureHitPointsByRules(
   creature: DnDCreature,
-): CreatureHitPoints {
-  return buildCreatureHitPoints(creature.system.hitPoints, {
+): CreatureHitPoints | undefined {
+  const hitPoints: CreatureHitPoints | undefined = creature.system.hitPoints;
+
+  if (!hitPoints) {
+    return undefined;
+  }
+
+  return buildCreatureHitPoints(hitPoints, {
     size: creature.system.size,
     constitutionModifier: getCreatureHitDiceConstitutionModifier(creature),
   });
