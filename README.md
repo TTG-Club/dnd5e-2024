@@ -432,7 +432,7 @@ npm run release -- 0.2.5     # явный номер
    SDK, которую реально использует движок, узкая: `types/base`, `types/index`,
    `utils/{generateId,typeGuards,geometry,unitConverter}`, `system/contracts/*`,
    `system/vttSystem`.
-2. **Не опубликован список модулей хоста.** 47 спецификаторов (`@/stores/…`,
+2. **Не опубликован список модулей хоста.** 49 спецификаторов (`@/stores/…`,
    `@/shared_ui/…`, `@/core/…`, `pinia`, `@vueuse/core`, `@nuxt/ui/composables`),
    которые система резолвит в рантайме из `globalThis.__VTTHost`, перенесены
    вручную. Это главный публичный контракт платформы — он должен versioned-ся.

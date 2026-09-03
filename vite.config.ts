@@ -23,6 +23,7 @@ const HOST_MODULE_IDS: string[] = [
   '@/core/api/chatService',
   '@/core/clientHooks',
   '@/core/compendiumDataClient',
+  '@/core/entityDragState',
   '@/core/entityUtils',
   '@/core/extensionRegistry',
   '@/core/mimeTypes',
