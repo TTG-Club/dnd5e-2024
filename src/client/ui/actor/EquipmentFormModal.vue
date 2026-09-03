@@ -1,4 +1,5 @@
 <script setup lang="ts">
+  import type { EquipmentCategory } from '@vtt/shared';
   import type { ActiveEffect, DnDGameItem } from '@vtt/shared/system/dnd.js';
 
   import { computed, ref } from 'vue';
@@ -32,6 +33,12 @@
     savedSize?: unknown;
     /** Редактируемый доспех (null = создание) */
     item: DnDGameItem | null;
+    /**
+     * Тип экипировки, выбранный заранее на вкладке «Подробнее». Работает только
+     * при создании: у правки тип берётся из самой записи. Так пункт меню
+     * «Безделушка» открывает эту же форму, но уже безделушкой.
+     */
+    createCategory?: EquipmentCategory;
     /** Z-index (управляется родителем для bring-to-front) */
     zIndex?: number;
     /** Смещение позиции для каскадного расположения */
@@ -88,6 +95,7 @@
   } = useEquipmentForm(
     () => props.item,
     () => props.open,
+    () => props.createCategory,
   );
 
   /** Вкладки формы */
