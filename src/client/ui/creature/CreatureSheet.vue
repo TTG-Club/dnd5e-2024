@@ -34,11 +34,13 @@
     calculateAbilityModifier,
     CR_TABLE,
     CREATURE_ENVIRONMENTS,
+    CREATURE_HIT_DICE_RULE_KEYS,
     CREATURE_SIZE_TO_TOKEN_SCALE,
     DEFAULT_CREATURE,
     DEFAULT_PROFICIENCY_BONUS,
     formatVisionRange,
     getActorAbilityModifiers,
+    getCreatureHitDiceConstitutionModifier,
     getCreatureProficiencyBonus,
     getCustomBonusesValue,
     getCustomSkillValue,
@@ -54,6 +56,7 @@
     normalizeCompendiumItem,
     normalizeCreature,
     PASSIVE_SKILL_BASE,
+    resolveCreatureHitPointsByRules,
     SKILLS_LIST,
     withExhaustionLevel,
   } from '@vtt/shared/system/dnd.js';
@@ -544,6 +547,17 @@
         };
       }
 
+      // Формула хитов — производная от размера и Телосложения (D&D 2024):
+      // Большое существо с Тел. 16 не может жить с «2к8 + 2» из заготовки.
+      // Движок отдаёт тот же объект, когда менять нечего, — запись не дёргается
+      if (
+        CREATURE_HIT_DICE_RULE_KEYS.some((key) => updates[key] !== undefined)
+      ) {
+        localCreature.value.system.hitPoints = resolveCreatureHitPointsByRules(
+          localCreature.value,
+        );
+      }
+
       isDirty.value = true;
       handleImmediateSave();
     }
@@ -715,6 +729,17 @@
   }));
 
   /**
+   * Модификатор Телосложения для формулы хитов: по записи листа со своими
+   * бонусами, но без активных эффектов — формула описывает стат-блок, а
+   * эффект временно двигает итог поверх него.
+   */
+  const hitDiceConstitutionModifier = computed(() =>
+    localCreature.value
+      ? getCreatureHitDiceConstitutionModifier(localCreature.value)
+      : 0,
+  );
+
+  /**
    * Поля, чей итог задан активным эффектом целиком. Окно настройки берёт
    * отсюда навыки под перезаписью: их число задаёт эффект, а не расчёт.
    */
@@ -805,7 +830,17 @@
       creatureData: localCreature.value,
       onSave: (updates: Partial<DnDCreature>) => {
         if (localCreature.value) {
+          const previousSize = localCreature.value.system.size;
+
           Object.assign(localCreature.value, updates);
+
+          // Настройки токена меняют размер существа через масштаб — в обход
+          // `handleSystemUpdate`, и формула хитов обязана сойтись и здесь
+          if (localCreature.value.system.size !== previousSize) {
+            localCreature.value.system.hitPoints =
+              resolveCreatureHitPointsByRules(localCreature.value);
+          }
+
           isDirty.value = true;
           handleImmediateSave();
         }
@@ -1484,6 +1519,7 @@
                 :proficiency-bonus="creatureProficiencyBonus"
                 :armor-class="resolvedStats?.armorClass"
                 :resolved-movement="resolvedStats?.movement"
+                :hit-dice-constitution-modifier="hitDiceConstitutionModifier"
                 @update:system="handleSystemUpdate"
               />
 

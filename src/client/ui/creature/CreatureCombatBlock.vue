@@ -60,6 +60,11 @@
     armorClass?: number;
     /** Итоговые скорости листа — с теми же поправками */
     resolvedMovement?: Partial<Record<MovementType, number>>;
+    /**
+     * Модификатор Телосложения для формулы хитов: по записи листа, без
+     * активных эффектов — окно здоровья считает по нему бонус за кость.
+     */
+    hitDiceConstitutionModifier: number;
   }
 
   const props = defineProps<Props>();
@@ -665,6 +670,8 @@
   <CreatureHitPointsModal
     v-model:open="isHitPointsOpen"
     :hit-points="system.hitPoints"
+    :size="system.size"
+    :constitution-modifier="hitDiceConstitutionModifier"
     @apply="onHitPointsApply"
   />
 

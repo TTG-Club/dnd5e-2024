@@ -1253,7 +1253,15 @@ export const DEFAULT_CREATURE: Omit<
     subtype: '',
     alignment: 'unaligned',
     armorClass: { value: 10, calculation: 'flat', formula: '', flat: 10 },
-    hitPoints: { average: 10, formula: '2к8 + 2' },
+    // Средний размер и Телосложение 10: кость к8 без бонуса — ровно то, что
+    // насчитает `buildCreatureHitPoints`, чтобы заготовка не расходилась с правилами
+    hitPoints: {
+      average: 9,
+      formula: '2к8',
+      hitDie: 8,
+      hitDiceCount: 2,
+      bonus: 0,
+    },
     movement: {
       walk: 30,
       swim: 0,
