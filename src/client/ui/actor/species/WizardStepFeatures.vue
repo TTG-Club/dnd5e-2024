@@ -8,6 +8,7 @@
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { ChoicePickerOption } from '../ChoicePickerModal.vue';
   import type { CompendiumFeat } from '../feat/featApply';
   import type {
     SpeciesFeatDataSourceView,
@@ -20,8 +21,8 @@
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import { isFeatPickChoice } from '@vtt/shared/system/dnd.js';
 
+  import ChoicePickerField from '../ChoicePickerField.vue';
   import {
-    CHOOSE_VARIANT_PLACEHOLDER,
     GRANTED_SPELL_FEATURE_PREFIX,
     LEVEL_BADGE_SUFFIX,
     SPECIES_FEAT_DEFAULT_EXCLUDED_CATEGORIES,
@@ -142,16 +143,18 @@
   }
 
   /**
-   * Обновляет выбранный вариант для особенности вида.
+   * Обновляет выбранный вариант для особенности вида. Окно выбора отдаёт набор
+   * отметок, а вариант у особенности один — берётся первая.
+   *
    * @param featureKey - ключ особенности
-   * @param choiceKey - ключ выбранного варианта
+   * @param choiceKeys - ключи отмеченных вариантов
    */
-  function selectFeatureChoice(featureKey: string, choiceKey: string) {
+  function selectFeatureChoice(featureKey: string, choiceKeys: string[]) {
     emit('update:state', {
       ...props.state,
       featureChoices: {
         ...props.state.featureChoices,
-        [featureKey]: choiceKey,
+        [featureKey]: choiceKeys[0] ?? '',
       },
     });
   }
@@ -183,17 +186,30 @@
   }
 
   /**
-   * Опции селекта вариантов (подвидов) для особенности.
+   * Варианты (подвиды) особенности для окна выбора: описание читают, не
+   * закрывая окна.
    *
    * @param feature - особенность вида с вариантами
    */
   function getFeatureChoiceOptions(
     feature: SpeciesFeature,
-  ): { value: string; label: string }[] {
+  ): ChoicePickerOption[] {
     return (feature.choices ?? []).map((choice) => ({
       value: choice.key,
-      label: choice.name,
+      name: choice.name,
+      description: choice.description,
     }));
+  }
+
+  /**
+   * Выбранный вариант особенности набором отметок — так его ждёт строка выбора.
+   *
+   * @param feature - особенность вида с вариантами
+   */
+  function getFeatureChoiceSelected(feature: SpeciesFeature): string[] {
+    const chosen = props.state.featureChoices[feature.key];
+
+    return chosen ? [chosen] : [];
   }
 </script>
 
@@ -240,17 +256,13 @@
         v-if="feature.choices && feature.choices.length > 0"
         class="mt-2 rounded-lg bg-default/50 p-3"
       >
-        <span class="mb-2 block text-xs font-medium text-muted">
-          {{ SPECIES_WIZARD_LABELS.chooseFeatureChoice }}
-        </span>
-
-        <USelectMenu
-          :model-value="state.featureChoices[feature.key]"
-          :items="getFeatureChoiceOptions(feature)"
-          value-key="value"
-          label-key="label"
-          :placeholder="CHOOSE_VARIANT_PLACEHOLDER"
-          @update:model-value="selectFeatureChoice(feature.key, $event)"
+        <ChoicePickerField
+          :label="SPECIES_WIZARD_LABELS.chooseFeatureChoice"
+          :subtitle="feature.name"
+          :options="getFeatureChoiceOptions(feature)"
+          :selected="getFeatureChoiceSelected(feature)"
+          :max="1"
+          @update:selected="selectFeatureChoice(feature.key, $event)"
         />
 
         <template v-if="getSelectedChoice(feature)">

@@ -44,7 +44,7 @@
     calculateMaxHP,
     checkFeatPrerequisites,
     collectClassCounterDefinitions,
-    collectFeatsAwaitingSpellListChoices,
+    collectFeatsAwaitingLeveledChoices,
     collectRechoosableFeats,
     computeSpeciesDarkvision,
     computeSpeciesMovement,
@@ -739,10 +739,10 @@
   const isFeatRechooseOpen = ref(false);
 
   /**
-   * Черты, у которых на новом уровне открылась ступень таблицы заклинаний.
+   * Черты, у которых на новом уровне открылся выбор с уровнем доступа.
    * Пусто — окно выбора работает по своему обычному поводу (отдых).
    */
-  const featsAwaitingSpellLists = ref<FeatAwaitingChoices[] | null>(null);
+  const featsAwaitingLeveledChoices = ref<FeatAwaitingChoices[] | null>(null);
 
   /** Модификатор Телосложения актёра (для броска костей хитов) */
   const constitutionModifier = computed(() =>
@@ -793,7 +793,7 @@
     // иначе про пересмотр просто забывают
     if (collectRechoosableFeats(localActor.value).length > 0) {
       // Повод другой — окно спрашивает про пересмотр, а не про ступени списка
-      featsAwaitingSpellLists.value = null;
+      featsAwaitingLeveledChoices.value = null;
       isFeatRechooseOpen.value = true;
     }
   }
@@ -1514,14 +1514,6 @@
     }
   }
 
-  /**
-   * Применяет перетащенную черту к актору: резолвит выдаваемые заклинания через
-   * компендиум, затем добавляет особенность-черту, выдаёт заклинания, переносит
-   * активные эффекты и владения. Резолв асинхронный — особенность появляется
-   * после загрузки компендиума (обычно из кеша, мгновенно).
-   *
-   * @param droppedFeat - перетащенная черта (с featData/activeEffects)
-   */
   /** Черта, ждущая выбора игрока: применяется после закрытия окна выбора */
   const pendingChoiceFeat = ref<AppliedFeatFeature | null>(null);
   const isFeatChoicesOpen = ref(false);
@@ -1540,7 +1532,7 @@
       return;
     }
 
-    featsAwaitingSpellLists.value = null;
+    featsAwaitingLeveledChoices.value = null;
 
     for (const [featureId, choices] of Object.entries(selections)) {
       // Массив объявлен типом черты: базовый `Feature` о `featData` не знает, и
@@ -1618,6 +1610,14 @@
     }
   }
 
+  /**
+   * Применяет перетащенную черту к актору: резолвит выдаваемые заклинания через
+   * компендиум, затем добавляет особенность-черту, выдаёт заклинания, переносит
+   * активные эффекты и владения. Резолв асинхронный — особенность появляется
+   * после загрузки компендиума (обычно из кеша, мгновенно).
+   *
+   * @param droppedFeat - перетащенная черта (с featData/activeEffects)
+   */
   async function applyDroppedFeat(
     droppedFeat: AppliedFeatFeature,
   ): Promise<void> {
@@ -1798,11 +1798,12 @@
   /**
    * Открывает на новом уровне то, что черты выдают ступенями: заклинание с
    * уровнем доступа («Малое восстановление» метки исцеления приходит на третьем)
-   * и очередную ступень таблицы заклинаний класса.
+   * и выбор с уровнем открытия.
    *
    * Без этого прохода такие заклинания не появились бы никогда: черту применяют
    * один раз, на взятии, и повторно её дары никто не пересчитывает. Уже выданное
-   * не задваивается — совпадения отсеиваются по названию.
+   * не задваивается — совпадения отсеиваются по названию. Расширение списка
+   * заклинаний ничего не выдаёт — его показывает окно выбора заклинаний.
    */
   async function unlockFeatSpellsForLevel(): Promise<void> {
     if (!localActor.value) {
@@ -1827,17 +1828,17 @@
       handleImmediateSave();
     }
 
-    // Ступень, из которой берут не всё, сама не откроется: сперва игрок выбирает.
-    // Посреди очереди повышений не спрашиваем — окно встало бы поверх мастера
-    // класса; последний шаг очереди спросит про всё разом
+    // Выбор с уровнем открытия сам не ответится: сперва игрок выбирает. Посреди
+    // очереди повышений не спрашиваем — окно встало бы поверх мастера класса;
+    // последний шаг очереди спросит про всё разом
     if (wizardQueue.value.length > 0) {
       return;
     }
 
-    const awaiting = collectFeatsAwaitingSpellListChoices(localActor.value);
+    const awaiting = collectFeatsAwaitingLeveledChoices(localActor.value);
 
     if (awaiting.length > 0) {
-      featsAwaitingSpellLists.value = awaiting;
+      featsAwaitingLeveledChoices.value = awaiting;
       isFeatRechooseOpen.value = true;
     }
   }
@@ -2716,15 +2717,15 @@
     v-if="localActor"
     v-model:open="isFeatRechooseOpen"
     :actor="localActor"
-    :feats="featsAwaitingSpellLists"
+    :feats="featsAwaitingLeveledChoices"
     :title="
-      featsAwaitingSpellLists ? FEAT_CHOICES_LABELS.spellListTitle : undefined
+      featsAwaitingLeveledChoices ? FEAT_CHOICES_LABELS.leveledTitle : undefined
     "
     :hint="
-      featsAwaitingSpellLists ? FEAT_CHOICES_LABELS.spellListHint : undefined
+      featsAwaitingLeveledChoices ? FEAT_CHOICES_LABELS.leveledHint : undefined
     "
     :confirm-label="
-      featsAwaitingSpellLists ? MODAL_BUTTON_LABELS.apply : undefined
+      featsAwaitingLeveledChoices ? MODAL_BUTTON_LABELS.apply : undefined
     "
     :socket="socket"
     @apply="handleFeatRechooseApply"

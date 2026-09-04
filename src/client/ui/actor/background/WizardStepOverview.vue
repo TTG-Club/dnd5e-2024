@@ -2,6 +2,8 @@
   import type { Feature } from '@vtt/shared';
   import type { BackgroundDefinition } from '@vtt/shared/system/dnd.js';
 
+  import type { ChoicePickerOption } from '../ChoicePickerModal.vue';
+
   import { computed } from 'vue';
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
@@ -11,6 +13,7 @@
     toolProficiencyLabel,
   } from '@vtt/shared/system/dnd.js';
 
+  import ChoicePickerField from '../ChoicePickerField.vue';
   import { BACKGROUND_WIZARD_LABELS, GRANT_SECTION_LABELS } from '../constants';
 
   const props = defineProps<{
@@ -64,21 +67,36 @@
     );
   });
 
-  // Для SelectMenu нужно преобразовать в объекты { id: string, name: string }
-  const featChoiceOptions = computed(() => {
-    if (!props.backgroundDefinition.featGrant.featChoices) {
-      return [];
-    }
-
-    return props.backgroundDefinition.featGrant.featChoices.map((id) => {
-      const feat = props.featsData.find((feat) => feat.id === id);
+  /**
+   * Черты на выбор для окна выбора. Незагруженная запись показывается своим
+   * ключом: так видно, что выбор есть, а справочник до него не доехал.
+   */
+  const featChoiceOptions = computed<ChoicePickerOption[]>(() =>
+    (props.backgroundDefinition.featGrant.featChoices ?? []).map((id) => {
+      const feat = props.featsData.find((entry) => entry.id === id);
 
       return {
-        id,
-        name: feat ? feat.name : id,
+        value: id,
+        name: feat?.name ?? id,
+        nameEn: feat?.nameEn,
+        description: feat?.description,
       };
-    });
-  });
+    }),
+  );
+
+  /** Выбранная черта набором отметок — так её ждёт строка выбора */
+  const featChoiceSelected = computed(() =>
+    selectedFeatId.value ? [selectedFeatId.value] : [],
+  );
+
+  /**
+   * Записывает выбранную черту: окно отдаёт набор отметок, а черту берут одну.
+   *
+   * @param values - отмеченные значения
+   */
+  function selectFeat(values: string[]): void {
+    selectedFeatId.value = values[0] ?? undefined;
+  }
 </script>
 
 <template>
@@ -148,13 +166,12 @@
         </span>
 
         <template v-if="backgroundDefinition.featGrant.featChoices?.length">
-          <USelectMenu
-            v-model="selectedFeatId"
+          <ChoicePickerField
+            :label="BACKGROUND_WIZARD_LABELS.featPlaceholder"
             :options="featChoiceOptions"
-            value-attribute="id"
-            option-attribute="name"
-            class="w-full"
-            :placeholder="BACKGROUND_WIZARD_LABELS.featPlaceholder"
+            :selected="featChoiceSelected"
+            :max="1"
+            @update:selected="selectFeat"
           />
 
           <UButton

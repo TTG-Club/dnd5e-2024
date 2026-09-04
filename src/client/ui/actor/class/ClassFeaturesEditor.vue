@@ -175,12 +175,18 @@
   }
 
   /** Добавляет умение и сразу раскрывает его редактор. */
+  /**
+   * Заводит умение и сразу разворачивает его. Наружу — кнопка добавления живёт
+   * в шапке раздела, а новое умение собирает список.
+   */
   function addFeature(): void {
     const feature = createEmptyFeature(CLASS_FEATURE_DEFAULT_NAME);
 
     features.value.push(feature);
     expand(feature.key);
   }
+
+  defineExpose({ addFeature });
 
   /**
    * Спрашивает подтверждение удаления. Настройки умения — дары, ресурсы,
@@ -236,13 +242,6 @@
 
 <template>
   <div class="flex flex-col gap-2">
-    <div
-      v-if="features.length === 0"
-      class="rounded-lg border border-dashed border-default p-4 text-center text-xs text-dimmed italic"
-    >
-      {{ CLASS_FEATURES_EDITOR_LABELS.empty }}
-    </div>
-
     <div
       v-for="(feature, featureIndex) in features"
       :key="feature.key"
@@ -315,16 +314,6 @@
         />
       </div>
     </div>
-
-    <UButton
-      icon="tabler:plus"
-      :label="CLASS_FEATURES_EDITOR_LABELS.add"
-      color="primary"
-      variant="soft"
-      size="xs"
-      class="self-start"
-      @click.left.exact.prevent="addFeature"
-    />
   </div>
 
   <!-- Подтверждение удаления: настройки умения вернуть неоткуда -->

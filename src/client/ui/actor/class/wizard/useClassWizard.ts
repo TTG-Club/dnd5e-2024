@@ -18,9 +18,11 @@ import type {
   ClassFeatureChoice,
   ClassFeatureSkillChoice,
   ClassOptionGrant,
+  ClassSpellListRequest,
   DnDActor,
   FeatChoice,
   FeatData,
+  FeatSpellListExpansion,
   FormulaContext,
   GrantedSpellSource,
   HitPointMethod,
@@ -41,9 +43,11 @@ import {
   buildFeatGrantEffect,
   calculateProficiencyBonus,
   classOptionFeatureScope,
+  collectActorSpellListExpansions,
   collectClassCounterDefinitions,
   collectClassOptionGrants,
   collectFeatChoiceProficiencies,
+  collectFeatGrantedClassSpellRequests,
   collectFeatGrantedSpellSources,
   collectGrantedSpellSourcesForClassLevel,
   COUNTER_FORMULA_TOKENS,
@@ -57,6 +61,7 @@ import {
   getVisibleFeatChoices,
   hasAbilityImprovementAtLevel,
   hasNoFeatChoiceOptions,
+  hasSpellcastingFeature,
   isAsiFeatureInClass,
   isCounterOfDefinition,
   isFeatPickChoice,
@@ -72,6 +77,7 @@ import {
   resolveChosenAbilities,
   resolveChosenDamageDefenses,
   resolveFeatChoiceCount,
+  resolveFeatChoicePool,
   SKILLS_LIST,
   toFeatureChoiceKeys,
   withCounterMinimum,
@@ -343,6 +349,52 @@ function applyLevelFeatData(
   return result;
 }
 
+/**
+ * Заклинания одной таблицы расширения списка — открытые на уровне персонажа.
+ *
+ * Расширение ничего не выдаёт: оно лишь открывает заклинания сверх списка
+ * класса, и ссылка без `spellId` в пул не идёт — по ней заклинание не найти в
+ * компендиуме.
+ *
+ * @param expansion - таблица расширения из записи; пусто — расширять нечем
+ * @param featureName - название записи-источника: его видит игрок
+ * @param characterLevel - уровень персонажа, на котором открывают ступени
+ * @param hasSpellcasting - владеет ли персонаж заклинательством
+ * @returns связи «заклинание → запись»; пусто — открывать нечего
+ */
+function collectSpellListExpansionSources(
+  expansion: FeatSpellListExpansion | undefined,
+  featureName: string,
+  characterLevel: number,
+  hasSpellcasting: boolean,
+): GrantedSpellSource[] {
+  if (!expansion?.groups?.length) {
+    return [];
+  }
+
+  if (expansion.requiresSpellcasting && !hasSpellcasting) {
+    return [];
+  }
+
+  return expansion.groups
+    .filter(
+      (group) => !group.requiredLevel || group.requiredLevel <= characterLevel,
+    )
+    .flatMap((group) =>
+      group.spells.flatMap((spellRef) =>
+        spellRef.spellId
+          ? [
+              {
+                spellId: spellRef.spellId,
+                packId: spellRef.packId,
+                featureName,
+              },
+            ]
+          : [],
+      ),
+    );
+}
+
 // ── Composable ────────────────────────────────────────────────
 
 /**
@@ -422,18 +474,6 @@ function computeCounterMax(
 }
 
 /**
- * Composable мастера настройки класса (добавление, мультикласс, повышение уровня).
- *
- * Формирует список шагов на основе контекста актора, хранит состояние выбора
- * (хиты, навыки, умения, заклинания, ASI) и собирает итоговые обновления
- * актора для применения.
- *
- * @param classDefinition - определение выбранного класса (реактивная ссылка)
- * @param actor - актор, к которому применяется мастер (реактивная ссылка)
- * @param isOpen - флаг открытия модального окна мастера (реактивная ссылка)
- * @returns Набор реактивных значений и методов управления мастером
- */
-/**
  * Сливает выбранные сейчас варианты с уже взятыми на прошлых уровнях.
  *
  * Именно сливает, а не заменяет: воззвания добираются уровень за уровнем, и
@@ -466,6 +506,15 @@ function mergeFeatureChoices(
   return merged;
 }
 
+/**
+ * Состояние мастера класса: шаги взятия уровня, ответы игрока и применение
+ * выбранного на лист.
+ *
+ * @param classDefinition - взятый класс; `null` — мастеру нечего спрашивать
+ * @param actor - персонаж, которому уровень достанется
+ * @param isOpen - открыто ли окно мастера: на закрытии состояние сбрасывается
+ * @param compendiumFeats - черты компендиума для выборов черты
+ */
 export function useClassWizard(
   classDefinition: Ref<ClassDefinition | null>,
   actor: Ref<DnDActor>,
@@ -820,6 +869,22 @@ export function useClassWizard(
 
     const collected: FeatData[] = [];
 
+    // Выборы самой записи класса и подкласса: на первом уровне они приходят
+    // целиком вместе с дарами, а открывшиеся позже спрашиваются здесь — так же,
+    // как выборы умений прошлых уровней
+    for (const definition of [
+      ...(nextLevel.value > 1 ? [classDef] : []),
+      ...(activeSubclass.value ? [activeSubclass.value] : []),
+    ]) {
+      const opened = expandChoiceScaling(definition.featData?.choices).filter(
+        (choice) => choice.requiredLevel === level,
+      );
+
+      if (opened.length) {
+        collected.push({ type: 'feat', choices: opened });
+      }
+    }
+
     for (const feature of features) {
       if (gainedKeys.has(feature.key) || feature.isInformationalOnly) {
         continue;
@@ -852,12 +917,16 @@ export function useClassWizard(
 
     const collected: FeatData[] = [];
 
+    // Выбор со своим уровнем открытия ждёт своего уровня и здесь: класс даёт
+    // заклинание не только умением, и «с 5 уровня» у него значит то же самое
     if (nextLevel.value === 1 && classDef.featData) {
-      collected.push(classDef.featData);
+      collected.push(openedFeatData(classDef.featData, nextLevel.value));
     }
 
     if (wizardState.subclassKey && activeSubclass.value?.featData) {
-      collected.push(activeSubclass.value.featData);
+      collected.push(
+        openedFeatData(activeSubclass.value.featData, nextLevel.value),
+      );
     }
 
     for (const feature of levelFeatures.value) {
@@ -1103,18 +1172,38 @@ export function useClassWizard(
     return visibleFeatChoices.value.filter((choice) => !scoped.has(choice.key));
   });
 
-  /** Все выборы уровня отвечены — без этого шаг умений не пройти. */
+  /**
+   * Все выборы уровня отвечены — без этого шаг умений не пройти.
+   *
+   * Требуемое число режется по пулу: «выберите три» из двух перечисленных в
+   * записи заклинаний иначе запирало бы шаг намертво. Пул, который ещё не
+   * загружен (каталог заклинаний в пути), не режет — он пуст, и требование
+   * остаётся полным.
+   */
   const areFeatChoicesComplete = computed(
     () =>
-      visibleFeatChoices.value.every(
-        (choice) =>
-          hasNoFeatChoiceOptions(choice, actor.value, {
-            selections: wizardState.featDataChoices,
-            weapons: weaponOptions.value,
-          })
-          || (wizardState.featDataChoices[choice.key] ?? []).length
-            >= resolveFeatChoiceCount(choice, featChoiceProficiencyBonus.value),
-      )
+      visibleFeatChoices.value.every((choice) => {
+        const context = {
+          selections: wizardState.featDataChoices,
+          weapons: weaponOptions.value,
+        };
+
+        if (hasNoFeatChoiceOptions(choice, actor.value, context)) {
+          return true;
+        }
+
+        const pool = resolveFeatChoicePool(choice, actor.value, context);
+
+        const required = resolveFeatChoiceCount(
+          choice,
+          featChoiceProficiencyBonus.value,
+        );
+
+        const needed =
+          pool.length > 0 ? Math.min(required, pool.length) : required;
+
+        return (wizardState.featDataChoices[choice.key] ?? []).length >= needed;
+      })
       && featPickChoices.value.every(
         ({ choice }) =>
           (wizardState.featDataChoices[choice.key] ?? []).length > 0,
@@ -1244,6 +1333,161 @@ export function useClassWizard(
         collectFeatGrantedSpellSources(feat, actor.value),
       ),
     ];
+  });
+
+  /**
+   * Лист с уже применённым уровнем, который берут сейчас.
+   *
+   * Нужен выдаче «весь список класса, не выше доступного круга»: круг такой группы
+   * считается по ячейкам, а настоящий лист уровня ещё не получил — по нему список
+   * отстал бы ровно на тот уровень, ради которого мастера и открыли. Ячейки —
+   * единственное, что здесь считается, поэтому и подменяются только уровень класса и
+   * его тип заклинательства.
+   */
+  const pendingActor = computed((): DnDActor => {
+    const classDef = classDefinition.value;
+
+    if (!classDef) {
+      return actor.value;
+    }
+
+    const spellcasting =
+      classDef.spellcasting ?? activeSubclass.value?.spellcasting ?? null;
+
+    const classes = [...(actor.value.system.classes ?? [])];
+
+    const existingIndex = classes.findIndex(
+      (entry) => entry.classKey === classDef.key,
+    );
+
+    if (existingIndex === -1) {
+      classes.push({
+        classKey: classDef.key,
+        className: classDef.name,
+        level: 1,
+        subclassKey: wizardState.subclassKey || null,
+        hitDie: classDef.hitDie,
+        hitDiceUsed: 0,
+        hitPointsGained: [],
+        chosenSkills: [],
+        featureChoices: {},
+        ...(spellcasting
+          ? {
+              spellcastingAbility: spellcasting.ability,
+              casterType: spellcasting.type,
+            }
+          : {}),
+      });
+    } else {
+      classes[existingIndex] = {
+        ...classes[existingIndex],
+        level: nextLevel.value,
+        ...(spellcasting && !classes[existingIndex].casterType
+          ? { casterType: spellcasting.type }
+          : {}),
+      };
+    }
+
+    return {
+      ...actor.value,
+      system: { ...actor.value.system, classes },
+    };
+  });
+
+  /**
+   * Запросы «выдать весь список класса» от записей этого уровня: класса, подкласса,
+   * умений и выбранных вариантов, а также взятых уровнем черт.
+   *
+   * Заклинаний они не называют — их подбирает резолвер по загруженному компендиуму.
+   */
+  const grantedClassSpellRequests = computed((): ClassSpellListRequest[] => [
+    ...levelFeatDataSources.value.flatMap((source) =>
+      collectFeatGrantedClassSpellRequests(
+        {
+          name: source.sourceName,
+          featData: source.featData,
+          choices: wizardState.featDataChoices,
+        },
+        pendingActor.value,
+      ),
+    ),
+    ...chosenCompendiumFeats.value.flatMap((feat) =>
+      collectFeatGrantedClassSpellRequests(feat, pendingActor.value),
+    ),
+  ]);
+
+  /**
+   * Заклинания сверх списка класса: расширения от записей листа и от умений,
+   * которые приносит этот уровень. Персонаж их не знает — окно выбора заклинаний
+   * показывает их рядом с классовыми, и игрок выбирает их сам, в счёт лимита.
+   *
+   * Заклинательство у списка «только заклинателям» проверяется и по классу,
+   * который берут сейчас: до применения уровня у листа его ещё нет, а список
+   * жреца первого уровня зависит именно от него.
+   */
+  const spellListExpansionSources = computed((): GrantedSpellSource[] => {
+    const classDef = classDefinition.value;
+    const characterLevel = getTotalLevel(actor.value.system.classes) + 1;
+
+    const hasSpellcasting =
+      hasSpellcastingFeature(actor.value)
+      || Boolean(classDef?.spellcasting)
+      || Boolean(activeSubclass.value?.spellcasting);
+
+    /**
+     * Расширение одной записи: класса, подкласса или умения этого уровня.
+     *
+     * @param expansion - таблица расширения из записи
+     * @param featureName - название записи-источника
+     */
+    const fromExpansion = (
+      expansion: FeatSpellListExpansion | undefined,
+      featureName: string,
+    ): GrantedSpellSource[] =>
+      collectSpellListExpansionSources(
+        expansion,
+        featureName,
+        characterLevel,
+        hasSpellcasting,
+      );
+
+    // Расширение самой записи класса и подкласса — наравне с умениями: список
+    // домена задают у подкласса целиком, а не у одного его умения
+    const fromLevel = [
+      ...(nextLevel.value === 1 && classDef
+        ? fromExpansion(classDef.featData?.spellList, classDef.name)
+        : []),
+      ...(activeSubclass.value
+        ? fromExpansion(
+            activeSubclass.value.featData?.spellList,
+            activeSubclass.value.name,
+          )
+        : []),
+      ...levelFeatures.value.flatMap((feature) =>
+        feature.isInformationalOnly
+          ? []
+          : fromExpansion(feature.featData?.spellList, feature.name),
+      ),
+    ];
+
+    const seen = new Set<string>();
+
+    return [
+      ...collectActorSpellListExpansions(actor.value).map((entry) => ({
+        spellId: entry.spellId,
+        packId: entry.packId,
+        featureName: entry.featureName,
+      })),
+      ...fromLevel,
+    ].filter((entry) => {
+      if (seen.has(entry.spellId)) {
+        return false;
+      }
+
+      seen.add(entry.spellId);
+
+      return true;
+    });
   });
 
   /** Требуется ли выбор подкласса на этом уровне */
@@ -2188,6 +2432,7 @@ export function useClassWizard(
        * @param isSubclass - умение подкласса
        * @param sourceName - название подкласса-источника
        * @param grant - дары выбранного варианта; запись варианта несёт их сама
+       * @param spellList - расширение списка заклинаний самого умения
        */
       function pushFeature(
         name: string,
@@ -2196,6 +2441,7 @@ export function useClassWizard(
         isSubclass: boolean,
         sourceName?: string,
         grant?: ClassOptionGrant,
+        spellList?: FeatSpellListExpansion,
       ): void {
         // grantedBy включает класс (и подкласс): имя класса обязано остаться
         // в строке — по нему удаление класса находит свои умения
@@ -2218,8 +2464,22 @@ export function useClassWizard(
         // ресурс варианта и его заклинания на следующих уровнях, в сводке
         // видно, что именно дало владение, а снятие класса забирает дары
         // вместе с записью. У самого умения дары остаются в записи класса — там
-        // они выведены её полями, и копия на листе выдала бы то же дважды
+        // они выведены её полями, и копия на листе выдала бы то же дважды.
+        // Исключение — расширение списка заклинаний умения: оно ничего не
+        // выдаёт, а по записи лист показывает заклинания сверх списка класса и
+        // открывает новые ступени на следующих уровнях
         const answers = grant ? optionChoiceAnswers(grant) : {};
+
+        let featData: FeatData | undefined;
+
+        if (grant?.featData) {
+          featData = {
+            ...grant.featData,
+            ...(spellList && !grant.featData.spellList ? { spellList } : {}),
+          };
+        } else if (spellList) {
+          featData = { type: 'feat', spellList };
+        }
 
         const record: AppliedFeatFeature = {
           id: generateId('feature'),
@@ -2228,7 +2488,7 @@ export function useClassWizard(
           description,
           level,
           featureType: isSubclass ? 'subclass' : 'class',
-          ...(grant?.featData ? { featData: grant.featData } : {}),
+          ...(featData ? { featData } : {}),
           ...(Object.keys(answers).length > 0 ? { choices: answers } : {}),
           ...(grant?.activeEffects.length
             ? { activeEffects: grant.activeEffects }
@@ -2262,6 +2522,8 @@ export function useClassWizard(
             feature.level,
             feature.isSubclass ?? false,
             feature.sourceName,
+            undefined,
+            feature.featData?.spellList,
           );
 
           continue;
@@ -2275,6 +2537,7 @@ export function useClassWizard(
             feature.isSubclass ?? false,
             feature.sourceName,
             optionGrantByKey.value.get(`${feature.key}:${choice.key}`),
+            feature.featData?.spellList,
           );
         }
       }
@@ -2441,6 +2704,8 @@ export function useClassWizard(
     isSpellSelectionComplete,
     spellSelectionLimits,
     grantedSpellSources,
+    grantedClassSpellRequests,
+    spellListExpansionSources,
 
     // Навигация
     nextStep,

@@ -9,7 +9,6 @@
     ActiveEffect,
     BackgroundDefinition,
     DnDGameItem,
-    GrantedSpellRef,
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
@@ -17,7 +16,7 @@
   import type { SpellOption } from '../grantedSpellsEditorTypes';
   import type { EditableStartingEquipmentOption } from '../startingEquipmentEditorTypes';
 
-  import { computed, ref, toRef, watch } from 'vue';
+  import { computed, ref, toRef, useTemplateRef, watch } from 'vue';
 
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
@@ -26,7 +25,7 @@
   import {
     buildSpellLinkIndex,
     findSpellInPacks,
-    linkGrantedSpellRefs,
+    linkGrantedSpellGroups,
     loadSpellPacks,
   } from '@/systems/dnd5e/composables/spellCompendium';
   import { generateId } from '@vtt/shared';
@@ -44,14 +43,18 @@
   import { useFeatChoiceFeats } from '../../../composables/useFeatChoiceFeats';
   import {
     BACKGROUND_FORM_LABELS,
+    FEAT_GRANTS_LABELS,
     FORM_FIELD_LABELS,
     FORM_TAB_LABELS,
     GRANT_FIELD_LABELS,
     GRANT_SECTION_LABELS,
+    GRANTED_SPELL_GROUPS_LABELS,
     GRANTED_SPELLS_LABELS,
     MODAL_BUTTON_LABELS,
     NO_SELECTION,
     SPELL_CHOICE_LABELS,
+    SPELL_LIST_LABELS,
+    STARTING_EQUIPMENT_EDITOR_LABELS,
   } from '../constants';
   import EntityEffectsEditor from '../EntityEffectsEditor.vue';
   import {
@@ -61,10 +64,12 @@
     usedChoiceKeys,
   } from '../feat/featEditorTypes';
   import FeatSpellcastingFields from '../feat/FeatSpellcastingFields.vue';
+  import FeatSpellListEditor from '../feat/FeatSpellListEditor.vue';
   import GrantRowsEditor from '../feat/GrantRowsEditor.vue';
+  import SpellChoiceRowsEditor from '../feat/SpellChoiceRowsEditor.vue';
   import FieldHint from '../FieldHint.vue';
   import FormSection from '../FormSection.vue';
-  import GrantedSpellsEditor from '../GrantedSpellsEditor.vue';
+  import GrantedSpellGroupsEditor from '../GrantedSpellGroupsEditor.vue';
   import SourceField from '../SourceField.vue';
   import StartingEquipmentEditor from '../StartingEquipmentEditor.vue';
   import {
@@ -168,7 +173,6 @@
 
   /** Ключи занятых выборов: все они лежат в одном списке блоба. */
   const takenChoiceKeys = computed(() => [...usedChoiceKeys(grants.value)]);
-  const grantedSpells = ref<GrantedSpellRef[]>([]);
   const effects = ref<ActiveEffect[]>([]);
 
   const existingId = ref<string | null>(null);
@@ -275,7 +279,11 @@
 
     spellPacks.value = packs;
     availableSpells.value = options;
-    linkGrantedSpellRefs(grantedSpells.value, buildSpellLinkIndex(options));
+
+    linkGrantedSpellGroups(
+      grants.value.grantedSpellGroups,
+      buildSpellLinkIndex(options),
+    );
   }
 
   function openSpellDetail(spellId: string, packId?: string): void {
@@ -307,7 +315,6 @@
     selectedFeatClassKey.value = NO_SELECTION;
     equipmentOptions.value = [];
     grants.value = createEmptyFeatGrants();
-    grantedSpells.value = [];
     effects.value = [];
     existingId.value = null;
     existingKey.value = null;
@@ -366,12 +373,6 @@
 
     grants.value = featDataToGrants(bg.featData);
 
-    // Копия целиком, а не по полям: у ссылки бывает уровень доступа, и поле,
-    // не показанное в этой форме, всё равно не должно теряться при сохранении
-    grantedSpells.value = (bg.featData?.grantedSpells ?? []).map((spell) => ({
-      ...spell,
-    }));
-
     effects.value = (bg.activeEffects ?? []).map((effect) => ({ ...effect }));
 
     existingId.value = 'id' in bg && typeof bg.id === 'string' ? bg.id : null;
@@ -420,7 +421,7 @@
 
     const { featName, featNameEn } = resolveFeatNames();
 
-    const featData = buildFeatData(grants.value, grantedSpells.value);
+    const featData = buildFeatData(grants.value);
 
     const bg: DnDGameItem = {
       id: existingId.value || `item_${generateId('bg')}`,
@@ -487,6 +488,17 @@
       emit('close');
     }
   }
+
+  /**
+   * Списки разделов: кнопка добавления живёт в шапке раздела, а знание о том,
+   * какой получается новая строка, остаётся у самого редактора.
+   */
+  const equipmentOptionRows = useTemplateRef('equipmentOptionRows');
+  const grantRows = useTemplateRef('grantRows');
+  const spellGroups = useTemplateRef('spellGroups');
+  const spellChoiceRows = useTemplateRef('spellChoiceRows');
+  const spellListGroups = useTemplateRef('spellListGroups');
+  const effectRows = useTemplateRef('effectRows');
 </script>
 
 <template>
@@ -716,27 +728,33 @@
 
         <!-- СНАРЯЖЕНИЕ -->
         <template #equipment>
-          <div class="flex flex-col gap-2">
-            <p class="text-xs text-dimmed">
-              {{ BACKGROUND_FORM_LABELS.equipmentHelp }}
-            </p>
-
+          <FormSection
+            :title="GRANT_SECTION_LABELS.equipment"
+            icon="tabler:backpack"
+            :hint="BACKGROUND_FORM_LABELS.equipmentHelp"
+            :add-label="STARTING_EQUIPMENT_EDITOR_LABELS.optionAdd"
+            @add="equipmentOptionRows?.addOption()"
+          >
             <StartingEquipmentEditor
+              ref="equipmentOptionRows"
               v-model="equipmentOptions"
               show-gold-alternative
               :socket="props.socket"
             />
-          </div>
+          </FormSection>
         </template>
 
         <!-- АВТОМАТИЗАЦИЯ (дары что угодно) -->
         <template #grants>
-          <div class="flex flex-col gap-2">
-            <p class="text-xs text-dimmed">
-              {{ BACKGROUND_FORM_LABELS.grantsHint }}
-            </p>
-
+          <FormSection
+            :title="GRANT_SECTION_LABELS.proficiencies"
+            icon="tabler:gift"
+            :hint="BACKGROUND_FORM_LABELS.grantsHint"
+            :add-label="FEAT_GRANTS_LABELS.addGrant"
+            @add="grantRows?.addRow()"
+          >
             <GrantRowsEditor
+              ref="grantRows"
               v-model="grants.grantRows"
               hide-ability
               hide-skill
@@ -744,7 +762,7 @@
               :taken-keys="takenChoiceKeys"
               :socket="props.socket"
             />
-          </div>
+          </FormSection>
         </template>
 
         <!-- ЗАКЛИНАНИЯ -->
@@ -754,9 +772,12 @@
               :title="GRANTED_SPELLS_LABELS.title"
               icon="tabler:sparkles"
               :hint="BACKGROUND_FORM_LABELS.spellsHint"
+              :add-label="GRANTED_SPELL_GROUPS_LABELS.add"
+              @add="spellGroups?.addGroup()"
             >
-              <GrantedSpellsEditor
-                v-model="grantedSpells"
+              <GrantedSpellGroupsEditor
+                ref="spellGroups"
+                v-model="grants.grantedSpellGroups"
                 :available-spells="availableSpells"
                 :socket="socket"
                 @open-spell="openSpellDetail"
@@ -770,18 +791,60 @@
             >
               <FeatSpellcastingFields v-model="grants" />
             </FormSection>
+
+            <!-- Выбор заклинаний игроком и расширение списка — как у черты: дары
+              предыстории лежат в той же модели -->
+            <FormSection
+              :title="SPELL_CHOICE_LABELS.title"
+              icon="tabler:hand-click"
+              :hint="SPELL_CHOICE_LABELS.hint"
+              :add-label="SPELL_CHOICE_LABELS.add"
+              @add="spellChoiceRows?.addRow()"
+            >
+              <SpellChoiceRowsEditor
+                ref="spellChoiceRows"
+                v-model="grants.spellChoice"
+                :taken-keys="takenChoiceKeys"
+                :available-spells="availableSpells"
+                :socket="socket"
+                @open-spell="openSpellDetail"
+              />
+            </FormSection>
+
+            <FormSection
+              :title="SPELL_LIST_LABELS.title"
+              icon="tabler:list-details"
+              :hint="SPELL_LIST_LABELS.hint"
+              :add-label="SPELL_LIST_LABELS.addGroup"
+              @add="spellListGroups?.addGroup()"
+            >
+              <FeatSpellListEditor
+                ref="spellListGroups"
+                v-model="grants.spellList"
+                :available-spells="availableSpells"
+                :socket="socket"
+                @open-spell="openSpellDetail"
+              />
+            </FormSection>
           </div>
         </template>
 
         <!-- ЭФФЕКТЫ -->
         <template #effects>
-          <EntityEffectsEditor
-            v-model="effects"
-            modal-id="background-effect-form-modal"
+          <FormSection
+            :title="FORM_TAB_LABELS.effects"
+            icon="tabler:sparkles"
             :hint="BACKGROUND_FORM_LABELS.effectsHint"
-            :empty-text="BACKGROUND_FORM_LABELS.effectsEmpty"
-            hide-aura
-          />
+            :add-label="MODAL_BUTTON_LABELS.addEffect"
+            @add="effectRows?.createEffect()"
+          >
+            <EntityEffectsEditor
+              ref="effectRows"
+              v-model="effects"
+              modal-id="background-effect-form-modal"
+              hide-aura
+            />
+          </FormSection>
         </template>
       </UTabs>
     </template>

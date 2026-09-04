@@ -35,7 +35,7 @@
     EditableTableColumn,
   } from './classEditorTypes';
 
-  import { computed, ref, watch } from 'vue';
+  import { computed, ref, useTemplateRef, watch } from 'vue';
 
   import { loadCompendiumKindByPack } from '@/core/compendiumDataClient';
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
@@ -62,6 +62,7 @@
     ABILITY_DELIMITER_OPTIONS,
     ARMOR_PROF_LABELS,
     CLASS_DEFAULT_SUBCLASS_LABEL,
+    CLASS_FEATURES_EDITOR_LABELS,
     CLASS_FORM_LABELS,
     COMPENDIUM_PICKER_LABELS,
     DEFINITION_FORM_LABELS,
@@ -71,9 +72,12 @@
     FORM_TAB_LABELS,
     GRANT_FIELD_LABELS,
     GRANT_SECTION_LABELS,
+    GRANTED_SPELL_GROUPS_LABELS,
     GRANTED_SPELLS_LABELS,
     MODAL_BUTTON_LABELS,
+    SPELL_CHOICE_LABELS,
     SPELL_LIST_LABELS,
+    STARTING_EQUIPMENT_EDITOR_LABELS,
     TOOL_PROF_LABELS,
     WEAPON_PROF_LABELS,
   } from '../constants';
@@ -83,10 +87,12 @@
     buildFeatData,
     createEmptyFeatGrants,
     featDataToGrants,
+    usedChoiceKeys,
   } from '../feat/featEditorTypes';
   import FeatSpellListEditor from '../feat/FeatSpellListEditor.vue';
+  import SpellChoiceRowsEditor from '../feat/SpellChoiceRowsEditor.vue';
   import FormSection from '../FormSection.vue';
-  import GrantedSpellsEditor from '../GrantedSpellsEditor.vue';
+  import GrantedSpellGroupsEditor from '../GrantedSpellGroupsEditor.vue';
   import SourceField from '../SourceField.vue';
   import StartingEquipmentEditor from '../StartingEquipmentEditor.vue';
   import {
@@ -268,11 +274,15 @@
    */
   const grants = ref<EditableFeatGrants>(createEmptyFeatGrants());
 
+  /** Занятые ключи выборов класса: два выбора с одним ключом схлопнулись бы в один. */
+  const classTakenChoiceKeys = computed(() => [
+    ...usedChoiceKeys(grants.value),
+  ]);
+
   /**
    * Заклинания, которые даёт сам класс. Живут в тех же дарах, но правятся на
    * вкладке «Заклинательство»: там их и ищут.
    */
-  const grantedSpells = ref<GrantedSpellRef[]>([]);
 
   const existingKey = ref<string | null>(null);
   const existingId = ref<string | null>(null);
@@ -518,7 +528,6 @@
     equipment.value = [];
     activeEffects.value = [];
     grants.value = createEmptyFeatGrants();
-    grantedSpells.value = [];
     existingKey.value = null;
     existingId.value = null;
   }
@@ -605,7 +614,6 @@
     }));
 
     grants.value = featDataToGrants(definition.featData);
-    grantedSpells.value = [...(definition.featData?.grantedSpells ?? [])];
 
     // Ресурсы у класса одни — его счётчики. Заведённые когда-то в блоке даров
     // переносим сюда: модель у них теперь общая, а редактора там больше нет
@@ -668,10 +676,14 @@
     };
 
     const fixFeature = (feature: EditableClassFeature): void => {
-      fix(feature.grantedSpells);
+      for (const group of feature.grants.grantedSpellGroups) {
+        fix(group.spells);
+      }
 
-      for (const entry of feature.grantedSpellsByLevel) {
-        fix(entry.spells);
+      for (const choice of feature.choices) {
+        for (const group of choice.grants.grantedSpellGroups) {
+          fix(group.spells);
+        }
       }
     };
 
@@ -827,7 +839,7 @@
       definition.activeEffects = activeEffects.value;
     }
 
-    const featData = buildFeatData(grants.value, grantedSpells.value);
+    const featData = buildFeatData(grants.value);
 
     if (featData) {
       definition.featData = featData;
@@ -890,6 +902,18 @@
       emit('close');
     }
   }
+
+  /**
+   * Списки разделов: кнопка добавления живёт в шапке раздела, а знание о том,
+   * какой получается новая строка, остаётся у самого редактора.
+   */
+  const equipmentOptionRows = useTemplateRef('equipmentOptionRows');
+  const featureRows = useTemplateRef('featureRows');
+  const spellGroups = useTemplateRef('spellGroups');
+  const spellChoiceRows = useTemplateRef('spellChoiceRows');
+  const spellListGroups = useTemplateRef('spellListGroups');
+  const counterRows = useTemplateRef('counterRows');
+  const effectRows = useTemplateRef('effectRows');
 </script>
 
 <template>
@@ -1332,12 +1356,33 @@
               :title="GRANTED_SPELLS_LABELS.title"
               icon="tabler:sparkles"
               :hint="CLASS_FORM_LABELS.spellsHint"
+              :add-label="GRANTED_SPELL_GROUPS_LABELS.add"
+              @add="spellGroups?.addGroup()"
             >
-              <GrantedSpellsEditor
-                v-model="grantedSpells"
+              <GrantedSpellGroupsEditor
+                ref="spellGroups"
+                v-model="grants.grantedSpellGroups"
                 :available-spells="availableSpells"
                 :socket="socket"
-                with-required-level
+                @open-spell="openSpellDetail"
+              />
+            </FormSection>
+
+            <!-- Заклинания на выбор при взятии класса — тем же редактором, что у
+              умения: порция ищет по кругу и спискам либо перечисляет заклинания -->
+            <FormSection
+              :title="SPELL_CHOICE_LABELS.title"
+              icon="tabler:hand-click"
+              :hint="SPELL_CHOICE_LABELS.hint"
+              :add-label="SPELL_CHOICE_LABELS.add"
+              @add="spellChoiceRows?.addRow()"
+            >
+              <SpellChoiceRowsEditor
+                ref="spellChoiceRows"
+                v-model="grants.spellChoice"
+                :taken-keys="classTakenChoiceKeys"
+                :available-spells="availableSpells"
+                :socket="socket"
                 @open-spell="openSpellDetail"
               />
             </FormSection>
@@ -1345,8 +1390,12 @@
             <FormSection
               :title="SPELL_LIST_LABELS.title"
               icon="tabler:list-details"
+              :hint="SPELL_LIST_LABELS.hint"
+              :add-label="SPELL_LIST_LABELS.addGroup"
+              @add="spellListGroups?.addGroup()"
             >
               <FeatSpellListEditor
+                ref="spellListGroups"
                 v-model="grants.spellList"
                 :available-spells="availableSpells"
                 :socket="socket"
@@ -1371,8 +1420,11 @@
               :title="FEAT_GRANTS_LABELS.countersTitle"
               icon="tabler:battery-2"
               :hint="CLASS_FORM_LABELS.countersHint"
+              :add-label="FEAT_GRANTS_LABELS.addCounter"
+              @add="counterRows?.addCounter()"
             >
               <CounterRowsEditor
+                ref="counterRows"
                 v-model="counters"
                 with-start-level
                 with-table-column
@@ -1393,12 +1445,20 @@
 
         <!-- ОСОБЕННОСТИ -->
         <template #features>
-          <ClassFeaturesEditor
-            v-model="features"
-            :available-spells="availableSpells"
-            :socket="props.socket"
-            @open-spell="openSpellDetail"
-          />
+          <FormSection
+            :title="CLASS_FORM_LABELS.tabFeatures"
+            icon="tabler:star"
+            :add-label="CLASS_FEATURES_EDITOR_LABELS.add"
+            @add="featureRows?.addFeature()"
+          >
+            <ClassFeaturesEditor
+              ref="featureRows"
+              v-model="features"
+              :available-spells="availableSpells"
+              :socket="props.socket"
+              @open-spell="openSpellDetail"
+            />
+          </FormSection>
         </template>
 
         <!-- ПОДКЛАССЫ -->
@@ -1420,28 +1480,38 @@
 
         <!-- СНАРЯЖЕНИЕ -->
         <template #equipment>
-          <div class="flex flex-col gap-2">
-            <p class="text-xs text-dimmed">
-              {{ CLASS_FORM_LABELS.equipmentHint }}
-            </p>
-
+          <FormSection
+            :title="GRANT_SECTION_LABELS.equipment"
+            icon="tabler:backpack"
+            :hint="CLASS_FORM_LABELS.equipmentHint"
+            :add-label="STARTING_EQUIPMENT_EDITOR_LABELS.optionAdd"
+            @add="equipmentOptionRows?.addOption()"
+          >
             <StartingEquipmentEditor
+              ref="equipmentOptionRows"
               v-model="equipment"
               show-key
               :socket="props.socket"
             />
-          </div>
+          </FormSection>
         </template>
 
         <!-- ЭФФЕКТЫ -->
         <template #effects>
-          <EntityEffectsEditor
-            v-model="activeEffects"
-            modal-id="class-effect-form-modal"
+          <FormSection
+            :title="FORM_TAB_LABELS.effects"
+            icon="tabler:sparkles"
             :hint="CLASS_FORM_LABELS.effectsHint"
-            :empty-text="CLASS_FORM_LABELS.effectsEmpty"
-            hide-aura
-          />
+            :add-label="MODAL_BUTTON_LABELS.addEffect"
+            @add="effectRows?.createEffect()"
+          >
+            <EntityEffectsEditor
+              ref="effectRows"
+              v-model="activeEffects"
+              modal-id="class-effect-form-modal"
+              hide-aura
+            />
+          </FormSection>
         </template>
       </UTabs>
     </template>

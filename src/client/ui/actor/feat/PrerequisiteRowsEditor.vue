@@ -1,28 +1,16 @@
 <script setup lang="ts">
-  // Корневой вход `@nuxt/ui` типов компонентов не отдаёт — берём из подпути
-  import type { DropdownMenuItem } from '@nuxt/ui/components/DropdownMenu.vue';
-
   import type { TypedWebSocketClient } from '@vtt/shared';
 
-  import type {
-    EditablePrerequisiteRow,
-    PrerequisiteRowKind,
-  } from './featEditorTypes';
+  import type { EditablePrerequisiteRow } from './featEditorTypes';
 
   import { computed } from 'vue';
 
   import { ABILITY_OPTIONS } from '@vtt/shared/system/dnd.js';
 
-  import {
-    ARMOR_PROF_LABELS,
-    FEAT_GRANTS_LABELS,
-    SCROLLABLE_DROPDOWN_UI,
-  } from '../constants';
-  import FieldHint from '../FieldHint.vue';
+  import { ARMOR_PROF_LABELS, FEAT_GRANTS_LABELS } from '../constants';
   import EntityRefRows from './EntityRefRows.vue';
   import {
     CLASS_FEATURE_REQUIREMENT_OPTIONS,
-    createPrerequisiteRow,
     isRefPrerequisite,
     PREREQUISITE_ROW_KIND_OPTIONS,
   } from './featEditorTypes';
@@ -34,6 +22,9 @@
    *
    * Требования вида «нужен уровень» или «нужно заклинательство» значений не
    * имеют: сама строка и есть требование, полей у неё нет.
+   *
+   * Вид нового требования выбирают меню кнопки добавления
+   * ({@link PrerequisiteAddMenu}) в шапке раздела.
    */
   const rows = defineModel<EditablePrerequisiteRow[]>({ required: true });
 
@@ -61,18 +52,6 @@
   const armorOptions = Object.entries(ARMOR_PROF_LABELS).map(
     ([value, label]) => ({ value, label }),
   );
-
-  /** Меню «Добавить требование». */
-  const addMenuItems: DropdownMenuItem[][] = [
-    PREREQUISITE_ROW_KIND_OPTIONS.map((option) => ({
-      label: option.label,
-      onSelect: () => addRow(option.value),
-    })),
-  ];
-
-  function addRow(kind: PrerequisiteRowKind): void {
-    rows.value = [...rows.value, createPrerequisiteRow(kind)];
-  }
 
   function removeRow(index: number): void {
     rows.value = rows.value.filter((_, rowIndex) => rowIndex !== index);
@@ -115,18 +94,6 @@
 
 <template>
   <div class="flex flex-col gap-2">
-    <p class="flex items-center gap-1 text-xs text-dimmed">
-      {{ FEAT_GRANTS_LABELS.prerequisitesHint }}
-      <FieldHint :text="FEAT_GRANTS_LABELS.prerequisitesHintDetails" />
-    </p>
-
-    <div
-      v-if="rows.length === 0"
-      class="rounded-lg border border-dashed border-default p-3 text-center text-xs text-dimmed italic"
-    >
-      {{ FEAT_GRANTS_LABELS.prerequisitesEmpty }}
-    </div>
-
     <!-- Требование без значений: одна компактная строка, а не пустая колонка -->
     <div
       v-for="row in flagRows"
@@ -287,19 +254,5 @@
         </div>
       </div>
     </template>
-
-    <UDropdownMenu
-      :items="addMenuItems"
-      :content="{ align: 'start' }"
-      :ui="SCROLLABLE_DROPDOWN_UI"
-    >
-      <UButton
-        icon="tabler:plus"
-        :label="FEAT_GRANTS_LABELS.addPrerequisite"
-        color="primary"
-        variant="soft"
-        block
-      />
-    </UDropdownMenu>
   </div>
 </template>

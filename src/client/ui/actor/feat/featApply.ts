@@ -14,18 +14,20 @@ import type {
   ActorCounterState,
   ActorProficiencies,
   AppliedFeatMeta,
+  ClassSpellListRequest,
   DnDActor,
   FeatData,
+  GrantedSpellSource,
   ResolvedGrantedSpell,
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
-import { loadCompendiumKind } from '@/core/compendiumDataClient';
 import { generateEntityId } from '@/core/entityUtils';
 import { useItemsStore } from '@/stores/itemsStore';
 import {
-  extractSpellEntries,
   extractWorldSpells,
+  loadSpellPacks,
+  WORLD_SPELL_PACK_ID,
 } from '@/systems/dnd5e/composables/spellCompendium';
 import {
   appendGrantedSpells,
@@ -35,7 +37,9 @@ import {
   buildFeatGrantEffect,
   cloneActorProficiencies,
   collectActorFeatChoiceAnswers,
+  collectFeatGrantedClassSpellRequests,
   collectFeatGrantedSpellSources,
+  expandClassSpellRequests,
   getTotalLevel,
   isFeatOwnedEffect,
   prepareTransferredFeatEffects,
@@ -112,6 +116,7 @@ export function resolveFeatGrantedSpells(
   return resolveGrantedSpellSources(
     socket,
     collectFeatGrantedSpellSources(feat, actor),
+    collectFeatGrantedClassSpellRequests(feat, actor),
   );
 }
 
@@ -133,11 +138,17 @@ export function resolveActorFeatSpells(
 ): Promise<ResolvedGrantedSpell[]> {
   const features: AppliedFeatFeature[] = actor.features ?? [];
 
-  const sources = features
-    .filter((feature) => feature.featData)
-    .flatMap((feature) => collectFeatGrantedSpellSources(feature, actor));
+  const withFeatData = features.filter((feature) => feature.featData);
 
-  return resolveGrantedSpellSources(socket, sources);
+  const sources = withFeatData.flatMap((feature) =>
+    collectFeatGrantedSpellSources(feature, actor),
+  );
+
+  const classRequests = withFeatData.flatMap((feature) =>
+    collectFeatGrantedClassSpellRequests(feature, actor),
+  );
+
+  return resolveGrantedSpellSources(socket, sources, classRequests);
 }
 
 /**
@@ -145,29 +156,41 @@ export function resolveActorFeatSpells(
  * мира. Несопоставленное пропускается: связь могла указывать на пак, которого у
  * этого мастера нет, и ронять из-за неё выдачу целиком неправильно.
  *
+ * Компендиум грузится ПО ПАКАМ: у выдачи «весь список класса» автор может назвать
+ * конкретный пак, а плоский каталог о паках уже не помнит.
+ *
  * @param socket - WebSocket-клиент (для загрузки компендиума)
  * @param sources - связи «заклинание → черта-источник»
+ * @param classRequests - запросы «выдать весь список класса»
  */
 async function resolveGrantedSpellSources(
   socket: TypedWebSocketClient | null | undefined,
-  sources: ReturnType<typeof collectFeatGrantedSpellSources>,
+  sources: GrantedSpellSource[],
+  classRequests: ClassSpellListRequest[] = [],
 ): Promise<ResolvedGrantedSpell[]> {
-  if (sources.length === 0 || !socket) {
+  if ((sources.length === 0 && classRequests.length === 0) || !socket) {
     return [];
   }
 
-  const entries = await loadCompendiumKind(socket, 'spell');
+  const { packs } = await loadSpellPacks(socket);
 
   // Свои заклинания мира ищутся наравне с компендиумными: черта может выдавать
-  // заклинание, заведённое в панели «Предметы»
-  const spells = [
-    ...extractSpellEntries(entries),
-    ...extractWorldSpells(useItemsStore().itemsByType('spell')),
-  ];
+  // заклинание, заведённое в панели «Предметы». Своим паком — чтобы список класса,
+  // ограниченный компендиумом, их не подхватил
+  const worldPack = {
+    packId: WORLD_SPELL_PACK_ID,
+    spells: extractWorldSpells(useItemsStore().itemsByType('spell')),
+  };
+
+  const allPacks = [...packs, worldPack];
+  const spells = allPacks.flatMap((pack) => pack.spells);
 
   const resolved: ResolvedGrantedSpell[] = [];
 
-  for (const source of sources) {
+  for (const source of [
+    ...sources,
+    ...expandClassSpellRequests(classRequests, allPacks),
+  ]) {
     const spell = spells.find((entry) => entry.id === source.spellId);
 
     if (spell) {

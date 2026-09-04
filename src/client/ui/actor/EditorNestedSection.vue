@@ -3,6 +3,7 @@
 
   import { EDITOR_NESTED_SECTION_LABELS } from './constants';
   import FieldHint from './FieldHint.vue';
+  import SectionAddButton from './SectionAddButton.vue';
 
   /**
    * Раздел внутри записи формы: заголовок и содержимое на «дорожке» — линии,
@@ -21,7 +22,9 @@
    *
    * Тем же разделом показывает свои списки и карточка записи: свёрнутый блок
    * «Варианты» устроен там так же, и второй такой же компонент разошёлся бы с
-   * этим при первой же правке.
+   * этим при первой же правке. Им же мастер класса группирует заклинания по
+   * записям-источникам — группа принадлежит своей записи так же, как поля
+   * принадлежат объекту.
    */
   const props = withDefaults(
     defineProps<{
@@ -161,20 +164,18 @@
         <FieldHint :text="props.hint" />
       </span>
 
-      <!-- Своя кнопка добавления, когда обычной не хватает: у модификаторов
-        вид выбирают меню, а не одним нажатием -->
-      <slot name="actions">
-        <UButton
+      <!-- Кнопки подняты над накладкой шапки через `relative`. Слот — для своей
+        кнопки добавления, когда обычной не хватает: у модификаторов вид
+        выбирают меню, а не одним нажатием -->
+      <div class="relative flex shrink-0 items-center gap-2">
+        <slot name="actions" />
+
+        <SectionAddButton
           v-if="props.addLabel"
-          icon="tabler:plus"
           :label="props.addLabel"
-          color="primary"
-          variant="soft"
-          size="xs"
-          class="relative shrink-0"
           @click.left.exact.prevent="add"
         />
-      </slot>
+      </div>
     </div>
 
     <!-- Дорожка раздела: линия слева и отступ содержимого от неё. Отступ на

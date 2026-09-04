@@ -11,6 +11,7 @@
 import type { AbilityType } from '@vtt/shared';
 
 import type { Spell } from './dndEntities.js';
+import type { GrantedSpellRef } from './speciesTypes.js';
 
 import { generateId } from '@vtt/shared';
 
@@ -43,6 +44,40 @@ export interface GrantedSpellSource {
    * характеристика листа (класс-заклинатель).
    */
   castingAbility?: AbilityType;
+}
+
+/**
+ * Запрос «выдать весь список класса» — уже с проверенным уровнем и посчитанным
+ * кругом.
+ *
+ * Отдельно от {@link GrantedSpellSource}: там связь с конкретной записью, а здесь
+ * правило, по которому записи ещё предстоит найти. Разворачивает его
+ * {@link expandClassSpellRequests} — там, где загружен компендиум.
+ */
+export interface ClassSpellListRequest {
+  /** Ключи классов, чьи списки выдаются (сверяются со `Spell.classKeys`) */
+  classKeys: string[];
+  /** Название умения-источника: с ним заклинание ложится на лист и им же снимается */
+  featureName: string;
+  /** Паки, из которых брать заклинания; пусто — из всех доступных */
+  spellPackIds?: string[];
+  /** Ровно этот круг; пусто — круг сверху не ограничен */
+  level?: number;
+  /**
+   * Не выше этого круга; пусто — верхней границы нет. У группы «по ячейкам» сюда уже
+   * подставлен наибольший круг, который персонаж способен наложить.
+   */
+  maxLevel?: number;
+  /** Заклинание не нужно готовить (см. {@link GrantedSpellSource.alwaysPrepared}) */
+  alwaysPrepared?: boolean;
+  /** Заклинательная характеристика умения-источника */
+  castingAbility?: AbilityType;
+}
+
+/** Заклинания одного пака — вход разворота списков классов. */
+export interface ClassSpellPack {
+  packId: string;
+  spells: Spell[];
 }
 
 /** Заклинание компендиума, сопоставленное с умением-источником */
@@ -97,6 +132,12 @@ export interface LeveledFeatureWithGrantedSpells extends FeatureWithGrantedSpell
   level?: number;
   /** Поуровневая выдача: ключ — уровень класса (строка «1»–«20») */
   grantedSpellsByLevel?: Record<string, string[]>;
+  /**
+   * Блоб даров умения: в полях записи заклинание лежит одним id, а характеристику
+   * и подготовку задаёт группа выдачи — они уезжают вместе со ссылкой в блоб.
+   * Отсюда они и берутся, чтобы поля записи и блоб не разошлись.
+   */
+  featData?: { grantedSpells?: GrantedSpellRef[] };
 }
 
 /**
@@ -135,17 +176,113 @@ export function collectGrantedSpellSourcesForClassLevel(
       ...(feature.grantedSpellsByLevel?.[String(classLevel)] ?? []),
     );
 
+    const groupBySpellId = new Map(
+      (feature.featData?.grantedSpells ?? [])
+        .filter((ref): ref is GrantedSpellRef & { spellId: string } =>
+          Boolean(ref.spellId),
+        )
+        .map((ref) => [ref.spellId, ref]),
+    );
+
     for (const spellId of spellIds) {
       if (seenSpellIds.has(spellId)) {
         continue;
       }
 
       seenSpellIds.add(spellId);
-      sources.push({ spellId, featureName: feature.name });
+
+      const group = groupBySpellId.get(spellId);
+
+      sources.push({
+        spellId,
+        featureName: feature.name,
+        alwaysPrepared: group?.alwaysPrepared,
+        castingAbility: group?.spellcastingAbility,
+      });
     }
   }
 
   return sources;
+}
+
+/**
+ * Разворачивает запросы «весь список класса» в связи «заклинание → умение-источник».
+ *
+ * Разворот здесь, а не у сборщика запросов: каталог загружается лениво и только тем,
+ * кто действительно выдаёт заклинания, — а сборщик работает и без компендиума, в
+ * мастерах и на дропе.
+ *
+ * Круг проверяется тем же кодом, что и у выбора заклинаний
+ * (`matchesFeatSpellFilter`), — здесь он повторён своим сравнением ради того, чтобы
+ * движок выдачи не зависел от модуля выборов; правило одно: «ровно круг» либо «не
+ * выше круга».
+ *
+ * @param requests - запросы, собранные {@link collectFeatGrantedClassSpellRequests}
+ * @param packs - заклинания компендиума по пакам (плюс заклинания самого мира)
+ * @returns связи без дубликатов по id заклинания
+ */
+export function expandClassSpellRequests(
+  requests: ReadonlyArray<ClassSpellListRequest>,
+  packs: ReadonlyArray<ClassSpellPack>,
+): GrantedSpellSource[] {
+  const sources: GrantedSpellSource[] = [];
+  const seenSpellIds = new Set<string>();
+
+  for (const request of requests) {
+    if (request.classKeys.length === 0) {
+      continue;
+    }
+
+    const allowedPacks = request.spellPackIds?.length
+      ? packs.filter((pack) => request.spellPackIds?.includes(pack.packId))
+      : packs;
+
+    for (const pack of allowedPacks) {
+      for (const spell of pack.spells) {
+        if (
+          seenSpellIds.has(spell.id)
+          || !matchesClassSpellRequest(spell, request)
+        ) {
+          continue;
+        }
+
+        seenSpellIds.add(spell.id);
+
+        sources.push({
+          spellId: spell.id,
+          featureName: request.featureName,
+          packId: pack.packId,
+          alwaysPrepared: request.alwaysPrepared,
+          castingAbility: request.castingAbility,
+        });
+      }
+    }
+  }
+
+  return sources;
+}
+
+/**
+ * Подходит ли заклинание под запрос: и по классу, и по кругу.
+ *
+ * @param spell - заклинание компендиума
+ * @param request - запрос списка класса
+ */
+function matchesClassSpellRequest(
+  spell: Spell,
+  request: ClassSpellListRequest,
+): boolean {
+  const spellClasses = spell.classKeys ?? [];
+
+  if (!spellClasses.some((key) => request.classKeys.includes(key))) {
+    return false;
+  }
+
+  if (request.level !== undefined && spell.level !== request.level) {
+    return false;
+  }
+
+  return request.maxLevel === undefined || spell.level <= request.maxLevel;
 }
 
 /**

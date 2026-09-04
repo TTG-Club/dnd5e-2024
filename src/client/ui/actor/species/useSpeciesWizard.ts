@@ -39,6 +39,7 @@ import {
   hasNoFeatChoiceOptions,
   isFeatPickChoice,
   isSkillType,
+  openFeatChoicesAtLevel,
   prepareFeatChoices,
   resolveChosenAbilities,
   resolveChosenDamageDefenses,
@@ -370,6 +371,15 @@ function applySpeciesGrantedFeats(
   return current;
 }
 
+/**
+ * Состояние мастера вида: размер, дары, выборы особенностей и подвид, а также
+ * применение выбранного на лист.
+ *
+ * @param actor - персонаж, которому вид достанется
+ * @param speciesDef - выбранный вид; `null` — мастеру нечего спрашивать
+ * @param speciesRecords - записи видов мира: из них берутся подвиды
+ * @param compendiumFeats - черты компендиума для выборов и выдачи черты
+ */
 export function useSpeciesWizard(
   actor: import('vue').Ref<DnDActor>,
   speciesDef: import('vue').Ref<SpeciesDefinition | null>,
@@ -473,7 +483,10 @@ export function useSpeciesWizard(
       selectedSubspecies.value,
     ).map((source) => ({
       ...source,
-      preparedChoices: prepareFeatChoices(source.featData.choices),
+      // Выбор с уровнем открытия выше текущего отложен до повышения уровня
+      preparedChoices: prepareFeatChoices(
+        openFeatChoicesAtLevel(source.featData.choices, totalLevel.value),
+      ),
     }));
   });
 

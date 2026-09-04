@@ -1,10 +1,13 @@
 <script setup lang="ts">
+  import type { ChoicePickerOption } from './ChoicePickerModal.vue';
+
   import { computed, reactive, watch } from 'vue';
 
   import JournalEditor from '@/shared_ui/components/JournalEditor.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
 
+  import ChoicePickerField from './ChoicePickerField.vue';
   import {
     ENTITY_EDIT_LABELS,
     FORM_FIELD_LABELS,
@@ -98,19 +101,19 @@
     );
   });
 
-  /**
-   * Список вариантов для USelectMenu
-   */
-  const choiceItems = computed(() => {
-    if (!props.choices) {
-      return [];
-    }
-
-    return props.choices.map((choice) => ({
+  /** Варианты для окна выбора: описание читают, не закрывая окна */
+  const choiceItems = computed<ChoicePickerOption[]>(() =>
+    (props.choices ?? []).map((choice) => ({
       value: choice.key,
-      label: choice.name,
-    }));
-  });
+      name: choice.name,
+      description: choice.description,
+    })),
+  );
+
+  /** Выбранный вариант набором отметок — так его ждёт строка выбора */
+  const choiceSelected = computed(() =>
+    form.selectedChoiceKey ? [form.selectedChoiceKey] : [],
+  );
 
   // При открытии — подставляем переданные значения
   watch(
@@ -131,10 +134,13 @@
   }
 
   /**
-   * Обрабатывает выбор варианта из выпадающего списка
+   * Обрабатывает выбор варианта: окно отдаёт набор отметок, а вариант берут
+   * один.
+   *
+   * @param choiceKeys - ключи отмеченных вариантов
    */
-  function handleChoiceSelect(choiceKey: string) {
-    form.selectedChoiceKey = choiceKey;
+  function handleChoiceSelect(choiceKeys: string[]) {
+    form.selectedChoiceKey = choiceKeys[0];
   }
 
   function handleSave() {
@@ -211,17 +217,12 @@
           v-if="choices && choices.length > 0"
           class="flex flex-col gap-2 rounded-lg bg-elevated/40 p-3"
         >
-          <span class="text-sm font-medium text-highlighted">
-            {{ choiceLabel }}
-          </span>
-
-          <USelectMenu
-            :model-value="form.selectedChoiceKey"
-            :items="choiceItems"
-            value-key="value"
-            label-key="label"
-            :placeholder="ENTITY_EDIT_LABELS.variantPlaceholder"
-            @update:model-value="handleChoiceSelect"
+          <ChoicePickerField
+            :label="choiceLabel"
+            :options="choiceItems"
+            :selected="choiceSelected"
+            :max="1"
+            @update:selected="handleChoiceSelect"
           />
 
           <!-- Описание выбранного варианта -->

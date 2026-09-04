@@ -819,6 +819,48 @@ export function expandChoiceScaling(
 }
 
 /**
+ * Выборы записи, открытые на уровне персонажа.
+ *
+ * Ступени роста разложены по уровням, а выбор с уровнем открытия выше текущего
+ * отложен — его спросит повышение уровня ({@link collectFeatsAwaitingLeveledChoices}
+ * в `featGrants`). Ступени одного ключа, открытые разом (черту взяли уже высоким
+ * уровнем), сливаются в один выбор с суммой количеств: иначе игрок увидел бы два
+ * одинаковых вопроса, а ответы на них легли бы под один ключ.
+ *
+ * @param choices - выборы из механики записи
+ * @param level - суммарный уровень персонажа
+ * @returns выборы, которые спрашивают на этом уровне
+ */
+export function openFeatChoicesAtLevel(
+  choices: ReadonlyArray<FeatChoice> | undefined,
+  level: number,
+): FeatChoice[] {
+  const opened = expandChoiceScaling(choices).filter(
+    (choice) => !choice.requiredLevel || choice.requiredLevel <= level,
+  );
+
+  const merged = new Map<string, FeatChoice>();
+
+  for (const choice of opened) {
+    const existing = merged.get(choice.key);
+
+    if (!existing) {
+      merged.set(choice.key, choice);
+
+      continue;
+    }
+
+    merged.set(choice.key, {
+      ...existing,
+      count: (existing.count ?? 1) + (choice.count ?? 1),
+      requiredLevel: undefined,
+    });
+  }
+
+  return [...merged.values()];
+}
+
+/**
  * Выборы, которые показываются игроку прямо сейчас.
  *
  * Выбор заклинания ждёт ответа про класс: пока список не назван, пул собран не из того

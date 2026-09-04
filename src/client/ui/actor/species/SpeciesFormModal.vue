@@ -27,7 +27,7 @@
   import type { SpellOption } from '../grantedSpellsEditorTypes';
   import type { EditableFeature } from './speciesEditorTypes';
 
-  import { computed, ref, watch } from 'vue';
+  import { computed, ref, useTemplateRef, watch } from 'vue';
 
   import { loadCompendiumKindByPack } from '@/core/compendiumDataClient';
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
@@ -51,11 +51,13 @@
   import {
     COMPENDIUM_PICKER_LABELS,
     DEFINITION_FORM_LABELS,
+    FEAT_GRANTS_LABELS,
     FEET_UNIT_LABEL,
     FORM_FIELD_LABELS,
     FORM_TAB_LABELS,
     GRANT_SECTION_LABELS,
     MODAL_BUTTON_LABELS,
+    SPECIES_FEATURES_EDITOR_LABELS,
     SPECIES_FORM_LABELS,
   } from '../constants';
   import CounterRowsEditor from '../CounterRowsEditor.vue';
@@ -67,6 +69,7 @@
     usedChoiceKeys,
   } from '../feat/featEditorTypes';
   import GrantRowsEditor from '../feat/GrantRowsEditor.vue';
+  import ModifierAddMenu from '../feat/ModifierAddMenu.vue';
   import ModifierRowsEditor from '../feat/ModifierRowsEditor.vue';
   import FormSection from '../FormSection.vue';
   import SourceField from '../SourceField.vue';
@@ -854,7 +857,7 @@
     }
 
     // Заклинания особенности живут своим полем, поэтому в блок даров не идут
-    const featData = buildFeatData(fields.grants, []);
+    const featData = buildFeatData(fields.grants);
 
     if (featData) {
       built.featData = featData;
@@ -1128,7 +1131,7 @@
     // Ноль — «без ограничений», поэтому пишется всегда, а не только положительное
     definition.vision = Math.max(0, Math.round(speciesVision.value));
 
-    const recordFeatData = buildFeatData(recordGrants.value, []);
+    const recordFeatData = buildFeatData(recordGrants.value);
 
     if (recordFeatData) {
       definition.featData = recordFeatData;
@@ -1174,6 +1177,15 @@
       emit('close');
     }
   }
+
+  /**
+   * Списки разделов: кнопка добавления живёт в шапке раздела, а знание о том,
+   * какой получается новая строка, остаётся у самого редактора.
+   */
+  const featureRows = useTemplateRef('featureRows');
+  const grantRows = useTemplateRef('grantRows');
+  const counterRows = useTemplateRef('counterRows');
+  const effectRows = useTemplateRef('effectRows');
 </script>
 
 <template>
@@ -1499,8 +1511,11 @@
               :title="SPECIES_FORM_LABELS.recordGrantsTitle"
               icon="tabler:gift"
               :hint="SPECIES_FORM_LABELS.recordGrantsHint"
+              :add-label="FEAT_GRANTS_LABELS.addGrant"
+              @add="grantRows?.addRow()"
             >
               <GrantRowsEditor
+                ref="grantRows"
                 v-model="recordGrants.grantRows"
                 hide-ability
                 hide-feat
@@ -1512,38 +1527,65 @@
             <FormSection
               :title="SPECIES_FORM_LABELS.recordModifiersTitle"
               icon="tabler:adjustments"
+              :hint="FEAT_GRANTS_LABELS.modifiersHint"
             >
+              <!-- Своя кнопка: вид правки выбирают меню, а не одним нажатием -->
+              <template #actions>
+                <ModifierAddMenu v-model="recordGrants.modifiers" />
+              </template>
+
               <ModifierRowsEditor v-model="recordGrants.modifiers" />
             </FormSection>
 
             <FormSection
               :title="SPECIES_FORM_LABELS.recordCountersTitle"
               icon="tabler:hexagons"
+              :hint="FEAT_GRANTS_LABELS.countersHint"
+              :add-label="FEAT_GRANTS_LABELS.addCounter"
+              @add="counterRows?.addCounter()"
             >
-              <CounterRowsEditor v-model="recordGrants.counters" />
+              <CounterRowsEditor
+                ref="counterRows"
+                v-model="recordGrants.counters"
+              />
             </FormSection>
           </div>
         </template>
 
         <!-- ОСОБЕННОСТИ -->
         <template #features>
-          <SpeciesFeaturesEditor
-            v-model="features"
-            :available-spells="availableSpells"
-            :socket="socket"
-            @open-spell="openSpellDetail"
-          />
+          <FormSection
+            :title="GRANT_SECTION_LABELS.features"
+            icon="tabler:star"
+            :add-label="SPECIES_FEATURES_EDITOR_LABELS.add"
+            @add="featureRows?.addFeature()"
+          >
+            <SpeciesFeaturesEditor
+              ref="featureRows"
+              v-model="features"
+              :available-spells="availableSpells"
+              :socket="socket"
+              @open-spell="openSpellDetail"
+            />
+          </FormSection>
         </template>
 
         <!-- ЭФФЕКТЫ -->
         <template #effects>
-          <EntityEffectsEditor
-            v-model="activeEffects"
-            modal-id="species-effect-form-modal"
+          <FormSection
+            :title="FORM_TAB_LABELS.effects"
+            icon="tabler:sparkles"
             :hint="SPECIES_FORM_LABELS.effectsHint"
-            :empty-text="SPECIES_FORM_LABELS.effectsEmpty"
-            hide-aura
-          />
+            :add-label="MODAL_BUTTON_LABELS.addEffect"
+            @add="effectRows?.createEffect()"
+          >
+            <EntityEffectsEditor
+              ref="effectRows"
+              v-model="activeEffects"
+              modal-id="species-effect-form-modal"
+              hide-aura
+            />
+          </FormSection>
         </template>
       </UTabs>
     </template>

@@ -41,13 +41,10 @@
     COMPENDIUM_PACK_BUTTON_IDLE_CLASS,
     COMPENDIUM_PACK_BUTTON_SELECTED_CLASS,
     GRANTED_SPELL_FEATURE_PREFIX,
+    PINNED_SPELL_FEATURE_PREFIX,
     SHEET_FILTER_LABELS,
   } from '../actor/constants';
 
-  /**
-   * Расширенный тип записи компендиума — включает все реальные типы данных,
-   * приходящие из разных data-файлов (classes, species, backgrounds, feats, spells)
-   */
   /** Запись существа в компендиуме */
   interface CompendiumCreatureEntry {
     id: string;
@@ -147,6 +144,13 @@
      * компендиума, т.к. источники ссылаются именно на него.
      */
     grantedSpells?: GrantedSpellSource[];
+    /**
+     * Заклинания, доступные персонажу сверх списка класса, — расширение списка
+     * от умений, черт и вида. Показываются первыми, своей секцией и независимо
+     * от фильтра по классу (иначе он бы их спрятал), а выбираются наравне с
+     * классовыми — с бейджем источника.
+     */
+    pinnedSpells?: GrantedSpellSource[];
   }>();
 
   const emit = defineEmits<{
@@ -236,6 +240,35 @@
    */
   function getGrantedFeatureName(spell: Spell): string {
     return grantedFeatureNameBySpellId.value.get(spell.id) ?? '';
+  }
+
+  /** Карта «id заклинания компендиума → запись, открывшая его сверх списка класса» */
+  const pinnedFeatureNameBySpellId = computed(() => {
+    const featureNameById = new Map<string, string>();
+
+    for (const pinned of props.pinnedSpells ?? []) {
+      featureNameById.set(pinned.spellId, pinned.featureName);
+    }
+
+    return featureNameById;
+  });
+
+  /**
+   * Доступно ли заклинание сверх списка класса.
+   *
+   * @param spell - заклинание компендиума
+   */
+  function isSpellPinned(spell: Spell): boolean {
+    return pinnedFeatureNameBySpellId.value.has(spell.id);
+  }
+
+  /**
+   * Запись, открывшая заклинание сверх списка класса.
+   *
+   * @param spell - заклинание компендиума
+   */
+  function getPinnedFeatureName(spell: Spell): string {
+    return pinnedFeatureNameBySpellId.value.get(spell.id) ?? '';
   }
 
   /**
@@ -452,6 +485,43 @@
     view: () => props.view ?? kindView.value,
     items,
     searchQuery,
+  });
+
+  /**
+   * Записи к показу: заклинания сверх списка класса — первыми, своей секцией и
+   * независимо от фильтров. Расширение списка («Заклинания метки», заклинания
+   * домена) добавляет персонажу заклинания не его класса, и фильтр по классу
+   * спрятал бы их. Сами записи остаются в `items`, поэтому выбор и
+   * подтверждение работают для них так же, как для любой записи каталога.
+   */
+  const visibleEntries = computed<CompendiumDataItem[]>(() => {
+    const pinnedIds = pinnedFeatureNameBySpellId.value;
+
+    if (pinnedIds.size === 0) {
+      return filteredEntries.value;
+    }
+
+    const pinned = items.value.filter(
+      (entry): entry is Spell =>
+        isSpellDataItem(entry) && pinnedIds.has(entry.id),
+    );
+
+    if (pinned.length === 0) {
+      return filteredEntries.value;
+    }
+
+    const pinnedIdSet = new Set(pinned.map((spell) => spell.id));
+
+    const rest = filteredEntries.value.filter(
+      (entry) => !(isSpellDataItem(entry) && pinnedIdSet.has(entry.id)),
+    );
+
+    const separator: CompendiumSeparator = {
+      type: 'separator',
+      name: COMPENDIUM_LABELS.pinnedSection,
+    };
+
+    return [separator, ...pinned, ...rest];
   });
 
   /**
@@ -1585,11 +1655,11 @@
               Собственная плашка строки снята пропом `flat` — вместе с
               промежутками она превращала список в лесенку из таблеток -->
             <div
-              v-else-if="filteredEntries.length > 0"
+              v-else-if="visibleEntries.length > 0"
               class="flex flex-col divide-y divide-accented/25"
             >
               <template
-                v-for="(entry, index) in filteredEntries"
+                v-for="(entry, index) in visibleEntries"
                 :key="
                   isSeparator(entry)
                     ? `sep-${index}`
@@ -1763,6 +1833,19 @@
                         class="shrink-0"
                       >
                         {{ COMPENDIUM_LABELS.known }}
+                      </UBadge>
+
+                      <!-- Сверх списка класса: откуда заклинание, раз оно не из
+                        отфильтрованного списка -->
+                      <UBadge
+                        v-else-if="isSpellPinned(entry)"
+                        color="info"
+                        variant="subtle"
+                        size="sm"
+                        class="shrink-0"
+                      >
+                        {{ PINNED_SPELL_FEATURE_PREFIX
+                        }}{{ getPinnedFeatureName(entry) }}
                       </UBadge>
                     </div>
                   </template>

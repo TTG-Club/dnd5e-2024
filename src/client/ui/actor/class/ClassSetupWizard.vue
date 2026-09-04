@@ -128,6 +128,8 @@
     isSpellSelectionComplete,
     spellSelectionLimits,
     grantedSpellSources,
+    grantedClassSpellRequests,
+    spellListExpansionSources,
 
     nextStep,
     prevStep,
@@ -139,7 +141,16 @@
   const { resolvedGrantedSpells } = useGrantedSpellsResolver(
     toRef(props, 'socket'),
     grantedSpellSources,
+    grantedClassSpellRequests,
   );
+
+  /**
+   * Заклинания сверх списка класса — расширения от записей листа и умений
+   * этого уровня — с данными компендиума. Персонаж их не знает: шаг заклинаний
+   * показывает их рядом с классовыми, а выбирает игрок сам.
+   */
+  const { resolvedGrantedSpells: resolvedExpandedSpells } =
+    useGrantedSpellsResolver(toRef(props, 'socket'), spellListExpansionSources);
 
   /**
    * Каталог заклинаний для выборов уровня: «Договор Гримуара» даёт выбрать три
@@ -594,6 +605,7 @@
             :spells-limit="spellSelectionLimits.spells"
             :spells-by-level="spellSelectionLimits.spellsByLevel"
             :granted-spells="resolvedGrantedSpells"
+            :expanded-spells="resolvedExpandedSpells"
             :actor="actor"
             @update:selected-spells="wizardState.selectedSpells = $event"
           />

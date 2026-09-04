@@ -350,6 +350,42 @@ export function computeSpellSlots(
 }
 
 /**
+ * Наибольший круг, который персонаж способен наложить.
+ *
+ * Ячейки договора колдуна учитываются наравне с обычными: заклинание шестого круга
+ * колдун 11 уровня накладывает, пусть и своей ячейкой.
+ *
+ * @param actor - лист персонажа
+ * @returns наибольший доступный круг; 0 — ячеек нет, доступны только заговоры
+ */
+export function getMaxSpellSlotLevel(actor: SpellSlotActorData): number {
+  const classes = actor.system?.classes ?? [];
+
+  const casterTypeMap = new Map<string, CasterType>();
+
+  for (const entry of classes) {
+    if (entry.casterType) {
+      casterTypeMap.set(entry.classKey, entry.casterType);
+    }
+  }
+
+  const slots = computeSpellSlots(classes, casterTypeMap);
+
+  let maxLevel = 0;
+
+  slots.forEach((count, index) => {
+    if (count > 0) {
+      maxLevel = index + 1;
+    }
+  });
+
+  const pactClass = classes.find((entry) => entry.casterType === 'pact');
+  const pactInfo = pactClass ? PACT_SLOTS[pactClass.level] : undefined;
+
+  return pactInfo && pactInfo.level > maxLevel ? pactInfo.level : maxLevel;
+}
+
+/**
  * Получает список доступных кругов заклинаний для актора, начиная с `minLevel`.
  */
 export function getAvailableSpellLevels(

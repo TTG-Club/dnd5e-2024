@@ -3,11 +3,12 @@
 
   import type { EditableFeatGrants } from '../feat/featEditorTypes';
 
-  import { computed } from 'vue';
+  import { computed, useTemplateRef } from 'vue';
 
   import { CLASS_FORM_LABELS, FEAT_GRANTS_LABELS } from '../constants';
   import { usedChoiceKeys } from '../feat/featEditorTypes';
   import GrantRowsEditor from '../feat/GrantRowsEditor.vue';
+  import ModifierAddMenu from '../feat/ModifierAddMenu.vue';
   import ModifierRowsEditor from '../feat/ModifierRowsEditor.vue';
   import FormSection from '../FormSection.vue';
 
@@ -35,6 +36,9 @@
 
   /** Занятые ключи выборов: два выбора с одним ключом схлопнулись бы в один. */
   const takenChoiceKeys = computed(() => [...usedChoiceKeys(grants.value)]);
+
+  /** Список даров: кнопка добавления живёт в шапке своего раздела. */
+  const grantRows = useTemplateRef('grantRows');
 </script>
 
 <template>
@@ -43,8 +47,11 @@
       :title="CLASS_FORM_LABELS.grantsTitle"
       icon="tabler:gift"
       :hint="CLASS_FORM_LABELS.grantsHint"
+      :add-label="FEAT_GRANTS_LABELS.addGrant"
+      @add="grantRows?.addRow()"
     >
       <GrantRowsEditor
+        ref="grantRows"
         v-model="grants.grantRows"
         :taken-keys="takenChoiceKeys"
         :socket="props.socket"
@@ -54,7 +61,13 @@
     <FormSection
       :title="FEAT_GRANTS_LABELS.modifiersTitle"
       icon="tabler:adjustments-filled"
+      :hint="FEAT_GRANTS_LABELS.modifiersHint"
     >
+      <!-- Своя кнопка: вид правки выбирают меню, а не одним нажатием -->
+      <template #actions>
+        <ModifierAddMenu v-model="grants.modifiers" />
+      </template>
+
       <ModifierRowsEditor v-model="grants.modifiers" />
     </FormSection>
   </div>

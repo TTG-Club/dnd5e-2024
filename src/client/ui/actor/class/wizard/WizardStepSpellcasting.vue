@@ -27,8 +27,22 @@
     getPactSlotInfo,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useEntityDetailModals } from '../../../../composables/useEntityDetailModals';
   import { WIZARD_SPELLCASTING_LABELS } from '../../constants';
+  import FormSection from '../../FormSection.vue';
   import { ABILITY_LABELS } from './constants';
+  import WizardSpellChip from './WizardSpellChip.vue';
+  import WizardSpellSourceList from './WizardSpellSourceList.vue';
+
+  /** Плитка сводки уровня: подпись, значение и пояснение по наведению. */
+  interface SpellcastingTile {
+    key: string;
+    caption: string;
+    value: string;
+    hint: string;
+    /** Ведущая плитка — заклинательная характеристика */
+    isAccent?: boolean;
+  }
 
   const props = defineProps<{
     classDefinition: ClassDefinition;
@@ -50,6 +64,12 @@
      * Отображаются заблокированными и не тратят лимит ручного выбора.
      */
     grantedSpells: ResolvedGrantedSpell[];
+    /**
+     * Заклинания сверх списка класса — расширение от умений, черт и вида с
+     * данными компендиума. Персонаж их не знает: они показываются подсказкой и
+     * первыми в компендиуме, а выбирает их игрок сам, в счёт лимита.
+     */
+    expandedSpells?: ResolvedGrantedSpell[];
     /** Персонаж */
     actor: DnDActor;
   }>();
@@ -61,6 +81,9 @@
 
   const isSpellBrowserOpen = ref(false);
   const spellBrowserKey = ref(0);
+
+  /** Карточка заклинания: её открывает нажатие на любую плашку шага */
+  const { openSpellDetail } = useEntityDetailModals();
 
   /**
    * Строка таблицы уровней для текущего уровня.
@@ -233,6 +256,98 @@
   });
 
   /**
+   * Сводка уровня одной строкой: характеристика, заговоры, подготовленные и
+   * ячейки по кругам.
+   *
+   * Раньше характеристика стояла отдельной полосой над плитками, а плитка ячеек
+   * подписывалась «1 кр. (Пакт)» — по такой подписи не понять ни что это за
+   * число, ни чем пактовая ячейка отличается от обычной. Теперь всё это плитки
+   * одного вида, и каждая объясняет себя по наведению.
+   */
+  const spellcastingTiles = computed<SpellcastingTile[]>(() => {
+    const tiles: SpellcastingTile[] = [];
+
+    if (spellcastingAbilityLabel.value) {
+      tiles.push({
+        key: 'ability',
+        caption: WIZARD_SPELLCASTING_LABELS.ability,
+        value: spellcastingAbilityLabel.value,
+        hint: WIZARD_SPELLCASTING_LABELS.abilityHint,
+        isAccent: true,
+      });
+    }
+
+    if (cantripsKnown.value !== null) {
+      tiles.push({
+        key: 'cantrips',
+        caption: WIZARD_SPELLCASTING_LABELS.cantrips,
+        value: String(cantripsKnown.value),
+        hint: WIZARD_SPELLCASTING_LABELS.cantripsHint,
+      });
+    }
+
+    if (preparedSpells.value !== null) {
+      tiles.push({
+        key: 'prepared',
+        caption: WIZARD_SPELLCASTING_LABELS.prepared,
+        value: String(preparedSpells.value),
+        hint: WIZARD_SPELLCASTING_LABELS.preparedHint,
+      });
+    }
+
+    for (const slot of spellSlots.value) {
+      const pactSuffix = slot.isPact
+        ? WIZARD_SPELLCASTING_LABELS.pactSuffix
+        : '';
+
+      const pactHint = slot.isPact
+        ? ` ${WIZARD_SPELLCASTING_LABELS.pactHint}`
+        : '';
+
+      tiles.push({
+        key: `slot-${slot.level}`,
+        caption: `${slot.level}${WIZARD_SPELLCASTING_LABELS.slotLevelSuffix}${pactSuffix}`,
+        value: String(slot.count),
+        hint:
+          `${WIZARD_SPELLCASTING_LABELS.slotHintPrefix}${slot.level}`
+          + `${WIZARD_SPELLCASTING_LABELS.slotHintSuffix}${pactHint}`,
+      });
+    }
+
+    return tiles;
+  });
+
+  /**
+   * Оформление плитки: заклинательная характеристика ведущая — она называет
+   * механику, от которой считается весь остальной ряд.
+   *
+   * @param tile - плитка сводки
+   */
+  function tileClass(tile: SpellcastingTile): string {
+    return tile.isAccent
+      ? 'border-magic-border/40 bg-magic-subtle/10'
+      : 'border-default/50 bg-elevated/30';
+  }
+
+  /**
+   * Оформление подписи плитки; см. {@link tileClass}.
+   *
+   * @param tile - плитка сводки
+   */
+  function tileCaptionClass(tile: SpellcastingTile): string {
+    return tile.isAccent ? 'text-magic/80' : 'text-dimmed';
+  }
+
+  /**
+   * Оформление значения плитки; см. {@link tileClass}.
+   *
+   * @param tile - плитка сводки
+   */
+  function tileValueClass(tile: SpellcastingTile): string {
+    return tile.isAccent ? 'text-magic-muted' : 'text-highlighted';
+  }
+
+  /**
    * Ключ класса для фильтра компендиума.
    *
    * Для подклассов-заклинателей (Мистический рыцарь, Таинственный стрелок)
@@ -360,6 +475,75 @@
     })),
   );
 
+  /** Заклинания сверх списка класса — расширение от умений, черт и вида. */
+  const expandedSpellRows = computed(() => props.expandedSpells ?? []);
+
+  /**
+   * Связи «ID заклинания → источник» для компендиума: такие заклинания он
+   * показывает первыми и сверх фильтра по классу.
+   */
+  const pinnedSpellSourcesForCompendium = computed((): GrantedSpellSource[] =>
+    expandedSpellRows.value.map((expanded) => ({
+      spellId: expanded.spell.id,
+      featureName: expanded.featureName,
+    })),
+  );
+
+  /**
+   * Что и сколько берут на этом уровне — строками «что: сколько».
+   *
+   * Числом после двоеточия, а не внутри фразы: «Выберите 2 новых заговоров» —
+   * и число, и падеж в одной строке не сходятся ни при каком количестве.
+   */
+  const spellChoiceRows = computed(() => {
+    const rows: { key: string; label: string; value: number }[] = [];
+
+    if (props.cantripsLimit > 0) {
+      rows.push({
+        key: 'cantrips',
+        label: WIZARD_SPELLCASTING_LABELS.chooseCantrips,
+        value: props.cantripsLimit,
+      });
+    }
+
+    if (props.spellsLimit > 0) {
+      rows.push({
+        key: 'spells',
+        label: `${WIZARD_SPELLCASTING_LABELS.chooseSpellsPrefix}${availableSpellCirclesText.value}${WIZARD_SPELLCASTING_LABELS.circleSuffix}`,
+        value: props.spellsLimit,
+      });
+    }
+
+    for (const [level, count] of Object.entries(props.spellsByLevel ?? {})) {
+      rows.push({
+        key: `level-${level}`,
+        label: `${WIZARD_SPELLCASTING_LABELS.chooseByLevelPrefix}${level}${WIZARD_SPELLCASTING_LABELS.circleSuffix}`,
+        value: count,
+      });
+    }
+
+    return rows;
+  });
+
+  /**
+   * Откуда берутся заклинания и почему их выбирают здесь. Без этой строки шаг
+   * просто требовал «выберите два» — из чего и почему именно сейчас, игроку
+   * приходилось догадываться.
+   */
+  const spellSourceHint = computed(() => {
+    const expandedNote =
+      expandedSpellRows.value.length > 0
+        ? WIZARD_SPELLCASTING_LABELS.sourceHintExpanded
+        : '';
+
+    return (
+      WIZARD_SPELLCASTING_LABELS.sourceHintPrefix
+      + props.classDefinition.name
+      + WIZARD_SPELLCASTING_LABELS.sourceHintSuffix
+      + expandedNote
+    );
+  });
+
   /**
    * Обрабатывает выбор заклинаний из компендиума.
    *
@@ -404,190 +588,176 @@
 </script>
 
 <template>
-  <div class="space-y-3">
-    <span class="mb-2 block text-sm font-medium text-toned">
+  <div class="flex flex-col gap-3">
+    <span class="block text-sm font-medium text-toned">
       {{ WIZARD_SPELLCASTING_LABELS.title }}
     </span>
 
     <!-- Заклинания, автоматически предоставленные умениями -->
-    <div
+    <FormSection
       v-if="grantedSpells.length > 0"
-      class="space-y-1"
+      :title="WIZARD_SPELLCASTING_LABELS.grantedTitle"
+      icon="tabler:sparkles"
+      :hint="WIZARD_SPELLCASTING_LABELS.grantedHint"
     >
-      <span
-        class="block text-xs font-semibold tracking-wider text-muted uppercase"
-      >
-        {{ WIZARD_SPELLCASTING_LABELS.grantedPrefix }}{{ grantedSpells.length
-        }}{{ WIZARD_SPELLCASTING_LABELS.countSuffix }}
-      </span>
-
-      <div class="flex flex-wrap gap-1.5">
+      <template #actions>
         <UBadge
-          v-for="granted in grantedSpells"
-          :key="granted.spell.id"
           color="primary"
           variant="subtle"
-          size="md"
-          class="gap-1.5"
+          size="sm"
+          class="tabular-nums"
         >
-          <UIcon
-            name="tabler:lock"
-            class="size-3.5 opacity-60"
-          />
-          {{ granted.spell.name }}
-
-          <span class="text-[10px] opacity-60">
-            {{ WIZARD_SPELLCASTING_LABELS.featurePrefix
-            }}{{ granted.featureName }}
-          </span>
+          {{ grantedSpells.length }}
         </UBadge>
-      </div>
-    </div>
+      </template>
 
-    <div
-      v-if="classDefinition.spellcasting"
-      class="space-y-3"
+      <WizardSpellSourceList
+        :spells="grantedSpells"
+        tone="granted"
+        locked
+        @open="openSpellDetail"
+      />
+    </FormSection>
+
+    <!-- Заклинания сверх списка класса: расширение от умений, черт и вида.
+      Не выдача — подсказка, что их можно выбрать в компендиуме -->
+    <FormSection
+      v-if="expandedSpellRows.length > 0"
+      :title="WIZARD_SPELLCASTING_LABELS.expandedTitle"
+      icon="tabler:books"
+      :hint="WIZARD_SPELLCASTING_LABELS.expandedHint"
     >
-      <!-- Заклинательная характеристика -->
-      <div
-        class="rounded-lg border border-magic-border/40 bg-magic-subtle/10 px-3 py-2"
+      <template #actions>
+        <UBadge
+          color="info"
+          variant="subtle"
+          size="sm"
+          class="tabular-nums"
+        >
+          {{ expandedSpellRows.length }}
+        </UBadge>
+      </template>
+
+      <WizardSpellSourceList
+        :spells="expandedSpellRows"
+        tone="expanded"
+        @open="openSpellDetail"
+      />
+    </FormSection>
+
+    <template v-if="classDefinition.spellcasting">
+      <!-- Сводка уровня: характеристика, заговоры, подготовленные и ячейки.
+        Плитки одного вида — это одна мысль, и разбивать её на полосы незачем;
+        что значит каждая, объясняет подсказка по наведению -->
+      <FormSection
+        v-if="spellcastingTiles.length > 0"
+        :title="WIZARD_SPELLCASTING_LABELS.summaryTitle"
+        icon="tabler:wand"
       >
-        <span class="text-sm text-magic/80">
-          {{ WIZARD_SPELLCASTING_LABELS.abilityPrefix }}
-        </span>
-
-        <span class="ml-1 text-sm font-semibold text-magic-muted">{{
-          spellcastingAbilityLabel
-        }}</span>
-      </div>
-
-      <!-- Заговоры, подготовленные и ячейки — в одну строку -->
-      <div class="flex flex-wrap gap-2">
-        <div
-          v-if="cantripsKnown !== null"
-          class="flex flex-col items-center rounded-md border border-default/50 bg-elevated/30 px-2.5 py-1.5"
-        >
-          <span class="text-[10px] font-medium text-dimmed">
-            {{ WIZARD_SPELLCASTING_LABELS.cantrips }}
-          </span>
-
-          <span class="text-sm font-bold text-highlighted">{{
-            cantripsKnown
-          }}</span>
-        </div>
-
-        <div
-          v-if="preparedSpells !== null"
-          class="flex flex-col items-center rounded-md border border-default/50 bg-elevated/30 px-2.5 py-1.5"
-        >
-          <span class="text-[10px] font-medium text-dimmed">
-            {{ WIZARD_SPELLCASTING_LABELS.prepared }}
-          </span>
-
-          <span class="text-sm font-bold text-highlighted">{{
-            preparedSpells
-          }}</span>
-        </div>
-
-        <div
-          v-for="slot in spellSlots"
-          :key="slot.level"
-          class="flex flex-col items-center rounded-md border border-default/50 bg-elevated/30 px-2.5 py-1.5"
-        >
-          <span class="text-[10px] font-medium text-dimmed">
-            {{ slot.level }}{{ WIZARD_SPELLCASTING_LABELS.levelBadgeSuffix
-            }}{{ slot.isPact ? WIZARD_SPELLCASTING_LABELS.pactSuffix : '' }}
-          </span>
-
-          <span class="text-sm font-bold text-highlighted">{{
-            slot.count
-          }}</span>
-        </div>
-      </div>
-
-      <!-- Кнопка открытия компендиума заклинаний -->
-      <div
-        v-if="spellsLimit > 0 || cantripsLimit > 0 || spellsByLevel !== null"
-        class="flex flex-col gap-2"
-      >
-        <p class="text-sm text-muted">
-          <span v-if="cantripsLimit > 0">
-            {{ WIZARD_SPELLCASTING_LABELS.choosePrefix }}
-            <strong>{{ cantripsLimit }}</strong>
-            {{ WIZARD_SPELLCASTING_LABELS.chooseCantripsSuffix }}
-          </span>
-
-          <span v-if="spellsLimit > 0">
-            {{ WIZARD_SPELLCASTING_LABELS.choosePrefix }}
-            <strong>{{ spellsLimit }}</strong>
-            {{ WIZARD_SPELLCASTING_LABELS.chooseSpellsSuffix }}
-            {{ availableSpellCirclesText }}
-            {{ WIZARD_SPELLCASTING_LABELS.circleSuffix }}
-          </span>
-
-          <span v-if="spellsByLevel">
-            {{ WIZARD_SPELLCASTING_LABELS.chooseSpells }}
-            <span
-              v-for="(count, levelStr) in spellsByLevel"
-              :key="levelStr"
-              class="mr-2"
+        <div class="flex flex-wrap gap-2">
+          <UTooltip
+            v-for="tile in spellcastingTiles"
+            :key="tile.key"
+            :ui="{ content: 'h-auto max-w-72 py-1.5' }"
+          >
+            <div
+              class="flex min-w-20 cursor-help flex-col items-center gap-0.5 rounded-lg border px-3 py-2"
+              :class="tileClass(tile)"
             >
-              <strong>{{ count }}</strong>
-              {{ WIZARD_SPELLCASTING_LABELS.spellsCountSuffix }} {{ levelStr
-              }}{{ WIZARD_SPELLCASTING_LABELS.levelBadgeSuffix }}
-            </span>
-          </span>
-        </p>
+              <span
+                class="text-xs font-medium"
+                :class="tileCaptionClass(tile)"
+              >
+                {{ tile.caption }}
+              </span>
 
-        <UButton
-          variant="soft"
-          color="primary"
-          size="lg"
-          icon="tabler:book-2"
-          block
-          @click.left.exact.prevent="openSpellBrowser"
-        >
-          {{ WIZARD_SPELLCASTING_LABELS.viewSpells }}
-        </UButton>
-      </div>
+              <span
+                class="text-base font-bold"
+                :class="tileValueClass(tile)"
+              >
+                {{ tile.value }}
+              </span>
+            </div>
 
-      <!-- Список выбранных заклинаний (заговоры + заклинания в одну строку) -->
-      <div
-        v-if="selectedSpells.length > 0"
-        class="space-y-1"
+            <!-- Текст через слот, а не пропом `text`: штатная подпись тултипа
+              режется в одну строку классом `truncate` -->
+            <template #content>
+              <span class="whitespace-normal">{{ tile.hint }}</span>
+            </template>
+          </UTooltip>
+        </div>
+      </FormSection>
+
+      <!-- Что и сколько берут на этом уровне -->
+      <FormSection
+        v-if="spellsLimit > 0 || cantripsLimit > 0 || spellsByLevel !== null"
+        :title="WIZARD_SPELLCASTING_LABELS.chooseTitle"
+        icon="tabler:hand-click"
       >
-        <span
-          class="block text-xs font-semibold tracking-wider text-muted uppercase"
-        >
-          {{ WIZARD_SPELLCASTING_LABELS.selectedPrefix
-          }}{{ selectedSpells.length
-          }}{{ WIZARD_SPELLCASTING_LABELS.countSuffix }}
-        </span>
+        <div class="flex flex-col gap-2">
+          <!-- Сколько чего берут — плитками «что: сколько»: числом после
+            двоеточия падеж не спорит с количеством -->
+          <div class="flex flex-wrap gap-2">
+            <div
+              v-for="row in spellChoiceRows"
+              :key="row.key"
+              class="flex items-center gap-2 rounded-lg border border-default/60 bg-elevated/30 px-3 py-1.5"
+            >
+              <span class="text-sm text-muted">{{ row.label }}</span>
+
+              <span class="text-base font-bold text-highlighted">
+                {{ row.value }}
+              </span>
+            </div>
+          </div>
+
+          <!-- Откуда заклинания и почему их выбирают именно здесь -->
+          <p class="text-sm text-muted">
+            {{ spellSourceHint }}
+          </p>
+
+          <UButton
+            variant="soft"
+            color="primary"
+            size="lg"
+            icon="tabler:book-2"
+            block
+            @click.left.exact.prevent="openSpellBrowser"
+          >
+            {{ WIZARD_SPELLCASTING_LABELS.viewSpells }}
+          </UButton>
+        </div>
+      </FormSection>
+
+      <!-- Взятое на этом уровне -->
+      <FormSection
+        v-if="selectedSpells.length > 0"
+        :title="WIZARD_SPELLCASTING_LABELS.selectedTitle"
+        icon="tabler:list-details"
+        :hint="WIZARD_SPELLCASTING_LABELS.selectedHint"
+      >
+        <template #actions>
+          <UBadge
+            color="primary"
+            variant="subtle"
+            size="sm"
+            class="tabular-nums"
+          >
+            {{ selectedSpells.length }}
+          </UBadge>
+        </template>
 
         <div class="flex flex-wrap gap-1.5">
-          <UBadge
+          <WizardSpellChip
             v-for="spell in selectedSpells"
             :key="spell.id"
-            color="neutral"
-            variant="subtle"
-            size="md"
-            class="gap-1.5"
-          >
-            {{ spell.name }}
-            <span class="text-[10px] opacity-60">{{
-              spell.level === 0
-                ? WIZARD_SPELLCASTING_LABELS.cantripBadge
-                : `${spell.level}${WIZARD_SPELLCASTING_LABELS.levelBadgeSuffix}`
-            }}</span>
-
-            <UIcon
-              name="tabler:x"
-              class="size-3.5 cursor-pointer opacity-50 transition-opacity hover:opacity-100"
-              @click.left.exact.prevent="removeSpell(spell.id)"
-            />
-          </UBadge>
+            :spell="spell"
+            removable
+            @open="openSpellDetail(spell)"
+            @remove="removeSpell(spell.id)"
+          />
         </div>
-      </div>
+      </FormSection>
 
       <!-- Нет заклинаний для выбора — информационное сообщение -->
       <p
@@ -598,7 +768,7 @@
       >
         {{ WIZARD_SPELLCASTING_LABELS.manualHint }}
       </p>
-    </div>
+    </template>
 
     <!-- Компендиум заклинаний -->
     <CompendiumDataModal
@@ -615,6 +785,7 @@
       :preselected-spell-ids="selectedSpellIds"
       :known-spell-names="knownSpellNames"
       :granted-spells="grantedSpellSourcesForCompendium"
+      :pinned-spells="pinnedSpellSourcesForCompendium"
       @update:open="isSpellBrowserOpen = $event"
       @select-spells="handleSpellsSelected"
     />

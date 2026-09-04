@@ -4,17 +4,20 @@
   import type { SpellOption } from '../grantedSpellsEditorTypes';
   import type { EditableSubclass } from './classEditorTypes';
 
-  import { computed, ref } from 'vue';
+  import { computed, ref, useTemplateRef } from 'vue';
 
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
   import { generateId } from '@vtt/shared';
 
   import {
+    CLASS_FEATURES_EDITOR_LABELS,
     CLASS_SUBCLASS_DEFAULT_NAME,
     CLASS_SUBCLASSES_LABELS,
+    FEAT_GRANTS_LABELS,
     FORM_FIELD_LABELS,
   } from '../constants';
   import CounterRowsEditor from '../CounterRowsEditor.vue';
+  import EditorNestedSection from '../EditorNestedSection.vue';
   import SourceField from '../SourceField.vue';
   import {
     createEmptyLevelTable,
@@ -82,6 +85,13 @@
   function forwardOpenSpell(spellId: string, packId?: string): void {
     emit('open-spell', spellId, packId);
   }
+
+  /**
+   * Списки разделов подкласса: кнопка добавления живёт в шапке раздела, а
+   * знание о том, какой получается новая строка, остаётся у редактора.
+   */
+  const featureRows = useTemplateRef('featureRows');
+  const counterRows = useTemplateRef('counterRows');
 </script>
 
 <template>
@@ -108,16 +118,9 @@
       />
     </div>
 
-    <div
-      v-if="!selected"
-      class="rounded-lg border border-dashed border-default p-4 text-center text-xs text-dimmed italic"
-    >
-      {{ CLASS_SUBCLASSES_LABELS.empty }}
-    </div>
-
     <!-- Детали выбранного подкласса -->
     <div
-      v-else
+      v-if="selected"
       class="flex flex-col gap-4 rounded-lg border border-default bg-elevated/20 p-3"
     >
       <div class="flex items-center gap-2">
@@ -176,22 +179,37 @@
         <ClassSpellcastingFields v-model="selected.spellcasting" />
       </UFormField>
 
-      <UFormField :label="CLASS_SUBCLASSES_LABELS.features">
+      <EditorNestedSection
+        :title="CLASS_SUBCLASSES_LABELS.features"
+        :count="selected.features.length"
+        :add-label="CLASS_FEATURES_EDITOR_LABELS.add"
+        :collapsible="false"
+        @add="featureRows?.addFeature()"
+      >
         <ClassFeaturesEditor
+          ref="featureRows"
           v-model="selected.features"
           :available-spells="availableSpells"
           :socket="socket"
           @open-spell="forwardOpenSpell"
         />
-      </UFormField>
+      </EditorNestedSection>
 
-      <UFormField :label="CLASS_SUBCLASSES_LABELS.counters">
+      <EditorNestedSection
+        :title="CLASS_SUBCLASSES_LABELS.counters"
+        :hint="FEAT_GRANTS_LABELS.countersHint"
+        :count="selected.counters.length"
+        :add-label="FEAT_GRANTS_LABELS.addCounter"
+        :collapsible="false"
+        @add="counterRows?.addCounter()"
+      >
         <CounterRowsEditor
+          ref="counterRows"
           v-model="selected.counters"
           with-start-level
           with-table-column
         />
-      </UFormField>
+      </EditorNestedSection>
 
       <UCheckbox
         v-model="selected.hasOwnTable"

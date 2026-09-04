@@ -1,17 +1,15 @@
 <script setup lang="ts">
   import type { SpeciesDefinition } from '@vtt/shared/system/dnd.js';
 
+  import type { ChoicePickerOption } from '../ChoicePickerModal.vue';
   import type { SpeciesWizardState } from './useSpeciesWizard';
 
   import { computed } from 'vue';
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
 
-  import {
-    CHOOSE_VARIANT_PLACEHOLDER,
-    LEVEL_BADGE_SUFFIX,
-    SPECIES_WIZARD_LABELS,
-  } from '../constants';
+  import ChoicePickerField from '../ChoicePickerField.vue';
+  import { LEVEL_BADGE_SUFFIX, SPECIES_WIZARD_LABELS } from '../constants';
 
   /**
    * Шаг выбора происхождения (записи-подвида) в мастере настройки вида.
@@ -30,11 +28,19 @@
     'update:state': [value: SpeciesWizardState];
   }>();
 
-  const selectItems = computed(() =>
+  /** Происхождения для окна выбора: описание читают, не закрывая окна */
+  const pickerOptions = computed<ChoicePickerOption[]>(() =>
     props.subspeciesOptions.map((option) => ({
       value: option.key,
-      label: option.name,
+      name: option.name,
+      nameEn: option.nameEn,
+      description: option.description,
     })),
+  );
+
+  /** Выбранное происхождение набором отметок — так его ждёт строка выбора */
+  const pickerSelected = computed(() =>
+    props.state.subspeciesKey ? [props.state.subspeciesKey] : [],
   );
 
   const selectedSubspecies = computed(
@@ -48,12 +54,16 @@
    * Записывает выбранное происхождение в состояние мастера. Ответы на выборы
    * даров прежнего происхождения сбрасываются — вопросы у нового свои.
    *
-   * @param subspeciesKey - ключ выбранной записи-подвида
+   * Окно выбора отдаёт набор отметок, а происхождение берут одно. Снятый выбор
+   * записывается пустотой, а не пустой строкой: пройденность шага мастер
+   * проверяет сравнением с `null`, и `''` считался бы выбранным происхождением.
+   *
+   * @param subspeciesKeys - ключи отмеченных записей-подвидов
    */
-  function selectSubspecies(subspeciesKey: string): void {
+  function selectSubspecies(subspeciesKeys: string[]): void {
     emit('update:state', {
       ...props.state,
-      subspeciesKey,
+      subspeciesKey: subspeciesKeys[0] ?? null,
       featDataChoices: {},
     });
   }
@@ -62,17 +72,12 @@
 <template>
   <div class="flex flex-col gap-4 p-1">
     <div class="rounded-lg bg-elevated p-4">
-      <span class="mb-2 block text-xs font-medium text-muted">
-        {{ SPECIES_WIZARD_LABELS.chooseSubspecies }}
-      </span>
-
-      <USelectMenu
-        :model-value="state.subspeciesKey ?? undefined"
-        :items="selectItems"
-        value-key="value"
-        label-key="label"
-        :placeholder="CHOOSE_VARIANT_PLACEHOLDER"
-        @update:model-value="selectSubspecies($event)"
+      <ChoicePickerField
+        :label="SPECIES_WIZARD_LABELS.chooseSubspecies"
+        :options="pickerOptions"
+        :selected="pickerSelected"
+        :max="1"
+        @update:selected="selectSubspecies"
       />
 
       <p class="mt-2 text-xs text-dimmed">

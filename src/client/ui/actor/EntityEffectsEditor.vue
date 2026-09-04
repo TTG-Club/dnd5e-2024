@@ -5,7 +5,7 @@
 
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
 
-  import { ACTIVE_EFFECT_DEFAULTS, MODAL_BUTTON_LABELS } from './constants';
+  import { ACTIVE_EFFECT_DEFAULTS } from './constants';
   import ActiveEffectFormModal from './tabs/ActiveEffectFormModal.vue';
 
   const props = defineProps<{
@@ -15,12 +15,6 @@
      * бы одним окном на двоих.
      */
     modalId: string;
-
-    /** Пояснение над списком: чем эффекты записи отличаются от её даров. */
-    hint: string;
-
-    /** Что показать вместо пустого списка. */
-    emptyText: string;
 
     /**
      * Спрятать блок ауры в редакторе эффекта. Записи, которые применяются к
@@ -47,7 +41,10 @@
     return effect.icon || ACTIVE_EFFECT_DEFAULTS.fallbackIcon;
   }
 
-  /** Открывает редактор пустым — под новый эффект. */
+  /**
+   * Открывает редактор пустым — под новый эффект. Наружу: кнопка добавления
+   * живёт в шапке раздела, а окно правки остаётся за списком.
+   */
   function createEffect(): void {
     editingEffect.value = undefined;
     modalZIndex.value = getNextZIndex();
@@ -92,23 +89,13 @@
       existing.id === effect.id ? effect : existing,
     );
   }
+
+  defineExpose({ createEffect });
 </script>
 
 <template>
   <div class="flex flex-col gap-2">
-    <p class="text-xs text-dimmed">{{ props.hint }}</p>
-
-    <div
-      v-if="effects.length === 0"
-      class="rounded-lg border border-dashed border-default p-3 text-center text-xs text-dimmed italic"
-    >
-      {{ props.emptyText }}
-    </div>
-
-    <div
-      v-else
-      class="space-y-1"
-    >
+    <div class="space-y-1">
       <div
         v-for="effect in effects"
         :key="effect.id"
@@ -150,18 +137,6 @@
         </div>
       </div>
     </div>
-
-    <UButton
-      size="sm"
-      color="primary"
-      variant="soft"
-      icon="tabler:plus"
-      block
-      class="mt-1"
-      @click.left.exact.prevent="createEffect"
-    >
-      {{ MODAL_BUTTON_LABELS.addEffect }}
-    </UButton>
   </div>
 
   <ActiveEffectFormModal

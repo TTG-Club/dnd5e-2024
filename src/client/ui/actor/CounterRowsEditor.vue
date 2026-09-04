@@ -34,6 +34,10 @@
     { withStartLevel: false, withTableColumn: false },
   );
 
+  /**
+   * Заводит ресурс. Наружу — кнопка добавления живёт в шапке раздела, а знание
+   * о занятых ключах остаётся здесь: два ресурса с одним ключом схлопнулись бы.
+   */
   function addCounter(): void {
     counters.value = [
       ...counters.value,
@@ -56,23 +60,12 @@
   function removeStep(counter: EditableResourceCounter, index: number): void {
     counter.progression.splice(index, 1);
   }
+
+  defineExpose({ addCounter });
 </script>
 
 <template>
   <div class="flex flex-col gap-2">
-    <p class="flex items-center gap-1 text-xs text-dimmed">
-      {{ FEAT_GRANTS_LABELS.countersHint }}
-
-      <FieldHint :text="FEAT_GRANTS_LABELS.countersHintDetails" />
-    </p>
-
-    <div
-      v-if="counters.length === 0"
-      class="rounded-lg border border-dashed border-default p-3 text-center text-xs text-dimmed italic"
-    >
-      {{ FEAT_GRANTS_LABELS.countersEmpty }}
-    </div>
-
     <div
       v-for="(counter, index) in counters"
       :key="counter.uid"
@@ -219,14 +212,5 @@
         </UTooltip>
       </div>
     </div>
-
-    <UButton
-      icon="tabler:plus"
-      :label="FEAT_GRANTS_LABELS.addCounter"
-      color="primary"
-      variant="soft"
-      block
-      @click.left.exact.prevent="addCounter"
-    />
   </div>
 </template>

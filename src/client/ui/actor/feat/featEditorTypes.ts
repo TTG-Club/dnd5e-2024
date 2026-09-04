@@ -27,6 +27,7 @@ import type {
   FeatCounterDefinition,
   FeatDamageDefenseChoice,
   FeatData,
+  FeatGrantedClassSpells,
   FeatModifiers,
   FeatPrerequisite,
   FeatPrerequisiteRef,
@@ -40,7 +41,6 @@ import type { EditableResourceCounter } from '../counterEditorTypes';
 
 import { generateId, typedObjectEntries } from '@vtt/shared';
 import {
-  ABILITY_ABBREVIATIONS,
   CANTRIP_SPELL_LEVEL,
   CLASS_FEATURE_NAMES,
   classKeyFromUrl,
@@ -56,13 +56,9 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import {
-  ABILITY_GENITIVE_LABELS,
   FEAT_GRANTS_LABELS,
-  FORMULA_TOKENS,
   MODIFIER_ROW_LABELS,
   SPELL_CHOICE_LABELS,
-  SPELL_COUNT_KIND_LABELS,
-  SPELL_COUNT_TEXT,
   SPELL_LIST_LABELS,
 } from '../constants';
 import {
@@ -247,6 +243,9 @@ export const SPELL_CHOICE_TYPES: readonly FeatChoiceType[] = [
 /** Как задан круг порции заклинаний. */
 export type SpellLevelMode = 'any' | 'exact' | 'upTo';
 
+/** Откуда порция заклинаний берёт пул. */
+export type SpellPickSource = 'filter' | 'list';
+
 /**
  * Порция заклинаний, которую игрок берёт при взятии черты: «два заговора»,
  * «одно заклинание первого круга».
@@ -271,12 +270,25 @@ export interface EditableSpellPickRow {
   /** Время накладывания (`ritual`, `action`, …); пусто — любое */
   castingTime: string;
   /**
-   * Заклинания, перечисленные самой чертой («возьмите два из пяти»). Формой не
-   * правятся — их приносит запись, — но и не теряются при пересохранении.
+   * Откуда пул порции: `filter` — поиском по компендиуму по кругу и спискам
+   * классов блока, `list` — ровно из перечисленных заклинаний. У перечисленных
+   * круг и класс свои, и порция их не спрашивает.
    */
-  options: FeatChoiceOption[];
+  source: SpellPickSource;
+  /**
+   * Перечисленные заклинания — пул порции при `source: 'list'`; иначе пусто.
+   * В записи лежат набором значений выбора (`options`: id записи и снимок
+   * названия), а правятся тем же редактором, что и выданные заклинания.
+   */
+  listedSpells: GrantedSpellRef[];
   /** Выбор пересматривается на отдыхе. Приходит из записи, формой не правится */
   rechooseOnLongRest: boolean;
+  /**
+   * Уровень персонажа, с которого порцию спрашивают; 0 — сразу. Приходит из
+   * записи и формой не правится, но и не теряется при пересохранении: без него
+   * «Таинственный арканум» спросил бы все круги разом.
+   */
+  requiredLevel: number;
 }
 
 /**
@@ -509,11 +521,11 @@ export interface EditableSpellListGroup {
   /** Уровень персонажа, с которого ступень открывается; пусто — сразу */
   requiredLevel?: number;
   /**
-   * Сколько заклинаний из ступени берут; пусто — весь список. Формулой, как
-   * максимум ресурса: у части черт количество растёт вместе с персонажем.
+   * Заклинания ступени — целиком: расширение не спрашивает «сколько взять», оно
+   * лишь открывает заклинания для подготовки. «Выбрать N из перечисленных» —
+   * это порция выбора заклинаний с перечисленным пулом
+   * ({@link EditableSpellPickRow.listedSpells}).
    */
-  count: string;
-  /** Заклинания ступени */
   spells: GrantedSpellRef[];
 }
 
@@ -533,165 +545,19 @@ export function createSpellListGroup(): EditableSpellListGroup {
   return {
     uid: generateId('spell-list'),
     requiredLevel: undefined,
-    count: '',
     spells: [],
   };
 }
 
-// ── Количество заклинаний ступени ─────────────────────────────
-
 /**
- * Чем задано количество заклинаний, которые берут из ступени.
- *
- * Само количество хранится ОДНОЙ формулой ({@link EditableSpellListGroup.count}):
- * грамматика та же, что у максимума ресурса и у активных эффектов, и лист умеет
- * её считать. Вид нужен только форме — по нему она решает, какое поле показать
- * рядом с селектом, чтобы автору не приходилось знать про `@prof` и `@mod.cha`.
- */
-export type SpellCountKind =
-  'all' | 'fixed' | 'proficiencyBonus' | 'abilityModifier' | 'formula';
-
-/**
- * Сокращение характеристики для формулы (`charisma` → `cha`). Разворачиваем
- * справочник движка, а не заводим второй: у Харизмы в формулах `cha`, и любая
- * своя карта рано или поздно разошлась бы с разбором формул.
- */
-const ABILITY_ABBREVIATION_BY_KEY: Record<string, string> = Object.fromEntries(
-  Object.entries(ABILITY_ABBREVIATIONS).map(([abbreviation, ability]) => [
-    ability,
-    abbreviation,
-  ]),
-);
-
-/** Виды количества как варианты селекта. */
-export const SPELL_COUNT_KIND_OPTIONS: {
-  value: SpellCountKind;
-  label: string;
-}[] = [
-  { value: 'all', label: SPELL_COUNT_KIND_LABELS.all },
-  { value: 'fixed', label: SPELL_COUNT_KIND_LABELS.fixed },
-  {
-    value: 'proficiencyBonus',
-    label: SPELL_COUNT_KIND_LABELS.proficiencyBonus,
-  },
-  { value: 'abilityModifier', label: SPELL_COUNT_KIND_LABELS.abilityModifier },
-  { value: 'formula', label: SPELL_COUNT_KIND_LABELS.formula },
-];
-
-/**
- * Вид количества по записанной формуле.
- *
- * @param count - формула количества; пусто — весь список
- * @returns вид, под который форма подберёт поле
- */
-export function getSpellCountKind(count: string): SpellCountKind {
-  const trimmed = count.trim();
-
-  if (!trimmed) {
-    return 'all';
-  }
-
-  if (trimmed === FORMULA_TOKENS.proficiencyBonus) {
-    return 'proficiencyBonus';
-  }
-
-  if (trimmed.startsWith(FORMULA_TOKENS.abilityModifierPrefix)) {
-    return 'abilityModifier';
-  }
-
-  // Незнакомую формулу правят как текст: подставив вместо неё число, форма
-  // потеряла бы то, что автор написал руками
-  return /^\d+$/.test(trimmed) ? 'fixed' : 'formula';
-}
-
-/**
- * Характеристика, чей модификатор задаёт количество.
- *
- * @param count - формула количества
- * @returns характеристика; `undefined` — формула не про модификатор
- */
-export function getSpellCountAbility(count: string): AbilityType | undefined {
-  const abbreviation = count
-    .trim()
-    .slice(FORMULA_TOKENS.abilityModifierPrefix.length);
-
-  return ABILITY_KEYS.find(
-    (ability) => ABILITY_ABBREVIATION_BY_KEY[ability] === abbreviation,
-  );
-}
-
-/**
- * Формула количества для выбранного вида. Смена вида переписывает формулу
- * целиком: остаток прежней («@prof» в поле числа) означал бы не то, что видит
- * автор.
- *
- * @param kind - выбранный вид количества
- * @returns формула для записи в ступень
- */
-export function spellCountFormula(kind: SpellCountKind): string {
-  switch (kind) {
-    case 'fixed':
-      return '1';
-    case 'proficiencyBonus':
-      return FORMULA_TOKENS.proficiencyBonus;
-    case 'abilityModifier':
-      return `${FORMULA_TOKENS.abilityModifierPrefix}${ABILITY_ABBREVIATION_BY_KEY.charisma}`;
-    default:
-      // «Весь список» и «своя формула» начинаются с пустого поля
-      return '';
-  }
-}
-
-/**
- * Формула модификатора выбранной характеристики (`@mod.cha`).
- *
- * @param ability - характеристика
- */
-export function abilityModifierFormula(ability: AbilityType): string {
-  return `${FORMULA_TOKENS.abilityModifierPrefix}${ABILITY_ABBREVIATION_BY_KEY[ability]}`;
-}
-
-/**
- * Количество словами: «весь список», «выберите 2», «выберите столько, каков
- * бонус мастерства». Идёт в заголовок ступени, чтобы её содержимое читалось
- * свёрнутым.
- *
- * @param count - формула количества
- */
-export function spellCountLabel(count: string): string {
-  const kind = getSpellCountKind(count);
-
-  if (kind === 'all') {
-    return SPELL_COUNT_TEXT.all;
-  }
-
-  if (kind === 'proficiencyBonus') {
-    return `${SPELL_COUNT_TEXT.prefix} ${SPELL_COUNT_TEXT.proficiencyBonus}`;
-  }
-
-  if (kind === 'abilityModifier') {
-    const ability = getSpellCountAbility(count);
-
-    return ability
-      ? `${SPELL_COUNT_TEXT.prefix} ${SPELL_COUNT_TEXT.abilityModifierPrefix} ${ABILITY_GENITIVE_LABELS[ability]}`
-      : `${SPELL_COUNT_TEXT.prefix} ${count.trim()}`;
-  }
-
-  return `${SPELL_COUNT_TEXT.prefix} ${count.trim()}`;
-}
-
-/**
- * Заголовок ступени: с какого уровня открывается и сколько из неё берут.
+ * Заголовок ступени: с какого уровня открывается.
  *
  * @param group - ступень таблицы
  */
 export function spellListGroupTitle(group: EditableSpellListGroup): string {
-  const level =
-    group.requiredLevel && group.requiredLevel > 1
-      ? `${SPELL_LIST_LABELS.fromLevelPrefix} ${group.requiredLevel} ${SPELL_LIST_LABELS.fromLevelSuffix}`
-      : SPELL_LIST_LABELS.fromStart;
-
-  return `${level} — ${spellCountLabel(group.count)}`;
+  return group.requiredLevel && group.requiredLevel > 1
+    ? `${SPELL_LIST_LABELS.fromLevelPrefix} ${group.requiredLevel} ${SPELL_LIST_LABELS.fromLevelSuffix}`
+    : SPELL_LIST_LABELS.fromStart;
 }
 
 // ── Модель формы целиком ──────────────────────────────────────
@@ -710,8 +576,191 @@ export interface EditableFeatGrants {
   counters: EditableResourceCounter[];
   /** Заклинания, которые черта добавляет в список заклинаний класса */
   spellList: EditableSpellListExpansion;
+  /** Выдача заклинаний группами: перечисленные и списки классов целиком */
+  grantedSpellGroups: EditableGrantedSpellGroup[];
   /** Выданные чертой заклинания не нужно готовить */
   grantedSpellsAlwaysPrepared: boolean;
+}
+
+/**
+ * Группа выдачи заклинаний: своя ступень уровня и свой источник.
+ *
+ * Группами, а не одним списком: заклинания приходят ступенями — у домена жреца
+ * первая пачка на третьем уровне, следующая на пятом, — и у каждой ступени свой
+ * уровень открытия. Группа либо перечисляет заклинания, либо выдаёт весь список
+ * класса: перечень — снимок на момент сохранения, и заклинание, заведённое в
+ * компендиуме позже, в него не попадёт, а список собирается при выдаче.
+ *
+ * Одна модель на все записи, но раскладывается она по-разному. У черты,
+ * предыстории, класса и варианта умения группы уезжают в блоб даров
+ * (`featData.grantedSpells` с уровнем у каждой ссылки и
+ * `featData.grantedClassSpells`). У умения класса перечисления ложатся в поля
+ * самой записи (`grantedSpells` и `grantedSpellsByLevel`): там гейт по уровню
+ * КЛАССА, а не персонажа, и для умения это правильнее.
+ */
+export interface EditableGrantedSpellGroup {
+  /** Ключ строки для `v-for`: группы удаляют из середины списка */
+  uid: string;
+  /** Что выдаётся: перечисленные заклинания либо весь список класса */
+  source: GrantedSpellGroupSource;
+  /** Уровень, с которого группа выдаётся; пусто — сразу при взятии записи */
+  requiredLevel?: number;
+  /** Перечисленные заклинания — при `source: 'list'`; иначе пусто */
+  spells: GrantedSpellRef[];
+  /** Ключи классов, чьи списки выдаются — при `source: 'classList'`; иначе пусто */
+  classKeys: string[];
+  /** Названия классов на момент выбора — подпись, когда записи класса в паках нет */
+  classNames: string[];
+  /** Пак, из которого выбран класс: подсказка, на сбор заклинаний не влияет */
+  classPackId?: string;
+  /** Паки, из которых брать заклинания; пусто — из всех доступных */
+  spellPackIds: string[];
+  /** Как ограничен круг списка класса; у перечисленных круг свой у каждой записи */
+  levelMode: ClassSpellsLevelMode;
+  /** Круг: точный при `exact`, наибольший при `upTo`; иначе не задан */
+  level?: number;
+  /**
+   * Характеристика, от которой считаются заклинания группы; пусто — берётся выше:
+   * ответом игрока, характеристикой записи, характеристикой класса.
+   */
+  spellcastingAbility?: AbilityType;
+  /** Заклинания группы не занимают подготовку */
+  alwaysPrepared: boolean;
+}
+
+/** Откуда группа берёт заклинания. */
+export type GrantedSpellGroupSource = 'list' | 'classList';
+
+/** Как ограничен круг у группы «весь список класса». */
+export type ClassSpellsLevelMode = 'any' | 'exact' | 'upTo' | 'slots';
+
+/** Что выдаётся группой — варианты селекта строки. */
+export const GRANTED_SPELL_GROUP_SOURCE_OPTIONS: {
+  value: GrantedSpellGroupSource;
+  label: string;
+}[] = [
+  { value: 'list', label: 'Перечисленные' },
+  { value: 'classList', label: 'Весь список класса' },
+];
+
+/**
+ * Круг группы «весь список класса» одним списком.
+ *
+ * «Не выше доступного круга» есть только здесь, а не у порции выбора: выбирает игрок
+ * сам и видит круг в списке, а выдача сыплется на лист молча — и «все заклинания
+ * друида» без границы дали бы девятый круг на первом уровне.
+ */
+export const CLASS_SPELLS_LEVEL_OPTIONS: {
+  value: string;
+  label: string;
+}[] = [
+  { value: 'any', label: 'Любой круг' },
+  { value: 'slots', label: 'Не выше доступного круга' },
+  ...Array.from({ length: 10 }, (_unused, level) => ({
+    value: `exact:${level}`,
+    label: level === 0 ? 'Заговор' : `${level} круг`,
+  })),
+  ...Array.from({ length: 9 }, (_unused, index) => ({
+    value: `upTo:${index + 1}`,
+    label: `Не выше ${index + 1} круга`,
+  })),
+];
+
+/**
+ * Значение селекта круга по группе.
+ *
+ * @param group - группа выдачи
+ */
+export function classSpellsLevelValue(
+  group: EditableGrantedSpellGroup,
+): string {
+  if (group.levelMode === 'any' || group.levelMode === 'slots') {
+    return group.levelMode;
+  }
+
+  return `${group.levelMode}:${group.level ?? 0}`;
+}
+
+/**
+ * Круг группы по значению селекта. Незнакомое значение читается как «любой круг».
+ *
+ * @param value - значение селекта
+ */
+export function parseClassSpellsLevelValue(value: string): {
+  levelMode: ClassSpellsLevelMode;
+  level?: number;
+} {
+  if (value === 'slots') {
+    return { levelMode: 'slots' };
+  }
+
+  const [mode, rawLevel] = value.split(':');
+  const level = Number.parseInt(rawLevel ?? '', 10);
+
+  if ((mode === 'exact' || mode === 'upTo') && !Number.isNaN(level)) {
+    return { levelMode: mode, level };
+  }
+
+  return { levelMode: 'any' };
+}
+
+/**
+ * Новая группа выдачи. По умолчанию перечисление: список класса заводят реже, и
+ * автору проще переключить источник, чем каждый раз возвращать его обратно.
+ */
+export function createGrantedSpellGroup(): EditableGrantedSpellGroup {
+  return {
+    uid: generateId('granted-spells'),
+    source: 'list',
+    spells: [],
+    classKeys: [],
+    classNames: [],
+    spellPackIds: [],
+    levelMode: 'slots',
+    alwaysPrepared: false,
+  };
+}
+
+/**
+ * Заголовок группы: что выдаётся и с какого уровня. По нему автор находит нужную
+ * ступень, не разворачивая её.
+ *
+ * @param group - группа выдачи
+ */
+export function grantedSpellGroupTitle(
+  group: EditableGrantedSpellGroup,
+): string {
+  const level = group.requiredLevel
+    ? `с ${group.requiredLevel} уровня`
+    : 'сразу';
+
+  if (group.source === 'list') {
+    return `Перечисленные — ${level}`;
+  }
+
+  const classes = group.classNames.length
+    ? group.classNames.join(', ')
+    : group.classKeys.join(', ') || 'класс не выбран';
+
+  return `${classes} — ${level}`;
+}
+
+/**
+ * Группа перечисленных заклинаний с готовым содержимым — для разбора уже
+ * сохранённых записей.
+ *
+ * @param spells - заклинания группы
+ * @param requiredLevel - уровень, с которого группа выдаётся
+ */
+export function listGrantedSpellGroup(
+  spells: GrantedSpellRef[],
+  requiredLevel?: number,
+): EditableGrantedSpellGroup {
+  return {
+    ...createGrantedSpellGroup(),
+    requiredLevel,
+    spells,
+  };
 }
 
 /** Пустая механика черты. */
@@ -723,6 +772,7 @@ export function createEmptyFeatGrants(): EditableFeatGrants {
     prerequisites: [],
     counters: [],
     spellList: { requiresSpellcasting: false, groups: [] },
+    grantedSpellGroups: [],
     grantedSpellsAlwaysPrepared: false,
   };
 }
@@ -969,8 +1019,10 @@ export function createSpellPickRow(
     label: '',
     schools: [],
     castingTime: '',
-    options: [],
+    source: 'filter',
+    listedSpells: [],
     rechooseOnLongRest: false,
+    requiredLevel: 0,
   };
 }
 
@@ -1128,8 +1180,15 @@ function spellPickRow(choice: FeatChoice): EditableSpellPickRow {
     label: choice.label ?? '',
     schools: [...(filter?.schools ?? [])],
     castingTime: filter?.castingTime ?? '',
-    options: (choice.options ?? []).map((option) => ({ ...option })),
+    // Перечисленные заклинания лежат набором значений выбора: значение — id
+    // записи компендиума, имя — снимок названия
+    source: choice.options?.length ? 'list' : 'filter',
+    listedSpells: (choice.options ?? []).map((option) => ({
+      spellId: option.value,
+      name: option.name ?? option.value,
+    })),
     rechooseOnLongRest: choice.rechooseOnLongRest ?? false,
+    requiredLevel: choice.requiredLevel ?? 0,
   };
 }
 
@@ -1550,18 +1609,111 @@ export function featDataToGrants(
 
   grants.spellList = {
     requiresSpellcasting: featData.spellList?.requiresSpellcasting ?? false,
+    // Прежнее «сколько берут» ступени читается и молча отбрасывается:
+    // расширение — доступность, а не выбор
     groups: (featData.spellList?.groups ?? []).map((group) => ({
       uid: generateId('spell-list'),
       requiredLevel: group.requiredLevel,
-      count: group.count ?? '',
       spells: (group.spells ?? []).map((spell) => ({ ...spell })),
     })),
   };
+
+  grants.grantedSpellGroups = [
+    ...groupGrantedSpellRefs(
+      featData.grantedSpells ?? [],
+      featData.grantedSpellsAlwaysPrepared ?? false,
+    ),
+    ...(featData.grantedClassSpells ?? []).map((group) => ({
+      ...createGrantedSpellGroup(),
+      source: 'classList' as const,
+      classKeys: [...(group.classKeys ?? [])],
+      classNames: [...(group.classNames ?? [])],
+      classPackId: group.classPackId,
+      spellPackIds: [...(group.spellPackIds ?? [])],
+      levelMode: classSpellsLevelMode(group),
+      level: group.level ?? group.maxLevel,
+      requiredLevel: group.requiredLevel,
+      spellcastingAbility: group.spellcastingAbility,
+      alwaysPrepared:
+        group.alwaysPrepared ?? featData.grantedSpellsAlwaysPrepared ?? false,
+    })),
+  ];
 
   grants.grantedSpellsAlwaysPrepared =
     featData.grantedSpellsAlwaysPrepared ?? false;
 
   return grants;
+}
+
+/**
+ * Перечисленные ссылки — группами по уровню открытия.
+ *
+ * В блобе они лежат плоским списком, а группа — это и есть ступень «что приходит
+ * на этом уровне». Порядок ступеней — порядок первого появления уровня в списке,
+ * чтобы правка не перетасовывала форму.
+ *
+ * @param refs - выдаваемые заклинания из блоба
+ * @param fallbackAlwaysPrepared - отметка «подготовлено» у записи целиком:
+ *   её наследуют ссылки, у которых своей отметки нет
+ * @returns группы по уровню открытия, в порядке первого появления уровня
+ */
+function groupGrantedSpellRefs(
+  refs: ReadonlyArray<GrantedSpellRef>,
+  fallbackAlwaysPrepared = false,
+): EditableGrantedSpellGroup[] {
+  const byKey = new Map<string, EditableGrantedSpellGroup>();
+  const groups: EditableGrantedSpellGroup[] = [];
+
+  for (const ref of refs) {
+    // Ключ карты — уровень числом: «сразу» и «с первого» — одно и то же, и
+    // двумя ступенями они выглядели бы как разные. Характеристика и подготовка
+    // входят в ключ: заклинания, которые считаются от разных характеристик, —
+    // разные группы, иначе настройка одного стёрла бы настройку другого
+    const level =
+      ref.requiredLevel && ref.requiredLevel > 1 ? ref.requiredLevel : 1;
+
+    const prepared = ref.alwaysPrepared ?? fallbackAlwaysPrepared;
+    const key = `${level}:${ref.spellcastingAbility ?? ''}:${prepared}`;
+
+    let group = byKey.get(key);
+
+    if (!group) {
+      group = listGrantedSpellGroup([], level > 1 ? level : undefined);
+      group.spellcastingAbility = ref.spellcastingAbility;
+      group.alwaysPrepared = prepared;
+      byKey.set(key, group);
+      groups.push(group);
+    }
+
+    group.spells.push({
+      ...ref,
+      requiredLevel: undefined,
+      spellcastingAbility: undefined,
+      alwaysPrepared: undefined,
+    });
+  }
+
+  return groups;
+}
+
+/**
+ * Как задан круг у сохранённой группы. Три границы разом записать нельзя, поэтому
+ * порядок разбора и есть их старшинство: отметка «по ячейкам» сильнее числа.
+ *
+ * @param group - группа выдачи списка класса из блоба
+ */
+function classSpellsLevelMode(
+  group: FeatGrantedClassSpells,
+): ClassSpellsLevelMode {
+  if (group.fromSlots) {
+    return 'slots';
+  }
+
+  if (group.level !== undefined) {
+    return 'exact';
+  }
+
+  return group.maxLevel === undefined ? 'any' : 'upTo';
 }
 
 // ── Форма → блоб ──────────────────────────────────────────────
@@ -1841,8 +1993,12 @@ function buildSpellChoices(
     return free;
   };
 
+  // Служебный выбор класса нужен только порциям с поиском по списку класса:
+  // перечисленные заклинания списка не читают
+  const hasFilterPicks = block.picks.some((row) => row.source === 'filter');
+
   const classChoiceKey =
-    classKeys.length > 1 && block.picks.length > 0
+    classKeys.length > 1 && hasFilterPicks
       ? takeKey(block.classChoiceKey, SPELL_LIST_CHOICE_KEY)
       : '';
 
@@ -1873,7 +2029,12 @@ function buildSpellChoices(
   }
 
   for (const row of block.picks) {
-    const isCantrip = row.mode === 'exact' && row.level === CANTRIP_SPELL_LEVEL;
+    const isList = row.source === 'list';
+
+    // У перечисленных заклинаний круг свой у каждой записи, поэтому порция
+    // пишется общим типом `spell`, даже если в ней одни заговоры
+    const isCantrip =
+      !isList && row.mode === 'exact' && row.level === CANTRIP_SPELL_LEVEL;
 
     const built: FeatChoice = {
       key: takeKey(
@@ -1897,14 +2058,29 @@ function buildSpellChoices(
       built.rechooseOnLongRest = true;
     }
 
-    if (row.options.length > 0) {
-      built.options = row.options.map((option) => ({ ...option }));
+    if (row.requiredLevel > 0) {
+      built.requiredLevel = row.requiredLevel;
     }
 
-    const filter = buildSpellFilter(row, block, classChoiceKey);
+    if (isList) {
+      // Перечисленные заклинания — набором значений выбора: значение — id
+      // записи, имя — снимок названия для подписи. Фильтра у такого пула нет
+      const options: FeatChoiceOption[] = row.listedSpells
+        .filter((spell) => Boolean(spell.spellId))
+        .map((spell) => ({
+          value: spell.spellId ?? '',
+          ...(spell.name.trim() ? { name: spell.name.trim() } : {}),
+        }));
 
-    if (filter) {
-      built.spellFilter = filter;
+      if (options.length > 0) {
+        built.options = options;
+      }
+    } else {
+      const filter = buildSpellFilter(row, block, classChoiceKey);
+
+      if (filter) {
+        built.spellFilter = filter;
+      }
     }
 
     choices.push(built);
@@ -2285,13 +2461,6 @@ function applyGrantedFeatRow(data: FeatData, row: EditableGrantRow): void {
 }
 
 /**
- * Собирает блоб {@link FeatData} из редактируемой механики и списка выдаваемых
- * заклинаний. Пустые поля опускаются; черта без механики блоба не получает.
- *
- * @param grants - редактируемая механика черты
- * @param grantedSpells - выдаваемые заклинания (вкладка «Заклинания»)
- */
-/**
  * Ссылка на заклинание к сохранению: пустые поля не пишутся, уровень доступа —
  * только когда он что-то значит (единица = «сразу», умолчание движка).
  *
@@ -2331,10 +2500,6 @@ function buildSpellListExpansion(
         built.requiredLevel = group.requiredLevel;
       }
 
-      if (group.count.trim()) {
-        built.count = group.count.trim();
-      }
-
       return built;
     })
     .filter((group) => group.spells.length > 0);
@@ -2349,9 +2514,97 @@ function buildSpellListExpansion(
   };
 }
 
+/**
+ * Группы выдачи в блоб: перечисленные — ссылками с уровнем группы, списки классов
+ * — своим полем.
+ *
+ * Группа без содержимого не уезжает: перечисление без заклинаний ничего не даёт, а
+ * список классов без единого класса потребитель прочитал бы как «весь компендиум».
+ *
+ * @param groups - группы формы
+ * @param data - блоб даров, в который пишутся оба поля
+ */
+function applyGrantedSpellGroups(
+  groups: EditableGrantedSpellGroup[],
+  data: FeatData,
+): void {
+  const refs: GrantedSpellRef[] = [];
+  const classLists: FeatGrantedClassSpells[] = [];
+
+  for (const group of groups) {
+    if (group.source === 'classList') {
+      if (group.classKeys.length === 0) {
+        continue;
+      }
+
+      classLists.push({
+        classKeys: [...group.classKeys],
+        ...(group.classNames.length
+          ? { classNames: [...group.classNames] }
+          : {}),
+        ...(group.classPackId ? { classPackId: group.classPackId } : {}),
+        ...(group.spellPackIds.length
+          ? { spellPackIds: [...group.spellPackIds] }
+          : {}),
+        ...(group.levelMode === 'exact' && group.level !== undefined
+          ? { level: group.level }
+          : {}),
+        ...(group.levelMode === 'upTo' && group.level !== undefined
+          ? { maxLevel: group.level }
+          : {}),
+        ...(group.levelMode === 'slots' ? { fromSlots: true } : {}),
+        ...(group.requiredLevel ? { requiredLevel: group.requiredLevel } : {}),
+        ...(group.spellcastingAbility
+          ? { spellcastingAbility: group.spellcastingAbility }
+          : {}),
+        // Отметка пишется всегда, а не только взведённая: у записи есть своя,
+        // прежняя, и пропуск снятой отметки означал бы «как у записи»
+        alwaysPrepared: group.alwaysPrepared,
+      });
+
+      continue;
+    }
+
+    for (const spell of group.spells) {
+      if (spell.name.trim().length === 0) {
+        continue;
+      }
+
+      refs.push({
+        ...buildGrantedSpellRef(spell),
+        ...(group.requiredLevel ? { requiredLevel: group.requiredLevel } : {}),
+        ...(group.spellcastingAbility
+          ? { spellcastingAbility: group.spellcastingAbility }
+          : {}),
+        alwaysPrepared: group.alwaysPrepared,
+      });
+    }
+  }
+
+  if (refs.length > 0) {
+    data.grantedSpells = refs;
+  }
+
+  if (classLists.length > 0) {
+    data.grantedClassSpells = classLists;
+  }
+}
+
+/**
+ * Собирает `featData` записи из строчной модели формы.
+ *
+ * Обратное `featDataToGrants`: форма правит дары строками, а на лист и в
+ * компендиум уходит `featData` — то, что понимает движок.
+ *
+ * Выдаваемые заклинания приходят вместе с остальной механикой — группами
+ * ({@link EditableFeatGrants.grantedSpellGroups}), а не отдельным списком: у
+ * группы есть уровень и источник, и вторым аргументом их было бы не передать.
+ *
+ * @param grants - дары записи, как их набрали в форме
+ * @returns данные записи либо `undefined`, когда механики у неё нет
+ */
 export function buildFeatData(
   grants: EditableFeatGrants,
-  grantedSpells: GrantedSpellRef[],
 ): FeatData | undefined {
   const data: FeatData = { type: 'feat' };
   const choices: FeatChoice[] = [];
@@ -2480,13 +2733,7 @@ export function buildFeatData(
     data.counters = counters;
   }
 
-  const refs = grantedSpells
-    .filter((spell) => spell.name.trim().length > 0)
-    .map(buildGrantedSpellRef);
-
-  if (refs.length > 0) {
-    data.grantedSpells = refs;
-  }
+  applyGrantedSpellGroups(grants.grantedSpellGroups, data);
 
   const spellList = buildSpellListExpansion(grants.spellList);
 
