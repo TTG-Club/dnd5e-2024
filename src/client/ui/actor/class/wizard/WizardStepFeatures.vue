@@ -1,76 +1,80 @@
 <script setup lang="ts">
   /**
-   * Шаг мастера: Умения класса.
+   * Шаг мастера: умения класса — и всё, о чём уровень спрашивает.
    *
-   * Умения уровня показываются свёрнутыми строками: описание умения занимает
-   * экран целиком — у «Магии договора» колдуна это полстраницы, — и за ним не
-   * видно ни остальных умений уровня, ни того, что от игрока чего-то ждут.
-   * Разворачивают строку, чтобы прочитать подробно.
+   * Каждая строка уровня спрашивает своё сама: варианты умения, выборы его
+   * даров, черту, навык и заклинания, которые оно выдало. Раньше вопросы
+   * стояли порознь — варианты в карточке, дары общим списком под умениями,
+   * навык умения вовсе отдельным шагом, — и связать вопрос с умением игроку
+   * было не по чему. Дары самой записи класса и подкласса идут такой же
+   * строкой, только без описания: их даёт не умение.
    *
-   * Умение, которому нужен выбор варианта, помечено в самой строке: сам выбор
-   * лежит внутри, и без пометки игрок упёрся бы в неактивную кнопку «Далее», не
-   * понимая, где его спрашивают.
+   * Строки свёрнуты: описание умения занимает экран целиком — у «Магии
+   * договора» колдуна это полстраницы, — и за ним не видно ни остальных умений
+   * уровня, ни того, что от игрока чего-то ждут. Поэтому на свёрнутой строке
+   * висит пометка со счётом несделанного: развернут её ради него.
    */
+  import type { SkillType } from '@vtt/shared';
   import type {
     DnDActor,
-    FeatChoice,
+    ResolvedGrantedSpell,
     Spell,
     SubclassDefinition,
   } from '@vtt/shared/system/dnd.js';
 
-  import type {
-    CompendiumFeat,
-    WizardFeatPick,
-    WizardFeatureChoicePick,
-    WizardFeatureItem,
-  } from './useClassWizard';
+  import type { ChoicePickerOption } from '../../ChoicePickerModal.vue';
+  import type { CompendiumFeat, WizardLevelRow } from './useClassWizard';
 
   import { computed } from 'vue';
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import { useSourceLabels } from '@/systems/dnd5e/composables/useSourceLabel';
-  import { resolveFeatChoiceCount } from '@vtt/shared/system/dnd.js';
+  import {
+    featChoicePendingCount,
+    isSkillType,
+    SKILLS_LIST,
+  } from '@vtt/shared/system/dnd.js';
 
   import { useExpandedRows } from '../../../../composables/useExpandedRows';
+  import { useFeatChoiceWeapons } from '../../../../composables/useFeatChoiceWeapons';
+  import ChoicePickerField from '../../ChoicePickerField.vue';
   import { CLASS_WIZARD_LABELS, LEVEL_BADGE_SUFFIX } from '../../constants';
   import FeatChoicesFields from '../../feat/FeatChoicesFields.vue';
   import WizardFeatPicker from '../../feat/WizardFeatPicker.vue';
+  import { SKILL_LABELS } from './constants';
   import WizardFeatureChoicePicker from './WizardFeatureChoicePicker.vue';
-
-  /** Цвет пометки строки умения: ждём выбора или он уже сделан. */
-  type FeatureBadgeColor = 'warning' | 'success';
+  import WizardSpellChip from './WizardSpellChip.vue';
 
   const { getSourceLabel } = useSourceLabels();
 
   const { isExpanded, toggle } = useExpandedRows();
 
+  /** Виды оружия мира — их просит пул выбора оружия и оружейного приёма */
+  const { weaponOptions } = useFeatChoiceWeapons();
+
   const props = defineProps<{
-    features: WizardFeatureItem[];
+    /** Строки уровня: умения и дары самих записей */
+    rows: WizardLevelRow[];
+    /** Выбранные варианты умений: ключ умения → ключи вариантов */
     featureChoices: Record<string, string[]>;
-    /** Выборы вариантов умений этого уровня — и доборы прошлых */
-    choicePicks: WizardFeatureChoicePick[];
+    /** Ответы на выборы даров: ключ выбора → значения */
+    featSelections: Record<string, string[]>;
+    /** Навыки, названные умениями: ключ строки → навыки */
+    featureSkills: Record<string, SkillType[]>;
     hasSubclassSelection?: boolean;
     subclasses?: SubclassDefinition[];
     subclassKey?: string | null;
     subclassLabel?: string;
-    /** Выборы черты умений уровня: боевой стиль и подобные */
-    featPicks?: WizardFeatPick[];
     /** Черты компендиума — пул пикеров черт */
     feats?: ReadonlyArray<CompendiumFeat>;
-    /** Лист персонажа: по нему из пула уходят уже взятые черты */
+    /** Лист персонажа: по нему сужаются пулы и уходят взятые черты */
     actor: DnDActor;
-    /** Ответы на выборы даров уровня: ключ выбора → значения */
-    featSelections?: Record<string, string[]>;
-    /**
-     * Вопросы вариантов по ключу их умения: задаются прямо в карточке умения,
-     * под выбором варианта. Спрошенные общим списком ниже, они выглядели бы
-     * вопросами ниоткуда — игрок не связал бы их с манёвром, который отметил.
-     */
-    optionChoices?: Record<string, FeatChoice[]>;
     /** Бонус мастерства: от него зависит количество у части выборов */
     proficiencyBonus: number;
-    /** Заклинания каталога — пул выбора заклинания у варианта */
+    /** Заклинания каталога — пул выбора заклинания */
     spells?: ReadonlyArray<Spell>;
+    /** Заклинания, выданные записями этого уровня */
+    grantedSpells?: ReadonlyArray<ResolvedGrantedSpell>;
   }>();
 
   const emit = defineEmits<{
@@ -78,56 +82,141 @@
     'update:subclassKey': [key: string];
     'update:featSelection': [key: string, featId: string | null];
     'update:featSelections': [selections: Record<string, string[]>];
+    'update:featureSkills': [rowKey: string, skills: SkillType[]];
+    'open-spell': [spell: Spell];
   }>();
 
+  /** Уровень не спрашивает и не выдаёт ничего — строк нет вовсе */
+  const isLevelEmpty = computed(
+    () => props.rows.length === 0 && !props.hasSubclassSelection,
+  );
+
   /**
-   * Выбранная в пикере черта по ключу выбора.
-   *
-   * @param key - ключ выбора черты
+   * Строки со всем, что о них нужно шаблону: пометка, пул навыка и выданные
+   * заклинания. Считаются здесь, а не в разметке: пул выбора собирается по
+   * всему каталогу заклинаний, и вызов из шаблона повторял бы эту работу на
+   * каждую отрисовку каждой строки.
    */
-  function selectedFeatId(key: string): string | null {
-    return props.featSelections?.[key]?.[0] ?? null;
+  const rowViews = computed(() =>
+    props.rows.map((row) => ({
+      row,
+      badge: rowBadge(row),
+      skillOptions: skillOptions(row),
+      grantedSpells: (props.grantedSpells ?? []).filter(
+        (granted) => granted.featureName === row.name,
+      ),
+    })),
+  );
+
+  /**
+   * Навыки, из которых выбирает умение: пустой пул записи означает «любой
+   * навык», и подставляет его мастер.
+   *
+   * @param row - строка уровня
+   */
+  function skillOptions(row: WizardLevelRow): ChoicePickerOption[] {
+    const from = row.skillChoice?.from.length
+      ? row.skillChoice.from
+      : SKILLS_LIST.map((skill) => skill.key);
+
+    return from.map((skill) => ({
+      value: skill,
+      name: SKILL_LABELS[skill] ?? skill,
+    }));
   }
 
   /**
-   * Доборы: умение получено раньше, а его варианты берут на этом уровне. У них
-   * нет карточки умения, поэтому они идут отдельным блоком.
+   * Сколько в строке МЕСТ, где игрок ещё не ответил: варианты, выборы даров,
+   * черта и навык считаются вместе, по одному за каждое незакрытое поле.
+   *
+   * Именно мест, а не значений: «три заговора» — это одно место, куда игрок
+   * зайдёт один раз, и число 3 в пометке он читал бы как три отдельных дела.
+   * Сколько значений брать в самом поле, говорит его счётчик.
+   *
+   * @param row - строка уровня
    */
-  const reopenedPicks = computed(() =>
-    props.choicePicks.filter((pick) => !pick.isGainedNow),
-  );
+  function pendingCount(row: WizardLevelRow): number {
+    const context = {
+      selections: props.featSelections,
+      spells: props.spells,
+      weapons: weaponOptions.value,
+    };
+
+    const variants =
+      row.pick && (props.featureChoices[row.key] ?? []).length < row.pick.count
+        ? 1
+        : 0;
+
+    const choices = row.choices.filter(
+      (choice) =>
+        featChoicePendingCount(
+          choice,
+          props.actor,
+          context,
+          props.proficiencyBonus,
+          props.featSelections,
+        ) > 0,
+    ).length;
+
+    const featPicks = row.featPicks.filter(
+      (choice) => !props.featSelections[choice.key]?.length,
+    ).length;
+
+    const skills =
+      row.skillChoice
+      && (props.featureSkills[row.key] ?? []).length < row.skillChoice.count
+        ? 1
+        : 0;
+
+    return variants + choices + featPicks + skills;
+  }
 
   /**
-   * На уровне и правда нечего показать: ни умений, ни выбора подкласса, ни
-   * добора вариантов. Добор считается наравне с умением — у колдуна на 5
-   * уровне новых умений нет, а воззвания берут, и строка «умений нет» стояла
-   * бы прямо над вопросом о них.
+   * Пометка строки: пока не набрано — счёт несделанного предупреждением, после
+   * — спокойная отметка. Строка, которая ни о чём не спрашивает, пометки не
+   * несёт: сообщать «выбор сделан» там не о чем.
+   *
+   * @param row - строка уровня
    */
-  const isLevelEmpty = computed(
-    () =>
-      props.features.length === 0
-      && !props.hasSubclassSelection
-      && reopenedPicks.value.length === 0,
-  );
+  function rowBadge(
+    row: WizardLevelRow,
+  ): { label: string; color: 'warning' | 'success' } | null {
+    const asksAnything =
+      row.pick || row.choices.length || row.featPicks.length || row.skillChoice;
 
-  /** Выборы вариантов по ключу умения — их ищет карточка умения. */
-  const picksByFeatureKey = computed(() => {
-    const byKey: Record<string, WizardFeatureChoicePick> = {};
-
-    for (const pick of props.choicePicks) {
-      byKey[pick.featureKey] = pick;
+    if (!asksAnything) {
+      return null;
     }
 
-    return byKey;
-  });
+    const pending = pendingCount(row);
+
+    return pending > 0
+      ? {
+          label: `${CLASS_WIZARD_LABELS.pendingBadgePrefix}${pending}`,
+          color: 'warning',
+        }
+      : { label: CLASS_WIZARD_LABELS.choiceDoneBadge, color: 'success' };
+  }
 
   /**
-   * Выбранные варианты умения.
+   * Значок свёртки строки: показывает, куда уедет её содержимое.
    *
-   * @param featureKey - ключ умения
+   * @param rowKey - ключ строки
    */
-  function selectedFor(featureKey: string): string[] {
-    return props.featureChoices[featureKey] ?? [];
+  function toggleIcon(rowKey: string): string {
+    return isExpanded(rowKey) ? 'tabler:chevron-down' : 'tabler:chevron-right';
+  }
+
+  /**
+   * Подпись строки для скринридера: по нажатию она раскрывается и
+   * сворачивается, и текст должен говорить, что случится дальше.
+   *
+   * @param rowKey - ключ строки
+   */
+  function toggleLabel(rowKey: string): string {
+    return isExpanded(rowKey)
+      ? CLASS_WIZARD_LABELS.featureCollapse
+      : CLASS_WIZARD_LABELS.featureExpand;
   }
 
   /**
@@ -144,83 +233,30 @@
   }
 
   /**
-   * Значок свёртки строки умения: показывает, куда уедет описание.
+   * Запоминает навыки, названные самим умением.
    *
-   * @param featureKey - ключ умения
+   * Пикер отдаёт значения строками, и здесь они сужаются гвардом: ключа, которого
+   * среди навыков нет, в ответе быть не должно, а приведение типа пропустило бы
+   * его молча.
+   *
+   * @param rowKey - ключ строки уровня
+   * @param values - отмеченные в пикере значения
    */
-  function toggleIcon(featureKey: string): string {
-    return isExpanded(featureKey)
-      ? 'tabler:chevron-down'
-      : 'tabler:chevron-right';
+  function selectFeatureSkills(rowKey: string, values: string[]): void {
+    emit('update:featureSkills', rowKey, values.filter(isSkillType));
   }
 
   /**
-   * Подпись строки для скринридера: по нажатию она раскрывается и
-   * сворачивается, и текст должен говорить, что случится дальше.
+   * Выбранная в пикере черта по ключу выбора.
    *
-   * @param featureKey - ключ умения
+   * @param key - ключ выбора черты
    */
-  function toggleLabel(featureKey: string): string {
-    return isExpanded(featureKey)
-      ? CLASS_WIZARD_LABELS.featureCollapse
-      : CLASS_WIZARD_LABELS.featureExpand;
+  function selectedFeatId(key: string): string | null {
+    return props.featSelections[key]?.[0] ?? null;
   }
 
-  /**
-   * Пометки строк о выборе: пока не набрано — предупреждение, после — спокойная
-   * отметка. Считается только то, что и правда есть в предложении: набранное до
-   * смены подкласса могло устареть.
-   */
-  const choiceBadges = computed(() => {
-    const byKey: Record<string, { label: string; color: FeatureBadgeColor }> =
-      {};
-
-    for (const pick of props.choicePicks) {
-      const selected = selectedFor(pick.featureKey);
-
-      const chosen = pick.options.filter((choice) =>
-        selected.includes(choice.key),
-      ).length;
-
-      // Вопросы взятого варианта считаются наравне с самим выбором: манёвр
-      // отмечен, а навык к нему не назван — умение ещё не готово
-      const answered = optionChoicesFor(pick.featureKey).every(
-        (choice) =>
-          (props.featSelections?.[choice.key]?.length ?? 0)
-          >= resolveFeatChoiceCount(choice, props.proficiencyBonus),
-      );
-
-      byKey[pick.featureKey] =
-        chosen >= pick.count && answered
-          ? { label: CLASS_WIZARD_LABELS.choiceDoneBadge, color: 'success' }
-          : { label: CLASS_WIZARD_LABELS.choiceNeededBadge, color: 'warning' };
-    }
-
-    return byKey;
-  });
-
-  function selectSubclass(key: string) {
+  function selectSubclass(key: string): void {
     emit('update:subclassKey', key);
-  }
-
-  /**
-   * Вопросы вариантов этого умения; пусто — взятые варианты ни о чём не
-   * спрашивают.
-   *
-   * @param featureKey - ключ умения
-   */
-  function optionChoicesFor(featureKey: string): FeatChoice[] {
-    return props.optionChoices?.[featureKey] ?? [];
-  }
-
-  /**
-   * Записывает ответы на вопросы вариантов. Список ответов общий на весь
-   * уровень — карточка правит его целиком, как и поля выбора внизу.
-   *
-   * @param selections - ответы: ключ выбора → значения
-   */
-  function updateFeatSelections(selections: Record<string, string[]>): void {
-    emit('update:featSelections', selections);
   }
 </script>
 
@@ -286,8 +322,8 @@
     </div>
 
     <div
-      v-for="feature in features"
-      :key="feature.key"
+      v-for="{ row, ...view } in rowViews"
+      :key="row.key"
       class="rounded-lg border border-default/50 bg-elevated/30"
     >
       <!-- Нажимается вся строка целиком: попадать в стрелку незачем -->
@@ -295,42 +331,51 @@
         class="flex min-h-11 cursor-pointer items-center gap-2 p-3 transition-colors hover:bg-elevated/50"
         role="button"
         tabindex="0"
-        :aria-expanded="isExpanded(feature.key)"
-        :aria-label="toggleLabel(feature.key)"
-        @click.left.exact.prevent="toggle(feature.key)"
-        @keydown.enter.prevent="toggle(feature.key)"
-        @keydown.space.prevent="toggle(feature.key)"
+        :aria-expanded="isExpanded(row.key)"
+        :aria-label="toggleLabel(row.key)"
+        @click.left.exact.prevent="toggle(row.key)"
+        @keydown.enter.prevent="toggle(row.key)"
+        @keydown.space.prevent="toggle(row.key)"
       >
         <UIcon
-          :name="toggleIcon(feature.key)"
+          :name="toggleIcon(row.key)"
           class="size-4 shrink-0 text-muted"
         />
 
         <span class="min-w-0 flex-1 truncate text-sm font-medium text-healing">
-          {{ feature.name }}
+          {{ row.name }}
         </span>
 
-        <!-- Пометка выбора идёт первой: ради неё строку и открывают -->
+        <!-- Пометка идёт первой: ради неё строку и открывают -->
         <UBadge
-          v-if="choiceBadges[feature.key]"
-          :label="choiceBadges[feature.key].label"
-          :color="choiceBadges[feature.key].color"
+          v-if="view.badge"
+          :label="view.badge.label"
+          :color="view.badge.color"
           size="md"
           variant="subtle"
           class="shrink-0"
         />
 
         <UBadge
-          v-if="feature.sourceName"
-          :label="feature.sourceName"
+          v-if="row.isOwnGrants"
+          :label="CLASS_WIZARD_LABELS.ownGrantsBadge"
           size="md"
-          :color="feature.isSubclass ? 'primary' : 'neutral'"
+          color="neutral"
           variant="subtle"
           class="hidden shrink-0 md:inline-flex"
         />
 
         <UBadge
-          :label="`${feature.level}${LEVEL_BADGE_SUFFIX}`"
+          v-else
+          :label="row.sourceName"
+          size="md"
+          :color="row.isSubclass ? 'primary' : 'neutral'"
+          variant="subtle"
+          class="hidden shrink-0 md:inline-flex"
+        />
+
+        <UBadge
+          :label="`${row.level}${LEVEL_BADGE_SUFFIX}`"
           size="md"
           color="neutral"
           variant="subtle"
@@ -339,100 +384,89 @@
       </div>
 
       <div
-        v-if="isExpanded(feature.key)"
-        class="border-t border-default/50 p-3"
+        v-if="isExpanded(row.key)"
+        class="flex flex-col gap-3 border-t border-default/50 p-3"
       >
-        <ItemDescriptionRenderer
-          :content="feature.description"
-          class="text-muted"
-        />
+        <!-- Умение получено раньше, а выбор к нему открылся сейчас -->
+        <p
+          v-if="row.isReopened"
+          class="text-xs text-dimmed"
+        >
+          {{ CLASS_WIZARD_LABELS.reopenedHint }}
+        </p>
+
+        <!-- Выборы идут ПЕРЕД описанием: у «Использования заклинаний» описание
+          на полстраницы, и вопрос под ним игрок находил, только пролистав
+          правила, ради которых карточку не открывал -->
 
         <!-- Варианты умения: боевой стиль, манёвры, воззвания -->
-        <div
-          v-if="picksByFeatureKey[feature.key]"
-          class="mt-3 border-t border-default/50 pt-3"
-        >
-          <WizardFeatureChoicePicker
-            :pick="picksByFeatureKey[feature.key]"
-            :selected="selectedFor(feature.key)"
-            @update:selected="selectChoice"
-          />
-
-          <!-- Вопросы взятого варианта — здесь же, под ним: «Договор Гримуара»
-            даёт выбрать навык, и спрашивать его надо там, где вариант отметили -->
-          <FeatChoicesFields
-            v-if="optionChoicesFor(feature.key).length"
-            class="mt-3 border-t border-default/50 pt-3"
-            :model-value="featSelections ?? {}"
-            :choices="optionChoicesFor(feature.key)"
-            :actor="actor"
-            :proficiency-bonus="proficiencyBonus"
-            :spells="spells"
-            @update:model-value="updateFeatSelections"
-          />
-        </div>
-      </div>
-    </div>
-
-    <!-- Доборы вариантов у умений прошлых уровней: воззвания колдуна берут на
-      2, 5, 7 и дальше, а само умение он получил на первом -->
-    <template v-if="reopenedPicks.length">
-      <span class="mb-2 block text-sm font-medium text-toned">
-        {{ CLASS_WIZARD_LABELS.choicePicksTitle }}
-      </span>
-
-      <div
-        v-for="pick in reopenedPicks"
-        :key="pick.featureKey"
-        class="rounded-lg border border-default/50 bg-elevated/30 p-3"
-      >
-        <span class="mb-1 block text-xs text-dimmed">{{
-          pick.sourceName
-        }}</span>
-
         <WizardFeatureChoicePicker
-          :pick="pick"
-          :selected="selectedFor(pick.featureKey)"
+          v-if="row.pick"
+          :pick="row.pick"
+          :selected="featureChoices[row.key] ?? []"
           @update:selected="selectChoice"
         />
 
+        <!-- Выборы даров: свои у умения и вопросы взятых им вариантов -->
         <FeatChoicesFields
-          v-if="optionChoicesFor(pick.featureKey).length"
-          class="mt-3 border-t border-default/50 pt-3"
-          :model-value="featSelections ?? {}"
-          :choices="optionChoicesFor(pick.featureKey)"
+          v-if="row.choices.length"
+          :model-value="featSelections"
+          :choices="row.choices"
           :actor="actor"
           :proficiency-bonus="proficiencyBonus"
           :spells="spells"
-          @update:model-value="updateFeatSelections"
+          @update:model-value="emit('update:featSelections', $event)"
         />
-      </div>
-    </template>
 
-    <!-- Выборы черты умений уровня — боевой стиль и подобные: пул берётся из
-      компендиума черт, поэтому у них свой пикер, а не общие поля выбора -->
-    <template v-if="featPicks?.length">
-      <span class="mb-2 block text-sm font-medium text-toned">
-        {{ CLASS_WIZARD_LABELS.featPicksTitle }}
-      </span>
+        <!-- Навык, который называет само умение («Эксперт» и подобные) -->
+        <ChoicePickerField
+          v-if="row.skillChoice"
+          :label="CLASS_WIZARD_LABELS.featureSkillLabel"
+          :subtitle="row.name"
+          :options="view.skillOptions"
+          :selected="featureSkills[row.key] ?? []"
+          :max="row.skillChoice.count"
+          @update:selected="selectFeatureSkills(row.key, $event)"
+        />
 
-      <div
-        v-for="pick in featPicks"
-        :key="pick.choice.key"
-        class="flex flex-col gap-1"
-      >
-        <span class="text-xs text-dimmed">{{ pick.sourceName }}</span>
-
+        <!-- Черта от умения: пул из компендиума черт, поэтому пикер свой -->
         <WizardFeatPicker
-          :choice="pick.choice"
+          v-for="choice in row.featPicks"
+          :key="choice.key"
+          :choice="choice"
           :feats="feats ?? []"
           :actor="actor"
-          :model-value="selectedFeatId(pick.choice.key)"
-          @update:model-value="
-            emit('update:featSelection', pick.choice.key, $event)
-          "
+          :model-value="selectedFeatId(choice.key)"
+          @update:model-value="emit('update:featSelection', choice.key, $event)"
+        />
+
+        <!-- Заклинания, выданные записью: снять их нельзя, читать — можно -->
+        <div
+          v-if="view.grantedSpells.length"
+          class="flex flex-col gap-1.5"
+        >
+          <span class="text-xs text-dimmed">
+            {{ CLASS_WIZARD_LABELS.grantedSpellsTitle }}
+          </span>
+
+          <div class="flex flex-wrap gap-1.5">
+            <WizardSpellChip
+              v-for="granted in view.grantedSpells"
+              :key="granted.spell.id"
+              :spell="granted.spell"
+              @open="emit('open-spell', granted.spell)"
+            />
+          </div>
+        </div>
+
+        <!-- Описание — последним: это правила умения, их читают, когда с
+          выбором уже разобрались -->
+        <ItemDescriptionRenderer
+          v-if="row.description"
+          :content="row.description"
+          class="text-muted"
         />
       </div>
-    </template>
+    </div>
   </div>
 </template>

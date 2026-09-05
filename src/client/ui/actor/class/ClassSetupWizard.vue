@@ -3,9 +3,13 @@
    * Пошаговый мастер добавления / повышения уровня класса (D&D 5.5 2024).
    *
    * Динамически формирует шаги на основе контекста:
-   * - Первый класс: ХП → Спасброски → Владения → Навыки → Умения → Заклинания
-   * - Level Up: ХП → Умения → Заклинания → ASI (при необходимости)
-   * - Мультикласс: ХП → Владения (сокращённые) → Навыки → Умения → Заклинания
+   * - Первый класс: ХП → Спасброски → Владения → Навыки → Умения
+   * - Level Up: ХП → Умения → ASI (при необходимости)
+   * - Мультикласс: ХП → Владения (сокращённые) → Навыки → Умения
+   *
+   * Заклинания мастер не спрашивает: вопрос задаёт та запись, которая его
+   * задала, — умение или сам класс, — и стоит он в её строке на шаге умений.
+   * Таблица класса числами не спрашивает, а показывает норму на листе.
    */
   import type { SkillType, TypedWebSocketClient } from '@vtt/shared';
   import type {
@@ -17,12 +21,12 @@
 
   import type { WizardAsiState } from './wizard';
 
-  import { computed, nextTick, ref, toRef } from 'vue';
+  import { computed, toRef } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
-  import { Z_INDEX } from '@/shared_ui/consts';
   import { resolveActorStats } from '@vtt/shared/system/dnd.js';
 
+  import { useEntityDetailModals } from '../../../composables/useEntityDetailModals';
   import { useFeatChoiceFeats } from '../../../composables/useFeatChoiceFeats';
   import { useFeatChoiceSpells } from '../../../composables/useFeatChoiceSpells';
   import { useGrantedSpellsResolver } from '../../../composables/useGrantedSpellsResolver';
@@ -32,7 +36,6 @@
     MODAL_BUTTON_LABELS,
     WIZARD_SKELETON_STEPS,
   } from '../constants';
-  import FeatChoicesFields from '../feat/FeatChoicesFields.vue';
   import { useClassWizard } from './wizard';
   import WizardStepAsi from './wizard/WizardStepAsi.vue';
   import WizardStepClassEquipment from './wizard/WizardStepClassEquipment.vue';
@@ -41,13 +44,14 @@
   import WizardStepProficiencies from './wizard/WizardStepProficiencies.vue';
   import WizardStepSavingThrows from './wizard/WizardStepSavingThrows.vue';
   import WizardStepSkills from './wizard/WizardStepSkills.vue';
-  import WizardStepSpellcasting from './wizard/WizardStepSpellcasting.vue';
 
   const props = defineProps<{
     open: boolean;
     actor: DnDActor;
     classDefinition: ClassDefinition | null;
-    /** Сокет для загрузки данных компендиума на шаге заклинаний */
+    /** Пак записи класса: ложится на запись актора и ведёт следующие уровни */
+    packId?: string;
+    /** Сокет для загрузки данных компендиума: черты, заклинания, снаряжение */
     socket: TypedWebSocketClient | null;
     /**
      * Класс ещё грузится: вместо шагов показываем скелетон. Список классов
@@ -71,6 +75,9 @@
     set: (value) => emit('update:open', value),
   });
 
+  /** Карточка заклинания: её открывает плашка выданного заклинания */
+  const { openSpellDetail } = useEntityDetailModals();
+
   const classDefRef = toRef(props, 'classDefinition');
   const actorRef = toRef(props, 'actor');
 
@@ -81,6 +88,7 @@
   const { feats: compendiumFeats } = useFeatChoiceFeats(
     toRef(props, 'socket'),
     toRef(props, 'open'),
+    toRef(props, 'packId'),
   );
 
   /**
@@ -101,15 +109,12 @@
     nextLevel,
     isMaxHitDieLevel,
     averageHitPoints,
-    levelFeatures,
-    featureChoicePicks,
     hasSubclassSelection,
-    activeSubclass,
     skillChoicesCount,
     availableSkills,
     alreadyProficientSkills,
-    featureSkillChoice,
     selectedEquipmentItems,
+    levelRows,
 
     wizardSteps,
     activeStepKey,
@@ -120,22 +125,22 @@
     wizardState,
     canProceed,
     preparedFeatChoices,
-    ownFeatChoices,
-    optionChoicesByFeature,
-    featPickChoices,
     asiFeatChoice,
     featChoiceProficiencyBonus,
-    isSpellSelectionComplete,
-    spellSelectionLimits,
     grantedSpellSources,
     grantedClassSpellRequests,
-    spellListExpansionSources,
 
     nextStep,
     prevStep,
 
     buildUpdates,
-  } = useClassWizard(classDefRef, actorRef, isOpen, compendiumFeats);
+  } = useClassWizard(
+    classDefRef,
+    actorRef,
+    isOpen,
+    compendiumFeats,
+    toRef(props, 'packId'),
+  );
 
   /** Granted-заклинания умений текущего уровня с данными из компендиума */
   const { resolvedGrantedSpells } = useGrantedSpellsResolver(
@@ -143,14 +148,6 @@
     grantedSpellSources,
     grantedClassSpellRequests,
   );
-
-  /**
-   * Заклинания сверх списка класса — расширения от записей листа и умений
-   * этого уровня — с данными компендиума. Персонаж их не знает: шаг заклинаний
-   * показывает их рядом с классовыми, а выбирает игрок сам.
-   */
-  const { resolvedGrantedSpells: resolvedExpandedSpells } =
-    useGrantedSpellsResolver(toRef(props, 'socket'), spellListExpansionSources);
 
   /**
    * Каталог заклинаний для выборов уровня: «Договор Гримуара» даёт выбрать три
@@ -163,18 +160,8 @@
   const { spells: featChoiceSpells } = useFeatChoiceSpells(
     toRef(props, 'socket'),
     preparedFeatChoices,
+    toRef(props, 'packId'),
   );
-
-  /** Ссылка на шаг заклинаний — для открытия компендиума из предупреждения */
-  const spellcastingStepRef = ref<InstanceType<
-    typeof WizardStepSpellcasting
-  > | null>(null);
-
-  /** Открыто ли предупреждение о невыбранных заклинаниях */
-  const showSpellWarning = ref(false);
-
-  /** Действие, отложенное до подтверждения предупреждения */
-  const pendingAction = ref<'next' | 'complete' | null>(null);
 
   /** Заголовок модального окна */
   const modalTitle = computed(() => {
@@ -204,6 +191,11 @@
 
   // ── Обработчики шагов ─────────────────────────────────────
 
+  /** Применяет уровень: подтверждение мастера — последний шаг */
+  function handleApplyClick(): void {
+    void handleComplete();
+  }
+
   /**
    * Сохраняет результат шага хитов: значение и выбранный метод расчёта.
    *
@@ -229,13 +221,18 @@
   }
 
   /**
-   * Сохраняет навыки, выбранные на шаге умения. Отдельно от классовых: те берут
-   * при взятии класса, эти даёт конкретное умение уровня.
+   * Сохраняет навыки, названные умением. Отдельно от классовых: те берут при
+   * взятии класса, эти даёт конкретное умение уровня — и по его ключу, чтобы
+   * ответы двух умений одного уровня не смешались.
    *
+   * @param rowKey - ключ строки уровня, чьё умение спросило навык
    * @param skills - выбранные навыки
    */
-  function handleFeatureSkillsUpdate(skills: SkillType[]) {
-    wizardState.selectedFeatureSkills = skills;
+  function handleFeatureSkillsUpdate(rowKey: string, skills: SkillType[]) {
+    wizardState.selectedFeatureSkills = {
+      ...wizardState.selectedFeatureSkills,
+      [rowKey]: skills,
+    };
   }
 
   /**
@@ -299,6 +296,7 @@
     const granted = await resolveStartingEquipment(
       props.socket,
       selectedEquipmentItems.value,
+      props.packId,
     );
 
     if (granted.length > 0) {
@@ -307,97 +305,6 @@
 
     emit('apply', systemUpdates, rootUpdates);
     isOpen.value = false;
-  }
-
-  /**
-   * Проверяет, находимся ли мы на шаге заклинаний с незавершённым выбором.
-   *
-   * @returns `true`, если шаг заклинаний активен и выбор не завершён
-   */
-  function isSpellStepIncomplete(): boolean {
-    return (
-      activeStepKey.value === 'spellcasting' && !isSpellSelectionComplete.value
-    );
-  }
-
-  /**
-   * Обрабатывает клик по кнопке «Далее».
-   * Предупреждает о неполном выборе заклинаний, если это применимо.
-   */
-  function handleNextClick(): void {
-    if (isSpellStepIncomplete()) {
-      pendingAction.value = 'next';
-      showSpellWarning.value = true;
-
-      return;
-    }
-
-    nextStep();
-  }
-
-  /**
-   * Обрабатывает клик по кнопке «Применить».
-   * Предупреждает о неполном выборе заклинаний, если это применимо.
-   */
-  function handleApplyClick(): void {
-    if (isSpellStepIncomplete()) {
-      pendingAction.value = 'complete';
-      showSpellWarning.value = true;
-
-      return;
-    }
-
-    void handleComplete();
-  }
-
-  /**
-   * Позволяет продолжить работу мастера без выбора заклинаний.
-   * Закрывает предупреждение и выполняет ранее отложенное действие.
-   */
-  function continueWithoutSpells(): void {
-    showSpellWarning.value = false;
-
-    const action = pendingAction.value;
-
-    pendingAction.value = null;
-
-    if (action === 'next') {
-      nextStep();
-    } else if (action === 'complete') {
-      void handleComplete();
-    }
-  }
-
-  /**
-   * Открывает окно выбора заклинаний (компендиум) на текущем шаге.
-   */
-  function chooseSpellsNow(): void {
-    showSpellWarning.value = false;
-    pendingAction.value = null;
-
-    nextTick(() => {
-      spellcastingStepRef.value?.openSpellBrowser();
-    });
-  }
-
-  /**
-   * Отменяет предупреждение о невыбранных заклинаниях и возвращает в мастер.
-   */
-  function cancelSpellWarning(): void {
-    showSpellWarning.value = false;
-    pendingAction.value = null;
-  }
-
-  /**
-   * Реакция на изменение состояния открытия модалки-предупреждения.
-   * Закрытие извне (overlay/Escape) трактуем как отмену.
-   *
-   * @param value - новое состояние открытия
-   */
-  function handleWarningOpenChange(value: boolean): void {
-    if (!value) {
-      cancelSpellWarning();
-    }
   }
 </script>
 
@@ -492,10 +399,7 @@
           </template>
         </div>
 
-        <!-- Контент текущего шага. Отступ между блоками задан здесь: шаг умений
-          рисуется двумя соседями — карточками умений и общими выборами даров, —
-          и без него они слипаются в одну стену. Шагам с одним блоком отступ
-          ничего не меняет -->
+        <!-- Контент текущего шага -->
         <div class="min-h-50 space-y-3">
           <!-- ХП -->
           <WizardStepHitPoints
@@ -536,16 +440,6 @@
             @update:selected-skills="handleSkillsUpdate"
           />
 
-          <!-- Навыки от самого умения («Эксперт» и подобные) -->
-          <WizardStepSkills
-            v-if="activeStepKey === 'featureSkills' && featureSkillChoice"
-            :available-skills="featureSkillChoice.from"
-            :selected-skills="wizardState.selectedFeatureSkills"
-            :max-count="featureSkillChoice.count"
-            :already-proficient-skills="alreadyProficientSkills"
-            @update:selected-skills="handleFeatureSkillsUpdate"
-          />
-
           <!-- Стартовое снаряжение (только на 1 уровне класса) -->
           <WizardStepClassEquipment
             v-if="
@@ -555,59 +449,29 @@
             :options="classDefinition.startingEquipment"
           />
 
-          <!-- Умения -->
-          <template v-if="activeStepKey === 'features'">
-            <WizardStepFeatures
-              :features="levelFeatures"
-              :feature-choices="wizardState.featureChoices"
-              :choice-picks="featureChoicePicks"
-              :has-subclass-selection="hasSubclassSelection"
-              :subclasses="classDefinition.subclasses"
-              :subclass-key="wizardState.subclassKey"
-              :subclass-label="classDefinition.subclassLabel"
-              :feat-picks="featPickChoices"
-              :feats="compendiumFeats"
-              :actor="actor"
-              :feat-selections="wizardState.featDataChoices"
-              :option-choices="optionChoicesByFeature"
-              :proficiency-bonus="featChoiceProficiencyBonus"
-              :spells="featChoiceSpells"
-              @update:feature-choices="handleFeatureChoicesUpdate"
-              @update:subclass-key="wizardState.subclassKey = $event"
-              @update:feat-selection="handleFeatSelection"
-              @update:feat-selections="handleFeatSelectionsUpdate"
-            />
-
-            <!-- Выборы даров уровня: те же поля, что у черты, — набор выборов
-              у них общий, и второй такой же список разошёлся бы с первым.
-              Вопросы вариантов сюда не попадают: их задаёт карточка своего
-              умения, рядом с самим выбором варианта -->
-            <FeatChoicesFields
-              v-if="ownFeatChoices.length"
-              v-model="wizardState.featDataChoices"
-              :choices="ownFeatChoices"
-              :actor="actorRef"
-              :proficiency-bonus="featChoiceProficiencyBonus"
-              :spells="featChoiceSpells"
-            />
-          </template>
-
-          <!-- Заклинания -->
-          <WizardStepSpellcasting
-            v-if="activeStepKey === 'spellcasting'"
-            ref="spellcastingStepRef"
-            :class-definition="classDefinition"
-            :next-level="nextLevel"
-            :socket="socket"
-            :selected-spells="wizardState.selectedSpells"
-            :active-subclass="activeSubclass"
-            :cantrips-limit="spellSelectionLimits.cantrips"
-            :spells-limit="spellSelectionLimits.spells"
-            :spells-by-level="spellSelectionLimits.spellsByLevel"
-            :granted-spells="resolvedGrantedSpells"
-            :expanded-spells="resolvedExpandedSpells"
+          <!-- Умения: и всё, о чём уровень спрашивает, — в строке того, кто
+            спрашивает -->
+          <WizardStepFeatures
+            v-if="activeStepKey === 'features'"
+            :rows="levelRows"
+            :feature-choices="wizardState.featureChoices"
+            :feat-selections="wizardState.featDataChoices"
+            :feature-skills="wizardState.selectedFeatureSkills"
+            :has-subclass-selection="hasSubclassSelection"
+            :subclasses="classDefinition.subclasses"
+            :subclass-key="wizardState.subclassKey"
+            :subclass-label="classDefinition.subclassLabel"
+            :feats="compendiumFeats"
             :actor="actor"
-            @update:selected-spells="wizardState.selectedSpells = $event"
+            :proficiency-bonus="featChoiceProficiencyBonus"
+            :spells="featChoiceSpells"
+            :granted-spells="resolvedGrantedSpells"
+            @update:feature-choices="handleFeatureChoicesUpdate"
+            @update:subclass-key="wizardState.subclassKey = $event"
+            @update:feat-selection="handleFeatSelection"
+            @update:feat-selections="handleFeatSelectionsUpdate"
+            @update:feature-skills="handleFeatureSkillsUpdate"
+            @open-spell="openSpellDetail"
           />
 
           <!-- ASI -->
@@ -673,7 +537,7 @@
             v-if="!isLastStep"
             color="primary"
             :disabled="!canProceed"
-            @click.left.exact.prevent="handleNextClick"
+            @click.left.exact.prevent="nextStep"
           >
             {{ MODAL_BUTTON_LABELS.next }}
             <template #trailing>
@@ -690,66 +554,6 @@
             {{ applyButtonLabel }}
           </UButton>
         </div>
-      </div>
-    </template>
-  </UDraggableModal>
-
-  <!-- Предупреждение: заклинания не выбраны -->
-  <UDraggableModal
-    :open="showSpellWarning"
-    :title="CLASS_WIZARD_LABELS.spellsNotChosenTitle"
-    :draggable="false"
-    blocking
-    :ui="{
-      overlay: `z-${Z_INDEX.MODAL_ELEVATED}`,
-      content: `w-[calc(100vw-2rem)] max-w-lg z-${Z_INDEX.MODAL_ELEVATED}`,
-    }"
-    @update:open="handleWarningOpenChange"
-  >
-    <template #body>
-      <div class="space-y-4 p-4 text-center">
-        <UIcon
-          name="tabler:alert-triangle"
-          class="mx-auto h-12 w-12 text-warning"
-        />
-
-        <p class="text-toned">
-          {{ CLASS_WIZARD_LABELS.spellsNotChosenHint }}
-          <br />
-
-          <span class="text-xs text-dimmed">
-            {{ CLASS_WIZARD_LABELS.spellsLaterHint }}
-          </span>
-        </p>
-      </div>
-    </template>
-
-    <template #footer>
-      <div class="flex w-full items-center justify-center gap-2">
-        <UButton
-          variant="ghost"
-          color="neutral"
-          @click.left.exact.prevent="cancelSpellWarning"
-        >
-          {{ MODAL_BUTTON_LABELS.cancel }}
-        </UButton>
-
-        <UButton
-          variant="soft"
-          color="primary"
-          icon="tabler:book-2"
-          @click.left.exact.prevent="chooseSpellsNow"
-        >
-          {{ CLASS_WIZARD_LABELS.chooseNow }}
-        </UButton>
-
-        <UButton
-          color="primary"
-          icon="tabler:check"
-          @click.left.exact.prevent="continueWithoutSpells"
-        >
-          {{ CLASS_WIZARD_LABELS.continueWithout }}
-        </UButton>
       </div>
     </template>
   </UDraggableModal>

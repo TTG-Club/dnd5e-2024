@@ -606,6 +606,42 @@ export function hasNoFeatChoiceOptions(
 }
 
 /**
+ * Сколько значений выбору ещё не хватает.
+ *
+ * Требуемое число режется по пулу: «выберите три» из двух перечисленных в записи
+ * заклинаний иначе не набралось бы никогда и заперло бы шаг мастера намертво. Пул,
+ * который ещё не загружен (каталог заклинаний в пути), не режет — он пуст, и требование
+ * остаётся полным.
+ *
+ * Одним счётом и для пометки строки («осталось выбрать N»), и для проверки готовности
+ * шага: разойдись они, мастер не пускал бы дальше молча.
+ *
+ * @param choice - выбор черты
+ * @param actor - лист персонажа: по нему сужается пул
+ * @param context - каталоги и уже сделанные выборы, из которых собирается пул
+ * @param proficiencyBonus - бонус мастерства: от него зависит количество у части выборов
+ * @param selections - ответы игрока по ключу выбора
+ * @returns сколько ещё выбрать; 0 — выбор закрыт
+ */
+export function featChoicePendingCount(
+  choice: FeatChoice,
+  actor: DnDActor,
+  context: FeatChoicePoolContext | undefined,
+  proficiencyBonus: number,
+  selections: Record<string, string[]>,
+): number {
+  if (hasNoFeatChoiceOptions(choice, actor, context)) {
+    return 0;
+  }
+
+  const pool = resolveFeatChoicePool(choice, actor, context);
+  const required = resolveFeatChoiceCount(choice, proficiencyBonus);
+  const needed = pool.length > 0 ? Math.min(required, pool.length) : required;
+
+  return Math.max(0, needed - (selections[choice.key]?.length ?? 0));
+}
+
+/**
  * Ключ выбора списка класса, который лист заводит сам записям без него. Ключ выдуманный,
  * в самой черте его нет: он живёт ровно столько, сколько игрок отвечает на выборы.
  */
