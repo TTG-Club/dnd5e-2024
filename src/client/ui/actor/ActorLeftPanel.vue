@@ -330,7 +330,9 @@
     return badges;
   });
 
-  const { resolvedStats } = useResolvedStats(toRef(() => props.actor));
+  const { resolvedStats, combinedEffects } = useResolvedStats(
+    toRef(() => props.actor),
+  );
 
   /**
    * Модификаторы характеристик с учётом эффектов — по ним считаются и сами
@@ -1272,6 +1274,8 @@
     :bonuses="actor.system.armorClassBonuses"
     :context="bonusContext"
     :dex-modifier="dexModifier"
+    :resolved-armor-class="resolvedStats?.armorClass"
+    :active-effects="combinedEffects"
     @apply="onArmorClassApply"
   />
 

@@ -126,8 +126,18 @@ function prettifyFormula(value: string): string {
   );
 }
 
-/** Форматирует значение одного модификатора в духе «+5 фт» / «×2». */
-function describeChangeValue(change: EffectChange): string {
+/**
+ * Форматирует значение одного модификатора в духе «+5 фт» / «×2».
+ *
+ * Режим подписывается своим словом, а не сводится к прибавке: «заменить 60» и
+ * «+60» дают разный итог, и окна настройки листа показывают строку эффекта
+ * именно этой подписью — общей с описанием самого эффекта, чтобы две подписи
+ * одного и того же не разошлись.
+ *
+ * @param change - строка модификатора эффекта
+ * @returns подпись значения со знаком, множителем или словом режима
+ */
+export function describeChangeValue(change: EffectChange): string {
   const unit = change.key.startsWith('movement.') ? ' фт' : '';
 
   if (change.mode === 'add') {

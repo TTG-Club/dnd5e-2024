@@ -41,6 +41,7 @@ import { isCreatureEntity, isRecord } from '@vtt/shared';
 
 import { getTotalLevel } from './classTypes.js';
 import {
+  ABILITY_KEYS,
   ABILITY_LABELS,
   CREATURE_SIZE_TO_TOKEN_SCALE,
   DEFAULT_CREATURE_SIZE,
@@ -1171,6 +1172,36 @@ function parseLegacySpecies(value: unknown): ActorSpeciesEntry | null {
 }
 
 /**
+ * Характеристика листа без значения — та же десятка, что подставляет расчёт
+ * статов: модификатор от неё нулевой.
+ */
+const FALLBACK_ABILITY_SCORE = 10;
+
+/**
+ * Чинит характеристики, записанные не числом.
+ *
+ * Шесть характеристик числами — признак, по которому ядро вообще опознаёт лист
+ * как D&D-шный. Строка вместо числа («16») лист не портит на вид: он считается
+ * и рисуется, — но опознание проваливается, и ядро получает нулевую скорость,
+ * то есть токен молча перестаёт двигаться. Чинится это здесь, на входе:
+ * числовая строка становится числом, а совсем нечитаемое значение — десяткой,
+ * как у листа без характеристик.
+ *
+ * @param abilities - запись характеристик листа или существа
+ */
+function repairAbilityNumbers(abilities: Record<string, unknown>): void {
+  for (const abilityKey of ABILITY_KEYS) {
+    const value = abilities[abilityKey];
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      continue;
+    }
+
+    abilities[abilityKey] = parseLegacyNumber(value, FALLBACK_ABILITY_SCORE);
+  }
+}
+
+/**
  * Нормализует объект актёра: если данные хранятся на корне (legacy-формат),
  * переносит их в `system` (новый формат DnDActorSystem), и доводит запись до
  * формы, которую объявляет `DnDActor`.
@@ -1207,6 +1238,8 @@ export function normalizeActor(actor: BaseActor): void {
     }
 
     existingSystem.size = normalizeCreatureSize(existingSystem.size);
+
+    repairAbilityNumbers(existingSystem.abilities);
   } else {
     const system: DnDActorSystem = {
       species: parseLegacySpecies(raw.species),
@@ -1380,6 +1413,13 @@ export function normalizeCreature(creature: BaseCreature): void {
   // части паков его нет: без подстановки от него считались бы NaN
   if (typeof system.proficiencyBonus !== 'number') {
     system.proficiencyBonus = DEFAULT_PROFICIENCY_BONUS;
+  }
+
+  // Характеристики строками приходят из паков и старых миров: существо с ними
+  // считается и рисуется, но ядро не опознаёт его как D&D-шное и запрещает
+  // токену двигаться
+  if (isRecord(system.abilities)) {
+    repairAbilityNumbers(system.abilities);
   }
 
   if (!Array.isArray(system.savingThrows)) {

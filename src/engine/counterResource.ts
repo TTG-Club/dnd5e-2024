@@ -351,15 +351,22 @@ export function buildCounterFormulaContext(actor: DnDActor): FormulaContext {
 
 /**
  * Значение формулы максимума. Кривая формула не должна ронять лист — тогда
- * персонаж остался бы без ресурса из-за опечатки в одном поле, поэтому
- * неразобранная формула читается как ноль.
+ * персонаж остался бы без ресурса из-за опечатки в одном поле.
+ *
+ * Но и нулём она читаться не должна: ноль значит «зарядов нет», и опечатка
+ * молча забирала бы у листа весь ресурс. Поэтому возвращается запасное число —
+ * у своего счётчика листа это записанный максимум, у определения из записи
+ * запасного нет и остаётся ноль. Формула при этом называется в логе: иначе о
+ * ней не узнать ниоткуда.
  *
  * @param formula - формула максимума
  * @param context - `@`-переменные листа
+ * @param fallback - чем читать формулу, которая не разобралась
  */
 export function evaluateCounterMaxFormula(
   formula: string,
   context: FormulaContext,
+  fallback = 0,
 ): number {
   try {
     return clamp(
@@ -368,7 +375,11 @@ export function evaluateCounterMaxFormula(
       COUNTER_COUNT_MAX,
     );
   } catch {
-    return 0;
+    console.warn(
+      `[Счётчики] Формула максимума "${formula}" не читается — взято ${fallback}`,
+    );
+
+    return clamp(fallback, COUNTER_COUNT_MIN, COUNTER_COUNT_MAX);
   }
 }
 
@@ -395,8 +406,10 @@ export function resolveCounterMaxIn(
     );
   }
 
+  // Запасное число — записанный максимум счётчика: у листа с опечаткой в
+  // формуле ресурс остаётся тем, каким был, а не пропадает
   return withCounterMinimum(
-    evaluateCounterMaxFormula(formula, context),
+    evaluateCounterMaxFormula(formula, context, counter.max),
     counter.min,
   );
 }

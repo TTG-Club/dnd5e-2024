@@ -18,6 +18,7 @@ import type {
   VttSystem,
 } from '@vtt/shared';
 
+import type { ActiveEffect } from './activeEffectTypes.js';
 import type { BackgroundDefinition } from './backgroundTypes.js';
 import type { DndCombatState } from './damageApplication.js';
 import type { DamageApplyResult } from './damageUtils.js';
@@ -64,7 +65,11 @@ import {
 import { getSpellDamageParts } from './damageParts.js';
 import { syncCreatureDeathCondition } from './deathState.js';
 import { rollDamageFormula as rollDamageFormulaImpl } from './diceFormula.js';
-import { collectActiveEffects, resolveActorStats } from './effectPipeline.js';
+import {
+  collectActiveEffects,
+  isDiceFormulaValue,
+  resolveActorStats,
+} from './effectPipeline.js';
 import { isDndSceneEntity } from './entityGuards.js';
 import { buildFeatGrantsSummary } from './featGrantsSummary.js';
 import { validateFormula } from './formulaParser.js';
@@ -152,6 +157,52 @@ function parseChallengeRating(cr: string): number {
   const parsed = Number(cr);
 
   return Number.isNaN(parsed) ? -1 : parsed;
+}
+
+/**
+ * Сужает эффекты аур к D&D-форме: контракт отдаёт их нейтральной базой, а
+ * считать по ним скорость может только движок своей системы.
+ *
+ * @param ambientEffects - эффекты аур в нейтральной форме ядра
+ * @returns эффекты, которые движок узнаёт
+ */
+function collectDndAmbientEffects(
+  ambientEffects: readonly BaseActiveEffect[],
+): ActiveEffect[] {
+  return ambientEffects.filter(isDnDEffect);
+}
+
+/**
+ * Сущности, о которых уже пожаловались: предупреждение нужно один раз на
+ * сущность, а гейт движения спрашивают на каждом захвате токена мышью.
+ */
+const unreadableEntityIds = new Set<string>();
+
+/**
+ * Жалуется на сущность, которую движок не узнаёт.
+ *
+ * Для реквизита и декораций это норма и молчание правильно, но лист с
+ * характеристиками не числами выглядит целым, а токен его не двигается вовсе —
+ * и понять это без подсказки неоткуда.
+ *
+ * @param entity - сущность сцены
+ */
+function warnUnreadableEntity(entity: SceneEntity): void {
+  if (entity.entityType !== 'actor' && entity.entityType !== 'creature') {
+    return;
+  }
+
+  if (unreadableEntityIds.has(entity.id)) {
+    return;
+  }
+
+  unreadableEntityIds.add(entity.id);
+
+  console.warn(
+    `[dnd5e] Лист «${entity.name}» (${entity.id}) не читается как D&D: `
+      + 'шесть характеристик должны быть числами. Токен такого листа ядро не '
+      + 'двигает — скорость посчитать не по чему',
+  );
 }
 
 /**
@@ -258,10 +309,16 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.7.13';
+  readonly version = '0.7.14';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
+   *
+   * Строение списка эффектов разбирает схема, и её отказ отвергает сохранение
+   * целиком. Нечитаемое значение строки — не повод для отказа: такие строки
+   * встречаются в старых записях, и запрет их сохранять запер бы весь лист.
+   * Движок такую строку просто не применяет, а здесь она попадает в лог мира —
+   * иначе о ней не узнать ниоткуда.
    *
    * @param actor Объект актера для валидации
    */
@@ -277,7 +334,27 @@ export class Dnd5eVttSystem implements VttSystem {
 
     for (const effect of effects) {
       for (const change of effect.changes) {
-        validateFormula(change.value);
+        // Строка без выбранного ключа заведена ради условия — значения у неё
+        // ещё нет, и ругаться на него рано
+        if (change.key === '') {
+          continue;
+        }
+
+        // Кость-формулы бонус-урона («1к6») числом не считаются вовсе: их
+        // катает бросок, и разбор формулы им не указ — как и в самом пайплайне
+        if (isDiceFormulaValue(change.value)) {
+          continue;
+        }
+
+        const result = validateFormula(change.value);
+
+        if (!result.valid) {
+          console.warn(
+            `[dnd5e] Лист «${actor.name}» (${actor.id}), эффект «${effect.name}», `
+              + `модификатор «${change.key}»: значение "${change.value}" не читается `
+              + `(${result.error}) — строка не применяется`,
+          );
+        }
       }
     }
   }
@@ -579,17 +656,39 @@ export class Dnd5eVttSystem implements VttSystem {
   /**
    * Суммарная скорость сущности по всем режимам движения с учётом эффектов —
    * ядро использует её как гейт «может ли токен двигаться» (0 — нельзя).
+   *
+   * Ауры с карты приходят отдельным списком: своими они сущности не являются, и
+   * без них гейт считает не то же, что показывает лист, — аура, дающая скорость
+   * неходячему, на листе видна, а токен ею не двинется.
+   *
+   * ⚠️ Хост этот аргумент пока НЕ передаёт: в его контракте у метода одна
+   * сущность, а ауры лежат в его же сторе отдельно (README, § «Чего не хватает
+   * для полноценного SDK», п. 16). Правка контракта — на стороне хоста, и
+   * трогать его отсюда нельзя; со своей стороны метод к ней готов и посчитает
+   * ауры в тот же день, когда они начнут приходить.
+   *
+   * @param entity - сущность токена
+   * @param ambientEffects - эффекты аур, накрывающих токен
    */
   // eslint-disable-next-line class-methods-use-this
-  getTotalMovementSpeed(entity: SceneEntity): number {
+  getTotalMovementSpeed(
+    entity: SceneEntity,
+    ambientEffects: readonly BaseActiveEffect[] = [],
+  ): number {
     // Сущность без данных системы правилами D&D не двигается: считать её
-    // скорость не по чему, и ядро получит 0 вместо ошибки в обработчике хода
+    // скорость не по чему, и ядро получит 0 вместо ошибки в обработчике хода.
+    // У реквизита и декораций это норма, а вот лист с характеристиками не
+    // числами так замирает молча — поэтому он и назван в предупреждении
     if (!isDndSceneEntity(entity)) {
+      warnUnreadableEntity(entity);
+
       return 0;
     }
 
-    const activeEffects = collectActiveEffects(entity);
-    const { movement } = resolveActorStats(entity, activeEffects);
+    const { movement } = resolveActorStats(
+      entity,
+      collectDndAmbientEffects(ambientEffects),
+    );
 
     return (
       (movement.walk || 0)
@@ -609,16 +708,28 @@ export class Dnd5eVttSystem implements VttSystem {
    * дракона в полёте зона хода схлопнулась бы в точку.
    *
    * «Рывок» даёт прибавку, равную Скорости, — отсюда удвоение предела.
+   *
+   * Ауры с карты приходят отдельным списком по той же причине, что и у
+   * {@link getTotalMovementSpeed}, и с той же оговоркой: хост их пока не
+   * передаёт, правка контракта — его.
+   *
+   * @param entity - сущность токена
+   * @param ambientEffects - эффекты аур, накрывающих токен
    */
   // eslint-disable-next-line class-methods-use-this
-  getMovementRange(entity: SceneEntity): MovementRange | null {
+  getMovementRange(
+    entity: SceneEntity,
+    ambientEffects: readonly BaseActiveEffect[] = [],
+  ): MovementRange | null {
     // Сущность без данных системы считать не по чему
     if (!isDndSceneEntity(entity)) {
       return null;
     }
 
-    const activeEffects = collectActiveEffects(entity);
-    const { movement } = resolveActorStats(entity, activeEffects);
+    const { movement } = resolveActorStats(
+      entity,
+      collectDndAmbientEffects(ambientEffects),
+    );
 
     const base =
       movement.walk

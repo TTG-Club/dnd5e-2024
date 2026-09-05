@@ -7,6 +7,7 @@
     ActiveEffect,
     AreaEffectTrigger,
     ConditionRef,
+    EffectChange,
     EffectFlagKey,
     EffectFlagMenuGroup,
     EffectModifierPreset,
@@ -35,9 +36,11 @@
     EFFECT_TURN_ANCHOR_LABELS,
     EFFECT_TURN_TIMING_LABELS,
     EFFECT_VALUE_SUGGESTIONS,
+    isDiceFormulaValue,
     isEffectFlagKey,
     isEffectTargetKey,
     listSelectableConditions,
+    validateFormula,
   } from '@vtt/shared/system/dnd.js';
 
   import {
@@ -294,6 +297,35 @@
       condition: preset.condition ?? '',
       priority: ACTIVE_EFFECT_DEFAULTS.changePriority,
     });
+  }
+
+  /**
+   * Ошибка значения строки модификатора — подписью прямо под полем.
+   *
+   * Значение читается как формула, и нечитаемое («40 фт», пустое, опечатка)
+   * движок не применяет вовсе: строка просто не срабатывает, и понять это по
+   * листу невозможно. Сохранять такую строку не запрещаем — старые записи
+   * иначе стало бы не сохранить, — но молчать о ней нельзя.
+   *
+   * Строка без выбранного ключа заведена ради одного условия: значения у неё
+   * ещё нет, и требовать его рано.
+   *
+   * @param change - строка модификатора
+   * @returns текст ошибки либо `undefined`, если значение читается
+   */
+  function changeValueError(change: EffectChange): string | undefined {
+    if (change.key === '') {
+      return undefined;
+    }
+
+    // Кость-формулы бонус-урона («1к6») числом не считаются: их катает бросок
+    if (isDiceFormulaValue(change.value)) {
+      return undefined;
+    }
+
+    const result = validateFormula(change.value);
+
+    return result.valid ? undefined : result.error;
   }
 
   /**
@@ -1351,7 +1383,10 @@
                       />
                     </UFormField>
 
-                    <UFormField :label="ACTIVE_EFFECT_FORM_LABELS.changeValue">
+                    <UFormField
+                      :label="ACTIVE_EFFECT_FORM_LABELS.changeValue"
+                      :error="changeValueError(change)"
+                    >
                       <div class="flex w-full gap-1">
                         <UInput
                           v-model="change.value"

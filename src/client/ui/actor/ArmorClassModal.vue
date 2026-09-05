@@ -1,6 +1,7 @@
 <script setup lang="ts">
   import type { ActorArmorClass } from '@vtt/shared';
   import type {
+    ActiveEffect,
     DnDCustomBonus,
     DnDCustomBonusContext,
   } from '@vtt/shared/system/dnd.js';
@@ -11,6 +12,7 @@
   import { Z_INDEX } from '@/shared_ui/consts';
   import {
     BASE_UNARMORED_AC,
+    describeChangeValue,
     getCustomBonusesValue,
     toStoredCustomBonus,
   } from '@vtt/shared/system/dnd.js';
@@ -37,9 +39,22 @@
     dexModifier: number;
     /** Флаг существа: природная броня не прибавляет модификатор ловкости */
     isCreatureMode?: boolean;
+    /**
+     * Итоговый КД листа — то же число, что стоит в плитке. Считает его движок;
+     * окно только сверяет с ним свой расчёт, чтобы не молчать о вмешательстве
+     * эффектов. Нет — окно показывает только свой расчёт.
+     */
+    resolvedArmorClass?: number;
+    /** Действующие эффекты листа: по ним окно называет причину расхождения */
+    activeEffects?: readonly ActiveEffect[];
   }
 
-  const props = withDefaults(defineProps<Props>(), { bonuses: () => [] });
+  const props = withDefaults(defineProps<Props>(), {
+    bonuses: () => [],
+    activeEffects: () => [],
+    // Итога может не быть: лист его считает не всегда, и тогда сверять не с чем
+    resolvedArmorClass: undefined,
+  });
 
   const emit = defineEmits<{
     'update:open': [value: boolean];
@@ -179,6 +194,49 @@
   });
 
   /**
+   * Расходится ли итог листа с расчётом окна.
+   *
+   * Окно считает только по своим полям и своим бонусам: ни надетой брони, ни
+   * щита, ни эффектов оно не знает — а плитка листа знает всё это. Пока числа
+   * сходятся, второй строки нет; разошлись — она и называет настоящий КД, из
+   * которого лист исходит.
+   */
+  const hasSheetTotal = computed(
+    () =>
+      props.resolvedArmorClass !== undefined
+      && props.resolvedArmorClass !== previewAC.value,
+  );
+
+  /**
+   * Разбор итога: из чего он складывается и какие эффекты трогают КД. Режим
+   * строки подписан её же словами — «заменить 18» и «+18» дают разный итог, и
+   * выдавать замену за прибавку нельзя.
+   */
+  const sheetTotalTooltip = computed(() => {
+    const lines: string[] = [ARMOR_CLASS_SETTINGS_LABELS.sheetTotalHint];
+
+    for (const effect of props.activeEffects) {
+      for (const change of effect.changes) {
+        if (change.key !== 'armorClass') {
+          continue;
+        }
+
+        const value = describeChangeValue(change);
+
+        lines.push(
+          `${effect.name}: ${
+            change.condition
+              ? `${value} (${ARMOR_CLASS_SETTINGS_LABELS.conditionalMark})`
+              : value
+          }`,
+        );
+      }
+    }
+
+    return lines.join('\n');
+  });
+
+  /**
    * Применяет изменения класса доспеха
    */
   function applyArmorClass() {
@@ -209,6 +267,18 @@
           <span class="text-4xl font-bold text-highlighted tabular-nums">{{
             previewAC
           }}</span>
+
+          <!-- Итог листа: появляется, когда он разошёлся с расчётом окна -->
+          <UTooltip
+            v-if="hasSheetTotal"
+            :text="sheetTotalTooltip"
+            :ui="{ content: 'whitespace-pre-line' }"
+          >
+            <p class="mt-1 text-xs font-medium text-toned">
+              {{ ARMOR_CLASS_SETTINGS_LABELS.sheetTotal }}:
+              {{ resolvedArmorClass }}
+            </p>
+          </UTooltip>
         </div>
 
         <!-- Разделитель -->

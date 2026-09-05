@@ -247,7 +247,9 @@
 
   const activeTab = ref('actions');
 
-  const { resolvedStats } = useResolvedStats(toRef(() => localCreature.value));
+  const { resolvedStats, combinedEffects } = useResolvedStats(
+    toRef(() => localCreature.value),
+  );
 
   const { receiveTransferredItem } = useItemTransfer();
 
@@ -1533,6 +1535,7 @@
                 :proficiency-bonus="creatureProficiencyBonus"
                 :armor-class="resolvedStats?.armorClass"
                 :resolved-movement="resolvedStats?.movement"
+                :active-effects="combinedEffects"
                 :hit-dice-constitution-modifier="hitDiceConstitutionModifier"
                 @update:system="handleSystemUpdate"
               />

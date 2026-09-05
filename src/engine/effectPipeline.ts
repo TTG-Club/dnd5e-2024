@@ -1001,7 +1001,8 @@ function resolveConditionalValue(
   formulaContext: FormulaContext | undefined,
 ): number {
   if (formulaContext) {
-    return resolveChangeValue(value, formulaContext);
+    // Условный бонус только складывается: нечитаемое значение вклада не даёт
+    return resolveChangeValue(value, formulaContext) ?? 0;
   }
 
   const plainValue = Number(value);
@@ -1193,6 +1194,13 @@ function applyChange(
 
   try {
     const resolvedValue = resolveChangeValue(change.value, formulaContext);
+
+    // Значение не разобралось: строка эффекта не применяется вовсе. Иначе
+    // «заменить» с пустым значением обнулило бы поле, и лист замер бы молча
+    if (resolvedValue === undefined) {
+      return;
+    }
+
     const currentValue = getStatValue(stats, change.key);
     const newValue = applyMode(currentValue, resolvedValue, change.mode);
 
@@ -1217,21 +1225,25 @@ function applyChange(
 /**
  * Вычисляет числовое значение из строки (число или формула).
  *
+ * Нечитаемое значение — это НЕ ноль: у режимов «заменить», «умножить» и
+ * «понизить» ноль означал бы «обнулить поле», и пустая строка эффекта молча
+ * гасила бы скорость, КД или хиты носителя. Такое изменение пропускается
+ * целиком, поэтому неудача возвращается отдельным `undefined`, а не числом.
+ *
  * @param value - строка со значением или формулой
  * @param formulaContext - контекст @-переменных
- * @returns числовое значение
+ * @returns числовое значение либо `undefined`, если значение не разбирается
  */
 function resolveChangeValue(
   value: string,
   formulaContext: FormulaContext,
-): number {
+): number | undefined {
   try {
     return evaluateFormula(value, formulaContext);
   } catch {
-    // Если формула невалидна — игнорируем (fallback на 0)
     console.warn(`[ActiveEffects] Невалидная формула: "${value}"`);
 
-    return 0;
+    return undefined;
   }
 }
 
@@ -1302,12 +1314,15 @@ function applyDerivedChanges(
 
   for (const change of changes) {
     const previousValue = value;
+    const resolvedValue = resolveChangeValue(change.value, formulaContext);
 
-    value = applyMode(
-      value,
-      resolveChangeValue(change.value, formulaContext),
-      change.mode,
-    );
+    // Нечитаемое значение производного ключа пропускается по той же причине,
+    // что и у базовых: ноль тут значил бы «обнулить», а не «нет значения»
+    if (resolvedValue === undefined) {
+      continue;
+    }
+
+    value = applyMode(value, resolvedValue, change.mode);
 
     if (
       value !== previousValue

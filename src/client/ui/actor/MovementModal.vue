@@ -13,6 +13,7 @@
   import { Z_INDEX } from '@/shared_ui/consts';
   import { DISTANCE_UNIT_OPTIONS } from '@vtt/shared';
   import {
+    describeChangeValue,
     getCustomBonusesValue,
     isMovementType,
     MOVEMENT_LABELS,
@@ -37,11 +38,20 @@
     context: DnDCustomBonusContext;
     /** Активные эффекты для вычисления бонусов к скоростям */
     activeEffects?: readonly ActiveEffect[];
+    /**
+     * Итоговые скорости листа — то, что видит плитка и чем ядро меряет ход
+     * токена. Считает их движок; окно только сверяет их с записанными, чтобы
+     * показать расхождение, а не пересчитывает правила заново.
+     */
+    resolvedMovement?: ActorMovement;
   }
 
   const props = withDefaults(defineProps<Props>(), {
     bonuses: () => ({}),
     activeEffects: () => [],
+    // Итогов может не быть вовсе: лист существа считает их не всегда, и тогда
+    // окно просто не показывает разбор
+    resolvedMovement: undefined,
   });
 
   const emit = defineEmits<{
@@ -143,87 +153,150 @@
     );
   }
 
-  /** Источник бонуса к скорости */
-  interface MovementBonusSource {
+  /** Что делает с видом передвижения один эффект */
+  interface MovementEffectSource {
     /** Название эффекта-источника */
     name: string;
-    /** Числовое значение бонуса */
-    value: number;
+    /** Подпись изменения в его собственном режиме: «+10 фт», «заменить 0 фт» */
+    text: string;
   }
 
   /**
-   * Собирает бонусы к скорости от Active Effects для каждого типа движения
+   * Изменения видов передвижения от активных эффектов.
+   *
+   * Копятся любые, а не только ненулевые прибавки: замена скорости нулём и
+   * нечитаемое значение — ровно те случаи, когда лист замирает, и прятать их
+   * тут нельзя. Режим тоже не выдаётся за прибавку — «заменить 60» и «+60»
+   * дают разный итог, и подпись берётся общая с описанием эффекта.
+   *
+   * Условные строки попадают в список с пометкой, а не отбрасываются: часть из
+   * них (условие по носителю — доспех, тип существа) лист считает, часть
+   * откладывает до броска, и решает это движок. Повторять его разбор здесь
+   * значило бы завести вторую реализацию правила; список честнее показать
+   * целиком, а точное число всё равно приходит итогом.
    */
-  const movementBonuses = computed<Record<MovementType, MovementBonusSource[]>>(
-    () => {
-      // Явный литерал, а не сборка по списку ключей: только он доказывает
-      // типу, что запись заполнена по всем типам движения
-      const result: Record<MovementType, MovementBonusSource[]> = {
-        walk: [],
-        swim: [],
-        fly: [],
-        climb: [],
-        burrow: [],
-      };
+  const movementEffects = computed<
+    Record<MovementType, MovementEffectSource[]>
+  >(() => {
+    // Явный литерал, а не сборка по списку ключей: только он доказывает
+    // типу, что запись заполнена по всем типам движения
+    const result: Record<MovementType, MovementEffectSource[]> = {
+      walk: [],
+      swim: [],
+      fly: [],
+      climb: [],
+      burrow: [],
+    };
 
-      const targetPrefix = 'movement.';
+    const targetPrefix = 'movement.';
 
-      for (const effect of props.activeEffects) {
-        for (const change of effect.changes) {
-          if (!change.key.startsWith(targetPrefix) || change.condition) {
-            continue;
-          }
-
-          const movementKey = change.key.slice(targetPrefix.length);
-
-          // Хвост ключа приходит из записи мира — тип подтверждает гвард
-          if (!isMovementType(movementKey)) {
-            continue;
-          }
-
-          const numericValue = Number(change.value);
-
-          if (!Number.isNaN(numericValue) && numericValue !== 0) {
-            result[movementKey].push({
-              name: effect.name,
-              value: numericValue,
-            });
-          }
+    for (const effect of props.activeEffects) {
+      for (const change of effect.changes) {
+        if (!change.key.startsWith(targetPrefix)) {
+          continue;
         }
-      }
 
-      return result;
-    },
+        const movementKey = change.key.slice(targetPrefix.length);
+
+        // Хвост ключа приходит из записи мира — тип подтверждает гвард
+        if (!isMovementType(movementKey)) {
+          continue;
+        }
+
+        const value = describeChangeValue(change);
+
+        result[movementKey].push({
+          name: effect.name,
+          text: change.condition
+            ? `${value} (${MOVEMENT_SETTINGS_LABELS.conditionalMark})`
+            : value,
+        });
+      }
+    }
+
+    return result;
+  });
+
+  /**
+   * Эффекты, гасящие передвижение целиком флагом `speed.zero` — Схвачен,
+   * Опутан, Парализован, Окаменевший, Без сознания. Числами в скоростях они не
+   * видны никак, поэтому окно называет их отдельной строкой.
+   */
+  const zeroSpeedEffects = computed<string[]>(() =>
+    props.activeEffects
+      .filter((effect) => effect.flags.includes('speed.zero'))
+      .map((effect) => effect.name),
   );
 
   /**
-   * Суммарный бонус к скорости для указанного типа движения
+   * Трогают ли вид передвижения эффекты — только тогда рядом с полем встаёт
+   * итоговое число. Без итогов от листа показывать нечего: пересчитывать
+   * правила второй раз окно не станет.
+   *
+   * @param movementKey - вид передвижения
+   * @returns `true`, если у вида есть что объяснять
    */
-  function getMovementBonus(movementKey: MovementType): number {
-    const sources = movementBonuses.value[movementKey];
+  function hasEffectImpact(movementKey: MovementType): boolean {
+    if (!props.resolvedMovement) {
+      return false;
+    }
 
-    return sources.reduce((sum, source) => sum + source.value, 0);
+    if (movementEffects.value[movementKey].length > 0) {
+      return true;
+    }
+
+    // Погашение скорости отмечается только там, где было что гасить: у вида с
+    // нулём и без того ничего не менялось
+    return zeroSpeedEffects.value.length > 0 && props.movement[movementKey] > 0;
   }
 
   /**
-   * Текст тултипа бонусов к скорости
+   * Итоговая скорость вида — её же видит плитка листа и ядро при ходе токена.
+   *
+   * @param movementKey - вид передвижения
+   * @returns число из итогов листа
    */
-  function getMovementBonusTooltip(movementKey: MovementType): string {
-    return movementBonuses.value[movementKey]
-      .filter((source) => source.value !== 0)
-      .map((source) => {
-        const prefix = source.value > 0 ? '+' : '';
-
-        return `${source.name}: ${prefix}${source.value}`;
-      })
-      .join('\n');
+  function getEffectTotal(movementKey: MovementType): number {
+    return props.resolvedMovement?.[movementKey] ?? 0;
   }
 
   /**
-   * CSS-класс цвета бонуса: зелёный для положительных, красный для отрицательных
+   * Разбор итога вида: перечень эффектов и, если скорость погашена целиком, —
+   * чем именно.
+   *
+   * @param movementKey - вид передвижения
+   * @returns текст подсказки построчно
    */
-  function bonusColorClass(value: number): string {
-    return value > 0 ? 'text-success' : 'text-danger';
+  function getEffectTooltip(movementKey: MovementType): string {
+    const lines: string[] = [MOVEMENT_SETTINGS_LABELS.sheetTotalHint];
+
+    for (const source of movementEffects.value[movementKey]) {
+      lines.push(`${source.name}: ${source.text}`);
+    }
+
+    for (const name of zeroSpeedEffects.value) {
+      lines.push(`${name}: ${MOVEMENT_SETTINGS_LABELS.zeroBySource}`);
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Цвет итога: красный, когда эффекты скорость срезали, зелёный — когда
+   * подняли.
+   *
+   * @param movementKey - вид передвижения
+   * @returns CSS-класс цвета
+   */
+  function effectTotalColorClass(movementKey: MovementType): string {
+    const total = getEffectTotal(movementKey);
+    const stored = props.movement[movementKey];
+
+    if (total < stored) {
+      return 'text-danger';
+    }
+
+    return total > stored ? 'text-success' : 'text-toned';
   }
 
   /**
@@ -295,18 +368,16 @@
                 {{ getBonusesLabel(movementType.key) }}
               </span>
 
-              <!-- Бонус от эффектов -->
+              <!-- Итог с учётом эффектов: с ним видно, почему лист не идёт -->
               <UTooltip
-                v-if="getMovementBonus(movementType.key) !== 0"
-                :text="getMovementBonusTooltip(movementType.key)"
+                v-if="hasEffectImpact(movementType.key)"
+                :text="getEffectTooltip(movementType.key)"
                 :ui="{ content: 'whitespace-pre-line' }"
               >
                 <span
                   class="w-12 rounded-md bg-elevated px-2 py-1.5 text-center text-sm font-bold tabular-nums"
-                  :class="bonusColorClass(getMovementBonus(movementType.key))"
-                  >{{
-                    formatSignedNumber(getMovementBonus(movementType.key))
-                  }}</span
+                  :class="effectTotalColorClass(movementType.key)"
+                  >{{ getEffectTotal(movementType.key) }}</span
                 >
               </UTooltip>
 

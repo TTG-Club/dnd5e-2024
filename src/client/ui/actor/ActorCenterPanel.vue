@@ -869,6 +869,7 @@
     :bonuses="actor.system.movementBonuses"
     :context="bonusContext"
     :active-effects="combinedEffects"
+    :resolved-movement="resolvedMovement"
     @apply="onMovementApply"
   />
 
