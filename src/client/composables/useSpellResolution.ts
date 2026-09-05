@@ -62,6 +62,7 @@ import {
 
 import {
   formatRolledPartLine,
+  formatSaveCancelledMessage,
   getPartKindLabel,
   isSaveAbility,
   partPassesTargetGate,
@@ -419,14 +420,17 @@ export function useSpellResolution() {
   /**
    * Обрабатывает одну цель с ручным спасброском (через DiceRollModal).
    *
+   * Окно спасброска можно закрыть, не бросив, — тогда по этой цели не
+   * применяется ничего и возвращается `null` (см. `requestManualSavingThrow`).
+   *
    * @param entity - сущность-цель
    * @param context - контекст заклинания
-   * @returns промис с результатом обработки цели
+   * @returns промис с результатом обработки цели или `null`, если бросок отменили
    */
   async function processTargetManualSave(
     entity: DnDSceneEntity,
     context: SpellResolutionContext,
-  ): Promise<SpellTargetResult> {
+  ): Promise<SpellTargetResult | null> {
     const { spell, damageTotal, spellSaveDC, socket } = context;
 
     let finalDamage = damageTotal;
@@ -445,6 +449,11 @@ export function useSpellResolution() {
       spellSaveDC,
       getSpellSaveCondition(spell),
     );
+
+    // Окно закрыли, не бросив — по этой цели не применяем ничего
+    if (saveResult === null) {
+      return null;
+    }
 
     if (saveResult.passed) {
       switch (spell.saveEffect) {
@@ -642,6 +651,10 @@ export function useSpellResolution() {
    * Обрабатывает ручные спасброски последовательно (один за другим).
    * Каждый бросок открывает DiceRollModal и ждёт результат.
    *
+   * Закрытое без броска окно обрывает очередь: оставшиеся цели не трогаем, а в
+   * чат уходит явная строка отмены. Цели, разобранные до отмены, уже применены
+   * (этот путь пишет HP по одной цели) — их сводка отправляется как обычно.
+   *
    * @param targets - массив акторов с ручными спасброками
    * @param context - контекст заклинания
    * @param sendSummaryAfter - отправлять ли сводку после завершения ручных бросков
@@ -654,9 +667,17 @@ export function useSpellResolution() {
   ): Promise<SpellTargetResult[]> {
     const manualResults: SpellTargetResult[] = [];
 
+    let cancelled = false;
+
     for (const entity of targets) {
       try {
         const result = await processTargetManualSave(entity, context);
+
+        if (result === null) {
+          cancelled = true;
+
+          break;
+        }
 
         manualResults.push(result);
       } catch (error) {
@@ -673,6 +694,13 @@ export function useSpellResolution() {
     } else if (sendSummaryAfter && manualResults.length > 0) {
       // Отправляем сводку ручных результатов
       sendAoeSummary(context.spell, manualResults);
+    }
+
+    if (cancelled) {
+      chatStore.sendMessage(
+        formatSaveCancelledMessage(context.spell.name),
+        'text',
+      );
     }
 
     return manualResults;

@@ -29,6 +29,8 @@ import {
   withInitializedDuration,
 } from '@vtt/shared/system/dnd.js';
 
+import { SAVING_THROW_ROLL_LABELS } from '../ui/actor/constants';
+
 /** Результат спасброска одной цели */
 export interface SpellTargetResult {
   /** Имя актора-цели */
@@ -153,6 +155,20 @@ export interface SavingThrowResult {
   modifier: number;
   total: number;
   passed: boolean;
+}
+
+/**
+ * Собирает строку в чат о свёрнутом действии: окно спасброска закрыли, не
+ * бросив.
+ *
+ * Общая для обоих путей разрешения (многочастного и одночастного): отмена
+ * должна выглядеть в чате одинаково, кто бы её ни поймал.
+ *
+ * @param actionName - название заклинания или действия существа
+ * @returns готовая строка сообщения
+ */
+export function formatSaveCancelledMessage(actionName: string): string {
+  return `${actionName}${SAVING_THROW_ROLL_LABELS.cancelledSuffix}`;
 }
 
 /**

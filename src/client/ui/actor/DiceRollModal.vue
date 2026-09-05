@@ -12,7 +12,7 @@
   import type { CheckRollResult } from './diceRollTypes';
 
   import { promiseTimeout } from '@vueuse/core';
-  import { computed, ref, watch } from 'vue';
+  import { computed, onBeforeUnmount, ref, watch } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
@@ -131,6 +131,15 @@
      * порознь (трекер показывает «к20 + мод»).
      */
     onCheckRoll?: (result: CheckRollResult) => void;
+    /**
+     * Коллбэк отмены: окно закрыли (крестик, Escape, конец сессии мира), так и
+     * не бросив. Вызывается ровно один раз и ТОЛЬКО если броска не было.
+     *
+     * Нужен всем, кто ждёт результата окна: без него закрытие оставляло
+     * вызывающего висеть навсегда (спасбросок цели — вместе со всем начатым
+     * действием: урон не применялся, в чат не уходило ничего).
+     */
+    onCancel?: () => void;
     /** Коллбэк при попадании атаки (вызывается даже если нет формулы урона). */
     onHit?: () => void;
     /**
@@ -185,6 +194,7 @@
     onRollParts: undefined,
     evaluateBonusDamageParts: undefined,
     onCheckRoll: undefined,
+    onCancel: undefined,
     onHit: undefined,
     onAttackRolled: undefined,
     onProjectileAttack: undefined,
@@ -408,10 +418,33 @@
     return buildAttackFormula(mod, attackRollMode.value);
   });
 
+  /** В окне уже бросили — закрытие после этого отменой не считается */
+  let hasRolled = false;
+
+  /** `onCancel` уже отдан — закрытие и размонтирование не должны дублировать его */
+  let cancelNotified = false;
+
+  /**
+   * Сообщает вызывающему, что окно ушло без броска. Молчит, если бросок был
+   * или об отмене уже сообщили: вызывающий сворачивает по ней начатое действие,
+   * и повторить это второй раз нельзя.
+   */
+  function notifyCancel(): void {
+    if (hasRolled || cancelNotified) {
+      return;
+    }
+
+    cancelNotified = true;
+
+    props.onCancel?.();
+  }
+
   watch(
     () => props.open,
-    (opened) => {
+    (opened, wasOpened) => {
       if (opened) {
+        hasRolled = false;
+        cancelNotified = false;
         bonusValue.value = 0;
         rollType.value = 'public';
         attackRollMode.value = props.initialRollMode;
@@ -426,16 +459,36 @@
           consumeSpellSlot.value = props.spellLevel > 0;
           usePactSlot.value = false;
         }
+
+        return;
+      }
+
+      // Окно закрылось. `wasOpened` отсекает первый (immediate) прогон у окон,
+      // смонтированных закрытыми: отменять там ещё нечего.
+      if (wasOpened) {
+        notifyCancel();
       }
     },
     { immediate: true },
   );
+
+  // Окно может уйти и без смены `open` — например, по концу сессии мира
+  // (UDraggableModal слушает своё событие). Ждущий результата обязан узнать и
+  // об этом, иначе действие снова повиснет.
+  onBeforeUnmount(() => {
+    if (props.open) {
+      notifyCancel();
+    }
+  });
 
   /**
    * Выполняет бросок и отправляет результат в чат.
    * Если задан attackModifier и есть цель — выполняет двухэтапную атаку D&D 5e.
    */
   function performRoll() {
+    // Бросок пошёл — закрытие окна в `finally` отменой уже не будет
+    hasRolled = true;
+
     // Сохраняем текущие значения и устанавливаем нужные
     const prevPrivate = chatStore.isPrivateRoll;
     const prevGmOnly = chatStore.isGmOnlyRoll;
@@ -552,6 +605,11 @@
       }
     } catch (err) {
       console.error(DICE_ROLL_LOG_PREFIX, err);
+
+      // Бросок сорвался — закрытие ниже должно дойти до ждущего как отмена, а
+      // не оставить его висеть. Если результат он всё же получил (упало уже
+      // ПОСЛЕ коллбэка), лишняя отмена безвредна: промис решается один раз.
+      hasRolled = false;
     } finally {
       isOpen.value = false;
 

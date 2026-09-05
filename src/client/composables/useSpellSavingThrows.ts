@@ -133,18 +133,22 @@ export function useSpellSavingThrows() {
    * Запрашивает ручной бросок спасброска через DiceRollModal.
    * Открывает модалку с предзаполненным модификатором и ждёт результат.
    *
+   * Окно можно закрыть, не бросив, — тогда промис отдаёт `null`. Это НЕ провал
+   * спасброска и не успех: вызывающий обязан свернуть начатое действие целиком
+   * (без такого ответа оно повисало навсегда — молча, без урона и без чата).
+   *
    * @param entity - сущность-цель
    * @param saveAbility - характеристика спасброска
    * @param saveDC - сложность спасброска
    * @param againstCondition - состояние, которого спасбросок позволяет избежать
-   * @returns промис с результатом спасброска
+   * @returns промис с результатом спасброска или `null`, если окно закрыли
    */
   function requestManualSavingThrow(
     entity: SceneEntity,
     saveAbility: AbilityType,
     saveDC: number,
     againstCondition?: ConditionRef,
-  ): Promise<SavingThrowResult> {
+  ): Promise<SavingThrowResult | null> {
     return new Promise((resolve) => {
       const { modifier, hasAdvantage, hasDisadvantage, autoFail } =
         getActorSaveInfo(entity, saveAbility, againstCondition);
@@ -171,6 +175,9 @@ export function useSpellSavingThrows() {
             passed,
           });
         },
+        onCancel: () => {
+          resolve(null);
+        },
       });
     });
   }
@@ -182,18 +189,21 @@ export function useSpellSavingThrows() {
    * (`rollSavingThrow`), PC с `autoSaves: false` — вручную через DiceRollModal
    * (`requestManualSavingThrow`).
    *
+   * Ручной бросок можно отменить, закрыв окно, — тогда промис отдаёт `null`
+   * (см. `requestManualSavingThrow`). Автоспасбросок отменить нельзя.
+   *
    * @param entity - сущность-цель
    * @param saveAbility - характеристика спасброска
    * @param saveDC - сложность спасброска
    * @param againstCondition - состояние, которого спасбросок позволяет избежать
-   * @returns промис с результатом спасброска
+   * @returns промис с результатом спасброска или `null`, если бросок отменили
    */
   function resolveSavingThrowForTarget(
     entity: SceneEntity,
     saveAbility: AbilityType,
     saveDC: number,
     againstCondition?: ConditionRef,
-  ): Promise<SavingThrowResult> {
+  ): Promise<SavingThrowResult | null> {
     if (resolveAutoSaves(entity)) {
       return Promise.resolve(
         rollSavingThrow(entity, saveAbility, saveDC, againstCondition),

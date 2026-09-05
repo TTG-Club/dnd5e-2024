@@ -41,6 +41,7 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import {
+  formatSaveCancelledMessage,
   formatTargetGateSuffix,
   getPartKindLabel,
   orderTargetsBySaveMode,
@@ -85,6 +86,18 @@ interface EffectDamageLine {
   applied: number;
   /** Сработавшая защита (уязв./сопр./иммун.) */
   outcome: DamageDefenseOutcome;
+}
+
+/** Что даёт цели разбор её target-эффектов: наложить, добавить урон, показать */
+interface TargetEffectsResult {
+  /** Эффекты, которые ложатся на цель */
+  effects: ActiveEffect[];
+  /** Доп. урон от эффектов (уже с множителем спаса и защитами) */
+  bonusDamage: number;
+  /** Сработавшая защита цели на этом доп. уроне */
+  defenseOutcome: DamageDefenseOutcome;
+  /** Строки разбивки доп. урона для чата */
+  damageLines: EffectDamageLine[];
 }
 
 /**
@@ -389,6 +402,15 @@ export function useSpellDamageWithParts() {
     const { spell, spellSaveDC, actors, socket } = context;
     const { scene, cachedTemplate } = options;
 
+    /**
+     * Сворачивает действие: спасбросок цели закрыли, не бросив. Ничего не
+     * применяется (все спасброски берутся ДО первой записи HP), но в чат уходит
+     * явная строка — молчаливое исчезновение действия и было тем багом.
+     */
+    function sendCancelledMessage(): void {
+      chatStore.sendMessage(formatSaveCancelledMessage(spell.name), 'text');
+    }
+
     // 1. Целевые сущности: AoE-шаблон или одиночная цель из targetStore
     const targetEntities: SceneEntity[] = [];
 
@@ -644,12 +666,20 @@ export function useSpellDamageWithParts() {
         const accumulator = getAccumulator(entity, true);
 
         if (spell.saveType !== 'none' && accumulator.save === undefined) {
-          accumulator.save = await resolveSavingThrowForTarget(
+          const save = await resolveSavingThrowForTarget(
             entity,
             spell.saveType,
             spellSaveDC,
             getSpellSaveCondition(spell),
           );
+
+          if (save === null) {
+            sendCancelledMessage();
+
+            return;
+          }
+
+          accumulator.save = save;
         }
 
         for (const part of applicableParts) {
@@ -677,12 +707,20 @@ export function useSpellDamageWithParts() {
           && spell.saveType !== 'none'
           && accumulator.save === undefined
         ) {
-          accumulator.save = await resolveSavingThrowForTarget(
+          const save = await resolveSavingThrowForTarget(
             chooseEntity,
             spell.saveType,
             spellSaveDC,
             getSpellSaveCondition(spell),
           );
+
+          if (save === null) {
+            sendCancelledMessage();
+
+            return;
+          }
+
+          accumulator.save = save;
         }
 
         for (const part of applicableChooseParts) {
@@ -718,12 +756,20 @@ export function useSpellDamageWithParts() {
         const accumulator = getAccumulator(entity, true);
 
         if (spell.saveType !== 'none' && accumulator.save === undefined) {
-          accumulator.save = await resolveSavingThrowForTarget(
+          const save = await resolveSavingThrowForTarget(
             entity,
             spell.saveType,
             spellSaveDC,
             getSpellSaveCondition(spell),
           );
+
+          if (save === null) {
+            sendCancelledMessage();
+
+            return;
+          }
+
+          accumulator.save = save;
         }
       }
     }
@@ -749,12 +795,7 @@ export function useSpellDamageWithParts() {
     async function resolveTargetEffects(
       entity: SceneEntity,
       landingSave: SavingThrowResult | undefined,
-    ): Promise<{
-      effects: ActiveEffect[];
-      bonusDamage: number;
-      defenseOutcome: DamageDefenseOutcome;
-      damageLines: EffectDamageLine[];
-    }> {
+    ): Promise<TargetEffectsResult | null> {
       const targetEffects = (spell.activeEffects ?? []).filter(
         (effect) => !effect.disabled && effect.effectTarget === 'target',
       );
@@ -783,6 +824,11 @@ export function useSpellDamageWithParts() {
             effect.applySave.dc,
             effect.conditionKey,
           );
+
+          // Окно спасброска эффекта закрыли — сворачиваем всё действие
+          if (saveResult === null) {
+            return null;
+          }
 
           applySaveSucceeded = saveResult.passed;
         }
@@ -849,6 +895,30 @@ export function useSpellDamageWithParts() {
       return { effects: collected, bonusDamage, defenseOutcome, damageLines };
     }
 
+    // 5a. Эффекты целей разбираем ДО первой записи HP: у эффекта бывает свой
+    // спасбросок с окном, и его отмена обязана свернуть действие целиком —
+    // а уже применённый другим целям урон обратно не отыграть.
+    const targetEffectResults = new Map<string, TargetEffectsResult>();
+
+    for (const accumulator of accumulators.values()) {
+      if (!accumulator.isTarget) {
+        continue;
+      }
+
+      const targetResult = await resolveTargetEffects(
+        accumulator.entity,
+        accumulator.save,
+      );
+
+      if (targetResult === null) {
+        sendCancelledMessage();
+
+        return;
+      }
+
+      targetEffectResults.set(accumulator.entity.id, targetResult);
+    }
+
     // 6. Применяем по сущности ОДНИМ апдейтом
     const results: SpellTargetResult[] = [];
 
@@ -867,12 +937,9 @@ export function useSpellDamageWithParts() {
 
       let effectsToApply: ActiveEffect[] | undefined;
 
-      if (accumulator.isTarget) {
-        const targetResult = await resolveTargetEffects(
-          accumulator.entity,
-          accumulator.save,
-        );
+      const targetResult = targetEffectResults.get(accumulator.entity.id);
 
+      if (targetResult) {
         effectsToApply =
           targetResult.effects.length > 0 ? targetResult.effects : undefined;
 
