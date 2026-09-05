@@ -19,6 +19,8 @@
 
   const props = defineProps<{
     speciesDefinition: SpeciesDefinition;
+    /** Пак записи: уходит на лист вместе с определением при переносе */
+    packId?: string;
     showEdit?: boolean;
     showDelete?: boolean;
     showCopy?: boolean;
@@ -55,9 +57,14 @@
 
     event.dataTransfer.effectAllowed = 'copy';
 
+    // Вместе с паком: одноимённый вид есть и в соседнем компендиуме, и лист
+    // должен взять ту копию, которую тянут
     event.dataTransfer.setData(
       SPECIES_DEFINITION_MIME,
-      JSON.stringify(props.speciesDefinition),
+      JSON.stringify({
+        definition: props.speciesDefinition,
+        packId: props.packId,
+      }),
     );
   }
 </script>

@@ -20,6 +20,8 @@
   const props = defineProps<{
     backgroundDefinition?: BackgroundDefinition;
     item?: BackgroundDefinition;
+    /** Пак записи: уходит на лист вместе с определением при переносе */
+    packId?: string;
     showEdit?: boolean;
     showDelete?: boolean;
     showCopy?: boolean;
@@ -50,9 +52,11 @@
 
   function onDragStart(event: DragEvent) {
     if (event.dataTransfer) {
+      // Вместе с паком: одноимённая предыстория есть и в соседнем компендиуме,
+      // и лист должен взять ту копию, которую тянут
       event.dataTransfer.setData(
         BACKGROUND_DEFINITION_MIME,
-        JSON.stringify(data.value),
+        JSON.stringify({ definition: data.value, packId: props.packId }),
       );
 
       event.dataTransfer.effectAllowed = 'copy';

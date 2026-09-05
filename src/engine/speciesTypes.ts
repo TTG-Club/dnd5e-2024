@@ -309,6 +309,8 @@ export interface SpeciesDefinition {
 export interface ActorSpeciesEntry {
   speciesKey: string;
   speciesName: string;
+  /** Компендиум, из которого взят вид; см. {@link ActorClassEntry.packId} */
+  packId?: string;
   creatureType: CreatureType;
   size: import('@vtt/shared').CreatureSize;
   /**

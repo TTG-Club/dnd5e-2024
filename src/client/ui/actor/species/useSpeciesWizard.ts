@@ -391,6 +391,8 @@ export function useSpeciesWizard(
   compendiumFeats: import('vue').Ref<ReadonlyArray<CompendiumFeat>> = ref<
     ReadonlyArray<CompendiumFeat>
   >([]),
+  /** Пак записи вида — ложится на запись актора, см. `ActorSpeciesEntry.packId` */
+  packId: import('vue').Ref<string | undefined> = ref(undefined),
 ) {
   /** Виды оружия мира — пул выбора оружия и оружейного приёма */
   const { weaponOptions } = useFeatChoiceWeapons();
@@ -795,6 +797,7 @@ export function useSpeciesWizard(
 
     const speciesEntry: ActorSpeciesEntry = {
       speciesKey: definition.key,
+      ...(packId.value ? { packId: packId.value } : {}),
       speciesName: definition.name,
       creatureType: definition.creatureType,
       size: state.value.selectedSize,

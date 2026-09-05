@@ -74,6 +74,8 @@ export function useBackgroundWizard(
   actorRef: Ref<DnDActor>,
   isOpenRef: Ref<boolean>,
   socketRef: Ref<TypedWebSocketClient | null>,
+  /** Пак записи предыстории — на запись актора, см. `ActorBackgroundEntry.packId` */
+  packIdRef: Ref<string | undefined>,
 ) {
   /**
    * Определение с достроенными блоками даров: записи компендиума отдают
@@ -738,6 +740,7 @@ export function useBackgroundWizard(
     // для точного отката при замене/удалении).
     const entry: ActorBackgroundEntry = {
       backgroundKey: def.key,
+      ...(packIdRef.value ? { packId: packIdRef.value } : {}),
       backgroundName: def.name,
       abilityChoices: { ...abilityAllocation.value },
       skillChoices: [...def.skillGrant.skills],

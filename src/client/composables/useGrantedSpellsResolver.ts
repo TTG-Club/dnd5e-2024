@@ -22,12 +22,15 @@ import type {
 import { computed, ref, watch } from 'vue';
 
 import { useItemsStore } from '@/stores/itemsStore';
-import { expandClassSpellRequests } from '@vtt/shared/system/dnd.js';
+import {
+  expandClassSpellRequests,
+  WORLD_PACK_ID,
+} from '@vtt/shared/system/dnd.js';
 
 import {
   extractWorldSpells,
+  findSpellInPacks,
   loadSpellPacks,
-  WORLD_SPELL_PACK_ID,
 } from './spellCompendium';
 
 /**
@@ -75,7 +78,7 @@ export function useGrantedSpellsResolver(
     compendiumPacks.value = [
       ...packs.map((pack) => ({ packId: pack.packId, spells: pack.spells })),
       {
-        packId: WORLD_SPELL_PACK_ID,
+        packId: WORLD_PACK_ID,
         spells: extractWorldSpells(useItemsStore().itemsByType('spell')),
       },
     ];
@@ -120,8 +123,12 @@ export function useGrantedSpellsResolver(
       ...grantedSpellSources.value,
       ...expandClassSpellRequests(requests, compendiumPacks.value),
     ]) {
-      const spell = compendiumSpells.value.find(
-        (entry) => entry.id === source.spellId,
+      // Сперва пак источника, потом любой: одно и то же заклинание лежит в
+      // нескольких компендиумах, и выданное записью из ПРОД должно быть её копией
+      const spell = findSpellInPacks(
+        compendiumPacks.value,
+        source.spellId,
+        source.packId,
       );
 
       if (spell) {

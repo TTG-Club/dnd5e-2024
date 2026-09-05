@@ -220,22 +220,25 @@ function getLevelTableValue(
  * поэтому числа складываются. Классы без нужной колонки в сумму не входят —
  * иначе плитка показала бы число, которого таблицы не дают.
  *
+ * Определение класса находит вызывающий: у записи актора есть не только ключ,
+ * но и пак, и таблицу надо читать из той копии класса, которую выбрали, а не из
+ * одноимённой в соседнем компендиуме.
+ *
  * @param classes - классы актёра
- * @param definitions - определения классов из компендиума
+ * @param resolveDefinition - определение класса по записи актора; undefined —
+ *   записи нет ни в одном компендиуме
  * @param kind - вид подготовки
  * @returns число из таблиц или null, если его не даёт ни один класс
  */
 export function getClassPreparedValue(
   classes: ActorClassEntry[],
-  definitions: ClassDefinition[],
+  resolveDefinition: (entry: ActorClassEntry) => ClassDefinition | undefined,
   kind: PreparedKind,
 ): number | null {
   let total: number | null = null;
 
   for (const entry of classes) {
-    const definition = definitions.find(
-      (classDefinition) => classDefinition.key === entry.classKey,
-    );
+    const definition = resolveDefinition(entry);
 
     const tableValue = definition
       ? getLevelTableValue(definition, entry.level, kind)

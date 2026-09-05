@@ -29,6 +29,8 @@
   const props = defineProps<{
     /** Данные класса из SRD или мира */
     classDefinition: ClassDefinition;
+    /** Пак записи: уходит на лист вместе с определением при переносе */
+    packId?: string;
     showEdit?: boolean;
     showDelete?: boolean;
     showCopy?: boolean;
@@ -75,9 +77,14 @@
 
     event.dataTransfer.effectAllowed = 'copy';
 
+    // Вместе с паком: одноимённый класс есть и в соседнем компендиуме, и лист
+    // должен взять ту копию, которую тянут
     event.dataTransfer.setData(
       CLASS_DEFINITION_MIME,
-      JSON.stringify(props.classDefinition),
+      JSON.stringify({
+        definition: props.classDefinition,
+        packId: props.packId,
+      }),
     );
   }
 </script>

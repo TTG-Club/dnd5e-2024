@@ -258,7 +258,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.7.10';
+  readonly version = '0.7.11';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.

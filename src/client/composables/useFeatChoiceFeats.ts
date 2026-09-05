@@ -18,10 +18,13 @@ import type { Ref } from 'vue';
 import type { TypedWebSocketClient } from '@vtt/shared';
 
 import type { CompendiumFeat } from '../ui/actor/feat/featApply';
+import type { CatalogPack } from './useCompendiumCatalog';
 
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 
-import { loadCompendiumKind } from '@/core/compendiumDataClient';
+import { loadCompendiumKindByPack } from '@/core/compendiumDataClient';
+
+import { flattenPreferringBy } from './useCompendiumCatalog';
 
 /**
  * Запись компендиума — черта. Требования `source` нет: у записей компендиума есть только
@@ -42,26 +45,50 @@ function isCompendiumFeat(value: unknown): value is CompendiumFeat {
 /**
  * Загружает черты компендиума, если они нужны дарам.
  *
+ * Каталог держится по пакам, а наружу отдаётся без повторов: копия черты из
+ * пака записи, которая спрашивает, побеждает одноимённую из соседнего.
+ *
  * @param socket - WebSocket-клиент; без него каталог остаётся пустым
  * @param isNeeded - нужен ли каталог: есть ли выбор черты или выдаваемая черта
+ * @param preferredPackId - пак записи, которая спрашивает; пусто — порядок паков хоста
  * @returns `feats` — черты каталога (пустой список, пока не загружены)
  */
 export function useFeatChoiceFeats(
   socket: Ref<TypedWebSocketClient | null | undefined>,
   isNeeded: Ref<boolean>,
+  preferredPackId?: Ref<string | undefined>,
 ) {
-  const feats = ref<CompendiumFeat[]>([]);
+  /** Черты компендиума по пакам — как приехали */
+  const featPacks = ref<CatalogPack<CompendiumFeat>[]>([]);
+
+  const feats = computed<CompendiumFeat[]>(() =>
+    flattenPreferringBy(
+      featPacks.value,
+      preferredPackId?.value,
+      (feat) => feat.id,
+    ),
+  );
 
   watch(
     [isNeeded, socket],
     async ([isRequired, socketClient]) => {
-      if (!isRequired || !socketClient || feats.value.length > 0) {
+      if (!isRequired || !socketClient || featPacks.value.length > 0) {
         return;
       }
 
-      const entries: unknown[] = await loadCompendiumKind(socketClient, 'feat');
+      const packs = await loadCompendiumKindByPack(socketClient, 'feat');
 
-      feats.value = entries.filter(isCompendiumFeat);
+      featPacks.value = packs.map((pack) => {
+        // Расширяем до unknown[]: черта не подтип CompendiumEntry, и гвард иначе
+        // не сузит при filter
+        const rawEntries: unknown[] = pack.entries;
+
+        return {
+          packId: pack.packId,
+          packName: pack.packName,
+          entries: rawEntries.filter(isCompendiumFeat),
+        };
+      });
     },
     { immediate: true },
   );

@@ -129,9 +129,6 @@ export const COMPENDIUM_PICKER_CURRENT_TITLES: Record<
  */
 export const ALL_PACKS_ID = '__all__';
 
-/** Псевдо-пак записей, созданных в самом мире (панель «Предметы») */
-export const WORLD_PACK_ID = '__world__';
-
 /**
  * Подписи окна выбора вида/класса/предыстории из компендиума.
  *
@@ -4390,6 +4387,9 @@ export const ACTOR_SPELLS_TAB_LABELS = {
   rollTitlePrefix: 'Заклинание — ',
   attackRoll: 'Бросить атаку',
   healing: 'Лечение',
+  /** Кнопка пополнения книги и заголовок окна компендиума за ней */
+  add: 'Добавить',
+  addTitle: 'Заклинания компендиума',
   spellcastingSettings: 'Настроить заклинательство',
   preparedLimitSettings: 'Настроить предел подготовки',
   pact: 'Пакт',

@@ -17,7 +17,7 @@ import type {
   StartingEquipmentItem,
 } from '@vtt/shared/system/dnd.js';
 
-import { loadCompendiumKind } from '@/core/compendiumDataClient';
+import { loadCompendiumKindByPack } from '@/core/compendiumDataClient';
 import { generateId, isRecord } from '@vtt/shared';
 import {
   isDnDGameItem,
@@ -25,6 +25,8 @@ import {
   STARTING_EQUIPMENT_ITEM_KINDS,
   startingEquipmentQuantity,
 } from '@vtt/shared/system/dnd.js';
+
+import { orderPacksPreferring } from './useCompendiumCatalog';
 
 /** Слаг страницы записи компендиума; пусто — запись в индекс не попадает. */
 function entrySrcUrl(entry: unknown): string | undefined {
@@ -58,13 +60,18 @@ function fallbackItem(item: StartingEquipmentItem): DnDGameItem {
 /**
  * Разворачивает позиции варианта снаряжения в предметы инвентаря.
  *
+ * Паки обходятся с предпочтением пака записи, чья это снаряжение: слаг у копий
+ * одного предмета в разных компендиумах один, и первым должен встретиться свой.
+ *
  * @param socket - WebSocket-клиент (для загрузки компендиума)
  * @param items - позиции выбранного варианта
+ * @param preferredPackId - пак записи класса или предыстории; пусто — порядок хоста
  * @returns предметы, готовые лечь в `actor.equipment`
  */
 export async function resolveStartingEquipment(
   socket: TypedWebSocketClient | null | undefined,
   items: StartingEquipmentItem[],
+  preferredPackId?: string,
 ): Promise<DnDGameItem[]> {
   if (items.length === 0) {
     return [];
@@ -74,15 +81,17 @@ export async function resolveStartingEquipment(
 
   if (socket) {
     for (const kind of STARTING_EQUIPMENT_ITEM_KINDS) {
-      const entries = await loadCompendiumKind(socket, kind);
+      const packs = await loadCompendiumKindByPack(socket, kind);
 
-      for (const entry of entries) {
-        const srcUrl = entrySrcUrl(entry);
+      for (const pack of orderPacksPreferring(packs, preferredPackId)) {
+        for (const entry of pack.entries) {
+          const srcUrl = entrySrcUrl(entry);
 
-        // Первая запись с этим слагом и остаётся: у раскрытых магических
-        // предметов слаг общий, и якорная запись идёт в паке первой
-        if (srcUrl && !bySrcUrl.has(srcUrl) && isDnDGameItem(entry)) {
-          bySrcUrl.set(srcUrl, entry);
+          // Первая запись с этим слагом и остаётся: у раскрытых магических
+          // предметов слаг общий, и якорная запись идёт в паке первой
+          if (srcUrl && !bySrcUrl.has(srcUrl) && isDnDGameItem(entry)) {
+            bySrcUrl.set(srcUrl, entry);
+          }
         }
       }
     }

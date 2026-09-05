@@ -1,4 +1,5 @@
 <script setup lang="ts">
+  import type { PackKindEntries } from '@/core/compendiumDataClient';
   import type { DraggedCompendiumEntry } from '@/core/entityDragState';
   import type {
     CompendiumManifest,
@@ -17,6 +18,8 @@
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { CatalogPack } from '../../composables/useCompendiumCatalog';
+
   import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
   import {
@@ -25,7 +28,7 @@
   } from '@/core/actorDragState';
   import { getChatService } from '@/core/api/chatService';
   import {
-    loadCompendiumKind,
+    loadCompendiumKindByPack,
     loadCompendiumManifests,
   } from '@/core/compendiumDataClient';
   import { startCompendiumEntryDrag } from '@/core/entityDragState';
@@ -35,6 +38,7 @@
   import { useCompendiumView } from '@/shared_ui/composables/useCompendiumView';
   import { generateId, getAssetUrl, systemRegistry } from '@vtt/shared';
 
+  import { flattenPreferringBy } from '../../composables/useCompendiumCatalog';
   import {
     COMPENDIUM_LABELS,
     COMPENDIUM_PACK_BUTTON_CLASS,
@@ -70,6 +74,16 @@
    * открытие — значит каждый раз открывать окно не в своём макете.
    */
   const kindViewCache = new Map<string, CompendiumView>();
+
+  /**
+   * Типы, чьи копии из разных паков показываются каждая своей строкой: их
+   * выбирают на лист, и копия из одного компендиума — не то же, что из другого.
+   */
+  const KINDS_WITH_COPIES: ReadonlySet<string> = new Set([
+    'class',
+    'species',
+    'background',
+  ]);
 
   // `ClassDefinition`/`SpeciesDefinition` перечислены явно, хотя по форме и
   // подошли бы под `Record<string, unknown>`: интерфейсу TypeScript индексную
@@ -151,6 +165,18 @@
      * классовыми — с бейджем источника.
      */
     pinnedSpells?: GrantedSpellSource[];
+    /**
+     * Выбор без предела: окно открыто, чтобы пополнить книгу заклинаний листа,
+     * и сколько их взять, решает не окно. Норму показывает сам лист счётчиком
+     * по таблице класса — предел здесь спорил бы с ним.
+     */
+    unlimitedSelection?: boolean;
+    /**
+     * Пак записи, ради которой открыт браузер (класс персонажа): заклинание,
+     * черта или предмет, повторённые в нескольких паках, остаются его копией.
+     * Пусто — побеждает первая по порядку паков хоста.
+     */
+    preferredPackId?: string;
   }>();
 
   const emit = defineEmits<{
@@ -161,6 +187,22 @@
   }>();
 
   const items = ref<CompendiumDataItem[]>([]);
+
+  /**
+   * Пак каждой записи узла типа: записи разных паков лежат в одном списке, и
+   * различить копии одной записи можно только по нему. Ключ — сама запись:
+   * движок показа фильтрует и сортирует те же объекты, не копируя их.
+   */
+  const entryPacks = new WeakMap<
+    object,
+    { packId: string; packName: string }
+  >();
+
+  /**
+   * Ключи записей, встретившихся больше чем в одном паке, — им нужна подпись
+   * пака, иначе две одинаковые строки не отличить.
+   */
+  const duplicatedKeys = ref<Set<string>>(new Set());
 
   /**
    * Настройка показа, взятая из манифеста при загрузке по типу записей. Проп
@@ -193,7 +235,9 @@
   /** Активен ли режим выбора */
   const isSelectionMode = computed(
     () =>
-      props.selectionLimit !== undefined || props.cantripsLimit !== undefined,
+      props.selectionLimit !== undefined
+      || props.cantripsLimit !== undefined
+      || Boolean(props.unlimitedSelection),
   );
 
   /** Нормализованные названия уже изученных заклинаний персонажа */
@@ -339,6 +383,8 @@
 
     if (newSet.has(spell.id)) {
       newSet.delete(spell.id);
+    } else if (props.unlimitedSelection) {
+      newSet.add(spell.id);
     } else {
       const isCantrip = spell.level === 0;
 
@@ -390,7 +436,7 @@
       return true;
     }
 
-    if (selectedSpells.value.has(spell.id)) {
+    if (selectedSpells.value.has(spell.id) || props.unlimitedSelection) {
       return false;
     }
 
@@ -752,27 +798,99 @@
     loadedItems: CompendiumDataItem[],
   ): void {
     if (dataFile === props.dataFile) {
-      // Сортируем по алфавиту для классов и видов
-      if (isClassData.value || isSpeciesData.value) {
-        loadedItems.sort((entryA, entryB) => {
-          const nameA =
-            'name' in entryA && typeof entryA.name === 'string'
-              ? entryA.name
-              : '';
-
-          const nameB =
-            'name' in entryB && typeof entryB.name === 'string'
-              ? entryB.name
-              : '';
-
-          return nameA.localeCompare(nameB, 'ru');
-        });
-      }
-
-      items.value = loadedItems;
-      isLoading.value = false;
-      loadedFile.value = dataFile;
+      void applyDataFileItems(dataFile, loadedItems);
     }
+  }
+
+  /**
+   * Показывает записи узла одного пака.
+   *
+   * Перед показом записи помечаются паком-владельцем узла: у такого узла пак
+   * один, и его записи уходят на лист вместе с ним — иначе перенос из «TTG Club»
+   * ложился бы на лист копией из первого попавшегося одноимённого компендиума.
+   *
+   * @param dataFile - ключ узла
+   * @param loadedItems - записи узла
+   */
+  async function applyDataFileItems(
+    dataFile: string,
+    loadedItems: CompendiumDataItem[],
+  ): Promise<void> {
+    // Сортируем по алфавиту для классов и видов
+    if (isClassData.value || isSpeciesData.value) {
+      loadedItems.sort((entryA, entryB) => {
+        const nameA =
+          'name' in entryA && typeof entryA.name === 'string'
+            ? entryA.name
+            : '';
+
+        const nameB =
+          'name' in entryB && typeof entryB.name === 'string'
+            ? entryB.name
+            : '';
+
+        return nameA.localeCompare(nameB, 'ru');
+      });
+    }
+
+    await tagEntriesWithPackOf(dataFile, loadedItems);
+
+    // Пока ждали манифесты, узел могли сменить — ответ уже не про то, что показано
+    if (dataFile !== props.dataFile) {
+      return;
+    }
+
+    duplicatedKeys.value = new Set();
+    items.value = loadedItems;
+    isLoading.value = false;
+    loadedFile.value = dataFile;
+  }
+
+  /**
+   * Помечает записи паком, которому принадлежит узел. Манифесты хост отдаёт
+   * из кеша, поэтому ожидание здесь — на первый раз.
+   *
+   * @param dataFile - ключ узла
+   * @param entries - записи узла
+   */
+  async function tagEntriesWithPackOf(
+    dataFile: string,
+    entries: ReadonlyArray<CompendiumDataItem>,
+  ): Promise<void> {
+    if (!props.socket) {
+      return;
+    }
+
+    const manifests = await loadCompendiumManifests(props.socket);
+
+    const owner = manifests.find((manifest) =>
+      treeHasDataFile(manifest.tree, dataFile),
+    );
+
+    if (!owner) {
+      return;
+    }
+
+    for (const entry of entries) {
+      entryPacks.set(entry, { packId: owner.id, packName: owner.name });
+    }
+  }
+
+  /**
+   * Есть ли в дереве манифеста узел с таким ключом.
+   *
+   * @param nodes - узлы дерева
+   * @param dataFile - искомый ключ узла
+   */
+  function treeHasDataFile(
+    nodes: ReadonlyArray<CompendiumTreeNode>,
+    dataFile: string,
+  ): boolean {
+    return nodes.some(
+      (node) =>
+        node.dataFile === dataFile
+        || (node.children ? treeHasDataFile(node.children, dataFile) : false),
+    );
   }
 
   /** Запрашивает данные из data-файла */
@@ -817,8 +935,8 @@
 
     isLoading.value = true;
 
-    const [entries, manifests] = await Promise.all([
-      loadCompendiumKind(socket, kind),
+    const [packs, manifests] = await Promise.all([
+      loadCompendiumKindByPack(socket, kind),
       loadCompendiumManifests(socket),
     ]);
 
@@ -828,10 +946,132 @@
       kindViewCache.set(kind, view);
     }
 
-    items.value = [...entries];
+    items.value = collectKindEntries(packs, kind);
     kindView.value = view;
     loadedFile.value = kind;
     isLoading.value = false;
+  }
+
+  /**
+   * Ключ записи внутри пака: `key` у определений, `id` у остального.
+   *
+   * @param entry - запись списка
+   */
+  function entryKeyOf(entry: CompendiumDataItem): string | undefined {
+    if ('key' in entry && typeof entry.key === 'string') {
+      return entry.key;
+    }
+
+    return 'id' in entry && typeof entry.id === 'string' ? entry.id : undefined;
+  }
+
+  /**
+   * Записи типа со всех паков одним списком.
+   *
+   * Класс, вид и предыстория остаются каждой копией: их выбирают на лист, и
+   * копия из DEV-компендиума — другая запись, чем из ПРОД. Остальное
+   * (заклинания, черты, предметы) схлопывается по ключу: при повторе побеждает
+   * копия предпочтённого пака — пака класса персонажа, — иначе первая по
+   * порядку хоста.
+   *
+   * @param packs - записи по пакам
+   * @param kind - канонический тип записей
+   */
+  function collectKindEntries(
+    packs: ReadonlyArray<PackKindEntries>,
+    kind: string,
+  ): CompendiumDataItem[] {
+    const catalogPacks: CatalogPack<CompendiumDataItem>[] = packs.map(
+      (pack) => ({
+        packId: pack.packId,
+        packName: pack.packName,
+        entries: [...pack.entries],
+      }),
+    );
+
+    for (const pack of catalogPacks) {
+      for (const entry of pack.entries) {
+        entryPacks.set(entry, { packId: pack.packId, packName: pack.packName });
+      }
+    }
+
+    if (!KINDS_WITH_COPIES.has(kind)) {
+      duplicatedKeys.value = new Set();
+
+      // Записи без ключа (разделители) уникальны сами по себе
+      let unkeyed = 0;
+
+      return flattenPreferringBy(
+        catalogPacks,
+        props.preferredPackId,
+        (entry) => entryKeyOf(entry) ?? `#${unkeyed++}`,
+      );
+    }
+
+    const seenKeys = new Set<string>();
+    const duplicates = new Set<string>();
+
+    for (const pack of catalogPacks) {
+      for (const entry of pack.entries) {
+        const key = entryKeyOf(entry);
+
+        if (key === undefined) {
+          continue;
+        }
+
+        if (seenKeys.has(key)) {
+          duplicates.add(key);
+        } else {
+          seenKeys.add(key);
+        }
+      }
+    }
+
+    duplicatedKeys.value = duplicates;
+
+    return catalogPacks.flatMap((pack) => pack.entries);
+  }
+
+  /**
+   * Подпись пака у строки — только когда та же запись есть и в другом паке: у
+   * единственной копии подпись лишняя.
+   *
+   * @param entry - запись списка
+   */
+  function packLabelFor(entry: CompendiumDataItem): string | undefined {
+    const key = entryKeyOf(entry);
+
+    if (key === undefined || !duplicatedKeys.value.has(key)) {
+      return undefined;
+    }
+
+    return entryPacks.get(entry)?.packName;
+  }
+
+  /**
+   * Пак записи — уходит на лист вместе с определением при переносе.
+   *
+   * @param entry - запись списка
+   */
+  function packIdOf(entry: CompendiumDataItem): string | undefined {
+    return entryPacks.get(entry)?.packId;
+  }
+
+  /**
+   * Ключ строки списка: копии одной записи из разных паков различаются паком.
+   *
+   * @param entry - запись списка
+   * @param index - позиция в списке — для записей без идентификатора
+   */
+  function rowKey(entry: CompendiumDataItem, index: number): string {
+    if (isSeparator(entry)) {
+      return `sep-${index}`;
+    }
+
+    const id = 'id' in entry ? String(entry.id) : String(index);
+    const packId = packIdOf(entry);
+
+    return packId ? `${packId}::${id}` : id;
   }
 
   /**
@@ -1660,13 +1900,7 @@
             >
               <template
                 v-for="(entry, index) in visibleEntries"
-                :key="
-                  isSeparator(entry)
-                    ? `sep-${index}`
-                    : 'id' in entry
-                      ? entry.id
-                      : index
-                "
+                :key="rowKey(entry, index)"
               >
                 <!-- Разделитель секции -->
                 <div
@@ -1695,16 +1929,30 @@
                   @dragstart="onEntryDragStart(entry, $event)"
                   @dragend="onEntryDragEnd"
                 >
-                  <!-- Предмет: Вид -->
+                  <!-- Предмет: Вид. Копии из разных паков стоят своей строкой,
+                    подписанные паком, а пак уходит на лист вместе с записью -->
                   <template v-if="isSpeciesData && isSpeciesDefinition(entry)">
-                    <EntityCard
-                      flat
-                      entity-type="species"
-                      :entry="toCardEntry(entry)"
-                      show-copy
-                      @click="openSpeciesDetail(entry)"
-                      @copy="copySpeciesToItems(entry)"
-                    />
+                    <div class="flex items-center gap-2">
+                      <EntityCard
+                        flat
+                        class="min-w-0 flex-1"
+                        entity-type="species"
+                        :entry="toCardEntry(entry)"
+                        :pack-id="packIdOf(entry)"
+                        show-copy
+                        @click="openSpeciesDetail(entry)"
+                        @copy="copySpeciesToItems(entry)"
+                      />
+
+                      <UBadge
+                        v-if="packLabelFor(entry)"
+                        :label="packLabelFor(entry)"
+                        size="sm"
+                        color="neutral"
+                        variant="subtle"
+                        class="shrink-0"
+                      />
+                    </div>
                   </template>
 
                   <!-- Предмет: Предыстория -->
@@ -1713,26 +1961,52 @@
                       isBackgroundData && isBackgroundDefinition(entry)
                     "
                   >
-                    <EntityCard
-                      flat
-                      entity-type="background"
-                      :entry="toCardEntry(entry)"
-                      show-copy
-                      @click="openBackgroundDetail(entry)"
-                      @copy="copyToItems(backgroundCopyId(entry))"
-                    />
+                    <div class="flex items-center gap-2">
+                      <EntityCard
+                        flat
+                        class="min-w-0 flex-1"
+                        entity-type="background"
+                        :entry="toCardEntry(entry)"
+                        :pack-id="packIdOf(entry)"
+                        show-copy
+                        @click="openBackgroundDetail(entry)"
+                        @copy="copyToItems(backgroundCopyId(entry))"
+                      />
+
+                      <UBadge
+                        v-if="packLabelFor(entry)"
+                        :label="packLabelFor(entry)"
+                        size="sm"
+                        color="neutral"
+                        variant="subtle"
+                        class="shrink-0"
+                      />
+                    </div>
                   </template>
 
                   <!-- Предмет: Класс -->
                   <template v-else-if="isClassData && isClassDefinition(entry)">
-                    <EntityCard
-                      flat
-                      entity-type="class"
-                      :entry="toCardEntry(entry)"
-                      show-copy
-                      @click="openClassDetail(entry)"
-                      @copy="copyClassToItems(entry)"
-                    />
+                    <div class="flex items-center gap-2">
+                      <EntityCard
+                        flat
+                        class="min-w-0 flex-1"
+                        entity-type="class"
+                        :entry="toCardEntry(entry)"
+                        :pack-id="packIdOf(entry)"
+                        show-copy
+                        @click="openClassDetail(entry)"
+                        @copy="copyClassToItems(entry)"
+                      />
+
+                      <UBadge
+                        v-if="packLabelFor(entry)"
+                        :label="packLabelFor(entry)"
+                        size="sm"
+                        color="neutral"
+                        variant="subtle"
+                        class="shrink-0"
+                      />
+                    </div>
                   </template>
 
                   <!-- Предмет: Черта -->

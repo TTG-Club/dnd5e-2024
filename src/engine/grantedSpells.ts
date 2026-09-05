@@ -61,6 +61,12 @@ export interface ClassSpellListRequest {
   featureName: string;
   /** Паки, из которых брать заклинания; пусто — из всех доступных */
   spellPackIds?: string[];
+  /**
+   * Пак записи-источника: при повторе заклинания в нескольких паках выдаётся
+   * его копия. Не сужает выдачу, как {@link spellPackIds}, а лишь решает, чья
+   * копия победит.
+   */
+  preferredPackId?: string;
   /** Ровно этот круг; пусто — круг сверху не ограничен */
   level?: number;
   /**
@@ -237,7 +243,19 @@ export function expandClassSpellRequests(
       ? packs.filter((pack) => request.spellPackIds?.includes(pack.packId))
       : packs;
 
-    for (const pack of allowedPacks) {
+    // Пак записи-источника идёт первым: первая встреченная копия и остаётся
+    const orderedPacks = request.preferredPackId
+      ? [
+          ...allowedPacks.filter(
+            (pack) => pack.packId === request.preferredPackId,
+          ),
+          ...allowedPacks.filter(
+            (pack) => pack.packId !== request.preferredPackId,
+          ),
+        ]
+      : allowedPacks;
+
+    for (const pack of orderedPacks) {
       for (const spell of pack.spells) {
         if (
           seenSpellIds.has(spell.id)

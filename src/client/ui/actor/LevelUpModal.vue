@@ -1,6 +1,8 @@
 <script setup lang="ts">
   import type { ActorClassEntry } from '@vtt/shared/system/dnd.js';
 
+  import type { WizardQueueStep } from './levelUpTypes';
+
   import { computed, ref, watch } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
@@ -26,7 +28,7 @@
     'apply': [data: { classes: ActorClassEntry[]; experience: number }];
     'start-wizard': [
       data: {
-        queue: Array<{ classKey: string; targetLevel: number }>;
+        queue: WizardQueueStep[];
         experience: number;
         forceApplies: ActorClassEntry[];
       },
@@ -135,7 +137,7 @@
       });
     } else {
       // Собираем очередь уровней "пройти через мастер"
-      const queue: Array<{ classKey: string; targetLevel: number }> = [];
+      const queue: WizardQueueStep[] = [];
 
       for (const editedClass of editClasses.value) {
         const originalClass = props.classes.find(
@@ -153,6 +155,7 @@
           ) {
             queue.push({
               classKey: editedClass.classKey,
+              packId: editedClass.packId,
               targetLevel: level,
             });
           }

@@ -4,7 +4,9 @@
 
   import type { SceneEntity } from '@vtt/shared';
   import type {
+    ActorClassEntry,
     AttackRollMode,
+    ClassDefinition,
     DnDActor,
     DnDCustomBonusContext,
     DnDPreparedLimit,
@@ -31,7 +33,7 @@
   import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
   import { useTargetStore } from '@/stores/targetStore';
   import { useWorldStore } from '@/stores/worldStore';
-  import { isRecord } from '@vtt/shared';
+  import { generateId, isRecord } from '@vtt/shared';
   import {
     calculateSpellAttackModifier,
     CANTRIP_SPELL_LEVEL,
@@ -80,13 +82,14 @@
     useBonusDamageParts,
     withFlatDamageBonusPart,
   } from '../../../composables/useBonusDamageParts';
-  import { useClassDefinitions } from '../../../composables/useClassDefinitions';
+  import { useClassCatalog } from '../../../composables/useClassCatalog';
   import {
     getSpellMaxRangeOnScene,
     isSpellCastBlockedByRange,
     isSpellTargetBlockedByRange,
   } from '../../../composables/useSceneRangeCheck';
   import { useSpellResolution } from '../../../composables/useSpellResolution';
+  import CompendiumDataModal from '../../compendium/CompendiumDataModal.vue';
   import ActorSpellRow from '../ActorSpellRow.vue';
   import {
     ACTOR_SPELLS_TAB_LABELS,
@@ -312,8 +315,23 @@
     computeSpellSlots(props.actor.system?.classes ?? [], casterTypeMap.value),
   );
 
-  /** Классы компендиума и созданные в мире — по ним читается таблица уровней */
-  const { classDefinitions } = useClassDefinitions();
+  /** Классы по пакам — таблица уровней читается из записи, которую выбрали */
+  const { resolve: resolveClassDefinition } = useClassCatalog();
+
+  /**
+   * Определение класса по записи листа: адресуется парой «пак + ключ», иначе
+   * таблица читалась бы из одноимённой записи соседнего компендиума.
+   *
+   * @param entry - запись класса на листе
+   */
+  function classDefinitionOf(
+    entry: ActorClassEntry,
+  ): ClassDefinition | undefined {
+    return resolveClassDefinition({
+      key: entry.classKey,
+      packId: entry.packId,
+    });
+  }
 
   /**
    * Предел подготовленных заклинаний: число из таблицы класса компендиума с
@@ -323,7 +341,7 @@
     getPreparedLimitBreakdown(
       getClassPreparedValue(
         props.actor.system?.classes ?? [],
-        classDefinitions.value,
+        classDefinitionOf,
         'spells',
       ),
       props.actor.system?.preparedSpells,
@@ -335,7 +353,7 @@
     getPreparedLimitBreakdown(
       getClassPreparedValue(
         props.actor.system?.classes ?? [],
-        classDefinitions.value,
+        classDefinitionOf,
         'cantrips',
       ),
       props.actor.system?.preparedCantrips,
@@ -358,6 +376,61 @@
       (spell) => spell.prepared && !spell.alwaysPrepared && spell.level > 0,
     ).length;
   });
+
+  /** Открыт ли компендиум заклинаний, из которого пополняют книгу */
+  const isSpellBrowserOpen = ref(false);
+
+  /**
+   * Названия заклинаний листа: в окне они помечены изученными и повторно не
+   * выбираются. По названию, а не по id: на листе у заклинания свой id, и с
+   * идентификатором компендиума он никогда не совпадает.
+   */
+  const knownSpellNames = computed(() =>
+    (props.actor.spells ?? []).map((spell) => spell.name),
+  );
+
+  /**
+   * Класс, чьим списком открывается компендиум: первый класс персонажа. У
+   * мультикласса фильтр всё равно снимается в самом окне, а открывать его
+   * вовсе без фильтра значило бы вывалить весь справочник.
+   */
+  const spellBrowserClassKey = computed(
+    () => props.actor.system?.classes?.[0]?.classKey,
+  );
+
+  /**
+   * Пак первого класса: при повторе заклинания в нескольких компендиумах окно
+   * оставляет копию из него — из того же пака, что и сам класс.
+   */
+  const spellBrowserPackId = computed(
+    () => props.actor.system?.classes?.[0]?.packId,
+  );
+
+  /**
+   * Кладёт выбранные в компендиуме заклинания в книгу. Норму по таблице класса
+   * показывают плитки шапки — окно её не сторожит: книга волшебника по правилам
+   * больше числа подготовленных, и запрет мешал бы больше, чем помогал.
+   *
+   * @param spells - заклинания, отмеченные в окне
+   */
+  function addSpellsFromCompendium(spells: Spell[]): void {
+    const known = new Set(knownSpellNames.value);
+
+    const added = spells
+      .filter((spell) => !known.has(spell.name))
+      .map((spell) => ({
+        ...spell,
+        id: generateId('spell'),
+        prepared: false,
+      }));
+
+    if (added.length === 0) {
+      return;
+    }
+
+    emit('update:actor', { spells: [...(props.actor.spells ?? []), ...added] });
+    triggerSaveIfNotEdit();
+  }
 
   /**
    * Заговоры в книге. Отмечать их подготовку негде — заговор всегда при
@@ -1917,6 +1990,19 @@
           clickable
           @click="openPreparedModal(tile.kind)"
         />
+
+        <!-- Книгу пополняют здесь: мастер уровня заклинания не спрашивает —
+          их называет запись, которая их даёт, а остальное игрок берёт сам -->
+        <UButton
+          icon="tabler:plus"
+          color="primary"
+          variant="soft"
+          :size="FILTER_ROW_CONTROL_SIZE"
+          class="ml-auto shrink-0"
+          @click.left.exact.prevent="isSpellBrowserOpen = true"
+        >
+          {{ ACTOR_SPELLS_TAB_LABELS.add }}
+        </UButton>
       </div>
 
       <!-- Поиск и отбор одной строкой: слева чипы отбора (подготовка, круги),
@@ -2157,6 +2243,21 @@
       :save-dc-effect-bonus="saveDcEffectBonus"
       :attack-effect-bonus="resolvedStats.attackBonuses.spell"
       @update:actor="handleSpellcastingUpdate"
+    />
+
+    <!-- Компендиум заклинаний: сколько взять — решает не окно, а таблица
+      класса на плитках шапки, поэтому выбор здесь без предела -->
+    <CompendiumDataModal
+      v-if="isSpellBrowserOpen"
+      v-model:open="isSpellBrowserOpen"
+      :socket="getWorldSocket()"
+      data-kind="spell"
+      :title="ACTOR_SPELLS_TAB_LABELS.addTitle"
+      :initial-class-filter="spellBrowserClassKey"
+      :preferred-pack-id="spellBrowserPackId"
+      :known-spell-names="knownSpellNames"
+      unlimited-selection
+      @select-spells="addSpellsFromCompendium"
     />
   </div>
 </template>

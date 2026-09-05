@@ -17,24 +17,42 @@ import type { Ref } from 'vue';
 import type { TypedWebSocketClient } from '@vtt/shared';
 import type { FeatChoice, Spell } from '@vtt/shared/system/dnd.js';
 
+import type { CatalogPack } from './useCompendiumCatalog';
+
 import { computed, ref, watch } from 'vue';
 
-import { loadCompendiumKind } from '@/core/compendiumDataClient';
+import { loadCompendiumKindByPack } from '@/core/compendiumDataClient';
 
 import { extractSpellEntries } from './spellCompendium';
+import { flattenPreferringBy } from './useCompendiumCatalog';
 
 /**
  * Загружает заклинания компендиума, если они нужны выборам черты.
  *
+ * Каталог держится по пакам, а наружу отдаётся без повторов: одно и то же
+ * заклинание лежит и в DEV-, и в ПРОД-компендиуме, и в пул для записи из ПРОД
+ * должна попасть её же копия, а не первая попавшаяся.
+ *
  * @param socket - WebSocket-клиент; без него каталог остаётся пустым
  * @param choices - выборы, которые предстоит сделать
+ * @param preferredPackId - пак записи, которая спрашивает; пусто — порядок паков хоста
  * @returns `spells` — заклинания каталога (пустой список, пока не загружены)
  */
 export function useFeatChoiceSpells(
   socket: Ref<TypedWebSocketClient | null | undefined>,
   choices: Ref<ReadonlyArray<FeatChoice>>,
+  preferredPackId?: Ref<string | undefined>,
 ) {
-  const spells = ref<Spell[]>([]);
+  /** Заклинания компендиума по пакам — как приехали */
+  const spellPacks = ref<CatalogPack<Spell>[]>([]);
+
+  const spells = computed<Spell[]>(() =>
+    flattenPreferringBy(
+      spellPacks.value,
+      preferredPackId?.value,
+      (spell) => spell.id,
+    ),
+  );
 
   const isNeeded = computed(() =>
     choices.value.some(
@@ -45,13 +63,17 @@ export function useFeatChoiceSpells(
   watch(
     [isNeeded, socket],
     async ([needed, socketClient]) => {
-      if (!needed || !socketClient || spells.value.length > 0) {
+      if (!needed || !socketClient || spellPacks.value.length > 0) {
         return;
       }
 
-      const entries = await loadCompendiumKind(socketClient, 'spell');
+      const packs = await loadCompendiumKindByPack(socketClient, 'spell');
 
-      spells.value = extractSpellEntries(entries);
+      spellPacks.value = packs.map((pack) => ({
+        packId: pack.packId,
+        packName: pack.packName,
+        entries: extractSpellEntries(pack.entries),
+      }));
     },
     { immediate: true },
   );

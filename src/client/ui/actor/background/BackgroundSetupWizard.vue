@@ -43,6 +43,8 @@
     open: boolean;
     actor: DnDActor;
     backgroundDefinition: BackgroundDefinition | null;
+    /** Пак записи предыстории: ложится на запись актора */
+    packId?: string;
     socket: TypedWebSocketClient | null;
   }>();
 
@@ -88,6 +90,7 @@
     toRef(props, 'actor'),
     toRef(props, 'open'),
     toRef(props, 'socket'),
+    toRef(props, 'packId'),
   );
 
   const wizardSteps = computed(() => {
@@ -303,6 +306,7 @@
     const granted = await resolveStartingEquipment(
       props.socket,
       selectedEquipmentItems.value,
+      props.packId,
     );
 
     if (granted.length > 0) {

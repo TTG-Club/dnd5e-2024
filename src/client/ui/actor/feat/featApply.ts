@@ -27,7 +27,6 @@ import { useItemsStore } from '@/stores/itemsStore';
 import {
   extractWorldSpells,
   loadSpellPacks,
-  WORLD_SPELL_PACK_ID,
 } from '@/systems/dnd5e/composables/spellCompendium';
 import {
   appendGrantedSpells,
@@ -49,6 +48,7 @@ import {
   removeGrantedSpellsByFeatureNames,
   resolveChosenAbilities,
   resolveChosenDamageDefenses,
+  WORLD_PACK_ID,
 } from '@vtt/shared/system/dnd.js';
 
 /**
@@ -178,7 +178,7 @@ async function resolveGrantedSpellSources(
   // заклинание, заведённое в панели «Предметы». Своим паком — чтобы список класса,
   // ограниченный компендиумом, их не подхватил
   const worldPack = {
-    packId: WORLD_SPELL_PACK_ID,
+    packId: WORLD_PACK_ID,
     spells: extractWorldSpells(useItemsStore().itemsByType('spell')),
   };
 

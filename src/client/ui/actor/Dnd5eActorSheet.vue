@@ -19,14 +19,15 @@
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { PickedDefinition } from './CompendiumPickerModal.vue';
   import type { MissingSheetSectionKey } from './constants';
   import type { AppliedFeatFeature } from './feat/featApply';
+  import type { WizardQueueStep } from './levelUpTypes';
 
   import { useToast } from '@nuxt/ui/composables';
   import { computed, ref, toRef, watch } from 'vue';
 
   import { ClientHooks } from '@/core/clientHooks';
-  import { loadCompendiumKind } from '@/core/compendiumDataClient';
   import { generateEntityId, requireSocket } from '@/core/entityUtils';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useActiveTab } from '@/shared_ui/composables/useActiveTab';
@@ -56,7 +57,6 @@
     isDnDGameItem,
     isSkillType,
     isSpell,
-    mergeSubclassRecords,
     normalizeActor,
     normalizeCompendiumItem,
     refreshFeatCounters,
@@ -64,6 +64,8 @@
     resolveFeatChoicesToAsk,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useClassCatalog } from '../../composables/useClassCatalog';
+  import { useCompendiumCatalog } from '../../composables/useCompendiumCatalog';
   import { useItemTransfer } from '../../composables/useItemTransfer';
   import { useSheetMinimize } from '../../composables/useSheetMinimize';
   import ActorCenterPanel from './ActorCenterPanel.vue';
@@ -173,6 +175,9 @@
   const isClassWizardOpen = ref(false);
   const droppedClassDef = ref<ClassDefinition | null>(null);
 
+  /** Пак записи класса в мастере: ложится на запись актора и ведёт следующие уровни */
+  const droppedClassPackId = ref<string | undefined>(undefined);
+
   /** Мастер класса открыт, но список классов ещё грузится — показываем скелетон. */
   const isClassSetupLoading = ref(false);
 
@@ -181,9 +186,15 @@
 
   const droppedSpeciesDef = ref<SpeciesDefinition | null>(null);
 
+  /** Пак записи вида в мастере — на запись актора */
+  const droppedSpeciesPackId = ref<string | undefined>(undefined);
+
   // Модалка мастера предыстории
   const isBackgroundWizardOpen = ref(false);
   const droppedBackgroundDef = ref<BackgroundDefinition | null>(null);
+
+  /** Пак записи предыстории в мастере — на запись актора */
+  const droppedBackgroundPackId = ref<string | undefined>(undefined);
 
   // Модалка подтверждения замены вида/предыстории
   const isReplaceConfirmOpen = ref(false);
@@ -203,7 +214,7 @@
   const appliedSubspeciesDef = ref<SpeciesDefinition | null>(null);
 
   // Очередь для последовательного повышения уровней (Wizard)
-  const wizardQueue = ref<Array<{ classKey: string; targetLevel: number }>>([]);
+  const wizardQueue = ref<WizardQueueStep[]>([]);
 
   // Drag and Drop refs
   const isSpellDragOver = ref(false);
@@ -224,6 +235,27 @@
     value: unknown,
   ): value is BackgroundDefinition {
     return isRecord(value) && value.type === 'background';
+  }
+
+  /**
+   * Нагрузка переноса записи: определение вместе с паком либо голое
+   * определение — так тянули раньше, и записи из браузера компендиума тянут до
+   * сих пор.
+   *
+   * @param raw - разобранный JSON из `dataTransfer`
+   */
+  function unwrapDroppedDefinition(raw: unknown): {
+    definition: unknown;
+    packId?: string;
+  } {
+    if (isRecord(raw) && 'definition' in raw) {
+      return {
+        definition: raw.definition,
+        packId: typeof raw.packId === 'string' ? raw.packId : undefined,
+      };
+    }
+
+    return { definition: raw };
   }
 
   /** Запись справочника базовых типов снаряжения: ключ и категория. */
@@ -268,93 +300,12 @@
     return Array.from(result);
   }
 
-  /** Определения классов компендиума (все паки), загружены с сервера */
-  const compendiumClassDefinitions = ref<ClassDefinition[]>([]);
-
   /**
-   * Итоговый список классов: компендиум + созданные в мире (items.db).
-   * Используется мастером класса (драг/повышение уровня), счётчиками классовых
-   * ресурсов и сборкой владений.
+   * Классы по пакам: компендиум и мир порознь, подклассы свёрнуты внутрь
+   * родителей своего пака. Запись ищется парой «пак + ключ» — копия
+   * одноимённого класса в соседнем компендиуме не подменяет выбранную.
    */
-  const classDefinitions = ref<ClassDefinition[]>([]);
-
-  /** Определения видов компендиума (все паки), загружены с сервера */
-  const compendiumSpeciesDefinitions = ref<SpeciesDefinition[]>([]);
-
-  /**
-   * Итоговый список видов: компендиум + созданные в мире (items.db).
-   * Используется для отката при смене вида и (через systemDataStore) для
-   * выбора вариантов особенностей на листе актёра.
-   */
-  const speciesDefinitions = ref<SpeciesDefinition[]>([]);
-
-  /**
-   * Классы, созданные в мире (GameItem с type==='class'), развёрнутые в плоский
-   * ClassDefinition из вложенного classData.
-   *
-   * @returns массив определений классов мира
-   */
-  function getWorldClassDefinitions(): ClassDefinition[] {
-    // Стор хоста отдаёт нейтральные предметы — D&D-форму подтверждает гвард,
-    // `classData` это её поле.
-    return itemsStore.items
-      .filter(isDnDGameItem)
-      .filter((worldItem) => worldItem.type === 'class')
-      .map((worldItem) => worldItem.classData)
-      .filter((definition): definition is ClassDefinition =>
-        isClassDefinition(definition),
-      );
-  }
-
-  /**
-   * Пересобирает итоговый список классов из кеша компендиума и классов мира
-   * (компендиум приоритетен при совпадении ключей — копия SRD-класса получает
-   * новый ключ и не перекрывает оригинал).
-   *
-   * Записи-подклассы сворачиваются внутрь родителей: дальше по листу подкласс
-   * мира и подкласс компендиума неразличимы.
-   */
-  function rebuildClassDefinitions(): void {
-    const merged = [...compendiumClassDefinitions.value];
-
-    for (const worldClass of getWorldClassDefinitions()) {
-      if (!merged.some((definition) => definition.key === worldClass.key)) {
-        merged.push(worldClass);
-      }
-    }
-
-    classDefinitions.value = mergeSubclassRecords(merged);
-  }
-
-  /**
-   * Загружает определения классов компендиума с сервера (агрегировано по всем
-   * пакам: бандл + скачиваемые + модули) и пересобирает итоговый список вместе
-   * с классами мира.
-   *
-   * @returns массив определений классов
-   */
-  async function loadClassDefinitions(): Promise<ClassDefinition[]> {
-    if (props.socket) {
-      // CompendiumEntry[] расширяем до unknown[], т.к. ClassDefinition не
-      // подтип CompendiumEntry и guard иначе не сузит при filter.
-      const entries: unknown[] = await loadCompendiumKind(
-        props.socket,
-        'class',
-      );
-
-      compendiumClassDefinitions.value = entries.filter(isClassDefinition);
-    }
-
-    rebuildClassDefinitions();
-
-    return classDefinitions.value;
-  }
-
-  // Классы мира приходят/меняются асинхронно (открытие панели предметов,
-  // live-sync, правки) — пересобираем итоговый список при любых изменениях.
-  watch(getWorldClassDefinitions, () => rebuildClassDefinitions(), {
-    deep: true,
-  });
+  const classCatalog = useClassCatalog(toRef(props, 'socket'));
 
   /**
    * Виды, созданные в мире (GameItem с type==='species'), развёрнутые в
@@ -374,52 +325,38 @@
       );
   }
 
-  /**
-   * Пересобирает итоговый список видов из кеша компендиума и видов мира
-   * (компендиум приоритетен при совпадении ключей) и синхронизирует его с
-   * systemDataStore — оттуда лист берёт варианты особенностей.
-   */
-  function rebuildSpeciesDefinitions(): void {
-    const merged = [...compendiumSpeciesDefinitions.value];
-
-    for (const worldSpecies of getWorldSpeciesDefinitions()) {
-      if (!merged.some((definition) => definition.key === worldSpecies.key)) {
-        merged.push(worldSpecies);
-      }
-    }
-
-    speciesDefinitions.value = merged;
-    systemDataStore.setSpeciesDefinitions(merged);
-  }
-
-  /**
-   * Загружает определения видов компендиума с сервера и пересобирает итоговый
-   * список (вместе с видами мира).
-   *
-   * @returns массив определений видов
-   */
-  async function loadSpeciesDefinitions(): Promise<SpeciesDefinition[]> {
-    if (props.socket) {
-      // CompendiumEntry[] расширяем до unknown[], т.к. SpeciesDefinition не
-      // подтип CompendiumEntry и guard иначе не сузит при filter.
-      const entries: unknown[] = await loadCompendiumKind(
-        props.socket,
-        'species',
-      );
-
-      compendiumSpeciesDefinitions.value = entries.filter(isSpeciesDefinition);
-    }
-
-    rebuildSpeciesDefinitions();
-
-    return speciesDefinitions.value;
-  }
-
-  // Виды мира приходят/меняются асинхронно (открытие панели предметов,
-  // live-sync, правки) — пересобираем итоговый список при любых изменениях.
-  watch(getWorldSpeciesDefinitions, () => rebuildSpeciesDefinitions(), {
-    deep: true,
+  /** Виды по пакам: компендиум и мир порознь, запись ищется парой «пак + ключ» */
+  const speciesCatalog = useCompendiumCatalog<SpeciesDefinition>({
+    socket: toRef(props, 'socket'),
+    kind: 'species',
+    isEntry: isSpeciesDefinition,
+    worldEntries: getWorldSpeciesDefinitions,
+    worldPackName: COMPENDIUM_PICKER_LABELS.worldPack,
   });
+
+  /**
+   * Виды одним списком — мастеру вида и вкладке умений. При повторе ключа
+   * берётся копия из пака вида персонажа: иначе подвиды и особенности читались
+   * бы из соседнего компендиума.
+   */
+  const speciesDefinitions = computed(() =>
+    speciesCatalog.flatPreferring(localActor.value?.system.species?.packId),
+  );
+
+  // Вкладка умений берёт варианты особенностей из стора — держим его в такте
+  watch(
+    speciesDefinitions,
+    (definitions) => systemDataStore.setSpeciesDefinitions(definitions),
+    { immediate: true },
+  );
+
+  /**
+   * Записи видов для мастера: подвиды берутся из пака выбранного вида — у
+   * одноимённого вида в соседнем компендиуме подвиды могут быть другими.
+   */
+  const wizardSpeciesRecords = computed(() =>
+    speciesCatalog.flatPreferring(droppedSpeciesPackId.value),
+  );
 
   /**
    * Загружает определение текущего вида актора для отката при смене.
@@ -435,10 +372,10 @@
       return;
     }
 
-    const definitions = await loadSpeciesDefinitions();
+    await speciesCatalog.load();
 
-    const found =
-      definitions.find((definition) => definition.key === speciesKey) ?? null;
+    const packId = actorData.system.species?.packId;
+    const found = speciesCatalog.resolve({ key: speciesKey, packId }) ?? null;
 
     if (found) {
       appliedSpeciesDef.value = found;
@@ -447,8 +384,7 @@
     const subspeciesKey = actorData.system.species?.subspeciesKey;
 
     appliedSubspeciesDef.value = subspeciesKey
-      ? (definitions.find((definition) => definition.key === subspeciesKey)
-        ?? null)
+      ? (speciesCatalog.resolve({ key: subspeciesKey, packId }) ?? null)
       : null;
   }
 
@@ -457,8 +393,8 @@
     () => props.socket,
     (socket) => {
       if (socket) {
-        void loadClassDefinitions();
-        void loadSpeciesDefinitions();
+        void classCatalog.load();
+        void speciesCatalog.load();
       }
     },
     { immediate: true },
@@ -526,12 +462,11 @@
       return [];
     }
 
-    const classDefs = classDefinitions.value;
-
     return classes.flatMap((classEntry) => {
-      const classDef = classDefs.find(
-        (definition) => definition.key === classEntry.classKey,
-      );
+      const classDef = classCatalog.resolve({
+        key: classEntry.classKey,
+        packId: classEntry.packId,
+      });
 
       if (!classDef) {
         return [];
@@ -1172,8 +1107,12 @@
    *
    * @param definition - определение класса
    */
-  async function startClassSetup(definition: ClassDefinition): Promise<void> {
+  async function startClassSetup(
+    definition: ClassDefinition,
+    packId?: string,
+  ): Promise<void> {
     droppedClassDef.value = null;
+    droppedClassPackId.value = undefined;
     wizardQueue.value = []; // Очередь уровней тут ни при чём
 
     // Окно открываем сразу, со скелетоном: список классов мог ещё не догрузиться
@@ -1181,7 +1120,7 @@
     isClassSetupLoading.value = true;
     isClassWizardOpen.value = true;
 
-    const classes = await loadClassDefinitions();
+    await classCatalog.load();
 
     isClassSetupLoading.value = false;
 
@@ -1189,10 +1128,12 @@
     // игрок выбирает шагом мастера
     const targetKey = definition.parentClassKey ?? definition.key;
 
-    // Берём запись из общего списка, а не саму перенесённую: в списке подклассы,
+    // Берём запись из каталога, а не саму перенесённую: там подклассы,
     // заведённые отдельными записями, уже свёрнуты внутрь родителя, — иначе
-    // мастер не предложил бы хоумбрю-подкласс к компендиумному классу
-    const target = classes.find((entry) => entry.key === targetKey);
+    // мастер не предложил бы хоумбрю-подкласс к компендиумному классу. Из того
+    // пака, что назвали: одноимённый класс в соседнем компендиуме — не та
+    // запись, которую выбрал игрок
+    const target = classCatalog.resolveWithPack({ key: targetKey, packId });
 
     // Родителя нет среди записей (пак не подключён) — настройка не начинается:
     // у самого подкласса нет ни таблицы уровней, ни владений
@@ -1208,7 +1149,8 @@
       return;
     }
 
-    droppedClassDef.value = target ?? definition;
+    droppedClassDef.value = target?.entry ?? definition;
+    droppedClassPackId.value = target?.packId ?? packId;
   }
 
   /**
@@ -1218,23 +1160,24 @@
    * класс должен открываться ПОСЛЕ закрытия предыдущего (этим и занимается
    * `processNextWizardStep`, ожидая загрузку определений).
    *
-   * @param definitions - определения выбранных классов
+   * @param picked - выбранные классы вместе с паками
    */
-  function startClassesSetup(definitions: ClassDefinition[]) {
-    const [firstDefinition, ...restDefinitions] = definitions;
+  function startClassesSetup(picked: PickedDefinition<ClassDefinition>[]) {
+    const [first, ...rest] = picked;
 
-    if (!firstDefinition) {
+    if (!first) {
       return;
     }
 
-    if (restDefinitions.length === 0) {
-      void startClassSetup(firstDefinition);
+    if (rest.length === 0) {
+      void startClassSetup(first.definition, first.packId);
 
       return;
     }
 
-    wizardQueue.value = definitions.map((definition) => ({
-      classKey: definition.key,
+    wizardQueue.value = picked.map((entry) => ({
+      classKey: entry.definition.key,
+      packId: entry.packId,
       targetLevel: 1,
     }));
 
@@ -1249,14 +1192,22 @@
    * нет среди записей (пак не подключён) — настройка не начинается.
    *
    * @param definition - определение вида
+   * @param packId - пак, из которого запись взяли; пусто — не известен
    */
-  function startSpeciesSetup(definition: SpeciesDefinition) {
+  function startSpeciesSetup(definition: SpeciesDefinition, packId?: string) {
     let target = definition;
 
+    // Пак запоминается вместе с записью: по нему мастер найдёт подвиды из того
+    // же компендиума, а лист — таблицу вида при следующем открытии
+    let targetPackId =
+      speciesCatalog.resolveWithPack({ key: definition.key, packId })?.packId
+      ?? packId;
+
     if (definition.parentKey) {
-      const parent = speciesDefinitions.value.find(
-        (entry) => entry.key === definition.parentKey,
-      );
+      const parent = speciesCatalog.resolveWithPack({
+        key: definition.parentKey,
+        packId,
+      });
 
       if (!parent) {
         toast.add({
@@ -1268,10 +1219,12 @@
         return;
       }
 
-      target = parent;
+      target = parent.entry;
+      targetPackId = parent.packId;
     }
 
     droppedSpeciesDef.value = target;
+    droppedSpeciesPackId.value = targetPackId;
 
     if (localActor.value?.system.species) {
       replaceConfirmTarget.value = 'species';
@@ -1286,9 +1239,14 @@
    * спрашиваем замену.
    *
    * @param definition - определение предыстории
+   * @param packId - пак, из которого запись взяли; пусто — не известен
    */
-  function startBackgroundSetup(definition: BackgroundDefinition) {
+  function startBackgroundSetup(
+    definition: BackgroundDefinition,
+    packId?: string,
+  ) {
     droppedBackgroundDef.value = definition;
+    droppedBackgroundPackId.value = packId;
 
     if (localActor.value?.system.background) {
       replaceConfirmTarget.value = 'background';
@@ -1370,13 +1328,13 @@
 
     if (classDataStr) {
       try {
-        const parsedClassDefinition: unknown = JSON.parse(classDataStr);
+        const dropped = unwrapDroppedDefinition(JSON.parse(classDataStr));
 
-        if (!isClassDefinition(parsedClassDefinition)) {
+        if (!isClassDefinition(dropped.definition)) {
           throw new Error('Dropped class definition has invalid shape');
         }
 
-        void startClassSetup(parsedClassDefinition);
+        void startClassSetup(dropped.definition, dropped.packId);
         event.preventDefault();
         event.stopPropagation();
       } catch (error) {
@@ -1384,13 +1342,13 @@
       }
     } else if (speciesDataStr) {
       try {
-        const parsedSpeciesDefinition: unknown = JSON.parse(speciesDataStr);
+        const dropped = unwrapDroppedDefinition(JSON.parse(speciesDataStr));
 
-        if (!isSpeciesDefinition(parsedSpeciesDefinition)) {
+        if (!isSpeciesDefinition(dropped.definition)) {
           throw new Error('Dropped species definition has invalid shape');
         }
 
-        startSpeciesSetup(parsedSpeciesDefinition);
+        startSpeciesSetup(dropped.definition, dropped.packId);
         event.preventDefault();
         event.stopPropagation();
       } catch (error) {
@@ -1398,14 +1356,13 @@
       }
     } else if (backgroundDataStr) {
       try {
-        const parsedBackgroundDefinition: unknown =
-          JSON.parse(backgroundDataStr);
+        const dropped = unwrapDroppedDefinition(JSON.parse(backgroundDataStr));
 
-        if (!isBackgroundDefinition(parsedBackgroundDefinition)) {
+        if (!isBackgroundDefinition(dropped.definition)) {
           throw new Error('Dropped background definition has invalid shape');
         }
 
-        startBackgroundSetup(parsedBackgroundDefinition);
+        startBackgroundSetup(dropped.definition, dropped.packId);
         event.preventDefault();
         event.stopPropagation();
       } catch (error) {
@@ -1702,17 +1659,17 @@
 
     const nextStep = wizardQueue.value[0];
 
-    // Определения классов агрегированы сервером по всем пакам (loadCompendiumKind
-    // кеширует — повторные шаги мастера не делают лишних запросов).
-    const classes = await loadClassDefinitions();
+    // Каталог кеширует ответ хоста — повторные шаги мастера сети не трогают
+    await classCatalog.load();
 
-    const targetDef =
-      classes.find(
-        (classDefinition) => classDefinition.key === nextStep.classKey,
-      ) ?? null;
+    const target = classCatalog.resolveWithPack({
+      key: nextStep.classKey,
+      packId: nextStep.packId,
+    });
 
-    if (targetDef) {
-      droppedClassDef.value = targetDef;
+    if (target) {
+      droppedClassDef.value = target.entry;
+      droppedClassPackId.value = target.packId;
       isClassSetupLoading.value = false;
       isClassWizardOpen.value = true;
 
@@ -1730,7 +1687,7 @@
   }
 
   function handleStartWizardSequence(data: {
-    queue: Array<{ classKey: string; targetLevel: number }>;
+    queue: WizardQueueStep[];
     experience: number;
     forceApplies: import('@vtt/shared/system/dnd.js').ActorClassEntry[];
   }) {
@@ -1872,8 +1829,6 @@
       return;
     }
 
-    const localClasses = classDefinitions.value;
-
     // Собираем все владения из оставшихся классов
     const allArmor = new Set<string>();
     const allWeapons = new Set<string>();
@@ -1887,9 +1842,10 @@
     ) {
       const classEntry = remainingClasses[classIndex];
 
-      const classDef = localClasses.find(
-        (definition) => definition.key === classEntry.classKey,
-      );
+      const classDef = classCatalog.resolve({
+        key: classEntry.classKey,
+        packId: classEntry.packId,
+      });
 
       if (!classDef) {
         continue;
@@ -2152,27 +2108,23 @@
    * Ветки те же, что при переносе записи на лист; у классов их может быть
    * несколько — мастера открываются по очереди.
    *
-   * @param definitions - определения вида, классов или предыстории
+   * @param picked - выбранные записи вместе с паками
    */
-  function handleCompendiumPickerSelect(
-    definitions: Array<
-      SpeciesDefinition | ClassDefinition | BackgroundDefinition
-    >,
-  ) {
-    const classDefinitions: ClassDefinition[] = [];
+  function handleCompendiumPickerSelect(picked: PickedDefinition[]) {
+    const classes: PickedDefinition<ClassDefinition>[] = [];
 
-    for (const definition of definitions) {
+    for (const { definition, packId } of picked) {
       if (definition.type === 'species') {
-        startSpeciesSetup(definition);
+        startSpeciesSetup(definition, packId);
       } else if (definition.type === 'background') {
-        startBackgroundSetup(definition);
+        startBackgroundSetup(definition, packId);
       } else {
-        classDefinitions.push(definition);
+        classes.push({ definition, packId });
       }
     }
 
-    if (classDefinitions.length > 0) {
-      startClassesSetup(classDefinitions);
+    if (classes.length > 0) {
+      startClassesSetup(classes);
     }
   }
 
@@ -2275,9 +2227,10 @@
     const subspeciesKey = localActor.value.system.species?.subspeciesKey;
 
     appliedSubspeciesDef.value = subspeciesKey
-      ? (speciesDefinitions.value.find(
-          (definition) => definition.key === subspeciesKey,
-        ) ?? null)
+      ? (speciesCatalog.resolve({
+          key: subspeciesKey,
+          packId: localActor.value.system.species?.packId,
+        }) ?? null)
       : null;
 
     isDirty.value = true;
@@ -2297,9 +2250,10 @@
       return;
     }
 
-    const definition = speciesDefinitions.value.find(
-      (entry) => entry.key === speciesEntry.speciesKey,
-    );
+    const definition = speciesCatalog.resolve({
+      key: speciesEntry.speciesKey,
+      packId: speciesEntry.packId,
+    });
 
     if (!definition) {
       return;
@@ -2309,9 +2263,10 @@
     const chosenSubspecies = Object.values(speciesEntry.featureChoices ?? {});
 
     const subspecies = speciesEntry.subspeciesKey
-      ? (speciesDefinitions.value.find(
-          (entry) => entry.key === speciesEntry.subspeciesKey,
-        ) ?? null)
+      ? (speciesCatalog.resolve({
+          key: speciesEntry.subspeciesKey,
+          packId: speciesEntry.packId,
+        }) ?? null)
       : null;
 
     const movement = computeSpeciesMovement(
@@ -2641,6 +2596,7 @@
     v-model:open="isClassWizardOpen"
     :actor="localActor"
     :class-definition="droppedClassDef"
+    :pack-id="droppedClassPackId"
     :loading="isClassSetupLoading"
     :socket="socket"
     @apply="handleClassSetupApply"
@@ -2652,9 +2608,10 @@
     v-model:open="isSpeciesWizardOpen"
     :actor="localActor"
     :species-definition="droppedSpeciesDef"
+    :pack-id="droppedSpeciesPackId"
     :previous-species-definition="appliedSpeciesDef"
     :previous-subspecies-definition="appliedSubspeciesDef"
-    :species-records="speciesDefinitions"
+    :species-records="wizardSpeciesRecords"
     :socket="socket"
     @apply="handleSpeciesSetupApply"
   />
@@ -2665,6 +2622,7 @@
     v-model:open="isBackgroundWizardOpen"
     :actor="localActor"
     :background-definition="droppedBackgroundDef"
+    :pack-id="droppedBackgroundPackId"
     :socket="socket"
     @apply="handleBackgroundSetupApply"
   />

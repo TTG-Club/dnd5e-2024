@@ -21,6 +21,8 @@
     open: boolean;
     actor: DnDActor;
     speciesDefinition: SpeciesDefinition | null;
+    /** Пак записи вида: ложится на запись актора */
+    packId?: string;
     previousSpeciesDefinition?: SpeciesDefinition | null;
     /** Прежний подвид-запись — для точного отката при смене вида */
     previousSubspeciesDefinition?: SpeciesDefinition | null;
@@ -58,6 +60,7 @@
   const { feats: featChoiceFeats } = useFeatChoiceFeats(
     toRef(props, 'socket'),
     needsFeats,
+    toRef(props, 'packId'),
   );
 
   const {
@@ -81,6 +84,7 @@
     speciesDefRef,
     speciesRecordsRef,
     featChoiceFeats,
+    computed(() => props.packId),
   );
 
   // Надобность каталога знает мастер, а грузит его composable выше: связываем
