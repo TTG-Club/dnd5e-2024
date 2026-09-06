@@ -99,6 +99,40 @@ const TRINKET_TYPE_META: ItemTypeMeta = {
 };
 
 /**
+ * Псевдо-вид меню создания «Магический предмет».
+ *
+ * Своего типа записи у магического предмета нет: магия — это СВОЙСТВО
+ * (`isMagical`), а не тип, и носить его может любая экипировка. Поэтому пункт,
+ * как и {@link TRINKET_TYPE_META}, открывает обычную форму снаряжения —
+ * но со включённым свойством, а тип экипировки (кольцо, жезл, чудесный
+ * предмет, безделушка…) выбирают в самой форме. Сохраняется запись обычным
+ * снаряжением (`type: 'equipment'`) и живёт в разделе «Снаряжение».
+ *
+ * Пункт нужен затем, чтобы не включать свойство руками на вкладке
+ * «Подробнее» — магических предметов в мире много.
+ */
+const MAGIC_ITEM_TYPE = 'magic-item';
+
+/** Метаданные пункта «Магический предмет» в меню создания. */
+const MAGIC_ITEM_TYPE_META: ItemTypeMeta = {
+  type: MAGIC_ITEM_TYPE,
+  icon: 'tabler:sparkles',
+  label: 'Магический предмет',
+};
+
+/**
+ * Псевдо-виды меню, открывающие форму СНАРЯЖЕНИЯ с заранее заполненными полями.
+ * Ключ — тип пункта меню, значение — что форма проставит при создании.
+ */
+const EQUIPMENT_PRESETS: Record<
+  string,
+  { category?: EquipmentCategory; magical?: boolean }
+> = {
+  [TRINKET_CATEGORY]: { category: TRINKET_CATEGORY },
+  [MAGIC_ITEM_TYPE]: { magical: true },
+};
+
+/**
  * Подпись типа предмета («Оружие»). Словарь типов один на систему: панель
  * предметов, карточки и фильтры окна выбора подписывают тип одинаково, и вторая
  * копия подписей разошлась бы с ним у первого же переименования.
@@ -157,8 +191,8 @@ function isGameItemLike(value: unknown): value is DnDGameItem {
  * @returns реализация `ItemTypeProvider`
  */
 export function createDnd5eItemTypeProvider(): ItemTypeProvider {
-  // Псевдо-вид «Безделушка» встаёт сразу за снаряжением: это его категория, и
-  // в меню создания пункты стоят рядом.
+  // Псевдо-виды «Безделушка» и «Магический предмет» встают сразу за
+  // снаряжением: обе записи — снаряжение, и в меню создания пункты стоят рядом.
   const types: ItemTypeMeta[] = Object.entries(ITEM_TYPE_CONFIG).flatMap(
     ([type, config]) => {
       const meta: ItemTypeMeta = {
@@ -167,7 +201,9 @@ export function createDnd5eItemTypeProvider(): ItemTypeProvider {
         label: config.label,
       };
 
-      return type === 'equipment' ? [meta, TRINKET_TYPE_META] : [meta];
+      return type === 'equipment'
+        ? [meta, TRINKET_TYPE_META, MAGIC_ITEM_TYPE_META]
+        : [meta];
     },
   );
 
@@ -284,12 +320,16 @@ export function createDnd5eItemTypeProvider(): ItemTypeProvider {
       return;
     }
 
-    // Безделушка: та же форма снаряжения, но с заранее выбранной категорией.
-    if (type === TRINKET_CATEGORY) {
+    // Безделушка и магический предмет: та же форма снаряжения, но категория
+    // и/или свойство «магическое» проставлены заранее.
+    const preset = EQUIPMENT_PRESETS[type];
+
+    if (preset) {
       openByName(getModalName('equipment', 'FormModal'), {
         item,
         onSave,
-        createCategory: TRINKET_CATEGORY,
+        createCategory: preset.category,
+        createMagical: preset.magical,
       });
 
       return;

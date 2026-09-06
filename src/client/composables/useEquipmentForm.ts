@@ -39,11 +39,14 @@ const DEFAULT_CREATE_CATEGORY: EquipmentCategory = 'light';
  * @param getCreateCategory - тип экипировки для формы СОЗДАНИЯ (правка берёт тип
  *   из самой записи). Через него меню «Мастерской» открывает форму сразу
  *   безделушкой, а не снаряжением, у которого тип меняют руками.
+ * @param getCreateMagical - отметить запись магической при СОЗДАНИИ. Тем же
+ *   меню «Мастерской» открывается пункт «Магический предмет».
  */
 export function useEquipmentForm(
   getArmor: () => DnDGameItem | null,
   getIsOpen: () => boolean,
   getCreateCategory: () => EquipmentCategory | undefined = () => undefined,
+  getCreateMagical: () => boolean | undefined = () => undefined,
 ) {
   // --- Reactive-поля формы ---
   const name = ref('');
@@ -306,7 +309,13 @@ export function useEquipmentForm(
         sourceKey.value = FALLBACK_SOURCE_KEY;
         source.value = undefined;
         isSRD.value = false;
-        selectedEquipmentProperties.value = [];
+
+        // Свойство «магическое» — единственное, что форма проставляет сама:
+        // им пункт меню «Магический предмет» и отличается от «Снаряжения».
+        selectedEquipmentProperties.value = getCreateMagical()
+          ? ['magical']
+          : [];
+
         magicAttunement.value = 'none';
         isAttuned.value = false;
         magicBonus.value = 0;
