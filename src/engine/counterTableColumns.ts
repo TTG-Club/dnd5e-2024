@@ -7,9 +7,10 @@
  * колонка собирается из него, когда автор отметил `showInTable`.
  *
  * Колонка выводится, только если ряд считается от одного уровня: прогрессия,
- * число, `@prof` и `@level` (с множителем и смещением). Максимум по модификатору
- * характеристики (`@mod.cha`) зависит от персонажа, а не от уровня, и одинакового
- * ряда для всех у него нет — такой ресурс колонкой не показывается.
+ * число, `@prof`, `@level` и `@classLevel` (с множителем и смещением). Максимум
+ * по модификатору характеристики (`@mod.cha`) зависит от персонажа, а не от
+ * уровня, и одинакового ряда для всех у него нет — такой ресурс колонкой не
+ * показывается.
  *
  * Считается при показе, а не хранится в записи класса: иначе колонка разошлась бы
  * с ресурсом при первой же его правке, а редактор показал бы её своей.
@@ -25,14 +26,22 @@ import type {
 import type { FeatChoice } from './featTypes.js';
 
 import { calculateProficiencyBonus } from './calculations.js';
-import { COUNTER_FORMULA_TOKENS } from './counterResource.js';
+import {
+  CLASS_LEVEL_TOKEN_LOWERCASE,
+  COUNTER_FORMULA_TOKENS,
+} from './counterResource.js';
 
 /** Наибольший уровень персонажа: дальше таблица прогрессии не идёт. */
 const MAX_LEVEL = 20;
 
-/** Формула максимума: источник с необязательными множителем и смещением. */
+/**
+ * Формула максимума: источник с необязательными множителем и смещением.
+ *
+ * Токены перечислены в нижнем регистре: строку формулы разбор приводит к нему
+ * целиком, а `@classLevel` в записи пишется camelCase.
+ */
 const FORMULA_PATTERN =
-  /^(@prof|@level|\d+)\s*(?:\*\s*(\d+)\s*)?(?:([+-])\s*(\d+))?$/;
+  /^(@prof|@level|@classlevel|\d+)\s*(?:\*\s*(\d+)\s*)?(?:([+-])\s*(\d+))?$/;
 
 /** Таблица прогрессии вместе с выведенными колонками ресурсов. */
 export interface CounterTable {
@@ -142,15 +151,22 @@ function formulaValues(
 /**
  * Значение источника формулы на уровне.
  *
- * @param source - источник максимума
- * @param level - уровень персонажа
+ * `@classLevel` здесь равен `@level`: ряд таблицы и так строится по уровням
+ * ЭТОГО класса, и различать их колонке нечем и незачем.
+ *
+ * @param source - источник максимума (в нижнем регистре)
+ * @param level - уровень в классе
  */
 function sourceValue(source: string | undefined, level: number): number {
   if (source === COUNTER_FORMULA_TOKENS.proficiencyBonus) {
     return calculateProficiencyBonus(level);
   }
 
-  return source === COUNTER_FORMULA_TOKENS.level ? level : Number(source);
+  const isLevelToken =
+    source === COUNTER_FORMULA_TOKENS.level
+    || source === CLASS_LEVEL_TOKEN_LOWERCASE;
+
+  return isLevelToken ? level : Number(source);
 }
 
 /**

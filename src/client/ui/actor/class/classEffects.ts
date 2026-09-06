@@ -5,6 +5,8 @@ import type {
   SubclassDefinition,
 } from '@vtt/shared/system/dnd.js';
 
+import { buildClassEffectId } from '@vtt/shared/system/dnd.js';
+
 /**
  * Эффекты, заявленные классом, подклассом и их умениями в компендиуме.
  *
@@ -13,37 +15,12 @@ import type {
  * же способ узнать «этот эффект поставил класс».
  */
 
-/**
- * Префикс id эффекта, поставленного классом.
- *
- * Собственный id эффекта в записи компендиума не уникален на акторе: тот же
- * эффект приходит с предмета или заклинания, а два класса в мультиклассе
- * принесли бы копию друг друга. Префикс с ключом класса делает id своим и
- * позволяет снять ровно эффекты одного класса.
- */
-export const CLASS_EFFECT_PREFIX = 'class-effect:';
-
-/**
- * Собирает id эффекта, поставленного классом.
- *
- * @param classKey - ключ класса
- * @param effectId - id эффекта в записи компендиума
- * @returns id эффекта на акторе
- */
-export function buildClassEffectId(classKey: string, effectId: string): string {
-  return `${CLASS_EFFECT_PREFIX}${classKey}:${effectId}`;
-}
-
-/**
- * Проверяет, поставлен ли эффект указанным классом.
- *
- * @param effect - активный эффект актёра
- * @param classKey - ключ класса
- * @returns `true`, если эффект принадлежит этому классу
- */
-export function isClassEffect(effect: ActiveEffect, classKey: string): boolean {
-  return effect.id.startsWith(`${CLASS_EFFECT_PREFIX}${classKey}:`);
-}
+// Формат id живёт в движке: метку класса читает не только мастер (чтобы снять
+// эффекты одного класса), но и пайплайн — по ней он подставляет в формулы
+// умения уровень В ЭТОМ классе (`@classLevel`). Одна запись формата на обоих.
+// Наружу отсюда идут только те два помощника, которыми пользуется лист: сам
+// префикс нужен движку и берётся у него же.
+export { buildClassEffectId, isClassEffect } from '@vtt/shared/system/dnd.js';
 
 /**
  * Эффекты, которые класс ставит при взятии первого уровня в нём.

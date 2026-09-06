@@ -93,6 +93,11 @@
    * Максимум хитов с учётом эффектов: «Ложная жизнь» и подобные поднимают
    * потолок, и плитка обязана показывать то же число, по которому лечат и
    * ограничивают текущие хиты.
+   *
+   * Только для ПОКАЗА. В окно хитов это число идёт отдельным
+   * `resolvedMaxHitPoints`, а правится там запас листа: окно пишет свой
+   * максимум обратно, и итог с эффектами, попав в поле ввода, копил бы прибавку
+   * с каждым «Применить».
    */
   const maxHitPoints = computed(() => resolveEntityMaxHp(props.actor));
 
@@ -686,6 +691,12 @@
     });
   }
 
+  /**
+   * Записывает правку окна хитов. `data.max` — СВОЙ максимум листа: окно правит
+   * запас, а прибавку эффектов только показывает рядом.
+   *
+   * @param data - правка из окна хитов
+   */
   function onHitPointsApply(data: {
     current: number;
     max: number;
@@ -1283,7 +1294,9 @@
   <HitPointsModal
     v-model:open="isHitPointsOpen"
     :current-hit-points="actor.system.hitPoints?.current ?? 0"
-    :max-hit-points="maxHitPoints"
+    :max-hit-points="actor.system.hitPoints?.max ?? 0"
+    :resolved-max-hit-points="maxHitPoints"
+    :active-effects="combinedEffects"
     :temp-hit-points="actor.system.hitPoints?.temp ?? 0"
     :classes="actor.system.classes ?? []"
     :manual-hit-dice="actor.system.manualHitDice ?? []"

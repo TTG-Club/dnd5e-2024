@@ -1,5 +1,6 @@
 <script setup lang="ts">
   import type {
+    ActiveEffect,
     ActorClassEntry,
     ManualHitDieGroup,
   } from '@vtt/shared/system/dnd.js';
@@ -9,6 +10,7 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
   import {
+    describeChangeValue,
     getHitDiceGroups,
     HIT_DIE_OPTIONS,
     isHitDie,
@@ -32,13 +34,35 @@
   interface Props {
     open: boolean;
     currentHitPoints: number;
+    /**
+     * ЗАПИСЬ ЛИСТА, а не итог плитки: этим числом окно максимум не только
+     * показывает, но и ПРАВИТ. Передать сюда итог с эффектами — и «Применить»
+     * запишет его в запас листа, а эффект прибавит своё поверх ещё раз: у
+     * чародея с «Драконьей устойчивостью» максимум так рос на уровень с каждого
+     * лечения. Прибавка эффектов приходит отдельным числом —
+     * {@link resolvedMaxHitPoints}.
+     */
     maxHitPoints: number;
     tempHitPoints: number;
     classes?: ActorClassEntry[];
     manualHitDice?: ManualHitDieGroup[];
+    /**
+     * Итоговый максимум листа — то же число, что стоит в плитке хитов (запас
+     * листа с прибавкой эффектов). Окно его только показывает. Нет — окно
+     * считает, что эффекты максимум не трогают.
+     */
+    resolvedMaxHitPoints?: number;
+    /** Действующие эффекты листа: по ним окно называет причину расхождения */
+    activeEffects?: readonly ActiveEffect[];
   }
 
-  const props = defineProps<Props>();
+  const props = withDefaults(defineProps<Props>(), {
+    classes: () => [],
+    manualHitDice: () => [],
+    activeEffects: () => [],
+    // Итога может не быть: лист его считает не всегда, и тогда сверять не с чем
+    resolvedMaxHitPoints: undefined,
+  });
 
   const emit = defineEmits<{
     'update:open': [value: boolean];
@@ -80,6 +104,53 @@
       }
     },
   );
+
+  /**
+   * Прибавка эффектов к максимуму — разница итога плитки и записи листа.
+   *
+   * Именно разницей, а не своим проходом по эффектам: окно не повторяет расчёт
+   * пайплайна (условия, режимы «заменить» и «повысить до») и потому не может
+   * разойтись с плиткой.
+   */
+  const effectsMaxBonus = computed(() =>
+    props.resolvedMaxHitPoints === undefined
+      ? 0
+      : props.resolvedMaxHitPoints - props.maxHitPoints,
+  );
+
+  /** Итог листа показывается, только когда эффекты и правда двигают максимум */
+  const hasSheetTotal = computed(() => effectsMaxBonus.value !== 0);
+
+  /**
+   * Итог листа для ПРАВЯЩЕГОСЯ числа: прибавка эффектов ложится на то, что
+   * набрано в поле, — иначе подпись отставала бы от ввода на одну правку.
+   */
+  const sheetMaxTotal = computed(() => editHp.max + effectsMaxBonus.value);
+
+  /** Разбор итога: какие эффекты двигают максимум хитов и насколько */
+  const sheetTotalTooltip = computed(() => {
+    const lines: string[] = [HIT_POINTS_LABELS.sheetTotalHint];
+
+    for (const effect of props.activeEffects) {
+      for (const change of effect.changes) {
+        if (change.key !== 'hitPoints.max') {
+          continue;
+        }
+
+        const value = describeChangeValue(change);
+
+        lines.push(
+          `${effect.name}: ${
+            change.condition
+              ? `${value} (${HIT_POINTS_LABELS.conditionalMark})`
+              : value
+          }`,
+        );
+      }
+    }
+
+    return lines.join('\n');
+  });
 
   // Группируем только классовые кости — ручные показываются отдельным блоком
   const hitDiceGroups = computed(() => getHitDiceGroups(editClasses.value));
@@ -235,6 +306,21 @@
               @update:model-value="editHp.temp = Math.max(0, Number($event))"
             />
           </div>
+        </div>
+
+        <!-- Итог листа: появляется, когда максимум двигают эффекты -->
+        <div
+          v-if="hasSheetTotal"
+          class="text-center"
+        >
+          <UTooltip
+            :text="sheetTotalTooltip"
+            :ui="{ content: 'h-auto whitespace-pre-line' }"
+          >
+            <p class="text-xs font-medium text-toned">
+              {{ HIT_POINTS_LABELS.sheetTotal }}: {{ sheetMaxTotal }}
+            </p>
+          </UTooltip>
         </div>
 
         <div class="border-t border-muted" />

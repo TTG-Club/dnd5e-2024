@@ -24,7 +24,7 @@ import type {
   DnDSceneEntity,
 } from './dndEntities.js';
 
-import { isActorEntity, isCreatureEntity, isRecord } from '@vtt/shared';
+import { isCreatureEntity, isRecord } from '@vtt/shared';
 
 import { ABILITY_KEYS } from './consts.js';
 
@@ -37,7 +37,20 @@ import { ABILITY_KEYS } from './consts.js';
 export function isDndSceneEntity(
   entity: SceneEntity,
 ): entity is DnDSceneEntity {
-  const abilities = entity.system.abilities;
+  return hasAbilityScores(entity.system);
+}
+
+/**
+ * Есть ли в блоке `system` все шесть характеристик числами.
+ *
+ * Общая часть проверок формы: тот же вопрос задают и названной ядром сущности,
+ * и сырой записи-черновику, а второй ответ на него разошёлся бы с первым.
+ *
+ * @param system - блок `system` записи
+ * @returns `true`, если все шесть характеристик на месте числами
+ */
+function hasAbilityScores(system: Record<string, unknown>): boolean {
+  const abilities = system.abilities;
 
   if (!isRecord(abilities)) {
     return false;
@@ -58,17 +71,37 @@ export function isDndSceneEntity(
  * @returns `true`, если это актёр с данными D&D
  */
 export function isDndActor(entity: SceneEntity): entity is DnDActor {
-  if (!isActorEntity(entity) || !isDndSceneEntity(entity)) {
+  return isDndActorRecord(entity);
+}
+
+/**
+ * Проверяет, что СЫРАЯ запись — уже собранный лист D&D 5e.
+ *
+ * Дверь для черновиков: при создании и сохранении лист приходит с границы мира
+ * ещё частичной записью, которую ядро сущностью не назвало, — типизированные
+ * guard'ы к ней не применить, не соврав типу. Поэтому проверка идёт от самой
+ * записи: вид, блок `system`, характеристики и корневые коллекции. Ею же
+ * проверяется и названная сущность — см. {@link isDndActor}: две проверки
+ * одного и того же разошлись бы.
+ *
+ * @param value - сырая запись (черновик листа либо сущность сцены)
+ * @returns `true`, если запись — полный лист D&D
+ */
+export function isDndActorRecord(value: unknown): value is DnDActor {
+  if (
+    !isRecord(value)
+    || value.entityType !== 'actor'
+    || !isRecord(value.system)
+    || !hasAbilityScores(value.system)
+  ) {
     return false;
   }
 
-  const actor: Record<string, unknown> = { ...entity };
-
   return (
-    Array.isArray(actor.spells)
-    && Array.isArray(actor.equipment)
-    && Array.isArray(actor.features)
-    && typeof actor.notes === 'string'
+    Array.isArray(value.spells)
+    && Array.isArray(value.equipment)
+    && Array.isArray(value.features)
+    && typeof value.notes === 'string'
   );
 }
 

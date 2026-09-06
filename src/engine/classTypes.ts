@@ -955,6 +955,30 @@ export function getTotalLevel(classes?: ActorClassEntry[]): number {
 }
 
 /**
+ * Уровни персонажа по классам — «ключ класса → уровень в нём».
+ *
+ * Соседом {@link getTotalLevel}: суммарный уровень и уровни по классам читают
+ * одну и ту же запись, и собирать вторую карту где-то ещё значило бы завести
+ * второй ответ на тот же вопрос. Нужна везде, где формула считает по СВОЕМУ
+ * классу (токен `@classLevel`): контекст формул листа и подстановка в эффекты
+ * умений.
+ *
+ * @param classes - классы актора (может быть undefined/пустым)
+ * @returns карта уровней по ключам классов; пустая — классов нет
+ */
+export function getClassLevels(
+  classes?: ActorClassEntry[],
+): Map<string, number> {
+  const levels = new Map<string, number>();
+
+  for (const entry of classes ?? []) {
+    levels.set(entry.classKey, entry.level);
+  }
+
+  return levels;
+}
+
+/**
  * Вычисляет максимальное здоровье из истории бросков ХП
  *
  * Формула: сумма всех hitPointsGained[].rolled + (мод. ТЕЛ × totalLevel)

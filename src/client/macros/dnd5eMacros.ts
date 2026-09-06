@@ -61,11 +61,14 @@ import {
   resolveAttackRollMode,
   resolveDamagePartsForCast,
   resolveEntityCreatureType,
+  resolveEntityCurrentHp,
+  resolveEntityMaxHp,
   resolveSpellDamageFormula,
   SPELL_DAMAGE_TEMPLATE_COLORS,
   SPELL_TEMPLATE_DEFAULT_COLOR,
   spellHasDamage,
   spellIsHealing,
+  targetHpGateMatches,
   withFlatDamageBonus,
   withFlatFormulaBonus,
 } from '@vtt/shared/system/dnd.js';
@@ -319,6 +322,15 @@ function computeAvailableLevels(
  * Определяет, находится ли цель на полном запасе HP (для токенов
  * `@target.full`/`@target.notFull`).
  *
+ * Само правило «полные хиты» не своё: гейт считает `targetHpGateMatches` —
+ * тот же, которым ветки урона решают, доходят ли они до цели. Второе сравнение
+ * того же самого разошлось бы с первым при первой же правке правила.
+ *
+ * Потолок берётся С прибавкой эффектов (`hitPoints.max`) — тем же
+ * `resolveEntityMaxHp`, что у плитки хитов листа, лечения и полосы над токеном.
+ * По записи листа цель с «Крепким» или «Ложной жизнью» сходила бы за полную,
+ * не долечившись до показанного максимума: запас листа у неё ниже потолка.
+ *
  * @param entity - сущность-цель (или null, если цель не выбрана)
  * @returns true/false по состоянию HP, либо undefined если цели/HP нет
  */
@@ -327,7 +339,16 @@ function isTargetFullHp(entity: SceneEntity | null): boolean | undefined {
     return undefined;
   }
 
-  // `system` ядра — непрозрачная запись: хиты читаются полем за полем
+  if (isDndSceneEntity(entity)) {
+    return targetHpGateMatches(
+      'full',
+      resolveEntityCurrentHp(entity),
+      resolveEntityMaxHp(entity),
+    );
+  }
+
+  // Не D&D-форма: `system` ядра — непрозрачная запись, хиты читаются полем за
+  // полем, и прибавку эффектов по ней не посчитать
   const hitPoints = isRecord(entity.system.hitPoints)
     ? entity.system.hitPoints
     : undefined;

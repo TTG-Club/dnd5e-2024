@@ -24,7 +24,7 @@ import type { AbilityType, MovementType } from '@vtt/shared';
 import { isActorEntity } from '@vtt/shared';
 
 import { calculateProficiencyBonus } from './calculations.js';
-import { getTotalLevel } from './classTypes.js';
+import { getClassLevels, getTotalLevel } from './classTypes.js';
 import { isCreatureCategory, isMovementType, MOVEMENT_KEYS } from './consts.js';
 import {
   DEFAULT_PROFICIENCY_BONUS,
@@ -42,6 +42,25 @@ export interface FormulaContext {
   prof: number;
   /** Уровень персонажа */
   level: number;
+  /**
+   * Уровень в СВОЁМ классе — токен `@classLevel`. Им пишутся формулы умений
+   * класса: «Драконья устойчивость» поднимает максимум хитов на уровень
+   * ЧАРОДЕЯ, а не на сумму уровней мультиклассера.
+   *
+   * Заполняется не листом, а источником формулы: значение зависит от того, чьё
+   * это умение, и пайплайн подставляет его в формулы эффекта по метке класса в
+   * его id (см. `classEffectScope.ts`). Не задан — токен читается как `@level`:
+   * у одноклассника это одно и то же число, и формула без класса за спиной
+   * считает ровно то, что считала до появления токена.
+   */
+  classLevel?: number;
+  /**
+   * Уровни листа по классам — из них источник формулы берёт свой
+   * {@link classLevel}. Держать их в контексте приходится потому, что контекст
+   * собирается один на весь лист, а формулы у классовых ресурсов свои: счётчик
+   * знает лишь ключ своего класса (см. `resolveCounterMaxIn`).
+   */
+  classLevels?: ReadonlyMap<string, number>;
   /**
    * Скорости передвижения листа в футах — токены `@speed.walk`, `@speed.fly`
    * и т.д. Ими задаётся «полёт равен скорости ходьбы»: эффект пишет не число, а
@@ -209,7 +228,7 @@ function tokenize(formula: string): FormulaToken[] {
       continue;
     }
 
-    // @-переменные: @mod.str, @prof, @level
+    // @-переменные: @mod.str, @prof, @level, @classLevel
     if (char === '@') {
       let variablePath = '';
       position++; // пропускаем @
@@ -502,6 +521,7 @@ function evaluateNode(node: AstNode, context: FormulaContext): number {
  * - mod.str → context.abilities.strength.mod (mod.spell — заклинательная)
  * - prof → context.prof
  * - level → context.level
+ * - classLevel → context.classLevel, иначе context.level
  * - target.full / target.notFull → 1/0 по состоянию цели
  *
  * @param variablePath - путь переменной (без @)
@@ -515,7 +535,7 @@ function resolveVariable(
 ): number {
   const parts = variablePath.split('.');
 
-  // Простые переменные: prof, level
+  // Простые переменные: prof, level, classLevel
   if (parts.length === 1) {
     const simpleKey = parts[0];
 
@@ -525,6 +545,10 @@ function resolveVariable(
 
     if (simpleKey === 'level') {
       return context.level;
+    }
+
+    if (simpleKey === 'classLevel') {
+      return context.classLevel ?? context.level;
     }
 
     // Короткий код характеристики @int → значение (16), парно к @mod.int (мод)
@@ -809,10 +833,12 @@ export function buildFormulaContext(
 
   let level = 1;
   let ruleProficiencyBonus = DEFAULT_PROFICIENCY_BONUS;
+  let classLevels: ReadonlyMap<string, number> = new Map();
 
   if (isActorEntity(actor)) {
     level = getTotalLevel(actor.system.classes);
     ruleProficiencyBonus = calculateProficiencyBonus(level);
+    classLevels = getClassLevels(actor.system.classes);
   } else if ('proficiencyBonus' in actor.system) {
     // Существо: классовых уровней нет (@level остаётся 1) — основа бонуса
     // берётся напрямую из system.proficiencyBonus (бонус по опасности).
@@ -836,6 +862,7 @@ export function buildFormulaContext(
     abilities,
     prof,
     level,
+    classLevels,
     movement: readMovement(actor),
   };
 }

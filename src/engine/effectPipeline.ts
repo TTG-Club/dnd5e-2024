@@ -61,6 +61,7 @@ import {
   getProficiencyContribution,
   isProficiencyLevel,
 } from './calculations.js';
+import { bindClassLevels } from './classEffectScope.js';
 import { getTotalLevel } from './classTypes.js';
 import {
   ABILITY_KEYS,
@@ -470,7 +471,10 @@ export function collectActiveEffects(
     }
   }
 
-  return collectedEffects;
+  // Уровень своего класса — в формулы умений класса. Здесь, в единственной
+  // точке сбора: дальше эффекты расходятся по статам листа, бонус-частям урона
+  // и подписям, и подставлять число у каждого потребителя пришлось бы заново
+  return bindClassLevels(collectedEffects, actor);
 }
 
 // ── Фаза 2: applyActiveEffects ────────────────────────────────

@@ -61,6 +61,7 @@
     normalizeCompendiumItem,
     refreshFeatCounters,
     removeGrantedSpellsByFeatureNames,
+    resolveEntityMaxHp,
     resolveFeatChoicesToAsk,
   } from '@vtt/shared/system/dnd.js';
 
@@ -2646,7 +2647,7 @@
     :classes="localActor.system.classes"
     :manual-hit-dice="localActor.system.manualHitDice"
     :current-hit-points="localActor.system.hitPoints.current"
-    :max-hit-points="localActor.system.hitPoints.max"
+    :max-hit-points="resolveEntityMaxHp(localActor)"
     :con-mod="constitutionModifier"
     @apply="handleShortRestApply"
   />

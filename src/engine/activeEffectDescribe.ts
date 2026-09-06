@@ -71,6 +71,7 @@ const VALUE_TOKEN_LABELS: Record<string, string> = {
   '@mod.cha': 'мод. Харизмы',
   '@prof': 'бонус мастерства',
   '@level': 'уровень',
+  '@classLevel': 'уровень в классе',
   '@speed.walk': 'скорость ходьбы',
   '@speed.fly': 'скорость полёта',
   '@speed.swim': 'скорость плавания',

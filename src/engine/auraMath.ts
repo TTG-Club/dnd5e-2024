@@ -17,6 +17,7 @@ import type { DnDSceneEntity } from './dndEntities.js';
 
 import { isCreatureEntity } from '@vtt/shared';
 
+import { bindClassLevels } from './classEffectScope.js';
 import { itemEffectsActive } from './effectPipeline.js';
 
 /** Размер клетки сетки в пикселях, когда сцена его не задала */
@@ -124,7 +125,9 @@ export function collectAllAuraEffects(entity: DnDSceneEntity): ActiveEffect[] {
     }
   }
 
-  return allEffects;
+  // Уровень класса подставляется по ИСТОЧНИКУ ауры: аура умения класса несёт
+  // уровень того, кто её излучает, а не того, кто в неё попал
+  return [...bindClassLevels(allEffects, entity)];
 }
 
 /**

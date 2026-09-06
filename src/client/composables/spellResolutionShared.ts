@@ -24,8 +24,6 @@ import {
   damageReachesTarget,
   isDndSceneEntity,
   resolveEffectApplication,
-  resolveEntityCurrentHp,
-  resolveEntityMaxHp,
   SAVE_TYPE_LABELS,
   stampTurnDuration,
   withInitializedDuration,
@@ -259,39 +257,6 @@ export function resolveAutoSaves(entity: SceneEntity): boolean {
   return isCreatureEntity(entity)
     ? (entity.autoSaves ?? true)
     : entity.autoSaves === true;
-}
-
-/**
- * Возвращает текущее и максимальное HP сущности (для per-target гейтов).
- *
- * @param entity - сущность-цель
- * @returns текущее и максимальное HP
- */
-function getEntityHp(entity: SceneEntity): { current: number; max: number } {
-  // Ядро видит entity как Base*; D&D-форму подтверждает гвард. Без данных
-  // системы запас хитов неизвестен — гейт по нему считается от нулей, ровно
-  // как и раньше читались отсутствующие хиты.
-  if (!isDndSceneEntity(entity)) {
-    return { current: 0, max: 0 };
-  }
-
-  return {
-    current: resolveEntityCurrentHp(entity),
-    max: resolveEntityMaxHp(entity),
-  };
-}
-
-/**
- * Определяет, находится ли сущность на полном запасе HP
- * (для per-target гейтов `@target.full`/`@target.notFull`).
- *
- * @param entity - сущность-цель
- * @returns true если текущее HP не меньше максимума
- */
-export function isEntityHpFull(entity: SceneEntity): boolean {
-  const { current, max } = getEntityHp(entity);
-
-  return current >= max;
 }
 
 /**
