@@ -402,14 +402,28 @@ const LEGACY_COUNTER_FORMULAS = {
 } as const;
 
 /**
- * Формула максимума счётчика в диалекте листа (`@prof`, `@level`,
- * `@classLevel`, `@mod.<abbr>`); пустая строка — максимум задан прогрессией по
- * уровням.
+ * Токен общего уровня в формуле — целиком, а не куском `@classLevel`.
+ *
+ * Без границы слова замена съела бы начало уже правильного токена; регистр не
+ * важен, потому что формулу пишет автор записи, а не форма.
+ */
+const LEVEL_TOKEN_PATTERN = new RegExp(
+  `${COUNTER_FORMULA_TOKENS.level}\\b`,
+  'gi',
+);
+
+/**
+ * Формула максимума счётчика в диалекте листа (`@prof`, `@classLevel`,
+ * `@mod.<abbr>`); пустая строка — максимум задан прогрессией по уровням.
  *
  * Компендиум TTG Club пишет формулу сразу в этом диалекте, а класс, собранный
  * в редакторе системы, — своими словами прежних лет (`level`, `chaMod`,
  * `level * 5`). Перевод здесь один на оба случая: считать формулу дальше умеет
  * только движок листа, и второй его разбор разошёлся бы с первым.
+ *
+ * Уровень на выходе всегда классовый (`@classLevel`, см.
+ * {@link toClassLevelFormula}): формула едет на лист, а там общий `@level`
+ * означал бы сумму уровней мультиклассера.
  *
  * @param definition - определение счётчика из компендиума
  * @returns формула в диалекте листа; пустая строка — формулы нет
@@ -422,7 +436,7 @@ function counterMaxFormulaOf(definition: ClassCounterDefinition): string {
   }
 
   if (formula === LEGACY_COUNTER_FORMULAS.level) {
-    return COUNTER_FORMULA_TOKENS.level;
+    return COUNTER_FORMULA_TOKENS.classLevel;
   }
 
   if (formula === LEGACY_COUNTER_FORMULAS.charismaModifier) {
@@ -431,9 +445,33 @@ function counterMaxFormulaOf(definition: ClassCounterDefinition): string {
 
   const multiplyMatch = /^level\s*\*\s*(\d+)$/.exec(formula);
 
-  return multiplyMatch
-    ? `${COUNTER_FORMULA_TOKENS.level} * ${multiplyMatch[1]}`
+  const dialect = multiplyMatch
+    ? `${COUNTER_FORMULA_TOKENS.classLevel} * ${multiplyMatch[1]}`
     : formula;
+
+  return toClassLevelFormula(dialect);
+}
+
+/**
+ * Называет уровень классового ресурса своим именем: `@level` → `@classLevel`.
+ *
+ * У ресурса класса «уровень» всегда классовый — так его и считает мастер, кладя
+ * в контекст формул уровень В ЭТОМ классе. Пока формула жила только внутри
+ * мастера, разницы не было; теперь она едет на лист, где общий `@level` означал
+ * бы сумму уровней мультиклассера, — и очки чародейства чародея 3 / плута 3
+ * выросли бы до шести.
+ *
+ * Записи компендиума TTG Club уже написаны через `@classLevel`; перевод нужен
+ * самодельным классам и записям прежних лет.
+ *
+ * @param formula - формула в диалекте листа
+ * @returns та же формула с уровнем своего класса
+ */
+function toClassLevelFormula(formula: string): string {
+  return formula.replace(
+    LEVEL_TOKEN_PATTERN,
+    COUNTER_FORMULA_TOKENS.classLevel,
+  );
 }
 
 /**
@@ -2102,6 +2140,17 @@ export function useClassWizard(
           // до неё, её нет вовсе
           existingCounter.min ??= counterDef.min;
 
+          // Формула тоже появилась у классового ресурса позже: записи,
+          // заведённые до неё, получают её здесь — на первом же повышении
+          // уровня. Своё число игрока при этом не трогаем: оно лежит той же
+          // формулой, и она уже стоит. Пустую не пишем вовсе — у ресурса со
+          // ступенями по уровням формулы нет, и поле осталось бы пустышкой
+          const backfilledFormula = counterMaxFormulaOf(counterDef);
+
+          if (!existingCounter.maxFormula && backfilledFormula) {
+            existingCounter.maxFormula = backfilledFormula;
+          }
+
           continue;
         }
 
@@ -2111,6 +2160,8 @@ export function useClassWizard(
           classLevel,
           counterContext,
         );
+
+        const maxFormula = counterMaxFormulaOf(counterDef);
 
         existingCounters.push({
           counterKey: counterDef.key,
@@ -2123,10 +2174,15 @@ export function useClassWizard(
           shortName: counterDef.shortName,
           recovery: counterDef.recovery,
           // Нижняя граница живёт на счётчике: её читают и панель ресурсов, и
-          // отдых. Формула НЕ сохраняется: её `@level` — уровень в этом классе,
-          // а пересчёт вне мастера знает только суммарный, и у мультикласса
-          // максимум разошёлся бы с выданным
+          // отдых
           ...(counterDef.min ? { min: counterDef.min } : {}),
+          // Формула едет на лист вместе с числом: с ней ресурс растёт сам —
+          // за модификатором характеристики и бонусом мастерства, — а не
+          // только на повышении уровня. Раньше её приходилось оставлять в
+          // мастере: её `@level` означал уровень в классе, а лист прочитал бы
+          // сумму уровней мультиклассера. Теперь уровень назван своим именем
+          // (`@classLevel`), и лист считает его по классу счётчика сам
+          ...(maxFormula ? { maxFormula } : {}),
           current: maxValue,
           max: maxValue,
         });
