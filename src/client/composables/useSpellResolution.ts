@@ -60,6 +60,7 @@ import {
   writeEntityHitPoints,
 } from '@vtt/shared/system/dnd.js';
 
+import { SPELL_NO_TARGETS_LABELS } from '../ui/actor/constants';
 import {
   formatRolledPartLine,
   formatSaveCancelledMessage,
@@ -537,17 +538,23 @@ export function useSpellResolution() {
   /**
    * Отправляет сводку по целям (AoE-путь или несколько снарядов).
    *
+   * Пустой результат называет причину: у площади это промах шаблоном мимо всех,
+   * у снарядов — нераспределённые цели, и одинаковое «нет целей» на оба случая
+   * читалось бы как поломка заклинания.
+   *
    * @param spell - заклинание
    * @param results - массив результатов по каждой цели
    * @param bonusPartLines - строки разбивки бонус-частей урона от эффектов
+   * @param emptyReason - чем объяснить пустой результат
    */
   function sendAoeSummary(
     spell: Spell,
     results: SpellTargetResult[],
     bonusPartLines: string[] = [],
+    emptyReason: string = SPELL_NO_TARGETS_LABELS.emptyArea,
   ): void {
     if (results.length === 0) {
-      chatStore.sendMessage(`${spell.name} — Нет целей в области`, 'text');
+      chatStore.sendMessage(`${spell.name} — ${emptyReason}`, 'text');
 
       return;
     }
@@ -1015,7 +1022,12 @@ export function useSpellResolution() {
             )
           : [];
 
-      sendAoeSummary(spell, results, bonusPartLines);
+      sendAoeSummary(
+        spell,
+        results,
+        bonusPartLines,
+        SPELL_NO_TARGETS_LABELS.noTarget,
+      );
 
       projectileStore.stopTargeting();
     });
@@ -1212,7 +1224,12 @@ export function useSpellResolution() {
             )
             .map((rolledPart) => formatRolledPartLine(rolledPart));
 
-          sendAoeSummary(spell, results, bonusPartLines);
+          sendAoeSummary(
+            spell,
+            results,
+            bonusPartLines,
+            SPELL_NO_TARGETS_LABELS.noTarget,
+          );
         }
 
         projectileStore.stopTargeting();

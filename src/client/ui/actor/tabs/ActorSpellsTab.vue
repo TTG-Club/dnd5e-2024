@@ -1416,7 +1416,14 @@
         ?? SPELL_TEMPLATE_DEFAULT_COLOR;
 
       templateStore.requestPlacement(
-        spell.areaOfEffect,
+        // Шаблон каста живёт до применения и снимается сам, поэтому размер ему
+        // задаёт запись, а не игрок: без явного `false` он оставался бы
+        // растягиваемым, и один и тот же конус вёл себя по-разному с листа и с
+        // горячей панели.
+        {
+          ...spell.areaOfEffect,
+          resizable: spell.areaOfEffect.resizable ?? false,
+        },
         templateColor,
         props.actor.id,
         (templateId) => continueSpellCast(spell, templateId, lockedSpellLevel),

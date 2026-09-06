@@ -40,6 +40,7 @@ import {
   writeEntityHitPoints,
 } from '@vtt/shared/system/dnd.js';
 
+import { SPELL_NO_TARGETS_LABELS } from '../ui/actor/constants';
 import {
   formatSaveCancelledMessage,
   formatTargetGateSuffix,
@@ -1105,8 +1106,16 @@ export function useSpellDamageWithParts() {
       }
     }
 
+    // Заклинание никого не задело. Причину называем явно: без неё строка
+    // читается как поломка, хотя чаще это промах шаблоном мимо всех.
     if (results.length === 0) {
-      messageLines.push('→ Нет целей');
+      messageLines.push(
+        `→ ${
+          cachedTemplate
+            ? SPELL_NO_TARGETS_LABELS.emptyArea
+            : SPELL_NO_TARGETS_LABELS.noTarget
+        }`,
+      );
     }
 
     chatStore.sendMessage(messageLines.join('\n'), 'text');

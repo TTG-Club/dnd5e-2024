@@ -318,7 +318,11 @@ export function isTokenInTemplate(
 /**
  * Находит все токены, центры которых попадают в область шаблона.
  *
- * По правилам D&D 5e, AoE поражает **всех** в области, включая кастера.
+ * По правилам D&D 5e, AoE поражает **всех** в области, включая кастера и
+ * скрытых от игроков. Метка `hidden` — про то, кому фишку показывать, а не про
+ * то, есть ли существо на карте: засада, накрытая огненным шаром, урон
+ * получает. Пока скрытые отсеивались здесь, мастер накрывал их площадью и
+ * получал «в области никого нет».
  *
  * @param template - шаблон измерения (область заклинания)
  * @param tokens - массив токенов сцены
@@ -330,12 +334,7 @@ export function findTokensInTemplate(
   tokens: readonly Token[],
   gridSize: number,
 ): Token[] {
-  return tokens.filter((token) => {
-    // Пропускаем скрытые токены
-    if (token.hidden) {
-      return false;
-    }
-
-    return isTokenInTemplate(token.x, token.y, token.scale, gridSize, template);
-  });
+  return tokens.filter((token) =>
+    isTokenInTemplate(token.x, token.y, token.scale, gridSize, template),
+  );
 }
