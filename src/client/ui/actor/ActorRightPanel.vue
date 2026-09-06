@@ -21,6 +21,7 @@
     getActorProficiencyBonus,
     getCustomBonusesValue,
     getCustomBonusValue,
+    resolveAbilityCheckRollMode,
   } from '@vtt/shared/system/dnd.js';
 
   import { useResolvedStats } from '../../composables/useResolvedStats';
@@ -323,25 +324,10 @@
     label: string,
     abilityKey: AbilityType,
   ) {
-    let initialRollMode: AttackRollMode = 'normal';
-
-    const flags = resolvedStats.value?.activeFlags ?? new Set();
-
-    const hasAdvantage =
-      flags.has('abilityCheck.advantage')
-      || flags.has(`abilityCheck.advantage.${abilityKey}`);
-
-    const hasDisadvantage =
-      flags.has('abilityCheck.disadvantage')
-      || flags.has(`abilityCheck.disadvantage.${abilityKey}`);
-
-    if (hasAdvantage && !hasDisadvantage) {
-      initialRollMode = 'advantage';
-    }
-
-    if (!hasAdvantage && hasDisadvantage) {
-      initialRollMode = 'disadvantage';
-    }
+    const initialRollMode: AttackRollMode = resolveAbilityCheckRollMode({
+      flags: resolvedStats.value?.activeFlags ?? new Set(),
+      ability: abilityKey,
+    });
 
     diceRollConfig.value = {
       modifier,

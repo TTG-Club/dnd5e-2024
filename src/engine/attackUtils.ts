@@ -7,7 +7,12 @@
  * Используется в dnd5eMacros.ts (хотбар) и DiceRollModal.vue (лист персонажа).
  */
 
-import type { AbilityType, DiceRollData, DistanceUnit } from '@vtt/shared';
+import type {
+  AbilityType,
+  DiceRollData,
+  DistanceUnit,
+  SkillType,
+} from '@vtt/shared';
 
 import type { ConditionRef } from './conditionKeys.js';
 import type { CreatureAction } from './creatureTypes.js';
@@ -19,6 +24,10 @@ import { convertDistance } from '@vtt/shared';
 import { buildSaveVsConditionFlag } from './activeEffectTypes.js';
 import { getShortDamageTypeLabel } from './damageConstants.js';
 import { formatDamageDefenseSuffix } from './damageUtils.js';
+import {
+  getSkillAdvantageFlagKey,
+  getSkillDisadvantageFlagKey,
+} from './skills.js';
 
 /** Досягаемость по умолчанию в футах (рукопашные атаки и заклинания касания) */
 export const DEFAULT_REACH_FEET = 5;
@@ -347,6 +356,63 @@ export function resolveInitiativeRollMode(
     flags.has('initiative.disadvantage')
     || flags.has('abilityCheck.disadvantage.dexterity')
     || flags.has('abilityCheck.disadvantage');
+
+  if (hasAdvantage && !hasDisadvantage) {
+    return 'advantage';
+  }
+
+  if (hasDisadvantage && !hasAdvantage) {
+    return 'disadvantage';
+  }
+
+  return 'normal';
+}
+
+/** Параметры расчёта режима проверки характеристики или навыка */
+export interface AbilityCheckRollModeParams {
+  /** Активные флаги существа (`ResolvedActorStats.activeFlags`) */
+  flags: ReadonlySet<string>;
+  /**
+   * Характеристика проверки. У навыка — та, от которой он считается на листе:
+   * Атлетику перевели на Телосложение — и флаги читаются по Телосложению.
+   */
+  ability: AbilityType;
+  /**
+   * Навык проверки. Не задан — катится голая проверка характеристики, и
+   * понавыковые флаги (помеха Скрытности от брони) её не касаются.
+   */
+  skill?: SkillType;
+}
+
+/**
+ * Определяет режим проверки характеристики или навыка D&D 5e по активным
+ * флагам существа.
+ *
+ * Учитывает общие флаги (`abilityCheck.advantage`/`abilityCheck.disadvantage`),
+ * профильные по характеристике (`abilityCheck.*.<ability>`) и понавыковые
+ * (`skill.<навык>.*` — преимущество Скрытности от эльфийских сапог, помеха от
+ * брони). По правилу 5e преимущество и помеха взаимно гасятся.
+ *
+ * Единая точка для листа персонажа и листа существа, чтобы одни и те же флаги
+ * везде читались одинаково.
+ *
+ * @param params - флаги, характеристика и навык проверки
+ * @returns режим броска: обычный / преимущество / помеха
+ */
+export function resolveAbilityCheckRollMode(
+  params: AbilityCheckRollModeParams,
+): AttackRollMode {
+  const { flags, ability, skill } = params;
+
+  const hasAdvantage =
+    flags.has('abilityCheck.advantage')
+    || flags.has(`abilityCheck.advantage.${ability}`)
+    || (skill !== undefined && flags.has(getSkillAdvantageFlagKey(skill)));
+
+  const hasDisadvantage =
+    flags.has('abilityCheck.disadvantage')
+    || flags.has(`abilityCheck.disadvantage.${ability}`)
+    || (skill !== undefined && flags.has(getSkillDisadvantageFlagKey(skill)));
 
   if (hasAdvantage && !hasDisadvantage) {
     return 'advantage';

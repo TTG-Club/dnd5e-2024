@@ -21,6 +21,7 @@
     getCreatureProficiencyBonus,
     getCustomBonusesValue,
     getCustomBonusValue,
+    resolveAbilityCheckRollMode,
   } from '@vtt/shared/system/dnd.js';
 
   import { useResolvedStats } from '../../composables/useResolvedStats';
@@ -237,18 +238,28 @@
   });
 
   /**
-   * Открывает окно броска проверки характеристики.
+   * Открывает окно броска проверки характеристики. Режим броска берётся из
+   * активных флагов существа — как на листе персонажа: эффект с преимуществом
+   * на проверки обязан работать и здесь.
    *
    * @param modifier - модификатор броска
    * @param label - название характеристики
+   * @param abilityKey - характеристика проверки
    */
-  function handleAbilityRoll(modifier: number, label: string): void {
+  function handleAbilityRoll(
+    modifier: number,
+    label: string,
+    abilityKey: AbilityType,
+  ): void {
     diceRollConfig.value = {
       modifier,
       title: `${ABILITY_CHECK_ROLL_LABELS.titlePrefix}${label}`,
       rollLabel: `${ABILITY_CHECK_ROLL_LABELS.rollPrefix}${label}`,
       rollButtonText: CREATURE_ABILITIES_LABELS.rollButton,
-      initialRollMode: 'normal',
+      initialRollMode: resolveAbilityCheckRollMode({
+        flags: resolvedStats.value?.activeFlags ?? new Set(),
+        ability: abilityKey,
+      }),
     };
 
     isDiceRollOpen.value = true;
@@ -326,7 +337,7 @@
       with-settings
       :bonus-sources="tile.bonusSources"
       @update:value="handleAbilityChange(tile.key, $event)"
-      @roll="handleAbilityRoll"
+      @roll="(modifier, label) => handleAbilityRoll(modifier, label, tile.key)"
       @open-settings="openAbilitySettings(tile.key)"
     />
   </div>

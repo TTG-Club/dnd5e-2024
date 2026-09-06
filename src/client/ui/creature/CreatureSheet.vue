@@ -7,6 +7,7 @@
     TypedWebSocketClient,
   } from '@vtt/shared';
   import type {
+    AttackRollMode,
     DnDCreature,
     DnDCustomBonusContext,
     DnDGameItem,
@@ -56,6 +57,7 @@
     normalizeCompendiumItem,
     normalizeCreature,
     PASSIVE_SKILL_BASE,
+    resolveAbilityCheckRollMode,
     resolveCreatureHitPointsByRules,
     SKILLS_LIST,
     withExhaustionLevel,
@@ -65,6 +67,7 @@
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import { useSheetMinimize } from '../../composables/useSheetMinimize';
   import {
+    ABILITY_CHECK_ROLL_LABELS,
     DICE_ROLL_DEFAULT_BUTTON,
     DRAG_OVER_RESET_DELAY_MS,
     FEET_UNIT_LABEL,
@@ -261,6 +264,7 @@
     title: string;
     rollLabel: string;
     rollButtonText: string;
+    initialRollMode: AttackRollMode;
   }
 
   const diceRollConfig = ref<DiceRollConfig>({
@@ -268,6 +272,7 @@
     title: '',
     rollLabel: '',
     rollButtonText: DICE_ROLL_DEFAULT_BUTTON,
+    initialRollMode: 'normal',
   });
 
   /**
@@ -278,6 +283,7 @@
    * @param config.title - заголовок окна
    * @param config.rollLabel - подпись броска
    * @param config.rollButtonText - надпись на кнопке броска
+   * @param config.initialRollMode - режим броска при открытии окна
    */
   function openDiceRoll(
     config: Partial<DiceRollConfig>
@@ -286,6 +292,7 @@
     diceRollConfig.value = {
       ...config,
       rollButtonText: config.rollButtonText ?? DICE_ROLL_DEFAULT_BUTTON,
+      initialRollMode: config.initialRollMode ?? 'normal',
     };
 
     isDiceRollOpen.value = true;
@@ -764,13 +771,29 @@
     () => resolvedStats.value?.overriddenKeys ?? new Set<string>(),
   );
 
+  /** Навык существа бейджем: и подпись, и всё, чем катится его проверка */
+  interface CreatureSkillBadge {
+    /** Ключ списка: у навыка правил — его ключ, у своего — id записи */
+    id: string;
+    /** Подпись бейджа: название и значение со знаком */
+    label: string;
+    /** Название навыка: им подписан бросок */
+    name: string;
+    /** Итог навыка — он же модификатор броска */
+    modifier: number;
+    /** Характеристика расчёта: по ней читаются флаги проверки */
+    ability: AbilityType;
+    /** Ключ навыка правил; не задан — навык заведён вручную */
+    key?: SkillType;
+  }
+
   /**
    * Навыки существа для показа бейджами: только те, которыми оно владеет, и
    * все заведённые вручную — их в правилах нет, и отмечать их владением
    * незачем. Значение берётся из разрешённых статов: там уже учтены и поправки
    * расчёта, и активные эффекты.
    */
-  const formattedSkills = computed(() => {
+  const skillBadges = computed<CreatureSkillBadge[]>(() => {
     const creature = localCreature.value;
 
     if (!creature) {
@@ -780,7 +803,7 @@
     const settings = creature.system.skillSettings;
     const mods = skillAbilityMods.value;
     const profBonus = creatureProficiencyBonus.value;
-    const result: string[] = [];
+    const result: CreatureSkillBadge[] = [];
 
     for (const skill of SKILLS_LIST) {
       const level = getSkillProficiency(skill.key);
@@ -790,25 +813,68 @@
       }
 
       const setting = getSkillSetting(settings, skill.key);
+      const ability = getSkillSettingAbility(setting, skill.key);
 
       const fallback =
-        mods[getSkillSettingAbility(setting, skill.key)]
+        mods[ability]
         + getProficiencyContribution(profBonus, level)
         + getCustomBonusesValue(bonusContext.value, setting.bonuses);
 
       const total = resolvedStats.value?.skills[skill.key] ?? fallback;
 
-      result.push(`${skill.label} ${formatSignedNumber(total)}`);
+      result.push({
+        id: skill.key,
+        label: `${skill.label} ${formatSignedNumber(total)}`,
+        name: skill.label,
+        modifier: total,
+        ability,
+        key: skill.key,
+      });
     }
 
     for (const skill of settings?.custom ?? []) {
       const total = getCustomSkillValue(bonusContext.value, skill);
 
-      result.push(`${skill.name} ${formatSignedNumber(total)}`);
+      result.push({
+        id: skill.id,
+        label: `${skill.name} ${formatSignedNumber(total)}`,
+        name: skill.name,
+        modifier: total,
+        ability: skill.ability,
+      });
     }
 
-    return result.sort();
+    return result.sort((first, second) =>
+      first.name.localeCompare(second.name),
+    );
   });
+
+  /**
+   * Нажатие по бейджу навыка: вне правки катит проверку этого навыка — тем же
+   * окном, что и проверка характеристики. В правке бейдж ведёт в настройку
+   * навыков, как и нажатие по самому блоку: там числа правят, а не бросают.
+   *
+   * @param badge - навык бейджа
+   */
+  function handleSkillBadgeClick(badge: CreatureSkillBadge): void {
+    if (isEditMode.value) {
+      openSkillsModal();
+
+      return;
+    }
+
+    openDiceRoll({
+      modifier: badge.modifier,
+      title: `${ABILITY_CHECK_ROLL_LABELS.titlePrefix}${badge.name}`,
+      rollLabel: `${ABILITY_CHECK_ROLL_LABELS.rollPrefix}${badge.name}`,
+      rollButtonText: ABILITY_CHECK_ROLL_LABELS.button,
+      initialRollMode: resolveAbilityCheckRollMode({
+        flags: resolvedStats.value?.activeFlags ?? new Set(),
+        ability: badge.ability,
+        skill: badge.key,
+      }),
+    });
+  }
 
   /**
    * Какие блоки левой колонки показывать.
@@ -832,7 +898,7 @@
       immunities: isEditing || Boolean(defenses?.immunities.length),
       conditionImmunities:
         isEditing || Boolean(defenses?.conditionImmunities.length),
-      skills: isEditing || formattedSkills.value.length > 0,
+      skills: isEditing || skillBadges.value.length > 0,
       languages: isEditing || Boolean(system?.languages?.length),
       environments:
         isEditing
@@ -1780,7 +1846,8 @@
 
               <!-- Навыки — бейджами, как в стат-блоке: у существа отмечены
                 считанные навыки, и полный список правил занимал бы всю колонку
-                ради трёх строк. Владения правят в своём окне -->
+                ради трёх строк. Владения правят в своём окне, а нажатие по
+                бейджу вне правки катит проверку этого навыка -->
               <FieldsetLabel
                 v-if="visibleBlocks.skills"
                 :label="GRANT_SECTION_LABELS.skills"
@@ -1800,15 +1867,19 @@
 
                 <div class="flex flex-wrap gap-1.5 p-2 pt-1">
                   <UBadge
-                    v-for="skill in formattedSkills"
-                    :key="skill"
-                    :label="skill"
+                    v-for="badge in skillBadges"
+                    :key="badge.id"
+                    :label="badge.label"
                     color="neutral"
                     variant="subtle"
+                    class="cursor-pointer transition-colors hover:bg-accented"
+                    @click.left.exact.stop.prevent="
+                      handleSkillBadgeClick(badge)
+                    "
                   />
 
                   <span
-                    v-if="formattedSkills.length === 0"
+                    v-if="skillBadges.length === 0"
                     class="text-xs text-dimmed italic"
                   >
                     {{ CREATURE_SHEET_LABELS.empty }}
@@ -2146,7 +2217,7 @@
     :title="diceRollConfig.title"
     :roll-label="diceRollConfig.rollLabel"
     :roll-button-text="diceRollConfig.rollButtonText"
-    initial-roll-mode="normal"
+    :initial-roll-mode="diceRollConfig.initialRollMode"
   />
 
   <!-- Языки -->
