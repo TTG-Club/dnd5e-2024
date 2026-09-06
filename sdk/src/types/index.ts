@@ -33,6 +33,7 @@ export * from './assets.js';
 export * from './base.js';
 export * from './graph.js';
 export * from './module.js';
+export * from './rollRequest.js';
 /** Пользовательская область на сцене (произвольный полигон) */
 export interface CustomArea {
   id: string;

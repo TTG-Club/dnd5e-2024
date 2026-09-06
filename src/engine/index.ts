@@ -57,6 +57,7 @@ export * from './positionalEffects.js';
 export * from './preparedSpells.js';
 export * from './proficiencyBonus.js';
 export * from './restEngine.js';
+export * from './savingThrowRequest.js';
 export * from './savingThrows.js';
 export * from './skills.js';
 export * from './slugify.js';

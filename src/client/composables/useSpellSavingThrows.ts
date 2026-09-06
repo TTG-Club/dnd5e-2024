@@ -1,180 +1,374 @@
-import type { AbilityType, SceneEntity } from '@vtt/shared';
-import type { ConditionRef } from '@vtt/shared/system/dnd.js';
+import type {
+  AbilityType,
+  RollRequestOptions,
+  RollRequestOutcome,
+  SceneEntity,
+} from '@vtt/shared';
+import type {
+  ConditionRef,
+  SavingThrowRequestPayload,
+  SavingThrowResult,
+} from '@vtt/shared/system/dnd.js';
 
-import type { ActorSaveInfo, SavingThrowResult } from './spellResolutionShared';
+import type { ActorSaveInfo } from './spellResolutionShared';
 
+import { getRollRequestService } from '@/core/api/rollRequestService';
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
 import { useDiceRollerStore } from '@/stores/diceRollerStore';
+import { useWorldStore } from '@/stores/worldStore';
+import { isNeutralRollAnswer } from '@vtt/shared';
 import {
   isDndSceneEntity,
+  parseSavingThrowResult,
   resolveActorStats,
   resolveSavingThrowRollMode,
-  SAVE_TYPE_LABELS,
+  SAVING_THROW_REQUEST_KIND,
 } from '@vtt/shared/system/dnd.js';
 
-import { determineRollMode, resolveAutoSaves } from './spellResolutionShared';
+import {
+  SAVING_THROW_ROLL_FORMULAS,
+  SAVING_THROW_ROLL_LABELS,
+} from '../ui/actor/constants';
+import {
+  determineRollMode,
+  formatSavingThrowRequestTitle,
+  formatSavingThrowRollLabel,
+  formatSavingThrowTitle,
+  resolveAutoSaves,
+} from './spellResolutionShared';
+
+/** Префикс сообщений композабла в консоли */
+const SAVING_THROW_LOG_PREFIX = '[SavingThrow]';
+
+/**
+ * Цель спасброска и всё, что нужно, чтобы его разрешить, — своим броском или
+ * запросом владельцу.
+ */
+export interface SavingThrowTarget {
+  /** Сущность, которая бросает */
+  entity: SceneEntity;
+  /** Характеристика спасброска */
+  ability: AbilityType;
+  /** Сложность (СЛ) */
+  dc: number;
+  /** Состояние, которого спасбросок позволяет избежать */
+  againstCondition?: ConditionRef;
+  /**
+   * Спасбросок навязан магией — от этого зависят флаги вроде «Мантии
+   * сопротивления заклинаниям». По умолчанию `true`: спасброски заклинаний и
+   * действий существ навязаны магией. Поле явное, потому что оно едет в
+   * нагрузке запроса — адресат обязан считать ТЕМ ЖЕ флагом, что и инициатор.
+   */
+  againstMagic?: boolean;
+  /**
+   * Сущность, от чьего имени идёт действие (заклинатель, атакующий). По ней
+   * сервер проверяет право игрока просить бросок; ГМу поле не требуется, но
+   * без него запрос игрока сервер отклонит.
+   */
+  sourceEntityId?: string;
+  /** Чем бьют («Огненный шар», «Укус») — в подпись запроса у адресата */
+  sourceName?: string;
+}
+
+/**
+ * Чем окно спасброска отличается у своего броска и у броска по чужому запросу.
+ */
+export interface SavingThrowModalOptions {
+  /**
+   * Ключ окна. У запроса — по его идентификатору: ядро может доставить один и
+   * тот же запрос повторно (переподключение), и второе окно тогда не нужно.
+   * Без ключа окна открываются независимо друг от друга.
+   */
+  modalKey?: string;
+  /** Бросок ЗА адресата: ГМ или инициатор взял чужой запрос на себя */
+  takeover?: boolean;
+  /** Бросок сделан */
+  onResult: (result: SavingThrowResult) => void;
+  /** Окно закрыли, не бросив */
+  onCancel: () => void;
+}
+
+/**
+ * Собирает формулу спасброска: кость по режиму плюс модификатор.
+ *
+ * Одна на два применения — свой автобросок и `fallbackFormula` запроса (ею
+ * ядро бросит само, если у адресата не окажется окна системы).
+ *
+ * @param info - модификатор и флаги преимущества/помехи цели
+ * @returns формула для роллера
+ */
+function buildSavingThrowFormula(info: ActorSaveInfo): string {
+  let formula: string = SAVING_THROW_ROLL_FORMULAS.normal;
+
+  if (info.hasAdvantage && !info.hasDisadvantage) {
+    formula = SAVING_THROW_ROLL_FORMULAS.advantage;
+  } else if (info.hasDisadvantage && !info.hasAdvantage) {
+    formula = SAVING_THROW_ROLL_FORMULAS.disadvantage;
+  }
+
+  if (info.modifier !== 0) {
+    const sign = info.modifier >= 0 ? '+' : '';
+
+    formula += `${sign}${info.modifier}`;
+  }
+
+  return formula;
+}
+
+/**
+ * Собирает результат спасброска по итогу броска.
+ *
+ * @param total - итог броска (кость плюс модификатор)
+ * @param info - модификатор и флаги цели (нужен автопровал)
+ * @param dc - сложность
+ * @returns результат спасброска
+ */
+function buildSavingThrowResult(
+  total: number,
+  info: ActorSaveInfo,
+  dc: number,
+): SavingThrowResult {
+  return {
+    roll: total - info.modifier,
+    modifier: info.modifier,
+    total,
+    passed: !info.autoFail && total >= dc,
+  };
+}
+
+/**
+ * Рассчитывает модификатор спасброска актора с учётом Active Effects.
+ *
+ * @param entity - сущность-цель
+ * @param saveAbility - характеристика спасброска
+ * @param options - контекст спасброска для флагов преимущества/помехи
+ * @param options.againstMagic - спасбросок навязан магией
+ * @param options.againstCondition - состояние, которого он позволяет избежать
+ * @returns модификатор спасброска и флаги (преимущество/помеха/автопровал)
+ */
+function getActorSaveInfo(
+  entity: SceneEntity,
+  saveAbility: AbilityType,
+  options: { againstMagic: boolean; againstCondition?: ConditionRef },
+): ActorSaveInfo {
+  // Ядро видит entity как Base*; D&D-форму подтверждает гвард. Без данных
+  // системы считать нечего: спасбросок идёт «голым» кубиком, а не роняет каст
+  if (!isDndSceneEntity(entity)) {
+    return {
+      modifier: 0,
+      hasAdvantage: false,
+      hasDisadvantage: false,
+      autoFail: false,
+    };
+  }
+
+  const stats = resolveActorStats(entity);
+
+  const modifier = stats.saves[saveAbility] ?? 0;
+
+  // `againstMagic` приходит от вызывающего: Мантия сопротивления заклинаниям
+  // должна сработать на спасброске от заклинания и промолчать на спасброске
+  // от яда. Через сеть флаг едет в нагрузке запроса — у адресата тот же счёт.
+  const rollMode = resolveSavingThrowRollMode({
+    flags: stats.activeFlags,
+    ability: saveAbility,
+    againstMagic: options.againstMagic,
+    againstCondition: options.againstCondition,
+  });
+
+  const hasAdvantage = rollMode === 'advantage';
+  const hasDisadvantage = rollMode === 'disadvantage';
+
+  const autoFail = stats.activeFlags.has(`save.autoFail.${saveAbility}`);
+
+  return { modifier, hasAdvantage, hasDisadvantage, autoFail };
+}
+
+/**
+ * Считает данные спасброска цели по её контексту.
+ *
+ * @param target - цель спасброска
+ * @returns модификатор и флаги цели
+ */
+function resolveTargetSaveInfo(target: SavingThrowTarget): ActorSaveInfo {
+  return getActorSaveInfo(target.entity, target.ability, {
+    againstMagic: target.againstMagic ?? true,
+    againstCondition: target.againstCondition,
+  });
+}
+
+/**
+ * Собирает запрос броска для ядра: адрес, подпись, нагрузка и формула
+ * нейтрального броска на случай, если у адресата не окажется окна системы.
+ *
+ * @param target - цель спасброска
+ * @returns параметры запроса для `rollRequests`
+ */
+function buildRollRequestOptions(
+  target: SavingThrowTarget,
+): RollRequestOptions {
+  const payload: SavingThrowRequestPayload = {
+    kind: SAVING_THROW_REQUEST_KIND,
+    ability: target.ability,
+    dc: target.dc,
+    againstMagic: target.againstMagic ?? true,
+    againstCondition: target.againstCondition,
+    sourceName: target.sourceName,
+  };
+
+  return {
+    entityId: target.entity.id,
+    sourceEntityId: target.sourceEntityId,
+    title: formatSavingThrowRequestTitle(
+      target.ability,
+      target.dc,
+      target.sourceName,
+    ),
+    fallbackFormula: buildSavingThrowFormula(resolveTargetSaveInfo(target)),
+    payload,
+  };
+}
+
+/**
+ * Разбирает ответ на запрос: свой результат или бросок нейтрального окна ядра.
+ *
+ * @param target - цель спасброска
+ * @param answer - непрозрачный `result` из исхода запроса
+ * @returns результат спасброска либо `null`, если форма ответа незнакома
+ */
+function readSavingThrowAnswer(
+  target: SavingThrowTarget,
+  answer: unknown,
+): SavingThrowResult | null {
+  const parsed = parseSavingThrowResult(answer);
+
+  if (parsed) {
+    return parsed;
+  }
+
+  // Нейтральное окно ядра: у адресата не сработал наш слот, и он бросил
+  // нашу же `fallbackFormula` — модификатор в итоге уже сидит.
+  if (isNeutralRollAnswer(answer)) {
+    const info = resolveTargetSaveInfo(target);
+
+    return {
+      ...buildSavingThrowResult(answer.total, info, target.dc),
+      roll: answer.rollData.dice[0]?.values[0] ?? 0,
+    };
+  }
+
+  return null;
+}
 
 /**
  * Композабл для обработки спасбросков от заклинаний.
+ *
+ * Спасбросок цели под ЧУЖИМ владением уходит запросом её владельцу
+ * (`api.rollRequests`): по правилам бросает владелец, а не тот, кто нажал.
+ * Свои цели и цели без владельца по-прежнему бросают здесь же.
  */
 export function useSpellSavingThrows() {
   const diceRollerStore = useDiceRollerStore();
   const chatStore = useChatStore();
+  const worldStore = useWorldStore();
   const { openModal } = useModalManager();
 
   /**
-   * Рассчитывает модификатор спасброска актора с учётом Active Effects.
+   * Открывает окно спасброска — одно на оба применения: свой бросок и бросок
+   * по чужому запросу. Подписи, модификатор и режим считаются здесь же, чтобы
+   * две стороны канала не разъезжались.
    *
-   * @param entity - сущность-цель
-   * @param saveAbility - характеристика спасброска
-   * @param againstCondition - состояние, которого спасбросок позволяет избежать
-   * @returns модификатор спасброска и флаги (преимущество/помеха/автопровал)
+   * @param target - цель спасброска
+   * @param options - ключ окна, режим «за адресата» и коллбэки
+   * @returns идентификатор окна либо `null`, если окно с этим ключом уже открыто
    */
-  function getActorSaveInfo(
-    entity: SceneEntity,
-    saveAbility: AbilityType,
-    againstCondition?: ConditionRef,
-  ): ActorSaveInfo {
-    // Ядро видит entity как Base*; D&D-форму подтверждает гвард. Без данных
-    // системы считать нечего: спасбросок идёт «голым» кубиком, а не роняет каст
-    if (!isDndSceneEntity(entity)) {
+  function openSavingThrowModal(
+    target: SavingThrowTarget,
+    options: SavingThrowModalOptions,
+  ): string | null {
+    const info = resolveTargetSaveInfo(target);
+
+    const title = formatSavingThrowTitle(
+      target.ability,
+      target.entity.name,
+      target.dc,
+    );
+
+    return openModal('DiceRollModal', {
+      ...(options.modalKey
+        ? { _modalKey: options.modalKey }
+        : { allowMultiple: true }),
+      title: options.takeover
+        ? `${SAVING_THROW_ROLL_LABELS.takeoverPrefix}${title}`
+        : title,
+      rollLabel: formatSavingThrowRollLabel(target.ability, target.entity.name),
+      rollButtonText: SAVING_THROW_ROLL_LABELS.button,
+      modifier: info.modifier,
+      initialRollMode: determineRollMode(
+        info.hasAdvantage,
+        info.hasDisadvantage,
+      ),
+      autoFail: info.autoFail,
+      targetDc: target.dc,
+      onRoll: (total: number) => {
+        options.onResult(buildSavingThrowResult(total, info, target.dc));
+      },
+      onCancel: options.onCancel,
+    });
+  }
+
+  /**
+   * Бросает спасбросок за цель автоматически и пишет бросок в чат.
+   *
+   * @param target - цель спасброска
+   * @returns результат спасброска
+   */
+  function rollSavingThrow(target: SavingThrowTarget): SavingThrowResult {
+    const info = resolveTargetSaveInfo(target);
+
+    if (info.autoFail) {
       return {
-        modifier: 0,
-        hasAdvantage: false,
-        hasDisadvantage: false,
-        autoFail: false,
+        roll: 1,
+        modifier: info.modifier,
+        total: 1 + info.modifier,
+        passed: false,
       };
     }
 
-    const stats = resolveActorStats(entity);
-
-    const modifier = stats.saves[saveAbility] ?? 0;
-
-    // Сюда попадают только спасброски, навязанные заклинанием, поэтому
-    // `againstMagic` истинно всегда: Мантия сопротивления заклинаниям должна
-    // сработать здесь и промолчать на спасброске от яда.
-    const rollMode = resolveSavingThrowRollMode({
-      flags: stats.activeFlags,
-      ability: saveAbility,
-      againstMagic: true,
-      againstCondition,
-    });
-
-    const hasAdvantage = rollMode === 'advantage';
-    const hasDisadvantage = rollMode === 'disadvantage';
-
-    const autoFail = stats.activeFlags.has(`save.autoFail.${saveAbility}`);
-
-    return { modifier, hasAdvantage, hasDisadvantage, autoFail };
-  }
-
-  /**
-   * Бросает спасбросок за актора автоматически.
-   *
-   * @param entity - сущность-цель
-   * @param saveAbility - характеристика спасброска
-   * @param saveDC - сложность спасброска
-   * @param againstCondition - состояние, которого спасбросок позволяет избежать
-   * @returns результат спасброска
-   */
-  function rollSavingThrow(
-    entity: SceneEntity,
-    saveAbility: AbilityType,
-    saveDC: number,
-    againstCondition?: ConditionRef,
-  ): SavingThrowResult {
-    const { modifier, hasAdvantage, hasDisadvantage, autoFail } =
-      getActorSaveInfo(entity, saveAbility, againstCondition);
-
-    if (autoFail) {
-      return { roll: 1, modifier, total: 1 + modifier, passed: false };
-    }
-
-    // Определяем формулу (преимущество/помеха)
-    let formula = '1к20';
-
-    if (hasAdvantage && !hasDisadvantage) {
-      formula = '2к20вл1';
-    } else if (hasDisadvantage && !hasAdvantage) {
-      formula = '2к20ул1';
-    }
-
-    if (modifier !== 0) {
-      const sign = modifier >= 0 ? '+' : '';
-
-      formula += `${sign}${modifier}`;
-    }
-
+    const formula = buildSavingThrowFormula(info);
     const rollData = diceRollerStore.parseAndRoll(formula);
     const total = rollData.total;
-    const passed = total >= saveDC;
+    const result = buildSavingThrowResult(total, info, target.dc);
 
-    // Отправляем бросок спасброска в чат
-    const saveLabel = SAVE_TYPE_LABELS[saveAbility] ?? saveAbility;
-
-    rollData.label = `Спасбросок ${saveLabel} — ${entity.name}`;
-
-    if (passed) {
-      rollData.label += ' ✓ Успех';
-    } else {
-      rollData.label += ' ✗ Провал';
-    }
+    rollData.label = `${formatSavingThrowRollLabel(target.ability, target.entity.name)}${
+      result.passed
+        ? SAVING_THROW_ROLL_LABELS.successSuffix
+        : SAVING_THROW_ROLL_LABELS.failureSuffix
+    }`;
 
     chatStore.sendMessage(formula, 'roll', rollData);
 
-    // Извлекаем значение первого (или лучшего/худшего) кубика
-    const dieRoll = rollData.dice[0]?.values[0] ?? 0;
-
-    return { roll: dieRoll, modifier, total, passed };
+    // Натуральная кость — первая (или лучшая/худшая) из брошенных
+    return { ...result, roll: rollData.dice[0]?.values[0] ?? 0 };
   }
 
   /**
-   * Запрашивает ручной бросок спасброска через DiceRollModal.
-   * Открывает модалку с предзаполненным модификатором и ждёт результат.
+   * Запрашивает ручной бросок спасброска через DiceRollModal У СЕБЯ.
    *
    * Окно можно закрыть, не бросив, — тогда промис отдаёт `null`. Это НЕ провал
    * спасброска и не успех: вызывающий обязан свернуть начатое действие целиком
    * (без такого ответа оно повисало навсегда — молча, без урона и без чата).
    *
-   * @param entity - сущность-цель
-   * @param saveAbility - характеристика спасброска
-   * @param saveDC - сложность спасброска
-   * @param againstCondition - состояние, которого спасбросок позволяет избежать
+   * @param target - цель спасброска
    * @returns промис с результатом спасброска или `null`, если окно закрыли
    */
   function requestManualSavingThrow(
-    entity: SceneEntity,
-    saveAbility: AbilityType,
-    saveDC: number,
-    againstCondition?: ConditionRef,
+    target: SavingThrowTarget,
   ): Promise<SavingThrowResult | null> {
     return new Promise((resolve) => {
-      const { modifier, hasAdvantage, hasDisadvantage, autoFail } =
-        getActorSaveInfo(entity, saveAbility, againstCondition);
-
-      const saveLabel = SAVE_TYPE_LABELS[saveAbility] ?? saveAbility;
-      const rollMode = determineRollMode(hasAdvantage, hasDisadvantage);
-
-      openModal('DiceRollModal', {
-        allowMultiple: true,
-        title: `Спасбросок ${saveLabel} — ${entity.name} (DC ${saveDC})`,
-        rollLabel: `Спасбросок ${saveLabel} — ${entity.name}`,
-        rollButtonText: 'Бросить спасбросок',
-        modifier,
-        initialRollMode: rollMode,
-        autoFail,
-        targetDc: saveDC,
-        onRoll: (total: number) => {
-          const passed = !autoFail && total >= saveDC;
-
-          resolve({
-            roll: total - modifier,
-            modifier,
-            total,
-            passed,
-          });
-        },
+      openSavingThrowModal(target, {
+        onResult: resolve,
         onCancel: () => {
           resolve(null);
         },
@@ -183,45 +377,181 @@ export function useSpellSavingThrows() {
   }
 
   /**
-   * Разрешает спасбросок цели с учётом режима `autoSaves`.
+   * Разрешает спасбросок СВОЕЙ цели: авто-бросок или окно по `autoSaves`.
    *
-   * Существа и сущности с включёнными автоспасбросками кидают автоматически
-   * (`rollSavingThrow`), PC с `autoSaves: false` — вручную через DiceRollModal
-   * (`requestManualSavingThrow`).
-   *
-   * Ручной бросок можно отменить, закрыв окно, — тогда промис отдаёт `null`
-   * (см. `requestManualSavingThrow`). Автоспасбросок отменить нельзя.
-   *
-   * @param entity - сущность-цель
-   * @param saveAbility - характеристика спасброска
-   * @param saveDC - сложность спасброска
-   * @param againstCondition - состояние, которого спасбросок позволяет избежать
-   * @returns промис с результатом спасброска или `null`, если бросок отменили
+   * @param target - цель спасброска
+   * @returns промис с результатом или `null`, если окно закрыли
    */
-  function resolveSavingThrowForTarget(
-    entity: SceneEntity,
-    saveAbility: AbilityType,
-    saveDC: number,
-    againstCondition?: ConditionRef,
+  function resolveSavingThrowLocally(
+    target: SavingThrowTarget,
   ): Promise<SavingThrowResult | null> {
-    if (resolveAutoSaves(entity)) {
-      return Promise.resolve(
-        rollSavingThrow(entity, saveAbility, saveDC, againstCondition),
-      );
+    if (resolveAutoSaves(target.entity)) {
+      return Promise.resolve(rollSavingThrow(target));
     }
 
-    return requestManualSavingThrow(
-      entity,
-      saveAbility,
-      saveDC,
-      againstCondition,
+    return requestManualSavingThrow(target);
+  }
+
+  /**
+   * Под чужим ли владением цель: такая бросает сама, у своего владельца.
+   *
+   * Сущность без владельца и своя собственная бросают здесь же — просить
+   * некого. В сети ли владелец, не проверяем: ядро само ответит
+   * `noRecipient`, и мы откатимся на свой бросок.
+   *
+   * @param entity - сущность-цель
+   * @returns true, если спасбросок надо просить у другого пользователя
+   */
+  function isForeignOwnedTarget(entity: SceneEntity): boolean {
+    const ownerId = entity.ownerId;
+
+    return !!ownerId && ownerId !== worldStore.connectionState.loggedAsUserId;
+  }
+
+  /**
+   * Приводит исход запроса к результату спасброска.
+   *
+   * Каждый из шести исходов разобран явно: ответ и бросок «за адресата» дают
+   * результат, отказ и таймаут сворачивают действие (`null`), а отсутствие
+   * адресата и отказ сервера откатывают на СВОЙ бросок — ровно то поведение,
+   * что было до появления канала.
+   *
+   * @param target - цель спасброска
+   * @param outcome - исход запроса от ядра
+   * @returns результат спасброска или `null`, если действие свёрнуто
+   */
+  function resolveRequestOutcome(
+    target: SavingThrowTarget,
+    outcome: RollRequestOutcome,
+  ): Promise<SavingThrowResult | null> {
+    switch (outcome.status) {
+      case 'answered':
+      case 'takenOver': {
+        const result = readSavingThrowAnswer(target, outcome.result);
+
+        if (!result) {
+          // Ответ чужой формы — бросать второй раз нельзя (адресат уже
+          // написал свой бросок в чат), поэтому сворачиваем действие.
+          console.warn(
+            `${SAVING_THROW_LOG_PREFIX} Незнакомая форма ответа на спасбросок «${target.entity.name}»`,
+            outcome.result,
+          );
+        }
+
+        return Promise.resolve(result);
+      }
+      case 'declined':
+      case 'timeout':
+        return Promise.resolve(null);
+      case 'rejected':
+        console.warn(
+          `${SAVING_THROW_LOG_PREFIX} Запрос спасброска не принят: ${outcome.reason}`,
+        );
+
+        break;
+      case 'noRecipient':
+        break;
+    }
+
+    // Адресата нет в сети либо сервер запрос не принял — бросаем сами, ровно
+    // как до появления канала.
+    return resolveSavingThrowLocally(target);
+  }
+
+  /**
+   * Разрешает спасбросок одной цели: запросом её владельцу или своим броском.
+   *
+   * @param target - цель спасброска
+   * @returns промис с результатом или `null`, если бросок отменили
+   */
+  async function resolveSavingThrowForTarget(
+    target: SavingThrowTarget,
+  ): Promise<SavingThrowResult | null> {
+    if (!isForeignOwnedTarget(target.entity)) {
+      return resolveSavingThrowLocally(target);
+    }
+
+    const outcome = await getRollRequestService().request(
+      buildRollRequestOptions(target),
     );
+
+    return resolveRequestOutcome(target, outcome);
+  }
+
+  /**
+   * Разрешает спасброски сразу нескольких целей.
+   *
+   * Запросы чужим владельцам уходят ОДНОЙ пачкой и ждут параллельно: пятеро
+   * задетых площадью игроков бросают одновременно, а не в очередь. Пока они
+   * бросают, свои цели разбираются здесь — авто-броски первыми (их результат
+   * уходит в чат сразу), затем окна по одному.
+   *
+   * @param targets - цели спасброска (по одной записи на сущность)
+   * @returns карта «id сущности → результат»; `null` — бросок отменили
+   */
+  async function resolveSavingThrowsForTargets(
+    targets: readonly SavingThrowTarget[],
+  ): Promise<Map<string, SavingThrowResult | null>> {
+    const results = new Map<string, SavingThrowResult | null>();
+
+    const foreignTargets: SavingThrowTarget[] = [];
+    const autoTargets: SavingThrowTarget[] = [];
+    const manualTargets: SavingThrowTarget[] = [];
+
+    // Одна сущность — один спасбросок, даже если её токен попал в область
+    // дважды: иначе владельцу прилетело бы два окна на одно и то же.
+    const uniqueTargets = new Map<string, SavingThrowTarget>();
+
+    for (const target of targets) {
+      if (!uniqueTargets.has(target.entity.id)) {
+        uniqueTargets.set(target.entity.id, target);
+      }
+    }
+
+    for (const target of uniqueTargets.values()) {
+      if (isForeignOwnedTarget(target.entity)) {
+        foreignTargets.push(target);
+      } else if (resolveAutoSaves(target.entity)) {
+        autoTargets.push(target);
+      } else {
+        manualTargets.push(target);
+      }
+    }
+
+    // Пачка уходит ДО своих бросков: адресаты получают окна сразу и бросают,
+    // пока инициатор занят своими.
+    const foreignOutcomes =
+      foreignTargets.length > 0
+        ? getRollRequestService().requestMany(
+            foreignTargets.map(buildRollRequestOptions),
+          )
+        : null;
+
+    for (const target of [...autoTargets, ...manualTargets]) {
+      results.set(target.entity.id, await resolveSavingThrowLocally(target));
+    }
+
+    if (foreignOutcomes) {
+      const outcomes = await foreignOutcomes;
+
+      for (const [index, outcome] of outcomes.entries()) {
+        const target = foreignTargets[index];
+
+        results.set(
+          target.entity.id,
+          await resolveRequestOutcome(target, outcome),
+        );
+      }
+    }
+
+    return results;
   }
 
   return {
-    getActorSaveInfo,
+    isForeignOwnedTarget,
+    openSavingThrowModal,
     rollSavingThrow,
-    requestManualSavingThrow,
     resolveSavingThrowForTarget,
+    resolveSavingThrowsForTargets,
   };
 }

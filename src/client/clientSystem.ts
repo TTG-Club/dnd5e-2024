@@ -7,6 +7,7 @@ import { defineAsyncComponent } from 'vue';
 import { dnd5eSystemInstance } from '@vtt/shared/system/dnd.js';
 
 import { promptInitiativeRoll } from './composables/initiativeRollPrompt';
+import { promptRequestedRoll } from './composables/requestedRollPrompt';
 import { registerDnd5eMacros } from './macros/dnd5eMacros';
 import { registerSystemDataSync } from './systemDataSync';
 import ActorDeleteConfirmModal from './ui/actor/ActorDeleteConfirmModal.vue';
@@ -99,8 +100,9 @@ export function registerClientSystem(api: ClientSystemAPI) {
   api.defineSystem(dnd5eSystemInstance);
 
   // UI-слоты системы: макросы + модалки удаления/эффектов/быстрые (их рендерит
-  // ядро — custom-areas, удаление актёра/существа, быстрые окна) + окно броска
-  // инициативы (его открывает трекер боя ядра).
+  // ядро — custom-areas, удаление актёра/существа, быстрые окна) + два окна
+  // броска, которые открывает ядро: инициатива (трекер боя) и спасбросок по
+  // чужому запросу (адресный канал «попроси владельца сущности бросить»).
   api.uiSystem({
     registerMacros: registerDnd5eMacros,
     actorDeleteConfirmModal: ActorDeleteConfirmModal,
@@ -110,6 +112,7 @@ export function registerClientSystem(api: ClientSystemAPI) {
     quickEquipmentModal: QuickEquipmentModal,
     quickActionsModal: QuickCreatureActionsModal,
     promptInitiativeRoll,
+    promptRequestedRoll,
   });
 
   // Система «владеет» своими модалками (лист, просмотрщики, кубики) — регистрируем

@@ -10,6 +10,7 @@ export * from './src/constants/permissions.js';
 export * from './src/initiativeUtils.js';
 export * from './src/publicAccess.js';
 export * from './src/richContentGuard.js';
+export * from './src/rollRequests.js';
 // D&D-боёвки на границе хода (`turnEffects`) здесь БОЛЬШЕ НЕТ ВООБЩЕ: последний
 // не-системный потребитель (initiativeModule) переведён на контракт `VttSystem`
 // (`getSystem()?.expireTurnEffects?.()`), после чего встроенная копия движка
