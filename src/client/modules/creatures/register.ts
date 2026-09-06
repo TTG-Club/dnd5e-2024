@@ -10,7 +10,8 @@ import type { ClientSystemAPI } from '@/core/systemBootstrap';
 
 import type { CreatureEntry } from '../../composables/useEntityDetailModals';
 
-import { getAssetUrl, isRecord } from '@vtt/shared';
+import { useWorldStore } from '@/stores/worldStore';
+import { getCompendiumMediaUrl, isRecord } from '@vtt/shared';
 
 import { useEntityDetailModals } from '../../composables/useEntityDetailModals';
 import CreatureListItem from '../../ui/creature/CreatureListItem.vue';
@@ -24,6 +25,26 @@ import CreatureListItem from '../../ui/creature/CreatureListItem.vue';
  */
 function isCreatureEntry(entry: unknown): entry is CreatureEntry {
   return isRecord(entry) && typeof entry.id === 'string';
+}
+
+/**
+ * Ссылка на картинку строки списка — через кэш своего мира.
+ *
+ * Картинки записей компендиума лежат на сайте, и до кэша их тянул из интернета
+ * каждый клиент отдельно: список, пролистанный быстро, получал от сайта отказ
+ * «слишком часто», и строки оставались пустыми. Мир скачивает картинку один раз
+ * и дальше отдаёт с диска.
+ *
+ * Маршрут кэша появился в VTTG 0.9.473 — отсюда `compatibility.minimum` в
+ * манифесте: на приложении постарше система просто не запустится.
+ *
+ * @param imageUrl - ссылка на картинку токена из записи компендиума
+ * @returns ссылку для строки списка; `undefined`, если картинки у записи нет
+ */
+function resolveListImageUrl(imageUrl: string | undefined): string | undefined {
+  const worldPort = useWorldStore().currentWorld?.port;
+
+  return getCompendiumMediaUrl(imageUrl, worldPort) ?? undefined;
 }
 
 /** Регистрирует существ D&D 5e: карточка сущности (через SDK). */
@@ -54,8 +75,7 @@ export function register(api: ClientSystemAPI): void {
       return {
         name: entry.name,
         nameEn: entry.nameEn,
-        // Порт мира не нужен: картинки токенов компендиума отдаёт статика
-        imageUrl: imageUrl ? getAssetUrl(imageUrl) : undefined,
+        imageUrl: resolveListImageUrl(imageUrl),
         // Источник — бейджем справа в строке списка, как у остальных записей
         sourceKey: entry.sourceKey,
         source: entry.source,
