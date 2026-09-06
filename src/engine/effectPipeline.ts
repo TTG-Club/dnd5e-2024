@@ -362,13 +362,47 @@ export function itemEffectsActive(item: DnDGameItem): boolean {
 }
 
 /**
+ * Действует ли эффект вложенной записи — предмета или черты — на её носителя.
+ *
+ * Такая запись описывает не только своего хозяина. Эффект с
+ * `effectTarget: 'target'` адресован тому, по кому запись применили: «Липкий»
+ * мимика и «Похищение» багбира говорят про Схваченного — того, кто прилип или
+ * кого тащат. Аура без `applyToSelf` излучается наружу и хозяина не задевает.
+ * Носителю достаётся лишь то, что не отсеяно этими правилами и не выключено
+ * тумблером «Отключен».
+ *
+ * Собственные эффекты актора через эту проверку НЕ проходят — см. комментарий
+ * в {@link collectActiveEffects}.
+ *
+ * @param effect - эффект предмета или черты
+ * @returns `true`, если эффект применяется к носителю записи
+ */
+function affectsCarrier(effect: ActiveEffect): boolean {
+  if (effect.disabled) {
+    return false;
+  }
+
+  if (effect.effectTarget === 'target') {
+    return false;
+  }
+
+  if (effect.aura && !effect.aura.applyToSelf) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
  * Собирает все активные эффекты актора.
  *
  * Включает:
  * 1. Эффекты напрямую на акторе (actor.activeEffects)
  * 2. Эффекты с работающих предметов (см. {@link itemEffectsActive})
+ * 3. Пассивные эффекты черт существа (creature.system.traits)
  *
- * Исключает отключённые (disabled === true).
+ * Исключает отключённые (disabled === true), а у вложенных записей — ещё и
+ * чужие (см. {@link affectsCarrier}).
  *
  * @param actor - объект DnDActor | Creature
  * @returns массив активных эффектов (immutable)
@@ -378,7 +412,11 @@ export function collectActiveEffects(
 ): readonly ActiveEffect[] {
   const collectedEffects: ActiveEffect[] = [];
 
-  // Эффекты на самом акторе
+  // Эффекты на самом акторе. `affectsCarrier` здесь НЕ применяется: пометка
+  // `effectTarget: 'target'` у наложенного состояния сохраняется и после
+  // наложения (см. `buildEffectForTarget`), то есть на цели она говорит о
+  // происхождении, а не о чужом адресате. Отсев по ней снял бы с цели всё, что
+  // на неё навесили, — отравление, паралич, испуг.
   const actorEffects = actor.activeEffects ?? [];
 
   for (const effect of actorEffects) {
@@ -400,18 +438,9 @@ export function collectActiveEffects(
         continue;
       }
 
+      // Свойство transfer больше не требуется: переносятся все эффекты предметов
       for (const itemEffect of item.activeEffects) {
-        // Игнорируем отключенные эффекты, свойство transfer больше не требуется (все эффекты предметов переносятся)
-        if (!itemEffect.disabled) {
-          // Эффекты, предназначенные для цели атаки, не применяются к владельцу при экипировке
-          if (itemEffect.effectTarget === 'target') {
-            continue;
-          }
-
-          if (itemEffect.aura && !itemEffect.aura.applyToSelf) {
-            continue; // Эффект-аура экипировки генерируется, но на самого себя не действует
-          }
-
+        if (affectsCarrier(itemEffect)) {
           collectedEffects.push(itemEffect);
         }
       }
@@ -419,8 +448,11 @@ export function collectActiveEffects(
   }
 
   // Эффекты от черт существа (только для Creature).
-  // Черты (traits) содержат пассивные эффекты, постоянно действующие на само существо
-  // (например, «Магическое сопротивление»).
+  // Черты (traits) содержат пассивные эффекты, постоянно действующие на само
+  // существо (например, «Магическое сопротивление»), — но не только: часть
+  // описывает состояние чужого, и такие отсекает `affectsCarrier`. Без этого
+  // мимик хватал сам себя: флаг `speed.zero` обнулял ему скорость, и ядро
+  // отказывалось двигать токен, хотя на листе стоит 20 фт.
   // Эффекты из actions/bonusActions/reactions/legendary.actions НЕ собираются здесь —
   // они предназначены для применения к целям при использовании действия,
   // а не к самому существу.
@@ -431,11 +463,7 @@ export function collectActiveEffects(
       }
 
       for (const traitEffect of trait.activeEffects) {
-        if (!traitEffect.disabled) {
-          if (traitEffect.aura && !traitEffect.aura.applyToSelf) {
-            continue;
-          }
-
+        if (affectsCarrier(traitEffect)) {
           collectedEffects.push(traitEffect);
         }
       }
