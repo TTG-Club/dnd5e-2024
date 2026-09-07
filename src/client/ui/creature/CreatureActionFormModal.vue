@@ -5,7 +5,11 @@
     SpellAreaShape,
     SpellSaveType,
   } from '@vtt/shared';
-  import type { ActiveEffect, CreatureAction } from '@vtt/shared/system/dnd.js';
+  import type {
+    ActiveEffect,
+    CreatureAction,
+    CreatureRecharge,
+  } from '@vtt/shared/system/dnd.js';
 
   import { computed, reactive, watch } from 'vue';
 
@@ -33,7 +37,10 @@
     RANGE_FIELD_LABELS,
   } from '../actor/constants';
   import DamagePartsEditor from '../actor/DamagePartsEditor.vue';
-  import { CREATURE_ACTION_FORM_LABELS } from './constants';
+  import {
+    CREATURE_ACTION_FORM_LABELS,
+    CREATURE_RECHARGE_OPTIONS,
+  } from './constants';
 
   type ActionMode = 'trait' | 'action';
 
@@ -109,6 +116,12 @@
     distanceUnit: DistanceUnit;
     rangeType: 'melee' | 'ranged';
     activeEffects: ActiveEffect[];
+    /**
+     * `none` — перезарядки нет. Ключом, а не пустой строкой: `USelect` на
+     * пустом значении позиции не показывает список вовсе — так же, как
+     * соседние поля спасброска, где «нет» тоже отдельный ключ.
+     */
+    recharge: CreatureRecharge | 'none';
   }>({
     name: '',
     nameEn: '',
@@ -131,7 +144,16 @@
     distanceUnit: 'ft',
     rangeType: 'melee',
     activeEffects: [],
+    recharge: 'none',
   });
+
+  /** Список перезарядки для формы: выбор «перезарядки нет» идёт первым */
+  const rechargeItems = computed<
+    { label: string; value: CreatureRecharge | 'none' }[]
+  >(() => [
+    { label: CREATURE_ACTION_FORM_LABELS.rechargeNone, value: 'none' },
+    ...CREATURE_RECHARGE_OPTIONS,
+  ]);
 
   /** Есть ли боевые параметры (только у действий) */
   const hasCombatFields = computed(() => props.mode === 'action');
@@ -233,6 +255,8 @@
         form.activeEffects = action.activeEffects
           ? action.activeEffects.map((effect) => ({ ...effect }))
           : [];
+
+        form.recharge = action.recharge ?? 'none';
       } else {
         form.name = '';
         form.nameEn = '';
@@ -255,6 +279,7 @@
         form.distanceUnit = 'ft';
         form.rangeType = 'melee';
         form.activeEffects = [];
+        form.recharge = 'none';
       }
     },
     { immediate: true },
@@ -397,6 +422,12 @@
       }));
     }
 
+    // Перезарядка есть и у особенности («Легендарное сопротивление»), поэтому
+    // стоит вне боевых полей: те пишутся только у действия.
+    if (form.recharge !== 'none') {
+      result.recharge = form.recharge;
+    }
+
     return result;
   }
 
@@ -459,6 +490,17 @@
                   />
                 </UFormField>
               </div>
+
+              <UFormField :label="CREATURE_ACTION_FORM_LABELS.recharge">
+                <USelect
+                  v-model="form.recharge"
+                  :items="rechargeItems"
+                  value-key="value"
+                  label-key="label"
+                  class="w-full"
+                  :portal="false"
+                />
+              </UFormField>
 
               <UFormField :label="FORM_FIELD_LABELS.description">
                 <RichTextEditor

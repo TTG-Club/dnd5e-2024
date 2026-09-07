@@ -893,9 +893,18 @@
 
     return {
       exhaustion: isEditing || exhaustionLevel.value > 0,
-      vulnerabilities: isEditing || Boolean(defenses?.vulnerabilities.length),
-      resistances: isEditing || Boolean(defenses?.resistances.length),
-      immunities: isEditing || Boolean(defenses?.immunities.length),
+      vulnerabilities:
+        isEditing
+        || Boolean(defenses?.vulnerabilities.length)
+        || Boolean(defenses?.vulnerabilitiesText),
+      resistances:
+        isEditing
+        || Boolean(defenses?.resistances.length)
+        || Boolean(defenses?.resistancesText),
+      immunities:
+        isEditing
+        || Boolean(defenses?.immunities.length)
+        || Boolean(defenses?.immunitiesText),
       conditionImmunities:
         isEditing || Boolean(defenses?.conditionImmunities.length),
       skills: isEditing || skillBadges.value.length > 0,
@@ -1658,6 +1667,13 @@
                     {{ CREATURE_SHEET_LABELS.empty }}
                   </span>
                 </div>
+
+                <p
+                  v-if="localCreature.system.defenses.vulnerabilitiesText"
+                  class="px-2 pb-2 text-xs wrap-break-word text-toned"
+                >
+                  {{ localCreature.system.defenses.vulnerabilitiesText }}
+                </p>
               </FieldsetLabel>
 
               <FieldsetLabel
@@ -1700,6 +1716,13 @@
                     {{ CREATURE_SHEET_LABELS.empty }}
                   </span>
                 </div>
+
+                <p
+                  v-if="localCreature.system.defenses.resistancesText"
+                  class="px-2 pb-2 text-xs wrap-break-word text-toned"
+                >
+                  {{ localCreature.system.defenses.resistancesText }}
+                </p>
               </FieldsetLabel>
 
               <FieldsetLabel
@@ -1740,6 +1763,13 @@
                     {{ CREATURE_SHEET_LABELS.empty }}
                   </span>
                 </div>
+
+                <p
+                  v-if="localCreature.system.defenses.immunitiesText"
+                  class="px-2 pb-2 text-xs wrap-break-word text-toned"
+                >
+                  {{ localCreature.system.defenses.immunitiesText }}
+                </p>
               </FieldsetLabel>
 
               <FieldsetLabel

@@ -21,6 +21,7 @@
   import {
     CREATURE_ACTION_DETAIL_LABELS,
     CREATURE_ACTION_MENU_LABELS,
+    CREATURE_RECHARGE_HINTS,
   } from './constants';
 
   type ActionMode = 'trait' | 'action';
@@ -199,6 +200,21 @@
                 <!-- Урон / Лечение -->
                 <DamagePartsSummary :parts="damageParts" />
               </div>
+            </div>
+
+            <!-- Перезарядка: условие есть и у особенности, поэтому стоит
+              отдельной строкой, а не в ряду боевых чисел -->
+            <div
+              v-if="action.recharge"
+              class="text-sm"
+            >
+              <span class="text-xs text-dimmed"
+                >{{ CREATURE_ACTION_DETAIL_LABELS.rechargePrefix }}
+              </span>
+
+              <span class="text-highlighted">
+                {{ CREATURE_RECHARGE_HINTS[action.recharge] }}
+              </span>
             </div>
 
             <!-- Дистанция / Область -->

@@ -16,9 +16,11 @@
     GrantedSpellSource,
     SpeciesDefinition,
     Spell,
+    StartingEquipmentItem,
   } from '@vtt/shared/system/dnd.js';
 
   import type { CatalogPack } from '../../composables/useCompendiumCatalog';
+  import type { EquipmentIndex } from '../../composables/useStartingEquipment';
 
   import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
@@ -36,9 +38,18 @@
   import EntityCard from '@/shared_ui/components/EntityCard.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useCompendiumView } from '@/shared_ui/composables/useCompendiumView';
-  import { generateId, getAssetUrl, systemRegistry } from '@vtt/shared';
+  import {
+    generateId,
+    getAssetUrl,
+    isRecord,
+    systemRegistry,
+  } from '@vtt/shared';
 
   import { flattenPreferringBy } from '../../composables/useCompendiumCatalog';
+  import {
+    buildEquipmentItems,
+    loadEquipmentIndex,
+  } from '../../composables/useStartingEquipment';
   import {
     COMPENDIUM_LABELS,
     COMPENDIUM_PACK_BUTTON_CLASS,
@@ -67,6 +78,9 @@
     /** Инвентарь существа (верхний уровень, как `spells`) */
     equipment?: import('@vtt/shared/system/dnd.js').DnDGameItem[];
   }
+
+  /** Канонический тип записей существ в компендиуме */
+  const CREATURE_KIND = 'creature';
 
   /**
    * Настройка показа по типу записей, узнанная из манифеста. Общая на все окна
@@ -950,6 +964,27 @@
     kindView.value = view;
     loadedFile.value = kind;
     isLoading.value = false;
+
+    if (kind === CREATURE_KIND) {
+      void warmEquipmentIndex();
+    }
+  }
+
+  /**
+   * Индекс предметов компендиума для снаряжения существа. Греется заранее и
+   * без ожидания: существо для переноса собирается прямо в обработчике
+   * `dragstart`, а тот ничего ждать не умеет. Пак предпочтения не указывается —
+   * какого пака будет существо, к моменту загрузки списка ещё не известно.
+   */
+  const equipmentIndex = ref<EquipmentIndex>(new Map());
+
+  /** Загружает индекс предметов один раз на открытие окна. */
+  async function warmEquipmentIndex(): Promise<void> {
+    if (equipmentIndex.value.size > 0) {
+      return;
+    }
+
+    equipmentIndex.value = await loadEquipmentIndex(props.socket);
   }
 
   /**
@@ -1366,10 +1401,63 @@
 
   /**
    * Открывает лист существа из компендиума (режим только просмотр).
+   *
+   * Инвентарь раскладывается тем же способом, что и при переносе в мир: иначе
+   * вкладка «Инвентарь» в предпросмотре была бы пуста у каждого существа —
+   * своего `equipment` записи пака не везут, снаряжение приезжает позициями.
+   *
    * @param creatureEntry - запись существа из компендиума
    */
   function openCreatureDetail(creatureEntry: CompendiumCreatureEntry): void {
-    getEntityCard('creature')?.openDetail?.(creatureEntry);
+    getEntityCard('creature')?.openDetail?.({
+      ...creatureEntry,
+      equipment: creatureEquipment(creatureEntry),
+    });
+  }
+
+  /**
+   * Инвентарь записи существа: свой, а если его нет — разложенные позиции
+   * снаряжения. Индекс предметов мог ещё не догреться — тогда позиция станет
+   * предметом по названию, как и при переносе в мир.
+   *
+   * @param creatureEntry - запись существа компендиума
+   */
+  function creatureEquipment(
+    creatureEntry: CompendiumCreatureEntry,
+  ): DnDGameItem[] | undefined {
+    if (creatureEntry.equipment?.length) {
+      // Копией: лист правит инвентарь на месте, а запись пака общая на всех,
+      // кто её открыл.
+      return JSON.parse(JSON.stringify(creatureEntry.equipment));
+    }
+
+    const gear = buildEquipmentItems(
+      equipmentIndex.value,
+      creatureGearItems(creatureEntry),
+    );
+
+    return gear.length > 0 ? gear : undefined;
+  }
+
+  /**
+   * Позиции снаряжения записи существа. Блок `system` приезжает нетипизированной
+   * картой, поэтому позиции отбираются по форме: нужна хотя бы строка названия.
+   *
+   * @param creatureEntry - запись существа компендиума
+   */
+  function creatureGearItems(
+    creatureEntry: CompendiumCreatureEntry,
+  ): StartingEquipmentItem[] {
+    const raw = creatureEntry.system?.gearItems;
+
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+
+    return raw.filter(
+      (item): item is StartingEquipmentItem =>
+        isRecord(item) && typeof item.name === 'string' && item.name !== '',
+    );
   }
 
   /**
@@ -1399,9 +1487,9 @@
       spells: creatureEntry.spells
         ? JSON.parse(JSON.stringify(creatureEntry.spells))
         : undefined,
-      equipment: creatureEntry.equipment
-        ? JSON.parse(JSON.stringify(creatureEntry.equipment))
-        : undefined,
+      // Снаряжение статблока — предметами в инвентарь: строка книги сама по
+      // себе ни весом, ни уроном не обладает, а мастеру нужно именно это.
+      equipment: creatureEquipment(creatureEntry),
     };
 
     // Применяем нормализацию, чтобы перевести старые поля токена (hasVision -> enabled)
@@ -1421,12 +1509,21 @@
 
   /**
    * Копирует существо из компендиума в список существ мира.
+   *
+   * Индекс предметов дожидается здесь, а не греется молча: у кнопки ждать
+   * можно, и снаряжение тогда раскладывается в инвентарь всегда, даже если по
+   * ней нажали сразу после открытия окна.
+   *
    * @param creatureEntry - запись существа
    */
-  function copyCreature(creatureEntry: CompendiumCreatureEntry): void {
+  async function copyCreature(
+    creatureEntry: CompendiumCreatureEntry,
+  ): Promise<void> {
     if (!props.socket) {
       return;
     }
+
+    await warmEquipmentIndex();
 
     props.socket.emit('creature:created', buildWorldCreature(creatureEntry));
   }

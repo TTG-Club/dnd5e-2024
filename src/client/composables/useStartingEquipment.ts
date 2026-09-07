@@ -57,11 +57,82 @@ function fallbackItem(item: StartingEquipmentItem): DnDGameItem {
   };
 }
 
+/** Записи предметов компендиума по слагу страницы — см. {@link loadEquipmentIndex}. */
+export type EquipmentIndex = ReadonlyMap<string, DnDGameItem>;
+
+/**
+ * Собирает индекс предметов компендиума по слагу страницы.
+ *
+ * Паки обходятся с предпочтением пака записи, чьё это снаряжение: слаг у копий
+ * одного предмета в разных компендиумах один, и первым должен встретиться свой.
+ *
+ * Отдельно от разворачивания, потому что источник позиций бывает и без
+ * ожидания: существо из компендиума собирается прямо в обработчике `dragstart`,
+ * а тот ничего не ждёт. Такие места греют индекс заранее и зовут
+ * {@link buildEquipmentItems}.
+ *
+ * @param socket - WebSocket-клиент (для загрузки компендиума)
+ * @param preferredPackId - пак записи-владельца снаряжения; пусто — порядок хоста
+ */
+export async function loadEquipmentIndex(
+  socket: TypedWebSocketClient | null | undefined,
+  preferredPackId?: string,
+): Promise<EquipmentIndex> {
+  const bySrcUrl = new Map<string, DnDGameItem>();
+
+  if (!socket) {
+    return bySrcUrl;
+  }
+
+  for (const kind of STARTING_EQUIPMENT_ITEM_KINDS) {
+    const packs = await loadCompendiumKindByPack(socket, kind);
+
+    for (const pack of orderPacksPreferring(packs, preferredPackId)) {
+      for (const entry of pack.entries) {
+        const srcUrl = entrySrcUrl(entry);
+
+        // Первая запись с этим слагом и остаётся: у раскрытых магических
+        // предметов слаг общий, и якорная запись идёт в паке первой
+        if (srcUrl && !bySrcUrl.has(srcUrl) && isDnDGameItem(entry)) {
+          bySrcUrl.set(srcUrl, entry);
+        }
+      }
+    }
+  }
+
+  return bySrcUrl;
+}
+
+/**
+ * Собирает предметы инвентаря по позициям и готовому индексу. Позиция, которой
+ * в индексе не нашлось, становится простым предметом по названию.
+ *
+ * @param index - индекс предметов компендиума ({@link loadEquipmentIndex})
+ * @param items - позиции снаряжения
+ */
+export function buildEquipmentItems(
+  index: EquipmentIndex,
+  items: StartingEquipmentItem[],
+): DnDGameItem[] {
+  return items.map((item) => {
+    const found = item.url ? index.get(item.url.toLowerCase()) : undefined;
+
+    if (!found) {
+      return fallbackItem(item);
+    }
+
+    return normalizeCompendiumItem({
+      ...found,
+      id: generateId('eq'),
+      quantity: startingEquipmentQuantity(item),
+      equipped: false,
+      isReadOnly: false,
+    });
+  });
+}
+
 /**
  * Разворачивает позиции варианта снаряжения в предметы инвентаря.
- *
- * Паки обходятся с предпочтением пака записи, чья это снаряжение: слаг у копий
- * одного предмета в разных компендиумах один, и первым должен встретиться свой.
  *
  * @param socket - WebSocket-клиент (для загрузки компендиума)
  * @param items - позиции выбранного варианта
@@ -77,39 +148,8 @@ export async function resolveStartingEquipment(
     return [];
   }
 
-  const bySrcUrl = new Map<string, DnDGameItem>();
-
-  if (socket) {
-    for (const kind of STARTING_EQUIPMENT_ITEM_KINDS) {
-      const packs = await loadCompendiumKindByPack(socket, kind);
-
-      for (const pack of orderPacksPreferring(packs, preferredPackId)) {
-        for (const entry of pack.entries) {
-          const srcUrl = entrySrcUrl(entry);
-
-          // Первая запись с этим слагом и остаётся: у раскрытых магических
-          // предметов слаг общий, и якорная запись идёт в паке первой
-          if (srcUrl && !bySrcUrl.has(srcUrl) && isDnDGameItem(entry)) {
-            bySrcUrl.set(srcUrl, entry);
-          }
-        }
-      }
-    }
-  }
-
-  return items.map((item) => {
-    const found = item.url ? bySrcUrl.get(item.url.toLowerCase()) : undefined;
-
-    if (!found) {
-      return fallbackItem(item);
-    }
-
-    return normalizeCompendiumItem({
-      ...found,
-      id: generateId('eq'),
-      quantity: startingEquipmentQuantity(item),
-      equipped: false,
-      isReadOnly: false,
-    });
-  });
+  return buildEquipmentItems(
+    await loadEquipmentIndex(socket, preferredPackId),
+    items,
+  );
 }

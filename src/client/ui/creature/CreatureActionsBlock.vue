@@ -69,6 +69,11 @@
     actions: CreatureAction[];
     isEditMode: boolean;
     legendaryCount?: number;
+    /**
+     * Преамбула раздела из статблока: когда и как существо тратит эти
+     * действия. Одного их числа для этого мало — условия у существ разные.
+     */
+    sectionDescription?: string;
     /** Режим: черта или действие (влияет на отображение боевых полей) */
     mode?: ActionMode;
     /** Режим только просмотр (компендиум) */
@@ -93,6 +98,7 @@
   const props = withDefaults(defineProps<Props>(), {
     title: undefined,
     legendaryCount: undefined,
+    sectionDescription: '',
     mode: 'action',
     isReadOnly: false,
     creatureId: undefined,
@@ -877,6 +883,15 @@
         {{ MODAL_BUTTON_LABELS.add }}
       </UButton>
     </div>
+
+    <!-- Преамбула раздела: стоит под заголовком, а не в первой записи, —
+      она объясняет весь раздел, а не одно действие -->
+    <p
+      v-if="sectionDescription"
+      class="mb-2 text-xs wrap-break-word text-dimmed"
+    >
+      {{ sectionDescription }}
+    </p>
 
     <!-- Список записей. У особенности боевых чисел нет — ей достаётся плашка
       вместо карточки, как и особенностям листа персонажа -->
