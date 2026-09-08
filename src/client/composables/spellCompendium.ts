@@ -8,6 +8,7 @@
 import type { TypedWebSocketClient } from '@vtt/shared';
 import type { GrantedSpellRef, Spell } from '@vtt/shared/system/dnd.js';
 
+import type { EditableGrantedSpellGroup } from '../ui/actor/feat/featEditorTypes';
 import type { SpellOption } from '../ui/actor/grantedSpellsEditorTypes';
 
 import { loadCompendiumKindByPack } from '@/core/compendiumDataClient';
@@ -120,6 +121,24 @@ export function findSpellInPacks(
   }
 
   return undefined;
+}
+
+/**
+ * Связывает заклинания всех групп выдачи с записями компендиума по названию.
+ *
+ * Группами, а не одним списком: заклинания лежат внутри групп, и плоский обход
+ * пропустил бы все, кроме первой ступени.
+ *
+ * @param groups - группы выдачи формы
+ * @param index - указатель «название → запись компендиума»
+ */
+export function linkGrantedSpellGroups(
+  groups: ReadonlyArray<EditableGrantedSpellGroup>,
+  index: SpellLinkIndex,
+): void {
+  for (const group of groups) {
+    linkGrantedSpellRefs(group.spells, index);
+  }
 }
 
 /** Заклинания одного пака-компендиума (для просмотра по клику). */

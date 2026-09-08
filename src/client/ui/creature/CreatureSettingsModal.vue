@@ -180,6 +180,8 @@
     disposition: Disposition;
     showName: boolean;
     hpDisplayMode: HpDisplayMode;
+    /** Переключатель «Вращение»: стрелка и поворот при круговом обзоре */
+    facingEnabled: boolean;
   }
 
   const tokenSettings = ref<TokenSettingsLocal>({
@@ -194,6 +196,7 @@
     disposition: 'hostile',
     showName: false,
     hpDisplayMode: 'text',
+    facingEnabled: false,
   });
 
   const showFrame = ref(true);
@@ -258,6 +261,36 @@
       ? TOKEN_SETTINGS_LABELS.visionAngleFull
       : `${visionSettings.value.angle}°`,
   );
+
+  /**
+   * Сектор обзора уже полного круга требует направления: стрелка и поворот у
+   * такого токена включены всегда, переключатель лишь показывает это и
+   * заблокирован. Свой выбор при этом не теряется — вернётся вместе с 360°.
+   */
+  const isFacingForced = computed(
+    () => visionSettings.value.angle < TOKEN_VISION_ANGLE_MAX,
+  );
+
+  /** Что показывает переключатель «Вращение»: принуждение сектором либо свой выбор */
+  const isFacingEnabled = computed(
+    () => isFacingForced.value || tokenSettings.value.facingEnabled,
+  );
+
+  /** Подсказка под переключателем — объясняет, почему он заблокирован */
+  const facingEnabledHint = computed(() =>
+    isFacingForced.value
+      ? TOKEN_SETTINGS_LABELS.facingForcedHint
+      : TOKEN_SETTINGS_LABELS.facingEnabledHint,
+  );
+
+  /**
+   * Записывает выбор переключателя «Вращение».
+   *
+   * @param value - включено ли направление взгляда
+   */
+  function setFacingEnabled(value: boolean): void {
+    tokenSettings.value.facingEnabled = value;
+  }
 
   /**
    * Обрезает введённый вручную угол обзора по границам.
@@ -351,7 +384,9 @@
       || tokenSettings.value.showName
         !== (creature.value.token?.showName ?? false)
       || tokenSettings.value.hpDisplayMode
-        !== (creature.value.token?.hpDisplayMode ?? 'text');
+        !== (creature.value.token?.hpDisplayMode ?? 'text')
+      || tokenSettings.value.facingEnabled
+        !== (creature.value.token?.facingEnabled ?? false);
 
     const visionChanged =
       visionSettings.value.enabled
@@ -463,6 +498,7 @@
         disposition: creature.value.token?.disposition || 'hostile',
         showName: creature.value.token?.showName ?? false,
         hpDisplayMode: creature.value.token?.hpDisplayMode ?? 'text',
+        facingEnabled: creature.value.token?.facingEnabled ?? false,
       };
 
       if (tokenSettings.value.frameUrl) {
@@ -512,6 +548,7 @@
         disposition: tokenSettings.value.disposition,
         showName: tokenSettings.value.showName,
         hpDisplayMode: tokenSettings.value.hpDisplayMode,
+        facingEnabled: tokenSettings.value.facingEnabled,
         vision: {
           enabled: visionSettings.value.enabled,
           range: visionSettings.value.range,
@@ -749,6 +786,29 @@
                     :disabled="!(isAdmin || isOwner)"
                   />
                 </div>
+              </div>
+
+              <!-- Направление взгляда: стрелка, поворот и автоповорот.
+                   Лежит в «Общем», а не в «Токене»: правило касается и
+                   фишки, и сектора обзора со вкладки «Зрение». -->
+              <div
+                class="flex items-center justify-between gap-3 rounded border border-default/50 bg-elevated/30 p-3"
+              >
+                <div class="space-y-0.5">
+                  <label class="text-sm font-medium text-toned">
+                    {{ TOKEN_SETTINGS_LABELS.facingEnabled }}
+                  </label>
+
+                  <p class="text-xs text-dimmed">
+                    {{ facingEnabledHint }}
+                  </p>
+                </div>
+
+                <USwitch
+                  :model-value="isFacingEnabled"
+                  :disabled="isFacingForced || !canEditToken"
+                  @update:model-value="setFacingEnabled"
+                />
               </div>
 
               <div class="grid grid-cols-2 gap-3">

@@ -1,5 +1,12 @@
 <script setup lang="ts">
-  import type { DnDActor, FeatChoice, Spell } from '@vtt/shared/system/dnd.js';
+  import type {
+    DnDActor,
+    FeatChoice,
+    FeatChoiceOption,
+    Spell,
+  } from '@vtt/shared/system/dnd.js';
+
+  import type { ChoicePickerOption } from '../ChoicePickerModal.vue';
 
   import { computed } from 'vue';
 
@@ -13,7 +20,9 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { useFeatChoiceWeapons } from '../../../composables/useFeatChoiceWeapons';
-  import { FEAT_CHOICE_BADGES_LIMIT, FEAT_CHOICES_LABELS } from '../constants';
+  import ChoicePickerField from '../ChoicePickerField.vue';
+  import { FEAT_CHOICES_LABELS } from '../constants';
+  import { spellCircleLabel } from '../utils/spellCircleLabel';
 
   /**
    * Список выборов черты с уже разрешёнными пулами вариантов.
@@ -25,6 +34,11 @@
    * список класса, потом заклинания из него, потом характеристика. Спрашиваются
    * не все сразу — выбор заклинания ждёт ответа про класс, иначе пул собран не
    * из того списка.
+   *
+   * Отвечают на них общей строкой выбора ({@link ChoicePickerField}): плашки
+   * взятого и кнопка, открывающая окно. Длина пула на вид строки не влияет —
+   * раньше короткий пул показывался кнопками, длинный селектом, и один и тот же
+   * вопрос выглядел то так, то этак.
    */
   const props = defineProps<{
     /** Выборы, которые предстоит сделать */
@@ -52,6 +66,16 @@
   /** Виды оружия мира — пул выбора оружия и оружейного приёма */
   const { weaponOptions } = useFeatChoiceWeapons();
 
+  /**
+   * Заклинания каталога по идентификатору. Значение выбора заклинания — это и
+   * есть id записи компендиума, и по нему строка выбора достаёт круг для плашки
+   * и саму запись для карточки: по одному названию игрок не решит, брать ли
+   * заклинание, а два одноимённых из разных паков и вовсе неразличимы.
+   */
+  const spellById = computed(
+    () => new Map((props.spells ?? []).map((spell) => [spell.id, spell])),
+  );
+
   /** Выборы, которые спрашиваются сейчас: остальные ждут ответа про класс */
   const visible = computed(() =>
     getVisibleFeatChoices(props.choices, selections.value),
@@ -69,7 +93,6 @@
 
       return {
         choice,
-        pool,
         // Пустой пул объясняется по-разному: «уже владеет всем» верно только
         // там, где выбор сузили флагом владения. Иначе вариантов нет вовсе —
         // справочник не загрузился либо запись их не назвала
@@ -79,13 +102,9 @@
             : FEAT_CHOICES_LABELS.emptyPoolNoOptions,
         // Подпись у значения есть не всегда: у оружия и заклинаний её задаёт
         // сама черта, а у ключа словаря — справочник
-        items: pool.map((option) => ({
-          value: option.value,
-          label: option.name ?? option.value,
-        })),
-        // Список заклинаний класса в бейджи не помещается: заговоров волшебника
-        // под два десятка, и выбирать их проще списком с поиском
-        searchable: pool.length > FEAT_CHOICE_BADGES_LIMIT,
+        options: pool.map<ChoicePickerOption>((option) =>
+          toPickerOption(option, spellById.value.get(option.value)),
+        ),
         max: resolveFeatChoiceCount(choice, props.proficiencyBonus),
         // Предупреждение о ручной механике не для выбора списка класса: он
         // ничего и не должен применять — он лишь сужает следующий вопрос
@@ -94,6 +113,32 @@
       };
     }),
   );
+
+  /**
+   * Вариант выбора для окна. У заклинания к названию добавляются английское,
+   * круг плашкой и сама запись: по ней окно открывает карточку.
+   *
+   * @param option - значение пула
+   * @param spell - запись заклинания, если значение оказалось его id
+   */
+  function toPickerOption(
+    option: FeatChoiceOption,
+    spell: Spell | undefined,
+  ): ChoicePickerOption {
+    const name = option.name ?? option.value;
+
+    if (!spell) {
+      return { value: option.value, name };
+    }
+
+    return {
+      value: option.value,
+      name,
+      nameEn: spell.nameEn,
+      badge: spellCircleLabel(spell.level),
+      spell,
+    };
+  }
 
   /** Заголовок выбора: своя подпись черты, иначе название типа */
   function title(choice: FeatChoice): string {
@@ -104,92 +149,45 @@
     return selections.value[key] ?? [];
   }
 
-  /** Отмечено ли значение в этом выборе */
-  function isPicked(key: string, value: string): boolean {
-    return chosen(key).includes(value);
-  }
-
-  /** Цвет кнопки варианта: отмеченный подсвечен */
-  function optionColor(key: string, value: string): 'primary' | 'neutral' {
-    return isPicked(key, value) ? 'primary' : 'neutral';
-  }
-
-  /** Вид кнопки варианта: отмеченный залит */
-  function optionVariant(key: string, value: string): 'solid' | 'soft' {
-    return isPicked(key, value) ? 'solid' : 'soft';
-  }
-
   /**
-   * Ответы после смены значения. Смена списка класса вдобавок стирает выбранные
-   * из прежнего списка заклинания: в новом пуле их нет, и оставленный ответ выдал
+   * Записывает ответ. Смена списка класса вдобавок стирает выбранные из
+   * прежнего списка заклинания: в новом пуле их нет, и оставленный ответ выдал
    * бы персонажу заклинание, которого черта уже не даёт.
+   *
+   * Лишнее сверх предела отбрасывается: окно выбора его и не наберёт, но предел
+   * зависит от бонуса мастерства и мог опуститься уже после ответа.
    *
    * @param choice - выбор, на который отвечают
    * @param values - выбранные значения
-   */
-  function withAnswer(
-    choice: FeatChoice,
-    values: string[],
-  ): Record<string, string[]> {
-    const answered = { ...selections.value, [choice.key]: values };
-
-    return choice.type === 'spellList'
-      ? clearSpellChoicesOfClass(props.choices, answered, choice.key)
-      : answered;
-  }
-
-  /**
-   * Записывает выбранное списком с поиском. Лишнее сверх предела отбрасывается:
-   * список сам его не ограничивает, а предел задаёт черта.
-   *
-   * @param choice - выбор, на который отвечают
-   * @param values - отмеченные значения
    * @param max - сколько значений выбирают
    */
   function setValues(choice: FeatChoice, values: string[], max: number): void {
-    selections.value = withAnswer(choice, values.slice(0, max));
-  }
+    const answered = {
+      ...selections.value,
+      [choice.key]: values.slice(0, max),
+    };
 
-  /**
-   * Переключает значение с учётом предела. Выбор на одно значение заменяется
-   * новым — так же, как это делает шаг навыков мастера класса.
-   */
-  function toggle(choice: FeatChoice, value: string, max: number): void {
-    const current = [...chosen(choice.key)];
-    const index = current.indexOf(value);
-
-    if (index !== -1) {
-      current.splice(index, 1);
-    } else if (max === 1) {
-      selections.value = withAnswer(choice, [value]);
-
-      return;
-    } else if (current.length < max) {
-      current.push(value);
-    }
-
-    selections.value = withAnswer(choice, current);
+    selections.value =
+      choice.type === 'spellList'
+        ? clearSpellChoicesOfClass(props.choices, answered, choice.key)
+        : answered;
   }
 </script>
 
 <template>
   <div class="flex flex-col gap-4">
-    <div
+    <ChoicePickerField
       v-for="entry in resolved"
       :key="entry.choice.key"
-      class="flex flex-col gap-2 rounded-xl border border-default/50 bg-elevated/30 p-3"
+      class="rounded-xl border border-default/50 bg-elevated/30 p-3"
+      :label="title(entry.choice)"
+      :options="entry.options"
+      :selected="chosen(entry.choice.key)"
+      :max="entry.max"
+      :empty-text="entry.emptyText"
+      @update:selected="setValues(entry.choice, $event, entry.max)"
     >
-      <div class="flex flex-wrap items-center gap-2">
-        <span class="font-medium text-highlighted">
-          {{ title(entry.choice) }}
-        </span>
-
-        <span class="text-xs text-dimmed">
-          {{ FEAT_CHOICES_LABELS.chosenPrefix
-          }}{{ chosen(entry.choice.key).length
-          }}{{ FEAT_CHOICES_LABELS.chosenMiddle }}{{ entry.max }}
-        </span>
-
+      <template #badges>
         <UBadge
           v-if="entry.choice.grants === 'expertise'"
           color="primary"
@@ -207,51 +205,16 @@
         >
           {{ FEAT_CHOICES_LABELS.rechoose }}
         </UBadge>
-      </div>
+      </template>
 
-      <p
+      <template
         v-if="entry.manual"
-        class="text-xs text-warning"
+        #hint
       >
-        {{ FEAT_CHOICES_LABELS.manualType }}
-      </p>
-
-      <p
-        v-if="entry.pool.length === 0"
-        class="text-xs text-dimmed italic"
-      >
-        {{ entry.emptyText }}
-      </p>
-
-      <USelectMenu
-        v-else-if="entry.searchable"
-        :model-value="chosen(entry.choice.key)"
-        :items="entry.items"
-        value-key="value"
-        label-key="label"
-        multiple
-        :placeholder="FEAT_CHOICES_LABELS.searchPlaceholder"
-        class="w-full"
-        @update:model-value="setValues(entry.choice, $event, entry.max)"
-      />
-
-      <div
-        v-else
-        class="flex flex-wrap gap-2"
-      >
-        <UButton
-          v-for="option in entry.pool"
-          :key="option.value"
-          size="xs"
-          :color="optionColor(entry.choice.key, option.value)"
-          :variant="optionVariant(entry.choice.key, option.value)"
-          @click.left.exact.prevent="
-            toggle(entry.choice, option.value, entry.max)
-          "
-        >
-          {{ option.name ?? option.value }}
-        </UButton>
-      </div>
-    </div>
+        <p class="text-xs text-warning">
+          {{ FEAT_CHOICES_LABELS.manualType }}
+        </p>
+      </template>
+    </ChoicePickerField>
   </div>
 </template>

@@ -23,6 +23,12 @@ import {
 import { useItemUsesForm } from './useItemUsesForm';
 
 /**
+ * Тип экипировки, с которым открывается форма создания, если вызвавший не
+ * попросил другой. Лёгкая броня — самый частый случай.
+ */
+const DEFAULT_CREATE_CATEGORY: EquipmentCategory = 'light';
+
+/**
  * Composable для логики формы доспеха.
  *
  * Инкапсулирует все reactive-поля формы, computed-опции из systemDataStore,
@@ -30,10 +36,17 @@ import { useItemUsesForm } from './useItemUsesForm';
  *
  * @param getArmor - функция получения текущего редактируемого доспеха (null = создание)
  * @param getIsOpen - функция получения флага открытости модалки
+ * @param getCreateCategory - тип экипировки для формы СОЗДАНИЯ (правка берёт тип
+ *   из самой записи). Через него меню «Мастерской» открывает форму сразу
+ *   безделушкой, а не снаряжением, у которого тип меняют руками.
+ * @param getCreateMagical - отметить запись магической при СОЗДАНИИ. Тем же
+ *   меню «Мастерской» открывается пункт «Магический предмет».
  */
 export function useEquipmentForm(
   getArmor: () => DnDGameItem | null,
   getIsOpen: () => boolean,
+  getCreateCategory: () => EquipmentCategory | undefined = () => undefined,
+  getCreateMagical: () => boolean | undefined = () => undefined,
 ) {
   // --- Reactive-поля формы ---
   const name = ref('');
@@ -280,8 +293,14 @@ export function useEquipmentForm(
         nameEn.value = '';
         description.value = '';
         baseType.value = '';
-        equipmentCategory.value = 'light';
-        baseArmorAC.value = 11;
+
+        const createCategory = getCreateCategory() ?? DEFAULT_CREATE_CATEGORY;
+
+        equipmentCategory.value = createCategory;
+
+        // КД по умолчанию есть только у настоящей брони: у прочей экипировки
+        // поле скрыто, и 11 ушло бы в сохранённую запись незамеченным.
+        baseArmorAC.value = ARMOR_KEYS.has(createCategory) ? 11 : 0;
         maxDexBonus.value = null;
         strengthRequirement.value = 0;
         weight.value = 0;
@@ -290,7 +309,13 @@ export function useEquipmentForm(
         sourceKey.value = FALLBACK_SOURCE_KEY;
         source.value = undefined;
         isSRD.value = false;
-        selectedEquipmentProperties.value = [];
+
+        // Свойство «магическое» — единственное, что форма проставляет сама:
+        // им пункт меню «Магический предмет» и отличается от «Снаряжения».
+        selectedEquipmentProperties.value = getCreateMagical()
+          ? ['magical']
+          : [];
+
         magicAttunement.value = 'none';
         isAttuned.value = false;
         magicBonus.value = 0;

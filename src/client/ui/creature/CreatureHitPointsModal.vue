@@ -1,22 +1,41 @@
 <script setup lang="ts">
-  import type { CreatureHitPoints, HitDie } from '@vtt/shared/system/dnd.js';
+  import type {
+    CreatureHitPoints,
+    CreatureSize,
+  } from '@vtt/shared/system/dnd.js';
 
   import { computed, reactive, watch } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
-  import { HIT_DIE_OPTIONS, isHitDie } from '@vtt/shared/system/dnd.js';
+  import {
+    calculateCreatureAverageHitPoints,
+    calculateCreatureHitPointsBonus,
+    CREATURE_SIZE_LABELS,
+    DEFAULT_CREATURE_HIT_DICE_COUNT,
+    formatCreatureHitPointsFormula,
+    getCreatureHitDieBySize,
+    parseCreatureHitDiceCount,
+  } from '@vtt/shared/system/dnd.js';
 
   import {
     ACTOR_LEFT_PANEL_LABELS,
     HIT_POINTS_LABELS,
     MODAL_BUTTON_LABELS,
   } from '../actor/constants';
-  import { CREATURE_COMBAT_LABELS } from './constants';
+  import { formatSignedNumber } from '../actor/utils/formatSignedNumber';
+  import {
+    CREATURE_COMBAT_LABELS,
+    CREATURE_HIT_POINTS_LABELS,
+  } from './constants';
 
   interface Props {
     open: boolean;
     hitPoints: CreatureHitPoints;
+    /** Размер существа — по правилам 2024 он задаёт кость хитов */
+    size: CreatureSize;
+    /** Модификатор Телосложения для формулы — бонус за каждую кость хитов */
+    constitutionModifier: number;
   }
 
   const props = defineProps<Props>();
@@ -31,38 +50,23 @@
     set: (value) => emit('update:open', value),
   });
 
-  /** Черновик правки хитов существа */
+  /**
+   * Черновик правки хитов существа. Кости и бонуса здесь нет: их считает
+   * движок из размера и Телосложения, руками задаётся только число костей.
+   */
   interface EditableHitPoints {
     current: number;
     max: number;
     temp: number;
-    hitDie: HitDie;
     hitDiceCount: number;
-    bonus: number;
   }
 
   const editHp = reactive<EditableHitPoints>({
     current: 0,
     max: 1,
     temp: 0,
-    hitDie: 8,
-    hitDiceCount: 1,
-    bonus: 0,
+    hitDiceCount: DEFAULT_CREATURE_HIT_DICE_COUNT,
   });
-
-  /**
-   * Меняет кость хитов существа: селектор отдаёт значение свободной формы,
-   * поэтому число сверяется со списком костей системы.
-   *
-   * @param value - значение из селектора
-   */
-  function handleHitDieChange(value: unknown): void {
-    const die = Number(value);
-
-    if (isHitDie(die)) {
-      editHp.hitDie = die;
-    }
-  }
 
   // При открытии — подставляем текущие значения
   watch(
@@ -74,32 +78,61 @@
 
         editHp.max = props.hitPoints.max ?? props.hitPoints.average ?? 1;
         editHp.temp = props.hitPoints.temp ?? 0;
-        editHp.hitDie = props.hitPoints.hitDie ?? 8;
-        editHp.hitDiceCount = props.hitPoints.hitDiceCount ?? 1;
-        editHp.bonus = props.hitPoints.bonus ?? 0;
+
+        // У существа из компендиума число костей есть только в формуле
+        editHp.hitDiceCount =
+          props.hitPoints.hitDiceCount
+          ?? parseCreatureHitDiceCount(props.hitPoints.formula)
+          ?? DEFAULT_CREATURE_HIT_DICE_COUNT;
       }
     },
   );
 
-  /** Генерирует формулу из текущих значений */
-  function generateFormula(): string {
-    const dicePart = `${editHp.hitDiceCount}${ACTOR_LEFT_PANEL_LABELS.hitDieLetter}${editHp.hitDie}`;
+  /** Кость хитов — по размеру существа */
+  const hitDie = computed(() => getCreatureHitDieBySize(props.size));
 
-    if (editHp.bonus === 0) {
-      return dicePart;
-    }
+  /** Бонус к хитам — Телосложение за каждую кость */
+  const bonus = computed(() =>
+    calculateCreatureHitPointsBonus(
+      editHp.hitDiceCount,
+      props.constitutionModifier,
+    ),
+  );
 
-    const sign = editHp.bonus > 0 ? '+' : '-';
+  const formula = computed(() =>
+    formatCreatureHitPointsFormula(
+      editHp.hitDiceCount,
+      hitDie.value,
+      bonus.value,
+    ),
+  );
 
-    return `${dicePart} ${sign} ${Math.abs(editHp.bonus)}`;
-  }
+  const average = computed(() =>
+    calculateCreatureAverageHitPoints(
+      editHp.hitDiceCount,
+      hitDie.value,
+      bonus.value,
+    ),
+  );
 
-  /** Вычисляет среднее значение из формулы */
-  function calculateAverage(): number {
-    const dieAvg = (editHp.hitDie + 1) / 2;
+  /** Кость в записи листа: «к10» */
+  const hitDieLabel = computed(
+    () => `${ACTOR_LEFT_PANEL_LABELS.hitDieLetter}${hitDie.value}`,
+  );
 
-    return Math.floor(editHp.hitDiceCount * dieAvg) + editHp.bonus;
-  }
+  const formattedBonus = computed(() => formatSignedNumber(bonus.value));
+
+  /**
+   * Откуда взялись кость и бонус: размер с его костью и модификатор
+   * Телосложения. Без этой строки поля выглядят просто запертыми.
+   */
+  const rulesHint = computed(() => {
+    const sizePart = `${CREATURE_SIZE_LABELS[props.size]} — ${hitDieLabel.value}`;
+
+    const constitutionPart = formatSignedNumber(props.constitutionModifier);
+
+    return `${CREATURE_HIT_POINTS_LABELS.dieBySize} (${sizePart}), ${CREATURE_HIT_POINTS_LABELS.bonusByConstitution} (${constitutionPart}) ${CREATURE_HIT_POINTS_LABELS.perDie}.`;
+  });
 
   /** Применяет изменения очков здоровья */
   function applyHitPoints() {
@@ -107,11 +140,11 @@
       current: editHp.current,
       max: editHp.max,
       temp: editHp.temp,
-      hitDie: editHp.hitDie,
+      hitDie: hitDie.value,
       hitDiceCount: editHp.hitDiceCount,
-      bonus: editHp.bonus,
-      formula: generateFormula(),
-      average: calculateAverage(),
+      bonus: bonus.value,
+      formula: formula.value,
+      average: average.value,
     });
 
     isOpen.value = false;
@@ -215,11 +248,9 @@
               />
             </div>
 
-            <span class="mt-4 font-light text-dimmed">
-              {{ ACTOR_LEFT_PANEL_LABELS.hitDieLetter }}
-            </span>
+            <span class="mt-4 font-light text-dimmed">×</span>
 
-            <!-- Размер кости -->
+            <!-- Кость: по размеру, не правится -->
             <div class="flex flex-1 flex-col gap-0.5">
               <span
                 class="text-[9px] font-medium tracking-wider text-dimmed uppercase"
@@ -227,22 +258,16 @@
                 {{ HIT_POINTS_LABELS.die }}
               </span>
 
-              <USelect
-                :model-value="editHp.hitDie"
-                :items="
-                  HIT_DIE_OPTIONS.map((hitDie) => ({
-                    label: String(hitDie),
-                    value: hitDie,
-                  }))
-                "
-                size="sm"
-                @update:model-value="handleHitDieChange"
-              />
+              <span
+                class="rounded border border-muted px-2 py-1 text-sm font-medium text-toned tabular-nums"
+              >
+                {{ hitDieLabel }}
+              </span>
             </div>
 
             <span class="mt-4 font-light text-dimmed">+</span>
 
-            <!-- Бонус -->
+            <!-- Бонус: по Телосложению, не правится -->
             <div class="flex flex-col gap-0.5">
               <span
                 class="text-[9px] font-medium tracking-wider text-dimmed uppercase"
@@ -250,28 +275,29 @@
                 {{ HIT_POINTS_LABELS.bonus }}
               </span>
 
-              <UInput
-                :model-value="editHp.bonus"
-                type="number"
-                size="sm"
-                class="w-16"
-                @update:model-value="editHp.bonus = Number($event)"
-              />
+              <span
+                class="w-16 rounded border border-muted px-2 py-1 text-center text-sm font-medium text-toned tabular-nums"
+              >
+                {{ formattedBonus }}
+              </span>
             </div>
           </div>
 
           <div
             class="mt-1 flex items-center justify-between text-xs text-dimmed"
           >
-            <span>
-              {{ CREATURE_COMBAT_LABELS.formulaPrefix }} {{ generateFormula() }}
-            </span>
+            <span
+              >{{ CREATURE_COMBAT_LABELS.formulaPrefix }} {{ formula }}</span
+            >
 
-            <span>
-              {{ CREATURE_COMBAT_LABELS.averagePrefix }}
-              {{ calculateAverage() }}
-            </span>
+            <span
+              >{{ CREATURE_COMBAT_LABELS.averagePrefix }} {{ average }}</span
+            >
           </div>
+
+          <p class="text-xs text-dimmed">
+            {{ rulesHint }}
+          </p>
         </div>
 
         <!-- Кнопки -->

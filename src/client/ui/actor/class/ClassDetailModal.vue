@@ -19,7 +19,7 @@
     withSubclassRecords,
   } from '@vtt/shared/system/dnd.js';
 
-  import { useClassDefinitions } from '../../../composables/useClassDefinitions';
+  import { useClassCatalog } from '../../../composables/useClassCatalog';
   import { useSourceLabels } from '../../../composables/useSourceLabel';
   import {
     ABILITY_DELIMITER_LABELS,
@@ -95,6 +95,8 @@
     open: boolean;
     /** Определение класса для отображения */
     classDefinition: ClassDefinition | null;
+    /** Пак записи; пусто — не известен, подклассы клеятся из первого пака с ней */
+    packId?: string;
     /** Z-index модалки */
     zIndex?: number;
     /** Смещение позиции для каскадного расположения */
@@ -110,16 +112,20 @@
     'select': [];
   }>();
 
-  const { classRecords } = useClassDefinitions();
+  const { recordsFor } = useClassCatalog();
 
   /**
-   * Класс, который показываем: к записи приклеены подклассы, заведённые в мире
-   * отдельными записями. Окно открывают по самой записи (панель предметов,
-   * браузер компендиума, ссылка из описания), а там их ещё нет.
+   * Класс, который показываем: к записи приклеены подклассы — свои из того же
+   * пака и заведённые в мире отдельными записями. Окно открывают по самой
+   * записи (панель предметов, браузер компендиума, ссылка из описания), а там
+   * их ещё нет.
    */
   const displayedClass = computed(() =>
     props.classDefinition
-      ? withSubclassRecords(props.classDefinition, classRecords.value)
+      ? withSubclassRecords(
+          props.classDefinition,
+          recordsFor({ key: props.classDefinition.key, packId: props.packId }),
+        )
       : null,
   );
 

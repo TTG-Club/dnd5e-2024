@@ -12,6 +12,8 @@ import type { Ref } from 'vue';
 
 import type { TypedWebSocketClient } from '@vtt/shared';
 import type {
+  ClassSpellListRequest,
+  ClassSpellPack,
   GrantedSpellSource,
   ResolvedGrantedSpell,
   Spell,
@@ -19,10 +21,17 @@ import type {
 
 import { computed, ref, watch } from 'vue';
 
-import { loadCompendiumKind } from '@/core/compendiumDataClient';
 import { useItemsStore } from '@/stores/itemsStore';
+import {
+  expandClassSpellRequests,
+  WORLD_PACK_ID,
+} from '@vtt/shared/system/dnd.js';
 
-import { extractSpellEntries, extractWorldSpells } from './spellCompendium';
+import {
+  extractWorldSpells,
+  findSpellInPacks,
+  loadSpellPacks,
+} from './spellCompendium';
 
 /**
  * Composable сопоставления granted-заклинаний с данными компендиума.
@@ -32,13 +41,19 @@ import { extractSpellEntries, extractWorldSpells } from './spellCompendium';
  *
  * @param socket - WebSocket-клиент для запроса данных компендиума
  * @param grantedSpellSources - связи «ID заклинания → умение-источник»
+ * @param classSpellRequests - запросы «выдать весь список класса»; они не называют
+ *   заклинаний поимённо, и записи для них подбираются уже по загруженному каталогу
  * @returns `resolvedGrantedSpells` — заклинания с умениями-источниками
  */
 export function useGrantedSpellsResolver(
   socket: Ref<TypedWebSocketClient | null>,
   grantedSpellSources: Ref<GrantedSpellSource[]>,
+  classSpellRequests?: Ref<ClassSpellListRequest[]>,
 ) {
-  /** Загруженные заклинания компендиума */
+  /** Загруженные заклинания компендиума по пакам */
+  const compendiumPacks = ref<ClassSpellPack[]>([]);
+
+  /** Загруженные заклинания компендиума одним списком */
   const compendiumSpells = ref<Spell[]>([]);
 
   /** Был ли уже отправлен запрос данных (защита от повторных запросов) */
@@ -54,20 +69,33 @@ export function useGrantedSpellsResolver(
   ): Promise<void> {
     hasRequestedData.value = true;
 
-    const entries = await loadCompendiumKind(socketClient, 'spell');
+    const { packs } = await loadSpellPacks(socketClient);
 
     // Заклинания, созданные в самом мире, ищутся наравне с компендиумными:
-    // черта может выдавать своё заклинание, заведённое в панели «Предметы»
-    compendiumSpells.value = [
-      ...extractSpellEntries(entries),
-      ...extractWorldSpells(useItemsStore().itemsByType('spell')),
+    // черта может выдавать своё заклинание, заведённое в панели «Предметы».
+    // Своим паком — чтобы выдача, сужённая до конкретного компендиума, их не
+    // подхватила
+    compendiumPacks.value = [
+      ...packs.map((pack) => ({ packId: pack.packId, spells: pack.spells })),
+      {
+        packId: WORLD_PACK_ID,
+        spells: extractWorldSpells(useItemsStore().itemsByType('spell')),
+      },
     ];
+
+    compendiumSpells.value = compendiumPacks.value.flatMap(
+      (pack) => pack.spells,
+    );
   }
 
   watch(
-    [grantedSpellSources, socket],
-    ([sources, socketClient]) => {
-      if (sources.length === 0 || !socketClient || hasRequestedData.value) {
+    [grantedSpellSources, classSpellRequests ?? ref([]), socket],
+    ([sources, requests, socketClient]) => {
+      if (
+        (sources.length === 0 && requests.length === 0)
+        || !socketClient
+        || hasRequestedData.value
+      ) {
         return;
       }
 
@@ -78,8 +106,10 @@ export function useGrantedSpellsResolver(
 
   /** Granted-заклинания, сопоставленные с данными компендиума */
   const resolvedGrantedSpells = computed((): ResolvedGrantedSpell[] => {
+    const requests = classSpellRequests?.value ?? [];
+
     if (
-      grantedSpellSources.value.length === 0
+      (grantedSpellSources.value.length === 0 && requests.length === 0)
       || compendiumSpells.value.length === 0
     ) {
       return [];
@@ -87,9 +117,18 @@ export function useGrantedSpellsResolver(
 
     const resolved: ResolvedGrantedSpell[] = [];
 
-    for (const source of grantedSpellSources.value) {
-      const spell = compendiumSpells.value.find(
-        (entry) => entry.id === source.spellId,
+    // Список класса разворачивается здесь, а не у источника запроса: заклинаний он
+    // не называет, и подобрать их можно только по загруженному каталогу
+    for (const source of [
+      ...grantedSpellSources.value,
+      ...expandClassSpellRequests(requests, compendiumPacks.value),
+    ]) {
+      // Сперва пак источника, потом любой: одно и то же заклинание лежит в
+      // нескольких компендиумах, и выданное записью из ПРОД должно быть её копией
+      const spell = findSpellInPacks(
+        compendiumPacks.value,
+        source.spellId,
+        source.packId,
       );
 
       if (spell) {

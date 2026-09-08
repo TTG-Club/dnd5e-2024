@@ -26,6 +26,7 @@ import {
   getTotalLevel,
   getVisibleFeatChoices,
   normalizeBackgroundDefinition,
+  openFeatChoicesAtLevel,
   prepareFeatChoices,
   prepareTransferredFeatEffects,
   raiseTokenDarkvision,
@@ -59,11 +60,22 @@ export function backgroundSpellSource(backgroundName: string): string {
   return `Предыстория: ${backgroundName}`;
 }
 
+/**
+ * Состояние мастера предыстории: шаги, ответы игрока и применение выбранного
+ * на лист.
+ *
+ * @param backgroundDefinitionRef - выбранная предыстория; `null` — мастер пуст
+ * @param actorRef - персонаж, которому предыстория достанется
+ * @param isOpenRef - открыто ли окно мастера: на закрытии состояние сбрасывается
+ * @param socketRef - сокет для чтения компендиума (черта происхождения, предметы)
+ */
 export function useBackgroundWizard(
   backgroundDefinitionRef: Ref<BackgroundDefinition | null>,
   actorRef: Ref<DnDActor>,
   isOpenRef: Ref<boolean>,
   socketRef: Ref<TypedWebSocketClient | null>,
+  /** Пак записи предыстории — на запись актора, см. `ActorBackgroundEntry.packId` */
+  packIdRef: Ref<string | undefined>,
 ) {
   /**
    * Определение с достроенными блоками даров: записи компендиума отдают
@@ -114,7 +126,13 @@ export function useBackgroundWizard(
    * характеристика».
    */
   const preparedFeatChoices = computed<FeatChoice[]>(() =>
-    prepareFeatChoices(grantedFeatData.value?.choices),
+    prepareFeatChoices(
+      // Выбор с уровнем открытия выше текущего отложен до повышения уровня
+      openFeatChoicesAtLevel(
+        grantedFeatData.value?.choices,
+        getTotalLevel(actorRef.value.system.classes),
+      ),
+    ),
   );
 
   /**
@@ -198,14 +216,14 @@ export function useBackgroundWizard(
     { immediate: true },
   );
 
+  /** Виды оружия мира — пул выбора оружия и оружейного приёма */
+  const { weaponOptions } = useFeatChoiceWeapons();
+
   /**
    * Заклинания каталога для выборов черты. Загружаются здесь, а не в окне: пул
    * выбора и проверка «все ли ответы даны» обязаны смотреть на один и тот же
    * список, иначе шаг считался бы завершённым при незаполненном выборе.
    */
-  /** Виды оружия мира — пул выбора оружия и оружейного приёма */
-  const { weaponOptions } = useFeatChoiceWeapons();
-
   const { spells: featChoiceSpells } = useFeatChoiceSpells(
     socketRef,
     preparedFeatChoices,
@@ -707,15 +725,22 @@ export function useBackgroundWizard(
 
     const updatedToken = raiseTokenDarkvision(actorRef.value.token, darkvision);
 
-    const ownGrantedSpellSource =
-      featData?.grantedSpells && featData.grantedSpells.length > 0
-        ? backgroundSpellSource(def.name)
-        : undefined;
+    // Списки классов целиком считаются здесь наравне с перечислением: заклинания
+    // они кладут на лист тем же именем-источником, и без него смена предыстории
+    // не забрала бы их обратно
+    const hasOwnSpells =
+      (featData?.grantedSpells?.length ?? 0) > 0
+      || (featData?.grantedClassSpells?.length ?? 0) > 0;
+
+    const ownGrantedSpellSource = hasOwnSpells
+      ? backgroundSpellSource(def.name)
+      : undefined;
 
     // 5. Формируем запись предыстории (с применёнными расширенными дарами —
     // для точного отката при замене/удалении).
     const entry: ActorBackgroundEntry = {
       backgroundKey: def.key,
+      ...(packIdRef.value ? { packId: packIdRef.value } : {}),
       backgroundName: def.name,
       abilityChoices: { ...abilityAllocation.value },
       skillChoices: [...def.skillGrant.skills],

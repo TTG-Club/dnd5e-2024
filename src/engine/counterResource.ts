@@ -39,11 +39,25 @@ export const COUNTER_FORMULA_TOKENS = {
   proficiencyBonus: '@prof',
   /** Уровень персонажа */
   level: '@level',
+  /** Уровень в своём классе: ресурс класса растёт по его уровням */
+  classLevel: '@classLevel',
   /** Приставка модификатора характеристики: `@mod.cha` */
   abilityModifierPrefix: '@mod.',
   /** Модификатор заклинательной характеристики */
   spellAbilityModifier: '@mod.spell',
 } as const;
+
+/**
+ * Тот же токен уровня в классе в нижнем регистре.
+ *
+ * Разбор формулы приводит строку к нижнему регистру целиком (иначе `@PROF`
+ * автора не разобрался бы), а сам токен пишется camelCase — как его читает
+ * движок формул, регистрозависимый. Сравнивать поэтому приходится с этой
+ * заготовкой, а не с самим токеном; выводить её у каждого разборщика заново
+ * значило бы завести второе написание одного и того же.
+ */
+export const CLASS_LEVEL_TOKEN_LOWERCASE =
+  COUNTER_FORMULA_TOKENS.classLevel.toLowerCase();
 
 /**
  * От чего считается максимум ресурса.
@@ -52,7 +66,7 @@ export const COUNTER_FORMULA_TOKENS = {
  * спрошенная у игрока, либо классовая.
  */
 export type CounterMaxSource =
-  'fixed' | 'proficiency' | 'ability' | 'spellAbility' | 'level';
+  'fixed' | 'proficiency' | 'ability' | 'spellAbility' | 'level' | 'classLevel';
 
 /**
  * Максимум ресурса, разобранный на понятный форме выбор.
@@ -175,10 +189,11 @@ function splitCounterMaxMultiplier(base: string): {
 /**
  * Разбирает формулу максимума в правило для формы.
  *
- * Грамматика: число, `@prof`, `@level`, `@mod.spell` или `@mod.<аббревиатура>`,
- * любое из них с множителем (`@level * 5`) и смещением (`@prof - 1`). Смещение
- * всегда в хвосте и ищется отдельно от источника: у общего разбора всей строки
- * источник и смещение перетягивают друг у друга пробелы и знак.
+ * Грамматика: число, `@prof`, `@level`, `@classLevel`, `@mod.spell` или
+ * `@mod.<аббревиатура>`, любое из них с множителем (`@level * 5`) и смещением
+ * (`@prof - 1`). Смещение всегда в хвосте и ищется отдельно от источника: у
+ * общего разбора всей строки источник и смещение перетягивают друг у друга
+ * пробелы и знак.
  *
  * @param formula - формула максимума
  * @returns правило; null — формула пуста либо написана руками и не разбирается
@@ -230,6 +245,15 @@ export function parseCounterMaxFormula(formula: string): CounterMaxRule | null {
   if (base === COUNTER_FORMULA_TOKENS.level) {
     return {
       source: 'level',
+      ability: COUNTER_MAX_DEFAULT_ABILITY,
+      offset,
+      multiplier,
+    };
+  }
+
+  if (base === CLASS_LEVEL_TOKEN_LOWERCASE) {
+    return {
+      source: 'classLevel',
       ability: COUNTER_MAX_DEFAULT_ABILITY,
       offset,
       multiplier,
@@ -294,7 +318,7 @@ export function counterMaxFormula(rule: CounterMaxRule): string {
  * Токен источника максимума без смещения.
  *
  * @param rule - правило максимума
- * @returns `@prof`, `@level`, `@mod.spell` либо `@mod.<abbr>`
+ * @returns `@prof`, `@level`, `@classLevel`, `@mod.spell` либо `@mod.<abbr>`
  */
 function counterMaxSourceToken(rule: CounterMaxRule): string {
   if (rule.source === 'proficiency') {
@@ -303,6 +327,10 @@ function counterMaxSourceToken(rule: CounterMaxRule): string {
 
   if (rule.source === 'level') {
     return COUNTER_FORMULA_TOKENS.level;
+  }
+
+  if (rule.source === 'classLevel') {
+    return COUNTER_FORMULA_TOKENS.classLevel;
   }
 
   if (rule.source === 'spellAbility') {
@@ -351,15 +379,22 @@ export function buildCounterFormulaContext(actor: DnDActor): FormulaContext {
 
 /**
  * Значение формулы максимума. Кривая формула не должна ронять лист — тогда
- * персонаж остался бы без ресурса из-за опечатки в одном поле, поэтому
- * неразобранная формула читается как ноль.
+ * персонаж остался бы без ресурса из-за опечатки в одном поле.
+ *
+ * Но и нулём она читаться не должна: ноль значит «зарядов нет», и опечатка
+ * молча забирала бы у листа весь ресурс. Поэтому возвращается запасное число —
+ * у своего счётчика листа это записанный максимум, у определения из записи
+ * запасного нет и остаётся ноль. Формула при этом называется в логе: иначе о
+ * ней не узнать ниоткуда.
  *
  * @param formula - формула максимума
  * @param context - `@`-переменные листа
+ * @param fallback - чем читать формулу, которая не разобралась
  */
 export function evaluateCounterMaxFormula(
   formula: string,
   context: FormulaContext,
+  fallback = 0,
 ): number {
   try {
     return clamp(
@@ -368,7 +403,11 @@ export function evaluateCounterMaxFormula(
       COUNTER_COUNT_MAX,
     );
   } catch {
-    return 0;
+    console.warn(
+      `[Счётчики] Формула максимума "${formula}" не читается — взято ${fallback}`,
+    );
+
+    return clamp(fallback, COUNTER_COUNT_MIN, COUNTER_COUNT_MAX);
   }
 }
 
@@ -395,10 +434,42 @@ export function resolveCounterMaxIn(
     );
   }
 
+  // Запасное число — записанный максимум счётчика: у листа с опечаткой в
+  // формуле ресурс остаётся тем, каким был, а не пропадает
   return withCounterMinimum(
-    evaluateCounterMaxFormula(formula, context),
+    evaluateCounterMaxFormula(
+      formula,
+      scopeToCounterClass(context, counter),
+      counter.max,
+    ),
     counter.min,
   );
+}
+
+/**
+ * Подставляет в контекст уровень В КЛАССЕ СЧЁТЧИКА — для токена `@classLevel`.
+ *
+ * Ресурсы класса растут по его собственным уровням: очки чародейства равны
+ * уровню ЧАРОДЕЯ, а не сумме уровней мультиклассера. Класс счётчик знает сам
+ * (`classKey`), а общий контекст листа — нет: он один на все ресурсы.
+ *
+ * Ресурс черты класса за спиной не имеет — его `@classLevel` останется
+ * незаданным и прочитается как `@level`, ровно как раньше.
+ *
+ * @param context - общий контекст формул листа
+ * @param counter - состояние счётчика
+ * @returns контекст с уровнем своего класса (или тот же, если класса нет)
+ */
+function scopeToCounterClass(
+  context: FormulaContext,
+  counter: ActorCounterState,
+): FormulaContext {
+  const classLevel =
+    counter.classKey === undefined
+      ? undefined
+      : context.classLevels?.get(counter.classKey);
+
+  return classLevel === undefined ? context : { ...context, classLevel };
 }
 
 /**

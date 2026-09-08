@@ -31,14 +31,12 @@
     getDisplayMovement,
     getMovementList,
     getProficiencyContribution,
-    getSkillAbility,
-    getSkillAdvantageFlagKey,
-    getSkillDisadvantageFlagKey,
     getSkillRowGroups,
     getSkillSetting,
     getSkillSettingAbility,
     isChangedSkill,
     isProficiencyLevel,
+    resolveAbilityCheckRollMode,
     resolveInitiativeRollMode,
     SKILL_PROFICIENCY_NEXT,
     SKILLS_LIST,
@@ -643,43 +641,23 @@
   }
 
   /**
-   * Обработчик броска навыка
-   * @param modifier - модификатор навыка
-   * @param label - название навыка
-   * @param key - ключ навыка
+   * Бросок проверки навыка строки. Строкой целиком, а не числами из неё:
+   * характеристика расчёта нужна для флагов преимущества, и брать её из ключа
+   * навыка нельзя — Атлетику переводят на Телосложение прямо в настройке.
+   *
+   * @param row - строка списка навыков
    */
-  function handleSkillRoll(modifier: number, label: string, key?: SkillType) {
-    let initialRollMode: AttackRollMode = 'normal';
-
-    if (key) {
-      const ability = getSkillAbility(key);
-      const flags = resolvedStats.value?.activeFlags ?? new Set();
-
-      const hasAdvantage =
-        flags.has('abilityCheck.advantage')
-        || flags.has(`abilityCheck.advantage.${ability}`)
-        // Преимущество конкретного навыка (напр. Скрытность от эльфийских сапог)
-        || flags.has(getSkillAdvantageFlagKey(key));
-
-      const hasDisadvantage =
-        flags.has('abilityCheck.disadvantage')
-        || flags.has(`abilityCheck.disadvantage.${ability}`)
-        // Помеха конкретного навыка (напр. Скрытность от брони)
-        || flags.has(getSkillDisadvantageFlagKey(key));
-
-      if (hasAdvantage && !hasDisadvantage) {
-        initialRollMode = 'advantage';
-      }
-
-      if (!hasAdvantage && hasDisadvantage) {
-        initialRollMode = 'disadvantage';
-      }
-    }
+  function handleSkillRoll(row: SkillRow) {
+    const initialRollMode: AttackRollMode = resolveAbilityCheckRollMode({
+      flags: resolvedStats.value?.activeFlags ?? new Set(),
+      ability: row.ability,
+      skill: row.key,
+    });
 
     openDiceRoll({
-      modifier,
-      title: `${ABILITY_CHECK_ROLL_LABELS.titlePrefix}${label}`,
-      rollLabel: `${ABILITY_CHECK_ROLL_LABELS.rollPrefix}${label}`,
+      modifier: row.modifier,
+      title: `${ABILITY_CHECK_ROLL_LABELS.titlePrefix}${row.label}`,
+      rollLabel: `${ABILITY_CHECK_ROLL_LABELS.rollPrefix}${row.label}`,
       rollButtonText: ABILITY_CHECK_ROLL_LABELS.button,
       initialRollMode,
     });
@@ -844,7 +822,7 @@
               :is-ability-highlighted="row.isMainAbility"
               :is-edit-mode="isEditMode"
               @cycle-proficiency="cycleSkillProficiency(row)"
-              @roll="handleSkillRoll"
+              @roll="handleSkillRoll(row)"
             />
           </template>
         </div>
@@ -869,6 +847,7 @@
     :bonuses="actor.system.movementBonuses"
     :context="bonusContext"
     :active-effects="combinedEffects"
+    :resolved-movement="resolvedMovement"
     @apply="onMovementApply"
   />
 

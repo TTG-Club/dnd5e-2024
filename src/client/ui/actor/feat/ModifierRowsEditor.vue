@@ -1,11 +1,7 @@
 <script setup lang="ts">
-  // Корневой вход `@nuxt/ui` типов компонентов не отдаёт — берём из подпути
-  import type { DropdownMenuItem } from '@nuxt/ui/components/DropdownMenu.vue';
-
   import type {
     DamageDefenseSource,
     EditableModifierRow,
-    ModifierRowKind,
   } from './featEditorTypes';
 
   import { computed } from 'vue';
@@ -22,23 +18,22 @@
     FEAT_DAMAGE_CHOICE_COUNT,
     FEAT_GRANTS_LABELS,
     MODIFIER_ROW_LABELS,
-    SCROLLABLE_DROPDOWN_UI,
   } from '../constants';
   import FieldHint from '../FieldHint.vue';
   import {
-    createModifierRow,
     isDamageDefenseChoiceRow,
     isFixedDamageDefenseRow,
-    MODIFIER_ROW_KIND_OPTIONS,
     modifierHasValue,
     modifierSupportsEqualsWalk,
   } from './featEditorTypes';
 
   /**
-   * Редактор постоянных правок листа: одна строка — одна правка. Список видов
-   * живёт в меню «Добавить», а строка рисует только свои поля — прежняя сетка
-   * держала на экране все чувства и все скорости сразу, и почти все поля в ней
-   * всегда были нулями.
+   * Редактор постоянных правок листа: одна строка — одна правка. Строка рисует
+   * только свои поля — прежняя сетка держала на экране все чувства и все
+   * скорости сразу, и почти все поля в ней всегда были нулями.
+   *
+   * Список видов живёт в меню кнопки добавления ({@link ModifierAddMenu}), а
+   * сама кнопка — в шапке раздела: пустому блоку хватает строки заголовка.
    */
   const rows = defineModel<EditableModifierRow[]>({ required: true });
 
@@ -65,18 +60,6 @@
     { value: 'choice', label: FEAT_GRANTS_LABELS.damageSourceChoice },
   ];
 
-  /** Меню «Добавить модификатор»: все виды одним списком. */
-  const addMenuItems: DropdownMenuItem[][] = [
-    MODIFIER_ROW_KIND_OPTIONS.map((option) => ({
-      label: option.label,
-      onSelect: () => addRow(option.value),
-    })),
-  ];
-
-  function addRow(kind: ModifierRowKind): void {
-    rows.value = [...rows.value, createModifierRow(kind)];
-  }
-
   function removeRow(index: number): void {
     rows.value = rows.value.filter((_, rowIndex) => rowIndex !== index);
   }
@@ -89,18 +72,6 @@
 
 <template>
   <div class="flex flex-col gap-2">
-    <p class="flex items-center gap-1 text-xs text-dimmed">
-      {{ FEAT_GRANTS_LABELS.modifiersHint }}
-      <FieldHint :text="FEAT_GRANTS_LABELS.modifiersHintDetails" />
-    </p>
-
-    <div
-      v-if="rows.length === 0"
-      class="rounded-lg border border-dashed border-default p-3 text-center text-xs text-dimmed italic"
-    >
-      {{ FEAT_GRANTS_LABELS.modifiersEmpty }}
-    </div>
-
     <div
       v-for="(row, index) in rows"
       :key="row.uid"
@@ -233,19 +204,5 @@
         </UFormField>
       </div>
     </div>
-
-    <UDropdownMenu
-      :items="addMenuItems"
-      :content="{ align: 'start' }"
-      :ui="SCROLLABLE_DROPDOWN_UI"
-    >
-      <UButton
-        icon="tabler:plus"
-        :label="FEAT_GRANTS_LABELS.addModifier"
-        color="primary"
-        variant="soft"
-        block
-      />
-    </UDropdownMenu>
   </div>
 </template>

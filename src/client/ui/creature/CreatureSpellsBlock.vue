@@ -2,10 +2,17 @@
   // Корневой вход `@nuxt/ui` — это Nuxt-модуль, типы компонентов он не отдаёт
   import type { DropdownMenuItem } from '@nuxt/ui/components/DropdownMenu.vue';
 
-  import type { MeasurementTemplate, SceneEntity } from '@vtt/shared';
+  import type {
+    MeasurementTemplate,
+    SceneEntity,
+    TypedWebSocketClient,
+  } from '@vtt/shared';
   import type {
     AttackRollMode,
-    CreatureSpellcasting,
+    CreatureSpellcastingBlock,
+    CreatureSpellGroup,
+    CreatureSpellPlacement,
+    CreatureSpellRef,
     DnDCreature,
     Spell,
     SpellUsesRecovery,
@@ -15,39 +22,72 @@
     RolledSpellDamagePart,
     SpellDamagePartInput,
   } from '../../composables/useSpellResolution';
+  import type { PickedCompendiumRef } from '../actor/CompendiumRefPickerModal.vue';
   import type { SheetRowStat } from '../actor/sheetRowTypes';
+  import type { CreatureSpellRefDragPayload } from './constants';
+  import type {
+    CreatureSpellBlockView,
+    CreatureSpellGroupView,
+    CreatureSpellRowView,
+  } from './creatureSpellViewTypes';
 
   import { useToast } from '@nuxt/ui/composables';
-  import { computed, ref } from 'vue';
+  import { computed, ref, watch } from 'vue';
 
   import { startHotbarDrag } from '@/core/utils/hotbarDrag';
+  import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useChatStore } from '@/stores/chatStore';
   import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
   import { useTargetStore } from '@/stores/targetStore';
   import { useWorldStore } from '@/stores/worldStore';
+  import { generateId, isRecord } from '@vtt/shared';
   import {
     ABILITY_LABELS,
+    calculateCreatureSpellBlockNumbers,
     collectActiveEffects,
-    DEFAULT_PROFICIENCY_BONUS,
+    collectCreatureSpellIdsInBlocks,
+    consumeCreatureSpellGroupUse,
+    createEmptyCreatureSpellcastingBlock,
+    createEmptyCreatureSpellGroup,
     describeDamagePart,
-    getCreatureProficiencyBonus,
-    getCreatureSpellAttackBonus,
+    ensureCreatureSpellsInBlocks,
+    findCreatureSpellPlacement,
+    getCreatureSpellBlockAbility,
+    getCreatureSpellcastingSpellCount,
+    getCreatureSpellGroupRecovery,
     getCreatureSpellRollButtonText,
-    getCreatureSpellSaveDC,
     getSpellAttackType,
+    hasCreatureSpellGroupUsesLeft,
+    isCreatureSpellPoolMode,
+    isSpell,
     SPELL_DAMAGE_TEMPLATE_COLORS,
     SPELL_SCHOOL_LABELS,
     SPELL_TEMPLATE_DEFAULT_COLOR,
     SPELL_USES_RECOVERY_LABELS,
     spellIsHealing,
+    syncCreatureSpellcastingUses,
   } from '@vtt/shared/system/dnd.js';
 
+  import {
+    findSpellInPacks,
+    loadSpellPacks,
+  } from '../../composables/spellCompendium';
+  import { discardSpellTemplate } from '../../composables/spellResolutionShared';
   import { useBonusDamageParts } from '../../composables/useBonusDamageParts';
+  import { useExpandedRows } from '../../composables/useExpandedRows';
   import { useSpellResolution } from '../../composables/useSpellResolution';
   import {
+    SPELL_LEVEL_FILTER_ORDER,
+    spellLevelFilterValue,
+  } from '../actor/compendiumFilters';
+  import CompendiumRefPickerModal from '../actor/CompendiumRefPickerModal.vue';
+  import {
     ACTOR_SPELLS_TAB_LABELS,
+    DELETE_CONFIRM_TITLE,
     FILTER_ROW_CONTROL_SIZE,
+    MODAL_BUTTON_LABELS,
+    REF_PICKER_LABELS,
     SHEET_FILTER_LABELS,
     SHEET_ROW_MENU_LABELS,
     SPELL_DAMAGE_ROLL_BUTTON,
@@ -59,24 +99,33 @@
   import DiceRollModal from '../actor/DiceRollModal.vue';
   import FilterChip from '../actor/FilterChip.vue';
   import FilterResetButton from '../actor/FilterResetButton.vue';
-  import SheetStatTile from '../actor/SheetStatTile.vue';
   import { formatSpellDamageDisplay } from '../actor/utils/formatSpellDamageDisplay';
   import {
     CREATURE_ACTIONS_BLOCK_LABELS,
     CREATURE_EMPTY_LABELS,
+    CREATURE_RECHARGE_HINTS,
+    CREATURE_RECHARGE_LABELS,
+    CREATURE_SPELL_BLOCKS_LABELS,
     CREATURE_SPELL_RECOVERY_CHIPS,
+    CREATURE_SPELL_REF_MIME,
     CREATURE_SPELLCASTING_LABELS,
+    getCreatureSpellGroupLabel,
   } from './constants';
-  import CreatureSpellcastingModal from './CreatureSpellcastingModal.vue';
-  import CreatureSpellRow from './CreatureSpellRow.vue';
+  import CreatureSpellBlockCard from './CreatureSpellBlockCard.vue';
+  import CreatureSpellBlockFormModal from './CreatureSpellBlockFormModal.vue';
+  import CreatureSpellGroupFormModal from './CreatureSpellGroupFormModal.vue';
+  import CreatureSpellRefModal from './CreatureSpellRefModal.vue';
 
   interface Props {
     /** Существо-источник (для авто-вывода DC/бонуса из характеристики) */
     creature?: DnDCreature;
     /** Заклинания существа (верхний уровень `Creature.spells`) */
     spells?: Spell[];
-    /** Параметры заклинательства (плоский DC/бонус атаки, характеристика) */
-    spellcasting?: CreatureSpellcasting;
+    /**
+     * Блоки и группы заклинаний — так же, как в редакторе бестиария сайта.
+     * Заклинания в них те же, что в `spells`: группа ссылается на них по `id`.
+     */
+    spellcastingBlocks?: CreatureSpellcastingBlock[];
     /** Режим редактирования */
     isEditMode: boolean;
     /** Режим только просмотр (компендиум) */
@@ -91,22 +140,31 @@
     creatureId: string;
     /** Имя существа (для подписей в хотбаре) */
     creatureName: string;
+    /** WebSocket-клиент: выбор заклинаний группы из компендиума */
+    socket?: TypedWebSocketClient | null;
   }
 
   const props = withDefaults(defineProps<Props>(), {
     creature: undefined,
     spells: () => [],
-    spellcasting: undefined,
+    spellcastingBlocks: () => [],
     isReadOnly: false,
     canEdit: false,
+    socket: null,
   });
 
   const emit = defineEmits<{
-    'update:spells': [value: Spell[]];
-    'update:spellcasting': [value: CreatureSpellcasting];
+    /**
+     * Заклинания и блоки одним событием: правка почти всегда задевает и то, и
+     * другое (заклинание кладут в группу, режим группы меняет его заряды), а
+     * двумя событиями лист сохранялся бы дважды подряд.
+     */
+    'update:spellbook': [
+      value: { spells: Spell[]; blocks: CreatureSpellcastingBlock[] },
+    ];
   }>();
 
-  const { openModal } = useModalManager();
+  const { openModal, getNextZIndex } = useModalManager();
   const toast = useToast();
   const chatStore = useChatStore();
   const targetStore = useTargetStore();
@@ -118,91 +176,99 @@
 
   const { resolveSpellDamageWithParts } = useSpellResolution();
 
-  /** Параметры заклинательства с дефолтом */
-  const block = computed<CreatureSpellcasting>(() => props.spellcasting ?? {});
+  /** Знак у бонуса: без него «+3» читалось бы как «3» */
+  function formatBonus(value: number | undefined): string {
+    if (value === undefined) {
+      return CREATURE_SPELLCASTING_LABELS.none;
+    }
 
-  /**
-   * Эффективная сложность спасброска: ручное значение либо авто-вывод из
-   * характеристики (`8 + бонус мастерства + мод.`), если выбрана.
-   */
-  const effectiveSaveDC = computed(() =>
-    props.creature
-      ? getCreatureSpellSaveDC(props.creature)
-      : block.value.saveDC,
+    return `${value >= 0 ? '+' : ''}${value}`;
+  }
+
+  // ── Правка списка и блоков ────────────────────────────────────────────────
+
+  /** Блоки заклинаний существа */
+  const blocks = computed<CreatureSpellcastingBlock[]>(
+    () => props.spellcastingBlocks,
   );
 
   /**
-   * Эффективный бонус к атаке: ручное значение либо авто-вывод из
-   * характеристики (`бонус мастерства + мод.`), если выбрана.
-   */
-  const effectiveAttackBonus = computed(() =>
-    props.creature
-      ? getCreatureSpellAttackBonus(props.creature)
-      : block.value.attackBonus,
-  );
-
-  /**
-   * Бонус мастерства существа с поправками его настройки: окно заклинательства
-   * разбирает по нему расчёт, и расходиться с листом это число не должно.
-   */
-  const creatureProficiencyBonus = computed(() =>
-    props.creature
-      ? getCreatureProficiencyBonus(props.creature)
-      : DEFAULT_PROFICIENCY_BONUS,
-  );
-
-  /**
-   * Числа заклинательства для плитки шапки. Подписи короткие, чтобы плитка
-   * помещалась на узком листе, — полное название остаётся в подсказке ячейки.
-   */
-  const spellcastingCells = computed(() => [
-    {
-      label: CREATURE_SPELLCASTING_LABELS.saveDC,
-      hint: CREATURE_SPELLCASTING_LABELS.saveDCHint,
-      value: effectiveSaveDC.value ?? CREATURE_SPELLCASTING_LABELS.none,
-    },
-    {
-      label: CREATURE_SPELLCASTING_LABELS.attack,
-      hint: CREATURE_SPELLCASTING_LABELS.attackHint,
-      value:
-        effectiveAttackBonus.value === undefined
-          ? CREATURE_SPELLCASTING_LABELS.none
-          : `${effectiveAttackBonus.value >= 0 ? '+' : ''}${effectiveAttackBonus.value}`,
-    },
-    {
-      label: CREATURE_SPELLCASTING_LABELS.ability,
-      hint: CREATURE_SPELLCASTING_LABELS.abilityHint,
-      value: block.value.ability
-        ? ABILITY_LABELS[block.value.ability]
-        : CREATURE_SPELLCASTING_LABELS.none,
-    },
-  ]);
-
-  /** Открыто ли окно настройки заклинательства */
-  const isSpellcastingModalOpen = ref(false);
-
-  /** Подсказка плитки: нажимается она только у того, кто правит существо */
-  const spellcastingTooltip = computed(() =>
-    props.canEdit ? CREATURE_SPELLCASTING_LABELS.open : undefined,
-  );
-
-  /**
-   * Сохраняет настройку заклинательства из окна. Окно отдаёт блок целиком, а не
-   * патч: способ расчёта выключает соседнее поле (своё число — поправку и
-   * наоборот), и слияние оставило бы в записи оба числа сразу.
+   * Отдаёт наверх заклинания и блоки разом.
    *
-   * @param updated - параметры заклинательства из окна
+   * По дороге запись приводится в порядок: заклинание, не попавшее ни в одну
+   * группу, кладётся в подходящую (вне блока заклинание существа не живёт), а
+   * заряды приводятся к режимам групп — режим источник истины и для максимума
+   * применений, и для способа отката.
+   *
+   * @param spells - заклинания существа
+   * @param nextBlocks - блоки заклинаний
    */
-  function applySpellcasting(updated: CreatureSpellcasting): void {
-    emit('update:spellcasting', updated);
+  function emitSpellbook(
+    spells: Spell[],
+    nextBlocks: CreatureSpellcastingBlock[],
+  ): void {
+    const synced = syncCreatureSpellcastingUses(
+      spells,
+      ensureCreatureSpellsInBlocks(spells, nextBlocks),
+    );
+
+    emit('update:spellbook', {
+      spells: synced.spells,
+      blocks: synced.blocks,
+    });
   }
 
   /**
-   * Эмитит обновлённый список заклинаний существа.
+   * Эмитит обновлённый список заклинаний существа, оставляя блоки как есть.
+   *
    * @param spells - новый список заклинаний
    */
   function updateSpells(spells: Spell[]): void {
-    emit('update:spells', spells);
+    emitSpellbook(spells, blocks.value);
+  }
+
+  /**
+   * Эмитит обновлённые блоки, оставляя список заклинаний как есть.
+   *
+   * @param nextBlocks - новые блоки
+   */
+  function updateBlocks(nextBlocks: CreatureSpellcastingBlock[]): void {
+    emitSpellbook([...props.spells], nextBlocks);
+  }
+
+  /**
+   * Заменяет одну группу, не трогая соседние.
+   *
+   * @param groupId - ключ группы
+   * @param next - новая группа
+   */
+  function replaceGroup(groupId: string, next: CreatureSpellGroup): void {
+    updateBlocks(
+      blocks.value.map((entry) => ({
+        ...entry,
+        groups: entry.groups.map((group) =>
+          group.id === groupId ? next : group,
+        ),
+      })),
+    );
+  }
+
+  /**
+   * Ищет группу по ключу во всех блоках.
+   *
+   * @param groupId - ключ группы
+   * @returns группа либо `undefined`
+   */
+  function findGroup(groupId: string): CreatureSpellGroup | undefined {
+    for (const entry of blocks.value) {
+      const group = entry.groups.find((item) => item.id === groupId);
+
+      if (group) {
+        return group;
+      }
+    }
+
+    return undefined;
   }
 
   // ── Отбор и поиск ─────────────────────────────────────────────────────────
@@ -212,9 +278,34 @@
   /** Отмеченные чипами способы отката; пусто — список не сужается */
   const pickedRecoveries = ref<Set<SpellUsesRecovery>>(new Set());
 
-  /** Способ отката заклинания: без зарядов оно доступно по желанию */
+  /**
+   * Способ отката заклинаний групп — по их режиму, а не по зарядам записи.
+   *
+   * У группы «на весь список» счётчик лежит у самой группы, и заряды её
+   * заклинаний сняты: без этой карты они попадали бы под чип «По желанию»,
+   * хотя ждут отдыха вместе со своей группой.
+   */
+  const recoveryBySpellId = computed(() => {
+    const map = new Map<string, SpellUsesRecovery>();
+
+    for (const entry of blocks.value) {
+      for (const group of entry.groups) {
+        const recovery = getCreatureSpellGroupRecovery(group);
+
+        for (const spellRef of group.spells) {
+          map.set(spellRef.spellId, recovery);
+        }
+      }
+    }
+
+    return map;
+  });
+
+  /** Способ отката заклинания: без зарядов и без группы оно «по желанию» */
   function getSpellRecovery(spell: Spell): SpellUsesRecovery {
-    return spell.uses?.recovery ?? 'atWill';
+    return (
+      recoveryBySpellId.value.get(spell.id) ?? spell.uses?.recovery ?? 'atWill'
+    );
   }
 
   /** Действующий отбор: отмеченные чипами способы отката */
@@ -239,10 +330,24 @@
   /** Ряд отбора: пустому списку сужать нечего */
   const hasFilterControls = computed(() => props.spells.length > 0);
 
-  /** Список сужен: отбор есть что сбросить */
+  /**
+   * Блоки и группы заводят только в правке листа: это перестройка статблока, а
+   * не игровое действие. Каст, настройка и удаление остаются доступны и вне её
+   * — как и прочая правка заклинаний существа.
+   */
+  const canAddStructure = computed(() => props.canEdit && props.isEditMode);
+
+  /** Список сужен — хоть чипами, хоть поиском */
   const hasAnyFilter = computed(
     () => activeRecoveries.value.length > 0 || searchQuery.value.trim() !== '',
   );
+
+  /**
+   * «Сбросить» показывается только под отмеченные чипы: набранный текст
+   * снимается крестиком в самом поле, и вторая кнопка для того же выскакивала
+   * бы на каждой букве.
+   */
+  const hasPickedChips = computed(() => activeRecoveries.value.length > 0);
 
   /**
    * Нажатие на чип способа отката: способы набираются по одному, повторное
@@ -295,30 +400,54 @@
     });
   });
 
+  /** `id` заклинаний, прошедших отбор — по ним сужаются и строки групп */
+  const filteredSpellIds = computed(
+    () => new Set(filteredSpells.value.map((spell) => spell.id)),
+  );
+
+  /** Заклинания существа по `id` — группа хранит только ссылки */
+  const spellsById = computed(
+    () => new Map(props.spells.map((spell) => [spell.id, spell])),
+  );
+
   // ── Сборка строк списка ───────────────────────────────────────────────────
 
   /**
-   * Подпись под названием — школа магии. Способ отката называть незачем: он
-   * стоит в заголовке раздела, под которым лежит строка.
+   * Подпись под названием — школа магии, а следом оговорка статблока. Способ
+   * отката называть незачем: он стоит в заголовке раздела, под которым лежит
+   * строка.
    *
    * @param spell - заклинание
-   * @returns название школы
+   * @param spellRef - ссылка группы с оговоркой
+   * @returns подпись строки
    */
-  function getSpellSubtitle(spell: Spell): string {
-    return SPELL_SCHOOL_LABELS[spell.school] ?? '';
+  function getSpellSubtitle(spell: Spell, spellRef?: CreatureSpellRef): string {
+    const school = SPELL_SCHOOL_LABELS[spell.school] ?? '';
+
+    if (!spellRef?.note) {
+      return school;
+    }
+
+    return school ? `${school} · ${spellRef.note}` : spellRef.note;
   }
 
   /**
-   * Плитки строки заклинания: урон (катится по нажатию) и заряды. Те же поля,
-   * что и у строки заклинания на листе персонажа.
+   * Плитки строки заклинания: урон (катится по нажатию), заряды и круг
+   * наложения. Те же поля, что и у строки заклинания на листе персонажа.
    *
    * @param spell - заклинание
+   * @param spellRef - ссылка группы с кругом наложения
    * @returns плитки в порядке показа
    */
-  function getSpellStats(spell: Spell): SheetRowStat[] {
+  function getSpellStats(
+    spell: Spell,
+    spellRef?: CreatureSpellRef,
+  ): SheetRowStat[] {
     const stats: SheetRowStat[] = [];
 
-    const damage = formatSpellDamageDisplay(spell);
+    const damage = formatSpellDamageDisplay(spell, {
+      castLevel: spellRef?.castLevel,
+    });
 
     if (damage) {
       stats.push({
@@ -346,6 +475,15 @@
       });
     }
 
+    if (spellRef?.castLevel !== undefined) {
+      stats.push({
+        key: 'castLevel',
+        label: CREATURE_SPELL_BLOCKS_LABELS.castLevelStat,
+        value: String(spellRef.castLevel),
+        tooltip: CREATURE_SPELL_BLOCKS_LABELS.castLevelHint,
+      });
+    }
+
     return stats;
   }
 
@@ -354,9 +492,13 @@
    * сначала игровое действие, ниже — действия над записью, последним удаление.
    *
    * @param spell - заклинание
+   * @param placement - группа, из которой идёт строка
    * @returns группы пунктов
    */
-  function getSpellMenuItems(spell: Spell): DropdownMenuItem[][] {
+  function getSpellMenuItems(
+    spell: Spell,
+    placement?: CreatureSpellPlacement,
+  ): DropdownMenuItem[][] {
     const groups: DropdownMenuItem[][] = [];
 
     if (!props.isReadOnly) {
@@ -364,7 +506,7 @@
         {
           label: SPELL_MENU_LABELS.cast,
           icon: 'tabler:sparkles',
-          onSelect: () => castSpell(spell),
+          onSelect: () => castSpell(spell, placement),
         },
       ]);
     }
@@ -376,6 +518,14 @@
         label: SHEET_ROW_MENU_LABELS.edit,
         icon: 'tabler:edit',
         onSelect: () => openEditForm(spell),
+      });
+    }
+
+    if (placement && props.canEdit) {
+      sheetActions.push({
+        label: CREATURE_SPELL_BLOCKS_LABELS.refine,
+        icon: 'tabler:adjustments',
+        onSelect: () => openRefModal(placement),
       });
     }
 
@@ -402,38 +552,184 @@
   }
 
   /**
-   * Разделы по способу отката со строками, уже собранными для показа. Пустые
-   * разделы в список не попадают — под отбором их заголовки висели бы зря.
+   * Собирает строку списка для заклинания.
+   *
+   * @param spell - заклинание
+   * @param placement - группа, из которой идёт строка
+   * @returns строка списка
    */
-  const spellRowGroups = computed(() =>
-    CREATURE_SPELL_RECOVERY_CHIPS.map((group) => ({
-      key: group.key,
-      label: SPELL_USES_RECOVERY_LABELS[group.key],
-      rows: filteredSpells.value
-        .filter((spell) => getSpellRecovery(spell) === group.key)
-        .map((spell) => ({
-          spell,
-          subtitle: getSpellSubtitle(spell),
-          stats: getSpellStats(spell),
-          menuItems: getSpellMenuItems(spell),
-        })),
-    })).filter((group) => group.rows.length > 0),
+  function buildRow(
+    spell: Spell,
+    placement?: CreatureSpellPlacement,
+  ): CreatureSpellRowView {
+    return {
+      spell,
+      spellRef: placement?.ref,
+      subtitle: getSpellSubtitle(spell, placement?.ref),
+      stats: getSpellStats(spell, placement?.ref),
+      menuItems: getSpellMenuItems(spell, placement),
+    };
+  }
+
+  /** Строка «Компоненты не требуются: …»; пусто — блоку нужны все компоненты */
+  function getComponentsLabel(
+    blockEntry: CreatureSpellcastingBlock,
+  ): string | undefined {
+    const ignored = blockEntry.ignoredComponents;
+
+    if (!ignored) {
+      return undefined;
+    }
+
+    const parts: string[] = [];
+
+    if (ignored.verbal) {
+      parts.push(CREATURE_SPELL_BLOCKS_LABELS.componentVerbal);
+    }
+
+    if (ignored.somatic) {
+      parts.push(CREATURE_SPELL_BLOCKS_LABELS.componentSomatic);
+    }
+
+    if (ignored.material) {
+      parts.push(CREATURE_SPELL_BLOCKS_LABELS.componentMaterial);
+    }
+
+    return parts.length
+      ? CREATURE_SPELL_BLOCKS_LABELS.componentsIgnored + parts.join(', ')
+      : undefined;
+  }
+
+  /**
+   * Блоки, готовые к показу: числа, подписи и строки уже собраны.
+   *
+   * Вычисляемым списком, а не вызовами из шаблона: подписи зависят от
+   * характеристик существа и режимов групп, и из шаблона они считались бы
+   * заново на каждую перерисовку.
+   */
+  const blockViews = computed<CreatureSpellBlockView[]>(() =>
+    blocks.value.map((blockEntry) => {
+      const numbers = props.creature
+        ? calculateCreatureSpellBlockNumbers(props.creature, blockEntry)
+        : { saveDC: blockEntry.saveDC, attackBonus: blockEntry.attackBonus };
+
+      const ability = props.creature
+        ? getCreatureSpellBlockAbility(props.creature, blockEntry)
+        : blockEntry.ability;
+
+      const groups: CreatureSpellGroupView[] = blockEntry.groups.map(
+        (group) => {
+          const rows: CreatureSpellRowView[] = [];
+
+          for (const spellRef of group.spells) {
+            const spell = spellsById.value.get(spellRef.spellId);
+
+            if (!spell || !filteredSpellIds.value.has(spell.id)) {
+              continue;
+            }
+
+            rows.push(
+              buildRow(spell, { block: blockEntry, group, ref: spellRef }),
+            );
+          }
+
+          const isPool = isCreatureSpellPoolMode(group.mode);
+
+          return {
+            group,
+            title: getCreatureSpellGroupLabel(group),
+            usesLabel:
+              isPool && group.uses
+                ? `${group.uses.current}/${group.uses.max}`
+                : undefined,
+            isExhausted: !hasCreatureSpellGroupUsesLeft(group),
+            rechargeLabel: group.recharge
+              ? CREATURE_RECHARGE_LABELS[group.recharge]
+              : undefined,
+            rechargeHint: group.recharge
+              ? CREATURE_RECHARGE_HINTS[group.recharge]
+              : undefined,
+            rows,
+          };
+        },
+      );
+
+      return {
+        block: blockEntry,
+        title: blockEntry.name || CREATURE_SPELL_BLOCKS_LABELS.unnamedBlock,
+        cells: [
+          {
+            label: CREATURE_SPELLCASTING_LABELS.saveDC,
+            hint: CREATURE_SPELLCASTING_LABELS.saveDCHint,
+            value: String(numbers.saveDC ?? CREATURE_SPELLCASTING_LABELS.none),
+          },
+          {
+            label: CREATURE_SPELLCASTING_LABELS.attack,
+            hint: CREATURE_SPELLCASTING_LABELS.attackHint,
+            value: formatBonus(numbers.attackBonus),
+          },
+          {
+            label: CREATURE_SPELLCASTING_LABELS.ability,
+            hint: CREATURE_SPELLCASTING_LABELS.abilityHint,
+            value: ability
+              ? ABILITY_LABELS[ability]
+              : CREATURE_SPELLCASTING_LABELS.none,
+          },
+        ],
+        note: blockEntry.note,
+        componentsLabel: getComponentsLabel(blockEntry),
+        groupCount: blockEntry.groups.length,
+        spellCount: getCreatureSpellcastingSpellCount(blockEntry),
+        groups,
+      };
+    }),
   );
 
   /**
-   * Начинает перетаскивание заклинания: MIME для переноса на другой лист и
-   * макрос существа для хотбара.
+   * Блоки на виду. Под отбором блок без единой строки уезжает целиком:
+   * заголовок без содержимого только сбивал бы с толку. Без отбора он
+   * остаётся — иначе в пустой блок нечем было бы добавить группу.
+   */
+  const visibleBlockViews = computed(() =>
+    hasAnyFilter.value
+      ? blockViews.value.filter((view) =>
+          view.groups.some((group) => group.rows.length > 0),
+        )
+      : blockViews.value,
+  );
+
+  /**
+   * Начинает перетаскивание заклинания: MIME для переноса на другой лист,
+   * ссылка для переноса между группами и макрос существа для хотбара.
    *
    * @param event - событие dragstart
    * @param spell - заклинание существа
+   * @param groupId - группа, из которой тащат
    */
-  function handleSpellDragStart(event: DragEvent, spell: Spell): void {
+  function handleSpellDragStart(
+    event: DragEvent,
+    spell: Spell,
+    groupId: string,
+  ): void {
     if (!event.dataTransfer) {
       return;
     }
 
     event.dataTransfer.effectAllowed = 'copy';
     event.dataTransfer.setData(SPELL_MIME, JSON.stringify(spell));
+
+    // Своя ссылка рядом с записью заклинания: по ней соседняя группа узнаёт,
+    // что заклинание уже у этого существа, и переносит его, а не копирует
+    const payload: CreatureSpellRefDragPayload = {
+      creatureId: props.creatureId,
+      spellId: spell.id,
+      groupId,
+    };
+
+    event.dataTransfer.setData(
+      CREATURE_SPELL_REF_MIME,
+      JSON.stringify(payload),
+    );
 
     startHotbarDrag(event, {
       id: `${props.creatureId}-spell-${spell.id}`,
@@ -443,6 +739,551 @@
       ref: spell.id,
       actorId: props.creatureId,
     });
+  }
+
+  /**
+   * Разбирает ссылку переноса между группами.
+   *
+   * @param raw - содержимое переноса
+   * @returns ссылка либо `undefined`, если это чужой или испорченный перенос
+   */
+  function readRefDragPayload(
+    raw: string,
+  ): CreatureSpellRefDragPayload | undefined {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+
+      if (
+        !isRecord(parsed)
+        || typeof parsed.creatureId !== 'string'
+        || typeof parsed.spellId !== 'string'
+        || typeof parsed.groupId !== 'string'
+      ) {
+        return undefined;
+      }
+
+      return {
+        creatureId: parsed.creatureId,
+        spellId: parsed.spellId,
+        groupId: parsed.groupId,
+      };
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Переносит заклинание в другую группу вместе с его кругом наложения и
+   * оговоркой: они относятся к заклинанию, а не к группе, и терять их при
+   * перекладывании нельзя.
+   *
+   * @param moved - ссылка переноса
+   * @param blockId - блок, на который бросили
+   * @param groupId - группа, если бросили прямо на неё
+   */
+  function moveSpellToGroup(
+    moved: CreatureSpellRefDragPayload,
+    blockId: string,
+    groupId: string | undefined,
+  ): void {
+    if (moved.groupId === groupId) {
+      return;
+    }
+
+    let carried: CreatureSpellRef | undefined;
+
+    const detached = blocks.value.map((block) => ({
+      ...block,
+      groups: block.groups.map((group) => {
+        if (group.id !== moved.groupId) {
+          return group;
+        }
+
+        carried = group.spells.find((entry) => entry.spellId === moved.spellId);
+
+        return {
+          ...group,
+          spells: group.spells.filter(
+            (entry) => entry.spellId !== moved.spellId,
+          ),
+        };
+      }),
+    }));
+
+    const ref = carried;
+
+    if (!ref) {
+      return;
+    }
+
+    if (groupId) {
+      updateBlocks(
+        detached.map((block) => ({
+          ...block,
+          groups: block.groups.map((group) =>
+            group.id === groupId
+              ? { ...group, spells: [...group.spells, ref] }
+              : group,
+          ),
+        })),
+      );
+
+      return;
+    }
+
+    // Бросили на блок мимо групп: подходящую подбирает общая раскладка, а круг
+    // и оговорку возвращаем на место — она о них не знает
+    const placed = ensureCreatureSpellsInBlocks(
+      props.spells,
+      detached,
+      blockId,
+    );
+
+    updateBlocks(
+      placed.map((block) => ({
+        ...block,
+        groups: block.groups.map((group) => ({
+          ...group,
+          spells: group.spells.map((entry) =>
+            entry.spellId === ref.spellId ? ref : entry,
+          ),
+        })),
+      })),
+    );
+  }
+
+  /**
+   * Кладёт заклинание компендиума в группу, на которую его бросили.
+   *
+   * @param dropped - запись заклинания из переноса
+   * @param blockId - блок, на который бросили
+   * @param groupId - группа, если бросили прямо на неё
+   */
+  function copyDroppedSpell(
+    dropped: Spell,
+    blockId: string,
+    groupId: string | undefined,
+  ): void {
+    const group = groupId ? findGroup(groupId) : undefined;
+
+    // Повтор в той же группе ничего не меняет — молча пропускаем
+    if (
+      group?.spells.some(
+        (entry) => spellsById.value.get(entry.spellId)?.name === dropped.name,
+      )
+    ) {
+      return;
+    }
+
+    const copy: Spell = { ...dropped, id: generateId('spell') };
+
+    const spells = [...props.spells, copy];
+
+    if (!group) {
+      emitSpellbook(
+        spells,
+        ensureCreatureSpellsInBlocks(spells, blocks.value, blockId),
+      );
+
+      return;
+    }
+
+    emitSpellbook(
+      spells,
+      blocks.value.map((block) => ({
+        ...block,
+        groups: block.groups.map((entry) =>
+          entry.id === group.id
+            ? { ...entry, spells: [...entry.spells, { spellId: copy.id }] }
+            : entry,
+        ),
+      })),
+    );
+  }
+
+  /**
+   * Отпускание заклинания над блоком либо его группой.
+   *
+   * Своё заклинание переносится, чужое — копируется записью. Одно и то же
+   * перетаскивание несёт и то, и другое: строка листа кладёт рядом с записью
+   * ещё и ссылку, по которой видно, что заклинание уже у этого существа.
+   *
+   * @param payload - событие и группа, на которую бросили
+   * @param blockId - блок, которому принадлежит цель
+   */
+  function handleSpellDrop(
+    payload: { event: DragEvent; groupId?: string },
+    blockId: string,
+  ): void {
+    if (!props.canEdit || props.isReadOnly) {
+      return;
+    }
+
+    const data = payload.event.dataTransfer;
+
+    if (!data) {
+      return;
+    }
+
+    const rawRef = data.getData(CREATURE_SPELL_REF_MIME);
+
+    const moved = rawRef ? readRefDragPayload(rawRef) : undefined;
+
+    if (moved && moved.creatureId === props.creatureId) {
+      moveSpellToGroup(moved, blockId, payload.groupId);
+
+      return;
+    }
+
+    const rawSpell = data.getData(SPELL_MIME);
+
+    if (!rawSpell) {
+      return;
+    }
+
+    try {
+      const dropped: unknown = JSON.parse(rawSpell);
+
+      // Данные приезжают из события браузера: без проверки испорченная
+      // нагрузка легла бы в запись существа и сломала бы его лист
+      if (isSpell(dropped)) {
+        copyDroppedSpell(dropped, blockId, payload.groupId);
+      }
+    } catch (error) {
+      console.error(CREATURE_SPELL_BLOCKS_LABELS.spellsAddFailed, error);
+    }
+  }
+
+  // ── Блоки и группы ────────────────────────────────────────────────────────
+
+  /**
+   * Раскрытые блоки. Набор держит вкладка, а не карточка: заведённый блок
+   * раскрывается сразу, а карточка о соседях не знает.
+   */
+  const {
+    isExpanded: isBlockExpanded,
+    toggle: toggleBlock,
+    expand: expandBlock,
+  } = useExpandedRows();
+
+  // Единственный блок раскрывается сам: прятать его не от чего, а лишнее
+  // нажатие мешало бы. Свернуть его после этого всё равно можно
+  watch(
+    () => blocks.value.map((entry) => entry.id).join('|'),
+    () => {
+      const only = blocks.value.length === 1 ? blocks.value[0] : undefined;
+
+      if (only) {
+        expandBlock(only.id);
+      }
+    },
+    { immediate: true },
+  );
+
+  /** Блок, открытый в окне настройки */
+  const editedBlock = ref<CreatureSpellcastingBlock | undefined>(undefined);
+
+  const isBlockFormOpen = ref(false);
+
+  /** Группа, открытая в окне настройки */
+  const editedGroup = ref<CreatureSpellGroup | undefined>(undefined);
+
+  const isGroupFormOpen = ref(false);
+
+  /** Ссылка на заклинание, открытая в окне круга и оговорки */
+  const editedRef = ref<CreatureSpellPlacement | undefined>(undefined);
+
+  const isRefFormOpen = ref(false);
+
+  /** Блок либо группа, удаление которых ждёт подтверждения */
+  const pendingRemoval = ref<
+    { kind: 'block' | 'group'; id: string } | undefined
+  >(undefined);
+
+  /** Слой окна подтверждения: оно встаёт поверх листа существа */
+  const removalZIndex = ref<number | undefined>(undefined);
+
+  /** Текст вопроса: у блока и у группы он разный */
+  const removalText = computed(() =>
+    pendingRemoval.value?.kind === 'block'
+      ? CREATURE_SPELL_BLOCKS_LABELS.removeBlockConfirm
+      : CREATURE_SPELL_BLOCKS_LABELS.removeGroupConfirm,
+  );
+
+  /** Заводит блок в конце списка и сразу раскрывает его — его же и заполняют */
+  function addBlock(): void {
+    const added = createEmptyCreatureSpellcastingBlock();
+
+    updateBlocks([...blocks.value, added]);
+
+    expandBlock(added.id);
+  }
+
+  /**
+   * Открывает настройку блока.
+   *
+   * @param blockId - ключ блока
+   */
+  function openBlockForm(blockId: string): void {
+    editedBlock.value = blocks.value.find((entry) => entry.id === blockId);
+
+    isBlockFormOpen.value = editedBlock.value !== undefined;
+  }
+
+  /**
+   * Сохраняет настройку блока.
+   *
+   * Группы берутся из текущей записи, а не из окна: окно открылось со снимком
+   * блока и правит только его числа, а группы за это время мог задеть каст.
+   *
+   * @param updated - блок из окна
+   */
+  function applyBlock(updated: CreatureSpellcastingBlock): void {
+    updateBlocks(
+      blocks.value.map((entry) =>
+        entry.id === updated.id ? { ...updated, groups: entry.groups } : entry,
+      ),
+    );
+  }
+
+  /**
+   * Спрашивает подтверждение удаления блока или группы.
+   *
+   * Спрашиваем, потому что блок сворачивается: за свёрнутой шапкой не видно ни
+   * групп, ни списков заклинаний, и промах по кнопке стирал бы их молча.
+   *
+   * @param kind - что удаляют
+   * @param id - ключ блока либо группы
+   */
+  function askRemoval(kind: 'block' | 'group', id: string): void {
+    pendingRemoval.value = { kind, id };
+    removalZIndex.value = getNextZIndex();
+  }
+
+  /** Закрытие окна подтверждения любым способом — отказ от удаления */
+  function handleRemovalOpenChange(isConfirmOpen: boolean): void {
+    if (!isConfirmOpen) {
+      pendingRemoval.value = undefined;
+    }
+  }
+
+  /**
+   * Удаляет блок либо группу после подтверждения — вместе с их заклинаниями.
+   *
+   * Вместе, потому что вне блока заклинание существа не живёт: оставить его без
+   * группы нельзя, а перекладывать в чужую — гадать за автора. Об этом говорит
+   * и вопрос окна.
+   */
+  function confirmRemoval(): void {
+    const removal = pendingRemoval.value;
+
+    pendingRemoval.value = undefined;
+
+    if (!removal) {
+      return;
+    }
+
+    const nextBlocks =
+      removal.kind === 'block'
+        ? blocks.value.filter((entry) => entry.id !== removal.id)
+        : blocks.value.map((entry) => ({
+            ...entry,
+            groups: entry.groups.filter((group) => group.id !== removal.id),
+          }));
+
+    const kept = collectCreatureSpellIdsInBlocks(nextBlocks);
+
+    emitSpellbook(
+      props.spells.filter((spell) => kept.has(spell.id)),
+      nextBlocks,
+    );
+  }
+
+  /**
+   * Заводит группу в конце блока.
+   *
+   * @param blockId - ключ блока
+   */
+  function addGroup(blockId: string): void {
+    updateBlocks(
+      blocks.value.map((entry) =>
+        entry.id === blockId
+          ? {
+              ...entry,
+              groups: [...entry.groups, createEmptyCreatureSpellGroup()],
+            }
+          : entry,
+      ),
+    );
+  }
+
+  /**
+   * Открывает настройку группы.
+   *
+   * @param groupId - ключ группы
+   */
+  function openGroupForm(groupId: string): void {
+    editedGroup.value = findGroup(groupId);
+
+    isGroupFormOpen.value = editedGroup.value !== undefined;
+  }
+
+  /**
+   * Сохраняет настройку группы.
+   *
+   * Список заклинаний и счётчик берутся из текущей записи, а не из окна: окно
+   * открылось со снимком группы и правит только её ограничение, а список и
+   * счётчик за это время мог задеть каст.
+   *
+   * @param updated - группа из окна
+   */
+  function applyGroup(updated: CreatureSpellGroup): void {
+    const current = findGroup(updated.id);
+
+    if (!current) {
+      return;
+    }
+
+    replaceGroup(updated.id, {
+      ...updated,
+      spells: current.spells,
+      uses: current.uses,
+    });
+  }
+
+  /**
+   * Открывает окно круга и оговорки заклинания группы.
+   *
+   * @param placement - группа и ссылка на заклинание
+   */
+  function openRefModal(placement: CreatureSpellPlacement): void {
+    editedRef.value = placement;
+    isRefFormOpen.value = true;
+  }
+
+  /**
+   * Сохраняет круг и оговорку заклинания группы.
+   *
+   * @param updated - ссылка из окна
+   */
+  function applyRef(updated: CreatureSpellRef): void {
+    const placement = editedRef.value;
+
+    // Группа берётся текущая, а не из снимка, с которым открылось окно: за это
+    // время её мог задеть каст
+    const group = placement ? findGroup(placement.group.id) : undefined;
+
+    if (!group) {
+      return;
+    }
+
+    replaceGroup(group.id, {
+      ...group,
+      spells: group.spells.map((entry) =>
+        entry.spellId === updated.spellId ? updated : entry,
+      ),
+    });
+  }
+
+  // ── Выбор заклинаний из компендиума ───────────────────────────────────────
+
+  /** Группа, в которую добавляют заклинания */
+  const pickerGroupId = ref<string | undefined>(undefined);
+
+  const isPickerOpen = ref(false);
+
+  /**
+   * Слой окна выбора. Без него окно открылось бы ПОД листом, с которого его
+   * позвали: слои раздаёт менеджер окон, а не порядок в разметке.
+   */
+  const pickerZIndex = ref<number | undefined>(undefined);
+
+  /**
+   * Открывает выбор заклинаний компендиума для группы.
+   *
+   * @param groupId - ключ группы
+   */
+  function openSpellPicker(groupId: string): void {
+    pickerGroupId.value = groupId;
+    pickerZIndex.value = getNextZIndex();
+    isPickerOpen.value = true;
+  }
+
+  /**
+   * Кладёт выбранные заклинания в группу.
+   *
+   * Запись заклинания копируется существу целиком, а группа ссылается на копию
+   * по `id`: каст, хотбар и отдых работают с `Creature.spells`, и ссылкой на
+   * компендиум им не обойтись. Уже перечисленные в этой группе пропускаются —
+   * повтор в ней ничего не меняет.
+   *
+   * @param picked - отмеченные в окне записи компендиума
+   */
+  async function addPickedSpells(picked: PickedCompendiumRef[]): Promise<void> {
+    const groupId = pickerGroupId.value;
+
+    const group = groupId ? findGroup(groupId) : undefined;
+
+    if (!group || !props.socket || !picked.length) {
+      return;
+    }
+
+    try {
+      const { packs } = await loadSpellPacks(props.socket);
+
+      const taken = new Set(
+        group.spells
+          .map((entry) => spellsById.value.get(entry.spellId)?.name)
+          .filter((name): name is string => Boolean(name)),
+      );
+
+      const addedSpells: Spell[] = [];
+      const addedRefs: CreatureSpellRef[] = [];
+
+      for (const entry of picked) {
+        const found = findSpellInPacks(packs, entry.url, entry.packId);
+
+        if (!found || taken.has(found.name)) {
+          continue;
+        }
+
+        taken.add(found.name);
+
+        const copy: Spell = { ...found, id: generateId('spell') };
+
+        addedSpells.push(copy);
+        addedRefs.push({ spellId: copy.id });
+      }
+
+      if (!addedSpells.length) {
+        return;
+      }
+
+      emitSpellbook(
+        [...props.spells, ...addedSpells],
+        blocks.value.map((entry) => ({
+          ...entry,
+          groups: entry.groups.map((item) =>
+            item.id === group.id
+              ? { ...item, spells: [...item.spells, ...addedRefs] }
+              : item,
+          ),
+        })),
+      );
+
+      toast.add({
+        title: CREATURE_SPELL_BLOCKS_LABELS.spellsAdded,
+        description: addedSpells.map((spell) => spell.name).join(', '),
+        color: 'success',
+      });
+    } catch (error) {
+      console.error(CREATURE_SPELL_BLOCKS_LABELS.spellsAddFailed, error);
+
+      toast.add({
+        title: CREATURE_SPELL_BLOCKS_LABELS.spellsAddFailed,
+        color: 'error',
+      });
+    }
   }
 
   // ── Редактирование / удаление ─────────────────────────────────────────────
@@ -465,11 +1306,22 @@
   }
 
   /**
-   * Удаляет заклинание существа.
+   * Удаляет заклинание существа вместе со ссылками на него в группах: строка
+   * без записи всё равно ничего не покажет.
+   *
    * @param spellId - id заклинания
    */
   function deleteSpell(spellId: string): void {
-    updateSpells(props.spells.filter((entry) => entry.id !== spellId));
+    emitSpellbook(
+      props.spells.filter((entry) => entry.id !== spellId),
+      blocks.value.map((entry) => ({
+        ...entry,
+        groups: entry.groups.map((group) => ({
+          ...group,
+          spells: group.spells.filter((item) => item.spellId !== spellId),
+        })),
+      })),
+    );
   }
 
   /**
@@ -480,7 +1332,7 @@
     openModal('SpellDetailModal', {
       spell,
       showCastButton: !props.isReadOnly,
-      onCast: () => castSpell(spell),
+      onCast: () => castSpell(spell, findPlacement(spell.id)),
     });
   }
 
@@ -496,13 +1348,39 @@
     });
   }
 
-  // ── Списание зарядов ──────────────────────────────────────────────────────
+  /**
+   * Ищет группу, в которой лежит заклинание.
+   *
+   * @param spellId - id заклинания
+   * @returns блок с группой либо `undefined`
+   */
+  function findPlacement(spellId: string): CreatureSpellPlacement | undefined {
+    return findCreatureSpellPlacement(blocks.value, spellId);
+  }
+
+  // ── Списание применений ───────────────────────────────────────────────────
 
   /**
-   * Списывает один заряд заклинания (для заклинаний с откатом, не «по желанию»).
+   * Списывает одно применение на каст.
+   *
+   * У группы «на весь список» счётчик один на всю группу и лежит у неё;
+   * у остальных заряды считает само заклинание.
+   *
    * @param spell - заклинание
+   * @param placement - группа, из которой идёт каст
    */
-  function consumeSpellUse(spell: Spell): void {
+  function consumeSpellUse(
+    spell: Spell,
+    placement?: CreatureSpellPlacement,
+  ): void {
+    if (placement && isCreatureSpellPoolMode(placement.group.mode)) {
+      updateBlocks(
+        consumeCreatureSpellGroupUse(blocks.value, placement.group.id),
+      );
+
+      return;
+    }
+
     if (!spell.uses || spell.uses.recovery === 'atWill') {
       return;
     }
@@ -538,12 +1416,18 @@
     damageType?: string;
     isHealing: boolean;
     damageParts: SpellDamagePartInput[];
+    /** Круг наложения из группы: окно броска открывается сразу на нём */
+    spellLevel?: number;
+    availableSpellLevels?: number[];
+    spellScalingDice?: string;
     evaluateBonusDamageParts?: (context: {
       hasAdvantage: boolean;
       hasDisadvantage: boolean;
     }) => SpellDamagePartInput[];
     onRollParts?: (parts: RolledSpellDamagePart[]) => void;
     onHit?: () => void;
+    /** Окно закрыли, не бросив: снимает со сцены размещённый AoE-шаблон */
+    onCancel?: () => void;
   }
 
   const rollConfig = ref<SpellRollConfig>({
@@ -589,12 +1473,13 @@
   }
 
   /**
-   * Запускает каст заклинания существа. Списывает заряд (если есть), для области
-   * сначала размещает шаблон у токена существа, затем открывает бросок.
+   * Запускает каст заклинания существа. Списывает применение (если есть), для
+   * области сначала размещает шаблон у токена существа, затем открывает бросок.
    *
    * @param spell - заклинание существа
+   * @param placement - группа, из которой идёт каст
    */
-  function castSpell(spell: Spell): void {
+  function castSpell(spell: Spell, placement?: CreatureSpellPlacement): void {
     if (props.isReadOnly) {
       return;
     }
@@ -605,11 +1490,16 @@
       return;
     }
 
-    if (
-      spell.uses
+    const isGroupEmpty =
+      placement !== undefined
+      && !hasCreatureSpellGroupUsesLeft(placement.group);
+
+    const isSpellEmpty =
+      !!spell.uses
       && spell.uses.recovery !== 'atWill'
-      && spell.uses.current <= 0
-    ) {
+      && spell.uses.current <= 0;
+
+    if (isGroupEmpty || isSpellEmpty) {
       toast.add({
         title: ACTOR_SPELLS_TAB_LABELS.noUsesTitle,
         description:
@@ -622,7 +1512,7 @@
       return;
     }
 
-    consumeSpellUse(spell);
+    consumeSpellUse(spell, placement);
 
     // Область: размещаем шаблон у токена существа, затем кидаем урон
     if (spell.areaOfEffect) {
@@ -634,29 +1524,31 @@
         spell.areaOfEffect,
         color,
         props.creatureId,
-        (templateId) => startSpellRoll(spell, creature, templateId),
+        (templateId) => startSpellRoll(spell, creature, templateId, placement),
         null,
       );
 
       return;
     }
 
-    startSpellRoll(spell, creature, undefined);
+    startSpellRoll(spell, creature, undefined, placement);
   }
 
   /**
    * Готовит и открывает DiceRollModal для заклинания существа (многочастный
-   * путь). Атакующие заклинания идут с броском попадания (плоский бонус из
-   * блока заклинательства); спасброски/область — без него.
+   * путь). Атакующие заклинания идут с броском попадания (плоский бонус блока,
+   * а без блока — существа); спасброски/область — без него.
    *
    * @param spell - заклинание существа
    * @param creature - существо-источник
    * @param templateId - id размещённого AoE-шаблона (если область)
+   * @param placement - группа, из которой идёт каст
    */
   function startSpellRoll(
     spell: Spell,
     creature: DnDCreature,
     templateId: string | undefined,
+    placement?: CreatureSpellPlacement,
   ): void {
     const attackType = getSpellAttackType(spell);
 
@@ -673,12 +1565,21 @@
       ? targetHp.currentHp >= targetHp.maxHp
       : undefined;
 
+    const numbers = calculateCreatureSpellBlockNumbers(
+      creature,
+      placement?.block,
+    );
+
     const setup = buildCreatureSpellRollSetup({
       spell,
       creature,
       effects,
       targetIsFull,
       targetType: targetHp?.creatureType,
+      spellcastingAbility: getCreatureSpellBlockAbility(
+        creature,
+        placement?.block,
+      ),
     });
 
     // Эффекты заклинания: у атак — на цель при попадании; у спаса/области —
@@ -701,6 +1602,11 @@
 
     const isHealing = spellIsHealing(spell);
 
+    // Круг наложения фиксирует окно броска: список кругов из одного значения,
+    // ячейки существо всё равно не тратит. Без круга секция не показывается —
+    // так же, как было до групп
+    const castLevel = placement?.ref.castLevel;
+
     rollConfig.value = {
       title: usesAttack
         ? CREATURE_ACTIONS_BLOCK_LABELS.attackRollPrefix + spell.name
@@ -708,18 +1614,30 @@
       name: spell.name,
       formula: setup.baseParts[0]?.formula ?? '',
       rollButtonText: getCreatureSpellRollButtonText(usesAttack, isHealing),
-      attackModifier: usesAttack
-        ? getCreatureSpellAttackBonus(creature)
-        : undefined,
+      attackModifier: usesAttack ? numbers.attackBonus : undefined,
       initialRollMode: 'normal',
       incomingAttackType: usesAttack ? attackType : undefined,
       damageType: spellPrimaryType(spell),
       isHealing,
       damageParts: setup.baseParts,
+      spellLevel: castLevel === undefined ? undefined : spell.level,
+      availableSpellLevels: castLevel === undefined ? undefined : [castLevel],
+      spellScalingDice:
+        castLevel === undefined ? undefined : spell.scaling?.additionalDice,
       evaluateBonusDamageParts: setup.evaluateBonusDamageParts,
       onRollParts: (parts: RolledSpellDamagePart[]) =>
-        applySpellParts(creature, setup.pseudoSpell, parts, templateId),
+        applySpellParts(
+          creature,
+          setup.pseudoSpell,
+          parts,
+          templateId,
+          numbers.saveDC,
+        ),
       onHit,
+      // Отмена окна (крестик, Escape, конец сессии) обязана убрать шаблон: он
+      // размещается ДО броска, и без этого отменённый каст оставлял область
+      // висеть на карте до перезагрузки сцены
+      onCancel: templateId ? () => discardSpellTemplate(templateId) : undefined,
     };
 
     isRollModalOpen.value = true;
@@ -728,18 +1646,21 @@
   /**
    * Применяет брошенные части урона/лечения заклинания существа через
    * многочастный оркестратор (спасброски целей, защиты по типу, AoE-шаблон,
-   * единый HP-апдейт). DC спасброска — плоский из блока заклинательства.
+   * единый HP-апдейт). DC спасброска — плоский из блока, а без блока — из
+   * заклинательства существа.
    *
    * @param creature - существо-источник (casterId для self-частей)
    * @param pseudoSpell - псевдо-заклинание (клон с activeEffects для спас/области)
    * @param parts - брошенные части урона
    * @param templateId - id размещённого AoE-шаблона (если был)
+   * @param saveDC - сложность спасброска блока
    */
   function applySpellParts(
     creature: DnDCreature,
     pseudoSpell: Spell,
     parts: RolledSpellDamagePart[],
     templateId: string | undefined,
+    saveDC: number | undefined,
   ): void {
     const actors = getCurrentWorldEntities();
     const socket = chatStore.getSocket();
@@ -756,7 +1677,7 @@
         {
           spell: pseudoSpell,
           damageTotal: 0,
-          spellSaveDC: getCreatureSpellSaveDC(creature) ?? 10,
+          spellSaveDC: saveDC ?? 10,
           actors,
           socket,
           casterId: creature.id,
@@ -774,125 +1695,191 @@
 
 <template>
   <div class="relative flex min-h-50 flex-col space-y-4">
-    <!-- Шапка вкладки: ряд плиток и ряд отбора — те же, что у вкладки
-      заклинаний на листе персонажа -->
+    <!-- Шапка вкладки: только ряд отбора. Плитки чисел стоят у блоков — они
+      там свои у каждого, и общей на вкладку быть не может -->
     <div class="mb-2 flex flex-col gap-2">
-      <!-- Обёртка-flex: плитка занимает ширину по содержимому, а не всю строку.
-        Настройка открывается и вне правки листа — как заклинательство на листе
-        персонажа: правка идёт в окне и сохраняется сразу -->
-      <div class="flex flex-wrap items-center gap-2">
-        <SheetStatTile
-          :cells="spellcastingCells"
-          :tooltip="spellcastingTooltip"
-          :aria-label="CREATURE_SPELLCASTING_LABELS.open"
-          :clickable="canEdit"
-          @click="isSpellcastingModalOpen = true"
-        />
-      </div>
-
       <!-- Поиск и отбор одной строкой: слева чипы способов отката, справа поле
-        поиска и сброс. Разносит их распор на поле поиска -->
+        поиска, сброс и «Добавить блок». Разносит их распор на поле поиска. Ряд
+        остаётся и у пустой вкладки — там в нём одна кнопка -->
       <div
-        v-if="hasFilterControls"
+        v-if="hasFilterControls || canAddStructure"
         class="flex flex-wrap items-center gap-x-1.5 gap-y-2"
       >
-        <FilterChip
-          v-for="chip in recoveryChips"
-          :key="chip.key"
-          :label="chip.label"
-          :tooltip="chip.hint"
-          :picked="chip.isPicked"
-          @toggle="toggleRecoveryFilter(chip.key)"
-        />
+        <template v-if="hasFilterControls">
+          <FilterChip
+            v-for="chip in recoveryChips"
+            :key="chip.key"
+            :label="chip.label"
+            :tooltip="chip.hint"
+            :picked="chip.isPicked"
+            @toggle="toggleRecoveryFilter(chip.key)"
+          />
 
-        <UInput
-          v-model="searchQuery"
-          icon="tabler:search"
-          :placeholder="SHEET_FILTER_LABELS.search"
-          :size="FILTER_ROW_CONTROL_SIZE"
-          class="ml-auto w-40 shrink-0"
-          :ui="{ trailing: 'pe-0.5' }"
-        >
-          <template
-            v-if="searchQuery"
-            #trailing
+          <UInput
+            v-model="searchQuery"
+            icon="tabler:search"
+            :placeholder="SHEET_FILTER_LABELS.search"
+            :size="FILTER_ROW_CONTROL_SIZE"
+            class="ml-auto w-40 shrink-0"
+            :ui="{ trailing: 'pe-0.5' }"
           >
-            <UButton
-              icon="tabler:x"
-              color="neutral"
-              variant="link"
-              :size="FILTER_ROW_CONTROL_SIZE"
-              :aria-label="SHEET_FILTER_LABELS.clear"
-              @click.left.exact.prevent="clearSearch"
-            />
-          </template>
-        </UInput>
+            <template
+              v-if="searchQuery"
+              #trailing
+            >
+              <UButton
+                icon="tabler:x"
+                color="neutral"
+                variant="link"
+                :size="FILTER_ROW_CONTROL_SIZE"
+                :aria-label="SHEET_FILTER_LABELS.clear"
+                @click.left.exact.prevent="clearSearch"
+              />
+            </template>
+          </UInput>
 
-        <FilterResetButton
-          v-if="hasAnyFilter"
-          @reset="resetFilters"
-        />
-      </div>
-    </div>
+          <FilterResetButton
+            v-if="hasPickedChips"
+            @reset="resetFilters"
+          />
+        </template>
 
-    <!-- Список заклинаний по способу отката -->
-    <div
-      v-for="group in spellRowGroups"
-      :key="group.key"
-      class="space-y-1"
-    >
-      <!-- Заголовок раздела: подпись слева, линия до края строки — как у
-        кругов заклинаний на листе персонажа -->
-      <div class="flex items-center gap-2 px-1 pt-2 pb-1">
-        <span
-          class="shrink-0 text-xs font-semibold tracking-wider text-muted uppercase"
+        <UButton
+          v-if="canAddStructure"
+          icon="tabler:plus"
+          variant="soft"
+          :size="FILTER_ROW_CONTROL_SIZE"
+          class="shrink-0"
+          :class="{ 'ml-auto': !hasFilterControls }"
+          :aria-label="CREATURE_SPELL_BLOCKS_LABELS.addBlockAria"
+          :title="CREATURE_SPELL_BLOCKS_LABELS.addBlockHint"
+          @click.left.exact.prevent="addBlock"
         >
-          {{ group.label }}
-        </span>
-
-        <div class="h-px flex-1 bg-accented/50" />
-      </div>
-
-      <div class="flex flex-col gap-2">
-        <CreatureSpellRow
-          v-for="row in group.rows"
-          :key="row.spell.id"
-          :spell="row.spell"
-          :subtitle="row.subtitle"
-          :stats="row.stats"
-          :menu-items="row.menuItems"
-          :can-cast="!isReadOnly"
-          @open="openDetail(row.spell)"
-          @cast="castSpell(row.spell)"
-          @dragstart="handleSpellDragStart($event, row.spell)"
-        />
+          {{ CREATURE_SPELL_BLOCKS_LABELS.addBlock }}
+        </UButton>
       </div>
     </div>
 
-    <!-- Пусто -->
+    <!-- Блоки заклинаний: числа, группы и их списки -->
+    <div
+      v-if="visibleBlockViews.length"
+      class="flex flex-col gap-2"
+    >
+      <CreatureSpellBlockCard
+        v-for="view in visibleBlockViews"
+        :key="view.block.id"
+        :view="view"
+        :expanded="isBlockExpanded(view.block.id)"
+        :can-edit="canEdit"
+        :can-add-group="canAddStructure"
+        :is-read-only="isReadOnly"
+        @toggle="toggleBlock(view.block.id)"
+        @edit-block="openBlockForm(view.block.id)"
+        @remove-block="askRemoval('block', view.block.id)"
+        @add-group="addGroup(view.block.id)"
+        @edit-group="openGroupForm($event)"
+        @remove-group="askRemoval('group', $event)"
+        @add-spells="openSpellPicker($event)"
+        @open-spell="openDetail($event)"
+        @cast-spell="castSpell($event, findPlacement($event.id))"
+        @spell-dragstart="
+          handleSpellDragStart($event.event, $event.spell, $event.groupId)
+        "
+        @spell-drop="handleSpellDrop($event, view.block.id)"
+      />
+    </div>
+
+    <!-- Пусто: блоков нет, заводить их зовёт кнопка в ряду отбора -->
     <p
-      v-if="spells.length === 0"
+      v-if="!blocks.length"
       class="text-sm text-dimmed"
     >
       {{ CREATURE_EMPTY_LABELS.spells }}
     </p>
 
+    <!-- Отбор ничего не оставил -->
     <p
-      v-else-if="spellRowGroups.length === 0"
+      v-if="hasAnyFilter && !visibleBlockViews.length"
       class="py-4 text-center text-sm text-dimmed"
     >
       {{ SHEET_FILTER_LABELS.empty }}
     </p>
 
-    <!-- Окно настройки заклинательства -->
-    <CreatureSpellcastingModal
-      v-if="creature"
-      v-model:open="isSpellcastingModalOpen"
-      :spellcasting="spellcasting"
-      :abilities="creature.system.abilities"
-      :proficiency-bonus="creatureProficiencyBonus"
-      @apply="applySpellcasting"
+    <CreatureSpellBlockFormModal
+      v-model:open="isBlockFormOpen"
+      :block="editedBlock"
+      :creature="creature"
+      @apply="applyBlock"
     />
+
+    <CreatureSpellGroupFormModal
+      v-model:open="isGroupFormOpen"
+      :group="editedGroup"
+      @apply="applyGroup"
+    />
+
+    <CreatureSpellRefModal
+      v-model:open="isRefFormOpen"
+      :spell-ref="editedRef?.ref"
+      :spell-name="
+        editedRef ? spellsById.get(editedRef.ref.spellId)?.name : undefined
+      "
+      @apply="applyRef"
+    />
+
+    <CompendiumRefPickerModal
+      v-if="socket"
+      v-model:open="isPickerOpen"
+      :socket="socket"
+      kind="spell"
+      :title="CREATURE_SPELL_BLOCKS_LABELS.pickSpellsTitle"
+      :filter-value="spellLevelFilterValue"
+      :filter-label="REF_PICKER_LABELS.filterSpellLevel"
+      :filter-order="SPELL_LEVEL_FILTER_ORDER"
+      :z-index="pickerZIndex"
+      multiple
+      @select="addPickedSpells"
+    />
+
+    <!-- Подтверждение удаления блока или группы: за свёрнутой шапкой их
+      содержимого не видно -->
+    <UDraggableModal
+      :open="pendingRemoval !== undefined"
+      :title="DELETE_CONFIRM_TITLE"
+      :draggable="false"
+      :resizable="false"
+      blocking
+      :min-width="400"
+      :min-height="160"
+      :z-index="removalZIndex"
+      @update:open="handleRemovalOpenChange"
+    >
+      <template #body>
+        <div class="space-y-4">
+          <p class="text-sm text-toned">{{ removalText }}</p>
+
+          <div class="flex justify-end gap-2">
+            <UButton
+              variant="ghost"
+              color="neutral"
+              size="sm"
+              @click.left.exact.prevent="pendingRemoval = undefined"
+            >
+              {{ MODAL_BUTTON_LABELS.cancel }}
+            </UButton>
+
+            <UButton
+              color="error"
+              icon="tabler:trash"
+              size="sm"
+              @click.left.exact.prevent="confirmRemoval"
+            >
+              {{ MODAL_BUTTON_LABELS.remove }}
+            </UButton>
+          </div>
+        </div>
+      </template>
+    </UDraggableModal>
 
     <DiceRollModal
       v-model:open="isRollModalOpen"
@@ -906,9 +1893,13 @@
       :is-healing="rollConfig.isHealing"
       :roll-button-text="rollConfig.rollButtonText"
       :damage-parts="rollConfig.damageParts"
+      :spell-level="rollConfig.spellLevel"
+      :available-spell-levels="rollConfig.availableSpellLevels"
+      :spell-scaling-dice="rollConfig.spellScalingDice"
       :evaluate-bonus-damage-parts="rollConfig.evaluateBonusDamageParts"
       :on-roll-parts="rollConfig.onRollParts"
       :on-hit="rollConfig.onHit"
+      :on-cancel="rollConfig.onCancel"
     />
   </div>
 </template>

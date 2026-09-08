@@ -3,12 +3,12 @@ import type {
   ActiveEffect,
   DamageDefenseOutcome,
   DnDSceneEntity,
+  SavingThrowResult,
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
 import type {
   RolledSpellDamagePart,
-  SavingThrowResult,
   SpellResolutionContext,
   SpellTargetResult,
 } from './spellResolutionShared';
@@ -40,10 +40,12 @@ import {
   writeEntityHitPoints,
 } from '@vtt/shared/system/dnd.js';
 
+import { SPELL_NO_TARGETS_LABELS } from '../ui/actor/constants';
 import {
+  formatSaveCancelledMessage,
   formatTargetGateSuffix,
   getPartKindLabel,
-  orderTargetsBySaveMode,
+  isSaveAbility,
   partPassesTargetGate,
   stampEffectTurnDuration,
 } from './spellResolutionShared';
@@ -87,6 +89,18 @@ interface EffectDamageLine {
   outcome: DamageDefenseOutcome;
 }
 
+/** Что даёт цели разбор её target-эффектов: наложить, добавить урон, показать */
+interface TargetEffectsResult {
+  /** Эффекты, которые ложатся на цель */
+  effects: ActiveEffect[];
+  /** Доп. урон от эффектов (уже с множителем спаса и защитами) */
+  bonusDamage: number;
+  /** Сработавшая защита цели на этом доп. уроне */
+  defenseOutcome: DamageDefenseOutcome;
+  /** Строки разбивки доп. урона для чата */
+  damageLines: EffectDamageLine[];
+}
+
 /**
  * Композабл для многочастного разрешения урона/лечения заклинания.
  */
@@ -95,7 +109,9 @@ export function useSpellDamageWithParts() {
   const targetStore = useTargetStore();
   const diceRollerStore = useDiceRollerStore();
   const { openModal } = useModalManager();
-  const { resolveSavingThrowForTarget } = useSpellSavingThrows();
+
+  const { resolveSavingThrowForTarget, resolveSavingThrowsForTargets } =
+    useSpellSavingThrows();
 
   /**
    * Записывает чистое изменение HP сущности ОДНИМ апдейтом.
@@ -363,9 +379,10 @@ export function useSpellDamageWithParts() {
    * - `self`-части → заклинателю;
    * - гейт-ветки `@target.full`/`@target.notFull` (`targetGate`) — фильтруются
    *   по фактическому HP каждой цели в момент применения (per-target);
-   * - спасбросок — один на цель (авто или ручной через DiceRollModal по
-   *   `autoSaves` цели; авто-цели обрабатываются первыми), влияет на
-   *   урон-части цели;
+   * - спасбросок — один на цель, берётся ПАЧКОЙ до всякого применения:
+   *   цель под чужим владением бросает у себя (запрос владельцу), своя —
+   *   окном или автоматически по `autoSaves`; результат влияет на урон-части
+   *   цели, а отказ сворачивает всё действие;
    * - защиты по типу — на каждую урон-часть;
    * - `requiresDamage` — лечащая/гейтнутая часть применяется только если по
    *   заклинанию суммарно нанесён урон (>0).
@@ -388,6 +405,15 @@ export function useSpellDamageWithParts() {
   ): Promise<void> {
     const { spell, spellSaveDC, actors, socket } = context;
     const { scene, cachedTemplate } = options;
+
+    /**
+     * Сворачивает действие: спасбросок цели закрыли, не бросив. Ничего не
+     * применяется (все спасброски берутся ДО первой записи HP), но в чат уходит
+     * явная строка — молчаливое исчезновение действия и было тем багом.
+     */
+    function sendCancelledMessage(): void {
+      chatStore.sendMessage(formatSaveCancelledMessage(spell.name), 'text');
+    }
 
     // 1. Целевые сущности: AoE-шаблон или одиночная цель из targetStore
     const targetEntities: SceneEntity[] = [];
@@ -437,6 +463,86 @@ export function useSpellDamageWithParts() {
 
     if (chooseParts.length > 0) {
       chooseEntity = await pickChooseTarget(spell, chooseParts, scene, actors);
+    }
+
+    // Эффекты на цель ложатся и без урона, поэтому спасбросок они требуют
+    // наравне с частями — знать об этом надо уже при сборе целей.
+    const hasTargetEffects = (spell.activeEffects ?? []).some(
+      (effect) => !effect.disabled && effect.effectTarget === 'target',
+    );
+
+    /**
+     * Цели, которым нужен спасбросок «на приземление»: те, кому реально что-то
+     * прилетает — часть урона/лечения или эффект. Считается ЧИСТЫМИ проверками,
+     * без бросков: пачку надо знать целиком до первого из них.
+     *
+     * @returns целевые сущности без повторов
+     */
+    function collectLandingSaveTargets(): SceneEntity[] {
+      const collected = new Map<string, SceneEntity>();
+
+      if (selectedParts.length > 0) {
+        for (const entity of targetEntities) {
+          if (
+            selectedParts.some((part) => partPassesTargetGate(part, entity))
+          ) {
+            collected.set(entity.id, entity);
+          }
+        }
+      }
+
+      if (hasTargetEffects) {
+        for (const entity of targetEntities) {
+          collected.set(entity.id, entity);
+        }
+      }
+
+      const chosen = chooseEntity;
+
+      if (chosen && chooseParts.length > 0) {
+        const applicable = chooseParts.filter((part) =>
+          partPassesTargetGate(part, chosen),
+        );
+
+        // Лечению спасбросок не нужен — спрашиваем только под урон
+        if (applicable.some((part) => !part.isHealing)) {
+          collected.set(chosen.id, chosen);
+        }
+      }
+
+      return [...collected.values()];
+    }
+
+    // 2b. Спасброски целей берём ОДНОЙ пачкой и ДО всякого применения:
+    // запросы чужим владельцам уходят параллельно (пятеро задетых площадью
+    // бросают разом, а не в очередь), а отмена любого сворачивает действие,
+    // пока ничего ещё не применено.
+    const landingSaves = new Map<string, SavingThrowResult>();
+
+    if (isSaveAbility(spell.saveType)) {
+      const saveAbility = spell.saveType;
+      const againstCondition = getSpellSaveCondition(spell);
+
+      const resolved = await resolveSavingThrowsForTargets(
+        collectLandingSaveTargets().map((entity) => ({
+          entity,
+          ability: saveAbility,
+          dc: spellSaveDC,
+          againstCondition,
+          sourceEntityId: context.casterId,
+          sourceName: spell.name,
+        })),
+      );
+
+      for (const [entityId, save] of resolved) {
+        if (save === null) {
+          sendCancelledMessage();
+
+          return;
+        }
+
+        landingSaves.set(entityId, save);
+      }
     }
 
     interface EntityAccumulator {
@@ -622,17 +728,12 @@ export function useSpellDamageWithParts() {
       recordContribution(part, accumulator.entity, final, outcome, false);
     }
 
-    // 3. selected-части → каждой цели (спасбросок один на цель: авто или
-    // ручной по `autoSaves` цели; авто-цели обрабатываются первыми).
-    // Гейт-ветки @target.full/@target.notFull фильтруются по фактическому HP
-    // КАЖДОЙ цели (per-target): цель получает только ветку своего состояния.
+    // 3. selected-части → каждой цели (спасбросок один на цель, уже взят
+    // пачкой на шаге 2b). Гейт-ветки @target.full/@target.notFull фильтруются
+    // по фактическому HP КАЖДОЙ цели (per-target): цель получает только ветку
+    // своего состояния.
     if (selectedParts.length > 0) {
-      const orderedTargets = orderTargetsBySaveMode(
-        targetEntities,
-        spell.saveType,
-      );
-
-      for (const entity of orderedTargets) {
+      for (const entity of targetEntities) {
         const applicableParts = selectedParts.filter((part) =>
           partPassesTargetGate(part, entity),
         );
@@ -643,14 +744,7 @@ export function useSpellDamageWithParts() {
 
         const accumulator = getAccumulator(entity, true);
 
-        if (spell.saveType !== 'none' && accumulator.save === undefined) {
-          accumulator.save = await resolveSavingThrowForTarget(
-            entity,
-            spell.saveType,
-            spellSaveDC,
-            getSpellSaveCondition(spell),
-          );
-        }
+        accumulator.save ??= landingSaves.get(entity.id);
 
         for (const part of applicableParts) {
           accumulatePart(accumulator, part, accumulator.save);
@@ -672,17 +766,8 @@ export function useSpellDamageWithParts() {
 
         const accumulator = getAccumulator(chooseEntity, hasDamagePart);
 
-        if (
-          hasDamagePart
-          && spell.saveType !== 'none'
-          && accumulator.save === undefined
-        ) {
-          accumulator.save = await resolveSavingThrowForTarget(
-            chooseEntity,
-            spell.saveType,
-            spellSaveDC,
-            getSpellSaveCondition(spell),
-          );
+        if (hasDamagePart) {
+          accumulator.save ??= landingSaves.get(chooseEntity.id);
         }
 
         for (const part of applicableChooseParts) {
@@ -709,22 +794,11 @@ export function useSpellDamageWithParts() {
     // 4a. Гарантируем аккумулятор цели даже без частей урона (чистый статус):
     // эффекты с effectTarget 'target' должны примениться и без урона. Для
     // save-landing катаем landing-спас, чтобы эффекты без applySave гейтились им.
-    const hasTargetEffects = (spell.activeEffects ?? []).some(
-      (effect) => !effect.disabled && effect.effectTarget === 'target',
-    );
-
     if (hasTargetEffects) {
       for (const entity of targetEntities) {
         const accumulator = getAccumulator(entity, true);
 
-        if (spell.saveType !== 'none' && accumulator.save === undefined) {
-          accumulator.save = await resolveSavingThrowForTarget(
-            entity,
-            spell.saveType,
-            spellSaveDC,
-            getSpellSaveCondition(spell),
-          );
-        }
+        accumulator.save ??= landingSaves.get(entity.id);
       }
     }
 
@@ -749,12 +823,7 @@ export function useSpellDamageWithParts() {
     async function resolveTargetEffects(
       entity: SceneEntity,
       landingSave: SavingThrowResult | undefined,
-    ): Promise<{
-      effects: ActiveEffect[];
-      bonusDamage: number;
-      defenseOutcome: DamageDefenseOutcome;
-      damageLines: EffectDamageLine[];
-    }> {
+    ): Promise<TargetEffectsResult | null> {
       const targetEffects = (spell.activeEffects ?? []).filter(
         (effect) => !effect.disabled && effect.effectTarget === 'target',
       );
@@ -777,12 +846,19 @@ export function useSpellDamageWithParts() {
         let applySaveSucceeded: boolean | undefined;
 
         if (effect.applySave) {
-          const saveResult = await resolveSavingThrowForTarget(
+          const saveResult = await resolveSavingThrowForTarget({
             entity,
-            effect.applySave.ability,
-            effect.applySave.dc,
-            effect.conditionKey,
-          );
+            ability: effect.applySave.ability,
+            dc: effect.applySave.dc,
+            againstCondition: effect.conditionKey,
+            sourceEntityId: context.casterId,
+            sourceName: effect.name,
+          });
+
+          // Окно спасброска эффекта закрыли — сворачиваем всё действие
+          if (saveResult === null) {
+            return null;
+          }
 
           applySaveSucceeded = saveResult.passed;
         }
@@ -849,6 +925,30 @@ export function useSpellDamageWithParts() {
       return { effects: collected, bonusDamage, defenseOutcome, damageLines };
     }
 
+    // 5a. Эффекты целей разбираем ДО первой записи HP: у эффекта бывает свой
+    // спасбросок с окном, и его отмена обязана свернуть действие целиком —
+    // а уже применённый другим целям урон обратно не отыграть.
+    const targetEffectResults = new Map<string, TargetEffectsResult>();
+
+    for (const accumulator of accumulators.values()) {
+      if (!accumulator.isTarget) {
+        continue;
+      }
+
+      const targetResult = await resolveTargetEffects(
+        accumulator.entity,
+        accumulator.save,
+      );
+
+      if (targetResult === null) {
+        sendCancelledMessage();
+
+        return;
+      }
+
+      targetEffectResults.set(accumulator.entity.id, targetResult);
+    }
+
     // 6. Применяем по сущности ОДНИМ апдейтом
     const results: SpellTargetResult[] = [];
 
@@ -867,12 +967,9 @@ export function useSpellDamageWithParts() {
 
       let effectsToApply: ActiveEffect[] | undefined;
 
-      if (accumulator.isTarget) {
-        const targetResult = await resolveTargetEffects(
-          accumulator.entity,
-          accumulator.save,
-        );
+      const targetResult = targetEffectResults.get(accumulator.entity.id);
 
+      if (targetResult) {
         effectsToApply =
           targetResult.effects.length > 0 ? targetResult.effects : undefined;
 
@@ -1009,8 +1106,16 @@ export function useSpellDamageWithParts() {
       }
     }
 
+    // Заклинание никого не задело. Причину называем явно: без неё строка
+    // читается как поломка, хотя чаще это промах шаблоном мимо всех.
     if (results.length === 0) {
-      messageLines.push('→ Нет целей');
+      messageLines.push(
+        `→ ${
+          cachedTemplate
+            ? SPELL_NO_TARGETS_LABELS.emptyArea
+            : SPELL_NO_TARGETS_LABELS.noTarget
+        }`,
+      );
     }
 
     chatStore.sendMessage(messageLines.join('\n'), 'text');

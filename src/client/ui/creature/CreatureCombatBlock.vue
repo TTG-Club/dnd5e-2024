@@ -1,6 +1,7 @@
 <script setup lang="ts">
   import type { AbilityType, ActorMovement, MovementType } from '@vtt/shared';
   import type {
+    ActiveEffect,
     CreatureSystem,
     DnDCustomBonus,
     DnDCustomBonusContext,
@@ -60,6 +61,16 @@
     armorClass?: number;
     /** Итоговые скорости листа — с теми же поправками */
     resolvedMovement?: Partial<Record<MovementType, number>>;
+    /**
+     * Действующие эффекты листа: окно передвижения называет по ним, что именно
+     * изменило скорость — своими числами такое изменение не видно.
+     */
+    activeEffects?: readonly ActiveEffect[];
+    /**
+     * Модификатор Телосложения для формулы хитов: по записи листа, без
+     * активных эффектов — окно здоровья считает по нему бонус за кость.
+     */
+    hitDiceConstitutionModifier: number;
   }
 
   const props = defineProps<Props>();
@@ -658,6 +669,8 @@
     :movement="creatureMovement"
     :bonuses="system.movementBonuses"
     :context="bonusContext"
+    :active-effects="activeEffects"
+    :resolved-movement="displayedMovement"
     @apply="onMovementApply"
   />
 
@@ -665,6 +678,8 @@
   <CreatureHitPointsModal
     v-model:open="isHitPointsOpen"
     :hit-points="system.hitPoints"
+    :size="system.size"
+    :constitution-modifier="hitDiceConstitutionModifier"
     @apply="onHitPointsApply"
   />
 
@@ -675,6 +690,8 @@
     :bonuses="system.armorClassBonuses"
     :context="bonusContext"
     :dex-modifier="dexModifier"
+    :resolved-armor-class="armorClass"
+    :active-effects="activeEffects"
     is-creature-mode
     @apply="onArmorClassApply"
   />

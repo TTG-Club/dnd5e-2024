@@ -17,7 +17,7 @@ import type {
   StartingEquipmentItem,
 } from '@vtt/shared/system/dnd.js';
 
-import { loadCompendiumKind } from '@/core/compendiumDataClient';
+import { loadCompendiumKindByPack } from '@/core/compendiumDataClient';
 import { generateId, isRecord } from '@vtt/shared';
 import {
   isDnDGameItem,
@@ -25,6 +25,8 @@ import {
   STARTING_EQUIPMENT_ITEM_KINDS,
   startingEquipmentQuantity,
 } from '@vtt/shared/system/dnd.js';
+
+import { orderPacksPreferring } from './useCompendiumCatalog';
 
 /** Слаг страницы записи компендиума; пусто — запись в индекс не попадает. */
 function entrySrcUrl(entry: unknown): string | undefined {
@@ -55,28 +57,38 @@ function fallbackItem(item: StartingEquipmentItem): DnDGameItem {
   };
 }
 
+/** Записи предметов компендиума по слагу страницы — см. {@link loadEquipmentIndex}. */
+export type EquipmentIndex = ReadonlyMap<string, DnDGameItem>;
+
 /**
- * Разворачивает позиции варианта снаряжения в предметы инвентаря.
+ * Собирает индекс предметов компендиума по слагу страницы.
+ *
+ * Паки обходятся с предпочтением пака записи, чьё это снаряжение: слаг у копий
+ * одного предмета в разных компендиумах один, и первым должен встретиться свой.
+ *
+ * Отдельно от разворачивания, потому что источник позиций бывает и без
+ * ожидания: существо из компендиума собирается прямо в обработчике `dragstart`,
+ * а тот ничего не ждёт. Такие места греют индекс заранее и зовут
+ * {@link buildEquipmentItems}.
  *
  * @param socket - WebSocket-клиент (для загрузки компендиума)
- * @param items - позиции выбранного варианта
- * @returns предметы, готовые лечь в `actor.equipment`
+ * @param preferredPackId - пак записи-владельца снаряжения; пусто — порядок хоста
  */
-export async function resolveStartingEquipment(
+export async function loadEquipmentIndex(
   socket: TypedWebSocketClient | null | undefined,
-  items: StartingEquipmentItem[],
-): Promise<DnDGameItem[]> {
-  if (items.length === 0) {
-    return [];
-  }
-
+  preferredPackId?: string,
+): Promise<EquipmentIndex> {
   const bySrcUrl = new Map<string, DnDGameItem>();
 
-  if (socket) {
-    for (const kind of STARTING_EQUIPMENT_ITEM_KINDS) {
-      const entries = await loadCompendiumKind(socket, kind);
+  if (!socket) {
+    return bySrcUrl;
+  }
 
-      for (const entry of entries) {
+  for (const kind of STARTING_EQUIPMENT_ITEM_KINDS) {
+    const packs = await loadCompendiumKindByPack(socket, kind);
+
+    for (const pack of orderPacksPreferring(packs, preferredPackId)) {
+      for (const entry of pack.entries) {
         const srcUrl = entrySrcUrl(entry);
 
         // Первая запись с этим слагом и остаётся: у раскрытых магических
@@ -88,8 +100,22 @@ export async function resolveStartingEquipment(
     }
   }
 
+  return bySrcUrl;
+}
+
+/**
+ * Собирает предметы инвентаря по позициям и готовому индексу. Позиция, которой
+ * в индексе не нашлось, становится простым предметом по названию.
+ *
+ * @param index - индекс предметов компендиума ({@link loadEquipmentIndex})
+ * @param items - позиции снаряжения
+ */
+export function buildEquipmentItems(
+  index: EquipmentIndex,
+  items: StartingEquipmentItem[],
+): DnDGameItem[] {
   return items.map((item) => {
-    const found = item.url ? bySrcUrl.get(item.url.toLowerCase()) : undefined;
+    const found = item.url ? index.get(item.url.toLowerCase()) : undefined;
 
     if (!found) {
       return fallbackItem(item);
@@ -103,4 +129,27 @@ export async function resolveStartingEquipment(
       isReadOnly: false,
     });
   });
+}
+
+/**
+ * Разворачивает позиции варианта снаряжения в предметы инвентаря.
+ *
+ * @param socket - WebSocket-клиент (для загрузки компендиума)
+ * @param items - позиции выбранного варианта
+ * @param preferredPackId - пак записи класса или предыстории; пусто — порядок хоста
+ * @returns предметы, готовые лечь в `actor.equipment`
+ */
+export async function resolveStartingEquipment(
+  socket: TypedWebSocketClient | null | undefined,
+  items: StartingEquipmentItem[],
+  preferredPackId?: string,
+): Promise<DnDGameItem[]> {
+  if (items.length === 0) {
+    return [];
+  }
+
+  return buildEquipmentItems(
+    await loadEquipmentIndex(socket, preferredPackId),
+    items,
+  );
 }

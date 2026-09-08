@@ -635,6 +635,10 @@
     }
   }
 
+  /**
+   * Заводит строку дара. Наружу — потому что кнопка добавления живёт в шапке
+   * раздела, а знание о том, каким получается новый дар, остаётся здесь.
+   */
   function addRow(): void {
     const kind = kindOptions.value[0]?.value ?? 'skill';
 
@@ -643,6 +647,8 @@
       createGrantRow(kind, new Set(props.takenKeys)),
     ];
   }
+
+  defineExpose({ addRow });
 
   function removeRow(index: number): void {
     rows.value = rows.value.filter((_, rowIndex) => rowIndex !== index);
@@ -685,18 +691,6 @@
 
 <template>
   <div class="flex flex-col gap-3">
-    <p class="flex items-center gap-1 text-xs text-dimmed">
-      {{ FEAT_GRANTS_LABELS.grantsHint }}
-      <FieldHint :text="FEAT_GRANTS_LABELS.grantsHintDetails" />
-    </p>
-
-    <div
-      v-if="rows.length === 0"
-      class="rounded-lg border border-dashed border-default p-3 text-center text-xs text-dimmed italic"
-    >
-      {{ FEAT_GRANTS_LABELS.grantsEmpty }}
-    </div>
-
     <template
       v-for="(row, index) in rows"
       :key="row.uid"
@@ -1067,15 +1061,6 @@
         </div>
       </FormSection>
     </template>
-
-    <UButton
-      icon="tabler:plus"
-      :label="FEAT_GRANTS_LABELS.addGrant"
-      color="primary"
-      variant="soft"
-      block
-      @click.left.exact.prevent="addRow"
-    />
 
     <!-- Окно выбора значений — одно на всю форму: открыто оно всегда для одной
       строки, и заводить его у каждой значило бы держать десяток окон впустую -->

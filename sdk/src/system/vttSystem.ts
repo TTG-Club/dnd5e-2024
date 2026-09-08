@@ -231,13 +231,21 @@ export interface VttSystem {
    * @param areas Все зоны сцены (источник списков эффектов)
    * @param options Опции синхронизации
    * @param options.triggerOneShots Проигрывать ли разовые enter/exit (по умолч. true)
+   * @param options.alreadyEnteredAreaIds Зоны, чей триггер входа уже отработал
+   *   на этом перемещении. Ядро ведёт токен по маршруту клетка за клеткой, а
+   *   урон зоны берут «при первом входе за ход» — извилистый путь, дважды
+   *   заходящий в одно болото, бьёт один раз. Триггеров выхода и реконсиляции
+   *   `stay` набор не касается: выход из зоны — событие сам по себе.
    */
   syncAreaEffects?: (
     entity: SceneEntity,
     previousAreaIds: ReadonlySet<string>,
     currentAreaIds: ReadonlySet<string>,
     areas: CustomArea[],
-    options?: { triggerOneShots?: boolean },
+    options?: {
+      triggerOneShots?: boolean;
+      alreadyEnteredAreaIds?: ReadonlySet<string>;
+    },
   ) => { changed: boolean; chatSummary: string | null };
 
   /**
@@ -438,6 +446,23 @@ export interface VttSystem {
    * данных системы: считать не по чему.
    */
   getMovementRange?: (entity: SceneEntity) => MovementRange | null;
+
+  /**
+   * Множитель цены перемещения внутри пользовательской зоны: во сколько раз
+   * дороже (или дешевле) обходится клетка под этой зоной. `1` — обычная земля.
+   *
+   * Ядро знает только про число: чем именно труднопроходимость задана —
+   * строкой модификатора, флагом или полем зоны — решает система, читая
+   * собственные эффекты зоны. Отсутствие метода означает «зоны цену не меняют»,
+   * и маршрут считается чистой геометрией, как раньше.
+   */
+  getAreaMovementCost?: (area: CustomArea) => number;
+
+  /**
+   * Игнорирует ли сущность труднопроходимую местность (сапоги, черта класса,
+   * форма движения). `true` — множители зон к её маршруту не применяются вовсе.
+   */
+  entityIgnoresTerrainCost?: (entity: SceneEntity) => boolean;
 
   // ==========================================
   //    Регистрация расширений (Фаза 4)

@@ -11,11 +11,13 @@ import type {
   ActiveEffect,
   CreatureCategory,
   DamageDefenseOutcome,
+  SavingThrowResult,
   Spell,
   TargetHpGate,
 } from '@vtt/shared/system/dnd.js';
 
 import { useInitiativeStore } from '@/stores/initiativeStore';
+import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
 import { generateId, isCreatureEntity } from '@vtt/shared';
 import {
   CREATURE_TYPE_LABELS,
@@ -23,11 +25,12 @@ import {
   damageReachesTarget,
   isDndSceneEntity,
   resolveEffectApplication,
-  resolveEntityCurrentHp,
-  resolveEntityMaxHp,
+  SAVE_TYPE_LABELS,
   stampTurnDuration,
   withInitializedDuration,
 } from '@vtt/shared/system/dnd.js';
+
+import { SAVING_THROW_ROLL_LABELS } from '../ui/actor/constants';
 
 /** Результат спасброска одной цели */
 export interface SpellTargetResult {
@@ -147,12 +150,77 @@ export interface ActorSaveInfo {
   autoFail: boolean;
 }
 
-/** Результат броска спасброска */
-export interface SavingThrowResult {
-  roll: number;
-  modifier: number;
-  total: number;
-  passed: boolean;
+/**
+ * Собирает строку в чат о свёрнутом действии: окно спасброска закрыли, не
+ * бросив.
+ *
+ * Общая для обоих путей разрешения (многочастного и одночастного): отмена
+ * должна выглядеть в чате одинаково, кто бы её ни поймал.
+ *
+ * @param actionName - название заклинания или действия существа
+ * @returns готовая строка сообщения
+ */
+export function formatSaveCancelledMessage(actionName: string): string {
+  return `${actionName}${SAVING_THROW_ROLL_LABELS.cancelledSuffix}`;
+}
+
+/**
+ * Подпись броска спасброска для чата: «Спасбросок Ловкости — Арт».
+ *
+ * @param ability - характеристика спасброска
+ * @param entityName - имя цели
+ * @returns подпись броска
+ */
+export function formatSavingThrowRollLabel(
+  ability: AbilityType,
+  entityName: string,
+): string {
+  const abilityLabel = SAVE_TYPE_LABELS[ability];
+
+  return `${SAVING_THROW_ROLL_LABELS.rollPrefix}${abilityLabel}${SAVING_THROW_ROLL_LABELS.nameSeparator}${entityName}`;
+}
+
+/**
+ * Заголовок окна спасброска: подпись броска плюс сложность.
+ *
+ * Общий у своего окна и у окна адресата по запросу — цель и сложность в них
+ * одни и те же, и расходиться подписи не должны.
+ *
+ * @param ability - характеристика спасброска
+ * @param entityName - имя цели
+ * @param dc - сложность
+ * @returns заголовок окна
+ */
+export function formatSavingThrowTitle(
+  ability: AbilityType,
+  entityName: string,
+  dc: number,
+): string {
+  return `${formatSavingThrowRollLabel(ability, entityName)}${SAVING_THROW_ROLL_LABELS.dcPrefix}${dc}${SAVING_THROW_ROLL_LABELS.dcSuffix}`;
+}
+
+/**
+ * Подпись запроса для плашек ядра: «Огненный шар — Спасбросок Ловкости (DC 15)».
+ *
+ * Имени цели здесь нет намеренно: ядро показывает её само, рядом с подписью.
+ *
+ * @param ability - характеристика спасброска
+ * @param dc - сложность
+ * @param sourceName - чем бьют (заклинание или действие), если известно
+ * @returns короткая подпись запроса
+ */
+export function formatSavingThrowRequestTitle(
+  ability: AbilityType,
+  dc: number,
+  sourceName?: string,
+): string {
+  const abilityLabel = SAVE_TYPE_LABELS[ability];
+
+  const save = `${SAVING_THROW_ROLL_LABELS.rollPrefix}${abilityLabel}${SAVING_THROW_ROLL_LABELS.dcPrefix}${dc}${SAVING_THROW_ROLL_LABELS.dcSuffix}`;
+
+  return sourceName
+    ? `${sourceName}${SAVING_THROW_ROLL_LABELS.sourceSeparator}${save}`
+    : save;
 }
 
 /**
@@ -190,73 +258,6 @@ export function resolveAutoSaves(entity: SceneEntity): boolean {
   return isCreatureEntity(entity)
     ? (entity.autoSaves ?? true)
     : entity.autoSaves === true;
-}
-
-/**
- * Упорядочивает цели для разрешения спасбросков: сначала цели с
- * автоматическим спасброском, затем — с ручным (PC с `autoSaves: false`).
- *
- * Ручные броски открывают DiceRollModal по одному и ждут игрока, поэтому
- * авто-цели обрабатываются первыми — их результаты уходят в чат сразу,
- * не дожидаясь закрытия модалок.
- *
- * @param targets - целевые сущности
- * @param saveType - тип спасброска заклинания
- * @returns цели в порядке «авто → ручные» (без спасброска — исходный порядок)
- */
-export function orderTargetsBySaveMode(
-  targets: SceneEntity[],
-  saveType: SpellSaveType,
-): SceneEntity[] {
-  if (saveType === 'none') {
-    return targets;
-  }
-
-  const autoSaveTargets: SceneEntity[] = [];
-  const manualSaveTargets: SceneEntity[] = [];
-
-  for (const entity of targets) {
-    if (resolveAutoSaves(entity)) {
-      autoSaveTargets.push(entity);
-    } else {
-      manualSaveTargets.push(entity);
-    }
-  }
-
-  return [...autoSaveTargets, ...manualSaveTargets];
-}
-
-/**
- * Возвращает текущее и максимальное HP сущности (для per-target гейтов).
- *
- * @param entity - сущность-цель
- * @returns текущее и максимальное HP
- */
-function getEntityHp(entity: SceneEntity): { current: number; max: number } {
-  // Ядро видит entity как Base*; D&D-форму подтверждает гвард. Без данных
-  // системы запас хитов неизвестен — гейт по нему считается от нулей, ровно
-  // как и раньше читались отсутствующие хиты.
-  if (!isDndSceneEntity(entity)) {
-    return { current: 0, max: 0 };
-  }
-
-  return {
-    current: resolveEntityCurrentHp(entity),
-    max: resolveEntityMaxHp(entity),
-  };
-}
-
-/**
- * Определяет, находится ли сущность на полном запасе HP
- * (для per-target гейтов `@target.full`/`@target.notFull`).
- *
- * @param entity - сущность-цель
- * @returns true если текущее HP не меньше максимума
- */
-export function isEntityHpFull(entity: SceneEntity): boolean {
-  const { current, max } = getEntityHp(entity);
-
-  return current >= max;
 }
 
 /**
@@ -535,4 +536,22 @@ export function formatRolledPartLine(
     rolledPart.values.length > 0 ? `[${rolledPart.values.join(', ')}] = ` : '';
 
   return `${rolledPart.formula} ${label}${gateSuffix}: ${diceBreakdown}${rolledPart.amount}${defenseSuffix}`;
+}
+
+/**
+ * Снимает размещённый AoE-шаблон отменённого каста: чистит кэш его данных и
+ * убирает шаблон со сцены.
+ *
+ * Шаблон встаёт на карту ДО окна броска, поэтому закрытое без броска окно
+ * обязано его убрать — иначе отменённая область висит на сцене до её
+ * перезагрузки. Доведённый до применения каст снимает шаблон сам: там его
+ * данные сперва забирают в кэш, по нему считаются задетые цели.
+ *
+ * @param templateId - id размещённого шаблона
+ */
+export function discardSpellTemplate(templateId: string): void {
+  const templateStore = useSpellTemplateStore();
+
+  templateStore.removePlacedTemplate(templateId);
+  templateStore.deleteTemplate(templateId);
 }

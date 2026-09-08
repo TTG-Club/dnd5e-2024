@@ -27,6 +27,7 @@ import type {
   DnDCreature,
   DnDGameItem,
   DnDSceneEntity,
+  Spell,
 } from './dndEntities.js';
 import type { ActorSpeciesEntry } from './speciesTypes.js';
 import type {
@@ -41,6 +42,7 @@ import { isCreatureEntity, isRecord } from '@vtt/shared';
 
 import { getTotalLevel } from './classTypes.js';
 import {
+  ABILITY_KEYS,
   ABILITY_LABELS,
   CREATURE_SIZE_TO_TOKEN_SCALE,
   DEFAULT_CREATURE_SIZE,
@@ -55,6 +57,11 @@ import {
   normalizeSpellUsesRecovery,
   SKILL_ABILITY_MAP,
 } from './consts.js';
+import {
+  ensureCreatureSpellsInBlocks,
+  normalizeCreatureSpellcastingBlocks,
+  syncCreatureSpellcastingUses,
+} from './creatureSpellcasting.js';
 import { getCustomBonusValue, parseCustomBonuses } from './customBonuses.js';
 import {
   DEFAULT_PROFICIENCY_BONUS,
@@ -1171,6 +1178,36 @@ function parseLegacySpecies(value: unknown): ActorSpeciesEntry | null {
 }
 
 /**
+ * Характеристика листа без значения — та же десятка, что подставляет расчёт
+ * статов: модификатор от неё нулевой.
+ */
+const FALLBACK_ABILITY_SCORE = 10;
+
+/**
+ * Чинит характеристики, записанные не числом.
+ *
+ * Шесть характеристик числами — признак, по которому ядро вообще опознаёт лист
+ * как D&D-шный. Строка вместо числа («16») лист не портит на вид: он считается
+ * и рисуется, — но опознание проваливается, и ядро получает нулевую скорость,
+ * то есть токен молча перестаёт двигаться. Чинится это здесь, на входе:
+ * числовая строка становится числом, а совсем нечитаемое значение — десяткой,
+ * как у листа без характеристик.
+ *
+ * @param abilities - запись характеристик листа или существа
+ */
+function repairAbilityNumbers(abilities: Record<string, unknown>): void {
+  for (const abilityKey of ABILITY_KEYS) {
+    const value = abilities[abilityKey];
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      continue;
+    }
+
+    abilities[abilityKey] = parseLegacyNumber(value, FALLBACK_ABILITY_SCORE);
+  }
+}
+
+/**
  * Нормализует объект актёра: если данные хранятся на корне (legacy-формат),
  * переносит их в `system` (новый формат DnDActorSystem), и доводит запись до
  * формы, которую объявляет `DnDActor`.
@@ -1207,6 +1244,8 @@ export function normalizeActor(actor: BaseActor): void {
     }
 
     existingSystem.size = normalizeCreatureSize(existingSystem.size);
+
+    repairAbilityNumbers(existingSystem.abilities);
   } else {
     const system: DnDActorSystem = {
       species: parseLegacySpecies(raw.species),
@@ -1382,6 +1421,13 @@ export function normalizeCreature(creature: BaseCreature): void {
     system.proficiencyBonus = DEFAULT_PROFICIENCY_BONUS;
   }
 
+  // Характеристики строками приходят из паков и старых миров: существо с ними
+  // считается и рисуется, но ядро не опознаёт его как D&D-шное и запрещает
+  // токену двигаться
+  if (isRecord(system.abilities)) {
+    repairAbilityNumbers(system.abilities);
+  }
+
   if (!Array.isArray(system.savingThrows)) {
     system.savingThrows = [];
   }
@@ -1474,6 +1520,26 @@ export function normalizeCreature(creature: BaseCreature): void {
     if (isRecord(spell) && isRecord(spell.uses)) {
       spell.uses.recovery = normalizeSpellUsesRecovery(spell.uses.recovery);
     }
+  }
+
+  // Блоки заклинаний приезжают и из мира, и из выгрузки сайта, где написания
+  // перечислений свои. Заклинания, ни в одну группу не попавшие, раскладываются
+  // по ним здесь же: вне блока заклинание существа не живёт — блок задаёт, чем
+  // оно колдует. Заряды после разбора задаёт режим группы, иначе запись с
+  // группой «2 в день» открылась бы заклинаниями без зарядов
+  if (spells.length > 0 || system.spellcastingBlocks !== undefined) {
+    const parsedBlocks = normalizeCreatureSpellcastingBlocks(
+      system.spellcastingBlocks,
+      spells as Spell[],
+    );
+
+    const synced = syncCreatureSpellcastingUses(
+      spells as Spell[],
+      ensureCreatureSpellsInBlocks(spells as Spell[], parsedBlocks),
+    );
+
+    system.spellcastingBlocks = synced.blocks;
+    raw.spells = synced.spells;
   }
 
   // Нормализация token: дефолты для существ — имя скрыто, ХП текстом

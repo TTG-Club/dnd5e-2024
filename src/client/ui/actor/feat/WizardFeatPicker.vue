@@ -9,15 +9,21 @@
    * которые он не предлагает (у класса это черты происхождения, эпические и
    * боевые стили: их дают предыстория, умение 19 уровня и своё умение). Уже
    * взятые черты уходят из пула, повторяемые остаются.
+   *
+   * Саму черту выбирают в общем окне ({@link ChoicePickerField}) — там же, где
+   * игрок выбирает заклинания и варианты умений, и с описанием каждой черты под
+   * рукой. Описание выбранной остаётся и в шаге: ради него черту и берут.
    */
   import type { DnDActor, FeatChoice } from '@vtt/shared/system/dnd.js';
 
+  import type { ChoicePickerOption } from '../ChoicePickerModal.vue';
   import type { CompendiumFeat } from './featApply';
 
   import { computed } from 'vue';
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
 
+  import ChoicePickerField from '../ChoicePickerField.vue';
   import {
     CLASS_FEAT_DEFAULT_EXCLUDED_CATEGORIES,
     WIZARD_ASI_LABELS,
@@ -83,15 +89,22 @@
     });
   });
 
-  const items = computed(() =>
+  /** Варианты окна: категория пометкой, описание — кнопкой рядом со строкой */
+  const options = computed<ChoicePickerOption[]>(() =>
     pool.value.map((feat) => ({
-      label: feat.name,
       value: feat.id,
-      description: feat.category ?? '',
+      name: feat.name,
+      nameEn: feat.nameEn,
+      badge: feat.category,
+      description: feat.description,
+      repeatable: Boolean(feat.repeatable),
     })),
   );
 
-  const selected = computed(
+  /** Выбранное значение списком: строка выбора работает с набором отметок */
+  const selected = computed(() => (model.value ? [model.value] : []));
+
+  const selectedFeat = computed(
     () => pool.value.find((feat) => feat.id === model.value) ?? null,
   );
 
@@ -100,13 +113,12 @@
   );
 
   /**
-   * Записывает выбранную черту: селект отдаёт значение нетипизированным, а
-   * очистка — пустоту.
+   * Записывает выбранную черту: окно отдаёт набор отметок, а черту берут одну.
    *
-   * @param value - значение селекта
+   * @param values - отмеченные значения
    */
-  function setValue(value: unknown): void {
-    model.value = typeof value === 'string' && value ? value : null;
+  function setValue(values: string[]): void {
+    model.value = values[0] ?? null;
   }
 </script>
 
@@ -114,30 +126,18 @@
   <div
     class="flex flex-col gap-2 rounded-xl border border-default/50 bg-elevated/30 p-3"
   >
-    <span class="font-medium text-highlighted">{{ title }}</span>
-
-    <p
-      v-if="pool.length === 0"
-      class="text-xs text-dimmed italic"
-    >
-      {{ WIZARD_ASI_LABELS.featEmpty }}
-    </p>
-
-    <USelectMenu
-      v-else
-      :model-value="model ?? undefined"
-      :items="items"
-      value-key="value"
-      label-key="label"
-      searchable
-      :placeholder="WIZARD_ASI_LABELS.featPlaceholder"
-      class="w-full"
-      @update:model-value="setValue"
+    <ChoicePickerField
+      :label="title"
+      :options="options"
+      :selected="selected"
+      :max="1"
+      :empty-text="WIZARD_ASI_LABELS.featEmpty"
+      @update:selected="setValue"
     />
 
     <ItemDescriptionRenderer
-      v-if="selected"
-      :content="selected.description"
+      v-if="selectedFeat"
+      :content="selectedFeat.description"
       class="text-muted"
     />
   </div>

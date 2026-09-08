@@ -39,6 +39,7 @@ import {
   hasNoFeatChoiceOptions,
   isFeatPickChoice,
   isSkillType,
+  openFeatChoicesAtLevel,
   prepareFeatChoices,
   resolveChosenAbilities,
   resolveChosenDamageDefenses,
@@ -370,6 +371,15 @@ function applySpeciesGrantedFeats(
   return current;
 }
 
+/**
+ * Состояние мастера вида: размер, дары, выборы особенностей и подвид, а также
+ * применение выбранного на лист.
+ *
+ * @param actor - персонаж, которому вид достанется
+ * @param speciesDef - выбранный вид; `null` — мастеру нечего спрашивать
+ * @param speciesRecords - записи видов мира: из них берутся подвиды
+ * @param compendiumFeats - черты компендиума для выборов и выдачи черты
+ */
 export function useSpeciesWizard(
   actor: import('vue').Ref<DnDActor>,
   speciesDef: import('vue').Ref<SpeciesDefinition | null>,
@@ -381,6 +391,8 @@ export function useSpeciesWizard(
   compendiumFeats: import('vue').Ref<ReadonlyArray<CompendiumFeat>> = ref<
     ReadonlyArray<CompendiumFeat>
   >([]),
+  /** Пак записи вида — ложится на запись актора, см. `ActorSpeciesEntry.packId` */
+  packId: import('vue').Ref<string | undefined> = ref(undefined),
 ) {
   /** Виды оружия мира — пул выбора оружия и оружейного приёма */
   const { weaponOptions } = useFeatChoiceWeapons();
@@ -473,7 +485,10 @@ export function useSpeciesWizard(
       selectedSubspecies.value,
     ).map((source) => ({
       ...source,
-      preparedChoices: prepareFeatChoices(source.featData.choices),
+      // Выбор с уровнем открытия выше текущего отложен до повышения уровня
+      preparedChoices: prepareFeatChoices(
+        openFeatChoicesAtLevel(source.featData.choices, totalLevel.value),
+      ),
     }));
   });
 
@@ -782,6 +797,7 @@ export function useSpeciesWizard(
 
     const speciesEntry: ActorSpeciesEntry = {
       speciesKey: definition.key,
+      ...(packId.value ? { packId: packId.value } : {}),
       speciesName: definition.name,
       creatureType: definition.creatureType,
       size: state.value.selectedSize,

@@ -9,19 +9,19 @@
   import FormSection from '../FormSection.vue';
   import GrantedSpellsEditor from '../GrantedSpellsEditor.vue';
   import { createSpellListGroup, spellListGroupTitle } from './featEditorTypes';
-  import FeatSpellCountField from './FeatSpellCountField.vue';
 
   /**
-   * Таблица «Заклинания метки»: заклинания, которые черта добавляет в список
+   * Таблица «Заклинания метки»: заклинания, которые запись добавляет в список
    * заклинаний КЛАССА.
    *
-   * Это не выдача: выданное заклинание персонаж знает и накладывает, а это он
-   * лишь может подготовить наравне с классовыми. Свалить их в одну кучу значило
-   * бы выдать «Метке исцеления» девять готовых заклинаний вместо двух.
+   * Это не выдача и не выбор: выданное заклинание персонаж знает и накладывает,
+   * а это он лишь может выучить или подготовить наравне с классовыми. Свалить
+   * их в одну кучу значило бы выдать «Метке исцеления» всю таблицу готовыми
+   * заклинаниями. Количества у ступени нет: «выбрать N из перечисленных» — это
+   * порция выбора заклинаний с перечисленным пулом.
    *
    * Ступенями, а не одним списком, потому что таблица открывается частями: у
-   * метки дракона заклинания приходят на 1, 3, 5, 7 и 9 уровнях, и из каждой
-   * ступени берут ограниченное число.
+   * метки дракона заклинания приходят на 1, 3, 5, 7 и 9 уровнях.
    */
   const expansion = defineModel<EditableSpellListExpansion>({ required: true });
 
@@ -51,6 +51,7 @@
     emit('open-spell', spellId, packId);
   }
 
+  /** Заводит ступень. Наружу: кнопка добавления живёт в шапке раздела. */
   function addGroup(): void {
     expansion.value.groups = [
       ...expansion.value.groups,
@@ -63,22 +64,12 @@
       (_, groupIndex) => groupIndex !== index,
     );
   }
+
+  defineExpose({ addGroup });
 </script>
 
 <template>
   <div class="flex flex-col gap-3">
-    <p class="flex items-center gap-1 text-xs text-dimmed">
-      {{ SPELL_LIST_LABELS.hint }}
-      <FieldHint :text="SPELL_LIST_LABELS.hintDetails" />
-    </p>
-
-    <div
-      v-if="expansion.groups.length === 0"
-      class="rounded-lg border border-dashed border-default p-3 text-center text-xs text-dimmed italic"
-    >
-      {{ SPELL_LIST_LABELS.empty }}
-    </div>
-
     <FormSection
       v-for="(group, index) in expansion.groups"
       :key="group.uid"
@@ -115,13 +106,6 @@
               :placeholder="SPELL_LIST_LABELS.requiredLevelPlaceholder"
             />
           </UFormField>
-
-          <FeatSpellCountField v-model="group.count" />
-
-          <FieldHint
-            :text="SPELL_LIST_LABELS.countHint"
-            class="mb-2"
-          />
         </div>
 
         <GrantedSpellsEditor
@@ -132,15 +116,6 @@
         />
       </div>
     </FormSection>
-
-    <UButton
-      icon="tabler:plus"
-      :label="SPELL_LIST_LABELS.addGroup"
-      color="primary"
-      variant="soft"
-      block
-      @click.left.exact.prevent="addGroup"
-    />
 
     <!-- Без ступеней отметка ничего не описывает: расширять нечего -->
     <div

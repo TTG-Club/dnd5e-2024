@@ -25,7 +25,10 @@ import type {
   FeatModifiers,
   FeatSpellListGroup,
 } from './featTypes.js';
-import type { GrantedSpellSource } from './grantedSpells.js';
+import type {
+  ClassSpellListRequest,
+  GrantedSpellSource,
+} from './grantedSpells.js';
 import type { DamageDefenseEntry, GrantedSpellRef } from './speciesTypes.js';
 import type { ActorCounterState } from './types.js';
 
@@ -39,9 +42,13 @@ import {
   progressionCounterMax,
   withCounterMinimum,
 } from './counterResource.js';
-import { ABILITY_INCREASE_CHOICE_KEY } from './featChoices.js';
+import {
+  ABILITY_INCREASE_CHOICE_KEY,
+  openFeatChoicesAtLevel,
+} from './featChoices.js';
 import { hasSpellcastingFeature } from './featPrerequisites.js';
-import { buildFormulaContext, evaluateFormula } from './formulaParser.js';
+import { buildFormulaContext } from './formulaParser.js';
+import { getMaxSpellSlotLevel } from './spellSlotTable.js';
 
 /**
  * Провенанс эффекта/заклинания, выданного чертой. По `originId === feat:<id>`
@@ -267,19 +274,6 @@ export function isFeatOwnedEffect(
 }
 
 /**
- * Собирает связи «заклинание компендиума → черта-источник» из `featData`.
- *
- * Источников два, и оба дают заклинание одинаково: выданное чертой без выбора
- * (`grantedSpells`) и выбранное игроком при взятии (ответ на выбор типа
- * `spell`/`cantrip` — «Посвящённый в магию»). Берутся только связанные с
- * компендиумом заклинания; дедуп по `spellId`.
- *
- * @param feat - черта (имя-источник + блоб даров + ответы игрока)
- * @param feat.name - имя черты (источник при выдаче/откате)
- * @param feat.featData - блоб даров черты с выдаваемыми заклинаниями
- * @param feat.choices - ответы игрока: ключ выбора → значения
- */
-/**
  * Заклинательная характеристика заклинаний черты.
  *
  * Задать её черта может двумя путями: назвать прямо (тогда она в дарах) или спросить
@@ -315,6 +309,17 @@ function resolveFeatSpellcastingAbility(feat: {
   return undefined;
 }
 
+/**
+ * Собирает заклинания, которые запись даёт знать: перечисленные записью,
+ * выбранные игроком и открытые уровнем персонажа.
+ *
+ * @param feat - запись с её `featData` и ответами игрока
+ * @param feat.name - имя записи: им подписан источник выдачи и отката
+ * @param feat.featData - блок даров записи с выдаваемыми заклинаниями
+ * @param feat.choices - ответы игрока: ключ выбора → значения
+ * @param actor - персонаж: по его уровню отбираются поуровневые группы выдачи
+ * @returns источники заклинаний без повторов, в порядке появления
+ */
 export function collectFeatGrantedSpellSources(
   feat: {
     name: string;
@@ -334,7 +339,9 @@ export function collectFeatGrantedSpellSources(
   const push = (
     spellId: string | undefined,
     packId?: string,
-    listSpell = false,
+    // Значения группы выдачи: они старше значений записи — ради того группа и
+    // заводится, чтобы один набор заклинаний считался не так, как другой
+    group?: { alwaysPrepared?: boolean; spellcastingAbility?: AbilityType },
   ): void => {
     if (!spellId || seenSpellIds.has(spellId)) {
       return;
@@ -346,26 +353,27 @@ export function collectFeatGrantedSpellSources(
       spellId,
       featureName: feat.name,
       packId,
-      // Заклинание из расширенного списка черта не выдаёт, а лишь позволяет
-      // подготовить: подготовку персонаж тратит сам, и считается оно от класса,
-      // а не от заклинательной характеристики черты
-      alwaysPrepared: listSpell
-        ? false
-        : feat.featData?.grantedSpellsAlwaysPrepared,
-      castingAbility: listSpell ? undefined : castingAbility,
+      alwaysPrepared:
+        group?.alwaysPrepared ?? feat.featData?.grantedSpellsAlwaysPrepared,
+      castingAbility: group?.spellcastingAbility ?? castingAbility,
     });
   };
 
   for (const ref of feat.featData?.grantedSpells ?? []) {
     if (isSpellUnlocked(ref.requiredLevel, characterLevel)) {
-      push(ref.spellId, ref.packId);
+      push(ref.spellId, ref.packId, ref);
     }
   }
 
   // Выбранное заклинание — такое же выданное: значение варианта и есть id записи
-  // компендиума, по нему заклинание и кладётся в книгу
+  // компендиума, по нему заклинание и кладётся в книгу. Выбор с уровнем открытия
+  // выдаёт своё не раньше срока: ответ на него мог сохраниться заранее
   for (const choice of feat.featData?.choices ?? []) {
     if (choice.type !== 'spell' && choice.type !== 'cantrip') {
+      continue;
+    }
+
+    if (!isSpellUnlocked(choice.requiredLevel, characterLevel)) {
       continue;
     }
 
@@ -374,17 +382,81 @@ export function collectFeatGrantedSpellSources(
     }
   }
 
-  // Расширение списка заклинаний класса: открытые ступени таблицы. Без листа
-  // персонажа ступени не раскрываются вовсе — открытость решает его уровень
-  if (actor) {
-    for (const open of collectOpenFeatSpellListGroups(feat.featData, actor)) {
-      for (const ref of resolveSpellListPicks(open, feat.choices)) {
-        push(ref.spellId, ref.packId, true);
-      }
-    }
-  }
+  // Расширение списка заклинаний класса сюда не идёт: это доступность, а не
+  // знание — его показывает окно выбора заклинаний
+  // ({@link collectActorSpellListExpansions})
 
   return sources;
+}
+
+/**
+ * Собирает запросы «выдать весь список класса» из `featData`.
+ *
+ * Сами заклинания здесь не подбираются: каталог грузится лениво и только там, где
+ * выдача действительно применяется, — а сборщик работает и без него, в мастерах и на
+ * дропе. Разворачивает запросы {@link expandClassSpellRequests}.
+ *
+ * Уровень персонажа режет и открытие группы, и круг: у группы «не выше доступного
+ * круга» верхняя граница берётся из ячеек листа, поэтому список сам растёт при
+ * повышении уровня. Листа нет (черту применяют вне персонажа — например, мастером
+ * предыстории) — граница не ставится: потерять заклинание насовсем хуже, чем выдать
+ * его раньше срока.
+ *
+ * @param feat - черта (имя-источник + блоб даров + ответы игрока)
+ * @param feat.name - имя черты (источник при выдаче/откате)
+ * @param feat.featData - блоб даров черты со списками классов
+ * @param feat.choices - ответы игрока: из них берётся заклинательная характеристика
+ * @param actor - лист персонажа: его уровень и ячейки решают, что уже открыто
+ */
+export function collectFeatGrantedClassSpellRequests(
+  feat: {
+    name: string;
+    featData?: FeatData | null;
+    choices?: Record<string, string[]>;
+  },
+  actor?: DnDActor | null,
+): ClassSpellListRequest[] {
+  const groups = feat.featData?.grantedClassSpells ?? [];
+
+  if (groups.length === 0) {
+    return [];
+  }
+
+  const castingAbility = resolveFeatSpellcastingAbility(feat);
+
+  const characterLevel = actor
+    ? getTotalLevel(actor.system.classes)
+    : undefined;
+
+  const maxSlotLevel = actor ? getMaxSpellSlotLevel(actor) : undefined;
+
+  const requests: ClassSpellListRequest[] = [];
+
+  for (const group of groups) {
+    if (!isSpellUnlocked(group.requiredLevel, characterLevel)) {
+      continue;
+    }
+
+    const classKeys = (group.classKeys ?? []).filter(Boolean);
+
+    if (classKeys.length === 0) {
+      continue;
+    }
+
+    requests.push({
+      classKeys,
+      featureName: feat.name,
+      spellPackIds: group.spellPackIds,
+      level: group.level,
+      maxLevel: group.fromSlots ? maxSlotLevel : group.maxLevel,
+      // Значения группы старше значений записи — см. {@link collectFeatGrantedSpellSources}
+      alwaysPrepared:
+        group.alwaysPrepared ?? feat.featData?.grantedSpellsAlwaysPrepared,
+      castingAbility: group.spellcastingAbility ?? castingAbility,
+    });
+  }
+
+  return requests;
 }
 
 /**
@@ -420,28 +492,6 @@ interface FeatureWithGrants {
   choices?: Record<string, string[]>;
 }
 
-/** Префикс ключа выбора, который лист заводит сам под ступень таблицы. */
-const SPELL_LIST_CHOICE_PREFIX = 'spellList#';
-
-/** Подпись выбора ступени: игрок видит её вместо машинного ключа. */
-const SPELL_LIST_CHOICE_LABEL = 'Заклинания из списка черты';
-
-/**
- * Ключ выбора для ступени расширенного списка. Ключ синтетический: в записи
- * черты такого выбора нет — ступень описана таблицей, а спрашивать игрока всё
- * равно приходится, когда из неё берут не всё.
- *
- * @param index - номер ступени в `spellList.groups`
- */
-export function featSpellListChoiceKey(index: number): string {
-  return `${SPELL_LIST_CHOICE_PREFIX}${index}`;
-}
-
-/** Заведён ли ключ листом под ступень списка, а не автором черты. */
-export function isFeatSpellListChoiceKey(key: string): boolean {
-  return key.startsWith(SPELL_LIST_CHOICE_PREFIX);
-}
-
 /**
  * Ссылка на заклинание, у которой есть связь с записью компендиума. Без `spellId`
  * заклинание не выдать и не показать вариантом выбора — такие ссылки отсеиваются
@@ -458,15 +508,8 @@ function isLinkedSpellRef(ref: GrantedSpellRef): ref is LinkedSpellRef {
 
 /** Открытая ступень расширенного списка заклинаний. */
 export interface OpenFeatSpellListGroup {
-  /** Ключ выбора ступени (см. {@link featSpellListChoiceKey}) */
-  key: string;
   /** Сама ступень */
   group: FeatSpellListGroup;
-  /**
-   * Сколько заклинаний из ступени берут; `undefined` — весь список. Формула уже
-   * посчитана от листа персонажа: у части черт количество растёт с уровнем.
-   */
-  count?: number;
   /** Заклинания ступени, связанные с компендиумом */
   spells: LinkedSpellRef[];
 }
@@ -497,118 +540,81 @@ export function collectOpenFeatSpellListGroups(
   }
 
   const characterLevel = getTotalLevel(actor.system.classes);
-  const context = buildFormulaContext(actor);
   const open: OpenFeatSpellListGroup[] = [];
 
-  expansion.groups.forEach((group, index) => {
+  // Прежнее «сколько берут» из ступени не читается: расширение — доступность, а
+  // не выбор, и весь открытый список просто становится доступен для подготовки
+  for (const group of expansion.groups) {
     if (!isSpellUnlocked(group.requiredLevel, characterLevel)) {
-      return;
+      continue;
     }
 
     const spells = (group.spells ?? []).filter(isLinkedSpellRef);
 
     if (spells.length === 0) {
-      return;
+      continue;
     }
 
-    open.push({
-      key: featSpellListChoiceKey(index),
-      group,
-      count: resolveSpellListCount(group.count, context),
-      spells,
-    });
-  });
+    open.push({ group, spells });
+  }
 
   return open;
 }
 
-/**
- * Сколько заклинаний берут из ступени. Пустая формула — весь список; кривая
- * читается так же: ступень таблицы не должна пропадать целиком из-за опечатки
- * в одном поле.
- *
- * @param formula - формула количества из ступени
- * @param context - `@`-переменные листа
- */
-function resolveSpellListCount(
-  formula: string | undefined,
-  context: ReturnType<typeof buildFormulaContext>,
-): number | undefined {
-  if (!formula?.trim()) {
-    return undefined;
-  }
-
-  try {
-    const value = Math.round(evaluateFormula(formula, context));
-
-    return value > 0 ? value : undefined;
-  } catch {
-    return undefined;
-  }
+/** Заклинание, доступное персонажу сверх списка класса, — из расширения списка записи. */
+export interface SpellListExpansionEntry {
+  /** ID заклинания в компендиуме */
+  spellId: string;
+  /** Предпочтённый пак-компендиум (id манифеста) */
+  packId?: string;
+  /** Название из записи — на случай, если компендиум ещё не загружен */
+  name: string;
+  /** Запись листа, открывшая заклинание */
+  featureName: string;
 }
 
 /**
- * Заклинания ступени, которые персонаж действительно получает: весь список либо
- * то, что выбрал игрок. Ответ игрока сверяется со ступенью — выбор из другой
- * версии черты не должен протаскивать чужое заклинание.
+ * Заклинания, доступные персонажу сверх списка его класса: открытые ступени
+ * расширений от черт, вида, предыстории и умений класса, записанных на лист.
  *
- * @param open - открытая ступень
- * @param choices - ответы игрока: ключ выбора → значения
+ * Персонаж их не знает — окно выбора заклинаний показывает их рядом с
+ * классовыми, и в книгу они попадают выбором игрока, как любое заклинание
+ * класса. Одно и то же заклинание из двух записей идёт один раз.
+ *
+ * @param actor - лист персонажа: его уровень и умения решают, что открыто
+ * @returns заклинания расширенного списка; пусто — расширять нечем
  */
-function resolveSpellListPicks(
-  open: OpenFeatSpellListGroup,
-  choices: Record<string, string[]> | undefined,
-): LinkedSpellRef[] {
-  if (open.count === undefined || open.count >= open.spells.length) {
-    return open.spells;
-  }
-
-  const picked = new Set(choices?.[open.key] ?? []);
-
-  return open.spells
-    .filter((ref) => picked.has(ref.spellId))
-    .slice(0, open.count);
-}
-
-/**
- * Выборы, которые лист заводит сам под расширенный список заклинаний.
- *
- * Ступень спрашивают, только когда из неё берут не всё: таблица на пять
- * заклинаний с «взять два» — это выбор, а ступень «взять весь список» игроку
- * показывать нечего.
- *
- * @param featData - блоб даров черты
- * @param actor - лист персонажа
- * @returns выборы в форме обычных выборов черты; пусто — спрашивать нечего
- */
-export function collectFeatSpellListChoices(
-  featData: FeatData | null | undefined,
+export function collectActorSpellListExpansions(
   actor: DnDActor,
-): FeatChoice[] {
-  const choices: FeatChoice[] = [];
+): SpellListExpansionEntry[] {
+  const result: SpellListExpansionEntry[] = [];
+  const seen = new Set<string>();
 
-  for (const open of collectOpenFeatSpellListGroups(featData, actor)) {
-    if (open.count === undefined || open.count >= open.spells.length) {
-      continue;
+  for (const feature of actor.features ?? []) {
+    const applied: FeatureWithGrants = feature;
+
+    for (const open of collectOpenFeatSpellListGroups(
+      applied.featData,
+      actor,
+    )) {
+      for (const ref of open.spells) {
+        if (seen.has(ref.spellId)) {
+          continue;
+        }
+
+        seen.add(ref.spellId);
+
+        result.push({
+          spellId: ref.spellId,
+          packId: ref.packId,
+          name: ref.name,
+          featureName: feature.name,
+        });
+      }
     }
-
-    const options: FeatChoiceOption[] = open.spells.map((ref) => ({
-      value: ref.spellId,
-      name: ref.name,
-    }));
-
-    choices.push({
-      key: open.key,
-      type: 'spell',
-      label: open.group.requiredLevel
-        ? `${SPELL_LIST_CHOICE_LABEL} (с ${open.group.requiredLevel} уровня)`
-        : SPELL_LIST_CHOICE_LABEL,
-      count: open.count,
-      options,
-    });
   }
 
-  return choices;
+  return result;
 }
 
 /**
@@ -648,27 +654,44 @@ export interface FeatAwaitingChoices {
 }
 
 /**
- * Черты, у которых на новом уровне открылась ступень расширенного списка, а
- * заклинания из неё ещё не выбраны.
+ * Черты листа, у которых на новом уровне открылся выбор, ещё не отвеченный.
  *
- * Спрашивать приходится повторно, потому что таблица открывается ступенями: на
- * взятии черты игрок ответил про первую, а третья появилась только сейчас. Уже
- * отвеченные ступени в список не попадают.
+ * Спрашивать приходится повторно, потому что выбор бывает с уровнем открытия:
+ * при взятии черты игрок ответил на то, что было доступно, а выбор «с 5 уровня»
+ * появился только сейчас. Берутся ТОЛЬКО выборы с уровнем или ступенями: то, что
+ * спрашивали при взятии и оставили пустым, — решение игрока, а не пропуск.
  *
  * @param actor - лист персонажа с уже обновлённым уровнем
  * @returns черты с незаданными выборами; пусто — спрашивать нечего
  */
-export function collectFeatsAwaitingSpellListChoices(
+export function collectFeatsAwaitingLeveledChoices(
   actor: DnDActor,
 ): FeatAwaitingChoices[] {
+  const level = getTotalLevel(actor.system.classes);
   const result: FeatAwaitingChoices[] = [];
 
   for (const feature of actor.features ?? []) {
     const applied: FeatureWithGrants = feature;
+    const source = applied.featData?.choices ?? [];
 
-    const choices = collectFeatSpellListChoices(applied.featData, actor).filter(
+    const leveledKeys = new Set(
+      source
+        .filter(
+          (choice) =>
+            (choice.requiredLevel !== undefined && choice.requiredLevel > 1)
+            || Object.keys(choice.scaling ?? {}).length > 0,
+        )
+        .map((choice) => choice.key),
+    );
+
+    if (leveledKeys.size === 0) {
+      continue;
+    }
+
+    const choices = openFeatChoicesAtLevel(source, level).filter(
       (choice) =>
-        (applied.choices?.[choice.key]?.length ?? 0) < (choice.count ?? 1),
+        leveledKeys.has(choice.key)
+        && (applied.choices?.[choice.key]?.length ?? 0) < (choice.count ?? 1),
     );
 
     if (choices.length > 0) {
@@ -730,9 +753,10 @@ export function collectFeatAbilityIncreaseChoice(
 }
 
 /**
- * Все выборы, на которые черта ждёт ответа: заданные автором плюс заведённые
- * листом — под повышение характеристики и под открытые ступени расширенного
- * списка заклинаний.
+ * Все выборы, на которые черта ждёт ответа прямо сейчас: заданные автором и
+ * открытые на уровне персонажа плюс заведённый листом выбор под повышение
+ * характеристики. Выбор с уровнем открытия выше текущего отложен — его спросит
+ * повышение уровня ({@link collectFeatsAwaitingLeveledChoices}).
  *
  * @param featData - блоб даров черты
  * @param actor - лист персонажа
@@ -744,9 +768,11 @@ export function resolveFeatChoicesToAsk(
   const abilityChoice = collectFeatAbilityIncreaseChoice(featData);
 
   return [
-    ...(featData?.choices ?? []),
+    ...openFeatChoicesAtLevel(
+      featData?.choices,
+      getTotalLevel(actor.system.classes),
+    ),
     ...(abilityChoice ? [abilityChoice] : []),
-    ...collectFeatSpellListChoices(featData, actor),
   ];
 }
 

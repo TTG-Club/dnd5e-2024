@@ -612,6 +612,13 @@ export interface HitPointGain {
 export interface ActorClassEntry {
   /** Ключ класса (из ClassDefinition.key) */
   classKey: string;
+  /**
+   * Компендиум, из которого взята запись класса (id пака). Ключ у копий одной
+   * записи в разных паках один и тот же, и без пака при повышении уровня класс
+   * брался бы из «первого попавшегося» пака, а не из выбранного. Пусто — запись
+   * сохранена до появления поля: ищется по одному ключу, как раньше.
+   */
+  packId?: string;
   /** Название класса (для отображения, если SRD недоступен) */
   className: string;
   /** Уровень в этом классе */
@@ -945,6 +952,30 @@ export function getTotalLevel(classes?: ActorClassEntry[]): number {
   }
 
   return classes.reduce((sum, entry) => sum + entry.level, 0);
+}
+
+/**
+ * Уровни персонажа по классам — «ключ класса → уровень в нём».
+ *
+ * Соседом {@link getTotalLevel}: суммарный уровень и уровни по классам читают
+ * одну и ту же запись, и собирать вторую карту где-то ещё значило бы завести
+ * второй ответ на тот же вопрос. Нужна везде, где формула считает по СВОЕМУ
+ * классу (токен `@classLevel`): контекст формул листа и подстановка в эффекты
+ * умений.
+ *
+ * @param classes - классы актора (может быть undefined/пустым)
+ * @returns карта уровней по ключам классов; пустая — классов нет
+ */
+export function getClassLevels(
+  classes?: ActorClassEntry[],
+): Map<string, number> {
+  const levels = new Map<string, number>();
+
+  for (const entry of classes ?? []) {
+    levels.set(entry.classKey, entry.level);
+  }
+
+  return levels;
 }
 
 /**

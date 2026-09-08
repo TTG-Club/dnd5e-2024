@@ -3,14 +3,13 @@
   import type {
     ActiveEffect,
     DnDGameItem,
-    GrantedSpellRef,
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
   import type { EditableFeatGrants } from './feat/featEditorTypes';
   import type { SpellOption } from './grantedSpellsEditorTypes';
 
-  import { computed, ref, watch } from 'vue';
+  import { computed, ref, useTemplateRef, watch } from 'vue';
 
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
@@ -18,7 +17,7 @@
   import {
     buildSpellLinkIndex,
     findSpellInPacks,
-    linkGrantedSpellRefs,
+    linkGrantedSpellGroups,
     loadSpellPacks,
   } from '@/systems/dnd5e/composables/spellCompendium';
 
@@ -28,6 +27,7 @@
     FORM_FIELD_LABELS,
     FORM_TAB_LABELS,
     GRANT_SECTION_LABELS,
+    GRANTED_SPELL_GROUPS_LABELS,
     GRANTED_SPELLS_LABELS,
     MODAL_BUTTON_LABELS,
     SPELL_CHOICE_LABELS,
@@ -44,11 +44,13 @@
   import FeatSpellcastingFields from './feat/FeatSpellcastingFields.vue';
   import FeatSpellListEditor from './feat/FeatSpellListEditor.vue';
   import GrantRowsEditor from './feat/GrantRowsEditor.vue';
+  import ModifierAddMenu from './feat/ModifierAddMenu.vue';
   import ModifierRowsEditor from './feat/ModifierRowsEditor.vue';
+  import PrerequisiteAddMenu from './feat/PrerequisiteAddMenu.vue';
   import PrerequisiteRowsEditor from './feat/PrerequisiteRowsEditor.vue';
   import SpellChoiceRowsEditor from './feat/SpellChoiceRowsEditor.vue';
   import FormSection from './FormSection.vue';
-  import GrantedSpellsEditor from './GrantedSpellsEditor.vue';
+  import GrantedSpellGroupsEditor from './GrantedSpellGroupsEditor.vue';
   import SourceField from './SourceField.vue';
 
   const props = defineProps<{
@@ -102,9 +104,6 @@
   const repeatable = ref(false);
   const repeatableText = ref('');
 
-  /** Выдаваемые заклинания (имя + опц. связь с компендиумом). */
-  const grantedSpells = ref<GrantedSpellRef[]>([]);
-
   /** Активные эффекты черты. */
   const effects = ref<ActiveEffect[]>([]);
 
@@ -139,7 +138,6 @@
     isSRD.value = false;
     repeatable.value = false;
     repeatableText.value = '';
-    grantedSpells.value = [];
     effects.value = [];
     grants.value = createEmptyFeatGrants();
   }
@@ -153,10 +151,6 @@
     isSRD.value = feat.isSRD || false;
     repeatable.value = feat.repeatable || false;
     repeatableText.value = feat.repeatableText || '';
-
-    grantedSpells.value = (feat.featData?.grantedSpells ?? []).map((spell) => ({
-      ...spell,
-    }));
 
     effects.value = (feat.activeEffects ?? []).map((effect) => ({
       ...effect,
@@ -181,7 +175,11 @@
 
     spellPacks.value = packs;
     availableSpells.value = options;
-    linkGrantedSpellRefs(grantedSpells.value, buildSpellLinkIndex(options));
+
+    linkGrantedSpellGroups(
+      grants.value.grantedSpellGroups,
+      buildSpellLinkIndex(options),
+    );
   }
 
   /**
@@ -223,7 +221,7 @@
       return;
     }
 
-    const featData = buildFeatData(grants.value, grantedSpells.value);
+    const featData = buildFeatData(grants.value);
 
     const item: DnDGameItem = {
       id: props.feat?.id || '',
@@ -262,6 +260,17 @@
       emit('close');
     }
   }
+
+  /**
+   * Списки разделов: кнопка добавления живёт в шапке раздела, а знание о том,
+   * какой получается новая строка, остаётся у самого редактора.
+   */
+  const grantRows = useTemplateRef('grantRows');
+  const counterRows = useTemplateRef('counterRows');
+  const spellGroups = useTemplateRef('spellGroups');
+  const spellChoiceRows = useTemplateRef('spellChoiceRows');
+  const spellListGroups = useTemplateRef('spellListGroups');
+  const effectRows = useTemplateRef('effectRows');
 </script>
 
 <template>
@@ -366,12 +375,14 @@
               :title="GRANTED_SPELLS_LABELS.title"
               icon="tabler:sparkles"
               :hint="FEAT_FORM_LABELS.spellsHint"
+              :add-label="GRANTED_SPELL_GROUPS_LABELS.add"
+              @add="spellGroups?.addGroup()"
             >
-              <GrantedSpellsEditor
-                v-model="grantedSpells"
+              <GrantedSpellGroupsEditor
+                ref="spellGroups"
+                v-model="grants.grantedSpellGroups"
                 :available-spells="availableSpells"
                 :socket="socket"
-                with-required-level
                 @open-spell="openSpellDetail"
               />
             </FormSection>
@@ -387,18 +398,29 @@
             <FormSection
               :title="SPELL_CHOICE_LABELS.title"
               icon="tabler:hand-click"
+              :hint="SPELL_CHOICE_LABELS.hint"
+              :add-label="SPELL_CHOICE_LABELS.add"
+              @add="spellChoiceRows?.addRow()"
             >
               <SpellChoiceRowsEditor
+                ref="spellChoiceRows"
                 v-model="grants.spellChoice"
                 :taken-keys="takenChoiceKeys"
+                :available-spells="availableSpells"
+                :socket="socket"
+                @open-spell="openSpellDetail"
               />
             </FormSection>
 
             <FormSection
               :title="SPELL_LIST_LABELS.title"
               icon="tabler:list-details"
+              :hint="SPELL_LIST_LABELS.hint"
+              :add-label="SPELL_LIST_LABELS.addGroup"
+              @add="spellListGroups?.addGroup()"
             >
               <FeatSpellListEditor
+                ref="spellListGroups"
                 v-model="grants.spellList"
                 :available-spells="availableSpells"
                 :socket="socket"
@@ -410,23 +432,39 @@
 
         <!-- ЭФФЕКТЫ -->
         <template #effects>
-          <EntityEffectsEditor
-            v-model="effects"
-            modal-id="feat-effect-form-modal"
+          <FormSection
+            :title="FORM_TAB_LABELS.effects"
+            icon="tabler:sparkles"
             :hint="FEAT_FORM_LABELS.effectsHint"
-            :empty-text="FEAT_FORM_LABELS.effectsEmpty"
-            hide-aura
-          />
+            :add-label="MODAL_BUTTON_LABELS.addEffect"
+            @add="effectRows?.createEffect()"
+          >
+            <EntityEffectsEditor
+              ref="effectRows"
+              v-model="effects"
+              modal-id="feat-effect-form-modal"
+              hide-aura
+            />
+          </FormSection>
         </template>
 
         <!-- ВЛАДЕНИЯ -->
         <template #grants>
-          <GrantRowsEditor
-            v-model="grants.grantRows"
-            hide-feat
-            :taken-keys="takenChoiceKeys"
-            :socket="props.socket"
-          />
+          <FormSection
+            :title="FEAT_GRANTS_LABELS.grantsTitle"
+            icon="tabler:gift"
+            :hint="FEAT_GRANTS_LABELS.grantsHint"
+            :add-label="FEAT_GRANTS_LABELS.addGrant"
+            @add="grantRows?.addRow()"
+          >
+            <GrantRowsEditor
+              ref="grantRows"
+              v-model="grants.grantRows"
+              hide-feat
+              :taken-keys="takenChoiceKeys"
+              :socket="props.socket"
+            />
+          </FormSection>
         </template>
 
         <!-- АВТОМАТИЗАЦИЯ: модификаторы листа и ресурсы -->
@@ -435,25 +473,48 @@
             <FormSection
               :title="FEAT_GRANTS_LABELS.modifiersTitle"
               icon="tabler:adjustments-filled"
+              :hint="FEAT_GRANTS_LABELS.modifiersHint"
             >
+              <!-- Своя кнопка: вид правки выбирают меню, а не одним нажатием -->
+              <template #actions>
+                <ModifierAddMenu v-model="grants.modifiers" />
+              </template>
+
               <ModifierRowsEditor v-model="grants.modifiers" />
             </FormSection>
 
             <FormSection
               :title="FEAT_GRANTS_LABELS.countersTitle"
               icon="tabler:battery-2"
+              :hint="FEAT_GRANTS_LABELS.countersHint"
+              :add-label="FEAT_GRANTS_LABELS.addCounter"
+              @add="counterRows?.addCounter()"
             >
-              <CounterRowsEditor v-model="grants.counters" />
+              <CounterRowsEditor
+                ref="counterRows"
+                v-model="grants.counters"
+              />
             </FormSection>
           </div>
         </template>
 
         <!-- ТРЕБОВАНИЯ -->
         <template #prerequisites>
-          <PrerequisiteRowsEditor
-            v-model="grants.prerequisites"
-            :socket="socket"
-          />
+          <FormSection
+            :title="FEAT_GRANTS_LABELS.prerequisitesTitle"
+            icon="tabler:list-check"
+            :hint="FEAT_GRANTS_LABELS.prerequisitesHint"
+          >
+            <!-- Своя кнопка: вид требования выбирают меню -->
+            <template #actions>
+              <PrerequisiteAddMenu v-model="grants.prerequisites" />
+            </template>
+
+            <PrerequisiteRowsEditor
+              v-model="grants.prerequisites"
+              :socket="socket"
+            />
+          </FormSection>
         </template>
       </UTabs>
     </template>

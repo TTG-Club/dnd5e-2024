@@ -8,6 +8,8 @@
 
   import {
     CREATURE_ACTION_MENU_LABELS,
+    CREATURE_RECHARGE_HINTS,
+    CREATURE_RECHARGE_LABELS,
     CREATURE_ROW_ARIA_LABELS,
   } from './constants';
 
@@ -39,6 +41,18 @@
 
   /** Сколько активных эффектов накладывает особенность; 0 — бейджа нет */
   const effectsCount = computed(() => props.action.activeEffects?.length ?? 0);
+
+  /** Короткая подпись перезарядки; пустая — значка нет */
+  const rechargeLabel = computed(() =>
+    props.action.recharge
+      ? CREATURE_RECHARGE_LABELS[props.action.recharge]
+      : '',
+  );
+
+  /** Расшифровка условия перезарядки — уходит в подсказку значка */
+  const rechargeHint = computed(() =>
+    props.action.recharge ? CREATURE_RECHARGE_HINTS[props.action.recharge] : '',
+  );
 
   /** В режиме правки нажатие по строке ведёт в форму, а не в описание */
   const canEdit = computed(() => props.isEditMode && !props.isReadOnly);
@@ -90,6 +104,24 @@
         <span class="truncate text-sm text-highlighted">
           {{ action.name }}
         </span>
+
+        <UTooltip
+          v-if="rechargeLabel"
+          :text="rechargeHint"
+        >
+          <UBadge
+            color="neutral"
+            variant="subtle"
+            size="sm"
+            class="shrink-0"
+          >
+            <UIcon
+              name="tabler:refresh"
+              class="mr-0.5 size-3"
+            />
+            {{ rechargeLabel }}
+          </UBadge>
+        </UTooltip>
       </div>
 
       <div

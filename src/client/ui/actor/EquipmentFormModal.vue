@@ -1,4 +1,5 @@
 <script setup lang="ts">
+  import type { EquipmentCategory } from '@vtt/shared';
   import type { ActiveEffect, DnDGameItem } from '@vtt/shared/system/dnd.js';
 
   import { computed, ref } from 'vue';
@@ -32,6 +33,18 @@
     savedSize?: unknown;
     /** Редактируемый доспех (null = создание) */
     item: DnDGameItem | null;
+    /**
+     * Тип экипировки, выбранный заранее на вкладке «Подробнее». Работает только
+     * при создании: у правки тип берётся из самой записи. Так пункт меню
+     * «Безделушка» открывает эту же форму, но уже безделушкой.
+     */
+    createCategory?: EquipmentCategory;
+    /**
+     * Отметить запись магической. Как и {@link createCategory}, работает только
+     * при создании: так пункт меню «Магический предмет» открывает эту же форму,
+     * но со свойством «магическое» — вместе с редкостью, настройкой и бонусом.
+     */
+    createMagical?: boolean;
     /** Z-index (управляется родителем для bring-to-front) */
     zIndex?: number;
     /** Смещение позиции для каскадного расположения */
@@ -88,6 +101,8 @@
   } = useEquipmentForm(
     () => props.item,
     () => props.open,
+    () => props.createCategory,
+    () => props.createMagical,
   );
 
   /** Вкладки формы */
@@ -503,18 +518,13 @@
 
         <!-- Вкладка «Эффекты» -->
         <template #effects>
-          <div class="flex flex-col gap-4">
-            <div
-              v-if="activeEffects.length === 0"
-              class="rounded-lg border border-dashed border-default p-3 text-center text-xs text-dimmed italic"
-            >
-              {{ EQUIPMENT_FORM_LABELS.effectsEmpty }}
-            </div>
-
-            <div
-              v-else
-              class="space-y-1"
-            >
+          <FormSection
+            :title="FORM_TAB_LABELS.effects"
+            icon="tabler:sparkles"
+            :add-label="MODAL_BUTTON_LABELS.addEffect"
+            @add="createCustomEffect"
+          >
+            <div class="space-y-1">
               <div
                 v-for="effect in activeEffects"
                 :key="effect.id"
@@ -573,19 +583,7 @@
                 </div>
               </div>
             </div>
-
-            <UButton
-              size="sm"
-              color="primary"
-              variant="soft"
-              icon="tabler:plus"
-              block
-              class="mt-1"
-              @click.left.exact.prevent="createCustomEffect"
-            >
-              {{ MODAL_BUTTON_LABELS.addEffect }}
-            </UButton>
-          </div>
+          </FormSection>
         </template>
       </UTabs>
     </template>

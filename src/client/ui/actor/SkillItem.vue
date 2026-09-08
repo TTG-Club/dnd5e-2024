@@ -44,7 +44,8 @@
 
   const emit = defineEmits<{
     'cycle-proficiency': [];
-    'roll': [modifier: number, label: string, key?: SkillType];
+    /** Числа броска лист берёт из своей же строки — они и пришли из неё */
+    'roll': [];
   }>();
 
   const attributeShortName = computed(
@@ -72,7 +73,7 @@
 
   function handleClick() {
     if (!props.isEditMode) {
-      emit('roll', modifier.value, props.label, props.skillKey);
+      emit('roll');
     }
   }
 </script>

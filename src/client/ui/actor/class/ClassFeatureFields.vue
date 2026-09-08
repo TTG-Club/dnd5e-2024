@@ -5,7 +5,6 @@
   import type {
     EditableClassFeature,
     EditableClassFeatureScaling,
-    EditableGrantedSpellLevel,
   } from './classEditorTypes';
 
   import { computed } from 'vue';
@@ -20,7 +19,6 @@
     FORM_FIELD_LABELS,
   } from '../constants';
   import EditorNestedSection from '../EditorNestedSection.vue';
-  import GrantedSpellsEditor from '../GrantedSpellsEditor.vue';
   import {
     countFilledMechanicsBlocks,
     createEmptyFeatureChoice,
@@ -79,22 +77,6 @@
   /** Добавляет вариант-выбор (боевой стиль / манёвр). */
   function addChoice(): void {
     feature.value.choices.push(createEmptyFeatureChoice());
-  }
-
-  /** Добавляет уровень поуровневой выдачи заклинаний. */
-  function addSpellLevel(): void {
-    const entry: EditableGrantedSpellLevel = {
-      uid: generateId('gsl'),
-      level: 1,
-      spells: [],
-    };
-
-    feature.value.grantedSpellsByLevel.push(entry);
-  }
-
-  /** Удаляет уровень поуровневой выдачи по индексу. */
-  function removeSpellLevel(index: number): void {
-    feature.value.grantedSpellsByLevel.splice(index, 1);
   }
 </script>
 
@@ -166,7 +148,6 @@
     >
       <ClassMechanicsFields
         v-model:grants="feature.grants"
-        v-model:granted-spells="feature.grantedSpells"
         v-model:active-effects="feature.activeEffects"
         :titles="CLASS_FEATURE_MECHANICS_TITLES"
         :effects-modal-id="`class-feature-effect-form-modal-${feature.key}`"
@@ -174,54 +155,7 @@
         :socket="props.socket"
         with-table-column
         @open-spell="forwardOpenSpell"
-      >
-        <!-- Поуровневая выдача заклинаний (домены/клятвы/покровители) -->
-        <template #spells-extra>
-          <EditorNestedSection
-            :title="CLASS_FEATURE_LABELS.grantedSpellsByLevel"
-            :hint="CLASS_FEATURE_LABELS.grantedSpellsByLevelHint"
-            :count="feature.grantedSpellsByLevel.length"
-            :add-label="CLASS_FEATURE_LABELS.levelAdd"
-            @add="addSpellLevel"
-          >
-            <div
-              v-for="(entry, levelIndex) in feature.grantedSpellsByLevel"
-              :key="entry.uid"
-              class="flex flex-col gap-1.5 rounded-md border border-default bg-elevated/30 p-2"
-            >
-              <div class="flex items-center gap-2">
-                <span class="text-xs text-muted">{{
-                  CLASS_FEATURE_LABELS.classLevelPrefix
-                }}</span>
-
-                <UInputNumber
-                  v-model="entry.level"
-                  :min="1"
-                  :max="CLASS_LEVEL_MAX"
-                  class="w-25"
-                />
-
-                <UButton
-                  icon="tabler:trash"
-                  color="error"
-                  variant="ghost"
-                  size="xs"
-                  class="ml-auto"
-                  :aria-label="CLASS_FEATURE_LABELS.levelRemove"
-                  @click.left.exact.prevent="removeSpellLevel(levelIndex)"
-                />
-              </div>
-
-              <GrantedSpellsEditor
-                v-model="entry.spells"
-                :available-spells="props.availableSpells"
-                :socket="props.socket"
-                @open-spell="forwardOpenSpell"
-              />
-            </div>
-          </EditorNestedSection>
-        </template>
-      </ClassMechanicsFields>
+      />
     </EditorNestedSection>
   </div>
 </template>

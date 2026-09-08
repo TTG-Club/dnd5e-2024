@@ -36,6 +36,7 @@ import type { EditableResourceCounter } from '../counterEditorTypes';
 import type {
   EditableChoiceScaling,
   EditableFeatGrants,
+  EditableGrantedSpellGroup,
 } from '../feat/featEditorTypes';
 
 import { generateId } from '@vtt/shared';
@@ -55,6 +56,7 @@ import {
   buildFeatData,
   createEmptyFeatGrants,
   featDataToGrants,
+  listGrantedSpellGroup,
 } from '../feat/featEditorTypes';
 
 // ── Колонки таблицы прогрессии ───────────────────────────────
@@ -107,15 +109,6 @@ export interface EditableLevelRow {
 type ClassLevelEntryValue =
   string | number | boolean | string[] | Record<string, number> | undefined;
 
-// ── Заклинания умения ────────────────────────────────────────
-
-/** Поуровневая выдача заклинаний умением (домены/клятвы). */
-export interface EditableGrantedSpellLevel {
-  uid: string;
-  level: number;
-  spells: GrantedSpellRef[];
-}
-
 // ── Умение класса/подкласса ──────────────────────────────────
 
 /**
@@ -133,8 +126,6 @@ export interface EditableClassMechanics {
    * сохранении.
    */
   grants: EditableFeatGrants;
-  /** Заклинания, которые запись даёт знать. */
-  grantedSpellRefs: GrantedSpellRef[];
   /** Активные эффекты; переносятся на персонажа вместе с записью. */
   activeEffects: ActiveEffect[];
 }
@@ -148,7 +139,9 @@ export interface ClassMechanicsTitles {
   grants: string;
   grantsHint: string;
   modifiers: string;
+  modifiersHint: string;
   counters: string;
+  countersHint: string;
   spells: string;
   spellsHint: string;
   spellChoice: string;
@@ -157,7 +150,6 @@ export interface ClassMechanicsTitles {
   spellListHint: string;
   effects: string;
   effectsHint: string;
-  effectsEmpty: string;
 }
 
 /** Вариант умения (боевой стиль, манёвры). */
@@ -226,10 +218,6 @@ export interface EditableClassFeature extends EditableClassMechanics {
   description: string;
   level: number;
   isInformationalOnly: boolean;
-  /** Заклинания, выдаваемые умением (всегда подготовлены). */
-  grantedSpells: GrantedSpellRef[];
-  /** Поуровневая выдача заклинаний (домены/клятвы/покровители). */
-  grantedSpellsByLevel: EditableGrantedSpellLevel[];
   /** Варианты-выборы внутри умения. */
   choices: EditableClassFeatureChoice[];
   /**
@@ -415,7 +403,6 @@ export function createEmptySpellcasting(): EditableSpellcasting {
 function createEmptyMechanics(): EditableClassMechanics {
   return {
     grants: createEmptyFeatGrants(),
-    grantedSpellRefs: [],
     activeEffects: [],
   };
 }
@@ -428,8 +415,6 @@ export function createEmptyFeature(name: string): EditableClassFeature {
     description: '',
     level: 1,
     isInformationalOnly: false,
-    grantedSpells: [],
-    grantedSpellsByLevel: [],
     choices: [],
     scaling: [],
     ...createEmptyMechanics(),
@@ -453,18 +438,6 @@ export function createEmptyFeatureChoice(): EditableClassFeatureChoice {
 }
 
 /**
- * Носитель механики глазами счётчика блоков.
- *
- * Поля заклинаний необязательны, потому что у умения и варианта они лежат
- * по-разному: у умения — своими полями записи, у варианта — внутри даров.
- * Счётчику важно лишь, пуст блок или нет, и различать носителей ему незачем.
- */
-type MechanicsBlocksSource = EditableClassMechanics & {
-  grantedSpells?: GrantedSpellRef[];
-  grantedSpellsByLevel?: EditableGrantedSpellLevel[];
-};
-
-/**
  * Сколько блоков механики заполнено у умения или его варианта. Считаются именно
  * блоки, а не записи: и в шапке записи, и в шапке свёрнутого блока автору важно,
  * где что-то есть, а длину списка он увидит, раскрыв блок.
@@ -473,7 +446,7 @@ type MechanicsBlocksSource = EditableClassMechanics & {
  * @returns число непустых блоков механики
  */
 export function countFilledMechanicsBlocks(
-  holder: MechanicsBlocksSource,
+  holder: EditableClassMechanics,
 ): number {
   return [
     holder.grants.grantRows.length,
@@ -481,10 +454,7 @@ export function countFilledMechanicsBlocks(
     holder.grants.counters.length,
     holder.grants.spellChoice.picks.length,
     holder.grants.spellList.groups.length,
-    // Заклинания умения лежат своим полем записи, у варианта — внутри даров:
-    // считаются оба, пустое слагаемое блоком не считается
-    (holder.grantedSpells?.length ?? 0) + holder.grantedSpellRefs.length,
-    holder.grantedSpellsByLevel?.length ?? 0,
+    holder.grants.grantedSpellGroups.length,
     holder.activeEffects.length,
   ].filter(Boolean).length;
 }
@@ -510,10 +480,6 @@ export function createEmptyLevelTable(): EditableLevelRow[] {
 }
 
 // ── Разворот: ClassDefinition → редактируемая модель ─────────
-
-function toGrantedRefs(ids: string[] | undefined): GrantedSpellRef[] {
-  return (ids ?? []).map((id) => ({ name: id, spellId: id }));
-}
 
 /**
  * Разворачивает настройку выбора из вариантов в редактируемые поля.
@@ -566,24 +532,147 @@ function toEditableFeatureChoice(
     requiredLevel: choice.requiredLevel,
     repeatable: choice.repeatable ?? false,
     grants: featDataToGrants(choice.featData),
-    grantedSpellRefs: [...(choice.featData?.grantedSpells ?? [])],
     activeEffects: (choice.activeEffects ?? []).map((effect) => ({
       ...effect,
     })),
   };
 }
 
+/**
+ * Раскладывает группы выдачи умения по полям записи.
+ *
+ * Группа без уровня — заклинания, приходящие вместе с умением; группа с уровнем
+ * — ступень `grantedSpellsByLevel`, которую лист откроет на этом уровне КЛАССА.
+ * Списки классов сюда не идут: их место в блобе даров.
+ *
+ * @param groups - группы формы
+ * @param built - собираемое умение записи
+ */
+function applyFeatureGrantedSpells(
+  groups: ReadonlyArray<EditableGrantedSpellGroup>,
+  built: ClassFeature,
+): void {
+  const immediate: string[] = [];
+  const byLevel: Record<string, string[]> = {};
+
+  for (const group of groups) {
+    if (group.source !== 'list') {
+      continue;
+    }
+
+    const ids = buildGrantedIds(group.spells);
+
+    if (ids.length === 0) {
+      continue;
+    }
+
+    if (group.requiredLevel && group.requiredLevel > 1) {
+      const key = String(group.requiredLevel);
+
+      byLevel[key] = [...(byLevel[key] ?? []), ...ids];
+
+      continue;
+    }
+
+    immediate.push(...ids);
+  }
+
+  if (immediate.length > 0) {
+    built.grantedSpells = immediate;
+  }
+
+  if (Object.keys(byLevel).length > 0) {
+    built.grantedSpellsByLevel = byLevel;
+  }
+}
+
+/**
+ * Группы выдачи умения из полей самой записи.
+ *
+ * У умения перечисленные заклинания лежат не в блобе даров, а своими полями:
+ * `grantedSpells` — то, что приходит вместе с умением, `grantedSpellsByLevel` —
+ * ступени по уровням КЛАССА (домены, клятвы, покровители). Форма показывает их
+ * одним списком групп — тем же, что и у черты.
+ *
+ * `featData.grantedSpells` сюда не идут: выгрузка сайта кладёт туда те же
+ * заклинания вторым экземпляром, и в форме они удвоились бы.
+ *
+ * @param feature - умение записи класса
+ * @returns группы в порядке уровней: сперва «сразу», затем ступени
+ */
+function recordGrantedSpellGroups(
+  feature: ClassFeature,
+): EditableGrantedSpellGroup[] {
+  // Характеристика и подготовка в полях записи не помещаются — там один id, —
+  // поэтому они уезжают вместе со ссылкой в блоб даров. Оттуда и читаются: иначе
+  // форма показала бы «от класса» у заклинаний, которым автор назвал Мудрость
+  const metaBySpellId = new Map(
+    (feature.featData?.grantedSpells ?? [])
+      .filter((ref): ref is GrantedSpellRef & { spellId: string } =>
+        Boolean(ref.spellId),
+      )
+      .map((ref) => [ref.spellId, ref]),
+  );
+
+  const groups: EditableGrantedSpellGroup[] = [];
+  const byKey = new Map<string, EditableGrantedSpellGroup>();
+
+  /**
+   * Кладёт заклинание записи в свою группу: одного уровня, но с разной
+   * характеристикой или подготовкой — разные группы.
+   *
+   * @param spellId - id заклинания компендиума
+   * @param level - уровень класса, на котором заклинание приходит
+   */
+  const push = (spellId: string, level: number): void => {
+    const meta = metaBySpellId.get(spellId);
+    const ability = meta?.spellcastingAbility;
+    const prepared = meta?.alwaysPrepared ?? false;
+    const key = `${level}:${ability ?? ''}:${prepared}`;
+
+    let group = byKey.get(key);
+
+    if (!group) {
+      group = listGrantedSpellGroup([], level > 1 ? level : undefined);
+      group.spellcastingAbility = ability;
+      group.alwaysPrepared = prepared;
+      byKey.set(key, group);
+      groups.push(group);
+    }
+
+    group.spells.push({ name: meta?.name ?? spellId, spellId });
+  };
+
+  for (const spellId of feature.grantedSpells ?? []) {
+    push(spellId, 1);
+  }
+
+  const byLevel = Object.entries(feature.grantedSpellsByLevel ?? {})
+    .map(([levelKey, ids]) => ({ level: Number(levelKey) || 1, ids }))
+    .sort((first, second) => first.level - second.level);
+
+  for (const entry of byLevel) {
+    for (const spellId of entry.ids) {
+      push(spellId, entry.level);
+    }
+  }
+
+  return groups;
+}
+
 /** Разворачивает умение класса в редактируемые поля. */
 export function toEditableFeature(feature: ClassFeature): EditableClassFeature {
-  const byLevel: EditableGrantedSpellLevel[] = Object.entries(
-    feature.grantedSpellsByLevel ?? {},
-  )
-    .map(([levelKey, ids]) => ({
-      uid: generateId('gsl'),
-      level: Number(levelKey) || 1,
-      spells: toGrantedRefs(ids),
-    }))
-    .sort((entryA, entryB) => entryA.level - entryB.level);
+  const grants = featDataToGrants(feature.featData);
+
+  // Выдача умения показывается из полей записи: в блобе лежит её же копия — так
+  // кладёт выгрузка сайта, — и вместе они удвоили бы список. Списки классов,
+  // наоборот, живут только в блобе
+  grants.grantedSpellGroups = [
+    ...recordGrantedSpellGroups(feature),
+    ...grants.grantedSpellGroups.filter(
+      (group) => group.source === 'classList',
+    ),
+  ];
 
   return {
     key: feature.key || generateId('cf'),
@@ -591,8 +680,6 @@ export function toEditableFeature(feature: ClassFeature): EditableClassFeature {
     description: feature.description || '',
     level: feature.level ?? 1,
     isInformationalOnly: feature.isInformationalOnly ?? false,
-    grantedSpells: toGrantedRefs(feature.grantedSpells),
-    grantedSpellsByLevel: byLevel,
     choices: (feature.choices ?? []).map(toEditableFeatureChoice),
     // Ступени роста собирает toEditableFeatures: по одному умению их не
     // видно — ступень лежит отдельной записью рядом со своим умением
@@ -602,8 +689,7 @@ export function toEditableFeature(feature: ClassFeature): EditableClassFeature {
     activeEffects: (feature.activeEffects ?? []).map((effect) => ({
       ...effect,
     })),
-    grants: featDataToGrants(feature.featData),
-    grantedSpellRefs: [...(feature.featData?.grantedSpells ?? [])],
+    grants,
   };
 }
 
@@ -979,10 +1065,7 @@ export function buildFeature(
       // и отличается от умения (ниже): у умения ресурсы уезжают в счётчики
       // записи, где известен уровень их появления, а дары варианта действуют,
       // только пока он выбран, и в общих полях класса им места нет
-      const optionFeatData = buildFeatData(
-        choice.grants,
-        choice.grantedSpellRefs,
-      );
+      const optionFeatData = buildFeatData(choice.grants);
 
       if (optionFeatData) {
         builtChoice.featData = optionFeatData;
@@ -1043,25 +1126,7 @@ export function buildFeature(
     built.skillChoice = feature.preservedSkillChoice;
   }
 
-  const grantedSpells = buildGrantedIds(feature.grantedSpells);
-
-  if (grantedSpells.length > 0) {
-    built.grantedSpells = grantedSpells;
-  }
-
-  const byLevel: Record<string, string[]> = {};
-
-  for (const entry of feature.grantedSpellsByLevel) {
-    const ids = buildGrantedIds(entry.spells);
-
-    if (ids.length > 0) {
-      byLevel[String(entry.level)] = ids;
-    }
-  }
-
-  if (Object.keys(byLevel).length > 0) {
-    built.grantedSpellsByLevel = byLevel;
-  }
+  applyFeatureGrantedSpells(feature.grants.grantedSpellGroups, built);
 
   if (feature.activeEffects.length > 0) {
     built.activeEffects = feature.activeEffects;
@@ -1070,10 +1135,9 @@ export function buildFeature(
   // Ресурсы умения собираются отдельно, в счётчики записи
   // ({@link buildFeatureCounters}): там известен уровень класса, от которого
   // идут их ступени. Здесь их надо снять, иначе они уехали бы двумя копиями
-  const featData = buildFeatData(
-    { ...feature.grants, counters: [] },
-    feature.grantedSpellRefs,
-  );
+  // Выдача уезжает и полями записи, и блобом — ровно как её кладёт выгрузка
+  // сайта: лист читает оба пути и схлопывает повтор по названию заклинания
+  const featData = buildFeatData({ ...feature.grants, counters: [] });
 
   if (featData) {
     built.featData = featData;

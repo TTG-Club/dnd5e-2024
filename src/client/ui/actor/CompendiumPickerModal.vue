@@ -31,7 +31,7 @@
   import { Z_INDEX } from '@/shared_ui/consts';
   import { useItemsStore } from '@/stores/itemsStore';
   import { isRecord } from '@vtt/shared';
-  import { isDnDGameItem } from '@vtt/shared/system/dnd.js';
+  import { isDnDGameItem, WORLD_PACK_ID } from '@vtt/shared/system/dnd.js';
 
   import BackgroundDetailModal from './background/BackgroundDetailModal.vue';
   import ClassDetailModal from './class/ClassDetailModal.vue';
@@ -45,7 +45,6 @@
     COMPENDIUM_PICKER_LABELS,
     COMPENDIUM_PICKER_TITLES,
     MODAL_BUTTON_LABELS,
-    WORLD_PACK_ID,
   } from './constants';
   import PickerListRow from './PickerListRow.vue';
   import SpeciesDetailModal from './species/SpeciesDetailModal.vue';
@@ -78,6 +77,18 @@
     definition: PickerDefinition;
   }
 
+  /**
+   * Выбранная запись вместе с паком, из которого её взяли. Пак уходит на лист:
+   * без него следующий уровень класса брался бы из первого попавшегося
+   * одноимённого компендиума, а не из выбранного.
+   */
+  export interface PickedDefinition<
+    TDefinition extends PickerDefinition = PickerDefinition,
+  > {
+    definition: TDefinition;
+    packId: string;
+  }
+
   /** Уже выбранное персонажем: подпись в полосе и ключ для удаления */
   interface CurrentEntry {
     key: string;
@@ -102,7 +113,7 @@
      * всегда: у вида и предыстории в нём одна запись, у класса — сколько
      * отметили (мультикласс за один заход).
      */
-    'select': [definitions: PickerDefinition[]];
+    'select': [picked: PickedDefinition[]];
     /** Снять с персонажа текущий вид или предысторию */
     'remove-current': [];
     /** Снять с персонажа класс по его ключу */
@@ -486,7 +497,10 @@
 
     emit(
       'select',
-      selectedRows.value.map((row) => row.definition),
+      selectedRows.value.map((row) => ({
+        definition: row.definition,
+        packId: row.packId,
+      })),
     );
 
     emit('update:open', false);
@@ -819,6 +833,7 @@
     v-if="detailClass"
     v-model:open="isDetailOpen"
     :class-definition="detailClass"
+    :pack-id="detailRow?.packId"
     :z-index="Z_INDEX.MODAL_CONFIRM"
     show-select-button
     @select="handleDetailSelect"

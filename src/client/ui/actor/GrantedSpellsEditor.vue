@@ -32,14 +32,8 @@
       availableSpells?: SpellOption[];
       /** WebSocket-клиент: выбор заклинания из компендиума окном */
       socket?: TypedWebSocketClient | null;
-      /**
-       * Показывать уровень, с которого заклинание доступно. Нужен только черте:
-       * у вида и класса уровень стоит у самой особенности, и второе поле рядом
-       * задавало бы одно и то же дважды.
-       */
-      withRequiredLevel?: boolean;
     }>(),
-    { availableSpells: () => [], socket: null, withRequiredLevel: false },
+    { availableSpells: () => [], socket: null },
   );
 
   /** Список выдаваемых заклинаний (имя + опц. связь с компендиумом/паком). */
@@ -333,29 +327,6 @@
         >
           {{ GRANTED_SPELLS_LABELS.notFound }}
         </UBadge>
-
-        <!-- Уровень доступа — в строку, а не полем с подписью сверху: подпись
-             над каждой строкой удваивала бы её высоту, а смысл поля читается
-             из подсказки раздела -->
-        <div
-          v-if="props.withRequiredLevel"
-          class="flex shrink-0 items-center gap-1"
-          :title="GRANTED_SPELLS_LABELS.requiredLevelHint"
-        >
-          <span class="text-[11px] whitespace-nowrap text-dimmed">
-            {{ GRANTED_SPELLS_LABELS.requiredLevelShort }}
-          </span>
-
-          <UInputNumber
-            v-model="spell.requiredLevel"
-            :min="1"
-            :max="20"
-            size="xs"
-            class="w-24"
-            :aria-label="GRANTED_SPELLS_LABELS.requiredLevelHint"
-            :placeholder="GRANTED_SPELLS_LABELS.requiredLevelAny"
-          />
-        </div>
 
         <UButton
           icon="tabler:trash"

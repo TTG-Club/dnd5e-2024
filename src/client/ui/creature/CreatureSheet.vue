@@ -7,6 +7,7 @@
     TypedWebSocketClient,
   } from '@vtt/shared';
   import type {
+    AttackRollMode,
     DnDCreature,
     DnDCustomBonusContext,
     DnDGameItem,
@@ -34,11 +35,14 @@
     calculateAbilityModifier,
     CR_TABLE,
     CREATURE_ENVIRONMENTS,
+    CREATURE_HIT_DICE_RULE_KEYS,
     CREATURE_SIZE_TO_TOKEN_SCALE,
     DEFAULT_CREATURE,
     DEFAULT_PROFICIENCY_BONUS,
+    ensureCreatureSpellsInBlocks,
     formatVisionRange,
     getActorAbilityModifiers,
+    getCreatureHitDiceConstitutionModifier,
     getCreatureProficiencyBonus,
     getCustomBonusesValue,
     getCustomSkillValue,
@@ -54,7 +58,10 @@
     normalizeCompendiumItem,
     normalizeCreature,
     PASSIVE_SKILL_BASE,
+    resolveAbilityCheckRollMode,
+    resolveCreatureHitPointsByRules,
     SKILLS_LIST,
+    syncCreatureSpellcastingUses,
     withExhaustionLevel,
   } from '@vtt/shared/system/dnd.js';
 
@@ -62,6 +69,7 @@
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import { useSheetMinimize } from '../../composables/useSheetMinimize';
   import {
+    ABILITY_CHECK_ROLL_LABELS,
     DICE_ROLL_DEFAULT_BUTTON,
     DRAG_OVER_RESET_DELAY_MS,
     FEET_UNIT_LABEL,
@@ -244,7 +252,9 @@
 
   const activeTab = ref('actions');
 
-  const { resolvedStats } = useResolvedStats(toRef(() => localCreature.value));
+  const { resolvedStats, combinedEffects } = useResolvedStats(
+    toRef(() => localCreature.value),
+  );
 
   const { receiveTransferredItem } = useItemTransfer();
 
@@ -256,6 +266,7 @@
     title: string;
     rollLabel: string;
     rollButtonText: string;
+    initialRollMode: AttackRollMode;
   }
 
   const diceRollConfig = ref<DiceRollConfig>({
@@ -263,6 +274,7 @@
     title: '',
     rollLabel: '',
     rollButtonText: DICE_ROLL_DEFAULT_BUTTON,
+    initialRollMode: 'normal',
   });
 
   /**
@@ -273,6 +285,7 @@
    * @param config.title - заголовок окна
    * @param config.rollLabel - подпись броска
    * @param config.rollButtonText - надпись на кнопке броска
+   * @param config.initialRollMode - режим броска при открытии окна
    */
   function openDiceRoll(
     config: Partial<DiceRollConfig>
@@ -281,6 +294,7 @@
     diceRollConfig.value = {
       ...config,
       rollButtonText: config.rollButtonText ?? DICE_ROLL_DEFAULT_BUTTON,
+      initialRollMode: config.initialRollMode ?? 'normal',
     };
 
     isDiceRollOpen.value = true;
@@ -529,6 +543,24 @@
     handleCreatureUpdate({ description });
   }
 
+  /**
+   * Пересобирает хиты по правилам после правки размера или Телосложения.
+   * Движок отдаёт тот же объект, когда менять нечего, а у существа без блока
+   * хитов (запись старого мира или компендиума) — ничего: тогда запись не
+   * трогается, и смена размера не спотыкается об отсутствующую формулу.
+   */
+  function syncHitPointsWithRules(): void {
+    if (!localCreature.value) {
+      return;
+    }
+
+    const ruledHitPoints = resolveCreatureHitPointsByRules(localCreature.value);
+
+    if (ruledHitPoints) {
+      localCreature.value.system.hitPoints = ruledHitPoints;
+    }
+  }
+
   function handleSystemUpdate(updates: Partial<DnDCreature['system']>) {
     if (localCreature.value) {
       Object.assign(localCreature.value.system, updates);
@@ -542,6 +574,14 @@
           ...localCreature.value.token,
           scale: CREATURE_SIZE_TO_TOKEN_SCALE[updates.size],
         };
+      }
+
+      // Формула хитов — производная от размера и Телосложения (D&D 2024):
+      // Большое существо с Тел. 16 не может жить с «2к8 + 2» из заготовки
+      if (
+        CREATURE_HIT_DICE_RULE_KEYS.some((key) => updates[key] !== undefined)
+      ) {
+        syncHitPointsWithRules();
       }
 
       isDirty.value = true;
@@ -715,6 +755,17 @@
   }));
 
   /**
+   * Модификатор Телосложения для формулы хитов: по записи листа со своими
+   * бонусами, но без активных эффектов — формула описывает стат-блок, а
+   * эффект временно двигает итог поверх него.
+   */
+  const hitDiceConstitutionModifier = computed(() =>
+    localCreature.value
+      ? getCreatureHitDiceConstitutionModifier(localCreature.value)
+      : 0,
+  );
+
+  /**
    * Поля, чей итог задан активным эффектом целиком. Окно настройки берёт
    * отсюда навыки под перезаписью: их число задаёт эффект, а не расчёт.
    */
@@ -722,13 +773,29 @@
     () => resolvedStats.value?.overriddenKeys ?? new Set<string>(),
   );
 
+  /** Навык существа бейджем: и подпись, и всё, чем катится его проверка */
+  interface CreatureSkillBadge {
+    /** Ключ списка: у навыка правил — его ключ, у своего — id записи */
+    id: string;
+    /** Подпись бейджа: название и значение со знаком */
+    label: string;
+    /** Название навыка: им подписан бросок */
+    name: string;
+    /** Итог навыка — он же модификатор броска */
+    modifier: number;
+    /** Характеристика расчёта: по ней читаются флаги проверки */
+    ability: AbilityType;
+    /** Ключ навыка правил; не задан — навык заведён вручную */
+    key?: SkillType;
+  }
+
   /**
    * Навыки существа для показа бейджами: только те, которыми оно владеет, и
    * все заведённые вручную — их в правилах нет, и отмечать их владением
    * незачем. Значение берётся из разрешённых статов: там уже учтены и поправки
    * расчёта, и активные эффекты.
    */
-  const formattedSkills = computed(() => {
+  const skillBadges = computed<CreatureSkillBadge[]>(() => {
     const creature = localCreature.value;
 
     if (!creature) {
@@ -738,7 +805,7 @@
     const settings = creature.system.skillSettings;
     const mods = skillAbilityMods.value;
     const profBonus = creatureProficiencyBonus.value;
-    const result: string[] = [];
+    const result: CreatureSkillBadge[] = [];
 
     for (const skill of SKILLS_LIST) {
       const level = getSkillProficiency(skill.key);
@@ -748,25 +815,68 @@
       }
 
       const setting = getSkillSetting(settings, skill.key);
+      const ability = getSkillSettingAbility(setting, skill.key);
 
       const fallback =
-        mods[getSkillSettingAbility(setting, skill.key)]
+        mods[ability]
         + getProficiencyContribution(profBonus, level)
         + getCustomBonusesValue(bonusContext.value, setting.bonuses);
 
       const total = resolvedStats.value?.skills[skill.key] ?? fallback;
 
-      result.push(`${skill.label} ${formatSignedNumber(total)}`);
+      result.push({
+        id: skill.key,
+        label: `${skill.label} ${formatSignedNumber(total)}`,
+        name: skill.label,
+        modifier: total,
+        ability,
+        key: skill.key,
+      });
     }
 
     for (const skill of settings?.custom ?? []) {
       const total = getCustomSkillValue(bonusContext.value, skill);
 
-      result.push(`${skill.name} ${formatSignedNumber(total)}`);
+      result.push({
+        id: skill.id,
+        label: `${skill.name} ${formatSignedNumber(total)}`,
+        name: skill.name,
+        modifier: total,
+        ability: skill.ability,
+      });
     }
 
-    return result.sort();
+    return result.sort((first, second) =>
+      first.name.localeCompare(second.name),
+    );
   });
+
+  /**
+   * Нажатие по бейджу навыка: вне правки катит проверку этого навыка — тем же
+   * окном, что и проверка характеристики. В правке бейдж ведёт в настройку
+   * навыков, как и нажатие по самому блоку: там числа правят, а не бросают.
+   *
+   * @param badge - навык бейджа
+   */
+  function handleSkillBadgeClick(badge: CreatureSkillBadge): void {
+    if (isEditMode.value) {
+      openSkillsModal();
+
+      return;
+    }
+
+    openDiceRoll({
+      modifier: badge.modifier,
+      title: `${ABILITY_CHECK_ROLL_LABELS.titlePrefix}${badge.name}`,
+      rollLabel: `${ABILITY_CHECK_ROLL_LABELS.rollPrefix}${badge.name}`,
+      rollButtonText: ABILITY_CHECK_ROLL_LABELS.button,
+      initialRollMode: resolveAbilityCheckRollMode({
+        flags: resolvedStats.value?.activeFlags ?? new Set(),
+        ability: badge.ability,
+        skill: badge.key,
+      }),
+    });
+  }
 
   /**
    * Какие блоки левой колонки показывать.
@@ -785,12 +895,21 @@
 
     return {
       exhaustion: isEditing || exhaustionLevel.value > 0,
-      vulnerabilities: isEditing || Boolean(defenses?.vulnerabilities.length),
-      resistances: isEditing || Boolean(defenses?.resistances.length),
-      immunities: isEditing || Boolean(defenses?.immunities.length),
+      vulnerabilities:
+        isEditing
+        || Boolean(defenses?.vulnerabilities.length)
+        || Boolean(defenses?.vulnerabilitiesText),
+      resistances:
+        isEditing
+        || Boolean(defenses?.resistances.length)
+        || Boolean(defenses?.resistancesText),
+      immunities:
+        isEditing
+        || Boolean(defenses?.immunities.length)
+        || Boolean(defenses?.immunitiesText),
       conditionImmunities:
         isEditing || Boolean(defenses?.conditionImmunities.length),
-      skills: isEditing || formattedSkills.value.length > 0,
+      skills: isEditing || skillBadges.value.length > 0,
       languages: isEditing || Boolean(system?.languages?.length),
       environments:
         isEditing
@@ -805,7 +924,16 @@
       creatureData: localCreature.value,
       onSave: (updates: Partial<DnDCreature>) => {
         if (localCreature.value) {
+          const previousSize = localCreature.value.system.size;
+
           Object.assign(localCreature.value, updates);
+
+          // Настройки токена меняют размер существа через масштаб — в обход
+          // `handleSystemUpdate`, и формула хитов обязана сойтись и здесь
+          if (localCreature.value.system.size !== previousSize) {
+            syncHitPointsWithRules();
+          }
+
           isDirty.value = true;
           handleImmediateSave();
         }
@@ -1013,23 +1141,27 @@
   }
 
   /**
-   * Обновляет список заклинаний существа (верхний уровень).
-   * @param spells - новый список заклинаний
+   * Обновляет заклинания существа вместе с их раскладкой по блокам.
+   *
+   * Одним обработчиком, а не двумя: правка почти всегда задевает и список, и
+   * блоки (заклинание кладут в группу, режим группы меняет его заряды), а
+   * двумя вызовами лист сохранялся бы дважды подряд.
+   *
+   * @param value - заклинания и блоки существа
    */
-  function handleSpellsUpdate(
-    spells: NonNullable<DnDCreature['spells']>,
-  ): void {
-    handleCreatureUpdate({ spells });
-  }
+  function handleSpellbookUpdate(value: {
+    spells: NonNullable<DnDCreature['spells']>;
+    blocks: NonNullable<DnDCreature['system']['spellcastingBlocks']>;
+  }): void {
+    if (!localCreature.value) {
+      return;
+    }
 
-  /**
-   * Обновляет параметры заклинательства существа (плоский DC/бонус/характеристика).
-   * @param spellcasting - новые параметры заклинательства
-   */
-  function handleSpellcastingUpdate(
-    spellcasting: NonNullable<DnDCreature['system']['spellcasting']>,
-  ): void {
-    handleSystemUpdate({ spellcasting });
+    localCreature.value.spells = value.spells;
+    localCreature.value.system.spellcastingBlocks = value.blocks;
+
+    isDirty.value = true;
+    handleImmediateSave();
   }
 
   /**
@@ -1249,7 +1381,20 @@
 
       const newSpell: Spell = { ...dropped, id: generateId('spell') };
 
-      handleCreatureUpdate({ spells: [...current, newSpell] });
+      const spells = [...current, newSpell];
+
+      // Перетащенное заклинание сразу кладётся в группу: вне блока заклинание
+      // существа не живёт — блок задаёт, чем оно колдует. Группа подбирается по
+      // зарядам записи, а если блока нет — заводится вместе с ним
+      handleSpellbookUpdate(
+        syncCreatureSpellcastingUses(
+          spells,
+          ensureCreatureSpellsInBlocks(
+            spells,
+            localCreature.value.system.spellcastingBlocks ?? [],
+          ),
+        ),
+      );
 
       activeTab.value = 'spells';
 
@@ -1484,6 +1629,8 @@
                 :proficiency-bonus="creatureProficiencyBonus"
                 :armor-class="resolvedStats?.armorClass"
                 :resolved-movement="resolvedStats?.movement"
+                :active-effects="combinedEffects"
+                :hit-dice-constitution-modifier="hitDiceConstitutionModifier"
                 @update:system="handleSystemUpdate"
               />
 
@@ -1539,6 +1686,13 @@
                     {{ CREATURE_SHEET_LABELS.empty }}
                   </span>
                 </div>
+
+                <p
+                  v-if="localCreature.system.defenses.vulnerabilitiesText"
+                  class="px-2 pb-2 text-xs wrap-break-word text-toned"
+                >
+                  {{ localCreature.system.defenses.vulnerabilitiesText }}
+                </p>
               </FieldsetLabel>
 
               <FieldsetLabel
@@ -1581,6 +1735,13 @@
                     {{ CREATURE_SHEET_LABELS.empty }}
                   </span>
                 </div>
+
+                <p
+                  v-if="localCreature.system.defenses.resistancesText"
+                  class="px-2 pb-2 text-xs wrap-break-word text-toned"
+                >
+                  {{ localCreature.system.defenses.resistancesText }}
+                </p>
               </FieldsetLabel>
 
               <FieldsetLabel
@@ -1621,6 +1782,13 @@
                     {{ CREATURE_SHEET_LABELS.empty }}
                   </span>
                 </div>
+
+                <p
+                  v-if="localCreature.system.defenses.immunitiesText"
+                  class="px-2 pb-2 text-xs wrap-break-word text-toned"
+                >
+                  {{ localCreature.system.defenses.immunitiesText }}
+                </p>
               </FieldsetLabel>
 
               <FieldsetLabel
@@ -1727,7 +1895,8 @@
 
               <!-- Навыки — бейджами, как в стат-блоке: у существа отмечены
                 считанные навыки, и полный список правил занимал бы всю колонку
-                ради трёх строк. Владения правят в своём окне -->
+                ради трёх строк. Владения правят в своём окне, а нажатие по
+                бейджу вне правки катит проверку этого навыка -->
               <FieldsetLabel
                 v-if="visibleBlocks.skills"
                 :label="GRANT_SECTION_LABELS.skills"
@@ -1747,15 +1916,19 @@
 
                 <div class="flex flex-wrap gap-1.5 p-2 pt-1">
                   <UBadge
-                    v-for="skill in formattedSkills"
-                    :key="skill"
-                    :label="skill"
+                    v-for="badge in skillBadges"
+                    :key="badge.id"
+                    :label="badge.label"
                     color="neutral"
                     variant="subtle"
+                    class="cursor-pointer transition-colors hover:bg-accented"
+                    @click.left.exact.stop.prevent="
+                      handleSkillBadgeClick(badge)
+                    "
                   />
 
                   <span
-                    v-if="formattedSkills.length === 0"
+                    v-if="skillBadges.length === 0"
                     class="text-xs text-dimmed italic"
                   >
                     {{ CREATURE_SHEET_LABELS.empty }}
@@ -1979,14 +2152,16 @@
                     <CreatureSpellsBlock
                       :creature="localCreature"
                       :spells="localCreature.spells"
-                      :spellcasting="localCreature.system.spellcasting"
+                      :spellcasting-blocks="
+                        localCreature.system.spellcastingBlocks
+                      "
                       :is-edit-mode="isEditMode"
                       :is-read-only="isReadOnly"
                       :can-edit="canControl && !isReadOnly"
                       :creature-id="localCreature.id"
                       :creature-name="localCreature.name"
-                      @update:spells="handleSpellsUpdate"
-                      @update:spellcasting="handleSpellcastingUpdate"
+                      :socket="socket"
+                      @update:spellbook="handleSpellbookUpdate"
                     />
                   </template>
 
@@ -2093,7 +2268,7 @@
     :title="diceRollConfig.title"
     :roll-label="diceRollConfig.rollLabel"
     :roll-button-text="diceRollConfig.rollButtonText"
-    initial-roll-mode="normal"
+    :initial-roll-mode="diceRollConfig.initialRollMode"
   />
 
   <!-- Языки -->

@@ -119,6 +119,8 @@ export interface BackgroundDefinition {
 export interface ActorBackgroundEntry {
   /** Ключ предыстории */
   backgroundKey: string;
+  /** Компендиум, из которого взята предыстория; см. {@link ActorClassEntry.packId} */
+  packId?: string;
   /** Русское название */
   backgroundName: string;
   /** Выбранное распределение характеристик: { strength: 2, wisdom: 1 } */

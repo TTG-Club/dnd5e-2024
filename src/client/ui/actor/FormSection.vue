@@ -1,6 +1,8 @@
 <script setup lang="ts">
   import { computed } from 'vue';
 
+  import SectionAddButton from './SectionAddButton.vue';
+
   const props = withDefaults(
     defineProps<{
       title?: string;
@@ -8,6 +10,8 @@
       icon?: string;
       /** Подсказка секции: иконка ⓘ с тултипом после текста заголовка */
       hint?: string;
+      /** Подпись кнопки добавления в шапке; пусто — кнопки нет */
+      addLabel?: string;
       /** Есть ли контент у секции (если false, то паддинги будут симметричными) */
       hasContent?: boolean;
     }>(),
@@ -15,9 +19,17 @@
       title: undefined,
       icon: undefined,
       hint: undefined,
+      addLabel: undefined,
       hasContent: true,
     },
   );
+
+  const emit = defineEmits<{ add: [] }>();
+
+  /** Нажатие кнопки добавления: список ведёт сама секция-хозяин. */
+  function add(): void {
+    emit('add');
+  }
 
   /** Классы цвета заголовка: с иконкой — основной текст, без — приглушённый */
   const titleColorClass = computed(() =>
@@ -42,8 +54,8 @@
   >
     <!-- Заголовок -->
     <div
-      v-if="title || $slots.header || $slots.actions"
-      class="flex h-6 items-center justify-between"
+      v-if="title || addLabel || $slots.header || $slots.actions"
+      class="flex min-h-6 items-center justify-between gap-2"
       :class="headerSpacingClass"
     >
       <slot name="header">
@@ -82,8 +94,14 @@
         </div>
       </slot>
 
-      <div class="flex items-center gap-2">
+      <div class="flex shrink-0 items-center gap-2">
         <slot name="actions" />
+
+        <SectionAddButton
+          v-if="addLabel"
+          :label="addLabel"
+          @click.left.exact.prevent="add"
+        />
       </div>
     </div>
 

@@ -1,3 +1,4 @@
+import type { AbilityType } from '@vtt/shared';
 import type {
   ActiveEffect,
   CarrierContext,
@@ -149,6 +150,12 @@ interface CreatureSpellRollSetupOptions {
    * `undefined` (нет цели / AoE) — части раскладываются на per-target гейт-ветки.
    */
   targetType?: CreatureCategory;
+  /**
+   * Заклинательная характеристика блока, из которого идёт каст. У блока она
+   * своя («Магия шабаша» карги считается от Интеллекта), и без неё токен
+   * `@mod.spell` посчитался бы от характеристики самого существа.
+   */
+  spellcastingAbility?: AbilityType;
 }
 
 /** Параметры сборщика бонус-частей урона заклинания */
@@ -649,7 +656,14 @@ export function useBonusDamageParts() {
   function buildCreatureSpellRollSetup(
     options: CreatureSpellRollSetupOptions,
   ): CreatureRollSetup {
-    const { spell, creature, effects, targetIsFull, targetType } = options;
+    const {
+      spell,
+      creature,
+      effects,
+      targetIsFull,
+      targetType,
+      spellcastingAbility,
+    } = options;
 
     const baseDamageParts = spell.damageParts ?? [];
 
@@ -661,7 +675,7 @@ export function useBonusDamageParts() {
     // save/area-пути, не мутируя сохранённое заклинание существа.
     const pseudoSpell: Spell = { ...spell };
 
-    const spellMod = getCreatureSpellMod(creature);
+    const spellMod = getCreatureSpellMod(creature, spellcastingAbility);
 
     const baseParts: SpellDamagePartInput[] = resolveCreatureSpellDamageParts(
       baseDamageParts,

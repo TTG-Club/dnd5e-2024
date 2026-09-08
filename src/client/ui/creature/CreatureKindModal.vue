@@ -134,7 +134,7 @@
             :items="CREATURE_SIZE_OPTIONS"
             value-key="value"
             label-key="label"
-            size="sm"
+            size="md"
             class="w-full"
             @update:model-value="onSizeSelect"
           />
@@ -146,7 +146,7 @@
             :items="CREATURE_CATEGORY_OPTIONS"
             value-key="value"
             label-key="label"
-            size="sm"
+            size="md"
             class="w-full"
             @update:model-value="onTypeSelect"
           />
@@ -158,7 +158,7 @@
             :items="CREATURE_ALIGNMENT_OPTIONS"
             value-key="value"
             label-key="label"
-            size="sm"
+            size="md"
             class="w-full"
             @update:model-value="onAlignmentSelect"
           />
@@ -169,7 +169,7 @@
           <UButton
             variant="ghost"
             color="neutral"
-            size="sm"
+            size="md"
             @click.left.exact.prevent="isOpen = false"
           >
             {{ MODAL_BUTTON_LABELS.cancel }}
@@ -177,7 +177,7 @@
 
           <UButton
             color="primary"
-            size="sm"
+            size="md"
             @click.left.exact.prevent="applyKind"
           >
             {{ MODAL_BUTTON_LABELS.apply }}

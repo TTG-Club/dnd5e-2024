@@ -14,6 +14,7 @@ import type {
 
 import type { ResolvedActorStats } from './activeEffectTypes.js';
 import type { ConditionRef } from './conditionKeys.js';
+import type { CreatureSpellcastingBlock } from './creatureSpellcasting.js';
 import type {
   CreatureCategory,
   CreatureSpellcasting,
@@ -1457,12 +1458,16 @@ export function getCreatureSpellRollButtonText(
  * Если заклинательная характеристика не задана — 0.
  *
  * @param creature - существо
+ * @param abilityOverride - характеристика блока заклинаний; у блока она своя
+ *   («Магия шабаша» от Интеллекта при мудром существе), и без переопределения
+ *   `@mod.spell` считался бы не от той характеристики
  * @returns модификатор `floor((значение - 10) / 2)` или 0
  */
 export function getCreatureSpellMod(
   creature: import('./dndEntities.js').DnDCreature,
+  abilityOverride?: AbilityType,
 ): number {
-  const ability = creature.system.spellcasting?.ability;
+  const ability = abilityOverride ?? creature.system.spellcasting?.ability;
 
   if (!ability) {
     return 0;
@@ -1575,12 +1580,74 @@ export function getCreatureSpellAttackBonus(
 }
 
 /**
+ * Числа заклинательства блока: сложность спасброска и бонус атаки.
+ *
+ * У блока свои характеристика и числа — «Магия шабаша» карги считается от
+ * Интеллекта со Сл 11, когда у самого существа заклинательство мудрое. Заданное
+ * у блока главнее; чего у блока нет — берётся у существа, иначе блок без своих
+ * чисел показывал бы прочерки там, где статблок даёт числа записи.
+ *
+ * @param creature - существо
+ * @param block - блок заклинаний; без него берутся числа самого существа
+ * @returns сложность спасброска и бонус атаки блока
+ */
+export function calculateCreatureSpellBlockNumbers(
+  creature: import('./dndEntities.js').DnDCreature,
+  block: CreatureSpellcastingBlock | undefined,
+): { saveDC: number | undefined; attackBonus: number | undefined } {
+  const creatureNumbers = calculateCreatureSpellcasting(
+    creature.system.spellcasting,
+    creature.system.abilities,
+    getCreatureProficiencyBonus(creature),
+  );
+
+  if (!block) {
+    return creatureNumbers;
+  }
+
+  const blockNumbers = calculateCreatureSpellcasting(
+    {
+      ability: block.ability,
+      saveDC: block.saveDC,
+      attackBonus: block.attackBonus,
+    },
+    creature.system.abilities,
+    getCreatureProficiencyBonus(creature),
+  );
+
+  return {
+    saveDC: blockNumbers.saveDC ?? creatureNumbers.saveDC,
+    attackBonus: blockNumbers.attackBonus ?? creatureNumbers.attackBonus,
+  };
+}
+
+/**
+ * Заклинательная характеристика, от которой считается каст: своя у блока, иначе
+ * общая у существа.
+ *
+ * @param creature - существо
+ * @param block - блок заклинаний
+ * @returns характеристика либо `undefined`, если её нет нигде
+ */
+export function getCreatureSpellBlockAbility(
+  creature: import('./dndEntities.js').DnDCreature,
+  block: CreatureSpellcastingBlock | undefined,
+): AbilityType | undefined {
+  return block?.ability ?? creature.system.spellcasting?.ability;
+}
+
+/**
  * Разворачивает части урона/лечения ЗАКЛИНАНИЯ существа в готовые к броску.
  *
  * В отличие от {@link resolveCreatureDamageParts}, токен `@mod.spell`
  * подставляется из модификатора заклинательной характеристики существа —
  * заклинания из компендиума несут `@mod.spell` в формулах (напр. лечение
- * «2к8 + @mod.spell»). Слот-скейлинг существам не применяется.
+ * «2к8 + @mod.spell»).
+ *
+ * Слот-скейлинг здесь НУЖЕН, в отличие от действий: группа блока называет круг
+ * наложения (`castLevel`), и заклинание с него кастуется усиленным. Получателя
+ * помечает общий {@link expandDamageParts}, а само усиление дописывает окно
+ * броска — только когда круг наложения выше базового круга заклинания.
  *
  * @param parts - части урона/лечения заклинания
  * @param targetIsFull - состояние HP цели для @target.* (undefined — per-target)
@@ -1612,7 +1679,7 @@ export function resolveCreatureSpellDamageParts(
         return formula;
       }
     },
-    { targetType },
+    { assignScaling: true, targetType },
   );
 }
 

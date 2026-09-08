@@ -211,6 +211,7 @@
     );
   }
 
+  /** Заводит вариант. Наружу: кнопка добавления живёт в шапке раздела. */
   function addOption(): void {
     options.value = [...options.value, createEquipmentOption(nextKey())];
   }
@@ -293,21 +294,12 @@
     },
     { immediate: true },
   );
+
+  defineExpose({ addOption });
 </script>
 
 <template>
   <div class="flex flex-col gap-3">
-    <p class="text-xs text-dimmed">
-      {{ STARTING_EQUIPMENT_EDITOR_LABELS.hint }}
-    </p>
-
-    <div
-      v-if="options.length === 0"
-      class="rounded-lg border border-dashed border-default p-3 text-center text-xs text-dimmed italic"
-    >
-      {{ STARTING_EQUIPMENT_EDITOR_LABELS.empty }}
-    </div>
-
     <FormSection
       v-for="(option, index) in options"
       :key="option.uid"
@@ -464,15 +456,6 @@
         </div>
       </div>
     </FormSection>
-
-    <UButton
-      icon="tabler:plus"
-      :label="STARTING_EQUIPMENT_EDITOR_LABELS.optionAdd"
-      color="primary"
-      variant="soft"
-      block
-      @click.left.exact.prevent="addOption"
-    />
 
     <CompendiumRefPickerModal
       v-if="canPick"

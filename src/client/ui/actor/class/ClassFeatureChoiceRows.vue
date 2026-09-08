@@ -11,7 +11,6 @@
   import { useExpandedRows } from '../../../composables/useExpandedRows';
   import {
     CLASS_FEATURE_CHOICE_LABELS,
-    CLASS_FEATURE_LABELS,
     CLASS_LEVEL_MAX,
     CLASS_OPTION_MECHANICS_TITLES,
   } from '../constants';
@@ -148,13 +147,6 @@
 
 <template>
   <div class="flex flex-col gap-2">
-    <div
-      v-if="choices.length === 0"
-      class="rounded-lg border border-dashed border-default p-3 text-center text-xs text-dimmed italic"
-    >
-      {{ CLASS_FEATURE_LABELS.choicesEmpty }}
-    </div>
-
     <div
       v-for="(choice, choiceIndex) in choices"
       :key="choice.uid"
@@ -342,7 +334,6 @@
         >
           <ClassMechanicsFields
             v-model:grants="choice.grants"
-            v-model:granted-spells="choice.grantedSpellRefs"
             v-model:active-effects="choice.activeEffects"
             :titles="CLASS_OPTION_MECHANICS_TITLES"
             :effects-modal-id="`class-option-effect-form-modal-${choice.uid}`"

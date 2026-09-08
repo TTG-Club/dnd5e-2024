@@ -106,6 +106,10 @@
         section.key === 'legendary'
           ? props.creature.system.legendary.count
           : undefined,
+      sectionDescription:
+        section.key === 'legendary'
+          ? (props.creature.system.legendary.description ?? '')
+          : '',
     }));
   });
 
@@ -248,6 +252,7 @@
         :creature-name="creature.name"
         :search="searchQuery"
         :legendary-count="section.legendaryCount"
+        :section-description="section.sectionDescription"
         @update="handleSectionUpdate(section.key, $event)"
         @update:legendary-count="emit('update:legendaryCount', $event)"
       />

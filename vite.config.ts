@@ -21,8 +21,10 @@ import { defineConfig } from 'vite';
 const HOST_MODULE_IDS: string[] = [
   '@/core/actorDragState',
   '@/core/api/chatService',
+  '@/core/api/rollRequestService',
   '@/core/clientHooks',
   '@/core/compendiumDataClient',
+  '@/core/entityDragState',
   '@/core/entityUtils',
   '@/core/extensionRegistry',
   '@/core/mimeTypes',

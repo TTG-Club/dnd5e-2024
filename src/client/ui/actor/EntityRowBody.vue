@@ -15,9 +15,12 @@
 
   import type { SourceDefinition } from '@vtt/shared';
 
+  import { useTemplateRef } from 'vue';
+
+  import { useListImage } from '../../composables/useListImage';
   import SourceBadge from './SourceBadge.vue';
 
-  defineProps<{
+  const props = defineProps<{
     /** Значок типа записи; пусто — строка без значка */
     icon?: string;
     /**
@@ -25,6 +28,12 @@
      * различает строки лучше любого значка. Пусто — показывается {@link icon}.
      */
     imageUrl?: string;
+    /**
+     * Строка с портретом: кругляш токена стоит всегда, даже когда картинки нет
+     * или она не доехала — внутри него тогда виден {@link icon}. Без этого
+     * строки без картинки шли с узким значком и разъезжались с соседями.
+     */
+    avatar?: boolean;
     name: string;
     /** Английское название — второй строкой */
     nameEn?: string;
@@ -33,16 +42,41 @@
     /** Определение источника, вписанное вместе с записью */
     source?: SourceDefinition;
   }>();
+
+  /**
+   * Картинка через общую очередь: в тег она попадает уже загруженной, поэтому
+   * «сломанный» значок браузера в списке не появляется даже при быстром скролле.
+   */
+  const avatarSlotRef = useTemplateRef<HTMLElement>('avatarSlot');
+
+  const { imageSrc, handleImageError } = useListImage(
+    () => props.imageUrl,
+    avatarSlotRef,
+  );
 </script>
 
 <template>
-  <img
-    v-if="imageUrl"
-    :src="imageUrl"
-    :alt="name"
-    loading="lazy"
-    class="h-8 w-8 shrink-0 rounded-full border border-default/50 object-cover"
-  />
+  <!-- Портрет записи: рамка держит место сама, поэтому строки с картинкой и
+    без неё стоят вровень -->
+  <span
+    v-if="avatar || imageUrl"
+    ref="avatarSlot"
+    class="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-default/50 bg-elevated"
+  >
+    <img
+      v-if="imageSrc"
+      :src="imageSrc"
+      :alt="name"
+      class="h-full w-full object-cover"
+      @error="handleImageError"
+    />
+
+    <UIcon
+      v-else-if="icon"
+      :name="icon"
+      class="h-4 w-4 text-muted"
+    />
+  </span>
 
   <UIcon
     v-else-if="icon"

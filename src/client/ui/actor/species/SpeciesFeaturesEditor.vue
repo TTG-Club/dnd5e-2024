@@ -45,7 +45,10 @@
 
   const { isExpanded, expand, toggle, drop } = useExpandedRows();
 
-  /** Добавляет особенность и сразу раскрывает её редактор. */
+  /**
+   * Добавляет особенность и сразу раскрывает её редактор. Наружу — кнопка
+   * добавления живёт в шапке раздела.
+   */
   function addFeature(): void {
     const feature: EditableFeature = {
       key: generateId('sf'),
@@ -77,17 +80,12 @@
   function forwardOpenSpell(spellId: string, packId?: string): void {
     emit('open-spell', spellId, packId);
   }
+
+  defineExpose({ addFeature });
 </script>
 
 <template>
   <div class="flex flex-col gap-2">
-    <div
-      v-if="features.length === 0"
-      class="rounded-lg border border-dashed border-default p-4 text-center text-xs text-dimmed italic"
-    >
-      {{ SPECIES_FEATURES_EDITOR_LABELS.empty }}
-    </div>
-
     <div
       v-for="(feature, featureIndex) in features"
       :key="feature.key"
@@ -162,15 +160,5 @@
         />
       </div>
     </div>
-
-    <UButton
-      icon="tabler:plus"
-      :label="SPECIES_FEATURES_EDITOR_LABELS.add"
-      color="primary"
-      variant="soft"
-      size="xs"
-      class="self-start"
-      @click.left.exact.prevent="addFeature"
-    />
   </div>
 </template>

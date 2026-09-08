@@ -458,12 +458,53 @@ function prerequisiteLine(featData: FeatData): string | null {
 }
 
 /**
- * Строит Markdown-список даров черты из её настроек (для таба «Автоматизация»
- * в просмотре). Возвращает пустую строку, если черта не несёт механических
- * даров (тогда таб не показывается).
+ * Строка сводки о выдаче целых списков классов.
  *
- * @param feat - источник даров с настройками (`featData`): черта, предмет или
- *   предыстория.
+ * Заклинания здесь не перечисляются: их и нет — запись хранит правило, а список
+ * собирается при выдаче. Игроку важно другое: чей это список, какого круга и с
+ * какого уровня.
+ *
+ * @param featData - блоб даров записи
+ * @returns строка сводки; `null` — списки классов запись не выдаёт
+ */
+function classSpellsLine(featData: FeatData): string | null {
+  const groups = featData.grantedClassSpells ?? [];
+
+  if (groups.length === 0) {
+    return null;
+  }
+
+  const parts = groups.map((group) => {
+    const classes = group.classNames?.length
+      ? group.classNames.join(', ')
+      : group.classKeys.join(', ');
+
+    const details: string[] = [];
+
+    if (group.fromSlots) {
+      details.push('не выше доступного круга');
+    } else if (group.level !== undefined) {
+      details.push(group.level === 0 ? 'заговоры' : `${group.level} круг`);
+    } else if (group.maxLevel !== undefined) {
+      details.push(`не выше ${group.maxLevel} круга`);
+    }
+
+    if (group.requiredLevel && group.requiredLevel > 1) {
+      details.push(`с ${group.requiredLevel} ур.`);
+    }
+
+    return details.length > 0 ? `${classes} (${details.join(', ')})` : classes;
+  });
+
+  return `- **Списки классов целиком:** ${parts.join('; ')}`;
+}
+
+/**
+ * Собирает читаемую сводку даров записи — тот текст, который карточка
+ * показывает под описанием.
+ *
+ * @param feat - черта, особенность или предыстория
+ * @returns сводка в Markdown; пустая строка, когда механики у записи нет
  */
 export function buildFeatGrantsSummary(
   feat: Feature | DnDGameItem | BackgroundDefinition,
@@ -489,6 +530,12 @@ export function buildFeatGrantsSummary(
   }
 
   if (featData) {
+    const classSpells = classSpellsLine(featData);
+
+    if (classSpells) {
+      lines.push(classSpells);
+    }
+
     const spellList = spellListLine(featData);
 
     if (spellList) {

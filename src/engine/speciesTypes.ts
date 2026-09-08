@@ -145,6 +145,20 @@ export interface GrantedSpellRef {
    * уровень стоит у самой особенности, — и поле остаётся пустым.
    */
   requiredLevel?: number;
+  /**
+   * Характеристика, от которой считаются ЭТИ заклинания; пусто — берётся выше:
+   * ответом игрока, характеристикой записи, характеристикой класса.
+   *
+   * У группы выдачи, а не только у записи целиком: один набор заклинаний записи
+   * может считаться от одной характеристики, другой — от другой.
+   */
+  spellcastingAbility?: import('@vtt/shared').AbilityType;
+  /**
+   * ЭТИ заклинания не нужно готовить; пусто — отметка берётся у записи. Заклинания
+   * домена всегда подготовлены, а выданное тем же умением сверх них подготовку
+   * занимает.
+   */
+  alwaysPrepared?: boolean;
 }
 
 /**
@@ -295,6 +309,8 @@ export interface SpeciesDefinition {
 export interface ActorSpeciesEntry {
   speciesKey: string;
   speciesName: string;
+  /** Компендиум, из которого взят вид; см. {@link ActorClassEntry.packId} */
+  packId?: string;
   creatureType: CreatureType;
   size: import('@vtt/shared').CreatureSize;
   /**

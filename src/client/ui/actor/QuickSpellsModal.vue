@@ -1,7 +1,7 @@
 <script setup lang="ts">
   import type { TypedWebSocketClient } from '@vtt/shared';
   import type {
-    CreatureSpellcasting,
+    CreatureSpellcastingBlock,
     DnDActor,
     DnDCreature,
     DnDSceneEntity,
@@ -18,7 +18,12 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useWorldStore } from '@/stores/worldStore';
   import { generateId, isActorEntity } from '@vtt/shared';
-  import { isDndSceneEntity, isSpell } from '@vtt/shared/system/dnd.js';
+  import {
+    ensureCreatureSpellsInBlocks,
+    isDndSceneEntity,
+    isSpell,
+    syncCreatureSpellcastingUses,
+  } from '@vtt/shared/system/dnd.js';
 
   import CreatureSpellsBlock from '../creature/CreatureSpellsBlock.vue';
   import {
@@ -115,35 +120,24 @@
   }
 
   /**
-   * Записывает новый список заклинаний существа и сразу сохраняет: у статблока
-   * нет режима правки с кнопкой «Сохранить».
+   * Записывает заклинания существа вместе с их раскладкой по блокам и сразу
+   * сохраняет: у статблока нет режима правки с кнопкой «Сохранить».
    *
-   * @param spells - новый список заклинаний
+   * @param value - заклинания и блоки существа
    */
-  function handleCreatureSpellsUpdate(spells: Spell[]): void {
+  function handleCreatureSpellbookUpdate(value: {
+    spells: Spell[];
+    blocks: CreatureSpellcastingBlock[];
+  }): void {
     if (!localCreature.value) {
       return;
     }
 
-    localCreature.value.spells = spells;
-    handleImmediateSave();
-  }
-
-  /**
-   * Записывает параметры заклинательства существа и сразу сохраняет.
-   *
-   * @param spellcasting - новые параметры заклинательства
-   */
-  function handleCreatureSpellcastingUpdate(
-    spellcasting: CreatureSpellcasting,
-  ): void {
-    if (!localCreature.value) {
-      return;
-    }
+    localCreature.value.spells = value.spells;
 
     localCreature.value.system = {
       ...localCreature.value.system,
-      spellcasting,
+      spellcastingBlocks: value.blocks,
     };
 
     handleImmediateSave();
@@ -224,7 +218,26 @@
         prepared: false,
       };
 
-      localActor.value.spells = [...(localActor.value.spells ?? []), newSpell];
+      const spells = [...(localActor.value.spells ?? []), newSpell];
+
+      // У существа заклинание вне блока не живёт: перетащенное сразу ложится в
+      // группу, подобранную по его зарядам. У актёра блоков нет — там список
+      // плоский, как и был
+      if (localCreature.value) {
+        handleCreatureSpellbookUpdate(
+          syncCreatureSpellcastingUses(
+            spells,
+            ensureCreatureSpellsInBlocks(
+              spells,
+              localCreature.value.system.spellcastingBlocks ?? [],
+            ),
+          ),
+        );
+
+        return;
+      }
+
+      localActor.value.spells = spells;
       handleImmediateSave();
     } catch {
       /* ошибка парсинга — игнорируем */
@@ -280,13 +293,13 @@
           v-else-if="localCreature"
           :creature="localCreature"
           :spells="localCreature.spells"
-          :spellcasting="localCreature.system.spellcasting"
+          :spellcasting-blocks="localCreature.system.spellcastingBlocks"
           :is-edit-mode="false"
           :creature-id="localCreature.id"
           :creature-name="localCreature.name"
+          :socket="socket"
           can-edit
-          @update:spells="handleCreatureSpellsUpdate"
-          @update:spellcasting="handleCreatureSpellcastingUpdate"
+          @update:spellbook="handleCreatureSpellbookUpdate"
         />
       </div>
     </template>

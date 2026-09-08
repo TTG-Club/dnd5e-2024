@@ -451,6 +451,54 @@ export function getAssetUrl(
 }
 
 /**
+ * Маршрут мира, отдающий картинки компендиума из своего кэша — КОНТРАКТ.
+ *
+ * Менять только вместе с `compendiumMediaRoutes.ts` на сервере.
+ */
+export const COMPENDIUM_MEDIA_ROUTE = '/api/compendium/media';
+
+/** Имя параметра со ссылкой на исходную картинку в {@link COMPENDIUM_MEDIA_ROUTE} */
+export const COMPENDIUM_MEDIA_URL_PARAM = 'url';
+
+/**
+ * Ссылка на картинку записи компендиума — через кэш своего мира.
+ *
+ * Картинки записей компендиума лежат на сайте (`https://…/s3/bestiary/…`), и
+ * тег `img` тянул их из интернета у КАЖДОГО клиента отдельно. Сайт ограничивает
+ * частоту: список, пролистанный быстро, шлёт запросы залпом и половина строк
+ * получает отказ «слишком часто» — и остаётся пустой.
+ *
+ * Поэтому клиент просит картинку у своего мира: мир скачивает файл ОДИН раз,
+ * когда его впервые попросили, и дальше отдаёт с диска — быстро, без интернета
+ * и одинаково всем за столом. Не скачалось — мир переадресует на исходную
+ * ссылку, то есть хуже прежнего не станет.
+ *
+ * Локальные пути (`data/creatures/…`, `assets/…`) и `data:` кэшировать нечего:
+ * для них это обычный {@link getAssetUrl}.
+ *
+ * @param url - ссылка на картинку из записи компендиума
+ * @param worldPort - порт сервера мира (обязателен в Electron)
+ * @returns ссылку для тега `img` или `null`, если картинки нет
+ */
+export function getCompendiumMediaUrl(
+  url: string | null | undefined,
+  worldPort?: number,
+): string | null {
+  if (!url) {
+    return null;
+  }
+
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    return getAssetUrl(url, worldPort);
+  }
+
+  const baseUrl = getServerBaseUrl(worldPort);
+  const query = `${COMPENDIUM_MEDIA_URL_PARAM}=${encodeURIComponent(url)}`;
+
+  return `${baseUrl}${COMPENDIUM_MEDIA_ROUTE}?${query}`;
+}
+
+/**
  * Декодирует percent-encoding в каждом сегменте пути, не трогая разделители `/`.
  *
  * Безопасно для уже «сырых» путей: сегмент без `%` остаётся как есть, а

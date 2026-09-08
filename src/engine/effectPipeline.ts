@@ -61,6 +61,7 @@ import {
   getProficiencyContribution,
   isProficiencyLevel,
 } from './calculations.js';
+import { bindClassLevels } from './classEffectScope.js';
 import { getTotalLevel } from './classTypes.js';
 import {
   ABILITY_KEYS,
@@ -362,13 +363,47 @@ export function itemEffectsActive(item: DnDGameItem): boolean {
 }
 
 /**
+ * Действует ли эффект вложенной записи — предмета или черты — на её носителя.
+ *
+ * Такая запись описывает не только своего хозяина. Эффект с
+ * `effectTarget: 'target'` адресован тому, по кому запись применили: «Липкий»
+ * мимика и «Похищение» багбира говорят про Схваченного — того, кто прилип или
+ * кого тащат. Аура без `applyToSelf` излучается наружу и хозяина не задевает.
+ * Носителю достаётся лишь то, что не отсеяно этими правилами и не выключено
+ * тумблером «Отключен».
+ *
+ * Собственные эффекты актора через эту проверку НЕ проходят — см. комментарий
+ * в {@link collectActiveEffects}.
+ *
+ * @param effect - эффект предмета или черты
+ * @returns `true`, если эффект применяется к носителю записи
+ */
+function affectsCarrier(effect: ActiveEffect): boolean {
+  if (effect.disabled) {
+    return false;
+  }
+
+  if (effect.effectTarget === 'target') {
+    return false;
+  }
+
+  if (effect.aura && !effect.aura.applyToSelf) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
  * Собирает все активные эффекты актора.
  *
  * Включает:
  * 1. Эффекты напрямую на акторе (actor.activeEffects)
  * 2. Эффекты с работающих предметов (см. {@link itemEffectsActive})
+ * 3. Пассивные эффекты черт существа (creature.system.traits)
  *
- * Исключает отключённые (disabled === true).
+ * Исключает отключённые (disabled === true), а у вложенных записей — ещё и
+ * чужие (см. {@link affectsCarrier}).
  *
  * @param actor - объект DnDActor | Creature
  * @returns массив активных эффектов (immutable)
@@ -378,7 +413,11 @@ export function collectActiveEffects(
 ): readonly ActiveEffect[] {
   const collectedEffects: ActiveEffect[] = [];
 
-  // Эффекты на самом акторе
+  // Эффекты на самом акторе. `affectsCarrier` здесь НЕ применяется: пометка
+  // `effectTarget: 'target'` у наложенного состояния сохраняется и после
+  // наложения (см. `buildEffectForTarget`), то есть на цели она говорит о
+  // происхождении, а не о чужом адресате. Отсев по ней снял бы с цели всё, что
+  // на неё навесили, — отравление, паралич, испуг.
   const actorEffects = actor.activeEffects ?? [];
 
   for (const effect of actorEffects) {
@@ -400,18 +439,9 @@ export function collectActiveEffects(
         continue;
       }
 
+      // Свойство transfer больше не требуется: переносятся все эффекты предметов
       for (const itemEffect of item.activeEffects) {
-        // Игнорируем отключенные эффекты, свойство transfer больше не требуется (все эффекты предметов переносятся)
-        if (!itemEffect.disabled) {
-          // Эффекты, предназначенные для цели атаки, не применяются к владельцу при экипировке
-          if (itemEffect.effectTarget === 'target') {
-            continue;
-          }
-
-          if (itemEffect.aura && !itemEffect.aura.applyToSelf) {
-            continue; // Эффект-аура экипировки генерируется, но на самого себя не действует
-          }
-
+        if (affectsCarrier(itemEffect)) {
           collectedEffects.push(itemEffect);
         }
       }
@@ -419,8 +449,11 @@ export function collectActiveEffects(
   }
 
   // Эффекты от черт существа (только для Creature).
-  // Черты (traits) содержат пассивные эффекты, постоянно действующие на само существо
-  // (например, «Магическое сопротивление»).
+  // Черты (traits) содержат пассивные эффекты, постоянно действующие на само
+  // существо (например, «Магическое сопротивление»), — но не только: часть
+  // описывает состояние чужого, и такие отсекает `affectsCarrier`. Без этого
+  // мимик хватал сам себя: флаг `speed.zero` обнулял ему скорость, и ядро
+  // отказывалось двигать токен, хотя на листе стоит 20 фт.
   // Эффекты из actions/bonusActions/reactions/legendary.actions НЕ собираются здесь —
   // они предназначены для применения к целям при использовании действия,
   // а не к самому существу.
@@ -431,18 +464,17 @@ export function collectActiveEffects(
       }
 
       for (const traitEffect of trait.activeEffects) {
-        if (!traitEffect.disabled) {
-          if (traitEffect.aura && !traitEffect.aura.applyToSelf) {
-            continue;
-          }
-
+        if (affectsCarrier(traitEffect)) {
           collectedEffects.push(traitEffect);
         }
       }
     }
   }
 
-  return collectedEffects;
+  // Уровень своего класса — в формулы умений класса. Здесь, в единственной
+  // точке сбора: дальше эффекты расходятся по статам листа, бонус-частям урона
+  // и подписям, и подставлять число у каждого потребителя пришлось бы заново
+  return bindClassLevels(collectedEffects, actor);
 }
 
 // ── Фаза 2: applyActiveEffects ────────────────────────────────
@@ -1001,7 +1033,8 @@ function resolveConditionalValue(
   formulaContext: FormulaContext | undefined,
 ): number {
   if (formulaContext) {
-    return resolveChangeValue(value, formulaContext);
+    // Условный бонус только складывается: нечитаемое значение вклада не даёт
+    return resolveChangeValue(value, formulaContext) ?? 0;
   }
 
   const plainValue = Number(value);
@@ -1193,6 +1226,13 @@ function applyChange(
 
   try {
     const resolvedValue = resolveChangeValue(change.value, formulaContext);
+
+    // Значение не разобралось: строка эффекта не применяется вовсе. Иначе
+    // «заменить» с пустым значением обнулило бы поле, и лист замер бы молча
+    if (resolvedValue === undefined) {
+      return;
+    }
+
     const currentValue = getStatValue(stats, change.key);
     const newValue = applyMode(currentValue, resolvedValue, change.mode);
 
@@ -1217,21 +1257,25 @@ function applyChange(
 /**
  * Вычисляет числовое значение из строки (число или формула).
  *
+ * Нечитаемое значение — это НЕ ноль: у режимов «заменить», «умножить» и
+ * «понизить» ноль означал бы «обнулить поле», и пустая строка эффекта молча
+ * гасила бы скорость, КД или хиты носителя. Такое изменение пропускается
+ * целиком, поэтому неудача возвращается отдельным `undefined`, а не числом.
+ *
  * @param value - строка со значением или формулой
  * @param formulaContext - контекст @-переменных
- * @returns числовое значение
+ * @returns числовое значение либо `undefined`, если значение не разбирается
  */
 function resolveChangeValue(
   value: string,
   formulaContext: FormulaContext,
-): number {
+): number | undefined {
   try {
     return evaluateFormula(value, formulaContext);
   } catch {
-    // Если формула невалидна — игнорируем (fallback на 0)
     console.warn(`[ActiveEffects] Невалидная формула: "${value}"`);
 
-    return 0;
+    return undefined;
   }
 }
 
@@ -1302,12 +1346,15 @@ function applyDerivedChanges(
 
   for (const change of changes) {
     const previousValue = value;
+    const resolvedValue = resolveChangeValue(change.value, formulaContext);
 
-    value = applyMode(
-      value,
-      resolveChangeValue(change.value, formulaContext),
-      change.mode,
-    );
+    // Нечитаемое значение производного ключа пропускается по той же причине,
+    // что и у базовых: ноль тут значил бы «обнулить», а не «нет значения»
+    if (resolvedValue === undefined) {
+      continue;
+    }
+
+    value = applyMode(value, resolvedValue, change.mode);
 
     if (
       value !== previousValue

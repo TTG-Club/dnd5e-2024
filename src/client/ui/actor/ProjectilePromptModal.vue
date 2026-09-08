@@ -91,7 +91,20 @@
     { immediate: true },
   );
 
+  /**
+   * Каст с нулём розданных снарядов применять нечему: серия бросков выходит по
+   * пустому списку целей и гаснет без единой строки в чате. Пока цели не
+   * выбраны, галочка неактивна — это единственный внятный сигнал игроку.
+   */
+  const canConfirm = computed(
+    () => projectileStore.assignedProjectilesCount > 0,
+  );
+
   function handleConfirm() {
+    if (!canConfirm.value) {
+      return;
+    }
+
     emit('update:open', false);
     emit('close');
     props.onConfirm(selectedSpellLevel.value);
@@ -127,6 +140,10 @@
           </span>
         </div>
 
+        <p class="text-xs text-dimmed">
+          {{ PROJECTILE_PROMPT_LABELS.targetingHint }}
+        </p>
+
         <p
           v-if="distributionHint"
           class="text-xs text-dimmed"
@@ -161,6 +178,7 @@
               color="primary"
               variant="solid"
               size="sm"
+              :disabled="!canConfirm"
               @click.left.exact.prevent="handleConfirm"
             />
 

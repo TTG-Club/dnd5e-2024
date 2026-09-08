@@ -1,4 +1,6 @@
 <script setup lang="ts">
+  import type { PackKindEntries } from '@/core/compendiumDataClient';
+  import type { DraggedCompendiumEntry } from '@/core/entityDragState';
   import type {
     CompendiumManifest,
     CompendiumSeparator,
@@ -14,7 +16,11 @@
     GrantedSpellSource,
     SpeciesDefinition,
     Spell,
+    StartingEquipmentItem,
   } from '@vtt/shared/system/dnd.js';
+
+  import type { CatalogPack } from '../../composables/useCompendiumCatalog';
+  import type { EquipmentIndex } from '../../composables/useStartingEquipment';
 
   import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
@@ -24,28 +30,36 @@
   } from '@/core/actorDragState';
   import { getChatService } from '@/core/api/chatService';
   import {
-    loadCompendiumKind,
+    loadCompendiumKindByPack,
     loadCompendiumManifests,
   } from '@/core/compendiumDataClient';
+  import { startCompendiumEntryDrag } from '@/core/entityDragState';
   import { getEntityCard } from '@/core/registries';
   import EntityCard from '@/shared_ui/components/EntityCard.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useCompendiumView } from '@/shared_ui/composables/useCompendiumView';
-  import { generateId, getAssetUrl, systemRegistry } from '@vtt/shared';
+  import {
+    generateId,
+    getAssetUrl,
+    isRecord,
+    systemRegistry,
+  } from '@vtt/shared';
 
+  import { flattenPreferringBy } from '../../composables/useCompendiumCatalog';
+  import {
+    buildEquipmentItems,
+    loadEquipmentIndex,
+  } from '../../composables/useStartingEquipment';
   import {
     COMPENDIUM_LABELS,
     COMPENDIUM_PACK_BUTTON_CLASS,
     COMPENDIUM_PACK_BUTTON_IDLE_CLASS,
     COMPENDIUM_PACK_BUTTON_SELECTED_CLASS,
     GRANTED_SPELL_FEATURE_PREFIX,
+    PINNED_SPELL_FEATURE_PREFIX,
     SHEET_FILTER_LABELS,
   } from '../actor/constants';
 
-  /**
-   * Расширенный тип записи компендиума — включает все реальные типы данных,
-   * приходящие из разных data-файлов (classes, species, backgrounds, feats, spells)
-   */
   /** Запись существа в компендиуме */
   interface CompendiumCreatureEntry {
     id: string;
@@ -65,12 +79,25 @@
     equipment?: import('@vtt/shared/system/dnd.js').DnDGameItem[];
   }
 
+  /** Канонический тип записей существ в компендиуме */
+  const CREATURE_KIND = 'creature';
+
   /**
    * Настройка показа по типу записей, узнанная из манифеста. Общая на все окна
    * и на всю сессию: манифест за неё не меняется, а перечитывать его на каждое
    * открытие — значит каждый раз открывать окно не в своём макете.
    */
   const kindViewCache = new Map<string, CompendiumView>();
+
+  /**
+   * Типы, чьи копии из разных паков показываются каждая своей строкой: их
+   * выбирают на лист, и копия из одного компендиума — не то же, что из другого.
+   */
+  const KINDS_WITH_COPIES: ReadonlySet<string> = new Set([
+    'class',
+    'species',
+    'background',
+  ]);
 
   // `ClassDefinition`/`SpeciesDefinition` перечислены явно, хотя по форме и
   // подошли бы под `Record<string, unknown>`: интерфейсу TypeScript индексную
@@ -145,6 +172,25 @@
      * компендиума, т.к. источники ссылаются именно на него.
      */
     grantedSpells?: GrantedSpellSource[];
+    /**
+     * Заклинания, доступные персонажу сверх списка класса, — расширение списка
+     * от умений, черт и вида. Показываются первыми, своей секцией и независимо
+     * от фильтра по классу (иначе он бы их спрятал), а выбираются наравне с
+     * классовыми — с бейджем источника.
+     */
+    pinnedSpells?: GrantedSpellSource[];
+    /**
+     * Выбор без предела: окно открыто, чтобы пополнить книгу заклинаний листа,
+     * и сколько их взять, решает не окно. Норму показывает сам лист счётчиком
+     * по таблице класса — предел здесь спорил бы с ним.
+     */
+    unlimitedSelection?: boolean;
+    /**
+     * Пак записи, ради которой открыт браузер (класс персонажа): заклинание,
+     * черта или предмет, повторённые в нескольких паках, остаются его копией.
+     * Пусто — побеждает первая по порядку паков хоста.
+     */
+    preferredPackId?: string;
   }>();
 
   const emit = defineEmits<{
@@ -155,6 +201,22 @@
   }>();
 
   const items = ref<CompendiumDataItem[]>([]);
+
+  /**
+   * Пак каждой записи узла типа: записи разных паков лежат в одном списке, и
+   * различить копии одной записи можно только по нему. Ключ — сама запись:
+   * движок показа фильтрует и сортирует те же объекты, не копируя их.
+   */
+  const entryPacks = new WeakMap<
+    object,
+    { packId: string; packName: string }
+  >();
+
+  /**
+   * Ключи записей, встретившихся больше чем в одном паке, — им нужна подпись
+   * пака, иначе две одинаковые строки не отличить.
+   */
+  const duplicatedKeys = ref<Set<string>>(new Set());
 
   /**
    * Настройка показа, взятая из манифеста при загрузке по типу записей. Проп
@@ -187,7 +249,9 @@
   /** Активен ли режим выбора */
   const isSelectionMode = computed(
     () =>
-      props.selectionLimit !== undefined || props.cantripsLimit !== undefined,
+      props.selectionLimit !== undefined
+      || props.cantripsLimit !== undefined
+      || Boolean(props.unlimitedSelection),
   );
 
   /** Нормализованные названия уже изученных заклинаний персонажа */
@@ -234,6 +298,35 @@
    */
   function getGrantedFeatureName(spell: Spell): string {
     return grantedFeatureNameBySpellId.value.get(spell.id) ?? '';
+  }
+
+  /** Карта «id заклинания компендиума → запись, открывшая его сверх списка класса» */
+  const pinnedFeatureNameBySpellId = computed(() => {
+    const featureNameById = new Map<string, string>();
+
+    for (const pinned of props.pinnedSpells ?? []) {
+      featureNameById.set(pinned.spellId, pinned.featureName);
+    }
+
+    return featureNameById;
+  });
+
+  /**
+   * Доступно ли заклинание сверх списка класса.
+   *
+   * @param spell - заклинание компендиума
+   */
+  function isSpellPinned(spell: Spell): boolean {
+    return pinnedFeatureNameBySpellId.value.has(spell.id);
+  }
+
+  /**
+   * Запись, открывшая заклинание сверх списка класса.
+   *
+   * @param spell - заклинание компендиума
+   */
+  function getPinnedFeatureName(spell: Spell): string {
+    return pinnedFeatureNameBySpellId.value.get(spell.id) ?? '';
   }
 
   /**
@@ -304,6 +397,8 @@
 
     if (newSet.has(spell.id)) {
       newSet.delete(spell.id);
+    } else if (props.unlimitedSelection) {
+      newSet.add(spell.id);
     } else {
       const isCantrip = spell.level === 0;
 
@@ -355,7 +450,7 @@
       return true;
     }
 
-    if (selectedSpells.value.has(spell.id)) {
+    if (selectedSpells.value.has(spell.id) || props.unlimitedSelection) {
       return false;
     }
 
@@ -450,6 +545,43 @@
     view: () => props.view ?? kindView.value,
     items,
     searchQuery,
+  });
+
+  /**
+   * Записи к показу: заклинания сверх списка класса — первыми, своей секцией и
+   * независимо от фильтров. Расширение списка («Заклинания метки», заклинания
+   * домена) добавляет персонажу заклинания не его класса, и фильтр по классу
+   * спрятал бы их. Сами записи остаются в `items`, поэтому выбор и
+   * подтверждение работают для них так же, как для любой записи каталога.
+   */
+  const visibleEntries = computed<CompendiumDataItem[]>(() => {
+    const pinnedIds = pinnedFeatureNameBySpellId.value;
+
+    if (pinnedIds.size === 0) {
+      return filteredEntries.value;
+    }
+
+    const pinned = items.value.filter(
+      (entry): entry is Spell =>
+        isSpellDataItem(entry) && pinnedIds.has(entry.id),
+    );
+
+    if (pinned.length === 0) {
+      return filteredEntries.value;
+    }
+
+    const pinnedIdSet = new Set(pinned.map((spell) => spell.id));
+
+    const rest = filteredEntries.value.filter(
+      (entry) => !(isSpellDataItem(entry) && pinnedIdSet.has(entry.id)),
+    );
+
+    const separator: CompendiumSeparator = {
+      type: 'separator',
+      name: COMPENDIUM_LABELS.pinnedSection,
+    };
+
+    return [separator, ...pinned, ...rest];
   });
 
   /**
@@ -680,27 +812,99 @@
     loadedItems: CompendiumDataItem[],
   ): void {
     if (dataFile === props.dataFile) {
-      // Сортируем по алфавиту для классов и видов
-      if (isClassData.value || isSpeciesData.value) {
-        loadedItems.sort((entryA, entryB) => {
-          const nameA =
-            'name' in entryA && typeof entryA.name === 'string'
-              ? entryA.name
-              : '';
-
-          const nameB =
-            'name' in entryB && typeof entryB.name === 'string'
-              ? entryB.name
-              : '';
-
-          return nameA.localeCompare(nameB, 'ru');
-        });
-      }
-
-      items.value = loadedItems;
-      isLoading.value = false;
-      loadedFile.value = dataFile;
+      void applyDataFileItems(dataFile, loadedItems);
     }
+  }
+
+  /**
+   * Показывает записи узла одного пака.
+   *
+   * Перед показом записи помечаются паком-владельцем узла: у такого узла пак
+   * один, и его записи уходят на лист вместе с ним — иначе перенос из «TTG Club»
+   * ложился бы на лист копией из первого попавшегося одноимённого компендиума.
+   *
+   * @param dataFile - ключ узла
+   * @param loadedItems - записи узла
+   */
+  async function applyDataFileItems(
+    dataFile: string,
+    loadedItems: CompendiumDataItem[],
+  ): Promise<void> {
+    // Сортируем по алфавиту для классов и видов
+    if (isClassData.value || isSpeciesData.value) {
+      loadedItems.sort((entryA, entryB) => {
+        const nameA =
+          'name' in entryA && typeof entryA.name === 'string'
+            ? entryA.name
+            : '';
+
+        const nameB =
+          'name' in entryB && typeof entryB.name === 'string'
+            ? entryB.name
+            : '';
+
+        return nameA.localeCompare(nameB, 'ru');
+      });
+    }
+
+    await tagEntriesWithPackOf(dataFile, loadedItems);
+
+    // Пока ждали манифесты, узел могли сменить — ответ уже не про то, что показано
+    if (dataFile !== props.dataFile) {
+      return;
+    }
+
+    duplicatedKeys.value = new Set();
+    items.value = loadedItems;
+    isLoading.value = false;
+    loadedFile.value = dataFile;
+  }
+
+  /**
+   * Помечает записи паком, которому принадлежит узел. Манифесты хост отдаёт
+   * из кеша, поэтому ожидание здесь — на первый раз.
+   *
+   * @param dataFile - ключ узла
+   * @param entries - записи узла
+   */
+  async function tagEntriesWithPackOf(
+    dataFile: string,
+    entries: ReadonlyArray<CompendiumDataItem>,
+  ): Promise<void> {
+    if (!props.socket) {
+      return;
+    }
+
+    const manifests = await loadCompendiumManifests(props.socket);
+
+    const owner = manifests.find((manifest) =>
+      treeHasDataFile(manifest.tree, dataFile),
+    );
+
+    if (!owner) {
+      return;
+    }
+
+    for (const entry of entries) {
+      entryPacks.set(entry, { packId: owner.id, packName: owner.name });
+    }
+  }
+
+  /**
+   * Есть ли в дереве манифеста узел с таким ключом.
+   *
+   * @param nodes - узлы дерева
+   * @param dataFile - искомый ключ узла
+   */
+  function treeHasDataFile(
+    nodes: ReadonlyArray<CompendiumTreeNode>,
+    dataFile: string,
+  ): boolean {
+    return nodes.some(
+      (node) =>
+        node.dataFile === dataFile
+        || (node.children ? treeHasDataFile(node.children, dataFile) : false),
+    );
   }
 
   /** Запрашивает данные из data-файла */
@@ -745,8 +949,8 @@
 
     isLoading.value = true;
 
-    const [entries, manifests] = await Promise.all([
-      loadCompendiumKind(socket, kind),
+    const [packs, manifests] = await Promise.all([
+      loadCompendiumKindByPack(socket, kind),
       loadCompendiumManifests(socket),
     ]);
 
@@ -756,10 +960,153 @@
       kindViewCache.set(kind, view);
     }
 
-    items.value = [...entries];
+    items.value = collectKindEntries(packs, kind);
     kindView.value = view;
     loadedFile.value = kind;
     isLoading.value = false;
+
+    if (kind === CREATURE_KIND) {
+      void warmEquipmentIndex();
+    }
+  }
+
+  /**
+   * Индекс предметов компендиума для снаряжения существа. Греется заранее и
+   * без ожидания: существо для переноса собирается прямо в обработчике
+   * `dragstart`, а тот ничего ждать не умеет. Пак предпочтения не указывается —
+   * какого пака будет существо, к моменту загрузки списка ещё не известно.
+   */
+  const equipmentIndex = ref<EquipmentIndex>(new Map());
+
+  /** Загружает индекс предметов один раз на открытие окна. */
+  async function warmEquipmentIndex(): Promise<void> {
+    if (equipmentIndex.value.size > 0) {
+      return;
+    }
+
+    equipmentIndex.value = await loadEquipmentIndex(props.socket);
+  }
+
+  /**
+   * Ключ записи внутри пака: `key` у определений, `id` у остального.
+   *
+   * @param entry - запись списка
+   */
+  function entryKeyOf(entry: CompendiumDataItem): string | undefined {
+    if ('key' in entry && typeof entry.key === 'string') {
+      return entry.key;
+    }
+
+    return 'id' in entry && typeof entry.id === 'string' ? entry.id : undefined;
+  }
+
+  /**
+   * Записи типа со всех паков одним списком.
+   *
+   * Класс, вид и предыстория остаются каждой копией: их выбирают на лист, и
+   * копия из DEV-компендиума — другая запись, чем из ПРОД. Остальное
+   * (заклинания, черты, предметы) схлопывается по ключу: при повторе побеждает
+   * копия предпочтённого пака — пака класса персонажа, — иначе первая по
+   * порядку хоста.
+   *
+   * @param packs - записи по пакам
+   * @param kind - канонический тип записей
+   */
+  function collectKindEntries(
+    packs: ReadonlyArray<PackKindEntries>,
+    kind: string,
+  ): CompendiumDataItem[] {
+    const catalogPacks: CatalogPack<CompendiumDataItem>[] = packs.map(
+      (pack) => ({
+        packId: pack.packId,
+        packName: pack.packName,
+        entries: [...pack.entries],
+      }),
+    );
+
+    for (const pack of catalogPacks) {
+      for (const entry of pack.entries) {
+        entryPacks.set(entry, { packId: pack.packId, packName: pack.packName });
+      }
+    }
+
+    if (!KINDS_WITH_COPIES.has(kind)) {
+      duplicatedKeys.value = new Set();
+
+      // Записи без ключа (разделители) уникальны сами по себе
+      let unkeyed = 0;
+
+      return flattenPreferringBy(
+        catalogPacks,
+        props.preferredPackId,
+        (entry) => entryKeyOf(entry) ?? `#${unkeyed++}`,
+      );
+    }
+
+    const seenKeys = new Set<string>();
+    const duplicates = new Set<string>();
+
+    for (const pack of catalogPacks) {
+      for (const entry of pack.entries) {
+        const key = entryKeyOf(entry);
+
+        if (key === undefined) {
+          continue;
+        }
+
+        if (seenKeys.has(key)) {
+          duplicates.add(key);
+        } else {
+          seenKeys.add(key);
+        }
+      }
+    }
+
+    duplicatedKeys.value = duplicates;
+
+    return catalogPacks.flatMap((pack) => pack.entries);
+  }
+
+  /**
+   * Подпись пака у строки — только когда та же запись есть и в другом паке: у
+   * единственной копии подпись лишняя.
+   *
+   * @param entry - запись списка
+   */
+  function packLabelFor(entry: CompendiumDataItem): string | undefined {
+    const key = entryKeyOf(entry);
+
+    if (key === undefined || !duplicatedKeys.value.has(key)) {
+      return undefined;
+    }
+
+    return entryPacks.get(entry)?.packName;
+  }
+
+  /**
+   * Пак записи — уходит на лист вместе с определением при переносе.
+   *
+   * @param entry - запись списка
+   */
+  function packIdOf(entry: CompendiumDataItem): string | undefined {
+    return entryPacks.get(entry)?.packId;
+  }
+
+  /**
+   * Ключ строки списка: копии одной записи из разных паков различаются паком.
+   *
+   * @param entry - запись списка
+   * @param index - позиция в списке — для записей без идентификатора
+   */
+  function rowKey(entry: CompendiumDataItem, index: number): string {
+    if (isSeparator(entry)) {
+      return `sep-${index}`;
+    }
+
+    const id = 'id' in entry ? String(entry.id) : String(index);
+    const packId = packIdOf(entry);
+
+    return packId ? `${packId}::${id}` : id;
   }
 
   /**
@@ -1054,10 +1401,63 @@
 
   /**
    * Открывает лист существа из компендиума (режим только просмотр).
+   *
+   * Инвентарь раскладывается тем же способом, что и при переносе в мир: иначе
+   * вкладка «Инвентарь» в предпросмотре была бы пуста у каждого существа —
+   * своего `equipment` записи пака не везут, снаряжение приезжает позициями.
+   *
    * @param creatureEntry - запись существа из компендиума
    */
   function openCreatureDetail(creatureEntry: CompendiumCreatureEntry): void {
-    getEntityCard('creature')?.openDetail?.(creatureEntry);
+    getEntityCard('creature')?.openDetail?.({
+      ...creatureEntry,
+      equipment: creatureEquipment(creatureEntry),
+    });
+  }
+
+  /**
+   * Инвентарь записи существа: свой, а если его нет — разложенные позиции
+   * снаряжения. Индекс предметов мог ещё не догреться — тогда позиция станет
+   * предметом по названию, как и при переносе в мир.
+   *
+   * @param creatureEntry - запись существа компендиума
+   */
+  function creatureEquipment(
+    creatureEntry: CompendiumCreatureEntry,
+  ): DnDGameItem[] | undefined {
+    if (creatureEntry.equipment?.length) {
+      // Копией: лист правит инвентарь на месте, а запись пака общая на всех,
+      // кто её открыл.
+      return JSON.parse(JSON.stringify(creatureEntry.equipment));
+    }
+
+    const gear = buildEquipmentItems(
+      equipmentIndex.value,
+      creatureGearItems(creatureEntry),
+    );
+
+    return gear.length > 0 ? gear : undefined;
+  }
+
+  /**
+   * Позиции снаряжения записи существа. Блок `system` приезжает нетипизированной
+   * картой, поэтому позиции отбираются по форме: нужна хотя бы строка названия.
+   *
+   * @param creatureEntry - запись существа компендиума
+   */
+  function creatureGearItems(
+    creatureEntry: CompendiumCreatureEntry,
+  ): StartingEquipmentItem[] {
+    const raw = creatureEntry.system?.gearItems;
+
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+
+    return raw.filter(
+      (item): item is StartingEquipmentItem =>
+        isRecord(item) && typeof item.name === 'string' && item.name !== '',
+    );
   }
 
   /**
@@ -1087,9 +1487,9 @@
       spells: creatureEntry.spells
         ? JSON.parse(JSON.stringify(creatureEntry.spells))
         : undefined,
-      equipment: creatureEntry.equipment
-        ? JSON.parse(JSON.stringify(creatureEntry.equipment))
-        : undefined,
+      // Снаряжение статблока — предметами в инвентарь: строка книги сама по
+      // себе ни весом, ни уроном не обладает, а мастеру нужно именно это.
+      equipment: creatureEquipment(creatureEntry),
     };
 
     // Применяем нормализацию, чтобы перевести старые поля токена (hasVision -> enabled)
@@ -1109,12 +1509,21 @@
 
   /**
    * Копирует существо из компендиума в список существ мира.
+   *
+   * Индекс предметов дожидается здесь, а не греется молча: у кнопки ждать
+   * можно, и снаряжение тогда раскладывается в инвентарь всегда, даже если по
+   * ней нажали сразу после открытия окна.
+   *
    * @param creatureEntry - запись существа
    */
-  function copyCreature(creatureEntry: CompendiumCreatureEntry): void {
+  async function copyCreature(
+    creatureEntry: CompendiumCreatureEntry,
+  ): Promise<void> {
     if (!props.socket) {
       return;
     }
+
+    await warmEquipmentIndex();
 
     props.socket.emit('creature:created', buildWorldCreature(creatureEntry));
   }
@@ -1125,6 +1534,9 @@
    * сцена при дропе копирует его в список существ (creature:created) и ставит
    * токен. Каждый dragstart генерирует новое существо с уникальным id, поэтому
    * повторный перенос создаёт отдельную копию.
+   *
+   * Правая панель приложения принимает существо иначе — через общее описание
+   * записи (`startCompendiumEntryDrag`), поэтому оба формата пишутся вместе.
    *
    * @param creatureEntry - запись существа компендиума
    * @param event - событие dragstart
@@ -1137,8 +1549,6 @@
       return;
     }
 
-    event.dataTransfer.effectAllowed = 'copy';
-
     const creature = buildWorldCreature(creatureEntry);
 
     event.dataTransfer.setData(
@@ -1148,6 +1558,18 @@
         fromCompendium: true,
         creature,
       }),
+    );
+
+    // Существо для правой панели: она копирует ровно то же, что кнопка
+    // «Копировать», — уже собранное существо, а не запись компендиума
+    startCompendiumEntryDrag(
+      {
+        kind: entryKind(creatureEntry),
+        title: creature.name,
+        image: creature.token?.imageUrl ?? null,
+        copyToWorld: () => props.socket?.emit('creature:created', creature),
+      },
+      event.dataTransfer,
     );
 
     // Ghost-превью на сцене (тот же механизм, что у списка существ): данные
@@ -1170,8 +1592,170 @@
     event.dataTransfer.setDragImage(emptyCanvas, 0, 0);
   }
 
-  /** Завершение перетаскивания существа из компендиума (drop или отмена). */
-  function onCreatureDragEnd(): void {
+  /**
+   * Название записи для подписи в зоне сброса.
+   *
+   * @param entry - запись компендиума
+   * @returns название или пустая строка, если его нет
+   */
+  function entryTitle(entry: CompendiumDataItem): string {
+    return 'name' in entry && typeof entry.name === 'string' ? entry.name : '';
+  }
+
+  /**
+   * Канонический вид записи — по нему приёмник решает, в какой раздел мира она
+   * попадёт. Приоритет тот же, что у выбора карточки: собственное поле `type`
+   * записи, затем `dataKind` узла (у определений вида, предыстории, класса и
+   * черты своего поля нет).
+   *
+   * @param entry - запись компендиума
+   * @returns вид записи; пустая строка — вида нет
+   */
+  function entryKind(entry: CompendiumDataItem): string {
+    const ownType =
+      'type' in entry && typeof entry.type === 'string' ? entry.type : '';
+
+    return ownType || dataKind.value;
+  }
+
+  /**
+   * Разбирает запись в описание перетаскивания: вид, подпись и способ положить
+   * её в мир. Вид и способ — те же, что у кнопки «Копировать» в строке: одна
+   * запись не может копироваться в мир двумя разными путями.
+   *
+   * Вид записи не перечисляется здесь заново: у определений (вид, предыстория,
+   * класс, черта) его несёт `dataKind` узла, у записей с собственным полем
+   * `type` — само поле. Вторая копия этого списка разошлась бы с ветками
+   * показа при первом же новом типе.
+   *
+   * Существо здесь не разбирается: у него свой обработчик, кладущий в буфер
+   * ещё и payload для стола.
+   *
+   * @param entry - запись компендиума
+   * @returns описание перетаскивания или null, если запись в мир не копируется
+   */
+  function resolveEntryDrag(
+    entry: CompendiumDataItem,
+  ): DraggedCompendiumEntry | null {
+    if (isSpeciesData.value && isSpeciesDefinition(entry)) {
+      return {
+        kind: entryKind(entry),
+        title: entry.name,
+        image: null,
+        copyToWorld: () => copySpeciesToItems(entry),
+      };
+    }
+
+    if (isBackgroundData.value && isBackgroundDefinition(entry)) {
+      return {
+        kind: entryKind(entry),
+        title: entryTitle(entry),
+        image: null,
+        copyToWorld: () => copyToItems(backgroundCopyId(entry)),
+      };
+    }
+
+    if (isClassData.value && isClassDefinition(entry)) {
+      return {
+        kind: entryKind(entry),
+        title: entry.name,
+        image: null,
+        copyToWorld: () => copyClassToItems(entry),
+      };
+    }
+
+    if (isFeatsData.value && isFeature(entry)) {
+      return {
+        kind: entryKind(entry),
+        title: entry.name,
+        image: null,
+        copyToWorld: () => copyToItems(entry.id),
+      };
+    }
+
+    if (isGameItem(entry)) {
+      return {
+        kind: entryKind(entry),
+        title: entry.name,
+        image: null,
+        copyToWorld: () => copyToItems(entry.id),
+      };
+    }
+
+    if (isSpellDataItem(entry)) {
+      return {
+        kind: entryKind(entry),
+        title: entry.name,
+        image: null,
+        copyToWorld: () => copySpellToItems(entry),
+      };
+    }
+
+    return null;
+  }
+
+  /**
+   * Можно ли тащить эту строку. Разделители и записи без пути копирования в
+   * мир (глоссарий и прочие типы из реестра карточек) не тащатся; в режиме
+   * выбора заклинаний строка занята выбором.
+   *
+   * @param entry - запись компендиума
+   * @returns true, если строку можно перетащить
+   */
+  function canDragEntry(entry: CompendiumDataItem): boolean {
+    if (isSeparator(entry) || isSelectionMode.value) {
+      return false;
+    }
+
+    return isCreatureDataItem(entry) || resolveEntryDrag(entry) !== null;
+  }
+
+  /**
+   * Подсказка строки: существо принимает и стол, и правая панель, остальные
+   * записи — только панель. У неперетаскиваемой строки подсказки нет.
+   *
+   * @param entry - запись компендиума
+   * @returns текст подсказки или undefined
+   */
+  function entryDragHint(entry: CompendiumDataItem): string | undefined {
+    if (!canDragEntry(entry)) {
+      return undefined;
+    }
+
+    return isCreatureDataItem(entry)
+      ? COMPENDIUM_LABELS.dragHint
+      : COMPENDIUM_LABELS.dragHintEntry;
+  }
+
+  /**
+   * Старт перетаскивания строки компендиума.
+   *
+   * @param entry - запись компендиума
+   * @param event - событие dragstart
+   */
+  function onEntryDragStart(entry: CompendiumDataItem, event: DragEvent): void {
+    if (!event.dataTransfer || !canDragEntry(entry)) {
+      return;
+    }
+
+    if (isCreatureDataItem(entry)) {
+      onCreatureDragStart(entry, event);
+
+      return;
+    }
+
+    const dragged = resolveEntryDrag(entry);
+
+    if (dragged) {
+      startCompendiumEntryDrag(dragged, event.dataTransfer);
+    }
+  }
+
+  /**
+   * Завершение перетаскивания строки (сброс или отмена). Запись компендиума
+   * ядро сбрасывает само по `dragend`, здесь остаётся payload токена.
+   */
+  function onEntryDragEnd(): void {
     clearActorDragPayload();
   }
 
@@ -1408,18 +1992,12 @@
               Собственная плашка строки снята пропом `flat` — вместе с
               промежутками она превращала список в лесенку из таблеток -->
             <div
-              v-else-if="filteredEntries.length > 0"
+              v-else-if="visibleEntries.length > 0"
               class="flex flex-col divide-y divide-accented/25"
             >
               <template
-                v-for="(entry, index) in filteredEntries"
-                :key="
-                  isSeparator(entry)
-                    ? `sep-${index}`
-                    : 'id' in entry
-                      ? entry.id
-                      : index
-                "
+                v-for="(entry, index) in visibleEntries"
+                :key="rowKey(entry, index)"
               >
                 <!-- Разделитель секции -->
                 <div
@@ -1436,79 +2014,125 @@
                   <div class="h-px flex-1 bg-accented/50" />
                 </div>
 
-                <!-- Предмет: Вид -->
-                <template
-                  v-else-if="isSpeciesData && isSpeciesDefinition(entry)"
+                <!-- Строка списка целиком перетаскиваемая: существо принимает
+                     стол (токен) и правая панель, остальные записи — только
+                     правая панель. Одна обёртка на все виды: путь копирования
+                     в мир у строки ровно один, и он же стоит за кнопкой
+                     «Копировать». -->
+                <div
+                  v-else
+                  :draggable="canDragEntry(entry)"
+                  :title="entryDragHint(entry)"
+                  @dragstart="onEntryDragStart(entry, $event)"
+                  @dragend="onEntryDragEnd"
                 >
-                  <EntityCard
-                    flat
-                    entity-type="species"
-                    :entry="toCardEntry(entry)"
-                    show-copy
-                    @click="openSpeciesDetail(entry)"
-                    @copy="copySpeciesToItems(entry)"
-                  />
-                </template>
+                  <!-- Предмет: Вид. Копии из разных паков стоят своей строкой,
+                    подписанные паком, а пак уходит на лист вместе с записью -->
+                  <template v-if="isSpeciesData && isSpeciesDefinition(entry)">
+                    <div class="flex items-center gap-2">
+                      <EntityCard
+                        flat
+                        class="min-w-0 flex-1"
+                        entity-type="species"
+                        :entry="toCardEntry(entry)"
+                        :pack-id="packIdOf(entry)"
+                        show-copy
+                        @click="openSpeciesDetail(entry)"
+                        @copy="copySpeciesToItems(entry)"
+                      />
 
-                <!-- Предмет: Предыстория -->
-                <template
-                  v-else-if="isBackgroundData && isBackgroundDefinition(entry)"
-                >
-                  <EntityCard
-                    flat
-                    entity-type="background"
-                    :entry="toCardEntry(entry)"
-                    show-copy
-                    @click="openBackgroundDetail(entry)"
-                    @copy="copyToItems(backgroundCopyId(entry))"
-                  />
-                </template>
+                      <UBadge
+                        v-if="packLabelFor(entry)"
+                        :label="packLabelFor(entry)"
+                        size="sm"
+                        color="neutral"
+                        variant="subtle"
+                        class="shrink-0"
+                      />
+                    </div>
+                  </template>
 
-                <!-- Предмет: Класс -->
-                <template v-else-if="isClassData && isClassDefinition(entry)">
-                  <EntityCard
-                    flat
-                    entity-type="class"
-                    :entry="toCardEntry(entry)"
-                    show-copy
-                    @click="openClassDetail(entry)"
-                    @copy="copyClassToItems(entry)"
-                  />
-                </template>
-
-                <!-- Предмет: Черта -->
-                <template v-else-if="isFeatsData && isFeature(entry)">
-                  <EntityCard
-                    flat
-                    entity-type="feat"
-                    :entry="toCardEntry(entry)"
-                    show-copy
-                    @click="openFeatDetail(entry)"
-                    @copy="copyToItems(entry.id)"
-                  />
-                </template>
-
-                <!-- Предмет инвентаря (оружие/снаряжение/инструмент): тип
-                     карточки берётся из собственного поля `type` записи -->
-                <template v-else-if="isGameItem(entry)">
-                  <EntityCard
-                    flat
-                    :entity-type="entry.type"
-                    :entry="toCardEntry(entry)"
-                    show-copy
-                    @click="openDetail(entry)"
-                    @copy="copyToItems(entry.id)"
-                  />
-                </template>
-
-                <!-- Существо -->
-                <template v-else-if="isCreatureDataItem(entry)">
-                  <div
-                    draggable="true"
-                    :title="COMPENDIUM_LABELS.dragHint"
-                    @dragstart="onCreatureDragStart(entry, $event)"
-                    @dragend="onCreatureDragEnd"
+                  <!-- Предмет: Предыстория -->
+                  <template
+                    v-else-if="
+                      isBackgroundData && isBackgroundDefinition(entry)
+                    "
                   >
+                    <div class="flex items-center gap-2">
+                      <EntityCard
+                        flat
+                        class="min-w-0 flex-1"
+                        entity-type="background"
+                        :entry="toCardEntry(entry)"
+                        :pack-id="packIdOf(entry)"
+                        show-copy
+                        @click="openBackgroundDetail(entry)"
+                        @copy="copyToItems(backgroundCopyId(entry))"
+                      />
+
+                      <UBadge
+                        v-if="packLabelFor(entry)"
+                        :label="packLabelFor(entry)"
+                        size="sm"
+                        color="neutral"
+                        variant="subtle"
+                        class="shrink-0"
+                      />
+                    </div>
+                  </template>
+
+                  <!-- Предмет: Класс -->
+                  <template v-else-if="isClassData && isClassDefinition(entry)">
+                    <div class="flex items-center gap-2">
+                      <EntityCard
+                        flat
+                        class="min-w-0 flex-1"
+                        entity-type="class"
+                        :entry="toCardEntry(entry)"
+                        :pack-id="packIdOf(entry)"
+                        show-copy
+                        @click="openClassDetail(entry)"
+                        @copy="copyClassToItems(entry)"
+                      />
+
+                      <UBadge
+                        v-if="packLabelFor(entry)"
+                        :label="packLabelFor(entry)"
+                        size="sm"
+                        color="neutral"
+                        variant="subtle"
+                        class="shrink-0"
+                      />
+                    </div>
+                  </template>
+
+                  <!-- Предмет: Черта -->
+                  <template v-else-if="isFeatsData && isFeature(entry)">
+                    <EntityCard
+                      flat
+                      entity-type="feat"
+                      :entry="toCardEntry(entry)"
+                      show-copy
+                      @click="openFeatDetail(entry)"
+                      @copy="copyToItems(entry.id)"
+                    />
+                  </template>
+
+                  <!-- Предмет инвентаря (оружие/снаряжение/инструмент): тип
+                       карточки берётся из собственного поля `type` записи -->
+                  <template v-else-if="isGameItem(entry)">
+                    <EntityCard
+                      flat
+                      :entity-type="entry.type"
+                      :entry="toCardEntry(entry)"
+                      show-copy
+                      @click="openDetail(entry)"
+                      @copy="copyToItems(entry.id)"
+                    />
+                  </template>
+
+                  <!-- Существо: перетаскивание берёт на себя обёртка строки -->
+                  <template v-else-if="isCreatureDataItem(entry)">
                     <EntityCard
                       flat
                       entity-type="creature"
@@ -1517,85 +2141,98 @@
                       @click="openCreatureDetail(entry)"
                       @copy="copyCreature(entry)"
                     />
-                  </div>
-                </template>
+                  </template>
 
-                <!-- Предмет: Заклинание -->
-                <template v-else-if="isSpellDataItem(entry)">
-                  <div class="flex items-center gap-2">
-                    <!-- Предоставлено умением — несъёмная галочка -->
-                    <UCheckbox
-                      v-if="isSelectionMode && isSpellGranted(entry)"
-                      :model-value="true"
-                      disabled
-                    />
+                  <!-- Предмет: Заклинание -->
+                  <template v-else-if="isSpellDataItem(entry)">
+                    <div class="flex items-center gap-2">
+                      <!-- Предоставлено умением — несъёмная галочка -->
+                      <UCheckbox
+                        v-if="isSelectionMode && isSpellGranted(entry)"
+                        :model-value="true"
+                        disabled
+                      />
 
-                    <!-- Уже изученное заклинание — пометка вместо чекбокса -->
-                    <UIcon
-                      v-else-if="isSelectionMode && isSpellKnown(entry)"
-                      name="tabler:check"
-                      class="size-5 shrink-0 text-success"
-                    />
+                      <!-- Уже изученное заклинание — пометка вместо чекбокса -->
+                      <UIcon
+                        v-else-if="isSelectionMode && isSpellKnown(entry)"
+                        name="tabler:check"
+                        class="size-5 shrink-0 text-success"
+                      />
 
-                    <!-- Чекбокс выбора (только в режиме выбора) -->
-                    <UCheckbox
-                      v-else-if="isSelectionMode"
-                      :model-value="selectedSpells.has(entry.id)"
-                      :disabled="isSpellSelectionDisabled(entry)"
-                      @update:model-value="toggleSpellSelection(entry)"
-                    />
+                      <!-- Чекбокс выбора (только в режиме выбора) -->
+                      <UCheckbox
+                        v-else-if="isSelectionMode"
+                        :model-value="selectedSpells.has(entry.id)"
+                        :disabled="isSpellSelectionDisabled(entry)"
+                        @update:model-value="toggleSpellSelection(entry)"
+                      />
 
-                    <!-- Строка занимает всю ширину: рядом с ней в режиме
-                      выбора стоит чекбокс, поэтому строка тут флекс-элемент, а
-                      не блок, и ширину надо назначить -->
+                      <!-- Строка занимает всю ширину: рядом с ней в режиме
+                        выбора стоит чекбокс, поэтому строка тут флекс-элемент, а
+                        не блок, и ширину надо назначить -->
+                      <EntityCard
+                        class="min-w-0 flex-1"
+                        flat
+                        :class="{
+                          'opacity-60': isSelectionMode && isSpellKnown(entry),
+                        }"
+                        entity-type="spell"
+                        :entry="toCardEntry(entry)"
+                        :show-copy="!isSelectionMode"
+                        @click="handleSpellClick(entry)"
+                        @copy="copySpellToItems(entry)"
+                        @share="shareSpell(entry)"
+                      />
+
+                      <UBadge
+                        v-if="isSelectionMode && isSpellGranted(entry)"
+                        color="primary"
+                        variant="subtle"
+                        size="sm"
+                        class="shrink-0"
+                      >
+                        {{ GRANTED_SPELL_FEATURE_PREFIX
+                        }}{{ getGrantedFeatureName(entry) }}
+                      </UBadge>
+
+                      <UBadge
+                        v-else-if="isSelectionMode && isSpellKnown(entry)"
+                        color="success"
+                        variant="subtle"
+                        size="sm"
+                        class="shrink-0"
+                      >
+                        {{ COMPENDIUM_LABELS.known }}
+                      </UBadge>
+
+                      <!-- Сверх списка класса: откуда заклинание, раз оно не из
+                        отфильтрованного списка -->
+                      <UBadge
+                        v-else-if="isSpellPinned(entry)"
+                        color="info"
+                        variant="subtle"
+                        size="sm"
+                        class="shrink-0"
+                      >
+                        {{ PINNED_SPELL_FEATURE_PREFIX
+                        }}{{ getPinnedFeatureName(entry) }}
+                      </UBadge>
+                    </div>
+                  </template>
+
+                  <!-- Любой другой тип, ЗАРЕГИСТРИРОВАННЫЙ системой (глоссарий и
+                       всё, что появится дальше): карточка и открытие детали берутся
+                       из реестра, отдельной ветки на модалке заводить не нужно -->
+                  <template v-else-if="registeredCardType(entry)">
                     <EntityCard
-                      class="min-w-0 flex-1"
                       flat
-                      :class="{
-                        'opacity-60': isSelectionMode && isSpellKnown(entry),
-                      }"
-                      entity-type="spell"
+                      :entity-type="registeredCardType(entry)"
                       :entry="toCardEntry(entry)"
-                      :show-copy="!isSelectionMode"
-                      @click="handleSpellClick(entry)"
-                      @copy="copySpellToItems(entry)"
-                      @share="shareSpell(entry)"
+                      @click="openRegisteredDetail(entry)"
                     />
-
-                    <UBadge
-                      v-if="isSelectionMode && isSpellGranted(entry)"
-                      color="primary"
-                      variant="subtle"
-                      size="sm"
-                      class="shrink-0"
-                    >
-                      {{ GRANTED_SPELL_FEATURE_PREFIX
-                      }}{{ getGrantedFeatureName(entry) }}
-                    </UBadge>
-
-                    <UBadge
-                      v-else-if="isSelectionMode && isSpellKnown(entry)"
-                      color="success"
-                      variant="subtle"
-                      size="sm"
-                      class="shrink-0"
-                    >
-                      {{ COMPENDIUM_LABELS.known }}
-                    </UBadge>
-                  </div>
-                </template>
-
-                <!-- Любой другой тип, ЗАРЕГИСТРИРОВАННЫЙ системой (глоссарий и
-                     всё, что появится дальше): карточка и открытие детали берутся
-                     из реестра, отдельной ветки на модалке заводить не нужно -->
-                <template v-else-if="registeredCardType(entry)">
-                  <EntityCard
-                    flat
-                    :entity-type="registeredCardType(entry)"
-                    :entry="toCardEntry(entry)"
-                    @click="openRegisteredDetail(entry)"
-                  />
-                </template>
+                  </template>
+                </div>
               </template>
             </div>
 

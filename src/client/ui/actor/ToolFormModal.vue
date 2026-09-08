@@ -486,18 +486,13 @@
 
         <!-- Вкладка «Эффекты» -->
         <template #effects>
-          <div class="flex flex-col gap-4">
-            <div
-              v-if="activeEffects.length === 0"
-              class="rounded-lg border border-dashed border-default p-3 text-center text-xs text-dimmed italic"
-            >
-              {{ TOOL_FORM_LABELS.effectsEmpty }}
-            </div>
-
-            <div
-              v-else
-              class="space-y-1"
-            >
+          <FormSection
+            :title="FORM_TAB_LABELS.effects"
+            icon="tabler:sparkles"
+            :add-label="MODAL_BUTTON_LABELS.addEffect"
+            @add="createCustomEffect"
+          >
+            <div class="space-y-1">
               <div
                 v-for="effect in activeEffects"
                 :key="effect.id"
@@ -556,19 +551,7 @@
                 </div>
               </div>
             </div>
-
-            <UButton
-              size="sm"
-              color="primary"
-              variant="soft"
-              icon="tabler:plus"
-              block
-              class="mt-1"
-              @click.left.exact.prevent="createCustomEffect"
-            >
-              {{ MODAL_BUTTON_LABELS.addEffect }}
-            </UButton>
-          </div>
+          </FormSection>
         </template>
       </UTabs>
     </template>

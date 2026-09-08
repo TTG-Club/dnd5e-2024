@@ -4,20 +4,28 @@
   import type { SpellOption } from '../grantedSpellsEditorTypes';
   import type { EditableFeatureFields } from './speciesEditorTypes';
 
-  import { computed } from 'vue';
+  import { computed, useTemplateRef } from 'vue';
 
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
 
   import {
+    FEAT_GRANTS_LABELS,
     FORM_FIELD_LABELS,
     GRANT_FIELD_LABELS,
+    MODAL_BUTTON_LABELS,
     SPECIES_FEATURE_LABELS,
     SPECIES_FORM_LABELS,
+    SPELL_CHOICE_LABELS,
+    SPELL_LIST_LABELS,
   } from '../constants';
+  import EditorNestedSection from '../EditorNestedSection.vue';
   import EntityEffectsEditor from '../EntityEffectsEditor.vue';
   import { usedChoiceKeys } from '../feat/featEditorTypes';
+  import FeatSpellListEditor from '../feat/FeatSpellListEditor.vue';
   import GrantRowsEditor from '../feat/GrantRowsEditor.vue';
+  import ModifierAddMenu from '../feat/ModifierAddMenu.vue';
   import ModifierRowsEditor from '../feat/ModifierRowsEditor.vue';
+  import SpellChoiceRowsEditor from '../feat/SpellChoiceRowsEditor.vue';
   import GrantedSpellsEditor from '../GrantedSpellsEditor.vue';
 
   const props = defineProps<{
@@ -51,6 +59,15 @@
   const takenChoiceKeys = computed(() => [
     ...usedChoiceKeys(feature.value.grants),
   ]);
+
+  /**
+   * Списки разделов: кнопка добавления живёт в шапке раздела, а знание о том,
+   * какой получается новая строка, остаётся у самого редактора.
+   */
+  const grantRows = useTemplateRef('grantRows');
+  const spellChoiceRows = useTemplateRef('spellChoiceRows');
+  const spellListGroups = useTemplateRef('spellListGroups');
+  const effectRows = useTemplateRef('effectRows');
 </script>
 
 <template>
@@ -139,44 +156,105 @@
         />
       </UFormField>
 
-      <UFormField
-        :label="SPECIES_FORM_LABELS.featureGrantsTitle"
-        :help="SPECIES_FORM_LABELS.featureGrantsHint"
+      <!-- Разделами-дорожками, как у умения класса: механика особенности
+        устроена так же, а подпись поля рядом с длинным списком терялась -->
+      <EditorNestedSection
+        :title="SPECIES_FORM_LABELS.featureGrantsTitle"
+        :hint="SPECIES_FORM_LABELS.featureGrantsHint"
+        :count="feature.grants.grantRows.length"
+        :add-label="FEAT_GRANTS_LABELS.addGrant"
+        :collapsible="false"
+        @add="grantRows?.addRow()"
       >
         <GrantRowsEditor
+          ref="grantRows"
           v-model="feature.grants.grantRows"
           hide-ability
           hide-feat
           :taken-keys="takenChoiceKeys"
           :socket="props.socket"
         />
-      </UFormField>
+      </EditorNestedSection>
 
-      <UFormField
-        :label="SPECIES_FORM_LABELS.featureModifiersTitle"
-        :help="SPECIES_FORM_LABELS.featureModifiersHint"
+      <EditorNestedSection
+        :title="SPECIES_FORM_LABELS.featureModifiersTitle"
+        :hint="SPECIES_FORM_LABELS.featureModifiersHint"
+        :count="feature.grants.modifiers.length"
+        :collapsible="false"
       >
-        <ModifierRowsEditor v-model="feature.grants.modifiers" />
-      </UFormField>
+        <!-- Своя кнопка: вид правки выбирают меню, а не одним нажатием -->
+        <template #actions>
+          <ModifierAddMenu v-model="feature.grants.modifiers" />
+        </template>
 
-      <UFormField :label="SPECIES_FEATURE_LABELS.grantedSpells">
+        <ModifierRowsEditor v-model="feature.grants.modifiers" />
+      </EditorNestedSection>
+
+      <EditorNestedSection
+        :title="SPECIES_FEATURE_LABELS.grantedSpells"
+        :count="feature.grantedSpells.length"
+        :collapsible="false"
+      >
         <GrantedSpellsEditor
           v-model="feature.grantedSpells"
           :available-spells="availableSpells"
           :socket="props.socket"
           @open-spell="forwardOpenSpell"
         />
-      </UFormField>
+      </EditorNestedSection>
 
-      <UFormField :label="SPECIES_FORM_LABELS.tabEffects">
+      <!-- Выбор заклинаний игроком и расширение списка — те же блоки, что у
+        черты и умения класса: заговор высшего эльфа игрок выбирает сам -->
+      <EditorNestedSection
+        :title="SPECIES_FEATURE_LABELS.spellChoices"
+        :hint="SPELL_CHOICE_LABELS.hint"
+        :count="feature.grants.spellChoice.picks.length"
+        :add-label="SPELL_CHOICE_LABELS.add"
+        :collapsible="false"
+        @add="spellChoiceRows?.addRow()"
+      >
+        <SpellChoiceRowsEditor
+          ref="spellChoiceRows"
+          v-model="feature.grants.spellChoice"
+          :taken-keys="takenChoiceKeys"
+          :available-spells="availableSpells"
+          :socket="props.socket"
+          @open-spell="forwardOpenSpell"
+        />
+      </EditorNestedSection>
+
+      <EditorNestedSection
+        :title="SPECIES_FEATURE_LABELS.spellList"
+        :hint="SPELL_LIST_LABELS.hint"
+        :count="feature.grants.spellList.groups.length"
+        :add-label="SPELL_LIST_LABELS.addGroup"
+        :collapsible="false"
+        @add="spellListGroups?.addGroup()"
+      >
+        <FeatSpellListEditor
+          ref="spellListGroups"
+          v-model="feature.grants.spellList"
+          :available-spells="availableSpells"
+          :socket="props.socket"
+          @open-spell="forwardOpenSpell"
+        />
+      </EditorNestedSection>
+
+      <EditorNestedSection
+        :title="SPECIES_FORM_LABELS.tabEffects"
+        :hint="SPECIES_FORM_LABELS.featureEffectsHint"
+        :count="feature.activeEffects.length"
+        :add-label="MODAL_BUTTON_LABELS.addEffect"
+        :collapsible="false"
+        @add="effectRows?.createEffect()"
+      >
         <EntityEffectsEditor
+          ref="effectRows"
           v-model="feature.activeEffects"
           :modal-id="`species-feature-effect-form-modal-${feature.key}`"
-          :hint="SPECIES_FORM_LABELS.featureEffectsHint"
-          :empty-text="SPECIES_FORM_LABELS.featureEffectsEmpty"
           hide-aura
         />
-      </UFormField>
+      </EditorNestedSection>
     </template>
   </div>
 </template>

@@ -3,7 +3,7 @@
  *
  * Отвечает за:
  * - Определение целей (AoE шаблон или одиночная цель из targetStore)
- * - Автоматические спасброски для каждой цели (или ручные — если autoSaves выключен)
+ * - Спасброски целей: свои — автоматически или окном, чужие — запросом владельцу
  * - Применение урона с учётом результата спасброска (full / half / none)
  * - Отправку результатов в чат
  */
@@ -13,13 +13,13 @@ import type {
   AttackRollMode,
   DamageDefenseOutcome,
   DnDSceneEntity,
+  SavingThrowResult,
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
 import type {
   AoeContext,
   RolledSpellDamagePart,
-  SavingThrowResult,
   SpellDamagePartInput,
   SpellResolutionContext,
   SpellTargetResult,
@@ -60,8 +60,10 @@ import {
   writeEntityHitPoints,
 } from '@vtt/shared/system/dnd.js';
 
+import { SPELL_NO_TARGETS_LABELS } from '../ui/actor/constants';
 import {
   formatRolledPartLine,
+  formatSaveCancelledMessage,
   getPartKindLabel,
   isSaveAbility,
   partPassesTargetGate,
@@ -109,7 +111,11 @@ export function useSpellResolution() {
   const chatStore = useChatStore();
   const targetStore = useTargetStore();
 
-  const { rollSavingThrow, requestManualSavingThrow } = useSpellSavingThrows();
+  const {
+    isForeignOwnedTarget,
+    resolveSavingThrowsForTargets,
+    rollSavingThrow,
+  } = useSpellSavingThrows();
 
   const { resolveSpellDamageWithParts } = useSpellDamageWithParts();
 
@@ -329,28 +335,37 @@ export function useSpellResolution() {
    *
    * @param entity - сущность-цель
    * @param context - контекст заклинания
-   * @param bonusParts - бонус-части урона от эффектов (снарядный путь);
+   * @param options - необязательные части обработки
+   * @param options.bonusParts - бонус-части урона от эффектов (снарядный путь);
    *   применяются той же записью HP с собственными гейтами/защитами
+   * @param options.saveResult - уже разрешённый спасбросок цели (окном или
+   *   запросом её владельцу). Без него спасбросок катается здесь же
    * @returns результат обработки цели
    */
   function processTarget(
     entity: DnDSceneEntity,
     context: SpellResolutionContext,
-    bonusParts: RolledSpellDamagePart[] = [],
+    options: {
+      bonusParts?: RolledSpellDamagePart[];
+      saveResult?: SavingThrowResult;
+    } = {},
   ): SpellTargetResult {
     const { spell, damageTotal, spellSaveDC, socket } = context;
+    const bonusParts = options.bonusParts ?? [];
 
     let finalDamage = damageTotal;
-    let saveResult: SavingThrowResult | undefined;
+    let saveResult = options.saveResult;
 
     // Спасбросок (проверка `!== 'none'` сужает saveType до AbilityType)
     if (spell.saveType !== 'none') {
-      saveResult = rollSavingThrow(
+      saveResult ??= rollSavingThrow({
         entity,
-        spell.saveType,
-        spellSaveDC,
-        getSpellSaveCondition(spell),
-      );
+        ability: spell.saveType,
+        dc: spellSaveDC,
+        againstCondition: getSpellSaveCondition(spell),
+        sourceEntityId: context.casterId,
+        sourceName: spell.name,
+      });
 
       if (saveResult.passed) {
         switch (spell.saveEffect) {
@@ -407,86 +422,6 @@ export function useSpellResolution() {
       saveRoll: saveResult?.roll,
       saveModifier: saveResult?.modifier,
       savePassed: saveResult?.passed,
-      damageApplied: damageResult.finalDamage,
-      hpBefore: damageResult.hpBefore,
-      hpAfter: damageResult.hpAfter,
-      tempHpGained: healsTempHp ? damageResult.tempHpGained : undefined,
-      defenseOutcome: damageResult.defenseOutcome,
-      appliedEffects: damageResult.appliedEffects,
-    };
-  }
-
-  /**
-   * Обрабатывает одну цель с ручным спасброском (через DiceRollModal).
-   *
-   * @param entity - сущность-цель
-   * @param context - контекст заклинания
-   * @returns промис с результатом обработки цели
-   */
-  async function processTargetManualSave(
-    entity: DnDSceneEntity,
-    context: SpellResolutionContext,
-  ): Promise<SpellTargetResult> {
-    const { spell, damageTotal, spellSaveDC, socket } = context;
-
-    let finalDamage = damageTotal;
-
-    // Ручной спасбросок вызывается только для заклинаний со спасброском;
-    // guard сужает saveType до AbilityType без приведения типов.
-    if (!isSaveAbility(spell.saveType)) {
-      throw new Error(
-        `Заклинание "${spell.name}" не требует спасброска — ручной бросок невозможен`,
-      );
-    }
-
-    const saveResult = await requestManualSavingThrow(
-      entity,
-      spell.saveType,
-      spellSaveDC,
-      getSpellSaveCondition(spell),
-    );
-
-    if (saveResult.passed) {
-      switch (spell.saveEffect) {
-        case 'half':
-          finalDamage = Math.floor(damageTotal / 2);
-
-          break;
-        case 'none':
-          finalDamage = 0;
-
-          break;
-        // 'special' — полный урон (обрабатывается вручную)
-      }
-    }
-
-    // Применяем урон (overrideDamageType для заклинаний с выбором стихии)
-    const resolvedDamageType =
-      context.overrideDamageType ?? getSpellPrimaryDamageType(spell);
-
-    const effectsToApply = resolveEffectsToApply(spell, saveResult)?.map(
-      (effect) => stampEffectTurnDuration(effect, entity.id, context.casterId),
-    );
-
-    // @heal.temp в базовой части: лечение временными ХП (правило «большее»)
-    const healsTempHp = spellHealsTempHp(spell);
-
-    const damageResult = applyResultsToEntity(
-      entity,
-      finalDamage,
-      resolvedDamageType,
-      spellIsHealing(spell),
-      effectsToApply,
-      socket,
-      { healTemp: healsTempHp },
-    );
-
-    return {
-      actorName: entity.name,
-      actorId: entity.id,
-      saveRoll: saveResult.roll,
-      saveModifier: saveResult.modifier,
-      savePassed: saveResult.passed,
       damageApplied: damageResult.finalDamage,
       hpBefore: damageResult.hpBefore,
       hpAfter: damageResult.hpAfter,
@@ -603,17 +538,23 @@ export function useSpellResolution() {
   /**
    * Отправляет сводку по целям (AoE-путь или несколько снарядов).
    *
+   * Пустой результат называет причину: у площади это промах шаблоном мимо всех,
+   * у снарядов — нераспределённые цели, и одинаковое «нет целей» на оба случая
+   * читалось бы как поломка заклинания.
+   *
    * @param spell - заклинание
    * @param results - массив результатов по каждой цели
    * @param bonusPartLines - строки разбивки бонус-частей урона от эффектов
+   * @param emptyReason - чем объяснить пустой результат
    */
   function sendAoeSummary(
     spell: Spell,
     results: SpellTargetResult[],
     bonusPartLines: string[] = [],
+    emptyReason: string = SPELL_NO_TARGETS_LABELS.emptyArea,
   ): void {
     if (results.length === 0) {
-      chatStore.sendMessage(`${spell.name} — Нет целей в области`, 'text');
+      chatStore.sendMessage(`${spell.name} — ${emptyReason}`, 'text');
 
       return;
     }
@@ -639,43 +580,91 @@ export function useSpellResolution() {
   }
 
   /**
-   * Обрабатывает ручные спасброски последовательно (один за другим).
-   * Каждый бросок открывает DiceRollModal и ждёт результат.
+   * Разрешает спасброски целей ПАЧКОЙ и применяет к ним результат.
    *
-   * @param targets - массив акторов с ручными спасброками
+   * Цель под чужим владением бросает у себя — по запросу владельцу; своя
+   * бросает окном или автоматически. Запросы уходят параллельно, поэтому
+   * пятеро задетых площадью игроков бросают разом, а не в очередь.
+   *
+   * Отмена (закрытое окно, отказ, истёкший срок) сворачивает эту пачку
+   * целиком: ни одна её цель не тронута — спасброски все берутся ДО первого
+   * применения. Авто-цели, разобранные фазой раньше, при этом остаются
+   * применёнными: их HP записано до начала пачки.
+   *
+   * @param targets - цели, чей спасбросок разрешается снаружи
    * @param context - контекст заклинания
-   * @param sendSummaryAfter - отправлять ли сводку после завершения ручных бросков
-   * @returns промис с массивом результатов
+   * @param sendSummaryAfter - отправлять ли сводку после применения
+   * @returns промис с результатами применённых целей
    */
-  async function processManualTargetsSequentially(
+  async function processTargetsWithResolvedSaves(
     targets: DnDSceneEntity[],
     context: SpellResolutionContext,
     sendSummaryAfter: boolean,
   ): Promise<SpellTargetResult[]> {
-    const manualResults: SpellTargetResult[] = [];
+    const { spell, spellSaveDC } = context;
+
+    // Сюда попадают только цели заклинания со спасброском; guard сужает
+    // saveType до AbilityType без приведения типов.
+    if (!isSaveAbility(spell.saveType)) {
+      throw new Error(
+        `Заклинание "${spell.name}" не требует спасброска — разрешать нечего`,
+      );
+    }
+
+    const ability = spell.saveType;
+    const againstCondition = getSpellSaveCondition(spell);
+
+    const saves = await resolveSavingThrowsForTargets(
+      targets.map((entity) => ({
+        entity,
+        ability,
+        dc: spellSaveDC,
+        againstCondition,
+        sourceEntityId: context.casterId,
+        sourceName: spell.name,
+      })),
+    );
+
+    // Хоть один отказ — не применяем ничего: пачка либо целиком, либо никак
+    const resolvedSaves = new Map<string, SavingThrowResult>();
+
+    for (const entity of targets) {
+      const saveResult = saves.get(entity.id);
+
+      if (!saveResult) {
+        chatStore.sendMessage(formatSaveCancelledMessage(spell.name), 'text');
+
+        return [];
+      }
+
+      resolvedSaves.set(entity.id, saveResult);
+    }
+
+    const results: SpellTargetResult[] = [];
 
     for (const entity of targets) {
       try {
-        const result = await processTargetManualSave(entity, context);
-
-        manualResults.push(result);
+        results.push(
+          processTarget(entity, context, {
+            saveResult: resolvedSaves.get(entity.id),
+          }),
+        );
       } catch (error) {
         console.error(
-          `[SpellResolution] Ошибка ручного спасброска "${entity.name}":`,
+          `[SpellResolution] Ошибка обработки цели "${entity.name}":`,
           error,
         );
       }
     }
 
-    // Если это единственная цель (single-target) — отправляем одиночную сводку
-    if (targets.length === 1 && manualResults.length === 1) {
-      sendSingleTargetSummary(context.spell, manualResults[0]);
-    } else if (sendSummaryAfter && manualResults.length > 0) {
-      // Отправляем сводку ручных результатов
-      sendAoeSummary(context.spell, manualResults);
+    // Единственная цель (single-target) — одиночная сводка вместо общей
+    if (targets.length === 1 && results.length === 1) {
+      sendSingleTargetSummary(spell, results[0]);
+    } else if (sendSummaryAfter && results.length > 0) {
+      sendAoeSummary(spell, results);
     }
 
-    return manualResults;
+    return results;
   }
 
   /**
@@ -684,8 +673,9 @@ export function useSpellResolution() {
    * Для AoE: находит токены в шаблоне, кидает спасы, применяет урон.
    * Для single-target: берёт цель из targetStore, кидает спас, применяет урон.
    *
-   * Акторы с `autoSaves: false` получают ручной спасбросок через DiceRollModal.
-   * Акторы с `autoSaves: true` (по умолчанию) — автоматический бросок.
+   * Спасбросок цели под чужим владением кидает её владелец (запрос ядра), у
+   * своей цели с `autoSaves: false` открывается окно, у остальных бросок идёт
+   * автоматически. Первые два случая асинхронны и разбираются пачкой.
    *
    * @param context - контекст заклинания (spell, damageTotal, spellSaveDC, actors, socket)
    * @param aoeContext - контекст AoE (template, tokens, gridSize) — если есть шаблон
@@ -706,11 +696,11 @@ export function useSpellResolution() {
         aoeContext.gridSize,
       );
 
-      /** Сущности с авто-спасброском (NPC/существа и прочие с autoSaves !== false) */
-      const autoTargets: DnDSceneEntity[] = [];
+      /** Свои цели с авто-спасброском: бросок и применение идут тут же */
+      const localAutoTargets: DnDSceneEntity[] = [];
 
-      /** Сущности с ручным спасброском (PC с autoSaves === false) */
-      const manualTargets: DnDSceneEntity[] = [];
+      /** Цели, чей спасбросок разрешается снаружи: окном или запросом владельцу */
+      const resolvedSaveTargets: DnDSceneEntity[] = [];
 
       for (const token of affectedTokens) {
         const entity = actors.find(
@@ -730,19 +720,22 @@ export function useSpellResolution() {
           continue;
         }
 
-        // Ручной спасбросок нужен если есть спасбросок и autoSaves не включён
-        const needsManualSave =
-          spell.saveType !== 'none' && !resolveAutoSaves(entity);
+        // Разрешать спасбросок снаружи надо, если он вообще есть И либо цель
+        // под чужим владением (бросает её владелец, а не мы), либо у неё
+        // выключены автоспасброски (нужно окно).
+        const needsResolvedSave =
+          spell.saveType !== 'none'
+          && (isForeignOwnedTarget(entity) || !resolveAutoSaves(entity));
 
-        if (needsManualSave) {
-          manualTargets.push(entity);
+        if (needsResolvedSave) {
+          resolvedSaveTargets.push(entity);
         } else {
-          autoTargets.push(entity);
+          localAutoTargets.push(entity);
         }
       }
 
-      // Фаза 1: обрабатываем авто-цели синхронно
-      for (const entity of autoTargets) {
+      // Фаза 1: свои авто-цели — синхронно, их результат уходит в чат сразу
+      for (const entity of localAutoTargets) {
         try {
           const result = processTarget(entity, context);
 
@@ -755,18 +748,19 @@ export function useSpellResolution() {
         }
       }
 
-      // Фаза 2: ручные спасброски — последовательно через DiceRollModal
-      if (manualTargets.length > 0) {
-        processManualTargetsSequentially(
-          manualTargets,
+      // Фаза 2: спасброски окнами и запросами владельцам — одной пачкой
+      if (resolvedSaveTargets.length > 0) {
+        void processTargetsWithResolvedSaves(
+          resolvedSaveTargets,
           context,
-          autoTargets.length === 0, // отправлять сводку, только если нет авто-целей
+          // сводку шлём там, только если своих авто-целей не было
+          localAutoTargets.length === 0,
         );
       }
 
-      // Отправляем сводку для авто-результатов.
-      // Для ручных — сводка будет отправлена после завершения всех бросков.
-      if (autoTargets.length > 0) {
+      // Сводка по своим авто-целям. По остальным её отправит пачка — после
+      // того, как все бросят.
+      if (localAutoTargets.length > 0) {
         sendAoeSummary(spell, results);
       }
     } else {
@@ -783,13 +777,15 @@ export function useSpellResolution() {
           return results;
         }
 
-        // Проверяем, нужен ли ручной спасбросок
-        const needsManualSave =
-          spell.saveType !== 'none' && !resolveAutoSaves(targetEntity);
+        // Спасбросок разрешается снаружи: у чужой цели его кидает владелец,
+        // у своей без автоспасбросков — окно
+        const needsResolvedSave =
+          spell.saveType !== 'none'
+          && (isForeignOwnedTarget(targetEntity)
+            || !resolveAutoSaves(targetEntity));
 
-        if (needsManualSave) {
-          // Ручной бросок для single-target
-          processManualTargetsSequentially([targetEntity], context, true);
+        if (needsResolvedSave) {
+          void processTargetsWithResolvedSaves([targetEntity], context, true);
         } else {
           const result = processTarget(targetEntity, context);
 
@@ -984,7 +980,7 @@ export function useSpellResolution() {
         const result = processTarget(
           targetEntity,
           { ...context, damageTotal: targetDamage },
-          rolledBonusParts,
+          { bonusParts: rolledBonusParts },
         );
 
         const prettyFormula = resolvedDamageFormula.replace(/d/gi, 'к');
@@ -1026,7 +1022,12 @@ export function useSpellResolution() {
             )
           : [];
 
-      sendAoeSummary(spell, results, bonusPartLines);
+      sendAoeSummary(
+        spell,
+        results,
+        bonusPartLines,
+        SPELL_NO_TARGETS_LABELS.noTarget,
+      );
 
       projectileStore.stopTargeting();
     });
@@ -1182,7 +1183,7 @@ export function useSpellResolution() {
                 ...context,
                 damageTotal: totalProjectileDamage,
               },
-              rolledBonusParts,
+              { bonusParts: rolledBonusParts },
             );
 
             // Показываем разбивку: "Новый 1 ((1к4+1)×3)"
@@ -1223,7 +1224,12 @@ export function useSpellResolution() {
             )
             .map((rolledPart) => formatRolledPartLine(rolledPart));
 
-          sendAoeSummary(spell, results, bonusPartLines);
+          sendAoeSummary(
+            spell,
+            results,
+            bonusPartLines,
+            SPELL_NO_TARGETS_LABELS.noTarget,
+          );
         }
 
         projectileStore.stopTargeting();

@@ -3,22 +3,21 @@
 
   import type { EditableFeatGrants } from './featEditorTypes';
 
-  import {
-    getFeatChoiceDefaultPool,
-    isAbilityType,
-  } from '@vtt/shared/system/dnd.js';
+  import { ABILITY_OPTIONS, isAbilityType } from '@vtt/shared/system/dnd.js';
 
   import { SPELL_CHOICE_LABELS } from '../constants';
 
   /**
-   * Заклинательная характеристика черты и настройка подготовки.
+   * Характеристика заклинаний, которые игрок ВЫБИРАЕТ.
    *
-   * Характеристика одна на все заклинания черты — и выданные, и выбранные
-   * игроком, — поэтому живёт своим блоком, а не рядом с одним из списков.
    * Одно поле на три случая: пусто — характеристику задаёт класс, чья это магия;
-   * одна — она и есть; несколько — лист даст игроку выбрать одну из них. Так
-   * автору не приходится выбирать между «задать» и «спросить»: это одно и то же
-   * поле с разным числом значений.
+   * одна — она и есть; несколько — лист даст игроку выбрать одну из них
+   * («Посвящённый в магию»). Так автору не приходится выбирать между «задать» и
+   * «спросить»: это одно и то же поле с разным числом значений.
+   *
+   * У ВЫДАННЫХ заклинаний характеристика своя у каждой группы выдачи: один набор
+   * может считаться от одной характеристики, другой — от другой, и одно поле на
+   * всех такого не описывает. Там же живёт и отметка подготовки.
    *
    * Своей рамки нет: раздел рисует форма — так же, как у остальных блоков
    * вкладки, — иначе рамка вложилась бы в рамку.
@@ -28,15 +27,15 @@
   const grants = defineModel<EditableFeatGrants>({ required: true });
 
   /**
-   * Заклинательной характеристикой бывают только три — берём их из того же
-   * справочника, из которого лист собирает варианты выбора.
+   * Характеристики — все шесть.
+   *
+   * Не только три «заклинательные»: заклинание записи может считаться от любой
+   * характеристики, и урезанный набор просто нельзя было бы заполнить.
    */
-  const abilityOptions = getFeatChoiceDefaultPool('spellcastingAbility').map(
-    (option) => ({
-      value: option.value,
-      label: option.name ?? option.value,
-    }),
-  );
+  const abilityOptions = ABILITY_OPTIONS.map((option) => ({
+    value: option.value,
+    label: option.label,
+  }));
 
   /**
    * Записывает характеристики, от которых считаются заклинания черты.
@@ -56,30 +55,16 @@
 </script>
 
 <template>
-  <div>
-    <div class="flex flex-wrap items-end gap-3">
-      <UFormField class="w-72">
-        <USelectMenu
-          :model-value="grants.spellChoice.abilityOptions"
-          :items="abilityOptions"
-          value-key="value"
-          label-key="label"
-          multiple
-          :placeholder="SPELL_CHOICE_LABELS.spellcastingAbilityPlaceholder"
-          class="w-full"
-          @update:model-value="setAbilities"
-        />
-      </UFormField>
-
-      <UCheckbox
-        v-model="grants.grantedSpellsAlwaysPrepared"
-        :label="SPELL_CHOICE_LABELS.grantedSpellsAlwaysPrepared"
-        class="mb-2"
-      />
-    </div>
-
-    <p class="mt-2 text-xs text-dimmed">
-      {{ SPELL_CHOICE_LABELS.grantedSpellsAlwaysPreparedHint }}
-    </p>
-  </div>
+  <UFormField class="w-72">
+    <USelectMenu
+      :model-value="grants.spellChoice.abilityOptions"
+      :items="abilityOptions"
+      value-key="value"
+      label-key="label"
+      multiple
+      :placeholder="SPELL_CHOICE_LABELS.spellcastingAbilityPlaceholder"
+      class="w-full"
+      @update:model-value="setAbilities"
+    />
+  </UFormField>
 </template>

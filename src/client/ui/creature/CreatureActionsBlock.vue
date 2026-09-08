@@ -37,6 +37,7 @@
     SPELL_TEMPLATE_DEFAULT_COLOR,
   } from '@vtt/shared/system/dnd.js';
 
+  import { discardSpellTemplate } from '../../composables/spellResolutionShared';
   import { useBonusDamageParts } from '../../composables/useBonusDamageParts';
   import { useSpellResolution } from '../../composables/useSpellResolution';
   import {
@@ -69,6 +70,11 @@
     actions: CreatureAction[];
     isEditMode: boolean;
     legendaryCount?: number;
+    /**
+     * Преамбула раздела из статблока: когда и как существо тратит эти
+     * действия. Одного их числа для этого мало — условия у существ разные.
+     */
+    sectionDescription?: string;
     /** Режим: черта или действие (влияет на отображение боевых полей) */
     mode?: ActionMode;
     /** Режим только просмотр (компендиум) */
@@ -93,6 +99,7 @@
   const props = withDefaults(defineProps<Props>(), {
     title: undefined,
     legendaryCount: undefined,
+    sectionDescription: '',
     mode: 'action',
     isReadOnly: false,
     creatureId: undefined,
@@ -294,6 +301,8 @@
     ) => SpellDamagePartInput[];
     onRollParts?: (parts: RolledSpellDamagePart[]) => void;
     onHit?: () => void;
+    /** Окно закрыли, не бросив: снимает со сцены размещённый AoE-шаблон */
+    onCancel?: () => void;
   }
 
   const rollConfig = ref<RollConfig>({
@@ -463,6 +472,10 @@
       // Сбрасываем явно: `rollConfig` переиспользуется между бросками, и без
       // этого обработчик от ПРЕДЫДУЩЕГО броска остался бы висеть на текущем.
       onHit: undefined,
+      // Отмена окна (крестик, Escape, конец сессии) обязана убрать шаблон: он
+      // размещается ДО броска, и без этого отменённое действие оставляло
+      // область висеть на карте до перезагрузки сцены
+      onCancel: templateId ? () => discardSpellTemplate(templateId) : undefined,
     };
 
     isRollModalOpen.value = true;
@@ -878,6 +891,15 @@
       </UButton>
     </div>
 
+    <!-- Преамбула раздела: стоит под заголовком, а не в первой записи, —
+      она объясняет весь раздел, а не одно действие -->
+    <p
+      v-if="sectionDescription"
+      class="mb-2 text-xs wrap-break-word text-dimmed"
+    >
+      {{ sectionDescription }}
+    </p>
+
     <!-- Список записей. У особенности боевых чисел нет — ей достаётся плашка
       вместо карточки, как и особенностям листа персонажа -->
     <div :class="listClass">
@@ -935,6 +957,7 @@
       :evaluate-bonus-damage-parts="rollConfig.evaluateBonusDamageParts"
       :on-roll-parts="rollConfig.onRollParts"
       :on-hit="rollConfig.onHit"
+      :on-cancel="rollConfig.onCancel"
     />
 
     <!-- Модалка просмотра действия -->

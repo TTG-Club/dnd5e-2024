@@ -34,11 +34,18 @@ import type {
   GraphEdge,
   GraphNode,
   GraphNodeMove,
+  IncomingRollRequest,
   LightSource,
   MeasurementTemplate,
   Note,
   OnlineUserData,
+  PendingRollRequestSummary,
   Playlist,
+  RollRequestCancelReason,
+  RollRequestOutcome,
+  RollRequestSendAck,
+  RollRequestSendInput,
+  RollRequestState,
   Scene,
   SceneAsset,
   ServerUser,
@@ -133,6 +140,19 @@ export interface ServerToClientEvents {
     targetY: number,
     waypoints: Array<{ x: number; y: number }>,
   ) => void;
+  /**
+   * Движение оборвано на полпути: зона отняла у сущности возможность двигаться
+   * (окаменение, опутывание, спас провален). Токен уже стоит в клетке обрыва —
+   * позицию персистит и рассылает обычный `token:updated`, а это событие говорит
+   * клиентам ОСТАНОВИТЬ едущую анимацию там же и объяснить игроку причину.
+   */
+  'token:movement-stopped': (
+    sceneId: string,
+    tokenId: string,
+    x: number,
+    y: number,
+    reason: string,
+  ) => void;
   // Мгновенная перестановка токена без анимации (повторный DnD из списка)
   'token:teleported': (
     sceneId: string,
@@ -155,6 +175,40 @@ export interface ServerToClientEvents {
    * знает адрес мира. Теперь он едет по аутентифицированному каналу.
    */
   'world:users': (users: ServerUser[]) => void;
+
+  // --- Запросы бросков (адресный канал «попроси владельца сущности бросить») ---
+  /**
+   * Вас просят бросить за вашу сущность. Приходит владельцу сущности на все его
+   * вкладки; клиент открывает окно системы (`promptRequestedRoll`) либо
+   * нейтральную плашку ядра. Нагрузка `payload` для ядра непрозрачна.
+   */
+  'roll-request:incoming': (request: IncomingRollRequest) => void;
+  /**
+   * Исход запроса — инициатору. Приходит ВСЕГДА: ответ адресата, бросок «за
+   * него», отказ, таймаут или потеря адресата. Роутится по пользователю, а не
+   * по сокету, поэтому переживает обрыв связи инициатора.
+   */
+  'roll-request:result': (
+    requestId: string,
+    outcome: RollRequestOutcome,
+  ) => void;
+  /**
+   * Запрос снят у адресата: за него уже бросили, его отозвали или он истёк.
+   * Клиент закрывает окно/плашку; поздний ответ по нему сервер игнорирует.
+   */
+  'roll-request:cancelled': (
+    requestId: string,
+    reason: RollRequestCancelReason,
+  ) => void;
+  /**
+   * Все висящие запросы мира — только ГМам, при каждом изменении набора. По
+   * ним ГМ видит, кто кого ждёт, и может взять бросок на себя.
+   */
+  'roll-request:pending': (pending: PendingRollRequestSummary[]) => void;
+  /** Адресат висящего запроса вышел из сети или вернулся — инициатору */
+  'roll-request:recipient-status': (requestId: string, online: boolean) => void;
+  /** Ответ на `roll-request:request-state`: входящие, исходящие и (ГМу) все висящие */
+  'roll-request:state': (state: RollRequestState) => void;
   'module:custom-event': (
     moduleId: string,
     eventName: string,
@@ -489,7 +543,21 @@ export interface ClientToServerEvents {
 
   // --- Token ---
   'token:created': (sceneId: string, token: Token) => void;
-  'token:updated': (sceneId: string, token: Token) => void;
+  /**
+   * Перемещение (и любая другая правка) токена.
+   *
+   * `movementPath` — центры клеток пройденного маршрута, от клетки старта до
+   * клетки финиша. Нужен зонам сцены: их разовые триггеры срабатывают на
+   * ПЕРЕСЕЧЕНИИ, а по двум точкам «откуда» и «куда» пробежка насквозь неотличима
+   * от обхода стороной. Сервер маршруту не верит на слово — проверяет связность
+   * и концы (см. `tokensModule`), и при непройденной проверке считает по двум
+   * точкам, как раньше. Без пути (стрелки, перестановка из списка) поле опущено.
+   */
+  'token:updated': (
+    sceneId: string,
+    token: Token,
+    movementPath?: Array<{ x: number; y: number }>,
+  ) => void;
   'token:route-moved': (
     sceneId: string,
     tokenId: string,
@@ -875,6 +943,34 @@ export interface ClientToServerEvents {
     sceneId: string | null,
   ) => void;
   'initiative:request-state': () => void;
+  // --- Запросы бросков ---
+  /**
+   * Попросить владельца сущности бросить. Право проверяет сервер: ГМ — всегда,
+   * игрок — только от своей сущности (`sourceEntityId`). Ack приходит сразу:
+   * принято (кому доставлено) либо отказ уже в форме исхода (`noRecipient`,
+   * `rejected`).
+   */
+  'roll-request:send': (
+    input: RollRequestSendInput,
+    callback: (ack: RollRequestSendAck) => void,
+  ) => void;
+  /** Ответ адресата: `result` — непрозрачный для ядра результат броска системы */
+  'roll-request:answer': (requestId: string, result: unknown) => void;
+  /** Адресат отказался (закрыл окно) */
+  'roll-request:decline': (requestId: string) => void;
+  /**
+   * Бросок сделан ЗА адресата — ГМом или самим инициатором («бросить самому»).
+   * Инициатор получает `takenOver`, у адресата запрос снимается.
+   */
+  'roll-request:take-over': (requestId: string, result: unknown) => void;
+  /** Отозвать запрос (инициатор или ГМ): инициатор получает `declined` */
+  'roll-request:cancel': (requestId: string) => void;
+  /**
+   * Запросить состояние запросов при (пере)подключении. `clientId` —
+   * идентификатор экземпляра страницы: по нему сервер отличает обрыв связи
+   * инициатора (страница вернётся) от F5 (запросы старой страницы снимаются).
+   */
+  'roll-request:request-state': (clientId: string) => void;
   // Sound effects
   'sound:play-effect': (soundUrl: string) => void;
   // Audio control

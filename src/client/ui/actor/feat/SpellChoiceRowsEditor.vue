@@ -1,10 +1,14 @@
 <script setup lang="ts">
+  import type { TypedWebSocketClient } from '@vtt/shared';
+
+  import type { SpellOption } from '../grantedSpellsEditorTypes';
   import type {
     EditableSpellChoiceBlock,
     EditableSpellPickRow,
+    SpellPickSource,
   } from './featEditorTypes';
 
-  import { ref } from 'vue';
+  import { computed, ref } from 'vue';
 
   import {
     CASTING_TIME_OPTIONS,
@@ -16,6 +20,7 @@
   import { NO_SELECTION, SPELL_CHOICE_LABELS } from '../constants';
   import FieldHint from '../FieldHint.vue';
   import FormSection from '../FormSection.vue';
+  import GrantedSpellsEditor from '../GrantedSpellsEditor.vue';
   import {
     createSpellPickRow,
     getSpellPickLevelValue,
@@ -24,11 +29,17 @@
   } from './featEditorTypes';
 
   /**
-   * Заклинания, которые игрок выбирает сам при взятии черты.
+   * Заклинания, которые игрок выбирает сам при взятии записи.
    *
-   * Список классов один на все порции: «Посвящённый в магию» спрашивает класс
-   * один раз и берёт из него и заговоры, и заклинание первого круга. Служебный
-   * выбор класса и ссылку на него форма пишет сама — автору о них знать незачем.
+   * Пул порции собирается двумя способами. Поиском по компендиуму — по кругу и
+   * спискам классов блока: список классов один на все такие порции, «Посвящённый
+   * в магию» спрашивает класс один раз и берёт из него и заговоры, и заклинание
+   * первого круга. Либо перечислением конкретных заклинаний — тогда круг и класс
+   * у каждой записи свои, и порция их не спрашивает. Служебный выбор класса и
+   * ссылку на него форма пишет сама — автору о них знать незачем.
+   *
+   * У порции есть уровень: «Таинственный арканум» спрашивает заклинание 6 круга
+   * на 11 уровне, 7 круга — на 13, и без уровня мастер задал бы все вопросы разом.
    */
   const block = defineModel<EditableSpellChoiceBlock>({ required: true });
 
@@ -36,9 +47,18 @@
     defineProps<{
       /** Ключи выборов, уже занятые чертой (включая вкладку владений) */
       takenKeys?: string[];
+      /** Заклинания компендиума по пакам — для перечисленного пула */
+      availableSpells?: SpellOption[];
+      /** WebSocket-клиент: выбор заклинания из компендиума окном */
+      socket?: TypedWebSocketClient | null;
     }>(),
-    { takenKeys: () => [] },
+    { takenKeys: () => [], availableSpells: () => [], socket: null },
   );
+
+  const emit = defineEmits<{
+    /** Открыть детальный просмотр заклинания (id + предпочтённый пак) */
+    'open-spell': [spellId: string, packId?: string];
+  }>();
 
   interface SelectOption {
     value: string;
@@ -64,21 +84,48 @@
     label: option.label,
   }));
 
+  /** Откуда порция берёт пул — варианты селекта. */
+  const sourceOptions: { value: SpellPickSource; label: string }[] = [
+    { value: 'filter', label: SPELL_CHOICE_LABELS.sourceFilter },
+    { value: 'list', label: SPELL_CHOICE_LABELS.sourceList },
+  ];
+
   /** Порции, у которых автор раскрыл уточнение фильтра. */
   const expandedRows = ref<Set<string>>(new Set());
 
   /**
+   * Списки классов спрашиваются, только пока есть порция с поиском по кругу:
+   * они и есть её фильтр, а хранятся внутри самой порции. У записи, где все
+   * порции перечисляют заклинания, классам негде лежать — поле сохранило бы
+   * выбранное только до перезагрузки формы.
+   */
+  const isClassesShown = computed(() =>
+    block.value.picks.some((row) => row.source === 'filter'),
+  );
+
+  /**
+   * Порция берёт пул из перечисленных заклинаний, а не поиском.
+   *
+   * @param row - порция заклинаний
+   */
+  function isListSource(row: EditableSpellPickRow): boolean {
+    return row.source === 'list';
+  }
+
+  /**
    * Показывать ли уточнение фильтра. Нужно оно единицам черт, поэтому по
    * умолчанию скрыто — но у порции, где школа или время уже заданы записью,
-   * скрывать их значило бы прятать от автора работающее ограничение.
+   * скрывать их значило бы прятать от автора работающее ограничение. У
+   * перечисленного пула фильтра нет вовсе.
    *
    * @param row - порция заклинаний
    */
   function isFilterShown(row: EditableSpellPickRow): boolean {
     return (
-      expandedRows.value.has(row.uid)
-      || row.schools.length > 0
-      || !!row.castingTime
+      !isListSource(row)
+      && (expandedRows.value.has(row.uid)
+        || row.schools.length > 0
+        || !!row.castingTime)
     );
   }
 
@@ -115,6 +162,29 @@
   }
 
   /**
+   * Уровень открытия для поля: ноль в модели значит «сразу», и полю он показан
+   * пустым — подсказкой, а не нулём.
+   *
+   * @param row - порция заклинаний
+   */
+  function getRequiredLevel(row: EditableSpellPickRow): number | undefined {
+    return row.requiredLevel > 0 ? row.requiredLevel : undefined;
+  }
+
+  /**
+   * Записывает уровень открытия; пустое поле — «сразу».
+   *
+   * @param row - порция заклинаний
+   * @param value - уровень персонажа
+   */
+  function setRequiredLevel(
+    row: EditableSpellPickRow,
+    value: number | undefined,
+  ): void {
+    row.requiredLevel = value ?? 0;
+  }
+
+  /**
    * Значение селекта времени накладывания: «любое» хранится пустой строкой, а
    * селекту нужен непустой признак (пустая строка у `reka-ui` — сброс выбора).
    *
@@ -134,6 +204,21 @@
     row.castingTime = value === NO_SELECTION ? '' : value;
   }
 
+  /**
+   * Пробрасывает просмотр заклинания наверх: списком владеет форма, и окно
+   * записи открывает она же.
+   *
+   * @param spellId - id заклинания компендиума
+   * @param packId - предпочтённый пак
+   */
+  function forwardOpenSpell(spellId: string, packId?: string): void {
+    emit('open-spell', spellId, packId);
+  }
+
+  /**
+   * Заводит порцию выбора. Наружу — кнопка добавления живёт в шапке раздела, а
+   * занятые ключи выборов известны только здесь.
+   */
   function addRow(): void {
     const taken = new Set([
       ...props.takenKeys,
@@ -152,16 +237,13 @@
       picks: block.value.picks.filter((_, rowIndex) => rowIndex !== index),
     };
   }
+
+  defineExpose({ addRow });
 </script>
 
 <template>
   <div class="flex flex-col gap-3">
-    <p class="flex items-center gap-1 text-xs text-dimmed">
-      {{ SPELL_CHOICE_LABELS.hint }}
-      <FieldHint :text="SPELL_CHOICE_LABELS.hintDetails" />
-    </p>
-
-    <UFormField>
+    <UFormField v-if="isClassesShown">
       <template #label>
         <span class="flex items-center gap-1">
           {{ SPELL_CHOICE_LABELS.classes }}
@@ -181,24 +263,37 @@
       />
     </UFormField>
 
-    <p
-      v-if="!block.picks.length"
-      class="rounded-lg border border-dashed border-default p-3 text-center text-xs text-dimmed italic"
-    >
-      {{ SPELL_CHOICE_LABELS.empty }}
-    </p>
-
     <div
       v-for="(row, index) in block.picks"
       :key="row.uid"
       class="flex flex-col gap-2 rounded-lg border border-default bg-elevated/40 p-3"
     >
       <div class="flex flex-wrap items-end gap-2">
+        <UFormField class="w-60">
+          <template #label>
+            <span class="flex items-center gap-1">
+              {{ SPELL_CHOICE_LABELS.source }}
+              <FieldHint :text="SPELL_CHOICE_LABELS.sourceHint" />
+            </span>
+          </template>
+
+          <USelect
+            v-model="row.source"
+            :items="sourceOptions"
+            value-key="value"
+            label-key="label"
+            class="w-full"
+          />
+        </UFormField>
+
+        <!-- У перечисленных заклинаний круг свой у каждой записи: селект круга
+          заменяет подпись, чтобы строка не прыгала при смене источника -->
         <UFormField
           :label="SPELL_CHOICE_LABELS.level"
           class="w-52"
         >
           <USelect
+            v-if="!isListSource(row)"
             :model-value="getSpellPickLevelValue(row)"
             :items="SPELL_PICK_LEVEL_OPTIONS"
             value-key="value"
@@ -206,6 +301,13 @@
             class="w-full"
             @update:model-value="setLevel(row, $event)"
           />
+
+          <p
+            v-else
+            class="py-1.5 text-sm text-dimmed italic"
+          >
+            {{ SPELL_CHOICE_LABELS.levelFromRecord }}
+          </p>
         </UFormField>
 
         <UFormField
@@ -218,6 +320,26 @@
             :max="10"
             :disabled="row.countEqualsProficiencyBonus"
             class="w-full"
+          />
+        </UFormField>
+
+        <!-- Уровень — своим полем: «Таинственный арканум» спрашивает 6 круг на
+          11 уровне, 7 круг — на 13; без уровня все порции спросили бы разом -->
+        <UFormField class="w-28">
+          <template #label>
+            <span class="flex items-center gap-1">
+              {{ SPELL_CHOICE_LABELS.requiredLevel }}
+              <FieldHint :text="SPELL_CHOICE_LABELS.requiredLevelHint" />
+            </span>
+          </template>
+
+          <UInputNumber
+            :model-value="getRequiredLevel(row)"
+            :min="1"
+            :max="20"
+            class="w-full"
+            :placeholder="SPELL_CHOICE_LABELS.requiredLevelPlaceholder"
+            @update:model-value="setRequiredLevel(row, $event)"
           />
         </UFormField>
 
@@ -243,6 +365,20 @@
         />
       </div>
 
+      <!-- Перечисленный пул: записи только выбираются из компендиума, тем же
+        редактором, что и выданные заклинания -->
+      <UFormField
+        v-if="isListSource(row)"
+        :label="SPELL_CHOICE_LABELS.listedSpells"
+      >
+        <GrantedSpellsEditor
+          v-model="row.listedSpells"
+          :available-spells="props.availableSpells"
+          :socket="props.socket"
+          @open-spell="forwardOpenSpell"
+        />
+      </UFormField>
+
       <UFormField :label="SPELL_CHOICE_LABELS.label">
         <UInput
           v-model="row.label"
@@ -253,7 +389,7 @@
 
       <!-- Школа и время накладывания нужны единицам черт, поэтому скрыты -->
       <UButton
-        v-if="!isFilterShown(row)"
+        v-if="!isListSource(row) && !isFilterShown(row)"
         icon="tabler:filter"
         color="neutral"
         variant="link"
@@ -264,7 +400,7 @@
       />
 
       <FormSection
-        v-else
+        v-else-if="isFilterShown(row)"
         :title="SPELL_CHOICE_LABELS.filterTitle"
         icon="tabler:filter-filled"
         :hint="SPELL_CHOICE_LABELS.filterHint"
@@ -295,14 +431,5 @@
         </div>
       </FormSection>
     </div>
-
-    <UButton
-      icon="tabler:plus"
-      :label="SPELL_CHOICE_LABELS.add"
-      color="primary"
-      variant="soft"
-      block
-      @click.left.exact.prevent="addRow"
-    />
   </div>
 </template>

@@ -15,13 +15,21 @@ import type {
   ItemTypeMeta,
   ItemTypeProvider,
 } from '@/core/registries';
-import type { BaseGameItem, TypedWebSocketClient } from '@vtt/shared';
+import type {
+  BaseGameItem,
+  EquipmentCategory,
+  TypedWebSocketClient,
+} from '@vtt/shared';
 import type { DnDGameItem, Spell } from '@vtt/shared/system/dnd.js';
 
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
 import { isRecord } from '@vtt/shared';
-import { CONDITION_ITEM_TYPE, isDnDGameItem } from '@vtt/shared/system/dnd.js';
+import {
+  CONDITION_ITEM_TYPE,
+  getEquipmentCategoryIcon,
+  isDnDGameItem,
+} from '@vtt/shared/system/dnd.js';
 
 import { useFeatModal } from './useFeatModal';
 
@@ -59,6 +67,69 @@ const ITEM_TYPE_CONFIG: Record<string, ItemTypeConfig> = {
     modalPrefix: 'Condition',
     label: 'Состояния',
   },
+};
+
+/**
+ * Псевдо-вид меню создания «Безделушка».
+ *
+ * Безделушка — не отдельный тип предмета, а КАТЕГОРИЯ снаряжения
+ * (`equipmentCategory`), поэтому значение ключа совпадает с ключом категории:
+ * пункт меню и есть выбор категории. Сохраняется такая запись обычным
+ * снаряжением (`type: 'equipment'`) и живёт в разделе «Снаряжение» — своего
+ * раздела у псевдо-вида не появляется: разделы панель строит по типам
+ * СУЩЕСТВУЮЩИХ записей, а записей с таким типом не бывает.
+ *
+ * Пункт нужен ровно затем, чтобы не создавать снаряжение и не менять ему тип
+ * экипировки руками на вкладке «Подробнее» — безделушек в мире много.
+ */
+const TRINKET_CATEGORY: EquipmentCategory = 'trinket';
+
+/**
+ * Метаданные пункта «Безделушка» в меню создания.
+ *
+ * Значок берётся у категории (движок), чтобы пункт меню и уже созданные
+ * безделушки в списках выглядели одинаково. Подпись здесь своя: названия
+ * категорий приезжают данными системы уже после регистрации провайдера, а
+ * список видов ядро читает один раз, при регистрации.
+ */
+const TRINKET_TYPE_META: ItemTypeMeta = {
+  type: TRINKET_CATEGORY,
+  icon: getEquipmentCategoryIcon(TRINKET_CATEGORY),
+  label: 'Безделушка',
+};
+
+/**
+ * Псевдо-вид меню создания «Магический предмет».
+ *
+ * Своего типа записи у магического предмета нет: магия — это СВОЙСТВО
+ * (`isMagical`), а не тип, и носить его может любая экипировка. Поэтому пункт,
+ * как и {@link TRINKET_TYPE_META}, открывает обычную форму снаряжения —
+ * но со включённым свойством, а тип экипировки (кольцо, жезл, чудесный
+ * предмет, безделушка…) выбирают в самой форме. Сохраняется запись обычным
+ * снаряжением (`type: 'equipment'`) и живёт в разделе «Снаряжение».
+ *
+ * Пункт нужен затем, чтобы не включать свойство руками на вкладке
+ * «Подробнее» — магических предметов в мире много.
+ */
+const MAGIC_ITEM_TYPE = 'magic-item';
+
+/** Метаданные пункта «Магический предмет» в меню создания. */
+const MAGIC_ITEM_TYPE_META: ItemTypeMeta = {
+  type: MAGIC_ITEM_TYPE,
+  icon: 'tabler:sparkles',
+  label: 'Магический предмет',
+};
+
+/**
+ * Псевдо-виды меню, открывающие форму СНАРЯЖЕНИЯ с заранее заполненными полями.
+ * Ключ — тип пункта меню, значение — что форма проставит при создании.
+ */
+const EQUIPMENT_PRESETS: Record<
+  string,
+  { category?: EquipmentCategory; magical?: boolean }
+> = {
+  [TRINKET_CATEGORY]: { category: TRINKET_CATEGORY },
+  [MAGIC_ITEM_TYPE]: { magical: true },
 };
 
 /**
@@ -120,8 +191,20 @@ function isGameItemLike(value: unknown): value is DnDGameItem {
  * @returns реализация `ItemTypeProvider`
  */
 export function createDnd5eItemTypeProvider(): ItemTypeProvider {
-  const types: ItemTypeMeta[] = Object.entries(ITEM_TYPE_CONFIG).map(
-    ([type, config]) => ({ type, icon: config.icon, label: config.label }),
+  // Псевдо-виды «Безделушка» и «Магический предмет» встают сразу за
+  // снаряжением: обе записи — снаряжение, и в меню создания пункты стоят рядом.
+  const types: ItemTypeMeta[] = Object.entries(ITEM_TYPE_CONFIG).flatMap(
+    ([type, config]) => {
+      const meta: ItemTypeMeta = {
+        type,
+        icon: config.icon,
+        label: config.label,
+      };
+
+      return type === 'equipment'
+        ? [meta, TRINKET_TYPE_META, MAGIC_ITEM_TYPE_META]
+        : [meta];
+    },
   );
 
   /** Открывает модалку по вычисленному имени. */
@@ -233,6 +316,21 @@ export function createDnd5eItemTypeProvider(): ItemTypeProvider {
     // Состояние: форме нужен сокет — «Сбросить к канону» удаляет запись мира.
     if (type === CONDITION_ITEM_TYPE) {
       openByName(modalName, { item, onSave, socket });
+
+      return;
+    }
+
+    // Безделушка и магический предмет: та же форма снаряжения, но категория
+    // и/или свойство «магическое» проставлены заранее.
+    const preset = EQUIPMENT_PRESETS[type];
+
+    if (preset) {
+      openByName(getModalName('equipment', 'FormModal'), {
+        item,
+        onSave,
+        createCategory: preset.category,
+        createMagical: preset.magical,
+      });
 
       return;
     }

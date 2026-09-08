@@ -32,11 +32,13 @@ import {
   getCounterRecoveryRules,
   resolveCounterMaxIn,
 } from './counterResource.js';
+import { restoreCreatureSpellGroupUses } from './creatureSpellcasting.js';
 import {
   getHalfHitDiceRecovery,
   getHitDiceGroups,
   recoverHitDice,
 } from './hitDiceUtils.js';
+import { resolveEntityMaxHp } from './hitPoints.js';
 
 /** Тип отдыха */
 export type RestType = 'short' | 'long';
@@ -293,9 +295,12 @@ export function applyActorRest(
     // Долгий отдых: все ячейки «не использованы», хиты до максимума, temp сброшен
     restoredSystem.spellSlotsUsed = [];
 
+    // Максимум — с прибавкой эффектов (`hitPoints.max`), тот же, что в плитке
+    // листа: «полные хиты» после отдыха обязаны совпасть с показанным потолком,
+    // иначе чародей с «Драконьей устойчивостью» вставал бы 26/29
     restoredSystem.hitPoints = {
       ...system.hitPoints,
-      current: system.hitPoints.max,
+      current: resolveEntityMaxHp(actor),
       temp: 0,
     };
 
@@ -396,11 +401,14 @@ export function summarizeActorLongRest(actor: DnDActor): LongRestPreview {
 
   const exhaustionLevel = getEntityExhaustionLevel(actor.activeEffects);
 
+  // Потолок предпросмотра — тот же, до которого поднимет отдых
+  const maxHitPoints = resolveEntityMaxHp(actor);
+
   return {
     hitPoints: {
       current: system.hitPoints.current,
-      max: system.hitPoints.max,
-      restored: Math.max(0, system.hitPoints.max - system.hitPoints.current),
+      max: maxHitPoints,
+      restored: Math.max(0, maxHitPoints - system.hitPoints.current),
     },
     tempHitPointsCleared: system.hitPoints.temp,
     hitDice: {
@@ -485,15 +493,31 @@ export function applyCreatureRest(
     ),
   };
 
-  if (restType === 'long') {
-    const hitPoints = creature.system.hitPoints;
-    const restoredMax = hitPoints.max ?? hitPoints.average ?? hitPoints.current;
+  // Порция «на весь список» держит счётчик у себя, а не у заклинаний: без этой
+  // строки отдых вернул бы заряды «каждому», а общий счётчик оставил пустым
+  const blocks = creature.system.spellcastingBlocks;
 
+  if (blocks?.length) {
     patch.system = {
       ...creature.system,
+      spellcastingBlocks: restoreCreatureSpellGroupUses(blocks, restType),
+    };
+  }
+
+  if (restType === 'long') {
+    const hitPoints = creature.system.hitPoints;
+
+    // Потолок — с прибавкой эффектов, как и у актора (внутри `max` статблока,
+    // иначе `average`). Нуль означает, что запаса в записи нет вовсе — у
+    // существа с текстовыми хитами («половина хитов призывателя»); такому отдых
+    // оставляет то, что есть, а не обнуляет его.
+    const restoredMax = resolveEntityMaxHp(creature);
+
+    patch.system = {
+      ...(patch.system ?? creature.system),
       hitPoints: {
         ...hitPoints,
-        current: restoredMax ?? hitPoints.current,
+        current: restoredMax > 0 ? restoredMax : hitPoints.current,
         temp: 0,
       },
     };

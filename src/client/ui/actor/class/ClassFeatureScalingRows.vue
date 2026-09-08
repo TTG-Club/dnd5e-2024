@@ -27,13 +27,6 @@
 <template>
   <div class="flex flex-col gap-2">
     <div
-      v-if="scaling.length === 0"
-      class="rounded-lg border border-dashed border-default p-3 text-center text-xs text-dimmed italic"
-    >
-      {{ CLASS_FEATURE_LABELS.scalingEmpty }}
-    </div>
-
-    <div
       v-for="(step, stepIndex) in scaling"
       :key="step.uid"
       class="flex flex-col gap-2 rounded-md border border-default bg-elevated/30 p-2"

@@ -2,6 +2,7 @@
   import type { Feature, TypedWebSocketClient } from '@vtt/shared';
   import type {
     BackgroundDefinition,
+    ClassSpellListRequest,
     DnDActor,
     GrantedSpellSource,
   } from '@vtt/shared/system/dnd.js';
@@ -14,6 +15,7 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import {
     calculateProficiencyBonus,
+    collectFeatGrantedClassSpellRequests,
     collectFeatGrantedSpellSources,
     collectGrantedSpellSources,
     getTotalLevel,
@@ -41,6 +43,8 @@
     open: boolean;
     actor: DnDActor;
     backgroundDefinition: BackgroundDefinition | null;
+    /** Пак записи предыстории: ложится на запись актора */
+    packId?: string;
     socket: TypedWebSocketClient | null;
   }>();
 
@@ -86,6 +90,7 @@
     toRef(props, 'actor'),
     toRef(props, 'open'),
     toRef(props, 'socket'),
+    toRef(props, 'packId'),
   );
 
   const wizardSteps = computed(() => {
@@ -244,10 +249,49 @@
     return sources;
   });
 
+  /**
+   * Запросы «выдать весь список класса» — от черты происхождения и от собственных
+   * даров предыстории. Заклинаний они не называют: их подберёт резолвер по
+   * компендиуму.
+   */
+  const grantedClassSpellRequests = computed((): ClassSpellListRequest[] => {
+    const requests: ClassSpellListRequest[] = [];
+
+    if (selectedFeat.value) {
+      requests.push(
+        ...collectFeatGrantedClassSpellRequests(
+          {
+            name: selectedFeat.value.name,
+            featData: selectedFeat.value.featData,
+            choices: selectedFeatChoices.value,
+          },
+          props.actor,
+        ),
+      );
+    }
+
+    const def = definition.value;
+
+    if (def?.featData) {
+      for (const request of collectFeatGrantedClassSpellRequests(
+        { name: def.name, featData: def.featData },
+        props.actor,
+      )) {
+        requests.push({
+          ...request,
+          featureName: backgroundSpellSource(def.name),
+        });
+      }
+    }
+
+    return requests;
+  });
+
   /** Granted-заклинания выбранной черты с данными из компендиума */
   const { resolvedGrantedSpells } = useGrantedSpellsResolver(
     toRef(props, 'socket'),
     grantedSpellSources,
+    grantedClassSpellRequests,
   );
 
   async function handleApply() {
@@ -262,6 +306,7 @@
     const granted = await resolveStartingEquipment(
       props.socket,
       selectedEquipmentItems.value,
+      props.packId,
     );
 
     if (granted.length > 0) {

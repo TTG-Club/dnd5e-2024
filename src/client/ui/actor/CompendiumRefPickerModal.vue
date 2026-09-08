@@ -23,6 +23,7 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useItemsStore } from '@/stores/itemsStore';
   import { compendiumEntryKey, isRecord } from '@vtt/shared';
+  import { WORLD_PACK_ID } from '@vtt/shared/system/dnd.js';
 
   import { useSourceLabels } from '../../composables/useSourceLabel';
   import {
@@ -34,7 +35,6 @@
     COMPENDIUM_PICKER_LABELS,
     MODAL_BUTTON_LABELS,
     REF_PICKER_LABELS,
-    WORLD_PACK_ID,
   } from './constants';
   import PickerListRow from './PickerListRow.vue';
   import { pickerRowId, sortPickerRowsByName } from './utils/pickerRows';
