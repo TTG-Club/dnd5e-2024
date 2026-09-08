@@ -27,6 +27,7 @@ import type {
   DnDCreature,
   DnDGameItem,
   DnDSceneEntity,
+  Spell,
 } from './dndEntities.js';
 import type { ActorSpeciesEntry } from './speciesTypes.js';
 import type {
@@ -56,6 +57,11 @@ import {
   normalizeSpellUsesRecovery,
   SKILL_ABILITY_MAP,
 } from './consts.js';
+import {
+  ensureCreatureSpellsInBlocks,
+  normalizeCreatureSpellcastingBlocks,
+  syncCreatureSpellcastingUses,
+} from './creatureSpellcasting.js';
 import { getCustomBonusValue, parseCustomBonuses } from './customBonuses.js';
 import {
   DEFAULT_PROFICIENCY_BONUS,
@@ -1514,6 +1520,26 @@ export function normalizeCreature(creature: BaseCreature): void {
     if (isRecord(spell) && isRecord(spell.uses)) {
       spell.uses.recovery = normalizeSpellUsesRecovery(spell.uses.recovery);
     }
+  }
+
+  // Блоки заклинаний приезжают и из мира, и из выгрузки сайта, где написания
+  // перечислений свои. Заклинания, ни в одну группу не попавшие, раскладываются
+  // по ним здесь же: вне блока заклинание существа не живёт — блок задаёт, чем
+  // оно колдует. Заряды после разбора задаёт режим группы, иначе запись с
+  // группой «2 в день» открылась бы заклинаниями без зарядов
+  if (spells.length > 0 || system.spellcastingBlocks !== undefined) {
+    const parsedBlocks = normalizeCreatureSpellcastingBlocks(
+      system.spellcastingBlocks,
+      spells as Spell[],
+    );
+
+    const synced = syncCreatureSpellcastingUses(
+      spells as Spell[],
+      ensureCreatureSpellsInBlocks(spells as Spell[], parsedBlocks),
+    );
+
+    system.spellcastingBlocks = synced.blocks;
+    raw.spells = synced.spells;
   }
 
   // Нормализация token: дефолты для существ — имя скрыто, ХП текстом

@@ -22,6 +22,7 @@ export * from './consts.js';
 export * from './counterResource.js';
 export * from './counterTableColumns.js';
 export * from './creatureHitDice.js';
+export * from './creatureSpellcasting.js';
 export * from './creatureTypeGate.js';
 export * from './creatureTypes.js';
 export * from './creatureUtils.js';

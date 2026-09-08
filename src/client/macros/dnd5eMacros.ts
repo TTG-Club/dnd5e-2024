@@ -6,6 +6,7 @@ import type {
 import type {
   AttackRollMode,
   CreatureAction,
+  CreatureSpellPlacement,
   DnDActor,
   DnDCreature,
   DnDGameItem,
@@ -35,16 +36,20 @@ import { useWorldStore } from '@/stores/worldStore';
 import { isActorEntity, isCreatureEntity, isRecord } from '@vtt/shared';
 import {
   buildFormulaContext,
+  calculateCreatureSpellBlockNumbers,
   calculateSpellAttackModifier,
   calculateWeaponAttackModifier,
   checkRange,
   collectActiveEffects,
   combineEffectsWithAmbient,
+  consumeCreatureSpellGroupUse,
   damagePartIsHealing,
   describeDamagePart,
   evaluateConditionalBonuses,
+  findCreatureSpellPlacement,
   formatConditionalDamageDisplay,
   getAvailableSpellLevels,
+  getCreatureSpellBlockAbility,
   getCreatureSpellRollButtonText,
   getPactSlotInfo,
   getSpellAttackType,
@@ -53,6 +58,8 @@ import {
   getSpellProjectileCount,
   getTotalLevel,
   getWeaponPrimaryDamageType,
+  hasCreatureSpellGroupUsesLeft,
+  isCreatureSpellPoolMode,
   isDnDEffect,
   isDndSceneEntity,
   mergeAppliedEffects,
@@ -74,6 +81,7 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import {
+  discardSpellTemplate,
   getCasterSpellEffects,
   getTargetSpellEffects,
   instantiateSpellEffects,
@@ -1740,6 +1748,7 @@ function openCreatureActionRoll(
         parts,
         templateId,
       ),
+    onCancel: templateId ? () => discardSpellTemplate(templateId) : undefined,
     // Расход одноразовых эффектов «следующей атаки» на броске атаки существа
     onAttackRolled: usesSaveOrArea
       ? undefined
@@ -1818,14 +1827,26 @@ function applyCreatureActionParts(
 }
 
 /**
- * Списывает один заряд заклинания существа (для заклинаний с откатом, не «по
- * желанию») и персистит изменение (локально + сокет).
+ * Списывает одно применение заклинания существа и персистит изменение
+ * (локально + сокет).
+ *
+ * У группы «на весь список» счётчик один на всю группу и лежит у неё; у
+ * остальных заряды считает само заклинание. Так же, как на листе существа —
+ * иначе каст с хотбара расходился бы с кастом со вкладки.
  *
  * @param creature - существо-источник
  * @param spell - заклинание
+ * @param placement - группа, из которой идёт каст
  */
-function consumeCreatureSpellUse(creature: DnDCreature, spell: Spell): void {
-  if (!spell.uses || spell.uses.recovery === 'atWill') {
+function consumeCreatureSpellUse(
+  creature: DnDCreature,
+  spell: Spell,
+  placement: CreatureSpellPlacement | undefined,
+): void {
+  const isPool =
+    placement !== undefined && isCreatureSpellPoolMode(placement.group.mode);
+
+  if (!isPool && (!spell.uses || spell.uses.recovery === 'atWill')) {
     return;
   }
 
@@ -1837,24 +1858,36 @@ function consumeCreatureSpellUse(creature: DnDCreature, spell: Spell): void {
     return;
   }
 
-  const updatedSpells = (creature.spells ?? []).map((entry) =>
-    entry.id === spell.id && entry.uses
-      ? {
-          ...entry,
-          uses: {
-            ...entry.uses,
-            current: Math.max(0, entry.uses.current - 1),
-          },
-        }
-      : entry,
-  );
+  const patch: Partial<DnDCreature> = {};
 
-  worldStore.updateCreature(worldId, creature.id, { spells: updatedSpells });
+  if (isPool && placement) {
+    patch.system = {
+      ...creature.system,
+      spellcastingBlocks: consumeCreatureSpellGroupUse(
+        creature.system.spellcastingBlocks ?? [],
+        placement.group.id,
+      ),
+    };
+  } else {
+    patch.spells = (creature.spells ?? []).map((entry) =>
+      entry.id === spell.id && entry.uses
+        ? {
+            ...entry,
+            uses: {
+              ...entry.uses,
+              current: Math.max(0, entry.uses.current - 1),
+            },
+          }
+        : entry,
+    );
+  }
+
+  worldStore.updateCreature(worldId, creature.id, patch);
 
   const socket = chatStore.getSocket();
 
   if (socket) {
-    const updatedCreature: DnDCreature = { ...creature, spells: updatedSpells };
+    const updatedCreature: DnDCreature = { ...creature, ...patch };
 
     emitEntityUpdate(socket, updatedCreature);
   }
@@ -1895,11 +1928,23 @@ function registerCreatureSpellMacro(): void {
 
       const chatStore = useChatStore();
 
-      if (
-        spell.uses
+      // Группа, из которой идёт каст: её числа, круг наложения и общий счётчик
+      // применений главнее чисел самого существа
+      const placement = findCreatureSpellPlacement(
+        foundCreature.system.spellcastingBlocks,
+        spell.id,
+      );
+
+      const isGroupEmpty =
+        placement !== undefined
+        && !hasCreatureSpellGroupUsesLeft(placement.group);
+
+      const isSpellEmpty =
+        !!spell.uses
         && spell.uses.recovery !== 'atWill'
-        && spell.uses.current <= 0
-      ) {
+        && spell.uses.current <= 0;
+
+      if (isGroupEmpty || isSpellEmpty) {
         chatStore.sendMessage(
           `⛔ ${spell.name}: не осталось зарядов — нужен отдых.`,
           'text',
@@ -1908,7 +1953,7 @@ function registerCreatureSpellMacro(): void {
         return;
       }
 
-      consumeCreatureSpellUse(foundCreature, spell);
+      consumeCreatureSpellUse(foundCreature, spell, placement);
 
       // Область: размещаем шаблон у токена существа, затем кидаем урон
       if (spell.areaOfEffect) {
@@ -1928,14 +1973,14 @@ function registerCreatureSpellMacro(): void {
           color,
           foundCreature.id,
           (templateId) =>
-            openCreatureSpellRoll(foundCreature, spell, templateId),
+            openCreatureSpellRoll(foundCreature, spell, templateId, placement),
           null,
         );
 
         return;
       }
 
-      openCreatureSpellRoll(foundCreature, spell, undefined);
+      openCreatureSpellRoll(foundCreature, spell, undefined, placement);
     } catch (err) {
       console.error('[Hotbar] Ошибка выполнения creature-spell:', err);
     }
@@ -1950,11 +1995,13 @@ function registerCreatureSpellMacro(): void {
  * @param creature - существо-источник
  * @param spell - заклинание существа
  * @param templateId - id размещённого AoE-шаблона (если область)
+ * @param placement - группа, из которой идёт каст
  */
 function openCreatureSpellRoll(
   creature: DnDCreature,
   spell: Spell,
   templateId: string | undefined,
+  placement: CreatureSpellPlacement | undefined,
 ): void {
   const { openModal } = useModalManager();
   const targetStore = useTargetStore();
@@ -1976,6 +2023,10 @@ function openCreatureSpellRoll(
     effects,
     targetIsFull: undefined,
     targetType: undefined,
+    spellcastingAbility: getCreatureSpellBlockAbility(
+      creature,
+      placement?.block,
+    ),
   });
 
   const enabledEffects = spell.activeEffects?.filter(
@@ -1998,7 +2049,14 @@ function openCreatureSpellRoll(
   const first = spell.damageParts?.[0];
   const damageType = first ? describeDamagePart(first).types[0] : undefined;
 
-  const spellcasting = creature.system.spellcasting;
+  const numbers = calculateCreatureSpellBlockNumbers(
+    creature,
+    placement?.block,
+  );
+
+  // Круг наложения из группы фиксирует окно броска: список кругов из одного
+  // значения. Без круга секция не показывается — так же, как было до групп
+  const castLevel = placement?.ref.castLevel;
 
   // Помеха/преимущество атакующего существа-заклинателя: флаги существа (общие +
   // профильные attack.spell.*) + attacksAgainst цели. Раньше всегда 'normal'.
@@ -2015,16 +2073,27 @@ function openCreatureSpellRoll(
     rollLabel: spell.name,
     rollButtonText: getCreatureSpellRollButtonText(usesAttack, isHealing),
     formula: setup.baseParts[0]?.formula ?? '',
-    attackModifier: usesAttack ? spellcasting?.attackBonus : undefined,
+    attackModifier: usesAttack ? numbers.attackBonus : undefined,
     initialRollMode: spellRollMode,
     incomingAttackType: usesAttack ? attackType : undefined,
     damageType,
     isHealing,
     damageParts: setup.baseParts,
+    spellLevel: castLevel === undefined ? undefined : spell.level,
+    availableSpellLevels: castLevel === undefined ? undefined : [castLevel],
+    spellScalingDice:
+      castLevel === undefined ? undefined : spell.scaling?.additionalDice,
     evaluateBonusDamageParts: setup.evaluateBonusDamageParts,
     onRollParts: (parts: RolledSpellDamagePart[]) =>
-      applyCreatureSpellParts(creature, setup.pseudoSpell, parts, templateId),
+      applyCreatureSpellParts(
+        creature,
+        setup.pseudoSpell,
+        parts,
+        templateId,
+        numbers.saveDC,
+      ),
     onHit,
+    onCancel: templateId ? () => discardSpellTemplate(templateId) : undefined,
     // Расход одноразовых эффектов «следующей атаки» на броске атаки существа
     onAttackRolled: usesAttack
       ? () => {
@@ -2044,18 +2113,21 @@ function openCreatureSpellRoll(
 
 /**
  * Применяет брошенные части урона/лечения заклинания существа через
- * многочастный оркестратор. DC спасброска — плоский из блока заклинательства.
+ * многочастный оркестратор. DC спасброска — плоский из блока заклинаний, а без
+ * блока — из заклинательства существа.
  *
  * @param creature - существо-источник (casterId)
  * @param pseudoSpell - псевдо-заклинание (клон с activeEffects)
  * @param parts - брошенные части урона
  * @param templateId - id размещённого AoE-шаблона (если был)
+ * @param saveDC - сложность спасброска блока
  */
 function applyCreatureSpellParts(
   creature: DnDCreature,
   pseudoSpell: Spell,
   parts: RolledSpellDamagePart[],
   templateId: string | undefined,
+  saveDC: number | undefined,
 ): void {
   const worldStore = useWorldStore();
   const chatStore = useChatStore();
@@ -2085,7 +2157,7 @@ function applyCreatureSpellParts(
       {
         spell: pseudoSpell,
         damageTotal: 0,
-        spellSaveDC: creature.system.spellcasting?.saveDC ?? 10,
+        spellSaveDC: saveDC ?? 10,
         actors,
         socket,
         casterId: creature.id,

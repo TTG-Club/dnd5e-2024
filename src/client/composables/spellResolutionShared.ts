@@ -17,6 +17,7 @@ import type {
 } from '@vtt/shared/system/dnd.js';
 
 import { useInitiativeStore } from '@/stores/initiativeStore';
+import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
 import { generateId, isCreatureEntity } from '@vtt/shared';
 import {
   CREATURE_TYPE_LABELS,
@@ -535,4 +536,22 @@ export function formatRolledPartLine(
     rolledPart.values.length > 0 ? `[${rolledPart.values.join(', ')}] = ` : '';
 
   return `${rolledPart.formula} ${label}${gateSuffix}: ${diceBreakdown}${rolledPart.amount}${defenseSuffix}`;
+}
+
+/**
+ * Снимает размещённый AoE-шаблон отменённого каста: чистит кэш его данных и
+ * убирает шаблон со сцены.
+ *
+ * Шаблон встаёт на карту ДО окна броска, поэтому закрытое без броска окно
+ * обязано его убрать — иначе отменённая область висит на сцене до её
+ * перезагрузки. Доведённый до применения каст снимает шаблон сам: там его
+ * данные сперва забирают в кэш, по нему считаются задетые цели.
+ *
+ * @param templateId - id размещённого шаблона
+ */
+export function discardSpellTemplate(templateId: string): void {
+  const templateStore = useSpellTemplateStore();
+
+  templateStore.removePlacedTemplate(templateId);
+  templateStore.deleteTemplate(templateId);
 }

@@ -1090,7 +1090,7 @@
   function getSpellStats(spell: Spell): SheetRowStat[] {
     const stats: SheetRowStat[] = [];
 
-    const damage = formatSpellDamageDisplay(spell, props.actor);
+    const damage = formatSpellDamageDisplay(spell, { actor: props.actor });
 
     if (damage) {
       stats.push({

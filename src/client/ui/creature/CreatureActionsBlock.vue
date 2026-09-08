@@ -37,6 +37,7 @@
     SPELL_TEMPLATE_DEFAULT_COLOR,
   } from '@vtt/shared/system/dnd.js';
 
+  import { discardSpellTemplate } from '../../composables/spellResolutionShared';
   import { useBonusDamageParts } from '../../composables/useBonusDamageParts';
   import { useSpellResolution } from '../../composables/useSpellResolution';
   import {
@@ -300,6 +301,8 @@
     ) => SpellDamagePartInput[];
     onRollParts?: (parts: RolledSpellDamagePart[]) => void;
     onHit?: () => void;
+    /** Окно закрыли, не бросив: снимает со сцены размещённый AoE-шаблон */
+    onCancel?: () => void;
   }
 
   const rollConfig = ref<RollConfig>({
@@ -469,6 +472,10 @@
       // Сбрасываем явно: `rollConfig` переиспользуется между бросками, и без
       // этого обработчик от ПРЕДЫДУЩЕГО броска остался бы висеть на текущем.
       onHit: undefined,
+      // Отмена окна (крестик, Escape, конец сессии) обязана убрать шаблон: он
+      // размещается ДО броска, и без этого отменённое действие оставляло
+      // область висеть на карте до перезагрузки сцены
+      onCancel: templateId ? () => discardSpellTemplate(templateId) : undefined,
     };
 
     isRollModalOpen.value = true;
@@ -950,6 +957,7 @@
       :evaluate-bonus-damage-parts="rollConfig.evaluateBonusDamageParts"
       :on-roll-parts="rollConfig.onRollParts"
       :on-hit="rollConfig.onHit"
+      :on-cancel="rollConfig.onCancel"
     />
 
     <!-- Модалка просмотра действия -->

@@ -32,6 +32,7 @@ import {
   getCounterRecoveryRules,
   resolveCounterMaxIn,
 } from './counterResource.js';
+import { restoreCreatureSpellGroupUses } from './creatureSpellcasting.js';
 import {
   getHalfHitDiceRecovery,
   getHitDiceGroups,
@@ -492,6 +493,17 @@ export function applyCreatureRest(
     ),
   };
 
+  // Порция «на весь список» держит счётчик у себя, а не у заклинаний: без этой
+  // строки отдых вернул бы заряды «каждому», а общий счётчик оставил пустым
+  const blocks = creature.system.spellcastingBlocks;
+
+  if (blocks?.length) {
+    patch.system = {
+      ...creature.system,
+      spellcastingBlocks: restoreCreatureSpellGroupUses(blocks, restType),
+    };
+  }
+
   if (restType === 'long') {
     const hitPoints = creature.system.hitPoints;
 
@@ -502,7 +514,7 @@ export function applyCreatureRest(
     const restoredMax = resolveEntityMaxHp(creature);
 
     patch.system = {
-      ...creature.system,
+      ...(patch.system ?? creature.system),
       hitPoints: {
         ...hitPoints,
         current: restoredMax > 0 ? restoredMax : hitPoints.current,

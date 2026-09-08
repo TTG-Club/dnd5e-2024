@@ -39,6 +39,7 @@
     CREATURE_SIZE_TO_TOKEN_SCALE,
     DEFAULT_CREATURE,
     DEFAULT_PROFICIENCY_BONUS,
+    ensureCreatureSpellsInBlocks,
     formatVisionRange,
     getActorAbilityModifiers,
     getCreatureHitDiceConstitutionModifier,
@@ -60,6 +61,7 @@
     resolveAbilityCheckRollMode,
     resolveCreatureHitPointsByRules,
     SKILLS_LIST,
+    syncCreatureSpellcastingUses,
     withExhaustionLevel,
   } from '@vtt/shared/system/dnd.js';
 
@@ -1139,23 +1141,27 @@
   }
 
   /**
-   * Обновляет список заклинаний существа (верхний уровень).
-   * @param spells - новый список заклинаний
+   * Обновляет заклинания существа вместе с их раскладкой по блокам.
+   *
+   * Одним обработчиком, а не двумя: правка почти всегда задевает и список, и
+   * блоки (заклинание кладут в группу, режим группы меняет его заряды), а
+   * двумя вызовами лист сохранялся бы дважды подряд.
+   *
+   * @param value - заклинания и блоки существа
    */
-  function handleSpellsUpdate(
-    spells: NonNullable<DnDCreature['spells']>,
-  ): void {
-    handleCreatureUpdate({ spells });
-  }
+  function handleSpellbookUpdate(value: {
+    spells: NonNullable<DnDCreature['spells']>;
+    blocks: NonNullable<DnDCreature['system']['spellcastingBlocks']>;
+  }): void {
+    if (!localCreature.value) {
+      return;
+    }
 
-  /**
-   * Обновляет параметры заклинательства существа (плоский DC/бонус/характеристика).
-   * @param spellcasting - новые параметры заклинательства
-   */
-  function handleSpellcastingUpdate(
-    spellcasting: NonNullable<DnDCreature['system']['spellcasting']>,
-  ): void {
-    handleSystemUpdate({ spellcasting });
+    localCreature.value.spells = value.spells;
+    localCreature.value.system.spellcastingBlocks = value.blocks;
+
+    isDirty.value = true;
+    handleImmediateSave();
   }
 
   /**
@@ -1375,7 +1381,20 @@
 
       const newSpell: Spell = { ...dropped, id: generateId('spell') };
 
-      handleCreatureUpdate({ spells: [...current, newSpell] });
+      const spells = [...current, newSpell];
+
+      // Перетащенное заклинание сразу кладётся в группу: вне блока заклинание
+      // существа не живёт — блок задаёт, чем оно колдует. Группа подбирается по
+      // зарядам записи, а если блока нет — заводится вместе с ним
+      handleSpellbookUpdate(
+        syncCreatureSpellcastingUses(
+          spells,
+          ensureCreatureSpellsInBlocks(
+            spells,
+            localCreature.value.system.spellcastingBlocks ?? [],
+          ),
+        ),
+      );
 
       activeTab.value = 'spells';
 
@@ -2133,14 +2152,16 @@
                     <CreatureSpellsBlock
                       :creature="localCreature"
                       :spells="localCreature.spells"
-                      :spellcasting="localCreature.system.spellcasting"
+                      :spellcasting-blocks="
+                        localCreature.system.spellcastingBlocks
+                      "
                       :is-edit-mode="isEditMode"
                       :is-read-only="isReadOnly"
                       :can-edit="canControl && !isReadOnly"
                       :creature-id="localCreature.id"
                       :creature-name="localCreature.name"
-                      @update:spells="handleSpellsUpdate"
-                      @update:spellcasting="handleSpellcastingUpdate"
+                      :socket="socket"
+                      @update:spellbook="handleSpellbookUpdate"
                     />
                   </template>
 
