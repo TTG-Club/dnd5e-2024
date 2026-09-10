@@ -2877,7 +2877,6 @@ export const PROFICIENCY_MODAL_LABELS = {
   languagesTitle: 'Владение языками',
   languagesStandard: 'Стандартные',
   languagesRare: 'Редкие',
-  languagesExotic: 'Экзотические',
   languagesCustomTitle: 'Свои языки',
   languagesCustomPlaceholder: 'Название языка',
   languagesCustomEmpty: 'Своих языков нет',
