@@ -350,7 +350,7 @@
             >
               <button
                 type="button"
-                class="flex min-w-0 flex-1 items-center gap-2 border p-2 text-left transition-colors"
+                class="peer flex min-w-0 flex-1 items-center gap-2 border p-2 text-left transition-colors"
                 :class="[optionClass(option), optionRoundingClass(option)]"
                 :disabled="option.disabled"
                 :aria-pressed="isPicked(option.value)"
@@ -421,7 +421,7 @@
               <button
                 v-if="hasDetail(option)"
                 type="button"
-                class="flex shrink-0 cursor-pointer items-center justify-center rounded-r-md border border-default/50 bg-default/30 px-3 text-dimmed transition-colors hover:border-accented/50 hover:bg-elevated/50 hover:text-default"
+                class="flex shrink-0 cursor-pointer items-center justify-center rounded-r-md border border-default/50 bg-default/30 px-3 text-dimmed transition-colors peer-aria-pressed:border-primary/50 hover:border-accented/50 hover:bg-elevated/50 hover:text-default peer-aria-pressed:hover:border-primary/50"
                 :aria-label="CHOICE_PICKER_LABELS.detailOpen"
                 @click.left.exact.prevent="openDetail(option)"
               >

@@ -218,7 +218,7 @@
     <div
       v-for="feature in speciesDefinition.features"
       :key="feature.key"
-      class="flex flex-col gap-3 rounded-lg bg-elevated p-4"
+      class="flex flex-col gap-3 rounded-lg border border-default/50 bg-elevated/30 p-4"
     >
       <span class="font-medium text-primary">
         {{ feature.name }}
@@ -309,7 +309,7 @@
     <div
       v-for="source in sourcesWithChoices"
       :key="source.sourceKey"
-      class="flex flex-col gap-3 rounded-lg bg-elevated p-4"
+      class="flex flex-col gap-3 rounded-lg border border-default/50 bg-elevated/30 p-4"
     >
       <span class="font-medium text-primary">
         {{ SPECIES_WIZARD_LABELS.featDataChoicesPrefix }}{{ source.sourceName }}
@@ -330,7 +330,7 @@
     <div
       v-for="pick in featPicks"
       :key="pick.pickKey"
-      class="flex flex-col gap-3 rounded-lg bg-elevated p-4"
+      class="flex flex-col gap-3 rounded-lg border border-default/50 bg-elevated/30 p-4"
     >
       <span class="font-medium text-primary">
         {{ SPECIES_WIZARD_LABELS.featDataChoicesPrefix }}{{ pick.sourceName }}
