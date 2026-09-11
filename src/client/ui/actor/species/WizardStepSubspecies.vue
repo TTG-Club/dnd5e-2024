@@ -34,6 +34,8 @@
       value: option.key,
       name: option.name,
       nameEn: option.nameEn,
+      sourceKey: option.sourceKey,
+      source: option.source,
       description: option.description,
     })),
   );

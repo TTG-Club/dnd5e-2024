@@ -79,6 +79,7 @@
         value: id,
         name: feat?.name ?? id,
         nameEn: feat?.nameEn,
+        sourceKey: feat?.sourceKey,
         description: feat?.description,
       };
     }),
