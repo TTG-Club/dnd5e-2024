@@ -2412,7 +2412,7 @@
     :saved-position="props.savedPosition"
     :saved-size="props.savedSize"
     :ui="{
-      content: 'bg-default rounded-2xl',
+      content: 'bg-default rounded-xl',
       body: 'p-0 max-h-[100%]',
     }"
     :hide-header="true"

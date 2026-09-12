@@ -1608,7 +1608,7 @@
     :saved-position="savedPosition"
     :saved-size="savedSize"
     :ui="{
-      content: 'bg-default rounded-2xl',
+      content: 'bg-default rounded-xl',
       body: 'p-0 h-full flex flex-col max-h-[100%]',
     }"
     @update:open="handleModalClose"
