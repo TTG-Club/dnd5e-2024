@@ -71,7 +71,10 @@
 </script>
 
 <template>
-  <div class="ml-auto w-44 max-w-full space-y-1">
+  <!-- Колонка на flex-gap, а не на space-y: при `portal: false` открытый
+       список становится ещё одним потомком, и отступ space-y переезжал бы на
+       поле, растягивая шапку на пару пикселей. -->
+  <div class="ml-auto flex w-44 max-w-full flex-col gap-1">
     <label
       v-if="editable"
       :for="inputId"
@@ -93,6 +96,7 @@
       v-model:open="isMenuOpen"
       :aria-label="ENTITY_OWNERSHIP_LABELS.label"
       :items="userOptions"
+      :content="{ align: 'end' }"
       :ui="{
         content: 'min-w-64 max-w-[calc(100vw-2rem)]',
         viewport: 'max-h-64',
