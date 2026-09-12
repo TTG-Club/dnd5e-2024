@@ -21,15 +21,21 @@ import { INITIATIVE_ROLL_LABELS } from '../ui/actor/constants';
  * результат помечается `announced` — серверное сообщение о том же броске тогда
  * не выводится.
  *
+ * У участника может быть несколько управляющих: инициативу засчитывают первому
+ * бросившему, и окно остальных ядро закрывает через `onCancelled`.
+ *
  * @param entity - участник боя: актёр или существо
  * @param onRolled - принимает бросок; не вызывается, если окно закрыли без броска
+ * @param onCancelled - принимает закрытие окна снаружи
  * @returns всегда `true` — бросок за системой (её окном)
  */
 export function promptInitiativeRoll(
   entity: SceneEntity,
   onRolled: (result: InitiativeRollPromptResult) => void,
+  onCancelled: (closeWindow: () => void) => void,
 ): boolean {
-  const { openModal } = useModalManager();
+  const { openModal, closeModal, modals } = useModalManager();
+  const modalKey = `initiative:${entity.id}`;
 
   const modifier = dnd5eSystemInstance.getInitiativeModifier(entity);
 
@@ -41,11 +47,11 @@ export function promptInitiativeRoll(
   // кого открыто окно, ни за кого ушёл бросок в чат
   const nameSuffix = `${INITIATIVE_ROLL_LABELS.nameSeparator}${entity.name}`;
 
-  openModal('DiceRollModal', {
+  const modalId = openModal('DiceRollModal', {
     // Ключ окна — по участнику: мастер бросает за нескольких подряд, и окна
     // должны стоять рядом, а повторный клик по тому же участнику — поднимать
     // уже открытое окно, а не плодить второе
-    _modalKey: `initiative:${entity.id}`,
+    _modalKey: modalKey,
     title: `${INITIATIVE_ROLL_LABELS.title}${nameSuffix}`,
     rollLabel: `${INITIATIVE_ROLL_LABELS.rollLabel}${nameSuffix}`,
     rollButtonText: INITIATIVE_ROLL_LABELS.button,
@@ -58,6 +64,18 @@ export function promptInitiativeRoll(
         announced: true,
       });
     },
+  });
+
+  onCancelled(() => {
+    // Окно того же участника могло быть открыто раньше: менеджер вернул null и
+    // лишь поднял его наверх, а закрывать всё равно нужно именно это окно.
+    const openedModalId =
+      modalId
+      ?? modals.value.find((modal) => modal.props._modalKey === modalKey)?.id;
+
+    if (openedModalId) {
+      closeModal(openedModalId);
+    }
   });
 
   // Окно того же участника уже открыто — менеджер поднял его наверх. Бросок всё

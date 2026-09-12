@@ -102,7 +102,7 @@
     <div
       v-for="{ grant, index } in grantsWithChoices"
       :key="index"
-      class="flex flex-col gap-3 rounded-lg bg-elevated/50 p-4"
+      class="flex flex-col gap-3 rounded-lg border border-default/50 bg-elevated/30 p-4"
     >
       <template v-if="grant.type === 'skillProficiency'">
         <div class="flex flex-col gap-1">

@@ -36,7 +36,7 @@
   import { useItemsStore } from '@/stores/itemsStore';
   import { useWorldStore } from '@/stores/worldStore';
   import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
-  import { generateId, isRecord } from '@vtt/shared';
+  import { generateId, isEntityOwner, isRecord } from '@vtt/shared';
   import {
     appendGrantedSpells,
     applyActorRest,
@@ -69,6 +69,7 @@
   import { useCompendiumCatalog } from '../../composables/useCompendiumCatalog';
   import { useItemTransfer } from '../../composables/useItemTransfer';
   import { useSheetMinimize } from '../../composables/useSheetMinimize';
+  import { withoutEntityOwnership } from '../entity-ownership/utils';
   import ActorCenterPanel from './ActorCenterPanel.vue';
   import ActorHeader from './ActorHeader.vue';
   import ActorLeftPanel from './ActorLeftPanel.vue';
@@ -433,12 +434,38 @@
     return worldStore.isGM;
   });
 
+  const storeActor = computed<DnDActor | null | undefined>(() => {
+    if (!props.actorId || !props.worldId) {
+      return null;
+    }
+
+    const world = worldStore.getWorldById(props.worldId);
+
+    if (!world) {
+      return props.actors.find((actorEntry) => actorEntry.id === props.actorId);
+    }
+
+    // Запись стора мира — нейтральная, D&D-форму подтверждает гвард. Акторы
+    // мира прогоняются через `normalizeActor` при загрузке мира, поэтому здесь
+    // проверка проходит; если запись всё же не в D&D-форме, лист откроется
+    // (его копия мигрируется в `initializeActor`), но внешние правки в него
+    // подхватываться не будут.
+    const found = world.actors.find(
+      (actorEntry) => actorEntry.id === props.actorId,
+    );
+
+    return found && isDndActor(found) ? found : undefined;
+  });
+
   const isOwner = computed(() => {
     if (!localActor.value) {
       return false;
     }
 
-    return localActor.value.ownerId === currentUser.value?.id;
+    return isEntityOwner(
+      props.actorId ? storeActor.value : localActor.value,
+      currentUser.value?.id,
+    );
   });
 
   const canEdit = computed(() => {
@@ -536,29 +563,6 @@
     isDirty.value = false;
   }
 
-  const storeActor = computed<DnDActor | null | undefined>(() => {
-    if (!props.actorId || !props.worldId) {
-      return null;
-    }
-
-    const world = worldStore.getWorldById(props.worldId);
-
-    if (!world) {
-      return props.actors.find((actorEntry) => actorEntry.id === props.actorId);
-    }
-
-    // Запись стора мира — нейтральная, D&D-форму подтверждает гвард. Акторы
-    // мира прогоняются через `normalizeActor` при загрузке мира, поэтому здесь
-    // проверка проходит; если запись всё же не в D&D-форме, лист откроется
-    // (его копия мигрируется в `initializeActor`), но внешние правки в него
-    // подхватываться не будут.
-    const found = world.actors.find(
-      (actorEntry) => actorEntry.id === props.actorId,
-    );
-
-    return found && isDndActor(found) ? found : undefined;
-  });
-
   watch(
     () => storeActor.value,
     (newActor, oldActor) => {
@@ -649,14 +653,18 @@
    * drop в снаряжение, экипировка, удаление)
    */
   function handleImmediateSave() {
-    if (!localActor.value || !props.socket) {
+    if (!localActor.value || !props.socket || !canEdit.value) {
       return;
     }
 
     try {
       requireSocket(props.socket);
 
-      props.socket.emit('actor:updated', localActor.value);
+      props.socket.emit(
+        'actor:updated',
+        withoutEntityOwnership(localActor.value),
+      );
+
       isDirty.value = false;
     } catch (error) {
       console.error('[ActorModal] Immediate save failed:', error);
@@ -812,7 +820,7 @@
   }
 
   function handleSave() {
-    if (!localActor.value || isSaving.value) {
+    if (!localActor.value || isSaving.value || !canEdit.value) {
       return;
     }
 
@@ -837,9 +845,10 @@
       requireSocket(props.socket);
 
       if (props.actorId) {
-        const cleanActor = JSON.parse(JSON.stringify(localActor.value));
-
-        props.socket.emit('actor:updated', cleanActor);
+        props.socket.emit(
+          'actor:updated',
+          withoutEntityOwnership(localActor.value),
+        );
       } else {
         const rawLocalActor = JSON.parse(JSON.stringify(localActor.value));
 
@@ -2403,7 +2412,7 @@
     :saved-position="props.savedPosition"
     :saved-size="props.savedSize"
     :ui="{
-      content: 'bg-default rounded-2xl',
+      content: 'bg-default rounded-xl',
       body: 'p-0 max-h-[100%]',
     }"
     :hide-header="true"

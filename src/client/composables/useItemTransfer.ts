@@ -18,7 +18,7 @@ import type { DnDGameItem } from '@vtt/shared/system/dnd.js';
 import { emitEntityUpdate } from '@/core/entityUtils';
 import { useHotbarStore } from '@/stores/hotbarStore';
 import { useWorldStore } from '@/stores/worldStore';
-import { isRecord } from '@vtt/shared';
+import { isEntityOwner, isRecord } from '@vtt/shared';
 import { transferItem } from '@vtt/shared/system/dnd.js';
 
 import { GAME_ITEM_TRANSFER_MIME } from '../ui/actor/constants';
@@ -117,7 +117,7 @@ export function useItemTransfer() {
 
     const userId = worldStore.connectionState.loggedAsUserId;
 
-    return Boolean(userId) && entity.ownerId === userId;
+    return isEntityOwner(entity, userId);
   }
 
   /**

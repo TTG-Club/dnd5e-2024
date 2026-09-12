@@ -89,13 +89,17 @@
     });
   });
 
-  /** Варианты окна: категория пометкой, описание — кнопкой рядом со строкой */
+  /**
+   * Варианты окна: категория и книга пометками, описание — кнопкой рядом со
+   * строкой
+   */
   const options = computed<ChoicePickerOption[]>(() =>
     pool.value.map((feat) => ({
       value: feat.id,
       name: feat.name,
       nameEn: feat.nameEn,
       badge: feat.category,
+      sourceKey: feat.sourceKey,
       description: feat.description,
       repeatable: Boolean(feat.repeatable),
     })),

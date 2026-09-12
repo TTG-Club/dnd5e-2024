@@ -17,6 +17,7 @@
    * список из трёх строк глазами берут быстрее, чем набирают запрос.
    */
 
+  import type { SourceDefinition } from '@vtt/shared';
   import type { Spell } from '@vtt/shared/system/dnd.js';
 
   import { computed, ref, watch } from 'vue';
@@ -31,6 +32,7 @@
     CHOICE_PICKER_SEARCH_LIMIT,
     MODAL_BUTTON_LABELS,
   } from './constants';
+  import SourceBadge from './SourceBadge.vue';
 
   /** Вариант, из которых выбирают. */
   export interface ChoicePickerOption {
@@ -48,6 +50,14 @@
     prerequisite?: string;
     /** Описание целиком — открывается отдельным окном по кнопке */
     description?: string;
+    /**
+     * Ключ книги-источника. Есть только у записей компендиума (заклинание,
+     * черта, происхождение): навыки, языки и виды оружия — справочные значения
+     * без книги.
+     */
+    sourceKey?: string;
+    /** Определение источника, вписанное вместе с записью (авторская книга) */
+    source?: SourceDefinition;
     /**
      * Запись заклинания целиком. У заклинания одного описания мало — игроку
      * нужны круг, время, дистанция и урон, — поэтому кнопка «i» открывает
@@ -340,7 +350,7 @@
             >
               <button
                 type="button"
-                class="flex min-w-0 flex-1 items-center gap-2 border p-2 text-left transition-colors"
+                class="peer flex min-w-0 flex-1 items-center gap-2 border p-2 text-left transition-colors"
                 :class="[optionClass(option), optionRoundingClass(option)]"
                 :disabled="option.disabled"
                 :aria-pressed="isPicked(option.value)"
@@ -398,12 +408,20 @@
                 >
                   {{ option.badge }}
                 </UBadge>
+
+                <!-- Источник последним, у правого края: по нему различают
+                  одноимённые записи разных книг. Без книги значок не рисуется -->
+                <SourceBadge
+                  :source-key="option.sourceKey"
+                  :source="option.source"
+                  class="shrink-0"
+                />
               </button>
 
               <button
                 v-if="hasDetail(option)"
                 type="button"
-                class="flex shrink-0 cursor-pointer items-center justify-center rounded-r-md border border-default/50 bg-default/30 px-3 text-dimmed transition-colors hover:border-accented/50 hover:bg-elevated/50 hover:text-default"
+                class="flex shrink-0 cursor-pointer items-center justify-center rounded-r-md border border-default/50 bg-default/30 px-3 text-dimmed transition-colors peer-aria-pressed:border-primary/50 hover:border-accented/50 hover:bg-elevated/50 hover:text-default peer-aria-pressed:hover:border-primary/50"
                 :aria-label="CHOICE_PICKER_LABELS.detailOpen"
                 @click.left.exact.prevent="openDetail(option)"
               >

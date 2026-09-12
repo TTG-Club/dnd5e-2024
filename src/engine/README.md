@@ -123,7 +123,7 @@ graph TD
   B --> K[species, background, size, currency, classCounters]
   A --> H[equipment: GameItem]
   A --> J[spells, features, activeEffects, notes]
-  A --> L[BaseActor: id, entityType, name, avatar, token, ownerId]
+  A --> L[BaseActor: id, entityType, name, avatar, token, ownerIds]
 ```
 
 ### Поля в `system` (DnDActorSystem)
@@ -166,7 +166,7 @@ graph TD
 Привязаны к конкретному актору, не к правилам:
 
 - **Добавляет `DnDActor`:** `spells`, `equipment`, `features`, `activeEffects`, `notes`
-- **Наследует от `BaseActor`:** `id`, `entityType`, `name`, `description`, `avatar`, `token`, `ownerId`, `isPublic`, `autoSaves`, `system`
+- **Наследует от `BaseActor`:** `id`, `entityType`, `name`, `description`, `avatar`, `token`, `ownerIds` (и прежний `ownerId`), `isPublic`, `autoSaves`, `system`
 
 **У `DnDCreature` корневые коллекции свои и все необязательные:** `spells?`,
 `equipment?`, `activeEffects?`. Нейтральные базы (`BaseActor`/`BaseCreature`) о

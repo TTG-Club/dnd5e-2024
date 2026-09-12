@@ -29,7 +29,7 @@
   import { Z_INDEX } from '@/shared_ui/consts';
   import { useWorldStore } from '@/stores/worldStore';
   import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
-  import { generateId } from '@vtt/shared';
+  import { generateId, isEntityOwner } from '@vtt/shared';
   import {
     applyCreatureRest,
     calculateAbilityModifier,
@@ -98,6 +98,7 @@
   import SkillSettingsModal from '../actor/SkillSettingsModal.vue';
   import { formatSignedNumber } from '../actor/utils/formatSignedNumber';
   import { getSheetBlockClass } from '../actor/utils/sheetBlockClass';
+  import { withoutEntityOwnership } from '../entity-ownership/utils';
   import {
     CREATURE_SHEET_LABELS,
     CREATURE_SHEET_LOG_PREFIX,
@@ -113,6 +114,10 @@
   import CreatureSpellsBlock from './CreatureSpellsBlock.vue';
   import CreatureActionsTab from './tabs/CreatureActionsTab.vue';
   import CreatureTraitsTab from './tabs/CreatureTraitsTab.vue';
+  import {
+    applyPersistedCreatureSettings,
+    mergeCreatureSettingsIntoDraft,
+  } from './utils/applyPersistedCreatureSettings';
 
   interface Props {
     open: boolean;
@@ -211,15 +216,22 @@
   const isSaving = ref(false);
   const isCreated = ref(false);
 
-  /**
-   * Является ли текущий пользователь владельцем существа
-   * (существо передано игроку под контроль ГМом).
-   */
+  /** Актуальное существо из хоста: локальный черновик не определяет права. */
+  const storeCreature = computed(() => {
+    if (!props.creatureId || !props.creatures) {
+      return null;
+    }
+
+    return props.creatures.find((entry) => entry.id === props.creatureId);
+  });
+
   const isOwner = computed(() => {
-    const ownerId = localCreature.value?.ownerId;
     const userId = worldStore.connectionState.loggedAsUserId;
 
-    return Boolean(ownerId && userId && ownerId === userId);
+    return isEntityOwner(
+      props.creatureId ? storeCreature.value : localCreature.value,
+      userId,
+    );
   });
 
   /** Может ли пользователь управлять существом (ГМ или владелец) */
@@ -399,15 +411,6 @@
     }
   });
 
-  // Синхронизация при внешнем обновлении
-  const storeCreature = computed(() => {
-    if (!props.creatureId || !props.creatures) {
-      return null;
-    }
-
-    return props.creatures.find((entry) => entry.id === props.creatureId);
-  });
-
   watch(
     () => storeCreature.value,
     (newCreature, oldCreature) => {
@@ -487,16 +490,22 @@
   );
 
   function handleImmediateSave() {
-    if (isEditMode.value || !localCreature.value || !isDirty.value) {
+    if (
+      isEditMode.value
+      || !localCreature.value
+      || !isDirty.value
+      || !canControl.value
+    ) {
       return;
     }
 
     emit('update:creature', localCreature.value);
 
     if (props.socket && props.creatureId) {
-      const cleanCreature = JSON.parse(JSON.stringify(localCreature.value));
-
-      props.socket.emit('creature:updated', cleanCreature);
+      props.socket.emit(
+        'creature:updated',
+        withoutEntityOwnership(localCreature.value),
+      );
     }
 
     savedSnapshot.value = JSON.parse(JSON.stringify(localCreature.value));
@@ -922,6 +931,22 @@
     openModal('CreatureSettingsModal', {
       creatureId: props.creatureId,
       creatureData: localCreature.value,
+      onPersistedSave: (updates: Partial<DnDCreature>) => {
+        if (localCreature.value) {
+          localCreature.value = mergeCreatureSettingsIntoDraft(
+            localCreature.value,
+            updates,
+          );
+
+          // Отмена основной формы откатывает только её черновик, а не уже сохранённые настройки.
+          if (savedSnapshot.value) {
+            savedSnapshot.value = applyPersistedCreatureSettings(
+              savedSnapshot.value,
+              updates,
+            );
+          }
+        }
+      },
       onSave: (updates: Partial<DnDCreature>) => {
         if (localCreature.value) {
           const previousSize = localCreature.value.system.size;
@@ -967,7 +992,7 @@
   }
 
   function handleSave() {
-    if (!localCreature.value || isSaving.value) {
+    if (!localCreature.value || isSaving.value || !canControl.value) {
       return;
     }
 
@@ -986,11 +1011,14 @@
     try {
       requireSocket(props.socket);
 
-      const cleanCreature = JSON.parse(JSON.stringify(localCreature.value));
-
       if (props.creatureId) {
-        props.socket!.emit('creature:updated', cleanCreature);
+        props.socket!.emit(
+          'creature:updated',
+          withoutEntityOwnership(localCreature.value),
+        );
       } else {
+        const cleanCreature = JSON.parse(JSON.stringify(localCreature.value));
+
         props.socket!.emit('creature:created', cleanCreature);
         emit('save', cleanCreature);
         isCreated.value = true;
@@ -1580,7 +1608,7 @@
     :saved-position="savedPosition"
     :saved-size="savedSize"
     :ui="{
-      content: 'bg-default rounded-2xl',
+      content: 'bg-default rounded-xl',
       body: 'p-0 h-full flex flex-col max-h-[100%]',
     }"
     @update:open="handleModalClose"

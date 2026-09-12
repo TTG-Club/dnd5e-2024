@@ -191,13 +191,17 @@
 <template>
   <div class="flex flex-col gap-6 p-1">
     <!-- Описание вида -->
-    <div class="rounded-lg bg-elevated/50 p-4 leading-relaxed text-toned">
+    <div
+      class="rounded-lg border border-default/50 bg-elevated/30 p-4 leading-relaxed text-toned"
+    >
       {{ speciesDefinition.description }}
     </div>
 
     <!-- Основные характеристики -->
     <div class="grid grid-cols-2 gap-4">
-      <div class="flex flex-col rounded-lg bg-elevated p-3">
+      <div
+        class="flex flex-col rounded-lg border border-default/50 bg-elevated/30 p-3"
+      >
         <span
           class="mb-1 text-[10px] font-semibold tracking-wider text-muted uppercase"
         >
@@ -207,7 +211,9 @@
         <span class="font-medium text-highlighted">{{ displayType }}</span>
       </div>
 
-      <div class="flex flex-col rounded-lg bg-elevated p-3">
+      <div
+        class="flex flex-col rounded-lg border border-default/50 bg-elevated/30 p-3"
+      >
         <span
           class="mb-1 text-[10px] font-semibold tracking-wider text-muted uppercase"
         >
@@ -221,7 +227,7 @@
     <!-- Выбор размера (если есть варианты) -->
     <div
       v-if="hasMultipleSizes"
-      class="flex flex-col rounded-lg bg-elevated/50 p-4"
+      class="flex flex-col rounded-lg border border-default/50 bg-elevated/30 p-4"
     >
       <span
         class="mb-3 text-xs font-semibold tracking-wider text-muted uppercase"
@@ -243,7 +249,7 @@
 
     <div
       v-else
-      class="flex flex-col rounded-lg bg-elevated p-3"
+      class="flex flex-col rounded-lg border border-default/50 bg-elevated/30 p-3"
     >
       <span
         class="mb-1 text-[10px] font-semibold tracking-wider text-muted uppercase"
@@ -269,7 +275,7 @@
         <div
           v-for="(grant, idx) in infoGrants"
           :key="idx"
-          class="flex flex-col rounded-lg bg-elevated p-3"
+          class="flex flex-col rounded-lg border border-default/50 bg-elevated/30 p-3"
         >
           <span
             class="mb-1 text-[10px] font-semibold tracking-wider text-primary uppercase"

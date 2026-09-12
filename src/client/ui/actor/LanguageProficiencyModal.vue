@@ -3,7 +3,11 @@
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
-  import { LANGUAGE_TYPES } from '@vtt/shared/system/dnd.js';
+  import {
+    LANGUAGE_TYPES,
+    RARE_LANGUAGES,
+    STANDARD_LANGUAGES,
+  } from '@vtt/shared/system/dnd.js';
 
   import { MODAL_BUTTON_LABELS, PROFICIENCY_MODAL_LABELS } from './constants';
 
@@ -50,19 +54,13 @@
       key: 'standard' as const,
       title: PROFICIENCY_MODAL_LABELS.languagesStandard,
       color: 'text-primary',
-      items: LANGUAGE_TYPES.slice(0, 8),
+      items: STANDARD_LANGUAGES,
     },
     {
       key: 'rare' as const,
       title: PROFICIENCY_MODAL_LABELS.languagesRare,
       color: 'text-primary',
-      items: LANGUAGE_TYPES.slice(8, 16),
-    },
-    {
-      key: 'exotic' as const,
-      title: PROFICIENCY_MODAL_LABELS.languagesExotic,
-      color: 'text-primary',
-      items: LANGUAGE_TYPES.slice(16),
+      items: RARE_LANGUAGES,
     },
   ]);
 
@@ -185,15 +183,15 @@
     :draggable="false"
     :resizable="false"
     :blocking="true"
-    :min-width="800"
+    :min-width="600"
     :min-height="350"
     :title="PROFICIENCY_MODAL_LABELS.languagesTitle"
     :z-index="MODAL_Z_INDEX"
   >
     <template #body>
       <div class="flex flex-col gap-3">
-        <!-- 3 панели: 3 столбца -->
-        <div class="grid grid-cols-3 gap-4">
+        <!-- 2 панели: 2 столбца -->
+        <div class="grid grid-cols-2 gap-4">
           <div
             v-for="panel in panels"
             :key="panel.key"

@@ -35,6 +35,7 @@ import type {
   GraphNode,
   GraphNodeMove,
   IncomingRollRequest,
+  InitiativeTurnReference,
   LightSource,
   MeasurementTemplate,
   Note,
@@ -376,6 +377,10 @@ export interface ServerToClientEvents {
   'journal:pin-visibility-map': (
     visibilityMap: Record<string, boolean>,
   ) => void;
+  'journal:pin-visibility-set': (data: {
+    pinId: string;
+    isVisible: boolean;
+  }) => void;
   'journal:note-data': (note: Note) => void;
   'journal:pin-visibility-changed': (data: {
     noteId: string;
@@ -926,7 +931,7 @@ export interface ClientToServerEvents {
     modifier: number,
     announced?: boolean,
   ) => void;
-  'initiative:next-turn': () => void;
+  'initiative:next-turn': (expectedTurn?: InitiativeTurnReference) => void;
   'initiative:prev-turn': () => void;
   'initiative:end-encounter': () => void;
   'initiative:resume-encounter': () => void;

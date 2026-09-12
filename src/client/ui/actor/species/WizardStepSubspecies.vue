@@ -34,6 +34,8 @@
       value: option.key,
       name: option.name,
       nameEn: option.nameEn,
+      sourceKey: option.sourceKey,
+      source: option.source,
       description: option.description,
     })),
   );
@@ -71,7 +73,7 @@
 
 <template>
   <div class="flex flex-col gap-4 p-1">
-    <div class="rounded-lg bg-elevated p-4">
+    <div class="rounded-lg border border-default/50 bg-elevated/30 p-4">
       <ChoicePickerField
         :label="SPECIES_WIZARD_LABELS.chooseSubspecies"
         :options="pickerOptions"
@@ -86,7 +88,7 @@
     </div>
 
     <template v-if="selectedSubspecies">
-      <div class="rounded-lg bg-elevated p-4">
+      <div class="rounded-lg border border-default/50 bg-elevated/30 p-4">
         <span class="font-medium text-primary">
           {{ selectedSubspecies.name }}
         </span>
