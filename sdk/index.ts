@@ -7,6 +7,7 @@ export {
 
 export * from './src/assetPaths.js';
 export * from './src/constants/permissions.js';
+export * from './src/entityOwnership.js';
 export * from './src/initiativeUtils.js';
 export * from './src/publicAccess.js';
 export * from './src/richContentGuard.js';

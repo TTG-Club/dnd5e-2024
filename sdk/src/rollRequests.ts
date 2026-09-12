@@ -173,7 +173,10 @@ export function isRollRequestSendAck(
 
   if (value.accepted) {
     return (
-      typeof value.recipientUserId === 'string'
+      Array.isArray(value.recipientUserIds)
+      && value.recipientUserIds.every(
+        (recipientUserId) => typeof recipientUserId === 'string',
+      )
       && typeof value.recipientName === 'string'
       && typeof value.entityName === 'string'
       && typeof value.expiresAt === 'number'

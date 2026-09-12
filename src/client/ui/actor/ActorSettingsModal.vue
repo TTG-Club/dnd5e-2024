@@ -30,6 +30,7 @@
   import {
     createDefaultLightEmitter,
     getServerBaseUrl,
+    isEntityOwner,
     typedObjectEntries,
   } from '@vtt/shared';
   import {
@@ -41,10 +42,14 @@
     TOKEN_SCALE_TO_CREATURE_SIZE,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useEntityOwnershipSettings } from '../../composables/useEntityOwnershipSettings';
   import {
     TOKEN_TINT_DEFAULT,
     useTokenPreview,
   } from '../../composables/useTokenPreview';
+  import { ENTITY_OWNERSHIP_CONFLICT_TOAST } from '../entity-ownership/constants';
+  import EntityOwnersSelect from '../entity-ownership/EntityOwnersSelect.vue';
+  import { withoutEntityOwnership } from '../entity-ownership/utils';
   import ActorDeleteConfirmModal from './ActorDeleteConfirmModal.vue';
   import {
     ACTOR_SETTINGS_LABELS,
@@ -103,7 +108,6 @@
     return `data/actors/${actorId}`;
   });
 
-  const selectedOwner = ref<string | undefined>(undefined);
   const isPublic = ref(false);
   const autoSaves = ref(false);
   const selectedCreatureType = ref<CreatureType>(DEFAULT_ACTOR_CREATURE_TYPE);
@@ -230,7 +234,7 @@
       return false;
     }
 
-    return actor.value.ownerId === currentUser.value.id;
+    return isEntityOwner(actor.value, currentUser.value.id);
   });
 
   // Может ли текущий пользователь редактировать токен
@@ -342,37 +346,9 @@
     },
   ];
 
-  const userOptions = computed(() => {
-    let users: Array<{ id: string; username: string; role: string }> | null =
-      null;
-
-    if (props.users && props.users.length > 0) {
-      users = props.users;
-    } else if (
-      currentWorld.value?.users
-      && currentWorld.value.users.length > 0
-    ) {
-      users = currentWorld.value.users;
-    }
-
-    if (!users) {
-      return [{ value: undefined, label: TOKEN_SETTINGS_LABELS.ownerNone }];
-    }
-
-    const mappedUsers = users.map((user) => ({
-      value: user.id,
-      label: `${user.username} (${
-        user.role === 'admin'
-          ? TOKEN_SETTINGS_LABELS.roleGm
-          : TOKEN_SETTINGS_LABELS.rolePlayer
-      })`,
-    }));
-
-    return [
-      { value: undefined, label: TOKEN_SETTINGS_LABELS.ownerNone },
-      ...mappedUsers,
-    ];
-  });
+  const ownershipUsers = computed(() =>
+    props.users?.length ? props.users : (currentWorld.value?.users ?? []),
+  );
 
   /** Тип, который задаёт выбранный вид; пусто — вид не выбран */
   const speciesCreatureType = computed<CreatureType | undefined>(() => {
@@ -415,12 +391,23 @@
       : ACTOR_SETTINGS_LABELS.creatureTypeDefault;
   });
 
+  const {
+    selectedOwnerIds,
+    ownersChanged,
+    ensureOwnershipCurrent,
+    ownershipUpdates,
+    resetOwnership,
+  } = useEntityOwnershipSettings(
+    () => actor.value,
+    () => toast.add(ENTITY_OWNERSHIP_CONFLICT_TOAST),
+  );
+
   const hasChanges = computed(() => {
     if (!actor.value) {
       return false;
     }
 
-    const ownerChanged = selectedOwner.value !== actor.value.ownerId;
+    const ownerChanged = isAdmin.value && ownersChanged.value;
     const publicChanged = isPublic.value !== (actor.value.isPublic || false);
 
     const autoSavesChanged =
@@ -474,19 +461,6 @@
       || lightChanged
     );
   });
-
-  // Methods
-  function getOwnerName(userId?: string) {
-    if (!userId) {
-      return TOKEN_SETTINGS_LABELS.ownerNone;
-    }
-
-    const entry = currentWorld.value?.users.find(
-      (worldUser) => worldUser.id === userId,
-    );
-
-    return entry ? entry.username : TOKEN_SETTINGS_LABELS.ownerUnknown;
-  }
 
   const PUBLIC_PREFIX_REGEX = /^public\//;
 
@@ -552,7 +526,7 @@
 
   function initData() {
     if (actor.value) {
-      selectedOwner.value = actor.value.ownerId;
+      resetOwnership();
       isPublic.value = actor.value.isPublic || false;
       autoSaves.value = actor.value.autoSaves ?? false;
       selectedCreatureType.value = effectiveCreatureType.value;
@@ -594,6 +568,14 @@
 
   function saveSettings() {
     if (!actor.value || !currentWorld.value) {
+      return;
+    }
+
+    if (!canEditToken.value) {
+      return;
+    }
+
+    if (isAdmin.value && !ensureOwnershipCurrent()) {
       return;
     }
 
@@ -644,29 +626,28 @@
       };
 
       const updates: Partial<DnDActor> = {
-        ownerId: selectedOwner.value,
-        isPublic: isPublic.value,
+        ...(isAdmin.value
+          ? { ...ownershipUpdates.value, isPublic: isPublic.value }
+          : {}),
         autoSaves: autoSaves.value,
         token: updatedToken,
         system: updatedSystem,
       };
 
       if (props.actorId) {
-        const cleanActor = JSON.parse(
-          JSON.stringify({ ...actor.value, ...updates }),
-        );
+        const updatedActor: DnDActor = {
+          ...withoutEntityOwnership(actor.value),
+          ...updates,
+        };
 
         requireSocket(props.socket);
-        props.socket.emit('actor:updated', cleanActor);
+        props.socket.emit('actor:updated', updatedActor);
       } else if (props.onSave) {
         props.onSave(updates);
       }
 
       toast.add({
         title: TOKEN_SETTINGS_LABELS.savedTitle,
-        description: `${TOKEN_SETTINGS_LABELS.savedOwnerPrefix}${getOwnerName(
-          selectedOwner.value,
-        )}`,
         color: 'success',
       });
 
@@ -759,7 +740,7 @@
       <div v-if="actor">
         <!-- Информация о персонаже -->
         <div
-          class="mb-4 flex items-center gap-3 rounded-lg border border-default bg-elevated/50 p-3"
+          class="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-default bg-elevated/50 p-3"
         >
           <div class="min-w-0">
             <h3 class="font-medium text-highlighted">
@@ -782,38 +763,11 @@
             </p>
           </div>
 
-          <!-- Выбор владельца -->
-          <div class="ml-auto shrink-0 space-y-1">
-            <label class="block text-xs text-muted">
-              {{ TOKEN_SETTINGS_LABELS.owner }}
-            </label>
-
-            <USelect
-              v-if="isAdmin"
-              v-model="selectedOwner"
-              :items="userOptions"
-              value-key="value"
-              :placeholder="TOKEN_SETTINGS_LABELS.ownerNone"
-              :portal="false"
-              class="w-40"
-            />
-
-            <div
-              v-else
-              class="flex items-center gap-1.5 text-xs text-muted"
-            >
-              <UIcon
-                name="tabler:user"
-                class="size-3.5"
-              />
-
-              <span>
-                {{
-                  getOwnerName(actor.ownerId) || TOKEN_SETTINGS_LABELS.ownerNone
-                }}
-              </span>
-            </div>
-          </div>
+          <EntityOwnersSelect
+            v-model="selectedOwnerIds"
+            :users="ownershipUsers"
+            :editable="isAdmin"
+          />
         </div>
 
         <!-- Вкладки -->

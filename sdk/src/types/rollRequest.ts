@@ -111,10 +111,16 @@ export interface IncomingRollRequest {
  * Сводка висящего запроса — для списка ГМа и индикатора у инициатора.
  */
 export interface PendingRollRequestSummary extends IncomingRollRequest {
-  /** Кого просят (владелец сущности) */
-  recipientUserId: string;
+  /**
+   * Кого просят: все управляющие сущностью, бывшие в сети при отправке.
+   *
+   * Окно открывается у каждого, но засчитывается ПЕРВЫЙ ответ — у остальных
+   * запрос снимается, а опоздавший ответ сервер уже не принимает.
+   */
+  recipientUserIds: string[];
+  /** Имена адресатов через запятую — подпись «ждём …» */
   recipientName: string;
-  /** В сети ли адресат прямо сейчас */
+  /** В сети ли хоть один адресат прямо сейчас */
   recipientOnline: boolean;
 }
 
@@ -127,7 +133,7 @@ export interface PendingRollRequestSummary extends IncomingRollRequest {
 export type RollRequestSendAck =
   | {
       accepted: true;
-      recipientUserId: string;
+      recipientUserIds: string[];
       recipientName: string;
       entityName: string;
       expiresAt: number;
@@ -137,7 +143,7 @@ export type RollRequestSendAck =
 /**
  * Почему запрос снят у адресата (`roll-request:cancelled`).
  *
- * - `answered` — на него ответили с другой вкладки того же пользователя;
+ * - `answered` — на него ответили с другой вкладки или другой управляющий;
  * - `takenOver` — за него бросил ГМ или инициатор;
  * - `cancelled` — инициатор/ГМ отозвал запрос либо инициатор ушёл из мира;
  * - `timeout` — истёк срок.

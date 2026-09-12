@@ -9,6 +9,7 @@ import type {
   EncounterState,
   FogBrushPoint,
   GameItemType,
+  InitiativeTurnReference,
   ItemRarity,
   LightSource,
   MeasurementTemplate,
@@ -214,8 +215,10 @@ export interface BaseActor {
   id: string;
   /** Дискриминатор типа сущности — позволяет автоматически определять тип */
   entityType: SceneEntityType;
-  /** ID владельца (пользователя) */
-  ownerId?: string;
+  /** Первый управляющий: зеркало `ownerIds` для старых систем (`null` — прав нет) */
+  ownerId?: string | null;
+  /** Пользователи, управляющие актёром; при наличии заменяет одиночного владельца. */
+  ownerIds?: string[];
   /** Виден ли всем */
   isPublic?: boolean;
   /** Автоматически кидать спасброски при AoE-заклинаниях (по умолчанию false) */
@@ -244,8 +247,10 @@ export interface BaseCreature {
   id: string;
   /** Дискриминатор типа сущности */
   entityType: 'creature';
-  /** ID владельца (пользователя), которому ГМ передал существо под контроль */
-  ownerId?: string;
+  /** Первый управляющий: зеркало `ownerIds` для старых систем (`null` — прав нет) */
+  ownerId?: string | null;
+  /** Пользователи, управляющие существом; пустой список оставляет управление ГМу. */
+  ownerIds?: string[];
   /** Виден ли всем (игроки видят, но не управляют, если не владельцы) */
   isPublic?: boolean;
   /**
@@ -625,7 +630,7 @@ export interface SocketClientToServerEvents {
     modifier: number,
     announced?: boolean,
   ) => void;
-  'initiative:next-turn': () => void;
+  'initiative:next-turn': (expectedTurn?: InitiativeTurnReference) => void;
   'initiative:prev-turn': () => void;
   'initiative:end-encounter': () => void;
   'initiative:remove-entry': (actorId: string) => void;

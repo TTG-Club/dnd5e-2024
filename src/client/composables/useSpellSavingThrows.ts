@@ -17,7 +17,11 @@ import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
 import { useDiceRollerStore } from '@/stores/diceRollerStore';
 import { useWorldStore } from '@/stores/worldStore';
-import { isNeutralRollAnswer } from '@vtt/shared';
+import {
+  getEntityOwnerIds,
+  isEntityOwner,
+  isNeutralRollAnswer,
+} from '@vtt/shared';
 import {
   isDndSceneEntity,
   parseSavingThrowResult,
@@ -403,9 +407,10 @@ export function useSpellSavingThrows() {
    * @returns true, если спасбросок надо просить у другого пользователя
    */
   function isForeignOwnedTarget(entity: SceneEntity): boolean {
-    const ownerId = entity.ownerId;
-
-    return !!ownerId && ownerId !== worldStore.connectionState.loggedAsUserId;
+    return (
+      getEntityOwnerIds(entity).length > 0
+      && !isEntityOwner(entity, worldStore.connectionState.loggedAsUserId)
+    );
   }
 
   /**
