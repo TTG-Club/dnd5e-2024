@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 
 import { beforeEach, it } from 'vitest';
 
+import { hostSharedEntry } from './helpers/engineBundle.mjs';
+
 const systemRoot = fileURLToPath(new URL('../', import.meta.url));
 
 const require = createRequire(join(systemRoot, 'package.json'));
@@ -55,7 +57,7 @@ const bundle = await build({
   },
   alias: {
     '@vtt/shared/system/dnd.js': join(systemRoot, 'src/engine/index.ts'),
-    '@vtt/shared': join(systemRoot, 'sdk/index.ts'),
+    '@vtt/shared': hostSharedEntry,
   },
   plugins: [
     {

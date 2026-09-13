@@ -309,7 +309,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.9';
+  readonly version = '0.8.10';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -900,7 +900,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
     // Копией, а не приведением: контракт ядра объявляет итог свободной записью,
     // а `ResolvedActorStats` — интерфейс без индексной сигнатуры, и структурно
-    // он такой записи не соответствует. Тот же приём, что и в SDK для
+    // он такой записи не соответствует. Тот же приём, что и в ядре для
     // `BaseGameItem`: туда, где ждут свободную форму, значение идёт копией.
     return { ...resolveActorStats(actor, dndEffects) };
   }

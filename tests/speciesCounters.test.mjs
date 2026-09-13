@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 
 import { beforeEach, it, onTestFinished, vi } from 'vitest';
 
-import { systemRoot } from './helpers/engineBundle.mjs';
+import { hostSharedEntry, systemRoot } from './helpers/engineBundle.mjs';
 
 const require = createRequire(join(systemRoot, 'package.json'));
 const { build } = require('esbuild');
@@ -63,7 +63,7 @@ const bundle = await build({
   ],
   alias: {
     '@vtt/shared/system/dnd.js': join(systemRoot, 'src/engine/index.ts'),
-    '@vtt/shared': join(systemRoot, 'sdk/index.ts'),
+    '@vtt/shared': hostSharedEntry,
     'vue': require.resolve('vue/dist/vue.runtime.esm-bundler.js'),
     'pinia': join(systemRoot, 'node_modules/pinia/dist/pinia.mjs'),
   },

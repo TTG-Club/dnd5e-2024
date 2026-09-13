@@ -8,6 +8,15 @@
  */
 import path from 'node:path';
 
+/**
+ * Нейтральное ядро приложения. Начиная с VTTG 0.9.503 загрузчик систем ставит
+ * хук разрешения модулей Node, и `import … from '@vtt/shared'` в `dist/index.js`
+ * получает ТОТ ЖЕ экземпляр ядра, что исполняет сервер (с его `systemRegistry`).
+ * Это единственная точка, через которую серверная часть зависит от приложения;
+ * своя копия ядра в бандле запрещена — её ловит `inspectServerBundle`.
+ */
+export const HOST_SHARED_PACKAGE = '@vtt/shared';
+
 /** Рантайм-зависимости приложения — в бандл системы попадать не должны. */
 const EXTERNAL_DEPS = [
   'better-sqlite3',
@@ -28,6 +37,9 @@ const EXTERNAL_DEPS = [
  */
 export function createServerBuildOptions(root) {
   return {
+    // Пути в `metafile` (и в комментариях бандла) — относительно корня репы, а
+    // не того каталога, откуда случайно запустили скрипт.
+    absWorkingDir: root,
     entryPoints: [path.join(root, 'src', 'server', 'index.ts')],
     outfile: path.join(root, 'dist', 'index.js'),
     bundle: true,
@@ -49,12 +61,17 @@ export function createServerBuildOptions(root) {
         useDefineForClassFields: true,
       },
     },
-    external: EXTERNAL_DEPS,
+    // Ядро НЕ инлайнится: его отдаёт приложение (см. `HOST_SHARED_PACKAGE`).
+    // Внешним становится и корень, и любой подпуть `@vtt/shared/…` — какие из
+    // них приложение реально отдаёт, сверяет `inspectServerBundle`.
+    external: [HOST_SHARED_PACKAGE, ...EXTERNAL_DEPS],
     alias: {
-      // Движок правил и нейтральное ядро живут в этой же репе (SDK ещё не
-      // опубликован отдельным пакетом — см. README).
+      // Движок правил — наш, живёт в `src/engine` и едет внутри бандла. Алиас
+      // срабатывает раньше `external`, поэтому этот подпуть не уходит к хосту.
       '@vtt/shared/system/dnd.js': path.join(root, 'src', 'engine', 'index.ts'),
-      '@vtt/shared': path.join(root, 'sdk', 'index.ts'),
     },
+    // Граф модулей для стража `inspectServerBundle`: копию ядра он ищет по
+    // входным файлам сборки, а не грепом по тексту бандла.
+    metafile: true,
   };
 }

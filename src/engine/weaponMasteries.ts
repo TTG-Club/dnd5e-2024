@@ -109,10 +109,10 @@ export const WEAPON_MASTERY_MAP = new Map<string, WeaponMastery>(
 /**
  * Приём каждого вида оружия PHB 2024: ключ базового вида → ключ приёма.
  *
- * Живёт здесь, а не в `weapon-base-types.json`: базовый вид описан типом SDK
- * (`WeaponBaseTypeDefinition`), у которого поля приёма нет, — а знать, какой
- * приём даёт «Секира», нужно уже в редакторе даров, чтобы автор видел, что
- * именно он выдаёт вместе с оружием.
+ * Живёт здесь, а не в `weapon-base-types.json`: базовый вид описан типом ядра
+ * `@vtt/shared` (`WeaponBaseTypeDefinition`), у которого поля приёма нет, — а
+ * знать, какой приём даёт «Секира», нужно уже в редакторе даров, чтобы автор
+ * видел, что именно он выдаёт вместе с оружием.
  */
 export const WEAPON_MASTERY_BY_WEAPON: Readonly<Record<string, string>> = {
   // Простое рукопашное
