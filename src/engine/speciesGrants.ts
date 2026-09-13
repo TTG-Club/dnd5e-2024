@@ -1,8 +1,17 @@
 import type { MovementType } from '@vtt/shared';
 
+import type { DnDActor } from './dndEntities.js';
 import type { FeatData } from './featTypes.js';
 import type { GrantedSpellSource } from './grantedSpells.js';
 import type { SpeciesDefinition, SpeciesFeature } from './speciesTypes.js';
+import type { ActorCounterState } from './types.js';
+
+import { counterIdentity } from './counterResource.js';
+import {
+  buildFeatCounters,
+  isSpeciesCounter,
+  speciesCounterOwnerId,
+} from './featGrants.js';
 
 /**
  * Хелперы расчёта уровне-зависимых даров вида.
@@ -281,6 +290,85 @@ export function collectSpeciesFeatDataSources(
   }
 
   return sources;
+}
+
+/**
+ * Пересобирает ресурсы вида по его источникам даров на текущем уровне.
+ *
+ * Источники — те же, что применяет мастер ({@link collectSpeciesFeatDataSources}):
+ * запись, подвид и активные на уровне особенности. Считаются ресурсы тем же
+ * {@link buildFeatCounters}, что и у черты: ступени идут от уровня персонажа,
+ * потраченное сохраняется, а ресурс, которого до сих пор не было, приходит
+ * полным. Ресурсы вида, чьих источников больше нет (вид сменили, подвид другой),
+ * снимаются.
+ *
+ * Счётчики остаются на своих местах: пересчёт идёт на каждой смене уровня, и
+ * плитки листа не должны каждый раз переезжать в конец списка.
+ *
+ * @param actor - лист персонажа: уровень, характеристики, бонус мастерства
+ * @param counters - текущий список счётчиков актора
+ * @param sources - источники даров вида; пусто — ресурсов вида не остаётся
+ * @param featDataChoices - ответы игрока по ключу источника: из них берётся
+ * заклинательная характеристика для `@mod.spell`
+ * @returns новый список: чужие счётчики как были, ресурсы вида пересчитаны
+ */
+export function refreshSpeciesCounters(
+  actor: DnDActor,
+  counters: ReadonlyArray<ActorCounterState>,
+  sources: ReadonlyArray<SpeciesFeatDataSource>,
+  featDataChoices: Record<string, Record<string, string[]>> = {},
+): ActorCounterState[] {
+  const rebuilt = new Map<string, ActorCounterState>();
+
+  for (const source of sources) {
+    const built = buildFeatCounters(
+      {
+        id: speciesCounterOwnerId(source.sourceKey),
+        featData: source.featData,
+        choices: featDataChoices[source.sourceKey],
+      },
+      actor,
+      counters,
+    );
+
+    for (const counter of built) {
+      rebuilt.set(counterIdentity(counter), counter);
+    }
+  }
+
+  const result: ActorCounterState[] = [];
+
+  for (const counter of counters) {
+    if (!isSpeciesCounter(counter)) {
+      result.push(counter);
+
+      continue;
+    }
+
+    const identity = counterIdentity(counter);
+    const replacement = rebuilt.get(identity);
+
+    // Взятая замена убирается из очереди: повтор того же ресурса в списке
+    // второй плиткой не вернётся
+    if (replacement) {
+      result.push(replacement);
+      rebuilt.delete(identity);
+    }
+  }
+
+  return [...result, ...rebuilt.values()];
+}
+
+/**
+ * Снимает с листа все ресурсы, выданные видом.
+ *
+ * @param counters - текущий список счётчиков актора
+ * @returns счётчики без ресурсов вида
+ */
+export function removeSpeciesCounters(
+  counters: ReadonlyArray<ActorCounterState>,
+): ActorCounterState[] {
+  return counters.filter((counter) => !isSpeciesCounter(counter));
 }
 
 /**

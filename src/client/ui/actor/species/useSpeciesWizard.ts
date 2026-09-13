@@ -41,6 +41,7 @@ import {
   isSkillType,
   openFeatChoicesAtLevel,
   prepareFeatChoices,
+  refreshSpeciesCounters,
   resolveChosenAbilities,
   resolveChosenDamageDefenses,
   resolveFeatChoiceCount,
@@ -765,7 +766,7 @@ export function useSpeciesWizard(
   /**
    * Собирает обновления для применения нового вида.
    * Если у актора уже есть вид — откатывает все его бонусы
-   * (владения, features, darkvision, granted-заклинания)
+   * (владения, features, darkvision, granted-заклинания, ресурсы)
    * перед применением нового.
    *
    * @param previousSpeciesDef - определение предыдущего вида (для отката фиксированных грантов)
@@ -1257,6 +1258,22 @@ export function useSpeciesWizard(
     if (effectsChanged) {
       rootUpdates.activeEffects = updatedEffects;
     }
+
+    // --- Ресурсы блоков даров featData: «Скороход» лесного эльфа лежит в дарах
+    // записи-подвида. Ресурсы прежнего вида, чьих источников у нового нет,
+    // снимаются; тот же вид повторно сохраняет потраченное. Ступени выше
+    // текущего уровня дают ресурс без зарядов — лист его не показывает, а
+    // пересчёт на повышении уровня поднимет ---
+    systemUpdates.classCounters = refreshSpeciesCounters(
+      {
+        ...actor.value,
+        ...rootUpdates,
+        system: { ...actor.value.system, ...systemUpdates },
+      },
+      actor.value.system.classCounters,
+      featDataSources.value,
+      state.value.featDataChoices,
+    );
 
     // --- Черты, которые даёт вид: выбранные игроком и выданные дарами без
     // выбора. Считаются от листа с уже собранными обновлениями — чтобы владения

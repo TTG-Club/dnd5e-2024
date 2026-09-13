@@ -47,6 +47,7 @@
     collectClassCounterDefinitions,
     collectFeatsAwaitingLeveledChoices,
     collectRechoosableFeats,
+    collectSpeciesFeatDataSources,
     computeSpeciesDarkvision,
     computeSpeciesMovement,
     DEFAULT_ACTOR,
@@ -55,11 +56,13 @@
     isClassDefinition,
     isDndActor,
     isDnDGameItem,
+    isSameCounterList,
     isSkillType,
     isSpell,
     normalizeActor,
     normalizeCompendiumItem,
     refreshFeatCounters,
+    refreshSpeciesCounters,
     removeGrantedSpellsByFeatureNames,
     resolveEntityMaxHp,
     resolveFeatChoicesToAsk,
@@ -2248,9 +2251,10 @@
   }
 
   /**
-   * Пересчитывает уровне-зависимые дары вида (скорость, тёмное зрение) под
-   * текущий суммарный уровень персонажа и выбранный подвид. Особенности-списком
-   * не трогаем — лист показывает их по достижении уровня (фильтр по level).
+   * Пересчитывает уровне-зависимые дары вида (скорость, тёмное зрение, ресурсы)
+   * под текущий суммарный уровень персонажа и выбранный подвид.
+   * Особенности-списком не трогаем — лист показывает их по достижении уровня
+   * (фильтр по level).
    */
   function recomputeSpeciesLeveledGrants(): void {
     const actorData = localActor.value;
@@ -2316,6 +2320,28 @@
       changed = true;
     }
 
+    // Ресурсы вида: «Скороход» лесного эльфа появляется на 3 уровне, а ресурс
+    // умения со своим уровнем — вместе с умением. Источники берутся из записи
+    // вида, как у мастера: на особенностях листа даров вида нет
+    const counters = actorData.system.classCounters;
+
+    const refreshedCounters = refreshSpeciesCounters(
+      actorData,
+      counters,
+      collectSpeciesFeatDataSources(
+        definition,
+        totalLevel,
+        chosenSubspecies,
+        subspecies,
+      ),
+      speciesEntry.featDataChoices,
+    );
+
+    if (!isSameCounterList(counters, refreshedCounters)) {
+      actorData.system.classCounters = refreshedCounters;
+      changed = true;
+    }
+
     if (changed) {
       isDirty.value = true;
       handleImmediateSave();
@@ -2323,7 +2349,8 @@
   }
 
   // Дары вида по уровням: при повышении суммарного уровня (через мастер класса)
-  // или смене выбранного подвида пересчитываем скорость/тёмное зрение. Сигнатура
+  // или смене выбранного подвида пересчитываем скорость/тёмное зрение/ресурсы.
+  // Ресурсы в сигнатуру не входят, поэтому их пересчёт её не трогает. Сигнатура
   // строкой, чтобы watcher срабатывал только на реальные изменения и не зациклил
   // сам себя (пересчёт даёт те же значения → сигнатура не меняется).
   watch(

@@ -1598,7 +1598,9 @@ export function featDataToGrants(
     key: counter.key,
     name: counter.name,
     shortName: counter.shortName ?? '',
-    max: counter.max,
+    // Ресурс, заданный одними ступенями, приходит из выгрузки без формулы:
+    // поле формулы тогда пустое и вернётся к записи пустым же
+    max: counter.max ?? '',
     min: counter.min ?? 0,
     recovery: counter.recovery,
     progression: progressionToEntries(counter.progression),
@@ -2703,12 +2705,21 @@ export function buildFeatData(
   const counters: FeatCounterDefinition[] = grants.counters
     .filter((counter) => counter.key.trim() && counter.name.trim())
     .map((counter) => {
+      const progression = entriesToProgression(counter.progression);
+      const max = counter.max.trim();
+
       const builtCounter: FeatCounterDefinition = {
         key: counter.key.trim(),
         name: counter.name.trim(),
-        max: counter.max.trim() || '0',
         recovery: counter.recovery,
       };
+
+      // Формулу пишем, если она есть или без неё максимум нечем задать. При
+      // ступенях пустая формула не пишется «нулём»: ступени старше неё, а
+      // выдуманный «0» записи, пришедшей без формулы, только сбивал бы с толку
+      if (max || !progression) {
+        builtCounter.max = max || '0';
+      }
 
       if (counter.shortName.trim()) {
         builtCounter.shortName = counter.shortName.trim();
@@ -2719,8 +2730,6 @@ export function buildFeatData(
       if (counter.min > 0) {
         builtCounter.min = Math.round(counter.min);
       }
-
-      const progression = entriesToProgression(counter.progression);
 
       if (progression) {
         builtCounter.progression = progression;

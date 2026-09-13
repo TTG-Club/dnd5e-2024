@@ -473,17 +473,6 @@ function scopeToCounterClass(
 }
 
 /**
- * Максимум с оглядкой на нижнюю границу счётчика.
- *
- * Граница подпирает расчёт снизу, а не складывается с ним: вдохновение барда
- * равно модификатору Харизмы, но не меньше одного — с Харизмой +0 вдохновение
- * одно, а с Харизмой +2 их два, а не три.
- *
- * @param max - посчитанный максимум
- * @param min - нижняя граница максимума; нет или 0 — границы нет
- * @returns максимум не ниже границы
- */
-/**
  * Максимум по ступеням: берётся старшая ступень, до которой персонаж дорос.
  *
  * Ступени задают ряд, который формулой не пишется («на 3-м два заряда, на 7-м
@@ -512,6 +501,17 @@ export function progressionCounterMax(
   return reached.length > 0 ? (progression[String(reached[0])] ?? 0) : 0;
 }
 
+/**
+ * Максимум с оглядкой на нижнюю границу счётчика.
+ *
+ * Граница подпирает расчёт снизу, а не складывается с ним: вдохновение барда
+ * равно модификатору Харизмы, но не меньше одного — с Харизмой +0 вдохновение
+ * одно, а с Харизмой +2 их два, а не три.
+ *
+ * @param max - посчитанный максимум
+ * @param min - нижняя граница максимума; нет или 0 — границы нет
+ * @returns максимум не ниже границы
+ */
 export function withCounterMinimum(
   max: number,
   min: number | undefined,
@@ -540,6 +540,112 @@ export function resolveCounterMax(
   counter: ActorCounterState,
 ): number {
   return resolveCounterMaxIn(buildCounterFormulaContext(actor), counter);
+}
+
+/**
+ * Идентичность счётчика на акторе: пара «владелец + ключ». Владелец — класс
+ * (с подклассом), черта либо источник даров вида; без него два ресурса с
+ * одинаковым ключом от разных записей считались бы одним, и кнопка «−» тратила
+ * бы оба сразу.
+ *
+ * В движке, а не в интерфейсе: по ней же пересчёт ресурсов вида узнаёт
+ * прежний счётчик, и два разных понятия «один и тот же ресурс» разошлись бы.
+ *
+ * @param counter - состояние счётчика на акторе
+ * @returns строка, уникальная в пределах списка счётчиков актора
+ */
+export function counterIdentity(counter: ActorCounterState): string {
+  const owner = counter.classKey ?? counter.featureId ?? '';
+
+  return `${owner}:${counter.subclassKey ?? ''}:${counter.counterKey}`;
+}
+
+/**
+ * Один ли это счётчик. Сравнение по {@link counterIdentity} вместо пары полей:
+ * у ресурсов черт `classKey` пуст, и прежнее сравнение сходилось у всех сразу.
+ *
+ * @param first - первый счётчик
+ * @param second - второй счётчик
+ */
+export function isSameCounter(
+  first: ActorCounterState,
+  second: ActorCounterState,
+): boolean {
+  return counterIdentity(first) === counterIdentity(second);
+}
+
+/**
+ * Ключ «класса» у своего ресурса игрока: его заводит окно ресурсов листа, и
+ * ни класса, ни записи с дарами за ним нет.
+ */
+export const CUSTOM_COUNTER_CLASS_KEY = 'custom';
+
+/**
+ * Есть ли у ресурса что показать игроку.
+ *
+ * Ресурс, выданный записью (классом, чертой, видом), без зарядов ещё не
+ * появился: «Скороход» лесного эльфа приходит с 3 уровня, и плитка «0/0» на
+ * первом читалась бы как потраченный ресурс. Из актора такой счётчик не
+ * убирается — пересчёт на повышении уровня сам поднимет его максимум.
+ *
+ * Свой ресурс игрока с нулём показывается: ноль он выставил сам, и спрятанный
+ * счётчик не найти, чтобы вернуть ему заряды.
+ *
+ * @param counter - состояние счётчика
+ * @param max - посчитанный максимум
+ * @returns true — ресурс показывается на листе и в сводке отдыха
+ */
+export function isCounterAvailable(
+  counter: ActorCounterState,
+  max: number,
+): boolean {
+  if (max > COUNTER_COUNT_MIN) {
+    return true;
+  }
+
+  // Своим считается и ресурс без класса и без записи-владельца: выданный
+  // ресурс владельца называет всегда, а безымянный пришёл только от игрока
+  return (
+    !counter.featureId
+    && (!counter.classKey || counter.classKey === CUSTOM_COUNTER_CLASS_KEY)
+  );
+}
+
+/**
+ * Совпадают ли два списка счётчиков по содержимому.
+ *
+ * Нужен пересчётам, которые лист запускает сам на смене уровня: лист
+ * сохраняется только при настоящей разнице, а не на каждом прогоне. Незаданное
+ * поле равно отсутствующему — счётчик из хранилища и собранный заново
+ * расходятся ровно этим.
+ *
+ * @param first - первый список
+ * @param second - второй список
+ */
+export function isSameCounterList(
+  first: ReadonlyArray<ActorCounterState>,
+  second: ReadonlyArray<ActorCounterState>,
+): boolean {
+  return (
+    first.length === second.length
+    && first.every(
+      (counter, index) =>
+        counterSignature(counter) === counterSignature(second[index]),
+    )
+  );
+}
+
+/**
+ * Строка содержимого счётчика без учёта порядка полей и незаданных значений.
+ *
+ * @param counter - состояние счётчика; нет — пустая подпись
+ */
+function counterSignature(counter: ActorCounterState | undefined): string {
+  return JSON.stringify(
+    Object.entries(counter ?? {})
+      .filter(([, value]) => value !== undefined)
+      .sort(([keyA], [keyB]) => keyA.localeCompare(keyB)),
+  );
 }
 
 /**

@@ -14,6 +14,8 @@
     buildCounterFormulaContext,
     COUNTER_COUNT_MIN,
     COUNTER_RECOVERY_AMOUNT_MIN,
+    counterIdentity,
+    CUSTOM_COUNTER_CLASS_KEY,
     getCounterRecoveryRules,
     normalizeCounterRecoveryRule,
     resolveCounterMaxIn,
@@ -28,10 +30,7 @@
   } from './constants';
   import CounterMaxField from './CounterMaxField.vue';
   import CounterRecoveryFields from './CounterRecoveryFields.vue';
-  import {
-    counterIdentity,
-    findCounterDefinition,
-  } from './utils/classCounters';
+  import { findCounterDefinition } from './utils/classCounters';
 
   interface Props {
     open: boolean;
@@ -255,7 +254,7 @@
       ...localCounters.value,
       {
         counterKey: createCustomCounterKey(),
-        classKey: 'custom',
+        classKey: CUSTOM_COUNTER_CLASS_KEY,
         name: SHEET_COUNTER_DEFAULTS.name,
         shortName: SHEET_COUNTER_DEFAULTS.shortName,
         // Новый ресурс — своё число: правило заводится, только если игрок сам

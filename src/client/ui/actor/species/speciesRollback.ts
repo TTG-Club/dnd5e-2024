@@ -1,6 +1,6 @@
 /**
  * Откат вида с листа персонажа: снятие всего, что вид выдал (владения,
- * особенности, выданные заклинания, эффект защит, тёмное зрение).
+ * особенности, выданные заклинания, эффект защит, ресурсы, тёмное зрение).
  *
  * Живёт отдельно от мастера настройки, потому что нужен ДВАЖДЫ: мастер
  * откатывает прежний вид перед применением нового, а лист — при удалении вида
@@ -33,6 +33,7 @@ import {
   removeFeatChoiceSelections,
   removeFeatDataProficiencies,
   removeGrantedSpellsByFeatureNames,
+  removeSpeciesCounters,
 } from '@vtt/shared/system/dnd.js';
 
 import { removeFeatFromActor } from '../feat/featApply';
@@ -391,11 +392,10 @@ export function buildSpeciesRemovalUpdates(
       previousSubspeciesDef,
       getTotalLevel(cleaned.system.classes),
     ),
+    // Ресурсы вида снимаются по метке владельца, а не по определению вида:
+    // запись могла уехать вместе с паком, а ресурс без вида всё равно лишний
+    classCounters: removeSpeciesCounters(cleaned.system.classCounters),
   };
-
-  if (cleaned !== actor) {
-    systemUpdates.classCounters = cleaned.system.classCounters;
-  }
 
   const rootUpdates: Partial<DnDActor> = {
     token: buildTokenWithoutSpecies(

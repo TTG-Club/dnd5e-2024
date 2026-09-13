@@ -22,7 +22,10 @@
   import {
     buildCounterFormulaContext,
     COUNTER_REST_KEYS,
+    counterIdentity,
     getCounterRecoveryRules,
+    isCounterAvailable,
+    isSameCounter,
     resolveCounterMaxIn,
   } from '@vtt/shared/system/dnd.js';
 
@@ -33,11 +36,7 @@
     COUNTER_REST_FIELDS,
   } from './constants';
   import SheetSettingsGear from './SheetSettingsGear.vue';
-  import {
-    counterIdentity,
-    findCounterDefinition,
-    isSameCounter,
-  } from './utils/classCounters';
+  import { findCounterDefinition } from './utils/classCounters';
   import { getSheetBlockClass } from './utils/sheetBlockClass';
 
   defineOptions({ inheritAttrs: false });
@@ -135,17 +134,23 @@
   }
 
   const displayCounters = computed(() => {
-    return counters.value.map((counter) => ({
-      counter,
-      // Максимум считается при чтении: с формулой он растёт вместе с бонусом
-      // мастерства и характеристиками, а записанное число — снимок расчёта
-      max: resolveCounterMaxIn(formulaContext.value, counter),
-      badges: recoveryBadges(counter),
-      definition: getDisplayDefinition(
-        counter,
-        findCounterDefinition(counter, props.counterDefinitions),
-      ),
-    }));
+    return (
+      counters.value
+        .map((counter) => ({
+          counter,
+          // Максимум считается при чтении: с формулой он растёт вместе с бонусом
+          // мастерства и характеристиками, а записанное число — снимок расчёта
+          max: resolveCounterMaxIn(formulaContext.value, counter),
+          badges: recoveryBadges(counter),
+          definition: getDisplayDefinition(
+            counter,
+            findCounterDefinition(counter, props.counterDefinitions),
+          ),
+        }))
+        // Выданный ресурс без зарядов ещё не появился («Скороход» — с 3 уровня):
+        // плитка «0/0» читалась бы как потраченный. В настройке он остаётся
+        .filter(({ counter, max }) => isCounterAvailable(counter, max))
+    );
   });
 
   // ── Вспомогательные функции ────────────────────────────────────
@@ -226,7 +231,7 @@
 
     <div class="flex max-w-full min-w-0 flex-col gap-1 px-2 pb-2">
       <div
-        v-if="counters.length === 0"
+        v-if="displayCounters.length === 0"
         class="px-1.5 py-1 text-sm text-dimmed"
       >
         {{ CLASS_COUNTERS_BLOCK_LABELS.empty }}
@@ -237,14 +242,14 @@
         :key="counterIdentity(counter)"
         class="flex max-w-full min-w-0 items-center gap-2 rounded p-1.5"
       >
-        <!-- Название -->
+        <!-- Название забирает всё свободное место строки: в узкую колонку
+          влезали две буквы, и «Скороход» от «Второго дыхания» было не отличить.
+          Не влезает целиком — обрезается многоточием, полное имя в подсказке -->
         <UTooltip
           :delay-duration="300"
           :text="definition?.name ?? counter.counterKey"
         >
-          <span
-            class="w-8 shrink-0 truncate text-center text-sm font-bold tracking-wider text-toned"
-          >
+          <span class="min-w-0 flex-1 truncate text-sm font-bold text-toned">
             {{
               definition?.shortName ?? definition?.name ?? counter.counterKey
             }}
@@ -285,8 +290,8 @@
         </div>
 
         <!-- Пометки восстановления: по одной на отдых, что возвращает заряды.
-          Прижаты к правому краю: иначе строка обрывалась бы пустотой -->
-        <div class="ml-auto flex shrink-0 items-center gap-1.5">
+          К правому краю их прижимает растянутое название -->
+        <div class="flex shrink-0 items-center gap-1.5">
           <UTooltip
             v-for="badge in badges"
             :key="badge.key"

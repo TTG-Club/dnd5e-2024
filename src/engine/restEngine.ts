@@ -30,6 +30,7 @@ import {
   buildCounterFormulaContext,
   getCounterRecoveryAmount,
   getCounterRecoveryRules,
+  isCounterAvailable,
   resolveCounterMaxIn,
 } from './counterResource.js';
 import { restoreCreatureSpellGroupUses } from './creatureSpellcasting.js';
@@ -369,14 +370,16 @@ export function summarizeActorLongRest(actor: DnDActor): LongRestPreview {
   const spellSlotsRestored = spellSlotsUsed + (system.pactSlotsUsed ?? 0);
 
   // Считаются только те, кому отдых и правда что-то вернёт: у ресурса с
-  // откатом «ничего» пустой остаток так и останется пустым
+  // откатом «ничего» пустой остаток так и останется пустым, а ресурс, до
+  // первой ступени которого персонаж не дорос, на листе не показан вовсе
   const counterContext = buildCounterFormulaContext(actor);
 
   const countersRestored = system.classCounters.filter((counter) => {
     const max = resolveCounterMaxIn(counterContext, counter);
 
     return (
-      counter.current < max
+      isCounterAvailable(counter, max)
+      && counter.current < max
       && getCounterRecoveryAmount(
         getCounterRecoveryRules(counter).longRest,
         max,
