@@ -22,6 +22,12 @@ import { DEFAULT_CARRYING_CAPACITY } from './carryingCapacity.js';
 import { DEATH_CONDITION_KEY } from './conditionKeys.js';
 import { DEFAULT_PREPARED_LIMIT } from './preparedSpells.js';
 
+/** Общий предел бонусных костей одной d20-проверки; соответствует пределу группы клиентского роллера. */
+export const MAX_ROLL_BONUS_DICE = 1_000;
+
+/** Ограничивает грани бонусной кости и сохраняет безопасную целую сумму при максимальном числе костей. */
+export const MAX_ROLL_BONUS_DIE_SIDES = 1_000_000;
+
 // ============================================================
 // Инструменты
 // ============================================================

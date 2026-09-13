@@ -350,6 +350,61 @@ export function computeSpellSlots(
 }
 
 /**
+ * Карта «ключ класса → тип заклинателя» для расчёта ячеек. Класс без типа в
+ * карту не попадает — таблицы считают его незаклинателем.
+ *
+ * @param classes - классы листа
+ * @returns карта типов заклинателя по ключу класса
+ */
+export function buildCasterTypeMap(
+  classes: readonly ActorClassEntry[],
+): Map<string, CasterType> {
+  const casterTypeMap = new Map<string, CasterType>();
+
+  for (const entry of classes) {
+    if (entry.casterType) {
+      casterTypeMap.set(entry.classKey, entry.casterType);
+    }
+  }
+
+  return casterTypeMap;
+}
+
+/**
+ * Проверяет, осталась ли у персонажа ячейка выбранного круга и вида. Ячейка
+ * договора подходит только своему кругу; обычная считается по таблице классов.
+ *
+ * @param actor - лист персонажа с классами и расходом ячеек
+ * @param castLevel - круг ячейки (1–9)
+ * @param isPactSlot - тратится ячейка договора колдуна
+ * @returns true — ячейка есть
+ */
+export function hasAvailableSpellSlot(
+  actor: SpellSlotActorData,
+  castLevel: number,
+  isPactSlot: boolean,
+): boolean {
+  const classes = actor.system?.classes ?? [];
+
+  if (isPactSlot) {
+    const pactInfo = getPactSlotInfo(classes);
+
+    return (
+      castLevel === pactInfo.level
+      && (actor.system?.pactSlotsUsed ?? 0) < pactInfo.max
+    );
+  }
+
+  const maxSlots = computeSpellSlots(classes, buildCasterTypeMap(classes));
+  const slotIndex = castLevel - 1;
+
+  return (
+    (actor.system?.spellSlotsUsed?.[slotIndex] ?? 0)
+    < (maxSlots[slotIndex] ?? 0)
+  );
+}
+
+/**
  * Наибольший круг, который персонаж способен наложить.
  *
  * Ячейки договора колдуна учитываются наравне с обычными: заклинание шестого круга
@@ -360,16 +415,7 @@ export function computeSpellSlots(
  */
 export function getMaxSpellSlotLevel(actor: SpellSlotActorData): number {
   const classes = actor.system?.classes ?? [];
-
-  const casterTypeMap = new Map<string, CasterType>();
-
-  for (const entry of classes) {
-    if (entry.casterType) {
-      casterTypeMap.set(entry.classKey, entry.casterType);
-    }
-  }
-
-  const slots = computeSpellSlots(classes, casterTypeMap);
+  const slots = computeSpellSlots(classes, buildCasterTypeMap(classes));
 
   let maxLevel = 0;
 
@@ -423,16 +469,8 @@ export function getAvailableSpellLevels(
   }
 
   // 2. Проверяем обычные ячейки
-  const typeMap = new Map<string, CasterType>();
   const classes = actor.system?.classes ?? [];
-
-  for (const entry of classes) {
-    if (entry.casterType) {
-      typeMap.set(entry.classKey, entry.casterType);
-    }
-  }
-
-  const maxSlots = computeSpellSlots(classes, typeMap);
+  const maxSlots = computeSpellSlots(classes, buildCasterTypeMap(classes));
   const usedSlots = actor.system?.spellSlotsUsed ?? [0, 0, 0, 0, 0, 0, 0, 0, 0];
 
   for (let i = 0; i < 9; i++) {

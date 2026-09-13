@@ -11,6 +11,7 @@
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { RollBonusEvaluator } from '../../../composables/rollBonusEvaluator';
   import type { ItemTransferPayload } from '../../../composables/useItemTransfer';
   import type {
     RolledSpellDamagePart,
@@ -40,6 +41,8 @@
     describeWeaponDamage,
     evaluateConditionalBonuses,
     formatWeaponDamageFormula,
+    getAttackBonusKey,
+    getDamageBonusKey,
     getWeaponPrimaryDamageType,
     isDndSceneEntity,
     resolveActorStats,
@@ -48,6 +51,7 @@
     TOOL_CATEGORIES,
   } from '@vtt/shared/system/dnd.js';
 
+  import { buildRollBonusEvaluator } from '../../../composables/rollBonusEvaluator';
   import { useBonusDamageParts } from '../../../composables/useBonusDamageParts';
   import { useCarryingCapacity } from '../../../composables/useCarryingCapacity';
   import { useResolvedStats } from '../../../composables/useResolvedStats';
@@ -334,6 +338,7 @@
     name: string;
     formula: string;
     attackModifier?: number;
+    evaluateBonusRollFormulas?: RollBonusEvaluator;
     evaluateBonuses?: (context: RollBonusContext) => {
       attackBonus: number;
       damageBonus: number;
@@ -376,16 +381,13 @@
 
     const weaponSaveDC = 8 + baseMod;
 
+    const attackKey = getAttackBonusKey(weapon.rangeType);
+    const damageKey = getDamageBonusKey(weapon.rangeType);
+
     const evaluateBonuses = (context: {
       hasAdvantage: boolean;
       hasDisadvantage: boolean;
     }) => {
-      const attackKey =
-        weapon.rangeType === 'ranged' ? 'attack.ranged' : 'attack.melee';
-
-      const damageKey =
-        weapon.rangeType === 'ranged' ? 'damage.ranged' : 'damage.melee';
-
       // HP цели читается в момент броска — для условий target.hp.* («Убийца»)
       const rollContext = { ...context, target: buildTargetHpContext() };
 
@@ -457,6 +459,9 @@
       name: weapon.name,
       formula: weaponPartsSetup.baseParts[0]?.formula ?? '',
       attackModifier: hasSave ? undefined : baseMod,
+      evaluateBonusRollFormulas: hasSave
+        ? undefined
+        : buildRollBonusEvaluator(() => props.entity, attackKey),
       evaluateBonuses,
       initialRollMode,
       incomingAttackType: weapon.rangeType === 'ranged' ? 'ranged' : 'melee',
@@ -1383,6 +1388,7 @@
     :title="`${ACTOR_EQUIPMENT_TAB_LABELS.attackRollPrefix}${rollConfig.name}`"
     :roll-label="rollConfig.name"
     :attack-modifier="rollConfig.attackModifier"
+    :evaluate-bonus-roll-formulas="rollConfig.evaluateBonusRollFormulas"
     :evaluate-conditional-bonuses="rollConfig.evaluateBonuses"
     :initial-roll-mode="rollConfig.initialRollMode"
     :incoming-attack-type="rollConfig.incomingAttackType"

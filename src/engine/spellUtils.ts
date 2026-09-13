@@ -305,7 +305,7 @@ export interface ProjectileCountContext {
  * Возвращает снарядный режим заклинания.
  *
  * Источник истины — ТОЛЬКО явный блок `spell.projectiles`; `targetCount` —
- * информационное «число целей эффекта» и распределение по целям не включает.
+ * число разных целей эффекта и снарядный режим не включает.
  *
  * @param spell - заклинание
  * @returns снарядный режим или undefined (обычное заклинание)
@@ -365,6 +365,24 @@ export function getSpellProjectileCount(
   }
 
   return count;
+}
+
+/**
+ * Считает предел разных целей эффекта с учётом выбранной ячейки.
+ *
+ * @param spell - заклинание
+ * @param slotLevel - круг ячейки каста
+ * @returns наибольшее число разных целей эффекта
+ */
+export function getSpellEffectTargetCount(
+  spell: Spell,
+  slotLevel: number,
+): number {
+  return (
+    (spell.targetCount ?? 1)
+    + Math.max(0, slotLevel - spell.level)
+      * (spell.scaling?.additionalTargets ?? 0)
+  );
 }
 
 // ── Формулы урона ────────────────────────────────────────────

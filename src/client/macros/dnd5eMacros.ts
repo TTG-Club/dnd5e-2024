@@ -10,11 +10,15 @@ import type {
   DnDActor,
   DnDCreature,
   DnDGameItem,
+  DnDSceneEntity,
   EffectAttackTrigger,
+  RollContext,
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
+import type { SpellEffectTargets } from '../composables/spellEffectTargeting';
 import type {
+  ProjectileAttackContext,
   RolledSpellDamagePart,
   SpellDamagePartInput,
 } from '../composables/useSpellResolution';
@@ -25,6 +29,7 @@ import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useActionPromptStore } from '@/stores/actionPromptStore';
 import { useAuraStore } from '@/stores/auraStore';
 import { useChatStore } from '@/stores/chatStore';
+import { useProjectileStore } from '@/stores/projectileStore';
 import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
 import { useTargetStore } from '@/stores/targetStore';
 import { useWorldStore } from '@/stores/worldStore';
@@ -33,7 +38,12 @@ import { useWorldStore } from '@/stores/worldStore';
  * Вся боевая логика (бросок атаки, двухэтапная атака, криты, урон) вынесена
  * в attackUtils.ts, а здесь остаётся только оркестрация и контекст выполнения макроса.
  */
-import { isActorEntity, isCreatureEntity, isRecord } from '@vtt/shared';
+import {
+  generateId,
+  isActorEntity,
+  isCreatureEntity,
+  isRecord,
+} from '@vtt/shared';
 import {
   buildFormulaContext,
   calculateCreatureSpellBlockNumbers,
@@ -48,9 +58,11 @@ import {
   evaluateConditionalBonuses,
   findCreatureSpellPlacement,
   formatConditionalDamageDisplay,
+  getAttackBonusKey,
   getAvailableSpellLevels,
   getCreatureSpellBlockAbility,
   getCreatureSpellRollButtonText,
+  getDamageBonusKey,
   getPactSlotInfo,
   getSpellAttackType,
   getSpellDamageParts,
@@ -81,7 +93,18 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import {
+  buildRollBonusEvaluator,
+  collectProjectileRollBonuses,
+} from '../composables/rollBonusEvaluator';
+import {
+  applySpellTargetEffects,
+  createProjectileCastValidator,
+  needsSpellEffectTargets,
+  requestSpellEffectTargets,
+} from '../composables/spellEffectTargeting';
+import {
   discardSpellTemplate,
+  formatSpellEffectsMessage,
   getCasterSpellEffects,
   getTargetSpellEffects,
   instantiateSpellEffects,
@@ -98,7 +121,12 @@ import {
   measureTokenDistanceOnScene,
 } from '../composables/useSceneRangeCheck';
 import { useSpellResolution } from '../composables/useSpellResolution';
-import { SPELL_MENU_LABELS } from '../ui/actor/constants';
+import { useWorldEntities } from '../composables/useWorldEntities';
+import {
+  PROJECTILE_MODAL_KEY_PREFIX,
+  SPELL_CAST_MODAL_KEY_PREFIX,
+  SPELL_MENU_LABELS,
+} from '../ui/actor/constants';
 import { checkCreatureActionRangeOnScene } from '../ui/creature/composables/useCreatureRangeCheck';
 
 /**
@@ -115,6 +143,20 @@ function isDnDCreatureEntity(
   entity: SceneEntity | null,
 ): entity is DnDCreature {
   return entity !== null && entity.entityType === 'creature';
+}
+
+/**
+ * Читает актуального участника броска: эффекты могут измениться, пока окно
+ * макроса открыто; удалённая сущность не должна оставлять старый бонус.
+ *
+ * @param entityId - идентификатор персонажа или существа
+ * @returns актуальная D&D-сущность либо undefined
+ */
+function findCurrentDndEntity(entityId: string): DnDSceneEntity | undefined {
+  const { findCurrentWorldEntity } = useWorldEntities();
+  const entity = findCurrentWorldEntity(entityId);
+
+  return entity && isDndSceneEntity(entity) ? entity : undefined;
 }
 
 /**
@@ -440,11 +482,8 @@ export function registerDnd5eMacros(): void {
         ambientEffects,
       );
 
-      const attackKey =
-        foundWeapon.rangeType === 'ranged' ? 'attack.ranged' : 'attack.melee';
-
-      const damageKey =
-        foundWeapon.rangeType === 'ranged' ? 'damage.ranged' : 'damage.melee';
+      const attackKey = getAttackBonusKey(foundWeapon.rangeType);
+      const damageKey = getDamageBonusKey(foundWeapon.rangeType);
 
       const baseMod = calculateWeaponAttackModifier(
         foundActor,
@@ -551,6 +590,12 @@ export function registerDnd5eMacros(): void {
         // Формула для отображения (бросок идёт многочастным путём по damageParts)
         formula: weaponPartsSetup.baseParts[0]?.formula ?? '',
         attackModifier: hasSave ? undefined : baseMod,
+        evaluateBonusRollFormulas: hasSave
+          ? undefined
+          : buildRollBonusEvaluator(
+              () => findCurrentDndEntity(foundActor.id),
+              attackKey,
+            ),
         initialRollMode,
         incomingAttackType,
         evaluateConditionalBonuses: (modalContext: {
@@ -641,6 +686,19 @@ export function registerDnd5eMacros(): void {
         return;
       }
 
+      if (needsSpellEffectTargets(spell)) {
+        requestSpellEffectTargets(
+          spell,
+          actor.id,
+          availableLevels,
+          (level, targets) => {
+            castBuffSpellMacro(spell, actor, level, targets);
+          },
+        );
+
+        return;
+      }
+
       // Снарядный режим: число снарядов зависит от контекста каста
       // (заговоры — от уровня персонажа, уровневые — от круга ячейки)
       const casterLevel = getTotalLevel(actor.system?.classes);
@@ -671,25 +729,25 @@ export function registerDnd5eMacros(): void {
 
       if (hasProjectiles) {
         // Запускаем режим выбора целей (снарядов) с отдельным промптом
-        import('@/stores/projectileStore').then(({ useProjectileStore }) => {
-          const { openModal } = useModalManager();
-          const projectileStore = useProjectileStore();
+        const { openModal } = useModalManager();
+        const projectileStore = useProjectileStore();
 
-          projectileStore.startTargeting(
-            spell.projectiles?.targetDistribution ?? null,
-            baseProjectileCount,
-            (tokenId) => !isSpellTargetBlockedByRange(spell, actor.id, tokenId),
-          );
+        projectileStore.startTargeting(
+          spell.projectiles?.targetDistribution ?? null,
+          baseProjectileCount,
+          (tokenId) => !isSpellTargetBlockedByRange(spell, actor.id, tokenId),
+        );
 
-          openModal('ProjectilePromptModal', {
-            spell,
-            casterLevel,
-            availableSpellLevels: availableLevels,
-            onConfirm: (selectedLevel: number) => {
-              // Передаем зафиксированный уровень заклинания в executeSpellCast
-              executeSpellCast(spell, actor, selectedLevel);
-            },
-          });
+        openModal('ProjectilePromptModal', {
+          _modalKey: `${PROJECTILE_MODAL_KEY_PREFIX}-${projectileStore.sessionId}`,
+          targetingSessionId: projectileStore.sessionId,
+          spell,
+          casterLevel,
+          availableSpellLevels: availableLevels,
+          onConfirm: (selectedLevel: number) => {
+            // Передаем зафиксированный уровень заклинания в executeSpellCast
+            executeSpellCast(spell, actor, selectedLevel);
+          },
         });
 
         return;
@@ -1047,20 +1105,18 @@ function openDiceRollForSpell(
     const pactInfo = getPactSlotInfo(actor.system?.classes ?? []);
     const pactSlotLevel = pactInfo.level;
 
-    if (hasProjectiles) {
-      import('@/stores/projectileStore').then(({ useProjectileStore }) => {
-        const projectileStore = useProjectileStore();
+    const projectileStore = useProjectileStore();
 
-        // Не сбрасываем таргетинг если он уже активен (вызов из ProjectilePromptModal)
-        if (!projectileStore.isActive) {
-          projectileStore.startTargeting(
-            spell.projectiles?.targetDistribution ?? null,
-            projectileCount,
-            (tokenId) => !isSpellTargetBlockedByRange(spell, actor.id, tokenId),
-          );
-        }
-      });
+    if (hasProjectiles && !projectileStore.isActive) {
+      projectileStore.startTargeting(
+        spell.projectiles?.targetDistribution ?? null,
+        projectileCount,
+        (tokenId) => !isSpellTargetBlockedByRange(spell, actor.id, tokenId),
+      );
     }
+
+    const isCurrentProjectileCast =
+      createProjectileCastValidator(hasProjectiles);
 
     /**
      * Обработчик подтверждения броска — применяет урон к целям.
@@ -1138,10 +1194,9 @@ function openDiceRollForSpell(
      * выполняет resolveSpellDamage. Бонус-части эффектов собираются с
      * фактическим режимом преимущества/помехи и катаются на каждое попадание.
      */
-    function handleProjectileAttackRoll(rollContext: {
-      attackModifier: number;
-      rollMode: AttackRollMode;
-    }): void {
+    function handleProjectileAttackRoll(
+      rollContext: Omit<ProjectileAttackContext, 'attackType'>,
+    ): void {
       if (!incomingAttackType) {
         return;
       }
@@ -1194,6 +1249,7 @@ function openDiceRollForSpell(
           projectileAttack: {
             attackModifier: rollContext.attackModifier,
             rollMode: rollContext.rollMode,
+            bonusDiceFormulasByTarget: rollContext.bonusDiceFormulasByTarget,
             attackType: incomingAttackType,
           },
           bonusDamageParts: projectileBonusParts,
@@ -1212,13 +1268,32 @@ function openDiceRollForSpell(
         })
       : 'normal';
 
+    const evaluateAttackBonusRollFormulas = incomingAttackType
+      ? buildRollBonusEvaluator(
+          () => findCurrentDndEntity(actor.id),
+          'attack.spell',
+        )
+      : undefined;
+
     openModal('DiceRollModal', {
+      _modalKey: generateId(SPELL_CAST_MODAL_KEY_PREFIX),
       title: `Заклинание — ${spell.name}`,
       rollLabel: spell.name,
       rollButtonText,
       formula: resolvedDamageFormula,
       formulaDisplay: damageFormulaForDisplay,
       attackModifier: incomingAttackType ? baseMod : undefined,
+      evaluateBonusRollFormulas: hasProjectiles
+        ? undefined
+        : evaluateAttackBonusRollFormulas,
+      evaluateProjectileBonusRollFormulas:
+        hasProjectiles && evaluateAttackBonusRollFormulas
+          ? (context: RollContext) =>
+              collectProjectileRollBonuses(
+                context,
+                evaluateAttackBonusRollFormulas,
+              )
+          : undefined,
       incomingAttackType,
       initialRollMode: spellInitialRollMode,
       isHealing: spellIsHealing(spell),
@@ -1226,12 +1301,13 @@ function openDiceRollForSpell(
       skipDamageApplication: shouldSkipModalDamage,
       skipChatMessage: hasProjectiles,
       onRoll: handleSpellRoll,
+      beforeRoll: isCurrentProjectileCast,
 
       // Атакующее заклинание-эффект (без многочастного пути): эффекты на цель
       // вешаем по ПОПАДАНИЮ. Многочастные уронные накладывают их сами.
       onHit:
         incomingAttackType && hasSpellTargetEffects && !useMultiPart
-          ? () => applyTargetSpellEffectsMacro(spell)
+          ? () => applySpellTargetEffects(spell)
           : undefined,
 
       // Расход одноразовых эффектов «следующей атаки» на броске атаки заклинанием
@@ -1346,50 +1422,24 @@ function openDiceRollForSpell(
 }
 
 /**
- * Накладывает эффекты заклинания с `effectTarget: 'target'` на выбранную цель —
- * для каста с хотбара. Переиспользует общий `targetStore.applyEffectsToTarget`
- * (тот же путь, что у оружия и существ). Для безуронных заклинаний это
- * единственный фидбек, поэтому дополнительно пишем строку в чат.
- *
- * @param spell - заклинание
- */
-function applyTargetSpellEffectsMacro(spell: Spell): void {
-  const targetEffects = getTargetSpellEffects(spell);
-
-  if (targetEffects.length === 0) {
-    return;
-  }
-
-  const targetName = useTargetStore().applyEffectsToTarget(
-    targetEffects,
-    'spell',
-  );
-
-  if (targetName) {
-    useChatStore().sendMessage(
-      `${spell.name}\n→ ${targetName}: [${targetEffects
-        .map((effect) => effect.name)
-        .join(', ')}]`,
-      'text',
-    );
-  }
-}
-
-/**
  * Каст заклинания без урона и без реального броска атаки (самобафф вроде Щита,
  * либо наложение эффекта на цель при автопопадании) через макрос хотбара. Для
  * уровневых не-врождённых открывает окно выбора ячейки и кладёт self-эффекты
  * заклинателю тем же обновлением сущности, что и списание ячейки (без гонки
- * эмитов). Эффекты с effectTarget 'target' вешаются на выбранную цель.
+ * эмитов). Эффекты с effectTarget 'target' ложатся на цели, выбранные для
+ * этого каста, а без них — на выбранную цель.
  *
  * @param spell - заклинание
  * @param actor - актор-заклинатель
  * @param lockedSpellLevel - зафиксированный круг (если задан)
+ * @param effectTargets - цели эффекта, выбранные перед кастом; их актуальность
+ * проверяется ещё раз до списания ячейки
  */
 function castBuffSpellMacro(
   spell: Spell,
   actor: DnDActor,
   lockedSpellLevel?: number,
+  effectTargets?: SpellEffectTargets,
 ): void {
   const casterEffects = getCasterSpellEffects(spell);
   const isInnate = !!spell.uses;
@@ -1422,9 +1472,7 @@ function castBuffSpellMacro(
     );
 
     chatStore.sendMessage(
-      `${spell.name}\n→ ${actor.name}: [${casterEffects
-        .map((effect) => effect.name)
-        .join(', ')}]`,
+      formatSpellEffectsMessage(spell.name, [actor.name], casterEffects),
       'text',
     );
   };
@@ -1436,10 +1484,12 @@ function castBuffSpellMacro(
     const pactInfo = getPactSlotInfo(actor.system?.classes ?? []);
 
     openModal('DiceRollModal', {
+      _modalKey: generateId(SPELL_CAST_MODAL_KEY_PREFIX),
       title: `Заклинание — ${spell.name}`,
       rollLabel: spell.name,
       rollButtonText: SPELL_MENU_LABELS.cast,
       skipRoll: true,
+      beforeRoll: effectTargets?.validate,
       spellLevel: lockedSpellLevel ?? spell.level,
       availableSpellLevels: computeAvailableLevels(
         lockedSpellLevel,
@@ -1459,17 +1509,28 @@ function castBuffSpellMacro(
         }
 
         const socket = chatStore.getSocket();
-        const updatedActor: DnDActor = JSON.parse(JSON.stringify(actor));
+
+        // Между выбором целей и ячейки лист мог измениться на другом клиенте.
+        const latestEntity = findCurrentDndEntity(actor.id);
+
+        const castingActor =
+          effectTargets && latestEntity?.entityType === 'actor'
+            ? latestEntity
+            : actor;
+
+        const updatedActor: DnDActor = JSON.parse(JSON.stringify(castingActor));
 
         if (consumeSlot && castLevel > 0 && updatedActor.system) {
           if (isPactSlot) {
             updatedActor.system.pactSlotsUsed =
-              (actor.system?.pactSlotsUsed ?? 0) + 1;
+              (castingActor.system?.pactSlotsUsed ?? 0) + 1;
           } else {
             const index = castLevel - 1;
 
             const newUsed = [
-              ...(actor.system?.spellSlotsUsed ?? [0, 0, 0, 0, 0, 0, 0, 0, 0]),
+              ...(castingActor.system?.spellSlotsUsed ?? [
+                0, 0, 0, 0, 0, 0, 0, 0, 0,
+              ]),
             ];
 
             newUsed[index] = (newUsed[index] ?? 0) + 1;
@@ -1491,7 +1552,7 @@ function castBuffSpellMacro(
 
         // Эффекты на выбранную цель (effectTarget 'target') — отдельной
         // сущности, отдельным обновлением (без гонки с апдейтом кастера).
-        applyTargetSpellEffectsMacro(spell);
+        applySpellTargetEffects(spell, effectTargets);
       },
     });
 
@@ -1516,7 +1577,7 @@ function castBuffSpellMacro(
     }
   }
 
-  applyTargetSpellEffectsMacro(spell);
+  applySpellTargetEffects(spell, effectTargets);
 }
 
 /**
@@ -1735,6 +1796,12 @@ function openCreatureActionRoll(
     rollButtonText: usesSaveOrArea ? 'Бросить урон' : 'Атаковать',
     formula: setup.baseParts[0]?.formula ?? '',
     attackModifier: usesSaveOrArea ? undefined : action.attackBonus,
+    evaluateBonusRollFormulas: usesSaveOrArea
+      ? undefined
+      : buildRollBonusEvaluator(
+          () => findCurrentDndEntity(creature.id),
+          getAttackBonusKey(action.rangeType),
+        ),
     initialRollMode: actionRollMode,
     incomingAttackType: action.rangeType === 'ranged' ? 'ranged' : 'melee',
     damageType,
@@ -2074,6 +2141,12 @@ function openCreatureSpellRoll(
     rollButtonText: getCreatureSpellRollButtonText(usesAttack, isHealing),
     formula: setup.baseParts[0]?.formula ?? '',
     attackModifier: usesAttack ? numbers.attackBonus : undefined,
+    evaluateBonusRollFormulas: usesAttack
+      ? buildRollBonusEvaluator(
+          () => findCurrentDndEntity(creature.id),
+          'attack.spell',
+        )
+      : undefined,
     initialRollMode: spellRollMode,
     incomingAttackType: usesAttack ? attackType : undefined,
     damageType,

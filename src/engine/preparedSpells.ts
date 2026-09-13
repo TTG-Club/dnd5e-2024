@@ -10,7 +10,27 @@
  */
 
 import type { ActorClassEntry, ClassDefinition } from './classTypes.js';
+import type { Spell } from './dndEntities.js';
 import type { DnDPreparedLimit } from './types.js';
+
+import { CANTRIP_SPELL_LEVEL } from './spellTypes.js';
+
+/**
+ * Проверяет доступность заклинания без изменения подготовки: известный заговор
+ * доступен всегда, заклинание старшего круга — после подготовки либо по дару.
+ *
+ * @param spell - заклинание из книги персонажа
+ * @returns true — заклинание можно накладывать без подготовки
+ */
+export function isSpellReady(
+  spell: Pick<Spell, 'level' | 'prepared' | 'alwaysPrepared'>,
+): boolean {
+  return (
+    spell.level === CANTRIP_SPELL_LEVEL
+    || Boolean(spell.prepared)
+    || Boolean(spell.alwaysPrepared)
+  );
+}
 
 /** Вид подготовки: заклинания книги либо заговоры (свой счётчик) */
 export type PreparedKind = 'spells' | 'cantrips';

@@ -12,12 +12,16 @@ import type {
   DiceRollData,
   DistanceUnit,
   SkillType,
+  WeaponRangeType,
 } from '@vtt/shared';
 
+import type { EffectTargetKey } from './activeEffectTypes.js';
 import type { ConditionRef } from './conditionKeys.js';
 import type { CreatureAction } from './creatureTypes.js';
 import type { DamageApplyResult } from './damageUtils.js';
 import type { DnDGameItem, Spell } from './dndEntities.js';
+
+import { z } from 'zod';
 
 import { convertDistance } from '@vtt/shared';
 
@@ -32,12 +36,98 @@ import {
 /** Досягаемость по умолчанию в футах (рукопашные атаки и заклинания касания) */
 export const DEFAULT_REACH_FEET = 5;
 
+/**
+ * Форма d20-проверки, достаточная для натуральной кости: первая группа костей —
+ * базовая d20, за ней могут идти бонусные кости.
+ */
+const d20CheckRollSchema = z.object({
+  dice: z
+    .tuple([
+      z.object({
+        sides: z.literal(20),
+        values: z.array(z.number()),
+        dropped: z.array(z.number()),
+      }),
+    ])
+    .rest(z.unknown()),
+});
+
+/**
+ * Читает оставленную d20 из результата броска, не смешивая её с бонусными
+ * костями. Принимает и чужие данные — ответ другого клиента проверяется схемой,
+ * а не принимается на веру.
+ *
+ * @param rollData - результат d20-проверки, в том числе пришедший по сети
+ * @returns натуральная кость либо undefined, если единственной оставленной d20 нет
+ */
+export function parseNaturalD20Roll(rollData: unknown): number | undefined {
+  const parsed = d20CheckRollSchema.safeParse(rollData);
+
+  if (!parsed.success) {
+    return undefined;
+  }
+
+  const [baseDice] = parsed.data.dice;
+
+  // `dropped` хранит индексы костей, отброшенных преимуществом или помехой
+  const keptValues = baseDice.values.filter(
+    (_value, index) => !baseDice.dropped.includes(index),
+  );
+
+  return keptValues.length === 1 ? keptValues[0] : undefined;
+}
+
+/**
+ * Читает оставленную d20 собственного броска. Такой бросок собран формулой
+ * системы, и отсутствие d20 в нём — ошибка кода, а не данных.
+ *
+ * @param rollData - результат стандартной d20-проверки
+ * @returns натуральная кость, определяющая критический успех или промах
+ */
+export function getNaturalD20Roll(rollData: DiceRollData): number {
+  const naturalRoll = parseNaturalD20Roll(rollData);
+
+  if (naturalRoll === undefined) {
+    throw new Error(
+      'В результате проверки отсутствует единственная оставленная d20',
+    );
+  }
+
+  return naturalRoll;
+}
+
+/**
+ * Ключ бонусов атаки по дальности оружия или действия.
+ *
+ * @param rangeType - дальность оружия или действия
+ * @returns `attack.ranged` для дальнобойного, иначе `attack.melee`
+ */
+export function getAttackBonusKey(
+  rangeType: WeaponRangeType | undefined,
+): EffectTargetKey {
+  return rangeType === 'ranged' ? 'attack.ranged' : 'attack.melee';
+}
+
+/**
+ * Ключ бонусов урона по дальности оружия или действия.
+ *
+ * @param rangeType - дальность оружия или действия
+ * @returns `damage.ranged` для дальнобойного, иначе `damage.melee`
+ */
+export function getDamageBonusKey(
+  rangeType: WeaponRangeType | undefined,
+): EffectTargetKey {
+  return rangeType === 'ranged' ? 'damage.ranged' : 'damage.melee';
+}
+
 /** Параметры для определения результата атаки */
 interface AttackResolveParams {
   /** Итого броска (1к20 + модификатор) */
   total: number;
   /** Модификатор атаки (мод. характеристики + мастерство + бонус) */
   attackModifier: number;
+  /** Натуральная оставленная кость d20, отдельно от бонусных костей. */
+  naturalRoll: number;
   /** Класс доспеха цели */
   targetAc: number;
   /** Активные флаги цели (для иммунитета к критам и т.п.) */
@@ -63,7 +153,7 @@ export interface AttackResult {
  * @returns результат определения попадания
  */
 export function resolveAttackRoll(params: AttackResolveParams): AttackResult {
-  const naturalRoll = params.total - params.attackModifier;
+  const naturalRoll = params.naturalRoll;
   const isCriticalMiss = naturalRoll === 1;
 
   // Адамантиновая броня: критический удар становится обычным попаданием
@@ -226,6 +316,7 @@ export function performTwoStageAttack(
 
   const attackResult = resolveAttackRoll({
     total: attackRoll.total,
+    naturalRoll: getNaturalD20Roll(attackRoll),
     attackModifier: params.attackModifier,
     targetAc: params.targetAc,
     targetFlags: params.targetFlags,
@@ -502,11 +593,13 @@ export function resolveSavingThrowRollMode(
  *
  * @param attackModifier - суммарный модификатор атаки
  * @param rollMode - режим броска (обычный / преимущество / помеха)
+ * @param bonusDiceFormulas - кубиковые бонусы, бросаемые отдельно от d20
  * @returns формула атаки
  */
 export function buildAttackFormula(
   attackModifier: number,
   rollMode: AttackRollMode = 'normal',
+  bonusDiceFormulas: readonly string[] = [],
 ): string {
   const sign = attackModifier >= 0 ? '+' : '-';
 
@@ -518,7 +611,15 @@ export function buildAttackFormula(
     diceExpr = '2к20kl1';
   }
 
-  return `${diceExpr}${sign}${Math.abs(attackModifier)}`;
+  const bonusSuffix = bonusDiceFormulas
+    .map((formula) =>
+      formula.startsWith('-') || formula.startsWith('+')
+        ? formula
+        : `+${formula}`,
+    )
+    .join('');
+
+  return `${diceExpr}${sign}${Math.abs(attackModifier)}${bonusSuffix}`;
 }
 
 /**
@@ -603,9 +704,9 @@ export function checkCreatureActionRange(
  * В отличие от оружия, у заклинаний D&D 5e нет «длинной» дистанции
  * с помехой — только жёсткий предел:
  * - `melee` / `touch`: досягаемость 5 футов;
- * - `ranged` с дистанцией больше 0: дистанция заклинания, сконвертированная
+ * - `ranged` / `none` с дистанцией больше 0: дистанция заклинания, сконвертированная
  *   из `rangeUnit` заклинания в единицы сцены;
- * - `self` / `sight` / `none` или дистанция 0: без ограничений.
+ * - `self` / `sight` или дистанция 0: без ограничений.
  *
  * @param spell - заклинание
  * @param sceneUnit - единица измерения сцены
@@ -619,7 +720,10 @@ export function getSpellMaxRange(
     return Math.round(convertDistance(DEFAULT_REACH_FEET, 'ft', sceneUnit));
   }
 
-  if (spell.deliveryType === 'ranged' && spell.range > 0) {
+  if (
+    (spell.deliveryType === 'ranged' || spell.deliveryType === 'none')
+    && spell.range > 0
+  ) {
     return Math.round(convertDistance(spell.range, spell.rangeUnit, sceneUnit));
   }
 

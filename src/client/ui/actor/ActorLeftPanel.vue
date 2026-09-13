@@ -9,6 +9,8 @@
     DnDSavingThrowSettings,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { RollBonusEvaluator } from '../../composables/rollBonusEvaluator';
+
   import { computed, ref, toRef } from 'vue';
 
   import FieldsetLabel from '@/shared_ui/components/FieldsetLabel.vue';
@@ -27,6 +29,7 @@
     withExhaustionLevel,
   } from '@vtt/shared/system/dnd.js';
 
+  import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import { useProficiencyBonus } from '../../composables/useProficiencyBonus';
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import { useToolVocabulary } from '../../composables/useToolVocabulary';
@@ -579,6 +582,7 @@
     rollButtonText: string;
     initialRollMode: AttackRollMode;
     autoFail: boolean;
+    evaluateBonusRollFormulas?: RollBonusEvaluator;
   }
 
   const diceRollConfig = ref<DiceRollConfig>({
@@ -663,6 +667,10 @@
 
     openDiceRoll({
       modifier: calculateSavingThrow(ability.key),
+      evaluateBonusRollFormulas: buildRollBonusEvaluator(
+        () => props.actor,
+        `save.${ability.key}`,
+      ),
       title: `${SAVING_THROW_ROLL_LABELS.titlePrefix}${ability.label}`,
       rollLabel: `${SAVING_THROW_ROLL_LABELS.rollPrefix}${ability.label}`,
       rollButtonText: SAVING_THROW_ROLL_LABELS.button,
@@ -1312,6 +1320,7 @@
     :roll-button-text="diceRollConfig.rollButtonText"
     :initial-roll-mode="diceRollConfig.initialRollMode"
     :auto-fail="diceRollConfig.autoFail"
+    :evaluate-bonus-roll-formulas="diceRollConfig.evaluateBonusRollFormulas"
   />
 
   <!-- Модалка владения бронёй -->

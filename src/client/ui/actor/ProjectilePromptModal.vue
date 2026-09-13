@@ -1,14 +1,20 @@
 <script setup lang="ts">
   import type { Spell } from '@vtt/shared/system/dnd.js';
 
-  import { computed, ref, watch } from 'vue';
+  import { computed, onBeforeUnmount, ref, watch } from 'vue';
 
   import { useProjectileStore } from '@/stores/projectileStore';
-  import { getSpellProjectileCount } from '@vtt/shared/system/dnd.js';
+  import { useWorldStore } from '@/stores/worldStore';
+  import {
+    getSpellEffectTargetCount,
+    getSpellProjectileCount,
+  } from '@vtt/shared/system/dnd.js';
 
   import {
     ACTOR_SPELLS_TAB_LABELS,
     PROJECTILE_PROMPT_LABELS,
+    SPELL_EFFECT_TARGET_LABELS,
+    SPELL_EFFECT_TARGET_MODE,
     SPELL_LEVEL_SUFFIX,
   } from './constants';
 
@@ -23,7 +29,9 @@
     casterLevel: number;
     availableSpellLevels: number[];
     modalId: string;
-    onConfirm: (selectedLevel: number) => void;
+    targetingSessionId: number;
+    targetMode?: typeof SPELL_EFFECT_TARGET_MODE;
+    onConfirm: (selectedLevel: number) => boolean | void;
   }>();
 
   const emit = defineEmits<{
@@ -33,7 +41,60 @@
   }>();
 
   const projectileStore = useProjectileStore();
+  const worldStore = useWorldStore();
+  const initialSceneId = worldStore.currentScene?.id;
+  const targetingSessionId = props.targetingSessionId;
 
+  let confirmed = false;
+
+  const ownsTargeting = computed(
+    () =>
+      projectileStore.isActive
+      && projectileStore.sessionId === targetingSessionId,
+  );
+
+  /** Окно выбирает разные цели эффекта, а не раздаёт снаряды */
+  const isEffectTargetMode = computed(
+    () => props.targetMode === SPELL_EFFECT_TARGET_MODE,
+  );
+
+  const assignedLabel = computed(() =>
+    isEffectTargetMode.value
+      ? SPELL_EFFECT_TARGET_LABELS.assignedPrefix
+      : PROJECTILE_PROMPT_LABELS.assignedPrefix,
+  );
+
+  /** Освобождает только собственный режим: старое окно не отменяет новый каст. */
+  function releaseTargeting(): void {
+    if (!confirmed && ownsTargeting.value) {
+      projectileStore.stopTargeting();
+    }
+  }
+
+  onBeforeUnmount(releaseTargeting);
+
+  watch(
+    [() => props.open, () => worldStore.currentScene?.id, ownsTargeting],
+    () => {
+      // Подтверждённое окно закрывается само, и выбор целей переходит к
+      // следующему шагу каста. Такое закрытие — не отмена: без проверки
+      // наблюдатель принял бы его за отмену и закрыл бы окно повторно
+      if (confirmed) {
+        return;
+      }
+
+      if (
+        !props.open
+        || worldStore.currentScene?.id !== initialSceneId
+        || !ownsTargeting.value
+      ) {
+        handleCancel();
+      }
+    },
+    { immediate: true },
+  );
+
+  /** Выбирает первый доступный круг каста. */
   function resolveInitialSpellLevel(): number {
     if (props.availableSpellLevels.length > 0) {
       return props.availableSpellLevels[0];
@@ -49,21 +110,27 @@
   const selectedSpellLevel = ref(resolveInitialSpellLevel());
 
   const spellLevelItems = computed(() => {
-    return props.availableSpellLevels.map((lvl) => ({
-      label: `${lvl}${SPELL_LEVEL_SUFFIX}`,
-      value: lvl,
+    return props.availableSpellLevels.map((level) => ({
+      label: `${level}${SPELL_LEVEL_SUFFIX}`,
+      value: level,
     }));
   });
 
   const calculatedMaxProjectiles = computed(() =>
-    getSpellProjectileCount(props.spell, {
-      slotLevel: selectedSpellLevel.value,
-      casterLevel: props.casterLevel,
-    }),
+    isEffectTargetMode.value
+      ? getSpellEffectTargetCount(props.spell, selectedSpellLevel.value)
+      : getSpellProjectileCount(props.spell, {
+          slotLevel: selectedSpellLevel.value,
+          casterLevel: props.casterLevel,
+        }),
   );
 
   /** Подсказка режима распределения (свободный режим не подписывается) */
   const distributionHint = computed(() => {
+    if (isEffectTargetMode.value) {
+      return SPELL_EFFECT_TARGET_LABELS.distinct;
+    }
+
     const distribution = props.spell.projectiles?.targetDistribution;
 
     if (distribution === 'single') {
@@ -80,7 +147,7 @@
   watch(
     calculatedMaxProjectiles,
     (newMax) => {
-      if (projectileStore.isActive) {
+      if (ownsTargeting.value) {
         projectileStore.maxProjectiles = newMax;
 
         if (projectileStore.assignedProjectilesCount > newMax) {
@@ -97,23 +164,27 @@
    * выбраны, галочка неактивна — это единственный внятный сигнал игроку.
    */
   const canConfirm = computed(
-    () => projectileStore.assignedProjectilesCount > 0,
+    () => ownsTargeting.value && projectileStore.assignedProjectilesCount > 0,
   );
 
-  function handleConfirm() {
+  /** Фиксирует цели до закрытия окна; следующий шаг получает их один раз. */
+  function handleConfirm(): void {
     if (!canConfirm.value) {
       return;
     }
 
+    if (props.onConfirm(selectedSpellLevel.value) === false) {
+      return;
+    }
+
+    confirmed = true;
     emit('update:open', false);
     emit('close');
-    props.onConfirm(selectedSpellLevel.value);
   }
 
-  function handleCancel() {
-    if (projectileStore.isActive) {
-      projectileStore.stopTargeting();
-    }
+  /** Отменяет выбор без расхода ресурсов заклинателя. */
+  function handleCancel(): void {
+    releaseTargeting();
 
     emit('update:open', false);
     emit('close');
@@ -125,8 +196,8 @@
     <!-- Имитируем внешний вид и анимации из ActionPromptList -->
     <Transition name="slide-up">
       <div
-        v-if="open && projectileStore.isActive"
-        class="pointer-events-auto flex min-w-95 flex-col gap-3 rounded-xl border border-default/50 bg-default/90 px-4 py-3 text-highlighted shadow-xl ring-accented backdrop-blur-sm"
+        v-if="open && ownsTargeting"
+        class="pointer-events-auto flex w-95 max-w-full flex-col gap-3 rounded-xl border border-default/50 bg-default/90 px-4 py-3 text-highlighted shadow-xl ring-accented backdrop-blur-sm"
       >
         <div class="flex items-center gap-2 border-b border-muted/50 pb-2">
           <UIcon
@@ -134,7 +205,7 @@
             class="h-5 w-5 shrink-0 text-toned"
           />
 
-          <span class="text-sm font-medium whitespace-nowrap">
+          <span class="min-w-0 text-sm font-medium break-words">
             {{ ACTOR_SPELLS_TAB_LABELS.castConfirmPrefix }}{{ props.spell.name
             }}{{ ACTOR_SPELLS_TAB_LABELS.castConfirmSuffix }}
           </span>
@@ -166,7 +237,7 @@
             />
 
             <span class="text-sm font-bold text-toned">
-              {{ PROJECTILE_PROMPT_LABELS.assignedPrefix
+              {{ assignedLabel
               }}{{ projectileStore.assignedProjectilesCount }} /
               {{ calculatedMaxProjectiles }}
             </span>

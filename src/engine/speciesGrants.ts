@@ -317,6 +317,8 @@ export function collectSpeciesGrantedSpellSources(
         spellId: ref.spellId,
         featureName: feature.name,
         packId: ref.packId,
+        // Врождённые заклинания вида доступны без подготовки по правилу источника.
+        alwaysPrepared: ref.alwaysPrepared ?? true,
       });
     }
   };

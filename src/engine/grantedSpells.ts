@@ -4,8 +4,8 @@
  * Умения классов, видов, предысторий и черт могут содержать поле
  * `grantedSpells` — список ID заклинаний компендиума, которые персонаж
  * получает автоматически (напр. «Избранный враг» следопыта даёт
- * «Метку охотника»). Такие заклинания всегда подготовлены и не тратят
- * лимит ручного выбора заклинаний.
+ * «Метку охотника»). Источник определяет, нужна ли их подготовка;
+ * обычные заклинания книги готовятся в пределах нормы класса.
  */
 
 import type { AbilityType } from '@vtt/shared';
@@ -143,7 +143,10 @@ export interface LeveledFeatureWithGrantedSpells extends FeatureWithGrantedSpell
    * и подготовку задаёт группа выдачи — они уезжают вместе со ссылкой в блоб.
    * Отсюда они и берутся, чтобы поля записи и блоб не разошлись.
    */
-  featData?: { grantedSpells?: GrantedSpellRef[] };
+  featData?: {
+    grantedSpells?: GrantedSpellRef[];
+    grantedSpellsAlwaysPrepared?: boolean;
+  };
 }
 
 /**
@@ -202,7 +205,9 @@ export function collectGrantedSpellSourcesForClassLevel(
       sources.push({
         spellId,
         featureName: feature.name,
-        alwaysPrepared: group?.alwaysPrepared,
+        alwaysPrepared:
+          group?.alwaysPrepared
+          ?? feature.featData?.grantedSpellsAlwaysPrepared,
         castingAbility: group?.spellcastingAbility,
       });
     }
@@ -350,10 +355,9 @@ export function appendGrantedSpells(
 
     existingNames.add(normalizedName);
 
-    // Умолчание — «готовить не нужно»: так выдают заклинания вид и класс, и так лист
-    // вёл себя всегда. Черта может сказать обратное, но только явно — иначе уже
-    // собранные персонажи разом потеряли бы подготовку выданных заклинаний
-    const alwaysPrepared = granted.alwaysPrepared ?? true;
+    // API и редактор опускают выключенный флаг. Только явное исключение
+    // источника освобождает выданное заклинание от подготовки.
+    const alwaysPrepared = granted.alwaysPrepared ?? false;
 
     result.push({
       ...granted.spell,

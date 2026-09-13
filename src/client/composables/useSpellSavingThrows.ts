@@ -23,17 +23,18 @@ import {
   isNeutralRollAnswer,
 } from '@vtt/shared';
 import {
+  buildAttackFormula,
+  getNaturalD20Roll,
   isDndSceneEntity,
+  parseNaturalD20Roll,
   parseSavingThrowResult,
   resolveActorStats,
   resolveSavingThrowRollMode,
   SAVING_THROW_REQUEST_KIND,
 } from '@vtt/shared/system/dnd.js';
 
-import {
-  SAVING_THROW_ROLL_FORMULAS,
-  SAVING_THROW_ROLL_LABELS,
-} from '../ui/actor/constants';
+import { SAVING_THROW_ROLL_LABELS } from '../ui/actor/constants';
+import { buildRollBonusEvaluator } from './rollBonusEvaluator';
 import {
   determineRollMode,
   formatSavingThrowRequestTitle,
@@ -41,6 +42,7 @@ import {
   formatSavingThrowTitle,
   resolveAutoSaves,
 } from './spellResolutionShared';
+import { useWorldEntities } from './useWorldEntities';
 
 /** Префикс сообщений композабла в консоли */
 const SAVING_THROW_LOG_PREFIX = '[SavingThrow]';
@@ -103,39 +105,34 @@ export interface SavingThrowModalOptions {
  * @returns формула для роллера
  */
 function buildSavingThrowFormula(info: ActorSaveInfo): string {
-  let formula: string = SAVING_THROW_ROLL_FORMULAS.normal;
-
-  if (info.hasAdvantage && !info.hasDisadvantage) {
-    formula = SAVING_THROW_ROLL_FORMULAS.advantage;
-  } else if (info.hasDisadvantage && !info.hasAdvantage) {
-    formula = SAVING_THROW_ROLL_FORMULAS.disadvantage;
-  }
-
-  if (info.modifier !== 0) {
-    const sign = info.modifier >= 0 ? '+' : '';
-
-    formula += `${sign}${info.modifier}`;
-  }
-
-  return formula;
+  return buildAttackFormula(
+    info.modifier,
+    determineRollMode(info.hasAdvantage, info.hasDisadvantage),
+    info.evaluateBonusRollFormulas({
+      hasAdvantage: info.hasAdvantage,
+      hasDisadvantage: info.hasDisadvantage,
+    }),
+  );
 }
 
 /**
  * Собирает результат спасброска по итогу броска.
  *
- * @param total - итог броска (кость плюс модификатор)
+ * @param total - итог броска (кость, модификатор и бонусные кубики)
+ * @param natural - оставленная натуральная кость d20
  * @param info - модификатор и флаги цели (нужен автопровал)
  * @param dc - сложность
  * @returns результат спасброска
  */
 function buildSavingThrowResult(
   total: number,
+  natural: number,
   info: ActorSaveInfo,
   dc: number,
 ): SavingThrowResult {
   return {
-    roll: total - info.modifier,
-    modifier: info.modifier,
+    roll: natural,
+    modifier: total - natural,
     total,
     passed: !info.autoFail && total >= dc,
   };
@@ -161,6 +158,7 @@ function getActorSaveInfo(
   if (!isDndSceneEntity(entity)) {
     return {
       modifier: 0,
+      evaluateBonusRollFormulas: () => [],
       hasAdvantage: false,
       hasDisadvantage: false,
       autoFail: false,
@@ -186,7 +184,22 @@ function getActorSaveInfo(
 
   const autoFail = stats.activeFlags.has(`save.autoFail.${saveAbility}`);
 
-  return { modifier, hasAdvantage, hasDisadvantage, autoFail };
+  const { findCurrentWorldEntity } = useWorldEntities();
+
+  return {
+    modifier,
+    evaluateBonusRollFormulas: buildRollBonusEvaluator(() => {
+      // Окно могло остаться открытым после замены сущности новым снимком мира.
+      const currentEntity = findCurrentWorldEntity(entity.id);
+
+      return currentEntity && isDndSceneEntity(currentEntity)
+        ? currentEntity
+        : undefined;
+    }, `save.${saveAbility}`),
+    hasAdvantage,
+    hasDisadvantage,
+    autoFail,
+  };
 }
 
 /**
@@ -254,12 +267,20 @@ function readSavingThrowAnswer(
   // Нейтральное окно ядра: у адресата не сработал наш слот, и он бросил
   // нашу же `fallbackFormula` — модификатор в итоге уже сидит.
   if (isNeutralRollAnswer(answer)) {
-    const info = resolveTargetSaveInfo(target);
+    // Бросок пришёл с чужого клиента: без оставленной d20 форма ответа
+    // незнакома, и падать на ней нельзя — вызывающий честно сообщит об этом
+    const natural = parseNaturalD20Roll(answer.rollData);
 
-    return {
-      ...buildSavingThrowResult(answer.total, info, target.dc),
-      roll: answer.rollData.dice[0]?.values[0] ?? 0,
-    };
+    if (natural === undefined) {
+      return null;
+    }
+
+    return buildSavingThrowResult(
+      answer.total,
+      natural,
+      resolveTargetSaveInfo(target),
+      target.dc,
+    );
   }
 
   return null;
@@ -315,8 +336,11 @@ export function useSpellSavingThrows() {
       ),
       autoFail: info.autoFail,
       targetDc: target.dc,
-      onRoll: (total: number) => {
-        options.onResult(buildSavingThrowResult(total, info, target.dc));
+      evaluateBonusRollFormulas: info.evaluateBonusRollFormulas,
+      onCheckRoll: (result: { total: number; natural: number }) => {
+        options.onResult(
+          buildSavingThrowResult(result.total, result.natural, info, target.dc),
+        );
       },
       onCancel: options.onCancel,
     });
@@ -343,7 +367,13 @@ export function useSpellSavingThrows() {
     const formula = buildSavingThrowFormula(info);
     const rollData = diceRollerStore.parseAndRoll(formula);
     const total = rollData.total;
-    const result = buildSavingThrowResult(total, info, target.dc);
+
+    const result = buildSavingThrowResult(
+      total,
+      getNaturalD20Roll(rollData),
+      info,
+      target.dc,
+    );
 
     rollData.label = `${formatSavingThrowRollLabel(target.ability, target.entity.name)}${
       result.passed
@@ -353,8 +383,7 @@ export function useSpellSavingThrows() {
 
     chatStore.sendMessage(formula, 'roll', rollData);
 
-    // Натуральная кость — первая (или лучшая/худшая) из брошенных
-    return { ...result, roll: rollData.dice[0]?.values[0] ?? 0 };
+    return result;
   }
 
   /**

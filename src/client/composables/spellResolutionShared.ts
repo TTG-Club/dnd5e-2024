@@ -16,6 +16,8 @@ import type {
   TargetHpGate,
 } from '@vtt/shared/system/dnd.js';
 
+import type { RollBonusEvaluator } from './rollBonusEvaluator';
+
 import { useInitiativeStore } from '@/stores/initiativeStore';
 import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
 import { generateId, isCreatureEntity } from '@vtt/shared';
@@ -145,6 +147,7 @@ export interface AoeContext {
 /** Результат информации о спасброске актора */
 export interface ActorSaveInfo {
   modifier: number;
+  evaluateBonusRollFormulas: RollBonusEvaluator;
   hasAdvantage: boolean;
   hasDisadvantage: boolean;
   autoFail: boolean;
@@ -438,6 +441,26 @@ export function getTargetSpellEffects(spell: Spell): ActiveEffect[] {
   return (spell.activeEffects ?? []).filter(
     (effect) => !effect.disabled && effect.effectTarget === 'target',
   );
+}
+
+/**
+ * Собирает строку чата о наложенных эффектах заклинания. Одна форма на
+ * заклинателя, выбранную цель и несколько целей эффекта — чтобы касты из
+ * листа и с хотбара выглядели в чате одинаково.
+ *
+ * @param spellName - название заклинания
+ * @param targetNames - имена получивших эффекты
+ * @param effects - наложенные эффекты
+ * @returns готовая строка сообщения
+ */
+export function formatSpellEffectsMessage(
+  spellName: string,
+  targetNames: readonly string[],
+  effects: readonly ActiveEffect[],
+): string {
+  const effectNames = effects.map((effect) => effect.name).join(', ');
+
+  return `${spellName}\n→ ${targetNames.join(', ')}: [${effectNames}]`;
 }
 
 /**

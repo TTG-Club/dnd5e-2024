@@ -1,7 +1,7 @@
 {
   "name": "vttg-system-dnd5e-2024",
   "type": "module",
-  "version": "0.8.7",
+  "version": "0.8.8",
   "private": true,
   "description": "Игровая система D&D 5e для VTTG — собирается ВНЕ приложения (тестовый форк для отладки внешней доставки систем)",
   "scripts": {
@@ -13,6 +13,7 @@
     "install:local": "node scripts/install-local.mjs",
     "release": "node scripts/release.mjs",
     "typecheck": "vue-tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },
@@ -29,6 +30,7 @@
     "prettier-plugin-tailwindcss": "0.7.2",
     "typescript": "5.9.3",
     "vite": "7.3.1",
+    "vitest": "4.1.10",
     "vue": "3.5.29",
     "vue-tsc": "3.3.9",
     "zod": "^3.25.76"

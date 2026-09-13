@@ -1,4 +1,4 @@
-import type { AbilityType } from '@vtt/shared';
+import type { AbilityType, SceneEntity } from '@vtt/shared';
 import type {
   ActiveEffect,
   CarrierContext,
@@ -30,14 +30,14 @@ import { useTargetStore } from '@/stores/targetStore';
  * Используется тремя точками броска: вкладкой снаряжения листа персонажа,
  * хотбар-макросом `weapon-attack` и обоими путями каста заклинаний.
  */
-import { isActorEntity, isCreatureEntity } from '@vtt/shared';
 import {
+  buildCarrierContext,
   buildFormulaContext,
   calculateWeaponDamageModifier,
   collectBonusDamageFormulas,
   describeDamagePart,
-  getCarrierArmorState,
   getCreatureSpellMod,
+  getDamageBonusKey,
   getWeaponDamageParts,
   getWeaponPrimaryDamageType,
   hasBonusDamageFormulas,
@@ -48,6 +48,8 @@ import {
   resolveCreatureSpellDamageParts,
   resolveDamagePartsForCast,
   resolveEntityCreatureType,
+  resolveEntityCurrentHp,
+  resolveEntityMaxHp,
   resolveSpellDamageFormula,
   substituteFormulaVariables,
   withFlatDamageBonus,
@@ -178,16 +180,6 @@ interface SpellBonusEvaluatorOptions {
 }
 
 /**
- * Ключ бонусов урона по типу оружия.
- *
- * @param weapon - оружие
- * @returns `damage.ranged` для дальнобойного, иначе `damage.melee`
- */
-function weaponDamageKey(weapon: DnDGameItem): EffectTargetKey {
-  return weapon.rangeType === 'ranged' ? 'damage.ranged' : 'damage.melee';
-}
-
-/**
  * Есть ли у владельца кость-формулы бонус-урона для этого оружия.
  * Определяет, идёт ли бросок многочастным путём (иначе — прежний
  * одноформульный, нулевое изменение поведения).
@@ -200,7 +192,7 @@ export function hasWeaponBonusDamage(
   weapon: DnDGameItem,
   effects: readonly ActiveEffect[],
 ): boolean {
-  return hasBonusDamageFormulas(effects, weaponDamageKey(weapon));
+  return hasBonusDamageFormulas(effects, getDamageBonusKey(weapon.rangeType));
 }
 
 /**
@@ -254,13 +246,14 @@ export function useBonusDamageParts() {
   /**
    * HP текущей цели для условий `target.hp.*` (читается в момент вызова).
    *
+   * @param entity - назначенная цель; без аргумента используется выбранный токен
    * @returns текущее/максимальное HP цели или undefined (цели/HP нет)
    */
-  function buildTargetHpContext():
+  function buildTargetHpContext(
+    entity: SceneEntity | null = targetStore.getTargetActor(),
+  ):
     | { currentHp: number; maxHp: number; creatureType?: CreatureCategory }
     | undefined {
-    const entity = targetStore.getTargetActor();
-
     if (!entity) {
       return undefined;
     }
@@ -270,21 +263,9 @@ export function useBonusDamageParts() {
       return undefined;
     }
 
-    let hp: { current?: number; max?: number } | undefined;
-
-    if (isActorEntity(entity)) {
-      hp = entity.system.hitPoints;
-    } else if (isCreatureEntity(entity)) {
-      hp = entity.system.hitPoints;
-    }
-
-    if (!hp || hp.max === undefined) {
-      return undefined;
-    }
-
     return {
-      currentHp: hp.current ?? 0,
-      maxHp: hp.max,
+      currentHp: resolveEntityCurrentHp(entity),
+      maxHp: resolveEntityMaxHp(entity),
       // Тип цели — для условий `target.creatureType` и токенов `@target.type.*`:
       // читается с той же сущности, отдельного источника цели заводить незачем
       creatureType: resolveEntityCreatureType(entity),
@@ -304,26 +285,6 @@ export function useBonusDamageParts() {
     }
 
     return resolveEntityCreatureType(entity);
-  }
-
-  /**
-   * Свойства носителя эффектов для условий семейства `self.*`.
-   *
-   * Собирается целиком, а не одним типом существа: кость-формулы бонус-урона в
-   * плоские статы не попадают никогда, поэтому условие о доспехе оценивается
-   * только здесь — передай сюда меньше, и «+1к6, пока вы в доспехе» не сработал
-   * бы ни разу.
-   *
-   * @param carrier - носитель эффектов
-   * @returns свойства носителя для оценки условий
-   */
-  function buildCarrierContext(
-    carrier: DnDActor | DnDCreature,
-  ): CarrierContext {
-    return {
-      creatureType: resolveEntityCreatureType(carrier),
-      armor: getCarrierArmorState(carrier),
-    };
   }
 
   /**
@@ -397,7 +358,7 @@ export function useBonusDamageParts() {
     const { weapon, actor, effects, resolvedStats, targetIsFull, targetType } =
       options;
 
-    const damageKey = weaponDamageKey(weapon);
+    const damageKey = getDamageBonusKey(weapon.rangeType);
     const defaultType = getWeaponPrimaryDamageType(weapon);
 
     const pseudoSpell: Spell = {
@@ -558,8 +519,7 @@ export function useBonusDamageParts() {
   ): CreatureRollSetup {
     const { action, creature, effects, targetIsFull, targetType } = options;
 
-    const damageKey: EffectTargetKey =
-      action.rangeType === 'ranged' ? 'damage.ranged' : 'damage.melee';
+    const damageKey = getDamageBonusKey(action.rangeType);
 
     const baseDamageParts = action.damageParts ?? [];
 

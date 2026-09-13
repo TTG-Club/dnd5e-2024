@@ -1060,16 +1060,6 @@ export const SAVING_THROW_ROLL_LABELS = {
   cancelledSuffix: ' — действие отменено: спасбросок не брошен',
 } as const;
 
-/**
- * Формулы спасброска по режиму броска. Своя запись кости (`вл1`/`ул1`) — она
- * уходит в чат текстом и должна остаться прежней.
- */
-export const SAVING_THROW_ROLL_FORMULAS = {
-  normal: '1к20',
-  advantage: '2к20вл1',
-  disadvantage: '2к20ул1',
-} as const;
-
 /** Подписи настройки спасбросков */
 export const SAVING_THROW_SETTINGS_LABELS = {
   title: 'Настройка спасбросков',
@@ -3099,10 +3089,31 @@ export const SPELL_CHOOSE_TARGET_LABELS = {
   empty: 'Нет доступных целей на сцене.',
 } as const;
 
+/** Префикс независимого окна применения заклинания. */
+export const SPELL_CAST_MODAL_KEY_PREFIX = 'spell-cast';
+
+/** Префикс окна распределения снарядов, привязанного к сессии карты. */
+export const PROJECTILE_MODAL_KEY_PREFIX = 'projectile';
+
+/** Префикс окна выбора разных целей заклинания-эффекта. */
+export const SPELL_TARGETS_MODAL_KEY_PREFIX = 'spell-targets';
+
 /**
- * Подписи окна раздачи снарядов по целям. Вопрос применения заклинания общий с
- * вкладкой заклинаний и берётся из `ACTOR_SPELLS_TAB_LABELS`.
+ * Режим окна распределения, в котором вместо снарядов выбираются разные цели
+ * эффекта заклинания.
  */
+export const SPELL_EFFECT_TARGET_MODE = 'effects';
+
+/** Подписи выбора разных целей заклинания-эффекта. */
+export const SPELL_EFFECT_TARGET_LABELS = {
+  assignedPrefix: 'Цели: ',
+  distinct: 'Можно выбрать меньше целей. Каждое существо — один раз.',
+  unavailable:
+    'Нельзя выбрать цели: нужна доступная сцена и управление заклинателем.',
+  changed: 'Цели или доступ изменились. Выберите цели заклинания заново.',
+} as const;
+
+/** Подписи распределения снарядов. */
 export const PROJECTILE_PROMPT_LABELS = {
   /** Счётчик розданных снарядов — дальше идут число и предел */
   assignedPrefix: 'Снаряды: ',

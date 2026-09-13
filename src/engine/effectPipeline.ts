@@ -70,6 +70,8 @@ import {
   isCreatureCategory,
   isMovementType,
   isSkillType,
+  MAX_ROLL_BONUS_DICE,
+  MAX_ROLL_BONUS_DIE_SIDES,
   MOVEMENT_KEYS,
   SKILLS_LIST,
 } from './consts.js';
@@ -82,7 +84,11 @@ import {
 } from './customBonuses.js';
 import { DEFENSIBLE_DAMAGE_TYPES } from './damageConstants.js';
 import { collectStaticDamageDefenses } from './damageUtils.js';
-import { buildFormulaContext, evaluateFormula } from './formulaParser.js';
+import {
+  buildFormulaContext,
+  evaluateFormula,
+  substituteFormulaVariables,
+} from './formulaParser.js';
 import {
   DEFAULT_PROFICIENCY_BONUS,
   getProficiencyBonusBreakdown,
@@ -540,9 +546,8 @@ export function applyActiveEffects(
       continue;
     }
 
-    // Кость-формулы в damage.* — бонус-части урона, катаются отдельным броском
-    // в момент атаки (collectBonusDamageFormulas), в плоские статы не входят.
-    if (change.key.startsWith('damage.') && isDiceFormulaValue(change.value)) {
+    // Кубиковые бонусы считаются только при броске, а не при чтении листа.
+    if (isRollTimeDiceChange(change)) {
       continue;
     }
 
@@ -579,7 +584,7 @@ export function collectDerivedChanges(
         continue;
       }
 
-      if (!isDerivedTargetKey(change.key)) {
+      if (!isDerivedTargetKey(change.key) || isRollTimeDiceChange(change)) {
         continue;
       }
 
@@ -644,6 +649,18 @@ export interface CarrierContext {
   creatureType?: CreatureCategory;
   /** Надетый доспех и щит — для `self.armor === "..."` */
   armor?: CarrierArmorState;
+}
+
+/**
+ * Собирает свойства носителя для условий эффектов на листе и во время броска.
+ * @param carrier - персонаж или существо, несущее эффект
+ * @returns тип существа и состояние надетого доспеха
+ */
+export function buildCarrierContext(carrier: DnDSceneEntity): CarrierContext {
+  return {
+    creatureType: resolveEntityCreatureType(carrier),
+    armor: getCarrierArmorState(carrier),
+  };
 }
 
 // Тип `IncomingAttackContext` вынесен в нейтральный контракт
@@ -1069,7 +1086,11 @@ export function evaluateConditionalBonuses(
     }
 
     for (const change of effect.changes) {
-      if (!change.condition || change.key !== targetKey) {
+      if (
+        !change.condition
+        || change.key !== targetKey
+        || isDiceFormulaValue(change.value)
+      ) {
         continue;
       }
 
@@ -1088,17 +1109,162 @@ export function evaluateConditionalBonuses(
   return bonus;
 }
 
+/** Определяет бонусы, которые нельзя вычислять как постоянное число листа. */
+function isRollTimeDiceChange(change: EffectChange): boolean {
+  return (
+    isDiceFormulaValue(change.value)
+    && (change.key.startsWith('damage.')
+      || change.key.startsWith('attack.')
+      || change.key.startsWith('save.'))
+  );
+}
+
+/** Линейные кубиковые бонусы одинаково исполняются клиентом и сервером. */
+const ROLL_BONUS_FORMULA_REGEX =
+  /^[+-]?(?:[1-9]\d*d[1-9]\d*|\d+)(?:[+-](?:[1-9]\d*d[1-9]\d*|\d+))*$/i;
+
+/** Слагаемые уже проверенной линейной формулы: количество/грани либо целое число. */
+const ROLL_BONUS_TERM_REGEX = /[+-]?(\d+)(?:d(\d+))?/gi;
+
+/**
+ * Проверяет числовые границы формулы до передачи клиентскому или серверному роллеру.
+ * Отрицательная кость тоже расходует бюджет: знак меняет сумму, но не число бросков.
+ * @param formula - нормализованная линейная кубиковая формула
+ * @returns число костей либо undefined при выходе за безопасные ограничения
+ */
+function getBonusFormulaDiceCount(formula: string): number | undefined {
+  let diceCount = 0;
+
+  for (const term of formula.matchAll(ROLL_BONUS_TERM_REGEX)) {
+    const value = Number(term[1]);
+
+    if (!Number.isSafeInteger(value)) {
+      return undefined;
+    }
+
+    if (term[2] === undefined) {
+      continue;
+    }
+
+    const sides = Number(term[2]);
+
+    if (!Number.isSafeInteger(sides) || sides > MAX_ROLL_BONUS_DIE_SIDES) {
+      return undefined;
+    }
+
+    diceCount += value;
+
+    if (diceCount > MAX_ROLL_BONUS_DICE) {
+      return undefined;
+    }
+  }
+
+  return diceCount;
+}
+
+/**
+ * Собирает добавляемые кубиковые бонусы атаки или спасброска в момент броска.
+ * Учитывает условия и переменные носителя; плоские изменения уже входят в статы.
+ * Поддерживает суммы и разности костей и целых чисел, включая отрицательный бонус.
+ * @param effects - действующие эффекты, включая ауры
+ * @param targetKey - ключ атаки или спасброска
+ * @param rollContext - фактический режим броска, носитель и цель
+ * @param formulaContext - значения переменных носителя
+ * @returns отдельные формулы для добавления к d20
+ */
+export function collectBonusRollFormulas(
+  effects: readonly ActiveEffect[],
+  targetKey: EffectTargetKey,
+  rollContext: RollContext,
+  formulaContext?: FormulaContext,
+): string[] {
+  if (!targetKey.startsWith('attack.') && !targetKey.startsWith('save.')) {
+    return [];
+  }
+
+  const formulas: string[] = [];
+
+  let totalDiceCount = 0;
+
+  for (const effect of effects) {
+    if (effect.disabled) {
+      continue;
+    }
+
+    for (const change of effect.changes) {
+      if (
+        change.key !== targetKey
+        || change.mode !== 'add'
+        || !isDiceFormulaValue(change.value)
+        || (change.condition
+          && !evaluateCondition(change.condition, rollContext))
+      ) {
+        continue;
+      }
+
+      try {
+        const substituted = formulaContext
+          ? substituteFormulaVariables(change.value, formulaContext)
+          : change.value;
+
+        // Подстановка отрицательных @-переменных оборачивает число в скобки.
+        const formula = substituted
+          .replace(/\s+/g, '')
+          .replace(/[кд]/gi, 'd')
+          .replace(/^\(-(\d+)\)/, '-$1')
+          .replace(/(^|[+-])d/gi, '$11d')
+          .replace(/\+\(-(\d+)\)/g, '-$1')
+          .replace(/-\(-(\d+)\)/g, '+$1');
+
+        if (!ROLL_BONUS_FORMULA_REGEX.test(formula)) {
+          console.warn(
+            '[ActiveEffects] Невалидный кубиковый бонус:',
+            change.value,
+          );
+
+          continue;
+        }
+
+        const diceCount = getBonusFormulaDiceCount(formula);
+
+        if (
+          diceCount === undefined
+          || totalDiceCount + diceCount > MAX_ROLL_BONUS_DICE
+        ) {
+          console.warn(
+            '[ActiveEffects] Кубиковый бонус превышает безопасные ограничения:',
+            change.value,
+          );
+
+          continue;
+        }
+
+        totalDiceCount += diceCount;
+        formulas.push(formula);
+      } catch (error: unknown) {
+        console.warn(
+          '[ActiveEffects] Невалидный кубиковый бонус:',
+          change.value,
+          error,
+        );
+      }
+    }
+  }
+
+  return formulas;
+}
+
 // ── Бонус-части урона (кость-формулы в damage.*) ──────────────
 
 /** Регэксп кубиковой нотации в значении change (напр. "2к6", "1d4", "к8"). */
-const DICE_VALUE_REGEX = /\d*\s*[кd]\s*\d+/i;
+const DICE_VALUE_REGEX = /\d*\s*[кдd]\s*\d+/i;
 
 /**
  * Определяет, является ли значение change формулой костей (а не плоским числом).
  *
- * Такие значения в ключах `damage.*` не складываются в `damageBonuses` пайплайна,
- * а собираются в момент броска как отдельные бонус-части урона
- * (см. {@link collectBonusDamageFormulas}).
+ * Значения в `damage.*`, `attack.*` и `save.*` не входят в постоянные статы.
+ * Их собирают при броске: collectBonusDamageFormulas для урона,
+ * collectBonusRollFormulas для атаки или спасброска.
  *
  * @param value - строка значения change
  * @returns true если в значении есть кубиковая нотация
@@ -2221,10 +2387,7 @@ export function resolveActorStats(
 
   // Свойства носителя — для условий семейства `self.*`: они известны по листу,
   // и такие условия считаются здесь, а не при броске
-  const carrier: CarrierContext = {
-    creatureType: resolveEntityCreatureType(actor),
-    armor: getCarrierArmorState(actor),
-  };
+  const carrier = buildCarrierContext(actor);
 
   // Фаза 2: применение эффектов к базовым значениям
   const modifiedStats = applyActiveEffects(

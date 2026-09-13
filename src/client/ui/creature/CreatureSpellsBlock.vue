@@ -18,6 +18,7 @@
     SpellUsesRecovery,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { RollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import type {
     RolledSpellDamagePart,
     SpellDamagePartInput,
@@ -69,6 +70,7 @@
     syncCreatureSpellcastingUses,
   } from '@vtt/shared/system/dnd.js';
 
+  import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import {
     findSpellInPacks,
     loadSpellPacks,
@@ -1411,6 +1413,7 @@
     formula: string;
     rollButtonText: string;
     attackModifier?: number;
+    evaluateBonusRollFormulas?: RollBonusEvaluator;
     initialRollMode: AttackRollMode;
     incomingAttackType?: 'melee' | 'ranged' | 'spell';
     damageType?: string;
@@ -1615,6 +1618,12 @@
       formula: setup.baseParts[0]?.formula ?? '',
       rollButtonText: getCreatureSpellRollButtonText(usesAttack, isHealing),
       attackModifier: usesAttack ? numbers.attackBonus : undefined,
+      evaluateBonusRollFormulas: usesAttack
+        ? buildRollBonusEvaluator(
+            () => getCreatureEntity() ?? undefined,
+            'attack.spell',
+          )
+        : undefined,
       initialRollMode: 'normal',
       incomingAttackType: usesAttack ? attackType : undefined,
       damageType: spellPrimaryType(spell),
@@ -1887,6 +1896,7 @@
       :title="rollConfig.title"
       :roll-label="rollConfig.name"
       :attack-modifier="rollConfig.attackModifier"
+      :evaluate-bonus-roll-formulas="rollConfig.evaluateBonusRollFormulas"
       :initial-roll-mode="rollConfig.initialRollMode"
       :incoming-attack-type="rollConfig.incomingAttackType"
       :damage-type="rollConfig.damageType"

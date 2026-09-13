@@ -1564,7 +1564,7 @@ export function useClassWizard(
    * Заклинания, автоматически предоставляемые умениями на получаемом уровне:
    * `grantedSpells` умений этого уровня плюс `grantedSpellsByLevel` ранее
    * полученных умений (поуровневые списки доменов/клятв/покровителей).
-   * Не тратят лимит ручного выбора.
+   * Подготовка и её исключения определяются источником выдачи.
    */
   const grantedSpellSources = computed((): GrantedSpellSource[] => {
     const classDef = classDefinition.value;
@@ -1966,7 +1966,7 @@ export function useClassWizard(
    * Формирует объект обновлений для записи в актора
    *
    * @param resolvedGrantedSpells - granted-заклинания умений текущего уровня,
-   * сопоставленные с данными компендиума (добавляются как всегда подготовленные)
+   * сопоставленные с данными компендиума и правилами подготовки источника
    */
   function buildUpdates(resolvedGrantedSpells: ResolvedGrantedSpell[] = []): {
     systemUpdates: Partial<DnDActor['system']>;

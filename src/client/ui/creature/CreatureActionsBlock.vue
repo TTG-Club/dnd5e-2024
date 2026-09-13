@@ -10,6 +10,7 @@
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { RollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import type {
     RolledSpellDamagePart,
     SpellDamagePartInput,
@@ -31,12 +32,14 @@
     DEFAULT_REACH_FEET,
     describeDamagePart,
     getActionDescriptionMarkdown,
+    getAttackBonusKey,
     isDndCreature,
     SAVE_TYPE_LABELS,
     SPELL_DAMAGE_TEMPLATE_COLORS,
     SPELL_TEMPLATE_DEFAULT_COLOR,
   } from '@vtt/shared/system/dnd.js';
 
+  import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import { discardSpellTemplate } from '../../composables/spellResolutionShared';
   import { useBonusDamageParts } from '../../composables/useBonusDamageParts';
   import { useSpellResolution } from '../../composables/useSpellResolution';
@@ -292,6 +295,7 @@
     formula: string;
     rollButtonText: string;
     attackModifier?: number;
+    evaluateBonusRollFormulas?: RollBonusEvaluator;
     initialRollMode: AttackRollMode;
     incomingAttackType?: 'melee' | 'ranged' | 'spell';
     damageType?: string;
@@ -456,6 +460,12 @@
         ? SPELL_DAMAGE_ROLL_BUTTON
         : CREATURE_ACTION_MENU_LABELS.attack,
       attackModifier: usesSaveOrArea ? undefined : action.attackBonus,
+      evaluateBonusRollFormulas: usesSaveOrArea
+        ? undefined
+        : buildRollBonusEvaluator(
+            () => getCreatureEntity() ?? undefined,
+            getAttackBonusKey(action.rangeType),
+          ),
       initialRollMode: isDisadvantage ? 'disadvantage' : 'normal',
       incomingAttackType: action.rangeType === 'ranged' ? 'ranged' : 'melee',
       damageType: actionPrimaryType(action),
@@ -949,6 +959,7 @@
       :title="rollConfig.title"
       :roll-label="rollConfig.name"
       :attack-modifier="rollConfig.attackModifier"
+      :evaluate-bonus-roll-formulas="rollConfig.evaluateBonusRollFormulas"
       :initial-roll-mode="rollConfig.initialRollMode"
       :incoming-attack-type="rollConfig.incomingAttackType"
       :damage-type="rollConfig.damageType"

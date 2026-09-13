@@ -17,6 +17,8 @@
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { RollBonusEvaluator } from '../../composables/rollBonusEvaluator';
+
   import { useToast } from '@nuxt/ui/composables';
   import { computed, ref, toRef, watch } from 'vue';
 
@@ -65,6 +67,7 @@
     withExhaustionLevel,
   } from '@vtt/shared/system/dnd.js';
 
+  import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import { useItemTransfer } from '../../composables/useItemTransfer';
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import { useSheetMinimize } from '../../composables/useSheetMinimize';
@@ -279,6 +282,7 @@
     rollLabel: string;
     rollButtonText: string;
     initialRollMode: AttackRollMode;
+    evaluateBonusRollFormulas?: RollBonusEvaluator;
   }
 
   const diceRollConfig = ref<DiceRollConfig>({
@@ -1534,6 +1538,10 @@
 
     openDiceRoll({
       modifier: calculateSavingThrow(ability.key),
+      evaluateBonusRollFormulas: buildRollBonusEvaluator(
+        () => localCreature.value ?? undefined,
+        `save.${ability.key}`,
+      ),
       title: `${SAVING_THROW_ROLL_LABELS.titlePrefix}${ability.label}`,
       rollLabel: `${SAVING_THROW_ROLL_LABELS.rollPrefix}${ability.label}`,
       rollButtonText: SAVING_THROW_ROLL_LABELS.button,
@@ -2297,6 +2305,7 @@
     :roll-label="diceRollConfig.rollLabel"
     :roll-button-text="diceRollConfig.rollButtonText"
     :initial-roll-mode="diceRollConfig.initialRollMode"
+    :evaluate-bonus-roll-formulas="diceRollConfig.evaluateBonusRollFormulas"
   />
 
   <!-- Языки -->

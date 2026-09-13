@@ -17,9 +17,12 @@ import type {
   ResolvedActorStats,
 } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
+import type { CarrierContext } from './effectPipeline.js';
+import type { FormulaContext } from './formulaParser.js';
 
 import { generateId } from '@vtt/shared';
 
+import { resolveSavingThrowRollMode } from './attackUtils.js';
 import { ABILITY_LABELS } from './consts.js';
 import { DAMAGE_TYPE_LABELS } from './damageConstants.js';
 import { damageReachesTarget } from './damageTargetGate.js';
@@ -30,9 +33,13 @@ import {
   mergeAppliedEffects,
 } from './effectAutomation.js';
 import {
+  buildCarrierContext,
+  collectActiveEffects,
+  collectBonusRollFormulas,
   getEntityConditionImmunities,
   resolveActorStats,
 } from './effectPipeline.js';
+import { buildFormulaContext } from './formulaParser.js';
 import {
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
@@ -281,6 +288,24 @@ export interface TurnEffectsResult {
   damageOutcomes: TurnDamageOutcome[];
 }
 
+/** Эффекты и свойства носителя для бонусных кубиков серверного спасброска. */
+export interface EffectSavingThrowContext {
+  effects: readonly ActiveEffect[];
+  formulaContext: FormulaContext;
+  self: CarrierContext;
+}
+
+/** Собирает контекст один раз для серии спасбросков текущей сущности. */
+function buildEffectSavingThrowContext(
+  entity: DnDSceneEntity,
+): EffectSavingThrowContext {
+  return {
+    effects: collectActiveEffects(entity),
+    formulaContext: buildFormulaContext(entity),
+    self: buildCarrierContext(entity),
+  };
+}
+
 /** Грани кости спасброска */
 const SAVING_THROW_DIE_SIDES = 20;
 
@@ -300,12 +325,14 @@ const SAVING_THROW_DIE_SIDES = 20;
  * @param ability - характеристика спасброска
  * @param dc - сложность
  * @param stats - разрешённые статы сущности (модификаторы и флаги)
+ * @param context - актуальные эффекты и свойства носителя бонусных кубиков
  * @returns выпавшее значение кости, итог с модификатором и признак успеха
  */
 export function rollEffectSavingThrow(
   ability: AbilityType,
   dc: number,
   stats: ResolvedActorStats,
+  context: EffectSavingThrowContext,
 ): { roll: number; total: number; passed: boolean } {
   const { activeFlags } = stats;
 
@@ -315,13 +342,9 @@ export function rollEffectSavingThrow(
 
   const modifier = stats.saves[ability] ?? 0;
 
-  const hasAdvantage =
-    activeFlags.has('save.advantage')
-    || activeFlags.has(`save.advantage.${ability}`);
-
-  const hasDisadvantage =
-    activeFlags.has('save.disadvantage')
-    || activeFlags.has(`save.disadvantage.${ability}`);
+  const rollMode = resolveSavingThrowRollMode({ flags: activeFlags, ability });
+  const hasAdvantage = rollMode === 'advantage';
+  const hasDisadvantage = rollMode === 'disadvantage';
 
   const firstRoll = Math.floor(Math.random() * SAVING_THROW_DIE_SIDES) + 1;
 
@@ -336,7 +359,19 @@ export function rollEffectSavingThrow(
       : Math.min(firstRoll, secondRoll);
   }
 
-  const total = roll + modifier;
+  const bonusDiceFormulas = collectBonusRollFormulas(
+    context.effects,
+    `save.${ability}`,
+    { hasAdvantage, hasDisadvantage, self: context.self },
+    context.formulaContext,
+  );
+
+  const bonusTotal = bonusDiceFormulas.reduce(
+    (totalBonus, formula) => totalBonus + rollDamageFormula(formula).total,
+    0,
+  );
+
+  const total = roll + modifier + bonusTotal;
 
   return { roll, total, passed: total >= dc };
 }
@@ -490,7 +525,13 @@ export function resolveEntryEffect(
 
   if (effect.applySave) {
     const { ability, dc } = effect.applySave;
-    const { roll, total, passed } = rollEffectSavingThrow(ability, dc, stats);
+
+    const { roll, total, passed } = rollEffectSavingThrow(
+      ability,
+      dc,
+      stats,
+      buildEffectSavingThrowContext(entity),
+    );
 
     savePassed = passed;
 
@@ -588,8 +629,8 @@ export function resolveEntryEffect(
  * (начало/конец): сперва наносит DoT-урон (`recurringDamage`), затем катает
  * повторные спасброски (`recurringSave`) — успех снимает эффект.
  *
- * Бросает прямой спас 1к20 + модификатор спасброска цели против `dc` (без
- * преим./помехи). Мутирует `entity.activeEffects` и `entity.system.hitPoints`.
+ * Спасброски учитывают модификатор, преимущество/помеху и бонусные кубики.
+ * Мутирует `entity.activeEffects` и `entity.system.hitPoints`.
  *
  * @param entity - сущность, чей момент хода обрабатывается
  * @param timing - момент: начало или конец хода
@@ -650,6 +691,8 @@ export function processTurnEffects(
   const saveOutcomes: TurnSaveOutcome[] = [];
   const initialLength = entity.activeEffects.length;
 
+  let savingThrowContext = buildEffectSavingThrowContext(entity);
+
   const remaining = entity.activeEffects.filter((effect) => {
     const recurring = effect.recurringSave;
 
@@ -662,6 +705,7 @@ export function processTurnEffects(
       recurring.ability,
       recurring.dc,
       stats,
+      savingThrowContext,
     );
 
     saveOutcomes.push({
@@ -672,6 +716,16 @@ export function processTurnEffects(
       total,
       passed,
     });
+
+    if (passed) {
+      // Снятый этой же серией эффект больше не даёт кубик следующим спасброскам.
+      savingThrowContext = {
+        ...savingThrowContext,
+        effects: savingThrowContext.effects.filter(
+          (activeEffect) => activeEffect.id !== effect.id,
+        ),
+      };
+    }
 
     // Успех снимает эффект, провал — оставляет
     return !passed;

@@ -3,9 +3,12 @@
   import type {
     AttackRollMode,
     IncomingAttackContext,
+    RollContext,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { RollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import type {
+    ProjectileAttackContext,
     RolledSpellDamagePart,
     SpellDamagePartInput,
   } from '../../composables/useSpellResolution';
@@ -25,6 +28,7 @@
     CHOICE_DAMAGE_TYPE,
     doubleDiceInFormula,
     formatDamageDefenseSuffix,
+    getNaturalD20Roll,
     getShortDamageTypeLabel,
     isDamageType,
     performTwoStageAttack,
@@ -80,6 +84,12 @@
       hasAdvantage: boolean;
       hasDisadvantage: boolean;
     }) => { attackBonus: number; damageBonus: number };
+    /** Кубиковые бонусы к атаке или стандартному d20-спасброску на момент броска. */
+    evaluateBonusRollFormulas?: RollBonusEvaluator;
+    /** Бонусы назначенных целей снарядов, собранные до расхода одноразовых эффектов. */
+    evaluateProjectileBonusRollFormulas?: (
+      context: RollContext,
+    ) => ReadonlyMap<string, readonly string[]>;
     initialRollMode?: AttackRollMode;
     /** Тип входящей атаки для расчёта условных бонусов к AC цели (melee/ranged/spell) */
     incomingAttackType?: IncomingAttackContext['attackType'];
@@ -105,6 +115,12 @@
     ) => void;
     /** Коллбэк при любом успешном применении / броске. Передаёт итоговый урон и выбранный тип урона. */
     onRoll?: (damageTotal: number, resolvedDamageType?: string) => void;
+    /** Проверяет актуальность каста до расхода ячейки и применения эффектов. */
+    beforeRoll?: (
+      castLevel: number,
+      consumeSlot: boolean,
+      isPactSlot: boolean,
+    ) => boolean;
     /**
      * Части урона/лечения (многочастный путь). Если заданы — модалка катает
      * каждую часть, объединяет в один бросок и вызывает `onRollParts` с разбивкой
@@ -157,10 +173,9 @@
      * вызывающему — тот выполняет бросок попадания для каждого снаряда и урон
      * за попадания (useSpellResolution.resolveSpellDamage → projectileAttack).
      */
-    onProjectileAttack?: (context: {
-      attackModifier: number;
-      rollMode: AttackRollMode;
-    }) => void;
+    onProjectileAttack?: (
+      context: Omit<ProjectileAttackContext, 'attackType'>,
+    ) => void;
     /** Если true — модалка НЕ применяет урон к цели (обработка делегирована вызывающему) */
     skipDamageApplication?: boolean;
     /** Если true — модалка НЕ отправляет результат в чат (вызывающий сам формирует сообщение) */
@@ -182,6 +197,8 @@
     isHealing: false,
     attackModifier: undefined,
     initialRollMode: 'normal',
+    evaluateBonusRollFormulas: undefined,
+    evaluateProjectileBonusRollFormulas: undefined,
     incomingAttackType: undefined,
     damageType: undefined,
     spellLevel: undefined,
@@ -190,6 +207,7 @@
     pactSlotLevel: 0,
     onSpellSlotConsume: undefined,
     onRoll: undefined,
+    beforeRoll: undefined,
     damageParts: undefined,
     onRollParts: undefined,
     evaluateBonusDamageParts: undefined,
@@ -362,6 +380,15 @@
     });
   });
 
+  /** Кубиковые бонусы не входят в числовой модификатор листа. */
+  const currentBonusRollFormulas = computed(
+    () =>
+      props.evaluateBonusRollFormulas?.({
+        hasAdvantage: attackRollMode.value === 'advantage',
+        hasDisadvantage: attackRollMode.value === 'disadvantage',
+      }) ?? [],
+  );
+
   /** Итоговая формула урона с учётом усиления на высших кругах */
   const effectiveFormula = computed(() => {
     if (
@@ -415,7 +442,11 @@
 
     const mod = baseMod + currentConditionalBonuses.value.attackBonus;
 
-    return buildAttackFormula(mod, attackRollMode.value);
+    return buildAttackFormula(
+      mod,
+      attackRollMode.value,
+      currentBonusRollFormulas.value,
+    );
   });
 
   /** В окне уже бросили — закрытие после этого отменой не считается */
@@ -486,6 +517,17 @@
    * Если задан attackModifier и есть цель — выполняет двухэтапную атаку D&D 5e.
    */
   function performRoll() {
+    if (
+      props.beforeRoll
+      && !props.beforeRoll(
+        selectedSpellLevel.value,
+        consumeSpellSlot.value,
+        usePactSlot.value && consumeSpellSlot.value,
+      )
+    ) {
+      return;
+    }
+
     // Бросок пошёл — закрытие окна в `finally` отменой уже не будет
     hasRolled = true;
 
@@ -497,6 +539,18 @@
     chatStore.isGmOnlyRoll = rollType.value === 'gm';
 
     try {
+      // Фиксируем бонус до расхода одноразовых эффектов: он относится к этому броску.
+      const bonusDiceFormulas = props.skipRoll
+        ? []
+        : currentBonusRollFormulas.value;
+
+      const bonusDiceFormulasByTarget = props.onProjectileAttack
+        ? (props.evaluateProjectileBonusRollFormulas?.({
+            hasAdvantage: attackRollMode.value === 'advantage',
+            hasDisadvantage: attackRollMode.value === 'disadvantage',
+          }) ?? new Map<string, readonly string[]>())
+        : new Map<string, readonly string[]>();
+
       // --- Списание ячейки заклинания ---
       if (hasSpellCast.value && props.onSpellSlotConsume) {
         props.onSpellSlotConsume(
@@ -531,6 +585,7 @@
             + bonusValue.value
             + currentConditionalBonuses.value.attackBonus,
           rollMode: attackRollMode.value,
+          bonusDiceFormulasByTarget,
         });
 
         return;
@@ -578,8 +633,13 @@
           // Расход одноразовых эффектов ДО броска (режим уже зафиксирован):
           // снятие должно опередить эмит урона по цели, без гонки снапшотов.
           props.onAttackRolled?.();
+
           // Атака: бросок попадания → части на попадании
-          performPartsAttackRoll(attackTargetAc, effectiveParts);
+          performPartsAttackRoll(
+            attackTargetAc,
+            effectiveParts,
+            bonusDiceFormulas,
+          );
         } else {
           performPartsRoll(effectiveParts);
         }
@@ -594,10 +654,10 @@
         // Расход одноразовых эффектов ДО броска (режим уже зафиксирован):
         // снятие должно опередить эмит урона по цели, без гонки снапшотов.
         props.onAttackRolled?.();
-        damageTotal = performAttackRoll(attackTargetAc);
+        damageTotal = performAttackRoll(attackTargetAc, bonusDiceFormulas);
       } else {
         // Обычный бросок (лечение или без цели)
-        damageTotal = performSimpleRoll();
+        damageTotal = performSimpleRoll(bonusDiceFormulas);
       }
 
       if (props.onRoll) {
@@ -624,14 +684,22 @@
    * Делегирует всю логику в performTwoStageAttack из attackUtils.
    *
    * @param targetAc - класс доспеха цели
+   * @param bonusDiceFormulas - бонусы, зафиксированные до расхода эффектов
    */
-  function performAttackRoll(targetAc: number): number {
+  function performAttackRoll(
+    targetAc: number,
+    bonusDiceFormulas: readonly string[],
+  ): number {
     const attackMod =
       (props.attackModifier ?? 0)
       + bonusValue.value
       + currentConditionalBonuses.value.attackBonus;
 
-    const attackFormula = buildAttackFormula(attackMod, attackRollMode.value);
+    const attackFormula = buildAttackFormula(
+      attackMod,
+      attackRollMode.value,
+      bonusDiceFormulas,
+    );
 
     const targetName =
       targetStore.targetName ?? DICE_ROLL_LABELS.targetFallback;
@@ -715,10 +783,10 @@
   /**
    * Обычный бросок (лечение или без цели)
    */
-  function performSimpleRoll(): number {
+  function performSimpleRoll(bonusDiceFormulas: readonly string[]): number {
     let formula: string;
 
-    /** Модификатор чистой d20-проверки — идёт в разбивку `onCheckRoll` */
+    /** Постоянная часть бонуса, к которой роллер добавит бонусные кости. */
     let checkModifier = 0;
 
     if (props.formula) {
@@ -741,7 +809,11 @@
         + bonusValue.value
         + currentConditionalBonuses.value.attackBonus;
 
-      formula = buildAttackFormula(checkModifier, attackRollMode.value);
+      formula = buildAttackFormula(
+        checkModifier,
+        attackRollMode.value,
+        bonusDiceFormulas,
+      );
     }
 
     const rollData = diceRollerStore.parseAndRoll(formula);
@@ -803,14 +875,14 @@
       chatStore.sendMessage(formula, 'roll', rollData);
     }
 
-    // Чистая d20-проверка: отдаём бросок в разбивке. Натуральная кость — итог
-    // минус модификатор: при преимуществе/помехе это оставленная кость, а
-    // сравнивать формулы бросков вызывающему не нужно.
+    // Бонусные кости влияют на итог, но не изменяют натуральную оставленную d20.
     if (!props.formula && props.onCheckRoll) {
+      const natural = getNaturalD20Roll(rollData);
+
       props.onCheckRoll({
         total: rollData.total,
-        natural: rollData.total - checkModifier,
-        modifier: checkModifier,
+        natural,
+        modifier: rollData.total - natural,
       });
     }
 
@@ -912,17 +984,23 @@
    *
    * @param targetAc - класс доспеха цели
    * @param parts - части урона/лечения (включая бонус-части эффектов)
+   * @param bonusDiceFormulas - бонусы попадания, не влияющие на урон
    */
   function performPartsAttackRoll(
     targetAc: number,
     parts: SpellDamagePartInput[],
+    bonusDiceFormulas: readonly string[],
   ): void {
     const attackMod =
       (props.attackModifier ?? 0)
       + bonusValue.value
       + currentConditionalBonuses.value.attackBonus;
 
-    const attackFormula = buildAttackFormula(attackMod, attackRollMode.value);
+    const attackFormula = buildAttackFormula(
+      attackMod,
+      attackRollMode.value,
+      bonusDiceFormulas,
+    );
 
     const targetName =
       targetStore.targetName ?? DICE_ROLL_LABELS.targetFallback;
