@@ -14,6 +14,8 @@ const engine = await loadEngineBundle(
       export * from './src/engine/grantedSpells.ts';
       export { collectFeatGrantedSpellSources } from './src/engine/featGrants.ts';
       export { collectSpeciesGrantedSpellSources } from './src/engine/speciesGrants.ts';
+      export { scopeClassOptionFeatData } from './src/engine/classFeatureOptions.ts';
+      export { CANTRIP_SPELL_LEVEL } from './src/engine/spellTypes.ts';
       export * from './src/engine/preparedSpells.ts';
     `,
 );
@@ -93,6 +95,93 @@ it('wizard level 1 receives six unprepared spells and three usable cantrips', ()
       'spells',
     ),
     4,
+  );
+});
+
+/** «Чудотворец» жреца: дополнительный заговор сверх колонки «Заговоры». */
+function thaumaturgeFeatData(alwaysPrepared) {
+  return {
+    type: 'feat',
+    choices: [
+      {
+        key: 'thaumaturge-cantrip',
+        type: 'cantrip',
+        count: 1,
+        spellFilter: { level: 0, classKeys: ['cleric'] },
+        ...(alwaysPrepared ? { alwaysPrepared: true } : {}),
+      },
+    ],
+  };
+}
+
+it('a spell choice marked always prepared grants its picks without preparation', () => {
+  const sources = engine.collectFeatGrantedSpellSources({
+    name: 'Чудотворец',
+    featData: thaumaturgeFeatData(true),
+    choices: { 'thaumaturge-cantrip': ['guidance'] },
+  });
+
+  assert.deepEqual(
+    sources.map((source) => source.alwaysPrepared),
+    [true],
+  );
+
+  const spellbook = engine.appendGrantedSpells(
+    [],
+    resolveSources(sources, [createSpell('guidance', 0)]),
+  );
+
+  assert.deepEqual(
+    spellbook.map((spell) => [spell.prepared, spell.alwaysPrepared]),
+    [[true, true]],
+  );
+});
+
+it('an unmarked spell choice keeps falling back to the record exception', () => {
+  const plain = engine.collectFeatGrantedSpellSources({
+    name: 'Чудотворец',
+    featData: thaumaturgeFeatData(false),
+    choices: { 'thaumaturge-cantrip': ['guidance'] },
+  });
+
+  assert.deepEqual(
+    plain.map((source) => source.alwaysPrepared),
+    [undefined],
+  );
+
+  const inherited = engine.collectFeatGrantedSpellSources({
+    name: 'Чудотворец',
+    featData: {
+      ...thaumaturgeFeatData(false),
+      grantedSpellsAlwaysPrepared: true,
+    },
+    choices: { 'thaumaturge-cantrip': ['guidance'] },
+  });
+
+  assert.deepEqual(
+    inherited.map((source) => source.alwaysPrepared),
+    [true],
+  );
+});
+
+it('class option scoping keeps the always prepared mark of a spell choice', () => {
+  const scoped = engine.scopeClassOptionFeatData(
+    thaumaturgeFeatData(true),
+    'option:divine-order:thaumaturge:',
+    'Чудотворец',
+  );
+
+  assert.equal(scoped.choices[0].alwaysPrepared, true);
+
+  const sources = engine.collectFeatGrantedSpellSources({
+    name: 'Чудотворец',
+    featData: scoped,
+    choices: { [scoped.choices[0].key]: ['guidance'] },
+  });
+
+  assert.deepEqual(
+    sources.map((source) => source.alwaysPrepared),
+    [true],
   );
 });
 
@@ -304,7 +393,7 @@ const preparationHarnessBundle = await build({
       export function createTabHarness(context) {
         const { props, computed, engine, resolveClassDefinition, emit,
           triggerSaveIfNotEdit, useToast, ACTOR_SPELLS_TAB_LABELS } = context;
-        const { getClassPreparedValue, getPreparedLimitBreakdown } = engine;
+        const { CANTRIP_SPELL_LEVEL, getClassPreparedValue, getPreparedLimitBreakdown } = engine;
         ${[
           'classDefinitionOf',
           'preparedSpellsLimit',
@@ -492,6 +581,83 @@ it('preparation counters react to a changed actor limit without making cantrips 
   assert.equal(fixture.notifications.length, 0);
 });
 
+/** Вкладка жреца 1 уровня: три заговора класса и заговор «Чудотворца». */
+function createClericCantripsTab(thaumaturgeAlwaysPrepared) {
+  const classCantrips = ['light', 'sacred-flame', 'spare-the-dying'].map(
+    (name) => createSpell(name, 0),
+  );
+
+  const thaumaturgeCantrip = createSpell('guidance', 0);
+
+  const classSources = engine.collectFeatGrantedSpellSources({
+    name: 'Использование заклинаний',
+    featData: {
+      type: 'feat',
+      choices: [{ key: 'cantrip', type: 'cantrip', count: 3 }],
+    },
+    choices: { cantrip: classCantrips.map((spell) => spell.id) },
+  });
+
+  const thaumaturgeSources = engine.collectFeatGrantedSpellSources({
+    name: 'Чудотворец',
+    featData: thaumaturgeFeatData(thaumaturgeAlwaysPrepared),
+    choices: { 'thaumaturge-cantrip': [thaumaturgeCantrip.id] },
+  });
+
+  const spells = engine.appendGrantedSpells(
+    [],
+    resolveSources(
+      [...classSources, ...thaumaturgeSources],
+      [...classCantrips, thaumaturgeCantrip],
+    ),
+  );
+
+  const props = reactive({
+    actor: {
+      spells,
+      system: {
+        classes: [
+          {
+            classKey: 'cleric',
+            level: 1,
+            casterType: 'full',
+            spellcastingAbility: 'wisdom',
+          },
+        ],
+      },
+    },
+  });
+
+  return preparationHandlers.createTabHarness({
+    props,
+    computed,
+    engine,
+    resolveClassDefinition: () => ({}),
+    emit: () => {},
+    triggerSaveIfNotEdit: () => {},
+    useToast: () => ({ add: () => {} }),
+    ACTOR_SPELLS_TAB_LABELS: {},
+  });
+}
+
+it('the cantrips tile does not count a thaumaturge cantrip marked always prepared', () => {
+  // Колонка «Заговоры» таблицы жреца на 1 уровне — три
+  assert.equal(
+    engine.getClassPreparedValue(
+      [{ level: 1, casterType: 'full', spellcastingAbility: 'wisdom' }],
+      () => ({
+        tableColumns: [{ key: 'cantripsKnown', label: 'Заговоры' }],
+        levelTable: [{ level: 1, cantripsKnown: '3' }],
+      }),
+      'cantrips',
+    ),
+    3,
+  );
+
+  assert.equal(createClericCantripsTab(true).currentCantripsCount.value, 3);
+  assert.equal(createClericCantripsTab(false).currentCantripsCount.value, 4);
+});
+
 it('the spell filter and row use the shared readiness rule and the template keeps the preparation event chain', () => {
   assert.equal(importsSpellReady(spellsTab), true);
   assert.equal(importsSpellReady(spellRow), true);
@@ -519,4 +685,45 @@ it('the spell filter and row use the shared readiness rule and the template keep
       '@click.left.exact.prevent.stop="handlePreparedToggle"',
     ),
   );
+});
+
+// Сборщик формы — настоящий модуль редактора: галочка должна пережить и чтение
+// записи в строки, и обратную сборку `featData`
+const featEditor = await loadEngineBundle(
+  `
+      export { buildFeatData, featDataToGrants } from './src/client/ui/actor/feat/featEditorTypes.ts';
+    `,
+);
+
+it('the spell choice editor round-trips the always prepared mark and omits it when cleared', () => {
+  const grants = featEditor.featDataToGrants(thaumaturgeFeatData(true));
+
+  assert.equal(grants.spellChoice.picks[0].alwaysPrepared, true);
+
+  const saved = featEditor.buildFeatData(grants);
+
+  assert.equal(saved.choices[0].alwaysPrepared, true);
+
+  assert.equal(
+    featEditor.featDataToGrants(saved).spellChoice.picks[0].alwaysPrepared,
+    true,
+  );
+
+  grants.spellChoice.picks[0].alwaysPrepared = false;
+
+  const cleared = featEditor.buildFeatData(grants);
+
+  assert.equal('alwaysPrepared' in cleared.choices[0], false);
+
+  const untouched = featEditor.buildFeatData(
+    featEditor.featDataToGrants(thaumaturgeFeatData(false)),
+  );
+
+  assert.equal('alwaysPrepared' in untouched.choices[0], false);
+
+  const rowsEditor = readActorComponent(
+    'src/client/ui/actor/feat/SpellChoiceRowsEditor.vue',
+  );
+
+  assert.ok(rowsEditor.template.includes('v-model="row.alwaysPrepared"'));
 });

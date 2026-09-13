@@ -17,7 +17,19 @@ export const hostSharedEntry = join(
 );
 
 /**
+ * Путь, под которым движок импортирует клиент. В обеих сборках он ведёт в
+ * `src/engine/index.ts`, а не в ядро: без этого модуль клиента, собранный для
+ * теста, искал бы движок внутри `@vtt/shared` хоста.
+ */
+const ENGINE_SPECIFIER = '@vtt/shared/system/dnd.js';
+
+/** Входной файл движка — цель {@link ENGINE_SPECIFIER}. */
+const engineEntry = join(systemRoot, 'src/engine/index.ts');
+
+/**
  * Загружает настоящий движок с нейтральным ядром хоста для тестов правил.
+ * Модули клиента без Vue (сборщики форм) грузятся так же: движок они берут по
+ * {@link ENGINE_SPECIFIER}.
  * @param {string} contents - Экспорты проверяемых модулей движка.
  * @returns {Promise<Record<string, unknown>>} Экспорты собранного модуля.
  */
@@ -29,6 +41,18 @@ export async function loadEngineBundle(contents) {
       sourcefile: 'engine-test-entry.ts',
       loader: 'ts',
     },
+    plugins: [
+      {
+        name: 'engine-specifier',
+        setup(pluginBuild) {
+          pluginBuild.onResolve({ filter: /^@vtt\/shared\// }, (resolution) =>
+            resolution.path === ENGINE_SPECIFIER
+              ? { path: engineEntry }
+              : undefined,
+          );
+        },
+      },
+    ],
     alias: { '@vtt/shared': hostSharedEntry },
     bundle: true,
     write: false,

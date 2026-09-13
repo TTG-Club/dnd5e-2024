@@ -398,7 +398,9 @@ export function collectFeatGrantedSpellSources(
 
   // Выбранное заклинание — такое же выданное: значение варианта и есть id записи
   // компендиума, по нему заклинание и кладётся в книгу. Выбор с уровнем открытия
-  // выдаёт своё не раньше срока: ответ на него мог сохраниться заранее
+  // выдаёт своё не раньше срока: ответ на него мог сохраниться заранее.
+  // Отметка «готовить не нужно» у выбора старше отметки записи, как у группы
+  // выдачи; снятая — не запрет, и тогда решает запись
   for (const choice of feat.featData?.choices ?? []) {
     if (choice.type !== 'spell' && choice.type !== 'cantrip') {
       continue;
@@ -409,7 +411,11 @@ export function collectFeatGrantedSpellSources(
     }
 
     for (const spellId of feat.choices?.[choice.key] ?? []) {
-      push(spellId);
+      push(
+        spellId,
+        undefined,
+        choice.alwaysPrepared ? { alwaysPrepared: true } : undefined,
+      );
     }
   }
 
