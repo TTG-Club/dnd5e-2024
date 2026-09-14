@@ -84,6 +84,26 @@ export function mergeAppliedEffects(
 }
 
 /**
+ * Остаётся ли эффект висеть на цели после наложения.
+ *
+ * Эффект только с уроном срабатывания лишь бьёт и не оставляет следа. Состояние,
+ * модификаторы, флаги и периодика (урон каждый ход, повторный спасбросок) — это
+ * длящаяся нагрузка: ради неё эффект и кладётся в `activeEffects` цели.
+ *
+ * @param effect - накладываемый эффект
+ * @returns `true`, если у эффекта есть длящаяся нагрузка
+ */
+export function hasLastingEffectPayload(effect: ActiveEffect): boolean {
+  return (
+    effect.conditionKey !== undefined
+    || effect.changes.length > 0
+    || effect.flags.length > 0
+    || effect.recurringDamage !== undefined
+    || effect.recurringSave !== undefined
+  );
+}
+
+/**
  * Сложность спасброска эффекта с учётом источника.
  *
  * Соглашение редактора: Сл 0 значит «Сл того, кто наложил» — заклинателя или

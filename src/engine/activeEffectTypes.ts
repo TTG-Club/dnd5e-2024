@@ -1360,30 +1360,43 @@ export const MAX_CHANGES_PER_EFFECT = 40;
 // ── Zod-схемы для валидации ───────────────────────────────────
 
 /**
- * Приводит числовое поле формы к числу до проверки схемой.
+ * Читает число из поля формы: число как есть, строку с числом — числом.
  *
  * Поле ввода числа отдаёт пустую строку, когда его очистили, а без
- * модификатора `.number` — строку с числом. Строгая схема на такой записи
- * падала, и разбор отбрасывал куда больше, чем одно поле: все модификаторы
- * эффекта или его длительность целиком.
+ * модификатора `.number` — строку с числом.
  *
- * @param value - значение поля как пришло
- * @returns число, `undefined` для пустого или нечислового ввода, либо исходное
- *   значение, если это не строка и не `NaN`
+ * @param value - значение поля ввода
+ * @returns число либо `undefined` для пустого, нечислового ввода и `NaN`
  */
-function coerceOptionalNumber(value: unknown): unknown {
+export function parseFormNumber(value: unknown): number | undefined {
   if (typeof value === 'number') {
-    return Number.isNaN(value) ? undefined : value;
+    return Number.isFinite(value) ? value : undefined;
   }
 
   if (typeof value !== 'string') {
-    return value;
+    return undefined;
   }
 
   const trimmed = value.trim();
   const parsed = Number(trimmed);
 
   return trimmed === '' || !Number.isFinite(parsed) ? undefined : parsed;
+}
+
+/**
+ * Приводит числовое поле формы к числу до проверки схемой.
+ *
+ * Строгая схема на строке из поля ввода падала, и разбор отбрасывал куда
+ * больше, чем одно поле: все модификаторы эффекта или его длительность целиком.
+ *
+ * @param value - значение поля как пришло
+ * @returns число, `undefined` для пустого или нечислового ввода, либо исходное
+ *   значение, если это не строка и не число
+ */
+function coerceOptionalNumber(value: unknown): unknown {
+  return typeof value === 'number' || typeof value === 'string'
+    ? parseFormNumber(value)
+    : value;
 }
 
 /**

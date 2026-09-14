@@ -12,6 +12,7 @@ import {
   damageReachesTarget,
   expandDamageParts,
   getEntityConditionImmunities,
+  hasLastingEffectPayload,
   isDndSceneEntity,
   isImmuneToCondition,
   resolveActorStats,
@@ -356,14 +357,7 @@ export function useTargetEffectResolution() {
       // Чисто-урон эффекты (без состояния и без модификаторов) не «висят» на
       // цели — они только наносят урон (напр. яд за спасбросок). Но эффект с
       // периодикой (DoT/повторный спас) обязан остаться на цели, чтобы тикать.
-      const isPersistent =
-        effect.conditionKey !== undefined
-        || effect.changes.length > 0
-        || effect.flags.length > 0
-        || effect.recurringDamage !== undefined
-        || effect.recurringSave !== undefined;
-
-      if (!isPersistent) {
+      if (!hasLastingEffectPayload(effect)) {
         continue;
       }
 

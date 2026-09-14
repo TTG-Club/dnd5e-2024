@@ -30,6 +30,7 @@ import { damageReachesTarget } from './damageTargetGate.js';
 import { applyHpChange, applyMultiTypeDamageDefenses } from './damageUtils.js';
 import { rollDamageFormula } from './diceFormula.js';
 import {
+  hasLastingEffectPayload,
   isImmuneToCondition,
   mergeAppliedEffects,
   resolveEffectApplication,
@@ -703,12 +704,7 @@ export function applyEntryEffect(
 
   // Длящаяся нагрузка (статус): вешаем самостоятельной копией, живущей по своей
   // длительности (не привязана к области, так как триггер разовый)
-  const hasStatusPayload =
-    effect.flags.length > 0
-    || effect.changes.length > 0
-    || Boolean(effect.conditionKey)
-    || Boolean(effect.recurringDamage)
-    || Boolean(effect.recurringSave);
+  const hasStatusPayload = hasLastingEffectPayload(effect);
 
   // Иммунитет к состоянию проверяется здесь так же, как при попадании атакой:
   // область — такой же путь наложения, и обходить статблок он не должен
