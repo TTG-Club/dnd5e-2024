@@ -45,7 +45,8 @@ export const EFFECT_FORM_CONTEXTS = [
 /**
  * Место, откуда открыто окно эффекта:
  * - `ownEffects` — «Свои эффекты» персонажа или существа;
- * - `feature` — черта, предыстория, класс, вид (эффект копируется на персонажа);
+ * - `feature` — черта, предыстория, класс, вид (эффект копируется на персонажа,
+ *   аура умения — «Аура защиты» паладина — излучается уже с него);
  * - `item` — снаряжение и инструменты (действует, пока надето);
  * - `weapon` — оружие: на владельце или на цели при попадании;
  * - `spell` — заклинание: на цели или на заклинателе;
@@ -149,7 +150,7 @@ const KNOWN_EFFECT_FORM_CONTEXTS: ReadonlySet<unknown> = new Set(
 const CONTEXT_DELIVERIES: Record<EffectFormContext, readonly EffectDelivery[]> =
   {
     ownEffects: ['carrier', 'aura'],
-    feature: ['carrier'],
+    feature: ['carrier', 'aura'],
     item: ['carrier', 'aura'],
     weapon: ['carrier', 'target', 'aura'],
     spell: ['target', 'carrier', 'aura'],

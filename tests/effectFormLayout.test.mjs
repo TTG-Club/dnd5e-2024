@@ -156,10 +156,10 @@ describe('раскладка окна эффекта', () => {
     assert.equal(layout.showConsumeOn, true);
   });
 
-  it('черта персонажа — пассив: только то, что меняет', () => {
+  it('черта персонажа на носителе — пассив: только то, что меняет', () => {
     const layout = layoutOf('feature');
 
-    assert.deepEqual(layout.deliveryOptions, ['carrier']);
+    assert.deepEqual(layout.deliveryOptions, ['carrier', 'aura']);
     assert.equal(layout.showTrigger, false);
     assert.equal(layout.showSave, false);
     assert.equal(layout.saveUnavailableReason, null);
@@ -167,6 +167,27 @@ describe('раскладка окна эффекта', () => {
     assert.equal(layout.showDuration, false);
     assert.equal(layout.showRecurringSave, false);
     assert.equal(layout.showConditionImmunities, true);
+  });
+
+  it('аура умения («Аура защиты»): «пока внутри» без сроков, вход — со спасброском', () => {
+    const stay = layoutOf('feature', { aura: ALLIES_AURA });
+
+    assert.equal(stay.delivery, 'aura');
+    assert.equal(stay.showAuraSettings, true);
+    assert.equal(stay.showSave, false);
+    assert.equal(stay.saveUnavailableReason, 'stayTrigger');
+    assert.equal(stay.showDuration, false);
+    assert.equal(stay.showRecurringSave, false);
+
+    const enter = layoutOf('feature', {
+      aura: ALLIES_AURA,
+      areaTrigger: 'enter',
+    });
+
+    assert.equal(enter.showSave, true);
+    assert.equal(enter.showTriggerDamage, true);
+    assert.equal(enter.showDuration, true);
+    assert.equal(enter.minSaveDc, 1);
   });
 
   it('оружие на владельце подсказывает, где спасбросок', () => {
@@ -407,11 +428,12 @@ describe('неработающие поля', () => {
     const layout = engine.resolveEffectFormLayout('feature', effect);
     const inert = engine.listInertEffectFields(effect, layout);
 
-    assert.deepEqual(inert, ['aura', 'applySave', 'recurringSave', 'duration']);
+    // Аура умения работает: персонаж излучает её сам
+    assert.deepEqual(inert, ['applySave', 'recurringSave', 'duration']);
 
     const cleared = engine.clearInertEffectFields(effect, inert, 'feature');
 
-    assert.equal(cleared.aura, undefined);
+    assert.deepEqual(cleared.aura, ALLIES_AURA);
     assert.equal(cleared.applySave, undefined);
     assert.equal(cleared.recurringSave, undefined);
     assert.deepEqual(cleared.duration, { type: 'permanent' });
@@ -496,8 +518,9 @@ describe('неработающие поля', () => {
 });
 
 describe('шаги окна', () => {
-  it('пассив черты и состояние — только «что меняет»', () => {
+  it('черта — выбор «на персонаже / аурой» и «что меняет», состояние — только «что меняет»', () => {
     assert.deepEqual(engine.listEffectFormSteps(layoutOf('feature')), [
+      'trigger',
       'modifiers',
     ]);
 
