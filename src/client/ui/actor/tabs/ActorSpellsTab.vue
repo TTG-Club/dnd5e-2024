@@ -14,7 +14,10 @@
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
-  import type { SpellEffectTargets } from '../../../composables/spellEffectTargeting';
+  import type {
+    SpellEffectTargets,
+    SpellTargetEffectsSource,
+  } from '../../../composables/spellEffectTargeting';
   import type {
     ProjectileAttackContext,
     RolledSpellDamagePart,
@@ -93,6 +96,7 @@
     getCasterSpellEffects,
     getTargetSpellEffects,
     instantiateSpellEffects,
+    targetEffectsNeedResolution,
   } from '../../../composables/spellResolutionShared';
   import {
     useBonusDamageParts,
@@ -226,6 +230,20 @@
 
   /** Resolved stats для отображения Spell Save DC и бонуса атаки */
   const resolvedStats = computed(() => resolveActorStats(props.actor));
+
+  /**
+   * Кто накладывает эффекты заклинания на цель: Сл 0 эффекта и его спасбросок
+   * считаются от заклинателя.
+   *
+   * @param spell - заклинание
+   * @returns заклинатель и Сл спасброска заклинания
+   */
+  function spellTargetEffectsSource(spell: Spell): SpellTargetEffectsSource {
+    return {
+      casterId: props.actor.id,
+      spellSaveDC: resolveSpellSaveDC(props.actor, spell, resolvedStats.value),
+    };
+  }
 
   /** Базовая характеристика заклинаний актора (с учетом классов) */
   const baseSpellcastingAbility = computed(() => {
@@ -1533,10 +1551,17 @@
     // резолва заклинаний без урона, чья задача — повесить эффект на цель.
     const hasSpellTargetEffects = getTargetSpellEffects(spell).length > 0;
 
+    // Атака с уроном, чьим эффектам на цель нужен разбор (свой спасбросок, урон
+    // эффекта), тоже идёт многочастным путём: урон заклинания и эффекты ложатся
+    // ОДНОЙ записью. По попаданию (onHit) разбор ждал бы окна спасброска эффекта,
+    // а урон модалки успевал бы записаться раньше и затирался бы
     const useMultiPart =
       !hasProjectiles
       && (hasBonusDamage
         || spellDamageParts.length > 1
+        || (spellDamageParts.length > 0
+          && getSpellAttackType(spell) !== undefined
+          && targetEffectsNeedResolution(spell))
         || spellDamageParts.some(
           (part) =>
             (part.target ?? 'selected') !== 'selected'
@@ -1690,7 +1715,11 @@
         && spell.saveType === 'none'
         && !getSpellAttackType(spell)
       ) {
-        applySpellTargetEffects(spell, effectTargets);
+        applySpellTargetEffects(
+          spell,
+          spellTargetEffectsSource(spell),
+          effectTargets,
+        );
       }
 
       // Удаляем визуальный шаблон с карты (всегда, вне зависимости от результата)
@@ -1843,7 +1872,12 @@
         // эффекты применяем сразу при касте — на себя и/или на выбранную цель.
         window.removeEventListener('beforeunload', handleUnload);
         applyCasterSpellEffects(spell);
-        applySpellTargetEffects(spell, effectTargets);
+
+        applySpellTargetEffects(
+          spell,
+          spellTargetEffectsSource(spell),
+          effectTargets,
+        );
       }
 
       return;
@@ -1906,7 +1940,8 @@
       // сами в resolveSpellDamageWithParts, поэтому onHit для них не нужен.
       'onHit':
         incomingAttackType && hasSpellTargetEffects && !useMultiPart
-          ? () => applySpellTargetEffects(spell)
+          ? () =>
+              applySpellTargetEffects(spell, spellTargetEffectsSource(spell))
           : undefined,
 
       // Многочастный путь (если активен) — модалка катает части и зовёт onRollParts

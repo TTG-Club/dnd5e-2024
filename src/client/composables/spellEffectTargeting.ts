@@ -26,8 +26,10 @@ import {
   formatSpellEffectsMessage,
   getTargetSpellEffects,
   stampEffectTurnDuration,
+  targetEffectsNeedResolution,
 } from './spellResolutionShared';
 import { isSpellTargetBlockedByRange } from './useSceneRangeCheck';
+import { useSpellDamageWithParts } from './useSpellDamageWithParts';
 import { useWorldEntities } from './useWorldEntities';
 
 /**
@@ -68,7 +70,23 @@ export interface SpellEffectTargets {
     consumeSlot?: boolean,
     isPactSlot?: boolean,
   ) => boolean;
+  /** Накладывает эффекты выбранным целям напрямую */
   apply: () => void;
+  /**
+   * Забирает выбранные цели для разбора оркестратором: проверяет выбор и
+   * помечает каст применённым.
+   *
+   * @returns сущности целей либо `null`, если выбор уже не действует
+   */
+  claimEntities: () => DnDSceneEntity[] | null;
+}
+
+/** Кто накладывает эффекты на цель — для спасбросков и Сл 0 эффектов */
+export interface SpellTargetEffectsSource {
+  /** Идентификатор заклинателя */
+  casterId: string;
+  /** Сл спасброска заклинателя — ею заменяется Сл 0 эффекта */
+  spellSaveDC: number;
 }
 
 /**
@@ -305,28 +323,39 @@ export function requestSpellEffectTargets(
       return valid;
     }
 
-    /** Накладывает эффект каждой выбранной сущности боевым каналом ядра. */
-    function apply(): void {
-      const socket = chatStore.getSocket();
-
-      if (!socket || !validate()) {
-        return;
+    /**
+     * Забирает выбранные цели: выбор ещё действует — каст помечается
+     * применённым, и повторно те же цели не отдаются.
+     *
+     * @returns сущности целей либо `null`
+     */
+    function claimEntities(): DnDSceneEntity[] | null {
+      if (!chatStore.getSocket() || !validate()) {
+        return null;
       }
 
       applied = true;
 
+      return chosenTargets
+        .map((chosen) =>
+          chosen.entityId ? findEntity(chosen.entityId) : undefined,
+        )
+        .filter((entity): entity is DnDSceneEntity => entity !== undefined);
+    }
+
+    /** Накладывает эффект каждой выбранной сущности боевым каналом ядра. */
+    function apply(): void {
+      const socket = chatStore.getSocket();
+      const entities = claimEntities();
+
+      if (!socket || !entities) {
+        return;
+      }
+
       const effects = getTargetSpellEffects(spell);
       const names: string[] = [];
 
-      for (const chosen of chosenTargets) {
-        const entity = chosen.entityId
-          ? findEntity(chosen.entityId)
-          : undefined;
-
-        if (!entity) {
-          continue;
-        }
-
+      for (const entity of entities) {
         const targetEffects = effects.map((effect) =>
           stampEffectTurnDuration(effect, entity.id, casterId),
         );
@@ -352,7 +381,7 @@ export function requestSpellEffectTargets(
     }
 
     projectileStore.stopTargeting();
-    onConfirm(slotLevel, { validate, apply });
+    onConfirm(slotLevel, { validate, apply, claimEntities });
 
     return true;
   }
@@ -369,18 +398,74 @@ export function requestSpellEffectTargets(
 }
 
 /**
+ * Разбирает эффекты на цель тем же оркестратором, что и уронные заклинания:
+ * свой спасбросок эффекта (окном или запросом владельцу), урон эффекта, Сл 0
+ * повторного спасброска. Частей урона нет — оркестратор разбирает только
+ * эффекты.
+ *
+ * @param spell - заклинание
+ * @param source - заклинатель и его Сл спасброска
+ * @param effectTargets - цели, зафиксированные при выборе; без них — выбранная цель
+ */
+function resolveSpellTargetEffects(
+  spell: Spell,
+  source: SpellTargetEffectsSource,
+  effectTargets?: SpellEffectTargets,
+): void {
+  const targetEntities = effectTargets
+    ? effectTargets.claimEntities()
+    : undefined;
+
+  const socket = useChatStore().getSocket();
+
+  if (targetEntities === null || !socket) {
+    return;
+  }
+
+  const { resolveSpellDamageWithParts } = useSpellDamageWithParts();
+
+  void resolveSpellDamageWithParts(
+    {
+      spell,
+      damageTotal: 0,
+      spellSaveDC: source.spellSaveDC,
+      actors: useWorldEntities().getCurrentWorldEntities(),
+      socket,
+      casterId: source.casterId,
+    },
+    [],
+    {
+      scene: useWorldStore().currentScene,
+      cachedTemplate: null,
+      targetEntities,
+    },
+  );
+}
+
+/**
  * Накладывает эффекты заклинания, предназначенные цели. Цели, выбранные для
  * этого каста, получают их сами; без них эффекты ложатся на выбранную цель
  * через общий `targetStore.applyEffectsToTarget`. Для безуронных заклинаний
  * строка в чате — единственный отклик, поэтому она пишется всегда.
  *
+ * Эффекты со своим спасброском, уроном или Сл 0 повторного спасброска напрямую
+ * не накладываются — их разбирает оркестратор (`resolveSpellTargetEffects`).
+ *
  * @param spell - заклинание
+ * @param source - заклинатель и его Сл спасброска
  * @param effectTargets - цели, зафиксированные при выборе; без них — выбранная цель
  */
 export function applySpellTargetEffects(
   spell: Spell,
+  source: SpellTargetEffectsSource,
   effectTargets?: SpellEffectTargets,
 ): void {
+  if (targetEffectsNeedResolution(spell)) {
+    resolveSpellTargetEffects(spell, source, effectTargets);
+
+    return;
+  }
+
   if (effectTargets) {
     effectTargets.apply();
 

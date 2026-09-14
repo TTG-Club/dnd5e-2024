@@ -242,6 +242,8 @@ export function useSpellDamageWithParts() {
    * @param options - сцена и кэш шаблона AoE
    * @param options.scene - текущая сцена
    * @param options.cachedTemplate - кэшированный шаблон AoE (если заклинание с областью)
+   * @param options.targetEntities - цели, выбранные для этого каста заранее
+   *   (выбор целей заклинания-эффекта); важнее шаблона и текущей цели
    */
   async function resolveSpellDamageWithParts(
     context: SpellResolutionContext,
@@ -249,6 +251,7 @@ export function useSpellDamageWithParts() {
     options: {
       scene: Scene | null;
       cachedTemplate?: import('@vtt/shared').MeasurementTemplate | null;
+      targetEntities?: readonly SceneEntity[];
     },
   ): Promise<void> {
     const { spell, spellSaveDC, actors, socket } = context;
@@ -263,10 +266,15 @@ export function useSpellDamageWithParts() {
       chatStore.sendMessage(formatSaveCancelledMessage(spell.name), 'text');
     }
 
-    // 1. Целевые сущности: AoE-шаблон или одиночная цель из targetStore
+    // 1. Целевые сущности: заранее выбранные цели, AoE-шаблон или одиночная
+    // цель из targetStore
     const targetEntities: SceneEntity[] = [];
 
-    if (cachedTemplate && scene) {
+    if (options.targetEntities) {
+      targetEntities.push(
+        ...options.targetEntities.filter((entity) => entity.system?.abilities),
+      );
+    } else if (cachedTemplate && scene) {
       const affectedTokens = findTokensInTemplate(
         cachedTemplate,
         scene.tokens ?? [],
@@ -820,6 +828,17 @@ export function useSpellDamageWithParts() {
         }
 
         messageLines.push(line);
+      }
+    }
+
+    // Эффекты целей, которых не назвала ни одна часть (у заклинания-эффекта
+    // частей нет вовсе): без этой строки наложенное в чате не видно.
+    for (const result of results) {
+      const effects = effectsByEntity.get(result.actorId);
+
+      if (effects && !usedEffectEntities.has(result.actorId)) {
+        usedEffectEntities.add(result.actorId);
+        messageLines.push(`→ ${result.actorName}: [${effects.join(', ')}]`);
       }
     }
 

@@ -362,6 +362,24 @@ export function getTargetSpellEffects(spell: Spell): ActiveEffect[] {
 }
 
 /**
+ * Нужен ли эффектам на цель разбор оркестратором, а не прямое наложение: свой
+ * спасбросок, урон эффекта или повторный спасбросок с Сл 0 («Сл заклинателя»).
+ * Прямое наложение ничего из этого не умеет — эффект лёг бы без броска, без
+ * урона, а повторный спасбросок против Сл 0 проходился бы всегда.
+ *
+ * @param spell - заклинание
+ * @returns `true`, если хоть один эффект на цель требует разбора
+ */
+export function targetEffectsNeedResolution(spell: Spell): boolean {
+  return getTargetSpellEffects(spell).some(
+    (effect) =>
+      effect.applySave !== undefined
+      || (effect.damageParts?.length ?? 0) > 0
+      || effect.recurringSave?.dc === 0,
+  );
+}
+
+/**
  * Собирает строку чата о наложенных эффектах заклинания. Одна форма на
  * заклинателя, выбранную цель и несколько целей эффекта — чтобы касты из
  * листа и с хотбара выглядели в чате одинаково.

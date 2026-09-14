@@ -42,6 +42,7 @@ const bundle = await build({
   stdin: {
     contents: `
       export * from './src/client/composables/spellEffectTargeting.ts';
+      export { targetEffectsNeedResolution } from './src/client/composables/spellResolutionShared.ts';
       export { getSpellEffectTargetCount } from './src/engine/spellUtils.ts';
       export * from 'test:host';
       export { useProjectileStore } from '@/stores/projectileStore';
@@ -93,6 +94,12 @@ const bundle = await build({
               'export const useTargetStore = () => ({ targetTokenId: null });',
             '@/stores/spellTemplateStore':
               'export const useSpellTemplateStore = () => ({});',
+            '@/stores/diceRollerStore':
+              'export const useDiceRollerStore = () => ({ parseAndRoll: () => ({ total: 4, dice: [{ values: [4] }] }) });',
+            '@/core/api/rollRequestService':
+              'export const getRollRequestService = () => null;',
+            '@/stores/auraStore':
+              'export const useAuraStore = () => ({ getAmbientEffectsForActor: () => [] });',
             '@/stores/initiativeStore':
               'export const useInitiativeStore = () => ({ encounter: null });',
             '@/stores/worldStore':
@@ -474,6 +481,69 @@ for (const [scenario, invalidate] of [
   });
 }
 
+it('effects with their own damage go through the orchestrator: one write with damage and effect', async () => {
+  const venom = {
+    ...bless,
+    id: 'venom',
+    name: 'Ядовитое касание',
+    targetCount: 1,
+    scaling: undefined,
+    activeEffects: [
+      {
+        ...bless.activeEffects[0],
+        id: 'venom-effect',
+        name: 'Яд',
+        flags: ['attack.disadvantage'],
+        damageParts: [{ formula: '1d4', type: 'poison', target: 'selected' }],
+      },
+    ],
+  };
+
+  runtime.fixture.world.actors[0].spells = [{ ...venom, prepared: true }];
+
+  assert.equal(runtime.targetEffectsNeedResolution(bless), false);
+  assert.equal(runtime.targetEffectsNeedResolution(venom), true);
+
+  const selection = startSelection(venom);
+
+  selection.store.toggleTarget('ally');
+  assert.equal(selection.prompt.props.onConfirm(1), true);
+
+  const hpBefore = runtime.fixture.world.actors[1].system.hitPoints.current;
+
+  runtime.applySpellTargetEffects(
+    venom,
+    { casterId: 'caster', spellSaveDC: 13 },
+    selection.selected.targets,
+  );
+
+  // Оркестратор асинхронный: разбор эффектов идёт до первой записи
+  await new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+
+  assert.equal(runtime.updates.length, 1);
+
+  const [ally] = runtime.updates;
+
+  assert.equal(ally.id, 'ally');
+  assert.equal(ally.system.hitPoints.current, hpBefore - 4);
+  assert.ok(ally.activeEffects.some((effect) => effect.name === 'Яд'));
+
+  // Цели забраны: второй вызов ничего не накладывает
+  runtime.applySpellTargetEffects(
+    venom,
+    { casterId: 'caster', spellSaveDC: 13 },
+    selection.selected.targets,
+  );
+
+  await new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+
+  assert.equal(runtime.updates.length, 1);
+});
+
 it('single effects use one target, while self, damage, save, area and projectile spells retain existing paths', () => {
   assert.equal(
     runtime.getSpellEffectTargetCount(
@@ -794,6 +864,8 @@ it('the actual modal manager keeps a new Bless cast independent from an unfinish
     'castBuffSpellMacro',
     {
       getCasterSpellEffects: () => [],
+      resolveActorStats: () => ({}),
+      resolveSpellSaveDC: () => 13,
       useWorldStore: () => runtime.worldStore,
       useChatStore: () => runtime.chatStore,
       useModalManager: () => ({ openModal }),
@@ -910,6 +982,11 @@ for (const [kind, instantSpell] of [
         isDnDEffect: () => true,
         hasSpellBonusDamage: () => false,
         getTargetSpellEffects: (spell) => spell.activeEffects,
+        targetEffectsNeedResolution: runtime.targetEffectsNeedResolution,
+        spellTargetEffectsSource: () => ({
+          casterId: 'caster',
+          spellSaveDC: 13,
+        }),
         needsAutoResolution: () => false,
         getSpellAttackType: () => undefined,
         applyCasterSpellEffects() {},

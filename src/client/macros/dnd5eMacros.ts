@@ -83,6 +83,7 @@ import {
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
   resolveSpellDamageFormula,
+  resolveSpellSaveDC,
   SPELL_DAMAGE_TEMPLATE_COLORS,
   SPELL_TEMPLATE_DEFAULT_COLOR,
   spellHasDamage,
@@ -109,6 +110,7 @@ import {
   getTargetSpellEffects,
   instantiateSpellEffects,
   stampEffectTurnDuration,
+  targetEffectsNeedResolution,
 } from '../composables/spellResolutionShared';
 import {
   useBonusDamageParts,
@@ -999,10 +1001,17 @@ function openDiceRollForSpell(
     // Эффекты заклинания, предназначенные цели (effectTarget 'target')
     const hasSpellTargetEffects = getTargetSpellEffects(spell).length > 0;
 
+    // Атака с уроном, чьим эффектам на цель нужен разбор (свой спасбросок, урон
+    // эффекта), тоже идёт многочастным путём: урон заклинания и эффекты ложатся
+    // ОДНОЙ записью. По попаданию (onHit) разбор ждал бы окна спасброска эффекта,
+    // а урон модалки успевал бы записаться раньше и затирался бы
     const useMultiPart =
       !hasProjectiles
       && (hasBonusDamage
         || spellDamageParts.length > 1
+        || (spellDamageParts.length > 0
+          && getSpellAttackType(spell) !== undefined
+          && targetEffectsNeedResolution(spell))
         || spellDamageParts.some(
           (part) =>
             (part.target ?? 'selected') !== 'selected'
@@ -1307,7 +1316,11 @@ function openDiceRollForSpell(
       // вешаем по ПОПАДАНИЮ. Многочастные уронные накладывают их сами.
       onHit:
         incomingAttackType && hasSpellTargetEffects && !useMultiPart
-          ? () => applySpellTargetEffects(spell)
+          ? () =>
+              applySpellTargetEffects(spell, {
+                casterId: actor.id,
+                spellSaveDC: resolvedStats.spellSaveDC,
+              })
           : undefined,
 
       // Расход одноразовых эффектов «следующей атаки» на броске атаки заклинанием
@@ -1444,6 +1457,13 @@ function castBuffSpellMacro(
   const casterEffects = getCasterSpellEffects(spell);
   const isInnate = !!spell.uses;
 
+  // Кто накладывает эффекты на цель: Сл 0 эффекта и его спасбросок считаются
+  // от заклинателя
+  const targetEffectsSource = {
+    casterId: actor.id,
+    spellSaveDC: resolveSpellSaveDC(actor, spell, resolveActorStats(actor)),
+  };
+
   const worldStore = useWorldStore();
   const chatStore = useChatStore();
 
@@ -1552,7 +1572,7 @@ function castBuffSpellMacro(
 
         // Эффекты на выбранную цель (effectTarget 'target') — отдельной
         // сущности, отдельным обновлением (без гонки с апдейтом кастера).
-        applySpellTargetEffects(spell, effectTargets);
+        applySpellTargetEffects(spell, targetEffectsSource, effectTargets);
       },
     });
 
@@ -1577,7 +1597,7 @@ function castBuffSpellMacro(
     }
   }
 
-  applySpellTargetEffects(spell, effectTargets);
+  applySpellTargetEffects(spell, targetEffectsSource, effectTargets);
 }
 
 /**
