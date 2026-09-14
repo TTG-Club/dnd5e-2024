@@ -734,9 +734,12 @@ export function listInertEffectFields(
   const checks: Array<[InertEffectField, boolean]> = [
     [
       'effectTarget',
-      // У предмета и черты эффект «на цели» отсекается сбором, у действия
+      // У предмета и черты существа эффект «на цели» отсекается сбором, у
+      // умения копируется на персонажа и ложится на него самого, у действия
       // существа эффект «на носителе» никто не накладывает
-      ((context === 'item' || context === 'creatureTrait')
+      ((context === 'item'
+        || context === 'creatureTrait'
+        || context === 'feature')
         && effect.effectTarget === 'target')
         || (context === 'creatureAction' && effect.effectTarget !== 'target'),
     ],

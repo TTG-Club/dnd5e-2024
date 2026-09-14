@@ -448,19 +448,25 @@ describe('неработающие поля', () => {
     );
   });
 
-  it('эффект черты существа «на цели» возвращается на носителя', () => {
+  it('эффект черты существа и умения «на цели» возвращается на носителя', () => {
     const effect = createEffect({ effectTarget: 'target' });
-    const layout = engine.resolveEffectFormLayout('creatureTrait', effect);
 
-    assert.deepEqual(engine.listInertEffectFields(effect, layout), [
-      'effectTarget',
-    ]);
+    for (const context of ['creatureTrait', 'feature', 'item']) {
+      const layout = engine.resolveEffectFormLayout(context, effect);
 
-    assert.equal(
-      engine.clearInertEffectFields(effect, ['effectTarget'], 'creatureTrait')
-        .effectTarget,
-      'self',
-    );
+      assert.deepEqual(
+        engine.listInertEffectFields(effect, layout),
+        ['effectTarget'],
+        context,
+      );
+
+      assert.equal(
+        engine.clearInertEffectFields(effect, ['effectTarget'], context)
+          .effectTarget,
+        'self',
+        context,
+      );
+    }
   });
 
   it('эффект действия существа «на носителе» уходит на цель', () => {
