@@ -13,9 +13,9 @@ import { registerSystemDataSync } from './systemDataSync';
 import ActorDeleteConfirmModal from './ui/actor/ActorDeleteConfirmModal.vue';
 import QuickEquipmentModal from './ui/actor/QuickEquipmentModal.vue';
 import QuickSpellsModal from './ui/actor/QuickSpellsModal.vue';
-import ActiveEffectFormModal from './ui/actor/tabs/ActiveEffectFormModal.vue';
 import CreatureDeleteConfirmModal from './ui/creature/CreatureDeleteConfirmModal.vue';
 import QuickCreatureActionsModal from './ui/creature/QuickCreatureActionsModal.vue';
+import ActiveEffectFormModal from './ui/effect/ActiveEffectFormModal.vue';
 
 /**
  * Ленивая карта ВСЕХ модалок и листов системы D&D 5e (по имени файла). Glob

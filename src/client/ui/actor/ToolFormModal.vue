@@ -13,6 +13,7 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { useToolForm } from '../../composables/useToolForm';
+  import ActiveEffectFormModal from '../effect/ActiveEffectFormModal.vue';
   import {
     FORM_FIELD_LABELS,
     FORM_TAB_LABELS,
@@ -24,7 +25,6 @@
   import FormSection from './FormSection.vue';
   import ItemUsesFields from './ItemUsesFields.vue';
   import SourceField from './SourceField.vue';
-  import ActiveEffectFormModal from './tabs/ActiveEffectFormModal.vue';
 
   const props = defineProps<{
     /** Открыто ли модальное окно */
@@ -580,7 +580,7 @@
     :modal-id="effectModalId"
     :z-index="effectModalZIndex"
     :effect="editingEffect"
-    :show-effect-target="true"
+    context="item"
     @save="saveCustomEffect"
   />
 </template>

@@ -90,6 +90,16 @@ export function describeConditionName(conditionKey: string): string {
 }
 
 /**
+ * Подпись ключа модификатора (`armorClass` → «Класс доспеха (AC)»).
+ *
+ * @param key - ключ строки модификатора
+ * @returns подпись; незнакомый ключ отдаётся как есть
+ */
+export function describeEffectChangeKey(key: string): string {
+  return TARGET_LABELS.get(key) ?? key;
+}
+
+/**
  * Подпись флага эффекта (`attack.disadvantage` → «Помеха на все атаки»).
  *
  * @param flag - ключ флага
@@ -189,7 +199,7 @@ export function describeChangeValue(change: EffectChange): string {
  * @returns подпись модификатора с условием
  */
 export function describeEffectChange(change: EffectChange): string {
-  const keyLabel = TARGET_LABELS.get(change.key) ?? change.key;
+  const keyLabel = describeEffectChangeKey(change.key);
   const base = `${keyLabel} ${describeChangeValue(change)}`;
 
   const condition = change.condition?.trim();
@@ -198,7 +208,7 @@ export function describeEffectChange(change: EffectChange): string {
     return base;
   }
 
-  return `${base} (только: ${describeCondition(condition)})`;
+  return `${base} (только: ${describeEffectChangeCondition(condition)})`;
 }
 
 /**
@@ -209,7 +219,7 @@ export function describeEffectChange(change: EffectChange): string {
  * @param condition - строка условия
  * @returns человекочитаемая подпись
  */
-function describeCondition(condition: string): string {
+export function describeEffectChangeCondition(condition: string): string {
   return splitConditionParts(condition)
     .map((part) => CONDITION_LABELS.get(part) ?? part)
     .join(' и ');

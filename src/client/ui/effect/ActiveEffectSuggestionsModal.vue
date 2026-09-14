@@ -10,7 +10,7 @@
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
 
-  import { EFFECT_TEMPLATES_MODAL_SIZE } from '../constants';
+  import { EFFECT_TEMPLATES_MODAL_SIZE } from './constants';
 
   /** Строка списка подсказок: что подставится и как это называется */
   export interface EffectSuggestion {

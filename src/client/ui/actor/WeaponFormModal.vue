@@ -30,6 +30,7 @@
     DAMAGE_ABILITY_NONE,
     useWeaponForm,
   } from '../../composables/useWeaponForm';
+  import ActiveEffectFormModal from '../effect/ActiveEffectFormModal.vue';
   import {
     FORM_FIELD_LABELS,
     FORM_TAB_LABELS,
@@ -44,7 +45,6 @@
   import FormSection from './FormSection.vue';
   import ItemUsesFields from './ItemUsesFields.vue';
   import SourceField from './SourceField.vue';
-  import ActiveEffectFormModal from './tabs/ActiveEffectFormModal.vue';
   import { formatSignedNumber } from './utils/formatSignedNumber';
   import { formatWeaponModifierParts } from './utils/formatWeaponModifierParts';
 
@@ -1012,7 +1012,7 @@
     :modal-id="effectModalId"
     :z-index="effectModalZIndex"
     :effect="editingEffect"
-    :show-effect-target="true"
+    context="weapon"
     @save="saveCustomEffect"
   />
 </template>

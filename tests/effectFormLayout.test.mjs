@@ -495,6 +495,169 @@ describe('неработающие поля', () => {
   });
 });
 
+describe('шаги окна', () => {
+  it('пассив черты и состояние — только «что меняет»', () => {
+    assert.deepEqual(engine.listEffectFormSteps(layoutOf('feature')), [
+      'modifiers',
+    ]);
+
+    assert.deepEqual(engine.listEffectFormSteps(layoutOf('condition')), [
+      'modifiers',
+    ]);
+  });
+
+  it('зона «пока внутри» объясняет, почему нет спасброска', () => {
+    assert.deepEqual(engine.listEffectFormSteps(layoutOf('zone')), [
+      'trigger',
+      'save',
+      'damage',
+      'modifiers',
+    ]);
+  });
+
+  it('зона «при входе» — все шаги', () => {
+    assert.deepEqual(
+      engine.listEffectFormSteps(layoutOf('zone', { areaTrigger: 'enter' })),
+      [...engine.EFFECT_FORM_STEPS],
+    );
+  });
+
+  it('действие существа: выбирать доставку не из чего', () => {
+    assert.deepEqual(
+      engine.listEffectFormSteps(
+        layoutOf('creatureAction', { effectTarget: 'target' }),
+      ),
+      ['save', 'damage', 'modifiers', 'duration'],
+    );
+  });
+});
+
+describe('переключатели спасбросков', () => {
+  it('новый спасбросок: Сл по умолчанию у зоны, Сл источника у заклинания', () => {
+    const zoneEffect = createEffect({ areaTrigger: 'enter' });
+
+    const zoneSave = engine.writeEffectSaveEnabled(
+      zoneEffect,
+      true,
+      engine.resolveEffectFormLayout('zone', zoneEffect),
+    ).applySave;
+
+    assert.deepEqual(zoneSave, {
+      ability: 'wisdom',
+      dc: engine.DEFAULT_EFFECT_SAVE_DC,
+      onSuccess: 'negate',
+    });
+
+    const spellEffect = createEffect({ effectTarget: 'target' });
+
+    assert.equal(
+      engine.writeEffectSaveEnabled(
+        spellEffect,
+        true,
+        engine.resolveEffectFormLayout('spell', spellEffect),
+      ).applySave.dc,
+      0,
+    );
+  });
+
+  it('включение не сбрасывает уже настроенный спасбросок', () => {
+    const effect = createEffect({
+      areaTrigger: 'enter',
+      applySave: CONSTITUTION_SAVE,
+    });
+
+    assert.deepEqual(
+      engine.writeEffectSaveEnabled(
+        effect,
+        true,
+        engine.resolveEffectFormLayout('zone', effect),
+      ).applySave,
+      CONSTITUTION_SAVE,
+    );
+  });
+
+  it('без спасброска у зоны уходит и «при успехе»', () => {
+    const effect = createEffect({
+      areaTrigger: 'enter',
+      applySave: CONSTITUTION_SAVE,
+      applyOnSuccessOnly: true,
+    });
+
+    const cleared = engine.writeEffectSaveEnabled(
+      effect,
+      false,
+      engine.resolveEffectFormLayout('zone', effect),
+    );
+
+    assert.equal(cleared.applySave, undefined);
+    assert.equal(cleared.applyOnSuccessOnly, undefined);
+  });
+
+  it('у действия существа «при успехе» остаётся за спасброском действия', () => {
+    const effect = createEffect({
+      effectTarget: 'target',
+      applySave: CONSTITUTION_SAVE,
+      applyOnSuccessOnly: true,
+    });
+
+    const cleared = engine.writeEffectSaveEnabled(
+      effect,
+      false,
+      engine.resolveEffectFormLayout('creatureAction', effect),
+    );
+
+    assert.equal(cleared.applySave, undefined);
+    assert.equal(cleared.applyOnSuccessOnly, true);
+  });
+
+  it('повторный спасбросок повторяет спасбросок эффекта', () => {
+    const effect = createEffect({
+      effectTarget: 'target',
+      applySave: CONSTITUTION_SAVE,
+    });
+
+    const layout = engine.resolveEffectFormLayout('weapon', effect);
+
+    assert.deepEqual(
+      engine.writeRecurringSaveEnabled(effect, true, layout).recurringSave,
+      { ability: 'constitution', dc: SAVE_DC, timing: 'endOfTurn' },
+    );
+
+    assert.equal(
+      engine.writeRecurringSaveEnabled(effect, false, layout).recurringSave,
+      undefined,
+    );
+  });
+});
+
+describe('шаблон состояния', () => {
+  it('берёт то, что делает состояние, и оставляет срабатывание', () => {
+    const effect = createEffect({
+      areaTrigger: 'enter',
+      applySave: CONSTITUTION_SAVE,
+      damageParts: POISON_DAMAGE,
+      duration: { type: 'minutes', value: 1 },
+      changes: [WALK_SPEED_CHANGE],
+      exhaustionLevel: 2,
+    });
+
+    const condition = engine.buildConditionActiveEffect('poisoned');
+    const applied = engine.applyConditionPresetToEffect(effect, condition);
+
+    assert.equal(applied.id, effect.id);
+    assert.equal(applied.areaTrigger, 'enter');
+    assert.deepEqual(applied.applySave, CONSTITUTION_SAVE);
+    assert.deepEqual(applied.damageParts, POISON_DAMAGE);
+    assert.deepEqual(applied.duration, { type: 'minutes', value: 1 });
+
+    assert.equal(applied.conditionKey, 'poisoned');
+    assert.equal(applied.name, condition.name);
+    assert.deepEqual(applied.changes, condition.changes);
+    assert.deepEqual(applied.flags, condition.flags);
+    assert.equal(applied.exhaustionLevel, undefined);
+  });
+});
+
 describe('черновик перед сохранением', () => {
   it('числа из полей — числами, пустое — умолчанием', () => {
     const effect = createEffect({
@@ -673,6 +836,30 @@ describe('живая сводка эффекта', () => {
       ),
       'Когда действие задело цель: «Схваченный». '
         + 'Эффект ложится и при успешном спасброске.',
+    );
+  });
+
+  it('состояние из шаблона не перечисляет свои правила, только добавленные', () => {
+    const condition = engine.buildConditionActiveEffect('poisoned');
+
+    const effect = engine.applyConditionPresetToEffect(
+      createEffect({ areaTrigger: 'enter' }),
+      condition,
+    );
+
+    assert.ok(condition.flags.length > 0);
+
+    assert.equal(
+      engine.describeEffectScenario(effect, 'zone'),
+      'При входе в зону: «Отравленный».',
+    );
+
+    assert.equal(
+      engine.describeEffectScenario(
+        { ...effect, changes: [...effect.changes, WALK_SPEED_CHANGE] },
+        'zone',
+      ),
+      'При входе в зону: «Отравленный», Скорость (Ходьба) +10 фт.',
     );
   });
 

@@ -10,6 +10,7 @@
   import { CURRENCY_OPTIONS, RARITY_OPTIONS } from '@vtt/shared/system/dnd.js';
 
   import { useEquipmentForm } from '../../composables/useEquipmentForm';
+  import ActiveEffectFormModal from '../effect/ActiveEffectFormModal.vue';
   import {
     EQUIPMENT_FORM_LABELS,
     FORM_FIELD_LABELS,
@@ -21,7 +22,6 @@
   import FormSection from './FormSection.vue';
   import ItemUsesFields from './ItemUsesFields.vue';
   import SourceField from './SourceField.vue';
-  import ActiveEffectFormModal from './tabs/ActiveEffectFormModal.vue';
 
   const props = defineProps<{
     /** Открыто ли модальное окно */
@@ -612,7 +612,7 @@
     :modal-id="effectModalId"
     :z-index="effectModalZIndex"
     :effect="editingEffect"
-    :show-effect-target="true"
+    context="item"
     @save="saveCustomEffect"
   />
 </template>

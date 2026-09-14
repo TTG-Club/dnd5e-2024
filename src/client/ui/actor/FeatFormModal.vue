@@ -443,7 +443,6 @@
               ref="effectRows"
               v-model="effects"
               modal-id="feat-effect-form-modal"
-              hide-aura
             />
           </FormSection>
         </template>

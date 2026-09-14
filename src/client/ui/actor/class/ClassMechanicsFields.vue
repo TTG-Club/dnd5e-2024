@@ -214,7 +214,6 @@
         ref="effectRows"
         v-model="activeEffects"
         :modal-id="props.effectsModalId"
-        hide-aura
       />
     </EditorNestedSection>
   </div>

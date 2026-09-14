@@ -17,7 +17,9 @@ import type {
   ActiveEffect,
   AreaEffectTrigger,
   EffectAura,
+  EffectSave,
   EffectSaveOutcome,
+  RecurringSave,
 } from './activeEffectTypes.js';
 
 import {
@@ -188,6 +190,9 @@ const DEFAULT_EFFECT_AURA: EffectAura = {
 
 /** Сложность спасброска нового эффекта по умолчанию */
 export const DEFAULT_EFFECT_SAVE_DC = 13;
+
+/** Характеристика спасброска нового эффекта по умолчанию */
+const DEFAULT_EFFECT_SAVE_ABILITY = 'wisdom';
 
 /** Минимальная Сл, когда подставить Сл источника нечем */
 const FIXED_MIN_SAVE_DC = 1;
@@ -509,6 +514,162 @@ export function resolveEffectFormLayout(
       isGeneric || (isOnTarget && ACTION_SAVE_CONTEXTS.has(context))
         ? SOURCE_MIN_SAVE_DC
         : FIXED_MIN_SAVE_DC,
+  };
+}
+
+/** Шаги окна эффекта в порядке показа */
+export const EFFECT_FORM_STEPS = [
+  'trigger',
+  'save',
+  'damage',
+  'modifiers',
+  'duration',
+] as const;
+
+/**
+ * Шаг окна эффекта:
+ * - `trigger` — когда и на кого срабатывает;
+ * - `save` — спасбросок;
+ * - `damage` — урон при срабатывании и каждый ход;
+ * - `modifiers` — что эффект меняет;
+ * - `duration` — длительность и снятие.
+ */
+export type EffectFormStep = (typeof EFFECT_FORM_STEPS)[number];
+
+/**
+ * Шаги, которые есть смысл показать при этой раскладке. Шаг без единого
+ * работающего поля не показывается вовсе — нумерация идёт по оставшимся.
+ *
+ * @param layout - раскладка окна
+ * @returns шаги в порядке показа
+ */
+export function listEffectFormSteps(
+  layout: EffectFormLayout,
+): EffectFormStep[] {
+  const visibility: Record<EffectFormStep, boolean> = {
+    trigger: layout.deliveryOptions.length > 1 || layout.showTrigger,
+    save:
+      layout.showSave
+      || layout.saveUnavailableReason !== null
+      || layout.successOutcomeForActionSave,
+    damage: layout.showTriggerDamage || layout.showRecurringDamage,
+    modifiers: true,
+    duration:
+      layout.showDuration || layout.showRecurringSave || layout.showConsumeOn,
+  };
+
+  return EFFECT_FORM_STEPS.filter((step) => visibility[step]);
+}
+
+/**
+ * Сложность нового спасброска: там, где есть источник, — его Сл, иначе Сл по
+ * умолчанию.
+ *
+ * @param layout - раскладка окна
+ * @returns сложность
+ */
+function defaultSaveDc(layout: EffectFormLayout): number {
+  return layout.minSaveDc === SOURCE_MIN_SAVE_DC
+    ? SOURCE_MIN_SAVE_DC
+    : DEFAULT_EFFECT_SAVE_DC;
+}
+
+/**
+ * Включает или выключает спасбросок эффекта.
+ *
+ * Выключенный спасбросок забирает с собой и выбор «при успехе»: без спасброска
+ * «только при успехе» у зоны или оружия значило бы «никогда». Исключение — эффект
+ * на цели заклинания или действия: там выбор относится к их собственному
+ * спасброску и остаётся.
+ *
+ * @param effect - эффект
+ * @param enabled - нужен ли спасбросок
+ * @param layout - раскладка окна
+ * @returns новый эффект
+ */
+export function writeEffectSaveEnabled(
+  effect: ActiveEffect,
+  enabled: boolean,
+  layout: EffectFormLayout,
+): ActiveEffect {
+  if (enabled) {
+    const save: EffectSave = effect.applySave ?? {
+      ability: DEFAULT_EFFECT_SAVE_ABILITY,
+      dc: defaultSaveDc(layout),
+      onSuccess: 'negate',
+    };
+
+    return { ...effect, applySave: save };
+  }
+
+  const keepsActionSaveOutcome =
+    layout.delivery === 'target' && ACTION_SAVE_CONTEXTS.has(layout.context);
+
+  if (keepsActionSaveOutcome) {
+    return { ...effect, applySave: undefined };
+  }
+
+  return {
+    ...effect,
+    applySave: undefined,
+    applyOnSuccess: undefined,
+    applyOnSuccessOnly: undefined,
+  };
+}
+
+/**
+ * Включает или выключает повторный спасбросок хода. Новый берёт характеристику и
+ * Сл спасброска эффекта: «спасбросок Мудрости в конце каждого хода» почти
+ * всегда повторяет исходный.
+ *
+ * @param effect - эффект
+ * @param enabled - нужен ли повторный спасбросок
+ * @param layout - раскладка окна
+ * @returns новый эффект
+ */
+export function writeRecurringSaveEnabled(
+  effect: ActiveEffect,
+  enabled: boolean,
+  layout: EffectFormLayout,
+): ActiveEffect {
+  if (!enabled) {
+    return { ...effect, recurringSave: undefined };
+  }
+
+  const recurringSave: RecurringSave = effect.recurringSave ?? {
+    ability: effect.applySave?.ability ?? DEFAULT_EFFECT_SAVE_ABILITY,
+    dc: effect.applySave?.dc ?? defaultSaveDc(layout),
+    timing: 'endOfTurn',
+  };
+
+  return { ...effect, recurringSave };
+}
+
+/**
+ * Заполняет эффект данными состояния из шаблона. Берётся то, ЧТО состояние
+ * делает (название, модификаторы, флаги, иммунитеты, ключ состояния); как и
+ * когда эффект срабатывает (доставка, момент, спасбросок, урон, длительность),
+ * остаётся от автора — иначе шаблон «Отравленный» стёр бы у зоны вход и
+ * спасбросок.
+ *
+ * @param effect - эффект в окне
+ * @param condition - эффект состояния, собранный движком
+ * @returns новый эффект
+ */
+export function applyConditionPresetToEffect(
+  effect: ActiveEffect,
+  condition: ActiveEffect,
+): ActiveEffect {
+  return {
+    ...effect,
+    name: condition.name,
+    description: condition.description,
+    icon: condition.icon,
+    conditionKey: condition.conditionKey,
+    changes: condition.changes,
+    flags: condition.flags,
+    conditionImmunities: condition.conditionImmunities,
+    exhaustionLevel: condition.exhaustionLevel,
   };
 }
 

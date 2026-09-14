@@ -1509,7 +1509,6 @@
               ref="effectRows"
               v-model="activeEffects"
               modal-id="class-effect-form-modal"
-              hide-aura
             />
           </FormSection>
         </template>

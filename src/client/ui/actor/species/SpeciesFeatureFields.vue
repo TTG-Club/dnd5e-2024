@@ -252,7 +252,6 @@
           ref="effectRows"
           v-model="feature.activeEffects"
           :modal-id="`species-feature-effect-form-modal-${feature.key}`"
-          hide-aura
         />
       </EditorNestedSection>
     </template>

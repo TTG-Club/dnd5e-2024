@@ -28,6 +28,7 @@
   import { useActiveEffectModal } from '../../composables/useActiveEffectModal';
   import { useEntityActiveEffects } from '../../composables/useEntityActiveEffects';
   import { CONDITION_MODALS } from '../condition/conditionConsts';
+  import ActiveEffectFormModal from '../effect/ActiveEffectFormModal.vue';
   import {
     ACTIVE_EFFECT_DEFAULTS,
     ACTIVE_EFFECT_ICON_CLASS,
@@ -35,7 +36,6 @@
     EFFECTS_TAB_LABELS,
     MODAL_BUTTON_LABELS,
   } from './constants';
-  import ActiveEffectFormModal from './tabs/ActiveEffectFormModal.vue';
 
   interface Props {
     /** Активные эффекты сущности */
@@ -485,6 +485,7 @@
     :modal-id="effectModalId"
     :z-index="effectModalZIndex"
     :effect="editingEffect"
+    context="ownEffects"
     @save="saveEffect"
   />
 </template>

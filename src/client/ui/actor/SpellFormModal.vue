@@ -20,6 +20,7 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { useSpellForm } from '../../composables/useSpellForm';
+  import ActiveEffectFormModal from '../effect/ActiveEffectFormModal.vue';
   import {
     AREA_FIELD_LABELS,
     FORM_FIELD_LABELS,
@@ -33,7 +34,6 @@
   import DamagePartsEditor from './DamagePartsEditor.vue';
   import FormSection from './FormSection.vue';
   import SourceField from './SourceField.vue';
-  import ActiveEffectFormModal from './tabs/ActiveEffectFormModal.vue';
   import { extractSpellFromGameItem } from './utils/extractSpellFromGameItem';
 
   defineOptions({ inheritAttrs: false });
@@ -1369,8 +1369,7 @@
     :modal-id="effectModalId"
     :z-index="effectModalZIndex"
     :effect="editingEffect"
-    :show-effect-target="true"
-    default-effect-target="target"
+    context="spell"
     @save="saveCustomEffect"
   />
 </template>

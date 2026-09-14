@@ -9,7 +9,11 @@
  * при провале и что при успехе.
  */
 
-import type { ActiveEffect, EffectAttackTrigger } from './activeEffectTypes.js';
+import type {
+  ActiveEffect,
+  EffectAttackTrigger,
+  EffectChange,
+} from './activeEffectTypes.js';
 import type {
   EffectFormContext,
   EffectFormLayout,
@@ -23,6 +27,7 @@ import {
   describeEffectFlag,
   formatEffectSaveDc,
 } from './activeEffectDescribe.js';
+import { buildConditionActiveEffect } from './conditionTemplates.js';
 import {
   readEffectSuccessOutcome,
   resolveEffectFormLayout,
@@ -169,17 +174,66 @@ function describeMoment(
 }
 
 /**
- * Называет модификаторы и флаги: первые поимённо, остальные числом.
+ * Эффект состояния из шаблона — чтобы не перечислять то, что уже сказано его
+ * названием: «Отравленный» и так значит помеху на атаки.
  *
  * @param effect - эффект
+ * @returns эффект состояния либо `null`, если эффект состоянием не считается
+ */
+function conditionTemplateOf(effect: ActiveEffect): ActiveEffect | null {
+  if (!effect.conditionKey) {
+    return null;
+  }
+
+  return buildConditionActiveEffect(effect.conditionKey, {
+    exhaustionLevel: effect.exhaustionLevel,
+  });
+}
+
+/**
+ * Совпадают ли строки модификаторов по смыслу.
+ *
+ * @param left - строка
+ * @param right - строка
+ * @returns `true`, если ключ, режим, значение и условие одни и те же
+ */
+function isSameChange(left: EffectChange, right: EffectChange): boolean {
+  return (
+    left.key === right.key
+    && left.mode === right.mode
+    && left.value === right.value
+    && (left.condition ?? '') === (right.condition ?? '')
+  );
+}
+
+/**
+ * Называет модификаторы и флаги сверх состояния: первые поимённо, остальные
+ * числом.
+ *
+ * @param effect - эффект
+ * @param condition - эффект состояния, которым эффект считается
  * @returns подписи
  */
-function describeModifiers(effect: ActiveEffect): string[] {
+function describeModifiers(
+  effect: ActiveEffect,
+  condition: ActiveEffect | null,
+): string[] {
+  const ownChanges = effect.changes.filter(
+    (change) =>
+      change.key !== ''
+      && change.value.trim() !== ''
+      && !condition?.changes.some((conditionChange) =>
+        isSameChange(conditionChange, change),
+      ),
+  );
+
+  const ownFlags = effect.flags.filter(
+    (flag) => !condition?.flags.includes(flag),
+  );
+
   const named = [
-    ...effect.changes
-      .filter((change) => change.key !== '' && change.value.trim() !== '')
-      .map(describeEffectChange),
-    ...effect.flags.map(describeEffectFlag),
+    ...ownChanges.map(describeEffectChange),
+    ...ownFlags.map(describeEffectFlag),
   ];
 
   if (named.length <= MAX_NAMED_MODIFIERS) {
@@ -207,16 +261,21 @@ function describeLastingPayload(
   layout: EffectFormLayout,
 ): string[] {
   const parts: string[] = [];
+  const condition = conditionTemplateOf(effect);
 
   if (effect.conditionKey) {
     parts.push(`«${describeConditionName(effect.conditionKey)}»`);
   }
 
-  parts.push(...describeModifiers(effect));
+  parts.push(...describeModifiers(effect, condition));
 
-  if (layout.showConditionImmunities && effect.conditionImmunities?.length) {
+  const ownImmunities = (effect.conditionImmunities ?? []).filter(
+    (immunity) => !condition?.conditionImmunities?.includes(immunity),
+  );
+
+  if (layout.showConditionImmunities && ownImmunities.length > 0) {
     parts.push(
-      `${SCENARIO_LABELS.immunitiesPrefix}${effect.conditionImmunities
+      `${SCENARIO_LABELS.immunitiesPrefix}${ownImmunities
         .map(describeConditionName)
         .join(SCENARIO_LABELS.listJoiner)}`,
     );
