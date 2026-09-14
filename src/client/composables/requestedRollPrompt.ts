@@ -6,9 +6,11 @@ import type {
 import type { SavingThrowTarget } from './useSpellSavingThrows';
 
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
-import { parseSavingThrowRequestPayload } from '@vtt/shared/system/dnd.js';
+import {
+  parseSavingThrowRequestPayload,
+  resolveAutoSaves,
+} from '@vtt/shared/system/dnd.js';
 
-import { resolveAutoSaves } from './spellResolutionShared';
 import { useSpellSavingThrows } from './useSpellSavingThrows';
 import { useWorldEntities } from './useWorldEntities';
 

@@ -40,7 +40,6 @@
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useChatStore } from '@/stores/chatStore';
   import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
-  import { useTargetStore } from '@/stores/targetStore';
   import { useWorldStore } from '@/stores/worldStore';
   import { generateId, isRecord } from '@vtt/shared';
   import {
@@ -169,7 +168,6 @@
   const { openModal, getNextZIndex } = useModalManager();
   const toast = useToast();
   const chatStore = useChatStore();
-  const targetStore = useTargetStore();
   const worldStore = useWorldStore();
   const spellTemplateStore = useSpellTemplateStore();
 
@@ -1585,23 +1583,32 @@
       ),
     });
 
-    // Эффекты заклинания: у атак — на цель при попадании; у спаса/области —
-    // через оркестратор по каждой задетой цели в зависимости от спаса.
+    // Эффекты заклинания — всегда через оркестратор по каждой задетой цели: он
+    // отбирает эффекты на цель, бросает их спасбросок и урон. Прямое наложение
+    // при попадании кидало на цель ВСЕ эффекты (и «себе») мимо спасброска
     const enabledEffects = spell.activeEffects?.filter(
       (effect) => !effect.disabled,
     );
 
-    let onHit: (() => void) | undefined;
+    setup.pseudoSpell.activeEffects = enabledEffects?.length
+      ? enabledEffects
+      : undefined;
 
-    if (!usesAttack) {
-      setup.pseudoSpell.activeEffects = enabledEffects?.length
-        ? enabledEffects
+    // Атака без частей урона: окно броска не зовёт `onRollParts`, и эффекты на
+    // попадании разбирает тот же оркестратор с пустым набором частей
+    const onHit =
+      usesAttack
+      && setup.baseParts.length === 0
+      && setup.pseudoSpell.activeEffects
+        ? () =>
+            applySpellParts(
+              creature,
+              setup.pseudoSpell,
+              [],
+              templateId,
+              numbers.saveDC,
+            )
         : undefined;
-    } else if (enabledEffects?.length) {
-      onHit = () => {
-        targetStore.applyEffectsToTarget(enabledEffects, 'feature');
-      };
-    }
 
     const isHealing = spellIsHealing(spell);
 

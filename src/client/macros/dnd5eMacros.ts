@@ -2100,17 +2100,12 @@ function openCreatureSpellRoll(
     (effect) => !effect.disabled,
   );
 
-  let onHit: (() => void) | undefined;
-
-  if (!usesAttack) {
-    setup.pseudoSpell.activeEffects = enabledEffects?.length
-      ? enabledEffects
-      : undefined;
-  } else if (enabledEffects?.length) {
-    onHit = () => {
-      targetStore.applyEffectsToTarget(enabledEffects, 'feature');
-    };
-  }
+  // Эффекты заклинания — всегда через оркестратор: он отбирает эффекты на цель,
+  // бросает их спасбросок и урон. Прямое наложение при попадании кидало на цель
+  // ВСЕ эффекты (и «себе») мимо спасброска
+  setup.pseudoSpell.activeEffects = enabledEffects?.length
+    ? enabledEffects
+    : undefined;
 
   const isHealing = spellIsHealing(spell);
   const first = spell.damageParts?.[0];
@@ -2120,6 +2115,22 @@ function openCreatureSpellRoll(
     creature,
     placement?.block,
   );
+
+  // Атака без частей урона: окно броска не зовёт `onRollParts`, и эффекты на
+  // попадании разбирает тот же оркестратор с пустым набором частей
+  const onHit =
+    usesAttack
+    && setup.baseParts.length === 0
+    && setup.pseudoSpell.activeEffects
+      ? () =>
+          applyCreatureSpellParts(
+            creature,
+            setup.pseudoSpell,
+            [],
+            templateId,
+            numbers.saveDC,
+          )
+      : undefined;
 
   // Круг наложения из группы фиксирует окно броска: список кругов из одного
   // значения. Без круга секция не показывается — так же, как было до групп

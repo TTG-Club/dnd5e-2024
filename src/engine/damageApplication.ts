@@ -50,10 +50,15 @@ import { withInitializedDuration } from './turnEffects.js';
 /**
  * Строит `ActiveEffect` для наложения на цель.
  *
- * Если эффект опознан как состояние D&D 5e — собирает полноценный
- * condition-эффект через общий хелпер `buildConditionActiveEffect`, СОХРАНЯЯ
- * авторскую длительность и цель применения (а не хардкодя «постоянно»).
- * Иначе — копирует эффект как есть с переданным `origin`.
+ * Эффект, опознанный как состояние D&D 5e, получает источник `condition` и
+ * ключ состояния — по ним лист и значок на токене узнают состояние. Нагрузка
+ * при этом берётся у АВТОРА эффекта: имя, модификаторы, флаги, повторный
+ * спасбросок и снятие после атаки. Раньше состояние пересобиралось из шаблона
+ * целиком, и «Отравлен с −2 к КД и спасброском в конце хода» ложился на цель
+ * голым «Отравлен». Из шаблона собирается только заготовка — эффект, у которого
+ * нет ни модификаторов, ни флагов (узнан по одному имени).
+ *
+ * Длительность и цель применения всегда авторские.
  *
  * @param effect - исходный эффект из действия/оружия
  * @param fallbackOrigin - origin для не-condition эффектов
@@ -78,13 +83,31 @@ function buildEffectForTarget(
     effectTarget: effect.effectTarget,
   });
 
-  return withInitializedDuration(
-    conditionEffect ?? {
+  if (!conditionEffect) {
+    return withInitializedDuration({
       ...effect,
       id: generateId('effect'),
       origin: fallbackOrigin,
-    },
-  );
+    });
+  }
+
+  const hasAuthorPayload = effect.changes.length > 0 || effect.flags.length > 0;
+
+  // Остальные поля автора (повторный спасбросок, урон каждый ход, снятие после
+  // атаки) переживают и заготовку: шаблон их не знает
+  return withInitializedDuration({
+    ...effect,
+    id: conditionEffect.id,
+    origin: conditionEffect.origin,
+    conditionKey,
+    description: effect.description || conditionEffect.description,
+    icon: effect.icon ?? conditionEffect.icon,
+    changes: hasAuthorPayload ? effect.changes : conditionEffect.changes,
+    flags: hasAuthorPayload ? effect.flags : conditionEffect.flags,
+    conditionImmunities:
+      effect.conditionImmunities ?? conditionEffect.conditionImmunities,
+    exhaustionLevel: effect.exhaustionLevel ?? conditionEffect.exhaustionLevel,
+  });
 }
 
 /**

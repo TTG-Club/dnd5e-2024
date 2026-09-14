@@ -24,11 +24,13 @@ import {
 } from '@vtt/shared';
 import {
   buildAttackFormula,
+  formatSavingThrowRequestTitle,
   getNaturalD20Roll,
   isDndSceneEntity,
   parseNaturalD20Roll,
   parseSavingThrowResult,
   resolveActorStats,
+  resolveAutoSaves,
   resolveSavingThrowRollMode,
   SAVING_THROW_REQUEST_KIND,
 } from '@vtt/shared/system/dnd.js';
@@ -37,10 +39,8 @@ import { SAVING_THROW_ROLL_LABELS } from '../ui/actor/constants';
 import { buildRollBonusEvaluator } from './rollBonusEvaluator';
 import {
   determineRollMode,
-  formatSavingThrowRequestTitle,
   formatSavingThrowRollLabel,
   formatSavingThrowTitle,
-  resolveAutoSaves,
 } from './spellResolutionShared';
 import { useWorldEntities } from './useWorldEntities';
 

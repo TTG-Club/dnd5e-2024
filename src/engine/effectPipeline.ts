@@ -1786,8 +1786,11 @@ export function resolveMaxHitPointsDelta(
 /**
  * Собирает иммунитеты сущности к состояниям из двух источников:
  * 1. Статический список существа (`system.defenses.conditionImmunities`).
- * 2. Поля `conditionImmunities` активных эффектов (предметы, виды, состояния) —
- *    единственный путь для актёров, у которых нет `system.defenses`.
+ * 2. Поля `conditionImmunities` действующих эффектов — тех же, что собирает
+ *    лист (`collectActiveEffects`): свои эффекты, экипированные предметы,
+ *    черты существа. Раньше читались только свои эффекты сущности, и кольцо
+ *    «иммунитет к очарованию» или черта монстра не защищали ни от чего, хотя
+ *    окно эффекта это обещало.
  *
  * Единый помощник для всех мест наложения состояний (DRY): и проверка цели
  * атаки/заклинания, и тоггл на листе используют один источник правды.
@@ -1800,11 +1803,9 @@ export function getEntityConditionImmunities(
 ): readonly string[] {
   const fromEffects: string[] = [];
 
-  for (const effect of entity.activeEffects ?? []) {
-    if (effect.disabled) {
-      continue;
-    }
-
+  // Отключённые эффекты, предметы вне экипировки и эффекты «в цель» отсеяны
+  // сбором — второй проверки здесь не нужно
+  for (const effect of collectActiveEffects(entity)) {
     for (const conditionKey of effect.conditionImmunities ?? []) {
       fromEffects.push(conditionKey);
     }
@@ -2404,6 +2405,21 @@ export function resolveActorStats(
     actor,
     collectDerivedChanges(activeEffects, carrier),
     formulaContext,
+  );
+}
+
+/**
+ * Суммарная скорость сущности всеми способами передвижения. Ноль значит, что
+ * сущность не может двигаться вовсе: опутана, окаменела или скорость отняли
+ * иначе.
+ *
+ * @param stats - разрешённые статы сущности
+ * @returns сумма скоростей ходьбы, полёта, плавания, лазания и копания
+ */
+export function resolveTotalMovementSpeed(stats: ResolvedActorStats): number {
+  return Object.values(stats.movement).reduce(
+    (totalSpeed, speed) => totalSpeed + (speed || 0),
+    0,
   );
 }
 

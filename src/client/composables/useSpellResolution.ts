@@ -24,6 +24,7 @@ import type {
   SpellResolutionContext,
   SpellTargetResult,
 } from './spellResolutionShared';
+import type { EffectSaveResults } from './useTargetEffectResolution';
 
 import { emitEntityCombatState } from '@/core/entityUtils';
 import { useChatStore } from '@/stores/chatStore';
@@ -52,6 +53,7 @@ import {
   mergeAppliedEffects,
   resolveActorStats,
   resolveAttackRoll,
+  resolveAutoSaves,
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
   resolveEntityTempHp,
@@ -69,12 +71,13 @@ import {
   getPartKindLabel,
   isSaveAbility,
   partPassesTargetGate,
-  resolveAutoSaves,
-  resolveEffectsToApply,
-  stampEffectTurnDuration,
 } from './spellResolutionShared';
 import { useSpellDamageWithParts } from './useSpellDamageWithParts';
 import { useSpellSavingThrows } from './useSpellSavingThrows';
+import {
+  listEffectsWithOwnSave,
+  useTargetEffectResolution,
+} from './useTargetEffectResolution';
 
 // Реэкспорт публичных типов системы разрешения заклинаний
 export type {
@@ -122,6 +125,9 @@ export function useSpellResolution() {
   } = useSpellSavingThrows();
 
   const { resolveSpellDamageWithParts } = useSpellDamageWithParts();
+
+  const { collectTargetEffects, resolveEffectSaves, rollEffectSaves } =
+    useTargetEffectResolution();
 
   /**
    * Определяет, нужна ли автоматическая обработка целей для этого заклинания.
@@ -344,6 +350,8 @@ export function useSpellResolution() {
    *   применяются той же записью HP с собственными гейтами/защитами
    * @param options.saveResult - уже разрешённый спасбросок цели (окном или
    *   запросом её владельцу). Без него спасбросок катается здесь же
+   * @param options.effectSaves - уже разрешённые спасброски эффектов со своим
+   *   `applySave`. Без них они катаются здесь же, автоматически
    * @returns результат обработки цели
    */
   function processTarget(
@@ -352,6 +360,7 @@ export function useSpellResolution() {
     options: {
       bonusParts?: RolledSpellDamagePart[];
       saveResult?: SavingThrowResult;
+      effectSaves?: EffectSaveResults;
     } = {},
   ): SpellTargetResult {
     const { spell, damageTotal, spellSaveDC, socket } = context;
@@ -390,9 +399,23 @@ export function useSpellResolution() {
     const resolvedDamageType =
       context.overrideDamageType ?? getSpellPrimaryDamageType(spell);
 
-    const effectsToApply = resolveEffectsToApply(spell, saveResult)?.map(
-      (effect) => stampEffectTurnDuration(effect, entity.id, context.casterId),
+    // Эффекты на цель — тем же разбором, что и многочастный путь: свой
+    // спасбросок эффекта, его урон, иммунитет и Сл источника
+    const effectInput = {
+      spell,
+      entity,
+      spellSaveDC,
+      casterId: context.casterId,
+    };
+
+    const targetEffects = collectTargetEffects(
+      effectInput,
+      saveResult,
+      options.effectSaves ?? rollEffectSaves(effectInput),
     );
+
+    const effectsToApply =
+      targetEffects.effects.length > 0 ? targetEffects.effects : undefined;
 
     const isHealingSpell = spellIsHealing(spell);
 
@@ -408,7 +431,7 @@ export function useSpellResolution() {
           bonusParts,
           saveResult,
           spell.saveEffect,
-        );
+        ) + targetEffects.bonusDamage;
 
     const damageResult = applyResultsToEntity(
       entity,
@@ -590,6 +613,9 @@ export function useSpellResolution() {
    * бросает окном или автоматически. Запросы уходят параллельно, поэтому
    * пятеро задетых площадью игроков бросают разом, а не в очередь.
    *
+   * Туда же — спасброски эффектов со своим `applySave`: у заклинания без
+   * собственного спасброска их всё равно бросает цель.
+   *
    * Отмена (закрытое окно, отказ, истёкший срок) сворачивает эту пачку
    * целиком: ни одна её цель не тронута — спасброски все берутся ДО первого
    * применения. Авто-цели, разобранные фазой раньше, при этом остаются
@@ -607,41 +633,56 @@ export function useSpellResolution() {
   ): Promise<SpellTargetResult[]> {
     const { spell, spellSaveDC } = context;
 
-    // Сюда попадают только цели заклинания со спасброском; guard сужает
-    // saveType до AbilityType без приведения типов.
-    if (!isSaveAbility(spell.saveType)) {
-      throw new Error(
-        `Заклинание "${spell.name}" не требует спасброска — разрешать нечего`,
-      );
-    }
+    // Спасбросок самого заклинания — пачкой; у заклинания без спасброска его
+    // нет, и в пачку цели попали ради спасбросков эффектов
+    const saveAbility = isSaveAbility(spell.saveType) ? spell.saveType : null;
 
-    const ability = spell.saveType;
-    const againstCondition = getSpellSaveCondition(spell);
+    const saves = saveAbility
+      ? await resolveSavingThrowsForTargets(
+          targets.map((entity) => ({
+            entity,
+            ability: saveAbility,
+            dc: spellSaveDC,
+            againstCondition: getSpellSaveCondition(spell),
+            sourceEntityId: context.casterId,
+            sourceName: spell.name,
+          })),
+        )
+      : null;
 
-    const saves = await resolveSavingThrowsForTargets(
-      targets.map((entity) => ({
-        entity,
-        ability,
-        dc: spellSaveDC,
-        againstCondition,
-        sourceEntityId: context.casterId,
-        sourceName: spell.name,
-      })),
-    );
+    /** Отказ хоть одной цели — не применяем ничего: пачка целиком или никак */
+    const cancel = (): SpellTargetResult[] => {
+      chatStore.sendMessage(formatSaveCancelledMessage(spell.name), 'text');
 
-    // Хоть один отказ — не применяем ничего: пачка либо целиком, либо никак
+      return [];
+    };
+
     const resolvedSaves = new Map<string, SavingThrowResult>();
+    const resolvedEffectSaves = new Map<string, EffectSaveResults>();
 
     for (const entity of targets) {
-      const saveResult = saves.get(entity.id);
+      const saveResult = saves?.get(entity.id);
 
-      if (!saveResult) {
-        chatStore.sendMessage(formatSaveCancelledMessage(spell.name), 'text');
-
-        return [];
+      if (saves && !saveResult) {
+        return cancel();
       }
 
-      resolvedSaves.set(entity.id, saveResult);
+      const effectSaves = await resolveEffectSaves({
+        spell,
+        entity,
+        spellSaveDC,
+        casterId: context.casterId,
+      });
+
+      if (!effectSaves) {
+        return cancel();
+      }
+
+      if (saveResult) {
+        resolvedSaves.set(entity.id, saveResult);
+      }
+
+      resolvedEffectSaves.set(entity.id, effectSaves);
     }
 
     const results: SpellTargetResult[] = [];
@@ -651,6 +692,7 @@ export function useSpellResolution() {
         results.push(
           processTarget(entity, context, {
             saveResult: resolvedSaves.get(entity.id),
+            effectSaves: resolvedEffectSaves.get(entity.id),
           }),
         );
       } catch (error) {
@@ -692,6 +734,22 @@ export function useSpellResolution() {
     const { spell, actors } = context;
     const results: SpellTargetResult[] = [];
 
+    /** У заклинания есть спасбросок — свой или у эффекта на цель */
+    const hasSavingThrow =
+      spell.saveType !== 'none' || listEffectsWithOwnSave(spell).length > 0;
+
+    /**
+     * Разрешать спасбросок снаружи надо, если он вообще есть И либо цель под
+     * чужим владением (бросает её владелец, а не мы), либо у неё выключены
+     * автоспасброски (нужно окно).
+     *
+     * @param entity - цель
+     * @returns `true`, если цель уходит в асинхронную пачку
+     */
+    const needsResolvedSave = (entity: DnDSceneEntity): boolean =>
+      hasSavingThrow
+      && (isForeignOwnedTarget(entity) || !resolveAutoSaves(entity));
+
     if (aoeContext) {
       // AoE: находим токены в области шаблона
       const affectedTokens = findTokensInTemplate(
@@ -724,14 +782,7 @@ export function useSpellResolution() {
           continue;
         }
 
-        // Разрешать спасбросок снаружи надо, если он вообще есть И либо цель
-        // под чужим владением (бросает её владелец, а не мы), либо у неё
-        // выключены автоспасброски (нужно окно).
-        const needsResolvedSave =
-          spell.saveType !== 'none'
-          && (isForeignOwnedTarget(entity) || !resolveAutoSaves(entity));
-
-        if (needsResolvedSave) {
+        if (needsResolvedSave(entity)) {
           resolvedSaveTargets.push(entity);
         } else {
           localAutoTargets.push(entity);
@@ -781,14 +832,7 @@ export function useSpellResolution() {
           return results;
         }
 
-        // Спасбросок разрешается снаружи: у чужой цели его кидает владелец,
-        // у своей без автоспасбросков — окно
-        const needsResolvedSave =
-          spell.saveType !== 'none'
-          && (isForeignOwnedTarget(targetEntity)
-            || !resolveAutoSaves(targetEntity));
-
-        if (needsResolvedSave) {
+        if (needsResolvedSave(targetEntity)) {
           void processTargetsWithResolvedSaves([targetEntity], context, true);
         } else {
           const result = processTarget(targetEntity, context);

@@ -1,4 +1,4 @@
-import type { DamagePart, Scene, SceneEntity } from '@vtt/shared';
+import type { Scene, SceneEntity } from '@vtt/shared';
 import type {
   ActiveEffect,
   DamageDefenseOutcome,
@@ -12,27 +12,25 @@ import type {
   SpellResolutionContext,
   SpellTargetResult,
 } from './spellResolutionShared';
+import type {
+  EffectDamageLine,
+  TargetEffectsResult,
+} from './useTargetEffectResolution';
 
 import { emitEntityCombatState } from '@/core/entityUtils';
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
-import { useDiceRollerStore } from '@/stores/diceRollerStore';
 import { useTargetStore } from '@/stores/targetStore';
 import { generateId, resolveGridCellSize } from '@vtt/shared';
 import {
   applyHpChange,
   applyMultiTypeDamageDefenses,
-  damageReachesTarget,
-  expandDamageParts,
   findTokensInTemplate,
   formatDamageDefenseSuffix,
-  getEntityConditionImmunities,
   getSpellSaveCondition,
   isDndSceneEntity,
-  isImmuneToCondition,
   mergeAppliedEffects,
   resolveActorStats,
-  resolveEffectApplication,
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
   resolveEntityTempHp,
@@ -47,59 +45,9 @@ import {
   getPartKindLabel,
   isSaveAbility,
   partPassesTargetGate,
-  stampEffectTurnDuration,
 } from './spellResolutionShared';
 import { useSpellSavingThrows } from './useSpellSavingThrows';
-
-/**
- * Проставляет динамическую Сл повторного спасброска: если у эффекта
- * `recurringSave.dc === 0` (маркер «использовать Сл кастера»), возвращает копию
- * с подставленной Сл заклинателя. Нужно заклинаниям персонажей (Сл зависит от
- * билда); у существ Сл фиксирована (dc > 0) и не трогается.
- *
- * @param effect - накладываемый эффект
- * @param spellSaveDC - Сл спасброска источника (кастера)
- * @returns исходный эффект или копия с проставленной Сл
- */
-function stampRecurringSaveDc(
-  effect: ActiveEffect,
-  spellSaveDC: number,
-): ActiveEffect {
-  if (!effect.recurringSave || effect.recurringSave.dc > 0) {
-    return effect;
-  }
-
-  return {
-    ...effect,
-    recurringSave: { ...effect.recurringSave, dc: spellSaveDC },
-  };
-}
-
-/** Строка чата для одной части урона наложенного эффекта */
-interface EffectDamageLine {
-  /** Локализованный тип урона (для заголовка) */
-  typeLabel: string;
-  /** Формула броска */
-  formula: string;
-  /** Выпавшие значения кубиков */
-  values: number[];
-  /** Итог урона после множителя спаса и защит */
-  applied: number;
-  /** Сработавшая защита (уязв./сопр./иммун.) */
-  outcome: DamageDefenseOutcome;
-}
-
-/** Что даёт цели разбор её target-эффектов: наложить, добавить урон, показать */
-interface TargetEffectsResult {
-  /** Эффекты, которые ложатся на цель */
-  effects: ActiveEffect[];
-  /** Доп. урон от эффектов (уже с множителем спаса и защитами) */
-  bonusDamage: number;
-  /** Сработавшая защита цели на этом доп. уроне */
-  defenseOutcome: DamageDefenseOutcome;
-  /** Строки разбивки доп. урона для чата */
-  damageLines: EffectDamageLine[];
-}
+import { useTargetEffectResolution } from './useTargetEffectResolution';
 
 /**
  * Композабл для многочастного разрешения урона/лечения заклинания.
@@ -107,11 +55,10 @@ interface TargetEffectsResult {
 export function useSpellDamageWithParts() {
   const chatStore = useChatStore();
   const targetStore = useTargetStore();
-  const diceRollerStore = useDiceRollerStore();
   const { openModal } = useModalManager();
 
-  const { resolveSavingThrowForTarget, resolveSavingThrowsForTargets } =
-    useSpellSavingThrows();
+  const { resolveSavingThrowsForTargets } = useSpellSavingThrows();
+  const { resolveTargetEffects } = useTargetEffectResolution();
 
   /**
    * Записывает чистое изменение HP сущности ОДНИМ апдейтом.
@@ -269,105 +216,6 @@ export function useSpellDamageWithParts() {
         },
       });
     });
-  }
-
-  /**
-   * Бросает урон эффекта (с множителем спаса) и применяет защиты цели по типу.
-   * Поддерживает плоские формулы; @-формулы пропускаются с warn (у эффектов
-   * существ/оружия формулы плоские, контекста заклинания тут нет).
-   *
-   * @param entity - цель
-   * @param parts - части урона эффекта
-   * @param multiplier - множитель урона (1 / 0.5 по результату спасброска)
-   * @returns суммарный урон и сработавшая защита цели
-   */
-  function rollEffectDamage(
-    entity: SceneEntity,
-    parts: DamagePart[],
-    multiplier: number,
-  ): {
-    damage: number;
-    outcome: DamageDefenseOutcome;
-    lines: EffectDamageLine[];
-  } {
-    // Ядро видит entity как Base*; D&D-форму подтверждает гвард
-    if (!isDndSceneEntity(entity)) {
-      return { damage: 0, outcome: 'normal', lines: [] };
-    }
-
-    const stats = resolveActorStats(entity);
-
-    let total = 0;
-    let outcome: DamageDefenseOutcome = 'normal';
-
-    const lines: EffectDamageLine[] = [];
-
-    // Разворачиваем инлайн-токены `@dmg.<type>`/`@target.*` в типизированные
-    // сегменты тем же ядром, что и базовый урон: редактор пишет тип урона
-    // токеном (напр. `2к6@dmg.poison`), а не в поле `type`. У урона эффекта нет
-    // контекста `@mod`/`@prof`/`@level` — нерезолвенные сегменты пропускаем.
-    const segments = expandDamageParts(parts, undefined, (formula) => formula);
-
-    for (const segment of segments) {
-      // Урон эффекта не лечит (редактор скрывает @heal) — на всякий случай.
-      if (segment.isHealing) {
-        continue;
-      }
-
-      // Ветка условного слагаемого (`@target.full`, `@target.type.undead`) —
-      // только «своей» цели: без сверки катались бы обе ветки сразу
-      if (!damageReachesTarget(segment, entity)) {
-        continue;
-      }
-
-      if (segment.formula.includes('@')) {
-        console.warn(
-          '[EffectDamage] @-формула не поддержана:',
-          segment.formula,
-        );
-
-        continue;
-      }
-
-      const rolled = diceRollerStore.parseAndRoll(segment.formula);
-      const values = rolled.dice.flatMap((group) => group.values);
-
-      const types = segment.types ?? (segment.type ? [segment.type] : []);
-
-      let damage = Math.floor(rolled.total * multiplier);
-      let partOutcome: DamageDefenseOutcome = 'normal';
-
-      if (types.length > 0) {
-        const defense = applyMultiTypeDamageDefenses(
-          damage,
-          types,
-          stats.damageDefenses,
-        );
-
-        damage = defense.finalDamage;
-        partOutcome = defense.outcome;
-
-        if (defense.outcome !== 'normal') {
-          outcome = defense.outcome;
-        }
-      }
-
-      total += damage;
-
-      lines.push({
-        typeLabel: getPartKindLabel({
-          isHealing: false,
-          type: segment.type,
-          types: segment.types,
-        }),
-        formula: segment.formula,
-        values,
-        applied: damage,
-        outcome: partOutcome,
-      });
-    }
-
-    return { damage: total, outcome, lines };
   }
 
   /**
@@ -811,120 +659,6 @@ export function useSpellDamageWithParts() {
 
     const gateOpen = totalDamageNonGated > 0;
 
-    /**
-     * Собирает эффекты-состояния и доп.урон для цели: эффекты носителя с
-     * `effectTarget: 'target'` применяются по своему `applySave` (если задан),
-     * иначе по факту приземления; доп.урон эффекта катается с множителем спаса.
-     *
-     * @param entity - цель
-     * @param landingSave - результат landing-спасброска цели (если был)
-     * @returns эффекты для наложения, доп.урон и сработавшая защита
-     */
-    async function resolveTargetEffects(
-      entity: SceneEntity,
-      landingSave: SavingThrowResult | undefined,
-    ): Promise<TargetEffectsResult | null> {
-      const targetEffects = (spell.activeEffects ?? []).filter(
-        (effect) => !effect.disabled && effect.effectTarget === 'target',
-      );
-
-      // Приземление: атака/авто (saveType 'none') доходят сюда только попавшими;
-      // для landing-спаса «приземлилось» = цель провалила спас.
-      const landed = spell.saveType === 'none' || !landingSave?.passed;
-
-      const immunities = isDndSceneEntity(entity)
-        ? getEntityConditionImmunities(entity)
-        : [];
-
-      const collected: ActiveEffect[] = [];
-      const damageLines: EffectDamageLine[] = [];
-
-      let bonusDamage = 0;
-      let defenseOutcome: DamageDefenseOutcome = 'normal';
-
-      for (const effect of targetEffects) {
-        let applySaveSucceeded: boolean | undefined;
-
-        if (effect.applySave) {
-          const saveResult = await resolveSavingThrowForTarget({
-            entity,
-            ability: effect.applySave.ability,
-            dc: effect.applySave.dc,
-            againstCondition: effect.conditionKey,
-            sourceEntityId: context.casterId,
-            sourceName: effect.name,
-          });
-
-          // Окно спасброска эффекта закрыли — сворачиваем всё действие
-          if (saveResult === null) {
-            return null;
-          }
-
-          applySaveSucceeded = saveResult.passed;
-        }
-
-        const application = resolveEffectApplication(effect, {
-          landed,
-          applySaveSucceeded,
-        });
-
-        if (
-          effect.damageParts
-          && effect.damageParts.length > 0
-          && application.damageMultiplier > 0
-        ) {
-          const rolled = rollEffectDamage(
-            entity,
-            effect.damageParts,
-            application.damageMultiplier,
-          );
-
-          bonusDamage += rolled.damage;
-          damageLines.push(...rolled.lines);
-
-          if (rolled.outcome !== 'normal') {
-            defenseOutcome = rolled.outcome;
-          }
-        }
-
-        if (!application.applyEffect) {
-          continue;
-        }
-
-        // Чисто-урон эффекты (без состояния и без модификаторов) не «висят» на
-        // цели — они только наносят урон (напр. яд за спасбросок). Но эффект с
-        // периодикой (DoT/повторный спас) обязан остаться на цели, чтобы тикать.
-        const isPersistent =
-          effect.conditionKey !== undefined
-          || effect.changes.length > 0
-          || effect.flags.length > 0
-          || effect.recurringDamage !== undefined
-          || effect.recurringSave !== undefined;
-
-        if (!isPersistent) {
-          continue;
-        }
-
-        const immune =
-          effect.conditionKey !== undefined
-          && isImmuneToCondition(immunities, effect.conditionKey);
-
-        if (!immune) {
-          // Точная turn-длительность инициализируется тут же (носитель = цель,
-          // источник = кастер): нужен текущий ход энкаунтера на момент наложения.
-          collected.push(
-            stampEffectTurnDuration(
-              stampRecurringSaveDc(effect, spellSaveDC),
-              entity.id,
-              context.casterId,
-            ),
-          );
-        }
-      }
-
-      return { effects: collected, bonusDamage, defenseOutcome, damageLines };
-    }
-
     // 5a. Эффекты целей разбираем ДО первой записи HP: у эффекта бывает свой
     // спасбросок с окном, и его отмена обязана свернуть действие целиком —
     // а уже применённый другим целям урон обратно не отыграть.
@@ -936,7 +670,12 @@ export function useSpellDamageWithParts() {
       }
 
       const targetResult = await resolveTargetEffects(
-        accumulator.entity,
+        {
+          spell,
+          entity: accumulator.entity,
+          spellSaveDC,
+          casterId: context.casterId,
+        },
         accumulator.save,
       );
 

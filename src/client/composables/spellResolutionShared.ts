@@ -11,7 +11,6 @@ import type {
   ActiveEffect,
   CreatureCategory,
   DamageDefenseOutcome,
-  SavingThrowResult,
   Spell,
   TargetHpGate,
 } from '@vtt/shared/system/dnd.js';
@@ -20,13 +19,12 @@ import type { RollBonusEvaluator } from './rollBonusEvaluator';
 
 import { useInitiativeStore } from '@/stores/initiativeStore';
 import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
-import { generateId, isCreatureEntity } from '@vtt/shared';
+import { generateId } from '@vtt/shared';
 import {
   CREATURE_TYPE_LABELS,
   DAMAGE_TYPE_LABELS,
   damageReachesTarget,
   isDndSceneEntity,
-  resolveEffectApplication,
   SAVE_TYPE_LABELS,
   stampTurnDuration,
   withInitializedDuration,
@@ -203,30 +201,6 @@ export function formatSavingThrowTitle(
 }
 
 /**
- * Подпись запроса для плашек ядра: «Огненный шар — Спасбросок Ловкости (DC 15)».
- *
- * Имени цели здесь нет намеренно: ядро показывает её само, рядом с подписью.
- *
- * @param ability - характеристика спасброска
- * @param dc - сложность
- * @param sourceName - чем бьют (заклинание или действие), если известно
- * @returns короткая подпись запроса
- */
-export function formatSavingThrowRequestTitle(
-  ability: AbilityType,
-  dc: number,
-  sourceName?: string,
-): string {
-  const abilityLabel = SAVE_TYPE_LABELS[ability];
-
-  const save = `${SAVING_THROW_ROLL_LABELS.rollPrefix}${abilityLabel}${SAVING_THROW_ROLL_LABELS.dcPrefix}${dc}${SAVING_THROW_ROLL_LABELS.dcSuffix}`;
-
-  return sourceName
-    ? `${sourceName}${SAVING_THROW_ROLL_LABELS.sourceSeparator}${save}`
-    : save;
-}
-
-/**
  * Определяет режим атаки из флагов преимущества/помехи.
  *
  * @param hasAdvantage - есть ли преимущество
@@ -246,21 +220,6 @@ export function determineRollMode(
   }
 
   return 'normal';
-}
-
-/**
- * Определяет, использует ли сущность автоматические спасброски.
- *
- * Существа (NPC) по умолчанию всегда используют автоспасброски.
- * Акторы (PC) — только если явно включено `autoSaves === true`.
- *
- * @param entity - сущность-цель
- * @returns true если нужен автоматический спасбросок
- */
-export function resolveAutoSaves(entity: SceneEntity): boolean {
-  return isCreatureEntity(entity)
-    ? (entity.autoSaves ?? true)
-    : entity.autoSaves === true;
 }
 
 /**
@@ -369,51 +328,10 @@ export function stampEffectTurnDuration(
 }
 
 /**
- * Определяет, нужно ли накладывать эффекты на ЦЕЛЬ заклинания.
- *
- * Накладываются только эффекты, помеченные `effectTarget: 'target'` (эффекты
- * со значением 'self'/без значения предназначены заклинателю — см.
- * `getCasterSpellEffects`). Условие наложения:
- * - У заклинания нет спасброска (saveType === 'none') — атака уже попала
- * - Цель провалила спасбросок
- *
- * @param spell - заклинание
- * @param saveResult - результат спасброска (если был)
- * @returns массив эффектов для наложения на цель или undefined
- */
-export function resolveEffectsToApply(
-  spell: Spell,
-  saveResult: SavingThrowResult | undefined,
-): ActiveEffect[] | undefined {
-  // На цель кладём только эффекты с effectTarget 'target'; отключённые
-  // (тумблер «Отключен» на заклинании) пропускаются.
-  const targetEffects = spell.activeEffects?.filter(
-    (effect) => !effect.disabled && effect.effectTarget === 'target',
-  );
-
-  if (!targetEffects || targetEffects.length === 0) {
-    return undefined;
-  }
-
-  // Спасбросок уровня заклинания: `landed` = провал спаса (нет спаса → эффект
-  // «приземлился», т.к. этот путь зовётся уже по факту попадания/каста). Гейтим
-  // ПОЭФФЕКТНО через resolveEffectApplication — иначе ветки «при успехе»
-  // (applyOnSuccessOnly) и «при успехе тоже» (applyOnSuccess) не работали бы
-  // (старый код слепо отбрасывал ВСЕ эффекты при успешном спасброске).
-  const landed = spell.saveType === 'none' || !saveResult?.passed;
-
-  const applied = targetEffects.filter(
-    (effect) => resolveEffectApplication(effect, { landed }).applyEffect,
-  );
-
-  return applied.length > 0 ? applied : undefined;
-}
-
-/**
  * Отбирает «самобафф»-эффекты заклинания, предназначенные самому заклинателю:
  * включённые эффекты с `effectTarget` 'self' (или без значения — это значение
  * по умолчанию). Эффекты, помеченные 'target', исключаются — они ложатся на
- * цель в `resolveEffectsToApply`.
+ * цель через `useTargetEffectResolution`.
  *
  * Используется для заклинаний без цели-врага (напр. Щит, Доспех мага), у
  * которых эффект должен лечь на кастера.
@@ -430,8 +348,8 @@ export function getCasterSpellEffects(spell: Spell): ActiveEffect[] {
 
 /**
  * Отбирает эффекты заклинания, предназначенные ЦЕЛИ (`effectTarget: 'target'`):
- * включённые эффекты, которые должны лечь на выбранную цель. В отличие от
- * `resolveEffectsToApply`, не учитывает спасбросок — вызывающий сам решает,
+ * включённые эффекты, которые должны лечь на выбранную цель. Спасбросок не
+ * учитывает — вызывающий сам решает,
  * когда применять (напр. по попаданию атаки или при касте без броска).
  *
  * @param spell - заклинание

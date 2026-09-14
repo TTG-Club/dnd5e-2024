@@ -19,6 +19,8 @@ export class Dnd5eSystem extends Dnd5eVttSystem {
   }
 
   override destroy(): void {
+    super.destroy();
+
     // eslint-disable-next-line no-console
     console.log(`[${this.name}] System destroyed`);
   }

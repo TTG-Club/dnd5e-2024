@@ -13,13 +13,73 @@
  * @module system/dnd/savingThrowRequest
  */
 
-import type { AbilityType } from '@vtt/shared';
+import type { AbilityType, SceneEntity } from '@vtt/shared';
 
 import type { ConditionRef } from './conditionKeys.js';
 
 import { z } from 'zod';
 
+import { isCreatureEntity } from '@vtt/shared';
+
 import { isAbilityType } from './consts.js';
+import { SAVE_TYPE_LABELS } from './spellTypes.js';
+
+/**
+ * Части подписи запроса спасброска: «Огненный шар — Спасбросок Ловкость (DC 15)».
+ * Подпись собирают обе стороны — клиент (запрос по заклинанию) и сервер (зона,
+ * эффект хода), поэтому части лежат в движке.
+ */
+export const SAVING_THROW_REQUEST_TITLE_PARTS = {
+  /** Подпись самого броска: дальше через пробел идёт характеристика */
+  rollPrefix: 'Спасбросок ',
+  /** Сложность в подписи: «… (DC 15)» */
+  dcPrefix: ' (DC ',
+  dcSuffix: ')',
+  /** Разделитель «чем бьют» и самого спасброска */
+  sourceSeparator: ' — ',
+} as const;
+
+/**
+ * Подпись запроса для плашек ядра: «Огненный шар — Спасбросок Ловкость (DC 15)».
+ *
+ * Имени цели здесь нет намеренно: ядро показывает её само, рядом с подписью.
+ *
+ * @param ability - характеристика спасброска
+ * @param dc - сложность
+ * @param sourceName - чем бьют (заклинание, действие, зона), если известно
+ * @returns короткая подпись запроса
+ */
+export function formatSavingThrowRequestTitle(
+  ability: AbilityType,
+  dc: number,
+  sourceName?: string,
+): string {
+  const { rollPrefix, dcPrefix, dcSuffix, sourceSeparator } =
+    SAVING_THROW_REQUEST_TITLE_PARTS;
+
+  const save = `${rollPrefix}${SAVE_TYPE_LABELS[ability]}${dcPrefix}${dc}${dcSuffix}`;
+
+  return sourceName ? `${sourceName}${sourceSeparator}${save}` : save;
+}
+
+/**
+ * Бросает ли сущность спасброски сама, без окна.
+ *
+ * Существа (NPC) по умолчанию бросают сами: окно на каждый спасбросок стаи
+ * волков мастеру не нужно. Персонажи — только если игрок явно включил
+ * «Авто-спасброски»: по умолчанию игрок бросает свои спасброски сам.
+ *
+ * Правило одно для клиента (спасбросок от заклинания) и сервера (зона,
+ * эффект хода) — поэтому оно в движке.
+ *
+ * @param entity - сущность, которая бросает
+ * @returns `true`, если спасбросок бросается автоматически
+ */
+export function resolveAutoSaves(entity: SceneEntity): boolean {
+  return isCreatureEntity(entity)
+    ? (entity.autoSaves ?? true)
+    : entity.autoSaves === true;
+}
 
 /**
  * Метка нашей нагрузки. По ней слот адресата отличает свой запрос от чужого:

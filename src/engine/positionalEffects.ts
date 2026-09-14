@@ -10,9 +10,16 @@
  * файл напрямую — см. `docs/MULTI_SYSTEM_ARCHITECTURE.md`, Фаза 0 (§0.4).
  */
 
-import type { CustomArea, GridSettings, Token } from '@vtt/shared';
+import type {
+  CustomArea,
+  GridSettings,
+  ServerRollRequester,
+  Token,
+} from '@vtt/shared';
 
+import type { ActiveEffect } from './activeEffectTypes.js';
 import type { AuraSourceToken, TriggerAuraHit } from './auraMath.js';
+import type { EngineDeferredTrigger } from './deferredEffectSaves.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type { TurnDamageOutcome, TurnSaveOutcome } from './turnEffects.js';
 
@@ -23,6 +30,12 @@ import {
   collectAllAuraEffects,
   collectTriggerAurasForTarget,
 } from './auraMath.js';
+import { requestEntryEffect } from './deferredEffectSaves.js';
+import {
+  formatAuraRequesterLabel,
+  formatZoneRequesterLabel,
+  shouldRequestEffectSave,
+} from './effectSaveAcquisition.js';
 import { resolveEntryEffect, withInitializedDuration } from './turnEffects.js';
 
 /**
@@ -53,6 +66,8 @@ export interface AreaEffectsSyncResult {
   damageOutcomes: TurnDamageOutcome[];
   /** Исходы спасбросков от триггеров входа/выхода — для подписи в чате */
   saveOutcomes: TurnSaveOutcome[];
+  /** Триггеры входа/выхода, чей спасбросок спросили у игрока */
+  deferred: EngineDeferredTrigger[];
 }
 
 /**
@@ -81,6 +96,8 @@ export interface AreaEffectsSyncResult {
  *   клеткой, а урон входа по правилам берут «при первом входе за ход»:
  *   извилистый путь, дважды заходящий в одно болото, бьёт один раз. Триггеров
  *   выхода и реконсиляции stay набор не касается
+ * @param options.requestRoll - запрос броска от ядра: спасбросок сущности без
+ *   авто-спасбросков уходит игроку, а триггер — в `deferred`
  * @returns изменения и исходы триггеров для чата
  */
 export function syncActorAreaEffects(
@@ -91,11 +108,18 @@ export function syncActorAreaEffects(
   options: {
     triggerOneShots?: boolean;
     alreadyEnteredAreaIds?: ReadonlySet<string>;
+    requestRoll?: ServerRollRequester;
   } = {},
 ): AreaEffectsSyncResult {
-  const { triggerOneShots = true, alreadyEnteredAreaIds } = options;
+  const {
+    triggerOneShots = true,
+    alreadyEnteredAreaIds,
+    requestRoll,
+  } = options;
+
   const damageOutcomes: TurnDamageOutcome[] = [];
   const saveOutcomes: TurnSaveOutcome[] = [];
+  const deferred: EngineDeferredTrigger[] = [];
 
   let changed = false;
 
@@ -129,9 +153,23 @@ export function syncActorAreaEffects(
     changed = true;
   }
 
-  const runTrigger = (
-    effect: Parameters<typeof resolveEntryEffect>[1],
-  ): void => {
+  const runTrigger = (effect: ActiveEffect, zoneName?: string): void => {
+    // Спасбросок бросает игрок — срабатывание ждёт его ответа
+    if (effect.applySave && shouldRequestEffectSave(entity, requestRoll)) {
+      const trigger = requestEntryEffect(
+        entity,
+        effect,
+        requestRoll,
+        formatZoneRequesterLabel(zoneName),
+      );
+
+      if (trigger) {
+        deferred.push(trigger);
+      }
+
+      return;
+    }
+
     const result = resolveEntryEffect(entity, effect);
 
     if (result.damageOutcome) {
@@ -159,7 +197,7 @@ export function syncActorAreaEffects(
 
       for (const effect of area.effects.filter(isDnDEffect)) {
         if (!effect.disabled && effect.areaTrigger === 'exit') {
-          runTrigger(effect);
+          runTrigger(effect, area.name);
         }
       }
     }
@@ -213,13 +251,13 @@ export function syncActorAreaEffects(
 
       for (const effect of area.effects.filter(isDnDEffect)) {
         if (!effect.disabled && effect.areaTrigger === 'enter') {
-          runTrigger(effect);
+          runTrigger(effect, area.name);
         }
       }
     }
   }
 
-  return { changed, damageOutcomes, saveOutcomes };
+  return { changed, damageOutcomes, saveOutcomes, deferred };
 }
 
 /** Итог срабатывания триггер-аур по одной затронутой сущности */
@@ -232,6 +270,8 @@ export interface AuraTriggerOutcome {
   damageOutcomes: TurnDamageOutcome[];
   /** Исходы спасбросков — для подписи в чате */
   saveOutcomes: TurnSaveOutcome[];
+  /** Срабатывания, чей спасбросок спросили у игрока */
+  deferred: EngineDeferredTrigger[];
 }
 
 /** Ключ членства токена в конкретной ауре: токен-источник + эффект */
@@ -278,6 +318,9 @@ function withResolvedDisposition(
  * @param movedEntity - сущность перемещённого токена
  * @param previousToken - токен до перемещения (для определения покинутых аур)
  * @param getEntity - резолвер сущности по actorId (живая ссылка из стейта)
+ * @param options - возможности ядра на время срабатывания
+ * @param options.requestRoll - запрос броска от ядра: спасбросок сущности без
+ *   авто-спасбросков уходит игроку, а срабатывание — в `deferred`
  * @returns исходы по каждой затронутой сущности (для рассылки и чата)
  */
 export function applyAuraTriggerEffects(
@@ -286,6 +329,7 @@ export function applyAuraTriggerEffects(
   movedEntity: DnDSceneEntity,
   previousToken: Token | undefined,
   getEntity: (actorId: string) => DnDSceneEntity | undefined,
+  options: { requestRoll?: ServerRollRequester } = {},
 ): AuraTriggerOutcome[] {
   const tokens = scene.tokens;
   const gridSettings = scene.gridSettings;
@@ -294,27 +338,61 @@ export function applyAuraTriggerEffects(
     return [];
   }
 
+  const { requestRoll } = options;
   const outcomes = new Map<string, AuraTriggerOutcome>();
 
+  /** Имена сущностей по токенам — подпись источника ауры в запросе броска */
+  const sourceNames = new Map<string, string>([
+    [movedToken.id, movedEntity.name],
+  ]);
+
+  const getAccumulator = (targetEntity: DnDSceneEntity): AuraTriggerOutcome => {
+    const existing = outcomes.get(targetEntity.id);
+
+    if (existing) {
+      return existing;
+    }
+
+    const created: AuraTriggerOutcome = {
+      entity: targetEntity,
+      changed: false,
+      damageOutcomes: [],
+      saveOutcomes: [],
+      deferred: [],
+    };
+
+    outcomes.set(targetEntity.id, created);
+
+    return created;
+  };
+
   const fire = (targetEntity: DnDSceneEntity, hit: TriggerAuraHit): void => {
+    // Спасбросок бросает игрок — срабатывание ждёт его ответа
+    if (
+      hit.effect.applySave
+      && shouldRequestEffectSave(targetEntity, requestRoll)
+    ) {
+      const trigger = requestEntryEffect(
+        targetEntity,
+        hit.effect,
+        requestRoll,
+        formatAuraRequesterLabel(sourceNames.get(hit.sourceTokenId)),
+      );
+
+      if (trigger) {
+        getAccumulator(targetEntity).deferred.push(trigger);
+      }
+
+      return;
+    }
+
     const result = resolveEntryEffect(targetEntity, hit.effect);
 
     if (!result.damageOutcome && !result.saveOutcome && !result.statusApplied) {
       return;
     }
 
-    let accumulator = outcomes.get(targetEntity.id);
-
-    if (!accumulator) {
-      accumulator = {
-        entity: targetEntity,
-        changed: false,
-        damageOutcomes: [],
-        saveOutcomes: [],
-      };
-
-      outcomes.set(targetEntity.id, accumulator);
-    }
+    const accumulator = getAccumulator(targetEntity);
 
     if (result.damageOutcome) {
       accumulator.damageOutcomes.push(result.damageOutcome);
@@ -386,6 +464,8 @@ export function applyAuraTriggerEffects(
       entity,
       auraEffects: collectAllAuraEffects(entity),
     });
+
+    sourceNames.set(token.id, entity.name);
   }
 
   // 1. Перемещённый токен как ЦЕЛЬ: ауры остальных токенов (текущие позиции)

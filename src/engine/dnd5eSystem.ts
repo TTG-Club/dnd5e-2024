@@ -13,7 +13,11 @@ import type {
   MeasurementTemplate,
   MovementRange,
   SceneEntity,
+  SystemDeferredTrigger,
+  SystemDeferredTriggerResult,
   SystemRollResult,
+  SystemTriggerApplyResult,
+  SystemTriggerContext,
   Token,
   VttSystem,
 } from '@vtt/shared';
@@ -22,8 +26,13 @@ import type { ActiveEffect } from './activeEffectTypes.js';
 import type { BackgroundDefinition } from './backgroundTypes.js';
 import type { DndCombatState } from './damageApplication.js';
 import type { DamageApplyResult } from './damageUtils.js';
-import type { DnDGameItem, Spell } from './dndEntities.js';
+import type {
+  DeferredEffectOutcome,
+  EngineDeferredTrigger,
+} from './deferredEffectSaves.js';
+import type { DnDGameItem, DnDSceneEntity, Spell } from './dndEntities.js';
 import type { IncomingAttackContext } from './effectPipeline.js';
+import type { TurnSaveOutcome } from './turnEffects.js';
 
 import { getHealthCondition, HEALTH_CONDITIONS, isRecord } from '@vtt/shared';
 
@@ -64,12 +73,18 @@ import {
 } from './damageApplication.js';
 import { getSpellDamageParts } from './damageParts.js';
 import { syncCreatureDeathCondition } from './deathState.js';
+import {
+  formatDeferredEffectsSummary,
+  requestRecurringSave,
+} from './deferredEffectSaves.js';
 import { rollDamageFormula as rollDamageFormulaImpl } from './diceFormula.js';
 import {
   collectActiveEffects,
   isDiceFormulaValue,
   resolveActorStats,
+  resolveTotalMovementSpeed,
 } from './effectPipeline.js';
+import { shouldRequestEffectSave } from './effectSaveAcquisition.js';
 import { isDndSceneEntity } from './entityGuards.js';
 import { buildFeatGrantsSummary } from './featGrantsSummary.js';
 import { validateFormula } from './formulaParser.js';
@@ -94,8 +109,10 @@ import {
   decrementActorEffectDurations,
   expireTurnEffects as expireEntityTurnEffects,
   formatEffectsSummary,
+  formatRecurringSaveStatus,
   formatTurnEffectsMessage,
   processTurnEffects,
+  TURN_TIMING_SUMMARY_LABELS,
 } from './turnEffects.js';
 
 /**
@@ -124,6 +141,66 @@ function isHealthCondition(value: unknown): value is HealthCondition {
  */
 function isHealthConditionArray(value: unknown): value is HealthCondition[] {
   return Array.isArray(value) && value.every(isHealthCondition);
+}
+
+/** Подпись момента в сводке сработавших зон */
+const AREA_SUMMARY_LABEL = 'область';
+
+/** Подпись момента в сводке сработавших аур */
+const AURA_SUMMARY_LABEL = 'аура';
+
+/**
+ * Итог спасброска при входе в зону или ауру в сводке чата.
+ *
+ * @param save - исход спасброска
+ * @returns подпись итога
+ */
+function formatEntrySaveStatus(save: TurnSaveOutcome): string {
+  return save.passed ? '✓ спас' : '✗ провал';
+}
+
+/**
+ * Переводит срабатывания движка, ждущие ответа игрока, в контракт ядра:
+ * функция применения получает нейтральную сущность и отдаёт флаг изменения и
+ * готовую сводку для чата.
+ *
+ * @param triggers - срабатывания движка
+ * @param formatSummary - сводка исхода для чата
+ * @returns срабатывания для ядра либо `undefined`, если ждать нечего
+ */
+function toSystemDeferredTriggers(
+  triggers: readonly EngineDeferredTrigger[],
+  formatSummary: (
+    entity: DnDSceneEntity,
+    outcome: DeferredEffectOutcome,
+  ) => string | null,
+): SystemDeferredTrigger[] | undefined {
+  if (triggers.length === 0) {
+    return undefined;
+  }
+
+  return triggers.map((trigger) => ({
+    entityId: trigger.entityId,
+    blocksMovement: trigger.blocksMovement,
+    resolution: trigger.resolution.then((apply) =>
+      apply
+        ? (entity: SceneEntity): SystemTriggerApplyResult => {
+            // Ядро отдаёт живую сущность нейтральной формы: без данных системы
+            // применять правила D&D не к чему
+            if (!isDndSceneEntity(entity)) {
+              return { changed: false, chatSummary: null };
+            }
+
+            const outcome = apply(entity);
+
+            return {
+              changed: outcome.changed,
+              chatSummary: formatSummary(entity, outcome),
+            };
+          }
+        : null,
+    ),
+  }));
 }
 
 /** Подписи типов существ по ключу (для форматтера компендиума) */
@@ -309,7 +386,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.12';
+  readonly version = '0.8.13';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -461,31 +538,87 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * Уничтожение системы (серверный lifecycle).
-   * Пустая реализация по умолчанию — переопределяется серверным подклассом.
+   * Повторные спасброски хода, ждущие ответа игрока: сущность, эффект и момент
+   * хода. Пока ответа нет, тот же спасбросок на следующей такой же границе
+   * хода не спрашивается второй раз.
    */
-  // eslint-disable-next-line class-methods-use-this
+  private readonly pendingTurnSaveKeys = new Set<string>();
+
+  /**
+   * Уничтожение системы (серверный lifecycle): ожидания ответов остановленного
+   * мира забываются.
+   */
   destroy(): void {
-    // Пустая реализация — override в серверном подклассе
+    this.pendingTurnSaveKeys.clear();
   }
 
   /**
    * Прогоняет периодические эффекты сущности на границе хода (DoT-урон +
    * повторные спасброски D&D 5e) и возвращает флаг изменения и сводку для чата.
+   *
+   * Повторный спасбросок сущности без авто-спасбросков спрашивается у игрока:
+   * ход не ждёт, исход приходит отложенным срабатыванием.
    */
-  // eslint-disable-next-line class-methods-use-this
   runTurnEffects(
     entity: SceneEntity,
     timing: 'startOfTurn' | 'endOfTurn',
-  ): { changed: boolean; chatSummary: string | null } {
+    context?: SystemTriggerContext,
+  ): SystemDeferredTriggerResult {
     if (!isDndSceneEntity(entity)) {
       return { changed: false, chatSummary: null };
     }
 
-    const result = processTurnEffects(entity, timing);
+    const requestRoll = context?.requestRoll;
+    const askOwner = shouldRequestEffectSave(entity, requestRoll);
+
+    const result = processTurnEffects(entity, timing, {
+      deferRecurringSave: () => askOwner,
+    });
+
     const chatSummary = formatTurnEffectsMessage(entity.name, timing, result);
 
-    return { changed: result.changed, chatSummary };
+    if (!askOwner) {
+      return { changed: result.changed, chatSummary };
+    }
+
+    const deferred: EngineDeferredTrigger[] = [];
+
+    for (const effect of result.deferredSaveEffects) {
+      const pendingKey = `${entity.id}:${effect.id}:${timing}`;
+
+      if (this.pendingTurnSaveKeys.has(pendingKey)) {
+        continue;
+      }
+
+      const trigger = requestRecurringSave(entity, effect, timing, requestRoll);
+
+      if (!trigger) {
+        continue;
+      }
+
+      this.pendingTurnSaveKeys.add(pendingKey);
+
+      // Ответ пришёл (или запрос завершился иначе) — следующий спасбросок этого
+      // эффекта снова можно спрашивать
+      void trigger.resolution.finally(() => {
+        this.pendingTurnSaveKeys.delete(pendingKey);
+      });
+
+      deferred.push(trigger);
+    }
+
+    return {
+      changed: result.changed,
+      chatSummary,
+      deferred: toSystemDeferredTriggers(deferred, (outcomeEntity, outcome) =>
+        formatDeferredEffectsSummary(
+          outcomeEntity.name,
+          TURN_TIMING_SUMMARY_LABELS[timing],
+          outcome,
+          formatRecurringSaveStatus,
+        ),
+      ),
+    };
   }
 
   /**
@@ -531,11 +664,11 @@ export class Dnd5eVttSystem implements VttSystem {
     previousAreaIds: ReadonlySet<string>,
     currentAreaIds: ReadonlySet<string>,
     areas: CustomArea[],
-    options?: {
+    options?: SystemTriggerContext & {
       triggerOneShots?: boolean;
       alreadyEnteredAreaIds?: ReadonlySet<string>;
     },
-  ): { changed: boolean; chatSummary: string | null } {
+  ): SystemDeferredTriggerResult {
     if (!isDndSceneEntity(entity)) {
       return { changed: false, chatSummary: null };
     }
@@ -550,13 +683,26 @@ export class Dnd5eVttSystem implements VttSystem {
 
     const chatSummary = formatEffectsSummary(
       entity.name,
-      'область',
+      AREA_SUMMARY_LABEL,
       result.damageOutcomes,
       result.saveOutcomes,
-      (save) => (save.passed ? '✓ спас' : '✗ провал'),
+      formatEntrySaveStatus,
     );
 
-    return { changed: result.changed, chatSummary };
+    return {
+      changed: result.changed,
+      chatSummary,
+      deferred: toSystemDeferredTriggers(
+        result.deferred,
+        (outcomeEntity, outcome) =>
+          formatDeferredEffectsSummary(
+            outcomeEntity.name,
+            AREA_SUMMARY_LABEL,
+            outcome,
+            formatEntrySaveStatus,
+          ),
+      ),
+    };
   }
 
   /**
@@ -570,11 +716,8 @@ export class Dnd5eVttSystem implements VttSystem {
     movedEntity: SceneEntity,
     previousToken: Token | undefined,
     getEntity: (actorId: string) => SceneEntity | undefined,
-  ): Array<{
-    entity: SceneEntity;
-    changed: boolean;
-    chatSummary: string | null;
-  }> {
+    context?: SystemTriggerContext,
+  ): Array<SystemDeferredTriggerResult & { entity: SceneEntity }> {
     if (!isDndSceneEntity(movedEntity)) {
       return [];
     }
@@ -589,6 +732,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
         return entity && isDndSceneEntity(entity) ? entity : undefined;
       },
+      { requestRoll: context?.requestRoll },
     );
 
     return outcomes.map((outcome) => ({
@@ -596,10 +740,20 @@ export class Dnd5eVttSystem implements VttSystem {
       changed: outcome.changed,
       chatSummary: formatEffectsSummary(
         outcome.entity.name,
-        'аура',
+        AURA_SUMMARY_LABEL,
         outcome.damageOutcomes,
         outcome.saveOutcomes,
-        (save) => (save.passed ? '✓ спас' : '✗ провал'),
+        formatEntrySaveStatus,
+      ),
+      deferred: toSystemDeferredTriggers(
+        outcome.deferred,
+        (outcomeEntity, deferredOutcome) =>
+          formatDeferredEffectsSummary(
+            outcomeEntity.name,
+            AURA_SUMMARY_LABEL,
+            deferredOutcome,
+            formatEntrySaveStatus,
+          ),
       ),
     }));
   }
@@ -685,17 +839,8 @@ export class Dnd5eVttSystem implements VttSystem {
       return 0;
     }
 
-    const { movement } = resolveActorStats(
-      entity,
-      collectDndAmbientEffects(ambientEffects),
-    );
-
-    return (
-      (movement.walk || 0)
-      + (movement.fly || 0)
-      + (movement.swim || 0)
-      + (movement.climb || 0)
-      + (movement.burrow || 0)
+    return resolveTotalMovementSpeed(
+      resolveActorStats(entity, collectDndAmbientEffects(ambientEffects)),
     );
   }
 

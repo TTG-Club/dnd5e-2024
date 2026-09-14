@@ -1360,6 +1360,33 @@ export const MAX_CHANGES_PER_EFFECT = 40;
 // ── Zod-схемы для валидации ───────────────────────────────────
 
 /**
+ * Приводит числовое поле формы к числу до проверки схемой.
+ *
+ * Поле ввода числа отдаёт пустую строку, когда его очистили, а без
+ * модификатора `.number` — строку с числом. Строгая схема на такой записи
+ * падала, и разбор отбрасывал куда больше, чем одно поле: все модификаторы
+ * эффекта или его длительность целиком.
+ *
+ * @param value - значение поля как пришло
+ * @returns число, `undefined` для пустого или нечислового ввода, либо исходное
+ *   значение, если это не строка и не `NaN`
+ */
+function coerceOptionalNumber(value: unknown): unknown {
+  if (typeof value === 'number') {
+    return Number.isNaN(value) ? undefined : value;
+  }
+
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  const parsed = Number(trimmed);
+
+  return trimmed === '' || !Number.isFinite(parsed) ? undefined : parsed;
+}
+
+/**
  * Zod-схема для валидации EffectChange.
  *
  * Используется на сервере для проверки входящих данных от клиента.
@@ -1389,8 +1416,30 @@ export const EffectChangeSchema = z.object({
   ]),
   value: z.string().min(1),
   condition: z.string().optional(),
-  priority: z.number().int().min(0).max(100),
+  // Очищенный приоритет — не повод терять строку: берём приоритет по умолчанию
+  priority: z
+    .preprocess(coerceOptionalNumber, z.number().int().min(0).max(100))
+    .catch(DEFAULT_EFFECT_CHANGE_PRIORITY),
 });
+
+/**
+ * Zod-схема списка модификаторов эффекта.
+ *
+ * Строки разбираются ПО ОДНОЙ: негодная (пустое значение, незнакомый режим)
+ * отбрасывается, остальные остаются. Разбор списком целиком стирал все
+ * модификаторы эффекта из-за одной недописанной строки — там, где разобранный
+ * эффект записывается обратно (боевой канал, шаблон состояния). Лишние сверх
+ * предела строки отсекаются, а не отменяют разбор.
+ */
+const EffectChangesSchema = z.array(z.unknown()).transform((rows) =>
+  rows
+    .flatMap((row) => {
+      const parsed = EffectChangeSchema.safeParse(row);
+
+      return parsed.success ? [parsed.data] : [];
+    })
+    .slice(0, MAX_CHANGES_PER_EFFECT),
+);
 
 /**
  * Zod-схема для валидации EffectDuration.
@@ -1405,8 +1454,13 @@ export const EffectDurationSchema = z.object({
     'turn',
     'special',
   ]),
-  value: z.number().int().min(0).optional(),
-  remaining: z.number().int().min(0).optional(),
+  // Очищенное количество не должно превращать «Раунды» в «Постоянно»: без
+  // приведения длительность целиком падала в значение по умолчанию
+  value: z.preprocess(coerceOptionalNumber, z.number().int().min(0).optional()),
+  remaining: z.preprocess(
+    coerceOptionalNumber,
+    z.number().int().min(0).optional(),
+  ),
   turnAnchor: z.enum(['carrier', 'source']).optional(),
   turnTiming: z.enum(['start', 'end']).optional(),
   turnSkipFirst: z.boolean().optional(),
@@ -1430,17 +1484,20 @@ const SAVE_ABILITY_VALUES = [
   'charisma',
 ] as const;
 
+/** Zod-схема сложности спасброска: число, в том числе набранное строкой */
+const EffectSaveDcSchema = z.preprocess(coerceOptionalNumber, z.number().int());
+
 /** Zod-схема спасброска при наложении эффекта */
 const EffectSaveSchema = z.object({
   ability: z.enum(SAVE_ABILITY_VALUES),
-  dc: z.number().int(),
+  dc: EffectSaveDcSchema,
   onSuccess: z.enum(['negate', 'half']),
 });
 
 /** Zod-схема периодического спасброска для снятия эффекта */
 const RecurringSaveSchema = z.object({
   ability: z.enum(SAVE_ABILITY_VALUES),
-  dc: z.number().int(),
+  dc: EffectSaveDcSchema,
   timing: z.enum(['startOfTurn', 'endOfTurn']),
 });
 
@@ -1512,7 +1569,7 @@ export const ActiveEffectSchema = z.object({
   sourceActorId: z.string().optional(),
   transfer: z.boolean().catch(false),
   duration: EffectDurationSchema.catch({ type: 'permanent' }),
-  changes: z.array(EffectChangeSchema).max(MAX_CHANGES_PER_EFFECT).catch([]),
+  changes: EffectChangesSchema.catch([]),
   flags: EffectFlagsSchema.catch([]),
   aura: EffectAuraSchema.optional(),
   areaTrigger: z.enum(['stay', 'enter', 'exit']).optional(),
