@@ -628,6 +628,41 @@ describe('переключатели спасбросков', () => {
       undefined,
     );
   });
+
+  it('спасбросок против урона каждый ход: Сл по месту, успех — без урона', () => {
+    const zoneEffect = createEffect({
+      recurringDamage: { damageParts: POISON_DAMAGE, timing: 'startOfTurn' },
+    });
+
+    const layout = engine.resolveEffectFormLayout('zone', zoneEffect);
+
+    const enabled = engine.writeRecurringDamageSaveEnabled(
+      zoneEffect,
+      true,
+      layout,
+    );
+
+    assert.deepEqual(enabled.recurringDamage.save, {
+      ability: 'wisdom',
+      dc: engine.DEFAULT_EFFECT_SAVE_DC,
+      onSuccess: 'negate',
+    });
+
+    assert.deepEqual(enabled.recurringDamage.damageParts, POISON_DAMAGE);
+
+    assert.equal(
+      engine.writeRecurringDamageSaveEnabled(enabled, false, layout)
+        .recurringDamage.save,
+      undefined,
+    );
+
+    const withoutDamage = createEffect();
+
+    assert.equal(
+      engine.writeRecurringDamageSaveEnabled(withoutDamage, true, layout),
+      withoutDamage,
+    );
+  });
 });
 
 describe('шаблон состояния', () => {
@@ -692,6 +727,24 @@ describe('черновик перед сохранением', () => {
     assert.equal(normalized.recurringSave.dc, 15);
     assert.equal(normalized.damageParts, undefined);
     assert.equal(normalized.conditionImmunities, undefined);
+  });
+
+  it('сл спасброска против урона каждый ход: строка — числом, 0 у зоны — 1', () => {
+    const effect = createEffect({
+      recurringDamage: {
+        damageParts: POISON_DAMAGE,
+        timing: 'startOfTurn',
+        save: { ...CONSTITUTION_SAVE, dc: '0' },
+      },
+    });
+
+    const normalized = engine.normalizeEffectDraft(
+      effect,
+      engine.resolveEffectFormLayout('zone', effect),
+    );
+
+    assert.equal(normalized.recurringDamage.save.dc, 1);
+    assert.deepEqual(normalized.recurringDamage.damageParts, POISON_DAMAGE);
   });
 
   it('сл 0 остаётся «Сл источника» только там, где источник есть', () => {
@@ -861,6 +914,27 @@ describe('живая сводка эффекта', () => {
       ),
       'При входе в зону: «Отравленный», Скорость (Ходьба) +10 фт.',
     );
+  });
+
+  it('зона «пока внутри»: урон каждый ход со спасброском', () => {
+    for (const [onSuccess, successLabel] of [
+      ['negate', 'без урона'],
+      ['half', 'половина урона'],
+    ]) {
+      const effect = createEffect({
+        recurringDamage: {
+          damageParts: POISON_DAMAGE,
+          timing: 'startOfTurn',
+          save: { ...CONSTITUTION_SAVE, onSuccess },
+        },
+      });
+
+      assert.equal(
+        engine.describeEffectScenario(effect, 'zone'),
+        'Пока существо в зоне: каждый ход 2d6 ядом в начале хода '
+          + `(спасбросок Телосложения, Сл 13: успех — ${successLabel}).`,
+      );
+    }
   });
 
   it('аура и снятие после атаки', () => {

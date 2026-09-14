@@ -18,6 +18,7 @@ import {
   resolveActorStats,
   resolveEffectApplication,
   resolveEffectSaveDc,
+  stampSourceTurnSaveDc,
 } from '@vtt/shared/system/dnd.js';
 
 import {
@@ -78,32 +79,6 @@ export function listEffectsWithOwnSave(spell: Spell): ActiveEffect[] {
   return getTargetSpellEffects(spell).filter(
     (effect) => effect.applySave !== undefined,
   );
-}
-
-/**
- * Проставляет Сл повторного спасброска: `recurringSave.dc === 0` (маркер
- * «Сл источника») заменяется Сл заклинателя. Нужно заклинаниям персонажей (Сл
- * зависит от билда); у существ Сл фиксирована (dc > 0) и не трогается.
- *
- * @param effect - накладываемый эффект
- * @param spellSaveDC - Сл спасброска источника (кастера)
- * @returns исходный эффект или копия с проставленной Сл
- */
-function stampRecurringSaveDc(
-  effect: ActiveEffect,
-  spellSaveDC: number,
-): ActiveEffect {
-  if (!effect.recurringSave || effect.recurringSave.dc > 0) {
-    return effect;
-  }
-
-  return {
-    ...effect,
-    recurringSave: {
-      ...effect.recurringSave,
-      dc: resolveEffectSaveDc(effect.recurringSave.dc, spellSaveDC),
-    },
-  };
 }
 
 /**
@@ -370,7 +345,7 @@ export function useTargetEffectResolution() {
         // источник = кастер): нужен текущий ход энкаунтера на момент наложения.
         effects.push(
           stampEffectTurnDuration(
-            stampRecurringSaveDc(effect, spellSaveDC),
+            stampSourceTurnSaveDc(effect, spellSaveDC),
             entity.id,
             casterId,
           ),

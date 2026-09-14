@@ -13,7 +13,10 @@ import type { AbilityType, DamagePart } from '@vtt/shared';
 
 import type {
   ActiveEffect,
+  EffectSave,
+  EffectSaveOutcome,
   EffectSaveTiming,
+  RecurringDamage,
   ResolvedActorStats,
 } from './activeEffectTypes.js';
 import type { ConditionRef } from './conditionKeys.js';
@@ -265,6 +268,11 @@ export interface TurnSaveOutcome {
   total: number;
   /** Успешен ли спас (эффект снят) */
   passed: boolean;
+  /**
+   * Спасбросок против урона каждый ход: что даёт успех. Не задан — это
+   * повторный спасбросок, снимающий эффект.
+   */
+  damageOnSuccess?: EffectSaveOutcome;
 }
 
 /** Исход периодического урона (DoT) одного эффекта за тик */
@@ -294,6 +302,11 @@ export interface TurnEffectsResult {
    * остаётся на сущности, пока не придёт ответ.
    */
   deferredSaveEffects: ActiveEffect[];
+  /**
+   * Эффекты, чей урон каждый ход ждёт спасброска игрока: урон не нанесён, его
+   * нанесут по ответу.
+   */
+  deferredDamageSaveEffects: ActiveEffect[];
 }
 
 /** Как прогонять периодические эффекты */
@@ -303,6 +316,11 @@ export interface TurnEffectsOptions {
    * игрока). Без опции все спасброски бросает сервер.
    */
   deferRecurringSave?: (effect: ActiveEffect) => boolean;
+  /**
+   * Не бросать спасбросок против урона каждый ход, а отложить вместе с уроном
+   * (его спросят у игрока). Без опции бросает сервер.
+   */
+  deferRecurringDamageSave?: (effect: ActiveEffect) => boolean;
 }
 
 /** Эффекты и свойства носителя для бонусных кубиков серверного спасброска. */
@@ -389,6 +407,47 @@ export function buildRecurringSaveSpec(
     againstMagic: isMagicalEffect(effect),
     againstCondition: effect.conditionKey,
   };
+}
+
+/**
+ * Спасбросок против урона каждый ход.
+ *
+ * @param effect - эффект с `recurringDamage.save`
+ * @param save - его спасбросок
+ * @returns спецификация спасброска
+ */
+export function buildRecurringDamageSaveSpec(
+  effect: ActiveEffect,
+  save: EffectSave,
+): EffectSaveSpec {
+  return {
+    effectName: effect.name,
+    ability: save.ability,
+    dc: save.dc,
+    againstMagic: isMagicalEffect(effect),
+  };
+}
+
+/** Доля урона при успешном спасброске «половина урона» */
+const HALF_DAMAGE_MULTIPLIER = 0.5;
+
+/**
+ * Какая доля урона достаётся после спасброска: провал — весь, успех — по
+ * `onSuccess`.
+ *
+ * @param onSuccess - что даёт успех
+ * @param passed - пройден ли спасбросок
+ * @returns множитель урона
+ */
+export function resolveSaveDamageMultiplier(
+  onSuccess: EffectSaveOutcome,
+  passed: boolean,
+): number {
+  if (!passed) {
+    return 1;
+  }
+
+  return onSuccess === 'half' ? HALF_DAMAGE_MULTIPLIER : 0;
 }
 
 /**
@@ -633,6 +692,49 @@ export function rollEffectDamage(
   };
 }
 
+/**
+ * Катает урон каждый ход с учётом спасброска против него. Урон не
+ * применяется — вызывающий складывает тики и списывает хиты одним изменением.
+ *
+ * @param entity - носитель эффекта
+ * @param effect - эффект
+ * @param recurringDamage - его урон каждый ход
+ * @param save - исход спасброска против урона; `null` — спасброска нет
+ * @param stats - resolved-статы носителя (защиты от урона)
+ * @returns исход урона либо `null`, если урона нет
+ */
+export function rollRecurringDamage(
+  entity: DnDSceneEntity,
+  effect: ActiveEffect,
+  recurringDamage: RecurringDamage,
+  save: TurnSaveOutcome | null,
+  stats: ResolvedActorStats,
+): TurnDamageOutcome | null {
+  const multiplier =
+    recurringDamage.save && save
+      ? resolveSaveDamageMultiplier(recurringDamage.save.onSuccess, save.passed)
+      : 1;
+
+  if (multiplier <= 0) {
+    return null;
+  }
+
+  const rolled = rollEffectDamage(
+    effect.name,
+    recurringDamage.damageParts,
+    stats,
+    entity,
+  );
+
+  if (!rolled) {
+    return null;
+  }
+
+  const total = Math.floor(rolled.total * multiplier);
+
+  return total > 0 ? { ...rolled, total } : null;
+}
+
 /** Исход срабатывания эффекта области/ауры при входе/выходе */
 export interface EntryEffectResult {
   /** Исход урона (если был) — для подписи в чате */
@@ -771,8 +873,9 @@ export function resolveEntryEffect(
 
 /**
  * Прогоняет периодические эффекты сущности для указанного момента хода
- * (начало/конец): сперва наносит DoT-урон (`recurringDamage`), затем катает
- * повторные спасброски (`recurringSave`) — успех снимает эффект.
+ * (начало/конец): сперва наносит DoT-урон (`recurringDamage`, со спасброском
+ * против него, если он задан), затем катает повторные спасброски
+ * (`recurringSave`) — успех снимает эффект.
  *
  * Спасброски учитывают модификатор, преимущество/помеху и бонусные кубики.
  * Спасбросок, который надо спросить у игрока (`options.deferRecurringSave`), не
@@ -796,6 +899,7 @@ export function processTurnEffects(
     saveOutcomes: [],
     damageOutcomes: [],
     deferredSaveEffects: [],
+    deferredDamageSaveEffects: [],
   };
 
   if (!entity.activeEffects || entity.activeEffects.length === 0) {
@@ -803,11 +907,14 @@ export function processTurnEffects(
   }
 
   const stats = resolveActorStats(entity);
+  const saveOutcomes: TurnSaveOutcome[] = [];
 
-  // 1. Периодический урон (DoT) по таймингу
+  // 1. Периодический урон (DoT) по таймингу; со спасброском — по его исходу
   const damageOutcomes: TurnDamageOutcome[] = [];
+  const deferredDamageSaveEffects: ActiveEffect[] = [];
 
   let damageTotal = 0;
+  let savingThrowContext = buildEffectSavingThrowContext(entity);
 
   for (const effect of entity.activeEffects) {
     const recurringDamage = effect.recurringDamage;
@@ -821,11 +928,43 @@ export function processTurnEffects(
       continue;
     }
 
-    const outcome = rollEffectDamage(
-      effect.name,
-      recurringDamage.damageParts,
-      stats,
+    let damageSave: TurnSaveOutcome | null = null;
+
+    if (recurringDamage.save) {
+      // Спасбросок спросят у игрока: урон ждёт ответа
+      if (options.deferRecurringDamageSave?.(effect)) {
+        deferredDamageSaveEffects.push(effect);
+
+        continue;
+      }
+
+      const { roll, total, passed } = rollEffectSavingThrow(
+        recurringDamage.save.ability,
+        recurringDamage.save.dc,
+        stats,
+        savingThrowContext,
+        buildRecurringDamageSaveSpec(effect, recurringDamage.save),
+      );
+
+      damageSave = {
+        effectName: effect.name,
+        ability: recurringDamage.save.ability,
+        dc: recurringDamage.save.dc,
+        roll,
+        total,
+        passed,
+        damageOnSuccess: recurringDamage.save.onSuccess,
+      };
+
+      saveOutcomes.push(damageSave);
+    }
+
+    const outcome = rollRecurringDamage(
       entity,
+      effect,
+      recurringDamage,
+      damageSave,
+      stats,
     );
 
     if (outcome) {
@@ -836,14 +975,14 @@ export function processTurnEffects(
 
   if (damageTotal > 0) {
     applyDamageToEntity(entity, damageTotal);
+    // Урон мог опустить хиты — повторные спасброски считаются уже по новому
+    // состоянию сущности
+    savingThrowContext = buildEffectSavingThrowContext(entity);
   }
 
   // 2. Повторные спасброски по таймингу — успех снимает эффект
-  const saveOutcomes: TurnSaveOutcome[] = [];
   const deferredSaveEffects: ActiveEffect[] = [];
   const initialLength = entity.activeEffects.length;
-
-  let savingThrowContext = buildEffectSavingThrowContext(entity);
 
   const remaining = entity.activeEffects.filter((effect) => {
     const recurring = effect.recurringSave;
@@ -903,8 +1042,19 @@ export function processTurnEffects(
     saveOutcomes,
     damageOutcomes,
     deferredSaveEffects,
+    deferredDamageSaveEffects,
   };
 }
+
+/** Итог спасброска против урона каждый ход в сводке */
+const RECURRING_DAMAGE_SAVE_STATUS: Record<
+  EffectSaveOutcome | 'failed',
+  string
+> = {
+  negate: '✓ без урона',
+  half: '✓ половина урона',
+  failed: '✗ полный урон',
+};
 
 /** Подпись момента хода в сводке эффектов */
 export const TURN_TIMING_SUMMARY_LABELS: Record<EffectSaveTiming, string> = {
@@ -941,6 +1091,12 @@ export function formatTurnEffectsMessage(
  * @returns подпись итога
  */
 export function formatRecurringSaveStatus(save: TurnSaveOutcome): string {
+  if (save.damageOnSuccess) {
+    return save.passed
+      ? RECURRING_DAMAGE_SAVE_STATUS[save.damageOnSuccess]
+      : RECURRING_DAMAGE_SAVE_STATUS.failed;
+  }
+
   return save.passed ? '✓ снят' : '✗ держится';
 }
 

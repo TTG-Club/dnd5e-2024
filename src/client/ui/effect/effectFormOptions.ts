@@ -12,6 +12,7 @@ import type {
   EffectDurationType,
   EffectFormContext,
   EffectFormLayout,
+  EffectSaveOutcome,
   EffectSaveTiming,
   EffectSuccessOutcome,
   EffectTurnAnchor,
@@ -34,6 +35,7 @@ import {
   EFFECT_DELIVERY_ICONS,
   EFFECT_DELIVERY_LABELS,
   EFFECT_DURATION_STEP_LABELS,
+  EFFECT_RECURRING_DAMAGE_SUCCESS_LABELS,
   EFFECT_SUCCESS_OUTCOME_OPTIONS,
   EFFECT_TARGET_DELIVERY_LABELS,
   EFFECT_TURN_MOMENT_LABELS,
@@ -287,6 +289,14 @@ export const EFFECT_SAVE_TIMING_OPTIONS: ReadonlyArray<
   value: timing,
   label: EFFECT_TURN_MOMENT_LABELS[timing],
 }));
+
+/** Варианты «если спасбросок против урона каждый ход успешен» */
+export const EFFECT_RECURRING_DAMAGE_SUCCESS_OPTIONS: ReadonlyArray<
+  EffectSegmentOption<EffectSaveOutcome>
+> = [
+  { value: 'negate', label: EFFECT_RECURRING_DAMAGE_SUCCESS_LABELS.negate },
+  { value: 'half', label: EFFECT_RECURRING_DAMAGE_SUCCESS_LABELS.half },
+];
 
 /** Варианты «кого задевает аура» */
 export const EFFECT_AURA_TARGET_OPTIONS: ReadonlyArray<

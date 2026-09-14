@@ -646,6 +646,44 @@ export function writeRecurringSaveEnabled(
 }
 
 /**
+ * Включает или выключает спасбросок против урона каждый ход. Новый берёт
+ * характеристику и Сл спасброска эффекта, а успех по умолчанию снимает весь
+ * урон — так звучит большинство облаков и аур («Облако смерти» — половина,
+ * это автор выберет сам).
+ *
+ * @param effect - эффект с уроном каждый ход
+ * @param enabled - нужен ли спасбросок
+ * @param layout - раскладка окна
+ * @returns новый эффект; без урона каждый ход — прежний
+ */
+export function writeRecurringDamageSaveEnabled(
+  effect: ActiveEffect,
+  enabled: boolean,
+  layout: EffectFormLayout,
+): ActiveEffect {
+  const { recurringDamage } = effect;
+
+  if (!recurringDamage) {
+    return effect;
+  }
+
+  if (!enabled) {
+    return {
+      ...effect,
+      recurringDamage: { ...recurringDamage, save: undefined },
+    };
+  }
+
+  const save: EffectSave = recurringDamage.save ?? {
+    ability: effect.applySave?.ability ?? DEFAULT_EFFECT_SAVE_ABILITY,
+    dc: effect.applySave?.dc ?? defaultSaveDc(layout),
+    onSuccess: 'negate',
+  };
+
+  return { ...effect, recurringDamage: { ...recurringDamage, save } };
+}
+
+/**
  * Заполняет эффект данными состояния из шаблона. Берётся то, ЧТО состояние
  * делает (название, модификаторы, флаги, иммунитеты, ключ состояния); как и
  * когда эффект срабатывает (доставка, момент, спасбросок, урон, длительность),
@@ -835,6 +873,20 @@ export function normalizeEffectDraft(
       ? {
           ...effect.recurringSave,
           dc: clampSaveDc(effect.recurringSave.dc, layout.minSaveDc),
+        }
+      : undefined,
+    recurringDamage: effect.recurringDamage
+      ? {
+          ...effect.recurringDamage,
+          save: effect.recurringDamage.save
+            ? {
+                ...effect.recurringDamage.save,
+                dc: clampSaveDc(
+                  effect.recurringDamage.save.dc,
+                  layout.minSaveDc,
+                ),
+              }
+            : undefined,
         }
       : undefined,
     damageParts: effect.damageParts?.length ? effect.damageParts : undefined,

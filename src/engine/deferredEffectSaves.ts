@@ -29,11 +29,14 @@ import {
   settleEffectSaveOutcome,
 } from './effectSaveAcquisition.js';
 import {
+  applyDamageToEntity,
   applyEntryEffect,
   buildApplySaveSpec,
+  buildRecurringDamageSaveSpec,
   buildRecurringSaveSpec,
   formatEffectsSummary,
   formatEffectsSummaryHeader,
+  rollRecurringDamage,
 } from './turnEffects.js';
 
 /** Исход отложенного срабатывания после ответа игрока */
@@ -269,6 +272,117 @@ export function requestRecurringSave(
   );
 
   // Повторный спасбросок — на границе хода, фишка в этот момент не идёт
+  return { entityId: entity.id, blocksMovement: false, resolution };
+}
+
+/**
+ * Применяет ответ на спасбросок против урона каждый ход: провал — полный урон,
+ * успех — по `onSuccess`, отмена — урона нет.
+ *
+ * Эффект ищется по идентификатору и сверяется заново: пока игрок думал, его
+ * могли снять, выключить или поменять — тогда бить нечем.
+ *
+ * @param entity - живая сущность
+ * @param effectId - эффект, чей урон ждал спасброска
+ * @param timing - граница хода, на которой бросали
+ * @param spec - что бросали
+ * @param outcome - исход запроса
+ * @returns исход для сводки
+ */
+function applyRecurringDamageSaveAnswer(
+  entity: DnDSceneEntity,
+  effectId: string,
+  timing: EffectSaveTiming,
+  spec: EffectSaveSpec,
+  outcome: RollRequestOutcome,
+): DeferredEffectOutcome {
+  const effect = entity.activeEffects?.find((entry) => entry.id === effectId);
+  const recurringDamage = effect?.recurringDamage;
+
+  if (
+    !effect
+    || effect.disabled
+    || !recurringDamage?.save
+    || recurringDamage.timing !== timing
+  ) {
+    return unchangedOutcome([]);
+  }
+
+  const acquisition = settleEffectSaveOutcome(entity, spec, outcome);
+
+  if (acquisition.status === 'cancelled') {
+    return unchangedOutcome(formatEffectNotes(spec, acquisition.note));
+  }
+
+  const save: TurnSaveOutcome = {
+    ...acquisition.save,
+    damageOnSuccess: recurringDamage.save.onSuccess,
+  };
+
+  const damage = rollRecurringDamage(
+    entity,
+    effect,
+    recurringDamage,
+    save,
+    resolveActorStats(entity),
+  );
+
+  if (damage) {
+    applyDamageToEntity(entity, damage.total);
+  }
+
+  return {
+    changed: damage !== null,
+    damageOutcomes: damage ? [damage] : [],
+    saveOutcomes: [save],
+    notes: formatEffectNotes(spec, acquisition.note),
+  };
+}
+
+/**
+ * Спасбросок против урона каждый ход, который бросает игрок: урон ждёт ответа.
+ *
+ * @param entity - носитель эффекта
+ * @param effect - эффект с `recurringDamage.save` нужного момента хода
+ * @param timing - граница хода
+ * @param requestRoll - запрос броска от ядра
+ * @returns отложенное срабатывание; `null`, если спасброска против урона нет
+ */
+export function requestRecurringDamageSave(
+  entity: DnDSceneEntity,
+  effect: ActiveEffect,
+  timing: EffectSaveTiming,
+  requestRoll: ServerRollRequester,
+): EngineDeferredTrigger | null {
+  const save = effect.recurringDamage?.save;
+
+  if (!save) {
+    return null;
+  }
+
+  const spec = buildRecurringDamageSaveSpec(effect, save);
+  const effectId = effect.id;
+
+  const resolution = requestRoll(
+    buildEffectSaveRollRequest(
+      entity,
+      spec,
+      formatEffectRequesterLabel(effect.name),
+    ),
+  ).then(
+    (outcome): DeferredEffectApply =>
+      (liveEntity) =>
+        applyRecurringDamageSaveAnswer(
+          liveEntity,
+          effectId,
+          timing,
+          spec,
+          outcome,
+        ),
+    () => null,
+  );
+
+  // Урон на границе хода — фишка в этот момент не идёт
   return { entityId: entity.id, blocksMovement: false, resolution };
 }
 

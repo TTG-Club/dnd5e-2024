@@ -628,3 +628,208 @@ describe('recurring turn saves are asked of the owner', () => {
     assert.equal(applied.chatSummary, null);
   });
 });
+
+describe('damage every turn can be gated by a saving throw', () => {
+  /** Урон тика: плоское число, чтобы итог не зависел от кубиков */
+  const TICK_DAMAGE = 5;
+
+  /** Сложность, которую не пройти (кость максимум 20, модификатор 0) */
+  const IMPOSSIBLE_DC = 99;
+
+  /** Сложность, которую проходит любой бросок */
+  const TRIVIAL_DC = 1;
+
+  /**
+   * Эффект облака: урон в начале хода со спасброском Телосложения.
+   *
+   * @param {object} save - поля спасброска, отличные от умолчания
+   * @param {object} overrides - поля эффекта
+   * @returns {object} эффект
+   */
+  function createCloudEffect(save = {}, overrides = {}) {
+    return createEffect('cloud', {
+      recurringDamage: {
+        damageParts: [{ formula: `${TICK_DAMAGE}`, type: 'poison' }],
+        timing: 'startOfTurn',
+        save: { ...CONSTITUTION_SAVE, ...save },
+      },
+      ...overrides,
+    });
+  }
+
+  it('a failed server roll deals full damage, a passed one follows "on success"', () => {
+    for (const [dc, onSuccess, expectedDamage, status] of [
+      [IMPOSSIBLE_DC, 'negate', TICK_DAMAGE, '✗ полный урон'],
+      [TRIVIAL_DC, 'negate', 0, '✓ без урона'],
+      [TRIVIAL_DC, 'half', Math.floor(TICK_DAMAGE / 2), '✓ половина урона'],
+    ]) {
+      const entity = createActor({
+        autoSaves: true,
+        activeEffects: [createCloudEffect({ dc, onSuccess })],
+      });
+
+      const hpBefore = engine.resolveEntityCurrentHp(entity);
+      const result = engine.processTurnEffects(entity, 'startOfTurn');
+
+      assert.equal(
+        engine.resolveEntityCurrentHp(entity),
+        hpBefore - expectedDamage,
+      );
+
+      assert.equal(result.damageTotal, expectedDamage);
+      assert.equal(result.saveOutcomes.length, 1);
+      assert.equal(result.saveOutcomes[0].damageOnSuccess, onSuccess);
+      assert.equal(entity.activeEffects.length, 1, 'эффект остаётся');
+
+      assert.ok(
+        engine
+          .formatTurnEffectsMessage(entity.name, 'startOfTurn', result)
+          .includes(status),
+      );
+    }
+  });
+
+  it('the other moment of the turn neither rolls nor deals damage', () => {
+    const entity = createActor({
+      autoSaves: true,
+      activeEffects: [createCloudEffect({ dc: IMPOSSIBLE_DC })],
+    });
+
+    const hpBefore = engine.resolveEntityCurrentHp(entity);
+    const result = engine.processTurnEffects(entity, 'endOfTurn');
+
+    assert.equal(engine.resolveEntityCurrentHp(entity), hpBefore);
+    assert.equal(result.saveOutcomes.length, 0);
+  });
+
+  it('a deferred save holds the damage until the answer', () => {
+    const entity = createActor({
+      activeEffects: [createCloudEffect({ dc: IMPOSSIBLE_DC })],
+    });
+
+    const hpBefore = engine.resolveEntityCurrentHp(entity);
+
+    const result = engine.processTurnEffects(entity, 'startOfTurn', {
+      deferRecurringDamageSave: () => true,
+    });
+
+    assert.equal(engine.resolveEntityCurrentHp(entity), hpBefore);
+    assert.equal(result.changed, false);
+    assert.equal(result.deferredDamageSaveEffects.length, 1);
+    assert.equal(result.saveOutcomes.length, 0);
+  });
+
+  it('the owner is asked; the answer deals damage by its outcome', async () => {
+    const system = new engine.Dnd5eVttSystem();
+
+    for (const [passed, onSuccess, expectedDamage] of [
+      [false, 'negate', TICK_DAMAGE],
+      [true, 'negate', 0],
+      [true, 'half', Math.floor(TICK_DAMAGE / 2)],
+    ]) {
+      const entity = createActor({
+        activeEffects: [createCloudEffect({ onSuccess })],
+      });
+
+      const hpBefore = engine.resolveEntityCurrentHp(entity);
+      const double = createRequestRoll();
+
+      const result = system.runTurnEffects(entity, 'startOfTurn', {
+        requestRoll: double.requestRoll,
+      });
+
+      assert.equal(result.deferred.length, 1);
+      assert.equal(engine.resolveEntityCurrentHp(entity), hpBefore);
+      assert.equal(double.requests[0].payload.ability, 'constitution');
+      assert.equal(double.requests[0].payload.dc, SAVE_DC);
+
+      double.answer({
+        status: 'answered',
+        result: savingThrowAnswer(passed),
+        respondedByUserId: PLAYER_ID,
+      });
+
+      const applied = (await result.deferred[0].resolution)(entity);
+
+      assert.equal(
+        engine.resolveEntityCurrentHp(entity),
+        hpBefore - expectedDamage,
+      );
+
+      assert.equal(applied.changed, expectedDamage > 0);
+      assert.ok(applied.chatSummary);
+    }
+  });
+
+  it('a declined save deals no damage and leaves a chat note', async () => {
+    const system = new engine.Dnd5eVttSystem();
+    const entity = createActor({ activeEffects: [createCloudEffect()] });
+    const hpBefore = engine.resolveEntityCurrentHp(entity);
+    const double = createRequestRoll();
+
+    const result = system.runTurnEffects(entity, 'startOfTurn', {
+      requestRoll: double.requestRoll,
+    });
+
+    double.answer({ status: 'declined' });
+
+    const applied = (await result.deferred[0].resolution)(entity);
+
+    assert.equal(engine.resolveEntityCurrentHp(entity), hpBefore);
+    assert.equal(applied.changed, false);
+    assert.ok(applied.chatSummary);
+  });
+
+  it('damage and the removal save of one effect are asked separately and once', () => {
+    const system = new engine.Dnd5eVttSystem();
+
+    const entity = createActor({
+      activeEffects: [
+        createCloudEffect(
+          {},
+          {
+            recurringSave: {
+              ability: 'wisdom',
+              dc: SAVE_DC,
+              timing: 'startOfTurn',
+            },
+          },
+        ),
+      ],
+    });
+
+    const double = createRequestRoll();
+    const context = { requestRoll: double.requestRoll };
+
+    const first = system.runTurnEffects(entity, 'startOfTurn', context);
+    const second = system.runTurnEffects(entity, 'startOfTurn', context);
+
+    assert.equal(first.deferred.length, 2);
+    assert.equal(second.deferred, undefined);
+    assert.equal(double.requests.length, 2);
+  });
+
+  it('parsing keeps the save, and DC 0 takes the source DC on application', () => {
+    const parsed = engine.ActiveEffectSchema.parse(
+      createCloudEffect({ dc: `${SAVE_DC}` }),
+    );
+
+    assert.deepEqual(parsed.recurringDamage.save, CONSTITUTION_SAVE);
+
+    const stamped = engine.stampSourceTurnSaveDc(
+      createCloudEffect({ dc: 0 }),
+      SAVE_DC,
+    );
+
+    assert.equal(stamped.recurringDamage.save.dc, SAVE_DC);
+    assert.equal(engine.hasSourceTurnSaveDc(stamped), false);
+  });
+
+  it('the effect card names the save', () => {
+    assert.ok(
+      engine
+        .describeActiveEffect(createCloudEffect())
+        .includes('спасбросок (Телосложение, Сл 13), при успехе без урона'),
+    );
+  });
+});

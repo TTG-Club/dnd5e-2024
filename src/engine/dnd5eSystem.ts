@@ -75,6 +75,7 @@ import { getSpellDamageParts } from './damageParts.js';
 import { syncCreatureDeathCondition } from './deathState.js';
 import {
   formatDeferredEffectsSummary,
+  requestRecurringDamageSave,
   requestRecurringSave,
 } from './deferredEffectSaves.js';
 import { rollDamageFormula as rollDamageFormulaImpl } from './diceFormula.js';
@@ -148,6 +149,12 @@ const AREA_SUMMARY_LABEL = 'область';
 
 /** Подпись момента в сводке сработавших аур */
 const AURA_SUMMARY_LABEL = 'аура';
+
+/**
+ * Метка ожидания спасброска против урона каждый ход: у эффекта с уроном и
+ * повторным спасброском на одной границе хода висят два разных запроса.
+ */
+const TURN_DAMAGE_SAVE_KEY = 'damage';
 
 /**
  * Итог спасброска при входе в зону или ауру в сводке чата.
@@ -386,7 +393,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.17';
+  readonly version = '0.8.18';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -573,6 +580,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
     const result = processTurnEffects(entity, timing, {
       deferRecurringSave: () => askOwner,
+      deferRecurringDamageSave: () => askOwner,
     });
 
     const chatSummary = formatTurnEffectsMessage(entity.name, timing, result);
@@ -583,14 +591,27 @@ export class Dnd5eVttSystem implements VttSystem {
 
     const deferred: EngineDeferredTrigger[] = [];
 
-    for (const effect of result.deferredSaveEffects) {
-      const pendingKey = `${entity.id}:${effect.id}:${timing}`;
+    // Урон каждый ход идёт раньше повторного спасброска — в том же порядке, что
+    // и при броске на сервере
+    const requests = [
+      ...result.deferredDamageSaveEffects.map((effect) => ({
+        pendingKey: `${entity.id}:${effect.id}:${timing}:${TURN_DAMAGE_SAVE_KEY}`,
+        request: () =>
+          requestRecurringDamageSave(entity, effect, timing, requestRoll),
+      })),
+      ...result.deferredSaveEffects.map((effect) => ({
+        pendingKey: `${entity.id}:${effect.id}:${timing}`,
+        request: () =>
+          requestRecurringSave(entity, effect, timing, requestRoll),
+      })),
+    ];
 
+    for (const { pendingKey, request } of requests) {
       if (this.pendingTurnSaveKeys.has(pendingKey)) {
         continue;
       }
 
-      const trigger = requestRecurringSave(entity, effect, timing, requestRoll);
+      const trigger = request();
 
       if (!trigger) {
         continue;

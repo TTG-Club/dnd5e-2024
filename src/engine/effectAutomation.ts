@@ -119,6 +119,58 @@ export function resolveEffectSaveDc(dc: number, sourceDc: number): number {
   return dc > 0 ? dc : sourceDc;
 }
 
+/**
+ * Есть ли у эффекта периодический спасбросок со Сл 0 — «Сл того, кто наложил»:
+ * повторный спасбросок хода или спасбросок против урона каждый ход. Такую Сл
+ * надо проставить при наложении, на ходу сервер источника уже не знает.
+ *
+ * @param effect - накладываемый эффект
+ * @returns `true`, если Сл источника нужно проставить
+ */
+export function hasSourceTurnSaveDc(effect: ActiveEffect): boolean {
+  return (
+    effect.recurringSave?.dc === 0 || effect.recurringDamage?.save?.dc === 0
+  );
+}
+
+/**
+ * Проставляет Сл источника в периодические спасброски эффекта со Сл 0:
+ * повторный спасбросок хода и спасбросок против урона каждый ход.
+ *
+ * @param effect - накладываемый эффект
+ * @param sourceDc - Сл спасброска источника (кастера, действия)
+ * @returns исходный эффект либо копия с проставленной Сл
+ */
+export function stampSourceTurnSaveDc(
+  effect: ActiveEffect,
+  sourceDc: number,
+): ActiveEffect {
+  if (!hasSourceTurnSaveDc(effect)) {
+    return effect;
+  }
+
+  const { recurringSave, recurringDamage } = effect;
+
+  return {
+    ...effect,
+    recurringSave: recurringSave
+      ? {
+          ...recurringSave,
+          dc: resolveEffectSaveDc(recurringSave.dc, sourceDc),
+        }
+      : undefined,
+    recurringDamage: recurringDamage?.save
+      ? {
+          ...recurringDamage,
+          save: {
+            ...recurringDamage.save,
+            dc: resolveEffectSaveDc(recurringDamage.save.dc, sourceDc),
+          },
+        }
+      : recurringDamage,
+  };
+}
+
 /** Результат вычисления применимости эффекта к цели */
 export interface EffectApplication {
   /** Вешать ли эффект-состояние на цель */

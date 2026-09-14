@@ -20,6 +20,7 @@ import type {
   ActiveEffect,
   EffectChange,
   EffectDuration,
+  EffectSave,
 } from './activeEffectTypes.js';
 
 import {
@@ -148,6 +149,26 @@ function isNumeric(value: string): boolean {
  */
 export function formatEffectSaveDc(dc: number): string {
   return dc === 0 ? 'Сл заклинателя' : `Сл ${dc}`;
+}
+
+/** Что даёт успешный спасбросок против урона каждый ход */
+const RECURRING_DAMAGE_SAVE_SUCCESS_LABELS: Record<
+  EffectSave['onSuccess'],
+  string
+> = {
+  negate: 'при успехе без урона',
+  half: 'при успехе урон вдвое',
+};
+
+/**
+ * Подпись спасброска против урона каждый ход: «спасбросок (Телосложение,
+ * Сл 13), при успехе без урона».
+ *
+ * @param save - спасбросок против урона
+ * @returns подпись
+ */
+export function describeRecurringDamageSave(save: EffectSave): string {
+  return `спасбросок (${ABILITY_LABELS[save.ability]}, ${formatEffectSaveDc(save.dc)}), ${RECURRING_DAMAGE_SAVE_SUCCESS_LABELS[save.onSuccess]}`;
 }
 
 /** Заменяет @-токены формулы на короткие русские подписи. */
@@ -383,7 +404,11 @@ export function describeActiveEffect(effect: ActiveEffect): string {
         : 'в конце хода';
 
     if (damage) {
-      clauses.push(`урон каждый ход (${timing}): ${damage}`);
+      const save = effect.recurringDamage.save
+        ? `; ${describeRecurringDamageSave(effect.recurringDamage.save)}`
+        : '';
+
+      clauses.push(`урон каждый ход (${timing}): ${damage}${save}`);
     }
   }
 
@@ -666,6 +691,9 @@ export function buildActiveEffectDetails(
                 ? 'в начале хода'
                 : 'в конце хода'
             }`,
+            ...(effect.recurringDamage.save
+              ? [describeRecurringDamageSave(effect.recurringDamage.save)]
+              : []),
           ]
         : [],
     },

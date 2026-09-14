@@ -24,6 +24,7 @@ import {
   CREATURE_TYPE_LABELS,
   DAMAGE_TYPE_LABELS,
   damageReachesTarget,
+  hasSourceTurnSaveDc,
   isDndSceneEntity,
   SAVE_TYPE_LABELS,
   stampTurnDuration,
@@ -375,7 +376,7 @@ export function targetEffectsNeedResolution(spell: Spell): boolean {
     (effect) =>
       effect.applySave !== undefined
       || (effect.damageParts?.length ?? 0) > 0
-      || effect.recurringSave?.dc === 0,
+      || hasSourceTurnSaveDc(effect),
   );
 }
 

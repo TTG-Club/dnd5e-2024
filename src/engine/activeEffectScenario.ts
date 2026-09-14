@@ -118,6 +118,13 @@ const SCENARIO_LABELS = {
   actionSaveOnlyOnSuccess: ', если цель прошла спасбросок',
   feetSuffix: ' фт',
   more: 'и ещё',
+  damageSaveSuccess: ': успех — ',
+} as const;
+
+/** Что даёт успех спасброска против урона каждый ход */
+const RECURRING_DAMAGE_SUCCESS_LABELS = {
+  negate: 'без урона',
+  half: 'половина урона',
 } as const;
 
 /**
@@ -287,8 +294,14 @@ function describeLastingPayload(
     );
 
     if (damage) {
+      const { save, timing } = effect.recurringDamage;
+
+      const saveClause = save
+        ? ` (${SCENARIO_LABELS.savePrefix}${ABILITY_GENITIVE_LABELS[save.ability]}, ${formatScenarioSaveDc(save.dc, layout.context)}${SCENARIO_LABELS.damageSaveSuccess}${RECURRING_DAMAGE_SUCCESS_LABELS[save.onSuccess]})`
+        : '';
+
       parts.push(
-        `${SCENARIO_LABELS.everyTurnPrefix}${damage}${SCENARIO_LABELS[effect.recurringDamage.timing]}`,
+        `${SCENARIO_LABELS.everyTurnPrefix}${damage}${SCENARIO_LABELS[timing]}${saveClause}`,
       );
     }
   }

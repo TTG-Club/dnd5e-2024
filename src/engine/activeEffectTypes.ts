@@ -1012,6 +1012,13 @@ export interface RecurringDamage {
   damageParts: DamagePart[];
   /** Момент нанесения урона */
   timing: EffectSaveTiming;
+  /**
+   * Спасбросок против урона на каждом тике: провал — полный урон, успех — по
+   * `onSuccess` (без урона или половина). «Облако смерти»: кто начинает ход в
+   * облаке, бросает Телосложение. Эффект при этом остаётся — снимает его только
+   * `recurringSave`. `dc === 0` — Сл заклинателя, проставляется при наложении.
+   */
+  save?: EffectSave;
 }
 
 /** Локализованные названия триггеров области (для UI) */
@@ -1527,6 +1534,7 @@ const EffectDamagePartSchema = z.object({
 const RecurringDamageSchema = z.object({
   damageParts: z.array(EffectDamagePartSchema),
   timing: z.enum(['startOfTurn', 'endOfTurn']),
+  save: EffectSaveSchema.optional(),
 });
 
 /**

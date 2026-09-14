@@ -13,6 +13,7 @@ import type {
   EffectDelivery,
   EffectFormContext,
   EffectFormStep,
+  EffectSaveOutcome,
   EffectSaveTiming,
   EffectSaveUnavailableReason,
   EffectSuccessOutcome,
@@ -286,8 +287,22 @@ export const EFFECT_DAMAGE_STEP_LABELS = {
     'Пока эффект на существе, урон наносится в бою на каждом его ходу '
     + '(«Горение»).',
   recurringWhen: 'Когда',
+  recurringSaveToggle: 'Спасбросок против урона',
+  recurringSaveHint:
+    'На каждом ходу существо бросает спасбросок: провал — полный урон, успех — '
+    + 'без урона или половина. Эффект при этом остаётся.',
+  recurringSaveSuccess: 'Если спасбросок успешен',
   addDamage: 'Добавить урон',
 } as const;
+
+/** Что даёт успешный спасбросок против урона каждый ход */
+export const EFFECT_RECURRING_DAMAGE_SUCCESS_LABELS: Record<
+  EffectSaveOutcome,
+  string
+> = {
+  negate: 'Урона нет',
+  half: 'Половина урона',
+};
 
 /** Моменты хода для урона и повторного спасброска */
 export const EFFECT_TURN_MOMENT_LABELS: Record<EffectSaveTiming, string> = {
