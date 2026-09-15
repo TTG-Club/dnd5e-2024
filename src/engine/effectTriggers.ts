@@ -71,36 +71,20 @@ function turnEventOf(timing: 'startOfTurn' | 'endOfTurn'): EffectTriggerEvent {
 
 /**
  * Разовое срабатывание эффекта: спасбросок и урон при наложении на цель или при
- * входе и выходе. Событие — по доставке; у эффекта «на носителе» и «пока внутри»
- * разового срабатывания нет (поля там не работают).
+ * входе и выходе.
  *
  * Гейты повторяют `resolveEffectApplication` (`effectAutomation.ts`): без своего
- * спасброска «провал» — это непройденная защита действия или заклинания.
+ * спасброска «провал» — это непройденная защита действия или заклинания, а у
+ * зоны — любое срабатывание (промаха у зоны нет).
  *
  * @param effect - эффект
- * @returns срабатывание либо `null`
+ * @param event - событие срабатывания
+ * @returns срабатывание: урон (если есть) и длящаяся копия эффекта
  */
-function readLandingTrigger(effect: ActiveEffect): EffectTrigger | null {
-  const hasDamage = (effect.damageParts?.length ?? 0) > 0;
-
-  const hasLanding =
-    effect.applySave !== undefined
-    || hasDamage
-    || effect.applyOnSuccess === true
-    || effect.applyOnSuccessOnly === true;
-
-  let event: EffectTriggerEvent | null = null;
-
-  if (effect.effectTarget === 'target') {
-    event = 'applied';
-  } else if (effect.areaTrigger === 'enter' || effect.areaTrigger === 'exit') {
-    event = effect.areaTrigger;
-  }
-
-  if (!hasLanding || !event) {
-    return null;
-  }
-
+export function readEffectLandingTrigger(
+  effect: ActiveEffect,
+  event: EffectTriggerEvent,
+): EffectTrigger {
   const halfDamage = effect.applySave?.onSuccess === 'half';
 
   let damageGate: EffectTriggerActionGate = halfDamage ? 'always' : 'failed';
@@ -115,7 +99,7 @@ function readLandingTrigger(effect: ActiveEffect): EffectTrigger | null {
 
   const actions: EffectTriggerAction[] = [];
 
-  if (hasDamage && effect.damageParts) {
+  if (effect.damageParts && effect.damageParts.length > 0) {
     actions.push({
       type: 'damage',
       parts: effect.damageParts,
@@ -141,6 +125,32 @@ function readLandingTrigger(effect: ActiveEffect): EffectTrigger | null {
       : {}),
     actions,
   };
+}
+
+/**
+ * Разовое срабатывание в списке срабатываний эффекта. Событие — по доставке; у
+ * эффекта «на носителе» и «пока внутри» разового срабатывания нет (поля там не
+ * работают).
+ *
+ * @param effect - эффект
+ * @returns срабатывание либо `null`
+ */
+function readLandingTrigger(effect: ActiveEffect): EffectTrigger | null {
+  const hasLanding =
+    effect.applySave !== undefined
+    || (effect.damageParts?.length ?? 0) > 0
+    || effect.applyOnSuccess === true
+    || effect.applyOnSuccessOnly === true;
+
+  let event: EffectTriggerEvent | null = null;
+
+  if (effect.effectTarget === 'target') {
+    event = 'applied';
+  } else if (effect.areaTrigger === 'enter' || effect.areaTrigger === 'exit') {
+    event = effect.areaTrigger;
+  }
+
+  return hasLanding && event ? readEffectLandingTrigger(effect, event) : null;
 }
 
 /**

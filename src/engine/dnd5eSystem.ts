@@ -75,8 +75,7 @@ import { getSpellDamageParts } from './damageParts.js';
 import { syncCreatureDeathCondition } from './deathState.js';
 import {
   formatDeferredEffectsSummary,
-  requestRecurringDamageSave,
-  requestRecurringSave,
+  requestTurnTriggerSave,
 } from './deferredEffectSaves.js';
 import { rollDamageFormula as rollDamageFormulaImpl } from './diceFormula.js';
 import {
@@ -86,6 +85,8 @@ import {
   resolveTotalMovementSpeed,
 } from './effectPipeline.js';
 import { shouldRequestEffectSave } from './effectSaveAcquisition.js';
+import { processTurnEffects } from './effectTriggerRunner.js';
+import { isLegacyTrigger } from './effectTriggers.js';
 import { isDndSceneEntity } from './entityGuards.js';
 import { buildFeatGrantsSummary } from './featGrantsSummary.js';
 import { validateFormula } from './formulaParser.js';
@@ -112,7 +113,6 @@ import {
   formatEffectsSummary,
   formatRecurringSaveStatus,
   formatTurnEffectsMessage,
-  processTurnEffects,
   TURN_TIMING_SUMMARY_LABELS,
 } from './turnEffects.js';
 
@@ -407,7 +407,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.27';
+  readonly version = '0.8.28';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -607,26 +607,32 @@ export class Dnd5eVttSystem implements VttSystem {
     const deferred: EngineDeferredTrigger[] = [];
 
     // Урон каждый ход идёт раньше повторного спасброска — в том же порядке, что
-    // и при броске на сервере
+    // и при броске на сервере. Ключ ожидания старых полей прежний; явным
+    // срабатываниям нужен и id срабатывания — их у эффекта может быть несколько
     const requests = [
-      ...result.deferredDamageSaveEffects.map((effect) => ({
-        pendingKey: `${entity.id}:${effect.id}:${timing}:${TURN_DAMAGE_SAVE_KEY}`,
+      ...result.deferredTriggers.filter(
+        (turnTrigger) => turnTrigger.stage === 'damage' && !turnTrigger.ambient,
+      ),
+      ...result.deferredTriggers.filter(
+        (turnTrigger) => turnTrigger.stage === 'damage' && turnTrigger.ambient,
+      ),
+      ...result.deferredTriggers.filter(
+        (turnTrigger) => turnTrigger.stage === 'effects',
+      ),
+    ].map((turnTrigger) => {
+      const stageKey =
+        turnTrigger.stage === 'damage'
+          ? `${entity.id}:${turnTrigger.effect.id}:${timing}:${TURN_DAMAGE_SAVE_KEY}`
+          : `${entity.id}:${turnTrigger.effect.id}:${timing}`;
+
+      return {
+        pendingKey: isLegacyTrigger(turnTrigger.trigger)
+          ? stageKey
+          : `${stageKey}:${turnTrigger.trigger.id}`,
         request: () =>
-          requestRecurringDamageSave(entity, effect, timing, requestRoll),
-      })),
-      ...result.deferredAmbientDamageSaveEffects.map((effect) => ({
-        pendingKey: `${entity.id}:${effect.id}:${timing}:${TURN_DAMAGE_SAVE_KEY}`,
-        request: () =>
-          requestRecurringDamageSave(entity, effect, timing, requestRoll, {
-            fromAmbientAura: true,
-          }),
-      })),
-      ...result.deferredSaveEffects.map((effect) => ({
-        pendingKey: `${entity.id}:${effect.id}:${timing}`,
-        request: () =>
-          requestRecurringSave(entity, effect, timing, requestRoll),
-      })),
-    ];
+          requestTurnTriggerSave(entity, turnTrigger, timing, requestRoll),
+      };
+    });
 
     for (const { pendingKey, request } of requests) {
       if (this.pendingTurnSaveKeys.has(pendingKey)) {

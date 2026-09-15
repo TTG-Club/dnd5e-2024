@@ -45,6 +45,7 @@ export * from './effectModifierMenu.js';
 export * from './effectPipeline.js';
 export * from './effectSaveAcquisition.js';
 export * from './effectTriggerDescribe.js';
+export * from './effectTriggerRunner.js';
 export * from './effectTriggers.js';
 export * from './effectTriggerTypes.js';
 export * from './entityGuards.js';

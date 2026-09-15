@@ -36,7 +36,7 @@ import {
   formatZoneRequesterLabel,
   shouldRequestEffectSave,
 } from './effectSaveAcquisition.js';
-import { resolveEntryEffect } from './turnEffects.js';
+import { resolveEntryEffect } from './effectTriggerRunner.js';
 
 /**
  * Собирает ID областей, эффекты которых уже применены к актёру.

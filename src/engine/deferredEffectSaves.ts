@@ -13,6 +13,7 @@ import type { RollRequestOutcome, ServerRollRequester } from '@vtt/shared';
 
 import type { ActiveEffect, EffectSaveTiming } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
+import type { DeferredTurnTrigger } from './effectTriggerRunner.js';
 import type {
   EffectSaveSpec,
   EntryEffectOptions,
@@ -30,14 +31,19 @@ import {
   settleEffectSaveOutcome,
 } from './effectSaveAcquisition.js';
 import {
-  applyDamageToEntity,
   applyEntryEffect,
+  buildTriggerSaveSpec,
+  rollTriggerDamage,
+  toTriggerSaveOutcome,
+  triggerRemovesSelf,
+  turnTriggerEventOf,
+} from './effectTriggerRunner.js';
+import { listEffectListTriggers } from './effectTriggers.js';
+import {
+  applyDamageToEntity,
   buildApplySaveSpec,
-  buildRecurringDamageSaveSpec,
-  buildRecurringSaveSpec,
   formatEffectsSummary,
   formatEffectsSummaryHeader,
-  rollRecurringDamage,
 } from './turnEffects.js';
 
 /** Исход отложенного срабатывания после ответа игрока */
@@ -197,74 +203,122 @@ export function requestEntryEffect(
   };
 }
 
+/** Что искать на живой сущности, когда пришёл ответ на спасбросок хода */
+interface TurnTriggerAnswerTarget {
+  effectId: string;
+  triggerId: string;
+  timing: EffectSaveTiming;
+  stage: DeferredTurnTrigger['stage'];
+  spec: EffectSaveSpec;
+  /** Снимок ауры чужого токена: самого эффекта на сущности нет */
+  snapshot?: ActiveEffect;
+}
+
 /**
- * Применяет ответ на повторный спасбросок к живой сущности: успех снимает
- * эффект, провал и отмена оставляют.
+ * Применяет ответ на спасбросок срабатывания хода к живой сущности: урон по
+ * исходу либо снятие эффекта, отмена — ничего.
  *
- * Эффект ищется по идентификатору: пока игрок думал, его могли снять вручную,
+ * Эффект и срабатывание ищутся заново: пока игрок думал, эффект могли снять,
  * выключить или поменять — тогда спасбросок ни к чему не относится.
  *
  * @param entity - живая сущность
- * @param effectId - эффект, чей спасбросок бросали
- * @param timing - граница хода, на которой бросали
- * @param spec - что бросали
+ * @param target - что бросали и где искать
  * @param outcome - исход запроса
  * @returns исход для сводки
  */
-function applyRecurringSaveAnswer(
+function applyTurnTriggerAnswer(
   entity: DnDSceneEntity,
-  effectId: string,
-  timing: EffectSaveTiming,
-  spec: EffectSaveSpec,
+  target: TurnTriggerAnswerTarget,
   outcome: RollRequestOutcome,
 ): DeferredEffectOutcome {
-  const effect = entity.activeEffects?.find((entry) => entry.id === effectId);
+  const effect =
+    target.snapshot
+    ?? entity.activeEffects?.find((entry) => entry.id === target.effectId);
 
-  if (!effect || effect.disabled || effect.recurringSave?.timing !== timing) {
+  const event = turnTriggerEventOf(target.timing);
+
+  const trigger = effect
+    ? listEffectListTriggers(effect).find(
+        (entry) => entry.id === target.triggerId && entry.event === event,
+      )
+    : undefined;
+
+  if (!effect || effect.disabled || !trigger?.save) {
     return unchangedOutcome([]);
   }
 
-  const acquisition = settleEffectSaveOutcome(entity, spec, outcome);
+  const acquisition = settleEffectSaveOutcome(entity, target.spec, outcome);
 
   if (acquisition.status === 'cancelled') {
-    return unchangedOutcome(formatEffectNotes(spec, acquisition.note));
+    return unchangedOutcome(formatEffectNotes(target.spec, acquisition.note));
   }
 
-  if (acquisition.save.passed) {
+  const save = toTriggerSaveOutcome(trigger, acquisition.save);
+  const notes = formatEffectNotes(target.spec, acquisition.note);
+
+  if (target.stage === 'damage') {
+    const damage = rollTriggerDamage(
+      entity,
+      effect,
+      trigger,
+      save.passed,
+      resolveActorStats(entity),
+    );
+
+    if (damage) {
+      applyDamageToEntity(entity, damage.total);
+    }
+
+    return {
+      changed: damage !== null,
+      damageOutcomes: damage ? [damage] : [],
+      saveOutcomes: [save],
+      notes,
+    };
+  }
+
+  const removed = triggerRemovesSelf(trigger, save.passed);
+
+  if (removed) {
     entity.activeEffects = (entity.activeEffects ?? []).filter(
-      (entry) => entry.id !== effectId,
+      (entry) => entry.id !== target.effectId,
     );
   }
 
-  return {
-    changed: acquisition.save.passed,
-    damageOutcomes: [],
-    saveOutcomes: [acquisition.save],
-    notes: formatEffectNotes(spec, acquisition.note),
-  };
+  return { changed: removed, damageOutcomes: [], saveOutcomes: [save], notes };
 }
 
 /**
- * Повторный спасбросок хода, который бросает игрок.
+ * Спасбросок срабатывания хода, который бросает игрок: урон или снятие ждут
+ * ответа.
  *
- * @param entity - носитель эффекта
- * @param effect - эффект с `recurringSave` нужного момента хода
+ * @param entity - субъект срабатывания
+ * @param deferred - отложенное срабатывание хода
  * @param timing - граница хода
  * @param requestRoll - запрос броска от ядра
- * @returns отложенное срабатывание; `null`, если повторного спасброска нет
+ * @returns отложенное срабатывание; `null`, если спасброска нет
  */
-export function requestRecurringSave(
+export function requestTurnTriggerSave(
   entity: DnDSceneEntity,
-  effect: ActiveEffect,
+  deferred: DeferredTurnTrigger,
   timing: EffectSaveTiming,
   requestRoll: ServerRollRequester,
 ): EngineDeferredTrigger | null {
-  if (!effect.recurringSave) {
+  const { effect, trigger, ambient, stage } = deferred;
+  const spec = buildTriggerSaveSpec(effect, trigger);
+
+  if (!spec) {
     return null;
   }
 
-  const spec = buildRecurringSaveSpec(effect, effect.recurringSave);
-  const effectId = effect.id;
+  const target: TurnTriggerAnswerTarget = {
+    effectId: effect.id,
+    triggerId: trigger.id,
+    timing,
+    stage,
+    spec,
+    ...(ambient ? { snapshot: structuredClone(effect) } : {}),
+  };
 
   const resolution = requestRoll(
     buildEffectSaveRollRequest(
@@ -275,135 +329,11 @@ export function requestRecurringSave(
   ).then(
     (outcome): DeferredEffectApply =>
       (liveEntity) =>
-        applyRecurringSaveAnswer(liveEntity, effectId, timing, spec, outcome),
+        applyTurnTriggerAnswer(liveEntity, target, outcome),
     () => null,
   );
 
-  // Повторный спасбросок — на границе хода, фишка в этот момент не идёт
-  return { entityId: entity.id, blocksMovement: false, resolution };
-}
-
-/**
- * Применяет ответ на спасбросок против урона каждый ход: провал — полный урон,
- * успех — по `onSuccess`, отмена — урона нет.
- *
- * Эффект ищется по идентификатору и сверяется заново: пока игрок думал, его
- * могли снять, выключить или поменять — тогда бить нечем.
- *
- * @param entity - живая сущность
- * @param effectId - эффект, чей урон ждал спасброска
- * @param timing - граница хода, на которой бросали
- * @param spec - что бросали
- * @param outcome - исход запроса
- * @returns исход для сводки
- */
-function applyRecurringDamageSaveAnswer(
-  entity: DnDSceneEntity,
-  effectId: string,
-  timing: EffectSaveTiming,
-  spec: EffectSaveSpec,
-  outcome: RollRequestOutcome,
-  snapshot?: ActiveEffect,
-): DeferredEffectOutcome {
-  // Урон ауры: эффекта на сущности нет, бьёт то, что накрыло её на ходу
-  const effect =
-    snapshot ?? entity.activeEffects?.find((entry) => entry.id === effectId);
-
-  const recurringDamage = effect?.recurringDamage;
-
-  if (
-    !effect
-    || effect.disabled
-    || !recurringDamage?.save
-    || recurringDamage.timing !== timing
-  ) {
-    return unchangedOutcome([]);
-  }
-
-  const acquisition = settleEffectSaveOutcome(entity, spec, outcome);
-
-  if (acquisition.status === 'cancelled') {
-    return unchangedOutcome(formatEffectNotes(spec, acquisition.note));
-  }
-
-  const save: TurnSaveOutcome = {
-    ...acquisition.save,
-    damageOnSuccess: recurringDamage.save.onSuccess,
-  };
-
-  const damage = rollRecurringDamage(
-    entity,
-    effect,
-    recurringDamage,
-    save,
-    resolveActorStats(entity),
-  );
-
-  if (damage) {
-    applyDamageToEntity(entity, damage.total);
-  }
-
-  return {
-    changed: damage !== null,
-    damageOutcomes: damage ? [damage] : [],
-    saveOutcomes: [save],
-    notes: formatEffectNotes(spec, acquisition.note),
-  };
-}
-
-/**
- * Спасбросок против урона каждый ход, который бросает игрок: урон ждёт ответа.
- *
- * @param entity - носитель эффекта
- * @param effect - эффект с `recurringDamage.save` нужного момента хода
- * @param timing - граница хода
- * @param requestRoll - запрос броска от ядра
- * @param options - откуда урон
- * @param options.fromAmbientAura - урон ауры чужого токена: эффекта на сущности
- *   нет, применяется снимок
- * @returns отложенное срабатывание; `null`, если спасброска против урона нет
- */
-export function requestRecurringDamageSave(
-  entity: DnDSceneEntity,
-  effect: ActiveEffect,
-  timing: EffectSaveTiming,
-  requestRoll: ServerRollRequester,
-  options: { fromAmbientAura?: boolean } = {},
-): EngineDeferredTrigger | null {
-  const save = effect.recurringDamage?.save;
-
-  if (!save) {
-    return null;
-  }
-
-  const spec = buildRecurringDamageSaveSpec(effect, save);
-  const effectId = effect.id;
-
-  const snapshot = options.fromAmbientAura
-    ? structuredClone(effect)
-    : undefined;
-
-  const resolution = requestRoll(
-    buildEffectSaveRollRequest(
-      entity,
-      spec,
-      formatEffectRequesterLabel(effect.name),
-    ),
-  ).then(
-    (outcome): DeferredEffectApply =>
-      (liveEntity) =>
-        applyRecurringDamageSaveAnswer(
-          liveEntity,
-          effectId,
-          timing,
-          spec,
-          outcome,
-          snapshot,
-        ),
-    () => null,
-  );
-
-  // Урон на границе хода — фишка в этот момент не идёт
+  // Спасбросок на границе хода — фишка в этот момент не идёт
   return { entityId: entity.id, blocksMovement: false, resolution };
 }
 

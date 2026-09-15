@@ -44,7 +44,8 @@ const bundle = await build({
     contents: `
       export * from './src/client/composables/useSpellSavingThrows.ts';
       export { promptRequestedRoll } from './src/client/composables/requestedRollPrompt.ts';
-      export { processTurnEffects, resolveEntryEffect, decrementActorEffectDurations } from './src/engine/turnEffects.ts';
+      export { decrementActorEffectDurations } from './src/engine/turnEffects.ts';
+      export { processTurnEffects, resolveEntryEffect } from './src/engine/effectTriggerRunner.ts';
       export { DEFAULT_ACTOR, DEFAULT_CREATURE } from './src/engine/consts.ts';
       export { SAVING_THROW_REQUEST_KIND } from './src/engine/savingThrowRequest.ts';
       export { collectActiveEffects } from './src/engine/effectPipeline.ts';

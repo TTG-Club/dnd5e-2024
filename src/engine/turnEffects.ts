@@ -18,15 +18,13 @@ import type {
   EffectSave,
   EffectSaveOutcome,
   EffectSaveTiming,
-  RecurringDamage,
   ResolvedActorStats,
 } from './activeEffectTypes.js';
 import type { ConditionRef } from './conditionKeys.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type { CarrierContext } from './effectPipeline.js';
+import type { DeferredTurnTrigger } from './effectTriggerRunner.js';
 import type { FormulaContext } from './formulaParser.js';
-
-import { generateId } from '@vtt/shared';
 
 import { resolveSavingThrowRollMode } from './attackUtils.js';
 import { ABILITY_LABELS } from './consts.js';
@@ -35,16 +33,9 @@ import { damageReachesTarget } from './damageTargetGate.js';
 import { applyHpChange, applyMultiTypeDamageDefenses } from './damageUtils.js';
 import { rollDamageFormula } from './diceFormula.js';
 import {
-  hasLastingEffectPayload,
-  isImmuneToCondition,
-  mergeAppliedEffects,
-  resolveEffectApplication,
-} from './effectAutomation.js';
-import {
   buildCarrierContext,
   collectActiveEffects,
   collectBonusRollFormulas,
-  getEntityConditionImmunities,
   resolveActorStats,
 } from './effectPipeline.js';
 import { buildFormulaContext } from './formulaParser.js';
@@ -355,6 +346,11 @@ export interface TurnEffectsResult {
    * нанесут по ответу.
    */
   deferredDamageSaveEffects: ActiveEffect[];
+  /**
+   * Все отложенные срабатывания хода по порядку: урон своих эффектов, урон аур,
+   * затем снятие. Прежние списки эффектов выше — их подмножества.
+   */
+  deferredTriggers: DeferredTurnTrigger[];
 }
 
 /** Как прогонять периодические эффекты */
@@ -418,7 +414,7 @@ export interface EffectSaveSpec extends SavingThrowCircumstances {
  * @param effect - эффект, требующий спасброска
  * @returns `true` для эффекта заклинания
  */
-function isMagicalEffect(effect: ActiveEffect): boolean {
+export function isMagicalEffect(effect: ActiveEffect): boolean {
   // Копия эффекта зоны заклинания и статус от входа в неё уже не `spell`, но
   // навязаны той же магией
   return effect.origin === 'spell' || effect.magical === true;
@@ -750,49 +746,6 @@ export function rollEffectDamage(
   };
 }
 
-/**
- * Катает урон каждый ход с учётом спасброска против него. Урон не
- * применяется — вызывающий складывает тики и списывает хиты одним изменением.
- *
- * @param entity - носитель эффекта
- * @param effect - эффект
- * @param recurringDamage - его урон каждый ход
- * @param save - исход спасброска против урона; `null` — спасброска нет
- * @param stats - resolved-статы носителя (защиты от урона)
- * @returns исход урона либо `null`, если урона нет
- */
-export function rollRecurringDamage(
-  entity: DnDSceneEntity,
-  effect: ActiveEffect,
-  recurringDamage: RecurringDamage,
-  save: TurnSaveOutcome | null,
-  stats: ResolvedActorStats,
-): TurnDamageOutcome | null {
-  const multiplier =
-    recurringDamage.save && save
-      ? resolveSaveDamageMultiplier(recurringDamage.save.onSuccess, save.passed)
-      : 1;
-
-  if (multiplier <= 0) {
-    return null;
-  }
-
-  const rolled = rollEffectDamage(
-    effect.name,
-    recurringDamage.damageParts,
-    stats,
-    entity,
-  );
-
-  if (!rolled) {
-    return null;
-  }
-
-  const total = Math.floor(rolled.total * multiplier);
-
-  return total > 0 ? { ...rolled, total } : null;
-}
-
 /** Откуда пришёл разовый эффект */
 export interface EntryEffectOptions {
   /** Зона, в которую вошли или из которой вышли; у ауры поля нет */
@@ -809,144 +762,6 @@ export interface EntryEffectResult {
   saveOutcome: TurnSaveOutcome | null;
   /** Повешена ли длящаяся копия-статус на цель (мутация `activeEffects`) */
   statusApplied: boolean;
-}
-
-/**
- * Применяет разовый эффект области/ауры (`enter`/`exit`) по УЖЕ известному
- * исходу спасброска: наносит урон `damageParts` и, если у эффекта есть длящаяся
- * нагрузка (флаги/changes/состояние), вешает её копию как самостоятельный
- * эффект со своей длительностью.
- *
- * Что даёт успех спасброска, решает `resolveEffectApplication` — тот же гейт,
- * что у эффекта, наложенного атакой: половина урона без эффекта, «эффект даже
- * при успехе», «только при успехе». Своя логика здесь расходилась с атакой:
- * успех с половиной урона всё равно вешал статус.
- *
- * Спасбросок отделён от применения: его бросает сервер (авто-спасброски) или
- * игрок по запросу, и применение одно на оба пути.
- *
- * Мутирует `entity.system.hitPoints` (урон) и `entity.activeEffects` (статус).
- *
- * @param entity - сущность, на которую действует эффект
- * @param effect - эффект области/ауры (с `areaTrigger` `enter`/`exit`)
- * @param saveOutcome - исход спасброска эффекта; `null` — спасброска нет
- * @param options - откуда пришёл эффект
- * @returns исходы урона и спасброска для подписи в чате
- */
-export function applyEntryEffect(
-  entity: DnDSceneEntity,
-  effect: ActiveEffect,
-  saveOutcome: TurnSaveOutcome | null,
-  options: EntryEffectOptions = {},
-): EntryEffectResult {
-  const ambientEffects = options.ambientEffects ?? [];
-  const stats = resolveActorStats(entity, [...ambientEffects]);
-
-  // Эффект области «приземлился» всегда: промаха у зоны нет, её защита —
-  // только собственный спасбросок эффекта
-  const application = resolveEffectApplication(effect, {
-    landed: true,
-    applySaveSucceeded: saveOutcome?.passed,
-  });
-
-  let damageOutcome: TurnDamageOutcome | null = null;
-
-  if (
-    effect.damageParts
-    && effect.damageParts.length > 0
-    && application.damageMultiplier > 0
-  ) {
-    const rolled = rollEffectDamage(
-      effect.name,
-      effect.damageParts,
-      stats,
-      entity,
-    );
-
-    if (rolled) {
-      const total = Math.floor(rolled.total * application.damageMultiplier);
-
-      if (total > 0) {
-        applyDamageToEntity(entity, total);
-        damageOutcome = { ...rolled, total };
-      }
-    }
-  }
-
-  // Длящаяся нагрузка (статус): вешаем самостоятельной копией, живущей по своей
-  // длительности (не привязана к области, так как триггер разовый)
-  const hasStatusPayload = hasLastingEffectPayload(effect);
-
-  // Иммунитет к состоянию проверяется здесь так же, как при попадании атакой:
-  // область — такой же путь наложения, и обходить статблок он не должен
-  const conditionBlocked =
-    effect.conditionKey !== undefined
-    && isImmuneToCondition(
-      getEntityConditionImmunities(entity, ambientEffects),
-      effect.conditionKey,
-    );
-
-  let statusApplied = false;
-
-  if (hasStatusPayload && application.applyEffect && !conditionBlocked) {
-    const status = withInitializedDuration({
-      ...effect,
-      id: generateId('ae'),
-      origin: 'condition',
-      originId: undefined,
-      areaTrigger: undefined,
-      transfer: false,
-      // Своя длительность: копия не должна делить счётчик с эффектом зоны
-      duration: { ...effect.duration },
-      // Разовая нагрузка уже отыграна — на длящейся копии её не оставляем
-      damageParts: undefined,
-      applySave: undefined,
-      // Аура остаётся у источника: без сброса цель сама начала бы её излучать
-      // (у копии нет `areaTrigger`, и она стала бы постоянной аурой)
-      aura: undefined,
-      effectTarget: undefined,
-      // Статус от зоны заклинания кончается вместе с заклинанием — с зоной
-      endsWithAreaId:
-        effect.magical && options.sourceAreaId
-          ? options.sourceAreaId
-          : undefined,
-    });
-
-    // Правило PHB 2024 «Combining Game Effects»: одноимённый статус не
-    // стакается — повторный вход в область обновляет его, а не плодит копии
-    entity.activeEffects = mergeAppliedEffects(entity.activeEffects ?? [], [
-      status,
-    ]);
-
-    statusApplied = true;
-  }
-
-  return { damageOutcome, saveOutcome, statusApplied };
-}
-
-/**
- * Срабатывание разового эффекта области/ауры, спасбросок которого бросает сам
- * сервер: у сущности авто-спасброски, либо ядро не умеет спросить игрока.
- *
- * @param entity - сущность, на которую действует эффект
- * @param effect - эффект области/ауры (с `areaTrigger` `enter`/`exit`)
- * @param options - откуда пришёл эффект
- * @returns исходы урона и спасброска для подписи в чате
- */
-export function resolveEntryEffect(
-  entity: DnDSceneEntity,
-  effect: ActiveEffect,
-  options: EntryEffectOptions = {},
-): EntryEffectResult {
-  const saveOutcome = effect.applySave
-    ? rollEffectSaveOutcome(
-        entity,
-        buildApplySaveSpec(effect, effect.applySave),
-        options.ambientEffects,
-      )
-    : null;
-
-  return applyEntryEffect(entity, effect, saveOutcome, options);
 }
 
 /**
@@ -1005,7 +820,7 @@ export function rollEffectHealing(
  * @param tempHp - выданные временные хиты
  * @returns `true`, если хиты изменились
  */
-function applyTurnHealing(
+export function applyTurnHealing(
   entity: DnDSceneEntity,
   healed: number,
   tempHp: number,
@@ -1023,224 +838,6 @@ function applyTurnHealing(
   writeEntityHitPoints(entity, { current: nextCurrent, temp: nextTemp });
 
   return true;
-}
-
-/**
- * Прогоняет периодические эффекты сущности для указанного момента хода
- * (начало/конец): сперва наносит DoT-урон (`recurringDamage`, со спасброском
- * против него, если он задан), затем катает повторные спасброски
- * (`recurringSave`) — успех снимает эффект.
- *
- * Спасброски учитывают модификатор, преимущество/помеху и бонусные кубики.
- * Спасбросок, который надо спросить у игрока (`options.deferRecurringSave`), не
- * бросается: эффект остаётся и уходит в `deferredSaveEffects`.
- *
- * Мутирует `entity.activeEffects` и `entity.system.hitPoints`.
- *
- * @param entity - сущность, чей момент хода обрабатывается
- * @param timing - момент: начало или конец хода
- * @param options - какие спасброски отложить
- * @returns урон, исходы бросков и были ли изменения
- */
-export function processTurnEffects(
-  entity: DnDSceneEntity,
-  timing: EffectSaveTiming,
-  options: TurnEffectsOptions = {},
-): TurnEffectsResult {
-  const empty: TurnEffectsResult = {
-    changed: false,
-    damageTotal: 0,
-    saveOutcomes: [],
-    damageOutcomes: [],
-    healingOutcomes: [],
-    deferredSaveEffects: [],
-    deferredDamageSaveEffects: [],
-    deferredAmbientDamageSaveEffects: [],
-  };
-
-  const ambientEffects = options.ambientEffects ?? [];
-
-  // Урон ауры «пока внутри» тикает на ходу того, кто в ней стоит
-  const ambientTurnEffects = ambientEffects.filter(
-    (effect) =>
-      (effect.areaTrigger ?? 'stay') === 'stay'
-      && effect.recurringDamage !== undefined,
-  );
-
-  const ownEffects = entity.activeEffects ?? [];
-
-  if (ownEffects.length === 0 && ambientTurnEffects.length === 0) {
-    return empty;
-  }
-
-  const stats = resolveActorStats(entity, [...ambientEffects]);
-  const saveOutcomes: TurnSaveOutcome[] = [];
-
-  // 1. Периодический урон (DoT) по таймингу; со спасброском — по его исходу
-  const damageOutcomes: TurnDamageOutcome[] = [];
-  const healingOutcomes: TurnHealingOutcome[] = [];
-  const deferredDamageSaveEffects: ActiveEffect[] = [];
-  const deferredAmbientDamageSaveEffects: ActiveEffect[] = [];
-  const ambientIds = new Set(ambientTurnEffects.map((effect) => effect.id));
-
-  let damageTotal = 0;
-  let healedTotal = 0;
-  let tempHpGranted = 0;
-
-  let savingThrowContext = buildEffectSavingThrowContext(
-    entity,
-    ambientEffects,
-  );
-
-  for (const effect of [...ownEffects, ...ambientTurnEffects]) {
-    const recurringDamage = effect.recurringDamage;
-
-    // Отключённый эффект не действует — значит, и не бьёт. Своя аура без
-    // «действует и на носителя» бьёт других, а не того, кто её излучает
-    if (
-      effect.disabled
-      || !recurringDamage
-      || recurringDamage.timing !== timing
-      || (!ambientIds.has(effect.id) && effect.aura && !effect.aura.applyToSelf)
-    ) {
-      continue;
-    }
-
-    // Лечение от спасброска не зависит: «Регенерация» лечит и без броска
-    const healing = rollEffectHealing(effect.name, recurringDamage.damageParts);
-
-    if (healing) {
-      healingOutcomes.push(healing);
-      healedTotal += healing.healed;
-      tempHpGranted = Math.max(tempHpGranted, healing.tempHp);
-    }
-
-    let damageSave: TurnSaveOutcome | null = null;
-
-    if (recurringDamage.save) {
-      // Спасбросок спросят у игрока: урон ждёт ответа
-      if (options.deferRecurringDamageSave?.(effect)) {
-        if (ambientIds.has(effect.id)) {
-          deferredAmbientDamageSaveEffects.push(effect);
-        } else {
-          deferredDamageSaveEffects.push(effect);
-        }
-
-        continue;
-      }
-
-      const { roll, total, passed } = rollEffectSavingThrow(
-        recurringDamage.save.ability,
-        recurringDamage.save.dc,
-        stats,
-        savingThrowContext,
-        buildRecurringDamageSaveSpec(effect, recurringDamage.save),
-      );
-
-      damageSave = {
-        effectName: effect.name,
-        ability: recurringDamage.save.ability,
-        dc: recurringDamage.save.dc,
-        roll,
-        total,
-        passed,
-        damageOnSuccess: recurringDamage.save.onSuccess,
-      };
-
-      saveOutcomes.push(damageSave);
-    }
-
-    const outcome = rollRecurringDamage(
-      entity,
-      effect,
-      recurringDamage,
-      damageSave,
-      stats,
-    );
-
-    if (outcome) {
-      damageTotal += outcome.total;
-      damageOutcomes.push(outcome);
-    }
-  }
-
-  if (damageTotal > 0) {
-    applyDamageToEntity(entity, damageTotal);
-    // Урон мог опустить хиты — повторные спасброски считаются уже по новому
-    // состоянию сущности
-    savingThrowContext = buildEffectSavingThrowContext(entity, ambientEffects);
-  }
-
-  const healingApplied =
-    (healedTotal > 0 || tempHpGranted > 0)
-    && applyTurnHealing(entity, healedTotal, tempHpGranted);
-
-  // 2. Повторные спасброски по таймингу — успех снимает эффект
-  const deferredSaveEffects: ActiveEffect[] = [];
-  const initialLength = ownEffects.length;
-
-  const remaining = ownEffects.filter((effect) => {
-    const recurring = effect.recurringSave;
-
-    // Отключённый эффект не действует — и сам себя спасброском не снимает
-    if (effect.disabled || !recurring || recurring.timing !== timing) {
-      return true;
-    }
-
-    // Спасбросок спросят у игрока: до ответа эффект держится
-    if (options.deferRecurringSave?.(effect)) {
-      deferredSaveEffects.push(effect);
-
-      return true;
-    }
-
-    const { roll, total, passed } = rollEffectSavingThrow(
-      recurring.ability,
-      recurring.dc,
-      stats,
-      savingThrowContext,
-      buildRecurringSaveSpec(effect, recurring),
-    );
-
-    saveOutcomes.push({
-      effectName: effect.name,
-      ability: recurring.ability,
-      dc: recurring.dc,
-      roll,
-      total,
-      passed,
-    });
-
-    if (passed) {
-      // Снятый этой же серией эффект больше не даёт кубик следующим спасброскам.
-      savingThrowContext = {
-        ...savingThrowContext,
-        effects: savingThrowContext.effects.filter(
-          (activeEffect) => activeEffect.id !== effect.id,
-        ),
-      };
-    }
-
-    // Успех снимает эффект, провал — оставляет
-    return !passed;
-  });
-
-  const effectsRemoved = remaining.length !== initialLength;
-
-  if (effectsRemoved) {
-    entity.activeEffects = remaining;
-  }
-
-  return {
-    changed: damageTotal > 0 || effectsRemoved || healingApplied,
-    damageTotal,
-    saveOutcomes,
-    damageOutcomes,
-    healingOutcomes,
-    deferredSaveEffects,
-    deferredDamageSaveEffects,
-    deferredAmbientDamageSaveEffects,
-  };
 }
 
 /** Итог спасброска против урона каждый ход в сводке */
