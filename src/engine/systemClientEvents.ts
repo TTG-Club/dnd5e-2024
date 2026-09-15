@@ -1,8 +1,10 @@
 /**
  * События правил, которые случаются на клиенте и уходят на сервер ядром
- * (`system:client-event`): «прервать концентрацию». Форма одна на клиент и
- * сервер; сервер проверяет её Zod-ом — событие пришло по сети.
+ * (`system:client-event`): «прервать концентрацию», бросок атаки. Форма одна
+ * на клиент и сервер; сервер проверяет её Zod-ом — событие пришло по сети.
  */
+
+import type { AttackRollMode } from './attackUtils.js';
 
 import { z } from 'zod';
 
@@ -22,9 +24,24 @@ const EndCastsEventSchema = z.object({
     .max(MAX_EVENT_CAST_IDS),
 });
 
+/** Сколько целей у одного броска атаки */
+const MAX_ATTACK_TARGETS = 16;
+
+/** Режимы броска атаки */
+const ATTACK_ROLL_MODES = ['normal', 'advantage', 'disadvantage'] as const;
+
+/** Zod-схема события «бросок атаки состоялся» */
+const AttackRollEventSchema = z.object({
+  type: z.literal('attackRoll'),
+  attackerId: z.string().min(1),
+  targetIds: z.array(z.string().min(1)).max(MAX_ATTACK_TARGETS),
+  rollMode: z.enum(ATTACK_ROLL_MODES),
+});
+
 /** Zod-схема события правил от клиента */
 const SystemClientEventSchema = z.discriminatedUnion('type', [
   EndCastsEventSchema,
+  AttackRollEventSchema,
 ]);
 
 /** Событие правил от клиента */
@@ -56,4 +73,26 @@ export function buildEndCastsEvent(
   castIds: readonly string[],
 ): SystemClientEvent {
   return { type: 'endCasts', casterId, castIds: [...castIds] };
+}
+
+/**
+ * Событие «бросок атаки состоялся»: сервер выполнит срабатывания атаки со
+ * спасброском, уроном и действиями другой стороне.
+ *
+ * @param attackerId - атакующий
+ * @param targetIds - цели
+ * @param rollMode - режим броска
+ * @returns событие для `system:client-event`
+ */
+export function buildAttackRollEvent(
+  attackerId: string,
+  targetIds: readonly string[],
+  rollMode: AttackRollMode,
+): SystemClientEvent {
+  return {
+    type: 'attackRoll',
+    attackerId,
+    targetIds: [...targetIds],
+    rollMode,
+  };
 }

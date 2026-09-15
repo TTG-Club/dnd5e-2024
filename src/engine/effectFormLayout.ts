@@ -707,30 +707,18 @@ export function triggerEventAcceptsDcFormula(
 
 /**
  * Есть ли у события другая сторона, которой можно отдать действия: у урона —
- * тот, кто его нанёс.
+ * тот, кто его нанёс, у броска атаки — противник.
  *
  * @param event - событие
  * @returns `true`, если получателя можно выбрать
  */
 export function triggerEventHasOtherParty(event: EffectTriggerEvent): boolean {
-  return event === 'damageTaken';
+  return event === 'damageTaken' || event === 'attackRoll';
 }
 
 /**
- * Бросается ли спасбросок срабатывания на это событие. Бросок атаки делает
- * клиент, и спасброска там пока нет.
- *
- * @param event - событие
- * @returns `true`, если спасбросок работает
- */
-export function triggerEventAcceptsSave(event: EffectTriggerEvent): boolean {
-  return event !== 'attackRoll';
-}
-
-/**
- * Действия, которые работают у срабатывания на это событие в месте окна. На
- * броске атаки урона нет — его катает клиент без спасброска и защит. «Хиты
- * становятся» — только когда хиты упали до 0.
+ * Действия, которые работают у срабатывания на это событие в месте окна.
+ * «Хиты становятся» — только когда хиты упали до 0.
  *
  * @param layout - раскладка окна
  * @param event - событие срабатывания
@@ -741,9 +729,7 @@ export function listTriggerActionTypes(
   event: EffectTriggerEvent,
 ): EffectTriggerActionType[] {
   return layout.triggerActions.filter(
-    (type) =>
-      (event !== 'attackRoll' || type !== 'damage')
-      && (event === 'hpZero' || type !== 'setHp'),
+    (type) => event === 'hpZero' || type !== 'setHp',
   );
 }
 

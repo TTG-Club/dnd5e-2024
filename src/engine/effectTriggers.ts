@@ -325,6 +325,26 @@ export function isTurnTriggerEvent(event: EffectTriggerEvent): boolean {
 }
 
 /**
+ * Выполняется ли срабатывание броска атаки на клиенте до броска: без
+ * спасброска, урона, конца каста и действий другой стороне — только снятие и
+ * наложения на субъекте. Такое снятие должно опередить урон атаки, иначе два
+ * снимка сущности гонятся. Остальное выполняет сервер после броска
+ * (`settleAttackRollTriggers`).
+ *
+ * @param trigger - срабатывание броска атаки
+ * @returns `true`, если срабатывание выполняет клиент
+ */
+export function isClientAttackRollTrigger(trigger: EffectTrigger): boolean {
+  return (
+    !trigger.save
+    && trigger.recipient !== 'other'
+    && trigger.actions.every(
+      (action) => action.type !== 'damage' && action.type !== 'endCast',
+    )
+  );
+}
+
+/**
  * Ключи отметок, которые ставят срабатывания: их предлагает условие «на
  * носителе отметка» того же эффекта.
  *

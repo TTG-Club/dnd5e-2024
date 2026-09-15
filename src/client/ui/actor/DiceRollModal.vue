@@ -36,7 +36,10 @@
     scaleDamageFormula,
   } from '@vtt/shared/system/dnd.js';
 
-  import { dispatchAttackRollTriggers } from '../../composables/useEffectTriggerEvents';
+  import {
+    dispatchAttackRollTriggers,
+    reportAttackRoll,
+  } from '../../composables/useEffectTriggerEvents';
   import {
     DICE_ROLL_DEFAULT_BUTTON,
     DICE_ROLL_LABELS,
@@ -521,13 +524,26 @@
    * Бросок атаки состоялся: срабатывания «следующей атаки» у атакующего и целей.
    *
    * @param projectile - серия снарядов (цели — назначенные цели снарядов)
+   * @returns цели броска — для сообщения серверу после урона
    */
-  function announceAttackRoll(projectile: boolean): void {
+  function announceAttackRoll(projectile: boolean): string[] {
+    return props.attackerId
+      ? dispatchAttackRollTriggers(props.attackerId, {
+          projectile,
+          rollMode: attackRollMode.value,
+        })
+      : [];
+  }
+
+  /**
+   * Бросок атаки и его урон записаны: сервер выполнит срабатывания атаки со
+   * спасброском, уроном и действиями другой стороне.
+   *
+   * @param targetIds - цели броска
+   */
+  function finishAttackRoll(targetIds: readonly string[]): void {
     if (props.attackerId) {
-      dispatchAttackRollTriggers(props.attackerId, {
-        projectile,
-        rollMode: attackRollMode.value,
-      });
+      reportAttackRoll(props.attackerId, targetIds, attackRollMode.value);
     }
   }
 
@@ -596,7 +612,7 @@
         // Расход одноразовых эффектов ДО броска: режим (преим./помеха) уже
         // зафиксирован в attackRollMode, а снятие эффекта должно опередить эмит
         // урона по цели — иначе два полных снапшота сущности гонятся.
-        announceAttackRoll(true);
+        const projectileTargetIds = announceAttackRoll(true);
 
         props.onProjectileAttack({
           attackModifier:
@@ -606,6 +622,8 @@
           rollMode: attackRollMode.value,
           bonusDiceFormulasByTarget,
         });
+
+        finishAttackRoll(projectileTargetIds);
 
         return;
       }
@@ -651,13 +669,14 @@
         if (attackTargetAc !== null) {
           // Расход одноразовых эффектов ДО броска (режим уже зафиксирован):
           // снятие должно опередить эмит урона по цели, без гонки снапшотов.
-          announceAttackRoll(false);
+          const partsTargetIds = announceAttackRoll(false);
 
           // Атака: бросок попадания → части на попадании
           performPartsAttackRoll(
             attackTargetAc,
             effectiveParts,
             bonusDiceFormulas,
+            partsTargetIds,
           );
         } else {
           performPartsRoll(effectiveParts);
@@ -668,11 +687,12 @@
 
       // --- Двухэтапная атака (D&D 5e) ---
       let damageTotal = 0;
+      let attackTargetIds: string[] | null = null;
 
       if (attackTargetAc !== null) {
         // Расход одноразовых эффектов ДО броска (режим уже зафиксирован):
         // снятие должно опередить эмит урона по цели, без гонки снапшотов.
-        announceAttackRoll(false);
+        attackTargetIds = announceAttackRoll(false);
         damageTotal = performAttackRoll(attackTargetAc, bonusDiceFormulas);
       } else {
         // Обычный бросок (лечение или без цели)
@@ -681,6 +701,10 @@
 
       if (props.onRoll) {
         props.onRoll(damageTotal, resolvedDamageType.value);
+      }
+
+      if (attackTargetIds) {
+        finishAttackRoll(attackTargetIds);
       }
     } catch (err) {
       console.error(DICE_ROLL_LOG_PREFIX, err);
@@ -1024,11 +1048,13 @@
    * @param targetAc - класс доспеха цели
    * @param parts - части урона/лечения (включая бонус-части эффектов)
    * @param bonusDiceFormulas - бонусы попадания, не влияющие на урон
+   * @param targetIds - цели броска — для сообщения серверу после урона
    */
   function performPartsAttackRoll(
     targetAc: number,
     parts: SpellDamagePartInput[],
     bonusDiceFormulas: readonly string[],
+    targetIds: readonly string[],
   ): void {
     const attackMod =
       (props.attackModifier ?? 0)
@@ -1067,15 +1093,18 @@
 
     // На промахе урона нет
     if (!attackOutput.attackResult.isHit) {
+      finishAttackRoll(targetIds);
+
       return;
     }
 
     const isCrit = attackOutput.attackResult.isCriticalHit;
 
-    // Сначала показываем бросок атаки, затем по очереди — части урона
-    void waitForAttackDisplay().then(() =>
-      rollPartsSequentially(parts, isCrit),
-    );
+    // Сначала показываем бросок атаки, затем по очереди — части урона; сервер
+    // узнаёт о броске после урона
+    void waitForAttackDisplay()
+      .then(() => rollPartsSequentially(parts, isCrit))
+      .then(() => finishAttackRoll(targetIds));
   }
 </script>
 

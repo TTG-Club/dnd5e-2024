@@ -11,6 +11,8 @@ import { useTargetStore } from '@/stores/targetStore';
 import { useWorldStore } from '@/stores/worldStore';
 import { isActorEntity, isCreatureEntity } from '@vtt/shared';
 import {
+  buildAttackRollEvent,
+  hasServerAttackRollTriggers,
   isDndSceneEntity,
   runAttackRollTriggers,
 } from '@vtt/shared/system/dnd.js';
@@ -21,9 +23,11 @@ import { useWorldEntities } from './useWorldEntities';
 /**
  * События срабатываний эффектов, которые происходят на клиенте: бросок атаки.
  *
- * Бросок атаки делает окно броска (`DiceRollModal`), и срабатывания «на своей
- * следующей атаке» и «на следующей атаке по носителю» расходуются здесь — одной
- * точкой для макросов хотбара и для листов персонажа и существа.
+ * Бросок атаки делает окно броска (`DiceRollModal`). Простые срабатывания («на
+ * своей следующей атаке», «на следующей атаке по носителю» — снятие и
+ * наложения) расходуются здесь до броска, одной точкой для макросов хотбара и
+ * листов. Срабатывания со спасброском, уроном и действиями другой стороне
+ * выполняет сервер: окно сообщает о броске, когда урон атаки уже записан.
  */
 
 /** Лог-префикс событий срабатываний */
@@ -164,14 +168,15 @@ function settleAttackRollSide(
  * @param options - бросок серии снарядов и режим броска
  * @param options.projectile - цели — назначенные цели снарядов
  * @param options.rollMode - режим броска атаки
+ * @returns цели броска — для сообщения серверу после урона
  */
 export function dispatchAttackRollTriggers(
   attackerId: string,
   options: { projectile: boolean; rollMode: AttackRollMode },
-): void {
-  try {
-    const targetIds = listAttackTargetIds(options.projectile);
+): string[] {
+  const targetIds = listAttackTargetIds(options.projectile);
 
+  try {
     // Другая сторона атакующего однозначна только при одной цели
     settleAttackRollSide(
       {
@@ -190,5 +195,44 @@ export function dispatchAttackRollTriggers(
     }
   } catch (error) {
     console.error(TRIGGER_EVENTS_LOG_PREFIX, error);
+  }
+
+  return targetIds;
+}
+
+/**
+ * Сообщает серверу о броске атаки, когда его урон уже записан: сервер выполнит
+ * срабатывания со спасброском, уроном и действиями другой стороне. Если таких
+ * у сторон нет, событие не шлётся.
+ *
+ * @param attackerId - атакующая сущность
+ * @param targetIds - цели броска
+ * @param rollMode - режим броска атаки
+ */
+export function reportAttackRoll(
+  attackerId: string,
+  targetIds: readonly string[],
+  rollMode: AttackRollMode,
+): void {
+  const attacker = findDndWorldEntity(attackerId);
+
+  const needsServer =
+    (attacker !== undefined
+      && hasServerAttackRollTriggers(attacker, 'attacker'))
+    || targetIds.some((targetId) => {
+      const target = findDndWorldEntity(targetId);
+
+      return (
+        target !== undefined && hasServerAttackRollTriggers(target, 'target')
+      );
+    });
+
+  if (needsServer) {
+    useChatStore()
+      .getSocket()
+      ?.emit(
+        'system:client-event',
+        buildAttackRollEvent(attackerId, targetIds, rollMode),
+      );
   }
 }

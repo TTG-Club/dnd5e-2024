@@ -48,6 +48,7 @@ import {
   resolveActorStats,
 } from './effectPipeline.js';
 import {
+  isClientAttackRollTrigger,
   isLegacyTrigger,
   listEffectListTriggers,
   readEffectLandingTrigger,
@@ -1257,7 +1258,7 @@ export function runAttackRollTriggers(
       if (
         trigger.event !== 'attackRoll'
         || (trigger.role ?? 'attacker') !== role
-        || trigger.save
+        || !isClientAttackRollTrigger(trigger)
       ) {
         continue;
       }

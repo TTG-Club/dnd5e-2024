@@ -36,6 +36,7 @@ import type {
 import type { DnDGameItem, DnDSceneEntity, Spell } from './dndEntities.js';
 import type { DamageEventsResult } from './effectDamageEvents.js';
 import type { IncomingAttackContext } from './effectPipeline.js';
+import type { SystemClientEvent } from './systemClientEvents.js';
 import type { TurnSaveOutcome } from './turnEffects.js';
 
 import { getHealthCondition, HEALTH_CONDITIONS, isRecord } from '@vtt/shared';
@@ -91,7 +92,10 @@ import {
   requestTurnTriggerSave,
 } from './deferredEffectSaves.js';
 import { rollDamageFormula as rollDamageFormulaImpl } from './diceFormula.js';
-import { settleDamageEvents } from './effectDamageEvents.js';
+import {
+  settleAttackRollTriggers,
+  settleDamageEvents,
+} from './effectDamageEvents.js';
 import {
   collectActiveEffects,
   isDiceFormulaValue,
@@ -438,6 +442,162 @@ function endExpiredConcentration(
   }
 }
 
+/** Подпись момента в сводке срабатываний броска атаки */
+const ATTACK_ROLL_SUMMARY_LABEL = 'атака';
+
+/** Что изменили срабатывания броска атаки у одной сущности */
+interface AttackRollEntityOutcome {
+  entity: DnDSceneEntity;
+  changed: boolean;
+  damageOutcomes: DamageEventsResult['damageOutcomes'];
+  saveOutcomes: DamageEventsResult['saveOutcomes'];
+  deferred: EngineDeferredTrigger[];
+}
+
+/**
+ * Бросок атаки от клиента: срабатывания атакующего и целей, которые не
+ * выполнил клиент, — со спасброском, уроном, концом каста и действиями другой
+ * стороне. Событие шлёт тот, кто управляет атакующим; урон самой атаки к этому
+ * времени уже записан — сокет сохраняет порядок сообщений.
+ *
+ * @param event - событие броска атаки
+ * @param context - возможности ядра и права отправителя
+ * @returns исход по каждой изменённой сущности
+ */
+function settleAttackRollEvent(
+  event: Extract<SystemClientEvent, { type: 'attackRoll' }>,
+  context: SystemClientEventContext,
+): SystemRelatedTriggerResult[] {
+  const resolve = (entityId: string): DnDSceneEntity | undefined => {
+    const found = context.getEntity(entityId);
+
+    return found && isDndSceneEntity(found) ? found : undefined;
+  };
+
+  const attacker = resolve(event.attackerId);
+
+  if (!attacker || !context.canControl(attacker)) {
+    return [];
+  }
+
+  const targets = event.targetIds.flatMap((targetId) => {
+    const target = resolve(targetId);
+
+    return target ? [target] : [];
+  });
+
+  const hpBefore = new Map(
+    [attacker, ...targets].map((entity) => [
+      entity.id,
+      resolveEntityCurrentHp(entity),
+    ]),
+  );
+
+  const outcomes = new Map<string, AttackRollEntityOutcome>();
+
+  const outcomeOf = (entity: DnDSceneEntity): AttackRollEntityOutcome => {
+    const existing = outcomes.get(entity.id);
+
+    if (existing) {
+      return existing;
+    }
+
+    const created: AttackRollEntityOutcome = {
+      entity,
+      changed: false,
+      damageOutcomes: [],
+      saveOutcomes: [],
+      deferred: [],
+    };
+
+    outcomes.set(entity.id, created);
+
+    return created;
+  };
+
+  // Другая сторона атакующего однозначна только при одной цели
+  const sides = [
+    {
+      subject: attacker,
+      role: 'attacker' as const,
+      other: targets.length === 1 ? targets[0] : undefined,
+    },
+    ...targets.map((target) => ({
+      subject: target,
+      role: 'target' as const,
+      other: attacker,
+    })),
+  ];
+
+  for (const side of sides) {
+    const events = settleAttackRollTriggers(side.subject, side.role, {
+      other: side.other,
+      roll: {
+        hasAdvantage: event.rollMode === 'advantage',
+        hasDisadvantage: event.rollMode === 'disadvantage',
+      },
+      requestRoll: context.requestRoll,
+      ambientEffects: toAmbientResolver(context)(side.subject),
+      inCombat: context.isInCombat?.(side.subject) ?? false,
+      activeTurnActorId: context.getActiveTurnActorId?.() ?? null,
+      endCast: toCastEnder(context, side.subject.id),
+    });
+
+    const subject = outcomeOf(side.subject);
+
+    subject.changed ||= events.changed;
+    subject.damageOutcomes.push(...events.damageOutcomes);
+    subject.saveOutcomes.push(...events.saveOutcomes);
+    subject.deferred.push(...events.deferred);
+
+    for (const related of events.related) {
+      const other = outcomeOf(related.entity);
+
+      other.changed ||= related.changed;
+      other.damageOutcomes.push(...related.damageOutcomes);
+      other.saveOutcomes.push(...related.saveOutcomes);
+    }
+  }
+
+  return [...outcomes.values()]
+    .filter(
+      (outcome) =>
+        outcome.changed
+        || outcome.deferred.length > 0
+        || outcome.saveOutcomes.length > 0,
+    )
+    .map((outcome) => ({
+      entity: outcome.entity,
+      ...withDamageEvents(
+        outcome.entity,
+        hpBefore.get(outcome.entity.id) ?? 0,
+        toDamageHits(outcome.damageOutcomes),
+        context,
+        {
+          changed: outcome.changed,
+          chatSummary: formatEffectsSummary(
+            outcome.entity.name,
+            ATTACK_ROLL_SUMMARY_LABEL,
+            outcome.damageOutcomes,
+            outcome.saveOutcomes,
+            formatEntrySaveStatus,
+          ),
+          deferred: toSystemDeferredTriggers(
+            outcome.deferred,
+            (outcomeEntity, deferredOutcome) =>
+              formatDeferredEffectsSummary(
+                outcomeEntity.name,
+                ATTACK_ROLL_SUMMARY_LABEL,
+                deferredOutcome,
+                formatEntrySaveStatus,
+              ),
+            context,
+          ),
+        },
+      ),
+    }));
+}
+
 /** Подпись снятых эффектов закончившегося каста в чате */
 const CAST_ENDED_SUMMARY_PREFIX = 'Каст закончился — сняты: ';
 
@@ -771,7 +931,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.37';
+  readonly version = '0.8.38';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -1061,8 +1221,9 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * Событие правил от клиента: «прервать концентрацию». Закончить каст может
-   * только тот, кто управляет заклинателем.
+   * Событие правил от клиента: «прервать концентрацию» — закончить каст может
+   * только тот, кто управляет заклинателем; бросок атаки — срабатывания, которые
+   * выполняет сервер.
    */
   // eslint-disable-next-line class-methods-use-this
   handleClientEvent(
@@ -1073,6 +1234,10 @@ export class Dnd5eVttSystem implements VttSystem {
 
     if (!event) {
       return [];
+    }
+
+    if (event.type === 'attackRoll') {
+      return settleAttackRollEvent(event, context);
     }
 
     const caster = context.getEntity(event.casterId);

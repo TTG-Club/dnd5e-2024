@@ -1,7 +1,7 @@
 <!--
   Строка списка «Срабатывания»: когда → спасбросок → что сделать → сколько раз.
   Что доступно, решает движок по месту окна: события — `layout.triggerEvents`,
-  действия — `listTriggerActionTypes`, спасбросок — `triggerEventAcceptsSave`.
+  действия — `listTriggerActionTypes`, Сл формулой — `triggerEventAcceptsDcFormula`.
 -->
 <script setup lang="ts">
   // Корневой вход `@nuxt/ui` типов компонентов не отдаёт — берём из подпути
@@ -38,7 +38,6 @@
     listTriggerActionTypes,
     resolveTriggerActionGate,
     triggerEventAcceptsDcFormula,
-    triggerEventAcceptsSave,
     triggerEventHasOtherParty,
     validateFormula,
   } from '@vtt/shared/system/dnd.js';
@@ -165,10 +164,6 @@
     })),
   );
 
-  const acceptsSave = computed(() =>
-    triggerEventAcceptsSave(trigger.value.event),
-  );
-
   const acceptsDcFormula = computed(() =>
     triggerEventAcceptsDcFormula(trigger.value.event),
   );
@@ -217,7 +212,7 @@
     get: () => trigger.value.event,
     set: (next: EffectTriggerEvent) => {
       const actions = listTriggerActionTypes(props.layout, next);
-      const keepsSave = triggerEventAcceptsSave(next) && trigger.value.save;
+      const { save } = trigger.value;
 
       update({
         event: next,
@@ -229,10 +224,10 @@
         recipient: triggerEventHasOtherParty(next)
           ? trigger.value.recipient
           : undefined,
-        save: keepsSave ? withEventDcFormula(keepsSave, next) : undefined,
-        actions: trigger.value.actions
-          .filter((action) => actions.includes(action.type))
-          .map((action) => (keepsSave ? action : withoutGate(action))),
+        save: save ? withEventDcFormula(save, next) : undefined,
+        actions: trigger.value.actions.filter((action) =>
+          actions.includes(action.type),
+        ),
       });
     },
   });
@@ -657,54 +652,52 @@
       :known-tags="knownTags"
     />
 
-    <template v-if="acceptsSave">
-      <USwitch
-        v-model="hasSave"
-        :label="EFFECT_TRIGGER_ROW_LABELS.saveToggle"
+    <USwitch
+      v-model="hasSave"
+      :label="EFFECT_TRIGGER_ROW_LABELS.saveToggle"
+    />
+
+    <div
+      v-if="trigger.save"
+      class="flex flex-wrap items-end gap-3"
+    >
+      <UFormField
+        :label="EFFECT_TRIGGER_ROW_LABELS.saveAbility"
+        class="w-48"
+      >
+        <USelect
+          v-model="saveAbility"
+          :items="ABILITY_OPTIONS"
+          value-key="value"
+          size="sm"
+          class="w-full"
+          :portal="false"
+        />
+      </UFormField>
+
+      <SaveDcField
+        v-model="saveDc"
+        :label="EFFECT_TRIGGER_ROW_LABELS.saveDc"
+        :auto-allowed="layout.minSaveDc === 0"
+        :auto-label="EFFECT_SOURCE_DC_LABELS[layout.context]"
+        :auto-value="sourceSaveDc"
       />
 
-      <div
-        v-if="trigger.save"
-        class="flex flex-wrap items-end gap-3"
+      <UFormField
+        v-if="acceptsDcFormula"
+        :label="EFFECT_TRIGGER_ROW_LABELS.dcFormula"
+        :hint="EFFECT_TRIGGER_ROW_LABELS.dcFormulaHint"
+        :error="dcFormulaError"
+        class="w-72"
       >
-        <UFormField
-          :label="EFFECT_TRIGGER_ROW_LABELS.saveAbility"
-          class="w-48"
-        >
-          <USelect
-            v-model="saveAbility"
-            :items="ABILITY_OPTIONS"
-            value-key="value"
-            size="sm"
-            class="w-full"
-            :portal="false"
-          />
-        </UFormField>
-
-        <SaveDcField
-          v-model="saveDc"
-          :label="EFFECT_TRIGGER_ROW_LABELS.saveDc"
-          :auto-allowed="layout.minSaveDc === 0"
-          :auto-label="EFFECT_SOURCE_DC_LABELS[layout.context]"
-          :auto-value="sourceSaveDc"
+        <UInput
+          v-model="dcFormula"
+          :placeholder="EFFECT_TRIGGER_ROW_LABELS.dcFormulaPlaceholder"
+          size="sm"
+          class="w-full"
         />
-
-        <UFormField
-          v-if="acceptsDcFormula"
-          :label="EFFECT_TRIGGER_ROW_LABELS.dcFormula"
-          :hint="EFFECT_TRIGGER_ROW_LABELS.dcFormulaHint"
-          :error="dcFormulaError"
-          class="w-72"
-        >
-          <UInput
-            v-model="dcFormula"
-            :placeholder="EFFECT_TRIGGER_ROW_LABELS.dcFormulaPlaceholder"
-            size="sm"
-            class="w-full"
-          />
-        </UFormField>
-      </div>
-    </template>
+      </UFormField>
+    </div>
 
     <div class="flex flex-col gap-1.5">
       <span class="text-xs font-medium text-default">

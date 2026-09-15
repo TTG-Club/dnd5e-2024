@@ -26,6 +26,7 @@ import type { DnDSceneEntity } from './dndEntities.js';
 import type { EffectTriggerSource } from './effectTriggerRunner.js';
 import type {
   EffectTrigger,
+  EffectTriggerAttackRole,
   EffectTriggerEvent,
 } from './effectTriggerTypes.js';
 import type { TriggerEventData } from './triggerConditions.js';
@@ -53,14 +54,15 @@ import {
   settleTriggerOutcome,
   toTriggerSaveOutcome,
 } from './effectTriggerRunner.js';
-import { listEffectListTriggers } from './effectTriggers.js';
+import {
+  isClientAttackRollTrigger,
+  listEffectListTriggers,
+} from './effectTriggers.js';
 import { resolveEntityCurrentHp } from './hitPoints.js';
 import { rollEffectSaveOutcome } from './turnEffects.js';
 
-/** С чем прогоняются события урона */
-export interface DamageEventsOptions {
-  /** Хиты субъекта до урона: «хиты упали до 0» — только если они были */
-  hpBefore: number;
+/** С чем прогоняются срабатывания событий с другой стороной */
+export interface TriggerEventOptions {
   /** Запрос броска от ядра: спасбросок сущности без авто-спасбросков — игроку */
   requestRoll?: ServerRollRequester;
   /** Ауры чужих токенов, накрывающие субъекта */
@@ -73,6 +75,12 @@ export interface DamageEventsOptions {
   getEntity?: (entityId: string) => DnDSceneEntity | undefined;
   /** Закончить каст эффекта: провал концентрации */
   endCast?: (effect: ActiveEffect) => void;
+}
+
+/** С чем прогоняются события урона */
+export interface DamageEventsOptions extends TriggerEventOptions {
+  /** Хиты субъекта до урона: «хиты упали до 0» — только если они были */
+  hpBefore: number;
 }
 
 /** Изменения одной сущности от событий урона */
@@ -336,32 +344,32 @@ function requestDamageEventSave(
   return { entityId: recipient.id, blocksMovement: false, resolution };
 }
 
-/** Чем закончилось одно срабатывание события урона */
-type DamageEventRun = 'skipped' | 'settled' | 'deferred';
+/** Чем закончилось одно срабатывание события */
+type TriggerEventRun = 'skipped' | 'settled' | 'deferred';
 
 /**
- * Одно срабатывание события урона: получатель, условие и лимит, спасбросок на
- * сервере или запросом игроку, действия.
+ * Одно срабатывание события с другой стороной: получатель, условие и лимит,
+ * спасбросок на сервере или запросом игроку, действия. Одно на события урона
+ * и бросок атаки — у них разные только данные события.
  *
  * @param subject - субъект: на нём эффект
  * @param source - срабатывание с источником
- * @param hit - удар события
+ * @param data - данные события: урон, бросок, другая сторона
  * @param options - с чем прогоняются события
  * @param result - общий итог (пополняется)
  * @param continuation - что делать после ответа игрока
  * @returns чем закончилось
  */
-function runDamageEventSource(
+function runTriggerEventSource(
   subject: DnDSceneEntity,
   source: EffectTriggerSource,
-  hit: DamageHit,
-  options: DamageEventsOptions,
+  data: TriggerEventData,
+  options: TriggerEventOptions,
   result: DamageEventsResult,
   continuation?: DamageEventsContinuation,
-): DamageEventRun {
+): TriggerEventRun {
   const { requestRoll } = options;
-  const other = hit.sourceId ? options.getEntity?.(hit.sourceId) : undefined;
-  const recipient = source.trigger.recipient === 'other' ? other : subject;
+  const recipient = source.trigger.recipient === 'other' ? data.other : subject;
 
   // Эффект, снятый раньше в этой же серии, больше не срабатывает
   const removed =
@@ -373,8 +381,6 @@ function runDamageEventSource(
   if (!recipient || removed) {
     return 'skipped';
   }
-
-  const data: TriggerEventData = { damage: hit, other };
 
   if (!admitTrigger(subject, source, data, options.inCombat)) {
     return 'skipped';
@@ -428,6 +434,37 @@ function runDamageEventSource(
   );
 
   return 'settled';
+}
+
+/**
+ * Срабатывание события урона по удару: другая сторона — тот, кто бил.
+ *
+ * @param subject - субъект: на нём эффект
+ * @param source - срабатывание с источником
+ * @param hit - удар события
+ * @param options - с чем прогоняются события
+ * @param result - общий итог (пополняется)
+ * @param continuation - что делать после ответа игрока
+ * @returns чем закончилось
+ */
+function runDamageEventSource(
+  subject: DnDSceneEntity,
+  source: EffectTriggerSource,
+  hit: DamageHit,
+  options: DamageEventsOptions,
+  result: DamageEventsResult,
+  continuation?: DamageEventsContinuation,
+): TriggerEventRun {
+  const other = hit.sourceId ? options.getEntity?.(hit.sourceId) : undefined;
+
+  return runTriggerEventSource(
+    subject,
+    source,
+    { damage: hit, other },
+    options,
+    result,
+    continuation,
+  );
 }
 
 /**
@@ -537,6 +574,84 @@ export function settleDamageEvents(
     for (const source of sources) {
       runDamageEventSource(subject, source, hit, options, result);
     }
+  }
+
+  return result;
+}
+
+/** Что известно о броске атаки одной стороне на сервере */
+export interface AttackRollEventOptions extends TriggerEventOptions {
+  /** Другая сторона: цель для атакующего, атакующий для цели */
+  other?: DnDSceneEntity;
+  /** Режим броска атаки */
+  roll: TriggerEventData['roll'];
+}
+
+/**
+ * Срабатывания броска атаки стороны, которые выполняются на субъекте.
+ *
+ * @param entity - сторона атаки
+ * @param role - атакующий или цель
+ * @returns срабатывания с источником
+ */
+function listServerAttackRollSources(
+  entity: DnDSceneEntity,
+  role: EffectTriggerAttackRole,
+): EffectTriggerSource[] {
+  return (entity.activeEffects ?? [])
+    .filter((effect) => !effect.disabled)
+    .flatMap((effect) =>
+      listEffectListTriggers(effect)
+        .filter(
+          (trigger) =>
+            trigger.event === 'attackRoll'
+            && (trigger.role ?? 'attacker') === role
+            && !isClientAttackRollTrigger(trigger),
+        )
+        .map((trigger) => ({
+          effect,
+          trigger,
+          ambient: false,
+          instance: true,
+          scope: resolveEffectUsageScope(effect),
+        })),
+    );
+}
+
+/**
+ * Есть ли у стороны срабатывания броска атаки, которые выполняет сервер: клиент
+ * не шлёт событие, если делать нечего.
+ *
+ * @param entity - сторона атаки
+ * @param role - атакующий или цель
+ * @returns `true`, если серверу есть что выполнить
+ */
+export function hasServerAttackRollTriggers(
+  entity: DnDSceneEntity,
+  role: EffectTriggerAttackRole,
+): boolean {
+  return listServerAttackRollSources(entity, role).length > 0;
+}
+
+/**
+ * Прогоняет на сервере срабатывания броска атаки стороны, которые не выполнил
+ * клиент: со спасброском, уроном, концом каста и действиями другой стороне.
+ *
+ * @param subject - сторона атаки (мутируется)
+ * @param role - атакующий или цель
+ * @param options - другая сторона, режим броска и возможности ядра
+ * @returns итог: субъект и другие стороны
+ */
+export function settleAttackRollTriggers(
+  subject: DnDSceneEntity,
+  role: EffectTriggerAttackRole,
+  options: AttackRollEventOptions,
+): DamageEventsResult {
+  const result = createDamageEventsResult();
+  const data: TriggerEventData = { other: options.other, roll: options.roll };
+
+  for (const source of listServerAttackRollSources(subject, role)) {
+    runTriggerEventSource(subject, source, data, options, result);
   }
 
   return result;

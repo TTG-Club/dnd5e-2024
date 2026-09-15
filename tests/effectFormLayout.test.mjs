@@ -675,9 +675,11 @@ describe('список «Срабатывания»', () => {
 
     assert.deepEqual(
       engine.listTriggerActionTypes(own, 'attackRoll'),
-      ['applyCondition', 'applyTag', 'endCast', 'removeSelf'],
-      'на броске атаки урона нет',
+      ['damage', 'applyCondition', 'applyTag', 'endCast', 'removeSelf'],
+      'урон на броске атаки выполняет сервер',
     );
+
+    assert.equal(engine.triggerEventHasOtherParty('attackRoll'), true);
 
     assert.deepEqual(
       engine.listTriggerActionTypes(own, 'hpZero'),
@@ -696,9 +698,6 @@ describe('список «Срабатывания»', () => {
     assert.equal(engine.triggerEventAcceptsDcFormula('turnEnd'), false);
     assert.equal(engine.triggerEventHasOtherParty('damageTaken'), true);
     assert.equal(engine.triggerEventHasOtherParty('hpZero'), false);
-
-    assert.equal(engine.triggerEventAcceptsSave('attackRoll'), false);
-    assert.equal(engine.triggerEventAcceptsSave('turnEnd'), true);
 
     const zone = layoutOf('zone');
 
