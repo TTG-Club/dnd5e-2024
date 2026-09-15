@@ -619,4 +619,65 @@ describe('каталог: заклинания', () => {
   it.todo(
     '[S19] Потеря концентрации от урона и 0 хитов снимает эффекты и зону — пробел',
   );
+
+  it('[S20] Жезл паутины: своя Сл заклинания 15 — у спасброска и у зоны, от персонажа не зависит', () => {
+    const entangle = engine.applyConditionPresetToEffect(
+      createEffect('Паутина: опутывание', {
+        effectTarget: 'zone',
+        areaTrigger: 'enter',
+        applySave: { ability: 'dexterity', dc: 0, onSuccess: 'negate' },
+        duration: { type: 'rounds', value: 10 },
+      }),
+      engine.buildConditionActiveEffect('restrained'),
+    );
+
+    const wandSpell = {
+      name: 'Паутина',
+      saveDC: 15,
+      activeEffects: [entangle],
+      durationUnit: 'hour',
+      durationValue: 1,
+      concentration: true,
+    };
+
+    // Сильный и слабый заклинатель творят из жезла с одной Сл
+    for (const wisdom of [8, 20]) {
+      const caster = createActor({
+        system: {
+          ...structuredClone(engine.DEFAULT_ACTOR.system),
+          abilities: { ...engine.DEFAULT_ACTOR.system.abilities, wisdom },
+          classes: [
+            { classKey: 'druid', level: 9, spellcastingAbility: 'wisdom' },
+          ],
+        },
+      });
+
+      const saveDc = engine.resolveSpellSaveDC(
+        caster,
+        wandSpell,
+        engine.resolveActorStats(caster),
+      );
+
+      const draft = engine.buildSpellZoneDraft({
+        spell: wandSpell,
+        template: {
+          id: 't',
+          type: 'circle',
+          originX: 550,
+          originY: 550,
+          targetX: 750,
+          targetY: 550,
+          color: 0xffffff,
+          createdBy: 'p',
+        },
+        casterId: caster.id,
+        saveDc,
+        formulaContext: engine.buildFormulaContext(caster),
+        gridSize: CELL_SIZE,
+      });
+
+      assert.equal(saveDc, 15);
+      assert.equal(draft.effects[0].applySave.dc, 15);
+    }
+  });
 });

@@ -26,7 +26,7 @@
     EFFECT_CONSUME_ON_NONE,
     EFFECT_CONSUME_ON_OPTIONS,
     EFFECT_DURATION_STEP_LABELS,
-    EFFECT_SOURCE_DC_HINTS,
+    EFFECT_SOURCE_DC_LABELS,
   } from '../constants';
   import {
     durationHint,
@@ -38,10 +38,13 @@
     isCountedDuration,
     writeDurationType,
   } from '../effectFormOptions';
+  import SaveDcField from './SaveDcField.vue';
 
   const props = defineProps<{
     /** Раскладка окна */
     layout: EffectFormLayout;
+    /** Сл источника для «Авто», если окно её знает */
+    sourceSaveDc?: number;
   }>();
 
   const effect = defineModel<ActiveEffect>('effect', { required: true });
@@ -130,24 +133,13 @@
 
   const recurringDc = computed({
     get: () => effect.value.recurringSave?.dc ?? props.layout.minSaveDc,
-    set: (dc: number | null) => {
-      if (dc !== null) {
-        updateRecurringSave({ dc });
-      }
-    },
+    set: (dc: number) => updateRecurringSave({ dc }),
   });
 
   const recurringTiming = computed({
     get: () => effect.value.recurringSave?.timing ?? 'endOfTurn',
     set: (timing: EffectSaveTiming) => updateRecurringSave({ timing }),
   });
-
-  /** Подсказка «0 — Сл источника» там, где Сл 0 допустима */
-  const dcHint = computed(() =>
-    props.layout.minSaveDc === 0
-      ? EFFECT_SOURCE_DC_HINTS[props.layout.context]
-      : undefined,
-  );
 
   /** Значение переключателя «снять после атаки» */
   const consumeOn = computed(
@@ -246,18 +238,13 @@
         />
       </UFormField>
 
-      <UFormField
+      <SaveDcField
+        v-model="recurringDc"
         :label="FORM_FIELD_LABELS.saveDc"
-        :hint="dcHint"
-        class="w-56"
-      >
-        <UInputNumber
-          v-model="recurringDc"
-          :min="layout.minSaveDc"
-          size="sm"
-          class="w-32"
-        />
-      </UFormField>
+        :auto-allowed="layout.minSaveDc === 0"
+        :auto-label="EFFECT_SOURCE_DC_LABELS[layout.context]"
+        :auto-value="sourceSaveDc"
+      />
 
       <UFormField
         :label="EFFECT_DURATION_STEP_LABELS.recurringSaveWhen"

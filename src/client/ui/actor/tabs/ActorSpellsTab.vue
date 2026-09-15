@@ -12,6 +12,7 @@
     PreparedKind,
     RollContext,
     Spell,
+    SpellSaveDCSource,
   } from '@vtt/shared/system/dnd.js';
 
   import type { SpellCasterSource } from '../../../composables/spellCastCompletion';
@@ -987,6 +988,8 @@
     openModal('SpellFormModal', {
       actorId: props.actor.id,
       spell,
+      resolveCasterSaveDc: (source: SpellSaveDCSource) =>
+        resolveSpellSaveDC(props.actor, source, resolvedStats.value),
       onSave: (updated: Spell) => {
         const currentSpells = props.actor.spells ?? [];
 

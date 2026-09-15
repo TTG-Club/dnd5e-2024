@@ -78,6 +78,7 @@ import {
   isDndSceneEntity,
   mergeAppliedEffects,
   pickCantripTierParts,
+  readSpellOwnSaveDC,
   resolveActorStats,
   resolveAttackRollMode,
   resolveDamagePartsForCast,
@@ -2202,9 +2203,13 @@ function openCreatureSpellRoll(
     placement?.block,
   );
 
-  // Существо как заклинатель: Сл блока и модификатор его характеристики
+  // Существо как заклинатель: Сл блока и модификатор его характеристики.
+  // Своя Сл заклинания (жезл, свиток) главнее Сл блока
   const casterSource: SpellCasterSource = {
-    saveDc: numbers.saveDC ?? DEFAULT_CREATURE_SPELL_SAVE_DC,
+    saveDc:
+      readSpellOwnSaveDC(spell)
+      ?? numbers.saveDC
+      ?? DEFAULT_CREATURE_SPELL_SAVE_DC,
     spellMod: getCreatureSpellMod(
       creature,
       getCreatureSpellBlockAbility(creature, placement?.block),

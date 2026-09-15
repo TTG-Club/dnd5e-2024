@@ -25,13 +25,16 @@
     EFFECT_ACTION_SAVE_SUCCESS_TITLES,
     EFFECT_SAVE_STEP_LABELS,
     EFFECT_SAVE_UNAVAILABLE_HINTS,
-    EFFECT_SOURCE_DC_HINTS,
+    EFFECT_SOURCE_DC_LABELS,
   } from '../constants';
   import { buildSuccessOutcomeOptions } from '../effectFormOptions';
+  import SaveDcField from './SaveDcField.vue';
 
   const props = defineProps<{
     /** Раскладка окна */
     layout: EffectFormLayout;
+    /** Сл источника для «Авто», если окно её знает */
+    sourceSaveDc?: number;
   }>();
 
   const effect = defineModel<ActiveEffect>('effect', { required: true });
@@ -66,13 +69,6 @@
     isActionTarget.value
       ? EFFECT_SAVE_STEP_LABELS.ownToggleHint
       : EFFECT_SAVE_STEP_LABELS.toggleHint,
-  );
-
-  /** Подсказка «0 — Сл источника» там, где Сл 0 допустима */
-  const dcHint = computed(() =>
-    props.layout.minSaveDc === 0
-      ? EFFECT_SOURCE_DC_HINTS[props.layout.context]
-      : undefined,
   );
 
   const successTitle = computed(() =>
@@ -122,11 +118,7 @@
 
   const saveDc = computed({
     get: () => effect.value.applySave?.dc ?? props.layout.minSaveDc,
-    set: (dc: number | null) => {
-      if (dc !== null) {
-        updateSave({ dc });
-      }
-    },
+    set: (dc: number) => updateSave({ dc }),
   });
 
   const successOutcome = computed({
@@ -163,18 +155,13 @@
         />
       </UFormField>
 
-      <UFormField
+      <SaveDcField
+        v-model="saveDc"
         :label="FORM_FIELD_LABELS.saveDc"
-        :hint="dcHint"
-        class="w-56"
-      >
-        <UInputNumber
-          v-model="saveDc"
-          :min="layout.minSaveDc"
-          size="sm"
-          class="w-32"
-        />
-      </UFormField>
+        :auto-allowed="layout.minSaveDc === 0"
+        :auto-label="EFFECT_SOURCE_DC_LABELS[layout.context]"
+        :auto-value="sourceSaveDc"
+      />
     </div>
   </template>
 

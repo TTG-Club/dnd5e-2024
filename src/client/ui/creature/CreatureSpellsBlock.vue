@@ -63,6 +63,7 @@
     hasCreatureSpellGroupUsesLeft,
     isCreatureSpellPoolMode,
     isSpell,
+    readSpellOwnSaveDC,
     SPELL_DAMAGE_TEMPLATE_COLORS,
     SPELL_SCHOOL_LABELS,
     SPELL_TEMPLATE_DEFAULT_COLOR,
@@ -1302,6 +1303,14 @@
   function openEditForm(spell: Spell): void {
     openModal('SpellFormModal', {
       spell,
+      // Существо творит по числам блока, где лежит заклинание
+      resolveCasterSaveDc: () =>
+        props.creature
+          ? calculateCreatureSpellBlockNumbers(
+              props.creature,
+              findPlacement(spell.id)?.block,
+            ).saveDC
+          : undefined,
       onSave: (updated: Spell) => {
         updateSpells(
           props.spells.map((entry) =>
@@ -1578,9 +1587,13 @@
       placement?.block,
     );
 
-    // Существо как заклинатель: Сл блока и модификатор его характеристики
+    // Существо как заклинатель: Сл блока и модификатор его характеристики.
+    // Своя Сл заклинания (жезл, свиток) главнее Сл блока
     const casterSource: SpellCasterSource = {
-      saveDc: numbers.saveDC ?? DEFAULT_CREATURE_SPELL_SAVE_DC,
+      saveDc:
+        readSpellOwnSaveDC(spell)
+        ?? numbers.saveDC
+        ?? DEFAULT_CREATURE_SPELL_SAVE_DC,
       spellMod: getCreatureSpellMod(
         creature,
         getCreatureSpellBlockAbility(creature, placement?.block),

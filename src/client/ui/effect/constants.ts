@@ -204,14 +204,23 @@ export const EFFECT_SAVE_STEP_LABELS = {
   successTitle: 'Если спасбросок успешен',
 } as const;
 
-/** Подсказка «0 — Сл источника» у поля Сл, по месту окна */
-export const EFFECT_SOURCE_DC_HINTS: Partial<
+/** Чья Сл подставляется в режиме «Авто», по месту окна */
+export const EFFECT_SOURCE_DC_LABELS: Partial<
   Record<EffectFormContext, string>
 > = {
-  spell: '0 — Сл заклинателя',
-  creatureAction: '0 — Сл действия',
-  weapon: '0 — Сл оружия (8 + бонус атаки)',
-  generic: '0 — Сл источника (заклинателя или действия)',
+  spell: 'Сл заклинателя',
+  creatureAction: 'Сл действия',
+  weapon: 'Сл оружия (8 + бонус атаки)',
+  generic: 'Сл источника',
+};
+
+/** Режим поля Сл: подставить Сл источника или задать своё число */
+export type SaveDcFieldMode = 'auto' | 'manual';
+
+/** Подписи режимов поля Сл */
+export const SAVE_DC_FIELD_MODE_LABELS: Record<SaveDcFieldMode, string> = {
+  auto: 'Авто',
+  manual: 'Вручную',
 };
 
 /** Заголовок выбора «при успехе» спасброска самого заклинания или действия */

@@ -51,6 +51,7 @@ import {
 } from './formulaParser.js';
 import {
   getSpellAttackBreakdown,
+  getSpellSaveDCBreakdown,
   parseSpellcastingSettings,
 } from './spellcastingSettings.js';
 
@@ -214,16 +215,42 @@ export function getZoneSpellEffects(
   );
 }
 
+/** Поля заклинания, от которых зависит его Сл */
+export type SpellSaveDCSource = Pick<
+  Spell,
+  'saveDC' | 'attackAbility' | 'spellcastingAbility'
+>;
+
+/**
+ * Своя Сл заклинания, не зависящая от заклинателя (жезл, свиток, предмет).
+ *
+ * @param spell - заклинание
+ * @returns Сл либо `undefined`, если её нет и Сл считается от заклинателя
+ */
+export function readSpellOwnSaveDC(
+  spell: Pick<Spell, 'saveDC'>,
+): number | undefined {
+  const { saveDC } = spell;
+
+  return typeof saveDC === 'number' && Number.isFinite(saveDC) && saveDC >= 1
+    ? Math.round(saveDC)
+    : undefined;
+}
+
 /**
  * Сл спасброска от КОНКРЕТНОГО заклинания.
  *
- * У листа Сл одна и считается от его заклинательной характеристики. Но у
- * заклинания может стоять своя («Посвящённый в магию» творит по той, что выбрал
- * игрок, а не по характеристике класса) — тогда меняется и Сл, иначе половина
- * расчёта шла бы от одной характеристики, а половина от другой.
+ * Своя Сл заклинания ({@link readSpellOwnSaveDC}) главнее всего: её задаёт
+ * предмет, а не персонаж. Иначе Сл берётся у листа. Но у заклинания может
+ * стоять своя характеристика («Посвящённый в магию» творит по той, что выбрал
+ * игрок, а не по характеристике класса) — тогда Сл пересчитывается от неё тем же
+ * расчётом, что у листа: `8 + бонус мастерства + модификатор` с настройкой
+ * листа. Прибавки активных эффектов переносятся как есть.
  *
- * Меняется ровно модификатор характеристики: всё остальное — бонус мастерства,
- * настройки листа, активные эффекты — уже посчитано в Сл листа и остаётся как есть.
+ * Своё число в настройке листа («Настроить заклинательство») — это число: от
+ * характеристики заклинания оно не меняется. У листа без заклинательной
+ * характеристики и без настройки Сл заклинания со своей характеристикой всё
+ * равно считается — прежде она выходила разницей модификаторов (Сл 2).
  *
  * @param actor - актор-владелец
  * @param spell - заклинание
@@ -232,21 +259,40 @@ export function getZoneSpellEffects(
  */
 export function resolveSpellSaveDC(
   actor: DnDActor,
-  spell: Spell,
+  spell: SpellSaveDCSource,
   resolvedStats: ResolvedActorStats,
 ): number {
-  const spellAbility = resolveSpellcastingAbility(actor, spell);
-  const sheetAbility = resolveActorSpellcastingAbility(actor);
+  const ownSaveDC = readSpellOwnSaveDC(spell);
 
-  if (spellAbility === sheetAbility) {
+  if (ownSaveDC !== undefined) {
+    return ownSaveDC;
+  }
+
+  const spellAbility = spell.attackAbility ?? spell.spellcastingAbility;
+  const sheetAbility = findSpellcastingAbility(actor);
+
+  if (spellAbility === undefined || spellAbility === sheetAbility) {
     return resolvedStats.spellSaveDC;
   }
 
-  const difference =
-    (resolvedStats.abilityMods[spellAbility] ?? 0)
-    - (resolvedStats.abilityMods[sheetAbility] ?? 0);
+  const settings = parseSpellcastingSettings(
+    actor.system.spellcastingSettings,
+  )?.saveDC;
 
-  return resolvedStats.spellSaveDC + difference;
+  const context = resolvedStats.abilityBonusContext;
+
+  const sheetValue =
+    getSpellSaveDCBreakdown({ ability: sheetAbility, settings, context })?.value
+    ?? 0;
+
+  // Всё, что эффекты прибавили к Сл листа, достаётся и заклинанию
+  const effectsDelta = resolvedStats.spellSaveDC - sheetValue;
+
+  const spellValue =
+    getSpellSaveDCBreakdown({ ability: spellAbility, settings, context })?.value
+    ?? 0;
+
+  return spellValue + effectsDelta;
 }
 
 /**

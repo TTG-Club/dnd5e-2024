@@ -308,6 +308,8 @@
       // («Магическое сопротивление»). Эффект черты «в цель» сбор черт отсекает,
       // и он молча не работал бы
       context: effectFormContext.value,
+      // «Авто» у Сл эффекта подставит Сл самого действия
+      sourceSaveDc: form.saveDC ?? undefined,
       onSave: (savedEffect: ActiveEffect) => {
         if (effectIndex >= 0) {
           form.activeEffects[effectIndex] = savedEffect;

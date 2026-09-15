@@ -3,6 +3,7 @@
     ActiveEffect,
     DnDGameItem,
     Spell,
+    SpellSaveDCSource,
   } from '@vtt/shared/system/dnd.js';
 
   import { computed, ref, watch } from 'vue';
@@ -21,6 +22,7 @@
 
   import { useSpellForm } from '../../composables/useSpellForm';
   import ActiveEffectFormModal from '../effect/ActiveEffectFormModal.vue';
+  import { SaveDcField } from '../effect/form';
   import {
     AREA_FIELD_LABELS,
     FORM_FIELD_LABELS,
@@ -51,6 +53,11 @@
     /** Редактируемый предмет (при открытии из ItemsPanel) */
     item?: DnDGameItem | null;
     actorId?: string;
+    /**
+     * Сл заклинателя для этого заклинания — окно-владелец знает лист персонажа
+     * или блок существа. Нужна, чтобы «Авто» у Сл показывало число.
+     */
+    resolveCasterSaveDc?: (spell: SpellSaveDCSource) => number | undefined;
     /** Z-index (управляется родителем для bring-to-front) */
     zIndex?: number;
     /** Смещение позиции для каскадного расположения */
@@ -128,6 +135,7 @@
     saveEffect,
     attackAbility,
     attackBonus,
+    saveDC,
     hasProjectiles,
     projectileCount,
     projectilePerSlotLevel,
@@ -171,6 +179,18 @@
   } = useSpellForm(
     () => targetSpell.value,
     () => props.open,
+  );
+
+  /** Сл от заклинателя с характеристикой из формы — если лист известен */
+  const casterSaveDc = computed(() =>
+    props.resolveCasterSaveDc?.({
+      attackAbility: attackAbility.value || undefined,
+    }),
+  );
+
+  /** Сл, которую получат эффекты заклинания в «Авто» */
+  const effectSourceSaveDc = computed(() =>
+    saveDC.value > 0 ? saveDC.value : casterSaveDc.value,
   );
 
   /**
@@ -1073,6 +1093,16 @@
                     class="w-full"
                   />
                 </UFormField>
+
+                <SaveDcField
+                  v-model="saveDC"
+                  class="col-span-2"
+                  :label="SPELL_FORM_LABELS.ownSaveDc"
+                  :description="SPELL_FORM_LABELS.ownSaveDcHint"
+                  :auto-allowed="true"
+                  :auto-label="SPELL_FORM_LABELS.ownSaveDcAuto"
+                  :auto-value="casterSaveDc"
+                />
               </div>
             </FormSection>
 
@@ -1371,6 +1401,7 @@
     :effect="editingEffect"
     context="spell"
     :zone-available="targetType === 'area'"
+    :source-save-dc="effectSourceSaveDc"
     @save="saveCustomEffect"
   />
 </template>

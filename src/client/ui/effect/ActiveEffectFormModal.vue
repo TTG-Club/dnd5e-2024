@@ -85,6 +85,12 @@
      * задано — доставка «зоной» не прячется.
      */
     zoneAvailable?: boolean;
+    /**
+     * Сл источника, которую подставит «Авто» у полей Сл: окно-владелец знает
+     * заклинателя или действие и показывает число. Не задано — видна только
+     * подпись «Сл заклинателя».
+     */
+    sourceSaveDc?: number;
   }
 
   const props = withDefaults(defineProps<Props>(), {
@@ -98,6 +104,7 @@
     showAreaTrigger: false,
     hideConditionPreset: false,
     zoneAvailable: undefined,
+    sourceSaveDc: undefined,
   });
 
   const emit = defineEmits<{
@@ -320,6 +327,7 @@
             <EffectSaveStep
               v-model:effect="draft"
               :layout="layout"
+              :source-save-dc="sourceSaveDc"
             />
           </EffectFormStep>
 
@@ -332,6 +340,7 @@
             <EffectDamageStep
               v-model:effect="draft"
               :layout="layout"
+              :source-save-dc="sourceSaveDc"
             />
           </EffectFormStep>
 
@@ -357,6 +366,7 @@
             <EffectDurationStep
               v-model:effect="draft"
               :layout="layout"
+              :source-save-dc="sourceSaveDc"
             />
           </EffectFormStep>
 

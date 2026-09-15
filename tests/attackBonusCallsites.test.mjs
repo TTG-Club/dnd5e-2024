@@ -91,6 +91,7 @@ function createPorts(current) {
     generateId: (prefix) => `${prefix}_test`,
     SPELL_CAST_KEY_PREFIX: 'cast',
     DEFAULT_CREATURE_SPELL_SAVE_DC: 10,
+    readSpellOwnSaveDC: () => undefined,
     completeSpellCast: () => {},
     spellIsHealing: () => false,
     describeDamagePart: () => ({ types: [] }),
