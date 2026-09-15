@@ -38,6 +38,7 @@ import {
   collectBonusRollFormulas,
   resolveActorStats,
 } from './effectPipeline.js';
+import { resetTriggerUsage } from './effectTriggerUsage.js';
 import { buildFormulaContext } from './formulaParser.js';
 import {
   resolveEntityCurrentHp,
@@ -46,6 +47,12 @@ import {
   writeEntityHitPoints,
 } from './hitPoints.js';
 import { expandDamageParts } from './spellUtils.js';
+
+/** Период лимита, который заканчивается с концом хода */
+const TURN_LIMIT_PERIODS = ['turn'] as const;
+
+/** Период лимита, который заканчивается с новым раундом */
+const ROUND_LIMIT_PERIODS = ['round'] as const;
 
 /**
  * Сколько раундов боя в единице длительности, которая отсчитывается раундами:
@@ -76,8 +83,11 @@ function roundsPerUnit(duration: EffectDuration): number | undefined {
  * @returns true, если сущность была модифицирована
  */
 export function decrementActorEffectDurations(entity: DnDSceneEntity): boolean {
+  // Новый раунд заканчивает период лимита «раз в раунд»
+  const usageReset = resetTriggerUsage(entity, ROUND_LIMIT_PERIODS);
+
   if (!entity.activeEffects || entity.activeEffects.length === 0) {
-    return false;
+    return usageReset;
   }
 
   let hasChanges = false;
@@ -113,7 +123,9 @@ export function decrementActorEffectDurations(entity: DnDSceneEntity): boolean {
     return kept;
   }, []);
 
-  return hasChanges || entity.activeEffects.length !== initialLength;
+  return (
+    usageReset || hasChanges || entity.activeEffects.length !== initialLength
+  );
 }
 
 /**
@@ -225,11 +237,16 @@ export function expireTurnEffects(
   timing: 'start' | 'end',
   participantIds?: ReadonlySet<string>,
 ): boolean {
+  // Конец любого хода боя заканчивает период лимита «раз в ход». Не начало:
+  // эффекты начала хода срабатывают раньше, чем ядро зовёт эту границу
+  const usageReset =
+    timing === 'end' && resetTriggerUsage(entity, TURN_LIMIT_PERIODS);
+
   if (!entity.activeEffects || entity.activeEffects.length === 0) {
-    return false;
+    return usageReset;
   }
 
-  let changed = false;
+  let changed = usageReset;
 
   entity.activeEffects = entity.activeEffects.filter((effect) => {
     const duration = effect.duration;

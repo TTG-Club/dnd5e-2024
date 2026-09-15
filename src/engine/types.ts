@@ -22,6 +22,7 @@ import type {
   CounterRecovery,
   ManualHitDieGroup,
 } from './classTypes.js';
+import type { EffectTriggerUsageLedger } from './effectTriggerUsage.js';
 
 /** Сколько зарядов возвращает отдых: ничего, все или заданное число */
 export type CounterRecoveryMode = 'none' | 'all' | 'amount';
@@ -465,6 +466,9 @@ export interface DnDActorSystem {
    * актёров старых миров — без него оба числа считаются по правилам.
    */
   spellcastingSettings?: DnDSpellcastingSettings;
+
+  /** Счётчики лимита «не чаще N раз» у срабатываний эффектов */
+  effectUsage?: EffectTriggerUsageLedger;
 
   /** Ручные кости хитов (для NPC и кастомных актёров без классов) */
   manualHitDice?: ManualHitDieGroup[];

@@ -185,6 +185,15 @@ const LIVING_CARRIER_CONTEXTS: ReadonlySet<EffectFormContext> = new Set([
 ]);
 
 /**
+ * Места, где эффект «на носителе» не лежит в `activeEffects`, но срабатывания
+ * хода у него работают: черта существа лечит и бьёт на его ходу
+ * («Регенерация»). Снять саму черту срабатывание не может.
+ */
+const TICKING_CARRIER_CONTEXTS: ReadonlySet<EffectFormContext> = new Set([
+  'creatureTrait',
+]);
+
+/**
  * Места со спасброском самого действия — к нему относится выбор «при успехе»,
  * если у эффекта своего спасброска нет.
  */
@@ -489,6 +498,9 @@ export function resolveEffectFormLayout(
   const isLivingCarrier =
     delivery === 'carrier' && LIVING_CARRIER_CONTEXTS.has(context);
 
+  const isTickingCarrier =
+    delivery === 'carrier' && TICKING_CARRIER_CONTEXTS.has(context);
+
   // Спасбросок эффекта бросает тот, на кого эффект ложится в момент
   // срабатывания: цель попадания или вошедший в зону/ауру
   const showSave = isGeneric || isOnTarget || isOneShot;
@@ -525,8 +537,10 @@ export function resolveEffectFormLayout(
     successOutcomeForActionSave,
     showTriggerDamage: showSave,
     // Урон каждый ход тикает и у эффекта «пока в зоне» (копия лежит на
-    // сущности), и у ауры «пока в ауре» — на ходу того, кого она накрыла
-    showRecurringDamage: livesOnItsOwn || (trigger === 'stay' && hasTrigger),
+    // сущности), и у ауры «пока в ауре» — на ходу того, кого она накрыла, и у
+    // черты существа — на его ходу
+    showRecurringDamage:
+      livesOnItsOwn || (trigger === 'stay' && hasTrigger) || isTickingCarrier,
     showConditionPreset: context !== 'condition',
     // Иммунитет ауры «пока в ауре» получают все, кого она накрывает
     // («Аура отваги»)

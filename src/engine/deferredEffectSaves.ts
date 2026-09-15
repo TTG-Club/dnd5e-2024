@@ -13,7 +13,11 @@ import type { RollRequestOutcome, ServerRollRequester } from '@vtt/shared';
 
 import type { ActiveEffect, EffectSaveTiming } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
-import type { DeferredTurnTrigger } from './effectTriggerRunner.js';
+import type {
+  DeferredTurnTrigger,
+  EffectTriggerSource,
+  TriggerEffectOptions,
+} from './effectTriggerRunner.js';
 import type {
   EffectSaveSpec,
   EntryEffectOptions,
@@ -32,10 +36,11 @@ import {
 } from './effectSaveAcquisition.js';
 import {
   applyEntryEffect,
+  applyTriggerEffectActions,
   buildTriggerSaveSpec,
   rollTriggerDamage,
+  settlePresenceTrigger,
   toTriggerSaveOutcome,
-  triggerRemovesSelf,
   turnTriggerEventOf,
 } from './effectTriggerRunner.js';
 import { listEffectListTriggers } from './effectTriggers.js';
@@ -210,13 +215,18 @@ interface TurnTriggerAnswerTarget {
   timing: EffectSaveTiming;
   stage: DeferredTurnTrigger['stage'];
   spec: EffectSaveSpec;
-  /** Снимок ауры чужого токена: самого эффекта на сущности нет */
+  ambient: boolean;
+  instance: boolean;
+  scope: string;
+  /**
+   * Снимок эффекта черты или ауры чужого токена: самого эффекта на сущности нет
+   */
   snapshot?: ActiveEffect;
 }
 
 /**
  * Применяет ответ на спасбросок срабатывания хода к живой сущности: урон по
- * исходу либо снятие эффекта, отмена — ничего.
+ * исходу, снятие или наложение, отмена — ничего.
  *
  * Эффект и срабатывание ищутся заново: пока игрок думал, эффект могли снять,
  * выключить или поменять — тогда спасбросок ни к чему не относится.
@@ -254,43 +264,55 @@ function applyTurnTriggerAnswer(
   }
 
   const save = toTriggerSaveOutcome(trigger, acquisition.save);
-  const notes = formatEffectNotes(target.spec, acquisition.note);
 
-  if (target.stage === 'damage') {
-    const damage = rollTriggerDamage(
-      entity,
-      effect,
-      trigger,
-      save.passed,
-      resolveActorStats(entity),
-    );
+  const source: EffectTriggerSource = {
+    effect,
+    trigger,
+    ambient: target.ambient,
+    instance: target.instance,
+    scope: target.scope,
+  };
 
-    if (damage) {
-      applyDamageToEntity(entity, damage.total);
-    }
+  const damage =
+    target.stage === 'damage'
+      ? rollTriggerDamage(
+          entity,
+          effect,
+          trigger,
+          save.passed,
+          resolveActorStats(entity),
+        )
+      : null;
 
-    return {
-      changed: damage !== null,
-      damageOutcomes: damage ? [damage] : [],
-      saveOutcomes: [save],
-      notes,
-    };
+  if (damage) {
+    applyDamageToEntity(entity, damage.total);
   }
 
-  const removed = triggerRemovesSelf(trigger, save.passed);
+  // Снятие и наложение идут по тому же ответу — и на этапе урона, если
+  // срабатывание и бьёт, и накладывает
+  const { removes, applied } = applyTriggerEffectActions(
+    entity,
+    source,
+    save.passed,
+  );
 
-  if (removed) {
+  if (removes) {
     entity.activeEffects = (entity.activeEffects ?? []).filter(
       (entry) => entry.id !== target.effectId,
     );
   }
 
-  return { changed: removed, damageOutcomes: [], saveOutcomes: [save], notes };
+  return {
+    changed: damage !== null || removes || applied,
+    damageOutcomes: damage ? [damage] : [],
+    saveOutcomes: [save],
+    notes: formatEffectNotes(target.spec, acquisition.note),
+  };
 }
 
 /**
- * Спасбросок срабатывания хода, который бросает игрок: урон или снятие ждут
- * ответа.
+ * Спасбросок срабатывания хода, который бросает игрок: урон, снятие или
+ * наложение ждут ответа.
  *
  * @param entity - субъект срабатывания
  * @param deferred - отложенное срабатывание хода
@@ -304,7 +326,7 @@ export function requestTurnTriggerSave(
   timing: EffectSaveTiming,
   requestRoll: ServerRollRequester,
 ): EngineDeferredTrigger | null {
-  const { effect, trigger, ambient, stage } = deferred;
+  const { effect, trigger, ambient, instance, scope, stage } = deferred;
   const spec = buildTriggerSaveSpec(effect, trigger);
 
   if (!spec) {
@@ -317,7 +339,10 @@ export function requestTurnTriggerSave(
     timing,
     stage,
     spec,
-    ...(ambient ? { snapshot: structuredClone(effect) } : {}),
+    ambient,
+    instance,
+    scope,
+    ...(instance ? {} : { snapshot: structuredClone(effect) }),
   };
 
   const resolution = requestRoll(
@@ -335,6 +360,80 @@ export function requestTurnTriggerSave(
 
   // Спасбросок на границе хода — фишка в этот момент не идёт
   return { entityId: entity.id, blocksMovement: false, resolution };
+}
+
+/**
+ * Срабатывание входа или выхода из зоны со спасброском, который бросает игрок.
+ *
+ * Эффект и срабатывание копируются в момент срабатывания: зона принадлежит
+ * ядру и может измениться, пока игрок думает.
+ *
+ * @param entity - субъект срабатывания
+ * @param source - срабатывание с источником
+ * @param requestRoll - запрос броска от ядра
+ * @param requesterLabel - кто просит («Зона «Лунный луч»»)
+ * @param options - откуда пришли наложения
+ * @returns отложенное срабатывание; `null`, если спасброска нет
+ */
+export function requestPresenceTriggerSave(
+  entity: DnDSceneEntity,
+  source: EffectTriggerSource,
+  requestRoll: ServerRollRequester,
+  requesterLabel: string,
+  options: TriggerEffectOptions = {},
+): EngineDeferredTrigger | null {
+  const spec = buildTriggerSaveSpec(source.effect, source.trigger);
+
+  if (!spec) {
+    return null;
+  }
+
+  const snapshot: EffectTriggerSource = {
+    ...source,
+    effect: structuredClone(source.effect),
+    trigger: structuredClone(source.trigger),
+  };
+
+  const resolution = requestRoll(
+    buildEffectSaveRollRequest(entity, spec, requesterLabel),
+  ).then(
+    (outcome): DeferredEffectApply =>
+      (liveEntity) => {
+        const acquisition = settleEffectSaveOutcome(liveEntity, spec, outcome);
+
+        if (acquisition.status === 'cancelled') {
+          return unchangedOutcome(formatEffectNotes(spec, acquisition.note));
+        }
+
+        const save = toTriggerSaveOutcome(snapshot.trigger, acquisition.save);
+
+        const result = settlePresenceTrigger(
+          liveEntity,
+          snapshot,
+          save,
+          options,
+        );
+
+        return {
+          changed: result.damageOutcome !== null || result.statusApplied,
+          damageOutcomes: result.damageOutcome ? [result.damageOutcome] : [],
+          saveOutcomes: [save],
+          notes: formatEffectNotes(spec, acquisition.note),
+        };
+      },
+    () => null,
+  );
+
+  // Провал отнимет скорость — фишку останавливают до ответа
+  const probe = structuredClone(entity);
+
+  settlePresenceTrigger(probe, snapshot, buildFailedSave(spec), options);
+
+  return {
+    entityId: entity.id,
+    blocksMovement: resolveTotalMovementSpeed(resolveActorStats(probe)) <= 0,
+    resolution,
+  };
 }
 
 /**

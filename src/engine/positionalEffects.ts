@@ -30,13 +30,22 @@ import {
   collectAllAuraEffects,
   collectTriggerAurasForTarget,
 } from './auraMath.js';
-import { requestEntryEffect } from './deferredEffectSaves.js';
+import {
+  requestEntryEffect,
+  requestPresenceTriggerSave,
+} from './deferredEffectSaves.js';
 import {
   formatAuraRequesterLabel,
   formatZoneRequesterLabel,
   shouldRequestEffectSave,
 } from './effectSaveAcquisition.js';
-import { resolveEntryEffect } from './effectTriggerRunner.js';
+import {
+  listPresenceTriggerSources,
+  resolveEntryEffect,
+  rollTriggerSave,
+  settlePresenceTrigger,
+} from './effectTriggerRunner.js';
+import { takeTriggerUse } from './effectTriggerUsage.js';
 
 /**
  * Собирает ID областей, эффекты которых уже применены к актёру.
@@ -105,6 +114,9 @@ export interface AreaEffectsSyncResult {
  *   авто-спасбросков уходит игроку, а триггер — в `deferred`
  * @param options.resolveAmbientEffects - ауры чужих токенов, накрывающие
  *   сущность: учитываются в спасброске и иммунитетах срабатывания
+ * @param options.isInCombat - участвует ли сущность в идущем бою: лимит
+ *   срабатывания «раз в ход / раунд» считается только в бою. Без поля (старое
+ *   ядро) — вне боя
  * @returns изменения и исходы триггеров для чата
  */
 export function syncActorAreaEffects(
@@ -117,6 +129,7 @@ export function syncActorAreaEffects(
     alreadyEnteredAreaIds?: ReadonlySet<string>;
     requestRoll?: ServerRollRequester;
     resolveAmbientEffects?: AmbientEffectsResolver;
+    isInCombat?: (entity: DnDSceneEntity) => boolean;
   } = {},
 ): AreaEffectsSyncResult {
   const {
@@ -124,6 +137,7 @@ export function syncActorAreaEffects(
     alreadyEnteredAreaIds,
     requestRoll,
     resolveAmbientEffects,
+    isInCombat,
   } = options;
 
   const damageOutcomes: TurnDamageOutcome[] = [];
@@ -214,6 +228,85 @@ export function syncActorAreaEffects(
     }
   };
 
+  /**
+   * Явное срабатывание входа или выхода: лимит, спасбросок на сервере или
+   * запросом игроку, урон и наложения.
+   *
+   * @param effect - эффект зоны
+   * @param area - зона
+   * @param event - вход или выход
+   */
+  const runPresenceTriggers = (
+    effect: ActiveEffect,
+    area: CustomArea,
+    event: 'enter' | 'exit',
+  ): void => {
+    const sources = listPresenceTriggerSources(
+      effect,
+      event,
+      `area:${area.id}`,
+    );
+
+    for (const source of sources) {
+      const inCombat = isInCombat?.(entity) ?? false;
+
+      if (!takeTriggerUse(entity, source.scope, source.trigger, inCombat)) {
+        continue;
+      }
+
+      // Счётчик лимита записан на сущность — её надо сохранить
+      if (source.trigger.limit) {
+        changed = true;
+      }
+
+      const presenceOptions = {
+        sourceAreaId: area.id,
+        ambientEffects: resolveAmbientEffects?.(entity),
+      };
+
+      if (source.trigger.save && shouldRequestEffectSave(entity, requestRoll)) {
+        const request = requestPresenceTriggerSave(
+          entity,
+          source,
+          requestRoll,
+          formatZoneRequesterLabel(area.name),
+          presenceOptions,
+        );
+
+        if (request) {
+          deferred.push(request);
+        }
+
+        continue;
+      }
+
+      const save = rollTriggerSave(
+        entity,
+        source,
+        presenceOptions.ambientEffects,
+      );
+
+      const result = settlePresenceTrigger(
+        entity,
+        source,
+        save,
+        presenceOptions,
+      );
+
+      if (result.damageOutcome) {
+        damageOutcomes.push(result.damageOutcome);
+      }
+
+      if (result.saveOutcome) {
+        saveOutcomes.push(result.saveOutcome);
+      }
+
+      if (result.damageOutcome || result.statusApplied) {
+        changed = true;
+      }
+    }
+  };
+
   // Разовые триггеры выхода (только при перемещении)
   if (triggerOneShots) {
     for (const areaId of exitedAreaIds) {
@@ -224,9 +317,15 @@ export function syncActorAreaEffects(
       }
 
       for (const effect of area.effects.filter(isDnDEffect)) {
-        if (!effect.disabled && effect.areaTrigger === 'exit') {
+        if (effect.disabled) {
+          continue;
+        }
+
+        if (effect.areaTrigger === 'exit') {
           runTrigger(effect, area);
         }
+
+        runPresenceTriggers(effect, area, 'exit');
       }
     }
   }
@@ -278,9 +377,15 @@ export function syncActorAreaEffects(
       }
 
       for (const effect of area.effects.filter(isDnDEffect)) {
-        if (!effect.disabled && effect.areaTrigger === 'enter') {
+        if (effect.disabled) {
+          continue;
+        }
+
+        if (effect.areaTrigger === 'enter') {
           runTrigger(effect, area);
         }
+
+        runPresenceTriggers(effect, area, 'enter');
       }
     }
   }

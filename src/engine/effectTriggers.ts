@@ -47,6 +47,7 @@ export function isLegacyTrigger(trigger: Pick<EffectTrigger, 'id'>): boolean {
 
 /**
  * Гейт действия, если он не задан: при спасброске — провал, без него — всегда.
+ * Урон «половина при успехе» по смыслу бьёт при любом исходе.
  *
  * @param trigger - срабатывание
  * @param action - действие
@@ -56,7 +57,13 @@ export function resolveTriggerActionGate(
   trigger: Pick<EffectTrigger, 'save'>,
   action: EffectTriggerAction,
 ): EffectTriggerActionGate {
-  return action.on ?? (trigger.save ? 'failed' : 'always');
+  if (action.on) {
+    return action.on;
+  }
+
+  const halvesOnSave = action.type === 'damage' && action.halfOnSave === true;
+
+  return trigger.save && !halvesOnSave ? 'failed' : 'always';
 }
 
 /**

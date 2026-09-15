@@ -169,6 +169,16 @@ describe('раскладка окна эффекта', () => {
     assert.equal(layout.showConditionImmunities, true);
   });
 
+  it('черта существа на носителе: урон и лечение каждый ход, без повторного спасброска', () => {
+    const layout = layoutOf('creatureTrait');
+
+    assert.equal(layout.showRecurringDamage, true);
+    assert.equal(layout.showRecurringSave, false);
+    assert.equal(layout.showDuration, false);
+    assert.equal(layout.showConsumeOn, false);
+    assert.equal(layoutOf('item').showRecurringDamage, false);
+  });
+
   it('аура умения («Аура защиты»): «пока внутри» без сроков, вход — со спасброском', () => {
     const stay = layoutOf('feature', { aura: ALLIES_AURA });
 

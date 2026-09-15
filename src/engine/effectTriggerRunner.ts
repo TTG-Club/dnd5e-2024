@@ -28,8 +28,10 @@ import type {
   TurnSaveOutcome,
 } from './turnEffects.js';
 
-import { generateId } from '@vtt/shared';
+import { generateId, isCreatureEntity } from '@vtt/shared';
 
+import { isCarrierEffect } from './activeEffectTypes.js';
+import { buildConditionActiveEffect } from './conditionTemplates.js';
 import {
   hasLastingEffectPayload,
   isImmuneToCondition,
@@ -40,10 +42,12 @@ import {
   resolveActorStats,
 } from './effectPipeline.js';
 import {
+  isLegacyTrigger,
   listEffectListTriggers,
   readEffectLandingTrigger,
   resolveTriggerActionGate,
 } from './effectTriggers.js';
+import { takeTriggerUse } from './effectTriggerUsage.js';
 import {
   applyDamageToEntity,
   applyTurnHealing,
@@ -66,6 +70,13 @@ export interface EffectTriggerSource {
   trigger: EffectTrigger;
   /** Аура чужого токена: самого эффекта на субъекте нет */
   ambient: boolean;
+  /**
+   * Эффект лежит на субъекте (`activeEffects`) — его можно снять. У черты
+   * существа, ауры и эффекта зоны при входе экземпляра нет.
+   */
+  instance: boolean;
+  /** Источник эффекта для счётчика лимита */
+  scope: string;
 }
 
 /**
@@ -280,6 +291,187 @@ export function triggerRemovesSelf(
 }
 
 /**
+ * Действия срабатывания, которые источник может выполнить: снять эффект можно,
+ * только если он лежит на субъекте.
+ *
+ * @param source - срабатывание с источником
+ * @returns действия
+ */
+function listSourceActions(source: EffectTriggerSource): EffectTriggerAction[] {
+  return source.trigger.actions.filter(
+    (action) => action.type !== 'removeSelf' || source.instance,
+  );
+}
+
+/**
+ * Есть ли у источника урон или лечение.
+ *
+ * @param source - срабатывание с источником
+ * @returns `true`, если есть действие урона
+ */
+function sourceHasDamage(source: EffectTriggerSource): boolean {
+  return listSourceActions(source).some((action) => action.type === 'damage');
+}
+
+/**
+ * Есть ли у источника выполнимые действия кроме урона.
+ *
+ * @param source - срабатывание с источником
+ * @returns `true`, если есть снятие или наложение
+ */
+function sourceHasEffects(source: EffectTriggerSource): boolean {
+  return listSourceActions(source).some((action) => action.type !== 'damage');
+}
+
+/**
+ * Источник эффекта для счётчика лимита: копия эффекта зоны считается по зоне —
+ * тогда вход в зону и начало хода в ней делят один лимит.
+ *
+ * @param effect - эффект на субъекте
+ * @returns источник
+ */
+export function resolveEffectUsageScope(effect: ActiveEffect): string {
+  return effect.origin === 'area' && effect.originId
+    ? `area:${effect.originId}`
+    : effect.id;
+}
+
+/**
+ * Срабатывания, переносимые на копию эффекта: срабатывание, которое накладывает
+ * саму копию или реагирует на вход, выход и наложение, принадлежит источнику —
+ * на копии оно повторяло бы наложение на каждом ходу.
+ *
+ * @param effect - исходный эффект
+ * @returns срабатывания копии либо `undefined`
+ */
+function listCopiedTriggers(effect: ActiveEffect): EffectTrigger[] | undefined {
+  const kept = (effect.triggers ?? []).filter(
+    (trigger) =>
+      trigger.event !== 'enter'
+      && trigger.event !== 'exit'
+      && trigger.event !== 'applied'
+      && !trigger.actions.some((action) => action.type === 'applySelf'),
+  );
+
+  return kept.length > 0 ? kept : undefined;
+}
+
+/**
+ * Длящаяся копия эффекта на субъекте: своя длительность, без разовой нагрузки и
+ * без ауры источника.
+ *
+ * @param effect - эффект, чью нагрузку накладывают
+ * @param sourceAreaId - зона заклинания, из которой пришёл эффект
+ * @returns копия
+ */
+function buildEffectStatusCopy(
+  effect: ActiveEffect,
+  sourceAreaId: string | undefined,
+): ActiveEffect {
+  return withInitializedDuration({
+    ...effect,
+    id: generateId('ae'),
+    origin: 'condition',
+    originId: undefined,
+    areaTrigger: undefined,
+    transfer: false,
+    // Своя длительность: копия не должна делить счётчик с эффектом зоны
+    duration: { ...effect.duration },
+    // Разовая нагрузка уже отыграна — на длящейся копии её не оставляем
+    damageParts: undefined,
+    applySave: undefined,
+    // Аура остаётся у источника: без сброса цель сама начала бы её излучать
+    // (у копии нет `areaTrigger`, и она стала бы постоянной аурой)
+    aura: undefined,
+    effectTarget: undefined,
+    triggers: listCopiedTriggers(effect),
+    // Статус от зоны заклинания кончается вместе с заклинанием — с зоной
+    endsWithAreaId: effect.magical && sourceAreaId ? sourceAreaId : undefined,
+  });
+}
+
+/** Откуда пришли наложения срабатывания */
+export interface TriggerEffectOptions {
+  /** Ауры чужих токенов (иммунитеты к состояниям) */
+  ambientEffects?: readonly ActiveEffect[];
+  /** Зона заклинания, из которой пришёл эффект */
+  sourceAreaId?: string;
+}
+
+/**
+ * Выполняет действия срабатывания, кроме урона: накладывает копию эффекта или
+ * состояние (с проверкой иммунитета) и сообщает, снимается ли сам эффект.
+ * Снятие вызывающий делает сам — на границе хода оно идёт одной записью.
+ *
+ * @param entity - субъект
+ * @param source - срабатывание с источником
+ * @param passed - пройден ли спасбросок
+ * @param options - откуда пришли наложения
+ * @returns снимается ли эффект и было ли наложение
+ */
+export function applyTriggerEffectActions(
+  entity: DnDSceneEntity,
+  source: EffectTriggerSource,
+  passed: boolean,
+  options: TriggerEffectOptions = {},
+): { removes: boolean; applied: boolean } {
+  let removes = false;
+  let applied = false;
+
+  for (const action of listSourceActions(source)) {
+    if (
+      action.type === 'damage'
+      || resolveTriggerActionScale(source.trigger, action, passed) <= 0
+    ) {
+      continue;
+    }
+
+    if (action.type === 'removeSelf') {
+      removes = true;
+
+      continue;
+    }
+
+    let status: ActiveEffect | null = null;
+
+    if (action.type === 'applySelf') {
+      status = hasLastingEffectPayload(source.effect)
+        ? buildEffectStatusCopy(source.effect, options.sourceAreaId)
+        : null;
+    } else {
+      const condition = buildConditionActiveEffect(action.conditionKey, {
+        duration: action.duration,
+      });
+
+      status = condition ? withInitializedDuration(condition) : null;
+    }
+
+    // Иммунитет к состоянию — как при наложении атакой: срабатывание — такой
+    // же путь наложения, и обходить статблок оно не должно
+    const blocked =
+      status?.conditionKey !== undefined
+      && isImmuneToCondition(
+        getEntityConditionImmunities(entity, options.ambientEffects ?? []),
+        status.conditionKey,
+      );
+
+    if (!status || blocked) {
+      continue;
+    }
+
+    // Правило PHB 2024 «Combining Game Effects»: одноимённый статус не
+    // стакается — повторное наложение обновляет его, а не плодит копии
+    entity.activeEffects = mergeAppliedEffects(entity.activeEffects ?? [], [
+      status,
+    ]);
+
+    applied = true;
+  }
+
+  return { removes, applied };
+}
+
+/**
  * Срабатывания эффекта на событие хода субъекта.
  *
  * @param effect - эффект
@@ -298,14 +490,39 @@ function listTurnTriggers(
 }
 
 /**
- * Прогоняет срабатывания сущности на границе хода (начало/конец): сперва урон и
- * лечение (со спасброском против урона, если он задан), затем снятие эффектов
- * (повторный спасбросок — успех снимает эффект).
+ * Эффекты черт существа, действующие на само существо: их урон, лечение и
+ * наложения срабатывают на его ходу («Регенерация» чертой статблока).
  *
+ * @param entity - субъект
+ * @returns эффекты черт
+ */
+function listTraitEffects(entity: DnDSceneEntity): ActiveEffect[] {
+  if (!isCreatureEntity(entity)) {
+    return [];
+  }
+
+  return (entity.system.traits ?? [])
+    .flatMap((trait) => trait.activeEffects ?? [])
+    .filter(
+      (effect) =>
+        !effect.disabled
+        && isCarrierEffect(effect)
+        && !(effect.aura && !effect.aura.applyToSelf),
+    );
+}
+
+/**
+ * Прогоняет срабатывания сущности на границе хода (начало/конец): сперва урон и
+ * лечение (со спасброском против урона, если он задан), затем снятие и
+ * наложение (повторный спасбросок снимает эффект, «Зловоние» накладывает
+ * «Отравленный»).
+ *
+ * Источники: эффекты на самой сущности, черты существа и ауры чужих токенов
+ * «пока внутри». Лимит «не чаще N раз» проверяется перед срабатыванием.
  * Спасбросок, который надо спросить у игрока, не бросается: срабатывание уходит
  * в отложенные (`deferredTriggers` и прежние списки эффектов).
  *
- * Мутирует `entity.activeEffects` и `entity.system.hitPoints`.
+ * Мутирует `entity.activeEffects`, `entity.system.hitPoints` и счётчики лимитов.
  *
  * @param entity - сущность, чей момент хода обрабатывается
  * @param timing - момент: начало или конец хода
@@ -320,11 +537,15 @@ export function processTurnEffects(
   const event = turnTriggerEventOf(timing);
   const ambientEffects = options.ambientEffects ?? [];
 
-  // Урон ауры «пока внутри» тикает на ходу того, кто в ней стоит
+  // Аура «пока внутри» срабатывает на ходу того, кто в ней стоит
   const ambientTurnEffects = ambientEffects.filter(
     (effect) =>
       (effect.areaTrigger ?? 'stay') === 'stay'
-      && effect.recurringDamage !== undefined,
+      && listTurnTriggers(effect, event).length > 0,
+  );
+
+  const traitTurnEffects = listTraitEffects(entity).filter(
+    (effect) => listTurnTriggers(effect, event).length > 0,
   );
 
   const ownEffects = entity.activeEffects ?? [];
@@ -341,7 +562,11 @@ export function processTurnEffects(
     deferredTriggers: [],
   };
 
-  if (ownEffects.length === 0 && ambientTurnEffects.length === 0) {
+  if (
+    ownEffects.length === 0
+    && ambientTurnEffects.length === 0
+    && traitTurnEffects.length === 0
+  ) {
     return result;
   }
 
@@ -351,6 +576,17 @@ export function processTurnEffects(
         effect,
         trigger,
         ambient: false,
+        instance: true,
+        scope: resolveEffectUsageScope(effect),
+      })),
+    ),
+    ...traitTurnEffects.flatMap((effect) =>
+      listTurnTriggers(effect, event).map((trigger) => ({
+        effect,
+        trigger,
+        ambient: false,
+        instance: false,
+        scope: `trait:${effect.id}`,
       })),
     ),
     ...ambientTurnEffects.flatMap((effect) =>
@@ -358,6 +594,8 @@ export function processTurnEffects(
         effect,
         trigger,
         ambient: true,
+        instance: false,
+        scope: `aura:${effect.id}`,
       })),
     ),
   ];
@@ -369,23 +607,55 @@ export function processTurnEffects(
     ambientEffects,
   );
 
-  /** Спасброски, брошенные на этапе урона, — снятие того же срабатывания по ним */
+  /** Спасброски этапа урона — наложение того же срабатывания идёт по ним */
   const damageStageSaves = new Map<EffectTrigger, TurnSaveOutcome>();
   const deferredSources = new Set<EffectTrigger>();
+  const allowedTriggers = new Set<EffectTrigger>();
+  const blockedTriggers = new Set<EffectTrigger>();
+
+  let usageChanged = false;
+
+  /**
+   * Проходит ли срабатывание по лимиту: первое прохождение отмечается в
+   * счётчике, проверка того же срабатывания на втором этапе — нет.
+   *
+   * @param source - срабатывание с источником
+   * @returns `true`, если срабатывание выполняется
+   */
+  const allowTrigger = (source: EffectTriggerSource): boolean => {
+    if (allowedTriggers.has(source.trigger)) {
+      return true;
+    }
+
+    if (
+      blockedTriggers.has(source.trigger)
+      || !takeTriggerUse(entity, source.scope, source.trigger)
+    ) {
+      blockedTriggers.add(source.trigger);
+
+      return false;
+    }
+
+    allowedTriggers.add(source.trigger);
+    usageChanged ||= source.trigger.limit !== undefined;
+
+    return true;
+  };
 
   let healedTotal = 0;
   let tempHpGranted = 0;
 
   // 1. Урон и лечение
   for (const source of sources) {
-    const { effect, trigger, ambient } = source;
+    const { effect, trigger, ambient, instance } = source;
 
     // Отключённый эффект не действует — значит, и не бьёт. Своя аура без
     // «действует и на носителя» бьёт других, а не того, кто её излучает
     if (
       effect.disabled
-      || !triggerHasDamage(trigger)
-      || (!ambient && effect.aura && !effect.aura.applyToSelf)
+      || !sourceHasDamage(source)
+      || (instance && effect.aura && !effect.aura.applyToSelf)
+      || !allowTrigger(source)
     ) {
       continue;
     }
@@ -405,10 +675,11 @@ export function processTurnEffects(
     if (trigger.save && spec) {
       // Спасбросок спросят у игрока: урон ждёт ответа
       if (options.deferRecurringDamageSave?.(effect)) {
-        (ambient
-          ? result.deferredAmbientDamageSaveEffects
-          : result.deferredDamageSaveEffects
-        ).push(effect);
+        if (ambient) {
+          result.deferredAmbientDamageSaveEffects.push(effect);
+        } else if (instance) {
+          result.deferredDamageSaveEffects.push(effect);
+        }
 
         result.deferredTriggers.push({ ...source, stage: 'damage' });
         deferredSources.add(trigger);
@@ -462,19 +733,21 @@ export function processTurnEffects(
     (healedTotal > 0 || tempHpGranted > 0)
     && applyTurnHealing(entity, healedTotal, tempHpGranted);
 
-  // 2. Снятие эффектов: ауру чужого токена снимать не с кого
+  // 2. Снятие и наложение
   const removedIds = new Set<string>();
 
+  let appliedAny = false;
+
   for (const source of sources) {
-    const { effect, trigger, ambient } = source;
+    const { effect, trigger, instance } = source;
 
     // Отключённый эффект не действует — и сам себя спасброском не снимает
     if (
-      ambient
-      || effect.disabled
-      || !triggerHasEffects(trigger)
+      effect.disabled
+      || !sourceHasEffects(source)
       || deferredSources.has(trigger)
-      || removedIds.has(effect.id)
+      || (instance && removedIds.has(effect.id))
+      || !allowTrigger(source)
     ) {
       continue;
     }
@@ -486,7 +759,10 @@ export function processTurnEffects(
     if (!save && trigger.save && spec) {
       // Спасбросок спросят у игрока: до ответа эффект держится
       if (options.deferRecurringSave?.(effect)) {
-        result.deferredSaveEffects.push(effect);
+        if (instance) {
+          result.deferredSaveEffects.push(effect);
+        }
+
         result.deferredTriggers.push({ ...source, stage: 'effects' });
 
         continue;
@@ -512,7 +788,16 @@ export function processTurnEffects(
       result.saveOutcomes.push(save);
     }
 
-    if (triggerRemovesSelf(trigger, save?.passed ?? false)) {
+    const { removes, applied } = applyTriggerEffectActions(
+      entity,
+      source,
+      save?.passed ?? false,
+      { ambientEffects },
+    );
+
+    appliedAny ||= applied;
+
+    if (removes) {
       removedIds.add(effect.id);
 
       // Снятый этой же серией эффект больше не даёт кубик следующим спасброскам
@@ -526,13 +811,17 @@ export function processTurnEffects(
   }
 
   if (removedIds.size > 0) {
-    entity.activeEffects = ownEffects.filter(
+    entity.activeEffects = (entity.activeEffects ?? []).filter(
       (effect) => !removedIds.has(effect.id),
     );
   }
 
   result.changed =
-    result.damageTotal > 0 || removedIds.size > 0 || healingApplied;
+    result.damageTotal > 0
+    || removedIds.size > 0
+    || healingApplied
+    || appliedAny
+    || usageChanged;
 
   return result;
 }
@@ -566,71 +855,37 @@ export function applyEntryEffect(
 ): EntryEffectResult {
   const ambientEffects = options.ambientEffects ?? [];
   const stats = resolveActorStats(entity, [...ambientEffects]);
-  const trigger = readEffectLandingTrigger(effect, 'enter');
+
+  const source: EffectTriggerSource = {
+    effect,
+    trigger: readEffectLandingTrigger(effect, 'enter'),
+    ambient: false,
+    instance: false,
+    scope: effect.id,
+  };
 
   // Эффект области «приземлился» всегда: промаха у зоны нет, её защита —
   // только собственный спасбросок эффекта
   const passed = effect.applySave ? saveOutcome?.passed === true : false;
 
-  const rolled = rollTriggerDamage(entity, effect, trigger, passed, stats);
+  const rolled = rollTriggerDamage(
+    entity,
+    effect,
+    source.trigger,
+    passed,
+    stats,
+  );
 
   if (rolled) {
     applyDamageToEntity(entity, rolled.total);
   }
 
-  // Длящаяся нагрузка (статус): вешаем самостоятельной копией, живущей по своей
-  // длительности (не привязана к области, так как триггер разовый)
-  const appliesSelf = trigger.actions.some(
-    (action) =>
-      action.type === 'applySelf'
-      && resolveTriggerActionScale(trigger, action, passed) > 0,
-  );
+  const { applied } = applyTriggerEffectActions(entity, source, passed, {
+    ambientEffects,
+    sourceAreaId: options.sourceAreaId,
+  });
 
-  // Иммунитет к состоянию проверяется здесь так же, как при попадании атакой:
-  // область — такой же путь наложения, и обходить статблок он не должен
-  const conditionBlocked =
-    effect.conditionKey !== undefined
-    && isImmuneToCondition(
-      getEntityConditionImmunities(entity, ambientEffects),
-      effect.conditionKey,
-    );
-
-  let statusApplied = false;
-
-  if (hasLastingEffectPayload(effect) && appliesSelf && !conditionBlocked) {
-    const status = withInitializedDuration({
-      ...effect,
-      id: generateId('ae'),
-      origin: 'condition',
-      originId: undefined,
-      areaTrigger: undefined,
-      transfer: false,
-      // Своя длительность: копия не должна делить счётчик с эффектом зоны
-      duration: { ...effect.duration },
-      // Разовая нагрузка уже отыграна — на длящейся копии её не оставляем
-      damageParts: undefined,
-      applySave: undefined,
-      // Аура остаётся у источника: без сброса цель сама начала бы её излучать
-      // (у копии нет `areaTrigger`, и она стала бы постоянной аурой)
-      aura: undefined,
-      effectTarget: undefined,
-      // Статус от зоны заклинания кончается вместе с заклинанием — с зоной
-      endsWithAreaId:
-        effect.magical && options.sourceAreaId
-          ? options.sourceAreaId
-          : undefined,
-    });
-
-    // Правило PHB 2024 «Combining Game Effects»: одноимённый статус не
-    // стакается — повторный вход в область обновляет его, а не плодит копии
-    entity.activeEffects = mergeAppliedEffects(entity.activeEffects ?? [], [
-      status,
-    ]);
-
-    statusApplied = true;
-  }
-
-  return { damageOutcome: rolled, saveOutcome, statusApplied };
+  return { damageOutcome: rolled, saveOutcome, statusApplied: applied };
 }
 
 /**
@@ -656,4 +911,105 @@ export function resolveEntryEffect(
     : null;
 
   return applyEntryEffect(entity, effect, saveOutcome, options);
+}
+
+/**
+ * Явные срабатывания эффекта на вход или выход из зоны. Разовое срабатывание
+ * старых полей (`areaTrigger`, спасбросок и урон эффекта) идёт своим путём —
+ * `applyEntryEffect`.
+ *
+ * @param effect - эффект зоны
+ * @param event - вход или выход
+ * @param scope - источник для счётчика лимита (`area:<зона>`)
+ * @returns срабатывания с источником
+ */
+export function listPresenceTriggerSources(
+  effect: ActiveEffect,
+  event: 'enter' | 'exit',
+  scope: string,
+): EffectTriggerSource[] {
+  return listEffectListTriggers(effect)
+    .filter((trigger) => !isLegacyTrigger(trigger) && trigger.event === event)
+    .map((trigger) => ({
+      effect,
+      trigger,
+      ambient: false,
+      instance: false,
+      scope,
+    }));
+}
+
+/**
+ * Бросает на сервере спасбросок срабатывания.
+ *
+ * @param entity - субъект
+ * @param source - срабатывание с источником
+ * @param ambientEffects - ауры чужих токенов
+ * @returns исход либо `null`, если спасброска нет
+ */
+export function rollTriggerSave(
+  entity: DnDSceneEntity,
+  source: EffectTriggerSource,
+  ambientEffects: readonly ActiveEffect[] = [],
+): TurnSaveOutcome | null {
+  const spec = buildTriggerSaveSpec(source.effect, source.trigger);
+
+  return spec
+    ? toTriggerSaveOutcome(
+        source.trigger,
+        rollEffectSaveOutcome(entity, spec, ambientEffects),
+      )
+    : null;
+}
+
+/**
+ * Выполняет срабатывание входа или выхода по известному исходу спасброска:
+ * урон, лечение и наложения.
+ *
+ * @param entity - субъект
+ * @param source - срабатывание с источником
+ * @param save - исход спасброска; `null` — спасброска нет
+ * @param options - откуда пришли наложения
+ * @returns исходы для чата
+ */
+export function settlePresenceTrigger(
+  entity: DnDSceneEntity,
+  source: EffectTriggerSource,
+  save: TurnSaveOutcome | null,
+  options: TriggerEffectOptions = {},
+): EntryEffectResult {
+  const ambientEffects = options.ambientEffects ?? [];
+  const stats = resolveActorStats(entity, [...ambientEffects]);
+  const passed = save?.passed ?? false;
+
+  const damage = rollTriggerDamage(
+    entity,
+    source.effect,
+    source.trigger,
+    passed,
+    stats,
+  );
+
+  if (damage) {
+    applyDamageToEntity(entity, damage.total);
+  }
+
+  const healing = rollTriggerHealing(source.effect, source.trigger);
+
+  const healed =
+    healing !== null
+    && applyTurnHealing(entity, healing.healed, healing.tempHp);
+
+  const { applied } = applyTriggerEffectActions(
+    entity,
+    source,
+    passed,
+    options,
+  );
+
+  return {
+    damageOutcome: damage,
+    saveOutcome: save,
+    statusApplied: applied || healed,
+  };
 }

@@ -186,6 +186,31 @@ describe('чтение старых полей как срабатываний',
       ['legacy.consumeOn', 'trigger_stench'],
     );
   });
+
+  it('гейт по умолчанию: при спасброске — провал, но «половина при успехе» бьёт всегда', () => {
+    const damage = { type: 'damage', parts: POISON_PARTS };
+    const withSave = { save: CON_SAVE };
+
+    assert.equal(engine.resolveTriggerActionGate(withSave, damage), 'failed');
+    assert.equal(engine.resolveTriggerActionGate({}, damage), 'always');
+
+    assert.equal(
+      engine.resolveTriggerActionGate(withSave, {
+        ...damage,
+        halfOnSave: true,
+      }),
+      'always',
+    );
+
+    assert.equal(
+      engine.resolveTriggerActionGate(withSave, {
+        ...damage,
+        halfOnSave: true,
+        on: 'saved',
+      }),
+      'saved',
+    );
+  });
 });
 
 describe('запись «сначала старые поля»', () => {

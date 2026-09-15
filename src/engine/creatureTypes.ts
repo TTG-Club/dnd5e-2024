@@ -17,6 +17,7 @@ import type {
   SpellSaveType,
 } from '@vtt/shared';
 
+import type { EffectTriggerUsageLedger } from './effectTriggerUsage.js';
 import type { StartingEquipmentItem } from './startingEquipment.js';
 import type {
   CreatureSize,
@@ -442,6 +443,9 @@ export interface CreatureSystem {
 
   /** Заклинательство существа (плоский DC/бонус + заклинания с зарядами) */
   spellcasting?: CreatureSpellcasting;
+
+  /** Счётчики лимита «не чаще N раз» у срабатываний эффектов */
+  effectUsage?: EffectTriggerUsageLedger;
 
   /**
    * Заклинания, разложенные блоками и группами, — так же, как в редакторе

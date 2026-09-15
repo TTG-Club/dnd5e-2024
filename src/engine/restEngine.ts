@@ -34,6 +34,7 @@ import {
   resolveCounterMaxIn,
 } from './counterResource.js';
 import { restoreCreatureSpellGroupUses } from './creatureSpellcasting.js';
+import { pruneTriggerUsage, restLimitPeriodsOf } from './effectTriggerUsage.js';
 import {
   getHalfHitDiceRecovery,
   getHitDiceGroups,
@@ -285,6 +286,12 @@ export function applyActorRest(
 
   const restoredSystem: DnDActorSystem = {
     ...system,
+    // Отдых заканчивает периоды лимитов «раз в отдых» у срабатываний эффектов
+    ...(system.effectUsage === undefined
+      ? {}
+      : {
+          effectUsage: pruneTriggerUsage(actor, restLimitPeriodsOf(restType)),
+        }),
     // Пактовая магия восстанавливается и коротким, и продолжительным отдыхом
     pactSlotsUsed: 0,
     classCounters: system.classCounters.map((counter) =>
@@ -500,9 +507,17 @@ export function applyCreatureRest(
   // строки отдых вернул бы заряды «каждому», а общий счётчик оставил пустым
   const blocks = creature.system.spellcastingBlocks;
 
-  if (blocks?.length) {
+  // Отдых заканчивает периоды лимитов «раз в отдых» у срабатываний эффектов
+  if (creature.system.effectUsage !== undefined) {
     patch.system = {
       ...creature.system,
+      effectUsage: pruneTriggerUsage(creature, restLimitPeriodsOf(restType)),
+    };
+  }
+
+  if (blocks?.length) {
+    patch.system = {
+      ...(patch.system ?? creature.system),
       spellcastingBlocks: restoreCreatureSpellGroupUses(blocks, restType),
     };
   }

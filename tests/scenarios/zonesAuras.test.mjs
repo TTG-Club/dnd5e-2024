@@ -388,9 +388,86 @@ describe('каталог: зоны и ауры', () => {
     assert.equal(helped.saveOutcomes[0].total - plain.saveOutcomes[0].total, 4);
   });
 
-  it.todo(
-    '[Z12] «Первый вход за ход»: урон зоны не чаще раза в ход на существо — пробел',
-  );
+  it('[Z12] «Первый вход за ход»: вход и начало хода в зоне делят лимит «раз в ход»', () => {
+    const once = { max: 1, per: 'turn', key: 'moonbeam' };
+
+    const radiant = {
+      type: 'damage',
+      parts: [{ formula: '2d10@dmg.radiant' }],
+      halfOnSave: true,
+    };
+
+    const moonbeam = createEffect('Лунный луч', {
+      triggers: [
+        {
+          id: 'trigger_enter',
+          event: 'enter',
+          save: { ability: 'constitution', dc: ZONE_DC },
+          actions: [radiant],
+          limit: once,
+        },
+        {
+          id: 'trigger_turn',
+          event: 'turnStart',
+          save: { ability: 'constitution', dc: ZONE_DC },
+          actions: [radiant],
+          limit: once,
+        },
+      ],
+    });
+
+    const scenario = authoredScenario(moonbeam, 'zone');
+
+    assert.match(scenario, /не чаще одного раза за ход/);
+
+    const zones = [createZone('ca_moonbeam', [moonbeam])];
+    const orc = createCreature();
+    const inCombat = { isInCombat: () => true };
+
+    const entered = withRandom([MIN_ROLL, MAX_ROLL], () =>
+      enter(orc, zones, inCombat),
+    );
+
+    assert.equal(entered.damageOutcomes.length, 1);
+    assert.equal(entered.changed, true);
+
+    // Тот же ход: вход уже ударил — начало хода в зоне молчит
+    const sameTurn = withRandom([MIN_ROLL, MAX_ROLL], () =>
+      engine.processTurnEffects(orc, 'startOfTurn'),
+    );
+
+    assert.equal(sameTurn.damageOutcomes.length, 0);
+
+    // Выйти и войти снова в том же ходу — тоже без урона
+    engine.syncActorAreaEffects(orc, new Set([zones[0].id]), new Set(), zones);
+    assert.equal(enter(orc, zones, inCombat).damageOutcomes.length, 0);
+
+    // Конец хода сбрасывает счётчик
+    engine.expireTurnEffects(orc, 'someone', 'end');
+
+    const nextTurn = withRandom([MIN_ROLL, MAX_ROLL], () =>
+      engine.processTurnEffects(orc, 'startOfTurn'),
+    );
+
+    assert.equal(nextTurn.damageOutcomes.length, 1);
+
+    // Вне боя ходов нет: каждый вход бьёт, остаток счётчика прошлого боя стёрт
+    const outOfCombat = { isInCombat: () => false };
+
+    const leave = () =>
+      engine.syncActorAreaEffects(
+        orc,
+        new Set([zones[0].id]),
+        new Set(),
+        zones,
+      );
+
+    leave();
+    assert.equal(enter(orc, zones, outOfCombat).damageOutcomes.length, 1);
+    assert.equal(orc.system.effectUsage, undefined);
+    leave();
+    assert.equal(enter(orc, zones, outOfCombat).damageOutcomes.length, 1);
+  });
 
   it.todo(
     '[Z13] Сильная заслонённость зоны игрока (стена зрения у зоны от сущности) — пробел',

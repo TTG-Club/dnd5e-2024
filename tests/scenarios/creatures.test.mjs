@@ -12,6 +12,7 @@ import {
   engine,
   GRID,
   MAX_ROLL,
+  MIN_ROLL,
   saveOutcome,
   withRandom,
 } from './_fixtures.mjs';
@@ -246,9 +247,76 @@ describe('каталог: существа', () => {
     );
   });
 
-  it.todo(
-    '[C06b] Зловоние: спасбросок в НАЧАЛЕ хода в ауре со статусом — пробел (у ауры на ходу только урон)',
-  );
+  it('[C06b] Зловоние: в начале хода в ауре спасбросок Телосложения или «Отравленный»', () => {
+    const stench = createEffect('Зловоние', {
+      aura: { radius: 10, target: 'all', applyToSelf: false, visible: true },
+      triggers: [
+        {
+          id: 'trigger_stench',
+          event: 'turnStart',
+          save: { ability: 'constitution', dc: 12 },
+          actions: [
+            {
+              type: 'applyCondition',
+              conditionKey: 'poisoned',
+              duration: { type: 'rounds', value: 1 },
+            },
+          ],
+        },
+      ],
+    });
+
+    const scenario = authoredScenario(stench, 'creatureTrait');
+
+    assert.match(scenario, /в начале хода: спасбросок Телосложения, Сл 12/);
+
+    const troglodyte = createCreature({
+      id: 'creature_troglodyte',
+      name: 'Троглодит',
+    });
+
+    troglodyte.system.traits = [createTrait('Зловоние', [stench])];
+
+    const auraSources = [
+      {
+        token: createToken(troglodyte.id, 0, 0),
+        effects: engine.collectAllAuraEffects(troglodyte),
+      },
+    ];
+
+    const startTurnAt = (entity, x, random) =>
+      withRandom([random], () =>
+        engine.processTurnEffects(entity, 'startOfTurn', {
+          ambientEffects: engine.calculateAmbientAuras(
+            createToken(entity.id, x, 0),
+            auraSources,
+            GRID,
+          ),
+        }),
+      );
+
+    const conditionsOf = (entity) =>
+      (entity.activeEffects ?? []).map((effect) => effect.conditionKey);
+
+    const failed = createActor({ autoSaves: true });
+
+    startTurnAt(failed, 1, MIN_ROLL);
+    assert.deepEqual(conditionsOf(failed), ['poisoned']);
+
+    const passed = createActor({ autoSaves: true });
+
+    startTurnAt(passed, 1, MAX_ROLL);
+    assert.deepEqual(conditionsOf(passed), []);
+
+    const far = createActor({ autoSaves: true });
+
+    startTurnAt(far, 5, MIN_ROLL);
+    assert.deepEqual(conditionsOf(far), []);
+
+    // Сам троглодит своего зловония не нюхает
+    startTurnAt(troglodyte, 0, MIN_ROLL);
+    assert.deepEqual(conditionsOf(troglodyte), []);
+  });
 
   it('[C07] Огненная аура [≈]: урон огнём в начале хода тому, кто в ауре; сам источник не горит', () => {
     const fireAura = createEffect('Огненная аура', {
@@ -323,9 +391,34 @@ describe('каталог: существа', () => {
     );
   });
 
-  it.todo(
-    '[C08b] Регенерация чертой статблока: урон/лечение каждый ход у черты не тикает — пробел',
-  );
+  it('[C08b] Регенерация чертой статблока: +10 хитов в начале хода, черта остаётся', () => {
+    const regeneration = createEffect('Регенерация', {
+      recurringDamage: {
+        damageParts: [{ formula: '10@heal' }],
+        timing: 'startOfTurn',
+      },
+    });
+
+    authoredScenario(regeneration, 'creatureTrait');
+
+    const troll = createCreature({ id: 'creature_troll', name: 'Тролль' });
+
+    troll.system.traits = [createTrait('Регенерация', [regeneration])];
+    engine.applyTargetDamage(troll, 15, false, 'slashing');
+
+    const woundedHp = engine.resolveEntityCurrentHp(troll);
+    const result = engine.processTurnEffects(troll, 'startOfTurn');
+
+    assert.equal(result.healingOutcomes.length, 1);
+
+    assert.equal(
+      engine.resolveEntityCurrentHp(troll),
+      Math.min(woundedHp + 10, engine.resolveEntityMaxHp(troll)),
+    );
+
+    assert.equal(troll.system.traits[0].activeEffects.length, 1);
+    assert.equal(troll.activeEffects?.length ?? 0, 0);
+  });
 
   it.todo(
     '[C08c] Регенерация не срабатывает после урона огнём или кислотой — пробел («раз в ход по событию»)',
