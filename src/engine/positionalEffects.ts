@@ -117,6 +117,8 @@ export interface AreaEffectsSyncResult {
  * @param options.isInCombat - участвует ли сущность в идущем бою: лимит
  *   срабатывания «раз в ход / раунд» считается только в бою. Без поля (старое
  *   ядро) — вне боя
+ * @param options.getActiveTurnActorId - чей сейчас ход: состояние «до конца
+ *   следующего хода», наложенное на ходу якоря, не спадает в конце этого хода
  * @returns изменения и исходы триггеров для чата
  */
 export function syncActorAreaEffects(
@@ -130,6 +132,7 @@ export function syncActorAreaEffects(
     requestRoll?: ServerRollRequester;
     resolveAmbientEffects?: AmbientEffectsResolver;
     isInCombat?: (entity: DnDSceneEntity) => boolean;
+    getActiveTurnActorId?: () => string | null;
   } = {},
 ): AreaEffectsSyncResult {
   const {
@@ -138,6 +141,7 @@ export function syncActorAreaEffects(
     requestRoll,
     resolveAmbientEffects,
     isInCombat,
+    getActiveTurnActorId,
   } = options;
 
   const damageOutcomes: TurnDamageOutcome[] = [];
@@ -193,6 +197,7 @@ export function syncActorAreaEffects(
     const entryOptions = {
       sourceAreaId: area.id,
       ambientEffects: resolveAmbientEffects?.(entity),
+      activeTurnActorId: getActiveTurnActorId?.(),
     };
 
     // Спасбросок бросает игрок — срабатывание ждёт его ответа
@@ -262,6 +267,7 @@ export function syncActorAreaEffects(
       const presenceOptions = {
         sourceAreaId: area.id,
         ambientEffects: resolveAmbientEffects?.(entity),
+        activeTurnActorId: getActiveTurnActorId?.(),
       };
 
       if (source.trigger.save && shouldRequestEffectSave(entity, requestRoll)) {

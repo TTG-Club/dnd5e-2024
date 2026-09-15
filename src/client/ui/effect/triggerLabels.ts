@@ -11,6 +11,7 @@ import type {
   EffectTriggerEvent,
   EffectTriggerLimitPeriod,
   EffectTriggerPreset,
+  EffectTriggerTurnOwner,
   TriggerConditionKind,
 } from '@vtt/shared/system/dnd.js';
 
@@ -28,6 +29,7 @@ export const EFFECT_TRIGGERS_STEP_LABELS = {
 export const EFFECT_TRIGGER_ROW_LABELS = {
   event: 'Когда',
   role: 'Чья атака',
+  turnOf: 'Чей ход',
   saveToggle: 'Спасбросок',
   saveAbility: 'Характеристика',
   saveDc: 'Сл',
@@ -63,6 +65,15 @@ export const EFFECT_TRIGGER_ROLE_LABELS: Record<
 > = {
   attacker: 'Своя атака',
   target: 'Атака по носителю',
+};
+
+/** Чей ход у срабатывания начала и конца хода */
+export const EFFECT_TRIGGER_TURN_OWNER_LABELS: Record<
+  EffectTriggerTurnOwner,
+  string
+> = {
+  subject: 'Носителя эффекта',
+  source: 'Наложившего эффект',
 };
 
 /** Виды действий */

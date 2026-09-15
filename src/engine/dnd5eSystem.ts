@@ -113,7 +113,7 @@ import {
   formatEffectsSummary,
   formatRecurringSaveStatus,
   formatTurnEffectsMessage,
-  TURN_TIMING_SUMMARY_LABELS,
+  resolveTurnSummaryLabel,
 } from './turnEffects.js';
 
 /**
@@ -222,6 +222,143 @@ function toAmbientResolver(
 ): (entity: SceneEntity) => ActiveEffect[] {
   return (entity) =>
     (context?.resolveAmbientEffects?.(entity) ?? []).filter(isDnDEffect);
+}
+
+/**
+ * Участие наложившего в бою из контекста ядра. Старое ядро не знает ни
+ * сущностей, ни боя — тогда наложивший «не в бою», и срабатывание «ход
+ * наложившего» идёт на ходу носителя.
+ *
+ * @param context - контекст срабатывания от ядра
+ * @returns функция: id наложившего → участвует ли он в бою
+ */
+function toSourceInCombatResolver(
+  context: SystemTriggerContext | undefined,
+): (sourceId: string) => boolean {
+  return (sourceId) => {
+    const source = context?.getEntity?.(sourceId);
+
+    return source !== undefined && context?.isInCombat?.(source) === true;
+  };
+}
+
+/**
+ * Прогоняет срабатывания хода сущности и спрашивает у игрока отложенные
+ * спасброски. Общее тело хода носителя и хода наложившего: разные у них только
+ * отбор срабатываний, подпись в чате и ключ ожидания ответа.
+ *
+ * @param entity - сущность, чьи эффекты проверяются
+ * @param timing - начало или конец хода
+ * @param context - возможности ядра
+ * @param pendingKeys - спасброски, уже ждущие ответа игрока
+ * @param sourceTurnActorId - чей ход, если это ход наложившего
+ * @returns изменения, сводка и отложенные срабатывания
+ */
+function settleTurnEffects(
+  entity: SceneEntity,
+  timing: 'startOfTurn' | 'endOfTurn',
+  context: SystemTriggerContext | undefined,
+  pendingKeys: Set<string>,
+  sourceTurnActorId?: string,
+): SystemDeferredTriggerResult {
+  if (!isDndSceneEntity(entity)) {
+    return { changed: false, chatSummary: null };
+  }
+
+  const requestRoll = context?.requestRoll;
+  const askOwner = shouldRequestEffectSave(entity, requestRoll);
+  const turnOf = sourceTurnActorId === undefined ? 'subject' : 'source';
+
+  const result = processTurnEffects(entity, timing, {
+    deferRecurringSave: () => askOwner,
+    deferRecurringDamageSave: () => askOwner,
+    ambientEffects: toAmbientResolver(context)(entity),
+    sourceTurnActorId,
+    isSourceInCombat: toSourceInCombatResolver(context),
+  });
+
+  const chatSummary = formatTurnEffectsMessage(
+    entity.name,
+    timing,
+    result,
+    turnOf,
+  );
+
+  if (!askOwner) {
+    return { changed: result.changed, chatSummary };
+  }
+
+  // Один эффект срабатывает и на своём ходу, и на ходу наложившего — ответы
+  // этих границ ждутся порознь
+  const turnKey =
+    sourceTurnActorId === undefined
+      ? timing
+      : `${timing}:source:${sourceTurnActorId}`;
+
+  const deferred: EngineDeferredTrigger[] = [];
+
+  // Урон каждый ход идёт раньше повторного спасброска — в том же порядке, что
+  // и при броске на сервере. Ключ ожидания старых полей прежний; явным
+  // срабатываниям нужен и id срабатывания — их у эффекта может быть несколько
+  const requests = [
+    ...result.deferredTriggers.filter(
+      (turnTrigger) => turnTrigger.stage === 'damage' && !turnTrigger.ambient,
+    ),
+    ...result.deferredTriggers.filter(
+      (turnTrigger) => turnTrigger.stage === 'damage' && turnTrigger.ambient,
+    ),
+    ...result.deferredTriggers.filter(
+      (turnTrigger) => turnTrigger.stage === 'effects',
+    ),
+  ].map((turnTrigger) => {
+    const stageKey =
+      turnTrigger.stage === 'damage'
+        ? `${entity.id}:${turnTrigger.effect.id}:${turnKey}:${TURN_DAMAGE_SAVE_KEY}`
+        : `${entity.id}:${turnTrigger.effect.id}:${turnKey}`;
+
+    return {
+      pendingKey: isLegacyTrigger(turnTrigger.trigger)
+        ? stageKey
+        : `${stageKey}:${turnTrigger.trigger.id}`,
+      request: () =>
+        requestTurnTriggerSave(entity, turnTrigger, timing, requestRoll),
+    };
+  });
+
+  for (const { pendingKey, request } of requests) {
+    if (pendingKeys.has(pendingKey)) {
+      continue;
+    }
+
+    const trigger = request();
+
+    if (!trigger) {
+      continue;
+    }
+
+    pendingKeys.add(pendingKey);
+
+    // Ответ пришёл (или запрос завершился иначе) — следующий спасбросок этого
+    // эффекта снова можно спрашивать
+    void trigger.resolution.finally(() => {
+      pendingKeys.delete(pendingKey);
+    });
+
+    deferred.push(trigger);
+  }
+
+  return {
+    changed: result.changed,
+    chatSummary,
+    deferred: toSystemDeferredTriggers(deferred, (outcomeEntity, outcome) =>
+      formatDeferredEffectsSummary(
+        outcomeEntity.name,
+        resolveTurnSummaryLabel(timing, turnOf),
+        outcome,
+        formatRecurringSaveStatus,
+      ),
+    ),
+  };
 }
 
 /** Подписи типов существ по ключу (для форматтера компендиума) */
@@ -407,7 +544,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.32';
+  readonly version = '0.8.33';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -585,89 +722,28 @@ export class Dnd5eVttSystem implements VttSystem {
     timing: 'startOfTurn' | 'endOfTurn',
     context?: SystemTriggerContext,
   ): SystemDeferredTriggerResult {
-    if (!isDndSceneEntity(entity)) {
-      return { changed: false, chatSummary: null };
-    }
+    return settleTurnEffects(entity, timing, context, this.pendingTurnSaveKeys);
+  }
 
-    const requestRoll = context?.requestRoll;
-    const askOwner = shouldRequestEffectSave(entity, requestRoll);
-
-    const result = processTurnEffects(entity, timing, {
-      deferRecurringSave: () => askOwner,
-      deferRecurringDamageSave: () => askOwner,
-      ambientEffects: toAmbientResolver(context)(entity),
-    });
-
-    const chatSummary = formatTurnEffectsMessage(entity.name, timing, result);
-
-    if (!askOwner) {
-      return { changed: result.changed, chatSummary };
-    }
-
-    const deferred: EngineDeferredTrigger[] = [];
-
-    // Урон каждый ход идёт раньше повторного спасброска — в том же порядке, что
-    // и при броске на сервере. Ключ ожидания старых полей прежний; явным
-    // срабатываниям нужен и id срабатывания — их у эффекта может быть несколько
-    const requests = [
-      ...result.deferredTriggers.filter(
-        (turnTrigger) => turnTrigger.stage === 'damage' && !turnTrigger.ambient,
-      ),
-      ...result.deferredTriggers.filter(
-        (turnTrigger) => turnTrigger.stage === 'damage' && turnTrigger.ambient,
-      ),
-      ...result.deferredTriggers.filter(
-        (turnTrigger) => turnTrigger.stage === 'effects',
-      ),
-    ].map((turnTrigger) => {
-      const stageKey =
-        turnTrigger.stage === 'damage'
-          ? `${entity.id}:${turnTrigger.effect.id}:${timing}:${TURN_DAMAGE_SAVE_KEY}`
-          : `${entity.id}:${turnTrigger.effect.id}:${timing}`;
-
-      return {
-        pendingKey: isLegacyTrigger(turnTrigger.trigger)
-          ? stageKey
-          : `${stageKey}:${turnTrigger.trigger.id}`,
-        request: () =>
-          requestTurnTriggerSave(entity, turnTrigger, timing, requestRoll),
-      };
-    });
-
-    for (const { pendingKey, request } of requests) {
-      if (this.pendingTurnSaveKeys.has(pendingKey)) {
-        continue;
-      }
-
-      const trigger = request();
-
-      if (!trigger) {
-        continue;
-      }
-
-      this.pendingTurnSaveKeys.add(pendingKey);
-
-      // Ответ пришёл (или запрос завершился иначе) — следующий спасбросок этого
-      // эффекта снова можно спрашивать
-      void trigger.resolution.finally(() => {
-        this.pendingTurnSaveKeys.delete(pendingKey);
-      });
-
-      deferred.push(trigger);
-    }
-
-    return {
-      changed: result.changed,
-      chatSummary,
-      deferred: toSystemDeferredTriggers(deferred, (outcomeEntity, outcome) =>
-        formatDeferredEffectsSummary(
-          outcomeEntity.name,
-          TURN_TIMING_SUMMARY_LABELS[timing],
-          outcome,
-          formatRecurringSaveStatus,
-        ),
-      ),
-    };
+  /**
+   * Прогоняет срабатывания «ход наложившего» у эффектов сущности, наложенных
+   * участником `turnActorId`: «повторный спасбросок в конце хода заклинателя».
+   * Спасбросок бросает носитель — у игрока его спрашивают так же, как на его
+   * собственном ходу.
+   */
+  runSourceTurnEffects(
+    entity: SceneEntity,
+    turnActorId: string,
+    timing: 'startOfTurn' | 'endOfTurn',
+    context?: SystemTriggerContext,
+  ): SystemDeferredTriggerResult {
+    return settleTurnEffects(
+      entity,
+      timing,
+      context,
+      this.pendingTurnSaveKeys,
+      turnActorId,
+    );
   }
 
   /**

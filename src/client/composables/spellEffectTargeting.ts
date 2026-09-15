@@ -25,7 +25,7 @@ import {
 import {
   formatSpellEffectsMessage,
   getTargetSpellEffects,
-  stampEffectTurnDuration,
+  stampEffectOnApply,
   targetEffectsNeedResolution,
 } from './spellResolutionShared';
 import { isSpellTargetBlockedByRange } from './useSceneRangeCheck';
@@ -357,7 +357,10 @@ export function requestSpellEffectTargets(
 
       for (const entity of entities) {
         const targetEffects = effects.map((effect) =>
-          stampEffectTurnDuration(effect, entity.id, casterId),
+          stampEffectOnApply(effect, {
+            carrierId: entity.id,
+            sourceId: casterId,
+          }),
         );
 
         const activeEffects = applyEffectsToEntity(
@@ -473,13 +476,20 @@ export function applySpellTargetEffects(
   }
 
   const targetEffects = getTargetSpellEffects(spell);
+  const targetStore = useTargetStore();
+  const target = targetStore.getTargetActor();
 
-  if (targetEffects.length === 0) {
+  if (targetEffects.length === 0 || !target) {
     return;
   }
 
-  const targetName = useTargetStore().applyEffectsToTarget(
-    targetEffects,
+  const targetName = targetStore.applyEffectsToTarget(
+    targetEffects.map((effect) =>
+      stampEffectOnApply(effect, {
+        carrierId: target.id,
+        sourceId: source.casterId,
+      }),
+    ),
     'spell',
   );
 

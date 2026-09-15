@@ -22,6 +22,7 @@ import {
 } from './activeEffectDescribe.js';
 import {
   classifyLegacyTrigger,
+  isTurnTriggerEvent,
   resolveTriggerActionGate,
 } from './effectTriggers.js';
 
@@ -179,9 +180,8 @@ function describeMoment(trigger: EffectTrigger): string {
   }
 
   const label = TRIGGER_EVENT_LABELS[trigger.event];
-  const isTurn = trigger.event === 'turnStart' || trigger.event === 'turnEnd';
 
-  return isTurn && trigger.turnOf === 'source'
+  return isTurnTriggerEvent(trigger.event) && trigger.turnOf === 'source'
     ? `${label}${TRIGGER_LABELS.sourceTurnSuffix}`
     : label;
 }

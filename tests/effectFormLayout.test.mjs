@@ -688,6 +688,18 @@ describe('список «Срабатывания»', () => {
     assert.deepEqual(trait.triggerEvents, ['turnStart', 'turnEnd']);
     assert.deepEqual(trait.triggerActions, ['damage', 'applyCondition']);
 
+    assert.deepEqual(
+      own.triggerTurnOwners,
+      ['subject', 'source'],
+      'эффект накладывают — выбирается и ход наложившего',
+    );
+
+    assert.deepEqual(
+      trait.triggerTurnOwners,
+      ['subject'],
+      'у черты существа наложившего нет',
+    );
+
     for (const context of ['feature', 'item', 'condition']) {
       assert.deepEqual(layoutOf(context).triggerEvents, [], context);
     }

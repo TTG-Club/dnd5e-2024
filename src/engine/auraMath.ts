@@ -212,9 +212,12 @@ export function calculateAmbientAuras(
         continue;
       }
 
+      // Наложивший копии — носитель ауры: по нему идут «ход наложившего» и
+      // «до конца хода источника»
       ambientEffects.push({
         ...effect,
         id: `${effect.id}_aura_${source.token.id}`,
+        sourceActorId: source.token.actorId,
       });
     }
   }

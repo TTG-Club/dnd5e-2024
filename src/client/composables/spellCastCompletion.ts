@@ -32,7 +32,7 @@ import {
 import {
   formatSpellEffectsMessage,
   instantiateSpellEffects,
-  stampEffectTurnDuration,
+  stampEffectOnApply,
 } from './spellResolutionShared';
 
 /** Заклинатель как источник чисел эффекта */
@@ -83,13 +83,12 @@ export function prepareCasterSpellEffects(
   };
 
   return instantiateSpellEffects(casterEffects).map((effect) =>
-    stampEffectTurnDuration(
+    stampEffectOnApply(
       stampSourceSaveDcs(
         bindSourceEffectFormulas(effect, formulaContext),
         source.saveDc,
       ),
-      caster.id,
-      caster.id,
+      { carrierId: caster.id, sourceId: caster.id },
     ),
   );
 }

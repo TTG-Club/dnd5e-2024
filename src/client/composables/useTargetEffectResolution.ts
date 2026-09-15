@@ -22,7 +22,7 @@ import {
 import {
   getPartKindLabel,
   getTargetSpellEffects,
-  stampEffectTurnDuration,
+  stampEffectOnApply,
 } from './spellResolutionShared';
 import { useSpellSavingThrows } from './useSpellSavingThrows';
 
@@ -298,19 +298,13 @@ export function useTargetEffectResolution() {
         && isImmuneToCondition(immunities, effect.conditionKey);
 
       if (!immune) {
-        // Точная turn-длительность инициализируется тут же (носитель = цель,
-        // источник = кастер): нужен текущий ход энкаунтера на момент наложения.
-        // Наложивший запоминается всегда: по нему условие «цель помечена
-        // мной» узнаёт свою метку
+        // Наложивший и точная turn-длительность — в момент наложения: нужен
+        // текущий ход энкаунтера
         effects.push(
-          stampEffectTurnDuration(
-            {
-              ...stampSourceTurnSaveDc(effect, spellSaveDC),
-              sourceActorId: casterId ?? effect.sourceActorId,
-            },
-            entity.id,
-            casterId,
-          ),
+          stampEffectOnApply(stampSourceTurnSaveDc(effect, spellSaveDC), {
+            carrierId: entity.id,
+            sourceId: casterId,
+          }),
         );
       }
     }

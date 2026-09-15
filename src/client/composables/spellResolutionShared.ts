@@ -17,7 +17,6 @@ import type {
 
 import type { RollBonusEvaluator } from './rollBonusEvaluator';
 
-import { useInitiativeStore } from '@/stores/initiativeStore';
 import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
 import { generateId } from '@vtt/shared';
 import {
@@ -28,11 +27,12 @@ import {
   hasSourceTurnSaveDc,
   isDndSceneEntity,
   SAVE_TYPE_LABELS,
-  stampTurnDuration,
+  stampAppliedEffect,
   withInitializedDuration,
 } from '@vtt/shared/system/dnd.js';
 
 import { SAVING_THROW_ROLL_LABELS } from '../ui/actor/constants';
+import { resolveActiveTurnActorId } from './encounterTurn';
 
 // Выбор эффектов заклинания по доставке живёт в движке (его проверяют тесты
 // правил), клиентские пути берут его отсюда же, как раньше
@@ -306,35 +306,25 @@ export function isSaveAbility(
 }
 
 /**
- * Инициализирует точную turn-длительность эффекта при наложении, подставляя
- * текущий ход энкаунтера. Для не-`turn` эффектов — no-op. Носитель — сущность,
- * на которую ложится эффект; источник — кастер (для якоря `source`).
+ * Эффект в момент наложения по текущему ходу боя: наложивший запоминается
+ * всегда, точная turn-длительность привязывается к ходу. Одна точка для всех
+ * путей наложения заклинания — иначе путь без неё терял «ход наложившего» и
+ * «до конца хода заклинателя».
  *
  * @param effect - накладываемый эффект
- * @param carrierId - id сущности-носителя (цели)
- * @param sourceId - id кастера (если известен)
- * @returns эффект с проставленными sourceActorId/turnSkipFirst (при type 'turn')
+ * @param parties - носитель и наложивший
+ * @param parties.carrierId - сущность, на которую ложится эффект
+ * @param parties.sourceId - наложивший, если известен
+ * @returns эффект, готовый лечь на носителя
  */
-export function stampEffectTurnDuration(
+export function stampEffectOnApply(
   effect: ActiveEffect,
-  carrierId: string,
-  sourceId?: string,
+  parties: { carrierId: string; sourceId?: string },
 ): ActiveEffect {
-  if (effect.duration.type !== 'turn') {
-    return effect;
-  }
-
-  // Берём текущий ход ТАК ЖЕ, как сервер: сырой entries[currentTurnIndex], а НЕ
-  // локально пересортированный список (порядок на сервере и клиенте может
-  // разойтись после add/remove участников без переброса инициативы).
-  const encounter = useInitiativeStore().encounter;
-
-  const activeTurnActorId =
-    encounter && encounter.currentTurnIndex >= 0
-      ? (encounter.entries[encounter.currentTurnIndex]?.actorId ?? null)
-      : null;
-
-  return stampTurnDuration(effect, { carrierId, sourceId, activeTurnActorId });
+  return stampAppliedEffect(effect, {
+    ...parties,
+    activeTurnActorId: resolveActiveTurnActorId(),
+  });
 }
 
 /**

@@ -25,6 +25,7 @@ import type { DamageDefenseOutcome } from './damageUtils.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type { CarrierContext } from './effectPipeline.js';
 import type { DeferredTurnTrigger } from './effectTriggerRunner.js';
+import type { EffectTriggerTurnOwner } from './effectTriggerTypes.js';
 import type { FormulaContext } from './formulaParser.js';
 
 import { resolveSavingThrowRollMode } from './attackUtils.js';
@@ -219,6 +220,26 @@ export function stampTurnDuration(
 }
 
 /**
+ * Эффект в момент наложения на носителя: наложивший запоминается всегда, точная
+ * длительность хода инициализируется. По наложившему работают «ход
+ * наложившего» у срабатываний, якорь длительности `source` и условие «цель
+ * помечена мной» — путь наложения без него терял все три.
+ *
+ * @param effect - накладываемый эффект
+ * @param context - носитель, наложивший и текущий ход
+ * @returns эффект с наложившим и инициализированной turn-длительностью
+ */
+export function stampAppliedEffect(
+  effect: ActiveEffect,
+  context: TurnDurationContext,
+): ActiveEffect {
+  return stampTurnDuration(
+    { ...effect, sourceActorId: context.sourceId ?? effect.sourceActorId },
+    context,
+  );
+}
+
+/**
  * Снимает с сущности точные turn-эффекты, чья граница хода наступила. Должна
  * вызываться на старте/в конце хода участника `turnActorId` для КАЖДОГО
  * участника энкаунтера (источник-якорь живёт на чужой сущности).
@@ -389,6 +410,18 @@ export interface TurnEffectsOptions {
    * лежат, поэтому их повторный спасбросок ничего не снимает.
    */
   ambientEffects?: readonly ActiveEffect[];
+  /**
+   * Прогон хода НАЛОЖИВШЕГО: чей ход идёт. Тогда срабатывают только
+   * срабатывания «ход наложившего» эффектов, наложенных этим участником; без
+   * поля — ход самой сущности.
+   */
+  sourceTurnActorId?: string;
+  /**
+   * Участвует ли наложивший в бою. Срабатывание «ход наложившего», чей
+   * наложивший не в бою (или неизвестен), идёт на ходу носителя — так же
+   * деградирует якорь длительности `source`. Без поля (старое ядро) — не в бою.
+   */
+  isSourceInCombat?: (sourceId: string) => boolean;
 }
 
 /** Эффекты и свойства носителя для бонусных кубиков серверного спасброска. */
@@ -889,6 +922,11 @@ export interface EntryEffectOptions {
   sourceAreaId?: string;
   /** Ауры чужих токенов, накрывающие сущность (спасбросок, иммунитеты) */
   ambientEffects?: readonly ActiveEffect[];
+  /**
+   * Чей сейчас ход: состояние «до конца следующего хода», наложенное на ходу
+   * своего якоря, не спадает в конце этого же хода.
+   */
+  activeTurnActorId?: string | null;
 }
 
 /** Исход срабатывания эффекта области/ауры при входе/выходе */
@@ -996,22 +1034,46 @@ export const TURN_TIMING_SUMMARY_LABELS: Record<EffectSaveTiming, string> = {
   endOfTurn: 'конец хода',
 };
 
+/** Подпись момента хода наложившего в сводке эффектов */
+const SOURCE_TURN_SUMMARY_LABELS: Record<EffectSaveTiming, string> = {
+  startOfTurn: 'начало хода наложившего',
+  endOfTurn: 'конец хода наложившего',
+};
+
+/**
+ * Подпись момента хода в сводке: ход носителя или наложившего.
+ *
+ * @param timing - момент хода
+ * @param turnOf - чей ход
+ * @returns подпись момента
+ */
+export function resolveTurnSummaryLabel(
+  timing: EffectSaveTiming,
+  turnOf: EffectTriggerTurnOwner = 'subject',
+): string {
+  return turnOf === 'source'
+    ? SOURCE_TURN_SUMMARY_LABELS[timing]
+    : TURN_TIMING_SUMMARY_LABELS[timing];
+}
+
 /**
  * Форматирует сводку периодических эффектов за тик хода в текст для чата.
  *
  * @param entityName - имя сущности
  * @param timing - момент хода (начало/конец)
  * @param result - результат `processTurnEffects`
+ * @param turnOf - чей ход: носителя или наложившего
  * @returns строка для чата или `null`, если показывать нечего
  */
 export function formatTurnEffectsMessage(
   entityName: string,
   timing: EffectSaveTiming,
   result: TurnEffectsResult,
+  turnOf: EffectTriggerTurnOwner = 'subject',
 ): string | null {
   return formatEffectsSummary(
     entityName,
-    TURN_TIMING_SUMMARY_LABELS[timing],
+    resolveTurnSummaryLabel(timing, turnOf),
     result.damageOutcomes,
     result.saveOutcomes,
     formatRecurringSaveStatus,

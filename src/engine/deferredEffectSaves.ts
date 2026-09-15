@@ -16,7 +16,6 @@ import type { DnDSceneEntity } from './dndEntities.js';
 import type {
   DeferredTurnTrigger,
   EffectTriggerSource,
-  TriggerEffectOptions,
 } from './effectTriggerRunner.js';
 import type {
   EffectSaveSpec,
@@ -380,7 +379,7 @@ export function requestPresenceTriggerSave(
   source: EffectTriggerSource,
   requestRoll: ServerRollRequester,
   requesterLabel: string,
-  options: TriggerEffectOptions = {},
+  options: EntryEffectOptions = {},
 ): EngineDeferredTrigger | null {
   const spec = buildTriggerSaveSpec(source.effect, source.trigger);
 

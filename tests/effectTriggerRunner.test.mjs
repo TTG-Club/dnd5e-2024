@@ -7,9 +7,11 @@ import {
   createCreature,
   createEffect,
   createRequestRoll,
+  createToken,
   createTrait,
   createZone,
   engine,
+  GRID,
   MAX_ROLL,
   MIN_ROLL,
   PLAYER_ID,
@@ -494,6 +496,221 @@ describe('ответы игрока на явные срабатывания х�
       hero.activeEffects.map((effect) => effect.conditionKey),
       ['poisoned'],
     );
+  });
+});
+
+describe('ход наложившего', () => {
+  /** Заклинатель, наложивший эффект */
+  const CASTER_ID = 'actor_caster';
+
+  /** Наложивший в бою */
+  const CASTER_IN_COMBAT = {
+    isSourceInCombat: (sourceId) => sourceId === CASTER_ID,
+  };
+
+  /**
+   * Эффект заклинателя: 5 огнём на ходу носителя и 3 некротической энергией на
+   * ходу заклинателя.
+   *
+   * @param {object} overrides - поля эффекта
+   * @returns {object} эффект
+   */
+  function casterCurse(overrides = {}) {
+    return createEffect('curse', {
+      sourceActorId: CASTER_ID,
+      triggers: [
+        burnTrigger({ id: 'trigger_own' }),
+        burnTrigger({
+          id: 'trigger_source',
+          turnOf: 'source',
+          actions: [
+            { type: 'damage', parts: [{ formula: '3', type: 'necrotic' }] },
+          ],
+        }),
+      ],
+      ...overrides,
+    });
+  }
+
+  it('срабатывает на ходу наложившего и только его, свои срабатывания — на ходу носителя', () => {
+    const turn = (options) =>
+      engine.processTurnEffects(
+        createCreature({ activeEffects: [casterCurse()] }),
+        'startOfTurn',
+        options,
+      ).damageTotal;
+
+    assert.equal(turn(CASTER_IN_COMBAT), 5, 'ход носителя');
+
+    assert.equal(
+      turn({ ...CASTER_IN_COMBAT, sourceTurnActorId: CASTER_ID }),
+      3,
+      'ход заклинателя',
+    );
+
+    assert.equal(
+      turn({ ...CASTER_IN_COMBAT, sourceTurnActorId: 'actor_other' }),
+      0,
+      'чужой ход',
+    );
+  });
+
+  it('наложивший не в бою или неизвестен — срабатывание идёт на ходу носителя', () => {
+    const outOfCombat = createCreature({ activeEffects: [casterCurse()] });
+
+    assert.equal(
+      engine.processTurnEffects(outOfCombat, 'startOfTurn').damageTotal,
+      8,
+    );
+
+    const unknownSource = createCreature({
+      activeEffects: [casterCurse({ sourceActorId: undefined })],
+    });
+
+    assert.equal(
+      engine.processTurnEffects(unknownSource, 'startOfTurn', CASTER_IN_COMBAT)
+        .damageTotal,
+      8,
+    );
+
+    assert.equal(
+      engine.processTurnEffects(unknownSource, 'startOfTurn', {
+        ...CASTER_IN_COMBAT,
+        sourceTurnActorId: CASTER_ID,
+      }).damageTotal,
+      0,
+    );
+  });
+
+  it('аура: «в начале хода носителя ауры» бьёт стоящих рядом на его ходу', () => {
+    const balor = createCreature({ id: 'creature_balor', name: 'Балор' });
+
+    balor.activeEffects = [
+      createEffect('fire-aura', {
+        aura: { radius: 5, target: 'all', applyToSelf: false, visible: true },
+        triggers: [burnTrigger({ id: 'trigger_fire_aura', turnOf: 'source' })],
+      }),
+    ];
+
+    const hero = woundedCreature(40, { id: 'creature_hero' });
+
+    const ambientEffects = engine.calculateAmbientAuras(
+      createToken(hero.id, 1, 0),
+      [
+        {
+          token: createToken(balor.id, 0, 0),
+          effects: engine.collectAllAuraEffects(balor),
+        },
+      ],
+      GRID,
+    );
+
+    assert.equal(ambientEffects[0].sourceActorId, balor.id);
+
+    const balorInCombat = { isSourceInCombat: () => true, ambientEffects };
+
+    assert.equal(
+      engine.processTurnEffects(hero, 'startOfTurn', balorInCombat).damageTotal,
+      0,
+      'ход героя',
+    );
+
+    assert.equal(
+      engine.processTurnEffects(hero, 'startOfTurn', {
+        ...balorInCombat,
+        sourceTurnActorId: balor.id,
+      }).damageTotal,
+      5,
+      'ход балора',
+    );
+  });
+
+  it('состояние от срабатывания помнит наложившего; наложенное на своём ходу не спадает в конце этого хода', () => {
+    const target = createCreature({
+      activeEffects: [
+        createEffect('dread', {
+          sourceActorId: CASTER_ID,
+          triggers: [
+            {
+              id: 'trigger_dread',
+              event: 'turnEnd',
+              actions: [
+                {
+                  type: 'applyCondition',
+                  conditionKey: 'frightened',
+                  duration: {
+                    type: 'turn',
+                    turnAnchor: 'carrier',
+                    turnTiming: 'end',
+                  },
+                },
+              ],
+            },
+          ],
+        }),
+      ],
+    });
+
+    engine.processTurnEffects(target, 'endOfTurn');
+
+    const frightened = target.activeEffects.find(
+      (effect) => effect.conditionKey === 'frightened',
+    );
+
+    assert.equal(frightened.sourceActorId, CASTER_ID);
+    assert.equal(frightened.duration.turnSkipFirst, true);
+  });
+
+  it('система: спасбросок хода наложившего спрашивают у игрока отдельно от его хода', async () => {
+    const system = new engine.Dnd5eVttSystem();
+    const caster = createActor({ id: CASTER_ID });
+    const double = createRequestRoll();
+
+    const hero = createActor({
+      activeEffects: [
+        createEffect('hold', {
+          sourceActorId: CASTER_ID,
+          triggers: [
+            {
+              id: 'trigger_hold',
+              event: 'turnEnd',
+              turnOf: 'source',
+              save: CON_SAVE,
+              actions: [{ type: 'removeSelf', on: 'saved' }],
+            },
+          ],
+        }),
+      ],
+    });
+
+    const context = {
+      requestRoll: double.requestRoll,
+      getEntity: (entityId) => (entityId === CASTER_ID ? caster : undefined),
+      isInCombat: () => true,
+    };
+
+    assert.equal(
+      system.runTurnEffects(hero, 'endOfTurn', context).deferred,
+      undefined,
+      'на ходу носителя не спрашивают',
+    );
+
+    const sourceTurn = system.runSourceTurnEffects(
+      hero,
+      CASTER_ID,
+      'endOfTurn',
+      context,
+    );
+
+    assert.equal(sourceTurn.deferred.length, 1);
+
+    double.answer(answer(true));
+
+    const applied = (await sourceTurn.deferred[0].resolution)(hero);
+
+    assert.equal(applied.changed, true);
+    assert.match(applied.chatSummary, /конец хода наложившего/u);
+    assert.equal(hero.activeEffects.length, 0);
   });
 });
 

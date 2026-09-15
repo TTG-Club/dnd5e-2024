@@ -18,6 +18,7 @@
     EffectTriggerAttackRole,
     EffectTriggerEvent,
     EffectTriggerLimitPeriod,
+    EffectTriggerTurnOwner,
   } from '@vtt/shared/system/dnd.js';
 
   import { computed } from 'vue';
@@ -28,6 +29,7 @@
     EFFECT_TRIGGER_ACTION_GATES,
     EFFECT_TRIGGER_ATTACK_ROLES,
     EFFECT_TRIGGER_LIMIT_PERIODS,
+    isTurnTriggerEvent,
     listSelectableConditions,
     listTriggerActionTypes,
     resolveTriggerActionGate,
@@ -48,6 +50,7 @@
     EFFECT_TRIGGER_PERIOD_LABELS,
     EFFECT_TRIGGER_ROLE_LABELS,
     EFFECT_TRIGGER_ROW_LABELS,
+    EFFECT_TRIGGER_TURN_OWNER_LABELS,
   } from '../triggerLabels';
   import EffectTriggerConditionPicker from './EffectTriggerConditionPicker.vue';
   import SaveDcField from './SaveDcField.vue';
@@ -104,6 +107,25 @@
     value: role,
     label: EFFECT_TRIGGER_ROLE_LABELS[role],
   }));
+
+  /** Чей ход в выборе: доступные здесь и то, что уже стоит в данных */
+  const turnOwnerItems = computed(() =>
+    [
+      ...new Set([
+        ...props.layout.triggerTurnOwners,
+        trigger.value.turnOf ?? 'subject',
+      ]),
+    ].map((owner) => ({
+      value: owner,
+      label: EFFECT_TRIGGER_TURN_OWNER_LABELS[owner],
+    })),
+  );
+
+  const showsTurnOwner = computed(
+    () =>
+      isTurnTriggerEvent(trigger.value.event)
+      && turnOwnerItems.value.length > 1,
+  );
 
   const periodItems = EFFECT_TRIGGER_LIMIT_PERIODS.map((period) => ({
     value: period,
@@ -180,6 +202,7 @@
           next === 'attackRoll'
             ? (trigger.value.role ?? 'attacker')
             : undefined,
+        turnOf: isTurnTriggerEvent(next) ? trigger.value.turnOf : undefined,
         save: keepsSave ? trigger.value.save : undefined,
         actions: trigger.value.actions
           .filter((action) => actions.includes(action.type))
@@ -196,6 +219,13 @@
   const role = computed({
     get: () => trigger.value.role ?? 'attacker',
     set: (next: EffectTriggerAttackRole) => update({ role: next }),
+  });
+
+  // Ход носителя — значение по умолчанию: в данных он не пишется
+  const turnOf = computed({
+    get: () => trigger.value.turnOf ?? 'subject',
+    set: (next: EffectTriggerTurnOwner) =>
+      update({ turnOf: next === 'subject' ? undefined : next }),
   });
 
   const hasSave = computed({
@@ -447,6 +477,21 @@
         <USelect
           v-model="role"
           :items="roleItems"
+          value-key="value"
+          size="sm"
+          class="w-full"
+          :portal="false"
+        />
+      </UFormField>
+
+      <UFormField
+        v-if="showsTurnOwner"
+        :label="EFFECT_TRIGGER_ROW_LABELS.turnOf"
+        class="w-48"
+      >
+        <USelect
+          v-model="turnOf"
+          :items="turnOwnerItems"
           value-key="value"
           size="sm"
           class="w-full"

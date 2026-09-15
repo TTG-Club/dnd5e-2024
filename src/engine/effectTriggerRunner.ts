@@ -62,6 +62,7 @@ import {
   rollEffectHealing,
   rollEffectSaveOutcome,
   rollEffectSavingThrow,
+  stampAppliedEffect,
   withInitializedDuration,
 } from './turnEffects.js';
 
@@ -405,30 +406,25 @@ function buildEffectStatusCopy(
   });
 }
 
-/** Откуда пришли наложения срабатывания */
-export interface TriggerEffectOptions {
-  /** Ауры чужих токенов (иммунитеты к состояниям) */
-  ambientEffects?: readonly ActiveEffect[];
-  /** Зона заклинания, из которой пришёл эффект */
-  sourceAreaId?: string;
-}
-
 /**
  * Выполняет действия срабатывания, кроме урона: накладывает копию эффекта или
  * состояние (с проверкой иммунитета) и сообщает, снимается ли сам эффект.
  * Снятие вызывающий делает сам — на границе хода оно идёт одной записью.
  *
+ * Наложенное помнит наложившего исходный эффект: «до конца хода источника» и
+ * ход наложившего у копии считаются от него, а не от носителя.
+ *
  * @param entity - субъект
  * @param source - срабатывание с источником
  * @param passed - пройден ли спасбросок
- * @param options - откуда пришли наложения
+ * @param options - откуда пришли наложения и чей сейчас ход
  * @returns снимается ли эффект и было ли наложение
  */
 export function applyTriggerEffectActions(
   entity: DnDSceneEntity,
   source: EffectTriggerSource,
   passed: boolean,
-  options: TriggerEffectOptions = {},
+  options: EntryEffectOptions = {},
 ): { removes: boolean; applied: boolean } {
   let removes = false;
   let applied = false;
@@ -477,7 +473,11 @@ export function applyTriggerEffectActions(
     // Правило PHB 2024 «Combining Game Effects»: одноимённый статус не
     // стакается — повторное наложение обновляет его, а не плодит копии
     entity.activeEffects = mergeAppliedEffects(entity.activeEffects ?? [], [
-      status,
+      stampAppliedEffect(status, {
+        carrierId: entity.id,
+        sourceId: source.effect.sourceActorId,
+        activeTurnActorId: options.activeTurnActorId,
+      }),
     ]);
 
     applied = true;
@@ -487,20 +487,41 @@ export function applyTriggerEffectActions(
 }
 
 /**
- * Срабатывания эффекта на событие хода субъекта.
+ * Срабатывания эффекта на событие хода: на ходу носителя — его собственные, на
+ * ходу наложившего (`options.sourceTurnActorId`) — «ход наложившего» эффектов,
+ * наложенных этим участником.
+ *
+ * «Ход наложившего», чей наложивший неизвестен или не в бою, идёт на ходу
+ * носителя: его ход не наступит, и срабатывание молчало бы всегда.
  *
  * @param effect - эффект
  * @param event - начало или конец хода
+ * @param options - чей ход и участие наложившего в бою
  * @returns срабатывания
  */
 function listTurnTriggers(
   effect: ActiveEffect,
   event: EffectTriggerEvent,
+  options: Pick<TurnEffectsOptions, 'sourceTurnActorId' | 'isSourceInCombat'>,
 ): EffectTrigger[] {
-  return listEffectListTriggers(effect).filter(
-    (trigger) =>
-      trigger.event === event
-      && (trigger.turnOf === undefined || trigger.turnOf === 'subject'),
+  const sourceId = effect.sourceActorId;
+  const { sourceTurnActorId } = options;
+
+  const triggers = listEffectListTriggers(effect).filter(
+    (trigger) => trigger.event === event,
+  );
+
+  if (sourceTurnActorId !== undefined) {
+    return sourceId === sourceTurnActorId
+      ? triggers.filter((trigger) => trigger.turnOf === 'source')
+      : [];
+  }
+
+  const sourceTurnComes =
+    sourceId !== undefined && (options.isSourceInCombat?.(sourceId) ?? false);
+
+  return triggers.filter(
+    (trigger) => trigger.turnOf !== 'source' || !sourceTurnComes,
   );
 }
 
@@ -533,7 +554,9 @@ function listTraitEffects(entity: DnDSceneEntity): ActiveEffect[] {
  * «Отравленный»).
  *
  * Источники: эффекты на самой сущности, черты существа и ауры чужих токенов
- * «пока внутри». Лимит «не чаще N раз» проверяется перед срабатыванием.
+ * «пока внутри». На ходу наложившего (`options.sourceTurnActorId`) — только
+ * срабатывания «ход наложившего» его эффектов и аур. Условие и лимит «не чаще
+ * N раз» проверяются перед срабатыванием.
  * Спасбросок, который надо спросить у игрока, не бросается: срабатывание уходит
  * в отложенные (`deferredTriggers` и прежние списки эффектов).
  *
@@ -541,7 +564,7 @@ function listTraitEffects(entity: DnDSceneEntity): ActiveEffect[] {
  *
  * @param entity - сущность, чей момент хода обрабатывается
  * @param timing - момент: начало или конец хода
- * @param options - какие спасброски отложить, ауры чужих токенов
+ * @param options - какие спасброски отложить, ауры чужих токенов, чей ход
  * @returns урон, исходы бросков и были ли изменения
  */
 export function processTurnEffects(
@@ -556,11 +579,11 @@ export function processTurnEffects(
   const ambientTurnEffects = ambientEffects.filter(
     (effect) =>
       (effect.areaTrigger ?? 'stay') === 'stay'
-      && listTurnTriggers(effect, event).length > 0,
+      && listTurnTriggers(effect, event, options).length > 0,
   );
 
   const traitTurnEffects = listTraitEffects(entity).filter(
-    (effect) => listTurnTriggers(effect, event).length > 0,
+    (effect) => listTurnTriggers(effect, event, options).length > 0,
   );
 
   const ownEffects = entity.activeEffects ?? [];
@@ -587,7 +610,7 @@ export function processTurnEffects(
 
   const sources: EffectTriggerSource[] = [
     ...ownEffects.flatMap((effect) =>
-      listTurnTriggers(effect, event).map((trigger) => ({
+      listTurnTriggers(effect, event, options).map((trigger) => ({
         effect,
         trigger,
         ambient: false,
@@ -596,7 +619,7 @@ export function processTurnEffects(
       })),
     ),
     ...traitTurnEffects.flatMap((effect) =>
-      listTurnTriggers(effect, event).map((trigger) => ({
+      listTurnTriggers(effect, event, options).map((trigger) => ({
         effect,
         trigger,
         ambient: false,
@@ -605,7 +628,7 @@ export function processTurnEffects(
       })),
     ),
     ...ambientTurnEffects.flatMap((effect) =>
-      listTurnTriggers(effect, event).map((trigger) => ({
+      listTurnTriggers(effect, event, options).map((trigger) => ({
         effect,
         trigger,
         ambient: true,
@@ -804,7 +827,10 @@ export function processTurnEffects(
       entity,
       source,
       save?.passed ?? false,
-      { ambientEffects },
+      {
+        ambientEffects,
+        activeTurnActorId: options.sourceTurnActorId ?? entity.id,
+      },
     );
 
     appliedAny ||= applied;
@@ -895,6 +921,7 @@ export function applyEntryEffect(
   const { applied } = applyTriggerEffectActions(entity, source, passed, {
     ambientEffects,
     sourceAreaId: options.sourceAreaId,
+    activeTurnActorId: options.activeTurnActorId,
   });
 
   return { damageOutcome: rolled, saveOutcome, statusApplied: applied };
@@ -988,7 +1015,7 @@ export function settlePresenceTrigger(
   entity: DnDSceneEntity,
   source: EffectTriggerSource,
   save: TurnSaveOutcome | null,
-  options: TriggerEffectOptions = {},
+  options: EntryEffectOptions = {},
 ): EntryEffectResult {
   const ambientEffects = options.ambientEffects ?? [];
   const stats = resolveActorStats(entity, [...ambientEffects]);
@@ -1030,6 +1057,8 @@ export function settlePresenceTrigger(
 export interface AttackRollTriggerOptions {
   /** Сторона участвует в идущем бою */
   inCombat?: boolean;
+  /** Чей сейчас ход: срок наложенного состояния считается от него */
+  activeTurnActorId?: string | null;
   /** Другая сторона: цель для атакующего, атакующий для цели */
   other?: DnDSceneEntity;
   /** Режим броска атаки */
@@ -1056,6 +1085,7 @@ export interface AttackRollTriggersResult {
  * @param role - роль стороны
  * @param options - бой, другая сторона и режим броска для условий
  * @param options.inCombat - сторона участвует в идущем бою
+ * @param options.activeTurnActorId - чей сейчас ход
  * @param options.other - другая сторона атаки
  * @param options.roll - режим броска атаки
  * @returns что изменилось
@@ -1101,7 +1131,9 @@ export function runAttackRollTriggers(
         continue;
       }
 
-      const result = applyTriggerEffectActions(entity, source, false);
+      const result = applyTriggerEffectActions(entity, source, false, {
+        activeTurnActorId: options.activeTurnActorId,
+      });
 
       if (result.removes) {
         removedIds.add(effect.id);

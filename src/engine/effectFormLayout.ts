@@ -24,6 +24,7 @@ import type {
   EffectTrigger,
   EffectTriggerAction,
   EffectTriggerEvent,
+  EffectTriggerTurnOwner,
 } from './effectTriggerTypes.js';
 
 import {
@@ -167,6 +168,11 @@ export interface EffectFormLayout {
   triggerEvents: readonly EffectTriggerEvent[];
   /** Действия срабатываний списка, которые здесь работают */
   triggerActions: readonly EffectTriggerActionType[];
+  /**
+   * Чей ход выбирается у срабатываний начала и конца хода; один вариант —
+   * выбора нет
+   */
+  triggerTurnOwners: readonly EffectTriggerTurnOwner[];
   /** Минимальная Сл спасброска (0 — «Сл источника») */
   minSaveDc: number;
   /** Есть где появиться зоне на месте шаблона (у заклинания есть область) */
@@ -576,6 +582,7 @@ export function resolveEffectFormLayout(
       showRecurringDamage,
       canRemoveSelf: livesOnItsOwn,
       isZone: delivery === 'zone',
+      hasSource: !isTickingCarrier,
     }),
     minSaveDc: acceptsSourceSaveDc(context, delivery)
       ? SOURCE_MIN_SAVE_DC
@@ -596,6 +603,15 @@ const PRESENCE_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
   'exit',
 ];
 
+/** Ход носителя и ход наложившего */
+const TURN_OWNERS_WITH_SOURCE: readonly EffectTriggerTurnOwner[] = [
+  'subject',
+  'source',
+];
+
+/** Только ход носителя */
+const TURN_OWNERS_SUBJECT: readonly EffectTriggerTurnOwner[] = ['subject'];
+
 /**
  * Что умеет список «Срабатывания» в месте окна. Правила сверены с рантаймом:
  * ход — там, где эффект тикает на существе (`processTurnEffects`), вход и выход
@@ -603,17 +619,25 @@ const PRESENCE_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
  * существе (`runAttackRollTriggers`). Снять эффект можно только лежащий на
  * существе: черту, ауру чужого токена и зону срабатывание не снимает.
  *
+ * Ход наложившего выбирается у эффекта, который кто-то накладывает; у черты
+ * существа наложившего нет.
+ *
  * @param place - что известно о месте
  * @param place.showRecurringDamage - эффект тикает на ходу существа
  * @param place.canRemoveSelf - эффект лежит на существе сам
  * @param place.isZone - эффект зоны
- * @returns события и действия списка
+ * @param place.hasSource - у эффекта бывает наложивший
+ * @returns события, действия и выбор хода списка
  */
 function resolveTriggerListLayout(place: {
   showRecurringDamage: boolean;
   canRemoveSelf: boolean;
   isZone: boolean;
-}): Pick<EffectFormLayout, 'triggerEvents' | 'triggerActions'> {
+  hasSource: boolean;
+}): Pick<
+  EffectFormLayout,
+  'triggerEvents' | 'triggerActions' | 'triggerTurnOwners'
+> {
   const ticks = place.showRecurringDamage || place.canRemoveSelf;
 
   const triggerEvents: EffectTriggerEvent[] = [
@@ -623,7 +647,7 @@ function resolveTriggerListLayout(place: {
   ];
 
   if (triggerEvents.length === 0) {
-    return { triggerEvents, triggerActions: [] };
+    return { triggerEvents, triggerActions: [], triggerTurnOwners: [] };
   }
 
   return {
@@ -633,6 +657,9 @@ function resolveTriggerListLayout(place: {
       'applyCondition',
       ...(place.canRemoveSelf ? (['removeSelf'] as const) : []),
     ],
+    triggerTurnOwners: place.hasSource
+      ? TURN_OWNERS_WITH_SOURCE
+      : TURN_OWNERS_SUBJECT,
   };
 }
 

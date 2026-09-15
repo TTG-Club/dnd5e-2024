@@ -6,7 +6,6 @@ import type {
 
 import { emitEntityCombatState } from '@/core/entityUtils';
 import { useChatStore } from '@/stores/chatStore';
-import { useInitiativeStore } from '@/stores/initiativeStore';
 import { useProjectileStore } from '@/stores/projectileStore';
 import { useTargetStore } from '@/stores/targetStore';
 import { useWorldStore } from '@/stores/worldStore';
@@ -16,6 +15,7 @@ import {
   runAttackRollTriggers,
 } from '@vtt/shared/system/dnd.js';
 
+import { isEntityInCombat, resolveActiveTurnActorId } from './encounterTurn';
 import { useWorldEntities } from './useWorldEntities';
 
 /**
@@ -28,22 +28,6 @@ import { useWorldEntities } from './useWorldEntities';
 
 /** Лог-префикс событий срабатываний */
 const TRIGGER_EVENTS_LOG_PREFIX = '[EffectTriggers]';
-
-/**
- * Участвует ли сущность в идущем бою: активный начатый энкаунтер с ней.
- *
- * @param entityId - сущность
- * @returns `true`, если бой идёт и сущность в нём
- */
-function isEntityInCombat(entityId: string): boolean {
-  const encounter = useInitiativeStore().encounter;
-
-  return (
-    encounter?.isActive === true
-    && encounter.currentTurnIndex >= 0
-    && encounter.entries.some((entry) => entry.actorId === entityId)
-  );
-}
 
 /**
  * Цели броска атаки: назначенные цели серии снарядов либо выбранная цель.
@@ -128,6 +112,7 @@ function settleAttackRollSide(
 
   const result = runAttackRollTriggers(updated, role, {
     inCombat: isEntityInCombat(entityId),
+    activeTurnActorId: resolveActiveTurnActorId(),
     other: side.otherId ? findDndWorldEntity(side.otherId) : undefined,
     roll: {
       hasAdvantage: rollMode === 'advantage',

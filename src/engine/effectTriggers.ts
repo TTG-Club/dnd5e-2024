@@ -314,6 +314,16 @@ export function listEffectListTriggers(
 }
 
 /**
+ * Событие начала или конца хода: у него выбирается, чей это ход.
+ *
+ * @param event - событие срабатывания
+ * @returns `true` для событий хода
+ */
+export function isTurnTriggerEvent(event: EffectTriggerEvent): boolean {
+  return event === 'turnStart' || event === 'turnEnd';
+}
+
+/**
  * Простое срабатывание: без роли, условия и лимита, ход — субъекта.
  *
  * @param trigger - срабатывание
@@ -341,7 +351,7 @@ export function classifyLegacyTrigger(
   }
 
   const [action] = trigger.actions;
-  const isTurn = trigger.event === 'turnStart' || trigger.event === 'turnEnd';
+  const isTurn = isTurnTriggerEvent(trigger.event);
   const gate = resolveTriggerActionGate(trigger, action);
 
   if (isTurn && trigger.role === undefined && action.type === 'damage') {
