@@ -17,8 +17,14 @@ import type { DnDSceneEntity } from './dndEntities.js';
 
 import { isCreatureEntity } from '@vtt/shared';
 
+import { isCarrierEffect } from './activeEffectTypes.js';
 import { bindClassLevels } from './classEffectScope.js';
 import { itemEffectsActive } from './effectPipeline.js';
+import { buildFormulaContext } from './formulaParser.js';
+import {
+  bindSourceEffectFormulas,
+  effectUsesSourceFormulas,
+} from './sourceFormulaBinding.js';
 
 /** Размер клетки сетки в пикселях, когда сцена его не задала */
 const DEFAULT_CELL_SIZE_PX = 50;
@@ -112,7 +118,7 @@ export function collectAllAuraEffects(entity: DnDSceneEntity): ActiveEffect[] {
       }
 
       const itemAuras = getAuraEffects(item.activeEffects).filter(
-        (auraEffect) => auraEffect.effectTarget !== 'target',
+        isCarrierEffect,
       );
 
       allEffects.push(...itemAuras);
@@ -127,7 +133,19 @@ export function collectAllAuraEffects(entity: DnDSceneEntity): ActiveEffect[] {
 
   // Уровень класса подставляется по ИСТОЧНИКУ ауры: аура умения класса несёт
   // уровень того, кто её излучает, а не того, кто в неё попал
-  return [...bindClassLevels(allEffects, entity)];
+  const classBound = bindClassLevels(allEffects, entity);
+
+  if (!classBound.some(effectUsesSourceFormulas)) {
+    return [...classBound];
+  }
+
+  // Так же и прочие числа источника: «Аура защиты» даёт союзникам модификатор
+  // Харизмы паладина, а пайплайн получателя прочёл бы в `@mod.cha` свою
+  const sourceContext = buildFormulaContext(entity);
+
+  return classBound.map((effect) =>
+    bindSourceEffectFormulas(effect, sourceContext),
+  );
 }
 
 /**

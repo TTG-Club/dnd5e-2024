@@ -20,6 +20,7 @@
     EFFECT_AURA_LABELS,
     EFFECT_AURA_RADIUS_STEP,
     EFFECT_DELIVERY_HINTS,
+    EFFECT_SPELL_ZONE_DELIVERY_HINT,
     EFFECT_TRIGGER_HINTS,
   } from '../constants';
   import {
@@ -44,6 +45,13 @@
 
   /** Выбор доставки нужен, только если вариантов больше одного */
   const showDeliveryChoice = computed(() => deliveryOptions.value.length > 1);
+
+  /** Пояснение под выбором доставки: у зоны заклинания своё */
+  const deliveryHint = computed(() =>
+    props.layout.delivery === 'zone' && props.layout.context === 'spell'
+      ? EFFECT_SPELL_ZONE_DELIVERY_HINT
+      : EFFECT_DELIVERY_HINTS[props.layout.delivery],
+  );
 
   /**
    * Меняет доставку эффекта.
@@ -129,7 +137,7 @@
     />
 
     <p class="text-xs text-muted">
-      {{ EFFECT_DELIVERY_HINTS[layout.delivery] }}
+      {{ deliveryHint }}
     </p>
   </div>
 

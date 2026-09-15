@@ -393,7 +393,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.20';
+  readonly version = '0.8.21';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -673,6 +673,21 @@ export class Dnd5eVttSystem implements VttSystem {
     }
 
     return decrementActorEffectDurations(entity);
+  }
+
+  /**
+   * Разбирает эффекты зоны, которую прислал игрок (зона заклинания на месте
+   * шаблона). Негодный список целиком отвергается: зона с «потерянными»
+   * эффектами молча делала бы не то, что заклинание.
+   *
+   * @param raw - эффекты из черновика области
+   * @returns проверенные эффекты или `null`
+   */
+  // eslint-disable-next-line class-methods-use-this
+  parseAreaEffects(raw: unknown): ActiveEffect[] | null {
+    const parsed = ActiveEffectsArraySchema.safeParse(raw);
+
+    return parsed.success ? parsed.data : null;
   }
 
   /**

@@ -80,6 +80,11 @@
     showAreaTrigger?: boolean;
     /** Прежний признак окна состояния: без `context` означает место `condition` */
     hideConditionPreset?: boolean;
+    /**
+     * Есть ли у заклинания область — где появиться зоне на месте шаблона. Не
+     * задано — доставка «зоной» не прячется.
+     */
+    zoneAvailable?: boolean;
   }
 
   const props = withDefaults(defineProps<Props>(), {
@@ -92,6 +97,7 @@
     hideAura: false,
     showAreaTrigger: false,
     hideConditionPreset: false,
+    zoneAvailable: undefined,
   });
 
   const emit = defineEmits<{
@@ -172,7 +178,9 @@
   );
 
   const layout = computed(() =>
-    resolveEffectFormLayout(context.value, draft.value),
+    resolveEffectFormLayout(context.value, draft.value, {
+      zoneAvailable: props.zoneAvailable,
+    }),
   );
 
   const steps = computed(() => listEffectFormSteps(layout.value));

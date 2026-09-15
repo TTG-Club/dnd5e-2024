@@ -85,6 +85,13 @@ const ZONE_MOMENT_LABELS = {
   exit: 'При выходе из зоны',
 } as const;
 
+/** Когда срабатывает эффект зоны, которую оставляет заклинание */
+const SPELL_ZONE_MOMENT_LABELS = {
+  stay: 'Пока существо в зоне заклинания',
+  enter: 'При входе в зону заклинания',
+  exit: 'При выходе из зоны заклинания',
+} as const;
+
 /** Снятие после атаки — продолжением перечисления */
 const CONSUME_ON_SCENARIO_LABELS: Record<EffectAttackTrigger, string> = {
   carrierAttack: 'снимается после своей атаки',
@@ -164,7 +171,9 @@ function describeMoment(
 ): string {
   switch (layout.delivery) {
     case 'zone':
-      return ZONE_MOMENT_LABELS[layout.trigger];
+      return layout.context === 'spell'
+        ? SPELL_ZONE_MOMENT_LABELS[layout.trigger]
+        : ZONE_MOMENT_LABELS[layout.trigger];
     case 'target':
       return TARGET_MOMENT_LABELS[layout.context];
     case 'aura': {

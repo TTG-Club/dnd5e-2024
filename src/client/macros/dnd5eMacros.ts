@@ -16,6 +16,7 @@ import type {
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
+import type { SpellCasterSource } from '../composables/spellCastCompletion';
 import type { SpellEffectTargets } from '../composables/spellEffectTargeting';
 import type {
   ProjectileAttackContext,
@@ -61,6 +62,7 @@ import {
   getAttackBonusKey,
   getAvailableSpellLevels,
   getCreatureSpellBlockAbility,
+  getCreatureSpellMod,
   getCreatureSpellRollButtonText,
   getDamageBonusKey,
   getPactSlotInfo,
@@ -82,6 +84,7 @@ import {
   resolveEntityCreatureType,
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
+  resolveSpellcastingAbility,
   resolveSpellDamageFormula,
   resolveSpellSaveDC,
   SPELL_DAMAGE_TEMPLATE_COLORS,
@@ -98,6 +101,12 @@ import {
   collectProjectileRollBonuses,
 } from '../composables/rollBonusEvaluator';
 import {
+  completeSpellCast,
+  DEFAULT_CREATURE_SPELL_SAVE_DC,
+  prepareCasterSpellEffects,
+  SPELL_CAST_KEY_PREFIX,
+} from '../composables/spellCastCompletion';
+import {
   applySpellTargetEffects,
   createProjectileCastValidator,
   needsSpellEffectTargets,
@@ -106,10 +115,7 @@ import {
 import {
   discardSpellTemplate,
   formatSpellEffectsMessage,
-  getCasterSpellEffects,
   getTargetSpellEffects,
-  instantiateSpellEffects,
-  stampEffectTurnDuration,
   targetEffectsNeedResolution,
 } from '../composables/spellResolutionShared';
 import {
@@ -915,6 +921,32 @@ function openDiceRollForSpell(
     // урона (внешние бонусы к стату), и для бонуса атаки заклинанием.
     const resolvedStats = resolveActorStats(actor, []);
 
+    // Сл этого заклинания, а не листа: у заклинания бывает своя характеристика
+    const spellSaveDc = resolveSpellSaveDC(actor, spell, resolvedStats);
+
+    const casterSource: SpellCasterSource = {
+      saveDc: spellSaveDc,
+      spellMod:
+        resolvedStats.abilityMods[resolveSpellcastingAbility(actor, spell)],
+    };
+
+    const castKey = generateId(SPELL_CAST_KEY_PREFIX);
+
+    /**
+     * Доводит каст: конец прежней концентрации, эффекты на заклинателе, зона на
+     * месте шаблона. Ключ отсекает повторное применение того же каста.
+     */
+    const finishCast = (): void => {
+      completeSpellCast({
+        spell,
+        caster: findCurrentDndEntity(actor.id) ?? actor,
+        source: casterSource,
+        template: cachedTemplate,
+        applyCasterEffects: true,
+        castKey,
+      });
+    };
+
     // Выбранная цель (если есть) — для @target-токенов. Кидать ли бросок
     // атаки, решает DiceRollModal по наличию цели в момент броска: без цели
     // заклинание-атака просто катит урон «в пустоту».
@@ -1058,6 +1090,8 @@ function openDiceRollForSpell(
 
     /** Обработчик многочастного броска: применяет части через оркестратор. */
     function handleSpellRollParts(parts: RolledSpellDamagePart[]): void {
+      finishCast();
+
       const scene = worldStore.currentScene;
       const chatStore = useChatStore();
       const socket = chatStore.getSocket();
@@ -1081,7 +1115,7 @@ function openDiceRollForSpell(
         {
           spell,
           damageTotal: 0,
-          spellSaveDC: resolvedStats.spellSaveDC,
+          spellSaveDC: spellSaveDc,
           actors,
           socket,
           casterId: actor.id,
@@ -1134,6 +1168,8 @@ function openDiceRollForSpell(
       damageTotal: number,
       chosenDamageType?: string,
     ): void {
+      finishCast();
+
       // Эффекты на цель без урона тоже требуют резолва (спасбросок у
       // save-заклинаний), поэтому пускаем резолв и при наличии target-эффектов.
       if (
@@ -1166,7 +1202,7 @@ function openDiceRollForSpell(
       const context = {
         spell,
         damageTotal,
-        spellSaveDC: resolvedStats.spellSaveDC,
+        spellSaveDC: spellSaveDc,
         actors,
         socket,
         casterId: actor.id,
@@ -1246,7 +1282,7 @@ function openDiceRollForSpell(
         {
           spell,
           damageTotal: 0,
-          spellSaveDC: resolvedStats.spellSaveDC,
+          spellSaveDC: spellSaveDc,
           actors,
           socket,
           casterId: actor.id,
@@ -1319,7 +1355,7 @@ function openDiceRollForSpell(
           ? () =>
               applySpellTargetEffects(spell, {
                 casterId: actor.id,
-                spellSaveDC: resolvedStats.spellSaveDC,
+                spellSaveDC: spellSaveDc,
               })
           : undefined,
 
@@ -1430,7 +1466,13 @@ function openDiceRollForSpell(
   } else {
     // Заклинание без урона/атаки (самобафф вроде Щита): списываем ячейку
     // (для уровневых) и накладываем эффекты на самого заклинателя.
-    castBuffSpellMacro(spell, actor, lockedSpellLevel);
+    castBuffSpellMacro(
+      spell,
+      actor,
+      lockedSpellLevel,
+      undefined,
+      cachedTemplate,
+    );
   }
 }
 
@@ -1447,22 +1489,32 @@ function openDiceRollForSpell(
  * @param lockedSpellLevel - зафиксированный круг (если задан)
  * @param effectTargets - цели эффекта, выбранные перед кастом; их актуальность
  * проверяется ещё раз до списания ячейки
+ * @param cachedTemplate - шаблон заклинания с областью: на его месте остаётся
+ * зона («Туманное облако», «Тьма»)
  */
 function castBuffSpellMacro(
   spell: Spell,
   actor: DnDActor,
   lockedSpellLevel?: number,
   effectTargets?: SpellEffectTargets,
+  cachedTemplate?: MeasurementTemplate,
 ): void {
-  const casterEffects = getCasterSpellEffects(spell);
   const isInnate = !!spell.uses;
+  const casterStats = resolveActorStats(actor);
 
-  // Кто накладывает эффекты на цель: Сл 0 эффекта и его спасбросок считаются
-  // от заклинателя
+  // Кто накладывает эффекты: Сл 0 эффекта и его спасбросок считаются от
+  // заклинателя — и на цели, и на нём самом, и в зоне
+  const casterSource: SpellCasterSource = {
+    saveDc: resolveSpellSaveDC(actor, spell, casterStats),
+    spellMod: casterStats.abilityMods[resolveSpellcastingAbility(actor, spell)],
+  };
+
   const targetEffectsSource = {
     casterId: actor.id,
-    spellSaveDC: resolveSpellSaveDC(actor, spell, resolveActorStats(actor)),
+    spellSaveDC: casterSource.saveDc,
   };
+
+  const casterEffects = prepareCasterSpellEffects(spell, actor, casterSource);
 
   const worldStore = useWorldStore();
   const chatStore = useChatStore();
@@ -1482,13 +1534,10 @@ function castBuffSpellMacro(
     }
 
     // Само-баффы не стакаются: повтор ЗАМЕНЯЕТ/обновляет прежний (5e 2024).
-    // Само-бафф: носитель = источник = кастер (нужно для точной turn-длительности
-    // «до конца моего следующего хода» и пропуска текущего хода).
+    // Копии уже с Сл и точной длительностью хода заклинателя
     target.activeEffects = mergeAppliedEffects(
       target.activeEffects,
-      instantiateSpellEffects(casterEffects).map((effect) =>
-        stampEffectTurnDuration(effect, actor.id, actor.id),
-      ),
+      casterEffects,
     );
 
     chatStore.sendMessage(
@@ -1573,6 +1622,14 @@ function castBuffSpellMacro(
         // Эффекты на выбранную цель (effectTarget 'target') — отдельной
         // сущности, отдельным обновлением (без гонки с апдейтом кастера).
         applySpellTargetEffects(spell, targetEffectsSource, effectTargets);
+
+        completeSpellCast({
+          spell,
+          caster: castingActor,
+          source: casterSource,
+          template: cachedTemplate,
+          applyCasterEffects: false,
+        });
       },
     });
 
@@ -1598,6 +1655,14 @@ function castBuffSpellMacro(
   }
 
   applySpellTargetEffects(spell, targetEffectsSource, effectTargets);
+
+  completeSpellCast({
+    spell,
+    caster: actor,
+    source: casterSource,
+    template: cachedTemplate,
+    applyCasterEffects: false,
+  });
 }
 
 /**
@@ -2136,6 +2201,17 @@ function openCreatureSpellRoll(
     placement?.block,
   );
 
+  // Существо как заклинатель: Сл блока и модификатор его характеристики
+  const casterSource: SpellCasterSource = {
+    saveDc: numbers.saveDC ?? DEFAULT_CREATURE_SPELL_SAVE_DC,
+    spellMod: getCreatureSpellMod(
+      creature,
+      getCreatureSpellBlockAbility(creature, placement?.block),
+    ),
+  };
+
+  const castKey = generateId(SPELL_CAST_KEY_PREFIX);
+
   // Атака без частей урона: окно броска не зовёт `onRollParts`, и эффекты на
   // попадании разбирает тот же оркестратор с пустым набором частей
   const onHit =
@@ -2148,7 +2224,8 @@ function openCreatureSpellRoll(
             setup.pseudoSpell,
             [],
             templateId,
-            numbers.saveDC,
+            casterSource,
+            castKey,
           )
       : undefined;
 
@@ -2194,7 +2271,8 @@ function openCreatureSpellRoll(
         setup.pseudoSpell,
         parts,
         templateId,
-        numbers.saveDC,
+        casterSource,
+        castKey,
       ),
     onHit,
     onCancel: templateId ? () => discardSpellTemplate(templateId) : undefined,
@@ -2224,14 +2302,16 @@ function openCreatureSpellRoll(
  * @param pseudoSpell - псевдо-заклинание (клон с activeEffects)
  * @param parts - брошенные части урона
  * @param templateId - id размещённого AoE-шаблона (если был)
- * @param saveDC - сложность спасброска блока
+ * @param casterSource - Сл блока и модификатор характеристики существа
+ * @param castKey - ключ каста: окно зовёт применение и по попаданию, и по частям
  */
 function applyCreatureSpellParts(
   creature: DnDCreature,
   pseudoSpell: Spell,
   parts: RolledSpellDamagePart[],
   templateId: string | undefined,
-  saveDC: number | undefined,
+  casterSource: SpellCasterSource,
+  castKey: string,
 ): void {
   const worldStore = useWorldStore();
   const chatStore = useChatStore();
@@ -2261,7 +2341,7 @@ function applyCreatureSpellParts(
       {
         spell: pseudoSpell,
         damageTotal: 0,
-        spellSaveDC: saveDC ?? 10,
+        spellSaveDC: casterSource.saveDc,
         actors,
         socket,
         casterId: creature.id,
@@ -2270,6 +2350,16 @@ function applyCreatureSpellParts(
       { scene: worldStore.currentScene, cachedTemplate },
     );
   }
+
+  // Эффекты на самом существе, зона на месте шаблона, конец концентрации
+  completeSpellCast({
+    spell: pseudoSpell,
+    caster: findCurrentDndEntity(creature.id) ?? creature,
+    source: casterSource,
+    template: cachedTemplate,
+    applyCasterEffects: true,
+    castKey,
+  });
 
   if (templateId) {
     templateStore.deleteTemplate(templateId);

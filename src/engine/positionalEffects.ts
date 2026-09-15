@@ -36,7 +36,7 @@ import {
   formatZoneRequesterLabel,
   shouldRequestEffectSave,
 } from './effectSaveAcquisition.js';
-import { resolveEntryEffect, withInitializedDuration } from './turnEffects.js';
+import { resolveEntryEffect } from './turnEffects.js';
 
 /**
  * Собирает ID областей, эффекты которых уже применены к актёру.
@@ -140,12 +140,25 @@ export function syncActorAreaEffects(
   // Снимает «зависшие» area-эффекты при выходе (в т.ч. при телепортации).
   const lengthBefore = entity.activeEffects.length;
 
+  // Статус от входа в зону заклинания живёт, пока есть сама зона. Сверяется
+  // только при ре-синке правки или удаления области: тогда `areas` — зоны той
+  // же сцены, а при переходе на другую сцену список чужой, и статус снимался бы
+  // зря
+  const sceneAreaIds = triggerOneShots
+    ? null
+    : new Set(areas.map((area) => area.id));
+
   entity.activeEffects = entity.activeEffects.filter(
     (effect) =>
       !(
         effect.origin === 'area'
         && effect.originId
         && !currentAreaIds.has(effect.originId)
+      )
+      && !(
+        sceneAreaIds
+        && effect.endsWithAreaId
+        && !sceneAreaIds.has(effect.endsWithAreaId)
       ),
   );
 
@@ -153,14 +166,17 @@ export function syncActorAreaEffects(
     changed = true;
   }
 
-  const runTrigger = (effect: ActiveEffect, zoneName?: string): void => {
+  const runTrigger = (effect: ActiveEffect, area: CustomArea): void => {
+    const entryOptions = { sourceAreaId: area.id };
+
     // Спасбросок бросает игрок — срабатывание ждёт его ответа
     if (effect.applySave && shouldRequestEffectSave(entity, requestRoll)) {
       const trigger = requestEntryEffect(
         entity,
         effect,
         requestRoll,
-        formatZoneRequesterLabel(zoneName),
+        formatZoneRequesterLabel(area.name),
+        entryOptions,
       );
 
       if (trigger) {
@@ -170,7 +186,7 @@ export function syncActorAreaEffects(
       return;
     }
 
-    const result = resolveEntryEffect(entity, effect);
+    const result = resolveEntryEffect(entity, effect, entryOptions);
 
     if (result.damageOutcome) {
       damageOutcomes.push(result.damageOutcome);
@@ -197,7 +213,7 @@ export function syncActorAreaEffects(
 
       for (const effect of area.effects.filter(isDnDEffect)) {
         if (!effect.disabled && effect.areaTrigger === 'exit') {
-          runTrigger(effect, area.name);
+          runTrigger(effect, area);
         }
       }
     }
@@ -223,18 +239,18 @@ export function syncActorAreaEffects(
         continue;
       }
 
-      entity.activeEffects.push(
-        withInitializedDuration({
-          ...effect,
-          id: generateId('ae'),
-          origin: 'area',
-          originId: areaId,
-          transfer: false,
-          // Своя длительность: копия не должна делить счётчик раундов с
-          // эффектом самой зоны (объект зоны принадлежит хосту)
-          duration: { ...effect.duration },
-        }),
-      );
+      entity.activeEffects.push({
+        ...effect,
+        id: generateId('ae'),
+        origin: 'area',
+        originId: areaId,
+        transfer: false,
+        // Копия уже в зоне — доставка «в зону» на ней ничего не значит
+        effectTarget: undefined,
+        // Копия живёт, пока существо в зоне: своя длительность спала бы, и
+        // следующая же синхронизация повесила бы эффект заново
+        duration: { type: 'permanent' },
+      });
 
       changed = true;
     }
@@ -251,7 +267,7 @@ export function syncActorAreaEffects(
 
       for (const effect of area.effects.filter(isDnDEffect)) {
         if (!effect.disabled && effect.areaTrigger === 'enter') {
-          runTrigger(effect, area.name);
+          runTrigger(effect, area);
         }
       }
     }

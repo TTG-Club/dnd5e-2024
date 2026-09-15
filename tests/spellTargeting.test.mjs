@@ -863,8 +863,10 @@ it('the actual modal manager keeps a new Bless cast independent from an unfinish
     'src/client/macros/dnd5eMacros.ts',
     'castBuffSpellMacro',
     {
-      getCasterSpellEffects: () => [],
-      resolveActorStats: () => ({}),
+      prepareCasterSpellEffects: () => [],
+      completeSpellCast: () => {},
+      resolveSpellcastingAbility: () => 'wisdom',
+      resolveActorStats: () => ({ abilityMods: {} }),
       resolveSpellSaveDC: () => 13,
       useWorldStore: () => runtime.worldStore,
       useChatStore: () => runtime.chatStore,
@@ -991,6 +993,13 @@ for (const [kind, instantSpell] of [
         getSpellAttackType: () => undefined,
         applyCasterSpellEffects() {},
         applySpellTargetEffects: runtime.applySpellTargetEffects,
+        spellCasterSource: () => ({ saveDc: 13, spellMod: 3 }),
+        completeSpellCast: () => {},
+        useSpellTemplateStore: () => ({
+          getPlacedTemplate: () => undefined,
+          removePlacedTemplate() {},
+          deleteTemplate() {},
+        }),
         openModal: () =>
           assert.fail('Instant cast must not open a dice window'),
         window: {

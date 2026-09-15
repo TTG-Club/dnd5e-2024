@@ -19,6 +19,7 @@
   } from '@vtt/shared/system/dnd.js';
 
   import type { RollBonusEvaluator } from '../../composables/rollBonusEvaluator';
+  import type { SpellCasterSource } from '../../composables/spellCastCompletion';
   import type {
     RolledSpellDamagePart,
     SpellDamagePartInput,
@@ -56,6 +57,7 @@
     getCreatureSpellBlockAbility,
     getCreatureSpellcastingSpellCount,
     getCreatureSpellGroupRecovery,
+    getCreatureSpellMod,
     getCreatureSpellRollButtonText,
     getSpellAttackType,
     hasCreatureSpellGroupUsesLeft,
@@ -70,6 +72,11 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
+  import {
+    completeSpellCast,
+    DEFAULT_CREATURE_SPELL_SAVE_DC,
+    SPELL_CAST_KEY_PREFIX,
+  } from '../../composables/spellCastCompletion';
   import {
     findSpellInPacks,
     loadSpellPacks,
@@ -1571,6 +1578,17 @@
       placement?.block,
     );
 
+    // Существо как заклинатель: Сл блока и модификатор его характеристики
+    const casterSource: SpellCasterSource = {
+      saveDc: numbers.saveDC ?? DEFAULT_CREATURE_SPELL_SAVE_DC,
+      spellMod: getCreatureSpellMod(
+        creature,
+        getCreatureSpellBlockAbility(creature, placement?.block),
+      ),
+    };
+
+    const castKey = generateId(SPELL_CAST_KEY_PREFIX);
+
     const setup = buildCreatureSpellRollSetup({
       spell,
       creature,
@@ -1606,7 +1624,8 @@
               setup.pseudoSpell,
               [],
               templateId,
-              numbers.saveDC,
+              casterSource,
+              castKey,
             )
         : undefined;
 
@@ -1647,7 +1666,8 @@
           setup.pseudoSpell,
           parts,
           templateId,
-          numbers.saveDC,
+          casterSource,
+          castKey,
         ),
       onHit,
       // Отмена окна (крестик, Escape, конец сессии) обязана убрать шаблон: он
@@ -1669,14 +1689,17 @@
    * @param pseudoSpell - псевдо-заклинание (клон с activeEffects для спас/области)
    * @param parts - брошенные части урона
    * @param templateId - id размещённого AoE-шаблона (если был)
-   * @param saveDC - сложность спасброска блока
+   * @param casterSource - Сл блока и модификатор характеристики существа
+   * @param castKey - ключ каста: окно зовёт применение и по попаданию, и по
+   *   частям урона
    */
   function applySpellParts(
     creature: DnDCreature,
     pseudoSpell: Spell,
     parts: RolledSpellDamagePart[],
     templateId: string | undefined,
-    saveDC: number | undefined,
+    casterSource: SpellCasterSource,
+    castKey: string,
   ): void {
     const actors = getCurrentWorldEntities();
     const socket = chatStore.getSocket();
@@ -1693,7 +1716,7 @@
         {
           spell: pseudoSpell,
           damageTotal: 0,
-          spellSaveDC: saveDC ?? 10,
+          spellSaveDC: casterSource.saveDc,
           actors,
           socket,
           casterId: creature.id,
@@ -1702,6 +1725,16 @@
         { scene: worldStore.currentScene, cachedTemplate },
       );
     }
+
+    // Эффекты на самом существе, зона на месте шаблона, конец концентрации
+    completeSpellCast({
+      spell: pseudoSpell,
+      caster: getCreatureEntity() ?? creature,
+      source: casterSource,
+      template: cachedTemplate,
+      applyCasterEffects: true,
+      castKey,
+    });
 
     if (templateId) {
       spellTemplateStore.deleteTemplate(templateId);

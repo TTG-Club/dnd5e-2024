@@ -12,7 +12,7 @@ import type {
   DamageType,
 } from '@vtt/shared';
 
-import type { ResolvedActorStats } from './activeEffectTypes.js';
+import type { ActiveEffect, ResolvedActorStats } from './activeEffectTypes.js';
 import type { ConditionRef } from './conditionKeys.js';
 import type { CreatureSpellcastingBlock } from './creatureSpellcasting.js';
 import type {
@@ -31,6 +31,7 @@ import type { DnDAbilityScores } from './types.js';
 
 import { isActorEntity, isRecord } from '@vtt/shared';
 
+import { isCarrierEffect } from './activeEffectTypes.js';
 import {
   calculateAbilityModifier,
   getActorAbilityModifiers,
@@ -165,6 +166,52 @@ export function resolveActorSpellcastingAbility(
   actor: DnDSceneEntity,
 ): AbilityType {
   return findSpellcastingAbility(actor) ?? 'intelligence';
+}
+
+/**
+ * Эффекты заклинания, которые ложатся на самого заклинателя: включённые, без
+ * адресата или с `effectTarget: 'self'`. Эффекты «на цели» и «в зону» сюда не
+ * попадают — у них свои пути наложения.
+ *
+ * @param spell - заклинание
+ * @returns эффекты на заклинателя (может быть пусто)
+ */
+export function getCasterSpellEffects(
+  spell: Pick<Spell, 'activeEffects'>,
+): ActiveEffect[] {
+  return (spell.activeEffects ?? []).filter(
+    (effect) => !effect.disabled && isCarrierEffect(effect),
+  );
+}
+
+/**
+ * Эффекты заклинания, предназначенные ЦЕЛИ (`effectTarget: 'target'`). Когда
+ * их накладывать (попадание, провал спасброска), решает вызывающий.
+ *
+ * @param spell - заклинание
+ * @returns эффекты на цель (может быть пусто)
+ */
+export function getTargetSpellEffects(
+  spell: Pick<Spell, 'activeEffects'>,
+): ActiveEffect[] {
+  return (spell.activeEffects ?? []).filter(
+    (effect) => !effect.disabled && effect.effectTarget === 'target',
+  );
+}
+
+/**
+ * Эффекты заклинания, которые уходят в зону на месте шаблона
+ * (`effectTarget: 'zone'`).
+ *
+ * @param spell - заклинание
+ * @returns эффекты зоны (может быть пусто)
+ */
+export function getZoneSpellEffects(
+  spell: Pick<Spell, 'activeEffects'>,
+): ActiveEffect[] {
+  return (spell.activeEffects ?? []).filter(
+    (effect) => !effect.disabled && effect.effectTarget === 'zone',
+  );
 }
 
 /**

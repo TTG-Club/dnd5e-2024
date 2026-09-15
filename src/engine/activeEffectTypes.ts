@@ -1106,8 +1106,24 @@ export interface ActiveEffect extends BaseActiveEffect {
    * Цель применения эффекта.
    * - `'self'` (по умолчанию) — применяется к владельцу при экипировке
    * - `'target'` — применяется к цели при попадании атакой
+   * - `'zone'` — уходит в зону, которую заклинание оставляет на месте шаблона;
+   *   на заклинателе и на целях каста не действует
    */
-  effectTarget?: 'self' | 'target';
+  effectTarget?: 'self' | 'target' | 'zone';
+
+  /**
+   * Эффект навязан магией, хотя пришёл не заклинанием напрямую: копия эффекта
+   * зоны заклинания на стоящем в ней (`origin: 'area'`) и статус от входа в неё
+   * (`origin: 'condition'`). Даёт спасброску преимущество защиты от магии.
+   */
+  magical?: true;
+
+  /**
+   * Зона заклинания, из которой пришёл статус при входе. Заклинание кончилось —
+   * зоны на сцене нет — и статус снимается вместе с ней («Опутанный» от
+   * «Паутины»). У статусов зон мастера поля нет: они живут своей длительностью.
+   */
+  endsWithAreaId?: string;
 
   /**
    * Ключ состояния, если эффект представляет состояние — канонное (Испуганный,
@@ -1200,6 +1216,19 @@ export function isDnDEffect(
   _effect: BaseActiveEffect,
 ): _effect is ActiveEffect {
   return true;
+}
+
+/**
+ * Действует ли эффект на своего носителя: не адресован цели атаки и не уходит
+ * в зону заклинания.
+ *
+ * @param effect - эффект
+ * @returns `true` для эффекта «на носителе» (в том числе без поля)
+ */
+export function isCarrierEffect(
+  effect: Pick<ActiveEffect, 'effectTarget'>,
+): boolean {
+  return (effect.effectTarget ?? 'self') === 'self';
 }
 
 /**
@@ -1594,7 +1623,11 @@ export const ActiveEffectSchema = z.object({
   flags: EffectFlagsSchema.catch([]),
   aura: EffectAuraSchema.optional(),
   areaTrigger: z.enum(['stay', 'enter', 'exit']).optional(),
-  effectTarget: z.enum(['self', 'target']).optional(),
+  // Незнакомая доставка обнуляет поле, а не отвергает эффект: снимок сущности
+  // разбирается целиком, и один эффект не должен ронять запись урона
+  effectTarget: z.enum(['self', 'target', 'zone']).optional().catch(undefined),
+  magical: z.literal(true).optional().catch(undefined),
+  endsWithAreaId: z.string().min(1).optional().catch(undefined),
   // Ключи состояний — СТРОКА, а не перечень канона: состояния заводятся в мире
   // («Мастерская» → «Состояния»), и перечень канона молча выбрасывал бы у
   // эффекта ключ своего состояния — вместе с ним пропадали бы значок на токене

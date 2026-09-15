@@ -47,6 +47,7 @@ import { isCreatureEntity, isRecord } from '@vtt/shared';
 import {
   CARRIER_ARMOR_CONDITION_PREFIX,
   CARRIER_TYPE_CONDITION_PREFIX,
+  isCarrierEffect,
   isSenseType,
   splitConditionParts,
   TARGET_TYPE_CONDITION_PREFIX,
@@ -389,7 +390,9 @@ function affectsCarrier(effect: ActiveEffect): boolean {
     return false;
   }
 
-  if (effect.effectTarget === 'target') {
+  // «На цели» адресован тому, по кому попали, «в зону» — стоящим в зоне
+  // заклинания: носителю ни тот, ни другой не достаётся
+  if (!isCarrierEffect(effect)) {
     return false;
   }
 

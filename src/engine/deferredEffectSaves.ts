@@ -15,6 +15,7 @@ import type { ActiveEffect, EffectSaveTiming } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type {
   EffectSaveSpec,
+  EntryEffectOptions,
   TurnDamageOutcome,
   TurnSaveOutcome,
 } from './turnEffects.js';
@@ -142,6 +143,7 @@ export function failureHaltsMovement(
  * @param effect - эффект зоны или ауры с `applySave`
  * @param requestRoll - запрос броска от ядра
  * @param requesterLabel - кто просит («Зона «Болото»»)
+ * @param options - откуда пришёл эффект
  * @returns отложенное срабатывание; `null`, если у эффекта нет спасброска
  */
 export function requestEntryEffect(
@@ -149,6 +151,7 @@ export function requestEntryEffect(
   effect: ActiveEffect,
   requestRoll: ServerRollRequester,
   requesterLabel: string,
+  options: EntryEffectOptions = {},
 ): EngineDeferredTrigger | null {
   if (!effect.applySave) {
     return null;
@@ -168,7 +171,12 @@ export function requestEntryEffect(
           return unchangedOutcome(formatEffectNotes(spec, acquisition.note));
         }
 
-        const result = applyEntryEffect(liveEntity, snapshot, acquisition.save);
+        const result = applyEntryEffect(
+          liveEntity,
+          snapshot,
+          acquisition.save,
+          options,
+        );
 
         return {
           changed: result.damageOutcome !== null || result.statusApplied,

@@ -120,6 +120,8 @@ export const EFFECT_TARGET_DELIVERY_LABELS: Record<EffectFormContext, string> =
 export const EFFECT_DELIVERY_LABELS = {
   aura: 'Аурой вокруг',
   zone: 'В зоне',
+  /** Зона, которую заклинание оставляет на месте своего шаблона */
+  spellZone: 'Зоной на месте области',
 } as const;
 
 /** Пояснения под выбором доставки */
@@ -133,6 +135,15 @@ export const EFFECT_DELIVERY_HINTS: Record<EffectDelivery, string> = {
   aura: 'Носитель излучает эффект на существ вокруг себя.',
   zone: 'Действует на существ в зоне.',
 };
+
+/**
+ * Пояснение к зоне заклинания: где она появляется и когда пропадает. Урон и
+ * эффекты при касте накладывает само заклинание, зона — то, что остаётся.
+ */
+export const EFFECT_SPELL_ZONE_DELIVERY_HINT =
+  'После применения на месте шаблона остаётся зона: в бою она держится, пока '
+  + 'длится заклинание, новая концентрация её снимает. Нужна область у '
+  + 'заклинания.';
 
 /** Подписи момента срабатывания зоны */
 export const ZONE_TRIGGER_LABELS: Record<AreaEffectTrigger, string> = {

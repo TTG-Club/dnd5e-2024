@@ -49,7 +49,8 @@ export const EFFECT_FORM_CONTEXTS = [
  *   аура умения — «Аура защиты» паладина — излучается уже с него);
  * - `item` — снаряжение и инструменты (действует, пока надето);
  * - `weapon` — оружие: на владельце или на цели при попадании;
- * - `spell` — заклинание: на цели или на заклинателе;
+ * - `spell` — заклинание: на цели, на заклинателе, аурой или зоной на месте
+ *   шаблона;
  * - `creatureAction` — действие существа (на цели);
  * - `creatureTrait` — черта существа (на самом существе);
  * - `zone` — зона на сцене;
@@ -92,6 +93,15 @@ export type InertEffectField =
   | 'consumeOn'
   | 'duration'
   | 'conditionImmunities';
+
+/** Что ещё, кроме места, влияет на раскладку */
+export interface EffectFormLayoutOptions {
+  /**
+   * Есть ли у заклинания область: без неё зоне на месте шаблона взяться неоткуда.
+   * Не задано — считается, что есть (окно без этого знания доставку не прячет).
+   */
+  zoneAvailable?: boolean;
+}
 
 /** Прежние пропы окна — у ядра, которое ещё не передаёт место */
 export interface LegacyEffectFormProps {
@@ -139,6 +149,8 @@ export interface EffectFormLayout {
   showConsumeOn: boolean;
   /** Минимальная Сл спасброска (0 — «Сл источника») */
   minSaveDc: number;
+  /** Есть где появиться зоне на месте шаблона (у заклинания есть область) */
+  zoneAvailable: boolean;
 }
 
 /** Известные места окна — для проверки значения пропа */
@@ -153,7 +165,7 @@ const CONTEXT_DELIVERIES: Record<EffectFormContext, readonly EffectDelivery[]> =
     feature: ['carrier', 'aura'],
     item: ['carrier', 'aura'],
     weapon: ['carrier', 'target', 'aura'],
-    spell: ['target', 'carrier', 'aura'],
+    spell: ['target', 'carrier', 'aura', 'zone'],
     creatureAction: ['target'],
     creatureTrait: ['carrier', 'aura'],
     zone: ['zone'],
@@ -248,7 +260,12 @@ export function readEffectDelivery(
 ): EffectDelivery {
   const options = CONTEXT_DELIVERIES[context];
 
-  if (options.includes('zone')) {
+  // Зона мастера — единственная доставка своего места; у заклинания зона лишь
+  // одна из доставок, и её выбирает поле эффекта
+  if (
+    (options.length === 1 && options[0] === 'zone')
+    || (effect.effectTarget === 'zone' && options.includes('zone'))
+  ) {
     return 'zone';
   }
 
@@ -290,7 +307,7 @@ export function writeEffectDelivery(
         areaTrigger: undefined,
       };
     case 'zone':
-      return { ...effect, aura: undefined };
+      return { ...effect, effectTarget: 'zone', aura: undefined };
     case 'carrier':
     default:
       return {
@@ -450,9 +467,17 @@ function listSuccessOutcomes(
 export function resolveEffectFormLayout(
   context: EffectFormContext,
   effect: ActiveEffect,
+  options: EffectFormLayoutOptions = {},
 ): EffectFormLayout {
-  const deliveryOptions = CONTEXT_DELIVERIES[context];
   const delivery = readEffectDelivery(effect, context);
+
+  // Без области у заклинания зоне негде появиться: такой доставки не
+  // предлагаем, а уже выбранная остаётся видна — её покажет плашка
+  const deliveryOptions =
+    options.zoneAvailable === false && context !== 'zone' && delivery !== 'zone'
+      ? CONTEXT_DELIVERIES[context].filter((option) => option !== 'zone')
+      : CONTEXT_DELIVERIES[context];
+
   const trigger = readEffectTrigger(effect);
   const isGeneric = context === 'generic';
 
@@ -511,11 +536,36 @@ export function resolveEffectFormLayout(
       livesOnItsOwn || (isAuraStay && LIVING_CARRIER_CONTEXTS.has(context)),
     showRecurringSave: livesOnItsOwn,
     showConsumeOn: livesOnItsOwn,
-    minSaveDc:
-      isGeneric || (isOnTarget && ACTION_SAVE_CONTEXTS.has(context))
-        ? SOURCE_MIN_SAVE_DC
-        : FIXED_MIN_SAVE_DC,
+    minSaveDc: acceptsSourceSaveDc(context, delivery)
+      ? SOURCE_MIN_SAVE_DC
+      : FIXED_MIN_SAVE_DC,
+    zoneAvailable: options.zoneAvailable !== false,
   };
+}
+
+/**
+ * Можно ли Сл 0 — «Сл источника». У заклинания Сл заклинателя проставляется
+ * при любом наложении: цели — в момент броска, заклинателю и в зону — до того,
+ * как эффект уйдёт жить отдельно. У действия существа — только цели. У зоны
+ * мастера и у предмета источника нет.
+ *
+ * @param context - место окна
+ * @param delivery - доставка эффекта
+ * @returns `true`, если 0 значит «Сл источника»
+ */
+function acceptsSourceSaveDc(
+  context: EffectFormContext,
+  delivery: EffectDelivery,
+): boolean {
+  switch (context) {
+    case 'generic':
+    case 'spell':
+      return true;
+    case 'creatureAction':
+      return delivery === 'target';
+    default:
+      return false;
+  }
 }
 
 /** Шаги окна эффекта в порядке показа */
@@ -736,12 +786,17 @@ export function listInertEffectFields(
       'effectTarget',
       // У предмета и черты существа эффект «на цели» отсекается сбором, у
       // умения копируется на персонажа и ложится на него самого, у действия
-      // существа эффект «на носителе» никто не накладывает
+      // существа эффект «на носителе» никто не накладывает. «В зону» работает
+      // только там, где зона — одна из доставок, и у заклинания с областью
       ((context === 'item'
         || context === 'creatureTrait'
         || context === 'feature')
         && effect.effectTarget === 'target')
-        || (context === 'creatureAction' && effect.effectTarget !== 'target'),
+        || (context === 'creatureAction' && effect.effectTarget !== 'target')
+        || (effect.effectTarget === 'zone'
+          && context !== 'zone'
+          && (!CONTEXT_DELIVERIES[context].includes('zone')
+            || !layout.zoneAvailable)),
     ],
     ['aura', Boolean(effect.aura) && !deliveryOptions.includes('aura')],
     [
@@ -799,7 +854,8 @@ export function clearInertEffectFields(
       case 'effectTarget':
         return {
           ...cleared,
-          effectTarget: context === 'creatureAction' ? 'target' : 'self',
+          effectTarget:
+            CONTEXT_DELIVERIES[context][0] === 'target' ? 'target' : 'self',
         };
       case 'successOutcome':
         return {

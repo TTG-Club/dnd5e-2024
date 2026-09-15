@@ -1370,6 +1370,7 @@
     :z-index="effectModalZIndex"
     :effect="editingEffect"
     context="spell"
+    :zone-available="targetType === 'area'"
     @save="saveCustomEffect"
   />
 </template>

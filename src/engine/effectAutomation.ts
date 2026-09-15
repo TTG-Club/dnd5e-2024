@@ -171,6 +171,39 @@ export function stampSourceTurnSaveDc(
   };
 }
 
+/**
+ * Проставляет Сл источника во ВСЕ спасброски эффекта со Сл 0: при наложении,
+ * повторный хода и против урона каждый ход.
+ *
+ * Нужна там, где спасбросок эффекта бросают без заклинателя под рукой: зона
+ * заклинания на сцене и аура на заклинателе живут отдельно от каста, и Сл 0 в
+ * них бросалась бы против нуля. Цель атаки или заклинания получает Сл
+ * источника прямо в момент броска и в этом не нуждается.
+ *
+ * @param effect - эффект заклинания или действия
+ * @param sourceDc - Сл спасброска источника
+ * @returns исходный эффект либо копия с проставленной Сл
+ */
+export function stampSourceSaveDcs(
+  effect: ActiveEffect,
+  sourceDc: number,
+): ActiveEffect {
+  const turnStamped = stampSourceTurnSaveDc(effect, sourceDc);
+  const { applySave } = turnStamped;
+
+  if (applySave?.dc !== 0) {
+    return turnStamped;
+  }
+
+  return {
+    ...turnStamped,
+    applySave: {
+      ...applySave,
+      dc: resolveEffectSaveDc(applySave.dc, sourceDc),
+    },
+  };
+}
+
 /** Результат вычисления применимости эффекта к цели */
 export interface EffectApplication {
   /** Вешать ли эффект-состояние на цель */

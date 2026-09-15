@@ -714,7 +714,7 @@ export interface BuildConditionEffectOptions {
   /** Длительность (по умолчанию постоянная) */
   duration?: EffectDuration;
   /** Цель применения: на себя или на цель атаки (для райдеров — `target`) */
-  effectTarget?: 'self' | 'target';
+  effectTarget?: ActiveEffect['effectTarget'];
   /** Уровень истощения (учитывается только для `exhaustion`) */
   exhaustionLevel?: number;
 }

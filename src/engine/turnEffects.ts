@@ -365,7 +365,9 @@ export interface EffectSaveSpec extends SavingThrowCircumstances {
  * @returns `true` для эффекта заклинания
  */
 function isMagicalEffect(effect: ActiveEffect): boolean {
-  return effect.origin === 'spell';
+  // Копия эффекта зоны заклинания и статус от входа в неё уже не `spell`, но
+  // навязаны той же магией
+  return effect.origin === 'spell' || effect.magical === true;
 }
 
 /**
@@ -735,6 +737,12 @@ export function rollRecurringDamage(
   return total > 0 ? { ...rolled, total } : null;
 }
 
+/** Откуда пришёл разовый эффект */
+export interface EntryEffectOptions {
+  /** Зона, в которую вошли или из которой вышли; у ауры поля нет */
+  sourceAreaId?: string;
+}
+
 /** Исход срабатывания эффекта области/ауры при входе/выходе */
 export interface EntryEffectResult {
   /** Исход урона (если был) — для подписи в чате */
@@ -764,12 +772,14 @@ export interface EntryEffectResult {
  * @param entity - сущность, на которую действует эффект
  * @param effect - эффект области/ауры (с `areaTrigger` `enter`/`exit`)
  * @param saveOutcome - исход спасброска эффекта; `null` — спасброска нет
+ * @param options - откуда пришёл эффект
  * @returns исходы урона и спасброска для подписи в чате
  */
 export function applyEntryEffect(
   entity: DnDSceneEntity,
   effect: ActiveEffect,
   saveOutcome: TurnSaveOutcome | null,
+  options: EntryEffectOptions = {},
 ): EntryEffectResult {
   const stats = resolveActorStats(entity);
 
@@ -835,6 +845,12 @@ export function applyEntryEffect(
       // Аура остаётся у источника: без сброса цель сама начала бы её излучать
       // (у копии нет `areaTrigger`, и она стала бы постоянной аурой)
       aura: undefined,
+      effectTarget: undefined,
+      // Статус от зоны заклинания кончается вместе с заклинанием — с зоной
+      endsWithAreaId:
+        effect.magical && options.sourceAreaId
+          ? options.sourceAreaId
+          : undefined,
     });
 
     // Правило PHB 2024 «Combining Game Effects»: одноимённый статус не
@@ -855,11 +871,13 @@ export function applyEntryEffect(
  *
  * @param entity - сущность, на которую действует эффект
  * @param effect - эффект области/ауры (с `areaTrigger` `enter`/`exit`)
+ * @param options - откуда пришёл эффект
  * @returns исходы урона и спасброска для подписи в чате
  */
 export function resolveEntryEffect(
   entity: DnDSceneEntity,
   effect: ActiveEffect,
+  options: EntryEffectOptions = {},
 ): EntryEffectResult {
   const saveOutcome = effect.applySave
     ? rollEffectSaveOutcome(
@@ -868,7 +886,7 @@ export function resolveEntryEffect(
       )
     : null;
 
-  return applyEntryEffect(entity, effect, saveOutcome);
+  return applyEntryEffect(entity, effect, saveOutcome, options);
 }
 
 /**

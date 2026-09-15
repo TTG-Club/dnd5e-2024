@@ -14,6 +14,7 @@
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { SpellCasterSource } from '../../../composables/spellCastCompletion';
   import type {
     SpellEffectTargets,
     SpellTargetEffectsSource,
@@ -63,12 +64,14 @@
     isDnDEffect,
     isDndSceneEntity,
     isSpellReady,
+    mergeAppliedEffects,
     parseSpellcastingSettings,
     pickCantripTierParts,
     PREPARED_LIMIT_EMPTY_VALUE,
     resolveActorStats,
     resolveDamagePartsForCast,
     resolveEntityCreatureType,
+    resolveSpellcastingAbility,
     resolveSpellDamageFormula,
     resolveSpellSaveDC,
     SPELL_DAMAGE_TEMPLATE_COLORS,
@@ -86,6 +89,10 @@
     collectProjectileRollBonuses,
   } from '../../../composables/rollBonusEvaluator';
   import {
+    completeSpellCast,
+    prepareCasterSpellEffects,
+  } from '../../../composables/spellCastCompletion';
+  import {
     applySpellTargetEffects,
     createProjectileCastValidator,
     needsSpellEffectTargets,
@@ -93,9 +100,7 @@
   } from '../../../composables/spellEffectTargeting';
   import {
     formatSpellEffectsMessage,
-    getCasterSpellEffects,
     getTargetSpellEffects,
-    instantiateSpellEffects,
     targetEffectsNeedResolution,
   } from '../../../composables/spellResolutionShared';
   import {
@@ -196,26 +201,30 @@
   }
 
   /**
-   * Накладывает «самобафф»-эффекты заклинания (effectTarget 'self' или без
-   * значения) на самого заклинателя. Нужно для заклинаний без урона/цели-врага
-   * вроде Щита: эффект добавляется в `activeEffects` актёра тем же partial-
-   * апдейтом, что и заклинания/ячейки (родитель сливает по верхним ключам, не
-   * затирая параллельные изменения), и анонсируется в чат.
+   * Накладывает эффекты заклинания на самого заклинателя (в том числе его
+   * ауру): эффект добавляется в `activeEffects` актёра тем же partial-апдейтом,
+   * что и заклинания/ячейки (родитель сливает по верхним ключам, не затирая
+   * параллельные изменения), и анонсируется в чат. Сл и числа заклинателя
+   * подставлены, одноимённый эффект обновляется, а не стакается.
    *
    * @param spell - заклинание
    */
   function applyCasterSpellEffects(spell: Spell): void {
-    const casterEffects = getCasterSpellEffects(spell);
+    const casterEffects = prepareCasterSpellEffects(
+      spell,
+      props.actor,
+      spellCasterSource(spell),
+    );
 
     if (casterEffects.length === 0) {
       return;
     }
 
     emit('update:actor', {
-      activeEffects: [
-        ...(props.actor.activeEffects ?? []),
-        ...instantiateSpellEffects(casterEffects),
-      ],
+      activeEffects: mergeAppliedEffects(
+        props.actor.activeEffects ?? [],
+        casterEffects,
+      ),
     });
 
     triggerSaveIfNotEdit();
@@ -230,6 +239,23 @@
 
   /** Resolved stats для отображения Spell Save DC и бонуса атаки */
   const resolvedStats = computed(() => resolveActorStats(props.actor));
+
+  /**
+   * Заклинатель как источник чисел эффектов: Сл и модификатор характеристики
+   * именно этого заклинания.
+   *
+   * @param spell - заклинание
+   * @returns Сл и модификатор
+   */
+  function spellCasterSource(spell: Spell): SpellCasterSource {
+    return {
+      saveDc: resolveSpellSaveDC(props.actor, spell, resolvedStats.value),
+      spellMod:
+        resolvedStats.value.abilityMods[
+          resolveSpellcastingAbility(props.actor, spell)
+        ],
+    };
+  }
 
   /**
    * Кто накладывает эффекты заклинания на цель: Сл 0 эффекта и его спасбросок
@@ -1706,6 +1732,15 @@
       // Щит). Безопасно и для уронных заклинаний — без таких эффектов это no-op.
       applyCasterSpellEffects(spell);
 
+      // Конец прежней концентрации и зона на месте шаблона
+      completeSpellCast({
+        spell,
+        caster: props.actor,
+        source: spellCasterSource(spell),
+        template: cachedTemplate,
+        applyCasterEffects: false,
+      });
+
       // Эффекты на цель (effectTarget 'target') без броска атаки и без
       // спасброска — автоприменение (напр. бафф союзника касанием): вешаем
       // сразу. Атакующие заклинания вешают их по попаданию (onHit модалки),
@@ -1768,6 +1803,18 @@
           { scene, cachedTemplate },
         );
       }
+
+      // Многочастный бросок тоже доводит каст: эффекты на заклинателе здесь
+      // раньше не накладывались вовсе (окно зовёт только onRollParts)
+      applyCasterSpellEffects(spell);
+
+      completeSpellCast({
+        spell,
+        caster: props.actor,
+        source: spellCasterSource(spell),
+        template: cachedTemplate,
+        applyCasterEffects: false,
+      });
 
       if (templateId) {
         const templateStore = useSpellTemplateStore();
@@ -1878,6 +1925,27 @@
           spellTargetEffectsSource(spell),
           effectTargets,
         );
+
+        // Шаблон «Тьмы» тифлинга раньше оставался на карте: каст применился
+        // сразу, а снимать его было некому
+        const templateStore = useSpellTemplateStore();
+
+        const placedTemplate = templateId
+          ? templateStore.getPlacedTemplate(templateId)
+          : undefined;
+
+        completeSpellCast({
+          spell,
+          caster: props.actor,
+          source: spellCasterSource(spell),
+          template: placedTemplate,
+          applyCasterEffects: false,
+        });
+
+        if (templateId) {
+          templateStore.removePlacedTemplate(templateId);
+          templateStore.deleteTemplate(templateId);
+        }
       }
 
       return;

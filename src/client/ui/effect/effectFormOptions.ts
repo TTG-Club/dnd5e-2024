@@ -123,7 +123,9 @@ function deliveryLabel(
       return EFFECT_DELIVERY_LABELS.aura;
     case 'zone':
     default:
-      return EFFECT_DELIVERY_LABELS.zone;
+      return context === 'spell'
+        ? EFFECT_DELIVERY_LABELS.spellZone
+        : EFFECT_DELIVERY_LABELS.zone;
   }
 }
 

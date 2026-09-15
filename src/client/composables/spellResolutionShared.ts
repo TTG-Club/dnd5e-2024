@@ -24,6 +24,7 @@ import {
   CREATURE_TYPE_LABELS,
   DAMAGE_TYPE_LABELS,
   damageReachesTarget,
+  getTargetSpellEffects,
   hasSourceTurnSaveDc,
   isDndSceneEntity,
   SAVE_TYPE_LABELS,
@@ -32,6 +33,14 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { SAVING_THROW_ROLL_LABELS } from '../ui/actor/constants';
+
+// Выбор эффектов заклинания по доставке живёт в движке (его проверяют тесты
+// правил), клиентские пути берут его отсюда же, как раньше
+export {
+  getCasterSpellEffects,
+  getTargetSpellEffects,
+  getZoneSpellEffects,
+} from '@vtt/shared/system/dnd.js';
 
 /** Результат спасброска одной цели */
 export interface SpellTargetResult {
@@ -326,40 +335,6 @@ export function stampEffectTurnDuration(
       : null;
 
   return stampTurnDuration(effect, { carrierId, sourceId, activeTurnActorId });
-}
-
-/**
- * Отбирает «самобафф»-эффекты заклинания, предназначенные самому заклинателю:
- * включённые эффекты с `effectTarget` 'self' (или без значения — это значение
- * по умолчанию). Эффекты, помеченные 'target', исключаются — они ложатся на
- * цель через `useTargetEffectResolution`.
- *
- * Используется для заклинаний без цели-врага (напр. Щит, Доспех мага), у
- * которых эффект должен лечь на кастера.
- *
- * @param spell - заклинание
- * @returns массив эффектов для наложения на заклинателя (может быть пустым)
- */
-export function getCasterSpellEffects(spell: Spell): ActiveEffect[] {
-  return (spell.activeEffects ?? []).filter(
-    (effect) =>
-      !effect.disabled && (effect.effectTarget ?? 'self') !== 'target',
-  );
-}
-
-/**
- * Отбирает эффекты заклинания, предназначенные ЦЕЛИ (`effectTarget: 'target'`):
- * включённые эффекты, которые должны лечь на выбранную цель. Спасбросок не
- * учитывает — вызывающий сам решает,
- * когда применять (напр. по попаданию атаки или при касте без броска).
- *
- * @param spell - заклинание
- * @returns массив эффектов для наложения на цель (может быть пустым)
- */
-export function getTargetSpellEffects(spell: Spell): ActiveEffect[] {
-  return (spell.activeEffects ?? []).filter(
-    (effect) => !effect.disabled && effect.effectTarget === 'target',
-  );
 }
 
 /**

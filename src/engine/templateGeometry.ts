@@ -338,3 +338,144 @@ export function findTokensInTemplate(
     isTokenInTemplate(token.x, token.y, token.scale, gridSize, template),
   );
 }
+
+/** Вершина полигона зоны в мировых пикселях */
+export interface TemplatePolygonPoint {
+  x: number;
+  y: number;
+}
+
+/**
+ * Сколько вершин у круга зоны. Больше контур области не рисует (`ShapeGlow`
+ * прореживает сверх 64), а меньше — многоугольник заметно отходит от круга.
+ */
+const TEMPLATE_CIRCLE_VERTEX_COUNT = 64;
+
+/** Сколько отрезков у дуги конуса */
+const TEMPLATE_CONE_ARC_SEGMENTS = 24;
+
+/**
+ * Запас наружу, пикселей. Проверка шаблона включает границу с допуском
+ * (круг и конус +0.1, луч ±0.5), а попадание в полигон зоны — полуоткрытое:
+ * центр клетки ровно на ребре без запаса выпадал бы из зоны, хотя был в
+ * шаблоне. Полклетки до соседнего центра запас не достаёт.
+ */
+const TEMPLATE_POLYGON_PAD = 0.5;
+
+/** Точка на расстоянии и под углом от начала */
+function polarPoint(
+  originX: number,
+  originY: number,
+  angle: number,
+  radius: number,
+): TemplatePolygonPoint {
+  return {
+    x: originX + Math.cos(angle) * radius,
+    y: originY + Math.sin(angle) * radius,
+  };
+}
+
+/**
+ * Полигон зоны на месте шаблона заклинания: та же область, что накрывает
+ * шаблон, но контуром, который ядро хранит у зоны сцены.
+ *
+ * Дуги описаны снаружи (круг, конус), рёбра вынесены на {@link
+ * TEMPLATE_POLYGON_PAD}: всё, что шаблон считал внутри, остаётся внутри зоны.
+ *
+ * @param template - размещённый шаблон
+ * @param gridSize - размер клетки в пикселях (ширина луча по умолчанию)
+ * @returns вершины полигона либо `null` для вырожденного шаблона
+ */
+export function templateToPolygon(
+  template: MeasurementTemplate,
+  gridSize: number,
+): TemplatePolygonPoint[] | null {
+  const dx = template.targetX - template.originX;
+  const dy = template.targetY - template.originY;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+
+  // Тот же порог, что у проверки шаблона: он не накрывает ничего
+  if (distance < 1) {
+    return null;
+  }
+
+  const { originX, originY } = template;
+  const direction = Math.atan2(dy, dx);
+
+  switch (template.type) {
+    case 'circle':
+    case 'cylinder': {
+      const step = (2 * Math.PI) / TEMPLATE_CIRCLE_VERTEX_COUNT;
+      const radius = (distance + TEMPLATE_POLYGON_PAD) / Math.cos(step / 2);
+
+      return Array.from({ length: TEMPLATE_CIRCLE_VERTEX_COUNT }, (_, index) =>
+        polarPoint(originX, originY, index * step, radius),
+      );
+    }
+    case 'cone': {
+      // Угол расширяется так, чтобы край на дальнем конце отошёл на запас
+      const halfAngle =
+        MEASUREMENT_CONE_HALF_ANGLE + TEMPLATE_POLYGON_PAD / distance;
+
+      const step = (2 * halfAngle) / TEMPLATE_CONE_ARC_SEGMENTS;
+      const radius = (distance + TEMPLATE_POLYGON_PAD) / Math.cos(step / 2);
+
+      // Вершина отступает назад на запас: сама точка-источник тоже в зоне
+      const apex = polarPoint(
+        originX,
+        originY,
+        direction + Math.PI,
+        TEMPLATE_POLYGON_PAD,
+      );
+
+      const arc = Array.from(
+        { length: TEMPLATE_CONE_ARC_SEGMENTS + 1 },
+        (_, index) =>
+          polarPoint(
+            originX,
+            originY,
+            direction - halfAngle + index * step,
+            radius,
+          ),
+      );
+
+      return [apex, ...arc];
+    }
+    case 'rect': {
+      const minX = Math.min(originX, template.targetX) - TEMPLATE_POLYGON_PAD;
+      const maxX = Math.max(originX, template.targetX) + TEMPLATE_POLYGON_PAD;
+      const minY = Math.min(originY, template.targetY) - TEMPLATE_POLYGON_PAD;
+      const maxY = Math.max(originY, template.targetY) + TEMPLATE_POLYGON_PAD;
+
+      return [
+        { x: minX, y: minY },
+        { x: maxX, y: minY },
+        { x: maxX, y: maxY },
+        { x: minX, y: maxY },
+      ];
+    }
+    case 'ray': {
+      // Допуск проверки луча — 0.5 с каждой стороны; запас сверх него
+      const margin = 2 * TEMPLATE_POLYGON_PAD;
+      const halfWidth = (template.width ?? gridSize) / 2 + margin;
+      const along = { x: Math.cos(direction), y: Math.sin(direction) };
+      const across = { x: -along.y, y: along.x };
+      const start = -margin;
+      const end = distance + margin;
+
+      const corner = (alongOffset: number, acrossOffset: number) => ({
+        x: originX + along.x * alongOffset + across.x * acrossOffset,
+        y: originY + along.y * alongOffset + across.y * acrossOffset,
+      });
+
+      return [
+        corner(start, -halfWidth),
+        corner(end, -halfWidth),
+        corner(end, halfWidth),
+        corner(start, halfWidth),
+      ];
+    }
+    default:
+      return null;
+  }
+}
