@@ -523,7 +523,10 @@
    */
   function announceAttackRoll(projectile: boolean): void {
     if (props.attackerId) {
-      dispatchAttackRollTriggers(props.attackerId, { projectile });
+      dispatchAttackRollTriggers(props.attackerId, {
+        projectile,
+        rollMode: attackRollMode.value,
+      });
     }
   }
 

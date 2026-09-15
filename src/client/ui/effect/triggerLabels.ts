@@ -2,13 +2,16 @@
  * Подписи списка «Срабатывания» окна эффекта.
  */
 
+import type { DamageType } from '@vtt/shared';
 import type {
+  CreatureCategory,
   EffectTriggerActionGate,
   EffectTriggerActionType,
   EffectTriggerAttackRole,
   EffectTriggerEvent,
   EffectTriggerLimitPeriod,
   EffectTriggerPreset,
+  TriggerConditionKind,
 } from '@vtt/shared/system/dnd.js';
 
 /** Подписи шага «Срабатывания» */
@@ -129,3 +132,40 @@ export const EFFECT_TRIGGER_PRESET_ICONS: Record<EffectTriggerPreset, string> =
     consumeOn: 'tabler:sword',
     custom: 'tabler:plus',
   };
+
+/** Подписи условия срабатывания */
+export const EFFECT_TRIGGER_CONDITION_LABELS = {
+  title: 'Условие',
+  always: 'Без условия — срабатывает всегда.',
+  and: 'и',
+  add: 'Условие',
+  remove: 'Убрать условие',
+  unknown: 'Условие из данных, окно его не знает: срабатывание не сработает',
+} as const;
+
+/** Виды частей условия срабатывания */
+export const EFFECT_TRIGGER_CONDITION_KIND_LABELS: Record<
+  TriggerConditionKind,
+  string
+> = {
+  damageType: 'Урон этого типа',
+  damageTypeNot: 'Урон без этого типа',
+  damageCritical: 'Критическое попадание',
+  damageNotCritical: 'Не критическое попадание',
+  selfBloodied: 'Носитель окровавлен (хитов не больше половины)',
+  selfWounded: 'Носитель ранен',
+  selfCreatureType: 'Носитель — существо типа',
+  rollAdvantage: 'Атака с преимуществом',
+  rollDisadvantage: 'Атака с помехой',
+  otherCreatureType: 'Другая сторона — существо типа',
+  otherMarkedBySelf: 'Другая сторона помечена носителем',
+};
+
+/** Значение новой части условия с выбором */
+export const EFFECT_TRIGGER_CONDITION_DEFAULT_VALUES: {
+  damageType: DamageType;
+  creatureType: CreatureCategory;
+} = {
+  damageType: 'fire',
+  creatureType: 'humanoid',
+};

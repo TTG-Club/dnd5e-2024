@@ -18,6 +18,7 @@ import type {
   EffectTriggerAttackRole,
   EffectTriggerEvent,
 } from './effectTriggerTypes.js';
+import type { TriggerEventData } from './triggerConditions.js';
 import type {
   EffectSaveSpec,
   EntryEffectOptions,
@@ -50,6 +51,7 @@ import {
   resolveTriggerActionGate,
 } from './effectTriggers.js';
 import { takeTriggerUse } from './effectTriggerUsage.js';
+import { isTriggerConditionMet } from './triggerConditions.js';
 import {
   applyDamageToEntity,
   applyTurnHealing,
@@ -84,6 +86,29 @@ export interface EffectTriggerSource {
  */
 export interface DeferredTurnTrigger extends EffectTriggerSource {
   stage: 'damage' | 'effects';
+}
+
+/**
+ * Пропускает ли событие срабатывание: условие выполняется, и лимит не
+ * исчерпан. Условие проверяется первым — невыполненное условие не тратит
+ * «раз в ход».
+ *
+ * @param entity - субъект срабатывания
+ * @param source - срабатывание с источником
+ * @param data - данные события для условия
+ * @param inCombat - идёт ли у субъекта бой (лимит хода и раунда)
+ * @returns `true`, если срабатывание выполняется
+ */
+export function admitTrigger(
+  entity: DnDSceneEntity,
+  source: EffectTriggerSource,
+  data: TriggerEventData = {},
+  inCombat?: boolean,
+): boolean {
+  return (
+    isTriggerConditionMet(entity, source.trigger, data)
+    && takeTriggerUse(entity, source.scope, source.trigger, inCombat)
+  );
 }
 
 /**
@@ -617,10 +642,7 @@ export function processTurnEffects(
       return true;
     }
 
-    if (
-      blockedTriggers.has(source.trigger)
-      || !takeTriggerUse(entity, source.scope, source.trigger)
-    ) {
+    if (blockedTriggers.has(source.trigger) || !admitTrigger(entity, source)) {
       blockedTriggers.add(source.trigger);
 
       return false;
@@ -1004,6 +1026,16 @@ export function settlePresenceTrigger(
   };
 }
 
+/** Что известно о броске атаки одной стороне */
+export interface AttackRollTriggerOptions {
+  /** Сторона участвует в идущем бою */
+  inCombat?: boolean;
+  /** Другая сторона: цель для атакующего, атакующий для цели */
+  other?: DnDSceneEntity;
+  /** Режим броска атаки */
+  roll?: TriggerEventData['roll'];
+}
+
 /** Итог срабатываний на броске атаки */
 export interface AttackRollTriggersResult {
   /** Сущность изменилась: сняты или наложены эффекты, записан счётчик */
@@ -1022,14 +1054,16 @@ export interface AttackRollTriggersResult {
  *
  * @param entity - сторона атаки
  * @param role - роль стороны
- * @param options - идёт ли бой (лимит хода и раунда)
+ * @param options - бой, другая сторона и режим броска для условий
  * @param options.inCombat - сторона участвует в идущем бою
+ * @param options.other - другая сторона атаки
+ * @param options.roll - режим броска атаки
  * @returns что изменилось
  */
 export function runAttackRollTriggers(
   entity: DnDSceneEntity,
   role: EffectTriggerAttackRole,
-  options: { inCombat?: boolean } = {},
+  options: AttackRollTriggerOptions = {},
 ): AttackRollTriggersResult {
   const usageBefore = JSON.stringify(entity.system.effectUsage ?? null);
   const removedIds = new Set<string>();
@@ -1058,7 +1092,12 @@ export function runAttackRollTriggers(
         scope: resolveEffectUsageScope(effect),
       };
 
-      if (!takeTriggerUse(entity, source.scope, trigger, options.inCombat)) {
+      const eventData: TriggerEventData = {
+        other: options.other,
+        roll: options.roll,
+      };
+
+      if (!admitTrigger(entity, source, eventData, options.inCombat)) {
         continue;
       }
 

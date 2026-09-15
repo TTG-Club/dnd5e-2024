@@ -1,4 +1,8 @@
-import type { EffectTriggerAttackRole } from '@vtt/shared/system/dnd.js';
+import type {
+  AttackRollMode,
+  DnDSceneEntity,
+  EffectTriggerAttackRole,
+} from '@vtt/shared/system/dnd.js';
 
 import { emitEntityCombatState } from '@/core/entityUtils';
 import { useChatStore } from '@/stores/chatStore';
@@ -76,22 +80,42 @@ function listAttackTargetIds(projectile: boolean): string[] {
 }
 
 /**
+ * D&D-сущность мира по id в момент броска.
+ *
+ * @param entityId - сущность
+ * @returns сущность либо `undefined`
+ */
+function findDndWorldEntity(entityId: string): DnDSceneEntity | undefined {
+  const current = useWorldEntities().findCurrentWorldEntity(entityId);
+
+  return current && isDndSceneEntity(current) ? current : undefined;
+}
+
+/** Сторона броска атаки с другой стороной для условий */
+interface AttackRollSide {
+  entityId: string;
+  role: EffectTriggerAttackRole;
+  /** Другая сторона: цель для атакующего, атакующий для цели */
+  otherId?: string;
+}
+
+/**
  * Прогоняет срабатывания броска атаки у одной стороны и отправляет итог.
  *
  * Сущность берётся из мира в момент броска, а не из листа: лист может держать
  * свою копию, и её старые хиты ушли бы боевым каналом вместе со снятием.
  *
- * @param entityId - сторона атаки
- * @param role - атакующий или цель
+ * @param side - сторона атаки
+ * @param rollMode - режим броска для условий «с преимуществом»
  */
 function settleAttackRollSide(
-  entityId: string,
-  role: EffectTriggerAttackRole,
+  side: AttackRollSide,
+  rollMode: AttackRollMode,
 ): void {
-  const { findCurrentWorldEntity } = useWorldEntities();
-  const current = findCurrentWorldEntity(entityId);
+  const { entityId, role } = side;
+  const current = findDndWorldEntity(entityId);
 
-  if (!current || !isDndSceneEntity(current)) {
+  if (!current) {
     return;
   }
 
@@ -104,6 +128,11 @@ function settleAttackRollSide(
 
   const result = runAttackRollTriggers(updated, role, {
     inCombat: isEntityInCombat(entityId),
+    other: side.otherId ? findDndWorldEntity(side.otherId) : undefined,
+    roll: {
+      hasAdvantage: rollMode === 'advantage',
+      hasDisadvantage: rollMode === 'disadvantage',
+    },
   });
 
   if (!result.changed) {
@@ -147,18 +176,32 @@ function settleAttackRollSide(
  * Сбой расхода не срывает сам бросок: эффект останется, а атака пройдёт.
  *
  * @param attackerId - атакующая сущность
- * @param options - бросок серии снарядов
+ * @param options - бросок серии снарядов и режим броска
  * @param options.projectile - цели — назначенные цели снарядов
+ * @param options.rollMode - режим броска атаки
  */
 export function dispatchAttackRollTriggers(
   attackerId: string,
-  options: { projectile: boolean },
+  options: { projectile: boolean; rollMode: AttackRollMode },
 ): void {
   try {
-    settleAttackRollSide(attackerId, 'attacker');
+    const targetIds = listAttackTargetIds(options.projectile);
 
-    for (const targetId of listAttackTargetIds(options.projectile)) {
-      settleAttackRollSide(targetId, 'target');
+    // Другая сторона атакующего однозначна только при одной цели
+    settleAttackRollSide(
+      {
+        entityId: attackerId,
+        role: 'attacker',
+        otherId: targetIds.length === 1 ? targetIds[0] : undefined,
+      },
+      options.rollMode,
+    );
+
+    for (const targetId of targetIds) {
+      settleAttackRollSide(
+        { entityId: targetId, role: 'target', otherId: attackerId },
+        options.rollMode,
+      );
     }
   } catch (error) {
     console.error(TRIGGER_EVENTS_LOG_PREFIX, error);

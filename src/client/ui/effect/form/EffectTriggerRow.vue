@@ -49,6 +49,7 @@
     EFFECT_TRIGGER_ROLE_LABELS,
     EFFECT_TRIGGER_ROW_LABELS,
   } from '../triggerLabels';
+  import EffectTriggerConditionPicker from './EffectTriggerConditionPicker.vue';
   import SaveDcField from './SaveDcField.vue';
 
   /** Исход урона в строке: гейт либо «успех — половина» */
@@ -185,6 +186,11 @@
           .map((action) => (keepsSave ? action : withoutGate(action))),
       });
     },
+  });
+
+  const condition = computed({
+    get: () => trigger.value.condition,
+    set: (next: string | undefined) => update({ condition: next }),
   });
 
   const role = computed({
@@ -458,6 +464,11 @@
         @click.left.exact.prevent="emit('remove')"
       />
     </div>
+
+    <EffectTriggerConditionPicker
+      v-model:condition="condition"
+      :event="trigger.event"
+    />
 
     <template v-if="acceptsSave">
       <USwitch

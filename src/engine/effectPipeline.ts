@@ -930,13 +930,14 @@ function evaluateCondition(
 }
 
 /**
- * Оценивает одну часть условия против контекста броска.
+ * Оценивает одну часть условия против контекста броска. Общая для модификаторов
+ * и срабатываний (`triggerConditions.ts`): словарь один.
  *
  * @param trimmed - часть условия, уже обрезанная по краям
  * @param rollContext - контекст текущего броска
  * @returns true если часть выполняется
  */
-function evaluateConditionPart(
+export function evaluateConditionPart(
   trimmed: string,
   rollContext: RollContext,
 ): boolean {

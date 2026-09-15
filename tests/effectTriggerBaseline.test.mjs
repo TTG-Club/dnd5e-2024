@@ -257,9 +257,7 @@ describe('фиксация: расход эффекта на броске ата
       'src/client/composables/useEffectTriggerEvents.ts',
       'settleAttackRollSide',
       {
-        useWorldEntities: () => ({
-          findCurrentWorldEntity: (id) => world.get(id),
-        }),
+        findDndWorldEntity: (id) => world.get(id),
         isDndSceneEntity: engine.isDndSceneEntity,
         runAttackRollTriggers: engine.runAttackRollTriggers,
         isEntityInCombat: () => false,
@@ -290,7 +288,7 @@ describe('фиксация: расход эффекта на броске ата
     const hero = createHero({ activeEffects: [sap, vex] });
 
     world.set(hero.id, hero);
-    settle(hero.id, 'attacker');
+    settle({ entityId: hero.id, role: 'attacker' }, 'normal');
 
     assert.equal(emitted.length, 1);
 
@@ -312,10 +310,10 @@ describe('фиксация: расход эффекта на броске ата
     );
 
     world.set(hero.id, createHero({ activeEffects: [vex] }));
-    settle(hero.id, 'attacker');
+    settle({ entityId: hero.id, role: 'attacker' }, 'normal');
     assert.equal(emitted.length, 1, 'без эффектов роли ничего не шлёт');
 
-    settle(hero.id, 'target');
+    settle({ entityId: hero.id, role: 'target' }, 'normal');
     assert.equal(emitted.length, 2);
     assert.equal(emitted[1].activeEffects.length, 0);
   });

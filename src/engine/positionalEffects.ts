@@ -40,12 +40,12 @@ import {
   shouldRequestEffectSave,
 } from './effectSaveAcquisition.js';
 import {
+  admitTrigger,
   listPresenceTriggerSources,
   resolveEntryEffect,
   rollTriggerSave,
   settlePresenceTrigger,
 } from './effectTriggerRunner.js';
-import { takeTriggerUse } from './effectTriggerUsage.js';
 
 /**
  * Собирает ID областей, эффекты которых уже применены к актёру.
@@ -250,7 +250,7 @@ export function syncActorAreaEffects(
     for (const source of sources) {
       const inCombat = isInCombat?.(entity) ?? false;
 
-      if (!takeTriggerUse(entity, source.scope, source.trigger, inCombat)) {
+      if (!admitTrigger(entity, source, {}, inCombat)) {
         continue;
       }
 
