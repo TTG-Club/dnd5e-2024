@@ -324,6 +324,21 @@ export function isTurnTriggerEvent(event: EffectTriggerEvent): boolean {
 }
 
 /**
+ * Есть ли у эффекта явные срабатывания входа или выхода — у ауры они будят
+ * вход и выход так же, как у зоны.
+ *
+ * @param effect - эффект
+ * @returns `true`, если срабатывание входа или выхода есть
+ */
+export function hasPresenceTriggers(effect: ActiveEffect): boolean {
+  return listEffectListTriggers(effect).some(
+    (trigger) =>
+      !isLegacyTrigger(trigger)
+      && (trigger.event === 'enter' || trigger.event === 'exit'),
+  );
+}
+
+/**
  * Простое срабатывание: без роли, условия и лимита, ход — субъекта.
  *
  * @param trigger - срабатывание

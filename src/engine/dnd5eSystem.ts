@@ -544,7 +544,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.33';
+  readonly version = '0.8.34';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -856,7 +856,7 @@ export class Dnd5eVttSystem implements VttSystem {
     movedEntity: SceneEntity,
     previousToken: Token | undefined,
     getEntity: (actorId: string) => SceneEntity | undefined,
-    context?: SystemTriggerContext,
+    context?: SystemTriggerContext & { alreadyEnteredAuraKeys?: Set<string> },
   ): Array<SystemDeferredTriggerResult & { entity: SceneEntity }> {
     if (!isDndSceneEntity(movedEntity)) {
       return [];
@@ -875,6 +875,9 @@ export class Dnd5eVttSystem implements VttSystem {
       {
         requestRoll: context?.requestRoll,
         resolveAmbientEffects: toAmbientResolver(context),
+        isInCombat: context?.isInCombat,
+        getActiveTurnActorId: context?.getActiveTurnActorId,
+        alreadyEnteredAuraKeys: context?.alreadyEnteredAuraKeys,
       },
     );
 

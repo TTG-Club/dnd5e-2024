@@ -683,6 +683,14 @@ describe('список «Срабатывания»', () => {
 
     assert.deepEqual(zone.triggerActions, ['damage', 'applyCondition']);
 
+    assert.deepEqual(
+      layoutOf('spell', {
+        aura: { radius: 10, target: 'all', applyToSelf: false, visible: true },
+      }).triggerEvents,
+      ['turnStart', 'turnEnd', 'enter', 'exit'],
+      'в ауру входят и выходят так же, как в зону',
+    );
+
     const trait = layoutOf('creatureTrait');
 
     assert.deepEqual(trait.triggerEvents, ['turnStart', 'turnEnd']);

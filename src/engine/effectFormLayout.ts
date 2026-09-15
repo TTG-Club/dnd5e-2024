@@ -581,7 +581,7 @@ export function resolveEffectFormLayout(
     ...resolveTriggerListLayout({
       showRecurringDamage,
       canRemoveSelf: livesOnItsOwn,
-      isZone: delivery === 'zone',
+      hasPresence: delivery === 'zone' || delivery === 'aura',
       hasSource: !isTickingCarrier,
     }),
     minSaveDc: acceptsSourceSaveDc(context, delivery)
@@ -597,7 +597,7 @@ const TURN_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
   'turnEnd',
 ];
 
-/** Вход в зону и выход из неё */
+/** Вход в зону или ауру и выход из неё */
 const PRESENCE_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
   'enter',
   'exit',
@@ -615,7 +615,8 @@ const TURN_OWNERS_SUBJECT: readonly EffectTriggerTurnOwner[] = ['subject'];
 /**
  * Что умеет список «Срабатывания» в месте окна. Правила сверены с рантаймом:
  * ход — там, где эффект тикает на существе (`processTurnEffects`), вход и выход
- * — у зоны (`syncActorAreaEffects`), бросок атаки — у эффекта, лежащего на
+ * — у зоны и ауры (`syncActorAreaEffects`, `applyAuraTriggerEffects`), бросок
+ * атаки — у эффекта, лежащего на
  * существе (`runAttackRollTriggers`). Снять эффект можно только лежащий на
  * существе: черту, ауру чужого токена и зону срабатывание не снимает.
  *
@@ -625,14 +626,14 @@ const TURN_OWNERS_SUBJECT: readonly EffectTriggerTurnOwner[] = ['subject'];
  * @param place - что известно о месте
  * @param place.showRecurringDamage - эффект тикает на ходу существа
  * @param place.canRemoveSelf - эффект лежит на существе сам
- * @param place.isZone - эффект зоны
+ * @param place.hasPresence - эффект зоны или ауры: в него входят и выходят
  * @param place.hasSource - у эффекта бывает наложивший
  * @returns события, действия и выбор хода списка
  */
 function resolveTriggerListLayout(place: {
   showRecurringDamage: boolean;
   canRemoveSelf: boolean;
-  isZone: boolean;
+  hasPresence: boolean;
   hasSource: boolean;
 }): Pick<
   EffectFormLayout,
@@ -642,7 +643,7 @@ function resolveTriggerListLayout(place: {
 
   const triggerEvents: EffectTriggerEvent[] = [
     ...(ticks ? TURN_TRIGGER_EVENTS : []),
-    ...(place.isZone ? PRESENCE_TRIGGER_EVENTS : []),
+    ...(place.hasPresence ? PRESENCE_TRIGGER_EVENTS : []),
     ...(place.canRemoveSelf ? (['attackRoll'] as const) : []),
   ];
 

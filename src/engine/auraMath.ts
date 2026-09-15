@@ -20,6 +20,7 @@ import { isCreatureEntity } from '@vtt/shared';
 import { isCarrierEffect } from './activeEffectTypes.js';
 import { bindClassLevels } from './classEffectScope.js';
 import { itemEffectsActive } from './effectPipeline.js';
+import { hasPresenceTriggers } from './effectTriggers.js';
 import { buildFormulaContext } from './formulaParser.js';
 import {
   bindSourceEffectFormulas,
@@ -216,7 +217,7 @@ export function calculateAmbientAuras(
       // «до конца хода источника»
       ambientEffects.push({
         ...effect,
-        id: `${effect.id}_aura_${source.token.id}`,
+        id: buildAmbientAuraEffectId(effect, source.token.id),
         sourceActorId: source.token.actorId,
       });
     }
@@ -269,11 +270,42 @@ export function isAuraReachingTarget(
   return centerDistancePx <= totalReachPx;
 }
 
+/**
+ * Id копии ауры на накрытом: у одной ауры с разных токенов копии разные, и
+ * счётчики лимита у них свои.
+ *
+ * @param effect - аура источника
+ * @param sourceTokenId - токен-источник
+ * @returns id копии
+ */
+export function buildAmbientAuraEffectId(
+  effect: Pick<ActiveEffect, 'id'>,
+  sourceTokenId: string,
+): string {
+  return `${effect.id}_aura_${sourceTokenId}`;
+}
+
+/**
+ * Будит ли аура вход и выход: разовый эффект старых полей (`areaTrigger`) или
+ * явные срабатывания входа и выхода — у ауры «пока внутри» тоже («Духовные
+ * стражи»: вход и начало хода).
+ *
+ * @param effect - аура
+ * @returns `true`, если у ауры есть что делать на входе или выходе
+ */
+export function isTriggerAura(effect: ActiveEffect): boolean {
+  return (
+    effect.areaTrigger === 'enter'
+    || effect.areaTrigger === 'exit'
+    || hasPresenceTriggers(effect)
+  );
+}
+
 /** Попадание триггер-ауры (enter/exit) источника на целевой токен */
 export interface TriggerAuraHit {
   /** ID токена-источника ауры (для ключа членства) */
   sourceTokenId: string;
-  /** Аура-эффект с триггером enter/exit */
+  /** Аура-эффект со входом или выходом; наложивший — носитель ауры */
   effect: ActiveEffect;
 }
 
@@ -305,11 +337,7 @@ export function collectTriggerAurasForTarget(
     for (const effect of source.effects) {
       const aura = effect.aura;
 
-      if (
-        !aura
-        || effect.disabled
-        || (effect.areaTrigger !== 'enter' && effect.areaTrigger !== 'exit')
-      ) {
+      if (!aura || effect.disabled || !isTriggerAura(effect)) {
         continue;
       }
 
@@ -329,7 +357,10 @@ export function collectTriggerAurasForTarget(
           gridSettings,
         )
       ) {
-        hits.push({ sourceTokenId: source.token.id, effect });
+        hits.push({
+          sourceTokenId: source.token.id,
+          effect: { ...effect, sourceActorId: source.token.actorId },
+        });
       }
     }
   }

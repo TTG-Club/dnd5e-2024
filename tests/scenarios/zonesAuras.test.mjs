@@ -469,6 +469,135 @@ describe('каталог: зоны и ауры', () => {
     assert.equal(enter(orc, zones, outOfCombat).damageOutcomes.length, 1);
   });
 
+  it('[Z14] Духовные стражи (2024): вход в ауру и конец хода в ней делят «раз в ход», извилистый путь входит один раз', () => {
+    const once = { max: 1, per: 'turn', key: 'guardians' };
+    const save = { ability: 'wisdom', dc: ZONE_DC };
+
+    const radiant = {
+      type: 'damage',
+      parts: [{ formula: '3d8@dmg.radiant' }],
+      halfOnSave: true,
+    };
+
+    const guardians = createEffect('Духовные стражи', {
+      aura: { radius: 5, target: 'all', applyToSelf: false, visible: true },
+      triggers: [
+        {
+          id: 'trigger_enter',
+          event: 'enter',
+          save,
+          actions: [radiant],
+          limit: once,
+        },
+        {
+          id: 'trigger_turn_end',
+          event: 'turnEnd',
+          save,
+          actions: [radiant],
+          limit: once,
+        },
+      ],
+    });
+
+    const scenario = authoredScenario(guardians, 'spell');
+
+    assert.match(scenario, /не чаще одного раза за ход/);
+
+    const cleric = createActor({
+      id: 'actor_cleric',
+      activeEffects: [guardians],
+    });
+
+    const clericToken = createToken(cleric.id, 0, 0);
+
+    /**
+     * Проводит существо по клеткам ряда шаг за шагом, как ядро: вход в одну
+     * ауру за перемещение отмечается в общем наборе.
+     *
+     * @param {object} entity - идущее существо
+     * @param {number[]} columns - клетки пути
+     * @returns {object[]} исходы аур по шагам
+     */
+    const walk = (entity, columns) => {
+      const entities = new Map([
+        [cleric.id, cleric],
+        [entity.id, entity],
+      ]);
+
+      const context = {
+        isInCombat: () => true,
+        alreadyEnteredAuraKeys: new Set(),
+      };
+
+      return columns.slice(1).flatMap((column, index) => {
+        const to = createToken(entity.id, column, 0);
+
+        return engine.applyAuraTriggerEffects(
+          { tokens: [clericToken, to], gridSettings: GRID },
+          to,
+          entity,
+          createToken(entity.id, columns[index], 0),
+          (actorId) => entities.get(actorId),
+          context,
+        );
+      });
+    };
+
+    const hits = (outcomes) =>
+      outcomes.flatMap((outcome) => outcome.damageOutcomes).length;
+
+    // Внутрь, наружу и снова внутрь за одно перемещение
+    const winding = [3, 2, 1, 2, 1];
+    const orc = withHp(createCreature, 60);
+
+    assert.equal(
+      withRandom([MIN_ROLL, MAX_ROLL], () => hits(walk(orc, winding))),
+      1,
+    );
+
+    // Без лимита извилистый путь всё равно входит один раз
+    const unlimited = withHp(createCreature, 60, { id: 'creature_goblin' });
+
+    cleric.activeEffects = [
+      {
+        ...guardians,
+        triggers: guardians.triggers.map(({ limit: _limit, ...trigger }) => ({
+          ...trigger,
+        })),
+      },
+    ];
+
+    assert.equal(
+      withRandom([MIN_ROLL, MAX_ROLL], () => hits(walk(unlimited, winding))),
+      1,
+    );
+
+    cleric.activeEffects = [guardians];
+
+    const endTurnInAura = () =>
+      withRandom([MIN_ROLL, MAX_ROLL], () =>
+        engine.processTurnEffects(orc, 'endOfTurn', {
+          ambientEffects: engine.calculateAmbientAuras(
+            createToken(orc.id, 1, 0),
+            [
+              {
+                token: clericToken,
+                effects: engine.collectAllAuraEffects(cleric),
+              },
+            ],
+            GRID,
+          ),
+        }),
+      ).damageOutcomes.length;
+
+    // Тот же ход: вход уже ударил — конец хода в ауре молчит
+    assert.equal(endTurnInAura(), 0);
+
+    // Новый ход — снова бьёт
+    engine.expireTurnEffects(orc, 'someone', 'end');
+    assert.equal(endTurnInAura(), 1);
+  });
+
   it.todo(
     '[Z13] Сильная заслонённость зоны игрока (стена зрения у зоны от сущности) — пробел',
   );

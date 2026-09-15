@@ -53,8 +53,8 @@ export const EFFECT_TRIGGER_EVENT_LABELS: Partial<
 > = {
   turnStart: 'В начале хода',
   turnEnd: 'В конце хода',
-  enter: 'При входе в зону',
-  exit: 'При выходе из зоны',
+  enter: 'При входе в зону или ауру',
+  exit: 'При выходе из зоны или ауры',
   attackRoll: 'При броске атаки',
 };
 
