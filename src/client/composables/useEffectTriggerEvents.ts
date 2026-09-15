@@ -18,6 +18,7 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { isEntityInCombat, resolveActiveTurnActorId } from './encounterTurn';
+import { emitSystemClientEvent } from './systemClientEvents';
 import { useWorldEntities } from './useWorldEntities';
 
 /**
@@ -108,11 +109,7 @@ function settleAttackRollSide(
   }
 
   // Deep clone: shallow spread теряет вложенные Vue reactive-свойства
-  const updated = JSON.parse(JSON.stringify(current));
-
-  if (!isDndSceneEntity(updated)) {
-    return;
-  }
+  const updated: DnDSceneEntity = JSON.parse(JSON.stringify(current));
 
   const result = runAttackRollTriggers(updated, role, {
     inCombat: isEntityInCombat(entityId),
@@ -228,11 +225,8 @@ export function reportAttackRoll(
     });
 
   if (needsServer) {
-    useChatStore()
-      .getSocket()
-      ?.emit(
-        'system:client-event',
-        buildAttackRollEvent(attackerId, targetIds, rollMode),
-      );
+    emitSystemClientEvent(
+      buildAttackRollEvent(attackerId, targetIds, rollMode),
+    );
   }
 }

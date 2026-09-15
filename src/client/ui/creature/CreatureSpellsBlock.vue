@@ -63,7 +63,7 @@
     hasCreatureSpellGroupUsesLeft,
     isCreatureSpellPoolMode,
     isSpell,
-    readSpellOwnSaveDC,
+    resolveCreatureSpellSaveDC,
     SPELL_DAMAGE_TEMPLATE_COLORS,
     SPELL_SCHOOL_LABELS,
     SPELL_TEMPLATE_DEFAULT_COLOR,
@@ -75,7 +75,6 @@
   import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import {
     completeSpellCast,
-    DEFAULT_CREATURE_SPELL_SAVE_DC,
     SPELL_CAST_KEY_PREFIX,
   } from '../../composables/spellCastCompletion';
   import { beginSpellCast } from '../../composables/spellCasts';
@@ -1591,10 +1590,7 @@
     // Существо как заклинатель: Сл блока и модификатор его характеристики.
     // Своя Сл заклинания (жезл, свиток) главнее Сл блока
     const casterSource: SpellCasterSource = {
-      saveDc:
-        readSpellOwnSaveDC(spell)
-        ?? numbers.saveDC
-        ?? DEFAULT_CREATURE_SPELL_SAVE_DC,
+      saveDc: resolveCreatureSpellSaveDC(spell, numbers.saveDC),
       spellMod: getCreatureSpellMod(
         creature,
         getCreatureSpellBlockAbility(creature, placement?.block),

@@ -56,7 +56,9 @@ import {
   EFFECT_TRIGGER_RECIPIENTS,
   EFFECT_TRIGGER_RESERVED_EVENTS,
   EFFECT_TRIGGER_TURN_OWNERS,
+  MIN_TRIGGER_LIMIT_MAX,
 } from './effectTriggerTypes.js';
+import { parseEachValid } from './lenientParse.js';
 
 export type {
   AreaEffectTrigger,
@@ -1632,6 +1634,9 @@ const RecurringDamageSchema = z.object({
   save: EffectSaveSchema.optional(),
 });
 
+/** Приставка id эффектов, которые движок кладёт на сущность сам */
+export const ACTIVE_EFFECT_ID_PREFIX = 'ae';
+
 /** Самый длинный id каста — как у черновика области ядра */
 const MAX_CAST_ID_LENGTH = 64;
 
@@ -1690,7 +1695,10 @@ const EffectTriggerActionSchema = z.discriminatedUnion('type', [
 
 /** Zod-схема лимита срабатывания */
 const EffectTriggerLimitSchema = z.object({
-  max: z.preprocess(coerceOptionalNumber, z.number().int().min(1)),
+  max: z.preprocess(
+    coerceOptionalNumber,
+    z.number().int().min(MIN_TRIGGER_LIMIT_MAX),
+  ),
   per: z.enum(EFFECT_TRIGGER_LIMIT_PERIODS),
   key: z.string().min(1).optional().catch(undefined),
 });
@@ -1717,13 +1725,9 @@ const EffectTriggerSchema = z.object({
  * Срабатывания разбираются ПО ОДНОМУ: незнакомое событие или действие
  * выбрасывает одно срабатывание, а не эффект и не весь снимок сущности.
  */
-const EffectTriggersSchema = z.array(z.unknown()).transform((items) =>
-  items.flatMap((item) => {
-    const parsed = EffectTriggerSchema.safeParse(item);
-
-    return parsed.success ? [parsed.data] : [];
-  }),
-);
+const EffectTriggersSchema = z
+  .array(z.unknown())
+  .transform((rawTriggers) => parseEachValid(EffectTriggerSchema, rawTriggers));
 
 /**
  * Проверяет, что строка — известный флаг эффекта.

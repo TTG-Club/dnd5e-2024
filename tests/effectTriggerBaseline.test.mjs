@@ -2,16 +2,24 @@ import assert from 'node:assert/strict';
 
 import { describe, it } from 'vitest';
 
-import { loadEngineBundle } from './helpers/engineBundle.mjs';
 import { loadHandler } from './helpers/sourceHandler.mjs';
+import {
+  createActor,
+  createCreature,
+  createEffect,
+  createZone,
+  engine,
+  MIN_ROLL,
+  saveOutcome,
+  withHp,
+  withRandom,
+} from './scenarios/_fixtures.mjs';
 
 /**
  * Фиксация поведения срабатываний эффекта перед переводом на общий диспетчер:
  * урон и лечение каждый ход, повторный спасбросок, отложенные спасброски, исходы
  * «при успехе» и строки чата. Эти числа и строки обязаны пережить рефакторинг.
  */
-
-const engine = await loadEngineBundle(`export * from './src/engine/index.ts';`);
 
 /** Сл, которую проходит любой бросок */
 const TRIVIAL_DC = 1;
@@ -29,90 +37,23 @@ const MAX_HP = 20;
 const ROLL_TWELVE = 0.55;
 
 /**
- * Эффект в форме редактора.
+ * Раненый герой, спасброски которого бросаются сами.
  *
- * @param {string} id - идентификатор и имя
- * @param {object} overrides - поля
- * @returns {object} эффект
- */
-function createEffect(id, overrides = {}) {
-  return {
-    id,
-    name: id,
-    description: '',
-    disabled: false,
-    origin: 'manual',
-    transfer: false,
-    duration: { type: 'permanent' },
-    changes: [],
-    flags: [],
-    ...overrides,
-  };
-}
-
-/**
- * Раненый герой.
- *
- * @param {object} overrides - поля
+ * @param {object} overrides - поля персонажа
  * @returns {object} персонаж
  */
-function createHero(overrides = {}) {
-  return {
-    ...structuredClone(engine.DEFAULT_ACTOR),
-    id: 'actor_hero',
-    name: 'Гримли',
-    ownerIds: ['player'],
-    autoSaves: true,
-    activeEffects: [],
-    ...overrides,
-    system: {
-      ...structuredClone(engine.DEFAULT_ACTOR.system),
-      hitPoints: { current: START_HP, max: MAX_HP, temp: 0 },
-    },
-  };
-}
-
-/**
- * Выполняет действие с подменённым генератором.
- *
- * @param {number} value - значение `Math.random`
- * @param {Function} action - что выполнить
- * @returns {*} результат
- */
-function withRandom(value, action) {
-  const originalRandom = Math.random;
-
-  Math.random = () => value;
-
-  try {
-    return action();
-  } finally {
-    Math.random = originalRandom;
-  }
-}
-
-/**
- * Уже известный исход спасброска.
- *
- * @param {boolean} passed - пройден ли
- * @returns {object} исход
- */
-function saveOutcome(passed) {
-  const total = passed ? 20 : 1;
-
-  return {
-    effectName: 'venom',
-    ability: 'constitution',
-    dc: 13,
-    roll: total,
-    total,
-    passed,
-  };
+function woundedHero(overrides = {}) {
+  return withHp(
+    createActor,
+    START_HP,
+    { autoSaves: true, ...overrides },
+    MAX_HP,
+  );
 }
 
 describe('фиксация: срабатывания на ходу', () => {
   it('урон, лечение и снимающий спасбросок одного хода — хиты, итоги и строка чата', () => {
-    const hero = createHero({
+    const hero = woundedHero({
       activeEffects: [
         createEffect('burn', {
           recurringDamage: {
@@ -134,7 +75,7 @@ describe('фиксация: срабатывания на ходу', () => {
       ],
     });
 
-    const result = withRandom(ROLL_TWELVE, () =>
+    const result = withRandom([ROLL_TWELVE], () =>
       engine.processTurnEffects(hero, 'startOfTurn'),
     );
 
@@ -161,7 +102,7 @@ describe('фиксация: срабатывания на ходу', () => {
   });
 
   it('лечение тикает, пока спасбросок против урона отложен', () => {
-    const hero = createHero({
+    const hero = woundedHero({
       autoSaves: false,
       activeEffects: [
         createEffect('cloud', {
@@ -191,7 +132,7 @@ describe('фиксация: срабатывания на ходу', () => {
   it('три отложенных списка: снимающий спасбросок, урон своего эффекта, урон ауры', () => {
     const save = { ability: 'constitution', dc: 13, onSuccess: 'negate' };
 
-    const hero = createHero({
+    const hero = woundedHero({
       autoSaves: false,
       activeEffects: [
         createEffect('hold', {
@@ -286,7 +227,7 @@ describe('фиксация: расход эффекта на броске ата
       consumeOn: 'attackOnCarrier',
     });
 
-    const hero = createHero({ activeEffects: [sap, vex] });
+    const hero = woundedHero({ activeEffects: [sap, vex] });
 
     world.set(hero.id, hero);
     settle({ entityId: hero.id, role: 'attacker' }, 'normal');
@@ -310,7 +251,7 @@ describe('фиксация: расход эффекта на броске ата
       'сущность мира меняет стор, не бросок',
     );
 
-    world.set(hero.id, createHero({ activeEffects: [vex] }));
+    world.set(hero.id, woundedHero({ activeEffects: [vex] }));
     settle({ entityId: hero.id, role: 'attacker' }, 'normal');
     assert.equal(emitted.length, 1, 'без эффектов роли ничего не шлёт');
 
@@ -330,6 +271,9 @@ describe('фиксация: разовое срабатывание при вх�
       { formula: '3', type: 'fire' },
     ],
   });
+
+  /** Известный исход спасброска против яда */
+  const venomSave = { effectName: venom.name, dc: venom.applySave.dc };
 
   it('пять исходов «при успехе»: урон и статус при провале и успехе', () => {
     const expected = {
@@ -362,12 +306,12 @@ describe('фиксация: разовое срабатывание при вх�
         [false, failed],
         [true, passed],
       ]) {
-        const hero = createHero();
+        const hero = woundedHero();
 
         const result = engine.applyEntryEffect(
           hero,
           effect,
-          saveOutcome(isPassed),
+          saveOutcome(isPassed, venomSave),
         );
 
         assert.equal(
@@ -388,25 +332,11 @@ describe('фиксация: разовое срабатывание при вх�
   it('строка чата входа в зону', () => {
     const system = new engine.Dnd5eVttSystem();
 
-    const wolf = {
-      ...structuredClone(engine.DEFAULT_CREATURE),
-      id: 'creature_wolf',
-      name: 'Волк',
-      activeEffects: [],
-    };
+    const wolf = createCreature();
 
-    const zone = {
-      id: 'zone_poison',
-      name: 'Ядовитое облако',
-      shape: 'polygon',
-      points: [],
-      color: '',
-      opacity: 1,
-      aboveTokens: false,
-      blocksVision: false,
-      blocksLight: false,
-      createdBy: 'gm',
-      effects: [
+    const zone = createZone(
+      'zone_poison',
+      [
         createEffect('venom', {
           areaTrigger: 'enter',
           flags: ['attack.disadvantage'],
@@ -418,9 +348,10 @@ describe('фиксация: разовое срабатывание при вх�
           damageParts: [{ formula: '4', type: 'poison' }],
         }),
       ],
-    };
+      { name: 'Ядовитое облако' },
+    );
 
-    const result = withRandom(0, () =>
+    const result = withRandom([MIN_ROLL], () =>
       system.syncAreaEffects(wolf, new Set(), new Set([zone.id]), [zone]),
     );
 
@@ -433,12 +364,12 @@ describe('фиксация: разовое срабатывание при вх�
   });
 
   it('половина урона: движок и клиентский путь округляют сумму частей', async () => {
-    const hero = createHero();
+    const hero = woundedHero();
 
     engine.applyEntryEffect(
       hero,
       engine.writeEffectSuccessOutcome(venom, 'halfDamage'),
-      saveOutcome(true),
+      saveOutcome(true, venomSave),
     );
 
     assert.equal(START_HP - engine.resolveEntityCurrentHp(hero), 3);
@@ -458,7 +389,7 @@ describe('фиксация: разовое срабатывание при вх�
     );
 
     const clientRoll = rollClientEffectDamage(
-      createHero(),
+      woundedHero(),
       venom.damageParts,
       0.5,
     );

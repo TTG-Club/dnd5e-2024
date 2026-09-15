@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
 
 import {
+  allCreaturesAura,
   authoredScenario,
   change,
   createActor,
@@ -15,7 +16,9 @@ import {
   GRID,
   MAX_ROLL,
   MIN_ROLL,
+  OTHER_TURN_ACTOR_ID,
   PLAYER_ID,
+  withHp,
   withRandom,
 } from './_fixtures.mjs';
 
@@ -25,30 +28,6 @@ import {
 
 /** Сл зон каталога */
 const ZONE_DC = 12;
-
-/**
- * Сущность с заданными хитами.
- *
- * @param {Function} factory - createActor или createCreature
- * @param {number} hitPoints - хиты
- * @param {object} overrides - поля
- * @returns {object} сущность
- */
-function withHp(factory, hitPoints, overrides = {}) {
-  const entity = factory(overrides);
-
-  entity.system.hitPoints =
-    factory === createActor
-      ? { current: hitPoints, max: hitPoints, temp: 0 }
-      : {
-          ...entity.system.hitPoints,
-          current: hitPoints,
-          max: hitPoints,
-          average: hitPoints,
-        };
-
-  return entity;
-}
 
 /**
  * Синхронизация «сущность вошла в зону».
@@ -330,7 +309,7 @@ describe('каталог: зоны и ауры', () => {
 
   it('[Z10] Источник ауры «при входе» сам подошёл к цели — срабатывание у цели', () => {
     const thorns = createEffect('Шипы', {
-      aura: { radius: 5, target: 'all', applyToSelf: false, visible: true },
+      aura: allCreaturesAura(5),
       areaTrigger: 'enter',
       damageParts: [{ formula: '3', type: 'piercing' }],
     });
@@ -388,7 +367,7 @@ describe('каталог: зоны и ауры', () => {
     assert.equal(helped.saveOutcomes[0].total - plain.saveOutcomes[0].total, 4);
   });
 
-  it('[Z12] «Первый вход за ход»: вход и начало хода в зоне делят лимит «раз в ход»', () => {
+  it('[Z12] Лунный луч (2024): вход и конец хода в зоне делят лимит «раз в ход»', () => {
     const once = { max: 1, per: 'turn', key: 'moonbeam' };
 
     const radiant = {
@@ -407,8 +386,8 @@ describe('каталог: зоны и ауры', () => {
           limit: once,
         },
         {
-          id: 'trigger_turn',
-          event: 'turnStart',
+          id: 'trigger_turn_end',
+          event: 'turnEnd',
           save: { ability: 'constitution', dc: ZONE_DC },
           actions: [radiant],
           limit: once,
@@ -424,36 +403,6 @@ describe('каталог: зоны и ауры', () => {
     const orc = createCreature();
     const inCombat = { isInCombat: () => true };
 
-    const entered = withRandom([MIN_ROLL, MAX_ROLL], () =>
-      enter(orc, zones, inCombat),
-    );
-
-    assert.equal(entered.damageOutcomes.length, 1);
-    assert.equal(entered.changed, true);
-
-    // Тот же ход: вход уже ударил — начало хода в зоне молчит
-    const sameTurn = withRandom([MIN_ROLL, MAX_ROLL], () =>
-      engine.processTurnEffects(orc, 'startOfTurn'),
-    );
-
-    assert.equal(sameTurn.damageOutcomes.length, 0);
-
-    // Выйти и войти снова в том же ходу — тоже без урона
-    engine.syncActorAreaEffects(orc, new Set([zones[0].id]), new Set(), zones);
-    assert.equal(enter(orc, zones, inCombat).damageOutcomes.length, 0);
-
-    // Конец хода сбрасывает счётчик
-    engine.expireTurnEffects(orc, 'someone', 'end');
-
-    const nextTurn = withRandom([MIN_ROLL, MAX_ROLL], () =>
-      engine.processTurnEffects(orc, 'startOfTurn'),
-    );
-
-    assert.equal(nextTurn.damageOutcomes.length, 1);
-
-    // Вне боя ходов нет: каждый вход бьёт, остаток счётчика прошлого боя стёрт
-    const outOfCombat = { isInCombat: () => false };
-
     const leave = () =>
       engine.syncActorAreaEffects(
         orc,
@@ -461,6 +410,32 @@ describe('каталог: зоны и ауры', () => {
         new Set(),
         zones,
       );
+
+    const endTurnInZone = () =>
+      withRandom([MIN_ROLL, MAX_ROLL], () =>
+        engine.processTurnEffects(orc, 'endOfTurn'),
+      ).damageOutcomes.length;
+
+    const entered = withRandom([MIN_ROLL, MAX_ROLL], () =>
+      enter(orc, zones, inCombat),
+    );
+
+    assert.equal(entered.damageOutcomes.length, 1);
+    assert.equal(entered.changed, true);
+
+    // Выйти и войти снова в том же ходу — без урона
+    leave();
+    assert.equal(enter(orc, zones, inCombat).damageOutcomes.length, 0);
+
+    // Тот же ход: вход уже ударил — конец хода в зоне молчит
+    assert.equal(endTurnInZone(), 0);
+
+    // Конец хода сбрасывает счётчик: в конце следующего хода в зоне снова бьёт
+    engine.expireTurnEffects(orc, OTHER_TURN_ACTOR_ID, 'end');
+    assert.equal(endTurnInZone(), 1);
+
+    // Вне боя ходов нет: каждый вход бьёт, остаток счётчика прошлого боя стёрт
+    const outOfCombat = { isInCombat: () => false };
 
     leave();
     assert.equal(enter(orc, zones, outOfCombat).damageOutcomes.length, 1);
@@ -480,7 +455,7 @@ describe('каталог: зоны и ауры', () => {
     };
 
     const guardians = createEffect('Духовные стражи', {
-      aura: { radius: 5, target: 'all', applyToSelf: false, visible: true },
+      aura: allCreaturesAura(5),
       triggers: [
         {
           id: 'trigger_enter',
@@ -530,11 +505,11 @@ describe('каталог: зоны и ауры', () => {
       };
 
       return columns.slice(1).flatMap((column, index) => {
-        const to = createToken(entity.id, column, 0);
+        const stepToken = createToken(entity.id, column, 0);
 
         return engine.applyAuraTriggerEffects(
-          { tokens: [clericToken, to], gridSettings: GRID },
-          to,
+          { tokens: [clericToken, stepToken], gridSettings: GRID },
+          stepToken,
           entity,
           createToken(entity.id, columns[index], 0),
           (actorId) => entities.get(actorId),
@@ -594,7 +569,7 @@ describe('каталог: зоны и ауры', () => {
     assert.equal(endTurnInAura(), 0);
 
     // Новый ход — снова бьёт
-    engine.expireTurnEffects(orc, 'someone', 'end');
+    engine.expireTurnEffects(orc, OTHER_TURN_ACTOR_ID, 'end');
     assert.equal(endTurnInAura(), 1);
   });
 

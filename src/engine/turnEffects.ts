@@ -15,7 +15,6 @@ import type {
   ActiveEffect,
   EffectDuration,
   EffectDurationType,
-  EffectSave,
   EffectSaveOutcome,
   EffectSaveTiming,
   ResolvedActorStats,
@@ -497,67 +496,6 @@ export function buildApplySaveSpec(
 }
 
 /**
- * Повторный спасбросок хода, снимающий эффект.
- *
- * @param effect - эффект с `recurringSave`
- * @param recurringSave - его повторный спасбросок
- * @returns спецификация спасброска
- */
-export function buildRecurringSaveSpec(
-  effect: ActiveEffect,
-  recurringSave: NonNullable<ActiveEffect['recurringSave']>,
-): EffectSaveSpec {
-  return {
-    effectName: effect.name,
-    ability: recurringSave.ability,
-    dc: recurringSave.dc,
-    againstMagic: isMagicalEffect(effect),
-    againstCondition: effect.conditionKey,
-  };
-}
-
-/**
- * Спасбросок против урона каждый ход.
- *
- * @param effect - эффект с `recurringDamage.save`
- * @param save - его спасбросок
- * @returns спецификация спасброска
- */
-export function buildRecurringDamageSaveSpec(
-  effect: ActiveEffect,
-  save: EffectSave,
-): EffectSaveSpec {
-  return {
-    effectName: effect.name,
-    ability: save.ability,
-    dc: save.dc,
-    againstMagic: isMagicalEffect(effect),
-  };
-}
-
-/** Доля урона при успешном спасброске «половина урона» */
-const HALF_DAMAGE_MULTIPLIER = 0.5;
-
-/**
- * Какая доля урона достаётся после спасброска: провал — весь, успех — по
- * `onSuccess`.
- *
- * @param onSuccess - что даёт успех
- * @param passed - пройден ли спасбросок
- * @returns множитель урона
- */
-export function resolveSaveDamageMultiplier(
-  onSuccess: EffectSaveOutcome,
-  passed: boolean,
-): number {
-  if (!passed) {
-    return 1;
-  }
-
-  return onSuccess === 'half' ? HALF_DAMAGE_MULTIPLIER : 0;
-}
-
-/**
  * Собирает контекст один раз для серии спасбросков текущей сущности.
  *
  * @param entity - сущность, которая бросает
@@ -669,11 +607,32 @@ export function rollEffectSaveOutcome(
   spec: EffectSaveSpec,
   ambientEffects: readonly ActiveEffect[] = [],
 ): TurnSaveOutcome {
+  return rollEffectSaveWithContext(
+    spec,
+    resolveActorStats(entity, [...ambientEffects]),
+    buildEffectSavingThrowContext(entity, ambientEffects),
+  );
+}
+
+/**
+ * Бросает спасбросок эффекта по уже собранным статам и контексту: серия
+ * спасбросков хода пересобирает контекст между бросками сама.
+ *
+ * @param spec - что бросать
+ * @param stats - resolved-статы бросающего
+ * @param context - контекст спасброска
+ * @returns исход спасброска
+ */
+export function rollEffectSaveWithContext(
+  spec: EffectSaveSpec,
+  stats: ResolvedActorStats,
+  context: EffectSavingThrowContext,
+): TurnSaveOutcome {
   const { roll, total, passed } = rollEffectSavingThrow(
     spec.ability,
     spec.dc,
-    resolveActorStats(entity, [...ambientEffects]),
-    buildEffectSavingThrowContext(entity, ambientEffects),
+    stats,
+    context,
     spec,
   );
 

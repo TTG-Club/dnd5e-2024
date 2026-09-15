@@ -13,6 +13,8 @@
  * (`positionalEffects`), тики хода (`turnEffects`).
  */
 
+import type { AbilityType } from '@vtt/shared';
+
 import type {
   ActiveEffect,
   AreaEffectTrigger,
@@ -24,6 +26,7 @@ import type {
   EffectTrigger,
   EffectTriggerAction,
   EffectTriggerEvent,
+  EffectTriggerSave,
   EffectTriggerTurnOwner,
 } from './effectTriggerTypes.js';
 
@@ -37,7 +40,17 @@ import {
   listEffectListTriggers,
   writeEffectTriggers,
 } from './effectTriggers.js';
-import { DEFAULT_EFFECT_TAG, isEffectTag } from './effectTriggerTypes.js';
+import {
+  DAMAGE_TRIGGER_EVENTS,
+  DEFAULT_EFFECT_TAG,
+  DEFAULT_TRIGGER_ATTACK_ROLE,
+  EFFECT_TRIGGER_TURN_OWNERS,
+  isEffectTag,
+  MIN_TRIGGER_LIMIT_MAX,
+  OTHER_PARTY_TRIGGER_EVENTS,
+  PRESENCE_TRIGGER_EVENTS,
+  TURN_TRIGGER_EVENTS,
+} from './effectTriggerTypes.js';
 import { writeTriggerCondition } from './triggerConditions.js';
 
 /** Места, откуда открывается окно эффекта */
@@ -254,13 +267,19 @@ const DEFAULT_EFFECT_AURA: EffectAura = {
 export const DEFAULT_EFFECT_SAVE_DC = 13;
 
 /** Характеристика спасброска нового эффекта по умолчанию */
-const DEFAULT_EFFECT_SAVE_ABILITY = 'wisdom';
+export const DEFAULT_EFFECT_SAVE_ABILITY: AbilityType = 'wisdom';
 
 /** Минимальная Сл, когда подставить Сл источника нечем */
 const FIXED_MIN_SAVE_DC = 1;
 
+/** Сл в данных, которая значит «Сл источника» (поле показывает «Авто») */
+export const SOURCE_SAVE_DC = 0;
+
 /** Минимальная Сл, когда 0 значит «Сл источника» */
-const SOURCE_MIN_SAVE_DC = 0;
+const SOURCE_MIN_SAVE_DC = SOURCE_SAVE_DC;
+
+/** Хиты нового действия «Хиты становятся»: «вместо 0 хитов — 1 хит» */
+export const DEFAULT_SET_HP_VALUE = 1;
 
 /**
  * Проверяет, что значение — известное место окна эффекта.
@@ -608,30 +627,6 @@ export function resolveEffectFormLayout(
   };
 }
 
-/** События хода субъекта */
-const TURN_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
-  'turnStart',
-  'turnEnd',
-];
-
-/** Вход в зону или ауру и выход из неё */
-const PRESENCE_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
-  'enter',
-  'exit',
-];
-
-/** События урона носителя */
-const DAMAGE_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
-  'damageTaken',
-  'hpZero',
-];
-
-/** Ход носителя и ход наложившего */
-const TURN_OWNERS_WITH_SOURCE: readonly EffectTriggerTurnOwner[] = [
-  'subject',
-  'source',
-];
-
 /** Только ход носителя */
 const TURN_OWNERS_SUBJECT: readonly EffectTriggerTurnOwner[] = ['subject'];
 
@@ -687,7 +682,7 @@ function resolveTriggerListLayout(place: {
       ...(place.canRemoveSelf ? (['endCast', 'removeSelf'] as const) : []),
     ],
     triggerTurnOwners: place.hasSource
-      ? TURN_OWNERS_WITH_SOURCE
+      ? EFFECT_TRIGGER_TURN_OWNERS
       : TURN_OWNERS_SUBJECT,
   };
 }
@@ -713,7 +708,17 @@ export function triggerEventAcceptsDcFormula(
  * @returns `true`, если получателя можно выбрать
  */
 export function triggerEventHasOtherParty(event: EffectTriggerEvent): boolean {
-  return event === 'damageTaken' || event === 'attackRoll';
+  return OTHER_PARTY_TRIGGER_EVENTS.includes(event);
+}
+
+/**
+ * Выбирается ли у события роль субъекта: атакует он или атакуют его.
+ *
+ * @param event - событие
+ * @returns `true` для броска атаки
+ */
+export function triggerEventHasRole(event: EffectTriggerEvent): boolean {
+  return event === 'attackRoll';
 }
 
 /**
@@ -825,15 +830,15 @@ export function createEffectTriggerPreset(
       return {
         id,
         event: 'attackRoll',
-        role: 'attacker',
+        role: DEFAULT_TRIGGER_ATTACK_ROLE,
         actions: [{ type: 'removeSelf', on: 'always' }],
       };
     case 'hpZeroToOne':
       return {
         id,
         event: 'hpZero',
-        actions: [{ type: 'setHp', value: 1 }],
-        limit: { max: 1, per: 'longRest' },
+        actions: [{ type: 'setHp', value: DEFAULT_SET_HP_VALUE }],
+        limit: { max: MIN_TRIGGER_LIMIT_MAX, per: 'longRest' },
       };
     case 'tagOnDamage':
       return {
@@ -969,9 +974,32 @@ export function listEffectFormSteps(
  * @returns сложность
  */
 function defaultSaveDc(layout: EffectFormLayout): number {
-  return layout.minSaveDc === SOURCE_MIN_SAVE_DC
+  return layoutAcceptsSourceSaveDc(layout)
     ? SOURCE_MIN_SAVE_DC
     : DEFAULT_EFFECT_SAVE_DC;
+}
+
+/**
+ * Подставляет ли место окна Сл источника: 0 в поле Сл значит «Сл источника»,
+ * и поле показывает «Авто».
+ *
+ * @param layout - раскладка окна
+ * @returns `true`, если Сл источника подставляется
+ */
+export function layoutAcceptsSourceSaveDc(layout: EffectFormLayout): boolean {
+  return layout.minSaveDc === SOURCE_MIN_SAVE_DC;
+}
+
+/**
+ * Спасбросок, который получает строка, когда его включают.
+ *
+ * @param layout - раскладка окна
+ * @returns спасбросок по умолчанию для места окна
+ */
+export function createDefaultEffectSave(
+  layout: EffectFormLayout,
+): EffectTriggerSave {
+  return { ability: DEFAULT_EFFECT_SAVE_ABILITY, dc: defaultSaveDc(layout) };
 }
 
 /**
@@ -994,8 +1022,7 @@ export function writeEffectSaveEnabled(
 ): ActiveEffect {
   if (enabled) {
     const save: EffectSave = effect.applySave ?? {
-      ability: DEFAULT_EFFECT_SAVE_ABILITY,
-      dc: defaultSaveDc(layout),
+      ...createDefaultEffectSave(layout),
       onSuccess: 'negate',
     };
 
@@ -1223,8 +1250,10 @@ function normalizeDraftTriggers(
         ? {
             ...trigger.limit,
             max: Math.max(
-              1,
-              Math.trunc(parseFormNumber(trigger.limit.max) ?? 1),
+              MIN_TRIGGER_LIMIT_MAX,
+              Math.trunc(
+                parseFormNumber(trigger.limit.max) ?? MIN_TRIGGER_LIMIT_MAX,
+              ),
             ),
           }
         : undefined,

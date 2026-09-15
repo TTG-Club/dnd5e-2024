@@ -42,6 +42,7 @@
     knownTags: readonly string[];
   }>();
 
+  /** Условие строкой словаря (`self.tag === "x" && …`); пусто — без условия */
   const condition = defineModel<string | undefined>('condition', {
     required: true,
   });
@@ -53,6 +54,8 @@
     key: string;
     part: TriggerConditionPart | null;
     text: string;
+    /** Подсказка к строке, которую окно не узнало */
+    title?: string;
   }
 
   const parts = computed(() => readTriggerConditionParts(condition.value));
@@ -60,7 +63,12 @@
   const rows = computed<ConditionRow[]>(() =>
     parts.value.map((part, index) =>
       typeof part === 'string'
-        ? { key: `${index}-raw`, part: null, text: part }
+        ? {
+            key: `${index}-raw`,
+            part: null,
+            text: part,
+            title: EFFECT_TRIGGER_CONDITION_LABELS.unknown,
+          }
         : {
             key: `${index}-${part.kind}`,
             part,
@@ -227,7 +235,7 @@
 
       <span
         class="text-xs text-default"
-        :title="row.part ? undefined : EFFECT_TRIGGER_CONDITION_LABELS.unknown"
+        :title="row.title"
       >
         {{ row.text }}
       </span>

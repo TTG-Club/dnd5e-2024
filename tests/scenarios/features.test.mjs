@@ -10,6 +10,7 @@ import {
   createToken,
   engine,
   GRID,
+  setHitPoints,
   strikeEntity,
 } from './_fixtures.mjs';
 
@@ -525,7 +526,7 @@ describe('каталог: виды', () => {
     const system = new engine.Dnd5eVttSystem();
 
     const dropFrom = (hitPoints) => {
-      orc.system.hitPoints = { current: hitPoints, max: 20, temp: 0 };
+      setHitPoints(orc, hitPoints, 20);
       strikeEntity(system, orc, 12, 'bludgeoning');
 
       return engine.resolveEntityCurrentHp(orc);

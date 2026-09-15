@@ -20,6 +20,7 @@ import type {
 import type {
   EffectSaveSpec,
   EntryEffectOptions,
+  EntryEffectResult,
   TurnDamageOutcome,
   TurnSaveOutcome,
 } from './turnEffects.js';
@@ -37,12 +38,15 @@ import {
   applyEntryEffect,
   applyTriggerEffectActions,
   buildTriggerSaveSpec,
+  removeEffectsById,
   rollTriggerDamage,
   settlePresenceTrigger,
   toTriggerSaveOutcome,
-  turnTriggerEventOf,
 } from './effectTriggerRunner.js';
-import { listEffectListTriggers } from './effectTriggers.js';
+import {
+  listEffectListTriggers,
+  turnTriggerEventOf,
+} from './effectTriggers.js';
 import {
   applyDamageToEntity,
   buildApplySaveSpec,
@@ -104,6 +108,53 @@ export function unchangedOutcome(notes: string[]): DeferredEffectOutcome {
 }
 
 /**
+ * Исход одного срабатывания после ответа игрока.
+ *
+ * @param result - что сделало срабатывание
+ * @param notes - строки сводки
+ * @returns исход для ядра
+ */
+export function toDeferredEffectOutcome(
+  result: EntryEffectResult,
+  notes: string[],
+): DeferredEffectOutcome {
+  return {
+    changed: result.damageOutcome !== null || result.statusApplied,
+    damageOutcomes: result.damageOutcome ? [result.damageOutcome] : [],
+    saveOutcomes: result.saveOutcome ? [result.saveOutcome] : [],
+    notes,
+  };
+}
+
+/**
+ * Отказ запроса броска. Ядро обещает не отклонять промис; если это всё же
+ * случилось, применять нечего — срабатывание просто не состоится.
+ *
+ * @returns применения нет
+ */
+export function ignoreRejectedRollRequest(): null {
+  return null;
+}
+
+/**
+ * Копия срабатывания с источником на момент срабатывания: зона и эффект
+ * принадлежат ядру и могут измениться, пока игрок думает, а применить нужно
+ * то, что сработало.
+ *
+ * @param source - срабатывание с источником
+ * @returns копия
+ */
+export function snapshotTriggerSource(
+  source: EffectTriggerSource,
+): EffectTriggerSource {
+  return {
+    ...source,
+    effect: structuredClone(source.effect),
+    trigger: structuredClone(source.trigger),
+  };
+}
+
+/**
  * Проваленный спасбросок — для сухого прогона «что будет при провале».
  *
  * @param spec - спасбросок эффекта
@@ -121,35 +172,71 @@ function buildFailedSave(spec: EffectSaveSpec): TurnSaveOutcome {
 }
 
 /**
- * Отнимет ли проваленный спасбросок у сущности всю скорость.
+ * Применение исхода спасброска к сущности: к живой по ответу игрока или к
+ * копии для прогона «что будет при провале».
+ */
+type PresenceSaveSettler = (
+  entity: DnDSceneEntity,
+  save: TurnSaveOutcome,
+  options: EntryEffectOptions,
+) => EntryEffectResult;
+
+/**
+ * Разовый спасбросок зоны или ауры, который бросает игрок: применение ждёт
+ * ответа, а фишку останавливают сразу, если провал отнимет у неё скорость.
  *
- * Прогон идёт на копии сущности: эффект накладывается как при провале, и
- * скорость считается уже с ним. Так учитываются и состояния («Опутан»), и
- * флаги, и урон, опускающий хиты до нуля, — без отдельного списка «что
- * останавливает».
+ * Провал прогоняется на копии сущности, и скорость считается уже с ним. Так
+ * учитываются и состояния («Опутан»), и флаги, и урон, опускающий хиты до нуля,
+ * — без отдельного списка «что останавливает».
  *
  * @param entity - сущность, которую накрыл эффект
- * @param effect - эффект со спасброском
- * @param spec - его спасбросок
- * @returns `true`, если при провале сущность не сможет двигаться
+ * @param spec - спасбросок
+ * @param requestRoll - запрос броска от ядра
+ * @param requesterLabel - кто просит («Зона «Болото»»)
+ * @param options - откуда пришёл эффект
+ * @param settle - применение исхода
+ * @returns отложенное срабатывание
  */
-export function failureHaltsMovement(
+function requestPresenceSave(
   entity: DnDSceneEntity,
-  effect: ActiveEffect,
   spec: EffectSaveSpec,
-): boolean {
+  requestRoll: ServerRollRequester,
+  requesterLabel: string,
+  options: EntryEffectOptions,
+  settle: PresenceSaveSettler,
+): EngineDeferredTrigger {
+  const resolution = requestRoll(
+    buildEffectSaveRollRequest(entity, spec, requesterLabel),
+  ).then(
+    (outcome): DeferredEffectApply =>
+      (liveEntity) => {
+        const acquisition = settleEffectSaveOutcome(liveEntity, spec, outcome);
+        const notes = formatEffectNotes(spec, acquisition.note);
+
+        return acquisition.status === 'cancelled'
+          ? unchangedOutcome(notes)
+          : toDeferredEffectOutcome(
+              settle(liveEntity, acquisition.save, options),
+              notes,
+            );
+      },
+    ignoreRejectedRollRequest,
+  );
+
+  // Копия каст не заканчивает: конец каста ушёл бы в ядро по-настоящему
   const probe = structuredClone(entity);
 
-  applyEntryEffect(probe, effect, buildFailedSave(spec));
+  settle(probe, buildFailedSave(spec), { ...options, endCast: undefined });
 
-  return resolveTotalMovementSpeed(resolveActorStats(probe)) <= 0;
+  return {
+    entityId: entity.id,
+    blocksMovement: resolveTotalMovementSpeed(resolveActorStats(probe)) <= 0,
+    resolution,
+  };
 }
 
 /**
  * Разовый эффект зоны или ауры со спасброском, который бросает игрок.
- *
- * Эффект копируется в момент срабатывания: зона принадлежит ядру и может
- * измениться, пока игрок думает, а применить нужно то, что сработало.
  *
  * @param entity - сущность, которую накрыл эффект
  * @param effect - эффект зоны или ауры с `applySave`
@@ -169,44 +256,18 @@ export function requestEntryEffect(
     return null;
   }
 
+  // Зона принадлежит ядру и может измениться, пока игрок думает
   const snapshot = structuredClone(effect);
-  const spec = buildApplySaveSpec(snapshot, effect.applySave);
 
-  const resolution = requestRoll(
-    buildEffectSaveRollRequest(entity, spec, requesterLabel),
-  ).then(
-    (outcome): DeferredEffectApply =>
-      (liveEntity) => {
-        const acquisition = settleEffectSaveOutcome(liveEntity, spec, outcome);
-
-        if (acquisition.status === 'cancelled') {
-          return unchangedOutcome(formatEffectNotes(spec, acquisition.note));
-        }
-
-        const result = applyEntryEffect(
-          liveEntity,
-          snapshot,
-          acquisition.save,
-          options,
-        );
-
-        return {
-          changed: result.damageOutcome !== null || result.statusApplied,
-          damageOutcomes: result.damageOutcome ? [result.damageOutcome] : [],
-          saveOutcomes: [acquisition.save],
-          notes: formatEffectNotes(spec, acquisition.note),
-        };
-      },
-    // Ядро обещает не отклонять промис; если это всё же случилось, применять
-    // нечего — срабатывание просто не состоится
-    () => null,
+  return requestPresenceSave(
+    entity,
+    buildApplySaveSpec(snapshot, effect.applySave),
+    requestRoll,
+    requesterLabel,
+    options,
+    (target, save, effectOptions) =>
+      applyEntryEffect(target, snapshot, save, effectOptions),
   );
-
-  return {
-    entityId: entity.id,
-    blocksMovement: failureHaltsMovement(entity, snapshot, spec),
-    resolution,
-  };
 }
 
 /** Что искать на живой сущности, когда пришёл ответ на спасбросок хода */
@@ -298,9 +359,7 @@ function applyTurnTriggerAnswer(
   );
 
   if (removes) {
-    entity.activeEffects = (entity.activeEffects ?? []).filter(
-      (entry) => entry.id !== target.effectId,
-    );
+    removeEffectsById(entity, new Set([target.effectId]));
   }
 
   return {
@@ -356,7 +415,7 @@ export function requestTurnTriggerSave(
     (outcome): DeferredEffectApply =>
       (liveEntity) =>
         applyTurnTriggerAnswer(liveEntity, target, outcome),
-    () => null,
+    ignoreRejectedRollRequest,
   );
 
   // Спасбросок на границе хода — фишка в этот момент не идёт
@@ -389,52 +448,22 @@ export function requestPresenceTriggerSave(
     return null;
   }
 
-  const snapshot: EffectTriggerSource = {
-    ...source,
-    effect: structuredClone(source.effect),
-    trigger: structuredClone(source.trigger),
-  };
+  const snapshot = snapshotTriggerSource(source);
 
-  const resolution = requestRoll(
-    buildEffectSaveRollRequest(entity, spec, requesterLabel),
-  ).then(
-    (outcome): DeferredEffectApply =>
-      (liveEntity) => {
-        const acquisition = settleEffectSaveOutcome(liveEntity, spec, outcome);
-
-        if (acquisition.status === 'cancelled') {
-          return unchangedOutcome(formatEffectNotes(spec, acquisition.note));
-        }
-
-        const save = toTriggerSaveOutcome(snapshot.trigger, acquisition.save);
-
-        const result = settlePresenceTrigger(
-          liveEntity,
-          snapshot,
-          save,
-          options,
-        );
-
-        return {
-          changed: result.damageOutcome !== null || result.statusApplied,
-          damageOutcomes: result.damageOutcome ? [result.damageOutcome] : [],
-          saveOutcomes: [save],
-          notes: formatEffectNotes(spec, acquisition.note),
-        };
-      },
-    () => null,
+  return requestPresenceSave(
+    entity,
+    spec,
+    requestRoll,
+    requesterLabel,
+    options,
+    (target, save, effectOptions) =>
+      settlePresenceTrigger(
+        target,
+        snapshot,
+        toTriggerSaveOutcome(snapshot.trigger, save),
+        effectOptions,
+      ),
   );
-
-  // Провал отнимет скорость — фишку останавливают до ответа
-  const probe = structuredClone(entity);
-
-  settlePresenceTrigger(probe, snapshot, buildFailedSave(spec), options);
-
-  return {
-    entityId: entity.id,
-    blocksMovement: resolveTotalMovementSpeed(resolveActorStats(probe)) <= 0,
-    resolution,
-  };
 }
 
 /**

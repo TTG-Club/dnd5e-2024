@@ -11,6 +11,7 @@ import {
   createToken,
   engine,
   GRID,
+  withHp,
 } from './_fixtures.mjs';
 
 /**
@@ -60,23 +61,6 @@ function statsWithItems(equipment) {
   return engine.resolveActorStats(createActor({ equipment }));
 }
 
-/**
- * Персонаж с заданными хитами.
- *
- * @param {number} hitPoints - хиты
- * @param {object} overrides - поля персонажа
- * @returns {object} персонаж
- */
-function heroWithHp(hitPoints, overrides = {}) {
-  return createActor({
-    system: {
-      ...structuredClone(engine.DEFAULT_ACTOR.system),
-      hitPoints: { current: hitPoints, max: hitPoints, temp: 0 },
-    },
-    ...overrides,
-  });
-}
-
 describe('каталог: предметы', () => {
   it('[I01] Плащ защиты: +1 КД и спасброски, только с настройкой', () => {
     const cloak = createEffect('Плащ защиты', {
@@ -114,9 +98,11 @@ describe('каталог: предметы', () => {
 
     authoredScenario(ring, 'item');
 
-    const wearing = heroWithHp(20, { equipment: [wornItem('ring', [ring])] });
+    const wearing = withHp(createActor, 20, {
+      equipment: [wornItem('ring', [ring])],
+    });
 
-    const pocket = heroWithHp(20, {
+    const pocket = withHp(createActor, 20, {
       equipment: [wornItem('ring', [ring], { equipped: false })],
     });
 
@@ -165,7 +151,7 @@ describe('каталог: предметы', () => {
 
     authoredScenario(periapt, 'item');
 
-    const hero = heroWithHp(20, {
+    const hero = withHp(createActor, 20, {
       equipment: [wornItem('periapt', [periapt])],
     });
 

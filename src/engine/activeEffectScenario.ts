@@ -25,14 +25,12 @@ import {
   formatEffectSaveDc,
 } from './activeEffectDescribe.js';
 import { buildConditionActiveEffect } from './conditionTemplates.js';
+import { ABILITY_GENITIVE_LABELS } from './consts.js';
 import {
   readEffectSuccessOutcome,
   resolveEffectFormLayout,
 } from './effectFormLayout.js';
-import {
-  ABILITY_GENITIVE_LABELS,
-  describeEffectTrigger,
-} from './effectTriggerDescribe.js';
+import { describeEffectTrigger } from './effectTriggerDescribe.js';
 import { listEffectListTriggers } from './effectTriggers.js';
 import { LEGACY_TRIGGER_IDS } from './effectTriggerTypes.js';
 

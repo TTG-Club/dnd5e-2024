@@ -36,7 +36,10 @@ import type {
 
 import { generateId, isCreatureEntity } from '@vtt/shared';
 
-import { isCarrierEffect } from './activeEffectTypes.js';
+import {
+  ACTIVE_EFFECT_ID_PREFIX,
+  isCarrierEffect,
+} from './activeEffectTypes.js';
 import { buildConditionActiveEffect } from './conditionTemplates.js';
 import {
   hasLastingEffectPayload,
@@ -54,8 +57,16 @@ import {
   readEffectLandingTrigger,
   resolveGateScale,
   resolveTriggerActionGate,
+  turnTriggerEventOf,
 } from './effectTriggers.js';
-import { takeTriggerUse } from './effectTriggerUsage.js';
+import {
+  DEFAULT_TRIGGER_ATTACK_ROLE,
+  PRESENCE_TRIGGER_EVENTS,
+} from './effectTriggerTypes.js';
+import {
+  buildTriggerUsageScope,
+  takeTriggerUse,
+} from './effectTriggerUsage.js';
 import { buildFormulaContext, evaluateFormula } from './formulaParser.js';
 import {
   resolveEntityMaxHp,
@@ -72,7 +83,7 @@ import {
   rollEffectDamage,
   rollEffectHealing,
   rollEffectSaveOutcome,
-  rollEffectSavingThrow,
+  rollEffectSaveWithContext,
   stampAppliedEffect,
   withInitializedDuration,
 } from './turnEffects.js';
@@ -107,42 +118,20 @@ export interface DeferredTurnTrigger extends EffectTriggerSource {
  *
  * @param entity - субъект срабатывания
  * @param source - срабатывание с источником
- * @param data - данные события для условия
+ * @param eventData - данные события для условия
  * @param inCombat - идёт ли у субъекта бой (лимит хода и раунда)
  * @returns `true`, если срабатывание выполняется
  */
 export function admitTrigger(
   entity: DnDSceneEntity,
   source: EffectTriggerSource,
-  data: TriggerEventData = {},
+  eventData: TriggerEventData = {},
   inCombat?: boolean,
 ): boolean {
   return (
-    isTriggerConditionMet(entity, source.trigger, data)
+    isTriggerConditionMet(entity, source.trigger, eventData)
     && takeTriggerUse(entity, source.scope, source.trigger, inCombat)
   );
-}
-
-/**
- * Событие хода по отметке времени.
- *
- * @param timing - начало или конец хода
- * @returns событие
- */
-export function turnTriggerEventOf(
-  timing: EffectSaveTiming,
-): EffectTriggerEvent {
-  return timing === 'startOfTurn' ? 'turnStart' : 'turnEnd';
-}
-
-/**
- * Есть ли у срабатывания урон или лечение.
- *
- * @param trigger - срабатывание
- * @returns `true`, если есть действие урона
- */
-export function triggerHasDamage(trigger: EffectTrigger): boolean {
-  return trigger.actions.some((action) => action.type === 'damage');
 }
 
 /**
@@ -160,7 +149,7 @@ export interface TriggerSaveEvent {
   /** Кто бросает: формула читает и его лист */
   entity: DnDSceneEntity;
   /** Данные события */
-  data: TriggerEventData;
+  eventData: TriggerEventData;
 }
 
 /**
@@ -175,7 +164,7 @@ export function resolveTriggerSaveDc(
   save: EffectTriggerSave,
   event?: TriggerSaveEvent,
 ): number {
-  const damage = event?.data.damage;
+  const damage = event?.eventData.damage;
 
   if (!save.dcFormula || !event || !damage) {
     return save.dc;
@@ -344,24 +333,6 @@ export function rollTriggerHealing(
 }
 
 /**
- * Снимает ли срабатывание сам эффект при данном исходе спасброска.
- *
- * @param trigger - срабатывание
- * @param passed - пройден ли спасбросок
- * @returns `true`, если эффект снимается
- */
-export function triggerRemovesSelf(
-  trigger: EffectTrigger,
-  passed: boolean,
-): boolean {
-  return trigger.actions.some(
-    (action) =>
-      action.type === 'removeSelf'
-      && resolveTriggerActionScale(trigger, action, passed) > 0,
-  );
-}
-
-/**
  * Действия срабатывания, которые источник может выполнить: снять эффект можно,
  * только если он лежит на субъекте.
  *
@@ -405,8 +376,94 @@ function sourceHasEffects(source: EffectTriggerSource): boolean {
  */
 export function resolveEffectUsageScope(effect: ActiveEffect): string {
   return effect.origin === 'area' && effect.originId
-    ? `area:${effect.originId}`
+    ? buildTriggerUsageScope('area', effect.originId)
     : effect.id;
+}
+
+/** Откуда у субъекта эффект со срабатываниями */
+export interface EffectTriggerSourceKind {
+  /** Аура чужого токена */
+  ambient: boolean;
+  /** Эффект лежит на субъекте — его можно снять */
+  instance: boolean;
+  /**
+   * Источник для счётчика лимита.
+   *
+   * @param effect - эффект
+   * @returns источник
+   */
+  scopeOf: (effect: ActiveEffect) => string;
+}
+
+/** Виды источников срабатываний у субъекта */
+export const EFFECT_TRIGGER_SOURCE_KINDS = {
+  /** Эффект на самом субъекте */
+  instance: {
+    ambient: false,
+    instance: true,
+    scopeOf: resolveEffectUsageScope,
+  },
+  /** Черта существа */
+  trait: {
+    ambient: false,
+    instance: false,
+    scopeOf: (effect) => buildTriggerUsageScope('trait', effect.id),
+  },
+  /** Работающий предмет */
+  item: {
+    ambient: false,
+    instance: false,
+    scopeOf: (effect) => buildTriggerUsageScope('item', effect.id),
+  },
+  /** Аура чужого токена «пока внутри» */
+  aura: {
+    ambient: true,
+    instance: false,
+    scopeOf: (effect) => buildTriggerUsageScope('aura', effect.id),
+  },
+} satisfies Record<string, EffectTriggerSourceKind>;
+
+/**
+ * Срабатывания эффектов одного вида источника.
+ *
+ * @param effects - эффекты
+ * @param kind - откуда эффекты у субъекта
+ * @param triggersOf - какие срабатывания эффекта нужны
+ * @returns срабатывания с источником
+ */
+export function buildTriggerSources(
+  effects: readonly ActiveEffect[],
+  kind: EffectTriggerSourceKind,
+  triggersOf: (effect: ActiveEffect) => readonly EffectTrigger[],
+): EffectTriggerSource[] {
+  return effects.flatMap((effect) =>
+    triggersOf(effect).map((trigger) => ({
+      effect,
+      trigger,
+      ambient: kind.ambient,
+      instance: kind.instance,
+      scope: kind.scopeOf(effect),
+    })),
+  );
+}
+
+/**
+ * Снимает с сущности эффекты по id одной записью.
+ *
+ * @param entity - сущность (мутируется)
+ * @param effectIds - id снимаемых эффектов
+ */
+export function removeEffectsById(
+  entity: DnDSceneEntity,
+  effectIds: ReadonlySet<string>,
+): void {
+  if (effectIds.size === 0) {
+    return;
+  }
+
+  entity.activeEffects = (entity.activeEffects ?? []).filter(
+    (effect) => !effectIds.has(effect.id),
+  );
 }
 
 /**
@@ -420,8 +477,7 @@ export function resolveEffectUsageScope(effect: ActiveEffect): string {
 function listCopiedTriggers(effect: ActiveEffect): EffectTrigger[] | undefined {
   const kept = (effect.triggers ?? []).filter(
     (trigger) =>
-      trigger.event !== 'enter'
-      && trigger.event !== 'exit'
+      !PRESENCE_TRIGGER_EVENTS.includes(trigger.event)
       && trigger.event !== 'applied'
       && !trigger.actions.some((action) => action.type === 'applySelf'),
   );
@@ -443,7 +499,7 @@ function buildEffectStatusCopy(
 ): ActiveEffect {
   return withInitializedDuration({
     ...effect,
-    id: generateId('ae'),
+    id: generateId(ACTIVE_EFFECT_ID_PREFIX),
     origin: 'condition',
     originId: undefined,
     areaTrigger: undefined,
@@ -480,7 +536,7 @@ const DEFAULT_TAG_DURATION: EffectDuration = {
  */
 function buildTagEffect(action: EffectTriggerApplyTagAction): ActiveEffect {
   return withInitializedDuration({
-    id: generateId('ae'),
+    id: generateId(ACTIVE_EFFECT_ID_PREFIX),
     name: action.label ?? action.tag,
     description: '',
     disabled: false,
@@ -684,18 +740,35 @@ export function processTurnEffects(
   const event = turnTriggerEventOf(timing);
   const ambientEffects = options.ambientEffects ?? [];
 
-  // Аура «пока внутри» срабатывает на ходу того, кто в ней стоит
-  const ambientTurnEffects = ambientEffects.filter(
-    (effect) =>
-      (effect.areaTrigger ?? 'stay') === 'stay'
-      && listTurnTriggers(effect, event, options).length > 0,
-  );
+  /**
+   * Срабатывания эффекта на эту границу хода.
+   *
+   * @param effect - эффект
+   * @returns срабатывания
+   */
+  const turnTriggersOf = (effect: ActiveEffect): EffectTrigger[] =>
+    listTurnTriggers(effect, event, options);
 
-  const traitTurnEffects = listTraitEffects(entity).filter(
-    (effect) => listTurnTriggers(effect, event, options).length > 0,
-  );
-
-  const ownEffects = entity.activeEffects ?? [];
+  const sources: EffectTriggerSource[] = [
+    ...buildTriggerSources(
+      entity.activeEffects ?? [],
+      EFFECT_TRIGGER_SOURCE_KINDS.instance,
+      turnTriggersOf,
+    ),
+    ...buildTriggerSources(
+      listTraitEffects(entity),
+      EFFECT_TRIGGER_SOURCE_KINDS.trait,
+      turnTriggersOf,
+    ),
+    // Аура «пока внутри» срабатывает на ходу того, кто в ней стоит
+    ...buildTriggerSources(
+      ambientEffects.filter(
+        (effect) => (effect.areaTrigger ?? 'stay') === 'stay',
+      ),
+      EFFECT_TRIGGER_SOURCE_KINDS.aura,
+      turnTriggersOf,
+    ),
+  ];
 
   const result: TurnEffectsResult = {
     changed: false,
@@ -709,43 +782,9 @@ export function processTurnEffects(
     deferredTriggers: [],
   };
 
-  if (
-    ownEffects.length === 0
-    && ambientTurnEffects.length === 0
-    && traitTurnEffects.length === 0
-  ) {
+  if (sources.length === 0) {
     return result;
   }
-
-  const sources: EffectTriggerSource[] = [
-    ...ownEffects.flatMap((effect) =>
-      listTurnTriggers(effect, event, options).map((trigger) => ({
-        effect,
-        trigger,
-        ambient: false,
-        instance: true,
-        scope: resolveEffectUsageScope(effect),
-      })),
-    ),
-    ...traitTurnEffects.flatMap((effect) =>
-      listTurnTriggers(effect, event, options).map((trigger) => ({
-        effect,
-        trigger,
-        ambient: false,
-        instance: false,
-        scope: `trait:${effect.id}`,
-      })),
-    ),
-    ...ambientTurnEffects.flatMap((effect) =>
-      listTurnTriggers(effect, event, options).map((trigger) => ({
-        effect,
-        trigger,
-        ambient: true,
-        instance: false,
-        scope: `aura:${effect.id}`,
-      })),
-    ),
-  ];
 
   const stats = resolveActorStats(entity, [...ambientEffects]);
 
@@ -816,7 +855,7 @@ export function processTurnEffects(
 
     const spec = buildTriggerSaveSpec(effect, trigger);
 
-    if (trigger.save && spec) {
+    if (spec) {
       // Спасбросок спросят у игрока: урон ждёт ответа
       if (options.deferRecurringDamageSave?.(effect)) {
         if (ambient) {
@@ -831,22 +870,10 @@ export function processTurnEffects(
         continue;
       }
 
-      const { roll, total, passed } = rollEffectSavingThrow(
-        trigger.save.ability,
-        trigger.save.dc,
-        stats,
-        savingThrowContext,
-        spec,
+      save = toTriggerSaveOutcome(
+        trigger,
+        rollEffectSaveWithContext(spec, stats, savingThrowContext),
       );
-
-      save = toTriggerSaveOutcome(trigger, {
-        effectName: effect.name,
-        ability: trigger.save.ability,
-        dc: trigger.save.dc,
-        roll,
-        total,
-        passed,
-      });
 
       result.saveOutcomes.push(save);
       damageStageSaves.set(trigger, save);
@@ -900,7 +927,7 @@ export function processTurnEffects(
 
     const spec = buildTriggerSaveSpec(effect, trigger);
 
-    if (!save && trigger.save && spec) {
+    if (!save && spec) {
       // Спасбросок спросят у игрока: до ответа эффект держится
       if (options.deferRecurringSave?.(effect)) {
         if (instance) {
@@ -912,22 +939,10 @@ export function processTurnEffects(
         continue;
       }
 
-      const { roll, total, passed } = rollEffectSavingThrow(
-        trigger.save.ability,
-        trigger.save.dc,
-        stats,
-        savingThrowContext,
-        spec,
+      save = toTriggerSaveOutcome(
+        trigger,
+        rollEffectSaveWithContext(spec, stats, savingThrowContext),
       );
-
-      save = {
-        effectName: effect.name,
-        ability: trigger.save.ability,
-        dc: trigger.save.dc,
-        roll,
-        total,
-        passed,
-      };
 
       result.saveOutcomes.push(save);
     }
@@ -958,11 +973,7 @@ export function processTurnEffects(
     }
   }
 
-  if (removedIds.size > 0) {
-    entity.activeEffects = (entity.activeEffects ?? []).filter(
-      (effect) => !removedIds.has(effect.id),
-    );
-  }
+  removeEffectsById(entity, removedIds);
 
   result.changed =
     result.damageTotal > 0
@@ -1094,18 +1105,18 @@ export function listPresenceTriggerSources(
  * @param entity - кто бросает
  * @param source - срабатывание с источником
  * @param ambientEffects - ауры чужих токенов
- * @param data - данные события (Сл формулой)
+ * @param eventData - данные события (Сл формулой)
  * @returns исход либо `null`, если спасброска нет
  */
 export function rollTriggerSave(
   entity: DnDSceneEntity,
   source: EffectTriggerSource,
   ambientEffects: readonly ActiveEffect[] = [],
-  data: TriggerEventData = {},
+  eventData: TriggerEventData = {},
 ): TurnSaveOutcome | null {
   const spec = buildTriggerSaveSpec(source.effect, source.trigger, {
     entity,
-    data,
+    eventData,
   });
 
   return spec
@@ -1190,9 +1201,7 @@ export function settleTriggerOutcome(
     );
 
   if (removed) {
-    subject.activeEffects = (subject.activeEffects ?? []).filter(
-      (effect) => effect.id !== source.effect.id,
-    );
+    removeEffectsById(subject, new Set([source.effect.id]));
   }
 
   return {
@@ -1222,6 +1231,36 @@ export interface AttackRollTriggersResult {
   usageChanged: boolean;
 }
 
+/** Где выполняется срабатывание броска атаки */
+export type AttackRollTriggerPlace = 'client' | 'server';
+
+/**
+ * Срабатывания броска атаки стороны на её собственных эффектах: те, что клиент
+ * выполняет до броска, либо те, что после броска выполняет сервер.
+ *
+ * @param entity - сторона атаки
+ * @param role - атакующий или цель
+ * @param place - где выполняется срабатывание
+ * @returns срабатывания с источником
+ */
+export function listAttackRollSources(
+  entity: DnDSceneEntity,
+  role: EffectTriggerAttackRole,
+  place: AttackRollTriggerPlace,
+): EffectTriggerSource[] {
+  return buildTriggerSources(
+    (entity.activeEffects ?? []).filter((effect) => !effect.disabled),
+    EFFECT_TRIGGER_SOURCE_KINDS.instance,
+    (effect) =>
+      listEffectListTriggers(effect).filter(
+        (trigger) =>
+          trigger.event === 'attackRoll'
+          && (trigger.role ?? DEFAULT_TRIGGER_ATTACK_ROLE) === role
+          && isClientAttackRollTrigger(trigger) === (place === 'client'),
+      ),
+  );
+}
+
 /**
  * Срабатывания на броске атаки у одной стороны: атакующего (`attacker`, «своя
  * следующая атака») или цели (`target`, «следующая атака по носителю»).
@@ -1247,56 +1286,30 @@ export function runAttackRollTriggers(
   const usageBefore = JSON.stringify(entity.system.effectUsage ?? null);
   const removedIds = new Set<string>();
 
+  const eventData: TriggerEventData = {
+    other: options.other,
+    roll: options.roll,
+  };
+
   let applied = false;
 
-  for (const effect of [...(entity.activeEffects ?? [])]) {
-    if (effect.disabled) {
+  for (const source of listAttackRollSources(entity, role, 'client')) {
+    if (!admitTrigger(entity, source, eventData, options.inCombat)) {
       continue;
     }
 
-    for (const trigger of listEffectListTriggers(effect)) {
-      if (
-        trigger.event !== 'attackRoll'
-        || (trigger.role ?? 'attacker') !== role
-        || !isClientAttackRollTrigger(trigger)
-      ) {
-        continue;
-      }
+    const result = applyTriggerEffectActions(entity, source, false, {
+      activeTurnActorId: options.activeTurnActorId,
+    });
 
-      const source: EffectTriggerSource = {
-        effect,
-        trigger,
-        ambient: false,
-        instance: true,
-        scope: resolveEffectUsageScope(effect),
-      };
-
-      const eventData: TriggerEventData = {
-        other: options.other,
-        roll: options.roll,
-      };
-
-      if (!admitTrigger(entity, source, eventData, options.inCombat)) {
-        continue;
-      }
-
-      const result = applyTriggerEffectActions(entity, source, false, {
-        activeTurnActorId: options.activeTurnActorId,
-      });
-
-      if (result.removes) {
-        removedIds.add(effect.id);
-      }
-
-      applied ||= result.applied;
+    if (result.removes) {
+      removedIds.add(source.effect.id);
     }
+
+    applied ||= result.applied;
   }
 
-  if (removedIds.size > 0) {
-    entity.activeEffects = (entity.activeEffects ?? []).filter(
-      (effect) => !removedIds.has(effect.id),
-    );
-  }
+  removeEffectsById(entity, removedIds);
 
   const usageChanged =
     JSON.stringify(entity.system.effectUsage ?? null) !== usageBefore;

@@ -1,7 +1,8 @@
 import type { Spell } from '@vtt/shared/system/dnd.js';
 
-import { useChatStore } from '@/stores/chatStore';
 import { buildEndCastsEvent } from '@vtt/shared/system/dnd.js';
+
+import { emitSystemClientEvent } from './systemClientEvents';
 
 /**
  * Касты заклинаний с концентрацией.
@@ -77,7 +78,5 @@ export function requestEndCasts(
     return;
   }
 
-  useChatStore()
-    .getSocket()
-    ?.emit('system:client-event', buildEndCastsEvent(casterId, castIds));
+  emitSystemClientEvent(buildEndCastsEvent(casterId, castIds));
 }

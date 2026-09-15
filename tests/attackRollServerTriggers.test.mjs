@@ -3,12 +3,16 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
 
 import {
+  answeredSave,
+  castEndingContext,
+  concentratingCaster,
   createActor,
   createCreature,
   createEffect,
   createRequestRoll,
   engine,
   MIN_ROLL,
+  withHp,
   withRandom,
 } from './scenarios/_fixtures.mjs';
 
@@ -25,7 +29,7 @@ const ATTACKER_ID = 'creature_ogre';
 const TARGET_ID = 'actor_warlock';
 
 /** Спасбросок Ловкости Сл 15 */
-const DEX_SAVE = { ability: 'dexterity', dc: 15 };
+const DEXTERITY_SAVE = { ability: 'dexterity', dc: 15 };
 
 /**
  * «Адское возмездие» на цели: атакующий бросает Ловкость или получает 10 огнём.
@@ -40,7 +44,7 @@ function rebukeEffect() {
         event: 'attackRoll',
         role: 'target',
         recipient: 'other',
-        save: DEX_SAVE,
+        save: DEXTERITY_SAVE,
         actions: [
           {
             type: 'damage',
@@ -62,21 +66,15 @@ function rebukeEffect() {
  * @returns {{ attacker: object, target: object, getEntity: Function }} стороны
  */
 function createSides({ attackerEffects = [], targetEffects = [] } = {}) {
-  const attacker = createCreature({
+  const attacker = withHp(createCreature, 40, {
     id: ATTACKER_ID,
     activeEffects: attackerEffects,
   });
 
-  attacker.system.hitPoints = {
-    ...attacker.system.hitPoints,
-    current: 40,
-    max: 40,
-    average: 40,
-  };
-
-  const target = createActor({ id: TARGET_ID, activeEffects: targetEffects });
-
-  target.system.hitPoints = { current: 30, max: 30, temp: 0 };
+  const target = withHp(createActor, 30, {
+    id: TARGET_ID,
+    activeEffects: targetEffects,
+  });
 
   const entities = new Map([
     [attacker.id, attacker],
@@ -160,56 +158,36 @@ describe('бросок атаки на сервере', () => {
     const system = new engine.Dnd5eVttSystem();
     const double = createRequestRoll();
 
-    const concentration = engine.buildConcentrationEffect({
-      spell: { name: 'Порыв', durationUnit: 'minute', durationValue: 1 },
-      casterId: TARGET_ID,
-      castId: 'cast_gust',
-    });
-
     // Атакует персонаж игрока с концентрацией, отвечает цель-существо
-    const player = createActor({
-      id: TARGET_ID,
-      activeEffects: [concentration],
-    });
-
-    player.system.hitPoints = { current: 30, max: 30, temp: 0 };
-
-    const ogre = createCreature({
-      id: ATTACKER_ID,
-      activeEffects: [rebukeEffect()],
-    });
+    const caster = concentratingCaster(30);
+    const rebukingTarget = createCreature({ activeEffects: [rebukeEffect()] });
 
     const entities = new Map([
-      [player.id, player],
-      [ogre.id, ogre],
+      [caster.id, caster],
+      [rebukingTarget.id, rebukingTarget],
     ]);
 
-    const ended = [];
-
-    const results = system.handleClientEvent(
-      engine.buildAttackRollEvent(TARGET_ID, [ATTACKER_ID], 'advantage'),
-      {
-        getEntity: (entityId) => entities.get(entityId),
-        canControl: () => true,
-        requestRoll: double.requestRoll,
-        endCasts: (casterId, castIds) => ended.push([casterId, castIds]),
-      },
-    );
-
-    // Запрос висит на исходе цели, а применяется к игроку: ядро найдёт его по id
-    const [deferred] = results.flatMap((result) => result.deferred ?? []);
-
-    assert.equal(deferred.entityId, TARGET_ID);
-
-    double.answer({
-      status: 'answered',
-      result: { roll: 2, modifier: 0, total: 2, passed: false },
-      respondedByUserId: 'player',
+    const { context } = castEndingContext({
+      getEntity: (entityId) => entities.get(entityId),
+      canControl: () => true,
+      requestRoll: double.requestRoll,
     });
 
-    const applied = (await deferred.resolution)(player);
+    const results = system.handleClientEvent(
+      engine.buildAttackRollEvent(caster.id, [rebukingTarget.id], 'advantage'),
+      context,
+    );
 
-    assert.equal(engine.resolveEntityCurrentHp(player), 20);
+    // Запрос висит на исходе цели, а применяется к заклинателю: ядро найдёт его по id
+    const [deferred] = results.flatMap((result) => result.deferred ?? []);
+
+    assert.equal(deferred.entityId, caster.id);
+
+    double.answer(answeredSave(false));
+
+    const applied = (await deferred.resolution)(caster);
+
+    assert.equal(engine.resolveEntityCurrentHp(caster), 20);
     assert.equal(applied.changed, true);
 
     assert.equal(

@@ -43,6 +43,33 @@ export type EffectTriggerEvent =
   | (typeof EFFECT_TRIGGER_EVENTS)[number]
   | (typeof EFFECT_TRIGGER_RESERVED_EVENTS)[number];
 
+/** Начало и конец хода: у них выбирается, чей это ход */
+export const TURN_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
+  'turnStart',
+  'turnEnd',
+];
+
+/** Вход в зону или ауру и выход из неё */
+export const PRESENCE_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
+  'enter',
+  'exit',
+];
+
+/** События урона: несут урон (`@damage`, типы, критический удар) */
+export const DAMAGE_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
+  'damageTaken',
+  'hpZero',
+];
+
+/**
+ * События с другой стороной: противник на броске атаки, тот, кто нанёс урон.
+ * Ей можно отдать действия срабатывания.
+ */
+export const OTHER_PARTY_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
+  'attackRoll',
+  'damageTaken',
+];
+
 /** Чей ход считает событие начала или конца хода */
 export const EFFECT_TRIGGER_TURN_OWNERS = ['subject', 'source'] as const;
 
@@ -53,6 +80,9 @@ export const EFFECT_TRIGGER_TURN_OWNERS = ['subject', 'source'] as const;
 export type EffectTriggerTurnOwner =
   (typeof EFFECT_TRIGGER_TURN_OWNERS)[number];
 
+/** Чей ход без поля `turnOf`: ход субъекта — в данных он не пишется */
+export const DEFAULT_TRIGGER_TURN_OWNER: EffectTriggerTurnOwner = 'subject';
+
 /** Кому достаются действия срабатывания */
 export const EFFECT_TRIGGER_RECIPIENTS = ['subject', 'other'] as const;
 
@@ -62,12 +92,18 @@ export const EFFECT_TRIGGER_RECIPIENTS = ['subject', 'other'] as const;
  */
 export type EffectTriggerRecipient = (typeof EFFECT_TRIGGER_RECIPIENTS)[number];
 
+/** Получатель без поля `recipient`: субъект — в данных он не пишется */
+export const DEFAULT_TRIGGER_RECIPIENT: EffectTriggerRecipient = 'subject';
+
 /** Роль субъекта в броске атаки */
 export const EFFECT_TRIGGER_ATTACK_ROLES = ['attacker', 'target'] as const;
 
 /** Субъект атакует или атакуют его */
 export type EffectTriggerAttackRole =
   (typeof EFFECT_TRIGGER_ATTACK_ROLES)[number];
+
+/** Роль без поля `role`: срабатывание на своей атаке */
+export const DEFAULT_TRIGGER_ATTACK_ROLE: EffectTriggerAttackRole = 'attacker';
 
 /** Когда выполняется действие относительно спасброска срабатывания */
 export const EFFECT_TRIGGER_ACTION_GATES = [
@@ -95,6 +131,9 @@ export const EFFECT_TRIGGER_LIMIT_PERIODS = [
 /** За какой период считается лимит */
 export type EffectTriggerLimitPeriod =
   (typeof EFFECT_TRIGGER_LIMIT_PERIODS)[number];
+
+/** Лимит «не чаще N раз» — от одного раза */
+export const MIN_TRIGGER_LIMIT_MAX = 1;
 
 /** Спасбросок срабатывания; Сл 0 — Сл источника, как у остальных полей */
 export interface EffectTriggerSave {
@@ -208,17 +247,6 @@ export type EffectTriggerAction =
   | EffectTriggerEndCastAction
   | EffectTriggerRemoveSelfAction;
 
-/** Виды действий срабатывания */
-export const EFFECT_TRIGGER_ACTION_TYPES = [
-  'damage',
-  'applySelf',
-  'applyCondition',
-  'applyTag',
-  'setHp',
-  'endCast',
-  'removeSelf',
-] as const;
-
 /** Срабатывание эффекта */
 export interface EffectTrigger {
   /** Стабильный id; `legacy.*` зарезервированы под выведенные из старых полей */
@@ -242,10 +270,10 @@ export const LEGACY_TRIGGER_ID_PREFIX = 'legacy.';
 
 /** Id срабатываний, выведенных из старых полей */
 export const LEGACY_TRIGGER_IDS = {
-  landing: 'legacy.landing',
-  recurringDamage: 'legacy.recurringDamage',
-  recurringSave: 'legacy.recurringSave',
-  consumeOn: 'legacy.consumeOn',
+  landing: `${LEGACY_TRIGGER_ID_PREFIX}landing`,
+  recurringDamage: `${LEGACY_TRIGGER_ID_PREFIX}recurringDamage`,
+  recurringSave: `${LEGACY_TRIGGER_ID_PREFIX}recurringSave`,
+  consumeOn: `${LEGACY_TRIGGER_ID_PREFIX}consumeOn`,
 } as const;
 
 /** Старое поле, которое выражает срабатывание */

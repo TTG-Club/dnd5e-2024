@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
 
 import {
+  allCreaturesAura,
+  answeredSave,
   createActor,
   createCreature,
   createEffect,
@@ -14,7 +16,10 @@ import {
   GRID,
   MAX_ROLL,
   MIN_ROLL,
-  PLAYER_ID,
+  NO_REGENERATION_TAG,
+  OTHER_TURN_ACTOR_ID,
+  TROLL_REGENERATION,
+  withHp,
   withRandom,
 } from './scenarios/_fixtures.mjs';
 
@@ -24,27 +29,10 @@ import {
  */
 
 /** Спасбросок Телосложения Сл 12 */
-const CON_SAVE = { ability: 'constitution', dc: 12 };
+const CONSTITUTION_SAVE = { ability: 'constitution', dc: 12 };
 
-/**
- * Существо с заданными хитами.
- *
- * @param {number} hitPoints - текущие и максимальные хиты
- * @param {object} overrides - поля существа
- * @returns {object} существо
- */
-function woundedCreature(hitPoints, overrides = {}) {
-  const creature = createCreature(overrides);
-
-  creature.system.hitPoints = {
-    ...creature.system.hitPoints,
-    current: hitPoints,
-    max: 40,
-    average: 40,
-  };
-
-  return creature;
-}
+/** Максимум хитов существа в тестах */
+const CREATURE_MAX_HP = 40;
 
 /**
  * Срабатывание урона в начале хода.
@@ -61,25 +49,9 @@ function burnTrigger(overrides = {}) {
   };
 }
 
-/**
- * Ответ игрока на запрос спасброска.
- *
- * @param {boolean} passed - прошёл ли
- * @returns {object} исход запроса
- */
-function answer(passed) {
-  const total = passed ? 20 : 2;
-
-  return {
-    status: 'answered',
-    result: { roll: total, modifier: 0, total, passed },
-    respondedByUserId: PLAYER_ID,
-  };
-}
-
 describe('лимит «не чаще N раз»', () => {
   it('раз в ход: второй раз в том же ходу не бьёт, конец хода сбрасывает счётчик, начало — нет', () => {
-    const orc = woundedCreature(40, {
+    const orc = withHp(createCreature, CREATURE_MAX_HP, {
       activeEffects: [
         createEffect('burning', {
           triggers: [burnTrigger({ limit: { max: 1, per: 'turn' } })],
@@ -98,10 +70,18 @@ describe('лимит «не чаще N раз»', () => {
 
     assert.equal(engine.processTurnEffects(orc, 'startOfTurn').damageTotal, 0);
 
-    assert.equal(engine.expireTurnEffects(orc, 'someone', 'start'), false);
+    assert.equal(
+      engine.expireTurnEffects(orc, OTHER_TURN_ACTOR_ID, 'start'),
+      false,
+    );
+
     assert.equal(engine.processTurnEffects(orc, 'startOfTurn').damageTotal, 0);
 
-    assert.equal(engine.expireTurnEffects(orc, 'someone', 'end'), true);
+    assert.equal(
+      engine.expireTurnEffects(orc, OTHER_TURN_ACTOR_ID, 'end'),
+      true,
+    );
+
     assert.equal(orc.system.effectUsage, undefined);
     assert.equal(engine.processTurnEffects(orc, 'startOfTurn').damageTotal, 5);
   });
@@ -151,7 +131,7 @@ describe('наложение на ходу', () => {
   const poisonTrigger = {
     id: 'trigger_stench',
     event: 'turnStart',
-    save: CON_SAVE,
+    save: CONSTITUTION_SAVE,
     actions: [
       {
         type: 'applyCondition',
@@ -212,7 +192,7 @@ describe('наложение на ходу', () => {
 
   it('аура чужого токена накладывает, но снять ауру с субъекта нельзя', () => {
     const aura = createEffect('stench-aura', {
-      aura: { radius: 10, target: 'all', applyToSelf: false, visible: true },
+      aura: allCreaturesAura(10),
       triggers: [
         {
           ...poisonTrigger,
@@ -239,13 +219,13 @@ describe('наложение на ходу', () => {
   });
 
   it('черта существа лечит на его ходу; снять черту срабатывание не может', () => {
-    const troll = woundedCreature(10);
+    const troll = withHp(createCreature, 10, {}, CREATURE_MAX_HP);
 
     troll.system.traits = [
       createTrait('Регенерация', [
         createEffect('regeneration', {
           recurringDamage: {
-            damageParts: [{ formula: '10@heal' }],
+            damageParts: [{ formula: `${TROLL_REGENERATION}@heal` }],
             timing: 'startOfTurn',
           },
           recurringSave: { ability: 'wisdom', dc: 1, timing: 'startOfTurn' },
@@ -257,7 +237,7 @@ describe('наложение на ходу', () => {
       engine.processTurnEffects(troll, 'startOfTurn'),
     );
 
-    assert.equal(engine.resolveEntityCurrentHp(troll), 20);
+    assert.equal(engine.resolveEntityCurrentHp(troll), 10 + TROLL_REGENERATION);
     assert.equal(result.healingOutcomes.length, 1);
 
     assert.equal(
@@ -282,7 +262,7 @@ describe('наложение на ходу', () => {
         {
           id: 'trigger_escape',
           event: 'turnEnd',
-          save: CON_SAVE,
+          save: CONSTITUTION_SAVE,
           actions: [{ type: 'removeSelf', on: 'saved' }],
         },
         {
@@ -296,9 +276,7 @@ describe('наложение на ходу', () => {
     const hero = createActor({ autoSaves: true });
 
     engine.processTurnEffects(hero, 'startOfTurn', {
-      ambientEffects: [
-        { ...hold, aura: { radius: 5, target: 'all', applyToSelf: false } },
-      ],
+      ambientEffects: [{ ...hold, aura: allCreaturesAura(5) }],
     });
 
     assert.deepEqual(
@@ -334,7 +312,7 @@ describe('вход в зону', () => {
     });
 
     const zone = createZone('ca_moonbeam', [moonbeam]);
-    const orc = woundedCreature(40);
+    const orc = withHp(createCreature, CREATURE_MAX_HP);
 
     const entered = engine.syncActorAreaEffects(
       orc,
@@ -349,7 +327,7 @@ describe('вход в зону', () => {
 
     assert.equal(engine.processTurnEffects(orc, 'startOfTurn').damageTotal, 0);
 
-    engine.expireTurnEffects(orc, 'someone', 'end');
+    engine.expireTurnEffects(orc, OTHER_TURN_ACTOR_ID, 'end');
     assert.equal(engine.processTurnEffects(orc, 'startOfTurn').damageTotal, 6);
   });
 
@@ -385,7 +363,7 @@ describe('вход в зону', () => {
       createZone('ca_blessing', [restLimited]),
     ];
 
-    const orc = woundedCreature(40);
+    const orc = withHp(createCreature, CREATURE_MAX_HP);
     const ids = new Set(zones.map((zone) => zone.id));
 
     const walkIn = (options) => {
@@ -439,7 +417,7 @@ describe('вход в зону', () => {
     assert.equal(result.deferred[0].blocksMovement, true);
     assert.equal(double.requests[0].requesterLabel, 'Зона «Паутина»');
 
-    double.answer(answer(false));
+    double.answer(answeredSave(false));
 
     const outcome = (await result.deferred[0].resolution)(hero);
 
@@ -456,12 +434,12 @@ describe('ответы игрока на явные срабатывания х�
     const system = new engine.Dnd5eVttSystem();
 
     const aura = createEffect('stench-aura', {
-      aura: { radius: 10, target: 'all', applyToSelf: false, visible: true },
+      aura: allCreaturesAura(10),
       triggers: [
         {
           id: 'trigger_stench',
           event: 'turnStart',
-          save: CON_SAVE,
+          save: CONSTITUTION_SAVE,
           actions: [{ type: 'applyCondition', conditionKey: 'poisoned' }],
         },
       ],
@@ -486,7 +464,7 @@ describe('ответы игрока на явные срабатывания х�
       'пока ответа нет, второй раз не спрашивают',
     );
 
-    double.answer(answer(false));
+    double.answer(answeredSave(false));
 
     const applied = (await first.deferred[0].resolution)(hero);
 
@@ -587,12 +565,14 @@ describe('ход наложившего', () => {
 
     balor.activeEffects = [
       createEffect('fire-aura', {
-        aura: { radius: 5, target: 'all', applyToSelf: false, visible: true },
+        aura: allCreaturesAura(5),
         triggers: [burnTrigger({ id: 'trigger_fire_aura', turnOf: 'source' })],
       }),
     ];
 
-    const hero = woundedCreature(40, { id: 'creature_hero' });
+    const hero = withHp(createCreature, CREATURE_MAX_HP, {
+      id: 'creature_hero',
+    });
 
     const ambientEffects = engine.calculateAmbientAuras(
       createToken(hero.id, 1, 0),
@@ -675,7 +655,7 @@ describe('ход наложившего', () => {
               id: 'trigger_hold',
               event: 'turnEnd',
               turnOf: 'source',
-              save: CON_SAVE,
+              save: CONSTITUTION_SAVE,
               actions: [{ type: 'removeSelf', on: 'saved' }],
             },
           ],
@@ -704,7 +684,7 @@ describe('ход наложившего', () => {
 
     assert.equal(sourceTurn.deferred.length, 1);
 
-    double.answer(answer(true));
+    double.answer(answeredSave(true));
 
     const applied = (await sourceTurn.deferred[0].resolution)(hero);
 
@@ -715,9 +695,6 @@ describe('ход наложившего', () => {
 });
 
 describe('отметки', () => {
-  /** Ключ отметки «регенерация не работает» */
-  const NO_REGEN_TAG = 'noRegen';
-
   /**
    * Тролль: регенерация в начале хода, если нет отметки; атака по нему ставит
    * отметку до начала его следующего хода.
@@ -725,7 +702,12 @@ describe('отметки', () => {
    * @returns {object} тролль
    */
   function createTroll() {
-    const troll = woundedCreature(20, { id: 'creature_troll' });
+    const troll = withHp(
+      createCreature,
+      20,
+      { id: 'creature_troll' },
+      CREATURE_MAX_HP,
+    );
 
     troll.activeEffects = [
       createEffect('regeneration', {
@@ -733,15 +715,24 @@ describe('отметки', () => {
           {
             id: 'trigger_regen',
             event: 'turnStart',
-            condition: `self.tag !== "${NO_REGEN_TAG}"`,
-            actions: [{ type: 'damage', parts: [{ formula: '10@heal' }] }],
+            condition: `self.tag !== "${NO_REGENERATION_TAG}"`,
+            actions: [
+              {
+                type: 'damage',
+                parts: [{ formula: `${TROLL_REGENERATION}@heal` }],
+              },
+            ],
           },
           {
             id: 'trigger_struck',
             event: 'attackRoll',
             role: 'target',
             actions: [
-              { type: 'applyTag', tag: NO_REGEN_TAG, label: 'Без регенерации' },
+              {
+                type: 'applyTag',
+                tag: NO_REGENERATION_TAG,
+                label: 'Без регенерации',
+              },
             ],
           },
         ],
@@ -774,7 +765,7 @@ describe('отметки', () => {
     );
 
     engine.expireTurnEffects(troll, troll.id, 'start');
-    assert.equal(engine.hasEffectTag(troll, NO_REGEN_TAG), false);
+    assert.equal(engine.hasEffectTag(troll, NO_REGENERATION_TAG), false);
 
     assert.equal(
       engine.processTurnEffects(troll, 'startOfTurn').healingOutcomes.length,
@@ -783,12 +774,12 @@ describe('отметки', () => {
   });
 
   it('сводка называет отметку и условие по ней', () => {
-    const [regen, struck] = createTroll().activeEffects[0].triggers;
+    const [regeneration, struck] = createTroll().activeEffects[0].triggers;
     const options = { formatDc: String };
 
     assert.equal(
-      engine.describeEffectTrigger(regen, options),
-      `в начале хода, если на носителе нет отметки «${NO_REGEN_TAG}»: 10 лечения`,
+      engine.describeEffectTrigger(regeneration, options),
+      `в начале хода, если на носителе нет отметки «${NO_REGENERATION_TAG}»: ${TROLL_REGENERATION} лечения`,
     );
 
     assert.equal(
@@ -820,7 +811,7 @@ describe('бросок атаки', () => {
         {
           id: 'trigger_guarded',
           event: 'attackRoll',
-          save: CON_SAVE,
+          save: CONSTITUTION_SAVE,
           actions: [{ type: 'removeSelf' }],
         },
       ],
@@ -862,8 +853,9 @@ describe('бросок атаки', () => {
 
     engine.runAttackRollTriggers(hero, 'target');
 
-    // Цель расходует «следующую атаку по носителю»; спасбросок на броске атаки
-    // не бросается, выключенный эффект не срабатывает
+    // Цель расходует «следующую атаку по носителю»; срабатывание со спасброском
+    // на клиенте не бросается — его выполняет сервер, выключенный эффект не
+    // срабатывает
     assert.deepEqual(
       hero.activeEffects
         .filter((effect) => !effect.conditionKey)

@@ -74,13 +74,22 @@ export const EFFECT_TRIGGER_EVENT_LABELS: Partial<
   hpZero: 'Когда хиты носителя падают до 0',
 };
 
-/** Кому достаются действия срабатывания */
+/** Кому достаются действия срабатывания; «другая сторона» — у урона */
 export const EFFECT_TRIGGER_RECIPIENT_LABELS: Record<
   EffectTriggerRecipient,
   string
 > = {
   subject: 'Носителю эффекта',
   other: 'Тому, кто нанёс урон',
+};
+
+/** «Другая сторона» броска атаки по роли носителя */
+export const EFFECT_TRIGGER_ATTACK_OTHER_PARTY_LABELS: Record<
+  EffectTriggerAttackRole,
+  string
+> = {
+  attacker: 'Цели атаки',
+  target: 'Атакующему',
 };
 
 /** Роль в броске атаки */

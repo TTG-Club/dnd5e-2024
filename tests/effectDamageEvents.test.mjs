@@ -3,12 +3,13 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
 
 import {
+  answeredSave,
   createActor,
   createEffect,
   createRequestRoll,
   engine,
-  PLAYER_ID,
   strikeEntity,
+  withHp,
 } from './scenarios/_fixtures.mjs';
 
 /**
@@ -19,43 +20,15 @@ import {
 /** Атакующий — другая сторона событий урона */
 const ATTACKER_ID = 'actor_attacker';
 
+/** Максимум хитов персонажа игрока */
+const HERO_MAX_HP = 40;
+
 /** Спасбросок Телосложения против урона концентрации */
 const CONCENTRATION_SAVE = {
   ability: 'constitution',
   dc: 10,
-  dcFormula: 'max(10, floor(@damage / 2))',
+  dcFormula: engine.CONCENTRATION_SAVE_DC_FORMULA,
 };
-
-/**
- * Персонаж игрока с хитами и эффектами.
- *
- * @param {number} hitPoints - текущие хиты (максимум 40)
- * @param {object} overrides - поля персонажа
- * @returns {object} персонаж
- */
-function heroWithHp(hitPoints, overrides = {}) {
-  const hero = createActor(overrides);
-
-  hero.system.hitPoints = { current: hitPoints, max: 40, temp: 0 };
-
-  return hero;
-}
-
-/**
- * Ответ игрока на запрос спасброска.
- *
- * @param {boolean} passed - прошёл ли
- * @returns {object} исход запроса
- */
-function answer(passed) {
-  const total = passed ? 20 : 2;
-
-  return {
-    status: 'answered',
-    result: { roll: total, modifier: 0, total, passed },
-    respondedByUserId: PLAYER_ID,
-  };
-}
 
 /**
  * Метка концентрации: провал спасброска от урона или 0 хитов снимают её.
@@ -82,7 +55,7 @@ function concentrationMark() {
 
 describe('удары в боевом снимке', () => {
   it('урон клиента едет ударом; лечение ударом не едет', () => {
-    const target = heroWithHp(20);
+    const target = withHp(createActor, 20, {}, HERO_MAX_HP);
 
     engine.applyTargetDamage(target, 7, false, 'fire', {
       critical: true,
@@ -93,7 +66,7 @@ describe('удары в боевом снимке', () => {
       { amount: 7, types: ['fire'], critical: true, sourceId: ATTACKER_ID },
     ]);
 
-    const healed = heroWithHp(20);
+    const healed = withHp(createActor, 20, {}, HERO_MAX_HP);
 
     engine.applyTargetDamage(healed, 5, true);
     assert.equal(engine.pickCombatState(healed).damage, undefined);
@@ -124,7 +97,10 @@ describe('события урона', () => {
   it('сл формулой от урона: спасбросок спрашивают у игрока, провал снимает эффект', async () => {
     const system = new engine.Dnd5eVttSystem();
     const double = createRequestRoll();
-    const hero = heroWithHp(40, { activeEffects: [concentrationMark()] });
+
+    const hero = withHp(createActor, HERO_MAX_HP, {
+      activeEffects: [concentrationMark()],
+    });
 
     const result = strikeEntity(system, hero, 30, 'slashing', {
       context: { requestRoll: double.requestRoll },
@@ -134,7 +110,7 @@ describe('события урона', () => {
     assert.equal(result.deferred.length, 1);
     assert.equal(double.requests[0].payload.dc, 15, 'Сл — половина урона');
 
-    double.answer(answer(false));
+    double.answer(answeredSave(false));
 
     const applied = (await result.deferred[0].resolution)(hero);
 
@@ -145,7 +121,7 @@ describe('события урона', () => {
   it('урон на ходу, нанесённый сервером, тоже будит «получил урон»', () => {
     const system = new engine.Dnd5eVttSystem();
 
-    const hero = heroWithHp(40, {
+    const hero = withHp(createActor, HERO_MAX_HP, {
       activeEffects: [
         createEffect('burn', {
           triggers: [
@@ -194,12 +170,14 @@ describe('события урона', () => {
         ],
       });
 
-    const attacker = heroWithHp(40, {
+    const attacker = withHp(createActor, HERO_MAX_HP, {
       id: ATTACKER_ID,
       activeEffects: [fireShield()],
     });
 
-    const hero = heroWithHp(40, { activeEffects: [fireShield()] });
+    const hero = withHp(createActor, HERO_MAX_HP, {
+      activeEffects: [fireShield()],
+    });
 
     const result = strikeEntity(system, hero, 6, 'slashing', {
       details: { sourceId: ATTACKER_ID },
@@ -215,7 +193,9 @@ describe('события урона', () => {
     assert.equal(result.related[0].entity, attacker);
     assert.equal(result.related[0].changed, true);
 
-    const withoutAttacker = heroWithHp(40, { activeEffects: [fireShield()] });
+    const withoutAttacker = withHp(createActor, HERO_MAX_HP, {
+      activeEffects: [fireShield()],
+    });
 
     assert.equal(
       strikeEntity(system, withoutAttacker, 6, 'slashing').related,
@@ -247,9 +227,12 @@ describe('события урона', () => {
       const system = new engine.Dnd5eVttSystem();
       const double = createRequestRoll();
 
-      const hero = heroWithHp(5, {
-        activeEffects: [concentrationMark(), fortitude()],
-      });
+      const hero = withHp(
+        createActor,
+        5,
+        { activeEffects: [concentrationMark(), fortitude()] },
+        HERO_MAX_HP,
+      );
 
       const result = strikeEntity(system, hero, 9, 'slashing', {
         context: { requestRoll: double.requestRoll },
@@ -261,7 +244,7 @@ describe('события урона', () => {
         'пока игрок не ответил, концентрация держится',
       );
 
-      double.answer(answer(passed));
+      double.answer(answeredSave(passed));
 
       await (
         await result.deferred[0].resolution

@@ -8,6 +8,8 @@ import type { AttackRollMode } from './attackUtils.js';
 
 import { z } from 'zod';
 
+import { ATTACK_ROLL_MODES } from './attackUtils.js';
+
 /** Сколько кастов заканчивает одно событие */
 const MAX_EVENT_CAST_IDS = 16;
 
@@ -26,9 +28,6 @@ const EndCastsEventSchema = z.object({
 
 /** Сколько целей у одного броска атаки */
 const MAX_ATTACK_TARGETS = 16;
-
-/** Режимы броска атаки */
-const ATTACK_ROLL_MODES = ['normal', 'advantage', 'disadvantage'] as const;
 
 /** Zod-схема события «бросок атаки состоялся» */
 const AttackRollEventSchema = z.object({

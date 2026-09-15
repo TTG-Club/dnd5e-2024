@@ -13,7 +13,7 @@
  * на ходу, ход источника, условие, второе однотипное срабатывание).
  */
 
-import type { ActiveEffect } from './activeEffectTypes.js';
+import type { ActiveEffect, EffectSaveTiming } from './activeEffectTypes.js';
 import type {
   EffectTrigger,
   EffectTriggerAction,
@@ -28,6 +28,8 @@ import {
   isEffectTag,
   LEGACY_TRIGGER_ID_PREFIX,
   LEGACY_TRIGGER_IDS,
+  PRESENCE_TRIGGER_EVENTS,
+  TURN_TRIGGER_EVENTS,
 } from './effectTriggerTypes.js';
 
 /** Приставка id нового срабатывания */
@@ -137,12 +139,14 @@ export function resolveEffectLandingGates(
 }
 
 /**
- * Событие хода по старой отметке времени.
+ * Событие хода по отметке времени хода.
  *
  * @param timing - начало или конец хода
  * @returns событие
  */
-function turnEventOf(timing: 'startOfTurn' | 'endOfTurn'): EffectTriggerEvent {
+export function turnTriggerEventOf(
+  timing: EffectSaveTiming,
+): EffectTriggerEvent {
   return timing === 'startOfTurn' ? 'turnStart' : 'turnEnd';
 }
 
@@ -234,7 +238,7 @@ function readLegacyListTriggers(effect: ActiveEffect): EffectTrigger[] {
 
     triggers.push({
       id: LEGACY_TRIGGER_IDS.recurringDamage,
-      event: turnEventOf(recurringDamage.timing),
+      event: turnTriggerEventOf(recurringDamage.timing),
       ...(save ? { save: { ability: save.ability, dc: save.dc } } : {}),
       actions: [
         {
@@ -250,7 +254,7 @@ function readLegacyListTriggers(effect: ActiveEffect): EffectTrigger[] {
   if (recurringSave) {
     triggers.push({
       id: LEGACY_TRIGGER_IDS.recurringSave,
-      event: turnEventOf(recurringSave.timing),
+      event: turnTriggerEventOf(recurringSave.timing),
       save: { ability: recurringSave.ability, dc: recurringSave.dc },
       actions: [{ type: 'removeSelf', on: 'saved' }],
     });
@@ -321,7 +325,7 @@ export function listEffectListTriggers(
  * @returns `true` для событий хода
  */
 export function isTurnTriggerEvent(event: EffectTriggerEvent): boolean {
-  return event === 'turnStart' || event === 'turnEnd';
+  return TURN_TRIGGER_EVENTS.includes(event);
 }
 
 /**
@@ -372,7 +376,7 @@ export function hasPresenceTriggers(effect: ActiveEffect): boolean {
   return listEffectListTriggers(effect).some(
     (trigger) =>
       !isLegacyTrigger(trigger)
-      && (trigger.event === 'enter' || trigger.event === 'exit'),
+      && PRESENCE_TRIGGER_EVENTS.includes(trigger.event),
   );
 }
 
@@ -517,7 +521,7 @@ export function writeEffectTriggers(
 
     explicit.push(
       isLegacyTrigger(trigger)
-        ? { ...trigger, id: generateId(TRIGGER_ID_PREFIX) }
+        ? { ...trigger, id: createEffectTriggerId() }
         : trigger,
     );
   }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
 
 import {
+  allCreaturesAura,
   authoredScenario,
   createActor,
   createCreature,
@@ -13,8 +14,11 @@ import {
   GRID,
   MAX_ROLL,
   MIN_ROLL,
+  NO_REGENERATION_TAG,
   saveOutcome,
   strikeEntity,
+  TROLL_REGENERATION,
+  withHp,
   withRandom,
 } from './_fixtures.mjs';
 
@@ -23,19 +27,29 @@ import {
  * (`docs/EFFECT_SCENARIOS.md`, раздел «Существа»).
  */
 
+/** Хиты тролля по статблоку (Бестиарий 2024) */
+const TROLL_MAX_HP = 94;
+
+/** Лечение регенерацией тролля в формуле урона */
+const TROLL_REGENERATION_FORMULA = `${TROLL_REGENERATION}@heal`;
+
+/** Радиус «Огненной ауры» огненного элементаля (Бестиарий 2024), в футах */
+const FIRE_AURA_RADIUS = 10;
+
 /**
- * Персонаж с заданными хитами.
+ * Тролль мастера.
  *
- * @param {number} hitPoints - текущие и максимальные хиты
- * @returns {object} персонаж
+ * @param {number} hitPoints - текущие хиты (максимум по статблоку)
+ * @param {object} overrides - поля существа
+ * @returns {object} тролль
  */
-function heroWithHp(hitPoints) {
-  return createActor({
-    system: {
-      ...structuredClone(engine.DEFAULT_ACTOR.system),
-      hitPoints: { current: hitPoints, max: hitPoints, temp: 0 },
-    },
-  });
+function createTroll(hitPoints, overrides = {}) {
+  return withHp(
+    createCreature,
+    hitPoints,
+    { id: 'creature_troll', name: 'Тролль', ...overrides },
+    TROLL_MAX_HP,
+  );
 }
 
 /**
@@ -206,7 +220,7 @@ describe('каталог: существа', () => {
 
   it('[C06] Зловоние [≈]: аура «при входе» — спасбросок Телосложения или «Отравленный»', () => {
     const stench = conditionEffect('poisoned', {
-      aura: { radius: 10, target: 'all', applyToSelf: false, visible: true },
+      aura: allCreaturesAura(10),
       areaTrigger: 'enter',
       applySave: { ability: 'constitution', dc: 12, onSuccess: 'negate' },
       duration: { type: 'rounds', value: 1 },
@@ -231,7 +245,7 @@ describe('каталог: существа', () => {
       [troglodyte.id, troglodyte],
     ]);
 
-    const outcomes = withRandom([0], () =>
+    const outcomes = withRandom([MIN_ROLL], () =>
       engine.applyAuraTriggerEffects(
         { tokens: [sourceToken, heroNear], gridSettings: GRID },
         heroNear,
@@ -250,7 +264,7 @@ describe('каталог: существа', () => {
 
   it('[C06b] Зловоние: в начале хода в ауре спасбросок Телосложения или «Отравленный»', () => {
     const stench = createEffect('Зловоние', {
-      aura: { radius: 10, target: 'all', applyToSelf: false, visible: true },
+      aura: allCreaturesAura(10),
       triggers: [
         {
           id: 'trigger_stench',
@@ -285,11 +299,11 @@ describe('каталог: существа', () => {
       },
     ];
 
-    const startTurnAt = (entity, x, random) =>
+    const startTurnAt = (entity, column, random) =>
       withRandom([random], () =>
         engine.processTurnEffects(entity, 'startOfTurn', {
           ambientEffects: engine.calculateAmbientAuras(
-            createToken(entity.id, x, 0),
+            createToken(entity.id, column, 0),
             auraSources,
             GRID,
           ),
@@ -319,13 +333,17 @@ describe('каталог: существа', () => {
     assert.deepEqual(conditionsOf(troglodyte), []);
   });
 
-  it('[C07] Огненная аура [≈]: урон огнём в начале хода тому, кто в ауре; сам источник не горит', () => {
+  it('[C07] Огненная аура: урон огнём в конце хода элементаля всем в ауре; сам источник не горит', () => {
     const fireAura = createEffect('Огненная аура', {
-      aura: { radius: 5, target: 'all', applyToSelf: false, visible: true },
-      recurringDamage: {
-        damageParts: [{ formula: '1d10@dmg.fire' }],
-        timing: 'startOfTurn',
-      },
+      aura: allCreaturesAura(FIRE_AURA_RADIUS),
+      triggers: [
+        {
+          id: 'trigger_fire_aura',
+          event: 'turnEnd',
+          turnOf: 'source',
+          actions: [{ type: 'damage', parts: [{ formula: '1d10@dmg.fire' }] }],
+        },
+      ],
     });
 
     authoredScenario(fireAura, 'creatureTrait');
@@ -337,7 +355,7 @@ describe('каталог: существа', () => {
 
     elemental.system.traits = [createTrait('Огненная аура', [fireAura])];
 
-    const hero = heroWithHp(30);
+    const hero = withHp(createActor, 30);
 
     const ambient = engine.calculateAmbientAuras(
       createToken(hero.id, 1, 0),
@@ -350,36 +368,47 @@ describe('каталог: существа', () => {
       GRID,
     );
 
+    // Элементаль в бою: его аура бьёт на ЕГО ходу, а не на ходу героя
+    const elementalInCombat = {
+      ambientEffects: ambient,
+      isSourceInCombat: () => true,
+    };
+
     withRandom([MAX_ROLL], () =>
-      engine.processTurnEffects(hero, 'startOfTurn', {
-        ambientEffects: ambient,
+      engine.processTurnEffects(hero, 'endOfTurn', elementalInCombat),
+    );
+
+    assert.equal(engine.resolveEntityCurrentHp(hero), 30);
+
+    withRandom([MAX_ROLL], () =>
+      engine.processTurnEffects(hero, 'endOfTurn', {
+        ...elementalInCombat,
+        sourceTurnActorId: elemental.id,
       }),
     );
 
     assert.equal(engine.resolveEntityCurrentHp(hero), 20);
 
-    const selfResult = engine.processTurnEffects(elemental, 'startOfTurn');
+    const selfResult = engine.processTurnEffects(elemental, 'endOfTurn', {
+      sourceTurnActorId: elemental.id,
+    });
 
     assert.equal(selfResult.damageOutcomes.length, 0);
   });
 
-  it('[C08] Регенерация (свой эффект существа): +10 хитов в начале хода', () => {
+  it('[C08] Регенерация (свой эффект существа): +15 хитов в начале хода', () => {
     const regeneration = createEffect('Регенерация', {
       recurringDamage: {
-        damageParts: [{ formula: '10@heal' }],
+        damageParts: [{ formula: TROLL_REGENERATION_FORMULA }],
         timing: 'startOfTurn',
       },
     });
 
     authoredScenario(regeneration, 'ownEffects');
 
-    const troll = createCreature({
-      id: 'creature_troll',
-      name: 'Тролль',
-      activeEffects: [regeneration],
-    });
+    const troll = createTroll(TROLL_MAX_HP, { activeEffects: [regeneration] });
 
-    engine.applyTargetDamage(troll, 8, false, 'slashing');
+    engine.applyTargetDamage(troll, 20, false, 'slashing');
 
     const woundedHp = engine.resolveEntityCurrentHp(troll);
     const result = engine.processTurnEffects(troll, 'startOfTurn');
@@ -388,24 +417,24 @@ describe('каталог: существа', () => {
 
     assert.equal(
       engine.resolveEntityCurrentHp(troll),
-      Math.min(woundedHp + 10, engine.resolveEntityMaxHp(troll)),
+      woundedHp + TROLL_REGENERATION,
     );
   });
 
-  it('[C08b] Регенерация чертой статблока: +10 хитов в начале хода, черта остаётся', () => {
+  it('[C08b] Регенерация чертой статблока: +15 хитов в начале хода, черта остаётся', () => {
     const regeneration = createEffect('Регенерация', {
       recurringDamage: {
-        damageParts: [{ formula: '10@heal' }],
+        damageParts: [{ formula: TROLL_REGENERATION_FORMULA }],
         timing: 'startOfTurn',
       },
     });
 
     authoredScenario(regeneration, 'creatureTrait');
 
-    const troll = createCreature({ id: 'creature_troll', name: 'Тролль' });
+    const troll = createTroll(TROLL_MAX_HP);
 
     troll.system.traits = [createTrait('Регенерация', [regeneration])];
-    engine.applyTargetDamage(troll, 15, false, 'slashing');
+    engine.applyTargetDamage(troll, 20, false, 'slashing');
 
     const woundedHp = engine.resolveEntityCurrentHp(troll);
     const result = engine.processTurnEffects(troll, 'startOfTurn');
@@ -414,7 +443,7 @@ describe('каталог: существа', () => {
 
     assert.equal(
       engine.resolveEntityCurrentHp(troll),
-      Math.min(woundedHp + 10, engine.resolveEntityMaxHp(troll)),
+      woundedHp + TROLL_REGENERATION,
     );
 
     assert.equal(troll.system.traits[0].activeEffects.length, 1);
@@ -422,9 +451,9 @@ describe('каталог: существа', () => {
   });
 
   it('[C08c] Регенерация гаснет после урона огнём или кислотой до начала следующего хода', () => {
-    const noRegen = {
+    const noRegenerationTag = {
       type: 'applyTag',
-      tag: 'noRegen',
+      tag: NO_REGENERATION_TAG,
       label: 'Без регенерации',
     };
 
@@ -433,20 +462,25 @@ describe('каталог: существа', () => {
         {
           id: 'trigger_regen',
           event: 'turnStart',
-          condition: 'self.tag !== "noRegen"',
-          actions: [{ type: 'damage', parts: [{ formula: '10@heal' }] }],
+          condition: `self.tag !== "${NO_REGENERATION_TAG}"`,
+          actions: [
+            {
+              type: 'damage',
+              parts: [{ formula: TROLL_REGENERATION_FORMULA }],
+            },
+          ],
         },
         {
           id: 'trigger_fire',
           event: 'damageTaken',
           condition: 'damage.type === "fire"',
-          actions: [noRegen],
+          actions: [noRegenerationTag],
         },
         {
           id: 'trigger_acid',
           event: 'damageTaken',
           condition: 'damage.type === "acid"',
-          actions: [noRegen],
+          actions: [noRegenerationTag],
         },
       ],
     });
@@ -455,14 +489,7 @@ describe('каталог: существа', () => {
 
     assert.match(scenario, /урон огненный/);
 
-    const troll = createCreature({ id: 'creature_troll', name: 'Тролль' });
-
-    troll.system.hitPoints = {
-      ...troll.system.hitPoints,
-      current: 40,
-      max: 60,
-      average: 60,
-    };
+    const troll = createTroll(40);
 
     troll.system.traits = [createTrait('Регенерация', [regeneration])];
 
@@ -624,14 +651,12 @@ describe('каталог: существа', () => {
      * @returns {object} зомби после удара
      */
     const strikeZombie = (damageType, details, random) => {
-      const zombie = createCreature({ id: 'creature_zombie', name: 'Зомби' });
-
-      zombie.system.hitPoints = {
-        ...zombie.system.hitPoints,
-        current: 6,
-        max: 22,
-        average: 22,
-      };
+      const zombie = withHp(
+        createCreature,
+        6,
+        { id: 'creature_zombie', name: 'Зомби' },
+        22,
+      );
 
       zombie.system.traits = [createTrait('Стойкость нежити', [fortitude])];
 
@@ -679,7 +704,7 @@ describe('каталог: существа', () => {
       },
     );
 
-    const hero = heroWithHp(40);
+    const hero = withHp(createActor, 40);
 
     const result = engine.applyEntryEffect(
       hero,

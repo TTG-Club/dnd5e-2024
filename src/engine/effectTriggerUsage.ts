@@ -18,6 +18,9 @@ import type {
   EffectTriggerLimit,
   EffectTriggerLimitPeriod,
 } from './effectTriggerTypes.js';
+import type { RestType } from './restEngine.js';
+
+import { z } from 'zod';
 
 import { isRecord } from '@vtt/shared';
 
@@ -49,20 +52,30 @@ export function buildTriggerUsageKey(
   return `${scope}${USAGE_KEY_SEPARATOR}${trigger.limit?.key ?? trigger.id}`;
 }
 
-/** Известные периоды лимита — для проверки значения из данных */
-const LIMIT_PERIODS: ReadonlySet<unknown> = new Set(
-  EFFECT_TRIGGER_LIMIT_PERIODS,
-);
+/** Чей счётчик лимита: зона, копия ауры, черта существа, предмет */
+export type TriggerUsageScopeKind = 'area' | 'aura' | 'trait' | 'item';
 
 /**
- * Известный ли период лимита.
+ * Источник счётчика лимита. Ключи сохраняются в сущность, и общий лимит («вход
+ * в зону и начало хода в ней») работает, только если все пути строят источник
+ * одинаково.
  *
- * @param value - значение из данных
- * @returns `true` для периода лимита
+ * @param kind - чей счётчик
+ * @param id - id зоны, копии ауры, эффекта черты или предмета
+ * @returns источник для ключа счётчика
  */
-function isLimitPeriod(value: unknown): value is EffectTriggerLimitPeriod {
-  return LIMIT_PERIODS.has(value);
+export function buildTriggerUsageScope(
+  kind: TriggerUsageScopeKind,
+  id: string,
+): string {
+  return `${kind}:${id}`;
 }
+
+/** Zod-схема записи счётчика: целое число срабатываний за известный период */
+const TriggerUsageEntrySchema = z.object({
+  used: z.number().int().positive(),
+  per: z.enum(EFFECT_TRIGGER_LIMIT_PERIODS),
+});
 
 /**
  * Счётчики субъекта из данных — терпимо: негодная запись пропускается.
@@ -88,20 +101,13 @@ export function parseTriggerUsage(raw: unknown): EffectTriggerUsageLedger {
     return {};
   }
 
-  const ledger: EffectTriggerUsageLedger = {};
+  return Object.fromEntries(
+    Object.entries(raw).flatMap(([key, rawEntry]) => {
+      const parsed = TriggerUsageEntrySchema.safeParse(rawEntry);
 
-  for (const [key, entry] of Object.entries(raw)) {
-    if (
-      isRecord(entry)
-      && typeof entry.used === 'number'
-      && entry.used > 0
-      && isLimitPeriod(entry.per)
-    ) {
-      ledger[key] = { used: entry.used, per: entry.per };
-    }
-  }
-
-  return ledger;
+      return parsed.success ? [[key, parsed.data]] : [];
+    }),
+  );
 }
 
 /**
@@ -110,7 +116,7 @@ export function parseTriggerUsage(raw: unknown): EffectTriggerUsageLedger {
  * @param entity - субъект
  * @param ledger - счётчики
  */
-function writeTriggerUsage(
+export function writeTriggerUsage(
   entity: DnDSceneEntity,
   ledger: EffectTriggerUsageLedger,
 ): void {
@@ -200,7 +206,7 @@ export function takeTriggerUse(
 
 /** Какие периоды лимита заканчивает отдых */
 const REST_LIMIT_PERIODS: Record<
-  'short' | 'long',
+  RestType,
   readonly EffectTriggerLimitPeriod[]
 > = {
   short: ['shortRest'],
@@ -214,7 +220,7 @@ const REST_LIMIT_PERIODS: Record<
  * @returns периоды
  */
 export function restLimitPeriodsOf(
-  restType: 'short' | 'long',
+  restType: RestType,
 ): readonly EffectTriggerLimitPeriod[] {
   return REST_LIMIT_PERIODS[restType];
 }

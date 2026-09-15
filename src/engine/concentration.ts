@@ -18,6 +18,7 @@ import type { Spell } from './dndEntities.js';
 
 import { generateId } from '@vtt/shared';
 
+import { ACTIVE_EFFECT_ID_PREFIX } from './activeEffectTypes.js';
 import { withInitializedDuration } from './turnEffects.js';
 
 /** Сл спасброска концентрации (2024): половина урона, от 10 до 30 */
@@ -85,7 +86,7 @@ export function buildConcentrationEffect(
   input: ConcentrationEffectInput,
 ): ActiveEffect {
   return withInitializedDuration({
-    id: generateId('ae'),
+    id: generateId(ACTIVE_EFFECT_ID_PREFIX),
     name: `${CONCENTRATION_NAME_PREFIX}${input.spell.name}`,
     description: '',
     icon: CONCENTRATION_ICON,
@@ -147,8 +148,8 @@ export function listConcentrationCastIds(
 }
 
 /**
- * Снимает с сущности эффекты кастов заклинателя: наложенные им и с `castId`
- * из списка. Чужие эффекты и эффекты других кастов остаются. Мутирует сущность.
+ * Эффекты без эффектов кастов заклинателя: наложенных им и с `castId` из
+ * списка. Чужие эффекты и эффекты других кастов остаются.
  *
  * @param effects - эффекты сущности
  * @param casterId - заклинатель

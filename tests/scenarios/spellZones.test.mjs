@@ -620,9 +620,14 @@ describe('[SZ08–SZ10] зона на сцене: копии, урон на хо
     assert.deepEqual(copy.duration, { type: 'permanent' });
     assert.equal(copy.magical, true);
 
+    const recurringDamage = engine
+      .collectEffectTriggers(copy)
+      .find(
+        (trigger) => trigger.id === engine.LEGACY_TRIGGER_IDS.recurringDamage,
+      );
+
     assert.equal(
-      engine.buildRecurringDamageSaveSpec(copy, copy.recurringDamage.save)
-        .againstMagic,
+      engine.buildTriggerSaveSpec(copy, recurringDamage).againstMagic,
       true,
     );
   });

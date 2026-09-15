@@ -14,11 +14,39 @@ import { loadEngineBundle } from '../helpers/engineBundle.mjs';
 // eslint-disable-next-line antfu/no-top-level-await
 export const engine = await loadEngineBundle(`
   export * from './src/engine/index.ts';
-  export { isPointInPolygon } from '@vtt/shared';
+  export { isCreatureEntity, isPointInPolygon } from '@vtt/shared';
 `);
 
 /** Управляющий персонажем игрок */
 export const PLAYER_ID = 'player';
+
+/** Сущность, чей ход идёт, — не носитель эффекта */
+export const OTHER_TURN_ACTOR_ID = 'actor_bystander';
+
+/** Ключ отметки «регенерация не работает» */
+export const NO_REGENERATION_TAG = 'noRegen';
+
+/** Регенерация тролля (Бестиарий 2024): хиты в начале его хода */
+export const TROLL_REGENERATION = 15;
+
+/** Заклинатель с концентрацией */
+export const CLERIC_ID = 'actor_cleric';
+
+/** Каст «Благословения» */
+export const BLESS_CAST_ID = 'cast_bless';
+
+/** Заклинание с концентрацией на минуту */
+export const BLESS = {
+  name: 'Благословение',
+  durationUnit: 'minute',
+  durationValue: 1,
+};
+
+/** Максимум хитов заклинателя с концентрацией */
+const CONCENTRATING_CASTER_MAX_HP = 40;
+
+/** Начало шаблона заклинания по обеим осям, в пикселях */
+const SPELL_TEMPLATE_ORIGIN = 550;
 
 /** Размер клетки сцены в пикселях */
 export const CELL_SIZE = 100;
@@ -106,6 +134,118 @@ export function createCreature(overrides = {}) {
 }
 
 /**
+ * Записывает хиты уже собранной сущности (мутирует её): у персонажа запас
+ * листа без временных хитов, у существа — ещё и среднее статблока.
+ *
+ * @param {object} entity - персонаж или существо
+ * @param {number} current - текущие хиты
+ * @param {number} maximum - максимум хитов (по умолчанию равен текущим)
+ * @returns {object} та же сущность
+ */
+export function setHitPoints(entity, current, maximum = current) {
+  entity.system.hitPoints = engine.isCreatureEntity(entity)
+    ? {
+        ...entity.system.hitPoints,
+        current,
+        max: maximum,
+        average: maximum,
+      }
+    : { current, max: maximum, temp: 0 };
+
+  return entity;
+}
+
+/**
+ * Сущность с заданными хитами.
+ *
+ * @param {Function} factory - createActor или createCreature
+ * @param {number} hitPoints - текущие хиты
+ * @param {object} overrides - поля сущности
+ * @param {number} maximum - максимум хитов (по умолчанию равен текущим)
+ * @returns {object} сущность
+ */
+export function withHp(
+  factory,
+  hitPoints,
+  overrides = {},
+  maximum = hitPoints,
+) {
+  return setHitPoints(factory(overrides), hitPoints, maximum);
+}
+
+/**
+ * Аура на всех вокруг носителя, кроме него самого.
+ *
+ * @param {number} radius - радиус в футах
+ * @returns {object} настройки ауры
+ */
+export function allCreaturesAura(radius) {
+  return { radius, target: 'all', applyToSelf: false, visible: true };
+}
+
+/**
+ * Заклинатель с меткой концентрации «Благословения».
+ *
+ * @param {number} hitPoints - текущие хиты (максимум 40)
+ * @returns {object} заклинатель
+ */
+export function concentratingCaster(hitPoints) {
+  return withHp(
+    createActor,
+    hitPoints,
+    {
+      id: CLERIC_ID,
+      activeEffects: [
+        engine.buildConcentrationEffect({
+          spell: BLESS,
+          casterId: CLERIC_ID,
+          castId: BLESS_CAST_ID,
+        }),
+      ],
+    },
+    CONCENTRATING_CASTER_MAX_HP,
+  );
+}
+
+/**
+ * Контекст ядра, который запоминает законченные касты.
+ *
+ * @param {object} overrides - другие возможности ядра
+ * @returns {{ context: object, ended: Array }} контекст и журнал
+ */
+export function castEndingContext(overrides = {}) {
+  const ended = [];
+
+  return {
+    ended,
+    context: {
+      endCasts: (casterId, castIds) => ended.push([casterId, castIds]),
+      ...overrides,
+    },
+  };
+}
+
+/**
+ * Шаблон заклинания игрока, протянутый вправо от начала.
+ *
+ * @param {string} type - форма шаблона
+ * @param {number} lengthInCells - длина от начала до цели, в клетках
+ * @returns {object} шаблон
+ */
+export function createSpellTemplate(type, lengthInCells) {
+  return {
+    id: `template_${type}`,
+    type,
+    originX: SPELL_TEMPLATE_ORIGIN,
+    originY: SPELL_TEMPLATE_ORIGIN,
+    targetX: SPELL_TEMPLATE_ORIGIN + lengthInCells * CELL_SIZE,
+    targetY: SPELL_TEMPLATE_ORIGIN,
+    color: 0xffffff,
+    createdBy: PLAYER_ID,
+  };
+}
+
+/**
  * Токен сущности.
  *
  * @param {string} actorId - сущность
@@ -175,6 +315,22 @@ export function createRequestRoll() {
       assert.ok(resolve, 'Нет висящего запроса');
       resolve(outcome);
     },
+  };
+}
+
+/**
+ * Ответ игрока на запрос спасброска.
+ *
+ * @param {boolean} passed - прошёл ли
+ * @returns {object} исход запроса
+ */
+export function answeredSave(passed) {
+  const total = passed ? 20 : 2;
+
+  return {
+    status: 'answered',
+    result: { roll: total, modifier: 0, total, passed },
+    respondedByUserId: PLAYER_ID,
   };
 }
 

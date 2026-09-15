@@ -2,9 +2,7 @@ import assert from 'node:assert/strict';
 
 import { describe, it } from 'vitest';
 
-import { loadEngineBundle } from './helpers/engineBundle.mjs';
-
-const engine = await loadEngineBundle(`export * from './src/engine/index.ts';`);
+import { allCreaturesAura, engine } from './scenarios/_fixtures.mjs';
 
 /** Сложность спасброска эффектов в тестах */
 const SAVE_DC = 13;
@@ -716,7 +714,7 @@ describe('список «Срабатывания»', () => {
 
     assert.deepEqual(
       layoutOf('spell', {
-        aura: { radius: 10, target: 'all', applyToSelf: false, visible: true },
+        aura: allCreaturesAura(AURA_RADIUS),
       }).triggerEvents,
       ['turnStart', 'turnEnd', 'enter', 'exit', 'damageTaken', 'hpZero'],
       'в ауру входят и выходят так же, как в зону',

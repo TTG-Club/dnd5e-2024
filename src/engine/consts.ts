@@ -83,6 +83,16 @@ export const ABILITY_LABELS: Record<AbilityType, string> = {
   charisma: 'Харизма',
 };
 
+/** Характеристики в родительном падеже — «спасбросок Телосложения» */
+export const ABILITY_GENITIVE_LABELS: Record<AbilityType, string> = {
+  strength: 'Силы',
+  dexterity: 'Ловкости',
+  constitution: 'Телосложения',
+  intelligence: 'Интеллекта',
+  wisdom: 'Мудрости',
+  charisma: 'Харизмы',
+};
+
 /** Ключи характеристик в порядке листа */
 export const ABILITY_KEYS: readonly AbilityType[] = [
   'strength',

@@ -4,11 +4,16 @@ import { describe, it } from 'vitest';
 
 import {
   authoredScenario,
+  BLESS,
+  BLESS_CAST_ID,
+  castEndingContext,
   CELL_SIZE,
   change,
+  concentratingCaster,
   createActor,
   createCreature,
   createEffect,
+  createSpellTemplate,
   createToken,
   createZone,
   engine,
@@ -16,6 +21,7 @@ import {
   MAX_ROLL,
   MIN_ROLL,
   strikeEntity,
+  withHp,
   withRandom,
 } from './_fixtures.mjs';
 
@@ -274,15 +280,7 @@ describe('каталог: заклинания', () => {
 
     authoredScenario(protection, 'spell');
 
-    const target = applied(
-      createActor({
-        system: {
-          ...structuredClone(engine.DEFAULT_ACTOR.system),
-          hitPoints: { current: 30, max: 30, temp: 0 },
-        },
-      }),
-      [protection],
-    );
+    const target = applied(withHp(createActor, 30), [protection]);
 
     engine.applyTargetDamage(target, 20, false, 'fire');
     assert.equal(engine.resolveEntityCurrentHp(target), 20);
@@ -533,16 +531,7 @@ describe('каталог: заклинания', () => {
         durationValue: 1,
         concentration: true,
       },
-      template: {
-        id: 't',
-        type: 'cylinder',
-        originX: 550,
-        originY: 550,
-        targetX: 650,
-        targetY: 550,
-        color: 0xffffff,
-        createdBy: 'p',
-      },
+      template: createSpellTemplate('cylinder', 1),
       casterId: 'actor_druid',
       saveDc: CASTER_DC,
       formulaContext: engine.buildFormulaContext(createActor()),
@@ -618,25 +607,11 @@ describe('каталог: заклинания', () => {
   );
 
   it('[S19] Потеря концентрации от урона снимает эффекты каста со всех целей', () => {
-    const castId = 'cast_bless';
     const system = new engine.Dnd5eVttSystem();
-
-    const caster = createActor({ id: 'actor_cleric' });
-
-    caster.activeEffects = [
-      engine.buildConcentrationEffect({
-        spell: {
-          name: 'Благословение',
-          durationUnit: 'minute',
-          durationValue: 1,
-        },
-        casterId: caster.id,
-        castId,
-      }),
-    ];
+    const caster = concentratingCaster(40);
 
     const bless = (sourceActorId) =>
-      createEffect('Благословение', { castId, sourceActorId });
+      createEffect(BLESS.name, { castId: BLESS_CAST_ID, sourceActorId });
 
     const allies = [
       createActor({ id: 'actor_fighter', activeEffects: [bless(caster.id)] }),
@@ -644,17 +619,13 @@ describe('каталог: заклинания', () => {
       createActor({ id: 'actor_bard', activeEffects: [bless('actor_other')] }),
     ];
 
-    const ended = [];
+    const { context, ended } = castEndingContext();
 
     withRandom([MIN_ROLL], () =>
-      strikeEntity(system, caster, 10, 'slashing', {
-        context: {
-          endCasts: (casterId, castIds) => ended.push([casterId, castIds]),
-        },
-      }),
+      strikeEntity(system, caster, 10, 'slashing', { context }),
     );
 
-    assert.deepEqual(ended, [[caster.id, [castId]]]);
+    assert.deepEqual(ended, [[caster.id, [BLESS_CAST_ID]]]);
 
     // Ядро заканчивает каст по всем существам мира
     for (const [casterId, castIds] of ended) {
@@ -710,16 +681,7 @@ describe('каталог: заклинания', () => {
 
       const draft = engine.buildSpellZoneDraft({
         spell: wandSpell,
-        template: {
-          id: 't',
-          type: 'circle',
-          originX: 550,
-          originY: 550,
-          targetX: 750,
-          targetY: 550,
-          color: 0xffffff,
-          createdBy: 'p',
-        },
+        template: createSpellTemplate('circle', 2),
         casterId: caster.id,
         saveDc,
         formulaContext: engine.buildFormulaContext(caster),

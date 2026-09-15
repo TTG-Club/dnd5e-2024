@@ -7,6 +7,8 @@
  * при каком условии, какой спасбросок, что при провале и успехе, как часто.
  */
 
+import type { EffectDuration } from '@vtt/shared';
+
 import type {
   EffectTrigger,
   EffectTriggerAction,
@@ -21,7 +23,11 @@ import {
   describeEffectDamageParts,
   describeEffectDuration,
 } from './activeEffectDescribe.js';
-import { CREATURE_CATEGORIES, isCreatureCategory } from './consts.js';
+import {
+  ABILITY_GENITIVE_LABELS,
+  CREATURE_CATEGORIES,
+  isCreatureCategory,
+} from './consts.js';
 import { getShortDamageTypeLabel } from './damageConstants.js';
 import {
   classifyLegacyTrigger,
@@ -30,16 +36,6 @@ import {
 } from './effectTriggers.js';
 import { EVENT_DAMAGE_VARIABLE } from './formulaParser.js';
 import { readTriggerConditionParts } from './triggerConditions.js';
-
-/** Характеристики в родительном падеже — «спасбросок Телосложения» */
-export const ABILITY_GENITIVE_LABELS = {
-  strength: 'Силы',
-  dexterity: 'Ловкости',
-  constitution: 'Телосложения',
-  intelligence: 'Интеллекта',
-  wisdom: 'Мудрости',
-  charisma: 'Харизмы',
-} as const;
 
 /** Что даёт успех спасброска против урона каждый ход */
 const RECURRING_DAMAGE_SUCCESS_LABELS = {
@@ -169,6 +165,22 @@ export function describeTriggerCondition(condition: string): string {
 }
 
 /**
+ * Подпись наложенного со сроком, если он задан: «„Отравлен“ на 1 раунд».
+ *
+ * @param name - подпись наложенного
+ * @param duration - срок; без него — до снятия или срок по умолчанию
+ * @returns подпись
+ */
+function withDurationSuffix(
+  name: string,
+  duration: EffectDuration | undefined,
+): string {
+  const suffix = duration ? describeEffectDuration(duration) : null;
+
+  return suffix ? `${name} ${suffix}` : name;
+}
+
+/**
  * Подпись действия.
  *
  * @param action - действие
@@ -180,24 +192,16 @@ function describeAction(action: EffectTriggerAction): string {
       return describeEffectDamageParts(action.parts);
     case 'applySelf':
       return TRIGGER_LABELS.effect;
-    case 'applyCondition': {
-      const name = `«${describeConditionName(action.conditionKey)}»`;
-
-      const duration = action.duration
-        ? describeEffectDuration(action.duration)
-        : null;
-
-      return duration ? `${name} ${duration}` : name;
-    }
-    case 'applyTag': {
-      const name = `${TRIGGER_LABELS.tagPrefix}«${action.label ?? action.tag}»`;
-
-      const duration = action.duration
-        ? describeEffectDuration(action.duration)
-        : null;
-
-      return duration ? `${name} ${duration}` : name;
-    }
+    case 'applyCondition':
+      return withDurationSuffix(
+        `«${describeConditionName(action.conditionKey)}»`,
+        action.duration,
+      );
+    case 'applyTag':
+      return withDurationSuffix(
+        `${TRIGGER_LABELS.tagPrefix}«${action.label ?? action.tag}»`,
+        action.duration,
+      );
     case 'setHp':
       return `${TRIGGER_LABELS.setHpPrefix}${action.value}`;
     case 'endCast':

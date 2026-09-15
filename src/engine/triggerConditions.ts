@@ -33,7 +33,11 @@ import {
   MARKED_BY_SELF_CONDITION,
   targetHpGateMatches,
 } from './effectPipeline.js';
-import { isEffectTag } from './effectTriggerTypes.js';
+import {
+  DAMAGE_TRIGGER_EVENTS,
+  isEffectTag,
+  OTHER_PARTY_TRIGGER_EVENTS,
+} from './effectTriggerTypes.js';
 import { resolveEntityCurrentHp, resolveEntityMaxHp } from './hitPoints.js';
 
 /** Урон, от которого сработало событие */
@@ -95,15 +99,6 @@ export interface TriggerConditionPart {
   value?: string;
 }
 
-/** События с уроном */
-const DAMAGE_EVENTS: readonly EffectTriggerEvent[] = ['damageTaken', 'hpZero'];
-
-/** События с другой стороной */
-const OTHER_PARTY_EVENTS: readonly EffectTriggerEvent[] = [
-  'attackRoll',
-  'damageTaken',
-];
-
 /**
  * На каких событиях часть условия что-то значит; `undefined` — на любых. На
  * чужом событии часть не выполняется: данных для неё нет.
@@ -112,10 +107,10 @@ const KIND_EVENTS: Record<
   TriggerConditionKind,
   readonly EffectTriggerEvent[] | undefined
 > = {
-  damageType: DAMAGE_EVENTS,
-  damageTypeNot: DAMAGE_EVENTS,
-  damageCritical: DAMAGE_EVENTS,
-  damageNotCritical: DAMAGE_EVENTS,
+  damageType: DAMAGE_TRIGGER_EVENTS,
+  damageTypeNot: DAMAGE_TRIGGER_EVENTS,
+  damageCritical: DAMAGE_TRIGGER_EVENTS,
+  damageNotCritical: DAMAGE_TRIGGER_EVENTS,
   selfBloodied: undefined,
   selfWounded: undefined,
   selfCreatureType: undefined,
@@ -123,7 +118,7 @@ const KIND_EVENTS: Record<
   selfTagNot: undefined,
   rollAdvantage: ['attackRoll'],
   rollDisadvantage: ['attackRoll'],
-  otherCreatureType: OTHER_PARTY_EVENTS,
+  otherCreatureType: OTHER_PARTY_TRIGGER_EVENTS,
   otherMarkedBySelf: ['attackRoll'],
 };
 
@@ -311,18 +306,18 @@ export function listTriggerConditionKinds(
  * другая сторона.
  *
  * @param entity - субъект срабатывания
- * @param data - данные события
+ * @param eventData - данные события
  * @returns контекст для общих частей условия
  */
 function buildTriggerRollContext(
   entity: DnDSceneEntity,
-  data: TriggerEventData,
+  eventData: TriggerEventData,
 ): RollContext {
-  const { other } = data;
+  const { other } = eventData;
 
   return {
-    hasAdvantage: data.roll?.hasAdvantage ?? false,
-    hasDisadvantage: data.roll?.hasDisadvantage ?? false,
+    hasAdvantage: eventData.roll?.hasAdvantage ?? false,
+    hasDisadvantage: eventData.roll?.hasDisadvantage ?? false,
     self: buildCarrierContext(entity),
     ...(other
       ? {
@@ -342,13 +337,13 @@ function buildTriggerRollContext(
  *
  * @param entity - субъект срабатывания
  * @param text - часть условия
- * @param data - данные события
+ * @param eventData - данные события
  * @returns `true`, если часть выполняется
  */
 function isConditionPartMet(
   entity: DnDSceneEntity,
   text: string,
-  data: TriggerEventData,
+  eventData: TriggerEventData,
 ): boolean {
   const part = parseTriggerConditionPart(text);
 
@@ -356,7 +351,7 @@ function isConditionPartMet(
     return false;
   }
 
-  const { damage } = data;
+  const { damage } = eventData;
   const damageTypes: readonly string[] = damage?.types ?? [];
 
   switch (part.kind) {
@@ -387,7 +382,7 @@ function isConditionPartMet(
     default:
       return evaluateConditionPart(
         text.trim(),
-        buildTriggerRollContext(entity, data),
+        buildTriggerRollContext(entity, eventData),
       );
   }
 }
@@ -398,13 +393,13 @@ function isConditionPartMet(
  *
  * @param entity - субъект срабатывания
  * @param trigger - срабатывание
- * @param data - данные события
+ * @param eventData - данные события
  * @returns `true`, если срабатывание может сработать
  */
 export function isTriggerConditionMet(
   entity: DnDSceneEntity,
   trigger: Pick<EffectTrigger, 'condition'>,
-  data: TriggerEventData = {},
+  eventData: TriggerEventData = {},
 ): boolean {
   if (trigger.condition === undefined) {
     return true;
@@ -414,6 +409,6 @@ export function isTriggerConditionMet(
 
   return (
     parts.length > 0
-    && parts.every((part) => isConditionPartMet(entity, part, data))
+    && parts.every((part) => isConditionPartMet(entity, part, eventData))
   );
 }

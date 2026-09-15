@@ -2,38 +2,18 @@ import assert from 'node:assert/strict';
 
 import { describe, it } from 'vitest';
 
-import { loadEngineBundle } from './helpers/engineBundle.mjs';
+import { createEffect, engine } from './scenarios/_fixtures.mjs';
 
 /**
  * Модель срабатываний: чтение старых полей, запись «сначала старые поля»,
  * терпимый разбор и фразы сводки.
  */
 
-const engine = await loadEngineBundle(`export * from './src/engine/index.ts';`);
-
-/**
- * Эффект в форме редактора.
- *
- * @param {object} overrides - поля
- * @returns {object} эффект
- */
-function createEffect(overrides = {}) {
-  return {
-    id: 'effect',
-    name: 'Эффект',
-    description: '',
-    disabled: false,
-    origin: 'manual',
-    transfer: false,
-    duration: { type: 'permanent' },
-    changes: [],
-    flags: [],
-    ...overrides,
-  };
-}
+/** Эффект, на котором проверяется модель срабатываний */
+const EFFECT_ID = 'effect';
 
 /** Спасбросок Телосложения Сл 13 */
-const CON_SAVE = { ability: 'constitution', dc: 13 };
+const CONSTITUTION_SAVE = { ability: 'constitution', dc: 13 };
 
 /** Урон ядом 2к6 */
 const POISON_PARTS = [{ formula: '2d6', type: 'poison' }];
@@ -50,7 +30,7 @@ function asData(effect) {
 
 describe('чтение старых полей как срабатываний', () => {
   it('урон каждый ход: без спасброска, «без урона» и «половина урона»', () => {
-    const plain = createEffect({
+    const plain = createEffect(EFFECT_ID, {
       recurringDamage: { damageParts: POISON_PARTS, timing: 'startOfTurn' },
     });
 
@@ -63,26 +43,26 @@ describe('чтение старых полей как срабатываний',
     ]);
 
     const [negate] = engine.listEffectListTriggers(
-      createEffect({
+      createEffect(EFFECT_ID, {
         recurringDamage: {
           damageParts: POISON_PARTS,
           timing: 'endOfTurn',
-          save: { ...CON_SAVE, onSuccess: 'negate' },
+          save: { ...CONSTITUTION_SAVE, onSuccess: 'negate' },
         },
       }),
     );
 
     assert.equal(negate.event, 'turnEnd');
-    assert.deepEqual(negate.save, CON_SAVE);
+    assert.deepEqual(negate.save, CONSTITUTION_SAVE);
     assert.equal(negate.actions[0].on, 'failed');
     assert.equal(negate.actions[0].halfOnSave, undefined);
 
     const [half] = engine.listEffectListTriggers(
-      createEffect({
+      createEffect(EFFECT_ID, {
         recurringDamage: {
           damageParts: POISON_PARTS,
           timing: 'endOfTurn',
-          save: { ...CON_SAVE, onSuccess: 'half' },
+          save: { ...CONSTITUTION_SAVE, onSuccess: 'half' },
         },
       }),
     );
@@ -92,7 +72,7 @@ describe('чтение старых полей как срабатываний',
   });
 
   it('повторный спасбросок снимает эффект при успехе, снятие после атаки — по роли', () => {
-    const effect = createEffect({
+    const effect = createEffect(EFFECT_ID, {
       recurringSave: { ability: 'wisdom', dc: 15, timing: 'endOfTurn' },
       consumeOn: 'attackOnCarrier',
     });
@@ -124,10 +104,10 @@ describe('чтение старых полей как срабатываний',
 
     for (const [outcome, damageGate, effectGate, half] of cases) {
       const effect = engine.writeEffectSuccessOutcome(
-        createEffect({
+        createEffect(EFFECT_ID, {
           effectTarget: 'target',
           conditionKey: 'poisoned',
-          applySave: { ...CON_SAVE, onSuccess: 'negate' },
+          applySave: { ...CONSTITUTION_SAVE, onSuccess: 'negate' },
           damageParts: POISON_PARTS,
         }),
         outcome,
@@ -137,7 +117,7 @@ describe('чтение старых полей как срабатываний',
 
       assert.equal(landing.id, 'legacy.landing', outcome);
       assert.equal(landing.event, 'applied', outcome);
-      assert.deepEqual(landing.save, CON_SAVE, outcome);
+      assert.deepEqual(landing.save, CONSTITUTION_SAVE, outcome);
 
       assert.deepEqual(
         landing.actions.map((action) => [
@@ -154,14 +134,19 @@ describe('чтение старых полей как срабатываний',
     }
 
     const [entry] = engine.collectEffectTriggers(
-      createEffect({ areaTrigger: 'exit', damageParts: POISON_PARTS }),
+      createEffect(EFFECT_ID, {
+        areaTrigger: 'exit',
+        damageParts: POISON_PARTS,
+      }),
     );
 
     assert.equal(entry.event, 'exit');
 
     assert.deepEqual(
       engine.collectEffectTriggers(
-        createEffect({ applySave: { ...CON_SAVE, onSuccess: 'negate' } }),
+        createEffect(EFFECT_ID, {
+          applySave: { ...CONSTITUTION_SAVE, onSuccess: 'negate' },
+        }),
       ),
       [],
       'у эффекта «на носителе» разового срабатывания нет',
@@ -172,11 +157,11 @@ describe('чтение старых полей как срабатываний',
     const stench = {
       id: 'trigger_stench',
       event: 'turnStart',
-      save: CON_SAVE,
+      save: CONSTITUTION_SAVE,
       actions: [{ type: 'applyCondition', conditionKey: 'poisoned' }],
     };
 
-    const effect = createEffect({
+    const effect = createEffect(EFFECT_ID, {
       consumeOn: 'carrierAttack',
       triggers: [stench],
     });
@@ -189,7 +174,7 @@ describe('чтение старых полей как срабатываний',
 
   it('гейт по умолчанию: при спасброске — провал, но «половина при успехе» бьёт всегда', () => {
     const damage = { type: 'damage', parts: POISON_PARTS };
-    const withSave = { save: CON_SAVE };
+    const withSave = { save: CONSTITUTION_SAVE };
 
     assert.equal(engine.resolveTriggerActionGate(withSave, damage), 'failed');
     assert.equal(engine.resolveTriggerActionGate({}, damage), 'always');
@@ -217,8 +202,8 @@ describe('запись «сначала старые поля»', () => {
   it('круг чтение → запись не меняет эффект со всеми старыми полями', () => {
     const saves = [
       undefined,
-      { ...CON_SAVE, onSuccess: 'negate' },
-      { ...CON_SAVE, onSuccess: 'half' },
+      { ...CONSTITUTION_SAVE, onSuccess: 'negate' },
+      { ...CONSTITUTION_SAVE, onSuccess: 'half' },
     ];
 
     for (const save of saves) {
@@ -227,7 +212,7 @@ describe('запись «сначала старые поля»', () => {
           undefined,
           { ability: 'wisdom', dc: 0, timing: 'startOfTurn' },
         ]) {
-          const effect = createEffect({
+          const effect = createEffect(EFFECT_ID, {
             recurringDamage: {
               damageParts: POISON_PARTS,
               timing: 'startOfTurn',
@@ -258,7 +243,7 @@ describe('запись «сначала старые поля»', () => {
       actions: [{ type: 'damage', parts: POISON_PARTS, on: 'always' }],
     };
 
-    const written = engine.writeEffectTriggers(createEffect(), [
+    const written = engine.writeEffectTriggers(createEffect(EFFECT_ID), [
       damage,
       { ...damage, id: 'second' },
       { ...damage, id: 'limited', limit: { max: 1, per: 'turn' } },
@@ -278,9 +263,9 @@ describe('запись «сначала старые поля»', () => {
   });
 
   it('старые поля, которых нет в списке, снимаются; разовое срабатывание не трогается', () => {
-    const effect = createEffect({
+    const effect = createEffect(EFFECT_ID, {
       effectTarget: 'target',
-      applySave: { ...CON_SAVE, onSuccess: 'negate' },
+      applySave: { ...CONSTITUTION_SAVE, onSuccess: 'negate' },
       recurringSave: { ability: 'wisdom', dc: 13, timing: 'endOfTurn' },
       consumeOn: 'carrierAttack',
     });
@@ -299,11 +284,11 @@ describe('запись «сначала старые поля»', () => {
   });
 
   it('невыразимая строка с id legacy.* получает новый id', () => {
-    const written = engine.writeEffectTriggers(createEffect(), [
+    const written = engine.writeEffectTriggers(createEffect(EFFECT_ID), [
       {
         id: 'legacy.recurringSave',
         event: 'turnEnd',
-        save: CON_SAVE,
+        save: CONSTITUTION_SAVE,
         actions: [{ type: 'removeSelf', on: 'saved' }],
         limit: { max: 1, per: 'round' },
       },
@@ -318,7 +303,7 @@ describe('запись «сначала старые поля»', () => {
 describe('разбор срабатываний', () => {
   it('незнакомое событие или действие выбрасывает одно срабатывание, не эффект', () => {
     const parsed = engine.ActiveEffectSchema.parse(
-      createEffect({
+      createEffect(EFFECT_ID, {
         triggers: [
           { id: 'ok', event: 'turnEnd', actions: [{ type: 'removeSelf' }] },
           {
@@ -349,7 +334,7 @@ describe('разбор срабатываний', () => {
 
   it('числа из полей формы и негодные необязательные поля', () => {
     const [trigger] = engine.ActiveEffectSchema.parse(
-      createEffect({
+      createEffect(EFFECT_ID, {
         triggers: [
           {
             id: 'form',
@@ -371,7 +356,7 @@ describe('разбор срабатываний', () => {
 
   it('эффект без срабатываний разбирается как раньше — ключ не появляется', () => {
     assert.equal(
-      'triggers' in engine.ActiveEffectSchema.parse(createEffect()),
+      'triggers' in engine.ActiveEffectSchema.parse(createEffect(EFFECT_ID)),
       false,
     );
   });
@@ -428,12 +413,12 @@ describe('фразы срабатываний', () => {
   });
 
   it('старые поля описываются прежними фразами сводки', () => {
-    const effect = createEffect({
+    const effect = createEffect(EFFECT_ID, {
       conditionKey: 'poisoned',
       recurringDamage: {
         damageParts: POISON_PARTS,
         timing: 'startOfTurn',
-        save: { ...CON_SAVE, onSuccess: 'half' },
+        save: { ...CONSTITUTION_SAVE, onSuccess: 'half' },
       },
       recurringSave: { ability: 'wisdom', dc: 15, timing: 'endOfTurn' },
       consumeOn: 'carrierAttack',

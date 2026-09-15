@@ -237,6 +237,26 @@ export function readSpellOwnSaveDC(
     : undefined;
 }
 
+/** Сл заклинаний существа, у которого не задано заклинательство */
+export const DEFAULT_CREATURE_SPELL_SAVE_DC = 10;
+
+/**
+ * Сл спасброска заклинания существа. Своя Сл заклинания (жезл, свиток) главнее
+ * Сл блока заклинаний; у существа без заклинательства — Сл по умолчанию.
+ *
+ * @param spell - заклинание
+ * @param blockSaveDC - Сл блока заклинаний существа
+ * @returns сложность спасброска
+ */
+export function resolveCreatureSpellSaveDC(
+  spell: Pick<Spell, 'saveDC'>,
+  blockSaveDC: number | undefined,
+): number {
+  return (
+    readSpellOwnSaveDC(spell) ?? blockSaveDC ?? DEFAULT_CREATURE_SPELL_SAVE_DC
+  );
+}
+
 /**
  * Сл спасброска от КОНКРЕТНОГО заклинания.
  *

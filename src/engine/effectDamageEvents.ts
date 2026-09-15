@@ -38,7 +38,13 @@ import type {
   TurnSaveOutcome,
 } from './turnEffects.js';
 
-import { formatEffectNotes, unchangedOutcome } from './deferredEffectSaves.js';
+import {
+  formatEffectNotes,
+  ignoreRejectedRollRequest,
+  snapshotTriggerSource,
+  toDeferredEffectOutcome,
+  unchangedOutcome,
+} from './deferredEffectSaves.js';
 import { listEquippedItemEffects } from './effectPipeline.js';
 import {
   buildEffectSaveRollRequest,
@@ -49,15 +55,14 @@ import {
 import {
   admitTrigger,
   buildTriggerSaveSpec,
+  buildTriggerSources,
+  EFFECT_TRIGGER_SOURCE_KINDS,
+  listAttackRollSources,
   listTraitEffects,
-  resolveEffectUsageScope,
   settleTriggerOutcome,
   toTriggerSaveOutcome,
 } from './effectTriggerRunner.js';
-import {
-  isClientAttackRollTrigger,
-  listEffectListTriggers,
-} from './effectTriggers.js';
+import { listEffectListTriggers } from './effectTriggers.js';
 import { resolveEntityCurrentHp } from './hitPoints.js';
 import { rollEffectSaveOutcome } from './turnEffects.js';
 
@@ -132,22 +137,10 @@ function listDamageEventSources(
   event: EffectTriggerEvent,
   ambientEffects: readonly ActiveEffect[],
 ): EffectTriggerSource[] {
-  const sourcesOf = (
-    effects: readonly ActiveEffect[],
-    kind: { instance: boolean; ambient: boolean },
-    scopeOf: (effect: ActiveEffect) => string,
-  ): EffectTriggerSource[] =>
-    effects.flatMap((effect) =>
-      listEffectListTriggers(effect)
-        .filter((trigger) => trigger.event === event)
-        .map((trigger) => ({
-          effect,
-          trigger,
-          ...kind,
-          scope: scopeOf(effect),
-        })),
-    );
+  const eventTriggersOf = (effect: ActiveEffect): EffectTrigger[] =>
+    listEffectListTriggers(effect).filter((trigger) => trigger.event === event);
 
+  // Своя аура без «действует и на носителя» слышит урон других, а не носителя
   const own = (entity.activeEffects ?? []).filter(
     (effect) => !effect.disabled && !(effect.aura && !effect.aura.applyToSelf),
   );
@@ -157,25 +150,25 @@ function listDamageEventSources(
   );
 
   return [
-    ...sourcesOf(
+    ...buildTriggerSources(
       own,
-      { instance: true, ambient: false },
-      resolveEffectUsageScope,
+      EFFECT_TRIGGER_SOURCE_KINDS.instance,
+      eventTriggersOf,
     ),
-    ...sourcesOf(
+    ...buildTriggerSources(
       listEquippedItemEffects(entity),
-      { instance: false, ambient: false },
-      (effect) => `item:${effect.id}`,
+      EFFECT_TRIGGER_SOURCE_KINDS.item,
+      eventTriggersOf,
     ),
-    ...sourcesOf(
+    ...buildTriggerSources(
       listTraitEffects(entity),
-      { instance: false, ambient: false },
-      (effect) => `trait:${effect.id}`,
+      EFFECT_TRIGGER_SOURCE_KINDS.trait,
+      eventTriggersOf,
     ),
-    ...sourcesOf(
+    ...buildTriggerSources(
       ambient,
-      { instance: false, ambient: true },
-      (effect) => `aura:${effect.id}`,
+      EFFECT_TRIGGER_SOURCE_KINDS.aura,
+      eventTriggersOf,
     ),
   ];
 }
@@ -291,11 +284,7 @@ function requestDamageEventSave(
   effectOptions: EntryEffectOptions,
   continuation?: DamageEventsContinuation,
 ): EngineDeferredTrigger {
-  const snapshot: EffectTriggerSource = {
-    ...source,
-    effect: structuredClone(source.effect),
-    trigger: structuredClone(source.trigger),
-  };
+  const snapshot = snapshotTriggerSource(source);
 
   const resolution = requestRoll(
     buildEffectSaveRollRequest(
@@ -316,29 +305,20 @@ function requestDamageEventSave(
           );
         }
 
-        const save = toTriggerSaveOutcome(snapshot.trigger, acquisition.save);
-
         const settled = settleTriggerOutcome(
           liveEntity,
           liveEntity,
           snapshot,
-          save,
+          toTriggerSaveOutcome(snapshot.trigger, acquisition.save),
           effectOptions,
         );
 
         return withContinuation(
-          {
-            changed: settled.damageOutcome !== null || settled.statusApplied,
-            damageOutcomes: settled.damageOutcome
-              ? [settled.damageOutcome]
-              : [],
-            saveOutcomes: [save],
-            notes,
-          },
+          toDeferredEffectOutcome(settled, notes),
           continuation?.(liveEntity) ?? null,
         );
       },
-    () => null,
+    ignoreRejectedRollRequest,
   );
 
   return { entityId: recipient.id, blocksMovement: false, resolution };
@@ -354,7 +334,7 @@ type TriggerEventRun = 'skipped' | 'settled' | 'deferred';
  *
  * @param subject - субъект: на нём эффект
  * @param source - срабатывание с источником
- * @param data - данные события: урон, бросок, другая сторона
+ * @param eventData - данные события: урон, бросок, другая сторона
  * @param options - с чем прогоняются события
  * @param result - общий итог (пополняется)
  * @param continuation - что делать после ответа игрока
@@ -363,13 +343,15 @@ type TriggerEventRun = 'skipped' | 'settled' | 'deferred';
 function runTriggerEventSource(
   subject: DnDSceneEntity,
   source: EffectTriggerSource,
-  data: TriggerEventData,
+  eventData: TriggerEventData,
   options: TriggerEventOptions,
   result: DamageEventsResult,
   continuation?: DamageEventsContinuation,
 ): TriggerEventRun {
   const { requestRoll } = options;
-  const recipient = source.trigger.recipient === 'other' ? data.other : subject;
+
+  const recipient =
+    source.trigger.recipient === 'other' ? eventData.other : subject;
 
   // Эффект, снятый раньше в этой же серии, больше не срабатывает
   const removed =
@@ -382,7 +364,7 @@ function runTriggerEventSource(
     return 'skipped';
   }
 
-  if (!admitTrigger(subject, source, data, options.inCombat)) {
+  if (!admitTrigger(subject, source, eventData, options.inCombat)) {
     return 'skipped';
   }
 
@@ -402,7 +384,7 @@ function runTriggerEventSource(
 
   const spec = buildTriggerSaveSpec(source.effect, source.trigger, {
     entity: recipient,
-    data,
+    eventData,
   });
 
   if (spec && shouldRequestEffectSave(recipient, requestRoll)) {
@@ -588,37 +570,6 @@ export interface AttackRollEventOptions extends TriggerEventOptions {
 }
 
 /**
- * Срабатывания броска атаки стороны, которые выполняются на субъекте.
- *
- * @param entity - сторона атаки
- * @param role - атакующий или цель
- * @returns срабатывания с источником
- */
-function listServerAttackRollSources(
-  entity: DnDSceneEntity,
-  role: EffectTriggerAttackRole,
-): EffectTriggerSource[] {
-  return (entity.activeEffects ?? [])
-    .filter((effect) => !effect.disabled)
-    .flatMap((effect) =>
-      listEffectListTriggers(effect)
-        .filter(
-          (trigger) =>
-            trigger.event === 'attackRoll'
-            && (trigger.role ?? 'attacker') === role
-            && !isClientAttackRollTrigger(trigger),
-        )
-        .map((trigger) => ({
-          effect,
-          trigger,
-          ambient: false,
-          instance: true,
-          scope: resolveEffectUsageScope(effect),
-        })),
-    );
-}
-
-/**
  * Есть ли у стороны срабатывания броска атаки, которые выполняет сервер: клиент
  * не шлёт событие, если делать нечего.
  *
@@ -630,7 +581,7 @@ export function hasServerAttackRollTriggers(
   entity: DnDSceneEntity,
   role: EffectTriggerAttackRole,
 ): boolean {
-  return listServerAttackRollSources(entity, role).length > 0;
+  return listAttackRollSources(entity, role, 'server').length > 0;
 }
 
 /**
@@ -648,10 +599,14 @@ export function settleAttackRollTriggers(
   options: AttackRollEventOptions,
 ): DamageEventsResult {
   const result = createDamageEventsResult();
-  const data: TriggerEventData = { other: options.other, roll: options.roll };
 
-  for (const source of listServerAttackRollSources(subject, role)) {
-    runTriggerEventSource(subject, source, data, options, result);
+  const eventData: TriggerEventData = {
+    other: options.other,
+    roll: options.roll,
+  };
+
+  for (const source of listAttackRollSources(subject, role, 'server')) {
+    runTriggerEventSource(subject, source, eventData, options, result);
   }
 
   return result;

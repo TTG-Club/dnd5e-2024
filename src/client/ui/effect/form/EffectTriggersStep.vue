@@ -35,6 +35,7 @@
     sourceSaveDc?: number;
   }>();
 
+  /** Эффект окна: строки списка пишутся в него «сначала старые поля» */
   const effect = defineModel<ActiveEffect>('effect', { required: true });
 
   const rows = computed(() => listEffectListTriggers(effect.value));

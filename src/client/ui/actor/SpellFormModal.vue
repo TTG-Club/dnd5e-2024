@@ -17,6 +17,7 @@
     areaShapeUsesHeight,
     areaShapeUsesWidth,
     getAreaSizeLabel,
+    readSpellOwnSaveDC,
     SPELL_USES_RECOVERY_OPTIONS,
   } from '@vtt/shared/system/dnd.js';
 
@@ -189,8 +190,8 @@
   );
 
   /** Сл, которую получат эффекты заклинания в «Авто» */
-  const effectSourceSaveDc = computed(() =>
-    saveDC.value > 0 ? saveDC.value : casterSaveDc.value,
+  const effectSourceSaveDc = computed(
+    () => readSpellOwnSaveDC({ saveDC: saveDC.value }) ?? casterSaveDc.value,
   );
 
   /**

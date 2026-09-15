@@ -5,6 +5,7 @@
 
 import type {
   AreaEffectTrigger,
+  ConditionRef,
   EffectAura,
   EffectDelivery,
   EffectDuration,
@@ -12,14 +13,27 @@ import type {
   EffectFormContext,
   EffectFormLayout,
   EffectSuccessOutcome,
+  EffectTrigger,
+  EffectTriggerActionGate,
+  EffectTriggerAttackRole,
+  EffectTriggerLimitPeriod,
+  EffectTriggerRecipient,
   EffectTurnAnchor,
   EffectTurnTiming,
 } from '@vtt/shared/system/dnd.js';
 
+import type { SaveDcFieldMode } from './constants';
+
 import {
+  DEFAULT_TRIGGER_ATTACK_ROLE,
   EFFECT_DURATION_LABELS,
+  EFFECT_TRIGGER_ACTION_GATES,
+  EFFECT_TRIGGER_ATTACK_ROLES,
+  EFFECT_TRIGGER_LIMIT_PERIODS,
+  EFFECT_TRIGGER_RECIPIENTS,
   EFFECT_TURN_ANCHOR_LABELS,
   EFFECT_TURN_TIMING_LABELS,
+  triggerEventHasRole,
 } from '@vtt/shared/system/dnd.js';
 
 import {
@@ -32,8 +46,18 @@ import {
   EFFECT_DURATION_STEP_LABELS,
   EFFECT_SUCCESS_OUTCOME_OPTIONS,
   EFFECT_TARGET_DELIVERY_LABELS,
+  SAVE_DC_FIELD_MODE_LABELS,
   ZONE_TRIGGER_LABELS,
 } from './constants';
+import {
+  EFFECT_TRIGGER_ATTACK_OTHER_PARTY_LABELS,
+  EFFECT_TRIGGER_DAMAGE_HALF_GATE,
+  EFFECT_TRIGGER_DAMAGE_HALF_LABEL,
+  EFFECT_TRIGGER_GATE_LABELS,
+  EFFECT_TRIGGER_PERIOD_LABELS,
+  EFFECT_TRIGGER_RECIPIENT_LABELS,
+  EFFECT_TRIGGER_ROLE_LABELS,
+} from './triggerLabels';
 
 /** Моменты срабатывания зоны и ауры в порядке показа */
 const EFFECT_TRIGGER_ORDER: readonly AreaEffectTrigger[] = [
@@ -263,4 +287,90 @@ export const EFFECT_AURA_TARGET_OPTIONS: ReadonlyArray<
   { value: 'allies', label: EFFECT_AURA_LABELS.targetAllies },
   { value: 'enemies', label: EFFECT_AURA_LABELS.targetEnemies },
   { value: 'all', label: EFFECT_AURA_LABELS.targetAll },
+];
+
+/** Режимы поля Сл: Сл источника или своё число */
+export const SAVE_DC_FIELD_MODE_OPTIONS: ReadonlyArray<
+  EffectSegmentOption<SaveDcFieldMode>
+> = [
+  { value: 'auto', label: SAVE_DC_FIELD_MODE_LABELS.auto },
+  { value: 'manual', label: SAVE_DC_FIELD_MODE_LABELS.manual },
+];
+
+/** Разделитель источника Сл и её числа в режиме «Авто» («Сл заклинателя · 15») */
+export const SAVE_DC_AUTO_SEPARATOR = ' · ';
+
+/** Состояние нового действия «Наложить состояние» */
+export const DEFAULT_TRIGGER_CONDITION: ConditionRef = 'poisoned';
+
+/** Период нового лимита «не чаще N раз» */
+export const DEFAULT_TRIGGER_LIMIT_PERIOD: EffectTriggerLimitPeriod = 'turn';
+
+/** Исход урона в строке срабатывания: гейт либо «успех — половина» */
+export type EffectTriggerDamageGateChoice =
+  EffectTriggerActionGate | typeof EFFECT_TRIGGER_DAMAGE_HALF_GATE;
+
+/** Варианты роли субъекта в броске атаки */
+export const EFFECT_TRIGGER_ROLE_OPTIONS: ReadonlyArray<
+  EffectSegmentOption<EffectTriggerAttackRole>
+> = EFFECT_TRIGGER_ATTACK_ROLES.map((attackRole) => ({
+  value: attackRole,
+  label: EFFECT_TRIGGER_ROLE_LABELS[attackRole],
+}));
+
+/**
+ * Варианты получателя действий срабатывания. «Другая сторона» подписана по
+ * событию: у урона — кто его нанёс, у броска атаки — цель или атакующий.
+ *
+ * @param trigger - событие и роль строки
+ * @returns варианты
+ */
+export function buildTriggerRecipientOptions(
+  trigger: Pick<EffectTrigger, 'event' | 'role'>,
+): EffectSegmentOption<EffectTriggerRecipient>[] {
+  const labels: Record<EffectTriggerRecipient, string> = triggerEventHasRole(
+    trigger.event,
+  )
+    ? {
+        ...EFFECT_TRIGGER_RECIPIENT_LABELS,
+        other:
+          EFFECT_TRIGGER_ATTACK_OTHER_PARTY_LABELS[
+            trigger.role ?? DEFAULT_TRIGGER_ATTACK_ROLE
+          ],
+      }
+    : EFFECT_TRIGGER_RECIPIENT_LABELS;
+
+  return EFFECT_TRIGGER_RECIPIENTS.map((recipient) => ({
+    value: recipient,
+    label: labels[recipient],
+  }));
+}
+
+/** Варианты периода лимита */
+export const EFFECT_TRIGGER_PERIOD_OPTIONS: ReadonlyArray<
+  EffectSegmentOption<EffectTriggerLimitPeriod>
+> = EFFECT_TRIGGER_LIMIT_PERIODS.map((period) => ({
+  value: period,
+  label: EFFECT_TRIGGER_PERIOD_LABELS[period],
+}));
+
+/** Варианты исхода действия относительно спасброска */
+export const EFFECT_TRIGGER_GATE_OPTIONS: ReadonlyArray<
+  EffectSegmentOption<EffectTriggerActionGate>
+> = EFFECT_TRIGGER_ACTION_GATES.map((gate) => ({
+  value: gate,
+  label: EFFECT_TRIGGER_GATE_LABELS[gate],
+}));
+
+/** Варианты исхода урона: «успех — половина» — отдельный вариант */
+export const EFFECT_TRIGGER_DAMAGE_GATE_OPTIONS: ReadonlyArray<
+  EffectSegmentOption<EffectTriggerDamageGateChoice>
+> = [
+  { value: 'failed', label: EFFECT_TRIGGER_GATE_LABELS.failed },
+  {
+    value: EFFECT_TRIGGER_DAMAGE_HALF_GATE,
+    label: EFFECT_TRIGGER_DAMAGE_HALF_LABEL,
+  },
+  { value: 'always', label: EFFECT_TRIGGER_GATE_LABELS.always },
+  { value: 'saved', label: EFFECT_TRIGGER_GATE_LABELS.saved },
 ];

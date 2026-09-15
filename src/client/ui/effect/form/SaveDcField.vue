@@ -8,9 +8,15 @@
 
   import { computed } from 'vue';
 
-  import { DEFAULT_EFFECT_SAVE_DC } from '@vtt/shared/system/dnd.js';
+  import {
+    DEFAULT_EFFECT_SAVE_DC,
+    SOURCE_SAVE_DC,
+  } from '@vtt/shared/system/dnd.js';
 
-  import { SAVE_DC_FIELD_MODE_LABELS } from '../constants';
+  import {
+    SAVE_DC_AUTO_SEPARATOR,
+    SAVE_DC_FIELD_MODE_OPTIONS,
+  } from '../effectFormOptions';
 
   const props = defineProps<{
     /** Подпись поля */
@@ -25,25 +31,21 @@
     autoValue?: number;
   }>();
 
-  /** Сл: 0 — «Авто» */
+  /** Сл: `SOURCE_SAVE_DC` — «Авто» */
   const dc = defineModel<number>({ required: true });
 
-  const modeItems: Array<{ label: string; value: SaveDcFieldMode }> = [
-    { label: SAVE_DC_FIELD_MODE_LABELS.auto, value: 'auto' },
-    { label: SAVE_DC_FIELD_MODE_LABELS.manual, value: 'manual' },
-  ];
-
   const mode = computed<SaveDcFieldMode>({
-    get: () => (props.autoAllowed && dc.value === 0 ? 'auto' : 'manual'),
+    get: () =>
+      props.autoAllowed && dc.value === SOURCE_SAVE_DC ? 'auto' : 'manual',
     set: (nextMode) => {
       if (nextMode === 'auto') {
-        dc.value = 0;
+        dc.value = SOURCE_SAVE_DC;
 
         return;
       }
 
       // Своё число начинается с того, что сейчас дал бы источник
-      if (dc.value === 0) {
+      if (dc.value === SOURCE_SAVE_DC) {
         dc.value = props.autoValue ?? DEFAULT_EFFECT_SAVE_DC;
       }
     },
@@ -64,7 +66,7 @@
 
     return props.autoValue === undefined
       ? label
-      : `${label} · ${props.autoValue}`;
+      : `${label}${SAVE_DC_AUTO_SEPARATOR}${props.autoValue}`;
   });
 </script>
 
@@ -78,7 +80,7 @@
       <USelect
         v-if="autoAllowed"
         v-model="mode"
-        :items="modeItems"
+        :items="SAVE_DC_FIELD_MODE_OPTIONS"
         value-key="value"
         size="sm"
         class="w-28"

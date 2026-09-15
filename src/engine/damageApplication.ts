@@ -45,7 +45,11 @@ import {
   getEntityConditionImmunities,
   resolveActorStats,
 } from './effectPipeline.js';
-import { parseTriggerUsage, readTriggerUsage } from './effectTriggerUsage.js';
+import {
+  parseTriggerUsage,
+  readTriggerUsage,
+  writeTriggerUsage,
+} from './effectTriggerUsage.js';
 import { buildFormulaContext } from './formulaParser.js';
 import {
   resolveEntityCurrentHp,
@@ -351,8 +355,7 @@ export function applyCombatState(
   entity.activeEffects = nextEffects;
 
   if (nextUsage !== undefined) {
-    entity.system.effectUsage =
-      Object.keys(nextUsage).length > 0 ? nextUsage : undefined;
+    writeTriggerUsage(entity, nextUsage);
   }
 
   return true;

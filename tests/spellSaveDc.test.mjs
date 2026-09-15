@@ -2,16 +2,17 @@ import assert from 'node:assert/strict';
 
 import { describe, it } from 'vitest';
 
-import { loadEngineBundle } from './helpers/engineBundle.mjs';
+import {
+  change,
+  createActor,
+  createEffect,
+  engine,
+} from './scenarios/_fixtures.mjs';
 
 /**
  * Сл спасброска конкретного заклинания: своя Сл заклинания, характеристика
  * заклинания и настройка листа.
  */
-
-const engine = await loadEngineBundle(`
-  export * from './src/engine/index.ts';
-`);
 
 /** Мудрость 16 (+3), Харизма 14 (+2), Интеллект 10 */
 const ABILITIES = {
@@ -28,23 +29,21 @@ const SHEET_BASE_SETTINGS = {
 };
 
 /**
- * Персонаж с полями системы.
+ * Заклинатель с характеристиками {@link ABILITIES} и полями системы.
  *
  * @param {object} system - поля системы поверх умолчания
  * @param {object[]} activeEffects - эффекты персонажа
  * @returns {object} персонаж
  */
-function createActor(system = {}, activeEffects = []) {
-  return {
-    ...structuredClone(engine.DEFAULT_ACTOR),
-    id: 'actor_caster',
+function createCaster(system = {}, activeEffects = []) {
+  return createActor({
     activeEffects,
     system: {
       ...structuredClone(engine.DEFAULT_ACTOR.system),
       abilities: ABILITIES,
       ...system,
     },
-  };
+  });
 }
 
 /**
@@ -64,29 +63,29 @@ function spellDc(actor, spell = {}) {
 
 describe('сл спасброска заклинания', () => {
   it('без класса и настроек Сл нет', () => {
-    assert.equal(spellDc(createActor()), 0);
+    assert.equal(spellDc(createCaster()), 0);
   });
 
   it('своя Сл листа доходит до заклинания', () => {
     assert.equal(
-      spellDc(createActor({ spellcastingSettings: SHEET_BASE_SETTINGS })),
+      spellDc(createCaster({ spellcastingSettings: SHEET_BASE_SETTINGS })),
       15,
     );
   });
 
   it('характеристика листа без класса: 8 + мастерство + модификатор', () => {
-    assert.equal(spellDc(createActor({ spellcastingAbility: 'wisdom' })), 13);
+    assert.equal(spellDc(createCaster({ spellcastingAbility: 'wisdom' })), 13);
   });
 
   it('у листа без заклинательства характеристика заклинания даёт полную Сл, а не разницу модификаторов', () => {
     assert.equal(
-      spellDc(createActor(), { spellcastingAbility: 'charisma' }),
+      spellDc(createCaster(), { spellcastingAbility: 'charisma' }),
       12,
     );
   });
 
   it('класс по Мудрости, заклинание по Харизме — меняется модификатор', () => {
-    const actor = createActor({
+    const actor = createCaster({
       classes: [
         { classKey: 'cleric', level: 1, spellcastingAbility: 'wisdom' },
       ],
@@ -97,7 +96,7 @@ describe('сл спасброска заклинания', () => {
   });
 
   it('своё число листа — это число: от характеристики заклинания не меняется', () => {
-    const actor = createActor({
+    const actor = createCaster({
       classes: [
         { classKey: 'cleric', level: 1, spellcastingAbility: 'wisdom' },
       ],
@@ -108,19 +107,12 @@ describe('сл спасброска заклинания', () => {
   });
 
   it('прибавка эффектов к Сл листа достаётся и заклинанию со своей характеристикой', () => {
-    const rod = {
-      id: 'rod',
+    const rod = createEffect('rod', {
       name: 'Жезл договора',
-      description: '',
-      disabled: false,
-      origin: 'manual',
-      transfer: false,
-      duration: { type: 'permanent' },
-      changes: [{ key: 'spellSaveDC', mode: 'add', value: '1', priority: 20 }],
-      flags: [],
-    };
+      changes: [change('spellSaveDC', '1')],
+    });
 
-    const actor = createActor(
+    const actor = createCaster(
       {
         classes: [
           { classKey: 'warlock', level: 1, spellcastingAbility: 'charisma' },
@@ -134,14 +126,14 @@ describe('сл спасброска заклинания', () => {
   });
 
   it('своя Сл заклинания главнее персонажа', () => {
-    const actor = createActor({
+    const actor = createCaster({
       classes: [
         { classKey: 'cleric', level: 5, spellcastingAbility: 'wisdom' },
       ],
     });
 
     assert.equal(spellDc(actor, { saveDC: 15, attackAbility: 'charisma' }), 15);
-    assert.equal(spellDc(createActor(), { saveDC: 15 }), 15);
+    assert.equal(spellDc(createCaster(), { saveDC: 15 }), 15);
   });
 
   it('своя Сл — только целое число от 1', () => {

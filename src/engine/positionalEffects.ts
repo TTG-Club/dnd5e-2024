@@ -31,7 +31,7 @@ import type {
 
 import { generateId } from '@vtt/shared';
 
-import { isDnDEffect } from './activeEffectTypes.js';
+import { ACTIVE_EFFECT_ID_PREFIX, isDnDEffect } from './activeEffectTypes.js';
 import {
   buildAmbientAuraEffectId,
   collectAllAuraEffects,
@@ -54,6 +54,7 @@ import {
   rollTriggerSave,
   settlePresenceTrigger,
 } from './effectTriggerRunner.js';
+import { buildTriggerUsageScope } from './effectTriggerUsage.js';
 
 /**
  * Собирает ID областей, эффекты которых уже применены к актёру.
@@ -416,7 +417,13 @@ export function syncActorAreaEffects(
 
     mergePresenceOutcome(
       outcome,
-      runPresenceEvent(entity, effect, event, `area:${area.id}`, context),
+      runPresenceEvent(
+        entity,
+        effect,
+        event,
+        buildTriggerUsageScope('area', area.id),
+        context,
+      ),
     );
   };
 
@@ -461,7 +468,7 @@ export function syncActorAreaEffects(
 
       entity.activeEffects.push({
         ...effect,
-        id: generateId('ae'),
+        id: generateId(ACTIVE_EFFECT_ID_PREFIX),
         origin: 'area',
         originId: areaId,
         transfer: false,
@@ -647,7 +654,10 @@ export function applyAuraTriggerEffects(
       targetEntity,
       hit.effect,
       event,
-      `aura:${buildAmbientAuraEffectId(hit.effect, hit.sourceTokenId)}`,
+      buildTriggerUsageScope(
+        'aura',
+        buildAmbientAuraEffectId(hit.effect, hit.sourceTokenId),
+      ),
       context,
     );
 

@@ -68,9 +68,9 @@ import {
   isDndSceneEntity,
   mergeAppliedEffects,
   pickCantripTierParts,
-  readSpellOwnSaveDC,
   resolveActorStats,
   resolveAttackRollMode,
+  resolveCreatureSpellSaveDC,
   resolveDamagePartsForCast,
   resolveEntityCreatureType,
   resolveEntityCurrentHp,
@@ -93,7 +93,6 @@ import {
 } from '../composables/rollBonusEvaluator';
 import {
   completeSpellCast,
-  DEFAULT_CREATURE_SPELL_SAVE_DC,
   prepareCasterSpellEffects,
   SPELL_CAST_KEY_PREFIX,
 } from '../composables/spellCastCompletion';
@@ -2092,10 +2091,7 @@ function openCreatureSpellRoll(
   // Существо как заклинатель: Сл блока и модификатор его характеристики.
   // Своя Сл заклинания (жезл, свиток) главнее Сл блока
   const casterSource: SpellCasterSource = {
-    saveDc:
-      readSpellOwnSaveDC(spell)
-      ?? numbers.saveDC
-      ?? DEFAULT_CREATURE_SPELL_SAVE_DC,
+    saveDc: resolveCreatureSpellSaveDC(spell, numbers.saveDC),
     spellMod: getCreatureSpellMod(
       creature,
       getCreatureSpellBlockAbility(creature, placement?.block),

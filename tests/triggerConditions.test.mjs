@@ -8,6 +8,7 @@ import {
   createEffect,
   createZone,
   engine,
+  withHp,
 } from './scenarios/_fixtures.mjs';
 
 /**
@@ -117,9 +118,7 @@ describe('выполнение условий', () => {
   });
 
   it('носитель: окровавлен по хитам, тип существа; нет условия — выполняется', () => {
-    const troll = createCreature();
-
-    troll.system.hitPoints = { ...troll.system.hitPoints, current: 5, max: 40 };
+    const troll = withHp(createCreature, 5, {}, 40);
 
     assert.equal(
       engine.isTriggerConditionMet(
@@ -196,15 +195,9 @@ describe('условие в срабатываниях', () => {
         ],
       });
 
-    const healthy = createCreature({
+    const healthy = withHp(createCreature, 40, {
       activeEffects: [burning('self.hp.value <= (self.hp.max / 2)')],
     });
-
-    healthy.system.hitPoints = {
-      ...healthy.system.hitPoints,
-      current: 40,
-      max: 40,
-    };
 
     assert.equal(
       engine.processTurnEffects(healthy, 'startOfTurn').damageTotal,
@@ -234,7 +227,7 @@ describe('условие в срабатываниях', () => {
       engine.syncActorAreaEffects(
         entity,
         new Set(),
-        new Set(['ca_sanctum']),
+        new Set(zones.map((zone) => zone.id)),
         zones,
       );
 

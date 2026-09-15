@@ -616,7 +616,7 @@ export function useSpellForm(
       saveEffect: saveType.value !== 'none' ? saveEffect.value : undefined,
       attackAbility: attackAbility.value || undefined,
       attackBonus: attackBonus.value || undefined,
-      saveDC: saveDC.value > 0 ? saveDC.value : undefined,
+      saveDC: readSpellOwnSaveDC({ saveDC: saveDC.value }),
 
       scaling: buildScaling(),
       cantripScalingTiers: buildCantripTiers(),

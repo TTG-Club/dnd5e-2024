@@ -379,8 +379,15 @@ export function performTwoStageAttack(
   return output;
 }
 
+/** Режимы броска атаки */
+export const ATTACK_ROLL_MODES = [
+  'normal',
+  'advantage',
+  'disadvantage',
+] as const;
+
 /** Режим броска атаки */
-export type AttackRollMode = 'normal' | 'advantage' | 'disadvantage';
+export type AttackRollMode = (typeof ATTACK_ROLL_MODES)[number];
 
 /** Категория атаки для подбора профильных флагов преимущества/помехи */
 export type AttackFlagCategory = 'melee' | 'ranged' | 'spell';

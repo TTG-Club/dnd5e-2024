@@ -22,23 +22,29 @@
     EffectTriggerTurnOwner,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { EffectTriggerDamageGateChoice } from '../effectFormOptions';
+
   import { computed } from 'vue';
 
   import {
     ABILITY_OPTIONS,
-    DEFAULT_EFFECT_SAVE_DC,
+    createDefaultEffectSave,
+    DEFAULT_EFFECT_SAVE_ABILITY,
     DEFAULT_EFFECT_TAG,
-    EFFECT_TRIGGER_ACTION_GATES,
-    EFFECT_TRIGGER_ATTACK_ROLES,
-    EFFECT_TRIGGER_LIMIT_PERIODS,
-    EFFECT_TRIGGER_RECIPIENTS,
+    DEFAULT_SET_HP_VALUE,
+    DEFAULT_TRIGGER_ATTACK_ROLE,
+    DEFAULT_TRIGGER_RECIPIENT,
+    DEFAULT_TRIGGER_TURN_OWNER,
     isEffectTag,
     isTurnTriggerEvent,
+    layoutAcceptsSourceSaveDc,
     listSelectableConditions,
     listTriggerActionTypes,
+    MIN_TRIGGER_LIMIT_MAX,
     resolveTriggerActionGate,
     triggerEventAcceptsDcFormula,
     triggerEventHasOtherParty,
+    triggerEventHasRole,
     validateFormula,
   } from '@vtt/shared/system/dnd.js';
 
@@ -47,24 +53,24 @@
   import DamagePartsEditor from '../../actor/DamagePartsEditor.vue';
   import { EFFECT_SOURCE_DC_LABELS } from '../constants';
   import {
+    buildTriggerRecipientOptions,
+    DEFAULT_TRIGGER_CONDITION,
+    DEFAULT_TRIGGER_LIMIT_PERIOD,
+    EFFECT_TRIGGER_DAMAGE_GATE_OPTIONS,
+    EFFECT_TRIGGER_GATE_OPTIONS,
+    EFFECT_TRIGGER_PERIOD_OPTIONS,
+    EFFECT_TRIGGER_ROLE_OPTIONS,
+  } from '../effectFormOptions';
+  import {
     EFFECT_TRIGGER_ACTION_ICONS,
     EFFECT_TRIGGER_ACTION_LABELS,
     EFFECT_TRIGGER_DAMAGE_HALF_GATE,
-    EFFECT_TRIGGER_DAMAGE_HALF_LABEL,
     EFFECT_TRIGGER_EVENT_LABELS,
-    EFFECT_TRIGGER_GATE_LABELS,
-    EFFECT_TRIGGER_PERIOD_LABELS,
-    EFFECT_TRIGGER_RECIPIENT_LABELS,
-    EFFECT_TRIGGER_ROLE_LABELS,
     EFFECT_TRIGGER_ROW_LABELS,
     EFFECT_TRIGGER_TURN_OWNER_LABELS,
   } from '../triggerLabels';
   import EffectTriggerConditionPicker from './EffectTriggerConditionPicker.vue';
   import SaveDcField from './SaveDcField.vue';
-
-  /** Исход урона в строке: гейт либо «успех — половина» */
-  type DamageGateChoice =
-    EffectTriggerActionGate | typeof EFFECT_TRIGGER_DAMAGE_HALF_GATE;
 
   const props = defineProps<{
     /** Раскладка окна */
@@ -79,18 +85,10 @@
     remove: [];
   }>();
 
+  /** Строка списка: окно заменяет её целиком при каждой правке */
   const trigger = defineModel<EffectTrigger>('trigger', { required: true });
 
   const systemDataStore = useSystemDataStore();
-
-  /** Характеристика нового спасброска */
-  const DEFAULT_SAVE_ABILITY: AbilityType = 'wisdom';
-
-  /** Состояние нового действия «наложить состояние» */
-  const DEFAULT_CONDITION: ConditionRef = 'poisoned';
-
-  /** Период нового лимита */
-  const DEFAULT_LIMIT_PERIOD: EffectTriggerLimitPeriod = 'turn';
 
   const damageTypeOptions = computed(() =>
     systemDataStore.damageTypes.map((damageType) => ({
@@ -105,24 +103,19 @@
    */
   const eventItems = computed(() =>
     [...new Set([...props.layout.triggerEvents, trigger.value.event])].map(
-      (event) => ({
-        value: event,
-        label: EFFECT_TRIGGER_EVENT_LABELS[event] ?? event,
+      (triggerEvent) => ({
+        value: triggerEvent,
+        label: EFFECT_TRIGGER_EVENT_LABELS[triggerEvent] ?? triggerEvent,
       }),
     ),
   );
-
-  const roleItems = EFFECT_TRIGGER_ATTACK_ROLES.map((role) => ({
-    value: role,
-    label: EFFECT_TRIGGER_ROLE_LABELS[role],
-  }));
 
   /** Чей ход в выборе: доступные здесь и то, что уже стоит в данных */
   const turnOwnerItems = computed(() =>
     [
       ...new Set([
         ...props.layout.triggerTurnOwners,
-        trigger.value.turnOf ?? 'subject',
+        trigger.value.turnOf ?? DEFAULT_TRIGGER_TURN_OWNER,
       ]),
     ].map((owner) => ({
       value: owner,
@@ -136,31 +129,11 @@
       && turnOwnerItems.value.length > 1,
   );
 
-  const periodItems = EFFECT_TRIGGER_LIMIT_PERIODS.map((period) => ({
-    value: period,
-    label: EFFECT_TRIGGER_PERIOD_LABELS[period],
-  }));
-
-  const gateItems = EFFECT_TRIGGER_ACTION_GATES.map((gate) => ({
-    value: gate,
-    label: EFFECT_TRIGGER_GATE_LABELS[gate],
-  }));
-
-  const damageGateItems: Array<{ value: DamageGateChoice; label: string }> = [
-    { value: 'failed', label: EFFECT_TRIGGER_GATE_LABELS.failed },
-    {
-      value: EFFECT_TRIGGER_DAMAGE_HALF_GATE,
-      label: EFFECT_TRIGGER_DAMAGE_HALF_LABEL,
-    },
-    { value: 'always', label: EFFECT_TRIGGER_GATE_LABELS.always },
-    { value: 'saved', label: EFFECT_TRIGGER_GATE_LABELS.saved },
-  ];
-
   // Список вычисляемый: кроме канона в него входят состояния, заведённые в мире
   const conditionItems = computed(() =>
-    listSelectableConditions().map((condition) => ({
-      value: condition.key,
-      label: condition.nameRu,
+    listSelectableConditions().map((conditionEntry) => ({
+      value: conditionEntry.key,
+      label: conditionEntry.nameRu,
     })),
   );
 
@@ -172,10 +145,15 @@
     triggerEventHasOtherParty(trigger.value.event),
   );
 
-  const recipientItems = EFFECT_TRIGGER_RECIPIENTS.map((recipient) => ({
-    value: recipient,
-    label: EFFECT_TRIGGER_RECIPIENT_LABELS[recipient],
-  }));
+  const showsRole = computed(() => triggerEventHasRole(trigger.value.event));
+
+  const recipientItems = computed(() =>
+    buildTriggerRecipientOptions(trigger.value),
+  );
+
+  const acceptsSourceSaveDc = computed(() =>
+    layoutAcceptsSourceSaveDc(props.layout),
+  );
 
   const allowedActions = computed(() =>
     listTriggerActionTypes(props.layout, trigger.value.event),
@@ -216,10 +194,9 @@
 
       update({
         event: next,
-        role:
-          next === 'attackRoll'
-            ? (trigger.value.role ?? 'attacker')
-            : undefined,
+        role: triggerEventHasRole(next)
+          ? (trigger.value.role ?? DEFAULT_TRIGGER_ATTACK_ROLE)
+          : undefined,
         turnOf: isTurnTriggerEvent(next) ? trigger.value.turnOf : undefined,
         recipient: triggerEventHasOtherParty(next)
           ? trigger.value.recipient
@@ -236,23 +213,25 @@
    * Спасбросок без формулы Сл, если новое событие её не знает.
    *
    * @param save - спасбросок строки
-   * @param event - новое событие
+   * @param nextEvent - новое событие
    * @returns спасбросок для события
    */
   function withEventDcFormula(
     save: NonNullable<EffectTrigger['save']>,
-    event: EffectTriggerEvent,
+    nextEvent: EffectTriggerEvent,
   ): NonNullable<EffectTrigger['save']> {
     const { dcFormula: _formula, ...rest } = save;
 
-    return triggerEventAcceptsDcFormula(event) ? save : rest;
+    return triggerEventAcceptsDcFormula(nextEvent) ? save : rest;
   }
 
-  // Субъект — значение по умолчанию: в данных он не пишется
+  // Получатель по умолчанию в данных не пишется
   const recipient = computed({
-    get: () => trigger.value.recipient ?? 'subject',
+    get: () => trigger.value.recipient ?? DEFAULT_TRIGGER_RECIPIENT,
     set: (next: EffectTriggerRecipient) =>
-      update({ recipient: next === 'subject' ? undefined : next }),
+      update({
+        recipient: next === DEFAULT_TRIGGER_RECIPIENT ? undefined : next,
+      }),
   });
 
   const dcFormula = computed({
@@ -281,15 +260,17 @@
   });
 
   const role = computed({
-    get: () => trigger.value.role ?? 'attacker',
+    get: () => trigger.value.role ?? DEFAULT_TRIGGER_ATTACK_ROLE,
     set: (next: EffectTriggerAttackRole) => update({ role: next }),
   });
 
   // Ход носителя — значение по умолчанию: в данных он не пишется
   const turnOf = computed({
-    get: () => trigger.value.turnOf ?? 'subject',
+    get: () => trigger.value.turnOf ?? DEFAULT_TRIGGER_TURN_OWNER,
     set: (next: EffectTriggerTurnOwner) =>
-      update({ turnOf: next === 'subject' ? undefined : next }),
+      update({
+        turnOf: next === DEFAULT_TRIGGER_TURN_OWNER ? undefined : next,
+      }),
   });
 
   const hasSave = computed({
@@ -297,12 +278,7 @@
     set: (enabled: boolean) => {
       update(
         enabled
-          ? {
-              save: {
-                ability: DEFAULT_SAVE_ABILITY,
-                dc: props.layout.minSaveDc === 0 ? 0 : DEFAULT_EFFECT_SAVE_DC,
-              },
-            }
+          ? { save: createDefaultEffectSave(props.layout) }
           : {
               save: undefined,
               // Без спасброска «при успехе» не наступило бы никогда
@@ -313,7 +289,7 @@
   });
 
   const saveAbility = computed({
-    get: () => trigger.value.save?.ability ?? DEFAULT_SAVE_ABILITY,
+    get: () => trigger.value.save?.ability ?? DEFAULT_EFFECT_SAVE_ABILITY,
     set: (ability: AbilityType) => {
       if (trigger.value.save) {
         update({ save: { ...trigger.value.save, ability } });
@@ -368,11 +344,11 @@
       case 'damage':
         return { type, parts: [] };
       case 'applyCondition':
-        return { type, conditionKey: DEFAULT_CONDITION };
+        return { type, conditionKey: DEFAULT_TRIGGER_CONDITION };
       case 'applyTag':
         return { type, tag: DEFAULT_EFFECT_TAG };
       case 'setHp':
-        return { type, value: 1 };
+        return { type, value: DEFAULT_SET_HP_VALUE };
       default:
         return { type };
     }
@@ -403,7 +379,9 @@
    * @param action - действие урона
    * @returns вариант
    */
-  function damageGateOf(action: EffectTriggerAction): DamageGateChoice {
+  function damageGateOf(
+    action: EffectTriggerAction,
+  ): EffectTriggerDamageGateChoice {
     return action.type === 'damage' && action.halfOnSave
       ? EFFECT_TRIGGER_DAMAGE_HALF_GATE
       : gateOf(action);
@@ -415,7 +393,10 @@
    * @param index - номер действия
    * @param choice - выбранный исход
    */
-  function selectGate(index: number, choice: DamageGateChoice): void {
+  function selectGate(
+    index: number,
+    choice: EffectTriggerDamageGateChoice,
+  ): void {
     const action = withoutGate(trigger.value.actions[index]);
 
     if (choice === EFFECT_TRIGGER_DAMAGE_HALF_GATE) {
@@ -550,21 +531,25 @@
     get: () => trigger.value.limit !== undefined,
     set: (enabled: boolean) =>
       update({
-        limit: enabled ? { max: 1, per: DEFAULT_LIMIT_PERIOD } : undefined,
+        limit: enabled
+          ? { max: MIN_TRIGGER_LIMIT_MAX, per: DEFAULT_TRIGGER_LIMIT_PERIOD }
+          : undefined,
       }),
   });
 
   const limitMax = computed({
-    get: () => trigger.value.limit?.max ?? 1,
+    get: () => trigger.value.limit?.max ?? MIN_TRIGGER_LIMIT_MAX,
     set: (max: number | null) => {
       if (trigger.value.limit) {
-        update({ limit: { ...trigger.value.limit, max: max ?? 1 } });
+        update({
+          limit: { ...trigger.value.limit, max: max ?? MIN_TRIGGER_LIMIT_MAX },
+        });
       }
     },
   });
 
   const limitPer = computed({
-    get: () => trigger.value.limit?.per ?? DEFAULT_LIMIT_PERIOD,
+    get: () => trigger.value.limit?.per ?? DEFAULT_TRIGGER_LIMIT_PERIOD,
     set: (per: EffectTriggerLimitPeriod) => {
       if (trigger.value.limit) {
         update({ limit: { ...trigger.value.limit, per } });
@@ -591,13 +576,13 @@
       </UFormField>
 
       <UFormField
-        v-if="trigger.event === 'attackRoll'"
+        v-if="showsRole"
         :label="EFFECT_TRIGGER_ROW_LABELS.role"
         class="w-48"
       >
         <USelect
           v-model="role"
-          :items="roleItems"
+          :items="EFFECT_TRIGGER_ROLE_OPTIONS"
           value-key="value"
           size="sm"
           class="w-full"
@@ -678,7 +663,7 @@
       <SaveDcField
         v-model="saveDc"
         :label="EFFECT_TRIGGER_ROW_LABELS.saveDc"
-        :auto-allowed="layout.minSaveDc === 0"
+        :auto-allowed="acceptsSourceSaveDc"
         :auto-label="EFFECT_SOURCE_DC_LABELS[layout.context]"
         :auto-value="sourceSaveDc"
       />
@@ -729,7 +714,7 @@
           <USelect
             v-if="trigger.save && action.type === 'damage'"
             :model-value="damageGateOf(action)"
-            :items="damageGateItems"
+            :items="EFFECT_TRIGGER_DAMAGE_GATE_OPTIONS"
             value-key="value"
             size="xs"
             class="w-64"
@@ -741,7 +726,7 @@
           <USelect
             v-else-if="trigger.save"
             :model-value="gateOf(action)"
-            :items="gateItems"
+            :items="EFFECT_TRIGGER_GATE_OPTIONS"
             value-key="value"
             size="xs"
             class="w-40"
@@ -802,7 +787,7 @@
               "
               size="sm"
               class="w-full"
-              @update:model-value="updateActionRounds(index, $event ?? null)"
+              @update:model-value="updateActionRounds(index, $event)"
             />
           </UFormField>
         </div>
@@ -817,7 +802,7 @@
             :min="0"
             size="sm"
             class="w-full"
-            @update:model-value="updateSetHp(index, $event ?? null)"
+            @update:model-value="updateSetHp(index, $event)"
           />
         </UFormField>
 
@@ -861,7 +846,7 @@
               :placeholder="EFFECT_TRIGGER_ROW_LABELS.tagRoundsPlaceholder"
               size="sm"
               class="w-full"
-              @update:model-value="updateActionRounds(index, $event ?? null)"
+              @update:model-value="updateActionRounds(index, $event)"
             />
           </UFormField>
         </div>
@@ -893,7 +878,7 @@
       <template v-if="trigger.limit">
         <UInputNumber
           v-model="limitMax"
-          :min="1"
+          :min="MIN_TRIGGER_LIMIT_MAX"
           size="sm"
           class="w-24"
         />
@@ -904,7 +889,7 @@
 
         <USelect
           v-model="limitPer"
-          :items="periodItems"
+          :items="EFFECT_TRIGGER_PERIOD_OPTIONS"
           value-key="value"
           size="sm"
           class="w-44"

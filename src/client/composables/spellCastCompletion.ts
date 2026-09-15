@@ -49,9 +49,6 @@ export interface SpellCasterSource {
 /** Приставка ключа каста (см. {@link SpellCastCompletionInput.castKey}) */
 export const SPELL_CAST_KEY_PREFIX = 'cast';
 
-/** Сл заклинаний существа, у которого не задано заклинательство */
-export const DEFAULT_CREATURE_SPELL_SAVE_DC = 10;
-
 /** Сколько применённых кастов помнить, чтобы не применить один дважды */
 const COMPLETED_CAST_MEMORY = 200;
 

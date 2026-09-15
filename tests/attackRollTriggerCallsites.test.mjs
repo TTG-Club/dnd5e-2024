@@ -1,36 +1,15 @@
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 
 import { it } from 'vitest';
+
+import { listClientSources, toSystemPath } from './helpers/clientSources.mjs';
 
 /**
  * Каждое окно броска атаки знает атакующего: иначе срабатывания «следующей
  * атаки» не расходуются. Так было с листов персонажа и существа — расход
  * делали только макросы хотбара.
  */
-
-const systemRoot = fileURLToPath(new URL('../', import.meta.url));
-const clientRoot = join(systemRoot, 'src/client');
-
-/**
- * Исходники клиента.
- *
- * @param {string} directory - каталог
- * @returns {string[]} пути к .ts и .vue
- */
-function listSources(directory) {
-  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(directory, entry.name);
-
-    if (entry.isDirectory()) {
-      return listSources(path);
-    }
-
-    return /\.(?:ts|vue)$/u.test(entry.name) ? [path] : [];
-  });
-}
 
 /**
  * Объектный литерал, начинающийся с `{` на позиции `start`.
@@ -82,14 +61,14 @@ it('окно броска атаки везде получает атакующ�
 
   let attackModals = 0;
 
-  for (const path of listSources(clientRoot)) {
+  for (const path of listClientSources()) {
     const text = readFileSync(path, 'utf8');
 
     for (const modal of listAttackRollModals(text)) {
       attackModals += 1;
 
       if (!modal.body.includes(modal.attackerKey)) {
-        missing.push(relative(systemRoot, path));
+        missing.push(toSystemPath(path));
       }
     }
   }
@@ -99,7 +78,7 @@ it('окно броска атаки везде получает атакующ�
 });
 
 it('расход «следующей атаки» не собирается снова по вызывающим', () => {
-  const leftovers = listSources(clientRoot).filter((path) =>
+  const leftovers = listClientSources().filter((path) =>
     /onAttackRolled|consumeAttackRollEffects/u.test(readFileSync(path, 'utf8')),
   );
 

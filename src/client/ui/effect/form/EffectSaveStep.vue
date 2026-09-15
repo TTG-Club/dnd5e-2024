@@ -15,6 +15,8 @@
 
   import {
     ABILITY_OPTIONS,
+    DEFAULT_EFFECT_SAVE_ABILITY,
+    layoutAcceptsSourceSaveDc,
     readEffectSuccessOutcome,
     writeEffectSaveEnabled,
     writeEffectSuccessOutcome,
@@ -111,8 +113,12 @@
     }
   }
 
+  const acceptsSourceSaveDc = computed(() =>
+    layoutAcceptsSourceSaveDc(props.layout),
+  );
+
   const saveAbility = computed({
-    get: () => effect.value.applySave?.ability ?? 'wisdom',
+    get: () => effect.value.applySave?.ability ?? DEFAULT_EFFECT_SAVE_ABILITY,
     set: (ability: AbilityType) => updateSave({ ability }),
   });
 
@@ -158,7 +164,7 @@
       <SaveDcField
         v-model="saveDc"
         :label="FORM_FIELD_LABELS.saveDc"
-        :auto-allowed="layout.minSaveDc === 0"
+        :auto-allowed="acceptsSourceSaveDc"
         :auto-label="EFFECT_SOURCE_DC_LABELS[layout.context]"
         :auto-value="sourceSaveDc"
       />

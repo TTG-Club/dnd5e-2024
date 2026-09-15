@@ -12,6 +12,8 @@ import type { TurnDamageOutcome } from './turnEffects.js';
 
 import { z } from 'zod';
 
+import { parseEachValid } from './lenientParse.js';
+
 /** Удар: урон события, его типы, крит и кто бил */
 export interface DamageHit extends TriggerDamageData {
   /** Кто нанёс урон — другая сторона события */
@@ -40,15 +42,7 @@ const DamageHitSchema = z.object({
  * @returns удары
  */
 export function parseDamageHits(value: unknown): DamageHit[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.slice(0, MAX_DAMAGE_HITS).flatMap((item) => {
-    const parsed = DamageHitSchema.safeParse(item);
-
-    return parsed.success ? [parsed.data] : [];
-  });
+  return parseEachValid(DamageHitSchema, value).slice(0, MAX_DAMAGE_HITS);
 }
 
 /**
