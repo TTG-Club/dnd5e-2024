@@ -35,6 +35,7 @@ import type {
   DEATH_CONDITION_KEY,
 } from './conditionKeys.js';
 import type { DnDCustomBonusContext } from './customBonuses.js';
+import type { EffectTrigger } from './effectTriggerTypes.js';
 
 import { z } from 'zod';
 
@@ -46,6 +47,14 @@ import {
   DAMAGE_TYPE_LABELS,
   DAMAGE_TYPES,
 } from './damageConstants.js';
+import {
+  EFFECT_TRIGGER_ACTION_GATES,
+  EFFECT_TRIGGER_ATTACK_ROLES,
+  EFFECT_TRIGGER_EVENTS,
+  EFFECT_TRIGGER_LIMIT_PERIODS,
+  EFFECT_TRIGGER_RESERVED_EVENTS,
+  EFFECT_TRIGGER_TURN_OWNERS,
+} from './effectTriggerTypes.js';
 
 export type {
   AreaEffectTrigger,
@@ -1203,6 +1212,14 @@ export interface ActiveEffect extends BaseActiveEffect {
   recurringDamage?: RecurringDamage;
 
   /**
+   * Срабатывания, которых не выражают старые поля (урон каждый ход, повторный
+   * спасбросок, снятие после атаки): лимит «раз в ход», состояние на ходу,
+   * ход источника. Старые поля читаются как срабатывания `legacy.*` —
+   * `collectEffectTriggers` (`effectTriggers.ts`).
+   */
+  triggers?: EffectTrigger[];
+
+  /**
    * Состояния, к которым эффект даёт иммунитет (напр. вид-грант «иммунитет к
    * отравлению»). У актёров нет `system.defenses` — иммунитет к состояниям
    * приходит именно отсюда; собирается `getEntityConditionImmunities`.
@@ -1591,6 +1608,72 @@ const RecurringDamageSchema = z.object({
   save: EffectSaveSchema.optional(),
 });
 
+/** Zod-схема спасброска срабатывания */
+const EffectTriggerSaveSchema = z.object({
+  ability: z.enum(SAVE_ABILITY_VALUES),
+  dc: EffectSaveDcSchema,
+});
+
+/** Zod-схема гейта действия срабатывания */
+const EffectTriggerGateSchema = z
+  .enum(EFFECT_TRIGGER_ACTION_GATES)
+  .optional()
+  .catch(undefined);
+
+/** Zod-схема действия срабатывания */
+const EffectTriggerActionSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('damage'),
+    parts: z.array(EffectDamagePartSchema),
+    on: EffectTriggerGateSchema,
+    halfOnSave: z.literal(true).optional().catch(undefined),
+  }),
+  z.object({ type: z.literal('applySelf'), on: EffectTriggerGateSchema }),
+  z.object({
+    type: z.literal('applyCondition'),
+    conditionKey: z.string().min(1),
+    duration: EffectDurationSchema.optional().catch(undefined),
+    on: EffectTriggerGateSchema,
+  }),
+  z.object({ type: z.literal('removeSelf'), on: EffectTriggerGateSchema }),
+]);
+
+/** Zod-схема лимита срабатывания */
+const EffectTriggerLimitSchema = z.object({
+  max: z.preprocess(coerceOptionalNumber, z.number().int().min(1)),
+  per: z.enum(EFFECT_TRIGGER_LIMIT_PERIODS),
+  key: z.string().min(1).optional().catch(undefined),
+});
+
+/**
+ * Zod-схема срабатывания. События следующих фаз разбираются, чтобы версия без
+ * их поддержки не стирала их у записи.
+ */
+const EffectTriggerSchema = z.object({
+  id: z.string().min(1),
+  event: z.enum([...EFFECT_TRIGGER_EVENTS, ...EFFECT_TRIGGER_RESERVED_EVENTS]),
+  turnOf: z.enum(EFFECT_TRIGGER_TURN_OWNERS).optional().catch(undefined),
+  role: z.enum(EFFECT_TRIGGER_ATTACK_ROLES).optional().catch(undefined),
+  condition: z.string().min(1).optional().catch(undefined),
+  save: EffectTriggerSaveSchema.optional(),
+  actions: z.array(EffectTriggerActionSchema).min(1),
+  limit: EffectTriggerLimitSchema.optional().catch(undefined),
+});
+
+/**
+ * Zod-схема списка срабатываний.
+ *
+ * Срабатывания разбираются ПО ОДНОМУ: незнакомое событие или действие
+ * выбрасывает одно срабатывание, а не эффект и не весь снимок сущности.
+ */
+const EffectTriggersSchema = z.array(z.unknown()).transform((items) =>
+  items.flatMap((item) => {
+    const parsed = EffectTriggerSchema.safeParse(item);
+
+    return parsed.success ? [parsed.data] : [];
+  }),
+);
+
 /**
  * Проверяет, что строка — известный флаг эффекта.
  *
@@ -1665,6 +1748,7 @@ export const ActiveEffectSchema = z.object({
   damageParts: z.array(EffectDamagePartSchema).optional(),
   recurringSave: RecurringSaveSchema.optional(),
   recurringDamage: RecurringDamageSchema.optional(),
+  triggers: EffectTriggersSchema.optional().catch(undefined),
   conditionImmunities: z.array(z.string().min(1)).optional(),
   exhaustionLevel: z.number().int().min(0).optional(),
 });

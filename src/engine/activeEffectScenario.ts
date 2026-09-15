@@ -9,15 +9,12 @@
  * при провале и что при успехе.
  */
 
-import type {
-  ActiveEffect,
-  EffectAttackTrigger,
-  EffectChange,
-} from './activeEffectTypes.js';
+import type { ActiveEffect, EffectChange } from './activeEffectTypes.js';
 import type {
   EffectFormContext,
   EffectFormLayout,
 } from './effectFormLayout.js';
+import type { EffectTrigger } from './effectTriggerTypes.js';
 
 import {
   describeConditionName,
@@ -32,16 +29,12 @@ import {
   readEffectSuccessOutcome,
   resolveEffectFormLayout,
 } from './effectFormLayout.js';
-
-/** Характеристики в родительном падеже — «спасбросок Телосложения» */
-const ABILITY_GENITIVE_LABELS = {
-  strength: 'Силы',
-  dexterity: 'Ловкости',
-  constitution: 'Телосложения',
-  intelligence: 'Интеллекта',
-  wisdom: 'Мудрости',
-  charisma: 'Харизмы',
-} as const;
+import {
+  ABILITY_GENITIVE_LABELS,
+  describeEffectTrigger,
+} from './effectTriggerDescribe.js';
+import { listEffectListTriggers } from './effectTriggers.js';
+import { LEGACY_TRIGGER_IDS } from './effectTriggerTypes.js';
 
 /** Подписи цели ауры в сводке */
 const AURA_TARGET_SCENARIO_LABELS = {
@@ -92,12 +85,6 @@ const SPELL_ZONE_MOMENT_LABELS = {
   exit: 'При выходе из зоны заклинания',
 } as const;
 
-/** Снятие после атаки — продолжением перечисления */
-const CONSUME_ON_SCENARIO_LABELS: Record<EffectAttackTrigger, string> = {
-  carrierAttack: 'снимается после своей атаки',
-  attackOnCarrier: 'снимается после атаки по носителю',
-};
-
 /** Начало фразы эффекта ауры — по моменту срабатывания */
 const AURA_MOMENT_PREFIXES = {
   stay: 'Существам в ауре ',
@@ -115,23 +102,11 @@ const SCENARIO_LABELS = {
   andJoiner: ' и ',
   listJoiner: ', ',
   emptyEffect: 'эффект пока ничего не делает',
-  everyTurnPrefix: 'каждый ход ',
-  startOfTurn: ' в начале хода',
-  endOfTurn: ' в конце хода',
-  recurringSavePrefix: 'повторный спасбросок ',
-  recurringSaveSuffix: ' снимает эффект',
   immunitiesPrefix: 'иммунитет к состояниям: ',
   actionSaveEffectAnyway: 'Эффект ложится и при успешном спасброске.',
   actionSaveOnlyOnSuccess: ', если цель прошла спасбросок',
   feetSuffix: ' фт',
   more: 'и ещё',
-  damageSaveSuccess: ': успех — ',
-} as const;
-
-/** Что даёт успех спасброска против урона каждый ход */
-const RECURRING_DAMAGE_SUCCESS_LABELS = {
-  negate: 'без урона',
-  half: 'половина урона',
 } as const;
 
 /**
@@ -266,6 +241,30 @@ function describeModifiers(
 }
 
 /**
+ * Показывается ли срабатывание в сводке этого места: старые поля — там, где их
+ * шаг работает, явные срабатывания — всегда.
+ *
+ * @param trigger - срабатывание
+ * @param layout - раскладка окна
+ * @returns `true`, если срабатывание описывается
+ */
+function isTriggerShown(
+  trigger: EffectTrigger,
+  layout: EffectFormLayout,
+): boolean {
+  switch (trigger.id) {
+    case LEGACY_TRIGGER_IDS.recurringDamage:
+      return layout.showRecurringDamage;
+    case LEGACY_TRIGGER_IDS.recurringSave:
+      return layout.showRecurringSave;
+    case LEGACY_TRIGGER_IDS.consumeOn:
+      return layout.showConsumeOn;
+    default:
+      return true;
+  }
+}
+
+/**
  * Что эффект оставляет на том, на кого лёг: состояние, модификаторы, периодику
  * и сроки. Урон срабатывания сюда не входит — он зависит от спасброска иначе.
  *
@@ -298,34 +297,18 @@ function describeLastingPayload(
     );
   }
 
-  if (layout.showRecurringDamage && effect.recurringDamage) {
-    const damage = describeEffectDamageParts(
-      effect.recurringDamage.damageParts,
-    );
-
-    if (damage) {
-      const { save, timing } = effect.recurringDamage;
-
-      const saveClause = save
-        ? ` (${SCENARIO_LABELS.savePrefix}${ABILITY_GENITIVE_LABELS[save.ability]}, ${formatScenarioSaveDc(save.dc, layout.context)}${SCENARIO_LABELS.damageSaveSuccess}${RECURRING_DAMAGE_SUCCESS_LABELS[save.onSuccess]})`
-        : '';
-
-      parts.push(
-        `${SCENARIO_LABELS.everyTurnPrefix}${damage}${SCENARIO_LABELS[timing]}${saveClause}`,
-      );
+  for (const trigger of listEffectListTriggers(effect)) {
+    if (!isTriggerShown(trigger, layout)) {
+      continue;
     }
-  }
 
-  if (layout.showRecurringSave && effect.recurringSave) {
-    const { ability, dc, timing } = effect.recurringSave;
+    const phrase = describeEffectTrigger(trigger, {
+      formatDc: (dc) => formatScenarioSaveDc(dc, layout.context),
+    });
 
-    parts.push(
-      `${SCENARIO_LABELS.recurringSavePrefix}${ABILITY_GENITIVE_LABELS[ability]} ${formatScenarioSaveDc(dc, layout.context)}${SCENARIO_LABELS[timing]}${SCENARIO_LABELS.recurringSaveSuffix}`,
-    );
-  }
-
-  if (layout.showConsumeOn && effect.consumeOn) {
-    parts.push(CONSUME_ON_SCENARIO_LABELS[effect.consumeOn]);
+    if (phrase) {
+      parts.push(phrase);
+    }
   }
 
   const duration =

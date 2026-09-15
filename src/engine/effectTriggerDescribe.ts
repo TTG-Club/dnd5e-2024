@@ -1,0 +1,292 @@
+/**
+ * Фраза срабатывания для сводки эффекта.
+ *
+ * Срабатывания, которые выражает старое поле (урон каждый ход, повторный
+ * спасбросок, снятие после атаки), описываются прежними фразами — сводка
+ * существующих эффектов не меняется. Остальные собираются из частей: когда,
+ * при каком условии, какой спасбросок, что при провале и успехе, как часто.
+ */
+
+import type {
+  EffectTrigger,
+  EffectTriggerAction,
+  EffectTriggerEvent,
+  EffectTriggerLimitPeriod,
+} from './effectTriggerTypes.js';
+
+import {
+  describeConditionName,
+  describeEffectChangeCondition,
+  describeEffectDamageParts,
+  describeEffectDuration,
+} from './activeEffectDescribe.js';
+import {
+  classifyLegacyTrigger,
+  resolveTriggerActionGate,
+} from './effectTriggers.js';
+
+/** Характеристики в родительном падеже — «спасбросок Телосложения» */
+export const ABILITY_GENITIVE_LABELS = {
+  strength: 'Силы',
+  dexterity: 'Ловкости',
+  constitution: 'Телосложения',
+  intelligence: 'Интеллекта',
+  wisdom: 'Мудрости',
+  charisma: 'Харизмы',
+} as const;
+
+/** Что даёт успех спасброска против урона каждый ход */
+const RECURRING_DAMAGE_SUCCESS_LABELS = {
+  negate: 'без урона',
+  half: 'половина урона',
+} as const;
+
+/** Снятие после атаки — продолжением перечисления */
+const CONSUME_ON_LABELS = {
+  attacker: 'снимается после своей атаки',
+  target: 'снимается после атаки по носителю',
+} as const;
+
+/** Когда срабатывает — по событию */
+const TRIGGER_EVENT_LABELS: Record<EffectTriggerEvent, string> = {
+  turnStart: 'в начале хода',
+  turnEnd: 'в конце хода',
+  enter: 'при входе',
+  exit: 'при выходе',
+  applied: 'при наложении',
+  attackRoll: 'при броске атаки',
+  damageTaken: 'при получении урона',
+  hpZero: 'когда хиты падают до 0',
+  rest: 'после отдыха',
+  activate: 'при включении',
+  castEnd: 'когда заклинание заканчивается',
+};
+
+/** Бросок атаки — по роли субъекта */
+const ATTACK_ROLE_EVENT_LABELS = {
+  attacker: 'после своей атаки',
+  target: 'после атаки по носителю',
+} as const;
+
+/** Период лимита — «не чаще … за ход» */
+const LIMIT_PERIOD_LABELS: Record<EffectTriggerLimitPeriod, string> = {
+  turn: 'ход',
+  round: 'раунд',
+  shortRest: 'короткий отдых',
+  longRest: 'долгий отдых',
+};
+
+/** Части фраз срабатывания */
+const TRIGGER_LABELS = {
+  everyTurnPrefix: 'каждый ход ',
+  startOfTurn: ' в начале хода',
+  endOfTurn: ' в конце хода',
+  sourceTurnSuffix: ' источника',
+  damageSaveSuccess: ': успех — ',
+  recurringSavePrefix: 'повторный спасбросок ',
+  recurringSaveSuffix: ' снимает эффект',
+  savePrefix: 'спасбросок ',
+  failurePrefix: 'провал — ',
+  successPrefix: 'успех — ',
+  conditionPrefix: ', если ',
+  halfDamage: 'половина урона',
+  effect: 'эффект',
+  removeSelf: 'эффект снимается',
+  nothing: 'ничего',
+  listJoiner: ', ',
+  clauseJoiner: '; ',
+  limitPrefix: ', не чаще ',
+  limitOnce: 'одного раза',
+  limitTimes: ' раз',
+  limitPeriodPrefix: ' за ',
+} as const;
+
+/** Настройки фразы */
+export interface EffectTriggerDescribeOptions {
+  /** Подпись Сл (0 — Сл источника по месту окна) */
+  formatDc: (dc: number) => string;
+}
+
+/**
+ * Подпись действия.
+ *
+ * @param action - действие
+ * @returns подпись либо пустая строка, если описывать нечего
+ */
+function describeAction(action: EffectTriggerAction): string {
+  switch (action.type) {
+    case 'damage':
+      return describeEffectDamageParts(action.parts);
+    case 'applySelf':
+      return TRIGGER_LABELS.effect;
+    case 'applyCondition': {
+      const name = `«${describeConditionName(action.conditionKey)}»`;
+
+      const duration = action.duration
+        ? describeEffectDuration(action.duration)
+        : null;
+
+      return duration ? `${name} ${duration}` : name;
+    }
+    case 'removeSelf':
+      return TRIGGER_LABELS.removeSelf;
+    default:
+      return '';
+  }
+}
+
+/**
+ * Подпись действий, которые выполнятся при данном исходе спасброска.
+ *
+ * @param trigger - срабатывание
+ * @param saved - пройден ли спасбросок
+ * @returns перечисление либо «ничего»
+ */
+function describeOutcomeActions(
+  trigger: EffectTrigger,
+  saved: boolean,
+): string {
+  const parts = trigger.actions.flatMap((action) => {
+    const gate = resolveTriggerActionGate(trigger, action);
+
+    if (gate === (saved ? 'failed' : 'saved')) {
+      return [];
+    }
+
+    if (saved && action.type === 'damage' && action.halfOnSave) {
+      return [TRIGGER_LABELS.halfDamage];
+    }
+
+    const label = describeAction(action);
+
+    return label ? [label] : [];
+  });
+
+  return parts.length > 0
+    ? parts.join(TRIGGER_LABELS.listJoiner)
+    : TRIGGER_LABELS.nothing;
+}
+
+/**
+ * Когда срабатывает.
+ *
+ * @param trigger - срабатывание
+ * @returns подпись момента
+ */
+function describeMoment(trigger: EffectTrigger): string {
+  if (trigger.event === 'attackRoll' && trigger.role) {
+    return ATTACK_ROLE_EVENT_LABELS[trigger.role];
+  }
+
+  const label = TRIGGER_EVENT_LABELS[trigger.event];
+  const isTurn = trigger.event === 'turnStart' || trigger.event === 'turnEnd';
+
+  return isTurn && trigger.turnOf === 'source'
+    ? `${label}${TRIGGER_LABELS.sourceTurnSuffix}`
+    : label;
+}
+
+/**
+ * Прежняя фраза срабатывания, которое выражает старое поле.
+ *
+ * @param trigger - срабатывание
+ * @param options - настройки
+ * @returns фраза, пустая строка (описывать нечего) либо `null`, если это не
+ *   старое поле
+ */
+function describeLegacyShape(
+  trigger: EffectTrigger,
+  options: EffectTriggerDescribeOptions,
+): string | null {
+  const kind = classifyLegacyTrigger(trigger);
+  const [action] = trigger.actions;
+
+  const timing =
+    trigger.event === 'turnStart'
+      ? TRIGGER_LABELS.startOfTurn
+      : TRIGGER_LABELS.endOfTurn;
+
+  if (kind === 'recurringDamage' && action.type === 'damage') {
+    const damage = describeEffectDamageParts(action.parts);
+
+    if (!damage) {
+      return '';
+    }
+
+    const { save } = trigger;
+
+    const saveClause = save
+      ? ` (${TRIGGER_LABELS.savePrefix}${ABILITY_GENITIVE_LABELS[save.ability]}, ${options.formatDc(save.dc)}${TRIGGER_LABELS.damageSaveSuccess}${RECURRING_DAMAGE_SUCCESS_LABELS[action.halfOnSave ? 'half' : 'negate']})`
+      : '';
+
+    return `${TRIGGER_LABELS.everyTurnPrefix}${damage}${timing}${saveClause}`;
+  }
+
+  if (kind === 'recurringSave' && trigger.save) {
+    const { ability, dc } = trigger.save;
+
+    return `${TRIGGER_LABELS.recurringSavePrefix}${ABILITY_GENITIVE_LABELS[ability]} ${options.formatDc(dc)}${timing}${TRIGGER_LABELS.recurringSaveSuffix}`;
+  }
+
+  if (kind === 'consumeOn' && trigger.role) {
+    return CONSUME_ON_LABELS[trigger.role];
+  }
+
+  return null;
+}
+
+/**
+ * Лимит «не чаще N раз за период».
+ *
+ * @param trigger - срабатывание
+ * @returns продолжение фразы либо пустая строка
+ */
+function describeLimit(trigger: EffectTrigger): string {
+  if (!trigger.limit) {
+    return '';
+  }
+
+  const { max, per } = trigger.limit;
+
+  const times =
+    max === 1 ? TRIGGER_LABELS.limitOnce : `${max}${TRIGGER_LABELS.limitTimes}`;
+
+  return `${TRIGGER_LABELS.limitPrefix}${times}${TRIGGER_LABELS.limitPeriodPrefix}${LIMIT_PERIOD_LABELS[per]}`;
+}
+
+/**
+ * Фраза срабатывания для сводки — продолжение перечисления со строчной буквы.
+ *
+ * @param trigger - срабатывание
+ * @param options - настройки
+ * @returns фраза либо пустая строка, если описывать нечего
+ */
+export function describeEffectTrigger(
+  trigger: EffectTrigger,
+  options: EffectTriggerDescribeOptions,
+): string {
+  const legacy = describeLegacyShape(trigger, options);
+
+  if (legacy !== null) {
+    return legacy;
+  }
+
+  const condition = trigger.condition
+    ? `${TRIGGER_LABELS.conditionPrefix}${describeEffectChangeCondition(trigger.condition)}`
+    : '';
+
+  const moment = `${describeMoment(trigger)}${condition}`;
+  const limit = describeLimit(trigger);
+
+  if (!trigger.save) {
+    return `${moment}: ${describeOutcomeActions(trigger, false)}${limit}`;
+  }
+
+  const { ability, dc } = trigger.save;
+
+  return [
+    `${moment}: ${TRIGGER_LABELS.savePrefix}${ABILITY_GENITIVE_LABELS[ability]}, ${options.formatDc(dc)}`,
+    `${TRIGGER_LABELS.failurePrefix}${describeOutcomeActions(trigger, false)}`,
+    `${TRIGGER_LABELS.successPrefix}${describeOutcomeActions(trigger, true)}${limit}`,
+  ].join(TRIGGER_LABELS.clauseJoiner);
+}
