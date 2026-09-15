@@ -1,0 +1,622 @@
+import assert from 'node:assert/strict';
+
+import { describe, it } from 'vitest';
+
+import {
+  authoredScenario,
+  CELL_SIZE,
+  change,
+  createActor,
+  createCreature,
+  createEffect,
+  createToken,
+  createZone,
+  engine,
+  GRID,
+  MAX_ROLL,
+  MIN_ROLL,
+  withRandom,
+} from './_fixtures.mjs';
+
+/**
+ * Каталог: заклинания (`docs/EFFECT_SCENARIOS.md`, раздел «Заклинания»).
+ * Эффект собирается так, как его соберёт автор в окне заклинания, и проверяется
+ * тем, что делает движок.
+ */
+
+/** Сл заклинателя */
+const CASTER_DC = 15;
+
+/** Контекст броска без преимущества и помехи */
+const PLAIN_ROLL = { hasAdvantage: false, hasDisadvantage: false };
+
+/**
+ * Итоговые статы с эффектами.
+ *
+ * @param {object[]} effects - активные эффекты сущности
+ * @param {object} overrides - поля сущности
+ * @returns {object} статы
+ */
+function statsWith(effects, overrides = {}) {
+  return engine.resolveActorStats(
+    createActor({ activeEffects: effects, ...overrides }),
+  );
+}
+
+/**
+ * Сущность после наложения эффектов тем же путём, что каст.
+ *
+ * @param {object} entity - цель
+ * @param {object[]} effects - эффекты заклинания
+ * @returns {object} цель с эффектами
+ */
+function applied(entity, effects) {
+  return {
+    ...entity,
+    activeEffects: engine.applyEffectsToEntity(entity, effects, 'spell'),
+  };
+}
+
+describe('каталог: заклинания', () => {
+  it('[S01] Благословение: к4 к атакам и спасброскам цели, 10 раундов', () => {
+    const bless = createEffect('Благословение', {
+      effectTarget: 'target',
+      changes: [
+        change('attack.melee', '1d4'),
+        change('attack.ranged', '1d4'),
+        change('attack.spell', '1d4'),
+        change('save.wisdom', '1d4'),
+      ],
+      duration: { type: 'rounds', value: 10 },
+    });
+
+    authoredScenario(bless, 'spell');
+
+    const target = applied(createActor(), [bless]);
+    const effects = engine.collectActiveEffects(target);
+
+    assert.ok(
+      engine
+        .collectBonusRollFormulas(effects, 'attack.melee', PLAIN_ROLL)
+        .includes('1d4'),
+    );
+
+    assert.ok(
+      engine
+        .collectBonusRollFormulas(effects, 'save.wisdom', PLAIN_ROLL)
+        .includes('1d4'),
+    );
+
+    for (let round = 0; round < 10; round++) {
+      engine.decrementActorEffectDurations(target);
+    }
+
+    assert.equal(target.activeEffects.length, 0, 'спадает через 10 раундов');
+  });
+
+  it('[S02] Щит: +5 КД заклинателю до начала его следующего хода', () => {
+    const caster = createActor();
+
+    const shield = engine.stampTurnDuration(
+      createEffect('Щит', {
+        changes: [change('armorClass', '5')],
+        duration: { type: 'turn', turnAnchor: 'source', turnTiming: 'start' },
+      }),
+      { carrierId: caster.id, sourceId: caster.id, activeTurnActorId: 'enemy' },
+    );
+
+    authoredScenario({ ...shield, sourceActorId: undefined }, 'spell');
+
+    caster.activeEffects = [shield];
+
+    assert.equal(engine.resolveActorStats(caster).armorClass, 15);
+
+    engine.expireTurnEffects(caster, caster.id, 'start', new Set([caster.id]));
+    assert.equal(caster.activeEffects.length, 0);
+  });
+
+  it('[S03] Доспехи мага: КД 13 + Ловкость без доспеха', () => {
+    const mageArmor = createEffect('Доспехи мага', {
+      effectTarget: 'target',
+      changes: [
+        change('armorClass', '13 + @mod.dex', {
+          mode: 'override',
+          condition: 'self.armor === "none"',
+        }),
+      ],
+      duration: { type: 'hours', value: 8 },
+    });
+
+    authoredScenario(mageArmor, 'spell');
+
+    const dexterous = {
+      ...structuredClone(engine.DEFAULT_ACTOR.system),
+      abilities: { ...engine.DEFAULT_ACTOR.system.abilities, dexterity: 18 },
+    };
+
+    assert.equal(statsWith([mageArmor], { system: dexterous }).armorClass, 17);
+
+    const armored = statsWith([mageArmor], {
+      system: dexterous,
+      equipment: [
+        {
+          id: 'chain',
+          name: 'Кольчуга',
+          type: 'equipment',
+          equipped: true,
+          equipmentCategory: 'heavy',
+          baseArmorAC: 16,
+        },
+      ],
+    });
+
+    assert.notEqual(armored.armorClass, 17, 'в доспехе условие не выполняется');
+  });
+
+  it('[S04] Удержание личности: «Парализованный» при провале спасброска заклинания, повторный спасбросок Сл 0', () => {
+    const condition = engine.buildConditionActiveEffect('paralyzed');
+
+    const holdPerson = engine.applyConditionPresetToEffect(
+      createEffect('Удержание', {
+        effectTarget: 'target',
+        recurringSave: { ability: 'wisdom', dc: 0, timing: 'endOfTurn' },
+        duration: { type: 'rounds', value: 10 },
+      }),
+      condition,
+    );
+
+    assert.equal(
+      authoredScenario(holdPerson, 'spell'),
+      'Когда заклинание задело цель: «Парализованный», повторный спасбросок Мудрости '
+        + 'Сл заклинателя в конце хода снимает эффект, на 10 раундов.',
+    );
+
+    assert.deepEqual(
+      engine.resolveEffectApplication(holdPerson, { landed: false }),
+      {
+        applyEffect: false,
+        damageMultiplier: 0,
+      },
+    );
+
+    const stamped = engine.stampSourceTurnSaveDc(holdPerson, CASTER_DC);
+    const target = applied(createActor(), [stamped]);
+
+    assert.ok(
+      engine
+        .resolveActorStats(target)
+        .activeFlags.has('save.autoFail.dexterity'),
+    );
+
+    const result = withRandom([MAX_ROLL], () =>
+      engine.processTurnEffects(target, 'endOfTurn'),
+    );
+
+    assert.equal(result.saveOutcomes[0].dc, CASTER_DC);
+    assert.equal(target.activeEffects.length, 0, 'успех снимает');
+  });
+
+  it('[S05] Огонь фей [≈]: атаки по цели с преимуществом', () => {
+    const faerieFire = createEffect('Огонь фей', {
+      effectTarget: 'target',
+      flags: ['attacksAgainst.advantage'],
+      duration: { type: 'rounds', value: 10 },
+    });
+
+    authoredScenario(faerieFire, 'spell');
+
+    assert.equal(
+      engine.resolveAttackRollMode({
+        attackerFlags: new Set(),
+        attackType: 'melee',
+        targetFlags: statsWith([faerieFire]).activeFlags,
+      }),
+      'advantage',
+    );
+  });
+
+  it('[S06] Замедление [≈]: скорость вдвое, −2 КД и спасброски Ловкости', () => {
+    const slow = createEffect('Замедление', {
+      effectTarget: 'target',
+      changes: [
+        change('movement.walk', '0.5', { mode: 'multiply' }),
+        change('armorClass', '-2'),
+        change('save.dexterity', '-2'),
+      ],
+      recurringSave: { ability: 'wisdom', dc: 0, timing: 'endOfTurn' },
+      duration: { type: 'rounds', value: 10 },
+    });
+
+    authoredScenario(slow, 'spell');
+
+    const stats = statsWith([slow]);
+
+    assert.equal(stats.movement.walk, 15);
+    assert.equal(stats.armorClass, 8);
+    assert.equal(stats.saves.dexterity, -2);
+  });
+
+  it('[S07] Слепота: ослеплённый атакует с помехой, по нему — с преимуществом', () => {
+    const blinded = engine.applyConditionPresetToEffect(
+      createEffect('Слепота', { effectTarget: 'target' }),
+      engine.buildConditionActiveEffect('blinded'),
+    );
+
+    authoredScenario(blinded, 'spell');
+
+    const flags = statsWith([blinded]).activeFlags;
+
+    assert.equal(
+      engine.resolveAttackRollMode({
+        attackerFlags: flags,
+        attackType: 'melee',
+      }),
+      'disadvantage',
+    );
+
+    assert.equal(
+      engine.resolveAttackRollMode({
+        attackerFlags: new Set(),
+        attackType: 'melee',
+        targetFlags: flags,
+      }),
+      'advantage',
+    );
+  });
+
+  it('[S08] Защита от энергии: сопротивление огню', () => {
+    const protection = createEffect('Защита от огня', {
+      effectTarget: 'target',
+      flags: ['resistance.fire'],
+      duration: { type: 'hours', value: 1 },
+    });
+
+    authoredScenario(protection, 'spell');
+
+    const target = applied(
+      createActor({
+        system: {
+          ...structuredClone(engine.DEFAULT_ACTOR.system),
+          hitPoints: { current: 30, max: 30, temp: 0 },
+        },
+      }),
+      [protection],
+    );
+
+    engine.applyTargetDamage(target, 20, false, 'fire');
+    assert.equal(engine.resolveEntityCurrentHp(target), 20);
+  });
+
+  it('[S09] Героизм: иммунитет к Испугу и временные хиты каждый ход', () => {
+    const heroism = createEffect('Героизм', {
+      effectTarget: 'target',
+      conditionImmunities: ['frightened'],
+      recurringDamage: {
+        damageParts: [{ formula: '@mod.spell@heal.temp' }],
+        timing: 'startOfTurn',
+      },
+      duration: { type: 'rounds', value: 10 },
+    });
+
+    authoredScenario(heroism, 'spell');
+
+    const bound = engine.bindSourceEffectFormulas(heroism, {
+      ...engine.buildFormulaContext(createActor()),
+      spellMod: 4,
+    });
+
+    const target = applied(createActor(), [bound]);
+
+    engine.processTurnEffects(target, 'startOfTurn');
+    assert.equal(engine.resolveEntityTempHp(target), 4);
+
+    const frightened = engine.buildConditionActiveEffect('frightened');
+
+    assert.equal(
+      engine
+        .applyEffectsToEntity(target, [frightened], 'spell')
+        .some((effect) => effect.conditionKey === 'frightened'),
+      false,
+    );
+  });
+
+  it('[S10] Метка охотника: +1к6 урона только по своей помеченной цели', () => {
+    const hunterId = 'actor_ranger';
+
+    const mark = createEffect('Метка охотника', {
+      effectTarget: 'target',
+      flags: ['mark.bySource'],
+      duration: { type: 'hours', value: 1 },
+    });
+
+    const bonus = createEffect('Метка охотника: урон', {
+      changes: [
+        change('damage.melee', '1d6', { condition: 'target.markedBySelf' }),
+      ],
+      duration: { type: 'hours', value: 1 },
+    });
+
+    authoredScenario(mark, 'spell');
+    authoredScenario(bonus, 'spell');
+
+    const prey = {
+      ...createCreature(),
+      activeEffects: [{ ...mark, sourceActorId: hunterId }],
+    };
+
+    const markedBy = engine.listEntityMarkSources(prey);
+    const self = { entityId: hunterId };
+
+    const onMarked = engine.collectBonusDamageFormulas(
+      [bonus],
+      'damage.melee',
+      {
+        ...PLAIN_ROLL,
+        target: { currentHp: 10, maxHp: 10, markedBy },
+        self,
+      },
+    );
+
+    const onOther = engine.collectBonusDamageFormulas([bonus], 'damage.melee', {
+      ...PLAIN_ROLL,
+      target: { currentHp: 10, maxHp: 10, markedBy: [] },
+      self,
+    });
+
+    assert.deepEqual(
+      onMarked.map((formula) => formula.formula),
+      ['1d6'],
+    );
+
+    assert.deepEqual(onOther, []);
+  });
+
+  it('[S11] Сглаз [≈]: помеха на проверки выбранной характеристики у цели', () => {
+    const hex = createEffect('Сглаз', {
+      effectTarget: 'target',
+      flags: ['mark.bySource', 'abilityCheck.disadvantage.strength'],
+      duration: { type: 'hours', value: 1 },
+    });
+
+    authoredScenario(hex, 'spell');
+
+    assert.equal(
+      engine.resolveAbilityCheckRollMode({
+        flags: statsWith([hex]).activeFlags,
+        ability: 'strength',
+      }),
+      'disadvantage',
+    );
+  });
+
+  it('[S12] Щит веры: +2 КД на 10 минут — в бою тикает раундами', () => {
+    const shieldOfFaith = createEffect('Щит веры', {
+      effectTarget: 'target',
+      changes: [change('armorClass', '2')],
+      duration: { type: 'minutes', value: 10 },
+    });
+
+    authoredScenario(shieldOfFaith, 'spell');
+
+    const target = applied(createActor(), [shieldOfFaith]);
+
+    assert.equal(target.activeEffects[0].duration.remaining, 100);
+    assert.equal(engine.resolveActorStats(target).armorClass, 12);
+
+    engine.decrementActorEffectDurations(target);
+    assert.equal(target.activeEffects[0].duration.remaining, 99);
+  });
+
+  it('[S13] Духовные стражи: врагам в эманации скорость вдвое и урон в конце их хода со спасбросоком', () => {
+    const cleric = createActor({
+      id: 'actor_cleric',
+      token: { disposition: 'friendly' },
+      activeEffects: [
+        engine.stampSourceSaveDcs(
+          createEffect('Духовные стражи', {
+            origin: 'spell',
+            aura: {
+              radius: 15,
+              target: 'enemies',
+              applyToSelf: false,
+              visible: true,
+            },
+            changes: [change('movement.walk', '0.5', { mode: 'multiply' })],
+            recurringDamage: {
+              damageParts: [{ formula: '3d8@dmg.radiant' }],
+              timing: 'endOfTurn',
+              save: { ability: 'wisdom', dc: 0, onSuccess: 'half' },
+            },
+          }),
+          CASTER_DC,
+        ),
+      ],
+    });
+
+    authoredScenario({ ...cleric.activeEffects[0], origin: 'manual' }, 'spell');
+
+    const enemy = createCreature({ id: 'creature_orc' });
+    const enemyToken = createToken(enemy.id, 1, 0, { disposition: 'hostile' });
+
+    const clericToken = createToken(cleric.id, 0, 0, {
+      disposition: 'friendly',
+    });
+
+    const ambient = engine.calculateAmbientAuras(
+      enemyToken,
+      [{ token: clericToken, effects: engine.collectAllAuraEffects(cleric) }],
+      GRID,
+    );
+
+    assert.equal(ambient.length, 1);
+    assert.equal(engine.resolveActorStats(enemy, ambient).movement.walk, 15);
+
+    const hpBefore = engine.resolveEntityCurrentHp(enemy);
+
+    const result = withRandom([MIN_ROLL, MIN_ROLL, MAX_ROLL], () =>
+      engine.processTurnEffects(enemy, 'endOfTurn', {
+        ambientEffects: ambient,
+      }),
+    );
+
+    assert.equal(result.saveOutcomes[0].dc, CASTER_DC);
+    assert.ok(engine.resolveEntityCurrentHp(enemy) < hpBefore, 'урон нанесён');
+
+    // Сам жрец в своей ауре не горит
+    const selfResult = engine.processTurnEffects(cleric, 'endOfTurn');
+
+    assert.equal(selfResult.damageOutcomes.length, 0);
+  });
+
+  it('[S14] Паутина: труднопроходимая зона, вход — спасбросок Ловкости или «Опутанный»', () => {
+    const web = [
+      createEffect('Паутина', {
+        effectTarget: 'zone',
+        changes: [change('terrain.movementCost', '2', { mode: 'override' })],
+      }),
+      engine.applyConditionPresetToEffect(
+        createEffect('Паутина: опутывание', {
+          effectTarget: 'zone',
+          areaTrigger: 'enter',
+          applySave: { ability: 'dexterity', dc: 0, onSuccess: 'negate' },
+          duration: { type: 'rounds', value: 10 },
+        }),
+        engine.buildConditionActiveEffect('restrained'),
+      ),
+    ];
+
+    for (const effect of web) {
+      authoredScenario(effect, 'spell');
+    }
+
+    const zone = createZone(
+      'ca_web',
+      web.map((effect) => engine.stampSourceSaveDcs(effect, CASTER_DC)),
+    );
+
+    assert.equal(engine.resolveAreaTerrainCost(zone), 2);
+
+    const orc = createCreature({ id: 'creature_orc' });
+
+    withRandom([MIN_ROLL], () =>
+      engine.syncActorAreaEffects(orc, new Set(), new Set([zone.id]), [zone]),
+    );
+
+    assert.ok(
+      orc.activeEffects.some((effect) => effect.conditionKey === 'restrained'),
+    );
+
+    assert.equal(
+      engine.resolveTotalMovementSpeed(engine.resolveActorStats(orc)),
+      0,
+    );
+  });
+
+  it('[S15] Лунный луч: зона на месте шаблона и урон с Сл заклинателя (подробно — spellZones)', () => {
+    const moonbeam = createEffect('Лунный луч', {
+      effectTarget: 'zone',
+      recurringDamage: {
+        damageParts: [{ formula: '2d10@dmg.radiant' }],
+        timing: 'endOfTurn',
+        save: { ability: 'constitution', dc: 0, onSuccess: 'half' },
+      },
+    });
+
+    authoredScenario(moonbeam, 'spell');
+
+    const draft = engine.buildSpellZoneDraft({
+      spell: {
+        name: 'Лунный луч',
+        activeEffects: [moonbeam],
+        durationUnit: 'minute',
+        durationValue: 1,
+        concentration: true,
+      },
+      template: {
+        id: 't',
+        type: 'cylinder',
+        originX: 550,
+        originY: 550,
+        targetX: 650,
+        targetY: 550,
+        color: 0xffffff,
+        createdBy: 'p',
+      },
+      casterId: 'actor_druid',
+      saveDc: CASTER_DC,
+      formulaContext: engine.buildFormulaContext(createActor()),
+      gridSize: CELL_SIZE,
+    });
+
+    assert.equal(draft.rounds, 10);
+    assert.equal(draft.effects[0].recurringDamage.save.dc, CASTER_DC);
+  });
+
+  it('[S16] Облако кинжалов: урон в начале хода стоящим в зоне', () => {
+    const daggers = createEffect('Облако кинжалов', {
+      effectTarget: 'zone',
+      recurringDamage: {
+        damageParts: [{ formula: '4d4@dmg.slashing' }],
+        timing: 'startOfTurn',
+      },
+    });
+
+    authoredScenario(daggers, 'spell');
+
+    const zone = createZone('ca_daggers', [daggers]);
+    const orc = createCreature({ id: 'creature_orc' });
+
+    engine.syncActorAreaEffects(orc, new Set(), new Set([zone.id]), [zone], {
+      triggerOneShots: false,
+    });
+
+    const hpBefore = engine.resolveEntityCurrentHp(orc);
+
+    withRandom([MAX_ROLL], () => engine.processTurnEffects(orc, 'startOfTurn'));
+
+    assert.equal(
+      engine.resolveEntityCurrentHp(orc),
+      Math.max(0, hpBefore - 16),
+    );
+  });
+
+  it('[S17] Туманное облако [≈]: стоящие в зоне слепы (стена зрения для зоны игрока — пробел)', () => {
+    const fog = createEffect('Туманное облако', {
+      effectTarget: 'zone',
+      flags: ['vision.blinded'],
+    });
+
+    authoredScenario(fog, 'spell');
+
+    const zone = createZone('ca_fog', [fog]);
+    const orc = createCreature({ id: 'creature_orc' });
+
+    engine.syncActorAreaEffects(orc, new Set(), new Set([zone.id]), [zone], {
+      triggerOneShots: false,
+    });
+
+    assert.ok(engine.resolveActorStats(orc).activeFlags.has('vision.blinded'));
+  });
+
+  it('[S18] Шипастая поросль [≈]: труднопроходимая зона', () => {
+    const spikes = createEffect('Шипастая поросль', {
+      effectTarget: 'zone',
+      changes: [change('terrain.movementCost', '2', { mode: 'override' })],
+    });
+
+    authoredScenario(spikes, 'spell');
+
+    assert.equal(
+      engine.resolveAreaTerrainCost(createZone('ca_spikes', [spikes])),
+      2,
+    );
+  });
+
+  it.todo(
+    '[S18b] Шипастая поросль: урон за каждые 5 фт пути в зоне — пробел модели',
+  );
+
+  it.todo(
+    '[S19] Потеря концентрации от урона и 0 хитов снимает эффекты и зону — пробел',
+  );
+});

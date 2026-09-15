@@ -206,6 +206,36 @@ export function withRandom(values, action) {
   }
 }
 
+/**
+ * Уже известный исход спасброска эффекта.
+ *
+ * @param {boolean} passed - прошла ли цель
+ * @param {object} overrides - характеристика, Сл
+ * @returns {object} исход
+ */
+export function saveOutcome(passed, overrides = {}) {
+  return {
+    effectName: 'effect',
+    ability: 'constitution',
+    dc: 10,
+    roll: passed ? 20 : 1,
+    total: passed ? 20 : 1,
+    passed,
+    ...overrides,
+  };
+}
+
+/**
+ * Черта существа с эффектами.
+ *
+ * @param {string} name - название черты
+ * @param {object[]} effects - эффекты черты
+ * @returns {object} черта
+ */
+export function createTrait(name, effects) {
+  return { name, description: [], activeEffects: effects };
+}
+
 /** Бросок кости на максимум */
 export const MAX_ROLL = 0.999;
 

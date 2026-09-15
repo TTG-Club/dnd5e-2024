@@ -1,0 +1,498 @@
+import assert from 'node:assert/strict';
+
+import { describe, it } from 'vitest';
+
+import {
+  authoredScenario,
+  createActor,
+  createCreature,
+  createEffect,
+  createToken,
+  createTrait,
+  engine,
+  GRID,
+  MAX_ROLL,
+  saveOutcome,
+  withRandom,
+} from './_fixtures.mjs';
+
+/**
+ * Каталог: существа — действия, черты, статблок
+ * (`docs/EFFECT_SCENARIOS.md`, раздел «Существа»).
+ */
+
+/**
+ * Персонаж с заданными хитами.
+ *
+ * @param {number} hitPoints - текущие и максимальные хиты
+ * @returns {object} персонаж
+ */
+function heroWithHp(hitPoints) {
+  return createActor({
+    system: {
+      ...structuredClone(engine.DEFAULT_ACTOR.system),
+      hitPoints: { current: hitPoints, max: hitPoints, temp: 0 },
+    },
+  });
+}
+
+/**
+ * Эффект-состояние, собранный из шаблона и полей автора.
+ *
+ * @param {string} conditionKey - состояние
+ * @param {object} overrides - поля автора
+ * @returns {object} эффект
+ */
+function conditionEffect(conditionKey, overrides) {
+  return engine.applyConditionPresetToEffect(
+    createEffect(conditionKey, overrides),
+    engine.buildConditionActiveEffect(conditionKey),
+  );
+}
+
+/**
+ * Флаги сущности с наложенными эффектами.
+ *
+ * @param {object} entity - сущность
+ * @param {object[]} effects - эффекты
+ * @returns {Set<string>} активные флаги
+ */
+function flagsAfter(entity, effects) {
+  const target = {
+    ...entity,
+    activeEffects: engine.applyEffectsToEntity(
+      entity,
+      effects,
+      'creatureAction',
+    ),
+  };
+
+  return engine.resolveActorStats(target).activeFlags;
+}
+
+describe('каталог: существа', () => {
+  it('[C01] Когти гуля: «Парализованный» при провале Телосложения, повторный спасбросок в конце хода', () => {
+    const claws = conditionEffect('paralyzed', {
+      effectTarget: 'target',
+      applySave: { ability: 'constitution', dc: 10, onSuccess: 'negate' },
+      recurringSave: { ability: 'constitution', dc: 10, timing: 'endOfTurn' },
+      duration: { type: 'rounds', value: 10 },
+    });
+
+    authoredScenario(claws, 'creatureAction');
+
+    assert.equal(
+      engine.resolveEffectApplication(claws, {
+        landed: true,
+        applySaveSucceeded: false,
+      }).applyEffect,
+      true,
+    );
+
+    assert.equal(
+      engine.resolveEffectApplication(claws, {
+        landed: true,
+        applySaveSucceeded: true,
+      }).applyEffect,
+      false,
+    );
+
+    const flags = flagsAfter(createActor(), [claws]);
+
+    assert.ok(flags.has('save.autoFail.strength'));
+    assert.ok(flags.has('attacksAgainst.advantage'));
+  });
+
+  it('[C02] Укус волка: «Лежащий ничком» при провале Силы', () => {
+    const bite = conditionEffect('prone', {
+      effectTarget: 'target',
+      applySave: { ability: 'strength', dc: 11, onSuccess: 'negate' },
+    });
+
+    authoredScenario(bite, 'creatureAction');
+
+    const flags = flagsAfter(createActor(), [bite]);
+
+    assert.equal(
+      engine.resolveAttackRollMode({
+        attackerFlags: new Set(),
+        attackType: 'melee',
+        targetFlags: flags,
+      }),
+      'advantage',
+    );
+
+    assert.equal(
+      engine.resolveAttackRollMode({
+        attackerFlags: new Set(),
+        attackType: 'ranged',
+        targetFlags: flags,
+      }),
+      'disadvantage',
+    );
+  });
+
+  it('[C03] Паутина паука: «Опутанный» — скорость 0, помеха на атаки и спасброски Ловкости', () => {
+    const web = conditionEffect('restrained', {
+      effectTarget: 'target',
+      applySave: { ability: 'dexterity', dc: 12, onSuccess: 'negate' },
+    });
+
+    authoredScenario(web, 'creatureAction');
+
+    const target = {
+      ...createActor(),
+      activeEffects: engine.applyEffectsToEntity(
+        createActor(),
+        [web],
+        'creatureAction',
+      ),
+    };
+
+    const stats = engine.resolveActorStats(target);
+
+    assert.equal(engine.resolveTotalMovementSpeed(stats), 0);
+
+    assert.equal(
+      engine.resolveAttackRollMode({
+        attackerFlags: stats.activeFlags,
+        attackType: 'melee',
+      }),
+      'disadvantage',
+    );
+
+    assert.equal(
+      engine.resolveSavingThrowRollMode({
+        flags: stats.activeFlags,
+        ability: 'dexterity',
+      }),
+      'disadvantage',
+    );
+  });
+
+  it('[C04] Магическое сопротивление: преимущество только на спасброски против магии', () => {
+    const trait = createEffect('Магическое сопротивление', {
+      flags: ['save.advantage.vsMagic'],
+    });
+
+    authoredScenario(trait, 'creatureTrait');
+
+    const creature = createCreature();
+
+    creature.system.traits = [createTrait('Магическое сопротивление', [trait])];
+
+    const flags = engine.resolveActorStats(creature).activeFlags;
+
+    assert.equal(
+      engine.resolveSavingThrowRollMode({
+        flags,
+        ability: 'wisdom',
+        againstMagic: true,
+      }),
+      'advantage',
+    );
+
+    assert.equal(
+      engine.resolveSavingThrowRollMode({ flags, ability: 'wisdom' }),
+      'normal',
+    );
+  });
+
+  it.todo(
+    '[C05] Тактика стаи: преимущество, если союзник в 5 фт от цели — пробел («союзник рядом»)',
+  );
+
+  it('[C06] Зловоние [≈]: аура «при входе» — спасбросок Телосложения или «Отравленный»', () => {
+    const stench = conditionEffect('poisoned', {
+      aura: { radius: 10, target: 'all', applyToSelf: false, visible: true },
+      areaTrigger: 'enter',
+      applySave: { ability: 'constitution', dc: 12, onSuccess: 'negate' },
+      duration: { type: 'rounds', value: 1 },
+    });
+
+    authoredScenario(stench, 'creatureTrait');
+
+    const troglodyte = createCreature({
+      id: 'creature_troglodyte',
+      name: 'Троглодит',
+    });
+
+    troglodyte.system.traits = [createTrait('Зловоние', [stench])];
+
+    const hero = createActor();
+    const heroFar = createToken(hero.id, 5, 0);
+    const heroNear = createToken(hero.id, 1, 0);
+    const sourceToken = createToken(troglodyte.id, 0, 0);
+
+    const entities = new Map([
+      [hero.id, hero],
+      [troglodyte.id, troglodyte],
+    ]);
+
+    const outcomes = withRandom([0], () =>
+      engine.applyAuraTriggerEffects(
+        { tokens: [sourceToken, heroNear], gridSettings: GRID },
+        heroNear,
+        hero,
+        heroFar,
+        (actorId) => entities.get(actorId),
+      ),
+    );
+
+    assert.equal(outcomes.length, 1);
+
+    assert.ok(
+      hero.activeEffects.some((effect) => effect.conditionKey === 'poisoned'),
+    );
+  });
+
+  it.todo(
+    '[C06b] Зловоние: спасбросок в НАЧАЛЕ хода в ауре со статусом — пробел (у ауры на ходу только урон)',
+  );
+
+  it('[C07] Огненная аура [≈]: урон огнём в начале хода тому, кто в ауре; сам источник не горит', () => {
+    const fireAura = createEffect('Огненная аура', {
+      aura: { radius: 5, target: 'all', applyToSelf: false, visible: true },
+      recurringDamage: {
+        damageParts: [{ formula: '1d10@dmg.fire' }],
+        timing: 'startOfTurn',
+      },
+    });
+
+    authoredScenario(fireAura, 'creatureTrait');
+
+    const elemental = createCreature({
+      id: 'creature_elemental',
+      name: 'Огненный элементаль',
+    });
+
+    elemental.system.traits = [createTrait('Огненная аура', [fireAura])];
+
+    const hero = heroWithHp(30);
+
+    const ambient = engine.calculateAmbientAuras(
+      createToken(hero.id, 1, 0),
+      [
+        {
+          token: createToken(elemental.id, 0, 0),
+          effects: engine.collectAllAuraEffects(elemental),
+        },
+      ],
+      GRID,
+    );
+
+    withRandom([MAX_ROLL], () =>
+      engine.processTurnEffects(hero, 'startOfTurn', {
+        ambientEffects: ambient,
+      }),
+    );
+
+    assert.equal(engine.resolveEntityCurrentHp(hero), 20);
+
+    const selfResult = engine.processTurnEffects(elemental, 'startOfTurn');
+
+    assert.equal(selfResult.damageOutcomes.length, 0);
+  });
+
+  it('[C08] Регенерация (свой эффект существа): +10 хитов в начале хода', () => {
+    const regeneration = createEffect('Регенерация', {
+      recurringDamage: {
+        damageParts: [{ formula: '10@heal' }],
+        timing: 'startOfTurn',
+      },
+    });
+
+    authoredScenario(regeneration, 'ownEffects');
+
+    const troll = createCreature({
+      id: 'creature_troll',
+      name: 'Тролль',
+      activeEffects: [regeneration],
+    });
+
+    engine.applyTargetDamage(troll, 8, false, 'slashing');
+
+    const woundedHp = engine.resolveEntityCurrentHp(troll);
+    const result = engine.processTurnEffects(troll, 'startOfTurn');
+
+    assert.equal(result.healingOutcomes.length, 1);
+
+    assert.equal(
+      engine.resolveEntityCurrentHp(troll),
+      Math.min(woundedHp + 10, engine.resolveEntityMaxHp(troll)),
+    );
+  });
+
+  it.todo(
+    '[C08b] Регенерация чертой статблока: урон/лечение каждый ход у черты не тикает — пробел',
+  );
+
+  it.todo(
+    '[C08c] Регенерация не срабатывает после урона огнём или кислотой — пробел («раз в ход по событию»)',
+  );
+
+  it('[C09] Защиты статблока: сопротивление, иммунитет и уязвимость к урону', () => {
+    const creature = createCreature();
+
+    creature.system.defenses = {
+      ...creature.system.defenses,
+      resistances: ['fire'],
+      immunities: ['poison'],
+      vulnerabilities: ['bludgeoning'],
+    };
+
+    const hp = engine.resolveEntityCurrentHp(creature);
+
+    assert.equal(
+      engine.applyTargetDamage(creature, 4, false, 'fire').hpAfter,
+      hp - 2,
+    );
+
+    assert.equal(
+      engine.applyTargetDamage(creature, 4, false, 'poison').hpAfter,
+      hp - 2,
+    );
+
+    assert.equal(
+      engine.applyTargetDamage(creature, 2, false, 'bludgeoning').hpAfter,
+      Math.max(0, hp - 6),
+    );
+  });
+
+  it('[C10] Иммунитет к состояниям статблока: «Отравленный» не накладывается', () => {
+    const creature = createCreature();
+
+    creature.system.defenses = {
+      ...creature.system.defenses,
+      conditionImmunities: ['poisoned'],
+    };
+
+    const poisoned = engine.buildConditionActiveEffect('poisoned');
+
+    assert.deepEqual(
+      engine.applyEffectsToEntity(creature, [poisoned], 'creatureAction'),
+      [],
+    );
+
+    assert.equal(
+      engine.applyEntryEffect(creature, poisoned, null).statusApplied,
+      false,
+    );
+  });
+
+  it('[C11] Устрашающая внешность: «Испуганный» на минуту, повторный спасбросок Мудрости', () => {
+    const presence = conditionEffect('frightened', {
+      effectTarget: 'target',
+      applySave: { ability: 'wisdom', dc: 16, onSuccess: 'negate' },
+      recurringSave: { ability: 'wisdom', dc: 16, timing: 'endOfTurn' },
+      duration: { type: 'minutes', value: 1 },
+    });
+
+    authoredScenario(presence, 'creatureAction');
+
+    const hero = createActor();
+
+    hero.activeEffects = engine.applyEffectsToEntity(
+      hero,
+      [presence],
+      'creatureAction',
+    );
+
+    const flags = engine.resolveActorStats(hero).activeFlags;
+
+    assert.equal(
+      engine.resolveAttackRollMode({
+        attackerFlags: flags,
+        attackType: 'melee',
+      }),
+      'disadvantage',
+    );
+
+    assert.equal(
+      engine.resolveAbilityCheckRollMode({ flags, ability: 'strength' }),
+      'disadvantage',
+    );
+
+    assert.equal(
+      hero.activeEffects[0].duration.remaining,
+      10,
+      'минута — 10 раундов',
+    );
+
+    withRandom([MAX_ROLL], () => engine.processTurnEffects(hero, 'endOfTurn'));
+    assert.equal(hero.activeEffects.length, 0);
+  });
+
+  it('[C12] Иммунитет к Испугу у персонажа от черты перекрывает «Устрашающую внешность»', () => {
+    const fearless = createEffect('Бесстрашие', {
+      conditionImmunities: ['frightened'],
+    });
+
+    authoredScenario(fearless, 'feature');
+
+    const hero = createActor({
+      features: [
+        { id: 'feat_fearless', name: 'Бесстрашие', activeEffects: [fearless] },
+      ],
+      activeEffects: [fearless],
+    });
+
+    const frightened = engine.buildConditionActiveEffect('frightened');
+
+    assert.deepEqual(
+      engine.applyEffectsToEntity(hero, [frightened], 'creatureAction'),
+      [fearless],
+    );
+  });
+
+  it.todo(
+    '[C12b] Стойкость нежити: спасбросок Телосложения вместо 0 хитов — пробел',
+  );
+
+  it('[C13] Огненное дыхание: спасбросок Ловкости, успех — половина урона', () => {
+    const breath = createEffect('Огненное дыхание', {
+      effectTarget: 'target',
+      applySave: { ability: 'dexterity', dc: 13, onSuccess: 'half' },
+      damageParts: [{ formula: '7d6', type: 'fire' }],
+    });
+
+    authoredScenario(breath, 'creatureAction');
+
+    assert.deepEqual(
+      engine.resolveEffectApplication(breath, {
+        landed: true,
+        applySaveSucceeded: true,
+      }),
+      {
+        applyEffect: false,
+        damageMultiplier: 0.5,
+      },
+    );
+
+    assert.deepEqual(
+      engine.resolveEffectApplication(breath, {
+        landed: true,
+        applySaveSucceeded: false,
+      }),
+      {
+        applyEffect: true,
+        damageMultiplier: 1,
+      },
+    );
+
+    const hero = heroWithHp(40);
+
+    const result = engine.applyEntryEffect(
+      hero,
+      breath,
+      saveOutcome(true, { ability: 'dexterity', dc: 13 }),
+    );
+
+    assert.ok(result.damageOutcome, 'урон нанесён');
+
+    assert.ok(
+      engine.resolveEntityCurrentHp(hero) >= 40 - 21,
+      'не больше половины максимума 7к6',
+    );
+  });
+});
