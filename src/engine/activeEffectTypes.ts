@@ -142,7 +142,8 @@ export type EffectTargetKey =
   | 'proficiencyBonus'
   | 'spellSaveDC'
   | `sense.${SenseType}`
-  | 'terrain.movementCost';
+  | 'terrain.movementCost'
+  | 'critThreshold';
 
 /**
  * Ключ строки модификатора: известный ключ движка либо ПУСТАЯ строка — «ключ
@@ -172,6 +173,13 @@ export const EFFECT_TARGET_SUGGESTIONS: Array<{
   {
     value: 'terrain.movementCost',
     label: 'Труднопроходимость (цена клетки)',
+  },
+
+  // Критические попадания
+  {
+    value: 'critThreshold',
+    label:
+      'Порог крита атаками оружием (режим «Не больше»: 19 — крит на 19–20)',
   },
 
   // Скорости
@@ -365,6 +373,12 @@ export const EFFECT_CONDITION_SUGGESTIONS: Array<{
   {
     value: 'target.hp.value <= (target.hp.max / 2)',
     label: 'Цель: не больше половины хитов (Окровавлен)',
+  },
+
+  // === МЕТКА ЦЕЛИ ===
+  {
+    value: 'target.markedBySelf',
+    label: 'Цель помечена мной (Метка охотника, Сглаз)',
   },
 
   // === ЗАЩИТА (условный КД) ===
@@ -576,6 +590,7 @@ export type EffectFlagKey =
   | 'save.autoFail.charisma'
   | 'speed.zero'
   | 'terrain.ignoreDifficult'
+  | 'mark.bySource'
   | 'incapacitated'
   | 'initiative.advantage'
   | 'initiative.disadvantage'
@@ -667,6 +682,8 @@ const BASE_EFFECT_FLAG_LABELS: Record<
   'speed.zero': 'Скорость равна нулю',
   'terrain.ignoreDifficult':
     'Игнорирует труднопроходимую местность (клетки зон стоят как обычные)',
+  'mark.bySource':
+    'Метка наложившего: его условие «цель помечена мной» (Метка охотника, Сглаз)',
   'incapacitated': 'Недееспособен (Не может совершать действия/реакции)',
   'initiative.advantage': 'Преимущество на бросок инициативы',
   'initiative.disadvantage': 'Помеха на бросок инициативы',
@@ -1332,6 +1349,11 @@ export interface ResolvedActorStats {
   senses: Record<SenseType, number>;
   /** Максимум хитов */
   hitPointsMax: number;
+  /**
+   * С какой натуральной кости атака оружием — крит (20 по правилам, 19 у
+   * «Улучшенного крита» Чемпиона)
+   */
+  critThreshold: number;
   /** Бонусы к атаке */
   attackBonuses: {
     melee: number;
@@ -1379,6 +1401,9 @@ export interface ResolvedActorStats {
 
 /** Приоритет по умолчанию для нового изменения */
 export const DEFAULT_EFFECT_CHANGE_PRIORITY = 20;
+
+/** Натуральная кость крита по правилам (`critThreshold` без эффектов) */
+export const DEFAULT_CRIT_THRESHOLD = 20;
 
 /** Максимальное количество эффектов на актора */
 export const MAX_EFFECTS_PER_ACTOR = 50;

@@ -43,6 +43,7 @@ import {
   hasBonusDamageFormulas,
   isDnDEffect,
   isDndSceneEntity,
+  listEntityMarkSources,
   resolveBonusDamageParts,
   resolveCreatureDamageParts,
   resolveCreatureSpellDamageParts,
@@ -252,7 +253,12 @@ export function useBonusDamageParts() {
   function buildTargetHpContext(
     entity: SceneEntity | null = targetStore.getTargetActor(),
   ):
-    | { currentHp: number; maxHp: number; creatureType?: CreatureCategory }
+    | {
+        currentHp: number;
+        maxHp: number;
+        creatureType?: CreatureCategory;
+        markedBy: string[];
+      }
     | undefined {
     if (!entity) {
       return undefined;
@@ -269,6 +275,8 @@ export function useBonusDamageParts() {
       // Тип цели — для условий `target.creatureType` и токенов `@target.type.*`:
       // читается с той же сущности, отдельного источника цели заводить незачем
       creatureType: resolveEntityCreatureType(entity),
+      // Кто пометил цель — для условия «цель помечена мной» (Метка охотника)
+      markedBy: listEntityMarkSources(entity),
     };
   }
 

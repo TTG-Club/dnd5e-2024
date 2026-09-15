@@ -752,14 +752,14 @@ it('the shared target context reads creature average HP through the combat HP he
 
   assert.deepEqual(
     { ...readContext(target) },
-    { currentHp: 12, maxHp: 12, creatureType: 'humanoid' },
+    { currentHp: 12, maxHp: 12, creatureType: 'humanoid', markedBy: [] },
   );
 
   target.system.hitPoints.current = 5;
 
   assert.deepEqual(
     { ...readContext(target) },
-    { currentHp: 5, maxHp: 12, creatureType: 'humanoid' },
+    { currentHp: 5, maxHp: 12, creatureType: 'humanoid', markedBy: [] },
   );
 
   assert.equal(readContext(), undefined);

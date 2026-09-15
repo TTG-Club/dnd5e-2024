@@ -47,6 +47,7 @@ import { isCreatureEntity, isRecord } from '@vtt/shared';
 import {
   CARRIER_ARMOR_CONDITION_PREFIX,
   CARRIER_TYPE_CONDITION_PREFIX,
+  DEFAULT_CRIT_THRESHOLD,
   isCarrierEffect,
   isSenseType,
   splitConditionParts,
@@ -328,6 +329,7 @@ export function prepareBaseData(
     movement,
     senses,
     hitPointsMax: resolveHitPointsMax(system.hitPoints),
+    critThreshold: DEFAULT_CRIT_THRESHOLD,
     attackBonuses: { melee: 0, ranged: 0, spell: 0 },
     damageBonuses: { melee: 0, ranged: 0, spell: 0 },
     spellSaveDC: 0,
@@ -629,6 +631,8 @@ export interface RollContext {
     currentHp: number;
     maxHp: number;
     creatureType?: CreatureCategory;
+    /** Кто пометил цель (`mark.bySource`) — для условия `target.markedBySelf` */
+    markedBy?: readonly string[];
   };
   /**
    * Свойства НОСИТЕЛЯ эффекта — для условий семейства `self.*`.
@@ -648,6 +652,8 @@ export interface RollContext {
  * одним параметром в сигнатуры фаз пайплайна.
  */
 export interface CarrierContext {
+  /** Сама сущность-носитель — для условия `target.markedBySelf` */
+  entityId?: string;
   /** Тип существа — для `self.creatureType === "..."` */
   creatureType?: CreatureCategory;
   /** Надетый доспех и щит — для `self.armor === "..."` */
@@ -661,6 +667,7 @@ export interface CarrierContext {
  */
 export function buildCarrierContext(carrier: DnDSceneEntity): CarrierContext {
   return {
+    entityId: carrier.id,
     creatureType: resolveEntityCreatureType(carrier),
     armor: getCarrierArmorState(carrier),
   };
@@ -668,6 +675,26 @@ export function buildCarrierContext(carrier: DnDSceneEntity): CarrierContext {
 
 // Тип `IncomingAttackContext` вынесен в нейтральный контракт
 // (`../contracts/combat`) и реэкспортится выше.
+
+/** Условие строки «цель помечена мной» (Метка охотника, Сглаз) */
+export const MARKED_BY_SELF_CONDITION = 'target.markedBySelf';
+
+/** Флаг метки на эффекте цели */
+const MARK_FLAG = 'mark.bySource';
+
+/**
+ * Кто пометил сущность: источники её активных эффектов с флагом метки.
+ *
+ * @param entity - цель
+ * @returns идентификаторы пометивших
+ */
+export function listEntityMarkSources(entity: DnDSceneEntity): string[] {
+  return (entity.activeEffects ?? []).flatMap((effect) =>
+    !effect.disabled && effect.sourceActorId && effect.flags.includes(MARK_FLAG)
+      ? [effect.sourceActorId]
+      : [],
+  );
+}
 
 /**
  * Маппинг условий `target.hp.*` на гейты состояния HP цели.
@@ -923,6 +950,14 @@ function evaluateConditionPart(
 
   // Условия по состоянию HP цели
   const { target } = rollContext;
+
+  // Метка: цель помечена тем, кто сейчас бросает
+  if (trimmed === MARKED_BY_SELF_CONDITION) {
+    const selfId = rollContext.self?.entityId;
+
+    return Boolean(selfId && target?.markedBy?.includes(selfId));
+  }
+
   const hpGate = TARGET_HP_CONDITION_GATES[trimmed];
 
   if (hpGate) {
@@ -1604,6 +1639,8 @@ function getStatValue(
       return stats.armorClass;
     case 'hitPoints.max':
       return stats.hitPointsMax;
+    case 'critThreshold':
+      return stats.critThreshold;
     case 'initiative':
       return stats.initiative;
     case 'proficiencyBonus':
@@ -1714,6 +1751,10 @@ function setStatValue(
       stats.hitPointsMax = statValue;
 
       break;
+    case 'critThreshold':
+      stats.critThreshold = statValue;
+
+      break;
     case 'initiative':
       stats.initiative = statValue;
 
@@ -1799,16 +1840,19 @@ export function resolveMaxHitPointsDelta(
  * атаки/заклинания, и тоггл на листе используют один источник правды.
  *
  * @param entity - актор или существо
+ * @param ambientEffects - ауры чужих токенов, накрывающие сущность («Аура
+ *   отваги» даёт иммунитет к Испугу всем союзникам в ней)
  * @returns ключи состояний, к которым сущность иммунна (может быть пустым)
  */
 export function getEntityConditionImmunities(
   entity: DnDSceneEntity,
+  ambientEffects: readonly ActiveEffect[] = [],
 ): readonly string[] {
   const fromEffects: string[] = [];
 
   // Отключённые эффекты, предметы вне экипировки и эффекты «в цель» отсеяны
   // сбором — второй проверки здесь не нужно
-  for (const effect of collectActiveEffects(entity)) {
+  for (const effect of [...collectActiveEffects(entity), ...ambientEffects]) {
     for (const conditionKey of effect.conditionImmunities ?? []) {
       fromEffects.push(conditionKey);
     }
@@ -2448,6 +2492,7 @@ function cloneResolvedStats(stats: ResolvedActorStats): ResolvedActorStats {
     movement: { ...stats.movement },
     senses: { ...stats.senses },
     hitPointsMax: stats.hitPointsMax,
+    critThreshold: stats.critThreshold,
     attackBonuses: { ...stats.attackBonuses },
     damageBonuses: { ...stats.damageBonuses },
     spellSaveDC: stats.spellSaveDC,

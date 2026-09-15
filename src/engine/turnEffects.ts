@@ -13,6 +13,8 @@ import type { AbilityType, DamagePart } from '@vtt/shared';
 
 import type {
   ActiveEffect,
+  EffectDuration,
+  EffectDurationType,
   EffectSave,
   EffectSaveOutcome,
   EffectSaveTiming,
@@ -55,8 +57,30 @@ import {
 import { expandDamageParts } from './spellUtils.js';
 
 /**
+ * Сколько раундов боя в единице длительности, которая отсчитывается раундами:
+ * минута — 10 раундов, час — 600. Дни в бою не тикают.
+ */
+const ROUNDS_PER_DURATION_UNIT: Partial<Record<EffectDurationType, number>> = {
+  rounds: 1,
+  minutes: 10,
+  hours: 600,
+};
+
+/**
+ * Отсчитывается ли длительность раундами боя: у неё есть и число, и перевод в
+ * раунды.
+ *
+ * @param duration - длительность эффекта
+ * @returns раундов в единице либо `undefined`
+ */
+function roundsPerUnit(duration: EffectDuration): number | undefined {
+  return ROUNDS_PER_DURATION_UNIT[duration.type];
+}
+
+/**
  * Уменьшает длительность (в раундах) всех эффектов на сущности (актёре или существе).
- * Удаляет эффекты, чьё время вышло.
+ * Минуты и часы тикают так же: их остаток хранится в раундах. Удаляет эффекты,
+ * чьё время вышло.
  * @param entity - сущность, чьи эффекты нужно обновить
  * @returns true, если сущность была модифицирована
  */
@@ -78,7 +102,10 @@ export function decrementActorEffectDurations(entity: DnDSceneEntity): boolean {
   >((kept, effect) => {
     const { duration } = effect;
 
-    if (duration.type !== 'rounds' || typeof duration.remaining !== 'number') {
+    if (
+      roundsPerUnit(duration) === undefined
+      || typeof duration.remaining !== 'number'
+    ) {
       kept.push(effect);
 
       return kept;
@@ -99,25 +126,27 @@ export function decrementActorEffectDurations(entity: DnDSceneEntity): boolean {
 }
 
 /**
- * Готовит эффект к наложению на цель: при длительности в раундах инициализирует
- * `remaining` из `value`, если он ещё не задан. Без этого rounds-эффект не
- * тикает в бою — `decrementActorEffectDurations` уменьшает только заданный
- * `remaining`, и эффект висел бы до ручного снятия.
+ * Готовит эффект к наложению на цель: при длительности в раундах, минутах или
+ * часах инициализирует `remaining` (в раундах: минута — 10) из `value`, если он
+ * ещё не задан. Без этого эффект не тикает в бою —
+ * `decrementActorEffectDurations` уменьшает только заданный `remaining`, и
+ * «Щит веры на 10 минут» висел бы до ручного снятия.
  *
  * @param effect - накладываемый эффект
  * @returns эффект с инициализированным `remaining` (или исходный)
  */
 export function withInitializedDuration(effect: ActiveEffect): ActiveEffect {
   const duration = effect.duration;
+  const perUnit = roundsPerUnit(duration);
 
   if (
-    duration.type === 'rounds'
+    perUnit !== undefined
     && typeof duration.value === 'number'
     && typeof duration.remaining !== 'number'
   ) {
     return {
       ...effect,
-      duration: { ...duration, remaining: duration.value },
+      duration: { ...duration, remaining: duration.value * perUnit },
     };
   }
 
@@ -287,6 +316,18 @@ export interface TurnDamageOutcome {
   values: number[];
 }
 
+/** Исход лечения каждый ход («Регенерация», временные хиты «Героизма») */
+export interface TurnHealingOutcome {
+  /** Название эффекта */
+  effectName: string;
+  /** Восстановленные хиты */
+  healed: number;
+  /** Выданные временные хиты */
+  tempHp: number;
+  /** Выпавшие значения кубиков */
+  values: number[];
+}
+
 /** Результат обработки периодических эффектов по сущности за один тик хода */
 export interface TurnEffectsResult {
   /** Были ли изменения (снят эффект и/или нанесён урон) */
@@ -297,6 +338,13 @@ export interface TurnEffectsResult {
   saveOutcomes: TurnSaveOutcome[];
   /** Исходы периодического урона */
   damageOutcomes: TurnDamageOutcome[];
+  /** Исходы лечения и временных хитов каждый ход */
+  healingOutcomes: TurnHealingOutcome[];
+  /**
+   * Урон аур «пока внутри», ждущий спасброска игрока. Эффекта ауры на самой
+   * сущности нет — применять его придётся по снимку.
+   */
+  deferredAmbientDamageSaveEffects: ActiveEffect[];
   /**
    * Эффекты, чей повторный спасбросок НЕ брошен: его спросят у игрока. Эффект
    * остаётся на сущности, пока не придёт ответ.
@@ -321,6 +369,12 @@ export interface TurnEffectsOptions {
    * (его спросят у игрока). Без опции бросает сервер.
    */
   deferRecurringDamageSave?: (effect: ActiveEffect) => boolean;
+  /**
+   * Ауры чужих токенов, накрывающие сущность: их урон «пока внутри» тикает на
+   * её ходу, а бонусы учитываются в спасбросках. Эффекты ауры на сущности не
+   * лежат, поэтому их повторный спасбросок ничего не снимает.
+   */
+  ambientEffects?: readonly ActiveEffect[];
 }
 
 /** Эффекты и свойства носителя для бонусных кубиков серверного спасброска. */
@@ -460,9 +514,10 @@ export function resolveSaveDamageMultiplier(
  */
 export function buildEffectSavingThrowContext(
   entity: DnDSceneEntity,
+  ambientEffects: readonly ActiveEffect[] = [],
 ): EffectSavingThrowContext {
   return {
-    effects: collectActiveEffects(entity),
+    effects: [...collectActiveEffects(entity), ...ambientEffects],
     formulaContext: buildFormulaContext(entity),
     self: buildCarrierContext(entity),
   };
@@ -560,12 +615,13 @@ export function rollEffectSavingThrow(
 export function rollEffectSaveOutcome(
   entity: DnDSceneEntity,
   spec: EffectSaveSpec,
+  ambientEffects: readonly ActiveEffect[] = [],
 ): TurnSaveOutcome {
   const { roll, total, passed } = rollEffectSavingThrow(
     spec.ability,
     spec.dc,
-    resolveActorStats(entity),
-    buildEffectSavingThrowContext(entity),
+    resolveActorStats(entity, [...ambientEffects]),
+    buildEffectSavingThrowContext(entity, ambientEffects),
     spec,
   );
 
@@ -741,6 +797,8 @@ export function rollRecurringDamage(
 export interface EntryEffectOptions {
   /** Зона, в которую вошли или из которой вышли; у ауры поля нет */
   sourceAreaId?: string;
+  /** Ауры чужих токенов, накрывающие сущность (спасбросок, иммунитеты) */
+  ambientEffects?: readonly ActiveEffect[];
 }
 
 /** Исход срабатывания эффекта области/ауры при входе/выходе */
@@ -781,7 +839,8 @@ export function applyEntryEffect(
   saveOutcome: TurnSaveOutcome | null,
   options: EntryEffectOptions = {},
 ): EntryEffectResult {
-  const stats = resolveActorStats(entity);
+  const ambientEffects = options.ambientEffects ?? [];
+  const stats = resolveActorStats(entity, [...ambientEffects]);
 
   // Эффект области «приземлился» всегда: промаха у зоны нет, её защита —
   // только собственный спасбросок эффекта
@@ -823,7 +882,7 @@ export function applyEntryEffect(
   const conditionBlocked =
     effect.conditionKey !== undefined
     && isImmuneToCondition(
-      getEntityConditionImmunities(entity),
+      getEntityConditionImmunities(entity, ambientEffects),
       effect.conditionKey,
     );
 
@@ -883,10 +942,87 @@ export function resolveEntryEffect(
     ? rollEffectSaveOutcome(
         entity,
         buildApplySaveSpec(effect, effect.applySave),
+        options.ambientEffects,
       )
     : null;
 
   return applyEntryEffect(entity, effect, saveOutcome, options);
+}
+
+/**
+ * Катает лечащие части урона каждый ход: `@heal` восстанавливает хиты,
+ * `@heal.temp` даёт временные. Формулы с `@`, которые не подставил источник,
+ * сервер не катает.
+ *
+ * @param effectName - название эффекта (для подписи)
+ * @param damageParts - части урона эффекта
+ * @returns исход лечения либо `null`, если лечащих частей нет
+ */
+export function rollEffectHealing(
+  effectName: string,
+  damageParts: DamagePart[],
+): TurnHealingOutcome | null {
+  const segments = expandDamageParts(
+    damageParts,
+    undefined,
+    (formula) => formula,
+  );
+
+  let healed = 0;
+  let tempHp = 0;
+
+  const values: number[] = [];
+
+  for (const segment of segments) {
+    if (!segment.isHealing || segment.formula.includes('@')) {
+      continue;
+    }
+
+    const rolled = rollDamageFormula(segment.formula);
+
+    if (segment.healTemp) {
+      tempHp += rolled.total;
+    } else {
+      healed += rolled.total;
+    }
+
+    values.push(...rolled.values);
+  }
+
+  if (healed <= 0 && tempHp <= 0) {
+    return null;
+  }
+
+  return { effectName, healed, tempHp, values };
+}
+
+/**
+ * Лечение и временные хиты за тик одним изменением: хиты не выше максимума,
+ * временные не складываются — остаются большие (правило 5e).
+ *
+ * @param entity - сущность
+ * @param healed - восстановленные хиты
+ * @param tempHp - выданные временные хиты
+ * @returns `true`, если хиты изменились
+ */
+function applyTurnHealing(
+  entity: DnDSceneEntity,
+  healed: number,
+  tempHp: number,
+): boolean {
+  const current = resolveEntityCurrentHp(entity);
+  const max = resolveEntityMaxHp(entity);
+  const temp = resolveEntityTempHp(entity);
+  const nextCurrent = Math.min(max, current + healed);
+  const nextTemp = Math.max(temp, tempHp);
+
+  if (nextCurrent === current && nextTemp === temp) {
+    return false;
+  }
+
+  writeEntityHitPoints(entity, { current: nextCurrent, temp: nextTemp });
+
+  return true;
 }
 
 /**
@@ -916,34 +1052,67 @@ export function processTurnEffects(
     damageTotal: 0,
     saveOutcomes: [],
     damageOutcomes: [],
+    healingOutcomes: [],
     deferredSaveEffects: [],
     deferredDamageSaveEffects: [],
+    deferredAmbientDamageSaveEffects: [],
   };
 
-  if (!entity.activeEffects || entity.activeEffects.length === 0) {
+  const ambientEffects = options.ambientEffects ?? [];
+
+  // Урон ауры «пока внутри» тикает на ходу того, кто в ней стоит
+  const ambientTurnEffects = ambientEffects.filter(
+    (effect) =>
+      (effect.areaTrigger ?? 'stay') === 'stay'
+      && effect.recurringDamage !== undefined,
+  );
+
+  const ownEffects = entity.activeEffects ?? [];
+
+  if (ownEffects.length === 0 && ambientTurnEffects.length === 0) {
     return empty;
   }
 
-  const stats = resolveActorStats(entity);
+  const stats = resolveActorStats(entity, [...ambientEffects]);
   const saveOutcomes: TurnSaveOutcome[] = [];
 
   // 1. Периодический урон (DoT) по таймингу; со спасброском — по его исходу
   const damageOutcomes: TurnDamageOutcome[] = [];
+  const healingOutcomes: TurnHealingOutcome[] = [];
   const deferredDamageSaveEffects: ActiveEffect[] = [];
+  const deferredAmbientDamageSaveEffects: ActiveEffect[] = [];
+  const ambientIds = new Set(ambientTurnEffects.map((effect) => effect.id));
 
   let damageTotal = 0;
-  let savingThrowContext = buildEffectSavingThrowContext(entity);
+  let healedTotal = 0;
+  let tempHpGranted = 0;
 
-  for (const effect of entity.activeEffects) {
+  let savingThrowContext = buildEffectSavingThrowContext(
+    entity,
+    ambientEffects,
+  );
+
+  for (const effect of [...ownEffects, ...ambientTurnEffects]) {
     const recurringDamage = effect.recurringDamage;
 
-    // Отключённый эффект не действует — значит, и не бьёт
+    // Отключённый эффект не действует — значит, и не бьёт. Своя аура без
+    // «действует и на носителя» бьёт других, а не того, кто её излучает
     if (
       effect.disabled
       || !recurringDamage
       || recurringDamage.timing !== timing
+      || (!ambientIds.has(effect.id) && effect.aura && !effect.aura.applyToSelf)
     ) {
       continue;
+    }
+
+    // Лечение от спасброска не зависит: «Регенерация» лечит и без броска
+    const healing = rollEffectHealing(effect.name, recurringDamage.damageParts);
+
+    if (healing) {
+      healingOutcomes.push(healing);
+      healedTotal += healing.healed;
+      tempHpGranted = Math.max(tempHpGranted, healing.tempHp);
     }
 
     let damageSave: TurnSaveOutcome | null = null;
@@ -951,7 +1120,11 @@ export function processTurnEffects(
     if (recurringDamage.save) {
       // Спасбросок спросят у игрока: урон ждёт ответа
       if (options.deferRecurringDamageSave?.(effect)) {
-        deferredDamageSaveEffects.push(effect);
+        if (ambientIds.has(effect.id)) {
+          deferredAmbientDamageSaveEffects.push(effect);
+        } else {
+          deferredDamageSaveEffects.push(effect);
+        }
 
         continue;
       }
@@ -995,14 +1168,18 @@ export function processTurnEffects(
     applyDamageToEntity(entity, damageTotal);
     // Урон мог опустить хиты — повторные спасброски считаются уже по новому
     // состоянию сущности
-    savingThrowContext = buildEffectSavingThrowContext(entity);
+    savingThrowContext = buildEffectSavingThrowContext(entity, ambientEffects);
   }
+
+  const healingApplied =
+    (healedTotal > 0 || tempHpGranted > 0)
+    && applyTurnHealing(entity, healedTotal, tempHpGranted);
 
   // 2. Повторные спасброски по таймингу — успех снимает эффект
   const deferredSaveEffects: ActiveEffect[] = [];
-  const initialLength = entity.activeEffects.length;
+  const initialLength = ownEffects.length;
 
-  const remaining = entity.activeEffects.filter((effect) => {
+  const remaining = ownEffects.filter((effect) => {
     const recurring = effect.recurringSave;
 
     // Отключённый эффект не действует — и сам себя спасброском не снимает
@@ -1055,12 +1232,14 @@ export function processTurnEffects(
   }
 
   return {
-    changed: damageTotal > 0 || effectsRemoved,
+    changed: damageTotal > 0 || effectsRemoved || healingApplied,
     damageTotal,
     saveOutcomes,
     damageOutcomes,
+    healingOutcomes,
     deferredSaveEffects,
     deferredDamageSaveEffects,
+    deferredAmbientDamageSaveEffects,
   };
 }
 
@@ -1073,6 +1252,9 @@ const RECURRING_DAMAGE_SAVE_STATUS: Record<
   half: '✓ половина урона',
   failed: '✗ полный урон',
 };
+
+/** Подпись временных хитов в сводке эффектов */
+const TEMP_HP_SUMMARY_LABEL = 'временных HP';
 
 /** Подпись момента хода в сводке эффектов */
 export const TURN_TIMING_SUMMARY_LABELS: Record<EffectSaveTiming, string> = {
@@ -1099,6 +1281,7 @@ export function formatTurnEffectsMessage(
     result.damageOutcomes,
     result.saveOutcomes,
     formatRecurringSaveStatus,
+    result.healingOutcomes,
   );
 }
 
@@ -1141,6 +1324,7 @@ export function formatEffectsSummaryHeader(
  * @param saveOutcomes - исходы спасбросков
  * @param formatSaveStatus - как подписать итог спасброска (зависит от контекста:
  *   периодический спас снимает эффект, спас при наложении отменяет/уменьшает урон)
+ * @param healingOutcomes - исходы лечения и временных хитов
  * @returns строка для чата или `null`, если показывать нечего
  */
 export function formatEffectsSummary(
@@ -1149,8 +1333,13 @@ export function formatEffectsSummary(
   damageOutcomes: TurnDamageOutcome[],
   saveOutcomes: TurnSaveOutcome[],
   formatSaveStatus: (save: TurnSaveOutcome) => string,
+  healingOutcomes: TurnHealingOutcome[] = [],
 ): string | null {
-  if (damageOutcomes.length === 0 && saveOutcomes.length === 0) {
+  if (
+    damageOutcomes.length === 0
+    && saveOutcomes.length === 0
+    && healingOutcomes.length === 0
+  ) {
     return null;
   }
 
@@ -1168,6 +1357,21 @@ export function formatEffectsSummary(
     lines.push(
       `${damage.effectName}: ${breakdown}−${damage.total} HP (${typeLabel})`,
     );
+  }
+
+  for (const healing of healingOutcomes) {
+    const breakdown =
+      healing.values.length > 0 ? `[${healing.values.join(', ')}] = ` : '';
+
+    if (healing.healed > 0) {
+      lines.push(`${healing.effectName}: ${breakdown}+${healing.healed} HP`);
+    }
+
+    if (healing.tempHp > 0) {
+      lines.push(
+        `${healing.effectName}: ${breakdown}${healing.tempHp} ${TEMP_HP_SUMMARY_LABEL}`,
+      );
+    }
   }
 
   for (const save of saveOutcomes) {

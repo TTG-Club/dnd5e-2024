@@ -303,8 +303,12 @@ function applyRecurringDamageSaveAnswer(
   timing: EffectSaveTiming,
   spec: EffectSaveSpec,
   outcome: RollRequestOutcome,
+  snapshot?: ActiveEffect,
 ): DeferredEffectOutcome {
-  const effect = entity.activeEffects?.find((entry) => entry.id === effectId);
+  // Урон ауры: эффекта на сущности нет, бьёт то, что накрыло её на ходу
+  const effect =
+    snapshot ?? entity.activeEffects?.find((entry) => entry.id === effectId);
+
   const recurringDamage = effect?.recurringDamage;
 
   if (
@@ -354,6 +358,9 @@ function applyRecurringDamageSaveAnswer(
  * @param effect - эффект с `recurringDamage.save` нужного момента хода
  * @param timing - граница хода
  * @param requestRoll - запрос броска от ядра
+ * @param options - откуда урон
+ * @param options.fromAmbientAura - урон ауры чужого токена: эффекта на сущности
+ *   нет, применяется снимок
  * @returns отложенное срабатывание; `null`, если спасброска против урона нет
  */
 export function requestRecurringDamageSave(
@@ -361,6 +368,7 @@ export function requestRecurringDamageSave(
   effect: ActiveEffect,
   timing: EffectSaveTiming,
   requestRoll: ServerRollRequester,
+  options: { fromAmbientAura?: boolean } = {},
 ): EngineDeferredTrigger | null {
   const save = effect.recurringDamage?.save;
 
@@ -370,6 +378,10 @@ export function requestRecurringDamageSave(
 
   const spec = buildRecurringDamageSaveSpec(effect, save);
   const effectId = effect.id;
+
+  const snapshot = options.fromAmbientAura
+    ? structuredClone(effect)
+    : undefined;
 
   const resolution = requestRoll(
     buildEffectSaveRollRequest(
@@ -386,6 +398,7 @@ export function requestRecurringDamageSave(
           timing,
           spec,
           outcome,
+          snapshot,
         ),
     () => null,
   );

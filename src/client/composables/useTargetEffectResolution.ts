@@ -343,9 +343,14 @@ export function useTargetEffectResolution() {
       if (!immune) {
         // Точная turn-длительность инициализируется тут же (носитель = цель,
         // источник = кастер): нужен текущий ход энкаунтера на момент наложения.
+        // Наложивший запоминается всегда: по нему условие «цель помечена
+        // мной» узнаёт свою метку
         effects.push(
           stampEffectTurnDuration(
-            stampSourceTurnSaveDc(effect, spellSaveDC),
+            {
+              ...stampSourceTurnSaveDc(effect, spellSaveDC),
+              sourceActorId: casterId ?? effect.sourceActorId,
+            },
             entity.id,
             casterId,
           ),

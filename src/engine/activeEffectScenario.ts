@@ -140,6 +140,7 @@ const RECURRING_DAMAGE_SUCCESS_LABELS = {
  */
 const SOURCE_SAVE_DC_LABELS: Partial<Record<EffectFormContext, string>> = {
   creatureAction: 'Сл действия',
+  weapon: 'Сл оружия',
 };
 
 /** Сколько модификаторов и флагов называть поимённо, прежде чем сказать «и ещё» */

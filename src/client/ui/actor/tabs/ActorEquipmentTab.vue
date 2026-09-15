@@ -344,6 +344,8 @@
       damageBonus: number;
     };
     initialRollMode: AttackRollMode;
+    /** С какой натуральной кости крит у этого оружия */
+    critThreshold?: number;
     incomingAttackType?: 'melee' | 'ranged' | 'spell';
     damageType?: string;
     /** Многочастный путь (бонус-части урона от Active Effects) */
@@ -464,6 +466,7 @@
         : buildRollBonusEvaluator(() => props.entity, attackKey),
       evaluateBonuses,
       initialRollMode,
+      critThreshold: resolvedStats.value?.critThreshold,
       incomingAttackType: weapon.rangeType === 'ranged' ? 'ranged' : 'melee',
       damageType: getWeaponPrimaryDamageType(weapon),
       damageParts: weaponPartsSetup.baseParts,
@@ -1391,6 +1394,7 @@
     :evaluate-bonus-roll-formulas="rollConfig.evaluateBonusRollFormulas"
     :evaluate-conditional-bonuses="rollConfig.evaluateBonuses"
     :initial-roll-mode="rollConfig.initialRollMode"
+    :crit-threshold="rollConfig.critThreshold"
     :incoming-attack-type="rollConfig.incomingAttackType"
     :damage-type="rollConfig.damageType"
     :damage-parts="rollConfig.damageParts"

@@ -524,13 +524,13 @@ export function resolveEffectFormLayout(
     successOutcomes,
     successOutcomeForActionSave,
     showTriggerDamage: showSave,
-    // Урон каждый ход тикает и у эффекта «пока в зоне»: копия лежит на сущности
-    showRecurringDamage:
-      livesOnItsOwn || (delivery === 'zone' && trigger === 'stay'),
+    // Урон каждый ход тикает и у эффекта «пока в зоне» (копия лежит на
+    // сущности), и у ауры «пока в ауре» — на ходу того, кого она накрыла
+    showRecurringDamage: livesOnItsOwn || (trigger === 'stay' && hasTrigger),
     showConditionPreset: context !== 'condition',
-    // Иммунитет ауры «пока внутри» другим не достаётся: они получают лишь
-    // модификаторы и флаги
-    showConditionImmunities: isGeneric || !isAuraStay,
+    // Иммунитет ауры «пока в ауре» получают все, кого она накрывает
+    // («Аура отваги»)
+    showConditionImmunities: true,
     // Длительность самой ауры на живом носителе тоже тикает
     showDuration:
       livesOnItsOwn || (isAuraStay && LIVING_CARRIER_CONTEXTS.has(context)),
@@ -562,6 +562,7 @@ function acceptsSourceSaveDc(
     case 'spell':
       return true;
     case 'creatureAction':
+    case 'weapon':
       return delivery === 'target';
     default:
       return false;

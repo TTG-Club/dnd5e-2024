@@ -544,7 +544,13 @@ function durationLines(duration: EffectDuration): string[] {
     describeEffectDuration(duration) ?? EFFECT_DURATION_LABELS[duration.type],
   ];
 
-  if (duration.type === 'rounds' && duration.remaining !== undefined) {
+  // Остаток минут и часов тоже в раундах: в бою они тикают раундами
+  if (
+    (duration.type === 'rounds'
+      || duration.type === 'minutes'
+      || duration.type === 'hours')
+    && duration.remaining !== undefined
+  ) {
     lines.push(
       `осталось ${duration.remaining} ${pluralize(duration.remaining, [
         'раунд',

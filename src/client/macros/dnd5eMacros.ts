@@ -605,6 +605,7 @@ export function registerDnd5eMacros(): void {
               attackKey,
             ),
         initialRollMode,
+        critThreshold: resolvedStats.critThreshold,
         incomingAttackType,
         evaluateConditionalBonuses: (modalContext: {
           hasAdvantage: boolean;

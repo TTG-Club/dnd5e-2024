@@ -198,7 +198,7 @@ describe('раскладка окна эффекта', () => {
     assert.equal(layout.saveUnavailableReason, 'onCarrier');
   });
 
-  it('оружие «на цели при попадании»: спасбросок с Сл не ниже 1', () => {
+  it('оружие «на цели при попадании»: спасбросок, Сл 0 — Сл оружия', () => {
     const effect = engine.writeEffectDelivery(createEffect(), 'target');
     const layout = engine.resolveEffectFormLayout('weapon', effect);
 
@@ -206,10 +206,10 @@ describe('раскладка окна эффекта', () => {
     assert.equal(layout.showSave, true);
     assert.equal(layout.showDuration, true);
     assert.equal(layout.successOutcomeForActionSave, false);
-    assert.equal(layout.minSaveDc, 1);
+    assert.equal(layout.minSaveDc, 0);
   });
 
-  it('аура предмета «пока внутри»: без длительности и иммунитетов', () => {
+  it('аура предмета «пока внутри»: без длительности, иммунитеты достаются накрытым', () => {
     const layout = layoutOf('item', { aura: ALLIES_AURA });
 
     assert.equal(layout.delivery, 'aura');
@@ -217,7 +217,8 @@ describe('раскладка окна эффекта', () => {
     assert.equal(layout.showSave, false);
     assert.equal(layout.saveUnavailableReason, 'stayTrigger');
     assert.equal(layout.showDuration, false);
-    assert.equal(layout.showConditionImmunities, false);
+    assert.equal(layout.showConditionImmunities, true);
+    assert.equal(layout.showRecurringDamage, true);
   });
 
   it('аура своих эффектов «пока внутри» тикает длительностью носителя', () => {

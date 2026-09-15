@@ -132,6 +132,8 @@ interface AttackResolveParams {
   targetAc: number;
   /** Активные флаги цели (для иммунитета к критам и т.п.) */
   targetFlags?: ReadonlySet<string>;
+  /** С какой натуральной кости крит (по умолчанию 20) */
+  critThreshold?: number;
 }
 
 /** Результат определения атаки */
@@ -145,6 +147,9 @@ export interface AttackResult {
   /** Попадание (крит или total >= AC, но не крит. промах) */
   isHit: boolean;
 }
+
+/** Натуральная 20: крит по правилам и всегда попадание */
+const NATURAL_CRIT_ROLL = 20;
 
 /**
  * Определяет результат броска атаки D&D 5e.
@@ -160,10 +165,18 @@ export function resolveAttackRoll(params: AttackResolveParams): AttackResult {
   const hasCritImmunity =
     params.targetFlags?.has('defense.critImmunity') ?? false;
 
-  const isCriticalHit = naturalRoll === 20 && !hasCritImmunity;
+  // «Улучшенный крит» опускает порог, но единица по-прежнему промах
+  const critThreshold = Math.min(
+    NATURAL_CRIT_ROLL,
+    params.critThreshold ?? NATURAL_CRIT_ROLL,
+  );
+
+  const isCriticalHit =
+    naturalRoll >= critThreshold && !isCriticalMiss && !hasCritImmunity;
 
   const isHit =
-    naturalRoll === 20 || (!isCriticalMiss && params.total >= params.targetAc);
+    naturalRoll === NATURAL_CRIT_ROLL
+    || (!isCriticalMiss && (isCriticalHit || params.total >= params.targetAc));
 
   return { naturalRoll, isCriticalHit, isCriticalMiss, isHit };
 }
@@ -284,6 +297,8 @@ export interface PerformAttackParams {
   targetFlags?: ReadonlySet<string>;
   /** Тип урона (если есть) */
   damageType?: string;
+  /** С какой натуральной кости крит (по умолчанию 20) */
+  critThreshold?: number;
 }
 
 /** Результат двухэтапной атаки */
@@ -320,6 +335,7 @@ export function performTwoStageAttack(
     attackModifier: params.attackModifier,
     targetAc: params.targetAc,
     targetFlags: params.targetFlags,
+    critThreshold: params.critThreshold,
   });
 
   attackRoll.label = buildAttackLabel({

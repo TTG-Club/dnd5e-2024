@@ -210,6 +210,20 @@ function toSystemDeferredTriggers(
   }));
 }
 
+/**
+ * Ауры чужих токенов из контекста ядра в форме D&D. Старое ядро аур не отдаёт —
+ * тогда их нет.
+ *
+ * @param context - контекст срабатывания от ядра
+ * @returns функция: сущность → её ауры
+ */
+function toAmbientResolver(
+  context: SystemTriggerContext | undefined,
+): (entity: SceneEntity) => ActiveEffect[] {
+  return (entity) =>
+    (context?.resolveAmbientEffects?.(entity) ?? []).filter(isDnDEffect);
+}
+
 /** Подписи типов существ по ключу (для форматтера компендиума) */
 const CREATURE_TYPE_LABELS: Record<string, string> = CREATURE_CATEGORIES;
 
@@ -393,7 +407,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.21';
+  readonly version = '0.8.22';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -581,6 +595,7 @@ export class Dnd5eVttSystem implements VttSystem {
     const result = processTurnEffects(entity, timing, {
       deferRecurringSave: () => askOwner,
       deferRecurringDamageSave: () => askOwner,
+      ambientEffects: toAmbientResolver(context)(entity),
     });
 
     const chatSummary = formatTurnEffectsMessage(entity.name, timing, result);
@@ -598,6 +613,13 @@ export class Dnd5eVttSystem implements VttSystem {
         pendingKey: `${entity.id}:${effect.id}:${timing}:${TURN_DAMAGE_SAVE_KEY}`,
         request: () =>
           requestRecurringDamageSave(entity, effect, timing, requestRoll),
+      })),
+      ...result.deferredAmbientDamageSaveEffects.map((effect) => ({
+        pendingKey: `${entity.id}:${effect.id}:${timing}:${TURN_DAMAGE_SAVE_KEY}`,
+        request: () =>
+          requestRecurringDamageSave(entity, effect, timing, requestRoll, {
+            fromAmbientAura: true,
+          }),
       })),
       ...result.deferredSaveEffects.map((effect) => ({
         pendingKey: `${entity.id}:${effect.id}:${timing}`,
@@ -714,7 +736,7 @@ export class Dnd5eVttSystem implements VttSystem {
       previousAreaIds,
       currentAreaIds,
       areas,
-      options,
+      { ...options, resolveAmbientEffects: toAmbientResolver(options) },
     );
 
     const chatSummary = formatEffectsSummary(
@@ -768,7 +790,10 @@ export class Dnd5eVttSystem implements VttSystem {
 
         return entity && isDndSceneEntity(entity) ? entity : undefined;
       },
-      { requestRoll: context?.requestRoll },
+      {
+        requestRoll: context?.requestRoll,
+        resolveAmbientEffects: toAmbientResolver(context),
+      },
     );
 
     return outcomes.map((outcome) => ({

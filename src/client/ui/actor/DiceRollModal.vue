@@ -91,6 +91,8 @@
       context: RollContext,
     ) => ReadonlyMap<string, readonly string[]>;
     initialRollMode?: AttackRollMode;
+    /** С какой натуральной кости атака — крит (у оружия Чемпиона 19) */
+    critThreshold?: number;
     /** Тип входящей атаки для расчёта условных бонусов к AC цели (melee/ranged/spell) */
     incomingAttackType?: IncomingAttackContext['attackType'];
     autoFail?: boolean;
@@ -723,6 +725,7 @@
         damageFormula: finalDamageFormula,
         targetActorId: targetStore.targetActorId,
         targetFlags: targetStore.getTargetFlags(),
+        critThreshold: props.critThreshold,
         damageType: resolvedDamageType.value,
       },
       (formula) => diceRollerStore.parseAndRoll(formula),
@@ -1015,6 +1018,7 @@
         targetName,
         targetActorId: targetStore.targetActorId,
         targetFlags: targetStore.getTargetFlags(),
+        critThreshold: props.critThreshold,
       },
       (formula) => diceRollerStore.parseAndRoll(formula),
     );

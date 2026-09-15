@@ -58,6 +58,11 @@ export function getExistingAreaEffectIds(entity: DnDSceneEntity): Set<string> {
   return result;
 }
 
+/** Ауры чужих токенов, накрывающие сущность прямо сейчас */
+export type AmbientEffectsResolver = (
+  entity: DnDSceneEntity,
+) => readonly ActiveEffect[];
+
 /** Результат синхронизации area-эффектов токена за одно перемещение */
 export interface AreaEffectsSyncResult {
   /** Были ли изменения (добавлен/снят stay-эффект, нанесён урон, наложен статус) */
@@ -98,6 +103,8 @@ export interface AreaEffectsSyncResult {
  *   выхода и реконсиляции stay набор не касается
  * @param options.requestRoll - запрос броска от ядра: спасбросок сущности без
  *   авто-спасбросков уходит игроку, а триггер — в `deferred`
+ * @param options.resolveAmbientEffects - ауры чужих токенов, накрывающие
+ *   сущность: учитываются в спасброске и иммунитетах срабатывания
  * @returns изменения и исходы триггеров для чата
  */
 export function syncActorAreaEffects(
@@ -109,12 +116,14 @@ export function syncActorAreaEffects(
     triggerOneShots?: boolean;
     alreadyEnteredAreaIds?: ReadonlySet<string>;
     requestRoll?: ServerRollRequester;
+    resolveAmbientEffects?: AmbientEffectsResolver;
   } = {},
 ): AreaEffectsSyncResult {
   const {
     triggerOneShots = true,
     alreadyEnteredAreaIds,
     requestRoll,
+    resolveAmbientEffects,
   } = options;
 
   const damageOutcomes: TurnDamageOutcome[] = [];
@@ -167,7 +176,10 @@ export function syncActorAreaEffects(
   }
 
   const runTrigger = (effect: ActiveEffect, area: CustomArea): void => {
-    const entryOptions = { sourceAreaId: area.id };
+    const entryOptions = {
+      sourceAreaId: area.id,
+      ambientEffects: resolveAmbientEffects?.(entity),
+    };
 
     // Спасбросок бросает игрок — срабатывание ждёт его ответа
     if (effect.applySave && shouldRequestEffectSave(entity, requestRoll)) {
@@ -337,6 +349,8 @@ function withResolvedDisposition(
  * @param options - возможности ядра на время срабатывания
  * @param options.requestRoll - запрос броска от ядра: спасбросок сущности без
  *   авто-спасбросков уходит игроку, а срабатывание — в `deferred`
+ * @param options.resolveAmbientEffects - ауры чужих токенов, накрывающие
+ *   затронутую сущность
  * @returns исходы по каждой затронутой сущности (для рассылки и чата)
  */
 export function applyAuraTriggerEffects(
@@ -345,7 +359,10 @@ export function applyAuraTriggerEffects(
   movedEntity: DnDSceneEntity,
   previousToken: Token | undefined,
   getEntity: (actorId: string) => DnDSceneEntity | undefined,
-  options: { requestRoll?: ServerRollRequester } = {},
+  options: {
+    requestRoll?: ServerRollRequester;
+    resolveAmbientEffects?: AmbientEffectsResolver;
+  } = {},
 ): AuraTriggerOutcome[] {
   const tokens = scene.tokens;
   const gridSettings = scene.gridSettings;
@@ -354,7 +371,7 @@ export function applyAuraTriggerEffects(
     return [];
   }
 
-  const { requestRoll } = options;
+  const { requestRoll, resolveAmbientEffects } = options;
   const outcomes = new Map<string, AuraTriggerOutcome>();
 
   /** Имена сущностей по токенам — подпись источника ауры в запросе броска */
@@ -383,6 +400,10 @@ export function applyAuraTriggerEffects(
   };
 
   const fire = (targetEntity: DnDSceneEntity, hit: TriggerAuraHit): void => {
+    const entryOptions = {
+      ambientEffects: resolveAmbientEffects?.(targetEntity),
+    };
+
     // Спасбросок бросает игрок — срабатывание ждёт его ответа
     if (
       hit.effect.applySave
@@ -393,6 +414,7 @@ export function applyAuraTriggerEffects(
         hit.effect,
         requestRoll,
         formatAuraRequesterLabel(sourceNames.get(hit.sourceTokenId)),
+        entryOptions,
       );
 
       if (trigger) {
@@ -402,7 +424,7 @@ export function applyAuraTriggerEffects(
       return;
     }
 
-    const result = resolveEntryEffect(targetEntity, hit.effect);
+    const result = resolveEntryEffect(targetEntity, hit.effect, entryOptions);
 
     if (!result.damageOutcome && !result.saveOutcome && !result.statusApplied) {
       return;
