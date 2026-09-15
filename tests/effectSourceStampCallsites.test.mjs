@@ -89,6 +89,21 @@ it('наложение эффекта с клиента идёт через об
   assert.deepEqual(unstamped, []);
 });
 
+it('каст с концентрацией начинается там же, где доводится', () => {
+  const unstarted = listSources(clientRoot)
+    .filter((path) => !path.endsWith('spellCastCompletion.ts'))
+    .filter((path) => {
+      const text = readFileSync(path, 'utf8');
+
+      return (
+        text.includes('completeSpellCast(') && !text.includes('beginSpellCast(')
+      );
+    })
+    .map(toSystemPath);
+
+  assert.deepEqual(unstarted, []);
+});
+
 it('движковый штамп клиент зовёт только из общего штампа', () => {
   const direct = listSources(clientRoot)
     .filter((path) => toSystemPath(path) !== STAMP_HELPER_FILE)

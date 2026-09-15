@@ -669,18 +669,26 @@ describe('список «Срабатывания»', () => {
       'applyCondition',
       'applyTag',
       'setHp',
+      'endCast',
       'removeSelf',
     ]);
 
     assert.deepEqual(
       engine.listTriggerActionTypes(own, 'attackRoll'),
-      ['applyCondition', 'applyTag', 'removeSelf'],
+      ['applyCondition', 'applyTag', 'endCast', 'removeSelf'],
       'на броске атаки урона нет',
     );
 
     assert.deepEqual(
       engine.listTriggerActionTypes(own, 'hpZero'),
-      ['damage', 'applyCondition', 'applyTag', 'setHp', 'removeSelf'],
+      [
+        'damage',
+        'applyCondition',
+        'applyTag',
+        'setHp',
+        'endCast',
+        'removeSelf',
+      ],
       '«хиты становятся» — только когда хиты упали до 0',
     );
 

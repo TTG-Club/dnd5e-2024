@@ -101,6 +101,7 @@ const TRIGGER_LABELS = {
   tagPrefix: 'отметка ',
   conditionJoiner: ' и ',
   setHpPrefix: 'хиты становятся ',
+  endCast: 'каст заканчивается',
   dcFormulaPrefix: 'Сл = ',
   damageVariable: 'урон',
   recipientOther: ', на другую сторону',
@@ -199,6 +200,8 @@ function describeAction(action: EffectTriggerAction): string {
     }
     case 'setHp':
       return `${TRIGGER_LABELS.setHpPrefix}${action.value}`;
+    case 'endCast':
+      return TRIGGER_LABELS.endCast;
     case 'removeSelf':
       return TRIGGER_LABELS.removeSelf;
     default:

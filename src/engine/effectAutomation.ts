@@ -40,6 +40,11 @@ export function isImmuneToCondition(
  * @returns стабильный ключ идентичности
  */
 function effectIdentityKey(effect: ActiveEffect): string {
+  // Концентрация у заклинателя одна: новая метка заменяет прежнюю
+  if (effect.concentration) {
+    return 'concentration';
+  }
+
   if (effect.tag) {
     return `tag:${effect.tag}`;
   }

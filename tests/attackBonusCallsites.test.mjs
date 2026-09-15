@@ -93,6 +93,7 @@ function createPorts(current) {
     DEFAULT_CREATURE_SPELL_SAVE_DC: 10,
     readSpellOwnSaveDC: () => undefined,
     completeSpellCast: () => {},
+    beginSpellCast: () => {},
     spellIsHealing: () => false,
     describeDamagePart: () => ({ types: [] }),
     CREATURE_ACTIONS_BLOCK_LABELS: { attackRollPrefix: 'Attack ' },

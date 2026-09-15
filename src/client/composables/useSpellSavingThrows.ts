@@ -60,6 +60,8 @@ export interface SavingThrowTarget {
   dc: number;
   /** Состояние, которого спасбросок позволяет избежать */
   againstCondition?: ConditionRef;
+  /** Спасбросок концентрации: «Боевой заклинатель» даёт преимущество */
+  againstConcentration?: boolean;
   /**
    * Спасбросок навязан магией — от этого зависят флаги вроде «Мантии
    * сопротивления заклинаниям». По умолчанию `true`: спасброски заклинаний и
@@ -146,12 +148,17 @@ function buildSavingThrowResult(
  * @param options - контекст спасброска для флагов преимущества/помехи
  * @param options.againstMagic - спасбросок навязан магией
  * @param options.againstCondition - состояние, которого он позволяет избежать
+ * @param options.againstConcentration - спасбросок концентрации
  * @returns модификатор спасброска и флаги (преимущество/помеха/автопровал)
  */
 function getActorSaveInfo(
   entity: SceneEntity,
   saveAbility: AbilityType,
-  options: { againstMagic: boolean; againstCondition?: ConditionRef },
+  options: {
+    againstMagic: boolean;
+    againstCondition?: ConditionRef;
+    againstConcentration?: boolean;
+  },
 ): ActorSaveInfo {
   // Ядро видит entity как Base*; D&D-форму подтверждает гвард. Без данных
   // системы считать нечего: спасбросок идёт «голым» кубиком, а не роняет каст
@@ -177,6 +184,7 @@ function getActorSaveInfo(
     ability: saveAbility,
     againstMagic: options.againstMagic,
     againstCondition: options.againstCondition,
+    againstConcentration: options.againstConcentration,
   });
 
   const hasAdvantage = rollMode === 'advantage';
@@ -212,6 +220,7 @@ function resolveTargetSaveInfo(target: SavingThrowTarget): ActorSaveInfo {
   return getActorSaveInfo(target.entity, target.ability, {
     againstMagic: target.againstMagic ?? true,
     againstCondition: target.againstCondition,
+    againstConcentration: target.againstConcentration,
   });
 }
 
@@ -231,6 +240,7 @@ function buildRollRequestOptions(
     dc: target.dc,
     againstMagic: target.againstMagic ?? true,
     againstCondition: target.againstCondition,
+    ...(target.againstConcentration ? { againstConcentration: true } : {}),
     sourceName: target.sourceName,
   };
 

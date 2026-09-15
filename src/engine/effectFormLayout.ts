@@ -684,7 +684,7 @@ function resolveTriggerListLayout(place: {
       'applyCondition',
       'applyTag',
       ...(place.hearsDamage ? (['setHp'] as const) : []),
-      ...(place.canRemoveSelf ? (['removeSelf'] as const) : []),
+      ...(place.canRemoveSelf ? (['endCast', 'removeSelf'] as const) : []),
     ],
     triggerTurnOwners: place.hasSource
       ? TURN_OWNERS_WITH_SOURCE

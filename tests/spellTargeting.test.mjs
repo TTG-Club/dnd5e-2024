@@ -865,6 +865,7 @@ it('the actual modal manager keeps a new Bless cast independent from an unfinish
     {
       prepareCasterSpellEffects: () => [],
       completeSpellCast: () => {},
+      beginSpellCast: () => {},
       resolveSpellcastingAbility: () => 'wisdom',
       resolveActorStats: () => ({ abilityMods: {} }),
       resolveSpellSaveDC: () => 13,
@@ -875,6 +876,7 @@ it('the actual modal manager keeps a new Bless cast independent from an unfinish
       computeAvailableLevels: () => [1],
       SPELL_MENU_LABELS: { cast: 'Применить' },
       SPELL_CAST_MODAL_KEY_PREFIX: 'spell-cast',
+      SPELL_CAST_KEY_PREFIX: 'cast',
       generateId: () => randomUUID(),
     },
   );
@@ -995,6 +997,9 @@ for (const [kind, instantSpell] of [
         applySpellTargetEffects: runtime.applySpellTargetEffects,
         spellCasterSource: () => ({ saveDc: 13, spellMod: 3 }),
         completeSpellCast: () => {},
+        beginSpellCast: () => {},
+        generateId: (prefix) => `${prefix}_test`,
+        SPELL_CAST_KEY_PREFIX: 'cast',
         useSpellTemplateStore: () => ({
           getPlacedTemplate: () => undefined,
           removePlacedTemplate() {},

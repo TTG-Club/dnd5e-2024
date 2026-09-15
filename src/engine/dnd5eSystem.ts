@@ -13,6 +13,7 @@ import type {
   MeasurementTemplate,
   MovementRange,
   SceneEntity,
+  SystemClientEventContext,
   SystemCombatStateResult,
   SystemDeferredTrigger,
   SystemDeferredTriggerResult,
@@ -55,6 +56,10 @@ import {
 } from './auraMath.js';
 import { normalizeActor, normalizeCreature } from './calculations.js';
 import { CLASS_KEY_OPTIONS } from './classTypes.js';
+import {
+  listConcentrationEffects,
+  withoutCastEffects,
+} from './concentration.js';
 import {
   buildConditionActiveEffect,
   getConditionEntry,
@@ -111,6 +116,7 @@ import {
   syncActorAreaEffects,
 } from './positionalEffects.js';
 import { damagePartIsHealing } from './spellUtils.js';
+import { parseSystemClientEvent } from './systemClientEvents.js';
 import { isPointInTemplate as isPointInTemplateGeometry } from './templateGeometry.js';
 import {
   entityIgnoresTerrainCost as entityIgnoresTerrainCostImpl,
@@ -362,6 +368,7 @@ function withDamageEvents(
 
       return found && isDndSceneEntity(found) ? found : undefined;
     },
+    endCast: toCastEnder(context, entity.id),
   });
 
   return mergeTriggerResults(base, toDamageEventsTriggerResult(entity, events));
@@ -380,6 +387,59 @@ function toAmbientResolver(
   return (entity) =>
     (context?.resolveAmbientEffects?.(entity) ?? []).filter(isDnDEffect);
 }
+
+/**
+ * Конец каста эффекта через ядро: каст закончит заклинатель, наложивший
+ * эффект. Старое ядро касты не заканчивает — тогда снимается только сам эффект.
+ *
+ * @param context - контекст срабатывания от ядра
+ * @param carrierId - носитель эффекта: заклинатель, если наложивший неизвестен
+ * @returns функция: эффект → закончить его каст
+ */
+function toCastEnder(
+  context: SystemTriggerContext | undefined,
+  carrierId: string,
+): ((effect: ActiveEffect) => void) | undefined {
+  const endCasts = context?.endCasts;
+
+  if (!endCasts) {
+    return undefined;
+  }
+
+  return (effect) => {
+    if (effect.castId) {
+      endCasts(effect.sourceActorId ?? carrierId, [effect.castId]);
+    }
+  };
+}
+
+/**
+ * Заканчивает касты меток концентрации, которые снялись сами — истёк срок.
+ *
+ * @param entity - сущность после снятия
+ * @param before - метки концентрации до снятия
+ * @param context - контекст срабатывания от ядра
+ */
+function endExpiredConcentration(
+  entity: DnDSceneEntity,
+  before: readonly ActiveEffect[],
+  context: SystemTriggerContext | undefined,
+): void {
+  const remaining = new Set(
+    listConcentrationEffects(entity.activeEffects).map((effect) => effect.id),
+  );
+
+  const endCast = toCastEnder(context, entity.id);
+
+  for (const effect of before) {
+    if (!remaining.has(effect.id)) {
+      endCast?.(effect);
+    }
+  }
+}
+
+/** Подпись снятых эффектов закончившегося каста в чате */
+const CAST_ENDED_SUMMARY_PREFIX = 'Каст закончился — сняты: ';
 
 /**
  * Участие наложившего в бою из контекста ядра. Старое ядро не знает ни
@@ -433,6 +493,7 @@ function settleTurnEffects(
     ambientEffects: toAmbientResolver(context)(entity),
     sourceTurnActorId,
     isSourceInCombat: toSourceInCombatResolver(context),
+    endCast: toCastEnder(context, entity.id),
   });
 
   const chatSummary = formatTurnEffectsMessage(
@@ -710,7 +771,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.36';
+  readonly version = '0.8.37';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -925,24 +986,102 @@ export class Dnd5eVttSystem implements VttSystem {
     turnActorId: string,
     timing: 'start' | 'end',
     participantIds: ReadonlySet<string>,
+    context?: SystemTriggerContext,
   ): boolean {
     if (!isDndSceneEntity(entity)) {
       return false;
     }
 
-    return expireEntityTurnEffects(entity, turnActorId, timing, participantIds);
+    const concentration = listConcentrationEffects(entity.activeEffects);
+
+    const changed = expireEntityTurnEffects(
+      entity,
+      turnActorId,
+      timing,
+      participantIds,
+    );
+
+    endExpiredConcentration(entity, concentration, context);
+
+    return changed;
   }
 
   /**
-   * Уменьшает длительность (в раундах) всех эффектов на сущности, снимая истёкшие.
+   * Уменьшает длительность (в раундах) всех эффектов на сущности, снимая
+   * истёкшие. Истёкшая метка концентрации заканчивает свой каст.
    */
   // eslint-disable-next-line class-methods-use-this
-  decrementEffectDurations(entity: SceneEntity): boolean {
+  decrementEffectDurations(
+    entity: SceneEntity,
+    context?: SystemTriggerContext,
+  ): boolean {
     if (!isDndSceneEntity(entity)) {
       return false;
     }
 
-    return decrementActorEffectDurations(entity);
+    const concentration = listConcentrationEffects(entity.activeEffects);
+    const changed = decrementActorEffectDurations(entity);
+
+    endExpiredConcentration(entity, concentration, context);
+
+    return changed;
+  }
+
+  /**
+   * Снимает с сущности эффекты закончившихся кастов заклинателя: наложенные им
+   * и с `castId` из списка. Эффекты других заклинателей не трогаются.
+   */
+  // eslint-disable-next-line class-methods-use-this
+  removeCastEffects(
+    entity: SceneEntity,
+    casterId: string,
+    castIds: ReadonlySet<string>,
+  ): SystemDeferredTriggerResult {
+    if (!isDndSceneEntity(entity)) {
+      return { changed: false, chatSummary: null };
+    }
+
+    const effects = entity.activeEffects ?? [];
+    const kept = withoutCastEffects(effects, casterId, castIds);
+
+    if (kept.length === effects.length) {
+      return { changed: false, chatSummary: null };
+    }
+
+    const removedNames = effects
+      .filter((effect) => !kept.includes(effect))
+      .map((effect) => effect.name);
+
+    entity.activeEffects = kept;
+
+    return {
+      changed: true,
+      chatSummary: `${entity.name}: ${CAST_ENDED_SUMMARY_PREFIX}${removedNames.join(', ')}`,
+    };
+  }
+
+  /**
+   * Событие правил от клиента: «прервать концентрацию». Закончить каст может
+   * только тот, кто управляет заклинателем.
+   */
+  // eslint-disable-next-line class-methods-use-this
+  handleClientEvent(
+    payload: unknown,
+    context: SystemClientEventContext,
+  ): SystemRelatedTriggerResult[] {
+    const event = parseSystemClientEvent(payload);
+
+    if (!event) {
+      return [];
+    }
+
+    const caster = context.getEntity(event.casterId);
+
+    if (caster && context.canControl(caster)) {
+      context.endCasts?.(event.casterId, event.castIds);
+    }
+
+    return [];
   }
 
   /**

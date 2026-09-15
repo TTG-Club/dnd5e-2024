@@ -314,19 +314,24 @@ export function isSaveAbility(
  * «до конца хода заклинателя».
  *
  * @param effect - накладываемый эффект
- * @param parties - носитель и наложивший
+ * @param parties - носитель, наложивший и каст
  * @param parties.carrierId - сущность, на которую ложится эффект
  * @param parties.sourceId - наложивший, если известен
+ * @param parties.castId - каст с концентрацией: его конец снимет эффект
  * @returns эффект, готовый лечь на носителя
  */
 export function stampEffectOnApply(
   effect: ActiveEffect,
-  parties: { carrierId: string; sourceId?: string },
+  parties: { carrierId: string; sourceId?: string; castId?: string },
 ): ActiveEffect {
-  return stampAppliedEffect(effect, {
-    ...parties,
+  const { castId, ...stampParties } = parties;
+
+  const stamped = stampAppliedEffect(effect, {
+    ...stampParties,
     activeTurnActorId: resolveActiveTurnActorId(),
   });
+
+  return castId ? { ...stamped, castId } : stamped;
 }
 
 /**

@@ -140,6 +140,8 @@ export interface SpellZoneDraftInput {
   formulaContext: FormulaContext;
   /** Размер клетки сцены в пикселях */
   gridSize: number;
+  /** Каст с концентрацией: его конец снимет и зону */
+  castId?: string;
 }
 
 /**
@@ -184,6 +186,7 @@ export function buildSpellZoneDraft(
       }),
     ),
     ...(input.spell.concentration ? { concentration: true } : {}),
+    ...(input.castId ? { castId: input.castId } : {}),
     ...(lifetime.kind === 'rounds' ? { rounds: lifetime.rounds } : {}),
   };
 }

@@ -212,11 +212,14 @@ export function buildTriggerSaveSpec(
     return null;
   }
 
+  // Спасбросок концентрации — не против магии: «Мантия сопротивления
+  // заклинаниям» его не облегчает, «Боевой заклинатель» — да
   const base = {
     effectName: effect.name,
     ability: trigger.save.ability,
     dc: resolveTriggerSaveDc(trigger.save, event),
-    againstMagic: isMagicalEffect(effect),
+    againstMagic: isMagicalEffect(effect) && !effect.concentration,
+    ...(effect.concentration ? { againstConcentration: true } : {}),
   };
 
   return triggerHasEffects(trigger)
@@ -366,7 +369,9 @@ export function triggerRemovesSelf(
  */
 function listSourceActions(source: EffectTriggerSource): EffectTriggerAction[] {
   return source.trigger.actions.filter(
-    (action) => action.type !== 'removeSelf' || source.instance,
+    (action) =>
+      (action.type !== 'removeSelf' && action.type !== 'endCast')
+      || source.instance,
   );
 }
 
@@ -446,6 +451,8 @@ function buildEffectStatusCopy(
     duration: { ...effect.duration },
     // Разовая нагрузка уже отыграна — на длящейся копии её не оставляем
     damageParts: undefined,
+    // Концентрацию держит заклинатель, а не копия на субъекте
+    concentration: undefined,
     applySave: undefined,
     // Аура остаётся у источника: без сброса цель сама начала бы её излучать
     // (у копии нет `areaTrigger`, и она стала бы постоянной аурой)
@@ -519,6 +526,14 @@ export function applyTriggerEffectActions(
 
     if (action.type === 'removeSelf') {
       removes = true;
+
+      continue;
+    }
+
+    // Каст заканчивает ядро по всем существам; сам эффект снимается здесь же
+    if (action.type === 'endCast') {
+      removes = true;
+      options.endCast?.(source.effect);
 
       continue;
     }
@@ -923,6 +938,7 @@ export function processTurnEffects(
       {
         ambientEffects,
         activeTurnActorId: options.sourceTurnActorId ?? entity.id,
+        endCast: options.endCast,
       },
     );
 

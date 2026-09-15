@@ -560,6 +560,11 @@ export interface SavingThrowRollModeParams {
    * страха.
    */
   againstCondition?: ConditionRef;
+  /**
+   * Спасбросок концентрации: «Боевой заклинатель» даёт преимущество только на
+   * нём, а не на всех спасбросках Телосложения.
+   */
+  againstConcentration?: boolean;
 }
 
 /**
@@ -579,12 +584,20 @@ export interface SavingThrowRollModeParams {
 export function resolveSavingThrowRollMode(
   params: SavingThrowRollModeParams,
 ): AttackRollMode {
-  const { flags, ability, againstMagic, againstCondition } = params;
+  const {
+    flags,
+    ability,
+    againstMagic,
+    againstCondition,
+    againstConcentration,
+  } = params;
 
   const hasAdvantage =
     flags.has('save.advantage')
     || flags.has(`save.advantage.${ability}`)
     || (againstMagic === true && flags.has('save.advantage.vsMagic'))
+    || (againstConcentration === true
+      && flags.has('save.advantage.vsConcentration'))
     || (againstCondition !== undefined
       && flags.has(buildSaveVsConditionFlag('advantage', againstCondition)));
 
@@ -592,6 +605,8 @@ export function resolveSavingThrowRollMode(
     flags.has('save.disadvantage')
     || flags.has(`save.disadvantage.${ability}`)
     || (againstMagic === true && flags.has('save.disadvantage.vsMagic'))
+    || (againstConcentration === true
+      && flags.has('save.disadvantage.vsConcentration'))
     || (againstCondition !== undefined
       && flags.has(buildSaveVsConditionFlag('disadvantage', againstCondition)));
 

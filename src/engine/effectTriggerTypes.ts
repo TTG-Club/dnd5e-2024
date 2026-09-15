@@ -183,6 +183,15 @@ export interface EffectTriggerSetHpAction {
   on?: EffectTriggerActionGate;
 }
 
+/**
+ * Закончить каст, который держит эффект: снимаются сам эффект и все эффекты
+ * этого каста у всех существ, и его зона («провал спасброска концентрации»).
+ */
+export interface EffectTriggerEndCastAction {
+  type: 'endCast';
+  on?: EffectTriggerActionGate;
+}
+
 /** Снять сам эффект */
 export interface EffectTriggerRemoveSelfAction {
   type: 'removeSelf';
@@ -196,6 +205,7 @@ export type EffectTriggerAction =
   | EffectTriggerApplyConditionAction
   | EffectTriggerApplyTagAction
   | EffectTriggerSetHpAction
+  | EffectTriggerEndCastAction
   | EffectTriggerRemoveSelfAction;
 
 /** Виды действий срабатывания */
@@ -205,6 +215,7 @@ export const EFFECT_TRIGGER_ACTION_TYPES = [
   'applyCondition',
   'applyTag',
   'setHp',
+  'endCast',
   'removeSelf',
 ] as const;
 

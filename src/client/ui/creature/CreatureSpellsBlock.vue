@@ -78,6 +78,7 @@
     DEFAULT_CREATURE_SPELL_SAVE_DC,
     SPELL_CAST_KEY_PREFIX,
   } from '../../composables/spellCastCompletion';
+  import { beginSpellCast } from '../../composables/spellCasts';
   import {
     findSpellInPacks,
     loadSpellPacks,
@@ -1601,6 +1602,8 @@
     };
 
     const castKey = generateId(SPELL_CAST_KEY_PREFIX);
+
+    beginSpellCast(creature.id, spell, castKey);
 
     const setup = buildCreatureSpellRollSetup({
       spell,

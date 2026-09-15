@@ -92,7 +92,9 @@
   import {
     completeSpellCast,
     prepareCasterSpellEffects,
+    SPELL_CAST_KEY_PREFIX,
   } from '../../../composables/spellCastCompletion';
+  import { beginSpellCast } from '../../../composables/spellCasts';
   import {
     applySpellTargetEffects,
     createProjectileCastValidator,
@@ -1472,6 +1474,8 @@
     lockedSpellLevel?: number,
     effectTargets?: SpellEffectTargets,
   ): void {
+    beginSpellCast(props.actor.id, spell, generateId(SPELL_CAST_KEY_PREFIX));
+
     // Заклинания с зарядами (врождённые/расовые) не тратят ячейки и не
     // апкастятся: круг фиксирован, коллбэк списания ячейки не передаётся.
     const isInnate = !!spell.uses;

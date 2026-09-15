@@ -97,6 +97,7 @@ import {
   prepareCasterSpellEffects,
   SPELL_CAST_KEY_PREFIX,
 } from '../composables/spellCastCompletion';
+import { beginSpellCast } from '../composables/spellCasts';
 import {
   applySpellTargetEffects,
   createProjectileCastValidator,
@@ -839,6 +840,8 @@ function openDiceRollForSpell(
 
     const castKey = generateId(SPELL_CAST_KEY_PREFIX);
 
+    beginSpellCast(actor.id, spell, castKey);
+
     /**
      * Доводит каст: конец прежней концентрации, эффекты на заклинателе, зона на
      * месте шаблона. Ключ отсекает повторное применение того же каста.
@@ -1396,6 +1399,8 @@ function castBuffSpellMacro(
 ): void {
   const isInnate = !!spell.uses;
   const casterStats = resolveActorStats(actor);
+
+  beginSpellCast(actor.id, spell, generateId(SPELL_CAST_KEY_PREFIX));
 
   // Кто накладывает эффекты: Сл 0 эффекта и его спасбросок считаются от
   // заклинателя — и на цели, и на нём самом, и в зоне
@@ -2098,6 +2103,8 @@ function openCreatureSpellRoll(
   };
 
   const castKey = generateId(SPELL_CAST_KEY_PREFIX);
+
+  beginSpellCast(creature.id, spell, castKey);
 
   // Атака без частей урона: окно броска не зовёт `onRollParts`, и эффекты на
   // попадании разбирает тот же оркестратор с пустым набором частей

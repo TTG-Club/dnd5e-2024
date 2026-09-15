@@ -111,6 +111,7 @@ export const EFFECT_TRIGGER_ACTION_LABELS: Record<
   applyCondition: 'Наложить состояние',
   applyTag: 'Поставить отметку',
   setHp: 'Хиты становятся',
+  endCast: 'Закончить каст',
   removeSelf: 'Снять эффект',
 };
 
@@ -124,6 +125,7 @@ export const EFFECT_TRIGGER_ACTION_ICONS: Record<
   applyCondition: 'tabler:mood-sick',
   applyTag: 'tabler:bookmark',
   setHp: 'tabler:heart-plus',
+  endCast: 'tabler:player-stop',
   removeSelf: 'tabler:circle-x',
 };
 

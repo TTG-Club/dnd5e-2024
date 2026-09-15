@@ -119,6 +119,8 @@ export const savingThrowRequestPayloadSchema = z.object({
   againstCondition: z
     .custom<ConditionRef>((value) => typeof value === 'string')
     .optional(),
+  /** Спасбросок концентрации: «Боевой заклинатель» у адресата */
+  againstConcentration: z.boolean().optional(),
   /** Чем бьют — «Огненный шар», «Укус»: уходит в заголовок окна у адресата */
   sourceName: z.string().optional(),
 });

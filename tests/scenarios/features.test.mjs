@@ -398,9 +398,27 @@ describe('каталог: классы и черты', () => {
     );
   });
 
-  it.todo(
-    '[F12b] Боевой заклинатель: преимущество только на спасброски концентрации — пробел (нет концентрации)',
-  );
+  it('[F12b] Боевой заклинатель: преимущество только на спасброски концентрации', () => {
+    const warCaster = createEffect('Боевой заклинатель', {
+      flags: ['save.advantage.vsConcentration'],
+    });
+
+    authoredScenario(warCaster, 'feature');
+
+    const { activeFlags } = engine.resolveActorStats(
+      hero({ overrides: { activeEffects: [warCaster] } }),
+    );
+
+    const rollMode = (circumstances) =>
+      engine.resolveSavingThrowRollMode({
+        flags: activeFlags,
+        ability: 'constitution',
+        ...circumstances,
+      });
+
+    assert.equal(rollMode({ againstConcentration: true }), 'advantage');
+    assert.equal(rollMode({}), 'normal');
+  });
 
   it.todo(
     '[F13] Удача: переброс d20 за очко удачи — пробел (ресурс и переброс)',

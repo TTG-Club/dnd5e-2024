@@ -19,6 +19,7 @@ import {
   stampSourceTurnSaveDc,
 } from '@vtt/shared/system/dnd.js';
 
+import { resolveSpellCastId } from './spellCasts';
 import {
   getPartKindLabel,
   getTargetSpellEffects,
@@ -304,6 +305,7 @@ export function useTargetEffectResolution() {
           stampEffectOnApply(stampSourceTurnSaveDc(effect, spellSaveDC), {
             carrierId: entity.id,
             sourceId: casterId,
+            castId: resolveSpellCastId(casterId, spell),
           }),
         );
       }

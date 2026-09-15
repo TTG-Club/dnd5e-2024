@@ -422,6 +422,8 @@ export interface TurnEffectsOptions {
    * деградирует якорь длительности `source`. Без поля (старое ядро) — не в бою.
    */
   isSourceInCombat?: (sourceId: string) => boolean;
+  /** Закончить каст эффекта: действие «Закончить каст» */
+  endCast?: (effect: ActiveEffect) => void;
 }
 
 /** Эффекты и свойства носителя для бонусных кубиков серверного спасброска. */
@@ -440,6 +442,8 @@ export interface SavingThrowCircumstances {
   againstMagic: boolean;
   /** Состояние, которого спасбросок позволяет избежать */
   againstCondition?: ConditionRef;
+  /** Спасбросок концентрации */
+  againstConcentration?: boolean;
 }
 
 /**
@@ -616,6 +620,7 @@ export function rollEffectSavingThrow(
     ability,
     againstMagic: circumstances?.againstMagic,
     againstCondition: circumstances?.againstCondition,
+    againstConcentration: circumstances?.againstConcentration,
   });
 
   const hasAdvantage = rollMode === 'advantage';
@@ -927,6 +932,11 @@ export interface EntryEffectOptions {
    * своего якоря, не спадает в конце этого же хода.
    */
   activeTurnActorId?: string | null;
+  /**
+   * Закончить каст эффекта: действие «Закончить каст». Без поля (клиент,
+   * старое ядро) снимается только сам эффект.
+   */
+  endCast?: (effect: ActiveEffect) => void;
 }
 
 /** Исход срабатывания эффекта области/ауры при входе/выходе */

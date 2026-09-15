@@ -25,6 +25,7 @@
     listSelectableConditions,
   } from '@vtt/shared/system/dnd.js';
 
+  import { requestEndCasts } from '../../composables/spellCasts';
   import { useActiveEffectModal } from '../../composables/useActiveEffectModal';
   import { useEntityActiveEffects } from '../../composables/useEntityActiveEffects';
   import { CONDITION_MODALS } from '../condition/conditionConsts';
@@ -33,6 +34,7 @@
     ACTIVE_EFFECT_DEFAULTS,
     ACTIVE_EFFECT_ICON_CLASS,
     ACTIVE_EFFECT_OPEN_HINT,
+    CONCENTRATION_END_LABEL,
     EFFECTS_TAB_LABELS,
     MODAL_BUTTON_LABELS,
   } from './constants';
@@ -57,6 +59,18 @@
   }>();
 
   const effectsRef = computed(() => props.effects);
+
+  /**
+   * Прерывает концентрацию: сервер закончит каст метки у всех существ и снимет
+   * его зону. Сама метка уходит тем же исходом.
+   *
+   * @param effect - метка концентрации
+   */
+  function endConcentration(effect: ActiveEffect): void {
+    if (effect.concentration && effect.castId && effect.sourceActorId) {
+      requestEndCasts(effect.sourceActorId, [effect.castId]);
+    }
+  }
 
   const {
     customEffects,
@@ -289,6 +303,17 @@
         </button>
 
         <div class="flex shrink-0 items-center gap-1.5">
+          <UButton
+            v-if="effect.concentration && effect.castId"
+            icon="tabler:player-stop"
+            size="xs"
+            variant="ghost"
+            color="warning"
+            class="px-1.5"
+            :title="CONCENTRATION_END_LABEL"
+            @click.left.exact.prevent="endConcentration(effect)"
+          />
+
           <USwitch
             :model-value="!effect.disabled"
             size="sm"

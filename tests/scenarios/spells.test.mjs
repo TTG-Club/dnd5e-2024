@@ -15,6 +15,7 @@ import {
   GRID,
   MAX_ROLL,
   MIN_ROLL,
+  strikeEntity,
   withRandom,
 } from './_fixtures.mjs';
 
@@ -616,9 +617,58 @@ describe('каталог: заклинания', () => {
     '[S18b] Шипастая поросль: урон за каждые 5 фт пути в зоне — пробел модели',
   );
 
-  it.todo(
-    '[S19] Потеря концентрации от урона и 0 хитов снимает эффекты и зону — пробел',
-  );
+  it('[S19] Потеря концентрации от урона снимает эффекты каста со всех целей', () => {
+    const castId = 'cast_bless';
+    const system = new engine.Dnd5eVttSystem();
+
+    const caster = createActor({ id: 'actor_cleric' });
+
+    caster.activeEffects = [
+      engine.buildConcentrationEffect({
+        spell: {
+          name: 'Благословение',
+          durationUnit: 'minute',
+          durationValue: 1,
+        },
+        casterId: caster.id,
+        castId,
+      }),
+    ];
+
+    const bless = (sourceActorId) =>
+      createEffect('Благословение', { castId, sourceActorId });
+
+    const allies = [
+      createActor({ id: 'actor_fighter', activeEffects: [bless(caster.id)] }),
+      createActor({ id: 'actor_rogue', activeEffects: [bless(caster.id)] }),
+      createActor({ id: 'actor_bard', activeEffects: [bless('actor_other')] }),
+    ];
+
+    const ended = [];
+
+    withRandom([MIN_ROLL], () =>
+      strikeEntity(system, caster, 10, 'slashing', {
+        context: {
+          endCasts: (casterId, castIds) => ended.push([casterId, castIds]),
+        },
+      }),
+    );
+
+    assert.deepEqual(ended, [[caster.id, [castId]]]);
+
+    // Ядро заканчивает каст по всем существам мира
+    for (const [casterId, castIds] of ended) {
+      for (const entity of [caster, ...allies]) {
+        system.removeCastEffects(entity, casterId, new Set(castIds));
+      }
+    }
+
+    assert.deepEqual(
+      allies.map((ally) => ally.activeEffects.length),
+      [0, 0, 1],
+      'чужой каст с тем же id не снимается',
+    );
+  });
 
   it('[S20] Жезл паутины: своя Сл заклинания 15 — у спасброска и у зоны, от персонажа не зависит', () => {
     const entangle = engine.applyConditionPresetToEffect(

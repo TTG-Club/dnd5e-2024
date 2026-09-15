@@ -71,6 +71,8 @@ export interface DamageEventsOptions {
   activeTurnActorId?: string | null;
   /** Живая сущность мира по id: другая сторона — кто нанёс урон */
   getEntity?: (entityId: string) => DnDSceneEntity | undefined;
+  /** Закончить каст эффекта: провал концентрации */
+  endCast?: (effect: ActiveEffect) => void;
 }
 
 /** Изменения одной сущности от событий урона */
@@ -389,6 +391,7 @@ function runDamageEventSource(
   const effectOptions: EntryEffectOptions = {
     ambientEffects,
     activeTurnActorId: options.activeTurnActorId,
+    endCast: options.endCast,
   };
 
   const spec = buildTriggerSaveSpec(source.effect, source.trigger, {

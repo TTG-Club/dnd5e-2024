@@ -581,6 +581,8 @@ export type EffectFlagKey =
   | 'save.disadvantage'
   | 'save.advantage.vsMagic'
   | 'save.disadvantage.vsMagic'
+  | 'save.advantage.vsConcentration'
+  | 'save.disadvantage.vsConcentration'
   | 'save.advantage.strength'
   | 'save.advantage.dexterity'
   | 'save.advantage.constitution'
@@ -668,6 +670,8 @@ const BASE_EFFECT_FLAG_LABELS: Record<
     'Преимущество на спасброски против заклинаний и магических эффектов',
   'save.disadvantage.vsMagic':
     'Помеха на спасброски против заклинаний и магических эффектов',
+  'save.advantage.vsConcentration': 'Преимущество на спасброски концентрации',
+  'save.disadvantage.vsConcentration': 'Помеха на спасброски концентрации',
   'save.advantage.strength': 'Преимущество на спасброски: Сила',
   'save.advantage.dexterity': 'Преимущество на спасброски: Ловкость',
   'save.advantage.constitution': 'Преимущество на спасброски: Телосложение',
@@ -1168,6 +1172,18 @@ export interface ActiveEffect extends BaseActiveEffect {
   tag?: string;
 
   /**
+   * Каст заклинания, к которому относится эффект: общий у эффектов заклинателя,
+   * целей и зоны одного каста. Конец каста снимает их все.
+   */
+  castId?: string;
+
+  /**
+   * Метка концентрации: эффект держит каст `castId`, его срабатывания урона и
+   * 0 хитов заканчивают каст. Метка у заклинателя одна.
+   */
+  concentration?: true;
+
+  /**
    * Спасбросок при наложении: если задан, цель кидает спас в момент применения
    * эффекта (напр. при попадании атакой). Провал — эффект и его урон
    * применяются; успех — отменяет/уменьшает по `onSuccess`. Заменяет прежний
@@ -1616,6 +1632,9 @@ const RecurringDamageSchema = z.object({
   save: EffectSaveSchema.optional(),
 });
 
+/** Самый длинный id каста — как у черновика области ядра */
+const MAX_CAST_ID_LENGTH = 64;
+
 /** Самая длинная формула Сл срабатывания */
 const MAX_TRIGGER_DC_FORMULA_LENGTH = 200;
 
@@ -1665,6 +1684,7 @@ const EffectTriggerActionSchema = z.discriminatedUnion('type', [
     value: z.preprocess(coerceOptionalNumber, z.number().int().min(0)),
     on: EffectTriggerGateSchema,
   }),
+  z.object({ type: z.literal('endCast'), on: EffectTriggerGateSchema }),
   z.object({ type: z.literal('removeSelf'), on: EffectTriggerGateSchema }),
 ]);
 
@@ -1773,6 +1793,8 @@ export const ActiveEffectSchema = z.object({
   // и проверка иммунитета.
   conditionKey: z.string().min(1).optional(),
   tag: z.string().regex(EFFECT_TAG_PATTERN).optional().catch(undefined),
+  castId: z.string().min(1).max(MAX_CAST_ID_LENGTH).optional().catch(undefined),
+  concentration: z.literal(true).optional().catch(undefined),
   applySave: EffectSaveSchema.optional(),
   applyOnSuccess: z.boolean().optional(),
   applyOnSuccessOnly: z.boolean().optional(),

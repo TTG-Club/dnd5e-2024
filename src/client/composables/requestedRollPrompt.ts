@@ -77,6 +77,7 @@ export function promptRequestedRoll(
     dc: payload.dc,
     againstMagic: payload.againstMagic,
     againstCondition: payload.againstCondition,
+    againstConcentration: payload.againstConcentration,
     sourceName: payload.sourceName,
   };
 

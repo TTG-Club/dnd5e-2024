@@ -22,13 +22,16 @@ import { useWorldStore } from '@/stores/worldStore';
 import { resolveGridCellSize } from '@vtt/shared';
 import {
   bindSourceEffectFormulas,
+  buildConcentrationEffect,
   buildFormulaContext,
   buildSpellZoneDraft,
   getCasterSpellEffects,
+  listConcentrationCastIds,
   mergeAppliedEffects,
   stampSourceSaveDcs,
 } from '@vtt/shared/system/dnd.js';
 
+import { requestEndCasts, resolveSpellCastId } from './spellCasts';
 import {
   formatSpellEffectsMessage,
   instantiateSpellEffects,
@@ -59,7 +62,8 @@ const completedCastKeys = new Set<string>();
  * Эффекты заклинания на самого заклинателя, готовые лечь в `activeEffects`:
  * свои копии, числа и Сл заклинателя подставлены, точная длительность хода
  * привязана к нему. Аура на заклинателе живёт отдельно от каста, и Сл 0 в ней
- * иначе бросалась бы против нуля.
+ * иначе бросалась бы против нуля. У заклинания с концентрацией к ним
+ * добавляется метка концентрации идущего каста.
  *
  * @param spell - заклинание
  * @param caster - заклинатель
@@ -72,9 +76,14 @@ export function prepareCasterSpellEffects(
   source: SpellCasterSource,
 ): ActiveEffect[] {
   const casterEffects = getCasterSpellEffects(spell);
+  const castId = resolveSpellCastId(caster.id, spell);
+
+  const concentration = castId
+    ? [buildConcentrationEffect({ spell, casterId: caster.id, castId })]
+    : [];
 
   if (casterEffects.length === 0) {
-    return [];
+    return concentration;
   }
 
   const formulaContext = {
@@ -82,15 +91,17 @@ export function prepareCasterSpellEffects(
     spellMod: source.spellMod,
   };
 
-  return instantiateSpellEffects(casterEffects).map((effect) =>
+  const prepared = instantiateSpellEffects(casterEffects).map((effect) =>
     stampEffectOnApply(
       stampSourceSaveDcs(
         bindSourceEffectFormulas(effect, formulaContext),
         source.saveDc,
       ),
-      { carrierId: caster.id, sourceId: caster.id },
+      { carrierId: caster.id, sourceId: caster.id, castId },
     ),
   );
+
+  return [...prepared, ...concentration];
 }
 
 /**
@@ -131,12 +142,24 @@ export function applyCasterSpellEffectsToEntity(
 }
 
 /**
- * Снимает зоны заклинателя, которые держатся его концентрацией: новая
- * концентрация заканчивает прежнюю.
+ * Заканчивает прежнюю концентрацию заклинателя: новая концентрация
+ * заканчивает старую. Касты с меткой заканчивает сервер — со всеми их
+ * эффектами и зонами; зоны без каста (созданные до меток) снимаются здесь.
  *
- * @param casterId - заклинатель
+ * @param caster - заклинатель
+ * @param castId - идущий каст: его не трогать
  */
-export function releaseConcentrationZones(casterId: string): void {
+export function releaseConcentration(
+  caster: DnDSceneEntity,
+  castId: string | undefined,
+): void {
+  requestEndCasts(
+    caster.id,
+    listConcentrationCastIds(caster.activeEffects).filter(
+      (previous) => previous !== castId,
+    ),
+  );
+
   const scene = useWorldStore().currentScene;
   const socket = useChatStore().getSocket();
 
@@ -145,7 +168,13 @@ export function releaseConcentrationZones(casterId: string): void {
   }
 
   for (const area of scene.customAreas ?? []) {
-    if (area.source?.entityId === casterId && area.source.concentration) {
+    const areaSource = area.source;
+
+    if (
+      areaSource?.entityId === caster.id
+      && areaSource.concentration
+      && areaSource.castId === undefined
+    ) {
       socket.emit('custom-area:delete', scene.id, area.id);
     }
   }
@@ -184,6 +213,7 @@ export function requestSpellZone(
       spellMod: source.spellMod,
     },
     gridSize: resolveGridCellSize(scene.gridSettings),
+    castId: resolveSpellCastId(caster.id, spell),
   });
 
   if (!draft) {
@@ -240,7 +270,7 @@ export function completeSpellCast(input: SpellCastCompletionInput): void {
 
   // Концентрация кончается до новой зоны: иначе снялась бы и она сама
   if (spell.concentration) {
-    releaseConcentrationZones(caster.id);
+    releaseConcentration(caster, resolveSpellCastId(caster.id, spell));
   }
 
   if (input.applyCasterEffects) {

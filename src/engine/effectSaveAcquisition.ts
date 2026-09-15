@@ -148,6 +148,7 @@ function buildEffectSaveFallbackFormula(
     ability: spec.ability,
     againstMagic: spec.againstMagic,
     againstCondition: spec.againstCondition,
+    againstConcentration: spec.againstConcentration,
   });
 
   const context = buildEffectSavingThrowContext(entity);
@@ -189,6 +190,7 @@ export function buildEffectSaveRollRequest(
     dc: spec.dc,
     againstMagic: spec.againstMagic,
     againstCondition: spec.againstCondition,
+    ...(spec.againstConcentration ? { againstConcentration: true } : {}),
     sourceName: spec.effectName,
   };
 
