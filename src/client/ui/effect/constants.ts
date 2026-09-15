@@ -8,13 +8,10 @@
 import type {
   AreaEffectTrigger,
   ConditionKey,
-  EffectAttackTrigger,
   EffectChangeMode,
   EffectDelivery,
   EffectFormContext,
   EffectFormStep,
-  EffectSaveOutcome,
-  EffectSaveTiming,
   EffectSaveUnavailableReason,
   EffectSuccessOutcome,
   InertEffectField,
@@ -58,7 +55,8 @@ export const EFFECT_FORM_STEP_TITLES: Record<EffectFormStep, string> = {
   save: 'Спасбросок',
   damage: 'Урон',
   modifiers: 'Что меняет',
-  duration: 'Длительность и снятие',
+  duration: 'Длительность',
+  triggers: 'Срабатывания',
 };
 
 /** Иконки шагов окна */
@@ -68,6 +66,7 @@ export const EFFECT_FORM_STEP_ICONS: Record<EffectFormStep, string> = {
   damage: 'tabler:flame',
   modifiers: 'tabler:adjustments',
   duration: 'tabler:hourglass',
+  triggers: 'tabler:repeat',
 };
 
 /** Заголовок шага «Что меняет» — по тому, на кого эффект ложится */
@@ -186,9 +185,6 @@ export const EFFECT_AURA_LABELS = {
 /** Приставка ключей модификаторов урона: у них значение может быть костями */
 export const DAMAGE_CHANGE_KEY_PREFIX = 'damage.';
 
-/** Момент урона каждого хода у нового эффекта: «Горение» жжёт в начале хода */
-export const DEFAULT_RECURRING_DAMAGE_TIMING: EffectSaveTiming = 'startOfTurn';
-
 /** Шаг радиуса ауры, фт */
 export const EFFECT_AURA_RADIUS_STEP = 5;
 
@@ -303,33 +299,8 @@ export const EFFECT_DAMAGE_STEP_LABELS = {
   triggerHint:
     'Наносится сразу. Со спасброском: провал — полный, успех — по выбору в '
     + 'шаге «Спасбросок».',
-  recurringToggle: 'Урон каждый ход',
-  recurringHint:
-    'Пока эффект на существе, урон наносится в бою на каждом его ходу '
-    + '(«Горение»).',
-  recurringWhen: 'Когда',
-  recurringSaveToggle: 'Спасбросок против урона',
-  recurringSaveHint:
-    'На каждом ходу существо бросает спасбросок: провал — полный урон, успех — '
-    + 'без урона или половина. Эффект при этом остаётся.',
-  recurringSaveSuccess: 'Если спасбросок успешен',
   addDamage: 'Добавить урон',
 } as const;
-
-/** Что даёт успешный спасбросок против урона каждый ход */
-export const EFFECT_RECURRING_DAMAGE_SUCCESS_LABELS: Record<
-  EffectSaveOutcome,
-  string
-> = {
-  negate: 'Урона нет',
-  half: 'Половина урона',
-};
-
-/** Моменты хода для урона и повторного спасброска */
-export const EFFECT_TURN_MOMENT_LABELS: Record<EffectSaveTiming, string> = {
-  startOfTurn: 'В начале хода',
-  endOfTurn: 'В конце хода',
-};
 
 /** Подписи шага «Что меняет» */
 export const EFFECT_MODIFIERS_STEP_LABELS = {
@@ -393,7 +364,7 @@ export const EFFECT_FLAG_ROW_LABELS = {
   remove: 'Убрать правило',
 } as const;
 
-/** Подписи шага «Длительность и снятие» */
+/** Подписи шага «Длительность» */
 export const EFFECT_DURATION_STEP_LABELS = {
   durationTitle: 'Сколько держится',
   valuePlaceholder: 'Сколько',
@@ -406,34 +377,7 @@ export const EFFECT_DURATION_STEP_LABELS = {
   timeHint:
     'В бою минуты и часы отсчитываются раундами (минута — 10); вне боя время '
     + 'не идёт.',
-  recurringSaveToggle: 'Повторный спасбросок снимает эффект',
-  recurringSaveHint:
-    'Пока эффект действует, существо повторяет спасбросок и при успехе '
-    + 'сбрасывает его.',
-  recurringSaveWhen: 'Когда',
-  consumeOnTitle: 'Снять после атаки',
-  consumeOnHint:
-    'Эффект сгорает после первого же броска атаки — «помеха на следующую '
-    + 'атаку», не дожидаясь конца длительности.',
 } as const;
-
-/** Значение переключателя «снять после атаки», когда снимать не нужно */
-export const EFFECT_CONSUME_ON_NONE = 'none';
-
-/** Варианты «Снять после атаки» */
-export const EFFECT_CONSUME_ON_OPTIONS: ReadonlyArray<{
-  value: EffectAttackTrigger | typeof EFFECT_CONSUME_ON_NONE;
-  label: string;
-  icon: string;
-}> = [
-  { value: EFFECT_CONSUME_ON_NONE, label: 'Нет', icon: 'tabler:hourglass' },
-  { value: 'carrierAttack', label: 'После своей атаки', icon: 'tabler:sword' },
-  {
-    value: 'attackOnCarrier',
-    label: 'После атаки по носителю',
-    icon: 'tabler:target-arrow',
-  },
-];
 
 /** Подписи плашки неработающих настроек */
 export const EFFECT_INERT_FIELDS_LABELS = {
@@ -457,6 +401,7 @@ export const EFFECT_INERT_FIELD_NAMES: Record<InertEffectField, string> = {
   consumeOn: 'снятие после атаки',
   duration: 'длительность',
   conditionImmunities: 'иммунитет к состояниям',
+  triggers: 'срабатывания не для этого места',
 };
 
 /** Подписи сворачиваемого раздела «Описание» */

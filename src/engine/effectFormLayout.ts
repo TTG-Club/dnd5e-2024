@@ -19,14 +19,23 @@ import type {
   EffectAura,
   EffectSave,
   EffectSaveOutcome,
-  RecurringSave,
 } from './activeEffectTypes.js';
+import type {
+  EffectTrigger,
+  EffectTriggerAction,
+  EffectTriggerEvent,
+} from './effectTriggerTypes.js';
 
 import {
   DEFAULT_EFFECT_CHANGE_PRIORITY,
   parseFormNumber,
 } from './activeEffectTypes.js';
 import { hasLastingEffectPayload } from './effectAutomation.js';
+import {
+  createEffectTriggerId,
+  listEffectListTriggers,
+  writeEffectTriggers,
+} from './effectTriggers.js';
 
 /** Места, откуда открывается окно эффекта */
 export const EFFECT_FORM_CONTEXTS = [
@@ -92,7 +101,11 @@ export type InertEffectField =
   | 'recurringSave'
   | 'consumeOn'
   | 'duration'
-  | 'conditionImmunities';
+  | 'conditionImmunities'
+  | 'triggers';
+
+/** Вид действия срабатывания */
+export type EffectTriggerActionType = EffectTriggerAction['type'];
 
 /** Что ещё, кроме места, влияет на раскладку */
 export interface EffectFormLayoutOptions {
@@ -147,6 +160,13 @@ export interface EffectFormLayout {
   showRecurringSave: boolean;
   /** Снятие после атаки */
   showConsumeOn: boolean;
+  /**
+   * События, на которые здесь работают срабатывания списка «Срабатывания»;
+   * пусто — шага нет
+   */
+  triggerEvents: readonly EffectTriggerEvent[];
+  /** Действия срабатываний списка, которые здесь работают */
+  triggerActions: readonly EffectTriggerActionType[];
   /** Минимальная Сл спасброска (0 — «Сл источника») */
   minSaveDc: number;
   /** Есть где появиться зоне на месте шаблона (у заклинания есть область) */
@@ -524,6 +544,12 @@ export function resolveEffectFormLayout(
   // Длящаяся копия на цели, на вошедшем в зону или ауру, на живом носителе
   const livesOnItsOwn = isGeneric || isOnTarget || isOneShot || isLivingCarrier;
 
+  // Урон каждый ход тикает и у эффекта «пока в зоне» (копия лежит на
+  // сущности), и у ауры «пока в ауре» — на ходу того, кого она накрыла, и у
+  // черты существа — на его ходу
+  const showRecurringDamage =
+    livesOnItsOwn || (trigger === 'stay' && hasTrigger) || isTickingCarrier;
+
   return {
     context,
     delivery,
@@ -536,11 +562,7 @@ export function resolveEffectFormLayout(
     successOutcomes,
     successOutcomeForActionSave,
     showTriggerDamage: showSave,
-    // Урон каждый ход тикает и у эффекта «пока в зоне» (копия лежит на
-    // сущности), и у ауры «пока в ауре» — на ходу того, кого она накрыла, и у
-    // черты существа — на его ходу
-    showRecurringDamage:
-      livesOnItsOwn || (trigger === 'stay' && hasTrigger) || isTickingCarrier,
+    showRecurringDamage,
     showConditionPreset: context !== 'condition',
     // Иммунитет ауры «пока в ауре» получают все, кого она накрывает
     // («Аура отваги»)
@@ -550,11 +572,223 @@ export function resolveEffectFormLayout(
       livesOnItsOwn || (isAuraStay && LIVING_CARRIER_CONTEXTS.has(context)),
     showRecurringSave: livesOnItsOwn,
     showConsumeOn: livesOnItsOwn,
+    ...resolveTriggerListLayout({
+      showRecurringDamage,
+      canRemoveSelf: livesOnItsOwn,
+      isZone: delivery === 'zone',
+    }),
     minSaveDc: acceptsSourceSaveDc(context, delivery)
       ? SOURCE_MIN_SAVE_DC
       : FIXED_MIN_SAVE_DC,
     zoneAvailable: options.zoneAvailable !== false,
   };
+}
+
+/** События хода субъекта */
+const TURN_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
+  'turnStart',
+  'turnEnd',
+];
+
+/** Вход в зону и выход из неё */
+const PRESENCE_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
+  'enter',
+  'exit',
+];
+
+/**
+ * Что умеет список «Срабатывания» в месте окна. Правила сверены с рантаймом:
+ * ход — там, где эффект тикает на существе (`processTurnEffects`), вход и выход
+ * — у зоны (`syncActorAreaEffects`), бросок атаки — у эффекта, лежащего на
+ * существе (`runAttackRollTriggers`). Снять эффект можно только лежащий на
+ * существе: черту, ауру чужого токена и зону срабатывание не снимает.
+ *
+ * @param place - что известно о месте
+ * @param place.showRecurringDamage - эффект тикает на ходу существа
+ * @param place.canRemoveSelf - эффект лежит на существе сам
+ * @param place.isZone - эффект зоны
+ * @returns события и действия списка
+ */
+function resolveTriggerListLayout(place: {
+  showRecurringDamage: boolean;
+  canRemoveSelf: boolean;
+  isZone: boolean;
+}): Pick<EffectFormLayout, 'triggerEvents' | 'triggerActions'> {
+  const ticks = place.showRecurringDamage || place.canRemoveSelf;
+
+  const triggerEvents: EffectTriggerEvent[] = [
+    ...(ticks ? TURN_TRIGGER_EVENTS : []),
+    ...(place.isZone ? PRESENCE_TRIGGER_EVENTS : []),
+    ...(place.canRemoveSelf ? (['attackRoll'] as const) : []),
+  ];
+
+  if (triggerEvents.length === 0) {
+    return { triggerEvents, triggerActions: [] };
+  }
+
+  return {
+    triggerEvents,
+    triggerActions: [
+      'damage',
+      'applyCondition',
+      ...(place.canRemoveSelf ? (['removeSelf'] as const) : []),
+    ],
+  };
+}
+
+/**
+ * Бросается ли спасбросок срабатывания на это событие. Бросок атаки делает
+ * клиент, и спасброска там пока нет.
+ *
+ * @param event - событие
+ * @returns `true`, если спасбросок работает
+ */
+export function triggerEventAcceptsSave(event: EffectTriggerEvent): boolean {
+  return event !== 'attackRoll';
+}
+
+/**
+ * Действия, которые работают у срабатывания на это событие в месте окна. На
+ * броске атаки урона нет — его катает клиент без спасброска и защит.
+ *
+ * @param layout - раскладка окна
+ * @param event - событие срабатывания
+ * @returns действия
+ */
+export function listTriggerActionTypes(
+  layout: EffectFormLayout,
+  event: EffectTriggerEvent,
+): EffectTriggerActionType[] {
+  return layout.triggerActions.filter(
+    (type) => event !== 'attackRoll' || type !== 'damage',
+  );
+}
+
+/** Готовые срабатывания списка */
+export const EFFECT_TRIGGER_PRESETS = [
+  'recurringDamage',
+  'recurringSave',
+  'consumeOn',
+  'custom',
+] as const;
+
+/**
+ * Готовое срабатывание:
+ * - `recurringDamage` — урон каждый ход;
+ * - `recurringSave` — повторный спасбросок снимает эффект;
+ * - `consumeOn` — снять после своей атаки;
+ * - `custom` — своё.
+ */
+export type EffectTriggerPreset = (typeof EFFECT_TRIGGER_PRESETS)[number];
+
+/**
+ * Готовые срабатывания, которые работают в месте окна.
+ *
+ * @param layout - раскладка окна
+ * @returns пресеты в порядке показа
+ */
+export function listEffectTriggerPresets(
+  layout: EffectFormLayout,
+): EffectTriggerPreset[] {
+  const { triggerEvents, triggerActions } = layout;
+
+  const available: Record<EffectTriggerPreset, boolean> = {
+    recurringDamage:
+      triggerEvents.includes('turnStart') && triggerActions.includes('damage'),
+    recurringSave:
+      triggerEvents.includes('turnEnd')
+      && triggerActions.includes('removeSelf'),
+    consumeOn:
+      triggerEvents.includes('attackRoll')
+      && triggerActions.includes('removeSelf'),
+    custom: triggerEvents.length > 0,
+  };
+
+  return EFFECT_TRIGGER_PRESETS.filter((preset) => available[preset]);
+}
+
+/**
+ * Новое срабатывание по пресету. Спасбросок берёт характеристику и Сл
+ * спасброска эффекта: повторный почти всегда повторяет исходный.
+ *
+ * @param preset - пресет
+ * @param effect - эффект в окне
+ * @param layout - раскладка окна
+ * @returns срабатывание
+ */
+export function createEffectTriggerPreset(
+  preset: EffectTriggerPreset,
+  effect: ActiveEffect,
+  layout: EffectFormLayout,
+): EffectTrigger {
+  const id = createEffectTriggerId();
+
+  switch (preset) {
+    case 'recurringDamage':
+      return {
+        id,
+        event: 'turnStart',
+        actions: [{ type: 'damage', parts: [] }],
+      };
+    case 'recurringSave':
+      return {
+        id,
+        event: 'turnEnd',
+        save: {
+          ability: effect.applySave?.ability ?? DEFAULT_EFFECT_SAVE_ABILITY,
+          dc: effect.applySave?.dc ?? defaultSaveDc(layout),
+        },
+        actions: [{ type: 'removeSelf', on: 'saved' }],
+      };
+    case 'consumeOn':
+      return {
+        id,
+        event: 'attackRoll',
+        role: 'attacker',
+        actions: [{ type: 'removeSelf', on: 'always' }],
+      };
+    default:
+      return { id, event: layout.triggerEvents[0] ?? 'turnStart', actions: [] };
+  }
+}
+
+/**
+ * Записывает строку списка «Срабатывания»: заменяет, добавляет в конец или
+ * убирает. Запись — «сначала старые поля» (`writeEffectTriggers`).
+ *
+ * @param effect - эффект в окне
+ * @param index - номер строки; за концом списка — добавление
+ * @param trigger - новая строка; `null` — убрать
+ * @returns новый эффект
+ */
+export function writeEffectTriggerRow(
+  effect: ActiveEffect,
+  index: number,
+  trigger: EffectTrigger | null,
+): ActiveEffect {
+  const rows = [...listEffectListTriggers(effect)];
+
+  if (trigger === null) {
+    rows.splice(index, 1);
+  } else {
+    rows[Math.min(index, rows.length)] = trigger;
+  }
+
+  return writeEffectTriggers(effect, rows);
+}
+
+/**
+ * Работает ли явное срабатывание в месте окна.
+ *
+ * @param trigger - срабатывание
+ * @param layout - раскладка окна
+ * @returns `true`, если событие здесь срабатывает
+ */
+function isTriggerSupported(
+  trigger: EffectTrigger,
+  layout: EffectFormLayout,
+): boolean {
+  return layout.triggerEvents.includes(trigger.event);
 }
 
 /**
@@ -590,15 +824,18 @@ export const EFFECT_FORM_STEPS = [
   'damage',
   'modifiers',
   'duration',
+  'triggers',
 ] as const;
 
 /**
  * Шаг окна эффекта:
  * - `trigger` — когда и на кого срабатывает;
  * - `save` — спасбросок;
- * - `damage` — урон при срабатывании и каждый ход;
+ * - `damage` — урон при срабатывании;
  * - `modifiers` — что эффект меняет;
- * - `duration` — длительность и снятие.
+ * - `duration` — длительность;
+ * - `triggers` — срабатывания: урон каждый ход, повторный спасбросок, снятие
+ *   после атаки и свои.
  */
 export type EffectFormStep = (typeof EFFECT_FORM_STEPS)[number];
 
@@ -618,10 +855,10 @@ export function listEffectFormSteps(
       layout.showSave
       || layout.saveUnavailableReason !== null
       || layout.successOutcomeForActionSave,
-    damage: layout.showTriggerDamage || layout.showRecurringDamage,
+    damage: layout.showTriggerDamage,
     modifiers: true,
-    duration:
-      layout.showDuration || layout.showRecurringSave || layout.showConsumeOn,
+    duration: layout.showDuration,
+    triggers: layout.triggerEvents.length > 0,
   };
 
   return EFFECT_FORM_STEPS.filter((step) => visibility[step]);
@@ -681,72 +918,6 @@ export function writeEffectSaveEnabled(
     applyOnSuccess: undefined,
     applyOnSuccessOnly: undefined,
   };
-}
-
-/**
- * Включает или выключает повторный спасбросок хода. Новый берёт характеристику и
- * Сл спасброска эффекта: «спасбросок Мудрости в конце каждого хода» почти
- * всегда повторяет исходный.
- *
- * @param effect - эффект
- * @param enabled - нужен ли повторный спасбросок
- * @param layout - раскладка окна
- * @returns новый эффект
- */
-export function writeRecurringSaveEnabled(
-  effect: ActiveEffect,
-  enabled: boolean,
-  layout: EffectFormLayout,
-): ActiveEffect {
-  if (!enabled) {
-    return { ...effect, recurringSave: undefined };
-  }
-
-  const recurringSave: RecurringSave = effect.recurringSave ?? {
-    ability: effect.applySave?.ability ?? DEFAULT_EFFECT_SAVE_ABILITY,
-    dc: effect.applySave?.dc ?? defaultSaveDc(layout),
-    timing: 'endOfTurn',
-  };
-
-  return { ...effect, recurringSave };
-}
-
-/**
- * Включает или выключает спасбросок против урона каждый ход. Новый берёт
- * характеристику и Сл спасброска эффекта, а успех по умолчанию снимает весь
- * урон — так звучит большинство облаков и аур («Облако смерти» — половина,
- * это автор выберет сам).
- *
- * @param effect - эффект с уроном каждый ход
- * @param enabled - нужен ли спасбросок
- * @param layout - раскладка окна
- * @returns новый эффект; без урона каждый ход — прежний
- */
-export function writeRecurringDamageSaveEnabled(
-  effect: ActiveEffect,
-  enabled: boolean,
-  layout: EffectFormLayout,
-): ActiveEffect {
-  const { recurringDamage } = effect;
-
-  if (!recurringDamage) {
-    return effect;
-  }
-
-  if (!enabled) {
-    return {
-      ...effect,
-      recurringDamage: { ...recurringDamage, save: undefined },
-    };
-  }
-
-  const save: EffectSave = recurringDamage.save ?? {
-    ability: effect.applySave?.ability ?? DEFAULT_EFFECT_SAVE_ABILITY,
-    dc: effect.applySave?.dc ?? defaultSaveDc(layout),
-    onSuccess: 'negate',
-  };
-
-  return { ...effect, recurringDamage: { ...recurringDamage, save } };
 }
 
 /**
@@ -846,6 +1017,12 @@ export function listInertEffectFields(
       !layout.showConditionImmunities
         && (effect.conditionImmunities?.length ?? 0) > 0,
     ],
+    [
+      'triggers',
+      (effect.triggers ?? []).some(
+        (trigger) => !isTriggerSupported(trigger, layout),
+      ),
+    ],
   ];
 
   return checks.filter(([, isInert]) => isInert).map(([field]) => field);
@@ -880,6 +1057,16 @@ export function clearInertEffectFields(
         };
       case 'duration':
         return { ...cleared, duration: { type: 'permanent' } };
+      case 'triggers': {
+        // Убираются только срабатывания, которые здесь не работают
+        const layout = resolveEffectFormLayout(context, cleared);
+
+        const kept = (cleared.triggers ?? []).filter((trigger) =>
+          isTriggerSupported(trigger, layout),
+        );
+
+        return { ...cleared, triggers: kept.length > 0 ? kept : undefined };
+      }
       default:
         return { ...cleared, [field]: undefined };
     }
@@ -900,6 +1087,39 @@ function clampSaveDc(dc: unknown, minDc: number): number {
     minDc === SOURCE_MIN_SAVE_DC ? SOURCE_MIN_SAVE_DC : DEFAULT_EFFECT_SAVE_DC;
 
   return Math.max(minDc, Math.trunc(parseFormNumber(dc) ?? fallback));
+}
+
+/**
+ * Явные срабатывания для записи: без действий — не пишутся (разбор записи их
+ * всё равно отбросит), Сл — не ниже допустимой, лимит — от одного раза.
+ *
+ * @param triggers - срабатывания черновика
+ * @param minDc - минимум Сл места
+ * @returns срабатывания либо `undefined`
+ */
+function normalizeDraftTriggers(
+  triggers: readonly EffectTrigger[] | undefined,
+  minDc: number,
+): EffectTrigger[] | undefined {
+  const normalized = (triggers ?? [])
+    .filter((trigger) => trigger.actions.length > 0)
+    .map((trigger) => ({
+      ...trigger,
+      save: trigger.save
+        ? { ...trigger.save, dc: clampSaveDc(trigger.save.dc, minDc) }
+        : undefined,
+      limit: trigger.limit
+        ? {
+            ...trigger.limit,
+            max: Math.max(
+              1,
+              Math.trunc(parseFormNumber(trigger.limit.max) ?? 1),
+            ),
+          }
+        : undefined,
+    }));
+
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 /**
@@ -968,5 +1188,6 @@ export function normalizeEffectDraft(
     conditionImmunities: effect.conditionImmunities?.length
       ? effect.conditionImmunities
       : undefined,
+    triggers: normalizeDraftTriggers(effect.triggers, layout.minSaveDc),
   };
 }

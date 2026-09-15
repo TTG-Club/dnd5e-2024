@@ -10,5 +10,6 @@ export { default as EffectInertFieldsNotice } from './EffectInertFieldsNotice.vu
 export { default as EffectModifiersStep } from './EffectModifiersStep.vue';
 export { default as EffectSaveStep } from './EffectSaveStep.vue';
 export { default as EffectScenarioSummary } from './EffectScenarioSummary.vue';
+export { default as EffectTriggersStep } from './EffectTriggersStep.vue';
 export { default as EffectTriggerStep } from './EffectTriggerStep.vue';
 export { default as SaveDcField } from './SaveDcField.vue';

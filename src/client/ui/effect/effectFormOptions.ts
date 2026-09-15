@@ -5,15 +5,12 @@
 
 import type {
   AreaEffectTrigger,
-  EffectAttackTrigger,
   EffectAura,
   EffectDelivery,
   EffectDuration,
   EffectDurationType,
   EffectFormContext,
   EffectFormLayout,
-  EffectSaveOutcome,
-  EffectSaveTiming,
   EffectSuccessOutcome,
   EffectTurnAnchor,
   EffectTurnTiming,
@@ -30,15 +27,11 @@ import {
   EFFECT_ACTION_SAVE_OUTCOME_OPTIONS,
   EFFECT_AURA_LABELS,
   EFFECT_CARRIER_DELIVERY_LABELS,
-  EFFECT_CONSUME_ON_NONE,
-  EFFECT_CONSUME_ON_OPTIONS,
   EFFECT_DELIVERY_ICONS,
   EFFECT_DELIVERY_LABELS,
   EFFECT_DURATION_STEP_LABELS,
-  EFFECT_RECURRING_DAMAGE_SUCCESS_LABELS,
   EFFECT_SUCCESS_OUTCOME_OPTIONS,
   EFFECT_TARGET_DELIVERY_LABELS,
-  EFFECT_TURN_MOMENT_LABELS,
   ZONE_TRIGGER_LABELS,
 } from './constants';
 
@@ -67,12 +60,6 @@ const EFFECT_TURN_TIMING_ORDER: readonly EffectTurnTiming[] = ['end', 'start'];
 const EFFECT_TURN_ANCHOR_ORDER: readonly EffectTurnAnchor[] = [
   'carrier',
   'source',
-];
-
-/** Моменты хода урона и повторного спасброска в порядке показа */
-const EFFECT_SAVE_TIMING_ORDER: readonly EffectSaveTiming[] = [
-  'startOfTurn',
-  'endOfTurn',
 ];
 
 /** Длительности, у которых есть число единиц */
@@ -195,21 +182,6 @@ export function buildSuccessOutcomeOptions(
 }
 
 /**
- * Сужает значение переключателя «снять после атаки».
- *
- * @param value - значение из переключателя
- * @returns триггер атаки либо `undefined` — «не снимать»
- */
-export function findConsumeOn(
-  value: string | number,
-): EffectAttackTrigger | undefined {
-  return EFFECT_CONSUME_ON_OPTIONS.map((option) => option.value).find(
-    (option): option is EffectAttackTrigger =>
-      option !== EFFECT_CONSUME_ON_NONE && option === value,
-  );
-}
-
-/**
  * Есть ли у длительности число единиц.
  *
  * @param type - тип длительности
@@ -283,22 +255,6 @@ export function writeDurationType(
     turnTiming: type === 'turn' ? duration.turnTiming : undefined,
   };
 }
-
-/** Варианты момента хода для урона и повторного спасброска */
-export const EFFECT_SAVE_TIMING_OPTIONS: ReadonlyArray<
-  EffectSegmentOption<EffectSaveTiming>
-> = EFFECT_SAVE_TIMING_ORDER.map((timing) => ({
-  value: timing,
-  label: EFFECT_TURN_MOMENT_LABELS[timing],
-}));
-
-/** Варианты «если спасбросок против урона каждый ход успешен» */
-export const EFFECT_RECURRING_DAMAGE_SUCCESS_OPTIONS: ReadonlyArray<
-  EffectSegmentOption<EffectSaveOutcome>
-> = [
-  { value: 'negate', label: EFFECT_RECURRING_DAMAGE_SUCCESS_LABELS.negate },
-  { value: 'half', label: EFFECT_RECURRING_DAMAGE_SUCCESS_LABELS.half },
-];
 
 /** Варианты «кого задевает аура» */
 export const EFFECT_AURA_TARGET_OPTIONS: ReadonlyArray<

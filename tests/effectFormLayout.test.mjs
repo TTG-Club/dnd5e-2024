@@ -550,8 +550,8 @@ describe('шаги окна', () => {
     assert.deepEqual(engine.listEffectFormSteps(layoutOf('zone')), [
       'trigger',
       'save',
-      'damage',
       'modifiers',
+      'triggers',
     ]);
   });
 
@@ -567,7 +567,7 @@ describe('шаги окна', () => {
       engine.listEffectFormSteps(
         layoutOf('creatureAction', { effectTarget: 'target' }),
       ),
-      ['save', 'damage', 'modifiers', 'duration'],
+      ['save', 'damage', 'modifiers', 'duration', 'triggers'],
     );
   });
 });
@@ -649,8 +649,63 @@ describe('переключатели спасбросков', () => {
     assert.equal(cleared.applySave, undefined);
     assert.equal(cleared.applyOnSuccessOnly, true);
   });
+});
 
-  it('повторный спасбросок повторяет спасбросок эффекта', () => {
+describe('список «Срабатывания»', () => {
+  it('события и действия по месту: ход — где эффект тикает, вход и выход — у зоны, атака и снятие — у лежащего на существе', () => {
+    const own = layoutOf('ownEffects');
+
+    assert.deepEqual(own.triggerEvents, ['turnStart', 'turnEnd', 'attackRoll']);
+
+    assert.deepEqual(own.triggerActions, [
+      'damage',
+      'applyCondition',
+      'removeSelf',
+    ]);
+
+    assert.deepEqual(
+      engine.listTriggerActionTypes(own, 'attackRoll'),
+      ['applyCondition', 'removeSelf'],
+      'на броске атаки урона нет',
+    );
+
+    assert.equal(engine.triggerEventAcceptsSave('attackRoll'), false);
+    assert.equal(engine.triggerEventAcceptsSave('turnEnd'), true);
+
+    const zone = layoutOf('zone');
+
+    assert.deepEqual(zone.triggerEvents, [
+      'turnStart',
+      'turnEnd',
+      'enter',
+      'exit',
+    ]);
+
+    assert.deepEqual(zone.triggerActions, ['damage', 'applyCondition']);
+
+    const trait = layoutOf('creatureTrait');
+
+    assert.deepEqual(trait.triggerEvents, ['turnStart', 'turnEnd']);
+    assert.deepEqual(trait.triggerActions, ['damage', 'applyCondition']);
+
+    for (const context of ['feature', 'item', 'condition']) {
+      assert.deepEqual(layoutOf(context).triggerEvents, [], context);
+    }
+  });
+
+  it('пресеты по месту; повторный спасбросок повторяет спасбросок эффекта', () => {
+    assert.deepEqual(engine.listEffectTriggerPresets(layoutOf('ownEffects')), [
+      'recurringDamage',
+      'recurringSave',
+      'consumeOn',
+      'custom',
+    ]);
+
+    assert.deepEqual(engine.listEffectTriggerPresets(layoutOf('zone')), [
+      'recurringDamage',
+      'custom',
+    ]);
+
     const effect = createEffect({
       effectTarget: 'target',
       applySave: CONSTITUTION_SAVE,
@@ -658,49 +713,154 @@ describe('переключатели спасбросков', () => {
 
     const layout = engine.resolveEffectFormLayout('weapon', effect);
 
-    assert.deepEqual(
-      engine.writeRecurringSaveEnabled(effect, true, layout).recurringSave,
-      { ability: 'constitution', dc: SAVE_DC, timing: 'endOfTurn' },
-    );
-
-    assert.equal(
-      engine.writeRecurringSaveEnabled(effect, false, layout).recurringSave,
-      undefined,
-    );
-  });
-
-  it('спасбросок против урона каждый ход: Сл по месту, успех — без урона', () => {
-    const zoneEffect = createEffect({
-      recurringDamage: { damageParts: POISON_DAMAGE, timing: 'startOfTurn' },
-    });
-
-    const layout = engine.resolveEffectFormLayout('zone', zoneEffect);
-
-    const enabled = engine.writeRecurringDamageSaveEnabled(
-      zoneEffect,
-      true,
+    const preset = engine.createEffectTriggerPreset(
+      'recurringSave',
+      effect,
       layout,
     );
 
-    assert.deepEqual(enabled.recurringDamage.save, {
-      ability: 'wisdom',
-      dc: engine.DEFAULT_EFFECT_SAVE_DC,
-      onSuccess: 'negate',
-    });
-
-    assert.deepEqual(enabled.recurringDamage.damageParts, POISON_DAMAGE);
-
-    assert.equal(
-      engine.writeRecurringDamageSaveEnabled(enabled, false, layout)
-        .recurringDamage.save,
-      undefined,
+    assert.deepEqual(
+      engine.writeEffectTriggerRow(effect, 0, preset).recurringSave,
+      { ability: 'constitution', dc: SAVE_DC, timing: 'endOfTurn' },
     );
 
-    const withoutDamage = createEffect();
+    const spell = createEffect({ effectTarget: 'target' });
 
     assert.equal(
-      engine.writeRecurringDamageSaveEnabled(withoutDamage, true, layout),
-      withoutDamage,
+      engine.createEffectTriggerPreset(
+        'recurringSave',
+        spell,
+        engine.resolveEffectFormLayout('spell', spell),
+      ).save.dc,
+      0,
+      'у заклинания — Сл заклинателя',
+    );
+  });
+
+  it('запись «сначала старые поля»: лимит уводит строку в triggers, удаление снимает поле', () => {
+    const layout = layoutOf('ownEffects');
+    const effect = createEffect();
+
+    const burning = engine.writeEffectTriggerRow(
+      effect,
+      0,
+      engine.createEffectTriggerPreset('recurringDamage', effect, layout),
+    );
+
+    assert.deepEqual(burning.recurringDamage, {
+      damageParts: [],
+      timing: 'startOfTurn',
+    });
+
+    assert.equal(burning.triggers, undefined);
+
+    const [row] = engine.listEffectListTriggers(burning);
+
+    const limited = engine.writeEffectTriggerRow(burning, 0, {
+      ...row,
+      actions: [{ type: 'damage', parts: POISON_DAMAGE }],
+      limit: { max: 1, per: 'turn' },
+    });
+
+    assert.equal(limited.recurringDamage, undefined);
+    assert.equal(limited.triggers.length, 1);
+
+    assert.notEqual(
+      limited.triggers[0].id,
+      row.id,
+      'id legacy.* не уходит в triggers',
+    );
+
+    assert.deepEqual(limited.triggers[0].limit, { max: 1, per: 'turn' });
+
+    const consumed = engine.writeEffectTriggerRow(
+      limited,
+      1,
+      engine.createEffectTriggerPreset('consumeOn', limited, layout),
+    );
+
+    assert.equal(consumed.consumeOn, 'carrierAttack');
+
+    assert.deepEqual(
+      engine.listEffectListTriggers(consumed).map((trigger) => trigger.event),
+      ['attackRoll', 'turnStart'],
+      'старые поля читаются первыми',
+    );
+
+    const removed = engine.writeEffectTriggerRow(consumed, 0, null);
+
+    assert.equal(removed.consumeOn, undefined);
+    assert.equal(removed.triggers.length, 1);
+  });
+
+  it('срабатывание не для этого места — плашкой; «Убрать» оставляет работающие', () => {
+    const effect = createEffect({
+      triggers: [
+        {
+          id: 'trigger_attack',
+          event: 'attackRoll',
+          actions: [{ type: 'removeSelf' }],
+        },
+        {
+          id: 'trigger_turn',
+          event: 'turnStart',
+          actions: [{ type: 'damage', parts: POISON_DAMAGE }],
+        },
+      ],
+    });
+
+    const layout = engine.resolveEffectFormLayout('zone', effect);
+
+    assert.deepEqual(engine.listInertEffectFields(effect, layout), [
+      'triggers',
+    ]);
+
+    const cleared = engine.clearInertEffectFields(effect, ['triggers'], 'zone');
+
+    assert.deepEqual(
+      cleared.triggers.map((trigger) => trigger.id),
+      ['trigger_turn'],
+    );
+
+    assert.deepEqual(
+      engine.listInertEffectFields(effect, layoutOf('ownEffects')),
+      [],
+    );
+  });
+
+  it('сохранение: без действий не пишется, Сл и лимит — числами в границах', () => {
+    const effect = createEffect({
+      triggers: [
+        { id: 'trigger_empty', event: 'turnStart', actions: [] },
+        {
+          id: 'trigger_stench',
+          event: 'turnStart',
+          save: { ability: 'constitution', dc: '' },
+          actions: [{ type: 'applyCondition', conditionKey: 'poisoned' }],
+          limit: { max: '0', per: 'round' },
+        },
+      ],
+    });
+
+    const zoneLayout = engine.resolveEffectFormLayout('zone', effect);
+    const saved = engine.normalizeEffectDraft(effect, zoneLayout);
+
+    assert.deepEqual(
+      saved.triggers.map((trigger) => trigger.id),
+      ['trigger_stench'],
+    );
+
+    assert.equal(saved.triggers[0].save.dc, engine.DEFAULT_EFFECT_SAVE_DC);
+    assert.deepEqual(saved.triggers[0].limit, { max: 1, per: 'round' });
+
+    assert.equal(
+      engine.normalizeEffectDraft(
+        createEffect({
+          triggers: [{ id: 't', event: 'turnEnd', actions: [] }],
+        }),
+        zoneLayout,
+      ).triggers,
+      undefined,
     );
   });
 });

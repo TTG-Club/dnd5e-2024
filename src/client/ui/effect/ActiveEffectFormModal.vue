@@ -54,6 +54,7 @@
     EffectModifiersStep,
     EffectSaveStep,
     EffectScenarioSummary,
+    EffectTriggersStep,
     EffectTriggerStep,
   } from './form';
 
@@ -340,7 +341,6 @@
             <EffectDamageStep
               v-model:effect="draft"
               :layout="layout"
-              :source-save-dc="sourceSaveDc"
             />
           </EffectFormStep>
 
@@ -364,6 +364,18 @@
             :icon="EFFECT_FORM_STEP_ICONS.duration"
           >
             <EffectDurationStep
+              v-model:effect="draft"
+              :layout="layout"
+            />
+          </EffectFormStep>
+
+          <EffectFormStep
+            v-if="isStepShown('triggers')"
+            :step-number="stepNumber('triggers')"
+            :title="EFFECT_FORM_STEP_TITLES.triggers"
+            :icon="EFFECT_FORM_STEP_ICONS.triggers"
+          >
+            <EffectTriggersStep
               v-model:effect="draft"
               :layout="layout"
               :source-save-dc="sourceSaveDc"

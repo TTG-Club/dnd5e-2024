@@ -1,50 +1,31 @@
 <!--
-  Шаг «Длительность и снятие»: сколько держится эффект, повторный спасбросок
-  хода и снятие после атаки.
+  Шаг «Длительность»: сколько держится эффект. Повторный спасбросок и снятие
+  после атаки — строки списка «Срабатывания».
 -->
 <script setup lang="ts">
-  import type { AbilityType } from '@vtt/shared';
   import type {
     ActiveEffect,
     EffectDurationType,
     EffectFormLayout,
-    EffectSaveTiming,
     EffectTurnAnchor,
     EffectTurnTiming,
-    RecurringSave,
   } from '@vtt/shared/system/dnd.js';
 
   import { computed } from 'vue';
 
-  import {
-    ABILITY_OPTIONS,
-    writeRecurringSaveEnabled,
-  } from '@vtt/shared/system/dnd.js';
-
-  import { FORM_FIELD_LABELS } from '../../actor/constants';
-  import {
-    EFFECT_CONSUME_ON_NONE,
-    EFFECT_CONSUME_ON_OPTIONS,
-    EFFECT_DURATION_STEP_LABELS,
-    EFFECT_SOURCE_DC_LABELS,
-  } from '../constants';
+  import { EFFECT_DURATION_STEP_LABELS } from '../constants';
   import {
     durationHint,
     EFFECT_DURATION_TYPE_OPTIONS,
-    EFFECT_SAVE_TIMING_OPTIONS,
     EFFECT_TURN_ANCHOR_OPTIONS,
     EFFECT_TURN_TIMING_OPTIONS,
-    findConsumeOn,
     isCountedDuration,
     writeDurationType,
   } from '../effectFormOptions';
-  import SaveDcField from './SaveDcField.vue';
 
-  const props = defineProps<{
+  defineProps<{
     /** Раскладка окна */
     layout: EffectFormLayout;
-    /** Сл источника для «Авто», если окно её знает */
-    sourceSaveDc?: number;
   }>();
 
   const effect = defineModel<ActiveEffect>('effect', { required: true });
@@ -98,62 +79,6 @@
       };
     },
   });
-
-  const hasRecurringSave = computed({
-    get: () => effect.value.recurringSave !== undefined,
-    set: (enabled: boolean) => {
-      effect.value = writeRecurringSaveEnabled(
-        effect.value,
-        enabled,
-        props.layout,
-      );
-    },
-  });
-
-  /**
-   * Меняет поле повторного спасброска.
-   *
-   * @param patch - изменённые поля
-   */
-  function updateRecurringSave(patch: Partial<RecurringSave>): void {
-    const { recurringSave } = effect.value;
-
-    if (recurringSave) {
-      effect.value = {
-        ...effect.value,
-        recurringSave: { ...recurringSave, ...patch },
-      };
-    }
-  }
-
-  const recurringAbility = computed({
-    get: () => effect.value.recurringSave?.ability ?? 'wisdom',
-    set: (ability: AbilityType) => updateRecurringSave({ ability }),
-  });
-
-  const recurringDc = computed({
-    get: () => effect.value.recurringSave?.dc ?? props.layout.minSaveDc,
-    set: (dc: number) => updateRecurringSave({ dc }),
-  });
-
-  const recurringTiming = computed({
-    get: () => effect.value.recurringSave?.timing ?? 'endOfTurn',
-    set: (timing: EffectSaveTiming) => updateRecurringSave({ timing }),
-  });
-
-  /** Значение переключателя «снять после атаки» */
-  const consumeOn = computed(
-    () => effect.value.consumeOn ?? EFFECT_CONSUME_ON_NONE,
-  );
-
-  /**
-   * Меняет снятие после атаки.
-   *
-   * @param value - значение переключателя
-   */
-  function selectConsumeOn(value: string | number): void {
-    effect.value = { ...effect.value, consumeOn: findConsumeOn(value) };
-  }
 </script>
 
 <template>
@@ -207,81 +132,6 @@
 
     <p class="text-xs text-muted">
       {{ durationDescription }}
-    </p>
-  </div>
-
-  <div
-    v-if="layout.showRecurringSave"
-    class="flex flex-col gap-2"
-  >
-    <USwitch
-      v-model="hasRecurringSave"
-      :label="EFFECT_DURATION_STEP_LABELS.recurringSaveToggle"
-      :description="EFFECT_DURATION_STEP_LABELS.recurringSaveHint"
-    />
-
-    <div
-      v-if="effect.recurringSave"
-      class="flex flex-wrap items-end gap-3"
-    >
-      <UFormField
-        :label="FORM_FIELD_LABELS.ability"
-        class="w-48"
-      >
-        <USelect
-          v-model="recurringAbility"
-          :items="ABILITY_OPTIONS"
-          value-key="value"
-          size="sm"
-          class="w-full"
-          :portal="false"
-        />
-      </UFormField>
-
-      <SaveDcField
-        v-model="recurringDc"
-        :label="FORM_FIELD_LABELS.saveDc"
-        :auto-allowed="layout.minSaveDc === 0"
-        :auto-label="EFFECT_SOURCE_DC_LABELS[layout.context]"
-        :auto-value="sourceSaveDc"
-      />
-
-      <UFormField
-        :label="EFFECT_DURATION_STEP_LABELS.recurringSaveWhen"
-        class="w-44"
-      >
-        <USelect
-          v-model="recurringTiming"
-          :items="EFFECT_SAVE_TIMING_OPTIONS"
-          value-key="value"
-          size="sm"
-          class="w-full"
-          :portal="false"
-        />
-      </UFormField>
-    </div>
-  </div>
-
-  <div
-    v-if="layout.showConsumeOn"
-    class="flex flex-col gap-1.5"
-  >
-    <span class="text-xs font-medium text-default">
-      {{ EFFECT_DURATION_STEP_LABELS.consumeOnTitle }}
-    </span>
-
-    <UTabs
-      :model-value="consumeOn"
-      :items="EFFECT_CONSUME_ON_OPTIONS"
-      :content="false"
-      size="xs"
-      color="primary"
-      class="w-fit"
-      @update:model-value="selectConsumeOn"
-    />
-
-    <p class="text-xs text-muted">
-      {{ EFFECT_DURATION_STEP_LABELS.consumeOnHint }}
     </p>
   </div>
 </template>

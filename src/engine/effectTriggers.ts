@@ -36,6 +36,15 @@ const TRIGGER_ID_PREFIX = 'trigger';
 const collectedTriggers = new WeakMap<ActiveEffect, readonly EffectTrigger[]>();
 
 /**
+ * Id нового срабатывания списка.
+ *
+ * @returns id
+ */
+export function createEffectTriggerId(): string {
+  return generateId(TRIGGER_ID_PREFIX);
+}
+
+/**
  * Выведено ли срабатывание из старого поля эффекта.
  *
  * @param trigger - срабатывание
