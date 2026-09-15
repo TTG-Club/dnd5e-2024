@@ -167,8 +167,8 @@
   /** Раскрыто ли описание: заполненное видно сразу */
   const isDescriptionOpen = ref(false);
 
-  /** Показывать режим, условие и приоритет у всех модификаторов */
-  const showAdvancedFields = ref(false);
+  /** Показывать приоритет у всех модификаторов */
+  const showPriorityField = ref(false);
 
   watch(
     () => props.open,
@@ -179,7 +179,7 @@
 
       draft.value = createDraft();
       isDescriptionOpen.value = draft.value.description.trim() !== '';
-      showAdvancedFields.value = false;
+      showPriorityField.value = false;
       formKey.value += 1;
     },
     { immediate: true },
@@ -353,7 +353,7 @@
             <EffectModifiersStep
               v-model:effect="draft"
               :layout="layout"
-              :show-advanced-fields="showAdvancedFields"
+              :show-priority-field="showPriorityField"
             />
           </EffectFormStep>
 
@@ -389,7 +389,7 @@
           />
 
           <EffectAdvancedSection
-            v-model:show-advanced-fields="showAdvancedFields"
+            v-model:show-priority-field="showPriorityField"
           />
         </div>
       </div>

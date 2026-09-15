@@ -1,12 +1,12 @@
 <!--
-  Сворачиваемый раздел «Для опытных»: включает у модификаторов режим, условие и
-  приоритет. Большинству эффектов хватает «что меняется» и значения.
+  Сворачиваемый раздел «Для опытных»: включает у модификаторов приоритет.
+  Порядок применения большинству эффектов не нужен.
 -->
 <script setup lang="ts">
   import { EFFECT_ADVANCED_LABELS } from '../constants';
 
-  /** Показывать режим, условие и приоритет у всех модификаторов */
-  const showAdvancedFields = defineModel<boolean>('showAdvancedFields', {
+  /** Показывать приоритет у всех модификаторов */
+  const showPriorityField = defineModel<boolean>('showPriorityField', {
     required: true,
   });
 </script>
@@ -30,9 +30,9 @@
     <template #content>
       <div class="px-1 pb-1">
         <USwitch
-          v-model="showAdvancedFields"
-          :label="EFFECT_ADVANCED_LABELS.advancedFields"
-          :description="EFFECT_ADVANCED_LABELS.advancedFieldsHint"
+          v-model="showPriorityField"
+          :label="EFFECT_ADVANCED_LABELS.priorityField"
+          :description="EFFECT_ADVANCED_LABELS.priorityFieldHint"
         />
       </div>
     </template>

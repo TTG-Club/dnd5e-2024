@@ -25,8 +25,8 @@
   defineProps<{
     /** Раскладка окна */
     layout: EffectFormLayout;
-    /** Показывать режим, условие и приоритет у всех модификаторов */
-    showAdvancedFields: boolean;
+    /** Показывать приоритет у всех модификаторов */
+    showPriorityField: boolean;
   }>();
 
   const effect = defineModel<ActiveEffect>('effect', { required: true });
@@ -111,7 +111,7 @@
 
   <EffectChangeRows
     v-model:changes="changes"
-    :show-advanced-fields="showAdvancedFields"
+    :show-priority-field="showPriorityField"
   />
 
   <EffectFlagRows v-model:flags="flags" />

@@ -1,7 +1,7 @@
 <!--
-  Строки модификаторов эффекта. По умолчанию строка — «что меняется» и
-  значение; режим, условие и приоритет показываются в режиме «для опытных» или
-  когда у строки они уже заданы — прятать заданное нельзя.
+  Строки модификаторов эффекта: «что меняется», режим, значение и условие.
+  Приоритет показывается в режиме «для опытных» или когда у строки он уже
+  задан — прятать заданное нельзя.
 -->
 <script setup lang="ts">
   // Корневой вход `@nuxt/ui` типов компонентов не отдаёт — берём из подпути
@@ -44,8 +44,8 @@
   } from '../constants';
 
   const props = defineProps<{
-    /** Показывать режим, условие и приоритет у всех строк */
-    showAdvancedFields: boolean;
+    /** Показывать приоритет у всех строк */
+    showPriorityField: boolean;
   }>();
 
   const changes = defineModel<EffectChange[]>('changes', { required: true });
@@ -92,10 +92,8 @@
           ? describeEffectChangeKey(change.key)
           : EFFECT_CHANGE_ROW_LABELS.keyPlaceholder,
         valueError: valueError(change),
-        showMode: props.showAdvancedFields || change.mode !== 'add',
-        showCondition: props.showAdvancedFields || condition !== '',
         showPriority:
-          props.showAdvancedFields
+          props.showPriorityField
           || change.priority !== DEFAULT_EFFECT_CHANGE_PRIORITY,
         conditionLabel: condition
           ? `${EFFECT_CHANGE_ROW_LABELS.conditionOnlyPrefix}${describeEffectChangeCondition(condition)}`
@@ -355,7 +353,6 @@
         </UButton>
 
         <USelect
-          v-if="row.showMode"
           :model-value="row.change.mode"
           :items="EFFECT_CHANGE_MODE_OPTIONS"
           value-key="value"
@@ -410,10 +407,7 @@
         />
       </div>
 
-      <div
-        v-if="row.showCondition"
-        class="flex flex-col gap-1"
-      >
+      <div class="flex flex-col gap-1">
         <div class="flex w-full gap-1">
           <UInput
             :model-value="row.change.condition ?? ''"

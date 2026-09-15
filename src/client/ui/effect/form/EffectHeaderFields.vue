@@ -108,12 +108,6 @@
       />
     </UFormField>
 
-    <USwitch
-      v-model="isActive"
-      :label="statusLabel"
-      class="h-8"
-    />
-
     <UDropdownMenu
       v-if="showConditionPreset"
       :items="conditionPresetItems"
@@ -128,5 +122,12 @@
         variant="outline"
       />
     </UDropdownMenu>
+
+    <!-- Высота — как у полей рядом; корень переключателя прижимает его к верху -->
+    <USwitch
+      v-model="isActive"
+      :label="statusLabel"
+      class="h-8 items-center"
+    />
   </div>
 </template>
