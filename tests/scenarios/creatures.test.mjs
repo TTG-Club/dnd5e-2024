@@ -14,6 +14,7 @@ import {
   MAX_ROLL,
   MIN_ROLL,
   saveOutcome,
+  strikeEntity,
   withRandom,
 } from './_fixtures.mjs';
 
@@ -420,9 +421,66 @@ describe('каталог: существа', () => {
     assert.equal(troll.activeEffects?.length ?? 0, 0);
   });
 
-  it.todo(
-    '[C08c] Регенерация не срабатывает после урона огнём или кислотой — пробел («раз в ход по событию»)',
-  );
+  it('[C08c] Регенерация гаснет после урона огнём или кислотой до начала следующего хода', () => {
+    const noRegen = {
+      type: 'applyTag',
+      tag: 'noRegen',
+      label: 'Без регенерации',
+    };
+
+    const regeneration = createEffect('Регенерация', {
+      triggers: [
+        {
+          id: 'trigger_regen',
+          event: 'turnStart',
+          condition: 'self.tag !== "noRegen"',
+          actions: [{ type: 'damage', parts: [{ formula: '10@heal' }] }],
+        },
+        {
+          id: 'trigger_fire',
+          event: 'damageTaken',
+          condition: 'damage.type === "fire"',
+          actions: [noRegen],
+        },
+        {
+          id: 'trigger_acid',
+          event: 'damageTaken',
+          condition: 'damage.type === "acid"',
+          actions: [noRegen],
+        },
+      ],
+    });
+
+    const scenario = authoredScenario(regeneration, 'creatureTrait');
+
+    assert.match(scenario, /урон огненный/);
+
+    const troll = createCreature({ id: 'creature_troll', name: 'Тролль' });
+
+    troll.system.hitPoints = {
+      ...troll.system.hitPoints,
+      current: 40,
+      max: 60,
+      average: 60,
+    };
+
+    troll.system.traits = [createTrait('Регенерация', [regeneration])];
+
+    const system = new engine.Dnd5eVttSystem();
+
+    const heals = () =>
+      engine.processTurnEffects(troll, 'startOfTurn').healingOutcomes.length;
+
+    strikeEntity(system, troll, 10, 'fire');
+    assert.equal(heals(), 0, 'после огня регенерации нет');
+
+    engine.expireTurnEffects(troll, troll.id, 'start');
+    strikeEntity(system, troll, 10, 'slashing');
+    assert.equal(heals(), 1, 'рубящий урон регенерацию не гасит');
+
+    strikeEntity(system, troll, 10, 'acid');
+    assert.equal(heals(), 0, 'кислота гасит так же, как огонь');
+  });
 
   it('[C09] Защиты статблока: сопротивление, иммунитет и уязвимость к урону', () => {
     const creature = createCreature();
@@ -538,9 +596,57 @@ describe('каталог: существа', () => {
     );
   });
 
-  it.todo(
-    '[C12b] Стойкость нежити: спасбросок Телосложения вместо 0 хитов — пробел',
-  );
+  it('[C12b] Стойкость нежити: вместо 0 хитов — 1 при спасброске Телосложения Сл 5 + урон, кроме излучения и крита', () => {
+    const fortitude = createEffect('Стойкость нежити', {
+      triggers: [
+        {
+          id: 'trigger_fortitude',
+          event: 'hpZero',
+          condition: 'damage.type !== "radiant" && damage.isCritical === false',
+          save: { ability: 'constitution', dc: 10, dcFormula: '5 + @damage' },
+          actions: [{ type: 'setHp', value: 1, on: 'saved' }],
+        },
+      ],
+    });
+
+    const scenario = authoredScenario(fortitude, 'creatureTrait');
+
+    assert.match(scenario, /Сл = 5 \+ урон/);
+
+    const system = new engine.Dnd5eVttSystem();
+
+    /**
+     * Зомби с 6 хитами под ударом.
+     *
+     * @param {string} damageType - тип урона
+     * @param {object} details - крит
+     * @param {number} random - бросок спасброска
+     * @returns {object} зомби после удара
+     */
+    const strikeZombie = (damageType, details, random) => {
+      const zombie = createCreature({ id: 'creature_zombie', name: 'Зомби' });
+
+      zombie.system.hitPoints = {
+        ...zombie.system.hitPoints,
+        current: 6,
+        max: 22,
+        average: 22,
+      };
+
+      zombie.system.traits = [createTrait('Стойкость нежити', [fortitude])];
+
+      withRandom([random], () =>
+        strikeEntity(system, zombie, 8, damageType, { details }),
+      );
+
+      return engine.resolveEntityCurrentHp(zombie);
+    };
+
+    assert.equal(strikeZombie('slashing', {}, MAX_ROLL), 1);
+    assert.equal(strikeZombie('slashing', {}, MIN_ROLL), 0, 'провал Сл 13');
+    assert.equal(strikeZombie('radiant', {}, MAX_ROLL), 0);
+    assert.equal(strikeZombie('slashing', { critical: true }, MAX_ROLL), 0);
+  });
 
   it('[C13] Огненное дыхание: спасбросок Ловкости, успех — половина урона', () => {
     const breath = createEffect('Огненное дыхание', {

@@ -18,6 +18,7 @@
     EffectTriggerAttackRole,
     EffectTriggerEvent,
     EffectTriggerLimitPeriod,
+    EffectTriggerRecipient,
     EffectTriggerTurnOwner,
   } from '@vtt/shared/system/dnd.js';
 
@@ -26,15 +27,20 @@
   import {
     ABILITY_OPTIONS,
     DEFAULT_EFFECT_SAVE_DC,
+    DEFAULT_EFFECT_TAG,
     EFFECT_TRIGGER_ACTION_GATES,
     EFFECT_TRIGGER_ATTACK_ROLES,
     EFFECT_TRIGGER_LIMIT_PERIODS,
+    EFFECT_TRIGGER_RECIPIENTS,
     isEffectTag,
     isTurnTriggerEvent,
     listSelectableConditions,
     listTriggerActionTypes,
     resolveTriggerActionGate,
+    triggerEventAcceptsDcFormula,
     triggerEventAcceptsSave,
+    triggerEventHasOtherParty,
+    validateFormula,
   } from '@vtt/shared/system/dnd.js';
 
   import { useSystemDataStore } from '../../../stores/systemDataStore';
@@ -46,10 +52,10 @@
     EFFECT_TRIGGER_ACTION_LABELS,
     EFFECT_TRIGGER_DAMAGE_HALF_GATE,
     EFFECT_TRIGGER_DAMAGE_HALF_LABEL,
-    EFFECT_TRIGGER_DEFAULT_TAG,
     EFFECT_TRIGGER_EVENT_LABELS,
     EFFECT_TRIGGER_GATE_LABELS,
     EFFECT_TRIGGER_PERIOD_LABELS,
+    EFFECT_TRIGGER_RECIPIENT_LABELS,
     EFFECT_TRIGGER_ROLE_LABELS,
     EFFECT_TRIGGER_ROW_LABELS,
     EFFECT_TRIGGER_TURN_OWNER_LABELS,
@@ -163,6 +169,19 @@
     triggerEventAcceptsSave(trigger.value.event),
   );
 
+  const acceptsDcFormula = computed(() =>
+    triggerEventAcceptsDcFormula(trigger.value.event),
+  );
+
+  const hasOtherParty = computed(() =>
+    triggerEventHasOtherParty(trigger.value.event),
+  );
+
+  const recipientItems = EFFECT_TRIGGER_RECIPIENTS.map((recipient) => ({
+    value: recipient,
+    label: EFFECT_TRIGGER_RECIPIENT_LABELS[recipient],
+  }));
+
   const allowedActions = computed(() =>
     listTriggerActionTypes(props.layout, trigger.value.event),
   );
@@ -207,12 +226,58 @@
             ? (trigger.value.role ?? 'attacker')
             : undefined,
         turnOf: isTurnTriggerEvent(next) ? trigger.value.turnOf : undefined,
-        save: keepsSave ? trigger.value.save : undefined,
+        recipient: triggerEventHasOtherParty(next)
+          ? trigger.value.recipient
+          : undefined,
+        save: keepsSave ? withEventDcFormula(keepsSave, next) : undefined,
         actions: trigger.value.actions
           .filter((action) => actions.includes(action.type))
           .map((action) => (keepsSave ? action : withoutGate(action))),
       });
     },
+  });
+
+  /**
+   * Спасбросок без формулы Сл, если новое событие её не знает.
+   *
+   * @param save - спасбросок строки
+   * @param event - новое событие
+   * @returns спасбросок для события
+   */
+  function withEventDcFormula(
+    save: NonNullable<EffectTrigger['save']>,
+    event: EffectTriggerEvent,
+  ): NonNullable<EffectTrigger['save']> {
+    const { dcFormula: _formula, ...rest } = save;
+
+    return triggerEventAcceptsDcFormula(event) ? save : rest;
+  }
+
+  // Субъект — значение по умолчанию: в данных он не пишется
+  const recipient = computed({
+    get: () => trigger.value.recipient ?? 'subject',
+    set: (next: EffectTriggerRecipient) =>
+      update({ recipient: next === 'subject' ? undefined : next }),
+  });
+
+  const dcFormula = computed({
+    get: () => trigger.value.save?.dcFormula ?? '',
+    set: (next: string | number) => {
+      if (!trigger.value.save) {
+        return;
+      }
+
+      const { dcFormula: _formula, ...rest } = trigger.value.save;
+      const formula = String(next).trim();
+
+      update({ save: formula ? { ...rest, dcFormula: formula } : rest });
+    },
+  });
+
+  const dcFormulaError = computed(() => {
+    const formula = trigger.value.save?.dcFormula;
+
+    return formula ? validateFormula(formula).error : undefined;
   });
 
   const condition = computed({
@@ -310,7 +375,9 @@
       case 'applyCondition':
         return { type, conditionKey: DEFAULT_CONDITION };
       case 'applyTag':
-        return { type, tag: EFFECT_TRIGGER_DEFAULT_TAG };
+        return { type, tag: DEFAULT_EFFECT_TAG };
+      case 'setHp':
+        return { type, value: 1 };
       default:
         return { type };
     }
@@ -433,6 +500,20 @@
   }
 
   /**
+   * Меняет число хитов действия «Хиты становятся».
+   *
+   * @param index - номер действия
+   * @param value - хитов
+   */
+  function updateSetHp(index: number, value: number | null): void {
+    const action = trigger.value.actions[index];
+
+    if (action.type === 'setHp') {
+      updateAction(index, { ...action, value: Math.max(0, value ?? 0) });
+    }
+  }
+
+  /**
    * Меняет ключ или имя отметки.
    *
    * @param index - номер действия
@@ -530,6 +611,21 @@
       </UFormField>
 
       <UFormField
+        v-if="hasOtherParty"
+        :label="EFFECT_TRIGGER_ROW_LABELS.recipient"
+        class="w-56"
+      >
+        <USelect
+          v-model="recipient"
+          :items="recipientItems"
+          value-key="value"
+          size="sm"
+          class="w-full"
+          :portal="false"
+        />
+      </UFormField>
+
+      <UFormField
         v-if="showsTurnOwner"
         :label="EFFECT_TRIGGER_ROW_LABELS.turnOf"
         class="w-48"
@@ -592,6 +688,21 @@
           :auto-label="EFFECT_SOURCE_DC_LABELS[layout.context]"
           :auto-value="sourceSaveDc"
         />
+
+        <UFormField
+          v-if="acceptsDcFormula"
+          :label="EFFECT_TRIGGER_ROW_LABELS.dcFormula"
+          :hint="EFFECT_TRIGGER_ROW_LABELS.dcFormulaHint"
+          :error="dcFormulaError"
+          class="w-72"
+        >
+          <UInput
+            v-model="dcFormula"
+            :placeholder="EFFECT_TRIGGER_ROW_LABELS.dcFormulaPlaceholder"
+            size="sm"
+            class="w-full"
+          />
+        </UFormField>
       </div>
     </template>
 
@@ -702,6 +813,20 @@
             />
           </UFormField>
         </div>
+
+        <UFormField
+          v-else-if="action.type === 'setHp'"
+          :label="EFFECT_TRIGGER_ROW_LABELS.setHpValue"
+          class="w-32"
+        >
+          <UInputNumber
+            :model-value="action.value"
+            :min="0"
+            size="sm"
+            class="w-full"
+            @update:model-value="updateSetHp(index, $event ?? null)"
+          />
+        </UFormField>
 
         <div
           v-else-if="action.type === 'applyTag'"

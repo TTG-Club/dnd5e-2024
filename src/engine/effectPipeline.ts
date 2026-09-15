@@ -372,6 +372,24 @@ export function itemEffectsActive(item: DnDGameItem): boolean {
 }
 
 /**
+ * Эффекты работающих предметов носителя, которые действуют на него самого.
+ *
+ * @param entity - носитель
+ * @returns эффекты предметов
+ */
+export function listEquippedItemEffects(
+  entity: DnDActor | DnDCreature,
+): ActiveEffect[] {
+  if (!('equipment' in entity)) {
+    return [];
+  }
+
+  return (entity.equipment ?? [])
+    .filter(itemEffectsActive)
+    .flatMap((item) => (item.activeEffects ?? []).filter(affectsCarrier));
+}
+
+/**
  * Действует ли эффект вложенной записи — предмета или черты — на её носителя.
  *
  * Такая запись описывает не только своего хозяина. Эффект с
@@ -441,23 +459,9 @@ export function collectActiveEffects(
     }
   }
 
-  // Transferred-эффекты с экипированных предметов (только для DnDActor)
-  if ('equipment' in actor) {
-    const equipment = actor.equipment ?? [];
-
-    for (const item of equipment) {
-      if (!itemEffectsActive(item) || !item.activeEffects) {
-        continue;
-      }
-
-      // Свойство transfer больше не требуется: переносятся все эффекты предметов
-      for (const itemEffect of item.activeEffects) {
-        if (affectsCarrier(itemEffect)) {
-          collectedEffects.push(itemEffect);
-        }
-      }
-    }
-  }
+  // Эффекты с работающих предметов: свойство transfer больше не требуется,
+  // переносятся все эффекты предметов
+  collectedEffects.push(...listEquippedItemEffects(actor));
 
   // Эффекты от черт существа (только для Creature).
   // Черты (traits) содержат пассивные эффекты, постоянно действующие на само

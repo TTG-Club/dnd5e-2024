@@ -226,6 +226,31 @@ export function saveOutcome(passed, overrides = {}) {
 }
 
 /**
+ * Удар клиента по сущности сервера: урон пишется в копию, как это делает окно
+ * броска, а снимок уходит в систему сервера.
+ *
+ * @param {object} system - система сервера
+ * @param {object} entity - сущность в мире (мутируется)
+ * @param {number} amount - урон
+ * @param {string} damageType - тип урона
+ * @param {object} options - подробности удара и контекст ядра
+ * @param {object} options.details - крит и кто бил
+ * @param {object} options.context - возможности ядра
+ * @returns {object} исход записи снимка
+ */
+export function strikeEntity(system, entity, amount, damageType, options = {}) {
+  const copy = structuredClone(entity);
+
+  engine.applyTargetDamage(copy, amount, false, damageType, options.details);
+
+  return system.settleCombatState(
+    entity,
+    engine.pickCombatState(copy),
+    options.context,
+  );
+}
+
+/**
  * Черта существа с эффектами.
  *
  * @param {string} name - название черты

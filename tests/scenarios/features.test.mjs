@@ -10,6 +10,7 @@ import {
   createToken,
   engine,
   GRID,
+  strikeEntity,
 } from './_fixtures.mjs';
 
 /**
@@ -488,9 +489,37 @@ describe('каталог: виды', () => {
     assert.ok(stats.damageDefenses.resistances.has('fire'));
   });
 
-  it.todo(
-    '[SP05] Неумолимая стойкость: 1 хит вместо 0 раз в долгий отдых — пробел',
-  );
+  it('[SP05] Неумолимая стойкость: 1 хит вместо 0 раз в долгий отдых', () => {
+    const endurance = createEffect('Неумолимая стойкость', {
+      triggers: [
+        {
+          id: 'trigger_endurance',
+          event: 'hpZero',
+          actions: [{ type: 'setHp', value: 1 }],
+          limit: { max: 1, per: 'longRest' },
+        },
+      ],
+    });
+
+    authoredScenario(endurance, 'feature');
+
+    const orc = hero({ overrides: { activeEffects: [endurance] } });
+    const system = new engine.Dnd5eVttSystem();
+
+    const dropFrom = (hitPoints) => {
+      orc.system.hitPoints = { current: hitPoints, max: 20, temp: 0 };
+      strikeEntity(system, orc, 12, 'bludgeoning');
+
+      return engine.resolveEntityCurrentHp(orc);
+    };
+
+    assert.equal(dropFrom(5), 1);
+    assert.equal(dropFrom(5), 0, 'второй раз до отдыха — нет');
+
+    orc.system = engine.applyActorRest(orc, 'long').system;
+
+    assert.equal(dropFrom(5), 1, 'после долгого отдыха — снова');
+  });
 
   it('[SP06] Храбрость полурослика: преимущество против Испуга', () => {
     const brave = createEffect('Храбрость', {

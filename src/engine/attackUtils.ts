@@ -316,7 +316,8 @@ export interface PerformAttackResult {
  *
  * @param params - параметры атаки
  * @param rollFn - функция для парсинга и броска кубиков (parseAndRoll)
- * @param applyDamageFn - функция для применения урона к цели (опционально)
+ * @param applyDamageFn - функция для применения урона к цели (опционально);
+ *   третьим аргументом — крит: он нужен событиям урона цели
  * @returns результат атаки с данными обоих бросков
  */
 export function performTwoStageAttack(
@@ -325,6 +326,7 @@ export function performTwoStageAttack(
   applyDamageFn?: (
     damage: number,
     isHealing: boolean,
+    critical: boolean,
   ) => DamageApplyResult | null,
 ): PerformAttackResult {
   const attackRoll = rollFn(params.attackFormula);
@@ -358,7 +360,11 @@ export function performTwoStageAttack(
     let applyResult: DamageApplyResult | null = null;
 
     if (params.targetActorId && applyDamageFn) {
-      applyResult = applyDamageFn(damageRoll.total, false);
+      applyResult = applyDamageFn(
+        damageRoll.total,
+        false,
+        attackResult.isCriticalHit,
+      );
     }
 
     damageRoll.label = buildDamageLabel(

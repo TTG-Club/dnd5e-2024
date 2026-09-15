@@ -16,6 +16,7 @@
  */
 
 import type { ActiveEffect, EffectOrigin } from './activeEffectTypes.js';
+import type { DamageHit } from './damageHits.js';
 import type { DamageApplyResult, DamageDefenseOutcome } from './damageUtils.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type { IncomingAttackContext } from './effectPipeline.js';
@@ -28,6 +29,11 @@ import {
   buildConditionActiveEffect,
   resolveEffectConditionKey,
 } from './conditionTemplates.js';
+import {
+  parseDamageHitDetails,
+  readDamageHits,
+  recordDamageHit,
+} from './damageHits.js';
 import { applyDamageDefenses, applyHpChange } from './damageUtils.js';
 import {
   isImmuneToCondition,
@@ -117,10 +123,14 @@ function buildEffectForTarget(
  * (иммунитет/сопротивление/уязвимость) и правила временных ХП (урон снимает temp
  * первым, лечение их не трогает). Возвращает сводку изменения для UI/чата.
  *
+ * Урон записывается ударом в сущность (`recordDamageHit`): боевой снимок
+ * увезёт его на сервер, и там сработают «получил урон» и «хиты упали до 0».
+ *
  * @param entity - сущность-цель (обычно глубокая копия для безопасной WS-отправки)
  * @param amount - величина изменения ХП (положительное число)
  * @param isHealing - true = лечение (прибавить), false = урон (вычесть)
  * @param damageType - тип урона (для проверки защит); только для урона
+ * @param details - подробности удара от вызывающего: крит, кто бил
  * @returns сводка результата применения
  */
 export function applyTargetDamage(
@@ -128,6 +138,7 @@ export function applyTargetDamage(
   amount: number,
   isHealing: boolean,
   damageType?: string,
+  details?: unknown,
 ): DamageApplyResult {
   const hpBefore = resolveEntityCurrentHp(entity);
   const maxHp = resolveEntityMaxHp(entity);
@@ -164,6 +175,17 @@ export function applyTargetDamage(
     current: hpChange.hpAfter,
     temp: hpChange.tempAfter,
   });
+
+  if (!isHealing) {
+    const { critical, sourceId } = parseDamageHitDetails(details);
+
+    recordDamageHit(entity, {
+      amount: hpBefore + tempBefore - hpChange.hpAfter - hpChange.tempAfter,
+      types: damageType ? [damageType] : [],
+      critical,
+      sourceId,
+    });
+  }
 
   return {
     actorName: entity.name,
@@ -234,6 +256,11 @@ export interface DndCombatState {
    * клиенте расходует срабатывание. Нет поля — счётчики не трогаются.
    */
   effectUsage?: EffectTriggerUsageLedger;
+  /**
+   * Удары, от которых изменились хиты: по ним сервер прогоняет «получил урон»
+   * и «хиты упали до 0». Нет поля — событий урона нет (отмена, правка хитов).
+   */
+  damage?: DamageHit[];
 }
 
 /**
@@ -243,6 +270,8 @@ export interface DndCombatState {
  * @returns снимок боевого состояния
  */
 export function pickCombatState(entity: DnDSceneEntity): DndCombatState {
+  const damage = readDamageHits(entity);
+
   return {
     hpCurrent: resolveEntityCurrentHp(entity),
     hpTemp: resolveEntityTempHp(entity),
@@ -250,6 +279,7 @@ export function pickCombatState(entity: DnDSceneEntity): DndCombatState {
     ...(entity.system.effectUsage === undefined
       ? {}
       : { effectUsage: entity.system.effectUsage }),
+    ...(damage.length > 0 ? { damage: [...damage] } : {}),
   };
 }
 

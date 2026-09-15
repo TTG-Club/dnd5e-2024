@@ -20,6 +20,7 @@ import type {
   EffectTriggerApplyTagAction,
   EffectTriggerAttackRole,
   EffectTriggerEvent,
+  EffectTriggerSave,
 } from './effectTriggerTypes.js';
 import type { TriggerEventData } from './triggerConditions.js';
 import type {
@@ -54,6 +55,12 @@ import {
   resolveTriggerActionGate,
 } from './effectTriggers.js';
 import { takeTriggerUse } from './effectTriggerUsage.js';
+import { buildFormulaContext, evaluateFormula } from './formulaParser.js';
+import {
+  resolveEntityMaxHp,
+  resolveEntityTempHp,
+  writeEntityHitPoints,
+} from './hitPoints.js';
 import { isTriggerConditionMet } from './triggerConditions.js';
 import {
   applyDamageToEntity,
@@ -147,6 +154,45 @@ export function triggerHasEffects(trigger: EffectTrigger): boolean {
   return trigger.actions.some((action) => action.type !== 'damage');
 }
 
+/** Событие, чьи данные читает Сл срабатывания формулой */
+export interface TriggerSaveEvent {
+  /** Кто бросает: формула читает и его лист */
+  entity: DnDSceneEntity;
+  /** Данные события */
+  data: TriggerEventData;
+}
+
+/**
+ * Сл спасброска срабатывания: формулой от урона события, если она есть и
+ * событие несёт урон, иначе число.
+ *
+ * @param save - спасбросок срабатывания
+ * @param event - кто бросает и данные события
+ * @returns сложность
+ */
+export function resolveTriggerSaveDc(
+  save: EffectTriggerSave,
+  event?: TriggerSaveEvent,
+): number {
+  const damage = event?.data.damage;
+
+  if (!save.dcFormula || !event || !damage) {
+    return save.dc;
+  }
+
+  try {
+    const value = evaluateFormula(save.dcFormula, {
+      ...buildFormulaContext(event.entity),
+      event: { damage: damage.amount },
+    });
+
+    return Number.isFinite(value) ? Math.max(1, Math.trunc(value)) : save.dc;
+  } catch {
+    // Автор ошибся в формуле — спасбросок всё равно бросается, против числа
+    return save.dc;
+  }
+}
+
 /**
  * Что бросать для спасброска срабатывания. Спасбросок, от которого зависит
  * только урон, — не против состояния: состояние им не накладывается и не
@@ -154,11 +200,13 @@ export function triggerHasEffects(trigger: EffectTrigger): boolean {
  *
  * @param effect - эффект
  * @param trigger - его срабатывание
+ * @param event - кто бросает и данные события (Сл формулой)
  * @returns спецификация либо `null`, если спасброска нет
  */
 export function buildTriggerSaveSpec(
   effect: ActiveEffect,
   trigger: EffectTrigger,
+  event?: TriggerSaveEvent,
 ): EffectSaveSpec | null {
   if (!trigger.save) {
     return null;
@@ -167,7 +215,7 @@ export function buildTriggerSaveSpec(
   const base = {
     effectName: effect.name,
     ability: trigger.save.ability,
-    dc: trigger.save.dc,
+    dc: resolveTriggerSaveDc(trigger.save, event),
     againstMagic: isMagicalEffect(effect),
   };
 
@@ -475,6 +523,17 @@ export function applyTriggerEffectActions(
       continue;
     }
 
+    if (action.type === 'setHp') {
+      writeEntityHitPoints(entity, {
+        current: Math.min(action.value, resolveEntityMaxHp(entity)),
+        temp: resolveEntityTempHp(entity),
+      });
+
+      applied = true;
+
+      continue;
+    }
+
     let status: ActiveEffect | null = null;
 
     if (action.type === 'applySelf') {
@@ -566,7 +625,7 @@ function listTurnTriggers(
  * @param entity - субъект
  * @returns эффекты черт
  */
-function listTraitEffects(entity: DnDSceneEntity): ActiveEffect[] {
+export function listTraitEffects(entity: DnDSceneEntity): ActiveEffect[] {
   if (!isCreatureEntity(entity)) {
     return [];
   }
@@ -1015,17 +1074,22 @@ export function listPresenceTriggerSources(
 /**
  * Бросает на сервере спасбросок срабатывания.
  *
- * @param entity - субъект
+ * @param entity - кто бросает
  * @param source - срабатывание с источником
  * @param ambientEffects - ауры чужих токенов
+ * @param data - данные события (Сл формулой)
  * @returns исход либо `null`, если спасброска нет
  */
 export function rollTriggerSave(
   entity: DnDSceneEntity,
   source: EffectTriggerSource,
   ambientEffects: readonly ActiveEffect[] = [],
+  data: TriggerEventData = {},
 ): TurnSaveOutcome | null {
-  const spec = buildTriggerSaveSpec(source.effect, source.trigger);
+  const spec = buildTriggerSaveSpec(source.effect, source.trigger, {
+    entity,
+    data,
+  });
 
   return spec
     ? toTriggerSaveOutcome(
@@ -1051,12 +1115,34 @@ export function settlePresenceTrigger(
   save: TurnSaveOutcome | null,
   options: EntryEffectOptions = {},
 ): EntryEffectResult {
+  return settleTriggerOutcome(entity, entity, source, save, options);
+}
+
+/**
+ * Выполняет срабатывание по известному исходу спасброска: урон, лечение и
+ * наложения достаются получателю, снятие — эффекту субъекта, если эффект лежит
+ * на нём сам.
+ *
+ * @param subject - субъект: на нём эффект
+ * @param recipient - получатель действий (субъект или другая сторона)
+ * @param source - срабатывание с источником
+ * @param save - исход спасброска получателя; `null` — спасброска нет
+ * @param options - откуда пришли наложения и чей сейчас ход
+ * @returns исходы для чата
+ */
+export function settleTriggerOutcome(
+  subject: DnDSceneEntity,
+  recipient: DnDSceneEntity,
+  source: EffectTriggerSource,
+  save: TurnSaveOutcome | null,
+  options: EntryEffectOptions = {},
+): EntryEffectResult {
   const ambientEffects = options.ambientEffects ?? [];
-  const stats = resolveActorStats(entity, [...ambientEffects]);
+  const stats = resolveActorStats(recipient, [...ambientEffects]);
   const passed = save?.passed ?? false;
 
   const damage = rollTriggerDamage(
-    entity,
+    recipient,
     source.effect,
     source.trigger,
     passed,
@@ -1064,26 +1150,38 @@ export function settlePresenceTrigger(
   );
 
   if (damage) {
-    applyDamageToEntity(entity, damage.total);
+    applyDamageToEntity(recipient, damage.total);
   }
 
   const healing = rollTriggerHealing(source.effect, source.trigger);
 
   const healed =
     healing !== null
-    && applyTurnHealing(entity, healing.healed, healing.tempHp);
+    && applyTurnHealing(recipient, healing.healed, healing.tempHp);
 
-  const { applied } = applyTriggerEffectActions(
-    entity,
+  const { applied, removes } = applyTriggerEffectActions(
+    recipient,
     source,
     passed,
     options,
   );
 
+  const removed =
+    removes
+    && (subject.activeEffects ?? []).some(
+      (effect) => effect.id === source.effect.id,
+    );
+
+  if (removed) {
+    subject.activeEffects = (subject.activeEffects ?? []).filter(
+      (effect) => effect.id !== source.effect.id,
+    );
+  }
+
   return {
     damageOutcome: damage,
     saveOutcome: save,
-    statusApplied: applied || healed,
+    statusApplied: applied || healed || removed,
   };
 }
 

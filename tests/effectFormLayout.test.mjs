@@ -539,6 +539,7 @@ describe('шаги окна', () => {
     assert.deepEqual(engine.listEffectFormSteps(layoutOf('feature')), [
       'trigger',
       'modifiers',
+      'triggers',
     ]);
 
     assert.deepEqual(engine.listEffectFormSteps(layoutOf('condition')), [
@@ -655,12 +656,19 @@ describe('список «Срабатывания»', () => {
   it('события и действия по месту: ход — где эффект тикает, вход и выход — у зоны, атака и снятие — у лежащего на существе', () => {
     const own = layoutOf('ownEffects');
 
-    assert.deepEqual(own.triggerEvents, ['turnStart', 'turnEnd', 'attackRoll']);
+    assert.deepEqual(own.triggerEvents, [
+      'turnStart',
+      'turnEnd',
+      'attackRoll',
+      'damageTaken',
+      'hpZero',
+    ]);
 
     assert.deepEqual(own.triggerActions, [
       'damage',
       'applyCondition',
       'applyTag',
+      'setHp',
       'removeSelf',
     ]);
 
@@ -669,6 +677,17 @@ describe('список «Срабатывания»', () => {
       ['applyCondition', 'applyTag', 'removeSelf'],
       'на броске атаки урона нет',
     );
+
+    assert.deepEqual(
+      engine.listTriggerActionTypes(own, 'hpZero'),
+      ['damage', 'applyCondition', 'applyTag', 'setHp', 'removeSelf'],
+      '«хиты становятся» — только когда хиты упали до 0',
+    );
+
+    assert.equal(engine.triggerEventAcceptsDcFormula('damageTaken'), true);
+    assert.equal(engine.triggerEventAcceptsDcFormula('turnEnd'), false);
+    assert.equal(engine.triggerEventHasOtherParty('damageTaken'), true);
+    assert.equal(engine.triggerEventHasOtherParty('hpZero'), false);
 
     assert.equal(engine.triggerEventAcceptsSave('attackRoll'), false);
     assert.equal(engine.triggerEventAcceptsSave('turnEnd'), true);
@@ -692,18 +711,24 @@ describe('список «Срабатывания»', () => {
       layoutOf('spell', {
         aura: { radius: 10, target: 'all', applyToSelf: false, visible: true },
       }).triggerEvents,
-      ['turnStart', 'turnEnd', 'enter', 'exit'],
+      ['turnStart', 'turnEnd', 'enter', 'exit', 'damageTaken', 'hpZero'],
       'в ауру входят и выходят так же, как в зону',
     );
 
     const trait = layoutOf('creatureTrait');
 
-    assert.deepEqual(trait.triggerEvents, ['turnStart', 'turnEnd']);
+    assert.deepEqual(trait.triggerEvents, [
+      'turnStart',
+      'turnEnd',
+      'damageTaken',
+      'hpZero',
+    ]);
 
     assert.deepEqual(trait.triggerActions, [
       'damage',
       'applyCondition',
       'applyTag',
+      'setHp',
     ]);
 
     assert.deepEqual(
@@ -718,9 +743,15 @@ describe('список «Срабатывания»', () => {
       'у черты существа наложившего нет',
     );
 
-    for (const context of ['feature', 'item', 'condition']) {
-      assert.deepEqual(layoutOf(context).triggerEvents, [], context);
+    for (const context of ['feature', 'item']) {
+      assert.deepEqual(
+        layoutOf(context).triggerEvents,
+        ['damageTaken', 'hpZero'],
+        `${context}: эффект слышит урон по носителю`,
+      );
     }
+
+    assert.deepEqual(layoutOf('condition').triggerEvents, []);
   });
 
   it('пресеты по месту; повторный спасбросок повторяет спасбросок эффекта', () => {
@@ -728,6 +759,8 @@ describe('список «Срабатывания»', () => {
       'recurringDamage',
       'recurringSave',
       'consumeOn',
+      'hpZeroToOne',
+      'tagOnDamage',
       'custom',
     ]);
 

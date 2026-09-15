@@ -2,6 +2,7 @@ import type { Scene, SceneEntity } from '@vtt/shared';
 import type {
   ActiveEffect,
   DamageDefenseOutcome,
+  DamageHit,
   DnDSceneEntity,
   SavingThrowResult,
   Spell,
@@ -30,6 +31,7 @@ import {
   getSpellSaveCondition,
   isDndSceneEntity,
   mergeAppliedEffects,
+  recordDamageHit,
   resolveActorStats,
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
@@ -78,6 +80,7 @@ export function useSpellDamageWithParts() {
    * @param totalTempHeal - суммарные временные ХП (`@heal.temp`)
    * @param effectsToApply - эффекты для наложения (или undefined)
    * @param socket - сокет
+   * @param hit - удар для событий урона цели: типы, крит, кто бил
    * @returns HP до/после, полученные временные ХП и имена наложенных эффектов
    */
   function writeEntityHpDelta(
@@ -87,6 +90,7 @@ export function useSpellDamageWithParts() {
     totalTempHeal: number,
     effectsToApply: ActiveEffect[] | undefined,
     socket: SpellResolutionContext['socket'],
+    hit: Omit<DamageHit, 'amount'>,
   ): {
     hpBefore: number;
     hpAfter: number;
@@ -123,6 +127,11 @@ export function useSpellDamageWithParts() {
     writeEntityHitPoints(updatedEntity, {
       current: hpAfter,
       temp: tempAfter,
+    });
+
+    recordDamageHit(updatedEntity, {
+      ...hit,
+      amount: hpBefore + tempBefore - hpAfter - tempAfter,
     });
 
     const appliedEffects: string[] = [];
@@ -458,6 +467,26 @@ export function useSpellDamageWithParts() {
       });
     }
 
+    /**
+     * Типы урона, дошедшего до цели: для условий «урон огнём» у её событий.
+     *
+     * @param entityId - цель
+     * @returns типы без повторов
+     */
+    function listEntityDamageTypes(entityId: string): string[] {
+      const types = [...partContributions].flatMap(([part, contributions]) =>
+        !part.isHealing
+        && contributions.some(
+          (contribution) =>
+            contribution.entityId === entityId && contribution.applied > 0,
+        )
+          ? (part.types ?? (part.type ? [part.type] : []))
+          : [],
+      );
+
+      return [...new Set(types)];
+    }
+
     function getAccumulator(
       entity: SceneEntity,
       isTarget: boolean,
@@ -742,6 +771,11 @@ export function useSpellDamageWithParts() {
           totalTempHeal,
           effectsToApply,
           socket,
+          {
+            types: listEntityDamageTypes(accumulator.entity.id),
+            critical: parts.some((part) => part.critical === true),
+            sourceId: context.casterId,
+          },
         );
 
       results.push({

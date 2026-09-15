@@ -28,6 +28,7 @@ import {
   isTurnTriggerEvent,
   resolveTriggerActionGate,
 } from './effectTriggers.js';
+import { EVENT_DAMAGE_VARIABLE } from './formulaParser.js';
 import { readTriggerConditionParts } from './triggerConditions.js';
 
 /** Характеристики в родительном падеже — «спасбросок Телосложения» */
@@ -99,6 +100,10 @@ const TRIGGER_LABELS = {
   removeSelf: 'эффект снимается',
   tagPrefix: 'отметка ',
   conditionJoiner: ' и ',
+  setHpPrefix: 'хиты становятся ',
+  dcFormulaPrefix: 'Сл = ',
+  damageVariable: 'урон',
+  recipientOther: ', на другую сторону',
   nothing: 'ничего',
   listJoiner: ', ',
   clauseJoiner: '; ',
@@ -192,6 +197,8 @@ function describeAction(action: EffectTriggerAction): string {
 
       return duration ? `${name} ${duration}` : name;
     }
+    case 'setHp':
+      return `${TRIGGER_LABELS.setHpPrefix}${action.value}`;
     case 'removeSelf':
       return TRIGGER_LABELS.removeSelf;
     default:
@@ -338,17 +345,24 @@ export function describeEffectTrigger(
     ? `${TRIGGER_LABELS.conditionPrefix}${describeTriggerCondition(trigger.condition)}`
     : '';
 
-  const moment = `${describeMoment(trigger)}${condition}`;
+  const recipient =
+    trigger.recipient === 'other' ? TRIGGER_LABELS.recipientOther : '';
+
+  const moment = `${describeMoment(trigger)}${condition}${recipient}`;
   const limit = describeLimit(trigger);
 
   if (!trigger.save) {
     return `${moment}: ${describeOutcomeActions(trigger, false)}${limit}`;
   }
 
-  const { ability, dc } = trigger.save;
+  const { ability, dc, dcFormula } = trigger.save;
+
+  const dcLabel = dcFormula
+    ? `${TRIGGER_LABELS.dcFormulaPrefix}${dcFormula.replaceAll(`@${EVENT_DAMAGE_VARIABLE}`, TRIGGER_LABELS.damageVariable)}`
+    : options.formatDc(dc);
 
   return [
-    `${moment}: ${TRIGGER_LABELS.savePrefix}${ABILITY_GENITIVE_LABELS[ability]}, ${options.formatDc(dc)}`,
+    `${moment}: ${TRIGGER_LABELS.savePrefix}${ABILITY_GENITIVE_LABELS[ability]}, ${dcLabel}`,
     `${TRIGGER_LABELS.failurePrefix}${describeOutcomeActions(trigger, false)}`,
     `${TRIGGER_LABELS.successPrefix}${describeOutcomeActions(trigger, true)}${limit}`,
   ].join(TRIGGER_LABELS.clauseJoiner);

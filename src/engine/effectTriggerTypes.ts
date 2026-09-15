@@ -24,6 +24,8 @@ export const EFFECT_TRIGGER_EVENTS = [
   'exit',
   'applied',
   'attackRoll',
+  'damageTaken',
+  'hpZero',
 ] as const;
 
 /**
@@ -31,8 +33,6 @@ export const EFFECT_TRIGGER_EVENTS = [
  * поддержки не стирала их у записи, но пока ничего не запускают.
  */
 export const EFFECT_TRIGGER_RESERVED_EVENTS = [
-  'damageTaken',
-  'hpZero',
   'rest',
   'activate',
   'castEnd',
@@ -52,6 +52,15 @@ export const EFFECT_TRIGGER_TURN_OWNERS = ['subject', 'source'] as const;
  */
 export type EffectTriggerTurnOwner =
   (typeof EFFECT_TRIGGER_TURN_OWNERS)[number];
+
+/** Кому достаются действия срабатывания */
+export const EFFECT_TRIGGER_RECIPIENTS = ['subject', 'other'] as const;
+
+/**
+ * Получатель действий: субъект — тот, на ком эффект, — или другая сторона
+ * события: кто нанёс урон. Снятие эффекта всегда про эффект субъекта.
+ */
+export type EffectTriggerRecipient = (typeof EFFECT_TRIGGER_RECIPIENTS)[number];
 
 /** Роль субъекта в броске атаки */
 export const EFFECT_TRIGGER_ATTACK_ROLES = ['attacker', 'target'] as const;
@@ -91,6 +100,11 @@ export type EffectTriggerLimitPeriod =
 export interface EffectTriggerSave {
   ability: AbilityType;
   dc: number;
+  /**
+   * Сл формулой от данных события: `@damage` — урон события
+   * («max(10, floor(@damage / 2))»). Нет данных или формула с ошибкой — `dc`.
+   */
+  dcFormula?: string;
 }
 
 /** Лимит «не чаще N раз за период» */
@@ -133,6 +147,9 @@ export interface EffectTriggerApplyConditionAction {
  */
 export const EFFECT_TAG_PATTERN = /^[\p{L}\p{N}_.-]{1,64}$/u;
 
+/** Ключ новой отметки, пока автор не назвал свою */
+export const DEFAULT_EFFECT_TAG = 'отметка';
+
 /**
  * Годится ли строка ключом отметки.
  *
@@ -159,6 +176,13 @@ export interface EffectTriggerApplyTagAction {
   on?: EffectTriggerActionGate;
 }
 
+/** Хиты получателя становятся числом: «вместо 0 хитов — 1 хит» */
+export interface EffectTriggerSetHpAction {
+  type: 'setHp';
+  value: number;
+  on?: EffectTriggerActionGate;
+}
+
 /** Снять сам эффект */
 export interface EffectTriggerRemoveSelfAction {
   type: 'removeSelf';
@@ -171,6 +195,7 @@ export type EffectTriggerAction =
   | EffectTriggerApplySelfAction
   | EffectTriggerApplyConditionAction
   | EffectTriggerApplyTagAction
+  | EffectTriggerSetHpAction
   | EffectTriggerRemoveSelfAction;
 
 /** Виды действий срабатывания */
@@ -179,6 +204,7 @@ export const EFFECT_TRIGGER_ACTION_TYPES = [
   'applySelf',
   'applyCondition',
   'applyTag',
+  'setHp',
   'removeSelf',
 ] as const;
 
@@ -191,6 +217,8 @@ export interface EffectTrigger {
   turnOf?: EffectTriggerTurnOwner;
   /** Для броска атаки: роль субъекта */
   role?: EffectTriggerAttackRole;
+  /** Кому достаются урон, лечение и наложения; не задано — субъекту */
+  recipient?: EffectTriggerRecipient;
   /** Условие в словаре условий модификаторов; оценивается в фазе «Условия» */
   condition?: string;
   save?: EffectTriggerSave;

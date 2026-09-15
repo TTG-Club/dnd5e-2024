@@ -2,6 +2,7 @@
   import type { DamageType } from '@vtt/shared';
   import type {
     AttackRollMode,
+    DamageHitDetails,
     IncomingAttackContext,
     RollContext,
   } from '@vtt/shared/system/dnd.js';
@@ -698,6 +699,18 @@
   }
 
   /**
+   * Подробности удара для событий урона цели: крит и кто бил.
+   *
+   * @param critical - удар критом
+   * @returns подробности удара
+   */
+  function buildHitDetails(critical: boolean): DamageHitDetails {
+    return props.attackerId
+      ? { critical, sourceId: props.attackerId }
+      : { critical };
+  }
+
+  /**
    * Двухэтапная атака: бросок попадания → бросок урона.
    * Делегирует всю логику в performTwoStageAttack из attackUtils.
    *
@@ -745,8 +758,13 @@
         damageType: resolvedDamageType.value,
       },
       (formula) => diceRollerStore.parseAndRoll(formula),
-      (damage, isHealing) =>
-        targetStore.applyToTarget(damage, isHealing, resolvedDamageType.value),
+      (damage, isHealing, critical) =>
+        targetStore.applyToTarget(
+          damage,
+          isHealing,
+          resolvedDamageType.value,
+          buildHitDetails(critical),
+        ),
     );
 
     chatStore.sendMessage(attackFormula, 'roll', attackOutput.attackRoll);
@@ -861,6 +879,7 @@
         rollData.total,
         props.isHealing,
         resolvedDamageType.value,
+        buildHitDetails(false),
       );
 
       if (result && !props.isHealing) {
@@ -978,6 +997,7 @@
         requiresDamage: part.requiresDamage,
         targetGate: part.targetGate,
         targetTypeGate: part.targetTypeGate,
+        critical: isCrit,
       });
     }
 

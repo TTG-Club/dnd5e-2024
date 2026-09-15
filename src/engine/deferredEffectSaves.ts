@@ -60,6 +60,8 @@ export interface DeferredEffectOutcome {
   saveOutcomes: TurnSaveOutcome[];
   /** Готовые строки сводки: отмена срабатывания, автоматический бросок */
   notes: string[];
+  /** Новые ожидания ответа, появившиеся от применения («0 хитов» у остальных) */
+  deferred?: EngineDeferredTrigger[];
 }
 
 /** Применение исхода к живой сущности */
@@ -84,7 +86,7 @@ export interface EngineDeferredTrigger {
  * @param note - заметка; без неё строк нет
  * @returns строки сводки
  */
-function formatEffectNotes(
+export function formatEffectNotes(
   spec: EffectSaveSpec,
   note: string | null,
 ): string[] {
@@ -97,7 +99,7 @@ function formatEffectNotes(
  * @param notes - строки сводки
  * @returns исход без изменений
  */
-function unchangedOutcome(notes: string[]): DeferredEffectOutcome {
+export function unchangedOutcome(notes: string[]): DeferredEffectOutcome {
   return { changed: false, damageOutcomes: [], saveOutcomes: [], notes };
 }
 

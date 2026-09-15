@@ -53,6 +53,7 @@ import {
   EFFECT_TRIGGER_ATTACK_ROLES,
   EFFECT_TRIGGER_EVENTS,
   EFFECT_TRIGGER_LIMIT_PERIODS,
+  EFFECT_TRIGGER_RECIPIENTS,
   EFFECT_TRIGGER_RESERVED_EVENTS,
   EFFECT_TRIGGER_TURN_OWNERS,
 } from './effectTriggerTypes.js';
@@ -1615,10 +1616,20 @@ const RecurringDamageSchema = z.object({
   save: EffectSaveSchema.optional(),
 });
 
+/** Самая длинная формула Сл срабатывания */
+const MAX_TRIGGER_DC_FORMULA_LENGTH = 200;
+
 /** Zod-схема спасброска срабатывания */
 const EffectTriggerSaveSchema = z.object({
   ability: z.enum(SAVE_ABILITY_VALUES),
   dc: EffectSaveDcSchema,
+  dcFormula: z
+    .string()
+    .trim()
+    .min(1)
+    .max(MAX_TRIGGER_DC_FORMULA_LENGTH)
+    .optional()
+    .catch(undefined),
 });
 
 /** Zod-схема гейта действия срабатывания */
@@ -1649,6 +1660,11 @@ const EffectTriggerActionSchema = z.discriminatedUnion('type', [
     duration: EffectDurationSchema.optional().catch(undefined),
     on: EffectTriggerGateSchema,
   }),
+  z.object({
+    type: z.literal('setHp'),
+    value: z.preprocess(coerceOptionalNumber, z.number().int().min(0)),
+    on: EffectTriggerGateSchema,
+  }),
   z.object({ type: z.literal('removeSelf'), on: EffectTriggerGateSchema }),
 ]);
 
@@ -1668,6 +1684,7 @@ const EffectTriggerSchema = z.object({
   event: z.enum([...EFFECT_TRIGGER_EVENTS, ...EFFECT_TRIGGER_RESERVED_EVENTS]),
   turnOf: z.enum(EFFECT_TRIGGER_TURN_OWNERS).optional().catch(undefined),
   role: z.enum(EFFECT_TRIGGER_ATTACK_ROLES).optional().catch(undefined),
+  recipient: z.enum(EFFECT_TRIGGER_RECIPIENTS).optional().catch(undefined),
   condition: z.string().min(1).optional().catch(undefined),
   save: EffectTriggerSaveSchema.optional(),
   actions: z.array(EffectTriggerActionSchema).min(1),

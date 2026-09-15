@@ -95,7 +95,15 @@ export interface FormulaContext {
      */
     creatureType?: import('./creatureTypes.js').CreatureCategory;
   };
+  /**
+   * Данные события срабатывания — токен `@damage` (урон события) в Сл
+   * срабатывания. Вне события токен — ошибка формулы.
+   */
+  event?: { damage: number };
 }
+
+/** Переменная урона события в Сл срабатывания */
+export const EVENT_DAMAGE_VARIABLE = 'damage';
 
 /**
  * Сокращённые коды характеристик → полные имена.
@@ -549,6 +557,14 @@ function resolveVariable(
 
     if (simpleKey === 'classLevel') {
       return context.classLevel ?? context.level;
+    }
+
+    if (simpleKey === EVENT_DAMAGE_VARIABLE) {
+      if (!context.event) {
+        throw new FormulaError(`@${simpleKey} есть только у события урона`);
+      }
+
+      return context.event.damage;
     }
 
     // Короткий код характеристики @int → значение (16), парно к @mod.int (мод)

@@ -13,10 +13,11 @@ import type {
   MeasurementTemplate,
   MovementRange,
   SceneEntity,
+  SystemCombatStateResult,
   SystemDeferredTrigger,
   SystemDeferredTriggerResult,
+  SystemRelatedTriggerResult,
   SystemRollResult,
-  SystemTriggerApplyResult,
   SystemTriggerContext,
   Token,
   VttSystem,
@@ -25,12 +26,14 @@ import type {
 import type { ActiveEffect } from './activeEffectTypes.js';
 import type { BackgroundDefinition } from './backgroundTypes.js';
 import type { DndCombatState } from './damageApplication.js';
+import type { DamageHit } from './damageHits.js';
 import type { DamageApplyResult } from './damageUtils.js';
 import type {
   DeferredEffectOutcome,
   EngineDeferredTrigger,
 } from './deferredEffectSaves.js';
 import type { DnDGameItem, DnDSceneEntity, Spell } from './dndEntities.js';
+import type { DamageEventsResult } from './effectDamageEvents.js';
 import type { IncomingAttackContext } from './effectPipeline.js';
 import type { TurnSaveOutcome } from './turnEffects.js';
 
@@ -71,6 +74,11 @@ import {
   getEntityArmorClass as getEntityArmorClassImpl,
   pickCombatState as pickCombatStateImpl,
 } from './damageApplication.js';
+import {
+  clampDamageHits,
+  parseDamageHits,
+  toDamageHits,
+} from './damageHits.js';
 import { getSpellDamageParts } from './damageParts.js';
 import { syncCreatureDeathCondition } from './deathState.js';
 import {
@@ -78,6 +86,7 @@ import {
   requestTurnTriggerSave,
 } from './deferredEffectSaves.js';
 import { rollDamageFormula as rollDamageFormulaImpl } from './diceFormula.js';
+import { settleDamageEvents } from './effectDamageEvents.js';
 import {
   collectActiveEffects,
   isDiceFormulaValue,
@@ -156,6 +165,16 @@ const AURA_SUMMARY_LABEL = 'аура';
  */
 const TURN_DAMAGE_SAVE_KEY = 'damage';
 
+/** Подпись момента в сводке событий урона */
+const DAMAGE_EVENTS_SUMMARY_LABEL = 'от урона';
+
+/** Отказ в записи боевого снимка: ядро ничего не фиксирует */
+const REJECTED_COMBAT_STATE: SystemCombatStateResult = {
+  accepted: false,
+  changed: false,
+  chatSummary: null,
+};
+
 /**
  * Итог спасброска при входе в зону или ауру в сводке чата.
  *
@@ -168,11 +187,16 @@ function formatEntrySaveStatus(save: TurnSaveOutcome): string {
 
 /**
  * Переводит срабатывания движка, ждущие ответа игрока, в контракт ядра:
- * функция применения получает нейтральную сущность и отдаёт флаг изменения и
- * готовую сводку для чата.
+ * функция применения получает нейтральную сущность и отдаёт флаг изменения,
+ * готовую сводку для чата и новые ожидания.
+ *
+ * Урон, нанесённый по ответу (урон на ходу, вход в зону), будит события урона,
+ * если передан контекст. Ответы самих событий урона его не передают: их урон
+ * новых событий не порождает.
  *
  * @param triggers - срабатывания движка
  * @param formatSummary - сводка исхода для чата
+ * @param damageEventsContext - контекст событий урона от урона по ответу
  * @returns срабатывания для ядра либо `undefined`, если ждать нечего
  */
 function toSystemDeferredTriggers(
@@ -181,6 +205,7 @@ function toSystemDeferredTriggers(
     entity: DnDSceneEntity,
     outcome: DeferredEffectOutcome,
   ) => string | null,
+  damageEventsContext?: SystemTriggerContext,
 ): SystemDeferredTrigger[] | undefined {
   if (triggers.length === 0) {
     return undefined;
@@ -191,23 +216,155 @@ function toSystemDeferredTriggers(
     blocksMovement: trigger.blocksMovement,
     resolution: trigger.resolution.then((apply) =>
       apply
-        ? (entity: SceneEntity): SystemTriggerApplyResult => {
+        ? (entity: SceneEntity): SystemDeferredTriggerResult => {
             // Ядро отдаёт живую сущность нейтральной формы: без данных системы
             // применять правила D&D не к чему
             if (!isDndSceneEntity(entity)) {
               return { changed: false, chatSummary: null };
             }
 
+            const hpBefore = resolveEntityCurrentHp(entity);
             const outcome = apply(entity);
 
-            return {
+            const applied: SystemDeferredTriggerResult = {
               changed: outcome.changed,
               chatSummary: formatSummary(entity, outcome),
+              deferred: toSystemDeferredTriggers(
+                outcome.deferred ?? [],
+                formatSummary,
+              ),
             };
+
+            return damageEventsContext
+              ? withDamageEvents(
+                  entity,
+                  hpBefore,
+                  toDamageHits(outcome.damageOutcomes),
+                  damageEventsContext,
+                  applied,
+                )
+              : applied;
           }
         : null,
     ),
   }));
+}
+
+/**
+ * Складывает два исхода одной сущности: изменения, сводки, ожидания и другие
+ * сущности.
+ *
+ * @param base - основной исход
+ * @param extra - добавочный исход
+ * @returns общий исход
+ */
+function mergeTriggerResults(
+  base: SystemDeferredTriggerResult,
+  extra: SystemDeferredTriggerResult,
+): SystemDeferredTriggerResult {
+  const chatSummary =
+    [base.chatSummary, extra.chatSummary]
+      .filter((summary) => summary !== null)
+      .join('\n') || null;
+
+  const deferred = [...(base.deferred ?? []), ...(extra.deferred ?? [])];
+  const related = [...(base.related ?? []), ...(extra.related ?? [])];
+
+  return {
+    changed: base.changed || extra.changed,
+    chatSummary,
+    ...(deferred.length > 0 ? { deferred } : {}),
+    ...(related.length > 0 ? { related } : {}),
+  };
+}
+
+/**
+ * Итог событий урона в контракте ядра: сводка субъекта, ожидания ответа и
+ * другие стороны, которым достались действия.
+ *
+ * @param entity - субъект
+ * @param events - итог событий урона
+ * @returns исход для ядра
+ */
+function toDamageEventsTriggerResult(
+  entity: DnDSceneEntity,
+  events: DamageEventsResult,
+): SystemDeferredTriggerResult {
+  const formatDeferred = (
+    outcomeEntity: DnDSceneEntity,
+    outcome: DeferredEffectOutcome,
+  ): string | null =>
+    formatDeferredEffectsSummary(
+      outcomeEntity.name,
+      DAMAGE_EVENTS_SUMMARY_LABEL,
+      outcome,
+      formatEntrySaveStatus,
+    );
+
+  const related: SystemRelatedTriggerResult[] = events.related.map(
+    (outcome) => ({
+      entity: outcome.entity,
+      changed: outcome.changed,
+      chatSummary: formatEffectsSummary(
+        outcome.entity.name,
+        DAMAGE_EVENTS_SUMMARY_LABEL,
+        outcome.damageOutcomes,
+        outcome.saveOutcomes,
+        formatEntrySaveStatus,
+      ),
+    }),
+  );
+
+  return {
+    changed: events.changed,
+    chatSummary: formatEffectsSummary(
+      entity.name,
+      DAMAGE_EVENTS_SUMMARY_LABEL,
+      events.damageOutcomes,
+      events.saveOutcomes,
+      formatEntrySaveStatus,
+    ),
+    deferred: toSystemDeferredTriggers(events.deferred, formatDeferred),
+    ...(related.length > 0 ? { related } : {}),
+  };
+}
+
+/**
+ * Прогоняет события урона у сущности, в которую уже записан урон, и добавляет
+ * их исход к исходу того, что урон нанесло.
+ *
+ * @param entity - субъект с записанным уроном
+ * @param hpBefore - хиты до урона
+ * @param hits - удары
+ * @param context - возможности ядра
+ * @param base - исход того, что нанесло урон
+ * @returns общий исход
+ */
+function withDamageEvents(
+  entity: DnDSceneEntity,
+  hpBefore: number,
+  hits: readonly DamageHit[],
+  context: SystemTriggerContext | undefined,
+  base: SystemDeferredTriggerResult,
+): SystemDeferredTriggerResult {
+  if (hits.length === 0) {
+    return base;
+  }
+
+  const events = settleDamageEvents(entity, hits, {
+    hpBefore,
+    requestRoll: context?.requestRoll,
+    ambientEffects: toAmbientResolver(context)(entity),
+    inCombat: context?.isInCombat?.(entity) ?? false,
+    activeTurnActorId: context?.getActiveTurnActorId?.() ?? null,
+    getEntity: (entityId) => {
+      const found = context?.getEntity?.(entityId);
+
+      return found && isDndSceneEntity(found) ? found : undefined;
+    },
+  });
+
+  return mergeTriggerResults(base, toDamageEventsTriggerResult(entity, events));
 }
 
 /**
@@ -268,6 +425,7 @@ function settleTurnEffects(
   const requestRoll = context?.requestRoll;
   const askOwner = shouldRequestEffectSave(entity, requestRoll);
   const turnOf = sourceTurnActorId === undefined ? 'subject' : 'source';
+  const hpBefore = resolveEntityCurrentHp(entity);
 
   const result = processTurnEffects(entity, timing, {
     deferRecurringSave: () => askOwner,
@@ -284,8 +442,13 @@ function settleTurnEffects(
     turnOf,
   );
 
+  const hits = toDamageHits(result.damageOutcomes);
+
   if (!askOwner) {
-    return { changed: result.changed, chatSummary };
+    return withDamageEvents(entity, hpBefore, hits, context, {
+      changed: result.changed,
+      chatSummary,
+    });
   }
 
   // Один эффект срабатывает и на своём ходу, и на ходу наложившего — ответы
@@ -347,18 +510,21 @@ function settleTurnEffects(
     deferred.push(trigger);
   }
 
-  return {
+  return withDamageEvents(entity, hpBefore, hits, context, {
     changed: result.changed,
     chatSummary,
-    deferred: toSystemDeferredTriggers(deferred, (outcomeEntity, outcome) =>
-      formatDeferredEffectsSummary(
-        outcomeEntity.name,
-        resolveTurnSummaryLabel(timing, turnOf),
-        outcome,
-        formatRecurringSaveStatus,
-      ),
+    deferred: toSystemDeferredTriggers(
+      deferred,
+      (outcomeEntity, outcome) =>
+        formatDeferredEffectsSummary(
+          outcomeEntity.name,
+          resolveTurnSummaryLabel(timing, turnOf),
+          outcome,
+          formatRecurringSaveStatus,
+        ),
+      context,
     ),
-  };
+  });
 }
 
 /** Подписи типов существ по ключу (для форматтера компендиума) */
@@ -544,7 +710,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.35';
+  readonly version = '0.8.36';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -813,6 +979,8 @@ export class Dnd5eVttSystem implements VttSystem {
       return { changed: false, chatSummary: null };
     }
 
+    const hpBefore = resolveEntityCurrentHp(entity);
+
     const result = syncActorAreaEffects(
       entity,
       previousAreaIds,
@@ -829,20 +997,27 @@ export class Dnd5eVttSystem implements VttSystem {
       formatEntrySaveStatus,
     );
 
-    return {
-      changed: result.changed,
-      chatSummary,
-      deferred: toSystemDeferredTriggers(
-        result.deferred,
-        (outcomeEntity, outcome) =>
-          formatDeferredEffectsSummary(
-            outcomeEntity.name,
-            AREA_SUMMARY_LABEL,
-            outcome,
-            formatEntrySaveStatus,
-          ),
-      ),
-    };
+    return withDamageEvents(
+      entity,
+      hpBefore,
+      toDamageHits(result.damageOutcomes),
+      options,
+      {
+        changed: result.changed,
+        chatSummary,
+        deferred: toSystemDeferredTriggers(
+          result.deferred,
+          (outcomeEntity, outcome) =>
+            formatDeferredEffectsSummary(
+              outcomeEntity.name,
+              AREA_SUMMARY_LABEL,
+              outcome,
+              formatEntrySaveStatus,
+            ),
+          options,
+        ),
+      },
+    );
   }
 
   /**
@@ -862,16 +1037,29 @@ export class Dnd5eVttSystem implements VttSystem {
       return [];
     }
 
+    const resolveEntity = (actorId: string): DnDSceneEntity | undefined => {
+      const entity = getEntity(actorId);
+
+      return entity && isDndSceneEntity(entity) ? entity : undefined;
+    };
+
+    // Хиты до срабатываний у всех, кого аура может задеть: «хиты упали до 0»
+    // знает только сравнение с ними
+    const hpBefore = new Map(
+      [
+        movedEntity,
+        ...(scene.tokens ?? []).map((token) => resolveEntity(token.actorId)),
+      ]
+        .filter((entity): entity is DnDSceneEntity => entity !== undefined)
+        .map((entity) => [entity.id, resolveEntityCurrentHp(entity)]),
+    );
+
     const outcomes = computeAuraTriggerEffects(
       scene,
       movedToken,
       movedEntity,
       previousToken,
-      (actorId) => {
-        const entity = getEntity(actorId);
-
-        return entity && isDndSceneEntity(entity) ? entity : undefined;
-      },
+      resolveEntity,
       {
         requestRoll: context?.requestRoll,
         resolveAmbientEffects: toAmbientResolver(context),
@@ -883,23 +1071,32 @@ export class Dnd5eVttSystem implements VttSystem {
 
     return outcomes.map((outcome) => ({
       entity: outcome.entity,
-      changed: outcome.changed,
-      chatSummary: formatEffectsSummary(
-        outcome.entity.name,
-        AURA_SUMMARY_LABEL,
-        outcome.damageOutcomes,
-        outcome.saveOutcomes,
-        formatEntrySaveStatus,
-      ),
-      deferred: toSystemDeferredTriggers(
-        outcome.deferred,
-        (outcomeEntity, deferredOutcome) =>
-          formatDeferredEffectsSummary(
-            outcomeEntity.name,
+      ...withDamageEvents(
+        outcome.entity,
+        hpBefore.get(outcome.entity.id) ?? 0,
+        toDamageHits(outcome.damageOutcomes),
+        context,
+        {
+          changed: outcome.changed,
+          chatSummary: formatEffectsSummary(
+            outcome.entity.name,
             AURA_SUMMARY_LABEL,
-            deferredOutcome,
+            outcome.damageOutcomes,
+            outcome.saveOutcomes,
             formatEntrySaveStatus,
           ),
+          deferred: toSystemDeferredTriggers(
+            outcome.deferred,
+            (outcomeEntity, deferredOutcome) =>
+              formatDeferredEffectsSummary(
+                outcomeEntity.name,
+                AURA_SUMMARY_LABEL,
+                deferredOutcome,
+                formatEntrySaveStatus,
+              ),
+            context,
+          ),
+        },
       ),
     }));
   }
@@ -1088,6 +1285,46 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
+   * Записывает боевой снимок и прогоняет события урона по его ударам. Удары
+   * урезаются до того, что сущность действительно потеряла: снимок пришёл от
+   * клиента.
+   */
+  // eslint-disable-next-line class-methods-use-this
+  settleCombatState(
+    entity: SceneEntity,
+    state: unknown,
+    context?: SystemTriggerContext,
+  ): SystemCombatStateResult {
+    if (!isDndSceneEntity(entity)) {
+      return REJECTED_COMBAT_STATE;
+    }
+
+    const hpBefore = resolveEntityCurrentHp(entity);
+    const totalBefore = hpBefore + resolveEntityTempHp(entity);
+
+    if (!applyCombatStateImpl(entity, state)) {
+      return REJECTED_COMBAT_STATE;
+    }
+
+    const loss =
+      totalBefore
+      - resolveEntityCurrentHp(entity)
+      - resolveEntityTempHp(entity);
+
+    const hits = isRecord(state)
+      ? clampDamageHits(parseDamageHits(state.damage), loss)
+      : [];
+
+    return {
+      accepted: true,
+      ...withDamageEvents(entity, hpBefore, hits, context, {
+        changed: true,
+        chatSummary: null,
+      }),
+    };
+  }
+
+  /**
    * Применяет урон/лечение к сущности D&D 5e (мутирует ХП с учётом защит и
    * временных ХП) и возвращает сводку изменения.
    */
@@ -1097,6 +1334,7 @@ export class Dnd5eVttSystem implements VttSystem {
     amount: number,
     isHealing: boolean,
     damageType?: string,
+    details?: unknown,
   ): DamageApplyResult {
     // Сущность без данных системы урона не получает: её запас хитов неизвестен,
     // и выдуманное «после» ушло бы в метку и в чат как настоящее
@@ -1104,7 +1342,13 @@ export class Dnd5eVttSystem implements VttSystem {
       return { actorName: entity.name, hpBefore: 0, hpAfter: 0 };
     }
 
-    return applyTargetDamageImpl(entity, amount, isHealing, damageType);
+    return applyTargetDamageImpl(
+      entity,
+      amount,
+      isHealing,
+      damageType,
+      details,
+    );
   }
 
   /**

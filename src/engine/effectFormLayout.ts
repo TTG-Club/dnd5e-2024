@@ -37,7 +37,8 @@ import {
   listEffectListTriggers,
   writeEffectTriggers,
 } from './effectTriggers.js';
-import { isEffectTag } from './effectTriggerTypes.js';
+import { DEFAULT_EFFECT_TAG, isEffectTag } from './effectTriggerTypes.js';
+import { writeTriggerCondition } from './triggerConditions.js';
 
 /** Места, откуда открывается окно эффекта */
 export const EFFECT_FORM_CONTEXTS = [
@@ -217,6 +218,18 @@ const LIVING_CARRIER_CONTEXTS: ReadonlySet<EffectFormContext> = new Set([
  * («Регенерация»). Снять саму черту срабатывание не может.
  */
 const TICKING_CARRIER_CONTEXTS: ReadonlySet<EffectFormContext> = new Set([
+  'creatureTrait',
+]);
+
+/**
+ * Места, где эффект на носителе слышит урон по нему: лежит на существе, на
+ * работающем предмете или в черте статблока (`settleDamageEvents`).
+ */
+const DAMAGE_EVENT_CONTEXTS: ReadonlySet<EffectFormContext> = new Set([
+  'ownEffects',
+  'spell',
+  'feature',
+  'item',
   'creatureTrait',
 ]);
 
@@ -583,6 +596,9 @@ export function resolveEffectFormLayout(
       showRecurringDamage,
       canRemoveSelf: livesOnItsOwn,
       hasPresence: delivery === 'zone' || delivery === 'aura',
+      hearsDamage:
+        (delivery === 'carrier' && DAMAGE_EVENT_CONTEXTS.has(context))
+        || isAuraStay,
       hasSource: !isTickingCarrier,
     }),
     minSaveDc: acceptsSourceSaveDc(context, delivery)
@@ -602,6 +618,12 @@ const TURN_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
 const PRESENCE_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
   'enter',
   'exit',
+];
+
+/** События урона носителя */
+const DAMAGE_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
+  'damageTaken',
+  'hpZero',
 ];
 
 /** Ход носителя и ход наложившего */
@@ -628,6 +650,7 @@ const TURN_OWNERS_SUBJECT: readonly EffectTriggerTurnOwner[] = ['subject'];
  * @param place.showRecurringDamage - эффект тикает на ходу существа
  * @param place.canRemoveSelf - эффект лежит на существе сам
  * @param place.hasPresence - эффект зоны или ауры: в него входят и выходят
+ * @param place.hearsDamage - эффект слышит урон по носителю
  * @param place.hasSource - у эффекта бывает наложивший
  * @returns события, действия и выбор хода списка
  */
@@ -635,6 +658,7 @@ function resolveTriggerListLayout(place: {
   showRecurringDamage: boolean;
   canRemoveSelf: boolean;
   hasPresence: boolean;
+  hearsDamage: boolean;
   hasSource: boolean;
 }): Pick<
   EffectFormLayout,
@@ -646,6 +670,7 @@ function resolveTriggerListLayout(place: {
     ...(ticks ? TURN_TRIGGER_EVENTS : []),
     ...(place.hasPresence ? PRESENCE_TRIGGER_EVENTS : []),
     ...(place.canRemoveSelf ? (['attackRoll'] as const) : []),
+    ...(place.hearsDamage ? DAMAGE_TRIGGER_EVENTS : []),
   ];
 
   if (triggerEvents.length === 0) {
@@ -658,12 +683,37 @@ function resolveTriggerListLayout(place: {
       'damage',
       'applyCondition',
       'applyTag',
+      ...(place.hearsDamage ? (['setHp'] as const) : []),
       ...(place.canRemoveSelf ? (['removeSelf'] as const) : []),
     ],
     triggerTurnOwners: place.hasSource
       ? TURN_OWNERS_WITH_SOURCE
       : TURN_OWNERS_SUBJECT,
   };
+}
+
+/**
+ * Считается ли Сл спасброска формулой от данных события — у событий урона есть
+ * `@damage`.
+ *
+ * @param event - событие
+ * @returns `true`, если формула Сл работает
+ */
+export function triggerEventAcceptsDcFormula(
+  event: EffectTriggerEvent,
+): boolean {
+  return DAMAGE_TRIGGER_EVENTS.includes(event);
+}
+
+/**
+ * Есть ли у события другая сторона, которой можно отдать действия: у урона —
+ * тот, кто его нанёс.
+ *
+ * @param event - событие
+ * @returns `true`, если получателя можно выбрать
+ */
+export function triggerEventHasOtherParty(event: EffectTriggerEvent): boolean {
+  return event === 'damageTaken';
 }
 
 /**
@@ -679,7 +729,8 @@ export function triggerEventAcceptsSave(event: EffectTriggerEvent): boolean {
 
 /**
  * Действия, которые работают у срабатывания на это событие в месте окна. На
- * броске атаки урона нет — его катает клиент без спасброска и защит.
+ * броске атаки урона нет — его катает клиент без спасброска и защит. «Хиты
+ * становятся» — только когда хиты упали до 0.
  *
  * @param layout - раскладка окна
  * @param event - событие срабатывания
@@ -690,7 +741,9 @@ export function listTriggerActionTypes(
   event: EffectTriggerEvent,
 ): EffectTriggerActionType[] {
   return layout.triggerActions.filter(
-    (type) => event !== 'attackRoll' || type !== 'damage',
+    (type) =>
+      (event !== 'attackRoll' || type !== 'damage')
+      && (event === 'hpZero' || type !== 'setHp'),
   );
 }
 
@@ -699,6 +752,8 @@ export const EFFECT_TRIGGER_PRESETS = [
   'recurringDamage',
   'recurringSave',
   'consumeOn',
+  'hpZeroToOne',
+  'tagOnDamage',
   'custom',
 ] as const;
 
@@ -707,6 +762,8 @@ export const EFFECT_TRIGGER_PRESETS = [
  * - `recurringDamage` — урон каждый ход;
  * - `recurringSave` — повторный спасбросок снимает эффект;
  * - `consumeOn` — снять после своей атаки;
+ * - `hpZeroToOne` — вместо 0 хитов 1 хит раз в долгий отдых;
+ * - `tagOnDamage` — отметка от урона огнём (до начала следующего хода);
  * - `custom` — своё.
  */
 export type EffectTriggerPreset = (typeof EFFECT_TRIGGER_PRESETS)[number];
@@ -731,11 +788,19 @@ export function listEffectTriggerPresets(
     consumeOn:
       triggerEvents.includes('attackRoll')
       && triggerActions.includes('removeSelf'),
+    hpZeroToOne:
+      triggerEvents.includes('hpZero') && triggerActions.includes('setHp'),
+    tagOnDamage:
+      triggerEvents.includes('damageTaken')
+      && triggerActions.includes('applyTag'),
     custom: triggerEvents.length > 0,
   };
 
   return EFFECT_TRIGGER_PRESETS.filter((preset) => available[preset]);
 }
+
+/** Тип урона нового пресета «Отметка от урона»: огонь «Регенерации» тролля */
+const DEFAULT_TAG_DAMAGE_TYPE = 'fire';
 
 /**
  * Новое срабатывание по пресету. Спасбросок берёт характеристику и Сл
@@ -776,6 +841,22 @@ export function createEffectTriggerPreset(
         event: 'attackRoll',
         role: 'attacker',
         actions: [{ type: 'removeSelf', on: 'always' }],
+      };
+    case 'hpZeroToOne':
+      return {
+        id,
+        event: 'hpZero',
+        actions: [{ type: 'setHp', value: 1 }],
+        limit: { max: 1, per: 'longRest' },
+      };
+    case 'tagOnDamage':
+      return {
+        id,
+        event: 'damageTaken',
+        condition: writeTriggerCondition([
+          { kind: 'damageType', value: DEFAULT_TAG_DAMAGE_TYPE },
+        ]),
+        actions: [{ type: 'applyTag', tag: DEFAULT_EFFECT_TAG }],
       };
     default:
       return { id, event: layout.triggerEvents[0] ?? 'turnStart', actions: [] };
@@ -1134,13 +1215,23 @@ function normalizeDraftTriggers(
   const normalized = (triggers ?? [])
     .map((trigger) => ({
       ...trigger,
+      // Получатель и Сл формулой — только у событий, где они работают
+      recipient: triggerEventHasOtherParty(trigger.event)
+        ? trigger.recipient
+        : undefined,
       // Отметку без годного ключа схема записи выбросила бы вместе со всем
       // срабатыванием — выбрасывается только само действие
       actions: trigger.actions.filter(
         (action) => action.type !== 'applyTag' || isEffectTag(action.tag),
       ),
       save: trigger.save
-        ? { ...trigger.save, dc: clampSaveDc(trigger.save.dc, minDc) }
+        ? {
+            ...trigger.save,
+            dc: clampSaveDc(trigger.save.dc, minDc),
+            dcFormula: triggerEventAcceptsDcFormula(trigger.event)
+              ? trigger.save.dcFormula?.trim() || undefined
+              : undefined,
+          }
         : undefined,
       limit: trigger.limit
         ? {

@@ -140,6 +140,8 @@ export interface RolledSpellDamagePart {
   targetGate?: TargetHpGate;
   /** Гейт по типу существа цели (per-target ветка @target.type.<тип>) */
   targetTypeGate?: CreatureCategory;
+  /** Часть брошена критом: событиям урона цели нужен крит */
+  critical?: boolean;
 }
 
 /** Контекст AoE шаблона */

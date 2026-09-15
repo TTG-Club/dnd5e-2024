@@ -11,9 +11,12 @@ import type {
   EffectTriggerEvent,
   EffectTriggerLimitPeriod,
   EffectTriggerPreset,
+  EffectTriggerRecipient,
   EffectTriggerTurnOwner,
   TriggerConditionKind,
 } from '@vtt/shared/system/dnd.js';
+
+import { DEFAULT_EFFECT_TAG } from '@vtt/shared/system/dnd.js';
 
 /** Подписи шага «Срабатывания» */
 export const EFFECT_TRIGGERS_STEP_LABELS = {
@@ -49,6 +52,11 @@ export const EFFECT_TRIGGER_ROW_LABELS = {
   tagRoundsPlaceholder: 'До начала следующего хода',
   tagInvalid:
     'Ключ — буквы, цифры, «_», «.» и «-»; без годного ключа отметка не сохранится.',
+  recipient: 'Кому',
+  setHpValue: 'Хитов',
+  dcFormula: 'Сл формулой',
+  dcFormulaPlaceholder: 'max(10, floor(@damage / 2))',
+  dcFormulaHint: '@damage — урон события. Пусто — число Сл.',
   limitToggle: 'Не чаще',
   limitTimes: 'раз за',
 } as const;
@@ -62,6 +70,17 @@ export const EFFECT_TRIGGER_EVENT_LABELS: Partial<
   enter: 'При входе в зону или ауру',
   exit: 'При выходе из зоны или ауры',
   attackRoll: 'При броске атаки',
+  damageTaken: 'Когда носитель получает урон',
+  hpZero: 'Когда хиты носителя падают до 0',
+};
+
+/** Кому достаются действия срабатывания */
+export const EFFECT_TRIGGER_RECIPIENT_LABELS: Record<
+  EffectTriggerRecipient,
+  string
+> = {
+  subject: 'Носителю эффекта',
+  other: 'Тому, кто нанёс урон',
 };
 
 /** Роль в броске атаки */
@@ -91,6 +110,7 @@ export const EFFECT_TRIGGER_ACTION_LABELS: Record<
   applySelf: 'Наложить сам эффект',
   applyCondition: 'Наложить состояние',
   applyTag: 'Поставить отметку',
+  setHp: 'Хиты становятся',
   removeSelf: 'Снять эффект',
 };
 
@@ -103,6 +123,7 @@ export const EFFECT_TRIGGER_ACTION_ICONS: Record<
   applySelf: 'tabler:copy',
   applyCondition: 'tabler:mood-sick',
   applyTag: 'tabler:bookmark',
+  setHp: 'tabler:heart-plus',
   removeSelf: 'tabler:circle-x',
 };
 
@@ -140,6 +161,8 @@ export const EFFECT_TRIGGER_PRESET_LABELS: Record<EffectTriggerPreset, string> =
     recurringDamage: 'Урон каждый ход',
     recurringSave: 'Повторный спасбросок',
     consumeOn: 'Снять после атаки',
+    hpZeroToOne: 'Вместо 0 хитов — 1 хит',
+    tagOnDamage: 'Отметка от урона',
     custom: 'Своё…',
   };
 
@@ -149,6 +172,8 @@ export const EFFECT_TRIGGER_PRESET_ICONS: Record<EffectTriggerPreset, string> =
     recurringDamage: 'tabler:flame',
     recurringSave: 'tabler:shield-half',
     consumeOn: 'tabler:sword',
+    hpZeroToOne: 'tabler:heart-broken',
+    tagOnDamage: 'tabler:bookmark',
     custom: 'tabler:plus',
   };
 
@@ -183,9 +208,6 @@ export const EFFECT_TRIGGER_CONDITION_KIND_LABELS: Record<
   otherMarkedBySelf: 'Другая сторона помечена носителем',
 };
 
-/** Ключ новой отметки, пока автор не назвал свою */
-export const EFFECT_TRIGGER_DEFAULT_TAG = 'отметка';
-
 /** Значение новой части условия с выбором */
 export const EFFECT_TRIGGER_CONDITION_DEFAULT_VALUES: {
   damageType: DamageType;
@@ -194,5 +216,5 @@ export const EFFECT_TRIGGER_CONDITION_DEFAULT_VALUES: {
 } = {
   damageType: 'fire',
   creatureType: 'humanoid',
-  tag: EFFECT_TRIGGER_DEFAULT_TAG,
+  tag: DEFAULT_EFFECT_TAG,
 };

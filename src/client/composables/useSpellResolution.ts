@@ -12,6 +12,7 @@ import type {
   ActiveEffect,
   AttackRollMode,
   DamageDefenseOutcome,
+  DamageHit,
   DnDSceneEntity,
   SavingThrowResult,
   Spell,
@@ -51,6 +52,7 @@ import {
   getSpellSaveCondition,
   isDndSceneEntity,
   mergeAppliedEffects,
+  recordDamageHit,
   resolveActorStats,
   resolveAttackRoll,
   resolveAutoSaves,
@@ -175,6 +177,7 @@ export function useSpellResolution() {
    *   после применения защит к основному урону, в тот же HP-апдейт
    * @param options.healTemp - лечение временными ХП (`@heal.temp`): вместо
    *   прибавления к текущим хитам применяется правило «берётся большее»
+   * @param options.hit - крит и кто бил — для событий урона цели
    * @returns результат применения
    */
   function applyResultsToEntity(
@@ -184,7 +187,11 @@ export function useSpellResolution() {
     isHealing: boolean,
     effectsToApply: ActiveEffect[] | undefined,
     socket: SpellResolutionContext['socket'],
-    options: { extraDamageAfterDefenses?: number; healTemp?: boolean } = {},
+    options: {
+      extraDamageAfterDefenses?: number;
+      healTemp?: boolean;
+      hit?: Omit<DamageHit, 'amount' | 'types'>;
+    } = {},
   ): {
     hpBefore: number;
     hpAfter: number;
@@ -248,6 +255,15 @@ export function useSpellResolution() {
       current: hpAfter,
       temp: tempAfter,
     });
+
+    if (!isHealing) {
+      recordDamageHit(updatedEntity, {
+        critical: false,
+        ...options.hit,
+        amount: hpBefore + tempBefore - hpAfter - tempAfter,
+        types: damageType ? [damageType] : [],
+      });
+    }
 
     const appliedEffects: string[] = [];
 
@@ -352,6 +368,7 @@ export function useSpellResolution() {
    *   запросом её владельцу). Без него спасбросок катается здесь же
    * @param options.effectSaves - уже разрешённые спасброски эффектов со своим
    *   `applySave`. Без них они катаются здесь же, автоматически
+   * @param options.critical - по цели попали критом (снарядный путь)
    * @returns результат обработки цели
    */
   function processTarget(
@@ -361,6 +378,7 @@ export function useSpellResolution() {
       bonusParts?: RolledSpellDamagePart[];
       saveResult?: SavingThrowResult;
       effectSaves?: EffectSaveResults;
+      critical?: boolean;
     } = {},
   ): SpellTargetResult {
     const { spell, damageTotal, spellSaveDC, socket } = context;
@@ -440,7 +458,14 @@ export function useSpellResolution() {
       isHealingSpell,
       effectsToApply,
       socket,
-      { extraDamageAfterDefenses: bonusDamage, healTemp: healsTempHp },
+      {
+        extraDamageAfterDefenses: bonusDamage,
+        healTemp: healsTempHp,
+        hit: {
+          critical: options.critical ?? false,
+          sourceId: context.casterId,
+        },
+      },
     );
 
     return {
@@ -939,6 +964,7 @@ export function useSpellResolution() {
 
       let targetDamage = 0;
       let hits = 0;
+      let criticalHit = false;
 
       for (let beamIndex = 0; beamIndex < count; beamIndex += 1) {
         projectileNumber += 1;
@@ -976,6 +1002,7 @@ export function useSpellResolution() {
 
         hits += 1;
         totalHits += 1;
+        criticalHit ||= attackResult.isCriticalHit;
 
         // Урон снаряда; крит удваивает кости только этого снаряда
         if (resolvedDamageFormula) {
@@ -1034,7 +1061,7 @@ export function useSpellResolution() {
       const result = processTarget(
         targetEntity,
         { ...context, damageTotal: targetDamage },
-        { bonusParts: rolledBonusParts },
+        { bonusParts: rolledBonusParts, critical: criticalHit },
       );
 
       const prettyFormula = resolvedDamageFormula.replace(/d/gi, 'к');
