@@ -25,6 +25,7 @@ import type {
 import { generateId } from '@vtt/shared';
 
 import {
+  isEffectTag,
   LEGACY_TRIGGER_ID_PREFIX,
   LEGACY_TRIGGER_IDS,
 } from './effectTriggerTypes.js';
@@ -321,6 +322,23 @@ export function listEffectListTriggers(
  */
 export function isTurnTriggerEvent(event: EffectTriggerEvent): boolean {
   return event === 'turnStart' || event === 'turnEnd';
+}
+
+/**
+ * Ключи отметок, которые ставят срабатывания: их предлагает условие «на
+ * носителе отметка» того же эффекта.
+ *
+ * @param triggers - срабатывания эффекта
+ * @returns годные ключи без повторов в порядке появления
+ */
+export function listTriggerTags(triggers: readonly EffectTrigger[]): string[] {
+  const tags = triggers.flatMap((trigger) =>
+    trigger.actions.flatMap((action) =>
+      action.type === 'applyTag' && isEffectTag(action.tag) ? [action.tag] : [],
+    ),
+  );
+
+  return [...new Set(tags)];
 }
 
 /**

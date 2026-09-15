@@ -660,12 +660,13 @@ describe('список «Срабатывания»', () => {
     assert.deepEqual(own.triggerActions, [
       'damage',
       'applyCondition',
+      'applyTag',
       'removeSelf',
     ]);
 
     assert.deepEqual(
       engine.listTriggerActionTypes(own, 'attackRoll'),
-      ['applyCondition', 'removeSelf'],
+      ['applyCondition', 'applyTag', 'removeSelf'],
       'на броске атаки урона нет',
     );
 
@@ -681,7 +682,11 @@ describe('список «Срабатывания»', () => {
       'exit',
     ]);
 
-    assert.deepEqual(zone.triggerActions, ['damage', 'applyCondition']);
+    assert.deepEqual(zone.triggerActions, [
+      'damage',
+      'applyCondition',
+      'applyTag',
+    ]);
 
     assert.deepEqual(
       layoutOf('spell', {
@@ -694,7 +699,12 @@ describe('список «Срабатывания»', () => {
     const trait = layoutOf('creatureTrait');
 
     assert.deepEqual(trait.triggerEvents, ['turnStart', 'turnEnd']);
-    assert.deepEqual(trait.triggerActions, ['damage', 'applyCondition']);
+
+    assert.deepEqual(trait.triggerActions, [
+      'damage',
+      'applyCondition',
+      'applyTag',
+    ]);
 
     assert.deepEqual(
       own.triggerTurnOwners,
@@ -965,6 +975,41 @@ describe('черновик перед сохранением', () => {
 
     assert.equal(normalized.recurringDamage.save.dc, 1);
     assert.deepEqual(normalized.recurringDamage.damageParts, POISON_DAMAGE);
+  });
+
+  it('отметка без годного ключа выбрасывается одна, а не со срабатыванием', () => {
+    const effect = createEffect({
+      triggers: [
+        {
+          id: 'trigger_marks',
+          event: 'turnStart',
+          actions: [
+            { type: 'applyTag', tag: '' },
+            { type: 'applyTag', tag: 'огонь' },
+          ],
+        },
+        {
+          id: 'trigger_blank',
+          event: 'turnEnd',
+          actions: [{ type: 'applyTag', tag: 'с пробелом' }],
+        },
+      ],
+    });
+
+    const normalized = engine.normalizeEffectDraft(
+      effect,
+      engine.resolveEffectFormLayout('ownEffects', effect),
+    );
+
+    assert.deepEqual(
+      normalized.triggers.map((trigger) => [
+        trigger.id,
+        trigger.actions.map((action) => action.tag),
+      ]),
+      [['trigger_marks', ['огонь']]],
+    );
+
+    assert.deepEqual(engine.listTriggerTags(effect.triggers), ['огонь']);
   });
 
   it('сл 0 остаётся «Сл источника» только там, где источник есть', () => {

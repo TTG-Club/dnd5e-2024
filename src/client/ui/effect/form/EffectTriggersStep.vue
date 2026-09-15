@@ -17,6 +17,7 @@
     createEffectTriggerPreset,
     listEffectListTriggers,
     listEffectTriggerPresets,
+    listTriggerTags,
     writeEffectTriggerRow,
   } from '@vtt/shared/system/dnd.js';
 
@@ -37,6 +38,8 @@
   const effect = defineModel<ActiveEffect>('effect', { required: true });
 
   const rows = computed(() => listEffectListTriggers(effect.value));
+
+  const knownTags = computed(() => listTriggerTags(rows.value));
 
   const presets = computed(() => listEffectTriggerPresets(props.layout));
 
@@ -82,6 +85,7 @@
       :trigger="row"
       :layout="layout"
       :source-save-dc="sourceSaveDc"
+      :known-tags="knownTags"
       @update:trigger="writeRow(index, $event)"
       @remove="writeRow(index, null)"
     />

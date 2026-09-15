@@ -714,6 +714,90 @@ describe('ход наложившего', () => {
   });
 });
 
+describe('отметки', () => {
+  /** Ключ отметки «регенерация не работает» */
+  const NO_REGEN_TAG = 'noRegen';
+
+  /**
+   * Тролль: регенерация в начале хода, если нет отметки; атака по нему ставит
+   * отметку до начала его следующего хода.
+   *
+   * @returns {object} тролль
+   */
+  function createTroll() {
+    const troll = woundedCreature(20, { id: 'creature_troll' });
+
+    troll.activeEffects = [
+      createEffect('regeneration', {
+        triggers: [
+          {
+            id: 'trigger_regen',
+            event: 'turnStart',
+            condition: `self.tag !== "${NO_REGEN_TAG}"`,
+            actions: [{ type: 'damage', parts: [{ formula: '10@heal' }] }],
+          },
+          {
+            id: 'trigger_struck',
+            event: 'attackRoll',
+            role: 'target',
+            actions: [
+              { type: 'applyTag', tag: NO_REGEN_TAG, label: 'Без регенерации' },
+            ],
+          },
+        ],
+      }),
+    ];
+
+    return troll;
+  }
+
+  it('отметка из срабатывания выключает другое срабатывание до начала следующего хода носителя', () => {
+    const troll = createTroll();
+
+    engine.runAttackRollTriggers(troll, 'target');
+    engine.runAttackRollTriggers(troll, 'target');
+
+    const tags = troll.activeEffects.filter((effect) => effect.tag);
+
+    assert.equal(tags.length, 1, 'повторная отметка обновляет прежнюю');
+    assert.equal(tags[0].name, 'Без регенерации');
+
+    assert.deepEqual(
+      [tags[0].duration.type, tags[0].duration.turnTiming],
+      ['turn', 'start'],
+    );
+
+    assert.equal(
+      engine.processTurnEffects(troll, 'startOfTurn').healingOutcomes.length,
+      0,
+      'на ходу с отметкой регенерации нет',
+    );
+
+    engine.expireTurnEffects(troll, troll.id, 'start');
+    assert.equal(engine.hasEffectTag(troll, NO_REGEN_TAG), false);
+
+    assert.equal(
+      engine.processTurnEffects(troll, 'startOfTurn').healingOutcomes.length,
+      1,
+    );
+  });
+
+  it('сводка называет отметку и условие по ней', () => {
+    const [regen, struck] = createTroll().activeEffects[0].triggers;
+    const options = { formatDc: String };
+
+    assert.equal(
+      engine.describeEffectTrigger(regen, options),
+      `в начале хода, если на носителе нет отметки «${NO_REGEN_TAG}»: 10 лечения`,
+    );
+
+    assert.equal(
+      engine.describeEffectTrigger(struck, options),
+      'после атаки по носителю: отметка «Без регенерации»',
+    );
+  });
+});
+
 describe('бросок атаки', () => {
   /** «Следующая атака с преимуществом», раз в ход */
   const focus = createEffect('focus', {

@@ -10,11 +10,14 @@
  * `tests/effectTriggerBaseline.test.mjs` и `tests/effectSaves.test.mjs`.
  */
 
+import type { EffectDuration } from '@vtt/shared';
+
 import type { ActiveEffect, EffectSaveTiming } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type {
   EffectTrigger,
   EffectTriggerAction,
+  EffectTriggerApplyTagAction,
   EffectTriggerAttackRole,
   EffectTriggerEvent,
 } from './effectTriggerTypes.js';
@@ -406,9 +409,38 @@ function buildEffectStatusCopy(
   });
 }
 
+/** Срок отметки по умолчанию: до начала следующего хода носителя */
+const DEFAULT_TAG_DURATION: EffectDuration = {
+  type: 'turn',
+  turnAnchor: 'carrier',
+  turnTiming: 'start',
+};
+
 /**
- * Выполняет действия срабатывания, кроме урона: накладывает копию эффекта или
- * состояние (с проверкой иммунитета) и сообщает, снимается ли сам эффект.
+ * Отметка на субъекте: эффект без нагрузки с ключом, который читают условия.
+ *
+ * @param action - действие «Отметка»
+ * @returns эффект отметки
+ */
+function buildTagEffect(action: EffectTriggerApplyTagAction): ActiveEffect {
+  return withInitializedDuration({
+    id: generateId('ae'),
+    name: action.label ?? action.tag,
+    description: '',
+    disabled: false,
+    origin: 'condition',
+    transfer: false,
+    duration: action.duration ?? DEFAULT_TAG_DURATION,
+    changes: [],
+    flags: [],
+    tag: action.tag,
+  });
+}
+
+/**
+ * Выполняет действия срабатывания, кроме урона: накладывает копию эффекта,
+ * состояние (с проверкой иммунитета) или отметку и сообщает, снимается ли сам
+ * эффект.
  * Снятие вызывающий делает сам — на границе хода оно идёт одной записью.
  *
  * Наложенное помнит наложившего исходный эффект: «до конца хода источника» и
@@ -449,6 +481,8 @@ export function applyTriggerEffectActions(
       status = hasLastingEffectPayload(source.effect)
         ? buildEffectStatusCopy(source.effect, options.sourceAreaId)
         : null;
+    } else if (action.type === 'applyTag') {
+      status = buildTagEffect(action);
     } else {
       const condition = buildConditionActiveEffect(action.conditionKey, {
         duration: action.duration,

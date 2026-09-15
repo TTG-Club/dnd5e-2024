@@ -32,14 +32,18 @@ export function isImmuneToCondition(
 
 /**
  * Ключ идентичности статуса для дедупликации: один и тот же статус не
- * стакается. Стандартное состояние сравнивается по `conditionKey`, прочие
- * эффекты — по имени (без регистра), чтобы «Замедление» от разных источников
- * считалось одним статусом.
+ * стакается. Отметка сравнивается по ключу, стандартное состояние — по
+ * `conditionKey`, прочие эффекты — по имени (без регистра), чтобы «Замедление»
+ * от разных источников считалось одним статусом.
  *
  * @param effect - эффект
  * @returns стабильный ключ идентичности
  */
 function effectIdentityKey(effect: ActiveEffect): string {
+  if (effect.tag) {
+    return `tag:${effect.tag}`;
+  }
+
   return effect.conditionKey
     ? `condition:${effect.conditionKey}`
     : `name:${effect.name.trim().toLowerCase()}`;

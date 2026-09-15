@@ -51,6 +51,17 @@ describe('словарь условий срабатываний', () => {
       engine.parseTriggerConditionPart('damage.type === "мана"'),
       null,
     );
+
+    assert.deepEqual(engine.parseTriggerConditionPart('self.tag !== "огонь"'), {
+      kind: 'selfTagNot',
+      value: 'огонь',
+    });
+
+    assert.equal(
+      engine.parseTriggerConditionPart('self.tag === "a b"'),
+      null,
+      'ключ отметки без пробелов и кавычек',
+    );
   });
 
   it('части по событию: урон — только у событий урона, режим броска — у атаки', () => {

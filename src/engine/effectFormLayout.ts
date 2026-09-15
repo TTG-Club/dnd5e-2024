@@ -37,6 +37,7 @@ import {
   listEffectListTriggers,
   writeEffectTriggers,
 } from './effectTriggers.js';
+import { isEffectTag } from './effectTriggerTypes.js';
 
 /** Места, откуда открывается окно эффекта */
 export const EFFECT_FORM_CONTEXTS = [
@@ -656,6 +657,7 @@ function resolveTriggerListLayout(place: {
     triggerActions: [
       'damage',
       'applyCondition',
+      'applyTag',
       ...(place.canRemoveSelf ? (['removeSelf'] as const) : []),
     ],
     triggerTurnOwners: place.hasSource
@@ -1130,9 +1132,13 @@ function normalizeDraftTriggers(
   minDc: number,
 ): EffectTrigger[] | undefined {
   const normalized = (triggers ?? [])
-    .filter((trigger) => trigger.actions.length > 0)
     .map((trigger) => ({
       ...trigger,
+      // Отметку без годного ключа схема записи выбросила бы вместе со всем
+      // срабатыванием — выбрасывается только само действие
+      actions: trigger.actions.filter(
+        (action) => action.type !== 'applyTag' || isEffectTag(action.tag),
+      ),
       save: trigger.save
         ? { ...trigger.save, dc: clampSaveDc(trigger.save.dc, minDc) }
         : undefined,
@@ -1145,7 +1151,8 @@ function normalizeDraftTriggers(
             ),
           }
         : undefined,
-    }));
+    }))
+    .filter((trigger) => trigger.actions.length > 0);
 
   return normalized.length > 0 ? normalized : undefined;
 }

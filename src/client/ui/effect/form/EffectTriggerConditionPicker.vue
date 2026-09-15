@@ -21,6 +21,7 @@
     CREATURE_CATEGORY_OPTIONS,
     getTriggerConditionParameter,
     isDamageType,
+    isEffectTag,
     listTriggerConditionKinds,
     readTriggerConditionParts,
     writeTriggerCondition,
@@ -37,6 +38,8 @@
   const props = defineProps<{
     /** Событие срабатывания: от него зависят доступные части */
     event: EffectTriggerEvent;
+    /** Отметки, которые ставит этот эффект: условие по отметке их предлагает */
+    knownTags: readonly string[];
   }>();
 
   const condition = defineModel<string | undefined>('condition', {
@@ -75,8 +78,12 @@
     ),
   );
 
+  // Ключ отметки вводится строкой, у остальных значений — выбор из словаря
   const parameterItems = computed<
-    Record<TriggerConditionParameter, Array<{ label: string; value: string }>>
+    Record<
+      Exclude<TriggerConditionParameter, 'tag'>,
+      Array<{ label: string; value: string }>
+    >
   >(() => ({
     damageType: damageTypeItems.value,
     creatureType: CREATURE_CATEGORY_OPTIONS,
@@ -103,10 +110,45 @@
 
     writeParts([
       ...parts.value,
-      parameter
-        ? { kind, value: EFFECT_TRIGGER_CONDITION_DEFAULT_VALUES[parameter] }
-        : { kind },
+      parameter ? { kind, value: defaultValueOf(parameter) } : { kind },
     ]);
+  }
+
+  /**
+   * Значение новой части: у отметки — первая отметка эффекта.
+   *
+   * @param parameter - что выбирается
+   * @returns значение
+   */
+  function defaultValueOf(parameter: TriggerConditionParameter): string {
+    return parameter === 'tag'
+      ? (props.knownTags[0] ?? EFFECT_TRIGGER_CONDITION_DEFAULT_VALUES.tag)
+      : EFFECT_TRIGGER_CONDITION_DEFAULT_VALUES[parameter];
+  }
+
+  /**
+   * Вводится ли значение части строкой — ключ отметки.
+   *
+   * @param part - часть условия
+   * @returns `true` для частей с отметкой
+   */
+  function isTagPart(part: TriggerConditionPart): boolean {
+    return getTriggerConditionParameter(part.kind) === 'tag';
+  }
+
+  /**
+   * Меняет ключ отметки части. Негодный ключ не пишется: условие с ним
+   * разобралось бы строкой, которую окно не знает, и поле ввода пропало бы.
+   *
+   * @param index - номер части
+   * @param value - введённый ключ
+   */
+  function updatePartTag(index: number, value: string | number): void {
+    const tag = String(value).trim();
+
+    if (isEffectTag(tag)) {
+      updatePartValue(index, tag);
+    }
   }
 
   /**
@@ -145,7 +187,9 @@
   ): Array<{ label: string; value: string }> {
     const parameter = getTriggerConditionParameter(part.kind);
 
-    return parameter ? parameterItems.value[parameter] : [];
+    return parameter && parameter !== 'tag'
+      ? parameterItems.value[parameter]
+      : [];
   }
 
   const addItems = computed<DropdownMenuItem[]>(() =>
@@ -198,6 +242,26 @@
         :portal="false"
         @update:model-value="updatePartValue(index, $event)"
       />
+
+      <template v-else-if="row.part && isTagPart(row.part)">
+        <UInput
+          :model-value="row.part.value"
+          size="xs"
+          class="w-40"
+          @update:model-value="updatePartTag(index, $event)"
+        />
+
+        <UButton
+          v-for="tag in knownTags"
+          :key="tag"
+          color="neutral"
+          variant="soft"
+          size="xs"
+          :label="tag"
+          :title="EFFECT_TRIGGER_CONDITION_LABELS.knownTags"
+          @click.left.exact.prevent="updatePartValue(index, tag)"
+        />
+      </template>
 
       <UButton
         color="neutral"

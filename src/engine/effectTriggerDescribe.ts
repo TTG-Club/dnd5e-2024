@@ -13,6 +13,7 @@ import type {
   EffectTriggerEvent,
   EffectTriggerLimitPeriod,
 } from './effectTriggerTypes.js';
+import type { TriggerConditionKind } from './triggerConditions.js';
 
 import {
   describeConditionName,
@@ -20,11 +21,14 @@ import {
   describeEffectDamageParts,
   describeEffectDuration,
 } from './activeEffectDescribe.js';
+import { CREATURE_CATEGORIES, isCreatureCategory } from './consts.js';
+import { getShortDamageTypeLabel } from './damageConstants.js';
 import {
   classifyLegacyTrigger,
   isTurnTriggerEvent,
   resolveTriggerActionGate,
 } from './effectTriggers.js';
+import { readTriggerConditionParts } from './triggerConditions.js';
 
 /** Характеристики в родительном падеже — «спасбросок Телосложения» */
 export const ABILITY_GENITIVE_LABELS = {
@@ -93,6 +97,8 @@ const TRIGGER_LABELS = {
   halfDamage: 'половина урона',
   effect: 'эффект',
   removeSelf: 'эффект снимается',
+  tagPrefix: 'отметка ',
+  conditionJoiner: ' и ',
   nothing: 'ничего',
   listJoiner: ', ',
   clauseJoiner: '; ',
@@ -106,6 +112,54 @@ const TRIGGER_LABELS = {
 export interface EffectTriggerDescribeOptions {
   /** Подпись Сл (0 — Сл источника по месту окна) */
   formatDc: (dc: number) => string;
+}
+
+/** Подписи частей условия срабатывания; значение — тип урона, существа, отметка */
+const TRIGGER_CONDITION_PHRASES: Record<
+  TriggerConditionKind,
+  (value: string) => string
+> = {
+  damageType: (value) => `урон ${getShortDamageTypeLabel(value)}`,
+  damageTypeNot: (value) => `урон не ${getShortDamageTypeLabel(value)}`,
+  damageCritical: () => 'критическое попадание',
+  damageNotCritical: () => 'не критическое попадание',
+  selfBloodied: () => 'у носителя не больше половины хитов',
+  selfWounded: () => 'носитель ранен',
+  selfCreatureType: (value) => `носитель — ${describeCreatureType(value)}`,
+  selfTag: (value) => `на носителе отметка «${value}»`,
+  selfTagNot: (value) => `на носителе нет отметки «${value}»`,
+  rollAdvantage: () => 'атака с преимуществом',
+  rollDisadvantage: () => 'атака с помехой',
+  otherCreatureType: (value) =>
+    `другая сторона — ${describeCreatureType(value)}`,
+  otherMarkedBySelf: () => 'другая сторона помечена носителем',
+};
+
+/**
+ * Подпись типа существа.
+ *
+ * @param value - ключ типа
+ * @returns подпись либо ключ
+ */
+function describeCreatureType(value: string): string {
+  return isCreatureCategory(value) ? CREATURE_CATEGORIES[value] : value;
+}
+
+/**
+ * Подпись условия срабатывания: части словаря срабатываний — фразой, остальные
+ * — как у модификаторов (незнакомая часть остаётся кодом).
+ *
+ * @param condition - условие срабатывания
+ * @returns подпись
+ */
+export function describeTriggerCondition(condition: string): string {
+  return readTriggerConditionParts(condition)
+    .map((part) =>
+      typeof part === 'string'
+        ? describeEffectChangeCondition(part)
+        : TRIGGER_CONDITION_PHRASES[part.kind](part.value ?? ''),
+    )
+    .join(TRIGGER_LABELS.conditionJoiner);
 }
 
 /**
@@ -122,6 +176,15 @@ function describeAction(action: EffectTriggerAction): string {
       return TRIGGER_LABELS.effect;
     case 'applyCondition': {
       const name = `«${describeConditionName(action.conditionKey)}»`;
+
+      const duration = action.duration
+        ? describeEffectDuration(action.duration)
+        : null;
+
+      return duration ? `${name} ${duration}` : name;
+    }
+    case 'applyTag': {
+      const name = `${TRIGGER_LABELS.tagPrefix}«${action.label ?? action.tag}»`;
 
       const duration = action.duration
         ? describeEffectDuration(action.duration)
@@ -272,7 +335,7 @@ export function describeEffectTrigger(
   }
 
   const condition = trigger.condition
-    ? `${TRIGGER_LABELS.conditionPrefix}${describeEffectChangeCondition(trigger.condition)}`
+    ? `${TRIGGER_LABELS.conditionPrefix}${describeTriggerCondition(trigger.condition)}`
     : '';
 
   const moment = `${describeMoment(trigger)}${condition}`;

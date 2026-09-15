@@ -29,6 +29,7 @@
     EFFECT_TRIGGER_ACTION_GATES,
     EFFECT_TRIGGER_ATTACK_ROLES,
     EFFECT_TRIGGER_LIMIT_PERIODS,
+    isEffectTag,
     isTurnTriggerEvent,
     listSelectableConditions,
     listTriggerActionTypes,
@@ -45,6 +46,7 @@
     EFFECT_TRIGGER_ACTION_LABELS,
     EFFECT_TRIGGER_DAMAGE_HALF_GATE,
     EFFECT_TRIGGER_DAMAGE_HALF_LABEL,
+    EFFECT_TRIGGER_DEFAULT_TAG,
     EFFECT_TRIGGER_EVENT_LABELS,
     EFFECT_TRIGGER_GATE_LABELS,
     EFFECT_TRIGGER_PERIOD_LABELS,
@@ -64,6 +66,8 @@
     layout: EffectFormLayout;
     /** Сл источника для «Авто», если окно её знает */
     sourceSaveDc?: number;
+    /** Отметки, которые ставят срабатывания эффекта */
+    knownTags: readonly string[];
   }>();
 
   const emit = defineEmits<{
@@ -305,6 +309,8 @@
         return { type, parts: [] };
       case 'applyCondition':
         return { type, conditionKey: DEFAULT_CONDITION };
+      case 'applyTag':
+        return { type, tag: EFFECT_TRIGGER_DEFAULT_TAG };
       default:
         return { type };
     }
@@ -390,15 +396,16 @@
   }
 
   /**
-   * Меняет срок состояния в раундах; пусто — пока не снимут.
+   * Меняет срок состояния или отметки в раундах; пусто — срок по умолчанию
+   * (состояние — пока не снимут, отметка — до начала следующего хода).
    *
    * @param index - номер действия
    * @param rounds - раундов
    */
-  function updateConditionRounds(index: number, rounds: number | null): void {
+  function updateActionRounds(index: number, rounds: number | null): void {
     const action = trigger.value.actions[index];
 
-    if (action.type !== 'applyCondition') {
+    if (action.type !== 'applyCondition' && action.type !== 'applyTag') {
       return;
     }
 
@@ -413,16 +420,54 @@
   }
 
   /**
-   * Срок состояния действия в раундах.
+   * Срок состояния или отметки в раундах.
    *
    * @param action - действие
    * @returns раундов либо `null`
    */
-  function conditionRoundsOf(action: EffectTriggerAction): number | null {
-    return action.type === 'applyCondition'
+  function actionRoundsOf(action: EffectTriggerAction): number | null {
+    return (action.type === 'applyCondition' || action.type === 'applyTag')
       && action.duration?.type === 'rounds'
       ? (action.duration.value ?? null)
       : null;
+  }
+
+  /**
+   * Меняет ключ или имя отметки.
+   *
+   * @param index - номер действия
+   * @param patch - новый ключ или имя; пустое имя — как ключ
+   */
+  function updateTag(
+    index: number,
+    patch: { tag?: string | number; label?: string | number },
+  ): void {
+    const action = trigger.value.actions[index];
+
+    if (action.type !== 'applyTag') {
+      return;
+    }
+
+    const { label: _label, ...rest } = action;
+    const label = String(patch.label ?? action.label ?? '').trim();
+
+    updateAction(index, {
+      ...rest,
+      tag: String(patch.tag ?? action.tag).trim(),
+      ...(label ? { label } : {}),
+    });
+  }
+
+  /**
+   * Подсказка к негодному ключу отметки.
+   *
+   * @param action - действие
+   * @returns текст ошибки либо `undefined`
+   */
+  function tagErrorOf(action: EffectTriggerAction): string | undefined {
+    return action.type === 'applyTag' && !isEffectTag(action.tag)
+      ? EFFECT_TRIGGER_ROW_LABELS.tagInvalid
+      : undefined;
   }
 
   const hasLimit = computed({
@@ -513,6 +558,7 @@
     <EffectTriggerConditionPicker
       v-model:condition="condition"
       :event="trigger.event"
+      :known-tags="knownTags"
     />
 
     <template v-if="acceptsSave">
@@ -645,14 +691,59 @@
             class="w-40"
           >
             <UInputNumber
-              :model-value="conditionRoundsOf(action)"
+              :model-value="actionRoundsOf(action)"
               :min="0"
               :placeholder="
                 EFFECT_TRIGGER_ROW_LABELS.conditionRoundsPlaceholder
               "
               size="sm"
               class="w-full"
-              @update:model-value="updateConditionRounds(index, $event ?? null)"
+              @update:model-value="updateActionRounds(index, $event ?? null)"
+            />
+          </UFormField>
+        </div>
+
+        <div
+          v-else-if="action.type === 'applyTag'"
+          class="flex flex-wrap items-start gap-2"
+        >
+          <UFormField
+            :label="EFFECT_TRIGGER_ROW_LABELS.tag"
+            :error="tagErrorOf(action)"
+            class="w-56"
+          >
+            <UInput
+              :model-value="action.tag"
+              size="sm"
+              class="w-full"
+              @update:model-value="updateTag(index, { tag: $event })"
+            />
+          </UFormField>
+
+          <UFormField
+            :label="EFFECT_TRIGGER_ROW_LABELS.tagLabel"
+            class="w-48"
+          >
+            <UInput
+              :model-value="action.label"
+              :placeholder="EFFECT_TRIGGER_ROW_LABELS.tagLabelPlaceholder"
+              size="sm"
+              class="w-full"
+              @update:model-value="updateTag(index, { label: $event })"
+            />
+          </UFormField>
+
+          <UFormField
+            :label="EFFECT_TRIGGER_ROW_LABELS.conditionRounds"
+            class="w-52"
+          >
+            <UInputNumber
+              :model-value="actionRoundsOf(action)"
+              :min="0"
+              :placeholder="EFFECT_TRIGGER_ROW_LABELS.tagRoundsPlaceholder"
+              size="sm"
+              class="w-full"
+              @update:model-value="updateActionRounds(index, $event ?? null)"
             />
           </UFormField>
         </div>

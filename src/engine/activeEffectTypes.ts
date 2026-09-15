@@ -48,6 +48,7 @@ import {
   DAMAGE_TYPES,
 } from './damageConstants.js';
 import {
+  EFFECT_TAG_PATTERN,
   EFFECT_TRIGGER_ACTION_GATES,
   EFFECT_TRIGGER_ATTACK_ROLES,
   EFFECT_TRIGGER_EVENTS,
@@ -1160,6 +1161,12 @@ export interface ActiveEffect extends BaseActiveEffect {
   conditionKey?: ConditionRef;
 
   /**
+   * Ключ отметки: эффект наложен действием срабатывания «Отметка» и читается
+   * условием `self.tag === "…"`. Отметки с одним ключом не стакаются.
+   */
+  tag?: string;
+
+  /**
    * Спасбросок при наложении: если задан, цель кидает спас в момент применения
    * эффекта (напр. при попадании атакой). Провал — эффект и его урон
    * применяются; успех — отменяет/уменьшает по `onSuccess`. Заменяет прежний
@@ -1635,6 +1642,13 @@ const EffectTriggerActionSchema = z.discriminatedUnion('type', [
     duration: EffectDurationSchema.optional().catch(undefined),
     on: EffectTriggerGateSchema,
   }),
+  z.object({
+    type: z.literal('applyTag'),
+    tag: z.string().regex(EFFECT_TAG_PATTERN),
+    label: z.string().min(1).optional().catch(undefined),
+    duration: EffectDurationSchema.optional().catch(undefined),
+    on: EffectTriggerGateSchema,
+  }),
   z.object({ type: z.literal('removeSelf'), on: EffectTriggerGateSchema }),
 ]);
 
@@ -1741,6 +1755,7 @@ export const ActiveEffectSchema = z.object({
   // эффекта ключ своего состояния — вместе с ним пропадали бы значок на токене
   // и проверка иммунитета.
   conditionKey: z.string().min(1).optional(),
+  tag: z.string().regex(EFFECT_TAG_PATTERN).optional().catch(undefined),
   applySave: EffectSaveSchema.optional(),
   applyOnSuccess: z.boolean().optional(),
   applyOnSuccessOnly: z.boolean().optional(),

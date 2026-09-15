@@ -22,6 +22,7 @@ import type {
   EffectDuration,
   EffectSave,
 } from './activeEffectTypes.js';
+import type { HealKind } from './spellUtils.js';
 
 import {
   AREA_TRIGGER_LABELS,
@@ -36,6 +37,7 @@ import {
 import { getConditionEntry } from './conditionTemplates.js';
 import { ABILITY_LABELS } from './consts.js';
 import { getShortDamageTypeLabel } from './damageConstants.js';
+import { detectFormulaHealKind, stripHealTokens } from './spellUtils.js';
 
 /** Подпись ключа модификатора (`armorClass` → «Класс доспеха (AC)»). */
 const TARGET_LABELS = new Map(
@@ -252,10 +254,17 @@ const DAMAGE_TARGET_LABELS: Record<string, string> = {
   notFull: 'по раненой цели',
 };
 
+/** Подписи лечения в описании части: `@heal` и `@heal.temp` */
+const HEAL_KIND_LABELS: Record<HealKind, string> = {
+  hp: 'лечения',
+  temp: 'временных хитов',
+};
+
 /**
- * Описывает части урона: «2к8 ядом + 1к6 огненный». Разбирает токены формулы
- * `@dmg.<тип>` (тип урона) и `@target.<условие>` (условие по цели), очищая их из
- * отображаемой формулы, чтобы в описании не торчали сырые токены.
+ * Описывает части урона: «2к8 ядом + 1к6 огненный», «10 лечения». Разбирает
+ * токены формулы `@dmg.<тип>` (тип урона), `@heal` (лечение) и
+ * `@target.<условие>` (условие по цели), очищая их из отображаемой формулы,
+ * чтобы в описании не торчали сырые токены.
  *
  * @param parts - части урона эффекта
  * @returns подпись урона; пустая строка, если формул нет
@@ -270,6 +279,8 @@ export function describeEffectDamageParts(parts: DamagePart[]): string {
       const damageToken = formula.match(/@dmg\.([a-z]+)/i);
       const typeKey = part.type ?? damageToken?.[1];
       const typeLabel = typeKey ? ` ${getShortDamageTypeLabel(typeKey)}` : '';
+      const healKind = detectFormulaHealKind(formula);
+      const healLabel = healKind ? ` ${HEAL_KIND_LABELS[healKind]}` : '';
 
       // Условие по цели: токен @target.<cond>
       const targetToken = formula.match(/@target\.(\w+)/);
@@ -280,13 +291,13 @@ export function describeEffectDamageParts(parts: DamagePart[]): string {
 
       // Чистим формулу от токенов и подставляем подписи @mod.* / @prof / @level
       const cleanFormula = prettifyFormula(
-        formula
+        stripHealTokens(formula)
           .replace(/@dmg\.[a-z]+/gi, '')
           .replace(/@target\.\w+/gi, '')
           .trim(),
       );
 
-      return `${cleanFormula}${typeLabel}${targetLabel}`;
+      return `${cleanFormula}${typeLabel}${healLabel}${targetLabel}`;
     })
     .join(' + ');
 }

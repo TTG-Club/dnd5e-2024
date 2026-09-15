@@ -33,6 +33,7 @@ import {
   MARKED_BY_SELF_CONDITION,
   targetHpGateMatches,
 } from './effectPipeline.js';
+import { isEffectTag } from './effectTriggerTypes.js';
 import { resolveEntityCurrentHp, resolveEntityMaxHp } from './hitPoints.js';
 
 /** Урон, от которого сработало событие */
@@ -64,6 +65,8 @@ export const TRIGGER_CONDITION_KINDS = [
   'selfBloodied',
   'selfWounded',
   'selfCreatureType',
+  'selfTag',
+  'selfTagNot',
   'rollAdvantage',
   'rollDisadvantage',
   'otherCreatureType',
@@ -76,6 +79,7 @@ export const TRIGGER_CONDITION_KINDS = [
  * - `damageCritical` / `damageNotCritical` — крит / не крит;
  * - `selfBloodied` / `selfWounded` — у носителя не больше половины хитов / хиты не полные;
  * - `selfCreatureType` — тип носителя;
+ * - `selfTag` / `selfTagNot` — на носителе есть / нет отметки;
  * - `rollAdvantage` / `rollDisadvantage` — атака с преимуществом / помехой;
  * - `otherCreatureType` — тип другой стороны;
  * - `otherMarkedBySelf` — другая сторона помечена носителем.
@@ -83,7 +87,7 @@ export const TRIGGER_CONDITION_KINDS = [
 export type TriggerConditionKind = (typeof TRIGGER_CONDITION_KINDS)[number];
 
 /** Какое значение выбирается у части условия */
-export type TriggerConditionParameter = 'damageType' | 'creatureType';
+export type TriggerConditionParameter = 'damageType' | 'creatureType' | 'tag';
 
 /** Часть условия срабатывания: вид и значение, если оно есть */
 export interface TriggerConditionPart {
@@ -115,6 +119,8 @@ const KIND_EVENTS: Record<
   selfBloodied: undefined,
   selfWounded: undefined,
   selfCreatureType: undefined,
+  selfTag: undefined,
+  selfTagNot: undefined,
   rollAdvantage: ['attackRoll'],
   rollDisadvantage: ['attackRoll'],
   otherCreatureType: OTHER_PARTY_EVENTS,
@@ -138,6 +144,8 @@ const PARAMETRIC_PARTS: Partial<
     prefix: TARGET_TYPE_CONDITION_PREFIX,
     parameter: 'creatureType',
   },
+  selfTag: { prefix: 'self.tag === ', parameter: 'tag' },
+  selfTagNot: { prefix: 'self.tag !== ', parameter: 'tag' },
 };
 
 /** Части условия без значения — строкой целиком */
@@ -165,9 +173,27 @@ function isParameterValue(
   parameter: TriggerConditionParameter,
   value: string,
 ): boolean {
-  return parameter === 'damageType'
-    ? isDamageType(value)
-    : isCreatureCategory(value);
+  switch (parameter) {
+    case 'damageType':
+      return isDamageType(value);
+    case 'creatureType':
+      return isCreatureCategory(value);
+    default:
+      return isEffectTag(value);
+  }
+}
+
+/**
+ * Есть ли на сущности действующая отметка.
+ *
+ * @param entity - сущность
+ * @param tag - ключ отметки
+ * @returns `true`, если отметка есть и не отключена
+ */
+export function hasEffectTag(entity: DnDSceneEntity, tag: string): boolean {
+  return (entity.activeEffects ?? []).some(
+    (effect) => !effect.disabled && effect.tag === tag,
+  );
 }
 
 /**
@@ -354,6 +380,10 @@ function isConditionPartMet(
         resolveEntityCurrentHp(entity),
         resolveEntityMaxHp(entity),
       );
+    case 'selfTag':
+      return hasEffectTag(entity, part.value ?? '');
+    case 'selfTagNot':
+      return !hasEffectTag(entity, part.value ?? '');
     default:
       return evaluateConditionPart(
         text.trim(),

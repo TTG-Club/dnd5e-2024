@@ -43,6 +43,12 @@ export const EFFECT_TRIGGER_ROW_LABELS = {
   condition: 'Состояние',
   conditionRounds: 'Раундов',
   conditionRoundsPlaceholder: 'Пока не снимут',
+  tag: 'Ключ отметки',
+  tagLabel: 'Имя в списке',
+  tagLabelPlaceholder: 'Как ключ',
+  tagRoundsPlaceholder: 'До начала следующего хода',
+  tagInvalid:
+    'Ключ — буквы, цифры, «_», «.» и «-»; без годного ключа отметка не сохранится.',
   limitToggle: 'Не чаще',
   limitTimes: 'раз за',
 } as const;
@@ -84,6 +90,7 @@ export const EFFECT_TRIGGER_ACTION_LABELS: Record<
   damage: 'Урон или лечение',
   applySelf: 'Наложить сам эффект',
   applyCondition: 'Наложить состояние',
+  applyTag: 'Поставить отметку',
   removeSelf: 'Снять эффект',
 };
 
@@ -95,6 +102,7 @@ export const EFFECT_TRIGGER_ACTION_ICONS: Record<
   damage: 'tabler:flame',
   applySelf: 'tabler:copy',
   applyCondition: 'tabler:mood-sick',
+  applyTag: 'tabler:bookmark',
   removeSelf: 'tabler:circle-x',
 };
 
@@ -152,6 +160,7 @@ export const EFFECT_TRIGGER_CONDITION_LABELS = {
   add: 'Условие',
   remove: 'Убрать условие',
   unknown: 'Условие из данных, окно его не знает: срабатывание не сработает',
+  knownTags: 'Отметки этого эффекта',
 } as const;
 
 /** Виды частей условия срабатывания */
@@ -166,17 +175,24 @@ export const EFFECT_TRIGGER_CONDITION_KIND_LABELS: Record<
   selfBloodied: 'Носитель окровавлен (хитов не больше половины)',
   selfWounded: 'Носитель ранен',
   selfCreatureType: 'Носитель — существо типа',
+  selfTag: 'На носителе отметка',
+  selfTagNot: 'На носителе нет отметки',
   rollAdvantage: 'Атака с преимуществом',
   rollDisadvantage: 'Атака с помехой',
   otherCreatureType: 'Другая сторона — существо типа',
   otherMarkedBySelf: 'Другая сторона помечена носителем',
 };
 
+/** Ключ новой отметки, пока автор не назвал свою */
+export const EFFECT_TRIGGER_DEFAULT_TAG = 'отметка';
+
 /** Значение новой части условия с выбором */
 export const EFFECT_TRIGGER_CONDITION_DEFAULT_VALUES: {
   damageType: DamageType;
   creatureType: CreatureCategory;
+  tag: string;
 } = {
   damageType: 'fire',
   creatureType: 'humanoid',
+  tag: EFFECT_TRIGGER_DEFAULT_TAG,
 };

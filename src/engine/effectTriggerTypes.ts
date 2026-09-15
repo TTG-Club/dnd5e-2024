@@ -127,6 +127,38 @@ export interface EffectTriggerApplyConditionAction {
   on?: EffectTriggerActionGate;
 }
 
+/**
+ * Ключ отметки: буквы, цифры, `_`, `.` и `-`. Отметка попадает в строку
+ * условия (`self.tag === "…"`), и кавычки или `&&` в ключе её бы сломали.
+ */
+export const EFFECT_TAG_PATTERN = /^[\p{L}\p{N}_.-]{1,64}$/u;
+
+/**
+ * Годится ли строка ключом отметки.
+ *
+ * @param value - строка
+ * @returns `true`, если это ключ отметки
+ */
+export function isEffectTag(value: string): boolean {
+  return EFFECT_TAG_PATTERN.test(value);
+}
+
+/**
+ * Отметка на субъекте: лёгкий эффект без нагрузки, который читают условия
+ * других срабатываний — «Регенерация не работает до начала следующего хода»
+ * после урона огнём. Повторная отметка тем же ключом обновляет прежнюю.
+ */
+export interface EffectTriggerApplyTagAction {
+  type: 'applyTag';
+  /** Ключ: по нему условие `self.tag === "…"` узнаёт отметку */
+  tag: string;
+  /** Имя отметки в списке эффектов; нет — ключ */
+  label?: string;
+  /** Срок; нет — до начала следующего хода носителя */
+  duration?: EffectDuration;
+  on?: EffectTriggerActionGate;
+}
+
 /** Снять сам эффект */
 export interface EffectTriggerRemoveSelfAction {
   type: 'removeSelf';
@@ -138,6 +170,7 @@ export type EffectTriggerAction =
   | EffectTriggerDamageAction
   | EffectTriggerApplySelfAction
   | EffectTriggerApplyConditionAction
+  | EffectTriggerApplyTagAction
   | EffectTriggerRemoveSelfAction;
 
 /** Виды действий срабатывания */
@@ -145,6 +178,7 @@ export const EFFECT_TRIGGER_ACTION_TYPES = [
   'damage',
   'applySelf',
   'applyCondition',
+  'applyTag',
   'removeSelf',
 ] as const;
 
