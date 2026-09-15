@@ -4,11 +4,17 @@
  * и иммунитета цели к состоянию. Заменяет прежний модуль «райдеров» — теперь
  * спас и урон живут на самом `ActiveEffect`, а не на отдельной обёртке.
  *
- * Все импорты — type-only, чтобы не создавать рантайм-цикл.
+ * Рантайм-импорт один — гейты `effectTriggers.ts`, у которого нет зависимостей
+ * от пайплайна эффектов: цикла не возникает.
  */
 
 import type { ActiveEffect } from './activeEffectTypes.js';
 import type { ConditionRef } from './conditionKeys.js';
+
+import {
+  resolveEffectLandingGates,
+  resolveGateScale,
+} from './effectTriggers.js';
 
 /**
  * Проверяет, иммунна ли цель к состоянию.
@@ -243,31 +249,12 @@ export function resolveEffectApplication(
     ? context.applySaveSucceeded === true
     : !context.landed;
 
-  if (!saved) {
-    // Провал спаса: обычно эффект применяется. Исключение — эффект, помеченный
-    // «только при успехе» (`applyOnSuccessOnly`): на провале он не накладывается
-    // и свой урон не наносит (его место занимает отдельный эффект-на-провал).
-    if (effect.applyOnSuccessOnly === true) {
-      return { applyEffect: false, damageMultiplier: 0 };
-    }
+  // Гейты те же, что у разового срабатывания эффекта на сервере: «только при
+  // успехе» на провале не бьёт и не ложится, «половина» бьёт при любом исходе
+  const gates = resolveEffectLandingGates(effect);
 
-    return { applyEffect: true, damageMultiplier: 1 };
-  }
-
-  // Успешный спасбросок. Статус накладывается, если эффект помечен
-  // `applyOnSuccess` ИЛИ `applyOnSuccessOnly`. Множитель урона: для
-  // «только при успехе» — полный (это его штатный исход), иначе по `onSuccess`
-  // ('half' — половина, 'negate' — нет урона).
-  const applyEffect =
-    effect.applyOnSuccess === true || effect.applyOnSuccessOnly === true;
-
-  let damageMultiplier = 0;
-
-  if (effect.applyOnSuccessOnly === true) {
-    damageMultiplier = 1;
-  } else if (effect.applySave?.onSuccess === 'half') {
-    damageMultiplier = 0.5;
-  }
-
-  return { applyEffect, damageMultiplier };
+  return {
+    applyEffect: resolveGateScale(gates.effect, saved, false) > 0,
+    damageMultiplier: resolveGateScale(gates.damage, saved, gates.halfOnSave),
+  };
 }

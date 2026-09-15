@@ -496,3 +496,149 @@ describe('ответы игрока на явные срабатывания х�
     );
   });
 });
+
+describe('бросок атаки', () => {
+  /** «Следующая атака с преимуществом», раз в ход */
+  const focus = createEffect('focus', {
+    flags: ['attack.advantage'],
+    triggers: [
+      {
+        id: 'trigger_focus',
+        event: 'attackRoll',
+        actions: [{ type: 'applyCondition', conditionKey: 'prone' }],
+        limit: { max: 1, per: 'turn' },
+      },
+    ],
+  });
+
+  it('роль, лимит в бою и вне боя; со спасброском и выключенное не срабатывают', () => {
+    const vex = createEffect('vex', { consumeOn: 'attackOnCarrier' });
+
+    const guarded = createEffect('guarded', {
+      triggers: [
+        {
+          id: 'trigger_guarded',
+          event: 'attackRoll',
+          save: CON_SAVE,
+          actions: [{ type: 'removeSelf' }],
+        },
+      ],
+    });
+
+    const sleeping = createEffect('sleeping', {
+      disabled: true,
+      consumeOn: 'carrierAttack',
+    });
+
+    const hero = createActor({
+      activeEffects: [focus, vex, guarded, sleeping],
+    });
+
+    const conditionsOf = () =>
+      hero.activeEffects.flatMap((effect) =>
+        effect.conditionKey ? [effect.conditionKey] : [],
+      );
+
+    const first = engine.runAttackRollTriggers(hero, 'attacker', {
+      inCombat: true,
+    });
+
+    assert.deepEqual(first, { changed: true, usageChanged: true });
+    assert.deepEqual(conditionsOf(), ['prone']);
+
+    const second = engine.runAttackRollTriggers(hero, 'attacker', {
+      inCombat: true,
+    });
+
+    assert.deepEqual(second, { changed: false, usageChanged: false });
+
+    const outOfCombat = engine.runAttackRollTriggers(hero, 'attacker', {
+      inCombat: false,
+    });
+
+    assert.equal(outOfCombat.usageChanged, true, 'остаток счётчика стёрт');
+    assert.equal(hero.system.effectUsage, undefined);
+
+    engine.runAttackRollTriggers(hero, 'target');
+
+    // Цель расходует «следующую атаку по носителю»; спасбросок на броске атаки
+    // не бросается, выключенный эффект не срабатывает
+    assert.deepEqual(
+      hero.activeEffects
+        .filter((effect) => !effect.conditionKey)
+        .map((effect) => effect.id),
+      ['focus', 'guarded', 'sleeping'],
+    );
+  });
+
+  it('счётчики едут боевым каналом; снимок без поля их не стирает', () => {
+    const attacker = createActor({ activeEffects: [focus] });
+
+    engine.runAttackRollTriggers(attacker, 'attacker', { inCombat: true });
+
+    const state = engine.pickCombatState(attacker);
+
+    assert.deepEqual(state.effectUsage, {
+      'focus|trigger_focus': { used: 1, per: 'turn' },
+    });
+
+    const server = createActor({ activeEffects: [focus] });
+
+    assert.equal(engine.applyCombatState(server, state), true);
+    assert.deepEqual(server.system.effectUsage, state.effectUsage);
+
+    const { effectUsage: _dropped, ...legacyState } = state;
+
+    assert.equal(engine.applyCombatState(server, legacyState), false);
+    assert.deepEqual(server.system.effectUsage, state.effectUsage);
+
+    assert.equal(
+      engine.applyCombatState(server, {
+        ...state,
+        effectUsage: { broken: { used: 'много', per: 'turn' } },
+      }),
+      true,
+    );
+
+    assert.equal(server.system.effectUsage, undefined);
+  });
+});
+
+describe('урон эффекта по частям', () => {
+  it('половина от суммы частей, защиты — после половины', () => {
+    const hero = createActor();
+    const rollFormula = (formula) => ({ total: Number(formula), values: [] });
+
+    const halved = engine.rollEffectDamageParts(
+      [
+        { formula: '3', type: 'fire' },
+        { formula: '3', type: 'cold' },
+      ],
+      engine.resolveActorStats(hero),
+      hero,
+      { scale: 0.5, rollFormula },
+    );
+
+    assert.equal(halved.total, 3);
+
+    assert.deepEqual(
+      halved.lines.map((line) => line.applied),
+      [2, 1],
+    );
+
+    hero.system.defenses = {
+      ...hero.system.defenses,
+      vulnerabilities: ['fire'],
+    };
+
+    const vulnerable = engine.rollEffectDamageParts(
+      [{ formula: '9', type: 'fire' }],
+      engine.resolveActorStats(hero),
+      hero,
+      { scale: 0.5, rollFormula },
+    );
+
+    assert.equal(vulnerable.total, 8, '9 → половина 4 → уязвимость 8');
+    assert.equal(vulnerable.outcome, 'vulnerability');
+  });
+});

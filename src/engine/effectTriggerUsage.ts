@@ -73,8 +73,17 @@ function isLimitPeriod(value: unknown): value is EffectTriggerLimitPeriod {
 export function readTriggerUsage(
   entity: DnDSceneEntity,
 ): EffectTriggerUsageLedger {
-  const raw = entity.system.effectUsage;
+  return parseTriggerUsage(entity.system.effectUsage);
+}
 
+/**
+ * Счётчики из недоверенных данных (боевой канал, старое сохранение) —
+ * терпимо: негодная запись пропускается.
+ *
+ * @param raw - значение из данных
+ * @returns счётчики
+ */
+export function parseTriggerUsage(raw: unknown): EffectTriggerUsageLedger {
   if (!isRecord(raw)) {
     return {};
   }

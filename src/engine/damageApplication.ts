@@ -19,6 +19,7 @@ import type { ActiveEffect, EffectOrigin } from './activeEffectTypes.js';
 import type { DamageApplyResult, DamageDefenseOutcome } from './damageUtils.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type { IncomingAttackContext } from './effectPipeline.js';
+import type { EffectTriggerUsageLedger } from './effectTriggerUsage.js';
 
 import { generateId, isRecord } from '@vtt/shared';
 
@@ -38,6 +39,7 @@ import {
   getEntityConditionImmunities,
   resolveActorStats,
 } from './effectPipeline.js';
+import { parseTriggerUsage, readTriggerUsage } from './effectTriggerUsage.js';
 import { buildFormulaContext } from './formulaParser.js';
 import {
   resolveEntityCurrentHp,
@@ -227,6 +229,11 @@ export interface DndCombatState {
   hpTemp: number;
   /** Полный список активных эффектов цели после применения исхода боя */
   activeEffects: ActiveEffect[];
+  /**
+   * Счётчики лимитов срабатываний («не чаще раза в ход»): бросок атаки на
+   * клиенте расходует срабатывание. Нет поля — счётчики не трогаются.
+   */
+  effectUsage?: EffectTriggerUsageLedger;
 }
 
 /**
@@ -240,6 +247,9 @@ export function pickCombatState(entity: DnDSceneEntity): DndCombatState {
     hpCurrent: resolveEntityCurrentHp(entity),
     hpTemp: resolveEntityTempHp(entity),
     activeEffects: entity.activeEffects ?? [],
+    ...(entity.system.effectUsage === undefined
+      ? {}
+      : { effectUsage: entity.system.effectUsage }),
   };
 }
 
@@ -263,7 +273,7 @@ export function applyCombatState(
     return false;
   }
 
-  const { hpCurrent, hpTemp, activeEffects } = state;
+  const { hpCurrent, hpTemp, activeEffects, effectUsage } = state;
 
   if (typeof hpCurrent !== 'number' || !Number.isFinite(hpCurrent)) {
     return false;
@@ -287,11 +297,21 @@ export function applyCombatState(
   const nextTemp = Math.max(0, Math.trunc(hpTemp));
   const nextEffects = parsedEffects.data;
 
+  // Счётчики лимитов — только если клиент их прислал: старый клиент их не
+  // знает, и снимок без поля не должен стирать счётчики сервера
+  const nextUsage =
+    effectUsage === undefined ? undefined : parseTriggerUsage(effectUsage);
+
+  const usageChanged =
+    nextUsage !== undefined
+    && JSON.stringify(readTriggerUsage(entity)) !== JSON.stringify(nextUsage);
+
   const changed =
     nextHp !== resolveEntityCurrentHp(entity)
     || nextTemp !== resolveEntityTempHp(entity)
     || JSON.stringify(entity.activeEffects ?? [])
-      !== JSON.stringify(nextEffects);
+      !== JSON.stringify(nextEffects)
+    || usageChanged;
 
   if (!changed) {
     return false;
@@ -299,6 +319,11 @@ export function applyCombatState(
 
   writeEntityHitPoints(entity, { current: nextHp, temp: nextTemp });
   entity.activeEffects = nextEffects;
+
+  if (nextUsage !== undefined) {
+    entity.system.effectUsage =
+      Object.keys(nextUsage).length > 0 ? nextUsage : undefined;
+  }
 
   return true;
 }

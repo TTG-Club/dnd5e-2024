@@ -1982,6 +1982,7 @@
       rollButtonText,
       'formula': resolvedDamageFormula,
       'attackModifier': incomingAttackType ? baseMod : undefined,
+      'attackerId': props.actor.id,
       'evaluateBonusRollFormulas': hasProjectiles
         ? undefined
         : evaluateAttackBonusRollFormulas,

@@ -1963,6 +1963,7 @@
       :on-roll-parts="rollConfig.onRollParts"
       :on-hit="rollConfig.onHit"
       :on-cancel="rollConfig.onCancel"
+      :attacker-id="creatureId"
     />
   </div>
 </template>

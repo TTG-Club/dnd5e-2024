@@ -304,14 +304,15 @@ it('actual cast snapshots attack dice before consumeOn and forwards them to proj
       hasRolled: false,
       props: {
         attackModifier: 5,
+        attackerId: 'hero',
         evaluateProjectileBonusRollFormulas: () =>
           new Map([['target', bonuses.value]]),
-        onAttackRolled: () => {
-          bonuses.value = [];
-        },
         onProjectileAttack: (context) => {
           received = context;
         },
+      },
+      announceAttackRoll: () => {
+        bonuses.value = [];
       },
       selectedSpellLevel: { value: 1 },
       consumeSpellSlot: { value: true },

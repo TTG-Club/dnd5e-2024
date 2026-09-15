@@ -1,8 +1,4 @@
-import type {
-  MeasurementTemplate,
-  SceneEntity,
-  TypedWebSocketClient,
-} from '@vtt/shared';
+import type { MeasurementTemplate, SceneEntity } from '@vtt/shared';
 import type {
   AttackRollMode,
   CreatureAction,
@@ -11,7 +7,6 @@ import type {
   DnDCreature,
   DnDGameItem,
   DnDSceneEntity,
-  EffectAttackTrigger,
   RollContext,
   Spell,
 } from '@vtt/shared/system/dnd.js';
@@ -24,7 +19,7 @@ import type {
   SpellDamagePartInput,
 } from '../composables/useSpellResolution';
 
-import { emitEntityCombatState, emitEntityUpdate } from '@/core/entityUtils';
+import { emitEntityUpdate } from '@/core/entityUtils';
 import { registerMacro } from '@/core/registries/macroRegistry';
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useActionPromptStore } from '@/stores/actionPromptStore';
@@ -39,12 +34,7 @@ import { useWorldStore } from '@/stores/worldStore';
  * Вся боевая логика (бросок атаки, двухэтапная атака, криты, урон) вынесена
  * в attackUtils.ts, а здесь остаётся только оркестрация и контекст выполнения макроса.
  */
-import {
-  generateId,
-  isActorEntity,
-  isCreatureEntity,
-  isRecord,
-} from '@vtt/shared';
+import { generateId, isRecord } from '@vtt/shared';
 import {
   buildFormulaContext,
   calculateCreatureSpellBlockNumbers,
@@ -166,81 +156,6 @@ function findCurrentDndEntity(entityId: string): DnDSceneEntity | undefined {
   const entity = findCurrentWorldEntity(entityId);
 
   return entity && isDndSceneEntity(entity) ? entity : undefined;
-}
-
-/**
- * Снимает с сущности одноразовые эффекты, «сгорающие» по указанному триггеру
- * атаки (`consumeOn`), и шлёт полное обновление сущности (как при наложении
- * эффектов через resolveSpellDamage). Если снимать нечего — ничего не делает.
- *
- * @param entity - сущность-носитель эффектов
- * @param trigger - какой триггер расхода снимаем
- * @param socket - сокет для синхронизации
- */
-function consumeTriggeredEffects(
-  entity: SceneEntity,
-  trigger: EffectAttackTrigger,
-  socket: TypedWebSocketClient,
-): void {
-  // Сущность нейтральна (`SceneEntity`) — сужаем эффекты к D&D-форме, чтобы
-  // читать D&D-поле `consumeOn` (одноразовость на броске атаки).
-  const effects = entity.activeEffects?.filter(isDnDEffect);
-
-  if (!effects?.some((effect) => effect.consumeOn === trigger)) {
-    return;
-  }
-
-  const filtered = effects.filter((effect) => effect.consumeOn !== trigger);
-
-  // Снимаем эффект в КАНОНИЧЕСКОЙ сущности стора по id (тем же экшеном, что и
-  // списание ячейки заклинания). Это важно для триггера `attackOnCarrier`:
-  // оркестратор урона позже клонирует ту же сущность цели для своего эмита, и
-  // без локального снятия его полный снапшот вернул бы эффект обратно (гонка
-  // двух эмитов одной сущности). Расход идёт ДО броска, поэтому HP в этом эмите
-  // ещё прежние — итоговую запись с уроном делает оркестратор по уже очищенной
-  // сущности.
-  const worldStore = useWorldStore();
-  const worldId = worldStore.connectionState.currentWorldId;
-
-  if (worldId) {
-    if (isActorEntity(entity)) {
-      worldStore.updateActor(worldId, entity.id, { activeEffects: filtered });
-    } else if (isCreatureEntity(entity)) {
-      worldStore.updateCreature(worldId, entity.id, {
-        activeEffects: filtered,
-      });
-    }
-  }
-
-  // Deep clone: shallow spread теряет вложенные Vue reactive-свойства.
-  const updated: SceneEntity = JSON.parse(JSON.stringify(entity));
-
-  updated.activeEffects = filtered;
-
-  // Боевым каналом: `attackOnCarrier` снимается с ЦЕЛИ, а её полную замену
-  // сервер принимает только от владельца — иначе расход эффекта не доезжал.
-  emitEntityCombatState(socket, updated);
-}
-
-/**
- * Расход одноразовых эффектов по факту совершённого броска атаки: с атакующего
- * снимаются эффекты `carrierAttack` (помеха/преимущество на свою следующую
- * атаку), с цели — `attackOnCarrier` (преимущество следующей атаки ПО цели).
- *
- * @param attacker - совершающий бросок атаки
- * @param target - текущая цель (на момент броска; может отсутствовать)
- * @param socket - сокет для синхронизации
- */
-function consumeAttackRollEffects(
-  attacker: SceneEntity,
-  target: SceneEntity | null,
-  socket: TypedWebSocketClient,
-): void {
-  consumeTriggeredEffects(attacker, 'carrierAttack', socket);
-
-  if (target) {
-    consumeTriggeredEffects(target, 'attackOnCarrier', socket);
-  }
 }
 
 /**
@@ -645,17 +560,7 @@ export function registerDnd5eMacros(): void {
         // нет — он вешал эффект на каждое попадание мимо спасброска.
         onRollParts: handleWeaponRollParts,
         // Расход одноразовых эффектов «следующей атаки» (Злая насмешка и т.п.)
-        onAttackRolled: () => {
-          const attackSocket = chatStore.getSocket();
-
-          if (attackSocket) {
-            consumeAttackRollEffects(
-              foundActor,
-              targetStore.getTargetActor(),
-              attackSocket,
-            );
-          }
-        },
+        attackerId: foundActor.id,
       });
     } catch (err) {
       console.error('[Hotbar] Ошибка выполнения weapon-attack:', err);
@@ -1362,19 +1267,7 @@ function openDiceRollForSpell(
           : undefined,
 
       // Расход одноразовых эффектов «следующей атаки» на броске атаки заклинанием
-      onAttackRolled: incomingAttackType
-        ? () => {
-            const attackSocket = useChatStore().getSocket();
-
-            if (attackSocket) {
-              consumeAttackRollEffects(
-                actor,
-                useTargetStore().getTargetActor(),
-                attackSocket,
-              );
-            }
-          }
-        : undefined,
+      attackerId: actor.id,
 
       // Атакующие снаряды: модалка отдаёт контекст, серию бросков выполняет
       // resolveSpellDamage (бросок попадания на каждый снаряд)
@@ -1904,19 +1797,7 @@ function openCreatureActionRoll(
       ),
     onCancel: templateId ? () => discardSpellTemplate(templateId) : undefined,
     // Расход одноразовых эффектов «следующей атаки» на броске атаки существа
-    onAttackRolled: usesSaveOrArea
-      ? undefined
-      : () => {
-          const attackSocket = useChatStore().getSocket();
-
-          if (attackSocket) {
-            consumeAttackRollEffects(
-              creature,
-              useTargetStore().getTargetActor(),
-              attackSocket,
-            );
-          }
-        },
+    attackerId: creature.id,
   });
 }
 
@@ -2283,19 +2164,7 @@ function openCreatureSpellRoll(
     onHit,
     onCancel: templateId ? () => discardSpellTemplate(templateId) : undefined,
     // Расход одноразовых эффектов «следующей атаки» на броске атаки существа
-    onAttackRolled: usesAttack
-      ? () => {
-          const attackSocket = useChatStore().getSocket();
-
-          if (attackSocket) {
-            consumeAttackRollEffects(
-              creature,
-              targetStore.getTargetActor(),
-              attackSocket,
-            );
-          }
-        }
-      : undefined,
+    attackerId: creature.id,
   });
 }
 

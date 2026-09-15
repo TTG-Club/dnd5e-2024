@@ -15,6 +15,7 @@ import type { DnDSceneEntity } from './dndEntities.js';
 import type {
   EffectTrigger,
   EffectTriggerAction,
+  EffectTriggerAttackRole,
   EffectTriggerEvent,
 } from './effectTriggerTypes.js';
 import type {
@@ -45,6 +46,7 @@ import {
   isLegacyTrigger,
   listEffectListTriggers,
   readEffectLandingTrigger,
+  resolveGateScale,
   resolveTriggerActionGate,
 } from './effectTriggers.js';
 import { takeTriggerUse } from './effectTriggerUsage.js';
@@ -60,9 +62,6 @@ import {
   rollEffectSavingThrow,
   withInitializedDuration,
 } from './turnEffects.js';
-
-/** Доля урона при успешном спасброске «половина урона» */
-const HALF_DAMAGE_SCALE = 0.5;
 
 /** Срабатывание на субъекте вместе с эффектом, откуда оно пришло */
 export interface EffectTriggerSource {
@@ -185,16 +184,11 @@ export function resolveTriggerActionScale(
   action: EffectTriggerAction,
   passed: boolean,
 ): number {
-  switch (resolveTriggerActionGate(trigger, action)) {
-    case 'failed':
-      return passed ? 0 : 1;
-    case 'saved':
-      return passed ? 1 : 0;
-    default:
-      return passed && action.type === 'damage' && action.halfOnSave
-        ? HALF_DAMAGE_SCALE
-        : 1;
-  }
+  return resolveGateScale(
+    resolveTriggerActionGate(trigger, action),
+    passed,
+    action.type === 'damage' && action.halfOnSave === true,
+  );
 }
 
 /**
@@ -228,26 +222,22 @@ export function rollTriggerDamage(
       continue;
     }
 
-    const rolled = rollEffectDamage(effect.name, action.parts, stats, entity);
+    const rolled = rollEffectDamage(effect.name, action.parts, stats, entity, {
+      scale,
+    });
 
     if (!rolled) {
-      continue;
-    }
-
-    const total = Math.floor(rolled.total * scale);
-
-    if (total <= 0) {
       continue;
     }
 
     outcome = outcome
       ? {
           effectName: outcome.effectName,
-          total: outcome.total + total,
+          total: outcome.total + rolled.total,
           types: [...new Set([...outcome.types, ...rolled.types])],
           values: [...outcome.values, ...rolled.values],
         }
-      : { ...rolled, total };
+      : rolled;
   }
 
   return outcome;
@@ -1011,5 +1001,88 @@ export function settlePresenceTrigger(
     damageOutcome: damage,
     saveOutcome: save,
     statusApplied: applied || healed,
+  };
+}
+
+/** Итог срабатываний на броске атаки */
+export interface AttackRollTriggersResult {
+  /** Сущность изменилась: сняты или наложены эффекты, записан счётчик */
+  changed: boolean;
+  /** Изменились счётчики лимитов (`system.effectUsage`) */
+  usageChanged: boolean;
+}
+
+/**
+ * Срабатывания на броске атаки у одной стороны: атакующего (`attacker`, «своя
+ * следующая атака») или цели (`target`, «следующая атака по носителю»).
+ *
+ * Бросок атаки делает клиент, поэтому спасброска и урона тут нет: срабатывание
+ * со спасброском пропускается, из действий выполняются снятие и наложения.
+ * Мутирует сущность.
+ *
+ * @param entity - сторона атаки
+ * @param role - роль стороны
+ * @param options - идёт ли бой (лимит хода и раунда)
+ * @param options.inCombat - сторона участвует в идущем бою
+ * @returns что изменилось
+ */
+export function runAttackRollTriggers(
+  entity: DnDSceneEntity,
+  role: EffectTriggerAttackRole,
+  options: { inCombat?: boolean } = {},
+): AttackRollTriggersResult {
+  const usageBefore = JSON.stringify(entity.system.effectUsage ?? null);
+  const removedIds = new Set<string>();
+
+  let applied = false;
+
+  for (const effect of [...(entity.activeEffects ?? [])]) {
+    if (effect.disabled) {
+      continue;
+    }
+
+    for (const trigger of listEffectListTriggers(effect)) {
+      if (
+        trigger.event !== 'attackRoll'
+        || (trigger.role ?? 'attacker') !== role
+        || trigger.save
+      ) {
+        continue;
+      }
+
+      const source: EffectTriggerSource = {
+        effect,
+        trigger,
+        ambient: false,
+        instance: true,
+        scope: resolveEffectUsageScope(effect),
+      };
+
+      if (!takeTriggerUse(entity, source.scope, trigger, options.inCombat)) {
+        continue;
+      }
+
+      const result = applyTriggerEffectActions(entity, source, false);
+
+      if (result.removes) {
+        removedIds.add(effect.id);
+      }
+
+      applied ||= result.applied;
+    }
+  }
+
+  if (removedIds.size > 0) {
+    entity.activeEffects = (entity.activeEffects ?? []).filter(
+      (effect) => !removedIds.has(effect.id),
+    );
+  }
+
+  const usageChanged =
+    JSON.stringify(entity.system.effectUsage ?? null) !== usageBefore;
+
+  return {
+    changed: removedIds.size > 0 || applied || usageChanged,
+    usageChanged,
   };
 }

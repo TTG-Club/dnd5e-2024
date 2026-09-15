@@ -66,6 +66,66 @@ export function resolveTriggerActionGate(
   return trigger.save && !halvesOnSave ? 'failed' : 'always';
 }
 
+/** Доля урона при успешном спасброске «половина урона» */
+const HALF_DAMAGE_SCALE = 0.5;
+
+/**
+ * Доля действия по гейту и исходу спасброска: 0 — не выполняется, 0.5 —
+ * половина урона, 1 — полностью.
+ *
+ * @param gate - гейт действия
+ * @param passed - пройден ли спасбросок (без спасброска — нет)
+ * @param halfOnSave - урон «половина при успехе»
+ * @returns доля
+ */
+export function resolveGateScale(
+  gate: EffectTriggerActionGate,
+  passed: boolean,
+  halfOnSave: boolean,
+): number {
+  switch (gate) {
+    case 'failed':
+      return passed ? 0 : 1;
+    case 'saved':
+      return passed ? 1 : 0;
+    default:
+      return passed && halfOnSave ? HALF_DAMAGE_SCALE : 1;
+  }
+}
+
+/** Гейты разового срабатывания по выбору «при успехе» */
+export interface EffectLandingGates {
+  /** Когда бьёт урон эффекта */
+  damage: EffectTriggerActionGate;
+  /** Урон при успехе — половина */
+  halfOnSave: boolean;
+  /** Когда ложится сам эффект */
+  effect: EffectTriggerActionGate;
+}
+
+/**
+ * Гейты разового срабатывания эффекта: пять исходов «при успехе» старых полей
+ * (`applySave.onSuccess`, `applyOnSuccess`, `applyOnSuccessOnly`).
+ *
+ * @param effect - эффект
+ * @returns гейты урона и наложения
+ */
+export function resolveEffectLandingGates(
+  effect: ActiveEffect,
+): EffectLandingGates {
+  if (effect.applyOnSuccessOnly) {
+    return { damage: 'saved', halfOnSave: false, effect: 'saved' };
+  }
+
+  const halfDamage = effect.applySave?.onSuccess === 'half';
+
+  return {
+    damage: halfDamage ? 'always' : 'failed',
+    halfOnSave: halfDamage,
+    effect: effect.applyOnSuccess ? 'always' : 'failed',
+  };
+}
+
 /**
  * Событие хода по старой отметке времени.
  *
@@ -80,9 +140,10 @@ function turnEventOf(timing: 'startOfTurn' | 'endOfTurn'): EffectTriggerEvent {
  * Разовое срабатывание эффекта: спасбросок и урон при наложении на цель или при
  * входе и выходе.
  *
- * Гейты повторяют `resolveEffectApplication` (`effectAutomation.ts`): без своего
- * спасброска «провал» — это непройденная защита действия или заклинания, а у
- * зоны — любое срабатывание (промаха у зоны нет).
+ * Гейты — {@link resolveEffectLandingGates}, общие с
+ * `resolveEffectApplication` (`effectAutomation.ts`): без своего спасброска
+ * «провал» — это непройденная защита действия или заклинания, а у зоны — любое
+ * срабатывание (промаха у зоны нет).
  *
  * @param effect - эффект
  * @param event - событие срабатывания
@@ -92,32 +153,19 @@ export function readEffectLandingTrigger(
   effect: ActiveEffect,
   event: EffectTriggerEvent,
 ): EffectTrigger {
-  const halfDamage = effect.applySave?.onSuccess === 'half';
-
-  let damageGate: EffectTriggerActionGate = halfDamage ? 'always' : 'failed';
-  let effectGate: EffectTriggerActionGate = 'failed';
-
-  if (effect.applyOnSuccessOnly) {
-    damageGate = 'saved';
-    effectGate = 'saved';
-  } else if (effect.applyOnSuccess) {
-    effectGate = 'always';
-  }
-
+  const gates = resolveEffectLandingGates(effect);
   const actions: EffectTriggerAction[] = [];
 
   if (effect.damageParts && effect.damageParts.length > 0) {
     actions.push({
       type: 'damage',
       parts: effect.damageParts,
-      on: damageGate,
-      ...(damageGate === 'always' && halfDamage
-        ? { halfOnSave: true as const }
-        : {}),
+      on: gates.damage,
+      ...(gates.halfOnSave ? { halfOnSave: true as const } : {}),
     });
   }
 
-  actions.push({ type: 'applySelf', on: effectGate });
+  actions.push({ type: 'applySelf', on: gates.effect });
 
   return {
     id: LEGACY_TRIGGER_IDS.landing,

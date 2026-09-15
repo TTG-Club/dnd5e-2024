@@ -21,6 +21,7 @@ import type {
   ResolvedActorStats,
 } from './activeEffectTypes.js';
 import type { ConditionRef } from './conditionKeys.js';
+import type { DamageDefenseOutcome } from './damageUtils.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type { CarrierContext } from './effectPipeline.js';
 import type { DeferredTurnTrigger } from './effectTriggerRunner.js';
@@ -682,84 +683,203 @@ export function applyDamageToEntity(
   });
 }
 
+/** Бросок формулы урона: итог и выпавшие кости */
+export type DamageFormulaRoller = (formula: string) => {
+  total: number;
+  values: number[];
+};
+
+/** Как катать урон эффекта */
+export interface EffectDamageRollOptions {
+  /** Доля урона по исходу спасброска: 1 — полный, 0.5 — половина */
+  scale?: number;
+  /** Чем катать кости; по умолчанию — генератор движка (клиент даёт свои кубики) */
+  rollFormula?: DamageFormulaRoller;
+}
+
+/** Одна часть урона эффекта после доли и защит — строка чата */
+export interface EffectDamageRollLine {
+  formula: string;
+  type?: string;
+  types?: string[];
+  /** Выпавшие кости */
+  values: number[];
+  /** Урон части после доли спасброска и защит цели */
+  applied: number;
+  /** Сработавшая защита цели на этой части */
+  outcome: DamageDefenseOutcome;
+}
+
+/** Урон эффекта по частям */
+export interface EffectDamageRoll {
+  /** Итог урона после доли и защит */
+  total: number;
+  /** Типы урона всех частей */
+  types: string[];
+  /** Все выпавшие кости */
+  values: number[];
+  /** Последняя сработавшая защита цели */
+  outcome: DamageDefenseOutcome;
+  lines: EffectDamageRollLine[];
+}
+
 /**
- * Катает урон одной нагрузки `DamagePart[]` с учётом защит цели и возвращает
- * исход для подписи в чате. Сегментирует части (`@dmg.<type>`), кидает кости и
- * применяет иммунитеты/сопротивления/уязвимости. Лечащие части и контекстные
- * `@`-формулы пропускаются (сервер их не катает). Возвращает `null`, если урона
- * не получилось (нет ненулевых сегментов).
+ * Делит урон частей по доле спасброска. Половина берётся от суммы, а не от
+ * каждой части: «3 + 3, половина» — 3, а не 1 + 1. Остаток округления уходит
+ * частям с наибольшей дробью.
+ *
+ * @param totals - урон частей
+ * @param scale - доля
+ * @returns урон частей после доли
+ */
+function scaleDamageTotals(totals: readonly number[], scale: number): number[] {
+  if (scale === 1) {
+    return [...totals];
+  }
+
+  const exact = totals.map((total) => total * scale);
+  const scaled = exact.map((value) => Math.floor(value));
+  const target = Math.floor(exact.reduce((sum, value) => sum + value, 0));
+
+  const byRemainder = exact
+    .map((value, index) => ({ index, remainder: value - scaled[index] }))
+    .sort((left, right) => right.remainder - left.remainder);
+
+  let leftover = target - scaled.reduce((sum, value) => sum + value, 0);
+
+  for (const { index } of byRemainder) {
+    if (leftover <= 0) {
+      break;
+    }
+
+    scaled[index] += 1;
+    leftover -= 1;
+  }
+
+  return scaled;
+}
+
+/**
+ * Катает урон нагрузки `DamagePart[]` по частям: кости, доля спасброска, затем
+ * защиты цели (по правилам сопротивление применяется после прочих изменений).
+ * Сегментирует части (`@dmg.<type>`); лечащие части и контекстные `@`-формулы
+ * пропускаются — источник не подставил их числа.
  *
  * Условные слагаемые (`@target.full`, `@target.type.undead`) ядро развернуло в
  * ветки с гейтами — здесь они сверяются с самой целью
  * ({@link damageReachesTarget}). Без сверки катались бы ВСЕ ветки сразу, и
  * «взаимоисключающие» `@target.full`/`@target.notFull` давали бы двойной урон.
  *
+ * Один бросок на сервер и клиент: эффект на цели при попадании, срабатывания
+ * хода, входа и выхода.
+ *
+ * @param damageParts - части урона эффекта
+ * @param stats - resolved-статы цели (нужны защиты от урона)
+ * @param entity - сущность-цель (нужна для гейтов условных веток)
+ * @param options - доля и бросок костей
+ * @returns урон по частям
+ */
+export function rollEffectDamageParts(
+  damageParts: DamagePart[],
+  stats: ResolvedActorStats,
+  entity: DnDSceneEntity,
+  options: EffectDamageRollOptions = {},
+): EffectDamageRoll {
+  const { scale = 1, rollFormula = rollDamageFormula } = options;
+
+  const segments = expandDamageParts(
+    damageParts,
+    undefined,
+    (formula) => formula,
+  ).filter(
+    (segment) =>
+      !segment.isHealing
+      && !segment.formula.includes('@')
+      && damageReachesTarget(segment, entity),
+  );
+
+  const rolls = segments.map((segment) => rollFormula(segment.formula));
+
+  const scaledTotals = scaleDamageTotals(
+    rolls.map((rolled) => Math.max(0, rolled.total)),
+    scale,
+  );
+
+  const result: EffectDamageRoll = {
+    total: 0,
+    types: [],
+    values: [],
+    outcome: 'normal',
+    lines: [],
+  };
+
+  for (const [index, segment] of segments.entries()) {
+    const types = segment.types ?? (segment.type ? [segment.type] : []);
+
+    const defense =
+      types.length > 0
+        ? applyMultiTypeDamageDefenses(
+            scaledTotals[index],
+            types,
+            stats.damageDefenses,
+          )
+        : { finalDamage: scaledTotals[index], outcome: 'normal' as const };
+
+    for (const type of types) {
+      if (!result.types.includes(type)) {
+        result.types.push(type);
+      }
+    }
+
+    if (defense.outcome !== 'normal') {
+      result.outcome = defense.outcome;
+    }
+
+    result.total += defense.finalDamage;
+    result.values.push(...rolls[index].values);
+
+    result.lines.push({
+      formula: segment.formula,
+      ...(segment.type ? { type: segment.type } : {}),
+      ...(segment.types ? { types: segment.types } : {}),
+      values: rolls[index].values,
+      applied: defense.finalDamage,
+      outcome: defense.outcome,
+    });
+  }
+
+  return result;
+}
+
+/**
+ * Урон нагрузки эффекта одним исходом для подписи в чате
+ * ({@link rollEffectDamageParts}).
+ *
  * @param effectName - название эффекта (для подписи)
  * @param damageParts - части урона эффекта
  * @param stats - resolved-статы цели (нужны защиты от урона)
  * @param entity - сущность-цель (нужна для гейтов условных веток)
- * @returns исход урона или `null`
+ * @param options - доля и бросок костей
+ * @returns исход урона или `null`, если урона не получилось
  */
 export function rollEffectDamage(
   effectName: string,
   damageParts: DamagePart[],
   stats: ResolvedActorStats,
   entity: DnDSceneEntity,
+  options: EffectDamageRollOptions = {},
 ): TurnDamageOutcome | null {
-  const segments = expandDamageParts(
-    damageParts,
-    undefined,
-    (formula) => formula,
-  );
+  const rolled = rollEffectDamageParts(damageParts, stats, entity, options);
 
-  let effectTotal = 0;
-
-  const effectValues: number[] = [];
-  const effectTypes: string[] = [];
-
-  for (const segment of segments) {
-    // Урон не лечит; @-формулы (контекстные) сервер не катает
-    if (segment.isHealing || segment.formula.includes('@')) {
-      continue;
-    }
-
-    // Ветка условного слагаемого — только «своей» цели
-    if (!damageReachesTarget(segment, entity)) {
-      continue;
-    }
-
-    const rolled = rollDamageFormula(segment.formula);
-    const types = segment.types ?? (segment.type ? [segment.type] : []);
-
-    let damage = rolled.total;
-
-    if (types.length > 0) {
-      damage = applyMultiTypeDamageDefenses(
-        damage,
-        types,
-        stats.damageDefenses,
-      ).finalDamage;
-
-      for (const type of types) {
-        if (!effectTypes.includes(type)) {
-          effectTypes.push(type);
-        }
-      }
-    }
-
-    effectTotal += damage;
-    effectValues.push(...rolled.values);
-  }
-
-  if (effectTotal <= 0) {
+  if (rolled.total <= 0) {
     return null;
   }
 
   return {
     effectName,
-    total: effectTotal,
-    types: effectTypes,
-    values: effectValues,
+    total: rolled.total,
+    types: rolled.types,
+    values: rolled.values,
   };
 }
 

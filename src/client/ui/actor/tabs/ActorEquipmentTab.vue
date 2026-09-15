@@ -1401,6 +1401,7 @@
     :evaluate-bonus-damage-parts="rollConfig.evaluateBonusDamageParts"
     :on-roll-parts="rollConfig.onRollParts"
     :on-hit="rollConfig.onHit"
+    :attacker-id="entity.id"
     :roll-button-text="ACTOR_EQUIPMENT_TAB_LABELS.attack"
   />
 </template>

@@ -35,6 +35,7 @@
     scaleDamageFormula,
   } from '@vtt/shared/system/dnd.js';
 
+  import { dispatchAttackRollTriggers } from '../../composables/useEffectTriggerEvents';
   import {
     DICE_ROLL_DEFAULT_BUTTON,
     DICE_ROLL_LABELS,
@@ -161,13 +162,13 @@
     /** Коллбэк при попадании атаки (вызывается даже если нет формулы урона). */
     onHit?: () => void;
     /**
-     * Коллбэк при совершении броска атаки (попадание ИЛИ промах). Вызывается
-     * ДО самого броска — режим (преим./помеха) к этому моменту уже зафиксирован
-     * в `attackRollMode`, а расход одноразовых эффектов «следующей атаки»
-     * (consumeOn) должен опередить эмит урона по цели. НЕ вызывается при отмене
+     * Кто атакует. На броске атаки (попадание ИЛИ промах) окно расходует
+     * срабатывания «следующей атаки» у атакующего и целей — ДО самого броска:
+     * режим (преим./помеха) уже зафиксирован в `attackRollMode`, а снятие
+     * эффекта должно опередить эмит урона по цели. Не расходуется при отмене
      * окна и при бросках без атаки (чистый урон / лечение / спасбросок).
      */
-    onAttackRolled?: () => void;
+    attackerId?: string;
     /**
      * Серия атак снарядов (Мистический заряд, Палящий луч): по кнопке модалка
      * НЕ катает ни атаку, ни урон сама, а отдаёт контекст броска (итоговый
@@ -216,7 +217,8 @@
     onCheckRoll: undefined,
     onCancel: undefined,
     onHit: undefined,
-    onAttackRolled: undefined,
+    attackerId: undefined,
+    critThreshold: undefined,
     onProjectileAttack: undefined,
     skipDamageApplication: false,
     skipChatMessage: false,
@@ -515,6 +517,17 @@
   });
 
   /**
+   * Бросок атаки состоялся: срабатывания «следующей атаки» у атакующего и целей.
+   *
+   * @param projectile - серия снарядов (цели — назначенные цели снарядов)
+   */
+  function announceAttackRoll(projectile: boolean): void {
+    if (props.attackerId) {
+      dispatchAttackRollTriggers(props.attackerId, { projectile });
+    }
+  }
+
+  /**
    * Выполняет бросок и отправляет результат в чат.
    * Если задан attackModifier и есть цель — выполняет двухэтапную атаку D&D 5e.
    */
@@ -579,7 +592,7 @@
         // Расход одноразовых эффектов ДО броска: режим (преим./помеха) уже
         // зафиксирован в attackRollMode, а снятие эффекта должно опередить эмит
         // урона по цели — иначе два полных снапшота сущности гонятся.
-        props.onAttackRolled?.();
+        announceAttackRoll(true);
 
         props.onProjectileAttack({
           attackModifier:
@@ -634,7 +647,7 @@
         if (attackTargetAc !== null) {
           // Расход одноразовых эффектов ДО броска (режим уже зафиксирован):
           // снятие должно опередить эмит урона по цели, без гонки снапшотов.
-          props.onAttackRolled?.();
+          announceAttackRoll(false);
 
           // Атака: бросок попадания → части на попадании
           performPartsAttackRoll(
@@ -655,7 +668,7 @@
       if (attackTargetAc !== null) {
         // Расход одноразовых эффектов ДО броска (режим уже зафиксирован):
         // снятие должно опередить эмит урона по цели, без гонки снапшотов.
-        props.onAttackRolled?.();
+        announceAttackRoll(false);
         damageTotal = performAttackRoll(attackTargetAc, bonusDiceFormulas);
       } else {
         // Обычный бросок (лечение или без цели)

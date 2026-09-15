@@ -8,9 +8,6 @@ import type {
 
 import { useDiceRollerStore } from '@/stores/diceRollerStore';
 import {
-  applyMultiTypeDamageDefenses,
-  damageReachesTarget,
-  expandDamageParts,
   getEntityConditionImmunities,
   hasLastingEffectPayload,
   isDndSceneEntity,
@@ -18,6 +15,7 @@ import {
   resolveActorStats,
   resolveEffectApplication,
   resolveEffectSaveDc,
+  rollEffectDamageParts,
   stampSourceTurnSaveDc,
 } from '@vtt/shared/system/dnd.js';
 
@@ -96,13 +94,13 @@ export function useTargetEffectResolution() {
     useSpellSavingThrows();
 
   /**
-   * Бросает урон эффекта (с множителем спаса) и применяет защиты цели по типу.
-   * Поддерживает плоские формулы; @-формулы пропускаются с warn (у эффектов
-   * существ/оружия формулы плоские, контекста заклинания тут нет).
+   * Бросает урон эффекта общим броском движка (`rollEffectDamageParts`): доля
+   * спасброска от суммы частей, затем защиты цели по типу. Кости — кубиками
+   * клиента, строки — для чата.
    *
    * @param entity - цель
    * @param parts - части урона эффекта
-   * @param multiplier - множитель урона (1 / 0.5 по результату спасброска)
+   * @param multiplier - доля урона (1 / 0.5 по результату спасброска)
    * @returns суммарный урон, сработавшая защита цели и строки для чата
    */
   function rollEffectDamage(
@@ -119,79 +117,38 @@ export function useTargetEffectResolution() {
       return { damage: 0, outcome: 'normal', lines: [] };
     }
 
-    const stats = resolveActorStats(entity);
+    const rolled = rollEffectDamageParts(
+      parts,
+      resolveActorStats(entity),
+      entity,
+      {
+        scale: multiplier,
+        rollFormula: (formula) => {
+          const roll = diceRollerStore.parseAndRoll(formula);
 
-    let total = 0;
-    let outcome: DamageDefenseOutcome = 'normal';
+          return {
+            total: roll.total,
+            values: roll.dice.flatMap((group) => group.values),
+          };
+        },
+      },
+    );
 
-    const lines: EffectDamageLine[] = [];
-
-    // Разворачиваем инлайн-токены `@dmg.<type>`/`@target.*` в типизированные
-    // сегменты тем же ядром, что и базовый урон: редактор пишет тип урона
-    // токеном (напр. `2к6@dmg.poison`), а не в поле `type`. У урона эффекта нет
-    // контекста `@mod`/`@prof`/`@level` — нерезолвенные сегменты пропускаем.
-    const segments = expandDamageParts(parts, undefined, (formula) => formula);
-
-    for (const segment of segments) {
-      // Урон эффекта не лечит (редактор скрывает @heal) — на всякий случай.
-      if (segment.isHealing) {
-        continue;
-      }
-
-      // Ветка условного слагаемого (`@target.full`, `@target.type.undead`) —
-      // только «своей» цели: без сверки катались бы обе ветки сразу
-      if (!damageReachesTarget(segment, entity)) {
-        continue;
-      }
-
-      if (segment.formula.includes('@')) {
-        console.warn(
-          '[EffectDamage] @-формула не поддержана:',
-          segment.formula,
-        );
-
-        continue;
-      }
-
-      const rolled = diceRollerStore.parseAndRoll(segment.formula);
-      const values = rolled.dice.flatMap((group) => group.values);
-
-      const types = segment.types ?? (segment.type ? [segment.type] : []);
-
-      let damage = Math.floor(rolled.total * multiplier);
-      let partOutcome: DamageDefenseOutcome = 'normal';
-
-      if (types.length > 0) {
-        const defense = applyMultiTypeDamageDefenses(
-          damage,
-          types,
-          stats.damageDefenses,
-        );
-
-        damage = defense.finalDamage;
-        partOutcome = defense.outcome;
-
-        if (defense.outcome !== 'normal') {
-          outcome = defense.outcome;
-        }
-      }
-
-      total += damage;
-
-      lines.push({
+    return {
+      damage: rolled.total,
+      outcome: rolled.outcome,
+      lines: rolled.lines.map((line) => ({
         typeLabel: getPartKindLabel({
           isHealing: false,
-          type: segment.type,
-          types: segment.types,
+          type: line.type,
+          types: line.types,
         }),
-        formula: segment.formula,
-        values,
-        applied: damage,
-        outcome: partOutcome,
-      });
-    }
-
-    return { damage: total, outcome, lines };
+        formula: line.formula,
+        values: line.values,
+        applied: line.applied,
+        outcome: line.outcome,
+      })),
+    };
   }
 
   /**

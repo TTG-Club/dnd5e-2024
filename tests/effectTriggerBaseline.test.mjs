@@ -248,15 +248,21 @@ describe('фиксация: срабатывания на ходу', () => {
 });
 
 describe('фиксация: расход эффекта на броске атаки', () => {
-  it('снимаются только эффекты своего триггера, одним снимком; без них — ничего', async () => {
+  it('снимаются только эффекты своей роли, одним снимком; без них — ничего', async () => {
     const emitted = [];
     const storeUpdates = [];
+    const world = new Map();
 
-    const consume = await loadHandler(
-      'src/client/macros/dnd5eMacros.ts',
-      'consumeTriggeredEffects',
+    const settle = await loadHandler(
+      'src/client/composables/useEffectTriggerEvents.ts',
+      'settleAttackRollSide',
       {
-        isDnDEffect: engine.isDnDEffect,
+        useWorldEntities: () => ({
+          findCurrentWorldEntity: (id) => world.get(id),
+        }),
+        isDndSceneEntity: engine.isDndSceneEntity,
+        runAttackRollTriggers: engine.runAttackRollTriggers,
+        isEntityInCombat: () => false,
         isActorEntity: (entity) => entity.entityType === 'actor',
         isCreatureEntity: (entity) => entity.entityType === 'creature',
         useWorldStore: () => ({
@@ -265,6 +271,7 @@ describe('фиксация: расход эффекта на броске ата
           updateCreature: (_worldId, id, patch) =>
             storeUpdates.push([id, patch]),
         }),
+        useChatStore: () => ({ getSocket: () => ({}) }),
         emitEntityCombatState: (_socket, entity) => emitted.push(entity),
         JSON,
       },
@@ -282,7 +289,8 @@ describe('фиксация: расход эффекта на броске ата
 
     const hero = createHero({ activeEffects: [sap, vex] });
 
-    consume(hero, 'carrierAttack', {});
+    world.set(hero.id, hero);
+    settle(hero.id, 'attacker');
 
     assert.equal(emitted.length, 1);
 
@@ -297,8 +305,19 @@ describe('фиксация: расход эффекта на броске ата
       JSON.stringify([[hero.id, { activeEffects: [vex] }]]),
     );
 
-    consume(createHero({ activeEffects: [vex] }), 'carrierAttack', {});
-    assert.equal(emitted.length, 1, 'без эффектов триггера ничего не шлёт');
+    assert.equal(
+      hero.activeEffects.length,
+      2,
+      'сущность мира меняет стор, не бросок',
+    );
+
+    world.set(hero.id, createHero({ activeEffects: [vex] }));
+    settle(hero.id, 'attacker');
+    assert.equal(emitted.length, 1, 'без эффектов роли ничего не шлёт');
+
+    settle(hero.id, 'target');
+    assert.equal(emitted.length, 2);
+    assert.equal(emitted[1].activeEffects.length, 0);
   });
 });
 
@@ -414,7 +433,7 @@ describe('фиксация: разовое срабатывание при вх�
     );
   });
 
-  it('половина урона: движок округляет сумму, клиентский путь — каждую часть', async () => {
+  it('половина урона: движок и клиентский путь округляют сумму частей', async () => {
     const hero = createHero();
 
     engine.applyEntryEffect(
@@ -429,12 +448,9 @@ describe('фиксация: разовое срабатывание при вх�
       'src/client/composables/useTargetEffectResolution.ts',
       'rollEffectDamage',
       {
-        console,
         isDndSceneEntity: () => true,
         resolveActorStats: engine.resolveActorStats,
-        expandDamageParts: engine.expandDamageParts,
-        damageReachesTarget: engine.damageReachesTarget,
-        applyMultiTypeDamageDefenses: engine.applyMultiTypeDamageDefenses,
+        rollEffectDamageParts: engine.rollEffectDamageParts,
         getPartKindLabel: () => '',
         diceRollerStore: {
           parseAndRoll: (formula) => ({ total: Number(formula), dice: [] }),
@@ -442,9 +458,18 @@ describe('фиксация: разовое срабатывание при вх�
       },
     );
 
+    const clientRoll = rollClientEffectDamage(
+      createHero(),
+      venom.damageParts,
+      0.5,
+    );
+
+    assert.equal(clientRoll.damage, 3);
+
     assert.equal(
-      rollClientEffectDamage(createHero(), venom.damageParts, 0.5).damage,
-      2,
+      JSON.stringify(clientRoll.lines.map((line) => line.applied)),
+      JSON.stringify([2, 1]),
+      'строки чата складываются в итог',
     );
   });
 });
