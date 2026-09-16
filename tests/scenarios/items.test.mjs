@@ -474,6 +474,28 @@ describe('каталог: предметы', () => {
       true,
       'учёт остаётся и с пустым колчаном',
     );
+
+    // Магические стрелы компендиума приходят записью-оружием
+    const weaponArrows = {
+      ...arrows,
+      id: 'weapon-arrows',
+      type: 'weapon',
+      weaponProperties: [],
+    };
+
+    assert.equal(
+      engine.findWeaponAmmunition([longbow, weaponArrows], longbow)?.id,
+      'weapon-arrows',
+      'оружие без свойства «Боеприпасы» — боеприпас',
+    );
+
+    const spareBow = { ...longbow, id: 'spare-bow' };
+
+    assert.equal(
+      engine.tracksWeaponAmmunition([longbow, spareBow], longbow),
+      false,
+      'второй лук стрелой не считается',
+    );
   });
 
   it('карточка эффекта называет применение и переключатель', () => {

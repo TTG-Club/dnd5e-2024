@@ -32,6 +32,7 @@
   } from '../../composables/useWeaponForm';
   import ActiveEffectFormModal from '../effect/ActiveEffectFormModal.vue';
   import {
+    EQUIPMENT_FORM_LABELS,
     FORM_FIELD_LABELS,
     FORM_TAB_LABELS,
     ITEM_FORM_LABELS,
@@ -114,12 +115,16 @@
     damageCustomBonuses,
     special,
     ammunitionType,
+    ammunitionKind,
+    consumable,
+    firesAmmunition,
     mastery,
     categoryOptions,
     damageTypeOptions,
     propertyOptions,
     baseTypeOptions,
     ammunitionTypeOptions,
+    ammunitionKindOptions,
     proficiencyModeOptions,
     masteryOptions,
     saveTypeOptions,
@@ -564,7 +569,7 @@
 
                 <!-- Тип боеприпаса (появляется при свойстве «Боеприпасы») -->
                 <UFormField
-                  v-if="selectedProperties.includes('ammunition')"
+                  v-if="firesAmmunition"
                   :label="WEAPON_FORM_LABELS.ammunitionType"
                 >
                   <USelect
@@ -912,6 +917,39 @@
               <p class="mt-2 text-xs text-dimmed">
                 {{ WEAPON_FORM_LABELS.specialHint }}
               </p>
+            </FormSection>
+
+            <!-- Расход: магические стрелы и прочий боеприпас-оружие -->
+            <FormSection
+              :title="EQUIPMENT_FORM_LABELS.consumptionTitle"
+              icon="tabler:flask"
+              :hint="EQUIPMENT_FORM_LABELS.consumptionHint"
+            >
+              <div class="grid grid-cols-2 items-center gap-3">
+                <UCheckbox
+                  v-model="consumable"
+                  :label="EQUIPMENT_FORM_LABELS.consumable"
+                />
+
+                <UFormField
+                  v-if="!firesAmmunition"
+                  :label="EQUIPMENT_FORM_LABELS.ammunitionType"
+                >
+                  <USelect
+                    v-model="ammunitionKind"
+                    :items="ammunitionKindOptions"
+                    value-key="value"
+                    class="w-full"
+                  />
+                </UFormField>
+
+                <p
+                  v-else
+                  class="text-xs text-dimmed"
+                >
+                  {{ WEAPON_FORM_LABELS.firesAmmunitionHint }}
+                </p>
+              </div>
             </FormSection>
           </div>
         </template>

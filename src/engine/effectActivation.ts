@@ -176,7 +176,10 @@ export function weaponUsesAmmunition(weapon: DnDGameItem): boolean {
 }
 
 /**
- * Предмет — боеприпас этого оружия: не оружие, тип боеприпаса тот же.
+ * Предмет — боеприпас этого оружия: тип боеприпаса тот же, и сам предмет
+ * боеприпасами не стреляет. У стреляющего оружия `ammunitionType` — чем оно
+ * стреляет, у остального — что это за боеприпас. Магические стрелы приходят
+ * из компендиума записью-оружием, поэтому тип записи не решает.
  *
  * @param item - предмет инвентаря
  * @param weapon - оружие
@@ -185,7 +188,7 @@ export function weaponUsesAmmunition(weapon: DnDGameItem): boolean {
 function isAmmunitionFor(item: DnDGameItem, weapon: DnDGameItem): boolean {
   return (
     item.id !== weapon.id
-    && item.type !== 'weapon'
+    && !weaponUsesAmmunition(item)
     && item.ammunitionType !== undefined
     && item.ammunitionType === weapon.ammunitionType
   );

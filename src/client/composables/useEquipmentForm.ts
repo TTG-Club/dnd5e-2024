@@ -21,11 +21,11 @@ import {
   parseCost,
 } from '@vtt/shared/system/dnd.js';
 
-import { EQUIPMENT_FORM_LABELS } from '../ui/actor/constants';
+import {
+  EQUIPMENT_FORM_LABELS,
+  NO_AMMUNITION_TYPE,
+} from '../ui/actor/constants';
 import { useItemUsesForm } from './useItemUsesForm';
-
-/** Значение выбора «Не боеприпас»: пустая строка выбором не бывает */
-const NO_AMMUNITION = 'none';
 
 /**
  * Тип экипировки, с которым открывается форма создания, если вызвавший не
@@ -77,8 +77,8 @@ export function useEquipmentForm(
   const itemUses = useItemUsesForm();
   const consumable = ref(false);
 
-  const ammunitionType = ref<AmmunitionType | typeof NO_AMMUNITION>(
-    NO_AMMUNITION,
+  const ammunitionType = ref<AmmunitionType | typeof NO_AMMUNITION_TYPE>(
+    NO_AMMUNITION_TYPE,
   );
 
   /**
@@ -150,7 +150,10 @@ export function useEquipmentForm(
 
   /** Опции «Боеприпас для»: сначала «Не боеприпас» */
   const ammunitionTypeOptions = computed(() => [
-    { label: EQUIPMENT_FORM_LABELS.ammunitionTypeNone, value: NO_AMMUNITION },
+    {
+      label: EQUIPMENT_FORM_LABELS.ammunitionTypeNone,
+      value: NO_AMMUNITION_TYPE,
+    },
     ...systemDataStore.ammunitionTypes.map((type) => ({
       label: type.name,
       value: type.key,
@@ -307,7 +310,7 @@ export function useEquipmentForm(
 
         itemUses.loadItemUses(armor.uses);
         consumable.value = armor.consumable ?? false;
-        ammunitionType.value = armor.ammunitionType ?? NO_AMMUNITION;
+        ammunitionType.value = armor.ammunitionType ?? NO_AMMUNITION_TYPE;
       } else {
         // Дефолты для создания
         name.value = '';
@@ -344,7 +347,7 @@ export function useEquipmentForm(
         activeEffects.value = [];
         itemUses.resetItemUses();
         consumable.value = false;
-        ammunitionType.value = NO_AMMUNITION;
+        ammunitionType.value = NO_AMMUNITION_TYPE;
       }
     },
     { immediate: true },
@@ -396,7 +399,7 @@ export function useEquipmentForm(
       uses: itemUses.buildItemUses(),
       consumable: consumable.value || undefined,
       ammunitionType:
-        ammunitionType.value === NO_AMMUNITION
+        ammunitionType.value === NO_AMMUNITION_TYPE
           ? undefined
           : ammunitionType.value,
       activeEffects:
