@@ -9,7 +9,7 @@
  * не импортируя этот файл напрямую — см. `docs/MULTI_SYSTEM_ARCHITECTURE.md`, Фаза 0.
  */
 
-import type { AbilityType, DamagePart } from '@vtt/shared';
+import type { AbilityType, DamagePart, DiceRollData } from '@vtt/shared';
 
 import type {
   ActiveEffect,
@@ -21,6 +21,7 @@ import type {
 } from './activeEffectTypes.js';
 import type { ConditionRef } from './conditionKeys.js';
 import type { DamageDefenseOutcome } from './damageUtils.js';
+import type { RolledDiceGroup, RolledFormula } from './diceFormula.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type { CarrierContext } from './effectPipeline.js';
 import type { DeferredTurnTrigger } from './effectTriggerRunner.js';
@@ -40,7 +41,7 @@ import { ABILITY_LABELS } from './consts.js';
 import { DAMAGE_TYPE_LABELS } from './damageConstants.js';
 import { damageReachesTarget } from './damageTargetGate.js';
 import { applyHpChange, applyMultiTypeDamageDefenses } from './damageUtils.js';
-import { rollDamageFormula } from './diceFormula.js';
+import { formatDiceFormula, rollDamageFormula } from './diceFormula.js';
 import {
   buildCarrierContext,
   collectActiveEffects,
@@ -361,6 +362,8 @@ export interface TurnDamageOutcome {
   types: string[];
   /** Выпавшие значения кубиков (для отображения) */
   values: number[];
+  /** Брошенные формулы с костями — кубики в чате */
+  rolls: RolledFormula[];
 }
 
 /** Исход лечения каждый ход («Регенерация», временные хиты «Героизма») */
@@ -373,6 +376,13 @@ export interface TurnHealingOutcome {
   tempHp: number;
   /** Выпавшие значения кубиков */
   values: number[];
+  /** Брошенные формулы с костями — кубики в чате */
+  rolls: RolledFormula[];
+  /**
+   * Сколько выпало на лечение, если восстановилось меньше: хиты не выше
+   * максимума
+   */
+  rolled?: number;
 }
 
 /** Результат обработки периодических эффектов по сущности за один тик хода */
@@ -725,11 +735,39 @@ export function applyDamageToEntity(
   });
 }
 
-/** Бросок формулы урона: итог и выпавшие кости */
+/**
+ * Бросок формулы урона: итог и выпавшие кости. Кости по граням и детали даёт
+ * бросок движка — они уходят кубиками в чат; клиент катает свои кубики сам.
+ */
 export type DamageFormulaRoller = (formula: string) => {
   total: number;
   values: number[];
+  dice?: RolledDiceGroup[];
+  details?: string;
 };
+
+/**
+ * Брошенная формула для кубиков в чате; без костей показывать нечего.
+ *
+ * @param formula - формула
+ * @param roll - бросок
+ * @returns бросок либо пусто
+ */
+function listDiceRolls(
+  formula: string,
+  roll: ReturnType<DamageFormulaRoller>,
+): RolledFormula[] {
+  return roll.dice && roll.dice.length > 0
+    ? [
+        {
+          formula,
+          total: roll.total,
+          dice: roll.dice,
+          details: roll.details ?? '',
+        },
+      ]
+    : [];
+}
 
 /** Как катать урон эффекта */
 export interface EffectDamageRollOptions {
@@ -763,6 +801,8 @@ export interface EffectDamageRoll {
   /** Последняя сработавшая защита цели */
   outcome: DamageDefenseOutcome;
   lines: EffectDamageRollLine[];
+  /** Брошенные формулы с костями — кубики в чате */
+  rolls: RolledFormula[];
 }
 
 /**
@@ -853,6 +893,7 @@ export function rollEffectDamageParts(
     values: [],
     outcome: 'normal',
     lines: [],
+    rolls: [],
   };
 
   for (const [index, segment] of segments.entries()) {
@@ -879,6 +920,7 @@ export function rollEffectDamageParts(
 
     result.total += defense.finalDamage;
     result.values.push(...rolls[index].values);
+    result.rolls.push(...listDiceRolls(segment.formula, rolls[index]));
 
     result.lines.push({
       formula: segment.formula,
@@ -922,6 +964,7 @@ export function rollEffectDamage(
     total: rolled.total,
     types: rolled.types,
     values: rolled.values,
+    rolls: rolled.rolls,
   };
 }
 
@@ -954,6 +997,8 @@ export interface EntryEffectOptions {
 export interface EntryEffectResult {
   /** Исход урона (если был) — для подписи в чате */
   damageOutcome: TurnDamageOutcome | null;
+  /** Исход лечения (если было) — сколько восстановилось на деле */
+  healingOutcome?: TurnHealingOutcome | null;
   /** Исход спасброска при наложении (если был) — для подписи в чате */
   saveOutcome: TurnSaveOutcome | null;
   /** Повешена ли длящаяся копия-статус на цель (мутация `activeEffects`) */
@@ -983,6 +1028,7 @@ export function rollEffectHealing(
   let tempHp = 0;
 
   const values: number[] = [];
+  const rolls: RolledFormula[] = [];
 
   for (const segment of segments) {
     if (!segment.isHealing || segment.formula.includes('@')) {
@@ -998,13 +1044,14 @@ export function rollEffectHealing(
     }
 
     values.push(...rolled.values);
+    rolls.push(...listDiceRolls(segment.formula, rolled));
   }
 
   if (healed <= 0 && tempHp <= 0) {
     return null;
   }
 
-  return { effectName, healed, tempHp, values };
+  return { effectName, healed, tempHp, values, rolls };
 }
 
 /**
@@ -1021,6 +1068,26 @@ export function applyTurnHealing(
   healed: number,
   tempHp: number,
 ): boolean {
+  const restored = restoreEntityHitPoints(entity, healed, tempHp);
+
+  return restored.healed > 0 || restored.tempHp > 0;
+}
+
+/**
+ * Лечит и даёт временные хиты по правилам 5e и отвечает, сколько прибавилось
+ * на деле: хиты не выше максимума, временные не складываются, запреты лечения
+ * режут своё.
+ *
+ * @param entity - сущность (меняется)
+ * @param healed - хиты к восстановлению
+ * @param tempHp - временные хиты к выдаче
+ * @returns прибавка хитов и временных хитов
+ */
+export function restoreEntityHitPoints(
+  entity: DnDSceneEntity,
+  healed: number,
+  tempHp: number,
+): { healed: number; tempHp: number } {
   const allowed = limitEntityHealing(entity, {
     hitPoints: healed,
     temporary: tempHp,
@@ -1029,16 +1096,19 @@ export function applyTurnHealing(
   const current = resolveEntityCurrentHp(entity);
   const max = resolveEntityMaxHp(entity);
   const temp = resolveEntityTempHp(entity);
-  const nextCurrent = Math.min(max, current + allowed.hitPoints);
+
+  const nextCurrent = Math.max(
+    current,
+    Math.min(max, current + allowed.hitPoints),
+  );
+
   const nextTemp = Math.max(temp, allowed.temporary);
 
-  if (nextCurrent === current && nextTemp === temp) {
-    return false;
+  if (nextCurrent !== current || nextTemp !== temp) {
+    writeEntityHitPoints(entity, { current: nextCurrent, temp: nextTemp });
   }
 
-  writeEntityHitPoints(entity, { current: nextCurrent, temp: nextTemp });
-
-  return true;
+  return { healed: nextCurrent - current, tempHp: nextTemp - temp };
 }
 
 /** Итог спасброска против урона каждый ход в сводке */
@@ -1053,6 +1123,76 @@ const RECURRING_DAMAGE_SAVE_STATUS: Record<
 
 /** Подпись временных хитов в сводке эффектов */
 const TEMP_HP_SUMMARY_LABEL = 'временных HP';
+
+/** Подпись восстановленного, когда выпало больше, чем влезло до максимума */
+const HEALED_SUMMARY_LABEL = 'восстановлено';
+
+/** Подпись лечения в броске для чата */
+const HEALING_ROLL_LABEL = 'лечение';
+
+/**
+ * Бросок эффекта для чата в форме ядра.
+ *
+ * @param roll - брошенная формула
+ * @param label - подпись броска
+ * @returns бросок для сообщения чата
+ */
+function toEffectDiceRoll(roll: RolledFormula, label: string): DiceRollData {
+  return {
+    formula: formatDiceFormula(roll.formula),
+    total: roll.total,
+    dice: roll.dice.map((group) => ({
+      count: group.values.length,
+      sides: group.sides,
+      values: group.values,
+      dropped: [],
+      critSuccesses: [],
+      critFailures: [],
+    })),
+    details: roll.details,
+    label,
+  };
+}
+
+/**
+ * Кубики эффектов сущности для чата: урон и лечение, брошенные сервером. Ядро
+ * пишет их сообщениями-бросками, клиенты катают кубики.
+ *
+ * @param entityName - имя сущности
+ * @param damageOutcomes - исходы урона
+ * @param healingOutcomes - исходы лечения
+ * @returns броски для чата
+ */
+export function buildEffectDiceRolls(
+  entityName: string,
+  damageOutcomes: readonly TurnDamageOutcome[],
+  healingOutcomes: readonly TurnHealingOutcome[] = [],
+): DiceRollData[] {
+  const damageLabels: Record<string, string> = DAMAGE_TYPE_LABELS;
+
+  const damageRolls = damageOutcomes.flatMap((outcome) => {
+    const typeLabel = outcome.types
+      .map((type) => damageLabels[type] ?? type)
+      .join('/');
+
+    const label = typeLabel
+      ? `${outcome.effectName} → ${entityName} (${typeLabel})`
+      : `${outcome.effectName} → ${entityName}`;
+
+    return outcome.rolls.map((roll) => toEffectDiceRoll(roll, label));
+  });
+
+  const healingRolls = healingOutcomes.flatMap((outcome) =>
+    outcome.rolls.map((roll) =>
+      toEffectDiceRoll(
+        roll,
+        `${outcome.effectName} → ${entityName} (${HEALING_ROLL_LABEL})`,
+      ),
+    ),
+  );
+
+  return [...damageRolls, ...healingRolls];
+}
 
 /** Подпись момента хода в сводке эффектов */
 export const TURN_TIMING_SUMMARY_LABELS: Record<EffectSaveTiming, string> = {
@@ -1138,6 +1278,23 @@ export function formatEffectsSummaryHeader(
 }
 
 /**
+ * Выпавшее в строке сводки: детали брошенных формул («[3, 1] + 2 = »), без них
+ * — выпавшие кости.
+ *
+ * @param outcome - исход урона или лечения
+ * @returns начало строки перед итогом
+ */
+function formatRollBreakdown(
+  outcome: Pick<TurnDamageOutcome, 'values' | 'rolls'>,
+): string {
+  if (outcome.rolls.length > 0) {
+    return `${outcome.rolls.map((roll) => roll.details).join(' + ')} = `;
+  }
+
+  return outcome.values.length > 0 ? `[${outcome.values.join(', ')}] = ` : '';
+}
+
+/**
  * Общий форматтер сводки сработавших эффектов в строку чата.
  *
  * @param entityName - имя сущности
@@ -1173,8 +1330,7 @@ export function formatEffectsSummary(
       damage.types.map((type) => damageLabels[type] ?? type).join('/')
       || 'урон';
 
-    const breakdown =
-      damage.values.length > 0 ? `[${damage.values.join(', ')}] = ` : '';
+    const breakdown = formatRollBreakdown(damage);
 
     lines.push(
       `${damage.effectName}: ${breakdown}−${damage.total} HP (${typeLabel})`,
@@ -1182,10 +1338,13 @@ export function formatEffectsSummary(
   }
 
   for (const healing of healingOutcomes) {
-    const breakdown =
-      healing.values.length > 0 ? `[${healing.values.join(', ')}] = ` : '';
+    const breakdown = formatRollBreakdown(healing);
 
-    if (healing.healed > 0) {
+    if (healing.rolled !== undefined && healing.rolled > healing.healed) {
+      lines.push(
+        `${healing.effectName}: ${breakdown}${healing.rolled}, ${HEALED_SUMMARY_LABEL} +${healing.healed} HP`,
+      );
+    } else if (healing.healed > 0) {
       lines.push(`${healing.effectName}: ${breakdown}+${healing.healed} HP`);
     }
 

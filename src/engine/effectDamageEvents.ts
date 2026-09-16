@@ -36,6 +36,7 @@ import type {
   EntryEffectOptions,
   EntryEffectResult,
   TurnDamageOutcome,
+  TurnHealingOutcome,
   TurnSaveOutcome,
 } from './turnEffects.js';
 
@@ -105,6 +106,7 @@ export interface DamageEventsEntityOutcome {
   entity: DnDSceneEntity;
   changed: boolean;
   damageOutcomes: TurnDamageOutcome[];
+  healingOutcomes: TurnHealingOutcome[];
   saveOutcomes: TurnSaveOutcome[];
 }
 
@@ -113,6 +115,7 @@ export interface DamageEventsResult {
   /** Субъект изменён: урон, наложение, снятие или счётчик лимита */
   changed: boolean;
   damageOutcomes: TurnDamageOutcome[];
+  healingOutcomes: TurnHealingOutcome[];
   saveOutcomes: TurnSaveOutcome[];
   /** Спасброски, которые спросили у игроков */
   deferred: EngineDeferredTrigger[];
@@ -129,6 +132,7 @@ function createDamageEventsResult(): DamageEventsResult {
   return {
     changed: false,
     damageOutcomes: [],
+    healingOutcomes: [],
     saveOutcomes: [],
     deferred: [],
     related: [],
@@ -215,6 +219,10 @@ function recordSettled(
     outcome.damageOutcomes.push(settled.damageOutcome);
   }
 
+  if (settled.healingOutcome) {
+    outcome.healingOutcomes.push(settled.healingOutcome);
+  }
+
   if (settled.saveOutcome) {
     outcome.saveOutcomes.push(settled.saveOutcome);
   }
@@ -245,6 +253,7 @@ function relatedOutcomeOf(
     entity,
     changed: false,
     damageOutcomes: [],
+    healingOutcomes: [],
     saveOutcomes: [],
   };
 
@@ -276,6 +285,7 @@ function withContinuation(
   return {
     changed: outcome.changed || continued.changed,
     damageOutcomes: [...outcome.damageOutcomes, ...continued.damageOutcomes],
+    healingOutcomes: [...outcome.healingOutcomes, ...continued.healingOutcomes],
     saveOutcomes: [...outcome.saveOutcomes, ...continued.saveOutcomes],
     notes: outcome.notes,
     deferred: [...(outcome.deferred ?? []), ...continued.deferred],

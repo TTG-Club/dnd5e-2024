@@ -83,7 +83,7 @@ describe('фиксация: срабатывания на ходу', () => {
     assert.equal(result.damageTotal, 5);
 
     assert.deepEqual(result.healingOutcomes, [
-      { effectName: 'burn', healed: 3, tempHp: 0, values: [] },
+      { effectName: 'burn', healed: 3, tempHp: 0, values: [], rolls: [] },
     ]);
 
     assert.deepEqual(

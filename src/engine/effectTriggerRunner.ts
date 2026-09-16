@@ -93,6 +93,7 @@ import {
   buildApplySaveSpec,
   buildEffectSavingThrowContext,
   resolveEffectMagicCircumstances,
+  restoreEntityHitPoints,
   rollEffectDamage,
   rollEffectHealing,
   rollEffectSaveOutcome,
@@ -334,6 +335,7 @@ export function rollTriggerDamage(
           total: outcome.total + rolled.total,
           types: [...new Set([...outcome.types, ...rolled.types])],
           values: [...outcome.values, ...rolled.values],
+          rolls: [...outcome.rolls, ...rolled.rolls],
         }
       : rolled;
   }
@@ -1411,9 +1413,12 @@ export function settleTriggerOutcome(
 
   const healing = rollTriggerHealing(source.effect, source.trigger);
 
+  const restored = healing
+    ? restoreEntityHitPoints(recipient, healing.healed, healing.tempHp)
+    : null;
+
   const healed =
-    healing !== null
-    && applyTurnHealing(recipient, healing.healed, healing.tempHp);
+    restored !== null && (restored.healed > 0 || restored.tempHp > 0);
 
   const { applied, removes } = applyTriggerEffectActions(
     recipient,
@@ -1434,6 +1439,11 @@ export function settleTriggerOutcome(
 
   return {
     damageOutcome: damage,
+    // В сводку — сколько восстановилось на деле; выпавшее — если влезло меньше
+    healingOutcome:
+      healing && restored
+        ? { ...healing, ...restored, rolled: healing.healed }
+        : null,
     saveOutcome: save,
     statusApplied: applied || healed || removed,
   };

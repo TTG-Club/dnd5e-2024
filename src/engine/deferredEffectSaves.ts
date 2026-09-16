@@ -22,6 +22,7 @@ import type {
   EntryEffectOptions,
   EntryEffectResult,
   TurnDamageOutcome,
+  TurnHealingOutcome,
   TurnSaveOutcome,
 } from './turnEffects.js';
 
@@ -60,6 +61,8 @@ export interface DeferredEffectOutcome {
   changed: boolean;
   /** Урон срабатывания — для сводки в чате */
   damageOutcomes: TurnDamageOutcome[];
+  /** Лечение срабатывания — для сводки в чате */
+  healingOutcomes: TurnHealingOutcome[];
   /** Спасброски — для сводки в чате */
   saveOutcomes: TurnSaveOutcome[];
   /** Готовые строки сводки: отмена срабатывания, автоматический бросок */
@@ -104,7 +107,13 @@ export function formatEffectNotes(
  * @returns исход без изменений
  */
 export function unchangedOutcome(notes: string[]): DeferredEffectOutcome {
-  return { changed: false, damageOutcomes: [], saveOutcomes: [], notes };
+  return {
+    changed: false,
+    damageOutcomes: [],
+    healingOutcomes: [],
+    saveOutcomes: [],
+    notes,
+  };
 }
 
 /**
@@ -121,6 +130,7 @@ export function toDeferredEffectOutcome(
   return {
     changed: result.damageOutcome !== null || result.statusApplied,
     damageOutcomes: result.damageOutcome ? [result.damageOutcome] : [],
+    healingOutcomes: result.healingOutcome ? [result.healingOutcome] : [],
     saveOutcomes: result.saveOutcome ? [result.saveOutcome] : [],
     notes,
   };
@@ -371,6 +381,7 @@ function applyTurnTriggerAnswer(
   return {
     changed: damage !== null || removes || applied,
     damageOutcomes: damage ? [damage] : [],
+    healingOutcomes: [],
     saveOutcomes: [save],
     notes: formatEffectNotes(target.spec, acquisition.note),
   };
@@ -496,6 +507,7 @@ export function formatDeferredEffectsSummary(
     outcome.damageOutcomes,
     outcome.saveOutcomes,
     formatSaveStatus,
+    outcome.healingOutcomes,
   );
 
   if (outcome.notes.length === 0) {

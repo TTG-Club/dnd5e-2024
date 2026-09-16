@@ -11,7 +11,9 @@ import {
   createToken,
   engine,
   GRID,
+  MAX_ROLL,
   withHp,
+  withRandom,
 } from './_fixtures.mjs';
 
 /**
@@ -424,6 +426,79 @@ describe('каталог: предметы', () => {
 
     assert.equal(engine.resolveEntityCurrentHp(hero), 10);
     assert.deepEqual(hero.activeEffects, [], 'зелье не висит на персонаже');
+  });
+
+  it('[I16] зелье с костями: кубики в чат, сводка пишет восстановленное', () => {
+    const healing = createEffect('Зелье лечения', {
+      activation: { mode: 'use' },
+      triggers: [
+        {
+          id: 'trigger_heal',
+          event: 'applied',
+          actions: [
+            { type: 'damage', parts: [{ formula: '2d4@heal+2' }] },
+            { type: 'removeSelf' },
+          ],
+        },
+      ],
+    });
+
+    const potion = wornItem('potion', [healing], {
+      equipped: false,
+      consumable: true,
+      quantity: 1,
+    });
+
+    const system = new engine.Dnd5eVttSystem();
+
+    const drink = (hitPoints) => {
+      const hero = withHp(createActor, hitPoints, {}, 20);
+      const drinking = structuredClone(hero);
+
+      drinking.activeEffects = engine.getCasterSpellEffects(
+        engine.buildItemUseSpell(potion),
+      );
+
+      const result = withRandom([MAX_ROLL, MAX_ROLL], () =>
+        system.settleCombatState(hero, engine.pickCombatState(drinking)),
+      );
+
+      return { hero, result };
+    };
+
+    const wounded = drink(3);
+
+    assert.equal(engine.resolveEntityCurrentHp(wounded.hero), 13);
+
+    assert.equal(
+      wounded.result.chatSummary,
+      `Эффекты (при наложении): ${wounded.hero.name}\n`
+        + 'Зелье лечения: [4, 4] + 2 = +10 HP',
+    );
+
+    assert.equal(wounded.result.chatRolls.length, 1);
+
+    const [roll] = wounded.result.chatRolls;
+
+    assert.equal(roll.formula, '2к4 + 2');
+    assert.equal(roll.total, 10);
+    assert.equal(roll.details, '[4, 4] + 2');
+
+    assert.equal(roll.label, `Зелье лечения → ${wounded.hero.name} (лечение)`);
+
+    assert.deepEqual(
+      roll.dice.map((group) => [group.count, group.sides, [...group.values]]),
+      [[2, 4, [4, 4]]],
+    );
+
+    const almostFull = drink(18);
+
+    assert.equal(engine.resolveEntityCurrentHp(almostFull.hero), 20);
+
+    assert.match(
+      almostFull.result.chatSummary,
+      /Зелье лечения: \[4, 4\] \+ 2 = 10, восстановлено \+2 HP/,
+    );
   });
 
   it('[I16] закончившийся предмет не действует, не надет и не бьёт', () => {

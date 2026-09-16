@@ -24,6 +24,26 @@ export interface DiceFormulaTerm {
   sides: number;
 }
 
+/** Кости одной группы броска: грани и выпавшие значения */
+export interface RolledDiceGroup {
+  /** Число граней */
+  sides: number;
+  /** Выпавшие значения */
+  values: number[];
+}
+
+/** Брошенная формула: для кубиков в чате */
+export interface RolledFormula {
+  /** Формула без токенов */
+  formula: string;
+  /** Итог броска */
+  total: number;
+  /** Кости по группам */
+  dice: RolledDiceGroup[];
+  /** Строка деталей: «[3, 1] + 2» */
+  details: string;
+}
+
 /** Слагаемое формулы после разбиения по знакам */
 interface SignedFormulaTerm {
   /** Знак слагаемого */
@@ -89,29 +109,56 @@ export function findFirstDiceTerm(
 }
 
 /**
+ * Знак слагаемого в строке деталей: первое положительное — без знака.
+ *
+ * @param sign - знак слагаемого
+ * @param isFirst - первое ли слагаемое
+ * @returns приставка
+ */
+function formatTermSign(sign: 1 | -1, isFirst: boolean): string {
+  if (isFirst) {
+    return sign < 0 ? '-' : '';
+  }
+
+  return sign < 0 ? ' - ' : ' + ';
+}
+
+/**
  * Бросает кубиковую формулу и возвращает сумму и выпавшие значения кубиков.
  *
  * @param formula - формула без `@`-токенов (напр. «2к6 + 3»)
- * @returns сумма броска и массив выпавших значений (для отображения)
+ * @returns сумма броска, выпавшие значения, кости по группам и строка деталей
+ *   (для отображения и кубиков в чате)
  */
 export function rollDamageFormula(formula: string): {
   total: number;
   values: number[];
+  dice: RolledDiceGroup[];
+  details: string;
 } {
   const values: number[] = [];
+  const dice: RolledDiceGroup[] = [];
+  const detailParts: string[] = [];
 
   let total = 0;
 
-  for (const term of splitFormulaTerms(formula)) {
-    const dice = parseDiceTerm(term.body);
+  for (const [index, term] of splitFormulaTerms(formula).entries()) {
+    const sign = formatTermSign(term.sign, index === 0);
+    const diceTerm = parseDiceTerm(term.body);
 
-    if (dice) {
-      for (let rollIndex = 0; rollIndex < dice.count; rollIndex++) {
-        const roll = Math.floor(Math.random() * dice.sides) + 1;
+    if (diceTerm) {
+      const groupValues: number[] = [];
 
-        values.push(roll);
+      for (let rollIndex = 0; rollIndex < diceTerm.count; rollIndex++) {
+        const roll = Math.floor(Math.random() * diceTerm.sides) + 1;
+
+        groupValues.push(roll);
         total += term.sign * roll;
       }
+
+      values.push(...groupValues);
+      dice.push({ sides: diceTerm.sides, values: groupValues });
+      detailParts.push(`${sign}[${groupValues.join(', ')}]`);
 
       continue;
     }
@@ -120,8 +167,24 @@ export function rollDamageFormula(formula: string): {
 
     if (!Number.isNaN(flat)) {
       total += term.sign * flat;
+      detailParts.push(`${sign}${flat}`);
     }
   }
 
-  return { total, values };
+  return { total, values, dice, details: detailParts.join('') };
+}
+
+/**
+ * Формула для чата: кости по-русски и пробелы вокруг знаков — «2к4 + 2».
+ *
+ * @param formula - формула без `@`-токенов
+ * @returns формула для показа
+ */
+export function formatDiceFormula(formula: string): string {
+  return splitFormulaTerms(formula)
+    .map(
+      (term, index) =>
+        `${formatTermSign(term.sign, index === 0)}${term.body.replace(/^(\d*)[кдd]/i, '$1к')}`,
+    )
+    .join('');
 }

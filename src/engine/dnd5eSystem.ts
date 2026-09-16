@@ -42,7 +42,12 @@ import type { IncomingAttackContext } from './effectPipeline.js';
 import type { EffectTriggerSourceKind } from './effectTriggerRunner.js';
 import type { AreaEffectsSyncResult } from './positionalEffects.js';
 import type { SystemClientEvent } from './systemClientEvents.js';
-import type { EntryEffectOptions, TurnSaveOutcome } from './turnEffects.js';
+import type {
+  EntryEffectOptions,
+  TurnDamageOutcome,
+  TurnHealingOutcome,
+  TurnSaveOutcome,
+} from './turnEffects.js';
 
 import { getHealthCondition, HEALTH_CONDITIONS, isRecord } from '@vtt/shared';
 
@@ -144,6 +149,7 @@ import {
   resolveAreaTerrainCost,
 } from './terrainCost.js';
 import {
+  buildEffectDiceRolls,
   decrementActorEffectDurations,
   expireTurnEffects as expireEntityTurnEffects,
   formatEffectsSummary,
@@ -200,6 +206,31 @@ const SOURCE_TURN_SAVE_KEY = 'source';
 
 /** Подпись момента в сводке событий урона */
 const DAMAGE_EVENTS_SUMMARY_LABEL = 'от урона';
+
+/** Подпись момента в сводке срабатываний «при наложении» */
+const APPLIED_EVENTS_SUMMARY_LABEL = 'при наложении';
+
+/**
+ * Кубики эффектов сущности полем исхода для ядра: без бросков поля нет.
+ *
+ * @param entityName - имя сущности
+ * @param damageOutcomes - исходы урона
+ * @param healingOutcomes - исходы лечения
+ * @returns поле бросков для исхода
+ */
+function effectRollsField(
+  entityName: string,
+  damageOutcomes: readonly TurnDamageOutcome[],
+  healingOutcomes: readonly TurnHealingOutcome[],
+): Pick<SystemDeferredTriggerResult, 'chatRolls'> {
+  const chatRolls = buildEffectDiceRolls(
+    entityName,
+    damageOutcomes,
+    healingOutcomes,
+  );
+
+  return chatRolls.length > 0 ? { chatRolls } : {};
+}
 
 /** Отказ в записи боевого снимка: ядро ничего не фиксирует */
 const REJECTED_COMBAT_STATE: SystemCombatStateResult = {
@@ -297,6 +328,11 @@ function toSystemDeferredTriggers(
             const applied: SystemDeferredTriggerResult = {
               changed: outcome.changed,
               chatSummary: formatSummary(entity, outcome),
+              ...effectRollsField(
+                entity.name,
+                outcome.damageOutcomes,
+                outcome.healingOutcomes,
+              ),
               deferred: toSystemDeferredTriggers(
                 outcome.deferred ?? [],
                 formatSummary,
@@ -337,26 +373,30 @@ function mergeTriggerResults(
 
   const deferred = [...(base.deferred ?? []), ...(extra.deferred ?? [])];
   const related = [...(base.related ?? []), ...(extra.related ?? [])];
+  const chatRolls = [...(base.chatRolls ?? []), ...(extra.chatRolls ?? [])];
 
   return {
     changed: base.changed || extra.changed,
     chatSummary,
+    ...(chatRolls.length > 0 ? { chatRolls } : {}),
     ...(deferred.length > 0 ? { deferred } : {}),
     ...(related.length > 0 ? { related } : {}),
   };
 }
 
 /**
- * Итог событий урона в контракте ядра: сводка субъекта, ожидания ответа и
- * другие стороны, которым достались действия.
+ * Итог событий урона или наложения в контракте ядра: сводка и кубики
+ * субъекта, ожидания ответа и другие стороны, которым достались действия.
  *
  * @param entity - субъект
- * @param events - итог событий урона
+ * @param events - итог событий
+ * @param label - подпись момента в сводке
  * @returns исход для ядра
  */
 function toDamageEventsTriggerResult(
   entity: DnDSceneEntity,
   events: DamageEventsResult,
+  label: string = DAMAGE_EVENTS_SUMMARY_LABEL,
 ): SystemDeferredTriggerResult {
   const related: SystemRelatedTriggerResult[] = events.related.map(
     (outcome) => ({
@@ -364,10 +404,16 @@ function toDamageEventsTriggerResult(
       changed: outcome.changed,
       chatSummary: formatEffectsSummary(
         outcome.entity.name,
-        DAMAGE_EVENTS_SUMMARY_LABEL,
+        label,
         outcome.damageOutcomes,
         outcome.saveOutcomes,
         formatEntrySaveStatus,
+        outcome.healingOutcomes,
+      ),
+      ...effectRollsField(
+        outcome.entity.name,
+        outcome.damageOutcomes,
+        outcome.healingOutcomes,
       ),
     }),
   );
@@ -376,14 +422,20 @@ function toDamageEventsTriggerResult(
     changed: events.changed,
     chatSummary: formatEffectsSummary(
       entity.name,
-      DAMAGE_EVENTS_SUMMARY_LABEL,
+      label,
       events.damageOutcomes,
       events.saveOutcomes,
       formatEntrySaveStatus,
+      events.healingOutcomes,
+    ),
+    ...effectRollsField(
+      entity.name,
+      events.damageOutcomes,
+      events.healingOutcomes,
     ),
     deferred: toSystemDeferredTriggers(
       events.deferred,
-      formatEntryDeferredSummary(DAMAGE_EVENTS_SUMMARY_LABEL),
+      formatEntryDeferredSummary(label),
     ),
     ...(related.length > 0 ? { related } : {}),
   };
@@ -568,6 +620,12 @@ function toEntityTriggerResult(
         outcome.damageOutcomes,
         outcome.saveOutcomes,
         formatEntrySaveStatus,
+        outcome.healingOutcomes,
+      ),
+      ...effectRollsField(
+        entity.name,
+        outcome.damageOutcomes,
+        outcome.healingOutcomes,
       ),
       deferred: toSystemDeferredTriggers(
         outcome.deferred,
@@ -694,6 +752,7 @@ function settleAttackRollEvent(
       entity,
       changed: false,
       damageOutcomes: [],
+      healingOutcomes: [],
       saveOutcomes: [],
       deferred: [],
     };
@@ -735,6 +794,7 @@ function settleAttackRollEvent(
 
     subject.changed ||= events.changed;
     subject.damageOutcomes.push(...events.damageOutcomes);
+    subject.healingOutcomes.push(...events.healingOutcomes);
     subject.saveOutcomes.push(...events.saveOutcomes);
     subject.deferred.push(...events.deferred);
 
@@ -743,6 +803,7 @@ function settleAttackRollEvent(
 
       other.changed ||= related.changed;
       other.damageOutcomes.push(...related.damageOutcomes);
+      other.healingOutcomes.push(...related.healingOutcomes);
       other.saveOutcomes.push(...related.saveOutcomes);
     }
   }
@@ -842,10 +903,17 @@ function settleTurnEffects(
 
   const hits = toDamageHits(result.damageOutcomes);
 
+  const rolls = effectRollsField(
+    entity.name,
+    result.damageOutcomes,
+    result.healingOutcomes,
+  );
+
   if (!askOwner) {
     return withDamageEvents(entity, hpBefore, hits, context, {
       changed: result.changed,
       chatSummary,
+      ...rolls,
     });
   }
 
@@ -917,6 +985,7 @@ function settleTurnEffects(
   return withDamageEvents(entity, hpBefore, hits, context, {
     changed: result.changed,
     chatSummary,
+    ...rolls,
     deferred: toSystemDeferredTriggers(
       deferred,
       (outcomeEntity, outcome) =>
@@ -1114,7 +1183,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.59';
+  readonly version = '0.8.60';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -1784,7 +1853,11 @@ export class Dnd5eVttSystem implements VttSystem {
       accepted: true,
       ...mergeTriggerResults(
         damageResult,
-        toDamageEventsTriggerResult(entity, applied),
+        toDamageEventsTriggerResult(
+          entity,
+          applied,
+          APPLIED_EVENTS_SUMMARY_LABEL,
+        ),
       ),
     };
   }

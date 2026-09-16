@@ -26,6 +26,7 @@ import type {
   EntryEffectOptions,
   EntryEffectResult,
   TurnDamageOutcome,
+  TurnHealingOutcome,
   TurnSaveOutcome,
 } from './turnEffects.js';
 
@@ -95,6 +96,8 @@ export interface AreaEffectsSyncResult {
   changed: boolean;
   /** Исходы урона от триггеров входа/выхода — для подписи в чате */
   damageOutcomes: TurnDamageOutcome[];
+  /** Исходы лечения от триггеров входа/выхода — для подписи в чате */
+  healingOutcomes: TurnHealingOutcome[];
   /** Исходы спасбросков от триггеров входа/выхода — для подписи в чате */
   saveOutcomes: TurnSaveOutcome[];
   /** Триггеры входа/выхода, чей спасбросок спросили у игрока */
@@ -119,7 +122,13 @@ export interface PresenceContext {
  * @returns итог без изменений
  */
 function createPresenceOutcome(): AreaEffectsSyncResult {
-  return { changed: false, damageOutcomes: [], saveOutcomes: [], deferred: [] };
+  return {
+    changed: false,
+    damageOutcomes: [],
+    healingOutcomes: [],
+    saveOutcomes: [],
+    deferred: [],
+  };
 }
 
 /**
@@ -134,6 +143,7 @@ function mergePresenceOutcome(
 ): void {
   target.changed ||= part.changed;
   target.damageOutcomes.push(...part.damageOutcomes);
+  target.healingOutcomes.push(...part.healingOutcomes);
   target.saveOutcomes.push(...part.saveOutcomes);
   target.deferred.push(...part.deferred);
 }
@@ -150,6 +160,10 @@ function recordEntryResult(
 ): void {
   if (result.damageOutcome) {
     outcome.damageOutcomes.push(result.damageOutcome);
+  }
+
+  if (result.healingOutcome) {
+    outcome.healingOutcomes.push(result.healingOutcome);
   }
 
   if (result.saveOutcome) {
@@ -605,6 +619,7 @@ export function applyAuraTriggerEffects(
       entity: targetEntity,
       changed: false,
       damageOutcomes: [],
+      healingOutcomes: [],
       saveOutcomes: [],
       deferred: [],
     };

@@ -157,6 +157,50 @@ describe('события урона', () => {
 
     assert.equal(result.changed, true);
     assert.equal(engine.hasEffectTag(hero, 'scorched'), true);
+    assert.equal(result.chatRolls, undefined, 'урон числом — кубиков нет');
+  });
+
+  it('кости урона и лечения хода уходят кубиками в чат', () => {
+    const system = new engine.Dnd5eVttSystem();
+
+    const burning = createEffect('Огонь', {
+      triggers: [
+        {
+          id: 'trigger_fire',
+          event: 'turnStart',
+          actions: [
+            {
+              type: 'damage',
+              parts: [
+                { formula: '1d6', type: 'fire' },
+                { formula: '1d4@heal' },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    const hero = withHp(
+      createActor,
+      HERO_MAX_HP / 2,
+      { activeEffects: [burning] },
+      HERO_MAX_HP,
+    );
+
+    const result = system.runTurnEffects(hero, 'startOfTurn', {});
+
+    assert.deepEqual(
+      result.chatRolls.map((roll) => [
+        roll.formula,
+        roll.label,
+        roll.dice.map((group) => group.sides),
+      ]),
+      [
+        ['1к6', `Огонь → ${hero.name} (Огненный урон)`, [6]],
+        ['1к4', `Огонь → ${hero.name} (лечение)`, [4]],
+      ],
+    );
   });
 
   it('действия другой стороне: урон тому, кто ударил, — без новых событий у него', () => {
