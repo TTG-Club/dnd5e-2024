@@ -9,15 +9,21 @@
  * Трата зарядов предмета живёт отдельно — см. `itemUses.ts`.
  */
 
+import type { ActiveEffect } from './activeEffectTypes.js';
 import type { ActorClassEntry } from './classTypes.js';
 import type {
   DnDActor,
   DnDCreature,
   DnDGameItem,
+  DnDSceneEntity,
   ItemUsesRecovery,
   Spell,
   SpellUsesRecovery,
 } from './dndEntities.js';
+import type {
+  EffectTrigger,
+  EffectTriggerRestType,
+} from './effectTriggerTypes.js';
 import type { FormulaContext } from './formulaParser.js';
 import type { ActorCounterState, DnDActorSystem } from './types.js';
 
@@ -34,6 +40,15 @@ import {
   resolveCounterMaxIn,
 } from './counterResource.js';
 import { restoreCreatureSpellGroupUses } from './creatureSpellcasting.js';
+import {
+  admitTrigger,
+  buildTriggerSources,
+  EFFECT_TRIGGER_SOURCE_KINDS,
+  rollTriggerSave,
+  settlePresenceTrigger,
+} from './effectTriggerRunner.js';
+import { listEffectListTriggers } from './effectTriggers.js';
+import { DEFAULT_TRIGGER_REST_TYPE } from './effectTriggerTypes.js';
 import { pruneTriggerUsage, restLimitPeriodsOf } from './effectTriggerUsage.js';
 import { canEntityRegainHitPoints } from './healingLimits.js';
 import {
@@ -263,6 +278,69 @@ export function collectItemChargeRolls(
 }
 
 /**
+ * Запускает ли отдых срабатывание: «любой» — всякий, иначе — свой.
+ *
+ * @param triggerRest - отдых срабатывания
+ * @param restType - совершённый отдых
+ * @returns `true`, если срабатывание выполняется
+ */
+function restTriggerMatches(
+  triggerRest: EffectTriggerRestType,
+  restType: RestType,
+): boolean {
+  return triggerRest === 'any' || triggerRest === restType;
+}
+
+/**
+ * Эффекты сущности после срабатываний «после отдыха»: снятие, отметки,
+ * состояния («максимум хитов возвращается после долгого отдыха»).
+ *
+ * Сущность приходит из стора хоста — срабатывания идут на её JSON-копии.
+ *
+ * @param entity - персонаж или существо
+ * @param restType - совершённый отдых
+ * @returns эффекты после срабатываний либо `undefined`, если срабатывать нечему
+ */
+export function resolveRestTriggerEffects(
+  entity: DnDSceneEntity,
+  restType: RestType,
+): ActiveEffect[] | undefined {
+  const restTriggersOf = (effect: ActiveEffect): EffectTrigger[] =>
+    listEffectListTriggers(effect).filter(
+      (trigger) =>
+        trigger.event === 'rest'
+        && restTriggerMatches(
+          trigger.restType ?? DEFAULT_TRIGGER_REST_TYPE,
+          restType,
+        ),
+    );
+
+  const effects = (entity.activeEffects ?? []).filter(
+    (effect) => !effect.disabled,
+  );
+
+  if (!effects.some((effect) => restTriggersOf(effect).length > 0)) {
+    return undefined;
+  }
+
+  const rested: DnDSceneEntity = JSON.parse(JSON.stringify(entity));
+
+  const sources = buildTriggerSources(
+    (rested.activeEffects ?? []).filter((effect) => !effect.disabled),
+    EFFECT_TRIGGER_SOURCE_KINDS.instance,
+    restTriggersOf,
+  );
+
+  for (const source of sources) {
+    if (admitTrigger(rested, source)) {
+      settlePresenceTrigger(rested, source, rollTriggerSave(rested, source));
+    }
+  }
+
+  return rested.activeEffects ?? [];
+}
+
+/**
  * Вычисляет патч актора при отдыхе.
  *
  * Короткий отдых: пактовые ячейки, счётчики с откатом 'short', заряды
@@ -281,6 +359,14 @@ export function applyActorRest(
   options: LongRestOptions = {},
 ): Partial<DnDActor> {
   const system = actor.system;
+
+  // Срабатывания «после отдыха» идут первыми: снятое ими (уменьшение максимума
+  // хитов, запрет лечения) уже не держит хиты этого отдыха
+  const restedEffects = resolveRestTriggerEffects(actor, restType);
+
+  const restedActor: DnDActor = restedEffects
+    ? { ...actor, activeEffects: restedEffects }
+    : actor;
 
   // Контекст формул собирается один раз на весь список счётчиков
   const counterContext = buildCounterFormulaContext(actor);
@@ -310,8 +396,8 @@ export function applyActorRest(
     restoredSystem.hitPoints = {
       ...system.hitPoints,
       // Запрет лечения держит хиты и через отдых
-      current: canEntityRegainHitPoints(actor)
-        ? resolveEntityMaxHp(actor)
+      current: canEntityRegainHitPoints(restedActor)
+        ? resolveEntityMaxHp(restedActor)
         : system.hitPoints.current,
       temp: 0,
     };
@@ -344,12 +430,16 @@ export function applyActorRest(
   // Продолжительный отдых снимает одну степень Истощения (PHB 2024). Патч
   // добавляется только когда есть что менять: пустой `activeEffects` перетёр бы
   // эффекты, которых отдых не касается
+  if (restedEffects) {
+    patch.activeEffects = restedEffects;
+  }
+
   if (restType === 'long') {
-    const exhaustionLevel = getEntityExhaustionLevel(actor.activeEffects);
+    const exhaustionLevel = getEntityExhaustionLevel(restedActor.activeEffects);
 
     if (exhaustionLevel > 0) {
       patch.activeEffects = withExhaustionLevel(
-        actor.activeEffects ?? [],
+        restedActor.activeEffects ?? [],
         exhaustionLevel - EXHAUSTION_LONG_REST_RECOVERY,
       );
     }
@@ -500,6 +590,8 @@ export function applyCreatureRest(
   creature: DnDCreature,
   restType: RestType,
 ): Partial<DnDCreature> {
+  const restedEffects = resolveRestTriggerEffects(creature, restType);
+
   const patch: Partial<DnDCreature> = {
     spells: (creature.spells ?? []).map((spell) =>
       restoreSpellUses(spell, restType),
@@ -507,6 +599,7 @@ export function applyCreatureRest(
     equipment: (creature.equipment ?? []).map((item) =>
       restoreItemUses(item, restType, undefined),
     ),
+    ...(restedEffects ? { activeEffects: restedEffects } : {}),
   };
 
   // Порция «на весь список» держит счётчик у себя, а не у заклинаний: без этой
@@ -535,7 +628,9 @@ export function applyCreatureRest(
     // иначе `average`). Нуль означает, что запаса в записи нет вовсе — у
     // существа с текстовыми хитами («половина хитов призывателя»); такому отдых
     // оставляет то, что есть, а не обнуляет его.
-    const restoredMax = resolveEntityMaxHp(creature);
+    const restoredMax = resolveEntityMaxHp(
+      restedEffects ? { ...creature, activeEffects: restedEffects } : creature,
+    );
 
     patch.system = {
       ...(patch.system ?? creature.system),

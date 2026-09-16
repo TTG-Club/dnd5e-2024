@@ -12,12 +12,15 @@ import type {
   EffectDurationType,
   EffectFormContext,
   EffectFormLayout,
+  EffectSaveTiming,
   EffectSuccessOutcome,
   EffectTrigger,
   EffectTriggerActionGate,
   EffectTriggerAttackRole,
   EffectTriggerLimitPeriod,
   EffectTriggerRecipient,
+  EffectTriggerRestType,
+  EffectTriggerSaveMode,
   EffectTurnAnchor,
   EffectTurnTiming,
 } from '@vtt/shared/system/dnd.js';
@@ -31,6 +34,8 @@ import {
   EFFECT_TRIGGER_ATTACK_ROLES,
   EFFECT_TRIGGER_LIMIT_PERIODS,
   EFFECT_TRIGGER_RECIPIENTS,
+  EFFECT_TRIGGER_REST_TYPES,
+  EFFECT_TRIGGER_SAVE_MODES,
   EFFECT_TURN_ANCHOR_LABELS,
   EFFECT_TURN_TIMING_LABELS,
   triggerEventHasRole,
@@ -50,13 +55,19 @@ import {
   ZONE_TRIGGER_LABELS,
 } from './constants';
 import {
+  EFFECT_TRIGGER_APPLIED_OTHER_PARTY_LABEL,
   EFFECT_TRIGGER_ATTACK_OTHER_PARTY_LABELS,
   EFFECT_TRIGGER_DAMAGE_HALF_GATE,
   EFFECT_TRIGGER_DAMAGE_HALF_LABEL,
+  EFFECT_TRIGGER_EVENT_LABELS,
   EFFECT_TRIGGER_GATE_LABELS,
+  EFFECT_TRIGGER_MAX_HP_REST_LABELS,
+  EFFECT_TRIGGER_NORMAL_SAVE_MODE,
   EFFECT_TRIGGER_PERIOD_LABELS,
   EFFECT_TRIGGER_RECIPIENT_LABELS,
+  EFFECT_TRIGGER_REST_LABELS,
   EFFECT_TRIGGER_ROLE_LABELS,
+  EFFECT_TRIGGER_SAVE_MODE_LABELS,
 } from './triggerLabels';
 
 /** Моменты срабатывания зоны и ауры в порядке показа */
@@ -319,6 +330,27 @@ export const EFFECT_TRIGGER_ROLE_OPTIONS: ReadonlyArray<
 }));
 
 /**
+ * Подпись «другой стороны» по событию: у урона — кто его нанёс, у броска атаки
+ * — цель или атакующий, при наложении — кто наложил.
+ *
+ * @param trigger - событие и роль строки
+ * @returns подпись
+ */
+function resolveOtherPartyLabel(
+  trigger: Pick<EffectTrigger, 'event' | 'role'>,
+): string {
+  if (triggerEventHasRole(trigger.event)) {
+    return EFFECT_TRIGGER_ATTACK_OTHER_PARTY_LABELS[
+      trigger.role ?? DEFAULT_TRIGGER_ATTACK_ROLE
+    ];
+  }
+
+  return trigger.event === 'applied'
+    ? EFFECT_TRIGGER_APPLIED_OTHER_PARTY_LABEL
+    : EFFECT_TRIGGER_RECIPIENT_LABELS.other;
+}
+
+/**
  * Варианты получателя действий срабатывания. «Другая сторона» подписана по
  * событию: у урона — кто его нанёс, у броска атаки — цель или атакующий.
  *
@@ -328,17 +360,10 @@ export const EFFECT_TRIGGER_ROLE_OPTIONS: ReadonlyArray<
 export function buildTriggerRecipientOptions(
   trigger: Pick<EffectTrigger, 'event' | 'role'>,
 ): EffectSegmentOption<EffectTriggerRecipient>[] {
-  const labels: Record<EffectTriggerRecipient, string> = triggerEventHasRole(
-    trigger.event,
-  )
-    ? {
-        ...EFFECT_TRIGGER_RECIPIENT_LABELS,
-        other:
-          EFFECT_TRIGGER_ATTACK_OTHER_PARTY_LABELS[
-            trigger.role ?? DEFAULT_TRIGGER_ATTACK_ROLE
-          ],
-      }
-    : EFFECT_TRIGGER_RECIPIENT_LABELS;
+  const labels: Record<EffectTriggerRecipient, string> = {
+    ...EFFECT_TRIGGER_RECIPIENT_LABELS,
+    other: resolveOtherPartyLabel(trigger),
+  };
 
   return EFFECT_TRIGGER_RECIPIENTS.map((recipient) => ({
     value: recipient,
@@ -361,6 +386,51 @@ export const EFFECT_TRIGGER_GATE_OPTIONS: ReadonlyArray<
   value: gate,
   label: EFFECT_TRIGGER_GATE_LABELS[gate],
 }));
+
+/** Варианты отдыха срабатывания «После отдыха» */
+export const EFFECT_TRIGGER_REST_OPTIONS: ReadonlyArray<
+  EffectSegmentOption<EffectTriggerRestType>
+> = EFFECT_TRIGGER_REST_TYPES.map((restType) => ({
+  value: restType,
+  label: EFFECT_TRIGGER_REST_LABELS[restType],
+}));
+
+/** После какого отдыха возвращается максимум хитов */
+export const EFFECT_TRIGGER_MAX_HP_REST_OPTIONS: ReadonlyArray<
+  EffectSegmentOption<EffectTriggerRestType | 'never'>
+> = [...EFFECT_TRIGGER_REST_TYPES, 'never' as const].map((restType) => ({
+  value: restType,
+  label: EFFECT_TRIGGER_MAX_HP_REST_LABELS[restType],
+}));
+
+/** Выбор режима спасброска срабатывания */
+export type EffectTriggerSaveModeChoice =
+  EffectTriggerSaveMode | typeof EFFECT_TRIGGER_NORMAL_SAVE_MODE;
+
+/** Режимы спасброска по порядку: обычный первым */
+const SAVE_MODE_CHOICES: readonly EffectTriggerSaveModeChoice[] = [
+  EFFECT_TRIGGER_NORMAL_SAVE_MODE,
+  ...EFFECT_TRIGGER_SAVE_MODES,
+];
+
+/** Варианты режима спасброска срабатывания */
+export const EFFECT_TRIGGER_SAVE_MODE_OPTIONS: ReadonlyArray<
+  EffectSegmentOption<EffectTriggerSaveModeChoice>
+> = SAVE_MODE_CHOICES.map((mode) => ({
+  value: mode,
+  label: EFFECT_TRIGGER_SAVE_MODE_LABELS[mode],
+}));
+
+/** Момент повторного спасброска наложенного состояния по умолчанию */
+export const DEFAULT_RECURRING_SAVE_TIMING: EffectSaveTiming = 'endOfTurn';
+
+/** Варианты момента повторного спасброска */
+export const EFFECT_SAVE_TIMING_OPTIONS: ReadonlyArray<
+  EffectSegmentOption<EffectSaveTiming>
+> = [
+  { value: 'startOfTurn', label: EFFECT_TRIGGER_EVENT_LABELS.turnStart ?? '' },
+  { value: 'endOfTurn', label: EFFECT_TRIGGER_EVENT_LABELS.turnEnd ?? '' },
+];
 
 /** Варианты исхода урона: «успех — половина» — отдельный вариант */
 export const EFFECT_TRIGGER_DAMAGE_GATE_OPTIONS: ReadonlyArray<

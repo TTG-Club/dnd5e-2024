@@ -660,12 +660,14 @@ describe('список «Срабатывания»', () => {
       'attackRoll',
       'damageTaken',
       'hpZero',
+      'rest',
     ]);
 
     assert.deepEqual(own.triggerActions, [
       'damage',
       'applyCondition',
       'applyTag',
+      'reduceMaxHp',
       'setHp',
       'endCast',
       'removeSelf',
@@ -673,7 +675,14 @@ describe('список «Срабатывания»', () => {
 
     assert.deepEqual(
       engine.listTriggerActionTypes(own, 'attackRoll'),
-      ['damage', 'applyCondition', 'applyTag', 'endCast', 'removeSelf'],
+      [
+        'damage',
+        'applyCondition',
+        'applyTag',
+        'reduceMaxHp',
+        'endCast',
+        'removeSelf',
+      ],
       'урон на броске атаки выполняет сервер',
     );
 
@@ -685,6 +694,7 @@ describe('список «Срабатывания»', () => {
         'damage',
         'applyCondition',
         'applyTag',
+        'reduceMaxHp',
         'setHp',
         'endCast',
         'removeSelf',
@@ -696,6 +706,8 @@ describe('список «Срабатывания»', () => {
     assert.equal(engine.triggerEventAcceptsDcFormula('turnEnd'), false);
     assert.equal(engine.triggerEventHasOtherParty('damageTaken'), true);
     assert.equal(engine.triggerEventHasOtherParty('hpZero'), false);
+    assert.equal(engine.triggerEventAcceptsDcFormula('applied'), true);
+    assert.equal(engine.triggerEventHasOtherParty('applied'), true);
 
     const zone = layoutOf('zone');
 
@@ -710,7 +722,23 @@ describe('список «Срабатывания»', () => {
       'damage',
       'applyCondition',
       'applyTag',
+      'reduceMaxHp',
     ]);
+
+    assert.deepEqual(
+      layoutOf('spell', { effectTarget: 'target' }).triggerEvents,
+      [
+        'applied',
+        'turnStart',
+        'turnEnd',
+        'attackRoll',
+        'damageTaken',
+        'hpZero',
+        'castEnd',
+        'rest',
+      ],
+      'эффект заклинания на цели слышит урон по цели и конец каста',
+    );
 
     assert.deepEqual(
       layoutOf('spell', {
@@ -733,6 +761,7 @@ describe('список «Срабатывания»', () => {
       'damage',
       'applyCondition',
       'applyTag',
+      'reduceMaxHp',
       'setHp',
     ]);
 

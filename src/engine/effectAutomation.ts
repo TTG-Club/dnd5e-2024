@@ -10,6 +10,7 @@
 
 import type { ActiveEffect } from './activeEffectTypes.js';
 import type { ConditionRef } from './conditionKeys.js';
+import type { EffectTrigger } from './effectTriggerTypes.js';
 
 import {
   resolveEffectLandingGates,
@@ -145,7 +146,50 @@ export function resolveEffectSaveDc(dc: number, sourceDc: number): number {
  * @returns `true`, если хоть одно срабатывание ждёт Сл источника
  */
 function hasSourceTriggerSaveDc(effect: ActiveEffect): boolean {
-  return (effect.triggers ?? []).some((trigger) => trigger.save?.dc === 0);
+  return (effect.triggers ?? []).some(
+    (trigger) =>
+      trigger.save?.dc === 0
+      || trigger.actions.some(
+        (action) =>
+          action.type === 'applyCondition' && action.recurringSave?.dc === 0,
+      ),
+  );
+}
+
+/**
+ * Срабатывание со Сл источника: в спасброске и в повторном спасброске
+ * наложенного состояния.
+ *
+ * @param trigger - срабатывание
+ * @param sourceDc - Сл источника
+ * @returns срабатывание с проставленной Сл
+ */
+function stampTriggerSaveDc(
+  trigger: EffectTrigger,
+  sourceDc: number,
+): EffectTrigger {
+  return {
+    ...trigger,
+    ...(trigger.save
+      ? {
+          save: {
+            ...trigger.save,
+            dc: resolveEffectSaveDc(trigger.save.dc, sourceDc),
+          },
+        }
+      : {}),
+    actions: trigger.actions.map((action) =>
+      action.type === 'applyCondition' && action.recurringSave
+        ? {
+            ...action,
+            recurringSave: {
+              ...action.recurringSave,
+              dc: resolveEffectSaveDc(action.recurringSave.dc, sourceDc),
+            },
+          }
+        : action,
+    ),
+  };
 }
 
 /**
@@ -201,17 +245,7 @@ export function stampSourceTurnSaveDc(
           },
         }
       : recurringDamage,
-    triggers: triggers?.map((trigger) =>
-      trigger.save
-        ? {
-            ...trigger,
-            save: {
-              ...trigger.save,
-              dc: resolveEffectSaveDc(trigger.save.dc, sourceDc),
-            },
-          }
-        : trigger,
-    ),
+    triggers: triggers?.map((trigger) => stampTriggerSaveDc(trigger, sourceDc)),
   };
 }
 

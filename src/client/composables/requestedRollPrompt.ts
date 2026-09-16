@@ -79,6 +79,7 @@ export function promptRequestedRoll(
     againstSpell: payload.againstSpell,
     againstCondition: payload.againstCondition,
     againstConcentration: payload.againstConcentration,
+    mode: payload.mode,
     sourceName: payload.sourceName,
   };
 

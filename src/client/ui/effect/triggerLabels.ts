@@ -4,7 +4,9 @@
 
 import type { DamageType } from '@vtt/shared';
 import type {
+  ConditionRef,
   CreatureCategory,
+  CreatureSize,
   EffectTriggerActionGate,
   EffectTriggerActionType,
   EffectTriggerAttackRole,
@@ -12,11 +14,16 @@ import type {
   EffectTriggerLimitPeriod,
   EffectTriggerPreset,
   EffectTriggerRecipient,
+  EffectTriggerRestType,
+  EffectTriggerSaveMode,
   EffectTriggerTurnOwner,
   TriggerConditionKind,
 } from '@vtt/shared/system/dnd.js';
 
 import { DEFAULT_EFFECT_TAG } from '@vtt/shared/system/dnd.js';
+
+/** «На сколько» нового действия «Уменьшить максимум хитов» */
+export const DEFAULT_MAX_HP_REDUCTION = '@damage';
 
 /** Подписи шага «Срабатывания» */
 export const EFFECT_TRIGGERS_STEP_LABELS = {
@@ -59,12 +66,23 @@ export const EFFECT_TRIGGER_ROW_LABELS = {
   dcFormulaHint: '@damage — урон события. Пусто — число Сл.',
   limitToggle: 'Не чаще',
   limitTimes: 'раз за',
+  restType: 'Какой отдых',
+  saveMode: 'Бросок',
+  recurringSaveToggle: 'Повторный спасбросок снимает состояние',
+  recurringSaveTiming: 'Когда',
+  tagStack: 'Счётчик',
+  tagStackHint: 'Повторная отметка прибавляет ступень, а не заменяет прежнюю',
+  maxHpAmount: 'На сколько',
+  maxHpAmountPlaceholder: '@damage',
+  maxHpAmountHint: '@damage — урон события; можно число или кости',
+  maxHpRest: 'Максимум вернётся после',
 } as const;
 
 /** События срабатывания в списке */
 export const EFFECT_TRIGGER_EVENT_LABELS: Partial<
   Record<EffectTriggerEvent, string>
 > = {
+  applied: 'При наложении на цель',
   turnStart: 'В начале хода',
   turnEnd: 'В конце хода',
   enter: 'При входе в зону или ауру',
@@ -72,7 +90,39 @@ export const EFFECT_TRIGGER_EVENT_LABELS: Partial<
   attackRoll: 'При броске атаки',
   damageTaken: 'Когда носитель получает урон',
   hpZero: 'Когда хиты носителя падают до 0',
+  castEnd: 'Когда заклинание заканчивается',
+  rest: 'После отдыха',
 };
+
+/** Какой отдых запускает срабатывание */
+export const EFFECT_TRIGGER_REST_LABELS: Record<EffectTriggerRestType, string> =
+  {
+    long: 'Долгий отдых',
+    short: 'Короткий отдых',
+    any: 'Любой отдых',
+  };
+
+/** После какого отдыха возвращается максимум хитов */
+export const EFFECT_TRIGGER_MAX_HP_REST_LABELS: Record<
+  EffectTriggerRestType | 'never',
+  string
+> = {
+  ...EFFECT_TRIGGER_REST_LABELS,
+  never: 'Не вернётся сам',
+};
+
+/** Режим спасброска срабатывания; обычный в данных не пишется */
+export const EFFECT_TRIGGER_SAVE_MODE_LABELS: Record<
+  EffectTriggerSaveMode | typeof EFFECT_TRIGGER_NORMAL_SAVE_MODE,
+  string
+> = {
+  normal: 'Обычный',
+  advantage: 'С преимуществом',
+  disadvantage: 'С помехой',
+};
+
+/** Обычный спасбросок в выборе режима: поля `mode` нет */
+export const EFFECT_TRIGGER_NORMAL_SAVE_MODE = 'normal';
 
 /** Кому достаются действия срабатывания; «другая сторона» — у урона */
 export const EFFECT_TRIGGER_RECIPIENT_LABELS: Record<
@@ -82,6 +132,9 @@ export const EFFECT_TRIGGER_RECIPIENT_LABELS: Record<
   subject: 'Носителю эффекта',
   other: 'Тому, кто нанёс урон',
 };
+
+/** «Другая сторона» при наложении — кто наложил эффект */
+export const EFFECT_TRIGGER_APPLIED_OTHER_PARTY_LABEL = 'Наложившему эффект';
 
 /** «Другая сторона» броска атаки по роли носителя */
 export const EFFECT_TRIGGER_ATTACK_OTHER_PARTY_LABELS: Record<
@@ -119,6 +172,7 @@ export const EFFECT_TRIGGER_ACTION_LABELS: Record<
   applySelf: 'Наложить сам эффект',
   applyCondition: 'Наложить состояние',
   applyTag: 'Поставить отметку',
+  reduceMaxHp: 'Уменьшить максимум хитов',
   setHp: 'Хиты становятся',
   endCast: 'Закончить каст',
   removeSelf: 'Снять эффект',
@@ -133,6 +187,7 @@ export const EFFECT_TRIGGER_ACTION_ICONS: Record<
   applySelf: 'tabler:copy',
   applyCondition: 'tabler:mood-sick',
   applyTag: 'tabler:bookmark',
+  reduceMaxHp: 'tabler:heart-minus',
   setHp: 'tabler:heart-plus',
   endCast: 'tabler:player-stop',
   removeSelf: 'tabler:circle-x',
@@ -197,6 +252,7 @@ export const EFFECT_TRIGGER_CONDITION_LABELS = {
   remove: 'Убрать условие',
   unknown: 'Условие из данных, окно его не знает: срабатывание не сработает',
   knownTags: 'Отметки этого эффекта',
+  amount: 'не меньше',
 } as const;
 
 /** Виды частей условия срабатывания */
@@ -217,6 +273,15 @@ export const EFFECT_TRIGGER_CONDITION_KIND_LABELS: Record<
   rollDisadvantage: 'Атака с помехой',
   otherCreatureType: 'Другая сторона — существо типа',
   otherMarkedBySelf: 'Другая сторона помечена носителем',
+  selfHpAtMost: 'У носителя хитов не больше',
+  selfHpAtLeast: 'У носителя хитов не меньше',
+  selfSizeAtMost: 'Носитель размером не больше',
+  selfSizeAtLeast: 'Носитель размером не меньше',
+  selfCondition: 'Носитель в состоянии',
+  selfConditionNot: 'Носитель не в состоянии',
+  selfTagCountAtLeast: 'Отметок на носителе (счётчик)',
+  selfTagFromSource: 'На носителе отметка от наложившего',
+  selfTagFromSourceNot: 'На носителе нет отметки от наложившего',
 };
 
 /** Значение новой части условия с выбором */
@@ -224,8 +289,14 @@ export const EFFECT_TRIGGER_CONDITION_DEFAULT_VALUES: {
   damageType: DamageType;
   creatureType: CreatureCategory;
   tag: string;
+  number: string;
+  size: CreatureSize;
+  condition: ConditionRef;
 } = {
   damageType: 'fire',
   creatureType: 'humanoid',
   tag: DEFAULT_EFFECT_TAG,
+  number: '50',
+  size: 'large',
+  condition: 'incapacitated',
 };

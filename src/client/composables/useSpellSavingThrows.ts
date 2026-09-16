@@ -76,6 +76,8 @@ export interface SavingThrowTarget {
    * существа: «Кольцо отражения заклинаний». Едет в нагрузке запроса.
    */
   againstSpell?: boolean;
+  /** Преимущество или помеха самого спасброска (срабатывание эффекта) */
+  mode?: 'advantage' | 'disadvantage';
   /**
    * Сущность, от чьего имени идёт действие (заклинатель, атакующий). По ней
    * сервер проверяет право игрока просить бросок; ГМу поле не требуется, но
@@ -157,6 +159,7 @@ function buildSavingThrowResult(
  * @param options.againstSpell - спасбросок навязан заклинанием
  * @param options.againstCondition - состояние, которого он позволяет избежать
  * @param options.againstConcentration - спасбросок концентрации
+ * @param options.mode - преимущество или помеха самого спасброска
  * @returns модификатор спасброска и флаги (преимущество/помеха/автопровал)
  */
 function getActorSaveInfo(
@@ -167,6 +170,7 @@ function getActorSaveInfo(
     againstSpell?: boolean;
     againstCondition?: ConditionRef;
     againstConcentration?: boolean;
+    mode?: 'advantage' | 'disadvantage';
   },
 ): ActorSaveInfo {
   // Ядро видит entity как Base*; D&D-форму подтверждает гвард. Без данных
@@ -195,6 +199,7 @@ function getActorSaveInfo(
     againstSpell: options.againstSpell,
     againstCondition: options.againstCondition,
     againstConcentration: options.againstConcentration,
+    mode: options.mode,
   });
 
   const hasAdvantage = rollMode === 'advantage';
@@ -235,6 +240,7 @@ function resolveTargetSaveInfo(target: SavingThrowTarget): ActorSaveInfo {
     againstSpell: target.againstSpell,
     againstCondition: target.againstCondition,
     againstConcentration: target.againstConcentration,
+    mode: target.mode,
   });
 }
 

@@ -583,6 +583,11 @@ export interface SavingThrowRollModeParams {
    * нём, а не на всех спасбросках Телосложения.
    */
   againstConcentration?: boolean;
+  /**
+   * Преимущество или помеха самого спасброска, а не бросающего: «повторяет
+   * спасбросок с преимуществом, если урон нанёс заклинатель».
+   */
+  mode?: 'advantage' | 'disadvantage';
 }
 
 /**
@@ -609,10 +614,12 @@ export function resolveSavingThrowRollMode(
     againstSpell,
     againstCondition,
     againstConcentration,
+    mode,
   } = params;
 
   const hasAdvantage =
-    flags.has('save.advantage')
+    mode === 'advantage'
+    || flags.has('save.advantage')
     || flags.has(`save.advantage.${ability}`)
     || (againstMagic === true && flags.has('save.advantage.vsMagic'))
     || (againstSpell === true && flags.has('save.advantage.vsSpell'))
@@ -622,7 +629,8 @@ export function resolveSavingThrowRollMode(
       && flags.has(buildSaveVsConditionFlag('advantage', againstCondition)));
 
   const hasDisadvantage =
-    flags.has('save.disadvantage')
+    mode === 'disadvantage'
+    || flags.has('save.disadvantage')
     || flags.has(`save.disadvantage.${ability}`)
     || (againstMagic === true && flags.has('save.disadvantage.vsMagic'))
     || (againstSpell === true && flags.has('save.disadvantage.vsSpell'))

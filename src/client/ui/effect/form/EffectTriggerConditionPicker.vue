@@ -19,9 +19,12 @@
   import {
     CHOICE_DAMAGE_TYPE,
     CREATURE_CATEGORY_OPTIONS,
+    CREATURE_SIZE_OPTIONS,
+    DEFAULT_TAG_COUNT_THRESHOLD,
     getTriggerConditionParameter,
     isDamageType,
     isEffectTag,
+    listSelectableConditions,
     listTriggerConditionKinds,
     readTriggerConditionParts,
     writeTriggerCondition,
@@ -86,15 +89,25 @@
     ),
   );
 
-  // Ключ отметки вводится строкой, у остальных значений — выбор из словаря
+  // Состояния — канон и заведённые в мире
+  const conditionItems = computed(() =>
+    listSelectableConditions().map((conditionEntry) => ({
+      label: conditionEntry.nameRu,
+      value: conditionEntry.key,
+    })),
+  );
+
+  // Ключ отметки и число вводятся, у остальных значений — выбор из словаря
   const parameterItems = computed<
     Record<
-      Exclude<TriggerConditionParameter, 'tag'>,
+      Exclude<TriggerConditionParameter, 'tag' | 'number'>,
       Array<{ label: string; value: string }>
     >
   >(() => ({
     damageType: damageTypeItems.value,
     creatureType: CREATURE_CATEGORY_OPTIONS,
+    size: CREATURE_SIZE_OPTIONS,
+    condition: conditionItems.value,
   }));
 
   /**
@@ -116,9 +129,15 @@
   function addPart(kind: TriggerConditionKind): void {
     const parameter = getTriggerConditionParameter(kind);
 
+    const part: TriggerConditionPart = parameter
+      ? { kind, value: defaultValueOf(parameter) }
+      : { kind };
+
     writeParts([
       ...parts.value,
-      parameter ? { kind, value: defaultValueOf(parameter) } : { kind },
+      kind === 'selfTagCountAtLeast'
+        ? { ...part, amount: DEFAULT_TAG_COUNT_THRESHOLD }
+        : part,
     ]);
   }
 
@@ -195,9 +214,45 @@
   ): Array<{ label: string; value: string }> {
     const parameter = getTriggerConditionParameter(part.kind);
 
-    return parameter && parameter !== 'tag'
+    return parameter && parameter !== 'tag' && parameter !== 'number'
       ? parameterItems.value[parameter]
       : [];
+  }
+
+  /**
+   * Вводится ли значение части числом — хиты.
+   *
+   * @param part - часть условия
+   * @returns `true` для частей с числом
+   */
+  function isNumberPart(part: TriggerConditionPart): boolean {
+    return getTriggerConditionParameter(part.kind) === 'number';
+  }
+
+  /**
+   * Меняет число части: хитов не меньше нуля.
+   *
+   * @param index - номер части
+   * @param value - введённое число
+   */
+  function updatePartNumber(index: number, value: number | null): void {
+    updatePartValue(index, String(Math.max(0, Math.trunc(value ?? 0))));
+  }
+
+  /**
+   * Меняет порог счётчика отметок.
+   *
+   * @param index - номер части
+   * @param value - введённый порог
+   */
+  function updatePartAmount(index: number, value: number | null): void {
+    writeParts(
+      parts.value.map((part, partIndex) =>
+        partIndex === index && typeof part !== 'string'
+          ? { ...part, amount: Math.max(1, Math.trunc(value ?? 1)) }
+          : part,
+      ),
+    );
   }
 
   const addItems = computed<DropdownMenuItem[]>(() =>
@@ -251,6 +306,15 @@
         @update:model-value="updatePartValue(index, $event)"
       />
 
+      <UInputNumber
+        v-else-if="row.part && isNumberPart(row.part)"
+        :model-value="Number(row.part.value)"
+        :min="0"
+        size="xs"
+        class="w-28"
+        @update:model-value="updatePartNumber(index, $event)"
+      />
+
       <template v-else-if="row.part && isTagPart(row.part)">
         <UInput
           :model-value="row.part.value"
@@ -269,6 +333,20 @@
           :title="EFFECT_TRIGGER_CONDITION_LABELS.knownTags"
           @click.left.exact.prevent="updatePartValue(index, tag)"
         />
+
+        <template v-if="row.part.kind === 'selfTagCountAtLeast'">
+          <span class="text-xs text-muted">
+            {{ EFFECT_TRIGGER_CONDITION_LABELS.amount }}
+          </span>
+
+          <UInputNumber
+            :model-value="row.part.amount"
+            :min="1"
+            size="xs"
+            class="w-24"
+            @update:model-value="updatePartAmount(index, $event)"
+          />
+        </template>
       </template>
 
       <UButton

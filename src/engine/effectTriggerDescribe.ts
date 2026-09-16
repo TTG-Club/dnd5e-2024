@@ -14,6 +14,8 @@ import type {
   EffectTriggerAction,
   EffectTriggerEvent,
   EffectTriggerLimitPeriod,
+  EffectTriggerRestType,
+  EffectTriggerSaveMode,
 } from './effectTriggerTypes.js';
 import type { TriggerConditionKind } from './triggerConditions.js';
 
@@ -26,7 +28,9 @@ import {
 import {
   ABILITY_GENITIVE_LABELS,
   CREATURE_CATEGORIES,
+  CREATURE_SIZE_LABELS,
   isCreatureCategory,
+  isCreatureSize,
 } from './consts.js';
 import { getShortDamageTypeLabel } from './damageConstants.js';
 import {
@@ -34,8 +38,12 @@ import {
   isTurnTriggerEvent,
   resolveTriggerActionGate,
 } from './effectTriggers.js';
+import { DEFAULT_TRIGGER_REST_TYPE } from './effectTriggerTypes.js';
 import { EVENT_DAMAGE_VARIABLE } from './formulaParser.js';
-import { readTriggerConditionParts } from './triggerConditions.js';
+import {
+  DEFAULT_TAG_COUNT_THRESHOLD,
+  readTriggerConditionParts,
+} from './triggerConditions.js';
 
 /** Что даёт успех спасброска против урона каждый ход */
 const RECURRING_DAMAGE_SUCCESS_LABELS = {
@@ -108,7 +116,25 @@ const TRIGGER_LABELS = {
   limitOnce: 'одного раза',
   limitTimes: ' раз',
   limitPeriodPrefix: ' за ',
+  stackSuffix: ' +1',
+  maxHpPrefix: 'максимум хитов −',
+  saveModeAdvantage: ' с преимуществом',
+  saveModeDisadvantage: ' с помехой',
 } as const;
+
+/** Отдых срабатывания «после отдыха» */
+const REST_EVENT_LABELS: Record<EffectTriggerRestType, string> = {
+  long: 'после долгого отдыха',
+  short: 'после короткого отдыха',
+  any: 'после любого отдыха',
+};
+
+/** До какого отдыха держится уменьшение максимума хитов */
+const REST_UNTIL_LABELS: Record<EffectTriggerRestType, string> = {
+  long: ' до долгого отдыха',
+  short: ' до короткого отдыха',
+  any: ' до отдыха',
+};
 
 /** Настройки фразы */
 export interface EffectTriggerDescribeOptions {
@@ -116,10 +142,13 @@ export interface EffectTriggerDescribeOptions {
   formatDc: (dc: number) => string;
 }
 
-/** Подписи частей условия срабатывания; значение — тип урона, существа, отметка */
+/**
+ * Подписи частей условия срабатывания; значение — тип урона, существа, отметка,
+ * размер, состояние или число, `amount` — порог счётчика отметок.
+ */
 const TRIGGER_CONDITION_PHRASES: Record<
   TriggerConditionKind,
-  (value: string) => string
+  (value: string, amount: number) => string
 > = {
   damageType: (value) => `урон ${getShortDamageTypeLabel(value)}`,
   damageTypeNot: (value) => `урон не ${getShortDamageTypeLabel(value)}`,
@@ -135,7 +164,32 @@ const TRIGGER_CONDITION_PHRASES: Record<
   otherCreatureType: (value) =>
     `другая сторона — ${describeCreatureType(value)}`,
   otherMarkedBySelf: () => 'другая сторона помечена носителем',
+  selfHpAtMost: (value) => `у носителя не больше ${value} хитов`,
+  selfHpAtLeast: (value) => `у носителя не меньше ${value} хитов`,
+  selfSizeAtMost: (value) =>
+    `носитель размером не больше «${describeCreatureSize(value)}»`,
+  selfSizeAtLeast: (value) =>
+    `носитель размером не меньше «${describeCreatureSize(value)}»`,
+  selfCondition: (value) =>
+    `носитель в состоянии «${describeConditionName(value)}»`,
+  selfConditionNot: (value) =>
+    `носитель не в состоянии «${describeConditionName(value)}»`,
+  selfTagCountAtLeast: (value, amount) =>
+    `отметок «${value}» на носителе не меньше ${amount}`,
+  selfTagFromSource: (value) => `на носителе отметка «${value}» от наложившего`,
+  selfTagFromSourceNot: (value) =>
+    `на носителе нет отметки «${value}» от наложившего`,
 };
+
+/**
+ * Подпись размера существа.
+ *
+ * @param value - ключ размера
+ * @returns подпись либо ключ
+ */
+function describeCreatureSize(value: string): string {
+  return isCreatureSize(value) ? CREATURE_SIZE_LABELS[value] : value;
+}
 
 /**
  * Подпись типа существа.
@@ -159,7 +213,10 @@ export function describeTriggerCondition(condition: string): string {
     .map((part) =>
       typeof part === 'string'
         ? describeEffectChangeCondition(part)
-        : TRIGGER_CONDITION_PHRASES[part.kind](part.value ?? ''),
+        : TRIGGER_CONDITION_PHRASES[part.kind](
+            part.value ?? '',
+            part.amount ?? DEFAULT_TAG_COUNT_THRESHOLD,
+          ),
     )
     .join(TRIGGER_LABELS.conditionJoiner);
 }
@@ -184,24 +241,52 @@ function withDurationSuffix(
  * Подпись действия.
  *
  * @param action - действие
+ * @param options - настройки
  * @returns подпись либо пустая строка, если описывать нечего
  */
-function describeAction(action: EffectTriggerAction): string {
+function describeAction(
+  action: EffectTriggerAction,
+  options: EffectTriggerDescribeOptions,
+): string {
   switch (action.type) {
     case 'damage':
       return describeEffectDamageParts(action.parts);
     case 'applySelf':
       return TRIGGER_LABELS.effect;
-    case 'applyCondition':
-      return withDurationSuffix(
+    case 'applyCondition': {
+      const condition = withDurationSuffix(
         `«${describeConditionName(action.conditionKey)}»`,
         action.duration,
       );
+
+      if (!action.recurringSave) {
+        return condition;
+      }
+
+      const { ability, dc, timing } = action.recurringSave;
+
+      const moment =
+        timing === 'startOfTurn'
+          ? TRIGGER_LABELS.startOfTurn
+          : TRIGGER_LABELS.endOfTurn;
+
+      return `${condition} (${TRIGGER_LABELS.recurringSavePrefix}${ABILITY_GENITIVE_LABELS[ability]} ${options.formatDc(dc)}${moment}${TRIGGER_LABELS.recurringSaveSuffix})`;
+    }
     case 'applyTag':
       return withDurationSuffix(
-        `${TRIGGER_LABELS.tagPrefix}«${action.label ?? action.tag}»`,
+        `${TRIGGER_LABELS.tagPrefix}«${action.label ?? action.tag}»${action.stack ? TRIGGER_LABELS.stackSuffix : ''}`,
         action.duration,
       );
+    case 'reduceMaxHp': {
+      const amount = action.amount.replaceAll(
+        `@${EVENT_DAMAGE_VARIABLE}`,
+        TRIGGER_LABELS.damageVariable,
+      );
+
+      const endsOnRest = action.endsOnRest ?? DEFAULT_TRIGGER_REST_TYPE;
+
+      return `${TRIGGER_LABELS.maxHpPrefix}${amount}${endsOnRest === 'never' ? '' : REST_UNTIL_LABELS[endsOnRest]}`;
+    }
     case 'setHp':
       return `${TRIGGER_LABELS.setHpPrefix}${action.value}`;
     case 'endCast':
@@ -218,11 +303,13 @@ function describeAction(action: EffectTriggerAction): string {
  *
  * @param trigger - срабатывание
  * @param saved - пройден ли спасбросок
+ * @param options - настройки
  * @returns перечисление либо «ничего»
  */
 function describeOutcomeActions(
   trigger: EffectTrigger,
   saved: boolean,
+  options: EffectTriggerDescribeOptions,
 ): string {
   const parts = trigger.actions.flatMap((action) => {
     const gate = resolveTriggerActionGate(trigger, action);
@@ -235,7 +322,7 @@ function describeOutcomeActions(
       return [TRIGGER_LABELS.halfDamage];
     }
 
-    const label = describeAction(action);
+    const label = describeAction(action, options);
 
     return label ? [label] : [];
   });
@@ -254,6 +341,10 @@ function describeOutcomeActions(
 function describeMoment(trigger: EffectTrigger): string {
   if (trigger.event === 'attackRoll' && trigger.role) {
     return ATTACK_ROLE_EVENT_LABELS[trigger.role];
+  }
+
+  if (trigger.event === 'rest') {
+    return REST_EVENT_LABELS[trigger.restType ?? DEFAULT_TRIGGER_REST_TYPE];
   }
 
   const label = TRIGGER_EVENT_LABELS[trigger.event];
@@ -313,6 +404,20 @@ function describeLegacyShape(
 }
 
 /**
+ * Подпись режима спасброска.
+ *
+ * @param mode - режим
+ * @returns продолжение фразы либо пустая строка
+ */
+function describeSaveMode(mode: EffectTriggerSaveMode | undefined): string {
+  if (mode === 'advantage') {
+    return TRIGGER_LABELS.saveModeAdvantage;
+  }
+
+  return mode === 'disadvantage' ? TRIGGER_LABELS.saveModeDisadvantage : '';
+}
+
+/**
  * Лимит «не чаще N раз за период».
  *
  * @param trigger - срабатывание
@@ -359,18 +464,18 @@ export function describeEffectTrigger(
   const limit = describeLimit(trigger);
 
   if (!trigger.save) {
-    return `${moment}: ${describeOutcomeActions(trigger, false)}${limit}`;
+    return `${moment}: ${describeOutcomeActions(trigger, false, options)}${limit}`;
   }
 
-  const { ability, dc, dcFormula } = trigger.save;
+  const { ability, dc, dcFormula, mode } = trigger.save;
 
   const dcLabel = dcFormula
     ? `${TRIGGER_LABELS.dcFormulaPrefix}${dcFormula.replaceAll(`@${EVENT_DAMAGE_VARIABLE}`, TRIGGER_LABELS.damageVariable)}`
     : options.formatDc(dc);
 
   return [
-    `${moment}: ${TRIGGER_LABELS.savePrefix}${ABILITY_GENITIVE_LABELS[ability]}, ${dcLabel}`,
-    `${TRIGGER_LABELS.failurePrefix}${describeOutcomeActions(trigger, false)}`,
-    `${TRIGGER_LABELS.successPrefix}${describeOutcomeActions(trigger, true)}${limit}`,
+    `${moment}: ${TRIGGER_LABELS.savePrefix}${ABILITY_GENITIVE_LABELS[ability]}${describeSaveMode(mode)}, ${dcLabel}`,
+    `${TRIGGER_LABELS.failurePrefix}${describeOutcomeActions(trigger, false, options)}`,
+    `${TRIGGER_LABELS.successPrefix}${describeOutcomeActions(trigger, true, options)}${limit}`,
   ].join(TRIGGER_LABELS.clauseJoiner);
 }

@@ -450,6 +450,8 @@ export interface SavingThrowCircumstances {
   againstCondition?: ConditionRef;
   /** Спасбросок концентрации */
   againstConcentration?: boolean;
+  /** Преимущество или помеха самого спасброска */
+  mode?: 'advantage' | 'disadvantage';
 }
 
 /**
@@ -583,6 +585,7 @@ export function rollEffectSavingThrow(
     againstSpell: circumstances?.againstSpell,
     againstCondition: circumstances?.againstCondition,
     againstConcentration: circumstances?.againstConcentration,
+    mode: circumstances?.mode,
   });
 
   const hasAdvantage = rollMode === 'advantage';
@@ -925,6 +928,13 @@ export interface EntryEffectOptions {
    * старое ядро) снимается только сам эффект.
    */
   endCast?: (effect: ActiveEffect) => void;
+  /** Урон события: `@damage` действия «Максимум хитов уменьшается» */
+  eventDamage?: number;
+  /**
+   * Не привязывать наложенное к касту: наложения «когда заклинание
+   * заканчивается» переживают сам каст.
+   */
+  detachFromCast?: boolean;
 }
 
 /** Исход срабатывания эффекта области/ауры при входе/выходе */

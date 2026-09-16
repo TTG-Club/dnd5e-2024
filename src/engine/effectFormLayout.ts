@@ -41,6 +41,7 @@ import {
   writeEffectTriggers,
 } from './effectTriggers.js';
 import {
+  DAMAGE_DATA_TRIGGER_EVENTS,
   DAMAGE_TRIGGER_EVENTS,
   DEFAULT_EFFECT_TAG,
   DEFAULT_TRIGGER_ATTACK_ROLE,
@@ -615,10 +616,14 @@ export function resolveEffectFormLayout(
       showRecurringDamage,
       canRemoveSelf: livesOnItsOwn,
       hasPresence: delivery === 'zone' || delivery === 'aura',
+      // Эффект на цели лежит на ней и слышит урон по ней, как свой
       hearsDamage:
         (delivery === 'carrier' && DAMAGE_EVENT_CONTEXTS.has(context))
-        || isAuraStay,
+        || isAuraStay
+        || isOnTarget,
       hasSource: !isTickingCarrier,
+      endsWithCast: context === 'spell' && livesOnItsOwn,
+      landsOnTarget: isOnTarget,
     }),
     minSaveDc: acceptsSourceSaveDc(context, delivery)
       ? SOURCE_MIN_SAVE_DC
@@ -647,6 +652,9 @@ const TURN_OWNERS_SUBJECT: readonly EffectTriggerTurnOwner[] = ['subject'];
  * @param place.hasPresence - эффект зоны или ауры: в него входят и выходят
  * @param place.hearsDamage - эффект слышит урон по носителю
  * @param place.hasSource - у эффекта бывает наложивший
+ * @param place.endsWithCast - эффект заклинания лежит на существе и уходит
+ *   с кастом
+ * @param place.landsOnTarget - эффект ложится на цель ударом или заклинанием
  * @returns события, действия и выбор хода списка
  */
 function resolveTriggerListLayout(place: {
@@ -655,6 +663,8 @@ function resolveTriggerListLayout(place: {
   hasPresence: boolean;
   hearsDamage: boolean;
   hasSource: boolean;
+  endsWithCast: boolean;
+  landsOnTarget: boolean;
 }): Pick<
   EffectFormLayout,
   'triggerEvents' | 'triggerActions' | 'triggerTurnOwners'
@@ -662,10 +672,13 @@ function resolveTriggerListLayout(place: {
   const ticks = place.showRecurringDamage || place.canRemoveSelf;
 
   const triggerEvents: EffectTriggerEvent[] = [
+    ...(place.landsOnTarget ? (['applied'] as const) : []),
     ...(ticks ? TURN_TRIGGER_EVENTS : []),
     ...(place.hasPresence ? PRESENCE_TRIGGER_EVENTS : []),
     ...(place.canRemoveSelf ? (['attackRoll'] as const) : []),
     ...(place.hearsDamage ? DAMAGE_TRIGGER_EVENTS : []),
+    ...(place.endsWithCast ? (['castEnd'] as const) : []),
+    ...(place.canRemoveSelf ? (['rest'] as const) : []),
   ];
 
   if (triggerEvents.length === 0) {
@@ -678,6 +691,7 @@ function resolveTriggerListLayout(place: {
       'damage',
       'applyCondition',
       'applyTag',
+      'reduceMaxHp',
       ...(place.hearsDamage ? (['setHp'] as const) : []),
       ...(place.canRemoveSelf ? (['endCast', 'removeSelf'] as const) : []),
     ],
@@ -697,7 +711,7 @@ function resolveTriggerListLayout(place: {
 export function triggerEventAcceptsDcFormula(
   event: EffectTriggerEvent,
 ): boolean {
-  return DAMAGE_TRIGGER_EVENTS.includes(event);
+  return DAMAGE_DATA_TRIGGER_EVENTS.includes(event);
 }
 
 /**

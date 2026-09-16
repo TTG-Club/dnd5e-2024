@@ -126,6 +126,8 @@ export const savingThrowRequestPayloadSchema = z.object({
     .optional(),
   /** Спасбросок концентрации: «Боевой заклинатель» у адресата */
   againstConcentration: z.boolean().optional(),
+  /** Преимущество или помеха самого спасброска */
+  mode: z.enum(['advantage', 'disadvantage']).optional().catch(undefined),
   /** Чем бьют — «Огненный шар», «Укус»: уходит в заголовок окна у адресата */
   sourceName: z.string().optional(),
 });

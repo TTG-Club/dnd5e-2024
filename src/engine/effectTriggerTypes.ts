@@ -14,6 +14,7 @@
 
 import type { AbilityType, DamagePart, EffectDuration } from '@vtt/shared';
 
+import type { RecurringSave } from './activeEffectTypes.js';
 import type { ConditionRef } from './conditionKeys.js';
 
 /** События, на которые срабатывание реагирует уже сейчас */
@@ -26,17 +27,15 @@ export const EFFECT_TRIGGER_EVENTS = [
   'attackRoll',
   'damageTaken',
   'hpZero',
+  'castEnd',
+  'rest',
 ] as const;
 
 /**
  * События следующих фаз: разбираются и сохраняются, чтобы версия без их
  * поддержки не стирала их у записи, но пока ничего не запускают.
  */
-export const EFFECT_TRIGGER_RESERVED_EVENTS = [
-  'rest',
-  'activate',
-  'castEnd',
-] as const;
+export const EFFECT_TRIGGER_RESERVED_EVENTS = ['activate'] as const;
 
 /** Событие, на которое реагирует срабатывание */
 export type EffectTriggerEvent =
@@ -62,12 +61,23 @@ export const DAMAGE_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
 ];
 
 /**
- * События с другой стороной: противник на броске атаки, тот, кто нанёс урон.
- * Ей можно отдать действия срабатывания.
+ * События с уроном в данных: урон события, его типы и крит. «При наложении» —
+ * урон удара, которым эффект наложен («максимум хитов уменьшается на
+ * полученный некротический урон»).
+ */
+export const DAMAGE_DATA_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
+  ...DAMAGE_TRIGGER_EVENTS,
+  'applied',
+];
+
+/**
+ * События с другой стороной: противник на броске атаки, тот, кто нанёс урон,
+ * тот, кто наложил эффект. Ей можно отдать действия срабатывания.
  */
 export const OTHER_PARTY_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
   'attackRoll',
   'damageTaken',
+  'applied',
 ];
 
 /** Чей ход считает событие начала или конца хода */
@@ -135,10 +145,31 @@ export type EffectTriggerLimitPeriod =
 /** Лимит «не чаще N раз» — от одного раза */
 export const MIN_TRIGGER_LIMIT_MAX = 1;
 
+/** Режимы спасброска срабатывания сверх флагов бросающего */
+export const EFFECT_TRIGGER_SAVE_MODES = ['advantage', 'disadvantage'] as const;
+
+/**
+ * Режим спасброска срабатывания: «повторяет спасбросок с преимуществом, если
+ * урон нанёс заклинатель» («Жуткий смех Таши»). Складывается с флагами
+ * бросающего по обычному правилу: преимущество и помеха гасятся.
+ */
+export type EffectTriggerSaveMode = (typeof EFFECT_TRIGGER_SAVE_MODES)[number];
+
+/** Какой отдых запускает срабатывание «после отдыха» */
+export const EFFECT_TRIGGER_REST_TYPES = ['long', 'short', 'any'] as const;
+
+/** Отдых срабатывания: долгий, короткий или любой */
+export type EffectTriggerRestType = (typeof EFFECT_TRIGGER_REST_TYPES)[number];
+
+/** Отдых без поля `restType`: долгий — в данных он не пишется */
+export const DEFAULT_TRIGGER_REST_TYPE: EffectTriggerRestType = 'long';
+
 /** Спасбросок срабатывания; Сл 0 — Сл источника, как у остальных полей */
 export interface EffectTriggerSave {
   ability: AbilityType;
   dc: number;
+  /** Преимущество или помеха самого спасброска */
+  mode?: EffectTriggerSaveMode;
   /**
    * Сл формулой от данных события: `@damage` — урон события
    * («max(10, floor(@damage / 2))»). Нет данных или формула с ошибкой — `dc`.
@@ -177,6 +208,11 @@ export interface EffectTriggerApplyConditionAction {
   type: 'applyCondition';
   conditionKey: ConditionRef;
   duration?: EffectDuration;
+  /**
+   * Повторный спасбросок наложенного состояния: «провал — парализован,
+   * повторяет спасбросок в конце каждого своего хода». Сл 0 — Сл источника.
+   */
+  recurringSave?: RecurringSave;
   on?: EffectTriggerActionGate;
 }
 
@@ -212,6 +248,26 @@ export interface EffectTriggerApplyTagAction {
   label?: string;
   /** Срок; нет — до начала следующего хода носителя */
   duration?: EffectDuration;
+  /**
+   * Счётчик: повторная отметка тем же ключом прибавляет ступень, а не
+   * заменяет прежнюю («три провала — окаменение»). Условие
+   * `self.tagCount["ключ"] >= N` читает число ступеней.
+   */
+  stack?: true;
+  on?: EffectTriggerActionGate;
+}
+
+/**
+ * Максимум хитов получателя уменьшается: «максимум хитов уменьшается на
+ * полученный урон, пока цель не закончит долгий отдых». Уменьшения
+ * складываются в одну метку.
+ */
+export interface EffectTriggerReduceMaxHpAction {
+  type: 'reduceMaxHp';
+  /** На сколько: число, кости или `@damage` — урон события */
+  amount: string;
+  /** Какой отдых возвращает максимум; `never` — только снятие руками */
+  endsOnRest?: EffectTriggerRestType | 'never';
   on?: EffectTriggerActionGate;
 }
 
@@ -243,6 +299,7 @@ export type EffectTriggerAction =
   | EffectTriggerApplySelfAction
   | EffectTriggerApplyConditionAction
   | EffectTriggerApplyTagAction
+  | EffectTriggerReduceMaxHpAction
   | EffectTriggerSetHpAction
   | EffectTriggerEndCastAction
   | EffectTriggerRemoveSelfAction;
@@ -256,6 +313,8 @@ export interface EffectTrigger {
   turnOf?: EffectTriggerTurnOwner;
   /** Для броска атаки: роль субъекта */
   role?: EffectTriggerAttackRole;
+  /** Для отдыха: какой отдых; не задано — долгий */
+  restType?: EffectTriggerRestType;
   /** Кому достаются урон, лечение и наложения; не задано — субъекту */
   recipient?: EffectTriggerRecipient;
   /** Условие в словаре условий модификаторов; оценивается в фазе «Условия» */

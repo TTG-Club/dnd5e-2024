@@ -747,3 +747,215 @@ describe('каталог: запрет лечения', () => {
     assert.equal(engine.resolveEntityCurrentHp(healed), 18);
   });
 });
+
+describe('каталог: срабатывания на цели и у черт', () => {
+  /** Сл дыхания серебряного дракона */
+  const BREATH_DC = 18;
+
+  /** Кто наложил эффект в сценариях */
+  const WIGHT_ID = 'creature_wight';
+
+  it('[C15] Сонное дыхание: урон будит, но не урон самого наложения', () => {
+    const sleep = createEffect('Сонное дыхание', {
+      effectTarget: 'target',
+      conditionKey: 'unconscious',
+      flags: ['incapacitated'],
+      duration: { type: 'rounds', value: 10 },
+      triggers: [
+        {
+          id: 'trigger_wake',
+          event: 'damageTaken',
+          actions: [{ type: 'removeSelf' }],
+        },
+      ],
+    });
+
+    authoredScenario(sleep, 'creatureAction');
+
+    const system = new engine.Dnd5eVttSystem();
+    const hero = withHp(createActor, 30);
+    const landing = structuredClone(hero);
+
+    landing.activeEffects = [sleep];
+    engine.applyTargetDamage(landing, 5, false, 'fire');
+    system.settleCombatState(hero, engine.pickCombatState(landing));
+
+    assert.equal(hero.activeEffects.length, 1, 'урон наложения не будит');
+
+    strikeEntity(system, hero, 3, 'slashing');
+    assert.equal(hero.activeEffects.length, 0, 'следующий урон будит');
+  });
+
+  it('[C16] Парализующее дыхание: второй провал — паралич с повторным спасброском', () => {
+    const breath = createEffect('Парализующее дыхание', {
+      effectTarget: 'target',
+      conditionKey: 'incapacitated',
+      flags: ['incapacitated'],
+      triggers: [
+        {
+          id: 'trigger_paralyze',
+          event: 'turnEnd',
+          save: { ability: 'constitution', dc: 0 },
+          actions: [
+            {
+              type: 'applyCondition',
+              conditionKey: 'paralyzed',
+              duration: { type: 'rounds', value: 10 },
+              recurringSave: {
+                ability: 'constitution',
+                dc: 0,
+                timing: 'endOfTurn',
+              },
+              on: 'failed',
+            },
+            { type: 'removeSelf', on: 'always' },
+          ],
+        },
+      ],
+    });
+
+    authoredScenario(breath, 'creatureAction');
+
+    const stamped = engine.stampSourceTurnSaveDc(breath, BREATH_DC);
+    const [trigger] = stamped.triggers;
+
+    assert.equal(trigger.save.dc, BREATH_DC);
+    assert.equal(trigger.actions[0].recurringSave.dc, BREATH_DC);
+
+    const target = createCreature({ activeEffects: [stamped] });
+
+    withRandom([MIN_ROLL], () =>
+      engine.processTurnEffects(target, 'endOfTurn'),
+    );
+
+    assert.deepEqual(
+      target.activeEffects.map((effect) => effect.conditionKey),
+      ['paralyzed'],
+    );
+
+    assert.deepEqual(target.activeEffects[0].recurringSave, {
+      ability: 'constitution',
+      dc: BREATH_DC,
+      timing: 'endOfTurn',
+    });
+  });
+
+  it('[C17] Регенерация слаада: только пока у слаада есть хиты', () => {
+    const regeneration = createEffect('Регенерация', {
+      triggers: [
+        {
+          id: 'trigger_regen',
+          event: 'turnStart',
+          condition: 'self.hp.value >= 1',
+          actions: [{ type: 'damage', parts: [{ formula: '10@heal' }] }],
+        },
+      ],
+    });
+
+    authoredScenario(regeneration, 'creatureTrait');
+
+    const slaadAt = (hitPoints) => {
+      const slaad = withHp(createCreature, hitPoints, {}, 100);
+
+      slaad.system.traits = [createTrait('Регенерация', [regeneration])];
+      engine.processTurnEffects(slaad, 'startOfTurn');
+
+      return engine.resolveEntityCurrentHp(slaad);
+    };
+
+    assert.equal(slaadAt(0), 0, 'с нулём хитов не лечится');
+    assert.equal(slaadAt(5), 15);
+  });
+
+  it('[C18] Вонь: после успеха — невосприимчивость к этому источнику', () => {
+    const stench = createEffect('Вонь', {
+      areaTrigger: 'stay',
+      aura: allCreaturesAura(5),
+      triggers: [
+        {
+          id: 'trigger_stench',
+          event: 'turnStart',
+          condition: 'self.tagFromSource !== "stenchImmune"',
+          save: { ability: 'constitution', dc: 10 },
+          actions: [
+            {
+              type: 'applyCondition',
+              conditionKey: 'poisoned',
+              duration: { type: 'rounds', value: 1 },
+              on: 'failed',
+            },
+            {
+              type: 'applyTag',
+              tag: 'stenchImmune',
+              label: 'Невосприимчив к вони',
+              duration: { type: 'hours', value: 24 },
+              on: 'saved',
+            },
+          ],
+        },
+      ],
+    });
+
+    authoredScenario(stench, 'creatureTrait');
+
+    const fromGhast = (ghastId) => ({ ...stench, sourceActorId: ghastId });
+    const hero = withHp(createActor, 30);
+
+    const saves = (ghastId) =>
+      withRandom([MAX_ROLL], () =>
+        engine.processTurnEffects(hero, 'startOfTurn', {
+          ambientEffects: [fromGhast(ghastId)],
+        }),
+      ).saveOutcomes.length;
+
+    assert.equal(saves('ghast_a'), 1);
+    assert.equal(saves('ghast_a'), 0, 'к этому гулю невосприимчив');
+    assert.equal(saves('ghast_b'), 1, 'другой гуль — снова спасбросок');
+  });
+
+  it('[C19] Похищение жизни: максимум хитов уменьшается на некротический урон до долгого отдыха', () => {
+    const drain = createEffect('Похищение жизни', {
+      effectTarget: 'target',
+      triggers: [
+        {
+          id: 'trigger_drain',
+          event: 'applied',
+          condition: 'damage.type === "necrotic"',
+          actions: [
+            { type: 'reduceMaxHp', amount: '@damage' },
+            { type: 'removeSelf' },
+          ],
+        },
+      ],
+    });
+
+    authoredScenario(drain, 'creatureAction');
+
+    const system = new engine.Dnd5eVttSystem();
+    const hero = withHp(createActor, 30);
+    const landing = structuredClone(hero);
+
+    landing.activeEffects = [{ ...drain, sourceActorId: WIGHT_ID }];
+
+    engine.applyTargetDamage(landing, 7, false, 'necrotic', {
+      critical: false,
+      sourceId: WIGHT_ID,
+    });
+
+    system.settleCombatState(hero, engine.pickCombatState(landing));
+
+    assert.equal(engine.resolveEntityMaxHp(hero), 23);
+    assert.equal(engine.resolveEntityCurrentHp(hero), 23);
+
+    assert.deepEqual(
+      hero.activeEffects.map((effect) => effect.tag),
+      [engine.MAX_HP_REDUCTION_TAG],
+      'контейнер снят, осталась метка уменьшения',
+    );
+
+    const rested = engine.applyActorRest(hero, 'long');
+
+    assert.deepEqual(rested.activeEffects, []);
+    assert.equal(rested.system.hitPoints.current, 30);
+  });
+});

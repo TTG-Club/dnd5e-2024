@@ -42,6 +42,7 @@ import {
   isCarrierEffect,
 } from './activeEffectTypes.js';
 import { buildConditionActiveEffect } from './conditionTemplates.js';
+import { rollDamageFormula } from './diceFormula.js';
 import {
   hasLastingEffectPayload,
   isImmuneToCondition,
@@ -62,6 +63,7 @@ import {
 } from './effectTriggers.js';
 import {
   DEFAULT_TRIGGER_ATTACK_ROLE,
+  DEFAULT_TRIGGER_REST_TYPE,
   PRESENCE_TRIGGER_EVENTS,
 } from './effectTriggerTypes.js';
 import {
@@ -70,11 +72,12 @@ import {
 } from './effectTriggerUsage.js';
 import { buildFormulaContext, evaluateFormula } from './formulaParser.js';
 import {
+  resolveEntityCurrentHp,
   resolveEntityMaxHp,
   resolveEntityTempHp,
   writeEntityHitPoints,
 } from './hitPoints.js';
-import { isTriggerConditionMet } from './triggerConditions.js';
+import { countEffectTag, isTriggerConditionMet } from './triggerConditions.js';
 import {
   applyDamageToEntity,
   applyTurnHealing,
@@ -130,8 +133,10 @@ export function admitTrigger(
   inCombat?: boolean,
 ): boolean {
   return (
-    isTriggerConditionMet(entity, source.trigger, eventData)
-    && takeTriggerUse(entity, source.scope, source.trigger, inCombat)
+    isTriggerConditionMet(entity, source.trigger, {
+      ...eventData,
+      sourceId: source.effect.sourceActorId,
+    }) && takeTriggerUse(entity, source.scope, source.trigger, inCombat)
   );
 }
 
@@ -209,6 +214,7 @@ export function buildTriggerSaveSpec(
     effectName: effect.name,
     ability: trigger.save.ability,
     dc: resolveTriggerSaveDc(trigger.save, event),
+    ...(trigger.save.mode ? { mode: trigger.save.mode } : {}),
     ...(effect.concentration
       ? { againstMagic: false, againstConcentration: true }
       : resolveEffectMagicCircumstances(effect)),
@@ -568,17 +574,21 @@ function buildTagEffect(action: EffectTriggerApplyTagAction): ActiveEffect {
  *
  * @param status - наложенное срабатыванием
  * @param effect - эффект, чьё срабатывание наложило
- * @param sourceAreaId - зона заклинания, из которой пришёл эффект
+ * @param options - зона заклинания, из которой пришёл эффект, и отвязка от каста
  * @returns наложенное с привязкой
  */
 function bindStatusToSource(
   status: ActiveEffect,
   effect: ActiveEffect,
-  sourceAreaId: string | undefined,
+  options: EntryEffectOptions,
 ): ActiveEffect {
+  const { sourceAreaId } = options;
+
   return {
     ...status,
-    ...(effect.castId ? { castId: effect.castId } : {}),
+    ...(effect.castId && !options.detachFromCast
+      ? { castId: effect.castId }
+      : {}),
     ...(effect.magical ? { magical: effect.magical } : {}),
     ...(effect.magical && sourceAreaId ? { endsWithAreaId: sourceAreaId } : {}),
   };
@@ -587,19 +597,141 @@ function bindStatusToSource(
 /** Действие срабатывания, которое кладёт на субъекта длящийся эффект */
 type StatusTriggerAction = Extract<
   EffectTriggerAction,
-  { type: 'applySelf' | 'applyTag' | 'applyCondition' }
+  { type: 'applySelf' | 'applyTag' | 'applyCondition' | 'reduceMaxHp' }
 >;
+
+/** Ключ метки «Максимум хитов уменьшен»: уменьшения складываются в неё */
+export const MAX_HP_REDUCTION_TAG = 'maxHpReduction';
+
+/** Имя метки уменьшения максимума хитов в списке эффектов */
+const MAX_HP_REDUCTION_LABEL = 'Максимум хитов уменьшен';
+
+/** Приоритет строки уменьшения максимума: после прибавок эффектов */
+const MAX_HP_REDUCTION_PRIORITY = 50;
+
+/**
+ * На сколько уменьшается максимум: число, кости или формула с `@damage`.
+ *
+ * @param entity - получатель
+ * @param amount - строка действия
+ * @param eventDamage - урон события
+ * @returns неотрицательное число
+ */
+function resolveMaxHpReduction(
+  entity: DnDSceneEntity,
+  amount: string,
+  eventDamage: number | undefined,
+): number {
+  let value = 0;
+
+  try {
+    value = amount.includes('@')
+      ? evaluateFormula(amount, {
+          ...buildFormulaContext(entity),
+          event: { damage: eventDamage ?? 0 },
+        })
+      : rollDamageFormula(amount).total;
+  } catch {
+    // Автор ошибся в формуле — максимум не трогаем
+    value = 0;
+  }
+
+  return Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
+}
+
+/**
+ * Метка уменьшения максимума хитов: прежнее уменьшение плюс новое.
+ *
+ * @param entity - получатель
+ * @param action - действие
+ * @param eventDamage - урон события
+ * @returns метка либо `null`, если уменьшать нечего
+ */
+function buildMaxHpReduction(
+  entity: DnDSceneEntity,
+  action: Extract<EffectTriggerAction, { type: 'reduceMaxHp' }>,
+  eventDamage: number | undefined,
+): ActiveEffect | null {
+  const reduction = resolveMaxHpReduction(entity, action.amount, eventDamage);
+
+  if (reduction <= 0) {
+    return null;
+  }
+
+  const previous = (entity.activeEffects ?? [])
+    .filter((effect) => effect.tag === MAX_HP_REDUCTION_TAG)
+    .flatMap((effect) => effect.changes)
+    .reduce((total, change) => total - Number(change.value), 0);
+
+  const endsOnRest = action.endsOnRest ?? DEFAULT_TRIGGER_REST_TYPE;
+
+  return withInitializedDuration({
+    id: generateId(ACTIVE_EFFECT_ID_PREFIX),
+    name: MAX_HP_REDUCTION_LABEL,
+    description: '',
+    disabled: false,
+    origin: 'condition',
+    transfer: false,
+    duration: { type: 'permanent' },
+    changes: [
+      {
+        key: 'hitPoints.max',
+        mode: 'add',
+        value: String(-(previous + reduction)),
+        priority: MAX_HP_REDUCTION_PRIORITY,
+      },
+    ],
+    flags: [],
+    tag: MAX_HP_REDUCTION_TAG,
+    ...(endsOnRest === 'never'
+      ? {}
+      : {
+          triggers: [
+            {
+              id: 'trigger_restore_max_hp',
+              event: 'rest',
+              ...(endsOnRest === DEFAULT_TRIGGER_REST_TYPE
+                ? {}
+                : { restType: endsOnRest }),
+              actions: [{ type: 'removeSelf' }],
+            },
+          ],
+        }),
+  });
+}
+
+/**
+ * Отметка действия: у счётчика — на ступень больше прежней.
+ *
+ * @param entity - получатель
+ * @param action - действие «Отметка»
+ * @returns отметка
+ */
+function buildActionTag(
+  entity: DnDSceneEntity,
+  action: EffectTriggerApplyTagAction,
+): ActiveEffect {
+  const tag = buildTagEffect(action);
+
+  if (!action.stack) {
+    return tag;
+  }
+
+  return { ...tag, tagStacks: countEffectTag(entity, action.tag) + 1 };
+}
 
 /**
  * Что кладёт на субъекта действие наложения: копию эффекта, отметку или
  * состояние.
  *
+ * @param entity - получатель
  * @param action - действие наложения
  * @param effect - эффект, чьё срабатывание выполняется
  * @param options - откуда пришли наложения
  * @returns длящийся эффект либо `null`, если класть нечего
  */
 function buildActionStatus(
+  entity: DnDSceneEntity,
   action: StatusTriggerAction,
   effect: ActiveEffect,
   options: EntryEffectOptions,
@@ -612,24 +744,30 @@ function buildActionStatus(
   }
 
   if (action.type === 'applyTag') {
-    return bindStatusToSource(
-      buildTagEffect(action),
-      effect,
-      options.sourceAreaId,
-    );
+    return bindStatusToSource(buildActionTag(entity, action), effect, options);
+  }
+
+  if (action.type === 'reduceMaxHp') {
+    return buildMaxHpReduction(entity, action, options.eventDamage);
   }
 
   const condition = buildConditionActiveEffect(action.conditionKey, {
     duration: action.duration,
   });
 
-  return condition
-    ? bindStatusToSource(
-        withInitializedDuration(condition),
-        effect,
-        options.sourceAreaId,
-      )
-    : null;
+  if (!condition) {
+    return null;
+  }
+
+  return bindStatusToSource(
+    withInitializedDuration(
+      action.recurringSave
+        ? { ...condition, recurringSave: action.recurringSave }
+        : condition,
+    ),
+    effect,
+    options,
+  );
 }
 
 /**
@@ -689,7 +827,7 @@ export function applyTriggerEffectActions(
       continue;
     }
 
-    const status = buildActionStatus(action, source.effect, options);
+    const status = buildActionStatus(entity, action, source.effect, options);
 
     // Иммунитет к состоянию — как при наложении атакой: срабатывание — такой
     // же путь наложения, и обходить статблок оно не должно
@@ -713,6 +851,17 @@ export function applyTriggerEffectActions(
         activeTurnActorId: options.activeTurnActorId,
       }),
     ]);
+
+    // Хиты не выше уменьшенного максимума
+    if (action.type === 'reduceMaxHp') {
+      writeEntityHitPoints(entity, {
+        current: Math.min(
+          resolveEntityCurrentHp(entity),
+          resolveEntityMaxHp(entity),
+        ),
+        temp: resolveEntityTempHp(entity),
+      });
+    }
 
     applied = true;
   }

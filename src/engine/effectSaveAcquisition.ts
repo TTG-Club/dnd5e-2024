@@ -151,6 +151,7 @@ function buildEffectSaveFallbackFormula(
     againstMagic: spec.againstMagic,
     againstSpell: spec.againstSpell,
     againstCondition: spec.againstCondition,
+    mode: spec.mode,
     againstConcentration: spec.againstConcentration,
   });
 
@@ -197,6 +198,7 @@ export function buildEffectSaveRollRequest(
     ...(spec.againstSpell ? { againstSpell: true } : {}),
     againstCondition: spec.againstCondition,
     ...(spec.againstConcentration ? { againstConcentration: true } : {}),
+    ...(spec.mode ? { mode: spec.mode } : {}),
     sourceName: spec.effectName,
   };
 

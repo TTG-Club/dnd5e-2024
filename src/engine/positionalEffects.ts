@@ -97,7 +97,7 @@ export interface AreaEffectsSyncResult {
 }
 
 /** С чем срабатывает вход или выход у одной сущности */
-interface PresenceContext {
+export interface PresenceContext {
   /** Запрос броска от ядра: спасбросок сущности без авто-спасбросков — игроку */
   requestRoll?: ServerRollRequester;
   /** Сущность в бою: лимит «раз в ход / раунд» считается только в бою */
@@ -197,15 +197,15 @@ function runEntryEffect(
 }
 
 /**
- * Явные срабатывания входа или выхода: условие и лимит, спасбросок на сервере
- * или запросом игроку, урон и наложения.
+ * Явные срабатывания без данных события — вход и выход, конец каста: условие и
+ * лимит, спасбросок на сервере или запросом игроку, урон и наложения.
  *
  * @param entity - вошедший или вышедший
  * @param sources - срабатывания с источником
  * @param context - с чем срабатывает
  * @returns итог
  */
-function runPresenceTriggerSources(
+export function runPresenceTriggerSources(
   entity: DnDSceneEntity,
   sources: readonly EffectTriggerSource[],
   context: PresenceContext,

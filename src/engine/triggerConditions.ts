@@ -23,7 +23,12 @@ import {
   splitConditionParts,
   TARGET_TYPE_CONDITION_PREFIX,
 } from './activeEffectTypes.js';
-import { isCreatureCategory } from './consts.js';
+import {
+  CREATURE_SIZES,
+  isCreatureCategory,
+  isCreatureSize,
+  normalizeCreatureSize,
+} from './consts.js';
 import { resolveEntityCreatureType } from './creatureTypeGate.js';
 import { isDamageType } from './damageConstants.js';
 import {
@@ -34,11 +39,14 @@ import {
   targetHpGateMatches,
 } from './effectPipeline.js';
 import {
-  DAMAGE_TRIGGER_EVENTS,
+  DAMAGE_DATA_TRIGGER_EVENTS,
   isEffectTag,
   OTHER_PARTY_TRIGGER_EVENTS,
 } from './effectTriggerTypes.js';
 import { resolveEntityCurrentHp, resolveEntityMaxHp } from './hitPoints.js';
+
+/** Флаг недееспособности: его ставят и «Парализованный», и «Ошеломлённый» */
+const INCAPACITATED_CONDITION = 'incapacitated';
 
 /** Урон, от которого сработало событие */
 export interface TriggerDamageData {
@@ -58,6 +66,8 @@ export interface TriggerEventData {
   roll?: { hasAdvantage: boolean; hasDisadvantage: boolean };
   /** Другая сторона: противник в атаке, источник урона */
   other?: DnDSceneEntity;
+  /** Кто наложил эффект, чьё срабатывание проверяется */
+  sourceId?: string;
 }
 
 /** Виды частей условия срабатывания */
@@ -75,6 +85,15 @@ export const TRIGGER_CONDITION_KINDS = [
   'rollDisadvantage',
   'otherCreatureType',
   'otherMarkedBySelf',
+  'selfHpAtMost',
+  'selfHpAtLeast',
+  'selfSizeAtMost',
+  'selfSizeAtLeast',
+  'selfCondition',
+  'selfConditionNot',
+  'selfTagCountAtLeast',
+  'selfTagFromSource',
+  'selfTagFromSourceNot',
 ] as const;
 
 /**
@@ -86,17 +105,26 @@ export const TRIGGER_CONDITION_KINDS = [
  * - `selfTag` / `selfTagNot` — на носителе есть / нет отметки;
  * - `rollAdvantage` / `rollDisadvantage` — атака с преимуществом / помехой;
  * - `otherCreatureType` — тип другой стороны;
- * - `otherMarkedBySelf` — другая сторона помечена носителем.
+ * - `otherMarkedBySelf` — другая сторона помечена носителем;
+ * - `selfHpAtMost` / `selfHpAtLeast` — хитов у носителя не больше / не меньше N;
+ * - `selfSizeAtMost` / `selfSizeAtLeast` — размер носителя не больше / не меньше;
+ * - `selfCondition` / `selfConditionNot` — на носителе есть / нет состояния;
+ * - `selfTagCountAtLeast` — отметок с ключом на носителе не меньше N (счётчик);
+ * - `selfTagFromSource` / `selfTagFromSourceNot` — есть / нет отметки,
+ *   поставленной тем же, кто наложил эффект («невосприимчив к этому источнику»).
  */
 export type TriggerConditionKind = (typeof TRIGGER_CONDITION_KINDS)[number];
 
 /** Какое значение выбирается у части условия */
-export type TriggerConditionParameter = 'damageType' | 'creatureType' | 'tag';
+export type TriggerConditionParameter =
+  'damageType' | 'creatureType' | 'tag' | 'number' | 'size' | 'condition';
 
 /** Часть условия срабатывания: вид и значение, если оно есть */
 export interface TriggerConditionPart {
   kind: TriggerConditionKind;
   value?: string;
+  /** Порог счётчика отметок (`selfTagCountAtLeast`) */
+  amount?: number;
 }
 
 /**
@@ -107,10 +135,10 @@ const KIND_EVENTS: Record<
   TriggerConditionKind,
   readonly EffectTriggerEvent[] | undefined
 > = {
-  damageType: DAMAGE_TRIGGER_EVENTS,
-  damageTypeNot: DAMAGE_TRIGGER_EVENTS,
-  damageCritical: DAMAGE_TRIGGER_EVENTS,
-  damageNotCritical: DAMAGE_TRIGGER_EVENTS,
+  damageType: DAMAGE_DATA_TRIGGER_EVENTS,
+  damageTypeNot: DAMAGE_DATA_TRIGGER_EVENTS,
+  damageCritical: DAMAGE_DATA_TRIGGER_EVENTS,
+  damageNotCritical: DAMAGE_DATA_TRIGGER_EVENTS,
   selfBloodied: undefined,
   selfWounded: undefined,
   selfCreatureType: undefined,
@@ -120,6 +148,15 @@ const KIND_EVENTS: Record<
   rollDisadvantage: ['attackRoll'],
   otherCreatureType: OTHER_PARTY_TRIGGER_EVENTS,
   otherMarkedBySelf: ['attackRoll'],
+  selfHpAtMost: undefined,
+  selfHpAtLeast: undefined,
+  selfSizeAtMost: undefined,
+  selfSizeAtLeast: undefined,
+  selfCondition: undefined,
+  selfConditionNot: undefined,
+  selfTagCountAtLeast: undefined,
+  selfTagFromSource: undefined,
+  selfTagFromSourceNot: undefined,
 };
 
 /** Части условия со значением: приставка строки и что выбирается */
@@ -141,7 +178,31 @@ const PARAMETRIC_PARTS: Partial<
   },
   selfTag: { prefix: 'self.tag === ', parameter: 'tag' },
   selfTagNot: { prefix: 'self.tag !== ', parameter: 'tag' },
+  selfHpAtMost: { prefix: 'self.hp.value <= ', parameter: 'number' },
+  selfHpAtLeast: { prefix: 'self.hp.value >= ', parameter: 'number' },
+  selfSizeAtMost: { prefix: 'self.size <= ', parameter: 'size' },
+  selfSizeAtLeast: { prefix: 'self.size >= ', parameter: 'size' },
+  selfCondition: { prefix: 'self.condition === ', parameter: 'condition' },
+  selfConditionNot: { prefix: 'self.condition !== ', parameter: 'condition' },
+  selfTagCountAtLeast: { prefix: 'self.tagCount[', parameter: 'tag' },
+  selfTagFromSource: { prefix: 'self.tagFromSource === ', parameter: 'tag' },
+  selfTagFromSourceNot: {
+    prefix: 'self.tagFromSource !== ',
+    parameter: 'tag',
+  },
 };
+
+/**
+ * Счётчик отметок строкой: `self.tagCount["провал"] >= 3`. Ключ в квадратных
+ * скобках — в ключе отметки бывает точка, и через точку его не прочитать.
+ */
+const TAG_COUNT_PATTERN = /^self\.tagCount\["([^"]+)"\] >= (\d+)$/u;
+
+/** Порог счётчика отметок, пока автор не задал свой */
+export const DEFAULT_TAG_COUNT_THRESHOLD = 3;
+
+/** Самый большой порог числа в условии: хиты и счётчики */
+const MAX_CONDITION_NUMBER = 100_000;
 
 /** Части условия без значения — строкой целиком */
 const FIXED_PARTS: Partial<Record<TriggerConditionKind, string>> = {
@@ -156,6 +217,21 @@ const FIXED_PARTS: Partial<Record<TriggerConditionKind, string>> = {
 
 /** Кавычки вокруг значения в строке условия */
 const QUOTES_PATTERN = /^["']|["']$/g;
+
+/** Целое неотрицательное число строкой */
+const WHOLE_NUMBER_PATTERN = /^\d+$/;
+
+/**
+ * Годится ли строка числом условия.
+ *
+ * @param value - строка
+ * @returns `true` для целого от 0 до предела
+ */
+function isConditionNumber(value: string): boolean {
+  return (
+    WHOLE_NUMBER_PATTERN.test(value) && Number(value) <= MAX_CONDITION_NUMBER
+  );
+}
 
 /**
  * Годится ли значение для части условия.
@@ -173,9 +249,98 @@ function isParameterValue(
       return isDamageType(value);
     case 'creatureType':
       return isCreatureCategory(value);
+    case 'number':
+      return isConditionNumber(value);
+    case 'size':
+      return isCreatureSize(value);
     default:
+      // Ключ состояния мира и ключ отметки — одного вида: буквы, цифры, «_.-»
       return isEffectTag(value);
   }
+}
+
+/**
+ * Действующие отметки сущности с ключом.
+ *
+ * @param entity - сущность
+ * @param tag - ключ отметки
+ * @returns эффекты отметок
+ */
+function listEffectTags(entity: DnDSceneEntity, tag: string) {
+  return (entity.activeEffects ?? []).filter(
+    (effect) => !effect.disabled && effect.tag === tag,
+  );
+}
+
+/**
+ * Сколько раз на сущности поставлена отметка: у счётчика — число ступеней.
+ *
+ * @param entity - сущность
+ * @param tag - ключ отметки
+ * @returns число отметок
+ */
+export function countEffectTag(entity: DnDSceneEntity, tag: string): number {
+  return listEffectTags(entity, tag).reduce(
+    (total, effect) => total + (effect.tagStacks ?? 1),
+    0,
+  );
+}
+
+/**
+ * Есть ли на сущности отметка, поставленная этим источником.
+ *
+ * @param entity - сущность
+ * @param tag - ключ отметки
+ * @param sourceId - кто поставил
+ * @returns `true`, если такая отметка есть
+ */
+function hasEffectTagFromSource(
+  entity: DnDSceneEntity,
+  tag: string,
+  sourceId: string | undefined,
+): boolean {
+  return (
+    sourceId !== undefined
+    && listEffectTags(entity, tag).some(
+      (effect) => effect.sourceActorId === sourceId,
+    )
+  );
+}
+
+/**
+ * Есть ли на сущности состояние. Недееспособность дают и другие состояния
+ * («Парализованный», «Ошеломлённый») — их флагом.
+ *
+ * @param entity - сущность
+ * @param condition - ключ состояния
+ * @returns `true`, если состояние есть
+ */
+export function hasEntityCondition(
+  entity: DnDSceneEntity,
+  condition: string,
+): boolean {
+  const effects = (entity.activeEffects ?? []).filter(
+    (effect) => !effect.disabled,
+  );
+
+  if (effects.some((effect) => effect.conditionKey === condition)) {
+    return true;
+  }
+
+  return (
+    condition === INCAPACITATED_CONDITION
+    && effects.some((effect) => effect.flags.includes(INCAPACITATED_CONDITION))
+  );
+}
+
+/**
+ * Номер размера по порядку от крошечного.
+ *
+ * @param size - размер
+ * @returns номер
+ */
+function sizeRank(size: string): number {
+  return CREATURE_SIZES.findIndex((entry) => entry === size);
 }
 
 /**
@@ -210,11 +375,20 @@ export function getTriggerConditionParameter(
  * @returns строка словаря
  */
 export function buildTriggerConditionPart(part: TriggerConditionPart): string {
+  if (part.kind === 'selfTagCountAtLeast') {
+    return `self.tagCount["${part.value ?? ''}"] >= ${part.amount ?? DEFAULT_TAG_COUNT_THRESHOLD}`;
+  }
+
   const parametric = PARAMETRIC_PARTS[part.kind];
 
-  return parametric
-    ? `${parametric.prefix}"${part.value ?? ''}"`
-    : (FIXED_PARTS[part.kind] ?? '');
+  if (!parametric) {
+    return FIXED_PARTS[part.kind] ?? '';
+  }
+
+  // Число пишется без кавычек: `self.hp.value <= 50`
+  return parametric.parameter === 'number'
+    ? `${parametric.prefix}${part.value ?? '0'}`
+    : `${parametric.prefix}"${part.value ?? ''}"`;
 }
 
 /**
@@ -227,6 +401,17 @@ export function parseTriggerConditionPart(
   text: string,
 ): TriggerConditionPart | null {
   const trimmed = text.trim();
+  const tagCount = TAG_COUNT_PATTERN.exec(trimmed);
+
+  if (tagCount) {
+    return isEffectTag(tagCount[1]) && isConditionNumber(tagCount[2])
+      ? {
+          kind: 'selfTagCountAtLeast',
+          value: tagCount[1],
+          amount: Number(tagCount[2]),
+        }
+      : null;
+  }
 
   for (const kind of TRIGGER_CONDITION_KINDS) {
     if (FIXED_PARTS[kind] === trimmed) {
@@ -379,6 +564,41 @@ function isConditionPartMet(
       return hasEffectTag(entity, part.value ?? '');
     case 'selfTagNot':
       return !hasEffectTag(entity, part.value ?? '');
+    case 'selfHpAtMost':
+      return resolveEntityCurrentHp(entity) <= Number(part.value);
+    case 'selfHpAtLeast':
+      return resolveEntityCurrentHp(entity) >= Number(part.value);
+    case 'selfSizeAtMost':
+      return (
+        sizeRank(normalizeCreatureSize(entity.system.size))
+        <= sizeRank(part.value ?? '')
+      );
+    case 'selfSizeAtLeast':
+      return (
+        sizeRank(normalizeCreatureSize(entity.system.size))
+        >= sizeRank(part.value ?? '')
+      );
+    case 'selfCondition':
+      return hasEntityCondition(entity, part.value ?? '');
+    case 'selfConditionNot':
+      return !hasEntityCondition(entity, part.value ?? '');
+    case 'selfTagCountAtLeast':
+      return (
+        countEffectTag(entity, part.value ?? '')
+        >= (part.amount ?? DEFAULT_TAG_COUNT_THRESHOLD)
+      );
+    case 'selfTagFromSource':
+      return hasEffectTagFromSource(
+        entity,
+        part.value ?? '',
+        eventData.sourceId,
+      );
+    case 'selfTagFromSourceNot':
+      return !hasEffectTagFromSource(
+        entity,
+        part.value ?? '',
+        eventData.sourceId,
+      );
     default:
       return evaluateConditionPart(
         text.trim(),

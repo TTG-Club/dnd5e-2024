@@ -770,3 +770,199 @@ describe('каталог: проверки, концентрация и маги
     assert.equal(scale(false, true), 0.5);
   });
 });
+
+describe('каталог: срабатывания заклинаний', () => {
+  it('[S23] Слово силы: оглушение — только если хитов не больше 150', () => {
+    const stun = createEffect('Слово силы: оглушение', {
+      effectTarget: 'target',
+      triggers: [
+        {
+          id: 'trigger_stun',
+          event: 'applied',
+          condition: 'self.hp.value <= 150',
+          actions: [
+            {
+              type: 'applyCondition',
+              conditionKey: 'stunned',
+              recurringSave: {
+                ability: 'constitution',
+                dc: 0,
+                timing: 'endOfTurn',
+              },
+            },
+          ],
+        },
+        {
+          id: 'trigger_done',
+          event: 'applied',
+          actions: [{ type: 'removeSelf' }],
+        },
+      ],
+    });
+
+    authoredScenario(stun, 'spell');
+
+    const system = new engine.Dnd5eVttSystem();
+
+    const stunnedAt = (hitPoints) => {
+      const target = withHp(createCreature, hitPoints);
+      const landing = structuredClone(target);
+
+      landing.activeEffects = [engine.stampSourceTurnSaveDc(stun, 17)];
+      system.settleCombatState(target, engine.pickCombatState(landing));
+
+      return target.activeEffects.map((effect) => effect.conditionKey);
+    };
+
+    assert.deepEqual(stunnedAt(120), ['stunned']);
+    assert.deepEqual(stunnedAt(200), []);
+  });
+
+  it('[S24] Жуткий смех Таши: спасбросок от урона — с преимуществом', () => {
+    const laughter = createEffect('Жуткий смех Таши', {
+      effectTarget: 'target',
+      conditionKey: 'incapacitated',
+      flags: ['incapacitated'],
+      duration: { type: 'rounds', value: 10 },
+      recurringSave: { ability: 'wisdom', dc: 0, timing: 'endOfTurn' },
+      triggers: [
+        {
+          id: 'trigger_hurt',
+          event: 'damageTaken',
+          save: { ability: 'wisdom', dc: 0, mode: 'advantage' },
+          actions: [{ type: 'removeSelf', on: 'saved' }],
+        },
+      ],
+    });
+
+    authoredScenario(laughter, 'spell');
+
+    const spec = engine.buildTriggerSaveSpec(laughter, laughter.triggers[0]);
+
+    assert.equal(spec.mode, 'advantage');
+    assert.equal(spec.againstSpell, false, 'эффект ещё не наложен заклинанием');
+
+    assert.equal(
+      engine.resolveSavingThrowRollMode({
+        flags: new Set(),
+        ability: 'wisdom',
+        mode: spec.mode,
+      }),
+      'advantage',
+    );
+
+    assert.match(
+      engine.describeEffectTrigger(laughter.triggers[0], {
+        formatDc: () => 'Сл заклинателя',
+      }),
+      /спасбросок Мудрости с преимуществом/,
+    );
+  });
+
+  it('[S25] Ускорение: вялость после конца заклинания', () => {
+    const haste = createEffect('Ускорение', {
+      effectTarget: 'target',
+      castId: BLESS_CAST_ID,
+      sourceActorId: 'actor_wizard',
+      changes: [change('armorClass', '2')],
+      duration: { type: 'rounds', value: 10 },
+      triggers: [
+        {
+          id: 'trigger_lethargy',
+          event: 'castEnd',
+          actions: [
+            {
+              type: 'applyCondition',
+              conditionKey: 'incapacitated',
+              duration: { type: 'rounds', value: 1 },
+            },
+          ],
+        },
+      ],
+    });
+
+    authoredScenario(haste, 'spell');
+
+    const system = new engine.Dnd5eVttSystem();
+    const hero = createActor({ activeEffects: [haste] });
+
+    const result = system.removeCastEffects(
+      hero,
+      'actor_wizard',
+      new Set([BLESS_CAST_ID]),
+    );
+
+    assert.equal(result.changed, true);
+
+    assert.deepEqual(
+      hero.activeEffects.map((effect) => [effect.conditionKey, effect.castId]),
+      [['incapacitated', undefined]],
+      'вялость не уходит вместе с кастом',
+    );
+  });
+
+  it('[S26] Окаменение: три провала — окаменение, счётчик отметок', () => {
+    const failures = 'petrifyFail';
+
+    const petrify = createEffect('Окаменение', {
+      effectTarget: 'target',
+      conditionKey: 'restrained',
+      triggers: [
+        {
+          id: 'trigger_count',
+          event: 'turnEnd',
+          save: { ability: 'constitution', dc: 0 },
+          actions: [
+            {
+              type: 'applyTag',
+              tag: failures,
+              stack: true,
+              duration: { type: 'permanent' },
+              on: 'failed',
+            },
+          ],
+        },
+        {
+          id: 'trigger_stone',
+          event: 'turnEnd',
+          condition: `self.tagCount["${failures}"] >= 3`,
+          actions: [
+            { type: 'applyCondition', conditionKey: 'petrified' },
+            { type: 'removeSelf' },
+          ],
+        },
+      ],
+    });
+
+    authoredScenario(petrify, 'spell');
+
+    const target = createCreature({
+      activeEffects: [engine.stampSourceTurnSaveDc(petrify, 15)],
+    });
+
+    const failTurn = () =>
+      withRandom([MIN_ROLL], () =>
+        engine.processTurnEffects(target, 'endOfTurn'),
+      );
+
+    failTurn();
+    failTurn();
+
+    assert.equal(engine.countEffectTag(target, failures), 2);
+
+    assert.ok(
+      !target.activeEffects.some(
+        (effect) => effect.conditionKey === 'petrified',
+      ),
+    );
+
+    failTurn();
+
+    assert.ok(
+      target.activeEffects.some(
+        (effect) => effect.conditionKey === 'petrified',
+      ),
+      'третий провал — окаменение',
+    );
+  });
+});

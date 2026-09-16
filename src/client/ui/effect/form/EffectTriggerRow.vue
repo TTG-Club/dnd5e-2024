@@ -7,9 +7,8 @@
   // Корневой вход `@nuxt/ui` типов компонентов не отдаёт — берём из подпути
   import type { DropdownMenuItem } from '@nuxt/ui/components/DropdownMenu.vue';
 
-  import type { AbilityType, DamagePart } from '@vtt/shared';
+  import type { AbilityType } from '@vtt/shared';
   import type {
-    ConditionRef,
     EffectFormLayout,
     EffectTrigger,
     EffectTriggerAction,
@@ -19,10 +18,14 @@
     EffectTriggerEvent,
     EffectTriggerLimitPeriod,
     EffectTriggerRecipient,
+    EffectTriggerRestType,
     EffectTriggerTurnOwner,
   } from '@vtt/shared/system/dnd.js';
 
-  import type { EffectTriggerDamageGateChoice } from '../effectFormOptions';
+  import type {
+    EffectTriggerDamageGateChoice,
+    EffectTriggerSaveModeChoice,
+  } from '../effectFormOptions';
 
   import { computed } from 'vue';
 
@@ -34,11 +37,10 @@
     DEFAULT_SET_HP_VALUE,
     DEFAULT_TRIGGER_ATTACK_ROLE,
     DEFAULT_TRIGGER_RECIPIENT,
+    DEFAULT_TRIGGER_REST_TYPE,
     DEFAULT_TRIGGER_TURN_OWNER,
-    isEffectTag,
     isTurnTriggerEvent,
     layoutAcceptsSourceSaveDc,
-    listSelectableConditions,
     listTriggerActionTypes,
     MIN_TRIGGER_LIMIT_MAX,
     resolveTriggerActionGate,
@@ -48,9 +50,7 @@
     validateFormula,
   } from '@vtt/shared/system/dnd.js';
 
-  import { useSystemDataStore } from '../../../stores/systemDataStore';
   import { SCROLLABLE_DROPDOWN_UI } from '../../actor/constants';
-  import DamagePartsEditor from '../../actor/DamagePartsEditor.vue';
   import { EFFECT_SOURCE_DC_LABELS } from '../constants';
   import {
     buildTriggerRecipientOptions,
@@ -59,16 +59,21 @@
     EFFECT_TRIGGER_DAMAGE_GATE_OPTIONS,
     EFFECT_TRIGGER_GATE_OPTIONS,
     EFFECT_TRIGGER_PERIOD_OPTIONS,
+    EFFECT_TRIGGER_REST_OPTIONS,
     EFFECT_TRIGGER_ROLE_OPTIONS,
+    EFFECT_TRIGGER_SAVE_MODE_OPTIONS,
   } from '../effectFormOptions';
   import {
+    DEFAULT_MAX_HP_REDUCTION,
     EFFECT_TRIGGER_ACTION_ICONS,
     EFFECT_TRIGGER_ACTION_LABELS,
     EFFECT_TRIGGER_DAMAGE_HALF_GATE,
     EFFECT_TRIGGER_EVENT_LABELS,
+    EFFECT_TRIGGER_NORMAL_SAVE_MODE,
     EFFECT_TRIGGER_ROW_LABELS,
     EFFECT_TRIGGER_TURN_OWNER_LABELS,
   } from '../triggerLabels';
+  import EffectTriggerActionFields from './EffectTriggerActionFields.vue';
   import EffectTriggerConditionPicker from './EffectTriggerConditionPicker.vue';
   import SaveDcField from './SaveDcField.vue';
 
@@ -87,15 +92,6 @@
 
   /** Строка списка: окно заменяет её целиком при каждой правке */
   const trigger = defineModel<EffectTrigger>('trigger', { required: true });
-
-  const systemDataStore = useSystemDataStore();
-
-  const damageTypeOptions = computed(() =>
-    systemDataStore.damageTypes.map((damageType) => ({
-      label: damageType.name,
-      value: damageType.key,
-    })),
-  );
 
   /**
    * События в выборе: доступные здесь и то, что уже стоит (неработающее
@@ -129,14 +125,6 @@
       && turnOwnerItems.value.length > 1,
   );
 
-  // Список вычисляемый: кроме канона в него входят состояния, заведённые в мире
-  const conditionItems = computed(() =>
-    listSelectableConditions().map((conditionEntry) => ({
-      value: conditionEntry.key,
-      label: conditionEntry.nameRu,
-    })),
-  );
-
   const acceptsDcFormula = computed(() =>
     triggerEventAcceptsDcFormula(trigger.value.event),
   );
@@ -146,6 +134,8 @@
   );
 
   const showsRole = computed(() => triggerEventHasRole(trigger.value.event));
+
+  const showsRestType = computed(() => trigger.value.event === 'rest');
 
   const recipientItems = computed(() =>
     buildTriggerRecipientOptions(trigger.value),
@@ -198,6 +188,7 @@
           ? (trigger.value.role ?? DEFAULT_TRIGGER_ATTACK_ROLE)
           : undefined,
         turnOf: isTurnTriggerEvent(next) ? trigger.value.turnOf : undefined,
+        restType: next === 'rest' ? trigger.value.restType : undefined,
         recipient: triggerEventHasOtherParty(next)
           ? trigger.value.recipient
           : undefined,
@@ -262,6 +253,35 @@
   const role = computed({
     get: () => trigger.value.role ?? DEFAULT_TRIGGER_ATTACK_ROLE,
     set: (next: EffectTriggerAttackRole) => update({ role: next }),
+  });
+
+  // Долгий отдых — значение по умолчанию: в данных он не пишется
+  const restType = computed({
+    get: () => trigger.value.restType ?? DEFAULT_TRIGGER_REST_TYPE,
+    set: (next: EffectTriggerRestType) =>
+      update({
+        restType: next === DEFAULT_TRIGGER_REST_TYPE ? undefined : next,
+      }),
+  });
+
+  // Обычный спасбросок в данных не пишется
+  const saveMode = computed({
+    get: (): EffectTriggerSaveModeChoice =>
+      trigger.value.save?.mode ?? EFFECT_TRIGGER_NORMAL_SAVE_MODE,
+    set: (next: EffectTriggerSaveModeChoice) => {
+      if (!trigger.value.save) {
+        return;
+      }
+
+      const { mode: _mode, ...rest } = trigger.value.save;
+
+      update({
+        save:
+          next === EFFECT_TRIGGER_NORMAL_SAVE_MODE
+            ? rest
+            : { ...rest, mode: next },
+      });
+    },
   });
 
   // Ход носителя — значение по умолчанию: в данных он не пишется
@@ -349,6 +369,8 @@
         return { type, tag: DEFAULT_EFFECT_TAG };
       case 'setHp':
         return { type, value: DEFAULT_SET_HP_VALUE };
+      case 'reduceMaxHp':
+        return { type, amount: DEFAULT_MAX_HP_REDUCTION };
       default:
         return { type };
     }
@@ -410,123 +432,6 @@
     updateAction(index, { ...action, on: choice });
   }
 
-  /**
-   * Меняет части урона.
-   *
-   * @param index - номер действия
-   * @param parts - части урона
-   */
-  function updateDamageParts(index: number, parts: DamagePart[]): void {
-    const action = trigger.value.actions[index];
-
-    if (action.type === 'damage') {
-      updateAction(index, { ...action, parts });
-    }
-  }
-
-  /**
-   * Меняет состояние действия.
-   *
-   * @param index - номер действия
-   * @param conditionKey - ключ состояния
-   */
-  function updateCondition(index: number, conditionKey: ConditionRef): void {
-    const action = trigger.value.actions[index];
-
-    if (action.type === 'applyCondition') {
-      updateAction(index, { ...action, conditionKey });
-    }
-  }
-
-  /**
-   * Меняет срок состояния или отметки в раундах; пусто — срок по умолчанию
-   * (состояние — пока не снимут, отметка — до начала следующего хода).
-   *
-   * @param index - номер действия
-   * @param rounds - раундов
-   */
-  function updateActionRounds(index: number, rounds: number | null): void {
-    const action = trigger.value.actions[index];
-
-    if (action.type !== 'applyCondition' && action.type !== 'applyTag') {
-      return;
-    }
-
-    const { duration: _duration, ...rest } = action;
-
-    updateAction(
-      index,
-      rounds === null || rounds <= 0
-        ? rest
-        : { ...rest, duration: { type: 'rounds', value: rounds } },
-    );
-  }
-
-  /**
-   * Срок состояния или отметки в раундах.
-   *
-   * @param action - действие
-   * @returns раундов либо `null`
-   */
-  function actionRoundsOf(action: EffectTriggerAction): number | null {
-    return (action.type === 'applyCondition' || action.type === 'applyTag')
-      && action.duration?.type === 'rounds'
-      ? (action.duration.value ?? null)
-      : null;
-  }
-
-  /**
-   * Меняет число хитов действия «Хиты становятся».
-   *
-   * @param index - номер действия
-   * @param value - хитов
-   */
-  function updateSetHp(index: number, value: number | null): void {
-    const action = trigger.value.actions[index];
-
-    if (action.type === 'setHp') {
-      updateAction(index, { ...action, value: Math.max(0, value ?? 0) });
-    }
-  }
-
-  /**
-   * Меняет ключ или имя отметки.
-   *
-   * @param index - номер действия
-   * @param patch - новый ключ или имя; пустое имя — как ключ
-   */
-  function updateTag(
-    index: number,
-    patch: { tag?: string | number; label?: string | number },
-  ): void {
-    const action = trigger.value.actions[index];
-
-    if (action.type !== 'applyTag') {
-      return;
-    }
-
-    const { label: _label, ...rest } = action;
-    const label = String(patch.label ?? action.label ?? '').trim();
-
-    updateAction(index, {
-      ...rest,
-      tag: String(patch.tag ?? action.tag).trim(),
-      ...(label ? { label } : {}),
-    });
-  }
-
-  /**
-   * Подсказка к негодному ключу отметки.
-   *
-   * @param action - действие
-   * @returns текст ошибки либо `undefined`
-   */
-  function tagErrorOf(action: EffectTriggerAction): string | undefined {
-    return action.type === 'applyTag' && !isEffectTag(action.tag)
-      ? EFFECT_TRIGGER_ROW_LABELS.tagInvalid
-      : undefined;
-  }
-
   const hasLimit = computed({
     get: () => trigger.value.limit !== undefined,
     set: (enabled: boolean) =>
@@ -583,6 +488,21 @@
         <USelect
           v-model="role"
           :items="EFFECT_TRIGGER_ROLE_OPTIONS"
+          value-key="value"
+          size="sm"
+          class="w-full"
+          :portal="false"
+        />
+      </UFormField>
+
+      <UFormField
+        v-if="showsRestType"
+        :label="EFFECT_TRIGGER_ROW_LABELS.restType"
+        class="w-48"
+      >
+        <USelect
+          v-model="restType"
+          :items="EFFECT_TRIGGER_REST_OPTIONS"
           value-key="value"
           size="sm"
           class="w-full"
@@ -653,6 +573,20 @@
         <USelect
           v-model="saveAbility"
           :items="ABILITY_OPTIONS"
+          value-key="value"
+          size="sm"
+          class="w-full"
+          :portal="false"
+        />
+      </UFormField>
+
+      <UFormField
+        :label="EFFECT_TRIGGER_ROW_LABELS.saveMode"
+        class="w-44"
+      >
+        <USelect
+          v-model="saveMode"
+          :items="EFFECT_TRIGGER_SAVE_MODE_OPTIONS"
           value-key="value"
           size="sm"
           class="w-full"
@@ -746,110 +680,12 @@
           />
         </div>
 
-        <DamagePartsEditor
-          v-if="action.type === 'damage'"
-          :model-value="action.parts"
-          :damage-type-options="damageTypeOptions"
-          :include-spell-modifier="false"
-          :hide-modifiers="true"
-          :allow-empty="true"
-          @update:model-value="updateDamageParts(index, $event)"
+        <EffectTriggerActionFields
+          :action="action"
+          :layout="layout"
+          :source-save-dc="sourceSaveDc"
+          @update:action="updateAction(index, $event)"
         />
-
-        <div
-          v-else-if="action.type === 'applyCondition'"
-          class="flex flex-wrap items-end gap-2"
-        >
-          <UFormField
-            :label="EFFECT_TRIGGER_ROW_LABELS.condition"
-            class="w-56"
-          >
-            <USelect
-              :model-value="action.conditionKey"
-              :items="conditionItems"
-              value-key="value"
-              size="sm"
-              class="w-full"
-              :portal="false"
-              @update:model-value="updateCondition(index, $event)"
-            />
-          </UFormField>
-
-          <UFormField
-            :label="EFFECT_TRIGGER_ROW_LABELS.conditionRounds"
-            class="w-40"
-          >
-            <UInputNumber
-              :model-value="actionRoundsOf(action)"
-              :min="0"
-              :placeholder="
-                EFFECT_TRIGGER_ROW_LABELS.conditionRoundsPlaceholder
-              "
-              size="sm"
-              class="w-full"
-              @update:model-value="updateActionRounds(index, $event)"
-            />
-          </UFormField>
-        </div>
-
-        <UFormField
-          v-else-if="action.type === 'setHp'"
-          :label="EFFECT_TRIGGER_ROW_LABELS.setHpValue"
-          class="w-32"
-        >
-          <UInputNumber
-            :model-value="action.value"
-            :min="0"
-            size="sm"
-            class="w-full"
-            @update:model-value="updateSetHp(index, $event)"
-          />
-        </UFormField>
-
-        <div
-          v-else-if="action.type === 'applyTag'"
-          class="flex flex-wrap items-start gap-2"
-        >
-          <UFormField
-            :label="EFFECT_TRIGGER_ROW_LABELS.tag"
-            :error="tagErrorOf(action)"
-            class="w-56"
-          >
-            <UInput
-              :model-value="action.tag"
-              size="sm"
-              class="w-full"
-              @update:model-value="updateTag(index, { tag: $event })"
-            />
-          </UFormField>
-
-          <UFormField
-            :label="EFFECT_TRIGGER_ROW_LABELS.tagLabel"
-            class="w-48"
-          >
-            <UInput
-              :model-value="action.label"
-              :placeholder="EFFECT_TRIGGER_ROW_LABELS.tagLabelPlaceholder"
-              size="sm"
-              class="w-full"
-              @update:model-value="updateTag(index, { label: $event })"
-            />
-          </UFormField>
-
-          <UFormField
-            :label="EFFECT_TRIGGER_ROW_LABELS.conditionRounds"
-            class="w-52"
-          >
-            <UInputNumber
-              :model-value="actionRoundsOf(action)"
-              :min="0"
-              :placeholder="EFFECT_TRIGGER_ROW_LABELS.tagRoundsPlaceholder"
-              size="sm"
-              class="w-full"
-              @update:model-value="updateActionRounds(index, $event)"
-            />
-          </UFormField>
-        </div>
       </div>
 
       <UDropdownMenu

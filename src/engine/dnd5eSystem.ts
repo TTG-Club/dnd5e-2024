@@ -34,8 +34,12 @@ import type {
   EngineDeferredTrigger,
 } from './deferredEffectSaves.js';
 import type { DnDGameItem, DnDSceneEntity, Spell } from './dndEntities.js';
-import type { DamageEventsResult } from './effectDamageEvents.js';
+import type {
+  DamageEventsResult,
+  TriggerEventOptions,
+} from './effectDamageEvents.js';
 import type { IncomingAttackContext } from './effectPipeline.js';
+import type { EffectTriggerSourceKind } from './effectTriggerRunner.js';
 import type { AreaEffectsSyncResult } from './positionalEffects.js';
 import type { SystemClientEvent } from './systemClientEvents.js';
 import type { EntryEffectOptions, TurnSaveOutcome } from './turnEffects.js';
@@ -94,6 +98,7 @@ import {
 } from './deferredEffectSaves.js';
 import { rollDamageFormula as rollDamageFormulaImpl } from './diceFormula.js';
 import {
+  settleAppliedEvents,
   settleAttackRollTriggers,
   settleDamageEvents,
 } from './effectDamageEvents.js';
@@ -104,8 +109,12 @@ import {
   resolveTotalMovementSpeed,
 } from './effectPipeline.js';
 import { shouldRequestEffectSave } from './effectSaveAcquisition.js';
-import { processTurnEffects } from './effectTriggerRunner.js';
-import { isLegacyTrigger } from './effectTriggers.js';
+import {
+  buildTriggerSources,
+  EFFECT_TRIGGER_SOURCE_KINDS,
+  processTurnEffects,
+} from './effectTriggerRunner.js';
+import { isLegacyTrigger, listEffectListTriggers } from './effectTriggers.js';
 import { isDndSceneEntity } from './entityGuards.js';
 import { buildFeatGrantsSummary } from './featGrantsSummary.js';
 import { validateFormula } from './formulaParser.js';
@@ -118,6 +127,7 @@ import { validateGameItem } from './itemSchemas.js';
 import { transferItem } from './itemTransfer.js';
 import {
   applyAuraTriggerEffects as computeAuraTriggerEffects,
+  runPresenceTriggerSources,
   syncActorAreaEffects,
 } from './positionalEffects.js';
 import { damagePartIsHealing } from './spellUtils.js';
@@ -382,6 +392,7 @@ function toDamageEventsTriggerResult(
  * @param hits - удары
  * @param context - возможности ядра
  * @param base - исход того, что нанесло урон
+ * @param newEffectIds - эффекты, наложенные вместе с уроном: его они не слышат
  * @returns общий исход
  */
 function withDamageEvents(
@@ -390,22 +401,40 @@ function withDamageEvents(
   hits: readonly DamageHit[],
   context: SystemTriggerContext | undefined,
   base: SystemDeferredTriggerResult,
+  newEffectIds?: ReadonlySet<string>,
 ): SystemDeferredTriggerResult {
   if (hits.length === 0) {
     return base;
   }
 
   const events = settleDamageEvents(entity, hits, {
+    ...buildTriggerEventOptions(entity, context),
     hpBefore,
+    newEffectIds,
+  });
+
+  return mergeTriggerResults(base, toDamageEventsTriggerResult(entity, events));
+}
+
+/**
+ * С чем прогоняются события урона и наложения у сущности.
+ *
+ * @param entity - субъект
+ * @param context - возможности ядра
+ * @returns опции событий
+ */
+function buildTriggerEventOptions(
+  entity: DnDSceneEntity,
+  context: SystemTriggerContext | undefined,
+): TriggerEventOptions {
+  return {
     requestRoll: context?.requestRoll,
     ambientEffects: toAmbientResolver(context)(entity),
     inCombat: context?.isInCombat?.(entity) ?? false,
     activeTurnActorId: context?.getActiveTurnActorId?.() ?? null,
     getEntity: toDndEntityResolver(context?.getEntity),
     endCast: toCastEnder(context, entity.id),
-  });
-
-  return mergeTriggerResults(base, toDamageEventsTriggerResult(entity, events));
+  };
 }
 
 /**
@@ -517,6 +546,70 @@ function toEntityTriggerResult(
         context,
       ),
     },
+  );
+}
+
+/** Подпись момента в сводке срабатываний конца каста */
+const CAST_END_SUMMARY_LABEL = 'конец заклинания';
+
+/** Кто просит спасбросок срабатывания конца каста */
+const CAST_END_REQUESTER_LABEL = 'Конец заклинания';
+
+/**
+ * Эффект снят вместе с кастом — снимать его срабатывание уже нечего, а счётчик
+ * лимита общий с эффектом на сущности.
+ */
+const REMOVED_CAST_EFFECT_SOURCE_KIND: EffectTriggerSourceKind = {
+  ...EFFECT_TRIGGER_SOURCE_KINDS.instance,
+  instance: false,
+};
+
+/**
+ * Срабатывания «когда заклинание заканчивается» у снятых эффектов каста:
+ * наложенное ими переживает каст («Ускорение» — вялость после конца).
+ *
+ * @param entity - сущность, с которой сняты эффекты
+ * @param removed - снятые эффекты каста
+ * @param hpBefore - хиты до срабатываний
+ * @param context - возможности ядра
+ * @returns исход для ядра
+ */
+function runCastEndTriggers(
+  entity: DnDSceneEntity,
+  removed: readonly ActiveEffect[],
+  hpBefore: number,
+  context: SystemTriggerContext | undefined,
+): SystemDeferredTriggerResult {
+  const sources = buildTriggerSources(
+    removed,
+    REMOVED_CAST_EFFECT_SOURCE_KIND,
+    (effect) =>
+      listEffectListTriggers(effect).filter(
+        (trigger) => trigger.event === 'castEnd',
+      ),
+  );
+
+  if (sources.length === 0) {
+    return { changed: false, chatSummary: null };
+  }
+
+  const outcome = runPresenceTriggerSources(entity, sources, {
+    requestRoll: context?.requestRoll,
+    inCombat: context?.isInCombat?.(entity) ?? false,
+    requesterLabel: CAST_END_REQUESTER_LABEL,
+    effectOptions: {
+      ambientEffects: toAmbientResolver(context)(entity),
+      activeTurnActorId: context?.getActiveTurnActorId?.() ?? null,
+      detachFromCast: true,
+    },
+  });
+
+  return toEntityTriggerResult(
+    entity,
+    outcome,
+    hpBefore,
+    CAST_END_SUMMARY_LABEL,
+    context,
   );
 }
 
@@ -995,7 +1088,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.43';
+  readonly version = '0.8.44';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -1250,6 +1343,7 @@ export class Dnd5eVttSystem implements VttSystem {
     entity: SceneEntity,
     casterId: string,
     castIds: ReadonlySet<string>,
+    context?: SystemTriggerContext,
   ): SystemDeferredTriggerResult {
     if (!isDndSceneEntity(entity)) {
       return { changed: false, chatSummary: null };
@@ -1262,16 +1356,20 @@ export class Dnd5eVttSystem implements VttSystem {
       return { changed: false, chatSummary: null };
     }
 
-    const removedNames = effects
-      .filter((effect) => !kept.includes(effect))
-      .map((effect) => effect.name);
+    const removed = effects.filter((effect) => !kept.includes(effect));
+    const hpBefore = resolveEntityCurrentHp(entity);
 
     entity.activeEffects = kept;
 
-    return {
+    const removal: SystemDeferredTriggerResult = {
       changed: true,
-      chatSummary: `${entity.name}: ${CAST_ENDED_SUMMARY_PREFIX}${removedNames.join(', ')}`,
+      chatSummary: `${entity.name}: ${CAST_ENDED_SUMMARY_PREFIX}${removed.map((effect) => effect.name).join(', ')}`,
     };
+
+    return mergeTriggerResults(
+      removal,
+      runCastEndTriggers(entity, removed, hpBefore, context),
+    );
   }
 
   /**
@@ -1614,9 +1712,19 @@ export class Dnd5eVttSystem implements VttSystem {
     const hpBefore = resolveEntityCurrentHp(entity);
     const totalBefore = hpBefore + resolveEntityTempHp(entity);
 
+    const effectIdsBefore = new Set(
+      (entity.activeEffects ?? []).map((effect) => effect.id),
+    );
+
     if (!applyCombatStateImpl(entity, state)) {
       return REJECTED_COMBAT_STATE;
     }
+
+    const newEffectIds = new Set(
+      (entity.activeEffects ?? [])
+        .map((effect) => effect.id)
+        .filter((effectId) => !effectIdsBefore.has(effectId)),
+    );
 
     const loss =
       totalBefore
@@ -1627,12 +1735,28 @@ export class Dnd5eVttSystem implements VttSystem {
       ? clampDamageHits(parseDamageHits(state.damage), loss)
       : [];
 
+    const damageResult = withDamageEvents(
+      entity,
+      hpBefore,
+      hits,
+      context,
+      { changed: true, chatSummary: null },
+      newEffectIds,
+    );
+
+    const applied = settleAppliedEvents(
+      entity,
+      newEffectIds,
+      hits,
+      buildTriggerEventOptions(entity, context),
+    );
+
     return {
       accepted: true,
-      ...withDamageEvents(entity, hpBefore, hits, context, {
-        changed: true,
-        chatSummary: null,
-      }),
+      ...mergeTriggerResults(
+        damageResult,
+        toDamageEventsTriggerResult(entity, applied),
+      ),
     };
   }
 

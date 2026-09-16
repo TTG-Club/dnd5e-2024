@@ -55,6 +55,8 @@ import {
   EFFECT_TRIGGER_LIMIT_PERIODS,
   EFFECT_TRIGGER_RECIPIENTS,
   EFFECT_TRIGGER_RESERVED_EVENTS,
+  EFFECT_TRIGGER_REST_TYPES,
+  EFFECT_TRIGGER_SAVE_MODES,
   EFFECT_TRIGGER_TURN_OWNERS,
   MIN_TRIGGER_LIMIT_MAX,
 } from './effectTriggerTypes.js';
@@ -1280,6 +1282,12 @@ export interface ActiveEffect extends BaseActiveEffect {
   tag?: string;
 
   /**
+   * Ступени отметки-счётчика: сколько раз её поставили действием с `stack`.
+   * Нет поля — одна.
+   */
+  tagStacks?: number;
+
+  /**
    * Каст заклинания, к которому относится эффект: общий у эффектов заклинателя,
    * целей и зоны одного каста. Конец каста снимает их все.
    */
@@ -1760,6 +1768,7 @@ const MAX_TRIGGER_DC_FORMULA_LENGTH = 200;
 const EffectTriggerSaveSchema = z.object({
   ability: z.enum(SAVE_ABILITY_VALUES),
   dc: EffectSaveDcSchema,
+  mode: z.enum(EFFECT_TRIGGER_SAVE_MODES).optional().catch(undefined),
   dcFormula: z
     .string()
     .trim()
@@ -1788,6 +1797,7 @@ const EffectTriggerActionSchema = z.discriminatedUnion('type', [
     type: z.literal('applyCondition'),
     conditionKey: z.string().min(1),
     duration: EffectDurationSchema.optional().catch(undefined),
+    recurringSave: RecurringSaveSchema.optional().catch(undefined),
     on: EffectTriggerGateSchema,
   }),
   z.object({
@@ -1795,6 +1805,16 @@ const EffectTriggerActionSchema = z.discriminatedUnion('type', [
     tag: z.string().regex(EFFECT_TAG_PATTERN),
     label: z.string().min(1).optional().catch(undefined),
     duration: EffectDurationSchema.optional().catch(undefined),
+    stack: z.literal(true).optional().catch(undefined),
+    on: EffectTriggerGateSchema,
+  }),
+  z.object({
+    type: z.literal('reduceMaxHp'),
+    amount: z.string().trim().min(1).max(MAX_TRIGGER_DC_FORMULA_LENGTH),
+    endsOnRest: z
+      .enum([...EFFECT_TRIGGER_REST_TYPES, 'never'])
+      .optional()
+      .catch(undefined),
     on: EffectTriggerGateSchema,
   }),
   z.object({
@@ -1825,6 +1845,7 @@ const EffectTriggerSchema = z.object({
   event: z.enum([...EFFECT_TRIGGER_EVENTS, ...EFFECT_TRIGGER_RESERVED_EVENTS]),
   turnOf: z.enum(EFFECT_TRIGGER_TURN_OWNERS).optional().catch(undefined),
   role: z.enum(EFFECT_TRIGGER_ATTACK_ROLES).optional().catch(undefined),
+  restType: z.enum(EFFECT_TRIGGER_REST_TYPES).optional().catch(undefined),
   recipient: z.enum(EFFECT_TRIGGER_RECIPIENTS).optional().catch(undefined),
   condition: z.string().min(1).optional().catch(undefined),
   save: EffectTriggerSaveSchema.optional(),
@@ -1910,6 +1931,7 @@ export const ActiveEffectSchema = z.object({
   // и проверка иммунитета.
   conditionKey: z.string().min(1).optional(),
   tag: z.string().regex(EFFECT_TAG_PATTERN).optional().catch(undefined),
+  tagStacks: z.number().int().min(1).optional().catch(undefined),
   castId: z.string().min(1).max(MAX_CAST_ID_LENGTH).optional().catch(undefined),
   concentration: z.literal(true).optional().catch(undefined),
   applySave: EffectSaveSchema.optional(),

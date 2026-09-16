@@ -86,6 +86,11 @@ export interface TriggerEventOptions {
 export interface DamageEventsOptions extends TriggerEventOptions {
   /** Хиты субъекта до урона: «хиты упали до 0» — только если они были */
   hpBefore: number;
+  /**
+   * Эффекты, наложенные тем же снимком, что и урон: «Сон» не просыпается от
+   * урона заклинания, которое его наложило.
+   */
+  newEffectIds?: ReadonlySet<string>;
 }
 
 /** Изменения одной сущности от событий урона */
@@ -130,19 +135,24 @@ function createDamageEventsResult(): DamageEventsResult {
  * @param entity - субъект
  * @param event - событие урона
  * @param ambientEffects - ауры чужих токенов
+ * @param newEffectIds - эффекты, наложенные тем же уроном: они его не слышат
  * @returns срабатывания с источником
  */
 function listDamageEventSources(
   entity: DnDSceneEntity,
   event: EffectTriggerEvent,
   ambientEffects: readonly ActiveEffect[],
+  newEffectIds: ReadonlySet<string> | undefined,
 ): EffectTriggerSource[] {
   const eventTriggersOf = (effect: ActiveEffect): EffectTrigger[] =>
     listEffectListTriggers(effect).filter((trigger) => trigger.event === event);
 
   // Своя аура без «действует и на носителя» слышит урон других, а не носителя
   const own = (entity.activeEffects ?? []).filter(
-    (effect) => !effect.disabled && !(effect.aura && !effect.aura.applyToSelf),
+    (effect) =>
+      !effect.disabled
+      && !(effect.aura && !effect.aura.applyToSelf)
+      && !(newEffectIds?.has(effect.id) ?? false),
   );
 
   const ambient = ambientEffects.filter(
@@ -380,6 +390,7 @@ function runTriggerEventSource(
     ambientEffects,
     activeTurnActorId: options.activeTurnActorId,
     endCast: options.endCast,
+    eventDamage: eventData.damage?.amount,
   };
 
   const spec = buildTriggerSaveSpec(source.effect, source.trigger, {
@@ -532,7 +543,12 @@ export function settleDamageEvents(
   const ambientEffects = options.ambientEffects ?? [];
 
   if (options.hpBefore > 0 && resolveEntityCurrentHp(subject) === 0) {
-    const sources = listDamageEventSources(subject, 'hpZero', ambientEffects);
+    const sources = listDamageEventSources(
+      subject,
+      'hpZero',
+      ambientEffects,
+      options.newEffectIds,
+    );
 
     runHpZeroSources(
       subject,
@@ -551,11 +567,88 @@ export function settleDamageEvents(
       subject,
       'damageTaken',
       ambientEffects,
+      options.newEffectIds,
     );
 
     for (const source of sources) {
       runDamageEventSource(subject, source, hit, options, result);
     }
+  }
+
+  return result;
+}
+
+/**
+ * Один удар из всех ударов снимка: урон суммой, типы вместе, крит — если был
+ * хоть один.
+ *
+ * @param hits - удары снимка
+ * @returns удар либо `undefined`, если урона не было
+ */
+function mergeLandingHits(hits: readonly DamageHit[]): DamageHit | undefined {
+  const landed = hits.filter((hit) => hit.amount > 0);
+  const lastHit = landed.at(-1);
+
+  if (!lastHit) {
+    return undefined;
+  }
+
+  return {
+    amount: landed.reduce((total, hit) => total + hit.amount, 0),
+    types: [...new Set(landed.flatMap((hit) => hit.types))],
+    critical: landed.some((hit) => hit.critical),
+    sourceId: lastHit.sourceId,
+  };
+}
+
+/**
+ * «При наложении»: срабатывания эффектов, которые положил на субъекта тот же
+ * боевой снимок. Урон события — урон этого снимка, другая сторона — кто
+ * наложил эффект. Условие видит хиты уже после урона («оглушён, если хитов
+ * не больше 150»).
+ *
+ * @param subject - субъект с записанным снимком (мутируется)
+ * @param newEffectIds - эффекты, наложенные снимком
+ * @param hits - удары снимка
+ * @param options - с чем прогоняются события
+ * @returns итог
+ */
+export function settleAppliedEvents(
+  subject: DnDSceneEntity,
+  newEffectIds: ReadonlySet<string>,
+  hits: readonly DamageHit[],
+  options: TriggerEventOptions,
+): DamageEventsResult {
+  const result = createDamageEventsResult();
+
+  const effects = (subject.activeEffects ?? []).filter(
+    (effect) => !effect.disabled && newEffectIds.has(effect.id),
+  );
+
+  const sources = buildTriggerSources(
+    effects,
+    EFFECT_TRIGGER_SOURCE_KINDS.instance,
+    (effect) =>
+      listEffectListTriggers(effect).filter(
+        (trigger) => trigger.event === 'applied',
+      ),
+  );
+
+  const damage = mergeLandingHits(hits);
+
+  for (const source of sources) {
+    const { sourceActorId } = source.effect;
+
+    runTriggerEventSource(
+      subject,
+      source,
+      {
+        ...(damage ? { damage } : {}),
+        other: sourceActorId ? options.getEntity?.(sourceActorId) : undefined,
+      },
+      options,
+      result,
+    );
   }
 
   return result;
