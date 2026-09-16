@@ -63,7 +63,13 @@ describe('удары в боевом снимке', () => {
     });
 
     assert.deepEqual(engine.pickCombatState(target).damage, [
-      { amount: 7, types: ['fire'], critical: true, sourceId: ATTACKER_ID },
+      {
+        amount: 7,
+        dealt: 7,
+        types: ['fire'],
+        critical: true,
+        sourceId: ATTACKER_ID,
+      },
     ]);
 
     const healed = withHp(createActor, 20, {}, HERO_MAX_HP);

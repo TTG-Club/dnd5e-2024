@@ -155,6 +155,9 @@ export const ATTACKS_AGAINST_KEY = 'attacksAgainst';
  */
 export const CONCENTRATION_SAVE_KEY = 'save.concentration';
 
+/** Ключ прибавки к спасброскам от смерти */
+export const DEATH_SAVE_KEY = 'deathSave';
+
 /**
  * Типобезопасный ключ для числовых модификаций актора.
  *
@@ -165,6 +168,7 @@ export type EffectTargetKey =
   | `ability.${AbilityType}`
   | `save.${AbilityType}`
   | typeof CONCENTRATION_SAVE_KEY
+  | typeof DEATH_SAVE_KEY
   | `skill.${SkillType}`
   | typeof ABILITY_CHECK_KEY
   | typeof ATTACKS_AGAINST_KEY
@@ -251,6 +255,7 @@ export const EFFECT_TARGET_SUGGESTIONS: Array<{
   { value: 'save.wisdom', label: 'Спасбросок (Мудрость)' },
   { value: 'save.charisma', label: 'Спасбросок (Харизма)' },
   { value: CONCENTRATION_SAVE_KEY, label: 'Спасбросок концентрации' },
+  { value: DEATH_SAVE_KEY, label: 'Спасбросок от смерти' },
 
   // Проверки
   {
@@ -653,6 +658,8 @@ export type EffectFlagKey =
   | 'save.disadvantage.vsMagic'
   | 'save.advantage.vsSpell'
   | 'save.disadvantage.vsSpell'
+  | 'save.advantage.death'
+  | 'save.disadvantage.death'
   | 'save.negateOnSuccess.vsMagic'
   | 'save.advantage.vsConcentration'
   | 'save.disadvantage.vsConcentration'
@@ -757,6 +764,8 @@ const BASE_EFFECT_FLAG_LABELS: Record<
     'Помеха на спасброски против заклинаний и магических эффектов',
   'save.advantage.vsSpell': 'Преимущество на спасброски против заклинаний',
   'save.disadvantage.vsSpell': 'Помеха на спасброски против заклинаний',
+  'save.advantage.death': 'Преимущество на спасброски от смерти',
+  'save.disadvantage.death': 'Помеха на спасброски от смерти',
   'save.negateOnSuccess.vsMagic':
     'Успешный спасбросок против магии «половина урона» — урона нет',
   'save.advantage.vsConcentration': 'Преимущество на спасброски концентрации',
@@ -1679,6 +1688,8 @@ export interface ResolvedActorStats {
   abilityCheckBonus: number;
   /** Прибавка к спасброскам концентрации ({@link CONCENTRATION_SAVE_KEY}) */
   concentrationSaveBonus: number;
+  /** Прибавка к спасброскам от смерти ({@link DEATH_SAVE_KEY}) */
+  deathSaveBonus: number;
   /** Класс доспеха */
   armorClass: number;
   /** Модификатор инициативы */

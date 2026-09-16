@@ -50,6 +50,7 @@ import {
   CARRIER_ARMOR_CONDITION_PREFIX,
   CARRIER_TYPE_CONDITION_PREFIX,
   CONCENTRATION_SAVE_KEY,
+  DEATH_SAVE_KEY,
   DEFAULT_CRIT_THRESHOLD,
   INCOMING_ATTACKER_TYPE_CONDITION_PREFIX,
   isCarrierEffect,
@@ -146,6 +147,7 @@ const BONUS_SCOPE_SET: ReadonlySet<string> = new Set(BONUS_SCOPES);
  */
 const DERIVED_TARGET_KEYS: ReadonlySet<string> = new Set([
   ABILITY_CHECK_KEY,
+  DEATH_SAVE_KEY,
   'armorClass',
   'initiative',
   'proficiencyBonus',
@@ -351,6 +353,7 @@ export function prepareBaseData(
     // Заполняются в prepareDerivedData: база у них — ноль
     abilityCheckBonus: 0,
     concentrationSaveBonus: 0,
+    deathSaveBonus: 0,
     armorClass: system.armorClass?.value ?? BASE_UNARMORED_AC,
     initiative: 0,
     proficiencyBonus: 0,
@@ -1406,7 +1409,8 @@ function isRollTimeDiceChange(change: EffectChange): boolean {
     && (change.key.startsWith('damage.')
       || change.key.startsWith('attack.')
       || change.key.startsWith('save.')
-      || change.key === ABILITY_CHECK_KEY)
+      || change.key === ABILITY_CHECK_KEY
+      || change.key === DEATH_SAVE_KEY)
   );
 }
 
@@ -1475,6 +1479,7 @@ export function collectBonusRollFormulas(
     !targetKey.startsWith('attack.')
     && !targetKey.startsWith('save.')
     && targetKey !== ABILITY_CHECK_KEY
+    && targetKey !== DEATH_SAVE_KEY
     && !acceptsFlat
   ) {
     return [];
@@ -2344,6 +2349,15 @@ export function prepareDerivedData(
     formulaContext,
   );
 
+  // Спасбросок от смерти характеристики не имеет — только прибавки
+  derivedStats.deathSaveBonus = applyDerivedChanges(
+    derivedStats,
+    DEATH_SAVE_KEY,
+    0,
+    derivedChanges,
+    formulaContext,
+  );
+
   // 5. Навыки. Прибавка ко всем проверкам характеристик входит и в навык:
   // проверка навыка — та же проверка характеристики
   derivedStats.abilityCheckBonus = applyDerivedChanges(
@@ -2776,6 +2790,7 @@ function cloneResolvedStats(stats: ResolvedActorStats): ResolvedActorStats {
     skills: { ...stats.skills },
     abilityCheckBonus: stats.abilityCheckBonus,
     concentrationSaveBonus: stats.concentrationSaveBonus,
+    deathSaveBonus: stats.deathSaveBonus,
     armorClass: stats.armorClass,
     initiative: stats.initiative,
     proficiencyBonus: stats.proficiencyBonus,

@@ -277,6 +277,31 @@ describe('каталог: классы и черты', () => {
     assert.deepEqual(radiusAt(6, [stunned]), [], 'недееспособный ауру гасит');
   });
 
+  it('[F18] Стойкий: преимущество на спасброски от смерти', () => {
+    const durable = createEffect('Стойкий', {
+      flags: ['save.advantage.death'],
+      changes: [change('deathSave', '1')],
+    });
+
+    authoredScenario(durable, 'feature');
+
+    const stats = engine.resolveActorStats(
+      createActor({ activeEffects: [durable] }),
+    );
+
+    assert.equal(
+      engine.resolveDeathSaveRollMode(stats.activeFlags),
+      'advantage',
+    );
+
+    assert.equal(stats.deathSaveBonus, 1);
+
+    assert.equal(
+      stats.saves.constitution,
+      engine.resolveActorStats(createActor()).saves.constitution,
+    );
+  });
+
   it('[F02] Драконья стойкость: +1 хит за уровень чародея и КД 10 + Ловк + Хар без доспеха', () => {
     const resilience = createEffect(
       engine.buildClassEffectId('sorcerer', 'draconic'),

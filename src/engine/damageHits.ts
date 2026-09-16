@@ -18,6 +18,12 @@ import { parseEachValid } from './lenientParse.js';
 export interface DamageHit extends TriggerDamageData {
   /** Кто нанёс урон — другая сторона события */
   sourceId?: string;
+  /**
+   * Урон после защит, до временных хитов и нуля хитов: у лежащего на нуле
+   * потеря хитов — ноль, а спасброскам от смерти нужен сам урон. Нет поля —
+   * равен `amount`
+   */
+  dealt?: number;
 }
 
 /** Сколько ударов принимает один боевой снимок */
@@ -32,6 +38,7 @@ const DamageHitSchema = z.object({
   types: z.array(z.string().min(1)).max(MAX_DAMAGE_HIT_TYPES).catch([]),
   critical: z.boolean().catch(false),
   sourceId: z.string().min(1).optional().catch(undefined),
+  dealt: z.number().finite().nonnegative().optional().catch(undefined),
 });
 
 /**
@@ -58,7 +65,7 @@ const recordedHits = new WeakMap<DnDSceneEntity, DamageHit[]>();
  * @param hit - удар
  */
 export function recordDamageHit(entity: DnDSceneEntity, hit: DamageHit): void {
-  if (hit.amount <= 0) {
+  if (hit.amount <= 0 && (hit.dealt ?? 0) <= 0) {
     return;
   }
 

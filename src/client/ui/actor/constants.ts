@@ -5097,3 +5097,16 @@ export const ACTIVE_EFFECT_TEMPLATES_LABELS = {
   conditionSearchPlaceholder: 'Поиск по шаблонам...',
   conditionEmpty: 'Шаблоны не найдены',
 } as const;
+
+/** Подписи блока спасбросков от смерти */
+export const DEATH_SAVES_BLOCK_LABELS = {
+  title: 'Спасброски от смерти',
+  successes: 'Успехи',
+  failures: 'Провалы',
+  roll: 'Бросить',
+  hint: 'Сл 10 в начале своего хода; 20 — 1 хит, 1 — два провала.',
+  stable: 'Стабилен: больше не бросает, пока не получит урон.',
+  dead: 'Персонаж погиб.',
+  rollTitle: 'Спасбросок от смерти',
+  rollLabel: 'Спасбросок от смерти',
+} as const;

@@ -2,6 +2,7 @@
   import type { AbilityType, ActorArmorClass } from '@vtt/shared';
   import type {
     AttackRollMode,
+    DeathSavesState,
     DnDActor,
     DnDCustomBonus,
     DnDCustomBonusContext,
@@ -10,19 +11,30 @@
   } from '@vtt/shared/system/dnd.js';
 
   import type { RollBonusEvaluator } from '../../composables/rollBonusEvaluator';
+  import type { CheckRollResult } from './diceRollTypes';
 
   import { computed, ref, toRef } from 'vue';
 
   import FieldsetLabel from '@/shared_ui/components/FieldsetLabel.vue';
+  import { useChatStore } from '@/stores/chatStore';
   import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import {
+    applyDeathSaveResult,
     BASE_UNARMORED_AC,
     calculateAbilityModifier,
     calculateProficiencyBonus,
+    DEATH_SAVE_DC,
+    DEATH_SAVE_KEY,
+    formatDeathSaveSummary,
     getActorAbilityModifiers,
     getCustomBonusValue,
     getEntityExhaustionLevel,
     getTotalLevel,
+    isActorDead,
+    readDeathSaves,
+    resolveDeathSave,
+    resolveDeathSaveRollMode,
+    resolveEntityCurrentHp,
     resolveEntityMaxHp,
     resolveSavingThrowRollMode,
     WEAPON_MASTERY_MAP,
@@ -40,6 +52,7 @@
     ARMOR_CALCULATION_LABELS,
     ARMOR_CLASS_SETTINGS_LABELS,
     CUSTOM_BONUS_LABELS,
+    DEATH_SAVES_BLOCK_LABELS,
     DICE_ROLL_DEFAULT_BUTTON,
     GRANT_SECTION_LABELS,
     HIT_POINTS_LABELS,
@@ -51,6 +64,7 @@
     SHEET_TILE_LABELS,
     SHEET_TILE_SHORT_LABELS,
   } from './constants';
+  import DeathSavesPanel from './DeathSavesPanel.vue';
   import DiceRollModal from './DiceRollModal.vue';
   import ExhaustionPanel from './ExhaustionPanel.vue';
   import HitPointsModal from './HitPointsModal.vue';
@@ -583,6 +597,10 @@
     initialRollMode: AttackRollMode;
     autoFail: boolean;
     evaluateBonusRollFormulas?: RollBonusEvaluator;
+    /** Сложность, против которой бросок подписывается успехом или провалом */
+    targetDc?: number;
+    /** Итог броска проверки */
+    onCheckRoll?: (result: CheckRollResult) => void;
   }
 
   const diceRollConfig = ref<DiceRollConfig>({
@@ -638,6 +656,74 @@
     };
 
     isDiceRollOpen.value = true;
+  }
+
+  // --- Спасброски от смерти ---
+
+  /** Блок виден, пока хиты персонажа на нуле */
+  const showDeathSaves = computed(
+    () => maxHitPoints.value > 0 && resolveEntityCurrentHp(props.actor) === 0,
+  );
+
+  const deathSaves = computed(() => readDeathSaves(props.actor));
+  const isDead = computed(() => isActorDead(props.actor));
+
+  /**
+   * Записывает серию в персонажа.
+   *
+   * @param state - счётчики серии
+   */
+  function updateDeathSaves(state: DeathSavesState): void {
+    emit('update:actor', {
+      system: { ...props.actor.system, deathSaves: state },
+    });
+  }
+
+  /**
+   * Применяет итог броска: счётчики, 1 хит или метку смерти.
+   *
+   * @param result - итог броска проверки
+   */
+  function applyDeathSaveRoll(result: CheckRollResult): void {
+    const outcome = resolveDeathSave(
+      readDeathSaves(props.actor),
+      result.natural,
+      result.total,
+    );
+
+    // Клон: итог пишется в копию, лист получает её поля
+    const updated: DnDActor = JSON.parse(JSON.stringify(props.actor));
+
+    applyDeathSaveResult(updated, outcome);
+
+    emit('update:actor', {
+      system: updated.system,
+      activeEffects: updated.activeEffects,
+    });
+
+    useChatStore().sendMessage(
+      formatDeathSaveSummary(props.actor.name, outcome, false),
+      'text',
+    );
+  }
+
+  /** Открывает бросок спасброска от смерти */
+  function rollDeathSave(): void {
+    openDiceRoll({
+      modifier: resolvedStats.value?.deathSaveBonus ?? 0,
+      evaluateBonusRollFormulas: buildRollBonusEvaluator(
+        () => props.actor,
+        DEATH_SAVE_KEY,
+      ),
+      title: DEATH_SAVES_BLOCK_LABELS.rollTitle,
+      rollLabel: DEATH_SAVES_BLOCK_LABELS.rollLabel,
+      rollButtonText: SAVING_THROW_ROLL_LABELS.button,
+      initialRollMode: resolveDeathSaveRollMode(
+        resolvedStats.value?.activeFlags ?? new Set(),
+      ),
+      targetDc: DEATH_SAVE_DC,
+      onCheckRoll: applyDeathSaveRoll,
+    });
   }
 
   function handleSavingThrowClick(ability: {
@@ -1041,6 +1127,15 @@
 
     <!-- Истощение: сразу под здоровьем — степень штрафует все тесты к20 и
       скорость, и читается она вместе с хитами, а не на отдельной вкладке -->
+    <DeathSavesPanel
+      v-if="showDeathSaves"
+      :state="deathSaves"
+      :is-dead="isDead"
+      :is-edit-mode="isEditMode"
+      @roll="rollDeathSave"
+      @update="updateDeathSaves"
+    />
+
     <ExhaustionPanel
       :level="exhaustionLevel"
       :is-edit-mode="isEditMode"
@@ -1321,6 +1416,8 @@
     :initial-roll-mode="diceRollConfig.initialRollMode"
     :auto-fail="diceRollConfig.autoFail"
     :evaluate-bonus-roll-formulas="diceRollConfig.evaluateBonusRollFormulas"
+    :target-dc="diceRollConfig.targetDc"
+    :on-check-roll="diceRollConfig.onCheckRoll"
   />
 
   <!-- Модалка владения бронёй -->

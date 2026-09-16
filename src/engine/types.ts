@@ -22,6 +22,7 @@ import type {
   CounterRecovery,
   ManualHitDieGroup,
 } from './classTypes.js';
+import type { DeathSavesState } from './deathSaves.js';
 import type { EffectTriggerUsageLedger } from './effectTriggerUsage.js';
 
 /** Сколько зарядов возвращает отдых: ничего, все или заданное число */
@@ -399,6 +400,11 @@ export interface DnDActorSystem {
 
   /** Здоровье */
   hitPoints: DnDHitPoints;
+  /**
+   * Серия спасбросков от смерти — только пока хиты на нуле. См.
+   * `deathSaves.ts`
+   */
+  deathSaves?: DeathSavesState;
   /** Дополнительный бонус к инициативе */
   initiativeBonus: number;
   /** Характеристика для расчёта инициативы */

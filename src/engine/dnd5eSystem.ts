@@ -92,6 +92,11 @@ import {
   toDamageHits,
 } from './damageHits.js';
 import { getSpellDamageParts } from './damageParts.js';
+import {
+  formatDeathSaveSummary,
+  settleDeathSaveDamage,
+  syncDeathSavesWithHp,
+} from './deathSaves.js';
 import { syncCreatureDeathCondition } from './deathState.js';
 import {
   formatDeferredEffectsSummary,
@@ -394,6 +399,8 @@ function toDamageEventsTriggerResult(
  * @param context - возможности ядра
  * @param base - исход того, что нанесло урон
  * @param newEffectIds - эффекты, наложенные вместе с уроном: его они не слышат
+ * @param deathSaveHits - удары для спасбросков от смерти — до среза по потере
+ *   хитов: у лежащего на нуле потеря всегда ноль
  * @returns общий исход
  */
 function withDamageEvents(
@@ -403,9 +410,20 @@ function withDamageEvents(
   context: SystemTriggerContext | undefined,
   base: SystemDeferredTriggerResult,
   newEffectIds?: ReadonlySet<string>,
+  deathSaveHits: readonly DamageHit[] = hits,
 ): SystemDeferredTriggerResult {
+  // Урон по лежащему на нуле — провалы спасбросков от смерти
+  const deathSave = settleDeathSaveDamage(entity, hpBefore, deathSaveHits);
+
+  const withDeathSave = deathSave
+    ? mergeTriggerResults(base, {
+        changed: true,
+        chatSummary: formatDeathSaveSummary(entity.name, deathSave),
+      })
+    : base;
+
   if (hits.length === 0) {
-    return base;
+    return withDeathSave;
   }
 
   const events = settleDamageEvents(entity, hits, {
@@ -414,7 +432,10 @@ function withDamageEvents(
     newEffectIds,
   });
 
-  return mergeTriggerResults(base, toDamageEventsTriggerResult(entity, events));
+  return mergeTriggerResults(
+    withDeathSave,
+    toDamageEventsTriggerResult(entity, events),
+  );
 }
 
 /**
@@ -1092,7 +1113,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.48';
+  readonly version = '0.8.49';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -1724,6 +1745,9 @@ export class Dnd5eVttSystem implements VttSystem {
       return REJECTED_COMBAT_STATE;
     }
 
+    // Подъём хитов закрывает серию спасбросков от смерти, падение — начинает
+    syncDeathSavesWithHp(entity, hpBefore);
+
     const newEffectIds = new Set(
       (entity.activeEffects ?? [])
         .map((effect) => effect.id)
@@ -1735,9 +1759,8 @@ export class Dnd5eVttSystem implements VttSystem {
       - resolveEntityCurrentHp(entity)
       - resolveEntityTempHp(entity);
 
-    const hits = isRecord(state)
-      ? clampDamageHits(parseDamageHits(state.damage), loss)
-      : [];
+    const rawHits = isRecord(state) ? parseDamageHits(state.damage) : [];
+    const hits = clampDamageHits(rawHits, loss);
 
     const damageResult = withDamageEvents(
       entity,
@@ -1746,6 +1769,7 @@ export class Dnd5eVttSystem implements VttSystem {
       context,
       { changed: true, chatSummary: null },
       newEffectIds,
+      rawHits,
     );
 
     const applied = settleAppliedEvents(

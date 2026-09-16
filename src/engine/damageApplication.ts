@@ -31,6 +31,7 @@ import {
 } from './conditionTemplates.js';
 import {
   parseDamageHitDetails,
+  parseDamageHits,
   readDamageHits,
   recordDamageHit,
 } from './damageHits.js';
@@ -201,6 +202,9 @@ export function applyTargetDamage(
 
     recordDamageHit(entity, {
       amount: hpBefore + tempBefore - hpChange.hpAfter - hpChange.tempAfter,
+      // Урон по хитам без того, что сняли временные: на нуле хитов потеря
+      // ноль, а спасброски от смерти считают удар
+      dealt: finalAmount - (tempBefore - hpChange.tempAfter),
       types: damageType ? [damageType] : [],
       critical,
       sourceId,
@@ -356,8 +360,15 @@ export function applyCombatState(
     nextUsage !== undefined
     && JSON.stringify(readTriggerUsage(entity)) !== JSON.stringify(nextUsage);
 
+  // Удар по лежащему на нуле хитов ничего не меняет в хитах, но двигает
+  // серию спасбросков от смерти
+  const dealtOnly = parseDamageHits(state.damage).some(
+    (hit) => (hit.dealt ?? 0) > 0,
+  );
+
   const changed =
-    nextHp !== resolveEntityCurrentHp(entity)
+    dealtOnly
+    || nextHp !== resolveEntityCurrentHp(entity)
     || nextTemp !== resolveEntityTempHp(entity)
     || JSON.stringify(entity.activeEffects ?? [])
       !== JSON.stringify(nextEffects)
