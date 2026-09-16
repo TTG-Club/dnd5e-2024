@@ -52,17 +52,16 @@ export function findAlliesAdjacentToTarget(
   }
 
   const tokens = scene.tokens ?? [];
-  const attackerToken = tokens.find((token) => token.actorId === attackerId);
   const targetToken = findTargetToken(tokens, targetEntityId);
 
-  if (!attackerToken || !targetToken) {
+  if (!targetToken) {
     return [];
   }
 
   return listAdjacentAllies({
     tokens,
     gridSettings: scene.gridSettings,
-    attackerToken,
+    attackerId,
     targetToken,
     getEntity: useWorldEntities().findCurrentDndEntity,
   });

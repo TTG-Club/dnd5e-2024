@@ -284,6 +284,49 @@ describe('каталог: существа', () => {
     );
   });
 
+  it('[C05] черта «Тактика стаи» видна на листе с источником, «+0» — пустой модификатор', () => {
+    const packTactics = createEffect('Тактика стаи', {
+      flags: ['attack.advantage'],
+      rollCondition: 'target.allyAdjacent',
+    });
+
+    const bite = createEffect('Цель при укусе', { effectTarget: 'target' });
+    const wolf = createCreature();
+
+    wolf.system.traits = [createTrait('Тактика стаи', [packTactics, bite])];
+
+    const entries = engine.listCarriedEffectEntries(wolf);
+
+    assert.deepEqual(
+      entries.map((entry) => [entry.sourceKind, entry.sourceName]),
+      [['trait', 'Тактика стаи']],
+      'эффект «на цели» носителю не достаётся',
+    );
+
+    assert.equal(entries[0].effect, packTactics);
+    assert.deepEqual([...engine.listTraitEffects(wolf)], [packTactics]);
+    assert.deepEqual([...engine.listEquippedItemEffects(wolf)], []);
+
+    // Преимущество ищут в модификаторах — прибавка 0 ничего не даёт
+    const noOp = { key: 'attack.melee', mode: 'add', value: '0' };
+
+    assert.equal(engine.isNoOpEffectChange(noOp), true);
+    assert.equal(engine.isNoOpEffectChange({ ...noOp, value: ' 2 ' }), false);
+    assert.equal(engine.isNoOpEffectChange({ ...noOp, value: '1к4' }), false);
+    assert.equal(engine.isNoOpEffectChange({ ...noOp, value: '' }), false);
+    assert.equal(engine.isNoOpEffectChange({ ...noOp, key: '' }), false);
+
+    assert.equal(
+      engine.isNoOpEffectChange({ ...noOp, mode: 'multiply', value: '1' }),
+      true,
+    );
+
+    assert.equal(
+      engine.isNoOpEffectChange({ ...noOp, mode: 'override', value: '0' }),
+      false,
+    );
+  });
+
   it('[C06] Зловоние [≈]: аура «при входе» — спасбросок Телосложения или «Отравленный»', () => {
     const stench = conditionEffect('poisoned', {
       aura: allCreaturesAura(10),

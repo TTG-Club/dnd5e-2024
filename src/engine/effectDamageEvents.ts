@@ -47,7 +47,7 @@ import {
   toDeferredEffectOutcome,
   unchangedOutcome,
 } from './deferredEffectSaves.js';
-import { listEquippedItemEffects } from './effectPipeline.js';
+import { listEquippedItemEffects, listTraitEffects } from './effectPipeline.js';
 import {
   buildEffectSaveRollRequest,
   formatEffectRequesterLabel,
@@ -60,7 +60,6 @@ import {
   buildTriggerSources,
   EFFECT_TRIGGER_SOURCE_KINDS,
   listAttackRollSources,
-  listTraitEffects,
   settleTriggerOutcome,
   toTriggerSaveOutcome,
 } from './effectTriggerRunner.js';

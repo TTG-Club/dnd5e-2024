@@ -26,6 +26,7 @@
     EFFECT_VALUE_SUGGESTIONS,
     isDiceFormulaValue,
     isEffectTargetKey,
+    isNoOpEffectChange,
     validateFormula,
   } from '@vtt/shared/system/dnd.js';
 
@@ -92,6 +93,7 @@
           ? describeEffectChangeKey(change.key)
           : EFFECT_CHANGE_ROW_LABELS.keyPlaceholder,
         valueError: valueError(change),
+        isNoOp: isNoOpEffectChange(change),
         showPriority:
           props.showPriorityField
           || change.priority !== DEFAULT_EFFECT_CHANGE_PRIORITY,
@@ -436,6 +438,13 @@
           {{ row.conditionLabel }}
         </p>
       </div>
+
+      <p
+        v-if="row.isNoOp"
+        class="text-xs text-warning"
+      >
+        {{ EFFECT_CHANGE_ROW_LABELS.noOpHint }}
+      </p>
 
       <p
         v-if="row.isDamageKey"

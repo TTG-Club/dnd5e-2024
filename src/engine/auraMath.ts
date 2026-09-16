@@ -407,8 +407,8 @@ export interface AllyAdjacencyScene {
   tokens: readonly Token[];
   /** Сетка сцены */
   gridSettings: GridSettings;
-  /** Фишка атакующего */
-  attackerToken: Token;
+  /** Атакующая сущность */
+  attackerId: string;
   /** Фишка цели */
   targetToken: Token;
   /** Живая сущность мира по id */
@@ -437,29 +437,76 @@ export function listEntityConditionKeys(entity: DnDSceneEntity): string[] {
 }
 
 /**
+ * Фишка сущности, ближайшая к цели. У одной записи на сцене бывает несколько
+ * фишек (стая волков из одного существа), и бьёт та, что ближе.
+ *
+ * @param tokens - фишки сцены
+ * @param entityId - сущность
+ * @param targetToken - фишка цели
+ * @param gridSettings - сетка сцены
+ * @returns фишка либо `undefined`, если у сущности нет фишек кроме цели
+ */
+export function findNearestEntityToken(
+  tokens: readonly Token[],
+  entityId: string,
+  targetToken: Token,
+  gridSettings: GridSettings,
+): Token | undefined {
+  let nearest: Token | undefined;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+
+  for (const token of tokens) {
+    if (token.actorId !== entityId || token.id === targetToken.id) {
+      continue;
+    }
+
+    const distance = getTokenEdgeDistance(token, targetToken, gridSettings);
+
+    if (distance < nearestDistance) {
+      nearest = token;
+      nearestDistance = distance;
+    }
+  }
+
+  return nearest;
+}
+
+/**
  * Союзники атакующего рядом с целью и их состояния: фишки того же
  * действующего отношения (`withTokenDisposition` ядра — отношение живёт в
- * настройках фишки сущности), не сам атакующий и не цель, в пределах
- * {@link ALLY_ADJACENT_RANGE_FEET} от края до края. Какой союзник годится,
- * решает условие броска.
+ * настройках фишки сущности), не фишка атакующего и не цель, в пределах
+ * {@link ALLY_ADJACENT_RANGE_FEET} от края до края. Атакует ближайшая к цели
+ * фишка сущности; другие её фишки — отдельные существа на поле и в счёт идут.
+ * Какой союзник годится, решает условие броска.
  *
  * @param scene - фишки, сетка и сущности сцены
- * @returns союзники рядом с целью
+ * @returns союзники рядом с целью; у атакующего нет фишки — пусто
  */
 export function listAdjacentAllies(
   scene: AllyAdjacencyScene,
 ): AdjacentAllyState[] {
-  const { tokens, gridSettings, attackerToken, targetToken, getEntity } = scene;
+  const { tokens, gridSettings, attackerId, targetToken, getEntity } = scene;
+
+  const attackerToken = findNearestEntityToken(
+    tokens,
+    attackerId,
+    targetToken,
+    gridSettings,
+  );
+
+  if (!attackerToken) {
+    return [];
+  }
 
   const attackerSide = withTokenDisposition(
     attackerToken,
-    getEntity(attackerToken.actorId),
+    getEntity(attackerId),
   );
 
   return tokens.flatMap((token) => {
     if (
-      token.actorId === attackerToken.actorId
-      || token.actorId === targetToken.actorId
+      token.id === attackerToken.id
+      || token.id === targetToken.id
       || getTokenEdgeDistance(token, targetToken, gridSettings)
         > ALLY_ADJACENT_RANGE_FEET
     ) {

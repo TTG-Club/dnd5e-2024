@@ -35,11 +35,10 @@ import type {
   TurnSaveOutcome,
 } from './turnEffects.js';
 
-import { generateId, isCreatureEntity } from '@vtt/shared';
+import { generateId } from '@vtt/shared';
 
 import {
   ACTIVE_EFFECT_ID_PREFIX,
-  isCarrierEffect,
   isEffectDormant,
   listLiveEffects,
   removeOrSwitchOffEffects,
@@ -53,6 +52,7 @@ import {
 } from './effectAutomation.js';
 import {
   getEntityConditionImmunities,
+  listTraitEffects,
   resolveActorStats,
 } from './effectPipeline.js';
 import {
@@ -919,28 +919,6 @@ function listTurnTriggers(
   return triggers.filter(
     (trigger) => trigger.turnOf !== 'source' || !sourceTurnComes,
   );
-}
-
-/**
- * Эффекты черт существа, действующие на само существо: их урон, лечение и
- * наложения срабатывают на его ходу («Регенерация» чертой статблока).
- *
- * @param entity - субъект
- * @returns эффекты черт
- */
-export function listTraitEffects(entity: DnDSceneEntity): ActiveEffect[] {
-  if (!isCreatureEntity(entity)) {
-    return [];
-  }
-
-  return (entity.system.traits ?? [])
-    .flatMap((trait) => trait.activeEffects ?? [])
-    .filter(
-      (effect) =>
-        !isEffectDormant(effect)
-        && isCarrierEffect(effect)
-        && !(effect.aura && !effect.aura.applyToSelf),
-    );
 }
 
 /**

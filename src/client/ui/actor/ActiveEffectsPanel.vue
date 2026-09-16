@@ -1,11 +1,12 @@
 <!--
   Панель активных эффектов сущности — общая для листа персонажа и листа
-  существа: свои эффекты, эффекты работающего снаряжения и сетка состояний
-  D&D 5e. Шкала Истощения живёт отдельно — в левой колонке под здоровьем.
+  существа: свои эффекты, эффекты работающего снаряжения и особенностей
+  существа и сетка состояний D&D 5e. Шкала Истощения живёт отдельно — в левой
+  колонке под здоровьем.
 
   Оба листа показывают эффекты одинаково, поэтому разметка живёт здесь одна.
-  Лист отдаёт свои эффекты и (у персонажа) снаряжение, а обратно получает новый
-  список эффектов — как именно его сохранять, решает сам лист.
+  Лист отдаёт свои эффекты и себя, а обратно получает новый список эффектов —
+  как именно его сохранять, решает сам лист.
 
   Эффект «при применении» вместо переключателя получает кнопку «Применить»: его
   копия ложится на владельца или цель. Переключаемый эффект при включении
@@ -16,6 +17,7 @@
   import type {
     ActiveEffect,
     ActorCounterState,
+    CarriedEffectEntry,
     ConditionRef,
     DnDGameItem,
     DnDSceneEntity,
@@ -36,7 +38,7 @@
     isEffectDormant,
     isToggleActivatedEffect,
     isUseActivatedEffect,
-    itemEffectsActive,
+    listCarriedEffectEntries,
     listSelectableConditions,
     payActivation,
     resolveActorStats,
@@ -54,6 +56,7 @@
     ACTIVE_EFFECT_DEFAULTS,
     ACTIVE_EFFECT_ICON_CLASS,
     ACTIVE_EFFECT_OPEN_HINT,
+    CARRIED_EFFECT_BADGES,
     CONCENTRATION_END_LABEL,
     EFFECTS_TAB_LABELS,
     MODAL_BUTTON_LABELS,
@@ -65,13 +68,10 @@
     /** Лист в режиме правки: доступны добавление, правка и удаление */
     isEditMode: boolean;
     /**
-     * Снаряжение владельца — источник раздела «От снаряжения». Есть у обоих
-     * листов: инвентарь появился и у существа.
-     */
-    equipment?: readonly DnDGameItem[];
-    /**
      * Сущность-владелец: на неё ложатся применённые эффекты, на ней
-     * выполняются срабатывания включения. Нет — эффекты только переключаются
+     * выполняются срабатывания включения, её снаряжение и особенности —
+     * источник раздела «От снаряжения и особенностей». Нет — эффекты только
+     * переключаются
      */
     owner?: DnDSceneEntity;
     /** Ресурсы листа, которые тратят применение и включение */
@@ -79,7 +79,6 @@
   }
 
   const props = withDefaults(defineProps<Props>(), {
-    equipment: () => [],
     owner: undefined,
     counters: () => [],
   });
@@ -278,44 +277,14 @@
     itemsStore.saveItem(socket, saved, true);
   }
 
-  /** Эффект работающего предмета с указанием источника */
-  interface EquipmentEffectEntry {
-    /** Эффект предмета */
-    effect: ActiveEffect;
-    /** Название предмета-источника */
-    itemName: string;
-  }
-
   /**
-   * Эффекты работающих предметов — ровно те, что движок применяет к владельцу.
-   * Отбор повторяет `collectActiveEffects`: предмет должен быть надет и (при
-   * обязательной настройке) настроен, эффекты «цели при атаке» на владельца не
-   * действуют, аура без `applyToSelf` — тоже. Иначе список обещал бы бонус,
-   * которого на листе нет.
+   * Эффекты надетых предметов и особенностей существа — ровно те, что движок
+   * применяет к владельцу. Переключателя у них нет: действуют, пока есть
+   * источник.
    */
-  const equipmentEffects = computed<EquipmentEffectEntry[]>(() => {
-    const entries: EquipmentEffectEntry[] = [];
-
-    for (const item of props.equipment) {
-      if (!itemEffectsActive(item) || !item.activeEffects) {
-        continue;
-      }
-
-      for (const itemEffect of item.activeEffects) {
-        if (
-          isEffectDormant(itemEffect)
-          || itemEffect.effectTarget === 'target'
-          || (itemEffect.aura && !itemEffect.aura.applyToSelf)
-        ) {
-          continue;
-        }
-
-        entries.push({ effect: itemEffect, itemName: item.name });
-      }
-    }
-
-    return entries;
-  });
+  const carriedEffects = computed<CarriedEffectEntry[]>(() =>
+    props.owner ? listCarriedEffectEntries(props.owner) : [],
+  );
 
   /**
    * Состояния сетки. Истощение исключено: у него своя шкала степеней в левой
@@ -341,13 +310,13 @@
   }
 
   /**
-   * Открывает карточку эффекта от надетого предмета: своего носителя такой
-   * эффект уже знает, и в карточке он подписан.
+   * Открывает карточку эффекта от предмета или особенности: в карточке
+   * подписан источник.
    *
-   * @param entry - строка списка эффектов снаряжения
+   * @param entry - строка списка эффектов снаряжения и особенностей
    */
-  function openEquipmentEffectDetail(entry: EquipmentEffectEntry): void {
-    openActiveEffectDetail(entry.effect, entry.itemName);
+  function openCarriedEffectDetail(entry: CarriedEffectEntry): void {
+    openActiveEffectDetail(entry.effect, entry.sourceName);
   }
 
   /**
@@ -517,25 +486,25 @@
     </UButton>
   </div>
 
-  <!-- Эффекты от снаряжения -->
+  <!-- Эффекты от снаряжения и особенностей -->
   <div
-    v-if="equipmentEffects.length > 0"
+    v-if="carriedEffects.length > 0"
     class="flex flex-col"
   >
     <h3
       class="mt-5 mb-1 text-xs font-semibold tracking-wider text-muted uppercase"
     >
-      {{ EFFECTS_TAB_LABELS.fromEquipment }}
+      {{ EFFECTS_TAB_LABELS.fromRecords }}
     </h3>
 
     <div class="space-y-1">
       <button
-        v-for="entry in equipmentEffects"
-        :key="`${entry.itemName}-${entry.effect.id}`"
+        v-for="entry in carriedEffects"
+        :key="`${entry.sourceKind}-${entry.sourceName}-${entry.effect.id}`"
         type="button"
         :title="ACTIVE_EFFECT_OPEN_HINT"
         class="flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-lg bg-elevated/50 p-2 text-left transition-colors hover:bg-accented/50"
-        @click.left.exact.prevent="openEquipmentEffectDetail(entry)"
+        @click.left.exact.prevent="openCarriedEffectDetail(entry)"
       >
         <UIcon
           :name="entry.effect.icon || ACTIVE_EFFECT_DEFAULTS.fallbackIcon"
@@ -548,14 +517,19 @@
           </div>
 
           <div class="mt-0.5 truncate text-[10px] text-dimmed">
-            {{ entry.itemName }}
+            {{ entry.sourceName }}
           </div>
         </div>
 
         <span
-          class="shrink-0 rounded-full bg-source/10 px-2 py-0.5 text-[10px] text-source"
+          class="flex shrink-0 items-center gap-1 rounded-full bg-source/10 px-2 py-0.5 text-[10px] text-source"
+          :title="EFFECTS_TAB_LABELS.recordBadgeHint"
         >
-          {{ EFFECTS_TAB_LABELS.itemBadge }}
+          <UIcon
+            name="tabler:lock"
+            class="size-3"
+          />
+          {{ CARRIED_EFFECT_BADGES[entry.sourceKind] }}
         </span>
       </button>
     </div>

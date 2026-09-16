@@ -15,6 +15,7 @@ import type {
 import type {
   AbilityDelimiter,
   ActiveEffectDetailSectionKey,
+  CarriedEffectSourceKind,
   CounterRecovery,
   CounterRestKey,
 } from '@vtt/shared/system/dnd.js';
@@ -2828,20 +2829,31 @@ export const ACTOR_TAB_LABELS = {
 
 /**
  * Подписи вкладки эффектов. Вкладка одна и та же у листа персонажа и блока
- * эффектов существа: свои эффекты, эффекты от снаряжения и состояния у них
- * собраны одинаково.
+ * эффектов существа: свои эффекты, эффекты от снаряжения и особенностей и
+ * состояния у них собраны одинаково.
  */
 export const EFFECTS_TAB_LABELS = {
   customEmpty: 'Нет пользовательских эффектов',
-  fromEquipment: 'От снаряжения',
-  /** Значок строки: эффект пришёл не с листа, а с надетого предмета */
-  itemBadge: 'Предмет',
+  fromRecords: 'От снаряжения и особенностей',
+  /** Подсказка значка: переключателя у такой строки нет */
+  recordBadgeHint:
+    'Действует, пока есть источник. Выключить здесь нельзя — измените или '
+    + 'уберите предмет или особенность.',
   conditionsTitle: 'Состояния',
   /** Кнопка создания своего состояния прямо с листа (в режиме правки) */
   addCondition: 'Состояние',
   /** Подсказка кнопки, открывающей карточку состояния */
   conditionDetailHint: 'Открыть карточку состояния',
 } as const;
+
+/**
+ * Значок строки эффекта, пришедшего не с листа, а с вложенной записи: надетого
+ * предмета или особенности существа.
+ */
+export const CARRIED_EFFECT_BADGES: Record<CarriedEffectSourceKind, string> = {
+  item: 'Предмет',
+  trait: 'Особенность',
+};
 
 /** Подписи блока Истощения на листе */
 export const EXHAUSTION_BLOCK_LABELS = {

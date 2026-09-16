@@ -66,7 +66,7 @@ function allyAdjacent(entities, overrides = {}, condition = undefined) {
   const allies = engine.listAdjacentAllies({
     tokens,
     gridSettings: GRID,
-    attackerToken: tokens[0],
+    attackerId: entities[0].id,
     targetToken: tokens[1],
     getEntity: (entityId) => byId.get(entityId),
   });
@@ -99,12 +99,49 @@ it('отношение берётся из настроек фишки сущн�
   const allies = engine.listAdjacentAllies({
     tokens,
     gridSettings: GRID,
-    attackerToken: tokens[0],
+    attackerId: 'wolf',
     targetToken: tokens[1],
     getEntity: (entityId) => byId.get(entityId),
   });
 
   assert.deepEqual(allies, []);
+});
+
+it('другая фишка той же записи — союзник, атакует ближайшая к цели', () => {
+  const byId = new Map([wolf, goblin].map((entity) => [entity.id, entity]));
+
+  const scene = (tokens) =>
+    engine.listAdjacentAllies({
+      tokens,
+      gridSettings: GRID,
+      attackerId: 'wolf',
+      targetToken: tokens[0],
+      getEntity: (entityId) => byId.get(entityId),
+    });
+
+  // Стая из одного существа: две фишки волка по бокам гоблина
+  const pack = [
+    createToken('goblin', 1, 0),
+    { ...createToken('wolf', 0, 0), id: 'token_wolf_left' },
+    { ...createToken('wolf', 2, 0), id: 'token_wolf_right' },
+  ];
+
+  assert.equal(scene(pack).length, 1);
+
+  // Вторая фишка далеко: бьёт ближняя, союзника рядом нет
+  const alone = [
+    createToken('goblin', 1, 0),
+    { ...createToken('wolf', 5, 0), id: 'token_wolf_far' },
+    { ...createToken('wolf', 0, 0), id: 'token_wolf_near' },
+  ];
+
+  assert.deepEqual(scene(alone), []);
+
+  assert.deepEqual(
+    scene([createToken('goblin', 1, 0)]),
+    [],
+    'у атакующего нет фишки',
+  );
 });
 
 it('далёкий союзник, враг рядом и недееспособный союзник не считаются', () => {
@@ -189,15 +226,15 @@ it('клиент отдаёт правилу фишки сцены, выбран
     { conditions: [] },
   ]);
 
-  assert.equal(calls[0].attackerToken.id, 'token_wolf');
+  assert.equal(calls[0].attackerId, 'wolf');
   assert.equal(calls[0].targetToken.id, 'token_goblin_selected');
   assert.equal(calls[0].gridSettings, GRID);
 
   assert.deepEqual(
     // Массив из песочницы обработчика — сравниваем копию
-    [...findAlliesAdjacentToTarget('bear', 'goblin')],
+    [...findAlliesAdjacentToTarget('wolf', 'orc')],
     [],
-    'нет фишки',
+    'нет фишки цели',
   );
 
   assert.equal(calls.length, 1);

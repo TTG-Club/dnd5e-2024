@@ -406,6 +406,80 @@ export function itemEffectsActive(item: DnDGameItem): boolean {
   return item.magicAttunement !== 'required' || Boolean(item.isAttuned);
 }
 
+/** Вид записи, от которой эффект достался носителю */
+export type CarriedEffectSourceKind = 'item' | 'trait';
+
+/** Эффект вложенной записи, действующий на носителя, и его источник */
+export interface CarriedEffectEntry {
+  /** Эффект записи */
+  effect: ActiveEffect;
+  /** Название записи-источника */
+  sourceName: string;
+  /** Вид записи-источника */
+  sourceKind: CarriedEffectSourceKind;
+}
+
+/**
+ * Эффекты вложенных записей, которые действуют на носителя: работающих
+ * предметов (см. {@link itemEffectsActive}) и черт существа. Черта часть
+ * эффектов адресует чужому — их отсекает {@link affectsCarrier}. Без этого
+ * мимик хватал сам себя: флаг `speed.zero` обнулял ему скорость, и ядро
+ * отказывалось двигать токен, хотя на листе стоит 20 фт.
+ *
+ * Эффекты действий существа сюда не входят: они ложатся на цель при
+ * использовании действия, а не на само существо.
+ *
+ * @param entity - носитель
+ * @returns эффекты с источниками: сначала предметы, затем черты
+ */
+export function listCarriedEffectEntries(
+  entity: DnDSceneEntity,
+): CarriedEffectEntry[] {
+  const items = (entity.equipment ?? [])
+    .filter(itemEffectsActive)
+    .flatMap((item) =>
+      (item.activeEffects ?? [])
+        .filter(affectsCarrier)
+        .map((effect): CarriedEffectEntry => ({
+          effect,
+          sourceName: item.name,
+          sourceKind: 'item',
+        })),
+    );
+
+  if (!isCreatureEntity(entity)) {
+    return items;
+  }
+
+  const traits = (entity.system.traits ?? []).flatMap((trait) =>
+    (trait.activeEffects ?? [])
+      .filter(affectsCarrier)
+      .map((effect): CarriedEffectEntry => ({
+        effect,
+        sourceName: trait.name,
+        sourceKind: 'trait',
+      })),
+  );
+
+  return [...items, ...traits];
+}
+
+/**
+ * Эффекты вложенных записей одного вида, действующие на носителя.
+ *
+ * @param entity - носитель
+ * @param sourceKind - вид записи
+ * @returns эффекты
+ */
+function listCarriedEffectsOf(
+  entity: DnDSceneEntity,
+  sourceKind: CarriedEffectSourceKind,
+): ActiveEffect[] {
+  return listCarriedEffectEntries(entity)
+    .filter((entry) => entry.sourceKind === sourceKind)
+    .map((entry) => entry.effect);
+}
+
 /**
  * Эффекты работающих предметов носителя, которые действуют на него самого.
  *
@@ -413,15 +487,20 @@ export function itemEffectsActive(item: DnDGameItem): boolean {
  * @returns эффекты предметов
  */
 export function listEquippedItemEffects(
-  entity: DnDActor | DnDCreature,
+  entity: DnDSceneEntity,
 ): ActiveEffect[] {
-  if (!('equipment' in entity)) {
-    return [];
-  }
+  return listCarriedEffectsOf(entity, 'item');
+}
 
-  return (entity.equipment ?? [])
-    .filter(itemEffectsActive)
-    .flatMap((item) => (item.activeEffects ?? []).filter(affectsCarrier));
+/**
+ * Эффекты черт существа, действующие на само существо: их урон, лечение и
+ * наложения срабатывают на его ходу («Регенерация» чертой статблока).
+ *
+ * @param entity - носитель
+ * @returns эффекты черт
+ */
+export function listTraitEffects(entity: DnDSceneEntity): ActiveEffect[] {
+  return listCarriedEffectsOf(entity, 'trait');
 }
 
 /**
@@ -494,32 +573,11 @@ export function collectActiveEffects(
     }
   }
 
-  // Эффекты с работающих предметов: свойство transfer больше не требуется,
-  // переносятся все эффекты предметов
-  collectedEffects.push(...listEquippedItemEffects(actor));
-
-  // Эффекты от черт существа (только для Creature).
-  // Черты (traits) содержат пассивные эффекты, постоянно действующие на само
-  // существо (например, «Магическое сопротивление»), — но не только: часть
-  // описывает состояние чужого, и такие отсекает `affectsCarrier`. Без этого
-  // мимик хватал сам себя: флаг `speed.zero` обнулял ему скорость, и ядро
-  // отказывалось двигать токен, хотя на листе стоит 20 фт.
-  // Эффекты из actions/bonusActions/reactions/legendary.actions НЕ собираются здесь —
-  // они предназначены для применения к целям при использовании действия,
-  // а не к самому существу.
-  if (isCreatureEntity(actor)) {
-    for (const trait of actor.system.traits ?? []) {
-      if (!trait.activeEffects) {
-        continue;
-      }
-
-      for (const traitEffect of trait.activeEffects) {
-        if (affectsCarrier(traitEffect)) {
-          collectedEffects.push(traitEffect);
-        }
-      }
-    }
-  }
+  // Эффекты работающих предметов (свойство transfer больше не требуется) и
+  // пассивные эффекты черт существа
+  collectedEffects.push(
+    ...listCarriedEffectEntries(actor).map((entry) => entry.effect),
+  );
 
   // Уровень своего класса — в формулы умений класса. Здесь, в единственной
   // точке сбора: дальше эффекты расходятся по статам листа, бонус-частям урона
@@ -1657,6 +1715,29 @@ const DICE_VALUE_REGEX = /\d*\s*[кдd]\s*\d+/i;
  */
 export function isDiceFormulaValue(value: string): boolean {
   return DICE_VALUE_REGEX.test(value);
+}
+
+/**
+ * Ничего ли не меняет модификатор: прибавка 0 или множитель 1. Такая строка —
+ * почти всегда ошибка автора: преимущество он искал в модификаторах, а оно —
+ * особое правило.
+ *
+ * @param change - модификатор
+ * @returns `true`, если строка ни на что не влияет
+ */
+export function isNoOpEffectChange(
+  change: Pick<EffectChange, 'key' | 'mode' | 'value'>,
+): boolean {
+  const value = change.value.trim();
+
+  if (change.key === '' || value === '' || !Number.isFinite(Number(value))) {
+    return false;
+  }
+
+  return (
+    (change.mode === 'add' && Number(value) === 0)
+    || (change.mode === 'multiply' && Number(value) === 1)
+  );
 }
 
 /**

@@ -446,11 +446,11 @@ export const EFFECT_CONDITION_SUGGESTIONS: Array<{
   // === БРОСКИ ===
   {
     value: 'roll.hasAdvantage === true',
-    label: 'Бросок: с преимуществом',
+    label: 'Бросок: уже идёт с преимуществом',
   },
   {
     value: 'roll.hasDisadvantage === true',
-    label: 'Бросок: с помехой',
+    label: 'Бросок: уже идёт с помехой',
   },
 
   // === ДОСПЕХ НОСИТЕЛЯ ===

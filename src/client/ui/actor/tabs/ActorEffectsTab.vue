@@ -50,7 +50,6 @@
 <template>
   <ActiveEffectsPanel
     :effects="actor.activeEffects ?? []"
-    :equipment="actor.equipment ?? []"
     :is-edit-mode="isEditMode"
     :owner="actor"
     :counters="actor.system.classCounters ?? []"

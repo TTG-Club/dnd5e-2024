@@ -372,6 +372,9 @@ export const EFFECT_CHANGE_ROW_LABELS = {
   priority: 'Приоритет',
   priorityHint: `Меньше — раньше (по умолчанию ${ACTIVE_EFFECT_DEFAULTS.changePriority})`,
   remove: 'Удалить модификатор',
+  noOpHint:
+    'Прибавка 0 и множитель 1 ничего не меняют. Преимущество и помеха — '
+    + 'в «Особых правилах» ниже.',
   damageFormulaHint:
     'Кроме числа (+2) можно указать кости — они бросаются отдельной частью '
     + 'урона: «2к6», тип — «2к6@dmg.fire», только по цели с полным HP — '
