@@ -591,7 +591,6 @@ export const EFFECT_USE_LABELS = {
   use: 'Использовать',
   apply: 'Применить',
   applyHint: 'Наложить эффект: на себя или на выбранную цель',
-  chatUses: ' применяет ',
   noTargetTitle: 'Нет цели',
   noTargetText: 'Эффект ложится на цель — сначала выберите её.',
   noUsesTitle: 'Нечего применить',

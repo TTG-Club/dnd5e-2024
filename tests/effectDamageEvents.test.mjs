@@ -190,17 +190,20 @@ describe('события урона', () => {
 
     const result = system.runTurnEffects(hero, 'startOfTurn', {});
 
+    // Итог подписан у броска: числа случайные — сверяем форму
     assert.deepEqual(
       result.chatRolls.map((roll) => [
         roll.formula,
-        roll.label,
+        roll.label.replace(/\d+/g, 'N'),
         roll.dice.map((group) => group.sides),
       ]),
       [
-        ['1к6', `Огонь → ${hero.name} (Огненный урон)`, [6]],
-        ['1к4', `Огонь → ${hero.name} (лечение)`, [4]],
+        ['1к6', `Огонь → ${hero.name}: −N HP (Огненный урон)`, [6]],
+        ['1к4', `Огонь → ${hero.name}: +N HP`, [4]],
       ],
     );
+
+    assert.equal(result.chatSummary, null, 'сводка итог не повторяет');
   });
 
   it('действия другой стороне: урон тому, кто ударил, — без новых событий у него', () => {

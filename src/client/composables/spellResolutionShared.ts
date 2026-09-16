@@ -17,6 +17,7 @@ import type {
 
 import type { RollBonusEvaluator } from './rollBonusEvaluator';
 
+import { useChatStore } from '@/stores/chatStore';
 import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
 import { generateId } from '@vtt/shared';
 import {
@@ -29,6 +30,7 @@ import {
   isMagicRoll,
   isSaveAbility,
   listIgnoredResistances,
+  removesItselfOnApply,
   resolveActorStats,
   SAVE_TYPE_LABELS,
   stampAppliedEffect,
@@ -404,6 +406,32 @@ export function formatSpellEffectsMessage(
   const effectNames = effects.map((effect) => effect.name).join(', ');
 
   return `${spellName}\n→ ${targetNames.join(', ')}: [${effectNames}]`;
+}
+
+/**
+ * Пишет в чат, что наложено. Мгновенные эффекты (зелье лечит и снимает себя)
+ * в список не входят — их итог пишет исход срабатывания; не осталось ничего —
+ * строки нет.
+ *
+ * @param spellName - название заклинания или источника
+ * @param targetNames - имена получивших эффекты
+ * @param effects - наложенные эффекты
+ */
+export function postSpellEffectsMessage(
+  spellName: string,
+  targetNames: readonly string[],
+  effects: readonly ActiveEffect[],
+): void {
+  const lasting = effects.filter((effect) => !removesItselfOnApply(effect));
+
+  if (lasting.length === 0) {
+    return;
+  }
+
+  useChatStore().sendMessage(
+    formatSpellEffectsMessage(spellName, targetNames, lasting),
+    'text',
+  );
 }
 
 /**

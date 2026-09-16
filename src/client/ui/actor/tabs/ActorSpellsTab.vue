@@ -100,8 +100,8 @@
     requestSpellEffectTargets,
   } from '../../../composables/spellEffectTargeting';
   import {
-    formatSpellEffectsMessage,
     getTargetSpellEffects,
+    postSpellEffectsMessage,
     targetEffectsNeedResolution,
   } from '../../../composables/spellResolutionShared';
   import {
@@ -231,10 +231,7 @@
 
     triggerSaveIfNotEdit();
 
-    chatStore.sendMessage(
-      formatSpellEffectsMessage(spell.name, [props.actor.name], casterEffects),
-      'text',
-    );
+    postSpellEffectsMessage(spell.name, [props.actor.name], casterEffects);
   }
 
   const isSettingsModalOpen = ref(false);

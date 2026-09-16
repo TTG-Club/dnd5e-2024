@@ -34,8 +34,8 @@ import {
 
 import { requestEndCasts, resolveSpellCastId } from './spellCasts';
 import {
-  formatSpellEffectsMessage,
   instantiateSpellEffects,
+  postSpellEffectsMessage,
   stampEffectOnApply,
 } from './spellResolutionShared';
 
@@ -137,10 +137,7 @@ export function applyCasterSpellEffectsToEntity(
 
   emitEntityCombatState(socket, updatedCaster);
 
-  chatStore.sendMessage(
-    formatSpellEffectsMessage(spell.name, [caster.name], prepared),
-    'text',
-  );
+  postSpellEffectsMessage(spell.name, [caster.name], prepared);
 }
 
 /**

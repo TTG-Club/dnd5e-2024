@@ -1127,8 +1127,8 @@ const TEMP_HP_SUMMARY_LABEL = 'временных HP';
 /** Подпись восстановленного, когда выпало больше, чем влезло до максимума */
 const HEALED_SUMMARY_LABEL = 'восстановлено';
 
-/** Подпись лечения в броске для чата */
-const HEALING_ROLL_LABEL = 'лечение';
+/** Итог лечения, когда хиты упёрлись в максимум */
+const FULL_HP_RESULT_LABEL = 'хиты полные';
 
 /**
  * Бросок эффекта для чата в форме ядра.
@@ -1156,7 +1156,8 @@ function toEffectDiceRoll(roll: RolledFormula, label: string): DiceRollData {
 
 /**
  * Кубики эффектов сущности для чата: урон и лечение, брошенные сервером. Ядро
- * пишет их сообщениями-бросками, клиенты катают кубики.
+ * пишет их сообщениями-бросками, клиенты катают кубики; итог исхода подписан у
+ * его броска, и сводка его не повторяет.
  *
  * @param entityName - имя сущности
  * @param damageOutcomes - исходы урона
@@ -1168,26 +1169,19 @@ export function buildEffectDiceRolls(
   damageOutcomes: readonly TurnDamageOutcome[],
   healingOutcomes: readonly TurnHealingOutcome[] = [],
 ): DiceRollData[] {
-  const damageLabels: Record<string, string> = DAMAGE_TYPE_LABELS;
-
-  const damageRolls = damageOutcomes.flatMap((outcome) => {
-    const typeLabel = outcome.types
-      .map((type) => damageLabels[type] ?? type)
-      .join('/');
-
-    const label = typeLabel
-      ? `${outcome.effectName} → ${entityName} (${typeLabel})`
-      : `${outcome.effectName} → ${entityName}`;
-
-    return outcome.rolls.map((roll) => toEffectDiceRoll(roll, label));
-  });
+  const damageRolls = damageOutcomes.flatMap((outcome) =>
+    toOutcomeDiceRolls(
+      outcome.rolls,
+      `${outcome.effectName} → ${entityName}`,
+      formatDamageResult(outcome),
+    ),
+  );
 
   const healingRolls = healingOutcomes.flatMap((outcome) =>
-    outcome.rolls.map((roll) =>
-      toEffectDiceRoll(
-        roll,
-        `${outcome.effectName} → ${entityName} (${HEALING_ROLL_LABEL})`,
-      ),
+    toOutcomeDiceRolls(
+      outcome.rolls,
+      `${outcome.effectName} → ${entityName}`,
+      formatHealingResult(outcome),
     ),
   );
 
@@ -1314,18 +1308,11 @@ export function formatEffectsSummary(
   formatSaveStatus: (save: TurnSaveOutcome) => string,
   healingOutcomes: TurnHealingOutcome[] = [],
 ): string | null {
-  if (
-    damageOutcomes.length === 0
-    && saveOutcomes.length === 0
-    && healingOutcomes.length === 0
-  ) {
-    return null;
-  }
-
   const lines = [formatEffectsSummaryHeader(entityName, whenLabel)];
   const damageLabels: Record<string, string> = DAMAGE_TYPE_LABELS;
 
-  for (const damage of damageOutcomes) {
+  // Урон и лечение с костями показаны карточками бросков (`buildEffectDiceRolls`)
+  for (const damage of damageOutcomes.filter(isSummaryOnlyOutcome)) {
     const typeLabel =
       damage.types.map((type) => damageLabels[type] ?? type).join('/')
       || 'урон';
@@ -1337,7 +1324,7 @@ export function formatEffectsSummary(
     );
   }
 
-  for (const healing of healingOutcomes) {
+  for (const healing of healingOutcomes.filter(isSummaryOnlyOutcome)) {
     const breakdown = formatRollBreakdown(healing);
 
     if (healing.rolled !== undefined && healing.rolled > healing.healed) {
@@ -1363,5 +1350,85 @@ export function formatEffectsSummary(
     );
   }
 
-  return lines.join('\n');
+  return lines.length > 1 ? lines.join('\n') : null;
+}
+
+/**
+ * Показывается ли исход только строкой сводки: у исхода без костей карточки
+ * броска нет.
+ *
+ * @param outcome - исход урона или лечения
+ * @returns `true`, если исход пишет сводка
+ */
+function isSummaryOnlyOutcome(
+  outcome: Pick<TurnDamageOutcome, 'rolls'>,
+): boolean {
+  return outcome.rolls.length === 0;
+}
+
+/**
+ * Итог урона для подписи броска: «−5 HP (Огненный урон)».
+ *
+ * @param outcome - исход урона
+ * @returns итог
+ */
+function formatDamageResult(outcome: TurnDamageOutcome): string {
+  const damageLabels: Record<string, string> = DAMAGE_TYPE_LABELS;
+
+  const typeLabel = outcome.types
+    .map((type) => damageLabels[type] ?? type)
+    .join('/');
+
+  return typeLabel
+    ? `−${outcome.total} HP (${typeLabel})`
+    : `−${outcome.total} HP`;
+}
+
+/**
+ * Итог лечения для подписи броска: «+5 HP», «+2 HP (хиты полные)», «5
+ * временных HP».
+ *
+ * @param outcome - исход лечения
+ * @returns итог
+ */
+function formatHealingResult(outcome: TurnHealingOutcome): string {
+  const parts: string[] = [];
+
+  const capped =
+    outcome.rolled !== undefined && outcome.rolled > outcome.healed;
+
+  if (outcome.healed > 0 || capped) {
+    parts.push(
+      capped
+        ? `+${outcome.healed} HP (${FULL_HP_RESULT_LABEL})`
+        : `+${outcome.healed} HP`,
+    );
+  }
+
+  if (outcome.tempHp > 0) {
+    parts.push(`${outcome.tempHp} ${TEMP_HP_SUMMARY_LABEL}`);
+  }
+
+  return parts.join(', ');
+}
+
+/**
+ * Броски одного исхода: итог подписан у последнего броска.
+ *
+ * @param rolls - брошенные формулы исхода
+ * @param label - подпись исхода
+ * @param result - итог исхода
+ * @returns броски для чата
+ */
+function toOutcomeDiceRolls(
+  rolls: readonly RolledFormula[],
+  label: string,
+  result: string,
+): DiceRollData[] {
+  return rolls.map((roll, index) =>
+    toEffectDiceRoll(
+      roll,
+      index === rolls.length - 1 && result ? `${label}: ${result}` : label,
+    ),
+  );
 }

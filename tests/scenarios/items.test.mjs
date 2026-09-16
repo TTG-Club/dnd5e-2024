@@ -428,7 +428,7 @@ describe('каталог: предметы', () => {
     assert.deepEqual(hero.activeEffects, [], 'зелье не висит на персонаже');
   });
 
-  it('[I16] зелье с костями: кубики в чат, сводка пишет восстановленное', () => {
+  it('[I16] зелье с костями: одна карточка броска с восстановленным', () => {
     const healing = createEffect('Зелье лечения', {
       activation: { mode: 'use' },
       triggers: [
@@ -472,8 +472,8 @@ describe('каталог: предметы', () => {
 
     assert.equal(
       wounded.result.chatSummary,
-      `Эффекты (при наложении): ${wounded.hero.name}\n`
-        + 'Зелье лечения: [4, 4] + 2 = +10 HP',
+      null,
+      'итог уже в карточке броска',
     );
 
     assert.equal(wounded.result.chatRolls.length, 1);
@@ -484,7 +484,7 @@ describe('каталог: предметы', () => {
     assert.equal(roll.total, 10);
     assert.equal(roll.details, '[4, 4] + 2');
 
-    assert.equal(roll.label, `Зелье лечения → ${wounded.hero.name} (лечение)`);
+    assert.equal(roll.label, `Зелье лечения → ${wounded.hero.name}: +10 HP`);
 
     assert.deepEqual(
       roll.dice.map((group) => [group.count, group.sides, [...group.values]]),
@@ -495,9 +495,23 @@ describe('каталог: предметы', () => {
 
     assert.equal(engine.resolveEntityCurrentHp(almostFull.hero), 20);
 
-    assert.match(
-      almostFull.result.chatSummary,
-      /Зелье лечения: \[4, 4\] \+ 2 = 10, восстановлено \+2 HP/,
+    assert.equal(almostFull.result.chatSummary, null);
+
+    assert.equal(
+      almostFull.result.chatRolls[0].label,
+      `Зелье лечения → ${almostFull.hero.name}: +2 HP (хиты полные)`,
+    );
+
+    // Зелье на персонаже не остаётся — в список наложенного оно не входит
+    assert.equal(engine.removesItselfOnApply(healing), true);
+
+    assert.equal(
+      engine.removesItselfOnApply(
+        createEffect('Сила великана', {
+          changes: [change('ability.strength', '21', { mode: 'upgrade' })],
+        }),
+      ),
+      false,
     );
   });
 

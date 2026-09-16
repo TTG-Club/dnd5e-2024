@@ -121,8 +121,8 @@ import {
 } from '../composables/spellEffectTargeting';
 import {
   discardSpellTemplate,
-  formatSpellEffectsMessage,
   getTargetSpellEffects,
+  postSpellEffectsMessage,
   targetEffectsNeedResolution,
 } from '../composables/spellResolutionShared';
 import {
@@ -1526,10 +1526,7 @@ function castBuffSpellMacro(
       casterEffects,
     );
 
-    chatStore.sendMessage(
-      formatSpellEffectsMessage(spell.name, [actor.name], casterEffects),
-      'text',
-    );
+    postSpellEffectsMessage(spell.name, [actor.name], casterEffects);
   };
 
   // Уровневые (не врождённые): окно выбора круга. Списание ячейки и эффекты —

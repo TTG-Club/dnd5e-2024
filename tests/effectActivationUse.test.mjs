@@ -55,7 +55,6 @@ async function loadApply({ hasTarget }) {
     EFFECT_USE_LABELS: {
       noTargetTitle: 'no-target',
       noTargetText: '',
-      chatUses: ' uses ',
     },
   });
 
@@ -75,11 +74,7 @@ it('зелье на себя: сначала расход, потом налож
 
   apply(potion, hero, 13, () => steps.push(['spend']));
 
-  assert.deepEqual(steps, [
-    ['spend'],
-    ['chat', 'Hero uses «Potion»'],
-    ['self', 1],
-  ]);
+  assert.deepEqual(steps, [['spend'], ['self', 1]]);
 });
 
 it('эффект на цель без цели не тратит источник', async () => {
@@ -107,12 +102,7 @@ it('эффект на цель уходит разбору цели с Сл пр
 
   apply(poison, hero, 15, () => steps.push(['spend']));
 
-  assert.deepEqual(steps, [
-    ['spend'],
-    ['chat', 'Hero uses «Poison»'],
-    ['self', 0],
-    ['target', 'hero', 15],
-  ]);
+  assert.deepEqual(steps, [['spend'], ['self', 0], ['target', 'hero', 15]]);
 });
 
 it('кнопка панели применяет предмет владельца и тратит его до нуля', async () => {
@@ -216,4 +206,29 @@ it('кнопка панели гаснет с причиной и показыв
     { ...resolveItemUseSlot({ ref: 'gone', actorId: 'hero' }) },
     { disabled: true, hint: 'нет' },
   );
+});
+
+it('в список наложенного не входят эффекты, которые сразу снимают себя', async () => {
+  const sent = [];
+
+  const postSpellEffectsMessage = await loadHandler(
+    'src/client/composables/spellResolutionShared.ts',
+    'postSpellEffectsMessage',
+    {
+      removesItselfOnApply: (effect) => effect.name === 'Heal',
+      formatSpellEffectsMessage: (source, names, effects) =>
+        `${source}: ${effects.map((effect) => effect.name).join(', ')}`,
+      useChatStore: () => ({ sendMessage: (text) => sent.push(text) }),
+    },
+  );
+
+  postSpellEffectsMessage('Potion', ['Hero'], [usableEffect('Heal')]);
+
+  postSpellEffectsMessage(
+    'Dust',
+    ['Hero'],
+    [usableEffect('Heal'), usableEffect('Invisible')],
+  );
+
+  assert.deepEqual(sent, ['Dust: Invisible']);
 });

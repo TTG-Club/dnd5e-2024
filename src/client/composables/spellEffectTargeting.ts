@@ -24,8 +24,8 @@ import {
 } from '../ui/actor/constants';
 import { resolveSpellCastId } from './spellCasts';
 import {
-  formatSpellEffectsMessage,
   getTargetSpellEffects,
+  postSpellEffectsMessage,
   stampEffectOnApply,
   targetEffectsNeedResolution,
 } from './spellResolutionShared';
@@ -375,10 +375,7 @@ export function requestSpellEffectTargets(
         names.push(entity.name);
       }
 
-      chatStore.sendMessage(
-        formatSpellEffectsMessage(spell.name, names, effects),
-        'text',
-      );
+      postSpellEffectsMessage(spell.name, names, effects);
     }
 
     if (!validate(slotLevel)) {
@@ -497,9 +494,6 @@ export function applySpellTargetEffects(
   );
 
   if (targetName) {
-    useChatStore().sendMessage(
-      formatSpellEffectsMessage(spell.name, [targetName], targetEffects),
-      'text',
-    );
+    postSpellEffectsMessage(spell.name, [targetName], targetEffects);
   }
 }

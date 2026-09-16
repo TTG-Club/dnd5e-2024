@@ -337,6 +337,24 @@ export function listEffectEventTriggers(
 }
 
 /**
+ * Мгновенный эффект: при наложении без условий снимает сам себя — лечение
+ * зелья, взрыв. На носителе он не остаётся, и в списке наложенного его не
+ * показывают: что он сделал, пишет исход срабатывания.
+ *
+ * @param effect - эффект
+ * @returns `true`, если эффект снимается сразу после наложения
+ */
+export function removesItselfOnApply(effect: ActiveEffect): boolean {
+  return listEffectEventTriggers(effect, 'applied').some(
+    (trigger) =>
+      !trigger.condition?.trim()
+      && trigger.actions.some(
+        (action) => action.type === 'removeSelf' && action.on === undefined,
+      ),
+  );
+}
+
+/**
  * Выбирается ли у события отдых: «после долгого», «после короткого».
  *
  * @param event - событие срабатывания

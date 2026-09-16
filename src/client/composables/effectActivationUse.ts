@@ -81,11 +81,8 @@ export function applyEffectSource(
 
     spend();
 
-    useChatStore().sendMessage(
-      `${user.name}${EFFECT_USE_LABELS.chatUses}«${chosen.name}»`,
-      'text',
-    );
-
+    // Что сделало применение, пишут список наложенного, разбор цели и исход
+    // срабатываний — отдельная строка «применяет» их бы только повторяла
     applyCasterSpellEffectsToEntity(chosen, user, { saveDc });
 
     if (needsTarget) {
