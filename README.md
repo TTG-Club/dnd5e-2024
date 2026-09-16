@@ -1152,7 +1152,7 @@ targetIds, rollMode }` (`reportAttackRoll`), система проверяет, 
     (`positionalEffects`) и `isAllyAdjacentToTarget` разрешают отношение тем же
     `withTokenDisposition`.
 
-    **Статус:** `compatibility.minimum` / `verified` подняты до 0.9.525.
+    **Статус:** `compatibility.minimum` поднят до 0.9.525, `verified` — 0.9.526.
 
 > **Закрыто на стороне хоста (VTTG 0.9.427+):** панель выделенного токена больше
 > не актёрская. `WorldScene` резолвит выделение в `selectedEntity` (актёр ИЛИ
