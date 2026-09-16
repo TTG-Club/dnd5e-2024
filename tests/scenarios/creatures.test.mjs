@@ -1121,4 +1121,35 @@ describe('каталог: всем в радиусе', () => {
       strikeEntity(system, oldCore, 5, 'slashing', { context: {} }),
     );
   });
+
+  it('отбор «враги» — по отношению из настроек фишки сущности', () => {
+    const spore = createCreature({ id: 'creature_spore' });
+    const hero = createActor({ id: 'actor_hero' });
+    const packmate = createCreature({ id: 'creature_packmate' });
+    const unset = createActor({ id: 'actor_unset' });
+
+    hero.token = { ...hero.token, disposition: 'friendly' };
+    packmate.token = { ...packmate.token, disposition: 'hostile' };
+    unset.token = { ...unset.token, disposition: undefined };
+
+    // Фишки сцены без своего поля — как их кладёт ядро
+    const surroundings = {
+      token: createToken(spore.id, 0, 0),
+      gridSettings: GRID,
+      neighbors: [hero, packmate, unset].map((entity, index) => ({
+        token: createToken(entity.id, index + 1, 0),
+        entity,
+      })),
+    };
+
+    const pick = (target, subject) =>
+      engine
+        .findEntitiesInArea(surroundings, { radius: 20, target }, subject)
+        .map((entity) => entity.id);
+
+    assert.deepEqual(pick('enemies', spore), [hero.id]);
+
+    // Без настройки фишка «враждебная» — союзник враждебной споры
+    assert.deepEqual(pick('allies', spore), [packmate.id, unset.id]);
+  });
 });

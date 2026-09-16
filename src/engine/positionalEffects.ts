@@ -41,6 +41,7 @@ import {
   collectAllAuraEffects,
   collectTriggerAurasForTarget,
   isTriggerAura,
+  withResolvedDisposition,
 } from './auraMath.js';
 import {
   requestEntryEffect,
@@ -527,29 +528,6 @@ export interface AuraTriggerOutcome extends AreaEffectsSyncResult {
 /** Ключ членства токена в конкретной ауре: токен-источник + эффект */
 function auraHitKey(hit: TriggerAuraHit): string {
   return `${hit.sourceTokenId}:${hit.effect.id}`;
-}
-
-/**
- * Возвращает токен с диспозицией, разрешённой так же, как при рендере: приоритет
- * у настроек сущности (`entity.token.disposition`), затем у самого токена сцены.
- * Нужно потому, что у токена на сцене `disposition` часто не проставлен, а фильтр
- * аур по отношению (`allies`/`enemies`) сравнивает именно это поле.
- *
- * @param token - токен сцены
- * @param entity - сущность токена (источник авторитетной диспозиции)
- * @returns тот же токен либо его копия с разрешённой диспозицией
- */
-function withResolvedDisposition(
-  token: Token,
-  entity: DnDSceneEntity | undefined,
-): Token {
-  const disposition = entity?.token?.disposition ?? token.disposition;
-
-  if (disposition === token.disposition) {
-    return token;
-  }
-
-  return { ...token, disposition };
 }
 
 /**

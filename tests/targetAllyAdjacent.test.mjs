@@ -39,9 +39,15 @@ function token(actorId, column, disposition) {
  *
  * @param {object[]} tokens - фишки
  * @param {Set<string>} incapacitated - недееспособные сущности
+ * @param {Record<string, string>} entityDispositions - отношения в настройках
+ *   фишек сущностей
  * @returns {Promise<Function>} расчёт
  */
-function loadAllyAdjacent(tokens, incapacitated = new Set()) {
+function loadAllyAdjacent(
+  tokens,
+  incapacitated = new Set(),
+  entityDispositions = {},
+) {
   return loadHandler(
     'src/client/composables/targetAllyAdjacent.ts',
     'isAllyAdjacentToTarget',
@@ -53,7 +59,10 @@ function loadAllyAdjacent(tokens, incapacitated = new Set()) {
       findTargetToken: (sceneTokens, entityId) =>
         sceneTokens.find((entry) => entry.actorId === entityId),
       useWorldEntities: () => ({
-        findCurrentWorldEntity: (id) => ({ id }),
+        findCurrentWorldEntity: (id) => ({
+          id,
+          token: { disposition: entityDispositions[id] },
+        }),
       }),
       isDndSceneEntity: () => true,
       resolveActorStats: (entity) => ({
@@ -62,6 +71,7 @@ function loadAllyAdjacent(tokens, incapacitated = new Set()) {
         ),
       }),
       getRelativeDisposition: engine.getRelativeDisposition,
+      withResolvedDisposition: engine.withResolvedDisposition,
       // Зазор между клетками одной строки: соседняя клетка — 0 фт
       getTokenEdgeDistance: (left, right) =>
         Math.max(0, (Math.abs(left.x - right.x) / CELL - 1) * FEET),
@@ -79,6 +89,25 @@ it('союзник волка рядом с гоблином даёт «союз
   ]);
 
   assert.equal(isAdjacent('wolf', 'goblin'), true);
+});
+
+it('отношение берётся из настроек фишки сущности, а не с фишки сцены', async () => {
+  // Ядро кладёт фишки без своего поля: отношение живёт на сущности
+  const isAdjacent = await loadAllyAdjacent(
+    [token('wolf', 0), token('goblin', 1), token('packmate', 2)],
+    new Set(),
+    { wolf: 'hostile', goblin: 'friendly', packmate: 'hostile' },
+  );
+
+  assert.equal(isAdjacent('wolf', 'goblin'), true);
+
+  const guarded = await loadAllyAdjacent(
+    [token('wolf', 0), token('goblin', 1), token('guard', 2, 'hostile')],
+    new Set(),
+    { wolf: 'hostile', goblin: 'friendly', guard: 'friendly' },
+  );
+
+  assert.equal(guarded('wolf', 'goblin'), false, 'сущность важнее фишки');
 });
 
 it('далёкий союзник, враг рядом и недееспособный союзник не считаются', async () => {

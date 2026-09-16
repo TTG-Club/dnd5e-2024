@@ -52,6 +52,36 @@ const TOKEN_HITBOX_RATIO = 0.2;
  */
 export type TokenDisposition = 'ally' | 'enemy' | 'neutral';
 
+/**
+ * Отношение фишки без настройки — «враждебный»: так ядро рисует её рамку, и так
+ * по умолчанию стоит переключатель в настройках фишки листа.
+ */
+export const DEFAULT_TOKEN_DISPOSITION = 'hostile';
+
+/**
+ * Фишка с действующим отношением: у настроек фишки сущности
+ * (`entity.token.disposition`) приоритет, затем поле фишки сцены, затем
+ * «враждебный». У фишки сцены своё поле обычно пустое, а отношения аур,
+ * «всем в радиусе» и «союзника рядом» сравнивают именно его. Правило то же, что
+ * у ядра (`withTokenDisposition`), — своей копией, чтобы не требовать новое
+ * ядро: старое отдаёт фишки как есть.
+ *
+ * @param token - фишка сцены
+ * @param entity - сущность фишки, если известна
+ * @returns та же фишка, если отношение совпало, иначе копия
+ */
+export function withResolvedDisposition(
+  token: Token,
+  entity: Pick<DnDSceneEntity, 'token'> | undefined,
+): Token {
+  const disposition =
+    entity?.token?.disposition
+    ?? token.disposition
+    ?? DEFAULT_TOKEN_DISPOSITION;
+
+  return disposition === token.disposition ? token : { ...token, disposition };
+}
+
 export interface AuraSourceToken {
   token: Token;
   effects: ActiveEffect[];
@@ -336,15 +366,17 @@ export function isAuraReachingTarget(
 /**
  * Сущности в радиусе от фишки субъекта — получатели «всем в радиусе». Та же
  * геометрия и те же отношения, что у ауры: радиус от края фишки субъекта,
- * союзник — фишка того же отношения.
+ * союзник — фишка того же действующего отношения.
  *
  * @param surroundings - сцена вокруг субъекта от ядра
  * @param area - радиус и отбор
+ * @param subject - субъект: его настройки фишки задают отношение
  * @returns сущности без повторов (у сущности бывает несколько фишек)
  */
 export function findEntitiesInArea(
   surroundings: SystemSceneSurroundings | null | undefined,
   area: EffectTriggerArea,
+  subject?: DnDSceneEntity,
 ): DnDSceneEntity[] {
   if (!surroundings) {
     return [];
@@ -352,15 +384,22 @@ export function findEntitiesInArea(
 
   const target = area.target ?? DEFAULT_TRIGGER_AREA_TARGET;
   const found = new Map<string, DnDSceneEntity>();
+  const subjectToken = withResolvedDisposition(surroundings.token, subject);
 
   for (const neighbor of surroundings.neighbors) {
     const { entity, token } = neighbor;
-    const disposition = getRelativeDisposition(surroundings.token, token);
+
+    if (found.has(entity.id) || !isDndSceneEntity(entity)) {
+      continue;
+    }
+
+    const disposition = getRelativeDisposition(
+      subjectToken,
+      withResolvedDisposition(token, entity),
+    );
 
     if (
-      found.has(entity.id)
-      || !isDndSceneEntity(entity)
-      || (target === 'allies' && disposition !== 'ally')
+      (target === 'allies' && disposition !== 'ally')
       || (target === 'enemies' && disposition !== 'enemy')
       || !isAuraReachingTarget(
         surroundings.token,

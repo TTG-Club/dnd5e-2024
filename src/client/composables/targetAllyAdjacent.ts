@@ -1,9 +1,10 @@
 /**
  * «Рядом с целью союзник» — условие `target.allyAdjacent` («Тактика стаи»).
  *
- * Считается по фишкам текущей сцены: союзник — фишка того же отношения, что и
- * фишка бросающего (`getRelativeDisposition`), не сам бросающий и не цель, в
- * пределах досягаемости от края до края, и его сущность дееспособна.
+ * Считается по фишкам текущей сцены: союзник — фишка того же действующего
+ * отношения, что и фишка бросающего (`withResolvedDisposition`: отношение живёт
+ * в настройках фишки сущности), не сам бросающий и не цель, в пределах
+ * досягаемости от края до края, и его сущность дееспособна.
  */
 
 import type { Token } from '@vtt/shared';
@@ -15,6 +16,7 @@ import {
   getRelativeDisposition,
   isDndSceneEntity,
   resolveActorStats,
+  withResolvedDisposition,
 } from '@vtt/shared/system/dnd.js';
 
 import { useWorldEntities } from './useWorldEntities';
@@ -71,12 +73,17 @@ export function isAllyAdjacentToTarget(
   }
 
   const { findCurrentWorldEntity } = useWorldEntities();
+  const attacker = findCurrentWorldEntity(attackerId);
+
+  const attackerSide = withResolvedDisposition(
+    attackerToken,
+    attacker && isDndSceneEntity(attacker) ? attacker : undefined,
+  );
 
   return tokens.some((token) => {
     if (
       token.actorId === attackerId
       || token.actorId === targetEntityId
-      || getRelativeDisposition(attackerToken, token) !== 'ally'
       || getTokenEdgeDistance(token, targetToken, scene.gridSettings)
         > ALLY_ADJACENT_REACH
     ) {
@@ -88,6 +95,10 @@ export function isAllyAdjacentToTarget(
     return (
       ally !== undefined
       && isDndSceneEntity(ally)
+      && getRelativeDisposition(
+        attackerSide,
+        withResolvedDisposition(token, ally),
+      ) === 'ally'
       && !resolveActorStats(ally).activeFlags.has(INCAPACITATED_FLAG)
     );
   });
