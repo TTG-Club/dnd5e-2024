@@ -29,7 +29,7 @@ import type {
   TurnSaveOutcome,
 } from './turnEffects.js';
 
-import { generateId } from '@vtt/shared';
+import { generateId, withTokenDisposition } from '@vtt/shared';
 
 import {
   ACTIVE_EFFECT_ID_PREFIX,
@@ -41,7 +41,6 @@ import {
   collectAllAuraEffects,
   collectTriggerAurasForTarget,
   isTriggerAura,
-  withResolvedDisposition,
 } from './auraMath.js';
 import {
   requestEntryEffect,
@@ -697,10 +696,10 @@ export function applyAuraTriggerEffects(
 
   // Диспозиция перемещённого токена берётся из его сущности (на токене сцены её
   // может не быть) — иначе фильтр аур allies/enemies не сработает.
-  const movedTokenResolved = withResolvedDisposition(movedToken, movedEntity);
+  const movedTokenResolved = withTokenDisposition(movedToken, movedEntity);
 
   const previousTokenResolved = previousToken
-    ? withResolvedDisposition(previousToken, movedEntity)
+    ? withTokenDisposition(previousToken, movedEntity)
     : undefined;
 
   // Остальные токены с разрешённой диспозицией и их аура-эффектами (один проход)
@@ -722,7 +721,7 @@ export function applyAuraTriggerEffects(
     }
 
     others.push({
-      token: withResolvedDisposition(token, entity),
+      token: withTokenDisposition(token, entity),
       entity,
       auraEffects: collectAllAuraEffects(entity),
     });

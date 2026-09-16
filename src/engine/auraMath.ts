@@ -16,7 +16,7 @@ import type { ActiveEffect } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type { EffectTriggerArea } from './effectTriggerTypes.js';
 
-import { isCreatureEntity } from '@vtt/shared';
+import { isCreatureEntity, withTokenDisposition } from '@vtt/shared';
 
 import { isCarrierEffect, isEffectDormant } from './activeEffectTypes.js';
 import { bindClassLevels } from './classEffectScope.js';
@@ -51,36 +51,6 @@ const TOKEN_HITBOX_RATIO = 0.2;
  * В будущем можно усложнить логику (проверять disposition или user ownership).
  */
 export type TokenDisposition = 'ally' | 'enemy' | 'neutral';
-
-/**
- * Отношение фишки без настройки — «враждебный»: так ядро рисует её рамку, и так
- * по умолчанию стоит переключатель в настройках фишки листа.
- */
-export const DEFAULT_TOKEN_DISPOSITION = 'hostile';
-
-/**
- * Фишка с действующим отношением: у настроек фишки сущности
- * (`entity.token.disposition`) приоритет, затем поле фишки сцены, затем
- * «враждебный». У фишки сцены своё поле обычно пустое, а отношения аур,
- * «всем в радиусе» и «союзника рядом» сравнивают именно его. Правило то же, что
- * у ядра (`withTokenDisposition`), — своей копией, чтобы не требовать новое
- * ядро: старое отдаёт фишки как есть.
- *
- * @param token - фишка сцены
- * @param entity - сущность фишки, если известна
- * @returns та же фишка, если отношение совпало, иначе копия
- */
-export function withResolvedDisposition(
-  token: Token,
-  entity: Pick<DnDSceneEntity, 'token'> | undefined,
-): Token {
-  const disposition =
-    entity?.token?.disposition
-    ?? token.disposition
-    ?? DEFAULT_TOKEN_DISPOSITION;
-
-  return disposition === token.disposition ? token : { ...token, disposition };
-}
 
 export interface AuraSourceToken {
   token: Token;
@@ -366,7 +336,8 @@ export function isAuraReachingTarget(
 /**
  * Сущности в радиусе от фишки субъекта — получатели «всем в радиусе». Та же
  * геометрия и те же отношения, что у ауры: радиус от края фишки субъекта,
- * союзник — фишка того же действующего отношения.
+ * союзник — фишка того же действующего отношения (`withTokenDisposition` ядра:
+ * отношение живёт в настройках фишки сущности).
  *
  * @param surroundings - сцена вокруг субъекта от ядра
  * @param area - радиус и отбор
@@ -384,7 +355,7 @@ export function findEntitiesInArea(
 
   const target = area.target ?? DEFAULT_TRIGGER_AREA_TARGET;
   const found = new Map<string, DnDSceneEntity>();
-  const subjectToken = withResolvedDisposition(surroundings.token, subject);
+  const subjectToken = withTokenDisposition(surroundings.token, subject);
 
   for (const neighbor of surroundings.neighbors) {
     const { entity, token } = neighbor;
@@ -395,7 +366,7 @@ export function findEntitiesInArea(
 
     const disposition = getRelativeDisposition(
       subjectToken,
-      withResolvedDisposition(token, entity),
+      withTokenDisposition(token, entity),
     );
 
     if (

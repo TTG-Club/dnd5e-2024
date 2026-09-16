@@ -6,7 +6,8 @@ import { loadEngineBundle } from './helpers/engineBundle.mjs';
 import { loadHandler } from './helpers/sourceHandler.mjs';
 
 const engine = await loadEngineBundle(
-  "export * from './src/engine/auraMath.ts';",
+  "export * from './src/engine/auraMath.ts'; "
+    + "export { withTokenDisposition } from '@vtt/shared';",
 );
 
 /** Клетка сцены, пикс. */
@@ -71,7 +72,7 @@ function loadAllyAdjacent(
         ),
       }),
       getRelativeDisposition: engine.getRelativeDisposition,
-      withResolvedDisposition: engine.withResolvedDisposition,
+      withTokenDisposition: engine.withTokenDisposition,
       // Зазор между клетками одной строки: соседняя клетка — 0 фт
       getTokenEdgeDistance: (left, right) =>
         Math.max(0, (Math.abs(left.x - right.x) / CELL - 1) * FEET),
