@@ -550,6 +550,76 @@ function buildTagEffect(action: EffectTriggerApplyTagAction): ActiveEffect {
 }
 
 /**
+ * Привязка наложенного к касту и зоне источника: состояние или отметка от
+ * эффекта заклинания уходят вместе с его кастом и зоной, как и копия эффекта.
+ *
+ * @param status - наложенное срабатыванием
+ * @param effect - эффект, чьё срабатывание наложило
+ * @param sourceAreaId - зона заклинания, из которой пришёл эффект
+ * @returns наложенное с привязкой
+ */
+function bindStatusToSource(
+  status: ActiveEffect,
+  effect: ActiveEffect,
+  sourceAreaId: string | undefined,
+): ActiveEffect {
+  return {
+    ...status,
+    ...(effect.castId ? { castId: effect.castId } : {}),
+    ...(effect.magical ? { magical: effect.magical } : {}),
+    ...(effect.magical && sourceAreaId ? { endsWithAreaId: sourceAreaId } : {}),
+  };
+}
+
+/** Действие срабатывания, которое кладёт на субъекта длящийся эффект */
+type StatusTriggerAction = Extract<
+  EffectTriggerAction,
+  { type: 'applySelf' | 'applyTag' | 'applyCondition' }
+>;
+
+/**
+ * Что кладёт на субъекта действие наложения: копию эффекта, отметку или
+ * состояние.
+ *
+ * @param action - действие наложения
+ * @param effect - эффект, чьё срабатывание выполняется
+ * @param options - откуда пришли наложения
+ * @returns длящийся эффект либо `null`, если класть нечего
+ */
+function buildActionStatus(
+  action: StatusTriggerAction,
+  effect: ActiveEffect,
+  options: EntryEffectOptions,
+): ActiveEffect | null {
+  if (action.type === 'applySelf') {
+    const copy = buildEffectStatusCopy(effect, options.sourceAreaId);
+
+    // Копия без срабатываний входа и выхода может остаться пустой
+    return hasLastingEffectPayload(copy) ? copy : null;
+  }
+
+  if (action.type === 'applyTag') {
+    return bindStatusToSource(
+      buildTagEffect(action),
+      effect,
+      options.sourceAreaId,
+    );
+  }
+
+  const condition = buildConditionActiveEffect(action.conditionKey, {
+    duration: action.duration,
+  });
+
+  return condition
+    ? bindStatusToSource(
+        withInitializedDuration(condition),
+        effect,
+        options.sourceAreaId,
+      )
+    : null;
+}
+
+/**
  * Выполняет действия срабатывания, кроме урона: накладывает копию эффекта,
  * состояние (с проверкой иммунитета) или отметку и сообщает, снимается ли сам
  * эффект.
@@ -606,21 +676,7 @@ export function applyTriggerEffectActions(
       continue;
     }
 
-    let status: ActiveEffect | null = null;
-
-    if (action.type === 'applySelf') {
-      status = hasLastingEffectPayload(source.effect)
-        ? buildEffectStatusCopy(source.effect, options.sourceAreaId)
-        : null;
-    } else if (action.type === 'applyTag') {
-      status = buildTagEffect(action);
-    } else {
-      const condition = buildConditionActiveEffect(action.conditionKey, {
-        duration: action.duration,
-      });
-
-      status = condition ? withInitializedDuration(condition) : null;
-    }
+    const status = buildActionStatus(action, source.effect, options);
 
     // Иммунитет к состоянию — как при наложении атакой: срабатывание — такой
     // же путь наложения, и обходить статблок оно не должно

@@ -69,7 +69,6 @@ import {
   mergeAppliedEffects,
   pickCantripTierParts,
   resolveActorStats,
-  resolveAttackRollMode,
   resolveCreatureSpellSaveDC,
   resolveDamagePartsForCast,
   resolveEntityCreatureType,
@@ -87,6 +86,7 @@ import {
   withFlatFormulaBonus,
 } from '@vtt/shared/system/dnd.js';
 
+import { resolveTargetedAttackRollMode } from '../composables/attackRollMode';
 import {
   buildRollBonusEvaluator,
   collectProjectileRollBonuses,
@@ -428,20 +428,11 @@ export function registerDnd5eMacros(): void {
 
       const targetActor = targetStore.getTargetActor();
 
-      let targetFlags = new Set<string>();
-
-      if (targetActor && isDndSceneEntity(targetActor)) {
-        targetFlags = resolveActorStats(targetActor).activeFlags;
-      }
-
-      // Единый расчёт режима броска: флаги атакующего (общие + профильные),
-      // флаги цели (attacksAgainst) и помеха дистанции.
-      const initialRollMode = resolveAttackRollMode({
-        attackerFlags: resolvedStats.activeFlags,
-        attackType: foundWeapon.rangeType === 'ranged' ? 'ranged' : 'melee',
-        targetFlags,
-        forceDisadvantage: isDisadvantage,
-      });
+      const initialRollMode = resolveTargetedAttackRollMode(
+        foundActor,
+        incomingAttackType,
+        { forceDisadvantage: isDisadvantage },
+      );
 
       const { openModal } = useModalManager();
 
@@ -1211,15 +1202,8 @@ function openDiceRollForSpell(
       );
     }
 
-    // Помеха/преимущество атакующего заклинанием (Злая насмешка и т.п.): те же
-    // флаги, что и у оружия (общие + профильные attack.spell.*), плюс флаги
-    // attacksAgainst у цели. Раньше спелл-атаки флаги атакующего игнорировали.
     const spellInitialRollMode: AttackRollMode = incomingAttackType
-      ? resolveAttackRollMode({
-          attackerFlags: resolvedStats.activeFlags,
-          attackType: 'spell',
-          targetFlags: useTargetStore().getTargetFlags(),
-        })
+      ? resolveTargetedAttackRollMode(actor, 'spell')
       : 'normal';
 
     const evaluateAttackBonusRollFormulas = incomingAttackType
@@ -1762,17 +1746,13 @@ function openCreatureActionRoll(
   const first = action.damageParts?.[0];
   const damageType = first ? describeDamagePart(first).types[0] : undefined;
 
-  // Помеха/преимущество атакующего существа: флаги существа (общие + профильные)
-  // + флаги attacksAgainst цели + помеха дистанции. Раньше действия существа
-  // учитывали только дистанцию и игнорировали флаги (Злая насмешка не работала).
   const actionRollMode: AttackRollMode = usesSaveOrArea
     ? 'normal'
-    : resolveAttackRollMode({
-        attackerFlags: resolveActorStats(creature).activeFlags,
-        attackType: action.rangeType === 'ranged' ? 'ranged' : 'melee',
-        targetFlags: useTargetStore().getTargetFlags(),
-        forceDisadvantage: isDisadvantage,
-      });
+    : resolveTargetedAttackRollMode(
+        creature,
+        action.rangeType === 'ranged' ? 'ranged' : 'melee',
+        { forceDisadvantage: isDisadvantage },
+      );
 
   openModal('DiceRollModal', {
     title: usesSaveOrArea ? action.name : `Атака — ${action.name}`,
@@ -2043,7 +2023,6 @@ function openCreatureSpellRoll(
   placement: CreatureSpellPlacement | undefined,
 ): void {
   const { openModal } = useModalManager();
-  const targetStore = useTargetStore();
 
   const { buildCreatureSpellRollSetup } = useBonusDamageParts();
 
@@ -2123,14 +2102,8 @@ function openCreatureSpellRoll(
   // значения. Без круга секция не показывается — так же, как было до групп
   const castLevel = placement?.ref.castLevel;
 
-  // Помеха/преимущество атакующего существа-заклинателя: флаги существа (общие +
-  // профильные attack.spell.*) + attacksAgainst цели. Раньше всегда 'normal'.
   const spellRollMode: AttackRollMode = usesAttack
-    ? resolveAttackRollMode({
-        attackerFlags: resolveActorStats(creature).activeFlags,
-        attackType: 'spell',
-        targetFlags: targetStore.getTargetFlags(),
-      })
+    ? resolveTargetedAttackRollMode(creature, 'spell')
     : 'normal';
 
   openModal('DiceRollModal', {

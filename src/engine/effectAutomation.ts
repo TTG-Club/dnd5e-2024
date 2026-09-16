@@ -102,8 +102,10 @@ export function mergeAppliedEffects(
  * Остаётся ли эффект висеть на цели после наложения.
  *
  * Эффект только с уроном срабатывания лишь бьёт и не оставляет следа. Состояние,
- * модификаторы, флаги и периодика (урон каждый ход, повторный спасбросок) — это
- * длящаяся нагрузка: ради неё эффект и кладётся в `activeEffects` цели.
+ * модификаторы, флаги, периодика (урон каждый ход, повторный спасбросок),
+ * срабатывания и отметка — это длящаяся нагрузка: ради неё эффект и кладётся в
+ * `activeEffects` цели. Эффект, у которого есть только срабатывание «урон
+ * снимает эффект», без этого на цель не попал бы вовсе.
  *
  * @param effect - накладываемый эффект
  * @returns `true`, если у эффекта есть длящаяся нагрузка
@@ -115,6 +117,8 @@ export function hasLastingEffectPayload(effect: ActiveEffect): boolean {
     || effect.flags.length > 0
     || effect.recurringDamage !== undefined
     || effect.recurringSave !== undefined
+    || (effect.triggers?.length ?? 0) > 0
+    || effect.tag !== undefined
   );
 }
 
@@ -135,22 +139,36 @@ export function resolveEffectSaveDc(dc: number, sourceDc: number): number {
 }
 
 /**
- * Есть ли у эффекта периодический спасбросок со Сл 0 — «Сл того, кто наложил»:
- * повторный спасбросок хода или спасбросок против урона каждый ход. Такую Сл
- * надо проставить при наложении, на ходу сервер источника уже не знает.
+ * Есть ли у срабатываний эффекта спасбросок со Сл 0.
+ *
+ * @param effect - эффект
+ * @returns `true`, если хоть одно срабатывание ждёт Сл источника
+ */
+function hasSourceTriggerSaveDc(effect: ActiveEffect): boolean {
+  return (effect.triggers ?? []).some((trigger) => trigger.save?.dc === 0);
+}
+
+/**
+ * Есть ли у эффекта отложенный спасбросок со Сл 0 — «Сл того, кто наложил»:
+ * повторный спасбросок хода, спасбросок против урона каждый ход или спасбросок
+ * срабатывания. Такую Сл надо проставить при наложении: на ходу и на событии
+ * урона сервер источника уже не знает.
  *
  * @param effect - накладываемый эффект
  * @returns `true`, если Сл источника нужно проставить
  */
 export function hasSourceTurnSaveDc(effect: ActiveEffect): boolean {
   return (
-    effect.recurringSave?.dc === 0 || effect.recurringDamage?.save?.dc === 0
+    effect.recurringSave?.dc === 0
+    || effect.recurringDamage?.save?.dc === 0
+    || hasSourceTriggerSaveDc(effect)
   );
 }
 
 /**
- * Проставляет Сл источника в периодические спасброски эффекта со Сл 0:
- * повторный спасбросок хода и спасбросок против урона каждый ход.
+ * Проставляет Сл источника в отложенные спасброски эффекта со Сл 0: повторный
+ * спасбросок хода, спасбросок против урона каждый ход и спасбросок
+ * срабатывания.
  *
  * @param effect - накладываемый эффект
  * @param sourceDc - Сл спасброска источника (кастера, действия)
@@ -164,7 +182,7 @@ export function stampSourceTurnSaveDc(
     return effect;
   }
 
-  const { recurringSave, recurringDamage } = effect;
+  const { recurringSave, recurringDamage, triggers } = effect;
 
   return {
     ...effect,
@@ -183,6 +201,17 @@ export function stampSourceTurnSaveDc(
           },
         }
       : recurringDamage,
+    triggers: triggers?.map((trigger) =>
+      trigger.save
+        ? {
+            ...trigger,
+            save: {
+              ...trigger.save,
+              dc: resolveEffectSaveDc(trigger.save.dc, sourceDc),
+            },
+          }
+        : trigger,
+    ),
   };
 }
 

@@ -38,7 +38,7 @@ import type { DamageEventsResult } from './effectDamageEvents.js';
 import type { IncomingAttackContext } from './effectPipeline.js';
 import type { AreaEffectsSyncResult } from './positionalEffects.js';
 import type { SystemClientEvent } from './systemClientEvents.js';
-import type { TurnSaveOutcome } from './turnEffects.js';
+import type { EntryEffectOptions, TurnSaveOutcome } from './turnEffects.js';
 
 import { getHealthCondition, HEALTH_CONDITIONS, isRecord } from '@vtt/shared';
 
@@ -695,15 +695,24 @@ function settleTurnEffects(
   const askOwner = shouldRequestEffectSave(entity, requestRoll);
   const turnOf = sourceTurnActorId === undefined ? 'subject' : 'source';
   const hpBefore = resolveEntityCurrentHp(entity);
+  const ambientEffects = toAmbientResolver(context)(entity);
+  const endCast = toCastEnder(context, entity.id);
 
   const result = processTurnEffects(entity, timing, {
     deferRecurringSave: () => askOwner,
     deferRecurringDamageSave: () => askOwner,
-    ambientEffects: toAmbientResolver(context)(entity),
+    ambientEffects,
     sourceTurnActorId,
     isSourceInCombat: toSourceInCombatResolver(context),
-    endCast: toCastEnder(context, entity.id),
+    endCast,
   });
+
+  // Ответ игрока накладывает и заканчивает каст так же, как бросок сервера
+  const answerOptions: EntryEffectOptions = {
+    ambientEffects,
+    activeTurnActorId: sourceTurnActorId ?? entity.id,
+    endCast,
+  };
 
   const chatSummary = formatTurnEffectsMessage(
     entity.name,
@@ -754,7 +763,13 @@ function settleTurnEffects(
         ? stageKey
         : `${stageKey}:${turnTrigger.trigger.id}`,
       request: () =>
-        requestTurnTriggerSave(entity, turnTrigger, timing, requestRoll),
+        requestTurnTriggerSave(
+          entity,
+          turnTrigger,
+          timing,
+          requestRoll,
+          answerOptions,
+        ),
     };
   });
 
@@ -980,7 +995,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.41';
+  readonly version = '0.8.42';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.

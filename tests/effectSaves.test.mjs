@@ -833,3 +833,69 @@ describe('damage every turn can be gated by a saving throw', () => {
     );
   });
 });
+
+describe('source DC and payload of trigger-only effects', () => {
+  /** Срабатывание «урон снимает эффект» со спасброском Сл источника */
+  const WAKE_TRIGGER = {
+    id: 'trigger_wake',
+    event: 'damageTaken',
+    save: { ability: 'wisdom', dc: 0 },
+    actions: [{ type: 'removeSelf', on: 'saved' }],
+  };
+
+  it('dC 0 of a trigger save takes the source DC on application', () => {
+    const effect = createEffect('dominated', { triggers: [WAKE_TRIGGER] });
+
+    assert.equal(engine.hasSourceTurnSaveDc(effect), true);
+
+    const stamped = engine.stampSourceTurnSaveDc(effect, SAVE_DC);
+
+    assert.equal(stamped.triggers[0].save.dc, SAVE_DC);
+    assert.equal(engine.hasSourceTurnSaveDc(stamped), false);
+  });
+
+  it('an effect with only triggers or a tag stays on the target', () => {
+    assert.equal(
+      engine.hasLastingEffectPayload(
+        createEffect('asleep', { triggers: [WAKE_TRIGGER] }),
+      ),
+      true,
+    );
+
+    assert.equal(
+      engine.hasLastingEffectPayload(createEffect('mark', { tag: 'marked' })),
+      true,
+    );
+
+    assert.equal(engine.hasLastingEffectPayload(createEffect('empty')), false);
+  });
+
+  it('a copy left without entry triggers is not applied', () => {
+    const entity = createActor();
+
+    const effect = createEffect('entry-only', {
+      triggers: [
+        {
+          id: 'trigger_copy',
+          event: 'enter',
+          actions: [{ type: 'applySelf' }],
+        },
+      ],
+    });
+
+    const result = engine.applyTriggerEffectActions(
+      entity,
+      {
+        effect,
+        trigger: effect.triggers[0],
+        ambient: false,
+        instance: false,
+        scope: effect.id,
+      },
+      false,
+    );
+
+    assert.equal(result.applied, false);
+    assert.deepEqual(entity.activeEffects, []);
+  });
+});

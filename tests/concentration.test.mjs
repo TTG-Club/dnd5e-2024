@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
 
 import {
+  answeredSave,
   BLESS_CAST_ID,
   castEndingContext,
   CLERIC_ID,
@@ -175,5 +176,91 @@ describe('конец каста', () => {
       engine.parseSystemClientEvent({ type: 'endCasts', casterId: CLERIC_ID }),
       null,
     );
+  });
+});
+
+describe('наложенное срабатыванием эффекта каста', () => {
+  /** Спасбросок Мудрости, которым снимается эффект каста */
+  const WISDOM_SAVE = { ability: 'wisdom', dc: 13 };
+
+  /**
+   * Эффект каста на цели со своим срабатыванием.
+   *
+   * @param {object} trigger - срабатывание
+   * @returns {object} эффект
+   */
+  function castEffect(trigger) {
+    return createEffect('bless', {
+      castId: BLESS_CAST_ID,
+      sourceActorId: CLERIC_ID,
+      magical: true,
+      flags: ['attack.disadvantage'],
+      triggers: [trigger],
+    });
+  }
+
+  it('состояние от срабатывания уходит вместе с кастом', () => {
+    const system = new engine.Dnd5eVttSystem();
+
+    const effect = castEffect({
+      id: 'trigger_prone',
+      event: 'turnStart',
+      actions: [{ type: 'applyCondition', conditionKey: 'prone' }],
+    });
+
+    const target = createActor({ activeEffects: [effect] });
+
+    engine.applyTriggerEffectActions(
+      target,
+      {
+        effect,
+        trigger: effect.triggers[0],
+        ambient: false,
+        instance: true,
+        scope: effect.id,
+      },
+      false,
+    );
+
+    const prone = target.activeEffects.find(
+      (entry) => entry.conditionKey === 'prone',
+    );
+
+    assert.equal(prone.castId, BLESS_CAST_ID);
+    assert.equal(prone.sourceActorId, CLERIC_ID);
+
+    system.removeCastEffects(target, CLERIC_ID, new Set([BLESS_CAST_ID]));
+
+    assert.deepEqual(target.activeEffects, []);
+  });
+
+  it('ответ игрока на спасбросок хода заканчивает каст', async () => {
+    const system = new engine.Dnd5eVttSystem();
+    const double = createRequestRoll();
+
+    const { context, ended } = castEndingContext({
+      requestRoll: double.requestRoll,
+    });
+
+    const target = createActor({
+      autoSaves: false,
+      activeEffects: [
+        castEffect({
+          id: 'trigger_end',
+          event: 'turnEnd',
+          save: WISDOM_SAVE,
+          actions: [{ type: 'endCast', on: 'saved' }],
+        }),
+      ],
+    });
+
+    const result = system.runTurnEffects(target, 'endOfTurn', context);
+
+    double.answer(answeredSave(true));
+
+    const applied = (await result.deferred[0].resolution)(target);
+
+    assert.equal(applied.changed, true);
+    assert.deepEqual(ended, [[CLERIC_ID, [BLESS_CAST_ID]]]);
   });
 });

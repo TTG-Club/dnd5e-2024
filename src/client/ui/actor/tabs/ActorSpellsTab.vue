@@ -85,6 +85,7 @@
     withFlatFormulaBonus,
   } from '@vtt/shared/system/dnd.js';
 
+  import { resolveTargetedAttackRollMode } from '../../../composables/attackRollMode';
   import {
     buildRollBonusEvaluator,
     collectProjectileRollBonuses,
@@ -1986,6 +1987,9 @@
       rollButtonText,
       'formula': resolvedDamageFormula,
       'attackModifier': incomingAttackType ? baseMod : undefined,
+      'initialRollMode': incomingAttackType
+        ? resolveTargetedAttackRollMode(props.actor, 'spell')
+        : 'normal',
       'attackerId': props.actor.id,
       'evaluateBonusRollFormulas': hasProjectiles
         ? undefined

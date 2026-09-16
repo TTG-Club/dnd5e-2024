@@ -39,6 +39,7 @@
     SPELL_TEMPLATE_DEFAULT_COLOR,
   } from '@vtt/shared/system/dnd.js';
 
+  import { resolveTargetedAttackRollMode } from '../../composables/attackRollMode';
   import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import { discardSpellTemplate } from '../../composables/spellResolutionShared';
   import { useBonusDamageParts } from '../../composables/useBonusDamageParts';
@@ -466,7 +467,13 @@
             () => getCreatureEntity() ?? undefined,
             getAttackBonusKey(action.rangeType),
           ),
-      initialRollMode: isDisadvantage ? 'disadvantage' : 'normal',
+      initialRollMode: usesSaveOrArea
+        ? 'normal'
+        : resolveTargetedAttackRollMode(
+            creature,
+            action.rangeType === 'ranged' ? 'ranged' : 'melee',
+            { forceDisadvantage: isDisadvantage },
+          ),
       incomingAttackType: action.rangeType === 'ranged' ? 'ranged' : 'melee',
       damageType: actionPrimaryType(action),
       damageParts: setup.baseParts,

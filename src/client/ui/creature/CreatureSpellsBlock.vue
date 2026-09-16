@@ -72,6 +72,7 @@
     syncCreatureSpellcastingUses,
   } from '@vtt/shared/system/dnd.js';
 
+  import { resolveTargetedAttackRollMode } from '../../composables/attackRollMode';
   import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import {
     completeSpellCast,
@@ -1662,7 +1663,9 @@
             'attack.spell',
           )
         : undefined,
-      initialRollMode: 'normal',
+      initialRollMode: usesAttack
+        ? resolveTargetedAttackRollMode(creature, 'spell')
+        : 'normal',
       incomingAttackType: usesAttack ? attackType : undefined,
       damageType: spellPrimaryType(spell),
       isHealing,

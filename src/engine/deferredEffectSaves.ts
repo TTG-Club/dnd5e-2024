@@ -284,6 +284,11 @@ interface TurnTriggerAnswerTarget {
    * Снимок эффекта черты или ауры чужого токена: самого эффекта на сущности нет
    */
   snapshot?: ActiveEffect;
+  /**
+   * Опции наложения той же границы хода: ауры, чей ход и конец каста. Без них
+   * «Закончить каст» по ответу игрока снимал бы только сам эффект.
+   */
+  effectOptions: EntryEffectOptions;
 }
 
 /**
@@ -356,6 +361,7 @@ function applyTurnTriggerAnswer(
     entity,
     source,
     save.passed,
+    target.effectOptions,
   );
 
   if (removes) {
@@ -378,6 +384,7 @@ function applyTurnTriggerAnswer(
  * @param deferred - отложенное срабатывание хода
  * @param timing - граница хода
  * @param requestRoll - запрос броска от ядра
+ * @param effectOptions - опции наложения этой границы хода
  * @returns отложенное срабатывание; `null`, если спасброска нет
  */
 export function requestTurnTriggerSave(
@@ -385,6 +392,7 @@ export function requestTurnTriggerSave(
   deferred: DeferredTurnTrigger,
   timing: EffectSaveTiming,
   requestRoll: ServerRollRequester,
+  effectOptions: EntryEffectOptions = {},
 ): EngineDeferredTrigger | null {
   const { effect, trigger, ambient, instance, scope, stage } = deferred;
   const spec = buildTriggerSaveSpec(effect, trigger);
@@ -402,6 +410,7 @@ export function requestTurnTriggerSave(
     ambient,
     instance,
     scope,
+    effectOptions,
     ...(instance ? {} : { snapshot: structuredClone(effect) }),
   };
 

@@ -78,7 +78,7 @@ function createPorts(current) {
     getDamageBonusKey: engine.getDamageBonusKey,
     calculateWeaponAttackModifier: () => 5,
     getWeaponPrimaryDamageType: () => undefined,
-    resolveAttackRollMode: () => 'normal',
+    resolveTargetedAttackRollMode: () => 'normal',
     isDndSceneEntity: () => true,
     actionHasSave: (action) => !!action.saveType && action.saveType !== 'none',
     actionPrimaryType: () => undefined,
@@ -233,6 +233,95 @@ for (const entry of [
     );
 
     assert.equal(ports.rollConfig.value.evaluateBonusRollFormulas, undefined);
+  });
+}
+
+/** Режим, который отдаёт общий хелпер: по виду атаки */
+const ROLL_MODE_BY_CATEGORY = {
+  melee: 'advantage',
+  ranged: 'disadvantage',
+  spell: 'advantage',
+};
+
+for (const entry of [
+  [
+    'src/client/ui/actor/tabs/ActorEquipmentTab.vue',
+    'openRollModal',
+    (weapon) => [weapon],
+  ],
+  [
+    'src/client/ui/creature/CreatureActionsBlock.vue',
+    'startActionRoll',
+    (action, creature) => [action, creature, false, undefined],
+  ],
+  [
+    macroPath,
+    'openCreatureActionRoll',
+    (action, creature) => [creature, action, false, undefined],
+  ],
+]) {
+  it(`actual ${entry[1]} takes the roll mode of the shared attack helper`, async () => {
+    const current = { value: createEntity() };
+    const ports = createPorts(current);
+    const categories = [];
+
+    ports.resolveTargetedAttackRollMode = (_attacker, category) => {
+      categories.push(category);
+
+      return ROLL_MODE_BY_CATEGORY[category];
+    };
+
+    const handler = await loadHandler(entry[0], entry[1], ports);
+
+    for (const rangeType of ['melee', 'ranged']) {
+      const source = {
+        name: 'Source',
+        attackBonus: 5,
+        rangeType,
+        damageParts: [{ formula: '1d6' }],
+      };
+
+      handler(...entry[2](source, current.value));
+
+      assert.equal(
+        ports.rollConfig.value.initialRollMode,
+        ROLL_MODE_BY_CATEGORY[rangeType],
+      );
+    }
+
+    assert.deepEqual(categories, ['melee', 'ranged']);
+  });
+}
+
+for (const entry of [
+  ['src/client/ui/creature/CreatureSpellsBlock.vue', 'startSpellRoll', false],
+  [macroPath, 'openCreatureSpellRoll', true],
+]) {
+  it(`actual ${entry[1]} takes the spell roll mode of the shared attack helper`, async () => {
+    const current = { value: createEntity() };
+    const ports = createPorts(current);
+
+    ports.resolveTargetedAttackRollMode = (_attacker, category) =>
+      ROLL_MODE_BY_CATEGORY[category];
+
+    const handler = await loadHandler(entry[0], entry[1], ports);
+
+    const spell = {
+      name: 'Spell',
+      deliveryType: 'ranged',
+      damageParts: [{ formula: '1d6' }],
+    };
+
+    handler(
+      ...(entry[2]
+        ? [current.value, spell, undefined, undefined]
+        : [spell, current.value, undefined, undefined]),
+    );
+
+    assert.equal(
+      ports.rollConfig.value.initialRollMode,
+      ROLL_MODE_BY_CATEGORY.spell,
+    );
   });
 }
 

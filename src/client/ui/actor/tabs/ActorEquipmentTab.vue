@@ -25,7 +25,6 @@
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useChatStore } from '@/stores/chatStore';
   import { useHotbarStore } from '@/stores/hotbarStore';
-  import { useTargetStore } from '@/stores/targetStore';
   import { useWorldStore } from '@/stores/worldStore';
   import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { formatItemCost } from '@vtt/shared';
@@ -44,13 +43,12 @@
     getAttackBonusKey,
     getDamageBonusKey,
     getWeaponPrimaryDamageType,
-    isDndSceneEntity,
-    resolveActorStats,
     setItemUsesCurrent,
     spendItemUses,
     TOOL_CATEGORIES,
   } from '@vtt/shared/system/dnd.js';
 
+  import { resolveTargetedAttackRollMode } from '../../../composables/attackRollMode';
   import { buildRollBonusEvaluator } from '../../../composables/rollBonusEvaluator';
   import { useBonusDamageParts } from '../../../composables/useBonusDamageParts';
   import { useCarryingCapacity } from '../../../composables/useCarryingCapacity';
@@ -169,7 +167,6 @@
 
   const systemDataStore = useSystemDataStore();
   const hotbarStore = useHotbarStore();
-  const targetStore = useTargetStore();
   const chatStore = useChatStore();
   const worldStore = useWorldStore();
 
@@ -413,31 +410,10 @@
       };
     };
 
-    const targetActor = targetStore.getTargetActor();
-
-    let targetFlags = new Set<string>();
-
-    // Стор целей хоста отдаёт нейтральную сущность — D&D-форму подтверждает
-    // гвард, как и в остальных резолверах бросков
-    if (targetActor && isDndSceneEntity(targetActor)) {
-      targetFlags = resolveActorStats(targetActor).activeFlags;
-    }
-
-    const isAdvantage =
-      resolvedStats.value?.activeFlags.has('attack.advantage')
-      || targetFlags.has('attacksAgainst.advantage');
-
-    const isDisadvantage =
-      resolvedStats.value?.activeFlags.has('attack.disadvantage')
-      || targetFlags.has('attacksAgainst.disadvantage');
-
-    let initialRollMode: AttackRollMode = 'normal';
-
-    if (isAdvantage && !isDisadvantage) {
-      initialRollMode = 'advantage';
-    } else if (isDisadvantage && !isAdvantage) {
-      initialRollMode = 'disadvantage';
-    }
+    const initialRollMode = resolveTargetedAttackRollMode(
+      props.entity,
+      weapon.rangeType === 'ranged' ? 'ranged' : 'melee',
+    );
 
     // Единая со заклинаниями система урона: бросок ВСЕГДА идёт многочастным
     // путём (части урона оружия + бонус-части эффектов). Состояние HP цели —
