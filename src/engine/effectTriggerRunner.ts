@@ -40,6 +40,8 @@ import { generateId, isCreatureEntity } from '@vtt/shared';
 import {
   ACTIVE_EFFECT_ID_PREFIX,
   isCarrierEffect,
+  isEffectDormant,
+  removeOrSwitchOffEffects,
 } from './activeEffectTypes.js';
 import { buildConditionActiveEffect } from './conditionTemplates.js';
 import { rollDamageFormula } from './diceFormula.js';
@@ -480,8 +482,9 @@ export function removeEffectsById(
     return;
   }
 
-  entity.activeEffects = (entity.activeEffects ?? []).filter(
-    (effect) => !effectIds.has(effect.id),
+  entity.activeEffects = removeOrSwitchOffEffects(
+    entity.activeEffects ?? [],
+    (effect) => effectIds.has(effect.id),
   );
 }
 
@@ -924,7 +927,7 @@ export function listTraitEffects(entity: DnDSceneEntity): ActiveEffect[] {
     .flatMap((trait) => trait.activeEffects ?? [])
     .filter(
       (effect) =>
-        !effect.disabled
+        !isEffectDormant(effect)
         && isCarrierEffect(effect)
         && !(effect.aura && !effect.aura.applyToSelf),
     );
@@ -1053,7 +1056,7 @@ export function processTurnEffects(
     // Отключённый эффект не действует — значит, и не бьёт. Своя аура без
     // «действует и на носителя» бьёт других, а не того, кто её излучает
     if (
-      effect.disabled
+      isEffectDormant(effect)
       || !sourceHasDamage(source)
       || (instance && effect.aura && !effect.aura.applyToSelf)
       || !allowTrigger(source)
@@ -1132,7 +1135,7 @@ export function processTurnEffects(
 
     // Отключённый эффект не действует — и сам себя спасброском не снимает
     if (
-      effect.disabled
+      isEffectDormant(effect)
       || !sourceHasEffects(source)
       || deferredSources.has(trigger)
       || (instance && removedIds.has(effect.id))
@@ -1467,7 +1470,7 @@ export function listAttackRollSources(
   place: AttackRollTriggerPlace,
 ): EffectTriggerSource[] {
   return buildTriggerSources(
-    (entity.activeEffects ?? []).filter((effect) => !effect.disabled),
+    (entity.activeEffects ?? []).filter((effect) => !isEffectDormant(effect)),
     EFFECT_TRIGGER_SOURCE_KINDS.instance,
     (effect) =>
       listEffectListTriggers(effect).filter(

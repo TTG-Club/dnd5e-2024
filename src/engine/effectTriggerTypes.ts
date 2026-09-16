@@ -29,13 +29,15 @@ export const EFFECT_TRIGGER_EVENTS = [
   'hpZero',
   'castEnd',
   'rest',
+  'activate',
 ] as const;
 
 /**
  * События следующих фаз: разбираются и сохраняются, чтобы версия без их
- * поддержки не стирала их у записи, но пока ничего не запускают.
+ * поддержки не стирала их у записи, но пока ничего не запускают. Сейчас таких
+ * нет.
  */
-export const EFFECT_TRIGGER_RESERVED_EVENTS = ['activate'] as const;
+export const EFFECT_TRIGGER_RESERVED_EVENTS = [] as const;
 
 /** Событие, на которое реагирует срабатывание */
 export type EffectTriggerEvent =

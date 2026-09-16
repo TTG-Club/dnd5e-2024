@@ -6,30 +6,50 @@
   Оба листа показывают эффекты одинаково, поэтому разметка живёт здесь одна.
   Лист отдаёт свои эффекты и (у персонажа) снаряжение, а обратно получает новый
   список эффектов — как именно его сохранять, решает сам лист.
+
+  Эффект «при применении» вместо переключателя получает кнопку «Применить»: его
+  копия ложится на владельца или цель. Переключаемый эффект при включении
+  тратит ресурс листа и будит срабатывания «При включении» — это идёт боевым
+  каналом, потому что срабатывания меняют и хиты.
 -->
 <script setup lang="ts">
   import type {
     ActiveEffect,
+    ActorCounterState,
     ConditionRef,
     DnDGameItem,
+    DnDSceneEntity,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useToast } from '@nuxt/ui/composables';
   import { computed, ref } from 'vue';
 
+  import { emitEntityCombatState } from '@/core/entityUtils';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useItemsStore } from '@/stores/itemsStore';
   import { getActiveSocket } from '@/system-runtime/activeSocket';
   import {
+    activateEffectOnEntity,
+    buildEffectUseSpell,
     buildRuntimeConditionRecord,
+    canPayActivation,
+    isEffectDormant,
+    isToggleActivatedEffect,
+    isUseActivatedEffect,
     itemEffectsActive,
     listSelectableConditions,
+    payActivation,
+    resolveActorStats,
   } from '@vtt/shared/system/dnd.js';
 
+  import { applyEffectSource } from '../../composables/effectActivationUse';
   import { requestEndCasts } from '../../composables/spellCasts';
+  import { stampEffectOnApply } from '../../composables/spellResolutionShared';
   import { useActiveEffectModal } from '../../composables/useActiveEffectModal';
   import { useEntityActiveEffects } from '../../composables/useEntityActiveEffects';
   import { CONDITION_MODALS } from '../condition/conditionConsts';
   import ActiveEffectFormModal from '../effect/ActiveEffectFormModal.vue';
+  import { EFFECT_USE_LABELS } from '../effect/constants';
   import {
     ACTIVE_EFFECT_DEFAULTS,
     ACTIVE_EFFECT_ICON_CLASS,
@@ -49,13 +69,26 @@
      * листов: инвентарь появился и у существа.
      */
     equipment?: readonly DnDGameItem[];
+    /**
+     * Сущность-владелец: на неё ложатся применённые эффекты, на ней
+     * выполняются срабатывания включения. Нет — эффекты только переключаются
+     */
+    owner?: DnDSceneEntity;
+    /** Ресурсы листа, которые тратят применение и включение */
+    counters?: readonly ActorCounterState[];
   }
 
-  const props = withDefaults(defineProps<Props>(), { equipment: () => [] });
+  const props = withDefaults(defineProps<Props>(), {
+    equipment: () => [],
+    owner: undefined,
+    counters: () => [],
+  });
 
   const emit = defineEmits<{
     /** Новый список эффектов сущности */
     'update:effects': [effects: ActiveEffect[]];
+    /** Ресурсы после оплаты применения или включения */
+    'update:counters': [counters: ActorCounterState[]];
   }>();
 
   const effectsRef = computed(() => props.effects);
@@ -83,6 +116,99 @@
     effects: effectsRef,
     onChange: (nextEffects) => emit('update:effects', nextEffects),
   });
+
+  /**
+   * Предупреждает, что ресурса на применение или включение не хватает.
+   *
+   * @param effect - эффект с применением
+   */
+  function warnNoCounter(effect: ActiveEffect): void {
+    useToast().add({
+      title: EFFECT_USE_LABELS.noCounterTitle,
+      description: `${EFFECT_USE_LABELS.noCounterPrefix}${effect.activation?.counter ?? ''}${EFFECT_USE_LABELS.noCounterSuffix}`,
+      color: 'warning',
+    });
+  }
+
+  /**
+   * Тратит ресурс применения или включения.
+   *
+   * @param effect - эффект с применением
+   */
+  function payEffectActivation(effect: ActiveEffect): void {
+    if (effect.activation?.counter) {
+      emit('update:counters', payActivation(props.counters, effect.activation));
+    }
+  }
+
+  /**
+   * Переключает эффект. Переключаемый эффект на листе в просмотре при
+   * включении тратит ресурс и будит срабатывания «При включении»; в правке —
+   * просто переключается, как любой.
+   *
+   * @param effect - эффект строки
+   */
+  function switchEffect(effect: ActiveEffect): void {
+    const { owner } = props;
+    const socket = getActiveSocket();
+
+    if (
+      !isToggleActivatedEffect(effect)
+      || !effect.disabled
+      || props.isEditMode
+      || !owner
+      || !socket
+    ) {
+      toggleEffectStatus(effect);
+
+      return;
+    }
+
+    if (!canPayActivation(props.counters, effect.activation)) {
+      warnNoCounter(effect);
+
+      return;
+    }
+
+    payEffectActivation(effect);
+
+    emitEntityCombatState(
+      socket,
+      activateEffectOnEntity(owner, effect.id, (activated) =>
+        stampEffectOnApply(activated, {
+          carrierId: owner.id,
+          sourceId: owner.id,
+        }),
+      ),
+    );
+  }
+
+  /**
+   * Применяет эффект листа: его копия ложится на владельца или цель, ресурс
+   * тратится.
+   *
+   * @param effect - эффект «при применении»
+   */
+  function applyUseEffect(effect: ActiveEffect): void {
+    const { owner } = props;
+
+    if (!owner) {
+      return;
+    }
+
+    if (!canPayActivation(props.counters, effect.activation)) {
+      warnNoCounter(effect);
+
+      return;
+    }
+
+    applyEffectSource(
+      buildEffectUseSpell(effect),
+      owner,
+      resolveActorStats(owner).spellSaveDC,
+      () => payEffectActivation(effect),
+    );
+  }
 
   const effectModalId = 'active-effect-form-modal';
   const isEffectModalOpen = ref(false);
@@ -161,7 +287,7 @@
 
       for (const itemEffect of item.activeEffects) {
         if (
-          itemEffect.disabled
+          isEffectDormant(itemEffect)
           || itemEffect.effectTarget === 'target'
           || (itemEffect.aura && !itemEffect.aura.applyToSelf)
         ) {
@@ -246,7 +372,7 @@
    * @returns строка классов
    */
   function effectIconClass(effect: ActiveEffect): string {
-    return effect.disabled
+    return isEffectDormant(effect)
       ? ACTIVE_EFFECT_ICON_CLASS.disabled
       : ACTIVE_EFFECT_ICON_CLASS.active;
   }
@@ -314,12 +440,29 @@
             @click.left.exact.prevent="endConcentration(effect)"
           />
 
+          <UButton
+            v-if="isUseActivatedEffect(effect)"
+            icon="tabler:player-play"
+            size="xs"
+            variant="soft"
+            color="primary"
+            :label="EFFECT_USE_LABELS.apply"
+            :title="EFFECT_USE_LABELS.applyHint"
+            :disabled="
+              isEditMode
+              || !owner
+              || !canPayActivation(counters, effect.activation)
+            "
+            @click.left.exact.prevent="applyUseEffect(effect)"
+          />
+
           <USwitch
+            v-else
             :model-value="!effect.disabled"
             size="sm"
             checked-icon="tabler:check"
             unchecked-icon="tabler:x"
-            @update:model-value="toggleEffectStatus(effect)"
+            @update:model-value="switchEffect(effect)"
           />
 
           <div

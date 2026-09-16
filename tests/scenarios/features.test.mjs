@@ -115,9 +115,126 @@ describe('каталог: классы и черты', () => {
     );
   });
 
-  it.todo(
-    '[F01b] Ярость включается бонусным действием и кончается без атаки/урона за ход — пробел (активация умений)',
-  );
+  it('[F01b] Ярость: включение тратит ресурс, будит «При включении», по истечении выключается', () => {
+    const rage = createEffect(engine.buildClassEffectId('barbarian', 'rage'), {
+      name: 'Ярость',
+      activation: { mode: 'toggle', counter: 'rage' },
+      flags: ['resistance.slashing'],
+      changes: [change('damage.melee', '2')],
+      duration: { type: 'turn', turnAnchor: 'carrier', turnTiming: 'end' },
+      triggers: [
+        {
+          id: 'trigger_rage_on',
+          event: 'activate',
+          actions: [{ type: 'applyTag', tag: 'raging', label: 'В ярости' }],
+        },
+      ],
+    });
+
+    assert.match(
+      authoredScenario(rage, 'feature'),
+      /^Пока эффект включён, тратит «rage»/,
+    );
+
+    const sheetRage = engine.withActivationDefaults(rage);
+
+    assert.equal(
+      sheetRage.disabled,
+      true,
+      'с листа умение приходит выключенным',
+    );
+
+    const barbarian = hero({
+      classKey: 'barbarian',
+      level: 3,
+      overrides: { activeEffects: [sheetRage] },
+    });
+
+    assert.equal(engine.resolveActorStats(barbarian).damageBonuses.melee, 0);
+
+    const counters = [{ counterKey: 'rage', current: 1, max: 2 }];
+
+    assert.equal(engine.canPayActivation(counters, rage.activation), true);
+
+    const paid = engine.payActivation(counters, rage.activation);
+
+    assert.equal(paid[0].current, 0);
+    assert.equal(engine.canPayActivation(paid, rage.activation), false);
+
+    const raging = engine.activateEffectOnEntity(barbarian, rage.id);
+
+    assert.equal(barbarian.activeEffects[0].disabled, true, 'лист не тронут');
+    assert.equal(engine.resolveActorStats(raging).damageBonuses.melee, 2);
+
+    assert.ok(
+      raging.activeEffects.some((effect) => effect.tag === 'raging'),
+      'сработало «При включении»',
+    );
+
+    engine.expireTurnEffects(raging, raging.id, 'end');
+
+    const expired = raging.activeEffects.find(
+      (effect) => effect.id === rage.id,
+    );
+
+    assert.equal(
+      expired?.disabled,
+      true,
+      'умение осталось на листе выключенным',
+    );
+
+    assert.equal(engine.resolveActorStats(raging).damageBonuses.melee, 0);
+
+    const again = engine.activateEffectOnEntity(raging, rage.id);
+
+    engine.removeEffectsById(again, new Set([rage.id]));
+
+    assert.equal(
+      again.activeEffects.find((effect) => effect.id === rage.id)?.disabled,
+      true,
+      '«Снять эффект» выключает переключаемый',
+    );
+  });
+
+  it('[F16] Божественный канал: применение тратит ресурс, копия ложится на цель', () => {
+    const turn = createEffect('Изгнание нечисти', {
+      activation: { mode: 'use', counter: 'channelDivinity' },
+      effectTarget: 'target',
+      conditionKey: 'frightened',
+      applySave: { ability: 'wisdom', dc: 0, onSuccess: 'negate' },
+      duration: { type: 'minutes', value: 1 },
+    });
+
+    assert.match(
+      authoredScenario(turn, 'ownEffects'),
+      /^При применении — на выбранной цели, тратит «channelDivinity»/,
+    );
+
+    const cleric = createActor({ activeEffects: [turn] });
+
+    assert.deepEqual(
+      engine.resolveActorStats(cleric).activeFlags,
+      engine.resolveActorStats(createActor()).activeFlags,
+      'шаблон применения на листе не действует',
+    );
+
+    const spell = engine.buildEffectUseSpell(turn);
+
+    assert.equal(spell.rollSource, 'effect');
+
+    assert.deepEqual(
+      engine.getTargetSpellEffects(spell).map((effect) => effect.name),
+      ['Изгнание нечисти'],
+    );
+
+    assert.equal(
+      engine.canPayActivation(
+        [{ counterKey: 'channelDivinity', current: 0, max: 2 }],
+        turn.activation,
+      ),
+      false,
+    );
+  });
 
   it('[F02] Драконья стойкость: +1 хит за уровень чародея и КД 10 + Ловк + Хар без доспеха', () => {
     const resilience = createEffect(

@@ -40,6 +40,10 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { resolveTargetedAttackRollMode } from '../../composables/attackRollMode';
+  import {
+    applyActionSelfEffects,
+    hasActionSelfEffects,
+  } from '../../composables/effectActivationUse';
   import { runWithEffectVariants } from '../../composables/effectVariantChoice';
   import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import { discardSpellTemplate } from '../../composables/spellResolutionShared';
@@ -359,7 +363,12 @@
    */
   function openRollModal(sourceAction: CreatureAction): void {
     runWithEffectVariants(sourceAction, (action) => {
+      // Действие без броска только накладывает эффекты на само существо
       if (!hasAttackParams(action)) {
+        if (props.creatureId) {
+          applyActionSelfEffects(action, props.creatureId);
+        }
+
         return;
       }
 
@@ -551,6 +560,8 @@
     if (templateId) {
       spellTemplateStore.deleteTemplate(templateId);
     }
+
+    applyActionSelfEffects(action, creature.id);
   }
 
   /**
@@ -576,7 +587,11 @@
    * @param action - действие существа
    */
   function canUseAction(action: CreatureAction): boolean {
-    return !props.isReadOnly && !!props.creatureId && hasAttackParams(action);
+    return (
+      !props.isReadOnly
+      && !!props.creatureId
+      && (hasAttackParams(action) || hasActionSelfEffects(action))
+    );
   }
 
   /** Показывать ли кнопку «Атаковать» в модалке просмотра действия */

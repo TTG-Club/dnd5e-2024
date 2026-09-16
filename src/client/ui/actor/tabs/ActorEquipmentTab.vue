@@ -30,9 +30,11 @@
   import { formatItemCost } from '@vtt/shared';
   import {
     buildFormulaContext,
+    buildItemUseSpell,
     calculateWeaponAttackModifier,
     calculateWeaponDamageModifier,
     canSpendItemUses,
+    canUseItem,
     CURRENCY_OPTIONS,
     DEFAULT_CREATURE_SIZE,
     describeDamagePart,
@@ -43,12 +45,19 @@
     getAttackBonusKey,
     getDamageBonusKey,
     getWeaponPrimaryDamageType,
+    listUseEffects,
     setItemUsesCurrent,
+    spendAmmunition,
+    spendItemUse,
     spendItemUses,
     TOOL_CATEGORIES,
   } from '@vtt/shared/system/dnd.js';
 
   import { resolveTargetedAttackRollMode } from '../../../composables/attackRollMode';
+  import {
+    applyEffectSource,
+    prepareAmmunitionShot,
+  } from '../../../composables/effectActivationUse';
   import { runWithEffectVariants } from '../../../composables/effectVariantChoice';
   import { buildRollBonusEvaluator } from '../../../composables/rollBonusEvaluator';
   import { useBonusDamageParts } from '../../../composables/useBonusDamageParts';
@@ -57,6 +66,7 @@
   import { useSpellResolution } from '../../../composables/useSpellResolution';
   import { useWeaponIcon } from '../../../composables/useWeaponIcon';
   import { useWorldEntities } from '../../../composables/useWorldEntities';
+  import { EFFECT_USE_LABELS } from '../../effect/constants';
   import ActorEquipmentRow from '../ActorEquipmentRow.vue';
   import CarryingCapacityModal from '../CarryingCapacityModal.vue';
   import {
@@ -353,6 +363,8 @@
     ) => SpellDamagePartInput[];
     onRollParts?: (parts: RolledSpellDamagePart[]) => void;
     onHit?: () => void;
+    /** Перед броском: тратит боеприпас выстрела */
+    beforeRoll?: () => boolean;
   }
 
   const rollConfig = ref<RollConfig>({
@@ -362,11 +374,22 @@
   });
 
   /**
-   * Открывает модалку броска урона для оружия
+   * Открывает модалку броска урона для оружия. Оружие с боеприпасами, которые
+   * лист ведёт, стреляет боеприпасом: без него атаки нет, его бонус и эффекты
+   * идут в бросок, сам он тратится, когда бросок пошёл.
+   *
    * @param sourceWeapon - оружие с формулой урона; эффекты — до выбора варианта
    */
   function openRollModal(sourceWeapon: DnDGameItem): void {
-    runWithEffectVariants(sourceWeapon, (weapon) => {
+    const shot = prepareAmmunitionShot(props.entity, sourceWeapon);
+
+    if (!shot) {
+      return;
+    }
+
+    const ammunitionId = shot.ammunition?.id;
+
+    runWithEffectVariants(shot.weapon, (weapon) => {
       if (!weapon.damageParts?.length) {
         return;
       }
@@ -458,6 +481,13 @@
         // Сбрасываем явно: `rollConfig` переиспользуется между бросками, и без
         // этого обработчик от ПРЕДЫДУЩЕГО броска остался бы висеть на текущем.
         onHit: undefined,
+        beforeRoll: ammunitionId
+          ? () => {
+              commitEquipment(spendAmmunition(inventory.value, ammunitionId));
+
+              return true;
+            }
+          : undefined,
       };
 
       isRollModalOpen.value = true;
@@ -755,6 +785,25 @@
   }
 
   /**
+   * Применяет предмет: эффекты применения ложатся на персонажа или цель,
+   * предмет теряет заряд или единицу количества.
+   *
+   * @param item - предмет
+   */
+  function applyItemUse(item: DnDGameItem): void {
+    if (props.isReadOnly) {
+      return;
+    }
+
+    applyEffectSource(
+      buildItemUseSpell(item),
+      props.entity,
+      resolvedStats.value?.spellSaveDC ?? 0,
+      () => commitEquipment(spendItemUse(inventory.value, item.id)),
+    );
+  }
+
+  /**
    * Удаляет предмет из инвентаря
    * @param itemId - ID предмета
    */
@@ -801,6 +850,18 @@
       disabled: isEquipDisabled(item),
       onSelect: () => toggleEquipped(item.id),
     });
+
+    // Применение — пункт предмета с эффектами «при применении»: зелье,
+    // свиток, масло. В режиме правки лист сохраняется кнопкой, и наложенное
+    // сохранение затёрло бы
+    if (listUseEffects(item.activeEffects).length > 0 && !props.isReadOnly) {
+      gameActions.push({
+        label: EFFECT_USE_LABELS.use,
+        icon: 'tabler:flask',
+        disabled: props.isEditMode || !canUseItem(item),
+        onSelect: () => applyItemUse(item),
+      });
+    }
 
     if (item.type === 'weapon' && item.damageParts?.length) {
       gameActions.push({
@@ -1380,6 +1441,7 @@
     :evaluate-bonus-damage-parts="rollConfig.evaluateBonusDamageParts"
     :on-roll-parts="rollConfig.onRollParts"
     :on-hit="rollConfig.onHit"
+    :before-roll="rollConfig.beforeRoll"
     :attacker-id="entity.id"
     :roll-button-text="ACTOR_EQUIPMENT_TAB_LABELS.attack"
   />

@@ -27,6 +27,7 @@ import type { DeferredTurnTrigger } from './effectTriggerRunner.js';
 import type { EffectTriggerTurnOwner } from './effectTriggerTypes.js';
 import type { FormulaContext } from './formulaParser.js';
 
+import { isToggleActivatedEffect } from './activeEffectTypes.js';
 import {
   listSavingThrowBonusKeys,
   resolveSavingThrowModifier,
@@ -310,6 +311,14 @@ export function expireTurnEffects(
     }
 
     changed = true;
+
+    // Переключаемый эффект по истечении выключается, а не уходит с листа
+    if (isToggleActivatedEffect(effect)) {
+      effect.disabled = true;
+      effect.duration = { ...duration, turnSkipFirst: undefined };
+
+      return true;
+    }
 
     return false; // граница «следующего» хода — снимаем эффект
   });

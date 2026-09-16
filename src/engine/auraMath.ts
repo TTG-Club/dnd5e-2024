@@ -17,7 +17,7 @@ import type { DnDSceneEntity } from './dndEntities.js';
 
 import { isCreatureEntity } from '@vtt/shared';
 
-import { isCarrierEffect } from './activeEffectTypes.js';
+import { isCarrierEffect, isEffectDormant } from './activeEffectTypes.js';
 import { bindClassLevels } from './classEffectScope.js';
 import { itemEffectsActive } from './effectPipeline.js';
 import { hasPresenceTriggers } from './effectTriggers.js';
@@ -93,7 +93,8 @@ export function getAuraEffects(effects?: ActiveEffect[]): ActiveEffect[] {
   }
 
   return effects.filter(
-    (effect) => effect.aura && effect.aura.radius > 0 && !effect.disabled,
+    (effect) =>
+      effect.aura && effect.aura.radius > 0 && !isEffectDormant(effect),
   );
 }
 
@@ -184,7 +185,7 @@ export function calculateAmbientAuras(
     for (const effect of source.effects) {
       const aura = effect.aura;
 
-      if (!aura || effect.disabled) {
+      if (!aura || isEffectDormant(effect)) {
         continue;
       }
 
@@ -337,7 +338,7 @@ export function collectTriggerAurasForTarget(
     for (const effect of source.effects) {
       const aura = effect.aura;
 
-      if (!aura || effect.disabled || !isTriggerAura(effect)) {
+      if (!aura || isEffectDormant(effect) || !isTriggerAura(effect)) {
         continue;
       }
 

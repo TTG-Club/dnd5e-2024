@@ -31,7 +31,11 @@ import type {
 
 import { generateId } from '@vtt/shared';
 
-import { ACTIVE_EFFECT_ID_PREFIX, isDnDEffect } from './activeEffectTypes.js';
+import {
+  ACTIVE_EFFECT_ID_PREFIX,
+  isDnDEffect,
+  isEffectDormant,
+} from './activeEffectTypes.js';
 import {
   buildAmbientAuraEffectId,
   collectAllAuraEffects,
@@ -443,7 +447,7 @@ export function syncActorAreaEffects(
       }
 
       for (const effect of area.effects.filter(isDnDEffect)) {
-        if (effect.disabled) {
+        if (isEffectDormant(effect)) {
           continue;
         }
 
@@ -468,7 +472,10 @@ export function syncActorAreaEffects(
     }
 
     for (const effect of area.effects.filter(isDnDEffect)) {
-      if (effect.disabled || (effect.areaTrigger ?? 'stay') !== 'stay') {
+      if (
+        isEffectDormant(effect)
+        || (effect.areaTrigger ?? 'stay') !== 'stay'
+      ) {
         continue;
       }
 
@@ -499,7 +506,7 @@ export function syncActorAreaEffects(
       }
 
       for (const effect of area.effects.filter(isDnDEffect)) {
-        if (effect.disabled) {
+        if (isEffectDormant(effect)) {
           continue;
         }
 

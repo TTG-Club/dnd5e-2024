@@ -1,5 +1,9 @@
 <script setup lang="ts">
-  import type { ActiveEffect, DnDActor } from '@vtt/shared/system/dnd.js';
+  import type {
+    ActiveEffect,
+    ActorCounterState,
+    DnDActor,
+  } from '@vtt/shared/system/dnd.js';
 
   import ActiveEffectsPanel from '../ActiveEffectsPanel.vue';
 
@@ -29,6 +33,18 @@
       setTimeout(() => emit('immediate-save'), 0);
     }
   }
+
+  /**
+   * Записывает ресурсы после применения или включения эффекта: платят только
+   * в просмотре, и лист сохраняет правку сразу.
+   *
+   * @param counters - ресурсы листа
+   */
+  function handleCountersUpdate(counters: ActorCounterState[]): void {
+    emit('update:actor', {
+      system: { ...props.actor.system, classCounters: counters },
+    });
+  }
 </script>
 
 <template>
@@ -36,6 +52,9 @@
     :effects="actor.activeEffects ?? []"
     :equipment="actor.equipment ?? []"
     :is-edit-mode="isEditMode"
+    :owner="actor"
+    :counters="actor.system.classCounters ?? []"
     @update:effects="handleEffectsUpdate"
+    @update:counters="handleCountersUpdate"
   />
 </template>

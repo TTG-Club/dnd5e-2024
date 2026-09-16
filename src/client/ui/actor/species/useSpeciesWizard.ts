@@ -47,6 +47,7 @@ import {
   resolveFeatChoiceCount,
   resolveFeatChoicesToAsk,
   resolveSpeciesVision,
+  withActivationDefaults,
 } from '@vtt/shared/system/dnd.js';
 
 import { useFeatChoiceWeapons } from '../../../composables/useFeatChoiceWeapons';
@@ -261,7 +262,7 @@ function collectSpeciesDeclaredEffects(
   }
 
   return collected.map((effect) => ({
-    ...effect,
+    ...withActivationDefaults(effect),
     id: `${SPECIES_OWN_EFFECT_PREFIX}${definition.key}:${effect.id}`,
     origin: 'feature',
     originId: definition.key,

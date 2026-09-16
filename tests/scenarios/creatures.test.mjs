@@ -960,6 +960,36 @@ describe('каталог: срабатывания на цели и у черт'
   });
 });
 
+describe('каталог: действие на себя', () => {
+  it('[C21] Полтергейст: действие делает существо невидимым', () => {
+    const vanish = createEffect('Невидимость', {
+      conditionKey: 'invisible',
+      duration: { type: 'rounds', value: 10 },
+    });
+
+    assert.match(
+      authoredScenario(vanish, 'creatureAction'),
+      /^При использовании действия — на самом существе/,
+    );
+
+    const action = { name: 'Невидимость', activeEffects: [vanish] };
+
+    assert.deepEqual(
+      engine.getCasterSpellEffects(action).map((effect) => effect.name),
+      ['Невидимость'],
+    );
+
+    const spell = engine.buildUseSpell({
+      id: 'poltergeist',
+      name: action.name,
+      effects: action.activeEffects,
+      rollSource: 'creatureAction',
+    });
+
+    assert.deepEqual(engine.getTargetSpellEffects(spell), []);
+  });
+});
+
 describe('каталог: случайный вариант', () => {
   it('[C20] Лучи глаз: случайный луч из группы', () => {
     const rays = ['Очаровывающий', 'Парализующий', 'Усыпляющий'].map(

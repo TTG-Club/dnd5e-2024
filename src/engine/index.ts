@@ -40,6 +40,7 @@ export * from './deferredEffectSaves.js';
 export * from './diceFormula.js';
 export * from './dnd5eSystem.js';
 export * from './dndEntities.js';
+export * from './effectActivation.js';
 export * from './effectAutomation.js';
 export * from './effectDamageEvents.js';
 export * from './effectFlagMenu.js';

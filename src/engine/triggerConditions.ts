@@ -21,6 +21,7 @@ import type {
 import {
   CARRIER_TYPE_CONDITION_PREFIX,
   CONDITION_AND_SEPARATOR,
+  isEffectDormant,
   splitConditionParts,
   TARGET_TYPE_CONDITION_PREFIX,
 } from './activeEffectTypes.js';
@@ -276,7 +277,7 @@ function isParameterValue(
  */
 function listEffectTags(entity: DnDSceneEntity, tag: string) {
   return (entity.activeEffects ?? []).filter(
-    (effect) => !effect.disabled && effect.tag === tag,
+    (effect) => !isEffectDormant(effect) && effect.tag === tag,
   );
 }
 
@@ -328,7 +329,7 @@ export function hasEntityCondition(
   condition: string,
 ): boolean {
   const effects = (entity.activeEffects ?? []).filter(
-    (effect) => !effect.disabled,
+    (effect) => !isEffectDormant(effect),
   );
 
   if (effects.some((effect) => effect.conditionKey === condition)) {
@@ -360,7 +361,7 @@ function sizeRank(size: string): number {
  */
 export function hasEffectTag(entity: DnDSceneEntity, tag: string): boolean {
   return (entity.activeEffects ?? []).some(
-    (effect) => !effect.disabled && effect.tag === tag,
+    (effect) => !isEffectDormant(effect) && effect.tag === tag,
   );
 }
 

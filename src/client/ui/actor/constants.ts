@@ -1793,6 +1793,14 @@ export const SPECIES_FORM_DEFAULT_NAMES = {
  * `ITEM_FORM_LABELS`.
  */
 export const EQUIPMENT_FORM_LABELS = {
+  consumptionTitle: 'Расход',
+  consumptionHint:
+    'Расходуемый предмет применение тратит поштучно, последний уходит из '
+    + 'инвентаря. Боеприпас тратится выстрелом из оружия своего типа, его '
+    + 'магический бонус и эффекты «при применении» идут в этот выстрел.',
+  consumable: 'Расходуемый',
+  ammunitionType: 'Боеприпас для',
+  ammunitionTypeNone: 'Не боеприпас',
   editTitle: 'Редактировать снаряжение',
   createTitle: 'Создать снаряжение',
   namePlaceholder: 'Например, веревка или зелье',

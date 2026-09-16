@@ -38,6 +38,7 @@ import type {
   TurnSaveOutcome,
 } from './turnEffects.js';
 
+import { isEffectDormant } from './activeEffectTypes.js';
 import {
   formatEffectNotes,
   ignoreRejectedRollRequest,
@@ -150,13 +151,14 @@ function listDamageEventSources(
   // Своя аура без «действует и на носителя» слышит урон других, а не носителя
   const own = (entity.activeEffects ?? []).filter(
     (effect) =>
-      !effect.disabled
+      !isEffectDormant(effect)
       && !(effect.aura && !effect.aura.applyToSelf)
       && !(newEffectIds?.has(effect.id) ?? false),
   );
 
   const ambient = ambientEffects.filter(
-    (effect) => !effect.disabled && (effect.areaTrigger ?? 'stay') === 'stay',
+    (effect) =>
+      !isEffectDormant(effect) && (effect.areaTrigger ?? 'stay') === 'stay',
   );
 
   return [
@@ -622,7 +624,7 @@ export function settleAppliedEvents(
   const result = createDamageEventsResult();
 
   const effects = (subject.activeEffects ?? []).filter(
-    (effect) => !effect.disabled && newEffectIds.has(effect.id),
+    (effect) => !isEffectDormant(effect) && newEffectIds.has(effect.id),
   );
 
   const sources = buildTriggerSources(

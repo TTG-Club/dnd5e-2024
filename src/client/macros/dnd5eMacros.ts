@@ -87,6 +87,11 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { resolveTargetedAttackRollMode } from '../composables/attackRollMode';
+import {
+  applyActionSelfEffects,
+  prepareAmmunitionShot,
+  spendShotAmmunition,
+} from '../composables/effectActivationUse';
 import { runWithEffectVariants } from '../composables/effectVariantChoice';
 import {
   buildRollBonusEvaluator,
@@ -366,7 +371,16 @@ export function registerDnd5eMacros(): void {
         return;
       }
 
-      runWithEffectVariants(result.weapon, (foundWeapon) => {
+      // Стрелковое оружие стреляет боеприпасом, если лист их ведёт
+      const shot = prepareAmmunitionShot(result.actor, result.weapon);
+
+      if (!shot) {
+        return;
+      }
+
+      const ammunitionId = shot.ammunition?.id;
+
+      runWithEffectVariants(shot.weapon, (foundWeapon) => {
         const foundActor = result.actor;
 
         // resolvedStats для @mod.* в формулах частей и статического урона
@@ -558,6 +572,14 @@ export function registerDnd5eMacros(): void {
           onRollParts: handleWeaponRollParts,
           // Расход одноразовых эффектов «следующей атаки» (Злая насмешка и т.п.)
           attackerId: foundActor.id,
+          // Боеприпас тратится, когда бросок пошёл, а не при открытии окна
+          beforeRoll: ammunitionId
+            ? () => {
+                spendShotAmmunition(foundActor.id, ammunitionId);
+
+                return true;
+              }
+            : undefined,
         });
       });
     } catch (err) {
@@ -1629,6 +1651,8 @@ function registerCreatureActionMacro(): void {
             'text',
           );
 
+          applyActionSelfEffects(action, foundCreature.id);
+
           return;
         }
 
@@ -1859,6 +1883,8 @@ function applyCreatureActionParts(
   if (templateId) {
     templateStore.deleteTemplate(templateId);
   }
+
+  applyActionSelfEffects(action, creature.id);
 }
 
 /**

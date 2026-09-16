@@ -1,10 +1,12 @@
 <!--
-  Шаг «Когда срабатывает»: на кого ложится эффект (носитель, цель, аура),
-  момент срабатывания зоны или ауры и настройки ауры.
+  Шаг «Когда срабатывает»: постоянно ли действует эффект или его применяют,
+  на кого ложится эффект (носитель, цель, аура), момент срабатывания зоны или
+  ауры и настройки ауры.
 -->
 <script setup lang="ts">
   import type {
     ActiveEffect,
+    EffectActivation,
     EffectAura,
     EffectFormLayout,
     EffectVariantPick,
@@ -19,15 +21,19 @@
   } from '@vtt/shared/system/dnd.js';
 
   import {
+    EFFECT_ACTIVATION_CHOICE_HINTS,
+    EFFECT_ACTIVATION_COUNTER_LABELS,
     EFFECT_AURA_LABELS,
     EFFECT_AURA_RADIUS_STEP,
     EFFECT_DELIVERY_HINTS,
     EFFECT_LANDING_CONDITION_LABELS,
+    EFFECT_PERMANENT_ACTIVATION,
     EFFECT_SPELL_ZONE_DELIVERY_HINT,
     EFFECT_TRIGGER_HINTS,
     EFFECT_VARIANT_LABELS,
   } from '../constants';
   import {
+    buildActivationOptions,
     buildDeliveryOptions,
     buildTriggerOptions,
     EFFECT_AURA_TARGET_OPTIONS,
@@ -42,6 +48,69 @@
   }>();
 
   const effect = defineModel<ActiveEffect>('effect', { required: true });
+
+  const activationOptions = computed(() =>
+    buildActivationOptions(props.layout),
+  );
+
+  const activationChoice = computed(
+    () => effect.value.activation?.mode ?? EFFECT_PERMANENT_ACTIVATION,
+  );
+
+  /**
+   * Меняет способ действия эффекта: «Постоянно» убирает применение, способ
+   * применения сохраняет уже заданный ресурс.
+   *
+   * @param value - значение переключателя
+   */
+  function selectActivation(value: string | number): void {
+    if (value === EFFECT_PERMANENT_ACTIVATION) {
+      effect.value = { ...effect.value, activation: undefined };
+
+      return;
+    }
+
+    const mode = props.layout.activationModes.find(
+      (option) => option === value,
+    );
+
+    if (mode) {
+      effect.value = {
+        ...effect.value,
+        activation: { ...effect.value.activation, mode },
+      };
+    }
+  }
+
+  /**
+   * Меняет ресурс применения.
+   *
+   * @param patch - изменённые поля
+   */
+  function updateActivation(patch: Partial<EffectActivation>): void {
+    const { activation } = effect.value;
+
+    if (activation) {
+      effect.value = {
+        ...effect.value,
+        activation: { ...activation, ...patch },
+      };
+    }
+  }
+
+  const activationCounter = computed({
+    get: () => effect.value.activation?.counter ?? '',
+    set: (counter: string) => updateActivation({ counter }),
+  });
+
+  const activationAmount = computed({
+    get: () => effect.value.activation?.amount ?? 1,
+    set: (amount: number | null) => {
+      if (amount !== null) {
+        updateActivation({ amount });
+      }
+    },
+  });
 
   const deliveryOptions = computed(() => buildDeliveryOptions(props.layout));
 
@@ -191,6 +260,56 @@
 </script>
 
 <template>
+  <div
+    v-if="activationOptions.length > 0"
+    class="flex flex-col gap-1.5"
+  >
+    <UTabs
+      :model-value="activationChoice"
+      :items="activationOptions"
+      :content="false"
+      size="xs"
+      color="primary"
+      class="w-fit"
+      @update:model-value="selectActivation"
+    />
+
+    <p class="text-xs text-muted">
+      {{ EFFECT_ACTIVATION_CHOICE_HINTS[activationChoice] }}
+    </p>
+
+    <div
+      v-if="layout.showActivationCounter"
+      class="flex flex-wrap items-end gap-2"
+    >
+      <UFormField
+        :label="EFFECT_ACTIVATION_COUNTER_LABELS.counter"
+        :help="EFFECT_ACTIVATION_COUNTER_LABELS.hint"
+        class="w-72"
+      >
+        <UInput
+          v-model="activationCounter"
+          :placeholder="EFFECT_ACTIVATION_COUNTER_LABELS.counterPlaceholder"
+          size="sm"
+          class="w-full"
+        />
+      </UFormField>
+
+      <UFormField
+        v-if="activationCounter"
+        :label="EFFECT_ACTIVATION_COUNTER_LABELS.amount"
+        class="w-24"
+      >
+        <UInputNumber
+          v-model="activationAmount"
+          :min="1"
+          size="sm"
+          class="w-full"
+        />
+      </UFormField>
+    </div>
+  </div>
+
   <div
     v-if="showDeliveryChoice"
     class="flex flex-col gap-1.5"

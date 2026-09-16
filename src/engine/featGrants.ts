@@ -35,6 +35,7 @@ import type { ActorCounterState } from './types.js';
 
 import { generateId } from '@vtt/shared';
 
+import { withActivationDefaults } from './activeEffectTypes.js';
 import { calculateAbilityModifier } from './calculations.js';
 import { getTotalLevel } from './classTypes.js';
 import { ABILITY_OPTIONS, isAbilityType } from './consts.js';
@@ -961,7 +962,7 @@ export function prepareTransferredFeatEffects(
   originPrefix: string = FEAT_ORIGIN_PREFIX,
 ): ActiveEffect[] {
   return (authoredEffects ?? []).map((effect) => ({
-    ...effect,
+    ...withActivationDefaults(effect),
     id: generateId('effect'),
     origin: 'feature',
     originId: featOriginId(featureId, originPrefix),

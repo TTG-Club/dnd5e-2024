@@ -8,6 +8,7 @@
 import type {
   AreaEffectTrigger,
   ConditionKey,
+  EffectActivationMode,
   EffectChangeMode,
   EffectDelivery,
   EffectFormContext,
@@ -391,6 +392,7 @@ export const EFFECT_INERT_FIELDS_LABELS = {
 
 /** Названия неработающих настроек */
 export const EFFECT_INERT_FIELD_NAMES: Record<InertEffectField, string> = {
+  activation: 'применение или включение',
   landingCondition: 'условие наложения',
   variant: 'вариант',
   effectTarget: 'на кого накладывается',
@@ -407,13 +409,55 @@ export const EFFECT_INERT_FIELD_NAMES: Record<InertEffectField, string> = {
   triggers: 'срабатывания не для этого места',
 };
 
+/** Значение выбора «Действует» для эффекта без применения */
+export const EFFECT_PERMANENT_ACTIVATION = 'permanent';
+
+/** Выбор «Действует»: постоянно, при применении или переключателем */
+export type EffectActivationChoice =
+  EffectActivationMode | typeof EFFECT_PERMANENT_ACTIVATION;
+
+/** Подписи выбора «Действует» */
+export const EFFECT_ACTIVATION_CHOICE_LABELS: Record<
+  EffectActivationChoice,
+  string
+> = {
+  permanent: 'Постоянно',
+  use: 'При применении',
+  toggle: 'Переключателем',
+};
+
+/** Пояснения под выбором «Действует» */
+export const EFFECT_ACTIVATION_CHOICE_HINTS: Record<
+  EffectActivationChoice,
+  string
+> = {
+  permanent: 'Действует всё время, пока есть источник.',
+  use:
+    'Сам не действует: копия ложится, когда источник применяют — пунктом '
+    + '«Использовать» у предмета, выстрелом боеприпасом, кнопкой «Применить» '
+    + 'на листе. Расходуемый предмет теряет единицу, предмет с зарядами — '
+    + 'заряд.',
+  toggle:
+    'Лежит на листе выключенным и включается переключателем. Включение '
+    + 'запускает срабатывания «При включении»; по истечении длительности '
+    + 'эффект выключается.',
+};
+
+/** Подписи ресурса применения */
+export const EFFECT_ACTIVATION_COUNTER_LABELS = {
+  counter: 'Тратит ресурс',
+  counterPlaceholder: 'Ключ ресурса, например rage',
+  amount: 'Сколько',
+  hint: 'Ресурс листа (вкладка «Ресурсы»); пусто — ничего не тратит.',
+} as const;
+
 /** Подписи условия наложения */
 export const EFFECT_LANDING_CONDITION_LABELS = {
   title: 'Ложится, если',
   always: 'Без условия — ложится всегда.',
   hint:
     'Условие считается до урона этого удара. Нужны хиты после урона — '
-    + 'срабатывание «При наложении на цель».',
+    + 'срабатывание «При наложении».',
 } as const;
 
 /** Подписи варианта эффекта */
@@ -501,4 +545,21 @@ export const ACTIVE_EFFECT_TEMPLATES_LABELS = {
   conditionTitle: EFFECT_CHANGE_ROW_LABELS.conditionLibrary,
   conditionSearchPlaceholder: 'Поиск по шаблонам...',
   conditionEmpty: 'Шаблоны не найдены',
+} as const;
+
+/** Подписи применения эффектов, предметов и боеприпасов */
+export const EFFECT_USE_LABELS = {
+  use: 'Использовать',
+  apply: 'Применить',
+  applyHint: 'Наложить эффект: на себя или на выбранную цель',
+  chatUses: ' применяет ',
+  noTargetTitle: 'Нет цели',
+  noTargetText: 'Эффект ложится на цель — сначала выберите её.',
+  noUsesTitle: 'Нечего применить',
+  noUsesText: 'Заряды или количество кончились.',
+  noCounterTitle: 'Не хватает ресурса',
+  noCounterPrefix: 'Ресурс «',
+  noCounterSuffix: '» исчерпан.',
+  noAmmunitionPrefix: '⛔ ',
+  noAmmunitionSuffix: ': нет боеприпасов',
 } as const;

@@ -51,12 +51,21 @@ const CARRIER_MOMENT_LABELS: Record<EffectFormContext, string> = {
   item: 'Пока предмет надет',
   weapon: 'Пока оружие экипировано',
   spell: 'После сотворения — на заклинателе',
-  creatureAction: 'При использовании действия',
+  creatureAction: 'При использовании действия — на самом существе',
   creatureTrait: 'Постоянно у существа',
   zone: 'Пока существо в зоне',
   condition: 'Пока действует состояние',
   generic: 'Пока эффект активен',
 };
+
+/** Когда срабатывает эффект, который накладывается применением */
+const USE_MOMENT_LABELS = {
+  carrier: 'После применения — на применившем',
+  target: 'При применении — на выбранной цели',
+} as const;
+
+/** Когда действует эффект, который включают переключателем */
+const TOGGLE_MOMENT_LABEL = 'Пока эффект включён';
 
 /** Когда срабатывает эффект «на цели» — по месту окна */
 const TARGET_MOMENT_LABELS: Record<EffectFormContext, string> = {
@@ -98,6 +107,9 @@ const SCENARIO_LABELS = {
   variantPrefix: 'Вариант ',
   variantSuffix: '. ',
   landingConditionPrefix: ', если ',
+  counterPrefix: ', тратит «',
+  counterSuffix: '»',
+  counterAmountPrefix: ' ×',
   savePrefix: 'спасбросок ',
   failurePrefix: 'Провал — ',
   successPrefix: 'Успех — ',
@@ -149,6 +161,21 @@ function describeMoment(
   effect: ActiveEffect,
   layout: EffectFormLayout,
 ): string {
+  const mode = effect.activation?.mode;
+
+  const activation =
+    mode && layout.activationModes.includes(mode) ? mode : undefined;
+
+  if (activation === 'use' && layout.delivery !== 'aura') {
+    return layout.delivery === 'target'
+      ? USE_MOMENT_LABELS.target
+      : USE_MOMENT_LABELS.carrier;
+  }
+
+  if (activation === 'toggle' && layout.delivery === 'carrier') {
+    return TOGGLE_MOMENT_LABEL;
+  }
+
   switch (layout.delivery) {
     case 'zone':
       return layout.context === 'spell'
@@ -167,6 +194,27 @@ function describeMoment(
     default:
       return CARRIER_MOMENT_LABELS[layout.context];
   }
+}
+
+/**
+ * Какой счётчик тратит применение или включение.
+ *
+ * @param effect - эффект
+ * @returns часть фразы либо пустая строка
+ */
+function describeActivationCounter(effect: ActiveEffect): string {
+  const counter = effect.activation?.counter;
+
+  if (!counter) {
+    return '';
+  }
+
+  const amount = effect.activation?.amount ?? 1;
+
+  const amountText =
+    amount > 1 ? `${SCENARIO_LABELS.counterAmountPrefix}${amount}` : '';
+
+  return `${SCENARIO_LABELS.counterPrefix}${counter}${SCENARIO_LABELS.counterSuffix}${amountText}`;
 }
 
 /**
@@ -392,7 +440,11 @@ export function describeEffectScenario(
       ? `${SCENARIO_LABELS.landingConditionPrefix}${describeTriggerCondition(effect.landingCondition)}`
       : '';
 
-  const moment = `${variant}${describeMoment(effect, layout)}${condition}`;
+  const counter = layout.showActivationCounter
+    ? describeActivationCounter(effect)
+    : '';
+
+  const moment = `${variant}${describeMoment(effect, layout)}${counter}${condition}`;
   const lasting = describeLastingPayload(effect, layout);
 
   const damage =

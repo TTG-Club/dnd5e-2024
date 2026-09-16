@@ -41,6 +41,7 @@
     :effects="creature.activeEffects ?? []"
     :is-edit-mode="isEditMode"
     :equipment="creature.equipment ?? []"
+    :owner="creature"
     @update:effects="handleEffectsUpdate"
   />
 </template>

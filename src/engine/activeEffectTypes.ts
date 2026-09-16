@@ -1085,6 +1085,29 @@ export interface EffectChange {
   priority: number;
 }
 
+/**
+ * Как эффект начинает действовать: `use` — накладывается применением
+ * источника (зелье, стрела, кнопка «Применить»), `toggle` — включается
+ * переключателем («Ярость»).
+ */
+export const EFFECT_ACTIVATION_MODES = ['use', 'toggle'] as const;
+
+/** Способ применения или включения эффекта */
+export type EffectActivationMode = (typeof EFFECT_ACTIVATION_MODES)[number];
+
+/** Применение или включение эффекта */
+export interface EffectActivation {
+  /** Накладывается применением или включается переключателем */
+  mode: EffectActivationMode;
+  /**
+   * Счётчик листа (`system.classCounters`), который тратит применение или
+   * включение; нет — ничего не тратит (у предмета тратятся его заряды)
+   */
+  counter?: string;
+  /** Сколько тратится со счётчика; нет — одна единица */
+  amount?: number;
+}
+
 /** Вариант эффекта в группе альтернатив */
 export interface EffectVariant {
   /** Ключ группы: эффекты с одним ключом — альтернативы */
@@ -1315,6 +1338,13 @@ export interface ActiveEffect extends BaseActiveEffect {
   variant?: EffectVariant;
 
   /**
+   * Применение или включение: эффект не действует сам, пока источник не
+   * применили («Зелье лечения», «Стрела +1») или эффект не включили
+   * («Ярость»). Нет поля — действует постоянно.
+   */
+  activation?: EffectActivation;
+
+  /**
    * Каст заклинания, к которому относится эффект: общий у эффектов заклинателя,
    * целей и зоны одного каста. Конец каста снимает их все.
    */
@@ -1430,6 +1460,80 @@ export function isCarrierEffect(
   effect: Pick<ActiveEffect, 'effectTarget'>,
 ): boolean {
   return (effect.effectTarget ?? 'self') === 'self';
+}
+
+/**
+ * Накладывается ли эффект только применением источника.
+ *
+ * @param effect - эффект
+ * @returns `true` для `activation.mode === 'use'`
+ */
+export function isUseActivatedEffect(
+  effect: Pick<ActiveEffect, 'activation'>,
+): boolean {
+  return effect.activation?.mode === 'use';
+}
+
+/**
+ * Спит ли эффект: выключен или ждёт применения. Спящий эффект лежит на листе
+ * или предмете, но не действует — ни числами, ни флагами, ни аурой, ни
+ * срабатываниями. Применение кладёт его действующую копию.
+ *
+ * @param effect - эффект
+ * @returns `true`, если эффект сейчас не действует
+ */
+export function isEffectDormant(
+  effect: Pick<ActiveEffect, 'disabled' | 'activation'>,
+): boolean {
+  return effect.disabled === true || isUseActivatedEffect(effect);
+}
+
+/**
+ * Включают ли эффект переключателем.
+ *
+ * @param effect - эффект
+ * @returns `true` для `activation.mode === 'toggle'`
+ */
+export function isToggleActivatedEffect(
+  effect: Pick<ActiveEffect, 'activation'>,
+): boolean {
+  return effect.activation?.mode === 'toggle';
+}
+
+/**
+ * Эффект, который ложится на лист из умения, черты или вида: переключаемый —
+ * выключенным, его включают руками, а не получают готовым.
+ *
+ * @param effect - эффект записи
+ * @returns эффект для листа
+ */
+export function withActivationDefaults(effect: ActiveEffect): ActiveEffect {
+  return isToggleActivatedEffect(effect)
+    ? { ...effect, disabled: true }
+    : effect;
+}
+
+/**
+ * Эффекты, которые уходят с сущности: переключаемый не удаляется, а
+ * выключается — снять его с листа значило бы потерять умение.
+ *
+ * @param effects - эффекты сущности
+ * @param isRemoved - уходит ли эффект
+ * @returns оставшиеся эффекты
+ */
+export function removeOrSwitchOffEffects(
+  effects: readonly ActiveEffect[],
+  isRemoved: (effect: ActiveEffect) => boolean,
+): ActiveEffect[] {
+  return effects.flatMap((effect) => {
+    if (!isRemoved(effect)) {
+      return [effect];
+    }
+
+    return isToggleActivatedEffect(effect)
+      ? [{ ...effect, disabled: true }]
+      : [];
+  });
 }
 
 /**
@@ -1863,6 +1967,25 @@ const EffectVariantSchema = z.object({
   pick: z.enum(EFFECT_VARIANT_PICKS).optional().catch(undefined),
 });
 
+/** Самый длинный ключ счётчика применения */
+const MAX_ACTIVATION_COUNTER_LENGTH = 100;
+
+/** Zod-схема применения или включения эффекта */
+const EffectActivationSchema = z.object({
+  mode: z.enum(EFFECT_ACTIVATION_MODES),
+  counter: z
+    .string()
+    .trim()
+    .min(1)
+    .max(MAX_ACTIVATION_COUNTER_LENGTH)
+    .optional()
+    .catch(undefined),
+  amount: z.preprocess(
+    coerceOptionalNumber,
+    z.number().int().min(1).optional().catch(undefined),
+  ),
+});
+
 /** Zod-схема лимита срабатывания */
 const EffectTriggerLimitSchema = z.object({
   max: z.preprocess(
@@ -1971,6 +2094,7 @@ export const ActiveEffectSchema = z.object({
   tagStacks: z.number().int().min(1).optional().catch(undefined),
   landingCondition: z.string().trim().min(1).optional().catch(undefined),
   variant: EffectVariantSchema.optional().catch(undefined),
+  activation: EffectActivationSchema.optional().catch(undefined),
   castId: z.string().min(1).max(MAX_CAST_ID_LENGTH).optional().catch(undefined),
   concentration: z.literal(true).optional().catch(undefined),
   applySave: EffectSaveSchema.optional(),

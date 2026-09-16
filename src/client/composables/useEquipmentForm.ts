@@ -1,4 +1,5 @@
 import type {
+  AmmunitionType,
   EquipmentCategory,
   EquipmentCategoryDefinition,
   ItemRarity,
@@ -20,7 +21,11 @@ import {
   parseCost,
 } from '@vtt/shared/system/dnd.js';
 
+import { EQUIPMENT_FORM_LABELS } from '../ui/actor/constants';
 import { useItemUsesForm } from './useItemUsesForm';
+
+/** Значение выбора «Не боеприпас»: пустая строка выбором не бывает */
+const NO_AMMUNITION = 'none';
 
 /**
  * Тип экипировки, с которым открывается форма создания, если вызвавший не
@@ -70,6 +75,11 @@ export function useEquipmentForm(
   const rarity = ref<ItemRarity>('none');
   const activeEffects = ref<ActiveEffect[]>([]);
   const itemUses = useItemUsesForm();
+  const consumable = ref(false);
+
+  const ammunitionType = ref<AmmunitionType | typeof NO_AMMUNITION>(
+    NO_AMMUNITION,
+  );
 
   /**
    * Помеха скрытности — вычисляемое на основе selectedEquipmentProperties
@@ -137,6 +147,15 @@ export function useEquipmentForm(
 
     return items;
   });
+
+  /** Опции «Боеприпас для»: сначала «Не боеприпас» */
+  const ammunitionTypeOptions = computed(() => [
+    { label: EQUIPMENT_FORM_LABELS.ammunitionTypeNone, value: NO_AMMUNITION },
+    ...systemDataStore.ammunitionTypes.map((type) => ({
+      label: type.name,
+      value: type.key,
+    })),
+  ]);
 
   /** Опции базовых типов доспеха */
   const baseTypeOptions = computed(() =>
@@ -287,6 +306,8 @@ export function useEquipmentForm(
         );
 
         itemUses.loadItemUses(armor.uses);
+        consumable.value = armor.consumable ?? false;
+        ammunitionType.value = armor.ammunitionType ?? NO_AMMUNITION;
       } else {
         // Дефолты для создания
         name.value = '';
@@ -322,6 +343,8 @@ export function useEquipmentForm(
         rarity.value = 'none';
         activeEffects.value = [];
         itemUses.resetItemUses();
+        consumable.value = false;
+        ammunitionType.value = NO_AMMUNITION;
       }
     },
     { immediate: true },
@@ -340,7 +363,8 @@ export function useEquipmentForm(
       nameEn: nameEn.value.trim() || undefined,
       description: description.value,
       type: 'equipment',
-      quantity: 1,
+      // Стопка зелий и стрел не должна сбрасываться правкой записи
+      quantity: armor?.quantity ?? 1,
       weight: weight.value,
       cost:
         costValue.value > 0
@@ -370,6 +394,11 @@ export function useEquipmentForm(
       magicBonus:
         isMagical.value && magicBonus.value > 0 ? magicBonus.value : undefined,
       uses: itemUses.buildItemUses(),
+      consumable: consumable.value || undefined,
+      ammunitionType:
+        ammunitionType.value === NO_AMMUNITION
+          ? undefined
+          : ammunitionType.value,
       activeEffects:
         activeEffects.value.length > 0 ? activeEffects.value : undefined,
     };
@@ -400,6 +429,8 @@ export function useEquipmentForm(
     magicBonus,
     rarity,
     activeEffects,
+    consumable,
+    ammunitionType,
     ...itemUses,
 
     // Computed
@@ -407,6 +438,7 @@ export function useEquipmentForm(
     isActualArmor,
     categoryOptions,
     baseTypeOptions,
+    ammunitionTypeOptions,
     equipmentPropertyOptions,
     selectedEquipmentProperties,
 

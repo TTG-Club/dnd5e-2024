@@ -51,6 +51,7 @@ import {
   CONCENTRATION_SAVE_KEY,
   DEFAULT_CRIT_THRESHOLD,
   isCarrierEffect,
+  isEffectDormant,
   isSenseType,
   splitConditionParts,
   TARGET_TYPE_CONDITION_PREFIX,
@@ -430,7 +431,7 @@ export function listEquippedItemEffects(
  * @returns `true`, если эффект применяется к носителю записи
  */
 function affectsCarrier(effect: ActiveEffect): boolean {
-  if (effect.disabled) {
+  if (isEffectDormant(effect)) {
     return false;
   }
 
@@ -474,7 +475,7 @@ export function collectActiveEffects(
   const actorEffects = actor.activeEffects ?? [];
 
   for (const effect of actorEffects) {
-    if (!effect.disabled) {
+    if (!isEffectDormant(effect)) {
       if (effect.aura && !effect.aura.applyToSelf) {
         continue; // Эффект-аура генерируется, но на самого себя не действует
       }
@@ -718,7 +719,9 @@ const MARK_FLAG = 'mark.bySource';
  */
 export function listEntityMarkSources(entity: DnDSceneEntity): string[] {
   return (entity.activeEffects ?? []).flatMap((effect) =>
-    !effect.disabled && effect.sourceActorId && effect.flags.includes(MARK_FLAG)
+    !isEffectDormant(effect)
+    && effect.sourceActorId
+    && effect.flags.includes(MARK_FLAG)
       ? [effect.sourceActorId]
       : [],
   );
@@ -1082,7 +1085,7 @@ export function evaluateDefensiveACBonus(
   let bonus = 0;
 
   for (const effect of effects) {
-    if (effect.disabled) {
+    if (isEffectDormant(effect)) {
       continue;
     }
 
@@ -1148,7 +1151,7 @@ export function evaluateConditionalBonuses(
   let bonus = 0;
 
   for (const effect of effects) {
-    if (effect.disabled) {
+    if (isEffectDormant(effect)) {
       continue;
     }
 
@@ -1259,7 +1262,7 @@ export function collectBonusRollFormulas(
   let totalDiceCount = 0;
 
   for (const effect of effects) {
-    if (effect.disabled) {
+    if (isEffectDormant(effect)) {
       continue;
     }
 
@@ -1362,7 +1365,7 @@ export function hasBonusDamageFormulas(
   targetKey: EffectTargetKey,
 ): boolean {
   for (const effect of effects) {
-    if (effect.disabled) {
+    if (isEffectDormant(effect)) {
       continue;
     }
 
@@ -1402,7 +1405,7 @@ export function collectBonusDamageFormulas(
   const formulas: BonusDamageFormula[] = [];
 
   for (const effect of effects) {
-    if (effect.disabled) {
+    if (isEffectDormant(effect)) {
       continue;
     }
 

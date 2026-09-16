@@ -26,7 +26,7 @@ import type {
   EffectVariantPick,
 } from '@vtt/shared/system/dnd.js';
 
-import type { SaveDcFieldMode } from './constants';
+import type { EffectActivationChoice, SaveDcFieldMode } from './constants';
 
 import {
   DEFAULT_TRIGGER_ATTACK_ROLE,
@@ -46,11 +46,13 @@ import {
 import {
   AURA_TRIGGER_LABELS,
   EFFECT_ACTION_SAVE_OUTCOME_OPTIONS,
+  EFFECT_ACTIVATION_CHOICE_LABELS,
   EFFECT_AURA_LABELS,
   EFFECT_CARRIER_DELIVERY_LABELS,
   EFFECT_DELIVERY_ICONS,
   EFFECT_DELIVERY_LABELS,
   EFFECT_DURATION_STEP_LABELS,
+  EFFECT_PERMANENT_ACTIVATION,
   EFFECT_SUCCESS_OUTCOME_OPTIONS,
   EFFECT_TARGET_DELIVERY_LABELS,
   EFFECT_VARIANT_PICK_LABELS,
@@ -167,6 +169,31 @@ export function buildDeliveryOptions(
     value: delivery,
     label: deliveryLabel(delivery, layout.context),
     icon: EFFECT_DELIVERY_ICONS[delivery],
+  }));
+}
+
+/**
+ * Варианты выбора «Действует» для места окна: «Постоянно» и способы
+ * применения, которые здесь работают.
+ *
+ * @param layout - раскладка окна
+ * @returns варианты; пусто — выбора нет
+ */
+export function buildActivationOptions(
+  layout: EffectFormLayout,
+): EffectSegmentOption<EffectActivationChoice>[] {
+  if (layout.activationModes.length === 0) {
+    return [];
+  }
+
+  const choices: EffectActivationChoice[] = [
+    EFFECT_PERMANENT_ACTIVATION,
+    ...layout.activationModes,
+  ];
+
+  return choices.map((choice) => ({
+    value: choice,
+    label: EFFECT_ACTIVATION_CHOICE_LABELS[choice],
   }));
 }
 

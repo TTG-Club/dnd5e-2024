@@ -131,7 +131,10 @@ export interface DnDGameItem extends BaseGameItem {
   range?: { normal: number; long?: number };
   /** Особое описание (для свойства special) */
   special?: string;
-  /** Тип боеприпаса (только для оружия со свойством ammunition) */
+  /**
+   * Тип боеприпаса: у оружия со свойством «Боеприпасы» — чем оно стреляет, у
+   * расходуемого предмета — каким оружием им стреляют
+   */
   ammunitionType?: AmmunitionType;
   // --- Поля атаки (бывший Action) ---
   /**
@@ -196,6 +199,11 @@ export interface DnDGameItem extends BaseGameItem {
    * Отсутствует — предмет применяется без ограничений. См. {@link ItemUses}.
    */
   uses?: ItemUses;
+  /**
+   * Расходуемый предмет (зелье, свиток, стрела): применение тратит единицу
+   * количества, последняя уходит из инвентаря вместе с записью.
+   */
+  consumable?: boolean;
   // --- Feature-specific (только для type === 'feat') ---
   /** Можно ли выбрать черту повторно */
   repeatable?: boolean;
@@ -385,7 +393,7 @@ export interface ItemUses {
   cost?: number;
 }
 /** Что, кроме заклинания, разыгрывается путём заклинания */
-export type SpellRollSource = 'weapon' | 'creatureAction' | 'item';
+export type SpellRollSource = 'weapon' | 'creatureAction' | 'item' | 'effect';
 
 export interface Spell {
   id: string;

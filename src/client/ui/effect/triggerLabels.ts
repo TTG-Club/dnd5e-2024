@@ -82,7 +82,8 @@ export const EFFECT_TRIGGER_ROW_LABELS = {
 export const EFFECT_TRIGGER_EVENT_LABELS: Partial<
   Record<EffectTriggerEvent, string>
 > = {
-  applied: 'При наложении на цель',
+  applied: 'При наложении',
+  activate: 'При включении',
   turnStart: 'В начале хода',
   turnEnd: 'В конце хода',
   enter: 'При входе в зону или ауру',

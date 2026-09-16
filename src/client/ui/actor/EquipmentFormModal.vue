@@ -98,6 +98,9 @@
     buildArmor,
     activeEffects,
     itemUses,
+    consumable,
+    ammunitionType,
+    ammunitionTypeOptions,
   } = useEquipmentForm(
     () => props.item,
     () => props.open,
@@ -512,6 +515,29 @@
               icon="tabler:battery-2"
             >
               <ItemUsesFields v-model="itemUses" />
+            </FormSection>
+
+            <!-- Блок «Расход»: зелья, свитки, стрелы -->
+            <FormSection
+              :title="EQUIPMENT_FORM_LABELS.consumptionTitle"
+              icon="tabler:flask"
+              :hint="EQUIPMENT_FORM_LABELS.consumptionHint"
+            >
+              <div class="grid grid-cols-2 items-center gap-3">
+                <UCheckbox
+                  v-model="consumable"
+                  :label="EQUIPMENT_FORM_LABELS.consumable"
+                />
+
+                <UFormField :label="EQUIPMENT_FORM_LABELS.ammunitionType">
+                  <USelect
+                    v-model="ammunitionType"
+                    :items="ammunitionTypeOptions"
+                    value-key="value"
+                    class="w-full"
+                  />
+                </UFormField>
+              </div>
             </FormSection>
           </div>
         </template>

@@ -79,6 +79,8 @@ function createPorts(current) {
     calculateWeaponAttackModifier: () => 5,
     getWeaponPrimaryDamageType: () => undefined,
     resolveTargetedAttackRollMode: () => 'normal',
+    prepareAmmunitionShot: (_entity, weapon) => ({ weapon }),
+    spendShotAmmunition: () => {},
     isDndSceneEntity: () => true,
     actionHasSave: (action) => !!action.saveType && action.saveType !== 'none',
     actionPrimaryType: () => undefined,
@@ -138,6 +140,64 @@ for (const rangeType of ['melee', 'ranged']) {
     assert.equal(ports.rollConfig.value.evaluateBonusRollFormulas, undefined);
   });
 }
+
+it('actual openRollModal shoots the ammunition and spends it when the roll goes', async () => {
+  const current = { value: createEntity() };
+  const ports = createPorts(current);
+  const committed = [];
+
+  const weapon = {
+    name: 'Longbow',
+    rangeType: 'ranged',
+    damageParts: [{ formula: '1d8' }],
+  };
+
+  let shot = {
+    weapon: { ...weapon, magicBonus: 1 },
+    ammunition: { id: 'arrows' },
+  };
+
+  ports.prepareAmmunitionShot = () => shot;
+  ports.inventory = { value: ['quiver'] };
+  ports.spendAmmunition = (inventory, id) => [...inventory, `spent:${id}`];
+  ports.commitEquipment = (equipment) => committed.push(equipment);
+
+  ports.buildWeaponRollSetup = (options) => ({
+    ...createRollSetup(),
+    pseudoSpell: { magicBonus: options.weapon.magicBonus },
+  });
+
+  const handler = await loadHandler(
+    'src/client/ui/actor/tabs/ActorEquipmentTab.vue',
+    'openRollModal',
+    ports,
+  );
+
+  handler(weapon);
+
+  assert.deepEqual(committed, [], 'открытие окна боеприпас не тратит');
+  assert.equal(ports.rollConfig.value.beforeRoll(), true);
+  assert.deepEqual(committed, [['quiver', 'spent:arrows']]);
+
+  shot = { weapon };
+  handler(weapon);
+
+  assert.equal(
+    ports.rollConfig.value.beforeRoll,
+    undefined,
+    'учёта нет — тратить нечего',
+  );
+
+  shot = null;
+  ports.rollConfig.value = 'untouched';
+  handler(weapon);
+
+  assert.equal(
+    ports.rollConfig.value,
+    'untouched',
+    'без стрел окно не открывается',
+  );
+});
 
 for (const entry of [
   ['src/client/ui/creature/CreatureActionsBlock.vue', 'startActionRoll', false],

@@ -27,6 +27,7 @@ import type {
 import type { FormulaContext } from './formulaParser.js';
 import type { ActorCounterState, DnDActorSystem } from './types.js';
 
+import { isEffectDormant } from './activeEffectTypes.js';
 import {
   EXHAUSTION_LONG_REST_RECOVERY,
   getEntityExhaustionLevel,
@@ -316,7 +317,7 @@ export function resolveRestTriggerEffects(
     );
 
   const effects = (entity.activeEffects ?? []).filter(
-    (effect) => !effect.disabled,
+    (effect) => !isEffectDormant(effect),
   );
 
   if (!effects.some((effect) => restTriggersOf(effect).length > 0)) {
@@ -326,7 +327,7 @@ export function resolveRestTriggerEffects(
   const rested: DnDSceneEntity = JSON.parse(JSON.stringify(entity));
 
   const sources = buildTriggerSources(
-    (rested.activeEffects ?? []).filter((effect) => !effect.disabled),
+    (rested.activeEffects ?? []).filter((effect) => !isEffectDormant(effect)),
     EFFECT_TRIGGER_SOURCE_KINDS.instance,
     restTriggersOf,
   );

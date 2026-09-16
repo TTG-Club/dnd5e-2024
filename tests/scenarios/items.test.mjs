@@ -292,9 +292,172 @@ describe('каталог: предметы', () => {
     assert.equal(hero.activeEffects[0].duration.remaining, 600);
   });
 
-  it.todo(
-    '[I11] Предмет с зарядами и включением действием («Сапоги скорости», «Брошь щита») — пробел',
-  );
+  it('[I11] Жезл с зарядами: эффект только при применении, заряд тратится', () => {
+    const shield = createEffect('Щит жезла', {
+      activation: { mode: 'use' },
+      changes: [change('armorClass', '5')],
+      duration: { type: 'rounds', value: 1 },
+    });
+
+    assert.match(
+      authoredScenario(shield, 'item'),
+      /^После применения — на применившем/,
+    );
+
+    const wand = wornItem('wand', [shield], {
+      uses: { max: 3, current: 1, recovery: 'dawn' },
+    });
+
+    const worn = statsWithItems([wand]);
+    const bare = statsWithItems([]);
+
+    assert.equal(
+      worn.armorClass,
+      bare.armorClass,
+      'пока жезл не применили, щита нет',
+    );
+
+    assert.equal(engine.canUseItem(wand), true);
+
+    const [spent] = engine.spendItemUse([wand], 'wand');
+
+    assert.equal(spent.uses.current, 0);
+    assert.equal(engine.canUseItem(spent), false, 'заряды кончились');
+
+    const spell = engine.buildItemUseSpell(wand);
+
+    assert.equal(spell.rollSource, 'item');
+    assert.equal(engine.isSpellRoll(spell), false);
+
+    const [applied] = engine.getCasterSpellEffects(spell);
+
+    assert.equal(applied.activation, undefined, 'копия действует сама');
+
+    const hero = createActor({ activeEffects: [applied] });
+
+    assert.equal(
+      engine.resolveActorStats(hero).armorClass,
+      bare.armorClass + 5,
+    );
+  });
+
+  it('[I16] Зелье лечения: расходуемое, лечит при наложении и уходит', () => {
+    const healing = createEffect('Зелье лечения', {
+      activation: { mode: 'use' },
+      triggers: [
+        {
+          id: 'trigger_heal',
+          event: 'applied',
+          actions: [
+            { type: 'damage', parts: [{ formula: '7@heal' }] },
+            { type: 'removeSelf' },
+          ],
+        },
+      ],
+    });
+
+    authoredScenario(healing, 'item');
+
+    const potion = wornItem('potion', [healing], {
+      equipped: false,
+      consumable: true,
+      quantity: 2,
+    });
+
+    assert.equal(engine.canUseItem(potion), true);
+
+    const [[left], gone] = [
+      engine.spendItemUse([potion], 'potion'),
+      engine.spendItemUse([{ ...potion, quantity: 1 }], 'potion'),
+    ];
+
+    assert.equal(left.quantity, 1);
+    assert.deepEqual(gone, [], 'последнее зелье уходит из инвентаря');
+
+    const system = new engine.Dnd5eVttSystem();
+    const hero = withHp(createActor, 3, {}, 20);
+    const drinking = structuredClone(hero);
+
+    drinking.activeEffects = engine.getCasterSpellEffects(
+      engine.buildItemUseSpell(potion),
+    );
+
+    system.settleCombatState(hero, engine.pickCombatState(drinking));
+
+    assert.equal(engine.resolveEntityCurrentHp(hero), 10);
+    assert.deepEqual(hero.activeEffects, [], 'зелье не висит на персонаже');
+  });
+
+  it('[I17] Стрела +1: бонус и эффект в выстрел, стрела тратится', () => {
+    const longbow = {
+      id: 'longbow',
+      name: 'Длинный лук',
+      type: 'weapon',
+      quantity: 1,
+      weaponProperties: ['ammunition', 'heavy', 'two-handed'],
+      ammunitionType: 'arrows',
+      activeEffects: [],
+    };
+
+    const slaying = createEffect('Стрела убийства', {
+      activation: { mode: 'use' },
+      effectTarget: 'target',
+      damageParts: [{ formula: '6d10', type: 'piercing' }],
+    });
+
+    authoredScenario(slaying, 'item');
+
+    const arrows = {
+      id: 'arrows',
+      name: 'Стрелы +1',
+      type: 'equipment',
+      quantity: 2,
+      ammunitionType: 'arrows',
+      isMagical: true,
+      magicBonus: 1,
+      activeEffects: [slaying],
+    };
+
+    assert.equal(engine.tracksWeaponAmmunition([longbow], longbow), false);
+
+    assert.equal(
+      engine.tracksWeaponAmmunition([longbow, arrows], longbow),
+      true,
+    );
+
+    const found = engine.findWeaponAmmunition([longbow, arrows], longbow);
+    const shot = engine.withAmmunition(longbow, found);
+
+    assert.equal(shot.magicBonus, 1);
+    assert.equal(shot.isMagical, true);
+
+    assert.deepEqual(
+      shot.activeEffects.map((effect) => [effect.name, effect.activation]),
+      [['Стрела убийства', undefined]],
+    );
+
+    const [, spent] = engine.spendAmmunition([longbow, arrows], 'arrows');
+
+    assert.equal(spent.quantity, 1);
+
+    assert.equal(
+      engine.findWeaponAmmunition(
+        [longbow, { ...arrows, quantity: 0 }],
+        longbow,
+      ),
+      undefined,
+      'стрелы кончились — стрелять нечем',
+    );
+
+    assert.equal(
+      engine.tracksWeaponAmmunition(
+        [longbow, { ...arrows, quantity: 0 }],
+        longbow,
+      ),
+      true,
+      'учёт остаётся и с пустым колчаном',
+    );
+  });
 });
 
 describe('каталог: оружие', () => {

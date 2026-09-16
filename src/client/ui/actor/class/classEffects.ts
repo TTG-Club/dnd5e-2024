@@ -5,7 +5,10 @@ import type {
   SubclassDefinition,
 } from '@vtt/shared/system/dnd.js';
 
-import { buildClassEffectId } from '@vtt/shared/system/dnd.js';
+import {
+  buildClassEffectId,
+  withActivationDefaults,
+} from '@vtt/shared/system/dnd.js';
 
 /**
  * Эффекты, заявленные классом, подклассом и их умениями в компендиуме.
@@ -132,7 +135,7 @@ function withClassProvenance(
   classKey: string,
 ): ActiveEffect[] {
   return (effects ?? []).map((effect) => ({
-    ...effect,
+    ...withActivationDefaults(effect),
     id: buildClassEffectId(classKey, effect.id),
     origin: 'feature' as const,
     originId: classKey,

@@ -252,7 +252,7 @@ describe('раскладка окна эффекта', () => {
       conditionKey: 'prone',
     });
 
-    assert.deepEqual(layout.deliveryOptions, ['target']);
+    assert.deepEqual(layout.deliveryOptions, ['target', 'carrier']);
     assert.equal(layout.minSaveDc, 0);
     assert.equal(layout.successOutcomeForActionSave, true);
 
@@ -478,11 +478,19 @@ describe('неработающие поля', () => {
     }
   });
 
-  it('эффект действия существа «на носителе» уходит на цель', () => {
+  it('эффект действия существа «на носителе» ложится на само существо', () => {
     const effect = createEffect({ effectTarget: 'self' });
     const layout = engine.resolveEffectFormLayout('creatureAction', effect);
 
-    assert.equal(layout.delivery, 'target');
+    assert.equal(layout.delivery, 'carrier');
+    assert.deepEqual(engine.listInertEffectFields(effect, layout), []);
+    assert.equal(layout.showDuration, true, 'копия живёт на существе');
+    assert.equal(layout.showLandingCondition, true);
+  });
+
+  it('эффект действия существа «в зоне» не работает', () => {
+    const effect = createEffect({ effectTarget: 'zone' });
+    const layout = engine.resolveEffectFormLayout('creatureAction', effect);
 
     assert.deepEqual(engine.listInertEffectFields(effect, layout), [
       'effectTarget',
@@ -561,13 +569,155 @@ describe('шаги окна', () => {
     );
   });
 
-  it('действие существа: выбирать доставку не из чего', () => {
+  it('действие существа: доставка на цель или на себя', () => {
     assert.deepEqual(
       engine.listEffectFormSteps(
         layoutOf('creatureAction', { effectTarget: 'target' }),
       ),
-      ['save', 'damage', 'modifiers', 'duration', 'triggers'],
+      ['trigger', 'save', 'damage', 'modifiers', 'duration', 'triggers'],
     );
+  });
+
+  it('условие наложения и вариант держат шаг «Когда срабатывает»', () => {
+    assert.deepEqual(
+      engine.listEffectFormSteps(layoutOf('condition')),
+      ['modifiers'],
+      'у записи состояния шага нет',
+    );
+
+    const layout = engine.resolveEffectFormLayout('spell', {
+      ...createEffect({ effectTarget: 'target' }),
+    });
+
+    assert.equal(layout.showVariant, true);
+    assert.ok(engine.listEffectFormSteps(layout).includes('trigger'));
+  });
+});
+
+describe('применение и включение', () => {
+  it('способы по месту окна: предмет применяют, умение ещё и включают', () => {
+    assert.deepEqual(layoutOf('item').activationModes, ['use']);
+    assert.deepEqual(layoutOf('feature').activationModes, ['use', 'toggle']);
+    assert.deepEqual(layoutOf('ownEffects').activationModes, ['use', 'toggle']);
+    assert.deepEqual(layoutOf('spell').activationModes, []);
+    assert.deepEqual(layoutOf('creatureTrait').activationModes, []);
+  });
+
+  it('применяемый предмет: цель, копия живёт сама и слышит «при наложении»', () => {
+    const potion = createEffect({ activation: { mode: 'use' } });
+    const layout = engine.resolveEffectFormLayout('item', potion);
+
+    assert.deepEqual(layout.deliveryOptions, ['carrier', 'target', 'aura']);
+    assert.equal(layout.showDuration, true);
+    assert.equal(layout.showVariant, true);
+    assert.equal(layout.showLandingCondition, true);
+    assert.equal(layout.showActivationCounter, false, 'предмет тратит заряды');
+    assert.ok(layout.triggerEvents.includes('applied'));
+    assert.ok(layout.triggerActions.includes('removeSelf'));
+
+    const onTarget = { ...potion, effectTarget: 'target' };
+
+    assert.deepEqual(
+      engine.listInertEffectFields(
+        onTarget,
+        engine.resolveEffectFormLayout('item', onTarget),
+      ),
+      [],
+    );
+
+    const worn = createEffect({ effectTarget: 'target' });
+
+    assert.deepEqual(
+      engine.listInertEffectFields(
+        worn,
+        engine.resolveEffectFormLayout('item', worn),
+      ),
+      ['effectTarget'],
+      'надетый предмет цели ничего не накладывает',
+    );
+  });
+
+  it('переключаемое умение: ресурс и событие «При включении»', () => {
+    const rage = createEffect({
+      activation: { mode: 'toggle', counter: 'rage' },
+    });
+
+    const layout = engine.resolveEffectFormLayout('feature', rage);
+
+    assert.equal(layout.showActivationCounter, true);
+    assert.equal(layout.showDuration, true);
+    assert.ok(layout.triggerEvents.includes('activate'));
+    assert.equal(layout.minSaveDc, 1, 'у своего эффекта Сл источника нет');
+  });
+
+  it('применяемое умение на цели бросает против Сл применившего', () => {
+    const turn = createEffect({
+      effectTarget: 'target',
+      activation: { mode: 'use', counter: 'channelDivinity' },
+    });
+
+    const layout = engine.resolveEffectFormLayout('feature', turn);
+
+    assert.equal(layout.delivery, 'target');
+    assert.equal(layout.minSaveDc, 0);
+    assert.equal(layout.showSave, true);
+  });
+
+  it('применение не для этого места — неработающее поле', () => {
+    const toggled = createEffect({ activation: { mode: 'toggle' } });
+    const layout = engine.resolveEffectFormLayout('item', toggled);
+
+    assert.deepEqual(engine.listInertEffectFields(toggled, layout), [
+      'activation',
+    ]);
+
+    assert.equal(
+      engine.clearInertEffectFields(toggled, ['activation'], 'item').activation,
+      undefined,
+    );
+  });
+
+  it('черновик: пустой ресурс не пишется, расход — только с ресурсом', () => {
+    const layout = layoutOf('feature');
+
+    const normalize = (activation) =>
+      engine.normalizeEffectDraft(createEffect({ activation }), layout)
+        .activation;
+
+    assert.deepEqual(normalize({ mode: 'use', counter: '  ', amount: 3 }), {
+      mode: 'use',
+      counter: undefined,
+      amount: undefined,
+    });
+
+    assert.deepEqual(
+      normalize({ mode: 'toggle', counter: 'ki', amount: '2' }),
+      {
+        mode: 'toggle',
+        counter: 'ki',
+        amount: 2,
+      },
+    );
+
+    assert.equal(normalize(undefined), undefined);
+  });
+
+  it('схема записи: неизвестный способ отбрасывает только применение', () => {
+    const [parsed] = engine.ActiveEffectsArraySchema.parse([
+      createEffect({ activation: { mode: 'charge' } }),
+    ]);
+
+    assert.equal(parsed.activation, undefined);
+
+    const [kept] = engine.ActiveEffectsArraySchema.parse([
+      createEffect({ activation: { mode: 'use', counter: 'ki', amount: 2 } }),
+    ]);
+
+    assert.deepEqual(kept.activation, {
+      mode: 'use',
+      counter: 'ki',
+      amount: 2,
+    });
   });
 });
 
