@@ -15,6 +15,8 @@
 
   import {
     describeConditionName,
+    describeEffectChangeCondition,
+    EFFECT_CONDITION_SUGGESTIONS,
     listSelectableConditions,
   } from '@vtt/shared/system/dnd.js';
 
@@ -37,6 +39,42 @@
       ? describeConditionName(effect.value.conditionKey)
       : '',
   );
+
+  /** Значение выбора «Действует» без условия броска */
+  const ROLL_CONDITION_ALWAYS = 'always';
+
+  // Условие из записи, которого нет в словаре подсказок (составное), тоже
+  // видно в списке — иначе поле выглядело бы пустым
+  const rollConditionOptions = computed(() => {
+    const current = effect.value.rollCondition;
+
+    const known =
+      current === undefined
+      || EFFECT_CONDITION_SUGGESTIONS.some(
+        (suggestion) => suggestion.value === current,
+      );
+
+    return [
+      {
+        value: ROLL_CONDITION_ALWAYS,
+        label: EFFECT_MODIFIERS_STEP_LABELS.rollConditionAlways,
+      },
+      ...(known
+        ? []
+        : [{ value: current, label: describeEffectChangeCondition(current) }]),
+      ...EFFECT_CONDITION_SUGGESTIONS,
+    ];
+  });
+
+  const rollCondition = computed({
+    get: () => effect.value.rollCondition ?? ROLL_CONDITION_ALWAYS,
+    set: (value: string) => {
+      effect.value = {
+        ...effect.value,
+        rollCondition: value === ROLL_CONDITION_ALWAYS ? undefined : value,
+      };
+    },
+  });
 
   const changes = computed({
     get: () => effect.value.changes,
@@ -107,6 +145,23 @@
       :title="EFFECT_MODIFIERS_STEP_LABELS.conditionRemoveHint"
       @click.left.exact.prevent="removeCondition"
     />
+  </div>
+
+  <div class="flex flex-col gap-1.5">
+    <UFormField :label="EFFECT_MODIFIERS_STEP_LABELS.rollConditionTitle">
+      <USelectMenu
+        v-model="rollCondition"
+        :items="rollConditionOptions"
+        value-key="value"
+        label-key="label"
+        class="w-full"
+        :portal="false"
+      />
+    </UFormField>
+
+    <p class="text-xs text-muted">
+      {{ EFFECT_MODIFIERS_STEP_LABELS.rollConditionHint }}
+    </p>
   </div>
 
   <EffectChangeRows

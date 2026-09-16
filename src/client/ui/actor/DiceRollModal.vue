@@ -3,6 +3,7 @@
   import type {
     AttackRollMode,
     DamageHitDetails,
+    DndIncomingAttackContext,
     IncomingAttackContext,
     RollContext,
   } from '@vtt/shared/system/dnd.js';
@@ -32,7 +33,9 @@
     getNaturalD20Roll,
     getShortDamageTypeLabel,
     isDamageType,
+    isDndSceneEntity,
     performTwoStageAttack,
+    resolveEntityCreatureType,
     scaleDamageFormula,
   } from '@vtt/shared/system/dnd.js';
 
@@ -41,6 +44,7 @@
     dispatchAttackRollTriggers,
     reportAttackRoll,
   } from '../../composables/useEffectTriggerEvents';
+  import { useWorldEntities } from '../../composables/useWorldEntities';
   import {
     DICE_ROLL_DEFAULT_BUTTON,
     DICE_ROLL_LABELS,
@@ -330,9 +334,20 @@
 
   /** AC цели с учётом типа входящей атаки. Реактивен к смене цели, пока модалка открыта */
   const targetAc = computed(() => {
-    const attackContext: IncomingAttackContext | undefined =
+    const attacker = props.attackerId
+      ? useWorldEntities().findCurrentWorldEntity(props.attackerId)
+      : undefined;
+
+    // Ядро передаёт контекст системе как есть: тип атакующего едет в нём
+    const attackContext: DndIncomingAttackContext | undefined =
       props.incomingAttackType
-        ? { attackType: props.incomingAttackType }
+        ? {
+            attackType: props.incomingAttackType,
+            attackerCreatureType:
+              attacker && isDndSceneEntity(attacker)
+                ? resolveEntityCreatureType(attacker)
+                : undefined,
+          }
         : undefined;
 
     return targetStore.getTargetAc(attackContext);

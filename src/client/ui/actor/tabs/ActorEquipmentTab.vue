@@ -413,7 +413,10 @@
         hasDisadvantage: boolean;
       }) => {
         // HP цели читается в момент броска — для условий target.hp.* («Убийца»)
-        const rollContext = { ...context, target: buildTargetHpContext() };
+        const rollContext = {
+          ...context,
+          target: buildTargetHpContext(undefined, props.entity.id),
+        };
 
         // Условный бонус может быть формулой (`@prof`, `@mod.dex`) — без
         // контекста @-переменных она дала бы ноль

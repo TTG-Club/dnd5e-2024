@@ -64,15 +64,25 @@ const bundle = await build({
     {
       name: 'saving-throw-host-fixture',
       setup(builder) {
-        builder.onResolve({ filter: /^\.\/useBonusDamageParts$/ }, (request) =>
-          request.importer.endsWith('rollBonusEvaluator.ts')
-            ? { path: 'target-context', namespace: 'target-fixture' }
-            : null,
+        builder.onResolve(
+          {
+            filter:
+              /^\.\/(?:useBonusDamageParts|incomingAttack|targetAllyAdjacent)$/,
+          },
+          (request) =>
+            request.importer.endsWith('rollBonusEvaluator.ts')
+              ? { path: request.path, namespace: 'target-fixture' }
+              : null,
         );
 
         builder.onLoad({ filter: /.*/, namespace: 'target-fixture' }, () => ({
-          contents:
+          // Цели у спасброска нет: контекст цели, её защиты и союзники пусты
+          contents: [
             'export const useBonusDamageParts = () => ({ buildTargetHpContext: () => undefined });',
+            'export const resolveAttackTypeOfKeys = () => undefined;',
+            'export const collectDefenderRollFormulas = () => [];',
+            'export const isAllyAdjacentToTarget = () => false;',
+          ].join('\n'),
         }));
 
         builder.onResolve({ filter: /^test:host$/ }, () => ({

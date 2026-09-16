@@ -541,7 +541,7 @@ export function registerDnd5eMacros(): void {
             // HP цели читается в момент броска — для условий target.hp.*
             const rollContext = {
               ...modalContext,
-              target: buildTargetHpContext(),
+              target: buildTargetHpContext(undefined, foundActor.id),
             };
 
             // Условный бонус может быть формулой (`@prof`, `@mod.dex`) — без

@@ -15,6 +15,11 @@ import {
   isDndSceneEntity,
 } from '@vtt/shared/system/dnd.js';
 
+import {
+  collectDefenderRollFormulas,
+  resolveAttackTypeOfKeys,
+} from './incomingAttack';
+import { isAllyAdjacentToTarget } from './targetAllyAdjacent';
 import { useBonusDamageParts } from './useBonusDamageParts';
 import { useResolvedStats } from './useResolvedStats';
 import { useWorldEntities } from './useWorldEntities';
@@ -23,8 +28,32 @@ import { useWorldEntities } from './useWorldEntities';
 export type RollBonusEvaluator = (context: RollContext) => string[];
 
 /**
+ * Цель, переданная явно (цель серии снарядов), с «союзником рядом» от
+ * бросающего: без бросающего его не посчитать.
+ *
+ * @param target - цель из контекста
+ * @param attackerId - бросающий
+ * @returns цель для условий
+ */
+function withAllyAdjacent(
+  target: RollContext['target'],
+  attackerId: string,
+): RollContext['target'] {
+  if (!target?.entityId || target.allyAdjacent !== undefined) {
+    return target;
+  }
+
+  return {
+    ...target,
+    allyAdjacent: isAllyAdjacentToTarget(attackerId, target.entityId),
+  };
+}
+
+/**
  * Создаёт сборщик актуальных бонусных костей для окна атаки или спасброска.
  * Читает носителя и ауры при броске, чтобы снятый после открытия окна эффект не сработал.
+ * У атаки к своим прибавкам добавляются прибавки от эффектов цели («Атаки по
+ * носителю»).
  * @param getEntity - текущая сущность, выполняющая бросок
  * @param targetKeys - ключ бонуса атаки, спасброска или проверки; у спасброска
  *   концентрации их два
@@ -35,6 +64,7 @@ export function buildRollBonusEvaluator(
   targetKeys: EffectTargetKey | readonly EffectTargetKey[],
 ): RollBonusEvaluator {
   const keys = typeof targetKeys === 'string' ? [targetKeys] : targetKeys;
+  const attackType = resolveAttackTypeOfKeys(keys);
   const { combinedEffects } = useResolvedStats(computed(getEntity));
   const { buildTargetHpContext } = useBonusDamageParts();
 
@@ -48,13 +78,17 @@ export function buildRollBonusEvaluator(
     const rollContext = {
       ...context,
       // Явно переданная неизвестная цель не заменяется отдельно выбранным токеном.
-      target: 'target' in context ? context.target : buildTargetHpContext(),
+      target:
+        'target' in context
+          ? withAllyAdjacent(context.target, entity.id)
+          : buildTargetHpContext(undefined, entity.id),
       self: buildCarrierContext(entity),
     };
 
     const formulaContext = buildFormulaContext(entity);
+    const targetEntityId = rollContext.target?.entityId;
 
-    return keys.flatMap((targetKey) =>
+    const own = keys.flatMap((targetKey) =>
       collectBonusRollFormulas(
         combinedEffects.value,
         targetKey,
@@ -62,6 +96,13 @@ export function buildRollBonusEvaluator(
         formulaContext,
       ),
     );
+
+    return attackType && targetEntityId
+      ? [
+          ...own,
+          ...collectDefenderRollFormulas(entity, targetEntityId, attackType),
+        ]
+      : own;
   };
 }
 

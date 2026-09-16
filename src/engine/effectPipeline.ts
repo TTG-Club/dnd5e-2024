@@ -46,14 +46,17 @@ import { isCreatureEntity, isRecord } from '@vtt/shared';
 
 import {
   ABILITY_CHECK_KEY,
+  ATTACKS_AGAINST_KEY,
   CARRIER_ARMOR_CONDITION_PREFIX,
   CARRIER_TYPE_CONDITION_PREFIX,
   CONCENTRATION_SAVE_KEY,
   DEFAULT_CRIT_THRESHOLD,
+  INCOMING_ATTACKER_TYPE_CONDITION_PREFIX,
   isCarrierEffect,
   isEffectDormant,
   isSenseType,
   splitConditionParts,
+  TARGET_ALLY_ADJACENT_CONDITION,
   TARGET_TYPE_CONDITION_PREFIX,
 } from './activeEffectTypes.js';
 import {
@@ -662,6 +665,13 @@ export interface RollContext {
     creatureType?: CreatureCategory;
     /** Кто пометил цель (`mark.bySource`) — для условия `target.markedBySelf` */
     markedBy?: readonly string[];
+    /** Сущность цели — защитные эффекты цели в броске атаки */
+    entityId?: string;
+    /**
+     * Рядом с целью (5 фт) дееспособный союзник бросающего — для условия
+     * `target.allyAdjacent`. Считает клиент по фишкам сцены
+     */
+    allyAdjacent?: boolean;
   };
   /**
    * Свойства НОСИТЕЛЯ эффекта — для условий семейства `self.*`.
@@ -704,6 +714,21 @@ export function buildCarrierContext(carrier: DnDSceneEntity): CarrierContext {
 
 // Тип `IncomingAttackContext` вынесен в нейтральный контракт
 // (`../contracts/combat`) и реэкспортится выше.
+
+/**
+ * Входящая атака в D&D-форме: ядро передаёт контекст системе как есть, и
+ * клиент системы кладёт в него тип атакующего.
+ */
+export interface DndIncomingAttackContext extends IncomingAttackContext {
+  /** Тип атакующего — для `incoming.attackerCreatureType === "…"` */
+  attackerCreatureType?: CreatureCategory;
+}
+
+/** Бросок без преимущества и помехи — для условий, где броска ещё нет */
+const NEUTRAL_ROLL_CONTEXT: RollContext = {
+  hasAdvantage: false,
+  hasDisadvantage: false,
+};
 
 /** Условие строки «цель помечена мной» (Метка охотника, Сглаз) */
 export const MARKED_BY_SELF_CONDITION = 'target.markedBySelf';
@@ -983,6 +1008,11 @@ export function evaluateConditionPart(
   // Условия по состоянию HP цели
   const { target } = rollContext;
 
+  // Рядом с целью союзник бросающего
+  if (trimmed === TARGET_ALLY_ADJACENT_CONDITION) {
+    return target?.allyAdjacent === true;
+  }
+
   // Метка: цель помечена тем, кто сейчас бросает
   if (trimmed === MARKED_BY_SELF_CONDITION) {
     const selfId = rollContext.self?.entityId;
@@ -1047,10 +1077,29 @@ function targetTypeGateForCondition(
  */
 function evaluateDefensiveCondition(
   condition: string,
-  attackContext: IncomingAttackContext,
+  attackContext: DndIncomingAttackContext,
 ): boolean {
-  const trimmed = condition.trim();
+  const parts = splitConditionParts(condition);
 
+  return (
+    parts.length > 0
+    && parts.every((part) =>
+      evaluateDefensiveConditionPart(part, attackContext),
+    )
+  );
+}
+
+/**
+ * Одна часть защитного условия: вид входящей атаки или тип атакующего.
+ *
+ * @param trimmed - часть условия
+ * @param attackContext - контекст входящей атаки
+ * @returns true если часть выполняется
+ */
+function evaluateDefensiveConditionPart(
+  trimmed: string,
+  attackContext: DndIncomingAttackContext,
+): boolean {
   if (trimmed === 'incoming.attackType === "ranged"') {
     return attackContext.attackType === 'ranged';
   }
@@ -1063,7 +1112,161 @@ function evaluateDefensiveCondition(
     return attackContext.attackType === 'spell';
   }
 
-  return false;
+  const attackerType = parseTypeCondition(
+    trimmed,
+    INCOMING_ATTACKER_TYPE_CONDITION_PREFIX,
+  );
+
+  return (
+    attackerType !== undefined
+    && attackerType === attackContext.attackerCreatureType
+  );
+}
+
+/**
+ * Действует ли эффект только в бросках: у него условие броска не о носителе.
+ *
+ * @param effect - эффект
+ * @returns `true`, если эффекта нет в числах листа
+ */
+export function isRollOnlyEffect(
+  effect: Pick<ActiveEffect, 'rollCondition'>,
+): boolean {
+  return (
+    effect.rollCondition !== undefined
+    && !isCarrierCondition(effect.rollCondition)
+  );
+}
+
+/**
+ * Входит ли эффект в числа листа: без условия броска либо с условием о
+ * носителе, которое выполнено.
+ *
+ * @param effect - эффект
+ * @param carrier - свойства носителя
+ * @returns `true`, если эффект считается на листе
+ */
+function effectAppliesOnSheet(
+  effect: ActiveEffect,
+  carrier: CarrierContext | undefined,
+): boolean {
+  return (
+    effect.rollCondition === undefined
+    || (!isRollOnlyEffect(effect)
+      && carrierConditionMatches(effect.rollCondition, carrier))
+  );
+}
+
+/**
+ * Выполнено ли условие броска эффекта в этом броске. Эффект без условия —
+ * всегда.
+ *
+ * @param effect - эффект
+ * @param rollContext - контекст броска
+ * @returns `true`, если эффект действует в броске
+ */
+function rollConditionHolds(
+  effect: ActiveEffect,
+  rollContext: RollContext,
+): boolean {
+  return (
+    effect.rollCondition === undefined
+    || evaluateCondition(effect.rollCondition, rollContext)
+  );
+}
+
+/**
+ * Защитные эффекты, действующие против этой атаки: без условия броска либо с
+ * выполненным условием входящей атаки.
+ *
+ * @param effects - эффекты защитника
+ * @param attackContext - входящая атака
+ * @returns действующие эффекты
+ */
+function listIncomingAttackEffects(
+  effects: readonly ActiveEffect[],
+  attackContext: DndIncomingAttackContext,
+): ActiveEffect[] {
+  return effects.filter(
+    (effect) =>
+      !isEffectDormant(effect)
+      && (effect.rollCondition === undefined
+        || evaluateDefensiveCondition(effect.rollCondition, attackContext)),
+  );
+}
+
+/**
+ * Флаги эффектов «только в бросках», чьё условие выполнено в этом броске:
+ * «Тактика стаи» даёт преимущество, пока рядом с целью союзник.
+ *
+ * @param effects - эффекты бросающего
+ * @param rollContext - контекст броска
+ * @returns флаги
+ */
+export function collectRollConditionFlags(
+  effects: readonly ActiveEffect[],
+  rollContext: RollContext,
+): string[] {
+  return effects.flatMap((effect) =>
+    !isEffectDormant(effect)
+    && isRollOnlyEffect(effect)
+    && rollConditionHolds(effect, rollContext)
+      ? effect.flags
+      : [],
+  );
+}
+
+/**
+ * Флаги защитника, которые включает входящая атака: «Защита от добра и зла»
+ * даёт помеху атакам исчадий.
+ *
+ * @param effects - эффекты защитника
+ * @param attackContext - входящая атака
+ * @returns флаги
+ */
+export function collectIncomingAttackFlags(
+  effects: readonly ActiveEffect[],
+  attackContext: DndIncomingAttackContext,
+): string[] {
+  return listIncomingAttackEffects(effects, attackContext).flatMap((effect) =>
+    isRollOnlyEffect(effect) ? effect.flags : [],
+  );
+}
+
+/**
+ * Прибавки атакующему от защитника («Атаки по носителю»): формулы для
+ * добавления к d20 атакующего.
+ *
+ * @param effects - эффекты защитника
+ * @param attackContext - входящая атака
+ * @param formulaContext - переменные защитника
+ * @returns формулы
+ */
+export function collectIncomingAttackRollFormulas(
+  effects: readonly ActiveEffect[],
+  attackContext: DndIncomingAttackContext,
+  formulaContext?: FormulaContext,
+): string[] {
+  const applicable = listIncomingAttackEffects(effects, attackContext).map(
+    (effect) => ({
+      ...effect,
+      rollCondition: undefined,
+      changes: effect.changes.flatMap((change) =>
+        change.key === ATTACKS_AGAINST_KEY
+        && (!change.condition
+          || evaluateDefensiveCondition(change.condition, attackContext))
+          ? [{ ...change, condition: undefined }]
+          : [],
+      ),
+    }),
+  );
+
+  return collectBonusRollFormulas(
+    applicable,
+    ATTACKS_AGAINST_KEY,
+    NEUTRAL_ROLL_CONTEXT,
+    formulaContext,
+  );
 }
 
 /**
@@ -1079,22 +1282,25 @@ function evaluateDefensiveCondition(
  */
 export function evaluateDefensiveACBonus(
   effects: readonly ActiveEffect[],
-  attackContext: IncomingAttackContext,
+  attackContext: DndIncomingAttackContext,
   formulaContext?: FormulaContext,
 ): number {
   let bonus = 0;
 
-  for (const effect of effects) {
-    if (isEffectDormant(effect)) {
-      continue;
-    }
+  for (const effect of listIncomingAttackEffects(effects, attackContext)) {
+    // Эффект «только в бросках» в КД листа не вошёл: его безусловные строки
+    // считаются здесь, против этой атаки
+    const rollOnly = isRollOnlyEffect(effect);
 
     for (const change of effect.changes) {
-      if (change.key !== 'armorClass' || !change.condition) {
+      if (change.key !== 'armorClass' || (!change.condition && !rollOnly)) {
         continue;
       }
 
-      if (evaluateDefensiveCondition(change.condition, attackContext)) {
+      if (
+        !change.condition
+        || evaluateDefensiveCondition(change.condition, attackContext)
+      ) {
         bonus += resolveConditionalValue(change.value, formulaContext);
       }
     }
@@ -1151,22 +1357,31 @@ export function evaluateConditionalBonuses(
   let bonus = 0;
 
   for (const effect of effects) {
-    if (isEffectDormant(effect)) {
+    if (isEffectDormant(effect) || !rollConditionHolds(effect, rollContext)) {
       continue;
     }
 
+    // Эффекта «только в бросках» нет в статах: его строки считаются здесь все
+    const rollOnly = isRollOnlyEffect(effect);
+
     for (const change of effect.changes) {
       if (
-        !change.condition
+        (!change.condition && !rollOnly)
         || change.key !== targetKey
         || isDiceFormulaValue(change.value)
       ) {
         continue;
       }
 
+      if (!change.condition) {
+        bonus += resolveConditionalValue(change.value, formulaContext);
+
+        continue;
+      }
+
       // Условие носителя уже посчитано на листе (фазы 2 и 3), и его вклад сидит
       // в итоговых статах. Прибавить его здесь значило бы учесть бонус дважды
-      if (isCarrierCondition(change.condition)) {
+      if (isCarrierCondition(change.condition) && !rollOnly) {
         continue;
       }
 
@@ -1181,6 +1396,11 @@ export function evaluateConditionalBonuses(
 
 /** Определяет бонусы, которые нельзя вычислять как постоянное число листа. */
 function isRollTimeDiceChange(change: EffectChange): boolean {
+  // Прибавка атакующему — не число листа носителя вовсе
+  if (change.key === ATTACKS_AGAINST_KEY) {
+    return true;
+  }
+
   return (
     isDiceFormulaValue(change.value)
     && (change.key.startsWith('damage.')
@@ -1249,10 +1469,13 @@ export function collectBonusRollFormulas(
   rollContext: RollContext,
   formulaContext?: FormulaContext,
 ): string[] {
+  const acceptsFlat = targetKey === ATTACKS_AGAINST_KEY;
+
   if (
     !targetKey.startsWith('attack.')
     && !targetKey.startsWith('save.')
     && targetKey !== ABILITY_CHECK_KEY
+    && !acceptsFlat
   ) {
     return [];
   }
@@ -1262,15 +1485,19 @@ export function collectBonusRollFormulas(
   let totalDiceCount = 0;
 
   for (const effect of effects) {
-    if (isEffectDormant(effect)) {
+    if (isEffectDormant(effect) || !rollConditionHolds(effect, rollContext)) {
       continue;
     }
+
+    // Плоские числа эффекта «только в бросках» в статы не вошли — они едут
+    // формулой, как кости
+    const flatAllowed = acceptsFlat || isRollOnlyEffect(effect);
 
     for (const change of effect.changes) {
       if (
         change.key !== targetKey
         || change.mode !== 'add'
-        || !isDiceFormulaValue(change.value)
+        || (!flatAllowed && !isDiceFormulaValue(change.value))
         || (change.condition
           && !evaluateCondition(change.condition, rollContext))
       ) {
@@ -1405,7 +1632,7 @@ export function collectBonusDamageFormulas(
   const formulas: BonusDamageFormula[] = [];
 
   for (const effect of effects) {
-    if (isEffectDormant(effect)) {
+    if (isEffectDormant(effect) || !rollConditionHolds(effect, rollContext)) {
       continue;
     }
 
@@ -1507,7 +1734,7 @@ function applyChange(
  * @param formulaContext - контекст @-переменных
  * @returns числовое значение либо `undefined`, если значение не разбирается
  */
-function resolveChangeValue(
+export function resolveChangeValue(
   value: string,
   formulaContext: FormulaContext,
 ): number | undefined {
@@ -2493,10 +2720,15 @@ export function resolveActorStats(
   // и такие условия считаются здесь, а не при броске
   const carrier = buildCarrierContext(actor);
 
+  // Эффекты «только в бросках» в числа листа не входят
+  const sheetEffects = activeEffects.filter((effect) =>
+    effectAppliesOnSheet(effect, carrier),
+  );
+
   // Фаза 2: применение эффектов к базовым значениям
   const modifiedStats = applyActiveEffects(
     baseStats,
-    activeEffects,
+    sheetEffects,
     formulaContext,
     carrier,
   );
@@ -2506,7 +2738,7 @@ export function resolveActorStats(
   return prepareDerivedData(
     modifiedStats,
     actor,
-    collectDerivedChanges(activeEffects, carrier),
+    collectDerivedChanges(sheetEffects, carrier),
     formulaContext,
   );
 }

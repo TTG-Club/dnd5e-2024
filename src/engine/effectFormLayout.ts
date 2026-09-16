@@ -1481,6 +1481,7 @@ export function normalizeEffectDraft(
     ...effect,
     name: effect.name.trim(),
     landingCondition: landingCondition || undefined,
+    rollCondition: effect.rollCondition?.trim() || undefined,
     activation: normalizeDraftActivation(effect.activation),
     variant:
       effect.variant && variantGroup && variantLabel
@@ -1503,6 +1504,8 @@ export function normalizeEffectDraft(
       ? {
           ...effect.aura,
           radius: Math.max(0, parseFormNumber(effect.aura.radius) ?? 0),
+          radiusFormula: effect.aura.radiusFormula?.trim() || undefined,
+          whileCapable: effect.aura.whileCapable || undefined,
         }
       : undefined,
     applySave: effect.applySave

@@ -573,6 +573,27 @@ targetIds, rollMode }` (`reportAttackRoll`), система проверяет, 
 бросок (`withAmmunition`), сам он тратится, когда бросок пошёл (`beforeRoll`
 окна броска). Без такого предмета оружие стреляет как раньше.
 
+**Условие броска** (`rollCondition`). Эффект с условием не о носителе не входит
+в числа листа (`effectAppliesOnSheet` в `resolveActorStats`) и работает только в
+бросках, где условие выполнено (`isRollOnlyEffect`, `rollConditionHolds`): его
+флаги — `collectRollConditionFlags`, числа и кости — в `evaluateConditionalBonuses`,
+`collectBonusRollFormulas`, `collectBonusDamageFormulas`. У атакующего условие из
+словаря броска: `target.allyAdjacent` («Тактика стаи») считает клиент по фишкам
+сцены (`composables/targetAllyAdjacent.ts`: фишка того же отношения, в 5 фт от
+цели, дееспособная). У защитника — словарь входящей атаки: вид атаки и
+`incoming.attackerCreatureType === "…"` («Защита от добра и зла»); флаги —
+`collectIncomingAttackFlags`, КД — `evaluateDefensiveACBonus` (тип атакующего
+кладёт окно броска в контекст атаки, ядро передаёт его как есть). Ключ
+`attacksAgainst` — прибавка атакующему (`-1d4` у «Защиты от клинков»):
+`collectIncomingAttackRollFormulas`, в бросок её добавляет
+`buildRollBonusEvaluator` через `composables/incomingAttack.ts`. Все пути атаки
+получают это через `resolveTargetedAttackRollMode`.
+
+**Аура** (`DndEffectAura`): `radiusFormula` считается от носителя при сборе аур
+(`shapeEntityAuras` в `collectAllAuraEffects`, уровень класса подставлен),
+`whileCapable` гасит ауру недееспособного носителя. Хост рисует и считает ауры
+через `collectAuraEffects` системы — и то и другое работает без ядра.
+
 **Действие существа на себя.** Эффект действия «на существе» ложится на само
 существо: у действия без броска — сразу, с броском — после разбора урона
 (`applyActionSelfEffects`).

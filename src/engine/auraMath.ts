@@ -19,7 +19,11 @@ import { isCreatureEntity } from '@vtt/shared';
 
 import { isCarrierEffect, isEffectDormant } from './activeEffectTypes.js';
 import { bindClassLevels } from './classEffectScope.js';
-import { itemEffectsActive } from './effectPipeline.js';
+import {
+  itemEffectsActive,
+  resolveActorStats,
+  resolveChangeValue,
+} from './effectPipeline.js';
 import { hasPresenceTriggers } from './effectTriggers.js';
 import { buildFormulaContext } from './formulaParser.js';
 import {
@@ -137,17 +141,72 @@ export function collectAllAuraEffects(entity: DnDSceneEntity): ActiveEffect[] {
   // уровень того, кто её излучает, а не того, кто в неё попал
   const classBound = bindClassLevels(allEffects, entity);
 
-  if (!classBound.some(effectUsesSourceFormulas)) {
-    return [...classBound];
+  const shaped = shapeEntityAuras(classBound, entity);
+
+  if (!shaped.some(effectUsesSourceFormulas)) {
+    return shaped;
   }
 
   // Так же и прочие числа источника: «Аура защиты» даёт союзникам модификатор
   // Харизмы паладина, а пайплайн получателя прочёл бы в `@mod.cha` свою
   const sourceContext = buildFormulaContext(entity);
 
-  return classBound.map((effect) =>
+  return shaped.map((effect) =>
     bindSourceEffectFormulas(effect, sourceContext),
   );
+}
+
+/** Флаг недееспособности носителя */
+const INCAPACITATED_FLAG = 'incapacitated';
+
+/**
+ * Ауры носителя в той форме, в какой они действуют сейчас: радиус формулой
+ * посчитан от носителя (уровень класса уже подставлен), аура «пока
+ * дееспособен» у недееспособного погашена.
+ *
+ * @param auras - ауры носителя
+ * @param entity - носитель
+ * @returns действующие ауры
+ */
+function shapeEntityAuras(
+  auras: readonly ActiveEffect[],
+  entity: DnDSceneEntity,
+): ActiveEffect[] {
+  const needsStats = auras.some((effect) => effect.aura?.whileCapable);
+
+  const incapacitated =
+    needsStats && resolveActorStats(entity).activeFlags.has(INCAPACITATED_FLAG);
+
+  const needsFormulas = auras.some((effect) => effect.aura?.radiusFormula);
+  const formulaContext = needsFormulas ? buildFormulaContext(entity) : null;
+
+  return auras.flatMap((effect) => {
+    const { aura } = effect;
+
+    if (!aura) {
+      return [effect];
+    }
+
+    if (aura.whileCapable && incapacitated) {
+      return [];
+    }
+
+    if (!aura.radiusFormula || !formulaContext) {
+      return [effect];
+    }
+
+    const radius = resolveChangeValue(aura.radiusFormula, formulaContext);
+
+    return [
+      {
+        ...effect,
+        aura: {
+          ...aura,
+          radius: radius === undefined ? aura.radius : Math.max(0, radius),
+        },
+      },
+    ];
+  });
 }
 
 /**

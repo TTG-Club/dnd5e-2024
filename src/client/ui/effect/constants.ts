@@ -182,6 +182,10 @@ export const EFFECT_AURA_LABELS = {
   targetAll: 'Всех существ',
   applyToSelf: 'Действует и на носителя',
   visible: 'Круг на сцене',
+  radiusFormula: 'Радиус формулой',
+  radiusFormulaPlaceholder: '10 + 20 * floor(@classLevel / 18)',
+  radiusFormulaHint: 'Считается от носителя и заменяет число радиуса',
+  whileCapable: 'Гаснет, пока носитель недееспособен',
 } as const;
 
 /** Приставка ключей модификаторов урона: у них значение может быть костями */
@@ -321,6 +325,13 @@ export const EFFECT_MODIFIERS_STEP_LABELS = {
   flagPresetHint: 'Выбрать правило из разделов',
   flagSearch: 'Поиск',
   add: 'Добавить',
+  rollConditionTitle: 'Действует',
+  rollConditionAlways: 'Всегда — в числах листа',
+  rollConditionHint:
+    'С условием эффект не входит в числа листа и работает только в бросках, '
+    + 'где условие выполнено: в своей атаке («Тактика стаи» — союзник рядом с '
+    + 'целью) или в атаке по носителю («Защита от добра и зла» — атакующий '
+    + 'исчадие).',
   immunitiesTitle: 'Иммунитет к состояниям',
   immunitiesHint:
     'Пока эффект действует, носитель не подхватывает эти состояния.',

@@ -236,6 +236,47 @@ describe('каталог: классы и черты', () => {
     );
   });
 
+  it('[F17] Аура защиты: радиус растёт с уровнем и гаснет у недееспособного', () => {
+    const aura = createEffect(
+      engine.buildClassEffectId('paladin', 'auraOfProtection'),
+      {
+        name: 'Аура защиты',
+        aura: {
+          radius: 10,
+          radiusFormula: '10 + 20 * floor(@classLevel / 18)',
+          whileCapable: true,
+          target: 'allies',
+          applyToSelf: true,
+          visible: true,
+        },
+        changes: [change('save.wisdom', '@mod.cha')],
+      },
+    );
+
+    assert.match(
+      authoredScenario(aura, 'feature'),
+      /floor\(@classLevel \/ 18\) фт \(союзники\), пока носитель дееспособен/,
+    );
+
+    const radiusAt = (level, extraEffects = []) =>
+      engine
+        .collectAllAuraEffects(
+          hero({
+            classKey: 'paladin',
+            level,
+            overrides: { activeEffects: [aura, ...extraEffects] },
+          }),
+        )
+        .map((effect) => effect.aura.radius);
+
+    assert.deepEqual(radiusAt(6), [10]);
+    assert.deepEqual(radiusAt(18), [30]);
+
+    const stunned = createEffect('Ошеломлён', { flags: ['incapacitated'] });
+
+    assert.deepEqual(radiusAt(6, [stunned]), [], 'недееспособный ауру гасит');
+  });
+
   it('[F02] Драконья стойкость: +1 хит за уровень чародея и КД 10 + Ловк + Хар без доспеха', () => {
     const resilience = createEffect(
       engine.buildClassEffectId('sorcerer', 'draconic'),

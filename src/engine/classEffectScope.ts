@@ -161,6 +161,7 @@ function effectUsesClassLevel(effect: ActiveEffect): boolean {
     || (effect.recurringDamage?.damageParts ?? []).some(
       (part) => hasToken(part.formula) || hasToken(part.versatileFormula),
     )
+    || hasToken(effect.aura?.radiusFormula)
   );
 }
 
@@ -184,6 +185,14 @@ function bindEffect(effect: ActiveEffect, classLevel: number): ActiveEffect {
             damageParts: effect.recurringDamage.damageParts.map((part) =>
               bindDamagePart(part, classLevel),
             ),
+          },
+        }),
+    ...(effect.aura?.radiusFormula === undefined
+      ? {}
+      : {
+          aura: {
+            ...effect.aura,
+            radiusFormula: bindFormula(effect.aura.radiusFormula, classLevel),
           },
         }),
   };

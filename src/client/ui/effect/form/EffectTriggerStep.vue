@@ -6,8 +6,8 @@
 <script setup lang="ts">
   import type {
     ActiveEffect,
+    DndEffectAura,
     EffectActivation,
-    EffectAura,
     EffectFormLayout,
     EffectVariantPick,
   } from '@vtt/shared/system/dnd.js';
@@ -161,7 +161,7 @@
    *
    * @param patch - изменённые поля
    */
-  function updateAura(patch: Partial<EffectAura>): void {
+  function updateAura(patch: Partial<DndEffectAura>): void {
     const { aura } = effect.value;
 
     if (aura) {
@@ -180,7 +180,19 @@
 
   const auraTarget = computed({
     get: () => effect.value.aura?.target ?? 'allies',
-    set: (target: EffectAura['target']) => updateAura({ target }),
+    set: (target: DndEffectAura['target']) => updateAura({ target }),
+  });
+
+  const auraRadiusFormula = computed({
+    get: () => effect.value.aura?.radiusFormula ?? '',
+    set: (radiusFormula: string) =>
+      updateAura({ radiusFormula: radiusFormula || undefined }),
+  });
+
+  const auraWhileCapable = computed({
+    get: () => effect.value.aura?.whileCapable === true,
+    set: (whileCapable: boolean | 'indeterminate') =>
+      updateAura({ whileCapable: whileCapable === true || undefined }),
   });
 
   const auraApplyToSelf = computed({
@@ -366,6 +378,19 @@
     </UFormField>
 
     <UFormField
+      :label="EFFECT_AURA_LABELS.radiusFormula"
+      :help="EFFECT_AURA_LABELS.radiusFormulaHint"
+      class="w-72"
+    >
+      <UInput
+        v-model="auraRadiusFormula"
+        :placeholder="EFFECT_AURA_LABELS.radiusFormulaPlaceholder"
+        size="sm"
+        class="w-full"
+      />
+    </UFormField>
+
+    <UFormField
       :label="EFFECT_AURA_LABELS.target"
       class="w-48"
     >
@@ -388,6 +413,11 @@
       <UCheckbox
         v-model="auraVisible"
         :label="EFFECT_AURA_LABELS.visible"
+      />
+
+      <UCheckbox
+        v-model="auraWhileCapable"
+        :label="EFFECT_AURA_LABELS.whileCapable"
       />
     </div>
   </div>

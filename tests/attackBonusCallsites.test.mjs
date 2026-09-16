@@ -750,6 +750,7 @@ it('projectile attack bonuses follow each assigned target instead of the unrelat
     {
       ...engine,
       targetStore: { getTargetActor: () => selected },
+      isAllyAdjacentToTarget: () => false,
       isDndSceneEntity: () => true,
       isActorEntity: (entity) => entity.entityType === 'actor',
       isCreatureEntity: (entity) => entity.entityType === 'creature',
@@ -766,6 +767,8 @@ it('projectile attack bonuses follow each assigned target instead of the unrelat
     }),
     useResolvedStats: () => ({ combinedEffects: effects }),
     useBonusDamageParts: () => ({ buildTargetHpContext }),
+    resolveAttackTypeOfKeys: () => undefined,
+    withAllyAdjacent: (target) => target,
     useProjectileStore: () => projectileStore,
     useWorldStore: () => ({ currentScene: worldState.scene }),
     useWorldEntities: () => ({
@@ -900,17 +903,107 @@ it('the shared target context reads creature average HP through the combat HP he
     },
   );
 
+  const identity = { entityId: target.id, allyAdjacent: undefined };
+
   assert.deepEqual(
     { ...readContext(target) },
-    { currentHp: 12, maxHp: 12, creatureType: 'humanoid', markedBy: [] },
+    {
+      ...identity,
+      currentHp: 12,
+      maxHp: 12,
+      creatureType: 'humanoid',
+      markedBy: [],
+    },
   );
 
   target.system.hitPoints.current = 5;
 
   assert.deepEqual(
     { ...readContext(target) },
-    { currentHp: 5, maxHp: 12, creatureType: 'humanoid', markedBy: [] },
+    {
+      ...identity,
+      currentHp: 5,
+      maxHp: 12,
+      creatureType: 'humanoid',
+      markedBy: [],
+    },
   );
 
   assert.equal(readContext(), undefined);
+});
+
+it('the shared target context asks for an adjacent ally only when the attacker is known', async () => {
+  const target = structuredClone(engine.DEFAULT_CREATURE);
+  const asked = [];
+
+  target.id = 'wolf-target';
+  target.system.hitPoints = { average: 12 };
+
+  const readContext = await loadHandler(
+    'src/client/composables/useBonusDamageParts.ts',
+    'buildTargetHpContext',
+    {
+      ...engine,
+      isDndSceneEntity: () => true,
+      resolveEntityCreatureType: () => 'humanoid',
+      targetStore: { getTargetActor: () => target },
+      isAllyAdjacentToTarget: (attackerId, targetId) => {
+        asked.push([attackerId, targetId]);
+
+        return true;
+      },
+    },
+  );
+
+  assert.equal(readContext().allyAdjacent, undefined);
+  assert.equal(readContext(undefined, 'wolf').allyAdjacent, true);
+  assert.deepEqual(asked, [['wolf', 'wolf-target']]);
+});
+
+it('attack roll bonuses add the target defences against this attack', async () => {
+  const attacker = { id: 'attacker' };
+  const defenderCalls = [];
+
+  const buildEvaluator = await loadHandler(
+    'src/client/composables/rollBonusEvaluator.ts',
+    'buildRollBonusEvaluator',
+    {
+      ...engine,
+      computed: (getter) => ({
+        get value() {
+          return getter();
+        },
+      }),
+      useResolvedStats: () => ({ combinedEffects: { value: [] } }),
+      buildCarrierContext: (entity) => ({ entityId: entity.id }),
+      buildFormulaContext: () => ({}),
+      useBonusDamageParts: () => ({
+        buildTargetHpContext: (_entity, attackerId) => ({
+          entityId: 'warded',
+          allyAdjacent: attackerId === 'attacker',
+        }),
+      }),
+      resolveAttackTypeOfKeys: (keys) =>
+        keys.includes('attack.melee') ? 'melee' : undefined,
+      collectDefenderRollFormulas: (source, targetId, attackType) => {
+        defenderCalls.push([source.id, targetId, attackType]);
+
+        return ['-1d4'];
+      },
+      withAllyAdjacent: (target) => target,
+    },
+  );
+
+  assert.deepEqual(
+    [...buildEvaluator(() => attacker, 'attack.melee')(normalContext)],
+    ['-1d4'],
+  );
+
+  assert.deepEqual(defenderCalls, [['attacker', 'warded', 'melee']]);
+
+  assert.deepEqual(
+    [...buildEvaluator(() => attacker, 'save.wisdom')(normalContext)],
+    [],
+    'у спасброска защит цели нет',
+  );
 });

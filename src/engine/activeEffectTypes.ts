@@ -143,6 +143,12 @@ export function isSenseType(value: string): value is SenseType {
 export const ABILITY_CHECK_KEY = 'abilityCheck';
 
 /**
+ * Ключ прибавки к броскам атаки ПО НОСИТЕЛЮ: её получает атакующий («Защита от
+ * клинков» — атакующий вычитает 1к4). Считается только при броске атаки.
+ */
+export const ATTACKS_AGAINST_KEY = 'attacksAgainst';
+
+/**
  * Ключ прибавки только к спасброскам концентрации: обычные спасброски
  * Телосложения её не получают («Синаптический разряд»).
  */
@@ -160,6 +166,7 @@ export type EffectTargetKey =
   | typeof CONCENTRATION_SAVE_KEY
   | `skill.${SkillType}`
   | typeof ABILITY_CHECK_KEY
+  | typeof ATTACKS_AGAINST_KEY
   | 'attack.melee'
   | 'attack.ranged'
   | 'attack.spell'
@@ -254,6 +261,10 @@ export const EFFECT_TARGET_SUGGESTIONS: Array<{
   { value: 'attack.melee', label: 'Атака: Рукопашное оружие' },
   { value: 'attack.ranged', label: 'Атака: Дальнобойное оружие' },
   { value: 'attack.spell', label: 'Атака: Заклинание' },
+  {
+    value: ATTACKS_AGAINST_KEY,
+    label: 'Атаки по носителю: прибавка атакующему',
+  },
 
   // Бонусы Урона
   { value: 'damage.melee', label: 'Урон: Рукопашное оружие' },
@@ -325,6 +336,13 @@ export const CARRIER_ARMOR_CONDITION_PREFIX = 'self.armor === ';
 
 /** Приставка условия по типу ЦЕЛИ броска. */
 export const TARGET_TYPE_CONDITION_PREFIX = 'target.creatureType === ';
+
+/** Приставка условия по типу АТАКУЮЩЕГО — у защитного эффекта. */
+export const INCOMING_ATTACKER_TYPE_CONDITION_PREFIX =
+  'incoming.attackerCreatureType === ';
+
+/** Условие «рядом с целью мой союзник» («Тактика стаи») */
+export const TARGET_ALLY_ADJACENT_CONDITION = 'target.allyAdjacent';
 
 /**
  * Разделитель условий, соединённых «и»: `self.armor === "none" && ...`.
@@ -418,20 +436,29 @@ export const EFFECT_CONDITION_SUGGESTIONS: Array<{
     value: 'target.markedBySelf',
     label: 'Цель помечена мной (Метка охотника, Сглаз)',
   },
+  {
+    value: TARGET_ALLY_ADJACENT_CONDITION,
+    label: 'Цель: рядом с ней мой союзник (Тактика стаи)',
+  },
 
-  // === ЗАЩИТА (условный КД) ===
+  // === ЗАЩИТА ===
+  // Входящая атака: КД, «Атаки по носителю» и условие броска эффекта
   {
     value: 'incoming.attackType === "melee"',
-    label: 'Защита: от рукопашных атак (только КД)',
+    label: 'Защита: от рукопашных атак',
   },
   {
     value: 'incoming.attackType === "ranged"',
-    label: 'Защита: от дальнобойных атак (только КД)',
+    label: 'Защита: от дальнобойных атак',
   },
   {
     value: 'incoming.attackType === "spell"',
-    label: 'Защита: от атак заклинаниями (только КД)',
+    label: 'Защита: от атак заклинаниями',
   },
+  ...typedObjectEntries(CREATURE_CATEGORIES).map(([creatureType, label]) => ({
+    value: `${INCOMING_ATTACKER_TYPE_CONDITION_PREFIX}"${creatureType}"`,
+    label: `Защита: атакующий — ${label}`,
+  })),
 
   // === ТИП СУЩЕСТВА ===
   // Собираются по справочнику, а не переписаны руками: список типов один на всю
@@ -1108,6 +1135,22 @@ export interface EffectActivation {
   amount?: number;
 }
 
+/**
+ * Аура эффекта в D&D-форме: к нейтральной форме ядра добавлены радиус
+ * формулой и угасание при недееспособности носителя.
+ */
+export interface DndEffectAura extends EffectAura {
+  /**
+   * Радиус формулой от носителя («10 фт, на 18-м уровне — 30»:
+   * `@classLevel >= 18 ? 30 : 10` не выражается — пишется
+   * `10 + 20 * floor(@classLevel / 18)`). Считается при сборе аур, результат
+   * ложится в `radius`
+   */
+  radiusFormula?: string;
+  /** Аура гаснет, пока носитель недееспособен («Аура защиты») */
+  whileCapable?: true;
+}
+
 /** Вариант эффекта в группе альтернатив */
 export interface EffectVariant {
   /** Ключ группы: эффекты с одним ключом — альтернативы */
@@ -1270,7 +1313,7 @@ export interface ActiveEffect extends BaseActiveEffect {
   flags: EffectFlagKey[];
 
   /** Настройки ауры (если эффект транслируется на других) */
-  aura?: EffectAura;
+  aura?: DndEffectAura;
 
   /**
    * Триггер для эффектов области/ауры. Если не задан — `stay` (эффект висит,
@@ -1336,6 +1379,16 @@ export interface ActiveEffect extends BaseActiveEffect {
    * случайный («Глухота/слепота», «Лучи глаз»).
    */
   variant?: EffectVariant;
+
+  /**
+   * Условие броска: эффект не входит в числа листа и действует только в
+   * бросках, где условие выполнено, — флагами и прибавками. У атакующего —
+   * словарь броска («Тактика стаи»: `target.allyAdjacent`), у защитника —
+   * входящей атаки («Защита от добра и зла»:
+   * `incoming.attackerCreatureType === "fiend"`). Условие о носителе
+   * считается и на листе.
+   */
+  rollCondition?: string;
 
   /**
    * Применение или включение: эффект не действует сам, пока источник не
@@ -1841,6 +1894,8 @@ export const EffectAuraSchema = z.object({
   applyToSelf: z.boolean(),
   visible: z.boolean().optional(),
   color: z.string().optional(),
+  radiusFormula: z.string().trim().min(1).optional().catch(undefined),
+  whileCapable: z.literal(true).optional().catch(undefined),
 });
 
 /** Характеристики спасброска (для Zod-валидации эффекта) */
@@ -2095,6 +2150,7 @@ export const ActiveEffectSchema = z.object({
   landingCondition: z.string().trim().min(1).optional().catch(undefined),
   variant: EffectVariantSchema.optional().catch(undefined),
   activation: EffectActivationSchema.optional().catch(undefined),
+  rollCondition: z.string().trim().min(1).optional().catch(undefined),
   castId: z.string().min(1).max(MAX_CAST_ID_LENGTH).optional().catch(undefined),
   concentration: z.literal(true).optional().catch(undefined),
   applySave: EffectSaveSchema.optional(),

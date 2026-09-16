@@ -1004,3 +1004,87 @@ describe('каталог: варианты заклинаний', () => {
     );
   });
 });
+
+describe('каталог: условия атаки по носителю', () => {
+  it('[S28] Защита от добра и зла: помеха атакам исчадий и нежити', () => {
+    const ward = createEffect('Защита от добра и зла', {
+      effectTarget: 'target',
+      flags: ['attacksAgainst.disadvantage'],
+      rollCondition: 'incoming.attackerCreatureType === "fiend"',
+    });
+
+    authoredScenario(ward, 'spell');
+
+    const warded = createActor({ activeEffects: [ward] });
+
+    assert.equal(
+      engine
+        .resolveActorStats(warded)
+        .activeFlags.has('attacksAgainst.disadvantage'),
+      false,
+      'помеха не всем атакующим',
+    );
+
+    const modeOf = (attackerCreatureType) =>
+      engine.resolveAttackRollMode({
+        attackType: 'melee',
+        attackerFlags: new Set(),
+        targetFlags: new Set(
+          engine.collectIncomingAttackFlags([ward], {
+            attackType: 'melee',
+            attackerCreatureType,
+          }),
+        ),
+      });
+
+    assert.equal(modeOf('fiend'), 'disadvantage');
+    assert.equal(modeOf('humanoid'), 'normal');
+  });
+
+  it('[S29] Защита от клинков: атакующий вычитает 1к4', () => {
+    const bladeWard = createEffect('Защита от клинков', {
+      changes: [change('attacksAgainst', '-1d4')],
+      duration: { type: 'minutes', value: 1 },
+    });
+
+    authoredScenario(bladeWard, 'spell');
+
+    const caster = createActor({ activeEffects: [bladeWard] });
+    const bare = createActor();
+
+    assert.deepEqual(
+      engine.resolveActorStats(caster).armorClass,
+      engine.resolveActorStats(bare).armorClass,
+      'числа листа не меняются',
+    );
+
+    assert.deepEqual(
+      engine.collectIncomingAttackRollFormulas([bladeWard], {
+        attackType: 'ranged',
+      }),
+      ['-1d4'],
+    );
+
+    const rangedOnly = createEffect('Только от стрел', {
+      changes: [
+        change('attacksAgainst', '-2', {
+          condition: 'incoming.attackType === "ranged"',
+        }),
+      ],
+    });
+
+    assert.deepEqual(
+      engine.collectIncomingAttackRollFormulas([rangedOnly], {
+        attackType: 'melee',
+      }),
+      [],
+    );
+
+    assert.deepEqual(
+      engine.collectIncomingAttackRollFormulas([rangedOnly], {
+        attackType: 'ranged',
+      }),
+      ['-2'],
+    );
+  });
+});

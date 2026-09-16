@@ -214,9 +214,40 @@ describe('каталог: существа', () => {
     );
   });
 
-  it.todo(
-    '[C05] Тактика стаи: преимущество, если союзник в 5 фт от цели — пробел («союзник рядом»)',
-  );
+  it('[C05] Тактика стаи: преимущество, только если союзник в 5 фт от цели', () => {
+    const packTactics = createEffect('Тактика стаи', {
+      flags: ['attack.advantage'],
+      rollCondition: 'target.allyAdjacent',
+    });
+
+    assert.match(
+      authoredScenario(packTactics, 'creatureTrait'),
+      /только в бросках, где цель: рядом с ней мой союзник/,
+    );
+
+    const wolf = createCreature({ activeEffects: [packTactics] });
+
+    assert.equal(
+      engine.resolveActorStats(wolf).activeFlags.has('attack.advantage'),
+      false,
+      'в числах листа преимущества нет',
+    );
+
+    const modeWith = (allyAdjacent) =>
+      engine.resolveAttackRollMode({
+        attackType: 'melee',
+        attackerFlags: new Set(
+          engine.collectRollConditionFlags([packTactics], {
+            hasAdvantage: false,
+            hasDisadvantage: false,
+            target: { currentHp: 10, maxHp: 10, allyAdjacent },
+          }),
+        ),
+      });
+
+    assert.equal(modeWith(true), 'advantage');
+    assert.equal(modeWith(false), 'normal');
+  });
 
   it('[C06] Зловоние [≈]: аура «при входе» — спасбросок Телосложения или «Отравленный»', () => {
     const stench = conditionEffect('poisoned', {

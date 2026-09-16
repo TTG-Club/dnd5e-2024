@@ -57,6 +57,8 @@ import {
   withFlatDamageBonus,
 } from '@vtt/shared/system/dnd.js';
 
+import { isAllyAdjacentToTarget } from './targetAllyAdjacent';
+
 /** Контекст броска из модалки (фактический режим преимущества/помехи) */
 interface ModalRollContext {
   hasAdvantage: boolean;
@@ -246,21 +248,29 @@ export function useBonusDamageParts() {
   const targetStore = useTargetStore();
 
   /**
-   * HP текущей цели для условий `target.hp.*` (читается в момент вызова).
+   * Цель броска для условий `target.*` (читается в момент вызова): хиты, тип,
+   * метки и — если известен бросающий — союзник бросающего рядом с целью.
    *
-   * @param entity - назначенная цель; без аргумента используется выбранный токен
-   * @returns текущее/максимальное HP цели или undefined (цели/HP нет)
+   * @param targetEntity - назначенная цель; без аргумента используется выбранный токен
+   * @param attackerId - бросающий; без него «союзник рядом» не считается
+   * @returns цель для условий или undefined (цели/HP нет)
    */
   function buildTargetHpContext(
-    entity: SceneEntity | null = targetStore.getTargetActor(),
+    targetEntity?: SceneEntity | null,
+    attackerId?: string,
   ):
     | {
         currentHp: number;
         maxHp: number;
         creatureType?: CreatureCategory;
         markedBy: string[];
+        entityId: string;
+        allyAdjacent?: boolean;
       }
     | undefined {
+    const entity =
+      targetEntity === undefined ? targetStore.getTargetActor() : targetEntity;
+
     if (!entity) {
       return undefined;
     }
@@ -271,6 +281,12 @@ export function useBonusDamageParts() {
     }
 
     return {
+      entityId: entity.id,
+      // Союзник бросающего рядом с целью — для «Тактики стаи»; без бросающего
+      // считать не от кого
+      allyAdjacent: attackerId
+        ? isAllyAdjacentToTarget(attackerId, entity.id)
+        : undefined,
       currentHp: resolveEntityCurrentHp(entity),
       maxHp: resolveEntityMaxHp(entity),
       // Тип цели — для условий `target.creatureType` и токенов `@target.type.*`:
@@ -324,7 +340,9 @@ export function useBonusDamageParts() {
     resolveFormula: (subFormula: string) => string,
     carrier: CarrierContext,
   ): SpellDamagePartInput[] {
-    const targetHp = useTargetState ? buildTargetHpContext() : undefined;
+    const targetHp = useTargetState
+      ? buildTargetHpContext(undefined, carrier.entityId)
+      : undefined;
 
     const rollContext: RollContext = {
       hasAdvantage: modalContext.hasAdvantage,

@@ -19,6 +19,7 @@ import type { EffectTrigger } from './effectTriggerTypes.js';
 import {
   describeConditionName,
   describeEffectChange,
+  describeEffectChangeCondition,
   describeEffectDamageParts,
   describeEffectDuration,
   describeEffectFlag,
@@ -107,6 +108,8 @@ const SCENARIO_LABELS = {
   variantPrefix: 'Вариант ',
   variantSuffix: '. ',
   landingConditionPrefix: ', если ',
+  rollConditionPrefix: ', только в бросках, где ',
+  auraWhileCapable: ', пока носитель дееспособен',
   counterPrefix: ', тратит «',
   counterSuffix: '»',
   counterAmountPrefix: ' ×',
@@ -188,7 +191,13 @@ function describeMoment(
         return CARRIER_MOMENT_LABELS[layout.context];
       }
 
-      return `${AURA_MOMENT_PREFIXES[layout.trigger]}${effect.aura.radius}${SCENARIO_LABELS.feetSuffix} (${AURA_TARGET_SCENARIO_LABELS[effect.aura.target]})`;
+      const radius = effect.aura.radiusFormula ?? String(effect.aura.radius);
+
+      const capable = effect.aura.whileCapable
+        ? SCENARIO_LABELS.auraWhileCapable
+        : '';
+
+      return `${AURA_MOMENT_PREFIXES[layout.trigger]}${radius}${SCENARIO_LABELS.feetSuffix} (${AURA_TARGET_SCENARIO_LABELS[effect.aura.target]})${capable}`;
     }
     case 'carrier':
     default:
@@ -444,7 +453,11 @@ export function describeEffectScenario(
     ? describeActivationCounter(effect)
     : '';
 
-  const moment = `${variant}${describeMoment(effect, layout)}${counter}${condition}`;
+  const rollCondition = effect.rollCondition
+    ? `${SCENARIO_LABELS.rollConditionPrefix}${describeEffectChangeCondition(effect.rollCondition).toLowerCase()}`
+    : '';
+
+  const moment = `${variant}${describeMoment(effect, layout)}${counter}${condition}${rollCondition}`;
   const lasting = describeLastingPayload(effect, layout);
 
   const damage =
