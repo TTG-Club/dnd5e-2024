@@ -21,6 +21,7 @@ import type {
   EffectTriggerEvent,
   LegacyTriggerKind,
 } from './effectTriggerTypes.js';
+import type { SaveDamageDefense } from './saveDamage.js';
 
 import { generateId } from '@vtt/shared';
 
@@ -31,6 +32,7 @@ import {
   PRESENCE_TRIGGER_EVENTS,
   TURN_TRIGGER_EVENTS,
 } from './effectTriggerTypes.js';
+import { resolveHalfDamageScale } from './saveDamage.js';
 
 /** Приставка id нового срабатывания */
 const TRIGGER_ID_PREFIX = 'trigger';
@@ -78,9 +80,6 @@ export function resolveTriggerActionGate(
   return trigger.save && !halvesOnSave ? 'failed' : 'always';
 }
 
-/** Доля урона при успешном спасброске «половина урона» */
-const HALF_DAMAGE_SCALE = 0.5;
-
 /**
  * Доля действия по гейту и исходу спасброска: 0 — не выполняется, 0.5 —
  * половина урона, 1 — полностью.
@@ -88,12 +87,14 @@ const HALF_DAMAGE_SCALE = 0.5;
  * @param gate - гейт действия
  * @param passed - пройден ли спасбросок (без спасброска — нет)
  * @param halfOnSave - урон «половина при успехе»
+ * @param defense - защиты бросившего («Увёртливость»)
  * @returns доля
  */
 export function resolveGateScale(
   gate: EffectTriggerActionGate,
   passed: boolean,
   halfOnSave: boolean,
+  defense?: SaveDamageDefense,
 ): number {
   switch (gate) {
     case 'failed':
@@ -101,7 +102,7 @@ export function resolveGateScale(
     case 'saved':
       return passed ? 1 : 0;
     default:
-      return passed && halfOnSave ? HALF_DAMAGE_SCALE : 1;
+      return halfOnSave ? resolveHalfDamageScale(passed, defense) : 1;
   }
 }
 

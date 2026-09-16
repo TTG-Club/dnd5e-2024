@@ -720,3 +720,30 @@ describe('каталог: существа', () => {
     );
   });
 });
+
+describe('каталог: запрет лечения', () => {
+  it('[C14] Борода бородатого дьявола: цель не восстанавливает хиты', () => {
+    const beard = createEffect('Борода', {
+      effectTarget: 'target',
+      flags: ['healing.blocked'],
+      recurringSave: { ability: 'constitution', dc: 12, timing: 'endOfTurn' },
+    });
+
+    authoredScenario(beard, 'creatureAction');
+
+    const victim = withHp(createActor, 10, { activeEffects: [beard] }, 30);
+
+    engine.applyTargetDamage(victim, 8, true);
+    assert.equal(engine.resolveEntityCurrentHp(victim), 10);
+
+    // Урон каждый ход с лечением и временные хиты: хиты — нет, временные — да
+    engine.applyTurnHealing(victim, 5, 4);
+    assert.equal(engine.resolveEntityCurrentHp(victim), 10);
+    assert.equal(engine.resolveEntityTempHp(victim), 4);
+
+    const healed = withHp(createActor, 10, {}, 30);
+
+    engine.applyTargetDamage(healed, 8, true);
+    assert.equal(engine.resolveEntityCurrentHp(healed), 18);
+  });
+});

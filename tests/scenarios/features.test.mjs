@@ -338,9 +338,58 @@ describe('каталог: классы и черты', () => {
     '[F07b] Скрытая атака: союзник рядом с целью вместо преимущества и «раз в ход» — пробел',
   );
 
-  it.todo(
-    '[F08] Увёртливость: успех спасброска Ловкости — без урона, провал — половина — пробел',
-  );
+  it('[F08] Увёртливость: успех спасброска Ловкости — без урона, провал — половина', () => {
+    const evasion = createEffect('Увёртливость', {
+      flags: ['save.evasion.dexterity'],
+    });
+
+    authoredScenario(evasion, 'feature');
+
+    const { activeFlags } = engine.resolveActorStats(
+      hero({ overrides: { activeEffects: [evasion] } }),
+    );
+
+    const defense = { flags: activeFlags, ability: 'dexterity' };
+
+    assert.equal(engine.resolveSaveEffectScale('half', true, defense), 0);
+    assert.equal(engine.resolveSaveEffectScale('half', false, defense), 0.5);
+
+    // Спасбросок другой характеристики и «успех — без урона» не меняются
+    assert.equal(
+      engine.resolveSaveEffectScale('half', true, {
+        ...defense,
+        ability: 'wisdom',
+      }),
+      0.5,
+    );
+
+    assert.equal(engine.resolveSaveEffectScale('none', false, defense), 1);
+
+    // Недееспособный Увёртливостью не пользуется
+    assert.equal(
+      engine.resolveSaveEffectScale('half', true, {
+        ...defense,
+        flags: new Set([...activeFlags, 'incapacitated']),
+      }),
+      0.5,
+    );
+
+    // Тот же исход у эффекта со своим спасбросоком «половина урона»
+    const fireball = createEffect('Взрыв', {
+      effectTarget: 'target',
+      applySave: { ability: 'dexterity', dc: 15, onSuccess: 'half' },
+      damageParts: [{ formula: '8d6@dmg.fire' }],
+    });
+
+    assert.equal(
+      engine.resolveEffectApplication(fireball, {
+        landed: true,
+        applySaveSucceeded: true,
+        targetFlags: activeFlags,
+      }).damageMultiplier,
+      0,
+    );
+  });
 
   it('[F09] Бдительный: + бонус мастерства к инициативе', () => {
     const alert = createEffect('Бдительный', {
@@ -559,5 +608,64 @@ describe('каталог: виды', () => {
       }),
       'advantage',
     );
+  });
+});
+
+describe('каталог: урон и чувства умений', () => {
+  it('[F14] Сила могилы: некротический урон игнорирует сопротивление', () => {
+    const gravePower = createEffect('Сила могилы', {
+      flags: ['damage.ignoreResistance.necrotic'],
+    });
+
+    authoredScenario(gravePower, 'feature');
+
+    const necromancer = hero({ overrides: { activeEffects: [gravePower] } });
+
+    const ignoredResistances = engine.listIgnoredResistances(
+      engine.resolveActorStats(necromancer).activeFlags,
+    );
+
+    assert.deepEqual(ignoredResistances, ['necrotic']);
+
+    const strike = (details) => {
+      const target = setHitPoints(
+        createActor({
+          id: 'actor_wight',
+          activeEffects: [
+            createEffect('Сопротивление', {
+              flags: ['resistance.necrotic', 'resistance.fire'],
+            }),
+          ],
+        }),
+        30,
+      );
+
+      engine.applyTargetDamage(target, 10, false, 'necrotic', details);
+
+      return engine.resolveEntityCurrentHp(target);
+    };
+
+    assert.equal(strike({ critical: false, ignoredResistances }), 20);
+    assert.equal(strike({ critical: false }), 25);
+  });
+
+  it('[F15] Совиный аспект: тёмное зрение +60 футов или 60, если его не было', () => {
+    const owl = createEffect('Сова', {
+      changes: [change('sense.darkvision', '60')],
+    });
+
+    authoredScenario(owl, 'feature');
+
+    const darkvisionOf = (vision) =>
+      engine.resolveActorStats(
+        hero({ overrides: { activeEffects: [owl], token: { vision } } }),
+      ).senses.darkvision;
+
+    assert.equal(
+      darkvisionOf({ enabled: true, range: 0, darkvision: 60, angle: 360 }),
+      120,
+    );
+
+    assert.equal(darkvisionOf(undefined), 60);
   });
 });

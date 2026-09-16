@@ -23,7 +23,9 @@ import { isNeutralRollAnswer } from '@vtt/shared';
 
 import {
   buildAttackFormula,
+  listSavingThrowBonusKeys,
   parseNaturalD20Roll,
+  resolveSavingThrowModifier,
   resolveSavingThrowRollMode,
 } from './attackUtils.js';
 import {
@@ -147,6 +149,7 @@ function buildEffectSaveFallbackFormula(
     flags: stats.activeFlags,
     ability: spec.ability,
     againstMagic: spec.againstMagic,
+    againstSpell: spec.againstSpell,
     againstCondition: spec.againstCondition,
     againstConcentration: spec.againstConcentration,
   });
@@ -154,17 +157,19 @@ function buildEffectSaveFallbackFormula(
   const context = buildEffectSavingThrowContext(entity);
 
   const formula = buildAttackFormula(
-    stats.saves[spec.ability] ?? 0,
+    resolveSavingThrowModifier(stats, spec.ability, spec),
     rollMode,
-    collectBonusRollFormulas(
-      context.effects,
-      `save.${spec.ability}`,
-      {
-        hasAdvantage: rollMode === 'advantage',
-        hasDisadvantage: rollMode === 'disadvantage',
-        self: context.self,
-      },
-      context.formulaContext,
+    listSavingThrowBonusKeys(spec.ability, spec).flatMap((bonusKey) =>
+      collectBonusRollFormulas(
+        context.effects,
+        bonusKey,
+        {
+          hasAdvantage: rollMode === 'advantage',
+          hasDisadvantage: rollMode === 'disadvantage',
+          self: context.self,
+        },
+        context.formulaContext,
+      ),
     ),
   );
 
@@ -189,6 +194,7 @@ export function buildEffectSaveRollRequest(
     ability: spec.ability,
     dc: spec.dc,
     againstMagic: spec.againstMagic,
+    ...(spec.againstSpell ? { againstSpell: true } : {}),
     againstCondition: spec.againstCondition,
     ...(spec.againstConcentration ? { againstConcentration: true } : {}),
     sourceName: spec.effectName,

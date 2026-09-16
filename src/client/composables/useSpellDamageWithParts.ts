@@ -30,23 +30,29 @@ import {
   formatDamageDefenseSuffix,
   getSpellSaveCondition,
   isDndSceneEntity,
+  isSpellRoll,
+  limitEntityHealing,
   mergeAppliedEffects,
   recordDamageHit,
   resolveActorStats,
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
   resolveEntityTempHp,
+  resolveSaveEffectScale,
   withInitializedDuration,
+  withoutIgnoredResistances,
   writeEntityHitPoints,
 } from '@vtt/shared/system/dnd.js';
 
 import { SPELL_NO_TARGETS_LABELS } from '../ui/actor/constants';
 import {
+  buildSaveDamageDefense,
   formatSaveCancelledMessage,
   formatTargetGateSuffix,
   getPartKindLabel,
   isSaveAbility,
   partPassesTargetGate,
+  resolveAttackerIgnoredResistances,
 } from './spellResolutionShared';
 import { useSpellSavingThrows } from './useSpellSavingThrows';
 import { useTargetEffectResolution } from './useTargetEffectResolution';
@@ -108,19 +114,25 @@ export function useSpellDamageWithParts() {
     const maxHp = resolveEntityMaxHp(entity);
     const tempBefore = resolveEntityTempHp(entity);
 
+    // Запрет лечения: «не может восстанавливать хиты» / «временные хиты»
+    const healing = limitEntityHealing(entity, {
+      hitPoints: totalHeal,
+      temporary: totalTempHeal,
+    });
+
     // Урон сначала снимает временные ХП (правило 5e), остаток — текущие
     const hpChange = applyHpChange({
       hpBefore,
       maxHp,
       tempBefore,
       damage: totalDamage,
-      heal: totalHeal,
+      heal: healing.hitPoints,
     });
 
     const hpAfter = hpChange.hpAfter;
 
     // Новые временные ХП не суммируются с оставшимися — берётся большее
-    const tempAfter = Math.max(hpChange.tempAfter, totalTempHeal);
+    const tempAfter = Math.max(hpChange.tempAfter, healing.temporary);
 
     const updatedEntity: DnDSceneEntity = JSON.parse(JSON.stringify(entity));
 
@@ -310,6 +322,11 @@ export function useSpellDamageWithParts() {
       ? (actors.find((item) => item.id === context.casterId) ?? null)
       : null;
 
+    // Сопротивления целей, которые игнорирует урон заклинателя
+    const ignoredResistances = resolveAttackerIgnoredResistances(
+      context.casterId,
+    );
+
     // Разделяем части по адресату:
     // - self    → заклинателю;
     // - choose  → отдельно выбираемой цели (спрашиваем после броска);
@@ -394,6 +411,7 @@ export function useSpellDamageWithParts() {
           ability: saveAbility,
           dc: spellSaveDC,
           againstCondition,
+          againstSpell: isSpellRoll(spell),
           sourceEntityId: context.casterId,
           sourceName: spell.name,
         })),
@@ -521,15 +539,14 @@ export function useSpellDamageWithParts() {
       types: string[] | undefined,
       save: SavingThrowResult | undefined,
     ): { final: number; outcome: DamageDefenseOutcome } {
-      let dmg = amount;
-
-      if (save?.passed) {
-        if (spell.saveEffect === 'half') {
-          dmg = Math.floor(amount / 2);
-        } else if (spell.saveEffect === 'none') {
-          dmg = 0;
-        }
-      }
+      let dmg = Math.floor(
+        amount
+          * resolveSaveEffectScale(
+            spell.saveEffect,
+            save?.passed,
+            buildSaveDamageDefense(entity, spell),
+          ),
+      );
 
       let outcome: DamageDefenseOutcome = 'normal';
 
@@ -541,7 +558,7 @@ export function useSpellDamageWithParts() {
         const defenseResult = applyMultiTypeDamageDefenses(
           dmg,
           types,
-          stats.damageDefenses,
+          withoutIgnoredResistances(stats.damageDefenses, ignoredResistances),
         );
 
         dmg = defenseResult.finalDamage;

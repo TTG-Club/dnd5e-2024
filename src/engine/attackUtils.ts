@@ -15,7 +15,10 @@ import type {
   WeaponRangeType,
 } from '@vtt/shared';
 
-import type { EffectTargetKey } from './activeEffectTypes.js';
+import type {
+  EffectTargetKey,
+  ResolvedActorStats,
+} from './activeEffectTypes.js';
 import type { ConditionRef } from './conditionKeys.js';
 import type { CreatureAction } from './creatureTypes.js';
 import type { DamageApplyResult } from './damageUtils.js';
@@ -25,7 +28,10 @@ import { z } from 'zod';
 
 import { convertDistance } from '@vtt/shared';
 
-import { buildSaveVsConditionFlag } from './activeEffectTypes.js';
+import {
+  buildSaveVsConditionFlag,
+  CONCENTRATION_SAVE_KEY,
+} from './activeEffectTypes.js';
 import { getShortDamageTypeLabel } from './damageConstants.js';
 import { formatDamageDefenseSuffix } from './damageUtils.js';
 import {
@@ -560,6 +566,11 @@ export interface SavingThrowRollModeParams {
    */
   againstMagic?: boolean;
   /**
+   * Спасбросок вызван именно заклинанием, а не любой магией: «Кольцо
+   * отражения заклинаний» даёт преимущество только тут.
+   */
+  againstSpell?: boolean;
+  /**
    * Состояние, которого спасбросок позволяет избежать или которое прекращает.
    *
    * Тоже свойство броска, а не носителя: дварфийская стойкость даёт
@@ -595,6 +606,7 @@ export function resolveSavingThrowRollMode(
     flags,
     ability,
     againstMagic,
+    againstSpell,
     againstCondition,
     againstConcentration,
   } = params;
@@ -603,6 +615,7 @@ export function resolveSavingThrowRollMode(
     flags.has('save.advantage')
     || flags.has(`save.advantage.${ability}`)
     || (againstMagic === true && flags.has('save.advantage.vsMagic'))
+    || (againstSpell === true && flags.has('save.advantage.vsSpell'))
     || (againstConcentration === true
       && flags.has('save.advantage.vsConcentration'))
     || (againstCondition !== undefined
@@ -612,6 +625,7 @@ export function resolveSavingThrowRollMode(
     flags.has('save.disadvantage')
     || flags.has(`save.disadvantage.${ability}`)
     || (againstMagic === true && flags.has('save.disadvantage.vsMagic'))
+    || (againstSpell === true && flags.has('save.disadvantage.vsSpell'))
     || (againstConcentration === true
       && flags.has('save.disadvantage.vsConcentration'))
     || (againstCondition !== undefined
@@ -626,6 +640,52 @@ export function resolveSavingThrowRollMode(
   }
 
   return 'normal';
+}
+
+/** Обстоятельства спасброска, от которых зависят его прибавки */
+export type SavingThrowBonusCircumstances = Pick<
+  SavingThrowRollModeParams,
+  'againstConcentration'
+>;
+
+/**
+ * Ключи кубиковых прибавок спасброска: своей характеристики и, у спасброска
+ * концентрации, ещё и концентрации.
+ *
+ * @param ability - характеристика спасброска
+ * @param circumstances - обстоятельства спасброска
+ * @returns ключи прибавок
+ */
+export function listSavingThrowBonusKeys(
+  ability: AbilityType,
+  circumstances: SavingThrowBonusCircumstances = {},
+): EffectTargetKey[] {
+  const abilityKey: EffectTargetKey = `save.${ability}`;
+
+  return circumstances.againstConcentration
+    ? [abilityKey, CONCENTRATION_SAVE_KEY]
+    : [abilityKey];
+}
+
+/**
+ * Модификатор спасброска с прибавками обстоятельств: спасбросок концентрации
+ * получает ещё и свою прибавку.
+ *
+ * @param stats - посчитанные статы бросающего
+ * @param ability - характеристика спасброска
+ * @param circumstances - обстоятельства спасброска
+ * @returns модификатор
+ */
+export function resolveSavingThrowModifier(
+  stats: Pick<ResolvedActorStats, 'saves' | 'concentrationSaveBonus'>,
+  ability: AbilityType,
+  circumstances: SavingThrowBonusCircumstances = {},
+): number {
+  const concentrationBonus = circumstances.againstConcentration
+    ? stats.concentrationSaveBonus
+    : 0;
+
+  return (stats.saves[ability] ?? 0) + concentrationBonus;
 }
 
 /**

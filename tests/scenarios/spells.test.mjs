@@ -693,3 +693,80 @@ describe('каталог: заклинания', () => {
     }
   });
 });
+
+describe('каталог: проверки, концентрация и магия', () => {
+  it('[S21] Синаптический разряд: −1к4 к проверкам и спасброскам концентрации', () => {
+    const muddled = createEffect('Синаптический разряд', {
+      effectTarget: 'target',
+      changes: [
+        change('attack.melee', '-1d4'),
+        change('abilityCheck', '-1d4'),
+        change('save.concentration', '-1d4'),
+        change('save.concentration', '-1'),
+      ],
+      duration: { type: 'rounds', value: 10 },
+    });
+
+    authoredScenario(muddled, 'spell');
+
+    const victim = createActor({ activeEffects: [muddled] });
+    const stats = engine.resolveActorStats(victim);
+    const roll = { hasAdvantage: false, hasDisadvantage: false };
+
+    assert.deepEqual(
+      engine.collectBonusRollFormulas([muddled], 'abilityCheck', roll),
+      ['-1d4'],
+    );
+
+    const concentration = { againstConcentration: true };
+
+    assert.deepEqual(
+      engine
+        .listSavingThrowBonusKeys('constitution', concentration)
+        .flatMap((key) =>
+          engine.collectBonusRollFormulas([muddled], key, roll),
+        ),
+      ['-1d4'],
+    );
+
+    assert.deepEqual(
+      engine
+        .listSavingThrowBonusKeys('constitution')
+        .flatMap((key) =>
+          engine.collectBonusRollFormulas([muddled], key, roll),
+        ),
+      [],
+    );
+
+    assert.equal(
+      engine.resolveSavingThrowModifier(stats, 'constitution', concentration)
+        - engine.resolveSavingThrowModifier(stats, 'constitution'),
+      -1,
+    );
+  });
+
+  it('[S22] Круг силы: успешный спасбросок против магии — без урона', () => {
+    const circle = createEffect('Круг силы', {
+      aura: { radius: 30, target: 'allies', applyToSelf: true, visible: true },
+      flags: ['save.advantage.vsMagic', 'save.negateOnSuccess.vsMagic'],
+      duration: { type: 'minutes', value: 10 },
+    });
+
+    authoredScenario(circle, 'spell');
+
+    const flags = engine.resolveActorStats(
+      createActor({ activeEffects: [circle] }),
+    ).activeFlags;
+
+    const scale = (againstMagic, passed) =>
+      engine.resolveSaveEffectScale('half', passed, {
+        flags,
+        ability: 'dexterity',
+        againstMagic,
+      });
+
+    assert.equal(scale(true, true), 0);
+    assert.equal(scale(true, false), 1);
+    assert.equal(scale(false, true), 0.5);
+  });
+});

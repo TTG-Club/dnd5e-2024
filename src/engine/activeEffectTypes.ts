@@ -133,6 +133,18 @@ export function isSenseType(value: string): value is SenseType {
 // ── Ключи числовых изменений ──────────────────────────────────
 
 /**
+ * Ключ прибавки ко всем проверкам характеристик — и к проверкам навыков: навык
+ * проверяется той же характеристикой («Камень удачи», «Синаптический разряд»).
+ */
+export const ABILITY_CHECK_KEY = 'abilityCheck';
+
+/**
+ * Ключ прибавки только к спасброскам концентрации: обычные спасброски
+ * Телосложения её не получают («Синаптический разряд»).
+ */
+export const CONCENTRATION_SAVE_KEY = 'save.concentration';
+
+/**
  * Типобезопасный ключ для числовых модификаций актора.
  *
  * В отличие от строковой dot-нотации,
@@ -141,7 +153,9 @@ export function isSenseType(value: string): value is SenseType {
 export type EffectTargetKey =
   | `ability.${AbilityType}`
   | `save.${AbilityType}`
+  | typeof CONCENTRATION_SAVE_KEY
   | `skill.${SkillType}`
+  | typeof ABILITY_CHECK_KEY
   | 'attack.melee'
   | 'attack.ranged'
   | 'attack.spell'
@@ -224,6 +238,13 @@ export const EFFECT_TARGET_SUGGESTIONS: Array<{
   { value: 'save.intelligence', label: 'Спасбросок (Интеллект)' },
   { value: 'save.wisdom', label: 'Спасбросок (Мудрость)' },
   { value: 'save.charisma', label: 'Спасбросок (Харизма)' },
+  { value: CONCENTRATION_SAVE_KEY, label: 'Спасбросок концентрации' },
+
+  // Проверки
+  {
+    value: ABILITY_CHECK_KEY,
+    label: 'Все проверки характеристик (и навыков)',
+  },
 
   // Бонусы Атак
   { value: 'attack.melee', label: 'Атака: Рукопашное оружие' },
@@ -532,6 +553,19 @@ export type SaveVsConditionDisadvantageFlagKey =
   `save.disadvantage.vs${Capitalize<SaveConditionKey>}`;
 
 /**
+ * Флаг «Увёртливости» по характеристике: спасбросок, успех которого даёт
+ * половину урона, при успехе не даёт урона вовсе, а при провале — половину.
+ */
+export type SaveEvasionFlagKey = `save.evasion.${AbilityType}`;
+
+/**
+ * Флаг атакующего: его урон этого типа не уменьшает сопротивление цели
+ * («Сила могилы» некроманта). Иммунитет по-прежнему действует.
+ */
+export type DamageIgnoreResistanceFlagKey =
+  `damage.ignoreResistance.${DefensibleDamageType}`;
+
+/**
  * Флаги спасброска против состояния — «преимущество на спасброски, чтобы
  * избежать или прекратить состояние Отравлен».
  *
@@ -565,6 +599,8 @@ export type EffectFlagKey =
   | 'attacksAgainst.melee.disadvantage'
   | 'attacksAgainst.ranged.advantage'
   | 'attacksAgainst.ranged.disadvantage'
+  | 'attacksAgainst.spell.advantage'
+  | 'attacksAgainst.spell.disadvantage'
   | 'abilityCheck.disadvantage'
   | 'abilityCheck.advantage'
   | 'abilityCheck.advantage.strength'
@@ -583,6 +619,9 @@ export type EffectFlagKey =
   | 'save.disadvantage'
   | 'save.advantage.vsMagic'
   | 'save.disadvantage.vsMagic'
+  | 'save.advantage.vsSpell'
+  | 'save.disadvantage.vsSpell'
+  | 'save.negateOnSuccess.vsMagic'
   | 'save.advantage.vsConcentration'
   | 'save.disadvantage.vsConcentration'
   | 'save.advantage.strength'
@@ -612,9 +651,13 @@ export type EffectFlagKey =
   | 'vision.blinded'
   | 'vision.invisible'
   | 'defense.critImmunity'
+  | 'healing.blocked'
+  | 'healing.tempBlocked'
   | DamageDefenseFlagKey
   | SkillFlagKey
-  | SaveVsConditionFlagKey;
+  | SaveVsConditionFlagKey
+  | SaveEvasionFlagKey
+  | DamageIgnoreResistanceFlagKey;
 
 /**
  * Локализованные названия статических флагов (без генерируемых семейств).
@@ -624,7 +667,11 @@ export type EffectFlagKey =
 const BASE_EFFECT_FLAG_LABELS: Record<
   Exclude<
     EffectFlagKey,
-    DamageDefenseFlagKey | SkillFlagKey | SaveVsConditionFlagKey
+    | DamageDefenseFlagKey
+    | SkillFlagKey
+    | SaveVsConditionFlagKey
+    | SaveEvasionFlagKey
+    | DamageIgnoreResistanceFlagKey
   >,
   string
 > = {
@@ -647,6 +694,10 @@ const BASE_EFFECT_FLAG_LABELS: Record<
     'Преимущество дальнобойных атак по этому существу',
   'attacksAgainst.ranged.disadvantage':
     'Помеха дальнобойных атак по этому существу',
+  'attacksAgainst.spell.advantage':
+    'Преимущество атак заклинаниями по этому существу',
+  'attacksAgainst.spell.disadvantage':
+    'Помеха атак заклинаниями по этому существу',
 
   // Проверки характеристик
   'abilityCheck.disadvantage': 'Помеха на ВСЕ проверки характеристик',
@@ -672,6 +723,10 @@ const BASE_EFFECT_FLAG_LABELS: Record<
     'Преимущество на спасброски против заклинаний и магических эффектов',
   'save.disadvantage.vsMagic':
     'Помеха на спасброски против заклинаний и магических эффектов',
+  'save.advantage.vsSpell': 'Преимущество на спасброски против заклинаний',
+  'save.disadvantage.vsSpell': 'Помеха на спасброски против заклинаний',
+  'save.negateOnSuccess.vsMagic':
+    'Успешный спасбросок против магии «половина урона» — урона нет',
   'save.advantage.vsConcentration': 'Преимущество на спасброски концентрации',
   'save.disadvantage.vsConcentration': 'Помеха на спасброски концентрации',
   'save.advantage.strength': 'Преимущество на спасброски: Сила',
@@ -709,6 +764,55 @@ const BASE_EFFECT_FLAG_LABELS: Record<
 
   // Специфические флаги предметов
   'defense.critImmunity': 'Защита: Иммунитет к критическим попаданиям',
+
+  // Лечение
+  'healing.blocked': 'Не может восстанавливать хиты',
+  'healing.tempBlocked': 'Не может получать временные хиты',
+};
+
+/**
+ * Подписи флагов «Увёртливости» — по одному на характеристику.
+ *
+ * Перечислением, как и остальные семейства: тип `Record` ловит новую
+ * характеристику на этапе компиляции.
+ */
+const SAVE_EVASION_FLAG_LABELS: Record<SaveEvasionFlagKey, string> = {
+  'save.evasion.strength': 'Увёртливость: спасбросок Силы',
+  'save.evasion.dexterity': 'Увёртливость: спасбросок Ловкости',
+  'save.evasion.constitution': 'Увёртливость: спасбросок Телосложения',
+  'save.evasion.intelligence': 'Увёртливость: спасбросок Интеллекта',
+  'save.evasion.wisdom': 'Увёртливость: спасбросок Мудрости',
+  'save.evasion.charisma': 'Увёртливость: спасбросок Харизмы',
+};
+
+/**
+ * Подпись флага «урон игнорирует сопротивление».
+ *
+ * @param damageType - тип урона
+ * @returns подпись
+ */
+function ignoreResistanceLabel(damageType: DefensibleDamageType): string {
+  return `Свой урон (${DAMAGE_TYPE_LABELS[damageType]}) игнорирует сопротивление`;
+}
+
+/** Подписи флагов «урон игнорирует сопротивление» — по типу урона. */
+const DAMAGE_IGNORE_RESISTANCE_FLAG_LABELS: Record<
+  DamageIgnoreResistanceFlagKey,
+  string
+> = {
+  'damage.ignoreResistance.slashing': ignoreResistanceLabel('slashing'),
+  'damage.ignoreResistance.piercing': ignoreResistanceLabel('piercing'),
+  'damage.ignoreResistance.bludgeoning': ignoreResistanceLabel('bludgeoning'),
+  'damage.ignoreResistance.fire': ignoreResistanceLabel('fire'),
+  'damage.ignoreResistance.cold': ignoreResistanceLabel('cold'),
+  'damage.ignoreResistance.lightning': ignoreResistanceLabel('lightning'),
+  'damage.ignoreResistance.thunder': ignoreResistanceLabel('thunder'),
+  'damage.ignoreResistance.poison': ignoreResistanceLabel('poison'),
+  'damage.ignoreResistance.acid': ignoreResistanceLabel('acid'),
+  'damage.ignoreResistance.necrotic': ignoreResistanceLabel('necrotic'),
+  'damage.ignoreResistance.radiant': ignoreResistanceLabel('radiant'),
+  'damage.ignoreResistance.force': ignoreResistanceLabel('force'),
+  'damage.ignoreResistance.psychic': ignoreResistanceLabel('psychic'),
 };
 
 /**
@@ -933,6 +1037,8 @@ export const EFFECT_FLAG_LABELS: Record<EffectFlagKey, string> = {
   ...DAMAGE_DEFENSE_FLAG_LABELS,
   ...SKILL_FLAG_LABELS,
   ...SAVE_VS_CONDITION_FLAG_LABELS,
+  ...SAVE_EVASION_FLAG_LABELS,
+  ...DAMAGE_IGNORE_RESISTANCE_FLAG_LABELS,
 };
 
 // ── Источник эффекта ──────────────────────────────────────────
@@ -1373,6 +1479,13 @@ export interface ResolvedActorStats {
   saves: Record<AbilityType, number>;
   /** Бонусы к навыкам */
   skills: Record<SkillType, number>;
+  /**
+   * Прибавка ко всем проверкам характеристик ({@link ABILITY_CHECK_KEY}). В
+   * навыки уже вошла: навык — та же проверка характеристики.
+   */
+  abilityCheckBonus: number;
+  /** Прибавка к спасброскам концентрации ({@link CONCENTRATION_SAVE_KEY}) */
+  concentrationSaveBonus: number;
   /** Класс доспеха */
   armorClass: number;
   /** Модификатор инициативы */

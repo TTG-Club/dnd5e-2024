@@ -35,6 +35,7 @@ import {
 } from './counterResource.js';
 import { restoreCreatureSpellGroupUses } from './creatureSpellcasting.js';
 import { pruneTriggerUsage, restLimitPeriodsOf } from './effectTriggerUsage.js';
+import { canEntityRegainHitPoints } from './healingLimits.js';
 import {
   getHalfHitDiceRecovery,
   getHitDiceGroups,
@@ -308,7 +309,10 @@ export function applyActorRest(
     // иначе чародей с «Драконьей устойчивостью» вставал бы 26/29
     restoredSystem.hitPoints = {
       ...system.hitPoints,
-      current: resolveEntityMaxHp(actor),
+      // Запрет лечения держит хиты и через отдых
+      current: canEntityRegainHitPoints(actor)
+        ? resolveEntityMaxHp(actor)
+        : system.hitPoints.current,
       temp: 0,
     };
 
@@ -468,7 +472,9 @@ export function applyShortRestWithHitDice(
       manualHitDice: hitDice.manualHitDice,
       hitPoints: {
         ...baseSystem.hitPoints,
-        current: hitDice.hitPointsCurrent,
+        current: canEntityRegainHitPoints(actor)
+          ? hitDice.hitPointsCurrent
+          : baseSystem.hitPoints.current,
       },
     },
   };

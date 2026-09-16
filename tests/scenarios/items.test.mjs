@@ -467,3 +467,91 @@ describe('каталог: оружие', () => {
     );
   });
 });
+
+describe('каталог: проверки и заклинания', () => {
+  it('[I12] Камень удачи: +1 ко всем проверкам характеристик и спасброскам', () => {
+    const stone = createEffect('Камень удачи', {
+      changes: [
+        change('abilityCheck', '1'),
+        ...[
+          'strength',
+          'dexterity',
+          'constitution',
+          'intelligence',
+          'wisdom',
+          'charisma',
+        ].map((ability) => change(`save.${ability}`, '1')),
+      ],
+    });
+
+    authoredScenario(stone, 'item');
+
+    const bearer = createActor();
+    const base = engine.resolveActorStats(bearer);
+
+    const lucky = engine.resolveActorStats({
+      ...bearer,
+      activeEffects: [stone],
+    });
+
+    assert.equal(lucky.abilityCheckBonus, 1);
+    assert.equal(lucky.skills.stealth - base.skills.stealth, 1);
+    assert.equal(lucky.saves.wisdom - base.saves.wisdom, 1);
+  });
+
+  it('[I13] Кольцо отражения заклинаний: преимущество только против заклинаний', () => {
+    const ring = createEffect('Кольцо отражения заклинаний', {
+      flags: ['save.advantage.vsSpell'],
+    });
+
+    authoredScenario(ring, 'item');
+
+    const flags = engine.resolveActorStats(
+      createActor({ activeEffects: [ring] }),
+    ).activeFlags;
+
+    const rollMode = (circumstances) =>
+      engine.resolveSavingThrowRollMode({
+        flags,
+        ability: 'dexterity',
+        ...circumstances,
+      });
+
+    assert.equal(
+      rollMode({ againstMagic: true, againstSpell: true }),
+      'advantage',
+    );
+
+    assert.equal(rollMode({ againstMagic: true }), 'normal');
+
+    // Эффект заклинания на сервере — «против заклинания»
+    assert.deepEqual(
+      engine.resolveEffectMagicCircumstances(
+        createEffect('Удержание', { origin: 'spell' }),
+      ),
+      { againstMagic: true, againstSpell: true },
+    );
+  });
+
+  it('[I14] Щит заклинаний: помеха атакам заклинаниями по носителю', () => {
+    const shield = createEffect('Щит заклинаний', {
+      flags: ['attacksAgainst.spell.disadvantage'],
+    });
+
+    authoredScenario(shield, 'item');
+
+    const targetFlags = engine.resolveActorStats(
+      createActor({ activeEffects: [shield] }),
+    ).activeFlags;
+
+    const rollMode = (attackType) =>
+      engine.resolveAttackRollMode({
+        attackerFlags: new Set(),
+        attackType,
+        targetFlags,
+      });
+
+    assert.equal(rollMode('spell'), 'disadvantage');
+    assert.equal(rollMode('ranged'), 'normal');
+  });
+});

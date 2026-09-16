@@ -372,6 +372,7 @@ export function useBonusDamageParts() {
     const pseudoSpell: Spell = {
       id: `weapon-roll-${weapon.id}`,
       name: weapon.name,
+      rollSource: 'weapon',
       level: 0,
       school: 'evocation',
       castingTimeValue: 1,
@@ -538,6 +539,7 @@ export function useBonusDamageParts() {
     const pseudoSpell: Spell = {
       id: `creature-action-${creature.id}-${action.name}`,
       name: action.name,
+      rollSource: 'creatureAction',
       level: 0,
       school: 'evocation',
       castingTimeValue: 1,

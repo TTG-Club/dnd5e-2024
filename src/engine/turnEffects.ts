@@ -27,7 +27,11 @@ import type { DeferredTurnTrigger } from './effectTriggerRunner.js';
 import type { EffectTriggerTurnOwner } from './effectTriggerTypes.js';
 import type { FormulaContext } from './formulaParser.js';
 
-import { resolveSavingThrowRollMode } from './attackUtils.js';
+import {
+  listSavingThrowBonusKeys,
+  resolveSavingThrowModifier,
+  resolveSavingThrowRollMode,
+} from './attackUtils.js';
 import { ABILITY_LABELS } from './consts.js';
 import { DAMAGE_TYPE_LABELS } from './damageConstants.js';
 import { damageReachesTarget } from './damageTargetGate.js';
@@ -41,6 +45,7 @@ import {
 } from './effectPipeline.js';
 import { resetTriggerUsage } from './effectTriggerUsage.js';
 import { buildFormulaContext } from './formulaParser.js';
+import { limitEntityHealing } from './healingLimits.js';
 import {
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
@@ -439,6 +444,8 @@ export interface EffectSavingThrowContext {
 export interface SavingThrowCircumstances {
   /** Спасбросок навязан магией */
   againstMagic: boolean;
+  /** Спасбросок навязан именно заклинанием */
+  againstSpell?: boolean;
   /** Состояние, которого спасбросок позволяет избежать */
   againstCondition?: ConditionRef;
   /** Спасбросок концентрации */
@@ -475,6 +482,22 @@ export function isMagicalEffect(effect: ActiveEffect): boolean {
 }
 
 /**
+ * Против чего спасбросок эффекта: магии и заклинания. Магия эффектов в системе
+ * приходит только от заклинаний — самого эффекта заклинания и копий из его
+ * зоны, — поэтому оба признака пока совпадают.
+ *
+ * @param effect - эффект, требующий спасброска
+ * @returns обстоятельства спасброска
+ */
+export function resolveEffectMagicCircumstances(
+  effect: ActiveEffect,
+): Pick<SavingThrowCircumstances, 'againstMagic' | 'againstSpell'> {
+  const againstMagic = isMagicalEffect(effect);
+
+  return { againstMagic, againstSpell: againstMagic };
+}
+
+/**
  * Спасбросок при наложении эффекта зоны или ауры.
  *
  * @param effect - эффект с `applySave`
@@ -490,7 +513,7 @@ export function buildApplySaveSpec(
     effectName: effect.name,
     ability: applySave.ability,
     dc: applySave.dc,
-    againstMagic: isMagicalEffect(effect),
+    ...resolveEffectMagicCircumstances(effect),
     againstCondition: effect.conditionKey,
   };
 }
@@ -549,7 +572,7 @@ export function rollEffectSavingThrow(
     return { roll: 1, total: 1, passed: false };
   }
 
-  const modifier = stats.saves[ability] ?? 0;
+  const modifier = resolveSavingThrowModifier(stats, ability, circumstances);
 
   // Те же обстоятельства, что и у спасброска на клиенте: иначе серверный и
   // клиентский бросок одного эффекта давали бы разное преимущество
@@ -557,6 +580,7 @@ export function rollEffectSavingThrow(
     flags: activeFlags,
     ability,
     againstMagic: circumstances?.againstMagic,
+    againstSpell: circumstances?.againstSpell,
     againstCondition: circumstances?.againstCondition,
     againstConcentration: circumstances?.againstConcentration,
   });
@@ -577,11 +601,16 @@ export function rollEffectSavingThrow(
       : Math.min(firstRoll, secondRoll);
   }
 
-  const bonusDiceFormulas = collectBonusRollFormulas(
-    context.effects,
-    `save.${ability}`,
-    { hasAdvantage, hasDisadvantage, self: context.self },
-    context.formulaContext,
+  const bonusDiceFormulas = listSavingThrowBonusKeys(
+    ability,
+    circumstances,
+  ).flatMap((bonusKey) =>
+    collectBonusRollFormulas(
+      context.effects,
+      bonusKey,
+      { hasAdvantage, hasDisadvantage, self: context.self },
+      context.formulaContext,
+    ),
   );
 
   const bonusTotal = bonusDiceFormulas.reduce(
@@ -969,11 +998,16 @@ export function applyTurnHealing(
   healed: number,
   tempHp: number,
 ): boolean {
+  const allowed = limitEntityHealing(entity, {
+    hitPoints: healed,
+    temporary: tempHp,
+  });
+
   const current = resolveEntityCurrentHp(entity);
   const max = resolveEntityMaxHp(entity);
   const temp = resolveEntityTempHp(entity);
-  const nextCurrent = Math.min(max, current + healed);
-  const nextTemp = Math.max(temp, tempHp);
+  const nextCurrent = Math.min(max, current + allowed.hitPoints);
+  const nextTemp = Math.max(temp, allowed.temporary);
 
   if (nextCurrent === current && nextTemp === temp) {
     return false;

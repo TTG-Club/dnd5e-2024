@@ -27,10 +27,12 @@ import {
   formatSavingThrowRequestTitle,
   getNaturalD20Roll,
   isDndSceneEntity,
+  listSavingThrowBonusKeys,
   parseNaturalD20Roll,
   parseSavingThrowResult,
   resolveActorStats,
   resolveAutoSaves,
+  resolveSavingThrowModifier,
   resolveSavingThrowRollMode,
   SAVING_THROW_REQUEST_KIND,
 } from '@vtt/shared/system/dnd.js';
@@ -69,6 +71,11 @@ export interface SavingThrowTarget {
    * нагрузке запроса — адресат обязан считать ТЕМ ЖЕ флагом, что и инициатор.
    */
   againstMagic?: boolean;
+  /**
+   * Спасбросок навязан именно заклинанием, а не ударом или действием
+   * существа: «Кольцо отражения заклинаний». Едет в нагрузке запроса.
+   */
+  againstSpell?: boolean;
   /**
    * Сущность, от чьего имени идёт действие (заклинатель, атакующий). По ней
    * сервер проверяет право игрока просить бросок; ГМу поле не требуется, но
@@ -147,6 +154,7 @@ function buildSavingThrowResult(
  * @param saveAbility - характеристика спасброска
  * @param options - контекст спасброска для флагов преимущества/помехи
  * @param options.againstMagic - спасбросок навязан магией
+ * @param options.againstSpell - спасбросок навязан заклинанием
  * @param options.againstCondition - состояние, которого он позволяет избежать
  * @param options.againstConcentration - спасбросок концентрации
  * @returns модификатор спасброска и флаги (преимущество/помеха/автопровал)
@@ -156,6 +164,7 @@ function getActorSaveInfo(
   saveAbility: AbilityType,
   options: {
     againstMagic: boolean;
+    againstSpell?: boolean;
     againstCondition?: ConditionRef;
     againstConcentration?: boolean;
   },
@@ -174,7 +183,7 @@ function getActorSaveInfo(
 
   const stats = resolveActorStats(entity);
 
-  const modifier = stats.saves[saveAbility] ?? 0;
+  const modifier = resolveSavingThrowModifier(stats, saveAbility, options);
 
   // `againstMagic` приходит от вызывающего: Мантия сопротивления заклинаниям
   // должна сработать на спасброске от заклинания и промолчать на спасброске
@@ -183,6 +192,7 @@ function getActorSaveInfo(
     flags: stats.activeFlags,
     ability: saveAbility,
     againstMagic: options.againstMagic,
+    againstSpell: options.againstSpell,
     againstCondition: options.againstCondition,
     againstConcentration: options.againstConcentration,
   });
@@ -196,14 +206,17 @@ function getActorSaveInfo(
 
   return {
     modifier,
-    evaluateBonusRollFormulas: buildRollBonusEvaluator(() => {
-      // Окно могло остаться открытым после замены сущности новым снимком мира.
-      const currentEntity = findCurrentWorldEntity(entity.id);
+    evaluateBonusRollFormulas: buildRollBonusEvaluator(
+      () => {
+        // Окно могло остаться открытым после замены сущности новым снимком мира.
+        const currentEntity = findCurrentWorldEntity(entity.id);
 
-      return currentEntity && isDndSceneEntity(currentEntity)
-        ? currentEntity
-        : undefined;
-    }, `save.${saveAbility}`),
+        return currentEntity && isDndSceneEntity(currentEntity)
+          ? currentEntity
+          : undefined;
+      },
+      listSavingThrowBonusKeys(saveAbility, options),
+    ),
     hasAdvantage,
     hasDisadvantage,
     autoFail,
@@ -219,6 +232,7 @@ function getActorSaveInfo(
 function resolveTargetSaveInfo(target: SavingThrowTarget): ActorSaveInfo {
   return getActorSaveInfo(target.entity, target.ability, {
     againstMagic: target.againstMagic ?? true,
+    againstSpell: target.againstSpell,
     againstCondition: target.againstCondition,
     againstConcentration: target.againstConcentration,
   });
@@ -239,6 +253,7 @@ function buildRollRequestOptions(
     ability: target.ability,
     dc: target.dc,
     againstMagic: target.againstMagic ?? true,
+    ...(target.againstSpell ? { againstSpell: true } : {}),
     againstCondition: target.againstCondition,
     ...(target.againstConcentration ? { againstConcentration: true } : {}),
     sourceName: target.sourceName,

@@ -11,6 +11,7 @@ import type {
   ActiveEffect,
   CreatureCategory,
   DamageDefenseOutcome,
+  SaveDamageDefense,
   Spell,
   TargetHpGate,
 } from '@vtt/shared/system/dnd.js';
@@ -26,6 +27,8 @@ import {
   getTargetSpellEffects,
   hasSourceTurnSaveDc,
   isDndSceneEntity,
+  listIgnoredResistances,
+  resolveActorStats,
   SAVE_TYPE_LABELS,
   stampAppliedEffect,
   withInitializedDuration,
@@ -33,6 +36,7 @@ import {
 
 import { SAVING_THROW_ROLL_LABELS } from '../ui/actor/constants';
 import { resolveActiveTurnActorId } from './encounterTurn';
+import { useWorldEntities } from './useWorldEntities';
 
 // Выбор эффектов заклинания по доставке живёт в движке (его проверяют тесты
 // правил), клиентские пути берут его отсюда же, как раньше
@@ -305,6 +309,50 @@ export function isSaveAbility(
   saveType: SpellSaveType,
 ): saveType is AbilityType {
   return saveType !== 'none';
+}
+
+/**
+ * Сопротивления, которые игнорирует урон атакующего («Сила могилы»).
+ *
+ * @param attackerId - атакующий; без него — ничего
+ * @returns типы урона
+ */
+export function resolveAttackerIgnoredResistances(
+  attackerId: string | undefined,
+): string[] {
+  if (!attackerId) {
+    return [];
+  }
+
+  const attacker = useWorldEntities().findCurrentWorldEntity(attackerId);
+
+  return attacker && isDndSceneEntity(attacker)
+    ? listIgnoredResistances(resolveActorStats(attacker).activeFlags)
+    : [];
+}
+
+/**
+ * Защиты цели от урона «половина при успехе» спасброска заклинания, оружия
+ * или действия: «Увёртливость» и «успех против магии — без урона».
+ *
+ * @param entity - цель
+ * @param spell - заклинание или псевдо-заклинание броска
+ * @returns защиты либо `undefined`, если спасброска или данных системы нет
+ */
+export function buildSaveDamageDefense(
+  entity: SceneEntity,
+  spell: Spell,
+): SaveDamageDefense | undefined {
+  if (!isSaveAbility(spell.saveType) || !isDndSceneEntity(entity)) {
+    return undefined;
+  }
+
+  return {
+    flags: resolveActorStats(entity).activeFlags,
+    ability: spell.saveType,
+    // Спасброски этих путей навязаны магией — как и у запроса броска
+    againstMagic: true,
+  };
 }
 
 /**

@@ -76,6 +76,7 @@ export function promptRequestedRoll(
     ability: payload.ability,
     dc: payload.dc,
     againstMagic: payload.againstMagic,
+    againstSpell: payload.againstSpell,
     againstCondition: payload.againstCondition,
     againstConcentration: payload.againstConcentration,
     sourceName: payload.sourceName,

@@ -17,6 +17,7 @@
 import type { EffectChangeKey, EffectChangeMode } from './activeEffectTypes.js';
 
 import {
+  ABILITY_CHECK_KEY,
   CARRIER_ARMOR_CONDITION_PREFIX,
   CARRIER_TYPE_CONDITION_PREFIX,
   EFFECT_CONDITION_SUGGESTIONS,
@@ -48,7 +49,7 @@ const EFFECT_MODIFIER_GROUP_LABELS: Record<EffectModifierGroup, string> = {
   terrain: 'Местность (только для зоны сцены)',
   abilities: 'Характеристики',
   saves: 'Спасброски',
-  skills: 'Навыки',
+  skills: 'Проверки и навыки',
   attack: 'Атака',
   damage: 'Урон',
   carrierType: 'Условие: тип носителя',
@@ -117,7 +118,8 @@ function groupOfKey(key: string): EffectModifierGroup {
     return 'saves';
   }
 
-  if (key.startsWith('skill.')) {
+  // Все проверки характеристик — рядом с навыками: навык тоже проверка
+  if (key.startsWith('skill.') || key === ABILITY_CHECK_KEY) {
     return 'skills';
   }
 

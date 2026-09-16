@@ -8,11 +8,13 @@
     EffectTargetKey,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { RollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import type { AbilityBonusSource } from './AbilityScore.vue';
 
   import { computed, ref, toRef } from 'vue';
 
   import {
+    ABILITY_CHECK_KEY,
     ABILITY_KEYS,
     ABILITY_SCORE_MAX,
     ABILITY_SCORE_MIN,
@@ -24,6 +26,7 @@
     resolveAbilityCheckRollMode,
   } from '@vtt/shared/system/dnd.js';
 
+  import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import AbilityScore from './AbilityScore.vue';
   import AbilityScoreSettingsModal from './AbilityScoreSettingsModal.vue';
@@ -248,6 +251,7 @@
     rollLabel: string;
     rollButtonText: string;
     initialRollMode: AttackRollMode;
+    evaluateBonusRollFormulas?: RollBonusEvaluator;
   }
 
   const diceRollConfig = ref<DiceRollConfig>({
@@ -330,7 +334,12 @@
     });
 
     diceRollConfig.value = {
-      modifier,
+      // Прибавка ко всем проверкам — только броску: плитка показывает модификатор
+      modifier: modifier + (resolvedStats.value?.abilityCheckBonus ?? 0),
+      evaluateBonusRollFormulas: buildRollBonusEvaluator(
+        () => props.actor,
+        ABILITY_CHECK_KEY,
+      ),
       title: `${ABILITY_CHECK_ROLL_LABELS.titlePrefix}${label}`,
       rollLabel: `${ABILITY_CHECK_ROLL_LABELS.rollPrefix}${label}`,
       rollButtonText: ABILITY_CHECK_ROLL_LABELS.button,
@@ -373,6 +382,7 @@
       :roll-label="diceRollConfig.rollLabel"
       :roll-button-text="diceRollConfig.rollButtonText"
       :initial-roll-mode="diceRollConfig.initialRollMode"
+      :evaluate-bonus-roll-formulas="diceRollConfig.evaluateBonusRollFormulas"
     />
 
     <!-- Модалка настройки характеристики: одна на все плитки -->

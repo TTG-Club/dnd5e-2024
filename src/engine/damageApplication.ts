@@ -34,7 +34,11 @@ import {
   readDamageHits,
   recordDamageHit,
 } from './damageHits.js';
-import { applyDamageDefenses, applyHpChange } from './damageUtils.js';
+import {
+  applyDamageDefenses,
+  applyHpChange,
+  withoutIgnoredResistances,
+} from './damageUtils.js';
 import {
   isImmuneToCondition,
   mergeAppliedEffects,
@@ -51,6 +55,7 @@ import {
   writeTriggerUsage,
 } from './effectTriggerUsage.js';
 import { buildFormulaContext } from './formulaParser.js';
+import { limitEntityHealing } from './healingLimits.js';
 import {
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
@@ -150,6 +155,14 @@ export function applyTargetDamage(
   let finalAmount = amount;
   let defenseOutcome: DamageDefenseOutcome = 'normal';
 
+  // Запрет лечения: «не может восстанавливать хиты»
+  if (isHealing) {
+    finalAmount = limitEntityHealing(entity, {
+      hitPoints: amount,
+      temporary: 0,
+    }).hitPoints;
+  }
+
   // Учитываем защиты цели: иммунитет (урон 0), сопротивление (½), уязвимость (×2)
   if (!isHealing && damageType) {
     const stats = resolveActorStats(entity);
@@ -157,7 +170,10 @@ export function applyTargetDamage(
     const defenseResult = applyDamageDefenses(
       amount,
       damageType,
-      stats.damageDefenses,
+      withoutIgnoredResistances(
+        stats.damageDefenses,
+        parseDamageHitDetails(details).ignoredResistances,
+      ),
     );
 
     finalAmount = defenseResult.finalDamage;

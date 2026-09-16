@@ -16,11 +16,14 @@
     DnDSkillSettings,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { RollBonusEvaluator } from '../../composables/rollBonusEvaluator';
+
   import { computed, ref, toRef } from 'vue';
 
   import FieldsetLabel from '@/shared_ui/components/FieldsetLabel.vue';
   import { DISTANCE_UNIT_SHORT } from '@vtt/shared';
   import {
+    ABILITY_CHECK_KEY,
     ABILITY_LABELS,
     calculateAbilityModifier,
     getActorAbilityModifiers,
@@ -42,6 +45,7 @@
     SKILLS_LIST,
   } from '@vtt/shared/system/dnd.js';
 
+  import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import ClassCounters from './ClassCounters.vue';
   import {
@@ -241,6 +245,7 @@
     rollLabel: string;
     rollButtonText: string;
     initialRollMode: AttackRollMode;
+    evaluateBonusRollFormulas?: RollBonusEvaluator;
   }
 
   const diceRollConfig = ref<DiceRollConfig>({
@@ -656,6 +661,10 @@
 
     openDiceRoll({
       modifier: row.modifier,
+      evaluateBonusRollFormulas: buildRollBonusEvaluator(
+        () => props.actor,
+        ABILITY_CHECK_KEY,
+      ),
       title: `${ABILITY_CHECK_ROLL_LABELS.titlePrefix}${row.label}`,
       rollLabel: `${ABILITY_CHECK_ROLL_LABELS.rollPrefix}${row.label}`,
       rollButtonText: ABILITY_CHECK_ROLL_LABELS.button,
@@ -838,6 +847,7 @@
     :roll-label="diceRollConfig.rollLabel"
     :roll-button-text="diceRollConfig.rollButtonText"
     :initial-roll-mode="diceRollConfig.initialRollMode"
+    :evaluate-bonus-roll-formulas="diceRollConfig.evaluateBonusRollFormulas"
   />
 
   <!-- Модалка движения -->

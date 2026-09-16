@@ -276,11 +276,18 @@ export interface EffectApplication {
  * @param context - результат приземления и (если был) спасброска эффекта
  * @param context.landed - провалена ли защита уровня действия (см. выше)
  * @param context.applySaveSucceeded - прошла ли цель `applySave` (если кидался)
+ * @param context.targetFlags - флаги цели: «Увёртливость» на спасброске эффекта
+ * @param context.againstMagic - спасбросок эффекта навязан магией
  * @returns применимость эффекта и множитель его урона
  */
 export function resolveEffectApplication(
   effect: ActiveEffect,
-  context: { landed: boolean; applySaveSucceeded?: boolean },
+  context: {
+    landed: boolean;
+    applySaveSucceeded?: boolean;
+    targetFlags?: ReadonlySet<string>;
+    againstMagic?: boolean;
+  },
 ): EffectApplication {
   // Прошла ли цель релевантный спасбросок?
   const saved = effect.applySave
@@ -291,8 +298,22 @@ export function resolveEffectApplication(
   // успехе» на провале не бьёт и не ложится, «половина» бьёт при любом исходе
   const gates = resolveEffectLandingGates(effect);
 
+  const defense =
+    effect.applySave && context.targetFlags
+      ? {
+          flags: context.targetFlags,
+          ability: effect.applySave.ability,
+          againstMagic: context.againstMagic,
+        }
+      : undefined;
+
   return {
     applyEffect: resolveGateScale(gates.effect, saved, false) > 0,
-    damageMultiplier: resolveGateScale(gates.damage, saved, gates.halfOnSave),
+    damageMultiplier: resolveGateScale(
+      gates.damage,
+      saved,
+      gates.halfOnSave,
+      defense,
+    ),
   };
 }

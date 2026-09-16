@@ -45,8 +45,10 @@ import type { BonusDamageFormula, TargetHpGate } from './spellUtils.js';
 import { isCreatureEntity, isRecord } from '@vtt/shared';
 
 import {
+  ABILITY_CHECK_KEY,
   CARRIER_ARMOR_CONDITION_PREFIX,
   CARRIER_TYPE_CONDITION_PREFIX,
+  CONCENTRATION_SAVE_KEY,
   DEFAULT_CRIT_THRESHOLD,
   isCarrierEffect,
   isSenseType,
@@ -139,6 +141,7 @@ const BONUS_SCOPE_SET: ReadonlySet<string> = new Set(BONUS_SCOPES);
  * изменения пропускает, а Фаза 3 применяет их поверх посчитанного по правилам.
  */
 const DERIVED_TARGET_KEYS: ReadonlySet<string> = new Set([
+  ABILITY_CHECK_KEY,
   'armorClass',
   'initiative',
   'proficiencyBonus',
@@ -256,17 +259,35 @@ function createEmptyMovementRecord(): Record<MovementType, number> {
 }
 
 /**
- * Нулевая заготовка дальностей чувств.
+ * Тёмное зрение, настроенное на токене сущности: его дали вид, класс или черта.
+ * От него считается `sense.darkvision` режимом «Добавить» — «если тёмное
+ * зрение уже есть, его дальность растёт на 60 футов, иначе появляется тёмное
+ * зрение 60 футов».
  *
- * Базы у чувств нет: ни у актора, ни у существа нет числового поля чувств —
- * дальность целиком приходит эффектами (`sense.*`). Поэтому фаза 1 ставит нули,
- * а не читает `system`.
- *
- * @returns запись «вид чувства → 0»
+ * @param actor - сущность
+ * @returns дальность в футах; `0` — нет
  */
-function createEmptySenseRecord(): Record<SenseType, number> {
+function resolveTokenDarkvision(actor: DnDActor | DnDCreature): number {
+  const vision = actor.token?.vision;
+
+  return vision?.enabled ? vision.darkvision : 0;
+}
+
+/**
+ * Заготовка дальностей чувств.
+ *
+ * Числового поля чувств у сущности нет — дальность приходит эффектами
+ * (`sense.*`). Исключение — тёмное зрение: база берётся с зрения токена, чтобы
+ * «Добавить 60» складывалось с тёмным зрением вида.
+ *
+ * @param actor - сущность
+ * @returns запись «вид чувства → база»
+ */
+function createBaseSenseRecord(
+  actor: DnDActor | DnDCreature,
+): Record<SenseType, number> {
   return {
-    darkvision: 0,
+    darkvision: resolveTokenDarkvision(actor),
     blindsight: 0,
     truesight: 0,
     tremorsense: 0,
@@ -295,7 +316,7 @@ export function prepareBaseData(
   const saves = createEmptyAbilityRecord();
   const skills = createEmptySkillRecord();
   const movement = createEmptyMovementRecord();
-  const senses = createEmptySenseRecord();
+  const senses = createBaseSenseRecord(actor);
 
   // Характеристики
   for (const abilityKey of ABILITY_KEYS) {
@@ -323,6 +344,9 @@ export function prepareBaseData(
     abilityMods,
     saves,
     skills,
+    // Заполняются в prepareDerivedData: база у них — ноль
+    abilityCheckBonus: 0,
+    concentrationSaveBonus: 0,
     armorClass: system.armorClass?.value ?? BASE_UNARMORED_AC,
     initiative: 0,
     proficiencyBonus: 0,
@@ -1158,7 +1182,8 @@ function isRollTimeDiceChange(change: EffectChange): boolean {
     isDiceFormulaValue(change.value)
     && (change.key.startsWith('damage.')
       || change.key.startsWith('attack.')
-      || change.key.startsWith('save.'))
+      || change.key.startsWith('save.')
+      || change.key === ABILITY_CHECK_KEY)
   );
 }
 
@@ -1221,7 +1246,11 @@ export function collectBonusRollFormulas(
   rollContext: RollContext,
   formulaContext?: FormulaContext,
 ): string[] {
-  if (!targetKey.startsWith('attack.') && !targetKey.startsWith('save.')) {
+  if (
+    !targetKey.startsWith('attack.')
+    && !targetKey.startsWith('save.')
+    && targetKey !== ABILITY_CHECK_KEY
+  ) {
     return [];
   }
 
@@ -2076,7 +2105,25 @@ export function prepareDerivedData(
     );
   }
 
-  // 5. Навыки
+  // Концентрация — отдельная прибавка поверх спасброска Телосложения
+  derivedStats.concentrationSaveBonus = applyDerivedChanges(
+    derivedStats,
+    CONCENTRATION_SAVE_KEY,
+    0,
+    derivedChanges,
+    formulaContext,
+  );
+
+  // 5. Навыки. Прибавка ко всем проверкам характеристик входит и в навык:
+  // проверка навыка — та же проверка характеристики
+  derivedStats.abilityCheckBonus = applyDerivedChanges(
+    derivedStats,
+    ABILITY_CHECK_KEY,
+    0,
+    derivedChanges,
+    formulaContext,
+  );
+
   const skillSettings = parseSkillSettings(
     isRecord(system) ? system.skillSettings : undefined,
   );
@@ -2114,7 +2161,8 @@ export function prepareDerivedData(
     const ruleSkill =
       derivedStats.abilityMods[baseAbility]
       + profContribution
-      + getCustomBonusesValue(bonusContext, skillSetting.bonuses);
+      + getCustomBonusesValue(bonusContext, skillSetting.bonuses)
+      + derivedStats.abilityCheckBonus;
 
     derivedStats.skills[skillKey] = applyDerivedChanges(
       derivedStats,
@@ -2491,6 +2539,8 @@ function cloneResolvedStats(stats: ResolvedActorStats): ResolvedActorStats {
     abilityMods: { ...stats.abilityMods },
     saves: { ...stats.saves },
     skills: { ...stats.skills },
+    abilityCheckBonus: stats.abilityCheckBonus,
+    concentrationSaveBonus: stats.concentrationSaveBonus,
     armorClass: stats.armorClass,
     initiative: stats.initiative,
     proficiencyBonus: stats.proficiencyBonus,

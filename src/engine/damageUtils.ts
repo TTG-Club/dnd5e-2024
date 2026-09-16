@@ -287,6 +287,49 @@ export function applyDamageDefenses(
   return { finalDamage, outcome };
 }
 
+/** Приставка флага атакующего «урон этого типа игнорирует сопротивление» */
+export const IGNORE_RESISTANCE_FLAG_PREFIX = 'damage.ignoreResistance.';
+
+/**
+ * Типы урона, чьё сопротивление игнорирует урон носителя флагов.
+ *
+ * @param flags - активные флаги атакующего
+ * @returns типы урона
+ */
+export function listIgnoredResistances(
+  flags: ReadonlySet<string>,
+): DefensibleDamageType[] {
+  return DEFENSIBLE_DAMAGE_TYPES.filter((damageType) =>
+    flags.has(`${IGNORE_RESISTANCE_FLAG_PREFIX}${damageType}`),
+  );
+}
+
+/**
+ * Защиты цели без сопротивлений, которые урон атакующего игнорирует
+ * («Сила могилы»). Иммунитет и уязвимость остаются.
+ *
+ * @param defenses - защиты цели
+ * @param ignored - типы урона, чьё сопротивление игнорируется
+ * @returns защиты для этого удара
+ */
+export function withoutIgnoredResistances(
+  defenses: DamageDefenses,
+  ignored: readonly string[] | undefined,
+): DamageDefenses {
+  if (!ignored || ignored.length === 0) {
+    return defenses;
+  }
+
+  const ignoredSet = new Set(ignored);
+
+  return {
+    ...defenses,
+    resistances: new Set(
+      [...defenses.resistances].filter((type) => !ignoredSet.has(type)),
+    ),
+  };
+}
+
 /**
  * Применяет защиты к урону, который имеет НЕСКОЛЬКО типов одновременно
  * (напр. «рубящий и огненный» от одной кости). Выбирается результат, наиболее

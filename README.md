@@ -300,19 +300,20 @@ npm run release -- 0.2.5     # явный номер
 
 | Часть | Сколько | Где список |
 |---|---|---|
-| Ключи изменений (`changes`) | 52 | `EFFECT_TARGET_SUGGESTIONS` |
+| Ключи изменений (`changes`) | 55 | `EFFECT_TARGET_SUGGESTIONS` |
 | Режимы изменения | 6 | `EFFECT_CHANGE_MODE_LABELS` |
-| Флаги | 96 | `EFFECT_FLAG_LABELS` |
-| Условия | 38 | `EFFECT_CONDITION_SUGGESTIONS` |
-| Подсказки значений | 31 | `EFFECT_VALUE_SUGGESTIONS` |
+| Флаги | 192 | `EFFECT_FLAG_LABELS` |
+| Условия | 46 | `EFFECT_CONDITION_SUGGESTIONS` |
+| Подсказки значений | 32 | `EFFECT_VALUE_SUGGESTIONS` |
 
-Ключи по группам: `ability.*` (6), `save.*` (6), `skill.*` (18), `attack.*` (3),
-`damage.*` (3), `movement.*` (5), `sense.*` (5), `terrain.*` (1) и пять
-одиночных — `armorClass`, `initiative`, `proficiencyBonus`, `spellSaveDC`,
-`hitPoints.max`. Пустой ключ допустим: строку завёл готовый пункт меню ради
+Ключи по группам: `ability.*` (6), `save.*` (6 и `save.concentration` — только
+спасброски концентрации), `skill.*` (18), `abilityCheck` (все проверки
+характеристик, навыки тоже), `attack.*` (3), `damage.*` (3), `movement.*` (5),
+`sense.*` (5), `terrain.*` (1) и одиночные — `armorClass`, `initiative`,
+`proficiencyBonus`, `spellSaveDC`, `hitPoints.max`, `critThreshold`. Пустой ключ допустим: строку завёл готовый пункт меню ради
 условия, а что менять — автор назовёт сам; на расчёт такая строка не влияет.
 
-Для `attack.melee`, `attack.ranged`, `attack.spell` и шести `save.*` режим
+Для `attack.melee`, `attack.ranged`, `attack.spell`, `save.*` и `abilityCheck` режим
 `add` принимает кубиковые бонусы, например `1d4` у «Благословения». На одну проверку
 допускается суммарно не более 1000 бонусных костей, не более 1 000 000 граней
 у каждой кости; отрицательные кости тоже расходуют общий предел. Неподдержанная
@@ -325,7 +326,9 @@ d20, а не по сумме с бонусной костью. Для «Благ
 с `mode: add`, `value: 1d4`: три ключа атаки и шесть ключей спасбросков.
 
 `sense.*` (тёмное зрение, слепое, истинное, чувство вибрации, телепатия) —
-СПРАВКА, а не механика сцены: см. § «Чего не хватает», п. 12.
+СПРАВКА, а не механика сцены: см. § «Чего не хватает», п. 12. База тёмного
+зрения — зрение токена: «Добавить 60» даёт +60 к тёмному зрению вида или 60 без
+него, «Повысить до 60» — не меньше 60.
 
 `terrain.movementCost` — правило ЗОНЫ, а не листа, и это единственный ключ,
 который трёхфазный конвейер не считает вовсе. Его читает `resolveAreaTerrainCost`
@@ -340,6 +343,20 @@ d20, а не по сумме с бонусной костью. Для «Благ
 Иммунитеты к состояниям и защиты от урона — не изменения: первые лежат в поле
 `conditionImmunities`, вторые во флагах `resistance.*` / `immunity.*` /
 `vulnerability.*`.
+
+Флаги с одной точкой исполнения на все пути:
+
+| Флаг | Что делает | Где читается |
+|---|---|---|
+| `healing.blocked`, `healing.tempBlocked` | хиты / временные хиты не восстанавливаются (ручная правка и кнопки ГМа — исключение) | `healingLimits.ts` |
+| `save.evasion.<характеристика>` | спасбросок «половина при успехе»: успех — без урона, провал — половина; недееспособному не помогает | `saveDamage.ts` |
+| `save.negateOnSuccess.vsMagic` | успех такого спасброска против магии — без урона | `saveDamage.ts` |
+| `save.advantage/disadvantage.vsSpell` | только спасброски против заклинаний (`againstSpell`), не любой магии | `resolveSavingThrowRollMode` |
+| `attacksAgainst.spell.*` | атаки заклинаниями по носителю | `resolveAttackRollMode` |
+| `damage.ignoreResistance.<тип>` | урон носителя этого типа не уменьшает сопротивление цели | `withoutIgnoredResistances` |
+
+Спасбросок «против заклинания» различает псевдо-заклинания: удар оружием,
+действие существа и предмет несут `Spell.rollSource` (`isSpellRoll`).
 
 ### Окно эффекта: что где работает
 

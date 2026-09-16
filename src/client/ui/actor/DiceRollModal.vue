@@ -36,6 +36,7 @@
     scaleDamageFormula,
   } from '@vtt/shared/system/dnd.js';
 
+  import { resolveAttackerIgnoredResistances } from '../../composables/spellResolutionShared';
   import {
     dispatchAttackRollTriggers,
     reportAttackRoll,
@@ -729,9 +730,17 @@
    * @returns подробности удара
    */
   function buildHitDetails(critical: boolean): DamageHitDetails {
-    return props.attackerId
-      ? { critical, sourceId: props.attackerId }
-      : { critical };
+    if (!props.attackerId) {
+      return { critical };
+    }
+
+    const ignoredResistances = resolveAttackerIgnoredResistances(
+      props.attackerId,
+    );
+
+    return ignoredResistances.length > 0
+      ? { critical, sourceId: props.attackerId, ignoredResistances }
+      : { critical, sourceId: props.attackerId };
   }
 
   /**

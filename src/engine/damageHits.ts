@@ -119,9 +119,15 @@ export function toDamageHits(
 const DamageHitDetailsSchema = z.object({
   critical: z.boolean().catch(false),
   sourceId: z.string().min(1).optional().catch(undefined),
+  /** Типы урона, чьё сопротивление цели удар игнорирует */
+  ignoredResistances: z
+    .array(z.string().min(1))
+    .max(MAX_DAMAGE_HIT_TYPES)
+    .optional()
+    .catch(undefined),
 });
 
-/** Подробности удара: крит и кто бил */
+/** Подробности удара: крит, кто бил и какие сопротивления игнорирует */
 export type DamageHitDetails = z.infer<typeof DamageHitDetailsSchema>;
 
 /**

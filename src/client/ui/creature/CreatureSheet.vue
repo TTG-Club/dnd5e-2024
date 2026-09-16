@@ -33,6 +33,7 @@
   import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { generateId, isEntityOwner } from '@vtt/shared';
   import {
+    ABILITY_CHECK_KEY,
     applyCreatureRest,
     calculateAbilityModifier,
     CR_TABLE,
@@ -880,6 +881,10 @@
 
     openDiceRoll({
       modifier: badge.modifier,
+      evaluateBonusRollFormulas: buildRollBonusEvaluator(
+        () => localCreature.value ?? undefined,
+        ABILITY_CHECK_KEY,
+      ),
       title: `${ABILITY_CHECK_ROLL_LABELS.titlePrefix}${badge.name}`,
       rollLabel: `${ABILITY_CHECK_ROLL_LABELS.rollPrefix}${badge.name}`,
       rollButtonText: ABILITY_CHECK_ROLL_LABELS.button,

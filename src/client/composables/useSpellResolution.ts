@@ -51,6 +51,8 @@ import {
   getSpellPrimaryDamageType,
   getSpellSaveCondition,
   isDndSceneEntity,
+  isSpellRoll,
+  limitEntityHealing,
   mergeAppliedEffects,
   recordDamageHit,
   resolveActorStats,
@@ -59,20 +61,24 @@ import {
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
   resolveEntityTempHp,
+  resolveSaveEffectScale,
   spellHasDamage,
   spellHealsTempHp,
   spellIsHealing,
   withInitializedDuration,
+  withoutIgnoredResistances,
   writeEntityHitPoints,
 } from '@vtt/shared/system/dnd.js';
 
 import { SPELL_NO_TARGETS_LABELS } from '../ui/actor/constants';
 import {
+  buildSaveDamageDefense,
   formatRolledPartLine,
   formatSaveCancelledMessage,
   getPartKindLabel,
   isSaveAbility,
   partPassesTargetGate,
+  resolveAttackerIgnoredResistances,
 } from './spellResolutionShared';
 import { useSpellDamageWithParts } from './useSpellDamageWithParts';
 import { useSpellSavingThrows } from './useSpellSavingThrows';
@@ -216,7 +222,10 @@ export function useSpellResolution() {
       const defenseResult = applyDamageDefenses(
         damage,
         damageType,
-        stats.damageDefenses,
+        withoutIgnoredResistances(
+          stats.damageDefenses,
+          resolveAttackerIgnoredResistances(options.hit?.sourceId),
+        ),
       );
 
       finalDamage = defenseResult.finalDamage;
@@ -229,6 +238,12 @@ export function useSpellResolution() {
 
     const tempBefore = resolveEntityTempHp(entity);
 
+    // Запрет лечения: «не может восстанавливать хиты» / «временные хиты»
+    const healing = limitEntityHealing(entity, {
+      hitPoints: isHealing && !healTemp ? finalDamage : 0,
+      temporary: isHealing && healTemp ? finalDamage : 0,
+    });
+
     // Урон сначала снимает временные ХП (правило 5e), лечение их не трогает;
     // @heal.temp не лечит текущие хиты — даёт временные (ниже)
     const hpChange = applyHpChange({
@@ -236,14 +251,11 @@ export function useSpellResolution() {
       maxHp,
       tempBefore,
       damage: isHealing ? 0 : finalDamage,
-      heal: isHealing && !healTemp ? finalDamage : 0,
+      heal: healing.hitPoints,
     });
 
     // @heal.temp: временные ХП не суммируются с имеющимися — берётся большее
-    const tempAfter =
-      isHealing && healTemp
-        ? Math.max(hpChange.tempAfter, finalDamage)
-        : hpChange.tempAfter;
+    const tempAfter = Math.max(hpChange.tempAfter, healing.temporary);
 
     const hpAfter = hpChange.hpAfter;
 
@@ -314,31 +326,35 @@ export function useSpellResolution() {
    * @param entity - сущность-цель
    * @param bonusParts - брошенные бонус-части (значения общие на каст)
    * @param saveResult - результат спасброска цели (если был)
-   * @param saveEffect - эффект успешного спасброска заклинания
+   * @param spell - заклинание: что даёт успех и его характеристика
+   * @param attackerId - заклинатель: какие сопротивления игнорирует его урон
    * @returns суммарный бонус-урон с учётом гейтов, спасброска и защит
    */
   function computeBonusDamageForEntity(
     entity: DnDSceneEntity,
     bonusParts: RolledSpellDamagePart[],
     saveResult: SavingThrowResult | undefined,
-    saveEffect: Spell['saveEffect'],
+    spell: Spell,
+    attackerId: string | undefined,
   ): number {
     let total = 0;
+
+    const defense = buildSaveDamageDefense(entity, spell);
+    const ignoredResistances = resolveAttackerIgnoredResistances(attackerId);
 
     for (const part of bonusParts) {
       if (part.amount <= 0 || !partPassesTargetGate(part, entity)) {
         continue;
       }
 
-      let partDamage = part.amount;
-
-      if (saveResult?.passed) {
-        if (saveEffect === 'half') {
-          partDamage = Math.floor(partDamage / 2);
-        } else if (saveEffect === 'none') {
-          partDamage = 0;
-        }
-      }
+      let partDamage = Math.floor(
+        part.amount
+          * resolveSaveEffectScale(
+            spell.saveEffect,
+            saveResult?.passed,
+            defense,
+          ),
+      );
 
       if (part.type) {
         const stats = resolveActorStats(entity);
@@ -346,7 +362,7 @@ export function useSpellResolution() {
         partDamage = applyDamageDefenses(
           partDamage,
           part.type,
-          stats.damageDefenses,
+          withoutIgnoredResistances(stats.damageDefenses, ignoredResistances),
         ).finalDamage;
       }
 
@@ -394,23 +410,19 @@ export function useSpellResolution() {
         ability: spell.saveType,
         dc: spellSaveDC,
         againstCondition: getSpellSaveCondition(spell),
+        againstSpell: isSpellRoll(spell),
         sourceEntityId: context.casterId,
         sourceName: spell.name,
       });
 
-      if (saveResult.passed) {
-        switch (spell.saveEffect) {
-          case 'half':
-            finalDamage = Math.floor(damageTotal / 2);
-
-            break;
-          case 'none':
-            finalDamage = 0;
-
-            break;
-          // 'special' — полный урон (обрабатывается вручную)
-        }
-      }
+      finalDamage = Math.floor(
+        damageTotal
+          * resolveSaveEffectScale(
+            spell.saveEffect,
+            saveResult.passed,
+            buildSaveDamageDefense(entity, spell),
+          ),
+      );
     }
 
     // Применяем урон (overrideDamageType для заклинаний с выбором стихии)
@@ -448,7 +460,8 @@ export function useSpellResolution() {
           entity,
           bonusParts,
           saveResult,
-          spell.saveEffect,
+          spell,
+          context.casterId,
         ) + targetEffects.bonusDamage;
 
     const damageResult = applyResultsToEntity(
@@ -669,6 +682,7 @@ export function useSpellResolution() {
             ability: saveAbility,
             dc: spellSaveDC,
             againstCondition: getSpellSaveCondition(spell),
+            againstSpell: isSpellRoll(spell),
             sourceEntityId: context.casterId,
             sourceName: spell.name,
           })),

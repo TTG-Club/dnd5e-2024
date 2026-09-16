@@ -12,6 +12,7 @@ import {
   hasLastingEffectPayload,
   isDndSceneEntity,
   isImmuneToCondition,
+  isSpellRoll,
   resolveActorStats,
   resolveEffectApplication,
   resolveEffectSaveDc,
@@ -177,6 +178,7 @@ export function useTargetEffectResolution() {
         ability: effect.applySave.ability,
         dc: resolveEffectSaveDc(effect.applySave.dc, input.spellSaveDC),
         againstCondition: effect.conditionKey,
+        againstSpell: isSpellRoll(input.spell),
         sourceEntityId: input.casterId,
         sourceName: effect.name,
       });
@@ -215,6 +217,7 @@ export function useTargetEffectResolution() {
           ability: effect.applySave.ability,
           dc: resolveEffectSaveDc(effect.applySave.dc, input.spellSaveDC),
           againstCondition: effect.conditionKey,
+          againstSpell: isSpellRoll(input.spell),
           sourceEntityId: input.casterId,
           sourceName: effect.name,
         }),
@@ -252,6 +255,11 @@ export function useTargetEffectResolution() {
       ? getEntityConditionImmunities(entity)
       : [];
 
+    // Флаги цели — для «Увёртливости» на спасброске эффекта
+    const targetFlags = isDndSceneEntity(entity)
+      ? resolveActorStats(entity).activeFlags
+      : undefined;
+
     const effects: ActiveEffect[] = [];
     const damageLines: EffectDamageLine[] = [];
 
@@ -262,6 +270,8 @@ export function useTargetEffectResolution() {
       const application = resolveEffectApplication(effect, {
         landed,
         applySaveSucceeded: effectSaves.get(effect.id)?.passed,
+        targetFlags,
+        againstMagic: true,
       });
 
       if (

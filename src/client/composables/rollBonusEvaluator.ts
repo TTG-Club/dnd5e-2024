@@ -26,13 +26,15 @@ export type RollBonusEvaluator = (context: RollContext) => string[];
  * Создаёт сборщик актуальных бонусных костей для окна атаки или спасброска.
  * Читает носителя и ауры при броске, чтобы снятый после открытия окна эффект не сработал.
  * @param getEntity - текущая сущность, выполняющая бросок
- * @param targetKey - ключ бонуса атаки или спасброска
+ * @param targetKeys - ключ бонуса атаки, спасброска или проверки; у спасброска
+ *   концентрации их два
  * @returns сборщик формул по фактическому режиму броска
  */
 export function buildRollBonusEvaluator(
   getEntity: () => DnDSceneEntity | null | undefined,
-  targetKey: EffectTargetKey,
+  targetKeys: EffectTargetKey | readonly EffectTargetKey[],
 ): RollBonusEvaluator {
+  const keys = typeof targetKeys === 'string' ? [targetKeys] : targetKeys;
   const { combinedEffects } = useResolvedStats(computed(getEntity));
   const { buildTargetHpContext } = useBonusDamageParts();
 
@@ -43,16 +45,22 @@ export function buildRollBonusEvaluator(
       return [];
     }
 
-    return collectBonusRollFormulas(
-      combinedEffects.value,
-      targetKey,
-      {
-        ...context,
-        // Явно переданная неизвестная цель не заменяется отдельно выбранным токеном.
-        target: 'target' in context ? context.target : buildTargetHpContext(),
-        self: buildCarrierContext(entity),
-      },
-      buildFormulaContext(entity),
+    const rollContext = {
+      ...context,
+      // Явно переданная неизвестная цель не заменяется отдельно выбранным токеном.
+      target: 'target' in context ? context.target : buildTargetHpContext(),
+      self: buildCarrierContext(entity),
+    };
+
+    const formulaContext = buildFormulaContext(entity);
+
+    return keys.flatMap((targetKey) =>
+      collectBonusRollFormulas(
+        combinedEffects.value,
+        targetKey,
+        rollContext,
+        formulaContext,
+      ),
     );
   };
 }

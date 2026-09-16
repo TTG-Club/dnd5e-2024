@@ -22,6 +22,7 @@ import type {
   EffectTriggerEvent,
   EffectTriggerSave,
 } from './effectTriggerTypes.js';
+import type { SaveDamageDefense } from './saveDamage.js';
 import type { TriggerEventData } from './triggerConditions.js';
 import type {
   EffectSaveSpec,
@@ -79,7 +80,7 @@ import {
   applyTurnHealing,
   buildApplySaveSpec,
   buildEffectSavingThrowContext,
-  isMagicalEffect,
+  resolveEffectMagicCircumstances,
   rollEffectDamage,
   rollEffectHealing,
   rollEffectSaveOutcome,
@@ -208,8 +209,9 @@ export function buildTriggerSaveSpec(
     effectName: effect.name,
     ability: trigger.save.ability,
     dc: resolveTriggerSaveDc(trigger.save, event),
-    againstMagic: isMagicalEffect(effect) && !effect.concentration,
-    ...(effect.concentration ? { againstConcentration: true } : {}),
+    ...(effect.concentration
+      ? { againstMagic: false, againstConcentration: true }
+      : resolveEffectMagicCircumstances(effect)),
   };
 
   return triggerHasEffects(trigger)
@@ -247,17 +249,20 @@ export function toTriggerSaveOutcome(
  * @param trigger - срабатывание
  * @param action - действие
  * @param passed - пройден ли спасбросок (без спасброска — нет)
+ * @param defense - защиты бросившего («Увёртливость»)
  * @returns доля
  */
 export function resolveTriggerActionScale(
   trigger: EffectTrigger,
   action: EffectTriggerAction,
   passed: boolean,
+  defense?: SaveDamageDefense,
 ): number {
   return resolveGateScale(
     resolveTriggerActionGate(trigger, action),
     passed,
     action.type === 'damage' && action.halfOnSave === true,
+    defense,
   );
 }
 
@@ -281,12 +286,20 @@ export function rollTriggerDamage(
 ): TurnDamageOutcome | null {
   let outcome: TurnDamageOutcome | null = null;
 
+  const defense = trigger.save
+    ? {
+        flags: stats.activeFlags,
+        ability: trigger.save.ability,
+        againstMagic: resolveEffectMagicCircumstances(effect).againstMagic,
+      }
+    : undefined;
+
   for (const action of trigger.actions) {
     if (action.type !== 'damage') {
       continue;
     }
 
-    const scale = resolveTriggerActionScale(trigger, action, passed);
+    const scale = resolveTriggerActionScale(trigger, action, passed, defense);
 
     if (scale <= 0) {
       continue;
