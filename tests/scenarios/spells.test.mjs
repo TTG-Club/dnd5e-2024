@@ -966,3 +966,41 @@ describe('каталог: срабатывания заклинаний', () => 
     );
   });
 });
+
+describe('каталог: варианты заклинаний', () => {
+  it('[S27] Глухота/слепота: ложится один выбранный вариант', () => {
+    const blinded = createEffect('Слепота', {
+      effectTarget: 'target',
+      conditionKey: 'blinded',
+      variant: { group: 'чувство', label: 'Слепота' },
+    });
+
+    const deafened = createEffect('Глухота', {
+      effectTarget: 'target',
+      conditionKey: 'deafened',
+      variant: { group: 'чувство', label: 'Глухота' },
+    });
+
+    authoredScenario(blinded, 'spell');
+
+    assert.match(
+      engine.describeEffectScenario(blinded, 'spell'),
+      /^Вариант «Слепота»\. /,
+    );
+
+    const effects = [blinded, deafened, createEffect('Без варианта')];
+
+    assert.deepEqual(
+      engine
+        .pickEffectVariants(effects, { чувство: 'Глухота' })
+        .map((effect) => effect.name),
+      ['Глухота', 'Без варианта'],
+    );
+
+    assert.deepEqual(
+      engine.pickEffectVariants(effects, {}).map((effect) => effect.name),
+      ['Без варианта'],
+      'без выбора группа не ложится вовсе',
+    );
+  });
+});

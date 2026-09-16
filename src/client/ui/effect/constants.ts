@@ -14,6 +14,7 @@ import type {
   EffectFormStep,
   EffectSaveUnavailableReason,
   EffectSuccessOutcome,
+  EffectVariantPick,
   InertEffectField,
 } from '@vtt/shared/system/dnd.js';
 
@@ -390,6 +391,8 @@ export const EFFECT_INERT_FIELDS_LABELS = {
 
 /** Названия неработающих настроек */
 export const EFFECT_INERT_FIELD_NAMES: Record<InertEffectField, string> = {
+  landingCondition: 'условие наложения',
+  variant: 'вариант',
   effectTarget: 'на кого накладывается',
   aura: 'аура',
   areaTrigger: 'момент срабатывания',
@@ -402,6 +405,46 @@ export const EFFECT_INERT_FIELD_NAMES: Record<InertEffectField, string> = {
   duration: 'длительность',
   conditionImmunities: 'иммунитет к состояниям',
   triggers: 'срабатывания не для этого места',
+};
+
+/** Подписи условия наложения */
+export const EFFECT_LANDING_CONDITION_LABELS = {
+  title: 'Ложится, если',
+  always: 'Без условия — ложится всегда.',
+  hint:
+    'Условие считается до урона этого удара. Нужны хиты после урона — '
+    + 'срабатывание «При наложении на цель».',
+} as const;
+
+/** Подписи варианта эффекта */
+export const EFFECT_VARIANT_LABELS = {
+  toggle: 'Один из вариантов',
+  toggleHint:
+    'Из эффектов одной группы ложится один: его выбирают при броске или '
+    + 'бросают случайно.',
+  group: 'Группа',
+  label: 'Вариант',
+  pick: 'Выбор',
+  defaultGroup: 'вариант',
+} as const;
+
+/** Приставка ключа плашки выбора варианта */
+export const EFFECT_VARIANT_MODAL_KEY_PREFIX = 'effect-variant';
+
+/** Подписи плашки выбора варианта и строки чата */
+export const EFFECT_VARIANT_PROMPT_LABELS = {
+  titlePrefix: '«',
+  titleSuffix: '»: какой вариант?',
+  confirm: 'Выбрать',
+  cancel: 'Отменить',
+  chatSeparator: ': ',
+  chatJoiner: ', ',
+} as const;
+
+/** Как выбирается вариант группы */
+export const EFFECT_VARIANT_PICK_LABELS: Record<EffectVariantPick, string> = {
+  choose: 'Выбирает бросающий',
+  random: 'Случайно',
 };
 
 /** Подписи сворачиваемого раздела «Описание» */

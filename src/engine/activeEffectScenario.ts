@@ -30,7 +30,10 @@ import {
   readEffectSuccessOutcome,
   resolveEffectFormLayout,
 } from './effectFormLayout.js';
-import { describeEffectTrigger } from './effectTriggerDescribe.js';
+import {
+  describeEffectTrigger,
+  describeTriggerCondition,
+} from './effectTriggerDescribe.js';
 import { listEffectListTriggers } from './effectTriggers.js';
 import { LEGACY_TRIGGER_IDS } from './effectTriggerTypes.js';
 
@@ -92,6 +95,9 @@ const AURA_MOMENT_PREFIXES = {
 
 /** Части фраз сводки */
 const SCENARIO_LABELS = {
+  variantPrefix: 'Вариант ',
+  variantSuffix: '. ',
+  landingConditionPrefix: ', если ',
   savePrefix: 'спасбросок ',
   failurePrefix: 'Провал — ',
   successPrefix: 'Успех — ',
@@ -375,7 +381,18 @@ export function describeEffectScenario(
   context: EffectFormContext,
 ): string {
   const layout = resolveEffectFormLayout(context, effect);
-  const moment = describeMoment(effect, layout);
+
+  const variant =
+    layout.showVariant && effect.variant
+      ? `${SCENARIO_LABELS.variantPrefix}«${effect.variant.label}»${SCENARIO_LABELS.variantSuffix}`
+      : '';
+
+  const condition =
+    layout.showLandingCondition && effect.landingCondition
+      ? `${SCENARIO_LABELS.landingConditionPrefix}${describeTriggerCondition(effect.landingCondition)}`
+      : '';
+
+  const moment = `${variant}${describeMoment(effect, layout)}${condition}`;
   const lasting = describeLastingPayload(effect, layout);
 
   const damage =

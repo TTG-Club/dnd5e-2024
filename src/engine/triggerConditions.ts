@@ -10,6 +10,7 @@
  * молчит, а не бьёт всегда.
  */
 
+import type { ActiveEffect } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type { RollContext } from './effectPipeline.js';
 import type {
@@ -68,6 +69,8 @@ export interface TriggerEventData {
   other?: DnDSceneEntity;
   /** Кто наложил эффект, чьё срабатывание проверяется */
   sourceId?: string;
+  /** Наложение ударом оружия: атакующий владеет его приёмом */
+  weaponMastery?: boolean;
 }
 
 /** Виды частей условия срабатывания */
@@ -94,6 +97,7 @@ export const TRIGGER_CONDITION_KINDS = [
   'selfTagCountAtLeast',
   'selfTagFromSource',
   'selfTagFromSourceNot',
+  'sourceWeaponMastery',
 ] as const;
 
 /**
@@ -111,7 +115,9 @@ export const TRIGGER_CONDITION_KINDS = [
  * - `selfCondition` / `selfConditionNot` — на носителе есть / нет состояния;
  * - `selfTagCountAtLeast` — отметок с ключом на носителе не меньше N (счётчик);
  * - `selfTagFromSource` / `selfTagFromSourceNot` — есть / нет отметки,
- *   поставленной тем же, кто наложил эффект («невосприимчив к этому источнику»).
+ *   поставленной тем же, кто наложил эффект («невосприимчив к этому источнику»);
+ * - `sourceWeaponMastery` — наложение ударом оружия, приёмом которого атакующий
+ *   владеет.
  */
 export type TriggerConditionKind = (typeof TRIGGER_CONDITION_KINDS)[number];
 
@@ -157,6 +163,7 @@ const KIND_EVENTS: Record<
   selfTagCountAtLeast: undefined,
   selfTagFromSource: undefined,
   selfTagFromSourceNot: undefined,
+  sourceWeaponMastery: ['applied'],
 };
 
 /** Части условия со значением: приставка строки и что выбирается */
@@ -213,6 +220,7 @@ const FIXED_PARTS: Partial<Record<TriggerConditionKind, string>> = {
   rollAdvantage: 'roll.hasAdvantage === true',
   rollDisadvantage: 'roll.hasDisadvantage === true',
   otherMarkedBySelf: MARKED_BY_SELF_CONDITION,
+  sourceWeaponMastery: 'source.weaponMastery === true',
 };
 
 /** Кавычки вокруг значения в строке условия */
@@ -599,12 +607,46 @@ function isConditionPartMet(
         part.value ?? '',
         eventData.sourceId,
       );
+    case 'sourceWeaponMastery':
+      return eventData.weaponMastery === true;
     default:
       return evaluateConditionPart(
         text.trim(),
         buildTriggerRollContext(entity, eventData),
       );
   }
+}
+
+/** Что известно о наложении эффекта для его условия */
+export interface EffectLandingContext {
+  /** Кто накладывает */
+  source?: DnDSceneEntity;
+  /** Наложение ударом оружия, приёмом которого атакующий владеет */
+  weaponMastery?: boolean;
+}
+
+/**
+ * Ложится ли эффект: его условие наложения выполнено. Нет условия — ложится.
+ *
+ * @param effect - накладываемый эффект
+ * @param target - на кого ложится
+ * @param landing - кто накладывает и чем
+ * @returns `true`, если эффект ложится
+ */
+export function passesLandingCondition(
+  effect: Pick<ActiveEffect, 'landingCondition' | 'sourceActorId'>,
+  target: DnDSceneEntity,
+  landing: EffectLandingContext = {},
+): boolean {
+  return isTriggerConditionMet(
+    target,
+    { condition: effect.landingCondition },
+    {
+      other: landing.source,
+      sourceId: landing.source?.id ?? effect.sourceActorId,
+      weaponMastery: landing.weaponMastery,
+    },
+  );
 }
 
 /**

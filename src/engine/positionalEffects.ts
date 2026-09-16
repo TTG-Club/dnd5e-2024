@@ -55,6 +55,7 @@ import {
   settlePresenceTrigger,
 } from './effectTriggerRunner.js';
 import { buildTriggerUsageScope } from './effectTriggerUsage.js';
+import { passesLandingCondition } from './triggerConditions.js';
 
 /**
  * Собирает ID областей, эффекты которых уже применены к актёру.
@@ -270,6 +271,11 @@ function runPresenceEvent(
   context: PresenceContext,
 ): AreaEffectsSyncResult {
   const outcome = createPresenceOutcome();
+
+  // Условие наложения: вход или выход не касается того, на кого эффект не ложится
+  if (!passesLandingCondition(effect, entity)) {
+    return outcome;
+  }
 
   if (effect.areaTrigger === event) {
     mergePresenceOutcome(outcome, runEntryEffect(entity, effect, context));

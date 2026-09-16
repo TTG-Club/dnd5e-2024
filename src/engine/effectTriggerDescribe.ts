@@ -179,6 +179,7 @@ const TRIGGER_CONDITION_PHRASES: Record<
   selfTagFromSource: (value) => `на носителе отметка «${value}» от наложившего`,
   selfTagFromSourceNot: (value) =>
     `на носителе нет отметки «${value}» от наложившего`,
+  sourceWeaponMastery: () => 'наложивший владеет приёмом оружия',
 };
 
 /**

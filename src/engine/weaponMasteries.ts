@@ -5,6 +5,10 @@
  * когда персонаж получает мастерство владения этим оружием.
  */
 
+import type { DnDGameItem, DnDSceneEntity } from './dndEntities.js';
+
+import { isCreatureEntity } from '@vtt/shared';
+
 /** Описание оружейного приёма */
 export interface WeaponMastery {
   /** Уникальный ключ приёма (англ.) */
@@ -158,6 +162,31 @@ export const WEAPON_MASTERY_BY_WEAPON: Readonly<Record<string, string>> = {
   'musket': 'slow',
   'pistol': 'vex',
 };
+
+/**
+ * Может ли сущность пользоваться приёмом этого оружия: владеет приёмом его
+ * вида («Оружейный приём» воина) или самим приёмом («Тактический мастер»).
+ * У существа статблока владений приёмами нет.
+ *
+ * @param entity - атакующий
+ * @param weapon - оружие удара
+ * @returns `true`, если приём оружия работает
+ */
+export function entityHasWeaponMastery(
+  entity: DnDSceneEntity,
+  weapon: Pick<DnDGameItem, 'baseType' | 'mastery'>,
+): boolean {
+  if (isCreatureEntity(entity) || !weapon.mastery) {
+    return false;
+  }
+
+  const { weaponMasteries, masteryProperties } = entity.system.proficiencies;
+
+  return (
+    (weapon.baseType !== undefined && weaponMasteries.includes(weapon.baseType))
+    || (masteryProperties?.includes(weapon.mastery) ?? false)
+  );
+}
 
 /**
  * Название приёма, который даёт этот вид оружия.

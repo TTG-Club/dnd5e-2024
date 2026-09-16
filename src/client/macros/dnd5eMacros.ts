@@ -87,6 +87,7 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { resolveTargetedAttackRollMode } from '../composables/attackRollMode';
+import { runWithEffectVariants } from '../composables/effectVariantChoice';
 import {
   buildRollBonusEvaluator,
   collectProjectileRollBonuses,
@@ -365,193 +366,199 @@ export function registerDnd5eMacros(): void {
         return;
       }
 
-      const { weapon: foundWeapon, actor: foundActor } = result;
+      runWithEffectVariants(result.weapon, (foundWeapon) => {
+        const foundActor = result.actor;
 
-      // resolvedStats для @mod.* в формулах частей и статического урона
-      const auraStore = useAuraStore();
+        // resolvedStats для @mod.* в формулах частей и статического урона
+        const auraStore = useAuraStore();
 
-      // Ambient-ауры контракт отдаёт нейтральной базой — сужаем к D&D-форме.
-      const ambientEffects = auraStore
-        .getAmbientEffectsForActor(foundActor.id)
-        .filter(isDnDEffect);
+        // Ambient-ауры контракт отдаёт нейтральной базой — сужаем к D&D-форме.
+        const ambientEffects = auraStore
+          .getAmbientEffectsForActor(foundActor.id)
+          .filter(isDnDEffect);
 
-      const resolvedStats = resolveActorStats(foundActor, ambientEffects);
+        const resolvedStats = resolveActorStats(foundActor, ambientEffects);
 
-      // --- Проверка дистанции ---
-      let isDisadvantage = false;
+        // --- Проверка дистанции ---
+        let isDisadvantage = false;
 
-      if (targetStore.targetTokenId && foundActor.id) {
-        const rangeCheck = checkWeaponRangeOnScene(
-          foundWeapon,
-          foundActor.id,
-          targetStore.targetTokenId,
-        );
-
-        if (rangeCheck && !rangeCheck.allowed) {
-          chatStore.sendMessage(
-            `⛔ ${foundWeapon.name}: цель вне досягаемости (${rangeCheck.distance} ${rangeCheck.unitLabel})`,
-            'text',
+        if (targetStore.targetTokenId && foundActor.id) {
+          const rangeCheck = checkWeaponRangeOnScene(
+            foundWeapon,
+            foundActor.id,
+            targetStore.targetTokenId,
           );
 
-          return;
+          if (rangeCheck && !rangeCheck.allowed) {
+            chatStore.sendMessage(
+              `⛔ ${foundWeapon.name}: цель вне досягаемости (${rangeCheck.distance} ${rangeCheck.unitLabel})`,
+              'text',
+            );
+
+            return;
+          }
+
+          if (rangeCheck?.disadvantage) {
+            isDisadvantage = true;
+          }
         }
 
-        if (rangeCheck?.disadvantage) {
-          isDisadvantage = true;
-        }
-      }
-
-      const combinedEffects = combineEffectsWithAmbient(
-        collectActiveEffects(foundActor),
-        ambientEffects,
-      );
-
-      const attackKey = getAttackBonusKey(foundWeapon.rangeType);
-      const damageKey = getDamageBonusKey(foundWeapon.rangeType);
-
-      const baseMod = calculateWeaponAttackModifier(
-        foundActor,
-        foundWeapon,
-        resolvedStats,
-      );
-
-      // Оружие со спасброском: цель кидает спас, броска попадания нет.
-      // DC оружия = 8 + модификатор атаки оружием.
-      const hasSave = !!foundWeapon.saveType && foundWeapon.saveType !== 'none';
-
-      const weaponSaveDC = 8 + baseMod;
-
-      const incomingAttackType =
-        foundWeapon.rangeType === 'ranged'
-          ? ('ranged' as const)
-          : ('melee' as const);
-
-      const targetActor = targetStore.getTargetActor();
-
-      const initialRollMode = resolveTargetedAttackRollMode(
-        foundActor,
-        incomingAttackType,
-        { forceDisadvantage: isDisadvantage },
-      );
-
-      const { openModal } = useModalManager();
-
-      const {
-        buildWeaponRollSetup,
-        buildTargetHpContext,
-        buildTargetTypeContext,
-      } = useBonusDamageParts();
-
-      // Единая со заклинаниями система урона: бросок ВСЕГДА идёт многочастным
-      // путём (части урона оружия + бонус-части эффектов). Состояние HP цели
-      // нужно для условных веток @target.full/@target.notFull.
-      const targetIsFull = isTargetFullHp(targetActor);
-
-      const weaponPartsSetup = buildWeaponRollSetup({
-        weapon: foundWeapon,
-        actor: foundActor,
-        effects: combinedEffects,
-        resolvedStats,
-        targetIsFull,
-        targetType: buildTargetTypeContext(),
-      });
-
-      /**
-       * Применяет брошенные части урона оружия через многочастный оркестратор
-       * (защиты по типу на каждую часть, per-target гейты, спасбросок оружия,
-       * единый HP-апдейт).
-       *
-       * @param parts - брошенные части урона
-       */
-      function handleWeaponRollParts(parts: RolledSpellDamagePart[]): void {
-        const worldStore = useWorldStore();
-        const socket = chatStore.getSocket();
-        const worldId = worldStore.connectionState.currentWorldId;
-
-        if (!worldId || !socket) {
-          return;
-        }
-
-        const world = worldStore.worlds.find(
-          (worldEntry) => worldEntry.id === worldId,
+        const combinedEffects = combineEffectsWithAmbient(
+          collectActiveEffects(foundActor),
+          ambientEffects,
         );
 
-        const actors = [...(world?.actors ?? []), ...(world?.creatures ?? [])];
+        const attackKey = getAttackBonusKey(foundWeapon.rangeType);
+        const damageKey = getDamageBonusKey(foundWeapon.rangeType);
 
-        if (actors.length === 0) {
-          return;
+        const baseMod = calculateWeaponAttackModifier(
+          foundActor,
+          foundWeapon,
+          resolvedStats,
+        );
+
+        // Оружие со спасброском: цель кидает спас, броска попадания нет.
+        // DC оружия = 8 + модификатор атаки оружием.
+        const hasSave =
+          !!foundWeapon.saveType && foundWeapon.saveType !== 'none';
+
+        const weaponSaveDC = 8 + baseMod;
+
+        const incomingAttackType =
+          foundWeapon.rangeType === 'ranged'
+            ? ('ranged' as const)
+            : ('melee' as const);
+
+        const targetActor = targetStore.getTargetActor();
+
+        const initialRollMode = resolveTargetedAttackRollMode(
+          foundActor,
+          incomingAttackType,
+          { forceDisadvantage: isDisadvantage },
+        );
+
+        const { openModal } = useModalManager();
+
+        const {
+          buildWeaponRollSetup,
+          buildTargetHpContext,
+          buildTargetTypeContext,
+        } = useBonusDamageParts();
+
+        // Единая со заклинаниями система урона: бросок ВСЕГДА идёт многочастным
+        // путём (части урона оружия + бонус-части эффектов). Состояние HP цели
+        // нужно для условных веток @target.full/@target.notFull.
+        const targetIsFull = isTargetFullHp(targetActor);
+
+        const weaponPartsSetup = buildWeaponRollSetup({
+          weapon: foundWeapon,
+          actor: foundActor,
+          effects: combinedEffects,
+          resolvedStats,
+          targetIsFull,
+          targetType: buildTargetTypeContext(),
+        });
+
+        /**
+         * Применяет брошенные части урона оружия через многочастный оркестратор
+         * (защиты по типу на каждую часть, per-target гейты, спасбросок оружия,
+         * единый HP-апдейт).
+         *
+         * @param parts - брошенные части урона
+         */
+        function handleWeaponRollParts(parts: RolledSpellDamagePart[]): void {
+          const worldStore = useWorldStore();
+          const socket = chatStore.getSocket();
+          const worldId = worldStore.connectionState.currentWorldId;
+
+          if (!worldId || !socket) {
+            return;
+          }
+
+          const world = worldStore.worlds.find(
+            (worldEntry) => worldEntry.id === worldId,
+          );
+
+          const actors = [
+            ...(world?.actors ?? []),
+            ...(world?.creatures ?? []),
+          ];
+
+          if (actors.length === 0) {
+            return;
+          }
+
+          const { resolveSpellDamageWithParts } = useSpellResolution();
+
+          void resolveSpellDamageWithParts(
+            {
+              spell: weaponPartsSetup.pseudoSpell,
+              damageTotal: 0,
+              spellSaveDC: weaponSaveDC,
+              actors,
+              socket,
+              casterId: foundActor.id,
+            },
+            parts,
+            { scene: worldStore.currentScene },
+          );
         }
 
-        const { resolveSpellDamageWithParts } = useSpellResolution();
+        openModal('DiceRollModal', {
+          title: `Атака — ${foundWeapon.name}`,
+          rollLabel: foundWeapon.name,
+          rollButtonText: hasSave ? 'Бросить урон' : 'Бросить атаку',
+          // Формула для отображения (бросок идёт многочастным путём по damageParts)
+          formula: weaponPartsSetup.baseParts[0]?.formula ?? '',
+          attackModifier: hasSave ? undefined : baseMod,
+          evaluateBonusRollFormulas: hasSave
+            ? undefined
+            : buildRollBonusEvaluator(
+                () => findCurrentDndEntity(foundActor.id),
+                attackKey,
+              ),
+          initialRollMode,
+          critThreshold: resolvedStats.critThreshold,
+          incomingAttackType,
+          evaluateConditionalBonuses: (modalContext: {
+            hasAdvantage: boolean;
+            hasDisadvantage: boolean;
+          }) => {
+            // HP цели читается в момент броска — для условий target.hp.*
+            const rollContext = {
+              ...modalContext,
+              target: buildTargetHpContext(),
+            };
 
-        void resolveSpellDamageWithParts(
-          {
-            spell: weaponPartsSetup.pseudoSpell,
-            damageTotal: 0,
-            spellSaveDC: weaponSaveDC,
-            actors,
-            socket,
-            casterId: foundActor.id,
+            // Условный бонус может быть формулой (`@prof`, `@mod.dex`) — без
+            // контекста @-переменных она дала бы ноль
+            const formulaContext = buildFormulaContext(foundActor);
+
+            return {
+              attackBonus: evaluateConditionalBonuses(
+                combinedEffects,
+                attackKey,
+                rollContext,
+                formulaContext,
+              ),
+              damageBonus: evaluateConditionalBonuses(
+                combinedEffects,
+                damageKey,
+                rollContext,
+                formulaContext,
+              ),
+            };
           },
-          parts,
-          { scene: worldStore.currentScene },
-        );
-      }
-
-      openModal('DiceRollModal', {
-        title: `Атака — ${foundWeapon.name}`,
-        rollLabel: foundWeapon.name,
-        rollButtonText: hasSave ? 'Бросить урон' : 'Бросить атаку',
-        // Формула для отображения (бросок идёт многочастным путём по damageParts)
-        formula: weaponPartsSetup.baseParts[0]?.formula ?? '',
-        attackModifier: hasSave ? undefined : baseMod,
-        evaluateBonusRollFormulas: hasSave
-          ? undefined
-          : buildRollBonusEvaluator(
-              () => findCurrentDndEntity(foundActor.id),
-              attackKey,
-            ),
-        initialRollMode,
-        critThreshold: resolvedStats.critThreshold,
-        incomingAttackType,
-        evaluateConditionalBonuses: (modalContext: {
-          hasAdvantage: boolean;
-          hasDisadvantage: boolean;
-        }) => {
-          // HP цели читается в момент броска — для условий target.hp.*
-          const rollContext = {
-            ...modalContext,
-            target: buildTargetHpContext(),
-          };
-
-          // Условный бонус может быть формулой (`@prof`, `@mod.dex`) — без
-          // контекста @-переменных она дала бы ноль
-          const formulaContext = buildFormulaContext(foundActor);
-
-          return {
-            attackBonus: evaluateConditionalBonuses(
-              combinedEffects,
-              attackKey,
-              rollContext,
-              formulaContext,
-            ),
-            damageBonus: evaluateConditionalBonuses(
-              combinedEffects,
-              damageKey,
-              rollContext,
-              formulaContext,
-            ),
-          };
-        },
-        damageType: getWeaponPrimaryDamageType(foundWeapon),
-        damageParts: weaponPartsSetup.baseParts,
-        evaluateBonusDamageParts: weaponPartsSetup.evaluateBonusDamageParts,
-        // Эффекты «на цель» гейтит оркестратор (handleWeaponRollParts →
-        // resolveSpellDamageWithParts по applySave/приземлению). Прямого onHit
-        // нет — он вешал эффект на каждое попадание мимо спасброска.
-        onRollParts: handleWeaponRollParts,
-        // Расход одноразовых эффектов «следующей атаки» (Злая насмешка и т.п.)
-        attackerId: foundActor.id,
+          damageType: getWeaponPrimaryDamageType(foundWeapon),
+          damageParts: weaponPartsSetup.baseParts,
+          evaluateBonusDamageParts: weaponPartsSetup.evaluateBonusDamageParts,
+          // Эффекты «на цель» гейтит оркестратор (handleWeaponRollParts →
+          // resolveSpellDamageWithParts по applySave/приземлению). Прямого onHit
+          // нет — он вешал эффект на каждое попадание мимо спасброска.
+          onRollParts: handleWeaponRollParts,
+          // Расход одноразовых эффектов «следующей атаки» (Злая насмешка и т.п.)
+          attackerId: foundActor.id,
+        });
       });
     } catch (err) {
       console.error('[Hotbar] Ошибка выполнения weapon-attack:', err);
@@ -576,115 +583,117 @@ export function registerDnd5eMacros(): void {
         return;
       }
 
-      const { spell, actor } = result;
+      runWithEffectVariants(result.spell, (spell) => {
+        const { actor } = result;
 
-      const availableLevels =
-        spell.level > 0 ? getAvailableSpellLevels(actor, spell.level) : [0];
+        const availableLevels =
+          spell.level > 0 ? getAvailableSpellLevels(actor, spell.level) : [0];
 
-      if (spell.level > 0 && availableLevels.length === 0) {
-        const chatStore = useChatStore();
+        if (spell.level > 0 && availableLevels.length === 0) {
+          const chatStore = useChatStore();
 
-        chatStore.sendMessage(
-          `⛔ ${spell.name}: у вас нет доступных ячеек заклинаний ${spell.level} круга или выше.`,
-          'text',
-        );
+          chatStore.sendMessage(
+            `⛔ ${spell.name}: у вас нет доступных ячеек заклинаний ${spell.level} круга или выше.`,
+            'text',
+          );
 
-        return;
-      }
+          return;
+        }
 
-      if (needsSpellEffectTargets(spell)) {
-        requestSpellEffectTargets(
-          spell,
-          actor.id,
-          availableLevels,
-          (level, targets) => {
-            castBuffSpellMacro(spell, actor, level, targets);
-          },
-        );
+        if (needsSpellEffectTargets(spell)) {
+          requestSpellEffectTargets(
+            spell,
+            actor.id,
+            availableLevels,
+            (level, targets) => {
+              castBuffSpellMacro(spell, actor, level, targets);
+            },
+          );
 
-        return;
-      }
+          return;
+        }
 
-      // Снарядный режим: число снарядов зависит от контекста каста
-      // (заговоры — от уровня персонажа, уровневые — от круга ячейки)
-      const casterLevel = getTotalLevel(actor.system?.classes);
+        // Снарядный режим: число снарядов зависит от контекста каста
+        // (заговоры — от уровня персонажа, уровневые — от круга ячейки)
+        const casterLevel = getTotalLevel(actor.system?.classes);
 
-      const baseProjectileCount = getSpellProjectileCount(spell, {
-        slotLevel: availableLevels[0] ?? spell.level,
-        casterLevel,
-      });
-
-      const hasProjectiles = baseProjectileCount > 1 && !spell.areaOfEffect;
-
-      // Проверка дистанции каста до выбранной цели (только одиночная цель:
-      // у AoE и снарядов собственные механики таргетинга)
-      if (
-        !spell.areaOfEffect
-        && !hasProjectiles
-        && isSpellCastBlockedByRange(spell, actor.id)
-      ) {
-        return;
-      }
-
-      // Если есть область действия — пропускаем зелёный prompt, сразу начинаем применять
-      if (spell.areaOfEffect) {
-        executeSpellCast(spell, actor);
-
-        return;
-      }
-
-      if (hasProjectiles) {
-        // Запускаем режим выбора целей (снарядов) с отдельным промптом
-        const { openModal } = useModalManager();
-        const projectileStore = useProjectileStore();
-
-        projectileStore.startTargeting(
-          spell.projectiles?.targetDistribution ?? null,
-          baseProjectileCount,
-          (tokenId) => !isSpellTargetBlockedByRange(spell, actor.id, tokenId),
-        );
-
-        openModal('ProjectilePromptModal', {
-          _modalKey: `${PROJECTILE_MODAL_KEY_PREFIX}-${projectileStore.sessionId}`,
-          targetingSessionId: projectileStore.sessionId,
-          spell,
+        const baseProjectileCount = getSpellProjectileCount(spell, {
+          slotLevel: availableLevels[0] ?? spell.level,
           casterLevel,
-          availableSpellLevels: availableLevels,
-          onConfirm: (selectedLevel: number) => {
-            // Передаем зафиксированный уровень заклинания в executeSpellCast
-            executeSpellCast(spell, actor, selectedLevel);
-          },
         });
 
-        return;
-      }
+        const hasProjectiles = baseProjectileCount > 1 && !spell.areaOfEffect;
 
-      const promptStore = useActionPromptStore();
-      const promptId = `spell-cast-${spell.id}-${Date.now()}`;
+        // Проверка дистанции каста до выбранной цели (только одиночная цель:
+        // у AoE и снарядов собственные механики таргетинга)
+        if (
+          !spell.areaOfEffect
+          && !hasProjectiles
+          && isSpellCastBlockedByRange(spell, actor.id)
+        ) {
+          return;
+        }
 
-      promptStore.addPrompt({
-        id: promptId,
-        icon: 'tabler:wand',
-        title: `Применить заклинание: ${spell.name}?`,
-        color: 'neutral',
-        actions: [
-          {
-            icon: 'tabler:check',
-            color: 'primary',
-            onClick: () => {
-              promptStore.removePrompt(promptId);
-              executeSpellCast(spell, actor);
+        // Если есть область действия — пропускаем зелёный prompt, сразу начинаем применять
+        if (spell.areaOfEffect) {
+          executeSpellCast(spell, actor);
+
+          return;
+        }
+
+        if (hasProjectiles) {
+          // Запускаем режим выбора целей (снарядов) с отдельным промптом
+          const { openModal } = useModalManager();
+          const projectileStore = useProjectileStore();
+
+          projectileStore.startTargeting(
+            spell.projectiles?.targetDistribution ?? null,
+            baseProjectileCount,
+            (tokenId) => !isSpellTargetBlockedByRange(spell, actor.id, tokenId),
+          );
+
+          openModal('ProjectilePromptModal', {
+            _modalKey: `${PROJECTILE_MODAL_KEY_PREFIX}-${projectileStore.sessionId}`,
+            targetingSessionId: projectileStore.sessionId,
+            spell,
+            casterLevel,
+            availableSpellLevels: availableLevels,
+            onConfirm: (selectedLevel: number) => {
+              // Передаем зафиксированный уровень заклинания в executeSpellCast
+              executeSpellCast(spell, actor, selectedLevel);
             },
-          },
-          {
-            icon: 'tabler:x',
-            color: 'neutral',
-            variant: 'ghost',
-            onClick: () => {
-              promptStore.removePrompt(promptId);
+          });
+
+          return;
+        }
+
+        const promptStore = useActionPromptStore();
+        const promptId = `spell-cast-${spell.id}-${Date.now()}`;
+
+        promptStore.addPrompt({
+          id: promptId,
+          icon: 'tabler:wand',
+          title: `Применить заклинание: ${spell.name}?`,
+          color: 'neutral',
+          actions: [
+            {
+              icon: 'tabler:check',
+              color: 'primary',
+              onClick: () => {
+                promptStore.removePrompt(promptId);
+                executeSpellCast(spell, actor);
+              },
             },
-          },
-        ],
+            {
+              icon: 'tabler:x',
+              color: 'neutral',
+              variant: 'ghost',
+              onClick: () => {
+                promptStore.removePrompt(promptId);
+              },
+            },
+          ],
+        });
       });
     } catch (err) {
       console.error('[Hotbar] Ошибка выполнения spell-cast:', err);
@@ -1591,99 +1600,106 @@ function registerCreatureActionMacro(): void {
 
       const allActions = collectCreatureActions(foundCreature);
 
-      const action = allActions.find(
+      const foundAction = allActions.find(
         (creatureAction) => creatureAction.name === macro.ref,
       );
 
-      if (!action) {
+      if (!foundAction) {
         console.warn('[Hotbar] Действие не найдено в существе:', macro.ref);
 
         return;
       }
 
-      const hasAttackParams = !!(
-        action.attackBonus !== undefined
-        || action.damageParts?.length
-        || (action.saveType && action.saveType !== 'none')
-      );
-
-      if (!hasAttackParams) {
-        const chatStore = useChatStore();
-
-        const description = action.description
-          ? action.description.join(' ')
-          : '';
-
-        chatStore.sendMessage(
-          `<b>${action.name}</b><br/>${description}`,
-          'text',
+      runWithEffectVariants(foundAction, (action) => {
+        const hasAttackParams = !!(
+          action.attackBonus !== undefined
+          || action.damageParts?.length
+          || (action.saveType && action.saveType !== 'none')
         );
 
-        return;
-      }
+        if (!hasAttackParams) {
+          const chatStore = useChatStore();
 
-      const targetStore = useTargetStore();
-      const chatStore = useChatStore();
+          const description = action.description
+            ? action.description.join(' ')
+            : '';
 
-      // --- Проверка дистанции (только для прямых атак; область — шаблоном) ---
-      let isDisadvantage = false;
-
-      if (
-        !action.areaOfEffect
-        && targetStore.targetTokenId
-        && foundCreature.id
-      ) {
-        const rangeCheck = checkCreatureActionRangeOnScene(
-          action,
-          foundCreature.id,
-          targetStore.targetTokenId,
-        );
-
-        if (rangeCheck && !rangeCheck.allowed) {
           chatStore.sendMessage(
-            `⛔ ${action.name}: цель вне досягаемости (${rangeCheck.distance} ${rangeCheck.unitLabel})`,
+            `<b>${action.name}</b><br/>${description}`,
             'text',
           );
 
           return;
         }
 
-        if (rangeCheck?.disadvantage) {
-          isDisadvantage = true;
+        const targetStore = useTargetStore();
+        const chatStore = useChatStore();
+
+        // --- Проверка дистанции (только для прямых атак; область — шаблоном) ---
+        let isDisadvantage = false;
+
+        if (
+          !action.areaOfEffect
+          && targetStore.targetTokenId
+          && foundCreature.id
+        ) {
+          const rangeCheck = checkCreatureActionRangeOnScene(
+            action,
+            foundCreature.id,
+            targetStore.targetTokenId,
+          );
+
+          if (rangeCheck && !rangeCheck.allowed) {
+            chatStore.sendMessage(
+              `⛔ ${action.name}: цель вне досягаемости (${rangeCheck.distance} ${rangeCheck.unitLabel})`,
+              'text',
+            );
+
+            return;
+          }
+
+          if (rangeCheck?.disadvantage) {
+            isDisadvantage = true;
+          }
         }
-      }
 
-      // Область: размещаем шаблон у токена существа, затем кидаем урон
-      if (action.areaOfEffect) {
-        const templateStore = useSpellTemplateStore();
-        const first = action.damageParts?.[0];
+        // Область: размещаем шаблон у токена существа, затем кидаем урон
+        if (action.areaOfEffect) {
+          const templateStore = useSpellTemplateStore();
+          const first = action.damageParts?.[0];
 
-        const primaryType = first
-          ? describeDamagePart(first).types[0]
-          : undefined;
+          const primaryType = first
+            ? describeDamagePart(first).types[0]
+            : undefined;
 
-        const color =
-          SPELL_DAMAGE_TEMPLATE_COLORS[primaryType ?? '']
-          ?? SPELL_TEMPLATE_DEFAULT_COLOR;
+          const color =
+            SPELL_DAMAGE_TEMPLATE_COLORS[primaryType ?? '']
+            ?? SPELL_TEMPLATE_DEFAULT_COLOR;
 
-        templateStore.requestPlacement(
-          action.areaOfEffect,
-          color,
-          foundCreature.id,
-          (templateId) =>
-            openCreatureActionRoll(
-              foundCreature,
-              action,
-              isDisadvantage,
-              templateId,
-            ),
-          null,
+          templateStore.requestPlacement(
+            action.areaOfEffect,
+            color,
+            foundCreature.id,
+            (templateId) =>
+              openCreatureActionRoll(
+                foundCreature,
+                action,
+                isDisadvantage,
+                templateId,
+              ),
+            null,
+          );
+
+          return;
+        }
+
+        openCreatureActionRoll(
+          foundCreature,
+          action,
+          isDisadvantage,
+          undefined,
         );
-
-        return;
-      }
-
-      openCreatureActionRoll(foundCreature, action, isDisadvantage, undefined);
+      });
     } catch (err) {
       console.error('[Hotbar] Ошибка выполнения creature-action:', err);
     }
@@ -1935,71 +1951,78 @@ function registerCreatureSpellMacro(): void {
         return;
       }
 
-      const spell = foundCreature.spells?.find(
+      const foundSpell = foundCreature.spells?.find(
         (entry) => entry.id === macro.ref,
       );
 
-      if (!spell) {
+      if (!foundSpell) {
         console.warn('[Hotbar] Заклинание не найдено в существе:', macro.ref);
 
         return;
       }
 
-      const chatStore = useChatStore();
+      runWithEffectVariants(foundSpell, (spell) => {
+        const chatStore = useChatStore();
 
-      // Группа, из которой идёт каст: её числа, круг наложения и общий счётчик
-      // применений главнее чисел самого существа
-      const placement = findCreatureSpellPlacement(
-        foundCreature.system.spellcastingBlocks,
-        spell.id,
-      );
-
-      const isGroupEmpty =
-        placement !== undefined
-        && !hasCreatureSpellGroupUsesLeft(placement.group);
-
-      const isSpellEmpty =
-        !!spell.uses
-        && spell.uses.recovery !== 'atWill'
-        && spell.uses.current <= 0;
-
-      if (isGroupEmpty || isSpellEmpty) {
-        chatStore.sendMessage(
-          `⛔ ${spell.name}: не осталось зарядов — нужен отдых.`,
-          'text',
+        // Группа, из которой идёт каст: её числа, круг наложения и общий счётчик
+        // применений главнее чисел самого существа
+        const placement = findCreatureSpellPlacement(
+          foundCreature.system.spellcastingBlocks,
+          spell.id,
         );
 
-        return;
-      }
+        const isGroupEmpty =
+          placement !== undefined
+          && !hasCreatureSpellGroupUsesLeft(placement.group);
 
-      consumeCreatureSpellUse(foundCreature, spell, placement);
+        const isSpellEmpty =
+          !!spell.uses
+          && spell.uses.recovery !== 'atWill'
+          && spell.uses.current <= 0;
 
-      // Область: размещаем шаблон у токена существа, затем кидаем урон
-      if (spell.areaOfEffect) {
-        const templateStore = useSpellTemplateStore();
-        const first = spell.damageParts?.[0];
+        if (isGroupEmpty || isSpellEmpty) {
+          chatStore.sendMessage(
+            `⛔ ${spell.name}: не осталось зарядов — нужен отдых.`,
+            'text',
+          );
 
-        const primaryType = first
-          ? describeDamagePart(first).types[0]
-          : undefined;
+          return;
+        }
 
-        const color =
-          SPELL_DAMAGE_TEMPLATE_COLORS[primaryType ?? '']
-          ?? SPELL_TEMPLATE_DEFAULT_COLOR;
+        consumeCreatureSpellUse(foundCreature, spell, placement);
 
-        templateStore.requestPlacement(
-          spell.areaOfEffect,
-          color,
-          foundCreature.id,
-          (templateId) =>
-            openCreatureSpellRoll(foundCreature, spell, templateId, placement),
-          null,
-        );
+        // Область: размещаем шаблон у токена существа, затем кидаем урон
+        if (spell.areaOfEffect) {
+          const templateStore = useSpellTemplateStore();
+          const first = spell.damageParts?.[0];
 
-        return;
-      }
+          const primaryType = first
+            ? describeDamagePart(first).types[0]
+            : undefined;
 
-      openCreatureSpellRoll(foundCreature, spell, undefined, placement);
+          const color =
+            SPELL_DAMAGE_TEMPLATE_COLORS[primaryType ?? '']
+            ?? SPELL_TEMPLATE_DEFAULT_COLOR;
+
+          templateStore.requestPlacement(
+            spell.areaOfEffect,
+            color,
+            foundCreature.id,
+            (templateId) =>
+              openCreatureSpellRoll(
+                foundCreature,
+                spell,
+                templateId,
+                placement,
+              ),
+            null,
+          );
+
+          return;
+        }
+
+        openCreatureSpellRoll(foundCreature, spell, undefined, placement);
+      });
     } catch (err) {
       console.error('[Hotbar] Ошибка выполнения creature-spell:', err);
     }

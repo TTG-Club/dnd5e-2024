@@ -2,6 +2,8 @@ import type { DamagePart, SceneEntity } from '@vtt/shared';
 import type {
   ActiveEffect,
   DamageDefenseOutcome,
+  DnDSceneEntity,
+  EffectLandingContext,
   SavingThrowResult,
   Spell,
 } from '@vtt/shared/system/dnd.js';
@@ -13,6 +15,7 @@ import {
   isDndSceneEntity,
   isImmuneToCondition,
   isSpellRoll,
+  passesLandingCondition,
   resolveActorStats,
   resolveEffectApplication,
   resolveEffectSaveDc,
@@ -27,6 +30,7 @@ import {
   stampEffectOnApply,
 } from './spellResolutionShared';
 import { useSpellSavingThrows } from './useSpellSavingThrows';
+import { useWorldEntities } from './useWorldEntities';
 
 /** Строка чата для одной части урона наложенного эффекта */
 export interface EffectDamageLine {
@@ -79,6 +83,22 @@ export function listEffectsWithOwnSave(spell: Spell): ActiveEffect[] {
   return getTargetSpellEffects(spell).filter(
     (effect) => effect.applySave !== undefined,
   );
+}
+
+/**
+ * Наложивший эффект сущностью системы: условие наложения читает его тип.
+ *
+ * @param casterId - наложивший
+ * @returns сущность либо `undefined`
+ */
+function resolveLandingSource(
+  casterId: string | undefined,
+): DnDSceneEntity | undefined {
+  const source = casterId
+    ? useWorldEntities().findCurrentWorldEntity(casterId)
+    : undefined;
+
+  return source && isDndSceneEntity(source) ? source : undefined;
 }
 
 /**
@@ -266,7 +286,18 @@ export function useTargetEffectResolution() {
     let bonusDamage = 0;
     let defenseOutcome: DamageDefenseOutcome = 'normal';
 
-    for (const effect of getTargetSpellEffects(spell)) {
+    const landing: EffectLandingContext = {
+      source: resolveLandingSource(casterId),
+      weaponMastery: spell.weaponMastery,
+    };
+
+    const landingEffects = getTargetSpellEffects(spell).filter(
+      (effect) =>
+        !isDndSceneEntity(entity)
+        || passesLandingCondition(effect, entity, landing),
+    );
+
+    for (const effect of landingEffects) {
       const application = resolveEffectApplication(effect, {
         landed,
         applySaveSucceeded: effectSaves.get(effect.id)?.passed,

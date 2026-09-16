@@ -51,6 +51,7 @@ export * from './effectTriggerDescribe.js';
 export * from './effectTriggerRunner.js';
 export * from './effectTriggers.js';
 export * from './effectTriggerTypes.js';
+export * from './effectVariants.js';
 export * from './entityGuards.js';
 export * from './featChoices.js';
 export * from './featDataApply.js';

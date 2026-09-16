@@ -28,6 +28,7 @@ import {
   getCasterSpellEffects,
   listConcentrationCastIds,
   mergeAppliedEffects,
+  passesLandingCondition,
   stampSourceSaveDcs,
 } from '@vtt/shared/system/dnd.js';
 
@@ -72,7 +73,11 @@ export function prepareCasterSpellEffects(
   caster: DnDSceneEntity,
   source: SpellCasterSource,
 ): ActiveEffect[] {
-  const casterEffects = getCasterSpellEffects(spell);
+  // Условие наложения на заклинателе: сам себе он и наложивший
+  const casterEffects = getCasterSpellEffects(spell).filter((effect) =>
+    passesLandingCondition(effect, caster, { source: caster }),
+  );
+
   const castId = resolveSpellCastId(caster.id, spell);
 
   const concentration = castId

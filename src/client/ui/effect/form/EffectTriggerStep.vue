@@ -7,11 +7,13 @@
     ActiveEffect,
     EffectAura,
     EffectFormLayout,
+    EffectVariantPick,
   } from '@vtt/shared/system/dnd.js';
 
   import { computed } from 'vue';
 
   import {
+    DEFAULT_EFFECT_VARIANT_PICK,
     writeEffectDelivery,
     writeEffectTrigger,
   } from '@vtt/shared/system/dnd.js';
@@ -20,15 +22,19 @@
     EFFECT_AURA_LABELS,
     EFFECT_AURA_RADIUS_STEP,
     EFFECT_DELIVERY_HINTS,
+    EFFECT_LANDING_CONDITION_LABELS,
     EFFECT_SPELL_ZONE_DELIVERY_HINT,
     EFFECT_TRIGGER_HINTS,
+    EFFECT_VARIANT_LABELS,
   } from '../constants';
   import {
     buildDeliveryOptions,
     buildTriggerOptions,
     EFFECT_AURA_TARGET_OPTIONS,
+    EFFECT_VARIANT_PICK_OPTIONS,
     findTrigger,
   } from '../effectFormOptions';
+  import EffectTriggerConditionPicker from './EffectTriggerConditionPicker.vue';
 
   const props = defineProps<{
     /** Раскладка окна */
@@ -112,6 +118,69 @@
     get: () => effect.value.aura?.applyToSelf ?? false,
     set: (applyToSelf: boolean | 'indeterminate') =>
       updateAura({ applyToSelf: applyToSelf === true }),
+  });
+
+  const landingCondition = computed({
+    get: () => effect.value.landingCondition,
+    set: (next: string | undefined) => {
+      effect.value = { ...effect.value, landingCondition: next };
+    },
+  });
+
+  const hasVariant = computed({
+    get: () => effect.value.variant !== undefined,
+    set: (enabled: boolean) => {
+      effect.value = {
+        ...effect.value,
+        variant: enabled
+          ? {
+              group: EFFECT_VARIANT_LABELS.defaultGroup,
+              label: effect.value.name,
+            }
+          : undefined,
+      };
+    },
+  });
+
+  /**
+   * Меняет поле варианта. Пустое поле не пишется: вариант без группы или
+   * подписи разбор записи выбросил бы.
+   *
+   * @param patch - изменённые поля
+   * @param patch.group - ключ группы
+   * @param patch.label - подпись варианта
+   */
+  function updateVariant(patch: {
+    group?: string | number;
+    label?: string | number;
+  }): void {
+    const { variant } = effect.value;
+    const group = String(patch.group ?? variant?.group ?? '').trim();
+    const label = String(patch.label ?? variant?.label ?? '').trim();
+
+    if (variant && group && label) {
+      effect.value = { ...effect.value, variant: { ...variant, group, label } };
+    }
+  }
+
+  // Выбор бросающим — значение по умолчанию: в данных оно не пишется
+  const variantPick = computed({
+    get: () => effect.value.variant?.pick ?? DEFAULT_EFFECT_VARIANT_PICK,
+    set: (pick: EffectVariantPick) => {
+      const { variant } = effect.value;
+
+      if (!variant) {
+        return;
+      }
+
+      const { pick: _pick, ...rest } = variant;
+
+      effect.value = {
+        ...effect.value,
+        variant:
+          pick === DEFAULT_EFFECT_VARIANT_PICK ? rest : { ...rest, pick },
+      };
+    },
   });
 
   const auraVisible = computed({
@@ -201,6 +270,77 @@
         v-model="auraVisible"
         :label="EFFECT_AURA_LABELS.visible"
       />
+    </div>
+  </div>
+
+  <div
+    v-if="layout.showLandingCondition"
+    class="flex flex-col gap-1"
+  >
+    <EffectTriggerConditionPicker
+      v-model:condition="landingCondition"
+      event="applied"
+      :known-tags="[]"
+      :title="EFFECT_LANDING_CONDITION_LABELS.title"
+      :empty-text="EFFECT_LANDING_CONDITION_LABELS.always"
+    />
+
+    <p class="text-xs text-muted">
+      {{ EFFECT_LANDING_CONDITION_LABELS.hint }}
+    </p>
+  </div>
+
+  <div
+    v-if="layout.showVariant"
+    class="flex flex-col gap-2"
+  >
+    <USwitch
+      v-model="hasVariant"
+      :label="EFFECT_VARIANT_LABELS.toggle"
+      :description="EFFECT_VARIANT_LABELS.toggleHint"
+    />
+
+    <div
+      v-if="effect.variant"
+      class="flex flex-wrap items-end gap-2"
+    >
+      <UFormField
+        :label="EFFECT_VARIANT_LABELS.group"
+        class="w-40"
+      >
+        <UInput
+          :model-value="effect.variant.group"
+          size="sm"
+          class="w-full"
+          @update:model-value="updateVariant({ group: $event })"
+        />
+      </UFormField>
+
+      <UFormField
+        :label="EFFECT_VARIANT_LABELS.label"
+        class="w-56"
+      >
+        <UInput
+          :model-value="effect.variant.label"
+          size="sm"
+          class="w-full"
+          @update:model-value="updateVariant({ label: $event })"
+        />
+      </UFormField>
+
+      <UFormField
+        :label="EFFECT_VARIANT_LABELS.pick"
+        class="w-48"
+      >
+        <USelect
+          v-model="variantPick"
+          :items="EFFECT_VARIANT_PICK_OPTIONS"
+          value-key="value"
+          size="sm"
+          class="w-full"
+          :portal="false"
+        />
+      </UFormField>
     </div>
   </div>
 </template>

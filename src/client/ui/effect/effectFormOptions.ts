@@ -23,6 +23,7 @@ import type {
   EffectTriggerSaveMode,
   EffectTurnAnchor,
   EffectTurnTiming,
+  EffectVariantPick,
 } from '@vtt/shared/system/dnd.js';
 
 import type { SaveDcFieldMode } from './constants';
@@ -38,6 +39,7 @@ import {
   EFFECT_TRIGGER_SAVE_MODES,
   EFFECT_TURN_ANCHOR_LABELS,
   EFFECT_TURN_TIMING_LABELS,
+  EFFECT_VARIANT_PICKS,
   triggerEventHasRole,
 } from '@vtt/shared/system/dnd.js';
 
@@ -51,6 +53,7 @@ import {
   EFFECT_DURATION_STEP_LABELS,
   EFFECT_SUCCESS_OUTCOME_OPTIONS,
   EFFECT_TARGET_DELIVERY_LABELS,
+  EFFECT_VARIANT_PICK_LABELS,
   SAVE_DC_FIELD_MODE_LABELS,
   ZONE_TRIGGER_LABELS,
 } from './constants';
@@ -385,6 +388,14 @@ export const EFFECT_TRIGGER_GATE_OPTIONS: ReadonlyArray<
 > = EFFECT_TRIGGER_ACTION_GATES.map((gate) => ({
   value: gate,
   label: EFFECT_TRIGGER_GATE_LABELS[gate],
+}));
+
+/** Варианты способа выбора варианта эффекта */
+export const EFFECT_VARIANT_PICK_OPTIONS: ReadonlyArray<
+  EffectSegmentOption<EffectVariantPick>
+> = EFFECT_VARIANT_PICKS.map((pick) => ({
+  value: pick,
+  label: EFFECT_VARIANT_PICK_LABELS[pick],
 }));
 
 /** Варианты отдыха срабатывания «После отдыха» */

@@ -36,6 +36,7 @@ import type {
 } from './conditionKeys.js';
 import type { DnDCustomBonusContext } from './customBonuses.js';
 import type { EffectTrigger } from './effectTriggerTypes.js';
+import type { EffectVariantPick } from './effectVariants.js';
 
 import { z } from 'zod';
 
@@ -60,6 +61,7 @@ import {
   EFFECT_TRIGGER_TURN_OWNERS,
   MIN_TRIGGER_LIMIT_MAX,
 } from './effectTriggerTypes.js';
+import { EFFECT_VARIANT_PICKS } from './effectVariants.js';
 import { parseEachValid } from './lenientParse.js';
 
 export type {
@@ -1083,6 +1085,16 @@ export interface EffectChange {
   priority: number;
 }
 
+/** Вариант эффекта в группе альтернатив */
+export interface EffectVariant {
+  /** Ключ группы: эффекты с одним ключом — альтернативы */
+  group: string;
+  /** Подпись варианта в выборе и в чате */
+  label: string;
+  /** Как выбирается вариант группы; нет — называет тот, кто бросает */
+  pick?: EffectVariantPick;
+}
+
 /** Локализованные названия длительности (для UI) */
 export const EFFECT_DURATION_LABELS: Record<EffectDurationType, string> = {
   permanent: 'Постоянно',
@@ -1286,6 +1298,21 @@ export interface ActiveEffect extends BaseActiveEffect {
    * Нет поля — одна.
    */
   tagStacks?: number;
+
+  /**
+   * Условие наложения: эффект ложится, только если оно выполнено. Строка
+   * словаря срабатываний на событии «при наложении»: субъект — тот, на кого
+   * ложится эффект, другая сторона — кто накладывает; `source.weaponMastery` —
+   * атакующий владеет приёмом оружия («Опрокидывание»). Считается до урона
+   * этого удара; «после урона» — срабатывание «при наложении».
+   */
+  landingCondition?: string;
+
+  /**
+   * Вариант: из эффектов одной группы ложится один — выбранный при касте или
+   * случайный («Глухота/слепота», «Лучи глаз»).
+   */
+  variant?: EffectVariant;
 
   /**
    * Каст заклинания, к которому относится эффект: общий у эффектов заклинателя,
@@ -1826,6 +1853,16 @@ const EffectTriggerActionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('removeSelf'), on: EffectTriggerGateSchema }),
 ]);
 
+/** Самая длинная подпись варианта и ключ его группы */
+const MAX_VARIANT_TEXT_LENGTH = 100;
+
+/** Zod-схема варианта эффекта */
+const EffectVariantSchema = z.object({
+  group: z.string().trim().min(1).max(MAX_VARIANT_TEXT_LENGTH),
+  label: z.string().trim().min(1).max(MAX_VARIANT_TEXT_LENGTH),
+  pick: z.enum(EFFECT_VARIANT_PICKS).optional().catch(undefined),
+});
+
 /** Zod-схема лимита срабатывания */
 const EffectTriggerLimitSchema = z.object({
   max: z.preprocess(
@@ -1932,6 +1969,8 @@ export const ActiveEffectSchema = z.object({
   conditionKey: z.string().min(1).optional(),
   tag: z.string().regex(EFFECT_TAG_PATTERN).optional().catch(undefined),
   tagStacks: z.number().int().min(1).optional().catch(undefined),
+  landingCondition: z.string().trim().min(1).optional().catch(undefined),
+  variant: EffectVariantSchema.optional().catch(undefined),
   castId: z.string().min(1).max(MAX_CAST_ID_LENGTH).optional().catch(undefined),
   concentration: z.literal(true).optional().catch(undefined),
   applySave: EffectSaveSchema.optional(),

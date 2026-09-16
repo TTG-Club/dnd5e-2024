@@ -959,3 +959,28 @@ describe('каталог: срабатывания на цели и у черт'
     assert.equal(rested.system.hitPoints.current, 30);
   });
 });
+
+describe('каталог: случайный вариант', () => {
+  it('[C20] Лучи глаз: случайный луч из группы', () => {
+    const rays = ['Очаровывающий', 'Парализующий', 'Усыпляющий'].map(
+      (label, index) =>
+        createEffect(label, {
+          effectTarget: 'target',
+          conditionKey: ['charmed', 'paralyzed', 'unconscious'][index],
+          variant: { group: 'луч', label, pick: 'random' },
+        }),
+    );
+
+    authoredScenario(rays[0], 'creatureAction');
+
+    const groups = engine.listEffectVariantGroups(rays);
+
+    assert.equal(groups[0].pick, 'random');
+
+    // Кость на 0.5 выбирает средний из трёх лучей
+    assert.deepEqual(
+      engine.rollRandomEffectVariants(groups, () => 0.5),
+      { луч: 'Парализующий' },
+    );
+  });
+});

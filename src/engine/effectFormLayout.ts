@@ -108,6 +108,8 @@ export type EffectSaveUnavailableReason = 'stayTrigger' | 'onCarrier';
 
 /** Поля, которые в месте окна ничего не делают */
 export type InertEffectField =
+  | 'landingCondition'
+  | 'variant'
   | 'effectTarget'
   | 'aura'
   | 'areaTrigger'
@@ -189,6 +191,13 @@ export interface EffectFormLayout {
    * выбора нет
    */
   triggerTurnOwners: readonly EffectTriggerTurnOwner[];
+  /**
+   * Условие наложения: эффект ложится ударом, заклинанием или входом в зону
+   * и может не лечь
+   */
+  showLandingCondition: boolean;
+  /** Вариант: эффект — одна из альтернатив каста или действия */
+  showVariant: boolean;
   /** Минимальная Сл спасброска (0 — «Сл источника») */
   minSaveDc: number;
   /** Есть где появиться зоне на месте шаблона (у заклинания есть область) */
@@ -245,6 +254,24 @@ const DAMAGE_EVENT_CONTEXTS: ReadonlySet<EffectFormContext> = new Set([
   'feature',
   'item',
   'creatureTrait',
+]);
+
+/**
+ * Места, где эффект «на носителе» кладёт каст: условие наложения проверяется
+ * на заклинателе.
+ */
+const LANDING_CARRIER_CONTEXTS: ReadonlySet<EffectFormContext> = new Set([
+  'spell',
+]);
+
+/**
+ * Места, где эффекты — часть одного каста или действия и могут быть
+ * альтернативами: выбор делается при броске.
+ */
+const VARIANT_CONTEXTS: ReadonlySet<EffectFormContext> = new Set([
+  'spell',
+  'weapon',
+  'creatureAction',
 ]);
 
 /**
@@ -625,6 +652,12 @@ export function resolveEffectFormLayout(
       endsWithCast: context === 'spell' && livesOnItsOwn,
       landsOnTarget: isOnTarget,
     }),
+    showLandingCondition:
+      isGeneric
+      || isOnTarget
+      || isOneShot
+      || (delivery === 'carrier' && LANDING_CARRIER_CONTEXTS.has(context)),
+    showVariant: isGeneric || VARIANT_CONTEXTS.has(context),
     minSaveDc: acceptsSourceSaveDc(context, delivery)
       ? SOURCE_MIN_SAVE_DC
       : FIXED_MIN_SAVE_DC,
@@ -1149,6 +1182,11 @@ export function listInertEffectFields(
       !layout.showRecurringSave && effect.recurringSave !== undefined,
     ],
     ['consumeOn', !layout.showConsumeOn && effect.consumeOn !== undefined],
+    [
+      'landingCondition',
+      !layout.showLandingCondition && effect.landingCondition !== undefined,
+    ],
+    ['variant', !layout.showVariant && effect.variant !== undefined],
     ['duration', !layout.showDuration && effect.duration.type !== 'permanent'],
     [
       'conditionImmunities',
@@ -1291,9 +1329,18 @@ export function normalizeEffectDraft(
 ): ActiveEffect {
   const durationValue = parseFormNumber(effect.duration.value);
 
+  const landingCondition = effect.landingCondition?.trim();
+  const variantGroup = effect.variant?.group.trim();
+  const variantLabel = effect.variant?.label.trim();
+
   return {
     ...effect,
     name: effect.name.trim(),
+    landingCondition: landingCondition || undefined,
+    variant:
+      effect.variant && variantGroup && variantLabel
+        ? { ...effect.variant, group: variantGroup, label: variantLabel }
+        : undefined,
     duration: {
       ...effect.duration,
       value:

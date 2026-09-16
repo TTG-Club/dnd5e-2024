@@ -73,6 +73,7 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { resolveTargetedAttackRollMode } from '../../composables/attackRollMode';
+  import { runWithEffectVariants } from '../../composables/effectVariantChoice';
   import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import {
     completeSpellCast,
@@ -1494,62 +1495,68 @@
    * Запускает каст заклинания существа. Списывает применение (если есть), для
    * области сначала размещает шаблон у токена существа, затем открывает бросок.
    *
-   * @param spell - заклинание существа
+   * @param sourceSpell - заклинание существа; эффекты — до выбора варианта
    * @param placement - группа, из которой идёт каст
    */
-  function castSpell(spell: Spell, placement?: CreatureSpellPlacement): void {
-    if (props.isReadOnly) {
-      return;
-    }
+  function castSpell(
+    sourceSpell: Spell,
+    placement?: CreatureSpellPlacement,
+  ): void {
+    runWithEffectVariants(sourceSpell, (spell) => {
+      if (props.isReadOnly) {
+        return;
+      }
 
-    const creature = getCreatureEntity();
+      const creature = getCreatureEntity();
 
-    if (!creature) {
-      return;
-    }
+      if (!creature) {
+        return;
+      }
 
-    const isGroupEmpty =
-      placement !== undefined
-      && !hasCreatureSpellGroupUsesLeft(placement.group);
+      const isGroupEmpty =
+        placement !== undefined
+        && !hasCreatureSpellGroupUsesLeft(placement.group);
 
-    const isSpellEmpty =
-      !!spell.uses
-      && spell.uses.recovery !== 'atWill'
-      && spell.uses.current <= 0;
+      const isSpellEmpty =
+        !!spell.uses
+        && spell.uses.recovery !== 'atWill'
+        && spell.uses.current <= 0;
 
-    if (isGroupEmpty || isSpellEmpty) {
-      toast.add({
-        title: ACTOR_SPELLS_TAB_LABELS.noUsesTitle,
-        description:
-          ACTOR_SPELLS_TAB_LABELS.noUsesTextPrefix
-          + spell.name
-          + ACTOR_SPELLS_TAB_LABELS.noUsesTextSuffix,
-        color: 'warning',
-      });
+      if (isGroupEmpty || isSpellEmpty) {
+        toast.add({
+          title: ACTOR_SPELLS_TAB_LABELS.noUsesTitle,
+          description:
+            ACTOR_SPELLS_TAB_LABELS.noUsesTextPrefix
+            + spell.name
+            + ACTOR_SPELLS_TAB_LABELS.noUsesTextSuffix,
+          color: 'warning',
+        });
 
-      return;
-    }
+        return;
+      }
 
-    consumeSpellUse(spell, placement);
+      consumeSpellUse(spell, placement);
 
-    // Область: размещаем шаблон у токена существа, затем кидаем урон
-    if (spell.areaOfEffect) {
-      const color =
-        SPELL_DAMAGE_TEMPLATE_COLORS[spellPrimaryType(spell) ?? '']
-        ?? SPELL_TEMPLATE_DEFAULT_COLOR;
+      // Область: размещаем шаблон у токена существа, затем кидаем урон
+      if (spell.areaOfEffect) {
+        const color =
+          SPELL_DAMAGE_TEMPLATE_COLORS[spellPrimaryType(spell) ?? '']
+          ?? SPELL_TEMPLATE_DEFAULT_COLOR;
 
-      spellTemplateStore.requestPlacement(
-        spell.areaOfEffect,
-        color,
-        props.creatureId,
-        (templateId) => startSpellRoll(spell, creature, templateId, placement),
-        null,
-      );
+        spellTemplateStore.requestPlacement(
+          spell.areaOfEffect,
+          color,
+          props.creatureId,
+          (templateId) =>
+            startSpellRoll(spell, creature, templateId, placement),
+          null,
+        );
 
-      return;
-    }
+        return;
+      }
 
-    startSpellRoll(spell, creature, undefined, placement);
+      startSpellRoll(spell, creature, undefined, placement);
+    });
   }
 
   /**

@@ -95,6 +95,9 @@ export async function loadHandler(relativePath, name, ports, macro = false) {
     compilerOptions: { target: typescript.ScriptTarget.ES2022 },
   });
 
+  // Выбор варианта эффекта проходной: у фикстур обработчиков групп вариантов нет
+  ports.runWithEffectVariants ??= (source, proceed) => proceed(source);
+
   return runInNewContext(
     `${compiled.outputText}\n${expression ? 'execute' : name}`,
     ports,

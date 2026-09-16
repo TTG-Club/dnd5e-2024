@@ -43,6 +43,10 @@
     event: EffectTriggerEvent;
     /** Отметки, которые ставит этот эффект: условие по отметке их предлагает */
     knownTags: readonly string[];
+    /** Заголовок; нет — «Условие» */
+    title?: string;
+    /** Текст без условия; нет — «срабатывает всегда» */
+    emptyText?: string;
   }>();
 
   /** Условие строкой словаря (`self.tag === "x" && …`); пусто — без условия */
@@ -266,14 +270,14 @@
 <template>
   <div class="flex flex-col gap-1.5">
     <span class="text-xs font-medium text-default">
-      {{ EFFECT_TRIGGER_CONDITION_LABELS.title }}
+      {{ title ?? EFFECT_TRIGGER_CONDITION_LABELS.title }}
     </span>
 
     <p
       v-if="rows.length === 0"
       class="text-xs text-muted"
     >
-      {{ EFFECT_TRIGGER_CONDITION_LABELS.always }}
+      {{ emptyText ?? EFFECT_TRIGGER_CONDITION_LABELS.always }}
     </p>
 
     <div

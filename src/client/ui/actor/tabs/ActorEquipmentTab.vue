@@ -49,6 +49,7 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { resolveTargetedAttackRollMode } from '../../../composables/attackRollMode';
+  import { runWithEffectVariants } from '../../../composables/effectVariantChoice';
   import { buildRollBonusEvaluator } from '../../../composables/rollBonusEvaluator';
   import { useBonusDamageParts } from '../../../composables/useBonusDamageParts';
   import { useCarryingCapacity } from '../../../composables/useCarryingCapacity';
@@ -362,103 +363,105 @@
 
   /**
    * Открывает модалку броска урона для оружия
-   * @param weapon - оружие с формулой урона
+   * @param sourceWeapon - оружие с формулой урона; эффекты — до выбора варианта
    */
-  function openRollModal(weapon: DnDGameItem): void {
-    if (!weapon.damageParts?.length) {
-      return;
-    }
+  function openRollModal(sourceWeapon: DnDGameItem): void {
+    runWithEffectVariants(sourceWeapon, (weapon) => {
+      if (!weapon.damageParts?.length) {
+        return;
+      }
 
-    // Оружие со спасброском: цель кидает спас, броска попадания нет.
-    const hasSave = !!weapon.saveType && weapon.saveType !== 'none';
+      // Оружие со спасброском: цель кидает спас, броска попадания нет.
+      const hasSave = !!weapon.saveType && weapon.saveType !== 'none';
 
-    const baseMod = calculateWeaponAttackModifier(
-      props.entity,
-      weapon,
-      resolvedStats.value,
-    );
+      const baseMod = calculateWeaponAttackModifier(
+        props.entity,
+        weapon,
+        resolvedStats.value,
+      );
 
-    const weaponSaveDC = 8 + baseMod;
+      const weaponSaveDC = 8 + baseMod;
 
-    const attackKey = getAttackBonusKey(weapon.rangeType);
-    const damageKey = getDamageBonusKey(weapon.rangeType);
+      const attackKey = getAttackBonusKey(weapon.rangeType);
+      const damageKey = getDamageBonusKey(weapon.rangeType);
 
-    const evaluateBonuses = (context: {
-      hasAdvantage: boolean;
-      hasDisadvantage: boolean;
-    }) => {
-      // HP цели читается в момент броска — для условий target.hp.* («Убийца»)
-      const rollContext = { ...context, target: buildTargetHpContext() };
+      const evaluateBonuses = (context: {
+        hasAdvantage: boolean;
+        hasDisadvantage: boolean;
+      }) => {
+        // HP цели читается в момент броска — для условий target.hp.* («Убийца»)
+        const rollContext = { ...context, target: buildTargetHpContext() };
 
-      // Условный бонус может быть формулой (`@prof`, `@mod.dex`) — без
-      // контекста @-переменных она дала бы ноль
-      const formulaContext = buildFormulaContext(props.entity);
+        // Условный бонус может быть формулой (`@prof`, `@mod.dex`) — без
+        // контекста @-переменных она дала бы ноль
+        const formulaContext = buildFormulaContext(props.entity);
 
-      return {
-        attackBonus: evaluateConditionalBonuses(
-          combinedEffects.value,
-          attackKey,
-          rollContext,
-          formulaContext,
-        ),
-        damageBonus: evaluateConditionalBonuses(
-          combinedEffects.value,
-          damageKey,
-          rollContext,
-          formulaContext,
-        ),
+        return {
+          attackBonus: evaluateConditionalBonuses(
+            combinedEffects.value,
+            attackKey,
+            rollContext,
+            formulaContext,
+          ),
+          damageBonus: evaluateConditionalBonuses(
+            combinedEffects.value,
+            damageKey,
+            rollContext,
+            formulaContext,
+          ),
+        };
       };
-    };
 
-    const initialRollMode = resolveTargetedAttackRollMode(
-      props.entity,
-      weapon.rangeType === 'ranged' ? 'ranged' : 'melee',
-    );
+      const initialRollMode = resolveTargetedAttackRollMode(
+        props.entity,
+        weapon.rangeType === 'ranged' ? 'ranged' : 'melee',
+      );
 
-    // Единая со заклинаниями система урона: бросок ВСЕГДА идёт многочастным
-    // путём (части урона оружия + бонус-части эффектов). Состояние HP цели —
-    // для условных веток @target.full/@target.notFull.
-    const targetHp = buildTargetHpContext();
+      // Единая со заклинаниями система урона: бросок ВСЕГДА идёт многочастным
+      // путём (части урона оружия + бонус-части эффектов). Состояние HP цели —
+      // для условных веток @target.full/@target.notFull.
+      const targetHp = buildTargetHpContext();
 
-    const targetIsFull = targetHp
-      ? targetHp.currentHp >= targetHp.maxHp
-      : undefined;
+      const targetIsFull = targetHp
+        ? targetHp.currentHp >= targetHp.maxHp
+        : undefined;
 
-    const weaponPartsSetup = buildWeaponRollSetup({
-      weapon,
-      actor: props.entity,
-      effects: combinedEffects.value,
-      resolvedStats: resolvedStats.value,
-      targetIsFull,
-      targetType: targetHp?.creatureType,
+      const weaponPartsSetup = buildWeaponRollSetup({
+        weapon,
+        actor: props.entity,
+        effects: combinedEffects.value,
+        resolvedStats: resolvedStats.value,
+        targetIsFull,
+        targetType: targetHp?.creatureType,
+      });
+
+      rollConfig.value = {
+        name: weapon.name,
+        formula: weaponPartsSetup.baseParts[0]?.formula ?? '',
+        attackModifier: hasSave ? undefined : baseMod,
+        evaluateBonusRollFormulas: hasSave
+          ? undefined
+          : buildRollBonusEvaluator(() => props.entity, attackKey),
+        evaluateBonuses,
+        initialRollMode,
+        critThreshold: resolvedStats.value?.critThreshold,
+        incomingAttackType: weapon.rangeType === 'ranged' ? 'ranged' : 'melee',
+        damageType: getWeaponPrimaryDamageType(weapon),
+        damageParts: weaponPartsSetup.baseParts,
+        evaluateBonusDamageParts: weaponPartsSetup.evaluateBonusDamageParts,
+        onRollParts: (parts: RolledSpellDamagePart[]) =>
+          handleWeaponRollParts(
+            weaponPartsSetup.pseudoSpell,
+            parts,
+            weaponSaveDC,
+          ),
+        // Сбрасываем явно: `rollConfig` переиспользуется между бросками, и без
+        // этого обработчик от ПРЕДЫДУЩЕГО броска остался бы висеть на текущем.
+        onHit: undefined,
+      };
+
+      isRollModalOpen.value = true;
     });
-
-    rollConfig.value = {
-      name: weapon.name,
-      formula: weaponPartsSetup.baseParts[0]?.formula ?? '',
-      attackModifier: hasSave ? undefined : baseMod,
-      evaluateBonusRollFormulas: hasSave
-        ? undefined
-        : buildRollBonusEvaluator(() => props.entity, attackKey),
-      evaluateBonuses,
-      initialRollMode,
-      critThreshold: resolvedStats.value?.critThreshold,
-      incomingAttackType: weapon.rangeType === 'ranged' ? 'ranged' : 'melee',
-      damageType: getWeaponPrimaryDamageType(weapon),
-      damageParts: weaponPartsSetup.baseParts,
-      evaluateBonusDamageParts: weaponPartsSetup.evaluateBonusDamageParts,
-      onRollParts: (parts: RolledSpellDamagePart[]) =>
-        handleWeaponRollParts(
-          weaponPartsSetup.pseudoSpell,
-          parts,
-          weaponSaveDC,
-        ),
-      // Сбрасываем явно: `rollConfig` переиспользуется между бросками, и без
-      // этого обработчик от ПРЕДЫДУЩЕГО броска остался бы висеть на текущем.
-      onHit: undefined,
-    };
-
-    isRollModalOpen.value = true;
   }
 
   /**

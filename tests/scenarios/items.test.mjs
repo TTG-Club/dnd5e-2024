@@ -555,3 +555,67 @@ describe('каталог: проверки и заклинания', () => {
     assert.equal(rollMode('ranged'), 'normal');
   });
 });
+
+describe('каталог: условие наложения и варианты', () => {
+  it('[W08] Приём оружия ложится только у владеющего приёмом', () => {
+    const topple = engine.applyConditionPresetToEffect(
+      createEffect('Опрокидывание', {
+        effectTarget: 'target',
+        landingCondition: 'source.weaponMastery === true',
+        applySave: { ability: 'constitution', dc: 0, onSuccess: 'negate' },
+      }),
+      engine.buildConditionActiveEffect('prone'),
+    );
+
+    authoredScenario(topple, 'weapon');
+
+    const quarterstaff = { baseType: 'quarterstaff', mastery: 'topple' };
+    const fighter = createActor();
+    const target = createCreature();
+
+    const landsFor = (attacker) =>
+      engine.passesLandingCondition(topple, target, {
+        source: attacker,
+        weaponMastery: engine.entityHasWeaponMastery(attacker, quarterstaff),
+      });
+
+    assert.equal(landsFor(fighter), false, 'без владения приёмом — нет');
+
+    fighter.system.proficiencies.weaponMasteries = ['quarterstaff'];
+    assert.equal(landsFor(fighter), true, 'приём вида оружия');
+
+    fighter.system.proficiencies.weaponMasteries = [];
+    fighter.system.proficiencies.masteryProperties = ['topple'];
+    assert.equal(landsFor(fighter), true, 'сам приём («Тактический мастер»)');
+
+    assert.equal(
+      engine.passesLandingCondition(topple, target, { weaponMastery: false }),
+      false,
+      'существо статблока приёмами не владеет',
+    );
+  });
+
+  it('[I15] Доспех сопротивления: один тип сопротивления из вариантов', () => {
+    const variants = ['fire', 'cold', 'acid'].map((damageType) =>
+      createEffect(`Сопротивление: ${damageType}`, {
+        flags: [`resistance.${damageType}`],
+        variant: { group: 'тип', label: damageType },
+      }),
+    );
+
+    const [group] = engine.listEffectVariantGroups(variants);
+
+    assert.deepEqual(group, {
+      group: 'тип',
+      pick: 'choose',
+      labels: ['fire', 'cold', 'acid'],
+    });
+
+    assert.deepEqual(
+      engine
+        .pickEffectVariants(variants, { тип: 'cold' })
+        .map((effect) => effect.flags[0]),
+      ['resistance.cold'],
+    );
+  });
+});

@@ -282,6 +282,7 @@ export const EFFECT_TRIGGER_CONDITION_KIND_LABELS: Record<
   selfTagCountAtLeast: 'Отметок на носителе (счётчик)',
   selfTagFromSource: 'На носителе отметка от наложившего',
   selfTagFromSourceNot: 'На носителе нет отметки от наложившего',
+  sourceWeaponMastery: 'Атакующий владеет приёмом этого оружия',
 };
 
 /** Значение новой части условия с выбором */

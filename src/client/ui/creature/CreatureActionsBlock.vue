@@ -40,6 +40,7 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { resolveTargetedAttackRollMode } from '../../composables/attackRollMode';
+  import { runWithEffectVariants } from '../../composables/effectVariantChoice';
   import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import { discardSpellTemplate } from '../../composables/spellResolutionShared';
   import { useBonusDamageParts } from '../../composables/useBonusDamageParts';
@@ -354,65 +355,71 @@
    * действия со спасброском/областью — без него (цель кидает спас). Перед
    * прямой атакой проверяется дистанция; для области сначала размещается шаблон.
    *
-   * @param action - действие существа
+   * @param sourceAction - действие существа; эффекты — до выбора варианта
    */
-  function openRollModal(action: CreatureAction): void {
-    if (!hasAttackParams(action)) {
-      return;
-    }
+  function openRollModal(sourceAction: CreatureAction): void {
+    runWithEffectVariants(sourceAction, (action) => {
+      if (!hasAttackParams(action)) {
+        return;
+      }
 
-    const creature = getCreatureEntity();
+      const creature = getCreatureEntity();
 
-    if (!creature) {
-      return;
-    }
+      if (!creature) {
+        return;
+      }
 
-    // Проверка дистанции — только для прямых атак (область таргетится шаблоном)
-    let isDisadvantage = false;
+      // Проверка дистанции — только для прямых атак (область таргетится шаблоном)
+      let isDisadvantage = false;
 
-    if (!action.areaOfEffect && targetStore.targetTokenId && props.creatureId) {
-      const rangeCheck = checkCreatureActionRangeOnScene(
-        action,
-        props.creatureId,
-        targetStore.targetTokenId,
-      );
+      if (
+        !action.areaOfEffect
+        && targetStore.targetTokenId
+        && props.creatureId
+      ) {
+        const rangeCheck = checkCreatureActionRangeOnScene(
+          action,
+          props.creatureId,
+          targetStore.targetTokenId,
+        );
 
-      if (rangeCheck && !rangeCheck.allowed) {
-        chatStore.sendMessage(
-          `${CREATURE_ACTIONS_BLOCK_LABELS.outOfRangePrefix}${action.name}`
-            + `${CREATURE_ACTIONS_BLOCK_LABELS.outOfRangeMiddle}${rangeCheck.distance} ${rangeCheck.unitLabel}${
-              CREATURE_ACTIONS_BLOCK_LABELS.outOfRangeSuffix
-            }`,
-          'text',
+        if (rangeCheck && !rangeCheck.allowed) {
+          chatStore.sendMessage(
+            `${CREATURE_ACTIONS_BLOCK_LABELS.outOfRangePrefix}${action.name}`
+              + `${CREATURE_ACTIONS_BLOCK_LABELS.outOfRangeMiddle}${rangeCheck.distance} ${rangeCheck.unitLabel}${
+                CREATURE_ACTIONS_BLOCK_LABELS.outOfRangeSuffix
+              }`,
+            'text',
+          );
+
+          return;
+        }
+
+        if (rangeCheck?.disadvantage) {
+          isDisadvantage = true;
+        }
+      }
+
+      // Область: сначала размещаем шаблон у токена существа, затем кидаем урон
+      if (action.areaOfEffect) {
+        const color =
+          SPELL_DAMAGE_TEMPLATE_COLORS[actionPrimaryType(action) ?? '']
+          ?? SPELL_TEMPLATE_DEFAULT_COLOR;
+
+        spellTemplateStore.requestPlacement(
+          action.areaOfEffect,
+          color,
+          props.creatureId,
+          (templateId) =>
+            startActionRoll(action, creature, isDisadvantage, templateId),
+          null,
         );
 
         return;
       }
 
-      if (rangeCheck?.disadvantage) {
-        isDisadvantage = true;
-      }
-    }
-
-    // Область: сначала размещаем шаблон у токена существа, затем кидаем урон
-    if (action.areaOfEffect) {
-      const color =
-        SPELL_DAMAGE_TEMPLATE_COLORS[actionPrimaryType(action) ?? '']
-        ?? SPELL_TEMPLATE_DEFAULT_COLOR;
-
-      spellTemplateStore.requestPlacement(
-        action.areaOfEffect,
-        color,
-        props.creatureId,
-        (templateId) =>
-          startActionRoll(action, creature, isDisadvantage, templateId),
-        null,
-      );
-
-      return;
-    }
-
-    startActionRoll(action, creature, isDisadvantage, undefined);
+      startActionRoll(action, creature, isDisadvantage, undefined);
+    });
   }
 
   /**
