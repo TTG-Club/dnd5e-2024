@@ -32,6 +32,7 @@ import {
   EFFECT_DURATION_LABELS,
   EFFECT_FLAG_LABELS,
   EFFECT_TARGET_SUGGESTIONS,
+  isUseActivatedEffect,
   splitConditionParts,
 } from './activeEffectTypes.js';
 import { getConditionEntry } from './conditionTemplates.js';
@@ -542,6 +543,14 @@ const DETAIL_SECTION_TITLES: Record<ActiveEffectDetailSectionKey, string> = {
  */
 const EFFECT_TARGET_DETAIL_LABELS = {
   target: 'Накладывается на цель при попадании атакой',
+  /** Применяемый эффект ложится на цель не ударом, а применением */
+  usedOnTarget: 'Копия ложится на выбранную цель',
+} as const;
+
+/** Как эффект начинает действовать: применение или переключатель */
+const EFFECT_ACTIVATION_DETAIL_LABELS = {
+  use: 'Сам не действует — только при применении',
+  toggle: 'Включается переключателем',
 } as const;
 
 /**
@@ -634,8 +643,16 @@ function auraLines(effect: ActiveEffect): string[] {
 function applicationLines(effect: ActiveEffect): string[] {
   const lines: string[] = [];
 
+  if (effect.activation) {
+    lines.push(EFFECT_ACTIVATION_DETAIL_LABELS[effect.activation.mode]);
+  }
+
   if (effect.effectTarget === 'target') {
-    lines.push(EFFECT_TARGET_DETAIL_LABELS.target);
+    lines.push(
+      isUseActivatedEffect(effect)
+        ? EFFECT_TARGET_DETAIL_LABELS.usedOnTarget
+        : EFFECT_TARGET_DETAIL_LABELS.target,
+    );
   }
 
   if (effect.transfer) {

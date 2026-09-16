@@ -12,13 +12,11 @@ import {
   buildCarrierContext,
   buildFormulaContext,
   collectBonusRollFormulas,
+  getAttackFlagCategoryOfKeys,
   isDndSceneEntity,
 } from '@vtt/shared/system/dnd.js';
 
-import {
-  collectDefenderRollFormulas,
-  resolveAttackTypeOfKeys,
-} from './incomingAttack';
+import { collectDefenderRollFormulas } from './incomingAttack';
 import { isAllyAdjacentToTarget } from './targetAllyAdjacent';
 import { useBonusDamageParts } from './useBonusDamageParts';
 import { useResolvedStats } from './useResolvedStats';
@@ -64,7 +62,7 @@ export function buildRollBonusEvaluator(
   targetKeys: EffectTargetKey | readonly EffectTargetKey[],
 ): RollBonusEvaluator {
   const keys = typeof targetKeys === 'string' ? [targetKeys] : targetKeys;
-  const attackType = resolveAttackTypeOfKeys(keys);
+  const attackType = getAttackFlagCategoryOfKeys(keys);
   const { combinedEffects } = useResolvedStats(computed(getEntity));
   const { buildTargetHpContext } = useBonusDamageParts();
 
@@ -88,7 +86,7 @@ export function buildRollBonusEvaluator(
     const formulaContext = buildFormulaContext(entity);
     const targetEntityId = rollContext.target?.entityId;
 
-    const own = keys.flatMap((targetKey) =>
+    const ownFormulas = keys.flatMap((targetKey) =>
       collectBonusRollFormulas(
         combinedEffects.value,
         targetKey,
@@ -99,10 +97,10 @@ export function buildRollBonusEvaluator(
 
     return attackType && targetEntityId
       ? [
-          ...own,
+          ...ownFormulas,
           ...collectDefenderRollFormulas(entity, targetEntityId, attackType),
         ]
-      : own;
+      : ownFormulas;
   };
 }
 

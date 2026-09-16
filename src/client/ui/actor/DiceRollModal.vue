@@ -33,7 +33,6 @@
     getNaturalD20Roll,
     getShortDamageTypeLabel,
     isDamageType,
-    isDndSceneEntity,
     performTwoStageAttack,
     resolveEntityCreatureType,
     scaleDamageFormula,
@@ -332,21 +331,20 @@
   /** Режим броска атаки (обычный / преимущество / помеха) */
   const attackRollMode = ref<AttackRollMode>('normal');
 
+  const { findCurrentDndEntity } = useWorldEntities();
+
   /** AC цели с учётом типа входящей атаки. Реактивен к смене цели, пока модалка открыта */
   const targetAc = computed(() => {
-    const attacker = props.attackerId
-      ? useWorldEntities().findCurrentWorldEntity(props.attackerId)
-      : undefined;
+    const attacker = findCurrentDndEntity(props.attackerId);
 
     // Ядро передаёт контекст системе как есть: тип атакующего едет в нём
     const attackContext: DndIncomingAttackContext | undefined =
       props.incomingAttackType
         ? {
             attackType: props.incomingAttackType,
-            attackerCreatureType:
-              attacker && isDndSceneEntity(attacker)
-                ? resolveEntityCreatureType(attacker)
-                : undefined,
+            attackerCreatureType: attacker
+              ? resolveEntityCreatureType(attacker)
+              : undefined,
           }
         : undefined;
 

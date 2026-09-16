@@ -837,16 +837,24 @@ describe('каталог: срабатывания заклинаний', () => 
 
     authoredScenario(laughter, 'spell');
 
-    const spec = engine.buildTriggerSaveSpec(laughter, laughter.triggers[0]);
+    const saveSpec = engine.buildTriggerSaveSpec(
+      laughter,
+      laughter.triggers[0],
+    );
 
-    assert.equal(spec.mode, 'advantage');
-    assert.equal(spec.againstSpell, false, 'эффект ещё не наложен заклинанием');
+    assert.equal(saveSpec.mode, 'advantage');
+
+    assert.equal(
+      saveSpec.againstSpell,
+      false,
+      'эффект ещё не наложен заклинанием',
+    );
 
     assert.equal(
       engine.resolveSavingThrowRollMode({
         flags: new Set(),
         ability: 'wisdom',
-        mode: spec.mode,
+        mode: saveSpec.mode,
       }),
       'advantage',
     );

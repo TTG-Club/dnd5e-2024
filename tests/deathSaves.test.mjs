@@ -14,7 +14,7 @@ import {
  * Спасброски от смерти: серия, урон на нуле хитов и сброс по хитам.
  */
 
-const EMPTY = { successes: 0, failures: 0 };
+const EMPTY_DEATH_SAVES = { successes: 0, failures: 0 };
 
 /**
  * Персонаж на нуле хитов с серией.
@@ -23,7 +23,7 @@ const EMPTY = { successes: 0, failures: 0 };
  * @param {number} maximum - максимум хитов
  * @returns {object} персонаж
  */
-function downedHero(deathSaves = EMPTY, maximum = 20) {
+function downedHero(deathSaves = EMPTY_DEATH_SAVES, maximum = 20) {
   const hero = withHp(createActor, 0, {}, maximum);
 
   hero.system.deathSaves = deathSaves;
@@ -33,22 +33,28 @@ function downedHero(deathSaves = EMPTY, maximum = 20) {
 
 describe('серия спасбросков от смерти', () => {
   it('успех от 10, провал ниже, 20 — хит, 1 — два провала', () => {
-    assert.deepEqual(engine.resolveDeathSave(EMPTY, 12, 12), {
+    assert.deepEqual(engine.resolveDeathSave(EMPTY_DEATH_SAVES, 12, 12), {
       state: { successes: 1, failures: 0 },
       outcome: 'success',
     });
 
-    assert.equal(engine.resolveDeathSave(EMPTY, 9, 9).outcome, 'failure');
+    assert.equal(
+      engine.resolveDeathSave(EMPTY_DEATH_SAVES, 9, 9).outcome,
+      'failure',
+    );
 
     assert.equal(
-      engine.resolveDeathSave(EMPTY, 8, 10).outcome,
+      engine.resolveDeathSave(EMPTY_DEATH_SAVES, 8, 10).outcome,
       'success',
       'прибавка дотягивает до Сл',
     );
 
-    assert.equal(engine.resolveDeathSave(EMPTY, 20, 20).outcome, 'revived');
+    assert.equal(
+      engine.resolveDeathSave(EMPTY_DEATH_SAVES, 20, 20).outcome,
+      'revived',
+    );
 
-    assert.deepEqual(engine.resolveDeathSave(EMPTY, 1, 1).state, {
+    assert.deepEqual(engine.resolveDeathSave(EMPTY_DEATH_SAVES, 1, 1).state, {
       successes: 0,
       failures: 2,
     });
@@ -75,7 +81,7 @@ describe('серия спасбросков от смерти', () => {
     );
 
     assert.equal(engine.resolveEntityCurrentHp(revived), 1);
-    assert.deepEqual(revived.system.deathSaves, EMPTY);
+    assert.deepEqual(revived.system.deathSaves, EMPTY_DEATH_SAVES);
 
     const dead = downedHero({ successes: 0, failures: 2 });
 
@@ -88,12 +94,41 @@ describe('серия спасбросков от смерти', () => {
     assert.equal(engine.needsDeathSaves(dead), false);
   });
 
+  it('лист получает новые поля, персонаж не меняется', () => {
+    const hero = downedHero({ successes: 0, failures: 2 });
+    const before = structuredClone(hero);
+
+    const patch = engine.buildDeathSavePatch(
+      hero,
+      engine.resolveDeathSave(engine.readDeathSaves(hero), 5, 5),
+    );
+
+    assert.deepEqual(hero, before);
+    assert.equal(patch.system.deathSaves.failures, 3);
+    assert.equal(engine.isActorDead({ ...hero, ...patch }), true);
+  });
+
+  it('мусор в записи серии читается нулями', () => {
+    const hero = downedHero({ successes: 'два', failures: 7.8, stable: 'да' });
+
+    assert.deepEqual(engine.readDeathSaves(hero), {
+      successes: 0,
+      failures: 3,
+    });
+
+    const cleared = downedHero();
+
+    cleared.system.deathSaves = null;
+
+    assert.deepEqual(engine.readDeathSaves(cleared), EMPTY_DEATH_SAVES);
+  });
+
   it('бросают только персонажи на нуле, не стабильные и живые', () => {
     assert.equal(engine.needsDeathSaves(downedHero()), true);
 
     assert.equal(
       engine.needsDeathSaves(
-        downedHero({ ...EMPTY, successes: 3, stable: true }),
+        downedHero({ ...EMPTY_DEATH_SAVES, successes: 3, stable: true }),
       ),
       false,
     );
@@ -134,7 +169,7 @@ describe('урон и хиты', () => {
     strikeEntity(system, hero, 3, 'slashing', { details: { critical: true } });
     assert.equal(engine.isActorDead(hero), true, 'второй и третий провал');
 
-    const tough = downedHero(EMPTY, 20);
+    const tough = downedHero(EMPTY_DEATH_SAVES, 20);
 
     strikeEntity(system, tough, 20, 'fire');
     assert.equal(engine.isActorDead(tough), true, 'урон не меньше максимума');
@@ -146,7 +181,7 @@ describe('урон и хиты', () => {
 
     strikeEntity(system, hero, 10, 'slashing');
     assert.equal(engine.resolveEntityCurrentHp(hero), 0);
-    assert.deepEqual(engine.readDeathSaves(hero), EMPTY);
+    assert.deepEqual(engine.readDeathSaves(hero), EMPTY_DEATH_SAVES);
     assert.equal(engine.isActorDead(hero), false);
 
     const frail = withHp(createActor, 5, {}, 20);
@@ -177,7 +212,7 @@ describe('урон и хиты', () => {
     system.settleCombatState(hero, engine.pickCombatState(healed));
 
     assert.equal(engine.resolveEntityCurrentHp(hero), 5);
-    assert.deepEqual(hero.system.deathSaves, EMPTY);
+    assert.deepEqual(hero.system.deathSaves, EMPTY_DEATH_SAVES);
     assert.equal(engine.isActorDead(hero), false);
 
     const stale = withHp(createActor, 5, {}, 20);
@@ -185,7 +220,11 @@ describe('урон и хиты', () => {
     stale.system.deathSaves = { successes: 1, failures: 2 };
     strikeEntity(system, stale, 5, 'slashing');
 
-    assert.deepEqual(stale.system.deathSaves, EMPTY, 'старая серия не тянется');
+    assert.deepEqual(
+      stale.system.deathSaves,
+      EMPTY_DEATH_SAVES,
+      'старая серия не тянется',
+    );
   });
 
   it('строка чата называет итог и счёт', () => {
@@ -193,9 +232,18 @@ describe('урон и хиты', () => {
       engine.formatDeathSaveSummary(
         'Гримли',
         { state: { successes: 1, failures: 2 }, outcome: 'failure' },
-        false,
+        'roll',
       ),
       'Гримли: спасбросок от смерти — провал (успехи 1/3, провалы 2/3)',
+    );
+
+    assert.equal(
+      engine.formatDeathSaveSummary(
+        'Гримли',
+        { state: { successes: 0, failures: 3 }, outcome: 'dead' },
+        'damage',
+      ),
+      'Гримли: урон на 0 хитов — погибает',
     );
   });
 });

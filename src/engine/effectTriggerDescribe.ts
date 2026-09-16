@@ -38,8 +38,14 @@ import {
   classifyLegacyTrigger,
   isTurnTriggerEvent,
   resolveTriggerActionGate,
+  triggerEventHasRestType,
 } from './effectTriggers.js';
-import { DEFAULT_TRIGGER_REST_TYPE } from './effectTriggerTypes.js';
+import {
+  AREA_TRIGGER_RECIPIENT,
+  DEFAULT_TRIGGER_AREA_TARGET,
+  DEFAULT_TRIGGER_REST_TYPE,
+  MAX_HP_REDUCTION_NEVER_ENDS,
+} from './effectTriggerTypes.js';
 import { EVENT_DAMAGE_VARIABLE } from './formulaParser.js';
 import {
   DEFAULT_TAG_COUNT_THRESHOLD,
@@ -143,11 +149,12 @@ function describeTriggerRecipient(trigger: EffectTrigger): string {
     return TRIGGER_LABELS.recipientOther;
   }
 
-  if (trigger.recipient !== 'area' || !trigger.area) {
+  if (trigger.recipient !== AREA_TRIGGER_RECIPIENT || !trigger.area) {
     return '';
   }
 
-  const target = AREA_TARGET_PHRASES[trigger.area.target ?? 'all'];
+  const target =
+    AREA_TARGET_PHRASES[trigger.area.target ?? DEFAULT_TRIGGER_AREA_TARGET];
 
   return `${TRIGGER_LABELS.recipientAreaPrefix}${target} в ${trigger.area.radius}${TRIGGER_LABELS.recipientAreaSuffix}`;
 }
@@ -316,7 +323,7 @@ function describeAction(
 
       const endsOnRest = action.endsOnRest ?? DEFAULT_TRIGGER_REST_TYPE;
 
-      return `${TRIGGER_LABELS.maxHpPrefix}${amount}${endsOnRest === 'never' ? '' : REST_UNTIL_LABELS[endsOnRest]}`;
+      return `${TRIGGER_LABELS.maxHpPrefix}${amount}${endsOnRest === MAX_HP_REDUCTION_NEVER_ENDS ? '' : REST_UNTIL_LABELS[endsOnRest]}`;
     }
     case 'setHp':
       return `${TRIGGER_LABELS.setHpPrefix}${action.value}`;
@@ -374,7 +381,7 @@ function describeMoment(trigger: EffectTrigger): string {
     return ATTACK_ROLE_EVENT_LABELS[trigger.role];
   }
 
-  if (trigger.event === 'rest') {
+  if (triggerEventHasRestType(trigger.event)) {
     return REST_EVENT_LABELS[trigger.restType ?? DEFAULT_TRIGGER_REST_TYPE];
   }
 

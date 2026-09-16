@@ -39,7 +39,7 @@ import type {
   TurnSaveOutcome,
 } from './turnEffects.js';
 
-import { isEffectDormant } from './activeEffectTypes.js';
+import { isEffectDormant, listLiveEffects } from './activeEffectTypes.js';
 import {
   formatEffectNotes,
   ignoreRejectedRollRequest,
@@ -64,7 +64,7 @@ import {
   settleTriggerOutcome,
   toTriggerSaveOutcome,
 } from './effectTriggerRunner.js';
-import { listEffectListTriggers } from './effectTriggers.js';
+import { listEffectEventTriggers } from './effectTriggers.js';
 import { DEFAULT_TRIGGER_RECIPIENT } from './effectTriggerTypes.js';
 import { resolveEntityCurrentHp } from './hitPoints.js';
 import { rollEffectSaveOutcome } from './turnEffects.js';
@@ -153,7 +153,7 @@ function listDamageEventSources(
   newEffectIds: ReadonlySet<string> | undefined,
 ): EffectTriggerSource[] {
   const eventTriggersOf = (effect: ActiveEffect): EffectTrigger[] =>
-    listEffectListTriggers(effect).filter((trigger) => trigger.event === event);
+    listEffectEventTriggers(effect, event);
 
   // Своя аура без «действует и на носителя» слышит урон других, а не носителя
   const own = (entity.activeEffects ?? []).filter(
@@ -701,17 +701,14 @@ export function settleAppliedEvents(
 ): DamageEventsResult {
   const result = createDamageEventsResult();
 
-  const effects = (subject.activeEffects ?? []).filter(
-    (effect) => !isEffectDormant(effect) && newEffectIds.has(effect.id),
+  const effects = listLiveEffects(subject).filter((effect) =>
+    newEffectIds.has(effect.id),
   );
 
   const sources = buildTriggerSources(
     effects,
     EFFECT_TRIGGER_SOURCE_KINDS.instance,
-    (effect) =>
-      listEffectListTriggers(effect).filter(
-        (trigger) => trigger.event === 'applied',
-      ),
+    (effect) => listEffectEventTriggers(effect, 'applied'),
   );
 
   const damage = mergeLandingHits(hits);

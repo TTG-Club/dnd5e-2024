@@ -98,6 +98,9 @@ export const DEFAULT_TRIGGER_TURN_OWNER: EffectTriggerTurnOwner = 'subject';
 /** Кому достаются действия срабатывания */
 export const EFFECT_TRIGGER_RECIPIENTS = ['subject', 'other', 'area'] as const;
 
+/** Получатель «всем в радиусе» */
+export const AREA_TRIGGER_RECIPIENT = 'area';
+
 /**
  * Получатель действий: субъект — тот, на ком эффект, — другая сторона
  * события (кто нанёс урон) или все в радиусе от субъекта (`area`: взрыв при
@@ -196,6 +199,19 @@ export type EffectTriggerSaveMode = (typeof EFFECT_TRIGGER_SAVE_MODES)[number];
 
 /** Какой отдых запускает срабатывание «после отдыха» */
 export const EFFECT_TRIGGER_REST_TYPES = ['long', 'short', 'any'] as const;
+
+/** Уменьшение максимума хитов, которое снимают только руками */
+export const MAX_HP_REDUCTION_NEVER_ENDS = 'never';
+
+/** Когда проходит уменьшение максимума хитов: отдых или никогда */
+export const EFFECT_TRIGGER_MAX_HP_REST_ENDS = [
+  ...EFFECT_TRIGGER_REST_TYPES,
+  MAX_HP_REDUCTION_NEVER_ENDS,
+] as const;
+
+/** Конец уменьшения максимума хитов */
+export type EffectTriggerMaxHpRestEnd =
+  (typeof EFFECT_TRIGGER_MAX_HP_REST_ENDS)[number];
 
 /** Отдых срабатывания: долгий, короткий или любой */
 export type EffectTriggerRestType = (typeof EFFECT_TRIGGER_REST_TYPES)[number];
@@ -306,7 +322,7 @@ export interface EffectTriggerReduceMaxHpAction {
   /** На сколько: число, кости или `@damage` — урон события */
   amount: string;
   /** Какой отдых возвращает максимум; `never` — только снятие руками */
-  endsOnRest?: EffectTriggerRestType | 'never';
+  endsOnRest?: EffectTriggerMaxHpRestEnd;
   on?: EffectTriggerActionGate;
 }
 

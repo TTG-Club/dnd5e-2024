@@ -72,6 +72,7 @@ import {
 } from './calculations.js';
 import { bindClassLevels } from './classEffectScope.js';
 import { getTotalLevel } from './classTypes.js';
+import { INCAPACITATED_CONDITION_KEY } from './conditionKeys.js';
 import {
   ABILITY_KEYS,
   BASE_UNARMORED_AC,
@@ -1397,6 +1398,22 @@ export function evaluateConditionalBonuses(
   return bonus;
 }
 
+/**
+ * Ключ прибавки к броску к20: атаке, спасброску, проверке или спасброску от
+ * смерти.
+ *
+ * @param key - ключ изменения
+ * @returns `true` для ключа броска
+ */
+function isRollBonusKey(key: string): boolean {
+  return (
+    key.startsWith('attack.')
+    || key.startsWith('save.')
+    || key === ABILITY_CHECK_KEY
+    || key === DEATH_SAVE_KEY
+  );
+}
+
 /** Определяет бонусы, которые нельзя вычислять как постоянное число листа. */
 function isRollTimeDiceChange(change: EffectChange): boolean {
   // Прибавка атакующему — не число листа носителя вовсе
@@ -1406,11 +1423,7 @@ function isRollTimeDiceChange(change: EffectChange): boolean {
 
   return (
     isDiceFormulaValue(change.value)
-    && (change.key.startsWith('damage.')
-      || change.key.startsWith('attack.')
-      || change.key.startsWith('save.')
-      || change.key === ABILITY_CHECK_KEY
-      || change.key === DEATH_SAVE_KEY)
+    && (change.key.startsWith('damage.') || isRollBonusKey(change.key))
   );
 }
 
@@ -1475,13 +1488,7 @@ export function collectBonusRollFormulas(
 ): string[] {
   const acceptsFlat = targetKey === ATTACKS_AGAINST_KEY;
 
-  if (
-    !targetKey.startsWith('attack.')
-    && !targetKey.startsWith('save.')
-    && targetKey !== ABILITY_CHECK_KEY
-    && targetKey !== DEATH_SAVE_KEY
-    && !acceptsFlat
-  ) {
+  if (!isRollBonusKey(targetKey) && !acceptsFlat) {
     return [];
   }
 
@@ -2813,4 +2820,15 @@ function cloneResolvedStats(stats: ResolvedActorStats): ResolvedActorStats {
       proficiencyBonus: stats.abilityBonusContext.proficiencyBonus,
     },
   };
+}
+
+/**
+ * Недееспособна ли сущность: флаг недееспособности среди её действующих
+ * флагов (его ставят «Парализованный», «Ошеломлённый» и другие состояния).
+ *
+ * @param entity - сущность
+ * @returns `true`, если сущность недееспособна
+ */
+export function isEntityIncapacitated(entity: DnDActor | DnDCreature): boolean {
+  return resolveActorStats(entity).activeFlags.has(INCAPACITATED_CONDITION_KEY);
 }

@@ -55,6 +55,7 @@ import {
   EFFECT_TRIGGER_ATTACK_ROLES,
   EFFECT_TRIGGER_EVENTS,
   EFFECT_TRIGGER_LIMIT_PERIODS,
+  EFFECT_TRIGGER_MAX_HP_REST_ENDS,
   EFFECT_TRIGGER_RECIPIENTS,
   EFFECT_TRIGGER_RESERVED_EVENTS,
   EFFECT_TRIGGER_REST_TYPES,
@@ -1129,6 +1130,9 @@ export interface EffectChange {
  */
 export const EFFECT_ACTIVATION_MODES = ['use', 'toggle'] as const;
 
+/** Сколько тратит применение или включение без поля `amount` */
+export const DEFAULT_ACTIVATION_AMOUNT = 1;
+
 /** Способ применения или включения эффекта */
 export type EffectActivationMode = (typeof EFFECT_ACTIVATION_MODES)[number];
 
@@ -1211,8 +1215,11 @@ export interface EffectSave {
   onSuccess: EffectSaveOutcome;
 }
 
+/** Моменты периодического спасброска: начало или конец хода носителя */
+export const EFFECT_SAVE_TIMINGS = ['startOfTurn', 'endOfTurn'] as const;
+
 /** Момент периодического спасброска для снятия эффекта */
-export type EffectSaveTiming = 'startOfTurn' | 'endOfTurn';
+export type EffectSaveTiming = (typeof EFFECT_SAVE_TIMINGS)[number];
 
 /**
  * Периодический спасбросок для снятия эффекта (правило «спас в начале/конце
@@ -1549,6 +1556,31 @@ export function isEffectDormant(
   effect: Pick<ActiveEffect, 'disabled' | 'activation'>,
 ): boolean {
   return effect.disabled === true || isUseActivatedEffect(effect);
+}
+
+/**
+ * Действующие эффекты носителя — без спящих.
+ *
+ * @param holder - носитель эффектов
+ * @param holder.activeEffects - его эффекты
+ * @returns действующие эффекты
+ */
+export function listLiveEffects(holder: {
+  activeEffects?: readonly ActiveEffect[];
+}): ActiveEffect[] {
+  return (holder.activeEffects ?? []).filter(
+    (effect) => !isEffectDormant(effect),
+  );
+}
+
+/**
+ * Флаг «Увёртливости» характеристики спасброска.
+ *
+ * @param ability - характеристика
+ * @returns ключ флага
+ */
+export function buildSaveEvasionFlag(ability: AbilityType): SaveEvasionFlagKey {
+  return `save.evasion.${ability}`;
 }
 
 /**
@@ -1934,7 +1966,7 @@ const EffectSaveSchema = z.object({
 const RecurringSaveSchema = z.object({
   ability: z.enum(SAVE_ABILITY_VALUES),
   dc: EffectSaveDcSchema,
-  timing: z.enum(['startOfTurn', 'endOfTurn']),
+  timing: z.enum(EFFECT_SAVE_TIMINGS),
 });
 
 /** Zod-схема части урона эффекта (подмножество DamagePart) */
@@ -1949,7 +1981,7 @@ const EffectDamagePartSchema = z.object({
 /** Zod-схема периодического урона (DoT) */
 const RecurringDamageSchema = z.object({
   damageParts: z.array(EffectDamagePartSchema),
-  timing: z.enum(['startOfTurn', 'endOfTurn']),
+  timing: z.enum(EFFECT_SAVE_TIMINGS),
   save: EffectSaveSchema.optional(),
 });
 
@@ -2010,7 +2042,7 @@ const EffectTriggerActionSchema = z.discriminatedUnion('type', [
     type: z.literal('reduceMaxHp'),
     amount: z.string().trim().min(1).max(MAX_TRIGGER_DC_FORMULA_LENGTH),
     endsOnRest: z
-      .enum([...EFFECT_TRIGGER_REST_TYPES, 'never'])
+      .enum(EFFECT_TRIGGER_MAX_HP_REST_ENDS)
       .optional()
       .catch(undefined),
     on: EffectTriggerGateSchema,

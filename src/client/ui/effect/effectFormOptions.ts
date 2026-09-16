@@ -18,6 +18,7 @@ import type {
   EffectTriggerActionGate,
   EffectTriggerAttackRole,
   EffectTriggerLimitPeriod,
+  EffectTriggerMaxHpRestEnd,
   EffectTriggerRecipient,
   EffectTriggerRestType,
   EffectTriggerSaveMode,
@@ -31,15 +32,18 @@ import type { EffectActivationChoice, SaveDcFieldMode } from './constants';
 import {
   DEFAULT_TRIGGER_ATTACK_ROLE,
   EFFECT_DURATION_LABELS,
+  EFFECT_SAVE_TIMINGS,
   EFFECT_TRIGGER_ACTION_GATES,
   EFFECT_TRIGGER_ATTACK_ROLES,
   EFFECT_TRIGGER_LIMIT_PERIODS,
+  EFFECT_TRIGGER_MAX_HP_REST_ENDS,
   EFFECT_TRIGGER_RECIPIENTS,
   EFFECT_TRIGGER_REST_TYPES,
   EFFECT_TRIGGER_SAVE_MODES,
   EFFECT_TURN_ANCHOR_LABELS,
   EFFECT_TURN_TIMING_LABELS,
   EFFECT_VARIANT_PICKS,
+  listSelectableConditions,
   triggerEventAcceptsArea,
   triggerEventHasOtherParty,
   triggerEventHasRole,
@@ -66,11 +70,11 @@ import {
   ZONE_TRIGGER_LABELS,
 } from './constants';
 import {
+  EFFECT_SAVE_TIMING_LABELS,
   EFFECT_TRIGGER_APPLIED_OTHER_PARTY_LABEL,
   EFFECT_TRIGGER_ATTACK_OTHER_PARTY_LABELS,
   EFFECT_TRIGGER_DAMAGE_HALF_GATE,
   EFFECT_TRIGGER_DAMAGE_HALF_LABEL,
-  EFFECT_TRIGGER_EVENT_LABELS,
   EFFECT_TRIGGER_GATE_LABELS,
   EFFECT_TRIGGER_MAX_HP_REST_LABELS,
   EFFECT_TRIGGER_NORMAL_SAVE_MODE,
@@ -166,6 +170,42 @@ function deliveryLabel(
         ? EFFECT_DELIVERY_LABELS.spellZone
         : EFFECT_DELIVERY_LABELS.zone;
   }
+}
+
+/** Пункт выпадающего списка окна */
+export interface EffectSelectItem {
+  /** Подпись */
+  label: string;
+  /** Значение */
+  value: string;
+}
+
+/**
+ * Состояния для выбора: канон и заведённые в мире — список меняется, пока окно
+ * открыто, поэтому его зовут из `computed`.
+ *
+ * @returns пункты состояний
+ */
+export function buildConditionItems(): EffectSelectItem[] {
+  return listSelectableConditions().map((condition) => ({
+    label: condition.nameRu,
+    value: condition.key,
+  }));
+}
+
+/**
+ * Типы урона для выбора.
+ *
+ * @param damageTypes - типы урона справочника системы
+ * @returns пункты типов урона
+ */
+export function buildDamageTypeItems(
+  damageTypes: ReadonlyArray<{ key: string; name: string }>,
+): EffectSelectItem[] {
+  return damageTypes.map((damageType) => ({
+    label: damageType.name,
+    value: damageType.key,
+  }));
 }
 
 /**
@@ -489,8 +529,8 @@ export const EFFECT_TRIGGER_REST_OPTIONS: ReadonlyArray<
 
 /** После какого отдыха возвращается максимум хитов */
 export const EFFECT_TRIGGER_MAX_HP_REST_OPTIONS: ReadonlyArray<
-  EffectSegmentOption<EffectTriggerRestType | 'never'>
-> = [...EFFECT_TRIGGER_REST_TYPES, 'never' as const].map((restType) => ({
+  EffectSegmentOption<EffectTriggerMaxHpRestEnd>
+> = EFFECT_TRIGGER_MAX_HP_REST_ENDS.map((restType) => ({
   value: restType,
   label: EFFECT_TRIGGER_MAX_HP_REST_LABELS[restType],
 }));
@@ -513,16 +553,13 @@ export const EFFECT_TRIGGER_SAVE_MODE_OPTIONS: ReadonlyArray<
   label: EFFECT_TRIGGER_SAVE_MODE_LABELS[mode],
 }));
 
-/** Момент повторного спасброска наложенного состояния по умолчанию */
-export const DEFAULT_RECURRING_SAVE_TIMING: EffectSaveTiming = 'endOfTurn';
-
 /** Варианты момента повторного спасброска */
 export const EFFECT_SAVE_TIMING_OPTIONS: ReadonlyArray<
   EffectSegmentOption<EffectSaveTiming>
-> = [
-  { value: 'startOfTurn', label: EFFECT_TRIGGER_EVENT_LABELS.turnStart ?? '' },
-  { value: 'endOfTurn', label: EFFECT_TRIGGER_EVENT_LABELS.turnEnd ?? '' },
-];
+> = EFFECT_SAVE_TIMINGS.map((timing) => ({
+  value: timing,
+  label: EFFECT_SAVE_TIMING_LABELS[timing],
+}));
 
 /** Варианты исхода урона: «успех — половина» — отдельный вариант */
 export const EFFECT_TRIGGER_DAMAGE_GATE_OPTIONS: ReadonlyArray<

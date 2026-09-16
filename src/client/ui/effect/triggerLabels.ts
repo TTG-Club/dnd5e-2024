@@ -7,11 +7,13 @@ import type {
   ConditionRef,
   CreatureCategory,
   CreatureSize,
+  EffectSaveTiming,
   EffectTriggerActionGate,
   EffectTriggerActionType,
   EffectTriggerAttackRole,
   EffectTriggerEvent,
   EffectTriggerLimitPeriod,
+  EffectTriggerMaxHpRestEnd,
   EffectTriggerPreset,
   EffectTriggerRecipient,
   EffectTriggerRestType,
@@ -20,10 +22,20 @@ import type {
   TriggerConditionKind,
 } from '@vtt/shared/system/dnd.js';
 
-import { DEFAULT_EFFECT_TAG } from '@vtt/shared/system/dnd.js';
+import {
+  DEFAULT_EFFECT_TAG,
+  EVENT_DAMAGE_VARIABLE,
+  MAX_HP_REDUCTION_NEVER_ENDS,
+} from '@vtt/shared/system/dnd.js';
 
 /** «На сколько» нового действия «Уменьшить максимум хитов» */
-export const DEFAULT_MAX_HP_REDUCTION = '@damage';
+export const DEFAULT_MAX_HP_REDUCTION = `@${EVENT_DAMAGE_VARIABLE}`;
+
+/** Обычный спасбросок в выборе режима: поля `mode` нет */
+export const EFFECT_TRIGGER_NORMAL_SAVE_MODE = 'normal';
+
+/** Момент повторного спасброска наложенного состояния по умолчанию */
+export const DEFAULT_RECURRING_SAVE_TIMING: EffectSaveTiming = 'endOfTurn';
 
 /** Подписи шага «Срабатывания» */
 export const EFFECT_TRIGGERS_STEP_LABELS = {
@@ -73,7 +85,7 @@ export const EFFECT_TRIGGER_ROW_LABELS = {
   tagStack: 'Счётчик',
   tagStackHint: 'Повторная отметка прибавляет ступень, а не заменяет прежнюю',
   maxHpAmount: 'На сколько',
-  maxHpAmountPlaceholder: '@damage',
+  maxHpAmountPlaceholder: DEFAULT_MAX_HP_REDUCTION,
   maxHpAmountHint: '@damage — урон события; можно число или кости',
   maxHpRest: 'Максимум вернётся после',
 } as const;
@@ -105,11 +117,17 @@ export const EFFECT_TRIGGER_REST_LABELS: Record<EffectTriggerRestType, string> =
 
 /** После какого отдыха возвращается максимум хитов */
 export const EFFECT_TRIGGER_MAX_HP_REST_LABELS: Record<
-  EffectTriggerRestType | 'never',
+  EffectTriggerMaxHpRestEnd,
   string
 > = {
   ...EFFECT_TRIGGER_REST_LABELS,
-  never: 'Не вернётся сам',
+  [MAX_HP_REDUCTION_NEVER_ENDS]: 'Не вернётся сам',
+};
+
+/** Момент повторного спасброска */
+export const EFFECT_SAVE_TIMING_LABELS: Record<EffectSaveTiming, string> = {
+  startOfTurn: 'В начале хода',
+  endOfTurn: 'В конце хода',
 };
 
 /** Режим спасброска срабатывания; обычный в данных не пишется */
@@ -117,13 +135,10 @@ export const EFFECT_TRIGGER_SAVE_MODE_LABELS: Record<
   EffectTriggerSaveMode | typeof EFFECT_TRIGGER_NORMAL_SAVE_MODE,
   string
 > = {
-  normal: 'Обычный',
+  [EFFECT_TRIGGER_NORMAL_SAVE_MODE]: 'Обычный',
   advantage: 'С преимуществом',
   disadvantage: 'С помехой',
 };
-
-/** Обычный спасбросок в выборе режима: поля `mode` нет */
-export const EFFECT_TRIGGER_NORMAL_SAVE_MODE = 'normal';
 
 /** Кому достаются действия срабатывания; «другая сторона» — у урона */
 export const EFFECT_TRIGGER_RECIPIENT_LABELS: Record<

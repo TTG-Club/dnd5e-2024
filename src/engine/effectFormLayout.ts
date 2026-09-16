@@ -33,7 +33,9 @@ import type {
 } from './effectTriggerTypes.js';
 
 import {
+  DEFAULT_ACTIVATION_AMOUNT,
   DEFAULT_EFFECT_CHANGE_PRIORITY,
+  EFFECT_ACTIVATION_MODES,
   isUseActivatedEffect,
   parseFormNumber,
 } from './activeEffectTypes.js';
@@ -45,6 +47,7 @@ import {
 } from './effectTriggers.js';
 import {
   AREA_RECIPIENT_TRIGGER_EVENTS,
+  AREA_TRIGGER_RECIPIENT,
   DAMAGE_DATA_TRIGGER_EVENTS,
   DAMAGE_TRIGGER_EVENTS,
   DEFAULT_EFFECT_TAG,
@@ -259,10 +262,10 @@ const USE_DELIVERIES: readonly EffectDelivery[] = ['carrier', 'target', 'aura'];
 const CONTEXT_ACTIVATION_MODES: Partial<
   Record<EffectFormContext, readonly EffectActivationMode[]>
 > = {
-  ownEffects: ['use', 'toggle'],
-  feature: ['use', 'toggle'],
+  ownEffects: EFFECT_ACTIVATION_MODES,
+  feature: EFFECT_ACTIVATION_MODES,
   item: ['use'],
-  generic: ['use', 'toggle'],
+  generic: EFFECT_ACTIVATION_MODES,
 };
 
 /** Места, где применение и включение тратят счётчик листа, а не заряды */
@@ -332,12 +335,15 @@ function normalizeDraftActivation(
   }
 
   const counter = activation.counter?.trim() || undefined;
-  const amount = Math.trunc(parseFormNumber(activation.amount) ?? 1);
+
+  const amount = Math.trunc(
+    parseFormNumber(activation.amount) ?? DEFAULT_ACTIVATION_AMOUNT,
+  );
 
   return {
     mode: activation.mode,
     counter,
-    amount: counter && amount > 1 ? amount : undefined,
+    amount: counter && amount > DEFAULT_ACTIVATION_AMOUNT ? amount : undefined,
   };
 }
 
@@ -1467,7 +1473,7 @@ function normalizeDraftTriggers(
       // Получатель и Сл формулой — только у событий, где они работают
       recipient: resolveDraftRecipient(trigger),
       area:
-        resolveDraftRecipient(trigger) === 'area'
+        resolveDraftRecipient(trigger) === AREA_TRIGGER_RECIPIENT
           ? {
               ...trigger.area,
               radius: Math.max(

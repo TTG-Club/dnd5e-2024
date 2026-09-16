@@ -27,7 +27,7 @@ import type {
 import type { FormulaContext } from './formulaParser.js';
 import type { ActorCounterState, DnDActorSystem } from './types.js';
 
-import { isEffectDormant } from './activeEffectTypes.js';
+import { listLiveEffects } from './activeEffectTypes.js';
 import {
   EXHAUSTION_LONG_REST_RECOVERY,
   getEntityExhaustionLevel,
@@ -41,14 +41,13 @@ import {
   resolveCounterMaxIn,
 } from './counterResource.js';
 import { restoreCreatureSpellGroupUses } from './creatureSpellcasting.js';
+import { cloneEntityData } from './dataClone.js';
 import {
-  admitTrigger,
   buildTriggerSources,
   EFFECT_TRIGGER_SOURCE_KINDS,
-  rollTriggerSave,
-  settlePresenceTrigger,
+  settleSelfTriggerSources,
 } from './effectTriggerRunner.js';
-import { listEffectListTriggers } from './effectTriggers.js';
+import { listEffectEventTriggers } from './effectTriggers.js';
 import { DEFAULT_TRIGGER_REST_TYPE } from './effectTriggerTypes.js';
 import { pruneTriggerUsage, restLimitPeriodsOf } from './effectTriggerUsage.js';
 import { canEntityRegainHitPoints } from './healingLimits.js';
@@ -307,36 +306,29 @@ export function resolveRestTriggerEffects(
   restType: RestType,
 ): ActiveEffect[] | undefined {
   const restTriggersOf = (effect: ActiveEffect): EffectTrigger[] =>
-    listEffectListTriggers(effect).filter(
-      (trigger) =>
-        trigger.event === 'rest'
-        && restTriggerMatches(
-          trigger.restType ?? DEFAULT_TRIGGER_REST_TYPE,
-          restType,
-        ),
+    listEffectEventTriggers(effect, 'rest').filter((trigger) =>
+      restTriggerMatches(
+        trigger.restType ?? DEFAULT_TRIGGER_REST_TYPE,
+        restType,
+      ),
     );
 
-  const effects = (entity.activeEffects ?? []).filter(
-    (effect) => !isEffectDormant(effect),
-  );
-
-  if (!effects.some((effect) => restTriggersOf(effect).length > 0)) {
+  if (
+    !listLiveEffects(entity).some((effect) => restTriggersOf(effect).length > 0)
+  ) {
     return undefined;
   }
 
-  const rested: DnDSceneEntity = JSON.parse(JSON.stringify(entity));
+  const rested = cloneEntityData(entity);
 
-  const sources = buildTriggerSources(
-    (rested.activeEffects ?? []).filter((effect) => !isEffectDormant(effect)),
-    EFFECT_TRIGGER_SOURCE_KINDS.instance,
-    restTriggersOf,
+  settleSelfTriggerSources(
+    rested,
+    buildTriggerSources(
+      listLiveEffects(rested),
+      EFFECT_TRIGGER_SOURCE_KINDS.instance,
+      restTriggersOf,
+    ),
   );
-
-  for (const source of sources) {
-    if (admitTrigger(rested, source)) {
-      settlePresenceTrigger(rested, source, rollTriggerSave(rested, source));
-    }
-  }
 
   return rested.activeEffects ?? [];
 }

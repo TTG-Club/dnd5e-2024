@@ -25,6 +25,7 @@ import {
   describeEffectFlag,
   formatEffectSaveDc,
 } from './activeEffectDescribe.js';
+import { DEFAULT_ACTIVATION_AMOUNT } from './activeEffectTypes.js';
 import { buildConditionActiveEffect } from './conditionTemplates.js';
 import { ABILITY_GENITIVE_LABELS } from './consts.js';
 import {
@@ -218,10 +219,12 @@ function describeActivationCounter(effect: ActiveEffect): string {
     return '';
   }
 
-  const amount = effect.activation?.amount ?? 1;
+  const amount = effect.activation?.amount ?? DEFAULT_ACTIVATION_AMOUNT;
 
   const amountText =
-    amount > 1 ? `${SCENARIO_LABELS.counterAmountPrefix}${amount}` : '';
+    amount > DEFAULT_ACTIVATION_AMOUNT
+      ? `${SCENARIO_LABELS.counterAmountPrefix}${amount}`
+      : '';
 
   return `${SCENARIO_LABELS.counterPrefix}${counter}${SCENARIO_LABELS.counterSuffix}${amountText}`;
 }

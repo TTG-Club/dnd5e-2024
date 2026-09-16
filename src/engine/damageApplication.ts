@@ -17,7 +17,11 @@
 
 import type { ActiveEffect, EffectOrigin } from './activeEffectTypes.js';
 import type { DamageHit } from './damageHits.js';
-import type { DamageApplyResult, DamageDefenseOutcome } from './damageUtils.js';
+import type {
+  DamageApplyResult,
+  DamageDefenseOutcome,
+  DamageDefenses,
+} from './damageUtils.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type { IncomingAttackContext } from './effectPipeline.js';
 import type { EffectTriggerUsageLedger } from './effectTriggerUsage.js';
@@ -64,6 +68,25 @@ import {
   writeEntityHitPoints,
 } from './hitPoints.js';
 import { withInitializedDuration } from './turnEffects.js';
+
+/**
+ * Защиты цели от урона без сопротивлений, которые игнорирует урон атакующего
+ * («Сила могилы»).
+ *
+ * @param entity - цель
+ * @param ignoredResistances - типы урона, чьё сопротивление не действует; нет —
+ *   действуют все
+ * @returns защиты цели
+ */
+export function resolveTargetDamageDefenses(
+  entity: DnDSceneEntity,
+  ignoredResistances: readonly string[] | undefined,
+): DamageDefenses {
+  return withoutIgnoredResistances(
+    resolveActorStats(entity).damageDefenses,
+    ignoredResistances,
+  );
+}
 
 /**
  * Строит `ActiveEffect` для наложения на цель.
@@ -166,13 +189,11 @@ export function applyTargetDamage(
 
   // Учитываем защиты цели: иммунитет (урон 0), сопротивление (½), уязвимость (×2)
   if (!isHealing && damageType) {
-    const stats = resolveActorStats(entity);
-
     const defenseResult = applyDamageDefenses(
       amount,
       damageType,
-      withoutIgnoredResistances(
-        stats.damageDefenses,
+      resolveTargetDamageDefenses(
+        entity,
         parseDamageHitDetails(details).ignoredResistances,
       ),
     );

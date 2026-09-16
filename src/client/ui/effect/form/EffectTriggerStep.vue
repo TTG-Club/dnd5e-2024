@@ -15,6 +15,7 @@
   import { computed } from 'vue';
 
   import {
+    DEFAULT_ACTIVATION_AMOUNT,
     DEFAULT_EFFECT_VARIANT_PICK,
     writeEffectDelivery,
     writeEffectTrigger,
@@ -26,6 +27,7 @@
     EFFECT_AURA_LABELS,
     EFFECT_AURA_RADIUS_STEP,
     EFFECT_LANDING_CONDITION_LABELS,
+    EFFECT_NO_KNOWN_TAGS,
     EFFECT_PERMANENT_ACTIVATION,
     EFFECT_TRIGGER_HINTS,
     EFFECT_VARIANT_LABELS,
@@ -103,7 +105,7 @@
   });
 
   const activationAmount = computed({
-    get: () => effect.value.activation?.amount ?? 1,
+    get: () => effect.value.activation?.amount ?? DEFAULT_ACTIVATION_AMOUNT,
     set: (amount: number | null) => {
       if (amount !== null) {
         updateActivation({ amount });
@@ -309,7 +311,7 @@
       >
         <UInputNumber
           v-model="activationAmount"
-          :min="1"
+          :min="DEFAULT_ACTIVATION_AMOUNT"
           size="sm"
           class="w-full"
         />
@@ -424,7 +426,7 @@
     <EffectTriggerConditionPicker
       v-model:condition="landingCondition"
       event="applied"
-      :known-tags="[]"
+      :known-tags="EFFECT_NO_KNOWN_TAGS"
       :title="EFFECT_LANDING_CONDITION_LABELS.title"
       :empty-text="EFFECT_LANDING_CONDITION_LABELS.always"
     />

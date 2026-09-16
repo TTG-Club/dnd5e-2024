@@ -305,17 +305,19 @@ npm run release -- 0.2.5     # явный номер
 
 | Часть | Сколько | Где список |
 |---|---|---|
-| Ключи изменений (`changes`) | 55 | `EFFECT_TARGET_SUGGESTIONS` |
+| Ключи изменений (`changes`) | 57 | `EFFECT_TARGET_SUGGESTIONS` |
 | Режимы изменения | 6 | `EFFECT_CHANGE_MODE_LABELS` |
-| Флаги | 192 | `EFFECT_FLAG_LABELS` |
-| Условия | 46 | `EFFECT_CONDITION_SUGGESTIONS` |
+| Флаги | 194 | `EFFECT_FLAG_LABELS` |
+| Условия | 62 | `EFFECT_CONDITION_SUGGESTIONS` |
 | Подсказки значений | 32 | `EFFECT_VALUE_SUGGESTIONS` |
 
 Ключи по группам: `ability.*` (6), `save.*` (6 и `save.concentration` — только
 спасброски концентрации), `skill.*` (18), `abilityCheck` (все проверки
-характеристик, навыки тоже), `attack.*` (3), `damage.*` (3), `movement.*` (5),
-`sense.*` (5), `terrain.*` (1) и одиночные — `armorClass`, `initiative`,
-`proficiencyBonus`, `spellSaveDC`, `hitPoints.max`, `critThreshold`. Пустой ключ
+характеристик, навыки тоже), `deathSave` (спасброски от смерти), `attack.*`
+(3), `attacksAgainst` (прибавка атакующему от защитника), `damage.*` (3),
+`movement.*` (5), `sense.*` (5), `terrain.*` (1) и одиночные — `armorClass`,
+`initiative`, `proficiencyBonus`, `spellSaveDC`, `hitPoints.max`,
+`critThreshold`. Пустой ключ
 допустим: строку завёл готовый пункт меню ради условия, а что менять — автор
 назовёт сам; на расчёт такая строка не влияет.
 

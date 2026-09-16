@@ -14,6 +14,7 @@
   import { useSystemDataStore } from '../../../stores/systemDataStore';
   import DamagePartsEditor from '../../actor/DamagePartsEditor.vue';
   import { EFFECT_DAMAGE_STEP_LABELS } from '../constants';
+  import { buildDamageTypeItems } from '../effectFormOptions';
 
   defineProps<{
     /** Раскладка окна */
@@ -25,10 +26,7 @@
   const systemDataStore = useSystemDataStore();
 
   const damageTypeOptions = computed(() =>
-    systemDataStore.damageTypes.map((damageType) => ({
-      label: damageType.name,
-      value: damageType.key,
-    })),
+    buildDamageTypeItems(systemDataStore.damageTypes),
   );
 
   const triggerDamage = computed({

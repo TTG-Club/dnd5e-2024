@@ -33,6 +33,7 @@ import { useTargetStore } from '@/stores/targetStore';
 import {
   buildCarrierContext,
   buildFormulaContext,
+  buildPseudoSpell,
   calculateWeaponDamageModifier,
   collectBonusDamageFormulas,
   describeDamagePart,
@@ -388,31 +389,18 @@ export function useBonusDamageParts() {
     const damageKey = getDamageBonusKey(weapon.rangeType);
     const defaultType = getWeaponPrimaryDamageType(weapon);
 
-    const pseudoSpell: Spell = {
+    const pseudoSpell = buildPseudoSpell({
       id: `weapon-roll-${weapon.id}`,
       name: weapon.name,
       rollSource: 'weapon',
       weaponMastery: entityHasWeaponMastery(actor, weapon),
-      level: 0,
-      school: 'evocation',
-      castingTimeValue: 1,
-      castingTimeUnit: 'action',
-      components: { verbal: false, somatic: false, material: false },
-      range: 0,
-      rangeUnit: 'ft',
-      durationValue: 0,
-      durationUnit: 'instantaneous',
-      concentration: false,
-      ritual: false,
-      targetType: 'creature',
       deliveryType: weapon.rangeType === 'ranged' ? 'ranged' : 'melee',
       saveType: weapon.saveType ?? 'none',
       saveEffect: weapon.saveEffect,
       // Эффекты оружия (статус/доп.урон со своим applySave) обрабатывает
       // оркестратор per-target — тем же путём, что и у заклинаний/существ.
       activeEffects: weapon.activeEffects?.filter(isDnDEffect),
-      description: '',
-    };
+    });
 
     // Базовые части урона оружия через тот же резолвер, что и заклинания
     // (versatile-хват применён в getWeaponDamageParts; @-переменные, @dmg/@heal/
@@ -556,21 +544,10 @@ export function useBonusDamageParts() {
       ? describeDamagePart(baseDamageParts[0]).types[0]
       : undefined;
 
-    const pseudoSpell: Spell = {
+    const pseudoSpell = buildPseudoSpell({
       id: `creature-action-${creature.id}-${action.name}`,
       name: action.name,
       rollSource: 'creatureAction',
-      level: 0,
-      school: 'evocation',
-      castingTimeValue: 1,
-      castingTimeUnit: 'action',
-      components: { verbal: false, somatic: false, material: false },
-      range: 0,
-      rangeUnit: 'ft',
-      durationValue: 0,
-      durationUnit: 'instantaneous',
-      concentration: false,
-      ritual: false,
       targetType: action.areaOfEffect ? 'area' : 'creature',
       deliveryType: action.rangeType === 'ranged' ? 'ranged' : 'melee',
       saveType: action.saveType ?? 'none',
@@ -579,8 +556,7 @@ export function useBonusDamageParts() {
       // Эффекты действия (статус/доп.урон со своим applySave) обрабатывает
       // оркестратор per-target — тем же путём, что и у заклинаний/оружия.
       activeEffects: action.activeEffects,
-      description: '',
-    };
+    });
 
     // Базовые части через тот же движок сегментации (@dmg/@heal/@target),
     // что и заклинания/оружие — без инъекции модификатора характеристики.

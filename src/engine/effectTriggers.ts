@@ -321,6 +321,32 @@ export function listEffectListTriggers(
 }
 
 /**
+ * Срабатывания списка на одно событие.
+ *
+ * @param effect - эффект
+ * @param event - событие
+ * @returns срабатывания события
+ */
+export function listEffectEventTriggers(
+  effect: ActiveEffect,
+  event: EffectTriggerEvent,
+): EffectTrigger[] {
+  return listEffectListTriggers(effect).filter(
+    (trigger) => trigger.event === event,
+  );
+}
+
+/**
+ * Выбирается ли у события отдых: «после долгого», «после короткого».
+ *
+ * @param event - событие срабатывания
+ * @returns `true` для события отдыха
+ */
+export function triggerEventHasRestType(event: EffectTriggerEvent): boolean {
+  return event === 'rest';
+}
+
+/**
  * Событие начала или конца хода: у него выбирается, чей это ход.
  *
  * @param event - событие срабатывания

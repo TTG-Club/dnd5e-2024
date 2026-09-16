@@ -61,12 +61,12 @@ import {
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
   resolveEntityTempHp,
-  resolveSaveEffectScale,
+  resolveTargetDamageDefenses,
+  scaleSaveDamage,
   spellHasDamage,
   spellHealsTempHp,
   spellIsHealing,
   withInitializedDuration,
-  withoutIgnoredResistances,
   writeEntityHitPoints,
 } from '@vtt/shared/system/dnd.js';
 
@@ -110,6 +110,60 @@ export interface ProjectileAttackContext {
   bonusDiceFormulasByTarget: ReadonlyMap<string, readonly string[]>;
   /** Тип атаки для условных бонусов к AC цели (напр. +2 КД от дальнобойных) */
   attackType: 'melee' | 'ranged';
+}
+
+/**
+ * Считает суммарный бонус-урон от эффектов для конкретной цели
+ * (снарядный путь): per-target гейты по HP цели, спасбросок и защиты
+ * по типу каждой части.
+ *
+ * @param entity - сущность-цель
+ * @param bonusParts - брошенные бонус-части (значения общие на каст)
+ * @param saveResult - результат спасброска цели (если был)
+ * @param spell - заклинание: что даёт успех и его характеристика
+ * @param attackerId - заклинатель: какие сопротивления игнорирует его урон
+ * @returns суммарный бонус-урон с учётом гейтов, спасброска и защит
+ */
+function computeBonusDamageForEntity(
+  entity: DnDSceneEntity,
+  bonusParts: RolledSpellDamagePart[],
+  saveResult: SavingThrowResult | undefined,
+  spell: Spell,
+  attackerId: string | undefined,
+): number {
+  let total = 0;
+
+  const defense = buildSaveDamageDefense(entity, spell);
+
+  const damageDefenses = resolveTargetDamageDefenses(
+    entity,
+    resolveAttackerIgnoredResistances(attackerId),
+  );
+
+  for (const part of bonusParts) {
+    if (part.amount <= 0 || !partPassesTargetGate(part, entity)) {
+      continue;
+    }
+
+    let partDamage = scaleSaveDamage(
+      part.amount,
+      spell.saveEffect,
+      saveResult?.passed,
+      defense,
+    );
+
+    if (part.type) {
+      partDamage = applyDamageDefenses(
+        partDamage,
+        part.type,
+        damageDefenses,
+      ).finalDamage;
+    }
+
+    total += partDamage;
+  }
+
+  return total;
 }
 
 /**
@@ -217,13 +271,11 @@ export function useSpellResolution() {
 
     // Учитываем защиты цели: иммунитет (урон 0), сопротивление (½), уязвимость (×2)
     if (!isHealing && damageType) {
-      const stats = resolveActorStats(entity);
-
       const defenseResult = applyDamageDefenses(
         damage,
         damageType,
-        withoutIgnoredResistances(
-          stats.damageDefenses,
+        resolveTargetDamageDefenses(
+          entity,
           resolveAttackerIgnoredResistances(options.hit?.sourceId),
         ),
       );
@@ -319,60 +371,6 @@ export function useSpellResolution() {
   }
 
   /**
-   * Считает суммарный бонус-урон от эффектов для конкретной цели
-   * (снарядный путь): per-target гейты по HP цели, спасбросок и защиты
-   * по типу каждой части.
-   *
-   * @param entity - сущность-цель
-   * @param bonusParts - брошенные бонус-части (значения общие на каст)
-   * @param saveResult - результат спасброска цели (если был)
-   * @param spell - заклинание: что даёт успех и его характеристика
-   * @param attackerId - заклинатель: какие сопротивления игнорирует его урон
-   * @returns суммарный бонус-урон с учётом гейтов, спасброска и защит
-   */
-  function computeBonusDamageForEntity(
-    entity: DnDSceneEntity,
-    bonusParts: RolledSpellDamagePart[],
-    saveResult: SavingThrowResult | undefined,
-    spell: Spell,
-    attackerId: string | undefined,
-  ): number {
-    let total = 0;
-
-    const defense = buildSaveDamageDefense(entity, spell);
-    const ignoredResistances = resolveAttackerIgnoredResistances(attackerId);
-
-    for (const part of bonusParts) {
-      if (part.amount <= 0 || !partPassesTargetGate(part, entity)) {
-        continue;
-      }
-
-      let partDamage = Math.floor(
-        part.amount
-          * resolveSaveEffectScale(
-            spell.saveEffect,
-            saveResult?.passed,
-            defense,
-          ),
-      );
-
-      if (part.type) {
-        const stats = resolveActorStats(entity);
-
-        partDamage = applyDamageDefenses(
-          partDamage,
-          part.type,
-          withoutIgnoredResistances(stats.damageDefenses, ignoredResistances),
-        ).finalDamage;
-      }
-
-      total += partDamage;
-    }
-
-    return total;
-  }
-
-  /**
    * Обрабатывает одну цель: спасбросок + применение урона (синхронно, авто-ролл).
    *
    * @param entity - сущность-цель
@@ -415,13 +413,11 @@ export function useSpellResolution() {
         sourceName: spell.name,
       });
 
-      finalDamage = Math.floor(
-        damageTotal
-          * resolveSaveEffectScale(
-            spell.saveEffect,
-            saveResult.passed,
-            buildSaveDamageDefense(entity, spell),
-          ),
+      finalDamage = scaleSaveDamage(
+        damageTotal,
+        spell.saveEffect,
+        saveResult.passed,
+        buildSaveDamageDefense(entity, spell),
       );
     }
 

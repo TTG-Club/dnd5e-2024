@@ -12,6 +12,7 @@
 
   import {
     ACTOR_SPELLS_TAB_LABELS,
+    HUD_PROMPTS_TELEPORT_TARGET,
     PROJECTILE_PROMPT_LABELS,
     SPELL_EFFECT_TARGET_LABELS,
     SPELL_EFFECT_TARGET_MODE,
@@ -192,7 +193,7 @@
 </script>
 
 <template>
-  <Teleport to="#hud-prompts-container">
+  <Teleport :to="HUD_PROMPTS_TELEPORT_TARGET">
     <!-- Имитируем внешний вид и анимации из ActionPromptList -->
     <Transition name="slide-up">
       <div
@@ -267,15 +268,4 @@
   </Teleport>
 </template>
 
-<style scoped>
-  .slide-up-enter-active,
-  .slide-up-leave-active {
-    transition: all 0.3s ease;
-  }
-
-  .slide-up-enter-from,
-  .slide-up-leave-to {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-</style>
+<style scoped src="../hudPromptTransition.css"></style>

@@ -34,13 +34,12 @@ import {
   limitEntityHealing,
   mergeAppliedEffects,
   recordDamageHit,
-  resolveActorStats,
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
   resolveEntityTempHp,
-  resolveSaveEffectScale,
+  resolveTargetDamageDefenses,
+  scaleSaveDamage,
   withInitializedDuration,
-  withoutIgnoredResistances,
   writeEntityHitPoints,
 } from '@vtt/shared/system/dnd.js';
 
@@ -539,33 +538,29 @@ export function useSpellDamageWithParts() {
       types: string[] | undefined,
       save: SavingThrowResult | undefined,
     ): { final: number; outcome: DamageDefenseOutcome } {
-      let dmg = Math.floor(
-        amount
-          * resolveSaveEffectScale(
-            spell.saveEffect,
-            save?.passed,
-            buildSaveDamageDefense(entity, spell),
-          ),
+      let scaledDamage = scaleSaveDamage(
+        amount,
+        spell.saveEffect,
+        save?.passed,
+        buildSaveDamageDefense(entity, spell),
       );
 
       let outcome: DamageDefenseOutcome = 'normal';
 
       // Без данных системы защиты цели неизвестны — урон идёт как есть
       if (types && types.length > 0 && isDndSceneEntity(entity)) {
-        const stats = resolveActorStats(entity);
-
         // Несколько типов на одной кости — защиты по наиболее выгодному цели
         const defenseResult = applyMultiTypeDamageDefenses(
-          dmg,
+          scaledDamage,
           types,
-          withoutIgnoredResistances(stats.damageDefenses, ignoredResistances),
+          resolveTargetDamageDefenses(entity, ignoredResistances),
         );
 
-        dmg = defenseResult.finalDamage;
+        scaledDamage = defenseResult.finalDamage;
         outcome = defenseResult.outcome;
       }
 
-      return { final: dmg, outcome };
+      return { final: scaledDamage, outcome };
     }
 
     /** Накапливает часть в аккумулятор сущности. */

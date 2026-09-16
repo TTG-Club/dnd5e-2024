@@ -21,6 +21,10 @@ import type {
 
 import {
   CUSTOM_SKILLS_MAX,
+  DEATH_SAVE_DC,
+  DEATH_SAVE_DOUBLE_FAILURE_ROLL,
+  DEATH_SAVE_REVIVE_ROLL,
+  DEATH_SAVE_REVIVED_HP,
   FEET_UNIT_LABEL,
   HIT_DICE_FORMULA_LETTER,
   SAVING_THROW_REQUEST_TITLE_PARTS,
@@ -5104,9 +5108,35 @@ export const DEATH_SAVES_BLOCK_LABELS = {
   successes: 'Успехи',
   failures: 'Провалы',
   roll: 'Бросить',
-  hint: 'Сл 10 в начале своего хода; 20 — 1 хит, 1 — два провала.',
+  /** Числа — из правил движка, чтобы подсказка не разошлась с расчётом */
+  hint: `Сл ${DEATH_SAVE_DC} в начале своего хода; ${DEATH_SAVE_REVIVE_ROLL} — ${DEATH_SAVE_REVIVED_HP} хит, ${DEATH_SAVE_DOUBLE_FAILURE_ROLL} — два провала.`,
   stable: 'Стабилен: больше не бросает, пока не получит урон.',
   dead: 'Персонаж погиб.',
+  /** Заголовок и подпись окна броска */
   rollTitle: 'Спасбросок от смерти',
-  rollLabel: 'Спасбросок от смерти',
 } as const;
+
+/** Отметки серии спасбросков от смерти по порядку */
+export const DEATH_SAVE_MARK_KINDS = ['successes', 'failures'] as const;
+
+/** Какие отметки серии */
+export type DeathSaveMarkKind = (typeof DEATH_SAVE_MARK_KINDS)[number];
+
+/** Оформление отметки серии: пустая или поставленная */
+export const DEATH_SAVE_MARK_CLASS: Record<
+  DeathSaveMarkKind | 'empty',
+  string
+> = {
+  empty: 'border-default text-muted hover:border-primary',
+  successes: 'border-success bg-success/20 text-success',
+  failures: 'border-error bg-error/20 text-error',
+};
+
+/** Цвет строки состояния серии */
+export const DEATH_SAVE_STATUS_CLASS = {
+  dead: 'text-error',
+  alive: 'text-muted',
+} as const;
+
+/** Слой плашек запросов хоста: сюда телепортируются плашки системы */
+export const HUD_PROMPTS_TELEPORT_TARGET = '#hud-prompts-container';

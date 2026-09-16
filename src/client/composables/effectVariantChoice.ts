@@ -66,14 +66,17 @@ export function runWithEffectVariants<Source extends EffectVariantSource>(
   const rolled = rollRandomEffectVariants(groups);
 
   const finish = (choices: EffectVariantChoices): void => {
-    const all = { ...rolled, ...choices };
-    const message = formatVariantChoices(source.name, all);
+    const allChoices = { ...rolled, ...choices };
+    const message = formatVariantChoices(source.name, allChoices);
 
     if (message) {
       useChatStore().sendMessage(message, 'text');
     }
 
-    proceed({ ...source, activeEffects: pickEffectVariants(effects, all) });
+    proceed({
+      ...source,
+      activeEffects: pickEffectVariants(effects, allChoices),
+    });
   };
 
   const chooseGroups = groups.filter((group) => group.pick === 'choose');

@@ -10,8 +10,8 @@
     EffectFormLayout,
     EffectSaveTiming,
     EffectTriggerAction,
+    EffectTriggerMaxHpRestEnd,
     EffectTriggerReduceMaxHpAction,
-    EffectTriggerRestType,
   } from '@vtt/shared/system/dnd.js';
 
   import { computed } from 'vue';
@@ -22,18 +22,21 @@
     DEFAULT_TRIGGER_REST_TYPE,
     isEffectTag,
     layoutAcceptsSourceSaveDc,
-    listSelectableConditions,
   } from '@vtt/shared/system/dnd.js';
 
   import { useSystemDataStore } from '../../../stores/systemDataStore';
   import DamagePartsEditor from '../../actor/DamagePartsEditor.vue';
   import { EFFECT_SOURCE_DC_LABELS } from '../constants';
   import {
-    DEFAULT_RECURRING_SAVE_TIMING,
+    buildConditionItems,
+    buildDamageTypeItems,
     EFFECT_SAVE_TIMING_OPTIONS,
     EFFECT_TRIGGER_MAX_HP_REST_OPTIONS,
   } from '../effectFormOptions';
-  import { EFFECT_TRIGGER_ROW_LABELS } from '../triggerLabels';
+  import {
+    DEFAULT_RECURRING_SAVE_TIMING,
+    EFFECT_TRIGGER_ROW_LABELS,
+  } from '../triggerLabels';
   import SaveDcField from './SaveDcField.vue';
 
   const props = defineProps<{
@@ -51,19 +54,11 @@
   const systemDataStore = useSystemDataStore();
 
   const damageTypeOptions = computed(() =>
-    systemDataStore.damageTypes.map((damageType) => ({
-      label: damageType.name,
-      value: damageType.key,
-    })),
+    buildDamageTypeItems(systemDataStore.damageTypes),
   );
 
   // Список вычисляемый: кроме канона в него входят состояния, заведённые в мире
-  const conditionItems = computed(() =>
-    listSelectableConditions().map((conditionEntry) => ({
-      value: conditionEntry.key,
-      label: conditionEntry.nameRu,
-    })),
-  );
+  const conditionItems = computed(buildConditionItems);
 
   const acceptsSourceSaveDc = computed(() =>
     layoutAcceptsSourceSaveDc(props.layout),
@@ -261,19 +256,19 @@
       action.value.type === 'reduceMaxHp'
         ? (action.value.endsOnRest ?? DEFAULT_TRIGGER_REST_TYPE)
         : DEFAULT_TRIGGER_REST_TYPE,
-    set: (next: EffectTriggerRestType | 'never') => {
+    set: (next: EffectTriggerMaxHpRestEnd) => {
       const current = action.value;
 
       if (current.type !== 'reduceMaxHp') {
         return;
       }
 
-      const { endsOnRest: _rest, ...rest } = current;
+      const { endsOnRest: _endsOnRest, ...withoutRestEnd } = current;
 
       action.value =
         next === DEFAULT_TRIGGER_REST_TYPE
-          ? rest
-          : { ...rest, endsOnRest: next };
+          ? withoutRestEnd
+          : { ...withoutRestEnd, endsOnRest: next };
     },
   });
 </script>

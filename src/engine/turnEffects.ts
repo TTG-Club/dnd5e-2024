@@ -24,7 +24,10 @@ import type { DamageDefenseOutcome } from './damageUtils.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type { CarrierContext } from './effectPipeline.js';
 import type { DeferredTurnTrigger } from './effectTriggerRunner.js';
-import type { EffectTriggerTurnOwner } from './effectTriggerTypes.js';
+import type {
+  EffectTriggerSaveMode,
+  EffectTriggerTurnOwner,
+} from './effectTriggerTypes.js';
 import type { FormulaContext } from './formulaParser.js';
 
 import { isToggleActivatedEffect } from './activeEffectTypes.js';
@@ -275,11 +278,12 @@ export function expireTurnEffects(
 
   let changed = usageReset;
 
-  entity.activeEffects = entity.activeEffects.filter((effect) => {
+  // Новые объекты вместо правки на месте: эффект мог прийти общим с копией
+  entity.activeEffects = entity.activeEffects.flatMap((effect) => {
     const duration = effect.duration;
 
     if (duration.type !== 'turn' || (duration.turnTiming ?? 'end') !== timing) {
-      return true;
+      return [effect];
     }
 
     const anchor = duration.turnAnchor ?? 'carrier';
@@ -299,28 +303,28 @@ export function expireTurnEffects(
     const anchorId = hasReachableSource ? sourceId : entity.id;
 
     if (anchorId !== turnActorId) {
-      return true; // граница не нашего якоря
-    }
-
-    if (duration.turnSkipFirst) {
-      // Пропускаем первую границу (ход наложения), снимаем флаг — эффект живёт.
-      effect.duration = { ...duration, turnSkipFirst: false };
-      changed = true;
-
-      return true;
+      return [effect]; // граница не нашего якоря
     }
 
     changed = true;
 
-    // Переключаемый эффект по истечении выключается, а не уходит с листа
-    if (isToggleActivatedEffect(effect)) {
-      effect.disabled = true;
-      effect.duration = { ...duration, turnSkipFirst: undefined };
-
-      return true;
+    if (duration.turnSkipFirst) {
+      // Пропускаем первую границу (ход наложения), снимаем флаг — эффект живёт.
+      return [{ ...effect, duration: { ...duration, turnSkipFirst: false } }];
     }
 
-    return false; // граница «следующего» хода — снимаем эффект
+    // Переключаемый эффект по истечении выключается, а не уходит с листа
+    if (isToggleActivatedEffect(effect)) {
+      return [
+        {
+          ...effect,
+          disabled: true,
+          duration: { ...duration, turnSkipFirst: undefined },
+        },
+      ];
+    }
+
+    return []; // граница «следующего» хода — снимаем эффект
   });
 
   return changed;
@@ -460,7 +464,7 @@ export interface SavingThrowCircumstances {
   /** Спасбросок концентрации */
   againstConcentration?: boolean;
   /** Преимущество или помеха самого спасброска */
-  mode?: 'advantage' | 'disadvantage';
+  mode?: EffectTriggerSaveMode;
 }
 
 /**

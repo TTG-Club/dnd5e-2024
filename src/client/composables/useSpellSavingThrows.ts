@@ -6,6 +6,7 @@ import type {
 } from '@vtt/shared';
 import type {
   ConditionRef,
+  SavingThrowCircumstances,
   SavingThrowRequestPayload,
   SavingThrowResult,
 } from '@vtt/shared/system/dnd.js';
@@ -77,7 +78,7 @@ export interface SavingThrowTarget {
    */
   againstSpell?: boolean;
   /** Преимущество или помеха самого спасброска (срабатывание эффекта) */
-  mode?: 'advantage' | 'disadvantage';
+  mode?: SavingThrowCircumstances['mode'];
   /**
    * Сущность, от чьего имени идёт действие (заклинатель, атакующий). По ней
    * сервер проверяет право игрока просить бросок; ГМу поле не требуется, но
@@ -165,13 +166,7 @@ function buildSavingThrowResult(
 function getActorSaveInfo(
   entity: SceneEntity,
   saveAbility: AbilityType,
-  options: {
-    againstMagic: boolean;
-    againstSpell?: boolean;
-    againstCondition?: ConditionRef;
-    againstConcentration?: boolean;
-    mode?: 'advantage' | 'disadvantage';
-  },
+  options: SavingThrowCircumstances,
 ): ActorSaveInfo {
   // Ядро видит entity как Base*; D&D-форму подтверждает гвард. Без данных
   // системы считать нечего: спасбросок идёт «голым» кубиком, а не роняет каст
@@ -207,19 +202,13 @@ function getActorSaveInfo(
 
   const autoFail = stats.activeFlags.has(`save.autoFail.${saveAbility}`);
 
-  const { findCurrentWorldEntity } = useWorldEntities();
+  const { findCurrentDndEntity } = useWorldEntities();
 
   return {
     modifier,
     evaluateBonusRollFormulas: buildRollBonusEvaluator(
-      () => {
-        // Окно могло остаться открытым после замены сущности новым снимком мира.
-        const currentEntity = findCurrentWorldEntity(entity.id);
-
-        return currentEntity && isDndSceneEntity(currentEntity)
-          ? currentEntity
-          : undefined;
-      },
+      // Окно могло остаться открытым после замены сущности новым снимком мира
+      () => findCurrentDndEntity(entity.id),
       listSavingThrowBonusKeys(saveAbility, options),
     ),
     hasAdvantage,
@@ -262,6 +251,8 @@ function buildRollRequestOptions(
     ...(target.againstSpell ? { againstSpell: true } : {}),
     againstCondition: target.againstCondition,
     ...(target.againstConcentration ? { againstConcentration: true } : {}),
+    // Режим самого спасброска едет к адресату: у него тот же счёт флагов
+    ...(target.mode ? { mode: target.mode } : {}),
     sourceName: target.sourceName,
   };
 

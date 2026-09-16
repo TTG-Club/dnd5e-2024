@@ -8,12 +8,19 @@
 <script setup lang="ts">
   import type { DeathSavesState } from '@vtt/shared/system/dnd.js';
 
+  import type { DeathSaveMarkKind } from './constants';
+
   import { computed } from 'vue';
 
   import FieldsetLabel from '@/shared_ui/components/FieldsetLabel.vue';
   import { DEATH_SAVES_TO_RESOLVE } from '@vtt/shared/system/dnd.js';
 
-  import { DEATH_SAVES_BLOCK_LABELS } from './constants';
+  import {
+    DEATH_SAVE_MARK_CLASS,
+    DEATH_SAVE_MARK_KINDS,
+    DEATH_SAVE_STATUS_CLASS,
+    DEATH_SAVES_BLOCK_LABELS,
+  } from './constants';
   import { getSheetBlockClass } from './utils/sheetBlockClass';
 
   interface Props {
@@ -34,9 +41,6 @@
     update: [state: DeathSavesState];
   }>();
 
-  /** Какие отметки серии */
-  type DeathSaveMarkKind = 'successes' | 'failures';
-
   const MARK_INDEXES = Array.from(
     { length: DEATH_SAVES_TO_RESOLVE },
     (_, index) => index + 1,
@@ -48,6 +52,10 @@
 
   const canRoll = computed(
     () => !props.isDead && !props.state.stable && !props.isEditMode,
+  );
+
+  const statusClass = computed(() =>
+    props.isDead ? DEATH_SAVE_STATUS_CLASS.dead : DEATH_SAVE_STATUS_CLASS.alive,
   );
 
   const status = computed(() => {
@@ -68,13 +76,9 @@
    * @returns классы
    */
   function markClass(kind: DeathSaveMarkKind, index: number): string {
-    if (index > props.state[kind]) {
-      return 'border-default text-muted hover:border-primary';
-    }
-
-    return kind === 'successes'
-      ? 'border-success bg-success/20 text-success'
-      : 'border-error bg-error/20 text-error';
+    return index > props.state[kind]
+      ? DEATH_SAVE_MARK_CLASS.empty
+      : DEATH_SAVE_MARK_CLASS[kind];
   }
 
   /**
@@ -103,7 +107,7 @@
     <div class="flex flex-col gap-2 px-2 pb-2">
       <div class="flex items-center justify-between gap-2">
         <div
-          v-for="kind in ['successes', 'failures'] as const"
+          v-for="kind in DEATH_SAVE_MARK_KINDS"
           :key="kind"
           class="flex items-center gap-1"
         >
@@ -131,7 +135,7 @@
       >
         <p
           class="text-xs"
-          :class="isDead ? 'text-error' : 'text-muted'"
+          :class="statusClass"
         >
           {{ status }}
         </p>

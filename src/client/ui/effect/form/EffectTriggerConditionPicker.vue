@@ -24,14 +24,17 @@
     getTriggerConditionParameter,
     isDamageType,
     isEffectTag,
-    listSelectableConditions,
     listTriggerConditionKinds,
+    MIN_TAG_COUNT_THRESHOLD,
+    normalizeTagCountThreshold,
     readTriggerConditionParts,
+    triggerConditionHasAmount,
     writeTriggerCondition,
   } from '@vtt/shared/system/dnd.js';
 
   import { useSystemDataStore } from '../../../stores/systemDataStore';
   import { SCROLLABLE_DROPDOWN_UI } from '../../actor/constants';
+  import { buildConditionItems } from '../effectFormOptions';
   import {
     EFFECT_TRIGGER_CONDITION_DEFAULT_VALUES,
     EFFECT_TRIGGER_CONDITION_KIND_LABELS,
@@ -94,12 +97,7 @@
   );
 
   // Состояния — канон и заведённые в мире
-  const conditionItems = computed(() =>
-    listSelectableConditions().map((conditionEntry) => ({
-      label: conditionEntry.nameRu,
-      value: conditionEntry.key,
-    })),
-  );
+  const conditionItems = computed(buildConditionItems);
 
   // Ключ отметки и число вводятся, у остальных значений — выбор из словаря
   const parameterItems = computed<
@@ -139,7 +137,7 @@
 
     writeParts([
       ...parts.value,
-      kind === 'selfTagCountAtLeast'
+      triggerConditionHasAmount(kind)
         ? { ...part, amount: DEFAULT_TAG_COUNT_THRESHOLD }
         : part,
     ]);
@@ -253,7 +251,7 @@
     writeParts(
       parts.value.map((part, partIndex) =>
         partIndex === index && typeof part !== 'string'
-          ? { ...part, amount: Math.max(1, Math.trunc(value ?? 1)) }
+          ? { ...part, amount: normalizeTagCountThreshold(value) }
           : part,
       ),
     );
@@ -338,14 +336,14 @@
           @click.left.exact.prevent="updatePartValue(index, tag)"
         />
 
-        <template v-if="row.part.kind === 'selfTagCountAtLeast'">
+        <template v-if="triggerConditionHasAmount(row.part.kind)">
           <span class="text-xs text-muted">
             {{ EFFECT_TRIGGER_CONDITION_LABELS.amount }}
           </span>
 
           <UInputNumber
             :model-value="row.part.amount"
-            :min="1"
+            :min="MIN_TAG_COUNT_THRESHOLD"
             size="xs"
             class="w-24"
             @update:model-value="updatePartAmount(index, $event)"

@@ -23,6 +23,7 @@ import type { ConditionRef } from './conditionKeys.js';
 import type { CreatureAction } from './creatureTypes.js';
 import type { DamageApplyResult } from './damageUtils.js';
 import type { DnDGameItem, Spell } from './dndEntities.js';
+import type { EffectTriggerSaveMode } from './effectTriggerTypes.js';
 
 import { z } from 'zod';
 
@@ -32,6 +33,7 @@ import {
   buildSaveVsConditionFlag,
   CONCENTRATION_SAVE_KEY,
 } from './activeEffectTypes.js';
+import { SPELL_SAVE_DC_BASE } from './consts.js';
 import { getShortDamageTypeLabel } from './damageConstants.js';
 import { formatDamageDefenseSuffix } from './damageUtils.js';
 import {
@@ -112,6 +114,51 @@ export function getAttackBonusKey(
   rangeType: WeaponRangeType | undefined,
 ): EffectTargetKey {
   return rangeType === 'ranged' ? 'attack.ranged' : 'attack.melee';
+}
+
+/**
+ * Вид атаки для флагов по дальности оружия или действия.
+ *
+ * @param rangeType - дальность оружия или действия
+ * @returns `ranged` для дальнобойного, иначе `melee`
+ */
+export function getAttackFlagCategory(
+  rangeType: WeaponRangeType | undefined,
+): AttackFlagCategory {
+  return rangeType === 'ranged' ? 'ranged' : 'melee';
+}
+
+/** Вид атаки по ключу прибавки к атаке */
+const ATTACK_FLAG_CATEGORY_BY_KEY: Partial<
+  Record<EffectTargetKey, AttackFlagCategory>
+> = {
+  'attack.melee': 'melee',
+  'attack.ranged': 'ranged',
+  'attack.spell': 'spell',
+};
+
+/**
+ * Вид атаки, к броску которой относятся ключи прибавок.
+ *
+ * @param keys - ключи прибавок броска
+ * @returns вид атаки либо `undefined`, если бросок не атака
+ */
+export function getAttackFlagCategoryOfKeys(
+  keys: readonly EffectTargetKey[],
+): AttackFlagCategory | undefined {
+  return keys
+    .map((key) => ATTACK_FLAG_CATEGORY_BY_KEY[key])
+    .find((attackType) => attackType !== undefined);
+}
+
+/**
+ * Сл спасброска от оружия: 8 + модификатор атаки этим оружием.
+ *
+ * @param attackModifier - модификатор атаки оружием
+ * @returns сложность
+ */
+export function resolveWeaponSaveDc(attackModifier: number): number {
+  return SPELL_SAVE_DC_BASE + attackModifier;
 }
 
 /**
@@ -445,15 +492,25 @@ export function resolveAttackRollMode(
     || (targetFlags?.has('attacksAgainst.disadvantage') ?? false)
     || (targetFlags?.has(`attacksAgainst.${attackType}.disadvantage`) ?? false);
 
-  if (hasAdvantage && !hasDisadvantage) {
-    return 'advantage';
+  return combineRollMode(hasAdvantage, hasDisadvantage);
+}
+
+/**
+ * Режим броска по наличию преимущества и помехи: по правилу 5e они гасятся.
+ *
+ * @param hasAdvantage - есть преимущество
+ * @param hasDisadvantage - есть помеха
+ * @returns режим броска
+ */
+export function combineRollMode(
+  hasAdvantage: boolean,
+  hasDisadvantage: boolean,
+): AttackRollMode {
+  if (hasAdvantage === hasDisadvantage) {
+    return 'normal';
   }
 
-  if (hasDisadvantage && !hasAdvantage) {
-    return 'disadvantage';
-  }
-
-  return 'normal';
+  return hasAdvantage ? 'advantage' : 'disadvantage';
 }
 
 /**
@@ -483,15 +540,7 @@ export function resolveInitiativeRollMode(
     || flags.has('abilityCheck.disadvantage.dexterity')
     || flags.has('abilityCheck.disadvantage');
 
-  if (hasAdvantage && !hasDisadvantage) {
-    return 'advantage';
-  }
-
-  if (hasDisadvantage && !hasAdvantage) {
-    return 'disadvantage';
-  }
-
-  return 'normal';
+  return combineRollMode(hasAdvantage, hasDisadvantage);
 }
 
 /** Параметры расчёта режима проверки характеристики или навыка */
@@ -540,15 +589,23 @@ export function resolveAbilityCheckRollMode(
     || flags.has(`abilityCheck.disadvantage.${ability}`)
     || (skill !== undefined && flags.has(getSkillDisadvantageFlagKey(skill)));
 
-  if (hasAdvantage && !hasDisadvantage) {
-    return 'advantage';
-  }
+  return combineRollMode(hasAdvantage, hasDisadvantage);
+}
 
-  if (hasDisadvantage && !hasAdvantage) {
-    return 'disadvantage';
-  }
-
-  return 'normal';
+/**
+ * Модификатор броска проверки характеристики: модификатор характеристики плюс
+ * прибавка ко всем проверкам. Плитка листа прибавку не показывает — она
+ * только в броске; у навыков она уже в числе навыка.
+ *
+ * @param abilityModifier - модификатор характеристики
+ * @param stats - итоговые статы; нет — прибавки нет
+ * @returns модификатор броска
+ */
+export function resolveAbilityCheckModifier(
+  abilityModifier: number,
+  stats: Pick<ResolvedActorStats, 'abilityCheckBonus'> | undefined,
+): number {
+  return abilityModifier + (stats?.abilityCheckBonus ?? 0);
 }
 
 /** Параметры расчёта режима спасброска по флагам существа */
@@ -587,7 +644,7 @@ export interface SavingThrowRollModeParams {
    * Преимущество или помеха самого спасброска, а не бросающего: «повторяет
    * спасбросок с преимуществом, если урон нанёс заклинатель».
    */
-  mode?: 'advantage' | 'disadvantage';
+  mode?: EffectTriggerSaveMode;
 }
 
 /**
@@ -639,15 +696,7 @@ export function resolveSavingThrowRollMode(
     || (againstCondition !== undefined
       && flags.has(buildSaveVsConditionFlag('disadvantage', againstCondition)));
 
-  if (hasAdvantage && !hasDisadvantage) {
-    return 'advantage';
-  }
-
-  if (hasDisadvantage && !hasAdvantage) {
-    return 'disadvantage';
-  }
-
-  return 'normal';
+  return combineRollMode(hasAdvantage, hasDisadvantage);
 }
 
 /** Обстоятельства спасброска, от которых зависят его прибавки */
@@ -693,7 +742,7 @@ export function resolveSavingThrowModifier(
     ? stats.concentrationSaveBonus
     : 0;
 
-  return (stats.saves[ability] ?? 0) + concentrationBonus;
+  return stats.saves[ability] + concentrationBonus;
 }
 
 /**

@@ -24,7 +24,6 @@ import {
   buildUseSpell,
   findWeaponAmmunition,
   getCasterSpellEffects,
-  isDndSceneEntity,
   spendAmmunition,
   tracksWeaponAmmunition,
   withAmmunition,
@@ -117,9 +116,9 @@ export function applyActionSelfEffects(
   action: Pick<CreatureAction, 'name' | 'activeEffects' | 'saveDC'>,
   creatureId: string,
 ): void {
-  const creature = useWorldEntities().findCurrentWorldEntity(creatureId);
+  const creature = useWorldEntities().findCurrentDndEntity(creatureId);
 
-  if (!creature || !isDndSceneEntity(creature)) {
+  if (!creature) {
     return;
   }
 
@@ -183,15 +182,17 @@ export function spendShotAmmunition(
   ammunitionId: string,
 ): void {
   const socket = useChatStore().getSocket();
-  const entity = useWorldEntities().findCurrentWorldEntity(entityId);
+  const entity = useWorldEntities().findCurrentDndEntity(entityId);
 
-  if (!socket || !entity || !isDndSceneEntity(entity)) {
+  if (!socket || !entity) {
     return;
   }
 
-  // Клон: живую запись стора меняет только ответ сервера
-  const updated: DnDSceneEntity = JSON.parse(JSON.stringify(entity));
+  // Новый объект: живую запись стора меняет только ответ сервера
+  const updated: DnDSceneEntity = {
+    ...entity,
+    equipment: spendAmmunition(entity.equipment ?? [], ammunitionId),
+  };
 
-  updated.equipment = spendAmmunition(entity.equipment ?? [], ammunitionId);
   emitEntityUpdate(socket, updated);
 }

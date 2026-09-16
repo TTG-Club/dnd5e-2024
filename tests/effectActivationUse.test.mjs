@@ -18,7 +18,7 @@ const helperPath = 'src/client/composables/effectActivationUse.ts';
  * @param {object} overrides - доставка и прочее
  * @returns {object} эффект
  */
-function useEffect(name, overrides = {}) {
+function usableEffect(name, overrides = {}) {
   return {
     id: name,
     name,
@@ -70,7 +70,7 @@ it('зелье на себя: сначала расход, потом налож
   const potion = engine.buildItemUseSpell({
     id: 'potion',
     name: 'Potion',
-    activeEffects: [useEffect('Heal')],
+    activeEffects: [usableEffect('Heal')],
   });
 
   apply(potion, hero, 13, () => steps.push(['spend']));
@@ -88,7 +88,7 @@ it('эффект на цель без цели не тратит источни�
   const poison = engine.buildItemUseSpell({
     id: 'poison',
     name: 'Poison',
-    activeEffects: [useEffect('Poisoned', { effectTarget: 'target' })],
+    activeEffects: [usableEffect('Poisoned', { effectTarget: 'target' })],
   });
 
   apply(poison, hero, 13, () => steps.push(['spend']));
@@ -102,7 +102,7 @@ it('эффект на цель уходит разбору цели с Сл пр
   const poison = engine.buildItemUseSpell({
     id: 'poison',
     name: 'Poison',
-    activeEffects: [useEffect('Poisoned', { effectTarget: 'target' })],
+    activeEffects: [usableEffect('Poisoned', { effectTarget: 'target' })],
   });
 
   apply(poison, hero, 15, () => steps.push(['spend']));

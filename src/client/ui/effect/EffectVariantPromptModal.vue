@@ -11,6 +11,7 @@
 
   import { computed, ref } from 'vue';
 
+  import { HUD_PROMPTS_TELEPORT_TARGET } from '../actor/constants';
   import { EFFECT_VARIANT_PROMPT_LABELS } from './constants';
 
   defineOptions({
@@ -46,17 +47,19 @@
       `${EFFECT_VARIANT_PROMPT_LABELS.titlePrefix}${props.sourceName}${EFFECT_VARIANT_PROMPT_LABELS.titleSuffix}`,
   );
 
-  /**
-   * Варианты группы для выбора.
-   *
-   * @param group - группа
-   * @returns варианты
-   */
-  function itemsOf(
-    group: EffectVariantGroup,
-  ): Array<{ label: string; value: string }> {
-    return group.labels.map((label) => ({ label, value: label }));
-  }
+  /** Подпись группы нужна, только когда групп несколько */
+  const showGroupLabels = computed(() => props.groups.length > 1);
+
+  /** Варианты выбора по ключу группы */
+  const itemsByGroup = computed(
+    () =>
+      new Map(
+        props.groups.map((group) => [
+          group.group,
+          group.labels.map((label) => ({ label, value: label })),
+        ]),
+      ),
+  );
 
   /**
    * Меняет выбор в группе.
@@ -83,7 +86,7 @@
 </script>
 
 <template>
-  <Teleport to="#hud-prompts-container">
+  <Teleport :to="HUD_PROMPTS_TELEPORT_TARGET">
     <Transition name="slide-up">
       <div
         v-if="open"
@@ -103,11 +106,11 @@
         <UFormField
           v-for="group in groups"
           :key="group.group"
-          :label="groups.length > 1 ? group.group : undefined"
+          :label="showGroupLabels ? group.group : undefined"
         >
           <USelect
             :model-value="choices[group.group]"
-            :items="itemsOf(group)"
+            :items="itemsByGroup.get(group.group)"
             value-key="value"
             size="sm"
             class="w-full"
@@ -140,15 +143,4 @@
   </Teleport>
 </template>
 
-<style scoped>
-  .slide-up-enter-active,
-  .slide-up-leave-active {
-    transition: all 0.3s ease;
-  }
-
-  .slide-up-enter-from,
-  .slide-up-leave-to {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-</style>
+<style scoped src="../hudPromptTransition.css"></style>

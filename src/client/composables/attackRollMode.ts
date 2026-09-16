@@ -4,20 +4,20 @@ import type {
   DnDSceneEntity,
 } from '@vtt/shared/system/dnd.js';
 
-import { useAuraStore } from '@/stores/auraStore';
 import { useTargetStore } from '@/stores/targetStore';
 import {
   buildCarrierContext,
-  collectActiveEffects,
   collectRollConditionFlags,
-  combineEffectsWithAmbient,
-  isDnDEffect,
   resolveActorStats,
   resolveAttackRollMode,
 } from '@vtt/shared/system/dnd.js';
 
 import { collectDefenderAttackFlags } from './incomingAttack';
 import { useBonusDamageParts } from './useBonusDamageParts';
+import {
+  collectEffectsWithAuras,
+  listAmbientEffects,
+} from './useResolvedStats';
 
 /** Что известно о броске атаки, кроме флагов */
 export interface TargetedAttackRollOptions {
@@ -46,10 +46,7 @@ export function resolveTargetedAttackRollMode(
   attackType: AttackFlagCategory,
   options: TargetedAttackRollOptions = {},
 ): AttackRollMode {
-  // Ауры контракт отдаёт нейтральной базой — сужаем к D&D-форме
-  const ambientEffects = useAuraStore()
-    .getAmbientEffectsForActor(attacker.id)
-    .filter(isDnDEffect);
+  const ambientEffects = listAmbientEffects(attacker.id);
 
   const target = useBonusDamageParts().buildTargetHpContext(
     undefined,
@@ -57,7 +54,7 @@ export function resolveTargetedAttackRollMode(
   );
 
   const rollFlags = collectRollConditionFlags(
-    combineEffectsWithAmbient(collectActiveEffects(attacker), ambientEffects),
+    collectEffectsWithAuras(attacker),
     {
       hasAdvantage: false,
       hasDisadvantage: false,

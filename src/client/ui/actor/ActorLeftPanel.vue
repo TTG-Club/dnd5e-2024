@@ -19,8 +19,8 @@
   import { useChatStore } from '@/stores/chatStore';
   import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import {
-    applyDeathSaveResult,
     BASE_UNARMORED_AC,
+    buildDeathSavePatch,
     calculateAbilityModifier,
     calculateProficiencyBonus,
     DEATH_SAVE_DC,
@@ -31,10 +31,10 @@
     getEntityExhaustionLevel,
     getTotalLevel,
     isActorDead,
+    isEntityAtZeroHp,
     readDeathSaves,
     resolveDeathSave,
     resolveDeathSaveRollMode,
-    resolveEntityCurrentHp,
     resolveEntityMaxHp,
     resolveSavingThrowRollMode,
     WEAPON_MASTERY_MAP,
@@ -661,9 +661,7 @@
   // --- Спасброски от смерти ---
 
   /** Блок виден, пока хиты персонажа на нуле */
-  const showDeathSaves = computed(
-    () => maxHitPoints.value > 0 && resolveEntityCurrentHp(props.actor) === 0,
-  );
+  const showDeathSaves = computed(() => isEntityAtZeroHp(props.actor));
 
   const deathSaves = computed(() => readDeathSaves(props.actor));
   const isDead = computed(() => isActorDead(props.actor));
@@ -691,18 +689,10 @@
       result.total,
     );
 
-    // Клон: итог пишется в копию, лист получает её поля
-    const updated: DnDActor = JSON.parse(JSON.stringify(props.actor));
-
-    applyDeathSaveResult(updated, outcome);
-
-    emit('update:actor', {
-      system: updated.system,
-      activeEffects: updated.activeEffects,
-    });
+    emit('update:actor', buildDeathSavePatch(props.actor, outcome));
 
     useChatStore().sendMessage(
-      formatDeathSaveSummary(props.actor.name, outcome, false),
+      formatDeathSaveSummary(props.actor.name, outcome, 'roll'),
       'text',
     );
   }
@@ -716,7 +706,7 @@
         DEATH_SAVE_KEY,
       ),
       title: DEATH_SAVES_BLOCK_LABELS.rollTitle,
-      rollLabel: DEATH_SAVES_BLOCK_LABELS.rollLabel,
+      rollLabel: DEATH_SAVES_BLOCK_LABELS.rollTitle,
       rollButtonText: SAVING_THROW_ROLL_LABELS.button,
       initialRollMode: resolveDeathSaveRollMode(
         resolvedStats.value?.activeFlags ?? new Set(),
@@ -1125,8 +1115,7 @@
       </UTooltip>
     </FieldsetLabel>
 
-    <!-- Истощение: сразу под здоровьем — степень штрафует все тесты к20 и
-      скорость, и читается она вместе с хитами, а не на отдельной вкладке -->
+    <!-- Спасброски от смерти: сразу под здоровьем, пока хиты на нуле -->
     <DeathSavesPanel
       v-if="showDeathSaves"
       :state="deathSaves"
@@ -1136,6 +1125,8 @@
       @update="updateDeathSaves"
     />
 
+    <!-- Истощение: сразу под здоровьем — степень штрафует все тесты к20 и
+      скорость, и читается она вместе с хитами, а не на отдельной вкладке -->
     <ExhaustionPanel
       :level="exhaustionLevel"
       :is-edit-mode="isEditMode"

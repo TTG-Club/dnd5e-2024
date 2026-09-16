@@ -16,13 +16,17 @@ import type { ActiveEffect } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type { EffectTriggerArea } from './effectTriggerTypes.js';
 
-import { isCreatureEntity, withTokenDisposition } from '@vtt/shared';
+import {
+  getTokenEdgeDistance,
+  isCreatureEntity,
+  withTokenDisposition,
+} from '@vtt/shared';
 
 import { isCarrierEffect, isEffectDormant } from './activeEffectTypes.js';
 import { bindClassLevels } from './classEffectScope.js';
 import {
+  isEntityIncapacitated,
   itemEffectsActive,
-  resolveActorStats,
   resolveChangeValue,
 } from './effectPipeline.js';
 import { hasPresenceTriggers } from './effectTriggers.js';
@@ -159,9 +163,6 @@ export function collectAllAuraEffects(entity: DnDSceneEntity): ActiveEffect[] {
   );
 }
 
-/** Флаг недееспособности носителя */
-const INCAPACITATED_FLAG = 'incapacitated';
-
 /**
  * Ауры носителя в той форме, в какой они действуют сейчас: радиус формулой
  * посчитан от носителя (уровень класса уже подставлен), аура «пока
@@ -177,8 +178,7 @@ function shapeEntityAuras(
 ): ActiveEffect[] {
   const needsStats = auras.some((effect) => effect.aura?.whileCapable);
 
-  const incapacitated =
-    needsStats && resolveActorStats(entity).activeFlags.has(INCAPACITATED_FLAG);
+  const incapacitated = needsStats && isEntityIncapacitated(entity);
 
   const needsFormulas = auras.some((effect) => effect.aura?.radiusFormula);
   const formulaContext = needsFormulas ? buildFormulaContext(entity) : null;
@@ -386,6 +386,64 @@ export function findEntitiesInArea(
   }
 
   return [...found.values()];
+}
+
+/**
+ * «Союзник рядом с целью» (PHB 2024, «Тактика стаи»): союзник — в пределах
+ * этого расстояния от цели, фт.
+ */
+export const ALLY_ADJACENT_RANGE_FEET = 5;
+
+/** Сцена атаки для условия «союзник рядом с целью» */
+export interface AllyAdjacencyScene {
+  /** Фишки сцены */
+  tokens: readonly Token[];
+  /** Сетка сцены */
+  gridSettings: GridSettings;
+  /** Фишка атакующего */
+  attackerToken: Token;
+  /** Фишка цели */
+  targetToken: Token;
+  /** Живая сущность мира по id */
+  getEntity: (entityId: string) => DnDSceneEntity | undefined;
+}
+
+/**
+ * Стоит ли рядом с целью дееспособный союзник атакующего: фишка того же
+ * действующего отношения (`withTokenDisposition` ядра — отношение живёт в
+ * настройках фишки сущности), не сам атакующий и не цель, в пределах
+ * {@link ALLY_ADJACENT_RANGE_FEET} от края до края.
+ *
+ * @param scene - фишки, сетка и сущности сцены
+ * @returns `true`, если союзник рядом с целью
+ */
+export function hasAllyAdjacentToTarget(scene: AllyAdjacencyScene): boolean {
+  const { tokens, gridSettings, attackerToken, targetToken, getEntity } = scene;
+
+  const attackerSide = withTokenDisposition(
+    attackerToken,
+    getEntity(attackerToken.actorId),
+  );
+
+  return tokens.some((token) => {
+    if (
+      token.actorId === attackerToken.actorId
+      || token.actorId === targetToken.actorId
+      || getTokenEdgeDistance(token, targetToken, gridSettings)
+        > ALLY_ADJACENT_RANGE_FEET
+    ) {
+      return false;
+    }
+
+    const ally = getEntity(token.actorId);
+
+    return (
+      ally !== undefined
+      && getRelativeDisposition(attackerSide, withTokenDisposition(token, ally))
+        === 'ally'
+      && !isEntityIncapacitated(ally)
+    );
+  });
 }
 
 /**

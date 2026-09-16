@@ -19,6 +19,9 @@ import type { ActiveEffect } from './activeEffectTypes.js';
 import type { AttackRollMode } from './attackUtils.js';
 import type { DnDActor, DnDSceneEntity } from './dndEntities.js';
 
+import { z } from 'zod';
+
+import { combineRollMode } from './attackUtils.js';
 import { DEATH_CONDITION_KEY } from './conditionKeys.js';
 import {
   buildConditionActiveEffect,
@@ -34,13 +37,16 @@ export const DEATH_SAVE_DC = 10;
 export const DEATH_SAVES_TO_RESOLVE = 3;
 
 /** Натуральная кость, которая возвращает 1 хит */
-const DEATH_SAVE_REVIVE_ROLL = 20;
+export const DEATH_SAVE_REVIVE_ROLL = 20;
 
 /** Натуральная кость, которая считается двумя провалами */
-const DEATH_SAVE_DOUBLE_FAILURE_ROLL = 1;
+export const DEATH_SAVE_DOUBLE_FAILURE_ROLL = 1;
 
 /** Хиты после 20 на кости */
-const DEATH_SAVE_REVIVED_HP = 1;
+export const DEATH_SAVE_REVIVED_HP = 1;
+
+/** Провалов у 1 на кости и у критического удара по лежащему */
+const DEATH_SAVE_HEAVY_FAILURES = 2;
 
 /** Флаг преимущества на спасброски от смерти («Стойкий») */
 export const DEATH_SAVE_ADVANTAGE_FLAG = 'save.advantage.death';
@@ -88,17 +94,21 @@ function hasDeathSaveProgress(state: DeathSavesState | undefined): boolean {
   );
 }
 
-/**
- * Счётчик в допустимых границах.
- *
- * @param value - сырое значение
- * @returns 0–3
- */
-function clampCount(value: unknown): number {
-  const count = typeof value === 'number' && Number.isFinite(value) ? value : 0;
+/** Счётчик серии из записи: целое 0–3, мусор — ноль */
+const DeathSaveCountSchema = z
+  .number()
+  .finite()
+  .catch(0)
+  .transform((count) =>
+    Math.max(0, Math.min(DEATH_SAVES_TO_RESOLVE, Math.trunc(count))),
+  );
 
-  return Math.max(0, Math.min(DEATH_SAVES_TO_RESOLVE, Math.trunc(count)));
-}
+/** Серия из записи персонажа: поле приходит из данных мира, как есть */
+export const DeathSavesStateSchema = z.object({
+  successes: DeathSaveCountSchema,
+  failures: DeathSaveCountSchema,
+  stable: z.literal(true).optional().catch(undefined),
+});
 
 /**
  * Счётчики серии персонажа. Вне нуля хитов серии нет.
@@ -107,17 +117,25 @@ function clampCount(value: unknown): number {
  * @returns счётчики
  */
 export function readDeathSaves(actor: DnDActor): DeathSavesState {
-  const raw = actor.system.deathSaves;
+  const parsed = DeathSavesStateSchema.safeParse(actor.system.deathSaves);
 
-  if (!raw || resolveEntityCurrentHp(actor) > 0) {
+  if (!parsed.success || resolveEntityCurrentHp(actor) > 0) {
     return EMPTY_DEATH_SAVES;
   }
 
-  return {
-    successes: clampCount(raw.successes),
-    failures: clampCount(raw.failures),
-    ...(raw.stable ? { stable: true } : {}),
-  };
+  const { successes, failures, stable } = parsed.data;
+
+  return { successes, failures, ...(stable ? { stable } : {}) };
+}
+
+/**
+ * Лежит ли сущность на нуле хитов (при заданном максимуме).
+ *
+ * @param entity - сущность
+ * @returns `true`, если хиты на нуле
+ */
+export function isEntityAtZeroHp(entity: DnDSceneEntity): boolean {
+  return resolveEntityMaxHp(entity) > 0 && resolveEntityCurrentHp(entity) === 0;
 }
 
 /**
@@ -153,8 +171,7 @@ export function needsDeathSaves(entity: DnDSceneEntity): boolean {
   }
 
   return (
-    resolveEntityMaxHp(entity) > 0
-    && resolveEntityCurrentHp(entity) === 0
+    isEntityAtZeroHp(entity)
     && !readDeathSaves(entity).stable
     && !isActorDead(entity)
   );
@@ -207,7 +224,7 @@ export function resolveDeathSave(
   }
 
   if (natural <= DEATH_SAVE_DOUBLE_FAILURE_ROLL) {
-    return advanceDeathSaves(state, 0, 2);
+    return advanceDeathSaves(state, 0, DEATH_SAVE_HEAVY_FAILURES);
   }
 
   return total >= DEATH_SAVE_DC
@@ -251,7 +268,11 @@ export function resolveDeathSaveDamage(
     ? EMPTY_DEATH_SAVES
     : { successes: state.successes, failures: state.failures };
 
-  return advanceDeathSaves(base, 0, damage.critical ? 2 : 1);
+  return advanceDeathSaves(
+    base,
+    0,
+    damage.critical ? DEATH_SAVE_HEAVY_FAILURES : 1,
+  );
 }
 
 /**
@@ -276,9 +297,52 @@ export function withActorDeathMark(
   return deathMark ? [...living, deathMark] : living;
 }
 
+/** Поля персонажа, которые меняет итог серии */
+export interface DeathSavePatch {
+  /** Данные системы: серия и хиты */
+  system: DnDActor['system'];
+  /** Эффекты: метка смерти */
+  activeEffects: ActiveEffect[];
+}
+
 /**
- * Записывает итог серии в персонажа: счётчики, 1 хит у поднявшегося, метку
- * смерти у погибшего. МУТИРУЕТ персонажа.
+ * Поля персонажа после итога серии: счётчики, 1 хит у поднявшегося, метка
+ * смерти у погибшего. Персонажа не меняет.
+ *
+ * @param actor - персонаж
+ * @param result - итог спасброска или урона
+ * @returns новые поля
+ */
+export function buildDeathSavePatch(
+  actor: DnDActor,
+  result: DeathSaveResult,
+): DeathSavePatch {
+  const effects = actor.activeEffects ?? [];
+
+  if (result.outcome === 'revived') {
+    return {
+      system: {
+        ...actor.system,
+        deathSaves: { ...EMPTY_DEATH_SAVES },
+        hitPoints: {
+          ...actor.system.hitPoints,
+          current: DEATH_SAVE_REVIVED_HP,
+        },
+      },
+      activeEffects: effects,
+    };
+  }
+
+  return {
+    system: { ...actor.system, deathSaves: result.state },
+    activeEffects:
+      result.outcome === 'dead' ? withActorDeathMark(effects, true) : effects,
+  };
+}
+
+/**
+ * Записывает итог серии в персонажа. МУТИРУЕТ персонажа — так серверные правила
+ * пишут в сущность, которую отдало ядро.
  *
  * @param actor - персонаж
  * @param result - итог спасброска или урона
@@ -287,22 +351,10 @@ export function applyDeathSaveResult(
   actor: DnDActor,
   result: DeathSaveResult,
 ): void {
-  if (result.outcome === 'revived') {
-    actor.system.deathSaves = { ...EMPTY_DEATH_SAVES };
+  const patch = buildDeathSavePatch(actor, result);
 
-    actor.system.hitPoints = {
-      ...actor.system.hitPoints,
-      current: DEATH_SAVE_REVIVED_HP,
-    };
-
-    return;
-  }
-
-  actor.system.deathSaves = result.state;
-
-  if (result.outcome === 'dead') {
-    actor.activeEffects = withActorDeathMark(actor.activeEffects ?? [], true);
-  }
+  actor.system = patch.system;
+  actor.activeEffects = patch.activeEffects;
 }
 
 /**
@@ -427,14 +479,10 @@ export function settleDeathSaveDamage(
 export function resolveDeathSaveRollMode(
   flags: ReadonlySet<string>,
 ): AttackRollMode {
-  const advantage = flags.has(DEATH_SAVE_ADVANTAGE_FLAG);
-  const disadvantage = flags.has(DEATH_SAVE_DISADVANTAGE_FLAG);
-
-  if (advantage === disadvantage) {
-    return 'normal';
-  }
-
-  return advantage ? 'advantage' : 'disadvantage';
+  return combineRollMode(
+    flags.has(DEATH_SAVE_ADVANTAGE_FLAG),
+    flags.has(DEATH_SAVE_DISADVANTAGE_FLAG),
+  );
 }
 
 /** Итоги серии в чате */
@@ -443,8 +491,11 @@ export const DEATH_SAVE_OUTCOME_LABELS: Record<DeathSaveOutcome, string> = {
   failure: 'провал',
   stable: 'три успеха — стабилен',
   dead: 'погибает',
-  revived: '20 на кости — приходит в себя с 1 хитом',
+  revived: `${DEATH_SAVE_REVIVE_ROLL} на кости — приходит в себя с ${DEATH_SAVE_REVIVED_HP} хитом`,
 };
+
+/** Откуда итог серии: бросок спасброска или урон по лежащему */
+export type DeathSaveSource = 'roll' | 'damage';
 
 /** Части строки чата о серии */
 const DEATH_SAVE_SUMMARY_LABELS = {
@@ -460,17 +511,18 @@ const DEATH_SAVE_SUMMARY_LABELS = {
  *
  * @param name - имя персонажа
  * @param result - итог
- * @param fromDamage - итог от урона, а не от броска
+ * @param source - бросок или урон
  * @returns строка
  */
 export function formatDeathSaveSummary(
   name: string,
   result: DeathSaveResult,
-  fromDamage = true,
+  source: DeathSaveSource,
 ): string {
-  const prefix = fromDamage
-    ? DEATH_SAVE_SUMMARY_LABELS.damagePrefix
-    : DEATH_SAVE_SUMMARY_LABELS.prefix;
+  const prefix =
+    source === 'damage'
+      ? DEATH_SAVE_SUMMARY_LABELS.damagePrefix
+      : DEATH_SAVE_SUMMARY_LABELS.prefix;
 
   const { successes, failures } = result.state;
 

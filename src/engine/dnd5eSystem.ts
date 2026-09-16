@@ -120,7 +120,7 @@ import {
   EFFECT_TRIGGER_SOURCE_KINDS,
   processTurnEffects,
 } from './effectTriggerRunner.js';
-import { isLegacyTrigger, listEffectListTriggers } from './effectTriggers.js';
+import { isLegacyTrigger, listEffectEventTriggers } from './effectTriggers.js';
 import { isDndSceneEntity } from './entityGuards.js';
 import { buildFeatGrantsSummary } from './featGrantsSummary.js';
 import { validateFormula } from './formulaParser.js';
@@ -418,7 +418,7 @@ function withDamageEvents(
   const withDeathSave = deathSave
     ? mergeTriggerResults(base, {
         changed: true,
-        chatSummary: formatDeathSaveSummary(entity.name, deathSave),
+        chatSummary: formatDeathSaveSummary(entity.name, deathSave, 'damage'),
       })
     : base;
 
@@ -612,10 +612,7 @@ function runCastEndTriggers(
   const sources = buildTriggerSources(
     removed,
     REMOVED_CAST_EFFECT_SOURCE_KIND,
-    (effect) =>
-      listEffectListTriggers(effect).filter(
-        (trigger) => trigger.event === 'castEnd',
-      ),
+    (effect) => listEffectEventTriggers(effect, 'castEnd'),
   );
 
   if (sources.length === 0) {
@@ -1117,7 +1114,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.53';
+  readonly version = '0.8.54';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.

@@ -17,25 +17,24 @@ import type {
   Spell,
   SpellRollSource,
 } from './dndEntities.js';
-import type { EffectTrigger } from './effectTriggerTypes.js';
 import type { ActorCounterState } from './types.js';
 
-import { isUseActivatedEffect } from './activeEffectTypes.js';
 import {
-  admitTrigger,
+  DEFAULT_ACTIVATION_AMOUNT,
+  isUseActivatedEffect,
+} from './activeEffectTypes.js';
+import { cloneEntityData } from './dataClone.js';
+import {
   buildTriggerSources,
   EFFECT_TRIGGER_SOURCE_KINDS,
-  rollTriggerSave,
-  settlePresenceTrigger,
+  settleSelfTriggerSources,
 } from './effectTriggerRunner.js';
-import { listEffectListTriggers } from './effectTriggers.js';
+import { listEffectEventTriggers } from './effectTriggers.js';
 import { canSpendItemUses, spendItemUses } from './itemUses.js';
-
-/** Сколько тратит применение или включение без поля `amount` */
-export const DEFAULT_ACTIVATION_AMOUNT = 1;
+import { buildPseudoSpell } from './spellUtils.js';
 
 /** Свойство оружия, стреляющего боеприпасами */
-const AMMUNITION_PROPERTY = 'ammunition';
+export const AMMUNITION_PROPERTY = 'ammunition';
 
 /**
  * Эффекты, которые накладывает применение источника, — без признака
@@ -155,27 +154,12 @@ export function buildEffectUseSpell(effect: ActiveEffect): Spell {
  * @returns псевдо-заклинание
  */
 export function buildUseSpell(source: EffectUseSource): Spell {
-  return {
+  return buildPseudoSpell({
     id: `${USE_SPELL_ID_PREFIX}${source.id}`,
     name: source.name,
     rollSource: source.rollSource,
-    level: 0,
-    school: 'evocation',
-    castingTimeValue: 1,
-    castingTimeUnit: 'action',
-    components: { verbal: false, somatic: false, material: false },
-    range: 0,
-    rangeUnit: 'ft',
-    durationValue: 0,
-    durationUnit: 'instantaneous',
-    concentration: false,
-    ritual: false,
-    targetType: 'creature',
-    deliveryType: 'touch',
-    saveType: 'none',
     activeEffects: source.effects,
-    description: '',
-  };
+  });
 }
 
 /**
@@ -376,38 +360,30 @@ export function payActivation(
 export function activateEffectOnEntity(
   entity: DnDSceneEntity,
   effectId: string,
-  prepare: (effect: ActiveEffect) => ActiveEffect = (effect) => effect,
+  prepare: (effect: ActiveEffect) => ActiveEffect = (switched) => switched,
 ): DnDSceneEntity {
-  const activated: DnDSceneEntity = JSON.parse(JSON.stringify(entity));
+  const activated = cloneEntityData(entity);
 
-  activated.activeEffects = (activated.activeEffects ?? []).map((effect) =>
-    effect.id === effectId ? prepare({ ...effect, disabled: false }) : effect,
+  activated.activeEffects = (activated.activeEffects ?? []).map((entry) =>
+    entry.id === effectId ? prepare({ ...entry, disabled: false }) : entry,
   );
 
-  const effect = activated.activeEffects.find((entry) => entry.id === effectId);
+  const activatedEffect = activated.activeEffects.find(
+    (entry) => entry.id === effectId,
+  );
 
-  if (!effect) {
+  if (!activatedEffect) {
     return activated;
   }
 
-  const sources = buildTriggerSources(
-    [effect],
-    EFFECT_TRIGGER_SOURCE_KINDS.instance,
-    (source): EffectTrigger[] =>
-      listEffectListTriggers(source).filter(
-        (trigger) => trigger.event === 'activate',
-      ),
+  settleSelfTriggerSources(
+    activated,
+    buildTriggerSources(
+      [activatedEffect],
+      EFFECT_TRIGGER_SOURCE_KINDS.instance,
+      (source) => listEffectEventTriggers(source, 'activate'),
+    ),
   );
-
-  for (const source of sources) {
-    if (admitTrigger(activated, source)) {
-      settlePresenceTrigger(
-        activated,
-        source,
-        rollTriggerSave(activated, source),
-      );
-    }
-  }
 
   return activated;
 }

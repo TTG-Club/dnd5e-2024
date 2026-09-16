@@ -117,13 +117,29 @@
     onChange: (nextEffects) => emit('update:effects', nextEffects),
   });
 
+  const toast = useToast();
+
+  /**
+   * Недоступна ли кнопка «Применить»: правка листа, нет владельца или ресурса.
+   *
+   * @param effect - эффект с применением
+   * @returns `true`, если применить нельзя
+   */
+  function isApplyDisabled(effect: ActiveEffect): boolean {
+    return (
+      props.isEditMode
+      || !props.owner
+      || !canPayActivation(props.counters, effect.activation)
+    );
+  }
+
   /**
    * Предупреждает, что ресурса на применение или включение не хватает.
    *
    * @param effect - эффект с применением
    */
   function warnNoCounter(effect: ActiveEffect): void {
-    useToast().add({
+    toast.add({
       title: EFFECT_USE_LABELS.noCounterTitle,
       description: `${EFFECT_USE_LABELS.noCounterPrefix}${effect.activation?.counter ?? ''}${EFFECT_USE_LABELS.noCounterSuffix}`,
       color: 'warning',
@@ -448,11 +464,7 @@
             color="primary"
             :label="EFFECT_USE_LABELS.apply"
             :title="EFFECT_USE_LABELS.applyHint"
-            :disabled="
-              isEditMode
-              || !owner
-              || !canPayActivation(counters, effect.activation)
-            "
+            :disabled="isApplyDisabled(effect)"
             @click.left.exact.prevent="applyUseEffect(effect)"
           />
 

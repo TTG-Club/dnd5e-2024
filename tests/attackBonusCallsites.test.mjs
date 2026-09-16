@@ -6,7 +6,7 @@ import { loadEngineBundle } from './helpers/engineBundle.mjs';
 import { loadHandler } from './helpers/sourceHandler.mjs';
 
 const engine = await loadEngineBundle(
-  "export * from './src/engine/attackUtils.ts'; export * from './src/engine/effectPipeline.ts'; export * from './src/engine/consts.ts'; export * from './src/engine/formulaParser.ts'; export * from './src/engine/hitPoints.ts';",
+  "export * from './src/engine/attackUtils.ts'; export * from './src/engine/effectPipeline.ts'; export * from './src/engine/consts.ts'; export * from './src/engine/formulaParser.ts'; export * from './src/engine/hitPoints.ts'; export { isSaveAbility } from './src/engine/spellUtils.ts';",
 );
 
 const macroPath = 'src/client/macros/dnd5eMacros.ts';
@@ -51,7 +51,12 @@ function createPorts(current) {
     rollConfig,
     isRollModalOpen: { value: false },
     getCreatureEntity: () => current.value,
-    findCurrentDndEntity: () => current.value,
+    useWorldEntities: () => ({ findCurrentDndEntity: () => current.value }),
+    listAmbientEffects: () => [],
+    collectEffectsWithAuras: () => [],
+    isSaveAbility: engine.isSaveAbility,
+    getAttackFlagCategory: engine.getAttackFlagCategory,
+    resolveWeaponSaveDc: engine.resolveWeaponSaveDc,
     collectActiveEffects: () => [],
     resolveActorStats: () => ({ activeFlags: new Set() }),
     resolvedStats: { value: { activeFlags: new Set() } },
@@ -98,6 +103,7 @@ function createPorts(current) {
     spellIsHealing: () => false,
     describeDamagePart: () => ({ types: [] }),
     CREATURE_ACTIONS_BLOCK_LABELS: { attackRollPrefix: 'Attack ' },
+    ACTOR_SPELLS_TAB_LABELS: { attackRoll: 'Roll attack' },
     CREATURE_ACTION_MENU_LABELS: { attack: 'attack' },
     SPELL_DAMAGE_ROLL_BUTTON: 'roll',
   };
@@ -427,13 +433,15 @@ for (const relativePath of [
 it('macro source lookup reads a replaced entity and returns no stale source after removal', async () => {
   let current = createEntity();
 
-  const lookup = await loadHandler(macroPath, 'findCurrentDndEntity', {
-    useWorldEntities: () => ({
+  const lookup = await loadHandler(
+    'src/client/composables/useWorldEntities.ts',
+    'findCurrentDndEntity',
+    {
       findCurrentWorldEntity: (entityId) =>
         current?.id === entityId ? current : undefined,
-    }),
-    isDndSceneEntity: (entity) => entity.entityType === 'actor',
-  });
+      isDndSceneEntity: (entity) => entity.entityType === 'actor',
+    },
+  );
 
   const original = current;
 
@@ -767,7 +775,7 @@ it('projectile attack bonuses follow each assigned target instead of the unrelat
     }),
     useResolvedStats: () => ({ combinedEffects: effects }),
     useBonusDamageParts: () => ({ buildTargetHpContext }),
-    resolveAttackTypeOfKeys: () => undefined,
+    getAttackFlagCategoryOfKeys: () => undefined,
     withAllyAdjacent: (target) => target,
     useProjectileStore: () => projectileStore,
     useWorldStore: () => ({ currentScene: worldState.scene }),

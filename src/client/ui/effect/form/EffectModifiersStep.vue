@@ -17,10 +17,13 @@
     describeConditionName,
     describeEffectChangeCondition,
     EFFECT_CONDITION_SUGGESTIONS,
-    listSelectableConditions,
   } from '@vtt/shared/system/dnd.js';
 
-  import { EFFECT_MODIFIERS_STEP_LABELS } from '../constants';
+  import {
+    EFFECT_MODIFIERS_STEP_LABELS,
+    EFFECT_ROLL_CONDITION_ALWAYS,
+  } from '../constants';
+  import { buildConditionItems } from '../effectFormOptions';
   import EffectChangeRows from './EffectChangeRows.vue';
   import EffectFlagRows from './EffectFlagRows.vue';
 
@@ -40,9 +43,6 @@
       : '',
   );
 
-  /** Значение выбора «Действует» без условия броска */
-  const ROLL_CONDITION_ALWAYS = 'always';
-
   // Условие из записи, которого нет в словаре подсказок (составное), тоже
   // видно в списке — иначе поле выглядело бы пустым
   const rollConditionOptions = computed(() => {
@@ -56,7 +56,7 @@
 
     return [
       {
-        value: ROLL_CONDITION_ALWAYS,
+        value: EFFECT_ROLL_CONDITION_ALWAYS,
         label: EFFECT_MODIFIERS_STEP_LABELS.rollConditionAlways,
       },
       ...(known
@@ -67,11 +67,12 @@
   });
 
   const rollCondition = computed({
-    get: () => effect.value.rollCondition ?? ROLL_CONDITION_ALWAYS,
+    get: () => effect.value.rollCondition ?? EFFECT_ROLL_CONDITION_ALWAYS,
     set: (value: string) => {
       effect.value = {
         ...effect.value,
-        rollCondition: value === ROLL_CONDITION_ALWAYS ? undefined : value,
+        rollCondition:
+          value === EFFECT_ROLL_CONDITION_ALWAYS ? undefined : value,
       };
     },
   });
@@ -92,12 +93,7 @@
 
   // Список вычисляемый: кроме канона в него входят состояния, заведённые в
   // мире, — они появляются и исчезают, пока окно открыто
-  const conditionImmunityOptions = computed(() =>
-    listSelectableConditions().map((condition) => ({
-      value: condition.key,
-      label: condition.nameRu,
-    })),
-  );
+  const conditionImmunityOptions = computed(buildConditionItems);
 
   const conditionImmunities = computed({
     get: () => effect.value.conditionImmunities ?? [],

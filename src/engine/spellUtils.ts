@@ -10,6 +10,7 @@ import type {
   DamagePart,
   DamagePartTarget,
   DamageType,
+  SpellSaveType,
 } from '@vtt/shared';
 
 import type { ActiveEffect, ResolvedActorStats } from './activeEffectTypes.js';
@@ -26,6 +27,7 @@ import type {
   DnDSceneEntity,
   Spell,
   SpellProjectiles,
+  SpellRollSource,
 } from './dndEntities.js';
 import type { DnDAbilityScores } from './types.js';
 
@@ -94,6 +96,78 @@ export function isSpell(value: unknown): value is Spell {
  */
 export function isSpellRoll(spell: Spell): boolean {
   return spell.rollSource === undefined;
+}
+
+/**
+ * Источники бросков, которые сами по себе не магия: удар оружием (приём,
+ * спасбросок оружия) и действие существа (дыхание, укус). «Магическое
+ * сопротивление» против них не помогает (PHB 2024: «заклинания и другие
+ * магические эффекты»).
+ */
+const MUNDANE_ROLL_SOURCES: ReadonlySet<SpellRollSource> = new Set([
+  'weapon',
+  'creatureAction',
+]);
+
+/**
+ * Навязан ли спасбросок броска магией: заклинание, магический предмет,
+ * применённое умение.
+ *
+ * @param spell - заклинание или псевдо-заклинание броска
+ * @returns `true` для магического броска
+ */
+export function isMagicRoll(spell: Spell): boolean {
+  return (
+    spell.rollSource === undefined
+    || !MUNDANE_ROLL_SOURCES.has(spell.rollSource)
+  );
+}
+
+/**
+ * Тип спасброска — характеристика, а не `none`. Сужает значение до
+ * `AbilityType` без приведения типов.
+ *
+ * @param saveType - тип спасброска заклинания, оружия или действия
+ * @returns `true`, если спасбросок есть
+ */
+export function isSaveAbility(
+  saveType: SpellSaveType | undefined,
+): saveType is AbilityType {
+  return saveType !== undefined && saveType !== 'none';
+}
+
+/** Поля псевдо-заклинания, которые задаёт источник броска */
+export type PseudoSpellFields = Pick<Spell, 'id' | 'name'>
+  & Required<Pick<Spell, 'rollSource'>>
+  & Partial<Spell>;
+
+/**
+ * Псевдо-заклинание броска не-заклинания: удар оружием, действие существа,
+ * применение предмета или эффекта идут тем же путём, что и заклинание.
+ * Общие поля — здесь, источник задаёт своё.
+ *
+ * @param fields - поля источника
+ * @returns псевдо-заклинание
+ */
+export function buildPseudoSpell(fields: PseudoSpellFields): Spell {
+  return {
+    level: 0,
+    school: 'evocation',
+    castingTimeValue: 1,
+    castingTimeUnit: 'action',
+    components: { verbal: false, somatic: false, material: false },
+    range: 0,
+    rangeUnit: 'ft',
+    durationValue: 0,
+    durationUnit: 'instantaneous',
+    concentration: false,
+    ritual: false,
+    targetType: 'creature',
+    deliveryType: 'touch',
+    saveType: 'none',
+    description: '',
+    ...fields,
+  };
 }
 
 /**

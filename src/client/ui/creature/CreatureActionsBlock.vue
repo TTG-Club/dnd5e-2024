@@ -33,6 +33,7 @@
     describeDamagePart,
     getActionDescriptionMarkdown,
     getAttackBonusKey,
+    getAttackFlagCategory,
     isDndCreature,
     SAVE_TYPE_LABELS,
     SPELL_DAMAGE_TEMPLATE_COLORS,
@@ -487,10 +488,10 @@
         ? 'normal'
         : resolveTargetedAttackRollMode(
             creature,
-            action.rangeType === 'ranged' ? 'ranged' : 'melee',
+            getAttackFlagCategory(action.rangeType),
             { forceDisadvantage: isDisadvantage },
           ),
-      incomingAttackType: action.rangeType === 'ranged' ? 'ranged' : 'melee',
+      incomingAttackType: getAttackFlagCategory(action.rangeType),
       damageType: actionPrimaryType(action),
       damageParts: setup.baseParts,
       evaluateBonusDamageParts: setup.evaluateBonusDamageParts,

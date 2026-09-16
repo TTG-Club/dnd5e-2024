@@ -43,9 +43,12 @@
     evaluateConditionalBonuses,
     formatWeaponDamageFormula,
     getAttackBonusKey,
+    getAttackFlagCategory,
     getDamageBonusKey,
     getWeaponPrimaryDamageType,
+    isSaveAbility,
     listUseEffects,
+    resolveWeaponSaveDc,
     setItemUsesCurrent,
     spendAmmunition,
     spendItemUse,
@@ -395,7 +398,7 @@
       }
 
       // Оружие со спасброском: цель кидает спас, броска попадания нет.
-      const hasSave = !!weapon.saveType && weapon.saveType !== 'none';
+      const hasSave = isSaveAbility(weapon.saveType);
 
       const baseMod = calculateWeaponAttackModifier(
         props.entity,
@@ -403,7 +406,7 @@
         resolvedStats.value,
       );
 
-      const weaponSaveDC = 8 + baseMod;
+      const weaponSaveDC = resolveWeaponSaveDc(baseMod);
 
       const attackKey = getAttackBonusKey(weapon.rangeType);
       const damageKey = getDamageBonusKey(weapon.rangeType);
@@ -440,7 +443,7 @@
 
       const initialRollMode = resolveTargetedAttackRollMode(
         props.entity,
-        weapon.rangeType === 'ranged' ? 'ranged' : 'melee',
+        getAttackFlagCategory(weapon.rangeType),
       );
 
       // Единая со заклинаниями система урона: бросок ВСЕГДА идёт многочастным
@@ -471,7 +474,7 @@
         evaluateBonuses,
         initialRollMode,
         critThreshold: resolvedStats.value?.critThreshold,
-        incomingAttackType: weapon.rangeType === 'ranged' ? 'ranged' : 'melee',
+        incomingAttackType: getAttackFlagCategory(weapon.rangeType),
         damageType: getWeaponPrimaryDamageType(weapon),
         damageParts: weaponPartsSetup.baseParts,
         evaluateBonusDamageParts: weaponPartsSetup.evaluateBonusDamageParts,

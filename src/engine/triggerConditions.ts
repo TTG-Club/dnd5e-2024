@@ -21,10 +21,11 @@ import type {
 import {
   CARRIER_TYPE_CONDITION_PREFIX,
   CONDITION_AND_SEPARATOR,
-  isEffectDormant,
+  listLiveEffects,
   splitConditionParts,
   TARGET_TYPE_CONDITION_PREFIX,
 } from './activeEffectTypes.js';
+import { INCAPACITATED_CONDITION_KEY } from './conditionKeys.js';
 import {
   CREATURE_SIZES,
   isCreatureCategory,
@@ -46,9 +47,6 @@ import {
   OTHER_PARTY_TRIGGER_EVENTS,
 } from './effectTriggerTypes.js';
 import { resolveEntityCurrentHp, resolveEntityMaxHp } from './hitPoints.js';
-
-/** Флаг недееспособности: его ставят и «Парализованный», и «Ошеломлённый» */
-const INCAPACITATED_CONDITION = 'incapacitated';
 
 /** Урон, от которого сработало событие */
 export interface TriggerDamageData {
@@ -209,6 +207,34 @@ const TAG_COUNT_PATTERN = /^self\.tagCount\["([^"]+)"\] >= (\d+)$/u;
 /** Порог счётчика отметок, пока автор не задал свой */
 export const DEFAULT_TAG_COUNT_THRESHOLD = 3;
 
+/** Наименьший порог счётчика отметок */
+export const MIN_TAG_COUNT_THRESHOLD = 1;
+
+/**
+ * Есть ли у части условия второе число — порог (счётчик отметок).
+ *
+ * @param kind - вид части
+ * @returns `true` для части с порогом
+ */
+export function triggerConditionHasAmount(kind: TriggerConditionKind): boolean {
+  return kind === 'selfTagCountAtLeast';
+}
+
+/**
+ * Порог счётчика из ввода: целое не меньше наименьшего.
+ *
+ * @param value - введённое число; пусто — наименьший порог
+ * @returns порог
+ */
+export function normalizeTagCountThreshold(
+  value: number | null | undefined,
+): number {
+  return Math.max(
+    MIN_TAG_COUNT_THRESHOLD,
+    Math.trunc(value ?? MIN_TAG_COUNT_THRESHOLD),
+  );
+}
+
 /** Самый большой порог числа в условии: хиты и счётчики */
 const MAX_CONDITION_NUMBER = 100_000;
 
@@ -275,10 +301,8 @@ function isParameterValue(
  * @param tag - ключ отметки
  * @returns эффекты отметок
  */
-function listEffectTags(entity: DnDSceneEntity, tag: string) {
-  return (entity.activeEffects ?? []).filter(
-    (effect) => !isEffectDormant(effect) && effect.tag === tag,
-  );
+function listEffectTags(entity: DnDSceneEntity, tag: string): ActiveEffect[] {
+  return listLiveEffects(entity).filter((effect) => effect.tag === tag);
 }
 
 /**
@@ -328,17 +352,18 @@ export function hasEntityCondition(
   entity: DnDSceneEntity,
   condition: string,
 ): boolean {
-  const effects = (entity.activeEffects ?? []).filter(
-    (effect) => !isEffectDormant(effect),
-  );
+  const effects = listLiveEffects(entity);
 
   if (effects.some((effect) => effect.conditionKey === condition)) {
     return true;
   }
 
+  // Недееспособность ставят и другие состояния — своим флагом
   return (
-    condition === INCAPACITATED_CONDITION
-    && effects.some((effect) => effect.flags.includes(INCAPACITATED_CONDITION))
+    condition === INCAPACITATED_CONDITION_KEY
+    && effects.some((effect) =>
+      effect.flags.includes(INCAPACITATED_CONDITION_KEY),
+    )
   );
 }
 
@@ -360,9 +385,7 @@ function sizeRank(size: string): number {
  * @returns `true`, если отметка есть и не отключена
  */
 export function hasEffectTag(entity: DnDSceneEntity, tag: string): boolean {
-  return (entity.activeEffects ?? []).some(
-    (effect) => !isEffectDormant(effect) && effect.tag === tag,
-  );
+  return listEffectTags(entity, tag).length > 0;
 }
 
 /**

@@ -34,7 +34,6 @@
   import { startHotbarDrag } from '@/core/utils/hotbarDrag';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useActionPromptStore } from '@/stores/actionPromptStore';
-  import { useAuraStore } from '@/stores/auraStore';
   import { useChatStore } from '@/stores/chatStore';
   import { useHotbarStore } from '@/stores/hotbarStore';
   import { useProjectileStore } from '@/stores/projectileStore';
@@ -46,8 +45,6 @@
     buildCasterTypeMap,
     calculateSpellAttackModifier,
     CANTRIP_SPELL_LEVEL,
-    collectActiveEffects,
-    combineEffectsWithAmbient,
     computeSpellSlots,
     damagePartIsHealing,
     DEFAULT_PREPARED_LIMIT,
@@ -62,7 +59,6 @@
     getSpellProjectileCount,
     getSpellSaveDCBreakdown,
     getTotalLevel,
-    isDnDEffect,
     isDndSceneEntity,
     isSpellReady,
     mergeAppliedEffects,
@@ -113,6 +109,7 @@
     withFlatDamageBonusPart,
   } from '../../../composables/useBonusDamageParts';
   import { useClassCatalog } from '../../../composables/useClassCatalog';
+  import { collectEffectsWithAuras } from '../../../composables/useResolvedStats';
   import {
     getSpellMaxRangeOnScene,
     isSpellCastBlockedByRange,
@@ -1574,13 +1571,7 @@
     // катаются отдельными частями — каст идёт многочастным путём даже для
     // одночастного заклинания. Учитываются и ambient-эффекты аур на карте
     // (напр. аура союзника, дающая бонус-урон заклинаниям).
-    const spellEffects = combineEffectsWithAmbient(
-      collectActiveEffects(props.actor),
-      // Ambient-ауры контракт отдаёт нейтральной базой — сужаем к D&D-форме.
-      useAuraStore()
-        .getAmbientEffectsForActor(props.actor.id)
-        .filter(isDnDEffect),
-    );
+    const spellEffects = collectEffectsWithAuras(props.actor);
 
     const hasBonusDamage = hasSpellBonusDamage(spellEffects);
 

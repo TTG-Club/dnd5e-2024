@@ -14,6 +14,8 @@ import {
   hasLastingEffectPayload,
   isDndSceneEntity,
   isImmuneToCondition,
+  isMagicalEffect,
+  isMagicRoll,
   isSpellRoll,
   passesLandingCondition,
   resolveActorStats,
@@ -94,11 +96,7 @@ export function listEffectsWithOwnSave(spell: Spell): ActiveEffect[] {
 function resolveLandingSource(
   casterId: string | undefined,
 ): DnDSceneEntity | undefined {
-  const source = casterId
-    ? useWorldEntities().findCurrentWorldEntity(casterId)
-    : undefined;
-
-  return source && isDndSceneEntity(source) ? source : undefined;
+  return useWorldEntities().findCurrentDndEntity(casterId);
 }
 
 /**
@@ -302,7 +300,7 @@ export function useTargetEffectResolution() {
         landed,
         applySaveSucceeded: effectSaves.get(effect.id)?.passed,
         targetFlags,
-        againstMagic: true,
+        againstMagic: isMagicRoll(spell) || isMagicalEffect(effect),
       });
 
       if (

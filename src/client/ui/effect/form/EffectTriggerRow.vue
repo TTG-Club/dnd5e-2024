@@ -32,6 +32,7 @@
 
   import {
     ABILITY_OPTIONS,
+    AREA_TRIGGER_RECIPIENT,
     createDefaultEffectSave,
     DEFAULT_EFFECT_SAVE_ABILITY,
     DEFAULT_EFFECT_TAG,
@@ -48,12 +49,16 @@
     MIN_TRIGGER_LIMIT_MAX,
     resolveTriggerActionGate,
     triggerEventAcceptsDcFormula,
+    triggerEventHasRestType,
     triggerEventHasRole,
     validateFormula,
   } from '@vtt/shared/system/dnd.js';
 
   import { SCROLLABLE_DROPDOWN_UI } from '../../actor/constants';
-  import { EFFECT_SOURCE_DC_LABELS } from '../constants';
+  import {
+    EFFECT_AURA_RADIUS_STEP,
+    EFFECT_SOURCE_DC_LABELS,
+  } from '../constants';
   import {
     buildTriggerRecipientOptions,
     DEFAULT_TRIGGER_CONDITION,
@@ -140,7 +145,13 @@
 
   const showsRole = computed(() => triggerEventHasRole(trigger.value.event));
 
-  const showsRestType = computed(() => trigger.value.event === 'rest');
+  const showsRestType = computed(() =>
+    triggerEventHasRestType(trigger.value.event),
+  );
+
+  const isAreaRecipient = computed(
+    () => trigger.value.recipient === AREA_TRIGGER_RECIPIENT,
+  );
 
   const recipientItems = computed(() =>
     buildTriggerRecipientOptions(trigger.value),
@@ -193,13 +204,15 @@
           ? (trigger.value.role ?? DEFAULT_TRIGGER_ATTACK_ROLE)
           : undefined,
         turnOf: isTurnTriggerEvent(next) ? trigger.value.turnOf : undefined,
-        restType: next === 'rest' ? trigger.value.restType : undefined,
+        restType: triggerEventHasRestType(next)
+          ? trigger.value.restType
+          : undefined,
         recipient: buildTriggerRecipientOptions({
           ...trigger.value,
           event: next,
         })
           .map((option) => option.value)
-          .find((option) => option === trigger.value.recipient),
+          .find((recipientValue) => recipientValue === trigger.value.recipient),
         area: triggerEventHasRecipientChoice(next)
           ? trigger.value.area
           : undefined,
@@ -235,7 +248,7 @@
         recipient: next === DEFAULT_TRIGGER_RECIPIENT ? undefined : next,
         // «Всем в радиусе» появляется с радиусом по умолчанию
         area:
-          next === 'area'
+          next === AREA_TRIGGER_RECIPIENT
             ? (trigger.value.area ?? { radius: DEFAULT_TRIGGER_AREA_RADIUS })
             : undefined,
       }),
@@ -561,7 +574,7 @@
         />
       </UFormField>
 
-      <template v-if="trigger.recipient === 'area'">
+      <template v-if="isAreaRecipient">
         <UFormField
           :label="EFFECT_TRIGGER_AREA_LABELS.radius"
           class="w-28"
@@ -569,7 +582,7 @@
           <UInputNumber
             v-model="areaRadius"
             :min="0"
-            :step="5"
+            :step="EFFECT_AURA_RADIUS_STEP"
             size="sm"
             class="w-full"
           />

@@ -328,6 +328,23 @@ describe('каталог: предметы', () => {
 
     assert.equal(spell.rollSource, 'item');
     assert.equal(engine.isSpellRoll(spell), false);
+    assert.equal(engine.isMagicRoll(spell), true, 'магический предмет — магия');
+
+    // Удар оружием и действие существа — не магия: «Магическое сопротивление»
+    // от них не спасает
+    for (const rollSource of ['weapon', 'creatureAction']) {
+      assert.equal(
+        engine.isMagicRoll(
+          engine.buildPseudoSpell({
+            id: rollSource,
+            name: rollSource,
+            rollSource,
+          }),
+        ),
+        false,
+        rollSource,
+      );
+    }
 
     const [applied] = engine.getCasterSpellEffects(spell);
 
@@ -457,6 +474,37 @@ describe('каталог: предметы', () => {
       true,
       'учёт остаётся и с пустым колчаном',
     );
+  });
+
+  it('карточка эффекта называет применение и переключатель', () => {
+    const applicationOf = (effect) => {
+      const application = engine
+        .buildActiveEffectDetails(effect)
+        .find((section) => section.key === 'application');
+
+      return application?.lines ?? [];
+    };
+
+    const turnUndead = createEffect('Изгнание', {
+      activation: { mode: 'use', counter: 'channelDivinity' },
+      effectTarget: 'target',
+      conditionKey: 'frightened',
+    });
+
+    assert.deepEqual(applicationOf(turnUndead), [
+      'Сам не действует — только при применении',
+      'Копия ложится на выбранную цель',
+    ]);
+
+    const rage = createEffect('Ярость', { activation: { mode: 'toggle' } });
+
+    assert.deepEqual(applicationOf(rage), ['Включается переключателем']);
+
+    const venom = createEffect('Яд', { effectTarget: 'target' });
+
+    assert.deepEqual(applicationOf(venom), [
+      'Накладывается на цель при попадании атакой',
+    ]);
   });
 });
 

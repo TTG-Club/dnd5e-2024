@@ -3,7 +3,6 @@ import type {
   DamagePartTarget,
   MeasurementTemplate,
   SceneEntity,
-  SpellSaveType,
   Token,
   TypedWebSocketClient,
 } from '@vtt/shared';
@@ -27,6 +26,8 @@ import {
   getTargetSpellEffects,
   hasSourceTurnSaveDc,
   isDndSceneEntity,
+  isMagicRoll,
+  isSaveAbility,
   listIgnoredResistances,
   resolveActorStats,
   SAVE_TYPE_LABELS,
@@ -44,6 +45,7 @@ export {
   getCasterSpellEffects,
   getTargetSpellEffects,
   getZoneSpellEffects,
+  isSaveAbility,
 } from '@vtt/shared/system/dnd.js';
 
 /** Результат спасброска одной цели */
@@ -297,21 +299,6 @@ export function formatTargetGateSuffix(
 }
 
 /**
- * Type guard: является ли тип спасброска характеристикой (не `none`).
- *
- * `SpellSaveType` — это `'none' | AbilityType`, поэтому отсечение `'none'`
- * безопасно сужает значение до `AbilityType` без приведения типов.
- *
- * @param saveType - тип спасброска заклинания
- * @returns true, если это характеристика для спасброска
- */
-export function isSaveAbility(
-  saveType: SpellSaveType,
-): saveType is AbilityType {
-  return saveType !== 'none';
-}
-
-/**
  * Сопротивления, которые игнорирует урон атакующего («Сила могилы»).
  *
  * @param attackerId - атакующий; без него — ничего
@@ -324,9 +311,9 @@ export function resolveAttackerIgnoredResistances(
     return [];
   }
 
-  const attacker = useWorldEntities().findCurrentWorldEntity(attackerId);
+  const attacker = useWorldEntities().findCurrentDndEntity(attackerId);
 
-  return attacker && isDndSceneEntity(attacker)
+  return attacker
     ? listIgnoredResistances(resolveActorStats(attacker).activeFlags)
     : [];
 }
@@ -350,8 +337,7 @@ export function buildSaveDamageDefense(
   return {
     flags: resolveActorStats(entity).activeFlags,
     ability: spell.saveType,
-    // Спасброски этих путей навязаны магией — как и у запроса броска
-    againstMagic: true,
+    againstMagic: isMagicRoll(spell),
   };
 }
 

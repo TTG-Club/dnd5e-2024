@@ -41,6 +41,7 @@ import {
   ACTIVE_EFFECT_ID_PREFIX,
   isCarrierEffect,
   isEffectDormant,
+  listLiveEffects,
   removeOrSwitchOffEffects,
 } from './activeEffectTypes.js';
 import { buildConditionActiveEffect } from './conditionTemplates.js';
@@ -57,6 +58,7 @@ import {
 import {
   isClientAttackRollTrigger,
   isLegacyTrigger,
+  listEffectEventTriggers,
   listEffectListTriggers,
   readEffectLandingTrigger,
   resolveGateScale,
@@ -66,6 +68,7 @@ import {
 import {
   DEFAULT_TRIGGER_ATTACK_ROLE,
   DEFAULT_TRIGGER_REST_TYPE,
+  MAX_HP_REDUCTION_NEVER_ENDS,
   PRESENCE_TRIGGER_EVENTS,
 } from './effectTriggerTypes.js';
 import {
@@ -678,14 +681,13 @@ function buildMaxHpReduction(
 
   const endsOnRest = action.endsOnRest ?? DEFAULT_TRIGGER_REST_TYPE;
 
-  return withInitializedDuration({
-    id: generateId(ACTIVE_EFFECT_ID_PREFIX),
-    name: MAX_HP_REDUCTION_LABEL,
-    description: '',
-    disabled: false,
-    origin: 'condition',
-    transfer: false,
-    duration: { type: 'permanent' },
+  return {
+    ...buildTagEffect({
+      type: 'applyTag',
+      tag: MAX_HP_REDUCTION_TAG,
+      label: MAX_HP_REDUCTION_LABEL,
+      duration: { type: 'permanent' },
+    }),
     changes: [
       {
         key: 'hitPoints.max',
@@ -694,9 +696,7 @@ function buildMaxHpReduction(
         priority: MAX_HP_REDUCTION_PRIORITY,
       },
     ],
-    flags: [],
-    tag: MAX_HP_REDUCTION_TAG,
-    ...(endsOnRest === 'never'
+    ...(endsOnRest === MAX_HP_REDUCTION_NEVER_ENDS
       ? {}
       : {
           triggers: [
@@ -710,7 +710,7 @@ function buildMaxHpReduction(
             },
           ],
         }),
-  });
+  };
 }
 
 /**
@@ -1378,6 +1378,25 @@ export function settlePresenceTrigger(
 }
 
 /**
+ * Выполняет срабатывания на самой сущности без второй стороны и без окна
+ * броска: условие и лимит, спасбросок броском системы, действия. Так идут
+ * «при включении» и «после отдыха».
+ *
+ * @param entity - субъект (меняется)
+ * @param sources - срабатывания с источниками
+ */
+export function settleSelfTriggerSources(
+  entity: DnDSceneEntity,
+  sources: readonly EffectTriggerSource[],
+): void {
+  for (const source of sources) {
+    if (admitTrigger(entity, source)) {
+      settlePresenceTrigger(entity, source, rollTriggerSave(entity, source));
+    }
+  }
+}
+
+/**
  * Выполняет срабатывание по известному исходу спасброска: урон, лечение и
  * наложения достаются получателю, снятие — эффекту субъекта, если эффект лежит
  * на нём сам.
@@ -1480,13 +1499,12 @@ export function listAttackRollSources(
   place: AttackRollTriggerPlace,
 ): EffectTriggerSource[] {
   return buildTriggerSources(
-    (entity.activeEffects ?? []).filter((effect) => !isEffectDormant(effect)),
+    listLiveEffects(entity),
     EFFECT_TRIGGER_SOURCE_KINDS.instance,
     (effect) =>
-      listEffectListTriggers(effect).filter(
+      listEffectEventTriggers(effect, 'attackRoll').filter(
         (trigger) =>
-          trigger.event === 'attackRoll'
-          && (trigger.role ?? DEFAULT_TRIGGER_ATTACK_ROLE) === role
+          (trigger.role ?? DEFAULT_TRIGGER_ATTACK_ROLE) === role
           && isClientAttackRollTrigger(trigger) === (place === 'client'),
       ),
   );

@@ -35,6 +35,7 @@ export * from './damageHits.js';
 export * from './damageParts.js';
 export * from './damageTargetGate.js';
 export * from './damageUtils.js';
+export * from './dataClone.js';
 export * from './deathSaves.js';
 export * from './deathState.js';
 export * from './deferredEffectSaves.js';

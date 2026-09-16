@@ -95,7 +95,9 @@ export async function loadHandler(relativePath, name, ports, macro = false) {
     compilerOptions: { target: typescript.ScriptTarget.ES2022 },
   });
 
-  // Выбор варианта эффекта проходной: у фикстур обработчиков групп вариантов нет
+  // Выбор варианта эффекта проходной: у фикстур обработчиков групп вариантов
+  // нет. Пишем в сам объект портов, а не в копию: он и есть контекст VM, и
+  // тесты подменяют порты уже после загрузки обработчика
   ports.runWithEffectVariants ??= (source, proceed) => proceed(source);
 
   return runInNewContext(

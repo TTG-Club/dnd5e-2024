@@ -22,6 +22,7 @@ import { z } from 'zod';
 import { isCreatureEntity } from '@vtt/shared';
 
 import { isAbilityType } from './consts.js';
+import { EFFECT_TRIGGER_SAVE_MODES } from './effectTriggerTypes.js';
 import { SAVE_TYPE_LABELS } from './spellTypes.js';
 
 /**
@@ -127,7 +128,7 @@ export const savingThrowRequestPayloadSchema = z.object({
   /** Спасбросок концентрации: «Боевой заклинатель» у адресата */
   againstConcentration: z.boolean().optional(),
   /** Преимущество или помеха самого спасброска */
-  mode: z.enum(['advantage', 'disadvantage']).optional().catch(undefined),
+  mode: z.enum(EFFECT_TRIGGER_SAVE_MODES).optional().catch(undefined),
   /** Чем бьют — «Огненный шар», «Укус»: уходит в заголовок окна у адресата */
   sourceName: z.string().optional(),
 });

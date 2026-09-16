@@ -6,7 +6,6 @@ import type {
   DnDActor,
   DnDCreature,
   DnDGameItem,
-  DnDSceneEntity,
   RollContext,
   Spell,
 } from '@vtt/shared/system/dnd.js';
@@ -23,7 +22,6 @@ import { emitEntityUpdate } from '@/core/entityUtils';
 import { registerMacro } from '@/core/registries/macroRegistry';
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useActionPromptStore } from '@/stores/actionPromptStore';
-import { useAuraStore } from '@/stores/auraStore';
 import { useChatStore } from '@/stores/chatStore';
 import { useProjectileStore } from '@/stores/projectileStore';
 import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
@@ -42,7 +40,6 @@ import {
   calculateWeaponAttackModifier,
   checkRange,
   collectActiveEffects,
-  combineEffectsWithAmbient,
   consumeCreatureSpellGroupUse,
   damagePartIsHealing,
   describeDamagePart,
@@ -50,6 +47,7 @@ import {
   findCreatureSpellPlacement,
   formatConditionalDamageDisplay,
   getAttackBonusKey,
+  getAttackFlagCategory,
   getAvailableSpellLevels,
   getCreatureSpellBlockAbility,
   getCreatureSpellMod,
@@ -64,8 +62,8 @@ import {
   getWeaponPrimaryDamageType,
   hasCreatureSpellGroupUsesLeft,
   isCreatureSpellPoolMode,
-  isDnDEffect,
   isDndSceneEntity,
+  isSaveAbility,
   mergeAppliedEffects,
   pickCantripTierParts,
   resolveActorStats,
@@ -77,6 +75,7 @@ import {
   resolveSpellcastingAbility,
   resolveSpellDamageFormula,
   resolveSpellSaveDC,
+  resolveWeaponSaveDc,
   SPELL_DAMAGE_TEMPLATE_COLORS,
   SPELL_TEMPLATE_DEFAULT_COLOR,
   spellHasDamage,
@@ -120,6 +119,10 @@ import {
   withFlatDamageBonusPart,
 } from '../composables/useBonusDamageParts';
 import {
+  collectEffectsWithAuras,
+  listAmbientEffects,
+} from '../composables/useResolvedStats';
+import {
   getSpellMaxRangeOnScene,
   isSpellCastBlockedByRange,
   isSpellTargetBlockedByRange,
@@ -128,11 +131,15 @@ import {
 import { useSpellResolution } from '../composables/useSpellResolution';
 import { useWorldEntities } from '../composables/useWorldEntities';
 import {
+  ACTOR_SPELLS_TAB_LABELS,
   PROJECTILE_MODAL_KEY_PREFIX,
   SPELL_CAST_MODAL_KEY_PREFIX,
+  SPELL_DAMAGE_ROLL_BUTTON,
   SPELL_MENU_LABELS,
 } from '../ui/actor/constants';
 import { checkCreatureActionRangeOnScene } from '../ui/creature/composables/useCreatureRangeCheck';
+import { CREATURE_ACTIONS_BLOCK_LABELS } from '../ui/creature/constants';
+import { MACRO_MESSAGE_LABELS } from './constants';
 
 /**
  * Граница системы: ядро отдаёт макросам НЕЙТРАЛЬНЫЕ сущности
@@ -151,17 +158,21 @@ function isDnDCreatureEntity(
 }
 
 /**
- * Читает актуального участника броска: эффекты могут измениться, пока окно
- * макроса открыто; удалённая сущность не должна оставлять старый бонус.
+ * Сообщение чата о цели вне досягаемости.
  *
- * @param entityId - идентификатор персонажа или существа
- * @returns актуальная D&D-сущность либо undefined
+ * @param name - оружие или действие
+ * @param check - расстояние до цели
+ * @param check.distance - расстояние
+ * @param check.unitLabel - единица расстояния
+ * @returns строка чата
  */
-function findCurrentDndEntity(entityId: string): DnDSceneEntity | undefined {
-  const { findCurrentWorldEntity } = useWorldEntities();
-  const entity = findCurrentWorldEntity(entityId);
+function formatOutOfRangeMessage(
+  name: string,
+  check: { distance: number; unitLabel: string },
+): string {
+  const labels = CREATURE_ACTIONS_BLOCK_LABELS;
 
-  return entity && isDndSceneEntity(entity) ? entity : undefined;
+  return `${labels.outOfRangePrefix}${name}${labels.outOfRangeMiddle}${check.distance} ${check.unitLabel}${labels.outOfRangeSuffix}`;
 }
 
 /**
@@ -384,12 +395,7 @@ export function registerDnd5eMacros(): void {
         const foundActor = result.actor;
 
         // resolvedStats для @mod.* в формулах частей и статического урона
-        const auraStore = useAuraStore();
-
-        // Ambient-ауры контракт отдаёт нейтральной базой — сужаем к D&D-форме.
-        const ambientEffects = auraStore
-          .getAmbientEffectsForActor(foundActor.id)
-          .filter(isDnDEffect);
+        const ambientEffects = listAmbientEffects(foundActor.id);
 
         const resolvedStats = resolveActorStats(foundActor, ambientEffects);
 
@@ -405,7 +411,7 @@ export function registerDnd5eMacros(): void {
 
           if (rangeCheck && !rangeCheck.allowed) {
             chatStore.sendMessage(
-              `⛔ ${foundWeapon.name}: цель вне досягаемости (${rangeCheck.distance} ${rangeCheck.unitLabel})`,
+              formatOutOfRangeMessage(foundWeapon.name, rangeCheck),
               'text',
             );
 
@@ -417,10 +423,7 @@ export function registerDnd5eMacros(): void {
           }
         }
 
-        const combinedEffects = combineEffectsWithAmbient(
-          collectActiveEffects(foundActor),
-          ambientEffects,
-        );
+        const combinedEffects = collectEffectsWithAuras(foundActor);
 
         const attackKey = getAttackBonusKey(foundWeapon.rangeType);
         const damageKey = getDamageBonusKey(foundWeapon.rangeType);
@@ -431,17 +434,10 @@ export function registerDnd5eMacros(): void {
           resolvedStats,
         );
 
-        // Оружие со спасброском: цель кидает спас, броска попадания нет.
-        // DC оружия = 8 + модификатор атаки оружием.
-        const hasSave =
-          !!foundWeapon.saveType && foundWeapon.saveType !== 'none';
-
-        const weaponSaveDC = 8 + baseMod;
-
-        const incomingAttackType =
-          foundWeapon.rangeType === 'ranged'
-            ? ('ranged' as const)
-            : ('melee' as const);
+        // Оружие со спасброском: цель кидает спас, броска попадания нет
+        const hasSave = isSaveAbility(foundWeapon.saveType);
+        const weaponSaveDC = resolveWeaponSaveDc(baseMod);
+        const incomingAttackType = getAttackFlagCategory(foundWeapon.rangeType);
 
         const targetActor = targetStore.getTargetActor();
 
@@ -519,16 +515,18 @@ export function registerDnd5eMacros(): void {
         }
 
         openModal('DiceRollModal', {
-          title: `Атака — ${foundWeapon.name}`,
+          title: `${CREATURE_ACTIONS_BLOCK_LABELS.attackRollPrefix}${foundWeapon.name}`,
           rollLabel: foundWeapon.name,
-          rollButtonText: hasSave ? 'Бросить урон' : 'Бросить атаку',
+          rollButtonText: hasSave
+            ? SPELL_DAMAGE_ROLL_BUTTON
+            : ACTOR_SPELLS_TAB_LABELS.attackRoll,
           // Формула для отображения (бросок идёт многочастным путём по damageParts)
           formula: weaponPartsSetup.baseParts[0]?.formula ?? '',
           attackModifier: hasSave ? undefined : baseMod,
           evaluateBonusRollFormulas: hasSave
             ? undefined
             : buildRollBonusEvaluator(
-                () => findCurrentDndEntity(foundActor.id),
+                () => useWorldEntities().findCurrentDndEntity(foundActor.id),
                 attackKey,
               ),
           initialRollMode,
@@ -615,7 +613,7 @@ export function registerDnd5eMacros(): void {
           const chatStore = useChatStore();
 
           chatStore.sendMessage(
-            `⛔ ${spell.name}: у вас нет доступных ячеек заклинаний ${spell.level} круга или выше.`,
+            `${CREATURE_ACTIONS_BLOCK_LABELS.outOfRangePrefix}${spell.name}${MACRO_MESSAGE_LABELS.noSlotsMiddle}${spell.level}${ACTOR_SPELLS_TAB_LABELS.noSlotsTextSuffix}`,
             'text',
           );
 
@@ -870,7 +868,7 @@ function openDiceRollForSpell(
     const finishCast = (): void => {
       completeSpellCast({
         spell,
-        caster: findCurrentDndEntity(actor.id) ?? actor,
+        caster: useWorldEntities().findCurrentDndEntity(actor.id) ?? actor,
         source: casterSource,
         template: cachedTemplate,
         applyCasterEffects: true,
@@ -954,10 +952,7 @@ function openDiceRollForSpell(
     const { hasSpellBonusDamage, buildSpellBonusEvaluator } =
       useBonusDamageParts();
 
-    const spellEffects = combineEffectsWithAmbient(
-      collectActiveEffects(actor),
-      useAuraStore().getAmbientEffectsForActor(actor.id).filter(isDnDEffect),
-    );
+    const spellEffects = collectEffectsWithAuras(actor);
 
     const hasBonusDamage = hasSpellBonusDamage(spellEffects);
 
@@ -1239,7 +1234,7 @@ function openDiceRollForSpell(
 
     const evaluateAttackBonusRollFormulas = incomingAttackType
       ? buildRollBonusEvaluator(
-          () => findCurrentDndEntity(actor.id),
+          () => useWorldEntities().findCurrentDndEntity(actor.id),
           'attack.spell',
         )
       : undefined;
@@ -1494,7 +1489,7 @@ function castBuffSpellMacro(
         const socket = chatStore.getSocket();
 
         // Между выбором целей и ячейки лист мог измениться на другом клиенте.
-        const latestEntity = findCurrentDndEntity(actor.id);
+        const latestEntity = useWorldEntities().findCurrentDndEntity(actor.id);
 
         const castingActor =
           effectTargets && latestEntity?.entityType === 'actor'
@@ -1636,7 +1631,7 @@ function registerCreatureActionMacro(): void {
         const hasAttackParams = !!(
           action.attackBonus !== undefined
           || action.damageParts?.length
-          || (action.saveType && action.saveType !== 'none')
+          || isSaveAbility(action.saveType)
         );
 
         if (!hasAttackParams) {
@@ -1675,7 +1670,7 @@ function registerCreatureActionMacro(): void {
 
           if (rangeCheck && !rangeCheck.allowed) {
             chatStore.sendMessage(
-              `⛔ ${action.name}: цель вне досягаемости (${rangeCheck.distance} ${rangeCheck.unitLabel})`,
+              formatOutOfRangeMessage(action.name, rangeCheck),
               'text',
             );
 
@@ -1790,7 +1785,7 @@ function openCreatureActionRoll(
     ? 'normal'
     : resolveTargetedAttackRollMode(
         creature,
-        action.rangeType === 'ranged' ? 'ranged' : 'melee',
+        getAttackFlagCategory(action.rangeType),
         { forceDisadvantage: isDisadvantage },
       );
 
@@ -1803,11 +1798,11 @@ function openCreatureActionRoll(
     evaluateBonusRollFormulas: usesSaveOrArea
       ? undefined
       : buildRollBonusEvaluator(
-          () => findCurrentDndEntity(creature.id),
+          () => useWorldEntities().findCurrentDndEntity(creature.id),
           getAttackBonusKey(action.rangeType),
         ),
     initialRollMode: actionRollMode,
-    incomingAttackType: action.rangeType === 'ranged' ? 'ranged' : 'melee',
+    incomingAttackType: getAttackFlagCategory(action.rangeType),
     damageType,
     damageParts: setup.baseParts,
     evaluateBonusDamageParts: setup.evaluateBonusDamageParts,
@@ -2163,7 +2158,7 @@ function openCreatureSpellRoll(
     attackModifier: usesAttack ? numbers.attackBonus : undefined,
     evaluateBonusRollFormulas: usesAttack
       ? buildRollBonusEvaluator(
-          () => findCurrentDndEntity(creature.id),
+          () => useWorldEntities().findCurrentDndEntity(creature.id),
           'attack.spell',
         )
       : undefined,
@@ -2254,7 +2249,7 @@ function applyCreatureSpellParts(
   // Эффекты на самом существе, зона на месте шаблона, конец концентрации
   completeSpellCast({
     spell: pseudoSpell,
-    caster: findCurrentDndEntity(creature.id) ?? creature,
+    caster: useWorldEntities().findCurrentDndEntity(creature.id) ?? creature,
     source: casterSource,
     template: cachedTemplate,
     applyCasterEffects: true,

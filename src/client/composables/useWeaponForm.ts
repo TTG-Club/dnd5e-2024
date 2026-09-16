@@ -22,6 +22,7 @@ import { computed, ref, watch } from 'vue';
 
 import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 import {
+  AMMUNITION_PROPERTY,
   damagePartIsHealing,
   DEFAULT_CURRENCY,
   FALLBACK_SOURCE_KEY,
@@ -487,7 +488,7 @@ export function useWeaponForm(
         ? damageCustomBonuses.value.map(toStoredCustomBonus)
         : undefined,
       special: special.value.trim() || undefined,
-      ammunitionType: selectedProperties.value.includes('ammunition')
+      ammunitionType: selectedProperties.value.includes(AMMUNITION_PROPERTY)
         ? ammunitionType.value || undefined
         : undefined,
       sourceKey: sourceKey.value || undefined,

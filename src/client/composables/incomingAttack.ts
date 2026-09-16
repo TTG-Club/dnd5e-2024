@@ -12,44 +12,17 @@ import type {
   AttackFlagCategory,
   DndIncomingAttackContext,
   DnDSceneEntity,
-  EffectTargetKey,
 } from '@vtt/shared/system/dnd.js';
 
-import { useAuraStore } from '@/stores/auraStore';
 import {
   buildFormulaContext,
-  collectActiveEffects,
   collectIncomingAttackFlags,
   collectIncomingAttackRollFormulas,
-  combineEffectsWithAmbient,
-  isDnDEffect,
-  isDndSceneEntity,
   resolveEntityCreatureType,
 } from '@vtt/shared/system/dnd.js';
 
+import { collectEffectsWithAuras } from './useResolvedStats';
 import { useWorldEntities } from './useWorldEntities';
-
-/** Вид атаки по ключу прибавки к атаке */
-const ATTACK_TYPE_BY_KEY: Partial<Record<EffectTargetKey, AttackFlagCategory>> =
-  {
-    'attack.melee': 'melee',
-    'attack.ranged': 'ranged',
-    'attack.spell': 'spell',
-  };
-
-/**
- * Вид атаки, к броску которой относятся ключи прибавок.
- *
- * @param keys - ключи прибавок броска
- * @returns вид атаки либо `undefined`, если бросок не атака
- */
-export function resolveAttackTypeOfKeys(
-  keys: readonly EffectTargetKey[],
-): AttackFlagCategory | undefined {
-  return keys
-    .map((key) => ATTACK_TYPE_BY_KEY[key])
-    .find((attackType) => attackType !== undefined);
-}
 
 /**
  * Входящая атака глазами цели.
@@ -77,21 +50,11 @@ export function buildIncomingAttackContext(
 function findDefender(
   targetEntityId: string,
 ): { defender: DnDSceneEntity; effects: readonly ActiveEffect[] } | null {
-  const defender = useWorldEntities().findCurrentWorldEntity(targetEntityId);
+  const defender = useWorldEntities().findCurrentDndEntity(targetEntityId);
 
-  if (!defender || !isDndSceneEntity(defender)) {
-    return null;
-  }
-
-  // Ауры контракт отдаёт нейтральной базой — сужаем к D&D-форме
-  const ambient = useAuraStore()
-    .getAmbientEffectsForActor(defender.id)
-    .filter(isDnDEffect);
-
-  return {
-    defender,
-    effects: combineEffectsWithAmbient(collectActiveEffects(defender), ambient),
-  };
+  return defender
+    ? { defender, effects: collectEffectsWithAuras(defender) }
+    : null;
 }
 
 /**

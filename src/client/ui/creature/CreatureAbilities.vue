@@ -23,6 +23,7 @@
     getCreatureProficiencyBonus,
     getCustomBonusesValue,
     getCustomBonusValue,
+    resolveAbilityCheckModifier,
     resolveAbilityCheckRollMode,
   } from '@vtt/shared/system/dnd.js';
 
@@ -257,7 +258,7 @@
   ): void {
     diceRollConfig.value = {
       // Прибавка ко всем проверкам — только броску: плитка показывает модификатор
-      modifier: modifier + (resolvedStats.value?.abilityCheckBonus ?? 0),
+      modifier: resolveAbilityCheckModifier(modifier, resolvedStats.value),
       evaluateBonusRollFormulas: buildRollBonusEvaluator(
         () => props.creature,
         ABILITY_CHECK_KEY,

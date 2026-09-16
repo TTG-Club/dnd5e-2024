@@ -437,6 +437,12 @@ export const EFFECT_INERT_FIELD_NAMES: Record<InertEffectField, string> = {
 /** Значение выбора «Действует» для эффекта без применения */
 export const EFFECT_PERMANENT_ACTIVATION = 'permanent';
 
+/** Условию по отметке в «Ложится, если» подсказывать нечего */
+export const EFFECT_NO_KNOWN_TAGS: readonly string[] = [];
+
+/** Значение выбора «Действует» у модификаторов без условия броска */
+export const EFFECT_ROLL_CONDITION_ALWAYS = 'always';
+
 /** Выбор «Действует»: постоянно, при применении или переключателем */
 export type EffectActivationChoice =
   EffectActivationMode | typeof EFFECT_PERMANENT_ACTIVATION;
