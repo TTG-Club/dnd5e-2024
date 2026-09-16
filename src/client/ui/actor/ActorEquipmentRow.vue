@@ -8,7 +8,10 @@
 
   import { computed } from 'vue';
 
-  import { getEquipmentCategoryIcon } from '@vtt/shared/system/dnd.js';
+  import {
+    getEquipmentCategoryIcon,
+    isItemDepleted,
+  } from '@vtt/shared/system/dnd.js';
 
   import {
     DEFAULT_EQUIPMENT_ICON,
@@ -118,14 +121,21 @@
       : 'cursor-pointer border-default/50 bg-default/40 text-muted hover:border-primary/60';
   });
 
-  /** Надетый предмет виден в списке издалека — по тёплой обводке строки */
-  const rowClass = computed(() =>
+  /** Предмет закончился: строка остаётся, но тускнеет */
+  const isDepleted = computed(() => isItemDepleted(props.item));
+
+  /**
+   * Надетый предмет виден в списке издалека — по тёплой обводке строки,
+   * закончившийся — по тусклой строке.
+   */
+  const rowClass = computed(() => [
     props.item.equipped ? 'bg-primary/5 ring-1 ring-primary/50 ring-inset' : '',
-  );
+    isDepleted.value ? 'opacity-60' : '',
+  ]);
 
   const quantity = computed(() => props.item.quantity ?? 1);
 
-  const isDecreaseDisabled = computed(() => quantity.value <= 1);
+  const isDecreaseDisabled = computed(() => quantity.value <= 0);
 
   /** Нажатие по строке открывает описание — вне режима правки листа */
   function handleOpen(): void {
@@ -294,6 +304,20 @@
                   {{ EQUIPMENT_BADGE_LABELS.attunementRequired }}
                 </UBadge>
               </UTooltip>
+
+              <UTooltip
+                v-if="isDepleted"
+                :text="EQUIPMENT_BADGE_HINTS.depleted"
+              >
+                <UBadge
+                  color="error"
+                  variant="subtle"
+                  size="sm"
+                  class="relative z-10 shrink-0"
+                >
+                  {{ EQUIPMENT_BADGE_LABELS.depleted }}
+                </UBadge>
+              </UTooltip>
             </span>
 
             <span
@@ -332,7 +356,7 @@
           <input
             type="number"
             :value="quantity"
-            min="1"
+            min="0"
             :aria-label="`${SHEET_ROW_ARIA_LABELS.quantity}: ${item.name}`"
             class="w-8 [appearance:textfield] rounded border border-transparent bg-transparent text-center text-sm font-medium text-default focus:border-primary focus:outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
             @change="handleQuantityInput"

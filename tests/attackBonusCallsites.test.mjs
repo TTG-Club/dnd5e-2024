@@ -651,7 +651,12 @@ it('registered weapon macro selects melee/ranged dice from the fresh actor and o
     console: { warn: assert.fail, error: assert.fail },
   });
 
-  const handler = await loadHandler(macroPath, 'weapon-attack', ports, true);
+  const handler = await loadHandler(
+    macroPath,
+    'DND_MACRO_TYPES.weaponAttack',
+    ports,
+    true,
+  );
 
   for (const rangeType of ['melee', 'ranged']) {
     weapon = { name: 'Weapon', rangeType, damageParts: [{ formula: '1d6' }] };

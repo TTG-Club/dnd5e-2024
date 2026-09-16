@@ -32,6 +32,7 @@
     getTotalLevel,
     isActorDead,
     isEntityAtZeroHp,
+    isItemWorn,
     readDeathSaves,
     resolveDeathSave,
     resolveDeathSaveRollMode,
@@ -496,14 +497,14 @@
         // Ищем экипированную броню и щит для информативного тултипа
         const equipped = (props.actor.equipment ?? []).filter(
           (item) =>
-            item.equipped
+            isItemWorn(item)
             && item.baseArmorAC
             && item.equipmentCategory !== 'shield',
         );
 
         const shield = (props.actor.equipment ?? []).find(
           (item) =>
-            item.equipped
+            isItemWorn(item)
             && item.equipmentCategory === 'shield'
             && item.baseArmorAC,
         );

@@ -599,6 +599,9 @@ export const EFFECT_USE_LABELS = {
   noCounterTitle: 'Не хватает ресурса',
   noCounterPrefix: 'Ресурс «',
   noCounterSuffix: '» исчерпан.',
-  noAmmunitionPrefix: '⛔ ',
+  blockedPrefix: '⛔ ',
   noAmmunitionSuffix: ': нет боеприпасов',
+  depletedSuffix: ': закончились',
+  /** Подпись кнопки применения на панели быстрого доступа */
+  hotbarPrefix: 'Использовать: ',
 } as const;

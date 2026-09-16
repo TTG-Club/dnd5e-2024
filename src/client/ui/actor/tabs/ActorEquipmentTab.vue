@@ -48,6 +48,7 @@
     getWeaponPrimaryDamageType,
     isSaveAbility,
     listUseEffects,
+    normalizeItemQuantity,
     resolveWeaponSaveDc,
     setItemUsesCurrent,
     spendAmmunition,
@@ -69,6 +70,10 @@
   import { useSpellResolution } from '../../../composables/useSpellResolution';
   import { useWeaponIcon } from '../../../composables/useWeaponIcon';
   import { useWorldEntities } from '../../../composables/useWorldEntities';
+  import {
+    DND_MACRO_TYPES,
+    ITEM_USE_MACRO_ICON,
+  } from '../../../macros/constants';
   import { EFFECT_USE_LABELS } from '../../effect/constants';
   import ActorEquipmentRow from '../ActorEquipmentRow.vue';
   import CarryingCapacityModal from '../CarryingCapacityModal.vue';
@@ -550,10 +555,31 @@
 
     startHotbarDrag(event, {
       id: weapon.id,
-      type: 'weapon-attack',
+      type: DND_MACRO_TYPES.weaponAttack,
       label: `${ACTOR_EQUIPMENT_TAB_LABELS.attackRollPrefix}${weapon.name}`,
       icon: hotbarIcon,
       ref: weapon.id,
+      actorId: props.entity.id,
+    });
+  }
+
+  /**
+   * Кладёт на панель быстрого доступа кнопку применения предмета — зелья,
+   * яда, свитка. Кончился предмет — кнопка гаснет, но остаётся.
+   * @param event - событие dragstart
+   * @param item - предмет с эффектами применения
+   */
+  function handleItemUseDragStart(event: DragEvent, item: DnDGameItem): void {
+    if (!props.allowHotbarDrag) {
+      return;
+    }
+
+    startHotbarDrag(event, {
+      id: item.id,
+      type: DND_MACRO_TYPES.itemUse,
+      label: `${EFFECT_USE_LABELS.hotbarPrefix}${item.name}`,
+      icon: ITEM_USE_MACRO_ICON,
+      ref: item.id,
       actorId: props.entity.id,
     });
   }
@@ -586,9 +612,12 @@
     event.dataTransfer.setData(GAME_ITEM_TRANSFER_MIME, transferPayload);
     event.dataTransfer.effectAllowed = 'copyMove';
 
-    // Для оружия с уроном — дополнительно hotbar drag
+    // Оружие с уроном ложится на панель атакой, предмет с эффектами
+    // применения — кнопкой «Использовать»
     if (item.type === 'weapon' && item.damageParts?.length) {
       handleWeaponDragStart(event, item);
+    } else if (listUseEffects(item.activeEffects).length > 0) {
+      handleItemUseDragStart(event, item);
     }
   }
 
@@ -734,15 +763,19 @@
   }
 
   /**
-   * Обновляет количество предмета
+   * Обновляет количество предмета; ноль оставляет предмет закончившимся
    * @param itemId - ID предмета
-   * @param newQuantity - новое количество (минимум 1)
+   * @param newQuantity - новое количество
    */
   function updateItemQuantity(itemId: string, newQuantity: number): void {
-    const clampedQuantity = Math.max(1, Math.floor(newQuantity));
+    const quantity = normalizeItemQuantity(newQuantity);
+
+    if (quantity === undefined) {
+      return;
+    }
 
     const equipment = inventory.value.map((item) =>
-      item.id === itemId ? { ...item, quantity: clampedQuantity } : item,
+      item.id === itemId ? { ...item, quantity } : item,
     );
 
     commitEquipment(equipment);

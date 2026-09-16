@@ -21,10 +21,15 @@ import { emitEntityUpdate } from '@/core/entityUtils';
 import { useChatStore } from '@/stores/chatStore';
 import { useTargetStore } from '@/stores/targetStore';
 import {
+  buildItemUseSpell,
   buildUseSpell,
+  canUseItem,
   findWeaponAmmunition,
   getCasterSpellEffects,
+  isItemDepleted,
+  resolveActorStats,
   spendAmmunition,
+  spendItemUse,
   tracksWeaponAmmunition,
   withAmmunition,
 } from '@vtt/shared/system/dnd.js';
@@ -34,6 +39,7 @@ import { runWithEffectVariants } from './effectVariantChoice';
 import { applyCasterSpellEffectsToEntity } from './spellCastCompletion';
 import { applySpellTargetEffects } from './spellEffectTargeting';
 import { getTargetSpellEffects } from './spellResolutionShared';
+import { listAmbientEffects } from './useResolvedStats';
 import { useWorldEntities } from './useWorldEntities';
 
 /** Выстрел с учётом боеприпаса */
@@ -139,17 +145,27 @@ export function applyActionSelfEffects(
 }
 
 /**
- * Готовит выстрел: у оружия с боеприпасами, которые лист ведёт, берёт
- * боеприпас и складывает его бонус и эффекты с оружием.
+ * Готовит атаку оружием: закончившимся оружием не бьют; у оружия с
+ * боеприпасами, которые лист ведёт, берёт боеприпас и складывает его бонус и
+ * эффекты с оружием.
  *
  * @param entity - стрелок
  * @param weapon - оружие
- * @returns выстрел либо `null`, если стрелять нечем (в чат ушло пояснение)
+ * @returns выстрел либо `null`, если бить нечем (в чат ушло пояснение)
  */
 export function prepareAmmunitionShot(
   entity: DnDSceneEntity,
   weapon: DnDGameItem,
 ): AmmunitionShot | null {
+  if (isItemDepleted(weapon)) {
+    useChatStore().sendMessage(
+      `${EFFECT_USE_LABELS.blockedPrefix}${weapon.name}${EFFECT_USE_LABELS.depletedSuffix}`,
+      'text',
+    );
+
+    return null;
+  }
+
   const equipment = entity.equipment ?? [];
 
   if (!tracksWeaponAmmunition(equipment, weapon)) {
@@ -160,7 +176,7 @@ export function prepareAmmunitionShot(
 
   if (!ammunition) {
     useChatStore().sendMessage(
-      `${EFFECT_USE_LABELS.noAmmunitionPrefix}${weapon.name}${EFFECT_USE_LABELS.noAmmunitionSuffix}`,
+      `${EFFECT_USE_LABELS.blockedPrefix}${weapon.name}${EFFECT_USE_LABELS.noAmmunitionSuffix}`,
       'text',
     );
 
@@ -168,6 +184,33 @@ export function prepareAmmunitionShot(
   }
 
   return { weapon: withAmmunition(weapon, ammunition), ammunition };
+}
+
+/**
+ * Меняет инвентарь актуальной сущности мира — для путей без листа (панель
+ * быстрого доступа).
+ *
+ * @param entityId - владелец
+ * @param change - новый инвентарь по текущему
+ */
+function updateEntityEquipment(
+  entityId: string,
+  change: (equipment: readonly DnDGameItem[]) => DnDGameItem[],
+): void {
+  const socket = useChatStore().getSocket();
+  const entity = useWorldEntities().findCurrentDndEntity(entityId);
+
+  if (!socket || !entity) {
+    return;
+  }
+
+  // Новый объект: живую запись стора меняет только ответ сервера
+  const updated: DnDSceneEntity = {
+    ...entity,
+    equipment: change(entity.equipment ?? []),
+  };
+
+  emitEntityUpdate(socket, updated);
 }
 
 /**
@@ -181,18 +224,34 @@ export function spendShotAmmunition(
   entityId: string,
   ammunitionId: string,
 ): void {
-  const socket = useChatStore().getSocket();
-  const entity = useWorldEntities().findCurrentDndEntity(entityId);
+  updateEntityEquipment(entityId, (equipment) =>
+    spendAmmunition(equipment, ammunitionId),
+  );
+}
 
-  if (!socket || !entity) {
+/**
+ * Применяет предмет сущности мира без листа — кнопкой панели быстрого
+ * доступа: эффекты применения ложатся на владельца или цель, предмет теряет
+ * заряд или единицу количества.
+ *
+ * @param entityId - владелец предмета
+ * @param itemId - предмет
+ */
+export function applyEntityItemUse(entityId: string, itemId: string): void {
+  const entity = useWorldEntities().findCurrentDndEntity(entityId);
+  const item = entity?.equipment?.find((candidate) => candidate.id === itemId);
+
+  if (!entity || !item || !canUseItem(item)) {
     return;
   }
 
-  // Новый объект: живую запись стора меняет только ответ сервера
-  const updated: DnDSceneEntity = {
-    ...entity,
-    equipment: spendAmmunition(entity.equipment ?? [], ammunitionId),
-  };
-
-  emitEntityUpdate(socket, updated);
+  applyEffectSource(
+    buildItemUseSpell(item),
+    entity,
+    resolveActorStats(entity, listAmbientEffects(entity.id)).spellSaveDC,
+    () =>
+      updateEntityEquipment(entityId, (equipment) =>
+        spendItemUse(equipment, itemId),
+      ),
+  );
 }

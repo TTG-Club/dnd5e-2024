@@ -30,7 +30,7 @@ import {
   settleSelfTriggerSources,
 } from './effectTriggerRunner.js';
 import { listEffectEventTriggers } from './effectTriggers.js';
-import { canSpendItemUses, spendItemUses } from './itemUses.js';
+import { canSpendItemUses, isItemDepleted, spendItemUses } from './itemUses.js';
 import { buildPseudoSpell } from './spellUtils.js';
 
 /** Свойство оружия, стреляющего боеприпасами */
@@ -63,16 +63,13 @@ export function canUseItem(item: DnDGameItem): boolean {
     return false;
   }
 
-  if (!canSpendItemUses(item)) {
-    return false;
-  }
-
-  return !item.consumable || item.quantity > 0;
+  return canSpendItemUses(item) && !isItemDepleted(item);
 }
 
 /**
  * Инвентарь после одного применения предмета: заряд — если заряды есть, иначе
- * единица количества у расходуемого; кончившийся расходуемый предмет уходит.
+ * единица количества у расходуемого. Кончившийся предмет остаётся в инвентаре
+ * с нулём — строкой «Закончились» и погасшей кнопкой на панели.
  *
  * @param equipment - инвентарь
  * @param itemId - применённый предмет
@@ -82,23 +79,60 @@ export function spendItemUse(
   equipment: readonly DnDGameItem[],
   itemId: string,
 ): DnDGameItem[] {
-  return equipment.flatMap((item) => {
+  return equipment.map((item) => {
     if (item.id !== itemId) {
-      return [item];
+      return item;
     }
 
     if (item.uses) {
-      return [spendItemUses(item)];
+      return spendItemUses(item);
     }
 
     if (!item.consumable) {
-      return [item];
+      return item;
     }
 
-    const quantity = item.quantity - 1;
-
-    return quantity > 0 ? [{ ...item, quantity }] : [];
+    return { ...item, quantity: Math.max(0, item.quantity - 1) };
   });
+}
+
+/** Почему действие предмета сейчас недоступно */
+export type ItemActionBlock =
+  'missing' | 'depleted' | 'noUses' | 'noAmmunition';
+
+/** Доступность действия предмета — для кнопки панели быстрого доступа */
+export interface ItemActionAvailability {
+  /** Почему недоступно; нет — действие доступно */
+  blocked?: ItemActionBlock;
+  /** Остаток: заряды, количество расходуемого, боеприпасы; нет — не ведётся */
+  remaining?: number;
+}
+
+/**
+ * Доступность применения предмета: есть ли он, не закончился ли, хватает ли
+ * зарядов, и сколько осталось.
+ *
+ * @param item - предмет; нет — его убрали из инвентаря
+ * @returns доступность
+ */
+export function describeItemUseAvailability(
+  item: DnDGameItem | undefined,
+): ItemActionAvailability {
+  if (!item || listUseEffects(item.activeEffects).length === 0) {
+    return { blocked: 'missing' };
+  }
+
+  if (isItemDepleted(item)) {
+    return { blocked: 'depleted', remaining: 0 };
+  }
+
+  if (item.uses) {
+    return canSpendItemUses(item)
+      ? { remaining: item.uses.current }
+      : { blocked: 'noUses', remaining: item.uses.current };
+  }
+
+  return item.consumable ? { remaining: item.quantity } : {};
 }
 
 /** Что применяют: предмет или эффект листа */
@@ -214,6 +248,51 @@ export function tracksWeaponAmmunition(
 }
 
 /**
+ * Сколько выстрелов осталось: боеприпасы этого оружия по всему инвентарю.
+ *
+ * @param equipment - инвентарь
+ * @param weapon - оружие
+ * @returns количество боеприпасов
+ */
+export function countWeaponAmmunition(
+  equipment: readonly DnDGameItem[],
+  weapon: DnDGameItem,
+): number {
+  return equipment
+    .filter((item) => isAmmunitionFor(item, weapon))
+    .reduce((total, item) => total + Math.max(0, item.quantity), 0);
+}
+
+/**
+ * Доступность атаки оружием: оружие есть и не закончилось, а у стрелкового,
+ * чьи боеприпасы лист ведёт, остались выстрелы.
+ *
+ * @param equipment - инвентарь стрелка
+ * @param weapon - оружие; нет — его убрали из инвентаря
+ * @returns доступность и остаток боеприпасов
+ */
+export function describeWeaponAttackAvailability(
+  equipment: readonly DnDGameItem[],
+  weapon: DnDGameItem | undefined,
+): ItemActionAvailability {
+  if (!weapon) {
+    return { blocked: 'missing' };
+  }
+
+  if (isItemDepleted(weapon)) {
+    return { blocked: 'depleted', remaining: 0 };
+  }
+
+  if (!tracksWeaponAmmunition(equipment, weapon)) {
+    return {};
+  }
+
+  const remaining = countWeaponAmmunition(equipment, weapon);
+
+  return remaining > 0 ? { remaining } : { blocked: 'noAmmunition', remaining };
+}
+
+/**
  * Боеприпас выстрела: предмет с тем же типом боеприпаса и ненулевым
  * количеством, надетый — первым.
  *
@@ -230,7 +309,7 @@ export function findWeaponAmmunition(
   }
 
   const candidates = equipment.filter(
-    (item) => isAmmunitionFor(item, weapon) && item.quantity > 0,
+    (item) => isAmmunitionFor(item, weapon) && !isItemDepleted(item),
   );
 
   return candidates.find((item) => item.equipped) ?? candidates[0];

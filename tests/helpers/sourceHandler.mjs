@@ -30,6 +30,16 @@ export async function loadHandler(relativePath, name, ports, macro = false) {
   let handler;
   let expression = macro;
 
+  /**
+   * Тип макроса в регистрации: строкой или константой.
+   *
+   * @param {object | undefined} argument - первый аргумент `registerMacro`
+   * @returns {string | undefined} тип
+   */
+  function macroTypeOf(argument) {
+    return argument?.text ?? argument?.getText(sourceFile);
+  }
+
   /** Ищет объявление функции либо зарегистрированный обработчик макроса. */
   function visit(node) {
     if (
@@ -54,7 +64,7 @@ export async function loadHandler(relativePath, name, ports, macro = false) {
       macro
       && typescript.isCallExpression(node)
       && node.expression.getText(sourceFile) === 'registerMacro'
-      && node.arguments[0]?.text === name
+      && macroTypeOf(node.arguments[0]) === name
     ) {
       handler = node.arguments[1];
     }

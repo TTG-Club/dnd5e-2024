@@ -358,7 +358,7 @@ describe('каталог: предметы', () => {
     );
   });
 
-  it('[I16] Зелье лечения: расходуемое, лечит при наложении и уходит', () => {
+  it('[I16] Зелье лечения: расходуемое, лечит при наложении, на нуле остаётся закончившимся', () => {
     const healing = createEffect('Зелье лечения', {
       activation: { mode: 'use' },
       triggers: [
@@ -383,13 +383,34 @@ describe('каталог: предметы', () => {
 
     assert.equal(engine.canUseItem(potion), true);
 
-    const [[left], gone] = [
+    const [[left], [last]] = [
       engine.spendItemUse([potion], 'potion'),
       engine.spendItemUse([{ ...potion, quantity: 1 }], 'potion'),
     ];
 
     assert.equal(left.quantity, 1);
-    assert.deepEqual(gone, [], 'последнее зелье уходит из инвентаря');
+    assert.equal(last.quantity, 0, 'последнее зелье остаётся строкой');
+    assert.equal(engine.isItemDepleted(last), true);
+    assert.equal(engine.canUseItem(last), false);
+
+    assert.deepEqual(
+      engine.spendItemUse([last], 'potion'),
+      [last],
+      'ниже нуля не тратится',
+    );
+
+    assert.deepEqual(engine.describeItemUseAvailability(left), {
+      remaining: 1,
+    });
+
+    assert.deepEqual(engine.describeItemUseAvailability(last), {
+      blocked: 'depleted',
+      remaining: 0,
+    });
+
+    assert.deepEqual(engine.describeItemUseAvailability(undefined), {
+      blocked: 'missing',
+    });
 
     const system = new engine.Dnd5eVttSystem();
     const hero = withHp(createActor, 3, {}, 20);
@@ -403,6 +424,54 @@ describe('каталог: предметы', () => {
 
     assert.equal(engine.resolveEntityCurrentHp(hero), 10);
     assert.deepEqual(hero.activeEffects, [], 'зелье не висит на персонаже');
+  });
+
+  it('[I16] закончившийся предмет не действует, не надет и не бьёт', () => {
+    const cloak = wornItem('cloak', [
+      createEffect('Защита', { changes: [change('armorClass', '1')] }),
+    ]);
+
+    const hero = createActor({ equipment: [{ ...cloak, quantity: 0 }] });
+
+    assert.equal(engine.itemEffectsActive({ ...cloak, quantity: 0 }), false);
+
+    assert.equal(
+      engine.itemEffectsActive(cloak),
+      true,
+      'без количества — есть',
+    );
+
+    assert.equal(engine.isItemWorn({ equipped: true, quantity: 0 }), false);
+    assert.equal(engine.isItemWorn({ equipped: true, quantity: 2 }), true);
+    assert.deepEqual([...engine.listEquippedItemEffects(hero)], []);
+
+    const dagger = {
+      id: 'dagger',
+      name: 'Кинжал',
+      type: 'weapon',
+      quantity: 0,
+      activeEffects: [],
+    };
+
+    assert.deepEqual(
+      engine.describeWeaponAttackAvailability([dagger], dagger),
+      { blocked: 'depleted', remaining: 0 },
+    );
+
+    assert.deepEqual(
+      engine.describeWeaponAttackAvailability([], { ...dagger, quantity: 1 }),
+      {},
+      'оружие без боеприпасов остатка не показывает',
+    );
+
+    assert.deepEqual(engine.describeWeaponAttackAvailability([], undefined), {
+      blocked: 'missing',
+    });
+
+    assert.equal(engine.normalizeItemQuantity(0), 0);
+    assert.equal(engine.normalizeItemQuantity(-3), 0);
+    assert.equal(engine.normalizeItemQuantity(2.7), 2);
+    assert.equal(engine.normalizeItemQuantity(Number.NaN), undefined);
   });
 
   it('[I17] Стрела +1: бонус и эффект в выстрел, стрела тратится', () => {
@@ -436,6 +505,35 @@ describe('каталог: предметы', () => {
     };
 
     assert.equal(engine.tracksWeaponAmmunition([longbow], longbow), false);
+
+    const quiver = { ...arrows, id: 'quiver', quantity: 3, isMagical: false };
+
+    assert.equal(
+      engine.countWeaponAmmunition([longbow, arrows, quiver], longbow),
+      5,
+    );
+
+    assert.deepEqual(
+      engine.describeWeaponAttackAvailability(
+        [longbow, arrows, quiver],
+        longbow,
+      ),
+      { remaining: 5 },
+    );
+
+    assert.deepEqual(
+      engine.describeWeaponAttackAvailability(
+        [longbow, { ...arrows, quantity: 0 }],
+        longbow,
+      ),
+      { blocked: 'noAmmunition', remaining: 0 },
+    );
+
+    assert.deepEqual(
+      engine.describeWeaponAttackAvailability([longbow], longbow),
+      {},
+      'лист стрел не ведёт — лук стреляет как раньше',
+    );
 
     assert.equal(
       engine.tracksWeaponAmmunition([longbow, arrows], longbow),

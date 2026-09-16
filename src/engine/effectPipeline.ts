@@ -102,6 +102,7 @@ import {
   evaluateFormula,
   substituteFormulaVariables,
 } from './formulaParser.js';
+import { isItemWorn } from './itemUses.js';
 import {
   DEFAULT_PROFICIENCY_BONUS,
   getProficiencyBonusBreakdown,
@@ -388,8 +389,8 @@ export function prepareBaseData(
 /**
  * Работают ли свойства предмета прямо сейчас.
  *
- * Предмет должен быть надет, а предмет с обязательной настройкой — ещё и
- * настроен: по правилам 2024 без настройки магия такого предмета не действует.
+ * Предмет должен быть надет и не закончиться (см. {@link isItemWorn}), а
+ * предмет с обязательной настройкой — ещё и настроен: по правилам 2024 без настройки магия такого предмета не действует.
  * Необязательная настройка (`optional`) ничего не гейтит — предмет работает и
  * без неё, настройка лишь добавляет свойства, описанные текстом.
  *
@@ -399,7 +400,7 @@ export function prepareBaseData(
  * @param item - предмет инвентаря
  */
 export function itemEffectsActive(item: DnDGameItem): boolean {
-  if (!item.equipped) {
+  if (!isItemWorn(item)) {
     return false;
   }
 
@@ -2636,7 +2637,7 @@ export function prepareDerivedData(
     let hasStealthDisadvantage = false;
 
     for (const item of equipment) {
-      if (!item.equipped || !item.baseArmorAC) {
+      if (!isItemWorn(item) || !item.baseArmorAC) {
         continue;
       }
 

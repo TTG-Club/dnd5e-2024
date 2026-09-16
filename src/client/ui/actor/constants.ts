@@ -1363,20 +1363,23 @@ export const EQUIPMENT_EQUIP_ACTION_LABELS: Record<
 
 /** Значки состояния предмета рядом с названием */
 export const EQUIPMENT_BADGE_LABELS: Record<
-  'equipped' | 'twoHanded' | 'attuned' | 'attunementRequired',
+  'equipped' | 'twoHanded' | 'attuned' | 'attunementRequired' | 'depleted',
   string
 > = {
   equipped: 'Надет',
   twoHanded: 'Двуручный хват',
   attuned: 'Настроен',
   attunementRequired: 'Нужна настройка',
+  depleted: 'Закончились',
 };
 
 /** Подсказки значков состояния предмета */
 export const EQUIPMENT_BADGE_HINTS: Record<
-  'twoHanded' | 'attuned' | 'attunementRequired',
+  'twoHanded' | 'attuned' | 'attunementRequired' | 'depleted',
   string
 > = {
+  depleted:
+    'Количество дошло до нуля: предмет не действует, не применяется и не бьёт, пока его не пополнят — кнопкой «+» или числом',
   twoHanded:
     'Универсальным оружием пользуются двуручным хватом: урон катится большей костью. Хват меняется в меню строки и снятия не боится',
   attuned: 'Персонаж настроен на предмет — свойства предмета работают',

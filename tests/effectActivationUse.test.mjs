@@ -114,3 +114,106 @@ it('эффект на цель уходит разбору цели с Сл пр
     ['target', 'hero', 15],
   ]);
 });
+
+it('кнопка панели применяет предмет владельца и тратит его до нуля', async () => {
+  const steps = [];
+
+  const potion = {
+    id: 'potion',
+    name: 'Potion',
+    type: 'equipment',
+    consumable: true,
+    quantity: 1,
+    activeEffects: [usableEffect('Heal')],
+  };
+
+  const owner = { id: 'hero', name: 'Hero', equipment: [potion] };
+
+  const useItem = await loadHandler(helperPath, 'applyEntityItemUse', {
+    useWorldEntities: () => ({
+      findCurrentDndEntity: (entityId) =>
+        entityId === owner.id ? owner : undefined,
+    }),
+    canUseItem: engine.canUseItem,
+    buildItemUseSpell: engine.buildItemUseSpell,
+    spendItemUse: engine.spendItemUse,
+    resolveActorStats: () => ({ spellSaveDC: 14 }),
+    listAmbientEffects: () => [],
+    applyEffectSource: (spell, user, saveDc, spend) => {
+      steps.push(['apply', spell.name, user.id, saveDc]);
+      spend();
+    },
+    updateEntityEquipment: (entityId, change) =>
+      steps.push(['equipment', entityId, [...change(owner.equipment)]]),
+  });
+
+  useItem('hero', 'potion');
+
+  assert.deepEqual(steps, [
+    ['apply', 'Potion', 'hero', 14],
+    ['equipment', 'hero', [{ ...potion, quantity: 0 }]],
+  ]);
+
+  owner.equipment = [{ ...potion, quantity: 0 }];
+  useItem('hero', 'potion');
+  useItem('hero', 'missing');
+  useItem('ghost', 'potion');
+
+  assert.equal(steps.length, 2, 'закончившийся и чужой предмет не применяются');
+});
+
+it('кнопка панели гаснет с причиной и показывает остаток', async () => {
+  const hints = { depleted: 'закончились', missing: 'нет' };
+
+  const toHotbarSlotState = await loadHandler(
+    'src/client/macros/hotbarSlotState.ts',
+    'toHotbarSlotState',
+    { ITEM_ACTION_BLOCK_HINTS: hints },
+  );
+
+  assert.deepEqual(
+    { ...toHotbarSlotState({ blocked: 'depleted', remaining: 0 }) },
+    { disabled: true, badge: '0', hint: 'закончились' },
+  );
+
+  assert.deepEqual(
+    { ...toHotbarSlotState({ remaining: 3 }) },
+    {
+      disabled: false,
+      badge: '3',
+    },
+  );
+
+  assert.deepEqual({ ...toHotbarSlotState({}) }, { disabled: false });
+
+  const resolveItemUseSlot = await loadHandler(
+    'src/client/macros/dnd5eMacros.ts',
+    'resolveItemUseSlot',
+    {
+      useWorldEntities: () => ({
+        findCurrentDndEntity: () => ({
+          equipment: [
+            {
+              id: 'potion',
+              consumable: true,
+              quantity: 2,
+              activeEffects: [usableEffect('Heal')],
+            },
+          ],
+        }),
+      }),
+      describeItemUseAvailability: engine.describeItemUseAvailability,
+      toHotbarSlotState,
+    },
+  );
+
+  assert.deepEqual(
+    { ...resolveItemUseSlot({ ref: 'potion', actorId: 'hero' }) },
+    { disabled: false, badge: '2' },
+  );
+
+  assert.deepEqual(
+    { ...resolveItemUseSlot({ ref: 'gone', actorId: 'hero' }) },
+    { disabled: true, hint: 'нет' },
+  );
+});
