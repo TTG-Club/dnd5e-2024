@@ -1045,3 +1045,80 @@ describe('каталог: случайный вариант', () => {
     );
   });
 });
+
+describe('каталог: всем в радиусе', () => {
+  it('[C22] Газовая спора: смерть — взрыв на всех в 20 фт', () => {
+    const burst = createEffect('Взрыв спор', {
+      triggers: [
+        {
+          id: 'trigger_burst',
+          event: 'hpZero',
+          recipient: 'area',
+          area: { radius: 20 },
+          save: { ability: 'constitution', dc: 15 },
+          actions: [
+            {
+              type: 'damage',
+              parts: [{ formula: '10', type: 'poison' }],
+              halfOnSave: true,
+            },
+          ],
+        },
+      ],
+    });
+
+    assert.match(
+      authoredScenario(burst, 'creatureTrait'),
+      /на всех в 20 фт вокруг/,
+    );
+
+    const system = new engine.Dnd5eVttSystem();
+
+    const spore = withHp(createCreature, 1, {
+      id: 'creature_spore',
+      name: 'Газовая спора',
+    });
+
+    spore.system.traits = [createTrait('Смертельный взрыв', [burst])];
+
+    const near = withHp(createActor, 30, { id: 'actor_near', name: 'Рядом' });
+    const far = withHp(createActor, 30, { id: 'actor_far', name: 'Далеко' });
+
+    const context = {
+      getSceneSurroundings: (entity) =>
+        entity.id === spore.id
+          ? {
+              token: createToken(spore.id, 0, 0),
+              gridSettings: GRID,
+              neighbors: [
+                { token: createToken(near.id, 2, 0), entity: near },
+                { token: createToken(far.id, 10, 0), entity: far },
+                { token: createToken(near.id, 3, 0), entity: near },
+              ],
+            }
+          : null,
+    };
+
+    const result = withRandom([MIN_ROLL], () =>
+      strikeEntity(system, spore, 5, 'slashing', { context }),
+    );
+
+    assert.equal(engine.resolveEntityCurrentHp(spore), 0);
+    assert.equal(engine.resolveEntityCurrentHp(near), 20, 'провал — весь урон');
+    assert.equal(engine.resolveEntityCurrentHp(far), 30, 'далеко — не задело');
+
+    assert.deepEqual(
+      result.related?.map((related) => related.entity.id),
+      [near.id],
+      'соседа ядро зафиксирует отдельно, один раз',
+    );
+
+    const oldCore = withHp(createCreature, 1, { id: 'creature_old' });
+
+    oldCore.system.traits = [createTrait('Смертельный взрыв', [burst])];
+
+    assert.doesNotThrow(() =>
+      strikeEntity(system, oldCore, 5, 'slashing', { context: {} }),
+    );
+  });
+});

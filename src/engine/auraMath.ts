@@ -10,10 +10,11 @@
  * @module system/dnd/auraMath
  */
 
-import type { GridSettings, Token } from '@vtt/shared';
+import type { GridSettings, SystemSceneSurroundings, Token } from '@vtt/shared';
 
 import type { ActiveEffect } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
+import type { EffectTriggerArea } from './effectTriggerTypes.js';
 
 import { isCreatureEntity } from '@vtt/shared';
 
@@ -25,6 +26,8 @@ import {
   resolveChangeValue,
 } from './effectPipeline.js';
 import { hasPresenceTriggers } from './effectTriggers.js';
+import { DEFAULT_TRIGGER_AREA_TARGET } from './effectTriggerTypes.js';
+import { isDndSceneEntity } from './entityGuards.js';
 import { buildFormulaContext } from './formulaParser.js';
 import {
   bindSourceEffectFormulas,
@@ -328,6 +331,51 @@ export function isAuraReachingTarget(
     sourceTokenSizePx / 2 + auraRadiusPx + targetHitboxRadiusPx;
 
   return centerDistancePx <= totalReachPx;
+}
+
+/**
+ * Сущности в радиусе от фишки субъекта — получатели «всем в радиусе». Та же
+ * геометрия и те же отношения, что у ауры: радиус от края фишки субъекта,
+ * союзник — фишка того же отношения.
+ *
+ * @param surroundings - сцена вокруг субъекта от ядра
+ * @param area - радиус и отбор
+ * @returns сущности без повторов (у сущности бывает несколько фишек)
+ */
+export function findEntitiesInArea(
+  surroundings: SystemSceneSurroundings | null | undefined,
+  area: EffectTriggerArea,
+): DnDSceneEntity[] {
+  if (!surroundings) {
+    return [];
+  }
+
+  const target = area.target ?? DEFAULT_TRIGGER_AREA_TARGET;
+  const found = new Map<string, DnDSceneEntity>();
+
+  for (const neighbor of surroundings.neighbors) {
+    const { entity, token } = neighbor;
+    const disposition = getRelativeDisposition(surroundings.token, token);
+
+    if (
+      found.has(entity.id)
+      || !isDndSceneEntity(entity)
+      || (target === 'allies' && disposition !== 'ally')
+      || (target === 'enemies' && disposition !== 'enemy')
+      || !isAuraReachingTarget(
+        surroundings.token,
+        token,
+        area.radius,
+        surroundings.gridSettings,
+      )
+    ) {
+      continue;
+    }
+
+    found.set(entity.id, entity);
+  }
+
+  return [...found.values()];
 }
 
 /**

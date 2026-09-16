@@ -51,6 +51,7 @@ import {
 import {
   EFFECT_TAG_PATTERN,
   EFFECT_TRIGGER_ACTION_GATES,
+  EFFECT_TRIGGER_AREA_TARGETS,
   EFFECT_TRIGGER_ATTACK_ROLES,
   EFFECT_TRIGGER_EVENTS,
   EFFECT_TRIGGER_LIMIT_PERIODS,
@@ -2062,6 +2063,13 @@ const EffectTriggerSchema = z.object({
   role: z.enum(EFFECT_TRIGGER_ATTACK_ROLES).optional().catch(undefined),
   restType: z.enum(EFFECT_TRIGGER_REST_TYPES).optional().catch(undefined),
   recipient: z.enum(EFFECT_TRIGGER_RECIPIENTS).optional().catch(undefined),
+  area: z
+    .object({
+      radius: z.preprocess(coerceOptionalNumber, z.number().min(0)),
+      target: z.enum(EFFECT_TRIGGER_AREA_TARGETS).optional().catch(undefined),
+    })
+    .optional()
+    .catch(undefined),
   condition: z.string().min(1).optional().catch(undefined),
   save: EffectTriggerSaveSchema.optional(),
   actions: z.array(EffectTriggerActionSchema).min(1),

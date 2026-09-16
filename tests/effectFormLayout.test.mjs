@@ -594,6 +594,68 @@ describe('шаги окна', () => {
   });
 });
 
+describe('получатель «всем в радиусе»', () => {
+  it('выбор только у событий сервера со сценой, радиус от нуля', () => {
+    assert.equal(engine.triggerEventAcceptsArea('hpZero'), true);
+    assert.equal(engine.triggerEventAcceptsArea('turnStart'), false);
+
+    const layout = layoutOf('creatureTrait');
+
+    const normalize = (trigger) =>
+      engine.normalizeEffectDraft(
+        createEffect({
+          triggers: [
+            {
+              id: 'trigger_area',
+              actions: [{ type: 'removeSelf' }],
+              ...trigger,
+            },
+          ],
+        }),
+        layout,
+      ).triggers[0];
+
+    assert.deepEqual(
+      normalize({
+        event: 'hpZero',
+        recipient: 'area',
+        area: { radius: '-5', target: 'enemies' },
+      }),
+      {
+        id: 'trigger_area',
+        event: 'hpZero',
+        recipient: 'area',
+        area: { radius: 0, target: 'enemies' },
+        actions: [{ type: 'removeSelf' }],
+        save: undefined,
+        limit: undefined,
+      },
+    );
+
+    const turn = normalize({
+      event: 'turnStart',
+      recipient: 'area',
+      area: { radius: 10 },
+    });
+
+    assert.equal(turn.recipient, undefined, 'у хода соседей нет');
+    assert.equal(turn.area, undefined);
+  });
+
+  it('сводка называет радиус и кого задевает', () => {
+    assert.match(
+      engine.describeEffectTrigger({
+        id: 'trigger_area',
+        event: 'damageTaken',
+        recipient: 'area',
+        area: { radius: 5, target: 'allies' },
+        actions: [{ type: 'removeSelf' }],
+      }),
+      /на союзников в 5 фт вокруг/,
+    );
+  });
+});
+
 describe('применение и включение', () => {
   it('способы по месту окна: предмет применяют, умение ещё и включают', () => {
     assert.deepEqual(layoutOf('item').activationModes, ['use']);

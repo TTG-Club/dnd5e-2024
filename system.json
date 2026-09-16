@@ -1,7 +1,7 @@
 {
   "id": "dnd5e-2024",
   "name": "D&D 5e (2024)",
-  "version": "0.8.47",
+  "version": "0.8.48",
   "description": "Система D&D 5e (редакция 2024), собираемая и поставляемая ВНЕ приложения VTTG — доставка систем по ссылке на манифест",
   "authors": [
     {
@@ -11,7 +11,7 @@
   ],
   "compatibility": {
     "minimum": "0.9.521",
-    "verified": "0.9.521"
+    "verified": "0.9.523"
   },
   "url": "https://github.com/ttg-club/vttg-system-dnd5e-test",
   "manifest": "https://raw.githubusercontent.com/ttg-club/vttg-system-dnd5e-test/main/system.json",

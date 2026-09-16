@@ -26,6 +26,7 @@ import type { SaveDamageDefense } from './saveDamage.js';
 import { generateId } from '@vtt/shared';
 
 import {
+  DEFAULT_TRIGGER_RECIPIENT,
   isEffectTag,
   LEGACY_TRIGGER_ID_PREFIX,
   LEGACY_TRIGGER_IDS,
@@ -342,7 +343,7 @@ export function isTurnTriggerEvent(event: EffectTriggerEvent): boolean {
 export function isClientAttackRollTrigger(trigger: EffectTrigger): boolean {
   return (
     !trigger.save
-    && trigger.recipient !== 'other'
+    && (trigger.recipient ?? DEFAULT_TRIGGER_RECIPIENT) === 'subject'
     && trigger.actions.every(
       (action) => action.type !== 'damage' && action.type !== 'endCast',
     )

@@ -40,6 +40,8 @@ import {
   EFFECT_TURN_ANCHOR_LABELS,
   EFFECT_TURN_TIMING_LABELS,
   EFFECT_VARIANT_PICKS,
+  triggerEventAcceptsArea,
+  triggerEventHasOtherParty,
   triggerEventHasRole,
 } from '@vtt/shared/system/dnd.js';
 
@@ -395,10 +397,30 @@ export function buildTriggerRecipientOptions(
     other: resolveOtherPartyLabel(trigger),
   };
 
-  return EFFECT_TRIGGER_RECIPIENTS.map((recipient) => ({
+  const available: Record<EffectTriggerRecipient, boolean> = {
+    subject: true,
+    other: triggerEventHasOtherParty(trigger.event),
+    area: triggerEventAcceptsArea(trigger.event),
+  };
+
+  return EFFECT_TRIGGER_RECIPIENTS.filter(
+    (recipient) => available[recipient],
+  ).map((recipient) => ({
     value: recipient,
     label: labels[recipient],
   }));
+}
+
+/**
+ * Можно ли выбрать получателя действий у события.
+ *
+ * @param event - событие строки
+ * @returns `true`, если кроме носителя есть кому отдать действия
+ */
+export function triggerEventHasRecipientChoice(
+  event: EffectTrigger['event'],
+): boolean {
+  return triggerEventHasOtherParty(event) || triggerEventAcceptsArea(event);
 }
 
 /** Варианты периода лимита */

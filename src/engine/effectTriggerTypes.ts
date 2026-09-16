@@ -96,13 +96,50 @@ export type EffectTriggerTurnOwner =
 export const DEFAULT_TRIGGER_TURN_OWNER: EffectTriggerTurnOwner = 'subject';
 
 /** Кому достаются действия срабатывания */
-export const EFFECT_TRIGGER_RECIPIENTS = ['subject', 'other'] as const;
+export const EFFECT_TRIGGER_RECIPIENTS = ['subject', 'other', 'area'] as const;
 
 /**
- * Получатель действий: субъект — тот, на ком эффект, — или другая сторона
- * события: кто нанёс урон. Снятие эффекта всегда про эффект субъекта.
+ * Получатель действий: субъект — тот, на ком эффект, — другая сторона
+ * события (кто нанёс урон) или все в радиусе от субъекта (`area`: взрыв при
+ * смерти). Снятие эффекта всегда про эффект субъекта.
  */
 export type EffectTriggerRecipient = (typeof EFFECT_TRIGGER_RECIPIENTS)[number];
+
+/** Кого задевает «всем в радиусе» */
+export const EFFECT_TRIGGER_AREA_TARGETS = [
+  'all',
+  'allies',
+  'enemies',
+] as const;
+
+/** Кого задевает «всем в радиусе»: отношение к субъекту по фишкам */
+export type EffectTriggerAreaTarget =
+  (typeof EFFECT_TRIGGER_AREA_TARGETS)[number];
+
+/** Кого задевает «всем в радиусе» без поля `target` */
+export const DEFAULT_TRIGGER_AREA_TARGET: EffectTriggerAreaTarget = 'all';
+
+/** Радиус новой строки «всем в радиусе», фт */
+export const DEFAULT_TRIGGER_AREA_RADIUS = 10;
+
+/** «Всем в радиусе»: кому достаются действия */
+export interface EffectTriggerArea {
+  /** Радиус от фишки субъекта, фт */
+  radius: number;
+  /** Кого задевает; нет — всех, кроме субъекта */
+  target?: EffectTriggerAreaTarget;
+}
+
+/**
+ * События с получателем «всем в радиусе»: их выполняет сервер со сценой в
+ * контексте — урон, «0 хитов», наложение, бросок атаки.
+ */
+export const AREA_RECIPIENT_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
+  'damageTaken',
+  'hpZero',
+  'applied',
+  'attackRoll',
+];
 
 /** Получатель без поля `recipient`: субъект — в данных он не пишется */
 export const DEFAULT_TRIGGER_RECIPIENT: EffectTriggerRecipient = 'subject';
@@ -319,6 +356,8 @@ export interface EffectTrigger {
   restType?: EffectTriggerRestType;
   /** Кому достаются урон, лечение и наложения; не задано — субъекту */
   recipient?: EffectTriggerRecipient;
+  /** Радиус и отбор для получателя «всем в радиусе» */
+  area?: EffectTriggerArea;
   /** Условие в словаре условий модификаторов; оценивается в фазе «Условия» */
   condition?: string;
   save?: EffectTriggerSave;

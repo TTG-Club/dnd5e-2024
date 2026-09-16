@@ -59,6 +59,7 @@ import {
 import {
   collectAllAuraEffects,
   calculateAmbientAuras as computeAmbientAuras,
+  findEntitiesInArea,
 } from './auraMath.js';
 import { normalizeActor, normalizeCreature } from './calculations.js';
 import { CLASS_KEY_OPTIONS } from './classTypes.js';
@@ -434,6 +435,9 @@ function buildTriggerEventOptions(
     activeTurnActorId: context?.getActiveTurnActorId?.() ?? null,
     getEntity: toDndEntityResolver(context?.getEntity),
     endCast: toCastEnder(context, entity.id),
+    // Соседей по сцене даёт ядро; старое ядро их не знает — в радиусе никого
+    listEntitiesInArea: (subject, area) =>
+      findEntitiesInArea(context?.getSceneSurroundings?.(subject), area),
   };
 }
 
@@ -1088,7 +1092,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.47';
+  readonly version = '0.8.48';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.

@@ -12,6 +12,7 @@ import type { EffectDuration } from '@vtt/shared';
 import type {
   EffectTrigger,
   EffectTriggerAction,
+  EffectTriggerAreaTarget,
   EffectTriggerEvent,
   EffectTriggerLimitPeriod,
   EffectTriggerRestType,
@@ -109,6 +110,8 @@ const TRIGGER_LABELS = {
   dcFormulaPrefix: 'Сл = ',
   damageVariable: 'урон',
   recipientOther: ', на другую сторону',
+  recipientAreaPrefix: ', на ',
+  recipientAreaSuffix: ' фт вокруг',
   nothing: 'ничего',
   listJoiner: ', ',
   clauseJoiner: '; ',
@@ -121,6 +124,33 @@ const TRIGGER_LABELS = {
   saveModeAdvantage: ' с преимуществом',
   saveModeDisadvantage: ' с помехой',
 } as const;
+
+/** Кого задевает «всем в радиусе» — в фразе */
+const AREA_TARGET_PHRASES: Record<EffectTriggerAreaTarget, string> = {
+  all: 'всех',
+  allies: 'союзников',
+  enemies: 'врагов',
+};
+
+/**
+ * Кому достаются действия — часть фразы.
+ *
+ * @param trigger - срабатывание
+ * @returns часть фразы; субъект — пусто
+ */
+function describeTriggerRecipient(trigger: EffectTrigger): string {
+  if (trigger.recipient === 'other') {
+    return TRIGGER_LABELS.recipientOther;
+  }
+
+  if (trigger.recipient !== 'area' || !trigger.area) {
+    return '';
+  }
+
+  const target = AREA_TARGET_PHRASES[trigger.area.target ?? 'all'];
+
+  return `${TRIGGER_LABELS.recipientAreaPrefix}${target} в ${trigger.area.radius}${TRIGGER_LABELS.recipientAreaSuffix}`;
+}
 
 /** Отдых срабатывания «после отдыха» */
 const REST_EVENT_LABELS: Record<EffectTriggerRestType, string> = {
@@ -458,8 +488,7 @@ export function describeEffectTrigger(
     ? `${TRIGGER_LABELS.conditionPrefix}${describeTriggerCondition(trigger.condition)}`
     : '';
 
-  const recipient =
-    trigger.recipient === 'other' ? TRIGGER_LABELS.recipientOther : '';
+  const recipient = describeTriggerRecipient(trigger);
 
   const moment = `${describeMoment(trigger)}${condition}${recipient}`;
   const limit = describeLimit(trigger);

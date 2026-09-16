@@ -589,6 +589,8 @@ targetIds, rollMode }` (`reportAttackRoll`), система проверяет, 
 `buildRollBonusEvaluator` через `composables/incomingAttack.ts`. Все пути атаки
 получают это через `resolveTargetedAttackRollMode`.
 
+**Всем в радиусе** (`recipient: 'area'`, `area { radius, target? }`). У событий, которые выполняет сервер (урон, «0 хитов», наложение, бросок атаки — `AREA_RECIPIENT_TRIGGER_EVENTS`), действия достаются всем сущностям в радиусе от фишки субъекта: соседей по сцене даёт ядро (`SystemTriggerContext.getSceneSurroundings`, VTTG 0.9.523+), отбор и расстояние — `findEntitiesInArea` той же геометрией, что у аур. Каждый бросает свой спасбросок (игроку — запросом), изменённые уходят в `related`. Старое ядро соседей не даёт — в радиусе никого.
+
 **Аура** (`DndEffectAura`): `radiusFormula` считается от носителя при сборе аур
 (`shapeEntityAuras` в `collectAllAuraEffects`, уровень класса подставлен),
 `whileCapable` гасит ауру недееспособного носителя. Хост рисует и считает ауры

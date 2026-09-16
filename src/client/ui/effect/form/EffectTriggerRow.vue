@@ -14,6 +14,7 @@
     EffectTriggerAction,
     EffectTriggerActionGate,
     EffectTriggerActionType,
+    EffectTriggerAreaTarget,
     EffectTriggerAttackRole,
     EffectTriggerEvent,
     EffectTriggerLimitPeriod,
@@ -35,6 +36,8 @@
     DEFAULT_EFFECT_SAVE_ABILITY,
     DEFAULT_EFFECT_TAG,
     DEFAULT_SET_HP_VALUE,
+    DEFAULT_TRIGGER_AREA_RADIUS,
+    DEFAULT_TRIGGER_AREA_TARGET,
     DEFAULT_TRIGGER_ATTACK_ROLE,
     DEFAULT_TRIGGER_RECIPIENT,
     DEFAULT_TRIGGER_REST_TYPE,
@@ -45,7 +48,6 @@
     MIN_TRIGGER_LIMIT_MAX,
     resolveTriggerActionGate,
     triggerEventAcceptsDcFormula,
-    triggerEventHasOtherParty,
     triggerEventHasRole,
     validateFormula,
   } from '@vtt/shared/system/dnd.js';
@@ -56,17 +58,20 @@
     buildTriggerRecipientOptions,
     DEFAULT_TRIGGER_CONDITION,
     DEFAULT_TRIGGER_LIMIT_PERIOD,
+    EFFECT_AURA_TARGET_OPTIONS,
     EFFECT_TRIGGER_DAMAGE_GATE_OPTIONS,
     EFFECT_TRIGGER_GATE_OPTIONS,
     EFFECT_TRIGGER_PERIOD_OPTIONS,
     EFFECT_TRIGGER_REST_OPTIONS,
     EFFECT_TRIGGER_ROLE_OPTIONS,
     EFFECT_TRIGGER_SAVE_MODE_OPTIONS,
+    triggerEventHasRecipientChoice,
   } from '../effectFormOptions';
   import {
     DEFAULT_MAX_HP_REDUCTION,
     EFFECT_TRIGGER_ACTION_ICONS,
     EFFECT_TRIGGER_ACTION_LABELS,
+    EFFECT_TRIGGER_AREA_LABELS,
     EFFECT_TRIGGER_DAMAGE_HALF_GATE,
     EFFECT_TRIGGER_EVENT_LABELS,
     EFFECT_TRIGGER_NORMAL_SAVE_MODE,
@@ -130,7 +135,7 @@
   );
 
   const hasOtherParty = computed(() =>
-    triggerEventHasOtherParty(trigger.value.event),
+    triggerEventHasRecipientChoice(trigger.value.event),
   );
 
   const showsRole = computed(() => triggerEventHasRole(trigger.value.event));
@@ -189,8 +194,14 @@
           : undefined,
         turnOf: isTurnTriggerEvent(next) ? trigger.value.turnOf : undefined,
         restType: next === 'rest' ? trigger.value.restType : undefined,
-        recipient: triggerEventHasOtherParty(next)
-          ? trigger.value.recipient
+        recipient: buildTriggerRecipientOptions({
+          ...trigger.value,
+          event: next,
+        })
+          .map((option) => option.value)
+          .find((option) => option === trigger.value.recipient),
+        area: triggerEventHasRecipientChoice(next)
+          ? trigger.value.area
           : undefined,
         save: save ? withEventDcFormula(save, next) : undefined,
         actions: trigger.value.actions.filter((action) =>
@@ -222,6 +233,31 @@
     set: (next: EffectTriggerRecipient) =>
       update({
         recipient: next === DEFAULT_TRIGGER_RECIPIENT ? undefined : next,
+        // «Всем в радиусе» появляется с радиусом по умолчанию
+        area:
+          next === 'area'
+            ? (trigger.value.area ?? { radius: DEFAULT_TRIGGER_AREA_RADIUS })
+            : undefined,
+      }),
+  });
+
+  const areaRadius = computed({
+    get: () => trigger.value.area?.radius ?? DEFAULT_TRIGGER_AREA_RADIUS,
+    set: (radius: number | null) => {
+      if (radius !== null) {
+        update({ area: { ...trigger.value.area, radius } });
+      }
+    },
+  });
+
+  const areaTarget = computed({
+    get: () => trigger.value.area?.target ?? DEFAULT_TRIGGER_AREA_TARGET,
+    set: (target: EffectTriggerAreaTarget) =>
+      update({
+        area: {
+          radius: trigger.value.area?.radius ?? DEFAULT_TRIGGER_AREA_RADIUS,
+          target: target === DEFAULT_TRIGGER_AREA_TARGET ? undefined : target,
+        },
       }),
   });
 
@@ -524,6 +560,35 @@
           :portal="false"
         />
       </UFormField>
+
+      <template v-if="trigger.recipient === 'area'">
+        <UFormField
+          :label="EFFECT_TRIGGER_AREA_LABELS.radius"
+          class="w-28"
+        >
+          <UInputNumber
+            v-model="areaRadius"
+            :min="0"
+            :step="5"
+            size="sm"
+            class="w-full"
+          />
+        </UFormField>
+
+        <UFormField
+          :label="EFFECT_TRIGGER_AREA_LABELS.target"
+          class="w-44"
+        >
+          <USelect
+            v-model="areaTarget"
+            :items="EFFECT_AURA_TARGET_OPTIONS"
+            value-key="value"
+            size="sm"
+            class="w-full"
+            :portal="false"
+          />
+        </UFormField>
+      </template>
 
       <UFormField
         v-if="showsTurnOwner"

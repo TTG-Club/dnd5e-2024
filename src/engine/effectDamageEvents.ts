@@ -26,6 +26,7 @@ import type { DnDSceneEntity } from './dndEntities.js';
 import type { EffectTriggerSource } from './effectTriggerRunner.js';
 import type {
   EffectTrigger,
+  EffectTriggerArea,
   EffectTriggerAttackRole,
   EffectTriggerEvent,
 } from './effectTriggerTypes.js';
@@ -64,6 +65,7 @@ import {
   toTriggerSaveOutcome,
 } from './effectTriggerRunner.js';
 import { listEffectListTriggers } from './effectTriggers.js';
+import { DEFAULT_TRIGGER_RECIPIENT } from './effectTriggerTypes.js';
 import { resolveEntityCurrentHp } from './hitPoints.js';
 import { rollEffectSaveOutcome } from './turnEffects.js';
 
@@ -81,6 +83,11 @@ export interface TriggerEventOptions {
   getEntity?: (entityId: string) => DnDSceneEntity | undefined;
   /** Закончить каст эффекта: провал концентрации */
   endCast?: (effect: ActiveEffect) => void;
+  /** Живые сущности в радиусе от субъекта: получатели «всем в радиусе» */
+  listEntitiesInArea?: (
+    subject: DnDSceneEntity,
+    area: EffectTriggerArea,
+  ) => DnDSceneEntity[];
 }
 
 /** С чем прогоняются события урона */
@@ -340,6 +347,33 @@ function requestDamageEventSave(
 type TriggerEventRun = 'skipped' | 'settled' | 'deferred';
 
 /**
+ * Получатели действий срабатывания события.
+ *
+ * @param subject - субъект
+ * @param trigger - срабатывание
+ * @param eventData - данные события
+ * @param options - с чем прогоняются события
+ * @returns получатели; пусто — действовать не на кого
+ */
+function resolveTriggerRecipients(
+  subject: DnDSceneEntity,
+  trigger: EffectTrigger,
+  eventData: TriggerEventData,
+  options: TriggerEventOptions,
+): DnDSceneEntity[] {
+  switch (trigger.recipient ?? DEFAULT_TRIGGER_RECIPIENT) {
+    case 'other':
+      return eventData.other ? [eventData.other] : [];
+    case 'area':
+      return trigger.area
+        ? (options.listEntitiesInArea?.(subject, trigger.area) ?? [])
+        : [];
+    default:
+      return [subject];
+  }
+}
+
+/**
  * Одно срабатывание события с другой стороной: получатель, условие и лимит,
  * спасбросок на сервере или запросом игроку, действия. Одно на события урона
  * и бросок атаки — у них разные только данные события.
@@ -360,10 +394,12 @@ function runTriggerEventSource(
   result: DamageEventsResult,
   continuation?: DamageEventsContinuation,
 ): TriggerEventRun {
-  const { requestRoll } = options;
-
-  const recipient =
-    source.trigger.recipient === 'other' ? eventData.other : subject;
+  const recipients = resolveTriggerRecipients(
+    subject,
+    source.trigger,
+    eventData,
+    options,
+  );
 
   // Эффект, снятый раньше в этой же серии, больше не срабатывает
   const removed =
@@ -372,7 +408,7 @@ function runTriggerEventSource(
       (effect) => effect.id === source.effect.id,
     );
 
-  if (!recipient || removed) {
+  if (recipients.length === 0 || removed) {
     return 'skipped';
   }
 
@@ -384,6 +420,47 @@ function runTriggerEventSource(
   if (source.trigger.limit) {
     result.changed = true;
   }
+
+  // Каждый получатель бросает свой спасбросок; ждёт ли кто-то ответа игрока,
+  // решает итог всего срабатывания
+  const runs = recipients.map((recipient) =>
+    settleTriggerForRecipient(
+      subject,
+      recipient,
+      source,
+      eventData,
+      options,
+      result,
+      continuation,
+    ),
+  );
+
+  return runs.includes('deferred') ? 'deferred' : 'settled';
+}
+
+/**
+ * Действия срабатывания одному получателю: спасбросок на сервере или запросом
+ * игроку, затем урон, лечение и наложения.
+ *
+ * @param subject - субъект: на нём эффект
+ * @param recipient - получатель
+ * @param source - срабатывание с источником
+ * @param eventData - данные события
+ * @param options - с чем прогоняются события
+ * @param result - общий итог (пополняется)
+ * @param continuation - что делать после ответа игрока
+ * @returns ждёт ли получатель ответа игрока
+ */
+function settleTriggerForRecipient(
+  subject: DnDSceneEntity,
+  recipient: DnDSceneEntity,
+  source: EffectTriggerSource,
+  eventData: TriggerEventData,
+  options: TriggerEventOptions,
+  result: DamageEventsResult,
+  continuation?: DamageEventsContinuation,
+): 'settled' | 'deferred' {
+  const { requestRoll } = options;
 
   const ambientEffects =
     recipient === subject ? (options.ambientEffects ?? []) : [];
@@ -489,7 +566,8 @@ function runHpZeroSources(
     const rest = sources.slice(index + 1);
 
     const waitsForHp =
-      restoresHitPoints(source.trigger) && source.trigger.recipient !== 'other';
+      restoresHitPoints(source.trigger)
+      && (source.trigger.recipient ?? DEFAULT_TRIGGER_RECIPIENT) === 'subject';
 
     const continuation: DamageEventsContinuation | undefined = waitsForHp
       ? (liveEntity) => {

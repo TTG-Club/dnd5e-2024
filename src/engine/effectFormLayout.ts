@@ -44,9 +44,11 @@ import {
   writeEffectTriggers,
 } from './effectTriggers.js';
 import {
+  AREA_RECIPIENT_TRIGGER_EVENTS,
   DAMAGE_DATA_TRIGGER_EVENTS,
   DAMAGE_TRIGGER_EVENTS,
   DEFAULT_EFFECT_TAG,
+  DEFAULT_TRIGGER_AREA_RADIUS,
   DEFAULT_TRIGGER_ATTACK_ROLE,
   EFFECT_TRIGGER_TURN_OWNERS,
   isEffectTag,
@@ -864,6 +866,35 @@ function resolveTriggerListLayout(place: {
 }
 
 /**
+ * Можно ли отдать действия срабатывания «всем в радиусе».
+ *
+ * @param event - событие
+ * @returns `true` для событий, которые выполняет сервер со сценой
+ */
+export function triggerEventAcceptsArea(event: EffectTriggerEvent): boolean {
+  return AREA_RECIPIENT_TRIGGER_EVENTS.includes(event);
+}
+
+/**
+ * Получатель срабатывания, который работает у события.
+ *
+ * @param trigger - срабатывание
+ * @returns получатель либо `undefined` — субъект
+ */
+function resolveDraftRecipient(
+  trigger: EffectTrigger,
+): EffectTrigger['recipient'] {
+  switch (trigger.recipient) {
+    case 'other':
+      return triggerEventHasOtherParty(trigger.event) ? 'other' : undefined;
+    case 'area':
+      return triggerEventAcceptsArea(trigger.event) ? 'area' : undefined;
+    default:
+      return undefined;
+  }
+}
+
+/**
  * Считается ли Сл спасброска формулой от данных события — у событий урона есть
  * `@damage`.
  *
@@ -1425,9 +1456,18 @@ function normalizeDraftTriggers(
     .map((trigger) => ({
       ...trigger,
       // Получатель и Сл формулой — только у событий, где они работают
-      recipient: triggerEventHasOtherParty(trigger.event)
-        ? trigger.recipient
-        : undefined,
+      recipient: resolveDraftRecipient(trigger),
+      area:
+        resolveDraftRecipient(trigger) === 'area'
+          ? {
+              ...trigger.area,
+              radius: Math.max(
+                0,
+                parseFormNumber(trigger.area?.radius)
+                  ?? DEFAULT_TRIGGER_AREA_RADIUS,
+              ),
+            }
+          : undefined,
       // Отметку без годного ключа схема записи выбросила бы вместе со всем
       // срабатыванием — выбрасывается только само действие
       actions: trigger.actions.filter(

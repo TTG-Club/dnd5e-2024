@@ -132,7 +132,14 @@ export const EFFECT_TRIGGER_RECIPIENT_LABELS: Record<
 > = {
   subject: 'Носителю эффекта',
   other: 'Тому, кто нанёс урон',
+  area: 'Всем в радиусе',
 };
+
+/** Подписи полей «всем в радиусе» */
+export const EFFECT_TRIGGER_AREA_LABELS = {
+  radius: 'Радиус, фт',
+  target: 'Кого',
+} as const;
 
 /** «Другая сторона» при наложении — кто наложил эффект */
 export const EFFECT_TRIGGER_APPLIED_OTHER_PARTY_LABEL = 'Наложившему эффект';
