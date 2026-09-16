@@ -44,7 +44,7 @@ import {
   removeOrSwitchOffEffects,
 } from './activeEffectTypes.js';
 import { buildConditionActiveEffect } from './conditionTemplates.js';
-import { rollDamageFormula } from './diceFormula.js';
+import { findFirstDiceTerm, rollDamageFormula } from './diceFormula.js';
 import {
   hasLastingEffectPayload,
   isImmuneToCondition,
@@ -72,7 +72,11 @@ import {
   buildTriggerUsageScope,
   takeTriggerUse,
 } from './effectTriggerUsage.js';
-import { buildFormulaContext, evaluateFormula } from './formulaParser.js';
+import {
+  buildFormulaContext,
+  evaluateFormula,
+  substituteFormulaVariables,
+} from './formulaParser.js';
 import {
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
@@ -613,7 +617,9 @@ const MAX_HP_REDUCTION_LABEL = 'Максимум хитов уменьшен';
 const MAX_HP_REDUCTION_PRIORITY = 50;
 
 /**
- * На сколько уменьшается максимум: число, кости или формула с `@damage`.
+ * На сколько уменьшается максимум: число, кости, формула с `@damage` или всё
+ * вместе («1к6 + @damage»). Кости бросаются после подстановки токенов — разбор
+ * формул костей не знает; формула без костей считается целиком, с функциями.
  *
  * @param entity - получатель
  * @param amount - строка действия
@@ -625,15 +631,19 @@ function resolveMaxHpReduction(
   amount: string,
   eventDamage: number | undefined,
 ): number {
+  const formulaContext = {
+    ...buildFormulaContext(entity),
+    event: { damage: eventDamage ?? 0 },
+  };
+
   let value = 0;
 
   try {
-    value = amount.includes('@')
-      ? evaluateFormula(amount, {
-          ...buildFormulaContext(entity),
-          event: { damage: eventDamage ?? 0 },
-        })
-      : rollDamageFormula(amount).total;
+    const substituted = substituteFormulaVariables(amount, formulaContext);
+
+    value = findFirstDiceTerm(substituted)
+      ? rollDamageFormula(substituted).total
+      : evaluateFormula(amount, formulaContext);
   } catch {
     // Автор ошибся в формуле — максимум не трогаем
     value = 0;

@@ -989,6 +989,42 @@ describe('каталог: срабатывания на цели и у черт'
     assert.deepEqual(rested.activeEffects, []);
     assert.equal(rested.system.hitPoints.current, 30);
   });
+
+  it('уменьшение максимума: кости вместе с уроном события и формула с функцией', () => {
+    const reduceBy = (amount) => {
+      const drain = createEffect('Иссушение', {
+        effectTarget: 'target',
+        triggers: [
+          {
+            id: 'trigger_drain',
+            event: 'applied',
+            actions: [{ type: 'reduceMaxHp', amount }, { type: 'removeSelf' }],
+          },
+        ],
+      });
+
+      const system = new engine.Dnd5eVttSystem();
+      const hero = withHp(createActor, 30);
+      const landing = structuredClone(hero);
+
+      landing.activeEffects = [{ ...drain, sourceActorId: WIGHT_ID }];
+
+      engine.applyTargetDamage(landing, 6, false, 'necrotic', {
+        critical: false,
+        sourceId: WIGHT_ID,
+      });
+
+      withRandom([MIN_ROLL], () =>
+        system.settleCombatState(hero, engine.pickCombatState(landing)),
+      );
+
+      return 30 - engine.resolveEntityMaxHp(hero);
+    };
+
+    assert.equal(reduceBy('1d4 + @damage'), 7, 'единица на кости и 6 урона');
+    assert.equal(reduceBy('floor(@damage / 2)'), 3);
+    assert.equal(reduceBy('2'), 2);
+  });
 });
 
 describe('каталог: действие на себя', () => {
