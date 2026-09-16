@@ -58,6 +58,9 @@ import {
   isSenseType,
   splitConditionParts,
   TARGET_ALLY_ADJACENT_CONDITION,
+  TARGET_ALLY_WITH_CONDITION_PREFIX,
+  TARGET_ALLY_WITHOUT_CONDITION_PREFIX,
+  TARGET_ANY_ALLY_ADJACENT_CONDITION,
   TARGET_TYPE_CONDITION_PREFIX,
 } from './activeEffectTypes.js';
 import {
@@ -653,6 +656,12 @@ export function collectDerivedChanges(
  * Передаётся при выполнении атаки для проверки условий вида
  * `roll.hasAdvantage === true`.
  */
+/** Союзник рядом с целью: какие состояния на нём сейчас */
+export interface AdjacentAllyState {
+  /** Ключи состояний союзника, недееспособность — тоже */
+  conditions: readonly string[];
+}
+
 export interface RollContext {
   /** Бросок с преимуществом */
   hasAdvantage: boolean;
@@ -672,10 +681,10 @@ export interface RollContext {
     /** Сущность цели — защитные эффекты цели в броске атаки */
     entityId?: string;
     /**
-     * Рядом с целью (5 фт) дееспособный союзник бросающего — для условия
-     * `target.allyAdjacent`. Считает клиент по фишкам сцены
+     * Союзники бросающего в 5 фт от цели и их состояния — для условий
+     * «союзник рядом с целью». Считает клиент по фишкам сцены
      */
-    allyAdjacent?: boolean;
+    adjacentAllies?: readonly AdjacentAllyState[];
   };
   /**
    * Свойства НОСИТЕЛЯ эффекта — для условий семейства `self.*`.
@@ -990,6 +999,67 @@ function evaluateCondition(
 }
 
 /**
+ * Значение в кавычках после приставки условия: `prefix"value"`.
+ *
+ * @param condition - часть условия
+ * @param prefix - приставка семейства
+ * @returns значение либо `undefined`, если часть не из семейства
+ */
+function parseQuotedCondition(
+  condition: string,
+  prefix: string,
+): string | undefined {
+  if (!condition.startsWith(prefix)) {
+    return undefined;
+  }
+
+  const value = condition
+    .slice(prefix.length)
+    .trim()
+    .replace(/^["']|["']$/g, '');
+
+  return value || undefined;
+}
+
+/**
+ * Проверка союзника рядом с целью по условию семейства «союзник рядом».
+ *
+ * @param part - часть условия
+ * @returns проверка союзника либо `undefined`, если часть не из семейства
+ */
+function matchAdjacentAlly(
+  part: string,
+): ((ally: AdjacentAllyState) => boolean) | undefined {
+  if (part === TARGET_ALLY_ADJACENT_CONDITION) {
+    return (ally) => !ally.conditions.includes(INCAPACITATED_CONDITION_KEY);
+  }
+
+  if (part === TARGET_ANY_ALLY_ADJACENT_CONDITION) {
+    return () => true;
+  }
+
+  const withCondition = parseQuotedCondition(
+    part,
+    TARGET_ALLY_WITH_CONDITION_PREFIX,
+  );
+
+  if (withCondition) {
+    return (ally) => ally.conditions.includes(withCondition);
+  }
+
+  const withoutCondition = parseQuotedCondition(
+    part,
+    TARGET_ALLY_WITHOUT_CONDITION_PREFIX,
+  );
+
+  if (withoutCondition) {
+    return (ally) => !ally.conditions.includes(withoutCondition);
+  }
+
+  return undefined;
+}
+
+/**
  * Оценивает одну часть условия против контекста броска. Общая для модификаторов
  * и срабатываний (`triggerConditions.ts`): словарь один.
  *
@@ -1012,9 +1082,11 @@ export function evaluateConditionPart(
   // Условия по состоянию HP цели
   const { target } = rollContext;
 
-  // Рядом с целью союзник бросающего
-  if (trimmed === TARGET_ALLY_ADJACENT_CONDITION) {
-    return target?.allyAdjacent === true;
+  // Рядом с целью союзник бросающего — нужного состояния
+  const allyMatches = matchAdjacentAlly(trimmed);
+
+  if (allyMatches) {
+    return (target?.adjacentAllies ?? []).some(allyMatches);
   }
 
   // Метка: цель помечена тем, кто сейчас бросает

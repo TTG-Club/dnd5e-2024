@@ -14,6 +14,7 @@ import type { GridSettings, SystemSceneSurroundings, Token } from '@vtt/shared';
 
 import type { ActiveEffect } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
+import type { AdjacentAllyState } from './effectPipeline.js';
 import type { EffectTriggerArea } from './effectTriggerTypes.js';
 
 import {
@@ -22,8 +23,14 @@ import {
   withTokenDisposition,
 } from '@vtt/shared';
 
-import { isCarrierEffect, isEffectDormant } from './activeEffectTypes.js';
+import {
+  isCarrierEffect,
+  isEffectDormant,
+  listLiveEffects,
+} from './activeEffectTypes.js';
 import { bindClassLevels } from './classEffectScope.js';
+import { INCAPACITATED_CONDITION_KEY } from './conditionKeys.js';
+import { resolveEffectConditionKey } from './conditionTemplates.js';
 import {
   isEntityIncapacitated,
   itemEffectsActive,
@@ -409,15 +416,39 @@ export interface AllyAdjacencyScene {
 }
 
 /**
- * Стоит ли рядом с целью дееспособный союзник атакующего: фишка того же
+ * Состояния сущности для условий о союзнике: ключи наложенных состояний и
+ * недееспособность, которую ставят и другие состояния своим флагом.
+ *
+ * @param entity - сущность
+ * @returns ключи состояний без повторов
+ */
+export function listEntityConditionKeys(entity: DnDSceneEntity): string[] {
+  const keys = listLiveEffects(entity).flatMap((effect) => {
+    const key = resolveEffectConditionKey(effect);
+
+    return key ? [key] : [];
+  });
+
+  if (isEntityIncapacitated(entity)) {
+    keys.push(INCAPACITATED_CONDITION_KEY);
+  }
+
+  return [...new Set(keys)];
+}
+
+/**
+ * Союзники атакующего рядом с целью и их состояния: фишки того же
  * действующего отношения (`withTokenDisposition` ядра — отношение живёт в
  * настройках фишки сущности), не сам атакующий и не цель, в пределах
- * {@link ALLY_ADJACENT_RANGE_FEET} от края до края.
+ * {@link ALLY_ADJACENT_RANGE_FEET} от края до края. Какой союзник годится,
+ * решает условие броска.
  *
  * @param scene - фишки, сетка и сущности сцены
- * @returns `true`, если союзник рядом с целью
+ * @returns союзники рядом с целью
  */
-export function hasAllyAdjacentToTarget(scene: AllyAdjacencyScene): boolean {
+export function listAdjacentAllies(
+  scene: AllyAdjacencyScene,
+): AdjacentAllyState[] {
   const { tokens, gridSettings, attackerToken, targetToken, getEntity } = scene;
 
   const attackerSide = withTokenDisposition(
@@ -425,24 +456,27 @@ export function hasAllyAdjacentToTarget(scene: AllyAdjacencyScene): boolean {
     getEntity(attackerToken.actorId),
   );
 
-  return tokens.some((token) => {
+  return tokens.flatMap((token) => {
     if (
       token.actorId === attackerToken.actorId
       || token.actorId === targetToken.actorId
       || getTokenEdgeDistance(token, targetToken, gridSettings)
         > ALLY_ADJACENT_RANGE_FEET
     ) {
-      return false;
+      return [];
     }
 
     const ally = getEntity(token.actorId);
 
-    return (
-      ally !== undefined
-      && getRelativeDisposition(attackerSide, withTokenDisposition(token, ally))
-        === 'ally'
-      && !isEntityIncapacitated(ally)
-    );
+    if (
+      !ally
+      || getRelativeDisposition(attackerSide, withTokenDisposition(token, ally))
+        !== 'ally'
+    ) {
+      return [];
+    }
+
+    return [{ conditions: listEntityConditionKeys(ally) }];
   });
 }
 

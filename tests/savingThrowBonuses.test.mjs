@@ -79,9 +79,8 @@ const bundle = await build({
           // Цели у спасброска нет: контекст цели, её защиты и союзники пусты
           contents: [
             'export const useBonusDamageParts = () => ({ buildTargetHpContext: () => undefined });',
-            'export const resolveAttackTypeOfKeys = () => undefined;',
             'export const collectDefenderRollFormulas = () => [];',
-            'export const isAllyAdjacentToTarget = () => false;',
+            'export const findAlliesAdjacentToTarget = () => [];',
           ].join('\n'),
         }));
 

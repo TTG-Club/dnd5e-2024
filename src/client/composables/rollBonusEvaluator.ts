@@ -17,7 +17,7 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { collectDefenderRollFormulas } from './incomingAttack';
-import { isAllyAdjacentToTarget } from './targetAllyAdjacent';
+import { findAlliesAdjacentToTarget } from './targetAllyAdjacent';
 import { useBonusDamageParts } from './useBonusDamageParts';
 import { useResolvedStats } from './useResolvedStats';
 import { useWorldEntities } from './useWorldEntities';
@@ -33,17 +33,17 @@ export type RollBonusEvaluator = (context: RollContext) => string[];
  * @param attackerId - бросающий
  * @returns цель для условий
  */
-function withAllyAdjacent(
+function withAdjacentAllies(
   target: RollContext['target'],
   attackerId: string,
 ): RollContext['target'] {
-  if (!target?.entityId || target.allyAdjacent !== undefined) {
+  if (!target?.entityId || target.adjacentAllies !== undefined) {
     return target;
   }
 
   return {
     ...target,
-    allyAdjacent: isAllyAdjacentToTarget(attackerId, target.entityId),
+    adjacentAllies: findAlliesAdjacentToTarget(attackerId, target.entityId),
   };
 }
 
@@ -78,7 +78,7 @@ export function buildRollBonusEvaluator(
       // Явно переданная неизвестная цель не заменяется отдельно выбранным токеном.
       target:
         'target' in context
-          ? withAllyAdjacent(context.target, entity.id)
+          ? withAdjacentAllies(context.target, entity.id)
           : buildTargetHpContext(undefined, entity.id),
       self: buildCarrierContext(entity),
     };

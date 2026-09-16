@@ -42,7 +42,12 @@ import { z } from 'zod';
 
 import { isRecord, typedObjectEntries } from '@vtt/shared';
 
-import { CONDITIONS, CREATURE_CATEGORIES, SKILLS_LABELS } from './consts.js';
+import {
+  CONDITIONS,
+  CREATURE_CATEGORIES,
+  SELECTABLE_CONDITIONS,
+  SKILLS_LABELS,
+} from './consts.js';
 import {
   DAMAGE_PART_TARGETS,
   DAMAGE_TYPE_LABELS,
@@ -348,8 +353,64 @@ export const TARGET_TYPE_CONDITION_PREFIX = 'target.creatureType === ';
 export const INCOMING_ATTACKER_TYPE_CONDITION_PREFIX =
   'incoming.attackerCreatureType === ';
 
-/** Условие «рядом с целью мой союзник» («Тактика стаи») */
+/**
+ * Условие «рядом с целью мой дееспособный союзник» («Тактика стаи» PHB 2024:
+ * союзник в 5 фт от цели без состояния «Недееспособный»).
+ */
 export const TARGET_ALLY_ADJACENT_CONDITION = 'target.allyAdjacent';
+
+/** Условие «рядом с целью мой союзник в любом состоянии» */
+export const TARGET_ANY_ALLY_ADJACENT_CONDITION = 'target.allyAdjacentAny';
+
+/** Приставка условия «рядом с целью мой союзник в состоянии …» */
+export const TARGET_ALLY_WITH_CONDITION_PREFIX = 'target.allyAdjacentWith === ';
+
+/** Приставка условия «рядом с целью мой союзник не в состоянии …» */
+export const TARGET_ALLY_WITHOUT_CONDITION_PREFIX =
+  'target.allyAdjacentWithout === ';
+
+/**
+ * Какой союзник нужен рядом с целью: подписи без общей части «Цель: рядом с
+ * ней мой союзник». Окно показывает их вторым полем, словарь условий — целиком.
+ */
+export const ADJACENT_ALLY_CONDITION_OPTIONS: ReadonlyArray<{
+  value: string;
+  label: string;
+}> = [
+  {
+    value: TARGET_ALLY_ADJACENT_CONDITION,
+    label: 'дееспособный (Тактика стаи)',
+  },
+  { value: TARGET_ANY_ALLY_ADJACENT_CONDITION, label: 'в любом состоянии' },
+  ...SELECTABLE_CONDITIONS.map((condition) => ({
+    value: `${TARGET_ALLY_WITH_CONDITION_PREFIX}"${condition.key}"`,
+    label: `в состоянии «${condition.nameRu}»`,
+  })),
+  ...SELECTABLE_CONDITIONS.map((condition) => ({
+    value: `${TARGET_ALLY_WITHOUT_CONDITION_PREFIX}"${condition.key}"`,
+    label: `не в состоянии «${condition.nameRu}»`,
+  })),
+];
+
+/** Общая часть подписи условий «союзник рядом с целью» */
+export const ADJACENT_ALLY_CONDITION_LABEL = 'Цель: рядом с ней мой союзник';
+
+/**
+ * Условие ли это о союзнике рядом с целью.
+ *
+ * @param condition - строка условия
+ * @returns `true` для условий семейства «союзник рядом»
+ */
+export function isAdjacentAllyCondition(condition: string): boolean {
+  const trimmed = condition.trim();
+
+  return (
+    trimmed === TARGET_ALLY_ADJACENT_CONDITION
+    || trimmed === TARGET_ANY_ALLY_ADJACENT_CONDITION
+    || trimmed.startsWith(TARGET_ALLY_WITH_CONDITION_PREFIX)
+    || trimmed.startsWith(TARGET_ALLY_WITHOUT_CONDITION_PREFIX)
+  );
+}
 
 /**
  * Разделитель условий, соединённых «и»: `self.armor === "none" && ...`.
@@ -443,10 +504,10 @@ export const EFFECT_CONDITION_SUGGESTIONS: Array<{
     value: 'target.markedBySelf',
     label: 'Цель помечена мной (Метка охотника, Сглаз)',
   },
-  {
-    value: TARGET_ALLY_ADJACENT_CONDITION,
-    label: 'Цель: рядом с ней мой союзник (Тактика стаи)',
-  },
+  ...ADJACENT_ALLY_CONDITION_OPTIONS.map((option) => ({
+    value: option.value,
+    label: `${ADJACENT_ALLY_CONDITION_LABEL} — ${option.label}`,
+  })),
 
   // === ЗАЩИТА ===
   // Входящая атака: КД, «Атаки по носителю» и условие броска эффекта

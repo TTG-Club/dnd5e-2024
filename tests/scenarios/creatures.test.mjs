@@ -214,7 +214,7 @@ describe('каталог: существа', () => {
     );
   });
 
-  it('[C05] Тактика стаи: преимущество, только если союзник в 5 фт от цели', () => {
+  it('[C05] Тактика стаи: преимущество, только если дееспособный союзник в 5 фт от цели', () => {
     const packTactics = createEffect('Тактика стаи', {
       flags: ['attack.advantage'],
       rollCondition: 'target.allyAdjacent',
@@ -222,7 +222,7 @@ describe('каталог: существа', () => {
 
     assert.match(
       authoredScenario(packTactics, 'creatureTrait'),
-      /только в бросках, где цель: рядом с ней мой союзник/,
+      /только в бросках, где цель: рядом с ней мой союзник — дееспособный/,
     );
 
     const wolf = createCreature({ activeEffects: [packTactics] });
@@ -233,20 +233,55 @@ describe('каталог: существа', () => {
       'в числах листа преимущества нет',
     );
 
-    const modeWith = (allyAdjacent) =>
+    const modeWith = (adjacentAllies, effect = packTactics) =>
       engine.resolveAttackRollMode({
         attackType: 'melee',
         attackerFlags: new Set(
-          engine.collectRollConditionFlags([packTactics], {
+          engine.collectRollConditionFlags([effect], {
             hasAdvantage: false,
             hasDisadvantage: false,
-            target: { currentHp: 10, maxHp: 10, allyAdjacent },
+            target: { currentHp: 10, maxHp: 10, adjacentAllies },
           }),
         ),
       });
 
-    assert.equal(modeWith(true), 'advantage');
-    assert.equal(modeWith(false), 'normal');
+    const awake = { conditions: [] };
+    const asleep = { conditions: ['unconscious', 'incapacitated'] };
+
+    assert.equal(modeWith([awake]), 'advantage');
+    assert.equal(modeWith([]), 'normal');
+    assert.equal(modeWith([asleep]), 'normal', 'недееспособный не в счёт');
+    assert.equal(modeWith([asleep, awake]), 'advantage');
+
+    // Автор выбирает, какой союзник нужен
+    const anyAlly = { ...packTactics, rollCondition: 'target.allyAdjacentAny' };
+
+    assert.equal(modeWith([asleep], anyAlly), 'advantage');
+
+    const proneAlly = {
+      ...packTactics,
+      rollCondition: 'target.allyAdjacentWith === "prone"',
+    };
+
+    assert.equal(modeWith([awake], proneAlly), 'normal');
+    assert.equal(modeWith([{ conditions: ['prone'] }], proneAlly), 'advantage');
+
+    const notFrightened = {
+      ...packTactics,
+      rollCondition: 'target.allyAdjacentWithout === "frightened"',
+    };
+
+    assert.equal(
+      modeWith([{ conditions: ['frightened'] }], notFrightened),
+      'normal',
+    );
+
+    assert.equal(modeWith([awake], notFrightened), 'advantage');
+
+    assert.match(
+      authoredScenario(notFrightened, 'creatureTrait'),
+      /союзник — не в состоянии «испуганный»/,
+    );
   });
 
   it('[C06] Зловоние [≈]: аура «при входе» — спасбросок Телосложения или «Отравленный»', () => {

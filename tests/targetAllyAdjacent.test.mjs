@@ -34,26 +34,44 @@ function creatureOf(id, disposition, activeEffects = []) {
 }
 
 /**
+ * Выполнено ли условие о союзнике в броске.
+ *
+ * @param {object[]} adjacentAllies - союзники рядом с целью
+ * @param {string} condition - условие броска
+ * @returns {boolean} выполнено ли условие
+ */
+function holds(adjacentAllies, condition = 'target.allyAdjacent') {
+  return engine.evaluateConditionPart(condition, {
+    hasAdvantage: false,
+    hasDisadvantage: false,
+    target: { currentHp: 1, maxHp: 1, adjacentAllies },
+  });
+}
+
+/**
  * Настоящее правило движка на одной строке клеток.
  *
  * @param {object[]} entities - сущности по порядку клеток
  * @param {object} overrides - фишки сцены поверх фишек по порядку
- * @returns {boolean} есть ли союзник волка рядом с гоблином
+ * @param {string} condition - условие броска
+ * @returns {boolean} выполнено ли условие для волка против гоблина
  */
-function allyAdjacent(entities, overrides = {}) {
+function allyAdjacent(entities, overrides = {}, condition = undefined) {
   const byId = new Map(entities.map((entity) => [entity.id, entity]));
 
   const tokens = entities.map((entity, column) =>
     createToken(entity.id, overrides[entity.id] ?? column, 0),
   );
 
-  return engine.hasAllyAdjacentToTarget({
+  const allies = engine.listAdjacentAllies({
     tokens,
     gridSettings: GRID,
     attackerToken: tokens[0],
     targetToken: tokens[1],
     getEntity: (entityId) => byId.get(entityId),
   });
+
+  return holds(allies, condition);
 }
 
 const wolf = creatureOf('wolf', 'hostile');
@@ -78,16 +96,15 @@ it('отношение берётся из настроек фишки сущн�
     createToken('guard', 2, 0, { disposition: 'hostile' }),
   ];
 
-  assert.equal(
-    engine.hasAllyAdjacentToTarget({
-      tokens,
-      gridSettings: GRID,
-      attackerToken: tokens[0],
-      targetToken: tokens[1],
-      getEntity: (entityId) => byId.get(entityId),
-    }),
-    false,
-  );
+  const allies = engine.listAdjacentAllies({
+    tokens,
+    gridSettings: GRID,
+    attackerToken: tokens[0],
+    targetToken: tokens[1],
+    getEntity: (entityId) => byId.get(entityId),
+  });
+
+  assert.deepEqual(allies, []);
 });
 
 it('далёкий союзник, враг рядом и недееспособный союзник не считаются', () => {
@@ -108,6 +125,26 @@ it('далёкий союзник, враг рядом и недееспособ
   ]);
 
   assert.equal(allyAdjacent([wolf, goblin, sleeping]), false, 'союзник спит');
+
+  assert.equal(
+    allyAdjacent([wolf, goblin, sleeping], {}, 'target.allyAdjacentAny'),
+    true,
+    '«в любом состоянии» — спящий тоже в счёт',
+  );
+});
+
+it('союзник в выбранном состоянии и без него', () => {
+  const prone = creatureOf('packmate', 'hostile', [
+    createEffect('Лежит', { conditionKey: 'prone' }),
+  ]);
+
+  const withProne = 'target.allyAdjacentWith === "prone"';
+  const withoutProne = 'target.allyAdjacentWithout === "prone"';
+
+  assert.equal(allyAdjacent([wolf, goblin, prone], {}, withProne), true);
+  assert.equal(allyAdjacent([wolf, goblin, packmate], {}, withProne), false);
+  assert.equal(allyAdjacent([wolf, goblin, prone], {}, withoutProne), false);
+  assert.equal(allyAdjacent([wolf, goblin, packmate], {}, withoutProne), true);
 });
 
 it('сам атакующий рядом с целью союзником не считается', () => {
@@ -131,28 +168,37 @@ it('клиент отдаёт правилу фишки сцены, выбран
     { useTargetStore },
   );
 
-  const isAllyAdjacentToTarget = await loadHandler(
+  const findAlliesAdjacentToTarget = await loadHandler(
     'src/client/composables/targetAllyAdjacent.ts',
-    'isAllyAdjacentToTarget',
+    'findAlliesAdjacentToTarget',
     {
       findTargetToken,
       useWorldStore: () => ({
         currentScene: { tokens, gridSettings: GRID },
       }),
       useWorldEntities: () => ({ findCurrentDndEntity: () => undefined }),
-      hasAllyAdjacentToTarget: (scene) => {
+      listAdjacentAllies: (scene) => {
         calls.push(scene);
 
-        return true;
+        return [{ conditions: [] }];
       },
     },
   );
 
-  assert.equal(isAllyAdjacentToTarget('wolf', 'goblin'), true);
+  assert.deepEqual(findAlliesAdjacentToTarget('wolf', 'goblin'), [
+    { conditions: [] },
+  ]);
+
   assert.equal(calls[0].attackerToken.id, 'token_wolf');
   assert.equal(calls[0].targetToken.id, 'token_goblin_selected');
   assert.equal(calls[0].gridSettings, GRID);
 
-  assert.equal(isAllyAdjacentToTarget('bear', 'goblin'), false, 'нет фишки');
+  assert.deepEqual(
+    // Массив из песочницы обработчика — сравниваем копию
+    [...findAlliesAdjacentToTarget('bear', 'goblin')],
+    [],
+    'нет фишки',
+  );
+
   assert.equal(calls.length, 1);
 });

@@ -308,7 +308,7 @@ npm run release -- 0.2.5     # явный номер
 | Ключи изменений (`changes`) | 57 | `EFFECT_TARGET_SUGGESTIONS` |
 | Режимы изменения | 6 | `EFFECT_CHANGE_MODE_LABELS` |
 | Флаги | 194 | `EFFECT_FLAG_LABELS` |
-| Условия | 62 | `EFFECT_CONDITION_SUGGESTIONS` |
+| Условия | 93 | `EFFECT_CONDITION_SUGGESTIONS` |
 | Подсказки значений | 32 | `EFFECT_VALUE_SUGGESTIONS` |
 
 Ключи по группам: `ability.*` (6), `save.*` (6 и `save.concentration` — только
@@ -586,9 +586,15 @@ targetIds, rollMode }` (`reportAttackRoll`), система проверяет, 
 бросках, где условие выполнено (`isRollOnlyEffect`, `rollConditionHolds`): его
 флаги — `collectRollConditionFlags`, числа и кости — в `evaluateConditionalBonuses`,
 `collectBonusRollFormulas`, `collectBonusDamageFormulas`. У атакующего условие из
-словаря броска: `target.allyAdjacent` («Тактика стаи») считает клиент по фишкам
-сцены (`composables/targetAllyAdjacent.ts`: фишка того же отношения, в 5 фт от
-цели, дееспособная). У защитника — словарь входящей атаки: вид атаки и
+словаря броска. «Союзник рядом с целью»: клиент кладёт в контекст броска
+союзников в 5 фт от цели и их состояния (`findAlliesAdjacentToTarget` →
+`listAdjacentAllies` в `auraMath`: фишка того же действующего отношения), а
+условие решает, какой союзник годится: `target.allyAdjacent` — дееспособный
+(«Тактика стаи» 2024), `target.allyAdjacentAny` — любой,
+`target.allyAdjacentWith === "<состояние>"` / `target.allyAdjacentWithout ===
+"<состояние>"` — в состоянии или без него. В окне это один пункт «Действует» и
+поле «Какой союзник» (`ADJACENT_ALLY_CONDITION_OPTIONS`). У защитника — словарь
+входящей атаки: вид атаки и
 `incoming.attackerCreatureType === "…"` («Защита от добра и зла»); флаги —
 `collectIncomingAttackFlags`, КД — `evaluateDefensiveACBonus` (тип атакующего
 кладёт окно броска в контекст атаки, ядро передаёт его как есть). Ключ

@@ -1,6 +1,7 @@
 import type { AbilityType, SceneEntity } from '@vtt/shared';
 import type {
   ActiveEffect,
+  AdjacentAllyState,
   CarrierContext,
   CreatureAction,
   CreatureCategory,
@@ -58,7 +59,7 @@ import {
   withFlatDamageBonus,
 } from '@vtt/shared/system/dnd.js';
 
-import { isAllyAdjacentToTarget } from './targetAllyAdjacent';
+import { findAlliesAdjacentToTarget } from './targetAllyAdjacent';
 
 /** Контекст броска из модалки (фактический режим преимущества/помехи) */
 interface ModalRollContext {
@@ -266,7 +267,7 @@ export function useBonusDamageParts() {
         creatureType?: CreatureCategory;
         markedBy: string[];
         entityId: string;
-        allyAdjacent?: boolean;
+        adjacentAllies?: readonly AdjacentAllyState[];
       }
     | undefined {
     const entity =
@@ -285,8 +286,8 @@ export function useBonusDamageParts() {
       entityId: entity.id,
       // Союзник бросающего рядом с целью — для «Тактики стаи»; без бросающего
       // считать не от кого
-      allyAdjacent: attackerId
-        ? isAllyAdjacentToTarget(attackerId, entity.id)
+      adjacentAllies: attackerId
+        ? findAlliesAdjacentToTarget(attackerId, entity.id)
         : undefined,
       currentHp: resolveEntityCurrentHp(entity),
       maxHp: resolveEntityMaxHp(entity),

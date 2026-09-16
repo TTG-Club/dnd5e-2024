@@ -14,9 +14,13 @@
   import { computed } from 'vue';
 
   import {
+    ADJACENT_ALLY_CONDITION_LABEL,
+    ADJACENT_ALLY_CONDITION_OPTIONS,
     describeConditionName,
     describeEffectChangeCondition,
     EFFECT_CONDITION_SUGGESTIONS,
+    isAdjacentAllyCondition,
+    TARGET_ALLY_ADJACENT_CONDITION,
   } from '@vtt/shared/system/dnd.js';
 
   import {
@@ -43,8 +47,16 @@
       : '',
   );
 
+  /** Условие броска о союзнике рядом с целью — какой союзник, выбирается ниже */
+  const hasAdjacentAllyCondition = computed(
+    () =>
+      effect.value.rollCondition !== undefined
+      && isAdjacentAllyCondition(effect.value.rollCondition),
+  );
+
   // Условие из записи, которого нет в словаре подсказок (составное), тоже
-  // видно в списке — иначе поле выглядело бы пустым
+  // видно в списке — иначе поле выглядело бы пустым. Условия о союзнике рядом
+  // в списке одним пунктом: какой союзник, выбирается вторым полем
   const rollConditionOptions = computed(() => {
     const current = effect.value.rollCondition;
 
@@ -62,19 +74,49 @@
       ...(known
         ? []
         : [{ value: current, label: describeEffectChangeCondition(current) }]),
-      ...EFFECT_CONDITION_SUGGESTIONS,
+      ...EFFECT_CONDITION_SUGGESTIONS.flatMap((suggestion) => {
+        if (suggestion.value === TARGET_ALLY_ADJACENT_CONDITION) {
+          return [{ ...suggestion, label: ADJACENT_ALLY_CONDITION_LABEL }];
+        }
+
+        return isAdjacentAllyCondition(suggestion.value) ? [] : [suggestion];
+      }),
     ];
   });
 
+  /**
+   * Записывает условие броска.
+   *
+   * @param value - условие; «Всегда» — без условия
+   */
+  function writeRollCondition(value: string): void {
+    effect.value = {
+      ...effect.value,
+      rollCondition: value === EFFECT_ROLL_CONDITION_ALWAYS ? undefined : value,
+    };
+  }
+
   const rollCondition = computed({
-    get: () => effect.value.rollCondition ?? EFFECT_ROLL_CONDITION_ALWAYS,
+    get: () =>
+      hasAdjacentAllyCondition.value
+        ? TARGET_ALLY_ADJACENT_CONDITION
+        : (effect.value.rollCondition ?? EFFECT_ROLL_CONDITION_ALWAYS),
     set: (value: string) => {
-      effect.value = {
-        ...effect.value,
-        rollCondition:
-          value === EFFECT_ROLL_CONDITION_ALWAYS ? undefined : value,
-      };
+      // Повторный выбор пункта о союзнике не сбрасывает выбранного союзника
+      if (
+        value === TARGET_ALLY_ADJACENT_CONDITION
+        && hasAdjacentAllyCondition.value
+      ) {
+        return;
+      }
+
+      writeRollCondition(value);
     },
+  });
+
+  const adjacentAllyCondition = computed({
+    get: () => effect.value.rollCondition ?? TARGET_ALLY_ADJACENT_CONDITION,
+    set: writeRollCondition,
   });
 
   const changes = computed({
@@ -148,6 +190,21 @@
       <USelectMenu
         v-model="rollCondition"
         :items="rollConditionOptions"
+        value-key="value"
+        label-key="label"
+        class="w-full"
+        :portal="false"
+      />
+    </UFormField>
+
+    <UFormField
+      v-if="hasAdjacentAllyCondition"
+      :label="EFFECT_MODIFIERS_STEP_LABELS.adjacentAllyTitle"
+      :help="EFFECT_MODIFIERS_STEP_LABELS.adjacentAllyHint"
+    >
+      <USelectMenu
+        v-model="adjacentAllyCondition"
+        :items="ADJACENT_ALLY_CONDITION_OPTIONS"
         value-key="value"
         label-key="label"
         class="w-full"

@@ -758,7 +758,7 @@ it('projectile attack bonuses follow each assigned target instead of the unrelat
     {
       ...engine,
       targetStore: { getTargetActor: () => selected },
-      isAllyAdjacentToTarget: () => false,
+      findAlliesAdjacentToTarget: () => [],
       isDndSceneEntity: () => true,
       isActorEntity: (entity) => entity.entityType === 'actor',
       isCreatureEntity: (entity) => entity.entityType === 'creature',
@@ -776,7 +776,7 @@ it('projectile attack bonuses follow each assigned target instead of the unrelat
     useResolvedStats: () => ({ combinedEffects: effects }),
     useBonusDamageParts: () => ({ buildTargetHpContext }),
     getAttackFlagCategoryOfKeys: () => undefined,
-    withAllyAdjacent: (target) => target,
+    withAdjacentAllies: (target) => target,
     useProjectileStore: () => projectileStore,
     useWorldStore: () => ({ currentScene: worldState.scene }),
     useWorldEntities: () => ({
@@ -911,7 +911,7 @@ it('the shared target context reads creature average HP through the combat HP he
     },
   );
 
-  const identity = { entityId: target.id, allyAdjacent: undefined };
+  const identity = { entityId: target.id, adjacentAllies: undefined };
 
   assert.deepEqual(
     { ...readContext(target) },
@@ -955,16 +955,20 @@ it('the shared target context asks for an adjacent ally only when the attacker i
       isDndSceneEntity: () => true,
       resolveEntityCreatureType: () => 'humanoid',
       targetStore: { getTargetActor: () => target },
-      isAllyAdjacentToTarget: (attackerId, targetId) => {
+      findAlliesAdjacentToTarget: (attackerId, targetId) => {
         asked.push([attackerId, targetId]);
 
-        return true;
+        return [{ conditions: [] }];
       },
     },
   );
 
-  assert.equal(readContext().allyAdjacent, undefined);
-  assert.equal(readContext(undefined, 'wolf').allyAdjacent, true);
+  assert.equal(readContext().adjacentAllies, undefined);
+
+  assert.deepEqual(readContext(undefined, 'wolf').adjacentAllies, [
+    { conditions: [] },
+  ]);
+
   assert.deepEqual(asked, [['wolf', 'wolf-target']]);
 });
 
@@ -988,17 +992,17 @@ it('attack roll bonuses add the target defences against this attack', async () =
       useBonusDamageParts: () => ({
         buildTargetHpContext: (_entity, attackerId) => ({
           entityId: 'warded',
-          allyAdjacent: attackerId === 'attacker',
+          adjacentAllies: attackerId === 'attacker' ? [] : undefined,
         }),
       }),
-      resolveAttackTypeOfKeys: (keys) =>
+      getAttackFlagCategoryOfKeys: (keys) =>
         keys.includes('attack.melee') ? 'melee' : undefined,
       collectDefenderRollFormulas: (source, targetId, attackType) => {
         defenderCalls.push([source.id, targetId, attackType]);
 
         return ['-1d4'];
       },
-      withAllyAdjacent: (target) => target,
+      withAdjacentAllies: (target) => target,
     },
   );
 
