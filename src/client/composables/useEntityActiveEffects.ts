@@ -6,6 +6,7 @@ import { computed } from 'vue';
 
 import {
   buildConditionActiveEffect,
+  isEffectDormant,
   resolveEffectConditionKey,
   withInitializedDuration,
 } from '@vtt/shared/system/dnd.js';
@@ -41,11 +42,14 @@ export function useEntityActiveEffects(options: EntityActiveEffectsOptions) {
    * Свои эффекты — всё, что не является стандартным состоянием: состояния
    * показывает своя сетка. Признак — опознанный ключ состояния, а не источник:
    * длящуюся нагрузку области движок тоже помечает `condition`, и по источнику
-   * она пропала бы с листа совсем.
+   * она пропала бы с листа совсем. Эффект с применением или включением —
+   * всегда свой, даже со состоянием внутри: у него кнопка или переключатель.
    */
   const customEffects = computed<ActiveEffect[]>(() =>
     options.effects.value.filter(
-      (effect) => resolveEffectConditionKey(effect) === undefined,
+      (effect) =>
+        effect.activation !== undefined
+        || resolveEffectConditionKey(effect) === undefined,
     ),
   );
 
@@ -59,8 +63,12 @@ export function useEntityActiveEffects(options: EntityActiveEffectsOptions) {
     const keys = new Set<ConditionRef>();
 
     for (const effect of options.effects.value) {
-      // Аура с applyToSelf=false на источника не действует — не считаем активной
-      if (effect.aura && !effect.aura.applyToSelf) {
+      // Аура с applyToSelf=false на источника не действует — не считаем
+      // активной; спящий шаблон применения или включения — тоже
+      const dormantTemplate =
+        effect.activation !== undefined && isEffectDormant(effect);
+
+      if ((effect.aura && !effect.aura.applyToSelf) || dormantTemplate) {
         continue;
       }
 
@@ -93,9 +101,13 @@ export function useEntityActiveEffects(options: EntityActiveEffectsOptions) {
     const currentEffects = options.effects.value;
 
     if (isConditionActive(key)) {
+      // Шаблоны применения и включения с этим состоянием — не наложенное
+      // состояние, плитка их не снимает
       options.onChange(
         currentEffects.filter(
-          (effect) => resolveEffectConditionKey(effect) !== key,
+          (effect) =>
+            effect.activation !== undefined
+            || resolveEffectConditionKey(effect) !== key,
         ),
       );
 

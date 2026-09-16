@@ -1564,16 +1564,16 @@ export function isToggleActivatedEffect(
 }
 
 /**
- * Эффект, который ложится на лист из умения, черты или вида: переключаемый —
- * выключенным, его включают руками, а не получают готовым.
+ * Эффект, который ложится на лист из умения, черты или вида: с применением или
+ * включением — выключенным. Переключаемый включают руками; шаблон применения
+ * не действует никогда, а выключенным его не примет за состояние и ядро,
+ * которое про применение не знает (значок на фишке).
  *
  * @param effect - эффект записи
  * @returns эффект для листа
  */
 export function withActivationDefaults(effect: ActiveEffect): ActiveEffect {
-  return isToggleActivatedEffect(effect)
-    ? { ...effect, disabled: true }
-    : effect;
+  return effect.activation ? { ...effect, disabled: true } : effect;
 }
 
 /**

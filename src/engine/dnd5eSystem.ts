@@ -458,7 +458,11 @@ function buildTriggerEventOptions(
     endCast: toCastEnder(context, entity.id),
     // Соседей по сцене даёт ядро; старое ядро их не знает — в радиусе никого
     listEntitiesInArea: (subject, area) =>
-      findEntitiesInArea(context?.getSceneSurroundings?.(subject), area),
+      findEntitiesInArea(
+        context?.getSceneSurroundings?.(subject),
+        area,
+        subject,
+      ),
   };
 }
 
@@ -1113,7 +1117,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.49';
+  readonly version = '0.8.50';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.

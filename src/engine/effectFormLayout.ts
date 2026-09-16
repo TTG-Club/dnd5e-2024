@@ -212,6 +212,13 @@ export interface EffectFormLayout {
   activationModes: readonly EffectActivationMode[];
   /** Применение или включение тратит счётчик листа */
   showActivationCounter: boolean;
+  /** Эффект накладывается применением: доставки подписаны «при применении» */
+  useActivated: boolean;
+  /**
+   * Переключатель «Работает» в шапке. У шаблона применения на листе и в умении
+   * его нет: такой шаблон лежит выключенным всегда
+   */
+  showStatusToggle: boolean;
   /** Минимальная Сл спасброска (0 — «Сл источника») */
   minSaveDc: number;
   /** Есть где появиться зоне на месте шаблона (у заклинания есть область) */
@@ -785,6 +792,8 @@ export function resolveEffectFormLayout(
     showActivationCounter:
       effect.activation !== undefined
       && ACTIVATION_COUNTER_CONTEXTS.has(context),
+    useActivated: isUsed,
+    showStatusToggle: !(isUsed && ACTIVATION_COUNTER_CONTEXTS.has(context)),
     minSaveDc: acceptsSourceSaveDc(context, delivery, isUsed)
       ? SOURCE_MIN_SAVE_DC
       : FIXED_MIN_SAVE_DC,
@@ -1517,8 +1526,15 @@ export function normalizeEffectDraft(
   const variantGroup = effect.variant?.group.trim();
   const variantLabel = effect.variant?.label.trim();
 
+  // Шаблон применения на своём листе лежит выключенным (withActivationDefaults)
+  const disabled =
+    layout.context === 'ownEffects' && isUseActivatedEffect(effect)
+      ? true
+      : effect.disabled;
+
   return {
     ...effect,
+    disabled,
     name: effect.name.trim(),
     landingCondition: landingCondition || undefined,
     rollCondition: effect.rollCondition?.trim() || undefined,

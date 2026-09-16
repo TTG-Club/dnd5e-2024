@@ -292,6 +292,7 @@
         <EffectHeaderFields
           v-model:effect="draft"
           :show-condition-preset="layout.showConditionPreset"
+          :show-status-toggle="layout.showStatusToggle"
         />
 
         <!-- Прокручивается тело окна целиком: сводка держится сверху, чтобы

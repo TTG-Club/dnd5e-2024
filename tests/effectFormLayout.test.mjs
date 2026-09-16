@@ -764,6 +764,24 @@ describe('применение и включение', () => {
     assert.equal(normalize(undefined), undefined);
   });
 
+  it('шаблон применения на своём листе и с умения лежит выключенным', () => {
+    const turn = createEffect({ activation: { mode: 'use' } });
+
+    assert.equal(
+      engine.normalizeEffectDraft(turn, layoutOf('ownEffects')).disabled,
+      true,
+    );
+
+    assert.equal(
+      engine.normalizeEffectDraft(turn, layoutOf('item')).disabled,
+      false,
+      'у предмета выключенный эффект не применяется вовсе',
+    );
+
+    assert.equal(engine.withActivationDefaults(turn).disabled, true);
+    assert.equal(engine.withActivationDefaults(createEffect()).disabled, false);
+  });
+
   it('схема записи: неизвестный способ отбрасывает только применение', () => {
     const [parsed] = engine.ActiveEffectsArraySchema.parse([
       createEffect({ activation: { mode: 'charge' } }),

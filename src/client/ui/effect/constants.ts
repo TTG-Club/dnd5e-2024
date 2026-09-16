@@ -117,6 +117,20 @@ export const EFFECT_TARGET_DELIVERY_LABELS: Record<EffectFormContext, string> =
     generic: 'На цели при попадании',
   };
 
+/** Подписи доставок эффекта, который накладывается применением */
+export const EFFECT_USE_DELIVERY_LABELS = {
+  carrier: 'На применившем',
+  target: 'На цели при применении',
+} as const;
+
+/** Пояснения доставок эффекта, который накладывается применением */
+export const EFFECT_USE_DELIVERY_HINTS = {
+  carrier: 'Копия ложится на того, кто применил, и живёт своей длительностью.',
+  target:
+    'Копия ложится на выбранную цель при применении. Спасбросок и урон ниже '
+    + 'относятся к цели.',
+} as const;
+
 /** Подписи вариантов доставки, не зависящие от места окна */
 export const EFFECT_DELIVERY_LABELS = {
   aura: 'Аурой вокруг',

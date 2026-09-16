@@ -25,10 +25,8 @@
     EFFECT_ACTIVATION_COUNTER_LABELS,
     EFFECT_AURA_LABELS,
     EFFECT_AURA_RADIUS_STEP,
-    EFFECT_DELIVERY_HINTS,
     EFFECT_LANDING_CONDITION_LABELS,
     EFFECT_PERMANENT_ACTIVATION,
-    EFFECT_SPELL_ZONE_DELIVERY_HINT,
     EFFECT_TRIGGER_HINTS,
     EFFECT_VARIANT_LABELS,
   } from '../constants';
@@ -36,6 +34,7 @@
     buildActivationOptions,
     buildDeliveryOptions,
     buildTriggerOptions,
+    describeDeliveryHint,
     EFFECT_AURA_TARGET_OPTIONS,
     EFFECT_VARIANT_PICK_OPTIONS,
     findTrigger,
@@ -121,12 +120,8 @@
   /** Выбор доставки нужен, только если вариантов больше одного */
   const showDeliveryChoice = computed(() => deliveryOptions.value.length > 1);
 
-  /** Пояснение под выбором доставки: у зоны заклинания своё */
-  const deliveryHint = computed(() =>
-    props.layout.delivery === 'zone' && props.layout.context === 'spell'
-      ? EFFECT_SPELL_ZONE_DELIVERY_HINT
-      : EFFECT_DELIVERY_HINTS[props.layout.delivery],
-  );
+  /** Пояснение под выбором доставки: у зоны заклинания и применения своё */
+  const deliveryHint = computed(() => describeDeliveryHint(props.layout));
 
   /**
    * Меняет доставку эффекта.

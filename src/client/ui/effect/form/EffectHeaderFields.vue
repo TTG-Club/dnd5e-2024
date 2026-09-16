@@ -24,6 +24,8 @@
   defineProps<{
     /** Показывать кнопку «Шаблон состояния» */
     showConditionPreset: boolean;
+    /** Показывать переключатель «Работает» */
+    showStatusToggle: boolean;
   }>();
 
   const effect = defineModel<ActiveEffect>('effect', { required: true });
@@ -125,6 +127,7 @@
 
     <!-- Высота — как у полей рядом; корень переключателя прижимает его к верху -->
     <USwitch
+      v-if="showStatusToggle"
       v-model="isActive"
       :label="statusLabel"
       class="h-8 items-center"

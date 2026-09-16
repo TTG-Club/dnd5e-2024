@@ -51,12 +51,16 @@ import {
   EFFECT_ACTIVATION_CHOICE_LABELS,
   EFFECT_AURA_LABELS,
   EFFECT_CARRIER_DELIVERY_LABELS,
+  EFFECT_DELIVERY_HINTS,
   EFFECT_DELIVERY_ICONS,
   EFFECT_DELIVERY_LABELS,
   EFFECT_DURATION_STEP_LABELS,
   EFFECT_PERMANENT_ACTIVATION,
+  EFFECT_SPELL_ZONE_DELIVERY_HINT,
   EFFECT_SUCCESS_OUTCOME_OPTIONS,
   EFFECT_TARGET_DELIVERY_LABELS,
+  EFFECT_USE_DELIVERY_HINTS,
+  EFFECT_USE_DELIVERY_LABELS,
   EFFECT_VARIANT_PICK_LABELS,
   SAVE_DC_FIELD_MODE_LABELS,
   ZONE_TRIGGER_LABELS,
@@ -137,17 +141,23 @@ export interface EffectDescribedOption<Value extends string> {
  *
  * @param delivery - доставка
  * @param context - место окна
+ * @param useActivated - эффект накладывается применением
  * @returns подпись
  */
 function deliveryLabel(
   delivery: EffectDelivery,
   context: EffectFormContext,
+  useActivated: boolean,
 ): string {
   switch (delivery) {
     case 'carrier':
-      return EFFECT_CARRIER_DELIVERY_LABELS[context];
+      return useActivated
+        ? EFFECT_USE_DELIVERY_LABELS.carrier
+        : EFFECT_CARRIER_DELIVERY_LABELS[context];
     case 'target':
-      return EFFECT_TARGET_DELIVERY_LABELS[context];
+      return useActivated
+        ? EFFECT_USE_DELIVERY_LABELS.target
+        : EFFECT_TARGET_DELIVERY_LABELS[context];
     case 'aura':
       return EFFECT_DELIVERY_LABELS.aura;
     case 'zone':
@@ -156,6 +166,28 @@ function deliveryLabel(
         ? EFFECT_DELIVERY_LABELS.spellZone
         : EFFECT_DELIVERY_LABELS.zone;
   }
+}
+
+/**
+ * Пояснение под выбором доставки: у зоны заклинания и у применяемого эффекта
+ * свои.
+ *
+ * @param layout - раскладка окна
+ * @returns пояснение
+ */
+export function describeDeliveryHint(layout: EffectFormLayout): string {
+  if (layout.delivery === 'zone' && layout.context === 'spell') {
+    return EFFECT_SPELL_ZONE_DELIVERY_HINT;
+  }
+
+  if (
+    layout.useActivated
+    && (layout.delivery === 'carrier' || layout.delivery === 'target')
+  ) {
+    return EFFECT_USE_DELIVERY_HINTS[layout.delivery];
+  }
+
+  return EFFECT_DELIVERY_HINTS[layout.delivery];
 }
 
 /**
@@ -169,7 +201,7 @@ export function buildDeliveryOptions(
 ): EffectSegmentOption<EffectDelivery>[] {
   return layout.deliveryOptions.map((delivery) => ({
     value: delivery,
-    label: deliveryLabel(delivery, layout.context),
+    label: deliveryLabel(delivery, layout.context, layout.useActivated),
     icon: EFFECT_DELIVERY_ICONS[delivery],
   }));
 }
