@@ -685,6 +685,106 @@ describe('каталог: предметы', () => {
     );
   });
 
+  it('[I17] оружие заряжают любым расходуемым предметом инвентаря', () => {
+    const sling = {
+      id: 'sling',
+      name: 'Праща',
+      type: 'weapon',
+      quantity: 1,
+      weaponProperties: ['ammunition'],
+      activeEffects: [],
+    };
+
+    const stones = {
+      id: 'stones',
+      name: 'Камни',
+      type: 'equipment',
+      quantity: 3,
+      consumable: true,
+      activeEffects: [],
+    };
+
+    const potion = { ...stones, id: 'potion', name: 'Зелье', quantity: 1 };
+    const rope = { ...stones, id: 'rope', name: 'Верёвка', consumable: false };
+    const crossbow = { ...sling, id: 'crossbow', consumable: true };
+    const equipment = [sling, stones, potion, rope, crossbow];
+
+    assert.deepEqual(
+      engine.listLoadableAmmunition(equipment, sling).map((item) => item.id),
+      ['stones', 'potion'],
+      'расходуемое, кроме самого оружия и того, что стреляет само',
+    );
+
+    assert.deepEqual(
+      engine.listLoadableAmmunition(equipment, { ...stones, id: 'x' }),
+      [],
+      'не стрелковое оружие не заряжают',
+    );
+
+    // Не заряжено и типа нет — праща стреляет, ничего не тратя
+    assert.equal(engine.tracksWeaponAmmunition(equipment, sling), false);
+    assert.equal(engine.findLoadedAmmunition(equipment, sling), undefined);
+
+    const loaded = engine.loadWeaponAmmunition(equipment, 'sling', 'stones');
+    const loadedSling = loaded[0];
+
+    assert.equal(loadedSling.loadedAmmunitionId, 'stones');
+    assert.equal(engine.tracksWeaponAmmunition(loaded, loadedSling), true);
+    assert.equal(engine.countWeaponAmmunition(loaded, loadedSling), 3);
+    assert.equal(engine.findWeaponAmmunition(loaded, loadedSling).id, 'stones');
+
+    const [, spentStones] = engine.spendAmmunition(loaded, 'stones');
+
+    assert.equal(spentStones.quantity, 2);
+
+    // Кончились — выстрела нет, но заряд остаётся
+    const empty = loaded.map((item) =>
+      item.id === 'stones' ? { ...item, quantity: 0 } : item,
+    );
+
+    assert.equal(engine.findWeaponAmmunition(empty, loadedSling), undefined);
+    assert.equal(engine.findLoadedAmmunition(empty, loadedSling).id, 'stones');
+
+    assert.deepEqual(
+      engine.describeWeaponAttackAvailability(empty, loadedSling),
+      { blocked: 'noAmmunition', remaining: 0 },
+    );
+
+    // Заряженный предмет убрали — праща снова свободна
+    assert.equal(
+      engine.tracksWeaponAmmunition(
+        loaded.filter((item) => item.id !== 'stones'),
+        loadedSling,
+      ),
+      false,
+    );
+
+    const unloaded = engine.loadWeaponAmmunition(loaded, 'sling', undefined);
+
+    assert.equal('loadedAmmunitionId' in unloaded[0], false);
+
+    // Заряд важнее подбора по типу: стрелы из компендиума не мешают
+    const bow = {
+      ...sling,
+      id: 'bow',
+      ammunitionType: 'arrows',
+      loadedAmmunitionId: 'potion',
+    };
+
+    const arrows = { ...stones, id: 'arrows', ammunitionType: 'arrows' };
+
+    assert.equal(
+      engine.findWeaponAmmunition([bow, arrows, potion], bow).id,
+      'potion',
+    );
+
+    assert.equal(
+      engine.findWeaponAmmunition([bow, arrows], bow).id,
+      'arrows',
+      'заряда нет в инвентаре — подбор по типу',
+    );
+  });
+
   it('карточка эффекта называет применение и переключатель', () => {
     const applicationOf = (effect) => {
       const application = engine

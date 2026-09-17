@@ -36,10 +36,6 @@ import {
   WEAPON_MASTERIES,
 } from '@vtt/shared/system/dnd.js';
 
-import {
-  EQUIPMENT_FORM_LABELS,
-  NO_AMMUNITION_TYPE,
-} from '../ui/actor/constants';
 import { useItemUsesForm } from './useItemUsesForm';
 
 /**
@@ -187,31 +183,10 @@ export function useWeaponForm(
     })),
   );
 
-  /** Опции «Боеприпас для»: сначала «Не боеприпас» */
-  const ammunitionKindOptions = computed(() => [
-    {
-      label: EQUIPMENT_FORM_LABELS.ammunitionTypeNone,
-      value: NO_AMMUNITION_TYPE,
-    },
-    ...ammunitionTypeOptions.value,
-  ]);
-
   /** Стреляет ли оружие боеприпасами */
   const firesAmmunition = computed(() =>
     selectedProperties.value.includes(AMMUNITION_PROPERTY),
   );
-
-  /**
-   * «Боеприпас для» у оружия, которое само не стреляет (магические стрелы
-   * компендиума приходят записью-оружием). Поле то же, что «Тип боеприпаса»
-   * стреляющего оружия: смысл задаёт свойство «Боеприпасы».
-   */
-  const ammunitionKind = computed<AmmunitionType | typeof NO_AMMUNITION_TYPE>({
-    get: () => ammunitionType.value || NO_AMMUNITION_TYPE,
-    set: (value) => {
-      ammunitionType.value = value === NO_AMMUNITION_TYPE ? '' : value;
-    },
-  });
 
   /** Опции режима владения */
   const proficiencyModeOptions = [
@@ -578,7 +553,6 @@ export function useWeaponForm(
     damageCustomBonuses,
     special,
     ammunitionType,
-    ammunitionKind,
     consumable,
     firesAmmunition,
     mastery,
@@ -602,7 +576,6 @@ export function useWeaponForm(
     propertyOptions,
     baseTypeOptions,
     ammunitionTypeOptions,
-    ammunitionKindOptions,
     proficiencyModeOptions,
     masteryOptions,
     saveTypeOptions: SAVE_TYPE_OPTIONS,

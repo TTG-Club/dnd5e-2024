@@ -203,23 +203,56 @@ export function buildUseSpell(source: EffectUseSource): Spell {
  * @returns `true`, если у оружия свойство «Боеприпасы»
  */
 export function weaponUsesAmmunition(weapon: DnDGameItem): boolean {
+  return (weapon.weaponProperties ?? []).includes(AMMUNITION_PROPERTY);
+}
+
+/**
+ * Можно ли зарядить предмет в оружие: любой расходуемый предмет, кроме самого
+ * оружия и того, что стреляет само.
+ *
+ * @param item - предмет инвентаря
+ * @param weapon - оружие
+ * @returns `true`, если предметом можно стрелять из оружия
+ */
+function isLoadableAmmunition(item: DnDGameItem, weapon: DnDGameItem): boolean {
   return (
-    weapon.ammunitionType !== undefined
-    && (weapon.weaponProperties ?? []).includes(AMMUNITION_PROPERTY)
+    item.id !== weapon.id
+    && Boolean(item.consumable)
+    && !weaponUsesAmmunition(item)
   );
 }
 
 /**
- * Предмет — боеприпас этого оружия: тип боеприпаса тот же, и сам предмет
- * боеприпасами не стреляет. У стреляющего оружия `ammunitionType` — чем оно
- * стреляет, у остального — что это за боеприпас. Магические стрелы приходят
- * из компендиума записью-оружием, поэтому тип записи не решает.
+ * Чем можно зарядить оружие: расходуемые предметы инвентаря. У оружия без
+ * свойства «Боеприпасы» — ничем.
+ *
+ * @param equipment - инвентарь
+ * @param weapon - оружие
+ * @returns предметы для зарядки
+ */
+export function listLoadableAmmunition(
+  equipment: readonly DnDGameItem[],
+  weapon: DnDGameItem,
+): DnDGameItem[] {
+  return weaponUsesAmmunition(weapon)
+    ? equipment.filter((item) => isLoadableAmmunition(item, weapon))
+    : [];
+}
+
+/**
+ * Предмет — боеприпас этого оружия по типу: тип боеприпаса тот же, и сам
+ * предмет боеприпасами не стреляет. Так подбираются стрелы из компендиума,
+ * пока оружие не заряжено: магические стрелы приходят записью-оружием, поэтому
+ * тип записи не решает.
  *
  * @param item - предмет инвентаря
  * @param weapon - оружие
- * @returns `true`, если предметом стреляют из оружия
+ * @returns `true`, если предмет подходит оружию по типу
  */
-function isAmmunitionFor(item: DnDGameItem, weapon: DnDGameItem): boolean {
+function matchesAmmunitionType(
+  item: DnDGameItem,
+  weapon: DnDGameItem,
+): boolean {
   return (
     item.id !== weapon.id
     && !weaponUsesAmmunition(item)
@@ -229,9 +262,38 @@ function isAmmunitionFor(item: DnDGameItem, weapon: DnDGameItem): boolean {
 }
 
 /**
- * Ведёт ли лист учёт боеприпасов этого оружия: в инвентаре есть боеприпас его
- * типа, пусть и кончившийся. Без такого предмета оружие стреляет как раньше —
- * у старых листов стрел в инвентаре нет.
+ * Предметы, которыми оружие стреляет: заряженный, а если его не выбрали или
+ * его больше нет в инвентаре — подходящие по типу.
+ *
+ * @param equipment - инвентарь
+ * @param weapon - оружие
+ * @returns боеприпасы оружия
+ */
+function listWeaponAmmunition(
+  equipment: readonly DnDGameItem[],
+  weapon: DnDGameItem,
+): DnDGameItem[] {
+  if (!weaponUsesAmmunition(weapon)) {
+    return [];
+  }
+
+  const loaded = equipment.find(
+    (item) =>
+      item.id === weapon.loadedAmmunitionId
+      && isLoadableAmmunition(item, weapon),
+  );
+
+  if (loaded) {
+    return [loaded];
+  }
+
+  return equipment.filter((item) => matchesAmmunitionType(item, weapon));
+}
+
+/**
+ * Ведёт ли лист учёт боеприпасов этого оружия: оно заряжено или в инвентаре
+ * есть боеприпас его типа, пусть и кончившийся. Иначе оружие стреляет как
+ * раньше — у старых листов стрел в инвентаре нет.
  *
  * @param equipment - инвентарь
  * @param weapon - оружие
@@ -241,14 +303,11 @@ export function tracksWeaponAmmunition(
   equipment: readonly DnDGameItem[],
   weapon: DnDGameItem,
 ): boolean {
-  return (
-    weaponUsesAmmunition(weapon)
-    && equipment.some((item) => isAmmunitionFor(item, weapon))
-  );
+  return listWeaponAmmunition(equipment, weapon).length > 0;
 }
 
 /**
- * Сколько выстрелов осталось: боеприпасы этого оружия по всему инвентарю.
+ * Сколько выстрелов осталось: заряженный боеприпас или все боеприпасы типа.
  *
  * @param equipment - инвентарь
  * @param weapon - оружие
@@ -258,9 +317,55 @@ export function countWeaponAmmunition(
   equipment: readonly DnDGameItem[],
   weapon: DnDGameItem,
 ): number {
-  return equipment
-    .filter((item) => isAmmunitionFor(item, weapon))
-    .reduce((total, item) => total + Math.max(0, item.quantity), 0);
+  return listWeaponAmmunition(equipment, weapon).reduce(
+    (total, item) => total + Math.max(0, item.quantity),
+    0,
+  );
+}
+
+/**
+ * Чем оружие выстрелит сейчас — для меню и строки листа: боеприпас выстрела,
+ * а если все кончились — первый из боеприпасов оружия.
+ *
+ * @param equipment - инвентарь
+ * @param weapon - оружие
+ * @returns боеприпас либо `undefined`, если оружие не заряжено
+ */
+export function findLoadedAmmunition(
+  equipment: readonly DnDGameItem[],
+  weapon: DnDGameItem,
+): DnDGameItem | undefined {
+  return (
+    findWeaponAmmunition(equipment, weapon)
+    ?? listWeaponAmmunition(equipment, weapon)[0]
+  );
+}
+
+/**
+ * Заряжает оружие предметом инвентаря или снимает выбор.
+ *
+ * @param equipment - инвентарь
+ * @param weaponId - оружие
+ * @param ammunitionId - боеприпас; нет — выбор снят, боеприпас подбирается по
+ *   типу
+ * @returns новый инвентарь
+ */
+export function loadWeaponAmmunition(
+  equipment: readonly DnDGameItem[],
+  weaponId: string,
+  ammunitionId: string | undefined,
+): DnDGameItem[] {
+  return equipment.map((item) => {
+    if (item.id !== weaponId) {
+      return item;
+    }
+
+    const { loadedAmmunitionId: _previous, ...weapon } = item;
+
+    return ammunitionId
+      ? { ...weapon, loadedAmmunitionId: ammunitionId }
+      : weapon;
+  });
 }
 
 /**
@@ -293,8 +398,8 @@ export function describeWeaponAttackAvailability(
 }
 
 /**
- * Боеприпас выстрела: предмет с тем же типом боеприпаса и ненулевым
- * количеством, надетый — первым.
+ * Боеприпас выстрела: заряженный предмет или подходящий по типу — с ненулевым
+ * количеством, надетый первым.
  *
  * @param equipment - инвентарь
  * @param weapon - оружие
@@ -304,12 +409,8 @@ export function findWeaponAmmunition(
   equipment: readonly DnDGameItem[],
   weapon: DnDGameItem,
 ): DnDGameItem | undefined {
-  if (!weaponUsesAmmunition(weapon)) {
-    return undefined;
-  }
-
-  const candidates = equipment.filter(
-    (item) => isAmmunitionFor(item, weapon) && !isItemDepleted(item),
+  const candidates = listWeaponAmmunition(equipment, weapon).filter(
+    (item) => !isItemDepleted(item),
   );
 
   return candidates.find((item) => item.equipped) ?? candidates[0];

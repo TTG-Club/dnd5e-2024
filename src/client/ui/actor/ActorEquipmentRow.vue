@@ -4,7 +4,7 @@
 
   import type { DnDGameItem } from '@vtt/shared/system/dnd.js';
 
-  import type { SheetRowStat } from './sheetRowTypes';
+  import type { EquipmentAmmunitionBadge, SheetRowStat } from './sheetRowTypes';
 
   import { computed } from 'vue';
 
@@ -37,6 +37,8 @@
     isEquipBlocked?: boolean;
     /** Лист в режиме правки: нажатие по строке описание не открывает */
     isEditMode?: boolean;
+    /** Чем заряжено стрелковое оружие; нет — значка нет */
+    ammunition?: EquipmentAmmunitionBadge;
   }
 
   const props = withDefaults(defineProps<Props>(), {
@@ -45,6 +47,7 @@
     menuItems: () => [],
     isEquipBlocked: false,
     isEditMode: false,
+    ammunition: undefined,
   });
 
   const emit = defineEmits<{
@@ -320,11 +323,33 @@
               </UTooltip>
             </span>
 
+            <!-- Вторая строка: вид предмета и, у стрелкового оружия, чем оно
+              заряжено — название оружия в первой строке не теснится -->
             <span
-              v-if="subtitle"
-              class="text-xs wrap-break-word text-dimmed @xl:truncate"
+              v-if="subtitle || ammunition"
+              class="flex min-w-0 items-center gap-2"
             >
-              {{ subtitle }}
+              <span
+                v-if="subtitle"
+                class="min-w-0 text-xs wrap-break-word text-dimmed @xl:truncate"
+              >
+                {{ subtitle }}
+              </span>
+
+              <UTooltip
+                v-if="ammunition"
+                :text="ammunition.hint"
+              >
+                <UBadge
+                  :color="ammunition.color"
+                  variant="subtle"
+                  size="xs"
+                  icon="tabler:archery-arrow"
+                  :label="ammunition.label"
+                  :ui="{ label: 'truncate' }"
+                  class="relative z-10 max-w-40 shrink-0"
+                />
+              </UTooltip>
             </span>
           </button>
         </div>

@@ -20,6 +20,7 @@
     MODAL_BUTTON_LABELS,
   } from './constants';
   import FormSection from './FormSection.vue';
+  import ItemConsumableField from './ItemConsumableField.vue';
   import ItemUsesFields from './ItemUsesFields.vue';
   import SourceField from './SourceField.vue';
 
@@ -99,8 +100,6 @@
     activeEffects,
     itemUses,
     consumable,
-    ammunitionType,
-    ammunitionTypeOptions,
   } = useEquipmentForm(
     () => props.item,
     () => props.open,
@@ -521,23 +520,8 @@
             <FormSection
               :title="EQUIPMENT_FORM_LABELS.consumptionTitle"
               icon="tabler:flask"
-              :hint="EQUIPMENT_FORM_LABELS.consumptionHint"
             >
-              <div class="grid grid-cols-2 items-center gap-3">
-                <UCheckbox
-                  v-model="consumable"
-                  :label="EQUIPMENT_FORM_LABELS.consumable"
-                />
-
-                <UFormField :label="EQUIPMENT_FORM_LABELS.ammunitionType">
-                  <USelect
-                    v-model="ammunitionType"
-                    :items="ammunitionTypeOptions"
-                    value-key="value"
-                    class="w-full"
-                  />
-                </UFormField>
-              </div>
+              <ItemConsumableField v-model="consumable" />
             </FormSection>
           </div>
         </template>

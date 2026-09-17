@@ -20,3 +20,13 @@ export interface SheetRowStat {
   /** Плитка бросается по нажатию: становится кнопкой */
   rollable?: boolean;
 }
+
+/** Значок боеприпаса у стрелкового оружия в строке снаряжения */
+export interface EquipmentAmmunitionBadge {
+  /** Чем заряжено и сколько осталось — или «Не заряжено» */
+  label: string;
+  /** Как сменить или выбрать боеприпас */
+  hint: string;
+  /** Цвет: кончились — ошибка, не заряжено — предупреждение */
+  color: 'neutral' | 'warning' | 'error';
+}

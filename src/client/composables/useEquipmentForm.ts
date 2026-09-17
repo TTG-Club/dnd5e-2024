@@ -21,10 +21,6 @@ import {
   parseCost,
 } from '@vtt/shared/system/dnd.js';
 
-import {
-  EQUIPMENT_FORM_LABELS,
-  NO_AMMUNITION_TYPE,
-} from '../ui/actor/constants';
 import { useItemUsesForm } from './useItemUsesForm';
 
 /**
@@ -77,9 +73,9 @@ export function useEquipmentForm(
   const itemUses = useItemUsesForm();
   const consumable = ref(false);
 
-  const ammunitionType = ref<AmmunitionType | typeof NO_AMMUNITION_TYPE>(
-    NO_AMMUNITION_TYPE,
-  );
+  // Тип боеприпаса формой не правится: он нужен лишь автоподбору стрел из
+  // компендиума и сохраняется как пришёл
+  const ammunitionType = ref<AmmunitionType | undefined>(undefined);
 
   /**
    * Помеха скрытности — вычисляемое на основе selectedEquipmentProperties
@@ -147,18 +143,6 @@ export function useEquipmentForm(
 
     return items;
   });
-
-  /** Опции «Боеприпас для»: сначала «Не боеприпас» */
-  const ammunitionTypeOptions = computed(() => [
-    {
-      label: EQUIPMENT_FORM_LABELS.ammunitionTypeNone,
-      value: NO_AMMUNITION_TYPE,
-    },
-    ...systemDataStore.ammunitionTypes.map((type) => ({
-      label: type.name,
-      value: type.key,
-    })),
-  ]);
 
   /** Опции базовых типов доспеха */
   const baseTypeOptions = computed(() =>
@@ -310,7 +294,7 @@ export function useEquipmentForm(
 
         itemUses.loadItemUses(armor.uses);
         consumable.value = armor.consumable ?? false;
-        ammunitionType.value = armor.ammunitionType ?? NO_AMMUNITION_TYPE;
+        ammunitionType.value = armor.ammunitionType;
       } else {
         // Дефолты для создания
         name.value = '';
@@ -347,7 +331,7 @@ export function useEquipmentForm(
         activeEffects.value = [];
         itemUses.resetItemUses();
         consumable.value = false;
-        ammunitionType.value = NO_AMMUNITION_TYPE;
+        ammunitionType.value = undefined;
       }
     },
     { immediate: true },
@@ -398,10 +382,7 @@ export function useEquipmentForm(
         isMagical.value && magicBonus.value > 0 ? magicBonus.value : undefined,
       uses: itemUses.buildItemUses(),
       consumable: consumable.value || undefined,
-      ammunitionType:
-        ammunitionType.value === NO_AMMUNITION_TYPE
-          ? undefined
-          : ammunitionType.value,
+      ammunitionType: ammunitionType.value,
       activeEffects:
         activeEffects.value.length > 0 ? activeEffects.value : undefined,
     };
@@ -433,7 +414,6 @@ export function useEquipmentForm(
     rarity,
     activeEffects,
     consumable,
-    ammunitionType,
     ...itemUses,
 
     // Computed
@@ -441,7 +421,6 @@ export function useEquipmentForm(
     isActualArmor,
     categoryOptions,
     baseTypeOptions,
-    ammunitionTypeOptions,
     equipmentPropertyOptions,
     selectedEquipmentProperties,
 

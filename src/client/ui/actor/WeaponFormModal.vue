@@ -44,6 +44,7 @@
   import CustomBonusRows from './CustomBonusRows.vue';
   import DamagePartsEditor from './DamagePartsEditor.vue';
   import FormSection from './FormSection.vue';
+  import ItemConsumableField from './ItemConsumableField.vue';
   import ItemUsesFields from './ItemUsesFields.vue';
   import SourceField from './SourceField.vue';
   import { formatSignedNumber } from './utils/formatSignedNumber';
@@ -115,7 +116,6 @@
     damageCustomBonuses,
     special,
     ammunitionType,
-    ammunitionKind,
     consumable,
     firesAmmunition,
     mastery,
@@ -124,7 +124,6 @@
     propertyOptions,
     baseTypeOptions,
     ammunitionTypeOptions,
-    ammunitionKindOptions,
     proficiencyModeOptions,
     masteryOptions,
     saveTypeOptions,
@@ -566,20 +565,6 @@
                     </template>
                   </UPopover>
                 </div>
-
-                <!-- Тип боеприпаса (появляется при свойстве «Боеприпасы») -->
-                <UFormField
-                  v-if="firesAmmunition"
-                  :label="WEAPON_FORM_LABELS.ammunitionType"
-                >
-                  <USelect
-                    v-model="ammunitionType"
-                    :items="ammunitionTypeOptions"
-                    value-key="value"
-                    :placeholder="ITEM_FORM_LABELS.selectTypePlaceholder"
-                    class="w-full"
-                  />
-                </UFormField>
               </div>
             </FormSection>
 
@@ -919,37 +904,48 @@
               </p>
             </FormSection>
 
-            <!-- Расход: магические стрелы и прочий боеприпас-оружие -->
+            <!-- Боеприпасы: чем стреляет оружие со свойством «Боеприпасы» -->
             <FormSection
-              :title="EQUIPMENT_FORM_LABELS.consumptionTitle"
-              icon="tabler:flask"
-              :hint="EQUIPMENT_FORM_LABELS.consumptionHint"
+              v-if="firesAmmunition"
+              :title="WEAPON_FORM_LABELS.ammunitionTitle"
+              icon="tabler:bow"
             >
-              <div class="grid grid-cols-2 items-center gap-3">
-                <UCheckbox
-                  v-model="consumable"
-                  :label="EQUIPMENT_FORM_LABELS.consumable"
-                />
+              <div class="flex flex-col gap-3">
+                <div
+                  class="flex gap-2 rounded-md bg-primary/5 p-3 ring-1 ring-primary/20 ring-inset"
+                >
+                  <UIcon
+                    name="tabler:hand-click"
+                    class="mt-0.5 size-4 shrink-0 text-primary"
+                  />
+
+                  <p class="text-sm leading-relaxed text-toned">
+                    {{ WEAPON_FORM_LABELS.ammunitionText }}
+                  </p>
+                </div>
 
                 <UFormField
-                  v-if="!firesAmmunition"
-                  :label="EQUIPMENT_FORM_LABELS.ammunitionType"
+                  :label="WEAPON_FORM_LABELS.ammunitionType"
+                  :help="WEAPON_FORM_LABELS.ammunitionTypeHelp"
                 >
                   <USelect
-                    v-model="ammunitionKind"
-                    :items="ammunitionKindOptions"
+                    v-model="ammunitionType"
+                    :items="ammunitionTypeOptions"
                     value-key="value"
+                    :placeholder="ITEM_FORM_LABELS.selectTypePlaceholder"
                     class="w-full"
                   />
                 </UFormField>
-
-                <p
-                  v-else
-                  class="text-xs text-dimmed"
-                >
-                  {{ WEAPON_FORM_LABELS.firesAmmunitionHint }}
-                </p>
               </div>
+            </FormSection>
+
+            <!-- Расход: зелья, свитки, стрелы -->
+            <FormSection
+              v-else
+              :title="EQUIPMENT_FORM_LABELS.consumptionTitle"
+              icon="tabler:flask"
+            >
+              <ItemConsumableField v-model="consumable" />
             </FormSection>
           </div>
         </template>

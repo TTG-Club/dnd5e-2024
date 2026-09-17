@@ -17,7 +17,10 @@
     RolledSpellDamagePart,
     SpellDamagePartInput,
   } from '../../../composables/useSpellResolution';
-  import type { SheetRowStat } from '../sheetRowTypes';
+  import type {
+    EquipmentAmmunitionBadge,
+    SheetRowStat,
+  } from '../sheetRowTypes';
 
   import { computed, ref, toRef } from 'vue';
 
@@ -41,13 +44,17 @@
     describeWeaponAttack,
     describeWeaponDamage,
     evaluateConditionalBonuses,
+    findLoadedAmmunition,
     formatWeaponDamageFormula,
     getAttackBonusKey,
     getAttackFlagCategory,
     getDamageBonusKey,
     getWeaponPrimaryDamageType,
+    isItemDepleted,
     isSaveAbility,
+    listLoadableAmmunition,
     listUseEffects,
+    loadWeaponAmmunition,
     normalizeItemQuantity,
     resolveWeaponSaveDc,
     setItemUsesCurrent,
@@ -55,6 +62,7 @@
     spendItemUse,
     spendItemUses,
     TOOL_CATEGORIES,
+    weaponUsesAmmunition,
   } from '@vtt/shared/system/dnd.js';
 
   import { resolveTargetedAttackRollMode } from '../../../composables/attackRollMode';
@@ -79,6 +87,7 @@
   import CarryingCapacityModal from '../CarryingCapacityModal.vue';
   import {
     ACTOR_EQUIPMENT_TAB_LABELS,
+    EQUIPMENT_AMMUNITION_BADGE,
     EQUIPMENT_EQUIP_ACTION_LABELS,
     EQUIPMENT_MENU_LABELS,
     EQUIPMENT_STAT_HINTS,
@@ -686,9 +695,17 @@
    * @param formId - ID модалки для закрытия
    */
   function saveEquipmentEdit(updatedItem: DnDGameItem, formId: string): void {
+    // Надет ли предмет и чем заряжено оружие — состояние листа, а не записи:
+    // форма его не знает, и правка его не сбрасывает
     const equipment = inventory.value.map((item) =>
       item.id === updatedItem.id
-        ? { ...updatedItem, equipped: item.equipped }
+        ? {
+            ...updatedItem,
+            equipped: item.equipped,
+            ...(item.loadedAmmunitionId
+              ? { loadedAmmunitionId: item.loadedAmmunitionId }
+              : {}),
+          }
         : item,
     );
 
@@ -779,6 +796,86 @@
     );
 
     commitEquipment(equipment);
+  }
+
+  /**
+   * Заряжает оружие боеприпасом; повторный выбор заряженного снимает выбор —
+   * боеприпас снова подбирается по типу.
+   *
+   * @param weapon - оружие
+   * @param ammunitionId - выбранный боеприпас
+   */
+  function toggleLoadedAmmunition(
+    weapon: DnDGameItem,
+    ammunitionId: string,
+  ): void {
+    const next =
+      weapon.loadedAmmunitionId === ammunitionId ? undefined : ammunitionId;
+
+    commitEquipment(loadWeaponAmmunition(inventory.value, weapon.id, next));
+  }
+
+  /**
+   * Подменю «Боеприпасы» стрелкового оружия: расходуемые предметы инвентаря,
+   * отмечен тот, которым оружие выстрелит.
+   *
+   * @param weapon - оружие со свойством «Боеприпасы»
+   * @returns пункт меню с подменю
+   */
+  function buildAmmunitionMenu(weapon: DnDGameItem): DropdownMenuItem {
+    const loadable = listLoadableAmmunition(inventory.value, weapon);
+    const current = findLoadedAmmunition(inventory.value, weapon);
+
+    return {
+      label: EQUIPMENT_MENU_LABELS.ammunition,
+      icon: 'tabler:archery-arrow',
+      children:
+        loadable.length > 0
+          ? loadable.map((ammunition): DropdownMenuItem => ({
+              label: ammunition.name,
+              description: `${EQUIPMENT_MENU_LABELS.ammunitionQuantity}${ammunition.quantity}`,
+              type: 'checkbox',
+              checked: ammunition.id === current?.id,
+              onUpdateChecked: () =>
+                toggleLoadedAmmunition(weapon, ammunition.id),
+            }))
+          : [{ label: EQUIPMENT_MENU_LABELS.ammunitionEmpty, disabled: true }],
+    };
+  }
+
+  /**
+   * Значок боеприпаса стрелкового оружия: чем заряжено и сколько осталось,
+   * «Не заряжено», если зарядить есть чем, иначе значка нет.
+   *
+   * @param item - предмет снаряжения
+   * @returns значок либо `undefined`
+   */
+  function getAmmunitionBadge(
+    item: DnDGameItem,
+  ): EquipmentAmmunitionBadge | undefined {
+    if (!weaponUsesAmmunition(item)) {
+      return undefined;
+    }
+
+    const current = findLoadedAmmunition(inventory.value, item);
+
+    if (current) {
+      return {
+        label: `${current.name} · ${current.quantity}`,
+        hint: EQUIPMENT_AMMUNITION_BADGE.loadedHint,
+        color: isItemDepleted(current) ? 'error' : 'neutral',
+      };
+    }
+
+    if (listLoadableAmmunition(inventory.value, item).length === 0) {
+      return undefined;
+    }
+
+    return {
+      label: EQUIPMENT_AMMUNITION_BADGE.unloaded,
+      hint: EQUIPMENT_AMMUNITION_BADGE.unloadedHint,
+      color: 'warning',
+    };
   }
 
   /**
@@ -908,6 +1005,10 @@
         icon: 'tabler:sword',
         onSelect: () => openRollModal(item),
       });
+    }
+
+    if (weaponUsesAmmunition(item) && !props.isReadOnly) {
+      gameActions.push(buildAmmunitionMenu(item));
     }
 
     // Хват — не разовое действие, а способ пользоваться оружием: отметка в
@@ -1238,6 +1339,7 @@
         stats: getItemStats(item),
         menuItems: getItemMenuItems(item),
         isEquipBlocked: isEquipDisabled(item),
+        ammunition: getAmmunitionBadge(item),
       })),
     })),
   );
@@ -1434,6 +1536,7 @@
             :stats="row.stats"
             :menu-items="row.menuItems"
             :is-equip-blocked="row.isEquipBlocked"
+            :ammunition="row.ammunition"
             :is-edit-mode="isEditMode"
             @open="openDetailModal(row.item)"
             @toggle-equip="toggleEquipped(row.item.id)"
