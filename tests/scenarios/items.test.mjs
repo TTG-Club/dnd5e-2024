@@ -785,6 +785,36 @@ describe('каталог: предметы', () => {
     );
   });
 
+  it('[I18] Боеприпас убийства: добивающая часть только по нанесённому урону', () => {
+    const slaying = createEffect('Убийство', {
+      activation: { mode: 'use' },
+      effectTarget: 'target',
+      landingCondition: 'self.creatureType === "dragon"',
+      applySave: { ability: 'constitution', dc: 17, onSuccess: 'half' },
+      damageParts: [{ formula: '6d10', type: 'force', requiresDamage: true }],
+    });
+
+    authoredScenario(slaying, 'item');
+
+    const target = createCreature();
+    const stats = engine.resolveActorStats(target);
+
+    assert.equal(
+      engine.rollEffectDamageParts(slaying.damageParts, stats, target, {
+        damageDealt: false,
+      }).total,
+      0,
+      'выстрел не нанёс урона — добивания нет',
+    );
+
+    assert.ok(
+      engine.rollEffectDamageParts(slaying.damageParts, stats, target, {
+        damageDealt: true,
+      }).total > 0,
+      'урон прошёл — добивание катается',
+    );
+  });
+
   it('карточка эффекта называет применение и переключатель', () => {
     const applicationOf = (effect) => {
       const application = engine

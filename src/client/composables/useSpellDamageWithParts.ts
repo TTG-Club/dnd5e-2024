@@ -724,6 +724,8 @@ export function useSpellDamageWithParts() {
           entity: accumulator.entity,
           spellSaveDC,
           casterId: context.casterId,
+          // Тот же гейт `requiresDamage`, что и у частей самого заклинания
+          damageDealt: gateOpen,
         },
         accumulator.save,
       );

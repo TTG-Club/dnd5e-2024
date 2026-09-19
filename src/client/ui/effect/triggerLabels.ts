@@ -88,6 +88,9 @@ export const EFFECT_TRIGGER_ROW_LABELS = {
   maxHpAmountPlaceholder: DEFAULT_MAX_HP_REDUCTION,
   maxHpAmountHint: '@damage — урон события; можно число или кости',
   maxHpRest: 'Максимум вернётся после',
+  nestedTriggerToggle: 'Своё срабатывание состояния',
+  nestedTriggerEvent: 'Когда у состояния',
+  nestedTriggerAction: 'Что делает',
 } as const;
 
 /** События срабатывания в списке */
@@ -148,12 +151,29 @@ export const EFFECT_TRIGGER_RECIPIENT_LABELS: Record<
   subject: 'Носителю эффекта',
   other: 'Тому, кто нанёс урон',
   area: 'Всем в радиусе',
+  choice: 'Выбранным',
 };
 
 /** Подписи полей «всем в радиусе» */
 export const EFFECT_TRIGGER_AREA_LABELS = {
   radius: 'Радиус, фт',
   target: 'Кого',
+} as const;
+
+/** Подписи полей «по выбору» */
+export const EFFECT_TRIGGER_CHOICE_LABELS = {
+  radius: 'Радиус, фт',
+  target: 'Из кого выбирать',
+  count: 'Сколько целей',
+  condition: 'Условие цели',
+  optional: 'Можно отказаться',
+  chooser: 'Кто выбирает',
+} as const;
+
+/** Кто выбирает получателей */
+export const EFFECT_TRIGGER_CHOOSER_LABELS = {
+  subject: 'Носитель эффекта',
+  source: 'Наложивший эффект',
 } as const;
 
 /** «Другая сторона» при наложении — кто наложил эффект */

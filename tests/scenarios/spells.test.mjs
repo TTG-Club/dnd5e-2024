@@ -973,9 +973,123 @@ describe('каталог: срабатывания заклинаний', () => 
       'третий провал — окаменение',
     );
   });
+
+  it('[S26b] Мгновенная лихорадка: урон на третьем провале, а не на четвёртом', () => {
+    const failures = 'feverFail';
+
+    const fever = createEffect('Мгновенная лихорадка', {
+      effectTarget: 'target',
+      triggers: [
+        {
+          id: 'trigger_count',
+          event: 'turnEnd',
+          save: { ability: 'constitution', dc: 0 },
+          actions: [
+            {
+              type: 'applyTag',
+              tag: failures,
+              stack: true,
+              duration: { type: 'permanent' },
+              on: 'failed',
+            },
+          ],
+        },
+        {
+          id: 'trigger_burst',
+          event: 'turnEnd',
+          condition: `self.tagCount["${failures}"] >= 3`,
+          actions: [
+            { type: 'damage', parts: [{ formula: '8d6', type: 'necrotic' }] },
+          ],
+        },
+      ],
+    });
+
+    authoredScenario(fever, 'spell');
+
+    const target = createCreature({
+      activeEffects: [engine.stampSourceTurnSaveDc(fever, 15)],
+    });
+
+    const failTurn = () =>
+      withRandom([MIN_ROLL], () =>
+        engine.processTurnEffects(target, 'endOfTurn'),
+      );
+
+    assert.equal(failTurn().damageTotal, 0, 'первый провал — только отметка');
+    assert.equal(failTurn().damageTotal, 0, 'второй провал — только отметка');
+
+    const third = failTurn();
+
+    assert.equal(engine.countEffectTag(target, failures), 3);
+    assert.ok(third.damageTotal > 0, 'третий провал — урон в тот же ход');
+  });
 });
 
 describe('каталог: варианты заклинаний', () => {
+  it('[S30] Сон: наложенное состояние просыпается от урона само', () => {
+    const sleep = createEffect('Сон', {
+      effectTarget: 'target',
+      triggers: [
+        {
+          id: 'trigger_sleep',
+          event: 'applied',
+          actions: [
+            {
+              type: 'applyCondition',
+              conditionKey: 'unconscious',
+              triggers: [
+                {
+                  id: 'trigger_wake',
+                  event: 'damageTaken',
+                  actions: [{ type: 'removeSelf' }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    authoredScenario(sleep, 'spell');
+
+    const target = createCreature({ activeEffects: [sleep] });
+
+    engine.applyTriggerEffectActions(
+      target,
+      {
+        effect: sleep,
+        trigger: sleep.triggers[0],
+        ambient: false,
+        instance: true,
+        scope: sleep.id,
+      },
+      false,
+      {},
+    );
+
+    const applied = target.activeEffects.find(
+      (effect) => effect.conditionKey === 'unconscious',
+    );
+
+    assert.ok(applied, 'состояние наложено');
+
+    assert.deepEqual(
+      (applied.triggers ?? []).map((trigger) => [
+        trigger.event,
+        trigger.actions[0].type,
+      ]),
+      [['damageTaken', 'removeSelf']],
+      'у состояния своё срабатывание: каст заканчивать не нужно',
+    );
+
+    assert.deepEqual(
+      engine.ActiveEffectsArraySchema.parse([sleep]),
+      [sleep],
+      'схема записи вложенные срабатывания не теряет',
+    );
+  });
+
   it('[S27] Глухота/слепота: ложится один выбранный вариант', () => {
     const blinded = createEffect('Слепота', {
       effectTarget: 'target',

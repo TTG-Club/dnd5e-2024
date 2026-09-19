@@ -432,6 +432,9 @@ export function useSpellResolution() {
       entity,
       spellSaveDC,
       casterId: context.casterId,
+      // Гейт `requiresDamage` у частей эффекта: добивающая часть катается
+      // только по цели, которой урон действительно достался
+      damageDealt: finalDamage > 0,
     };
 
     const targetEffects = collectTargetEffects(

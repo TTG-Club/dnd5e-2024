@@ -70,6 +70,11 @@ export interface TargetEffectsInput {
   spellSaveDC: number;
   /** Кто накладывает (якорь точной длительности, право запроса броска) */
   casterId?: string;
+  /**
+   * Нанёс ли сам источник урон: гейт `requiresDamage` у частей урона эффекта.
+   * Без него добивающая часть («боеприпас убийства») не катается.
+   */
+  damageDealt?: boolean;
 }
 
 /** Спасброски эффектов цели по идентификатору эффекта */
@@ -121,12 +126,14 @@ export function useTargetEffectResolution() {
    * @param entity - цель
    * @param parts - части урона эффекта
    * @param multiplier - доля урона (1 / 0.5 по результату спасброска)
+   * @param damageDealt - нанёс ли урон сам источник (гейт `requiresDamage`)
    * @returns суммарный урон, сработавшая защита цели и строки для чата
    */
   function rollEffectDamage(
     entity: SceneEntity,
     parts: DamagePart[],
     multiplier: number,
+    damageDealt: boolean,
   ): {
     damage: number;
     outcome: DamageDefenseOutcome;
@@ -143,6 +150,7 @@ export function useTargetEffectResolution() {
       entity,
       {
         scale: multiplier,
+        damageDealt,
         rollFormula: (formula) => {
           const roll = diceRollerStore.parseAndRoll(formula);
 
@@ -312,6 +320,7 @@ export function useTargetEffectResolution() {
           entity,
           effect.damageParts,
           application.damageMultiplier,
+          input.damageDealt === true,
         );
 
         bonusDamage += rolled.damage;

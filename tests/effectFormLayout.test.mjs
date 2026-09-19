@@ -626,6 +626,7 @@ describe('получатель «всем в радиусе»', () => {
         event: 'hpZero',
         recipient: 'area',
         area: { radius: 0, target: 'enemies' },
+        choice: undefined,
         actions: [{ type: 'removeSelf' }],
         save: undefined,
         limit: undefined,

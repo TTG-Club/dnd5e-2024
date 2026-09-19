@@ -13,6 +13,7 @@ import type {
   MeasurementTemplate,
   MovementRange,
   SceneEntity,
+  ServerRollRequester,
   SystemClientEventContext,
   SystemCombatStateResult,
   SystemDeferredTrigger,
@@ -39,7 +40,11 @@ import type {
   TriggerEventOptions,
 } from './effectDamageEvents.js';
 import type { IncomingAttackContext } from './effectPipeline.js';
-import type { EffectTriggerSourceKind } from './effectTriggerRunner.js';
+import type {
+  DeferredTurnTrigger,
+  EffectTriggerSourceKind,
+} from './effectTriggerRunner.js';
+import type { EffectTriggerArea } from './effectTriggerTypes.js';
 import type { AreaEffectsSyncResult } from './positionalEffects.js';
 import type { SystemClientEvent } from './systemClientEvents.js';
 import type {
@@ -105,6 +110,7 @@ import {
 import { syncCreatureDeathCondition } from './deathState.js';
 import {
   formatDeferredEffectsSummary,
+  requestTriggerChoice,
   requestTurnTriggerSave,
 } from './deferredEffectSaves.js';
 import { rollDamageFormula as rollDamageFormulaImpl } from './diceFormula.js';
@@ -119,7 +125,10 @@ import {
   resolveActorStats,
   resolveTotalMovementSpeed,
 } from './effectPipeline.js';
-import { shouldRequestEffectSave } from './effectSaveAcquisition.js';
+import {
+  formatEffectRequesterLabel,
+  shouldRequestEffectSave,
+} from './effectSaveAcquisition.js';
 import {
   buildTriggerSources,
   EFFECT_TRIGGER_SOURCE_KINDS,
@@ -148,6 +157,7 @@ import {
   entityIgnoresTerrainCost as entityIgnoresTerrainCostImpl,
   resolveAreaTerrainCost,
 } from './terrainCost.js';
+import { listChoiceCandidates } from './triggerChoice.js';
 import {
   buildEffectDiceRolls,
   decrementActorEffectDurations,
@@ -197,6 +207,16 @@ const AURA_SUMMARY_LABEL = 'аура';
  * повторным спасброском на одной границе хода висят два разных запроса.
  */
 const TURN_DAMAGE_SAVE_KEY = 'damage';
+
+/**
+ * Хвост метки ожидания по этапу срабатывания хода. Прежний ключ этапа
+ * наложений пуст: старые ожидания не должны сдвинуться.
+ */
+const TURN_STAGE_KEYS = {
+  damage: `:${TURN_DAMAGE_SAVE_KEY}`,
+  effects: '',
+  choice: ':choice',
+} as const;
 
 /**
  * Метка ожидания спасброска на ходу наложившего: один эффект срабатывает и на
@@ -508,14 +528,60 @@ function buildTriggerEventOptions(
     activeTurnActorId: context?.getActiveTurnActorId?.() ?? null,
     getEntity: toDndEntityResolver(context?.getEntity),
     endCast: toCastEnder(context, entity.id),
-    // Соседей по сцене даёт ядро; старое ядро их не знает — в радиусе никого
-    listEntitiesInArea: (subject, area) =>
-      findEntitiesInArea(
-        context?.getSceneSurroundings?.(subject),
-        area,
-        subject,
-      ),
+    listEntitiesInArea: toAreaLister(context),
   };
+}
+
+/**
+ * Поиск соседей по сцене: им пользуются и «всем в радиусе», и отбор кандидатов
+ * выбора. Соседей даёт ядро; старое ядро их не знает — в радиусе никого.
+ *
+ * @param context - возможности ядра
+ * @returns поиск существ в радиусе от субъекта
+ */
+function toAreaLister(
+  context: SystemTriggerContext | undefined,
+): (subject: DnDSceneEntity, area: EffectTriggerArea) => DnDSceneEntity[] {
+  return (subject, area) =>
+    findEntitiesInArea(context?.getSceneSurroundings?.(subject), area, subject);
+}
+
+/**
+ * Запрос выбора цели у срабатывания границы хода: кандидаты берутся со сцены,
+ * вопрос уходит выбирающему.
+ *
+ * @param entity - субъект срабатывания
+ * @param turnTrigger - отложенное срабатывание границы хода
+ * @param requestRoll - запрос от ядра
+ * @param listEntitiesInArea - поиск соседей по сцене
+ * @param answerOptions - опции наложения этой границы хода
+ * @returns отложенное срабатывание; `null`, если выбирать не из кого
+ */
+function requestTurnTriggerChoice(
+  entity: DnDSceneEntity,
+  turnTrigger: DeferredTurnTrigger,
+  requestRoll: ServerRollRequester,
+  listEntitiesInArea: (
+    subject: DnDSceneEntity,
+    area: EffectTriggerArea,
+  ) => DnDSceneEntity[],
+  answerOptions: EntryEffectOptions,
+): EngineDeferredTrigger | null {
+  const { choice } = turnTrigger.trigger;
+
+  if (!choice) {
+    return null;
+  }
+
+  return requestTriggerChoice(
+    entity,
+    turnTrigger,
+    listChoiceCandidates(entity, choice, { listEntitiesInArea }),
+    choice,
+    requestRoll,
+    formatEffectRequesterLabel(turnTrigger.effect.name),
+    answerOptions,
+  );
 }
 
 /**
@@ -909,13 +975,21 @@ function settleTurnEffects(
     result.healingOutcomes,
   );
 
-  if (!askOwner) {
+  const choiceTriggers = result.deferredTriggers.filter(
+    (turnTrigger) => turnTrigger.stage === 'choice',
+  );
+
+  // «Авто-спасброски» про броски, а не про выбор: кого задеть, всё равно решает
+  // человек. Без запроса от ядра спросить некого — срабатывание молчит
+  if (requestRoll === undefined || (!askOwner && choiceTriggers.length === 0)) {
     return withDamageEvents(entity, hpBefore, hits, context, {
       changed: result.changed,
       chatSummary,
       ...rolls,
     });
   }
+
+  const listEntitiesInArea = toAreaLister(context);
 
   // Один эффект срабатывает и на своём ходу, и на ходу наложившего — ответы
   // этих границ ждутся порознь
@@ -939,24 +1013,32 @@ function settleTurnEffects(
     ...result.deferredTriggers.filter(
       (turnTrigger) => turnTrigger.stage === 'effects',
     ),
+    ...choiceTriggers,
   ].map((turnTrigger) => {
-    const stageKey =
-      turnTrigger.stage === 'damage'
-        ? `${entity.id}:${turnTrigger.effect.id}:${turnKey}:${TURN_DAMAGE_SAVE_KEY}`
-        : `${entity.id}:${turnTrigger.effect.id}:${turnKey}`;
+    const stageSuffix = TURN_STAGE_KEYS[turnTrigger.stage];
+
+    const stageKey = `${entity.id}:${turnTrigger.effect.id}:${turnKey}${stageSuffix}`;
 
     return {
       pendingKey: isLegacyTrigger(turnTrigger.trigger)
         ? stageKey
         : `${stageKey}:${turnTrigger.trigger.id}`,
       request: () =>
-        requestTurnTriggerSave(
-          entity,
-          turnTrigger,
-          timing,
-          requestRoll,
-          answerOptions,
-        ),
+        turnTrigger.stage === 'choice'
+          ? requestTurnTriggerChoice(
+              entity,
+              turnTrigger,
+              requestRoll,
+              listEntitiesInArea,
+              answerOptions,
+            )
+          : requestTurnTriggerSave(
+              entity,
+              turnTrigger,
+              timing,
+              requestRoll,
+              answerOptions,
+            ),
     };
   });
 
@@ -1183,7 +1265,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.63';
+  readonly version = '0.8.64';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -1196,7 +1278,7 @@ export class Dnd5eVttSystem implements VttSystem {
    *
    * @param actor Объект актера для валидации
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   validateActor(actor: BaseActor): void {
     if (!Array.isArray(actor.activeEffects)) {
       return;
@@ -1240,7 +1322,7 @@ export class Dnd5eVttSystem implements VttSystem {
    * общими с константой-шаблоном, и правки одного созданного актёра меняли бы
    * и шаблон, и всех созданных по нему следом.
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   createDefaultActor(): Partial<BaseActor> {
     return structuredClone(DEFAULT_ACTOR);
   }
@@ -1248,7 +1330,7 @@ export class Dnd5eVttSystem implements VttSystem {
   /**
    * Валидирует данные актёра D&D 5e для формы создания/редактирования.
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   validateActorData(actor: Partial<BaseActor>): void {
     validateDndActorData(actor);
   }
@@ -1256,7 +1338,7 @@ export class Dnd5eVttSystem implements VttSystem {
   /**
    * Нормализует частичные данные актёра D&D 5e (зажимает значения в границы).
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   normalizeActorData(actor: Partial<BaseActor>): Partial<BaseActor> {
     return normalizeDndActorData(actor);
   }
@@ -1265,7 +1347,7 @@ export class Dnd5eVttSystem implements VttSystem {
    * Структурно валидирует данные предмета D&D 5e через Zod-схему (обобщённый
    * конверт + лениво по типу). Бросает `Error` при нарушении.
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   validateItemData(item: unknown): void {
     validateGameItem(item);
   }
@@ -1273,7 +1355,7 @@ export class Dnd5eVttSystem implements VttSystem {
   /**
    * Строит Markdown-сводку механических даров черты/предмета/предыстории D&D 5e.
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   getFeatGrantsSummary(feat: unknown): string {
     return isFeatSummarySource(feat) ? buildFeatGrantsSummary(feat) : '';
   }
@@ -1281,7 +1363,7 @@ export class Dnd5eVttSystem implements VttSystem {
   /**
    * Вычисляет модификатор инициативы для D&D 5e с учетом баффов и дебаффов (Active Effects).
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   getInitiativeModifier(actor: BaseActor): number {
     // Актёр без данных системы в инициативу не вступает: считать её не по чему
     if (!isDndSceneEntity(actor)) {
@@ -1329,7 +1411,7 @@ export class Dnd5eVttSystem implements VttSystem {
    * Инициализация системы (серверный lifecycle).
    * Пустая реализация по умолчанию — переопределяется серверным подклассом.
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   init(_api: unknown): void {
     // Пустая реализация — override в серверном подклассе
   }
@@ -1392,7 +1474,7 @@ export class Dnd5eVttSystem implements VttSystem {
    * эффект «до конца хода кастера», которого нет в трекере инициативы, ждал бы
    * хода, который не наступит, — такой якорь деградирует к носителю.
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   expireTurnEffects(
     entity: SceneEntity,
     turnActorId: string,
@@ -1413,7 +1495,7 @@ export class Dnd5eVttSystem implements VttSystem {
    * Уменьшает длительность (в раундах) всех эффектов на сущности, снимая
    * истёкшие. Истёкшая метка концентрации заканчивает свой каст.
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   decrementEffectDurations(
     entity: SceneEntity,
     context?: SystemTriggerContext,
@@ -1504,7 +1586,7 @@ export class Dnd5eVttSystem implements VttSystem {
    * @param raw - эффекты из черновика области
    * @returns проверенные эффекты или `null`
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   parseAreaEffects(raw: unknown): ActiveEffect[] | null {
     const parsed = ActiveEffectsArraySchema.safeParse(raw);
 
@@ -1515,7 +1597,7 @@ export class Dnd5eVttSystem implements VttSystem {
    * Синхронизирует эффекты зон при перемещении токена и форматирует сводку
    * сработавших триггеров для чата (метка «область»).
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   syncAreaEffects(
     entity: SceneEntity,
     previousAreaIds: ReadonlySet<string>,
@@ -1537,7 +1619,11 @@ export class Dnd5eVttSystem implements VttSystem {
       previousAreaIds,
       currentAreaIds,
       areas,
-      { ...options, resolveAmbientEffects: toAmbientResolver(options) },
+      {
+        ...options,
+        resolveAmbientEffects: toAmbientResolver(options),
+        listEntitiesInArea: toAreaLister(options),
+      },
     );
 
     return toEntityTriggerResult(
@@ -1553,7 +1639,7 @@ export class Dnd5eVttSystem implements VttSystem {
    * Обрабатывает разовые триггер-ауры при перемещении токена и форматирует по
    * каждой затронутой сущности сводку для чата (метка «аура»).
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   applyAuraTriggerEffects(
     scene: { tokens?: Token[]; gridSettings?: GridSettings },
     movedToken: Token,
@@ -1591,6 +1677,7 @@ export class Dnd5eVttSystem implements VttSystem {
         isInCombat: context?.isInCombat,
         getActiveTurnActorId: context?.getActiveTurnActorId,
         alreadyEnteredAuraKeys: context?.alreadyEnteredAuraKeys,
+        listEntitiesInArea: toAreaLister(context),
       },
     );
 
@@ -1610,7 +1697,7 @@ export class Dnd5eVttSystem implements VttSystem {
    * Проверяет попадание точки в область шаблона измерения по геометрии D&D 5e
    * (круг/конус/куб/линия).
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   isPointInTemplate(
     pointX: number,
     pointY: number,
@@ -1623,7 +1710,7 @@ export class Dnd5eVttSystem implements VttSystem {
   /**
    * Минимальный бросок кубиковой формулы урона D&D (сумма + выпавшие значения).
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   rollDamageFormula(formula: string): { total: number; values: number[] } {
     return rollDamageFormulaImpl(formula);
   }
@@ -1631,7 +1718,7 @@ export class Dnd5eVttSystem implements VttSystem {
   /**
    * Собирает все аура-эффекты сущности (на самой сущности + с экипировки).
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   collectAuraEffects(entity: SceneEntity): BaseActiveEffect[] {
     return isDndSceneEntity(entity) ? collectAllAuraEffects(entity) : [];
   }
@@ -1639,7 +1726,7 @@ export class Dnd5eVttSystem implements VttSystem {
   /**
    * Вычисляет внешние (ambient) аура-эффекты, накрывающие целевой токен.
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   calculateAmbientAuras(
     targetToken: Token,
     sources: Array<{ token: Token; effects: BaseActiveEffect[] }>,
@@ -1672,7 +1759,7 @@ export class Dnd5eVttSystem implements VttSystem {
    * @param entity - сущность токена
    * @param ambientEffects - эффекты аур, накрывающих токен
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   getTotalMovementSpeed(
     entity: SceneEntity,
     ambientEffects: readonly BaseActiveEffect[] = [],
@@ -1709,7 +1796,7 @@ export class Dnd5eVttSystem implements VttSystem {
    * @param entity - сущность токена
    * @param ambientEffects - эффекты аур, накрывающих токен
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   getMovementRange(
     entity: SceneEntity,
     ambientEffects: readonly BaseActiveEffect[] = [],
@@ -1746,7 +1833,7 @@ export class Dnd5eVttSystem implements VttSystem {
    * Правило мастер задаёт строкой модификатора `terrain.movementCost` в
    * эффектах зоны, поэтому читается оно отсюда, а не из полей самой зоны.
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   getAreaMovementCost(area: CustomArea): number {
     return resolveAreaTerrainCost(area);
   }
@@ -1755,7 +1842,7 @@ export class Dnd5eVttSystem implements VttSystem {
    * Не смотрит ли сущность на труднопроходимость вовсе (флаг
    * `terrain.ignoreDifficult` — сапоги, черта, форма движения).
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   entityIgnoresTerrainCost(entity: SceneEntity): boolean {
     // Сущность без данных системы правилами D&D не описана: считать её
     // игнорирующей нельзя, иначе болото перестало бы работать на всех подряд
@@ -1770,7 +1857,7 @@ export class Dnd5eVttSystem implements VttSystem {
    * Снимает боевое состояние сущности D&D 5e (ХП и активные эффекты) для
    * отправки на сервер узким каналом `entity:apply-combat-state`.
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   pickCombatState(entity: SceneEntity): DndCombatState | undefined {
     // Снимок сущности без данных системы не собрать, а выдумывать его нельзя —
     // он уходит на сервер и записывается в мир. `undefined` — штатный ответ
@@ -1782,7 +1869,7 @@ export class Dnd5eVttSystem implements VttSystem {
    * Записывает боевое состояние в сущность D&D 5e на сервере, проверив
    * пришедший от клиента снимок.
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   applyCombatState(entity: SceneEntity, state: unknown): boolean {
     return isDndSceneEntity(entity)
       ? applyCombatStateImpl(entity, state)
@@ -1866,7 +1953,7 @@ export class Dnd5eVttSystem implements VttSystem {
    * Применяет урон/лечение к сущности D&D 5e (мутирует ХП с учётом защит и
    * временных ХП) и возвращает сводку изменения.
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   applyDamageToEntity(
     entity: SceneEntity,
     amount: number,
@@ -1893,7 +1980,7 @@ export class Dnd5eVttSystem implements VttSystem {
    * Накладывает эффекты на сущность D&D 5e (иммунитеты, condition-сборка,
    * слияние) и возвращает обновлённый список `activeEffects`.
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   applyEffectsToEntity(
     entity: SceneEntity,
     effects: BaseActiveEffect[],
@@ -1913,7 +2000,7 @@ export class Dnd5eVttSystem implements VttSystem {
   /**
    * Возвращает итоговый КД сущности D&D 5e с учётом контекста входящей атаки.
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   getEntityArmorClass(entity: SceneEntity, attackContext?: unknown): number {
     if (!isDndSceneEntity(entity)) {
       return BASE_UNARMORED_AC;
@@ -1925,7 +2012,7 @@ export class Dnd5eVttSystem implements VttSystem {
   /**
    * Возвращает набор активных боевых флагов сущности D&D 5e.
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   getEntityActiveFlags(entity: SceneEntity): ReadonlySet<string> {
     return isDndSceneEntity(entity)
       ? getEntityActiveFlagsImpl(entity)
@@ -1948,7 +2035,7 @@ export class Dnd5eVttSystem implements VttSystem {
    * @param item - переносимый предмет
    * @returns обновлённые копии обеих сущностей либо `null`, если перенос невозможен
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   transferItemBetweenEntities(
     source: SceneEntity,
     target: SceneEntity,
@@ -1960,7 +2047,7 @@ export class Dnd5eVttSystem implements VttSystem {
   /**
    * Вычисляет итоговые характеристики актера с учетом активных эффектов.
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   resolveActorStats(
     actor: BaseActor,
     effects?: readonly unknown[],
@@ -1981,7 +2068,7 @@ export class Dnd5eVttSystem implements VttSystem {
   /**
    * Собирает все активные эффекты, привязанные к актеру.
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   collectActiveEffects(actor: BaseActor): readonly unknown[] {
     return isDndSceneEntity(actor) ? collectActiveEffects(actor) : [];
   }
@@ -1989,7 +2076,7 @@ export class Dnd5eVttSystem implements VttSystem {
   /**
    * Нормализует полного актёра D&D на месте при загрузке (миграция формата).
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   normalizeActor(actor: BaseActor): void {
     normalizeActor(actor);
   }
@@ -2002,7 +2089,7 @@ export class Dnd5eVttSystem implements VttSystem {
    * на сервере), поэтому череп на токене появляется и снимается одинаково,
    * какой бы путь ни поменял хиты.
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   normalizeCreature(creature: BaseCreature): void {
     normalizeCreature(creature);
     syncCreatureDeathCondition(creature);
@@ -2011,7 +2098,7 @@ export class Dnd5eVttSystem implements VttSystem {
   /**
    * Возвращает список доступных классов в системе для компендиума.
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   getClassKeyOptions(): Array<{ value: string; label: string }> {
     return [...CLASS_KEY_OPTIONS];
   }
@@ -2019,7 +2106,7 @@ export class Dnd5eVttSystem implements VttSystem {
   /**
    * Возвращает форматтер значений компендиума по имени формата.
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   getCompendiumValueFormatter(
     format: string,
   ): CompendiumValueFormatter | undefined {
@@ -2029,7 +2116,7 @@ export class Dnd5eVttSystem implements VttSystem {
   /**
    * Возвращает производный булев предикат компендиума по ключу.
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   getCompendiumPredicate(
     key: string,
   ): ((entry: unknown) => boolean) | undefined {
@@ -2039,7 +2126,7 @@ export class Dnd5eVttSystem implements VttSystem {
   /**
    * Проверяет, активно ли конкретное состояние у актора.
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   isConditionActive(
     activeEffects: readonly unknown[],
     conditionKey: string,
@@ -2094,7 +2181,7 @@ export class Dnd5eVttSystem implements VttSystem {
   /**
    * Определяет состояние здоровья по текущим и максимальным ХП по правилам системы.
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   getHealthCondition(
     currentHp: number,
     maxHp: number,
@@ -2113,7 +2200,7 @@ export class Dnd5eVttSystem implements VttSystem {
   /**
    * Возвращает таблицу состояний здоровья D&D 5e по умолчанию (пороги %ХП).
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   getDefaultHealthConditions(): readonly HealthCondition[] {
     return HEALTH_CONDITIONS;
   }
@@ -2128,7 +2215,7 @@ export class Dnd5eVttSystem implements VttSystem {
    * Иначе после «Ложной жизни» HUD показывал бы 25/20: текущие хиты выше
    * собственного максимума.
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   getActorHudSummary(actor: BaseActor): {
     hp: { current: number; max: number; temp: number };
   } {
@@ -2163,7 +2250,7 @@ export class Dnd5eVttSystem implements VttSystem {
    *
    * Сущность не в форме D&D — `undefined`, ядро откатится на чтение блоба само.
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   getEntityHitPoints(
     entity: SceneEntity,
   ): { current: number; max: number; temp: number } | undefined {
@@ -2184,7 +2271,7 @@ export class Dnd5eVttSystem implements VttSystem {
    * Возвращает бейдж «ПО X» (показатель опасности) для существа в списках ядра.
    * `undefined` — у существа нет показателя опасности.
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   getEntityListBadge(creature: BaseCreature): string | undefined {
     const challengeRating = creature.system.challengeRating;
 
@@ -2204,7 +2291,7 @@ export class Dnd5eVttSystem implements VttSystem {
    * Возвращает список всех доступных состояний: канон PHB плюс состояния,
    * заведённые в мире («Мастерская» → «Состояния»).
    */
-  // eslint-disable-next-line class-methods-use-this
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   getConditions(): ConditionDefinition[] {
     return listConditions().map((condition) => ({
       key: condition.key,

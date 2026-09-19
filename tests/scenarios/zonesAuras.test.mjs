@@ -30,6 +30,29 @@ import {
 const ZONE_DC = 12;
 
 /**
+ * Сцена вокруг носителя: соседи для отбора «в радиусе» и «по выбору».
+ *
+ * @param {object} carrier - носитель эффекта
+ * @param {object[]} neighbors - кто стоит рядом
+ * @returns {object} контекст со сценой
+ */
+function surroundingsOf(carrier, neighbors) {
+  return {
+    getSceneSurroundings: (entity) =>
+      entity.id === carrier.id
+        ? {
+            token: createToken(carrier.id, 0, 0),
+            gridSettings: GRID,
+            neighbors: neighbors.map((neighbor, index) => ({
+              token: createToken(neighbor.id, index + 1, 0),
+              entity: neighbor,
+            })),
+          }
+        : null,
+  };
+}
+
+/**
  * Синхронизация «сущность вошла в зону».
  *
  * @param {object} entity - сущность
@@ -576,4 +599,132 @@ describe('каталог: зоны и ауры', () => {
   it.todo(
     '[Z13] Сильная заслонённость зоны игрока (стена зрения у зоны от сущности) — пробел',
   );
+
+  it('[Z15] Аура живучести: лечит одно существо на выбор в начале хода', async () => {
+    const aura = createEffect('Аура живучести', {
+      triggers: [
+        {
+          id: 'trigger_heal',
+          event: 'turnStart',
+          recipient: 'choice',
+          choice: { radius: 30, target: 'allies', count: 1 },
+          actions: [{ type: 'damage', parts: [{ formula: '5@heal' }] }],
+        },
+      ],
+    });
+
+    assert.match(
+      authoredScenario(aura, 'spell'),
+      /на 1 из союзников в 30 фт вокруг по выбору/,
+    );
+
+    const caster = withHp(createActor, 30, {
+      id: 'actor_caster',
+      name: 'Жрец',
+      activeEffects: [aura],
+    });
+
+    const hurt = withHp(createActor, 30, { id: 'actor_hurt', name: 'Раненый' });
+    const fresh = withHp(createActor, 30, { id: 'actor_fresh', name: 'Целый' });
+
+    hurt.system.hitPoints.current = 10;
+
+    for (const ally of [caster, hurt, fresh]) {
+      ally.token = { ...ally.token, disposition: 'friendly' };
+    }
+
+    const { requests, requestRoll, answer } = createRequestRoll();
+
+    const result = new engine.Dnd5eVttSystem().runTurnEffects(
+      caster,
+      'startOfTurn',
+      { requestRoll, ...surroundingsOf(caster, [hurt, fresh]) },
+    );
+
+    assert.equal(requests.length, 1, 'спросили один раз');
+    assert.equal(requests[0].entityId, caster.id, 'спросили у носителя ауры');
+
+    assert.deepEqual(
+      requests[0].payload.candidates.map((candidate) => candidate.id),
+      [hurt.id, fresh.id],
+      'кандидаты — союзники в радиусе',
+    );
+
+    answer({
+      status: 'answered',
+      result: { chosenIds: [hurt.id] },
+      respondedByUserId: PLAYER_ID,
+    });
+
+    const applied = await result.deferred[0].resolution;
+    const nested = applied(caster);
+
+    assert.equal(nested.deferred?.length, 1, 'лечение уходит чужой записи');
+
+    (await nested.deferred[0].resolution)(hurt);
+
+    assert.equal(
+      engine.resolveEntityCurrentHp(hurt),
+      15,
+      'вылечили выбранного',
+    );
+
+    assert.equal(
+      engine.resolveEntityCurrentHp(fresh),
+      30,
+      'второго не тронули',
+    );
+  });
+
+  it('[Z16] Выбор цели: условие кандидата и отказ отменяет срабатывание', async () => {
+    const smite = createEffect('Кара нежити', {
+      triggers: [
+        {
+          id: 'trigger_smite',
+          event: 'turnEnd',
+          recipient: 'choice',
+          choice: { radius: 15, condition: 'self.creatureType === "undead"' },
+          actions: [
+            { type: 'damage', parts: [{ formula: '6', type: 'radiant' }] },
+          ],
+        },
+      ],
+    });
+
+    const hero = createActor({ id: 'actor_hero', activeEffects: [smite] });
+    const zombie = withHp(createCreature, 20, { id: 'creature_zombie' });
+    const wolf = withHp(createCreature, 20, { id: 'creature_wolf' });
+
+    zombie.system.type = 'undead';
+    wolf.system.type = 'beast';
+
+    const { requests, requestRoll, answer } = createRequestRoll();
+
+    const result = new engine.Dnd5eVttSystem().runTurnEffects(
+      hero,
+      'endOfTurn',
+      { requestRoll, ...surroundingsOf(hero, [zombie, wolf]) },
+    );
+
+    assert.deepEqual(
+      requests[0].payload.candidates.map((candidate) => candidate.id),
+      [zombie.id],
+      'волк не нежить — в кандидаты не попал',
+    );
+
+    answer({ status: 'declined' });
+
+    const applied = await result.deferred[0].resolution;
+    const outcome = applied(hero);
+
+    assert.equal(
+      outcome.changed,
+      false,
+      'без выбора срабатывание не состоялось',
+    );
+
+    assert.equal(engine.resolveEntityCurrentHp(zombie), 20, 'урона нет');
+
+    assert.match(outcome.chatSummary ?? '', /цель не выбрана/);
+  });
 });

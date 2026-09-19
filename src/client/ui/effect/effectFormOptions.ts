@@ -15,8 +15,11 @@ import type {
   EffectSaveTiming,
   EffectSuccessOutcome,
   EffectTrigger,
+  EffectTriggerAction,
   EffectTriggerActionGate,
+  EffectTriggerActionType,
   EffectTriggerAttackRole,
+  EffectTriggerChooser,
   EffectTriggerLimitPeriod,
   EffectTriggerMaxHpRestEnd,
   EffectTriggerRecipient,
@@ -30,11 +33,14 @@ import type {
 import type { EffectActivationChoice, SaveDcFieldMode } from './constants';
 
 import {
+  DEFAULT_EFFECT_TAG,
+  DEFAULT_SET_HP_VALUE,
   DEFAULT_TRIGGER_ATTACK_ROLE,
   EFFECT_DURATION_LABELS,
   EFFECT_SAVE_TIMINGS,
   EFFECT_TRIGGER_ACTION_GATES,
   EFFECT_TRIGGER_ATTACK_ROLES,
+  EFFECT_TRIGGER_CHOOSERS,
   EFFECT_TRIGGER_LIMIT_PERIODS,
   EFFECT_TRIGGER_MAX_HP_REST_ENDS,
   EFFECT_TRIGGER_RECIPIENTS,
@@ -45,6 +51,7 @@ import {
   EFFECT_VARIANT_PICKS,
   listSelectableConditions,
   triggerEventAcceptsArea,
+  triggerEventAcceptsChoice,
   triggerEventHasOtherParty,
   triggerEventHasRole,
 } from '@vtt/shared/system/dnd.js';
@@ -70,9 +77,11 @@ import {
   ZONE_TRIGGER_LABELS,
 } from './constants';
 import {
+  DEFAULT_MAX_HP_REDUCTION,
   EFFECT_SAVE_TIMING_LABELS,
   EFFECT_TRIGGER_APPLIED_OTHER_PARTY_LABEL,
   EFFECT_TRIGGER_ATTACK_OTHER_PARTY_LABELS,
+  EFFECT_TRIGGER_CHOOSER_LABELS,
   EFFECT_TRIGGER_DAMAGE_HALF_GATE,
   EFFECT_TRIGGER_DAMAGE_HALF_LABEL,
   EFFECT_TRIGGER_GATE_LABELS,
@@ -418,6 +427,33 @@ export const SAVE_DC_AUTO_SEPARATOR = ' · ';
 /** Состояние нового действия «Наложить состояние» */
 export const DEFAULT_TRIGGER_CONDITION: ConditionRef = 'poisoned';
 
+/**
+ * Новое действие срабатывания выбранного вида: пустая заготовка, которую автор
+ * дозаполняет. Одна на строку срабатывания и на вложенное срабатывание
+ * состояния.
+ *
+ * @param type - вид действия
+ * @returns действие
+ */
+export function createTriggerAction(
+  type: EffectTriggerActionType,
+): EffectTriggerAction {
+  switch (type) {
+    case 'damage':
+      return { type, parts: [] };
+    case 'applyCondition':
+      return { type, conditionKey: DEFAULT_TRIGGER_CONDITION };
+    case 'applyTag':
+      return { type, tag: DEFAULT_EFFECT_TAG };
+    case 'setHp':
+      return { type, value: DEFAULT_SET_HP_VALUE };
+    case 'reduceMaxHp':
+      return { type, amount: DEFAULT_MAX_HP_REDUCTION };
+    default:
+      return { type };
+  }
+}
+
 /** Период нового лимита «не чаще N раз» */
 export const DEFAULT_TRIGGER_LIMIT_PERIOD: EffectTriggerLimitPeriod = 'turn';
 
@@ -454,6 +490,13 @@ function resolveOtherPartyLabel(
     : EFFECT_TRIGGER_RECIPIENT_LABELS.other;
 }
 
+/** Кто выбирает получателей действий */
+export const EFFECT_TRIGGER_CHOOSER_OPTIONS: EffectSegmentOption<EffectTriggerChooser>[] =
+  EFFECT_TRIGGER_CHOOSERS.map((chooser) => ({
+    value: chooser,
+    label: EFFECT_TRIGGER_CHOOSER_LABELS[chooser],
+  }));
+
 /**
  * Варианты получателя действий срабатывания. «Другая сторона» подписана по
  * событию: у урона — кто его нанёс, у броска атаки — цель или атакующий.
@@ -473,6 +516,7 @@ export function buildTriggerRecipientOptions(
     subject: true,
     other: triggerEventHasOtherParty(trigger.event),
     area: triggerEventAcceptsArea(trigger.event),
+    choice: triggerEventAcceptsChoice(trigger.event),
   };
 
   return EFFECT_TRIGGER_RECIPIENTS.filter(
@@ -492,7 +536,11 @@ export function buildTriggerRecipientOptions(
 export function triggerEventHasRecipientChoice(
   event: EffectTrigger['event'],
 ): boolean {
-  return triggerEventHasOtherParty(event) || triggerEventAcceptsArea(event);
+  return (
+    triggerEventHasOtherParty(event)
+    || triggerEventAcceptsArea(event)
+    || triggerEventAcceptsChoice(event)
+  );
 }
 
 /** Варианты периода лимита */

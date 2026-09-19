@@ -2,15 +2,18 @@ import type {
   RequestedRollPrompt,
   RequestedRollReply,
 } from '@/core/systems/uiSystemRegistry';
+import type { TargetChoiceRequestPayload } from '@vtt/shared/system/dnd.js';
 
 import type { SavingThrowTarget } from './useSpellSavingThrows';
 
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import {
   parseSavingThrowRequestPayload,
+  parseTargetChoiceRequestPayload,
   resolveAutoSaves,
 } from '@vtt/shared/system/dnd.js';
 
+import { EFFECT_TARGET_PROMPT_LABELS } from '../ui/effect/constants';
 import { useSpellSavingThrows } from './useSpellSavingThrows';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -53,6 +56,13 @@ export function promptRequestedRoll(
   request: RequestedRollPrompt,
   reply: RequestedRollReply,
 ): boolean {
+  // Тем же каналом приходит выбор цели: у него своя метка формы и своё окно
+  const choice = parseTargetChoiceRequestPayload(request.payload);
+
+  if (choice) {
+    return promptTargetChoice(request, reply, choice);
+  }
+
   const payload = parseSavingThrowRequestPayload(request.payload);
 
   // Чужая форма нагрузки (другой вид броска, другая система) — не наше дело
@@ -153,6 +163,91 @@ export function promptRequestedRoll(
   if (!modalId) {
     console.warn(
       `${REQUESTED_ROLL_LOG_PREFIX} Окно спасброска по запросу ${request.requestId} не открылось`,
+    );
+
+    settle(() => reply.decline());
+
+    return true;
+  }
+
+  openRequestModals.set(request.requestId, modalId);
+
+  reply.onCancelled(closeOnCancelled);
+
+  return true;
+}
+
+/**
+ * Открывает окно выбора цели по чужому запросу.
+ *
+ * Кандидатов считает инициатор — у него сцена; здесь их только показывают и
+ * возвращают отмеченных. Закрытие окна — отказ, как и у спасброска.
+ *
+ * @param request - запрос от ядра
+ * @param reply - ответ инициатору
+ * @param payload - разобранная нагрузка выбора
+ * @returns всегда `true`: запрос наш
+ */
+function promptTargetChoice(
+  request: RequestedRollPrompt,
+  reply: RequestedRollReply,
+  payload: TargetChoiceRequestPayload,
+): boolean {
+  const { openModal, closeModal } = useModalManager();
+
+  let settled = false;
+
+  /**
+   * Отвечают ровно один раз: снятие запроса ядром тоже проходит замком.
+   *
+   * @param respond - что сказать инициатору
+   */
+  function settle(respond?: () => void): void {
+    if (settled) {
+      return;
+    }
+
+    settled = true;
+    openRequestModals.delete(request.requestId);
+    respond?.();
+  }
+
+  /** Запрос сняли: окно закрывается, отвечать уже некому */
+  function closeOnCancelled(): void {
+    const openModalId = openRequestModals.get(request.requestId);
+
+    settle();
+
+    if (openModalId) {
+      closeModal(openModalId);
+    }
+  }
+
+  if (openRequestModals.has(request.requestId)) {
+    reply.onCancelled(closeOnCancelled);
+
+    return true;
+  }
+
+  const modalId = openModal('EffectTargetPromptModal', {
+    _modalKey: `${REQUESTED_ROLL_MODAL_KEY_PREFIX}${request.requestId}`,
+    candidates: payload.candidates,
+    count: payload.count,
+    optional: payload.optional,
+    sourceName: payload.sourceName ?? EFFECT_TARGET_PROMPT_LABELS.titleFallback,
+    onConfirm: (chosenIds: string[]) => {
+      settle(() => {
+        reply.answer({ chosenIds });
+      });
+    },
+    onCancel: () => {
+      settle(() => reply.decline());
+    },
+  });
+
+  if (!modalId) {
+    console.warn(
+      `${REQUESTED_ROLL_LOG_PREFIX} Окно выбора цели по запросу ${request.requestId} не открылось`,
     );
 
     settle(() => reply.decline());

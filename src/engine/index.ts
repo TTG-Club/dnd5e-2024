@@ -96,6 +96,7 @@ export * from './systemClientEvents.js';
 export * from './templateGeometry.js';
 export * from './terrainCost.js';
 export * from './toolProficiency.js';
+export * from './triggerChoice.js';
 export * from './triggerConditions.js';
 export * from './turnEffects.js';
 export * from './types.js';

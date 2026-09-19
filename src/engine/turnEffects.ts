@@ -775,6 +775,13 @@ export interface EffectDamageRollOptions {
   scale?: number;
   /** Чем катать кости; по умолчанию — генератор движка (клиент даёт свои кубики) */
   rollFormula?: DamageFormulaRoller;
+  /**
+   * Нанесён ли уже урон источником, доставившим эффект: гейт `requiresDamage`
+   * у части. Без урона такая часть не катается («боеприпас убийства» добивает
+   * только попавший выстрел). По умолчанию гейт закрыт: источник, который
+   * своего урона не знает, лишнего не наносит.
+   */
+  damageDealt?: boolean;
 }
 
 /** Одна часть урона эффекта после доли и защит — строка чата */
@@ -855,6 +862,9 @@ function scaleDamageTotals(totals: readonly number[], scale: number): number[] {
  * Один бросок на сервер и клиент: эффект на цели при попадании, срабатывания
  * хода, входа и выхода.
  *
+ * Части с `requiresDamage` катаются только когда источник сообщил, что урон
+ * уже нанесён (`options.damageDealt`).
+ *
  * @param damageParts - части урона эффекта
  * @param stats - resolved-статы цели (нужны защиты от урона)
  * @param entity - сущность-цель (нужна для гейтов условных веток)
@@ -867,10 +877,14 @@ export function rollEffectDamageParts(
   entity: DnDSceneEntity,
   options: EffectDamageRollOptions = {},
 ): EffectDamageRoll {
-  const { scale = 1, rollFormula = rollDamageFormula } = options;
+  const { scale = 1, rollFormula = rollDamageFormula, damageDealt } = options;
+
+  const gated = damageParts.filter(
+    (part) => damageDealt === true || part.requiresDamage !== true,
+  );
 
   const segments = expandDamageParts(
-    damageParts,
+    gated,
     undefined,
     (formula) => formula,
   ).filter(

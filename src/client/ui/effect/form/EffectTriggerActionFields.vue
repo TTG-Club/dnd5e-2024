@@ -10,8 +10,11 @@
     EffectFormLayout,
     EffectSaveTiming,
     EffectTriggerAction,
+    EffectTriggerActionType,
+    EffectTriggerEvent,
     EffectTriggerMaxHpRestEnd,
     EffectTriggerReduceMaxHpAction,
+    NestedEffectTrigger,
   } from '@vtt/shared/system/dnd.js';
 
   import { computed } from 'vue';
@@ -19,9 +22,13 @@
   import {
     ABILITY_OPTIONS,
     createDefaultEffectSave,
+    createEffectTriggerId,
+    DEFAULT_NESTED_TRIGGER_EVENT,
     DEFAULT_TRIGGER_REST_TYPE,
     isEffectTag,
     layoutAcceptsSourceSaveDc,
+    listTriggerActionTypes,
+    NESTED_TRIGGER_EVENTS,
   } from '@vtt/shared/system/dnd.js';
 
   import { useSystemDataStore } from '../../../stores/systemDataStore';
@@ -30,11 +37,14 @@
   import {
     buildConditionItems,
     buildDamageTypeItems,
+    createTriggerAction,
     EFFECT_SAVE_TIMING_OPTIONS,
     EFFECT_TRIGGER_MAX_HP_REST_OPTIONS,
   } from '../effectFormOptions';
   import {
     DEFAULT_RECURRING_SAVE_TIMING,
+    EFFECT_TRIGGER_ACTION_LABELS,
+    EFFECT_TRIGGER_EVENT_LABELS,
     EFFECT_TRIGGER_ROW_LABELS,
   } from '../triggerLabels';
   import SaveDcField from './SaveDcField.vue';
@@ -44,6 +54,11 @@
     layout: EffectFormLayout;
     /** Сл источника для «Авто», если окно её знает */
     sourceSaveDc?: number;
+    /**
+     * Действие уже вложено в наложенное состояние: своих срабатываний у него
+     * не бывает — вложенность на одну ступень
+     */
+    nested?: boolean;
   }>();
 
   /** Действие строки */
@@ -161,6 +176,98 @@
         recurringSave: { ...current.recurringSave, ...patch },
       };
     }
+  }
+
+  const hasNestedTrigger = computed({
+    get: () =>
+      action.value.type === 'applyCondition'
+      && (action.value.triggers?.length ?? 0) > 0,
+    set: (enabled: boolean) => {
+      const current = action.value;
+
+      if (current.type !== 'applyCondition') {
+        return;
+      }
+
+      const { triggers: _triggers, ...rest } = current;
+
+      action.value = enabled
+        ? {
+            ...rest,
+            triggers: [
+              {
+                id: createEffectTriggerId(),
+                event: DEFAULT_NESTED_TRIGGER_EVENT,
+                actions: [{ type: 'removeSelf' }],
+              },
+            ],
+          }
+        : rest;
+    },
+  });
+
+  /** Единственное вложенное срабатывание состояния */
+  const nestedTrigger = computed(() =>
+    action.value.type === 'applyCondition'
+      ? action.value.triggers?.[0]
+      : undefined,
+  );
+
+  /** Единственное действие вложенного срабатывания */
+  const nestedAction = computed<EffectTriggerAction>({
+    get: () => nestedTrigger.value?.actions[0] ?? { type: 'removeSelf' },
+    set: (next) => updateNestedTrigger({ actions: [next] }),
+  });
+
+  /** События, на которые реагирует наложенное состояние */
+  const nestedEventItems = NESTED_TRIGGER_EVENTS.map((event) => ({
+    value: event,
+    label: EFFECT_TRIGGER_EVENT_LABELS[event],
+  }));
+
+  /** Что вложенное срабатывание может сделать */
+  const nestedActionItems = computed(() =>
+    listTriggerActionTypes(
+      props.layout,
+      nestedTrigger.value?.event ?? DEFAULT_NESTED_TRIGGER_EVENT,
+    ).map((type) => ({
+      value: type,
+      label: EFFECT_TRIGGER_ACTION_LABELS[type],
+    })),
+  );
+
+  /**
+   * Меняет вложенное срабатывание, не теряя остальных его полей.
+   *
+   * @param patch - изменённые поля срабатывания
+   */
+  function updateNestedTrigger(patch: Partial<NestedEffectTrigger>): void {
+    const current = action.value;
+    const trigger = nestedTrigger.value;
+
+    if (current.type !== 'applyCondition' || !trigger) {
+      return;
+    }
+
+    action.value = { ...current, triggers: [{ ...trigger, ...patch }] };
+  }
+
+  /**
+   * Меняет событие вложенного срабатывания.
+   *
+   * @param nextEvent - событие наложенного состояния
+   */
+  function updateNestedEvent(nextEvent: EffectTriggerEvent): void {
+    updateNestedTrigger({ event: nextEvent });
+  }
+
+  /**
+   * Меняет вид действия вложенного срабатывания.
+   *
+   * @param type - вид действия
+   */
+  function updateNestedActionType(type: EffectTriggerActionType): void {
+    nestedAction.value = createTriggerAction(type);
   }
 
   /**
@@ -366,6 +473,58 @@
           @update:model-value="updateRecurringSave({ timing: $event })"
         />
       </UFormField>
+    </div>
+
+    <!-- Своё срабатывание состояния: «Сон» просыпается от урона сам, не
+         заканчивая каст всем целям -->
+    <USwitch
+      v-if="!nested"
+      v-model="hasNestedTrigger"
+      :label="EFFECT_TRIGGER_ROW_LABELS.nestedTriggerToggle"
+    />
+
+    <div
+      v-if="!nested && nestedTrigger"
+      class="flex flex-col gap-2 border-l-2 border-muted/50 pl-3"
+    >
+      <div class="flex flex-wrap items-end gap-2">
+        <UFormField
+          :label="EFFECT_TRIGGER_ROW_LABELS.nestedTriggerEvent"
+          class="w-56"
+        >
+          <USelect
+            :model-value="nestedTrigger.event"
+            :items="nestedEventItems"
+            value-key="value"
+            size="sm"
+            class="w-full"
+            :portal="false"
+            @update:model-value="updateNestedEvent"
+          />
+        </UFormField>
+
+        <UFormField
+          :label="EFFECT_TRIGGER_ROW_LABELS.nestedTriggerAction"
+          class="w-56"
+        >
+          <USelect
+            :model-value="nestedAction.type"
+            :items="nestedActionItems"
+            value-key="value"
+            size="sm"
+            class="w-full"
+            :portal="false"
+            @update:model-value="updateNestedActionType"
+          />
+        </UFormField>
+      </div>
+
+      <EffectTriggerActionFields
+        v-model:action="nestedAction"
+        :layout="layout"
+        :source-save-dc="sourceSaveDc"
+        nested
+      />
     </div>
   </div>
 

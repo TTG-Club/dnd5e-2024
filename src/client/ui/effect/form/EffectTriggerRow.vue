@@ -13,9 +13,10 @@
     EffectTrigger,
     EffectTriggerAction,
     EffectTriggerActionGate,
-    EffectTriggerActionType,
     EffectTriggerAreaTarget,
     EffectTriggerAttackRole,
+    EffectTriggerChoice,
+    EffectTriggerChooser,
     EffectTriggerEvent,
     EffectTriggerLimitPeriod,
     EffectTriggerRecipient,
@@ -33,19 +34,22 @@
   import {
     ABILITY_OPTIONS,
     AREA_TRIGGER_RECIPIENT,
+    CHOICE_TRIGGER_RECIPIENT,
     createDefaultEffectSave,
     DEFAULT_EFFECT_SAVE_ABILITY,
-    DEFAULT_EFFECT_TAG,
-    DEFAULT_SET_HP_VALUE,
     DEFAULT_TRIGGER_AREA_RADIUS,
     DEFAULT_TRIGGER_AREA_TARGET,
     DEFAULT_TRIGGER_ATTACK_ROLE,
+    DEFAULT_TRIGGER_CHOICE_COUNT,
+    DEFAULT_TRIGGER_CHOICE_RADIUS,
+    DEFAULT_TRIGGER_CHOOSER,
     DEFAULT_TRIGGER_RECIPIENT,
     DEFAULT_TRIGGER_REST_TYPE,
     DEFAULT_TRIGGER_TURN_OWNER,
     isTurnTriggerEvent,
     layoutAcceptsSourceSaveDc,
     listTriggerActionTypes,
+    MAX_TRIGGER_CHOICE_COUNT,
     MIN_TRIGGER_LIMIT_MAX,
     resolveTriggerActionGate,
     triggerEventAcceptsDcFormula,
@@ -61,9 +65,10 @@
   } from '../constants';
   import {
     buildTriggerRecipientOptions,
-    DEFAULT_TRIGGER_CONDITION,
+    createTriggerAction,
     DEFAULT_TRIGGER_LIMIT_PERIOD,
     EFFECT_AURA_TARGET_OPTIONS,
+    EFFECT_TRIGGER_CHOOSER_OPTIONS,
     EFFECT_TRIGGER_DAMAGE_GATE_OPTIONS,
     EFFECT_TRIGGER_GATE_OPTIONS,
     EFFECT_TRIGGER_PERIOD_OPTIONS,
@@ -73,10 +78,10 @@
     triggerEventHasRecipientChoice,
   } from '../effectFormOptions';
   import {
-    DEFAULT_MAX_HP_REDUCTION,
     EFFECT_TRIGGER_ACTION_ICONS,
     EFFECT_TRIGGER_ACTION_LABELS,
     EFFECT_TRIGGER_AREA_LABELS,
+    EFFECT_TRIGGER_CHOICE_LABELS,
     EFFECT_TRIGGER_DAMAGE_HALF_GATE,
     EFFECT_TRIGGER_EVENT_LABELS,
     EFFECT_TRIGGER_NORMAL_SAVE_MODE,
@@ -151,6 +156,10 @@
 
   const isAreaRecipient = computed(
     () => trigger.value.recipient === AREA_TRIGGER_RECIPIENT,
+  );
+
+  const isChoiceRecipient = computed(
+    () => trigger.value.recipient === CHOICE_TRIGGER_RECIPIENT,
   );
 
   const recipientItems = computed(() =>
@@ -251,7 +260,75 @@
           next === AREA_TRIGGER_RECIPIENT
             ? (trigger.value.area ?? { radius: DEFAULT_TRIGGER_AREA_RADIUS })
             : undefined,
+        // «Выбранным» — с радиусом и одной целью
+        choice:
+          next === CHOICE_TRIGGER_RECIPIENT
+            ? (trigger.value.choice ?? {
+                radius: DEFAULT_TRIGGER_CHOICE_RADIUS,
+              })
+            : undefined,
       }),
+  });
+
+  /**
+   * Меняет поле блока «по выбору», не теряя остальных.
+   *
+   * @param patch - изменённые поля блока
+   */
+  function updateChoice(patch: Partial<EffectTriggerChoice>): void {
+    update({
+      choice: {
+        radius: DEFAULT_TRIGGER_CHOICE_RADIUS,
+        ...trigger.value.choice,
+        ...patch,
+      },
+    });
+  }
+
+  const choiceRadius = computed({
+    get: () => trigger.value.choice?.radius ?? DEFAULT_TRIGGER_CHOICE_RADIUS,
+    set: (radius: number | null) => {
+      if (radius !== null) {
+        updateChoice({ radius });
+      }
+    },
+  });
+
+  const choiceTarget = computed({
+    get: () => trigger.value.choice?.target ?? DEFAULT_TRIGGER_AREA_TARGET,
+    set: (target: EffectTriggerAreaTarget) =>
+      updateChoice({
+        target: target === DEFAULT_TRIGGER_AREA_TARGET ? undefined : target,
+      }),
+  });
+
+  const choiceCount = computed({
+    get: () => trigger.value.choice?.count ?? DEFAULT_TRIGGER_CHOICE_COUNT,
+    set: (count: number | null) => {
+      if (count !== null) {
+        updateChoice({ count });
+      }
+    },
+  });
+
+  const choiceChooser = computed({
+    get: () => trigger.value.choice?.chooser ?? DEFAULT_TRIGGER_CHOOSER,
+    set: (chooser: EffectTriggerChooser) =>
+      updateChoice({
+        chooser: chooser === DEFAULT_TRIGGER_CHOOSER ? undefined : chooser,
+      }),
+  });
+
+  const choiceOptional = computed({
+    get: () => trigger.value.choice?.optional === true,
+    set: (optional: boolean) =>
+      updateChoice({ optional: optional ? true : undefined }),
+  });
+
+  const choiceCondition = computed({
+    get: () => trigger.value.choice?.condition,
+    set: (condition: string | undefined) =>
+      updateChoice({ condition: condition?.trim() || undefined }),
   });
 
   const areaRadius = computed({
@@ -402,35 +479,14 @@
     });
   }
 
-  /**
-   * Новое действие вида.
-   *
-   * @param type - вид действия
-   * @returns действие
-   */
-  function createAction(type: EffectTriggerActionType): EffectTriggerAction {
-    switch (type) {
-      case 'damage':
-        return { type, parts: [] };
-      case 'applyCondition':
-        return { type, conditionKey: DEFAULT_TRIGGER_CONDITION };
-      case 'applyTag':
-        return { type, tag: DEFAULT_EFFECT_TAG };
-      case 'setHp':
-        return { type, value: DEFAULT_SET_HP_VALUE };
-      case 'reduceMaxHp':
-        return { type, amount: DEFAULT_MAX_HP_REDUCTION };
-      default:
-        return { type };
-    }
-  }
-
   const addActionItems = computed<DropdownMenuItem[]>(() =>
     allowedActions.value.map((type) => ({
       label: EFFECT_TRIGGER_ACTION_LABELS[type],
       icon: EFFECT_TRIGGER_ACTION_ICONS[type],
       onSelect: () =>
-        update({ actions: [...trigger.value.actions, createAction(type)] }),
+        update({
+          actions: [...trigger.value.actions, createTriggerAction(type)],
+        }),
     })),
   );
 
@@ -603,6 +659,67 @@
         </UFormField>
       </template>
 
+      <template v-if="isChoiceRecipient">
+        <UFormField
+          :label="EFFECT_TRIGGER_CHOICE_LABELS.radius"
+          class="w-28"
+        >
+          <UInputNumber
+            v-model="choiceRadius"
+            :min="0"
+            :step="EFFECT_AURA_RADIUS_STEP"
+            size="sm"
+            class="w-full"
+          />
+        </UFormField>
+
+        <UFormField
+          :label="EFFECT_TRIGGER_CHOICE_LABELS.target"
+          class="w-44"
+        >
+          <USelect
+            v-model="choiceTarget"
+            :items="EFFECT_AURA_TARGET_OPTIONS"
+            value-key="value"
+            size="sm"
+            class="w-full"
+            :portal="false"
+          />
+        </UFormField>
+
+        <UFormField
+          :label="EFFECT_TRIGGER_CHOICE_LABELS.count"
+          class="w-28"
+        >
+          <UInputNumber
+            v-model="choiceCount"
+            :min="1"
+            :max="MAX_TRIGGER_CHOICE_COUNT"
+            size="sm"
+            class="w-full"
+          />
+        </UFormField>
+
+        <UFormField
+          :label="EFFECT_TRIGGER_CHOICE_LABELS.chooser"
+          class="w-48"
+        >
+          <USelect
+            v-model="choiceChooser"
+            :items="EFFECT_TRIGGER_CHOOSER_OPTIONS"
+            value-key="value"
+            size="sm"
+            class="w-full"
+            :portal="false"
+          />
+        </UFormField>
+
+        <USwitch
+          v-model="choiceOptional"
+          :label="EFFECT_TRIGGER_CHOICE_LABELS.optional"
+        />
+      </template>
+
       <UFormField
         v-if="showsTurnOwner"
         :label="EFFECT_TRIGGER_ROW_LABELS.turnOf"
@@ -633,6 +750,15 @@
       v-model:condition="condition"
       :event="trigger.event"
       :known-tags="knownTags"
+    />
+
+    <!-- Условие кандидата: тот же словарь, но проверяется на том, кого выбирают -->
+    <EffectTriggerConditionPicker
+      v-if="isChoiceRecipient"
+      v-model:condition="choiceCondition"
+      :event="trigger.event"
+      :known-tags="knownTags"
+      :title="EFFECT_TRIGGER_CHOICE_LABELS.condition"
     />
 
     <USwitch

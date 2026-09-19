@@ -58,6 +58,7 @@ import {
   EFFECT_TRIGGER_ACTION_GATES,
   EFFECT_TRIGGER_AREA_TARGETS,
   EFFECT_TRIGGER_ATTACK_ROLES,
+  EFFECT_TRIGGER_CHOOSERS,
   EFFECT_TRIGGER_EVENTS,
   EFFECT_TRIGGER_LIMIT_PERIODS,
   EFFECT_TRIGGER_MAX_HP_REST_ENDS,
@@ -66,6 +67,7 @@ import {
   EFFECT_TRIGGER_REST_TYPES,
   EFFECT_TRIGGER_SAVE_MODES,
   EFFECT_TRIGGER_TURN_OWNERS,
+  MAX_TRIGGER_CHOICE_COUNT,
   MIN_TRIGGER_LIMIT_MAX,
 } from './effectTriggerTypes.js';
 import { EFFECT_VARIANT_PICKS } from './effectVariants.js';
@@ -2075,8 +2077,8 @@ const EffectTriggerGateSchema = z
   .optional()
   .catch(undefined);
 
-/** Zod-схема действия срабатывания */
-const EffectTriggerActionSchema = z.discriminatedUnion('type', [
+/** Zod-схемы действий срабатывания, кроме наложения состояния */
+const EFFECT_TRIGGER_PLAIN_ACTION_SCHEMAS = [
   z.object({
     type: z.literal('damage'),
     parts: z.array(EffectDamagePartSchema),
@@ -2084,13 +2086,6 @@ const EffectTriggerActionSchema = z.discriminatedUnion('type', [
     halfOnSave: z.literal(true).optional().catch(undefined),
   }),
   z.object({ type: z.literal('applySelf'), on: EffectTriggerGateSchema }),
-  z.object({
-    type: z.literal('applyCondition'),
-    conditionKey: z.string().min(1),
-    duration: EffectDurationSchema.optional().catch(undefined),
-    recurringSave: RecurringSaveSchema.optional().catch(undefined),
-    on: EffectTriggerGateSchema,
-  }),
   z.object({
     type: z.literal('applyTag'),
     tag: z.string().regex(EFFECT_TAG_PATTERN),
@@ -2115,6 +2110,21 @@ const EffectTriggerActionSchema = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('endCast'), on: EffectTriggerGateSchema }),
   z.object({ type: z.literal('removeSelf'), on: EffectTriggerGateSchema }),
+] as const;
+
+/** Поля наложения состояния без собственных срабатываний */
+const applyConditionActionShape = {
+  type: z.literal('applyCondition'),
+  conditionKey: z.string().min(1),
+  duration: EffectDurationSchema.optional().catch(undefined),
+  recurringSave: RecurringSaveSchema.optional().catch(undefined),
+  on: EffectTriggerGateSchema,
+} as const;
+
+/** Zod-схема действия вложенного срабатывания */
+const NestedEffectTriggerActionSchema = z.discriminatedUnion('type', [
+  ...EFFECT_TRIGGER_PLAIN_ACTION_SCHEMAS,
+  z.object(applyConditionActionShape),
 ]);
 
 /** Самая длинная подпись варианта и ключ его группы */
@@ -2156,11 +2166,33 @@ const EffectTriggerLimitSchema = z.object({
   key: z.string().min(1).optional().catch(undefined),
 });
 
+/** Zod-схема получателя «по выбору» */
+const EffectTriggerChoiceSchema = z.object({
+  radius: z.preprocess(coerceOptionalNumber, z.number().min(0)),
+  target: z.enum(EFFECT_TRIGGER_AREA_TARGETS).optional().catch(undefined),
+  count: z.preprocess(
+    coerceOptionalNumber,
+    z
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_TRIGGER_CHOICE_COUNT)
+      .optional()
+      .catch(undefined),
+  ),
+  condition: z.string().min(1).optional().catch(undefined),
+  optional: z.literal(true).optional().catch(undefined),
+  chooser: z.enum(EFFECT_TRIGGER_CHOOSERS).optional().catch(undefined),
+});
+
 /**
- * Zod-схема срабатывания. События следующих фаз разбираются, чтобы версия без
- * их поддержки не стирала их у записи.
+ * Общие поля срабатывания — без действий: у вложенного срабатывания они те же,
+ * отличается только список действий.
+ *
+ * События следующих фаз разбираются, чтобы версия без их поддержки не стирала
+ * их у записи.
  */
-const EffectTriggerSchema = z.object({
+const effectTriggerShape = {
   id: z.string().min(1),
   event: z.enum([...EFFECT_TRIGGER_EVENTS, ...EFFECT_TRIGGER_RESERVED_EVENTS]),
   turnOf: z.enum(EFFECT_TRIGGER_TURN_OWNERS).optional().catch(undefined),
@@ -2174,10 +2206,41 @@ const EffectTriggerSchema = z.object({
     })
     .optional()
     .catch(undefined),
+  choice: EffectTriggerChoiceSchema.optional().catch(undefined),
   condition: z.string().min(1).optional().catch(undefined),
   save: EffectTriggerSaveSchema.optional(),
-  actions: z.array(EffectTriggerActionSchema).min(1),
   limit: EffectTriggerLimitSchema.optional().catch(undefined),
+} as const;
+
+/** Zod-схема вложенного срабатывания: своих вложенных у него уже нет */
+const NestedEffectTriggerSchema = z.object({
+  ...effectTriggerShape,
+  actions: z.array(NestedEffectTriggerActionSchema).min(1),
+});
+
+/**
+ * Zod-схема списка вложенных срабатываний. Разбираются по одному — как и
+ * срабатывания эффекта.
+ */
+const NestedEffectTriggersSchema = z
+  .array(z.unknown())
+  .transform((rawTriggers) =>
+    parseEachValid(NestedEffectTriggerSchema, rawTriggers),
+  );
+
+/** Zod-схема действия срабатывания */
+const EffectTriggerActionSchema = z.discriminatedUnion('type', [
+  ...EFFECT_TRIGGER_PLAIN_ACTION_SCHEMAS,
+  z.object({
+    ...applyConditionActionShape,
+    triggers: NestedEffectTriggersSchema.optional().catch(undefined),
+  }),
+]);
+
+/** Zod-схема срабатывания */
+const EffectTriggerSchema = z.object({
+  ...effectTriggerShape,
+  actions: z.array(EffectTriggerActionSchema).min(1),
 });
 
 /**

@@ -18,6 +18,10 @@ import type {
   EffectTriggerSource,
 } from './effectTriggerRunner.js';
 import type {
+  EffectTriggerAction,
+  EffectTriggerChoice,
+} from './effectTriggerTypes.js';
+import type {
   EffectSaveSpec,
   EntryEffectOptions,
   EntryEffectResult,
@@ -41,13 +45,23 @@ import {
   buildTriggerSaveSpec,
   removeEffectsById,
   rollTriggerDamage,
+  rollTriggerSave,
   settlePresenceTrigger,
+  settleTriggerOutcome,
   toTriggerSaveOutcome,
 } from './effectTriggerRunner.js';
 import {
   listEffectListTriggers,
   turnTriggerEventOf,
 } from './effectTriggers.js';
+import {
+  formatTargetChoiceRequestTitle,
+  readChoiceAnswer,
+  resolveChoiceCount,
+  resolveChooserId,
+  TARGET_CHOICE_REQUEST_KIND,
+  toChoiceCandidatePayload,
+} from './triggerChoice.js';
 import {
   applyDamageToEntity,
   buildApplySaveSpec,
@@ -484,6 +498,239 @@ export function requestPresenceTriggerSave(
         effectOptions,
       ),
   );
+}
+
+/** Заметки в сводку чата о том, чем кончился выбор цели */
+export const TARGET_CHOICE_CHAT_NOTES = {
+  declined: 'цель не выбрана — срабатывание отменено',
+  optionalDeclined: 'от выбора отказались',
+  timeout: 'нет ответа на выбор цели — срабатывание отменено',
+  noCandidates: 'выбирать не из кого',
+} as const;
+
+/** Действия, которые всегда остаются эффекту субъекта, а не выбранным */
+const SUBJECT_ONLY_ACTIONS: readonly EffectTriggerAction['type'][] = [
+  'removeSelf',
+  'endCast',
+];
+
+/**
+ * Срабатывание только с теми действиями, что достаются выбранным, — или
+ * только с теми, что остаются субъекту.
+ *
+ * @param source - срабатывание с источником
+ * @param subjectOnly - оставить действия субъекта, а не выбранных
+ * @returns срабатывание с урезанным списком действий
+ */
+function narrowChoiceSource(
+  source: EffectTriggerSource,
+  subjectOnly: boolean,
+): EffectTriggerSource {
+  return {
+    ...source,
+    trigger: {
+      ...source.trigger,
+      actions: source.trigger.actions.filter(
+        (action) => SUBJECT_ONLY_ACTIONS.includes(action.type) === subjectOnly,
+      ),
+    },
+  };
+}
+
+/** Что известно о выборе к моменту ответа */
+interface ChoiceAnswerTarget {
+  /** Срабатывание на момент запроса: пока выбирали, эффект мог измениться */
+  source: EffectTriggerSource;
+  /** Кандидаты, которых отправляли в запросе */
+  candidates: DnDSceneEntity[];
+  choice: EffectTriggerChoice;
+  effectOptions: EntryEffectOptions;
+}
+
+/**
+ * Применяет действия срабатывания к одному выбранному получателю.
+ *
+ * Спасбросок выбранного бросается на сервере: спрашивать бросок вдогонку к
+ * уже заданному вопросу значило бы два окна подряд на одно срабатывание.
+ *
+ * @param subject - субъект срабатывания (на нём эффект)
+ * @param recipient - выбранный получатель
+ * @param target - что выбирали
+ * @returns исход для сводки
+ */
+function settleChoiceRecipient(
+  subject: DnDSceneEntity,
+  recipient: DnDSceneEntity,
+  target: ChoiceAnswerTarget,
+): DeferredEffectOutcome {
+  const source = narrowChoiceSource(target.source, false);
+
+  if (source.trigger.actions.length === 0) {
+    return unchangedOutcome([]);
+  }
+
+  return toDeferredEffectOutcome(
+    settleTriggerOutcome(
+      subject,
+      recipient,
+      source,
+      rollTriggerSave(recipient, source),
+      target.effectOptions,
+    ),
+    [],
+  );
+}
+
+/**
+ * Применяет ответ на выбор цели: действия достаются выбранным, «Снять эффект»
+ * и «Закончить каст» — эффекту субъекта, как и всегда.
+ *
+ * Выбранные, кроме самого субъекта, — чужие записи: их правки уходят ядру
+ * вложенными отложенными срабатываниями, каждое со своей живой сущностью.
+ *
+ * @param subject - живой субъект
+ * @param target - что выбирали
+ * @param outcome - исход запроса
+ * @returns исход для сводки
+ */
+function applyChoiceAnswer(
+  subject: DnDSceneEntity,
+  target: ChoiceAnswerTarget,
+  outcome: RollRequestOutcome,
+): DeferredEffectOutcome {
+  const chosen = readChoiceAnswer(outcome, target.candidates, target.choice);
+  const effectName = target.source.effect.name;
+
+  if (!chosen || chosen.length === 0) {
+    return unchangedOutcome([
+      `${effectName}: ${resolveChoiceNote(outcome, target.choice)}`,
+    ]);
+  }
+
+  const subjectSource = narrowChoiceSource(target.source, true);
+
+  const removal =
+    subjectSource.trigger.actions.length > 0
+      ? applyTriggerEffectActions(
+          subject,
+          subjectSource,
+          false,
+          target.effectOptions,
+        )
+      : { removes: false, applied: false };
+
+  if (removal.removes) {
+    removeEffectsById(subject, new Set([target.source.effect.id]));
+  }
+
+  const own = chosen
+    .filter((recipient) => recipient.id === subject.id)
+    .map((recipient) => settleChoiceRecipient(subject, recipient, target));
+
+  // Чужие записи ядро берёт на себя: вложенному срабатыванию ждать уже нечего,
+  // ответ известен
+  const deferred = chosen
+    .filter((recipient) => recipient.id !== subject.id)
+    .map((recipient) => ({
+      entityId: recipient.id,
+      blocksMovement: false,
+      resolution: Promise.resolve<DeferredEffectApply>((liveRecipient) =>
+        settleChoiceRecipient(liveRecipient, liveRecipient, target),
+      ),
+    }));
+
+  return {
+    changed:
+      removal.removes
+      || removal.applied
+      || own.some((outcomePart) => outcomePart.changed),
+    damageOutcomes: own.flatMap((outcomePart) => outcomePart.damageOutcomes),
+    healingOutcomes: own.flatMap((outcomePart) => outcomePart.healingOutcomes),
+    saveOutcomes: own.flatMap((outcomePart) => outcomePart.saveOutcomes),
+    notes: own.flatMap((outcomePart) => outcomePart.notes),
+    ...(deferred.length > 0 ? { deferred } : {}),
+  };
+}
+
+/**
+ * Заметка в чат о том, почему выбор не состоялся.
+ *
+ * @param outcome - исход запроса
+ * @param choice - блок «по выбору»
+ * @returns строка заметки
+ */
+function resolveChoiceNote(
+  outcome: RollRequestOutcome,
+  choice: EffectTriggerChoice,
+): string {
+  if (outcome.status === 'timeout') {
+    return TARGET_CHOICE_CHAT_NOTES.timeout;
+  }
+
+  return choice.optional
+    ? TARGET_CHOICE_CHAT_NOTES.optionalDeclined
+    : TARGET_CHOICE_CHAT_NOTES.declined;
+}
+
+/**
+ * Срабатывание с получателем «по выбору»: у человека спрашивают, кого задеть,
+ * и действия ждут ответа.
+ *
+ * Спрашивают у владельца выбирающего — носителя эффекта или того, кто эффект
+ * наложил (`resolveChooserId`). Ответ проверяется по списку кандидатов:
+ * выбрать того, кого в запросе не было, нельзя.
+ *
+ * @param subject - субъект: на нём эффект
+ * @param source - срабатывание с источником
+ * @param candidates - кандидаты (`listChoiceCandidates`)
+ * @param choice - блок «по выбору»
+ * @param requestRoll - запрос от ядра
+ * @param requesterLabel - кто просит («Эффект «Аура жизни»»)
+ * @param effectOptions - опции наложения
+ * @returns отложенное срабатывание; `null`, если выбирать не из кого
+ */
+export function requestTriggerChoice(
+  subject: DnDSceneEntity,
+  source: EffectTriggerSource,
+  candidates: readonly DnDSceneEntity[],
+  choice: EffectTriggerChoice,
+  requestRoll: ServerRollRequester,
+  requesterLabel: string,
+  effectOptions: EntryEffectOptions = {},
+): EngineDeferredTrigger | null {
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  const count = resolveChoiceCount(choice, candidates.length);
+
+  const target: ChoiceAnswerTarget = {
+    source: snapshotTriggerSource(source),
+    candidates: candidates.map((candidate) => structuredClone(candidate)),
+    choice,
+    effectOptions,
+  };
+
+  const resolution = requestRoll({
+    entityId: resolveChooserId(subject, source.effect, choice),
+    requesterLabel,
+    title: formatTargetChoiceRequestTitle(count, source.effect.name),
+    payload: {
+      kind: TARGET_CHOICE_REQUEST_KIND,
+      candidates: toChoiceCandidatePayload(candidates),
+      count,
+      ...(choice.optional ? { optional: true } : {}),
+      sourceName: source.effect.name,
+    },
+  }).then(
+    (answer): DeferredEffectApply =>
+      (liveSubject) =>
+        applyChoiceAnswer(liveSubject, target, answer),
+    ignoreRejectedRollRequest,
+  );
+
+  // Выбор не про движение фишки: ход не ждёт ответа
+  return { entityId: subject.id, blocksMovement: false, resolution };
 }
 
 /**

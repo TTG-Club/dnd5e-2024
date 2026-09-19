@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 
 import { describe, it } from 'vitest';
 
-import { createActor, createCreature, engine } from './_fixtures.mjs';
+import {
+  createActor,
+  createCreature,
+  createEffect,
+  engine,
+} from './_fixtures.mjs';
 
 /**
  * Каталог: состояния D&D 5e 2024 (`docs/EFFECT_SCENARIOS.md`, раздел «Состояния»).
@@ -185,4 +190,33 @@ describe('каталог: состояния', () => {
   it.todo(
     '[CD11] Бессознательный: падает ничком и роняет предметы — пробел (побочные действия состояния)',
   );
+
+  it('[CD12] Истощение от срабатывания растёт на степень, а не заменяет прежнюю', () => {
+    const drain = createEffect('Изнурение', {
+      effectTarget: 'target',
+      triggers: [
+        {
+          id: 'trigger_exhaust',
+          event: 'turnEnd',
+          actions: [{ type: 'applyCondition', conditionKey: 'exhaustion' }],
+        },
+      ],
+    });
+
+    const target = createCreature({ activeEffects: [drain] });
+
+    target.activeEffects = engine.withExhaustionLevel(target.activeEffects, 2);
+
+    engine.processTurnEffects(target, 'endOfTurn');
+
+    assert.equal(engine.getEntityExhaustionLevel(target.activeEffects), 3);
+
+    engine.processTurnEffects(target, 'endOfTurn');
+
+    assert.equal(
+      engine.getEntityExhaustionLevel(target.activeEffects),
+      4,
+      'каждое наложение — ещё одна степень',
+    );
+  });
 });

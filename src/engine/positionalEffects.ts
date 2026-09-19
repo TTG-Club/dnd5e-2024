@@ -22,6 +22,7 @@ import type { AuraSourceToken, TriggerAuraHit } from './auraMath.js';
 import type { EngineDeferredTrigger } from './deferredEffectSaves.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type { EffectTriggerSource } from './effectTriggerRunner.js';
+import type { ChoiceCandidateOptions } from './triggerChoice.js';
 import type {
   EntryEffectOptions,
   EntryEffectResult,
@@ -46,6 +47,7 @@ import {
 import {
   requestEntryEffect,
   requestPresenceTriggerSave,
+  requestTriggerChoice,
 } from './deferredEffectSaves.js';
 import {
   formatAuraRequesterLabel,
@@ -59,7 +61,9 @@ import {
   rollTriggerSave,
   settlePresenceTrigger,
 } from './effectTriggerRunner.js';
+import { CHOICE_TRIGGER_RECIPIENT } from './effectTriggerTypes.js';
 import { buildTriggerUsageScope } from './effectTriggerUsage.js';
+import { listChoiceCandidates } from './triggerChoice.js';
 import { passesLandingCondition } from './triggerConditions.js';
 
 /**
@@ -114,6 +118,8 @@ export interface PresenceContext {
   requesterLabel: string;
   /** Откуда пришли наложения и чей сейчас ход */
   effectOptions: EntryEffectOptions;
+  /** Кто стоит в радиусе: кандидаты получателя «по выбору» */
+  listEntitiesInArea?: ChoiceCandidateOptions['listEntitiesInArea'];
 }
 
 /**
@@ -242,6 +248,34 @@ export function runPresenceTriggerSources(
       outcome.changed = true;
     }
 
+    const { choice } = source.trigger;
+
+    // Получатель «по выбору»: кого задеть, решает человек — срабатывание ждёт
+    // ответа целиком
+    if (
+      source.trigger.recipient === CHOICE_TRIGGER_RECIPIENT
+      && choice
+      && requestRoll
+    ) {
+      const request = requestTriggerChoice(
+        entity,
+        source,
+        listChoiceCandidates(entity, choice, {
+          listEntitiesInArea: context.listEntitiesInArea,
+        }),
+        choice,
+        requestRoll,
+        requesterLabel,
+        effectOptions,
+      );
+
+      if (request) {
+        outcome.deferred.push(request);
+      }
+
+      continue;
+    }
+
     if (source.trigger.save && shouldRequestEffectSave(entity, requestRoll)) {
       const request = requestPresenceTriggerSave(
         entity,
@@ -346,6 +380,8 @@ function runPresenceEvent(
  *   ядро) — вне боя
  * @param options.getActiveTurnActorId - чей сейчас ход: состояние «до конца
  *   следующего хода», наложенное на ходу якоря, не спадает в конце этого хода
+ * @param options.listEntitiesInArea - кто стоит в радиусе: кандидаты
+ *   получателя «по выбору»
  * @returns изменения и исходы триггеров для чата
  */
 export function syncActorAreaEffects(
@@ -360,6 +396,7 @@ export function syncActorAreaEffects(
     resolveAmbientEffects?: AmbientEffectsResolver;
     isInCombat?: (entity: DnDSceneEntity) => boolean;
     getActiveTurnActorId?: () => string | null;
+    listEntitiesInArea?: ChoiceCandidateOptions['listEntitiesInArea'];
   } = {},
 ): AreaEffectsSyncResult {
   const {
@@ -369,6 +406,7 @@ export function syncActorAreaEffects(
     resolveAmbientEffects,
     isInCombat,
     getActiveTurnActorId,
+    listEntitiesInArea,
   } = options;
 
   const outcome = createPresenceOutcome();
@@ -437,6 +475,7 @@ export function syncActorAreaEffects(
         ambientEffects: resolveAmbientEffects?.(entity),
         activeTurnActorId: getActiveTurnActorId?.(),
       },
+      listEntitiesInArea,
     };
 
     mergePresenceOutcome(
@@ -570,6 +609,8 @@ function auraHitKey(hit: TriggerAuraHit): string {
  * @param options.alreadyEnteredAuraKeys - входы в ауры, уже случившиеся за это
  *   перемещение: ядро ведёт фишку по шагам, и извилистый путь сквозь ауру
  *   входит в неё один раз. Набор пополняется
+ * @param options.listEntitiesInArea - кто стоит в радиусе: кандидаты
+ *   получателя «по выбору»
  * @returns исходы по каждой затронутой сущности (для рассылки и чата)
  */
 export function applyAuraTriggerEffects(
@@ -584,6 +625,7 @@ export function applyAuraTriggerEffects(
     isInCombat?: (entity: DnDSceneEntity) => boolean;
     getActiveTurnActorId?: () => string | null;
     alreadyEnteredAuraKeys?: Set<string>;
+    listEntitiesInArea?: ChoiceCandidateOptions['listEntitiesInArea'];
   } = {},
 ): AuraTriggerOutcome[] {
   const tokens = scene.tokens;
@@ -599,6 +641,7 @@ export function applyAuraTriggerEffects(
     isInCombat,
     getActiveTurnActorId,
     alreadyEnteredAuraKeys,
+    listEntitiesInArea,
   } = options;
 
   const outcomes = new Map<string, AuraTriggerOutcome>();
@@ -651,6 +694,7 @@ export function applyAuraTriggerEffects(
         ambientEffects: resolveAmbientEffects?.(targetEntity),
         activeTurnActorId: getActiveTurnActorId?.(),
       },
+      listEntitiesInArea,
     };
 
     // Счётчик лимита — тот же, что у этой ауры на ходу накрытого: вход и

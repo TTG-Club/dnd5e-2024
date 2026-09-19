@@ -524,6 +524,23 @@ export const EFFECT_VARIANT_PROMPT_LABELS = {
   chatJoiner: ', ',
 } as const;
 
+/** Приставка ключа плашки выбора цели */
+export const EFFECT_TARGET_MODAL_KEY_PREFIX = 'effect-target';
+
+/** Подписи плашки выбора цели */
+export const EFFECT_TARGET_PROMPT_LABELS = {
+  titleFallback: 'Выберите цель',
+  titleSeparator: ': ',
+  countPrefix: 'Выбрано ',
+  countJoiner: ' из ',
+  confirm: 'Выбрать',
+  decline: 'Отказаться',
+  cancel: 'Отменить',
+  hpPrefix: ' (',
+  hpJoiner: '/',
+  hpSuffix: ')',
+} as const;
+
 /** Как выбирается вариант группы */
 export const EFFECT_VARIANT_PICK_LABELS: Record<EffectVariantPick, string> = {
   choose: 'Выбирает бросающий',

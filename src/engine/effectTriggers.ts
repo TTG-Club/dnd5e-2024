@@ -436,6 +436,8 @@ function isPlainTrigger(trigger: EffectTrigger): boolean {
   return (
     trigger.condition === undefined
     && trigger.limit === undefined
+    // Получателя старые поля не знают: урон каждый ход всегда про носителя
+    && trigger.recipient === undefined
     && (trigger.turnOf === undefined || trigger.turnOf === 'subject')
   );
 }

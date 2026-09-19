@@ -44,6 +44,7 @@ import { isEffectDormant, listLiveEffects } from './activeEffectTypes.js';
 import {
   formatEffectNotes,
   ignoreRejectedRollRequest,
+  requestTriggerChoice,
   snapshotTriggerSource,
   toDeferredEffectOutcome,
   unchangedOutcome,
@@ -65,8 +66,12 @@ import {
   toTriggerSaveOutcome,
 } from './effectTriggerRunner.js';
 import { listEffectEventTriggers } from './effectTriggers.js';
-import { DEFAULT_TRIGGER_RECIPIENT } from './effectTriggerTypes.js';
+import {
+  CHOICE_TRIGGER_RECIPIENT,
+  DEFAULT_TRIGGER_RECIPIENT,
+} from './effectTriggerTypes.js';
 import { resolveEntityCurrentHp } from './hitPoints.js';
+import { listChoiceCandidates } from './triggerChoice.js';
 import { rollEffectSaveOutcome } from './turnEffects.js';
 
 /** С чем прогоняются срабатывания событий с другой стороной */
@@ -377,6 +382,11 @@ function resolveTriggerRecipients(
       return trigger.area
         ? (options.listEntitiesInArea?.(subject, trigger.area) ?? [])
         : [];
+    // Кандидаты выбора — те же, кого задел бы радиус, просеянные условием
+    case 'choice':
+      return trigger.choice
+        ? listChoiceCandidates(subject, trigger.choice, options)
+        : [];
     default:
       return [subject];
   }
@@ -423,6 +433,40 @@ function runTriggerEventSource(
 
   if (!admitTrigger(subject, source, eventData, options.inCombat)) {
     return 'skipped';
+  }
+
+  // Получатель «по выбору»: кто именно, решает человек — всё срабатывание
+  // ждёт ответа, а найденные кандидаты уходят в запрос
+  if (
+    source.trigger.recipient === CHOICE_TRIGGER_RECIPIENT
+    && source.trigger.choice
+  ) {
+    if (!options.requestRoll) {
+      return 'skipped';
+    }
+
+    const deferred = requestTriggerChoice(
+      subject,
+      source,
+      recipients,
+      source.trigger.choice,
+      options.requestRoll,
+      formatEffectRequesterLabel(source.effect.name),
+      {
+        ambientEffects: options.ambientEffects ?? [],
+        activeTurnActorId: options.activeTurnActorId,
+        endCast: options.endCast,
+        eventDamage: eventData.damage?.amount,
+      },
+    );
+
+    if (!deferred) {
+      return 'skipped';
+    }
+
+    result.deferred.push(deferred);
+
+    return 'deferred';
   }
 
   // Счётчик лимита записан на субъекта — его надо сохранить

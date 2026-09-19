@@ -13,6 +13,7 @@ import type {
   EffectTrigger,
   EffectTriggerAction,
   EffectTriggerAreaTarget,
+  EffectTriggerChoice,
   EffectTriggerEvent,
   EffectTriggerLimitPeriod,
   EffectTriggerRestType,
@@ -42,7 +43,10 @@ import {
 } from './effectTriggers.js';
 import {
   AREA_TRIGGER_RECIPIENT,
+  CHOICE_TRIGGER_RECIPIENT,
   DEFAULT_TRIGGER_AREA_TARGET,
+  DEFAULT_TRIGGER_CHOICE_COUNT,
+  DEFAULT_TRIGGER_CHOOSER,
   DEFAULT_TRIGGER_REST_TYPE,
   MAX_HP_REDUCTION_NEVER_ENDS,
 } from './effectTriggerTypes.js';
@@ -118,6 +122,12 @@ const TRIGGER_LABELS = {
   recipientOther: ', на другую сторону',
   recipientAreaPrefix: ', на ',
   recipientAreaSuffix: ' фт вокруг',
+  recipientChoicePrefix: ', на ',
+  recipientChoiceTargetPrefix: ' из ',
+  recipientChoiceSuffix: ' фт вокруг по выбору',
+  recipientChoiceChooser: ' наложившего',
+  recipientChoiceOptional: ' (можно отказаться)',
+  recipientChoiceConditionPrefix: ', только ',
   nothing: 'ничего',
   listJoiner: ', ',
   clauseJoiner: '; ',
@@ -149,6 +159,10 @@ function describeTriggerRecipient(trigger: EffectTrigger): string {
     return TRIGGER_LABELS.recipientOther;
   }
 
+  if (trigger.recipient === CHOICE_TRIGGER_RECIPIENT && trigger.choice) {
+    return describeTriggerChoice(trigger.choice);
+  }
+
   if (trigger.recipient !== AREA_TRIGGER_RECIPIENT || !trigger.area) {
     return '';
   }
@@ -157,6 +171,51 @@ function describeTriggerRecipient(trigger: EffectTrigger): string {
     AREA_TARGET_PHRASES[trigger.area.target ?? DEFAULT_TRIGGER_AREA_TARGET];
 
   return `${TRIGGER_LABELS.recipientAreaPrefix}${target} в ${trigger.area.radius}${TRIGGER_LABELS.recipientAreaSuffix}`;
+}
+
+/**
+ * Получатель «по выбору» — часть фразы: «, на 1 из союзников в 30 фт вокруг по
+ * выбору наложившего».
+ *
+ * @param choice - блок «по выбору»
+ * @returns часть фразы
+ */
+function describeTriggerChoice(choice: EffectTriggerChoice): string {
+  const {
+    recipientChoicePrefix,
+    recipientChoiceTargetPrefix,
+    recipientChoiceSuffix,
+    recipientChoiceChooser,
+    recipientChoiceOptional,
+    recipientChoiceConditionPrefix,
+  } = TRIGGER_LABELS;
+
+  const count = choice.count ?? DEFAULT_TRIGGER_CHOICE_COUNT;
+
+  const target =
+    AREA_TARGET_PHRASES[choice.target ?? DEFAULT_TRIGGER_AREA_TARGET];
+
+  const chooser =
+    (choice.chooser ?? DEFAULT_TRIGGER_CHOOSER) === 'source'
+      ? recipientChoiceChooser
+      : '';
+
+  const condition = choice.condition
+    ? `${recipientChoiceConditionPrefix}${describeTriggerCondition(choice.condition)}`
+    : '';
+
+  return [
+    recipientChoicePrefix,
+    count,
+    recipientChoiceTargetPrefix,
+    target,
+    ' в ',
+    choice.radius,
+    recipientChoiceSuffix,
+    chooser,
+    condition,
+    choice.optional ? recipientChoiceOptional : '',
+  ].join('');
 }
 
 /** Отдых срабатывания «после отдыха» */

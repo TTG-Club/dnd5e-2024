@@ -43,7 +43,11 @@ import {
   listLiveEffects,
   removeOrSwitchOffEffects,
 } from './activeEffectTypes.js';
-import { buildConditionActiveEffect } from './conditionTemplates.js';
+import {
+  buildConditionActiveEffect,
+  clampExhaustionLevel,
+  getEntityExhaustionLevel,
+} from './conditionTemplates.js';
 import { findFirstDiceTerm, rollDamageFormula } from './diceFormula.js';
 import {
   hasLastingEffectPayload,
@@ -66,6 +70,7 @@ import {
   turnTriggerEventOf,
 } from './effectTriggers.js';
 import {
+  CHOICE_TRIGGER_RECIPIENT,
   DEFAULT_TRIGGER_ATTACK_ROLE,
   DEFAULT_TRIGGER_REST_TYPE,
   MAX_HP_REDUCTION_NEVER_ENDS,
@@ -122,7 +127,7 @@ export interface EffectTriggerSource {
  * (`damage`) либо снятие и наложение (`effects`).
  */
 export interface DeferredTurnTrigger extends EffectTriggerSource {
-  stage: 'damage' | 'effects';
+  stage: 'damage' | 'effects' | 'choice';
 }
 
 /**
@@ -385,6 +390,22 @@ function listSourceActions(source: EffectTriggerSource): EffectTriggerAction[] {
  */
 function sourceHasDamage(source: EffectTriggerSource): boolean {
   return listSourceActions(source).some((action) => action.type === 'damage');
+}
+
+/**
+ * Срабатывание-счётчик: оно только ставит отметки. Отметку этого события
+ * считают пороги `self.tagCount[...]` у урона того же события, поэтому такие
+ * срабатывания выполняются до этапа урона.
+ *
+ * @param source - срабатывание с источником
+ * @returns `true`, если все выполнимые действия — постановка отметки
+ */
+function sourceOnlyCountsTags(source: EffectTriggerSource): boolean {
+  const actions = listSourceActions(source);
+
+  return (
+    actions.length > 0 && actions.every((action) => action.type === 'applyTag')
+  );
 }
 
 /**
@@ -766,8 +787,17 @@ function buildActionStatus(
     return buildMaxHpReduction(entity, action, options.eventDamage);
   }
 
+  // Истощение не заменяется, а растёт: правила дают «одну степень», и поверх
+  // имеющейся это следующая. Без степени состояние легло бы первой и сняло бы
+  // уже накопленное
+  const exhaustionLevel =
+    action.conditionKey === 'exhaustion'
+      ? clampExhaustionLevel(getEntityExhaustionLevel(entity.activeEffects) + 1)
+      : undefined;
+
   const condition = buildConditionActiveEffect(action.conditionKey, {
     duration: action.duration,
+    ...(exhaustionLevel === undefined ? {} : { exhaustionLevel }),
   });
 
   if (!condition) {
@@ -775,11 +805,14 @@ function buildActionStatus(
   }
 
   return bindStatusToSource(
-    withInitializedDuration(
-      action.recurringSave
-        ? { ...condition, recurringSave: action.recurringSave }
-        : condition,
-    ),
+    withInitializedDuration({
+      ...condition,
+      // Собственные срабатывания состояния: «Сон» кладёт «Бессознательного»,
+      // который снимает сам себя от урона. Заканчивать каст нельзя — он снял
+      // бы сон со всех целей сразу
+      ...(action.triggers ? { triggers: action.triggers } : {}),
+      ...(action.recurringSave ? { recurringSave: action.recurringSave } : {}),
+    }),
     effect,
     options,
   );
@@ -1036,6 +1069,88 @@ export function processTurnEffects(
     return true;
   };
 
+  let appliedAny = false;
+
+  // 0a. Получатель «по выбору»: кого задеть, решает человек. Ни урон, ни
+  // наложения на субъекте не выполняются — всё срабатывание ждёт ответа
+  const choiceTriggers = new Set<EffectTrigger>();
+
+  for (const source of sources) {
+    const { effect, trigger, instance } = source;
+
+    if (
+      isEffectDormant(effect)
+      || trigger.recipient !== CHOICE_TRIGGER_RECIPIENT
+      || !trigger.choice
+      || (instance && effect.aura && !effect.aura.applyToSelf)
+      || !allowTrigger(source)
+    ) {
+      continue;
+    }
+
+    result.deferredTriggers.push({ ...source, stage: 'choice' });
+    choiceTriggers.add(trigger);
+  }
+
+  // 0. Отметки-счётчики. Порог `self.tagCount[...]` у урона этого же события
+  // обязан видеть отметку этого события: иначе «на третьем провале» урон ждал
+  // бы четвёртого — этап урона идёт раньше наложений
+  const countedTriggers = new Set<EffectTrigger>();
+
+  for (const source of sources) {
+    const { effect, trigger, instance } = source;
+
+    if (
+      isEffectDormant(effect)
+      || !sourceOnlyCountsTags(source)
+      || choiceTriggers.has(trigger)
+      || (instance && effect.aura && !effect.aura.applyToSelf)
+      || !allowTrigger(source)
+    ) {
+      continue;
+    }
+
+    let countedSave: TurnSaveOutcome | null = null;
+
+    const countedSpec = buildTriggerSaveSpec(effect, trigger);
+
+    if (countedSpec) {
+      // Спасбросок спросят у игрока: отметка ляжет вместе с наложениями
+      if (options.deferRecurringSave?.(effect)) {
+        if (instance) {
+          result.deferredSaveEffects.push(effect);
+        }
+
+        result.deferredTriggers.push({ ...source, stage: 'effects' });
+        deferredSources.add(trigger);
+
+        continue;
+      }
+
+      countedSave = toTriggerSaveOutcome(
+        trigger,
+        rollEffectSaveWithContext(countedSpec, stats, savingThrowContext),
+      );
+
+      result.saveOutcomes.push(countedSave);
+      damageStageSaves.set(trigger, countedSave);
+    }
+
+    const counted = applyTriggerEffectActions(
+      entity,
+      source,
+      countedSave?.passed ?? false,
+      {
+        ambientEffects,
+        activeTurnActorId: options.sourceTurnActorId ?? entity.id,
+        endCast: options.endCast,
+      },
+    );
+
+    appliedAny ||= counted.applied;
+    countedTriggers.add(trigger);
+  }
+
   let healedTotal = 0;
   let tempHpGranted = 0;
 
@@ -1048,6 +1163,7 @@ export function processTurnEffects(
     if (
       isEffectDormant(effect)
       || !sourceHasDamage(source)
+      || choiceTriggers.has(trigger)
       || (instance && effect.aura && !effect.aura.applyToSelf)
       || !allowTrigger(source)
     ) {
@@ -1118,8 +1234,6 @@ export function processTurnEffects(
   // 2. Снятие и наложение
   const removedIds = new Set<string>();
 
-  let appliedAny = false;
-
   for (const source of sources) {
     const { effect, trigger, instance } = source;
 
@@ -1127,6 +1241,8 @@ export function processTurnEffects(
     if (
       isEffectDormant(effect)
       || !sourceHasEffects(source)
+      || choiceTriggers.has(trigger)
+      || countedTriggers.has(trigger)
       || deferredSources.has(trigger)
       || (instance && removedIds.has(effect.id))
       || !allowTrigger(source)
