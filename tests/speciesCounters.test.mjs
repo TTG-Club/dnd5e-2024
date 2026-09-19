@@ -17,12 +17,19 @@ const { build } = require('esbuild');
  * Порты хоста, до которых дотягиваются мастер вида, откат и редактор черты.
  * Компендиум и мир этим проверкам не нужны: ресурсы считаются без них.
  */
+/**
+ * Ключ заглушки нашего же модуля компендиума заклинаний. Импортируют его по
+ * относительному пути, поэтому в карте он лежит под отдельным именем, а не под
+ * своим адресом: подставляет его правило резолва ниже.
+ */
+const SPELL_COMPENDIUM_STUB = 'stub:spellCompendium';
+
 const HOST_STUBS = {
   '@/core/entityUtils':
     'let issued = 0; export const generateEntityId = (prefix) => prefix + "-" + ++issued;',
   '@/stores/itemsStore':
     'export const useItemsStore = () => ({ itemsByType: () => [] });',
-  '@/systems/dnd5e/composables/spellCompendium':
+  [SPELL_COMPENDIUM_STUB]:
     'export const extractWorldSpells = () => []; export const loadSpellPacks = async () => ({ packs: [] });',
   '@/core/mimeTypes':
     "export const GAME_ITEM_TRANSFER_MIME = 'application/x-vttg-test';",
@@ -51,9 +58,16 @@ const bundle = await build({
           namespace: 'host-api',
         }));
 
+        // Компендиум заклинаний — наш модуль, но для этих проверок он такой же
+        // внешний мир, как и порты хоста: ресурсы вида считаются без него.
+        builder.onResolve({ filter: /composables\/spellCompendium$/ }, () => ({
+          path: SPELL_COMPENDIUM_STUB,
+          namespace: 'host-api',
+        }));
+
         builder.onLoad({ filter: /.*/, namespace: 'host-api' }, (request) => {
           if (!(request.path in HOST_STUBS)) {
-            throw new Error(`Неожиданный импорт хоста: ${request.path}`);
+            throw new Error(`Неожиданный импорт: ${request.path}`);
           }
 
           return { contents: HOST_STUBS[request.path], resolveDir: systemRoot };

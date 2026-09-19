@@ -49,6 +49,7 @@ import {
   checkRange,
   collectActiveEffects,
   consumeCreatureSpellGroupUse,
+  creatureActionHasSave,
   damagePartIsHealing,
   describeDamagePart,
   describeItemUseAvailability,
@@ -70,7 +71,7 @@ import {
   getSpellProjectileCount,
   getTotalLevel,
   getWeaponPrimaryDamageType,
-  hasCreatureSpellGroupUsesLeft,
+  hasCreatureSpellUsesLeft,
   isCreatureSpellPoolMode,
   isDndSceneEntity,
   isSaveAbility,
@@ -1821,8 +1822,7 @@ function openCreatureActionRoll(
   const { buildCreatureRollSetup, buildTargetHpContext } =
     useBonusDamageParts();
 
-  const usesSaveOrArea =
-    (!!action.saveType && action.saveType !== 'none') || !!action.areaOfEffect;
+  const usesSaveOrArea = creatureActionHasSave(action) || !!action.areaOfEffect;
 
   const effects = collectActiveEffects(creature);
 
@@ -1839,18 +1839,6 @@ function openCreatureActionRoll(
     targetIsFull,
     targetType: targetHp?.creatureType,
   });
-
-  const enabledEffects = action.activeEffects?.filter(
-    (effect) => !effect.disabled,
-  );
-
-  // Эффекты применяет оркестратор per-target (гейт по applySave/приземлению) —
-  // одинаково для атак и для спас/области. Прямое onHit-применение УБРАНО: оно
-  // вешало эффект на КАЖДОЕ попадание, игнорируя «Спасбросок при наложении»
-  // (баг проявлялся только при запуске действия с хотбара).
-  setup.pseudoSpell.activeEffects = enabledEffects?.length
-    ? enabledEffects
-    : undefined;
 
   const first = action.damageParts?.[0];
   const damageType = first ? describeDamagePart(first).types[0] : undefined;
@@ -2066,16 +2054,7 @@ function registerCreatureSpellMacro(): void {
           spell.id,
         );
 
-        const isGroupEmpty =
-          placement !== undefined
-          && !hasCreatureSpellGroupUsesLeft(placement.group);
-
-        const isSpellEmpty =
-          !!spell.uses
-          && spell.uses.recovery !== 'atWill'
-          && spell.uses.current <= 0;
-
-        if (isGroupEmpty || isSpellEmpty) {
+        if (!hasCreatureSpellUsesLeft(spell, placement)) {
           chatStore.sendMessage(
             `⛔ ${spell.name}: не осталось зарядов — нужен отдых.`,
             'text',
@@ -2164,17 +2143,6 @@ function openCreatureSpellRoll(
       placement?.block,
     ),
   });
-
-  const enabledEffects = spell.activeEffects?.filter(
-    (effect) => !effect.disabled,
-  );
-
-  // Эффекты заклинания — всегда через оркестратор: он отбирает эффекты на цель,
-  // бросает их спасбросок и урон. Прямое наложение при попадании кидало на цель
-  // ВСЕ эффекты (и «себе») мимо спасброска
-  setup.pseudoSpell.activeEffects = enabledEffects?.length
-    ? enabledEffects
-    : undefined;
 
   const isHealing = spellIsHealing(spell);
   const first = spell.damageParts?.[0];

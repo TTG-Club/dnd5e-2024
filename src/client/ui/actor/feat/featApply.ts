@@ -25,10 +25,6 @@ import type {
 import { generateEntityId } from '@/core/entityUtils';
 import { useItemsStore } from '@/stores/itemsStore';
 import {
-  extractWorldSpells,
-  loadSpellPacks,
-} from '@/systems/dnd5e/composables/spellCompendium';
-import {
   appendGrantedSpells,
   applyFeatChoiceSelections,
   applyFeatDataProficiencies,
@@ -50,6 +46,11 @@ import {
   resolveChosenDamageDefenses,
   WORLD_PACK_ID,
 } from '@vtt/shared/system/dnd.js';
+
+import {
+  extractWorldSpells,
+  loadSpellPacks,
+} from '../../../composables/spellCompendium';
 
 /**
  * Особенность-черта, несущая дары для применения/отката. Базовый `Feature`

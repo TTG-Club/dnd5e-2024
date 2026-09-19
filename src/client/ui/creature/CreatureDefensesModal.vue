@@ -3,8 +3,8 @@
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 
+  import { useSystemDataStore } from '../../stores/systemDataStore';
   import { MODAL_BUTTON_LABELS } from '../actor/constants';
   import { CREATURE_DEFENSES_LABELS } from './constants';
 

@@ -14,7 +14,7 @@
   } from '@vtt/shared/system/dnd.js';
 
   import {
-    DEFAULT_EQUIPMENT_ICON,
+    DEFAULT_ITEM_TYPE_ICON,
     EQUIPMENT_BADGE_HINTS,
     EQUIPMENT_BADGE_LABELS,
     EQUIPMENT_EQUIP_ACTION_LABELS,
@@ -67,7 +67,7 @@
   const itemIcon = computed(() =>
     props.item.type === 'equipment'
       ? getEquipmentCategoryIcon(props.item.equipmentCategory)
-      : (EQUIPMENT_TYPE_ICONS[props.item.type] ?? DEFAULT_EQUIPMENT_ICON),
+      : (EQUIPMENT_TYPE_ICONS[props.item.type] ?? DEFAULT_ITEM_TYPE_ICON),
   );
 
   /** Универсальное оружие: хват меняется пунктом меню */

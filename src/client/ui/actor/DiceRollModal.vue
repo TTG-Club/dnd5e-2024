@@ -24,7 +24,6 @@
   import { useChatStore } from '@/stores/chatStore';
   import { useDiceRollerStore } from '@/stores/diceRollerStore';
   import { useTargetStore } from '@/stores/targetStore';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import {
     buildAttackFormula,
     CHOICE_DAMAGE_TYPE,
@@ -44,6 +43,7 @@
     reportAttackRoll,
   } from '../../composables/useEffectTriggerEvents';
   import { useWorldEntities } from '../../composables/useWorldEntities';
+  import { useSystemDataStore } from '../../stores/systemDataStore';
   import {
     DICE_ROLL_DEFAULT_BUTTON,
     DICE_ROLL_LABELS,
@@ -88,7 +88,7 @@
      */
     attackModifier?: number;
     /** Функция для вычисления условных бонусов в момент броска */
-    // eslint-disable-next-line vue/require-default-prop
+    // eslint-disable-next-line vue/require-default-prop -- отсутствие расчёта и означает «условных бонусов нет», пустышка по умолчанию это бы скрыла
     evaluateConditionalBonuses?: (context: {
       hasAdvantage: boolean;
       hasDisadvantage: boolean;

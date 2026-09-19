@@ -6,7 +6,6 @@
   import { computed, toRef } from 'vue';
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { DISTANCE_UNIT_SHORT } from '@vtt/shared';
   import {
     describeWeaponAttack,
@@ -17,6 +16,7 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { useResolvedStats } from '../../composables/useResolvedStats';
+  import { useSystemDataStore } from '../../stores/systemDataStore';
   import { DICE_LETTER_REPLACEMENT } from '../chat/consts';
   import {
     COPY_TO_ITEMS_LABEL,

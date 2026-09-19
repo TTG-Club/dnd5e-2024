@@ -979,6 +979,19 @@ function isArmorCalculation(value: unknown): value is ArmorCalculation {
 }
 
 /**
+ * Type-guard: запись списка заклинаний существа пригодна для раскладки по
+ * блокам. Хватает строкового `id`: блоки ссылаются на заклинания именно по
+ * нему, и запись без `id` не попала бы ни в одну группу и не получила бы
+ * зарядов — в списке существа ей делать нечего.
+ *
+ * @param value - запись из списка заклинаний (мир или выгрузка сайта)
+ * @returns `true`, если запись — заклинание со ссылочным `id`
+ */
+function isCreatureSpell(value: unknown): value is Spell {
+  return isRecord(value) && typeof value.id === 'string';
+}
+
+/**
  * Разбирает передвижение актёра. Значения берутся по одному, поэтому неполная
  * legacy-запись (только `walk`) не теряет то, что в ней было.
  *
@@ -1528,14 +1541,18 @@ export function normalizeCreature(creature: BaseCreature): void {
   // оно колдует. Заряды после разбора задаёт режим группы, иначе запись с
   // группой «2 в день» открылась бы заклинаниями без зарядов
   if (spells.length > 0 || system.spellcastingBlocks !== undefined) {
+    // Запись без `id` в раскладку не идёт: сослаться на неё блок не может, а
+    // молчаливая подстановка такой записи заводила бы в группу ссылку в никуда
+    const blockSpells = spells.filter(isCreatureSpell);
+
     const parsedBlocks = normalizeCreatureSpellcastingBlocks(
       system.spellcastingBlocks,
-      spells as Spell[],
+      blockSpells,
     );
 
     const synced = syncCreatureSpellcastingUses(
-      spells as Spell[],
-      ensureCreatureSpellsInBlocks(spells as Spell[], parsedBlocks),
+      blockSpells,
+      ensureCreatureSpellsInBlocks(blockSpells, parsedBlocks),
     );
 
     system.spellcastingBlocks = synced.blocks;

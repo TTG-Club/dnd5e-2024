@@ -311,7 +311,7 @@
                   color="primary"
                   variant="ghost"
                   size="2xs"
-                  @click="openFeatDescription()"
+                  @click.left.exact.prevent="openFeatDescription()"
                 />
               </div>
 
@@ -331,7 +331,7 @@
                     color="neutral"
                     variant="soft"
                     class="cursor-pointer transition-colors hover:bg-accented"
-                    @click="openFeatDescription(choice)"
+                    @click.left.exact.prevent="openFeatDescription(choice)"
                   >
                     {{ choice }}
                   </UBadge>

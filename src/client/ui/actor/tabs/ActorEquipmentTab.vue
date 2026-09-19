@@ -29,7 +29,6 @@
   import { useChatStore } from '@/stores/chatStore';
   import { useHotbarStore } from '@/stores/hotbarStore';
   import { useWorldStore } from '@/stores/worldStore';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { formatItemCost } from '@vtt/shared';
   import {
     buildFormulaContext,
@@ -82,6 +81,7 @@
     DND_MACRO_TYPES,
     ITEM_USE_MACRO_ICON,
   } from '../../../macros/constants';
+  import { useSystemDataStore } from '../../../stores/systemDataStore';
   import { EFFECT_USE_LABELS } from '../../effect/constants';
   import ActorEquipmentRow from '../ActorEquipmentRow.vue';
   import CarryingCapacityModal from '../CarryingCapacityModal.vue';

@@ -22,7 +22,6 @@ import type {
 
 import { computed, ref, watch } from 'vue';
 
-import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 import { generateId } from '@vtt/shared';
 import {
   AREA_SHAPE_OPTIONS,
@@ -41,6 +40,8 @@ import {
   SPELL_SCHOOL_OPTIONS,
   TARGET_TYPE_OPTIONS,
 } from '@vtt/shared/system/dnd.js';
+
+import { useSystemDataStore } from '../stores/systemDataStore';
 
 /**
  * Composable для логики формы заклинания.

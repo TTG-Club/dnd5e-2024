@@ -13,7 +13,6 @@ import type {
 
 import { computed, ref, watch } from 'vue';
 
-import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 import {
   DEFAULT_CURRENCY,
   FALLBACK_SOURCE_KEY,
@@ -21,6 +20,7 @@ import {
   parseCost,
 } from '@vtt/shared/system/dnd.js';
 
+import { useSystemDataStore } from '../stores/systemDataStore';
 import { useItemUsesForm } from './useItemUsesForm';
 
 /**

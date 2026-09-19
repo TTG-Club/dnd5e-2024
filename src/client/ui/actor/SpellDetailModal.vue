@@ -110,29 +110,29 @@
     }
 
     if (props.spell.components.material) {
-      let m = 'M';
+      let materialComponent = 'M';
 
       if (props.spell.components.materialDescription) {
-        m += ` (${props.spell.components.materialDescription}`;
+        materialComponent += ` (${props.spell.components.materialDescription}`;
 
         if (props.spell.components.materialCost) {
-          m += `, ${props.spell.components.materialCost}${SPELL_DETAIL_LABELS.materialCostSuffix}`;
+          materialComponent += `, ${props.spell.components.materialCost}${SPELL_DETAIL_LABELS.materialCostSuffix}`;
         }
 
         if (props.spell.components.materialConsumed) {
-          m += SPELL_DETAIL_LABELS.materialConsumed;
+          materialComponent += SPELL_DETAIL_LABELS.materialConsumed;
         }
 
-        m += ')';
+        materialComponent += ')';
       } else if (props.spell.components.materialCost) {
-        m += ` (${props.spell.components.materialCost}${SPELL_DETAIL_LABELS.materialCostSuffix}${
+        materialComponent += ` (${props.spell.components.materialCost}${SPELL_DETAIL_LABELS.materialCostSuffix}${
           props.spell.components.materialConsumed
             ? SPELL_DETAIL_LABELS.materialConsumed
             : ''
         })`;
       }
 
-      list.push(m);
+      list.push(materialComponent);
     }
 
     return list.join(', ');

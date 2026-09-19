@@ -17,7 +17,6 @@
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { DISTANCE_UNIT_OPTIONS } from '@vtt/shared';
   import {
     AREA_SHAPE_OPTIONS,
@@ -30,6 +29,7 @@
     SAVE_TYPE_OPTIONS,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useSystemDataStore } from '../../stores/systemDataStore';
   import {
     AREA_FIELD_LABELS,
     FORM_FIELD_LABELS,

@@ -18,6 +18,7 @@ import type {
   CarriedEffectSourceKind,
   CounterRecovery,
   CounterRestKey,
+  HitDie,
 } from '@vtt/shared/system/dnd.js';
 
 import {
@@ -28,6 +29,7 @@ import {
   DEATH_SAVE_REVIVED_HP,
   FEET_UNIT_LABEL,
   HIT_DICE_FORMULA_LETTER,
+  HIT_DIE_OPTIONS,
   SAVING_THROW_REQUEST_TITLE_PARTS,
 } from '@vtt/shared/system/dnd.js';
 
@@ -395,6 +397,19 @@ export const SPELL_DAMAGE_ROLL_BUTTON = 'Бросить урон';
  * существа, и расходиться им нельзя.
  */
 export const HIT_DIE_LETTER = HIT_DICE_FORMULA_LETTER;
+
+/**
+ * Кости хитов для выпадающих списков: набор берётся у движка, подпись — из
+ * буквы кости выше. Список один у окна хитов и у формы класса: собранный на
+ * месте, он разошёлся бы с правилами на первой же новой кости.
+ */
+export const HIT_DIE_SELECT_OPTIONS: ReadonlyArray<{
+  value: HitDie;
+  label: string;
+}> = HIT_DIE_OPTIONS.map((hitDie) => ({
+  value: hitDie,
+  label: `${HIT_DIE_LETTER}${hitDie}`,
+}));
 
 /**
  * Приписка уровня в значке записи: «3» + это = «3 ур.». Её печатают вкладка
@@ -1302,8 +1317,13 @@ export const EQUIPMENT_TYPE_ICONS: Record<string, string> = {
   'spell': 'tabler:sparkles',
 };
 
-/** Значок записи неизвестного типа */
-export const DEFAULT_EQUIPMENT_ICON = 'tabler:box';
+/**
+ * Значок записи неизвестного типа — когда типа нет в списке выше. У снаряжения
+ * заглушка своя, из движка (`getEquipmentCategoryIcon`): там она отвечает за
+ * категорию, а не за тип записи, и одно имя на две разные заглушки заставляло
+ * бы гадать, какая из них сработала.
+ */
+export const DEFAULT_ITEM_TYPE_ICON = 'tabler:box';
 
 /** Подпись типа дальности оружия — вторая часть подписи под названием */
 export const WEAPON_RANGE_TYPE_LABELS: Record<WeaponRangeType, string> = {
@@ -4954,194 +4974,6 @@ export const ACTIVE_EFFECT_DEFAULTS = {
   changeValue: '1',
   /** Приоритет новой строки модификаторов: меньше — раньше */
   changePriority: 20,
-} as const;
-
-/**
- * Подписи окна правки активного эффекта. Общие с другими формами (название,
- * описание, характеристика, сложность спасброска) берутся из
- * `FORM_FIELD_LABELS` и `FORM_TAB_LABELS`.
- */
-export const ACTIVE_EFFECT_FORM_LABELS = {
-  /** Заголовок окна правки: дальше дописывается название эффекта */
-  editTitlePrefix: 'Редактирование: ',
-  /**
-   * Заголовок окна создания. Это же слово стоит в названии нового эффекта:
-   * форма открывается уже заполненной, и заголовок повторяет её поле.
-   */
-  createTitle: ACTIVE_EFFECT_DEFAULTS.name,
-  tabExtra: 'Дополнительная',
-  conditionPreset: 'Шаблон состояния',
-  conditionPresetHint: 'Заполнит форму данными стандартного состояния D&D 5e',
-  icon: 'Иконка',
-  iconPlaceholder: `Напр: ${ACTIVE_EFFECT_DEFAULTS.icon}`,
-  aura: 'Аура',
-  auraOn: 'Включена',
-  auraOff: 'Нет',
-  status: 'Статус',
-  statusActive: 'Работает',
-  statusDisabled: 'Отключен',
-  generateDescription: 'Сгенерировать из настроек',
-  generateDescriptionHint:
-    'Заполнить описание автоматически из модификаторов, флагов и прочих '
-    + 'настроек эффекта',
-  descriptionPlaceholder: 'Краткое описание для тултипа и списка эффектов',
-  effectTarget: 'Цель эффекта',
-  effectTargetOnTarget: 'Цель',
-  effectTargetOnSelf: 'Себе',
-  effectTargetOnTargetHint: 'Накладывается на цель при попадании атакой.',
-  effectTargetOnSelfHint: 'Применяется к владельцу при экипировке.',
-  consumeOn: 'Снять эффект',
-  consumeOnNone: 'Нет',
-  consumeOnCarrierAttack: 'Своя атака',
-  consumeOnAttackOnCarrier: 'Атака по цели',
-  consumeOnHint:
-    '«Своя атака» / «Атака по цели»: эффект сгорает после первого же броска '
-    + 'атаки (помеха/преимущество ровно на одну атаку), не дожидаясь конца '
-    + 'длительности. «Нет» — живёт по длительности.',
-  durationType: 'Тип длительности',
-  durationValuePlaceholder: 'Количество',
-  durationPermanentHint: 'Действует вечно, пока не снят вручную.',
-  durationRoundsHint: 'Снижается автоматически каждый раунд в бою.',
-  durationTurnHint:
-    'Точно спадает на ходу носителя или источника (кастера) — «до конца моего '
-    + 'следующего хода», а не на границе раунда. Работает в бою.',
-  durationSpecialHint: 'Специальное событие, отслеживается Мастером.',
-  durationDefaultHint: 'Информационная подсказка, не пересчитывается.',
-  auraRadius: 'Радиус (фт)',
-  auraTarget: 'Цель ауры',
-  auraTargetAllies: 'Только союзники',
-  auraTargetEnemies: 'Только враги',
-  auraTargetAll: 'Все существа',
-  auraApplyToSelf: 'Применять к источнику',
-  auraVisible: 'Круг на сцене',
-  flagsTitle: 'Флаги (Состояния и иммунитеты)',
-  flagsEmpty: 'Нет активных флагов.',
-  flagPlaceholder: `Напр: ${ACTIVE_EFFECT_DEFAULTS.flag}`,
-  flagLibrary: 'Библиотека флагов',
-  flagRemove: 'Удалить флаг',
-  changesTitle: 'Модификаторы (Changes)',
-  changesEmpty: 'Нет активных модификаторов.',
-  changePreset: 'Готовые',
-  flagPresetHint:
-    'Выбрать флаг из списка — ключ подставится сам. Кнопка «Добавить» рядом '
-    + 'заводит пустую строку, как раньше.',
-  changePresetHint:
-    'Выбрать модификатор из списка — ключ, режим и значение подставятся сами. '
-    + 'Кнопка «Добавить» рядом заводит пустую строку, как раньше.',
-  changeKey: 'Ключ атрибута',
-  changeKeyPlaceholder: `Напр: ${ACTIVE_EFFECT_DEFAULTS.changeKey}`,
-  keyLibrary: 'Библиотека ключей',
-  changeMode: 'Режим',
-  changeValue: 'Значение',
-  changeValuePlaceholder: '+2, 1к4',
-  valueLibrary: 'Библиотека значений',
-  changeCondition: 'Условие',
-  changeConditionPlaceholder: 'roll.hasAdvantage',
-  conditionTemplates: 'Шаблоны условий',
-  changePriority: 'Пр-т',
-  changePriorityPlaceholder: `${ACTIVE_EFFECT_DEFAULTS.changePriority}`,
-  changePriorityHint: `Приоритет: меньше = раньше (дефолт ${ACTIVE_EFFECT_DEFAULTS.changePriority})`,
-  changeRemove: 'Удалить модификатор',
-  damageFormulaHint:
-    'Кроме плоского числа (+2), можно указать формулу костей — она бросается '
-    + 'отдельной частью урона: «2к6», тип через токен «2к6@dmg.fire», условие '
-    + 'по цели — «2к6@dmg.fire@target.full» (только при полном HP) или '
-    + '«@target.notFull» (только по раненой).',
-  modeAdd: 'Добавить (+)',
-  modeMultiply: 'Умножить (*)',
-  modeOverride: 'Перезаписать (=)',
-  modeUpgrade: 'Улучшить (Max)',
-  modeDowngrade: 'Ухудшить (Min)',
-  modeCustom: 'Пользовательский',
-  areaTrigger: 'Триггер области / ауры',
-  areaTriggerEnterHint:
-    'Разовая нагрузка (урон/статус) в момент входа в область/ауру. '
-    + 'Срабатывает на каждый вход.',
-  areaTriggerExitHint:
-    'Разовая нагрузка (урон/статус) в момент выхода из области/ауры.',
-  areaTriggerStayHint:
-    'Эффект висит на цели, пока она внутри области/ауры, и снимается при '
-    + 'выходе.',
-  applyHint:
-    'Срабатывает при наложении эффекта на цель (напр. при попадании атакой). '
-    + 'Для само-баффов можно оставить пустым.',
-  applySave: 'Спасбросок при наложении',
-  applySaveHint:
-    'При попадании цель совершает спасбросок — от результата зависят статус и '
-    + 'урон ниже.',
-  onSuccessNegate: 'Отменяет эффект',
-  onSuccessHalf: 'Половина урона',
-  applyOnSuccess: 'Накладывать эффект даже при успешном спасе',
-  applyOnSuccessHint:
-    'Состояние повиснет на цели, даже если она прошла спасбросок (свой выше '
-    + 'или спасбросок области у действия). Урон при успехе — по правилу '
-    + '«При успехе».',
-  applyOnSuccessOnly: 'Накладывать ТОЛЬКО при успешном спасе',
-  applyOnSuccessOnlyHint:
-    'Зеркало галочки выше: при провале эффект не накладывается вовсе. Нужно '
-    + 'заклинаниям с разными исходами — «Луч слабости» при успехе даёт помеху '
-    + 'на одну атаку, а при провале вешает свой, длительный эффект.',
-  conditionImmunitiesTitle: 'Иммунитет к состояниям',
-  conditionImmunitiesHint:
-    'Пока эффект активен, носитель не подхватывает эти состояния. Так вид или '
-    + 'черта выдают иммунитет: у актёров других мест для него нет.',
-  damageTitle: 'Урон при наложении',
-  damageHint:
-    'Наносится цели при наложении. Если включён спасбросок выше — урон '
-    + 'гейтится им (на успехе: нет урона либо половина).',
-  addDamage: 'Добавить урон',
-  recurringSave: 'Периодический спасбросок снимает эффект',
-  recurringSaveHint:
-    'Пока эффект активен, цель повторяет спасбросок и при успехе сбрасывает '
-    + 'его досрочно.',
-  recurringWhen: 'Когда',
-  timingEndOfTurn: 'В конце хода цели',
-  timingStartOfTurn: 'В начале хода цели',
-  recurringDamage: 'Периодический урон (каждый ход)',
-  recurringDamageHint:
-    'Пока эффект висит на цели, наносит урон каждый ход (напр. «Горение»). '
-    + 'Тикает в бою при смене хода.',
-  recurringDamageWhen: 'Когда наносится',
-} as const;
-
-/** Размеры окна библиотеки подсказок эффекта */
-export const EFFECT_TEMPLATES_MODAL_SIZE = {
-  width: 400,
-  height: 500,
-  minWidth: 300,
-  minHeight: 400,
-} as const;
-
-/** Ключи окон библиотек подсказок в менеджере окон хоста */
-export const EFFECT_TEMPLATES_MODAL_IDS = {
-  key: 'effect-key-templates-modal',
-  value: 'effect-value-templates-modal',
-  flag: 'effect-flag-templates-modal',
-  condition: 'effect-condition-templates-modal',
-} as const;
-
-/**
- * Подписи библиотек шаблонов активного эффекта. Окно у всех четырёх одно:
- * поиск сверху, список подсказок под ним — расходиться должны только слова,
- * которыми оно называет своё содержимое.
- *
- * Заголовки ключей, флагов и условий берутся у кнопок формы, которые эти окна
- * открывают: одна и та же библиотека не может называться по-разному в кнопке и
- * в шапке.
- */
-export const ACTIVE_EFFECT_TEMPLATES_LABELS = {
-  keyTitle: ACTIVE_EFFECT_FORM_LABELS.keyLibrary,
-  keySearchPlaceholder: 'Поиск по атрибутам...',
-  keyEmpty: 'Атрибуты не найдены',
-  valueTitle: 'Библиотека значений и формул',
-  valueSearchPlaceholder: 'Поиск по значениям...',
-  valueEmpty: 'Значения не найдены',
-  flagTitle: ACTIVE_EFFECT_FORM_LABELS.flagLibrary,
-  flagSearchPlaceholder: 'Поиск по флагам...',
-  flagEmpty: 'Флаги не найдены',
-  conditionTitle: ACTIVE_EFFECT_FORM_LABELS.conditionTemplates,
-  conditionSearchPlaceholder: 'Поиск по шаблонам...',
-  conditionEmpty: 'Шаблоны не найдены',
 } as const;
 
 /** Подписи блока спасбросков от смерти */

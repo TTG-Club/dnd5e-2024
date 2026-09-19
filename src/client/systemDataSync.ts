@@ -44,46 +44,9 @@ function subscribeSystemData(socket: TypedWebSocketClient): void {
     store.setToolProperties(data.toolProperties);
   });
 
-  // Индивидуальные обработчики — обратная совместимость
-  socket.on('system:weapon-properties', (properties) => {
-    store.setWeaponProperties(properties);
-  });
-
-  socket.on('system:weapon-base-types', (baseTypes) => {
-    store.setWeaponBaseTypes(baseTypes);
-  });
-
-  socket.on('system:damage-types', (types) => {
-    store.setDamageTypes(types);
-  });
-
-  socket.on('system:weapon-categories', (categories) => {
-    store.setWeaponCategories(categories);
-  });
-
-  socket.on('system:ammunition-types', (types) => {
-    store.setAmmunitionTypes(types);
-  });
-
-  socket.on('system:sources', (sources) => {
-    store.setSources(sources);
-  });
-
-  socket.on('system:equipment-categories', (categories) => {
-    store.setArmorCategories(categories);
-  });
-
-  socket.on('system:armor-base-types', (baseTypes) => {
-    store.setArmorBaseTypes(baseTypes);
-  });
-
-  socket.on('system:equipment-properties', (properties) => {
-    store.setEquipmentProperties(properties);
-  });
-
-  socket.on('system:tool-properties', (properties) => {
-    store.setToolProperties(properties);
-  });
+  // Отдельных подписок на `system:weapon-properties`, `system:damage-types` и
+  // остальные восемь здесь нет: сервер шлёт их только в ответ на такой же
+  // одиночный запрос (`system:request-*`), а система запрашивает всё разом.
 
   // Источники записей приезжают в манифестах паков: система знает только базовые
   // книги, а в компендиуме встречается что угодно. Перечитываем и при обновлении

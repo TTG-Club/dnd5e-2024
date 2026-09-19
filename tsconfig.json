@@ -69,9 +69,6 @@
       "@vtt/shared": ["../vttg/packages/shared/index.ts"],
       "@vtt/shared/*": ["../vttg/packages/shared/src/*"],
 
-      // Ссылки системы на свои же файлы (46 legacy-мест).
-      "@/systems/dnd5e/*": ["./src/client/*"],
-
       // Модули приложения. В рантайме их отдаёт `globalThis.__VTTHost`,
       // локального исходника у них нет — типы берём из соседнего чекаута
       // монорепы VTTG.

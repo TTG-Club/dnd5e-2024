@@ -14,14 +14,14 @@ import { Dnd5eVttSystem } from '@vtt/shared/system/dnd.js';
 
 export class Dnd5eSystem extends Dnd5eVttSystem {
   override init(_api: unknown): void {
-    // eslint-disable-next-line no-console
+    // eslint-disable-next-line no-console -- журнал жизненного цикла системы: другого канала у серверной части нет
     console.log(`[${this.name}] System initialized (v${this.version})`);
   }
 
   override destroy(): void {
     super.destroy();
 
-    // eslint-disable-next-line no-console
+    // eslint-disable-next-line no-console -- журнал жизненного цикла системы: другого канала у серверной части нет
     console.log(`[${this.name}] System destroyed`);
   }
 }

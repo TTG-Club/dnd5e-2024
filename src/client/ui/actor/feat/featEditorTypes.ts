@@ -66,16 +66,6 @@ import {
   progressionToEntries,
 } from '../counterEditorTypes';
 
-/** Характеристики в порядке вывода. */
-export const ABILITY_KEYS: readonly AbilityType[] = [
-  'strength',
-  'dexterity',
-  'constitution',
-  'intelligence',
-  'wisdom',
-  'charisma',
-];
-
 // ── Строка дара (вкладка «Владения») ──────────────────────────
 
 /**

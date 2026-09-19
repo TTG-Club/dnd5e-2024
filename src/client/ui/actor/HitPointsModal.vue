@@ -12,13 +12,13 @@
   import {
     describeChangeValue,
     getHitDiceGroups,
-    HIT_DIE_OPTIONS,
     isHitDie,
   } from '@vtt/shared/system/dnd.js';
 
   import {
     ACTOR_LEFT_PANEL_LABELS,
     HIT_DIE_LETTER,
+    HIT_DIE_SELECT_OPTIONS,
     HIT_POINTS_LABELS,
     MODAL_BUTTON_LABELS,
   } from './constants';
@@ -482,12 +482,7 @@
 
               <USelect
                 :model-value="group.die"
-                :items="
-                  HIT_DIE_OPTIONS.map((hitDie) => ({
-                    label: `${ACTOR_LEFT_PANEL_LABELS.hitDieLetter}${hitDie}`,
-                    value: hitDie,
-                  }))
-                "
+                :items="HIT_DIE_SELECT_OPTIONS"
                 size="sm"
                 @update:model-value="handleGroupDieChange(group, $event)"
               />

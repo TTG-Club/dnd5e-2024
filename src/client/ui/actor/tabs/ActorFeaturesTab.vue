@@ -11,10 +11,10 @@
   import { ContextMenuDangerItem } from '@/shared_ui/components';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useChatStore } from '@/stores/chatStore';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { getTotalLevel } from '@vtt/shared/system/dnd.js';
 
   import { useFeatModal } from '../../../composables/useFeatModal';
+  import { useSystemDataStore } from '../../../stores/systemDataStore';
   import {
     ACTOR_FEATURES_TAB_LABELS,
     FEATURE_ORIGIN_HINTS,

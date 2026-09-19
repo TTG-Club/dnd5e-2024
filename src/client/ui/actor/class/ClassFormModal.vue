@@ -42,10 +42,6 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useItemsStore } from '@/stores/itemsStore';
-  import {
-    findSpellInPacks,
-    loadSpellPacks,
-  } from '@/systems/dnd5e/composables/spellCompendium';
   import { generateId, isRecord } from '@vtt/shared';
   import {
     ABILITY_OPTIONS,
@@ -57,6 +53,10 @@
     withUniqueSubclassKeys,
   } from '@vtt/shared/system/dnd.js';
 
+  import {
+    findSpellInPacks,
+    loadSpellPacks,
+  } from '../../../composables/spellCompendium';
   import CompendiumRefPickerModal from '../CompendiumRefPickerModal.vue';
   import {
     ABILITY_DELIMITER_OPTIONS,
@@ -74,6 +74,7 @@
     GRANT_SECTION_LABELS,
     GRANTED_SPELL_GROUPS_LABELS,
     GRANTED_SPELLS_LABELS,
+    HIT_DIE_SELECT_OPTIONS,
     MODAL_BUTTON_LABELS,
     SPELL_CHOICE_LABELS,
     SPELL_LIST_LABELS,
@@ -113,7 +114,6 @@
     createEmptyLevelTable,
     createEmptySpellcasting,
     distributeFeatureCounters,
-    HIT_DIE_OPTIONS,
     toEditableColumns,
     toEditableFeatures,
     toEditableLevelTable,
@@ -982,7 +982,7 @@
                 <UFormField :label="CLASS_FORM_LABELS.hitDie">
                   <USelect
                     v-model="hitDie"
-                    :items="HIT_DIE_OPTIONS"
+                    :items="HIT_DIE_SELECT_OPTIONS"
                     value-key="value"
                     class="w-full"
                   />

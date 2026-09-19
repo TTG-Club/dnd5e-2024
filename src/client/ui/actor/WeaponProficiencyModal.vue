@@ -3,12 +3,12 @@
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import {
     WEAPON_MASTERIES,
     WEAPON_MASTERY_MAP,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useSystemDataStore } from '../../stores/systemDataStore';
   import { MODAL_BUTTON_LABELS, PROFICIENCY_MODAL_LABELS } from './constants';
 
   interface Props {

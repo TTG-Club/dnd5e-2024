@@ -30,7 +30,6 @@
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { Z_INDEX } from '@/shared_ui/consts';
   import { useWorldStore } from '@/stores/worldStore';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { generateId, isEntityOwner } from '@vtt/shared';
   import {
     ABILITY_CHECK_KEY,
@@ -72,6 +71,7 @@
   import { useItemTransfer } from '../../composables/useItemTransfer';
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import { useSheetMinimize } from '../../composables/useSheetMinimize';
+  import { useSystemDataStore } from '../../stores/systemDataStore';
   import {
     ABILITY_CHECK_ROLL_LABELS,
     DICE_ROLL_DEFAULT_BUTTON,

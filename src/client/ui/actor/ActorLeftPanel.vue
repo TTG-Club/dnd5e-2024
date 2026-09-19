@@ -17,7 +17,6 @@
 
   import FieldsetLabel from '@/shared_ui/components/FieldsetLabel.vue';
   import { useChatStore } from '@/stores/chatStore';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import {
     BASE_UNARMORED_AC,
     buildDeathSavePatch,
@@ -46,6 +45,7 @@
   import { useProficiencyBonus } from '../../composables/useProficiencyBonus';
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import { useToolVocabulary } from '../../composables/useToolVocabulary';
+  import { useSystemDataStore } from '../../stores/systemDataStore';
   import ArmorClassModal from './ArmorClassModal.vue';
   import ArmorProficiencyModal from './ArmorProficiencyModal.vue';
   import {

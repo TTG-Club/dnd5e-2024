@@ -35,7 +35,6 @@
   import { Z_INDEX } from '@/shared_ui/consts';
   import { useItemsStore } from '@/stores/itemsStore';
   import { useWorldStore } from '@/stores/worldStore';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { generateId, isEntityOwner, isRecord } from '@vtt/shared';
   import {
     appendGrantedSpells,
@@ -72,6 +71,7 @@
   import { useCompendiumCatalog } from '../../composables/useCompendiumCatalog';
   import { useItemTransfer } from '../../composables/useItemTransfer';
   import { useSheetMinimize } from '../../composables/useSheetMinimize';
+  import { useSystemDataStore } from '../../stores/systemDataStore';
   import { withoutEntityOwnership } from '../entity-ownership/utils';
   import ActorCenterPanel from './ActorCenterPanel.vue';
   import ActorHeader from './ActorHeader.vue';
@@ -351,7 +351,7 @@
   // Вкладка умений берёт варианты особенностей из стора — держим его в такте
   watch(
     speciesDefinitions,
-    (definitions) => systemDataStore.setSpeciesDefinitions(definitions),
+    (definitions) => systemDataStore.rememberSpeciesDefinitions(definitions),
     { immediate: true },
   );
 

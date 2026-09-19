@@ -28,7 +28,6 @@ import type {
   ClassLevelEntry,
   FeatData,
   GrantedSpellRef,
-  HitDie,
   SubclassDefinition,
 } from '@vtt/shared/system/dnd.js';
 
@@ -1577,15 +1576,6 @@ export const CASTER_TYPE_OPTIONS: { value: CasterType; label: string }[] = [
   { value: 'third', label: 'Третичный' },
   { value: 'pact', label: 'Пакт (колдун)' },
   { value: 'none', label: 'Нет' },
-];
-
-/** Опции восстановления счётчика. */
-/** Опции кости хитов. */
-export const HIT_DIE_OPTIONS: { value: HitDie; label: string }[] = [
-  { value: 6, label: 'к6' },
-  { value: 8, label: 'к8' },
-  { value: 10, label: 'к10' },
-  { value: 12, label: 'к12' },
 ];
 
 /**

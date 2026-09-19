@@ -4,8 +4,8 @@
   import { computed } from 'vue';
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 
+  import { useSystemDataStore } from '../../stores/systemDataStore';
   import {
     COPY_TO_ITEMS_LABEL,
     EQUIPMENT_DETAIL_LABELS,

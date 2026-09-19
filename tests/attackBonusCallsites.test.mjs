@@ -6,7 +6,7 @@ import { loadEngineBundle } from './helpers/engineBundle.mjs';
 import { loadHandler } from './helpers/sourceHandler.mjs';
 
 const engine = await loadEngineBundle(
-  "export * from './src/engine/attackUtils.ts'; export * from './src/engine/effectPipeline.ts'; export * from './src/engine/consts.ts'; export * from './src/engine/formulaParser.ts'; export * from './src/engine/hitPoints.ts'; export { isSaveAbility } from './src/engine/spellUtils.ts';",
+  "export * from './src/engine/attackUtils.ts'; export * from './src/engine/effectPipeline.ts'; export * from './src/engine/consts.ts'; export * from './src/engine/formulaParser.ts'; export * from './src/engine/hitPoints.ts'; export { isSaveAbility } from './src/engine/spellUtils.ts'; export { creatureActionHasSave } from './src/engine/creatureUtils.ts';",
 );
 
 const macroPath = 'src/client/macros/dnd5eMacros.ts';
@@ -87,7 +87,7 @@ function createPorts(current) {
     prepareAmmunitionShot: (_entity, weapon) => ({ weapon }),
     spendShotAmmunition: () => {},
     isDndSceneEntity: () => true,
-    actionHasSave: (action) => !!action.saveType && action.saveType !== 'none',
+    creatureActionHasSave: engine.creatureActionHasSave,
     actionPrimaryType: () => undefined,
     spellPrimaryType: () => undefined,
     getSpellAttackType: (spell) => spell.deliveryType,

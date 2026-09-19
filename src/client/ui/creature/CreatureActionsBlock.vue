@@ -24,11 +24,11 @@
   import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
   import { useTargetStore } from '@/stores/targetStore';
   import { useWorldStore } from '@/stores/worldStore';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { DISTANCE_UNIT_SHORT } from '@vtt/shared';
   import {
     AREA_SHAPE_LABELS,
     collectActiveEffects,
+    creatureActionHasSave,
     DEFAULT_REACH_FEET,
     describeDamagePart,
     getActionDescriptionMarkdown,
@@ -50,6 +50,7 @@
   import { discardSpellTemplate } from '../../composables/spellResolutionShared';
   import { useBonusDamageParts } from '../../composables/useBonusDamageParts';
   import { useSpellResolution } from '../../composables/useSpellResolution';
+  import { useSystemDataStore } from '../../stores/systemDataStore';
   import {
     ABILITY_SHORT_LABELS,
     FILTER_ROW_CONTROL_SIZE,
@@ -268,11 +269,6 @@
     return first ? describeDamagePart(first).types[0] : undefined;
   }
 
-  /** Есть ли у действия спасбросок (заменяет бросок попадания) */
-  function actionHasSave(action: CreatureAction): boolean {
-    return !!action.saveType && action.saveType !== 'none';
-  }
-
   /**
    * Проверяет, есть ли у действия боевые параметры (атака, урон или спасбросок)
    * @param action - действие
@@ -281,7 +277,7 @@
     return !!(
       action.attackBonus !== undefined
       || (action.damageParts && action.damageParts.length > 0)
-      || actionHasSave(action)
+      || creatureActionHasSave(action)
     );
   }
 
@@ -446,7 +442,8 @@
     isDisadvantage: boolean,
     templateId: string | undefined,
   ): void {
-    const usesSaveOrArea = actionHasSave(action) || !!action.areaOfEffect;
+    const usesSaveOrArea =
+      creatureActionHasSave(action) || !!action.areaOfEffect;
 
     const effects = collectActiveEffects(creature);
 
@@ -668,7 +665,7 @@
       return CREATURE_ROW_ICONS.area;
     }
 
-    if (actionHasSave(action)) {
+    if (creatureActionHasSave(action)) {
       return CREATURE_ROW_ICONS.save;
     }
 
@@ -727,7 +724,7 @@
     const stats: SheetRowStat[] = [];
     const rollable = canUseAction(action);
 
-    if (actionHasSave(action) && action.saveType) {
+    if (creatureActionHasSave(action) && action.saveType) {
       stats.push({
         key: 'save',
         label: CREATURE_ROW_STAT_LABELS.save,
@@ -784,7 +781,7 @@
     if (canUseAction(action)) {
       groups.push([
         {
-          label: actionHasSave(action)
+          label: creatureActionHasSave(action)
             ? CREATURE_ACTION_MENU_LABELS.use
             : CREATURE_ACTION_MENU_LABELS.attack,
           icon: 'tabler:swords',

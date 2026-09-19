@@ -7,6 +7,7 @@
   import { DISTANCE_UNIT_SHORT } from '@vtt/shared';
   import {
     AREA_SHAPE_LABELS,
+    creatureActionHasSave,
     DEFAULT_REACH_FEET,
     getActionDescriptionMarkdown,
     SAVE_EFFECT_OPTIONS,
@@ -80,7 +81,7 @@
 
   /** Есть ли у действия спасбросок (заменяет бросок попадания) */
   const hasSave = computed(
-    () => !!props.action?.saveType && props.action.saveType !== 'none',
+    () => !!props.action && creatureActionHasSave(props.action),
   );
 
   /** Локализованная подпись характеристики спасброска */

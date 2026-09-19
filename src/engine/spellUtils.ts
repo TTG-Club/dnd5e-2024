@@ -255,6 +255,23 @@ export function resolveActorSpellcastingAbility(
 }
 
 /**
+ * Включённые эффекты записи для окна броска. Пусто и «нет вовсе» здесь значат
+ * разное: по наличию списка решают, звать ли оркестратор на попадании без
+ * частей урона, поэтому выключенные не просто отсеиваются — список из них
+ * целиком превращается в `undefined`.
+ *
+ * @param effects - эффекты записи (заклинания, действия, предмета)
+ * @returns включённые эффекты либо `undefined`, если их нет
+ */
+export function listEnabledEffects(
+  effects: readonly ActiveEffect[] | undefined,
+): ActiveEffect[] | undefined {
+  const enabled = (effects ?? []).filter((effect) => !effect.disabled);
+
+  return enabled.length > 0 ? enabled : undefined;
+}
+
+/**
  * Эффекты заклинания, которые ложатся на самого заклинателя: включённые, без
  * адресата или с `effectTarget: 'self'`. Эффекты «на цели» и «в зону» сюда не
  * попадают — у них свои пути наложения.
@@ -1761,38 +1778,6 @@ export function calculateCreatureSpellcasting(
       0,
     ),
   };
-}
-
-/**
- * Эффективная сложность спасброска заклинаний существа.
- *
- * @param creature - существо
- * @returns DC спасброска или undefined
- */
-export function getCreatureSpellSaveDC(
-  creature: import('./dndEntities.js').DnDCreature,
-): number | undefined {
-  return calculateCreatureSpellcasting(
-    creature.system.spellcasting,
-    creature.system.abilities,
-    getCreatureProficiencyBonus(creature),
-  ).saveDC;
-}
-
-/**
- * Эффективный бонус к атаке заклинаниями существа.
- *
- * @param creature - существо
- * @returns бонус к атаке или undefined
- */
-export function getCreatureSpellAttackBonus(
-  creature: import('./dndEntities.js').DnDCreature,
-): number | undefined {
-  return calculateCreatureSpellcasting(
-    creature.system.spellcasting,
-    creature.system.abilities,
-    getCreatureProficiencyBonus(creature),
-  ).attackBonus;
 }
 
 /**

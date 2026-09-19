@@ -960,7 +960,7 @@ export function parseCost(
     pp: 'pp',
   };
 
-  // eslint-disable-next-line regexp/no-obscure-range
+  // eslint-disable-next-line regexp/no-obscure-range -- диапазон а-я нужен целиком: сокращения валют в цене пишут кириллицей
   const match = cost.trim().match(/^(\d+(?:[.,]\d+)?)\s*([a-zа-яё]+)?$/i);
 
   if (!match) {

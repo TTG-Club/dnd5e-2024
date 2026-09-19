@@ -61,6 +61,7 @@
     getCreatureSpellRollButtonText,
     getSpellAttackType,
     hasCreatureSpellGroupUsesLeft,
+    hasCreatureSpellUsesLeft,
     isCreatureSpellPoolMode,
     isSpell,
     resolveCreatureSpellSaveDC,
@@ -1513,16 +1514,7 @@
         return;
       }
 
-      const isGroupEmpty =
-        placement !== undefined
-        && !hasCreatureSpellGroupUsesLeft(placement.group);
-
-      const isSpellEmpty =
-        !!spell.uses
-        && spell.uses.recovery !== 'atWill'
-        && spell.uses.current <= 0;
-
-      if (isGroupEmpty || isSpellEmpty) {
+      if (!hasCreatureSpellUsesLeft(spell, placement)) {
         toast.add({
           title: ACTOR_SPELLS_TAB_LABELS.noUsesTitle,
           description:
@@ -1620,17 +1612,6 @@
         placement?.block,
       ),
     });
-
-    // Эффекты заклинания — всегда через оркестратор по каждой задетой цели: он
-    // отбирает эффекты на цель, бросает их спасбросок и урон. Прямое наложение
-    // при попадании кидало на цель ВСЕ эффекты (и «себе») мимо спасброска
-    const enabledEffects = spell.activeEffects?.filter(
-      (effect) => !effect.disabled,
-    );
-
-    setup.pseudoSpell.activeEffects = enabledEffects?.length
-      ? enabledEffects
-      : undefined;
 
     // Атака без частей урона: окно броска не зовёт `onRollParts`, и эффекты на
     // попадании разбирает тот же оркестратор с пустым набором частей

@@ -33,7 +33,6 @@ import type { AppliedFeatFeature, CompendiumFeat } from '../../feat/featApply';
 
 import { computed, reactive, ref, watch } from 'vue';
 
-import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 import { generateId } from '@vtt/shared';
 import {
   ABILITY_LABELS,
@@ -77,6 +76,7 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { useFeatChoiceWeapons } from '../../../../composables/useFeatChoiceWeapons';
+import { useSystemDataStore } from '../../../../stores/systemDataStore';
 import {
   CLASS_EQUIPMENT_NONE_INDEX,
   CLASS_GRANT_EFFECT_PRESENTATION,

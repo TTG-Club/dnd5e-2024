@@ -20,7 +20,6 @@ import type {
 
 import { computed, ref, watch } from 'vue';
 
-import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 import {
   AMMUNITION_PROPERTY,
   damagePartIsHealing,
@@ -36,6 +35,7 @@ import {
   WEAPON_MASTERIES,
 } from '@vtt/shared/system/dnd.js';
 
+import { useSystemDataStore } from '../stores/systemDataStore';
 import { useItemUsesForm } from './useItemUsesForm';
 
 /**
