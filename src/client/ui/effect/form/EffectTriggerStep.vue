@@ -21,6 +21,7 @@
     writeEffectTrigger,
   } from '@vtt/shared/system/dnd.js';
 
+  import FieldHint from '../../actor/FieldHint.vue';
   import {
     EFFECT_ACTIVATION_CHOICE_HINTS,
     EFFECT_ACTIVATION_COUNTER_LABELS,
@@ -374,11 +375,15 @@
       />
     </UFormField>
 
-    <UFormField
-      :label="EFFECT_AURA_LABELS.radiusFormula"
-      :help="EFFECT_AURA_LABELS.radiusFormulaHint"
-      class="w-72"
-    >
+    <UFormField class="w-72">
+      <template #label>
+        <span class="flex items-center gap-1">
+          {{ EFFECT_AURA_LABELS.radiusFormula }}
+
+          <FieldHint :text="EFFECT_AURA_LABELS.radiusFormulaHint" />
+        </span>
+      </template>
+
       <UInput
         v-model="auraRadiusFormula"
         :placeholder="EFFECT_AURA_LABELS.radiusFormulaPlaceholder"

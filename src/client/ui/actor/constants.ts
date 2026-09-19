@@ -3036,7 +3036,7 @@ export const ACTIVE_EFFECT_SECTION_ICONS: Record<
   damage: 'tabler:sword',
   recurringDamage: 'tabler:flame',
   recurringSave: 'tabler:refresh',
-  aura: 'tabler:circle-dotted',
+  aura: 'tabler:circle-dashed',
   areaTrigger: 'tabler:vector-triangle',
   application: 'tabler:target',
   duration: 'tabler:hourglass',

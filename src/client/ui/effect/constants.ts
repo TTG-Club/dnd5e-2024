@@ -83,7 +83,7 @@ export const EFFECT_MODIFIERS_STEP_TITLES: Record<EffectDelivery, string> = {
 export const EFFECT_DELIVERY_ICONS: Record<EffectDelivery, string> = {
   carrier: 'tabler:user-shield',
   target: 'tabler:crosshair',
-  aura: 'tabler:circle-dotted',
+  aura: 'tabler:circle-dashed',
   zone: 'tabler:hexagon',
 };
 
