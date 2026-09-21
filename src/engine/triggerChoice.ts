@@ -23,6 +23,7 @@ import type { DnDSceneEntity } from './dndEntities.js';
 import type {
   EffectTriggerArea,
   EffectTriggerChoice,
+  EffectTriggerChooser,
 } from './effectTriggerTypes.js';
 
 import { z } from 'zod';
@@ -32,6 +33,10 @@ import {
   DEFAULT_TRIGGER_CHOOSER,
 } from './effectTriggerTypes.js';
 import { resolveEntityCurrentHp, resolveEntityMaxHp } from './hitPoints.js';
+import {
+  isRollRequestAnswered,
+  withRequestSource,
+} from './savingThrowRequest.js';
 import { isTriggerConditionMet } from './triggerConditions.js';
 
 /** Части подписи запроса выбора: «Аура жизни — Выберите цель (1)» */
@@ -41,8 +46,6 @@ export const TARGET_CHOICE_REQUEST_TITLE_PARTS = {
   /** Сколько целей: «… (2)» */
   countPrefix: ' (',
   countSuffix: ')',
-  /** Разделитель источника и подписи */
-  sourceSeparator: ' — ',
 } as const;
 
 /**
@@ -56,12 +59,12 @@ export function formatTargetChoiceRequestTitle(
   count: number,
   sourceName?: string,
 ): string {
-  const { pick, countPrefix, countSuffix, sourceSeparator } =
-    TARGET_CHOICE_REQUEST_TITLE_PARTS;
+  const { pick, countPrefix, countSuffix } = TARGET_CHOICE_REQUEST_TITLE_PARTS;
 
-  const title = `${pick}${countPrefix}${count}${countSuffix}`;
-
-  return sourceName ? `${sourceName}${sourceSeparator}${title}` : title;
+  return withRequestSource(
+    `${pick}${countPrefix}${count}${countSuffix}`,
+    sourceName,
+  );
 }
 
 /**
@@ -202,26 +205,26 @@ export function toChoiceCandidatePayload(
 }
 
 /**
- * Чей владелец выбирает: носитель эффекта или тот, кто эффект наложил.
+ * Чей владелец решает — выбирает цель или даёт разрешение: носитель эффекта
+ * или тот, кто эффект наложил.
  *
  * У ауры заклинателя субъект и наложивший — одно лицо. Разойдутся они там, где
  * эффект висит на жертве, а решает заклинатель («выбери, кого задеть»).
  *
  * @param subject - субъект срабатывания
  * @param effect - эффект, чьё срабатывание идёт
- * @param choice - блок «по выбору»
+ * @param chooser - кто решает; нет — умолчание
  * @returns идентификатор сущности, чьего владельца спрашивают
  */
 export function resolveChooserId(
   subject: DnDSceneEntity,
   effect: ActiveEffect,
-  choice: EffectTriggerChoice,
+  chooser: EffectTriggerChooser | undefined,
 ): string {
-  const chooser = choice.chooser ?? DEFAULT_TRIGGER_CHOOSER;
-
   // Наложившего может не быть (эффект из компендиума, не из каста) — тогда
   // спрашиваем носителя: иначе спросить было бы некого
-  return chooser === 'source' && effect.sourceActorId
+  return (chooser ?? DEFAULT_TRIGGER_CHOOSER) === 'source'
+    && effect.sourceActorId
     ? effect.sourceActorId
     : subject.id;
 }
@@ -257,7 +260,7 @@ export function readChoiceAnswer(
   candidates: readonly DnDSceneEntity[],
   choice: EffectTriggerChoice,
 ): DnDSceneEntity[] | null {
-  if (outcome.status !== 'answered' && outcome.status !== 'takenOver') {
+  if (!isRollRequestAnswered(outcome)) {
     return null;
   }
 

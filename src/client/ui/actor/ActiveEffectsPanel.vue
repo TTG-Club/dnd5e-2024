@@ -32,9 +32,16 @@
   import { getActiveSocket } from '@/system-runtime/activeSocket';
   import {
     activateEffectOnEntity,
+    advanceEffectStage,
     buildEffectUseSpell,
     buildRuntimeConditionRecord,
+    canAdvanceEffectStage,
     canPayActivation,
+    describeEscapeUnavailable,
+    dnd5eSystemInstance,
+    formatEffectEscapeLabel,
+    formatEffectStageLabel,
+    hasEffectActiveAction,
     isEffectDormant,
     isToggleActivatedEffect,
     isUseActivatedEffect,
@@ -42,16 +49,26 @@
     listSelectableConditions,
     payActivation,
     resolveActorStats,
+    runEffectActiveAction,
   } from '@vtt/shared/system/dnd.js';
 
   import { applyEffectSource } from '../../composables/effectActivationUse';
+  import { runEffectEscape } from '../../composables/effectEscapeAction';
+  import { resolveCombatRound } from '../../composables/encounterTurn';
   import { requestEndCasts } from '../../composables/spellCasts';
   import { stampEffectOnApply } from '../../composables/spellResolutionShared';
   import { useActiveEffectModal } from '../../composables/useActiveEffectModal';
   import { useEntityActiveEffects } from '../../composables/useEntityActiveEffects';
   import { CONDITION_MODALS } from '../condition/conditionConsts';
   import ActiveEffectFormModal from '../effect/ActiveEffectFormModal.vue';
-  import { EFFECT_USE_LABELS } from '../effect/constants';
+  import {
+    EFFECT_ACTIVE_ACTION_LABELS,
+    EFFECT_CHARGES_LABELS,
+    EFFECT_ESCAPE_LABELS,
+    EFFECT_STAGE_LABELS,
+    EFFECT_USE_LABELS,
+  } from '../effect/constants';
+  import { formatActiveActionLabel } from '../effect/utils/activeActionLabel';
   import {
     ACTIVE_EFFECT_DEFAULTS,
     ACTIVE_EFFECT_ICON_CLASS,
@@ -189,11 +206,15 @@
 
     emitEntityCombatState(
       socket,
-      activateEffectOnEntity(owner, effect.id, (activated) =>
-        stampEffectOnApply(activated, {
-          carrierId: owner.id,
-          sourceId: owner.id,
-        }),
+      activateEffectOnEntity(
+        owner,
+        effect.id,
+        (activated) =>
+          stampEffectOnApply(activated, {
+            carrierId: owner.id,
+            sourceId: owner.id,
+          }),
+        resolveCombatRound(),
       ),
     );
   }
@@ -223,6 +244,101 @@
       resolveActorStats(owner).spellSaveDC,
       () => payEffectActivation(effect),
     );
+  }
+
+  /**
+   * Строки своих эффектов с готовыми подписями: разметка только показывает,
+   * а не считает.
+   */
+  const effectRows = computed(() =>
+    customEffects.value.map((effect) => {
+      const showsActiveAction =
+        hasEffectActiveAction(effect) && !isToggleActivatedEffect(effect);
+
+      return {
+        effect,
+        stageLabel: formatEffectStageLabel(effect),
+        chargesLabel: effect.charges
+          ? `${EFFECT_CHARGES_LABELS.title} ${effect.charges.current}${EFFECT_CHARGES_LABELS.separator}${effect.charges.max}`
+          : null,
+        showsActiveAction,
+        activeActionLabel: showsActiveAction
+          ? formatActiveActionLabel(effect)
+          : '',
+      };
+    }),
+  );
+
+  /**
+   * Запускает действие действующего эффекта: его срабатывания «При действии»
+   * идут боевым каналом — они меняют и хиты.
+   *
+   * @param effect - эффект строки
+   */
+  function runActiveAction(effect: ActiveEffect): void {
+    const { owner } = props;
+    const socket = getActiveSocket();
+
+    if (!owner || !socket) {
+      return;
+    }
+
+    emitEntityCombatState(
+      socket,
+      runEffectActiveAction(owner, effect.id, resolveCombatRound()),
+    );
+  }
+
+  /**
+   * Переводит эффект на следующую ступень: строки и флаги берутся из неё.
+   *
+   * @param effect - эффект строки
+   */
+  function advanceStage(effect: ActiveEffect): void {
+    const advanced = advanceEffectStage(effect);
+
+    if (advanced) {
+      saveEffect(advanced);
+    }
+  }
+
+  /**
+   * Открывает бросок «вырваться»: по успеху эффект (или наложенное им
+   * состояние) снимается.
+   *
+   * @param effect - эффект строки
+   */
+  function escapeEffect(effect: ActiveEffect): void {
+    const { owner } = props;
+
+    if (!owner) {
+      return;
+    }
+
+    // Причину отказа показывают, а не глотают: иначе кнопка молча не работает
+    const unavailable = describeEscapeUnavailable(effect);
+
+    if (unavailable !== null) {
+      toast.add({
+        title: EFFECT_ESCAPE_LABELS.hint,
+        description: `${EFFECT_ESCAPE_LABELS.unavailablePrefix}${unavailable}`,
+        color: 'warning',
+      });
+
+      return;
+    }
+
+    runEffectEscape({
+      entity: owner,
+      effect,
+      flags: dnd5eSystemInstance.getEntityActiveFlags(owner),
+      onEscaped: (effectIds) => {
+        emit(
+          'update:effects',
+          props.effects.filter((entry) => !effectIds.includes(entry.id)),
+        );
+      },
+    });
   }
 
   const effectModalId = 'active-effect-form-modal';
@@ -378,7 +494,13 @@
       class="space-y-1"
     >
       <div
-        v-for="effect in customEffects"
+        v-for="{
+          effect,
+          stageLabel,
+          chargesLabel,
+          showsActiveAction,
+          activeActionLabel,
+        } in effectRows"
         :key="effect.id"
         class="group flex min-h-11 items-center gap-2 rounded-lg bg-elevated/50 p-2 transition-colors hover:bg-accented/50"
         :class="{ 'opacity-50 grayscale': effect.disabled }"
@@ -405,6 +527,20 @@
             </div>
 
             <div
+              v-if="stageLabel"
+              class="mt-0.5 text-[10px] wrap-break-word text-toned"
+            >
+              {{ stageLabel }}
+            </div>
+
+            <div
+              v-if="chargesLabel"
+              class="mt-0.5 text-[10px] text-toned"
+            >
+              {{ chargesLabel }}
+            </div>
+
+            <div
               v-if="effect.description"
               class="mt-0.5 text-[10px] wrap-break-word text-dimmed"
             >
@@ -423,6 +559,44 @@
             class="px-1.5"
             :title="CONCENTRATION_END_LABEL"
             @click.left.exact.prevent="endConcentration(effect)"
+          />
+
+          <UButton
+            v-if="effect.escape"
+            icon="tabler:lock-open"
+            size="xs"
+            variant="soft"
+            color="warning"
+            class="px-1.5"
+            :label="formatEffectEscapeLabel(effect)"
+            :title="EFFECT_ESCAPE_LABELS.hint"
+            :disabled="isEditMode || !owner"
+            @click.left.exact.prevent="escapeEffect(effect)"
+          />
+
+          <UButton
+            v-if="canAdvanceEffectStage(effect)"
+            icon="tabler:stairs-up"
+            size="xs"
+            variant="ghost"
+            color="neutral"
+            class="px-1.5"
+            :title="EFFECT_STAGE_LABELS.advanceHint"
+            :disabled="isEditMode"
+            @click.left.exact.prevent="advanceStage(effect)"
+          />
+
+          <UButton
+            v-if="showsActiveAction"
+            icon="tabler:bolt"
+            size="xs"
+            variant="soft"
+            color="primary"
+            class="px-1.5"
+            :label="activeActionLabel"
+            :title="EFFECT_ACTIVE_ACTION_LABELS.hint"
+            :disabled="isEditMode || !owner"
+            @click.left.exact.prevent="runActiveAction(effect)"
           />
 
           <UButton

@@ -21,6 +21,8 @@ import type {
   EffectTriggerAction,
   EffectTriggerChoice,
 } from './effectTriggerTypes.js';
+import type { TriggerEventData } from './triggerConditions.js';
+import type { EffectPromptRequestPayload } from './triggerPrompt.js';
 import type {
   EffectSaveSpec,
   EntryEffectOptions,
@@ -39,6 +41,7 @@ import {
   formatEffectRequesterLabel,
   settleEffectSaveOutcome,
 } from './effectSaveAcquisition.js';
+import { describeTriggerActions } from './effectTriggerDescribe.js';
 import {
   applyEntryEffect,
   applyTriggerEffectActions,
@@ -63,10 +66,16 @@ import {
   toChoiceCandidatePayload,
 } from './triggerChoice.js';
 import {
+  EFFECT_PROMPT_CONFIRM_OPTIONS,
+  EFFECT_PROMPT_REQUEST_KIND,
+  formatEffectPromptTitle,
+  readPromptConfirmed,
+} from './triggerPrompt.js';
+import {
+  appendEffectsSummaryNotes,
   applyDamageToEntity,
   buildApplySaveSpec,
   formatEffectsSummary,
-  formatEffectsSummaryHeader,
 } from './turnEffects.js';
 
 /** Исход отложенного срабатывания после ответа игрока */
@@ -419,8 +428,11 @@ export function requestTurnTriggerSave(
   requestRoll: ServerRollRequester,
   effectOptions: EntryEffectOptions = {},
 ): EngineDeferredTrigger | null {
-  const { effect, trigger, ambient, instance, scope, stage } = deferred;
-  const spec = buildTriggerSaveSpec(effect, trigger);
+  const { effect, trigger, ambient, instance, scope, stage, eventData } =
+    deferred;
+
+  // Режим «если…» и Сл формулой — по тем же данным хода, что у броска сервера
+  const spec = buildTriggerSaveSpec(effect, trigger, { entity, eventData });
 
   if (!spec) {
     return null;
@@ -466,6 +478,8 @@ export function requestTurnTriggerSave(
  * @param source - срабатывание с источником
  * @param requestRoll - запрос броска от ядра
  * @param requesterLabel - кто просит («Зона «Лунный луч»»)
+ * @param eventData - данные события: режим «если…» считается по ним так же,
+ *   как у броска сервера
  * @param options - откуда пришли наложения
  * @returns отложенное срабатывание; `null`, если спасброска нет
  */
@@ -474,9 +488,13 @@ export function requestPresenceTriggerSave(
   source: EffectTriggerSource,
   requestRoll: ServerRollRequester,
   requesterLabel: string,
+  eventData: TriggerEventData,
   options: EntryEffectOptions = {},
 ): EngineDeferredTrigger | null {
-  const spec = buildTriggerSaveSpec(source.effect, source.trigger);
+  const spec = buildTriggerSaveSpec(source.effect, source.trigger, {
+    entity,
+    eventData,
+  });
 
   if (!spec) {
     return null;
@@ -498,6 +516,137 @@ export function requestPresenceTriggerSave(
         effectOptions,
       ),
   );
+}
+
+/** Заметки в сводку чата о том, чем кончился вопрос человеку */
+export const TRIGGER_ASK_CHAT_NOTES = {
+  declined: 'срабатывание отменено — согласия нет',
+  timeout: 'нет ответа — срабатывание отменено',
+} as const;
+
+/** Вопросы срабатывания: обычный и о расходе реакции */
+export const TRIGGER_ASK_QUESTIONS = {
+  plain: 'Пустить срабатывание в ход?',
+  reaction: 'Потратить реакцию?',
+} as const;
+
+/**
+ * Строит вопрос «да / нет» перед срабатыванием: подпись, варианты и краткое
+ * описание того, что случится по согласию.
+ *
+ * @param source - срабатывание с источником
+ * @returns нагрузка вопроса
+ */
+function buildTriggerAskPayload(
+  source: EffectTriggerSource,
+): EffectPromptRequestPayload {
+  const summary = describeTriggerActions(source.trigger);
+
+  return {
+    kind: EFFECT_PROMPT_REQUEST_KIND,
+    question:
+      source.trigger.cost === 'reaction'
+        ? TRIGGER_ASK_QUESTIONS.reaction
+        : TRIGGER_ASK_QUESTIONS.plain,
+    options: [...EFFECT_PROMPT_CONFIRM_OPTIONS],
+    sourceName: source.effect.name,
+    ...(summary ? { effectSummary: summary } : {}),
+  };
+}
+
+/**
+ * Выполняет срабатывание, на которое согласились: спасбросок бросает сервер,
+ * дальше — обычные урон, лечение и наложения.
+ *
+ * @param entity - живая сущность
+ * @param source - снимок срабатывания с источником
+ * @param options - опции наложения
+ * @returns исход для сводки
+ */
+function applyAskedTrigger(
+  entity: DnDSceneEntity,
+  source: EffectTriggerSource,
+  options: EntryEffectOptions,
+): DeferredEffectOutcome {
+  const notes: string[] = [];
+
+  const result = settlePresenceTrigger(
+    entity,
+    source,
+    rollTriggerSave(entity, source, options.ambientEffects ?? []),
+    { ...options, collectNote: (note) => notes.push(note) },
+  );
+
+  return toDeferredEffectOutcome(result, notes);
+}
+
+/**
+ * Срабатывание, которое спрашивает разрешения: пока человек не согласился,
+ * ничего не происходит.
+ *
+ * Спрашивают у владельца носителя или наложившего (поле `asker`). Отказ,
+ * молчание и «спрашивать некого» — одно и то же: срабатывание отменяется с
+ * заметкой в чат, как у выбора цели.
+ *
+ * Согласие пускает срабатывание дальше по его обычному пути: у срабатывания с
+ * получателем «по выбору» следом идёт вопрос «кого задеть»
+ * (`buildChoiceRequest`), у остальных — урон и наложения сразу.
+ *
+ * @param subject - субъект: на нём эффект
+ * @param source - срабатывание с источником
+ * @param requestRoll - запрос от ядра
+ * @param requesterLabel - кто просит («Эффект «Опутывание»»)
+ * @param effectOptions - опции наложения
+ * @param buildChoiceRequest - чем спросить «кого задеть» после согласия
+ * @returns отложенное срабатывание
+ */
+export function requestTriggerAsk(
+  subject: DnDSceneEntity,
+  source: EffectTriggerSource,
+  requestRoll: ServerRollRequester,
+  requesterLabel: string,
+  effectOptions: EntryEffectOptions = {},
+  buildChoiceRequest?: () => EngineDeferredTrigger | null,
+): EngineDeferredTrigger {
+  const snapshot = snapshotTriggerSource(source);
+  const payload = buildTriggerAskPayload(snapshot);
+
+  const askerId = resolveChooserId(
+    subject,
+    snapshot.effect,
+    snapshot.trigger.asker,
+  );
+
+  const resolution = requestRoll({
+    entityId: askerId,
+    requesterLabel,
+    title: formatEffectPromptTitle(snapshot.effect.name),
+    payload,
+  }).then(
+    (outcome): DeferredEffectApply | Promise<DeferredEffectApply | null> => {
+      if (!readPromptConfirmed(outcome)) {
+        const note =
+          outcome.status === 'timeout'
+            ? TRIGGER_ASK_CHAT_NOTES.timeout
+            : TRIGGER_ASK_CHAT_NOTES.declined;
+
+        return () => unchangedOutcome([`${snapshot.effect.name}: ${note}`]);
+      }
+
+      const choiceRequest = buildChoiceRequest?.();
+
+      if (choiceRequest) {
+        return choiceRequest.resolution;
+      }
+
+      return (liveSubject) =>
+        applyAskedTrigger(liveSubject, snapshot, effectOptions);
+    },
+    ignoreRejectedRollRequest,
+  );
+
+  // Вопрос не про движение фишки: ход не ждёт ответа
+  return { entityId: subject.id, blocksMovement: false, resolution };
 }
 
 /** Заметки в сводку чата о том, чем кончился выбор цели */
@@ -712,7 +861,7 @@ export function requestTriggerChoice(
   };
 
   const resolution = requestRoll({
-    entityId: resolveChooserId(subject, source.effect, choice),
+    entityId: resolveChooserId(subject, source.effect, choice.chooser),
     requesterLabel,
     title: formatTargetChoiceRequestTitle(count, source.effect.name),
     payload: {
@@ -748,21 +897,17 @@ export function formatDeferredEffectsSummary(
   outcome: DeferredEffectOutcome,
   formatSaveStatus: (save: TurnSaveOutcome) => string,
 ): string | null {
-  const summary = formatEffectsSummary(
+  return appendEffectsSummaryNotes(
+    formatEffectsSummary(
+      entityName,
+      whenLabel,
+      outcome.damageOutcomes,
+      outcome.saveOutcomes,
+      formatSaveStatus,
+      outcome.healingOutcomes,
+    ),
     entityName,
     whenLabel,
-    outcome.damageOutcomes,
-    outcome.saveOutcomes,
-    formatSaveStatus,
-    outcome.healingOutcomes,
+    outcome.notes,
   );
-
-  if (outcome.notes.length === 0) {
-    return summary;
-  }
-
-  return [
-    summary ?? formatEffectsSummaryHeader(entityName, whenLabel),
-    ...outcome.notes,
-  ].join('\n');
 }

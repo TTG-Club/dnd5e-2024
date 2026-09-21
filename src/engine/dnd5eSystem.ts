@@ -20,6 +20,7 @@ import type {
   SystemDeferredTriggerResult,
   SystemRelatedTriggerResult,
   SystemRollResult,
+  SystemTokenMovement,
   SystemTriggerContext,
   Token,
   VttSystem,
@@ -49,6 +50,7 @@ import type { AreaEffectsSyncResult } from './positionalEffects.js';
 import type { SystemClientEvent } from './systemClientEvents.js';
 import type {
   EntryEffectOptions,
+  SceneMoveOptions,
   TurnDamageOutcome,
   TurnHealingOutcome,
   TurnSaveOutcome,
@@ -110,6 +112,7 @@ import {
 import { syncCreatureDeathCondition } from './deathState.js';
 import {
   formatDeferredEffectsSummary,
+  requestTriggerAsk,
   requestTriggerChoice,
   requestTurnTriggerSave,
 } from './deferredEffectSaves.js';
@@ -117,7 +120,11 @@ import { rollDamageFormula as rollDamageFormulaImpl } from './diceFormula.js';
 import {
   settleAppliedEvents,
   settleAttackRollTriggers,
+  settleConditionLostEvents,
   settleDamageEvents,
+  settleDownedOtherEvents,
+  settleHealingEvents,
+  settleMovementEvents,
 } from './effectDamageEvents.js';
 import {
   collectActiveEffects,
@@ -159,6 +166,7 @@ import {
 } from './terrainCost.js';
 import { listChoiceCandidates } from './triggerChoice.js';
 import {
+  appendEffectsSummaryNotes,
   buildEffectDiceRolls,
   decrementActorEffectDurations,
   expireTurnEffects as expireEntityTurnEffects,
@@ -202,6 +210,9 @@ const AREA_SUMMARY_LABEL = 'область';
 /** Подпись момента в сводке сработавших аур */
 const AURA_SUMMARY_LABEL = 'аура';
 
+/** Подпись момента в сводке срабатываний пути носителя */
+const MOVEMENT_SUMMARY_LABEL = 'путь';
+
 /**
  * Метка ожидания спасброска против урона каждый ход: у эффекта с уроном и
  * повторным спасброском на одной границе хода висят два разных запроса.
@@ -216,6 +227,7 @@ const TURN_STAGE_KEYS = {
   damage: `:${TURN_DAMAGE_SAVE_KEY}`,
   effects: '',
   choice: ':choice',
+  ask: ':ask',
 } as const;
 
 /**
@@ -229,6 +241,39 @@ const DAMAGE_EVENTS_SUMMARY_LABEL = 'от урона';
 
 /** Подпись момента в сводке срабатываний «при наложении» */
 const APPLIED_EVENTS_SUMMARY_LABEL = 'при наложении';
+
+/** Подпись момента в сводке срабатываний «когда носителя вылечили» */
+const HEALING_EVENTS_SUMMARY_LABEL = 'от лечения';
+
+/** Подпись момента в сводке срабатываний «состояние снялось» */
+const CONDITION_LOST_SUMMARY_LABEL = 'при снятии состояния';
+
+/** Подпись момента в сводке срабатываний «носитель свалил цель» */
+const DOWNED_OTHER_SUMMARY_LABEL = 'когда цель свалена';
+
+/**
+ * Состояния, снятые снимком: те, чьих эффектов в новом списке не стало.
+ *
+ * @param before - эффекты до снимка
+ * @param after - эффекты после
+ * @returns ключи снятых состояний без повторов
+ */
+function listLostConditions(
+  before: readonly ActiveEffect[],
+  after: readonly ActiveEffect[],
+): string[] {
+  const kept = new Set(after.map((effect) => effect.id));
+
+  return [
+    ...new Set(
+      before.flatMap((effect) =>
+        !kept.has(effect.id) && effect.conditionKey
+          ? [effect.conditionKey]
+          : [],
+      ),
+    ),
+  ];
+}
 
 /**
  * Кубики эффектов сущности полем исхода для ядра: без бросков поля нет.
@@ -422,13 +467,18 @@ function toDamageEventsTriggerResult(
     (outcome) => ({
       entity: outcome.entity,
       changed: outcome.changed,
-      chatSummary: formatEffectsSummary(
+      chatSummary: appendEffectsSummaryNotes(
+        formatEffectsSummary(
+          outcome.entity.name,
+          label,
+          outcome.damageOutcomes,
+          outcome.saveOutcomes,
+          formatEntrySaveStatus,
+          outcome.healingOutcomes,
+        ),
         outcome.entity.name,
         label,
-        outcome.damageOutcomes,
-        outcome.saveOutcomes,
-        formatEntrySaveStatus,
-        outcome.healingOutcomes,
+        outcome.notes,
       ),
       ...effectRollsField(
         outcome.entity.name,
@@ -440,13 +490,18 @@ function toDamageEventsTriggerResult(
 
   return {
     changed: events.changed,
-    chatSummary: formatEffectsSummary(
+    chatSummary: appendEffectsSummaryNotes(
+      formatEffectsSummary(
+        entity.name,
+        label,
+        events.damageOutcomes,
+        events.saveOutcomes,
+        formatEntrySaveStatus,
+        events.healingOutcomes,
+      ),
       entity.name,
       label,
-      events.damageOutcomes,
-      events.saveOutcomes,
-      formatEntrySaveStatus,
-      events.healingOutcomes,
+      events.notes,
     ),
     ...effectRollsField(
       entity.name,
@@ -511,6 +566,25 @@ function withDamageEvents(
 }
 
 /**
+ * Сцена и перемещения ядра для срабатываний сущности: по ним считаются толчок
+ * фишки и сдвиг зоны.
+ *
+ * @param entity - субъект
+ * @param context - возможности ядра
+ * @returns сцена вокруг субъекта и перемещения
+ */
+function toSceneMoveOptions(
+  entity: DnDSceneEntity,
+  context: SystemTriggerContext | undefined,
+): SceneMoveOptions {
+  return {
+    surroundings: context?.getSceneSurroundings?.(entity) ?? null,
+    moveToken: context?.moveToken,
+    moveArea: context?.moveArea,
+  };
+}
+
+/**
  * С чем прогоняются события урона и наложения у сущности.
  *
  * @param entity - субъект
@@ -526,9 +600,11 @@ function buildTriggerEventOptions(
     ambientEffects: toAmbientResolver(context)(entity),
     inCombat: context?.isInCombat?.(entity) ?? false,
     activeTurnActorId: context?.getActiveTurnActorId?.() ?? null,
+    combatRound: toCombatRound(context),
     getEntity: toDndEntityResolver(context?.getEntity),
     endCast: toCastEnder(context, entity.id),
     listEntitiesInArea: toAreaLister(context),
+    ...toSceneMoveOptions(entity, context),
   };
 }
 
@@ -582,6 +658,42 @@ function requestTurnTriggerChoice(
     formatEffectRequesterLabel(turnTrigger.effect.name),
     answerOptions,
   );
+}
+
+/**
+ * Проверка «наложивший эффект в пределах N футов»: ищет его среди соседей по
+ * сцене. Старое ядро соседей не отдаёт — тогда расстояние неизвестно и часть
+ * условия о нём не выполняется.
+ *
+ * @param subject - субъект срабатывания
+ * @param context - возможности ядра
+ * @returns проверка расстояния либо `undefined`, если сцены нет
+ */
+function toSourceProximityResolver(
+  subject: DnDSceneEntity,
+  context: SystemTriggerContext | undefined,
+): ((sourceId: string, feet: number) => boolean) | undefined {
+  if (!context?.getSceneSurroundings) {
+    return undefined;
+  }
+
+  return (sourceId, feet) =>
+    findEntitiesInArea(context.getSceneSurroundings?.(subject), {
+      radius: feet,
+    }).some((entity) => entity.id === sourceId);
+}
+
+/**
+ * Номер идущего раунда из контекста ядра. Старое ядро номера не отдаёт, вне
+ * боя его нет — тогда расписание «на раунде N» молчит.
+ *
+ * @param context - контекст срабатывания от ядра
+ * @returns номер раунда либо `undefined`
+ */
+function toCombatRound(
+  context: SystemTriggerContext | undefined,
+): number | undefined {
+  return context?.getCombatRound?.() ?? undefined;
 }
 
 /**
@@ -680,13 +792,18 @@ function toEntityTriggerResult(
     context,
     {
       changed: outcome.changed,
-      chatSummary: formatEffectsSummary(
+      chatSummary: appendEffectsSummaryNotes(
+        formatEffectsSummary(
+          entity.name,
+          label,
+          outcome.damageOutcomes,
+          outcome.saveOutcomes,
+          formatEntrySaveStatus,
+          outcome.healingOutcomes,
+        ),
         entity.name,
         label,
-        outcome.damageOutcomes,
-        outcome.saveOutcomes,
-        formatEntrySaveStatus,
-        outcome.healingOutcomes,
+        outcome.notes,
       ),
       ...effectRollsField(
         entity.name,
@@ -746,6 +863,7 @@ function runCastEndTriggers(
   const outcome = runPresenceTriggerSources(entity, sources, {
     requestRoll: context?.requestRoll,
     inCombat: context?.isInCombat?.(entity) ?? false,
+    combatRound: toCombatRound(context),
     requesterLabel: CAST_END_REQUESTER_LABEL,
     effectOptions: {
       ambientEffects: toAmbientResolver(context)(entity),
@@ -821,6 +939,7 @@ function settleAttackRollEvent(
       healingOutcomes: [],
       saveOutcomes: [],
       deferred: [],
+      notes: [],
     };
 
     outcomes.set(entity.id, created);
@@ -843,17 +962,16 @@ function settleAttackRollEvent(
   ];
 
   for (const side of sides) {
+    // Те же возможности ядра, что у остальных событий: сцена нужна толчку и
+    // сдвигу зоны, соседи — получателю «всем в радиусе»
     const events = settleAttackRollTriggers(side.subject, side.role, {
+      ...buildTriggerEventOptions(side.subject, context),
       other: side.other,
       roll: {
         hasAdvantage: event.rollMode === 'advantage',
         hasDisadvantage: event.rollMode === 'disadvantage',
       },
-      requestRoll: context.requestRoll,
-      ambientEffects: toAmbientResolver(context)(side.subject),
-      inCombat: context.isInCombat?.(side.subject) ?? false,
-      activeTurnActorId: context.getActiveTurnActorId?.() ?? null,
-      endCast: toCastEnder(context, side.subject.id),
+      ...(event.landed === undefined ? {} : { landed: event.landed }),
     });
 
     const subject = outcomeOf(side.subject);
@@ -863,6 +981,7 @@ function settleAttackRollEvent(
     subject.healingOutcomes.push(...events.healingOutcomes);
     subject.saveOutcomes.push(...events.saveOutcomes);
     subject.deferred.push(...events.deferred);
+    subject.notes.push(...events.notes);
 
     for (const related of events.related) {
       const other = outcomeOf(related.entity);
@@ -871,6 +990,7 @@ function settleAttackRollEvent(
       other.damageOutcomes.push(...related.damageOutcomes);
       other.healingOutcomes.push(...related.healingOutcomes);
       other.saveOutcomes.push(...related.saveOutcomes);
+      other.notes.push(...related.notes);
     }
   }
 
@@ -879,7 +999,8 @@ function settleAttackRollEvent(
       (outcome) =>
         outcome.changed
         || outcome.deferred.length > 0
-        || outcome.saveOutcomes.length > 0,
+        || outcome.saveOutcomes.length > 0
+        || outcome.notes.length > 0,
     )
     .map((outcome) => ({
       entity: outcome.entity,
@@ -950,7 +1071,10 @@ function settleTurnEffects(
     ambientEffects,
     sourceTurnActorId,
     isSourceInCombat: toSourceInCombatResolver(context),
+    isSourceWithin: toSourceProximityResolver(entity, context),
+    combatRound: toCombatRound(context),
     endCast,
+    ...toSceneMoveOptions(entity, context),
   });
 
   // Ответ игрока накладывает и заканчивает каст так же, как бросок сервера
@@ -958,6 +1082,7 @@ function settleTurnEffects(
     ambientEffects,
     activeTurnActorId: sourceTurnActorId ?? entity.id,
     endCast,
+    ...toSceneMoveOptions(entity, context),
   };
 
   const chatSummary = formatTurnEffectsMessage(
@@ -979,9 +1104,17 @@ function settleTurnEffects(
     (turnTrigger) => turnTrigger.stage === 'choice',
   );
 
-  // «Авто-спасброски» про броски, а не про выбор: кого задеть, всё равно решает
-  // человек. Без запроса от ядра спросить некого — срабатывание молчит
-  if (requestRoll === undefined || (!askOwner && choiceTriggers.length === 0)) {
+  const askTriggers = result.deferredTriggers.filter(
+    (turnTrigger) => turnTrigger.stage === 'ask',
+  );
+
+  // «Авто-спасброски» про броски, а не про согласие и выбор: пускать ли
+  // срабатывание в ход и кого задеть, всё равно решает человек. Без запроса от
+  // ядра спросить некого — срабатывание молчит
+  if (
+    requestRoll === undefined
+    || (!askOwner && choiceTriggers.length === 0 && askTriggers.length === 0)
+  ) {
     return withDamageEvents(entity, hpBefore, hits, context, {
       changed: result.changed,
       chatSummary,
@@ -1014,6 +1147,7 @@ function settleTurnEffects(
       (turnTrigger) => turnTrigger.stage === 'effects',
     ),
     ...choiceTriggers,
+    ...askTriggers,
   ].map((turnTrigger) => {
     const stageSuffix = TURN_STAGE_KEYS[turnTrigger.stage];
 
@@ -1023,8 +1157,26 @@ function settleTurnEffects(
       pendingKey: isLegacyTrigger(turnTrigger.trigger)
         ? stageKey
         : `${stageKey}:${turnTrigger.trigger.id}`,
-      request: () =>
-        turnTrigger.stage === 'choice'
+      request: () => {
+        if (turnTrigger.stage === 'ask') {
+          return requestTriggerAsk(
+            entity,
+            turnTrigger,
+            requestRoll,
+            formatEffectRequesterLabel(turnTrigger.effect.name),
+            answerOptions,
+            () =>
+              requestTurnTriggerChoice(
+                entity,
+                turnTrigger,
+                requestRoll,
+                listEntitiesInArea,
+                answerOptions,
+              ),
+          );
+        }
+
+        return turnTrigger.stage === 'choice'
           ? requestTurnTriggerChoice(
               entity,
               turnTrigger,
@@ -1038,7 +1190,8 @@ function settleTurnEffects(
               timing,
               requestRoll,
               answerOptions,
-            ),
+            );
+      },
     };
   });
 
@@ -1255,6 +1408,83 @@ const COMPENDIUM_PREDICATES: Record<string, (entry: unknown) => boolean> = {
     && getSpellDamageParts(entry).some((part) => damagePartIsHealing(part)),
 };
 
+/** Что снимок изменил у сущности — вход серии событий после его записи */
+interface SnapshotEventsInput {
+  /** Хиты до записи снимка */
+  hpBefore: number;
+  /** Удары снимка */
+  hits: readonly DamageHit[];
+  /** Эффекты, наложенные этим снимком */
+  newEffectIds: ReadonlySet<string>;
+  /** Эффекты до записи снимка: по ним видно снятые состояния */
+  effectsBefore: readonly ActiveEffect[];
+  /** С чем прогоняются события */
+  options: TriggerEventOptions;
+}
+
+/**
+ * События, которые видит боевой снимок после записи: наложение, лечение,
+ * снятие состояния и «носитель свалил цель».
+ *
+ * Вынесены из `settleCombatState` отдельной ступенью: сам метод отвечает за
+ * приём снимка, а эта — за то, что из него следует по правилам.
+ *
+ * @param entity - сущность с записанным снимком (мутируется)
+ * @param damageResult - итог событий урона: к нему добавляются остальные
+ * @param input - что снимок изменил
+ * @returns общий итог для ядра
+ */
+function settleSnapshotEvents(
+  entity: DnDSceneEntity,
+  damageResult: SystemDeferredTriggerResult,
+  input: SnapshotEventsInput,
+): SystemDeferredTriggerResult {
+  const { hpBefore, hits, newEffectIds, effectsBefore, options } = input;
+  const hpAfter = resolveEntityCurrentHp(entity);
+
+  // «Носитель свалил цель» идёт на эффектах свалившего, а не поверженного
+  const downed =
+    hpAfter === 0 && hpBefore > 0
+      ? settleDownedOtherEvents(entity, hits, options)
+      : null;
+
+  // Свалившего в списке нет, если никого не свалили: объявленный тип даёт паре
+  // контекст, без него выводится широкий массив
+  const downedExtra: Array<[DamageEventsResult, string]> = downed
+    ? [[downed, DOWNED_OTHER_SUMMARY_LABEL]]
+    : [];
+
+  const extras: Array<[DamageEventsResult, string]> = [
+    [
+      settleAppliedEvents(entity, newEffectIds, hits, options),
+      APPLIED_EVENTS_SUMMARY_LABEL,
+    ],
+    [
+      // Временные хиты лечением не считаются: правила их отделяют
+      settleHealingEvents(entity, Math.max(0, hpAfter - hpBefore), options),
+      HEALING_EVENTS_SUMMARY_LABEL,
+    ],
+    [
+      settleConditionLostEvents(
+        entity,
+        listLostConditions(effectsBefore, entity.activeEffects ?? []),
+        options,
+      ),
+      CONDITION_LOST_SUMMARY_LABEL,
+    ],
+    ...downedExtra,
+  ];
+
+  return extras.reduce(
+    (merged, [events, label]) =>
+      mergeTriggerResults(
+        merged,
+        toDamageEventsTriggerResult(entity, events, label),
+      ),
+    damageResult,
+  );
+}
+
 /**
  * Игровая система D&D 5e (Ядро правил).
  * Предоставляет Ядру (Core VTT) абстрагированные методы для работы
@@ -1265,7 +1495,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.65';
+  readonly version = '0.8.66';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -1623,6 +1853,7 @@ export class Dnd5eVttSystem implements VttSystem {
         ...options,
         resolveAmbientEffects: toAmbientResolver(options),
         listEntitiesInArea: toAreaLister(options),
+        ...toSceneMoveOptions(entity, options),
       },
     );
 
@@ -1676,6 +1907,7 @@ export class Dnd5eVttSystem implements VttSystem {
         resolveAmbientEffects: toAmbientResolver(context),
         isInCombat: context?.isInCombat,
         getActiveTurnActorId: context?.getActiveTurnActorId,
+        getCombatRound: context?.getCombatRound,
         alreadyEnteredAuraKeys: context?.alreadyEnteredAuraKeys,
         listEntitiesInArea: toAreaLister(context),
       },
@@ -1691,6 +1923,57 @@ export class Dnd5eVttSystem implements VttSystem {
         context,
       ),
     }));
+  }
+
+  /**
+   * Срабатывания «прошёл N футов» за одно перемещение фишки: длину пути уже
+   * измерило ядро. Урон, который носитель получил на ходу, будит его события
+   * урона так же, как урон зоны.
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  applyMovementEffects(
+    entity: SceneEntity,
+    movement: SystemTokenMovement,
+    context?: SystemTriggerContext,
+  ): SystemDeferredTriggerResult {
+    if (!isDndSceneEntity(entity)) {
+      return { changed: false, chatSummary: null };
+    }
+
+    const hpBefore = resolveEntityCurrentHp(entity);
+
+    const events = settleMovementEvents(
+      entity,
+      {
+        distance: movement.distance,
+        forced: movement.forced,
+        offset: {
+          dx: movement.to.x - movement.from.x,
+          dy: movement.to.y - movement.from.y,
+        },
+      },
+      buildTriggerEventOptions(entity, context),
+    );
+
+    const own = toEntityTriggerResult(
+      entity,
+      events,
+      hpBefore,
+      MOVEMENT_SUMMARY_LABEL,
+      context,
+    );
+
+    // Действия, отданные другим («урон тому, кто рядом»), уходят в мир
+    // другими сторонами — снимок пишет только перемещённая сущность
+    const { related } = toDamageEventsTriggerResult(
+      entity,
+      events,
+      MOVEMENT_SUMMARY_LABEL,
+    );
+
+    return related && related.length > 0
+      ? { ...own, related: [...(own.related ?? []), ...related] }
+      : own;
   }
 
   /**
@@ -1894,9 +2177,9 @@ export class Dnd5eVttSystem implements VttSystem {
     const hpBefore = resolveEntityCurrentHp(entity);
     const totalBefore = hpBefore + resolveEntityTempHp(entity);
 
-    const effectIdsBefore = new Set(
-      (entity.activeEffects ?? []).map((effect) => effect.id),
-    );
+    const effectsBefore = [...(entity.activeEffects ?? [])];
+
+    const effectIdsBefore = new Set(effectsBefore.map((effect) => effect.id));
 
     if (!applyCombatStateImpl(entity, state)) {
       return REJECTED_COMBAT_STATE;
@@ -1929,24 +2212,15 @@ export class Dnd5eVttSystem implements VttSystem {
       rawHits,
     );
 
-    const applied = settleAppliedEvents(
-      entity,
-      newEffectIds,
+    const settled = settleSnapshotEvents(entity, damageResult, {
+      hpBefore,
       hits,
-      buildTriggerEventOptions(entity, context),
-    );
+      newEffectIds,
+      effectsBefore,
+      options: buildTriggerEventOptions(entity, context),
+    });
 
-    return {
-      accepted: true,
-      ...mergeTriggerResults(
-        damageResult,
-        toDamageEventsTriggerResult(
-          entity,
-          applied,
-          APPLIED_EVENTS_SUMMARY_LABEL,
-        ),
-      ),
-    };
+    return { accepted: true, ...settled };
   }
 
   /**

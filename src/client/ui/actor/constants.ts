@@ -1052,9 +1052,8 @@ export const SAVING_THROW_ABILITIES: Array<{
  */
 export const SAVING_THROW_ROLL_LABELS = {
   /**
-   * Подпись броска, сложность и разделитель источника — те же части, что у
-   * подписи запроса, которую собирает и сервер (`rollPrefix`, `dcPrefix`,
-   * `dcSuffix`, `sourceSeparator`)
+   * Подпись броска и сложность — те же части, что у подписи запроса,
+   * которую собирает и сервер (`rollPrefix`, `dcPrefix`, `dcSuffix`)
    */
   ...SAVING_THROW_REQUEST_TITLE_PARTS,
   /** Заголовок окна: дальше через двоеточие идёт название характеристики */
@@ -4446,6 +4445,10 @@ export const DICE_ROLL_LABELS = {
   tempAbsorbedPrefix: ' (врем. -',
   tempAbsorbedSuffix: ')',
   outcomeAutoFail: ' ✗ Провал (Автоматический)',
+  outcomeWilling: ' — согласная цель, спасбросок не бросается',
+  willing: 'Не сопротивляюсь',
+  willingHint:
+    'Согласная цель не совершает спасбросок: он считается проваленным',
   outcomeSuccess: ' ✓ Успех',
   outcomeFail: ' ✗ Провал',
 } as const;
@@ -5014,3 +5017,6 @@ export const DEATH_SAVE_STATUS_CLASS = {
 
 /** Слой плашек запросов хоста: сюда телепортируются плашки системы */
 export const HUD_PROMPTS_TELEPORT_TARGET = '#hud-prompts-container';
+
+/** Итог спасброска согласной цели: провал с натуральной единицей */
+export const WILLING_SAVE_TOTAL = 1;

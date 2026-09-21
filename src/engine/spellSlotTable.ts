@@ -20,6 +20,12 @@ export interface SpellSlotActorData {
   };
 }
 
+/** Наименьший круг ячейки заклинания */
+export const MIN_SPELL_SLOT_LEVEL = 1;
+
+/** Наибольший круг ячейки заклинания */
+export const MAX_SPELL_SLOT_LEVEL = 9;
+
 /** Количество ячеек заклинаний по кругам (индекс 0 = 1-й круг) */
 export type SpellSlotArray = [
   number,

@@ -11,12 +11,14 @@
   import type {
     EffectChange,
     EffectChangeMode,
+    EffectChangeStep,
     EffectModifierPreset,
   } from '@vtt/shared/system/dnd.js';
 
   import { computed, ref } from 'vue';
 
   import {
+    canStepEffectChangeValue,
     DEFAULT_EFFECT_CHANGE_PRIORITY,
     describeEffectChangeCondition,
     describeEffectChangeKey,
@@ -27,6 +29,7 @@
     isDiceFormulaValue,
     isEffectTargetKey,
     isNoOpEffectChange,
+    MAX_EFFECT_CHANGE_STEP,
     validateFormula,
   } from '@vtt/shared/system/dnd.js';
 
@@ -38,11 +41,15 @@
   import {
     ACTIVE_EFFECT_TEMPLATES_LABELS,
     DAMAGE_CHANGE_KEY_PREFIX,
+    DEFAULT_CHANGE_STEP_BY,
+    DEFAULT_CHANGE_STEP_PER,
     EFFECT_CHANGE_MODE_OPTIONS,
     EFFECT_CHANGE_ROW_LABELS,
+    EFFECT_CHANGE_STEP_LABELS,
     EFFECT_MODIFIERS_STEP_LABELS,
     EFFECT_TEMPLATES_MODAL_IDS,
   } from '../constants';
+  import { EFFECT_CHANGE_STEP_PER_OPTIONS } from '../effectFormOptions';
 
   const props = defineProps<{
     /** Показывать приоритет у всех строк */
@@ -81,6 +88,29 @@
     return result.valid ? undefined : result.error;
   }
 
+  /**
+   * Подсказка под шагом строки. Шаг двигает число; у формулы и пустого
+   * значения двигать нечего — тогда подсказка становится предупреждением.
+   *
+   * @param change - строка модификатора
+   * @param change.value - значение строки
+   * @returns текст подсказки и её цвет
+   */
+  function describeStepHint(change: Pick<EffectChange, 'value'>): {
+    stepHint: string;
+    stepHintClass: string;
+  } {
+    return canStepEffectChangeValue(change.value)
+      ? {
+          stepHint: EFFECT_CHANGE_STEP_LABELS.hint,
+          stepHintClass: 'text-muted',
+        }
+      : {
+          stepHint: EFFECT_CHANGE_STEP_LABELS.numberHint,
+          stepHintClass: 'text-warning',
+        };
+  }
+
   /** Строки с вычисленными подписями и видимостью полей */
   const rows = computed(() =>
     changes.value.map((change, index) => {
@@ -101,6 +131,8 @@
           ? `${EFFECT_CHANGE_ROW_LABELS.conditionOnlyPrefix}${describeEffectChangeCondition(condition)}`
           : '',
         isDamageKey: change.key.startsWith(DAMAGE_CHANGE_KEY_PREFIX),
+        hasStep: change.step !== undefined,
+        ...describeStepHint(change),
       };
     }),
   );
@@ -211,6 +243,56 @@
    */
   function updateCondition(index: number, condition: string | number): void {
     updateChange(index, { condition: String(condition) });
+  }
+
+  /**
+   * Включает или убирает шаг строки. Новый шаг — «−1 каждый ход»: правило,
+   * ради которого шаг и заводят, обычно убывающее.
+   *
+   * @param index - номер строки
+   * @param enabled - нужен ли шаг
+   */
+  function toggleStep(index: number, enabled: boolean): void {
+    updateChange(index, {
+      step: enabled
+        ? { by: DEFAULT_CHANGE_STEP_BY, per: DEFAULT_CHANGE_STEP_PER }
+        : undefined,
+    });
+  }
+
+  /**
+   * Меняет поля шага строки.
+   *
+   * @param index - номер строки
+   * @param patch - изменённые поля шага
+   */
+  function updateStep(index: number, patch: Partial<EffectChangeStep>): void {
+    const step = changes.value[index]?.step;
+
+    if (step) {
+      updateChange(index, { step: { ...step, ...patch } });
+    }
+  }
+
+  /**
+   * Меняет величину шага; пустое поле — шаг стоит на месте, пока автор
+   * набирает число.
+   *
+   * @param index - номер строки
+   * @param by - на сколько за период
+   */
+  function updateStepBy(index: number, by: number | null): void {
+    updateStep(index, { by: by ?? 0 });
+  }
+
+  /**
+   * Меняет предел шага: пустое поле — «без предела».
+   *
+   * @param index - номер строки
+   * @param until - предел
+   */
+  function updateStepUntil(index: number, until: number | null): void {
+    updateStep(index, { until: until ?? undefined });
   }
 
   /**
@@ -436,6 +518,57 @@
           class="text-xs text-muted"
         >
           {{ row.conditionLabel }}
+        </p>
+      </div>
+
+      <div class="flex flex-col gap-1">
+        <div class="flex flex-wrap items-center gap-2">
+          <USwitch
+            :model-value="row.hasStep"
+            :label="EFFECT_CHANGE_STEP_LABELS.toggle"
+            size="sm"
+            @update:model-value="toggleStep(row.index, $event)"
+          />
+
+          <template v-if="row.change.step">
+            <UInputNumber
+              :model-value="row.change.step.by"
+              :min="-MAX_EFFECT_CHANGE_STEP"
+              :max="MAX_EFFECT_CHANGE_STEP"
+              size="sm"
+              class="w-24"
+              :title="EFFECT_CHANGE_STEP_LABELS.by"
+              @update:model-value="updateStepBy(row.index, $event)"
+            />
+
+            <USelect
+              :model-value="row.change.step.per"
+              :items="EFFECT_CHANGE_STEP_PER_OPTIONS"
+              value-key="value"
+              size="sm"
+              class="w-52"
+              :portal="false"
+              :title="EFFECT_CHANGE_STEP_LABELS.per"
+              @update:model-value="updateStep(row.index, { per: $event })"
+            />
+
+            <UInputNumber
+              :model-value="row.change.step.until ?? null"
+              size="sm"
+              class="w-28"
+              :placeholder="EFFECT_CHANGE_STEP_LABELS.untilPlaceholder"
+              :title="EFFECT_CHANGE_STEP_LABELS.until"
+              @update:model-value="updateStepUntil(row.index, $event)"
+            />
+          </template>
+        </div>
+
+        <p
+          v-if="row.hasStep"
+          class="text-xs"
+          :class="row.stepHintClass"
+        >
+          {{ row.stepHint }}
         </p>
       </div>
 

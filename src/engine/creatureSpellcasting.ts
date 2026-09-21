@@ -167,12 +167,6 @@ export const MIN_CREATURE_SPELL_COUNT = 1;
  */
 export const DEFAULT_CREATURE_SPELL_REST: CreatureSpellRestKind = 'longRest';
 
-/** Наименьший круг, которым существо накладывает заклинание */
-export const CREATURE_SPELL_CAST_LEVEL_MIN = 1;
-
-/** Наибольший круг, которым существо накладывает заклинание */
-export const CREATURE_SPELL_CAST_LEVEL_MAX = 9;
-
 /**
  * Число применений спрашивается у этой группы.
  *

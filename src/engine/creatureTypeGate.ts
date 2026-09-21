@@ -18,6 +18,7 @@ import type { DnDSceneEntity } from './dndEntities.js';
 
 import { isCreatureEntity } from '@vtt/shared';
 
+import { listLiveEffects } from './activeEffectTypes.js';
 import { isCreatureCategory } from './consts.js';
 
 /**
@@ -67,6 +68,38 @@ export function parseTargetTypeToken(
   return isCreatureCategory(parsed) ? parsed : undefined;
 }
 
+/** Ключ строки изменения, меняющей тип существа */
+export const CREATURE_TYPE_CHANGE_KEY = 'creatureType';
+
+/**
+ * Тип существа, назначенный действующим эффектом.
+ *
+ * Строка изменения с ключом `creatureType` несёт ключ типа значением: режим у
+ * неё не важен — тип не число, он просто заменяется. Строк несколько —
+ * побеждает последняя: так же, как «Заменить» у остальных ключей.
+ *
+ * @param entity - актор или существо
+ * @returns тип либо `undefined`, если эффекты его не меняют
+ */
+function resolveCreatureTypeByEffects(
+  entity: DnDSceneEntity,
+): CreatureCategory | undefined {
+  let assigned: CreatureCategory | undefined;
+
+  for (const effect of listLiveEffects(entity)) {
+    for (const change of effect.changes) {
+      if (
+        change.key === CREATURE_TYPE_CHANGE_KEY
+        && isCreatureCategory(change.value)
+      ) {
+        assigned = change.value;
+      }
+    }
+  }
+
+  return assigned;
+}
+
 /**
  * Тип существа сущности сцены.
  *
@@ -82,6 +115,14 @@ export function parseTargetTypeToken(
 export function resolveEntityCreatureType(
   entity: DnDSceneEntity,
 ): CreatureCategory | undefined {
+  // Эффект меняет тип целиком («Обращение в зверя»): он главнее и статблока,
+  // и выбора мастера — пока эффект действует, существо ДРУГОЕ
+  const byEffect = resolveCreatureTypeByEffects(entity);
+
+  if (byEffect) {
+    return byEffect;
+  }
+
   if (isCreatureEntity(entity)) {
     const statBlockType = entity.system.type;
 

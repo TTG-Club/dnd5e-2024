@@ -433,6 +433,8 @@
         const rollContext = {
           ...context,
           target: buildTargetHpContext(undefined, props.entity.id),
+          // Предмет броска: по нему работает «только этим предметом»
+          itemId: weapon.id,
         };
 
         // Условный бонус может быть формулой (`@prof`, `@mod.dex`) — без

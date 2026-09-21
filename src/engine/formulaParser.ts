@@ -922,6 +922,17 @@ export function evaluateFormula(
 const VARIABLE_TOKEN_REGEX = /@([a-z][\w.]*)/gi;
 
 /**
+ * Число, подставленное в формулу. Отрицательное — в скобках: «1к6 + @mod» с
+ * −2 даёт «1к6 + (-2)», а не «1к6 + -2».
+ *
+ * @param value - число
+ * @returns запись числа для формулы
+ */
+export function formatFormulaNumber(value: number): string {
+  return value < 0 ? `(${value})` : String(value);
+}
+
+/**
  * Подставляет числовые значения @-переменных в смешанную формулу,
  * НЕ затрагивая кубиковую нотацию (`1к4`, `2d6` и т.п.).
  *
@@ -951,7 +962,7 @@ export function substituteFormulaVariables(
     const path = rawPath.replace(/\.+$/, '');
     const value = resolveVariable(path, context);
 
-    return value < 0 ? `(${value})` : String(value);
+    return formatFormulaNumber(value);
   });
 }
 

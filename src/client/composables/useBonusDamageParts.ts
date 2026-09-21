@@ -231,7 +231,11 @@ export function hasWeaponBonusDamage(
   weapon: DnDGameItem,
   effects: readonly ActiveEffect[],
 ): boolean {
-  return hasBonusDamageFormulas(effects, getDamageBonusKey(weapon.rangeType));
+  return hasBonusDamageFormulas(
+    effects,
+    getDamageBonusKey(weapon.rangeType),
+    weapon.id,
+  );
 }
 
 /**
@@ -374,6 +378,7 @@ export function useBonusDamageParts() {
     useTargetState: boolean,
     resolveFormula: (subFormula: string) => string,
     carrier: CarrierContext,
+    itemId?: string,
   ): SpellDamagePartInput[] {
     const targetHp = useTargetState
       ? buildTargetHpContext(undefined, carrier.entityId)
@@ -386,6 +391,8 @@ export function useBonusDamageParts() {
       // Кость-формулы с условием о носителе в плоские статы не попадают —
       // здесь эти условия и оцениваются
       self: carrier,
+      // Предмет броска: по нему работает «только этим предметом»
+      ...(itemId === undefined ? {} : { itemId }),
     };
 
     const formulas = collectBonusDamageFormulas(
@@ -478,6 +485,7 @@ export function useBonusDamageParts() {
         true,
         resolveFormula,
         buildCarrierContext(actor),
+        weapon.id,
       );
 
     return { baseParts, evaluateBonusDamageParts, pseudoSpell };

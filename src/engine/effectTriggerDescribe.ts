@@ -10,16 +10,22 @@
 import type { EffectDuration } from '@vtt/shared';
 
 import type {
+  EffectTempHpMode,
   EffectTrigger,
   EffectTriggerAction,
+  EffectTriggerAreaShiftKind,
   EffectTriggerAreaTarget,
   EffectTriggerChoice,
   EffectTriggerEvent,
   EffectTriggerLimitPeriod,
+  EffectTriggerMoveKind,
   EffectTriggerRestType,
   EffectTriggerSaveMode,
 } from './effectTriggerTypes.js';
-import type { TriggerConditionKind } from './triggerConditions.js';
+import type {
+  TriggerAttackKind,
+  TriggerConditionKind,
+} from './triggerConditions.js';
 
 import {
   describeConditionName,
@@ -29,8 +35,10 @@ import {
 } from './activeEffectDescribe.js';
 import {
   ABILITY_GENITIVE_LABELS,
+  ABILITY_LABELS,
   CREATURE_CATEGORIES,
   CREATURE_SIZE_LABELS,
+  isAbilityType,
   isCreatureCategory,
   isCreatureSize,
 } from './consts.js';
@@ -39,20 +47,28 @@ import {
   classifyLegacyTrigger,
   isTurnTriggerEvent,
   resolveTriggerActionGate,
+  triggerEventHasPathFeet,
   triggerEventHasRestType,
 } from './effectTriggers.js';
 import {
   AREA_TRIGGER_RECIPIENT,
   CHOICE_TRIGGER_RECIPIENT,
+  DEFAULT_CAST_OWNER,
+  DEFAULT_TEMP_HP_MODE,
   DEFAULT_TRIGGER_AREA_TARGET,
   DEFAULT_TRIGGER_CHOICE_COUNT,
   DEFAULT_TRIGGER_CHOOSER,
+  DEFAULT_TRIGGER_MOVE_DISTANCE,
   DEFAULT_TRIGGER_REST_TYPE,
   MAX_HP_REDUCTION_NEVER_ENDS,
+  MIN_REVIVE_HP,
+  SOURCE_TRIGGER_RECIPIENT,
 } from './effectTriggerTypes.js';
 import { EVENT_DAMAGE_VARIABLE } from './formulaParser.js';
+import { MIN_SPELL_SLOT_LEVEL } from './spellSlotTable.js';
 import {
   DEFAULT_TAG_COUNT_THRESHOLD,
+  isTriggerAttackKind,
   readTriggerConditionParts,
 } from './triggerConditions.js';
 
@@ -77,11 +93,25 @@ const TRIGGER_EVENT_LABELS: Record<EffectTriggerEvent, string> = {
   applied: 'при наложении',
   attackRoll: 'при броске атаки',
   damageTaken: 'при получении урона',
+  healed: 'когда носителя лечат',
   hpZero: 'когда хиты падают до 0',
+  downedOther: 'когда носитель сваливает цель',
+  conditionLost: 'когда состояние снимается',
   rest: 'после отдыха',
   activate: 'при включении',
   castEnd: 'когда заклинание заканчивается',
+  moved: 'когда носитель проходит путь',
 };
+
+/**
+ * Шаг пути в фразе события перемещения.
+ *
+ * @param feet - шаг в футах
+ * @returns «за каждые 5 фт пути»
+ */
+function describePathStep(feet: number): string {
+  return `за каждые ${feet} фт пути`;
+}
 
 /** Бросок атаки — по роли субъекта */
 const ATTACK_ROLE_EVENT_LABELS = {
@@ -116,10 +146,28 @@ const TRIGGER_LABELS = {
   tagPrefix: 'отметка ',
   conditionJoiner: ' и ',
   setHpPrefix: 'хиты становятся ',
+  setHpMax: 'хиты восстанавливаются полностью',
+  removeConditionPrefix: 'снимается состояние ',
+  removeAllConditions: 'снимаются все состояния',
+  kill: 'получатель умирает',
+  revivePrefix: 'получатель возвращается к жизни с ',
+  reviveFull: 'получатель возвращается к жизни с полным запасом хитов',
+  dropHeld: 'получатель роняет то, что держит',
+  restoreSlotPrefix: 'возвращается ячейка круга ',
+  restoreCounterPrefix: 'возвращается ресурс ',
+  dispelPrefix: 'рассеиваются заклинания до круга ',
+  grantInspiration: 'получатель получает вдохновение',
+  moveSuffix: ' фт',
+  endRecipientCast: 'каст получателя заканчивается',
+  notifyPrefix: 'сообщение ',
+  nextStage: 'эффект переходит на следующую ступень',
+  actionJoiner: ', ',
   endCast: 'каст заканчивается',
   dcFormulaPrefix: 'Сл = ',
   damageVariable: 'урон',
   recipientOther: ', на другую сторону',
+  recipientSource: ', на наложившего',
+  endsOnExitSuffix: ' до выхода из зоны',
   recipientAreaPrefix: ', на ',
   recipientAreaSuffix: ' фт вокруг',
   recipientChoicePrefix: ', на ',
@@ -141,11 +189,34 @@ const TRIGGER_LABELS = {
   saveModeDisadvantage: ' с помехой',
 } as const;
 
+/** Как двигает действие «Переместить» — в фразе */
+const MOVE_KIND_PHRASES: Record<EffectTriggerMoveKind, string> = {
+  push: 'отталкивает на ',
+  pull: 'притягивает на ',
+  teleport: 'переносит на ',
+};
+
+/** Как сдвигается зона — в фразе */
+const AREA_SHIFT_PHRASES: Record<EffectTriggerAreaShiftKind, string> = {
+  away: 'сдвигает зону от получателя на ',
+  toward: 'сдвигает зону к получателю на ',
+  follow: 'зона идёт за носителем',
+};
+
+/** Что делает действие с временными хитами — в фразе */
+const TEMP_HP_PHRASES: Record<EffectTempHpMode, string> = {
+  set: 'временные хиты ',
+  add: 'временные хиты +',
+  spend: 'временные хиты −',
+};
+
 /** Кого задевает «всем в радиусе» — в фразе */
 const AREA_TARGET_PHRASES: Record<EffectTriggerAreaTarget, string> = {
   all: 'всех',
   allies: 'союзников',
   enemies: 'врагов',
+  allWithSelf: 'всех и себя',
+  alliesWithSelf: 'союзников и себя',
 };
 
 /**
@@ -157,6 +228,10 @@ const AREA_TARGET_PHRASES: Record<EffectTriggerAreaTarget, string> = {
 function describeTriggerRecipient(trigger: EffectTrigger): string {
   if (trigger.recipient === 'other') {
     return TRIGGER_LABELS.recipientOther;
+  }
+
+  if (trigger.recipient === SOURCE_TRIGGER_RECIPIENT) {
+    return TRIGGER_LABELS.recipientSource;
   }
 
   if (trigger.recipient === CHOICE_TRIGGER_RECIPIENT && trigger.choice) {
@@ -276,7 +351,62 @@ const TRIGGER_CONDITION_PHRASES: Record<
   selfTagFromSourceNot: (value) =>
     `на носителе нет отметки «${value}» от наложившего`,
   sourceWeaponMastery: () => 'наложивший владеет приёмом оружия',
+  selfTempHpZero: () => 'у носителя нет временных хитов',
+  selfGrounded: () => 'носитель не летит',
+  selfSpecies: (value) => `вид носителя — «${value}»`,
+  selfAbilityAtMost: (value, amount) =>
+    `${describeAbilityName(value)} носителя не больше ${amount}`,
+  selfAbilityAtLeast: (value, amount) =>
+    `${describeAbilityName(value)} носителя не меньше ${amount}`,
+  otherIsSource: () => 'другая сторона — тот, кто наложил эффект',
+  otherBloodied: () => 'у другой стороны не больше половины хитов',
+  otherHpAtMost: (value) => `у другой стороны не больше ${value} хитов`,
+  damageAtLeast: (value) => `урон не меньше ${value}`,
+  sourceWithin: (value) => `наложивший в пределах ${value} фт`,
+  attackKind: (value) => `атака ${describeAttackKind(value)}`,
+  attackAbility: (value) =>
+    `атака считается характеристикой «${describeAbilityName(value)}»`,
+  attackLanded: () => 'атака попала',
+  attackMissed: () => 'атака промахнулась',
+  combatRoundIs: (value) => `на ${value}-м раунде боя`,
+  combatRoundAtLeast: (value) => `с ${value}-го раунда боя`,
+  movementOwn: () => 'носитель шёл сам',
+  movementForced: () => 'носителя переставили толчком или переносом',
 };
+
+/**
+ * Подписи видов атаки в фразе условия. Окно показывает их же с заглавной
+ * буквы — таблица одна
+ */
+export const TRIGGER_ATTACK_KIND_PHRASES: Record<TriggerAttackKind, string> = {
+  melee: 'рукопашная',
+  ranged: 'дальнобойная',
+  weapon: 'оружием',
+  spell: 'заклинанием',
+  unarmed: 'безоружная',
+};
+
+/**
+ * Подпись вида атаки.
+ *
+ * @param value - ключ вида
+ * @returns подпись либо ключ
+ */
+function describeAttackKind(value: string): string {
+  return isTriggerAttackKind(value)
+    ? TRIGGER_ATTACK_KIND_PHRASES[value]
+    : value;
+}
+
+/**
+ * Подпись характеристики.
+ *
+ * @param value - ключ характеристики
+ * @returns подпись либо ключ
+ */
+function describeAbilityName(value: string): string {
+  return isAbilityType(value) ? ABILITY_LABELS[value] : value;
+}
 
 /**
  * Подпись размера существа.
@@ -351,10 +481,11 @@ function describeAction(
     case 'applySelf':
       return TRIGGER_LABELS.effect;
     case 'applyCondition': {
-      const condition = withDurationSuffix(
-        `«${describeConditionName(action.conditionKey)}»`,
-        action.duration,
-      );
+      const named = `«${describeConditionName(action.conditionKey)}»`;
+
+      const condition = action.endsOnExit
+        ? `${named}${TRIGGER_LABELS.endsOnExitSuffix}`
+        : withDurationSuffix(named, action.duration);
 
       if (!action.recurringSave) {
         return condition;
@@ -385,9 +516,45 @@ function describeAction(
       return `${TRIGGER_LABELS.maxHpPrefix}${amount}${endsOnRest === MAX_HP_REDUCTION_NEVER_ENDS ? '' : REST_UNTIL_LABELS[endsOnRest]}`;
     }
     case 'setHp':
-      return `${TRIGGER_LABELS.setHpPrefix}${action.value}`;
+      return action.toMax
+        ? TRIGGER_LABELS.setHpMax
+        : `${TRIGGER_LABELS.setHpPrefix}${action.value}`;
+    case 'tempHp':
+      return `${TEMP_HP_PHRASES[action.mode ?? DEFAULT_TEMP_HP_MODE]}${action.amount}`;
+    case 'removeCondition':
+      return action.conditionKey
+        ? `${TRIGGER_LABELS.removeConditionPrefix}«${describeConditionName(action.conditionKey)}»`
+        : TRIGGER_LABELS.removeAllConditions;
+    case 'kill':
+      return TRIGGER_LABELS.kill;
+    case 'revive':
+      return action.full
+        ? TRIGGER_LABELS.reviveFull
+        : `${TRIGGER_LABELS.revivePrefix}${action.hp ?? MIN_REVIVE_HP}`;
+    case 'dropHeld':
+      return TRIGGER_LABELS.dropHeld;
+    case 'restore':
+      return action.what === 'spellSlot'
+        ? `${TRIGGER_LABELS.restoreSlotPrefix}${action.level ?? MIN_SPELL_SLOT_LEVEL}`
+        : `${TRIGGER_LABELS.restoreCounterPrefix}«${action.counter ?? ''}»`;
+    case 'dispel':
+      return `${TRIGGER_LABELS.dispelPrefix}${action.maxLevel}`;
+    case 'grantInspiration':
+      return TRIGGER_LABELS.grantInspiration;
+    case 'move':
+      return `${MOVE_KIND_PHRASES[action.kind]}${action.distance}${TRIGGER_LABELS.moveSuffix}`;
+    case 'moveArea':
+      return action.kind === 'follow'
+        ? AREA_SHIFT_PHRASES.follow
+        : `${AREA_SHIFT_PHRASES[action.kind]}${action.distance ?? DEFAULT_TRIGGER_MOVE_DISTANCE}${TRIGGER_LABELS.moveSuffix}`;
+    case 'notify':
+      return `${TRIGGER_LABELS.notifyPrefix}«${action.text}»`;
+    case 'nextStage':
+      return TRIGGER_LABELS.nextStage;
     case 'endCast':
-      return TRIGGER_LABELS.endCast;
+      return (action.whose ?? DEFAULT_CAST_OWNER) === 'recipient'
+        ? TRIGGER_LABELS.endRecipientCast
+        : TRIGGER_LABELS.endCast;
     case 'removeSelf':
       return TRIGGER_LABELS.removeSelf;
     default:
@@ -442,6 +609,10 @@ function describeMoment(trigger: EffectTrigger): string {
 
   if (triggerEventHasRestType(trigger.event)) {
     return REST_EVENT_LABELS[trigger.restType ?? DEFAULT_TRIGGER_REST_TYPE];
+  }
+
+  if (triggerEventHasPathFeet(trigger.event) && trigger.everyFeet) {
+    return describePathStep(trigger.everyFeet);
   }
 
   const label = TRIGGER_EVENT_LABELS[trigger.event];
@@ -574,4 +745,21 @@ export function describeEffectTrigger(
     `${TRIGGER_LABELS.failurePrefix}${describeOutcomeActions(trigger, false, options)}`,
     `${TRIGGER_LABELS.successPrefix}${describeOutcomeActions(trigger, true, options)}${limit}`,
   ].join(TRIGGER_LABELS.clauseJoiner);
+}
+
+/**
+ * Короткая сводка действий срабатывания — для вопроса человеку: «что будет,
+ * если согласиться».
+ *
+ * Отличается от {@link describeEffectTrigger} тем, что не разбирает момент,
+ * условие и спасбросок: в окне вопроса важно только, что случится.
+ *
+ * @param trigger - срабатывание
+ * @returns перечисление действий; пустая строка, если описывать нечего
+ */
+export function describeTriggerActions(trigger: EffectTrigger): string {
+  return trigger.actions
+    .map((action) => describeAction(action, { formatDc: (dc) => String(dc) }))
+    .filter((text) => text.length > 0)
+    .join(TRIGGER_LABELS.actionJoiner);
 }

@@ -205,6 +205,9 @@ export function hasSourceTurnSaveDc(effect: ActiveEffect): boolean {
   return (
     effect.recurringSave?.dc === 0
     || effect.recurringDamage?.save?.dc === 0
+    // Проверка действия «вырваться» ждёт того же: кнопку нажмут потом, когда
+    // источника уже не спросишь
+    || effect.escape?.check?.dc === 0
     || hasSourceTriggerSaveDc(effect)
   );
 }
@@ -229,7 +232,7 @@ export function stampSourceTurnSaveDc(
   const { recurringSave, recurringDamage, triggers } = effect;
 
   return {
-    ...effect,
+    ...stampEscapeDc(effect, sourceDc),
     recurringSave: recurringSave
       ? {
           ...recurringSave,
@@ -278,6 +281,32 @@ export function stampSourceSaveDcs(
     applySave: {
       ...applySave,
       dc: resolveEffectSaveDc(applySave.dc, sourceDc),
+    },
+  };
+}
+
+/**
+ * Проставляет Сл источника в проверку действия «вырваться».
+ *
+ * Без неё кнопка на листе бросала бы проверку против нуля — её прошёл бы кто
+ * угодно, и эффект снимался бы всегда (`resolveEffectEscapeDc`).
+ *
+ * @param effect - эффект заклинания или действия
+ * @param sourceDc - Сл спасброска источника
+ * @returns исходный эффект либо копия с проставленной Сл
+ */
+function stampEscapeDc(effect: ActiveEffect, sourceDc: number): ActiveEffect {
+  const check = effect.escape?.check;
+
+  if (!effect.escape || check?.dc !== 0) {
+    return effect;
+  }
+
+  return {
+    ...effect,
+    escape: {
+      ...effect.escape,
+      check: { ...check, dc: resolveEffectSaveDc(check.dc, sourceDc) },
     },
   };
 }

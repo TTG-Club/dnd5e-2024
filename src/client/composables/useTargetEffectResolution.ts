@@ -25,7 +25,8 @@ import {
   stampSourceTurnSaveDc,
 } from '@vtt/shared/system/dnd.js';
 
-import { resolveSpellCastId } from './spellCasts';
+import { resolveCombatRound } from './encounterTurn';
+import { resolveSpellCastId, resolveSpellCastLevel } from './spellCasts';
 import {
   getPartKindLabel,
   getTargetSpellEffects,
@@ -205,6 +206,7 @@ export function useTargetEffectResolution() {
         dc: resolveEffectSaveDc(effect.applySave.dc, input.spellSaveDC),
         againstCondition: effect.conditionKey,
         againstSpell: isSpellRoll(input.spell),
+        allowWilling: effect.applySave.allowWilling,
         sourceEntityId: input.casterId,
         sourceName: effect.name,
       });
@@ -295,6 +297,7 @@ export function useTargetEffectResolution() {
     const landing: EffectLandingContext = {
       source: resolveLandingSource(casterId),
       weaponMastery: spell.weaponMastery,
+      combatRound: resolveCombatRound(),
     };
 
     const landingEffects = getTargetSpellEffects(spell).filter(
@@ -354,6 +357,7 @@ export function useTargetEffectResolution() {
             carrierId: entity.id,
             sourceId: casterId,
             castId: resolveSpellCastId(casterId, spell),
+            castLevel: resolveSpellCastLevel(casterId, spell),
           }),
         );
       }

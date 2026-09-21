@@ -48,12 +48,14 @@
     EffectDamageStep,
     EffectDescriptionSection,
     EffectDurationStep,
+    EffectEscapeSection,
     EffectFormStep,
     EffectHeaderFields,
     EffectInertFieldsNotice,
     EffectModifiersStep,
     EffectSaveStep,
     EffectScenarioSummary,
+    EffectStagesSection,
     EffectTriggersStep,
     EffectTriggerStep,
   } from './form';
@@ -356,6 +358,12 @@
               :layout="layout"
               :show-priority-field="showPriorityField"
             />
+
+            <EffectStagesSection
+              v-if="layout.showStages"
+              v-model:effect="draft"
+              :show-priority-field="showPriorityField"
+            />
           </EffectFormStep>
 
           <EffectFormStep
@@ -367,6 +375,13 @@
             <EffectDurationStep
               v-model:effect="draft"
               :layout="layout"
+            />
+
+            <EffectEscapeSection
+              v-if="layout.showEscape"
+              v-model:effect="draft"
+              :layout="layout"
+              :source-save-dc="sourceSaveDc"
             />
           </EffectFormStep>
 

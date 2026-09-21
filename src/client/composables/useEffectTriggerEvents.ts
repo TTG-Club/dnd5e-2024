@@ -1,3 +1,4 @@
+import type { IncomingAttackContext } from '@vtt/shared';
 import type {
   AttackRollMode,
   DnDSceneEntity,
@@ -15,9 +16,14 @@ import {
   hasServerAttackRollTriggers,
   isDndSceneEntity,
   runAttackRollTriggers,
+  toTriggerAttackKinds,
 } from '@vtt/shared/system/dnd.js';
 
-import { isEntityInCombat, resolveActiveTurnActorId } from './encounterTurn';
+import {
+  isEntityInCombat,
+  resolveActiveTurnActorId,
+  resolveCombatRound,
+} from './encounterTurn';
 import { emitSystemClientEvent } from './systemClientEvents';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -100,6 +106,7 @@ interface AttackRollSide {
 function settleAttackRollSide(
   side: AttackRollSide,
   rollMode: AttackRollMode,
+  attackType?: IncomingAttackContext['attackType'],
 ): void {
   const { entityId, role } = side;
   const current = findDndWorldEntity(entityId);
@@ -114,11 +121,15 @@ function settleAttackRollSide(
   const result = runAttackRollTriggers(updated, role, {
     inCombat: isEntityInCombat(entityId),
     activeTurnActorId: resolveActiveTurnActorId(),
+    combatRound: resolveCombatRound(),
     other: side.otherId ? findDndWorldEntity(side.otherId) : undefined,
     roll: {
       hasAdvantage: rollMode === 'advantage',
       hasDisadvantage: rollMode === 'disadvantage',
     },
+    ...(attackType
+      ? { attack: { kinds: toTriggerAttackKinds(attackType) } }
+      : {}),
   });
 
   if (!result.changed) {
@@ -165,11 +176,16 @@ function settleAttackRollSide(
  * @param options - бросок серии снарядов и режим броска
  * @param options.projectile - цели — назначенные цели снарядов
  * @param options.rollMode - режим броска атаки
+ * @param options.attackType - чем бьют: условия об атаке читают вид
  * @returns цели броска — для сообщения серверу после урона
  */
 export function dispatchAttackRollTriggers(
   attackerId: string,
-  options: { projectile: boolean; rollMode: AttackRollMode },
+  options: {
+    projectile: boolean;
+    rollMode: AttackRollMode;
+    attackType?: IncomingAttackContext['attackType'];
+  },
 ): string[] {
   const targetIds = listAttackTargetIds(options.projectile);
 
@@ -182,12 +198,14 @@ export function dispatchAttackRollTriggers(
         otherId: targetIds.length === 1 ? targetIds[0] : undefined,
       },
       options.rollMode,
+      options.attackType,
     );
 
     for (const targetId of targetIds) {
       settleAttackRollSide(
         { entityId: targetId, role: 'target', otherId: attackerId },
         options.rollMode,
+        options.attackType,
       );
     }
   } catch (error) {
@@ -205,11 +223,14 @@ export function dispatchAttackRollTriggers(
  * @param attackerId - атакующая сущность
  * @param targetIds - цели броска
  * @param rollMode - режим броска атаки
+ * @param landed - попал ли бросок; не задано — к этому времени неизвестно
+ *   (серия снарядов: броски делает вызывающий уже после события)
  */
 export function reportAttackRoll(
   attackerId: string,
   targetIds: readonly string[],
   rollMode: AttackRollMode,
+  landed?: boolean,
 ): void {
   const attacker = findDndWorldEntity(attackerId);
 
@@ -226,7 +247,7 @@ export function reportAttackRoll(
 
   if (needsServer) {
     emitSystemClientEvent(
-      buildAttackRollEvent(attackerId, targetIds, rollMode),
+      buildAttackRollEvent(attackerId, targetIds, rollMode, landed),
     );
   }
 }

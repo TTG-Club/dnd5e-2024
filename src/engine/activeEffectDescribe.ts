@@ -133,8 +133,13 @@ function pluralize(count: number, forms: [string, string, string]): string {
   return forms[2];
 }
 
-/** Заглавная первая буква — строки собираются из разных источников. */
-function capitalize(text: string): string {
+/**
+ * Заглавная первая буква — строки собираются из разных источников.
+ *
+ * @param text - строка
+ * @returns строка с заглавной первой буквой
+ */
+export function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 

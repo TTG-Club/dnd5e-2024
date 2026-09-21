@@ -5,11 +5,14 @@
  * кнопки окна) живут в `ui/actor/constants.ts` и берутся оттуда.
  */
 
+import type { SkillType } from '@vtt/shared';
 import type {
   AreaEffectTrigger,
   ConditionKey,
+  EffectActionCost,
   EffectActivationMode,
   EffectChangeMode,
+  EffectChangeStepPeriod,
   EffectDelivery,
   EffectFormContext,
   EffectFormStep,
@@ -202,11 +205,50 @@ export const EFFECT_AURA_LABELS = {
   whileCapable: 'Гаснет, пока носитель недееспособен',
 } as const;
 
+/** Шаг новой растущей строки: правило, ради которого его заводят, — убывающее */
+export const DEFAULT_CHANGE_STEP_BY = -1;
+
+/** Период шага новой растущей строки: каждый ход носителя */
+export const DEFAULT_CHANGE_STEP_PER: EffectChangeStepPeriod = 'turn';
+
+/** Подписи периода шага строки модификатора */
+export const EFFECT_CHANGE_STEP_PER_LABELS: Record<
+  EffectChangeStepPeriod,
+  string
+> = {
+  turn: 'Каждый ход носителя',
+  round: 'Каждый раунд боя',
+};
+
+/** Подписи шага строки модификатора */
+export const EFFECT_CHANGE_STEP_LABELS = {
+  toggle: 'Меняется со временем',
+  by: 'На сколько',
+  per: 'Как часто',
+  until: 'До',
+  untilPlaceholder: 'Без предела',
+  hint:
+    'Значение строки двигается само: «−1 за каждый следующий ход, до −5». '
+    + 'Работает только у обычного числа — формулу двигать нечем, её считают '
+    + 'заново при каждом броске. Вне боя ни ход, ни раунд не наступают.',
+  numberHint:
+    'Шаг работает только у числа: у этой строки значение пустое или формула.',
+} as const;
+
 /** Приставка ключей модификаторов урона: у них значение может быть костями */
 export const DAMAGE_CHANGE_KEY_PREFIX = 'damage.';
 
 /** Шаг радиуса ауры, фт */
 export const EFFECT_AURA_RADIUS_STEP = 5;
+
+/** Шаг футов цены «Перемещение»: клетка сетки */
+export const EFFECT_MOVE_COST_FEET_STEP = 5;
+
+/** Подписи цены действия — у срабатывания и у «вырваться» одни */
+export const EFFECT_ACTION_COST_FIELD_LABELS = {
+  cost: 'Цена',
+  moveCost: 'Футов',
+} as const;
 
 /** Подписи шага «Спасбросок» */
 export const EFFECT_SAVE_STEP_LABELS = {
@@ -218,6 +260,11 @@ export const EFFECT_SAVE_STEP_LABELS = {
     'Обычно хватает спасброска самого заклинания или действия. Включите, если '
     + 'эффект требует свой — например, другой характеристики.',
   successTitle: 'Если спасбросок успешен',
+  /** Согласная цель не бросает спасбросок */
+  allowWilling: 'Согласная цель не бросает',
+  /** Подсказка галочки: кто решает и что увидит */
+  allowWillingHint:
+    'В окне броска появится «Не сопротивляюсь»: решает владелец цели',
 } as const;
 
 /** Чья Сл подставляется в режиме «Авто», по месту окна */
@@ -346,6 +393,12 @@ export const EFFECT_MODIFIERS_STEP_LABELS = {
     + 'где условие выполнено: в своей атаке («Тактика стаи» — союзник рядом с '
     + 'целью) или в атаке по носителю («Защита от добра и зла» — атакующий '
     + 'исчадие).',
+  savedRollTitle: 'Сохранённый бросок',
+  savedRollPlaceholder: 'Например, 2к6',
+  savedRollHint:
+    'Кость бросается ОДИН раз — когда эффект ложится. Результат подставляется '
+    + 'вместо @roll во все формулы эффекта и дальше не меняется: урон каждый '
+    + 'ход будет одним и тем же числом, а не новой костью при каждом тике.',
   adjacentAllyTitle: 'Какой союзник',
   adjacentAllyHint:
     'По правилам 2024 «Тактика стаи» не считает недееспособного союзника: '
@@ -354,6 +407,10 @@ export const EFFECT_MODIFIERS_STEP_LABELS = {
   immunitiesTitle: 'Иммунитет к состояниям',
   immunitiesHint:
     'Пока эффект действует, носитель не подхватывает эти состояния.',
+  suppressTitle: 'Подавляет состояния',
+  suppressHint:
+    'Состояние остаётся на носителе, но не действует, пока эффект жив: «Свобода перемещения» гасит Опутанного.',
+  suppressPlaceholder: 'Выберите состояния',
   immunitiesPlaceholder: 'Состояния...',
 } as const;
 
@@ -403,6 +460,11 @@ export const EFFECT_FLAG_ROW_LABELS = {
 export const EFFECT_DURATION_STEP_LABELS = {
   durationTitle: 'Сколько держится',
   valuePlaceholder: 'Сколько',
+  formulaToggle: 'Формулой',
+  formulaToggleHint:
+    'Срок бросается один раз, при наложении: «1к4» раунда у «Замешательства», '
+    + '«1 + @mod.con» у умения.',
+  formulaPlaceholder: 'Например, 1к4',
   permanentHint: 'Пока не снимут вручную.',
   roundsHint: 'Отсчитывается в бою каждый раунд.',
   turnHint:
@@ -425,6 +487,7 @@ export const EFFECT_INERT_FIELDS_LABELS = {
 
 /** Названия неработающих настроек */
 export const EFFECT_INERT_FIELD_NAMES: Record<InertEffectField, string> = {
+  charges: 'заряды',
   activation: 'применение или включение',
   landingCondition: 'условие наложения',
   variant: 'вариант',
@@ -527,6 +590,15 @@ export const EFFECT_VARIANT_PROMPT_LABELS = {
 /** Приставка ключа плашки выбора цели */
 export const EFFECT_TARGET_MODAL_KEY_PREFIX = 'effect-target';
 
+/** С какого числа кандидатов плашка выбора цели показывает поиск */
+export const CHOICE_SEARCH_THRESHOLD = 8;
+
+/** Вид кнопки кандидата в плашке выбора: отмеченный и нет */
+export const TARGET_CANDIDATE_BUTTON = {
+  chosen: { color: 'primary', variant: 'solid', icon: 'tabler:check' },
+  idle: { color: 'neutral', variant: 'ghost', icon: 'tabler:point' },
+} as const;
+
 /** Подписи плашки выбора цели */
 export const EFFECT_TARGET_PROMPT_LABELS = {
   titleFallback: 'Выберите цель',
@@ -539,6 +611,8 @@ export const EFFECT_TARGET_PROMPT_LABELS = {
   hpPrefix: ' (',
   hpJoiner: '/',
   hpSuffix: ')',
+  search: 'Поиск',
+  searchEmpty: 'Никто не подходит',
 } as const;
 
 /** Как выбирается вариант группы */
@@ -620,4 +694,84 @@ export const EFFECT_USE_LABELS = {
   depletedSuffix: ': закончились',
   /** Подпись кнопки применения на панели быстрого доступа */
   hotbarPrefix: 'Использовать: ',
+} as const;
+
+/** Цена нового действия «вырваться»: правила обычно просят действие */
+export const NEW_ESCAPE_COST: EffectActionCost = 'action';
+
+/** Навык проверки нового действия «вырваться» */
+export const NEW_ESCAPE_CHECK_SKILL: SkillType = 'athletics';
+
+/** Приставка ключа окна броска «вырваться»: дальше идёт идентификатор эффекта */
+export const EFFECT_ESCAPE_MODAL_KEY_PREFIX = 'effect-escape:';
+
+/** Подписи действия «вырваться» на вкладке «Эффекты» */
+export const EFFECT_ESCAPE_LABELS = {
+  /** Разделитель подписи и имени носителя */
+  titleSeparator: ' — ',
+  /** Подпись кнопки броска в окне костей */
+  rollButton: 'Бросить проверку',
+  /** Подсказка кнопки на строке эффекта */
+  hint: 'Действие, снимающее эффект',
+  /** Приставка причины, по которой кнопка не действует */
+  unavailablePrefix: 'Нельзя вырваться: ',
+} as const;
+
+/** Подписи ступеней эффекта на вкладке «Эффекты» */
+export const EFFECT_STAGE_LABELS = {
+  /** Подсказка кнопки перевода на следующую ступень */
+  advanceHint: 'Перевести эффект на следующую ступень',
+} as const;
+
+/** Подписи зарядов эффекта в списке эффектов листа */
+export const EFFECT_CHARGES_LABELS = {
+  /** Приставка перед «осталось/всего» */
+  title: 'Заряды:',
+  /** Разделитель «осталось» и «всего» */
+  separator: '/',
+} as const;
+
+/** Подписи действия при действующем заклинании */
+export const EFFECT_ACTIVE_ACTION_LABELS = {
+  /** Подпись кнопки */
+  run: 'Действие',
+  /** Подсказка кнопки */
+  hint: 'Выполнить действие действующего заклинания',
+  /** Разделитель подписи и цены: «Действие · Бонусное действие» */
+  costSeparator: ' · ',
+} as const;
+
+/** Подписи плашки вопроса человеку */
+export const EFFECT_QUESTION_PROMPT_LABELS = {
+  /** Заголовок без названия источника */
+  titleFallback: 'Вопрос',
+  /** Разделитель источника и заголовка */
+  titleSeparator: ' — ',
+  /** Приставка строки «что случится по согласию» */
+  summaryPrefix: 'По согласию: ',
+  /** Подсказка кнопки закрытия */
+  cancel: 'Закрыть без ответа',
+} as const;
+
+/** Подписи раздела «Ступени» окна эффекта */
+export const EFFECT_STAGES_SECTION_LABELS = {
+  title: 'Ступени',
+  hint:
+    'Каждая ступень несёт свои модификаторы и флаги. Переводит на следующую '
+    + 'человек — кнопкой на листе или действием срабатывания.',
+  /** Приставка номера ступени — и в заголовке, и в подписи новой ступени */
+  stagePrefix: 'Ступень ',
+  add: 'Ступень',
+  remove: 'Убрать ступень',
+} as const;
+
+/** Подписи раздела «Действие, снимающее эффект» */
+export const EFFECT_ESCAPE_SECTION_LABELS = {
+  toggle: 'Из эффекта можно вырваться',
+  hint: 'На листе у эффекта появится кнопка действия',
+  actor: 'Кто действует',
+  outcome: 'Успех',
+  checkToggle: 'С проверкой',
+  skill: 'Навык',
+  dc: 'Сл',
 } as const;

@@ -392,7 +392,7 @@ const preparationHarnessBundle = await build({
     contents: `
       export function createTabHarness(context) {
         const { props, computed, engine, resolveClassDefinition, emit,
-          triggerSaveIfNotEdit, useToast, ACTOR_SPELLS_TAB_LABELS } = context;
+          triggerSaveIfNotEdit, toast, ACTOR_SPELLS_TAB_LABELS } = context;
         const { CANTRIP_SPELL_LEVEL, getClassPreparedValue, getPreparedLimitBreakdown } = engine;
         ${[
           'classDefinitionOf',
@@ -481,9 +481,9 @@ function createPreparationFixture() {
     triggerSaveIfNotEdit: () => {
       saveCount++;
     },
-    useToast: () => ({
+    toast: {
       add: (notification) => notifications.push(notification),
-    }),
+    },
     ACTOR_SPELLS_TAB_LABELS: {
       limitTitle: 'limit',
       limitTextPrefix: 'limit ',
@@ -635,7 +635,7 @@ function createClericCantripsTab(thaumaturgeAlwaysPrepared) {
     resolveClassDefinition: () => ({}),
     emit: () => {},
     triggerSaveIfNotEdit: () => {},
-    useToast: () => ({ add: () => {} }),
+    toast: { add: () => {} },
     ACTOR_SPELLS_TAB_LABELS: {},
   });
 }

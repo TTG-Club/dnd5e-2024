@@ -204,6 +204,9 @@ export interface AttackResult {
 /** Натуральная 20: крит по правилам и всегда попадание */
 const NATURAL_CRIT_ROLL = 20;
 
+/** Флаг «любое попадание по этому существу — критическое» */
+export const FORCE_CRITICAL_FLAG = 'attacksAgainst.forceCritical';
+
 /**
  * Определяет результат броска атаки D&D 5e.
  *
@@ -224,12 +227,20 @@ export function resolveAttackRoll(params: AttackResolveParams): AttackResult {
     params.critThreshold ?? NATURAL_CRIT_ROLL,
   );
 
+  // «Попадание по этому существу — крит»: парализованный, без сознания. Критом
+  // становится только атака, которая уже попала, — промах им не делается.
+  // Иммунитет к критам сильнее — адамантиновая броня спасает и от него
+  const forcesCritical = params.targetFlags?.has(FORCE_CRITICAL_FLAG) ?? false;
+  const hitsByTotal = params.total >= params.targetAc;
+
   const isCriticalHit =
-    naturalRoll >= critThreshold && !isCriticalMiss && !hasCritImmunity;
+    (naturalRoll >= critThreshold || (forcesCritical && hitsByTotal))
+    && !isCriticalMiss
+    && !hasCritImmunity;
 
   const isHit =
     naturalRoll === NATURAL_CRIT_ROLL
-    || (!isCriticalMiss && (isCriticalHit || params.total >= params.targetAc));
+    || (!isCriticalMiss && (isCriticalHit || hitsByTotal));
 
   return { naturalRoll, isCriticalHit, isCriticalMiss, isHit };
 }

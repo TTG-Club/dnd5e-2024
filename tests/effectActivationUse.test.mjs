@@ -46,7 +46,9 @@ async function loadApply({ hasTarget }) {
     useTargetStore: () => ({
       getTargetActor: () => (hasTarget ? { id: 'goblin' } : null),
     }),
-    useToast: () => ({ add: (toast) => steps.push(['toast', toast.title]) }),
+    useSystemToastStore: () => ({
+      add: (toast) => steps.push(['toast', toast.title]),
+    }),
     useChatStore: () => ({ sendMessage: (text) => steps.push(['chat', text]) }),
     applyCasterSpellEffectsToEntity: (spell) =>
       steps.push(['self', engine.getCasterSpellEffects(spell).length]),

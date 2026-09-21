@@ -9,7 +9,7 @@
  * Трата зарядов предмета живёт отдельно — см. `itemUses.ts`.
  */
 
-import type { ActiveEffect } from './activeEffectTypes.js';
+import type { ActiveEffect, EffectFlagKey } from './activeEffectTypes.js';
 import type { ActorClassEntry } from './classTypes.js';
 import type {
   DnDActor,
@@ -42,6 +42,7 @@ import {
 } from './counterResource.js';
 import { restoreCreatureSpellGroupUses } from './creatureSpellcasting.js';
 import { cloneEntityData } from './dataClone.js';
+import { resolveActorStats } from './effectPipeline.js';
 import {
   buildTriggerSources,
   EFFECT_TRIGGER_SOURCE_KINDS,
@@ -333,6 +334,23 @@ export function resolveRestTriggerEffects(
   return rested.activeEffects ?? [];
 }
 
+/** Флаги «отдых не приносит пользы» по виду отдыха */
+const REST_BLOCKED_FLAGS: Record<RestType, EffectFlagKey> = {
+  short: 'rest.noBenefit.short',
+  long: 'rest.noBenefit.long',
+};
+
+/**
+ * Не приносит ли отдых пользы этому актёру.
+ *
+ * @param actor - отдыхающий
+ * @param restType - короткий или продолжительный отдых
+ * @returns `true`, если польза отдыха отменена
+ */
+function isRestBlocked(actor: DnDActor, restType: RestType): boolean {
+  return resolveActorStats(actor).activeFlags.has(REST_BLOCKED_FLAGS[restType]);
+}
+
 /**
  * Вычисляет патч актора при отдыхе.
  *
@@ -352,6 +370,15 @@ export function applyActorRest(
   options: LongRestOptions = {},
 ): Partial<DnDActor> {
   const system = actor.system;
+
+  // «Отдых не приносит пользы» («Проклятие бессонницы»): ни ресурсов, ни
+  // ячеек, ни хитов. Сами срабатывания «после отдыха» при этом идут — отдых
+  // состоялся, польза от него не пришла
+  if (isRestBlocked(actor, restType)) {
+    const blockedEffects = resolveRestTriggerEffects(actor, restType);
+
+    return blockedEffects ? { activeEffects: blockedEffects } : {};
+  }
 
   // Срабатывания «после отдыха» идут первыми: снятое ими (уменьшение максимума
   // хитов, запрет лечения) уже не держит хиты этого отдыха

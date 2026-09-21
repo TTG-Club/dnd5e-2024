@@ -19,6 +19,13 @@ import { emitSystemClientEvent } from './systemClientEvents';
 const activeCastIds = new Map<string, string>();
 
 /**
+ * Круг идущего каста: ключ — заклинатель и заклинание. Круг ячейки выбирают в
+ * окне броска, а эффекты накладываются позже и глубже — тот же приём, что с
+ * id каста.
+ */
+const activeCastLevels = new Map<string, number>();
+
+/**
  * Ключ каста в памяти.
  *
  * @param casterId - заклинатель
@@ -36,15 +43,62 @@ function castMemoryKey(casterId: string, spellId: string): string {
  * @param casterId - заклинатель
  * @param spell - заклинание
  * @param castId - id каста: ключ каста вызывающего
+ * @param castLevel - круг каста, если он известен заранее (круг наложения из
+ *   группы существа); круг ячейки персонажа выбирают позже, в окне броска
  */
 export function beginSpellCast(
   casterId: string,
   spell: Pick<Spell, 'id' | 'concentration'>,
   castId: string,
+  castLevel?: number,
 ): void {
-  if (spell.concentration) {
-    activeCastIds.set(castMemoryKey(casterId, spell.id), castId);
+  const key = castMemoryKey(casterId, spell.id);
+
+  // Круг прежнего каста к новому не относится
+  if (castLevel === undefined) {
+    activeCastLevels.delete(key);
+  } else {
+    activeCastLevels.set(key, castLevel);
   }
+
+  if (spell.concentration) {
+    activeCastIds.set(key, castId);
+  }
+}
+
+/**
+ * Запоминает круг идущего каста — круг ячейки, выбранный в окне броска, или
+ * круг наложения из группы существа.
+ *
+ * @param casterId - заклинатель
+ * @param spell - заклинание
+ * @param castLevel - круг каста
+ */
+export function setSpellCastLevel(
+  casterId: string,
+  spell: Pick<Spell, 'id'>,
+  castLevel: number,
+): void {
+  activeCastLevels.set(castMemoryKey(casterId, spell.id), castLevel);
+}
+
+/**
+ * Круг идущего каста: по нему «Рассеивание магии» решает, снимается ли каст.
+ *
+ * @param casterId - заклинатель
+ * @param spell - заклинание
+ * @returns выбранный круг; не выбран (врождённое, заговор, применение
+ *   предмета) — базовый круг заклинания
+ */
+export function resolveSpellCastLevel(
+  casterId: string | undefined,
+  spell: Pick<Spell, 'id' | 'level'>,
+): number {
+  const chosen = casterId
+    ? activeCastLevels.get(castMemoryKey(casterId, spell.id))
+    : undefined;
+
+  return chosen ?? spell.level;
 }
 
 /**

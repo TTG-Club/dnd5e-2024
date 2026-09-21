@@ -8,6 +8,7 @@ import type {
   SceneEntity,
 } from '@vtt/shared';
 import type {
+  ActiveEffect,
   AttackRollMode,
   CreatureAction,
   CreatureSpellPlacement,
@@ -113,7 +114,7 @@ import {
   prepareCasterSpellEffects,
   SPELL_CAST_KEY_PREFIX,
 } from '../composables/spellCastCompletion';
-import { beginSpellCast } from '../composables/spellCasts';
+import { beginSpellCast, setSpellCastLevel } from '../composables/spellCasts';
 import {
   applySpellTargetEffects,
   createProjectileCastValidator,
@@ -1389,6 +1390,8 @@ function openDiceRollForSpell(
         consumeSlot: boolean,
         isPactSlot: boolean,
       ) => {
+        setSpellCastLevel(actor.id, spell, castLevel);
+
         if (!consumeSlot || castLevel <= 0) {
           return;
         }
@@ -1501,7 +1504,10 @@ function castBuffSpellMacro(
     spellSaveDC: casterSource.saveDc,
   };
 
-  const casterEffects = prepareCasterSpellEffects(spell, actor, casterSource);
+  // Эффекты готовятся в момент наложения: круг каста в них становится
+  // известен только после выбора ячейки в окне броска
+  const prepareEffects = (): ActiveEffect[] =>
+    prepareCasterSpellEffects(spell, actor, casterSource);
 
   const worldStore = useWorldStore();
   const chatStore = useChatStore();
@@ -1510,8 +1516,12 @@ function castBuffSpellMacro(
    * Добавляет эффекты заклинания к клону актёра и шлёт анонс в чат.
    *
    * @param target - клон актёра-заклинателя для отправки
+   * @param casterEffects - готовые эффекты на заклинателя
    */
-  const appendEffects = (target: DnDActor): void => {
+  const appendEffects = (
+    target: DnDActor,
+    casterEffects: ActiveEffect[],
+  ): void => {
     if (casterEffects.length === 0) {
       return;
     }
@@ -1555,6 +1565,8 @@ function castBuffSpellMacro(
         consumeSlot: boolean,
         isPactSlot: boolean,
       ) => {
+        setSpellCastLevel(actor.id, spell, castLevel);
+
         const worldId = worldStore.connectionState.currentWorldId;
 
         if (!worldId) {
@@ -1591,7 +1603,7 @@ function castBuffSpellMacro(
           }
         }
 
-        appendEffects(updatedActor);
+        appendEffects(updatedActor, prepareEffects());
 
         // Локальный стор + сервер одним полным обновлением сущности
         worldStore.updateActor(worldId, actor.id, {
@@ -1622,12 +1634,13 @@ function castBuffSpellMacro(
 
   // Заговоры/врождённые — без ячеек: применяем эффекты (на себя и/или на цель)
   const worldId = worldStore.connectionState.currentWorldId;
+  const casterEffects = prepareEffects();
 
   if (worldId && casterEffects.length > 0) {
     const socket = chatStore.getSocket();
     const updatedActor: DnDActor = JSON.parse(JSON.stringify(actor));
 
-    appendEffects(updatedActor);
+    appendEffects(updatedActor, casterEffects);
 
     worldStore.updateActor(worldId, actor.id, {
       activeEffects: updatedActor.activeEffects,
@@ -2165,7 +2178,7 @@ function openCreatureSpellRoll(
 
   const castKey = generateId(SPELL_CAST_KEY_PREFIX);
 
-  beginSpellCast(creature.id, spell, castKey);
+  beginSpellCast(creature.id, spell, castKey, placement?.ref.castLevel);
 
   // Атака без частей урона: окно броска не зовёт `onRollParts`, и эффекты на
   // попадании разбирает тот же оркестратор с пустым набором частей

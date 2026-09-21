@@ -54,9 +54,12 @@ export const CELL_SIZE = 100;
 /** Футов в клетке */
 export const FEET_PER_CELL = 5;
 
-/** Настройки сетки сцены */
+/**
+ * Настройки сетки сцены. Тип `custom`: размер клетки берётся из поля — у
+ * `fixed` ядро держит клетку в 50 px, какое бы число ни стояло в `cellSize`
+ */
 export const GRID = {
-  type: 'fixed',
+  type: 'custom',
   cellSize: CELL_SIZE,
   scale: FEET_PER_CELL,
   color: '',

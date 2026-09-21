@@ -34,6 +34,7 @@ import {
 } from './effectPipeline.js';
 import {
   formatSavingThrowRequestTitle,
+  isRollRequestAnswered,
   parseSavingThrowResult,
   resolveAutoSaves,
   SAVING_THROW_REQUEST_KIND,
@@ -199,6 +200,7 @@ export function buildEffectSaveRollRequest(
     againstCondition: spec.againstCondition,
     ...(spec.againstConcentration ? { againstConcentration: true } : {}),
     ...(spec.mode ? { mode: spec.mode } : {}),
+    ...(spec.allowWilling ? { allowWilling: true } : {}),
     sourceName: spec.effectName,
   };
 
@@ -300,7 +302,7 @@ export function settleEffectSaveOutcome(
   spec: EffectSaveSpec,
   outcome: RollRequestOutcome,
 ): EffectSaveAcquisition {
-  if (outcome.status === 'answered' || outcome.status === 'takenOver') {
+  if (isRollRequestAnswered(outcome)) {
     const save = readEffectSaveAnswer(entity, spec, outcome.result);
 
     return save

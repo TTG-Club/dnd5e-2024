@@ -262,6 +262,27 @@ describe('запись «сначала старые поля»', () => {
     );
   });
 
+  it('шанс срабатывания старым полем не выражается и не теряется', () => {
+    const chance = {
+      id: 'chance',
+      event: 'turnStart',
+      chancePercent: 50,
+      actions: [{ type: 'damage', parts: POISON_PARTS, on: 'always' }],
+    };
+
+    const written = engine.writeEffectTriggers(createEffect(EFFECT_ID), [
+      chance,
+    ]);
+
+    assert.equal(written.recurringDamage, undefined);
+    assert.deepEqual(written.triggers, [chance]);
+
+    // Разбор схемой (сохранение, загрузка) тоже не должен его стирать
+    const parsed = engine.ActiveEffectSchema.parse(written);
+
+    assert.equal(parsed.triggers[0].chancePercent, 50);
+  });
+
   it('старые поля, которых нет в списке, снимаются; разовое срабатывание не трогается', () => {
     const effect = createEffect(EFFECT_ID, {
       effectTarget: 'target',

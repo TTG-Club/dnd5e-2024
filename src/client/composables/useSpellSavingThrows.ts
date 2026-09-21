@@ -11,6 +11,7 @@ import type {
   SavingThrowResult,
 } from '@vtt/shared/system/dnd.js';
 
+import type { CheckRollResult } from '../ui/actor/diceRollTypes';
 import type { ActorSaveInfo } from './spellResolutionShared';
 
 import { getRollRequestService } from '@/core/api/rollRequestService';
@@ -87,6 +88,11 @@ export interface SavingThrowTarget {
   sourceEntityId?: string;
   /** Чем бьют («Огненный шар», «Укус») — в подпись запроса у адресата */
   sourceName?: string;
+  /**
+   * Согласная цель вправе не бросать: в окне появится «Не сопротивляюсь».
+   * Решает владелец цели — тот, кто накладывает, только разрешает.
+   */
+  allowWilling?: boolean;
 }
 
 /**
@@ -253,6 +259,7 @@ function buildRollRequestOptions(
     ...(target.againstConcentration ? { againstConcentration: true } : {}),
     // Режим самого спасброска едет к адресату: у него тот же счёт флагов
     ...(target.mode ? { mode: target.mode } : {}),
+    ...(target.allowWilling ? { allowWilling: true } : {}),
     sourceName: target.sourceName,
   };
 
@@ -357,11 +364,21 @@ export function useSpellSavingThrows() {
         info.hasDisadvantage,
       ),
       autoFail: info.autoFail,
+      allowWilling: target.allowWilling === true,
       targetDc: target.dc,
       evaluateBonusRollFormulas: info.evaluateBonusRollFormulas,
-      onCheckRoll: (result: { total: number; natural: number }) => {
+      onCheckRoll: (result: CheckRollResult) => {
+        const outcome = buildSavingThrowResult(
+          result.total,
+          result.natural,
+          info,
+          target.dc,
+        );
+
+        // Согласие — провал при любой Сл: при Сл 1 условная единица иначе
+        // «прошла» бы спасбросок
         options.onResult(
-          buildSavingThrowResult(result.total, result.natural, info, target.dc),
+          result.willing ? { ...outcome, passed: false } : outcome,
         );
       },
       onCancel: options.onCancel,

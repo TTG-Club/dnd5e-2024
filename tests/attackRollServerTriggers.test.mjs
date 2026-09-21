@@ -111,6 +111,24 @@ describe('бросок атаки: кто выполняет срабатыва�
 
     assert.equal(result.changed, false, 'клиент такое срабатывание не трогает');
   });
+
+  it('перемещение и сообщение — сервер: сцену и сводку чата ядро даёт только ему', () => {
+    for (const action of [
+      { type: 'move', kind: 'push', feet: 10 },
+      { type: 'moveArea', kind: 'push', feet: 10 },
+      { type: 'notify', text: 'Напоминание', to: 'subject' },
+    ]) {
+      assert.equal(
+        engine.isClientAttackRollTrigger({
+          id: 'trigger_side',
+          event: 'attackRoll',
+          actions: [action],
+        }),
+        false,
+        action.type,
+      );
+    }
+  });
 });
 
 describe('бросок атаки на сервере', () => {

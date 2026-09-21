@@ -203,6 +203,7 @@ describe('фиксация: расход эффекта на броске ата
         runAttackRollTriggers: engine.runAttackRollTriggers,
         isEntityInCombat: () => false,
         resolveActiveTurnActorId: () => null,
+        resolveCombatRound: () => undefined,
         isActorEntity: (entity) => entity.entityType === 'actor',
         isCreatureEntity: (entity) => entity.entityType === 'creature',
         useWorldStore: () => ({

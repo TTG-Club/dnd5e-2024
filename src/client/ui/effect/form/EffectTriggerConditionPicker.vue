@@ -17,9 +17,11 @@
   import { computed } from 'vue';
 
   import {
+    ABILITY_OPTIONS,
     CHOICE_DAMAGE_TYPE,
     CREATURE_CATEGORY_OPTIONS,
     CREATURE_SIZE_OPTIONS,
+    DEFAULT_ABILITY_THRESHOLD,
     DEFAULT_TAG_COUNT_THRESHOLD,
     getTriggerConditionParameter,
     isDamageType,
@@ -34,9 +36,13 @@
 
   import { useSystemDataStore } from '../../../stores/systemDataStore';
   import { SCROLLABLE_DROPDOWN_UI } from '../../actor/constants';
-  import { buildConditionItems } from '../effectFormOptions';
+  import {
+    ATTACK_KIND_OPTIONS,
+    buildConditionItems,
+  } from '../effectFormOptions';
   import {
     EFFECT_TRIGGER_CONDITION_DEFAULT_VALUES,
+    EFFECT_TRIGGER_CONDITION_KIND_DEFAULT_VALUES,
     EFFECT_TRIGGER_CONDITION_KIND_LABELS,
     EFFECT_TRIGGER_CONDITION_LABELS,
   } from '../triggerLabels';
@@ -102,14 +108,16 @@
   // Ключ отметки и число вводятся, у остальных значений — выбор из словаря
   const parameterItems = computed<
     Record<
-      Exclude<TriggerConditionParameter, 'tag' | 'number'>,
-      Array<{ label: string; value: string }>
+      Exclude<TriggerConditionParameter, 'tag' | 'number' | 'text'>,
+      ReadonlyArray<{ label: string; value: string }>
     >
   >(() => ({
     damageType: damageTypeItems.value,
     creatureType: CREATURE_CATEGORY_OPTIONS,
     size: CREATURE_SIZE_OPTIONS,
     condition: conditionItems.value,
+    ability: ABILITY_OPTIONS,
+    attackKind: ATTACK_KIND_OPTIONS,
   }));
 
   /**
@@ -132,14 +140,22 @@
     const parameter = getTriggerConditionParameter(kind);
 
     const part: TriggerConditionPart = parameter
-      ? { kind, value: defaultValueOf(parameter) }
+      ? {
+          kind,
+          value:
+            EFFECT_TRIGGER_CONDITION_KIND_DEFAULT_VALUES[kind]
+            ?? defaultValueOf(parameter),
+        }
       : { kind };
+
+    const amount =
+      parameter === 'ability'
+        ? DEFAULT_ABILITY_THRESHOLD
+        : DEFAULT_TAG_COUNT_THRESHOLD;
 
     writeParts([
       ...parts.value,
-      triggerConditionHasAmount(kind)
-        ? { ...part, amount: DEFAULT_TAG_COUNT_THRESHOLD }
-        : part,
+      triggerConditionHasAmount(kind) ? { ...part, amount } : part,
     ]);
   }
 
@@ -163,6 +179,31 @@
    */
   function isTagPart(part: TriggerConditionPart): boolean {
     return getTriggerConditionParameter(part.kind) === 'tag';
+  }
+
+  /**
+   * Вводится ли значение части свободной строкой — название вида.
+   *
+   * @param part - часть условия
+   * @returns `true` для частей со свободной строкой
+   */
+  function isTextPart(part: TriggerConditionPart): boolean {
+    return getTriggerConditionParameter(part.kind) === 'text';
+  }
+
+  /**
+   * Меняет свободную строку части: пустая не пишется — с ней часть не
+   * разобралась бы обратно и поле ввода пропало бы.
+   *
+   * @param index - номер части
+   * @param value - введённая строка
+   */
+  function updatePartText(index: number, value: string | number): void {
+    const text = String(value).trim();
+
+    if (text) {
+      updatePartValue(index, text);
+    }
   }
 
   /**
@@ -213,10 +254,13 @@
    */
   function valueItemsOf(
     part: TriggerConditionPart,
-  ): Array<{ label: string; value: string }> {
+  ): ReadonlyArray<{ label: string; value: string }> {
     const parameter = getTriggerConditionParameter(part.kind);
 
-    return parameter && parameter !== 'tag' && parameter !== 'number'
+    return parameter
+      && parameter !== 'tag'
+      && parameter !== 'number'
+      && parameter !== 'text'
       ? parameterItems.value[parameter]
       : [];
   }
@@ -317,6 +361,14 @@
         @update:model-value="updatePartNumber(index, $event)"
       />
 
+      <UInput
+        v-else-if="row.part && isTextPart(row.part)"
+        :model-value="row.part.value"
+        size="xs"
+        class="w-44"
+        @update:model-value="updatePartText(index, $event)"
+      />
+
       <template v-else-if="row.part && isTagPart(row.part)">
         <UInput
           :model-value="row.part.value"
@@ -335,20 +387,20 @@
           :title="EFFECT_TRIGGER_CONDITION_LABELS.knownTags"
           @click.left.exact.prevent="updatePartValue(index, tag)"
         />
+      </template>
 
-        <template v-if="triggerConditionHasAmount(row.part.kind)">
-          <span class="text-xs text-muted">
-            {{ EFFECT_TRIGGER_CONDITION_LABELS.amount }}
-          </span>
+      <template v-if="row.part && triggerConditionHasAmount(row.part.kind)">
+        <span class="text-xs text-muted">
+          {{ EFFECT_TRIGGER_CONDITION_LABELS.amount }}
+        </span>
 
-          <UInputNumber
-            :model-value="row.part.amount"
-            :min="MIN_TAG_COUNT_THRESHOLD"
-            size="xs"
-            class="w-24"
-            @update:model-value="updatePartAmount(index, $event)"
-          />
-        </template>
+        <UInputNumber
+          :model-value="row.part.amount"
+          :min="MIN_TAG_COUNT_THRESHOLD"
+          size="xs"
+          class="w-24"
+          @update:model-value="updatePartAmount(index, $event)"
+        />
       </template>
 
       <UButton

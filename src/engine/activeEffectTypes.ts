@@ -35,7 +35,8 @@ import type {
   DEATH_CONDITION_KEY,
 } from './conditionKeys.js';
 import type { DnDCustomBonusContext } from './customBonuses.js';
-import type { EffectTrigger } from './effectTriggerTypes.js';
+import type { EffectChangeStep } from './effectChangeSteps.js';
+import type { EffectActionCost, EffectTrigger } from './effectTriggerTypes.js';
 import type { EffectVariantPick } from './effectVariants.js';
 
 import { z } from 'zod';
@@ -45,6 +46,7 @@ import { isRecord, typedObjectEntries } from '@vtt/shared';
 import {
   CONDITIONS,
   CREATURE_CATEGORIES,
+  isSkillType,
   SELECTABLE_CONDITIONS,
   SKILLS_LABELS,
 } from './consts.js';
@@ -54,24 +56,49 @@ import {
   DAMAGE_TYPES,
 } from './damageConstants.js';
 import {
+  EFFECT_CHANGE_STEP_PERIODS,
+  MAX_EFFECT_CHANGE_STEP,
+} from './effectChangeSteps.js';
+import {
+  EFFECT_ACTION_COSTS,
+  EFFECT_CAST_OWNERS,
+  EFFECT_NOTIFY_TARGETS,
+  EFFECT_RESTORE_KINDS,
   EFFECT_TAG_PATTERN,
+  EFFECT_TEMP_HP_MODES,
   EFFECT_TRIGGER_ACTION_GATES,
+  EFFECT_TRIGGER_AREA_SHIFT_KINDS,
   EFFECT_TRIGGER_AREA_TARGETS,
   EFFECT_TRIGGER_ATTACK_ROLES,
   EFFECT_TRIGGER_CHOOSERS,
   EFFECT_TRIGGER_EVENTS,
   EFFECT_TRIGGER_LIMIT_PERIODS,
   EFFECT_TRIGGER_MAX_HP_REST_ENDS,
+  EFFECT_TRIGGER_MOVE_KINDS,
+  EFFECT_TRIGGER_MOVE_ORIGINS,
   EFFECT_TRIGGER_RECIPIENTS,
   EFFECT_TRIGGER_RESERVED_EVENTS,
   EFFECT_TRIGGER_REST_TYPES,
   EFFECT_TRIGGER_SAVE_MODES,
   EFFECT_TRIGGER_TURN_OWNERS,
+  MAX_NOTIFY_TEXT_LENGTH,
+  MAX_TRIGGER_CHANCE_PERCENT,
   MAX_TRIGGER_CHOICE_COUNT,
+  MAX_TRIGGER_MOVE_DISTANCE,
+  MAX_TRIGGER_PATH_FEET,
+  MIN_REVIVE_HP,
+  MIN_TRIGGER_CHANCE_PERCENT,
+  MIN_TRIGGER_CHOICE_COUNT,
   MIN_TRIGGER_LIMIT_MAX,
+  MIN_TRIGGER_PATH_FEET,
 } from './effectTriggerTypes.js';
 import { EFFECT_VARIANT_PICKS } from './effectVariants.js';
 import { parseEachValid } from './lenientParse.js';
+import {
+  MAX_SPELL_SLOT_LEVEL,
+  MIN_SPELL_SLOT_LEVEL,
+} from './spellSlotTable.js';
+import { CANTRIP_SPELL_LEVEL } from './spellTypes.js';
 
 export type {
   AreaEffectTrigger,
@@ -194,7 +221,11 @@ export type EffectTargetKey =
   | 'spellSaveDC'
   | `sense.${SenseType}`
   | 'terrain.movementCost'
-  | 'critThreshold';
+  | 'critThreshold'
+  | 'damage.all'
+  | 'damage.weapon'
+  | 'attack.weapon'
+  | 'creatureType';
 
 /**
  * Ключ строки модификатора: известный ключ движка либо ПУСТАЯ строка — «ключ
@@ -225,6 +256,9 @@ export const EFFECT_TARGET_SUGGESTIONS: Array<{
     value: 'terrain.movementCost',
     label: 'Труднопроходимость (цена клетки)',
   },
+
+  // Тип существа: его читают гейты урона «только по нежити» и условия
+  { value: 'creatureType', label: 'Тип существа' },
 
   // Критические попадания
   {
@@ -284,6 +318,9 @@ export const EFFECT_TARGET_SUGGESTIONS: Array<{
   { value: 'damage.melee', label: 'Урон: Рукопашное оружие' },
   { value: 'damage.ranged', label: 'Урон: Дальнобойное оружие' },
   { value: 'damage.spell', label: 'Урон: Заклинание' },
+  { value: 'damage.all', label: 'Урон: Весь наносимый' },
+  { value: 'damage.weapon', label: 'Урон: Только этим предметом' },
+  { value: 'attack.weapon', label: 'Атака: Только этим предметом' },
 
   // Навыки
   { value: 'skill.acrobatics', label: 'Навык (Акробатика)' },
@@ -754,8 +791,14 @@ export type EffectFlagKey =
   | 'vision.blinded'
   | 'vision.invisible'
   | 'defense.critImmunity'
+  | 'defense.suppressAll'
   | 'healing.blocked'
   | 'healing.tempBlocked'
+  | 'hitPoints.maxReductionBlocked'
+  | 'attacksAgainst.forceCritical'
+  | 'movement.teleportBlocked'
+  | 'rest.noBenefit.short'
+  | 'rest.noBenefit.long'
   | DamageDefenseFlagKey
   | SkillFlagKey
   | SaveVsConditionFlagKey
@@ -869,6 +912,13 @@ const BASE_EFFECT_FLAG_LABELS: Record<
 
   // Специфические флаги предметов
   'defense.critImmunity': 'Защита: Иммунитет к критическим попаданиям',
+  'defense.suppressAll':
+    'Защиты от урона не действуют (сопротивления и иммунитеты сняты)',
+  'hitPoints.maxReductionBlocked': 'Максимум хитов нельзя уменьшать',
+  'attacksAgainst.forceCritical': 'Попадание по этому существу — крит',
+  'movement.teleportBlocked': 'Не может телепортироваться',
+  'rest.noBenefit.short': 'Короткий отдых не приносит пользы',
+  'rest.noBenefit.long': 'Продолжительный отдых не приносит пользы',
 
   // Лечение
   'healing.blocked': 'Не может восстанавливать хиты',
@@ -1182,6 +1232,12 @@ export interface EffectChange {
   value: string;
   /** Опциональное условие (например: roll.hasAdvantage === true) */
   condition?: string;
+  /**
+   * Шаг: значение растёт или убывает со временем («−1 к броскам за каждый
+   * следующий ход, до −5»). Работает только у плоского числа — см.
+   * {@link module:system/dnd/effectChangeSteps}.
+   */
+  step?: EffectChangeStep;
   /** Приоритет применения (меньше = раньше, по умолчанию 20) */
   priority: number;
 }
@@ -1226,6 +1282,89 @@ export interface DndEffectAura extends EffectAura {
   radiusFormula?: string;
   /** Аура гаснет, пока носитель недееспособен («Аура защиты») */
   whileCapable?: true;
+}
+
+/** Сл в данных, которая значит «Сл источника» (поле показывает «Авто») */
+export const SOURCE_SAVE_DC = 0;
+
+/** Кто может действовать, чтобы снять эффект */
+export const EFFECT_ESCAPE_ACTORS = ['self', 'adjacent'] as const;
+
+/** Носитель эффекта или существо рядом с ним */
+export type EffectEscapeActor = (typeof EFFECT_ESCAPE_ACTORS)[number];
+
+/** Кто действует без поля `by`: сам носитель */
+export const DEFAULT_ESCAPE_ACTOR: EffectEscapeActor = 'self';
+
+/** Что даёт успех действия «вырваться» */
+export const EFFECT_ESCAPE_OUTCOMES = [
+  'removeSelf',
+  'removeCondition',
+] as const;
+
+/**
+ * Итог успеха: снять сам эффект или только наложенное им состояние
+ * (эффект-источник остаётся и может наложить состояние снова).
+ */
+export type EffectEscapeOutcome = (typeof EFFECT_ESCAPE_OUTCOMES)[number];
+
+/** Что даёт успех без поля `onSuccess`: снимается сам эффект */
+export const DEFAULT_ESCAPE_OUTCOME: EffectEscapeOutcome = 'removeSelf';
+
+/**
+ * Действие, снимающее эффект: «существо может действием совершить проверку
+ * Силы (Атлетика) Сл 14 и вырваться».
+ *
+ * Сл 0 — Сл источника, как и у остальных полей Сл. Своего источника у эффекта
+ * из компендиума нет, поэтому нулевая Сл не превращается в проверку против
+ * нуля (её прошёл бы кто угодно): кнопка честно отказывается действовать —
+ * см. `resolveEffectEscapeDc`.
+ */
+export interface EffectEscape {
+  /** Кто может действовать; нет — сам носитель */
+  by?: EffectEscapeActor;
+  /** Чем платит; нет — бесплатно */
+  cost?: EffectActionCost;
+  /** Сколько футов перемещения стоит цена `move` */
+  moveCostFeet?: number;
+  /** Проверка навыка; нет — действие снимает эффект без броска */
+  check?: EffectEscapeCheck;
+  /** Что даёт успех; нет — снимается сам эффект */
+  onSuccess?: EffectEscapeOutcome;
+  /** Подпись кнопки; нет — «Вырваться» */
+  label?: string;
+}
+
+/** Проверка навыка, снимающая эффект */
+export interface EffectEscapeCheck {
+  /** Навык проверки */
+  skill: SkillType;
+  /** Сложность; 0 — Сл источника */
+  dc: number;
+}
+
+/** Самая длинная подпись ступени */
+export const MAX_EFFECT_STAGE_LABEL_LENGTH = 100;
+
+/** Больше ступеней у одного эффекта не бывает */
+export const MAX_EFFECT_STAGES = 10;
+
+/**
+ * Ступень эффекта: свой набор модификаторов и флагов.
+ *
+ * Правила с нарастающей бедой («Проклятие гибельного старения») описывают
+ * ступени словами, а переводит на следующую — человек. Ступени лежат у
+ * эффекта списком, а `changes` и `flags` носителя переписываются из ступени
+ * при переводе (`advanceEffectStage`): так конвейер листа не узнаёт о
+ * ступенях вовсе.
+ */
+export interface EffectStage {
+  /** Подпись ступени: «Ступень 2 — скорость вдвое меньше» */
+  label: string;
+  /** Модификаторы ступени */
+  changes: EffectChange[];
+  /** Флаги ступени */
+  flags: EffectFlagKey[];
 }
 
 /** Вариант эффекта в группе альтернатив */
@@ -1276,6 +1415,12 @@ export interface EffectSave {
   dc: number;
   /** Эффект успешного спасброска */
   onSuccess: EffectSaveOutcome;
+  /**
+   * Согласная цель не бросает: «Согласная цель может не совершать спасбросок».
+   * В окне броска появляется «Не сопротивляюсь» — решает владелец цели, а не
+   * тот, кто накладывает.
+   */
+  allowWilling?: true;
 }
 
 /** Моменты периодического спасброска: начало или конец хода носителя */
@@ -1348,6 +1493,25 @@ export const EFFECT_ATTACK_TRIGGER_LABELS: Record<EffectAttackTrigger, string> =
     carrierAttack: 'Снять после своей атаки',
     attackOnCarrier: 'Снять после атаки по цели',
   } as const;
+
+/** Наибольшее число зарядов у эффекта */
+export const MAX_EFFECT_CHARGES = 99;
+
+/** Наименьший запас зарядов эффекта */
+export const MIN_EFFECT_CHARGES = 1;
+
+/** Сколько зарядов у нового блока зарядов */
+export const DEFAULT_EFFECT_CHARGES = 3;
+
+/** Заряды эффекта: сколько раз ещё сработают его срабатывания */
+export interface EffectCharges {
+  /** Сколько зарядов было при наложении */
+  max: number;
+  /** Сколько осталось */
+  current: number;
+  /** Последний заряд снимает эффект; нет — эффект остаётся пустым */
+  endsWhenEmpty?: true;
+}
 
 /**
  * Active Effect — полная D&D 5e структура. Наследует нейтральную
@@ -1426,6 +1590,13 @@ export interface ActiveEffect extends BaseActiveEffect {
   endsWithAreaId?: string;
 
   /**
+   * Зона, выход из которой снимает статус («Опутанность спадает, как только
+   * выйдешь из Паутины»). От {@link endsWithAreaId} отличается моментом: тот
+   * ждёт конца самой зоны, а этот — ухода существа из неё.
+   */
+  endsOnExitAreaId?: string;
+
+  /**
    * Ключ состояния, если эффект представляет состояние — канонное (Испуганный,
    * Отравленный) либо заведённое в мире. Используется для проверки иммунитета
    * цели к состоянию и устойчивого опознания состояния (надёжнее сопоставления
@@ -1482,6 +1653,57 @@ export interface ActiveEffect extends BaseActiveEffect {
    * целей и зоны одного каста. Конец каста снимает их все.
    */
   castId?: string;
+
+  /**
+   * Круг, которым каст сотворён: по нему «Рассеивание магии» решает, снимать
+   * ли эффект. Проставляется при касте; у эффекта из компендиума и у зоны
+   * мастера круга нет.
+   */
+  castLevel?: number;
+
+  /**
+   * Состояние снимается только тем, что его наложило: плитка состояния на
+   * листе и действие «снять состояние» его не трогают.
+   */
+  conditionLocked?: true;
+
+  /**
+   * Заряды эффекта: сколько раз ещё сработают его срабатывания. Каждое
+   * сработавшее тратит один заряд; зарядов не осталось — срабатывания молчат.
+   *
+   * Заряды считаются только у эффекта, который ЛЕЖИТ на существе: у ауры
+   * чужого токена и у эффекта зоны своего экземпляра нет, и тратить нечего.
+   */
+  charges?: EffectCharges;
+
+  /**
+   * Сохранённый бросок: формула, которую бросают ОДИН раз — при наложении.
+   * Результат подставляется вместо токена `@roll` во все формулы эффекта и
+   * дальше не меняется: «Вибрирующие жидкости» бьют одним и тем же числом на
+   * каждом тике, а не катают кость заново при каждом пересчёте листа.
+   *
+   * Считается в {@link module:system/dnd/applyTimeFormulas}.
+   */
+  savedRoll?: string;
+
+  /** Результат сохранённого броска — уже подставлен в формулы эффекта */
+  savedRollValue?: number;
+
+  /**
+   * Предмет, с которого эффект пришёл на носителя. Проставляется при СБОРЕ
+   * эффектов (`listCarriedEffectEntries`), а не автором: по нему ключи
+   * `damage.weapon` и `attack.weapon` достаются именно этому оружию, а не всем
+   * атакам носителя. Эффект уезжает вместе с вещью — он лежит в ней самой.
+   */
+  carriedItemId?: string;
+
+  /**
+   * Срок формулой: «1к4» раунда у «Замешательства», «1 + @mod.con» у умения.
+   * Бросается один раз, при наложении, и уезжает числом в `duration.value` —
+   * дальше эффект живёт обычным сроком. Задаётся вместо числа срока, не вместе
+   * с ним.
+   */
+  durationFormula?: string;
 
   /**
    * Метка концентрации: эффект держит каст `castId`, его срабатывания урона и
@@ -1550,6 +1772,13 @@ export interface ActiveEffect extends BaseActiveEffect {
   triggers?: EffectTrigger[];
 
   /**
+   * Состояния, которые эффект ПОДАВЛЯЕТ, не снимая: «Свобода перемещения»
+   * гасит Опутанного, а когда кончится, состояние снова действует. Отличие от
+   * иммунитета: иммунитет не даёт состоянию лечь, подавление — обратимо.
+   */
+  suppressConditions?: ConditionRef[];
+
+  /**
    * Состояния, к которым эффект даёт иммунитет (напр. вид-грант «иммунитет к
    * отравлению»). У актёров нет `system.defenses` — иммунитет к состояниям
    * приходит именно отсюда; собирается `getEntityConditionImmunities`.
@@ -1565,6 +1794,22 @@ export interface ActiveEffect extends BaseActiveEffect {
    * (`buildConditionActiveEffect`).
    */
   exhaustionLevel?: number;
+
+  /**
+   * Действие, снимающее эффект: кнопка «Вырваться» на вкладке «Эффекты»
+   * листа. Без поля кнопки нет.
+   */
+  escape?: EffectEscape;
+
+  /**
+   * Ступени эффекта: каждая со своими `changes` и `flags`. Перевод на
+   * следующую переписывает их у эффекта (`advanceEffectStage`) — конвейер
+   * листа о ступенях не знает.
+   */
+  stages?: EffectStage[];
+
+  /** Какая ступень действует сейчас; нет — первая (0) */
+  stageIndex?: number;
 }
 
 /**
@@ -1945,6 +2190,21 @@ export const EffectChangeSchema = z.object({
   ]),
   value: z.string().min(1),
   condition: z.string().optional(),
+  step: z
+    .object({
+      by: z
+        .number()
+        .int()
+        .min(-MAX_EFFECT_CHANGE_STEP)
+        .max(MAX_EFFECT_CHANGE_STEP),
+      per: z.enum(EFFECT_CHANGE_STEP_PERIODS),
+      until: z.preprocess(
+        coerceOptionalNumber,
+        z.number().int().optional().catch(undefined),
+      ),
+    })
+    .optional()
+    .catch(undefined),
   // Очищенный приоритет — не повод терять строку: берём приоритет по умолчанию
   priority: z
     .preprocess(coerceOptionalNumber, z.number().int().min(0).max(100))
@@ -1969,6 +2229,13 @@ const EffectChangesSchema = z.array(z.unknown()).transform((rows) =>
     })
     .slice(0, MAX_CHANGES_PER_EFFECT),
 );
+
+/** Zod-схема зарядов эффекта */
+export const EffectChargesSchema = z.object({
+  max: z.number().int().min(MIN_EFFECT_CHARGES).max(MAX_EFFECT_CHARGES),
+  current: z.number().int().min(0).max(MAX_EFFECT_CHARGES),
+  endsWhenEmpty: z.literal(true).optional().catch(undefined),
+});
 
 /**
  * Zod-схема для валидации EffectDuration.
@@ -2015,11 +2282,18 @@ const SAVE_ABILITY_VALUES = [
   'charisma',
 ] as const;
 
+/** Самый длинный ключ счётчика применения */
+const MAX_ACTIVATION_COUNTER_LENGTH = 100;
+
+/** Дальше этого предела цена перемещения не считается */
+const MAX_MOVE_COST_FEET = 200;
+
 /** Zod-схема сложности спасброска: число, в том числе набранное строкой */
 const EffectSaveDcSchema = z.preprocess(coerceOptionalNumber, z.number().int());
 
 /** Zod-схема спасброска при наложении эффекта */
 const EffectSaveSchema = z.object({
+  allowWilling: z.literal(true).optional().catch(undefined),
   ability: z.enum(SAVE_ABILITY_VALUES),
   dc: EffectSaveDcSchema,
   onSuccess: z.enum(['negate', 'half']),
@@ -2057,6 +2331,9 @@ const MAX_CAST_ID_LENGTH = 64;
 /** Самая длинная формула Сл срабатывания */
 const MAX_TRIGGER_DC_FORMULA_LENGTH = 200;
 
+/** Больше правил режима у одного спасброска не бывает */
+const MAX_SAVE_MODE_RULES = 8;
+
 /** Zod-схема спасброска срабатывания */
 const EffectTriggerSaveSchema = z.object({
   ability: z.enum(SAVE_ABILITY_VALUES),
@@ -2069,6 +2346,18 @@ const EffectTriggerSaveSchema = z.object({
     .max(MAX_TRIGGER_DC_FORMULA_LENGTH)
     .optional()
     .catch(undefined),
+  modeIf: z
+    .array(
+      z.object({
+        condition: z.string().trim().min(1),
+        mode: z.enum(EFFECT_TRIGGER_SAVE_MODES),
+      }),
+    )
+    .max(MAX_SAVE_MODE_RULES)
+    .optional()
+    .catch(undefined),
+  autoSuccessIf: z.string().trim().min(1).optional().catch(undefined),
+  autoFailIf: z.string().trim().min(1).optional().catch(undefined),
 });
 
 /** Zod-схема гейта действия срабатывания */
@@ -2106,9 +2395,114 @@ const EFFECT_TRIGGER_PLAIN_ACTION_SCHEMAS = [
   z.object({
     type: z.literal('setHp'),
     value: z.preprocess(coerceOptionalNumber, z.number().int().min(0)),
+    toMax: z.literal(true).optional().catch(undefined),
     on: EffectTriggerGateSchema,
   }),
-  z.object({ type: z.literal('endCast'), on: EffectTriggerGateSchema }),
+  z.object({
+    type: z.literal('tempHp'),
+    amount: z.string().trim().min(1).max(MAX_TRIGGER_DC_FORMULA_LENGTH),
+    mode: z.enum(EFFECT_TEMP_HP_MODES).optional().catch(undefined),
+    on: EffectTriggerGateSchema,
+  }),
+  z.object({
+    type: z.literal('removeCondition'),
+    conditionKey: z.string().min(1).optional().catch(undefined),
+    on: EffectTriggerGateSchema,
+  }),
+  z.object({ type: z.literal('kill'), on: EffectTriggerGateSchema }),
+  z.object({
+    type: z.literal('revive'),
+    hp: z.preprocess(
+      coerceOptionalNumber,
+      z.number().int().min(MIN_REVIVE_HP).optional().catch(undefined),
+    ),
+    full: z.literal(true).optional().catch(undefined),
+    on: EffectTriggerGateSchema,
+  }),
+  z.object({ type: z.literal('dropHeld'), on: EffectTriggerGateSchema }),
+  z.object({
+    type: z.literal('restore'),
+    what: z.enum(EFFECT_RESTORE_KINDS),
+    level: z.preprocess(
+      coerceOptionalNumber,
+      z
+        .number()
+        .int()
+        .min(MIN_SPELL_SLOT_LEVEL)
+        .max(MAX_SPELL_SLOT_LEVEL)
+        .optional()
+        .catch(undefined),
+    ),
+    counter: z
+      .string()
+      .trim()
+      .min(1)
+      .max(MAX_ACTIVATION_COUNTER_LENGTH)
+      .optional()
+      .catch(undefined),
+    amount: z.preprocess(
+      coerceOptionalNumber,
+      z.number().int().min(1).optional().catch(undefined),
+    ),
+    on: EffectTriggerGateSchema,
+  }),
+  z.object({
+    type: z.literal('dispel'),
+    maxLevel: z.preprocess(
+      coerceOptionalNumber,
+      z.number().int().min(CANTRIP_SPELL_LEVEL).max(MAX_SPELL_SLOT_LEVEL),
+    ),
+    withoutLevel: z.literal(true).optional().catch(undefined),
+    on: EffectTriggerGateSchema,
+  }),
+  z.object({
+    type: z.literal('grantInspiration'),
+    on: EffectTriggerGateSchema,
+  }),
+  z.object({
+    type: z.literal('move'),
+    kind: z.enum(EFFECT_TRIGGER_MOVE_KINDS),
+    distance: z.preprocess(
+      coerceOptionalNumber,
+      z.number().int().min(0).max(MAX_TRIGGER_MOVE_DISTANCE),
+    ),
+    from: z.enum(EFFECT_TRIGGER_MOVE_ORIGINS).optional().catch(undefined),
+    on: EffectTriggerGateSchema,
+  }),
+  z.object({
+    type: z.literal('moveArea'),
+    kind: z.enum(EFFECT_TRIGGER_AREA_SHIFT_KINDS),
+    distance: z.preprocess(
+      coerceOptionalNumber,
+      z
+        .number()
+        .int()
+        .min(0)
+        .max(MAX_TRIGGER_MOVE_DISTANCE)
+        .optional()
+        .catch(undefined),
+    ),
+    on: EffectTriggerGateSchema,
+  }),
+  z.object({
+    type: z.literal('endCast'),
+    whose: z.enum(EFFECT_CAST_OWNERS).optional().catch(undefined),
+    on: EffectTriggerGateSchema,
+  }),
+  z.object({
+    type: z.literal('notify'),
+    text: z.string().trim().min(1).max(MAX_NOTIFY_TEXT_LENGTH),
+    to: z.enum(EFFECT_NOTIFY_TARGETS).optional().catch(undefined),
+    roll: z
+      .string()
+      .trim()
+      .min(1)
+      .max(MAX_TRIGGER_DC_FORMULA_LENGTH)
+      .optional()
+      .catch(undefined),
+    on: EffectTriggerGateSchema,
+  }),
+  z.object({ type: z.literal('nextStage'), on: EffectTriggerGateSchema }),
   z.object({ type: z.literal('removeSelf'), on: EffectTriggerGateSchema }),
 ] as const;
 
@@ -2118,6 +2512,8 @@ const applyConditionActionShape = {
   conditionKey: z.string().min(1),
   duration: EffectDurationSchema.optional().catch(undefined),
   recurringSave: RecurringSaveSchema.optional().catch(undefined),
+  locked: z.literal(true).optional().catch(undefined),
+  endsOnExit: z.literal(true).optional().catch(undefined),
   on: EffectTriggerGateSchema,
 } as const;
 
@@ -2137,9 +2533,6 @@ const EffectVariantSchema = z.object({
   pick: z.enum(EFFECT_VARIANT_PICKS).optional().catch(undefined),
 });
 
-/** Самый длинный ключ счётчика применения */
-const MAX_ACTIVATION_COUNTER_LENGTH = 100;
-
 /** Zod-схема применения или включения эффекта */
 const EffectActivationSchema = z.object({
   mode: z.enum(EFFECT_ACTIVATION_MODES),
@@ -2155,6 +2548,12 @@ const EffectActivationSchema = z.object({
     z.number().int().min(1).optional().catch(undefined),
   ),
 });
+
+/** Zod-схема футов перемещения, которыми платят цену `move` */
+const MoveCostFeetSchema = z.preprocess(
+  coerceOptionalNumber,
+  z.number().int().min(0).max(MAX_MOVE_COST_FEET).optional().catch(undefined),
+);
 
 /** Zod-схема лимита срабатывания */
 const EffectTriggerLimitSchema = z.object({
@@ -2175,7 +2574,7 @@ const EffectTriggerChoiceSchema = z.object({
     z
       .number()
       .int()
-      .min(1)
+      .min(MIN_TRIGGER_CHOICE_COUNT)
       .max(MAX_TRIGGER_CHOICE_COUNT)
       .optional()
       .catch(undefined),
@@ -2199,6 +2598,7 @@ const effectTriggerShape = {
   role: z.enum(EFFECT_TRIGGER_ATTACK_ROLES).optional().catch(undefined),
   restType: z.enum(EFFECT_TRIGGER_REST_TYPES).optional().catch(undefined),
   recipient: z.enum(EFFECT_TRIGGER_RECIPIENTS).optional().catch(undefined),
+  conditionKey: z.string().min(1).optional().catch(undefined),
   area: z
     .object({
       radius: z.preprocess(coerceOptionalNumber, z.number().min(0)),
@@ -2210,6 +2610,30 @@ const effectTriggerShape = {
   condition: z.string().min(1).optional().catch(undefined),
   save: EffectTriggerSaveSchema.optional(),
   limit: EffectTriggerLimitSchema.optional().catch(undefined),
+  cost: z.enum(EFFECT_ACTION_COSTS).optional().catch(undefined),
+  moveCostFeet: MoveCostFeetSchema,
+  everyFeet: z.preprocess(
+    coerceOptionalNumber,
+    z
+      .number()
+      .int()
+      .min(MIN_TRIGGER_PATH_FEET)
+      .max(MAX_TRIGGER_PATH_FEET)
+      .optional()
+      .catch(undefined),
+  ),
+  ask: z.literal(true).optional().catch(undefined),
+  asker: z.enum(EFFECT_TRIGGER_CHOOSERS).optional().catch(undefined),
+  chancePercent: z.preprocess(
+    coerceOptionalNumber,
+    z
+      .number()
+      .int()
+      .min(MIN_TRIGGER_CHANCE_PERCENT)
+      .max(MAX_TRIGGER_CHANCE_PERCENT)
+      .optional()
+      .catch(undefined),
+  ),
 } as const;
 
 /** Zod-схема вложенного срабатывания: своих вложенных у него уже нет */
@@ -2283,11 +2707,40 @@ const EffectFlagsSchema = z
   .array(z.string())
   .transform((flags) => flags.filter(isEffectFlagKey));
 
+/** Zod-схема проверки навыка, снимающей эффект */
+const EffectEscapeCheckSchema = z.object({
+  skill: z.string().refine(isSkillType),
+  dc: EffectSaveDcSchema,
+});
+
+/** Zod-схема действия «вырваться» */
+const EffectEscapeSchema = z.object({
+  by: z.enum(EFFECT_ESCAPE_ACTORS).optional().catch(undefined),
+  cost: z.enum(EFFECT_ACTION_COSTS).optional().catch(undefined),
+  moveCostFeet: MoveCostFeetSchema,
+  check: EffectEscapeCheckSchema.optional().catch(undefined),
+  onSuccess: z.enum(EFFECT_ESCAPE_OUTCOMES).optional().catch(undefined),
+  label: z
+    .string()
+    .trim()
+    .min(1)
+    .max(MAX_EFFECT_STAGE_LABEL_LENGTH)
+    .optional()
+    .catch(undefined),
+});
+
+/** Zod-схема ступени эффекта */
+const EffectStageSchema = z.object({
+  label: z.string().trim().min(1).max(MAX_EFFECT_STAGE_LABEL_LENGTH),
+  changes: EffectChangesSchema.catch([]),
+  flags: EffectFlagsSchema.catch([]),
+});
+
 /**
  * Zod-схема для валидации ActiveEffect.
  *
- * Используется в `entityManager.updateActor()` для проверки
- * данных перед сохранением (AGENTS.md: "All external data is unknown by default. Use Zod").
+ * Используется в `entityManager.updateActor()` для проверки данных перед
+ * сохранением: всё, что приходит извне, до разбора считается неизвестным.
  *
  * Поля, которых у эффектов старых миров могло не быть (`description`,
  * `disabled`, `origin`, `transfer`), разбираются с безопасным значением по
@@ -2315,6 +2768,7 @@ export const ActiveEffectSchema = z.object({
   effectTarget: z.enum(['self', 'target', 'zone']).optional().catch(undefined),
   magical: z.literal(true).optional().catch(undefined),
   endsWithAreaId: z.string().min(1).optional().catch(undefined),
+  endsOnExitAreaId: z.string().min(1).optional().catch(undefined),
   // Ключи состояний — СТРОКА, а не перечень канона: состояния заводятся в мире
   // («Мастерская» → «Состояния»), и перечень канона молча выбрасывал бы у
   // эффекта ключ своего состояния — вместе с ним пропадали бы значок на токене
@@ -2327,6 +2781,24 @@ export const ActiveEffectSchema = z.object({
   activation: EffectActivationSchema.optional().catch(undefined),
   rollCondition: z.string().trim().min(1).optional().catch(undefined),
   castId: z.string().min(1).max(MAX_CAST_ID_LENGTH).optional().catch(undefined),
+  castLevel: z.preprocess(
+    coerceOptionalNumber,
+    z
+      .number()
+      .int()
+      .min(0)
+      .max(MAX_SPELL_SLOT_LEVEL)
+      .optional()
+      .catch(undefined),
+  ),
+  conditionLocked: z.literal(true).optional().catch(undefined),
+  charges: EffectChargesSchema.optional().catch(undefined),
+  savedRoll: z.string().trim().min(1).optional().catch(undefined),
+  savedRollValue: z.preprocess(
+    coerceOptionalNumber,
+    z.number().optional().catch(undefined),
+  ),
+  durationFormula: z.string().trim().min(1).optional().catch(undefined),
   concentration: z.literal(true).optional().catch(undefined),
   applySave: EffectSaveSchema.optional(),
   applyOnSuccess: z.boolean().optional(),
@@ -2336,8 +2808,25 @@ export const ActiveEffectSchema = z.object({
   recurringSave: RecurringSaveSchema.optional(),
   recurringDamage: RecurringDamageSchema.optional(),
   triggers: EffectTriggersSchema.optional().catch(undefined),
+  suppressConditions: z.array(z.string().min(1)).optional().catch(undefined),
   conditionImmunities: z.array(z.string().min(1)).optional(),
   exhaustionLevel: z.number().int().min(0).optional(),
+  escape: EffectEscapeSchema.optional().catch(undefined),
+  stages: z
+    .array(EffectStageSchema)
+    .max(MAX_EFFECT_STAGES)
+    .optional()
+    .catch(undefined),
+  stageIndex: z.preprocess(
+    coerceOptionalNumber,
+    z
+      .number()
+      .int()
+      .min(0)
+      .max(MAX_EFFECT_STAGES - 1)
+      .optional()
+      .catch(undefined),
+  ),
 });
 
 /** Zod-схема для массива ActiveEffect (для валидации actor.activeEffects) */

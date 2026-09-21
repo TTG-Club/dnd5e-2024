@@ -16,7 +16,7 @@ import type { DamagePart } from '@vtt/shared';
 import type { ActiveEffect, EffectChange } from './activeEffectTypes.js';
 import type { FormulaContext } from './formulaParser.js';
 
-import { evaluateFormula } from './formulaParser.js';
+import { evaluateFormula, formatFormulaNumber } from './formulaParser.js';
 
 /**
  * Токены, которые принадлежат источнику: модификаторы и значения
@@ -53,7 +53,7 @@ export function bindSourceFormula(
     try {
       const value = evaluateFormula(token, context);
 
-      return value < 0 ? `(${value})` : String(value);
+      return formatFormulaNumber(value);
     } catch {
       return token;
     }
@@ -95,7 +95,9 @@ function bindDamagePart(part: DamagePart, context: FormulaContext): DamagePart {
  */
 export function effectUsesSourceFormulas(effect: ActiveEffect): boolean {
   return (
-    effect.changes.some((change) => hasSourceToken(change.value))
+    hasSourceToken(effect.savedRoll)
+    || hasSourceToken(effect.durationFormula)
+    || effect.changes.some((change) => hasSourceToken(change.value))
     || (effect.damageParts ?? []).some(
       (part) =>
         hasSourceToken(part.formula) || hasSourceToken(part.versatileFormula),
@@ -124,6 +126,16 @@ export function bindSourceEffectFormulas(
 
   return {
     ...effect,
+    // Проверка на `undefined`, а не на токен: она сужает тип, а формула без
+    // токена и так возвращается из `bindSourceFormula` как есть
+    ...(effect.savedRoll === undefined
+      ? {}
+      : { savedRoll: bindSourceFormula(effect.savedRoll, context) }),
+    ...(effect.durationFormula === undefined
+      ? {}
+      : {
+          durationFormula: bindSourceFormula(effect.durationFormula, context),
+        }),
     changes: effect.changes.map((change) => bindChange(change, context)),
     ...(effect.damageParts === undefined
       ? {}

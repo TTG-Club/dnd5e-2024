@@ -2,18 +2,21 @@ import type {
   RequestedRollPrompt,
   RequestedRollReply,
 } from '@/core/systems/uiSystemRegistry';
-import type { TargetChoiceRequestPayload } from '@vtt/shared/system/dnd.js';
+import type {
+  EffectPromptRequestPayload,
+  TargetChoiceRequestPayload,
+} from '@vtt/shared/system/dnd.js';
 
 import type { SavingThrowTarget } from './useSpellSavingThrows';
 
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import {
+  parseEffectPromptRequestPayload,
   parseSavingThrowRequestPayload,
   parseTargetChoiceRequestPayload,
   resolveAutoSaves,
 } from '@vtt/shared/system/dnd.js';
 
-import { EFFECT_TARGET_PROMPT_LABELS } from '../ui/effect/constants';
 import { useSpellSavingThrows } from './useSpellSavingThrows';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -35,6 +38,98 @@ const REQUESTED_ROLL_MODAL_KEY_PREFIX = 'roll-request:';
  * запроса всё равно нужно именно его.
  */
 const openRequestModals = new Map<string, string>();
+
+/** Что не открылось — строка консоли, когда окно запроса не показалось */
+const REQUEST_MODAL_FAILURES = {
+  save: 'Окно спасброска не открылось',
+  choice: 'Окно выбора цели не открылось',
+  question: 'Плашка вопроса не открылась',
+} as const;
+
+/**
+ * Ответ из окна запроса: `respond` говорит инициатору, что выбрали. Зовётся
+ * не больше раза — повтор молча пропускается.
+ */
+type RequestSettler = (respond?: () => void) => void;
+
+/**
+ * Открывает окно по чужому запросу и держит его на учёте.
+ *
+ * По запросу отвечают РОВНО один раз. Закрытие окна ядром (запрос сняли:
+ * бросил ГМ, инициатор отозвал, истёк срок) тоже проходит через этот замок:
+ * иначе закрытие окна прислало бы вслед лишний `decline`. Окно по запросу,
+ * доставленному повторно (адресат переподключился), второй раз не открывается
+ * — ответит первое, со своим замком.
+ *
+ * @param request - запрос от ядра
+ * @param reply - ответ инициатору
+ * @param open - открывает окно: получает замок ответа и ключ окна, отдаёт
+ *   идентификатор окна либо `null`, если окно не открылось
+ * @param failure - что не открылось — для консоли
+ */
+function openTrackedRequestModal(
+  request: RequestedRollPrompt,
+  reply: RequestedRollReply,
+  open: (settle: RequestSettler, modalKey: string) => string | null,
+  failure: string,
+): void {
+  const { closeModal } = useModalManager();
+
+  let settled = false;
+
+  /**
+   * Закрывает запрос: снимает окно с учёта и отдаёт ответ инициатору.
+   *
+   * @param respond - что сказать инициатору; не зовётся, если уже отвечали
+   */
+  const settle: RequestSettler = (respond) => {
+    if (settled) {
+      return;
+    }
+
+    settled = true;
+    openRequestModals.delete(request.requestId);
+    respond?.();
+  };
+
+  /** Запрос сняли: окно закрывается, отвечать по нему уже некому */
+  function closeOnCancelled(): void {
+    const openModalId = openRequestModals.get(request.requestId);
+
+    settle();
+
+    if (openModalId) {
+      closeModal(openModalId);
+    }
+  }
+
+  if (openRequestModals.has(request.requestId)) {
+    reply.onCancelled(closeOnCancelled);
+
+    return;
+  }
+
+  const modalId = open(
+    settle,
+    `${REQUESTED_ROLL_MODAL_KEY_PREFIX}${request.requestId}`,
+  );
+
+  // Окна нет и не будет (менеджер нашёл чужое окно с тем же ключом) —
+  // отказываемся сразу: инициатор не должен ждать впустую
+  if (!modalId) {
+    console.warn(
+      `${REQUESTED_ROLL_LOG_PREFIX} ${failure}: запрос ${request.requestId}`,
+    );
+
+    settle(() => reply.decline());
+
+    return;
+  }
+
+  openRequestModals.set(request.requestId, modalId);
+
+  reply.onCancelled(closeOnCancelled);
+}
 
 /**
  * Открывает окно броска по ЧУЖОМУ запросу — слот `promptRequestedRoll`.
@@ -61,6 +156,14 @@ export function promptRequestedRoll(
 
   if (choice) {
     return promptTargetChoice(request, reply, choice);
+  }
+
+  // И вопрос человеку — общий канал «можете»: согласие на срабатывание, расход
+  // реакции, перевод на следующую ступень
+  const question = parseEffectPromptRequestPayload(request.payload);
+
+  if (question) {
+    return promptEffectQuestion(request, reply, question);
   }
 
   const payload = parseSavingThrowRequestPayload(request.payload);
@@ -90,6 +193,7 @@ export function promptRequestedRoll(
     againstCondition: payload.againstCondition,
     againstConcentration: payload.againstConcentration,
     mode: payload.mode,
+    allowWilling: payload.allowWilling,
     sourceName: payload.sourceName,
   };
 
@@ -101,78 +205,22 @@ export function promptRequestedRoll(
     return true;
   }
 
-  const { closeModal } = useModalManager();
-
-  /**
-   * По запросу отвечают РОВНО один раз. Закрытие окна ядром (запрос сняли)
-   * тоже проходит через этот замок: иначе `notifyCancel` окна прислал бы вслед
-   * лишний `decline`.
-   */
-  let settled = false;
-
-  /**
-   * Закрывает запрос: снимает окно с учёта и отдаёт ответ инициатору.
-   *
-   * @param respond - что сказать инициатору; не зовётся, если уже отвечали
-   */
-  function settle(respond?: () => void): void {
-    if (settled) {
-      return;
-    }
-
-    settled = true;
-    openRequestModals.delete(request.requestId);
-    respond?.();
-  }
-
-  /**
-   * Закрывает окно запроса по снятию: за адресата бросил ГМ, инициатор отозвал
-   * запрос или истёк срок. Отвечать по такому окну уже некому.
-   */
-  function closeOnCancelled(): void {
-    const openModalId = openRequestModals.get(request.requestId);
-
-    settle();
-
-    if (openModalId) {
-      closeModal(openModalId);
-    }
-  }
-
-  // Окно по этому запросу уже открыто: ядро доставило его повторно (адресат
-  // переподключился). Второе не нужно — ответит первое, со своим замком.
-  if (openRequestModals.has(request.requestId)) {
-    reply.onCancelled(closeOnCancelled);
-
-    return true;
-  }
-
-  const modalId = openSavingThrowModal(target, {
-    modalKey: `${REQUESTED_ROLL_MODAL_KEY_PREFIX}${request.requestId}`,
-    takeover: request.takeover,
-    onResult: (result) => {
-      settle(() => reply.answer(result));
-    },
-    onCancel: () => {
-      settle(() => reply.decline());
-    },
-  });
-
-  // Окна нет и не будет (менеджер нашёл чужое окно с тем же ключом) —
-  // отказываемся сразу: инициатор не должен ждать впустую.
-  if (!modalId) {
-    console.warn(
-      `${REQUESTED_ROLL_LOG_PREFIX} Окно спасброска по запросу ${request.requestId} не открылось`,
-    );
-
-    settle(() => reply.decline());
-
-    return true;
-  }
-
-  openRequestModals.set(request.requestId, modalId);
-
-  reply.onCancelled(closeOnCancelled);
+  openTrackedRequestModal(
+    request,
+    reply,
+    (settle, modalKey) =>
+      openSavingThrowModal(target, {
+        modalKey,
+        takeover: request.takeover,
+        onResult: (result) => {
+          settle(() => reply.answer(result));
+        },
+        onCancel: () => {
+          settle(() => reply.decline());
+        },
+      }),
+    REQUEST_MODAL_FAILURES.save,
+  );
 
   return true;
 }
@@ -193,71 +241,69 @@ function promptTargetChoice(
   reply: RequestedRollReply,
   payload: TargetChoiceRequestPayload,
 ): boolean {
-  const { openModal, closeModal } = useModalManager();
+  const { openModal } = useModalManager();
 
-  let settled = false;
+  openTrackedRequestModal(
+    request,
+    reply,
+    (settle, modalKey) =>
+      openModal('EffectTargetPromptModal', {
+        _modalKey: modalKey,
+        candidates: payload.candidates,
+        count: payload.count,
+        optional: payload.optional,
+        sourceName: payload.sourceName,
+        onConfirm: (chosenIds: string[]) => {
+          settle(() => reply.answer({ chosenIds }));
+        },
+        onCancel: () => {
+          settle(() => reply.decline());
+        },
+      }),
+    REQUEST_MODAL_FAILURES.choice,
+  );
 
-  /**
-   * Отвечают ровно один раз: снятие запроса ядром тоже проходит замком.
-   *
-   * @param respond - что сказать инициатору
-   */
-  function settle(respond?: () => void): void {
-    if (settled) {
-      return;
-    }
+  return true;
+}
 
-    settled = true;
-    openRequestModals.delete(request.requestId);
-    respond?.();
-  }
+/**
+ * Открывает плашку вопроса человеку по чужому запросу.
+ *
+ * Варианты ответа приходят в нагрузке закрытым списком; инициатор сверяет
+ * ответ с тем же списком, поэтому окно только показывает их и возвращает
+ * выбранный ключ. Закрытие — отказ, как и у спасброска.
+ *
+ * @param request - запрос от ядра
+ * @param reply - ответ инициатору
+ * @param payload - разобранная нагрузка вопроса
+ * @returns всегда `true`: запрос наш
+ */
+function promptEffectQuestion(
+  request: RequestedRollPrompt,
+  reply: RequestedRollReply,
+  payload: EffectPromptRequestPayload,
+): boolean {
+  const { openModal } = useModalManager();
 
-  /** Запрос сняли: окно закрывается, отвечать уже некому */
-  function closeOnCancelled(): void {
-    const openModalId = openRequestModals.get(request.requestId);
-
-    settle();
-
-    if (openModalId) {
-      closeModal(openModalId);
-    }
-  }
-
-  if (openRequestModals.has(request.requestId)) {
-    reply.onCancelled(closeOnCancelled);
-
-    return true;
-  }
-
-  const modalId = openModal('EffectTargetPromptModal', {
-    _modalKey: `${REQUESTED_ROLL_MODAL_KEY_PREFIX}${request.requestId}`,
-    candidates: payload.candidates,
-    count: payload.count,
-    optional: payload.optional,
-    sourceName: payload.sourceName ?? EFFECT_TARGET_PROMPT_LABELS.titleFallback,
-    onConfirm: (chosenIds: string[]) => {
-      settle(() => {
-        reply.answer({ chosenIds });
-      });
-    },
-    onCancel: () => {
-      settle(() => reply.decline());
-    },
-  });
-
-  if (!modalId) {
-    console.warn(
-      `${REQUESTED_ROLL_LOG_PREFIX} Окно выбора цели по запросу ${request.requestId} не открылось`,
-    );
-
-    settle(() => reply.decline());
-
-    return true;
-  }
-
-  openRequestModals.set(request.requestId, modalId);
-
-  reply.onCancelled(closeOnCancelled);
+  openTrackedRequestModal(
+    request,
+    reply,
+    (settle, modalKey) =>
+      openModal('EffectQuestionPromptModal', {
+        _modalKey: modalKey,
+        question: payload.question,
+        options: payload.options,
+        sourceName: payload.sourceName,
+        effectSummary: payload.effectSummary,
+        onAnswer: (optionId: string) => {
+          settle(() => reply.answer({ optionId }));
+        },
+        onCancel: () => {
+          settle(() => reply.decline());
+        },
+      }),
+    REQUEST_MODAL_FAILURES.question,
+  );
 
   return true;
 }

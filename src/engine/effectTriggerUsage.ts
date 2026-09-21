@@ -158,6 +158,40 @@ export function consumeTriggerUse(
   writeTriggerUsage(entity, { ...ledger, [key]: { used, per: limit.per } });
 }
 
+/**
+ * Лимит реакции: одна за раунд на всё существо.
+ *
+ * Своего счётчика реакций у листа нет, и заводить второй учёт ради него
+ * незачем: «не чаще одного раза за раунд» — тот же счётчик лимитов, только с
+ * общим для всех эффектов носителя источником ({@link REACTION_USAGE_SCOPE}).
+ * Так два эффекта с ценой «Реакция» не срабатывают в одном раунде оба.
+ */
+export const REACTION_TRIGGER_LIMIT: EffectTriggerLimit = {
+  max: 1,
+  per: 'round',
+  key: 'reaction',
+};
+
+/** Источник счётчика реакции — общий у всех эффектов носителя */
+export const REACTION_USAGE_SCOPE = 'reaction';
+
+/**
+ * Лимит срабатывания с учётом цены: реакция сама по себе «не чаще раза за
+ * раунд», даже если своего лимита у срабатывания нет.
+ *
+ * @param trigger - срабатывание
+ * @returns лимит либо `undefined`, если срабатывание не ограничено
+ */
+export function resolveTriggerLimit(
+  trigger: Pick<EffectTrigger, 'limit' | 'cost'>,
+): EffectTriggerLimit | undefined {
+  if (trigger.limit) {
+    return trigger.limit;
+  }
+
+  return trigger.cost === 'reaction' ? REACTION_TRIGGER_LIMIT : undefined;
+}
+
 /** Периоды, которые ведёт бой: вне боя ходов и раундов нет */
 const COMBAT_LIMIT_PERIODS: readonly EffectTriggerLimitPeriod[] = [
   'turn',
@@ -183,23 +217,30 @@ export function takeTriggerUse(
   trigger: EffectTrigger,
   inCombat = true,
 ): boolean {
-  if (!trigger.limit) {
+  const limit = resolveTriggerLimit(trigger);
+
+  if (!limit) {
     return true;
   }
 
-  if (!inCombat && COMBAT_LIMIT_PERIODS.includes(trigger.limit.per)) {
+  if (!inCombat && COMBAT_LIMIT_PERIODS.includes(limit.per)) {
     resetTriggerUsage(entity, COMBAT_LIMIT_PERIODS);
 
     return true;
   }
 
-  const key = buildTriggerUsageKey(scope, trigger);
+  // Счётчик реакции общий у всех эффектов носителя, поэтому источник у него
+  // не эффект, а сам носитель
+  const key = buildTriggerUsageKey(
+    trigger.limit ? scope : REACTION_USAGE_SCOPE,
+    { ...trigger, limit },
+  );
 
-  if (isTriggerLimitReached(entity, key, trigger.limit)) {
+  if (isTriggerLimitReached(entity, key, limit)) {
     return false;
   }
 
-  consumeTriggerUse(entity, key, trigger.limit);
+  consumeTriggerUse(entity, key, limit);
 
   return true;
 }
@@ -264,6 +305,59 @@ export function resetTriggerUsage(
   }
 
   writeTriggerUsage(entity, kept ?? {});
+
+  return true;
+}
+
+/**
+ * Проверяет заряды эффекта и, если срабатывать можно, тратит один.
+ *
+ * Заряды живут в самом эффекте, а не в счётчиках субъекта: «Огненный щит на
+ * три отражения» — свойство этого экземпляра, и у второй копии свои три. Из
+ * этого же следует граница: тратить можно только у эффекта, который ЛЕЖИТ на
+ * существе. У ауры чужого токена и у эффекта зоны экземпляра нет, списывать
+ * заряд некуда — такие срабатывания заряды просто не считают.
+ *
+ * Последний заряд с пометкой `endsWhenEmpty` снимает эффект тут же: само
+ * срабатывание при этом доигрывает — заряд потрачен на него.
+ *
+ * @param entity - субъект
+ * @param effectId - эффект, чьё срабатывание идёт
+ * @returns `true`, если срабатывание выполняется
+ */
+export function takeEffectCharge(
+  entity: DnDSceneEntity,
+  effectId: string,
+): boolean {
+  const effects = entity.activeEffects;
+  const index = effects?.findIndex((effect) => effect.id === effectId) ?? -1;
+
+  if (!effects || index < 0) {
+    return true;
+  }
+
+  const effect = effects[index];
+  const charges = effect.charges;
+
+  if (!charges) {
+    return true;
+  }
+
+  if (charges.current <= 0) {
+    return false;
+  }
+
+  const current = charges.current - 1;
+
+  if (current === 0 && charges.endsWhenEmpty) {
+    entity.activeEffects = effects.filter((_, at) => at !== index);
+
+    return true;
+  }
+
+  entity.activeEffects = effects.map((kept, at) =>
+    at === index ? { ...kept, charges: { ...charges, current } } : kept,
+  );
 
   return true;
 }

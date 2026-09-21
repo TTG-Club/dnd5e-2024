@@ -891,6 +891,10 @@ describe('список «Срабатывания»', () => {
       'attackRoll',
       'damageTaken',
       'hpZero',
+      'healed',
+      'conditionLost',
+      'downedOther',
+      'moved',
       'rest',
     ]);
 
@@ -900,6 +904,17 @@ describe('список «Срабатывания»', () => {
       'applyTag',
       'reduceMaxHp',
       'setHp',
+      'tempHp',
+      'move',
+      'removeCondition',
+      'kill',
+      'revive',
+      'dropHeld',
+      'restore',
+      'dispel',
+      'grantInspiration',
+      'notify',
+      'nextStage',
       'endCast',
       'removeSelf',
     ]);
@@ -911,6 +926,17 @@ describe('список «Срабатывания»', () => {
         'applyCondition',
         'applyTag',
         'reduceMaxHp',
+        'tempHp',
+        'move',
+        'removeCondition',
+        'kill',
+        'revive',
+        'dropHeld',
+        'restore',
+        'dispel',
+        'grantInspiration',
+        'notify',
+        'nextStage',
         'endCast',
         'removeSelf',
       ],
@@ -927,6 +953,17 @@ describe('список «Срабатывания»', () => {
         'applyTag',
         'reduceMaxHp',
         'setHp',
+        'tempHp',
+        'move',
+        'removeCondition',
+        'kill',
+        'revive',
+        'dropHeld',
+        'restore',
+        'dispel',
+        'grantInspiration',
+        'notify',
+        'nextStage',
         'endCast',
         'removeSelf',
       ],
@@ -954,28 +991,52 @@ describe('список «Срабатывания»', () => {
       'applyCondition',
       'applyTag',
       'reduceMaxHp',
+      'tempHp',
+      'move',
+      'removeCondition',
+      'kill',
+      'revive',
+      'dropHeld',
+      'restore',
+      'dispel',
+      'grantInspiration',
+      'notify',
+      'endCast',
     ]);
 
     assert.deepEqual(
       layoutOf('spell', { effectTarget: 'target' }).triggerEvents,
       [
         'applied',
+        'activate',
         'turnStart',
         'turnEnd',
         'attackRoll',
         'damageTaken',
         'hpZero',
+        'healed',
+        'conditionLost',
+        'downedOther',
+        'moved',
         'castEnd',
         'rest',
       ],
-      'эффект заклинания на цели слышит урон по цели и конец каста',
+      'у действующего заклинания на цели есть своя кнопка действия, оно слышит урон по цели и конец каста',
     );
 
     assert.deepEqual(
       layoutOf('spell', {
         aura: allCreaturesAura(AURA_RADIUS),
       }).triggerEvents,
-      ['turnStart', 'turnEnd', 'enter', 'exit', 'damageTaken', 'hpZero'],
+      [
+        'turnStart',
+        'turnEnd',
+        'enter',
+        'exit',
+        'damageTaken',
+        'hpZero',
+        'healed',
+      ],
       'в ауру входят и выходят так же, как в зону',
     );
 
@@ -986,6 +1047,7 @@ describe('список «Срабатывания»', () => {
       'turnEnd',
       'damageTaken',
       'hpZero',
+      'healed',
     ]);
 
     assert.deepEqual(trait.triggerActions, [
@@ -994,6 +1056,17 @@ describe('список «Срабатывания»', () => {
       'applyTag',
       'reduceMaxHp',
       'setHp',
+      'tempHp',
+      'move',
+      'removeCondition',
+      'kill',
+      'revive',
+      'dropHeld',
+      'restore',
+      'dispel',
+      'grantInspiration',
+      'notify',
+      'endCast',
     ]);
 
     assert.deepEqual(
@@ -1011,7 +1084,7 @@ describe('список «Срабатывания»', () => {
     for (const context of ['feature', 'item']) {
       assert.deepEqual(
         layoutOf(context).triggerEvents,
-        ['damageTaken', 'hpZero'],
+        ['damageTaken', 'hpZero', 'healed'],
         `${context}: эффект слышит урон по носителю`,
       );
     }

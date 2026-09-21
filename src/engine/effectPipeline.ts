@@ -442,7 +442,9 @@ export function listCarriedEffectEntries(
       (item.activeEffects ?? [])
         .filter(affectsCarrier)
         .map((effect): CarriedEffectEntry => ({
-          effect,
+          // Предмет помнится в самом эффекте: по нему «только этим предметом»
+          // достаётся нужному оружию, а не всем атакам носителя
+          effect: item.id ? { ...effect, carriedItemId: item.id } : effect,
           sourceName: item.name,
           sourceKind: 'item',
         })),
@@ -583,7 +585,50 @@ export function collectActiveEffects(
   // Уровень своего класса — в формулы умений класса. Здесь, в единственной
   // точке сбора: дальше эффекты расходятся по статам листа, бонус-частям урона
   // и подписям, и подставлять число у каждого потребителя пришлось бы заново
-  return bindClassLevels(collectedEffects, actor);
+  return bindClassLevels(dropSuppressedConditions(collectedEffects), actor);
+}
+
+/**
+ * Состояния, подавленные эффектами носителя: «Свобода перемещения» не снимает
+ * Опутанного, а гасит его, и после снятия свободы состояние снова действует.
+ *
+ * @param effects - действующие эффекты носителя
+ * @returns ключи подавленных состояний
+ */
+export function listSuppressedConditions(
+  effects: readonly ActiveEffect[],
+): Set<string> {
+  const suppressed = new Set<string>();
+
+  for (const effect of effects) {
+    for (const key of effect.suppressConditions ?? []) {
+      suppressed.add(key);
+    }
+  }
+
+  return suppressed;
+}
+
+/**
+ * Убирает из списка эффекты подавленных состояний. Сам эффект остаётся на
+ * носителе — он просто не действует, поэтому подавление обратимо.
+ *
+ * @param effects - собранные эффекты
+ * @returns эффекты без подавленных состояний
+ */
+function dropSuppressedConditions(
+  effects: readonly ActiveEffect[],
+): ActiveEffect[] {
+  const suppressed = listSuppressedConditions(effects);
+
+  if (suppressed.size === 0) {
+    return [...effects];
+  }
+
+  return effects.filter(
+    (effect) =>
+      effect.conditionKey === undefined || !suppressed.has(effect.conditionKey),
+  );
 }
 
 // ── Фаза 2: applyActiveEffects ────────────────────────────────
@@ -710,22 +755,27 @@ export function collectDerivedChanges(
 
 // ── Условные бонусы (roll-time evaluation) ─────────────
 
-/**
- * Контекст броска для оценки условных эффектов.
- * Передаётся при выполнении атаки для проверки условий вида
- * `roll.hasAdvantage === true`.
- */
 /** Союзник рядом с целью: какие состояния на нём сейчас */
 export interface AdjacentAllyState {
   /** Ключи состояний союзника, недееспособность — тоже */
   conditions: readonly string[];
 }
 
+/**
+ * Контекст броска для оценки условных эффектов.
+ * Передаётся при выполнении атаки для проверки условий вида
+ * `roll.hasAdvantage === true`.
+ */
 export interface RollContext {
   /** Бросок с преимуществом */
   hasAdvantage: boolean;
   /** Бросок с помехой */
   hasDisadvantage: boolean;
+  /**
+   * Предмет, которым бьют: по нему работают ключи «только этим предметом».
+   * Не задан — броска предметом нет, и такие строки не считаются.
+   */
+  itemId?: string;
   /**
    * Состояние HP цели — для условий `target.hp.*` (напр. «Убийца»/«Окровавлен»),
    * и её тип — для условий `target.creatureType`. Отсутствует вне
@@ -1470,6 +1520,94 @@ function resolveConditionalValue(
   return Number.isNaN(plainValue) ? 0 : plainValue;
 }
 
+/** Ключ «весь наносимый урон»: подходит любому виду урона */
+export const ALL_DAMAGE_KEY = 'damage.all';
+
+/** Ключ урона «только этим предметом»: считается лишь у эффекта на предмете */
+export const WEAPON_DAMAGE_KEY = 'damage.weapon';
+
+/** Ключ атаки «только этим предметом» */
+export const WEAPON_ATTACK_KEY = 'attack.weapon';
+
+/** Ключи, привязанные к предмету: без предмета броска они ничего не дают */
+const ITEM_SCOPED_KEYS: ReadonlySet<string> = new Set([
+  WEAPON_DAMAGE_KEY,
+  WEAPON_ATTACK_KEY,
+]);
+
+/**
+ * Привязана ли строка к предмету. Такая строка не считается на листе — на ней
+ * написано «только этим предметом», а каким именно, известно лишь в броске.
+ *
+ * @param changeKey - ключ строки
+ * @returns `true`, если строка про конкретный предмет
+ */
+export function isItemScopedKey(changeKey: string): boolean {
+  return ITEM_SCOPED_KEYS.has(changeKey);
+}
+
+/**
+ * Достаётся ли строка этому предмету броска.
+ *
+ * Строка, привязанная к предмету, работает только у эффекта, который ЛЕЖИТ на
+ * предмете (`carriedItemId` ставит сбор эффектов) и только когда бьют именно
+ * им. Обычные строки предмет не разбирают вовсе.
+ *
+ * @param changeKey - ключ строки
+ * @param effect - эффект, которому строка принадлежит
+ * @param itemId - предмет текущего броска; нет — броска предметом нет
+ * @returns `true`, если строку можно считать
+ */
+export function changeReachesItem(
+  changeKey: string,
+  effect: Pick<ActiveEffect, 'carriedItemId'>,
+  itemId: string | undefined,
+): boolean {
+  if (!ITEM_SCOPED_KEYS.has(changeKey)) {
+    return true;
+  }
+
+  return (
+    itemId !== undefined
+    && effect.carriedItemId !== undefined
+    && effect.carriedItemId === itemId
+  );
+}
+
+/**
+ * Подходит ли строка изменения ключу урона.
+ *
+ * `damage.all` («Метка охотника» на все атаки) работает с любым видом урона:
+ * рукопашным, дальнобойным и заклинанием — одна строка вместо трёх.
+ *
+ * @param changeKey - ключ строки изменения
+ * @param targetKey - ключ, для которого ищут бонусы
+ * @returns `true`, если строка относится к этому ключу
+ */
+export function matchesDamageKey(
+  changeKey: string,
+  targetKey: EffectTargetKey,
+): boolean {
+  if (changeKey === targetKey) {
+    return true;
+  }
+
+  if (changeKey === ALL_DAMAGE_KEY) {
+    return targetKey.startsWith('damage.');
+  }
+
+  // «Только этим предметом» — про удар оружием: заклинание предметом не бьют
+  if (changeKey === WEAPON_DAMAGE_KEY) {
+    return targetKey === 'damage.melee' || targetKey === 'damage.ranged';
+  }
+
+  if (changeKey === WEAPON_ATTACK_KEY) {
+    return targetKey === 'attack.melee' || targetKey === 'attack.ranged';
+  }
+
+  return false;
+}
+
 /**
  * Вычисляет дополнительные бонусы от условных Active Effects
  * для указанного ключа (например `attack.melee`).
@@ -1501,8 +1639,9 @@ export function evaluateConditionalBonuses(
 
     for (const change of effect.changes) {
       if (
-        (!change.condition && !rollOnly)
-        || change.key !== targetKey
+        !changeReachesItem(change.key, effect, rollContext.itemId)
+        || (!change.condition && !rollOnly && !isItemScopedKey(change.key))
+        || !matchesDamageKey(change.key, targetKey)
         || isDiceFormulaValue(change.value)
       ) {
         continue;
@@ -1549,6 +1688,12 @@ function isRollBonusKey(key: string): boolean {
 function isRollTimeDiceChange(change: EffectChange): boolean {
   // Прибавка атакующему — не число листа носителя вовсе
   if (change.key === ATTACKS_AGAINST_KEY) {
+    return true;
+  }
+
+  // «Только этим предметом»: каким именно, известно лишь в момент броска —
+  // на листе такая строка стала бы прибавкой ко всем атакам носителя
+  if (isItemScopedKey(change.key)) {
     return true;
   }
 
@@ -1756,6 +1901,7 @@ export function isNoOpEffectChange(
 export function hasBonusDamageFormulas(
   effects: readonly ActiveEffect[],
   targetKey: EffectTargetKey,
+  itemId?: string,
 ): boolean {
   for (const effect of effects) {
     if (isEffectDormant(effect)) {
@@ -1763,7 +1909,11 @@ export function hasBonusDamageFormulas(
     }
 
     for (const change of effect.changes) {
-      if (change.key === targetKey && isDiceFormulaValue(change.value)) {
+      if (
+        changeReachesItem(change.key, effect, itemId)
+        && matchesDamageKey(change.key, targetKey)
+        && isDiceFormulaValue(change.value)
+      ) {
         return true;
       }
     }
@@ -1803,7 +1953,11 @@ export function collectBonusDamageFormulas(
     }
 
     for (const change of effect.changes) {
-      if (change.key !== targetKey || !isDiceFormulaValue(change.value)) {
+      if (
+        !changeReachesItem(change.key, effect, rollContext.itemId)
+        || !matchesDamageKey(change.key, targetKey)
+        || !isDiceFormulaValue(change.value)
+      ) {
         continue;
       }
 
@@ -2938,7 +3092,8 @@ export function resolveTotalMovementSpeed(stats: ResolvedActorStats): number {
 /**
  * Создаёт глубокую копию ResolvedActorStats.
  *
- * Необходимо для immutable transforms (AGENTS.md).
+ * Нужна, чтобы расчёт не менял чужие статы на месте: вызывающий получает
+ * новый объект.
  *
  * @param stats - исходные статы
  * @returns независимая копия

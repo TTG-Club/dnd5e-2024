@@ -5,6 +5,7 @@ import { describe, it } from 'vitest';
 import {
   allCreaturesAura,
   authoredScenario,
+  CELL_SIZE,
   change,
   createActor,
   createCreature,
@@ -13,6 +14,7 @@ import {
   createToken,
   createZone,
   engine,
+  FEET_PER_CELL,
   GRID,
   MAX_ROLL,
   MIN_ROLL,
@@ -236,6 +238,58 @@ describe('каталог: зоны и ауры', () => {
     assert.deepEqual(rogue.activeEffects, [], 'выход снимает');
   });
 
+  it('[Z17] Паутина: Опутанность спадает при выходе из зоны', () => {
+    const web = createEffect('Паутина', {
+      areaTrigger: 'enter',
+      triggers: [
+        {
+          id: 'trigger_web',
+          event: 'enter',
+          actions: [
+            {
+              type: 'applyCondition',
+              conditionKey: 'restrained',
+              endsOnExit: true,
+            },
+          ],
+        },
+      ],
+    });
+
+    assert.match(
+      authoredScenario(web, 'zone'),
+      /до выхода из зоны/,
+      'сводка называет, когда состояние спадёт',
+    );
+
+    const zones = [createZone('ca_web', [web])];
+    const orc = withHp(createCreature, 20);
+
+    enter(orc, zones);
+
+    assert.equal(
+      orc.activeEffects.some((effect) => effect.conditionKey === 'restrained'),
+      true,
+      'вход опутал',
+    );
+
+    // Тик хода состояние не снимает: у него нет своего срока
+    engine.decrementActorEffectDurations(orc);
+
+    assert.equal(
+      orc.activeEffects.some((effect) => effect.conditionKey === 'restrained'),
+      true,
+    );
+
+    engine.syncActorAreaEffects(orc, new Set(['ca_web']), new Set(), zones);
+
+    assert.equal(
+      orc.activeEffects.some((effect) => effect.conditionKey === 'restrained'),
+      false,
+      'выход снял состояние',
+    );
+  });
+
   it('[Z07] Две зоны с одинаковым эффектом: выход из одной оставляет копию другой', () => {
     const fog = createEffect('Туман', {
       flags: ['skill.perception.disadvantage'],
@@ -267,6 +321,208 @@ describe('каталог: зоны и ауры', () => {
       'disadvantage',
     );
   });
+
+  it('[Z19] Зона в форме стены', () => {
+    const cell = 50;
+
+    // Стена огня: длина — сам луч, толщина — поле «ширина» луча. Окно
+    // заклинания пишет его в `areaOfEffect.width`, шаблон на сцене его несёт
+    const wallOf = (widthCells) => ({
+      id: 'tmpl_wall',
+      type: 'ray',
+      originX: 1000,
+      originY: 1025,
+      targetX: 1000 + 12 * cell,
+      targetY: 1025,
+      width: widthCells * cell,
+      color: 0xff6600,
+      createdBy: 'player',
+    });
+
+    const coveredCells = (template) => {
+      const polygon = engine.templateToPolygon(template, cell);
+
+      let covered = 0;
+
+      assert.ok(polygon, 'полигон зоны собран');
+
+      for (let column = 15; column <= 35; column++) {
+        for (let row = 15; row <= 25; row++) {
+          const x = column * cell + cell / 2;
+          const y = row * cell + cell / 2;
+          const inZone = engine.isPointInPolygon(x, y, polygon);
+
+          assert.equal(
+            inZone,
+            engine.isPointInTemplate(x, y, cell, template),
+            `клетка ${column}:${row} — зона и шаблон совпадают`,
+          );
+
+          covered += inZone ? 1 : 0;
+        }
+      }
+
+      return covered;
+    };
+
+    const thin = coveredCells(wallOf(1));
+    const thick = coveredCells(wallOf(3));
+
+    assert.ok(thin > 0, 'тонкая стена накрывает ряд клеток');
+
+    assert.equal(
+      thick,
+      thin * 3,
+      'стена втрое толще накрывает втрое больше клеток той же длины',
+    );
+  });
+
+  it('[Z18] Перемещение зоны заклинания', () => {
+    const castId = 'cast_cloudkill';
+
+    // Квадрат в клетку: середина — в центре клетки (5, 0), на одном ряду с
+    // заклинателем в клетке (0, 0)
+    const cloudZone = createZone('ca_cloudkill', [], {
+      points: [
+        { x: 5 * CELL_SIZE, y: 0 },
+        { x: 6 * CELL_SIZE, y: 0 },
+        { x: 6 * CELL_SIZE, y: CELL_SIZE },
+        { x: 5 * CELL_SIZE, y: CELL_SIZE },
+      ],
+      source: { entityId: 'actor_caster', label: 'Облако смерти', castId },
+    });
+
+    const strangerZone = createZone('ca_other', [], {
+      points: cloudZone.points,
+      source: { entityId: 'actor_caster', label: 'Чужой каст', castId: 'x' },
+    });
+
+    const surroundingsOf = (caster) => ({
+      token: createToken(caster.id, 0, 0),
+      gridSettings: GRID,
+      neighbors: [],
+      areas: [cloudZone, strangerZone],
+    });
+
+    // «Облако смерти»: в начале хода заклинателя уходит от него на 10 футов
+    const cloudkill = createEffect('Облако смерти', {
+      castId,
+      triggers: [
+        {
+          id: 'trigger_cloudkill_drift',
+          event: 'turnStart',
+          actions: [{ type: 'moveArea', kind: 'away', distance: 10 }],
+        },
+      ],
+    });
+
+    assert.match(
+      authoredScenario(cloudkill, 'spell'),
+      /сдвигает зону от получателя на 10 фт/,
+    );
+
+    const caster = withHp(createActor, 30, {
+      id: 'actor_caster',
+      activeEffects: [cloudkill],
+    });
+
+    const shifts = [];
+
+    engine.processTurnEffects(caster, 'startOfTurn', {
+      surroundings: surroundingsOf(caster),
+      moveArea: (areaId, offset) => shifts.push({ areaId, offset }),
+    });
+
+    // 10 футов — две клетки
+    const tenFeet = (10 / FEET_PER_CELL) * CELL_SIZE;
+
+    assert.deepEqual(
+      shifts,
+      [{ areaId: 'ca_cloudkill', offset: { dx: tenFeet, dy: 0 } }],
+      'сдвинута только зона своего каста — на 10 футов прочь, по прямой',
+    );
+
+    // Старое ядро сдвигать не умеет: без `moveArea` действие молчит и не падает
+    assert.doesNotThrow(() =>
+      engine.processTurnEffects(caster, 'startOfTurn', {
+        surroundings: surroundingsOf(caster),
+      }),
+    );
+
+    // «Тьма» на предмете в руке: зона идёт за носителем
+    const darkness = createEffect('Тьма', {
+      castId,
+      triggers: [
+        {
+          id: 'trigger_darkness_follow',
+          event: 'moved',
+          actions: [{ type: 'moveArea', kind: 'follow' }],
+        },
+      ],
+    });
+
+    assert.match(authoredScenario(darkness, 'spell'), /зона идёт за носителем/);
+
+    const bearer = withHp(createActor, 30, {
+      id: 'actor_caster',
+      activeEffects: [darkness],
+    });
+
+    const follows = [];
+    const system = new engine.Dnd5eVttSystem();
+
+    system.applyMovementEffects(
+      bearer,
+      {
+        from: createToken(bearer.id, 0, 0),
+        to: createToken(bearer.id, 2, 1),
+        distance: 10,
+        steps: [],
+        forced: false,
+        stopped: false,
+      },
+      {
+        getSceneSurroundings: () => surroundingsOf(bearer),
+        moveArea: (areaId, offset) => follows.push({ areaId, offset }),
+      },
+    );
+
+    const shift = { dx: 2 * CELL_SIZE, dy: CELL_SIZE };
+
+    assert.deepEqual(
+      follows,
+      [{ areaId: 'ca_cloudkill', offset: shift }],
+      'зона повторяет смещение фишки один раз за перемещение',
+    );
+
+    // «К получателю» останавливается на его фишке: до неё одна клетка, а
+    // просили на 30 футов
+    const nearZone = createZone('ca_near', [], {
+      points: [
+        { x: CELL_SIZE, y: 0 },
+        { x: 2 * CELL_SIZE, y: 0 },
+        { x: 2 * CELL_SIZE, y: CELL_SIZE },
+        { x: CELL_SIZE, y: CELL_SIZE },
+      ],
+    });
+
+    const toward = engine.resolveAreaShift(
+      { type: 'moveArea', kind: 'toward', distance: 30 },
+      nearZone,
+      { recipient: createToken('caster', 0, 0), gridSettings: GRID },
+    );
+
+    assert.equal(toward.dx, -CELL_SIZE, 'ровно до фишки, не дальше');
+    assert.equal(Math.abs(toward.dy), 0);
+  });
+
+  // Пробелы: точку выбирает человек, а «При действии» клиентское; третьей
+  // координаты фишки ядро не отдаёт
+  it.todo('[Z18b] Переместить зону действием в выбранную точку');
+  it.todo('[Z20] Высота области');
+  it.todo('[Z21] Зона, в которую нельзя войти');
+  it.todo('[Z22] Зона не пропускает звук');
+  it.todo('[Z23] Вырезанные участки зоны');
 
   it.todo('[Z07b] Одноимённые зоны заклинаний не складываются (2024) — пробел');
 

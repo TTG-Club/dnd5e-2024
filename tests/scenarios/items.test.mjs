@@ -869,9 +869,66 @@ describe('каталог: оружие', () => {
     );
   });
 
-  it.todo(
-    '[W01b] Бонус урона только этим оружием, а не всеми рукопашными — пробел',
-  );
+  it('[W01b] Магическое оружие: бонус достаётся именно этому предмету', () => {
+    const enchantment = createEffect('Магическое оружие', {
+      changes: [
+        change('damage.weapon', '1d4@dmg.force'),
+        change('attack.weapon', '1'),
+      ],
+    });
+
+    authoredScenario(enchantment, 'weapon');
+
+    const hero = createActor({
+      equipment: [
+        wornItem('blade', [enchantment], { type: 'weapon' }),
+        wornItem('club', [], { type: 'weapon' }),
+      ],
+    });
+
+    const effects = engine.collectActiveEffects(hero);
+
+    const bonusOf = (itemId) =>
+      engine
+        .collectBonusDamageFormulas(effects, 'damage.melee', {
+          ...PLAIN_ROLL,
+          ...(itemId === undefined ? {} : { itemId }),
+        })
+        .map((formula) => formula.formula);
+
+    assert.deepEqual(
+      bonusOf('blade'),
+      ['1d4@dmg.force'],
+      'зачарованный клинок',
+    );
+
+    assert.deepEqual(bonusOf('club'), [], 'дубина осталась обычной');
+
+    assert.deepEqual(
+      bonusOf(undefined),
+      [],
+      'бросок не предметом такую строку не считает',
+    );
+
+    const attackBonus = (itemId) =>
+      engine.evaluateConditionalBonuses(effects, 'attack.melee', {
+        ...PLAIN_ROLL,
+        ...(itemId === undefined ? {} : { itemId }),
+      });
+
+    assert.equal(attackBonus('blade'), 1, 'прибавка к атаке — этому клинку');
+    assert.equal(attackBonus('club'), 0);
+
+    assert.equal(
+      engine.resolveActorStats(hero).attackBonuses.melee,
+      engine.resolveActorStats(createActor()).attackBonuses.melee,
+      'на листе такая строка не считается: каким предметом бьют, лист не знает',
+    );
+  });
+
+  // Пробел: объект должен быть виден на сцене и пережить перезагрузку мира —
+  // это хозяйство хоста, а не системы
+  it.todo('[W09] Призванный объект как центр области');
 
   it('[W02] Приём «Опрокидывание»: спасбросок Телосложения Сл оружия или «Лежащий ничком»', () => {
     const topple = engine.applyConditionPresetToEffect(

@@ -50,6 +50,7 @@
     DICE_ROLL_LOG_PREFIX,
     SPELL_DAMAGE_ROLL_BUTTON,
     SPELL_LEVEL_SUFFIX,
+    WILLING_SAVE_TOTAL,
   } from './constants';
 
   type RollVisibility = 'public' | 'gm' | 'private';
@@ -105,6 +106,12 @@
     /** Тип входящей атаки для расчёта условных бонусов к AC цели (melee/ranged/spell) */
     incomingAttackType?: IncomingAttackContext['attackType'];
     autoFail?: boolean;
+    /**
+     * Спасбросок можно не бросать: цель согласна. Кнопка есть у спасброска
+     * против эффекта, которому по правилам достаточно согласия цели
+     * («Согласная цель не совершает спасбросок»)
+     */
+    allowWilling?: boolean;
     /** Тип урона для расчета сопротивлений */
     damageType?: string;
     /** Сложность проверки/спасброска для вывода успеха или провала */
@@ -232,6 +239,7 @@
     skipChatMessage: false,
     skipRoll: false,
     targetDc: undefined,
+    allowWilling: false,
   });
 
   const emit = defineEmits<{
@@ -545,6 +553,7 @@
       ? dispatchAttackRollTriggers(props.attackerId, {
           projectile,
           rollMode: attackRollMode.value,
+          attackType: props.incomingAttackType,
         })
       : [];
   }
@@ -554,10 +563,19 @@
    * спасброском, уроном и действиями другой стороне.
    *
    * @param targetIds - цели броска
+   * @param landed - попал ли бросок; не задано — здесь это ещё неизвестно
    */
-  function finishAttackRoll(targetIds: readonly string[]): void {
+  function finishAttackRoll(
+    targetIds: readonly string[],
+    landed?: boolean,
+  ): void {
     if (props.attackerId) {
-      reportAttackRoll(props.attackerId, targetIds, attackRollMode.value);
+      reportAttackRoll(
+        props.attackerId,
+        targetIds,
+        attackRollMode.value,
+        landed,
+      );
     }
   }
 
@@ -702,12 +720,17 @@
       // --- Двухэтапная атака (D&D 5e) ---
       let damageTotal = 0;
       let attackTargetIds: string[] | null = null;
+      let attackLanded: boolean | undefined;
 
       if (attackTargetAc !== null) {
         // Расход одноразовых эффектов ДО броска (режим уже зафиксирован):
         // снятие должно опередить эмит урона по цели, без гонки снапшотов.
         attackTargetIds = announceAttackRoll(false);
-        damageTotal = performAttackRoll(attackTargetAc, bonusDiceFormulas);
+
+        const attack = performAttackRoll(attackTargetAc, bonusDiceFormulas);
+
+        damageTotal = attack.total;
+        attackLanded = attack.landed;
       } else {
         // Обычный бросок (лечение или без цели)
         damageTotal = performSimpleRoll(bonusDiceFormulas);
@@ -718,7 +741,7 @@
       }
 
       if (attackTargetIds) {
-        finishAttackRoll(attackTargetIds);
+        finishAttackRoll(attackTargetIds, attackLanded);
       }
     } catch (err) {
       console.error(DICE_ROLL_LOG_PREFIX, err);
@@ -734,6 +757,33 @@
       chatStore.isPrivateRoll = prevPrivate;
       chatStore.isGmOnlyRoll = prevGmOnly;
     }
+  }
+
+  /**
+   * Согласная цель: спасбросок не бросается и считается проваленным.
+   *
+   * По правилам согласие цели заменяет бросок целиком, поэтому здесь нет
+   * броска вовсе — в чат уходит строка о согласии, а ждущему результат
+   * отдаётся как провал с натуральной единицей.
+   */
+  function acceptWillingly(): void {
+    hasRolled = true;
+
+    if (!props.skipChatMessage) {
+      chatStore.sendMessage(
+        `${props.rollLabel}${DICE_ROLL_LABELS.outcomeWilling}`,
+        'text',
+      );
+    }
+
+    props.onCheckRoll?.({
+      total: WILLING_SAVE_TOTAL,
+      natural: WILLING_SAVE_TOTAL,
+      modifier: 0,
+      willing: true,
+    });
+
+    isOpen.value = false;
   }
 
   /**
@@ -762,11 +812,13 @@
    *
    * @param targetAc - класс доспеха цели
    * @param bonusDiceFormulas - бонусы, зафиксированные до расхода эффектов
+   * @returns урон броска и попал ли он: попадание уходит серверу вместе с
+   *   событием броска — по нему работают части условия «атака попала»
    */
   function performAttackRoll(
     targetAc: number,
     bonusDiceFormulas: readonly string[],
-  ): number {
+  ): { total: number; landed: boolean } {
     const attackMod =
       (props.attackModifier ?? 0)
       + bonusValue.value
@@ -848,7 +900,10 @@
       });
     }
 
-    return attackOutput.damageRoll?.total ?? 0;
+    return {
+      total: attackOutput.damageRoll?.total ?? 0,
+      landed: attackOutput.attackResult.isHit,
+    };
   }
 
   /**
@@ -1115,7 +1170,7 @@
 
     // На промахе урона нет
     if (!attackOutput.attackResult.isHit) {
-      finishAttackRoll(targetIds);
+      finishAttackRoll(targetIds, false);
 
       return;
     }
@@ -1126,7 +1181,7 @@
     // узнаёт о броске после урона
     void waitForAttackDisplay()
       .then(() => rollPartsSequentially(parts, isCrit))
-      .then(() => finishAttackRoll(targetIds));
+      .then(() => finishAttackRoll(targetIds, true));
   }
 </script>
 
@@ -1379,6 +1434,23 @@
             class="mr-2 h-5 w-5"
           />
           {{ effectiveRollButtonText }}
+        </UButton>
+
+        <!-- Согласная цель: спасбросок не бросается вовсе -->
+        <UButton
+          v-if="allowWilling"
+          color="neutral"
+          variant="soft"
+          size="md"
+          block
+          :title="DICE_ROLL_LABELS.willingHint"
+          @click.left.exact.prevent="acceptWillingly"
+        >
+          <UIcon
+            name="tabler:hand-stop"
+            class="mr-2 h-4 w-4"
+          />
+          {{ DICE_ROLL_LABELS.willing }}
         </UButton>
       </div>
     </template>

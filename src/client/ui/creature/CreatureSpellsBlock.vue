@@ -1599,7 +1599,7 @@
 
     const castKey = generateId(SPELL_CAST_KEY_PREFIX);
 
-    beginSpellCast(creature.id, spell, castKey);
+    beginSpellCast(creature.id, spell, castKey, placement?.ref.castLevel);
 
     const setup = buildCreatureSpellRollSetup({
       spell,

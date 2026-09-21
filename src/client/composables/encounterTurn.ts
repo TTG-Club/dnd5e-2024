@@ -35,3 +35,18 @@ export function isEntityInCombat(entityId: string): boolean {
     && encounter.entries.some((entry) => entry.actorId === entityId)
   );
 }
+
+/**
+ * Какой раунд идёт в бою — для правил по расписанию «на раунде N».
+ *
+ * Как и на сервере: номер есть только у активного и уже начатого боя.
+ *
+ * @returns номер раунда либо `undefined`, если боя нет
+ */
+export function resolveCombatRound(): number | undefined {
+  const encounter = useInitiativeStore().encounter;
+
+  return encounter?.isActive === true && encounter.currentTurnIndex >= 0
+    ? encounter.round
+    : undefined;
+}

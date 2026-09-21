@@ -3,6 +3,8 @@
   состояниям.
 -->
 <script setup lang="ts">
+  import type { WritableComputedRef } from 'vue';
+
   import type {
     ActiveEffect,
     ConditionRef,
@@ -39,6 +41,22 @@
   }>();
 
   const effect = defineModel<ActiveEffect>('effect', { required: true });
+
+  /**
+   * Сохранённый бросок: пустая строка стирает поле, а не пишет пустоту —
+   * иначе эффект уносил бы в мир настройку, которой автор не задавал
+   */
+  const savedRoll = computed({
+    get: () => effect.value.savedRoll ?? '',
+    set: (formula: string) => {
+      const trimmed = formula.trim();
+
+      effect.value = {
+        ...effect.value,
+        savedRoll: trimmed.length > 0 ? formula : undefined,
+      };
+    },
+  });
 
   /** Название состояния, которым считается эффект */
   const conditionName = computed(() =>
@@ -135,17 +153,31 @@
 
   // Список вычисляемый: кроме канона в него входят состояния, заведённые в
   // мире, — они появляются и исчезают, пока окно открыто
-  const conditionImmunityOptions = computed(buildConditionItems);
+  const conditionOptions = computed(buildConditionItems);
 
-  const conditionImmunities = computed({
-    get: () => effect.value.conditionImmunities ?? [],
-    set: (keys: ConditionRef[]) => {
-      effect.value = {
-        ...effect.value,
-        conditionImmunities: keys.length > 0 ? keys : undefined,
-      };
-    },
-  });
+  /**
+   * Модель необязательного списка состояний эффекта: пустой список в данных
+   * не пишется.
+   *
+   * @param field - поле эффекта со списком состояний
+   * @returns модель для выбора
+   */
+  function conditionListModel(
+    field: 'conditionImmunities' | 'suppressConditions',
+  ): WritableComputedRef<ConditionRef[]> {
+    return computed({
+      get: () => effect.value[field] ?? [],
+      set: (keys: ConditionRef[]) => {
+        effect.value = {
+          ...effect.value,
+          [field]: keys.length > 0 ? keys : undefined,
+        };
+      },
+    });
+  }
+
+  const conditionImmunities = conditionListModel('conditionImmunities');
+  const suppressConditions = conditionListModel('suppressConditions');
 
   /**
    * Перестаёт считать эффект состоянием: модификаторы и правила остаются, но
@@ -198,6 +230,18 @@
     </UFormField>
 
     <UFormField
+      :label="EFFECT_MODIFIERS_STEP_LABELS.savedRollTitle"
+      :help="EFFECT_MODIFIERS_STEP_LABELS.savedRollHint"
+    >
+      <UInput
+        v-model="savedRoll"
+        :placeholder="EFFECT_MODIFIERS_STEP_LABELS.savedRollPlaceholder"
+        size="sm"
+        class="w-full"
+      />
+    </UFormField>
+
+    <UFormField
       v-if="hasAdjacentAllyCondition"
       :label="EFFECT_MODIFIERS_STEP_LABELS.adjacentAllyTitle"
       :help="EFFECT_MODIFIERS_STEP_LABELS.adjacentAllyHint"
@@ -240,12 +284,33 @@
 
     <USelectMenu
       v-model="conditionImmunities"
-      :items="conditionImmunityOptions"
+      :items="conditionOptions"
       value-key="value"
       label-key="label"
       multiple
       class="w-full"
       :placeholder="EFFECT_MODIFIERS_STEP_LABELS.immunitiesPlaceholder"
+      :portal="false"
+    />
+
+    <div>
+      <span class="text-xs font-medium text-default">
+        {{ EFFECT_MODIFIERS_STEP_LABELS.suppressTitle }}
+      </span>
+
+      <p class="text-xs text-muted">
+        {{ EFFECT_MODIFIERS_STEP_LABELS.suppressHint }}
+      </p>
+    </div>
+
+    <USelectMenu
+      v-model="suppressConditions"
+      :items="conditionOptions"
+      value-key="value"
+      label-key="label"
+      multiple
+      class="w-full"
+      :placeholder="EFFECT_MODIFIERS_STEP_LABELS.suppressPlaceholder"
       :portal="false"
     />
   </div>

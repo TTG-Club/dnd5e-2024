@@ -30,11 +30,13 @@ import type {
   EffectTriggerAttackRole,
   EffectTriggerEvent,
 } from './effectTriggerTypes.js';
+import type { SceneOffset } from './forcedMovement.js';
 import type { TriggerEventData } from './triggerConditions.js';
 import type {
   EffectSaveSpec,
   EntryEffectOptions,
   EntryEffectResult,
+  SceneMoveOptions,
   TurnDamageOutcome,
   TurnHealingOutcome,
   TurnSaveOutcome,
@@ -62,20 +64,24 @@ import {
   buildTriggerSources,
   EFFECT_TRIGGER_SOURCE_KINDS,
   listAttackRollSources,
+  rollTriggerSave,
   settleTriggerOutcome,
   toTriggerSaveOutcome,
+  triggerSaveNeedsRoll,
 } from './effectTriggerRunner.js';
 import { listEffectEventTriggers } from './effectTriggers.js';
 import {
   CHOICE_TRIGGER_RECIPIENT,
   DEFAULT_TRIGGER_RECIPIENT,
+  MAX_TRIGGER_PATH_REPEATS,
+  SOURCE_TRIGGER_RECIPIENT,
 } from './effectTriggerTypes.js';
 import { resolveEntityCurrentHp } from './hitPoints.js';
 import { listChoiceCandidates } from './triggerChoice.js';
-import { rollEffectSaveOutcome } from './turnEffects.js';
+import { withCombatRound } from './triggerConditions.js';
 
 /** С чем прогоняются срабатывания событий с другой стороной */
-export interface TriggerEventOptions {
+export interface TriggerEventOptions extends SceneMoveOptions {
   /** Запрос броска от ядра: спасбросок сущности без авто-спасбросков — игроку */
   requestRoll?: ServerRollRequester;
   /** Ауры чужих токенов, накрывающие субъекта */
@@ -84,6 +90,8 @@ export interface TriggerEventOptions {
   inCombat?: boolean;
   /** Чей сейчас ход: срок наложенного */
   activeTurnActorId?: string | null;
+  /** Номер идущего раунда: расписание «на раунде N» (ядро, VTTG 0.9.533+) */
+  combatRound?: number;
   /** Живая сущность мира по id: другая сторона — кто нанёс урон */
   getEntity?: (entityId: string) => DnDSceneEntity | undefined;
   /** Закончить каст эффекта: провал концентрации */
@@ -113,6 +121,8 @@ export interface DamageEventsEntityOutcome {
   damageOutcomes: TurnDamageOutcome[];
   healingOutcomes: TurnHealingOutcome[];
   saveOutcomes: TurnSaveOutcome[];
+  /** Строки «сообщить» от эффектов этой стороны */
+  notes: string[];
 }
 
 /** Итог событий урона */
@@ -126,6 +136,8 @@ export interface DamageEventsResult {
   deferred: EngineDeferredTrigger[];
   /** Другие стороны, которым достались действия («урон тому, кто ударил») */
   related: DamageEventsEntityOutcome[];
+  /** Строки сводки от действий «сообщить» и перехода на следующую ступень */
+  notes: string[];
 }
 
 /**
@@ -141,6 +153,7 @@ function createDamageEventsResult(): DamageEventsResult {
     saveOutcomes: [],
     deferred: [],
     related: [],
+    notes: [],
   };
 }
 
@@ -260,6 +273,7 @@ function relatedOutcomeOf(
     damageOutcomes: [],
     healingOutcomes: [],
     saveOutcomes: [],
+    notes: [],
   };
 
   result.related.push(created);
@@ -292,7 +306,7 @@ function withContinuation(
     damageOutcomes: [...outcome.damageOutcomes, ...continued.damageOutcomes],
     healingOutcomes: [...outcome.healingOutcomes, ...continued.healingOutcomes],
     saveOutcomes: [...outcome.saveOutcomes, ...continued.saveOutcomes],
-    notes: outcome.notes,
+    notes: [...outcome.notes, ...continued.notes],
     deferred: [...(outcome.deferred ?? []), ...continued.deferred],
   };
 }
@@ -364,20 +378,39 @@ type TriggerEventRun = 'skipped' | 'settled' | 'deferred';
  * Получатели действий срабатывания события.
  *
  * @param subject - субъект
- * @param trigger - срабатывание
+ * @param source - срабатывание с эффектом: у него спрашивают наложившего
  * @param eventData - данные события
  * @param options - с чем прогоняются события
  * @returns получатели; пусто — действовать не на кого
  */
 function resolveTriggerRecipients(
   subject: DnDSceneEntity,
-  trigger: EffectTrigger,
+  source: EffectTriggerSource,
   eventData: TriggerEventData,
   options: TriggerEventOptions,
 ): DnDSceneEntity[] {
+  const trigger = source.trigger;
+
   switch (trigger.recipient ?? DEFAULT_TRIGGER_RECIPIENT) {
     case 'other':
       return eventData.other ? [eventData.other] : [];
+    // Наложивший: у эффекта из компендиума его нет, и срабатывание молчит —
+    // бить носителя вместо неизвестного наложившего было бы хуже, чем ничего
+    case SOURCE_TRIGGER_RECIPIENT: {
+      const sourceId = source.effect.sourceActorId;
+
+      if (!sourceId) {
+        return [];
+      }
+
+      if (sourceId === subject.id) {
+        return [subject];
+      }
+
+      const found = options.getEntity?.(sourceId);
+
+      return found ? [found] : [];
+    }
     case 'area':
       return trigger.area
         ? (options.listEntitiesInArea?.(subject, trigger.area) ?? [])
@@ -399,7 +432,7 @@ function resolveTriggerRecipients(
  *
  * @param subject - субъект: на нём эффект
  * @param source - срабатывание с источником
- * @param eventData - данные события: урон, бросок, другая сторона
+ * @param rawEventData - данные события: урон, бросок, другая сторона
  * @param options - с чем прогоняются события
  * @param result - общий итог (пополняется)
  * @param continuation - что делать после ответа игрока
@@ -408,14 +441,17 @@ function resolveTriggerRecipients(
 function runTriggerEventSource(
   subject: DnDSceneEntity,
   source: EffectTriggerSource,
-  eventData: TriggerEventData,
+  rawEventData: TriggerEventData,
   options: TriggerEventOptions,
   result: DamageEventsResult,
   continuation?: DamageEventsContinuation,
 ): TriggerEventRun {
+  // Раунд — общий на всю серию: его знает ядро, а не построитель события
+  const eventData = withCombatRound(rawEventData, options.combatRound);
+
   const recipients = resolveTriggerRecipients(
     subject,
-    source.trigger,
+    source,
     eventData,
     options,
   );
@@ -523,6 +559,11 @@ function settleTriggerForRecipient(
     activeTurnActorId: options.activeTurnActorId,
     endCast: options.endCast,
     eventDamage: eventData.damage?.amount,
+    surroundings: options.surroundings,
+    moveToken: options.moveToken,
+    moveArea: options.moveArea,
+    movementOffset: eventData.movement?.offset,
+    collectNote: (note) => result.notes.push(note),
   };
 
   const spec = buildTriggerSaveSpec(source.effect, source.trigger, {
@@ -530,7 +571,12 @@ function settleTriggerForRecipient(
     eventData,
   });
 
-  if (spec && shouldRequestEffectSave(recipient, requestRoll)) {
+  // Автоматический исход спрашивать не нужно — бросать нечего
+  if (
+    spec
+    && triggerSaveNeedsRoll(source.trigger, recipient, eventData)
+    && shouldRequestEffectSave(recipient, requestRoll)
+  ) {
     result.deferred.push(
       requestDamageEventSave(
         recipient,
@@ -547,10 +593,7 @@ function settleTriggerForRecipient(
   }
 
   const save = spec
-    ? toTriggerSaveOutcome(
-        source.trigger,
-        rollEffectSaveOutcome(recipient, spec, ambientEffects),
-      )
+    ? rollTriggerSave(recipient, source, ambientEffects, eventData)
     : null;
 
   recordSettled(
@@ -790,6 +833,11 @@ export interface AttackRollEventOptions extends TriggerEventOptions {
   other?: DnDSceneEntity;
   /** Режим броска атаки */
   roll: TriggerEventData['roll'];
+  /**
+   * Попал ли бросок. Не задано — к моменту события это ещё неизвестно (серия
+   * снарядов), и части условия «попала» / «промахнулась» не выполняются обе
+   */
+  landed?: boolean;
 }
 
 /**
@@ -805,6 +853,25 @@ export function hasServerAttackRollTriggers(
   role: EffectTriggerAttackRole,
 ): boolean {
   return listAttackRollSources(entity, role, 'server').length > 0;
+}
+
+/**
+ * Срабатывания события на эффектах самой сущности: у событий лечения,
+ * перемещения, снятия состояния и «свалил цель» других источников нет.
+ *
+ * @param entity - сущность
+ * @param event - событие
+ * @returns срабатывания с источником
+ */
+function listOwnEventSources(
+  entity: DnDSceneEntity,
+  event: EffectTriggerEvent,
+): EffectTriggerSource[] {
+  return buildTriggerSources(
+    listLiveEffects(entity),
+    EFFECT_TRIGGER_SOURCE_KINDS.instance,
+    (effect) => listEffectEventTriggers(effect, event),
+  );
 }
 
 /**
@@ -826,11 +893,216 @@ export function settleAttackRollTriggers(
   const eventData: TriggerEventData = {
     other: options.other,
     roll: options.roll,
+    ...(options.landed === undefined
+      ? {}
+      : { attack: { kinds: [], landed: options.landed } }),
   };
 
   for (const source of listAttackRollSources(subject, role, 'server')) {
     runTriggerEventSource(subject, source, eventData, options, result);
   }
+
+  return result;
+}
+
+/**
+ * «Носителя вылечили»: срабатывания на подъём хитов. Число восстановленных
+ * хитов идёт в `@damage` — переменную события; отдельной ей не заводится, у
+ * этого события величина одна, и путать её не с чем.
+ *
+ * Временные хиты подъёмом не считаются: правила отделяют их от лечения, и
+ * «когда тебя вылечили» на щит из временных хитов не срабатывает.
+ *
+ * @param subject - субъект с записанным снимком (мутируется)
+ * @param healed - на сколько поднялись хиты; не больше нуля — событие молчит
+ * @param options - с чем прогоняются события
+ * @returns итог
+ */
+export function settleHealingEvents(
+  subject: DnDSceneEntity,
+  healed: number,
+  options: TriggerEventOptions,
+): DamageEventsResult {
+  const result = createDamageEventsResult();
+
+  if (healed <= 0) {
+    return result;
+  }
+
+  const sources = listOwnEventSources(subject, 'healed');
+
+  for (const source of sources) {
+    runTriggerEventSource(
+      subject,
+      source,
+      { damage: { amount: healed, types: [], critical: false } },
+      options,
+      result,
+    );
+  }
+
+  return result;
+}
+
+/** Перемещение носителя, как его увидело ядро */
+export interface MovementEventData {
+  /** Длина пройденного пути в футах */
+  distance: number;
+  /** Фишку переставили правила (толчок, притягивание), а не носитель */
+  forced: boolean;
+  /** Смещение фишки за перемещение, px: по нему зона идёт за носителем */
+  offset?: SceneOffset;
+}
+
+/**
+ * «Носитель прошёл путь»: срабатывания на перемещение носителя. Без шага —
+ * одно за перемещение; с шагом `everyFeet` — за каждые столько футов пути.
+ *
+ * Остаток короче шага на следующее перемещение не переносится: три отдельных
+ * шага по 5 футов при шаге 10 не дают ни одного срабатывания. Лимит «не чаще
+ * N раз» режет серию как обычно: «раз в ход» схлопывает её в одно
+ * срабатывание. Повторов не больше {@link MAX_TRIGGER_PATH_REPEATS}.
+ *
+ * @param subject - кто шёл (мутируется)
+ * @param movement - длина пути и кто двигал
+ * @param options - с чем прогоняются события
+ * @returns итог
+ */
+export function settleMovementEvents(
+  subject: DnDSceneEntity,
+  movement: MovementEventData,
+  options: TriggerEventOptions,
+): DamageEventsResult {
+  const result = createDamageEventsResult();
+
+  if (!(movement.distance > 0)) {
+    return result;
+  }
+
+  const sources = listOwnEventSources(subject, 'moved');
+
+  for (const source of sources) {
+    const step = source.trigger.everyFeet;
+
+    const repeats =
+      step === undefined
+        ? 1
+        : Math.min(
+            Math.floor(movement.distance / step),
+            MAX_TRIGGER_PATH_REPEATS,
+          );
+
+    for (let repeat = 0; repeat < repeats; repeat++) {
+      runTriggerEventSource(
+        subject,
+        source,
+        {
+          movement: {
+            forced: movement.forced,
+            ...(movement.offset ? { offset: movement.offset } : {}),
+          },
+        },
+        options,
+        result,
+      );
+    }
+  }
+
+  return result;
+}
+
+/**
+ * «Состояние снялось»: срабатывания на уход состояния с носителя. Снятие видно
+ * по исчезнувшим эффектам снимка — какое именно состояние ушло, несёт условие
+ * `self.conditionLost === "…"`.
+ *
+ * @param subject - субъект с записанным снимком (мутируется)
+ * @param lostConditions - ключи снятых состояний
+ * @param options - с чем прогоняются события
+ * @returns итог
+ */
+export function settleConditionLostEvents(
+  subject: DnDSceneEntity,
+  lostConditions: readonly string[],
+  options: TriggerEventOptions,
+): DamageEventsResult {
+  const result = createDamageEventsResult();
+
+  if (lostConditions.length === 0) {
+    return result;
+  }
+
+  const sources = listOwnEventSources(subject, 'conditionLost');
+
+  for (const source of sources) {
+    // Срабатывание с ключом состояния слушает только своё: «когда спадёт
+    // Опутанность». Без ключа — любое снятое состояние
+    const wanted = source.trigger.conditionKey;
+
+    if (wanted !== undefined && !lostConditions.includes(wanted)) {
+      continue;
+    }
+
+    runTriggerEventSource(subject, source, { lostConditions }, options, result);
+  }
+
+  return result;
+}
+
+/**
+ * «Носитель свалил цель»: срабатывания того, чей урон обнулил хиты. Событие
+ * идёт на ЕГО эффектах, а поверженный — другая сторона: условия о типе и хитах
+ * читают его.
+ *
+ * Свалившего ищет ядро по id (`getEntity`): старое ядро сущностей не отдаёт —
+ * тогда событие молчит, а не бьёт поверженного вместо него.
+ *
+ * @param downed - поверженный
+ * @param hits - удары снимка: по последнему видно, чей урон добил
+ * @param options - с чем прогоняются события
+ * @returns итог и сваливший, если его изменило срабатывание
+ */
+export function settleDownedOtherEvents(
+  downed: DnDSceneEntity,
+  hits: readonly DamageHit[],
+  options: TriggerEventOptions,
+): DamageEventsResult {
+  const result = createDamageEventsResult();
+
+  const sourceId = mergeLandingHits(hits)?.sourceId;
+  const slayer = sourceId ? options.getEntity?.(sourceId) : undefined;
+
+  if (!slayer || slayer.id === downed.id) {
+    return result;
+  }
+
+  const sources = listOwnEventSources(slayer, 'downedOther');
+
+  if (sources.length === 0) {
+    return result;
+  }
+
+  // Срабатывания идут на свалившем: он субъект своих эффектов
+  const own = createDamageEventsResult();
+
+  for (const source of sources) {
+    runTriggerEventSource(slayer, source, { other: downed }, options, own);
+  }
+
+  // ...но снимок пишет ПОВЕРЖЕННЫЙ, и правки свалившего уедут в мир, только
+  // если положить их «другой стороной». Иначе они останутся в памяти сервера
+  const outcome = relatedOutcomeOf(result, slayer);
+
+  outcome.changed ||= own.changed;
+  outcome.damageOutcomes.push(...own.damageOutcomes);
+  outcome.healingOutcomes.push(...own.healingOutcomes);
+  outcome.saveOutcomes.push(...own.saveOutcomes);
+
+  // Строки «сообщить» — эффектов свалившего: в его сводку, а не поверженного
+  outcome.notes.push(...own.notes);
+
+  result.related.push(...own.related);
+  result.deferred.push(...own.deferred);
 
   return result;
 }

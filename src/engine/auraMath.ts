@@ -37,7 +37,10 @@ import {
   resolveChangeValue,
 } from './effectPipeline.js';
 import { hasPresenceTriggers } from './effectTriggers.js';
-import { DEFAULT_TRIGGER_AREA_TARGET } from './effectTriggerTypes.js';
+import {
+  areaTargetIncludesSelf,
+  areaTargetRelation,
+} from './effectTriggerTypes.js';
 import { isDndSceneEntity } from './entityGuards.js';
 import { buildFormulaContext } from './formulaParser.js';
 import {
@@ -360,9 +363,15 @@ export function findEntitiesInArea(
     return [];
   }
 
-  const target = area.target ?? DEFAULT_TRIGGER_AREA_TARGET;
+  const target = areaTargetRelation(area.target);
   const found = new Map<string, DnDSceneEntity>();
   const subjectToken = withTokenDisposition(surroundings.token, subject);
+
+  // «И носитель тоже»: соседей ядро отдаёт без субъекта, и добавить его может
+  // только система — она одна знает, кто субъект
+  if (subject && areaTargetIncludesSelf(area.target)) {
+    found.set(subject.id, subject);
+  }
 
   for (const neighbor of surroundings.neighbors) {
     const { entity, token } = neighbor;

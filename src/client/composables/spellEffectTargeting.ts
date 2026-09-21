@@ -22,7 +22,7 @@ import {
   SPELL_EFFECT_TARGET_MODE,
   SPELL_TARGETS_MODAL_KEY_PREFIX,
 } from '../ui/actor/constants';
-import { resolveSpellCastId } from './spellCasts';
+import { resolveSpellCastId, resolveSpellCastLevel } from './spellCasts';
 import {
   getTargetSpellEffects,
   postSpellEffectsMessage,
@@ -362,6 +362,7 @@ export function requestSpellEffectTargets(
             carrierId: entity.id,
             sourceId: casterId,
             castId: resolveSpellCastId(casterId, spell),
+            castLevel: resolveSpellCastLevel(casterId, spell),
           }),
         );
 
@@ -488,6 +489,7 @@ export function applySpellTargetEffects(
         carrierId: target.id,
         sourceId: source.casterId,
         castId: resolveSpellCastId(source.casterId, spell),
+        castLevel: resolveSpellCastLevel(source.casterId, spell),
       }),
     ),
     'spell',

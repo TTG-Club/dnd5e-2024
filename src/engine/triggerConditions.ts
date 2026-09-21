@@ -10,13 +10,17 @@
  * молчит, а не бьёт всегда.
  */
 
+import type { AbilityType } from '@vtt/shared';
+
 import type { ActiveEffect } from './activeEffectTypes.js';
+import type { AttackFlagCategory } from './attackUtils.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type { RollContext } from './effectPipeline.js';
 import type {
   EffectTrigger,
   EffectTriggerEvent,
 } from './effectTriggerTypes.js';
+import type { SceneOffset } from './forcedMovement.js';
 
 import {
   CARRIER_TYPE_CONDITION_PREFIX,
@@ -28,6 +32,7 @@ import {
 import { INCAPACITATED_CONDITION_KEY } from './conditionKeys.js';
 import {
   CREATURE_SIZES,
+  isAbilityType,
   isCreatureCategory,
   isCreatureSize,
   normalizeCreatureSize,
@@ -39,14 +44,24 @@ import {
   evaluateConditionPart,
   listEntityMarkSources,
   MARKED_BY_SELF_CONDITION,
+  resolveActorStats,
   targetHpGateMatches,
 } from './effectPipeline.js';
 import {
+  ATTACK_DATA_TRIGGER_EVENTS,
+  COMBAT_ROUND_TRIGGER_EVENTS,
   DAMAGE_DATA_TRIGGER_EVENTS,
   isEffectTag,
+  MOVEMENT_TRIGGER_EVENTS,
   OTHER_PARTY_TRIGGER_EVENTS,
+  OWN_DEED_TRIGGER_EVENTS,
 } from './effectTriggerTypes.js';
-import { resolveEntityCurrentHp, resolveEntityMaxHp } from './hitPoints.js';
+import { isDndActor } from './entityGuards.js';
+import {
+  resolveEntityCurrentHp,
+  resolveEntityMaxHp,
+  resolveEntityTempHp,
+} from './hitPoints.js';
 
 /** Урон, от которого сработало событие */
 export interface TriggerDamageData {
@@ -56,6 +71,63 @@ export interface TriggerDamageData {
   types: readonly string[];
   /** Критическое попадание */
   critical: boolean;
+}
+
+/** Чем бьют: вид атаки, от которого зависят части условия */
+export const TRIGGER_ATTACK_KINDS = [
+  'melee',
+  'ranged',
+  'weapon',
+  'spell',
+  'unarmed',
+] as const;
+
+/** Вид атаки события */
+export type TriggerAttackKind = (typeof TRIGGER_ATTACK_KINDS)[number];
+
+/** Виды атаки строками — для сверки со значением части условия */
+const ATTACK_KIND_VALUES: readonly string[] = TRIGGER_ATTACK_KINDS;
+
+/**
+ * Вид ли атаки эта строка.
+ *
+ * @param value - строка из условия или данных
+ * @returns `true`, если это известный вид атаки
+ */
+export function isTriggerAttackKind(value: string): value is TriggerAttackKind {
+  return ATTACK_KIND_VALUES.includes(value);
+}
+
+/** Атаки в событии нет: сверять не с чем */
+const EMPTY_ATTACK_KINDS: readonly string[] = [];
+
+/**
+ * Виды атаки по её типу из нейтрального контекста ядра.
+ *
+ * Ядро различает рукопашную, дальнобойную и заклинание. «Оружием» и
+ * «безоружная» отсюда не выводятся — их принесёт событие «атака попала»
+ * (`docs/EFFECT_SCENARIOS.md`, раздел «Пробелы»).
+ *
+ * @param attackType - тип атаки из контекста ядра
+ * @returns виды атаки для условия
+ */
+export function toTriggerAttackKinds(
+  attackType: AttackFlagCategory,
+): TriggerAttackKind[] {
+  return attackType === 'spell' ? ['spell'] : [attackType, 'weapon'];
+}
+
+/** Атака, от которой сработало событие */
+export interface TriggerAttackData {
+  /**
+   * Попал ли бросок. Не задано — неизвестно, и части «попал» / «промахнулся»
+   * не выполняются обе
+   */
+  landed?: boolean;
+  /** Вид атаки: рукопашная, дальнобойная, оружием, заклинанием, безоружная */
+  kinds: readonly TriggerAttackKind[];
+  /** Характеристика, которой считается атака */
+  ability?: AbilityType;
 }
 
 /** Что известно о событии срабатывания */
@@ -70,6 +142,29 @@ export interface TriggerEventData {
   sourceId?: string;
   /** Наложение ударом оружия: атакующий владеет его приёмом */
   weaponMastery?: boolean;
+  /** Ключи состояний, снятых этим снимком — у события «состояние снялось» */
+  lostConditions?: readonly string[];
+  /** Вид атаки и её характеристика — у событий с атакой */
+  attack?: TriggerAttackData;
+  /**
+   * Далеко ли наложивший эффект: проверка «в пределах N футов». Сцену знает
+   * только инициатор, поэтому проверку он и передаёт. Нет поля — расстояние
+   * неизвестно, и часть условия о нём НЕ выполняется.
+   */
+  isSourceWithin?: (feet: number) => boolean;
+  /**
+   * Номер идущего раунда боя. Его знает только ядро (`getCombatRound`), и не
+   * на всяком пути: у клиентского «При действии» его нет. Нет поля — раунд
+   * неизвестен, и части расписания НЕ выполняются.
+   */
+  combatRound?: number;
+  /** Перемещение носителя — у события «прошёл N футов» */
+  movement?: {
+    /** Фишку переставили правила (толчок, притягивание), а не носитель */
+    forced: boolean;
+    /** Смещение фишки за перемещение, px */
+    offset?: SceneOffset;
+  };
 }
 
 /** Виды частей условия срабатывания */
@@ -97,6 +192,24 @@ export const TRIGGER_CONDITION_KINDS = [
   'selfTagFromSource',
   'selfTagFromSourceNot',
   'sourceWeaponMastery',
+  'selfTempHpZero',
+  'selfGrounded',
+  'selfSpecies',
+  'selfAbilityAtMost',
+  'selfAbilityAtLeast',
+  'otherIsSource',
+  'otherBloodied',
+  'otherHpAtMost',
+  'damageAtLeast',
+  'sourceWithin',
+  'attackKind',
+  'attackAbility',
+  'attackLanded',
+  'attackMissed',
+  'combatRoundIs',
+  'combatRoundAtLeast',
+  'movementOwn',
+  'movementForced',
 ] as const;
 
 /**
@@ -116,13 +229,37 @@ export const TRIGGER_CONDITION_KINDS = [
  * - `selfTagFromSource` / `selfTagFromSourceNot` — есть / нет отметки,
  *   поставленной тем же, кто наложил эффект («невосприимчив к этому источнику»);
  * - `sourceWeaponMastery` — наложение ударом оружия, приёмом которого атакующий
- *   владеет.
+ *   владеет;
+ * - `selfTempHpZero` — у носителя нет временных хитов;
+ * - `selfGrounded` — носитель стоит на земле (не летит);
+ * - `selfSpecies` — вид носителя по названию записи;
+ * - `selfAbilityAtMost` / `selfAbilityAtLeast` — характеристика носителя не
+ *   больше / не меньше N;
+ * - `otherIsSource` — другая сторона и есть тот, кто наложил эффект;
+ * - `otherBloodied` — у другой стороны не больше половины хитов;
+ * - `otherHpAtMost` — у другой стороны не больше N хитов;
+ * - `damageAtLeast` — урон события не меньше N;
+ * - `sourceWithin` — наложивший эффект в пределах N футов;
+ * - `attackKind` — вид атаки события;
+ * - `attackAbility` — атака считается этой характеристикой;
+ * - `combatRoundIs` / `combatRoundAtLeast` — идёт раунд боя N / раунд не
+ *   раньше N (расписание «на втором раунде», «с третьего раунда»);
+ * - `movementOwn` / `movementForced` — носитель шёл сам / его переставили
+ *   правила (толчок, притягивание, телепортация).
  */
 export type TriggerConditionKind = (typeof TRIGGER_CONDITION_KINDS)[number];
 
 /** Какое значение выбирается у части условия */
 export type TriggerConditionParameter =
-  'damageType' | 'creatureType' | 'tag' | 'number' | 'size' | 'condition';
+  | 'damageType'
+  | 'creatureType'
+  | 'tag'
+  | 'number'
+  | 'size'
+  | 'condition'
+  | 'ability'
+  | 'attackKind'
+  | 'text';
 
 /** Часть условия срабатывания: вид и значение, если оно есть */
 export interface TriggerConditionPart {
@@ -131,6 +268,15 @@ export interface TriggerConditionPart {
   /** Порог счётчика отметок (`selfTagCountAtLeast`) */
   amount?: number;
 }
+
+/**
+ * События, где известна другая сторона: противник в атаке, источник урона и
+ * тот, кого носитель свалил, — условия о ней читают `eventData.other`.
+ */
+const OTHER_CONDITION_EVENTS: readonly EffectTriggerEvent[] = [
+  ...OTHER_PARTY_TRIGGER_EVENTS,
+  ...OWN_DEED_TRIGGER_EVENTS,
+];
 
 /**
  * На каких событиях часть условия что-то значит; `undefined` — на любых. На
@@ -151,7 +297,7 @@ const KIND_EVENTS: Record<
   selfTagNot: undefined,
   rollAdvantage: ['attackRoll'],
   rollDisadvantage: ['attackRoll'],
-  otherCreatureType: OTHER_PARTY_TRIGGER_EVENTS,
+  otherCreatureType: OTHER_CONDITION_EVENTS,
   otherMarkedBySelf: ['attackRoll'],
   selfHpAtMost: undefined,
   selfHpAtLeast: undefined,
@@ -163,6 +309,24 @@ const KIND_EVENTS: Record<
   selfTagFromSource: undefined,
   selfTagFromSourceNot: undefined,
   sourceWeaponMastery: ['applied'],
+  selfTempHpZero: undefined,
+  selfGrounded: undefined,
+  selfSpecies: undefined,
+  selfAbilityAtMost: undefined,
+  selfAbilityAtLeast: undefined,
+  otherIsSource: OTHER_CONDITION_EVENTS,
+  otherBloodied: OTHER_CONDITION_EVENTS,
+  otherHpAtMost: OTHER_CONDITION_EVENTS,
+  damageAtLeast: DAMAGE_DATA_TRIGGER_EVENTS,
+  sourceWithin: undefined,
+  attackKind: ATTACK_DATA_TRIGGER_EVENTS,
+  attackAbility: ATTACK_DATA_TRIGGER_EVENTS,
+  attackLanded: ATTACK_DATA_TRIGGER_EVENTS,
+  attackMissed: ATTACK_DATA_TRIGGER_EVENTS,
+  combatRoundIs: COMBAT_ROUND_TRIGGER_EVENTS,
+  combatRoundAtLeast: COMBAT_ROUND_TRIGGER_EVENTS,
+  movementOwn: MOVEMENT_TRIGGER_EVENTS,
+  movementForced: MOVEMENT_TRIGGER_EVENTS,
 };
 
 /** Части условия со значением: приставка строки и что выбирается */
@@ -196,6 +360,16 @@ const PARAMETRIC_PARTS: Partial<
     prefix: 'self.tagFromSource !== ',
     parameter: 'tag',
   },
+  selfSpecies: { prefix: 'self.species === ', parameter: 'text' },
+  otherHpAtMost: { prefix: 'target.hp.value <= ', parameter: 'number' },
+  damageAtLeast: { prefix: 'damage.amount >= ', parameter: 'number' },
+  sourceWithin: { prefix: 'source.distance <= ', parameter: 'number' },
+  attackKind: { prefix: 'attack.kind === ', parameter: 'attackKind' },
+  attackAbility: { prefix: 'attack.ability === ', parameter: 'ability' },
+  selfAbilityAtMost: { prefix: 'self.ability[', parameter: 'ability' },
+  selfAbilityAtLeast: { prefix: 'self.ability[', parameter: 'ability' },
+  combatRoundIs: { prefix: 'combat.round === ', parameter: 'number' },
+  combatRoundAtLeast: { prefix: 'combat.round >= ', parameter: 'number' },
 };
 
 /**
@@ -203,6 +377,22 @@ const PARAMETRIC_PARTS: Partial<
  * скобках — в ключе отметки бывает точка, и через точку его не прочитать.
  */
 const TAG_COUNT_PATTERN = /^self\.tagCount\["([^"]+)"\] >= (\d+)$/u;
+
+/**
+ * Характеристика носителя строкой: `self.ability["strength"] >= 13`. Как у
+ * счётчика отметок, у части два значения — какая характеристика и порог.
+ */
+const ABILITY_PATTERN = /^self\.ability\["(\w+)"\] (<=|>=) (\d+)$/u;
+
+/** Части условия с порогом: у них два значения, а не одно */
+const PARTS_WITH_AMOUNT: readonly TriggerConditionKind[] = [
+  'selfTagCountAtLeast',
+  'selfAbilityAtMost',
+  'selfAbilityAtLeast',
+];
+
+/** Порог характеристики, пока автор не задал свой */
+export const DEFAULT_ABILITY_THRESHOLD = 10;
 
 /** Порог счётчика отметок, пока автор не задал свой */
 export const DEFAULT_TAG_COUNT_THRESHOLD = 3;
@@ -217,7 +407,7 @@ export const MIN_TAG_COUNT_THRESHOLD = 1;
  * @returns `true` для части с порогом
  */
 export function triggerConditionHasAmount(kind: TriggerConditionKind): boolean {
-  return kind === 'selfTagCountAtLeast';
+  return PARTS_WITH_AMOUNT.includes(kind);
 }
 
 /**
@@ -238,6 +428,9 @@ export function normalizeTagCountThreshold(
 /** Самый большой порог числа в условии: хиты и счётчики */
 const MAX_CONDITION_NUMBER = 100_000;
 
+/** Самая длинная свободная строка в условии: название вида */
+const MAX_CONDITION_TEXT = 100;
+
 /** Части условия без значения — строкой целиком */
 const FIXED_PARTS: Partial<Record<TriggerConditionKind, string>> = {
   damageCritical: 'damage.isCritical === true',
@@ -248,6 +441,14 @@ const FIXED_PARTS: Partial<Record<TriggerConditionKind, string>> = {
   rollDisadvantage: 'roll.hasDisadvantage === true',
   otherMarkedBySelf: MARKED_BY_SELF_CONDITION,
   sourceWeaponMastery: 'source.weaponMastery === true',
+  selfTempHpZero: 'self.hp.temp === 0',
+  selfGrounded: 'self.grounded === true',
+  otherIsSource: 'target.isSource === true',
+  otherBloodied: 'target.hp.value <= (target.hp.max / 2)',
+  attackLanded: 'attack.landed === true',
+  attackMissed: 'attack.landed === false',
+  movementOwn: 'move.forced === false',
+  movementForced: 'move.forced === true',
 };
 
 /** Кавычки вокруг значения в строке условия */
@@ -288,6 +489,12 @@ function isParameterValue(
       return isConditionNumber(value);
     case 'size':
       return isCreatureSize(value);
+    case 'ability':
+      return isAbilityType(value);
+    case 'attackKind':
+      return isTriggerAttackKind(value);
+    case 'text':
+      return value.trim().length > 0 && value.length <= MAX_CONDITION_TEXT;
     default:
       // Ключ состояния мира и ключ отметки — одного вида: буквы, цифры, «_.-»
       return isEffectTag(value);
@@ -368,6 +575,62 @@ export function hasEntityCondition(
 }
 
 /**
+ * Значение характеристики носителя со всеми эффектами.
+ *
+ * @param entity - сущность
+ * @param ability - ключ характеристики
+ * @returns значение либо 0, если ключ чужой
+ */
+function resolveEntityAbilityScore(
+  entity: DnDSceneEntity,
+  ability: string,
+): number {
+  return isAbilityType(ability)
+    ? resolveActorStats(entity).abilities[ability]
+    : 0;
+}
+
+/**
+ * Стоит ли существо на земле.
+ *
+ * Отдельного признака полёта у сущности нет: летит то, у чего есть скорость
+ * полёта. Это приближение — существо со скоростью полёта может стоять на
+ * земле, — и оно записано в каталоге.
+ *
+ * @param entity - сущность
+ * @returns `true`, если существо не летает
+ */
+function isEntityGrounded(entity: DnDSceneEntity): boolean {
+  return resolveActorStats(entity).movement.fly <= 0;
+}
+
+/**
+ * Совпадает ли вид существа с названием или ключом. Сравнение без учёта
+ * регистра и крайних пробелов: вид пишется от руки, а в записи он лежит и
+ * ключом, и названием.
+ *
+ * @param entity - сущность
+ * @param species - название или ключ вида
+ * @returns `true`, если вид совпал
+ */
+function matchesEntitySpecies(
+  entity: DnDSceneEntity,
+  species: string,
+): boolean {
+  // Вид есть только у персонажа: у существа его роль играет статблок
+  if (!isDndActor(entity)) {
+    return false;
+  }
+
+  const own = entity.system.species;
+  const wanted = species.trim().toLowerCase();
+
+  return [own?.speciesKey, own?.speciesName].some(
+    (value) => value?.trim().toLowerCase() === wanted,
+  );
+}
+
+/**
  * Номер размера по порядку от крошечного.
  *
  * @param size - размер
@@ -411,6 +674,12 @@ export function buildTriggerConditionPart(part: TriggerConditionPart): string {
     return `self.tagCount["${part.value ?? ''}"] >= ${part.amount ?? DEFAULT_TAG_COUNT_THRESHOLD}`;
   }
 
+  if (part.kind === 'selfAbilityAtMost' || part.kind === 'selfAbilityAtLeast') {
+    const sign = part.kind === 'selfAbilityAtMost' ? '<=' : '>=';
+
+    return `self.ability["${part.value ?? ''}"] ${sign} ${part.amount ?? DEFAULT_ABILITY_THRESHOLD}`;
+  }
+
   const parametric = PARAMETRIC_PARTS[part.kind];
 
   if (!parametric) {
@@ -433,6 +702,19 @@ export function parseTriggerConditionPart(
   text: string,
 ): TriggerConditionPart | null {
   const trimmed = text.trim();
+  const ability = ABILITY_PATTERN.exec(trimmed);
+
+  if (ability) {
+    return isAbilityType(ability[1]) && isConditionNumber(ability[3])
+      ? {
+          kind:
+            ability[2] === '<=' ? 'selfAbilityAtMost' : 'selfAbilityAtLeast',
+          value: ability[1],
+          amount: Number(ability[3]),
+        }
+      : null;
+  }
+
   const tagCount = TAG_COUNT_PATTERN.exec(trimmed);
 
   if (tagCount) {
@@ -568,7 +850,7 @@ function isConditionPartMet(
     return false;
   }
 
-  const { damage } = eventData;
+  const { damage, other } = eventData;
   const damageTypes: readonly string[] = damage?.types ?? [];
 
   switch (part.kind) {
@@ -633,6 +915,74 @@ function isConditionPartMet(
       );
     case 'sourceWeaponMastery':
       return eventData.weaponMastery === true;
+    case 'selfTempHpZero':
+      return resolveEntityTempHp(entity) === 0;
+    case 'selfGrounded':
+      return isEntityGrounded(entity);
+    case 'selfSpecies':
+      return matchesEntitySpecies(entity, part.value ?? '');
+    case 'selfAbilityAtMost':
+      return (
+        resolveEntityAbilityScore(entity, part.value ?? '')
+        <= (part.amount ?? DEFAULT_ABILITY_THRESHOLD)
+      );
+    case 'selfAbilityAtLeast':
+      return (
+        resolveEntityAbilityScore(entity, part.value ?? '')
+        >= (part.amount ?? DEFAULT_ABILITY_THRESHOLD)
+      );
+    case 'otherIsSource':
+      return (
+        other !== undefined
+        && eventData.sourceId !== undefined
+        && other.id === eventData.sourceId
+      );
+    case 'otherBloodied':
+      return (
+        other !== undefined
+        && targetHpGateMatches(
+          'halfOrLess',
+          resolveEntityCurrentHp(other),
+          resolveEntityMaxHp(other),
+        )
+      );
+    case 'otherHpAtMost':
+      return (
+        other !== undefined
+        && resolveEntityCurrentHp(other) <= Number(part.value)
+      );
+    case 'damageAtLeast':
+      return damage !== undefined && damage.amount >= Number(part.value);
+    case 'sourceWithin':
+      // Сцену знает только инициатор: без его проверки расстояние неизвестно,
+      // и часть НЕ выполняется — молчать безопаснее, чем бить всегда
+      return eventData.isSourceWithin?.(Number(part.value)) === true;
+    case 'attackKind':
+      return (
+        part.value !== undefined
+        && (eventData.attack?.kinds ?? EMPTY_ATTACK_KINDS).includes(part.value)
+      );
+    case 'attackAbility':
+      return eventData.attack?.ability === part.value;
+    // Попал или нет, известно не всегда: серия снарядов сообщает о броске
+    // раньше, чем сделаны сами броски. Неизвестно — обе части НЕ выполняются
+    case 'attackLanded':
+      return eventData.attack?.landed === true;
+    case 'attackMissed':
+      return eventData.attack?.landed === false;
+    // Раунд знает только ядро: без него расписание НЕ выполняется — «на втором
+    // раунде» не должно сработать там, где номера раунда нет
+    case 'combatRoundIs':
+      return eventData.combatRound === Number(part.value);
+    case 'combatRoundAtLeast':
+      return (
+        eventData.combatRound !== undefined
+        && eventData.combatRound >= Number(part.value)
+      );
+    case 'movementOwn':
+      return eventData.movement?.forced === false;
+    case 'movementForced':
+      return eventData.movement?.forced === true;
     default:
       return evaluateConditionPart(
         text.trim(),
@@ -641,12 +991,29 @@ function isConditionPartMet(
   }
 }
 
+/**
+ * Данные события с номером идущего раунда: его знает инициатор (ядро или
+ * трекер инициативы клиента), а не сам построитель данных события.
+ *
+ * @param eventData - данные события
+ * @param combatRound - номер раунда; `undefined` — боя нет или номер неизвестен
+ * @returns данные события с раундом либо те же данные
+ */
+export function withCombatRound(
+  eventData: TriggerEventData,
+  combatRound: number | undefined,
+): TriggerEventData {
+  return combatRound === undefined ? eventData : { ...eventData, combatRound };
+}
+
 /** Что известно о наложении эффекта для его условия */
 export interface EffectLandingContext {
   /** Кто накладывает */
   source?: DnDSceneEntity;
   /** Наложение ударом оружия, приёмом которого атакующий владеет */
   weaponMastery?: boolean;
+  /** Номер идущего раунда: условие «на раунде N» */
+  combatRound?: number;
 }
 
 /**
@@ -665,11 +1032,14 @@ export function passesLandingCondition(
   return isTriggerConditionMet(
     target,
     { condition: effect.landingCondition },
-    {
-      other: landing.source,
-      sourceId: landing.source?.id ?? effect.sourceActorId,
-      weaponMastery: landing.weaponMastery,
-    },
+    withCombatRound(
+      {
+        other: landing.source,
+        sourceId: landing.source?.id ?? effect.sourceActorId,
+        weaponMastery: landing.weaponMastery,
+      },
+      landing.combatRound,
+    ),
   );
 }
 

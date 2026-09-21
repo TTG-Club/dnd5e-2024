@@ -9,7 +9,12 @@
   import { computed, ref } from 'vue';
 
   import { HUD_PROMPTS_TELEPORT_TARGET } from '../actor/constants';
-  import { EFFECT_TARGET_PROMPT_LABELS } from './constants';
+  import {
+    CHOICE_SEARCH_THRESHOLD,
+    EFFECT_TARGET_PROMPT_LABELS,
+    TARGET_CANDIDATE_BUTTON,
+  } from './constants';
+  import { formatPromptTitle } from './utils/promptTitle';
 
   defineOptions({
     inheritAttrs: false,
@@ -41,13 +46,53 @@
   /** Отмеченные цели в порядке нажатия: лишнее вытесняет самое раннее */
   const chosen = ref<string[]>([]);
 
-  const title = computed(() => {
-    const { titleFallback, titleSeparator } = EFFECT_TARGET_PROMPT_LABELS;
+  /** Строка поиска: на большой сцене кандидатов бывают десятки */
+  const search = ref('');
 
-    return props.sourceName
-      ? `${props.sourceName}${titleSeparator}${titleFallback.toLowerCase()}`
-      : titleFallback;
+  const showSearch = computed(
+    () => props.candidates.length >= CHOICE_SEARCH_THRESHOLD,
+  );
+
+  /**
+   * Кандидаты после поиска. Отмеченные остаются видны всегда: иначе снять
+   * лишнюю отметку было бы нечем, пока набран поиск
+   */
+  const visibleCandidates = computed(() => {
+    const query = search.value.trim().toLowerCase();
+
+    if (query.length === 0) {
+      return props.candidates;
+    }
+
+    return props.candidates.filter(
+      (candidate) =>
+        chosen.value.includes(candidate.id)
+        || candidate.name.toLowerCase().includes(query),
+    );
   });
+
+  /** Строки кандидатов: подпись и вид кнопки по тому, отмечен ли кандидат */
+  const candidateRows = computed(() =>
+    visibleCandidates.value.map((candidate) => {
+      const isChosen = chosen.value.includes(candidate.id);
+
+      return {
+        id: candidate.id,
+        label: candidateLabel(candidate),
+        ...(isChosen
+          ? TARGET_CANDIDATE_BUTTON.chosen
+          : TARGET_CANDIDATE_BUTTON.idle),
+      };
+    }),
+  );
+
+  const title = computed(() =>
+    formatPromptTitle(
+      EFFECT_TARGET_PROMPT_LABELS.titleFallback,
+      EFFECT_TARGET_PROMPT_LABELS.titleSeparator,
+      props.sourceName,
+    ),
+  );
 
   const counter = computed(() => {
     const { countPrefix, countJoiner } = EFFECT_TARGET_PROMPT_LABELS;
@@ -127,20 +172,33 @@
           </span>
         </div>
 
-        <div class="flex flex-col gap-1">
+        <UInput
+          v-if="showSearch"
+          v-model="search"
+          icon="tabler:search"
+          size="sm"
+          :placeholder="EFFECT_TARGET_PROMPT_LABELS.search"
+        />
+
+        <div class="flex max-h-72 flex-col gap-1 overflow-y-auto">
+          <p
+            v-if="visibleCandidates.length === 0"
+            class="px-1 py-2 text-center text-xs text-dimmed"
+          >
+            {{ EFFECT_TARGET_PROMPT_LABELS.searchEmpty }}
+          </p>
+
           <UButton
-            v-for="candidate in candidates"
-            :key="candidate.id"
-            :color="chosen.includes(candidate.id) ? 'primary' : 'neutral'"
-            :variant="chosen.includes(candidate.id) ? 'solid' : 'ghost'"
-            :icon="
-              chosen.includes(candidate.id) ? 'tabler:check' : 'tabler:point'
-            "
+            v-for="row in candidateRows"
+            :key="row.id"
+            :color="row.color"
+            :variant="row.variant"
+            :icon="row.icon"
             size="sm"
             class="justify-start"
-            @click.left.exact.prevent="toggle(candidate.id)"
+            @click.left.exact.prevent="toggle(row.id)"
           >
-            {{ candidateLabel(candidate) }}
+            {{ row.label }}
           </UButton>
         </div>
 

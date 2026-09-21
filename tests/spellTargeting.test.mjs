@@ -966,7 +966,7 @@ for (const [kind, instantSpell] of [
       'continueSpellCast',
       {
         props: { actor: runtime.fixture.world.actors[0] },
-        handleSpellSlotConsume() {},
+        createSpellSlotConsumer: () => () => {},
         getTotalLevel: () => 1,
         getSpellProjectileCount: () => 0,
         useProjectileStore: runtime.useProjectileStore,

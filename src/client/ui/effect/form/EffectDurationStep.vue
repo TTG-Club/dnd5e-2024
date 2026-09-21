@@ -60,6 +60,38 @@
     },
   });
 
+  /**
+   * Срок формулой. Число и формулу вместе задать нельзя: заполненное число у
+   * формулы движок считает её результатом и кость не перебрасывает
+   */
+  const useDurationFormula = computed({
+    get: () => effect.value.durationFormula !== undefined,
+    set: (enabled: boolean) => {
+      effect.value = {
+        ...effect.value,
+        durationFormula: enabled ? '' : undefined,
+        duration: { ...effect.value.duration, value: undefined },
+      };
+    },
+  });
+
+  /** Срок задан формулой — у длительности, которая вообще считается */
+  const showsDurationFormula = computed(
+    () => hasDurationValue.value && useDurationFormula.value,
+  );
+
+  /** Срок задан числом */
+  const showsDurationNumber = computed(
+    () => hasDurationValue.value && !useDurationFormula.value,
+  );
+
+  const durationFormula = computed({
+    get: () => effect.value.durationFormula ?? '',
+    set: (formula: string) => {
+      effect.value = { ...effect.value, durationFormula: formula };
+    },
+  });
+
   const turnTiming = computed({
     get: () => effect.value.duration.turnTiming ?? 'end',
     set: (timing: EffectTurnTiming) => {
@@ -101,12 +133,27 @@
       />
 
       <UInputNumber
-        v-if="hasDurationValue"
+        v-if="showsDurationNumber"
         v-model="durationValue"
         :min="0"
         :placeholder="EFFECT_DURATION_STEP_LABELS.valuePlaceholder"
         size="sm"
         class="w-28"
+      />
+
+      <UInput
+        v-if="showsDurationFormula"
+        v-model="durationFormula"
+        :placeholder="EFFECT_DURATION_STEP_LABELS.formulaPlaceholder"
+        size="sm"
+        class="w-40"
+      />
+
+      <USwitch
+        v-if="hasDurationValue"
+        v-model="useDurationFormula"
+        :label="EFFECT_DURATION_STEP_LABELS.formulaToggle"
+        size="sm"
       />
 
       <template v-if="isTurnDuration">
@@ -132,6 +179,9 @@
 
     <p class="text-xs text-muted">
       {{ durationDescription }}
+      <template v-if="showsDurationFormula">
+        {{ EFFECT_DURATION_STEP_LABELS.formulaToggleHint }}
+      </template>
     </p>
   </div>
 </template>

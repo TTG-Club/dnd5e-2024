@@ -13,7 +13,7 @@
  * @module system/dnd/savingThrowRequest
  */
 
-import type { AbilityType, SceneEntity } from '@vtt/shared';
+import type { AbilityType, RollRequestOutcome, SceneEntity } from '@vtt/shared';
 
 import type { ConditionRef } from './conditionKeys.js';
 
@@ -36,9 +36,43 @@ export const SAVING_THROW_REQUEST_TITLE_PARTS = {
   /** Сложность в подписи: «… (DC 15)» */
   dcPrefix: ' (DC ',
   dcSuffix: ')',
-  /** Разделитель «чем бьют» и самого спасброска */
-  sourceSeparator: ' — ',
 } as const;
+
+/** Разделитель «чей запрос» и его подписи в плашках ядра */
+export const REQUEST_SOURCE_SEPARATOR = ' — ';
+
+/**
+ * Подпись запроса с источником: «Огненный шар — Спасбросок…», «Аура жизни —
+ * Выберите цель (1)». Источник неизвестен — одна подпись.
+ *
+ * @param title - подпись самого запроса
+ * @param sourceName - чей это запрос (заклинание, эффект, зона), если известно
+ * @returns подпись для плашки ядра
+ */
+export function withRequestSource(title: string, sourceName?: string): string {
+  return sourceName
+    ? `${sourceName}${REQUEST_SOURCE_SEPARATOR}${title}`
+    : title;
+}
+
+/** Исход запроса, в котором есть ответ */
+export type AnsweredRollRequestOutcome = Extract<
+  RollRequestOutcome,
+  { status: 'answered' | 'takenOver' }
+>;
+
+/**
+ * Пришёл ли на запрос ответ: бросил сам адресат или за него — ГМ или
+ * инициатор. Отказ, срок и отклонение ответа не несут.
+ *
+ * @param outcome - исход запроса от ядра
+ * @returns `true`, если в исходе есть ответ
+ */
+export function isRollRequestAnswered(
+  outcome: RollRequestOutcome,
+): outcome is AnsweredRollRequestOutcome {
+  return outcome.status === 'answered' || outcome.status === 'takenOver';
+}
 
 /**
  * Подпись запроса для плашек ядра: «Огненный шар — Спасбросок Ловкость (DC 15)».
@@ -55,12 +89,12 @@ export function formatSavingThrowRequestTitle(
   dc: number,
   sourceName?: string,
 ): string {
-  const { rollPrefix, dcPrefix, dcSuffix, sourceSeparator } =
-    SAVING_THROW_REQUEST_TITLE_PARTS;
+  const { rollPrefix, dcPrefix, dcSuffix } = SAVING_THROW_REQUEST_TITLE_PARTS;
 
-  const save = `${rollPrefix}${SAVE_TYPE_LABELS[ability]}${dcPrefix}${dc}${dcSuffix}`;
-
-  return sourceName ? `${sourceName}${sourceSeparator}${save}` : save;
+  return withRequestSource(
+    `${rollPrefix}${SAVE_TYPE_LABELS[ability]}${dcPrefix}${dc}${dcSuffix}`,
+    sourceName,
+  );
 }
 
 /**
@@ -129,6 +163,11 @@ export const savingThrowRequestPayloadSchema = z.object({
   againstConcentration: z.boolean().optional(),
   /** Преимущество или помеха самого спасброска */
   mode: z.enum(EFFECT_TRIGGER_SAVE_MODES).optional().catch(undefined),
+  /**
+   * Согласная цель вправе не бросать: окно адресата покажет «Не
+   * сопротивляюсь». Решает владелец цели — инициатор только разрешает.
+   */
+  allowWilling: z.boolean().optional(),
   /** Чем бьют — «Огненный шар», «Укус»: уходит в заголовок окна у адресата */
   sourceName: z.string().optional(),
 });

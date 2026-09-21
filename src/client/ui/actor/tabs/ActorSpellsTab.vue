@@ -92,7 +92,10 @@
     prepareCasterSpellEffects,
     SPELL_CAST_KEY_PREFIX,
   } from '../../../composables/spellCastCompletion';
-  import { beginSpellCast } from '../../../composables/spellCasts';
+  import {
+    beginSpellCast,
+    setSpellCastLevel,
+  } from '../../../composables/spellCasts';
   import {
     applySpellTargetEffects,
     createProjectileCastValidator,
@@ -167,6 +170,9 @@
   }
 
   const { openModal } = useModalManager();
+  // Уведомления берутся в setup: в обработчике клика `useToast()` уже не
+  // работает — Vue молча глушит его, и сообщение «нет ячеек» не появлялось
+  const toast = useToast();
   const worldStore = useWorldStore();
   const chatStore = useChatStore();
   const targetStore = useTargetStore();
@@ -1056,8 +1062,6 @@
         && !spell.alwaysPrepared
         && currentPreparedSpellsCount.value >= maxPreparedSpells.value
       ) {
-        const toast = useToast();
-
         toast.add({
           title: ACTOR_SPELLS_TAB_LABELS.limitTitle,
           description: `${ACTOR_SPELLS_TAB_LABELS.limitTextPrefix}${maxPreparedSpells.value}${ACTOR_SPELLS_TAB_LABELS.limitTextSuffix}`,
@@ -1274,8 +1278,6 @@
         && spell.uses.recovery !== 'atWill'
         && spell.uses.current <= 0
       ) {
-        const toast = useToast();
-
         toast.add({
           title: ACTOR_SPELLS_TAB_LABELS.noUsesTitle,
           description: `${ACTOR_SPELLS_TAB_LABELS.noUsesTextPrefix}${spell.name}${ACTOR_SPELLS_TAB_LABELS.noUsesTextSuffix}`,
@@ -1288,8 +1290,6 @@
       const availableLevels = getCastableSpellLevels(spell);
 
       if (!spell.uses && spell.level > 0 && availableLevels.length === 0) {
-        const toast = useToast();
-
         toast.add({
           title: ACTOR_SPELLS_TAB_LABELS.noSlotsTitle,
           description: `${ACTOR_SPELLS_TAB_LABELS.noSlotsTextPrefix}${spell.level}${ACTOR_SPELLS_TAB_LABELS.noSlotsTextSuffix}`,
@@ -1397,9 +1397,6 @@
   }
 
   /**
-   * Продолжает каст после финального подтверждения в Floating Prompt.
-   */
-  /**
    * Списывает один заряд заклинания с откатом (recovery !== 'atWill').
    * Заклинания без зарядов и «по желанию» не изменяются.
    * @param spell - заклинание
@@ -1477,7 +1474,7 @@
     // Заклинания с зарядами (врождённые/расовые) не тратят ячейки и не
     // апкастятся: круг фиксирован, коллбэк списания ячейки не передаётся.
     const isInnate = !!spell.uses;
-    const slotConsumer = isInnate ? undefined : handleSpellSlotConsume;
+    const slotConsumer = isInnate ? undefined : createSpellSlotConsumer(spell);
 
     let availableLevels = [0];
 
@@ -2037,7 +2034,24 @@
   }
 
   /**
-   * Коллбэк списания ячейки заклинания.
+   * Коллбэк списания ячейки для каста заклинания. Выбранный круг запоминается
+   * как круг каста: эффекты ложатся позже, а по кругу «Рассеивание магии»
+   * решает, снимается ли каст.
+   *
+   * @param spell - заклинание каста
+   * @returns коллбэк окна броска
+   */
+  function createSpellSlotConsumer(
+    spell: Spell,
+  ): (castLevel: number, consumeSlot: boolean, isPactSlot: boolean) => void {
+    return (castLevel, consumeSlot, isPactSlot) => {
+      setSpellCastLevel(props.actor.id, spell, castLevel);
+      handleSpellSlotConsume(castLevel, consumeSlot, isPactSlot);
+    };
+  }
+
+  /**
+   * Списание ячейки заклинания.
    * Вызывается из DiceRollModal при подтверждении броска.
    *
    * @param castLevel - выбранный круг

@@ -7,19 +7,27 @@ import type {
   ConditionRef,
   CreatureCategory,
   CreatureSize,
+  EffectCastOwner,
+  EffectNotifyTarget,
+  EffectRestoreKind,
   EffectSaveTiming,
+  EffectTempHpMode,
   EffectTriggerActionGate,
   EffectTriggerActionType,
+  EffectTriggerAreaShiftKind,
   EffectTriggerAttackRole,
   EffectTriggerEvent,
   EffectTriggerLimitPeriod,
   EffectTriggerMaxHpRestEnd,
+  EffectTriggerMoveKind,
+  EffectTriggerMoveOrigin,
   EffectTriggerPreset,
   EffectTriggerRecipient,
   EffectTriggerRestType,
   EffectTriggerSaveMode,
   EffectTriggerTurnOwner,
   TriggerConditionKind,
+  TriggerConditionParameter,
 } from '@vtt/shared/system/dnd.js';
 
 import {
@@ -45,6 +53,12 @@ export const EFFECT_TRIGGERS_STEP_LABELS = {
     + 'раз».',
   empty: 'Срабатываний нет.',
   addTitle: 'Добавить',
+  chargesToggle: 'Заряды',
+  chargesToggleHint:
+    'Сколько раз срабатывания эффекта сработают всего. Каждое сработавшее '
+    + 'тратит заряд; зарядов не осталось — эффект молчит. Считаются только у '
+    + 'эффекта, который лежит на существе: у ауры и зоны своего экземпляра нет.',
+  chargesEndsWhenEmpty: 'Последний заряд снимает эффект',
 } as const;
 
 /** Подписи строки срабатывания */
@@ -78,7 +92,59 @@ export const EFFECT_TRIGGER_ROW_LABELS = {
   dcFormulaHint: '@damage — урон события. Пусто — число Сл.',
   limitToggle: 'Не чаще',
   limitTimes: 'раз за',
+  chanceToggle: 'С броском на шанс',
+  chancePercent: '% срабатывания',
+  chanceHint:
+    'Бросок идёт ПЕРЕД лимитом «не чаще N раз»: неудавшийся шанс — это '
+    + 'несостоявшееся срабатывание, и «раз в ход» на него не тратится.',
+  conditionKey: 'Какое состояние',
+  conditionKeyAny: 'Любое',
+  conditionKeyHint: 'Срабатывание слушает только это снятое состояние.',
+  advantageIf: 'Преимущество, если',
+  disadvantageIf: 'Помеха, если',
+  saveModeIfEmpty: 'Без условия — режим не меняется.',
+  autoSuccessIf: 'Автоматический успех, если',
+  autoFailIf: 'Автоматический провал, если',
+  autoOutcomeEmpty: 'Без условия — спасбросок бросается как обычно.',
+  moveKind: 'Как двигать',
+  moveDistance: 'Футов',
+  moveFrom: 'От кого',
+  moveHint: 'Ядро ставит фишку; препятствия не учитываются',
+  areaShiftKind: 'Куда',
+  areaShiftHint: 'Сдвигается зона того же каста; форма не меняется',
+  removeConditionAll: 'Все состояния',
+  tempHpAmount: 'Сколько',
+  tempHpMode: 'Как',
+  reviveHp: 'Хитов',
+  reviveFull: 'Полный запас',
+  setHpToMax: 'Полный запас',
+  restoreWhat: 'Что вернуть',
+  restoreLevel: 'Круг',
+  restoreCounter: 'Ключ ресурса',
+  restoreAmount: 'Сколько',
+  dispelMaxLevel: 'До какого круга',
+  dispelWithoutLevel: 'И то, у чего круг неизвестен',
+  endCastWhose: 'Чей каст',
+  conditionEndsOnExit: 'Спадает при выходе из зоны',
+  conditionEndsOnExitHint:
+    'Состояние уходит, как только существо покинет зону, которая его наложила '
+    + '(«Опутанность» от «Паутины»). Вне зоны выходить не из чего — там '
+    + 'настройка ничего не делает.',
+  conditionLocked: 'Снимает только источник',
+  conditionLockedHint:
+    'Плитка состояния на листе и действие «снять состояние» его не трогают',
+  costHint: 'Ходом распоряжается человек — цена это пометка',
+  askToggle: 'Спрашивать разрешения',
+  asker: 'У кого спрашивать',
+  notifyText: 'Текст сообщения',
+  notifyTextPlaceholder: 'Что напомнить человеку',
+  notifyTo: 'Кому',
+  notifyRoll: 'Бросок к сообщению',
+  notifyRollPlaceholder: '1к8',
+  notifyRollHint: 'Номер строки таблицы поведения; пусто — без броска',
   restType: 'Какой отдых',
+  everyFeet: 'За каждые, фт',
+  everyFeetOnce: 'раз за путь',
   saveMode: 'Бросок',
   recurringSaveToggle: 'Повторный спасбросок снимает состояние',
   recurringSaveTiming: 'Когда',
@@ -98,15 +164,19 @@ export const EFFECT_TRIGGER_EVENT_LABELS: Partial<
   Record<EffectTriggerEvent, string>
 > = {
   applied: 'При наложении',
-  activate: 'При включении',
+  activate: 'При действии или включении',
   turnStart: 'В начале хода',
   turnEnd: 'В конце хода',
   enter: 'При входе в зону или ауру',
   exit: 'При выходе из зоны или ауры',
   attackRoll: 'При броске атаки',
   damageTaken: 'Когда носитель получает урон',
+  healed: 'Когда носителя лечат',
   hpZero: 'Когда хиты носителя падают до 0',
+  downedOther: 'Когда носитель сваливает цель',
+  conditionLost: 'Когда с носителя снимается состояние',
   castEnd: 'Когда заклинание заканчивается',
+  moved: 'Когда носитель проходит путь',
   rest: 'После отдыха',
 };
 
@@ -143,13 +213,20 @@ export const EFFECT_TRIGGER_SAVE_MODE_LABELS: Record<
   disadvantage: 'С помехой',
 };
 
+/** Подпись носителя эффекта как получателя или адресата */
+const SUBJECT_ADDRESS_LABEL = 'Носителю эффекта';
+
+/** Подпись наложившего эффект как получателя или адресата */
+const SOURCE_ADDRESS_LABEL = 'Наложившему эффект';
+
 /** Кому достаются действия срабатывания; «другая сторона» — у урона */
 export const EFFECT_TRIGGER_RECIPIENT_LABELS: Record<
   EffectTriggerRecipient,
   string
 > = {
-  subject: 'Носителю эффекта',
+  subject: SUBJECT_ADDRESS_LABEL,
   other: 'Тому, кто нанёс урон',
+  source: SOURCE_ADDRESS_LABEL,
   area: 'Всем в радиусе',
   choice: 'Выбранным',
 };
@@ -158,6 +235,8 @@ export const EFFECT_TRIGGER_RECIPIENT_LABELS: Record<
 export const EFFECT_TRIGGER_AREA_LABELS = {
   radius: 'Радиус, фт',
   target: 'Кого',
+  alliesWithSelf: 'Союзников и носителя',
+  allWithSelf: 'Всех и носителя',
 } as const;
 
 /** Подписи полей «по выбору» */
@@ -177,7 +256,7 @@ export const EFFECT_TRIGGER_CHOOSER_LABELS = {
 } as const;
 
 /** «Другая сторона» при наложении — кто наложил эффект */
-export const EFFECT_TRIGGER_APPLIED_OTHER_PARTY_LABEL = 'Наложившему эффект';
+export const EFFECT_TRIGGER_APPLIED_OTHER_PARTY_LABEL = SOURCE_ADDRESS_LABEL;
 
 /** «Другая сторона» броска атаки по роли носителя */
 export const EFFECT_TRIGGER_ATTACK_OTHER_PARTY_LABELS: Record<
@@ -218,6 +297,18 @@ export const EFFECT_TRIGGER_ACTION_LABELS: Record<
   reduceMaxHp: 'Уменьшить максимум хитов',
   setHp: 'Хиты становятся',
   endCast: 'Закончить каст',
+  move: 'Переместить',
+  moveArea: 'Сдвинуть зону',
+  removeCondition: 'Снять состояние',
+  tempHp: 'Временные хиты',
+  kill: 'Убить',
+  revive: 'Вернуть к жизни',
+  dropHeld: 'Уронить из рук',
+  restore: 'Вернуть ресурс',
+  dispel: 'Рассеять заклинания',
+  grantInspiration: 'Дать вдохновение',
+  notify: 'Сообщить человеку',
+  nextStage: 'Следующая ступень',
   removeSelf: 'Снять эффект',
 };
 
@@ -233,6 +324,18 @@ export const EFFECT_TRIGGER_ACTION_ICONS: Record<
   reduceMaxHp: 'tabler:heart-minus',
   setHp: 'tabler:heart-plus',
   endCast: 'tabler:player-stop',
+  move: 'tabler:arrow-big-right-lines',
+  moveArea: 'tabler:arrows-move',
+  removeCondition: 'tabler:mood-check',
+  tempHp: 'tabler:shield-half',
+  kill: 'tabler:skull',
+  revive: 'tabler:heartbeat',
+  dropHeld: 'tabler:hand-off',
+  restore: 'tabler:battery-charging',
+  dispel: 'tabler:wand-off',
+  grantInspiration: 'tabler:star',
+  notify: 'tabler:message-2',
+  nextStage: 'tabler:stairs-up',
   removeSelf: 'tabler:circle-x',
 };
 
@@ -326,14 +429,44 @@ export const EFFECT_TRIGGER_CONDITION_KIND_LABELS: Record<
   selfTagFromSource: 'На носителе отметка от наложившего',
   selfTagFromSourceNot: 'На носителе нет отметки от наложившего',
   sourceWeaponMastery: 'Атакующий владеет приёмом этого оружия',
+  selfTempHpZero: 'У носителя нет временных хитов',
+  selfGrounded: 'Носитель не летит',
+  selfSpecies: 'Вид носителя',
+  selfAbilityAtMost: 'У носителя характеристика не больше',
+  selfAbilityAtLeast: 'У носителя характеристика не меньше',
+  otherIsSource: 'Другая сторона — тот, кто наложил эффект',
+  otherBloodied: 'Другая сторона окровавлена (хитов не больше половины)',
+  otherHpAtMost: 'У другой стороны хитов не больше',
+  damageAtLeast: 'Урон не меньше',
+  sourceWithin: 'Наложивший в пределах (фт)',
+  attackKind: 'Вид атаки',
+  attackAbility: 'Атака считается характеристикой',
+  attackLanded: 'Атака попала',
+  attackMissed: 'Атака промахнулась',
+  combatRoundIs: 'Идёт раунд боя',
+  combatRoundAtLeast: 'Раунд боя не раньше',
+  movementOwn: 'Носитель шёл сам',
+  movementForced: 'Носителя переставили (толчок, перенос)',
+};
+
+/**
+ * Значение новой части условия, когда общее по виду выбора не годится: «на
+ * раунде 50» бессмысленно, расписание почти всегда — со второго раунда.
+ */
+export const EFFECT_TRIGGER_CONDITION_KIND_DEFAULT_VALUES: Partial<
+  Record<TriggerConditionKind, string>
+> = {
+  combatRoundIs: '2',
+  combatRoundAtLeast: '2',
 };
 
 /** Значение новой части условия с выбором */
-export const EFFECT_TRIGGER_CONDITION_DEFAULT_VALUES: {
+export const EFFECT_TRIGGER_CONDITION_DEFAULT_VALUES: Record<
+  TriggerConditionParameter,
+  string
+> & {
   damageType: DamageType;
   creatureType: CreatureCategory;
-  tag: string;
-  number: string;
   size: CreatureSize;
   condition: ConditionRef;
 } = {
@@ -343,4 +476,61 @@ export const EFFECT_TRIGGER_CONDITION_DEFAULT_VALUES: {
   number: '50',
   size: 'large',
   condition: 'incapacitated',
+  ability: 'strength',
+  attackKind: 'melee',
+  text: '',
+};
+
+/** Подписи того, кому адресовано сообщение срабатывания */
+export const EFFECT_NOTIFY_TARGET_LABELS: Record<EffectNotifyTarget, string> = {
+  subject: SUBJECT_ADDRESS_LABEL,
+  source: SOURCE_ADDRESS_LABEL,
+};
+
+/** Подписи того, что делает действие с временными хитами */
+export const EFFECT_TEMP_HP_MODE_LABELS: Record<EffectTempHpMode, string> = {
+  set: 'Поставить',
+  add: 'Прибавить',
+  spend: 'Потратить',
+};
+
+/** Подписи того, какой ресурс возвращает действие */
+export const EFFECT_RESTORE_KIND_LABELS: Record<EffectRestoreKind, string> = {
+  spellSlot: 'Ячейку заклинания',
+  counter: 'Ресурс листа',
+};
+
+/** Подписи того, чей каст заканчивает действие */
+export const EFFECT_CAST_OWNER_LABELS: Record<EffectCastOwner, string> = {
+  self: 'Свой',
+  recipient: 'Получателя',
+};
+
+/** Подписи того, как двигает действие «Переместить» */
+export const EFFECT_TRIGGER_MOVE_KIND_LABELS: Record<
+  EffectTriggerMoveKind,
+  string
+> = {
+  push: 'Оттолкнуть',
+  pull: 'Притянуть',
+  teleport: 'Перенести',
+};
+
+/** Подписи того, как сдвигается зона действием «Сдвинуть зону» */
+export const EFFECT_TRIGGER_AREA_SHIFT_KIND_LABELS: Record<
+  EffectTriggerAreaShiftKind,
+  string
+> = {
+  away: 'От получателя',
+  toward: 'К получателю',
+  follow: 'За носителем',
+};
+
+/** Подписи опоры направления перемещения */
+export const EFFECT_TRIGGER_MOVE_ORIGIN_LABELS: Record<
+  EffectTriggerMoveOrigin,
+  string
+> = {
+  source: 'От наложившего',
+  subject: 'От носителя',
 };

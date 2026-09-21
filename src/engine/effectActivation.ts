@@ -17,6 +17,7 @@ import type {
   Spell,
   SpellRollSource,
 } from './dndEntities.js';
+import type { EffectTrigger } from './effectTriggerTypes.js';
 import type { ActorCounterState } from './types.js';
 
 import {
@@ -531,6 +532,40 @@ export function payActivation(
 }
 
 /**
+ * Выполняет на копии сущности срабатывания одного её эффекта без второй
+ * стороны: «при включении» и «При действии».
+ *
+ * @param copy - копия сущности (меняется)
+ * @param effectId - эффект
+ * @param listTriggers - какие срабатывания эффекта выполнять
+ * @param combatRound - номер идущего раунда: расписание «на раунде N»
+ */
+function settleOwnEffectTriggers(
+  copy: DnDSceneEntity,
+  effectId: string,
+  listTriggers: (effect: ActiveEffect) => EffectTrigger[],
+  combatRound: number | undefined,
+): void {
+  const effect = (copy.activeEffects ?? []).find(
+    (entry) => entry.id === effectId,
+  );
+
+  if (!effect) {
+    return;
+  }
+
+  settleSelfTriggerSources(
+    copy,
+    buildTriggerSources(
+      [effect],
+      EFFECT_TRIGGER_SOURCE_KINDS.instance,
+      listTriggers,
+    ),
+    combatRound,
+  );
+}
+
+/**
  * Сущность после включения эффекта: сам эффект включён и подготовлен (точная
  * длительность хода отсчитывается от включения), его срабатывания «при
  * включении» выполнены — урон и лечение уже в хитах копии.
@@ -538,12 +573,14 @@ export function payActivation(
  * @param entity - сущность из стора (не мутируется)
  * @param effectId - включаемый эффект
  * @param prepare - подготовка включённого эффекта
+ * @param combatRound - номер идущего раунда: расписание «на раунде N»
  * @returns копия сущности для боевого канала
  */
 export function activateEffectOnEntity(
   entity: DnDSceneEntity,
   effectId: string,
   prepare: (effect: ActiveEffect) => ActiveEffect = (switched) => switched,
+  combatRound?: number,
 ): DnDSceneEntity {
   const activated = cloneEntityData(entity);
 
@@ -551,22 +588,74 @@ export function activateEffectOnEntity(
     entry.id === effectId ? prepare({ ...entry, disabled: false }) : entry,
   );
 
-  const activatedEffect = activated.activeEffects.find(
-    (entry) => entry.id === effectId,
-  );
-
-  if (!activatedEffect) {
-    return activated;
-  }
-
-  settleSelfTriggerSources(
+  settleOwnEffectTriggers(
     activated,
-    buildTriggerSources(
-      [activatedEffect],
-      EFFECT_TRIGGER_SOURCE_KINDS.instance,
-      (source) => listEffectEventTriggers(source, 'activate'),
-    ),
+    effectId,
+    (effect) => listEffectEventTriggers(effect, 'activate'),
+    combatRound,
   );
 
   return activated;
+}
+
+/**
+ * Действия действующего эффекта: срабатывания «При действии», которые
+ * человек запускает кнопкой на листе.
+ *
+ * Правила часто дают заклинанию отдельное действие, пока оно действует:
+ * «действием можешь переместить сферу на 30 футов». Переключатель для этого
+ * не годится — заклинание уже действует, включать нечего. Поэтому у
+ * действующего эффекта появляется своя кнопка, а её цена (действие, бонусное,
+ * реакция) подписана рядом: ходом распоряжается человек, движок только
+ * напоминает.
+ *
+ * @param effect - эффект носителя
+ * @returns срабатывания «При действии»; пусто — кнопки нет
+ */
+export function listEffectActiveActions(effect: ActiveEffect): EffectTrigger[] {
+  // Выключенный эффект не действует: у него кнопка включения, а не действия
+  if (effect.disabled) {
+    return [];
+  }
+
+  return listEffectEventTriggers(effect, 'activate');
+}
+
+/**
+ * Есть ли у действующего эффекта своя кнопка действия.
+ *
+ * @param effect - эффект носителя
+ * @returns `true`, если кнопка нужна
+ */
+export function hasEffectActiveAction(effect: ActiveEffect): boolean {
+  return listEffectActiveActions(effect).length > 0;
+}
+
+/**
+ * Сущность после действия действующего эффекта: срабатывания «При действии»
+ * выполнены, урон и лечение уже в хитах копии.
+ *
+ * Отличие от {@link activateEffectOnEntity}: эффект уже действует и ничего не
+ * включается — выполняются только его срабатывания «При действии».
+ *
+ * @param entity - сущность из стора (не мутируется)
+ * @param effectId - эффект, чьё действие запускают
+ * @param combatRound - номер идущего раунда: расписание «на раунде N»
+ * @returns копия сущности для боевого канала
+ */
+export function runEffectActiveAction(
+  entity: DnDSceneEntity,
+  effectId: string,
+  combatRound?: number,
+): DnDSceneEntity {
+  const acted = cloneEntityData(entity);
+
+  settleOwnEffectTriggers(
+    acted,
+    effectId,
+    listEffectActiveActions,
+    combatRound,
+  );
+
+  return acted;
 }

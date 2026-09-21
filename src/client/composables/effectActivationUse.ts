@@ -15,8 +15,6 @@ import type {
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
-import { useToast } from '@nuxt/ui/composables';
-
 import { emitEntityUpdate } from '@/core/entityUtils';
 import { useChatStore } from '@/stores/chatStore';
 import { useTargetStore } from '@/stores/targetStore';
@@ -34,6 +32,7 @@ import {
   withAmmunition,
 } from '@vtt/shared/system/dnd.js';
 
+import { useSystemToastStore } from '../stores/systemToastStore';
 import { EFFECT_USE_LABELS } from '../ui/effect/constants';
 import { runWithEffectVariants } from './effectVariantChoice';
 import { applyCasterSpellEffectsToEntity } from './spellCastCompletion';
@@ -69,8 +68,10 @@ export function applyEffectSource(
   runWithEffectVariants(spell, (chosen) => {
     const needsTarget = getTargetSpellEffects(chosen).length > 0;
 
+    // Не `useToast()`: сюда приходят из обработчика клика и с панели быстрого
+    // доступа, где его вызов молча глушится
     if (needsTarget && !useTargetStore().getTargetActor()) {
-      useToast().add({
+      useSystemToastStore().add({
         title: EFFECT_USE_LABELS.noTargetTitle,
         description: EFFECT_USE_LABELS.noTargetText,
         color: 'warning',

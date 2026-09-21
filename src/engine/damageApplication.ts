@@ -69,6 +69,16 @@ import {
 } from './hitPoints.js';
 import { withInitializedDuration } from './turnEffects.js';
 
+/** Флаг «защиты от урона не действуют» */
+export const DEFENSES_SUPPRESSED_FLAG = 'defense.suppressAll';
+
+/** Защиты снятого флагом существа: ни сопротивлений, ни иммунитетов */
+const NO_DAMAGE_DEFENSES: DamageDefenses = {
+  resistances: new Set(),
+  immunities: new Set(),
+  vulnerabilities: new Set(),
+};
+
 /**
  * Защиты цели от урона без сопротивлений, которые игнорирует урон атакующего
  * («Сила могилы»).
@@ -82,10 +92,15 @@ export function resolveTargetDamageDefenses(
   entity: DnDSceneEntity,
   ignoredResistances: readonly string[] | undefined,
 ): DamageDefenses {
-  return withoutIgnoredResistances(
-    resolveActorStats(entity).damageDefenses,
-    ignoredResistances,
-  );
+  const stats = resolveActorStats(entity);
+
+  // «Защиты не действуют» («Изгоняющая кара»): сопротивления и иммунитеты цели
+  // сняты целиком, а не по одному типу
+  if (stats.activeFlags.has(DEFENSES_SUPPRESSED_FLAG)) {
+    return NO_DAMAGE_DEFENSES;
+  }
+
+  return withoutIgnoredResistances(stats.damageDefenses, ignoredResistances);
 }
 
 /**

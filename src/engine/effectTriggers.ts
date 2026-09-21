@@ -19,6 +19,7 @@ import type {
   EffectTriggerAction,
   EffectTriggerActionGate,
   EffectTriggerEvent,
+  EffectTriggerSave,
   LegacyTriggerKind,
 } from './effectTriggerTypes.js';
 import type { SaveDamageDefense } from './saveDamage.js';
@@ -30,6 +31,7 @@ import {
   isEffectTag,
   LEGACY_TRIGGER_ID_PREFIX,
   LEGACY_TRIGGER_IDS,
+  MOVEMENT_TRIGGER_EVENTS,
   PRESENCE_TRIGGER_EVENTS,
   TURN_TRIGGER_EVENTS,
 } from './effectTriggerTypes.js';
@@ -365,6 +367,29 @@ export function triggerEventHasRestType(event: EffectTriggerEvent): boolean {
 }
 
 /**
+ * Выбирается ли у события состояние: «когда состояние снимается» слушает одно
+ * состояние или любое.
+ *
+ * @param event - событие срабатывания
+ * @returns `true` для события снятия состояния
+ */
+export function triggerEventHasConditionKey(
+  event: EffectTriggerEvent,
+): boolean {
+  return event === 'conditionLost';
+}
+
+/**
+ * Событие перемещения: у него выбирается шаг пути — «за каждые N футов».
+ *
+ * @param event - событие срабатывания
+ * @returns `true` для события перемещения
+ */
+export function triggerEventHasPathFeet(event: EffectTriggerEvent): boolean {
+  return MOVEMENT_TRIGGER_EVENTS.includes(event);
+}
+
+/**
  * Событие начала или конца хода: у него выбирается, чей это ход.
  *
  * @param event - событие срабатывания
@@ -373,6 +398,29 @@ export function triggerEventHasRestType(event: EffectTriggerEvent): boolean {
 export function isTurnTriggerEvent(event: EffectTriggerEvent): boolean {
   return TURN_TRIGGER_EVENTS.includes(event);
 }
+
+/**
+ * Действия, которые выполняет только сервер.
+ *
+ * Урон и конец каста — потому что их порядок важен для снимков сущности.
+ * Часть меняет лист за пределами боевого снимка (`DndCombatState`: хиты,
+ * эффекты, счётчики лимитов): с клиента такая правка до сервера не доедет и
+ * молча пропала бы. Перемещение и сообщение нужны сцене и сводке чата, а их
+ * даёт ядро только серверу.
+ */
+const SERVER_TRIGGER_ACTIONS: ReadonlySet<EffectTriggerAction['type']> =
+  new Set([
+    'damage',
+    'endCast',
+    'restore',
+    'grantInspiration',
+    'dropHeld',
+    'dispel',
+    'revive',
+    'move',
+    'moveArea',
+    'notify',
+  ]);
 
 /**
  * Выполняется ли срабатывание броска атаки на клиенте до броска: без
@@ -389,7 +437,7 @@ export function isClientAttackRollTrigger(trigger: EffectTrigger): boolean {
     !trigger.save
     && (trigger.recipient ?? DEFAULT_TRIGGER_RECIPIENT) === 'subject'
     && trigger.actions.every(
-      (action) => action.type !== 'damage' && action.type !== 'endCast',
+      (action) => !SERVER_TRIGGER_ACTIONS.has(action.type),
     )
   );
 }
@@ -429,6 +477,10 @@ export function hasPresenceTriggers(effect: ActiveEffect): boolean {
 /**
  * Простое срабатывание: без роли, условия и лимита, ход — субъекта.
  *
+ * Список закрытый и обязан расти вместе с полями срабатывания: то, чего старые
+ * поля не выражают, нельзя в них записывать — настройка молча пропала бы при
+ * сохранении, а окно после переоткрытия показало бы её пустой.
+ *
  * @param trigger - срабатывание
  * @returns `true`, если ничего сверх события, спасброска и действий нет
  */
@@ -439,6 +491,27 @@ function isPlainTrigger(trigger: EffectTrigger): boolean {
     // Получателя старые поля не знают: урон каждый ход всегда про носителя
     && trigger.recipient === undefined
     && (trigger.turnOf === undefined || trigger.turnOf === 'subject')
+    // Цены, вопроса человеку и шанса срабатывания у старых полей нет
+    && trigger.cost === undefined
+    && trigger.ask === undefined
+    && trigger.chancePercent === undefined
+    && isPlainTriggerSave(trigger.save)
+  );
+}
+
+/**
+ * Простой спасбросок срабатывания: без режима по условию и без
+ * автоматического исхода — их старые поля тоже не выражают.
+ *
+ * @param save - спасбросок срабатывания
+ * @returns `true`, если спасброска нет или он простой
+ */
+function isPlainTriggerSave(save: EffectTriggerSave | undefined): boolean {
+  return (
+    save === undefined
+    || (save.modeIf === undefined
+      && save.autoSuccessIf === undefined
+      && save.autoFailIf === undefined)
   );
 }
 

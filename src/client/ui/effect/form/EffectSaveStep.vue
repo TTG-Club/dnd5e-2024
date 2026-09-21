@@ -127,6 +127,20 @@
     set: (dc: number) => updateSave({ dc }),
   });
 
+  const allowWilling = computed({
+    get: () => effect.value.applySave?.allowWilling === true,
+    set: (enabled: boolean) => {
+      const applySave = effect.value.applySave;
+
+      if (applySave) {
+        effect.value = {
+          ...effect.value,
+          applySave: { ...applySave, allowWilling: enabled ? true : undefined },
+        };
+      }
+    },
+  });
+
   const successOutcome = computed({
     get: () => readEffectSuccessOutcome(effect.value),
     set: (outcome: EffectSuccessOutcome) => {
@@ -167,6 +181,13 @@
         :auto-allowed="acceptsSourceSaveDc"
         :auto-label="EFFECT_SOURCE_DC_LABELS[layout.context]"
         :auto-value="sourceSaveDc"
+      />
+
+      <USwitch
+        v-model="allowWilling"
+        class="mb-2"
+        :label="EFFECT_SAVE_STEP_LABELS.allowWilling"
+        :description="EFFECT_SAVE_STEP_LABELS.allowWillingHint"
       />
     </div>
   </template>

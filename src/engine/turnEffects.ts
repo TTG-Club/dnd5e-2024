@@ -9,7 +9,13 @@
  * не импортируя этот файл напрямую — см. `docs/MULTI_SYSTEM_ARCHITECTURE.md`, Фаза 0.
  */
 
-import type { AbilityType, DamagePart, DiceRollData } from '@vtt/shared';
+import type {
+  AbilityType,
+  DamagePart,
+  DiceRollData,
+  SystemSceneSurroundings,
+  SystemTriggerContext,
+} from '@vtt/shared';
 
 import type {
   ActiveEffect,
@@ -29,9 +35,11 @@ import type {
   EffectTriggerSaveMode,
   EffectTriggerTurnOwner,
 } from './effectTriggerTypes.js';
+import type { SceneOffset } from './forcedMovement.js';
 import type { FormulaContext } from './formulaParser.js';
 
 import { isToggleActivatedEffect } from './activeEffectTypes.js';
+import { stampApplyTimeFormulas } from './applyTimeFormulas.js';
 import {
   listSavingThrowBonusKeys,
   resolveSavingThrowModifier,
@@ -42,6 +50,7 @@ import { DAMAGE_TYPE_LABELS } from './damageConstants.js';
 import { damageReachesTarget } from './damageTargetGate.js';
 import { applyHpChange, applyMultiTypeDamageDefenses } from './damageUtils.js';
 import { formatDiceFormula, rollDamageFormula } from './diceFormula.js';
+import { advanceEffectChangeSteps } from './effectChangeSteps.js';
 import {
   buildCarrierContext,
   collectActiveEffects,
@@ -97,11 +106,14 @@ export function decrementActorEffectDurations(entity: DnDSceneEntity): boolean {
   // Новый раунд заканчивает период лимита «раз в раунд»
   const usageReset = resetTriggerUsage(entity, ROUND_LIMIT_PERIODS);
 
+  // Тем же раундом двигаются растущие изменения «каждый раунд»
+  const stepped = advanceEffectChangeSteps(entity, 'round');
+
   if (!entity.activeEffects || entity.activeEffects.length === 0) {
-    return usageReset;
+    return usageReset || stepped;
   }
 
-  let hasChanges = false;
+  let hasChanges = stepped;
 
   const initialLength = entity.activeEffects.length;
 
@@ -146,10 +158,13 @@ export function decrementActorEffectDurations(entity: DnDSceneEntity): boolean {
  * `decrementActorEffectDurations` уменьшает только заданный `remaining`, и
  * «Щит веры на 10 минут» висел бы до ручного снятия.
  *
- * @param effect - накладываемый эффект
+ * @param original - накладываемый эффект
  * @returns эффект с инициализированным `remaining` (или исходный)
  */
-export function withInitializedDuration(effect: ActiveEffect): ActiveEffect {
+export function withInitializedDuration(original: ActiveEffect): ActiveEffect {
+  // Кость сохранённого броска и срока бросается здесь: это единственная точка,
+  // через которую проходят все пути наложения
+  const effect = stampApplyTimeFormulas(original);
   const duration = effect.duration;
   const perUnit = roundsPerUnit(duration);
 
@@ -417,10 +432,26 @@ export interface TurnEffectsResult {
    * затем снятие. Прежние списки эффектов выше — их подмножества.
    */
   deferredTriggers: DeferredTurnTrigger[];
+  /** Строки сводки от действий «сообщить» и перехода на следующую ступень */
+  notes: string[];
+}
+
+/**
+ * Сцена и перемещения ядра: по ним считаются толчок фишки и сдвиг зоны. Без
+ * `moveToken` / `moveArea` такие действия молчат — двигать фишки и зоны сама
+ * система не вправе.
+ */
+export interface SceneMoveOptions {
+  /** Сцена вокруг субъекта: направление между фишками и масштаб сетки */
+  surroundings?: SystemSceneSurroundings | null;
+  /** Поставить фишку в точку сцены (ядро, VTTG 0.9.532+) */
+  moveToken?: SystemTriggerContext['moveToken'];
+  /** Сдвинуть область сцены на смещение (ядро, VTTG 0.9.533+) */
+  moveArea?: SystemTriggerContext['moveArea'];
 }
 
 /** Как прогонять периодические эффекты */
-export interface TurnEffectsOptions {
+export interface TurnEffectsOptions extends SceneMoveOptions {
   /**
    * Не бросать повторный спасбросок этого эффекта, а отложить (его спросят у
    * игрока). Без опции все спасброски бросает сервер.
@@ -431,6 +462,17 @@ export interface TurnEffectsOptions {
    * (его спросят у игрока). Без опции бросает сервер.
    */
   deferRecurringDamageSave?: (effect: ActiveEffect) => boolean;
+  /**
+   * Далеко ли наложивший эффект: проверка «в пределах N футов» от субъекта.
+   * Сцену знает ядро; без опции расстояние неизвестно, и часть условия о нём
+   * НЕ выполняется.
+   */
+  isSourceWithin?: (sourceId: string, feet: number) => boolean;
+  /**
+   * Номер идущего раунда: расписание «на раунде N» (ядро, VTTG 0.9.533+). Без
+   * опции номер неизвестен, и части расписания НЕ выполняются.
+   */
+  combatRound?: number;
   /**
    * Ауры чужих токенов, накрывающие сущность: их урон «пока внутри» тикает на
    * её ходу, а бонусы учитываются в спасбросках. Эффекты ауры на сущности не
@@ -490,6 +532,11 @@ export interface EffectSaveSpec extends SavingThrowCircumstances {
   ability: AbilityType;
   /** Сложность */
   dc: number;
+  /**
+   * Согласная цель вправе не бросать: окно покажет «Не сопротивляюсь».
+   * Решает владелец цели — накладывающий только разрешает.
+   */
+  allowWilling?: true;
 }
 
 /**
@@ -540,6 +587,7 @@ export function buildApplySaveSpec(
     dc: applySave.dc,
     ...resolveEffectMagicCircumstances(effect),
     againstCondition: effect.conditionKey,
+    ...(applySave.allowWilling ? { allowWilling: true } : {}),
   };
 }
 
@@ -983,7 +1031,7 @@ export function rollEffectDamage(
 }
 
 /** Откуда пришёл разовый эффект */
-export interface EntryEffectOptions {
+export interface EntryEffectOptions extends SceneMoveOptions {
   /** Зона, в которую вошли или из которой вышли; у ауры поля нет */
   sourceAreaId?: string;
   /** Ауры чужих токенов, накрывающие сущность (спасбросок, иммунитеты) */
@@ -1005,6 +1053,17 @@ export interface EntryEffectOptions {
    * заканчивается» переживают сам каст.
    */
   detachFromCast?: boolean;
+  /**
+   * Куда складывать строки действия «Сообщить» и перевода на следующую
+   * ступень. Без поля сообщение просто не показывается: клиент сводки не
+   * собирает.
+   */
+  collectNote?: (note: string) => void;
+  /**
+   * Смещение фишки носителя за это перемещение — у события пути: по нему зона
+   * «идёт за носителем».
+   */
+  movementOffset?: SceneOffset;
 }
 
 /** Исход срабатывания эффекта области/ауры при входе/выходе */
@@ -1245,14 +1304,47 @@ export function formatTurnEffectsMessage(
   result: TurnEffectsResult,
   turnOf: EffectTriggerTurnOwner = 'subject',
 ): string | null {
-  return formatEffectsSummary(
+  const whenLabel = resolveTurnSummaryLabel(timing, turnOf);
+
+  return appendEffectsSummaryNotes(
+    formatEffectsSummary(
+      entityName,
+      whenLabel,
+      result.damageOutcomes,
+      result.saveOutcomes,
+      formatRecurringSaveStatus,
+      result.healingOutcomes,
+    ),
     entityName,
-    resolveTurnSummaryLabel(timing, turnOf),
-    result.damageOutcomes,
-    result.saveOutcomes,
-    formatRecurringSaveStatus,
-    result.healingOutcomes,
+    whenLabel,
+    result.notes,
   );
+}
+
+/**
+ * Дописывает к сводке строки «сообщить»: напоминание приходит и тогда, когда
+ * ни урона, ни спасброска не было, — под своим заголовком.
+ *
+ * @param summary - сводка бросков либо `null`, если бросков не было
+ * @param entityName - имя сущности
+ * @param whenLabel - подпись момента
+ * @param notes - строки сообщений
+ * @returns строка для чата или `null`, если показывать нечего
+ */
+export function appendEffectsSummaryNotes(
+  summary: string | null,
+  entityName: string,
+  whenLabel: string,
+  notes: readonly string[],
+): string | null {
+  if (notes.length === 0) {
+    return summary;
+  }
+
+  return [
+    summary ?? formatEffectsSummaryHeader(entityName, whenLabel),
+    ...notes,
+  ].join('\n');
 }
 
 /**

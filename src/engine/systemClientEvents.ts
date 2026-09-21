@@ -35,6 +35,12 @@ const AttackRollEventSchema = z.object({
   attackerId: z.string().min(1),
   targetIds: z.array(z.string().min(1)).max(MAX_ATTACK_TARGETS),
   rollMode: z.enum(ATTACK_ROLL_MODES),
+  /**
+   * Попал ли бросок. Поля нет там, где к моменту сообщения это ещё неизвестно
+   * (серия снарядов: броски делает вызывающий уже после события) — и тогда
+   * части условия о попадании НЕ выполняются, как у всякой части без данных.
+   */
+  landed: z.boolean().optional(),
 });
 
 /** Zod-схема события правил от клиента */
@@ -81,17 +87,20 @@ export function buildEndCastsEvent(
  * @param attackerId - атакующий
  * @param targetIds - цели
  * @param rollMode - режим броска
+ * @param landed - попал ли бросок; не задано — к этому времени неизвестно
  * @returns событие для `system:client-event`
  */
 export function buildAttackRollEvent(
   attackerId: string,
   targetIds: readonly string[],
   rollMode: AttackRollMode,
+  landed?: boolean,
 ): SystemClientEvent {
   return {
     type: 'attackRoll',
     attackerId,
     targetIds: [...targetIds],
     rollMode,
+    ...(landed === undefined ? {} : { landed }),
   };
 }

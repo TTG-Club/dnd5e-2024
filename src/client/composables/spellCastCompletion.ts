@@ -32,7 +32,12 @@ import {
   stampSourceSaveDcs,
 } from '@vtt/shared/system/dnd.js';
 
-import { requestEndCasts, resolveSpellCastId } from './spellCasts';
+import { resolveCombatRound } from './encounterTurn';
+import {
+  requestEndCasts,
+  resolveSpellCastId,
+  resolveSpellCastLevel,
+} from './spellCasts';
 import {
   instantiateSpellEffects,
   postSpellEffectsMessage,
@@ -75,7 +80,10 @@ export function prepareCasterSpellEffects(
 ): ActiveEffect[] {
   // Условие наложения на заклинателе: сам себе он и наложивший
   const casterEffects = getCasterSpellEffects(spell).filter((effect) =>
-    passesLandingCondition(effect, caster, { source: caster }),
+    passesLandingCondition(effect, caster, {
+      source: caster,
+      combatRound: resolveCombatRound(),
+    }),
   );
 
   const castId = resolveSpellCastId(caster.id, spell);
@@ -99,7 +107,12 @@ export function prepareCasterSpellEffects(
         bindSourceEffectFormulas(effect, formulaContext),
         source.saveDc,
       ),
-      { carrierId: caster.id, sourceId: caster.id, castId },
+      {
+        carrierId: caster.id,
+        sourceId: caster.id,
+        castId,
+        castLevel: resolveSpellCastLevel(caster.id, spell),
+      },
     ),
   );
 

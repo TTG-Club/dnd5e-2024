@@ -354,20 +354,35 @@ export function buildSaveDamageDefense(
  * @param parties.carrierId - сущность, на которую ложится эффект
  * @param parties.sourceId - наложивший, если известен
  * @param parties.castId - каст с концентрацией: его конец снимет эффект
+ * @param parties.castLevel - круг каста: по нему «Рассеивание магии» решает,
+ *   снимать ли эффект
  * @returns эффект, готовый лечь на носителя
  */
 export function stampEffectOnApply(
   effect: ActiveEffect,
-  parties: { carrierId: string; sourceId?: string; castId?: string },
+  parties: {
+    carrierId: string;
+    sourceId?: string;
+    castId?: string;
+    castLevel?: number;
+  },
 ): ActiveEffect {
-  const { castId, ...stampParties } = parties;
+  const { castId, castLevel, ...stampParties } = parties;
 
   const stamped = stampAppliedEffect(effect, {
     ...stampParties,
     activeTurnActorId: resolveActiveTurnActorId(),
   });
 
-  return castId ? { ...stamped, castId } : stamped;
+  if (!castId) {
+    return stamped;
+  }
+
+  return {
+    ...stamped,
+    castId,
+    ...(castLevel === undefined ? {} : { castLevel }),
+  };
 }
 
 /**
