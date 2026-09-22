@@ -29,6 +29,7 @@ import type {
   SpellProjectiles,
   SpellRollSource,
 } from './dndEntities.js';
+import type { HealKind } from './formulaTokens.js';
 import type { DnDAbilityScores } from './types.js';
 
 import { isActorEntity, isRecord } from '@vtt/shared';
@@ -52,6 +53,15 @@ import {
   buildFormulaContext,
   substituteFormulaVariables,
 } from './formulaParser.js';
+import {
+  DAMAGE_TYPE_TOKEN_GLOBAL_REGEX,
+  detectFormulaDamageType,
+  detectFormulaHealKind,
+  hasDamageTypeToken,
+  hasHealToken,
+  stripDamageTypeTokens,
+  stripHealTokens,
+} from './formulaTokens.js';
 import {
   getSpellAttackBreakdown,
   getSpellSaveDCBreakdown,
@@ -1011,27 +1021,6 @@ export function resolveSpellDamageFormula(
   return substituteFormulaVariables(formula, context);
 }
 
-// ── Инлайн-токены типа урона (@dmg.<type>) и лечения (@heal) ─
-
-/** Регэксп инлайн-токена типа урона: `@dmg.fire`, `@dmg.cold` и т.п. */
-const DAMAGE_TYPE_TOKEN_REGEX = /@dmg\.([a-z]+)/i;
-
-/**
- * Вид лечения сегмента формулы: обычные хиты (`@heal`) или временные ХП
- * (`@heal.temp`). Временные ХП не суммируются с текущими — берётся большее.
- */
-export type HealKind = 'hp' | 'temp';
-
-/**
- * Регэксп инлайн-токена лечения: `@heal` (хиты) или `@heal.temp` (врем. ХП).
- * Лукэхед запрещает хвост (`@heal.spell` НЕ матчится и всплывёт ошибкой
- * парсера формул, а не молча станет лечением).
- */
-const HEAL_TOKEN_REGEX = /@heal(\.temp)?(?![\w.])/i;
-
-/** Глобальная версия {@link HEAL_TOKEN_REGEX} для вырезания токенов. */
-const HEAL_TOKEN_STRIP_REGEX = /@heal(\.temp)?(?![\w.])/gi;
-
 /** Сегмент формулы урона с привязанным типом (после разбора @dmg.<type>). */
 export interface TypedDamageSegment {
   /** Кубиковая формула сегмента (без токенов @dmg/@heal) */
@@ -1049,50 +1038,13 @@ export interface TypedDamageSegment {
 }
 
 /**
- * Удаляет инлайн-токены лечения `@heal`/`@heal.temp` из формулы
- * (для отображения и legacy-путей, где формула идёт в роллер целиком).
- *
- * @param formula - формула с возможными токенами @heal
- * @returns формула без токенов @heal (лишние пробелы схлопнуты)
- */
-export function stripHealTokens(formula: string): string {
-  if (!formula || !HEAL_TOKEN_REGEX.test(formula)) {
-    return formula ?? '';
-  }
-
-  return formula
-    .replace(HEAL_TOKEN_STRIP_REGEX, '')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-}
-
-/**
- * Определяет вид лечения из первого инлайн-токена `@heal`/`@heal.temp`.
- *
- * Формула — единственный источник истины вида части (legacy-флаг
- * `DamagePart.isHealing` удалён).
- *
- * @param formula - формула с возможным токеном @heal
- * @returns вид лечения или null, если токена нет
- */
-export function detectFormulaHealKind(formula: string): HealKind | null {
-  const match = formula.match(HEAL_TOKEN_REGEX);
-
-  if (!match) {
-    return null;
-  }
-
-  return match[1] ? 'temp' : 'hp';
-}
-
-/**
  * Проверяет, лечит ли часть урона: токен `@heal`/`@heal.temp` в формуле.
  *
  * @param part - часть урона/лечения заклинания
  * @returns true если часть лечит (хиты или временные ХП)
  */
 export function damagePartIsHealing(part: DamagePart): boolean {
-  return HEAL_TOKEN_REGEX.test(part.formula);
+  return hasHealToken(part.formula);
 }
 
 /**
@@ -1171,64 +1123,6 @@ export function getSpellPrimaryDamageType(
 }
 
 /**
- * Удаляет инлайн-токены типа урона `@dmg.<type>` из формулы (для отображения).
- *
- * @param formula - формула с возможными токенами @dmg
- * @returns формула без токенов @dmg (лишние пробелы схлопнуты)
- */
-export function stripDamageTypeTokens(formula: string): string {
-  if (!formula || !/@dmg\./i.test(formula)) {
-    return formula ?? '';
-  }
-
-  return formula
-    .replace(/@dmg\.[a-z]+/gi, '')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-}
-
-/**
- * Определяет тип урона из первого инлайн-токена `@dmg.<type>` в формуле.
- *
- * Используется как канонический источник типа части (формула — источник истины).
- *
- * @param formula - формула с возможным токеном @dmg
- * @returns тип урона (lowercase) или null, если токена нет
- */
-export function detectFormulaDamageType(formula: string): string | null {
-  const match = formula.match(DAMAGE_TYPE_TOKEN_REGEX);
-
-  return match ? match[1].toLowerCase() : null;
-}
-
-/**
- * Устанавливает/заменяет токен `@dmg.<type>` на ПЕРВОМ слагаемом формулы.
- *
- * Первое слагаемое — «базовое»; его тип задаёт тип всех последующих слагаемых
- * без собственного токена (см. поток типов в `splitFormulaByDamageType`).
- * Пустой `type` — удаляет токен с первого слагаемого.
- *
- * Примеры: `setFormulaDamageType("1к8", "fire")` → `"1к8@dmg.fire"`;
- * `setFormulaDamageType("1к8@dmg.fire + @mod.spell", "cold")`
- * → `"1к8@dmg.cold + @mod.spell"`.
- *
- * @param formula - исходная формула
- * @param type - тип урона (или пустая строка для удаления)
- * @returns формула с обновлённым токеном типа на первом слагаемом
- */
-export function setFormulaDamageType(formula: string, type: string): string {
-  const terms = formula.split('+').map((term) => term.trim());
-
-  const firstBase = (terms[0] ?? '')
-    .replace(DAMAGE_TYPE_TOKEN_REGEX, '')
-    .trim();
-
-  terms[0] = type ? `${firstBase}@dmg.${type}` : firstBase;
-
-  return terms.filter((term) => term.length > 0).join(' + ');
-}
-
-/**
  * Разбивает формулу урона на сегменты по инлайн-токенам вида:
  * `@dmg.<type>` (тип урона) и `@heal`/`@heal.temp` (лечение/временные ХП).
  *
@@ -1257,10 +1151,7 @@ export function splitFormulaByDamageType(
   formula: string,
   defaultType?: string,
 ): TypedDamageSegment[] {
-  if (
-    !formula
-    || (!/@dmg\./i.test(formula) && !HEAL_TOKEN_REGEX.test(formula))
-  ) {
+  if (!formula || (!hasDamageTypeToken(formula) && !hasHealToken(formula))) {
     return [{ formula: formula ?? '', type: defaultType }];
   }
 
@@ -1285,21 +1176,20 @@ export function splitFormulaByDamageType(
   let currentHealing: HealKind | undefined;
 
   for (const term of formula.split('+')) {
-    const healMatch = term.match(HEAL_TOKEN_REGEX);
-    const typeMatches = [...term.matchAll(/@dmg\.([a-z]+)/gi)];
+    const healKind = detectFormulaHealKind(term);
+    const typeMatches = [...term.matchAll(DAMAGE_TYPE_TOKEN_GLOBAL_REGEX)];
 
-    if (healMatch) {
-      currentHealing = healMatch[1] ? 'temp' : 'hp';
+    if (healKind) {
+      currentHealing = healKind;
       currentTypes = [];
     } else if (typeMatches.length > 0) {
       currentTypes = typeMatches.map((match) => match[1].toLowerCase());
       currentHealing = undefined;
     }
 
-    const cleaned = term
-      .replace(HEAL_TOKEN_STRIP_REGEX, '')
-      .replace(/@dmg\.[a-z]+/gi, '')
-      .trim();
+    // Слагаемое без токенов общие функции возвращают как есть (без trim),
+    // поэтому обрезка нужна и здесь.
+    const cleaned = stripDamageTypeTokens(stripHealTokens(term)).trim();
 
     if (cleaned.length === 0) {
       continue;

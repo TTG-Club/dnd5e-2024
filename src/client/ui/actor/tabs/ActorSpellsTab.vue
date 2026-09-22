@@ -103,9 +103,9 @@
     requestSpellEffectTargets,
   } from '../../../composables/spellEffectTargeting';
   import {
+    castNeedsMultiPart,
     getTargetSpellEffects,
     postSpellEffectsMessage,
-    targetEffectsNeedResolution,
   } from '../../../composables/spellResolutionShared';
   import {
     useBonusDamageParts,
@@ -1583,25 +1583,12 @@
     // резолва заклинаний без урона, чья задача — повесить эффект на цель.
     const hasSpellTargetEffects = getTargetSpellEffects(spell).length > 0;
 
-    // Атака с уроном, чьим эффектам на цель нужен разбор (свой спасбросок, урон
-    // эффекта), тоже идёт многочастным путём: урон заклинания и эффекты ложатся
-    // ОДНОЙ записью. По попаданию (onHit) разбор ждал бы окна спасброска эффекта,
-    // а урон модалки успевал бы записаться раньше и затирался бы
-    const useMultiPart =
-      !hasProjectiles
-      && (hasBonusDamage
-        || spellDamageParts.length > 1
-        || (spellDamageParts.length > 0
-          && getSpellAttackType(spell) !== undefined
-          && targetEffectsNeedResolution(spell))
-        || spellDamageParts.some(
-          (part) =>
-            (part.target ?? 'selected') !== 'selected'
-            || part.requiresDamage
-            || /@dmg\./i.test(part.formula)
-            || /@heal/i.test(part.formula)
-            || /@target\./i.test(part.formula),
-        ));
+    const useMultiPart = castNeedsMultiPart({
+      spell,
+      damageParts: spellDamageParts,
+      hasProjectiles,
+      hasBonusDamage,
+    });
 
     // Плоский бонус эффектов к урону заклинаниями (`damage.spell`) вливается в
     // первую урон-часть — так же, как статический бонус оружия

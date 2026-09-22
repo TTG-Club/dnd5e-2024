@@ -65,6 +65,11 @@ import {
 import { getCustomBonusValue, parseCustomBonuses } from './customBonuses.js';
 import { formatDiceLetters } from './diceFormula.js';
 import {
+  detectFormulaDamageType,
+  stripDamageTypeTokens,
+  stripHealTokens,
+} from './formulaTokens.js';
+import {
   DEFAULT_PROFICIENCY_BONUS,
   getProficiencyBonusBreakdown,
   parseProficiencySettings,
@@ -844,9 +849,7 @@ export function getWeaponPrimaryDamageType(
     return undefined;
   }
 
-  const tokenMatch = part.formula.match(/@dmg\.([a-z]+)/i);
-
-  return tokenMatch ? tokenMatch[1].toLowerCase() : part.type;
+  return detectFormulaDamageType(part.formula) ?? part.type;
 }
 
 /**
@@ -860,9 +863,7 @@ export function getWeaponPrimaryDamageType(
 export function formatWeaponDamageFormula(weapon: DnDGameItem): string {
   return getWeaponDamageParts(weapon)
     .map((part) => {
-      const withoutTokens = part.formula
-        .replace(/@dmg\.[a-z]+/gi, '')
-        .replace(/@heal(\.temp)?/gi, '')
+      const withoutTokens = stripHealTokens(stripDamageTypeTokens(part.formula))
         .replace(/\s{2,}/g, ' ')
         .trim();
 

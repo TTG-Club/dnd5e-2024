@@ -1,5 +1,6 @@
 import type {
   AbilityType,
+  DamagePart,
   DamagePartTarget,
   MeasurementTemplate,
   SceneEntity,
@@ -23,7 +24,9 @@ import { generateId } from '@vtt/shared';
 import {
   CREATURE_TYPE_LABELS,
   DAMAGE_TYPE_LABELS,
+  damagePartNeedsOwnResolution,
   damageReachesTarget,
+  getSpellAttackType,
   getTargetSpellEffects,
   hasSourceTurnSaveDc,
   isDndSceneEntity,
@@ -400,6 +403,48 @@ export function targetEffectsNeedResolution(spell: Spell): boolean {
       effect.applySave !== undefined
       || (effect.damageParts?.length ?? 0) > 0
       || hasSourceTurnSaveDc(effect),
+  );
+}
+
+/**
+ * Идёт ли каст многочастным путём — когда части урона и эффекты ложатся ОДНОЙ
+ * записью, а не одной общей формулой в модалке.
+ *
+ * Снаряды всегда остаются на одноформульном пути. Многочастный путь нужен,
+ * когда есть бонус-урон, частей больше одной, хоть одной части нужен свой
+ * разбор, либо это атака с уроном, чьим эффектам на цель нужен разбор: по
+ * попаданию (`onHit`) разбор ждал бы окна спасброска эффекта, а урон модалки
+ * успевал бы записаться раньше и затирался бы.
+ *
+ * Одна функция на лист и хотбар: разойдись это решение — один и тот же каст
+ * с листа и с хотбара пошёл бы разными путями.
+ *
+ * @param context - заклинание, его части урона и признаки каста
+ * @param context.spell - заклинание каста
+ * @param context.damageParts - части урона/лечения заклинания
+ * @param context.hasProjectiles - каст идёт снарядами (их путь одноформульный)
+ * @param context.hasBonusDamage - эффекты дают бонус-урон к этому касту
+ * @returns true, если каст идёт многочастным путём
+ */
+export function castNeedsMultiPart(context: {
+  spell: Spell;
+  damageParts: DamagePart[];
+  hasProjectiles: boolean;
+  hasBonusDamage: boolean;
+}): boolean {
+  const { spell, damageParts, hasProjectiles, hasBonusDamage } = context;
+
+  if (hasProjectiles) {
+    return false;
+  }
+
+  return (
+    hasBonusDamage
+    || damageParts.length > 1
+    || (damageParts.length > 0
+      && getSpellAttackType(spell) !== undefined
+      && targetEffectsNeedResolution(spell))
+    || damageParts.some(damagePartNeedsOwnResolution)
   );
 }
 

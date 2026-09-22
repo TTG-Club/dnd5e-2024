@@ -22,7 +22,7 @@ import type {
   EffectDuration,
   EffectSave,
 } from './activeEffectTypes.js';
-import type { HealKind } from './spellUtils.js';
+import type { HealKind } from './formulaTokens.js';
 
 import {
   AREA_TRIGGER_LABELS,
@@ -38,7 +38,12 @@ import {
 import { getConditionEntry } from './conditionTemplates.js';
 import { ABILITY_LABELS, FORMULA_VARIABLE_LABELS } from './consts.js';
 import { getShortDamageTypeLabel } from './damageConstants.js';
-import { detectFormulaHealKind, stripHealTokens } from './spellUtils.js';
+import {
+  detectFormulaDamageType,
+  detectFormulaHealKind,
+  stripDamageTypeTokens,
+  stripHealTokens,
+} from './formulaTokens.js';
 
 /** Подпись ключа модификатора (`armorClass` → «Класс доспеха (AC)»). */
 const TARGET_LABELS = new Map(
@@ -263,8 +268,7 @@ export function describeEffectDamageParts(parts: DamagePart[]): string {
       const formula = part.formula.trim();
 
       // Тип урона: из поля type либо из токена @dmg.<type> в формуле
-      const damageToken = formula.match(/@dmg\.([a-z]+)/i);
-      const typeKey = part.type ?? damageToken?.[1];
+      const typeKey = part.type ?? detectFormulaDamageType(formula);
       const typeLabel = typeKey ? ` ${getShortDamageTypeLabel(typeKey)}` : '';
       const healKind = detectFormulaHealKind(formula);
       const healLabel = healKind ? ` ${HEAL_KIND_LABELS[healKind]}` : '';
@@ -278,8 +282,7 @@ export function describeEffectDamageParts(parts: DamagePart[]): string {
 
       // Чистим формулу от токенов и подставляем подписи @mod.* / @prof / @level
       const cleanFormula = prettifyFormula(
-        stripHealTokens(formula)
-          .replace(/@dmg\.[a-z]+/gi, '')
+        stripDamageTypeTokens(stripHealTokens(formula))
           .replace(/@target\.\w+/gi, '')
           .trim(),
       );

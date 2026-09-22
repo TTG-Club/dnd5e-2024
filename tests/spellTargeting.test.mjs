@@ -42,7 +42,7 @@ const bundle = await build({
   stdin: {
     contents: `
       export * from './src/client/composables/spellEffectTargeting.ts';
-      export { targetEffectsNeedResolution } from './src/client/composables/spellResolutionShared.ts';
+      export { castNeedsMultiPart, targetEffectsNeedResolution } from './src/client/composables/spellResolutionShared.ts';
       export { getSpellEffectTargetCount } from './src/engine/spellUtils.ts';
       export * from 'test:host';
       export { useProjectileStore } from '@/stores/projectileStore';
@@ -984,6 +984,7 @@ for (const [kind, instantSpell] of [
         hasSpellBonusDamage: () => false,
         getTargetSpellEffects: (spell) => spell.activeEffects,
         targetEffectsNeedResolution: runtime.targetEffectsNeedResolution,
+        castNeedsMultiPart: runtime.castNeedsMultiPart,
         spellTargetEffectsSource: () => ({
           casterId: 'caster',
           spellSaveDC: 13,

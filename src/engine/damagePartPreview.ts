@@ -14,11 +14,8 @@
 import type { DamagePart } from '@vtt/shared';
 
 import type { CreatureCategory } from './creatureTypes.js';
-import type {
-  HealKind,
-  ResolvedDamagePartInput,
-  TargetHpGate,
-} from './spellUtils.js';
+import type { HealKind } from './formulaTokens.js';
+import type { ResolvedDamagePartInput, TargetHpGate } from './spellUtils.js';
 
 import { FORMULA_VARIABLE_LABELS, isCreatureCategory } from './consts.js';
 import { formatDiceFormula } from './diceFormula.js';
