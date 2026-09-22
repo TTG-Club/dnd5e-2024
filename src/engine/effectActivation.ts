@@ -418,9 +418,9 @@ export function findWeaponAmmunition(
 }
 
 /**
- * Оружие выстрела с боеприпасом: магический бонус боеприпаса складывается с
- * бонусом оружия, эффекты применения боеприпаса ложатся на цель вместе с
- * эффектами оружия.
+ * Оружие выстрела с боеприпасом: магический бонус боеприпаса идёт к атаке и
+ * урону рядом с бонусом оружия (`ammunitionBonus`), эффекты применения
+ * боеприпаса ложатся на цель вместе с эффектами оружия.
  *
  * @param weapon - оружие
  * @param ammunition - боеприпас; без него оружие как есть
@@ -438,17 +438,33 @@ export function withAmmunition(
     ? Number(ammunition.magicBonus ?? 0)
     : 0;
 
-  const magicBonus = Number(weapon.magicBonus ?? 0) + ammunitionBonus;
+  const hasBonus = Number.isFinite(ammunitionBonus) && ammunitionBonus !== 0;
 
   return {
     ...weapon,
-    isMagical: weapon.isMagical || ammunitionBonus !== 0 || undefined,
-    magicBonus: magicBonus === 0 ? weapon.magicBonus : magicBonus,
+    isMagical: weapon.isMagical || hasBonus || undefined,
+    ...(hasBonus ? { ammunitionBonus } : {}),
     activeEffects: [
       ...(weapon.activeEffects ?? []),
       ...listUseEffects(ammunition.activeEffects),
     ],
   };
+}
+
+/**
+ * Оружие таким, каким оно выстрелит, — для плиток строки и карточки оружия:
+ * с бонусом боеприпаса, которым заряжено. Кончившийся боеприпас в счёте
+ * остаётся: строка показывает, чем оружие заряжено, и число сходится с ней.
+ *
+ * @param equipment - инвентарь
+ * @param weapon - оружие
+ * @returns оружие с боеприпасом либо как есть, если оно не заряжено
+ */
+export function withLoadedAmmunition(
+  equipment: readonly DnDGameItem[],
+  weapon: DnDGameItem,
+): DnDGameItem {
+  return withAmmunition(weapon, findLoadedAmmunition(equipment, weapon));
 }
 
 /**

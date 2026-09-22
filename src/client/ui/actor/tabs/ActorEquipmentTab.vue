@@ -62,6 +62,7 @@
     spendItemUses,
     TOOL_CATEGORIES,
     weaponUsesAmmunition,
+    withLoadedAmmunition,
   } from '@vtt/shared/system/dnd.js';
 
   import { resolveTargetedAttackRollMode } from '../../../composables/attackRollMode';
@@ -1248,20 +1249,23 @@
     const stats: SheetRowStat[] = [];
 
     if (item.type === 'weapon' && item.damageParts?.length) {
+      // Числа — как у выстрела: бонус заряженного боеприпаса в счёте
+      const weapon = withLoadedAmmunition(inventory.value, item);
+
       stats.push(
         {
           key: 'attack',
           label: EQUIPMENT_STAT_LABELS.attack,
-          value: getWeaponAttackBonusLabel(item),
-          tooltip: weaponAttackHint(item),
+          value: getWeaponAttackBonusLabel(weapon),
+          tooltip: weaponAttackHint(weapon),
           accent: true,
           rollable: true,
         },
         {
           key: 'damage',
           label: EQUIPMENT_STAT_LABELS.damage,
-          value: weaponDamageFormulaLabel(item),
-          tooltip: weaponDamageHint(item),
+          value: weaponDamageFormulaLabel(weapon),
+          tooltip: weaponDamageHint(weapon),
           accent: true,
           rollable: true,
         },

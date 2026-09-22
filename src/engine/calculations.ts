@@ -450,7 +450,10 @@ export function resolveWeaponDamageAbility(
  * бейджем.
  */
 export interface WeaponModifierPart {
-  /** Ключ слагаемого: `ability`, `proficiency`, `weapon`, `magic`, `effects`, `custom-<id>` */
+  /**
+   * Ключ слагаемого: `ability`, `proficiency`, `weapon`, `magic`, `ammunition`,
+   * `effects`, `custom-<id>`
+   */
   key: string;
 
   /** Подпись слагаемого («Ловкость», «Мастерство», «Эффекты») */
@@ -475,6 +478,8 @@ export const WEAPON_MODIFIER_PART_LABELS = {
   weaponBonus: 'Бонус оружия',
   /** Магический бонус предмета */
   magic: 'Магия',
+  /** Магический бонус боеприпаса, которым оружие стреляет */
+  ammunition: 'Боеприпас',
   /** Плоские бонусы активных эффектов (ауры, экипировка) */
   effects: 'Эффекты',
   /** Своя строка бонуса без пометки источника */
@@ -529,10 +534,25 @@ function getWeaponAbilityPart(
 }
 
 /**
- * Слагаемое своего бонуса оружия («Доп. бонус» атаки или урона).
+ * Строка разбора из числа бонуса. Число приходит из записи мира: не конечное —
+ * строки нет, иначе `NaN` расползся бы по всему разбору и итог показал бы
+ * пустоту; ноль строки тоже не даёт.
  *
- * Число приходит из записи мира: не число и не конечное — слагаемого нет, иначе
- * `NaN` расползся бы по всему разбору и итог показал бы пустоту.
+ * @param key - ключ слагаемого
+ * @param label - подпись слагаемого
+ * @param value - бонус
+ * @returns слагаемое (пустой список — бонуса нет)
+ */
+function getBonusParts(
+  key: string,
+  label: string,
+  value: number,
+): WeaponModifierPart[] {
+  return Number.isFinite(value) && value !== 0 ? [{ key, label, value }] : [];
+}
+
+/**
+ * Слагаемое своего бонуса оружия («Доп. бонус» атаки или урона).
  *
  * @param bonus - плоский бонус оружия
  * @returns слагаемое бонуса оружия (пустой список — бонуса нет)
@@ -540,17 +560,9 @@ function getWeaponAbilityPart(
 function getWeaponFlatBonusParts(
   bonus: number | undefined,
 ): WeaponModifierPart[] {
-  if (typeof bonus !== 'number' || !Number.isFinite(bonus) || bonus === 0) {
-    return [];
-  }
-
-  return [
-    {
-      key: 'weapon',
-      label: WEAPON_MODIFIER_PART_LABELS.weaponBonus,
-      value: bonus,
-    },
-  ];
+  return typeof bonus === 'number'
+    ? getBonusParts('weapon', WEAPON_MODIFIER_PART_LABELS.weaponBonus, bonus)
+    : [];
 }
 
 /**
@@ -561,19 +573,28 @@ function getWeaponFlatBonusParts(
  * @returns слагаемое магии (пустой список — бонуса нет)
  */
 function getWeaponMagicParts(weapon: DnDGameItem): WeaponModifierPart[] {
-  if (!weapon.isMagical) {
-    return [];
-  }
+  return weapon.isMagical
+    ? getBonusParts(
+        'magic',
+        WEAPON_MODIFIER_PART_LABELS.magic,
+        Number(weapon.magicBonus),
+      )
+    : [];
+}
 
-  const bonus = Number(weapon.magicBonus);
-
-  if (!Number.isFinite(bonus) || bonus === 0) {
-    return [];
-  }
-
-  return [
-    { key: 'magic', label: WEAPON_MODIFIER_PART_LABELS.magic, value: bonus },
-  ];
+/**
+ * Слагаемое бонуса боеприпаса — у оружия выстрела, как и магия, идёт и к атаке,
+ * и к урону: стрела +1 из лука +1 даёт +2.
+ *
+ * @param weapon - оружие выстрела (`withAmmunition`)
+ * @returns слагаемое боеприпаса (пустой список — бонуса нет)
+ */
+function getWeaponAmmunitionParts(weapon: DnDGameItem): WeaponModifierPart[] {
+  return getBonusParts(
+    'ammunition',
+    WEAPON_MODIFIER_PART_LABELS.ammunition,
+    Number(weapon.ammunitionBonus),
+  );
 }
 
 /**
@@ -669,6 +690,7 @@ export function describeWeaponAttack(
   parts.push(
     ...getWeaponFlatBonusParts(weapon.attackBonus),
     ...getWeaponMagicParts(weapon),
+    ...getWeaponAmmunitionParts(weapon),
     ...getWeaponEffectsParts(resolvedStats?.attackBonuses, weapon.rangeType),
     ...getWeaponCustomBonusParts(
       weapon.attackCustomBonuses,
@@ -704,6 +726,7 @@ export function describeWeaponDamage(
   parts.push(
     ...getWeaponFlatBonusParts(weapon.damageBonus),
     ...getWeaponMagicParts(weapon),
+    ...getWeaponAmmunitionParts(weapon),
     ...getWeaponEffectsParts(resolvedStats?.damageBonuses, weapon.rangeType),
     ...getWeaponCustomBonusParts(
       weapon.damageCustomBonuses,

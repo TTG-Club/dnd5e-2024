@@ -13,6 +13,7 @@
     getWeaponDamageParts,
     sumWeaponModifierParts,
     WEAPON_MASTERY_MAP,
+    withLoadedAmmunition,
   } from '@vtt/shared/system/dnd.js';
 
   import { useResolvedStats } from '../../composables/useResolvedStats';
@@ -81,16 +82,18 @@
   const { resolvedStats } = useResolvedStats(toRef(() => props.actor));
 
   /**
-   * Разбор атаки и урона для владельца: итог со знаком и слагаемые строкой.
-   * Без владельца — `null`, и карточка показывает бонус самого оружия.
+   * Разбор атаки и урона для владельца: итог со знаком и слагаемые строкой —
+   * как у выстрела, с бонусом заряженного боеприпаса. Без владельца — `null`,
+   * и карточка показывает бонус самого оружия.
    */
   const ownerModifiers = computed(() => {
     const actor = props.actor;
-    const weapon = props.item;
 
-    if (!actor || !weapon) {
+    if (!actor || !props.item) {
       return null;
     }
+
+    const weapon = withLoadedAmmunition(actor.equipment ?? [], props.item);
 
     const attackParts = describeWeaponAttack(
       actor,

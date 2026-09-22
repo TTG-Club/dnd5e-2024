@@ -632,8 +632,63 @@ describe('каталог: предметы', () => {
     const found = engine.findWeaponAmmunition([longbow, arrows], longbow);
     const shot = engine.withAmmunition(longbow, found);
 
-    assert.equal(shot.magicBonus, 1);
+    assert.equal(shot.ammunitionBonus, 1);
+    assert.equal(shot.magicBonus, undefined, 'бонус лука не тронут');
     assert.equal(shot.isMagical, true);
+
+    // Лук +1 и стрела +1: к атаке и урону по отдельной строке, вместе +2
+    const hero = createActor();
+    const magicBow = { ...longbow, isMagical: true, magicBonus: 1 };
+    const magicShot = engine.withAmmunition(magicBow, found);
+
+    for (const describeParts of [
+      engine.describeWeaponAttack,
+      engine.describeWeaponDamage,
+    ]) {
+      const bowTotal = engine.sumWeaponModifierParts(
+        describeParts(hero, magicBow),
+      );
+
+      const parts = describeParts(hero, magicShot);
+
+      assert.deepEqual(
+        parts
+          .filter((part) => ['magic', 'ammunition'].includes(part.key))
+          .map((part) => [part.label, part.value]),
+        [
+          ['Магия', 1],
+          ['Боеприпас', 1],
+        ],
+      );
+
+      assert.equal(engine.sumWeaponModifierParts(parts), bowTotal + 1);
+    }
+
+    // Плитки строки: бонус заряженной стрелы в счёте и когда стрелы кончились
+    assert.equal(
+      engine.withLoadedAmmunition([longbow, arrows], longbow).ammunitionBonus,
+      1,
+    );
+
+    assert.equal(
+      engine.withLoadedAmmunition(
+        [longbow, { ...arrows, quantity: 0 }],
+        longbow,
+      ).ammunitionBonus,
+      1,
+    );
+
+    assert.equal(
+      engine.withLoadedAmmunition([longbow], longbow),
+      longbow,
+      'нечем стрелять — лук как есть',
+    );
+
+    assert.equal(
+      engine.withAmmunition(longbow, quiver).ammunitionBonus,
+      undefined,
+      'не магические стрелы бонуса не дают',
+    );
 
     assert.deepEqual(
       shot.activeEffects.map((effect) => [effect.name, effect.activation]),
