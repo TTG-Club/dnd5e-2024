@@ -639,6 +639,9 @@ it('the actual hotbar spell executor opens the same target selection and passes 
       isDnDActorEntity: (entity) => entity?.entityType === 'actor',
       findSpell: () => ({ spell: bless, actor }),
       getAvailableSpellLevels: () => [1, 2],
+      // Свои бонусы к ячейкам считаются от итоговых статов заклинателя
+      resolveActorStats: () => ({ abilityBonusContext: {} }),
+      MAX_SPELL_SLOT_LEVEL: 9,
       needsSpellEffectTargets: runtime.needsSpellEffectTargets,
       requestSpellEffectTargets: runtime.requestSpellEffectTargets,
       castBuffSpellMacro: (spell, caster, level, targets) => {

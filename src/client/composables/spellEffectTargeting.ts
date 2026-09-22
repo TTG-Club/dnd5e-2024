@@ -14,6 +14,7 @@ import {
   hasAvailableSpellSlot,
   isDndSceneEntity,
   isSpellReady,
+  resolveActorStats,
   spellHasDamage,
 } from '@vtt/shared/system/dnd.js';
 
@@ -271,7 +272,14 @@ export function requestSpellEffectTargets(
         return true;
       }
 
-      return hasAvailableSpellSlot(caster, castLevel, isPactSlot);
+      // Свои бонусы к ячейкам считаются от итоговых статов — как на вкладке
+      // заклинаний, иначе вкладка и проверка каста разошлись бы в числе ячеек
+      return hasAvailableSpellSlot(
+        caster,
+        castLevel,
+        isPactSlot,
+        resolveActorStats(caster).abilityBonusContext,
+      );
     }
 
     /** Отменяет старый каст, если запись заклинания заменили или изменили. */

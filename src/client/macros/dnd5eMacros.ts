@@ -15,6 +15,7 @@ import type {
   DnDActor,
   DnDCreature,
   DnDGameItem,
+  ResolvedActorStats,
   RollContext,
   Spell,
 } from '@vtt/shared/system/dnd.js';
@@ -77,6 +78,7 @@ import {
   isCreatureSpellPoolMode,
   isDndSceneEntity,
   isSaveAbility,
+  MAX_SPELL_SLOT_LEVEL,
   mergeAppliedEffects,
   pickCantripTierParts,
   resolveActorStats,
@@ -307,18 +309,26 @@ function checkWeaponRangeOnScene(
  * @param lockedLevel - фиксированный круг (если есть)
  * @param spellLevel - базовый круг заклинания
  * @param actor - актор-заклинатель
+ * @param resolvedStats - итоговые статы заклинателя: от них считаются свои
+ *   бонусы к ячейкам — так же, как на вкладке заклинаний
  */
 function computeAvailableLevels(
   lockedLevel: number | undefined,
   spellLevel: number,
   actor: DnDActor,
+  resolvedStats: ResolvedActorStats,
 ): number[] {
   if (lockedLevel) {
     return [lockedLevel];
   }
 
   if (spellLevel > 0) {
-    return getAvailableSpellLevels(actor, spellLevel);
+    return getAvailableSpellLevels(
+      actor,
+      spellLevel,
+      MAX_SPELL_SLOT_LEVEL,
+      resolvedStats.abilityBonusContext,
+    );
   }
 
   return [];
@@ -687,7 +697,14 @@ export function registerDnd5eMacros(): void {
         const { actor } = result;
 
         const availableLevels =
-          spell.level > 0 ? getAvailableSpellLevels(actor, spell.level) : [0];
+          spell.level > 0
+            ? getAvailableSpellLevels(
+                actor,
+                spell.level,
+                MAX_SPELL_SLOT_LEVEL,
+                resolveActorStats(actor).abilityBonusContext,
+              )
+            : [0];
 
         if (spell.level > 0 && availableLevels.length === 0) {
           const chatStore = useChatStore();
@@ -1370,6 +1387,7 @@ function openDiceRollForSpell(
         lockedSpellLevel,
         spell.level,
         actor,
+        resolvedStats,
       ),
       spellScalingDice: spell.scaling?.additionalDice,
       pactSlotLevel,
@@ -1546,6 +1564,7 @@ function castBuffSpellMacro(
         lockedSpellLevel,
         spell.level,
         actor,
+        casterStats,
       ),
       pactSlotLevel: pactInfo.level,
       onSpellSlotConsume: (

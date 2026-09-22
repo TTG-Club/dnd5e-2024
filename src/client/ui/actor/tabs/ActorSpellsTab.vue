@@ -9,6 +9,7 @@
     DnDActor,
     DnDCustomBonusContext,
     DnDPreparedLimit,
+    DnDSpellSlotSettings,
     PreparedKind,
     RollContext,
     Spell,
@@ -42,6 +43,7 @@
   import { useWorldStore } from '@/stores/worldStore';
   import { generateId, isRecord } from '@vtt/shared';
   import {
+    applySpellSlotSettings,
     buildCasterTypeMap,
     calculateSpellAttackModifier,
     CANTRIP_SPELL_LEVEL,
@@ -60,9 +62,11 @@
     getTotalLevel,
     isDndSceneEntity,
     isSpellReady,
+    MAX_SPELL_SLOT_LEVEL,
     mergeAppliedEffects,
     parsePreparedLimit,
     parseSpellcastingSettings,
+    parseSpellSlotSettings,
     pickCantripTierParts,
     PREPARED_LIMIT_EMPTY_VALUE,
     resolveActorStats,
@@ -142,6 +146,7 @@
   import PreparedSpellsModal from '../PreparedSpellsModal.vue';
   import SheetStatTile from '../SheetStatTile.vue';
   import SpellcastingSettingsModal from '../SpellcastingSettingsModal.vue';
+  import SpellSlotsModal from '../SpellSlotsModal.vue';
   import { getFilterChipClass } from '../utils/filterChipClass';
   import { formatSignedNumber } from '../utils/formatSignedNumber';
   import { formatSpellDamageDisplay } from '../utils/formatSpellDamageDisplay';
@@ -332,12 +337,68 @@
       : sheetSpellAttack.value.value + resolvedStats.value.attackBonuses.spell,
   );
 
-  /** Максимальные ячейки заклинаний */
-  const maxSlots = computed(() => {
+  /** Ячейки по таблицам классов — без своей поправки листа */
+  const classSlots = computed(() => {
     const classes = props.actor.system?.classes ?? [];
 
     return computeSpellSlots(classes, buildCasterTypeMap(classes));
   });
+
+  /** Свои бонусы листа к ячейкам; поля нет у листов старых миров */
+  const spellSlotSettings = computed(() =>
+    parseSpellSlotSettings(props.actor.system?.spellSlotSettings),
+  );
+
+  /** Максимальные ячейки заклинаний: классы и свои бонусы поверх */
+  const maxSlots = computed(() =>
+    applySpellSlotSettings(
+      classSlots.value,
+      spellSlotSettings.value,
+      spellcastingBonusContext.value,
+    ),
+  );
+
+  /** Использованные ячейки */
+  const usedSlots = computed(
+    () => props.actor.system?.spellSlotsUsed ?? [0, 0, 0, 0, 0, 0, 0, 0, 0],
+  );
+
+  const isSlotsModalOpen = ref(false);
+
+  /** У листа есть свои бонусы к ячейкам: значок настройки горит тёплым */
+  const hasSpellSlotBonuses = computed(() =>
+    spellSlotSettings.value.levels.some((bonuses) => bonuses.length > 0),
+  );
+
+  /**
+   * Подсказка значка ячеек: сколько осталось из всего. Число ячеек видно и у
+   * пузырьков кругов, но на значке без подписи оно объясняет, что он настраивает.
+   */
+  const slotsButtonTooltip = computed(() => {
+    const total = maxSlots.value.reduce((sum, count) => sum + count, 0);
+
+    const left = maxSlots.value.reduce(
+      (sum, count, index) =>
+        sum + Math.max(0, count - (usedSlots.value[index] ?? 0)),
+      0,
+    );
+
+    const value = total === 0 ? PREPARED_LIMIT_EMPTY_VALUE : `${left}/${total}`;
+
+    return `${ACTOR_SPELLS_TAB_LABELS.slotsHint}: ${value} — ${ACTOR_SPELLS_TAB_LABELS.slotsHintSettings}`;
+  });
+
+  /** Сохраняет свои бонусы к ячейкам из модалки */
+  function applySpellSlotSettingsUpdate(settings: DnDSpellSlotSettings): void {
+    emit('update:actor', {
+      system: {
+        ...props.actor.system,
+        spellSlotSettings: settings,
+      },
+    });
+
+    triggerSaveIfNotEdit();
+  }
 
   /** Классы по пакам — таблица уровней читается из записи, которую выбрали */
   const { resolve: resolveClassDefinition } = useClassCatalog();
@@ -632,11 +693,6 @@
     triggerSaveIfNotEdit();
   }
 
-  /** Использованные ячейки */
-  const usedSlots = computed(
-    () => props.actor.system?.spellSlotsUsed ?? [0, 0, 0, 0, 0, 0, 0, 0, 0],
-  );
-
   // --- Поиск и отбор ---
 
   const searchQuery = ref('');
@@ -764,6 +820,15 @@
   const hasFilterControls = computed(
     () => (props.actor.spells?.length ?? 0) > 0,
   );
+
+  /**
+   * Значок ячеек — квадрат чипа отбора, как соседний значок свойств. Без поиска
+   * (в книге пусто) распор справа держит уже он сам.
+   */
+  const slotsButtonClass = computed(() => [
+    getFilterChipClass(hasSpellSlotBonuses.value, 'icon'),
+    hasFilterControls.value ? '' : 'ml-auto',
+  ]);
 
   /**
    * Чипы кругов: сам чип — номер круга, у заговоров вместо номера буква.
@@ -905,7 +970,9 @@
 
       if (level > 0 && level <= maxSlots.value.length) {
         max = maxSlots.value[level - 1];
-        used = usedSlots.value[level - 1] ?? 0;
+        // Отрицательная прибавка могла срезать ячейки, уже потраченные раньше:
+        // потраченных не бывает больше, чем ячеек, иначе счётчик ушёл бы в минус
+        used = Math.min(max, usedSlots.value[level - 1] ?? 0);
       }
 
       return {
@@ -1268,7 +1335,12 @@
     }
 
     if (spell.level > 0) {
-      return getAvailableSpellLevels(props.actor, spell.level);
+      return getAvailableSpellLevels(
+        props.actor,
+        spell.level,
+        MAX_SPELL_SLOT_LEVEL,
+        spellcastingBonusContext.value,
+      );
     }
 
     return [0];
@@ -1493,7 +1565,12 @@
     } else if (isInnate) {
       availableLevels = [spell.level];
     } else if (spell.level > 0) {
-      availableLevels = getAvailableSpellLevels(props.actor, spell.level);
+      availableLevels = getAvailableSpellLevels(
+        props.actor,
+        spell.level,
+        MAX_SPELL_SLOT_LEVEL,
+        spellcastingBonusContext.value,
+      );
     }
 
     // Снарядный режим: число снарядов зависит от контекста каста
@@ -2119,75 +2196,93 @@
         справа — поле поиска, свойства и сброс. Разносит их распор на поле
         поиска. Чипы лежат в ряду поштучно, без вложенных групп: иначе круги
         переносятся на новую строку все разом, даже когда место ещё есть -->
-      <div
-        v-if="hasFilterControls"
-        class="flex flex-wrap items-center gap-x-1.5 gap-y-2"
-      >
-        <FilterChip
-          v-if="isPreparedFilterAvailable"
-          :label="SPELL_FILTER_LABELS.prepared"
-          :tooltip="SPELL_FILTER_LABELS.preparedHint"
-          icon="tabler:wand"
-          :picked="filterPrepared"
-          @toggle="togglePreparedFilter"
-        />
+      <div class="flex flex-wrap items-center gap-x-1.5 gap-y-2">
+        <!-- Ряд стоит и у пустой книги: в нём значок ячеек, а ячейки добавляют
+          и персонажу без заклинаний — воину от черты или предмета -->
+        <template v-if="hasFilterControls">
+          <FilterChip
+            v-if="isPreparedFilterAvailable"
+            :label="SPELL_FILTER_LABELS.prepared"
+            :tooltip="SPELL_FILTER_LABELS.preparedHint"
+            icon="tabler:wand"
+            :picked="filterPrepared"
+            @toggle="togglePreparedFilter"
+          />
 
-        <!-- Круги — числами, как в справочнике заклинаний: подписью целиком
+          <!-- Круги — числами, как в справочнике заклинаний: подписью целиком
         («Заговоры», «3-й круг») ряд бы не поместился на узком листе, поэтому
         она уходит в подсказку -->
-        <FilterChip
-          v-for="levelChip in levelChips"
-          :key="levelChip.level"
-          :label="levelChip.label"
-          :tooltip="levelChip.tooltip"
-          :picked="levelChip.isPicked"
-          @toggle="toggleLevelFilter(levelChip.level)"
-        />
+          <FilterChip
+            v-for="levelChip in levelChips"
+            :key="levelChip.level"
+            :label="levelChip.label"
+            :tooltip="levelChip.tooltip"
+            :picked="levelChip.isPicked"
+            @toggle="toggleLevelFilter(levelChip.level)"
+          />
 
-        <UInput
-          v-model="searchQuery"
-          icon="tabler:search"
-          :placeholder="SHEET_FILTER_LABELS.search"
-          :size="FILTER_ROW_CONTROL_SIZE"
-          class="ml-auto w-40 shrink-0"
-          :ui="{ trailing: 'pe-0.5' }"
-        >
-          <template
-            v-if="searchQuery"
-            #trailing
+          <UInput
+            v-model="searchQuery"
+            icon="tabler:search"
+            :placeholder="SHEET_FILTER_LABELS.search"
+            :size="FILTER_ROW_CONTROL_SIZE"
+            class="ml-auto w-40 shrink-0"
+            :ui="{ trailing: 'pe-0.5' }"
           >
-            <UButton
-              icon="tabler:x"
-              color="neutral"
-              variant="link"
-              :size="FILTER_ROW_CONTROL_SIZE"
-              :aria-label="SHEET_FILTER_LABELS.clear"
-              @click.left.exact.prevent="clearSearch"
-            />
-          </template>
-        </UInput>
+            <template
+              v-if="searchQuery"
+              #trailing
+            >
+              <UButton
+                icon="tabler:x"
+                color="neutral"
+                variant="link"
+                :size="FILTER_ROW_CONTROL_SIZE"
+                :aria-label="SHEET_FILTER_LABELS.clear"
+                @click.left.exact.prevent="clearSearch"
+              />
+            </template>
+          </UInput>
 
-        <!-- Свойства заклинания живут в раскрывающемся меню: обращаются к ним
+          <!-- Свойства заклинания живут в раскрывающемся меню: обращаются к ним
         реже, чем к кругам, а места чипами занимали столько же. Отметки стоят
         галочками в самом меню, и оно не закрывается после каждой -->
-        <UDropdownMenu
-          :items="propertyMenuItems"
-          :content="{ align: 'end' }"
-        >
-          <!-- Отметку свойств несут галочки пунктов меню, а не сама кнопка:
+          <UDropdownMenu
+            :items="propertyMenuItems"
+            :content="{ align: 'end' }"
+          >
+            <!-- Отметку свойств несут галочки пунктов меню, а не сама кнопка:
           `aria-pressed` на ней спорил бы с ролью кнопки, раскрывающей меню -->
+            <UTooltip :text="SPELL_FILTER_LABELS.propertiesHint">
+              <button
+                type="button"
+                :class="propertyMenuChipClass"
+                :aria-label="SPELL_FILTER_LABELS.properties"
+              >
+                <UIcon
+                  name="tabler:adjustments-horizontal"
+                  class="size-4"
+                />
+              </button>
+            </UTooltip>
+          </UDropdownMenu>
+        </template>
+
+        <!-- Своя прибавка к ячейкам: настройка листа, а не отбор, но живёт
+          рядом со значком свойств — одним значком, чтобы не теснить плитки -->
+        <UTooltip :text="slotsButtonTooltip">
           <button
             type="button"
-            :class="propertyMenuChipClass"
-            :title="SPELL_FILTER_LABELS.propertiesHint"
-            :aria-label="SPELL_FILTER_LABELS.properties"
+            :class="slotsButtonClass"
+            :aria-label="ACTOR_SPELLS_TAB_LABELS.slotsSettings"
+            @click.left.exact.prevent="isSlotsModalOpen = true"
           >
             <UIcon
-              name="tabler:adjustments-horizontal"
+              name="tabler:circles"
               class="size-4"
             />
           </button>
-        </UDropdownMenu>
+        </UTooltip>
 
         <FilterResetButton
           v-if="hasAnyFilter"
@@ -2343,6 +2438,15 @@
       :class-value="editedPreparedLimit.classValue"
       :context="spellcastingBonusContext"
       @apply="applyPreparedLimit"
+    />
+
+    <!-- Свои бонусы к ячейкам (открывается значком в ряду отбора) -->
+    <SpellSlotsModal
+      v-model:open="isSlotsModalOpen"
+      :class-slots="classSlots"
+      :settings="spellSlotSettings"
+      :context="spellcastingBonusContext"
+      @apply="applySpellSlotSettingsUpdate"
     />
 
     <!-- Настройка заклинательства (открывается нажатием на плитку) -->
