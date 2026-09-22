@@ -11,6 +11,7 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { DAMAGE_PART_LABELS } from './constants';
+  import DamageFormulaPreview from './DamageFormulaPreview.vue';
   import FormSection from './FormSection.vue';
 
   const props = withDefaults(
@@ -76,6 +77,17 @@
     get: () => props.modelValue.versatileFormula ?? '',
     set: (value) => patch({ versatileFormula: value || undefined }),
   });
+
+  /**
+   * Часть при хвате двумя руками: бросок подменяет формулу, а тип части и
+   * цель остаются прежними (`getWeaponDamageParts`). Итог считается по ней,
+   * чтобы было видно, какого типа урон уйдёт при двуручном хвате.
+   */
+  const versatilePart = computed<DamagePart | null>(() =>
+    props.modelValue.versatileFormula
+      ? { ...props.modelValue, formula: props.modelValue.versatileFormula }
+      : null,
+  );
 
   /**
    * Лечит ли часть: токен `@heal`/`@heal.temp` в формуле (единственный
@@ -238,34 +250,51 @@
     </template>
 
     <div class="flex flex-col gap-3">
-      <!-- Строка формулы во всю ширину -->
-      <UFormField
-        :label="DAMAGE_PART_LABELS.formula"
-        :error="
-          modifierTokenError ? DAMAGE_PART_LABELS.formulaModHint : undefined
-        "
-      >
-        <UInput
-          ref="inputRef"
-          v-model="formula"
-          :placeholder="DAMAGE_PART_LABELS.formulaPlaceholder"
-          :color="modifierTokenError ? 'error' : undefined"
-          class="w-full font-mono"
+      <!-- Строка формулы во всю ширину, под ней — её итог словами -->
+      <div class="flex flex-col gap-1.5">
+        <UFormField
+          :label="DAMAGE_PART_LABELS.formula"
+          :error="
+            modifierTokenError ? DAMAGE_PART_LABELS.formulaModHint : undefined
+          "
+        >
+          <UInput
+            ref="inputRef"
+            v-model="formula"
+            :placeholder="DAMAGE_PART_LABELS.formulaPlaceholder"
+            :color="modifierTokenError ? 'error' : undefined"
+            class="w-full font-mono"
+          />
+        </UFormField>
+
+        <DamageFormulaPreview
+          :part="modelValue"
+          :damage-type-options="damageTypeOptions"
         />
-      </UFormField>
+      </div>
 
       <!-- Versatile-формула (двуручный хват оружия) -->
-      <UFormField
+      <div
         v-if="showVersatile"
-        :label="DAMAGE_PART_LABELS.versatile"
-        :help="DAMAGE_PART_LABELS.versatileHint"
+        class="flex flex-col gap-1.5"
       >
-        <UInput
-          v-model="versatileFormula"
-          :placeholder="DAMAGE_PART_LABELS.versatilePlaceholder"
-          class="w-full font-mono"
+        <UFormField
+          :label="DAMAGE_PART_LABELS.versatile"
+          :help="DAMAGE_PART_LABELS.versatileHint"
+        >
+          <UInput
+            v-model="versatileFormula"
+            :placeholder="DAMAGE_PART_LABELS.versatilePlaceholder"
+            class="w-full font-mono"
+          />
+        </UFormField>
+
+        <DamageFormulaPreview
+          v-if="versatilePart"
+          :part="versatilePart"
+          :damage-type-options="damageTypeOptions"
         />
-      </UFormField>
+      </div>
 
       <!-- Вкладки-помощники ввода формулы -->
       <UTabs

@@ -34,6 +34,7 @@ export * from './customBonuses.js';
 export * from './damageApplication.js';
 export * from './damageConstants.js';
 export * from './damageHits.js';
+export * from './damagePartPreview.js';
 export * from './damageParts.js';
 export * from './damageTargetGate.js';
 export * from './damageUtils.js';

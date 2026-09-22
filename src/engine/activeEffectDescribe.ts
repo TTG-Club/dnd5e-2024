@@ -36,7 +36,7 @@ import {
   splitConditionParts,
 } from './activeEffectTypes.js';
 import { getConditionEntry } from './conditionTemplates.js';
-import { ABILITY_LABELS } from './consts.js';
+import { ABILITY_LABELS, FORMULA_VARIABLE_LABELS } from './consts.js';
 import { getShortDamageTypeLabel } from './damageConstants.js';
 import { detectFormulaHealKind, stripHealTokens } from './spellUtils.js';
 
@@ -62,25 +62,6 @@ const AURA_TARGET_LABELS: Record<'allies' | 'enemies' | 'all', string> = {
   allies: 'союзники',
   enemies: 'враги',
   all: 'все существа',
-};
-
-/** Короткие подписи @-токенов в формулах значений модификаторов. */
-const VALUE_TOKEN_LABELS: Record<string, string> = {
-  '@mod.spell': 'мод. закл. характеристики',
-  '@mod.str': 'мод. Силы',
-  '@mod.dex': 'мод. Ловкости',
-  '@mod.con': 'мод. Телосложения',
-  '@mod.int': 'мод. Интеллекта',
-  '@mod.wis': 'мод. Мудрости',
-  '@mod.cha': 'мод. Харизмы',
-  '@prof': 'бонус мастерства',
-  '@level': 'уровень',
-  '@classLevel': 'уровень в классе',
-  '@speed.walk': 'скорость ходьбы',
-  '@speed.fly': 'скорость полёта',
-  '@speed.swim': 'скорость плавания',
-  '@speed.climb': 'скорость лазания',
-  '@speed.burrow': 'скорость копания',
 };
 
 /**
@@ -183,7 +164,7 @@ export function describeRecurringDamageSave(save: EffectSave): string {
 function prettifyFormula(value: string): string {
   return value.replace(
     /@[a-z.]+/gi,
-    (token) => VALUE_TOKEN_LABELS[token] ?? token,
+    (token) => FORMULA_VARIABLE_LABELS[token] ?? token,
   );
 }
 
