@@ -17,6 +17,7 @@ const engine = await loadEngineBundle(
       export { scopeClassOptionFeatData } from './src/engine/classFeatureOptions.ts';
       export { CANTRIP_SPELL_LEVEL } from './src/engine/spellTypes.ts';
       export * from './src/engine/preparedSpells.ts';
+      export * from './src/engine/preparedLimit.ts';
     `,
 );
 
@@ -392,10 +393,12 @@ const preparationHarnessBundle = await build({
     contents: `
       export function createTabHarness(context) {
         const { props, computed, engine, resolveClassDefinition, emit,
-          triggerSaveIfNotEdit, toast, ACTOR_SPELLS_TAB_LABELS } = context;
+          triggerSaveIfNotEdit, toast, ACTOR_SPELLS_TAB_LABELS,
+          resolvedStats } = context;
         const { CANTRIP_SPELL_LEVEL, getClassPreparedValue, getPreparedLimitBreakdown } = engine;
         ${[
           'classDefinitionOf',
+          'spellcastingBonusContext',
           'preparedSpellsLimit',
           'maxPreparedSpells',
           'currentPreparedSpellsCount',
@@ -427,6 +430,23 @@ const preparationHarnessBundle = await build({
 const preparationHandlers = await import(
   `data:text/javascript;base64,${Buffer.from(preparationHarnessBundle.outputFiles[0].text).toString('base64')}`
 );
+
+/** Числа листа волшебника для своих бонусов: Интеллект +3, мастерство +2. */
+function wizardSheetStats() {
+  return {
+    value: {
+      abilityMods: {
+        strength: 0,
+        dexterity: 2,
+        constitution: 1,
+        intelligence: 3,
+        wisdom: 1,
+        charisma: -1,
+      },
+      proficiencyBonus: 2,
+    },
+  };
+}
 
 /** Соединяет обработчики строки и вкладки с реактивным актором и обратным обновлением props. */
 function createPreparationFixture() {
@@ -489,6 +509,7 @@ function createPreparationFixture() {
       limitTextPrefix: 'limit ',
       limitTextSuffix: '',
     },
+    resolvedStats: wizardSheetStats(),
   });
 
   /** Берёт строку из актуального списка после обновления родителем. */
@@ -581,6 +602,188 @@ it('preparation counters react to a changed actor limit without making cantrips 
   assert.equal(fixture.notifications.length, 0);
 });
 
+it('the prepared limit counts ability, proficiency and flat bonuses on top of the class number', () => {
+  const fixture = createPreparationFixture();
+
+  fixture.props.actor = {
+    ...fixture.props.actor,
+    system: {
+      ...fixture.props.actor.system,
+      preparedSpells: {
+        custom: null,
+        bonuses: [
+          {
+            id: 'int',
+            kind: 'ability',
+            ability: 'intelligence',
+            value: 0,
+            label: 'Черта',
+          },
+          {
+            id: 'prof',
+            kind: 'proficiency',
+            ability: 'strength',
+            value: 0,
+            label: '',
+          },
+          {
+            id: 'flat',
+            kind: 'flat',
+            ability: 'strength',
+            value: -1,
+            label: 'Проклятие',
+          },
+        ],
+      },
+    },
+  };
+
+  // 4 по таблице + Интеллект 3 + мастерство 2 − 1
+  assert.equal(fixture.tab.maxPreparedSpells.value, 8);
+});
+
+it('prepared limit bonuses follow the sheet numbers and never touch a custom number', () => {
+  const context = wizardSheetStats().value;
+
+  const bonuses = [
+    { id: 'wis', kind: 'ability', ability: 'wisdom', value: 0, label: '' },
+    {
+      id: 'prof',
+      kind: 'proficiency',
+      ability: 'strength',
+      value: 0,
+      label: '',
+    },
+  ];
+
+  assert.deepEqual(
+    engine.getPreparedLimitBreakdown(4, { custom: null, bonuses }, context),
+    { value: 7, classValue: 4, custom: false, bonus: 3 },
+  );
+
+  // Своё число — это и есть предел: бонусы с ним не складываются
+  assert.equal(
+    engine.getPreparedLimitBreakdown(4, { custom: 10, bonuses }, context).value,
+    10,
+  );
+
+  // Таблица числа не даёт — бонусы прибавлять не к чему
+  assert.equal(
+    engine.getPreparedLimitBreakdown(null, { custom: null, bonuses }, context)
+      .value,
+    null,
+  );
+
+  // Отрицательный итог не уходит ниже нуля
+  assert.equal(
+    engine.getPreparedLimitBreakdown(
+      1,
+      {
+        custom: null,
+        bonuses: [
+          {
+            id: 'cha',
+            kind: 'ability',
+            ability: 'charisma',
+            value: 0,
+            label: '',
+          },
+          { id: 'f', kind: 'flat', ability: 'strength', value: -5, label: '' },
+        ],
+      },
+      context,
+    ).value,
+    0,
+  );
+});
+
+it('an old single bonus number becomes a flat bonus row and a saved list wins over it', () => {
+  assert.deepEqual(engine.parsePreparedLimit({ custom: null, bonus: 2 }), {
+    custom: null,
+    bonuses: [
+      {
+        id: engine.LEGACY_PREPARED_BONUS_ID,
+        kind: 'flat',
+        ability: 'strength',
+        value: 2,
+        label: '',
+      },
+    ],
+  });
+
+  assert.deepEqual(engine.parsePreparedLimit({ custom: 5, bonus: 0 }), {
+    custom: 5,
+    bonuses: [],
+  });
+
+  assert.deepEqual(
+    engine.parsePreparedLimit({ custom: null, bonus: 3, bonuses: [] }),
+    { custom: null, bonuses: [] },
+  );
+
+  assert.deepEqual(engine.parsePreparedLimit(undefined), {
+    custom: null,
+    bonuses: [],
+  });
+
+  // Испорченная строка отбрасывается, остальные остаются
+  assert.deepEqual(
+    engine
+      .parsePreparedLimit({
+        custom: null,
+        bonuses: [
+          {
+            id: 'ok',
+            kind: 'proficiency',
+            ability: 'strength',
+            value: 0,
+            label: '',
+          },
+          { id: 'broken', kind: 'luck' },
+        ],
+      })
+      .bonuses.map((bonus) => bonus.id),
+    ['ok'],
+  );
+});
+
+it('the prepared limit is stored with clamped numbers and without the old bonus field', () => {
+  assert.deepEqual(
+    engine.normalizePreparedLimit({
+      custom: 150,
+      bonuses: [
+        {
+          id: 'big',
+          kind: 'flat',
+          ability: 'strength',
+          value: 40.6,
+          label: '  Кольцо  ',
+        },
+        {
+          id: 'empty',
+          kind: 'flat',
+          ability: 'strength',
+          value: Number.NaN,
+          label: '',
+        },
+      ],
+    }),
+    {
+      custom: engine.PREPARED_LIMIT_MAX,
+      bonuses: [
+        {
+          id: 'big',
+          kind: 'flat',
+          ability: 'strength',
+          value: 20,
+          label: 'Кольцо',
+        },
+        { id: 'empty', kind: 'flat', ability: 'strength', value: 0, label: '' },
+      ],
+    },
+  );
+});
+
 /** Вкладка жреца 1 уровня: три заговора класса и заговор «Чудотворца». */
 function createClericCantripsTab(thaumaturgeAlwaysPrepared) {
   const classCantrips = ['light', 'sacred-flame', 'spare-the-dying'].map(
@@ -637,6 +840,7 @@ function createClericCantripsTab(thaumaturgeAlwaysPrepared) {
     triggerSaveIfNotEdit: () => {},
     toast: { add: () => {} },
     ACTOR_SPELLS_TAB_LABELS: {},
+    resolvedStats: wizardSheetStats(),
   });
 }
 

@@ -47,7 +47,6 @@
     CANTRIP_SPELL_LEVEL,
     computeSpellSlots,
     damagePartIsHealing,
-    DEFAULT_PREPARED_LIMIT,
     getAvailableSpellLevels,
     getClassPreparedValue,
     getPactSlotInfo,
@@ -62,6 +61,7 @@
     isDndSceneEntity,
     isSpellReady,
     mergeAppliedEffects,
+    parsePreparedLimit,
     parseSpellcastingSettings,
     pickCantripTierParts,
     PREPARED_LIMIT_EMPTY_VALUE,
@@ -294,7 +294,10 @@
     parseSpellcastingSettings(props.actor.system?.spellcastingSettings),
   );
 
-  /** Числа листа, от которых считаются свои бонусы настройки */
+  /**
+   * Числа листа, от которых считаются свои бонусы настройки заклинательства и
+   * пределов подготовки
+   */
   const spellcastingBonusContext = computed<DnDCustomBonusContext>(() => ({
     abilityMods: resolvedStats.value.abilityMods,
     proficiencyBonus: resolvedStats.value.proficiencyBonus,
@@ -356,7 +359,7 @@
 
   /**
    * Предел подготовленных заклинаний: число из таблицы класса компендиума с
-   * поправками листа (своё число либо бонус к числу класса).
+   * поправками листа (своё число либо свои бонусы к числу класса).
    */
   const preparedSpellsLimit = computed(() =>
     getPreparedLimitBreakdown(
@@ -366,6 +369,7 @@
         'spells',
       ),
       props.actor.system?.preparedSpells,
+      spellcastingBonusContext.value,
     ),
   );
 
@@ -378,6 +382,7 @@
         'cantrips',
       ),
       props.actor.system?.preparedCantrips,
+      spellcastingBonusContext.value,
     ),
   );
 
@@ -595,11 +600,16 @@
       : preparedSpellsLimit.value,
   );
 
-  /** Сохранённая настройка предела, открытого в модалке */
+  /**
+   * Сохранённая настройка предела, открытого в модалке: разобранная, чтобы
+   * старое число бонуса пришло в окно строкой списка.
+   */
   const editedPreparedSettings = computed<DnDPreparedLimit>(() =>
-    editedPreparedKind.value === 'cantrips'
-      ? (props.actor.system?.preparedCantrips ?? DEFAULT_PREPARED_LIMIT)
-      : (props.actor.system?.preparedSpells ?? DEFAULT_PREPARED_LIMIT),
+    parsePreparedLimit(
+      editedPreparedKind.value === 'cantrips'
+        ? props.actor.system?.preparedCantrips
+        : props.actor.system?.preparedSpells,
+    ),
   );
 
   /** Открывает настройку предела подготовки нужного вида */
@@ -2344,6 +2354,7 @@
       :kind="editedPreparedKind"
       :limit="editedPreparedSettings"
       :class-value="editedPreparedLimit.classValue"
+      :context="spellcastingBonusContext"
       @apply="applyPreparedLimit"
     />
 

@@ -80,6 +80,7 @@ export * from './itemSchemas.js';
 export * from './itemTransfer.js';
 export * from './itemUses.js';
 export * from './positionalEffects.js';
+export * from './preparedLimit.js';
 export * from './preparedSpells.js';
 export * from './proficiencyBonus.js';
 export * from './restEngine.js';
