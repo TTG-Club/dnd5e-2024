@@ -47,6 +47,7 @@ import {
 } from './creatureTypeGate.js';
 import { isDamageType } from './damageConstants.js';
 import { getSpellDamageParts } from './damageParts.js';
+import { formatDiceLetters } from './diceFormula.js';
 import {
   buildFormulaContext,
   substituteFormulaVariables,
@@ -1366,9 +1367,11 @@ export function describeDamagePart(part: DamagePart): DamagePartInfo {
   );
 
   return {
-    formula: formatConditionalDamageDisplay(part.formula, (subFormula) =>
-      stripHealTokens(stripDamageTypeTokens(subFormula)),
-    ).replace(/(\d+)d(\d+)/gi, '$1к$2'),
+    formula: formatDiceLetters(
+      formatConditionalDamageDisplay(part.formula, (subFormula) =>
+        stripHealTokens(stripDamageTypeTokens(subFormula)),
+      ),
+    ),
     isHealing: segments.some((segment) => segment.healing !== undefined),
     isTemp: segments.some((segment) => segment.healing === 'temp'),
     types: [...new Set(typeList)],

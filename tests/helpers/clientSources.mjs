@@ -4,12 +4,17 @@ import { join, relative } from 'node:path';
 import { systemRoot } from './engineBundle.mjs';
 
 /**
- * Исходники клиента для проверок вызовов по тексту: такие тесты ловят места,
- * которые обходят общий путь, не запуская сам клиент.
+ * Исходники для проверок вызовов по тексту: такие тесты ловят места, которые
+ * обходят общий путь, не запуская сам клиент. Клиент берётся отдельно там, где
+ * правило про него одного; правило, общее для всех слоёв, — по всем исходникам
+ * системы.
  */
 
 /** Корень исходников клиента системы */
 const clientRoot = join(systemRoot, 'src/client');
+
+/** Корень всех исходников системы: движок, клиент и сервер */
+const sourcesRoot = join(systemRoot, 'src');
 
 /** Исходник клиента: TypeScript или однофайловый компонент Vue */
 const CLIENT_SOURCE_PATTERN = /\.(?:ts|vue)$/u;
@@ -39,6 +44,16 @@ function listSources(directory) {
  */
 export function listClientSources() {
   return listSources(clientRoot);
+}
+
+/**
+ * Все исходники системы вместе с движком и сервером: правило, общее для всех
+ * слоёв, проверяется по всему коду, а не по одному клиенту.
+ *
+ * @returns {string[]} абсолютные пути к .ts и .vue
+ */
+export function listSystemSources() {
+  return listSources(sourcesRoot);
 }
 
 /**

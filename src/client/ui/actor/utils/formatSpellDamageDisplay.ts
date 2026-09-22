@@ -2,6 +2,7 @@ import type { DnDActor, Spell } from '@vtt/shared/system/dnd.js';
 
 import {
   formatConditionalDamageDisplay,
+  formatDiceLetters,
   getSpellDamageParts,
   resolveActorStats,
   resolveSpellDamageFormula,
@@ -9,9 +10,6 @@ import {
   stripDamageTypeTokens,
   stripFormulaVariables,
 } from '@vtt/shared/system/dnd.js';
-
-/** Кости в русском виде: «2d6» → «2к6» */
-const DICE_NOTATION_PATTERN = /(\d+)d(\d+)/gi;
 
 /** Что уточняет показ урона: владелец заклинания и круг наложения */
 interface SpellDamageDisplayOptions {
@@ -61,10 +59,9 @@ export function formatSpellDamageDisplay(
           : stripFormulaVariables(baseFormula);
       };
 
-      const formula = formatConditionalDamageDisplay(
-        part.formula,
-        resolveTerm,
-      ).replace(DICE_NOTATION_PATTERN, '$1к$2');
+      const formula = formatDiceLetters(
+        formatConditionalDamageDisplay(part.formula, resolveTerm),
+      );
 
       if (partIndex !== 0 || castLevel === undefined || !scalingDice) {
         return formula;

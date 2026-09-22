@@ -63,6 +63,7 @@ import {
   syncCreatureSpellcastingUses,
 } from './creatureSpellcasting.js';
 import { getCustomBonusValue, parseCustomBonuses } from './customBonuses.js';
+import { formatDiceLetters } from './diceFormula.js';
 import {
   DEFAULT_PROFICIENCY_BONUS,
   getProficiencyBonusBreakdown,
@@ -858,14 +859,15 @@ export function getWeaponPrimaryDamageType(
  */
 export function formatWeaponDamageFormula(weapon: DnDGameItem): string {
   return getWeaponDamageParts(weapon)
-    .map((part) =>
-      part.formula
+    .map((part) => {
+      const withoutTokens = part.formula
         .replace(/@dmg\.[a-z]+/gi, '')
         .replace(/@heal(\.temp)?/gi, '')
-        .replace(/(\d+)d(\d+)/gi, '$1к$2')
         .replace(/\s{2,}/g, ' ')
-        .trim(),
-    )
+        .trim();
+
+      return formatDiceLetters(withoutTokens);
+    })
     .filter((formula) => formula.length > 0)
     .join(' + ');
 }

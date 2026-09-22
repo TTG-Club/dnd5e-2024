@@ -10,6 +10,7 @@
   import {
     describeWeaponAttack,
     describeWeaponDamage,
+    formatDiceLetters,
     getWeaponDamageParts,
     sumWeaponModifierParts,
     WEAPON_MASTERY_MAP,
@@ -18,7 +19,6 @@
 
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import { useSystemDataStore } from '../../stores/systemDataStore';
-  import { DICE_LETTER_REPLACEMENT } from '../chat/consts';
   import {
     COPY_TO_ITEMS_LABEL,
     FORM_FIELD_LABELS,
@@ -74,10 +74,15 @@
     props.item ? getWeaponDamageParts(props.item) : [],
   );
 
-  /** Versatile-формула первой части (двуручный хват), если задана */
-  const versatileFormula = computed(
-    () => props.item?.damageParts?.[0]?.versatileFormula,
-  );
+  /**
+   * Versatile-формула первой части (двуручный хват) для показа: кости
+   * по-русски («1d10» → «1к10»). Пустая строка — хват не задан.
+   */
+  const versatileLabel = computed(() => {
+    const formula = props.item?.damageParts?.[0]?.versatileFormula;
+
+    return formula ? formatDiceLetters(formula) : '';
+  });
 
   const { resolvedStats } = useResolvedStats(toRef(() => props.actor));
 
@@ -259,17 +264,14 @@
                 </div>
 
                 <!-- Универсальное -->
-                <div v-if="versatileFormula">
+                <div v-if="versatileLabel">
                   <span class="text-xs text-dimmed">{{
                     WEAPON_DETAIL_LABELS.versatile
                   }}</span>
 
                   <p class="flex items-center gap-1.5 text-highlighted">
                     <span class="font-mono font-semibold">{{
-                      versatileFormula.replace(
-                        /(\d+)d(\d+)/gi,
-                        DICE_LETTER_REPLACEMENT,
-                      )
+                      versatileLabel
                     }}</span>
                   </p>
                 </div>
