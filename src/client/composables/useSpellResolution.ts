@@ -14,6 +14,7 @@ import type {
   DamageDefenseOutcome,
   DamageHit,
   DnDSceneEntity,
+  ProjectileOutcome,
   SavingThrowResult,
   Spell,
 } from '@vtt/shared/system/dnd.js';
@@ -45,6 +46,7 @@ import {
   evaluateDefensiveACBonus,
   findTokensInTemplate,
   formatDamageDefenseSuffix,
+  formatProjectileOutcomeLine,
   getNaturalD20Roll,
   getShortDamageTypeLabel,
   getSpellDamageParts,
@@ -594,6 +596,10 @@ export function useSpellResolution() {
       }
 
       lines.push(line);
+
+      for (const projectile of result.projectiles ?? []) {
+        lines.push(formatProjectileOutcomeLine(projectile));
+      }
     }
 
     return lines.join('\n');
@@ -972,7 +978,7 @@ export function useSpellResolution() {
           attackType: attack.attackType,
         });
 
-      const hitDamageDetails: number[] = [];
+      const projectiles: ProjectileOutcome[] = [];
       const rolledBonusParts: RolledSpellDamagePart[] = [];
 
       let targetDamage = 0;
@@ -1010,12 +1016,17 @@ export function useSpellResolution() {
         chatStore.sendMessage(attackFormula, 'roll', attackRoll);
 
         if (!attackResult.isHit) {
+          projectiles.push({ number: projectileNumber, damage: null });
+
           continue;
         }
 
         hits += 1;
         totalHits += 1;
         criticalHit ||= attackResult.isCriticalHit;
+
+        let projectileDamage = 0;
+        let projectileFormula: string | undefined;
 
         // Урон снаряда; крит удваивает кости только этого снаряда
         if (resolvedDamageFormula) {
@@ -1025,7 +1036,8 @@ export function useSpellResolution() {
 
           const damageRoll = diceStore.parseAndRoll(damageFormula);
 
-          hitDamageDetails.push(damageRoll.total);
+          projectileDamage = damageRoll.total;
+          projectileFormula = damageFormula;
           targetDamage += damageRoll.total;
           damageGrandTotal += damageRoll.total;
           damageDiceGroups.push(...damageRoll.dice);
@@ -1054,6 +1066,13 @@ export function useSpellResolution() {
             targetTypeGate: bonusPart.targetTypeGate,
           });
         }
+
+        projectiles.push({
+          number: projectileNumber,
+          damage: projectileDamage,
+          formula: projectileFormula,
+          critical: attackResult.isCriticalHit,
+        });
       }
 
       if (hits === 0) {
@@ -1061,11 +1080,12 @@ export function useSpellResolution() {
         const hpCurrent = resolveEntityCurrentHp(targetEntity);
 
         results.push({
-          actorName: `${targetEntity.name} (промах ×${count})`,
+          actorName: targetEntity.name,
           actorId: targetEntity.id,
           damageApplied: 0,
           hpBefore: hpCurrent,
           hpAfter: hpCurrent,
+          projectiles,
         });
 
         continue;
@@ -1077,20 +1097,9 @@ export function useSpellResolution() {
         { bonusParts: rolledBonusParts, critical: criticalHit },
       );
 
-      const prettyFormula = resolvedDamageFormula.replace(/d/gi, 'к');
-
-      let hitsSuffix = '';
-
-      if (hitDamageDetails.length > 0) {
-        const formulaPart =
-          hits > 1 ? `(${prettyFormula})×${hits}` : prettyFormula;
-
-        hitsSuffix = ` (${formulaPart})`;
-      }
-
-      result.actorName = `${result.actorName} (попало ${hits}/${count}${hitsSuffix})`;
-
-      results.push(result);
+      // Промахи тоже идут строками: иначе номера снарядов под целью шли бы
+      // с дырами и не сверялись с бросками атаки выше в чате
+      results.push({ ...result, projectiles });
     }
 
     if (damageDiceGroups.length > 0) {
@@ -1204,6 +1213,9 @@ export function useSpellResolution() {
 
         let grandTotal = 0;
 
+        // Номер снаряда сквозной по всем целям: «Снаряд 4» у второй цели
+        let projectileNumber = 0;
+
         // Бонус-части урона от эффектов: катаются ОДИН раз на каст (как в
         // AoE — все цели получают одно выпавшее значение), применяются
         // каждой задетой цели один раз, независимо от числа снарядов в ней.
@@ -1250,7 +1262,7 @@ export function useSpellResolution() {
             continue;
           }
 
-          const rollDetails: number[] = [];
+          const projectiles: ProjectileOutcome[] = [];
 
           let totalProjectileDamage = 0;
 
@@ -1262,7 +1274,14 @@ export function useSpellResolution() {
             if (resolvedDamageFormula) {
               const rollResult = diceStore.parseAndRoll(resolvedDamageFormula);
 
-              rollDetails.push(rollResult.total);
+              projectileNumber += 1;
+
+              projectiles.push({
+                number: projectileNumber,
+                damage: rollResult.total,
+                formula: resolvedDamageFormula,
+              });
+
               totalProjectileDamage += rollResult.total;
               allDiceGroups.push(...rollResult.dice);
             }
@@ -1279,15 +1298,9 @@ export function useSpellResolution() {
             { bonusParts: rolledBonusParts },
           );
 
-          // Показываем разбивку: "Новый 1 ((1к4+1)×3)"
-          const prettyFormula = resolvedDamageFormula.replace(/d/gi, 'к');
-
-          result.actorName =
-            count > 1
-              ? `${result.actorName} ((${prettyFormula})×${count})`
-              : `${result.actorName} (${prettyFormula})`;
-
-          results.push(result);
+          // Урон снарядов — строками под целью: одна сумма на цель не
+          // говорила, сколько нанёс каждый
+          results.push({ ...result, projectiles });
         }
 
         // 3D-анимация всех снарядных кубиков одновременно

@@ -11,6 +11,7 @@ import type {
   ActiveEffect,
   CreatureCategory,
   DamageDefenseOutcome,
+  ProjectileOutcome,
   SaveDamageDefense,
   Spell,
   TargetHpGate,
@@ -79,6 +80,8 @@ export interface SpellTargetResult {
   defenseOutcome?: DamageDefenseOutcome;
   /** Названия наложенных эффектов */
   appliedEffects?: string[];
+  /** Снаряды по этой цели (Волшебная стрела, Мистический заряд) — строкой каждый */
+  projectiles?: ProjectileOutcome[];
 }
 
 /** Контекст для обработки заклинания */

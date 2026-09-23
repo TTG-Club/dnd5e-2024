@@ -36,6 +36,7 @@ import {
 import { SPELL_SAVE_DC_BASE } from './consts.js';
 import { getShortDamageTypeLabel } from './damageConstants.js';
 import { formatDamageDefenseSuffix } from './damageUtils.js';
+import { formatDiceFormula } from './diceFormula.js';
 import {
   getSkillAdvantageFlagKey,
   getSkillDisadvantageFlagKey,
@@ -320,6 +321,66 @@ export function buildDamageLabel(
   }
 
   return label;
+}
+
+/** Итог одного снаряда по цели — строка под целью в сводке заклинания */
+export interface ProjectileOutcome {
+  /** Номер снаряда в касте: сквозной по всем целям, как в бросках атаки */
+  number: number;
+  /** Выпавший урон снаряда до защит цели; `null` — снаряд промахнулся */
+  damage: number | null;
+  /**
+   * Формула, которой брошен урон этого снаряда: у крита кости уже удвоены,
+   * поэтому она у каждого снаряда своя, а не одна на каст
+   */
+  formula?: string;
+  /** Критическое попадание (кости этого снаряда удвоены) */
+  critical?: boolean;
+}
+
+/** Подписи строк снарядов в сводке заклинания */
+const PROJECTILE_OUTCOME_LABELS = {
+  projectile: 'Снаряд',
+  miss: 'промах',
+  critical: 'крит',
+} as const;
+
+/**
+ * Отступ строки снаряда: чат сохраняет пробелы, и строки снарядов читаются
+ * вложенными в строку своей цели.
+ */
+const PROJECTILE_LINE_PREFIX = '   • ';
+
+/**
+ * Строка одного снаряда под целью: «• Снаряд 2: 1к4 + 1 = 5»,
+ * «• Снаряд 3: 2к10 = 12 (крит)», «• Снаряд 4: промах».
+ *
+ * Одна строка «(1к4+1)×3: -10 HP» не говорила, сколько нанёс каждый снаряд.
+ * Значение — выпавшее ДО защит цели: при сопротивлении итог в HP у цели
+ * меньше суммы снарядов, и это объясняет пометка защиты в строке цели.
+ *
+ * @param outcome - итог снаряда
+ * @returns строка для сводки в чате
+ */
+export function formatProjectileOutcomeLine(
+  outcome: ProjectileOutcome,
+): string {
+  const head = `${PROJECTILE_LINE_PREFIX}${PROJECTILE_OUTCOME_LABELS.projectile} ${outcome.number}`;
+
+  if (outcome.damage === null) {
+    return `${head}: ${PROJECTILE_OUTCOME_LABELS.miss}`;
+  }
+
+  const criticalSuffix = outcome.critical
+    ? ` (${PROJECTILE_OUTCOME_LABELS.critical})`
+    : '';
+
+  // Формула рядом с итогом: сверить бросок, не листая кубики в чате
+  const formulaPart = outcome.formula
+    ? `${formatDiceFormula(outcome.formula)} = `
+    : '';
+
+  return `${head}: ${formulaPart}${outcome.damage}${criticalSuffix}`;
 }
 
 const DOUBLE_DICE_REGEX = /(\d+)(к|d)(\d+)/gi;
