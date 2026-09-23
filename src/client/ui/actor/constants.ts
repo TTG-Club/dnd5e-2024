@@ -3330,6 +3330,12 @@ export const LEVEL_UP_LABELS = {
   /** Порог следующего уровня: между приставкой и единицей идёт само число опыта */
   nextLevelXpPrefix: 'Следующий уровень:',
   experienceUnit: 'XP',
+  experiencePlaceholder: '+150',
+  experienceHint:
+    '«+150» — добавить к текущему, «-50» — отнять, число — задать',
+  /** Итог ввода со знаком: между приставкой и единицей идёт само число опыта */
+  experienceResultPrefix: 'Станет:',
+  experienceInvalid: 'Не получается посчитать: только числа, «+» и «-»',
 } as const;
 
 /**

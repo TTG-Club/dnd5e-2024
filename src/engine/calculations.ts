@@ -227,6 +227,45 @@ export function calculateExperienceForNextLevel(currentLevel: number): number {
 }
 
 /**
+ * Ввод опыта: цепочка целых чисел через `+`/`-` — «300», «+150», «+100+50-20».
+ * Типографский минус (`−`) и пробелы приводятся заранее, в самом шаблоне их нет.
+ */
+const EXPERIENCE_INPUT_PATTERN = /^[+-]?\d+(?:[+-]\d+)*$/;
+
+/** Отдельные слагаемые ввода опыта вместе со знаком */
+const EXPERIENCE_TERM_PATTERN = /[+-]?\d+/g;
+
+/**
+ * Считает опыт по вводу в поле, как поле хитов у фишки: число без знака —
+ * точное значение, со знаком — сдвиг от текущего опыта. Слагаемых может быть
+ * несколько («+100+50» — два боя за сессию), знак первого решает, от чего
+ * считать. Опыт не уходит ниже нуля.
+ *
+ * @param input - строка из поля опыта
+ * @param currentExperience - опыт персонажа сейчас, основа для сдвига
+ * @returns итоговый опыт или `undefined`, если ввод не разобрать
+ */
+export function resolveExperienceInput(
+  input: string,
+  currentExperience: number,
+): number | undefined {
+  const normalized = input.replaceAll('−', '-').replaceAll(/\s/g, '');
+
+  if (!EXPERIENCE_INPUT_PATTERN.test(normalized)) {
+    return undefined;
+  }
+
+  const isRelative = normalized.startsWith('+') || normalized.startsWith('-');
+
+  const sum = (normalized.match(EXPERIENCE_TERM_PATTERN) ?? []).reduce(
+    (total, term) => total + Number.parseInt(term, 10),
+    isRelative ? currentExperience : 0,
+  );
+
+  return Math.max(0, sum);
+}
+
+/**
  * Возвращает базовую характеристику для навыка
  *
  * @param skill - Тип навыка
