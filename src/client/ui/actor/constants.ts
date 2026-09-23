@@ -3900,6 +3900,10 @@ export const ACTOR_HEADER_LABELS = {
   inspirationTake: 'Забрать вдохновение',
   inspirationGive: 'Дать вдохновение',
   inspiration: 'Вдохновение',
+  /** Окончание сообщения в чат — перед ним имя персонажа */
+  inspirationGainedSuffix: ' получает вдохновение',
+  /** Окончание сообщения в чат — перед ним имя персонажа */
+  inspirationLostSuffix: ' теряет вдохновение',
   namePlaceholder: 'Имя персонажа',
   createActor: 'Создать персонажа',
   tokenSettings: 'Настройки токена и прав',

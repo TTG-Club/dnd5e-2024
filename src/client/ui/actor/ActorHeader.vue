@@ -9,6 +9,7 @@
   import { computed, ref, toRef } from 'vue';
 
   import { useImageFallback } from '@/shared_ui/composables';
+  import { useChatStore } from '@/stores/chatStore';
   import { getAssetUrl } from '@vtt/shared';
   import {
     calculateExperienceForNextLevel,
@@ -41,16 +42,14 @@
     actor: DnDActor;
     isEditMode: boolean;
     isCreating?: boolean;
+    /** Может ли пользователь править лист: ГМ или владелец персонажа */
     canEdit?: boolean;
-    /** Является ли текущий пользователь ГМ (может менять вдохновение) */
-    isAdmin?: boolean;
     worldPort?: number;
   }
 
   const props = withDefaults(defineProps<Props>(), {
     isCreating: false,
     canEdit: true,
-    isAdmin: false,
     worldPort: undefined,
   });
 
@@ -377,25 +376,34 @@
   );
 
   /**
-   * Даёт или забирает вдохновение (только ГМ). По правилам D&D оно либо есть,
-   * либо нет — поэтому просто переключаем.
+   * Даёт или забирает вдохновение. По правилам D&D оно либо есть, либо нет —
+   * поэтому просто переключаем. Переключают ГМ и владелец персонажа, поэтому
+   * каждое изменение пишется в чат: так видно, кто и когда его отметил.
    */
   function toggleInspiration() {
-    if (!props.isAdmin) {
+    if (!props.canEdit) {
       return;
     }
+
+    const isGained = !hasInspiration.value;
 
     emit('update:actor', {
       system: {
         ...props.actor.system,
-        inspiration: !hasInspiration.value,
+        inspiration: isGained,
       },
     });
+
+    const suffix = isGained
+      ? ACTOR_HEADER_LABELS.inspirationGainedSuffix
+      : ACTOR_HEADER_LABELS.inspirationLostSuffix;
+
+    useChatStore().sendMessage(`${displayName.value}${suffix}`, 'text');
   }
 
   /** Подсказка для блока вдохновения (зависит от роли и текущего состояния) */
   const inspirationTooltip = computed(() => {
-    if (!props.isAdmin) {
+    if (!props.canEdit) {
       return hasInspiration.value
         ? ACTOR_HEADER_LABELS.inspirationOn
         : ACTOR_HEADER_LABELS.inspirationOff;
@@ -406,12 +414,12 @@
       : ACTOR_HEADER_LABELS.inspirationGive;
   });
 
-  /** Тег блока вдохновения: кнопка у ГМ, обычный блок у игрока */
-  const inspirationTag = computed(() => (props.isAdmin ? 'button' : 'div'));
+  /** Тег блока вдохновения: кнопка у ГМ и владельца, обычный блок у прочих */
+  const inspirationTag = computed(() => (props.canEdit ? 'button' : 'div'));
 
   /** Классы блока вдохновения: активный (золотой) или приглушённый */
   const inspirationClass = computed(() => {
-    const interactive = props.isAdmin
+    const interactive = props.canEdit
       ? 'cursor-pointer hover:border-primary/70'
       : 'cursor-default';
 
@@ -772,7 +780,7 @@
       v-if="!isCreating"
       class="absolute right-4 bottom-10 z-20 flex items-center gap-2"
     >
-      <!-- Вдохновение: есть/нет, даёт и забирает только ГМ -->
+      <!-- Вдохновение: есть/нет, переключают ГМ и владелец персонажа -->
       <UTooltip :text="inspirationTooltip">
         <component
           :is="inspirationTag"

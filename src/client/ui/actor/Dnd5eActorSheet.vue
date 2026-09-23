@@ -2467,7 +2467,6 @@
           :is-edit-mode="isEditMode"
           :is-creating="!actorId && !isCreated"
           :can-edit="canEdit"
-          :is-admin="isAdmin"
           :world-port="worldPort"
           @update:actor="handleActorUpdate"
           @toggle-edit-mode="toggleEditMode"
