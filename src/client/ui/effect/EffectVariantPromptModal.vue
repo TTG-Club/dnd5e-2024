@@ -12,7 +12,10 @@
   import { computed, ref } from 'vue';
 
   import { HUD_PROMPTS_TELEPORT_TARGET } from '../actor/constants';
-  import { EFFECT_VARIANT_PROMPT_LABELS } from './constants';
+  import {
+    EFFECT_VARIANT_PROMPT_LABELS,
+    EFFECT_VARIANT_SWITCH_MAX,
+  } from './constants';
 
   defineOptions({
     inheritAttrs: false,
@@ -50,15 +53,17 @@
   /** Подпись группы нужна, только когда групп несколько */
   const showGroupLabels = computed(() => props.groups.length > 1);
 
-  /** Варианты выбора по ключу группы */
-  const itemsByGroup = computed(
-    () =>
-      new Map(
-        props.groups.map((group) => [
-          group.group,
-          group.labels.map((label) => ({ label, value: label })),
-        ]),
-      ),
+  /**
+   * Строки групп: подпись, варианты и чем выбирать. Немного коротких
+   * вариантов — переключателем, всё видно сразу; длинный список — выпадающим.
+   */
+  const groupRows = computed(() =>
+    props.groups.map((group) => ({
+      group: group.group,
+      label: showGroupLabels.value ? group.group : undefined,
+      items: group.labels.map((label) => ({ label, value: label })),
+      asSwitch: group.labels.length <= EFFECT_VARIANT_SWITCH_MAX,
+    })),
   );
 
   /**
@@ -67,8 +72,13 @@
    * @param group - ключ группы
    * @param label - выбранный вариант
    */
-  function selectVariant(group: string, label: string): void {
-    choices.value = { ...choices.value, [group]: label };
+  function selectVariant(group: string, label: string | number): void {
+    const labels = props.groups.find((entry) => entry.group === group)?.labels;
+    const variant = labels?.find((option) => option === label);
+
+    if (variant !== undefined) {
+      choices.value = { ...choices.value, [group]: variant };
+    }
   }
 
   /** Отдаёт выбор и закрывает плашку */
@@ -104,37 +114,48 @@
         </div>
 
         <UFormField
-          v-for="group in groups"
-          :key="group.group"
-          :label="showGroupLabels ? group.group : undefined"
+          v-for="row in groupRows"
+          :key="row.group"
+          :label="row.label"
+          size="md"
         >
+          <UTabs
+            v-if="row.asSwitch"
+            :model-value="choices[row.group]"
+            :items="row.items"
+            :content="false"
+            size="md"
+            color="primary"
+            class="w-full"
+            @update:model-value="selectVariant(row.group, $event)"
+          />
+
           <USelect
-            :model-value="choices[group.group]"
-            :items="itemsByGroup.get(group.group)"
+            v-else
+            :model-value="choices[row.group]"
+            :items="row.items"
             value-key="value"
-            size="sm"
+            size="md"
             class="w-full"
             :portal="false"
-            @update:model-value="selectVariant(group.group, $event)"
+            @update:model-value="selectVariant(row.group, $event)"
           />
         </UFormField>
 
-        <div class="flex items-center justify-end gap-2">
+        <div class="flex items-center justify-center gap-2">
           <UButton
-            icon="tabler:check"
+            :label="EFFECT_VARIANT_PROMPT_LABELS.confirm"
             color="primary"
             variant="solid"
-            size="sm"
-            :title="EFFECT_VARIANT_PROMPT_LABELS.confirm"
+            size="md"
             @click.left.exact.prevent="handleConfirm"
           />
 
           <UButton
-            icon="tabler:x"
+            :label="EFFECT_VARIANT_PROMPT_LABELS.cancel"
             color="neutral"
-            variant="ghost"
-            size="sm"
-            :title="EFFECT_VARIANT_PROMPT_LABELS.cancel"
+            variant="soft"
+            size="md"
             @click.left.exact.prevent="handleCancel"
           />
         </div>

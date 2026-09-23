@@ -5,7 +5,8 @@
  * Применение идёт путём заклинания: псевдо-заклинание источника несёт эффекты
  * применения, эффекты «на носителе» ложатся на применившего боевым каналом (там
  * же сервер будит срабатывания «при наложении» — зелье лечит), эффекты «на
- * цели» — на выбранную цель тем же разбором, что и у заклинаний.
+ * цели» — на того, кого выбрали щелчком по фишке (себя или другого; дальше
+ * касания — с разрешения ведущего), тем же разбором, что и у заклинаний.
  */
 
 import type {
@@ -17,7 +18,6 @@ import type {
 
 import { emitEntityUpdate } from '@/core/entityUtils';
 import { useChatStore } from '@/stores/chatStore';
-import { useTargetStore } from '@/stores/targetStore';
 import {
   buildItemUseSpell,
   buildUseSpell,
@@ -32,11 +32,14 @@ import {
   withAmmunition,
 } from '@vtt/shared/system/dnd.js';
 
-import { useSystemToastStore } from '../stores/systemToastStore';
 import { EFFECT_USE_LABELS } from '../ui/effect/constants';
+import { chooseUseTarget } from './effectUseTargetChoice';
 import { runWithEffectVariants } from './effectVariantChoice';
 import { applyCasterSpellEffectsToEntity } from './spellCastCompletion';
-import { applySpellTargetEffects } from './spellEffectTargeting';
+import {
+  applySpellTargetEffects,
+  createChosenEffectTargets,
+} from './spellEffectTargeting';
 import { getTargetSpellEffects } from './spellResolutionShared';
 import { listAmbientEffects } from './useResolvedStats';
 import { useWorldEntities } from './useWorldEntities';
@@ -66,32 +69,27 @@ export function applyEffectSource(
   spend: () => void,
 ): void {
   runWithEffectVariants(spell, (chosen) => {
-    const needsTarget = getTargetSpellEffects(chosen).length > 0;
-
-    // Не `useToast()`: сюда приходят из обработчика клика и с панели быстрого
-    // доступа, где его вызов молча глушится
-    if (needsTarget && !useTargetStore().getTargetActor()) {
-      useSystemToastStore().add({
-        title: EFFECT_USE_LABELS.noTargetTitle,
-        description: EFFECT_USE_LABELS.noTargetText,
-        color: 'warning',
-      });
+    if (getTargetSpellEffects(chosen).length === 0) {
+      spend();
+      // Что сделало применение, пишут список наложенного, разбор цели и исход
+      // срабатываний — отдельная строка «применяет» их бы только повторяла
+      applyCasterSpellEffectsToEntity(chosen, user, { saveDc });
 
       return;
     }
 
-    spend();
+    // Получателя выбирают на карте — себя или другого: «Зелье лечения» с
+    // доставкой «На цели при применении» и пьют, и вливают одним эффектом
+    chooseUseTarget(chosen, user, (targetId) => {
+      spend();
+      applyCasterSpellEffectsToEntity(chosen, user, { saveDc });
 
-    // Что сделало применение, пишут список наложенного, разбор цели и исход
-    // срабатываний — отдельная строка «применяет» их бы только повторяла
-    applyCasterSpellEffectsToEntity(chosen, user, { saveDc });
-
-    if (needsTarget) {
-      applySpellTargetEffects(chosen, {
-        casterId: user.id,
-        spellSaveDC: saveDc,
-      });
-    }
+      applySpellTargetEffects(
+        chosen,
+        { casterId: user.id, spellSaveDC: saveDc },
+        createChosenEffectTargets(chosen, user.id, [targetId]),
+      );
+    });
   });
 }
 

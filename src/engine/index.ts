@@ -74,6 +74,7 @@ export * from './featTypes.js';
 export * from './forcedMovement.js';
 export * from './formulaParser.js';
 export * from './formulaTokens.js';
+export * from './gmApproval.js';
 export * from './grantedSpells.js';
 export * from './healingLimits.js';
 export * from './hitDiceUtils.js';

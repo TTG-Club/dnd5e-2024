@@ -53,7 +53,9 @@ async function loadHelper() {
     EFFECT_VARIANT_MODAL_KEY_PREFIX: 'variant',
     EFFECT_VARIANT_PROMPT_LABELS: { chatSeparator: ': ', chatJoiner: ', ' },
     formatVariantChoices: (name, choices) =>
-      `${name}: ${Object.values(choices).join(', ')}`,
+      Object.keys(choices).length > 0
+        ? `${name}: ${Object.values(choices).join(', ')}`
+        : null,
   });
 
   return { run, modals, messages };
@@ -100,7 +102,7 @@ it('случайная группа бросается сама и пишетс�
 });
 
 it('выбор бросающего — плашкой; действие ждёт подтверждения', async () => {
-  const { run, modals } = await loadHelper();
+  const { run, modals, messages } = await loadHelper();
 
   const spell = {
     name: 'Глухота/слепота',
@@ -126,4 +128,6 @@ it('выбор бросающего — плашкой; действие ждё�
     proceeded.activeEffects.map((effect) => effect.name),
     ['Глухота'],
   );
+
+  assert.deepEqual(messages, [], 'выбор человека чат не повторяет');
 });

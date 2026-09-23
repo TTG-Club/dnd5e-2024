@@ -176,7 +176,7 @@
           v-if="showSearch"
           v-model="search"
           icon="tabler:search"
-          size="sm"
+          size="md"
           :placeholder="EFFECT_TARGET_PROMPT_LABELS.search"
         />
 
@@ -194,7 +194,7 @@
             :color="row.color"
             :variant="row.variant"
             :icon="row.icon"
-            size="sm"
+            size="md"
             class="justify-start"
             @click.left.exact.prevent="toggle(row.id)"
           >
@@ -202,39 +202,34 @@
           </UButton>
         </div>
 
-        <div class="flex items-center justify-between gap-2">
-          <span class="text-xs text-toned">{{ counter }}</span>
+        <span class="text-center text-xs text-toned">{{ counter }}</span>
 
-          <div class="flex items-center gap-2">
-            <UButton
-              v-if="optional"
-              icon="tabler:ban"
-              color="neutral"
-              variant="ghost"
-              size="sm"
-              :title="EFFECT_TARGET_PROMPT_LABELS.decline"
-              @click.left.exact.prevent="handleDecline"
-            />
+        <div class="flex flex-wrap items-center justify-center gap-2">
+          <UButton
+            :label="EFFECT_TARGET_PROMPT_LABELS.confirm"
+            color="primary"
+            variant="solid"
+            size="md"
+            :disabled="!canConfirm"
+            @click.left.exact.prevent="handleConfirm"
+          />
 
-            <UButton
-              icon="tabler:check"
-              color="primary"
-              variant="solid"
-              size="sm"
-              :disabled="!canConfirm"
-              :title="EFFECT_TARGET_PROMPT_LABELS.confirm"
-              @click.left.exact.prevent="handleConfirm"
-            />
+          <UButton
+            v-if="optional"
+            :label="EFFECT_TARGET_PROMPT_LABELS.decline"
+            color="neutral"
+            variant="soft"
+            size="md"
+            @click.left.exact.prevent="handleDecline"
+          />
 
-            <UButton
-              icon="tabler:x"
-              color="neutral"
-              variant="ghost"
-              size="sm"
-              :title="EFFECT_TARGET_PROMPT_LABELS.cancel"
-              @click.left.exact.prevent="handleCancel"
-            />
-          </div>
+          <UButton
+            :label="EFFECT_TARGET_PROMPT_LABELS.cancel"
+            color="neutral"
+            variant="soft"
+            size="md"
+            @click.left.exact.prevent="handleCancel"
+          />
         </div>
       </div>
     </Transition>

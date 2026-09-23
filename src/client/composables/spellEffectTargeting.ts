@@ -83,6 +83,100 @@ export interface SpellEffectTargets {
   claimEntities: () => DnDSceneEntity[] | null;
 }
 
+/**
+ * Накладывает эффекты «на цель» каждой сущности боевым каналом ядра и пишет
+ * в чат, кому что легло.
+ *
+ * @param spell - заклинание или псевдо-заклинание применения
+ * @param casterId - кто накладывает
+ * @param entities - получатели
+ */
+function applyTargetEffectsToEntities(
+  spell: Spell,
+  casterId: string,
+  entities: readonly DnDSceneEntity[],
+): void {
+  const socket = useChatStore().getSocket();
+
+  if (!socket) {
+    return;
+  }
+
+  const effects = getTargetSpellEffects(spell);
+  const names: string[] = [];
+
+  for (const entity of entities) {
+    const targetEffects = effects.map((effect) =>
+      stampEffectOnApply(effect, {
+        carrierId: entity.id,
+        sourceId: casterId,
+        castId: resolveSpellCastId(casterId, spell),
+        castLevel: resolveSpellCastLevel(casterId, spell),
+      }),
+    );
+
+    const activeEffects = applyEffectsToEntity(entity, targetEffects, 'spell');
+
+    emitEntityCombatState(socket, { ...entity, activeEffects });
+    names.push(entity.name);
+  }
+
+  postSpellEffectsMessage(spell.name, names, effects);
+}
+
+/**
+ * Цели, уже выбранные человеком (плашкой «На кого применить»): забираются
+ * один раз и берутся из мира в момент наложения — хиты могли измениться, пока
+ * открыта плашка или ведущий решал, разрешить ли.
+ *
+ * @param spell - псевдо-заклинание применения
+ * @param casterId - кто накладывает
+ * @param entityIds - выбранные сущности
+ * @returns цели для `applySpellTargetEffects`
+ */
+export function createChosenEffectTargets(
+  spell: Spell,
+  casterId: string,
+  entityIds: readonly string[],
+): SpellEffectTargets {
+  let applied = false;
+
+  /** Выбор действует, пока его не забрали */
+  function validate(): boolean {
+    return !applied && !!useChatStore().getSocket();
+  }
+
+  /**
+   * Забирает выбранных: повторно те же цели не отдаются.
+   *
+   * @returns актуальные сущности либо `null`, если выбор уже забран
+   */
+  function claimEntities(): DnDSceneEntity[] | null {
+    if (!validate()) {
+      return null;
+    }
+
+    applied = true;
+
+    const { findCurrentDndEntity } = useWorldEntities();
+
+    return entityIds
+      .map((entityId) => findCurrentDndEntity(entityId))
+      .filter((entity): entity is DnDSceneEntity => entity !== undefined);
+  }
+
+  /** Накладывает эффекты выбранным напрямую */
+  function apply(): void {
+    const entities = claimEntities();
+
+    if (entities) {
+      applyTargetEffectsToEntities(spell, casterId, entities);
+    }
+  }
+
+  return { validate, apply, claimEntities };
+}
+
 /** Кто накладывает эффекты на цель — для спасбросков и Сл 0 эффектов */
 export interface SpellTargetEffectsSource {
   /** Идентификатор заклинателя */
@@ -354,37 +448,11 @@ export function requestSpellEffectTargets(
 
     /** Накладывает эффект каждой выбранной сущности боевым каналом ядра. */
     function apply(): void {
-      const socket = chatStore.getSocket();
       const entities = claimEntities();
 
-      if (!socket || !entities) {
-        return;
+      if (entities) {
+        applyTargetEffectsToEntities(spell, casterId, entities);
       }
-
-      const effects = getTargetSpellEffects(spell);
-      const names: string[] = [];
-
-      for (const entity of entities) {
-        const targetEffects = effects.map((effect) =>
-          stampEffectOnApply(effect, {
-            carrierId: entity.id,
-            sourceId: casterId,
-            castId: resolveSpellCastId(casterId, spell),
-            castLevel: resolveSpellCastLevel(casterId, spell),
-          }),
-        );
-
-        const activeEffects = applyEffectsToEntity(
-          entity,
-          targetEffects,
-          'spell',
-        );
-
-        emitEntityCombatState(socket, { ...entity, activeEffects });
-        names.push(entity.name);
-      }
-
-      postSpellEffectsMessage(spell.name, names, effects);
     }
 
     if (!validate(slotLevel)) {

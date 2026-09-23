@@ -47,6 +47,10 @@ function formatVariantChoices(
  * остальных выбирает бросающий плашкой. Без групп действие идёт сразу и
  * синхронно; закрытая без выбора плашка отменяет действие.
  *
+ * В чат уходит только выпавшее случайно: без строки не понять, что выпало.
+ * Выбор человека чат не повторяет — у варианта своё имя эффекта, и итог
+ * действия его уже называет; вторая строка была бы дублем.
+ *
  * @param source - заклинание, действие, оружие или предмет
  * @param proceed - продолжение с выбранными эффектами
  */
@@ -64,13 +68,13 @@ export function runWithEffectVariants<Source extends EffectVariantSource>(
   }
 
   const rolled = rollRandomEffectVariants(groups);
+  const rolledMessage = formatVariantChoices(source.name, rolled);
 
   const finish = (choices: EffectVariantChoices): void => {
     const allChoices = { ...rolled, ...choices };
-    const message = formatVariantChoices(source.name, allChoices);
 
-    if (message) {
-      useChatStore().sendMessage(message, 'text');
+    if (rolledMessage) {
+      useChatStore().sendMessage(rolledMessage, 'text');
     }
 
     proceed({

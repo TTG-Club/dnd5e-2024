@@ -25,7 +25,10 @@ import type {
 
 import { SUBTRACT_MODE_CHOICE } from '@vtt/shared/system/dnd.js';
 
-import { ACTIVE_EFFECT_DEFAULTS } from '../actor/constants';
+import {
+  ACTIVE_EFFECT_DEFAULTS,
+  MODAL_BUTTON_LABELS,
+} from '../actor/constants';
 
 /** Размеры окна эффекта */
 export const ACTIVE_EFFECT_FORM_MODAL_SIZE = {
@@ -132,8 +135,9 @@ export const EFFECT_USE_DELIVERY_LABELS = {
 export const EFFECT_USE_DELIVERY_HINTS = {
   carrier: 'Копия ложится на того, кто применил, и живёт своей длительностью.',
   target:
-    'Копия ложится на выбранную цель при применении. Спасбросок и урон ниже '
-    + 'относятся к цели.',
+    'Копия ложится на того, кого выберут щелчком по фишке, — на себя или на '
+    + 'другого (зелье выпивают или вливают). Спасбросок и урон ниже относятся '
+    + 'к цели.',
 } as const;
 
 /** Подписи вариантов доставки, не зависящие от места окна */
@@ -655,6 +659,12 @@ export const EFFECT_VARIANT_LABELS = {
   defaultGroup: 'вариант',
 } as const;
 
+/**
+ * До скольких вариантов группа выбирается переключателем: больше в ширину
+ * плашки не помещается — тогда выпадающий список
+ */
+export const EFFECT_VARIANT_SWITCH_MAX = 3;
+
 /** Приставка ключа плашки выбора варианта */
 export const EFFECT_VARIANT_MODAL_KEY_PREFIX = 'effect-variant';
 
@@ -662,8 +672,8 @@ export const EFFECT_VARIANT_MODAL_KEY_PREFIX = 'effect-variant';
 export const EFFECT_VARIANT_PROMPT_LABELS = {
   titlePrefix: '«',
   titleSuffix: '»: какой вариант?',
-  confirm: 'Выбрать',
-  cancel: 'Отменить',
+  confirm: MODAL_BUTTON_LABELS.apply,
+  cancel: MODAL_BUTTON_LABELS.cancel,
   chatSeparator: ': ',
   chatJoiner: ', ',
 } as const;
@@ -686,9 +696,9 @@ export const EFFECT_TARGET_PROMPT_LABELS = {
   titleSeparator: ': ',
   countPrefix: 'Выбрано ',
   countJoiner: ' из ',
-  confirm: 'Выбрать',
+  confirm: MODAL_BUTTON_LABELS.apply,
   decline: 'Отказаться',
-  cancel: 'Отменить',
+  cancel: MODAL_BUTTON_LABELS.cancel,
   hpPrefix: ' (',
   hpJoiner: '/',
   hpSuffix: ')',
@@ -763,8 +773,6 @@ export const EFFECT_USE_LABELS = {
   use: 'Использовать',
   apply: 'Применить',
   applyHint: 'Наложить эффект: на себя или на выбранную цель',
-  noTargetTitle: 'Нет цели',
-  noTargetText: 'Эффект ложится на цель — сначала выберите её.',
   noUsesTitle: 'Нечего применить',
   noUsesText: 'Заряды или количество кончились.',
   noCounterTitle: 'Не хватает ресурса',
@@ -776,6 +784,66 @@ export const EFFECT_USE_LABELS = {
   /** Подпись кнопки применения на панели быстрого доступа */
   hotbarPrefix: 'Использовать: ',
 } as const;
+
+/** Приставка ключа плашки «На кого применить» */
+export const EFFECT_USE_TARGET_MODAL_KEY_PREFIX = 'effect-use-target';
+
+/** Иконки плашки «На кого применить»: шапка и предупреждение «далеко» */
+export const EFFECT_USE_TARGET_ICONS = {
+  header: 'tabler:hand-finger',
+  far: 'tabler:alert-triangle',
+} as const;
+
+/** Подписи выбора получателя при применении предмета или эффекта */
+export const EFFECT_USE_TARGET_LABELS = {
+  prompt: 'На кого применить?',
+  titleSeparator: EFFECT_TARGET_PROMPT_LABELS.titleSeparator,
+  mapHint: 'Щёлкните по фишке на карте. Правая кнопка снимает выбор.',
+  pickHint: 'Никто не выбран',
+  distancePrefix: ' — ',
+  farTitle: 'Далеко',
+  farText: 'Дальше касания применить можно только с разрешения ведущего.',
+  apply: MODAL_BUTTON_LABELS.apply,
+  askGm: 'Спросить ведущего',
+  cancel: MODAL_BUTTON_LABELS.cancel,
+  noTargetTitle: 'Нет цели',
+  noTargetText: 'Эффект ложится на цель — сначала выберите её.',
+  movedAwayTitle: 'Цель пропала',
+  movedAwayText: 'Выбранной фишки больше нет на сцене.',
+} as const;
+
+/**
+ * Вопрос ведущему о применении дальше касания:
+ * «Эльф хочет применить «Зелье лечения» к Гоблину: до цели 15 фт, касанием —
+ * 5 фт.»
+ */
+export const EFFECT_USE_GM_QUESTION_PARTS = {
+  wantsToApply: ' хочет применить «',
+  toTarget: '» к ',
+  distancePrefix: ': до цели ',
+  reachPrefix: ', касанием — ',
+  end: '.',
+  unitSeparator: ' ',
+} as const;
+
+/** Что видит просящий, когда ведущий не разрешил */
+export const EFFECT_USE_GM_VERDICT_TOASTS = {
+  denied: {
+    title: 'Ведущий не разрешил',
+    description: 'Предмет не потрачен.',
+  },
+  noGameMaster: {
+    title: 'Ведущего нет в сети',
+    description: 'Спросить некого — подойдите ближе.',
+  },
+  unanswered: {
+    title: 'Ведущий не ответил',
+    description: 'Предмет не потрачен — попробуйте ещё раз.',
+  },
+} as const;
+
+/** Сколько получателей у применения предмета или эффекта: один */
+export const EFFECT_USE_TARGET_COUNT = 1;
 
 /** Цена нового действия «вырваться»: правила обычно просят действие */
 export const NEW_ESCAPE_COST: EffectActionCost = 'action';
