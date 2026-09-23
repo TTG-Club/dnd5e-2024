@@ -25,10 +25,23 @@
   import ActiveEffectSuggestionsModal from '../ActiveEffectSuggestionsModal.vue';
   import {
     ACTIVE_EFFECT_TEMPLATES_LABELS,
+    CONDITION_PRESET_ICON,
     EFFECT_FLAG_ROW_LABELS,
     EFFECT_MODIFIERS_STEP_LABELS,
     EFFECT_TEMPLATES_MODAL_IDS,
   } from '../constants';
+
+  const props = withDefaults(
+    defineProps<{
+      /**
+       * Шаблоны состояний: их ищут среди правил («Отравленный» — не флаг, а
+       * набор модификаторов и правил), поэтому меню «Готовые» ведёт и к ним.
+       * Пусто — раздела нет.
+       */
+      conditionPresetItems?: DropdownMenuItem[];
+    }>(),
+    { conditionPresetItems: () => [] },
+  );
 
   const flags = defineModel<EffectFlagKey[]>('flags', { required: true });
 
@@ -105,10 +118,34 @@
     };
   }
 
-  /** Меню «Готовые»: правил под сотню, поэтому по разделам */
-  const presetMenuItems: DropdownMenuItem[][] = EFFECT_FLAG_MENU.map(
-    (group) => [flagGroupItem(group)],
-  );
+  /** Разделы правил: правил под сотню, поэтому по разделам */
+  const flagMenuGroups: DropdownMenuItem[][] = EFFECT_FLAG_MENU.map((group) => [
+    flagGroupItem(group),
+  ]);
+
+  /**
+   * Меню «Готовые»: состояния отдельным разделом в самом начале — подпись
+   * внутри предупреждает, что выбор заменит правила, а не добавит одно
+   */
+  const presetMenuItems = computed<DropdownMenuItem[][]>(() => {
+    if (props.conditionPresetItems.length === 0) {
+      return flagMenuGroups;
+    }
+
+    const conditionGroup: DropdownMenuItem = {
+      label: EFFECT_MODIFIERS_STEP_LABELS.flagMenuConditions,
+      icon: CONDITION_PRESET_ICON,
+      children: [
+        {
+          type: 'label',
+          label: EFFECT_MODIFIERS_STEP_LABELS.flagMenuConditionsNote,
+        },
+        ...props.conditionPresetItems,
+      ],
+    };
+
+    return [[conditionGroup], ...flagMenuGroups];
+  });
 </script>
 
 <template>

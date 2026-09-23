@@ -3,6 +3,9 @@
  * текущей раскладки, поэтому собираются функциями, а не лежат константами.
  */
 
+// Корневой вход `@nuxt/ui` типов компонентов не отдаёт — берём из подпути
+import type { DropdownMenuItem } from '@nuxt/ui/components/DropdownMenu.vue';
+
 import type { SkillType } from '@vtt/shared';
 import type {
   AreaEffectTrigger,
@@ -101,6 +104,7 @@ import {
 
 import {
   AURA_TRIGGER_LABELS,
+  CONDITION_PRESET_EXCLUDED_KEY,
   EFFECT_ACTION_SAVE_OUTCOME_OPTIONS,
   EFFECT_ACTIVATION_CHOICE_LABELS,
   EFFECT_AURA_LABELS,
@@ -252,6 +256,26 @@ export function buildConditionItems(): EffectSelectItem[] {
     label: condition.nameRu,
     value: condition.key,
   }));
+}
+
+/**
+ * Пункты меню шаблонов состояний: каждое заполняет эффект тем, что делает
+ * состояние. Истощения среди них нет — его степень задаёт своя панель.
+ * Список меняется, пока окно открыто, поэтому его зовут из `computed`.
+ *
+ * @param onSelect - что сделать с выбранным состоянием
+ * @returns пункты меню
+ */
+export function buildConditionPresetMenuItems(
+  onSelect: (conditionKey: ConditionRef) => void,
+): DropdownMenuItem[] {
+  return listSelectableConditions()
+    .filter((condition) => condition.key !== CONDITION_PRESET_EXCLUDED_KEY)
+    .map((condition) => ({
+      label: condition.nameRu,
+      icon: condition.icon,
+      onSelect: () => onSelect(condition.key),
+    }));
 }
 
 /**

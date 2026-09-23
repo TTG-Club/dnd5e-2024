@@ -1,6 +1,10 @@
 <!--
   Шаг «Что меняет»: состояние, модификаторы, особые правила и иммунитеты к
   состояниям.
+
+  Шаблон состояния стоит первым в шаге, а его пункты повторены в меню
+  «Готовые» у особых правил: «Отравленного» ищут среди правил, и из шапки окна
+  шаблон никто не находил — просили добавить состояния в список правил.
 -->
 <script setup lang="ts">
   import type { WritableComputedRef } from 'vue';
@@ -18,6 +22,8 @@
   import {
     ADJACENT_ALLY_CONDITION_LABEL,
     ADJACENT_ALLY_CONDITION_OPTIONS,
+    applyConditionPresetToEffect,
+    buildConditionActiveEffect,
     describeConditionName,
     describeEffectChangeCondition,
     EFFECT_CONDITION_SUGGESTIONS,
@@ -25,15 +31,21 @@
     TARGET_ALLY_ADJACENT_CONDITION,
   } from '@vtt/shared/system/dnd.js';
 
+  import { SCROLLABLE_DROPDOWN_UI } from '../../actor/constants';
+  import FieldHint from '../../actor/FieldHint.vue';
   import {
+    CONDITION_PRESET_ICON,
     EFFECT_MODIFIERS_STEP_LABELS,
     EFFECT_ROLL_CONDITION_ALWAYS,
   } from '../constants';
-  import { buildConditionItems } from '../effectFormOptions';
+  import {
+    buildConditionItems,
+    buildConditionPresetMenuItems,
+  } from '../effectFormOptions';
   import EffectChangeRows from './EffectChangeRows.vue';
   import EffectFlagRows from './EffectFlagRows.vue';
 
-  defineProps<{
+  const props = defineProps<{
     /** Раскладка окна */
     layout: EffectFormLayout;
     /** Показывать приоритет у всех модификаторов */
@@ -180,6 +192,30 @@
   const suppressConditions = conditionListModel('suppressConditions');
 
   /**
+   * Заполняет эффект тем, что делает состояние, не трогая срабатывание.
+   *
+   * @param conditionKey - ключ состояния
+   */
+  function applyConditionPreset(conditionKey: ConditionRef): void {
+    const condition = buildConditionActiveEffect(conditionKey);
+
+    if (!condition) {
+      return;
+    }
+
+    effect.value = applyConditionPresetToEffect(effect.value, condition);
+  }
+
+  // Список вычисляемый: кроме канона в него входят состояния, заведённые в
+  // мире, — они появляются и исчезают, пока окно открыто. В окне самого
+  // состояния шаблона нет: там эффект и есть состояние
+  const conditionPresetItems = computed(() =>
+    props.layout.showConditionPreset
+      ? buildConditionPresetMenuItems(applyConditionPreset)
+      : [],
+  );
+
+  /**
    * Перестаёт считать эффект состоянием: модификаторы и правила остаются, но
    * иммунитет к состоянию на нём больше не сработает.
    */
@@ -195,7 +231,7 @@
 <template>
   <div
     v-if="conditionName"
-    class="flex items-center gap-2"
+    class="flex flex-wrap items-center gap-2"
   >
     <UBadge
       color="primary"
@@ -205,6 +241,21 @@
     >
       {{ EFFECT_MODIFIERS_STEP_LABELS.conditionPrefix }}{{ conditionName }}
     </UBadge>
+
+    <UDropdownMenu
+      v-if="conditionPresetItems.length > 0"
+      :items="conditionPresetItems"
+      :ui="SCROLLABLE_DROPDOWN_UI"
+    >
+      <UButton
+        color="neutral"
+        variant="ghost"
+        size="xs"
+        :icon="CONDITION_PRESET_ICON"
+        :label="EFFECT_MODIFIERS_STEP_LABELS.conditionPresetChange"
+        :title="EFFECT_MODIFIERS_STEP_LABELS.conditionPresetChangeHint"
+      />
+    </UDropdownMenu>
 
     <UButton
       color="neutral"
@@ -217,8 +268,43 @@
     />
   </div>
 
-  <div class="flex flex-col gap-1.5">
-    <UFormField :label="EFFECT_MODIFIERS_STEP_LABELS.rollConditionTitle">
+  <div
+    v-else-if="conditionPresetItems.length > 0"
+    class="flex items-center justify-between gap-2"
+  >
+    <span class="flex items-center gap-1 text-xs font-medium text-default">
+      {{ EFFECT_MODIFIERS_STEP_LABELS.conditionPresetTitle }}
+
+      <FieldHint :text="EFFECT_MODIFIERS_STEP_LABELS.conditionPresetHint" />
+    </span>
+
+    <UDropdownMenu
+      :items="conditionPresetItems"
+      :content="{ align: 'end' }"
+      :ui="SCROLLABLE_DROPDOWN_UI"
+    >
+      <UButton
+        color="primary"
+        variant="soft"
+        size="xs"
+        :icon="CONDITION_PRESET_ICON"
+        :label="EFFECT_MODIFIERS_STEP_LABELS.conditionPresetPick"
+      />
+    </UDropdownMenu>
+  </div>
+
+  <!-- Поля в строку; окно сужают — переносятся друг под друга. Перенос по
+       ширине окна, а не экрана: окно двигают и тянут отдельно от экрана -->
+  <div class="flex flex-wrap gap-x-3 gap-y-1.5">
+    <UFormField class="min-w-56 flex-1">
+      <template #label>
+        <span class="flex items-center gap-1">
+          {{ EFFECT_MODIFIERS_STEP_LABELS.rollConditionTitle }}
+
+          <FieldHint :text="EFFECT_MODIFIERS_STEP_LABELS.rollConditionHint" />
+        </span>
+      </template>
+
       <USelectMenu
         v-model="rollCondition"
         :items="rollConditionOptions"
@@ -229,23 +315,34 @@
       />
     </UFormField>
 
-    <UFormField
-      :label="EFFECT_MODIFIERS_STEP_LABELS.savedRollTitle"
-      :help="EFFECT_MODIFIERS_STEP_LABELS.savedRollHint"
-    >
+    <UFormField class="min-w-56 flex-1">
+      <template #label>
+        <span class="flex items-center gap-1">
+          {{ EFFECT_MODIFIERS_STEP_LABELS.savedRollTitle }}
+
+          <FieldHint :text="EFFECT_MODIFIERS_STEP_LABELS.savedRollHint" />
+        </span>
+      </template>
+
       <UInput
         v-model="savedRoll"
         :placeholder="EFFECT_MODIFIERS_STEP_LABELS.savedRollPlaceholder"
-        size="sm"
         class="w-full"
       />
     </UFormField>
 
     <UFormField
       v-if="hasAdjacentAllyCondition"
-      :label="EFFECT_MODIFIERS_STEP_LABELS.adjacentAllyTitle"
-      :help="EFFECT_MODIFIERS_STEP_LABELS.adjacentAllyHint"
+      class="min-w-56 flex-1"
     >
+      <template #label>
+        <span class="flex items-center gap-1">
+          {{ EFFECT_MODIFIERS_STEP_LABELS.adjacentAllyTitle }}
+
+          <FieldHint :text="EFFECT_MODIFIERS_STEP_LABELS.adjacentAllyHint" />
+        </span>
+      </template>
+
       <USelectMenu
         v-model="adjacentAllyCondition"
         :items="ADJACENT_ALLY_CONDITION_OPTIONS"
@@ -255,10 +352,6 @@
         :portal="false"
       />
     </UFormField>
-
-    <p class="text-xs text-muted">
-      {{ EFFECT_MODIFIERS_STEP_LABELS.rollConditionHint }}
-    </p>
   </div>
 
   <EffectChangeRows
@@ -266,52 +359,55 @@
     :show-priority-field="showPriorityField"
   />
 
-  <EffectFlagRows v-model:flags="flags" />
+  <EffectFlagRows
+    v-model:flags="flags"
+    :condition-preset-items="conditionPresetItems"
+  />
 
   <div
     v-if="layout.showConditionImmunities"
-    class="flex flex-col gap-1.5"
+    class="flex flex-wrap gap-x-3 gap-y-1.5"
   >
-    <div>
-      <span class="text-xs font-medium text-default">
-        {{ EFFECT_MODIFIERS_STEP_LABELS.immunitiesTitle }}
-      </span>
+    <UFormField class="min-w-56 flex-1">
+      <template #label>
+        <span class="flex items-center gap-1">
+          {{ EFFECT_MODIFIERS_STEP_LABELS.immunitiesTitle }}
 
-      <p class="text-xs text-muted">
-        {{ EFFECT_MODIFIERS_STEP_LABELS.immunitiesHint }}
-      </p>
-    </div>
+          <FieldHint :text="EFFECT_MODIFIERS_STEP_LABELS.immunitiesHint" />
+        </span>
+      </template>
 
-    <USelectMenu
-      v-model="conditionImmunities"
-      :items="conditionOptions"
-      value-key="value"
-      label-key="label"
-      multiple
-      class="w-full"
-      :placeholder="EFFECT_MODIFIERS_STEP_LABELS.immunitiesPlaceholder"
-      :portal="false"
-    />
+      <USelectMenu
+        v-model="conditionImmunities"
+        :items="conditionOptions"
+        value-key="value"
+        label-key="label"
+        multiple
+        class="w-full"
+        :placeholder="EFFECT_MODIFIERS_STEP_LABELS.immunitiesPlaceholder"
+        :portal="false"
+      />
+    </UFormField>
 
-    <div>
-      <span class="text-xs font-medium text-default">
-        {{ EFFECT_MODIFIERS_STEP_LABELS.suppressTitle }}
-      </span>
+    <UFormField class="min-w-56 flex-1">
+      <template #label>
+        <span class="flex items-center gap-1">
+          {{ EFFECT_MODIFIERS_STEP_LABELS.suppressTitle }}
 
-      <p class="text-xs text-muted">
-        {{ EFFECT_MODIFIERS_STEP_LABELS.suppressHint }}
-      </p>
-    </div>
+          <FieldHint :text="EFFECT_MODIFIERS_STEP_LABELS.suppressHint" />
+        </span>
+      </template>
 
-    <USelectMenu
-      v-model="suppressConditions"
-      :items="conditionOptions"
-      value-key="value"
-      label-key="label"
-      multiple
-      class="w-full"
-      :placeholder="EFFECT_MODIFIERS_STEP_LABELS.suppressPlaceholder"
-      :portal="false"
-    />
+      <USelectMenu
+        v-model="suppressConditions"
+        :items="conditionOptions"
+        value-key="value"
+        label-key="label"
+        multiple
+        class="w-full"
+        :placeholder="EFFECT_MODIFIERS_STEP_LABELS.suppressPlaceholder"
+        :portal="false"
+      />
+    </UFormField>
   </div>
 </template>

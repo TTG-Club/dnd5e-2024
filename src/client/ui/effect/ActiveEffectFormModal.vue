@@ -15,6 +15,7 @@
     ActiveEffect,
     EffectFormContext,
     EffectFormStep as EffectFormStepKey,
+    InertEffectField,
   } from '@vtt/shared/system/dnd.js';
 
   import { computed, ref, shallowRef, watch } from 'vue';
@@ -28,6 +29,7 @@
     listEffectFormSteps,
     listInertEffectFields,
     normalizeEffectDraft,
+    removeEffectTrigger,
     resolveEffectFormContext,
     resolveEffectFormLayout,
     upgradeEffectDraft,
@@ -243,13 +245,22 @@
     return steps.value.indexOf(step) + 1;
   }
 
-  /** Убирает настройки, которые в этом месте не работают */
-  function clearInertFields(): void {
-    draft.value = clearInertEffectFields(
-      draft.value,
-      inertFields.value,
-      context.value,
-    );
+  /**
+   * Убирает настройки, которые в этом месте не работают.
+   *
+   * @param fields - какие именно: одна строка плашки или все
+   */
+  function clearInertFields(fields: InertEffectField[]): void {
+    draft.value = clearInertEffectFields(draft.value, fields, context.value);
+  }
+
+  /**
+   * Убирает одно неработающее срабатывание.
+   *
+   * @param triggerId - id срабатывания
+   */
+  function removeInertTrigger(triggerId: string): void {
+    draft.value = removeEffectTrigger(draft.value, triggerId);
   }
 
   function handleClose(): void {
@@ -294,7 +305,6 @@
       >
         <EffectHeaderFields
           v-model:effect="draft"
-          :show-condition-preset="layout.showConditionPreset"
           :show-status-toggle="layout.showStatusToggle"
         />
 
@@ -307,7 +317,10 @@
         <EffectInertFieldsNotice
           v-if="inertFields.length > 0"
           :fields="inertFields"
+          :effect="draft"
+          :layout="layout"
           @clear="clearInertFields"
+          @remove-trigger="removeInertTrigger"
         />
 
         <div class="flex flex-col gap-3">

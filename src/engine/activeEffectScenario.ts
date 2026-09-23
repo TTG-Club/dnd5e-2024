@@ -29,6 +29,7 @@ import { DEFAULT_ACTIVATION_AMOUNT } from './activeEffectTypes.js';
 import { buildConditionActiveEffect } from './conditionTemplates.js';
 import { ABILITY_GENITIVE_LABELS } from './consts.js';
 import {
+  isEffectTriggerSupported,
   readEffectSuccessOutcome,
   resolveEffectFormLayout,
 } from './effectFormLayout.js';
@@ -152,6 +153,24 @@ function formatScenarioSaveDc(dc: number, context: EffectFormContext): string {
   const sourceLabel = SOURCE_SAVE_DC_LABELS[context];
 
   return dc === 0 && sourceLabel ? sourceLabel : formatEffectSaveDc(dc);
+}
+
+/**
+ * Фраза срабатывания так же, как в сводке окна: Сл 0 называется Сл источника
+ * этого места. Нужна плашке неработающих настроек — там срабатывание
+ * описывается отдельно от сводки.
+ *
+ * @param trigger - срабатывание
+ * @param context - место окна
+ * @returns фраза со строчной буквы либо пустая строка
+ */
+export function describeEffectTriggerInPlace(
+  trigger: EffectTrigger,
+  context: EffectFormContext,
+): string {
+  return describeEffectTrigger(trigger, {
+    formatDc: (dc) => formatScenarioSaveDc(dc, context),
+  });
 }
 
 /**
@@ -306,7 +325,8 @@ function describeModifiers(
 
 /**
  * Показывается ли срабатывание в сводке этого места: старые поля — там, где их
- * шаг работает, явные срабатывания — всегда.
+ * шаг работает, явные срабатывания — там, где они работают. Неработающее
+ * называет плашка, а сводка обещала бы то, чего не случится.
  *
  * @param trigger - срабатывание
  * @param layout - раскладка окна
@@ -324,7 +344,11 @@ function isTriggerShown(
     case LEGACY_TRIGGER_IDS.consumeOn:
       return layout.showConsumeOn;
     default:
-      return true;
+      // Место без раскладки плашку не показывает — и сводка ничего не прячет
+      return (
+        layout.context === 'generic'
+        || isEffectTriggerSupported(trigger, layout)
+      );
   }
 }
 
@@ -366,9 +390,7 @@ function describeLastingPayload(
       continue;
     }
 
-    const phrase = describeEffectTrigger(trigger, {
-      formatDc: (dc) => formatScenarioSaveDc(dc, layout.context),
-    });
+    const phrase = describeEffectTriggerInPlace(trigger, layout.context);
 
     if (phrase) {
       parts.push(phrase);

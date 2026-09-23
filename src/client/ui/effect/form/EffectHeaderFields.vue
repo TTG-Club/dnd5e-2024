@@ -1,29 +1,16 @@
 <!--
-  Шапка эффекта: название, иконка, включён ли эффект и шаблон состояния.
+  Шапка эффекта: название, иконка и включён ли эффект. Шаблон состояния — в
+  шаге «Что меняет», рядом с особыми правилами: там его и ищут.
 -->
 <script setup lang="ts">
-  import type { ActiveEffect, ConditionRef } from '@vtt/shared/system/dnd.js';
+  import type { ActiveEffect } from '@vtt/shared/system/dnd.js';
 
   import { computed } from 'vue';
 
-  import {
-    applyConditionPresetToEffect,
-    buildConditionActiveEffect,
-    listSelectableConditions,
-  } from '@vtt/shared/system/dnd.js';
-
-  import {
-    FORM_FIELD_LABELS,
-    SCROLLABLE_DROPDOWN_UI,
-  } from '../../actor/constants';
-  import {
-    ACTIVE_EFFECT_FORM_LABELS,
-    CONDITION_PRESET_EXCLUDED_KEY,
-  } from '../constants';
+  import { FORM_FIELD_LABELS } from '../../actor/constants';
+  import { ACTIVE_EFFECT_FORM_LABELS } from '../constants';
 
   defineProps<{
-    /** Показывать кнопку «Шаблон состояния» */
-    showConditionPreset: boolean;
     /** Показывать переключатель «Работает» */
     showStatusToggle: boolean;
   }>();
@@ -57,33 +44,6 @@
       ? ACTIVE_EFFECT_FORM_LABELS.statusActive
       : ACTIVE_EFFECT_FORM_LABELS.statusDisabled,
   );
-
-  /**
-   * Заполняет эффект тем, что делает состояние, не трогая срабатывание.
-   *
-   * @param conditionKey - ключ состояния
-   */
-  function applyConditionPreset(conditionKey: ConditionRef): void {
-    const condition = buildConditionActiveEffect(conditionKey);
-
-    if (!condition) {
-      return;
-    }
-
-    effect.value = applyConditionPresetToEffect(effect.value, condition);
-  }
-
-  // Список вычисляемый: кроме канона в него входят состояния, заведённые в
-  // мире, — они появляются и исчезают, пока окно открыто
-  const conditionPresetItems = computed(() => [
-    listSelectableConditions()
-      .filter((condition) => condition.key !== CONDITION_PRESET_EXCLUDED_KEY)
-      .map((condition) => ({
-        label: condition.nameRu,
-        icon: condition.icon,
-        onSelect: () => applyConditionPreset(condition.key),
-      })),
-  ]);
 </script>
 
 <template>
@@ -109,21 +69,6 @@
         class="w-full"
       />
     </UFormField>
-
-    <UDropdownMenu
-      v-if="showConditionPreset"
-      :items="conditionPresetItems"
-      :content="{ align: 'end' }"
-      :ui="SCROLLABLE_DROPDOWN_UI"
-    >
-      <UButton
-        icon="tabler:template"
-        :label="ACTIVE_EFFECT_FORM_LABELS.conditionPreset"
-        :title="ACTIVE_EFFECT_FORM_LABELS.conditionPresetHint"
-        color="neutral"
-        variant="outline"
-      />
-    </UDropdownMenu>
 
     <!-- Высота — как у полей рядом; корень переключателя прижимает его к верху -->
     <USwitch

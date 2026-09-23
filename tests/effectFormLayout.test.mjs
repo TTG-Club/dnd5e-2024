@@ -538,6 +538,129 @@ describe('неработающие поля', () => {
       [],
     );
   });
+
+  it('неработающее срабатывание называется с причиной и убирается одно', () => {
+    const appliedTrigger = {
+      id: 'trigger_applied',
+      event: 'applied',
+      actions: [{ type: 'removeSelf' }],
+    };
+
+    const areaMoveTrigger = {
+      id: 'trigger_move_area',
+      event: 'attackRoll',
+      actions: [{ type: 'moveArea' }, { type: 'removeSelf' }],
+    };
+
+    const potion = createEffect({ triggers: [appliedTrigger] });
+    const worn = engine.resolveEffectFormLayout('item', potion);
+
+    // Постоянный предмет не накладывают — «при наложении» не наступает.
+    // Надетый предмет на цель не кладёт, поэтому совет один — применение
+    assert.deepEqual(engine.listUnsupportedEffectTriggers(potion, worn), [
+      {
+        trigger: appliedTrigger,
+        eventUnavailable: true,
+        eventSwitches: ['use'],
+        unavailableActions: [],
+      },
+    ]);
+
+    const used = { ...potion, activation: { mode: 'use' } };
+
+    assert.deepEqual(
+      engine.listUnsupportedEffectTriggers(
+        used,
+        engine.resolveEffectFormLayout('item', used),
+      ),
+      [],
+      'применяемый предмет накладывают',
+    );
+
+    // Зону двигает только заклинание: событие есть, действия — нет
+    const own = createEffect({ triggers: [areaMoveTrigger, appliedTrigger] });
+
+    assert.deepEqual(
+      engine.listUnsupportedEffectTriggers(
+        own,
+        engine.resolveEffectFormLayout('ownEffects', own),
+      ),
+      [
+        {
+          trigger: areaMoveTrigger,
+          eventUnavailable: false,
+          eventSwitches: [],
+          unavailableActions: ['moveArea'],
+        },
+        {
+          trigger: appliedTrigger,
+          eventUnavailable: true,
+          eventSwitches: ['use'],
+          unavailableActions: [],
+        },
+      ],
+    );
+
+    assert.deepEqual(
+      engine.removeEffectTrigger(own, areaMoveTrigger.id).triggers,
+      [appliedTrigger],
+    );
+
+    assert.equal(
+      engine.removeEffectTrigger(potion, appliedTrigger.id).triggers,
+      undefined,
+    );
+  });
+
+  it('переключатель не советуется там, где его нет', () => {
+    const toggleTrigger = {
+      id: 'trigger_toggle',
+      event: 'activate',
+      actions: [{ type: 'removeSelf' }],
+    };
+
+    // Черту включают переключателем, у предмета его нет
+    for (const [context, switches] of [
+      ['feature', ['toggle']],
+      ['item', []],
+    ]) {
+      const effect = createEffect({ triggers: [toggleTrigger] });
+
+      assert.deepEqual(
+        engine
+          .listUnsupportedEffectTriggers(
+            effect,
+            engine.resolveEffectFormLayout(context, effect),
+          )
+          .map((unsupported) => unsupported.eventSwitches),
+        [switches],
+        context,
+      );
+    }
+  });
+
+  it('сводка не обещает неработающее срабатывание', () => {
+    const potion = createEffect({
+      triggers: [
+        {
+          id: 'trigger_applied',
+          event: 'applied',
+          actions: [{ type: 'removeSelf' }],
+        },
+      ],
+    });
+
+    const used = { ...potion, activation: { mode: 'use' } };
+
+    const phrase = engine.describeEffectTriggerInPlace(
+      potion.triggers[0],
+      'item',
+    );
+
+    assert.ok(phrase.length > 0);
+    assert.ok(engine.describeEffectScenario(used, 'item').includes(phrase));
+    assert.ok(!engine.describeEffectScenario(potion, 'item').includes(phrase));
+  });
 });
 
 describe('шаги окна', () => {

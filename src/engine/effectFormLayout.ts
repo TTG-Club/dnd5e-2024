@@ -1252,25 +1252,161 @@ export function writeEffectTriggerRow(
 }
 
 /**
- * Работает ли явное срабатывание в месте окна: его событие здесь срабатывает, и
- * каждое его действие окно на этом событии предлагает. Иначе рецепт считался
- * бы собираемым, хотя действие в списке окна не найти.
+ * Переключатель окна, после которого событие срабатывания начинает наступать:
+ * способ «При применении», «Переключателем» или доставка «На цели».
+ */
+export type EffectTriggerEventSwitch = 'use' | 'toggle' | 'target';
+
+/** Срабатывание, которое в месте окна не работает, и что именно мешает */
+export interface UnsupportedEffectTrigger {
+  /** Само срабатывание */
+  trigger: EffectTrigger;
+  /** Его событие здесь не наступает — тогда не работает целиком */
+  eventUnavailable: boolean;
+  /**
+   * Что можно выбрать в этом же окне, чтобы событие наступало. Пусто — в
+   * этом месте событие не наступит ни при какой настройке.
+   */
+  eventSwitches: EffectTriggerEventSwitch[];
+  /** Действия, которых на этом событии здесь нет */
+  unavailableActions: EffectTriggerActionType[];
+}
+
+/**
+ * Что в окне включает событие, которого сейчас нет. «При наложении» — у
+ * эффекта, который накладывают: применением или на цель
+ * (`landsOnTarget` в раскладке). «При действии или включении» — у включаемого
+ * переключателем (`switchesOn`). Предлагается только то, что в этом месте
+ * есть: у заклинания переключателя нет, и советовать его нельзя.
+ *
+ * @param event - событие срабатывания
+ * @param layout - раскладка окна
+ * @returns переключатели в порядке показа
+ */
+function listTriggerEventSwitches(
+  event: EffectTriggerEvent,
+  layout: EffectFormLayout,
+): EffectTriggerEventSwitch[] {
+  switch (event) {
+    case 'applied':
+      return [
+        ...(layout.activationModes.includes('use') ? (['use'] as const) : []),
+        ...(layout.deliveryOptions.includes('target')
+          ? (['target'] as const)
+          : []),
+      ];
+    case 'activate':
+      return layout.activationModes.includes('toggle') ? ['toggle'] : [];
+    default:
+      return [];
+  }
+}
+
+/**
+ * Оставляет у эффекта только нужные срабатывания; пустой список в данных не
+ * пишется.
+ *
+ * @param effect - эффект
+ * @param keep - оставить ли срабатывание
+ * @returns новый эффект
+ */
+function keepEffectTriggers(
+  effect: ActiveEffect,
+  keep: (trigger: EffectTrigger) => boolean,
+): ActiveEffect {
+  const kept = (effect.triggers ?? []).filter(keep);
+
+  return { ...effect, triggers: kept.length > 0 ? kept : undefined };
+}
+
+/**
+ * Что мешает явному срабатыванию работать в месте окна: событие здесь не
+ * наступает или действие окно на этом событии не предлагает. Иначе рецепт
+ * считался бы собираемым, хотя действие в списке окна не найти.
  *
  * @param trigger - срабатывание
  * @param layout - раскладка окна
- * @returns `true`, если срабатывание здесь работает целиком
+ * @returns помеха либо `null`, если срабатывание работает целиком
  */
-function isTriggerSupported(
+function explainUnsupportedTrigger(
   trigger: EffectTrigger,
   layout: EffectFormLayout,
-): boolean {
+): UnsupportedEffectTrigger | null {
   if (!layout.triggerEvents.includes(trigger.event)) {
-    return false;
+    return {
+      trigger,
+      eventUnavailable: true,
+      eventSwitches: listTriggerEventSwitches(trigger.event, layout),
+      unavailableActions: [],
+    };
   }
 
   const actions = listTriggerActionTypes(layout, trigger.event);
 
-  return trigger.actions.every((action) => actions.includes(action.type));
+  const unavailableActions = [
+    ...new Set(
+      trigger.actions
+        .map((action) => action.type)
+        .filter((type) => !actions.includes(type)),
+    ),
+  ];
+
+  return unavailableActions.length > 0
+    ? {
+        trigger,
+        eventUnavailable: false,
+        eventSwitches: [],
+        unavailableActions,
+      }
+    : null;
+}
+
+/**
+ * Работает ли явное срабатывание в месте окна целиком.
+ *
+ * @param trigger - срабатывание
+ * @param layout - раскладка окна
+ * @returns `true`, если срабатывание здесь работает
+ */
+export function isEffectTriggerSupported(
+  trigger: EffectTrigger,
+  layout: EffectFormLayout,
+): boolean {
+  return explainUnsupportedTrigger(trigger, layout) === null;
+}
+
+/**
+ * Явные срабатывания эффекта, которые в месте окна не работают, с причиной:
+ * плашка называет каждое, а не «срабатывания не для этого места».
+ *
+ * @param effect - эффект
+ * @param layout - раскладка окна
+ * @returns неработающие срабатывания в порядке списка
+ */
+export function listUnsupportedEffectTriggers(
+  effect: ActiveEffect,
+  layout: EffectFormLayout,
+): UnsupportedEffectTrigger[] {
+  return (effect.triggers ?? []).flatMap((trigger) => {
+    const unsupported = explainUnsupportedTrigger(trigger, layout);
+
+    return unsupported ? [unsupported] : [];
+  });
+}
+
+/**
+ * Убирает у эффекта одно срабатывание — из строки плашки, чтобы не сносить
+ * заодно остальные неработающие.
+ *
+ * @param effect - эффект
+ * @param triggerId - id срабатывания
+ * @returns новый эффект
+ */
+export function removeEffectTrigger(
+  effect: ActiveEffect,
+  triggerId: string,
+): ActiveEffect {
+  return keepEffectTriggers(effect, (trigger) => trigger.id !== triggerId);
 }
 
 /**
@@ -1545,7 +1681,7 @@ export function listInertEffectFields(
     [
       'triggers',
       (effect.triggers ?? []).some(
-        (trigger) => !isTriggerSupported(trigger, layout),
+        (trigger) => !isEffectTriggerSupported(trigger, layout),
       ),
     ],
   ];
@@ -1618,11 +1754,9 @@ export function clearInertEffectFields(
         // Убираются только срабатывания, которые здесь не работают
         const layout = resolveEffectFormLayout(context, cleared);
 
-        const kept = (cleared.triggers ?? []).filter((trigger) =>
-          isTriggerSupported(trigger, layout),
+        return keepEffectTriggers(cleared, (trigger) =>
+          isEffectTriggerSupported(trigger, layout),
         );
-
-        return { ...cleared, triggers: kept.length > 0 ? kept : undefined };
       }
       default:
         return { ...cleared, [field]: undefined };

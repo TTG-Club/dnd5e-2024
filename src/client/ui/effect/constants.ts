@@ -18,6 +18,7 @@ import type {
   EffectFormStep,
   EffectSaveUnavailableReason,
   EffectSuccessOutcome,
+  EffectTriggerEvent,
   EffectVariantPick,
   InertEffectField,
 } from '@vtt/shared/system/dnd.js';
@@ -44,12 +45,11 @@ export const ACTIVE_EFFECT_FORM_LABELS = {
   iconPlaceholder: `Напр: ${ACTIVE_EFFECT_DEFAULTS.icon}`,
   statusActive: 'Работает',
   statusDisabled: 'Отключён',
-  conditionPreset: 'Шаблон состояния',
-  conditionPresetHint:
-    'Заполнить тем, что делает стандартное состояние. Когда эффект '
-    + 'срабатывает, спасбросок, урон и длительность останутся как есть.',
   summaryHint: 'Так эффект сработает с текущими настройками',
 } as const;
+
+/** Иконка шаблона состояния: у кнопки шага и у раздела в меню правил */
+export const CONDITION_PRESET_ICON = 'tabler:template';
 
 /** Состояние, которого нет в меню шаблонов: степень Истощения задаёт своя панель */
 export const CONDITION_PRESET_EXCLUDED_KEY: ConditionKey = 'exhaustion';
@@ -371,6 +371,17 @@ export const EFFECT_DAMAGE_STEP_LABELS = {
 
 /** Подписи шага «Что меняет» */
 export const EFFECT_MODIFIERS_STEP_LABELS = {
+  conditionPresetTitle: 'Готовое состояние',
+  conditionPresetHint:
+    'Отравленный, Ослеплённый и другие состояния: модификаторы и правила '
+    + 'заполнятся сами. Спасбросок, урон и длительность останутся как есть.',
+  conditionPresetPick: 'Выбрать состояние',
+  conditionPresetChange: 'Сменить',
+  conditionPresetChangeHint:
+    'Заменить модификаторы и особые правила другим состоянием',
+  /** Раздел состояний в меню «Готовые» у особых правил */
+  flagMenuConditions: 'Состояния (Отравленный и др.)',
+  flagMenuConditionsNote: 'Заменит модификаторы и правила эффекта',
   conditionPrefix: 'Состояние: ',
   conditionRemove: 'Не считать состоянием',
   conditionRemoveHint:
@@ -478,31 +489,91 @@ export const EFFECT_DURATION_STEP_LABELS = {
 
 /** Подписи плашки неработающих настроек */
 export const EFFECT_INERT_FIELDS_LABELS = {
-  title: 'Эти настройки здесь не работают',
-  description:
-    'Они остались от прежнего редактора или от другого места эффекта и при '
-    + 'срабатывании будут пропущены: ',
+  title: 'Не работает в этом месте',
+  titleHint:
+    'Настройки остались от прежнего редактора или от другого места эффекта. '
+    + 'При срабатывании они пропускаются. «Убрать» стирает только их — '
+    + 'остальное в эффекте не меняется.',
   clear: 'Убрать',
+  clearAll: 'Убрать всё',
+  triggerName: 'Срабатывание',
+  /** Между названием настройки и тем, что именно задано */
+  detailSeparator: ': ',
+  actionsUnavailablePrefix: 'Здесь нет действий: ',
+  actionsJoiner: ', ',
+  /** Перед переключателями, которые включают момент срабатывания */
+  switchesPrefix: ` Выберите в шаге «${EFFECT_FORM_STEP_TITLES.trigger}»: `,
+  switchesJoiner: ' или ',
+  switchQuoteOpen: '«',
+  switchQuoteClose: '»',
 } as const;
 
-/** Названия неработающих настроек */
+/** Названия неработающих настроек — заголовки строк плашки */
 export const EFFECT_INERT_FIELD_NAMES: Record<InertEffectField, string> = {
-  charges: 'заряды',
-  activation: 'применение или включение',
-  landingCondition: 'условие наложения',
-  variant: 'вариант',
-  effectTarget: 'на кого накладывается',
-  aura: 'аура',
-  areaTrigger: 'момент срабатывания',
-  applySave: 'спасбросок',
-  successOutcome: 'исход при успехе',
-  damageParts: 'урон при срабатывании',
-  recurringDamage: 'урон каждый ход',
-  recurringSave: 'повторный спасбросок',
-  consumeOn: 'снятие после атаки',
-  duration: 'длительность',
-  conditionImmunities: 'иммунитет к состояниям',
-  triggers: 'срабатывания не для этого места',
+  charges: 'Заряды',
+  activation: 'Применение или включение',
+  landingCondition: 'Условие наложения',
+  variant: 'Вариант',
+  effectTarget: 'На кого накладывается',
+  aura: 'Аура',
+  areaTrigger: 'Момент входа или выхода',
+  applySave: 'Спасбросок',
+  successOutcome: 'Исход при успехе',
+  damageParts: 'Урон при срабатывании',
+  recurringDamage: 'Урон каждый ход',
+  recurringSave: 'Повторный спасбросок',
+  consumeOn: 'Снятие после атаки',
+  duration: 'Длительность',
+  conditionImmunities: 'Иммунитет к состояниям',
+  triggers: 'Срабатывания',
+};
+
+/**
+ * Почему настройка не работает. Причины сверены с раскладкой окна
+ * (`resolveEffectFormLayout`): поле работает там же, где окно его показывает.
+ */
+export const EFFECT_INERT_FIELD_REASONS: Record<InertEffectField, string> = {
+  charges: 'Заряды тратят срабатывания, а здесь эффект их не выполняет.',
+  activation: 'Такого способа включения здесь нет.',
+  landingCondition:
+    'Условие проверяется, когда эффект накладывают, а отсюда его не '
+    + 'накладывают.',
+  variant: 'Выбор варианта здесь не предлагается.',
+  effectTarget:
+    'Отсюда эффект так не накладывается: на цель — только ударом или '
+    + 'заклинанием, в зону — только заклинанием с областью.',
+  aura: 'Аурой эффект отсюда не работает.',
+  areaTrigger: 'Вход и выход бывают только у зоны и ауры.',
+  applySave:
+    'Спасбросок кидает тот, на кого эффект ложится, а здесь эффект просто '
+    + 'лежит на носителе.',
+  successOutcome: 'Исход при успехе бывает только у спасброска.',
+  damageParts:
+    'Урон получает тот, на кого эффект ложится, а здесь эффект ни на кого не '
+    + 'ложится.',
+  recurringDamage:
+    'Каждый ход тикает только эффект, который лежит на существе сам.',
+  recurringSave:
+    'Повторный спасбросок бывает только у эффекта, который лежит на существе '
+    + 'сам.',
+  consumeOn:
+    'Снимается после атаки только эффект, который лежит на существе сам.',
+  duration:
+    'Здесь эффект действует, пока есть источник: срок не отсчитывается.',
+  conditionImmunities: 'Иммунитет отсюда не действует.',
+  triggers: 'Такой момент здесь не наступает.',
+};
+
+/**
+ * Почему момент срабатывания не наступает. Что переключить, дописывает
+ * плашка — только то, что в этом месте есть. Нет в списке — общая причина.
+ */
+export const EFFECT_TRIGGER_EVENT_UNAVAILABLE_REASONS: Partial<
+  Record<EffectTriggerEvent, string>
+> = {
+  applied: '«При наложении» бывает, только когда эффект накладывают.',
+  activate:
+    '«При действии или включении» бывает, только когда эффект включают.',
 };
 
 /** Значение выбора «Действует» для эффекта без применения */
