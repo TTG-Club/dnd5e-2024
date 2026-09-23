@@ -19,6 +19,7 @@
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { ActorSubclassBadgeEntry } from './ActorHeader.vue';
   import type { PickedDefinition } from './CompendiumPickerModal.vue';
   import type { MissingSheetSectionKey } from './constants';
   import type { AppliedFeatFeature } from './feat/featApply';
@@ -507,6 +508,43 @@
         classDef,
         classEntry.subclassKey,
       ).filter((counter) => classEntry.level >= counter.startLevel);
+    });
+  });
+
+  /**
+   * Выбранные подклассы для значка в шапке. На записи актора лежит только
+   * ключ подкласса, название берётся из определения класса. Подкласс, которого
+   * в каталоге нет (каталог ещё грузится или запись удалили), не показывается:
+   * голый ключ игроку ничего не скажет.
+   */
+  const subclassBadgeEntries = computed((): ActorSubclassBadgeEntry[] => {
+    const classes = localActor.value?.system.classes ?? [];
+
+    return classes.flatMap((classEntry) => {
+      if (!classEntry.subclassKey) {
+        return [];
+      }
+
+      const classDef = classCatalog.resolve({
+        key: classEntry.classKey,
+        packId: classEntry.packId,
+      });
+
+      const subclass = classDef?.subclasses.find(
+        (entry) => entry.key === classEntry.subclassKey,
+      );
+
+      if (!subclass) {
+        return [];
+      }
+
+      return [
+        {
+          classKey: classEntry.classKey,
+          className: classEntry.className,
+          subclassName: subclass.name,
+        },
+      ];
     });
   });
 
@@ -2468,6 +2506,7 @@
           :is-creating="!actorId && !isCreated"
           :can-edit="canEdit"
           :world-port="worldPort"
+          :subclass-entries="subclassBadgeEntries"
           @update:actor="handleActorUpdate"
           @toggle-edit-mode="toggleEditMode"
           @open-settings="openSettings"

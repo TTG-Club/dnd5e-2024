@@ -26,6 +26,7 @@
   import ActorHeaderSection from './ActorHeaderSection.vue';
   import {
     ACTOR_HEADER_LABELS,
+    ACTOR_HEADER_SUBCLASS_ICON,
     CREATURE_SIZE_LABELS,
     CREATURE_TYPE_LABELS,
     EDIT_MODE_TOGGLE_TITLE,
@@ -38,6 +39,16 @@
   import LevelUpModal from './LevelUpModal.vue';
   import NameEditModal from './NameEditModal.vue';
 
+  /** Выбранный подкласс одного класса персонажа — строка тултипа в шапке */
+  export interface ActorSubclassBadgeEntry {
+    /** Ключ класса — ключ строки в списке */
+    classKey: string;
+    /** Название класса */
+    className: string;
+    /** Название выбранного подкласса */
+    subclassName: string;
+  }
+
   interface Props {
     actor: DnDActor;
     isEditMode: boolean;
@@ -45,12 +56,18 @@
     /** Может ли пользователь править лист: ГМ или владелец персонажа */
     canEdit?: boolean;
     worldPort?: number;
+    /**
+     * Выбранные подклассы. Названия знает только каталог классов листа, на
+     * записи актора лежат одни ключи — поэтому список приходит готовым.
+     */
+    subclassEntries?: ActorSubclassBadgeEntry[];
   }
 
   const props = withDefaults(defineProps<Props>(), {
     isCreating: false,
     canEdit: true,
     worldPort: undefined,
+    subclassEntries: () => [],
   });
 
   /** Данные для запуска мастера повышения уровня */
@@ -646,13 +663,50 @@
 
             <span class="text-dimmed">—</span>
 
-            <ActorHeaderSection
-              :label="classLabel"
-              :title="MISSING_SHEET_SECTIONS.class.title"
-              :is-filled="Boolean(mainClassLabel)"
-              :can-edit="canEdit"
-              @open="openCompendiumPicker('class')"
-            />
+            <span class="flex items-center gap-1.5">
+              <ActorHeaderSection
+                :label="classLabel"
+                :title="MISSING_SHEET_SECTIONS.class.title"
+                :is-filled="Boolean(mainClassLabel)"
+                :can-edit="canEdit"
+                @open="openCompendiumPicker('class')"
+              />
+
+              <!-- Значок подкласса: название видно по наведению -->
+              <UTooltip
+                v-if="subclassEntries.length > 0"
+                :delay-duration="150"
+                :content="{ side: 'bottom' }"
+              >
+                <span
+                  class="flex h-5 w-5 cursor-help items-center justify-center rounded-full border border-primary/40 bg-elevated/95 text-primary transition-colors hover:border-primary/80"
+                  :aria-label="ACTOR_HEADER_LABELS.subclassTitle"
+                >
+                  <UIcon
+                    :name="ACTOR_HEADER_SUBCLASS_ICON"
+                    class="h-3.5 w-3.5"
+                  />
+                </span>
+
+                <template #content>
+                  <div class="flex flex-col gap-1 px-1 py-0.5 text-[11px]">
+                    <span class="text-dimmed">
+                      {{ ACTOR_HEADER_LABELS.subclassTitle }}
+                    </span>
+
+                    <div
+                      v-for="entry in subclassEntries"
+                      :key="entry.classKey"
+                      class="flex items-center gap-1.5 whitespace-nowrap"
+                    >
+                      <span class="font-medium">{{ entry.className }}:</span>
+
+                      <span>{{ entry.subclassName }}</span>
+                    </div>
+                  </div>
+                </template>
+              </UTooltip>
+            </span>
 
             <span class="text-dimmed">—</span>
 
