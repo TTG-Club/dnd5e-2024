@@ -266,9 +266,10 @@
         />
 
         <template v-if="getSelectedChoice(feature)">
-          <div class="mt-3 text-sm text-muted">
-            {{ getSelectedChoice(feature)?.description }}
-          </div>
+          <ItemDescriptionRenderer
+            :content="getSelectedChoice(feature)?.description ?? ''"
+            class="mt-3 text-sm text-muted"
+          />
 
           <!-- Что даёт выбранный подвид (со своими уровнями) -->
           <div

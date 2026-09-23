@@ -20,6 +20,7 @@
   import { computed, ref } from 'vue';
 
   import { startHotbarDrag } from '@/core/utils/hotbarDrag';
+  import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import { useChatStore } from '@/stores/chatStore';
   import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
   import { useTargetStore } from '@/stores/targetStore';
@@ -930,12 +931,11 @@
 
     <!-- Преамбула раздела: стоит под заголовком, а не в первой записи, —
       она объясняет весь раздел, а не одно действие -->
-    <p
+    <ItemDescriptionRenderer
       v-if="sectionDescription"
+      :content="sectionDescription"
       class="mb-2 text-xs wrap-break-word text-dimmed"
-    >
-      {{ sectionDescription }}
-    </p>
+    />
 
     <!-- Список записей. У особенности боевых чисел нет — ей достаётся плашка
       вместо карточки, как и особенностям листа персонажа -->

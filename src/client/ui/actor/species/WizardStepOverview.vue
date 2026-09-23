@@ -8,6 +8,7 @@
 
   import { computed } from 'vue';
 
+  import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import {
     DAMAGE_DEFENSE_KIND_LABELS,
     DAMAGE_TYPE_LABELS,
@@ -194,7 +195,7 @@
     <div
       class="rounded-lg border border-default/50 bg-elevated/30 p-4 leading-relaxed text-toned"
     >
-      {{ speciesDefinition.description }}
+      <ItemDescriptionRenderer :content="speciesDefinition.description" />
     </div>
 
     <!-- Основные характеристики -->

@@ -95,6 +95,7 @@ import {
   SPELL_TEMPLATE_DEFAULT_COLOR,
   spellHasDamage,
   spellIsHealing,
+  stripDescriptionRollMarkers,
   targetHpGateMatches,
   withFlatDamageBonus,
   withFlatFormulaBonus,
@@ -1732,8 +1733,9 @@ function registerCreatureActionMacro(): void {
         if (!hasAttackParams) {
           const chatStore = useChatStore();
 
+          // Чат кнопок бросков не рисует — марка `{@roll …}` ушла бы со скобками.
           const description = action.description
-            ? action.description.join(' ')
+            ? stripDescriptionRollMarkers(action.description.join(' '))
             : '';
 
           chatStore.sendMessage(
