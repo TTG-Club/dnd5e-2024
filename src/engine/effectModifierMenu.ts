@@ -14,7 +14,11 @@
  * @module system/dnd/effectModifierMenu
  */
 
-import type { EffectChangeKey, EffectChangeMode } from './activeEffectTypes.js';
+import type {
+  EffectChangeKey,
+  EffectChangeMode,
+  EffectTargetKey,
+} from './activeEffectTypes.js';
 
 import {
   ABILITY_CHECK_KEY,
@@ -96,11 +100,41 @@ export interface EffectModifierPreset {
   condition?: string;
 }
 
+/**
+ * Подменю одного «что меняется» с готовыми «как»: у навыка — число, кость к
+ * броску или бонус мастерства. Преимущество и помеха сюда не входят: это
+ * особые правила, и у них своё меню — второй вход к тому же вёл бы к путанице.
+ */
+export interface EffectModifierSubmenu {
+  /** Ключ того, что меняется */
+  key: EffectTargetKey;
+  /** Подпись подменю — что меняется */
+  label: string;
+  /** Готовые варианты */
+  options: EffectModifierPreset[];
+}
+
+/** Пункт раздела меню: готовая строка либо подменю вариантов. */
+export type EffectModifierMenuItem =
+  EffectModifierPreset | EffectModifierSubmenu;
+
 /** Раздел меню со своими пунктами. */
 export interface EffectModifierMenuGroup {
   group: EffectModifierGroup;
   label: string;
-  items: EffectModifierPreset[];
+  items: EffectModifierMenuItem[];
+}
+
+/**
+ * Пункт меню — подменю вариантов, а не готовая строка.
+ *
+ * @param item - пункт раздела меню
+ * @returns `true` для подменю
+ */
+export function isEffectModifierSubmenu(
+  item: EffectModifierMenuItem,
+): item is EffectModifierSubmenu {
+  return 'options' in item;
 }
 
 /**
@@ -246,6 +280,40 @@ const READY_PRESETS: readonly EffectModifierPreset[] = [
 ];
 
 /**
+ * Прибавки к проверке, из которых выбирает автор. Кость — одним пунктом:
+ * вычитается она той же строкой со знаком минус, и второй пункт «−1к4» был бы
+ * тем же самым, только с другим числом.
+ */
+const CHECK_BONUS_OPTIONS: ReadonlyArray<{ label: string; value: string }> = [
+  { label: 'Число', value: '1' },
+  { label: 'Кость к броску', value: '1к4' },
+  { label: 'Бонус мастерства', value: '@prof' },
+];
+
+/**
+ * Подменю одной проверки: готовые прибавки.
+ *
+ * @param key - ключ проверки
+ * @param label - подпись проверки из библиотеки ключей
+ * @returns подменю вариантов
+ */
+function checkSubmenu(
+  key: EffectTargetKey,
+  label: string,
+): EffectModifierSubmenu {
+  return {
+    key,
+    label,
+    options: CHECK_BONUS_OPTIONS.map((option) => ({
+      key,
+      label: option.label,
+      mode: 'add',
+      value: option.value,
+    })),
+  };
+}
+
+/**
  * Пункты-условия по типу существа: выбор заполняет ТОЛЬКО поле условия, а ключ
  * и значение остаются пустыми — что именно ограничивает условие, автор
  * называет сам.
@@ -268,11 +336,33 @@ function conditionPresets(prefix: string): EffectModifierPreset[] {
 }
 
 /**
+ * Порядок раздела проверок: «Все проверки» первыми, навыки — по алфавиту их
+ * русских названий. Навык ищут по имени, а порядок ключей движка следует
+ * английским названиям.
+ *
+ * @param items - пункты раздела проверок
+ * @returns пункты в порядке показа
+ */
+function sortCheckItems(
+  items: readonly EffectModifierMenuItem[],
+): EffectModifierMenuItem[] {
+  return [...items].sort((left, right) => {
+    const leftFirst = left.key === ABILITY_CHECK_KEY;
+
+    if (leftFirst !== (right.key === ABILITY_CHECK_KEY)) {
+      return leftFirst ? -1 : 1;
+    }
+
+    return left.label.localeCompare(right.label, 'ru');
+  });
+}
+
+/**
  * Собирает меню: сперва простые ключи раздела, следом готовые комбинации того
  * же раздела.
  */
 function buildMenu(): EffectModifierMenuGroup[] {
-  const byGroup = new Map<EffectModifierGroup, EffectModifierPreset[]>();
+  const byGroup = new Map<EffectModifierGroup, EffectModifierMenuItem[]>();
 
   for (const suggestion of EFFECT_TARGET_SUGGESTIONS) {
     // Подсказки — свободные строки, а строка формы типизирована ключом:
@@ -284,15 +374,23 @@ function buildMenu(): EffectModifierMenuGroup[] {
     const group = groupOfKey(suggestion.value);
     const items = byGroup.get(group) ?? [];
 
-    items.push({
-      key: suggestion.value,
-      label: suggestion.label,
-      mode: defaultModeOfKey(suggestion.value),
-      value: defaultValueOfGroup(group),
-    });
+    // Проверки — подменю: «как именно лучше» у навыка несколько, и ни одно
+    // не угадать за автора
+    items.push(
+      group === 'skills'
+        ? checkSubmenu(suggestion.value, suggestion.label)
+        : {
+            key: suggestion.value,
+            label: suggestion.label,
+            mode: defaultModeOfKey(suggestion.value),
+            value: defaultValueOfGroup(group),
+          },
+    );
 
     byGroup.set(group, items);
   }
+
+  byGroup.set('skills', sortCheckItems(byGroup.get('skills') ?? []));
 
   for (const preset of READY_PRESETS) {
     const group = groupOfKey(preset.key);

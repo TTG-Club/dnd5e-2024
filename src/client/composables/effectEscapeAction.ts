@@ -4,9 +4,9 @@ import type { CheckRollResult } from '../ui/actor/diceRollTypes';
 
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import {
-  ABILITY_CHECK_KEY,
   canEscapeEffect,
   formatEffectEscapeLabel,
+  getSkillCheckBonusKeys,
   getSkillSetting,
   getSkillSettingAbility,
   listEffectEscapeRemovals,
@@ -88,7 +88,7 @@ export function runEffectEscape(options: EffectEscapeOptions): boolean {
     modifier,
     evaluateBonusRollFormulas: buildRollBonusEvaluator(
       () => entity,
-      ABILITY_CHECK_KEY,
+      getSkillCheckBonusKeys(skill),
     ),
     initialRollMode: resolveAbilityCheckRollMode({ flags, ability, skill }),
     targetDc: dc,

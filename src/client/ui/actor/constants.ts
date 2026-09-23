@@ -19,6 +19,7 @@ import type {
   CounterRecovery,
   CounterRestKey,
   HitDie,
+  SkillInfluenceTone,
 } from '@vtt/shared/system/dnd.js';
 
 import {
@@ -1117,6 +1118,27 @@ export const SKILL_GROUP_LABEL_CLASS =
  */
 export const HIGHLIGHTED_SKILL_ROW_CLASS =
   'bg-primary/10 ring-1 ring-primary/50 ring-inset';
+
+/** Значок строки навыка, на бросок которого сейчас что-то влияет */
+export const SKILL_INFLUENCE_ICON = 'tabler:sparkles';
+
+/**
+ * Цвет значка влияния: всё помогает — зелёный, всё мешает — красный,
+ * вперемешку — нейтральный синий. Смысл читается с первого взгляда, не
+ * наводя мышь.
+ */
+export const SKILL_INFLUENCE_TONE_CLASS: Record<SkillInfluenceTone, string> = {
+  positive: 'text-success',
+  negative: 'text-error',
+  neutral: 'text-info',
+};
+
+/** Подписи подсказки влияний на навык */
+export const SKILL_INFLUENCE_LABELS = {
+  title: 'Влияет на бросок',
+  separator: ' — ',
+  conditionPrefix: 'только: ',
+} as const;
 
 /** Подписи настройки навыков */
 export const SKILL_SETTINGS_LABELS = {

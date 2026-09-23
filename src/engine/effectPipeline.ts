@@ -1669,8 +1669,11 @@ export function evaluateConditionalBonuses(
 }
 
 /**
- * Ключ прибавки к броску к20: атаке, спасброску, проверке или спасброску от
- * смерти.
+ * Ключ прибавки к броску к20: атаке, спасброску, проверке, проверке навыка
+ * или спасброску от смерти.
+ *
+ * Навык здесь наравне с проверками: «Наставление» даёт 1к4 к проверкам одного
+ * навыка, и кость катается в броске, а не входит в число навыка на листе.
  *
  * @param key - ключ изменения
  * @returns `true` для ключа броска
@@ -1679,8 +1682,26 @@ function isRollBonusKey(key: string): boolean {
   return (
     key.startsWith('attack.')
     || key.startsWith('save.')
+    || key.startsWith('skill.')
     || key === ABILITY_CHECK_KEY
     || key === DEATH_SAVE_KEY
+  );
+}
+
+/**
+ * Бросается ли кость в строке с этим ключом: урон, атака, спасбросок, проверка
+ * или навык. У прочих ключей («Класс доспеха», скорость) кость не бросает
+ * никто — такая строка не значит ничего, и форма эффекта говорит об этом
+ * автору.
+ *
+ * @param key - ключ изменения
+ * @returns `true`, если кость в значении строки катается при броске
+ */
+export function isRollTimeDiceKey(key: string): boolean {
+  return (
+    key === ATTACKS_AGAINST_KEY
+    || key.startsWith('damage.')
+    || isRollBonusKey(key)
   );
 }
 
@@ -1852,9 +1873,9 @@ const DICE_VALUE_REGEX = /\d*\s*[кдd]\s*\d+/i;
 /**
  * Определяет, является ли значение change формулой костей (а не плоским числом).
  *
- * Значения в `damage.*`, `attack.*` и `save.*` не входят в постоянные статы.
- * Их собирают при броске: collectBonusDamageFormulas для урона,
- * collectBonusRollFormulas для атаки или спасброска.
+ * Значения в `damage.*`, `attack.*`, `save.*`, `skill.*` и проверках не входят
+ * в постоянные статы. Их собирают при броске: collectBonusDamageFormulas для
+ * урона, collectBonusRollFormulas для атаки, спасброска или проверки.
  *
  * @param value - строка значения change
  * @returns true если в значении есть кубиковая нотация

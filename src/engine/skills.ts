@@ -11,6 +11,7 @@
 
 import type { AbilityType, ProficiencyLevel, SkillType } from '@vtt/shared';
 
+import type { EffectTargetKey } from './activeEffectTypes.js';
 import type { DnDCustomBonusContext } from './customBonuses.js';
 import type {
   DnDCustomSkill,
@@ -20,6 +21,7 @@ import type {
 
 import { isRecord } from '@vtt/shared';
 
+import { ABILITY_CHECK_KEY } from './activeEffectTypes.js';
 import {
   getProficiencyContribution,
   isProficiencyLevel,
@@ -106,6 +108,23 @@ export function getSkillDisadvantageFlagKey(
   skillKey: SkillType,
 ): `skill.${SkillType}.disadvantage` {
   return `skill.${skillKey}.disadvantage`;
+}
+
+/**
+ * Ключи эффектов, чьи кости катаются в проверке навыка: прибавка ко всем
+ * проверкам и прибавка к самому навыку («Наставление»). Один список на все
+ * места броска — лист, статблок, «вырваться», — чтобы кость навыка не терялась
+ * ни в одном из них.
+ *
+ * @param skillKey - ключ навыка; нет — навык свой, ключа под него в системе нет
+ * @returns ключи бонусов броска
+ */
+export function getSkillCheckBonusKeys(
+  skillKey: SkillType | undefined,
+): EffectTargetKey[] {
+  return skillKey
+    ? [ABILITY_CHECK_KEY, getSkillEffectKey(skillKey)]
+    : [ABILITY_CHECK_KEY];
 }
 
 /** Навык по правилам: своя характеристика и без своих бонусов */

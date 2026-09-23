@@ -14,12 +14,13 @@ const engine = await loadEngineBundle("export * from './src/engine/index.ts';");
  */
 async function loadEscape() {
   const opened = [];
+  const bonusKeys = [];
 
   const runEffectEscape = await loadHandler(
     'src/client/composables/effectEscapeAction.ts',
     'runEffectEscape',
     {
-      ABILITY_CHECK_KEY: engine.ABILITY_CHECK_KEY,
+      getSkillCheckBonusKeys: engine.getSkillCheckBonusKeys,
       canEscapeEffect: engine.canEscapeEffect,
       formatEffectEscapeLabel: engine.formatEffectEscapeLabel,
       getSkillSetting: engine.getSkillSetting,
@@ -29,7 +30,11 @@ async function loadEscape() {
       resolveEffectEscapeDc: engine.resolveEffectEscapeDc,
       SKILLS_LABELS: engine.SKILLS_LABELS,
       resolveActorStats: () => ({ skills: { athletics: 3 } }),
-      buildRollBonusEvaluator: () => () => [],
+      buildRollBonusEvaluator: (_getEntity, keys) => {
+        bonusKeys.push(keys);
+
+        return () => [];
+      },
       useModalManager: () => ({
         openModal: (name, props) => opened.push({ name, props }),
       }),
@@ -41,7 +46,7 @@ async function loadEscape() {
     },
   );
 
-  return { runEffectEscape, opened };
+  return { runEffectEscape, opened, bonusKeys };
 }
 
 /**
@@ -114,4 +119,17 @@ it('навык на другой характеристике читает фл�
   });
 
   assert.equal(opened[0].props.initialRollMode, 'advantage');
+});
+
+it('кость к навыку («Наставление» на Атлетику) катается и во «вырваться»', async () => {
+  const { runEffectEscape, bonusKeys } = await loadEscape();
+
+  runEffectEscape({
+    entity: hero,
+    effect: grappled(),
+    flags: new Set(),
+    onEscaped: () => {},
+  });
+
+  assert.deepEqual(bonusKeys, [['abilityCheck', 'skill.athletics']]);
 });

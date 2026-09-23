@@ -10,14 +10,16 @@
 
   import type {
     EffectChange,
-    EffectChangeMode,
+    EffectChangeModeChoice,
     EffectChangeStep,
+    EffectModifierMenuItem,
     EffectModifierPreset,
   } from '@vtt/shared/system/dnd.js';
 
   import { computed, ref } from 'vue';
 
   import {
+    applyEffectChangeModeChoice,
     canStepEffectChangeValue,
     DEFAULT_EFFECT_CHANGE_PRIORITY,
     describeEffectChangeCondition,
@@ -26,10 +28,15 @@
     EFFECT_MODIFIER_MENU,
     EFFECT_TARGET_SUGGESTIONS,
     EFFECT_VALUE_SUGGESTIONS,
+    getEffectChangeModeChoice,
+    getEffectChangeShownValue,
     isDiceFormulaValue,
+    isEffectModifierSubmenu,
     isEffectTargetKey,
     isNoOpEffectChange,
+    isRollTimeDiceKey,
     MAX_EFFECT_CHANGE_STEP,
+    toStoredEffectChangeValue,
     validateFormula,
   } from '@vtt/shared/system/dnd.js';
 
@@ -78,9 +85,20 @@
    * @returns текст ошибки либо `undefined`
    */
   function valueError(change: EffectChange): string | undefined {
-    // Кость-формулы бонус-урона («1к6») числом не считаются: их катает бросок
-    if (change.key === '' || isDiceFormulaValue(change.value)) {
+    if (change.key === '') {
       return undefined;
+    }
+
+    // Кость числом не считается: её катает бросок — если он у ключа вообще
+    // есть. Кость в «Классе доспеха» движок молча пропустил бы
+    if (isDiceFormulaValue(change.value)) {
+      if (!isRollTimeDiceKey(change.key)) {
+        return EFFECT_CHANGE_ROW_LABELS.diceNotRolledError;
+      }
+
+      return change.mode === 'add'
+        ? undefined
+        : EFFECT_CHANGE_ROW_LABELS.diceModeError;
     }
 
     const result = validateFormula(change.value);
@@ -123,6 +141,9 @@
           ? describeEffectChangeKey(change.key)
           : EFFECT_CHANGE_ROW_LABELS.keyPlaceholder,
         valueError: valueError(change),
+        // «Вычесть» — только в форме: в данных это «Добавить» с минусом
+        modeChoice: getEffectChangeModeChoice(change),
+        shownValue: getEffectChangeShownValue(change),
         isNoOp: isNoOpEffectChange(change),
         showPriority:
           props.showPriorityField
@@ -131,6 +152,12 @@
           ? `${EFFECT_CHANGE_ROW_LABELS.conditionOnlyPrefix}${describeEffectChangeCondition(condition)}`
           : '',
         isDamageKey: change.key.startsWith(DAMAGE_CHANGE_KEY_PREFIX),
+        // Кость к броску атаки, спасброска или проверки: у урона своя подсказка
+        isRollDice:
+          !change.key.startsWith(DAMAGE_CHANGE_KEY_PREFIX)
+          && change.mode === 'add'
+          && isRollTimeDiceKey(change.key)
+          && isDiceFormulaValue(change.value),
         hasStep: change.step !== undefined,
         ...describeStepHint(change),
       };
@@ -189,18 +216,32 @@
   }
 
   /**
+   * Пункт выпадающего меню: готовая строка либо подменю её вариантов.
+   *
+   * @param item - пункт раздела меню
+   * @returns пункт выпадающего меню
+   */
+  function toDropdownItem(item: EffectModifierMenuItem): DropdownMenuItem {
+    if (isEffectModifierSubmenu(item)) {
+      return {
+        label: item.label,
+        children: item.options.map((option) => ({
+          label: option.label,
+          onSelect: () => addChangeFromPreset(option),
+        })),
+      };
+    }
+
+    return { label: item.label, onSelect: () => addChangeFromPreset(item) };
+  }
+
+  /**
    * Меню «Готовые»: раздел — вложенное подменю. Ключей полсотни, и одним
    * списком они на экран не помещаются.
    */
   const presetMenuItems: DropdownMenuItem[][] = EFFECT_MODIFIER_MENU.map(
     (group) => [
-      {
-        label: group.label,
-        children: group.items.map((preset) => ({
-          label: preset.label,
-          onSelect: () => addChangeFromPreset(preset),
-        })),
-      },
+      { label: group.label, children: group.items.map(toDropdownItem) },
     ],
   );
 
@@ -222,17 +263,27 @@
    * @param value - значение поля
    */
   function updateValue(index: number, value: string | number): void {
-    updateChange(index, { value: String(value) });
+    const change = changes.value[index];
+
+    if (change) {
+      updateChange(index, {
+        value: toStoredEffectChangeValue(change, String(value)),
+      });
+    }
   }
 
   /**
-   * Меняет режим строки.
+   * Меняет режим строки. Число в поле остаётся тем, что видел автор.
    *
    * @param index - номер строки
-   * @param mode - режим
+   * @param choice - режим, в том числе «Вычесть»
    */
-  function updateMode(index: number, mode: EffectChangeMode): void {
-    updateChange(index, { mode });
+  function updateMode(index: number, choice: EffectChangeModeChoice): void {
+    const change = changes.value[index];
+
+    if (change) {
+      updateChange(index, applyEffectChangeModeChoice(change, choice));
+    }
   }
 
   /**
@@ -365,7 +416,8 @@
 
         break;
       case 'value':
-        updateChange(target.index, { value });
+        // Через поле, а не в обход: у «Вычесть» подсказка ложится с минусом
+        updateValue(target.index, value);
 
         break;
       case 'condition':
@@ -437,7 +489,7 @@
         </UButton>
 
         <USelect
-          :model-value="row.change.mode"
+          :model-value="row.modeChoice"
           :items="EFFECT_CHANGE_MODE_OPTIONS"
           value-key="value"
           size="sm"
@@ -453,7 +505,7 @@
         >
           <div class="flex w-full gap-1">
             <UInput
-              :model-value="row.change.value"
+              :model-value="row.shownValue"
               :placeholder="EFFECT_CHANGE_ROW_LABELS.valuePlaceholder"
               :title="EFFECT_CHANGE_ROW_LABELS.value"
               size="sm"
@@ -584,6 +636,13 @@
         class="text-xs text-muted italic"
       >
         {{ EFFECT_CHANGE_ROW_LABELS.damageFormulaHint }}
+      </p>
+
+      <p
+        v-if="row.isRollDice"
+        class="text-xs text-muted italic"
+      >
+        {{ EFFECT_CHANGE_ROW_LABELS.rollDiceHint }}
       </p>
     </div>
   </div>

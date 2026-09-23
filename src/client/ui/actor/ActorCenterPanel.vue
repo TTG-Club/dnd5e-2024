@@ -14,6 +14,7 @@
     DnDCustomBonusContext,
     DnDCustomSkill,
     DnDSkillSettings,
+    SkillEffectInfluence,
   } from '@vtt/shared/system/dnd.js';
 
   import type { RollBonusEvaluator } from '../../composables/rollBonusEvaluator';
@@ -23,7 +24,6 @@
   import FieldsetLabel from '@/shared_ui/components/FieldsetLabel.vue';
   import { DISTANCE_UNIT_SHORT } from '@vtt/shared';
   import {
-    ABILITY_CHECK_KEY,
     ABILITY_LABELS,
     calculateAbilityModifier,
     getActorAbilityModifiers,
@@ -34,11 +34,13 @@
     getDisplayMovement,
     getMovementList,
     getProficiencyContribution,
+    getSkillCheckBonusKeys,
     getSkillRowGroups,
     getSkillSetting,
     getSkillSettingAbility,
     isChangedSkill,
     isProficiencyLevel,
+    listSkillEffectInfluences,
     resolveAbilityCheckRollMode,
     resolveInitiativeRollMode,
     SKILL_PROFICIENCY_NEXT,
@@ -344,6 +346,8 @@
     isCustom: boolean;
     /** Разбор значения; пусто — навык считается по правилам */
     valueHint: string;
+    /** Что сейчас влияет на бросок навыка: эффекты и доспех */
+    influences: SkillEffectInfluence[];
     /**
      * Характеристики своих бонусов навыка: наведение на любую из них тоже
      * связывает её с навыком, хоть навык и не её.
@@ -434,6 +438,26 @@
     const settings = props.actor.system.skillSettings;
     const proficiencies = props.actor.system.proficiencies.skills;
     const mods = sheetAbilityMods.value;
+    const activeFlags = resolvedStats.value?.activeFlags ?? new Set<string>();
+
+    /**
+     * Влияния на бросок: теми же эффектами, что считают лист, чтобы значок
+     * не расходился с броском.
+     *
+     * @param ability - характеристика расчёта навыка
+     * @param skill - навык правил; нет — свой навык
+     * @returns влияния на навык
+     */
+    const influencesOf = (
+      ability: AbilityType,
+      skill?: SkillType,
+    ): SkillEffectInfluence[] =>
+      listSkillEffectInfluences({
+        effects: combinedEffects.value,
+        skill,
+        ability,
+        activeFlags,
+      });
 
     const ruleRows = SKILLS_LIST.map<SkillRow>((skill) => {
       const setting = getSkillSetting(settings, skill.key);
@@ -474,6 +498,7 @@
               modifier - fallbackModifier,
             )
           : '',
+        influences: influencesOf(ability, skill.key),
         bonusAbilities: getBonusAbilities(setting.bonuses),
       };
     });
@@ -492,6 +517,7 @@
         skill.bonuses,
         0,
       ),
+      influences: influencesOf(skill.ability),
       bonusAbilities: getBonusAbilities(skill.bonuses),
     }));
 
@@ -663,7 +689,7 @@
       modifier: row.modifier,
       evaluateBonusRollFormulas: buildRollBonusEvaluator(
         () => props.actor,
-        ABILITY_CHECK_KEY,
+        getSkillCheckBonusKeys(row.key),
       ),
       title: `${ABILITY_CHECK_ROLL_LABELS.titlePrefix}${row.label}`,
       rollLabel: `${ABILITY_CHECK_ROLL_LABELS.rollPrefix}${row.label}`,
@@ -826,6 +852,7 @@
               :modifier="row.modifier"
               :is-custom="row.isCustom"
               :value-hint="row.valueHint"
+              :influences="row.influences"
               :hide-ability="group.hideAbility"
               :is-highlighted="row.isHighlighted"
               :is-ability-highlighted="row.isMainAbility"

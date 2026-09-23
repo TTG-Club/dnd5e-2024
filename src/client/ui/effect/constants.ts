@@ -11,7 +11,7 @@ import type {
   ConditionKey,
   EffectActionCost,
   EffectActivationMode,
-  EffectChangeMode,
+  EffectChangeModeChoice,
   EffectChangeStepPeriod,
   EffectDelivery,
   EffectFormContext,
@@ -22,6 +22,8 @@ import type {
   EffectVariantPick,
   InertEffectField,
 } from '@vtt/shared/system/dnd.js';
+
+import { SUBTRACT_MODE_CHOICE } from '@vtt/shared/system/dnd.js';
 
 import { ACTIVE_EFFECT_DEFAULTS } from '../actor/constants';
 
@@ -447,14 +449,22 @@ export const EFFECT_CHANGE_ROW_LABELS = {
     'Кроме числа (+2) можно указать кости — они бросаются отдельной частью '
     + 'урона: «2к6», тип — «2к6@dmg.fire», только по цели с полным HP — '
     + '«2к6@dmg.fire@target.full», только по раненой — «@target.notFull».',
+  rollDiceHint: 'Кость бросается заново при каждом броске.',
+  diceNotRolledError:
+    'Здесь кость никто не бросит: она работает только у атак, спасбросков, '
+    + 'проверок, навыков и урона. Укажите число.',
+  diceModeError:
+    'Кость работает только в режимах «Добавить (+)» и «Вычесть (−)».',
 } as const;
 
 /** Подписи режимов модификатора */
 export const EFFECT_CHANGE_MODE_OPTIONS: ReadonlyArray<{
-  value: EffectChangeMode;
+  value: EffectChangeModeChoice;
   label: string;
 }> = [
   { value: 'add', label: 'Добавить (+)' },
+  // Только в форме: в данных это «Добавить» со знаком минус
+  { value: SUBTRACT_MODE_CHOICE, label: 'Вычесть (−)' },
   { value: 'multiply', label: 'Умножить (×)' },
   { value: 'override', label: 'Заменить (=)' },
   { value: 'upgrade', label: 'Не меньше (max)' },

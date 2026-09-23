@@ -16,6 +16,7 @@ import type {
 } from '@vtt/shared';
 
 import type {
+  EffectFlagKey,
   EffectTargetKey,
   ResolvedActorStats,
 } from './activeEffectTypes.js';
@@ -631,6 +632,63 @@ export interface AbilityCheckRollModeParams {
   skill?: SkillType;
 }
 
+/** Флаг преимущества или помехи, задевающий проверку */
+export interface AbilityCheckRollFlag {
+  /** Ключ флага */
+  flag: EffectFlagKey;
+  /** Преимущество или помеха */
+  kind: 'advantage' | 'disadvantage';
+  /** Докуда он дотягивается: сам навык, характеристика или все проверки */
+  reach: 'skill' | 'ability' | 'all';
+}
+
+/**
+ * Все флаги, от которых проверка идёт с преимуществом или помехой: свои у
+ * навыка, по характеристике и общие на все проверки.
+ *
+ * Один список и для броска, и для значка у навыка на листе: иначе новый флаг,
+ * добавленный в одно место, развёл бы показанное и брошенное.
+ *
+ * @param ability - характеристика проверки
+ * @param skill - навык проверки; нет — голая проверка характеристики
+ * @returns флаги по порядку: навык, характеристика, все проверки
+ */
+export function listAbilityCheckRollFlags(
+  ability: AbilityType,
+  skill?: SkillType,
+): AbilityCheckRollFlag[] {
+  const skillFlags: AbilityCheckRollFlag[] = skill
+    ? [
+        {
+          flag: getSkillAdvantageFlagKey(skill),
+          kind: 'advantage',
+          reach: 'skill',
+        },
+        {
+          flag: getSkillDisadvantageFlagKey(skill),
+          kind: 'disadvantage',
+          reach: 'skill',
+        },
+      ]
+    : [];
+
+  return [
+    ...skillFlags,
+    {
+      flag: `abilityCheck.advantage.${ability}`,
+      kind: 'advantage',
+      reach: 'ability',
+    },
+    {
+      flag: `abilityCheck.disadvantage.${ability}`,
+      kind: 'disadvantage',
+      reach: 'ability',
+    },
+    { flag: 'abilityCheck.advantage', kind: 'advantage', reach: 'all' },
+    { flag: 'abilityCheck.disadvantage', kind: 'disadvantage', reach: 'all' },
+  ];
+}
+
 /**
  * Определяет режим проверки характеристики или навыка D&D 5e по активным
  * флагам существа.
@@ -651,17 +709,16 @@ export function resolveAbilityCheckRollMode(
 ): AttackRollMode {
   const { flags, ability, skill } = params;
 
-  const hasAdvantage =
-    flags.has('abilityCheck.advantage')
-    || flags.has(`abilityCheck.advantage.${ability}`)
-    || (skill !== undefined && flags.has(getSkillAdvantageFlagKey(skill)));
+  const activeKinds = new Set(
+    listAbilityCheckRollFlags(ability, skill)
+      .filter((entry) => flags.has(entry.flag))
+      .map((entry) => entry.kind),
+  );
 
-  const hasDisadvantage =
-    flags.has('abilityCheck.disadvantage')
-    || flags.has(`abilityCheck.disadvantage.${ability}`)
-    || (skill !== undefined && flags.has(getSkillDisadvantageFlagKey(skill)));
-
-  return combineRollMode(hasAdvantage, hasDisadvantage);
+  return combineRollMode(
+    activeKinds.has('advantage'),
+    activeKinds.has('disadvantage'),
+  );
 }
 
 /**
