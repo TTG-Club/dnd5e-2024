@@ -50,6 +50,7 @@ import { applyEffectStage, resolveEffectStageIndex } from './effectStages.js';
 import {
   createEffectTriggerId,
   listEffectListTriggers,
+  upgradeStaySaveEffect,
   writeEffectTriggers,
 } from './effectTriggers.js';
 import {
@@ -579,6 +580,26 @@ export function writeEffectDelivery(
  */
 export function readEffectTrigger(effect: ActiveEffect): AreaEffectTrigger {
   return effect.areaTrigger ?? 'stay';
+}
+
+/**
+ * Черновик окна из сохранённого эффекта: старая зона или аура «пока внутри» со
+ * спасброском открывается уже «при входе», как она теперь и срабатывает, — и
+ * после сохранения так и записывается.
+ *
+ * @param effect - сохранённый эффект
+ * @param context - место окна
+ * @returns эффект для черновика
+ */
+export function upgradeEffectDraft(
+  effect: ActiveEffect,
+  context: EffectFormContext,
+): ActiveEffect {
+  const delivery = readEffectDelivery(effect, context);
+
+  return delivery === 'zone' || delivery === 'aura'
+    ? upgradeStaySaveEffect(effect)
+    : effect;
 }
 
 /**

@@ -36,7 +36,10 @@ import {
   itemEffectsActive,
   resolveChangeValue,
 } from './effectPipeline.js';
-import { hasPresenceTriggers } from './effectTriggers.js';
+import {
+  hasPresenceTriggers,
+  upgradeStaySaveEffect,
+} from './effectTriggers.js';
 import {
   areaTargetIncludesSelf,
   areaTargetRelation,
@@ -156,7 +159,12 @@ export function collectAllAuraEffects(entity: DnDSceneEntity): ActiveEffect[] {
 
   // Уровень класса подставляется по ИСТОЧНИКУ ауры: аура умения класса несёт
   // уровень того, кто её излучает, а не того, кто в неё попал
-  const classBound = bindClassLevels(allEffects, entity);
+  const classBound = bindClassLevels(
+    // Старая аура «пока внутри» со спасброском срабатывает на входе: иначе она
+    // ложилась бы на каждого в радиусе без броска
+    allEffects.map(upgradeStaySaveEffect),
+    entity,
+  );
 
   const shaped = shapeEntityAuras(classBound, entity);
 

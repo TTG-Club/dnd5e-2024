@@ -30,6 +30,7 @@
     normalizeEffectDraft,
     resolveEffectFormContext,
     resolveEffectFormLayout,
+    upgradeEffectDraft,
   } from '@vtt/shared/system/dnd.js';
 
   import {
@@ -143,7 +144,7 @@
       // оставлять правок в ней
       const copy: ActiveEffect = JSON.parse(JSON.stringify(props.effect));
 
-      return copy;
+      return upgradeEffectDraft(copy, context.value);
     }
 
     return {

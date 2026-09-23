@@ -18,6 +18,7 @@ import type { FormulaContext } from './formulaParser.js';
 import { ENTITY_AREA_MAX_ROUNDS, generateId } from '@vtt/shared';
 
 import { stampSourceSaveDcs } from './effectAutomation.js';
+import { upgradeStaySaveEffect } from './effectTriggers.js';
 import { bindSourceEffectFormulas } from './sourceFormulaBinding.js';
 import { getZoneSpellEffects } from './spellUtils.js';
 import { templateToPolygon } from './templateGeometry.js';
@@ -91,7 +92,7 @@ function templateColorToHex(color: number): string {
  * подставлены, помечен магическим. Эффект «пока в зоне» живёт, пока живёт
  * зона, — своя длительность у него обнулена.
  *
- * @param effect - эффект заклинания с доставкой «в зону»
+ * @param sourceEffect - эффект заклинания с доставкой «в зону»
  * @param options - заклинатель
  * @param options.casterId - заклинатель
  * @param options.saveDc - Сл заклинателя
@@ -99,9 +100,12 @@ function templateColorToHex(color: number): string {
  * @returns эффект зоны
  */
 function buildZoneEffect(
-  effect: ActiveEffect,
+  sourceEffect: ActiveEffect,
   options: { casterId: string; saveDc: number; formulaContext: FormulaContext },
 ): ActiveEffect {
+  // Старый «пока в зоне» со спасброском уходит на сцену уже входом: так он
+  // сохраняет свою длительность и не висит на стоящих в зоне без броска
+  const effect = upgradeStaySaveEffect(sourceEffect);
   const isStay = (effect.areaTrigger ?? 'stay') === 'stay';
 
   const prepared: ActiveEffect = {

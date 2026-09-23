@@ -65,6 +65,7 @@ import {
   settlePresenceTrigger,
   triggerSaveNeedsRoll,
 } from './effectTriggerRunner.js';
+import { upgradeStaySaveEffect } from './effectTriggers.js';
 import {
   CHOICE_TRIGGER_RECIPIENT,
   triggerAsksPermission,
@@ -75,6 +76,17 @@ import {
   passesLandingCondition,
   withCombatRound,
 } from './triggerConditions.js';
+
+/**
+ * Эффекты зоны в том виде, в каком они срабатывают: старый «пока внутри» со
+ * спасброском уже переведён во вход.
+ *
+ * @param area - зона
+ * @returns эффекты D&D зоны
+ */
+function listZoneEffects(area: CustomArea): ActiveEffect[] {
+  return (area.effects ?? []).filter(isDnDEffect).map(upgradeStaySaveEffect);
+}
 
 /**
  * Собирает ID областей, эффекты которых уже применены к актёру.
@@ -522,6 +534,9 @@ export function syncActorAreaEffects(
         && effect.originId
         && !currentAreaIds.has(effect.originId)
       )
+      // Копия «пока внутри» со спасброском осталась от старых эффектов: такой
+      // эффект теперь срабатывает на входе, а копия висела бы без броска
+      && !(effect.origin === 'area' && effect.applySave)
       && !(
         sceneAreaIds
         && effect.endsWithAreaId
@@ -584,11 +599,11 @@ export function syncActorAreaEffects(
     for (const areaId of exitedAreaIds) {
       const area = areas.find((areaEntry) => areaEntry.id === areaId);
 
-      if (!area?.effects) {
+      if (!area) {
         continue;
       }
 
-      for (const effect of area.effects.filter(isDnDEffect)) {
+      for (const effect of listZoneEffects(area)) {
         if (isEffectDormant(effect)) {
           continue;
         }
@@ -609,11 +624,11 @@ export function syncActorAreaEffects(
 
     const area = areas.find((areaEntry) => areaEntry.id === areaId);
 
-    if (!area?.effects) {
+    if (!area) {
       continue;
     }
 
-    for (const effect of area.effects.filter(isDnDEffect)) {
+    for (const effect of listZoneEffects(area)) {
       if (
         isEffectDormant(effect)
         || (effect.areaTrigger ?? 'stay') !== 'stay'
@@ -643,11 +658,11 @@ export function syncActorAreaEffects(
     for (const areaId of enteredAreaIds) {
       const area = areas.find((areaEntry) => areaEntry.id === areaId);
 
-      if (!area?.effects) {
+      if (!area) {
         continue;
       }
 
-      for (const effect of area.effects.filter(isDnDEffect)) {
+      for (const effect of listZoneEffects(area)) {
         if (isEffectDormant(effect)) {
           continue;
         }
