@@ -1264,7 +1264,9 @@ export function buildCounter(
   subclassKey?: string,
 ): ClassCounterDefinition {
   const built: ClassCounterDefinition = {
-    key: counter.key,
+    // Ключ теперь правят руками: стёртый не должен оставить счётчик без ключа,
+    // иначе лист не отличил бы его от соседних
+    key: counter.key.trim() || generateId('cnt'),
     name: counter.name.trim(),
     startLevel: Math.max(1, Math.round(counter.startLevel || 1)),
     recovery: counter.recovery,
