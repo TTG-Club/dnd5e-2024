@@ -62,6 +62,13 @@ import {
 export interface AppliedFeatFeature extends Feature, AppliedFeatMeta {
   featData?: FeatData;
   activeEffects?: ActiveEffect[];
+  /**
+   * Id эффектов, которые умение класса поставило на лист. По ним строка
+   * особенности находит свой эффект — «Ярость» включается с панели быстрого
+   * доступа. Эффекты лежат в общем списке листа, и без этой ссылки строка о
+   * них не знает.
+   */
+  effectIds?: string[];
 }
 
 /**

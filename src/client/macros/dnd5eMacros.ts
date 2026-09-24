@@ -48,6 +48,7 @@ import {
   calculateCreatureSpellBlockNumbers,
   calculateSpellAttackModifier,
   calculateWeaponAttackModifier,
+  canPayActivation,
   checkRange,
   collectActiveEffects,
   consumeCreatureSpellGroupUse,
@@ -108,6 +109,10 @@ import {
   prepareAmmunitionShot,
   spendShotAmmunition,
 } from '../composables/effectActivationUse';
+import {
+  readEntityCounters,
+  toggleEntityEffect,
+} from '../composables/effectToggle';
 import { runWithEffectVariants } from '../composables/effectVariantChoice';
 import {
   buildRollBonusEvaluator,
@@ -156,7 +161,11 @@ import {
 } from '../ui/actor/constants';
 import { checkCreatureActionRangeOnScene } from '../ui/creature/composables/useCreatureRangeCheck';
 import { CREATURE_ACTIONS_BLOCK_LABELS } from '../ui/creature/constants';
-import { DND_MACRO_TYPES, MACRO_MESSAGE_LABELS } from './constants';
+import {
+  DND_MACRO_TYPES,
+  FEATURE_TOGGLE_SLOT_LABELS,
+  MACRO_MESSAGE_LABELS,
+} from './constants';
 import { toHotbarSlotState } from './hotbarSlotState';
 
 /**
@@ -434,12 +443,66 @@ function executeItemUse(macro: HotbarMacro): void {
 }
 
 /**
+ * Кнопка особенности с переключателем («Ярость»): эффект на месте; включён —
+ * метка «вкл», выключен — остаток ресурса в углу, без ресурса кнопка гаснет.
+ * Включённый эффект выключается всегда: выключение ничего не тратит.
+ *
+ * @param macro - макрос слота
+ * @returns состояние слота
+ */
+function resolveFeatureToggleSlot(macro: HotbarMacro): MacroSlotState {
+  const owner = useWorldEntities().findCurrentDndEntity(macro.actorId);
+  const effect = owner?.activeEffects?.find((entry) => entry.id === macro.ref);
+
+  if (!owner || !effect) {
+    return { disabled: true, hint: FEATURE_TOGGLE_SLOT_LABELS.missingHint };
+  }
+
+  if (!effect.disabled) {
+    return {
+      badge: FEATURE_TOGGLE_SLOT_LABELS.activeBadge,
+      hint: FEATURE_TOGGLE_SLOT_LABELS.activeHint,
+    };
+  }
+
+  const counters = readEntityCounters(owner);
+  const counterKey = effect.activation?.counter;
+
+  const counter = counterKey
+    ? counters.find((entry) => entry.counterKey === counterKey)
+    : undefined;
+
+  return {
+    ...(counter ? { badge: String(counter.current) } : {}),
+    ...(canPayActivation(counters, effect.activation)
+      ? {}
+      : { disabled: true, hint: FEATURE_TOGGLE_SLOT_LABELS.noCounterHint }),
+  };
+}
+
+/**
+ * Включает или выключает эффект особенности с панели: владелец — сущность
+ * слота.
+ *
+ * @param macro - макрос слота
+ */
+function executeFeatureToggle(macro: HotbarMacro): void {
+  if (macro.actorId) {
+    toggleEntityEffect(macro.actorId, macro.ref);
+  }
+}
+
+/**
  * Регистрирует все D&D 5e macro executor'ы в macroRegistry.
  * Вызывается один раз при монтировании сцены.
  */
 export function registerDnd5eMacros(): void {
   registerMacro(DND_MACRO_TYPES.itemUse, executeItemUse, {
     resolveState: resolveItemUseSlot,
+  });
+
+  registerMacro(DND_MACRO_TYPES.featureToggle, executeFeatureToggle, {
+    resolveState: resolveFeatureToggleSlot,
   });
 
   registerMacro(

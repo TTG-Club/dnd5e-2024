@@ -4,10 +4,23 @@ import type { ItemActionBlock } from '@vtt/shared/system/dnd.js';
 export const DND_MACRO_TYPES = {
   weaponAttack: 'weapon-attack',
   itemUse: 'item-use',
+  featureToggle: 'feature-toggle',
 } as const;
 
 /** Значок кнопки применения предмета */
 export const ITEM_USE_MACRO_ICON = 'tabler:flask';
+
+/** Значок кнопки особенности с переключателем («Ярость») */
+export const FEATURE_TOGGLE_MACRO_ICON = 'tabler:flame';
+
+/** Подписи кнопки особенности на панели быстрого доступа */
+export const FEATURE_TOGGLE_SLOT_LABELS = {
+  /** Метка в углу слота, пока эффект включён */
+  activeBadge: 'вкл',
+  activeHint: 'включено — нажмите, чтобы выключить',
+  missingHint: 'эффекта умения больше нет на листе',
+  noCounterHint: 'ресурс исчерпан',
+} as const;
 
 /** Почему погасла кнопка предмета — в подсказке после названия */
 export const ITEM_ACTION_BLOCK_HINTS: Record<ItemActionBlock, string> = {

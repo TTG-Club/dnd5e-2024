@@ -38,6 +38,7 @@
   } from './constants';
   import LevelUpModal from './LevelUpModal.vue';
   import NameEditModal from './NameEditModal.vue';
+  import { readTokenVision } from './tokenVision';
 
   /** Выбранный подкласс одного класса персонажа — строка тултипа в шапке */
   export interface ActorSubclassBadgeEntry {
@@ -143,7 +144,7 @@
     /** Дальность в футах (0 = без ограничений) */
     range: number;
     /**
-     * Чувство показано справочно: приложение считает по зрению токена только
+     * Чувство показано справочно: у зрения токена в приложении есть только
      * обычное и тёмное зрение, поэтому на видимость сцены такая запись не
      * влияет. Помечается в тултипе звёздочкой, чтобы это не выглядело поломкой.
      */
@@ -162,10 +163,16 @@
    */
   const visionEntries = computed<VisionEntry[]>(() => {
     const entries: VisionEntry[] = [];
-    const vision = props.actor.token?.vision;
+    const vision = readTokenVision(props.actor.token);
     const senses = resolvedStats.value?.senses;
 
-    if (vision?.enabled) {
+    // Тёмное зрение — итог пайплайна: база токена плюс эффекты, предметы и
+    // умения. Его же сцена получает хуком системы `resolveEntityVision`, поэтому
+    // оно не справка. Тёмное зрение от эффекта включает и выключенное зрение —
+    // так же, как на сцене
+    const darkvision = senses?.darkvision ?? 0;
+
+    if (vision.enabled || darkvision > 0) {
       // Обычное зрение (range === 0 трактуется как без ограничений)
       entries.push({
         icon: 'tabler:eye',
@@ -174,24 +181,16 @@
       });
     }
 
-    // Тёмное зрение: на токене оно настоящее (по нему считается видимость), от
-    // эффекта — только справка, настройки токена эффект не переписывает.
-    // Показывается большее из двух, звёздочка появляется, когда верх взял эффект
-    const tokenDarkvision = vision?.enabled ? vision.darkvision : 0;
-    const effectDarkvision = senses?.darkvision ?? 0;
-    const darkvision = Math.max(tokenDarkvision, effectDarkvision);
-
     if (darkvision > 0) {
       entries.push({
         icon: 'tabler:moon',
         label: ACTOR_HEADER_LABELS.darkvision,
         range: darkvision,
-        informational: darkvision > tokenDarkvision,
       });
     }
 
-    // Прочие чувства — справкой: приложение считает по зрению токена только
-    // тёмное зрение, поэтому на видимость сцены они не влияют. Показываются
+    // Прочие чувства — справкой: у зрения токена в приложении есть только
+    // обычное и тёмное зрение, поэтому на видимость сцены они не влияют. Показываются
     // независимо от того, включено ли зрение токена: это свойство персонажа,
     // а не настройка его токена
     for (const sense of collectActorSenses(props.actor, senses)) {

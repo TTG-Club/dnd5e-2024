@@ -46,6 +46,7 @@ import { isCreatureEntity, isRecord } from '@vtt/shared';
 
 import {
   ABILITY_CHECK_KEY,
+  ATTACK_ABILITY_CONDITION_PREFIX,
   ATTACKS_AGAINST_KEY,
   CARRIER_ARMOR_CONDITION_PREFIX,
   CARRIER_TYPE_CONDITION_PREFIX,
@@ -123,6 +124,7 @@ import {
   parseSpellcastingSettings,
 } from './spellcastingSettings.js';
 import { findSpellcastingAbility } from './spellUtils.js';
+import { resolveTokenDarkvision } from './visionUtils.js';
 
 export type { IncomingAttackContext };
 
@@ -270,21 +272,6 @@ function createEmptyMovementRecord(): Record<MovementType, number> {
 }
 
 /**
- * Тёмное зрение, настроенное на токене сущности: его дали вид, класс или черта.
- * От него считается `sense.darkvision` режимом «Добавить» — «если тёмное
- * зрение уже есть, его дальность растёт на 60 футов, иначе появляется тёмное
- * зрение 60 футов».
- *
- * @param actor - сущность
- * @returns дальность в футах; `0` — нет
- */
-function resolveTokenDarkvision(actor: DnDActor | DnDCreature): number {
-  const vision = actor.token?.vision;
-
-  return vision?.enabled ? vision.darkvision : 0;
-}
-
-/**
  * Заготовка дальностей чувств.
  *
  * Числового поля чувств у сущности нет — дальность приходит эффектами
@@ -298,7 +285,10 @@ function createBaseSenseRecord(
   actor: DnDActor | DnDCreature,
 ): Record<SenseType, number> {
   return {
-    darkvision: resolveTokenDarkvision(actor),
+    // Тёмное зрение токена дали вид, класс или черта; от него считается
+    // `sense.darkvision` режимом «Добавить» — «если тёмное зрение уже есть, его
+    // дальность растёт на 60 футов, иначе появляется тёмное зрение 60 футов»
+    darkvision: resolveTokenDarkvision(actor.token),
     blindsight: 0,
     truesight: 0,
     tremorsense: 0,
@@ -368,6 +358,7 @@ export function prepareBaseData(
     critThreshold: DEFAULT_CRIT_THRESHOLD,
     attackBonuses: { melee: 0, ranged: 0, spell: 0 },
     damageBonuses: { melee: 0, ranged: 0, spell: 0 },
+    abilityDamageBonuses: { melee: {}, ranged: {} },
     spellSaveDC: 0,
     activeFlags: new Set<EffectFlagKey>(),
     damageDefenses: {
@@ -685,6 +676,21 @@ export function applyActiveEffects(
   // входящей атаки) на листе не считаются — их оценивают в момент броска;
   // условие по типу носителя, наоборот, считается здесь: тип от броска не зависит
   for (const { change } of allChanges) {
+    // Бонус урона «при атаке Силой» — число листа, но своё у каждого оружия:
+    // копится по характеристике, оружие берёт его в разборе своего урона
+    const abilityScope = readAbilityDamageScope(change);
+
+    if (abilityScope) {
+      addAbilityDamageBonus(
+        modifiedStats,
+        abilityScope,
+        change,
+        formulaContext,
+      );
+
+      continue;
+    }
+
     if (skipChangeOnSheet(change, carrier)) {
       continue;
     }
@@ -1643,6 +1649,9 @@ export function evaluateConditionalBonuses(
         || (!change.condition && !rollOnly && !isItemScopedKey(change.key))
         || !matchesDamageKey(change.key, targetKey)
         || isDiceFormulaValue(change.value)
+        // Бонус «при атаке Силой» уже сидит в разборе урона оружия — в броске
+        // его второй раз не считаем
+        || readAbilityDamageScope(change) !== undefined
       ) {
         continue;
       }
@@ -1703,6 +1712,83 @@ export function isRollTimeDiceKey(key: string): boolean {
     || key.startsWith('damage.')
     || isRollBonusKey(key)
   );
+}
+
+/** К какому урону оружия относится бонус «при атаке характеристикой» */
+export interface AbilityDamageScope {
+  /** Урон рукопашного или дальнобойного оружия */
+  range: 'melee' | 'ranged';
+  /** Характеристика атаки, при которой бонус действует */
+  ability: AbilityType;
+}
+
+/**
+ * Бонус урона «при атаке характеристикой»: прибавка к урону рукопашного или
+ * дальнобойного оружия с единственным условием `attack.ability === "…"`.
+ * Составное условие сюда не попадает — оно остаётся условием броска.
+ *
+ * @param change - строка эффекта
+ * @returns урон и характеристика либо `undefined`, если строка не такая
+ */
+export function readAbilityDamageScope(
+  change: EffectChange,
+): AbilityDamageScope | undefined {
+  if (!change.condition || change.mode !== 'add') {
+    return undefined;
+  }
+
+  let range: AbilityDamageScope['range'];
+
+  if (change.key === 'damage.melee') {
+    range = 'melee';
+  } else if (change.key === 'damage.ranged') {
+    range = 'ranged';
+  } else {
+    return undefined;
+  }
+
+  const parts = splitConditionParts(change.condition);
+
+  if (parts.length !== 1) {
+    return undefined;
+  }
+
+  const ability = parseQuotedCondition(
+    parts[0],
+    ATTACK_ABILITY_CONDITION_PREFIX,
+  );
+
+  return ability && isAbilityType(ability) ? { range, ability } : undefined;
+}
+
+/**
+ * Копит бонус урона «при атаке характеристикой» в статах листа. Кость
+ * («1к6») числом листа не бывает — такая строка катается только в броске.
+ *
+ * @param stats - статы актора (мутабельный клон)
+ * @param scope - урон и характеристика бонуса
+ * @param change - строка эффекта
+ * @param formulaContext - контекст формул
+ */
+function addAbilityDamageBonus(
+  stats: ResolvedActorStats,
+  scope: AbilityDamageScope,
+  change: EffectChange,
+  formulaContext: FormulaContext,
+): void {
+  if (isDiceFormulaValue(change.value)) {
+    return;
+  }
+
+  const value = resolveChangeValue(change.value, formulaContext);
+
+  if (value === undefined) {
+    return;
+  }
+
+  const bonuses = stats.abilityDamageBonuses[scope.range];
+
+  bonuses[scope.ability] = (bonuses[scope.ability] ?? 0) + value;
 }
 
 /** Определяет бонусы, которые нельзя вычислять как постоянное число листа. */
@@ -3137,6 +3223,10 @@ function cloneResolvedStats(stats: ResolvedActorStats): ResolvedActorStats {
     critThreshold: stats.critThreshold,
     attackBonuses: { ...stats.attackBonuses },
     damageBonuses: { ...stats.damageBonuses },
+    abilityDamageBonuses: {
+      melee: { ...stats.abilityDamageBonuses.melee },
+      ranged: { ...stats.abilityDamageBonuses.ranged },
+    },
     spellSaveDC: stats.spellSaveDC,
     activeFlags: new Set(stats.activeFlags),
     damageDefenses: {

@@ -90,6 +90,7 @@ import {
   collectClassOptionEffects,
   collectFeatureEffects,
   collectSubclassEffects,
+  listFeatureEffectIds,
   mergeClassEffects,
 } from '../classEffects';
 
@@ -2529,6 +2530,7 @@ export function useClassWizard(
       // Название класса берётся до вложенной функции: внутри неё TypeScript
       // уже не помнит, что запись класса проверена на существование
       const className = classDef.name;
+      const classKey = classDef.key;
 
       /**
        * Добавляет запись умения на лист, если такой там ещё нет.
@@ -2547,6 +2549,7 @@ export function useClassWizard(
        * @param sourceName - название подкласса-источника
        * @param grant - дары выбранного варианта; запись варианта несёт их сама
        * @param spellList - расширение списка заклинаний самого умения
+       * @param featureEffects - эффекты самого умения: запись помнит их id
        */
       function pushFeature(
         name: string,
@@ -2556,6 +2559,7 @@ export function useClassWizard(
         sourceName?: string,
         grant?: ClassOptionGrant,
         spellList?: FeatSpellListExpansion,
+        featureEffects?: ActiveEffect[],
       ): void {
         // grantedBy включает класс (и подкласс): имя класса обязано остаться
         // в строке — по нему удаление класса находит свои умения
@@ -2595,6 +2599,15 @@ export function useClassWizard(
           featData = { type: 'feat', spellList };
         }
 
+        // Эффекты умения лежат в общем списке листа; ссылка на них даёт строке
+        // особенности включать свой эффект (с панели быстрого доступа)
+        const effectIds = [
+          ...listFeatureEffectIds(classKey, featureEffects),
+          ...(grant
+            ? listFeatureEffectIds(classKey, grant.activeEffects, grant)
+            : []),
+        ];
+
         const record: AppliedFeatFeature = {
           id: generateId('feature'),
           name,
@@ -2603,6 +2616,7 @@ export function useClassWizard(
           level,
           featureType: isSubclass ? 'subclass' : 'class',
           ...(featData ? { featData } : {}),
+          ...(effectIds.length > 0 ? { effectIds } : {}),
           ...(Object.keys(answers).length > 0 ? { choices: answers } : {}),
           ...(grant?.activeEffects.length
             ? { activeEffects: grant.activeEffects }
@@ -2638,6 +2652,7 @@ export function useClassWizard(
             feature.sourceName,
             undefined,
             feature.featData?.spellList,
+            feature.activeEffects,
           );
 
           continue;
@@ -2652,6 +2667,7 @@ export function useClassWizard(
             feature.sourceName,
             optionGrantByKey.value.get(`${feature.key}:${choice.key}`),
             feature.featData?.spellList,
+            feature.activeEffects,
           );
         }
       }

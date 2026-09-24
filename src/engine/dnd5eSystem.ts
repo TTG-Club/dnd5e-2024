@@ -46,6 +46,7 @@ import type {
   EffectTriggerSourceKind,
 } from './effectTriggerRunner.js';
 import type { EffectTriggerArea } from './effectTriggerTypes.js';
+import type { DndEntityVision } from './entityVision.js';
 import type { AreaEffectsSyncResult } from './positionalEffects.js';
 import type { SystemClientEvent } from './systemClientEvents.js';
 import type {
@@ -143,6 +144,7 @@ import {
 } from './effectTriggerRunner.js';
 import { isLegacyTrigger, listEffectEventTriggers } from './effectTriggers.js';
 import { isDndSceneEntity } from './entityGuards.js';
+import { resolveEntityVision as resolveEntityVisionImpl } from './entityVision.js';
 import { buildFeatGrantsSummary } from './featGrantsSummary.js';
 import { validateFormula } from './formulaParser.js';
 import {
@@ -1495,7 +1497,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.84';
+  readonly version = '0.8.85';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -2134,6 +2136,18 @@ export class Dnd5eVttSystem implements VttSystem {
     }
 
     return entityIgnoresTerrainCostImpl(entity);
+  }
+
+  /**
+   * Зрение сущности по правилам D&D — хук сцены приложения: тёмное зрение от
+   * эффектов, предметов и умений поверх настроек токена. Ядро, которое хука
+   * ещё не знает, его просто не зовёт — сцена тогда видит только токен.
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  resolveEntityVision(entity: SceneEntity): DndEntityVision | undefined {
+    return isDndSceneEntity(entity)
+      ? resolveEntityVisionImpl(entity)
+      : undefined;
   }
 
   /**

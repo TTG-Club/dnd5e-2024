@@ -162,6 +162,7 @@
 |---|---|---|---|---|
 | F01 | Ярость | `ownEffects` → носитель | `flags`: `resistance.bludgeoning/piercing/slashing`, `abilityCheck.advantage.strength`, `save.advantage.strength`; `changes`: `damage.melee 2`; 10 минут | ≈ включение — F01b |
 | F01b | Ярость: включение с расходом и конец | `feature` → носитель | «Действует: переключателем», ресурс `rage`; копия умения ложится выключенной, включение тратит ресурс и будит «При включении»; истечение и «Снять эффект» выключают, а не удаляют. Конец «без атаки за ход» — вручную | ≈ |
+| F01c | Ярость: бонус урона только атакам Силой | `feature` → носитель | `damage.melee` с условием «Атака: Силой» (`attack.ability === "strength"`): число листа, но своё у каждого оружия — секира Силой получает, рапира через Ловкость нет; в броске второй раз не считается | ✓ |
 | F02 | Драконья стойкость | `feature` → носитель | `changes`: `hitPoints.max @classLevel`, `armorClass override 10 + @mod.dex + @mod.cha` при `self.armor === "none"` | ✅ |
 | F03 | Аура защиты | `feature` → аура союзникам и себе | `changes`: `save.* @mod.cha` — Харизма паладина | ✅ |
 | F04 | Аура отваги | `feature` → аура союзникам и себе | `conditionImmunities`: испуг | ✅ |

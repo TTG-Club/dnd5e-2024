@@ -23,6 +23,7 @@ import type {
 import type { SceneOffset } from './forcedMovement.js';
 
 import {
+  ATTACK_ABILITY_CONDITION_PREFIX,
   CARRIER_TYPE_CONDITION_PREFIX,
   CONDITION_AND_SEPARATOR,
   listLiveEffects,
@@ -365,7 +366,10 @@ const PARAMETRIC_PARTS: Partial<
   damageAtLeast: { prefix: 'damage.amount >= ', parameter: 'number' },
   sourceWithin: { prefix: 'source.distance <= ', parameter: 'number' },
   attackKind: { prefix: 'attack.kind === ', parameter: 'attackKind' },
-  attackAbility: { prefix: 'attack.ability === ', parameter: 'ability' },
+  attackAbility: {
+    prefix: ATTACK_ABILITY_CONDITION_PREFIX,
+    parameter: 'ability',
+  },
   selfAbilityAtMost: { prefix: 'self.ability[', parameter: 'ability' },
   selfAbilityAtLeast: { prefix: 'self.ability[', parameter: 'ability' },
   combatRoundIs: { prefix: 'combat.round === ', parameter: 'number' },

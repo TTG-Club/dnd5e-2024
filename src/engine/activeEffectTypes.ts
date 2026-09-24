@@ -385,6 +385,12 @@ export const CARRIER_TYPE_CONDITION_PREFIX = 'self.creatureType === ';
 /** Приставка условия по надетому доспеху НОСИТЕЛЯ. */
 export const CARRIER_ARMOR_CONDITION_PREFIX = 'self.armor === ';
 
+/**
+ * Приставка условия «атака идёт этой характеристикой». Общая для модификаторов
+ * («Ярость»: бонус урона только атакам Силой) и срабатываний.
+ */
+export const ATTACK_ABILITY_CONDITION_PREFIX = 'attack.ability === ';
+
 /** Приставка условия по типу ЦЕЛИ броска. */
 export const TARGET_TYPE_CONDITION_PREFIX = 'target.creatureType === ';
 
@@ -490,6 +496,18 @@ export const EFFECT_CONDITION_SUGGESTIONS: Array<{
   {
     value: 'roll.hasDisadvantage === true',
     label: 'Бросок: уже идёт с помехой',
+  },
+
+  // === ХАРАКТЕРИСТИКА АТАКИ ===
+  // Бонус урона оружия считается по характеристике, которой оно бьёт: на
+  // листе он виден у каждого оружия своим, а в бросок идёт из того же счёта
+  {
+    value: `${ATTACK_ABILITY_CONDITION_PREFIX}"strength"`,
+    label: 'Атака: Силой (урон оружия)',
+  },
+  {
+    value: `${ATTACK_ABILITY_CONDITION_PREFIX}"dexterity"`,
+    label: 'Атака: Ловкостью (урон оружия)',
   },
 
   // === ДОСПЕХ НОСИТЕЛЯ ===
@@ -2070,6 +2088,15 @@ export interface ResolvedActorStats {
     melee: number;
     ranged: number;
     spell: number;
+  };
+  /**
+   * Бонусы к урону оружия только при атаке этой характеристикой («Ярость» —
+   * атаки Силой). Оружие добавляет к себе бонус той характеристики, которой
+   * бьёт: секира Силой получает его, рапира через Ловкость — нет.
+   */
+  abilityDamageBonuses: {
+    melee: Partial<Record<AbilityType, number>>;
+    ranged: Partial<Record<AbilityType, number>>;
   };
   /** DC спасброска заклинаний */
   spellSaveDC: number;

@@ -247,6 +247,7 @@
         :is-edit-mode="isEditMode"
         :socket="socket"
         :is-drag-over="props.isFeatureDragOver"
+        allow-hotbar-drag
         @update:actor="handleUpdate"
         @immediate-save="emit('immediate-save')"
       />

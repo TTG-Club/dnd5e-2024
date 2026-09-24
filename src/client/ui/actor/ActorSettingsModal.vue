@@ -6,18 +6,18 @@
     HpDisplayMode,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { TokenVisionSettings } from './tokenVision';
+
   import { useToast } from '@nuxt/ui/composables';
   import { computed, onMounted, ref, watch } from 'vue';
 
   import { requireSocket } from '@/core/entityUtils';
   import {
     DEFAULT_TOKEN_FRAME_URL,
-    TOKEN_DARKVISION_DEFAULT,
     TOKEN_DARKVISION_MIN,
     TOKEN_DARKVISION_STEP,
     TOKEN_SCALE_DEFAULT,
     TOKEN_SIZE_OPTIONS,
-    TOKEN_VISION_RANGE_DEFAULT,
     TOKEN_VISION_RANGE_MIN,
     TOKEN_VISION_RANGE_STEP,
   } from '@/core/tokenConsts';
@@ -38,11 +38,14 @@
     DEFAULT_ACTOR_CREATURE_TYPE,
     isCreatureCategory,
     isDndActor,
+    isTokenVisionEnabled,
     resolveCreatureTokenScale,
+    resolveTokenDarkvision,
     TOKEN_SCALE_TO_CREATURE_SIZE,
   } from '@vtt/shared/system/dnd.js';
 
   import { useEntityOwnershipSettings } from '../../composables/useEntityOwnershipSettings';
+  import { useResolvedStats } from '../../composables/useResolvedStats';
   import {
     TOKEN_TINT_DEFAULT,
     useTokenPreview,
@@ -62,12 +65,12 @@
     TOKEN_IMAGE_ROTATION_MIN,
     TOKEN_IMAGE_ROTATION_STEP,
     TOKEN_SETTINGS_LABELS,
-    TOKEN_VISION_ANGLE_DEFAULT,
     TOKEN_VISION_ANGLE_MAX,
     TOKEN_VISION_ANGLE_MIN,
     TOKEN_VISION_ANGLE_PRESETS,
     TOKEN_VISION_ANGLE_STEP,
   } from './constants';
+  import { readTokenVision } from './tokenVision';
 
   interface Props {
     open: boolean;
@@ -151,12 +154,7 @@
   const showFrame = ref(true);
 
   // Настройки зрения
-  const visionSettings = ref({
-    enabled: false,
-    range: TOKEN_VISION_RANGE_DEFAULT,
-    darkvision: TOKEN_DARKVISION_DEFAULT,
-    angle: TOKEN_VISION_ANGLE_DEFAULT,
-  });
+  const visionSettings = ref<TokenVisionSettings>(readTokenVision(undefined));
 
   // Настройки света токена (тот же механизм, что у источников света)
   const lightSettings = ref<LightEmitter>(createDefaultLightEmitter());
@@ -216,6 +214,35 @@
     }
 
     return props.actorData ?? null;
+  });
+
+  const { resolvedStats } = useResolvedStats(actor);
+
+  /**
+   * Итог тёмного зрения на сцене, если его меняют эффекты, предметы и умения:
+   * поле настроек — только база токена, а сцена видит итог (хук системы
+   * `resolveEntityVision`). Без подсказки кольцо тёмного зрения выглядело бы
+   * так, будто ничего не дало.
+   */
+  const sceneDarkvisionHint = computed(() => {
+    const resolved = resolvedStats.value?.senses.darkvision;
+
+    if (!actor.value || resolved === undefined) {
+      return undefined;
+    }
+
+    const { token } = actor.value;
+
+    if (resolved === resolveTokenDarkvision(token)) {
+      return undefined;
+    }
+
+    const enables =
+      !isTokenVisionEnabled(token) && resolved > 0
+        ? TOKEN_SETTINGS_LABELS.darkvisionSceneEnables
+        : '';
+
+    return `${TOKEN_SETTINGS_LABELS.darkvisionScenePrefix}${resolved}${TOKEN_SETTINGS_LABELS.darkvisionSceneSuffix}${enables}`;
   });
 
   watch(
@@ -432,15 +459,13 @@
       || tokenSettings.value.facingEnabled
         !== (actor.value.token?.facingEnabled ?? false);
 
+    const savedVision = readTokenVision(actor.value.token);
+
     const visionChanged =
-      visionSettings.value.enabled
-        !== (actor.value.token?.vision?.enabled || false)
-      || visionSettings.value.range
-        !== (actor.value.token?.vision?.range ?? TOKEN_VISION_RANGE_DEFAULT)
-      || visionSettings.value.darkvision
-        !== (actor.value.token?.vision?.darkvision ?? TOKEN_DARKVISION_DEFAULT)
-      || visionSettings.value.angle
-        !== (actor.value.token?.vision?.angle ?? TOKEN_VISION_ANGLE_DEFAULT);
+      visionSettings.value.enabled !== savedVision.enabled
+      || visionSettings.value.range !== savedVision.range
+      || visionSettings.value.darkvision !== savedVision.darkvision
+      || visionSettings.value.angle !== savedVision.angle;
 
     const lightChanged =
       JSON.stringify(lightSettings.value)
@@ -552,13 +577,7 @@
         showFrame.value = false;
       }
 
-      visionSettings.value = {
-        enabled: actor.value.token?.vision?.enabled || false,
-        range: actor.value.token?.vision?.range ?? TOKEN_VISION_RANGE_DEFAULT,
-        darkvision:
-          actor.value.token?.vision?.darkvision ?? TOKEN_DARKVISION_DEFAULT,
-        angle: actor.value.token?.vision?.angle ?? TOKEN_VISION_ANGLE_DEFAULT,
-      };
+      visionSettings.value = readTokenVision(actor.value.token);
 
       lightSettings.value = actor.value.token?.light
         ? { ...actor.value.token.light }
@@ -1351,6 +1370,13 @@
 
                     <p class="text-xs text-dimmed">
                       {{ TOKEN_SETTINGS_LABELS.darkvisionRangeHint }}
+                    </p>
+
+                    <p
+                      v-if="sceneDarkvisionHint"
+                      class="text-xs text-primary"
+                    >
+                      {{ sceneDarkvisionHint }}
                     </p>
                   </div>
                 </div>

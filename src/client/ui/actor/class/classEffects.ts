@@ -116,11 +116,53 @@ export function collectClassOptionEffects(
   const scoped = grants.flatMap((grant) =>
     grant.activeEffects.map((effect) => ({
       ...effect,
-      id: `${grant.featureKey}:${grant.optionKey}:${effect.id}`,
+      id: buildOptionEffectId(grant, effect.id),
     })),
   );
 
   return withClassProvenance(scoped, definition.key);
+}
+
+/**
+ * Id эффекта варианта до метки класса: умение и вариант входят в него, иначе
+ * одинаково названные варианты двух умений слиплись бы в один эффект.
+ *
+ * @param grant - вариант умения
+ * @param grant.featureKey - ключ умения
+ * @param grant.optionKey - ключ варианта
+ * @param effectId - id эффекта в записи варианта
+ * @returns id эффекта варианта
+ */
+function buildOptionEffectId(
+  grant: { featureKey: string; optionKey: string },
+  effectId: string,
+): string {
+  return `${grant.featureKey}:${grant.optionKey}:${effectId}`;
+}
+
+/**
+ * Id эффектов, которые умение поставит на лист, — ссылка строки особенности
+ * на её эффекты. Считаются так же, как их ставят {@link collectFeatureEffects}
+ * и {@link collectClassOptionEffects}: иначе ссылка вела бы в пустоту.
+ *
+ * @param classKey - ключ класса
+ * @param effects - эффекты умения (или выбранного варианта)
+ * @param grant - вариант, если запись — вариант умения
+ * @param grant.featureKey - ключ умения
+ * @param grant.optionKey - ключ варианта
+ * @returns id эффектов на листе; пусто — эффектов у умения нет
+ */
+export function listFeatureEffectIds(
+  classKey: string,
+  effects: ReadonlyArray<ActiveEffect> | undefined,
+  grant?: { featureKey: string; optionKey: string },
+): string[] {
+  return (effects ?? []).map((effect) =>
+    buildClassEffectId(
+      classKey,
+      grant ? buildOptionEffectId(grant, effect.id) : effect.id,
+    ),
+  );
 }
 
 /**

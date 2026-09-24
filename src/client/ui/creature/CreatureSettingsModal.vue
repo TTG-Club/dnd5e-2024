@@ -2,18 +2,18 @@
   import type { LightEmitter, TypedWebSocketClient } from '@vtt/shared';
   import type { DnDCreature, HpDisplayMode } from '@vtt/shared/system/dnd.js';
 
+  import type { TokenVisionSettings } from '../actor/tokenVision';
+
   import { useToast } from '@nuxt/ui/composables';
   import { computed, onMounted, ref, watch } from 'vue';
 
   import { requireSocket } from '@/core/entityUtils';
   import {
     DEFAULT_TOKEN_FRAME_URL,
-    TOKEN_DARKVISION_DEFAULT,
     TOKEN_DARKVISION_MIN,
     TOKEN_DARKVISION_STEP,
     TOKEN_SCALE_DEFAULT,
     TOKEN_SIZE_OPTIONS,
-    TOKEN_VISION_RANGE_DEFAULT,
     TOKEN_VISION_RANGE_MIN,
     TOKEN_VISION_RANGE_STEP,
   } from '@/core/tokenConsts';
@@ -52,12 +52,12 @@
     TOKEN_IMAGE_ROTATION_MIN,
     TOKEN_IMAGE_ROTATION_STEP,
     TOKEN_SETTINGS_LABELS,
-    TOKEN_VISION_ANGLE_DEFAULT,
     TOKEN_VISION_ANGLE_MAX,
     TOKEN_VISION_ANGLE_MIN,
     TOKEN_VISION_ANGLE_PRESETS,
     TOKEN_VISION_ANGLE_STEP,
   } from '../actor/constants';
+  import { readTokenVision } from '../actor/tokenVision';
   import { ENTITY_OWNERSHIP_CONFLICT_TOAST } from '../entity-ownership/constants';
   import EntityOwnersSelect from '../entity-ownership/EntityOwnersSelect.vue';
   import { withoutEntityOwnership } from '../entity-ownership/utils';
@@ -173,12 +173,7 @@
   const showFrame = ref(true);
 
   // Настройки зрения
-  const visionSettings = ref({
-    enabled: false,
-    range: TOKEN_VISION_RANGE_DEFAULT,
-    darkvision: TOKEN_DARKVISION_DEFAULT,
-    angle: TOKEN_VISION_ANGLE_DEFAULT,
-  });
+  const visionSettings = ref<TokenVisionSettings>(readTokenVision(undefined));
 
   // Настройки света токена (тот же механизм, что у источников света)
   const lightSettings = ref<LightEmitter>(createDefaultLightEmitter());
@@ -379,16 +374,13 @@
       || tokenSettings.value.facingEnabled
         !== (creature.value.token?.facingEnabled ?? false);
 
+    const savedVision = readTokenVision(creature.value.token);
+
     const visionChanged =
-      visionSettings.value.enabled
-        !== (creature.value.token?.vision?.enabled || false)
-      || visionSettings.value.range
-        !== (creature.value.token?.vision?.range ?? TOKEN_VISION_RANGE_DEFAULT)
-      || visionSettings.value.darkvision
-        !== (creature.value.token?.vision?.darkvision
-          ?? TOKEN_DARKVISION_DEFAULT)
-      || visionSettings.value.angle
-        !== (creature.value.token?.vision?.angle ?? TOKEN_VISION_ANGLE_DEFAULT);
+      visionSettings.value.enabled !== savedVision.enabled
+      || visionSettings.value.range !== savedVision.range
+      || visionSettings.value.darkvision !== savedVision.darkvision
+      || visionSettings.value.angle !== savedVision.angle;
 
     const autoSavesChanged =
       autoSaves.value !== (creature.value.autoSaves ?? true);
@@ -498,15 +490,7 @@
         showFrame.value = false;
       }
 
-      visionSettings.value = {
-        enabled: creature.value.token?.vision?.enabled || false,
-        range:
-          creature.value.token?.vision?.range ?? TOKEN_VISION_RANGE_DEFAULT,
-        darkvision:
-          creature.value.token?.vision?.darkvision ?? TOKEN_DARKVISION_DEFAULT,
-        angle:
-          creature.value.token?.vision?.angle ?? TOKEN_VISION_ANGLE_DEFAULT,
-      };
+      visionSettings.value = readTokenVision(creature.value.token);
 
       lightSettings.value = creature.value.token?.light
         ? { ...creature.value.token.light }

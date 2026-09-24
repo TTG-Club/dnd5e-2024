@@ -196,6 +196,83 @@ describe('каталог: классы и черты', () => {
     );
   });
 
+  it('[F01c] Ярость: бонус урона только атакам Силой, в броске не удваивается', () => {
+    const rage = createEffect(engine.buildClassEffectId('barbarian', 'rage'), {
+      name: 'Ярость',
+      changes: [
+        change('damage.melee', '2', {
+          condition: 'attack.ability === "strength"',
+        }),
+      ],
+    });
+
+    authoredScenario(rage, 'feature');
+
+    const barbarian = hero({
+      classKey: 'barbarian',
+      level: 3,
+      abilities: { strength: 16, dexterity: 18 },
+      overrides: { activeEffects: [rage] },
+    });
+
+    const stats = engine.resolveActorStats(barbarian);
+
+    /**
+     * Прибавка эффектов в разборе урона оружия.
+     *
+     * @param {object} weapon - оружие
+     * @returns {number} прибавка строки «Эффекты»
+     */
+    const effectsPart = (weapon) => {
+      const parts = engine.describeWeaponDamage(barbarian, weapon, stats);
+      const effects = parts.find((part) => part.key === 'effects');
+
+      return effects ? effects.value : 0;
+    };
+
+    const weapon = (name, overrides) => ({
+      id: name,
+      name,
+      type: 'weapon',
+      rangeType: 'melee',
+      damageParts: [{ formula: '1d8' }],
+      ...overrides,
+    });
+
+    assert.equal(effectsPart(weapon('Секира')), 2, 'удар Силой — бонус есть');
+
+    assert.equal(
+      effectsPart(weapon('Рапира', { weaponProperties: ['finesse'] })),
+      0,
+      'фехтовальное оружие бьёт Ловкостью (18 > 16) — бонуса нет',
+    );
+
+    assert.equal(
+      effectsPart(weapon('Лук', { rangeType: 'ranged' })),
+      0,
+      'дальнобойное бьёт Ловкостью, да и бонус заявлен рукопашному',
+    );
+
+    assert.equal(
+      stats.damageBonuses.melee,
+      0,
+      'общий бонус рукопашного урона не растёт — только у оружия Силой',
+    );
+
+    assert.equal(
+      engine.evaluateConditionalBonuses(
+        barbarian.activeEffects,
+        'damage.melee',
+        {
+          hasAdvantage: false,
+          hasDisadvantage: false,
+        },
+      ),
+      0,
+      'в броске бонус второй раз не считается',
+    );
+  });
+
   it('[F16] Божественный канал: применение тратит ресурс, копия ложится на цель', () => {
     const turn = createEffect('Изгнание нечисти', {
       activation: { mode: 'use', counter: 'channelDivinity' },

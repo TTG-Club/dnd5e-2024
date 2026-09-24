@@ -648,18 +648,21 @@ function getWeaponAmmunitionParts(weapon: DnDGameItem): WeaponModifierPart[] {
  *
  * @param bonusesByRange - бонусы эффектов по типу атаки (`attackBonuses` / `damageBonuses`)
  * @param rangeType - тип оружия по дальности
+ * @param abilityBonus - бонус «при атаке характеристикой», которой бьёт оружие
  * @returns слагаемое эффектов (пустой список — бонуса нет)
  */
 function getWeaponEffectsParts(
   bonusesByRange: { melee: number; ranged: number } | undefined,
   rangeType: WeaponRangeType | undefined,
+  abilityBonus = 0,
 ): WeaponModifierPart[] {
   if (!bonusesByRange) {
     return [];
   }
 
   const value =
-    rangeType === 'ranged' ? bonusesByRange.ranged : bonusesByRange.melee;
+    (rangeType === 'ranged' ? bonusesByRange.ranged : bonusesByRange.melee)
+    + abilityBonus;
 
   if (value === 0) {
     return [];
@@ -748,6 +751,32 @@ export function describeWeaponAttack(
 }
 
 /**
+ * Бонус урона эффектов «при атаке характеристикой» для этого оружия: берётся
+ * по характеристике атаки — «Ярость» идёт секире Силой, но не рапире, которой
+ * бьют через Ловкость. Метательное оружие остаётся рукопашным и бьёт Силой —
+ * бонус ему тоже идёт, как и по правилам.
+ *
+ * @param actor - владелец оружия
+ * @param weapon - оружие
+ * @param resolvedStats - итоговые статы из пайплайна
+ * @returns бонус (0 — такого бонуса нет)
+ */
+function resolveAbilityDamageBonus(
+  actor: DnDSceneEntity,
+  weapon: DnDGameItem,
+  resolvedStats: ResolvedActorStats | undefined,
+): number {
+  if (!resolvedStats) {
+    return 0;
+  }
+
+  const range = weapon.rangeType === 'ranged' ? 'ranged' : 'melee';
+  const ability = resolveWeaponAttackAbility(actor, weapon, resolvedStats);
+
+  return resolvedStats.abilityDamageBonuses[range][ability] ?? 0;
+}
+
+/**
  * Разбирает статическую прибавку к урону оружия на слагаемые.
  *
  * @param actor - владелец оружия: актёр или существо
@@ -772,7 +801,11 @@ export function describeWeaponDamage(
     ...getWeaponFlatBonusParts(weapon.damageBonus),
     ...getWeaponMagicParts(weapon),
     ...getWeaponAmmunitionParts(weapon),
-    ...getWeaponEffectsParts(resolvedStats?.damageBonuses, weapon.rangeType),
+    ...getWeaponEffectsParts(
+      resolvedStats?.damageBonuses,
+      weapon.rangeType,
+      resolveAbilityDamageBonus(actor, weapon, resolvedStats),
+    ),
     ...getWeaponCustomBonusParts(
       weapon.damageCustomBonuses,
       actor,
