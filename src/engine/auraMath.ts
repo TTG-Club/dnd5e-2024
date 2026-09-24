@@ -168,7 +168,7 @@ export function collectAllAuraEffects(entity: DnDSceneEntity): ActiveEffect[] {
 
   const shaped = shapeEntityAuras(classBound, entity);
 
-  if (!shaped.some(effectUsesSourceFormulas)) {
+  if (!shaped.some((effect) => effectUsesSourceFormulas(effect))) {
     return shaped;
   }
 

@@ -21,6 +21,7 @@ import { useChatStore } from '@/stores/chatStore';
 import { useWorldStore } from '@/stores/worldStore';
 import { resolveGridCellSize } from '@vtt/shared';
 import {
+  bindClassLevels,
   bindSourceEffectFormulas,
   buildConcentrationEffect,
   buildFormulaContext,
@@ -101,7 +102,10 @@ export function prepareCasterSpellEffects(
     spellMod: source.spellMod,
   };
 
-  const prepared = instantiateSpellEffects(casterEffects).map((effect) =>
+  // Уровень класса — по id умения, пока новые id наложения его не стёрли
+  const classBound = bindClassLevels(casterEffects, caster);
+
+  const prepared = instantiateSpellEffects([...classBound]).map((effect) =>
     stampEffectOnApply(
       stampSourceSaveDcs(
         bindSourceEffectFormulas(effect, formulaContext),

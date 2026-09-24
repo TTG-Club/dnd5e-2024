@@ -367,6 +367,93 @@ describe('каталог: значения формулой', () => {
     );
   });
 
+  it('[V19] Числа источника в эффекте на цель: урон и лечение — его, модификаторы — цели', () => {
+    const caster = createActor();
+
+    caster.system.abilities.wisdom = 16;
+    caster.system.abilities.dexterity = 8;
+
+    const context = engine.buildFormulaContext(caster);
+
+    const armor = createEffect('Доспехи мага', {
+      effectTarget: 'target',
+      changes: [change('armorClass', '13 + @mod.dex', { mode: 'override' })],
+    });
+
+    const potion = createEffect('Лечение', {
+      effectTarget: 'target',
+      triggers: [
+        {
+          id: 'heal',
+          event: 'applied',
+          actions: [
+            {
+              type: 'damage',
+              parts: [damagePart('1к8@heal + @mod.wis', undefined)],
+            },
+          ],
+        },
+      ],
+    });
+
+    const [boundArmor, boundPotion] = engine.bindTargetEffectsToSource(
+      [armor, potion],
+      caster,
+      context,
+    );
+
+    assert.equal(
+      boundArmor.changes[0].value,
+      '13 + @mod.dex',
+      'Ловкость доспеха — того, на ком он лежит',
+    );
+
+    assert.equal(
+      boundPotion.triggers[0].actions[0].parts[0].formula,
+      '1к8@heal + 3',
+      'сервер пропустил бы лечение с неподставленным токеном',
+    );
+  });
+
+  it('[V20] Число костей выражением: ступени уровня в формуле', () => {
+    const ladder = [2, 6, 7, 12, 13, 17, 18, 20].map((level) =>
+      engine.evaluateFormula(`1 + steps(${level}, 7, 13, 18)`, {
+        ...engine.buildFormulaContext(createActor()),
+      }),
+    );
+
+    assert.deepEqual(ladder, [1, 1, 2, 2, 3, 3, 4, 4]);
+
+    assert.equal(
+      engine.resolveDiceCountExpressions('(1 + steps(13, 7, 13, 18))к8 + 2'),
+      '3к8 + 2',
+    );
+
+    assert.equal(
+      engine.resolveDiceCountExpressions('(2 + 1) d6'),
+      '3d6',
+      'пробел перед костью не мешает',
+    );
+
+    assert.equal(
+      engine.resolveDiceCountExpressions('(@classLevel)к8'),
+      '(@classLevel)к8',
+      'неподставленный токен не трогается — бросок пропустит часть, как раньше',
+    );
+
+    const hero = withHp(createActor, 30);
+
+    const rolled = withRandom([MAX_ROLL], () =>
+      engine.rollEffectDamageParts(
+        [damagePart('(1 + 1)к6')],
+        engine.resolveActorStats(hero),
+        hero,
+      ),
+    );
+
+    assert.equal(rolled.total, 12, 'сервер бросает две к6');
+  });
+
   // Пробелы: этим значениям нужны либо сцена вокруг носителя в момент расчёта,
   // либо событие «удар прошёл» — их этап впереди
   it.todo('[V14] Лимит, общий на весь каст');

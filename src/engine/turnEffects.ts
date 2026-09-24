@@ -49,6 +49,7 @@ import { ABILITY_LABELS } from './consts.js';
 import { DAMAGE_TYPE_LABELS } from './damageConstants.js';
 import { damageReachesTarget } from './damageTargetGate.js';
 import { applyHpChange, applyMultiTypeDamageDefenses } from './damageUtils.js';
+import { resolveDiceCountExpressions } from './diceCountExpressions.js';
 import { formatDiceFormula, rollDamageFormula } from './diceFormula.js';
 import { advanceEffectChangeSteps } from './effectChangeSteps.js';
 import {
@@ -931,10 +932,11 @@ export function rollEffectDamageParts(
     (part) => damageDealt === true || part.requiresDamage !== true,
   );
 
+  // Число костей выражением (`(2 + 1)к6`) бросок не понимает — считаем заранее
   const segments = expandDamageParts(
     gated,
     undefined,
-    (formula) => formula,
+    resolveDiceCountExpressions,
   ).filter(
     (segment) =>
       !segment.isHealing
@@ -1094,7 +1096,7 @@ export function rollEffectHealing(
   const segments = expandDamageParts(
     damageParts,
     undefined,
-    (formula) => formula,
+    resolveDiceCountExpressions,
   );
 
   let healed = 0;

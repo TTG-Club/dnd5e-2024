@@ -32,6 +32,7 @@ import {
   getTargetSpellEffects,
   stampEffectOnApply,
 } from './spellResolutionShared';
+import { bindTargetEffectsToCaster } from './targetEffectSourceBinding';
 import { useSpellSavingThrows } from './useSpellSavingThrows';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -103,6 +104,46 @@ function resolveLandingSource(
   casterId: string | undefined,
 ): DnDSceneEntity | undefined {
   return useWorldEntities().findCurrentDndEntity(casterId);
+}
+
+/**
+ * Кто и чем накладывает эффекты на цель — для условий наложения.
+ *
+ * @param input - заклинание, цель, кастер
+ * @returns контекст наложения
+ */
+function buildLandingContext(input: TargetEffectsInput): EffectLandingContext {
+  return {
+    source: resolveLandingSource(input.casterId),
+    weaponMastery: input.spell.weaponMastery,
+    combatRound: resolveCombatRound(),
+  };
+}
+
+/**
+ * Эффекты со своим спасброском, которые на эту цель вообще могут лечь.
+ * Эффект, чьё условие наложения цель не проходит («Изгнание нежити» на
+ * гоблина), спасброска не требует: бросок ничего бы не решал, а у чужой цели
+ * ещё и дёргал бы владельца запросом.
+ *
+ * @param input - заклинание, цель, кастер
+ * @returns эффекты, у которых нужно спросить спасбросок
+ */
+function listLandingEffectsWithOwnSave(
+  input: TargetEffectsInput,
+): ActiveEffect[] {
+  const { entity } = input;
+  const effects = listEffectsWithOwnSave(input.spell);
+
+  if (!isDndSceneEntity(entity)) {
+    return effects;
+  }
+
+  const landing = buildLandingContext(input);
+
+  return effects.filter((effect) =>
+    passesLandingCondition(effect, entity, landing),
+  );
 }
 
 /**
@@ -195,7 +236,7 @@ export function useTargetEffectResolution() {
   ): Promise<EffectSaveResults | null> {
     const results = new Map<string, SavingThrowResult>();
 
-    for (const effect of listEffectsWithOwnSave(input.spell)) {
+    for (const effect of listLandingEffectsWithOwnSave(input)) {
       if (!effect.applySave) {
         continue;
       }
@@ -233,7 +274,7 @@ export function useTargetEffectResolution() {
   function rollEffectSaves(input: TargetEffectsInput): EffectSaveResults {
     const results = new Map<string, SavingThrowResult>();
 
-    for (const effect of listEffectsWithOwnSave(input.spell)) {
+    for (const effect of listLandingEffectsWithOwnSave(input)) {
       if (!effect.applySave) {
         continue;
       }
@@ -294,13 +335,13 @@ export function useTargetEffectResolution() {
     let bonusDamage = 0;
     let defenseOutcome: DamageDefenseOutcome = 'normal';
 
-    const landing: EffectLandingContext = {
-      source: resolveLandingSource(casterId),
-      weaponMastery: spell.weaponMastery,
-      combatRound: resolveCombatRound(),
-    };
+    const landing = buildLandingContext(input);
 
-    const landingEffects = getTargetSpellEffects(spell).filter(
+    const landingEffects = bindTargetEffectsToCaster(
+      getTargetSpellEffects(spell),
+      spell,
+      casterId,
+    ).filter(
       (effect) =>
         !isDndSceneEntity(entity)
         || passesLandingCondition(effect, entity, landing),

@@ -43,6 +43,7 @@ export * from './deathSaves.js';
 export * from './deathState.js';
 export * from './deferredEffectSaves.js';
 export * from './descriptionRollMarkers.js';
+export * from './diceCountExpressions.js';
 export * from './diceFormula.js';
 export * from './dnd5eSystem.js';
 export * from './dndEntities.js';

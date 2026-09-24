@@ -15,7 +15,8 @@
  *
  * Безопасность:
  * - НЕ использует eval() или Function()
- * - Поддерживает ТОЛЬКО: числа, +, -, ×, /, скобки, @-переменные, min/max/floor/ceil
+ * - Поддерживает ТОЛЬКО: числа, +, -, ×, /, скобки, @-переменные,
+ *   min/max/floor/ceil/abs/steps
  * - Отклоняет любой невалидный ввод
  */
 
@@ -183,8 +184,18 @@ export class FormulaError extends Error {
 
 // ── Константы ─────────────────────────────────────────────────
 
+/** Функция ступеней: `steps(значение, порог1, порог2, …)` */
+const STEPS_FUNCTION = 'steps';
+
 /** Поддерживаемые функции */
-const SUPPORTED_FUNCTIONS = new Set(['min', 'max', 'floor', 'ceil', 'abs']);
+const SUPPORTED_FUNCTIONS = new Set([
+  'min',
+  'max',
+  'floor',
+  'ceil',
+  'abs',
+  STEPS_FUNCTION,
+]);
 
 /** Приоритет операторов */
 const OPERATOR_PRECEDENCE: Record<string, number> = {
@@ -291,7 +302,7 @@ function tokenize(formula: string): FormulaToken[] {
       continue;
     }
 
-    // Идентификаторы (функции: min, max, floor, ceil)
+    // Идентификаторы (функции: min, max, floor, ceil, abs, steps)
     if (isAlpha(char)) {
       let identifier = '';
 
@@ -739,9 +750,34 @@ function evaluateFunction(funcName: string, args: number[]): number {
       }
 
       return Math.abs(args[0]);
+    case STEPS_FUNCTION:
+      return countReachedSteps(args);
     default:
       throw new FormulaError(`Неизвестная функция: ${funcName}()`);
   }
+}
+
+/**
+ * `steps(значение, порог1, порог2, …)` — сколько порогов значение уже
+ * достигло.
+ *
+ * Правила растят число по ступеням уровня, а не по ровной арифметике:
+ * «Божественная искра» даёт лишнюю к8 на 7, 13 и 18 уровнях жреца, и
+ * `floor` такой ряд не описывает. Ступени пишутся порогами прямо в формуле —
+ * `1 + steps(@classLevel, 7, 13, 18)` — и формула остаётся строкой, которую
+ * хранит справочник сайта без новых полей.
+ *
+ * @param args - значение и пороги
+ * @returns число достигнутых порогов
+ */
+function countReachedSteps(args: number[]): number {
+  if (args.length < 2) {
+    throw new FormulaError('steps() требует значение и хотя бы один порог');
+  }
+
+  const [value, ...thresholds] = args;
+
+  return thresholds.filter((threshold) => value >= threshold).length;
 }
 
 // ── Вспомогательные функции ───────────────────────────────────
@@ -918,6 +954,38 @@ export function evaluateFormula(
   return evaluateNode(ast, context);
 }
 
+/**
+ * Контекст без листа: формула без `@`-переменных его не читает, но вычислитель
+ * требует контекст целиком.
+ */
+const DETACHED_FORMULA_CONTEXT: FormulaContext = {
+  abilities: {},
+  prof: 0,
+  level: 0,
+  movement: { walk: 0, swim: 0, fly: 0, climb: 0, burrow: 0 },
+};
+
+/**
+ * Вычисляет арифметику без `@`-переменных: `1 + steps(7, 7, 13, 18)` → 2.
+ *
+ * Нужна там, где числа источника уже подставлены, а листа под рукой нет, —
+ * например, число костей перед броском.
+ *
+ * @param formula - формула без `@`-переменных
+ * @returns число либо `undefined`, если формулу не посчитать
+ */
+export function evaluateDetachedFormula(formula: string): number | undefined {
+  if (formula.includes('@')) {
+    return undefined;
+  }
+
+  try {
+    return evaluateFormula(formula, DETACHED_FORMULA_CONTEXT);
+  } catch {
+    return undefined;
+  }
+}
+
 /** Регэксп для поиска @-переменных в смешанной формуле (кости + @) */
 const VARIABLE_TOKEN_REGEX = /@([a-z][\w.]*)/gi;
 
@@ -1083,6 +1151,13 @@ function renderReadableNode(
       const args = (node.args ?? []).map((argument) =>
         renderReadableNode(argument, labelVariable),
       );
+
+      // У ступеней число порогов любое — шаблон с номерами аргументов не годится
+      if (node.value === STEPS_FUNCTION) {
+        const [value, ...thresholds] = args;
+
+        return `(число порогов ${thresholds.join(', ')}, пройденных по ${value ?? ''})`;
+      }
 
       const template = READABLE_FUNCTION_TEMPLATES[node.value ?? ''];
 

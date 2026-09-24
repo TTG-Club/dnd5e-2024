@@ -30,6 +30,7 @@ import {
   stampEffectOnApply,
   targetEffectsNeedResolution,
 } from './spellResolutionShared';
+import { bindTargetEffectsToCaster } from './targetEffectSourceBinding';
 import { isSpellTargetBlockedByRange } from './useSceneRangeCheck';
 import { useSpellDamageWithParts } from './useSpellDamageWithParts';
 import { useWorldEntities } from './useWorldEntities';
@@ -102,7 +103,12 @@ function applyTargetEffectsToEntities(
     return;
   }
 
-  const effects = getTargetSpellEffects(spell);
+  const effects = bindTargetEffectsToCaster(
+    getTargetSpellEffects(spell),
+    spell,
+    casterId,
+  );
+
   const names: string[] = [];
 
   for (const entity of entities) {
@@ -551,7 +557,12 @@ export function applySpellTargetEffects(
     return;
   }
 
-  const targetEffects = getTargetSpellEffects(spell);
+  const targetEffects = bindTargetEffectsToCaster(
+    getTargetSpellEffects(spell),
+    spell,
+    source.casterId,
+  );
+
   const targetStore = useTargetStore();
   const target = targetStore.getTargetActor();
 
