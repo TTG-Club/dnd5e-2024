@@ -3077,6 +3077,12 @@ export const ACTIVE_EFFECT_ICON_CLASS = {
   disabled: 'text-dimmed',
 } as const;
 
+/** Оформление строки своего эффекта: выключенный и перетаскиваемый на панель */
+export const ACTIVE_EFFECT_ROW_CLASS = {
+  disabled: 'opacity-50 grayscale',
+  draggable: 'cursor-grab',
+} as const;
+
 /** Подписи карточки просмотра активного эффекта */
 export const ACTIVE_EFFECT_DETAIL_LABELS = {
   /** Название окна, когда эффект почему-то не передан */

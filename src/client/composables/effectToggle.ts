@@ -44,14 +44,14 @@ export function readEntityCounters(
 }
 
 /**
- * Сущность после оплаты включения: ресурс списан. Эффект без расхода ресурса
- * сущность не меняет.
+ * Сущность после оплаты включения или применения: ресурс списан. Эффект без
+ * расхода ресурса сущность не меняет.
  *
  * @param entity - сущность
- * @param effect - включаемый эффект
+ * @param effect - включаемый или применяемый эффект
  * @returns сущность с новыми счётчиками либо та же сущность
  */
-function payEntityActivation(
+export function payEntityActivation(
   entity: DnDSceneEntity,
   effect: ActiveEffect,
 ): DnDSceneEntity {
@@ -72,11 +72,11 @@ function payEntityActivation(
 }
 
 /**
- * Предупреждает, что ресурса на включение не хватает.
+ * Предупреждает, что ресурса на включение или применение не хватает.
  *
  * @param counterKey - ресурс включения
  */
-function warnNoCounter(counterKey: string): void {
+export function warnNoCounter(counterKey: string): void {
   useSystemToastStore().add({
     title: EFFECT_USE_LABELS.noCounterTitle,
     description: `${EFFECT_USE_LABELS.noCounterPrefix}${counterKey}${EFFECT_USE_LABELS.noCounterSuffix}`,

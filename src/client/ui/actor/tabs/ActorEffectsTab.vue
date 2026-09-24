@@ -53,6 +53,7 @@
     :is-edit-mode="isEditMode"
     :owner="actor"
     :counters="actor.system.classCounters ?? []"
+    allow-hotbar-drag
     @update:effects="handleEffectsUpdate"
     @update:counters="handleCountersUpdate"
   />

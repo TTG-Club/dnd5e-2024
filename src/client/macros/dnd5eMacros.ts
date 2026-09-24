@@ -15,6 +15,7 @@ import type {
   DnDActor,
   DnDCreature,
   DnDGameItem,
+  DnDSceneEntity,
   ResolvedActorStats,
   RollContext,
   Spell,
@@ -79,6 +80,7 @@ import {
   isCreatureSpellPoolMode,
   isDndSceneEntity,
   isSaveAbility,
+  isUseActivatedEffect,
   MAX_SPELL_SLOT_LEVEL,
   mergeAppliedEffects,
   pickCantripTierParts,
@@ -105,6 +107,7 @@ import {
 import { resolveTargetedAttackRollMode } from '../composables/attackRollMode';
 import {
   applyActionSelfEffects,
+  applyEntityEffectUse,
   applyEntityItemUse,
   prepareAmmunitionShot,
   spendShotAmmunition,
@@ -163,6 +166,7 @@ import { checkCreatureActionRangeOnScene } from '../ui/creature/composables/useC
 import { CREATURE_ACTIONS_BLOCK_LABELS } from '../ui/creature/constants';
 import {
   DND_MACRO_TYPES,
+  EFFECT_USE_SLOT_LABELS,
   FEATURE_TOGGLE_SLOT_LABELS,
   MACRO_MESSAGE_LABELS,
 } from './constants';
@@ -465,6 +469,21 @@ function resolveFeatureToggleSlot(macro: HotbarMacro): MacroSlotState {
     };
   }
 
+  return describeActivationSlot(owner, effect);
+}
+
+/**
+ * Слот эффекта, который тратит ресурс листа: остаток ресурса в углу, без
+ * ресурса кнопка гаснет.
+ *
+ * @param owner - владелец эффекта
+ * @param effect - эффект с применением или переключателем
+ * @returns состояние слота
+ */
+function describeActivationSlot(
+  owner: DnDSceneEntity,
+  effect: ActiveEffect,
+): MacroSlotState {
   const counters = readEntityCounters(owner);
   const counterKey = effect.activation?.counter;
 
@@ -478,6 +497,35 @@ function resolveFeatureToggleSlot(macro: HotbarMacro): MacroSlotState {
       ? {}
       : { disabled: true, hint: FEATURE_TOGGLE_SLOT_LABELS.noCounterHint }),
   };
+}
+
+/**
+ * Кнопка эффекта «при применении» («Изгнание нежити»): эффект на месте,
+ * остаток ресурса в углу, без ресурса кнопка гаснет.
+ *
+ * @param macro - макрос слота
+ * @returns состояние слота
+ */
+function resolveEffectUseSlot(macro: HotbarMacro): MacroSlotState {
+  const owner = useWorldEntities().findCurrentDndEntity(macro.actorId);
+  const effect = owner?.activeEffects?.find((entry) => entry.id === macro.ref);
+
+  if (!owner || !effect || !isUseActivatedEffect(effect)) {
+    return { disabled: true, hint: EFFECT_USE_SLOT_LABELS.missingHint };
+  }
+
+  return describeActivationSlot(owner, effect);
+}
+
+/**
+ * Применяет эффект листа с панели: владелец — сущность слота.
+ *
+ * @param macro - макрос слота
+ */
+function executeEffectUse(macro: HotbarMacro): void {
+  if (macro.actorId) {
+    applyEntityEffectUse(macro.actorId, macro.ref);
+  }
 }
 
 /**
@@ -503,6 +551,10 @@ export function registerDnd5eMacros(): void {
 
   registerMacro(DND_MACRO_TYPES.featureToggle, executeFeatureToggle, {
     resolveState: resolveFeatureToggleSlot,
+  });
+
+  registerMacro(DND_MACRO_TYPES.effectUse, executeEffectUse, {
+    resolveState: resolveEffectUseSlot,
   });
 
   registerMacro(

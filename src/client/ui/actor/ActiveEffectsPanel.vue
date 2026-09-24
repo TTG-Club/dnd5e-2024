@@ -12,6 +12,13 @@
   копия ложится на владельца или цель. Переключаемый эффект при включении
   тратит ресурс листа и будит срабатывания «При включении» — это идёт боевым
   каналом, потому что срабатывания меняют и хиты.
+
+  Варианты одного применения («Божественная искра»: лечение, некротическая
+  энергия, излучение) в просмотре идут одной строкой с именем группы: выбор
+  варианта — при применении. В правке видны все — у каждого свои кнопки.
+
+  Строку с применением или переключателем можно перетащить на панель быстрого
+  доступа, если лист это разрешил.
 -->
 <script setup lang="ts">
   import type {
@@ -27,18 +34,21 @@
   import { computed, ref } from 'vue';
 
   import { emitEntityCombatState } from '@/core/entityUtils';
+  import { startHotbarDrag } from '@/core/utils/hotbarDrag';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useItemsStore } from '@/stores/itemsStore';
   import { getActiveSocket } from '@/system-runtime/activeSocket';
   import {
     activateEffectOnEntity,
     advanceEffectStage,
-    buildEffectUseSpell,
+    buildEffectGroupUseSpell,
     buildRuntimeConditionRecord,
     canAdvanceEffectStage,
     canPayActivation,
+    collectEffectUseGroup,
     describeEscapeUnavailable,
     dnd5eSystemInstance,
+    effectUseGroupName,
     formatEffectEscapeLabel,
     formatEffectStageLabel,
     hasEffectActiveAction,
@@ -59,6 +69,11 @@
   import { stampEffectOnApply } from '../../composables/spellResolutionShared';
   import { useActiveEffectModal } from '../../composables/useActiveEffectModal';
   import { useEntityActiveEffects } from '../../composables/useEntityActiveEffects';
+  import {
+    DND_MACRO_TYPES,
+    EFFECT_USE_MACRO_ICON,
+    FEATURE_TOGGLE_MACRO_ICON,
+  } from '../../macros/constants';
   import { CONDITION_MODALS } from '../condition/conditionConsts';
   import ActiveEffectFormModal from '../effect/ActiveEffectFormModal.vue';
   import {
@@ -73,6 +88,7 @@
     ACTIVE_EFFECT_DEFAULTS,
     ACTIVE_EFFECT_ICON_CLASS,
     ACTIVE_EFFECT_OPEN_HINT,
+    ACTIVE_EFFECT_ROW_CLASS,
     CARRIED_EFFECT_BADGES,
     CONCENTRATION_END_LABEL,
     EFFECTS_TAB_LABELS,
@@ -93,11 +109,18 @@
     owner?: DnDSceneEntity;
     /** Ресурсы листа, которые тратят применение и включение */
     counters?: readonly ActorCounterState[];
+    /**
+     * Строки с применением и переключателем можно перетащить на панель
+     * быстрого доступа. Только у листа персонажа: у существа нет ресурсов,
+     * которые кнопка панели показывала бы
+     */
+    allowHotbarDrag?: boolean;
   }
 
   const props = withDefaults(defineProps<Props>(), {
     owner: undefined,
     counters: () => [],
+    allowHotbarDrag: false,
   });
 
   const emit = defineEmits<{
@@ -220,8 +243,8 @@
   }
 
   /**
-   * Применяет эффект листа: его копия ложится на владельца или цель, ресурс
-   * тратится.
+   * Применяет эффект листа вместе с вариантами его группы: выбор варианта,
+   * затем копия ложится на владельца или цель, ресурс тратится один раз.
    *
    * @param effect - эффект «при применении»
    */
@@ -239,7 +262,7 @@
     }
 
     applyEffectSource(
-      buildEffectUseSpell(effect),
+      buildEffectGroupUseSpell(collectEffectUseGroup(props.effects, effect)),
       owner,
       resolveActorStats(owner).spellSaveDC,
       () => payEffectActivation(effect),
@@ -247,27 +270,115 @@
   }
 
   /**
+   * Первая ли это строка своей группы вариантов. В просмотре остальные
+   * варианты строк не получают: применяются они кнопкой первой.
+   *
+   * @param effect - эффект
+   * @returns `true`, если строку показывать
+   */
+  function isGroupLead(effect: ActiveEffect): boolean {
+    return collectEffectUseGroup(props.effects, effect)[0]?.id === effect.id;
+  }
+
+  /**
+   * Можно ли перетащить строку эффекта на панель быстрого доступа: у эффекта
+   * есть применение или переключатель, лист в просмотре и разрешил перенос.
+   *
+   * @param effect - эффект строки
+   * @returns `true`, если строку можно перетащить
+   */
+  function canDragToHotbar(effect: ActiveEffect): boolean {
+    return (
+      props.allowHotbarDrag
+      && !props.isEditMode
+      && props.owner !== undefined
+      && (isUseActivatedEffect(effect) || isToggleActivatedEffect(effect))
+    );
+  }
+
+  /**
+   * Оформление строки эффекта: выключенный гаснет, перетаскиваемый показывает
+   * курсор «взять».
+   *
+   * @param effect - эффект строки
+   * @returns строка классов
+   */
+  function effectRowClass(effect: ActiveEffect): string {
+    const classes: string[] = [];
+
+    if (effect.disabled) {
+      classes.push(ACTIVE_EFFECT_ROW_CLASS.disabled);
+    }
+
+    if (canDragToHotbar(effect)) {
+      classes.push(ACTIVE_EFFECT_ROW_CLASS.draggable);
+    }
+
+    return classes.join(' ');
+  }
+
+  /**
    * Строки своих эффектов с готовыми подписями: разметка только показывает,
    * а не считает.
    */
   const effectRows = computed(() =>
-    customEffects.value.map((effect) => {
-      const showsActiveAction =
-        hasEffectActiveAction(effect) && !isToggleActivatedEffect(effect);
+    customEffects.value
+      .filter((effect) => props.isEditMode || isGroupLead(effect))
+      .map((effect) => {
+        const showsActiveAction =
+          hasEffectActiveAction(effect) && !isToggleActivatedEffect(effect);
 
-      return {
-        effect,
-        stageLabel: formatEffectStageLabel(effect),
-        chargesLabel: effect.charges
-          ? `${EFFECT_CHARGES_LABELS.title} ${effect.charges.current}${EFFECT_CHARGES_LABELS.separator}${effect.charges.max}`
-          : null,
-        showsActiveAction,
-        activeActionLabel: showsActiveAction
-          ? formatActiveActionLabel(effect)
-          : '',
-      };
-    }),
+        return {
+          effect,
+          name: props.isEditMode
+            ? effect.name
+            : effectUseGroupName(collectEffectUseGroup(props.effects, effect)),
+          canDrag: canDragToHotbar(effect),
+          rowClass: effectRowClass(effect),
+          stageLabel: formatEffectStageLabel(effect),
+          chargesLabel: effect.charges
+            ? `${EFFECT_CHARGES_LABELS.title} ${effect.charges.current}${EFFECT_CHARGES_LABELS.separator}${effect.charges.max}`
+            : null,
+          showsActiveAction,
+          activeActionLabel: showsActiveAction
+            ? formatActiveActionLabel(effect)
+            : '',
+        };
+      }),
   );
+
+  /**
+   * Кладёт на панель быстрого доступа кнопку эффекта: применение —
+   * «Применить» с вариантами группы, переключатель — включить и выключить.
+   *
+   * @param event - событие dragstart
+   * @param effect - эффект строки
+   * @param name - подпись строки (имя группы вариантов или эффекта)
+   */
+  function handleEffectDragStart(
+    event: DragEvent,
+    effect: ActiveEffect,
+    name: string,
+  ): void {
+    const { owner } = props;
+
+    if (!owner || !canDragToHotbar(effect)) {
+      return;
+    }
+
+    const isUse = isUseActivatedEffect(effect);
+
+    startHotbarDrag(event, {
+      id: `${owner.id}:${effect.id}`,
+      type: isUse ? DND_MACRO_TYPES.effectUse : DND_MACRO_TYPES.featureToggle,
+      label: name,
+      icon:
+        effect.icon
+        || (isUse ? EFFECT_USE_MACRO_ICON : FEATURE_TOGGLE_MACRO_ICON),
+      ref: effect.id,
+      actorId: owner.id,
+    });
+  }
 
   /**
    * Запускает действие действующего эффекта: его срабатывания «При действии»
@@ -496,6 +607,9 @@
       <div
         v-for="{
           effect,
+          name,
+          canDrag,
+          rowClass,
           stageLabel,
           chargesLabel,
           showsActiveAction,
@@ -503,7 +617,9 @@
         } in effectRows"
         :key="effect.id"
         class="group flex min-h-11 items-center gap-2 rounded-lg bg-elevated/50 p-2 transition-colors hover:bg-accented/50"
-        :class="{ 'opacity-50 grayscale': effect.disabled }"
+        :class="rowClass"
+        :draggable="canDrag"
+        @dragstart="handleEffectDragStart($event, effect, name)"
       >
         <!-- Название эффекта открывает карточку разбора: она только показывает,
           что эффект делает, и доступна независимо от режима правки -->
@@ -523,7 +639,7 @@
             <div
               class="flex items-center gap-2 text-sm leading-none font-medium"
             >
-              <span class="truncate">{{ effect.name }}</span>
+              <span class="truncate">{{ name }}</span>
             </div>
 
             <div

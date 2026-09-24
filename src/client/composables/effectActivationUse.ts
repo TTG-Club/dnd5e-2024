@@ -19,12 +19,16 @@ import type {
 import { emitEntityUpdate } from '@/core/entityUtils';
 import { useChatStore } from '@/stores/chatStore';
 import {
+  buildEffectGroupUseSpell,
   buildItemUseSpell,
   buildUseSpell,
+  canPayActivation,
   canUseItem,
+  collectEffectUseGroup,
   findWeaponAmmunition,
   getCasterSpellEffects,
   isItemDepleted,
+  isUseActivatedEffect,
   resolveActorStats,
   spendAmmunition,
   spendItemUse,
@@ -33,6 +37,11 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { EFFECT_USE_LABELS } from '../ui/effect/constants';
+import {
+  payEntityActivation,
+  readEntityCounters,
+  warnNoCounter,
+} from './effectToggle';
 import { chooseUseTarget } from './effectUseTargetChoice';
 import { runWithEffectVariants } from './effectVariantChoice';
 import { applyCasterSpellEffectsToEntity } from './spellCastCompletion';
@@ -222,6 +231,60 @@ export function spendShotAmmunition(
 ): void {
   updateEntityEquipment(entityId, (equipment) =>
     spendAmmunition(equipment, ammunitionId),
+  );
+}
+
+/**
+ * Применяет эффект листа сущности мира без листа — кнопкой панели быстрого
+ * доступа («Изгнание нежити», «Божественная искра»). Делает то же, что кнопка
+ * «Применить» на вкладке «Эффекты»: варианты группы, выбор цели, расход
+ * ресурса.
+ *
+ * Ресурс списывается с сущности, перечитанной в момент оплаты: цель выбирают
+ * на карте, и за это время лист мог измениться.
+ *
+ * @param entityId - владелец эффекта
+ * @param effectId - эффект «при применении»
+ */
+export function applyEntityEffectUse(entityId: string, effectId: string): void {
+  const worldEntities = useWorldEntities();
+  const entity = worldEntities.findCurrentDndEntity(entityId);
+  const effects = entity?.activeEffects ?? [];
+  const effect = effects.find((entry) => entry.id === effectId);
+
+  if (!entity || !effect || !isUseActivatedEffect(effect)) {
+    return;
+  }
+
+  const counterKey = effect.activation?.counter;
+
+  if (
+    counterKey
+    && !canPayActivation(readEntityCounters(entity), effect.activation)
+  ) {
+    warnNoCounter(counterKey);
+
+    return;
+  }
+
+  applyEffectSource(
+    buildEffectGroupUseSpell(collectEffectUseGroup(effects, effect)),
+    entity,
+    resolveActorStats(entity, listAmbientEffects(entity.id)).spellSaveDC,
+    () => {
+      const socket = useChatStore().getSocket();
+      const current = worldEntities.findCurrentDndEntity(entityId);
+
+      if (!socket || !current) {
+        return;
+      }
+
+      const paid = payEntityActivation(current, effect);
+
+      if (paid !== current) {
+        emitEntityUpdate(socket, paid);
+      }
+    },
   );
 }
 

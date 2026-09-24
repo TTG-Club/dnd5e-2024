@@ -5,6 +5,7 @@ export const DND_MACRO_TYPES = {
   weaponAttack: 'weapon-attack',
   itemUse: 'item-use',
   featureToggle: 'feature-toggle',
+  effectUse: 'effect-use',
 } as const;
 
 /** Значок кнопки применения предмета */
@@ -12,6 +13,14 @@ export const ITEM_USE_MACRO_ICON = 'tabler:flask';
 
 /** Значок кнопки особенности с переключателем («Ярость») */
 export const FEATURE_TOGGLE_MACRO_ICON = 'tabler:flame';
+
+/** Значок кнопки эффекта «при применении» без своего значка */
+export const EFFECT_USE_MACRO_ICON = 'tabler:player-play';
+
+/** Подписи кнопки эффекта «при применении» на панели быстрого доступа */
+export const EFFECT_USE_SLOT_LABELS = {
+  missingHint: 'эффекта больше нет на листе',
+} as const;
 
 /** Подписи кнопки особенности на панели быстрого доступа */
 export const FEATURE_TOGGLE_SLOT_LABELS = {
