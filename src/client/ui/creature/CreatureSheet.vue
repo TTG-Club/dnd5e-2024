@@ -43,7 +43,7 @@
     ensureCreatureSpellsInBlocks,
     formatVisionRange,
     getActorAbilityModifiers,
-    getCreatureHitDiceConstitutionModifier,
+    getCreatureHitDiceBonusContext,
     getCreatureProficiencyBonus,
     getCustomBonusesValue,
     getCustomSkillValue,
@@ -769,14 +769,14 @@
   }));
 
   /**
-   * Модификатор Телосложения для формулы хитов: по записи листа со своими
+   * Числа листа для формулы хитов: модификаторы по записи листа со своими
    * бонусами, но без активных эффектов — формула описывает стат-блок, а
    * эффект временно двигает итог поверх него.
    */
-  const hitDiceConstitutionModifier = computed(() =>
+  const hitDiceBonusContext = computed<DnDCustomBonusContext | null>(() =>
     localCreature.value
-      ? getCreatureHitDiceConstitutionModifier(localCreature.value)
-      : 0,
+      ? getCreatureHitDiceBonusContext(localCreature.value)
+      : null,
   );
 
   /**
@@ -1671,7 +1671,7 @@
                 :armor-class="resolvedStats?.armorClass"
                 :resolved-movement="resolvedStats?.movement"
                 :active-effects="combinedEffects"
-                :hit-dice-constitution-modifier="hitDiceConstitutionModifier"
+                :hit-dice-bonus-context="hitDiceBonusContext"
                 @update:system="handleSystemUpdate"
               />
 

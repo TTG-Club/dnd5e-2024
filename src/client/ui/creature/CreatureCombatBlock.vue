@@ -67,10 +67,10 @@
      */
     activeEffects?: readonly ActiveEffect[];
     /**
-     * Модификатор Телосложения для формулы хитов: по записи листа, без
-     * активных эффектов — окно здоровья считает по нему бонус за кость.
+     * Числа листа для формулы хитов: по записи, без активных эффектов — окно
+     * здоровья считает по ним бонус за кость и свои бонусы формулы.
      */
-    hitDiceConstitutionModifier: number;
+    hitDiceBonusContext: DnDCustomBonusContext | null;
   }
 
   const props = defineProps<Props>();
@@ -676,10 +676,11 @@
 
   <!-- Модалка очков здоровья -->
   <CreatureHitPointsModal
+    v-if="hitDiceBonusContext"
     v-model:open="isHitPointsOpen"
     :hit-points="system.hitPoints"
     :size="system.size"
-    :constitution-modifier="hitDiceConstitutionModifier"
+    :context="hitDiceBonusContext"
     @apply="onHitPointsApply"
   />
 
