@@ -24,6 +24,7 @@
     DEFAULT_EFFECT_CHANGE_PRIORITY,
     describeEffectChangeCondition,
     describeEffectChangeKey,
+    describeEffectChangeValueHint,
     EFFECT_CONDITION_SUGGESTIONS,
     EFFECT_MODIFIER_MENU,
     EFFECT_TARGET_SUGGESTIONS,
@@ -44,6 +45,7 @@
     ACTIVE_EFFECT_DEFAULTS,
     SCROLLABLE_DROPDOWN_UI,
   } from '../../actor/constants';
+  import FieldHint from '../../actor/FieldHint.vue';
   import ActiveEffectSuggestionsModal from '../ActiveEffectSuggestionsModal.vue';
   import {
     ACTIVE_EFFECT_TEMPLATES_LABELS,
@@ -129,6 +131,41 @@
         };
   }
 
+  /**
+   * Пояснение к значению под иконкой ⓘ: у урона — как задать кости, тип и
+   * цель, у кости к броску — что она бросается заново. Текст длинный, и
+   * строкой под полем он занимал больше места, чем сама строка модификатора.
+   *
+   * @param change - строка модификатора
+   * @returns текст пояснения либо пустая строка
+   */
+  function describeValueHelp(change: EffectChange): string {
+    if (change.key.startsWith(DAMAGE_CHANGE_KEY_PREFIX)) {
+      return EFFECT_CHANGE_ROW_LABELS.damageFormulaHint;
+    }
+
+    const isRollDice =
+      change.mode === 'add'
+      && isRollTimeDiceKey(change.key)
+      && isDiceFormulaValue(change.value);
+
+    return isRollDice ? EFFECT_CHANGE_ROW_LABELS.rollDiceHint : '';
+  }
+
+  /**
+   * Расшифровка значения под полем — как «Только: …» у условия.
+   *
+   * @param change - строка модификатора
+   * @returns подпись либо пустая строка, если значение понятно и так
+   */
+  function describeValueLabel(change: EffectChange): string {
+    const readable = describeEffectChangeValueHint(change);
+
+    return readable
+      ? `${EFFECT_CHANGE_ROW_LABELS.valueReadablePrefix}${readable}`
+      : '';
+  }
+
   /** Строки с вычисленными подписями и видимостью полей */
   const rows = computed(() =>
     changes.value.map((change, index) => {
@@ -151,13 +188,8 @@
         conditionLabel: condition
           ? `${EFFECT_CHANGE_ROW_LABELS.conditionOnlyPrefix}${describeEffectChangeCondition(condition)}`
           : '',
-        isDamageKey: change.key.startsWith(DAMAGE_CHANGE_KEY_PREFIX),
-        // Кость к броску атаки, спасброска или проверки: у урона своя подсказка
-        isRollDice:
-          !change.key.startsWith(DAMAGE_CHANGE_KEY_PREFIX)
-          && change.mode === 'add'
-          && isRollTimeDiceKey(change.key)
-          && isDiceFormulaValue(change.value),
+        valueLabel: describeValueLabel(change),
+        valueHelp: describeValueHelp(change),
         hasStep: change.step !== undefined,
         ...describeStepHint(change),
       };
@@ -442,14 +474,15 @@
           :content="{ align: 'end' }"
           :ui="SCROLLABLE_DROPDOWN_UI"
         >
-          <UButton
-            color="primary"
-            variant="soft"
-            size="xs"
-            icon="tabler:list-search"
-            :label="EFFECT_MODIFIERS_STEP_LABELS.presets"
-            :title="EFFECT_MODIFIERS_STEP_LABELS.changePresetHint"
-          />
+          <UTooltip :text="EFFECT_MODIFIERS_STEP_LABELS.changePresetHint">
+            <UButton
+              color="primary"
+              variant="soft"
+              size="xs"
+              icon="tabler:list-search"
+              :label="EFFECT_MODIFIERS_STEP_LABELS.presets"
+            />
+          </UTooltip>
         </UDropdownMenu>
 
         <UButton
@@ -476,93 +509,123 @@
       class="flex flex-col gap-2 rounded-md border border-default bg-elevated/50 px-3 py-2"
     >
       <div class="flex flex-wrap items-start gap-2">
-        <UButton
-          color="neutral"
-          variant="soft"
-          size="sm"
-          icon="tabler:target"
-          class="min-w-48 flex-1 justify-start"
-          :title="EFFECT_CHANGE_ROW_LABELS.keyLibrary"
-          @click.left.exact.prevent="openLibraryFor('key', row.index)"
-        >
-          {{ row.keyLabel }}
-        </UButton>
+        <UTooltip :text="EFFECT_CHANGE_ROW_LABELS.keyLibrary">
+          <UButton
+            color="neutral"
+            variant="soft"
+            size="sm"
+            icon="tabler:target"
+            class="min-w-48 flex-1 justify-start"
+            @click.left.exact.prevent="openLibraryFor('key', row.index)"
+          >
+            {{ row.keyLabel }}
+          </UButton>
+        </UTooltip>
 
-        <USelect
-          :model-value="row.modeChoice"
-          :items="EFFECT_CHANGE_MODE_OPTIONS"
-          value-key="value"
-          size="sm"
-          class="w-40"
-          :title="EFFECT_CHANGE_ROW_LABELS.mode"
-          :portal="false"
-          @update:model-value="updateMode(row.index, $event)"
-        />
-
-        <UFormField
-          :error="row.valueError"
-          class="w-44"
-        >
-          <div class="flex w-full gap-1">
-            <UInput
-              :model-value="row.shownValue"
-              :placeholder="EFFECT_CHANGE_ROW_LABELS.valuePlaceholder"
-              :title="EFFECT_CHANGE_ROW_LABELS.value"
+        <UTooltip :text="EFFECT_CHANGE_ROW_LABELS.mode">
+          <div class="w-40">
+            <USelect
+              :model-value="row.modeChoice"
+              :items="EFFECT_CHANGE_MODE_OPTIONS"
+              value-key="value"
               size="sm"
-              class="flex-1 font-mono text-xs"
-              @update:model-value="updateValue(row.index, $event)"
+              class="w-full"
+              :portal="false"
+              @update:model-value="updateMode(row.index, $event)"
             />
+          </div>
+        </UTooltip>
 
+        <UTooltip
+          v-if="row.showPriority"
+          :text="EFFECT_CHANGE_ROW_LABELS.priorityHint"
+        >
+          <div class="w-24">
+            <UInputNumber
+              :model-value="row.change.priority"
+              size="sm"
+              class="w-full"
+              @update:model-value="updatePriority(row.index, $event)"
+            />
+          </div>
+        </UTooltip>
+
+        <UTooltip :text="EFFECT_CHANGE_ROW_LABELS.remove">
+          <UButton
+            color="error"
+            variant="soft"
+            icon="tabler:trash"
+            size="sm"
+            @click.left.exact.prevent="removeChange(row.index)"
+          />
+        </UTooltip>
+      </div>
+
+      <UFormField :error="row.valueError">
+        <div class="flex flex-col gap-1">
+          <div class="flex w-full items-center gap-1">
+            <UTooltip :text="EFFECT_CHANGE_ROW_LABELS.value">
+              <div class="min-w-0 flex-1">
+                <UInput
+                  :model-value="row.shownValue"
+                  :placeholder="EFFECT_CHANGE_ROW_LABELS.valuePlaceholder"
+                  icon="tabler:calculator"
+                  size="sm"
+                  class="w-full font-mono text-xs"
+                  @update:model-value="updateValue(row.index, $event)"
+                />
+              </div>
+            </UTooltip>
+
+            <UTooltip :text="EFFECT_CHANGE_ROW_LABELS.valueLibrary">
+              <UButton
+                color="neutral"
+                variant="soft"
+                icon="tabler:bulb"
+                size="sm"
+                @click.left.exact.prevent="openLibraryFor('value', row.index)"
+              />
+            </UTooltip>
+
+            <FieldHint
+              v-if="row.valueHelp"
+              :text="row.valueHelp"
+            />
+          </div>
+
+          <p
+            v-if="row.valueLabel"
+            class="text-xs text-muted"
+          >
+            {{ row.valueLabel }}
+          </p>
+        </div>
+      </UFormField>
+
+      <div class="flex flex-col gap-1">
+        <div class="flex w-full gap-1">
+          <UTooltip :text="EFFECT_CHANGE_ROW_LABELS.condition">
+            <div class="min-w-0 flex-1">
+              <UInput
+                :model-value="row.change.condition ?? ''"
+                :placeholder="EFFECT_CHANGE_ROW_LABELS.conditionPlaceholder"
+                icon="tabler:filter"
+                size="sm"
+                class="w-full font-mono text-xs"
+                @update:model-value="updateCondition(row.index, $event)"
+              />
+            </div>
+          </UTooltip>
+
+          <UTooltip :text="EFFECT_CHANGE_ROW_LABELS.conditionLibrary">
             <UButton
               color="neutral"
               variant="soft"
               icon="tabler:bulb"
               size="sm"
-              :title="EFFECT_CHANGE_ROW_LABELS.valueLibrary"
-              @click.left.exact.prevent="openLibraryFor('value', row.index)"
+              @click.left.exact.prevent="openLibraryFor('condition', row.index)"
             />
-          </div>
-        </UFormField>
-
-        <UInputNumber
-          v-if="row.showPriority"
-          :model-value="row.change.priority"
-          size="sm"
-          class="w-24"
-          :title="EFFECT_CHANGE_ROW_LABELS.priorityHint"
-          @update:model-value="updatePriority(row.index, $event)"
-        />
-
-        <UButton
-          color="error"
-          variant="soft"
-          icon="tabler:trash"
-          size="sm"
-          :title="EFFECT_CHANGE_ROW_LABELS.remove"
-          @click.left.exact.prevent="removeChange(row.index)"
-        />
-      </div>
-
-      <div class="flex flex-col gap-1">
-        <div class="flex w-full gap-1">
-          <UInput
-            :model-value="row.change.condition ?? ''"
-            :placeholder="EFFECT_CHANGE_ROW_LABELS.conditionPlaceholder"
-            :title="EFFECT_CHANGE_ROW_LABELS.condition"
-            icon="tabler:filter"
-            size="sm"
-            class="flex-1 font-mono text-xs"
-            @update:model-value="updateCondition(row.index, $event)"
-          />
-
-          <UButton
-            color="neutral"
-            variant="soft"
-            icon="tabler:bulb"
-            size="sm"
-            :title="EFFECT_CHANGE_ROW_LABELS.conditionLibrary"
-            @click.left.exact.prevent="openLibraryFor('condition', row.index)"
-          />
+          </UTooltip>
         </div>
 
         <p
@@ -583,35 +646,44 @@
           />
 
           <template v-if="row.change.step">
-            <UInputNumber
-              :model-value="row.change.step.by"
-              :min="-MAX_EFFECT_CHANGE_STEP"
-              :max="MAX_EFFECT_CHANGE_STEP"
-              size="sm"
-              class="w-24"
-              :title="EFFECT_CHANGE_STEP_LABELS.by"
-              @update:model-value="updateStepBy(row.index, $event)"
-            />
+            <UTooltip :text="EFFECT_CHANGE_STEP_LABELS.by">
+              <div class="w-24">
+                <UInputNumber
+                  :model-value="row.change.step.by"
+                  :min="-MAX_EFFECT_CHANGE_STEP"
+                  :max="MAX_EFFECT_CHANGE_STEP"
+                  size="sm"
+                  class="w-full"
+                  @update:model-value="updateStepBy(row.index, $event)"
+                />
+              </div>
+            </UTooltip>
 
-            <USelect
-              :model-value="row.change.step.per"
-              :items="EFFECT_CHANGE_STEP_PER_OPTIONS"
-              value-key="value"
-              size="sm"
-              class="w-52"
-              :portal="false"
-              :title="EFFECT_CHANGE_STEP_LABELS.per"
-              @update:model-value="updateStep(row.index, { per: $event })"
-            />
+            <UTooltip :text="EFFECT_CHANGE_STEP_LABELS.per">
+              <div class="w-52">
+                <USelect
+                  :model-value="row.change.step.per"
+                  :items="EFFECT_CHANGE_STEP_PER_OPTIONS"
+                  value-key="value"
+                  size="sm"
+                  class="w-full"
+                  :portal="false"
+                  @update:model-value="updateStep(row.index, { per: $event })"
+                />
+              </div>
+            </UTooltip>
 
-            <UInputNumber
-              :model-value="row.change.step.until ?? null"
-              size="sm"
-              class="w-28"
-              :placeholder="EFFECT_CHANGE_STEP_LABELS.untilPlaceholder"
-              :title="EFFECT_CHANGE_STEP_LABELS.until"
-              @update:model-value="updateStepUntil(row.index, $event)"
-            />
+            <UTooltip :text="EFFECT_CHANGE_STEP_LABELS.until">
+              <div class="w-28">
+                <UInputNumber
+                  :model-value="row.change.step.until ?? null"
+                  size="sm"
+                  class="w-full"
+                  :placeholder="EFFECT_CHANGE_STEP_LABELS.untilPlaceholder"
+                  @update:model-value="updateStepUntil(row.index, $event)"
+                />
+              </div>
+            </UTooltip>
           </template>
         </div>
 
@@ -629,20 +701,6 @@
         class="text-xs text-warning"
       >
         {{ EFFECT_CHANGE_ROW_LABELS.noOpHint }}
-      </p>
-
-      <p
-        v-if="row.isDamageKey"
-        class="text-xs text-muted italic"
-      >
-        {{ EFFECT_CHANGE_ROW_LABELS.damageFormulaHint }}
-      </p>
-
-      <p
-        v-if="row.isRollDice"
-        class="text-xs text-muted italic"
-      >
-        {{ EFFECT_CHANGE_ROW_LABELS.rollDiceHint }}
       </p>
     </div>
   </div>

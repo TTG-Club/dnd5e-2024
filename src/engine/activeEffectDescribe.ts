@@ -38,9 +38,14 @@ import {
 import { getConditionEntry } from './conditionTemplates.js';
 import { ABILITY_LABELS, FORMULA_VARIABLE_LABELS } from './consts.js';
 import { getShortDamageTypeLabel } from './damageConstants.js';
+import { isDiceFormulaValue } from './effectPipeline.js';
+import { renderReadableFormula } from './formulaParser.js';
 import {
   detectFormulaDamageType,
   detectFormulaHealKind,
+  hasDamageTypeToken,
+  hasHealToken,
+  hasTargetToken,
   stripDamageTypeTokens,
   stripHealTokens,
 } from './formulaTokens.js';
@@ -165,12 +170,40 @@ export function describeRecurringDamageSave(save: EffectSave): string {
   return `спасбросок (${ABILITY_LABELS[save.ability]}, ${formatEffectSaveDc(save.dc)}), ${RECURRING_DAMAGE_SAVE_SUCCESS_LABELS[save.onSuccess]}`;
 }
 
-/** Заменяет @-токены формулы на короткие русские подписи. */
+/**
+ * Подпись переменной формулы (`@prof` → «бонус мастерства»).
+ *
+ * @param token - переменная с `@`
+ * @returns подпись; незнакомая переменная отдаётся как есть
+ */
+function labelFormulaVariable(token: string): string {
+  return FORMULA_VARIABLE_LABELS[token] ?? token;
+}
+
+/**
+ * Формула словами. Чистая арифметика разбирается парсером — функции
+ * `floor`/`min` читаются словами, а не кодом; формула с токенами урона
+ * описывается как часть урона; кости с переменными — заменой токенов.
+ *
+ * @param value - формула
+ * @returns читаемая запись
+ */
 function prettifyFormula(value: string): string {
-  return value.replace(
-    /@[a-z.]+/gi,
-    (token) => FORMULA_VARIABLE_LABELS[token] ?? token,
-  );
+  const readable = renderReadableFormula(value, labelFormulaVariable);
+
+  if (readable !== null) {
+    return readable;
+  }
+
+  if (
+    hasDamageTypeToken(value)
+    || hasHealToken(value)
+    || hasTargetToken(value)
+  ) {
+    return describeEffectDamageParts([{ formula: value }]);
+  }
+
+  return value.replace(/@[a-z.]+/gi, labelFormulaVariable);
 }
 
 /**
@@ -210,6 +243,30 @@ export function describeChangeValue(change: EffectChange): string {
   const modeLabel = EFFECT_CHANGE_MODE_LABELS[change.mode].toLowerCase();
 
   return `${modeLabel} ${prettifyFormula(change.value)}${unit}`;
+}
+
+/**
+ * Расшифровка значения строки для подписи под полем: «Значение: +2 + (уровень
+ * в классе / 4, с округлением вниз)». Число или кость и так понятны — для них
+ * пустая строка, чтобы подпись не повторяла поле.
+ *
+ * @param change - строка модификатора
+ * @returns расшифровка либо пустая строка
+ */
+export function describeEffectChangeValueHint(change: EffectChange): string {
+  const value = change.value.trim();
+
+  // Число и кость без переменных понятны и так — подпись повторила бы поле
+  const isSelfExplanatory =
+    value === ''
+    || isNumeric(value)
+    || (isDiceFormulaValue(value) && !value.includes('@'));
+
+  if (isSelfExplanatory) {
+    return '';
+  }
+
+  return describeChangeValue(change);
 }
 
 /**

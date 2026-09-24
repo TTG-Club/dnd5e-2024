@@ -1034,3 +1034,114 @@ export function validateFormula(formula: string): FormulaValidationResult {
 }
 
 // ── Подсказки для UI ──────────────────────────────────────────
+
+// ── Читаемая запись для UI ────────────────────────────────────
+
+/** Как функция формулы читается словами; `{0}`, `{1}` — её аргументы */
+const READABLE_FUNCTION_TEMPLATES: Readonly<Record<string, string>> = {
+  floor: '({0}, с округлением вниз)',
+  ceil: '({0}, с округлением вверх)',
+  min: 'меньшее из ({0}; {1})',
+  max: 'большее из ({0}; {1})',
+  abs: '|{0}|',
+};
+
+/** Знаки операторов в читаемой записи: минус и умножение — типографские */
+const READABLE_OPERATORS: Readonly<Record<string, string>> = {
+  '+': '+',
+  '-': '−',
+  '*': '×',
+  '/': '/',
+};
+
+/**
+ * Узел AST словами. Скобки ставятся только там, где без них поменялся бы
+ * смысл: исходные скобки парсер не хранит, а лишние мешают читать.
+ *
+ * @param node - узел
+ * @param labelVariable - подпись переменной по токену (`@prof` → «бонус мастерства»)
+ * @param parentPrecedence - приоритет оператора-родителя
+ * @param isRightOperand - узел стоит справа от родителя (для `a − (b − c)`)
+ * @returns читаемая запись узла
+ */
+function renderReadableNode(
+  node: AstNode,
+  labelVariable: (token: string) => string,
+  parentPrecedence = 0,
+  isRightOperand = false,
+): string {
+  switch (node.type) {
+    case 'number':
+      return String(node.numericValue ?? 0);
+    case 'variable':
+      return labelVariable(`@${node.value ?? ''}`);
+    case 'unaryOp':
+      return node.right
+        ? `−${renderReadableNode(node.right, labelVariable, Number.POSITIVE_INFINITY)}`
+        : '';
+    case 'functionCall': {
+      const args = (node.args ?? []).map((argument) =>
+        renderReadableNode(argument, labelVariable),
+      );
+
+      const template = READABLE_FUNCTION_TEMPLATES[node.value ?? ''];
+
+      return template
+        ? template.replace(
+            /\{(\d)\}/g,
+            (_match, index: string) => args[Number(index)] ?? '',
+          )
+        : `${node.value ?? ''}(${args.join('; ')})`;
+    }
+    case 'binaryOp':
+    default: {
+      const operator = node.value ?? '';
+      const precedence = OPERATOR_PRECEDENCE[operator] ?? 0;
+
+      const left = node.left
+        ? renderReadableNode(node.left, labelVariable, precedence)
+        : '';
+
+      const right = node.right
+        ? renderReadableNode(node.right, labelVariable, precedence, true)
+        : '';
+
+      const text = `${left} ${READABLE_OPERATORS[operator] ?? operator} ${right}`;
+
+      const needsParens =
+        precedence < parentPrecedence
+        || (isRightOperand && precedence === parentPrecedence);
+
+      return needsParens ? `(${text})` : text;
+    }
+  }
+}
+
+/**
+ * Формула словами — для подписи под полем значения: `floor(@classLevel / 4)`
+ * читается «(уровень в классе / 4, с округлением вниз)».
+ *
+ * Разбирает формулу тем же парсером, что и вычисление, поэтому подпись не
+ * может разойтись с тем, как формула посчитается. Кости и токены урона парсер
+ * не понимает — для них подписи нет.
+ *
+ * @param formula - строка формулы
+ * @param labelVariable - подпись переменной по токену
+ * @returns читаемая запись либо `null`, если формулу не разобрать
+ */
+export function renderReadableFormula(
+  formula: string,
+  labelVariable: (token: string) => string,
+): string | null {
+  const trimmed = formula.trim();
+
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  try {
+    return renderReadableNode(parse(tokenize(trimmed)), labelVariable);
+  } catch {
+    return null;
+  }
+}

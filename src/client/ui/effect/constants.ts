@@ -443,6 +443,7 @@ export const EFFECT_CHANGE_ROW_LABELS = {
   conditionPlaceholder: 'roll.hasAdvantage',
   conditionLibrary: 'Шаблоны условий',
   conditionOnlyPrefix: 'Только: ',
+  valueReadablePrefix: 'Значение: ',
   priority: 'Приоритет',
   priorityHint: `Меньше — раньше (по умолчанию ${ACTIVE_EFFECT_DEFAULTS.changePriority})`,
   remove: 'Удалить модификатор',
