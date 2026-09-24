@@ -53,6 +53,18 @@ export function listUseEffects(
 }
 
 /**
+ * Есть ли у предмета эффекты применения — зелье, свиток, масло. Такой предмет
+ * ложится на панель быстрого доступа кнопкой «Использовать», а заряды и
+ * количество здесь не смотрятся: кончившееся зелье остаётся зельем.
+ *
+ * @param item - предмет
+ * @returns `true`, если предмет применяемый
+ */
+export function hasItemUseEffects(item: DnDGameItem): boolean {
+  return listUseEffects(item.activeEffects).length > 0;
+}
+
+/**
  * Можно ли применить предмет: у него есть эффекты применения, хватает зарядов
  * и количества.
  *
@@ -60,7 +72,7 @@ export function listUseEffects(
  * @returns `true`, если предмет применяется
  */
 export function canUseItem(item: DnDGameItem): boolean {
-  if (listUseEffects(item.activeEffects).length === 0) {
+  if (!hasItemUseEffects(item)) {
     return false;
   }
 
@@ -119,7 +131,7 @@ export interface ItemActionAvailability {
 export function describeItemUseAvailability(
   item: DnDGameItem | undefined,
 ): ItemActionAvailability {
-  if (!item || listUseEffects(item.activeEffects).length === 0) {
+  if (!item || !hasItemUseEffects(item)) {
     return { blocked: 'missing' };
   }
 

@@ -49,10 +49,10 @@
     getAttackFlagCategory,
     getDamageBonusKey,
     getWeaponPrimaryDamageType,
+    hasItemUseEffects,
     isItemDepleted,
     isSaveAbility,
     listLoadableAmmunition,
-    listUseEffects,
     loadWeaponAmmunition,
     normalizeItemQuantity,
     resolveWeaponSaveDc,
@@ -628,7 +628,7 @@
     // применения — кнопкой «Использовать»
     if (item.type === 'weapon' && item.damageParts?.length) {
       handleWeaponDragStart(event, item);
-    } else if (listUseEffects(item.activeEffects).length > 0) {
+    } else if (hasItemUseEffects(item)) {
       handleItemUseDragStart(event, item);
     }
   }
@@ -993,10 +993,10 @@
     // Применение — пункт предмета с эффектами «при применении»: зелье,
     // свиток, масло. В режиме правки лист сохраняется кнопкой, и наложенное
     // сохранение затёрло бы
-    if (listUseEffects(item.activeEffects).length > 0 && !props.isReadOnly) {
+    if (hasItemUseEffects(item) && !props.isReadOnly) {
       gameActions.push({
         label: EFFECT_USE_LABELS.use,
-        icon: 'tabler:flask',
+        icon: ITEM_USE_MACRO_ICON,
         disabled: props.isEditMode || !canUseItem(item),
         onSelect: () => applyItemUse(item),
       });

@@ -10,9 +10,11 @@
 
   import {
     getEquipmentCategoryIcon,
+    hasItemUseEffects,
     isItemDepleted,
   } from '@vtt/shared/system/dnd.js';
 
+  import { ITEM_USE_MACRO_ICON } from '../../macros/constants';
   import {
     DEFAULT_ITEM_TYPE_ICON,
     EQUIPMENT_BADGE_HINTS,
@@ -63,12 +65,22 @@
     'dragstart': [event: DragEvent];
   }>();
 
-  /** Значок предмета для не-оружия: у оружия его рисует `WeaponIcon` */
-  const itemIcon = computed(() =>
-    props.item.type === 'equipment'
+  /**
+   * Значок предмета для не-оружия: у оружия его рисует `WeaponIcon`.
+   *
+   * Предмет с эффектами применения (зелье, свиток, масло) берёт значок своей
+   * кнопки на панели быстрого доступа: по категории зелье — «снаряжение
+   * приключенца» с рюкзаком, и в инвентаре его было не узнать.
+   */
+  const itemIcon = computed(() => {
+    if (hasItemUseEffects(props.item)) {
+      return ITEM_USE_MACRO_ICON;
+    }
+
+    return props.item.type === 'equipment'
       ? getEquipmentCategoryIcon(props.item.equipmentCategory)
-      : (EQUIPMENT_TYPE_ICONS[props.item.type] ?? DEFAULT_ITEM_TYPE_ICON),
-  );
+      : (EQUIPMENT_TYPE_ICONS[props.item.type] ?? DEFAULT_ITEM_TYPE_ICON);
+  });
 
   /** Универсальное оружие: хват меняется пунктом меню */
   const isVersatile = computed(
