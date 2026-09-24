@@ -885,6 +885,18 @@ describe('применение и включение', () => {
       },
     );
 
+    assert.deepEqual(
+      normalize({ mode: 'use', range: '30' }),
+      { mode: 'use', counter: undefined, amount: undefined, range: 30 },
+      'дальность применения пишется числом',
+    );
+
+    assert.equal(
+      normalize({ mode: 'toggle', range: 30 }).range,
+      undefined,
+      'у переключателя дальности нет',
+    );
+
     assert.equal(normalize(undefined), undefined);
   });
 

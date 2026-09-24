@@ -1275,6 +1275,9 @@ export const EFFECT_ACTIVATION_MODES = ['use', 'toggle'] as const;
 /** Сколько тратит применение или включение без поля `amount` */
 export const DEFAULT_ACTIVATION_AMOUNT = 1;
 
+/** Наименьшая дальность применения в футах; меньше — это касание */
+export const MIN_ACTIVATION_RANGE = 1;
+
 /** Способ применения или включения эффекта */
 export type EffectActivationMode = (typeof EFFECT_ACTIVATION_MODES)[number];
 
@@ -1289,6 +1292,12 @@ export interface EffectActivation {
   counter?: string;
   /** Сколько тратится со счётчика; нет — одна единица */
   amount?: number;
+  /**
+   * Дальность применения «на цель» в футах: «Божественная искра» — на
+   * существо в пределах 30 фт. Нет — касание, и цель дальше 5 фт игрок
+   * берёт только с разрешения ведущего.
+   */
+  range?: number;
 }
 
 /**
@@ -2578,6 +2587,10 @@ const EffectActivationSchema = z.object({
   amount: z.preprocess(
     coerceOptionalNumber,
     z.number().int().min(1).optional().catch(undefined),
+  ),
+  range: z.preprocess(
+    coerceOptionalNumber,
+    z.number().int().min(MIN_ACTIVATION_RANGE).optional().catch(undefined),
   ),
 });
 

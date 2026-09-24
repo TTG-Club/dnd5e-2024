@@ -17,6 +17,7 @@
   import {
     DEFAULT_ACTIVATION_AMOUNT,
     DEFAULT_EFFECT_VARIANT_PICK,
+    MIN_ACTIVATION_RANGE,
     writeEffectDelivery,
     writeEffectTrigger,
   } from '@vtt/shared/system/dnd.js';
@@ -25,6 +26,7 @@
   import {
     EFFECT_ACTIVATION_CHOICE_HINTS,
     EFFECT_ACTIVATION_COUNTER_LABELS,
+    EFFECT_ACTIVATION_RANGE_LABELS,
     EFFECT_AURA_LABELS,
     EFFECT_AURA_RADIUS_STEP,
     EFFECT_LANDING_CONDITION_LABELS,
@@ -112,6 +114,13 @@
         updateActivation({ amount });
       }
     },
+  });
+
+  // Пустое поле — касание: дальность снимается, а не становится нулём
+  const activationRange = computed({
+    get: () => effect.value.activation?.range ?? null,
+    set: (range: number | null) =>
+      updateActivation({ range: range === null ? undefined : range }),
   });
 
   const deliveryOptions = computed(() => buildDeliveryOptions(props.layout));
@@ -324,6 +333,27 @@
         />
       </UFormField>
     </div>
+
+    <UFormField
+      v-if="layout.showActivationRange"
+      class="w-40"
+    >
+      <template #label>
+        <span class="flex items-center gap-1">
+          {{ EFFECT_ACTIVATION_RANGE_LABELS.range }}
+
+          <FieldHint :text="EFFECT_ACTIVATION_RANGE_LABELS.hint" />
+        </span>
+      </template>
+
+      <UInputNumber
+        v-model="activationRange"
+        :min="MIN_ACTIVATION_RANGE"
+        :placeholder="EFFECT_ACTIVATION_RANGE_LABELS.placeholder"
+        size="sm"
+        class="w-full"
+      />
+    </UFormField>
   </div>
 
   <div

@@ -158,7 +158,15 @@ export interface EffectUseSource {
   effects: ActiveEffect[];
   /** Чем источник разыгрывается */
   rollSource: SpellRollSource;
+  /** Дальность применения «на цель» в футах; нет — касание */
+  range?: number;
 }
+
+/**
+ * Разделитель частей ключа группы вариантов. Черта не встречается ни в ключах
+ * классов, ни в ключах ресурсов, поэтому части не склеиваются в чужой ключ.
+ */
+const EFFECT_USE_GROUP_KEY_SEPARATOR = '|';
 
 /** Приставка id псевдо-заклинания применения */
 const USE_SPELL_ID_PREFIX = 'use-';
@@ -179,18 +187,109 @@ export function buildItemUseSpell(item: DnDGameItem): Spell {
 }
 
 /**
- * Псевдо-заклинание применения эффекта листа («Применить»).
+ * Ключ группы вариантов применения: эффекты листа с одним ключом — варианты
+ * ОДНОГО применения («Божественная искра»: лечение, некротическая энергия,
+ * излучение). Кнопка у них одна, выбор — при применении, трата — одна.
+ *
+ * В ключе не только группа варианта: у эффектов умений класса `originId` —
+ * ключ класса, и два умения жреца с группой по умолчанию слиплись бы в одно.
+ * Ресурс в ключе разводит их по тому, что они тратят.
+ *
+ * @param effect - эффект листа
+ * @returns ключ либо `undefined`, если эффект не вариант применения
+ */
+export function effectUseGroupKey(effect: ActiveEffect): string | undefined {
+  if (!isUseActivatedEffect(effect) || !effect.variant) {
+    return undefined;
+  }
+
+  return [
+    effect.originId ?? '',
+    effect.activation?.counter ?? '',
+    effect.variant.group,
+  ].join(EFFECT_USE_GROUP_KEY_SEPARATOR);
+}
+
+/**
+ * Все варианты того же применения, что и эффект, — в порядке листа. Эффект без
+ * группы — сам по себе.
+ *
+ * @param effects - эффекты листа
+ * @param effect - применяемый эффект
+ * @returns эффекты одного применения (сам эффект — всегда первый из них по
+ *   порядку листа или единственный)
+ */
+export function collectEffectUseGroup(
+  effects: readonly ActiveEffect[],
+  effect: ActiveEffect,
+): ActiveEffect[] {
+  const key = effectUseGroupKey(effect);
+
+  if (key === undefined) {
+    return [effect];
+  }
+
+  const group = effects.filter((entry) => effectUseGroupKey(entry) === key);
+
+  return group.length > 0 ? group : [effect];
+}
+
+/**
+ * Название применения группы: у нескольких вариантов — имя группы
+ * («Божественная искра»), у одного эффекта — его собственное.
+ *
+ * @param group - эффекты одного применения
+ * @returns название для кнопки, чата и панели быстрого доступа
+ */
+export function effectUseGroupName(group: readonly ActiveEffect[]): string {
+  const [first] = group;
+
+  if (!first) {
+    return '';
+  }
+
+  return group.length > 1 && first.variant ? first.variant.group : first.name;
+}
+
+/**
+ * Псевдо-заклинание применения эффекта листа («Применить») вместе с его
+ * вариантами: окно выбора варианта видит все варианты группы, а дальность
+ * берётся наибольшая из заданных.
+ *
+ * Эффект-шаблон на листе лежит выключенным (так его не читает пайплайн), и в
+ * псевдо-заклинание он идёт включённым — иначе применение его бы отбросило.
+ *
+ * @param group - эффекты одного применения (см. {@link collectEffectUseGroup})
+ * @returns псевдо-заклинание
+ */
+export function buildEffectGroupUseSpell(
+  group: readonly ActiveEffect[],
+): Spell {
+  const [first] = group;
+
+  const ranges = group.flatMap((effect) =>
+    effect.activation?.range === undefined ? [] : [effect.activation.range],
+  );
+
+  return buildUseSpell({
+    id: first?.id ?? '',
+    name: effectUseGroupName(group),
+    effects: listUseEffects(
+      group.map((effect) => ({ ...effect, disabled: false })),
+    ),
+    rollSource: 'effect',
+    ...(ranges.length > 0 ? { range: Math.max(...ranges) } : {}),
+  });
+}
+
+/**
+ * Псевдо-заклинание применения одного эффекта листа.
  *
  * @param effect - эффект применения на листе
  * @returns псевдо-заклинание
  */
 export function buildEffectUseSpell(effect: ActiveEffect): Spell {
-  return buildUseSpell({
-    id: effect.id,
-    name: effect.name,
-    effects: listUseEffects([{ ...effect, disabled: false }]),
-    rollSource: 'effect',
-  });
+  return buildEffectGroupUseSpell([effect]);
 }
 
 /**
@@ -206,6 +305,10 @@ export function buildUseSpell(source: EffectUseSource): Spell {
     name: source.name,
     rollSource: source.rollSource,
     activeEffects: source.effects,
+    // Дальность без атаки: так её читает проверка дистанции цели
+    ...(source.range === undefined
+      ? {}
+      : { range: source.range, rangeUnit: 'ft', deliveryType: 'none' }),
   });
 }
 

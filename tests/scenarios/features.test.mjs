@@ -313,6 +313,138 @@ describe('каталог: классы и черты', () => {
     );
   });
 
+  it('[F19] Божественная искра: варианты одного применения, ресурс и дальность', () => {
+    const spark = (label, overrides) =>
+      createEffect(engine.buildClassEffectId('cleric', `spark-${label}`), {
+        name: label,
+        origin: 'feature',
+        originId: 'cleric',
+        disabled: true,
+        activation: { mode: 'use', counter: 'channel-divinity', range: 30 },
+        variant: { group: 'Божественная искра', label },
+        effectTarget: 'target',
+        duration: { type: 'instantaneous' },
+        ...overrides,
+      });
+
+    const heal = spark('Лечение', {
+      triggers: [
+        {
+          id: 'spark-heal',
+          event: 'applied',
+          actions: [
+            {
+              type: 'damage',
+              parts: [
+                {
+                  formula:
+                    '(1 + steps(@classLevel, 7, 13, 18))к8@heal + @mod.wis',
+                },
+              ],
+            },
+            { type: 'removeSelf' },
+          ],
+        },
+      ],
+    });
+
+    const radiant = spark('Излучение', {
+      applySave: { ability: 'constitution', dc: 0, onSuccess: 'half' },
+      damageParts: [
+        {
+          formula: '(1 + steps(@classLevel, 7, 13, 18))к8 + @mod.wis',
+          type: 'radiant',
+        },
+      ],
+    });
+
+    const turnUndead = createEffect(
+      engine.buildClassEffectId('cleric', 'turn-undead'),
+      {
+        name: 'Изгнание нежити',
+        origin: 'feature',
+        originId: 'cleric',
+        disabled: true,
+        activation: { mode: 'use', counter: 'channel-divinity' },
+        effectTarget: 'target',
+      },
+    );
+
+    const sheet = [heal, turnUndead, radiant];
+
+    const group = engine.collectEffectUseGroup(sheet, radiant);
+
+    assert.deepEqual(
+      group.map((effect) => effect.name),
+      ['Лечение', 'Излучение'],
+      'варианты одной группы — одно применение, в порядке листа',
+    );
+
+    assert.deepEqual(
+      engine.collectEffectUseGroup(sheet, turnUndead),
+      [turnUndead],
+      'тот же ресурс без группы — отдельное применение',
+    );
+
+    assert.equal(engine.effectUseGroupName(group), 'Божественная искра');
+
+    const spell = engine.buildEffectGroupUseSpell(group);
+
+    assert.equal(spell.range, 30, 'дальность из применения, а не касание');
+    assert.equal(spell.deliveryType, 'none');
+
+    assert.deepEqual(
+      engine
+        .listEffectVariantGroups(spell.activeEffects)
+        .map((entry) => [entry.group, entry.labels]),
+      [['Божественная искра', ['Лечение', 'Излучение']]],
+      'окно выбора видит все варианты, шаблоны листа — включёнными',
+    );
+
+    assert.deepEqual(
+      engine
+        .pickEffectVariants(spell.activeEffects, {
+          'Божественная искра': 'Излучение',
+        })
+        .map((effect) => effect.name),
+      ['Излучение'],
+    );
+
+    // Жрец 7 уровня с Мудростью 16: вторая к8 и +3 — его, а не цели
+    const cleric = hero({
+      classKey: 'cleric',
+      level: 7,
+      abilities: { wisdom: 16 },
+    });
+
+    const [boundHeal, boundRadiant] = engine.bindTargetEffectsToSource(
+      group,
+      cleric,
+      engine.buildFormulaContext(cleric),
+    );
+
+    assert.equal(
+      boundHeal.triggers[0].actions[0].parts[0].formula,
+      '2к8@heal + 3',
+      'лечение срабатывания — числами жреца, кости по ступени уровня',
+    );
+
+    assert.equal(boundRadiant.damageParts[0].formula, '2к8 + 3');
+
+    const healing = engine.rollEffectHealing(
+      boundHeal.name,
+      boundHeal.triggers[0].actions[0].parts,
+    );
+
+    assert.equal(
+      healing?.healed,
+      (healing?.values ?? []).reduce((sum, value) => sum + value, 3),
+      'лечение — две к8 и Мудрость жреца',
+    );
+
+    assert.equal(healing?.values.length, 2, 'брошено две к8');
+  });
+
   it('[F17] Аура защиты: радиус растёт с уровнем и гаснет у недееспособного', () => {
     const aura = createEffect(
       engine.buildClassEffectId('paladin', 'auraOfProtection'),

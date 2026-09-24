@@ -642,6 +642,15 @@ export const EFFECT_ACTIVATION_COUNTER_LABELS = {
     + 'ничего не тратит.',
 } as const;
 
+/** Подписи дальности применения */
+export const EFFECT_ACTIVATION_RANGE_LABELS = {
+  range: 'Дальность, фт',
+  placeholder: 'Касание',
+  hint:
+    'На каком расстоянии можно выбрать цель применения. Пусто — касание: '
+    + 'цель дальше 5 фт игрок берёт только с разрешения ведущего.',
+} as const;
+
 /** Подписи условия наложения */
 export const EFFECT_LANDING_CONDITION_LABELS = {
   title: 'Ложится, если',

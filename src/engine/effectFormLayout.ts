@@ -42,6 +42,7 @@ import {
   EFFECT_ACTIVATION_MODES,
   isUseActivatedEffect,
   MAX_EFFECT_CHARGES,
+  MIN_ACTIVATION_RANGE,
   parseFormNumber,
   SOURCE_SAVE_DC,
 } from './activeEffectTypes.js';
@@ -234,6 +235,11 @@ export interface EffectFormLayout {
   activationModes: readonly EffectActivationMode[];
   /** Применение или включение тратит счётчик листа */
   showActivationCounter: boolean;
+  /**
+   * Дальность применения «на цель»: эффект накладывается применением, и
+   * цель можно выбрать дальше касания
+   */
+  showActivationRange: boolean;
   /** Эффект накладывается применением: доставки подписаны «при применении» */
   useActivated: boolean;
   /**
@@ -374,10 +380,16 @@ function normalizeDraftActivation(
     parseFormNumber(activation.amount) ?? DEFAULT_ACTIVATION_AMOUNT,
   );
 
+  const range = Math.trunc(parseFormNumber(activation.range) ?? 0);
+
   return {
     mode: activation.mode,
     counter,
     amount: counter && amount > DEFAULT_ACTIVATION_AMOUNT ? amount : undefined,
+    // Дальность — только у применения: переключатель ни на кого не ложится
+    ...(activation.mode === 'use' && range >= MIN_ACTIVATION_RANGE
+      ? { range }
+      : {}),
   };
 }
 
@@ -855,6 +867,7 @@ export function resolveEffectFormLayout(
     showActivationCounter:
       effect.activation !== undefined
       && ACTIVATION_COUNTER_CONTEXTS.has(context),
+    showActivationRange: isUsed,
     useActivated: isUsed,
     showStatusToggle: !(isUsed && ACTIVATION_COUNTER_CONTEXTS.has(context)),
     showStages: livesOnItsOwn,
