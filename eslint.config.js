@@ -30,9 +30,6 @@ export default configure(
       'dist',
       'auto-imports.d.ts',
       'src/client/hostClasses.txt',
-      // Вендоренная копия @vtt/shared: правится только синком с апстримом
-      // (Rule #0 в AGENTS.md), поэтому и замечания линтера тут неисполнимы
-      'sdk',
     ],
     prettier: {
       tailwindStylesheet: './src/client/system.css',

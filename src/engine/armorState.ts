@@ -14,6 +14,8 @@ import type { ArmorCategory } from '@vtt/shared';
 
 import type { DnDActor, DnDCreature } from './dndEntities.js';
 
+import { isItemWorn } from './itemUses.js';
+
 /**
  * Состояние доспеха носителя: категория надетой брони и наличие щита.
  * Категории нет — брони на носителе нет вовсе.
@@ -97,7 +99,7 @@ export function getCarrierArmorState(
   let hasShield = false;
 
   for (const equipmentItem of carrier.equipment ?? []) {
-    if (!equipmentItem.equipped || equipmentItem.type !== 'equipment') {
+    if (!isItemWorn(equipmentItem) || equipmentItem.type !== 'equipment') {
       continue;
     }
 

@@ -11,6 +11,7 @@
     calculateExperienceForNextLevel,
     getTotalLevel,
     MAX_LEVEL,
+    resolveExperienceInput,
   } from '@vtt/shared/system/dnd.js';
 
   import { LEVEL_UP_LABELS, MODAL_BUTTON_LABELS } from './constants';
@@ -44,11 +45,31 @@
   const editClasses = ref<ActorClassEntry[]>([]);
 
   /**
-   * Введённый опыт. Тип не только `number`: `UInput` с `type="number"` отдаёт
-   * пустую строку, когда поле очищено или в нём мусор, — `applyLevelUp`
-   * приводит такое значение к 0.
+   * Ввод опыта строкой, а не числом: поле работает как у хитов фишки —
+   * «+150» прибавляет к текущему опыту, «-50» отнимает, число задаёт. Поле
+   * `type="number"` знак впереди считает мусором и отдаёт пустую строку.
    */
-  const editExperience = ref<number | string>(0);
+  const editExperience = ref('');
+
+  /** Опыт, который запишет «Применить»; `undefined` — ввод не разобрать */
+  const resolvedExperience = computed(() =>
+    resolveExperienceInput(editExperience.value, props.experience),
+  );
+
+  const isExperienceInvalid = computed(
+    () => resolvedExperience.value === undefined,
+  );
+
+  /**
+   * В поле выражение, а не готовое число: тогда под полем показывается итог,
+   * иначе при «+150» не видно, сколько опыта станет. Сверка строкой, а не
+   * числом: `Number('+150')` равно 150, и при нулевом опыте итог бы пропал.
+   */
+  const showsExperienceResult = computed(
+    () =>
+      !isExperienceInvalid.value
+      && String(resolvedExperience.value) !== editExperience.value.trim(),
+  );
 
   const forceLevelUp = ref(false);
 
@@ -71,7 +92,7 @@
     (opened) => {
       if (opened) {
         editClasses.value = JSON.parse(JSON.stringify(props.classes ?? []));
-        editExperience.value = props.experience;
+        editExperience.value = String(props.experience);
         forceLevelUp.value = false;
         pendingRemoveKey.value = null;
       }
@@ -120,15 +141,25 @@
   }
 
   /**
+   * Выделяет весь опыт при входе в поле: чаще всего опыт добавляют, и «+150»
+   * должно заменить старое число, а не дописаться к нему.
+   */
+  function selectExperienceInput(event: FocusEvent) {
+    if (event.target instanceof HTMLInputElement) {
+      event.target.select();
+    }
+  }
+
+  /**
    * Применяет изменения уровня и опыта
    */
   function applyLevelUp() {
-    const xp =
-      typeof editExperience.value === 'string'
-        ? Number.parseInt(editExperience.value, 10)
-        : editExperience.value;
+    // Неразобранный ввод не пишется: иначе опечатка обнулила бы опыт
+    const safeXp = resolvedExperience.value;
 
-    const safeXp = Number.isNaN(xp) ? 0 : Math.max(0, xp);
+    if (safeXp === undefined) {
+      return;
+    }
 
     if (forceLevelUp.value) {
       emit('apply', {
@@ -302,19 +333,43 @@
             </div>
 
             <!-- Enter в поле опыта = «Применить»: правка опыта чаще всего
-                 сводится к вводу числа, лишний клик по кнопке не нужен -->
+                 сводится к вводу числа, лишний клик по кнопке не нужен.
+                 Фокус сразу здесь — окно открывают в основном ради опыта -->
             <UInput
               v-model="editExperience"
-              type="number"
               variant="none"
-              :min="0"
               size="lg"
+              autofocus
               class="w-full"
+              :placeholder="LEVEL_UP_LABELS.experiencePlaceholder"
               :ui="{
                 base: 'bg-inverted/5 text-highlighted rounded-lg px-3 py-2 focus:bg-inverted/10 transition-colors tabular-nums',
               }"
+              @focus="selectExperienceInput"
               @keydown.enter.prevent="applyLevelUp"
             />
+
+            <p
+              v-if="isExperienceInvalid"
+              class="text-xs text-error"
+            >
+              {{ LEVEL_UP_LABELS.experienceInvalid }}
+            </p>
+
+            <p
+              v-else-if="showsExperienceResult"
+              class="text-xs font-medium text-toned tabular-nums"
+            >
+              {{ LEVEL_UP_LABELS.experienceResultPrefix }}
+              {{ resolvedExperience }} {{ LEVEL_UP_LABELS.experienceUnit }}
+            </p>
+
+            <p
+              v-else
+              class="text-xs text-dimmed"
+            >
+              {{ LEVEL_UP_LABELS.experienceHint }}
+            </p>
           </div>
 
           <div class="flex items-center gap-2">
@@ -346,6 +401,7 @@
           <UButton
             color="primary"
             size="sm"
+            :disabled="isExperienceInvalid"
             @click.left.exact.prevent="applyLevelUp"
           >
             {{ MODAL_BUTTON_LABELS.apply }}

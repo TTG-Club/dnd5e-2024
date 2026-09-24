@@ -15,7 +15,8 @@
  *
  * Безопасность:
  * - НЕ использует eval() или Function()
- * - Поддерживает ТОЛЬКО: числа, +, -, ×, /, скобки, @-переменные, min/max/floor/ceil
+ * - Поддерживает ТОЛЬКО: числа, +, -, ×, /, скобки, @-переменные,
+ *   min/max/floor/ceil/abs/steps
  * - Отклоняет любой невалидный ввод
  */
 
@@ -95,7 +96,15 @@ export interface FormulaContext {
      */
     creatureType?: import('./creatureTypes.js').CreatureCategory;
   };
+  /**
+   * Данные события срабатывания — токен `@damage` (урон события) в Сл
+   * срабатывания. Вне события токен — ошибка формулы.
+   */
+  event?: { damage: number };
 }
+
+/** Переменная урона события в Сл срабатывания */
+export const EVENT_DAMAGE_VARIABLE = 'damage';
 
 /**
  * Сокращённые коды характеристик → полные имена.
@@ -175,8 +184,18 @@ export class FormulaError extends Error {
 
 // ── Константы ─────────────────────────────────────────────────
 
+/** Функция ступеней: `steps(значение, порог1, порог2, …)` */
+const STEPS_FUNCTION = 'steps';
+
 /** Поддерживаемые функции */
-const SUPPORTED_FUNCTIONS = new Set(['min', 'max', 'floor', 'ceil', 'abs']);
+const SUPPORTED_FUNCTIONS = new Set([
+  'min',
+  'max',
+  'floor',
+  'ceil',
+  'abs',
+  STEPS_FUNCTION,
+]);
 
 /** Приоритет операторов */
 const OPERATOR_PRECEDENCE: Record<string, number> = {
@@ -283,7 +302,7 @@ function tokenize(formula: string): FormulaToken[] {
       continue;
     }
 
-    // Идентификаторы (функции: min, max, floor, ceil)
+    // Идентификаторы (функции: min, max, floor, ceil, abs, steps)
     if (isAlpha(char)) {
       let identifier = '';
 
@@ -551,6 +570,14 @@ function resolveVariable(
       return context.classLevel ?? context.level;
     }
 
+    if (simpleKey === EVENT_DAMAGE_VARIABLE) {
+      if (!context.event) {
+        throw new FormulaError(`@${simpleKey} есть только у события урона`);
+      }
+
+      return context.event.damage;
+    }
+
     // Короткий код характеристики @int → значение (16), парно к @mod.int (мод)
     const fullAbility = ABILITY_ABBREVIATIONS[simpleKey];
 
@@ -723,9 +750,34 @@ function evaluateFunction(funcName: string, args: number[]): number {
       }
 
       return Math.abs(args[0]);
+    case STEPS_FUNCTION:
+      return countReachedSteps(args);
     default:
       throw new FormulaError(`Неизвестная функция: ${funcName}()`);
   }
+}
+
+/**
+ * `steps(значение, порог1, порог2, …)` — сколько порогов значение уже
+ * достигло.
+ *
+ * Правила растят число по ступеням уровня, а не по ровной арифметике:
+ * «Божественная искра» даёт лишнюю к8 на 7, 13 и 18 уровнях жреца, и
+ * `floor` такой ряд не описывает. Ступени пишутся порогами прямо в формуле —
+ * `1 + steps(@classLevel, 7, 13, 18)` — и формула остаётся строкой, которую
+ * хранит справочник сайта без новых полей.
+ *
+ * @param args - значение и пороги
+ * @returns число достигнутых порогов
+ */
+function countReachedSteps(args: number[]): number {
+  if (args.length < 2) {
+    throw new FormulaError('steps() требует значение и хотя бы один порог');
+  }
+
+  const [value, ...thresholds] = args;
+
+  return thresholds.filter((threshold) => value >= threshold).length;
 }
 
 // ── Вспомогательные функции ───────────────────────────────────
@@ -902,8 +954,51 @@ export function evaluateFormula(
   return evaluateNode(ast, context);
 }
 
+/**
+ * Контекст без листа: формула без `@`-переменных его не читает, но вычислитель
+ * требует контекст целиком.
+ */
+const DETACHED_FORMULA_CONTEXT: FormulaContext = {
+  abilities: {},
+  prof: 0,
+  level: 0,
+  movement: { walk: 0, swim: 0, fly: 0, climb: 0, burrow: 0 },
+};
+
+/**
+ * Вычисляет арифметику без `@`-переменных: `1 + steps(7, 7, 13, 18)` → 2.
+ *
+ * Нужна там, где числа источника уже подставлены, а листа под рукой нет, —
+ * например, число костей перед броском.
+ *
+ * @param formula - формула без `@`-переменных
+ * @returns число либо `undefined`, если формулу не посчитать
+ */
+export function evaluateDetachedFormula(formula: string): number | undefined {
+  if (formula.includes('@')) {
+    return undefined;
+  }
+
+  try {
+    return evaluateFormula(formula, DETACHED_FORMULA_CONTEXT);
+  } catch {
+    return undefined;
+  }
+}
+
 /** Регэксп для поиска @-переменных в смешанной формуле (кости + @) */
 const VARIABLE_TOKEN_REGEX = /@([a-z][\w.]*)/gi;
+
+/**
+ * Число, подставленное в формулу. Отрицательное — в скобках: «1к6 + @mod» с
+ * −2 даёт «1к6 + (-2)», а не «1к6 + -2».
+ *
+ * @param value - число
+ * @returns запись числа для формулы
+ */
+export function formatFormulaNumber(value: number): string {
+  return value < 0 ? `(${value})` : String(value);
+}
 
 /**
  * Подставляет числовые значения @-переменных в смешанную формулу,
@@ -935,7 +1030,7 @@ export function substituteFormulaVariables(
     const path = rawPath.replace(/\.+$/, '');
     const value = resolveVariable(path, context);
 
-    return value < 0 ? `(${value})` : String(value);
+    return formatFormulaNumber(value);
   });
 }
 
@@ -1007,3 +1102,121 @@ export function validateFormula(formula: string): FormulaValidationResult {
 }
 
 // ── Подсказки для UI ──────────────────────────────────────────
+
+// ── Читаемая запись для UI ────────────────────────────────────
+
+/** Как функция формулы читается словами; `{0}`, `{1}` — её аргументы */
+const READABLE_FUNCTION_TEMPLATES: Readonly<Record<string, string>> = {
+  floor: '({0}, с округлением вниз)',
+  ceil: '({0}, с округлением вверх)',
+  min: 'меньшее из ({0}; {1})',
+  max: 'большее из ({0}; {1})',
+  abs: '|{0}|',
+};
+
+/** Знаки операторов в читаемой записи: минус и умножение — типографские */
+const READABLE_OPERATORS: Readonly<Record<string, string>> = {
+  '+': '+',
+  '-': '−',
+  '*': '×',
+  '/': '/',
+};
+
+/**
+ * Узел AST словами. Скобки ставятся только там, где без них поменялся бы
+ * смысл: исходные скобки парсер не хранит, а лишние мешают читать.
+ *
+ * @param node - узел
+ * @param labelVariable - подпись переменной по токену (`@prof` → «бонус мастерства»)
+ * @param parentPrecedence - приоритет оператора-родителя
+ * @param isRightOperand - узел стоит справа от родителя (для `a − (b − c)`)
+ * @returns читаемая запись узла
+ */
+function renderReadableNode(
+  node: AstNode,
+  labelVariable: (token: string) => string,
+  parentPrecedence = 0,
+  isRightOperand = false,
+): string {
+  switch (node.type) {
+    case 'number':
+      return String(node.numericValue ?? 0);
+    case 'variable':
+      return labelVariable(`@${node.value ?? ''}`);
+    case 'unaryOp':
+      return node.right
+        ? `−${renderReadableNode(node.right, labelVariable, Number.POSITIVE_INFINITY)}`
+        : '';
+    case 'functionCall': {
+      const args = (node.args ?? []).map((argument) =>
+        renderReadableNode(argument, labelVariable),
+      );
+
+      // У ступеней число порогов любое — шаблон с номерами аргументов не годится
+      if (node.value === STEPS_FUNCTION) {
+        const [value, ...thresholds] = args;
+
+        return `(число порогов ${thresholds.join(', ')}, пройденных по ${value ?? ''})`;
+      }
+
+      const template = READABLE_FUNCTION_TEMPLATES[node.value ?? ''];
+
+      return template
+        ? template.replace(
+            /\{(\d)\}/g,
+            (_match, index: string) => args[Number(index)] ?? '',
+          )
+        : `${node.value ?? ''}(${args.join('; ')})`;
+    }
+    case 'binaryOp':
+    default: {
+      const operator = node.value ?? '';
+      const precedence = OPERATOR_PRECEDENCE[operator] ?? 0;
+
+      const left = node.left
+        ? renderReadableNode(node.left, labelVariable, precedence)
+        : '';
+
+      const right = node.right
+        ? renderReadableNode(node.right, labelVariable, precedence, true)
+        : '';
+
+      const text = `${left} ${READABLE_OPERATORS[operator] ?? operator} ${right}`;
+
+      const needsParens =
+        precedence < parentPrecedence
+        || (isRightOperand && precedence === parentPrecedence);
+
+      return needsParens ? `(${text})` : text;
+    }
+  }
+}
+
+/**
+ * Формула словами — для подписи под полем значения: `floor(@classLevel / 4)`
+ * читается «(уровень в классе / 4, с округлением вниз)».
+ *
+ * Разбирает формулу тем же парсером, что и вычисление, поэтому подпись не
+ * может разойтись с тем, как формула посчитается. Кости и токены урона парсер
+ * не понимает — для них подписи нет.
+ *
+ * @param formula - строка формулы
+ * @param labelVariable - подпись переменной по токену
+ * @returns читаемая запись либо `null`, если формулу не разобрать
+ */
+export function renderReadableFormula(
+  formula: string,
+  labelVariable: (token: string) => string,
+): string | null {
+  const trimmed = formula.trim();
+
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  try {
+    return renderReadableNode(parse(tokenize(trimmed)), labelVariable);
+  } catch {
+    return null;
+  }
+}

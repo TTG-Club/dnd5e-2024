@@ -17,6 +17,8 @@
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { RollBonusEvaluator } from '../../composables/rollBonusEvaluator';
+
   import { useToast } from '@nuxt/ui/composables';
   import { computed, ref, toRef, watch } from 'vue';
 
@@ -28,7 +30,6 @@
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { Z_INDEX } from '@/shared_ui/consts';
   import { useWorldStore } from '@/stores/worldStore';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { generateId, isEntityOwner } from '@vtt/shared';
   import {
     applyCreatureRest,
@@ -42,12 +43,13 @@
     ensureCreatureSpellsInBlocks,
     formatVisionRange,
     getActorAbilityModifiers,
-    getCreatureHitDiceConstitutionModifier,
+    getCreatureHitDiceBonusContext,
     getCreatureProficiencyBonus,
     getCustomBonusesValue,
     getCustomSkillValue,
     getEntityExhaustionLevel,
     getProficiencyContribution,
+    getSkillCheckBonusKeys,
     getSkillSetting,
     getSkillSettingAbility,
     isDndCreature,
@@ -65,9 +67,11 @@
     withExhaustionLevel,
   } from '@vtt/shared/system/dnd.js';
 
+  import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import { useItemTransfer } from '../../composables/useItemTransfer';
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import { useSheetMinimize } from '../../composables/useSheetMinimize';
+  import { useSystemDataStore } from '../../stores/systemDataStore';
   import {
     ABILITY_CHECK_ROLL_LABELS,
     DICE_ROLL_DEFAULT_BUTTON,
@@ -279,6 +283,7 @@
     rollLabel: string;
     rollButtonText: string;
     initialRollMode: AttackRollMode;
+    evaluateBonusRollFormulas?: RollBonusEvaluator;
   }
 
   const diceRollConfig = ref<DiceRollConfig>({
@@ -764,14 +769,14 @@
   }));
 
   /**
-   * Модификатор Телосложения для формулы хитов: по записи листа со своими
+   * Числа листа для формулы хитов: модификаторы по записи листа со своими
    * бонусами, но без активных эффектов — формула описывает стат-блок, а
    * эффект временно двигает итог поверх него.
    */
-  const hitDiceConstitutionModifier = computed(() =>
+  const hitDiceBonusContext = computed<DnDCustomBonusContext | null>(() =>
     localCreature.value
-      ? getCreatureHitDiceConstitutionModifier(localCreature.value)
-      : 0,
+      ? getCreatureHitDiceBonusContext(localCreature.value)
+      : null,
   );
 
   /**
@@ -876,6 +881,10 @@
 
     openDiceRoll({
       modifier: badge.modifier,
+      evaluateBonusRollFormulas: buildRollBonusEvaluator(
+        () => localCreature.value ?? undefined,
+        getSkillCheckBonusKeys(badge.key),
+      ),
       title: `${ABILITY_CHECK_ROLL_LABELS.titlePrefix}${badge.name}`,
       rollLabel: `${ABILITY_CHECK_ROLL_LABELS.rollPrefix}${badge.name}`,
       rollButtonText: ABILITY_CHECK_ROLL_LABELS.button,
@@ -1534,6 +1543,10 @@
 
     openDiceRoll({
       modifier: calculateSavingThrow(ability.key),
+      evaluateBonusRollFormulas: buildRollBonusEvaluator(
+        () => localCreature.value ?? undefined,
+        `save.${ability.key}`,
+      ),
       title: `${SAVING_THROW_ROLL_LABELS.titlePrefix}${ability.label}`,
       rollLabel: `${SAVING_THROW_ROLL_LABELS.rollPrefix}${ability.label}`,
       rollButtonText: SAVING_THROW_ROLL_LABELS.button,
@@ -1658,7 +1671,7 @@
                 :armor-class="resolvedStats?.armorClass"
                 :resolved-movement="resolvedStats?.movement"
                 :active-effects="combinedEffects"
-                :hit-dice-constitution-modifier="hitDiceConstitutionModifier"
+                :hit-dice-bonus-context="hitDiceBonusContext"
                 @update:system="handleSystemUpdate"
               />
 
@@ -2297,6 +2310,7 @@
     :roll-label="diceRollConfig.rollLabel"
     :roll-button-text="diceRollConfig.rollButtonText"
     :initial-roll-mode="diceRollConfig.initialRollMode"
+    :evaluate-bonus-roll-formulas="diceRollConfig.evaluateBonusRollFormulas"
   />
 
   <!-- Языки -->

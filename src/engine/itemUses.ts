@@ -11,6 +11,41 @@
 
 import type { DnDGameItem } from './dndEntities.js';
 
+/**
+ * Закончился ли предмет: количество дошло до нуля. Такой предмет остаётся в
+ * инвентаре строкой «Закончились» и считается отсутствующим — не действует, не
+ * применяется и не бьёт, пока количество не вернут.
+ *
+ * @param item - предмет инвентаря
+ * @returns `true`, если предмета не осталось
+ */
+export function isItemDepleted(item: Pick<DnDGameItem, 'quantity'>): boolean {
+  return item.quantity <= 0;
+}
+
+/**
+ * Надет ли предмет на деле: отмечен надетым и не закончился.
+ *
+ * @param item - предмет инвентаря
+ * @returns `true`, если предмет на носителе
+ */
+export function isItemWorn(
+  item: Pick<DnDGameItem, 'equipped' | 'quantity'>,
+): boolean {
+  return Boolean(item.equipped) && !isItemDepleted(item);
+}
+
+/**
+ * Количество, вписанное от руки: целое и не меньше нуля — ноль оставляет
+ * предмет в инвентаре закончившимся.
+ *
+ * @param value - введённое число
+ * @returns количество; нечисло — `undefined`, прежнее значение не трогают
+ */
+export function normalizeItemQuantity(value: number): number | undefined {
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : undefined;
+}
+
 /** Расход одного применения предмета; по умолчанию один заряд. */
 export function itemUsesCost(item: DnDGameItem): number {
   const cost = item.uses?.cost;

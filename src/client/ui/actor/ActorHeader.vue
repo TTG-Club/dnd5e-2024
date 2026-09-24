@@ -9,6 +9,7 @@
   import { computed, ref, toRef } from 'vue';
 
   import { useImageFallback } from '@/shared_ui/composables';
+  import { useChatStore } from '@/stores/chatStore';
   import { getAssetUrl } from '@vtt/shared';
   import {
     calculateExperienceForNextLevel,
@@ -25,6 +26,7 @@
   import ActorHeaderSection from './ActorHeaderSection.vue';
   import {
     ACTOR_HEADER_LABELS,
+    ACTOR_HEADER_SUBCLASS_ICON,
     CREATURE_SIZE_LABELS,
     CREATURE_TYPE_LABELS,
     EDIT_MODE_TOGGLE_TITLE,
@@ -36,22 +38,37 @@
   } from './constants';
   import LevelUpModal from './LevelUpModal.vue';
   import NameEditModal from './NameEditModal.vue';
+  import { readTokenVision } from './tokenVision';
+
+  /** Выбранный подкласс одного класса персонажа — строка тултипа в шапке */
+  export interface ActorSubclassBadgeEntry {
+    /** Ключ класса — ключ строки в списке */
+    classKey: string;
+    /** Название класса */
+    className: string;
+    /** Название выбранного подкласса */
+    subclassName: string;
+  }
 
   interface Props {
     actor: DnDActor;
     isEditMode: boolean;
     isCreating?: boolean;
+    /** Может ли пользователь править лист: ГМ или владелец персонажа */
     canEdit?: boolean;
-    /** Является ли текущий пользователь ГМ (может менять вдохновение) */
-    isAdmin?: boolean;
     worldPort?: number;
+    /**
+     * Выбранные подклассы. Названия знает только каталог классов листа, на
+     * записи актора лежат одни ключи — поэтому список приходит готовым.
+     */
+    subclassEntries?: ActorSubclassBadgeEntry[];
   }
 
   const props = withDefaults(defineProps<Props>(), {
     isCreating: false,
     canEdit: true,
-    isAdmin: false,
     worldPort: undefined,
+    subclassEntries: () => [],
   });
 
   /** Данные для запуска мастера повышения уровня */
@@ -127,7 +144,7 @@
     /** Дальность в футах (0 = без ограничений) */
     range: number;
     /**
-     * Чувство показано справочно: приложение считает по зрению токена только
+     * Чувство показано справочно: у зрения токена в приложении есть только
      * обычное и тёмное зрение, поэтому на видимость сцены такая запись не
      * влияет. Помечается в тултипе звёздочкой, чтобы это не выглядело поломкой.
      */
@@ -146,10 +163,16 @@
    */
   const visionEntries = computed<VisionEntry[]>(() => {
     const entries: VisionEntry[] = [];
-    const vision = props.actor.token?.vision;
+    const vision = readTokenVision(props.actor.token);
     const senses = resolvedStats.value?.senses;
 
-    if (vision?.enabled) {
+    // Тёмное зрение — итог пайплайна: база токена плюс эффекты, предметы и
+    // умения. Его же сцена получает хуком системы `resolveEntityVision`, поэтому
+    // оно не справка. Тёмное зрение от эффекта включает и выключенное зрение —
+    // так же, как на сцене
+    const darkvision = senses?.darkvision ?? 0;
+
+    if (vision.enabled || darkvision > 0) {
       // Обычное зрение (range === 0 трактуется как без ограничений)
       entries.push({
         icon: 'tabler:eye',
@@ -158,24 +181,16 @@
       });
     }
 
-    // Тёмное зрение: на токене оно настоящее (по нему считается видимость), от
-    // эффекта — только справка, настройки токена эффект не переписывает.
-    // Показывается большее из двух, звёздочка появляется, когда верх взял эффект
-    const tokenDarkvision = vision?.enabled ? vision.darkvision : 0;
-    const effectDarkvision = senses?.darkvision ?? 0;
-    const darkvision = Math.max(tokenDarkvision, effectDarkvision);
-
     if (darkvision > 0) {
       entries.push({
         icon: 'tabler:moon',
         label: ACTOR_HEADER_LABELS.darkvision,
         range: darkvision,
-        informational: darkvision > tokenDarkvision,
       });
     }
 
-    // Прочие чувства — справкой: приложение считает по зрению токена только
-    // тёмное зрение, поэтому на видимость сцены они не влияют. Показываются
+    // Прочие чувства — справкой: у зрения токена в приложении есть только
+    // обычное и тёмное зрение, поэтому на видимость сцены они не влияют. Показываются
     // независимо от того, включено ли зрение токена: это свойство персонажа,
     // а не настройка его токена
     for (const sense of collectActorSenses(props.actor, senses)) {
@@ -377,25 +392,34 @@
   );
 
   /**
-   * Даёт или забирает вдохновение (только ГМ). По правилам D&D оно либо есть,
-   * либо нет — поэтому просто переключаем.
+   * Даёт или забирает вдохновение. По правилам D&D оно либо есть, либо нет —
+   * поэтому просто переключаем. Переключают ГМ и владелец персонажа, поэтому
+   * каждое изменение пишется в чат: так видно, кто и когда его отметил.
    */
   function toggleInspiration() {
-    if (!props.isAdmin) {
+    if (!props.canEdit) {
       return;
     }
+
+    const isGained = !hasInspiration.value;
 
     emit('update:actor', {
       system: {
         ...props.actor.system,
-        inspiration: !hasInspiration.value,
+        inspiration: isGained,
       },
     });
+
+    const suffix = isGained
+      ? ACTOR_HEADER_LABELS.inspirationGainedSuffix
+      : ACTOR_HEADER_LABELS.inspirationLostSuffix;
+
+    useChatStore().sendMessage(`${displayName.value}${suffix}`, 'text');
   }
 
   /** Подсказка для блока вдохновения (зависит от роли и текущего состояния) */
   const inspirationTooltip = computed(() => {
-    if (!props.isAdmin) {
+    if (!props.canEdit) {
       return hasInspiration.value
         ? ACTOR_HEADER_LABELS.inspirationOn
         : ACTOR_HEADER_LABELS.inspirationOff;
@@ -406,12 +430,12 @@
       : ACTOR_HEADER_LABELS.inspirationGive;
   });
 
-  /** Тег блока вдохновения: кнопка у ГМ, обычный блок у игрока */
-  const inspirationTag = computed(() => (props.isAdmin ? 'button' : 'div'));
+  /** Тег блока вдохновения: кнопка у ГМ и владельца, обычный блок у прочих */
+  const inspirationTag = computed(() => (props.canEdit ? 'button' : 'div'));
 
   /** Классы блока вдохновения: активный (золотой) или приглушённый */
   const inspirationClass = computed(() => {
-    const interactive = props.isAdmin
+    const interactive = props.canEdit
       ? 'cursor-pointer hover:border-primary/70'
       : 'cursor-default';
 
@@ -638,13 +662,50 @@
 
             <span class="text-dimmed">—</span>
 
-            <ActorHeaderSection
-              :label="classLabel"
-              :title="MISSING_SHEET_SECTIONS.class.title"
-              :is-filled="Boolean(mainClassLabel)"
-              :can-edit="canEdit"
-              @open="openCompendiumPicker('class')"
-            />
+            <span class="flex items-center gap-1.5">
+              <ActorHeaderSection
+                :label="classLabel"
+                :title="MISSING_SHEET_SECTIONS.class.title"
+                :is-filled="Boolean(mainClassLabel)"
+                :can-edit="canEdit"
+                @open="openCompendiumPicker('class')"
+              />
+
+              <!-- Значок подкласса: название видно по наведению -->
+              <UTooltip
+                v-if="subclassEntries.length > 0"
+                :delay-duration="150"
+                :content="{ side: 'bottom' }"
+              >
+                <span
+                  class="flex h-5 w-5 cursor-help items-center justify-center rounded-full border border-primary/40 bg-elevated/95 text-primary transition-colors hover:border-primary/80"
+                  :aria-label="ACTOR_HEADER_LABELS.subclassTitle"
+                >
+                  <UIcon
+                    :name="ACTOR_HEADER_SUBCLASS_ICON"
+                    class="h-3.5 w-3.5"
+                  />
+                </span>
+
+                <template #content>
+                  <div class="flex flex-col gap-1 px-1 py-0.5 text-[11px]">
+                    <span class="text-dimmed">
+                      {{ ACTOR_HEADER_LABELS.subclassTitle }}
+                    </span>
+
+                    <div
+                      v-for="entry in subclassEntries"
+                      :key="entry.classKey"
+                      class="flex items-center gap-1.5 whitespace-nowrap"
+                    >
+                      <span class="font-medium">{{ entry.className }}:</span>
+
+                      <span>{{ entry.subclassName }}</span>
+                    </div>
+                  </div>
+                </template>
+              </UTooltip>
+            </span>
 
             <span class="text-dimmed">—</span>
 
@@ -772,7 +833,7 @@
       v-if="!isCreating"
       class="absolute right-4 bottom-10 z-20 flex items-center gap-2"
     >
-      <!-- Вдохновение: есть/нет, даёт и забирает только ГМ -->
+      <!-- Вдохновение: есть/нет, переключают ГМ и владелец персонажа -->
       <UTooltip :text="inspirationTooltip">
         <component
           :is="inspirationTag"

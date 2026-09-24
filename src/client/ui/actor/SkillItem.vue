@@ -1,13 +1,20 @@
 <script setup lang="ts">
   import type { AbilityType, ProficiencyLevel, SkillType } from '@vtt/shared';
+  import type { SkillEffectInfluence } from '@vtt/shared/system/dnd.js';
 
   import { computed } from 'vue';
 
-  import { PASSIVE_SKILL_BASE } from '@vtt/shared/system/dnd.js';
+  import {
+    PASSIVE_SKILL_BASE,
+    summarizeSkillInfluenceTone,
+  } from '@vtt/shared/system/dnd.js';
 
   import {
     ABILITY_SHORT_LABELS,
     HIGHLIGHTED_SKILL_ROW_CLASS,
+    SKILL_INFLUENCE_ICON,
+    SKILL_INFLUENCE_LABELS,
+    SKILL_INFLUENCE_TONE_CLASS,
     SKILL_SETTINGS_LABELS,
   } from './constants';
   import ProficiencyIndicator from './ProficiencyIndicator.vue';
@@ -38,6 +45,11 @@
     isHighlighted?: boolean;
     /** Наведена та самая характеристика навыка: её сокращение горит тёплым */
     isAbilityHighlighted?: boolean;
+    /**
+     * Что сейчас влияет на бросок: кость «Наставления», преимущество, помеха.
+     * В число навыка это не входит — значок говорит, что бросок будет иным
+     */
+    influences: readonly SkillEffectInfluence[];
   }
 
   const props = defineProps<Props>();
@@ -69,6 +81,28 @@
   /** Сокращение характеристики: горит только у своей же наведённой */
   const abilityLabelClass = computed(() =>
     props.isAbilityHighlighted ? 'text-primary' : 'text-dimmed',
+  );
+
+  /** Цвет значка влияний: помогает, мешает или вперемешку */
+  const influenceClass = computed(
+    () =>
+      SKILL_INFLUENCE_TONE_CLASS[summarizeSkillInfluenceTone(props.influences)],
+  );
+
+  /** Строки подсказки: «Наставление — +1к4 к броску (только: …)» */
+  const influenceLines = computed(() =>
+    props.influences.map((influence) => {
+      const line = `${influence.source}${SKILL_INFLUENCE_LABELS.separator}${influence.text}`;
+
+      return influence.condition
+        ? `${line} (${SKILL_INFLUENCE_LABELS.conditionPrefix}${influence.condition})`
+        : line;
+    }),
+  );
+
+  /** Подпись значка для экранного диктора — те же строки одной фразой */
+  const influenceAriaLabel = computed(
+    () => `${SKILL_INFLUENCE_LABELS.title}: ${influenceLines.value.join('; ')}`,
   );
 
   function handleClick() {
@@ -111,6 +145,40 @@
     </div>
 
     <div class="flex shrink-0 items-center gap-2">
+      <!-- Влияния на бросок: в число навыка они не входят, поэтому о них
+        говорит значок, а разбор — в подсказке -->
+      <UTooltip
+        v-if="influenceLines.length > 0"
+        :delay-duration="300"
+        :ui="{ content: 'h-auto' }"
+      >
+        <span
+          role="img"
+          :aria-label="influenceAriaLabel"
+          class="flex"
+        >
+          <UIcon
+            :name="SKILL_INFLUENCE_ICON"
+            class="size-3.5"
+            :class="influenceClass"
+          />
+        </span>
+
+        <template #content>
+          <div class="flex flex-col gap-0.5">
+            <span class="font-semibold">{{
+              SKILL_INFLUENCE_LABELS.title
+            }}</span>
+
+            <span
+              v-for="(line, index) in influenceLines"
+              :key="index"
+              >{{ line }}</span
+            >
+          </div>
+        </template>
+      </UTooltip>
+
       <!-- Модификатор. Навык не по правилам не сходится с характеристикой
         строки: пунктир зовёт навести и прочитать разбор -->
       <UTooltip

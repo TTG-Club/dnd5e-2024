@@ -1,6 +1,10 @@
 <script setup lang="ts">
   import type { Feature, TypedWebSocketClient } from '@vtt/shared';
-  import type { DnDActor, DnDGameItem } from '@vtt/shared/system/dnd.js';
+  import type {
+    ActiveEffect,
+    DnDActor,
+    DnDGameItem,
+  } from '@vtt/shared/system/dnd.js';
 
   import type { FeatureOriginKey } from '../constants';
   import type { AppliedFeatFeature } from '../feat/featApply';
@@ -8,24 +12,37 @@
   import { computed, ref } from 'vue';
 
   import { generateEntityId } from '@/core/entityUtils';
+  import { startHotbarDrag } from '@/core/utils/hotbarDrag';
   import { ContextMenuDangerItem } from '@/shared_ui/components';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useChatStore } from '@/stores/chatStore';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { getTotalLevel } from '@vtt/shared/system/dnd.js';
 
+  import { toggleEntityEffect } from '../../../composables/effectToggle';
   import { useFeatModal } from '../../../composables/useFeatModal';
   import {
+    DND_MACRO_TYPES,
+    FEATURE_TOGGLE_MACRO_ICON,
+  } from '../../../macros/constants';
+  import { useSystemDataStore } from '../../../stores/systemDataStore';
+  import {
     ACTOR_FEATURES_TAB_LABELS,
+    FEATURE_GROUP_KEYS,
     FEATURE_ORIGIN_HINTS,
     FEATURE_ORIGIN_LABELS,
     FEATURE_ORIGIN_ORDER,
+    FEATURE_TOGGLE_MENU_LABELS,
     FILTER_ROW_CONTROL_SIZE,
     LEVEL_BADGE_SUFFIX,
     SHEET_ROW_MENU_LABELS,
   } from '../constants';
   import { reapplyFeatToActor, removeFeatFromActor } from '../feat/featApply';
   import FeatListItem from '../FeatListItem.vue';
+  import {
+    findFeatureToggleEffect,
+    listFeatureEffects,
+    saveFeatureEffects,
+  } from '../featureEffects';
   import FilterChip from '../FilterChip.vue';
   import FilterResetButton from '../FilterResetButton.vue';
 
@@ -38,6 +55,17 @@
      */
     socket?: TypedWebSocketClient | null;
     isDragOver?: boolean;
+    /** Особенность с переключателем можно вынести на панель быстрого доступа */
+    allowHotbarDrag?: boolean;
+  }
+
+  /** Что возвращает окно особенности */
+  interface FeatureFormData {
+    name: string;
+    description: string;
+    level?: number;
+    selectedChoiceKey?: string;
+    activeEffects: ActiveEffect[];
   }
 
   const props = defineProps<Props>();
@@ -92,7 +120,9 @@
   }
 
   /** Обрабатывает выбор пункта контекстного меню */
-  function handleContextMenuAction(action: 'edit' | 'delete' | 'share'): void {
+  function handleContextMenuAction(
+    action: 'edit' | 'delete' | 'share' | 'toggle',
+  ): void {
     if (!contextMenuFeature.value) {
       return;
     }
@@ -103,6 +133,8 @@
       removeFeature(contextMenuFeature.value);
     } else if (action === 'share') {
       shareFeatureToChat(contextMenuFeature.value);
+    } else if (action === 'toggle') {
+      switchFeatureEffect(contextMenuFeature.value);
     }
 
     closeContextMenu();
@@ -276,6 +308,157 @@
   });
 
   /**
+   * Эффект с переключателем у каждой видимой особенности: такую строку можно
+   * вынести на панель быстрого доступа и включать оттуда («Ярость»).
+   */
+  const toggleEffectByFeatureId = computed(() => {
+    const found = new Map<string, ActiveEffect>();
+
+    for (const feature of displayFeatures.value) {
+      const effect = findFeatureToggleEffect(props.actor, feature);
+
+      if (effect) {
+        found.set(feature.id, effect);
+      }
+    }
+
+    return found;
+  });
+
+  /**
+   * Пункт «Включить / Выключить» меню особенности: только вне правки — в
+   * правке лист живёт своей копией, и её сохранение вернуло бы переключатель
+   * назад. Нет эффекта с переключателем — пункта нет.
+   */
+  const contextMenuToggleLabel = computed(() => {
+    const feature = contextMenuFeature.value;
+
+    if (!feature || props.isEditMode) {
+      return undefined;
+    }
+
+    const effect = toggleEffectByFeatureId.value.get(feature.id);
+
+    if (!effect) {
+      return undefined;
+    }
+
+    return effect.disabled
+      ? FEATURE_TOGGLE_MENU_LABELS.on
+      : FEATURE_TOGGLE_MENU_LABELS.off;
+  });
+
+  /**
+   * Группы списка: включаемые особенности («Ярость») стоят отдельным разделом
+   * сверху — ими пользуются в бою, и искать их среди описаний неудобно.
+   * Пустая группа не показывается.
+   */
+  const featureGroups = computed(() => {
+    const toggles = displayFeatures.value.filter((feature) =>
+      toggleEffectByFeatureId.value.has(feature.id),
+    );
+
+    const rest = displayFeatures.value.filter(
+      (feature) => !toggleEffectByFeatureId.value.has(feature.id),
+    );
+
+    return [
+      {
+        key: FEATURE_GROUP_KEYS.toggles,
+        title: ACTOR_FEATURES_TAB_LABELS.togglesTitle,
+        features: toggles,
+      },
+      { key: FEATURE_GROUP_KEYS.rest, title: undefined, features: rest },
+    ].filter((group) => group.features.length > 0);
+  });
+
+  /**
+   * Включён ли сейчас эффект особенности.
+   *
+   * @param feature - особенность
+   * @returns `true`, если эффект с переключателем включён
+   */
+  function isFeatureEffectOn(feature: Feature): boolean {
+    const effect = toggleEffectByFeatureId.value.get(feature.id);
+
+    return effect !== undefined && !effect.disabled;
+  }
+
+  /**
+   * Классы строк особенностей по id: в просмотре строка кликается, включённая
+   * особенность подсвечена.
+   */
+  const featureRowClassById = computed(() => {
+    const clickable = props.isEditMode
+      ? ''
+      : 'cursor-pointer hover:bg-accented/50';
+
+    return new Map(
+      displayFeatures.value.map((feature) => {
+        const active = isFeatureEffectOn(feature)
+          ? 'bg-primary/10 ring-1 ring-primary/50'
+          : 'bg-accented/30';
+
+        return [feature.id, `${active} ${clickable}`];
+      }),
+    );
+  });
+
+  /**
+   * Включает или выключает эффект особенности — тем же путём, что кнопка
+   * панели быстрого доступа: ресурс тратится, срабатывания «при включении»
+   * будятся.
+   *
+   * @param feature - особенность
+   */
+  function switchFeatureEffect(feature: Feature): void {
+    const effect = toggleEffectByFeatureId.value.get(feature.id);
+
+    if (effect && !props.isEditMode) {
+      toggleEntityEffect(props.actor.id, effect.id);
+    }
+  }
+
+  /**
+   * Можно ли вынести особенность на панель: лист не в правке, у особенности
+   * есть эффект с переключателем.
+   *
+   * @param feature - особенность
+   * @returns `true`, если строку можно перетащить на панель
+   */
+  function canDragToHotbar(feature: Feature): boolean {
+    return (
+      props.allowHotbarDrag === true
+      && !props.isEditMode
+      && toggleEffectByFeatureId.value.get(feature.id) !== undefined
+    );
+  }
+
+  /**
+   * Кладёт на панель быстрого доступа кнопку особенности: нажатие включает или
+   * выключает её эффект.
+   *
+   * @param event - событие dragstart
+   * @param feature - особенность
+   */
+  function handleFeatureDragStart(event: DragEvent, feature: Feature): void {
+    const effect = toggleEffectByFeatureId.value.get(feature.id);
+
+    if (!effect || !canDragToHotbar(feature)) {
+      return;
+    }
+
+    startHotbarDrag(event, {
+      id: `${feature.id}:${effect.id}`,
+      type: DND_MACRO_TYPES.featureToggle,
+      label: feature.name,
+      icon: FEATURE_TOGGLE_MACRO_ICON,
+      ref: effect.id,
+      actorId: props.actor.id,
+    });
+  }
+
+  /**
    * Виден ли раздел черт. Под отбором без чипа «Черта» он уезжает целиком,
    * вместе с заголовком: пустой раздел под отбором только сбивает с толку.
    * Перенос новой черты от этого не страдает — его принимает весь лист, а не
@@ -423,6 +606,10 @@
 
     const description = getEnrichedDescription(feature);
 
+    // Вкладка «Эффекты» — только у особенности с эффектами: у умения-описания
+    // («Безрассудная атака») пустая вкладка лишь отвлекала бы
+    const effects = listFeatureEffects(props.actor, feature);
+
     openModal('ActorDescriptionModal', {
       _modalKey: feature.id,
       title: feature.nameEn
@@ -431,6 +618,7 @@
       description,
       sourceLabel: undefined,
       isSRD: false,
+      ...(effects.length > 0 ? { effects } : {}),
       fields: badges.length > 0 ? [{ badges }] : [],
       shareCard: {
         cardType: 'feature',
@@ -445,16 +633,30 @@
     openModal('EntityEditModal', {
       title: ACTOR_FEATURES_TAB_LABELS.add,
       showLevel: true,
-      onSave: (data: { name: string; description: string; level?: number }) => {
-        const newFeature: Feature = {
-          id: generateEntityId('feature'),
+      showEffects: true,
+      onSave: (data: FeatureFormData) => {
+        const id = generateEntityId('feature');
+
+        const placement = saveFeatureEffects(
+          props.actor.activeEffects ?? [],
+          [],
+          id,
+          data.activeEffects,
+        );
+
+        const newFeature: AppliedFeatFeature = {
+          id,
           name: data.name,
           description: data.description,
           level: data.level,
+          ...(placement.effectIds.length > 0
+            ? { effectIds: placement.effectIds }
+            : {}),
         };
 
         emit('update:actor', {
           features: [...props.actor.features, newFeature],
+          activeEffects: placement.activeEffects,
         });
 
         triggerSaveIfNotEdit();
@@ -557,6 +759,8 @@
     const isSrdFeature =
       feature.featureType === 'species' || feature.featureType === 'class';
 
+    const featureEffects = listFeatureEffects(props.actor, feature);
+
     openModal('EntityEditModal', {
       title: ACTOR_FEATURES_TAB_LABELS.edit,
       initialName: feature.name,
@@ -572,20 +776,32 @@
         ? ACTOR_FEATURES_TAB_LABELS.selectedChoice
         : undefined,
       readonlyCore: isSrdFeature,
-      onSave: (data: {
-        name: string;
-        description: string;
-        level?: number;
-        selectedChoiceKey?: string;
-      }) => {
+      // Эффекты особенности — сами эффекты листа: правка тут видна и на
+      // вкладке «Эффекты», и наоборот
+      showEffects: true,
+      initialEffects: featureEffects,
+      onSave: (data: FeatureFormData) => {
         const features = [...props.actor.features];
 
-        features[index] = {
+        const placement = saveFeatureEffects(
+          props.actor.activeEffects ?? [],
+          featureEffects.map((effect) => effect.id),
+          feature.id,
+          data.activeEffects,
+        );
+
+        // Ссылка пишется и пустой: человек видел список эффектов в окне и
+        // сохранил его — «эффектов нет» теперь сказано явно, и искать их по
+        // названию больше не нужно
+        const updated: AppliedFeatFeature = {
           ...features[index],
           name: data.name,
           description: data.description,
           level: data.level,
+          effectIds: placement.effectIds,
         };
+
+        features[index] = updated;
 
         // Если поменяли выбор (наследие и т.п.) — обновляем также featureChoices
         if (choicesData && data.selectedChoiceKey) {
@@ -612,6 +828,7 @@
 
               emit('update:actor', {
                 features,
+                activeEffects: placement.activeEffects,
                 system: {
                   ...props.actor.system,
                   species: {
@@ -628,7 +845,11 @@
           }
         }
 
-        emit('update:actor', { features });
+        emit('update:actor', {
+          features,
+          activeEffects: placement.activeEffects,
+        });
+
         triggerSaveIfNotEdit();
       },
     });
@@ -666,7 +887,15 @@
       (feat) => feat.id !== feature.id,
     );
 
-    emit('update:actor', { features });
+    // Эффекты особенности уходят вместе с ней: это одна сущность
+    const { activeEffects } = saveFeatureEffects(
+      props.actor.activeEffects ?? [],
+      listFeatureEffects(props.actor, feature).map((effect) => effect.id),
+      feature.id,
+      [],
+    );
+
+    emit('update:actor', { features, activeEffects });
     triggerSaveIfNotEdit();
   }
 </script>
@@ -719,16 +948,29 @@
 
     <!-- Список обычных особенностей: пустым разделом вкладку не занимаем -->
     <template v-if="hasVisibleFeatures">
-      <div class="space-y-1">
+      <div
+        v-for="group in featureGroups"
+        :key="group.key"
+        class="space-y-1 not-first:mt-3"
+      >
+        <h4
+          v-if="group.title"
+          class="mb-1 text-xs font-semibold tracking-wider text-muted uppercase"
+        >
+          {{ group.title }}
+        </h4>
+
         <div
-          v-for="feature in displayFeatures"
+          v-for="feature in group.features"
           :key="feature.id"
-          class="flex min-h-11 items-center gap-3 rounded-lg bg-accented/30 px-3 py-2 transition-colors"
-          :class="!isEditMode ? 'cursor-pointer hover:bg-accented/50' : ''"
+          class="flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 transition-colors"
+          :class="featureRowClassById.get(feature.id)"
+          :draggable="canDragToHotbar(feature)"
           @click.left.exact.prevent="
             isEditMode ? undefined : showDescription(feature)
           "
           @contextmenu="openContextMenu($event, feature)"
+          @dragstart="handleFeatureDragStart($event, feature)"
         >
           <div class="flex flex-1 items-center gap-2 overflow-hidden">
             <UBadge
@@ -755,6 +997,13 @@
               {{ feature.name }}
             </span>
 
+            <UIcon
+              v-if="canDragToHotbar(feature)"
+              :name="FEATURE_TOGGLE_MACRO_ICON"
+              :title="ACTOR_FEATURES_TAB_LABELS.hotbarHint"
+              class="size-4 shrink-0 text-muted"
+            />
+
             <!-- Черта не выбрана свободно, а пришла от предыстории или вида:
               снимется вместе с ними, и это лучше видеть сразу -->
             <UBadge
@@ -779,6 +1028,16 @@
           </div>
 
           <div class="flex shrink-0 items-center gap-1">
+            <!-- Переключатель эффекта прямо в строке; клик по нему не должен
+              открывать описание — строка сама кликабельна -->
+            <USwitch
+              v-if="!isEditMode && toggleEffectByFeatureId.has(feature.id)"
+              :model-value="isFeatureEffectOn(feature)"
+              size="sm"
+              @click.stop
+              @update:model-value="switchFeatureEffect(feature)"
+            />
+
             <UButton
               v-if="isEditMode"
               icon="tabler:pencil"
@@ -872,6 +1131,19 @@
         :style="{ left: `${contextMenuX}px`, top: `${contextMenuY}px` }"
         @click.stop
       >
+        <!-- Включить / выключить эффект особенности -->
+        <button
+          v-if="contextMenuToggleLabel"
+          class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-highlighted transition-colors hover:bg-accented/50"
+          @click.left.exact.prevent="handleContextMenuAction('toggle')"
+        >
+          <UIcon
+            :name="FEATURE_TOGGLE_MACRO_ICON"
+            class="h-4 w-4 text-muted"
+          />
+          {{ contextMenuToggleLabel }}
+        </button>
+
         <!-- Редактировать -->
         <button
           class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-highlighted transition-colors hover:bg-accented/50"

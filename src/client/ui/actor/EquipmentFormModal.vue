@@ -10,6 +10,7 @@
   import { CURRENCY_OPTIONS, RARITY_OPTIONS } from '@vtt/shared/system/dnd.js';
 
   import { useEquipmentForm } from '../../composables/useEquipmentForm';
+  import ActiveEffectFormModal from '../effect/ActiveEffectFormModal.vue';
   import {
     EQUIPMENT_FORM_LABELS,
     FORM_FIELD_LABELS,
@@ -19,9 +20,9 @@
     MODAL_BUTTON_LABELS,
   } from './constants';
   import FormSection from './FormSection.vue';
+  import ItemConsumableField from './ItemConsumableField.vue';
   import ItemUsesFields from './ItemUsesFields.vue';
   import SourceField from './SourceField.vue';
-  import ActiveEffectFormModal from './tabs/ActiveEffectFormModal.vue';
 
   const props = defineProps<{
     /** Открыто ли модальное окно */
@@ -98,6 +99,7 @@
     buildArmor,
     activeEffects,
     itemUses,
+    consumable,
   } = useEquipmentForm(
     () => props.item,
     () => props.open,
@@ -513,6 +515,14 @@
             >
               <ItemUsesFields v-model="itemUses" />
             </FormSection>
+
+            <!-- Блок «Расход»: зелья, свитки, стрелы -->
+            <FormSection
+              :title="EQUIPMENT_FORM_LABELS.consumptionTitle"
+              icon="tabler:flask"
+            >
+              <ItemConsumableField v-model="consumable" />
+            </FormSection>
           </div>
         </template>
 
@@ -612,7 +622,7 @@
     :modal-id="effectModalId"
     :z-index="effectModalZIndex"
     :effect="editingEffect"
-    :show-effect-target="true"
+    context="item"
     @save="saveCustomEffect"
   />
 </template>

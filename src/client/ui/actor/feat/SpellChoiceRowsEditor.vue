@@ -354,6 +354,15 @@
           />
         </div>
 
+        <div class="mb-2 flex items-center gap-1">
+          <UCheckbox
+            v-model="row.alwaysPrepared"
+            :label="SPELL_CHOICE_LABELS.alwaysPrepared"
+          />
+
+          <FieldHint :text="SPELL_CHOICE_LABELS.alwaysPreparedHint" />
+        </div>
+
         <UButton
           icon="tabler:trash"
           color="error"

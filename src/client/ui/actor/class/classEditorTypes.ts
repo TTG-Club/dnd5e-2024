@@ -28,7 +28,6 @@ import type {
   ClassLevelEntry,
   FeatData,
   GrantedSpellRef,
-  HitDie,
   SubclassDefinition,
 } from '@vtt/shared/system/dnd.js';
 
@@ -1265,7 +1264,9 @@ export function buildCounter(
   subclassKey?: string,
 ): ClassCounterDefinition {
   const built: ClassCounterDefinition = {
-    key: counter.key,
+    // Ключ теперь правят руками: стёртый не должен оставить счётчик без ключа,
+    // иначе лист не отличил бы его от соседних
+    key: counter.key.trim() || generateId('cnt'),
     name: counter.name.trim(),
     startLevel: Math.max(1, Math.round(counter.startLevel || 1)),
     recovery: counter.recovery,
@@ -1577,15 +1578,6 @@ export const CASTER_TYPE_OPTIONS: { value: CasterType; label: string }[] = [
   { value: 'third', label: 'Третичный' },
   { value: 'pact', label: 'Пакт (колдун)' },
   { value: 'none', label: 'Нет' },
-];
-
-/** Опции восстановления счётчика. */
-/** Опции кости хитов. */
-export const HIT_DIE_OPTIONS: { value: HitDie; label: string }[] = [
-  { value: 6, label: 'к6' },
-  { value: 8, label: 'к8' },
-  { value: 10, label: 'к10' },
-  { value: 12, label: 'к12' },
 ];
 
 /**

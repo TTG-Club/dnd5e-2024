@@ -10,15 +10,46 @@
  * @module system/dnd/auraMath
  */
 
-import type { GridSettings, Token } from '@vtt/shared';
+import type { GridSettings, SystemSceneSurroundings, Token } from '@vtt/shared';
 
 import type { ActiveEffect } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
+import type { AdjacentAllyState } from './effectPipeline.js';
+import type { EffectTriggerArea } from './effectTriggerTypes.js';
 
-import { isCreatureEntity } from '@vtt/shared';
+import {
+  getTokenEdgeDistance,
+  isCreatureEntity,
+  withTokenDisposition,
+} from '@vtt/shared';
 
+import {
+  isCarrierEffect,
+  isEffectDormant,
+  listLiveEffects,
+} from './activeEffectTypes.js';
 import { bindClassLevels } from './classEffectScope.js';
-import { itemEffectsActive } from './effectPipeline.js';
+import { INCAPACITATED_CONDITION_KEY } from './conditionKeys.js';
+import { resolveEffectConditionKey } from './conditionTemplates.js';
+import {
+  isEntityIncapacitated,
+  itemEffectsActive,
+  resolveChangeValue,
+} from './effectPipeline.js';
+import {
+  hasPresenceTriggers,
+  upgradeStaySaveEffect,
+} from './effectTriggers.js';
+import {
+  areaTargetIncludesSelf,
+  areaTargetRelation,
+} from './effectTriggerTypes.js';
+import { isDndSceneEntity } from './entityGuards.js';
+import { buildFormulaContext } from './formulaParser.js';
+import {
+  bindSourceEffectFormulas,
+  effectUsesSourceFormulas,
+} from './sourceFormulaBinding.js';
 
 /** Размер клетки сетки в пикселях, когда сцена его не задала */
 const DEFAULT_CELL_SIZE_PX = 50;
@@ -86,7 +117,8 @@ export function getAuraEffects(effects?: ActiveEffect[]): ActiveEffect[] {
   }
 
   return effects.filter(
-    (effect) => effect.aura && effect.aura.radius > 0 && !effect.disabled,
+    (effect) =>
+      effect.aura && effect.aura.radius > 0 && !isEffectDormant(effect),
   );
 }
 
@@ -112,7 +144,7 @@ export function collectAllAuraEffects(entity: DnDSceneEntity): ActiveEffect[] {
       }
 
       const itemAuras = getAuraEffects(item.activeEffects).filter(
-        (auraEffect) => auraEffect.effectTarget !== 'target',
+        isCarrierEffect,
       );
 
       allEffects.push(...itemAuras);
@@ -127,7 +159,75 @@ export function collectAllAuraEffects(entity: DnDSceneEntity): ActiveEffect[] {
 
   // Уровень класса подставляется по ИСТОЧНИКУ ауры: аура умения класса несёт
   // уровень того, кто её излучает, а не того, кто в неё попал
-  return [...bindClassLevels(allEffects, entity)];
+  const classBound = bindClassLevels(
+    // Старая аура «пока внутри» со спасброском срабатывает на входе: иначе она
+    // ложилась бы на каждого в радиусе без броска
+    allEffects.map(upgradeStaySaveEffect),
+    entity,
+  );
+
+  const shaped = shapeEntityAuras(classBound, entity);
+
+  if (!shaped.some((effect) => effectUsesSourceFormulas(effect))) {
+    return shaped;
+  }
+
+  // Так же и прочие числа источника: «Аура защиты» даёт союзникам модификатор
+  // Харизмы паладина, а пайплайн получателя прочёл бы в `@mod.cha` свою
+  const sourceContext = buildFormulaContext(entity);
+
+  return shaped.map((effect) =>
+    bindSourceEffectFormulas(effect, sourceContext),
+  );
+}
+
+/**
+ * Ауры носителя в той форме, в какой они действуют сейчас: радиус формулой
+ * посчитан от носителя (уровень класса уже подставлен), аура «пока
+ * дееспособен» у недееспособного погашена.
+ *
+ * @param auras - ауры носителя
+ * @param entity - носитель
+ * @returns действующие ауры
+ */
+function shapeEntityAuras(
+  auras: readonly ActiveEffect[],
+  entity: DnDSceneEntity,
+): ActiveEffect[] {
+  const needsStats = auras.some((effect) => effect.aura?.whileCapable);
+
+  const incapacitated = needsStats && isEntityIncapacitated(entity);
+
+  const needsFormulas = auras.some((effect) => effect.aura?.radiusFormula);
+  const formulaContext = needsFormulas ? buildFormulaContext(entity) : null;
+
+  return auras.flatMap((effect) => {
+    const { aura } = effect;
+
+    if (!aura) {
+      return [effect];
+    }
+
+    if (aura.whileCapable && incapacitated) {
+      return [];
+    }
+
+    if (!aura.radiusFormula || !formulaContext) {
+      return [effect];
+    }
+
+    const radius = resolveChangeValue(aura.radiusFormula, formulaContext);
+
+    return [
+      {
+        ...effect,
+        aura: {
+          ...aura,
+          radius: radius === undefined ? aura.radius : Math.max(0, radius),
+        },
+      },
+    ];
+  });
 }
 
 /**
@@ -165,7 +265,7 @@ export function calculateAmbientAuras(
     for (const effect of source.effects) {
       const aura = effect.aura;
 
-      if (!aura || effect.disabled) {
+      if (!aura || isEffectDormant(effect)) {
         continue;
       }
 
@@ -194,9 +294,12 @@ export function calculateAmbientAuras(
         continue;
       }
 
+      // Наложивший копии — носитель ауры: по нему идут «ход наложившего» и
+      // «до конца хода источника»
       ambientEffects.push({
         ...effect,
-        id: `${effect.id}_aura_${source.token.id}`,
+        id: buildAmbientAuraEffectId(effect, source.token.id),
+        sourceActorId: source.token.actorId,
       });
     }
   }
@@ -248,11 +351,235 @@ export function isAuraReachingTarget(
   return centerDistancePx <= totalReachPx;
 }
 
+/**
+ * Сущности в радиусе от фишки субъекта — получатели «всем в радиусе». Та же
+ * геометрия и те же отношения, что у ауры: радиус от края фишки субъекта,
+ * союзник — фишка того же действующего отношения (`withTokenDisposition` ядра:
+ * отношение живёт в настройках фишки сущности).
+ *
+ * @param surroundings - сцена вокруг субъекта от ядра
+ * @param area - радиус и отбор
+ * @param subject - субъект: его настройки фишки задают отношение
+ * @returns сущности без повторов (у сущности бывает несколько фишек)
+ */
+export function findEntitiesInArea(
+  surroundings: SystemSceneSurroundings | null | undefined,
+  area: EffectTriggerArea,
+  subject?: DnDSceneEntity,
+): DnDSceneEntity[] {
+  if (!surroundings) {
+    return [];
+  }
+
+  const target = areaTargetRelation(area.target);
+  const found = new Map<string, DnDSceneEntity>();
+  const subjectToken = withTokenDisposition(surroundings.token, subject);
+
+  // «И носитель тоже»: соседей ядро отдаёт без субъекта, и добавить его может
+  // только система — она одна знает, кто субъект
+  if (subject && areaTargetIncludesSelf(area.target)) {
+    found.set(subject.id, subject);
+  }
+
+  for (const neighbor of surroundings.neighbors) {
+    const { entity, token } = neighbor;
+
+    if (found.has(entity.id) || !isDndSceneEntity(entity)) {
+      continue;
+    }
+
+    const disposition = getRelativeDisposition(
+      subjectToken,
+      withTokenDisposition(token, entity),
+    );
+
+    if (
+      (target === 'allies' && disposition !== 'ally')
+      || (target === 'enemies' && disposition !== 'enemy')
+      || !isAuraReachingTarget(
+        surroundings.token,
+        token,
+        area.radius,
+        surroundings.gridSettings,
+      )
+    ) {
+      continue;
+    }
+
+    found.set(entity.id, entity);
+  }
+
+  return [...found.values()];
+}
+
+/**
+ * «Союзник рядом с целью» (PHB 2024, «Тактика стаи»): союзник — в пределах
+ * этого расстояния от цели, фт.
+ */
+export const ALLY_ADJACENT_RANGE_FEET = 5;
+
+/** Сцена атаки для условия «союзник рядом с целью» */
+export interface AllyAdjacencyScene {
+  /** Фишки сцены */
+  tokens: readonly Token[];
+  /** Сетка сцены */
+  gridSettings: GridSettings;
+  /** Атакующая сущность */
+  attackerId: string;
+  /** Фишка цели */
+  targetToken: Token;
+  /** Живая сущность мира по id */
+  getEntity: (entityId: string) => DnDSceneEntity | undefined;
+}
+
+/**
+ * Состояния сущности для условий о союзнике: ключи наложенных состояний и
+ * недееспособность, которую ставят и другие состояния своим флагом.
+ *
+ * @param entity - сущность
+ * @returns ключи состояний без повторов
+ */
+export function listEntityConditionKeys(entity: DnDSceneEntity): string[] {
+  const keys = listLiveEffects(entity).flatMap((effect) => {
+    const key = resolveEffectConditionKey(effect);
+
+    return key ? [key] : [];
+  });
+
+  if (isEntityIncapacitated(entity)) {
+    keys.push(INCAPACITATED_CONDITION_KEY);
+  }
+
+  return [...new Set(keys)];
+}
+
+/**
+ * Фишка сущности, ближайшая к цели. У одной записи на сцене бывает несколько
+ * фишек (стая волков из одного существа), и бьёт та, что ближе.
+ *
+ * @param tokens - фишки сцены
+ * @param entityId - сущность
+ * @param targetToken - фишка цели
+ * @param gridSettings - сетка сцены
+ * @returns фишка либо `undefined`, если у сущности нет фишек кроме цели
+ */
+export function findNearestEntityToken(
+  tokens: readonly Token[],
+  entityId: string,
+  targetToken: Token,
+  gridSettings: GridSettings,
+): Token | undefined {
+  let nearest: Token | undefined;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+
+  for (const token of tokens) {
+    if (token.actorId !== entityId || token.id === targetToken.id) {
+      continue;
+    }
+
+    const distance = getTokenEdgeDistance(token, targetToken, gridSettings);
+
+    if (distance < nearestDistance) {
+      nearest = token;
+      nearestDistance = distance;
+    }
+  }
+
+  return nearest;
+}
+
+/**
+ * Союзники атакующего рядом с целью и их состояния: фишки того же
+ * действующего отношения (`withTokenDisposition` ядра — отношение живёт в
+ * настройках фишки сущности), не фишка атакующего и не цель, в пределах
+ * {@link ALLY_ADJACENT_RANGE_FEET} от края до края. Атакует ближайшая к цели
+ * фишка сущности; другие её фишки — отдельные существа на поле и в счёт идут.
+ * Какой союзник годится, решает условие броска.
+ *
+ * @param scene - фишки, сетка и сущности сцены
+ * @returns союзники рядом с целью; у атакующего нет фишки — пусто
+ */
+export function listAdjacentAllies(
+  scene: AllyAdjacencyScene,
+): AdjacentAllyState[] {
+  const { tokens, gridSettings, attackerId, targetToken, getEntity } = scene;
+
+  const attackerToken = findNearestEntityToken(
+    tokens,
+    attackerId,
+    targetToken,
+    gridSettings,
+  );
+
+  if (!attackerToken) {
+    return [];
+  }
+
+  const attackerSide = withTokenDisposition(
+    attackerToken,
+    getEntity(attackerId),
+  );
+
+  return tokens.flatMap((token) => {
+    if (
+      token.id === attackerToken.id
+      || token.id === targetToken.id
+      || getTokenEdgeDistance(token, targetToken, gridSettings)
+        > ALLY_ADJACENT_RANGE_FEET
+    ) {
+      return [];
+    }
+
+    const ally = getEntity(token.actorId);
+
+    if (
+      !ally
+      || getRelativeDisposition(attackerSide, withTokenDisposition(token, ally))
+        !== 'ally'
+    ) {
+      return [];
+    }
+
+    return [{ conditions: listEntityConditionKeys(ally) }];
+  });
+}
+
+/**
+ * Id копии ауры на накрытом: у одной ауры с разных токенов копии разные, и
+ * счётчики лимита у них свои.
+ *
+ * @param effect - аура источника
+ * @param sourceTokenId - токен-источник
+ * @returns id копии
+ */
+export function buildAmbientAuraEffectId(
+  effect: Pick<ActiveEffect, 'id'>,
+  sourceTokenId: string,
+): string {
+  return `${effect.id}_aura_${sourceTokenId}`;
+}
+
+/**
+ * Будит ли аура вход и выход: разовый эффект старых полей (`areaTrigger`) или
+ * явные срабатывания входа и выхода — у ауры «пока внутри» тоже («Духовные
+ * стражи»: вход и начало хода).
+ *
+ * @param effect - аура
+ * @returns `true`, если у ауры есть что делать на входе или выходе
+ */
+export function isTriggerAura(effect: ActiveEffect): boolean {
+  return (
+    effect.areaTrigger === 'enter'
+    || effect.areaTrigger === 'exit'
+    || hasPresenceTriggers(effect)
+  );
+}
+
 /** Попадание триггер-ауры (enter/exit) источника на целевой токен */
 export interface TriggerAuraHit {
   /** ID токена-источника ауры (для ключа членства) */
   sourceTokenId: string;
-  /** Аура-эффект с триггером enter/exit */
+  /** Аура-эффект со входом или выходом; наложивший — носитель ауры */
   effect: ActiveEffect;
 }
 
@@ -284,11 +611,7 @@ export function collectTriggerAurasForTarget(
     for (const effect of source.effects) {
       const aura = effect.aura;
 
-      if (
-        !aura
-        || effect.disabled
-        || (effect.areaTrigger !== 'enter' && effect.areaTrigger !== 'exit')
-      ) {
+      if (!aura || isEffectDormant(effect) || !isTriggerAura(effect)) {
         continue;
       }
 
@@ -308,7 +631,10 @@ export function collectTriggerAurasForTarget(
           gridSettings,
         )
       ) {
-        hits.push({ sourceTokenId: source.token.id, effect });
+        hits.push({
+          sourceTokenId: source.token.id,
+          effect: { ...effect, sourceActorId: source.token.actorId },
+        });
       }
     }
   }

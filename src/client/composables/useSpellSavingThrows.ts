@@ -6,10 +6,12 @@ import type {
 } from '@vtt/shared';
 import type {
   ConditionRef,
+  SavingThrowCircumstances,
   SavingThrowRequestPayload,
   SavingThrowResult,
 } from '@vtt/shared/system/dnd.js';
 
+import type { CheckRollResult } from '../ui/actor/diceRollTypes';
 import type { ActorSaveInfo } from './spellResolutionShared';
 
 import { getRollRequestService } from '@/core/api/rollRequestService';
@@ -23,24 +25,28 @@ import {
   isNeutralRollAnswer,
 } from '@vtt/shared';
 import {
+  buildAttackFormula,
+  formatSavingThrowRequestTitle,
+  getNaturalD20Roll,
   isDndSceneEntity,
+  listSavingThrowBonusKeys,
+  parseNaturalD20Roll,
   parseSavingThrowResult,
   resolveActorStats,
+  resolveAutoSaves,
+  resolveSavingThrowModifier,
   resolveSavingThrowRollMode,
   SAVING_THROW_REQUEST_KIND,
 } from '@vtt/shared/system/dnd.js';
 
-import {
-  SAVING_THROW_ROLL_FORMULAS,
-  SAVING_THROW_ROLL_LABELS,
-} from '../ui/actor/constants';
+import { SAVING_THROW_ROLL_LABELS } from '../ui/actor/constants';
+import { buildRollBonusEvaluator } from './rollBonusEvaluator';
 import {
   determineRollMode,
-  formatSavingThrowRequestTitle,
   formatSavingThrowRollLabel,
   formatSavingThrowTitle,
-  resolveAutoSaves,
 } from './spellResolutionShared';
+import { useWorldEntities } from './useWorldEntities';
 
 /** Префикс сообщений композабла в консоли */
 const SAVING_THROW_LOG_PREFIX = '[SavingThrow]';
@@ -58,6 +64,8 @@ export interface SavingThrowTarget {
   dc: number;
   /** Состояние, которого спасбросок позволяет избежать */
   againstCondition?: ConditionRef;
+  /** Спасбросок концентрации: «Боевой заклинатель» даёт преимущество */
+  againstConcentration?: boolean;
   /**
    * Спасбросок навязан магией — от этого зависят флаги вроде «Мантии
    * сопротивления заклинаниям». По умолчанию `true`: спасброски заклинаний и
@@ -66,6 +74,13 @@ export interface SavingThrowTarget {
    */
   againstMagic?: boolean;
   /**
+   * Спасбросок навязан именно заклинанием, а не ударом или действием
+   * существа: «Кольцо отражения заклинаний». Едет в нагрузке запроса.
+   */
+  againstSpell?: boolean;
+  /** Преимущество или помеха самого спасброска (срабатывание эффекта) */
+  mode?: SavingThrowCircumstances['mode'];
+  /**
    * Сущность, от чьего имени идёт действие (заклинатель, атакующий). По ней
    * сервер проверяет право игрока просить бросок; ГМу поле не требуется, но
    * без него запрос игрока сервер отклонит.
@@ -73,6 +88,11 @@ export interface SavingThrowTarget {
   sourceEntityId?: string;
   /** Чем бьют («Огненный шар», «Укус») — в подпись запроса у адресата */
   sourceName?: string;
+  /**
+   * Согласная цель вправе не бросать: в окне появится «Не сопротивляюсь».
+   * Решает владелец цели — тот, кто накладывает, только разрешает.
+   */
+  allowWilling?: boolean;
 }
 
 /**
@@ -103,39 +123,34 @@ export interface SavingThrowModalOptions {
  * @returns формула для роллера
  */
 function buildSavingThrowFormula(info: ActorSaveInfo): string {
-  let formula: string = SAVING_THROW_ROLL_FORMULAS.normal;
-
-  if (info.hasAdvantage && !info.hasDisadvantage) {
-    formula = SAVING_THROW_ROLL_FORMULAS.advantage;
-  } else if (info.hasDisadvantage && !info.hasAdvantage) {
-    formula = SAVING_THROW_ROLL_FORMULAS.disadvantage;
-  }
-
-  if (info.modifier !== 0) {
-    const sign = info.modifier >= 0 ? '+' : '';
-
-    formula += `${sign}${info.modifier}`;
-  }
-
-  return formula;
+  return buildAttackFormula(
+    info.modifier,
+    determineRollMode(info.hasAdvantage, info.hasDisadvantage),
+    info.evaluateBonusRollFormulas({
+      hasAdvantage: info.hasAdvantage,
+      hasDisadvantage: info.hasDisadvantage,
+    }),
+  );
 }
 
 /**
  * Собирает результат спасброска по итогу броска.
  *
- * @param total - итог броска (кость плюс модификатор)
+ * @param total - итог броска (кость, модификатор и бонусные кубики)
+ * @param natural - оставленная натуральная кость d20
  * @param info - модификатор и флаги цели (нужен автопровал)
  * @param dc - сложность
  * @returns результат спасброска
  */
 function buildSavingThrowResult(
   total: number,
+  natural: number,
   info: ActorSaveInfo,
   dc: number,
 ): SavingThrowResult {
   return {
-    roll: total - info.modifier,
-    modifier: info.modifier,
+    roll: natural,
+    modifier: total - natural,
     total,
     passed: !info.autoFail && total >= dc,
   };
@@ -148,19 +163,23 @@ function buildSavingThrowResult(
  * @param saveAbility - характеристика спасброска
  * @param options - контекст спасброска для флагов преимущества/помехи
  * @param options.againstMagic - спасбросок навязан магией
+ * @param options.againstSpell - спасбросок навязан заклинанием
  * @param options.againstCondition - состояние, которого он позволяет избежать
+ * @param options.againstConcentration - спасбросок концентрации
+ * @param options.mode - преимущество или помеха самого спасброска
  * @returns модификатор спасброска и флаги (преимущество/помеха/автопровал)
  */
 function getActorSaveInfo(
   entity: SceneEntity,
   saveAbility: AbilityType,
-  options: { againstMagic: boolean; againstCondition?: ConditionRef },
+  options: SavingThrowCircumstances,
 ): ActorSaveInfo {
   // Ядро видит entity как Base*; D&D-форму подтверждает гвард. Без данных
   // системы считать нечего: спасбросок идёт «голым» кубиком, а не роняет каст
   if (!isDndSceneEntity(entity)) {
     return {
       modifier: 0,
+      evaluateBonusRollFormulas: () => [],
       hasAdvantage: false,
       hasDisadvantage: false,
       autoFail: false,
@@ -169,7 +188,7 @@ function getActorSaveInfo(
 
   const stats = resolveActorStats(entity);
 
-  const modifier = stats.saves[saveAbility] ?? 0;
+  const modifier = resolveSavingThrowModifier(stats, saveAbility, options);
 
   // `againstMagic` приходит от вызывающего: Мантия сопротивления заклинаниям
   // должна сработать на спасброске от заклинания и промолчать на спасброске
@@ -178,7 +197,10 @@ function getActorSaveInfo(
     flags: stats.activeFlags,
     ability: saveAbility,
     againstMagic: options.againstMagic,
+    againstSpell: options.againstSpell,
     againstCondition: options.againstCondition,
+    againstConcentration: options.againstConcentration,
+    mode: options.mode,
   });
 
   const hasAdvantage = rollMode === 'advantage';
@@ -186,7 +208,19 @@ function getActorSaveInfo(
 
   const autoFail = stats.activeFlags.has(`save.autoFail.${saveAbility}`);
 
-  return { modifier, hasAdvantage, hasDisadvantage, autoFail };
+  const { findCurrentDndEntity } = useWorldEntities();
+
+  return {
+    modifier,
+    evaluateBonusRollFormulas: buildRollBonusEvaluator(
+      // Окно могло остаться открытым после замены сущности новым снимком мира
+      () => findCurrentDndEntity(entity.id),
+      listSavingThrowBonusKeys(saveAbility, options),
+    ),
+    hasAdvantage,
+    hasDisadvantage,
+    autoFail,
+  };
 }
 
 /**
@@ -198,7 +232,10 @@ function getActorSaveInfo(
 function resolveTargetSaveInfo(target: SavingThrowTarget): ActorSaveInfo {
   return getActorSaveInfo(target.entity, target.ability, {
     againstMagic: target.againstMagic ?? true,
+    againstSpell: target.againstSpell,
     againstCondition: target.againstCondition,
+    againstConcentration: target.againstConcentration,
+    mode: target.mode,
   });
 }
 
@@ -217,7 +254,12 @@ function buildRollRequestOptions(
     ability: target.ability,
     dc: target.dc,
     againstMagic: target.againstMagic ?? true,
+    ...(target.againstSpell ? { againstSpell: true } : {}),
     againstCondition: target.againstCondition,
+    ...(target.againstConcentration ? { againstConcentration: true } : {}),
+    // Режим самого спасброска едет к адресату: у него тот же счёт флагов
+    ...(target.mode ? { mode: target.mode } : {}),
+    ...(target.allowWilling ? { allowWilling: true } : {}),
     sourceName: target.sourceName,
   };
 
@@ -254,12 +296,20 @@ function readSavingThrowAnswer(
   // Нейтральное окно ядра: у адресата не сработал наш слот, и он бросил
   // нашу же `fallbackFormula` — модификатор в итоге уже сидит.
   if (isNeutralRollAnswer(answer)) {
-    const info = resolveTargetSaveInfo(target);
+    // Бросок пришёл с чужого клиента: без оставленной d20 форма ответа
+    // незнакома, и падать на ней нельзя — вызывающий честно сообщит об этом
+    const natural = parseNaturalD20Roll(answer.rollData);
 
-    return {
-      ...buildSavingThrowResult(answer.total, info, target.dc),
-      roll: answer.rollData.dice[0]?.values[0] ?? 0,
-    };
+    if (natural === undefined) {
+      return null;
+    }
+
+    return buildSavingThrowResult(
+      answer.total,
+      natural,
+      resolveTargetSaveInfo(target),
+      target.dc,
+    );
   }
 
   return null;
@@ -314,9 +364,22 @@ export function useSpellSavingThrows() {
         info.hasDisadvantage,
       ),
       autoFail: info.autoFail,
+      allowWilling: target.allowWilling === true,
       targetDc: target.dc,
-      onRoll: (total: number) => {
-        options.onResult(buildSavingThrowResult(total, info, target.dc));
+      evaluateBonusRollFormulas: info.evaluateBonusRollFormulas,
+      onCheckRoll: (result: CheckRollResult) => {
+        const outcome = buildSavingThrowResult(
+          result.total,
+          result.natural,
+          info,
+          target.dc,
+        );
+
+        // Согласие — провал при любой Сл: при Сл 1 условная единица иначе
+        // «прошла» бы спасбросок
+        options.onResult(
+          result.willing ? { ...outcome, passed: false } : outcome,
+        );
       },
       onCancel: options.onCancel,
     });
@@ -343,7 +406,13 @@ export function useSpellSavingThrows() {
     const formula = buildSavingThrowFormula(info);
     const rollData = diceRollerStore.parseAndRoll(formula);
     const total = rollData.total;
-    const result = buildSavingThrowResult(total, info, target.dc);
+
+    const result = buildSavingThrowResult(
+      total,
+      getNaturalD20Roll(rollData),
+      info,
+      target.dc,
+    );
 
     rollData.label = `${formatSavingThrowRollLabel(target.ability, target.entity.name)}${
       result.passed
@@ -353,8 +422,7 @@ export function useSpellSavingThrows() {
 
     chatStore.sendMessage(formula, 'roll', rollData);
 
-    // Натуральная кость — первая (или лучшая/худшая) из брошенных
-    return { ...result, roll: rollData.dice[0]?.values[0] ?? 0 };
+    return result;
   }
 
   /**

@@ -3,14 +3,36 @@
  *
  * Число берётся из таблицы класса компендиума на уровне персонажа в этом классе
  * (у мультикласса — сумма по всем классам), а лист даёт его поправить: задать
- * своё число вместо расчёта или прибавить бонус (черта, предмет, домашнее
- * правило).
+ * своё число вместо расчёта или прибавить свои бонусы (черта, предмет,
+ * домашнее правило). Поправки листа считает `preparedLimit`: этот модуль
+ * остаётся без зависимостей, потому что его настройку по умолчанию читает
+ * `consts`, а свои бонусы сами тянут `consts` — через них вышел бы круг.
  *
  * @module system/dnd/preparedSpells
  */
 
 import type { ActorClassEntry, ClassDefinition } from './classTypes.js';
+import type { Spell } from './dndEntities.js';
 import type { DnDPreparedLimit } from './types.js';
+
+import { CANTRIP_SPELL_LEVEL } from './spellTypes.js';
+
+/**
+ * Проверяет доступность заклинания без изменения подготовки: известный заговор
+ * доступен всегда, заклинание старшего круга — после подготовки либо по дару.
+ *
+ * @param spell - заклинание из книги персонажа
+ * @returns true — заклинание можно накладывать без подготовки
+ */
+export function isSpellReady(
+  spell: Pick<Spell, 'level' | 'prepared' | 'alwaysPrepared'>,
+): boolean {
+  return (
+    spell.level === CANTRIP_SPELL_LEVEL
+    || Boolean(spell.prepared)
+    || Boolean(spell.alwaysPrepared)
+  );
+}
 
 /** Вид подготовки: заклинания книги либо заговоры (свой счётчик) */
 export type PreparedKind = 'spells' | 'cantrips';
@@ -21,19 +43,13 @@ export const PREPARED_LIMIT_MIN = 0;
 /** Максимальное число подготовленных */
 export const PREPARED_LIMIT_MAX = 99;
 
-/** Минимальный бонус к числу из таблицы класса */
-export const PREPARED_LIMIT_BONUS_MIN = -99;
-
-/** Максимальный бонус к числу из таблицы класса */
-export const PREPARED_LIMIT_BONUS_MAX = 99;
-
 /** Предел неизвестен: таблица класса такой колонки не даёт */
 export const PREPARED_LIMIT_EMPTY_VALUE = '—';
 
 /** Настройка предела по умолчанию: всё считается по таблице класса */
 export const DEFAULT_PREPARED_LIMIT: DnDPreparedLimit = {
   custom: null,
-  bonus: 0,
+  bonuses: [],
 };
 
 /**
@@ -147,34 +163,6 @@ const FALLBACK_PREPARED: Record<'full' | 'half', number[]> = {
   half: [2, 3, 4, 5, 6, 6, 7, 7, 9, 9, 10, 10, 11, 11, 12, 12, 14, 14, 15, 15],
 };
 
-/** Разбор предела подготовки — для плитки вкладки и модалки настройки */
-export interface PreparedLimitBreakdown {
-  /** Итоговый предел; null — ни таблица, ни своё число его не задают */
-  value: number | null;
-  /** Число из таблицы класса; null — колонки нет */
-  classValue: number | null;
-  /** Предел задан своим числом, подсчёт по классу выключен */
-  custom: boolean;
-  /** Бонус к числу класса; 0 — бонуса нет */
-  bonus: number;
-}
-
-/**
- * Приводит число к целому в границах.
- *
- * @param value - исходное число
- * @param min - нижняя граница
- * @param max - верхняя граница
- * @returns целое число в границах
- */
-function clampInteger(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) {
-    return Math.min(max, Math.max(min, 0));
-  }
-
-  return Math.min(max, Math.max(min, Math.trunc(value)));
-}
-
 /**
  * Число из таблицы класса на нужном уровне.
  *
@@ -268,65 +256,4 @@ export function getClassPreparedValue(
   }
 
   return total;
-}
-
-/**
- * Разбор предела подготовки: число класса, свой бонус к нему либо своё число
- * вместо подсчёта.
- *
- * @param classValue - число из таблиц классов; null — колонки нет
- * @param limit - настройка листа; нет — всё считается по классу
- * @returns разбор для плитки вкладки и модалки настройки
- */
-export function getPreparedLimitBreakdown(
-  classValue: number | null,
-  limit?: DnDPreparedLimit | null,
-): PreparedLimitBreakdown {
-  const { custom, bonus } = limit ?? DEFAULT_PREPARED_LIMIT;
-
-  // Класс подготовку не считает: бонус прибавлять не к чему, предел остаётся
-  // неизвестным, пока игрок не задаст своё число.
-  const autoValue =
-    classValue === null
-      ? null
-      : clampInteger(
-          classValue + bonus,
-          PREPARED_LIMIT_MIN,
-          PREPARED_LIMIT_MAX,
-        );
-
-  const customValue =
-    custom === null
-      ? null
-      : clampInteger(custom, PREPARED_LIMIT_MIN, PREPARED_LIMIT_MAX);
-
-  return {
-    value: customValue ?? autoValue,
-    classValue,
-    custom: custom !== null,
-    bonus,
-  };
-}
-
-/**
- * Выправляет настройку предела перед записью в актёра: числа приходят из полей
- * модалки, а мир мог прийти и импортом руками.
- *
- * @param limit - настройка из модалки
- * @returns настройка с числами в допустимых границах
- */
-export function normalizePreparedLimit(
-  limit: DnDPreparedLimit,
-): DnDPreparedLimit {
-  return {
-    custom:
-      limit.custom === null
-        ? null
-        : clampInteger(limit.custom, PREPARED_LIMIT_MIN, PREPARED_LIMIT_MAX),
-    bonus: clampInteger(
-      limit.bonus,
-      PREPARED_LIMIT_BONUS_MIN,
-      PREPARED_LIMIT_BONUS_MAX,
-    ),
-  };
 }

@@ -66,16 +66,6 @@ import {
   progressionToEntries,
 } from '../counterEditorTypes';
 
-/** Характеристики в порядке вывода. */
-export const ABILITY_KEYS: readonly AbilityType[] = [
-  'strength',
-  'dexterity',
-  'constitution',
-  'intelligence',
-  'wisdom',
-  'charisma',
-];
-
 // ── Строка дара (вкладка «Владения») ──────────────────────────
 
 /**
@@ -283,6 +273,12 @@ export interface EditableSpellPickRow {
   listedSpells: GrantedSpellRef[];
   /** Выбор пересматривается на отдыхе. Приходит из записи, формой не правится */
   rechooseOnLongRest: boolean;
+  /**
+   * Выбранные заклинания не нужно готовить, и места в числе класса они не
+   * занимают: заговор «Чудотворца» идёт сверх колонки «Заговоры». Та же
+   * отметка, что у выдачи записи, только у одной порции выбора.
+   */
+  alwaysPrepared: boolean;
   /**
    * Уровень персонажа, с которого порцию спрашивают; 0 — сразу. Приходит из
    * записи и формой не правится, но и не теряется при пересохранении: без него
@@ -1022,6 +1018,7 @@ export function createSpellPickRow(
     source: 'filter',
     listedSpells: [],
     rechooseOnLongRest: false,
+    alwaysPrepared: false,
     requiredLevel: 0,
   };
 }
@@ -1188,6 +1185,7 @@ function spellPickRow(choice: FeatChoice): EditableSpellPickRow {
       name: option.name ?? option.value,
     })),
     rechooseOnLongRest: choice.rechooseOnLongRest ?? false,
+    alwaysPrepared: choice.alwaysPrepared ?? false,
     requiredLevel: choice.requiredLevel ?? 0,
   };
 }
@@ -1598,7 +1596,9 @@ export function featDataToGrants(
     key: counter.key,
     name: counter.name,
     shortName: counter.shortName ?? '',
-    max: counter.max,
+    // Ресурс, заданный одними ступенями, приходит из выгрузки без формулы:
+    // поле формулы тогда пустое и вернётся к записи пустым же
+    max: counter.max ?? '',
     min: counter.min ?? 0,
     recovery: counter.recovery,
     progression: progressionToEntries(counter.progression),
@@ -2056,6 +2056,10 @@ function buildSpellChoices(
 
     if (row.rechooseOnLongRest) {
       built.rechooseOnLongRest = true;
+    }
+
+    if (row.alwaysPrepared) {
+      built.alwaysPrepared = true;
     }
 
     if (row.requiredLevel > 0) {
@@ -2703,12 +2707,21 @@ export function buildFeatData(
   const counters: FeatCounterDefinition[] = grants.counters
     .filter((counter) => counter.key.trim() && counter.name.trim())
     .map((counter) => {
+      const progression = entriesToProgression(counter.progression);
+      const max = counter.max.trim();
+
       const builtCounter: FeatCounterDefinition = {
         key: counter.key.trim(),
         name: counter.name.trim(),
-        max: counter.max.trim() || '0',
         recovery: counter.recovery,
       };
+
+      // Формулу пишем, если она есть или без неё максимум нечем задать. При
+      // ступенях пустая формула не пишется «нулём»: ступени старше неё, а
+      // выдуманный «0» записи, пришедшей без формулы, только сбивал бы с толку
+      if (max || !progression) {
+        builtCounter.max = max || '0';
+      }
 
       if (counter.shortName.trim()) {
         builtCounter.shortName = counter.shortName.trim();
@@ -2719,8 +2732,6 @@ export function buildFeatData(
       if (counter.min > 0) {
         builtCounter.min = Math.round(counter.min);
       }
-
-      const progression = entriesToProgression(counter.progression);
 
       if (progression) {
         builtCounter.progression = progression;

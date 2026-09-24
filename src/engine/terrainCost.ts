@@ -16,7 +16,7 @@ import type { CustomArea } from '@vtt/shared';
 import type { ActiveEffect } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 
-import { isDnDEffect } from './activeEffectTypes.js';
+import { isDnDEffect, isEffectDormant } from './activeEffectTypes.js';
 import { collectActiveEffects } from './effectPipeline.js';
 
 /** Ключ строки модификатора, задающей цену клетки внутри зоны. */
@@ -90,7 +90,7 @@ export function resolveAreaTerrainCost(area: CustomArea): number {
   let found = false;
 
   for (const effect of effects.filter(isDnDEffect)) {
-    if (effect.disabled) {
+    if (isEffectDormant(effect)) {
       continue;
     }
 

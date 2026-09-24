@@ -22,7 +22,6 @@ import type {
 
 import { computed, ref, watch } from 'vue';
 
-import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 import { generateId } from '@vtt/shared';
 import {
   AREA_SHAPE_OPTIONS,
@@ -34,12 +33,15 @@ import {
   FALLBACK_SOURCE_KEY,
   getSpellDamageParts,
   PROJECTILE_DISTRIBUTION_OPTIONS,
+  readSpellOwnSaveDC,
   SAVE_EFFECT_OPTIONS,
   SAVE_TYPE_OPTIONS,
   SPELL_LEVEL_OPTIONS,
   SPELL_SCHOOL_OPTIONS,
   TARGET_TYPE_OPTIONS,
 } from '@vtt/shared/system/dnd.js';
+
+import { useSystemDataStore } from '../stores/systemDataStore';
 
 /**
  * Composable для логики формы заклинания.
@@ -116,6 +118,8 @@ export function useSpellForm(
   const saveEffect = ref<'half' | 'none' | 'special'>('none');
   const attackAbility = ref<AbilityType | ''>('');
   const attackBonus = ref(0);
+  /** Своя Сл заклинания; 0 — от заклинателя */
+  const saveDC = ref(0);
 
   // Снаряды (каждый — отдельный бросок урона и атаки, если заклинание атакующее)
   const hasProjectiles = ref(false);
@@ -280,6 +284,7 @@ export function useSpellForm(
           spell.attackAbility ?? spell.spellcastingAbility ?? '';
 
         attackBonus.value = spell.attackBonus ?? 0;
+        saveDC.value = readSpellOwnSaveDC(spell) ?? 0;
 
         // Явный блок снарядов — единственный источник истины снарядности
         // (targetCount — информационное число целей, распределение не включает).
@@ -377,6 +382,7 @@ export function useSpellForm(
         saveEffect.value = 'none';
         attackAbility.value = '';
         attackBonus.value = 0;
+        saveDC.value = 0;
 
         hasProjectiles.value = false;
         projectileCount.value = 3;
@@ -611,6 +617,7 @@ export function useSpellForm(
       saveEffect: saveType.value !== 'none' ? saveEffect.value : undefined,
       attackAbility: attackAbility.value || undefined,
       attackBonus: attackBonus.value || undefined,
+      saveDC: readSpellOwnSaveDC({ saveDC: saveDC.value }),
 
       scaling: buildScaling(),
       cantripScalingTiers: buildCantripTiers(),
@@ -677,6 +684,7 @@ export function useSpellForm(
     saveEffect,
     attackAbility,
     attackBonus,
+    saveDC,
     hasProjectiles,
     projectileCount,
     projectilePerSlotLevel,

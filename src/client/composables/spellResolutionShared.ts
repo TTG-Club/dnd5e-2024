@@ -1,9 +1,9 @@
 import type {
   AbilityType,
+  DamagePart,
   DamagePartTarget,
   MeasurementTemplate,
   SceneEntity,
-  SpellSaveType,
   Token,
   TypedWebSocketClient,
 } from '@vtt/shared';
@@ -11,26 +11,48 @@ import type {
   ActiveEffect,
   CreatureCategory,
   DamageDefenseOutcome,
-  SavingThrowResult,
+  ProjectileOutcome,
+  SaveDamageDefense,
   Spell,
   TargetHpGate,
 } from '@vtt/shared/system/dnd.js';
 
-import { useInitiativeStore } from '@/stores/initiativeStore';
+import type { RollBonusEvaluator } from './rollBonusEvaluator';
+
+import { useChatStore } from '@/stores/chatStore';
 import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
-import { generateId, isCreatureEntity } from '@vtt/shared';
+import { generateId } from '@vtt/shared';
 import {
   CREATURE_TYPE_LABELS,
   DAMAGE_TYPE_LABELS,
+  damagePartNeedsOwnResolution,
   damageReachesTarget,
+  getSpellAttackType,
+  getTargetSpellEffects,
+  hasSourceTurnSaveDc,
   isDndSceneEntity,
-  resolveEffectApplication,
+  isMagicRoll,
+  isSaveAbility,
+  listIgnoredResistances,
+  removesItselfOnApply,
+  resolveActorStats,
   SAVE_TYPE_LABELS,
-  stampTurnDuration,
+  stampAppliedEffect,
   withInitializedDuration,
 } from '@vtt/shared/system/dnd.js';
 
 import { SAVING_THROW_ROLL_LABELS } from '../ui/actor/constants';
+import { resolveActiveTurnActorId } from './encounterTurn';
+import { useWorldEntities } from './useWorldEntities';
+
+// Выбор эффектов заклинания по доставке живёт в движке (его проверяют тесты
+// правил), клиентские пути берут его отсюда же, как раньше
+export {
+  getCasterSpellEffects,
+  getTargetSpellEffects,
+  getZoneSpellEffects,
+  isSaveAbility,
+} from '@vtt/shared/system/dnd.js';
 
 /** Результат спасброска одной цели */
 export interface SpellTargetResult {
@@ -58,6 +80,8 @@ export interface SpellTargetResult {
   defenseOutcome?: DamageDefenseOutcome;
   /** Названия наложенных эффектов */
   appliedEffects?: string[];
+  /** Снаряды по этой цели (Волшебная стрела, Мистический заряд) — строкой каждый */
+  projectiles?: ProjectileOutcome[];
 }
 
 /** Контекст для обработки заклинания */
@@ -130,6 +154,8 @@ export interface RolledSpellDamagePart {
   targetGate?: TargetHpGate;
   /** Гейт по типу существа цели (per-target ветка @target.type.<тип>) */
   targetTypeGate?: CreatureCategory;
+  /** Часть брошена критом: событиям урона цели нужен крит */
+  critical?: boolean;
 }
 
 /** Контекст AoE шаблона */
@@ -145,6 +171,7 @@ export interface AoeContext {
 /** Результат информации о спасброске актора */
 export interface ActorSaveInfo {
   modifier: number;
+  evaluateBonusRollFormulas: RollBonusEvaluator;
   hasAdvantage: boolean;
   hasDisadvantage: boolean;
   autoFail: boolean;
@@ -200,30 +227,6 @@ export function formatSavingThrowTitle(
 }
 
 /**
- * Подпись запроса для плашек ядра: «Огненный шар — Спасбросок Ловкости (DC 15)».
- *
- * Имени цели здесь нет намеренно: ядро показывает её само, рядом с подписью.
- *
- * @param ability - характеристика спасброска
- * @param dc - сложность
- * @param sourceName - чем бьют (заклинание или действие), если известно
- * @returns короткая подпись запроса
- */
-export function formatSavingThrowRequestTitle(
-  ability: AbilityType,
-  dc: number,
-  sourceName?: string,
-): string {
-  const abilityLabel = SAVE_TYPE_LABELS[ability];
-
-  const save = `${SAVING_THROW_ROLL_LABELS.rollPrefix}${abilityLabel}${SAVING_THROW_ROLL_LABELS.dcPrefix}${dc}${SAVING_THROW_ROLL_LABELS.dcSuffix}`;
-
-  return sourceName
-    ? `${sourceName}${SAVING_THROW_ROLL_LABELS.sourceSeparator}${save}`
-    : save;
-}
-
-/**
  * Определяет режим атаки из флагов преимущества/помехи.
  *
  * @param hasAdvantage - есть ли преимущество
@@ -243,21 +246,6 @@ export function determineRollMode(
   }
 
   return 'normal';
-}
-
-/**
- * Определяет, использует ли сущность автоматические спасброски.
- *
- * Существа (NPC) по умолчанию всегда используют автоспасброски.
- * Акторы (PC) — только если явно включено `autoSaves === true`.
- *
- * @param entity - сущность-цель
- * @returns true если нужен автоматический спасбросок
- */
-export function resolveAutoSaves(entity: SceneEntity): boolean {
-  return isCreatureEntity(entity)
-    ? (entity.autoSaves ?? true)
-    : entity.autoSaves === true;
 }
 
 /**
@@ -319,124 +307,193 @@ export function formatTargetGateSuffix(
 }
 
 /**
- * Type guard: является ли тип спасброска характеристикой (не `none`).
+ * Сопротивления, которые игнорирует урон атакующего («Сила могилы»).
  *
- * `SpellSaveType` — это `'none' | AbilityType`, поэтому отсечение `'none'`
- * безопасно сужает значение до `AbilityType` без приведения типов.
- *
- * @param saveType - тип спасброска заклинания
- * @returns true, если это характеристика для спасброска
+ * @param attackerId - атакующий; без него — ничего
+ * @returns типы урона
  */
-export function isSaveAbility(
-  saveType: SpellSaveType,
-): saveType is AbilityType {
-  return saveType !== 'none';
-}
-
-/**
- * Инициализирует точную turn-длительность эффекта при наложении, подставляя
- * текущий ход энкаунтера. Для не-`turn` эффектов — no-op. Носитель — сущность,
- * на которую ложится эффект; источник — кастер (для якоря `source`).
- *
- * @param effect - накладываемый эффект
- * @param carrierId - id сущности-носителя (цели)
- * @param sourceId - id кастера (если известен)
- * @returns эффект с проставленными sourceActorId/turnSkipFirst (при type 'turn')
- */
-export function stampEffectTurnDuration(
-  effect: ActiveEffect,
-  carrierId: string,
-  sourceId?: string,
-): ActiveEffect {
-  if (effect.duration.type !== 'turn') {
-    return effect;
+export function resolveAttackerIgnoredResistances(
+  attackerId: string | undefined,
+): string[] {
+  if (!attackerId) {
+    return [];
   }
 
-  // Берём текущий ход ТАК ЖЕ, как сервер: сырой entries[currentTurnIndex], а НЕ
-  // локально пересортированный список (порядок на сервере и клиенте может
-  // разойтись после add/remove участников без переброса инициативы).
-  const encounter = useInitiativeStore().encounter;
+  const attacker = useWorldEntities().findCurrentDndEntity(attackerId);
 
-  const activeTurnActorId =
-    encounter && encounter.currentTurnIndex >= 0
-      ? (encounter.entries[encounter.currentTurnIndex]?.actorId ?? null)
-      : null;
-
-  return stampTurnDuration(effect, { carrierId, sourceId, activeTurnActorId });
+  return attacker
+    ? listIgnoredResistances(resolveActorStats(attacker).activeFlags)
+    : [];
 }
 
 /**
- * Определяет, нужно ли накладывать эффекты на ЦЕЛЬ заклинания.
+ * Защиты цели от урона «половина при успехе» спасброска заклинания, оружия
+ * или действия: «Увёртливость» и «успех против магии — без урона».
  *
- * Накладываются только эффекты, помеченные `effectTarget: 'target'` (эффекты
- * со значением 'self'/без значения предназначены заклинателю — см.
- * `getCasterSpellEffects`). Условие наложения:
- * - У заклинания нет спасброска (saveType === 'none') — атака уже попала
- * - Цель провалила спасбросок
- *
- * @param spell - заклинание
- * @param saveResult - результат спасброска (если был)
- * @returns массив эффектов для наложения на цель или undefined
+ * @param entity - цель
+ * @param spell - заклинание или псевдо-заклинание броска
+ * @returns защиты либо `undefined`, если спасброска или данных системы нет
  */
-export function resolveEffectsToApply(
+export function buildSaveDamageDefense(
+  entity: SceneEntity,
   spell: Spell,
-  saveResult: SavingThrowResult | undefined,
-): ActiveEffect[] | undefined {
-  // На цель кладём только эффекты с effectTarget 'target'; отключённые
-  // (тумблер «Отключен» на заклинании) пропускаются.
-  const targetEffects = spell.activeEffects?.filter(
-    (effect) => !effect.disabled && effect.effectTarget === 'target',
-  );
-
-  if (!targetEffects || targetEffects.length === 0) {
+): SaveDamageDefense | undefined {
+  if (!isSaveAbility(spell.saveType) || !isDndSceneEntity(entity)) {
     return undefined;
   }
 
-  // Спасбросок уровня заклинания: `landed` = провал спаса (нет спаса → эффект
-  // «приземлился», т.к. этот путь зовётся уже по факту попадания/каста). Гейтим
-  // ПОЭФФЕКТНО через resolveEffectApplication — иначе ветки «при успехе»
-  // (applyOnSuccessOnly) и «при успехе тоже» (applyOnSuccess) не работали бы
-  // (старый код слепо отбрасывал ВСЕ эффекты при успешном спасброске).
-  const landed = spell.saveType === 'none' || !saveResult?.passed;
-
-  const applied = targetEffects.filter(
-    (effect) => resolveEffectApplication(effect, { landed }).applyEffect,
-  );
-
-  return applied.length > 0 ? applied : undefined;
+  return {
+    flags: resolveActorStats(entity).activeFlags,
+    ability: spell.saveType,
+    againstMagic: isMagicRoll(spell),
+  };
 }
 
 /**
- * Отбирает «самобафф»-эффекты заклинания, предназначенные самому заклинателю:
- * включённые эффекты с `effectTarget` 'self' (или без значения — это значение
- * по умолчанию). Эффекты, помеченные 'target', исключаются — они ложатся на
- * цель в `resolveEffectsToApply`.
+ * Эффект в момент наложения по текущему ходу боя: наложивший запоминается
+ * всегда, точная turn-длительность привязывается к ходу. Одна точка для всех
+ * путей наложения заклинания — иначе путь без неё терял «ход наложившего» и
+ * «до конца хода заклинателя».
  *
- * Используется для заклинаний без цели-врага (напр. Щит, Доспех мага), у
- * которых эффект должен лечь на кастера.
+ * @param effect - накладываемый эффект
+ * @param parties - носитель, наложивший и каст
+ * @param parties.carrierId - сущность, на которую ложится эффект
+ * @param parties.sourceId - наложивший, если известен
+ * @param parties.castId - каст с концентрацией: его конец снимет эффект
+ * @param parties.castLevel - круг каста: по нему «Рассеивание магии» решает,
+ *   снимать ли эффект
+ * @returns эффект, готовый лечь на носителя
+ */
+export function stampEffectOnApply(
+  effect: ActiveEffect,
+  parties: {
+    carrierId: string;
+    sourceId?: string;
+    castId?: string;
+    castLevel?: number;
+  },
+): ActiveEffect {
+  const { castId, castLevel, ...stampParties } = parties;
+
+  const stamped = stampAppliedEffect(effect, {
+    ...stampParties,
+    activeTurnActorId: resolveActiveTurnActorId(),
+  });
+
+  if (!castId) {
+    return stamped;
+  }
+
+  return {
+    ...stamped,
+    castId,
+    ...(castLevel === undefined ? {} : { castLevel }),
+  };
+}
+
+/**
+ * Нужен ли эффектам на цель разбор оркестратором, а не прямое наложение: свой
+ * спасбросок, урон эффекта или повторный спасбросок с Сл 0 («Сл заклинателя»).
+ * Прямое наложение ничего из этого не умеет — эффект лёг бы без броска, без
+ * урона, а повторный спасбросок против Сл 0 проходился бы всегда.
  *
  * @param spell - заклинание
- * @returns массив эффектов для наложения на заклинателя (может быть пустым)
+ * @returns `true`, если хоть один эффект на цель требует разбора
  */
-export function getCasterSpellEffects(spell: Spell): ActiveEffect[] {
-  return (spell.activeEffects ?? []).filter(
+export function targetEffectsNeedResolution(spell: Spell): boolean {
+  return getTargetSpellEffects(spell).some(
     (effect) =>
-      !effect.disabled && (effect.effectTarget ?? 'self') !== 'target',
+      effect.applySave !== undefined
+      || (effect.damageParts?.length ?? 0) > 0
+      || hasSourceTurnSaveDc(effect),
   );
 }
 
 /**
- * Отбирает эффекты заклинания, предназначенные ЦЕЛИ (`effectTarget: 'target'`):
- * включённые эффекты, которые должны лечь на выбранную цель. В отличие от
- * `resolveEffectsToApply`, не учитывает спасбросок — вызывающий сам решает,
- * когда применять (напр. по попаданию атаки или при касте без броска).
+ * Идёт ли каст многочастным путём — когда части урона и эффекты ложатся ОДНОЙ
+ * записью, а не одной общей формулой в модалке.
  *
- * @param spell - заклинание
- * @returns массив эффектов для наложения на цель (может быть пустым)
+ * Снаряды всегда остаются на одноформульном пути. Многочастный путь нужен,
+ * когда есть бонус-урон, частей больше одной, хоть одной части нужен свой
+ * разбор, либо это атака с уроном, чьим эффектам на цель нужен разбор: по
+ * попаданию (`onHit`) разбор ждал бы окна спасброска эффекта, а урон модалки
+ * успевал бы записаться раньше и затирался бы.
+ *
+ * Одна функция на лист и хотбар: разойдись это решение — один и тот же каст
+ * с листа и с хотбара пошёл бы разными путями.
+ *
+ * @param context - заклинание, его части урона и признаки каста
+ * @param context.spell - заклинание каста
+ * @param context.damageParts - части урона/лечения заклинания
+ * @param context.hasProjectiles - каст идёт снарядами (их путь одноформульный)
+ * @param context.hasBonusDamage - эффекты дают бонус-урон к этому касту
+ * @returns true, если каст идёт многочастным путём
  */
-export function getTargetSpellEffects(spell: Spell): ActiveEffect[] {
-  return (spell.activeEffects ?? []).filter(
-    (effect) => !effect.disabled && effect.effectTarget === 'target',
+export function castNeedsMultiPart(context: {
+  spell: Spell;
+  damageParts: DamagePart[];
+  hasProjectiles: boolean;
+  hasBonusDamage: boolean;
+}): boolean {
+  const { spell, damageParts, hasProjectiles, hasBonusDamage } = context;
+
+  if (hasProjectiles) {
+    return false;
+  }
+
+  return (
+    hasBonusDamage
+    || damageParts.length > 1
+    || (damageParts.length > 0
+      && getSpellAttackType(spell) !== undefined
+      && targetEffectsNeedResolution(spell))
+    || damageParts.some(damagePartNeedsOwnResolution)
+  );
+}
+
+/**
+ * Собирает строку чата о наложенных эффектах заклинания. Одна форма на
+ * заклинателя, выбранную цель и несколько целей эффекта — чтобы касты из
+ * листа и с хотбара выглядели в чате одинаково.
+ *
+ * @param spellName - название заклинания
+ * @param targetNames - имена получивших эффекты
+ * @param effects - наложенные эффекты
+ * @returns готовая строка сообщения
+ */
+export function formatSpellEffectsMessage(
+  spellName: string,
+  targetNames: readonly string[],
+  effects: readonly ActiveEffect[],
+): string {
+  const effectNames = effects.map((effect) => effect.name).join(', ');
+
+  return `${spellName}\n→ ${targetNames.join(', ')}: [${effectNames}]`;
+}
+
+/**
+ * Пишет в чат, что наложено. Мгновенные эффекты (зелье лечит и снимает себя)
+ * в список не входят — их итог пишет исход срабатывания; не осталось ничего —
+ * строки нет.
+ *
+ * @param spellName - название заклинания или источника
+ * @param targetNames - имена получивших эффекты
+ * @param effects - наложенные эффекты
+ */
+export function postSpellEffectsMessage(
+  spellName: string,
+  targetNames: readonly string[],
+  effects: readonly ActiveEffect[],
+): void {
+  const lasting = effects.filter((effect) => !removesItselfOnApply(effect));
+
+  if (lasting.length === 0) {
+    return;
+  }
+
+  useChatStore().sendMessage(
+    formatSpellEffectsMessage(spellName, targetNames, lasting),
+    'text',
   );
 }
 

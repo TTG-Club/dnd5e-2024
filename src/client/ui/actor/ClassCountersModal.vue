@@ -10,10 +10,12 @@
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
+  import { generateId } from '@vtt/shared';
   import {
     buildCounterFormulaContext,
     COUNTER_COUNT_MIN,
     COUNTER_RECOVERY_AMOUNT_MIN,
+    CUSTOM_COUNTER_CLASS_KEY,
     getCounterRecoveryRules,
     normalizeCounterRecoveryRule,
     resolveCounterMaxIn,
@@ -22,16 +24,16 @@
   import {
     CLASS_COUNTERS_LABELS,
     CLASS_COUNTERS_MODAL_LABELS,
+    COUNTER_RESOURCE_LABELS,
     FORM_FIELD_LABELS,
     MODAL_BUTTON_LABELS,
     SHEET_COUNTER_DEFAULTS,
   } from './constants';
+  import { findInvalidCounterKeys } from './counterEditorTypes';
   import CounterMaxField from './CounterMaxField.vue';
   import CounterRecoveryFields from './CounterRecoveryFields.vue';
-  import {
-    counterIdentity,
-    findCounterDefinition,
-  } from './utils/classCounters';
+  import FieldHint from './FieldHint.vue';
+  import { findCounterDefinition } from './utils/classCounters';
 
   interface Props {
     open: boolean;
@@ -56,8 +58,13 @@
   /**
    * Счётчик в форме: правила отдыха разложены всегда, даже у записи с одним
    * легаси-словом. Иначе каждое поле формы носило бы свой запасной вариант.
+   *
+   * `draftId` держит карточку формы: ключ своего ресурса игрок правит, и
+   * опознание по ключу менялось бы с каждой буквой, а у двух ресурсов с одним
+   * ключом правка попадала бы в оба.
    */
   type CounterDraft = ActorCounterState & {
+    draftId: string;
     shortRest: CounterRecoveryRule;
     longRest: CounterRecoveryRule;
   };
@@ -69,11 +76,31 @@
     buildCounterFormulaContext(props.actor),
   );
 
+  /**
+   * Свои ресурсы с пустым или повторённым ключом: эффект не нашёл бы ресурс.
+   * Книжные не проверяются — их ключ игрок не правит, и совпадение двух
+   * классов мультикласса не должно запирать сохранение формы.
+   */
+  const invalidKeyIndexes = computed(() => {
+    const invalid = findInvalidCounterKeys(
+      localCounters.value.map((counter) => counter.counterKey),
+    );
+
+    return new Set(
+      [...invalid].filter((index) =>
+        isCounterKeyEditable(localCounters.value[index]),
+      ),
+    );
+  });
+
   // Ресурс без обеих подписей стал бы на листе пустой строкой
   const hasInvalidCounters = computed(() => {
-    return localCounters.value.some(
-      (counter) =>
-        !resolveCounterName(counter) || !resolveCounterShortName(counter),
+    return (
+      invalidKeyIndexes.value.size > 0
+      || localCounters.value.some(
+        (counter) =>
+          !resolveCounterName(counter) || !resolveCounterShortName(counter),
+      )
     );
   });
 
@@ -100,9 +127,21 @@
 
     return {
       ...counter,
+      draftId: generateId('counter'),
       shortRest: { ...rules.shortRest },
       longRest: { ...rules.longRest },
     };
+  }
+
+  /**
+   * Правит ли игрок ключ ресурса. Только у своего: ключ ресурса класса, черты
+   * или вида задан записью, на него ссылаются её эффекты, а пересборка листа
+   * по записи вернула бы книжный ключ.
+   *
+   * @param counter - счётчик формы
+   */
+  function isCounterKeyEditable(counter: ActorCounterState): boolean {
+    return counter.classKey === CUSTOM_COUNTER_CLASS_KEY;
   }
 
   function resolveCounterName(counter: ActorCounterState): string {
@@ -139,10 +178,8 @@
     targetCounter: CounterDraft,
     updates: Partial<CounterDraft>,
   ): void {
-    const targetCounterId = counterIdentity(targetCounter);
-
     localCounters.value = localCounters.value.map((counter) =>
-      counterIdentity(counter) === targetCounterId
+      counter.draftId === targetCounter.draftId
         ? { ...counter, ...updates }
         : counter,
     );
@@ -160,6 +197,13 @@
     value: string | number,
   ): void {
     updateCounter(counter, { shortName: toTextInputValue(value) });
+  }
+
+  function updateCounterKey(
+    counter: CounterDraft,
+    value: string | number,
+  ): void {
+    updateCounter(counter, { counterKey: toTextInputValue(value).trim() });
   }
 
   /**
@@ -254,8 +298,9 @@
     localCounters.value = [
       ...localCounters.value,
       {
+        draftId: generateId('counter'),
         counterKey: createCustomCounterKey(),
-        classKey: 'custom',
+        classKey: CUSTOM_COUNTER_CLASS_KEY,
         name: SHEET_COUNTER_DEFAULTS.name,
         shortName: SHEET_COUNTER_DEFAULTS.shortName,
         // Новый ресурс — своё число: правило заводится, только если игрок сам
@@ -271,10 +316,8 @@
   }
 
   function removeCounter(targetCounter: CounterDraft): void {
-    const targetCounterId = counterIdentity(targetCounter);
-
     localCounters.value = localCounters.value.filter(
-      (counter) => counterIdentity(counter) !== targetCounterId,
+      (counter) => counter.draftId !== targetCounter.draftId,
     );
   }
 
@@ -289,9 +332,10 @@
    */
   function normalizeCounter(counter: CounterDraft): ActorCounterState {
     const max = counterMax(counter);
+    const { draftId: _draftId, ...counterState } = counter;
 
     return {
-      ...counter,
+      ...counterState,
       recovery: undefined,
       name: resolveCounterName(counter),
       shortName: resolveCounterShortName(counter),
@@ -347,8 +391,8 @@
 
         <div class="flex max-h-115 flex-col gap-2 overflow-y-auto pr-1">
           <div
-            v-for="counter in localCounters"
-            :key="counterIdentity(counter)"
+            v-for="(counter, index) in localCounters"
+            :key="counter.draftId"
             class="relative rounded-lg border border-default/50 bg-elevated/20 p-4 transition-all duration-200 hover:border-primary/30 hover:bg-elevated/30"
           >
             <!-- Кнопка удаления в правом верхнем углу -->
@@ -370,8 +414,8 @@
 
             <!-- Контентная часть карточки с отступом справа под кнопку -->
             <div class="flex flex-col gap-3 pr-8">
-              <!-- Первый ряд: Название и Краткое имя -->
-              <div class="grid grid-cols-[1fr_6rem] gap-3">
+              <!-- Первый ряд: Название, Краткое имя и Ключ -->
+              <div class="grid grid-cols-[1fr_6rem_7rem] gap-3">
                 <label class="flex flex-col gap-1">
                   <span
                     class="text-[10px] font-bold tracking-wider text-toned/80 uppercase"
@@ -407,6 +451,30 @@
                     "
                   />
                 </label>
+
+                <!-- Ключ виден, чтобы знать, что вписать в «Тратит ресурс» у
+                  эффекта. Ошибка — только рамкой: строка под полем сбила бы ряд -->
+                <div class="flex flex-col gap-1">
+                  <span
+                    class="flex items-center gap-1 text-[10px] font-bold tracking-wider text-toned/80 uppercase"
+                  >
+                    {{ COUNTER_RESOURCE_LABELS.key }}
+
+                    <FieldHint :text="CLASS_COUNTERS_MODAL_LABELS.keyHint" />
+                  </span>
+
+                  <!-- Рамка ошибки — так же, как у ключа в редакторе записи -->
+                  <UFormField :error="invalidKeyIndexes.has(index)">
+                    <UInput
+                      :model-value="counter.counterKey"
+                      :placeholder="COUNTER_RESOURCE_LABELS.keyPlaceholder"
+                      :disabled="!isCounterKeyEditable(counter)"
+                      size="sm"
+                      class="w-full"
+                      @update:model-value="updateCounterKey(counter, $event)"
+                    />
+                  </UFormField>
+                </div>
               </div>
 
               <!-- Второй ряд: от чего считается максимум. Остатка здесь нет:

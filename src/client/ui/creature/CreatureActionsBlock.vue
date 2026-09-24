@@ -10,6 +10,7 @@
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { RollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import type {
     RolledSpellDamagePart,
     SpellDamagePartInput,
@@ -19,27 +20,38 @@
   import { computed, ref } from 'vue';
 
   import { startHotbarDrag } from '@/core/utils/hotbarDrag';
+  import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import { useChatStore } from '@/stores/chatStore';
   import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
   import { useTargetStore } from '@/stores/targetStore';
   import { useWorldStore } from '@/stores/worldStore';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { DISTANCE_UNIT_SHORT } from '@vtt/shared';
   import {
     AREA_SHAPE_LABELS,
     collectActiveEffects,
+    creatureActionHasSave,
     DEFAULT_REACH_FEET,
     describeDamagePart,
     getActionDescriptionMarkdown,
+    getAttackBonusKey,
+    getAttackFlagCategory,
     isDndCreature,
     SAVE_TYPE_LABELS,
     SPELL_DAMAGE_TEMPLATE_COLORS,
     SPELL_TEMPLATE_DEFAULT_COLOR,
   } from '@vtt/shared/system/dnd.js';
 
+  import { resolveTargetedAttackRollMode } from '../../composables/attackRollMode';
+  import {
+    applyActionSelfEffects,
+    hasActionSelfEffects,
+  } from '../../composables/effectActivationUse';
+  import { runWithEffectVariants } from '../../composables/effectVariantChoice';
+  import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import { discardSpellTemplate } from '../../composables/spellResolutionShared';
   import { useBonusDamageParts } from '../../composables/useBonusDamageParts';
   import { useSpellResolution } from '../../composables/useSpellResolution';
+  import { useSystemDataStore } from '../../stores/systemDataStore';
   import {
     ABILITY_SHORT_LABELS,
     FILTER_ROW_CONTROL_SIZE,
@@ -258,11 +270,6 @@
     return first ? describeDamagePart(first).types[0] : undefined;
   }
 
-  /** Есть ли у действия спасбросок (заменяет бросок попадания) */
-  function actionHasSave(action: CreatureAction): boolean {
-    return !!action.saveType && action.saveType !== 'none';
-  }
-
   /**
    * Проверяет, есть ли у действия боевые параметры (атака, урон или спасбросок)
    * @param action - действие
@@ -271,7 +278,7 @@
     return !!(
       action.attackBonus !== undefined
       || (action.damageParts && action.damageParts.length > 0)
-      || actionHasSave(action)
+      || creatureActionHasSave(action)
     );
   }
 
@@ -292,6 +299,7 @@
     formula: string;
     rollButtonText: string;
     attackModifier?: number;
+    evaluateBonusRollFormulas?: RollBonusEvaluator;
     initialRollMode: AttackRollMode;
     incomingAttackType?: 'melee' | 'ranged' | 'spell';
     damageType?: string;
@@ -349,65 +357,76 @@
    * действия со спасброском/областью — без него (цель кидает спас). Перед
    * прямой атакой проверяется дистанция; для области сначала размещается шаблон.
    *
-   * @param action - действие существа
+   * @param sourceAction - действие существа; эффекты — до выбора варианта
    */
-  function openRollModal(action: CreatureAction): void {
-    if (!hasAttackParams(action)) {
-      return;
-    }
+  function openRollModal(sourceAction: CreatureAction): void {
+    runWithEffectVariants(sourceAction, (action) => {
+      // Действие без броска только накладывает эффекты на само существо
+      if (!hasAttackParams(action)) {
+        if (props.creatureId) {
+          applyActionSelfEffects(action, props.creatureId);
+        }
 
-    const creature = getCreatureEntity();
+        return;
+      }
 
-    if (!creature) {
-      return;
-    }
+      const creature = getCreatureEntity();
 
-    // Проверка дистанции — только для прямых атак (область таргетится шаблоном)
-    let isDisadvantage = false;
+      if (!creature) {
+        return;
+      }
 
-    if (!action.areaOfEffect && targetStore.targetTokenId && props.creatureId) {
-      const rangeCheck = checkCreatureActionRangeOnScene(
-        action,
-        props.creatureId,
-        targetStore.targetTokenId,
-      );
+      // Проверка дистанции — только для прямых атак (область таргетится шаблоном)
+      let isDisadvantage = false;
 
-      if (rangeCheck && !rangeCheck.allowed) {
-        chatStore.sendMessage(
-          `${CREATURE_ACTIONS_BLOCK_LABELS.outOfRangePrefix}${action.name}`
-            + `${CREATURE_ACTIONS_BLOCK_LABELS.outOfRangeMiddle}${rangeCheck.distance} ${rangeCheck.unitLabel}${
-              CREATURE_ACTIONS_BLOCK_LABELS.outOfRangeSuffix
-            }`,
-          'text',
+      if (
+        !action.areaOfEffect
+        && targetStore.targetTokenId
+        && props.creatureId
+      ) {
+        const rangeCheck = checkCreatureActionRangeOnScene(
+          action,
+          props.creatureId,
+          targetStore.targetTokenId,
+        );
+
+        if (rangeCheck && !rangeCheck.allowed) {
+          chatStore.sendMessage(
+            `${CREATURE_ACTIONS_BLOCK_LABELS.outOfRangePrefix}${action.name}`
+              + `${CREATURE_ACTIONS_BLOCK_LABELS.outOfRangeMiddle}${rangeCheck.distance} ${rangeCheck.unitLabel}${
+                CREATURE_ACTIONS_BLOCK_LABELS.outOfRangeSuffix
+              }`,
+            'text',
+          );
+
+          return;
+        }
+
+        if (rangeCheck?.disadvantage) {
+          isDisadvantage = true;
+        }
+      }
+
+      // Область: сначала размещаем шаблон у токена существа, затем кидаем урон
+      if (action.areaOfEffect) {
+        const color =
+          SPELL_DAMAGE_TEMPLATE_COLORS[actionPrimaryType(action) ?? '']
+          ?? SPELL_TEMPLATE_DEFAULT_COLOR;
+
+        spellTemplateStore.requestPlacement(
+          action.areaOfEffect,
+          color,
+          props.creatureId,
+          (templateId) =>
+            startActionRoll(action, creature, isDisadvantage, templateId),
+          null,
         );
 
         return;
       }
 
-      if (rangeCheck?.disadvantage) {
-        isDisadvantage = true;
-      }
-    }
-
-    // Область: сначала размещаем шаблон у токена существа, затем кидаем урон
-    if (action.areaOfEffect) {
-      const color =
-        SPELL_DAMAGE_TEMPLATE_COLORS[actionPrimaryType(action) ?? '']
-        ?? SPELL_TEMPLATE_DEFAULT_COLOR;
-
-      spellTemplateStore.requestPlacement(
-        action.areaOfEffect,
-        color,
-        props.creatureId,
-        (templateId) =>
-          startActionRoll(action, creature, isDisadvantage, templateId),
-        null,
-      );
-
-      return;
-    }
-
-    startActionRoll(action, creature, isDisadvantage, undefined);
+      startActionRoll(action, creature, isDisadvantage, undefined);
+    });
   }
 
   /**
@@ -424,7 +443,8 @@
     isDisadvantage: boolean,
     templateId: string | undefined,
   ): void {
-    const usesSaveOrArea = actionHasSave(action) || !!action.areaOfEffect;
+    const usesSaveOrArea =
+      creatureActionHasSave(action) || !!action.areaOfEffect;
 
     const effects = collectActiveEffects(creature);
 
@@ -456,8 +476,20 @@
         ? SPELL_DAMAGE_ROLL_BUTTON
         : CREATURE_ACTION_MENU_LABELS.attack,
       attackModifier: usesSaveOrArea ? undefined : action.attackBonus,
-      initialRollMode: isDisadvantage ? 'disadvantage' : 'normal',
-      incomingAttackType: action.rangeType === 'ranged' ? 'ranged' : 'melee',
+      evaluateBonusRollFormulas: usesSaveOrArea
+        ? undefined
+        : buildRollBonusEvaluator(
+            () => getCreatureEntity() ?? undefined,
+            getAttackBonusKey(action.rangeType),
+          ),
+      initialRollMode: usesSaveOrArea
+        ? 'normal'
+        : resolveTargetedAttackRollMode(
+            creature,
+            getAttackFlagCategory(action.rangeType),
+            { forceDisadvantage: isDisadvantage },
+          ),
+      incomingAttackType: getAttackFlagCategory(action.rangeType),
       damageType: actionPrimaryType(action),
       damageParts: setup.baseParts,
       evaluateBonusDamageParts: setup.evaluateBonusDamageParts,
@@ -527,6 +559,8 @@
     if (templateId) {
       spellTemplateStore.deleteTemplate(templateId);
     }
+
+    applyActionSelfEffects(action, creature.id);
   }
 
   /**
@@ -552,7 +586,11 @@
    * @param action - действие существа
    */
   function canUseAction(action: CreatureAction): boolean {
-    return !props.isReadOnly && !!props.creatureId && hasAttackParams(action);
+    return (
+      !props.isReadOnly
+      && !!props.creatureId
+      && (hasAttackParams(action) || hasActionSelfEffects(action))
+    );
   }
 
   /** Показывать ли кнопку «Атаковать» в модалке просмотра действия */
@@ -628,7 +666,7 @@
       return CREATURE_ROW_ICONS.area;
     }
 
-    if (actionHasSave(action)) {
+    if (creatureActionHasSave(action)) {
       return CREATURE_ROW_ICONS.save;
     }
 
@@ -687,7 +725,7 @@
     const stats: SheetRowStat[] = [];
     const rollable = canUseAction(action);
 
-    if (actionHasSave(action) && action.saveType) {
+    if (creatureActionHasSave(action) && action.saveType) {
       stats.push({
         key: 'save',
         label: CREATURE_ROW_STAT_LABELS.save,
@@ -744,7 +782,7 @@
     if (canUseAction(action)) {
       groups.push([
         {
-          label: actionHasSave(action)
+          label: creatureActionHasSave(action)
             ? CREATURE_ACTION_MENU_LABELS.use
             : CREATURE_ACTION_MENU_LABELS.attack,
           icon: 'tabler:swords',
@@ -893,12 +931,11 @@
 
     <!-- Преамбула раздела: стоит под заголовком, а не в первой записи, —
       она объясняет весь раздел, а не одно действие -->
-    <p
+    <ItemDescriptionRenderer
       v-if="sectionDescription"
+      :content="sectionDescription"
       class="mb-2 text-xs wrap-break-word text-dimmed"
-    >
-      {{ sectionDescription }}
-    </p>
+    />
 
     <!-- Список записей. У особенности боевых чисел нет — ей достаётся плашка
       вместо карточки, как и особенностям листа персонажа -->
@@ -949,6 +986,7 @@
       :title="rollConfig.title"
       :roll-label="rollConfig.name"
       :attack-modifier="rollConfig.attackModifier"
+      :evaluate-bonus-roll-formulas="rollConfig.evaluateBonusRollFormulas"
       :initial-roll-mode="rollConfig.initialRollMode"
       :incoming-attack-type="rollConfig.incomingAttackType"
       :damage-type="rollConfig.damageType"
@@ -958,6 +996,7 @@
       :on-roll-parts="rollConfig.onRollParts"
       :on-hit="rollConfig.onHit"
       :on-cancel="rollConfig.onCancel"
+      :attacker-id="creatureId"
     />
 
     <!-- Модалка просмотра действия -->

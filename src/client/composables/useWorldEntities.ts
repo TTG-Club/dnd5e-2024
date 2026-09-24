@@ -12,9 +12,11 @@
  */
 
 import type { SceneEntity } from '@vtt/shared';
+import type { DnDSceneEntity } from '@vtt/shared/system/dnd.js';
 
 import { collectWorldEntities, findEntityInWorld } from '@/core/entityUtils';
 import { useWorldStore } from '@/stores/worldStore';
+import { isDndSceneEntity } from '@vtt/shared/system/dnd.js';
 
 /**
  * Доступ к сущностям текущего мира — актёрам и существам одним списком.
@@ -48,5 +50,25 @@ export function useWorldEntities() {
     return findEntityInWorld(worldStore.currentWorld, entityId);
   }
 
-  return { findCurrentWorldEntity, getCurrentWorldEntities };
+  /**
+   * Ищет сущность текущего мира с данными системы: участник броска читается
+   * живым — эффекты могли измениться, пока окно открыто, а удалённая сущность
+   * не должна оставлять старый бонус.
+   *
+   * @param entityId - идентификатор сущности
+   * @returns D&D-сущность либо `undefined`
+   */
+  function findCurrentDndEntity(
+    entityId: string | null | undefined,
+  ): DnDSceneEntity | undefined {
+    const entity = findCurrentWorldEntity(entityId);
+
+    return entity && isDndSceneEntity(entity) ? entity : undefined;
+  }
+
+  return {
+    findCurrentDndEntity,
+    findCurrentWorldEntity,
+    getCurrentWorldEntities,
+  };
 }

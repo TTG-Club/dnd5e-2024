@@ -20,7 +20,9 @@ import type {
   ActiveEffect,
   EffectChange,
   EffectDuration,
+  EffectSave,
 } from './activeEffectTypes.js';
+import type { HealKind } from './formulaTokens.js';
 
 import {
   AREA_TRIGGER_LABELS,
@@ -30,11 +32,23 @@ import {
   EFFECT_DURATION_LABELS,
   EFFECT_FLAG_LABELS,
   EFFECT_TARGET_SUGGESTIONS,
+  isUseActivatedEffect,
   splitConditionParts,
 } from './activeEffectTypes.js';
 import { getConditionEntry } from './conditionTemplates.js';
-import { ABILITY_LABELS } from './consts.js';
+import { ABILITY_LABELS, FORMULA_VARIABLE_LABELS } from './consts.js';
 import { getShortDamageTypeLabel } from './damageConstants.js';
+import { isDiceFormulaValue } from './effectPipeline.js';
+import { renderReadableFormula } from './formulaParser.js';
+import {
+  detectFormulaDamageType,
+  detectFormulaHealKind,
+  hasDamageTypeToken,
+  hasHealToken,
+  hasTargetToken,
+  stripDamageTypeTokens,
+  stripHealTokens,
+} from './formulaTokens.js';
 
 /** Подпись ключа модификатора (`armorClass` → «Класс доспеха (AC)»). */
 const TARGET_LABELS = new Map(
@@ -60,28 +74,34 @@ const AURA_TARGET_LABELS: Record<'allies' | 'enemies' | 'all', string> = {
   all: 'все существа',
 };
 
-/** Короткие подписи @-токенов в формулах значений модификаторов. */
-const VALUE_TOKEN_LABELS: Record<string, string> = {
-  '@mod.spell': 'мод. закл. характеристики',
-  '@mod.str': 'мод. Силы',
-  '@mod.dex': 'мод. Ловкости',
-  '@mod.con': 'мод. Телосложения',
-  '@mod.int': 'мод. Интеллекта',
-  '@mod.wis': 'мод. Мудрости',
-  '@mod.cha': 'мод. Харизмы',
-  '@prof': 'бонус мастерства',
-  '@level': 'уровень',
-  '@classLevel': 'уровень в классе',
-  '@speed.walk': 'скорость ходьбы',
-  '@speed.fly': 'скорость полёта',
-  '@speed.swim': 'скорость плавания',
-  '@speed.climb': 'скорость лазания',
-  '@speed.burrow': 'скорость копания',
-};
-
-/** Русское название состояния по ключу (неизвестный ключ отдаётся как есть). */
-function conditionLabel(conditionKey: string): string {
+/**
+ * Русское название состояния по ключу — канонного или заведённого в мире.
+ *
+ * @param conditionKey - ключ состояния
+ * @returns название; незнакомый ключ отдаётся как есть
+ */
+export function describeConditionName(conditionKey: string): string {
   return getConditionEntry(conditionKey)?.nameRu ?? conditionKey;
+}
+
+/**
+ * Подпись ключа модификатора (`armorClass` → «Класс доспеха (AC)»).
+ *
+ * @param key - ключ строки модификатора
+ * @returns подпись; незнакомый ключ отдаётся как есть
+ */
+export function describeEffectChangeKey(key: string): string {
+  return TARGET_LABELS.get(key) ?? key;
+}
+
+/**
+ * Подпись флага эффекта (`attack.disadvantage` → «Помеха на все атаки»).
+ *
+ * @param flag - ключ флага
+ * @returns подпись; незнакомый флаг отдаётся как есть
+ */
+export function describeEffectFlag(flag: string): string {
+  return FLAG_LABELS.get(flag) ?? flag;
 }
 
 /** Русская плюрализация: pluralize(2, ['раунд', 'раунда', 'раундов']). */
@@ -104,8 +124,13 @@ function pluralize(count: number, forms: [string, string, string]): string {
   return forms[2];
 }
 
-/** Заглавная первая буква — строки собираются из разных источников. */
-function capitalize(text: string): string {
+/**
+ * Заглавная первая буква — строки собираются из разных источников.
+ *
+ * @param text - строка
+ * @returns строка с заглавной первой буквой
+ */
+export function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
@@ -114,17 +139,71 @@ function isNumeric(value: string): boolean {
   return /^[+-]?\d+(?:\.\d+)?$/.test(value.trim());
 }
 
-/** Подпись Сл спасброска: `0` у спелловых эффектов = «Сл заклинателя». */
-function formatSaveDc(dc: number): string {
+/**
+ * Подпись Сл спасброска: `0` у эффектов заклинаний и действий — «Сл
+ * заклинателя».
+ *
+ * @param dc - сложность из эффекта
+ * @returns подпись сложности
+ */
+export function formatEffectSaveDc(dc: number): string {
   return dc === 0 ? 'Сл заклинателя' : `Сл ${dc}`;
 }
 
-/** Заменяет @-токены формулы на короткие русские подписи. */
+/** Что даёт успешный спасбросок против урона каждый ход */
+const RECURRING_DAMAGE_SAVE_SUCCESS_LABELS: Record<
+  EffectSave['onSuccess'],
+  string
+> = {
+  negate: 'при успехе без урона',
+  half: 'при успехе урон вдвое',
+};
+
+/**
+ * Подпись спасброска против урона каждый ход: «спасбросок (Телосложение,
+ * Сл 13), при успехе без урона».
+ *
+ * @param save - спасбросок против урона
+ * @returns подпись
+ */
+export function describeRecurringDamageSave(save: EffectSave): string {
+  return `спасбросок (${ABILITY_LABELS[save.ability]}, ${formatEffectSaveDc(save.dc)}), ${RECURRING_DAMAGE_SAVE_SUCCESS_LABELS[save.onSuccess]}`;
+}
+
+/**
+ * Подпись переменной формулы (`@prof` → «бонус мастерства»).
+ *
+ * @param token - переменная с `@`
+ * @returns подпись; незнакомая переменная отдаётся как есть
+ */
+function labelFormulaVariable(token: string): string {
+  return FORMULA_VARIABLE_LABELS[token] ?? token;
+}
+
+/**
+ * Формула словами. Чистая арифметика разбирается парсером — функции
+ * `floor`/`min` читаются словами, а не кодом; формула с токенами урона
+ * описывается как часть урона; кости с переменными — заменой токенов.
+ *
+ * @param value - формула
+ * @returns читаемая запись
+ */
 function prettifyFormula(value: string): string {
-  return value.replace(
-    /@[a-z.]+/gi,
-    (token) => VALUE_TOKEN_LABELS[token] ?? token,
-  );
+  const readable = renderReadableFormula(value, labelFormulaVariable);
+
+  if (readable !== null) {
+    return readable;
+  }
+
+  if (
+    hasDamageTypeToken(value)
+    || hasHealToken(value)
+    || hasTargetToken(value)
+  ) {
+    return describeEffectDamageParts([{ formula: value }]);
+  }
+
+  return value.replace(/@[a-z.]+/gi, labelFormulaVariable);
 }
 
 /**
@@ -149,7 +228,12 @@ export function describeChangeValue(change: EffectChange): string {
       return `${sign}${Math.abs(numeric)}${unit}`;
     }
 
-    return `+${prettifyFormula(change.value)}${unit}`;
+    // Вычитаемая кость («−1к4» к броску) читается минусом, а не «+-1к4»
+    const formula = change.value.trim();
+
+    return formula.startsWith('-')
+      ? `−${prettifyFormula(formula.slice(1).trim())}${unit}`
+      : `+${prettifyFormula(formula)}${unit}`;
   }
 
   if (change.mode === 'multiply') {
@@ -161,9 +245,38 @@ export function describeChangeValue(change: EffectChange): string {
   return `${modeLabel} ${prettifyFormula(change.value)}${unit}`;
 }
 
-/** Описывает один модификатор: «Класс доспеха (AC) +5 (только: …)». */
-function describeChange(change: EffectChange): string {
-  const keyLabel = TARGET_LABELS.get(change.key) ?? change.key;
+/**
+ * Расшифровка значения строки для подписи под полем: «Значение: +2 + (уровень
+ * в классе / 4, с округлением вниз)». Число или кость и так понятны — для них
+ * пустая строка, чтобы подпись не повторяла поле.
+ *
+ * @param change - строка модификатора
+ * @returns расшифровка либо пустая строка
+ */
+export function describeEffectChangeValueHint(change: EffectChange): string {
+  const value = change.value.trim();
+
+  // Число и кость без переменных понятны и так — подпись повторила бы поле
+  const isSelfExplanatory =
+    value === ''
+    || isNumeric(value)
+    || (isDiceFormulaValue(value) && !value.includes('@'));
+
+  if (isSelfExplanatory) {
+    return '';
+  }
+
+  return describeChangeValue(change);
+}
+
+/**
+ * Описывает один модификатор: «Класс доспеха (AC) +5 (только: …)».
+ *
+ * @param change - строка модификатора эффекта
+ * @returns подпись модификатора с условием
+ */
+export function describeEffectChange(change: EffectChange): string {
+  const keyLabel = describeEffectChangeKey(change.key);
   const base = `${keyLabel} ${describeChangeValue(change)}`;
 
   const condition = change.condition?.trim();
@@ -172,7 +285,7 @@ function describeChange(change: EffectChange): string {
     return base;
   }
 
-  return `${base} (только: ${describeCondition(condition)})`;
+  return `${base} (только: ${describeEffectChangeCondition(condition)})`;
 }
 
 /**
@@ -183,7 +296,7 @@ function describeChange(change: EffectChange): string {
  * @param condition - строка условия
  * @returns человекочитаемая подпись
  */
-function describeCondition(condition: string): string {
+export function describeEffectChangeCondition(condition: string): string {
   return splitConditionParts(condition)
     .map((part) => CONDITION_LABELS.get(part) ?? part)
     .join(' и ');
@@ -195,21 +308,32 @@ const DAMAGE_TARGET_LABELS: Record<string, string> = {
   notFull: 'по раненой цели',
 };
 
+/** Подписи лечения в описании части: `@heal` и `@heal.temp` */
+const HEAL_KIND_LABELS: Record<HealKind, string> = {
+  hp: 'лечения',
+  temp: 'временных хитов',
+};
+
 /**
- * Описывает части урона: «2к8 ядом + 1к6 огненный». Разбирает токены формулы
- * `@dmg.<тип>` (тип урона) и `@target.<условие>` (условие по цели), очищая их из
- * отображаемой формулы, чтобы в описании не торчали сырые токены.
+ * Описывает части урона: «2к8 ядом + 1к6 огненный», «10 лечения». Разбирает
+ * токены формулы `@dmg.<тип>` (тип урона), `@heal` (лечение) и
+ * `@target.<условие>` (условие по цели), очищая их из отображаемой формулы,
+ * чтобы в описании не торчали сырые токены.
+ *
+ * @param parts - части урона эффекта
+ * @returns подпись урона; пустая строка, если формул нет
  */
-function describeDamageParts(parts: DamagePart[]): string {
+export function describeEffectDamageParts(parts: DamagePart[]): string {
   return parts
     .filter((part) => part.formula?.trim())
     .map((part) => {
       const formula = part.formula.trim();
 
       // Тип урона: из поля type либо из токена @dmg.<type> в формуле
-      const damageToken = formula.match(/@dmg\.([a-z]+)/i);
-      const typeKey = part.type ?? damageToken?.[1];
+      const typeKey = part.type ?? detectFormulaDamageType(formula);
       const typeLabel = typeKey ? ` ${getShortDamageTypeLabel(typeKey)}` : '';
+      const healKind = detectFormulaHealKind(formula);
+      const healLabel = healKind ? ` ${HEAL_KIND_LABELS[healKind]}` : '';
 
       // Условие по цели: токен @target.<cond>
       const targetToken = formula.match(/@target\.(\w+)/);
@@ -220,19 +344,25 @@ function describeDamageParts(parts: DamagePart[]): string {
 
       // Чистим формулу от токенов и подставляем подписи @mod.* / @prof / @level
       const cleanFormula = prettifyFormula(
-        formula
-          .replace(/@dmg\.[a-z]+/gi, '')
+        stripDamageTypeTokens(stripHealTokens(formula))
           .replace(/@target\.\w+/gi, '')
           .trim(),
       );
 
-      return `${cleanFormula}${typeLabel}${targetLabel}`;
+      return `${cleanFormula}${typeLabel}${healLabel}${targetLabel}`;
     })
     .join(' + ');
 }
 
-/** Описывает длительность: «на 1 раунд», «постоянно». */
-function describeDuration(duration: EffectDuration): string | null {
+/**
+ * Описывает длительность: «на 1 раунд», «постоянно».
+ *
+ * @param duration - длительность эффекта
+ * @returns подпись либо `null`, если сказать нечего («особое», пустое число)
+ */
+export function describeEffectDuration(
+  duration: EffectDuration,
+): string | null {
   switch (duration.type) {
     case 'permanent':
       return 'постоянно';
@@ -284,7 +414,7 @@ export function describeActiveEffect(effect: ActiveEffect): string {
   // 1. Числовые модификаторы
   for (const change of effect.changes) {
     if (change.value?.trim()) {
-      clauses.push(describeChange(change));
+      clauses.push(describeEffectChange(change));
     }
   }
 
@@ -312,13 +442,13 @@ export function describeActiveEffect(effect: ActiveEffect): string {
         : 'при успехе эффект отменяется';
 
     clauses.push(
-      `спасбросок (${ability}, ${formatSaveDc(effect.applySave.dc)}), ${onSuccess}`,
+      `спасбросок (${ability}, ${formatEffectSaveDc(effect.applySave.dc)}), ${onSuccess}`,
     );
   }
 
   // 5. Урон при наложении
   if (effect.damageParts && effect.damageParts.length > 0) {
-    const damage = describeDamageParts(effect.damageParts);
+    const damage = describeEffectDamageParts(effect.damageParts);
 
     if (damage) {
       clauses.push(`урон при наложении: ${damage}`);
@@ -327,7 +457,9 @@ export function describeActiveEffect(effect: ActiveEffect): string {
 
   // 6. Периодический урон (DoT)
   if (effect.recurringDamage && effect.recurringDamage.damageParts.length > 0) {
-    const damage = describeDamageParts(effect.recurringDamage.damageParts);
+    const damage = describeEffectDamageParts(
+      effect.recurringDamage.damageParts,
+    );
 
     const timing =
       effect.recurringDamage.timing === 'startOfTurn'
@@ -335,7 +467,11 @@ export function describeActiveEffect(effect: ActiveEffect): string {
         : 'в конце хода';
 
     if (damage) {
-      clauses.push(`урон каждый ход (${timing}): ${damage}`);
+      const save = effect.recurringDamage.save
+        ? `; ${describeRecurringDamageSave(effect.recurringDamage.save)}`
+        : '';
+
+      clauses.push(`урон каждый ход (${timing}): ${damage}${save}`);
     }
   }
 
@@ -349,7 +485,7 @@ export function describeActiveEffect(effect: ActiveEffect): string {
         : 'в конце хода';
 
     clauses.push(
-      `повторный спасбросок (${ability}, ${formatSaveDc(effect.recurringSave.dc)}) ${timing} снимает эффект`,
+      `повторный спасбросок (${ability}, ${formatEffectSaveDc(effect.recurringSave.dc)}) ${timing} снимает эффект`,
     );
   }
 
@@ -367,7 +503,9 @@ export function describeActiveEffect(effect: ActiveEffect): string {
 
   // 10. Иммунитет к состояниям
   if (effect.conditionImmunities && effect.conditionImmunities.length > 0) {
-    const names = effect.conditionImmunities.map(conditionLabel).join(', ');
+    const names = effect.conditionImmunities
+      .map(describeConditionName)
+      .join(', ');
 
     clauses.push(`иммунитет к состояниям: ${names}`);
   }
@@ -383,7 +521,7 @@ export function describeActiveEffect(effect: ActiveEffect): string {
   }
 
   // 13. Длительность (добавляем в конце, если есть что описывать)
-  const duration = describeDuration(effect.duration);
+  const duration = describeEffectDuration(effect.duration);
 
   if (duration && clauses.length > 0) {
     clauses.push(duration);
@@ -456,6 +594,14 @@ const DETAIL_SECTION_TITLES: Record<ActiveEffectDetailSectionKey, string> = {
  */
 const EFFECT_TARGET_DETAIL_LABELS = {
   target: 'Накладывается на цель при попадании атакой',
+  /** Применяемый эффект ложится на цель не ударом, а применением */
+  usedOnTarget: 'Копия ложится на выбранную цель',
+} as const;
+
+/** Как эффект начинает действовать: применение или переключатель */
+const EFFECT_ACTIVATION_DETAIL_LABELS = {
+  use: 'Сам не действует — только при применении',
+  toggle: 'Включается переключателем',
 } as const;
 
 /**
@@ -466,10 +612,16 @@ const EFFECT_TARGET_DETAIL_LABELS = {
  */
 function durationLines(duration: EffectDuration): string[] {
   const lines = [
-    describeDuration(duration) ?? EFFECT_DURATION_LABELS[duration.type],
+    describeEffectDuration(duration) ?? EFFECT_DURATION_LABELS[duration.type],
   ];
 
-  if (duration.type === 'rounds' && duration.remaining !== undefined) {
+  // Остаток минут и часов тоже в раундах: в бою они тикают раундами
+  if (
+    (duration.type === 'rounds'
+      || duration.type === 'minutes'
+      || duration.type === 'hours')
+    && duration.remaining !== undefined
+  ) {
     lines.push(
       `осталось ${duration.remaining} ${pluralize(duration.remaining, [
         'раунд',
@@ -495,7 +647,7 @@ function applySaveLines(effect: ActiveEffect): string[] {
         : 'при успехе эффект отменяется';
 
     lines.push(
-      `${ability}, ${formatSaveDc(effect.applySave.dc)} — ${onSuccess}`,
+      `${ability}, ${formatEffectSaveDc(effect.applySave.dc)} — ${onSuccess}`,
     );
   }
 
@@ -542,8 +694,16 @@ function auraLines(effect: ActiveEffect): string[] {
 function applicationLines(effect: ActiveEffect): string[] {
   const lines: string[] = [];
 
+  if (effect.activation) {
+    lines.push(EFFECT_ACTIVATION_DETAIL_LABELS[effect.activation.mode]);
+  }
+
   if (effect.effectTarget === 'target') {
-    lines.push(EFFECT_TARGET_DETAIL_LABELS.target);
+    lines.push(
+      isUseActivatedEffect(effect)
+        ? EFFECT_TARGET_DETAIL_LABELS.usedOnTarget
+        : EFFECT_TARGET_DETAIL_LABELS.target,
+    );
   }
 
   if (effect.transfer) {
@@ -584,7 +744,7 @@ export function buildActiveEffectDetails(
       key: 'changes',
       lines: effect.changes
         .filter((change) => change.value?.trim())
-        .map(describeChange),
+        .map(describeEffectChange),
     },
     {
       key: 'flags',
@@ -593,29 +753,32 @@ export function buildActiveEffectDetails(
     {
       key: 'condition',
       lines: effect.conditionKey
-        ? [`${conditionLabel(effect.conditionKey)}${exhaustionSuffix}`]
+        ? [`${describeConditionName(effect.conditionKey)}${exhaustionSuffix}`]
         : [],
     },
     {
       key: 'conditionImmunities',
-      lines: (effect.conditionImmunities ?? []).map(conditionLabel),
+      lines: (effect.conditionImmunities ?? []).map(describeConditionName),
     },
     { key: 'applySave', lines: applySaveLines(effect) },
     {
       key: 'damage',
       lines: effect.damageParts?.length
-        ? [describeDamageParts(effect.damageParts)].filter(Boolean)
+        ? [describeEffectDamageParts(effect.damageParts)].filter(Boolean)
         : [],
     },
     {
       key: 'recurringDamage',
       lines: effect.recurringDamage?.damageParts.length
         ? [
-            `${describeDamageParts(effect.recurringDamage.damageParts)} — ${
+            `${describeEffectDamageParts(effect.recurringDamage.damageParts)} — ${
               effect.recurringDamage.timing === 'startOfTurn'
                 ? 'в начале хода'
                 : 'в конце хода'
             }`,
+            ...(effect.recurringDamage.save
+              ? [describeRecurringDamageSave(effect.recurringDamage.save)]
+              : []),
           ]
         : [],
     },
@@ -623,7 +786,7 @@ export function buildActiveEffectDetails(
       key: 'recurringSave',
       lines: effect.recurringSave
         ? [
-            `${ABILITY_LABELS[effect.recurringSave.ability]}, ${formatSaveDc(
+            `${ABILITY_LABELS[effect.recurringSave.ability]}, ${formatEffectSaveDc(
               effect.recurringSave.dc,
             )} ${
               effect.recurringSave.timing === 'startOfTurn'

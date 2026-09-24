@@ -3,9 +3,9 @@
 
   import { computed } from 'vue';
 
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { describeDamagePart } from '@vtt/shared/system/dnd.js';
 
+  import { useSystemDataStore } from '../../stores/systemDataStore';
   import { DAMAGE_PART_LABELS } from './constants';
 
   const props = defineProps<{

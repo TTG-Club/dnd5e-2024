@@ -19,6 +19,7 @@
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { ActorSubclassBadgeEntry } from './ActorHeader.vue';
   import type { PickedDefinition } from './CompendiumPickerModal.vue';
   import type { MissingSheetSectionKey } from './constants';
   import type { AppliedFeatFeature } from './feat/featApply';
@@ -35,7 +36,6 @@
   import { Z_INDEX } from '@/shared_ui/consts';
   import { useItemsStore } from '@/stores/itemsStore';
   import { useWorldStore } from '@/stores/worldStore';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { generateId, isEntityOwner, isRecord } from '@vtt/shared';
   import {
     appendGrantedSpells,
@@ -47,6 +47,7 @@
     collectClassCounterDefinitions,
     collectFeatsAwaitingLeveledChoices,
     collectRechoosableFeats,
+    collectSpeciesFeatDataSources,
     computeSpeciesDarkvision,
     computeSpeciesMovement,
     DEFAULT_ACTOR,
@@ -55,11 +56,13 @@
     isClassDefinition,
     isDndActor,
     isDnDGameItem,
+    isSameCounterList,
     isSkillType,
     isSpell,
     normalizeActor,
     normalizeCompendiumItem,
     refreshFeatCounters,
+    refreshSpeciesCounters,
     removeGrantedSpellsByFeatureNames,
     resolveEntityMaxHp,
     resolveFeatChoicesToAsk,
@@ -69,6 +72,7 @@
   import { useCompendiumCatalog } from '../../composables/useCompendiumCatalog';
   import { useItemTransfer } from '../../composables/useItemTransfer';
   import { useSheetMinimize } from '../../composables/useSheetMinimize';
+  import { useSystemDataStore } from '../../stores/systemDataStore';
   import { withoutEntityOwnership } from '../entity-ownership/utils';
   import ActorCenterPanel from './ActorCenterPanel.vue';
   import ActorHeader from './ActorHeader.vue';
@@ -348,7 +352,7 @@
   // Вкладка умений берёт варианты особенностей из стора — держим его в такте
   watch(
     speciesDefinitions,
-    (definitions) => systemDataStore.setSpeciesDefinitions(definitions),
+    (definitions) => systemDataStore.rememberSpeciesDefinitions(definitions),
     { immediate: true },
   );
 
@@ -504,6 +508,43 @@
         classDef,
         classEntry.subclassKey,
       ).filter((counter) => classEntry.level >= counter.startLevel);
+    });
+  });
+
+  /**
+   * Выбранные подклассы для значка в шапке. На записи актора лежит только
+   * ключ подкласса, название берётся из определения класса. Подкласс, которого
+   * в каталоге нет (каталог ещё грузится или запись удалили), не показывается:
+   * голый ключ игроку ничего не скажет.
+   */
+  const subclassBadgeEntries = computed((): ActorSubclassBadgeEntry[] => {
+    const classes = localActor.value?.system.classes ?? [];
+
+    return classes.flatMap((classEntry) => {
+      if (!classEntry.subclassKey) {
+        return [];
+      }
+
+      const classDef = classCatalog.resolve({
+        key: classEntry.classKey,
+        packId: classEntry.packId,
+      });
+
+      const subclass = classDef?.subclasses.find(
+        (entry) => entry.key === classEntry.subclassKey,
+      );
+
+      if (!subclass) {
+        return [];
+      }
+
+      return [
+        {
+          classKey: classEntry.classKey,
+          className: classEntry.className,
+          subclassName: subclass.name,
+        },
+      ];
     });
   });
 
@@ -2248,9 +2289,10 @@
   }
 
   /**
-   * Пересчитывает уровне-зависимые дары вида (скорость, тёмное зрение) под
-   * текущий суммарный уровень персонажа и выбранный подвид. Особенности-списком
-   * не трогаем — лист показывает их по достижении уровня (фильтр по level).
+   * Пересчитывает уровне-зависимые дары вида (скорость, тёмное зрение, ресурсы)
+   * под текущий суммарный уровень персонажа и выбранный подвид.
+   * Особенности-списком не трогаем — лист показывает их по достижении уровня
+   * (фильтр по level).
    */
   function recomputeSpeciesLeveledGrants(): void {
     const actorData = localActor.value;
@@ -2316,6 +2358,28 @@
       changed = true;
     }
 
+    // Ресурсы вида: «Скороход» лесного эльфа появляется на 3 уровне, а ресурс
+    // умения со своим уровнем — вместе с умением. Источники берутся из записи
+    // вида, как у мастера: на особенностях листа даров вида нет
+    const counters = actorData.system.classCounters;
+
+    const refreshedCounters = refreshSpeciesCounters(
+      actorData,
+      counters,
+      collectSpeciesFeatDataSources(
+        definition,
+        totalLevel,
+        chosenSubspecies,
+        subspecies,
+      ),
+      speciesEntry.featDataChoices,
+    );
+
+    if (!isSameCounterList(counters, refreshedCounters)) {
+      actorData.system.classCounters = refreshedCounters;
+      changed = true;
+    }
+
     if (changed) {
       isDirty.value = true;
       handleImmediateSave();
@@ -2323,7 +2387,8 @@
   }
 
   // Дары вида по уровням: при повышении суммарного уровня (через мастер класса)
-  // или смене выбранного подвида пересчитываем скорость/тёмное зрение. Сигнатура
+  // или смене выбранного подвида пересчитываем скорость/тёмное зрение/ресурсы.
+  // Ресурсы в сигнатуру не входят, поэтому их пересчёт её не трогает. Сигнатура
   // строкой, чтобы watcher срабатывал только на реальные изменения и не зациклил
   // сам себя (пересчёт даёт те же значения → сигнатура не меняется).
   watch(
@@ -2440,8 +2505,8 @@
           :is-edit-mode="isEditMode"
           :is-creating="!actorId && !isCreated"
           :can-edit="canEdit"
-          :is-admin="isAdmin"
           :world-port="worldPort"
+          :subclass-entries="subclassBadgeEntries"
           @update:actor="handleActorUpdate"
           @toggle-edit-mode="toggleEditMode"
           @open-settings="openSettings"

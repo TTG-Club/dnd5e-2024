@@ -6,18 +6,19 @@
   import { computed, toRef } from 'vue';
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { DISTANCE_UNIT_SHORT } from '@vtt/shared';
   import {
     describeWeaponAttack,
     describeWeaponDamage,
+    formatDiceLetters,
     getWeaponDamageParts,
     sumWeaponModifierParts,
     WEAPON_MASTERY_MAP,
+    withLoadedAmmunition,
   } from '@vtt/shared/system/dnd.js';
 
   import { useResolvedStats } from '../../composables/useResolvedStats';
-  import { DICE_LETTER_REPLACEMENT } from '../chat/consts';
+  import { useSystemDataStore } from '../../stores/systemDataStore';
   import {
     COPY_TO_ITEMS_LABEL,
     FORM_FIELD_LABELS,
@@ -73,24 +74,31 @@
     props.item ? getWeaponDamageParts(props.item) : [],
   );
 
-  /** Versatile-формула первой части (двуручный хват), если задана */
-  const versatileFormula = computed(
-    () => props.item?.damageParts?.[0]?.versatileFormula,
-  );
+  /**
+   * Versatile-формула первой части (двуручный хват) для показа: кости
+   * по-русски («1d10» → «1к10»). Пустая строка — хват не задан.
+   */
+  const versatileLabel = computed(() => {
+    const formula = props.item?.damageParts?.[0]?.versatileFormula;
+
+    return formula ? formatDiceLetters(formula) : '';
+  });
 
   const { resolvedStats } = useResolvedStats(toRef(() => props.actor));
 
   /**
-   * Разбор атаки и урона для владельца: итог со знаком и слагаемые строкой.
-   * Без владельца — `null`, и карточка показывает бонус самого оружия.
+   * Разбор атаки и урона для владельца: итог со знаком и слагаемые строкой —
+   * как у выстрела, с бонусом заряженного боеприпаса. Без владельца — `null`,
+   * и карточка показывает бонус самого оружия.
    */
   const ownerModifiers = computed(() => {
     const actor = props.actor;
-    const weapon = props.item;
 
-    if (!actor || !weapon) {
+    if (!actor || !props.item) {
       return null;
     }
+
+    const weapon = withLoadedAmmunition(actor.equipment ?? [], props.item);
 
     const attackParts = describeWeaponAttack(
       actor,
@@ -256,17 +264,14 @@
                 </div>
 
                 <!-- Универсальное -->
-                <div v-if="versatileFormula">
+                <div v-if="versatileLabel">
                   <span class="text-xs text-dimmed">{{
                     WEAPON_DETAIL_LABELS.versatile
                   }}</span>
 
                   <p class="flex items-center gap-1.5 text-highlighted">
                     <span class="font-mono font-semibold">{{
-                      versatileFormula.replace(
-                        /(\d+)d(\d+)/gi,
-                        DICE_LETTER_REPLACEMENT,
-                      )
+                      versatileLabel
                     }}</span>
                   </p>
                 </div>

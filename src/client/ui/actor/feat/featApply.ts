@@ -25,10 +25,6 @@ import type {
 import { generateEntityId } from '@/core/entityUtils';
 import { useItemsStore } from '@/stores/itemsStore';
 import {
-  extractWorldSpells,
-  loadSpellPacks,
-} from '@/systems/dnd5e/composables/spellCompendium';
-import {
   appendGrantedSpells,
   applyFeatChoiceSelections,
   applyFeatDataProficiencies,
@@ -51,6 +47,11 @@ import {
   WORLD_PACK_ID,
 } from '@vtt/shared/system/dnd.js';
 
+import {
+  extractWorldSpells,
+  loadSpellPacks,
+} from '../../../composables/spellCompendium';
+
 /**
  * Особенность-черта, несущая дары для применения/отката. Базовый `Feature`
  * (`@vtt/shared`) намеренно не знает о `system/dnd` (иначе циклическая
@@ -61,6 +62,13 @@ import {
 export interface AppliedFeatFeature extends Feature, AppliedFeatMeta {
   featData?: FeatData;
   activeEffects?: ActiveEffect[];
+  /**
+   * Id эффектов, которые умение класса поставило на лист. По ним строка
+   * особенности находит свой эффект — «Ярость» включается с панели быстрого
+   * доступа. Эффекты лежат в общем списке листа, и без этой ссылки строка о
+   * них не знает.
+   */
+  effectIds?: string[];
 }
 
 /**

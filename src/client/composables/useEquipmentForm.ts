@@ -1,4 +1,5 @@
 import type {
+  AmmunitionType,
   EquipmentCategory,
   EquipmentCategoryDefinition,
   ItemRarity,
@@ -12,7 +13,6 @@ import type {
 
 import { computed, ref, watch } from 'vue';
 
-import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 import {
   DEFAULT_CURRENCY,
   FALLBACK_SOURCE_KEY,
@@ -20,6 +20,7 @@ import {
   parseCost,
 } from '@vtt/shared/system/dnd.js';
 
+import { useSystemDataStore } from '../stores/systemDataStore';
 import { useItemUsesForm } from './useItemUsesForm';
 
 /**
@@ -70,6 +71,11 @@ export function useEquipmentForm(
   const rarity = ref<ItemRarity>('none');
   const activeEffects = ref<ActiveEffect[]>([]);
   const itemUses = useItemUsesForm();
+  const consumable = ref(false);
+
+  // Тип боеприпаса формой не правится: он нужен лишь автоподбору стрел из
+  // компендиума и сохраняется как пришёл
+  const ammunitionType = ref<AmmunitionType | undefined>(undefined);
 
   /**
    * Помеха скрытности — вычисляемое на основе selectedEquipmentProperties
@@ -287,6 +293,8 @@ export function useEquipmentForm(
         );
 
         itemUses.loadItemUses(armor.uses);
+        consumable.value = armor.consumable ?? false;
+        ammunitionType.value = armor.ammunitionType;
       } else {
         // Дефолты для создания
         name.value = '';
@@ -322,6 +330,8 @@ export function useEquipmentForm(
         rarity.value = 'none';
         activeEffects.value = [];
         itemUses.resetItemUses();
+        consumable.value = false;
+        ammunitionType.value = undefined;
       }
     },
     { immediate: true },
@@ -340,7 +350,8 @@ export function useEquipmentForm(
       nameEn: nameEn.value.trim() || undefined,
       description: description.value,
       type: 'equipment',
-      quantity: 1,
+      // Стопка зелий и стрел не должна сбрасываться правкой записи
+      quantity: armor?.quantity ?? 1,
       weight: weight.value,
       cost:
         costValue.value > 0
@@ -370,6 +381,8 @@ export function useEquipmentForm(
       magicBonus:
         isMagical.value && magicBonus.value > 0 ? magicBonus.value : undefined,
       uses: itemUses.buildItemUses(),
+      consumable: consumable.value || undefined,
+      ammunitionType: ammunitionType.value,
       activeEffects:
         activeEffects.value.length > 0 ? activeEffects.value : undefined,
     };
@@ -400,6 +413,7 @@ export function useEquipmentForm(
     magicBonus,
     rarity,
     activeEffects,
+    consumable,
     ...itemUses,
 
     // Computed

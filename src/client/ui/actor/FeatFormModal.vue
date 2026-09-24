@@ -14,13 +14,13 @@
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
+
   import {
     buildSpellLinkIndex,
     findSpellInPacks,
     linkGrantedSpellGroups,
     loadSpellPacks,
-  } from '@/systems/dnd5e/composables/spellCompendium';
-
+  } from '../../composables/spellCompendium';
   import {
     FEAT_FORM_LABELS,
     FEAT_GRANTS_LABELS,
@@ -443,7 +443,6 @@
               ref="effectRows"
               v-model="effects"
               modal-id="feat-effect-form-modal"
-              hide-aura
             />
           </FormSection>
         </template>

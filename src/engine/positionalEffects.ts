@@ -10,20 +10,83 @@
  * файл напрямую — см. `docs/MULTI_SYSTEM_ARCHITECTURE.md`, Фаза 0 (§0.4).
  */
 
-import type { CustomArea, GridSettings, Token } from '@vtt/shared';
+import type {
+  CustomArea,
+  GridSettings,
+  ServerRollRequester,
+  SystemSceneSurroundings,
+  Token,
+} from '@vtt/shared';
 
+import type { ActiveEffect } from './activeEffectTypes.js';
 import type { AuraSourceToken, TriggerAuraHit } from './auraMath.js';
+import type { EngineDeferredTrigger } from './deferredEffectSaves.js';
 import type { DnDSceneEntity } from './dndEntities.js';
-import type { TurnDamageOutcome, TurnSaveOutcome } from './turnEffects.js';
+import type { EffectTriggerSource } from './effectTriggerRunner.js';
+import type { ChoiceCandidateOptions } from './triggerChoice.js';
+import type {
+  EntryEffectOptions,
+  EntryEffectResult,
+  SceneMoveOptions,
+  TurnDamageOutcome,
+  TurnHealingOutcome,
+  TurnSaveOutcome,
+} from './turnEffects.js';
 
-import { generateId } from '@vtt/shared';
+import { generateId, withTokenDisposition } from '@vtt/shared';
 
-import { isDnDEffect } from './activeEffectTypes.js';
 import {
+  ACTIVE_EFFECT_ID_PREFIX,
+  isDnDEffect,
+  isEffectDormant,
+} from './activeEffectTypes.js';
+import {
+  buildAmbientAuraEffectId,
   collectAllAuraEffects,
   collectTriggerAurasForTarget,
+  isTriggerAura,
 } from './auraMath.js';
-import { resolveEntryEffect, withInitializedDuration } from './turnEffects.js';
+import {
+  requestEntryEffect,
+  requestPresenceTriggerSave,
+  requestTriggerAsk,
+  requestTriggerChoice,
+} from './deferredEffectSaves.js';
+import {
+  formatAuraRequesterLabel,
+  formatZoneRequesterLabel,
+  shouldRequestEffectSave,
+} from './effectSaveAcquisition.js';
+import {
+  admitTrigger,
+  listPresenceTriggerSources,
+  resolveEntryEffect,
+  rollTriggerSave,
+  settlePresenceTrigger,
+  triggerSaveNeedsRoll,
+} from './effectTriggerRunner.js';
+import { upgradeStaySaveEffect } from './effectTriggers.js';
+import {
+  CHOICE_TRIGGER_RECIPIENT,
+  triggerAsksPermission,
+} from './effectTriggerTypes.js';
+import { buildTriggerUsageScope } from './effectTriggerUsage.js';
+import { listChoiceCandidates } from './triggerChoice.js';
+import {
+  passesLandingCondition,
+  withCombatRound,
+} from './triggerConditions.js';
+
+/**
+ * Эффекты зоны в том виде, в каком они срабатывают: старый «пока внутри» со
+ * спасброском уже переведён во вход.
+ *
+ * @param area - зона
+ * @returns эффекты D&D зоны
+ */
+function listZoneEffects(area: CustomArea): ActiveEffect[] {
+  return (area.effects ?? []).filter(isDnDEffect).map(upgradeStaySaveEffect);
+}
 
 /**
  * Собирает ID областей, эффекты которых уже применены к актёру.
@@ -45,14 +108,319 @@ export function getExistingAreaEffectIds(entity: DnDSceneEntity): Set<string> {
   return result;
 }
 
-/** Результат синхронизации area-эффектов токена за одно перемещение */
+/** Ауры чужих токенов, накрывающие сущность прямо сейчас */
+export type AmbientEffectsResolver = (
+  entity: DnDSceneEntity,
+) => readonly ActiveEffect[];
+
+/**
+ * Итог входа и выхода у сущности: синхронизации зон за перемещение или
+ * срабатываний аур.
+ */
 export interface AreaEffectsSyncResult {
   /** Были ли изменения (добавлен/снят stay-эффект, нанесён урон, наложен статус) */
   changed: boolean;
   /** Исходы урона от триггеров входа/выхода — для подписи в чате */
   damageOutcomes: TurnDamageOutcome[];
+  /** Исходы лечения от триггеров входа/выхода — для подписи в чате */
+  healingOutcomes: TurnHealingOutcome[];
   /** Исходы спасбросков от триггеров входа/выхода — для подписи в чате */
   saveOutcomes: TurnSaveOutcome[];
+  /** Триггеры входа/выхода, чей спасбросок спросили у игрока */
+  deferred: EngineDeferredTrigger[];
+  /** Строки сводки от действий «сообщить» и перехода на следующую ступень */
+  notes: string[];
+}
+
+/** С чем срабатывает вход или выход у одной сущности */
+export interface PresenceContext {
+  /** Запрос броска от ядра: спасбросок сущности без авто-спасбросков — игроку */
+  requestRoll?: ServerRollRequester;
+  /** Сущность в бою: лимит «раз в ход / раунд» считается только в бою */
+  inCombat: boolean;
+  /** Номер идущего раунда: расписание «на раунде N» */
+  combatRound?: number;
+  /** Кто просит спасбросок («Зона «Лунный луч»») */
+  requesterLabel: string;
+  /** Откуда пришли наложения и чей сейчас ход */
+  effectOptions: EntryEffectOptions;
+  /** Кто стоит в радиусе: кандидаты получателя «по выбору» */
+  listEntitiesInArea?: ChoiceCandidateOptions['listEntitiesInArea'];
+}
+
+/**
+ * Пустой итог входа и выхода.
+ *
+ * @returns итог без изменений
+ */
+function createPresenceOutcome(): AreaEffectsSyncResult {
+  return {
+    changed: false,
+    damageOutcomes: [],
+    healingOutcomes: [],
+    saveOutcomes: [],
+    deferred: [],
+    notes: [],
+  };
+}
+
+/**
+ * Добавляет итог одного срабатывания к общему.
+ *
+ * @param target - общий итог
+ * @param part - итог срабатывания
+ */
+function mergePresenceOutcome(
+  target: AreaEffectsSyncResult,
+  part: AreaEffectsSyncResult,
+): void {
+  target.changed ||= part.changed;
+  target.damageOutcomes.push(...part.damageOutcomes);
+  target.healingOutcomes.push(...part.healingOutcomes);
+  target.saveOutcomes.push(...part.saveOutcomes);
+  target.deferred.push(...part.deferred);
+  target.notes.push(...part.notes);
+}
+
+/**
+ * Записывает исход срабатывания, выполненного на сервере.
+ *
+ * @param outcome - итог сущности
+ * @param result - исход срабатывания
+ */
+function recordEntryResult(
+  outcome: AreaEffectsSyncResult,
+  result: EntryEffectResult,
+): void {
+  if (result.damageOutcome) {
+    outcome.damageOutcomes.push(result.damageOutcome);
+  }
+
+  if (result.healingOutcome) {
+    outcome.healingOutcomes.push(result.healingOutcome);
+  }
+
+  if (result.saveOutcome) {
+    outcome.saveOutcomes.push(result.saveOutcome);
+  }
+
+  // Урон или повешенный статус — обе мутации требуют рассылки на клиент
+  if (result.damageOutcome || result.statusApplied) {
+    outcome.changed = true;
+  }
+}
+
+/**
+ * Разовый эффект входа или выхода старых полей (`areaTrigger`, спасбросок и
+ * урон эффекта).
+ *
+ * @param entity - вошедший или вышедший
+ * @param effect - эффект зоны или ауры
+ * @param context - с чем срабатывает
+ * @returns итог
+ */
+function runEntryEffect(
+  entity: DnDSceneEntity,
+  effect: ActiveEffect,
+  context: PresenceContext,
+): AreaEffectsSyncResult {
+  const outcome = createPresenceOutcome();
+  const { requestRoll, requesterLabel, effectOptions } = context;
+
+  // Спасбросок бросает игрок — срабатывание ждёт его ответа
+  if (effect.applySave && shouldRequestEffectSave(entity, requestRoll)) {
+    const trigger = requestEntryEffect(
+      entity,
+      effect,
+      requestRoll,
+      requesterLabel,
+      effectOptions,
+    );
+
+    if (trigger) {
+      outcome.deferred.push(trigger);
+    }
+
+    return outcome;
+  }
+
+  recordEntryResult(outcome, resolveEntryEffect(entity, effect, effectOptions));
+
+  return outcome;
+}
+
+/**
+ * Явные срабатывания без данных события — вход и выход, конец каста: условие и
+ * лимит, спасбросок на сервере или запросом игроку, урон и наложения.
+ *
+ * @param entity - вошедший или вышедший
+ * @param sources - срабатывания с источником
+ * @param context - с чем срабатывает
+ * @returns итог
+ */
+export function runPresenceTriggerSources(
+  entity: DnDSceneEntity,
+  sources: readonly EffectTriggerSource[],
+  context: PresenceContext,
+): AreaEffectsSyncResult {
+  const outcome = createPresenceOutcome();
+  const { requestRoll, requesterLabel, effectOptions } = context;
+
+  // Данных события у входа и выхода нет — только раунд боя
+  const eventData = withCombatRound({}, context.combatRound);
+
+  for (const source of sources) {
+    if (!admitTrigger(entity, source, eventData, context.inCombat)) {
+      continue;
+    }
+
+    // Счётчик лимита записан на сущность — её надо сохранить
+    if (source.trigger.limit) {
+      outcome.changed = true;
+    }
+
+    const { choice } = source.trigger;
+
+    /**
+     * Вопрос «кого задеть» этого срабатывания.
+     *
+     * @returns отложенное срабатывание; `null`, если выбирать не из кого
+     */
+    const buildChoiceRequest = (): EngineDeferredTrigger | null => {
+      if (
+        source.trigger.recipient !== CHOICE_TRIGGER_RECIPIENT
+        || !choice
+        || !requestRoll
+      ) {
+        return null;
+      }
+
+      return requestTriggerChoice(
+        entity,
+        source,
+        listChoiceCandidates(entity, choice, {
+          listEntitiesInArea: context.listEntitiesInArea,
+        }),
+        choice,
+        requestRoll,
+        requesterLabel,
+        effectOptions,
+      );
+    };
+
+    // «Спрашивать разрешения»: пока человек не согласился, срабатывание не
+    // выполняется — ни урон, ни выбор цели
+    if (triggerAsksPermission(source.trigger) && requestRoll) {
+      outcome.deferred.push(
+        requestTriggerAsk(
+          entity,
+          source,
+          requestRoll,
+          requesterLabel,
+          effectOptions,
+          buildChoiceRequest,
+        ),
+      );
+
+      continue;
+    }
+
+    // Получатель «по выбору»: кого задеть, решает человек — срабатывание ждёт
+    // ответа целиком
+    if (
+      source.trigger.recipient === CHOICE_TRIGGER_RECIPIENT
+      && choice
+      && requestRoll
+    ) {
+      const request = buildChoiceRequest();
+
+      if (request) {
+        outcome.deferred.push(request);
+      }
+
+      continue;
+    }
+
+    if (
+      source.trigger.save
+      && triggerSaveNeedsRoll(source.trigger, entity, eventData)
+      && shouldRequestEffectSave(entity, requestRoll)
+    ) {
+      const request = requestPresenceTriggerSave(
+        entity,
+        source,
+        requestRoll,
+        requesterLabel,
+        eventData,
+        effectOptions,
+      );
+
+      if (request) {
+        outcome.deferred.push(request);
+      }
+
+      continue;
+    }
+
+    const save = rollTriggerSave(
+      entity,
+      source,
+      effectOptions.ambientEffects,
+      eventData,
+    );
+
+    recordEntryResult(
+      outcome,
+      settlePresenceTrigger(entity, source, save, {
+        ...effectOptions,
+        collectNote: (note) => outcome.notes.push(note),
+      }),
+    );
+  }
+
+  return outcome;
+}
+
+/**
+ * Вход или выход у одного эффекта зоны или ауры: разовый эффект старых полей и
+ * явные срабатывания списка. Путь один на зону и ауру — разные у них только
+ * источник счётчика лимита и подпись запроса броска.
+ *
+ * @param entity - вошедший или вышедший
+ * @param effect - эффект зоны или ауры
+ * @param event - вход или выход
+ * @param scope - источник счётчика лимита (`area:<зона>`, `aura:<копия>`)
+ * @param context - с чем срабатывает
+ * @returns итог
+ */
+function runPresenceEvent(
+  entity: DnDSceneEntity,
+  effect: ActiveEffect,
+  event: 'enter' | 'exit',
+  scope: string,
+  context: PresenceContext,
+): AreaEffectsSyncResult {
+  const outcome = createPresenceOutcome();
+
+  // Условие наложения: вход или выход не касается того, на кого эффект не ложится
+  if (!passesLandingCondition(effect, entity)) {
+    return outcome;
+  }
+
+  if (effect.areaTrigger === event) {
+    mergePresenceOutcome(outcome, runEntryEffect(entity, effect, context));
+  }
+
+  mergePresenceOutcome(
+    outcome,
+    runPresenceTriggerSources(
+      entity,
+      listPresenceTriggerSources(effect, event, scope),
+      context,
+    ),
+  );
+
+  return outcome;
 }
 
 /**
@@ -81,6 +449,22 @@ export interface AreaEffectsSyncResult {
  *   клеткой, а урон входа по правилам берут «при первом входе за ход»:
  *   извилистый путь, дважды заходящий в одно болото, бьёт один раз. Триггеров
  *   выхода и реконсиляции stay набор не касается
+ * @param options.requestRoll - запрос броска от ядра: спасбросок сущности без
+ *   авто-спасбросков уходит игроку, а триггер — в `deferred`
+ * @param options.resolveAmbientEffects - ауры чужих токенов, накрывающие
+ *   сущность: учитываются в спасброске и иммунитетах срабатывания
+ * @param options.isInCombat - участвует ли сущность в идущем бою: лимит
+ *   срабатывания «раз в ход / раунд» считается только в бою. Без поля (старое
+ *   ядро) — вне боя
+ * @param options.getActiveTurnActorId - чей сейчас ход: состояние «до конца
+ *   следующего хода», наложенное на ходу якоря, не спадает в конце этого хода
+ * @param options.getCombatRound - какой идёт раунд: расписание «на раунде N»
+ * @param options.listEntitiesInArea - кто стоит в радиусе: кандидаты
+ *   получателя «по выбору»
+ * @param options.surroundings - сцена вокруг сущности: по ней считается
+ *   принудительное перемещение
+ * @param options.moveToken - поставить фишку в точку сцены (ядро)
+ * @param options.moveArea - сдвинуть область сцены (ядро)
  * @returns изменения и исходы триггеров для чата
  */
 export function syncActorAreaEffects(
@@ -91,13 +475,32 @@ export function syncActorAreaEffects(
   options: {
     triggerOneShots?: boolean;
     alreadyEnteredAreaIds?: ReadonlySet<string>;
+    requestRoll?: ServerRollRequester;
+    resolveAmbientEffects?: AmbientEffectsResolver;
+    isInCombat?: (entity: DnDSceneEntity) => boolean;
+    getActiveTurnActorId?: () => string | null;
+    getCombatRound?: () => number | null;
+    listEntitiesInArea?: ChoiceCandidateOptions['listEntitiesInArea'];
+    surroundings?: SystemSceneSurroundings | null;
+    moveToken?: SceneMoveOptions['moveToken'];
+    moveArea?: SceneMoveOptions['moveArea'];
   } = {},
 ): AreaEffectsSyncResult {
-  const { triggerOneShots = true, alreadyEnteredAreaIds } = options;
-  const damageOutcomes: TurnDamageOutcome[] = [];
-  const saveOutcomes: TurnSaveOutcome[] = [];
+  const {
+    triggerOneShots = true,
+    alreadyEnteredAreaIds,
+    requestRoll,
+    resolveAmbientEffects,
+    isInCombat,
+    getActiveTurnActorId,
+    getCombatRound,
+    listEntitiesInArea,
+    surroundings,
+    moveToken,
+    moveArea,
+  } = options;
 
-  let changed = false;
+  const outcome = createPresenceOutcome();
 
   if (!entity.activeEffects) {
     entity.activeEffects = [];
@@ -116,36 +519,79 @@ export function syncActorAreaEffects(
   // Снимает «зависшие» area-эффекты при выходе (в т.ч. при телепортации).
   const lengthBefore = entity.activeEffects.length;
 
+  // Статус от входа в зону заклинания живёт, пока есть сама зона. Сверяется
+  // только при ре-синке правки или удаления области: тогда `areas` — зоны той
+  // же сцены, а при переходе на другую сцену список чужой, и статус снимался бы
+  // зря
+  const sceneAreaIds = triggerOneShots
+    ? null
+    : new Set(areas.map((area) => area.id));
+
   entity.activeEffects = entity.activeEffects.filter(
     (effect) =>
       !(
         effect.origin === 'area'
         && effect.originId
         && !currentAreaIds.has(effect.originId)
+      )
+      // Копия «пока внутри» со спасброском осталась от старых эффектов: такой
+      // эффект теперь срабатывает на входе, а копия висела бы без броска
+      && !(effect.origin === 'area' && effect.applySave)
+      && !(
+        sceneAreaIds
+        && effect.endsWithAreaId
+        && !sceneAreaIds.has(effect.endsWithAreaId)
+      )
+      // «Спадает при выходе»: существо больше не в той зоне, которая его
+      // наложила. Считается по текущим зонам, а не по разовым выходам: так
+      // статус уходит и при правке зоны, из-под которой существо оказалось
+      && !(
+        effect.endsOnExitAreaId && !currentAreaIds.has(effect.endsOnExitAreaId)
       ),
   );
 
   if (entity.activeEffects.length !== lengthBefore) {
-    changed = true;
+    outcome.changed = true;
   }
 
-  const runTrigger = (
-    effect: Parameters<typeof resolveEntryEffect>[1],
+  /**
+   * Вход или выход из зоны у одного её эффекта.
+   *
+   * @param effect - эффект зоны
+   * @param area - зона
+   * @param event - вход или выход
+   */
+  const runZoneEvent = (
+    effect: ActiveEffect,
+    area: CustomArea,
+    event: 'enter' | 'exit',
   ): void => {
-    const result = resolveEntryEffect(entity, effect);
+    const context: PresenceContext = {
+      requestRoll,
+      inCombat: isInCombat?.(entity) ?? false,
+      combatRound: getCombatRound?.() ?? undefined,
+      requesterLabel: formatZoneRequesterLabel(area.name),
+      effectOptions: {
+        sourceAreaId: area.id,
+        ambientEffects: resolveAmbientEffects?.(entity),
+        activeTurnActorId: getActiveTurnActorId?.(),
+        surroundings,
+        moveToken,
+        moveArea,
+      },
+      listEntitiesInArea,
+    };
 
-    if (result.damageOutcome) {
-      damageOutcomes.push(result.damageOutcome);
-    }
-
-    if (result.saveOutcome) {
-      saveOutcomes.push(result.saveOutcome);
-    }
-
-    // Урон или повешенный статус — обе мутации требуют рассылки на клиент
-    if (result.damageOutcome || result.statusApplied) {
-      changed = true;
-    }
+    mergePresenceOutcome(
+      outcome,
+      runPresenceEvent(
+        entity,
+        effect,
+        event,
+        buildTriggerUsageScope('area', area.id),
+        context,
+      ),
+    );
   };
 
   // Разовые триггеры выхода (только при перемещении)
@@ -153,14 +599,16 @@ export function syncActorAreaEffects(
     for (const areaId of exitedAreaIds) {
       const area = areas.find((areaEntry) => areaEntry.id === areaId);
 
-      if (!area?.effects) {
+      if (!area) {
         continue;
       }
 
-      for (const effect of area.effects.filter(isDnDEffect)) {
-        if (!effect.disabled && effect.areaTrigger === 'exit') {
-          runTrigger(effect);
+      for (const effect of listZoneEffects(area)) {
+        if (isEffectDormant(effect)) {
+          continue;
         }
+
+        runZoneEvent(effect, area, 'exit');
       }
     }
   }
@@ -176,29 +624,32 @@ export function syncActorAreaEffects(
 
     const area = areas.find((areaEntry) => areaEntry.id === areaId);
 
-    if (!area?.effects) {
+    if (!area) {
       continue;
     }
 
-    for (const effect of area.effects.filter(isDnDEffect)) {
-      if (effect.disabled || (effect.areaTrigger ?? 'stay') !== 'stay') {
+    for (const effect of listZoneEffects(area)) {
+      if (
+        isEffectDormant(effect)
+        || (effect.areaTrigger ?? 'stay') !== 'stay'
+      ) {
         continue;
       }
 
-      entity.activeEffects.push(
-        withInitializedDuration({
-          ...effect,
-          id: generateId('ae'),
-          origin: 'area',
-          originId: areaId,
-          transfer: false,
-          // Своя длительность: копия не должна делить счётчик раундов с
-          // эффектом самой зоны (объект зоны принадлежит хосту)
-          duration: { ...effect.duration },
-        }),
-      );
+      entity.activeEffects.push({
+        ...effect,
+        id: generateId(ACTIVE_EFFECT_ID_PREFIX),
+        origin: 'area',
+        originId: areaId,
+        transfer: false,
+        // Копия уже в зоне — доставка «в зону» на ней ничего не значит
+        effectTarget: undefined,
+        // Копия живёт, пока существо в зоне: своя длительность спала бы, и
+        // следующая же синхронизация повесила бы эффект заново
+        duration: { type: 'permanent' },
+      });
 
-      changed = true;
+      outcome.changed = true;
     }
   }
 
@@ -207,59 +658,32 @@ export function syncActorAreaEffects(
     for (const areaId of enteredAreaIds) {
       const area = areas.find((areaEntry) => areaEntry.id === areaId);
 
-      if (!area?.effects) {
+      if (!area) {
         continue;
       }
 
-      for (const effect of area.effects.filter(isDnDEffect)) {
-        if (!effect.disabled && effect.areaTrigger === 'enter') {
-          runTrigger(effect);
+      for (const effect of listZoneEffects(area)) {
+        if (isEffectDormant(effect)) {
+          continue;
         }
+
+        runZoneEvent(effect, area, 'enter');
       }
     }
   }
 
-  return { changed, damageOutcomes, saveOutcomes };
+  return outcome;
 }
 
 /** Итог срабатывания триггер-аур по одной затронутой сущности */
-export interface AuraTriggerOutcome {
+export interface AuraTriggerOutcome extends AreaEffectsSyncResult {
   /** Затронутая сущность (живая ссылка из стейта мира) */
   entity: DnDSceneEntity;
-  /** Нужна ли рассылка/персист (нанесён урон или повешен статус) */
-  changed: boolean;
-  /** Исходы урона — для подписи в чате */
-  damageOutcomes: TurnDamageOutcome[];
-  /** Исходы спасбросков — для подписи в чате */
-  saveOutcomes: TurnSaveOutcome[];
 }
 
 /** Ключ членства токена в конкретной ауре: токен-источник + эффект */
 function auraHitKey(hit: TriggerAuraHit): string {
   return `${hit.sourceTokenId}:${hit.effect.id}`;
-}
-
-/**
- * Возвращает токен с диспозицией, разрешённой так же, как при рендере: приоритет
- * у настроек сущности (`entity.token.disposition`), затем у самого токена сцены.
- * Нужно потому, что у токена на сцене `disposition` часто не проставлен, а фильтр
- * аур по отношению (`allies`/`enemies`) сравнивает именно это поле.
- *
- * @param token - токен сцены
- * @param entity - сущность токена (источник авторитетной диспозиции)
- * @returns тот же токен либо его копия с разрешённой диспозицией
- */
-function withResolvedDisposition(
-  token: Token,
-  entity: DnDSceneEntity | undefined,
-): Token {
-  const disposition = entity?.token?.disposition ?? token.disposition;
-
-  if (disposition === token.disposition) {
-    return token;
-  }
-
-  return { ...token, disposition };
 }
 
 /**
@@ -278,6 +702,20 @@ function withResolvedDisposition(
  * @param movedEntity - сущность перемещённого токена
  * @param previousToken - токен до перемещения (для определения покинутых аур)
  * @param getEntity - резолвер сущности по actorId (живая ссылка из стейта)
+ * @param options - возможности ядра на время срабатывания
+ * @param options.requestRoll - запрос броска от ядра: спасбросок сущности без
+ *   авто-спасбросков уходит игроку, а срабатывание — в `deferred`
+ * @param options.resolveAmbientEffects - ауры чужих токенов, накрывающие
+ *   затронутую сущность
+ * @param options.isInCombat - участвует ли сущность в идущем бою (лимит «раз в
+ *   ход / раунд»)
+ * @param options.getActiveTurnActorId - чей сейчас ход (срок наложенного)
+ * @param options.getCombatRound - какой идёт раунд: расписание «на раунде N»
+ * @param options.alreadyEnteredAuraKeys - входы в ауры, уже случившиеся за это
+ *   перемещение: ядро ведёт фишку по шагам, и извилистый путь сквозь ауру
+ *   входит в неё один раз. Набор пополняется
+ * @param options.listEntitiesInArea - кто стоит в радиусе: кандидаты
+ *   получателя «по выбору»
  * @returns исходы по каждой затронутой сущности (для рассылки и чата)
  */
 export function applyAuraTriggerEffects(
@@ -286,6 +724,15 @@ export function applyAuraTriggerEffects(
   movedEntity: DnDSceneEntity,
   previousToken: Token | undefined,
   getEntity: (actorId: string) => DnDSceneEntity | undefined,
+  options: {
+    requestRoll?: ServerRollRequester;
+    resolveAmbientEffects?: AmbientEffectsResolver;
+    isInCombat?: (entity: DnDSceneEntity) => boolean;
+    getActiveTurnActorId?: () => string | null;
+    getCombatRound?: () => number | null;
+    alreadyEnteredAuraKeys?: Set<string>;
+    listEntitiesInArea?: ChoiceCandidateOptions['listEntitiesInArea'];
+  } = {},
 ): AuraTriggerOutcome[] {
   const tokens = scene.tokens;
   const gridSettings = scene.gridSettings;
@@ -294,38 +741,93 @@ export function applyAuraTriggerEffects(
     return [];
   }
 
+  const {
+    requestRoll,
+    resolveAmbientEffects,
+    isInCombat,
+    getActiveTurnActorId,
+    getCombatRound,
+    alreadyEnteredAuraKeys,
+    listEntitiesInArea,
+  } = options;
+
   const outcomes = new Map<string, AuraTriggerOutcome>();
 
-  const fire = (targetEntity: DnDSceneEntity, hit: TriggerAuraHit): void => {
-    const result = resolveEntryEffect(targetEntity, hit.effect);
+  /** Имена сущностей по токенам — подпись источника ауры в запросе броска */
+  const sourceNames = new Map<string, string>([
+    [movedToken.id, movedEntity.name],
+  ]);
 
-    if (!result.damageOutcome && !result.saveOutcome && !result.statusApplied) {
-      return;
+  const getAccumulator = (targetEntity: DnDSceneEntity): AuraTriggerOutcome => {
+    const existing = outcomes.get(targetEntity.id);
+
+    if (existing) {
+      return existing;
     }
 
-    let accumulator = outcomes.get(targetEntity.id);
+    const created: AuraTriggerOutcome = {
+      entity: targetEntity,
+      changed: false,
+      damageOutcomes: [],
+      healingOutcomes: [],
+      saveOutcomes: [],
+      deferred: [],
+      notes: [],
+    };
 
-    if (!accumulator) {
-      accumulator = {
-        entity: targetEntity,
-        changed: false,
-        damageOutcomes: [],
-        saveOutcomes: [],
-      };
+    outcomes.set(targetEntity.id, created);
 
-      outcomes.set(targetEntity.id, accumulator);
-    }
+    return created;
+  };
 
-    if (result.damageOutcome) {
-      accumulator.damageOutcomes.push(result.damageOutcome);
-    }
+  /**
+   * Вход или выход сущности из одной ауры.
+   *
+   * @param targetEntity - вошедший или вышедший
+   * @param hit - аура источника
+   * @param event - вход или выход
+   */
+  const fire = (
+    targetEntity: DnDSceneEntity,
+    hit: TriggerAuraHit,
+    event: 'enter' | 'exit',
+  ): void => {
+    const context: PresenceContext = {
+      requestRoll,
+      inCombat: isInCombat?.(targetEntity) ?? false,
+      combatRound: getCombatRound?.() ?? undefined,
+      requesterLabel: formatAuraRequesterLabel(
+        sourceNames.get(hit.sourceTokenId),
+      ),
+      effectOptions: {
+        ambientEffects: resolveAmbientEffects?.(targetEntity),
+        activeTurnActorId: getActiveTurnActorId?.(),
+      },
+      listEntitiesInArea,
+    };
 
-    if (result.saveOutcome) {
-      accumulator.saveOutcomes.push(result.saveOutcome);
-    }
+    // Счётчик лимита — тот же, что у этой ауры на ходу накрытого: вход и
+    // начало хода в ауре делят «раз в ход»
+    const outcome = runPresenceEvent(
+      targetEntity,
+      hit.effect,
+      event,
+      buildTriggerUsageScope(
+        'aura',
+        buildAmbientAuraEffectId(hit.effect, hit.sourceTokenId),
+      ),
+      context,
+    );
 
-    if (result.damageOutcome || result.statusApplied) {
-      accumulator.changed = true;
+    const touched =
+      outcome.changed
+      || outcome.deferred.length > 0
+      || outcome.damageOutcomes.length > 0
+      || outcome.saveOutcomes.length > 0
+      || outcome.notes.length > 0;
+
+    if (touched) {
+      mergePresenceOutcome(getAccumulator(targetEntity), outcome);
     }
   };
 
@@ -337,30 +839,36 @@ export function applyAuraTriggerEffects(
     const prevKeys = new Set(prevHits.map(auraHitKey));
     const currKeys = new Set(currHits.map(auraHitKey));
 
-    // Вход: ауры с триггером enter, которых не было в прошлой позиции
+    // Вход: ауры, которых не было в прошлой позиции, — первый вход за
+    // перемещение
     for (const hit of currHits) {
+      const enteredKey = `${targetEntity.id}:${auraHitKey(hit)}`;
+
       if (
-        hit.effect.areaTrigger === 'enter'
-        && !prevKeys.has(auraHitKey(hit))
+        prevKeys.has(auraHitKey(hit))
+        || alreadyEnteredAuraKeys?.has(enteredKey)
       ) {
-        fire(targetEntity, hit);
+        continue;
       }
+
+      alreadyEnteredAuraKeys?.add(enteredKey);
+      fire(targetEntity, hit, 'enter');
     }
 
-    // Выход: ауры с триггером exit, которых больше нет в текущей позиции
+    // Выход: ауры, которых больше нет в текущей позиции
     for (const hit of prevHits) {
-      if (hit.effect.areaTrigger === 'exit' && !currKeys.has(auraHitKey(hit))) {
-        fire(targetEntity, hit);
+      if (!currKeys.has(auraHitKey(hit))) {
+        fire(targetEntity, hit, 'exit');
       }
     }
   };
 
   // Диспозиция перемещённого токена берётся из его сущности (на токене сцены её
   // может не быть) — иначе фильтр аур allies/enemies не сработает.
-  const movedTokenResolved = withResolvedDisposition(movedToken, movedEntity);
+  const movedTokenResolved = withTokenDisposition(movedToken, movedEntity);
 
   const previousTokenResolved = previousToken
-    ? withResolvedDisposition(previousToken, movedEntity)
+    ? withTokenDisposition(previousToken, movedEntity)
     : undefined;
 
   // Остальные токены с разрешённой диспозицией и их аура-эффектами (один проход)
@@ -382,10 +890,12 @@ export function applyAuraTriggerEffects(
     }
 
     others.push({
-      token: withResolvedDisposition(token, entity),
+      token: withTokenDisposition(token, entity),
       entity,
       auraEffects: collectAllAuraEffects(entity),
     });
+
+    sourceNames.set(token.id, entity.name);
   }
 
   // 1. Перемещённый токен как ЦЕЛЬ: ауры остальных токенов (текущие позиции)
@@ -412,9 +922,7 @@ export function applyAuraTriggerEffects(
   // 2. Перемещённый токен как ИСТОЧНИК: его ауры накрывают другие токены
   const movedAuras = collectAllAuraEffects(movedEntity);
 
-  const hasTriggerAuras = movedAuras.some(
-    (effect) => effect.areaTrigger === 'enter' || effect.areaTrigger === 'exit',
-  );
+  const hasTriggerAuras = movedAuras.some(isTriggerAura);
 
   if (hasTriggerAuras) {
     const sourcePrev: AuraSourceToken[] = previousTokenResolved

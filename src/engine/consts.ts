@@ -22,6 +22,12 @@ import { DEFAULT_CARRYING_CAPACITY } from './carryingCapacity.js';
 import { DEATH_CONDITION_KEY } from './conditionKeys.js';
 import { DEFAULT_PREPARED_LIMIT } from './preparedSpells.js';
 
+/** Общий предел бонусных костей одной d20-проверки; соответствует пределу группы клиентского роллера. */
+export const MAX_ROLL_BONUS_DICE = 1_000;
+
+/** Ограничивает грани бонусной кости и сохраняет безопасную целую сумму при максимальном числе костей. */
+export const MAX_ROLL_BONUS_DIE_SIDES = 1_000_000;
+
 // ============================================================
 // Инструменты
 // ============================================================
@@ -77,6 +83,16 @@ export const ABILITY_LABELS: Record<AbilityType, string> = {
   charisma: 'Харизма',
 };
 
+/** Характеристики в родительном падеже — «спасбросок Телосложения» */
+export const ABILITY_GENITIVE_LABELS: Record<AbilityType, string> = {
+  strength: 'Силы',
+  dexterity: 'Ловкости',
+  constitution: 'Телосложения',
+  intelligence: 'Интеллекта',
+  wisdom: 'Мудрости',
+  charisma: 'Харизмы',
+};
+
 /** Ключи характеристик в порядке листа */
 export const ABILITY_KEYS: readonly AbilityType[] = [
   'strength',
@@ -107,6 +123,37 @@ export const ABILITY_OPTIONS: ReadonlyArray<{
   value: AbilityType;
   label: string;
 }> = ABILITY_KEYS.map((value) => ({ value, label: ABILITY_LABELS[value] }));
+
+/**
+ * Короткие русские подписи @-переменных формул: так формулу читает человек, а
+ * не парсер. Общие для описания эффекта и итога формулы урона, чтобы одна и та
+ * же переменная не называлась в двух местах по-разному.
+ */
+export const FORMULA_VARIABLE_LABELS: Readonly<Record<string, string>> = {
+  '@mod.spell': 'мод. закл. характеристики',
+  '@mod.str': 'мод. Силы',
+  '@mod.dex': 'мод. Ловкости',
+  '@mod.con': 'мод. Телосложения',
+  '@mod.int': 'мод. Интеллекта',
+  '@mod.wis': 'мод. Мудрости',
+  '@mod.cha': 'мод. Харизмы',
+  '@str': 'значение Силы',
+  '@dex': 'значение Ловкости',
+  '@con': 'значение Телосложения',
+  '@int': 'значение Интеллекта',
+  '@wis': 'значение Мудрости',
+  '@cha': 'значение Харизмы',
+  '@prof': 'бонус мастерства',
+  '@level': 'уровень',
+  '@classLevel': 'уровень в классе',
+  '@speed.walk': 'скорость ходьбы',
+  '@speed.fly': 'скорость полёта',
+  '@speed.swim': 'скорость плавания',
+  '@speed.climb': 'скорость лазания',
+  '@speed.burrow': 'скорость копания',
+  '@damage': 'урон события',
+  '@roll': 'сохранённый бросок',
+};
 
 // ============================================================
 // Навыки → Характеристики (Skills → Abilities)
@@ -944,7 +991,7 @@ export function parseCost(
     pp: 'pp',
   };
 
-  // eslint-disable-next-line regexp/no-obscure-range
+  // eslint-disable-next-line regexp/no-obscure-range -- диапазон а-я нужен целиком: сокращения валют в цене пишут кириллицей
   const match = cost.trim().match(/^(\d+(?:[.,]\d+)?)\s*([a-zа-яё]+)?$/i);
 
   if (!match) {

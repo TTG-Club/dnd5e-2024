@@ -9,6 +9,7 @@
     ActiveEffect,
     CreatureAction,
     CreatureRecharge,
+    EffectFormContext,
   } from '@vtt/shared/system/dnd.js';
 
   import { computed, reactive, watch } from 'vue';
@@ -16,7 +17,6 @@
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { DISTANCE_UNIT_OPTIONS } from '@vtt/shared';
   import {
     AREA_SHAPE_OPTIONS,
@@ -29,6 +29,7 @@
     SAVE_TYPE_OPTIONS,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useSystemDataStore } from '../../stores/systemDataStore';
   import {
     AREA_FIELD_LABELS,
     FORM_FIELD_LABELS,
@@ -157,6 +158,11 @@
 
   /** Есть ли боевые параметры (только у действий) */
   const hasCombatFields = computed(() => props.mode === 'action');
+
+  /** Место окна эффекта: черта действует на существо, действие — на цель */
+  const effectFormContext = computed<EffectFormContext>(() =>
+    props.mode === 'trait' ? 'creatureTrait' : 'creatureAction',
+  );
 
   /** Вкладки формы (боевые параметры — только у действий) */
   const tabItems = computed(() => {
@@ -297,11 +303,13 @@
 
     openModal('ActiveEffectFormModal', {
       effect: existingEffect,
-      hideAura: true,
-      // Эффект действия по умолчанию летит В ЦЕЛЬ: укус накладывает Отравление
-      // на укушенного. С умолчанием окна (`self`) оркестратор не считает эффект
-      // предназначенным цели и не наложил бы его вовсе
-      defaultEffectTarget: 'target',
+      // Место окна задаёт, куда летит НОВЫЙ эффект: у действия — в цель (укус
+      // накладывает Отравление на укушенного), у черты — на само существо
+      // («Магическое сопротивление»). Эффект черты «в цель» сбор черт отсекает,
+      // и он молча не работал бы
+      context: effectFormContext.value,
+      // «Авто» у Сл эффекта подставит Сл самого действия
+      sourceSaveDc: form.saveDC ?? undefined,
       onSave: (savedEffect: ActiveEffect) => {
         if (effectIndex >= 0) {
           form.activeEffects[effectIndex] = savedEffect;

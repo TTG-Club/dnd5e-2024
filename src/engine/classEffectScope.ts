@@ -30,6 +30,11 @@ import { isCreatureEntity } from '@vtt/shared';
 
 import { getClassLevels } from './classTypes.js';
 import { COUNTER_FORMULA_TOKENS } from './counterResource.js';
+import { resolveDiceCountExpressions } from './diceCountExpressions.js';
+import {
+  mapTriggerDamageParts,
+  someTriggerDamagePart,
+} from './triggerDamageParts.js';
 
 /**
  * Префикс id эффекта, поставленного классом.
@@ -114,9 +119,14 @@ function hasToken(value: string | undefined): boolean {
   return value !== undefined && value.includes(CLASS_LEVEL_TOKEN);
 }
 
-/** Подставляет уровень класса в одну формулу */
+/**
+ * Подставляет уровень класса в одну формулу. Число костей выражением от
+ * уровня (`(1 + steps(@classLevel, 7, 13, 18))к8`) тут же становится числом.
+ */
 function bindFormula(value: string, classLevel: number): string {
-  return value.replace(CLASS_LEVEL_PATTERN, String(classLevel));
+  return resolveDiceCountExpressions(
+    value.replace(CLASS_LEVEL_PATTERN, String(classLevel)),
+  );
 }
 
 /** Подставляет уровень класса в строку изменения */
@@ -149,6 +159,11 @@ function bindDamagePart(part: DamagePart, classLevel: number): DamagePart {
   };
 }
 
+/** Есть ли токен в части урона */
+function partUsesClassLevel(part: DamagePart): boolean {
+  return hasToken(part.formula) || hasToken(part.versatileFormula);
+}
+
 /** Все места эффекта, где может стоять формула с токеном */
 function effectUsesClassLevel(effect: ActiveEffect): boolean {
   return (
@@ -161,6 +176,8 @@ function effectUsesClassLevel(effect: ActiveEffect): boolean {
     || (effect.recurringDamage?.damageParts ?? []).some(
       (part) => hasToken(part.formula) || hasToken(part.versatileFormula),
     )
+    || hasToken(effect.aura?.radiusFormula)
+    || someTriggerDamagePart(effect.triggers, partUsesClassLevel)
   );
 }
 
@@ -185,6 +202,23 @@ function bindEffect(effect: ActiveEffect, classLevel: number): ActiveEffect {
               bindDamagePart(part, classLevel),
             ),
           },
+        }),
+    ...(effect.aura?.radiusFormula === undefined
+      ? {}
+      : {
+          aura: {
+            ...effect.aura,
+            radiusFormula: bindFormula(effect.aura.radiusFormula, classLevel),
+          },
+        }),
+    ...(effect.triggers === undefined
+      ? {}
+      : {
+          triggers: effect.triggers.map((trigger) =>
+            mapTriggerDamageParts(trigger, (part) =>
+              bindDamagePart(part, classLevel),
+            ),
+          ),
         }),
   };
 }

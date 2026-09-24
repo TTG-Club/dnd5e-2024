@@ -6,8 +6,8 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
   import {
-    CREATURE_SPELL_CAST_LEVEL_MAX,
-    CREATURE_SPELL_CAST_LEVEL_MIN,
+    MAX_SPELL_SLOT_LEVEL,
+    MIN_SPELL_SLOT_LEVEL,
   } from '@vtt/shared/system/dnd.js';
 
   import { MODAL_BUTTON_LABELS } from '../actor/constants';
@@ -104,8 +104,8 @@
 
             <UInputNumber
               v-model="form.castLevel"
-              :min="CREATURE_SPELL_CAST_LEVEL_MIN"
-              :max="CREATURE_SPELL_CAST_LEVEL_MAX"
+              :min="MIN_SPELL_SLOT_LEVEL"
+              :max="MAX_SPELL_SLOT_LEVEL"
               size="sm"
               class="w-56 shrink-0"
             />

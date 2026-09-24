@@ -13,8 +13,8 @@
   import { ref } from 'vue';
 
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
-  import { useSourceLabels } from '@/systems/dnd5e/composables/useSourceLabel';
 
+  import { useSourceLabels } from '../../composables/useSourceLabel';
   import {
     SPELL_LEVEL_FILTER_ORDER,
     spellLevelFilterValue,

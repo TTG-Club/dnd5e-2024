@@ -25,6 +25,7 @@ import type {
   FeatModifiers,
   FeatSpellListGroup,
 } from './featTypes.js';
+import type { FormulaContext } from './formulaParser.js';
 import type {
   ClassSpellListRequest,
   GrantedSpellSource,
@@ -34,10 +35,12 @@ import type { ActorCounterState } from './types.js';
 
 import { generateId } from '@vtt/shared';
 
+import { withActivationDefaults } from './activeEffectTypes.js';
 import { calculateAbilityModifier } from './calculations.js';
 import { getTotalLevel } from './classTypes.js';
 import { ABILITY_OPTIONS, isAbilityType } from './consts.js';
 import {
+  COUNTER_COUNT_MIN,
   evaluateCounterMaxFormula,
   progressionCounterMax,
   withCounterMinimum,
@@ -63,6 +66,35 @@ export const FEAT_ORIGIN_PREFIX = 'feat:';
  * одним проходом при её замене/удалении.
  */
 export const BACKGROUND_ORIGIN_PREFIX = 'background:';
+
+/**
+ * Префикс владельца ресурса, выданного видом (`ActorCounterState.featureId`).
+ *
+ * У черты владелец — её особенность на листе, а у вида такой записи нет:
+ * ресурсы «Скорохода» лежат в дарах записи-подвида. Метка источника даров
+ * отличает их от ресурсов черт — общий пересчёт черт иначе выбросил бы их как
+ * ресурсы черты, которой на листе больше нет.
+ */
+export const SPECIES_COUNTER_OWNER_PREFIX = 'species:';
+
+/**
+ * Владелец ресурса, выданного источником даров вида.
+ *
+ * @param sourceKey - ключ источника (`SpeciesFeatDataSource.sourceKey`)
+ * @returns значение `featureId` ресурса
+ */
+export function speciesCounterOwnerId(sourceKey: string): string {
+  return `${SPECIES_COUNTER_OWNER_PREFIX}${sourceKey}`;
+}
+
+/**
+ * Выдан ли ресурс видом.
+ *
+ * @param counter - состояние счётчика на акторе
+ */
+export function isSpeciesCounter(counter: ActorCounterState): boolean {
+  return Boolean(counter.featureId?.startsWith(SPECIES_COUNTER_OWNER_PREFIX));
+}
 
 /**
  * Стабильный id синтетического эффекта-даров, выведенный из префикса провенанса:
@@ -367,7 +399,9 @@ export function collectFeatGrantedSpellSources(
 
   // Выбранное заклинание — такое же выданное: значение варианта и есть id записи
   // компендиума, по нему заклинание и кладётся в книгу. Выбор с уровнем открытия
-  // выдаёт своё не раньше срока: ответ на него мог сохраниться заранее
+  // выдаёт своё не раньше срока: ответ на него мог сохраниться заранее.
+  // Отметка «готовить не нужно» у выбора старше отметки записи, как у группы
+  // выдачи; снятая — не запрет, и тогда решает запись
   for (const choice of feat.featData?.choices ?? []) {
     if (choice.type !== 'spell' && choice.type !== 'cantrip') {
       continue;
@@ -378,7 +412,11 @@ export function collectFeatGrantedSpellSources(
     }
 
     for (const spellId of feat.choices?.[choice.key] ?? []) {
-      push(spellId);
+      push(
+        spellId,
+        undefined,
+        choice.alwaysPrepared ? { alwaysPrepared: true } : undefined,
+      );
     }
   }
 
@@ -924,7 +962,7 @@ export function prepareTransferredFeatEffects(
   originPrefix: string = FEAT_ORIGIN_PREFIX,
 ): ActiveEffect[] {
   return (authoredEffects ?? []).map((effect) => ({
-    ...effect,
+    ...withActivationDefaults(effect),
     id: generateId('effect'),
     origin: 'feature',
     originId: featOriginId(featureId, originPrefix),
@@ -935,10 +973,13 @@ export function prepareTransferredFeatEffects(
 /**
  * Ресурсы черты в виде состояний счётчиков на акторе.
  *
- * Максимум считается формулой (`@prof` у «Удачливого»), поэтому пересчитывается
- * при каждой выдаче и при повышении уровня — иначе очки удачи застряли бы на
- * значении, посчитанном в момент взятия черты. Текущий остаток сохраняется, если
- * счётчик уже был на акторе: пересчёт максимума не должен восполнять потраченное.
+ * Максимум считается формулой (`@prof` у «Удачливого») либо ступенями по уровню
+ * персонажа, поэтому пересчитывается при каждой выдаче и при повышении уровня —
+ * иначе очки удачи застряли бы на значении, посчитанном в момент взятия черты.
+ * Текущий остаток сохраняется, если счётчик уже был на акторе: пересчёт
+ * максимума не должен восполнять потраченное. Исключение — ресурс, у которого
+ * зарядов не было вовсе (персонаж не дорос до первой ступени): он появляется
+ * полным, как если бы его выдали только сейчас.
  *
  * Название и способ восстановления кладутся прямо в состояние: определения
  * черты у панели счётчиков нет, и без них ресурс подписывался бы ключом.
@@ -981,23 +1022,27 @@ export function buildFeatCounters(
     .map((definition) => {
       // Ступени старше формулы: ряд, который формулой не пишется, задан ими
       // самими. Считаются от уровня персонажа — у записи своего уровня нет
-      const max = definition.progression
-        ? withCounterMinimum(
-            progressionCounterMax(definition.progression, characterLevel),
-            definition.min,
-          )
-        : // Тот же расчёт, что у своих ресурсов листа: кривая формула читается
-          // нулём, иначе персонаж остался бы без всей черты из-за одной опечатки
-          withCounterMinimum(
-            evaluateCounterMaxFormula(definition.max, context),
-            definition.min,
-          );
+      const max = withCounterMinimum(
+        definition.progression
+          ? progressionCounterMax(definition.progression, characterLevel)
+          : featCounterFormulaMax(definition.max, context),
+        definition.min,
+      );
+
+      const maxFormula = definition.progression ? undefined : definition.max;
 
       const previous = existing.find(
         (counter) =>
           counter.featureId === feat.id
           && counter.counterKey === definition.key,
       );
+
+      // Потраченное бережём только у ресурса, который уже был: «0 из 0» ничего
+      // не тратило, и появившийся на новой ступени заряд обязан прийти целым
+      const current =
+        previous && previous.max > COUNTER_COUNT_MIN
+          ? Math.min(previous.current, max)
+          : max;
 
       return {
         counterKey: definition.key,
@@ -1008,12 +1053,35 @@ export function buildFeatCounters(
         // Формула и граница живут на счётчике: отдых пересчитывает максимум по
         // ним, не заглядывая в определение черты. У ступеней формулы нет —
         // отдых берёт посчитанный максимум как есть, как и у счётчика класса
-        ...(definition.progression ? {} : { maxFormula: definition.max }),
+        ...(maxFormula === undefined ? {} : { maxFormula }),
         ...(definition.min ? { min: definition.min } : {}),
-        current: previous ? Math.min(previous.current, max) : max,
+        current,
         max,
       };
     });
+}
+
+/**
+ * Максимум ресурса записи по формуле.
+ *
+ * Тот же расчёт, что у своих ресурсов листа: кривая формула читается нулём,
+ * иначе персонаж остался бы без всей черты из-за одной опечатки. Формулы нет
+ * вовсе — ресурс записи без ступеней ничего не описывает, и зарядов у него нет:
+ * ругаться в лог на пустое место незачем.
+ *
+ * @param formula - формула максимума из определения ресурса
+ * @param context - `@`-переменные листа
+ * @returns максимум зарядов
+ */
+function featCounterFormulaMax(
+  formula: string | undefined,
+  context: FormulaContext,
+): number {
+  if (!formula?.trim()) {
+    return COUNTER_COUNT_MIN;
+  }
+
+  return evaluateCounterMaxFormula(formula, context);
 }
 
 /**
@@ -1055,9 +1123,13 @@ function featSpellcastingModifier(
  * и без пересчёта очки удачи застряли бы на значении, посчитанном в момент
  * взятия черты. Ресурсы черт, которых на листе больше нет, отсеиваются заодно.
  *
+ * Ресурсы вида остаются как были: их источники живут в записи вида, а не в
+ * особенностях листа, и пересобирает их `refreshSpeciesCounters`.
+ *
  * @param actor - лист персонажа (уже с новым уровнем)
  * @param counters - текущий список счётчиков актора
- * @returns новый список счётчиков: классовые как были, ресурсы черт пересчитаны
+ * @returns новый список счётчиков: классовые и видовые как были, ресурсы черт
+ * пересчитаны
  */
 export function refreshFeatCounters(
   actor: DnDActor,
@@ -1069,7 +1141,9 @@ export function refreshFeatCounters(
     buildFeatCounters(feature, actor, counters),
   );
 
-  const classCounters = counters.filter((counter) => !counter.featureId);
+  const notOwnedByFeatures = counters.filter(
+    (counter) => !counter.featureId || isSpeciesCounter(counter),
+  );
 
-  return [...classCounters, ...rebuilt];
+  return [...notOwnedByFeatures, ...rebuilt];
 }

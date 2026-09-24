@@ -149,12 +149,12 @@ graph TD
 | `initiativeBonus` | `number` | Дополнительный бонус к инициативе |
 | `initiativeAbility` | `AbilityType` | Характеристика для инициативы |
 | `currency` | `DnDCurrency` | Валюта (`cp`, `sp`, `ep`, `gp`, `pp`) |
-| `classCounters` | `ActorCounterState[]` | Счётчики классовых ресурсов (очки чародейства, кости превосходства) |
+| `classCounters` | `ActorCounterState[]` | Счётчики ресурсов: класса (очки чародейства, кости превосходства), черт (очки удачи), вида (`featureId` = `species:<источник>`, «Скороход» лесного эльфа) и свои ресурсы игрока (`classKey: 'custom'`). Выданный ресурс без зарядов лист не показывает |
 | `spellSlotsUsed` | `number[]?` | Использованные ячейки [1–9 круг], индекс 0 = 1-й круг |
 | `pactSlotsUsed` | `number?` | Использованные ячейки Pact Magic (колдун) |
 | `spellcastingAbility` | `AbilityType?` | Переопределение характеристики заклинаний |
 | `spellcastingSettings` | `DnDSpellcastingSettings?` | Поправки расчёта сложности спасброска и бонуса атаки заклинанием: своё число вместо расчёта по правилам и свои бонусы (`spellcastingSettings.ts`). Поля нет — оба числа по правилам |
-| `inspiration` | `boolean?` | Вдохновение (даёт/забирает только ГМ) |
+| `inspiration` | `boolean?` | Вдохновение (переключают ГМ и владелец, каждое изменение пишется в чат) |
 | `manualHitDice` | `ManualHitDieGroup[]?` | Ручные кости хитов (NPC/кастомные актёры без классов) |
 
 > **Уровня `system.level` НЕТ.** Суммарный уровень вычисляется:

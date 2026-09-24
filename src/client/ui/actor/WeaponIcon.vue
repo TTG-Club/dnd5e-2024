@@ -24,7 +24,7 @@
 </script>
 
 <template>
-  <!-- eslint-disable-next-line vue/no-v-html -->
+  <!-- eslint-disable-next-line vue/no-v-html -- svg берётся из реестра иконок системы, а не из пользовательского ввода -->
   <span
     v-if="iconResult.svgContent"
     class="inline-flex shrink-0 items-center justify-center"

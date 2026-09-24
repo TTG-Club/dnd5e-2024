@@ -2,27 +2,38 @@
   import type {
     CreatureHitPoints,
     CreatureSize,
+    DnDCustomBonus,
+    DnDCustomBonusContext,
   } from '@vtt/shared/system/dnd.js';
 
-  import { computed, reactive, watch } from 'vue';
+  import { computed, reactive, ref, watch } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
   import {
     calculateCreatureAverageHitPoints,
+    calculateCreatureHitPointsBaseBonus,
     calculateCreatureHitPointsBonus,
+    CREATURE_HIT_POINTS_BASE_BONUS_MAX,
+    CREATURE_HIT_POINTS_BASE_BONUS_MIN,
     CREATURE_SIZE_LABELS,
     DEFAULT_CREATURE_HIT_DICE_COUNT,
     formatCreatureHitPointsFormula,
     getCreatureHitDieBySize,
+    getCustomBonusesValue,
     parseCreatureHitDiceCount,
+    parseCreatureHitPointsBaseBonus,
+    parseCustomBonuses,
+    toStoredCustomBonus,
   } from '@vtt/shared/system/dnd.js';
 
   import {
     ACTOR_LEFT_PANEL_LABELS,
+    BONUS_INPUT_FORMAT_OPTIONS,
     HIT_POINTS_LABELS,
     MODAL_BUTTON_LABELS,
   } from '../actor/constants';
+  import CustomBonusRows from '../actor/CustomBonusRows.vue';
   import { formatSignedNumber } from '../actor/utils/formatSignedNumber';
   import {
     CREATURE_COMBAT_LABELS,
@@ -34,8 +45,11 @@
     hitPoints: CreatureHitPoints;
     /** Размер существа — по правилам 2024 он задаёт кость хитов */
     size: CreatureSize;
-    /** Модификатор Телосложения для формулы — бонус за каждую кость хитов */
-    constitutionModifier: number;
+    /**
+     * Числа листа для формулы: модификатор Телосложения даёт бонус за каждую
+     * кость, а все модификаторы и бонус мастерства — вклад своих бонусов
+     */
+    context: DnDCustomBonusContext;
   }
 
   const props = defineProps<Props>();
@@ -51,8 +65,9 @@
   });
 
   /**
-   * Черновик правки хитов существа. Кости и бонуса здесь нет: их считает
-   * движок из размера и Телосложения, руками задаётся только число костей.
+   * Черновик правки хитов существа. Кости и итогового бонуса здесь нет: их
+   * считает движок из размера, Телосложения и своих бонусов, руками задаются
+   * число костей, основа бонуса и свои бонусы.
    */
   interface EditableHitPoints {
     current: number;
@@ -67,6 +82,15 @@
     temp: 0,
     hitDiceCount: DEFAULT_CREATURE_HIT_DICE_COUNT,
   });
+
+  /** Свои бонусы формулы: копии, чтобы до «Применить» лист не менялся */
+  const draftBonuses = ref<DnDCustomBonus[]>([]);
+
+  /**
+   * Своё число основы бонуса вместо «Телосложение за каждую кость»; `null` —
+   * основа считается по правилам и идёт за числом костей.
+   */
+  const draftBaseBonus = ref<number | null>(null);
 
   // При открытии — подставляем текущие значения
   watch(
@@ -84,20 +108,71 @@
           props.hitPoints.hitDiceCount
           ?? parseCreatureHitDiceCount(props.hitPoints.formula)
           ?? DEFAULT_CREATURE_HIT_DICE_COUNT;
+
+        // Список приходит из записи мира — разбирается поштучно
+        draftBonuses.value = parseCustomBonuses(props.hitPoints.bonuses).map(
+          (row) => ({ ...row }),
+        );
+
+        draftBaseBonus.value = parseCreatureHitPointsBaseBonus(
+          props.hitPoints.baseBonus,
+        );
       }
     },
+  );
+
+  /** Модификатор Телосложения — бонус за каждую кость */
+  const constitutionModifier = computed(
+    () => props.context.abilityMods.constitution,
+  );
+
+  /**
+   * Свои бонусы в том виде, в каком уйдут в лист: число целое и в пределах
+   * поля. По ним же считается предпросмотр — иначе он разошёлся бы с записью.
+   */
+  const storedBonuses = computed(() =>
+    draftBonuses.value.map((row) => toStoredCustomBonus(row)),
+  );
+
+  /** Вклад своих бонусов — один раз на формулу */
+  const customBonus = computed(() =>
+    getCustomBonusesValue(props.context, storedBonuses.value),
   );
 
   /** Кость хитов — по размеру существа */
   const hitDie = computed(() => getCreatureHitDieBySize(props.size));
 
-  /** Бонус к хитам — Телосложение за каждую кость */
-  const bonus = computed(() =>
-    calculateCreatureHitPointsBonus(
+  /** Основа бонуса: своё число либо Телосложение за каждую кость */
+  const baseBonus = computed(() =>
+    calculateCreatureHitPointsBaseBonus(
       editHp.hitDiceCount,
-      props.constitutionModifier,
+      constitutionModifier.value,
+      draftBaseBonus.value,
     ),
   );
+
+  /** Основа задана своим числом — показываем кнопку возврата к правилам */
+  const isBaseBonusCustom = computed(() => draftBaseBonus.value !== null);
+
+  /** Бонус к хитам — основа и свои бонусы */
+  const bonus = computed(() =>
+    calculateCreatureHitPointsBonus(baseBonus.value, customBonus.value),
+  );
+
+  /**
+   * Правка основы бонуса: любое число становится своим, очищенное поле
+   * возвращает расчёт по Телосложению.
+   *
+   * @param value - число из поля (пустое поле — `null`/NaN)
+   */
+  function setBaseBonus(value: number | null | undefined): void {
+    draftBaseBonus.value = parseCreatureHitPointsBaseBonus(value);
+  }
+
+  /** Возвращает основу бонуса к расчёту по Телосложению */
+  function resetBaseBonus(): void {
+    draftBaseBonus.value = null;
+  }
 
   const formula = computed(() =>
     formatCreatureHitPointsFormula(
@@ -120,18 +195,20 @@
     () => `${ACTOR_LEFT_PANEL_LABELS.hitDieLetter}${hitDie.value}`,
   );
 
-  const formattedBonus = computed(() => formatSignedNumber(bonus.value));
-
   /**
-   * Откуда взялись кость и бонус: размер с его костью и модификатор
-   * Телосложения. Без этой строки поля выглядят просто запертыми.
+   * Откуда взялись кость и бонус: размер с его костью, основа бонуса (своё
+   * число или модификатор Телосложения) и свои бонусы сверху.
    */
   const rulesHint = computed(() => {
     const sizePart = `${CREATURE_SIZE_LABELS[props.size]} — ${hitDieLabel.value}`;
 
-    const constitutionPart = formatSignedNumber(props.constitutionModifier);
+    const constitutionPart = formatSignedNumber(constitutionModifier.value);
 
-    return `${CREATURE_HIT_POINTS_LABELS.dieBySize} (${sizePart}), ${CREATURE_HIT_POINTS_LABELS.bonusByConstitution} (${constitutionPart}) ${CREATURE_HIT_POINTS_LABELS.perDie}.`;
+    const basePart = isBaseBonusCustom.value
+      ? CREATURE_HIT_POINTS_LABELS.bonusCustom
+      : `${CREATURE_HIT_POINTS_LABELS.bonusByConstitution} (${constitutionPart}) ${CREATURE_HIT_POINTS_LABELS.perDie}`;
+
+    return `${CREATURE_HIT_POINTS_LABELS.dieBySize} (${sizePart}), ${basePart}, ${CREATURE_HIT_POINTS_LABELS.plusCustomBonuses}.`;
   });
 
   /** Применяет изменения очков здоровья */
@@ -143,6 +220,8 @@
       hitDie: hitDie.value,
       hitDiceCount: editHp.hitDiceCount,
       bonus: bonus.value,
+      baseBonus: draftBaseBonus.value,
+      bonuses: storedBonuses.value,
       formula: formula.value,
       average: average.value,
     });
@@ -157,7 +236,7 @@
     :draggable="false"
     :resizable="false"
     :blocking="true"
-    :min-width="380"
+    :min-width="440"
     :min-height="200"
     :title="HIT_POINTS_LABELS.title"
     :z-index="Z_INDEX.MODAL_ELEVATED"
@@ -267,7 +346,8 @@
 
             <span class="mt-4 font-light text-dimmed">+</span>
 
-            <!-- Бонус: по Телосложению, не правится -->
+            <!-- Основа бонуса: по Телосложению, пока не вписано своё число;
+              свои бонусы ниже прибавляются к ней -->
             <div class="flex flex-col gap-0.5">
               <span
                 class="text-[9px] font-medium tracking-wider text-dimmed uppercase"
@@ -275,11 +355,34 @@
                 {{ HIT_POINTS_LABELS.bonus }}
               </span>
 
-              <span
-                class="w-16 rounded border border-muted px-2 py-1 text-center text-sm font-medium text-toned tabular-nums"
-              >
-                {{ formattedBonus }}
-              </span>
+              <div class="flex items-center gap-1">
+                <UInputNumber
+                  :model-value="baseBonus"
+                  :min="CREATURE_HIT_POINTS_BASE_BONUS_MIN"
+                  :max="CREATURE_HIT_POINTS_BASE_BONUS_MAX"
+                  :format-options="BONUS_INPUT_FORMAT_OPTIONS"
+                  :increment="false"
+                  :decrement="false"
+                  size="sm"
+                  class="w-20"
+                  @update:model-value="setBaseBonus"
+                />
+
+                <UTooltip
+                  v-if="isBaseBonusCustom"
+                  :text="CREATURE_HIT_POINTS_LABELS.resetBaseBonus"
+                >
+                  <UButton
+                    icon="tabler:restore"
+                    color="neutral"
+                    variant="ghost"
+                    size="sm"
+                    square
+                    :aria-label="CREATURE_HIT_POINTS_LABELS.resetBaseBonus"
+                    @click.left.exact.prevent="resetBaseBonus"
+                  />
+                </UTooltip>
+              </div>
             </div>
           </div>
 
@@ -298,6 +401,21 @@
           <p class="text-xs text-dimmed">
             {{ rulesHint }}
           </p>
+        </div>
+
+        <!-- Свои бонусы формулы: те же строки, что у КД и инициативы, —
+          числом, модификатором характеристики или бонусом мастерства -->
+        <div class="flex flex-col gap-2">
+          <span
+            class="text-[10px] font-bold tracking-wider text-muted uppercase"
+          >
+            {{ CREATURE_HIT_POINTS_LABELS.customBonusesTitle }}
+          </span>
+
+          <CustomBonusRows
+            v-model="draftBonuses"
+            :context="context"
+          />
         </div>
 
         <!-- Кнопки -->

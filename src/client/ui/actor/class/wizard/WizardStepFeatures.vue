@@ -28,7 +28,6 @@
   import { computed } from 'vue';
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
-  import { useSourceLabels } from '@/systems/dnd5e/composables/useSourceLabel';
   import {
     featChoicePendingCount,
     isSkillType,
@@ -37,6 +36,7 @@
 
   import { useExpandedRows } from '../../../../composables/useExpandedRows';
   import { useFeatChoiceWeapons } from '../../../../composables/useFeatChoiceWeapons';
+  import { useSourceLabels } from '../../../../composables/useSourceLabel';
   import ChoicePickerField from '../../ChoicePickerField.vue';
   import { CLASS_WIZARD_LABELS, LEVEL_BADGE_SUFFIX } from '../../constants';
   import FeatChoicesFields from '../../feat/FeatChoicesFields.vue';

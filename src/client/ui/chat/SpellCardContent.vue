@@ -9,6 +9,7 @@
     CASTING_TIME_LABELS,
     DURATION_UNIT_LABELS,
     formatConditionalDamageDisplay,
+    formatDiceLetters,
     getSpellDamageParts,
     isSpell,
     SPELL_LEVEL_LABELS,
@@ -19,7 +20,7 @@
 
   import { SPELL_LEVEL_SUFFIX } from '../actor/constants';
   import { parseCardPayload } from './cardPayload';
-  import { DICE_LETTER_REPLACEMENT, SPELL_CARD_LABELS } from './consts';
+  import { SPELL_CARD_LABELS } from './consts';
 
   const props = defineProps<{
     /** Сериализованные данные заклинания (JSON-строка) */
@@ -39,9 +40,11 @@
 
     return getSpellDamageParts(spell.value)
       .map((part) =>
-        formatConditionalDamageDisplay(part.formula, (subFormula) =>
-          stripHealTokens(stripDamageTypeTokens(subFormula)),
-        ).replace(/(\d+)d(\d+)/gi, DICE_LETTER_REPLACEMENT),
+        formatDiceLetters(
+          formatConditionalDamageDisplay(part.formula, (subFormula) =>
+            stripHealTokens(stripDamageTypeTokens(subFormula)),
+          ),
+        ),
       )
       .filter((formula) => formula.length > 0)
       .join(' + ');

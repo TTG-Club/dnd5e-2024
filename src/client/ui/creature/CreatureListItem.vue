@@ -6,10 +6,9 @@
    */
   import type { SourceDefinition } from '@vtt/shared';
 
-  import { useContextMenu } from '@/systems/dnd5e/composables/useContextMenu';
-  import ContextMenuOverlay from '@/systems/dnd5e/ui/actor/ContextMenuOverlay.vue';
-
+  import { useContextMenu } from '../../composables/useContextMenu';
   import { useListRowClass } from '../../composables/useListRowClass';
+  import ContextMenuOverlay from '../actor/ContextMenuOverlay.vue';
   import EntityRowBody from '../actor/EntityRowBody.vue';
   import { CREATURE_LIST_ITEM_LABELS } from './constants';
 

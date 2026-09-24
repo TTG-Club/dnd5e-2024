@@ -10,17 +10,26 @@ import type {
   WeaponCategoryDefinition,
   WeaponPropertyDefinition,
 } from '@vtt/shared';
+import type { SpeciesDefinition } from '@vtt/shared/system/dnd.js';
 
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 
 /**
- * Хранилище системных данных D&D (свойства оружия, типы урона и т.д.)
+ * Хранилище справочных данных D&D (свойства оружия, типы урона и т.д.) —
+ * единственное своё хранилище системы. Наполняется один раз при подключении к
+ * миру (`systemDataSync`) и читается всеми окнами.
  *
- * Загружается один раз при подключении к миру
- * и используется всеми компонентами для доступа к системным определениям.
+ * Имя с префиксом системы: pinia у нас общая с приложением, и имена хранилищ в
+ * ней — плоский общий список. Совпади оно с чужим — два разных хранилища молча
+ * стали бы одним.
+ *
+ * Наружу списки уходят только на чтение: класть в них — дело слоя
+ * синхронизации, а из окна это меняло бы данные сразу у всех остальных. Что
+ * окну и правда нужно записать, у того есть своё названное действие
+ * (`rememberSource`, `rememberSpeciesDefinitions`).
  */
-export const useSystemDataStore = defineStore('systemData', () => {
+export const useSystemDataStore = defineStore('dnd5e-2024:system-data', () => {
   /** Определения свойств оружия */
   const weaponProperties = ref<WeaponPropertyDefinition[]>([]);
 
@@ -84,9 +93,7 @@ export const useSystemDataStore = defineStore('systemData', () => {
   const toolProperties = ref<ToolPropertyDefinition[]>([]);
 
   /** Определения видов (расы) */
-  const speciesDefinitions = ref<
-    import('@vtt/shared/system/dnd.js').SpeciesDefinition[]
-  >([]);
+  const speciesDefinitions = ref<SpeciesDefinition[]>([]);
 
   /**
    * Устанавливает свойства оружия из серверных данных
@@ -198,42 +205,30 @@ export const useSystemDataStore = defineStore('systemData', () => {
   }
 
   /**
-   * Устанавливает виды (расы) из серверных данных
+   * Запоминает виды, собранные листом персонажа из компендиума: вкладка умений
+   * читает по ним варианты особенностей вида. Сервер виды не присылает — их
+   * знает только тот, кто открыл лист, и список живёт до следующего листа.
+   *
+   * @param speciesList - виды одним списком (паки компендиума мира)
    */
-  function setSpeciesDefinitions(
-    speciesList: import('@vtt/shared/system/dnd.js').SpeciesDefinition[],
-  ): void {
+  function rememberSpeciesDefinitions(speciesList: SpeciesDefinition[]): void {
     speciesDefinitions.value = speciesList;
   }
 
-  /**
-   * Очищает все данные (при отключении от мира)
-   */
-  function reset(): void {
-    weaponProperties.value = [];
-    weaponBaseTypes.value = [];
-    damageTypes.value = [];
-    weaponCategories.value = [];
-    ammunitionTypes.value = [];
-    builtinSources.value = [];
-    packSources.value = [];
-    customSources.value = [];
-    armorCategories.value = [];
-    armorBaseTypes.value = [];
-    equipmentProperties.value = [];
-    toolProperties.value = [];
-    speciesDefinitions.value = [];
-  }
-
   return {
-    weaponProperties,
-    weaponBaseTypes,
-    damageTypes,
-    weaponCategories,
-    ammunitionTypes,
+    // Списки — через `computed`: снаружи их видно, но не переписать целиком
+    weaponProperties: computed(() => weaponProperties.value),
+    weaponBaseTypes: computed(() => weaponBaseTypes.value),
+    damageTypes: computed(() => damageTypes.value),
+    weaponCategories: computed(() => weaponCategories.value),
+    ammunitionTypes: computed(() => ammunitionTypes.value),
     sources,
-    armorCategories,
-    armorBaseTypes,
+    armorCategories: computed(() => armorCategories.value),
+    armorBaseTypes: computed(() => armorBaseTypes.value),
+    equipmentProperties: computed(() => equipmentProperties.value),
+    toolProperties: computed(() => toolProperties.value),
+    speciesDefinitions: computed(() => speciesDefinitions.value),
+    // Действия: первые десять зовёт слой синхронизации, два последних — окна
     setWeaponProperties,
     setWeaponBaseTypes,
     setDamageTypes,
@@ -241,15 +236,11 @@ export const useSystemDataStore = defineStore('systemData', () => {
     setAmmunitionTypes,
     setSources,
     setPackSources,
-    rememberSource,
     setArmorCategories,
     setArmorBaseTypes,
     setEquipmentProperties,
     setToolProperties,
-    setSpeciesDefinitions,
-    equipmentProperties,
-    toolProperties,
-    speciesDefinitions,
-    reset,
+    rememberSource,
+    rememberSpeciesDefinitions,
   };
 });

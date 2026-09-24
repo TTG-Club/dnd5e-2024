@@ -65,6 +65,30 @@ function freeCounterKey(taken: ReadonlySet<string>): string {
 }
 
 /**
+ * Негодные ключи ресурсов: пустые и повторённые.
+ *
+ * По ключу эффект находит, что тратить, а берёт он первый ресурс с таким
+ * ключом — у двух ресурсов с одним ключом второй молча никогда бы не тратился.
+ *
+ * @param keys - ключи ресурсов в порядке строк
+ * @returns номера строк, чей ключ пуст или встречается больше одного раза
+ */
+export function findInvalidCounterKeys(
+  keys: readonly string[],
+): ReadonlySet<number> {
+  const trimmed = keys.map((key) => key.trim());
+  const invalid = new Set<number>();
+
+  trimmed.forEach((key, index) => {
+    if (!key || trimmed.indexOf(key) !== trimmed.lastIndexOf(key)) {
+      invalid.add(index);
+    }
+  });
+
+  return invalid;
+}
+
+/**
  * Новый ресурс со значениями по умолчанию.
  *
  * Максимум по умолчанию — бонус мастерства: так устроено большинство ресурсов,

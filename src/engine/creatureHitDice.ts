@@ -3,6 +3,10 @@
  *
  * Кость хитов задаёт размер существа (Крошечное — к4, … Громадное — к20), а
  * плоский бонус к хитам — модификатор Телосложения, умноженный на число костей.
+ * Основу бонуса мастер может заменить своим числом (стат-блок из книги, где
+ * бонус не сходится с Телосложением), а сверху кладёт свои бонусы (число, модификатор характеристики, бонус
+ * мастерства) — те же строки, что у КД, инициативы и спасбросков; они входят в
+ * формулу один раз, а не за каждую кость.
  * Стат-блок хранит формулу строкой («4к10 + 4») и её среднее, и лист обязан
  * пересобирать оба, как только меняются размер или Телосложение: иначе Большое
  * существо с Телосложением 16 так и живёт с «2к8 + 2» из заготовки.
@@ -11,6 +15,8 @@
  * собирается, а не разбирается: формула хитов существа — поле его записи, и
  * собирать её обязан владелец правил, а не каждое окно по-своему.
  */
+
+import type { AbilityType } from '@vtt/shared';
 
 import type {
   CreatureHitDie,
@@ -21,12 +27,18 @@ import type { DnDCustomBonusContext } from './customBonuses.js';
 import type { DnDCreature } from './dndEntities.js';
 import type { CreatureSize } from './types.js';
 
+import { z } from 'zod';
+
 import {
   calculateAbilityModifier,
   getActorAbilityModifiers,
   getCreatureProficiencyBonus,
 } from './calculations.js';
-import { getCustomBonusesValue, parseAbilityBonuses } from './customBonuses.js';
+import {
+  getCustomBonusesValue,
+  parseAbilityBonuses,
+  parseCustomBonuses,
+} from './customBonuses.js';
 import { findFirstDiceTerm } from './diceFormula.js';
 
 /** Кость хитов по размеру существа (Monster Manual 2024) */
@@ -47,13 +59,16 @@ export const DEFAULT_CREATURE_HIT_DICE_COUNT = 1;
 
 /**
  * Поля системных данных, от которых зависит формула хитов: размер задаёт
- * кость, Телосложение и свои бонусы к нему — бонус за каждую кость. Лист
+ * кость, Телосложение и свои бонусы к нему — бонус за каждую кость, а
+ * характеристики и бонус мастерства — вклад своих бонусов формулы. Лист
  * пересобирает формулу после правки любого из них.
  */
 export const CREATURE_HIT_DICE_RULE_KEYS: readonly (keyof CreatureSystem)[] = [
   'size',
   'abilities',
   'abilityBonuses',
+  'proficiencyBonus',
+  'proficiencySettings',
 ];
 
 /**
@@ -99,18 +114,68 @@ export function parseCreatureHitDiceCount(
   return count !== undefined && count > 0 ? count : undefined;
 }
 
+/** Наименьшее своё число основы бонуса хитов */
+export const CREATURE_HIT_POINTS_BASE_BONUS_MIN = -999;
+
+/** Наибольшее своё число основы бонуса хитов: у Тараска это +330 */
+export const CREATURE_HIT_POINTS_BASE_BONUS_MAX = 9999;
+
+/** Своё число основы бонуса в записи мира: конечное число, иначе его нет */
+const CreatureHitPointsBaseBonusSchema = z.number().finite();
+
 /**
- * Плоский бонус к хитам: модификатор Телосложения за каждую кость хитов.
+ * Своё число основы бонуса из записи существа.
+ *
+ * Значение приходит из мира: всё, что не число, читается как «своего числа
+ * нет» — основа тогда считается по Телосложению. Число приводится к целому в
+ * пределах поля окна (очищенное поле отдаёт NaN).
+ *
+ * @param value - произвольное значение из записи существа
+ * @returns своё число основы либо `null`, если его нет
+ */
+export function parseCreatureHitPointsBaseBonus(value: unknown): number | null {
+  const parsed = CreatureHitPointsBaseBonusSchema.safeParse(value);
+
+  if (!parsed.success) {
+    return null;
+  }
+
+  return Math.min(
+    Math.max(Math.round(parsed.data), CREATURE_HIT_POINTS_BASE_BONUS_MIN),
+    CREATURE_HIT_POINTS_BASE_BONUS_MAX,
+  );
+}
+
+/**
+ * Основа бонуса к хитам: своё число мастера либо модификатор Телосложения за
+ * каждую кость хитов.
  *
  * @param hitDiceCount - число костей хитов
  * @param constitutionModifier - модификатор Телосложения
+ * @param baseBonus - своё число основы (`null` — считать по Телосложению)
+ * @returns основа бонуса (может быть отрицательной)
+ */
+export function calculateCreatureHitPointsBaseBonus(
+  hitDiceCount: number,
+  constitutionModifier: number,
+  baseBonus: number | null,
+): number {
+  return baseBonus ?? hitDiceCount * constitutionModifier;
+}
+
+/**
+ * Плоский бонус к хитам: основа плюс свои бонусы формулы — они идут один
+ * раз, а не за каждую кость.
+ *
+ * @param baseBonus - основа бонуса ({@link calculateCreatureHitPointsBaseBonus})
+ * @param customBonus - сумма своих бонусов формулы
  * @returns бонус к хитам (может быть отрицательным)
  */
 export function calculateCreatureHitPointsBonus(
-  hitDiceCount: number,
-  constitutionModifier: number,
+  baseBonus: number,
+  customBonus: number,
 ): number {
-  return hitDiceCount * constitutionModifier;
+  return baseBonus + customBonus;
 }
 
 /**
@@ -160,11 +225,51 @@ export function calculateCreatureAverageHitPoints(
 }
 
 /**
- * Модификатор Телосложения, от которого считается формула хитов существа.
+ * Числа листа, от которых считается формула хитов существа: модификаторы
+ * характеристик и бонус мастерства.
  *
- * Берётся по записи листа: значение характеристики и свои бонусы к ней (пояс,
- * домашнее правило). Активные эффекты сюда не входят — формула описывает
- * стат-блок, а эффект временно двигает итог поверх него.
+ * Модификаторы берутся по записи листа: значение характеристики и свои бонусы
+ * к ней (пояс, домашнее правило). Активные эффекты сюда не входят — формула
+ * описывает стат-блок, а эффект временно двигает итог поверх него. Этими же
+ * числами окно здоровья считает вклад своих бонусов формулы, поэтому
+ * предпросмотр в окне и пересчёт по правилам не расходятся.
+ *
+ * @param creature - существо
+ * @returns числа для формулы хитов и её своих бонусов
+ */
+export function getCreatureHitDiceBonusContext(
+  creature: DnDCreature,
+): DnDCustomBonusContext {
+  const baseContext: DnDCustomBonusContext = {
+    abilityMods: getActorAbilityModifiers(creature),
+    proficiencyBonus: getCreatureProficiencyBonus(creature),
+  };
+
+  const abilityBonuses = parseAbilityBonuses(creature.system.abilityBonuses);
+
+  const getRecordModifier = (ability: AbilityType): number =>
+    calculateAbilityModifier(
+      creature.system.abilities[ability]
+        + getCustomBonusesValue(baseContext, abilityBonuses[ability] ?? []),
+    );
+
+  return {
+    ...baseContext,
+    abilityMods: {
+      strength: getRecordModifier('strength'),
+      dexterity: getRecordModifier('dexterity'),
+      constitution: getRecordModifier('constitution'),
+      intelligence: getRecordModifier('intelligence'),
+      wisdom: getRecordModifier('wisdom'),
+      charisma: getRecordModifier('charisma'),
+    },
+  };
+}
+
+/**
+ * Модификатор Телосложения, от которого считается формула хитов существа —
+ * по записи листа, без активных эффектов
+ * (см. {@link getCreatureHitDiceBonusContext}).
  *
  * @param creature - существо
  * @returns модификатор Телосложения для формулы хитов
@@ -172,19 +277,24 @@ export function calculateCreatureAverageHitPoints(
 export function getCreatureHitDiceConstitutionModifier(
   creature: DnDCreature,
 ): number {
-  const context: DnDCustomBonusContext = {
-    abilityMods: getActorAbilityModifiers(creature),
-    proficiencyBonus: getCreatureProficiencyBonus(creature),
-  };
+  return getCreatureHitDiceBonusContext(creature).abilityMods.constitution;
+}
 
-  const bonuses =
-    parseAbilityBonuses(creature.system.abilityBonuses).constitution ?? [];
-
-  const score =
-    creature.system.abilities.constitution
-    + getCustomBonusesValue(context, bonuses);
-
-  return calculateAbilityModifier(score);
+/**
+ * Сумма своих бонусов формулы хитов.
+ *
+ * Список приходит из записи мира, поэтому разбирается поштучно: испорченная
+ * строка выпадает, а не роняет пересчёт хитов.
+ *
+ * @param context - числа листа, от которых считаются бонусы
+ * @param bonuses - свои бонусы формулы из записи существа
+ * @returns вклад своих бонусов в формулу
+ */
+export function getCreatureHitPointsCustomBonus(
+  context: DnDCustomBonusContext,
+  bonuses: unknown,
+): number {
+  return getCustomBonusesValue(context, parseCustomBonuses(bonuses));
 }
 
 /**
@@ -225,6 +335,8 @@ export interface CreatureHitDiceRuleInput {
   size: CreatureSize;
   /** Модификатор Телосложения — задаёт бонус за каждую кость */
   constitutionModifier: number;
+  /** Сумма своих бонусов формулы — прибавляется один раз */
+  customBonus: number;
   /**
    * Число костей: из окна здоровья. Без него берётся записанное, а у существа
    * из компендиума — из формулы.
@@ -234,7 +346,7 @@ export interface CreatureHitDiceRuleInput {
 
 /**
  * Пересобирает хиты существа по правилам: кость по размеру, бонус по
- * Телосложению, формула и среднее — из них; запас хитов переносится по
+ * Телосложению и своим бонусам, формула и среднее — из них; запас хитов переносится по
  * {@link carryHitPointsPool}.
  *
  * Хиты без кубиковой формулы (текстовые, вроде «половина хитов призывателя»)
@@ -242,7 +354,8 @@ export interface CreatureHitDiceRuleInput {
  * объект — вызывающий по этому узнаёт, что записывать нечего.
  *
  * @param hitPoints - хиты существа по записи
- * @param input - размер, модификатор Телосложения и, при желании, число костей
+ * @param input - размер, модификатор Телосложения, свои бонусы и, при
+ * желании, число костей
  * @returns хиты по правилам либо исходный объект, если менять нечего
  */
 export function buildCreatureHitPoints(
@@ -260,10 +373,13 @@ export function buildCreatureHitPoints(
 
   const hitDie = getCreatureHitDieBySize(input.size);
 
-  const bonus = calculateCreatureHitPointsBonus(
+  const baseBonus = calculateCreatureHitPointsBaseBonus(
     hitDiceCount,
     input.constitutionModifier,
+    parseCreatureHitPointsBaseBonus(hitPoints.baseBonus),
   );
+
+  const bonus = calculateCreatureHitPointsBonus(baseBonus, input.customBonus);
 
   const formula = formatCreatureHitPointsFormula(hitDiceCount, hitDie, bonus);
 
@@ -296,8 +412,8 @@ export function buildCreatureHitPoints(
 }
 
 /**
- * Хиты существа по правилам от его записи: размер и Телосложение берутся с
- * листа.
+ * Хиты существа по правилам от его записи: размер, Телосложение и свои бонусы
+ * формулы берутся с листа.
  *
  * Единая точка для листа: размер меняют и в шапке, и масштабом токена в
  * настройках, Телосложение — плиткой и своими бонусами, а формула обязана
@@ -319,8 +435,11 @@ export function resolveCreatureHitPointsByRules(
     return undefined;
   }
 
+  const context = getCreatureHitDiceBonusContext(creature);
+
   return buildCreatureHitPoints(hitPoints, {
     size: creature.system.size,
-    constitutionModifier: getCreatureHitDiceConstitutionModifier(creature),
+    constitutionModifier: context.abilityMods.constitution,
+    customBonus: getCreatureHitPointsCustomBonus(context, hitPoints.bonuses),
   });
 }

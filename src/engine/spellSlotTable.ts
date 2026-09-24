@@ -6,19 +6,27 @@
  */
 
 import type { ActorClassEntry, CasterType } from './classTypes.js';
+import type { DnDCustomBonusContext } from './customBonuses.js';
+import type { DnDActor } from './dndEntities.js';
+import type { DnDSpellSlotSettings } from './types.js';
 
-/**
- * Минимальная структура данных актора, необходимая для расчёта ячеек заклинаний.
- *
- * Используется вместо `any` для типобезопасных утилит spell slot.
- */
-export interface SpellSlotActorData {
-  system?: {
-    classes?: ActorClassEntry[];
-    spellSlotsUsed?: number[];
-    pactSlotsUsed?: number;
-  };
-}
+import { isRecord } from '@vtt/shared';
+
+import {
+  getActorAbilityModifiers,
+  getActorProficiencyBonus,
+} from './calculations.js';
+import {
+  getCustomBonusesValue,
+  parseCustomBonuses,
+  toStoredCustomBonus,
+} from './customBonuses.js';
+
+/** Наименьший круг ячейки заклинания */
+export const MIN_SPELL_SLOT_LEVEL = 1;
+
+/** Наибольший круг ячейки заклинания */
+export const MAX_SPELL_SLOT_LEVEL = 9;
 
 /** Количество ячеек заклинаний по кругам (индекс 0 = 1-й круг) */
 export type SpellSlotArray = [
@@ -350,17 +358,15 @@ export function computeSpellSlots(
 }
 
 /**
- * Наибольший круг, который персонаж способен наложить.
+ * Карта «ключ класса → тип заклинателя» для расчёта ячеек. Класс без типа в
+ * карту не попадает — таблицы считают его незаклинателем.
  *
- * Ячейки договора колдуна учитываются наравне с обычными: заклинание шестого круга
- * колдун 11 уровня накладывает, пусть и своей ячейкой.
- *
- * @param actor - лист персонажа
- * @returns наибольший доступный круг; 0 — ячеек нет, доступны только заговоры
+ * @param classes - классы листа
+ * @returns карта типов заклинателя по ключу класса
  */
-export function getMaxSpellSlotLevel(actor: SpellSlotActorData): number {
-  const classes = actor.system?.classes ?? [];
-
+export function buildCasterTypeMap(
+  classes: readonly ActorClassEntry[],
+): Map<string, CasterType> {
   const casterTypeMap = new Map<string, CasterType>();
 
   for (const entry of classes) {
@@ -369,7 +375,156 @@ export function getMaxSpellSlotLevel(actor: SpellSlotActorData): number {
     }
   }
 
-  const slots = computeSpellSlots(classes, casterTypeMap);
+  return casterTypeMap;
+}
+
+/**
+ * Разбирает свои бонусы к ячейкам из записи актёра. Список всегда из девяти
+ * кругов: мир мог прийти импортом руками, и короткий список сдвинул бы круги.
+ *
+ * @param value - поле `spellSlotSettings`; нет — бонусов нет
+ * @returns бонусы по девяти кругам
+ */
+export function parseSpellSlotSettings(value: unknown): DnDSpellSlotSettings {
+  const stored =
+    isRecord(value) && Array.isArray(value.levels) ? value.levels : [];
+
+  return {
+    levels: Array.from({ length: MAX_SPELL_SLOT_LEVEL }, (_unused, index) =>
+      parseCustomBonuses(stored[index]),
+    ),
+  };
+}
+
+/**
+ * Выправляет бонусы перед записью в актёра: числа приходят из полей окна.
+ *
+ * @param settings - бонусы из окна
+ * @returns бонусы с числами в допустимых границах
+ */
+export function toStoredSpellSlotSettings(
+  settings: DnDSpellSlotSettings,
+): DnDSpellSlotSettings {
+  return {
+    levels: settings.levels.map((bonuses) => bonuses.map(toStoredCustomBonus)),
+  };
+}
+
+/**
+ * Числа листа, от которых считаются свои бонусы к ячейкам, — по записи листа.
+ * Вкладка передаёт свои числа с учётом эффектов; здесь запасной путь для
+ * проверок, у которых итоговых статов под рукой нет.
+ *
+ * @param actor - лист персонажа
+ * @returns модификаторы характеристик и бонус мастерства
+ */
+function getSpellSlotBonusContext(actor: DnDActor): DnDCustomBonusContext {
+  return {
+    abilityMods: getActorAbilityModifiers(actor),
+    proficiencyBonus: getActorProficiencyBonus(actor),
+  };
+}
+
+/**
+ * Накладывает свои бонусы на ячейки классов. Итог круга не опускается ниже
+ * нуля: отрицательный бонус убирает ячейки класса, но не больше, чем есть.
+ *
+ * @param classSlots - ячейки по таблицам классов
+ * @param settings - бонусы листа как есть в записи
+ * @param context - числа листа, от которых считаются бонусы
+ * @returns ячейки с бонусами
+ */
+export function applySpellSlotSettings(
+  classSlots: SpellSlotArray,
+  settings: unknown,
+  context: DnDCustomBonusContext,
+): SpellSlotArray {
+  const { levels } = parseSpellSlotSettings(settings);
+  const slots = copySlots(classSlots);
+
+  levels.forEach((bonuses, index) => {
+    slots[index] = Math.max(
+      0,
+      slots[index] + getCustomBonusesValue(context, bonuses),
+    );
+  });
+
+  return slots;
+}
+
+/**
+ * Ячейки листа: таблицы классов и свои бонусы поверх. Этим числом живут
+ * пузырьки вкладки, выбор круга при касте и проверка «ячейка есть».
+ *
+ * @param actor - лист персонажа
+ * @param context - числа листа для бонусов; нет — считаются по записи листа
+ * @returns итоговые ячейки [1-9 круг]
+ */
+export function computeActorSpellSlots(
+  actor: DnDActor,
+  context?: DnDCustomBonusContext,
+): SpellSlotArray {
+  const classes = actor.system?.classes ?? [];
+
+  return applySpellSlotSettings(
+    computeSpellSlots(classes, buildCasterTypeMap(classes)),
+    actor.system?.spellSlotSettings,
+    context ?? getSpellSlotBonusContext(actor),
+  );
+}
+
+/**
+ * Проверяет, осталась ли у персонажа ячейка выбранного круга и вида. Ячейка
+ * договора подходит только своему кругу; обычная считается по таблице классов.
+ *
+ * @param actor - лист персонажа с классами и расходом ячеек
+ * @param castLevel - круг ячейки (1–9)
+ * @param isPactSlot - тратится ячейка договора колдуна
+ * @param context - числа листа для своих бонусов к ячейкам; нет — по записи
+ * @returns true — ячейка есть
+ */
+export function hasAvailableSpellSlot(
+  actor: DnDActor,
+  castLevel: number,
+  isPactSlot: boolean,
+  context?: DnDCustomBonusContext,
+): boolean {
+  const classes = actor.system?.classes ?? [];
+
+  if (isPactSlot) {
+    const pactInfo = getPactSlotInfo(classes);
+
+    return (
+      castLevel === pactInfo.level
+      && (actor.system?.pactSlotsUsed ?? 0) < pactInfo.max
+    );
+  }
+
+  const maxSlots = computeActorSpellSlots(actor, context);
+  const slotIndex = castLevel - 1;
+
+  return (
+    (actor.system?.spellSlotsUsed?.[slotIndex] ?? 0)
+    < (maxSlots[slotIndex] ?? 0)
+  );
+}
+
+/**
+ * Наибольший круг, который персонаж способен наложить.
+ *
+ * Ячейки договора колдуна учитываются наравне с обычными: заклинание шестого круга
+ * колдун 11 уровня накладывает, пусть и своей ячейкой.
+ *
+ * @param actor - лист персонажа
+ * @param context - числа листа для своих бонусов к ячейкам; нет — по записи
+ * @returns наибольший доступный круг; 0 — ячеек нет, доступны только заговоры
+ */
+export function getMaxSpellSlotLevel(
+  actor: DnDActor,
+  context?: DnDCustomBonusContext,
+): number {
+  const classes = actor.system?.classes ?? [];
+  const slots = computeActorSpellSlots(actor, context);
 
   let maxLevel = 0;
 
@@ -387,11 +542,18 @@ export function getMaxSpellSlotLevel(actor: SpellSlotActorData): number {
 
 /**
  * Получает список доступных кругов заклинаний для актора, начиная с `minLevel`.
+ *
+ * @param actor - лист персонажа
+ * @param minLevel - наименьший круг заклинания
+ * @param maxAvailableLevel - наибольший круг для листа без ячеек
+ * @param context - числа листа для своих бонусов к ячейкам; нет — по записи
+ * @returns доступные круги по возрастанию
  */
 export function getAvailableSpellLevels(
-  actor: SpellSlotActorData,
+  actor: DnDActor,
   minLevel: number,
   maxAvailableLevel: number = 9,
+  context?: DnDCustomBonusContext,
 ): number[] {
   if (minLevel <= 0) {
     return [0];
@@ -423,16 +585,7 @@ export function getAvailableSpellLevels(
   }
 
   // 2. Проверяем обычные ячейки
-  const typeMap = new Map<string, CasterType>();
-  const classes = actor.system?.classes ?? [];
-
-  for (const entry of classes) {
-    if (entry.casterType) {
-      typeMap.set(entry.classKey, entry.casterType);
-    }
-  }
-
-  const maxSlots = computeSpellSlots(classes, typeMap);
+  const maxSlots = computeActorSpellSlots(actor, context);
   const usedSlots = actor.system?.spellSlotsUsed ?? [0, 0, 0, 0, 0, 0, 0, 0, 0];
 
   for (let i = 0; i < 9; i++) {

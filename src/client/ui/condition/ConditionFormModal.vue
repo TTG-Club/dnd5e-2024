@@ -34,7 +34,7 @@
     MODAL_BUTTON_LABELS,
     SCROLLABLE_DROPDOWN_UI,
   } from '../actor/constants';
-  import ActiveEffectFormModal from '../actor/tabs/ActiveEffectFormModal.vue';
+  import ActiveEffectFormModal from '../effect/ActiveEffectFormModal.vue';
   import ConditionBadge from './ConditionBadge.vue';
   import {
     CONDITION_EFFECT_MODAL_ID,
@@ -581,8 +581,7 @@
     :modal-id="CONDITION_EFFECT_MODAL_ID"
     :z-index="effectModalZIndex"
     :effect="effect ?? undefined"
-    hide-aura
-    hide-condition-preset
+    context="condition"
     @save="saveEffect"
   />
 </template>

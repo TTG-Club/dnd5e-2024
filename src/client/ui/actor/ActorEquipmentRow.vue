@@ -4,14 +4,19 @@
 
   import type { DnDGameItem } from '@vtt/shared/system/dnd.js';
 
-  import type { SheetRowStat } from './sheetRowTypes';
+  import type { EquipmentAmmunitionBadge, SheetRowStat } from './sheetRowTypes';
 
   import { computed } from 'vue';
 
-  import { getEquipmentCategoryIcon } from '@vtt/shared/system/dnd.js';
-
   import {
-    DEFAULT_EQUIPMENT_ICON,
+    getEquipmentCategoryIcon,
+    hasItemUseEffects,
+    isItemDepleted,
+  } from '@vtt/shared/system/dnd.js';
+
+  import { ITEM_USE_MACRO_ICON } from '../../macros/constants';
+  import {
+    DEFAULT_ITEM_TYPE_ICON,
     EQUIPMENT_BADGE_HINTS,
     EQUIPMENT_BADGE_LABELS,
     EQUIPMENT_EQUIP_ACTION_LABELS,
@@ -34,6 +39,8 @@
     isEquipBlocked?: boolean;
     /** Лист в режиме правки: нажатие по строке описание не открывает */
     isEditMode?: boolean;
+    /** Чем заряжено стрелковое оружие; нет — значка нет */
+    ammunition?: EquipmentAmmunitionBadge;
   }
 
   const props = withDefaults(defineProps<Props>(), {
@@ -42,6 +49,7 @@
     menuItems: () => [],
     isEquipBlocked: false,
     isEditMode: false,
+    ammunition: undefined,
   });
 
   const emit = defineEmits<{
@@ -57,12 +65,22 @@
     'dragstart': [event: DragEvent];
   }>();
 
-  /** Значок предмета для не-оружия: у оружия его рисует `WeaponIcon` */
-  const itemIcon = computed(() =>
-    props.item.type === 'equipment'
+  /**
+   * Значок предмета для не-оружия: у оружия его рисует `WeaponIcon`.
+   *
+   * Предмет с эффектами применения (зелье, свиток, масло) берёт значок своей
+   * кнопки на панели быстрого доступа: по категории зелье — «снаряжение
+   * приключенца» с рюкзаком, и в инвентаре его было не узнать.
+   */
+  const itemIcon = computed(() => {
+    if (hasItemUseEffects(props.item)) {
+      return ITEM_USE_MACRO_ICON;
+    }
+
+    return props.item.type === 'equipment'
       ? getEquipmentCategoryIcon(props.item.equipmentCategory)
-      : (EQUIPMENT_TYPE_ICONS[props.item.type] ?? DEFAULT_EQUIPMENT_ICON),
-  );
+      : (EQUIPMENT_TYPE_ICONS[props.item.type] ?? DEFAULT_ITEM_TYPE_ICON);
+  });
 
   /** Универсальное оружие: хват меняется пунктом меню */
   const isVersatile = computed(
@@ -118,14 +136,21 @@
       : 'cursor-pointer border-default/50 bg-default/40 text-muted hover:border-primary/60';
   });
 
-  /** Надетый предмет виден в списке издалека — по тёплой обводке строки */
-  const rowClass = computed(() =>
+  /** Предмет закончился: строка остаётся, но тускнеет */
+  const isDepleted = computed(() => isItemDepleted(props.item));
+
+  /**
+   * Надетый предмет виден в списке издалека — по тёплой обводке строки,
+   * закончившийся — по тусклой строке.
+   */
+  const rowClass = computed(() => [
     props.item.equipped ? 'bg-primary/5 ring-1 ring-primary/50 ring-inset' : '',
-  );
+    isDepleted.value ? 'opacity-60' : '',
+  ]);
 
   const quantity = computed(() => props.item.quantity ?? 1);
 
-  const isDecreaseDisabled = computed(() => quantity.value <= 1);
+  const isDecreaseDisabled = computed(() => quantity.value <= 0);
 
   /** Нажатие по строке открывает описание — вне режима правки листа */
   function handleOpen(): void {
@@ -294,13 +319,49 @@
                   {{ EQUIPMENT_BADGE_LABELS.attunementRequired }}
                 </UBadge>
               </UTooltip>
+
+              <UTooltip
+                v-if="isDepleted"
+                :text="EQUIPMENT_BADGE_HINTS.depleted"
+              >
+                <UBadge
+                  color="error"
+                  variant="subtle"
+                  size="sm"
+                  class="relative z-10 shrink-0"
+                >
+                  {{ EQUIPMENT_BADGE_LABELS.depleted }}
+                </UBadge>
+              </UTooltip>
             </span>
 
+            <!-- Вторая строка: вид предмета и, у стрелкового оружия, чем оно
+              заряжено — название оружия в первой строке не теснится -->
             <span
-              v-if="subtitle"
-              class="text-xs wrap-break-word text-dimmed @xl:truncate"
+              v-if="subtitle || ammunition"
+              class="flex min-w-0 items-center gap-2"
             >
-              {{ subtitle }}
+              <span
+                v-if="subtitle"
+                class="min-w-0 text-xs wrap-break-word text-dimmed @xl:truncate"
+              >
+                {{ subtitle }}
+              </span>
+
+              <UTooltip
+                v-if="ammunition"
+                :text="ammunition.hint"
+              >
+                <UBadge
+                  :color="ammunition.color"
+                  variant="subtle"
+                  size="xs"
+                  icon="tabler:archery-arrow"
+                  :label="ammunition.label"
+                  :ui="{ label: 'truncate' }"
+                  class="relative z-10 max-w-40 shrink-0"
+                />
+              </UTooltip>
             </span>
           </button>
         </div>
@@ -332,7 +393,7 @@
           <input
             type="number"
             :value="quantity"
-            min="1"
+            min="0"
             :aria-label="`${SHEET_ROW_ARIA_LABELS.quantity}: ${item.name}`"
             class="w-8 [appearance:textfield] rounded border border-transparent bg-transparent text-center text-sm font-medium text-default focus:border-primary focus:outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
             @change="handleQuantityInput"

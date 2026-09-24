@@ -1,27 +1,34 @@
 <script setup lang="ts">
-  import type { ActiveEffect } from '@vtt/shared/system/dnd.js';
+  import type {
+    ActiveEffect,
+    EffectFormContext,
+  } from '@vtt/shared/system/dnd.js';
 
   import { ref } from 'vue';
 
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
 
+  import ActiveEffectFormModal from '../effect/ActiveEffectFormModal.vue';
   import { ACTIVE_EFFECT_DEFAULTS } from './constants';
-  import ActiveEffectFormModal from './tabs/ActiveEffectFormModal.vue';
 
-  const props = defineProps<{
-    /**
-     * Идентификатор окна редактора эффекта. Свой у каждой формы: имена окон —
-     * плоское глобальное пространство, и два редактора с одним именем открылись
-     * бы одним окном на двоих.
-     */
-    modalId: string;
+  const props = withDefaults(
+    defineProps<{
+      /**
+       * Идентификатор окна редактора эффекта. Свой у каждой формы: имена окон —
+       * плоское глобальное пространство, и два редактора с одним именем открылись
+       * бы одним окном на двоих.
+       */
+      modalId: string;
 
-    /**
-     * Спрятать блок ауры в редакторе эффекта. Записи, которые применяются к
-     * своему носителю (черта, предыстория, вид, класс), аур не транслируют.
-     */
-    hideAura?: boolean;
-  }>();
+      /**
+       * Место редактора эффекта. По умолчанию — черта: эффекты черты,
+       * предыстории, вида и класса копируются на персонажа постоянными, без
+       * спасброска, длительности и ауры.
+       */
+      context?: EffectFormContext;
+    }>(),
+    { context: 'feature' },
+  );
 
   const effects = defineModel<ActiveEffect[]>({ required: true });
 
@@ -144,7 +151,7 @@
     :modal-id="props.modalId"
     :z-index="modalZIndex"
     :effect="editingEffect"
-    :hide-aura="props.hideAura"
+    :context="props.context"
     @save="saveEffect"
   />
 </template>

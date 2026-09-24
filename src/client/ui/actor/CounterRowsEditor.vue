@@ -14,10 +14,17 @@
    */
   import type { EditableResourceCounter } from './counterEditorTypes';
 
-  import { COUNTER_RECOVERY_OPTIONS, FEAT_GRANTS_LABELS } from './constants';
+  import { computed } from 'vue';
+
+  import {
+    COUNTER_RECOVERY_OPTIONS,
+    COUNTER_RESOURCE_LABELS,
+    FEAT_GRANTS_LABELS,
+  } from './constants';
   import {
     createProgressionEntry,
     createResourceCounter,
+    findInvalidCounterKeys,
   } from './counterEditorTypes';
   import CounterMaxField from './CounterMaxField.vue';
   import FieldHint from './FieldHint.vue';
@@ -32,6 +39,11 @@
       withTableColumn?: boolean;
     }>(),
     { withStartLevel: false, withTableColumn: false },
+  );
+
+  /** Строки с пустым или повторённым ключом — подсвечиваются красным */
+  const invalidKeyIndexes = computed(() =>
+    findInvalidCounterKeys(counters.value.map((counter) => counter.key)),
   );
 
   /**
@@ -90,6 +102,29 @@
         >
           <UInput
             v-model="counter.shortName"
+            size="sm"
+            class="w-full"
+          />
+        </UFormField>
+
+        <!-- Ключ виден, потому что по нему эффект тратит ресурс: без поля автор
+          не знал, что вписать в «Тратит ресурс». Ошибка — только рамкой:
+          строка текста под полем сбила бы ряд, а правило есть в подсказке -->
+        <UFormField
+          :error="invalidKeyIndexes.has(index)"
+          class="w-28"
+        >
+          <template #label>
+            <span class="flex items-center gap-1">
+              {{ COUNTER_RESOURCE_LABELS.key }}
+
+              <FieldHint :text="FEAT_GRANTS_LABELS.counterKeyHint" />
+            </span>
+          </template>
+
+          <UInput
+            v-model.trim="counter.key"
+            :placeholder="COUNTER_RESOURCE_LABELS.keyPlaceholder"
             size="sm"
             class="w-full"
           />

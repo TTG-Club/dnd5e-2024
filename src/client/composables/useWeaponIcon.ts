@@ -1,7 +1,6 @@
 import { computed } from 'vue';
 
-import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
-
+import { useSystemDataStore } from '../stores/systemDataStore';
 import clubSvg from '../ui/actor/icons/club.svg?raw';
 import maceSvg from '../ui/actor/icons/mace.svg?raw';
 import sickleSvg from '../ui/actor/icons/sickle.svg?raw';

@@ -59,7 +59,6 @@ const HOST_MODULE_IDS: string[] = [
   '@/stores/hotbarStore',
   '@/stores/initiativeStore',
   '@/stores/itemsStore',
-  '@/stores/journalStore',
   '@/stores/projectileStore',
   '@/stores/spellTemplateStore',
   '@/stores/targetStore',
@@ -196,13 +195,11 @@ export default defineConfig({
         find: '@vtt/shared/system/dnd.js',
         replacement: path.resolve(__dirname, './src/engine/index.ts'),
       },
-      // Внутри приложения система ссылалась на СВОИ же файлы через алиас
-      // приложения (`@/systems/dnd5e/…`, 46 мест). Снаружи такого пути нет —
-      // заворачиваем самоссылки на собственные исходники.
-      {
-        find: /^@\/systems\/dnd5e/,
-        replacement: path.resolve(__dirname, './src/client'),
-      },
+      // Алиаса самоссылок (`@/systems/dnd5e/…` → `src/client`) здесь больше
+      // нет: внутри приложения система ссылалась так на свои же файлы, теперь
+      // все такие импорты переписаны на относительные пути. Без алиаса новая
+      // самоссылка не «починится» молча, а упадёт сборкой как неизвестный
+      // модуль хоста — это и нужно, адрес приложения к нашим файлам не ведёт.
     ],
   },
   build: {

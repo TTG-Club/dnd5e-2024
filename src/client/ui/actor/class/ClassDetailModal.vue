@@ -13,6 +13,7 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import {
     classOwnCounterDefinitions,
+    stripDescriptionRollMarkers,
     subclassCounterDefinitions,
     toolProficiencyLabel,
     withCounterTableColumns,
@@ -1048,7 +1049,7 @@
                     <ItemDescriptionRenderer
                       :content="feature.description"
                       class="mt-1 line-clamp-3 text-sm text-muted"
-                      :title="feature.description"
+                      :title="stripDescriptionRollMarkers(feature.description)"
                     />
 
                     <ClassFeatureChoicesView

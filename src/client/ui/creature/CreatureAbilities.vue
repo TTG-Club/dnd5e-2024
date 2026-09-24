@@ -9,11 +9,13 @@
     EffectTargetKey,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { RollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import type { AbilityBonusSource } from '../actor/AbilityScore.vue';
 
   import { computed, ref, toRef } from 'vue';
 
   import {
+    ABILITY_CHECK_KEY,
     ABILITY_KEYS,
     ABILITY_LABELS,
     calculateAbilityModifier,
@@ -21,9 +23,11 @@
     getCreatureProficiencyBonus,
     getCustomBonusesValue,
     getCustomBonusValue,
+    resolveAbilityCheckModifier,
     resolveAbilityCheckRollMode,
   } from '@vtt/shared/system/dnd.js';
 
+  import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import AbilityScore from '../actor/AbilityScore.vue';
   import AbilityScoreSettingsModal from '../actor/AbilityScoreSettingsModal.vue';
@@ -227,6 +231,7 @@
     rollLabel: string;
     rollButtonText: string;
     initialRollMode: AttackRollMode;
+    evaluateBonusRollFormulas?: RollBonusEvaluator;
   }
 
   const diceRollConfig = ref<DiceRollConfig>({
@@ -252,7 +257,12 @@
     abilityKey: AbilityType,
   ): void {
     diceRollConfig.value = {
-      modifier,
+      // Прибавка ко всем проверкам — только броску: плитка показывает модификатор
+      modifier: resolveAbilityCheckModifier(modifier, resolvedStats.value),
+      evaluateBonusRollFormulas: buildRollBonusEvaluator(
+        () => props.creature,
+        ABILITY_CHECK_KEY,
+      ),
       title: `${ABILITY_CHECK_ROLL_LABELS.titlePrefix}${label}`,
       rollLabel: `${ABILITY_CHECK_ROLL_LABELS.rollPrefix}${label}`,
       rollButtonText: CREATURE_ABILITIES_LABELS.rollButton,
@@ -349,6 +359,7 @@
     :roll-label="diceRollConfig.rollLabel"
     :roll-button-text="diceRollConfig.rollButtonText"
     :initial-roll-mode="diceRollConfig.initialRollMode"
+    :evaluate-bonus-roll-formulas="diceRollConfig.evaluateBonusRollFormulas"
   />
 
   <!-- Модалка настройки характеристики: одна на все плитки -->

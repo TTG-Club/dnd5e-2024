@@ -63,6 +63,12 @@ import {
   syncCreatureSpellcastingUses,
 } from './creatureSpellcasting.js';
 import { getCustomBonusValue, parseCustomBonuses } from './customBonuses.js';
+import { formatDiceLetters } from './diceFormula.js';
+import {
+  detectFormulaDamageType,
+  stripDamageTypeTokens,
+  stripHealTokens,
+} from './formulaTokens.js';
 import {
   DEFAULT_PROFICIENCY_BONUS,
   getProficiencyBonusBreakdown,
@@ -218,6 +224,45 @@ export function calculateExperienceForNextLevel(currentLevel: number): number {
   }
 
   return EXPERIENCE_TABLE[currentLevel] || EXPERIENCE_TABLE[MAX_LEVEL - 1];
+}
+
+/**
+ * Ввод опыта: цепочка целых чисел через `+`/`-` — «300», «+150», «+100+50-20».
+ * Типографский минус (`−`) и пробелы приводятся заранее, в самом шаблоне их нет.
+ */
+const EXPERIENCE_INPUT_PATTERN = /^[+-]?\d+(?:[+-]\d+)*$/;
+
+/** Отдельные слагаемые ввода опыта вместе со знаком */
+const EXPERIENCE_TERM_PATTERN = /[+-]?\d+/g;
+
+/**
+ * Считает опыт по вводу в поле, как поле хитов у фишки: число без знака —
+ * точное значение, со знаком — сдвиг от текущего опыта. Слагаемых может быть
+ * несколько («+100+50» — два боя за сессию), знак первого решает, от чего
+ * считать. Опыт не уходит ниже нуля.
+ *
+ * @param input - строка из поля опыта
+ * @param currentExperience - опыт персонажа сейчас, основа для сдвига
+ * @returns итоговый опыт или `undefined`, если ввод не разобрать
+ */
+export function resolveExperienceInput(
+  input: string,
+  currentExperience: number,
+): number | undefined {
+  const normalized = input.replaceAll('−', '-').replaceAll(/\s/g, '');
+
+  if (!EXPERIENCE_INPUT_PATTERN.test(normalized)) {
+    return undefined;
+  }
+
+  const isRelative = normalized.startsWith('+') || normalized.startsWith('-');
+
+  const sum = (normalized.match(EXPERIENCE_TERM_PATTERN) ?? []).reduce(
+    (total, term) => total + Number.parseInt(term, 10),
+    isRelative ? currentExperience : 0,
+  );
+
+  return Math.max(0, sum);
 }
 
 /**
@@ -450,7 +495,10 @@ export function resolveWeaponDamageAbility(
  * бейджем.
  */
 export interface WeaponModifierPart {
-  /** Ключ слагаемого: `ability`, `proficiency`, `weapon`, `magic`, `effects`, `custom-<id>` */
+  /**
+   * Ключ слагаемого: `ability`, `proficiency`, `weapon`, `magic`, `ammunition`,
+   * `effects`, `custom-<id>`
+   */
   key: string;
 
   /** Подпись слагаемого («Ловкость», «Мастерство», «Эффекты») */
@@ -475,6 +523,8 @@ export const WEAPON_MODIFIER_PART_LABELS = {
   weaponBonus: 'Бонус оружия',
   /** Магический бонус предмета */
   magic: 'Магия',
+  /** Магический бонус боеприпаса, которым оружие стреляет */
+  ammunition: 'Боеприпас',
   /** Плоские бонусы активных эффектов (ауры, экипировка) */
   effects: 'Эффекты',
   /** Своя строка бонуса без пометки источника */
@@ -529,10 +579,25 @@ function getWeaponAbilityPart(
 }
 
 /**
- * Слагаемое своего бонуса оружия («Доп. бонус» атаки или урона).
+ * Строка разбора из числа бонуса. Число приходит из записи мира: не конечное —
+ * строки нет, иначе `NaN` расползся бы по всему разбору и итог показал бы
+ * пустоту; ноль строки тоже не даёт.
  *
- * Число приходит из записи мира: не число и не конечное — слагаемого нет, иначе
- * `NaN` расползся бы по всему разбору и итог показал бы пустоту.
+ * @param key - ключ слагаемого
+ * @param label - подпись слагаемого
+ * @param value - бонус
+ * @returns слагаемое (пустой список — бонуса нет)
+ */
+function getBonusParts(
+  key: string,
+  label: string,
+  value: number,
+): WeaponModifierPart[] {
+  return Number.isFinite(value) && value !== 0 ? [{ key, label, value }] : [];
+}
+
+/**
+ * Слагаемое своего бонуса оружия («Доп. бонус» атаки или урона).
  *
  * @param bonus - плоский бонус оружия
  * @returns слагаемое бонуса оружия (пустой список — бонуса нет)
@@ -540,17 +605,9 @@ function getWeaponAbilityPart(
 function getWeaponFlatBonusParts(
   bonus: number | undefined,
 ): WeaponModifierPart[] {
-  if (typeof bonus !== 'number' || !Number.isFinite(bonus) || bonus === 0) {
-    return [];
-  }
-
-  return [
-    {
-      key: 'weapon',
-      label: WEAPON_MODIFIER_PART_LABELS.weaponBonus,
-      value: bonus,
-    },
-  ];
+  return typeof bonus === 'number'
+    ? getBonusParts('weapon', WEAPON_MODIFIER_PART_LABELS.weaponBonus, bonus)
+    : [];
 }
 
 /**
@@ -561,19 +618,28 @@ function getWeaponFlatBonusParts(
  * @returns слагаемое магии (пустой список — бонуса нет)
  */
 function getWeaponMagicParts(weapon: DnDGameItem): WeaponModifierPart[] {
-  if (!weapon.isMagical) {
-    return [];
-  }
+  return weapon.isMagical
+    ? getBonusParts(
+        'magic',
+        WEAPON_MODIFIER_PART_LABELS.magic,
+        Number(weapon.magicBonus),
+      )
+    : [];
+}
 
-  const bonus = Number(weapon.magicBonus);
-
-  if (!Number.isFinite(bonus) || bonus === 0) {
-    return [];
-  }
-
-  return [
-    { key: 'magic', label: WEAPON_MODIFIER_PART_LABELS.magic, value: bonus },
-  ];
+/**
+ * Слагаемое бонуса боеприпаса — у оружия выстрела, как и магия, идёт и к атаке,
+ * и к урону: стрела +1 из лука +1 даёт +2.
+ *
+ * @param weapon - оружие выстрела (`withAmmunition`)
+ * @returns слагаемое боеприпаса (пустой список — бонуса нет)
+ */
+function getWeaponAmmunitionParts(weapon: DnDGameItem): WeaponModifierPart[] {
+  return getBonusParts(
+    'ammunition',
+    WEAPON_MODIFIER_PART_LABELS.ammunition,
+    Number(weapon.ammunitionBonus),
+  );
 }
 
 /**
@@ -582,18 +648,21 @@ function getWeaponMagicParts(weapon: DnDGameItem): WeaponModifierPart[] {
  *
  * @param bonusesByRange - бонусы эффектов по типу атаки (`attackBonuses` / `damageBonuses`)
  * @param rangeType - тип оружия по дальности
+ * @param abilityBonus - бонус «при атаке характеристикой», которой бьёт оружие
  * @returns слагаемое эффектов (пустой список — бонуса нет)
  */
 function getWeaponEffectsParts(
   bonusesByRange: { melee: number; ranged: number } | undefined,
   rangeType: WeaponRangeType | undefined,
+  abilityBonus = 0,
 ): WeaponModifierPart[] {
   if (!bonusesByRange) {
     return [];
   }
 
   const value =
-    rangeType === 'ranged' ? bonusesByRange.ranged : bonusesByRange.melee;
+    (rangeType === 'ranged' ? bonusesByRange.ranged : bonusesByRange.melee)
+    + abilityBonus;
 
   if (value === 0) {
     return [];
@@ -669,6 +738,7 @@ export function describeWeaponAttack(
   parts.push(
     ...getWeaponFlatBonusParts(weapon.attackBonus),
     ...getWeaponMagicParts(weapon),
+    ...getWeaponAmmunitionParts(weapon),
     ...getWeaponEffectsParts(resolvedStats?.attackBonuses, weapon.rangeType),
     ...getWeaponCustomBonusParts(
       weapon.attackCustomBonuses,
@@ -678,6 +748,32 @@ export function describeWeaponAttack(
   );
 
   return parts;
+}
+
+/**
+ * Бонус урона эффектов «при атаке характеристикой» для этого оружия: берётся
+ * по характеристике атаки — «Ярость» идёт секире Силой, но не рапире, которой
+ * бьют через Ловкость. Метательное оружие остаётся рукопашным и бьёт Силой —
+ * бонус ему тоже идёт, как и по правилам.
+ *
+ * @param actor - владелец оружия
+ * @param weapon - оружие
+ * @param resolvedStats - итоговые статы из пайплайна
+ * @returns бонус (0 — такого бонуса нет)
+ */
+function resolveAbilityDamageBonus(
+  actor: DnDSceneEntity,
+  weapon: DnDGameItem,
+  resolvedStats: ResolvedActorStats | undefined,
+): number {
+  if (!resolvedStats) {
+    return 0;
+  }
+
+  const range = weapon.rangeType === 'ranged' ? 'ranged' : 'melee';
+  const ability = resolveWeaponAttackAbility(actor, weapon, resolvedStats);
+
+  return resolvedStats.abilityDamageBonuses[range][ability] ?? 0;
 }
 
 /**
@@ -704,7 +800,12 @@ export function describeWeaponDamage(
   parts.push(
     ...getWeaponFlatBonusParts(weapon.damageBonus),
     ...getWeaponMagicParts(weapon),
-    ...getWeaponEffectsParts(resolvedStats?.damageBonuses, weapon.rangeType),
+    ...getWeaponAmmunitionParts(weapon),
+    ...getWeaponEffectsParts(
+      resolvedStats?.damageBonuses,
+      weapon.rangeType,
+      resolveAbilityDamageBonus(actor, weapon, resolvedStats),
+    ),
     ...getWeaponCustomBonusParts(
       weapon.damageCustomBonuses,
       actor,
@@ -820,9 +921,7 @@ export function getWeaponPrimaryDamageType(
     return undefined;
   }
 
-  const tokenMatch = part.formula.match(/@dmg\.([a-z]+)/i);
-
-  return tokenMatch ? tokenMatch[1].toLowerCase() : part.type;
+  return detectFormulaDamageType(part.formula) ?? part.type;
 }
 
 /**
@@ -835,14 +934,13 @@ export function getWeaponPrimaryDamageType(
  */
 export function formatWeaponDamageFormula(weapon: DnDGameItem): string {
   return getWeaponDamageParts(weapon)
-    .map((part) =>
-      part.formula
-        .replace(/@dmg\.[a-z]+/gi, '')
-        .replace(/@heal(\.temp)?/gi, '')
-        .replace(/(\d+)d(\d+)/gi, '$1к$2')
+    .map((part) => {
+      const withoutTokens = stripHealTokens(stripDamageTypeTokens(part.formula))
         .replace(/\s{2,}/g, ' ')
-        .trim(),
-    )
+        .trim();
+
+      return formatDiceLetters(withoutTokens);
+    })
     .filter((formula) => formula.length > 0)
     .join(' + ');
 }
@@ -976,6 +1074,19 @@ function isArmorCalculation(value: unknown): value is ArmorCalculation {
     || value === 'flat'
     || value === 'custom'
   );
+}
+
+/**
+ * Type-guard: запись списка заклинаний существа пригодна для раскладки по
+ * блокам. Хватает строкового `id`: блоки ссылаются на заклинания именно по
+ * нему, и запись без `id` не попала бы ни в одну группу и не получила бы
+ * зарядов — в списке существа ей делать нечего.
+ *
+ * @param value - запись из списка заклинаний (мир или выгрузка сайта)
+ * @returns `true`, если запись — заклинание со ссылочным `id`
+ */
+function isCreatureSpell(value: unknown): value is Spell {
+  return isRecord(value) && typeof value.id === 'string';
 }
 
 /**
@@ -1528,14 +1639,18 @@ export function normalizeCreature(creature: BaseCreature): void {
   // оно колдует. Заряды после разбора задаёт режим группы, иначе запись с
   // группой «2 в день» открылась бы заклинаниями без зарядов
   if (spells.length > 0 || system.spellcastingBlocks !== undefined) {
+    // Запись без `id` в раскладку не идёт: сослаться на неё блок не может, а
+    // молчаливая подстановка такой записи заводила бы в группу ссылку в никуда
+    const blockSpells = spells.filter(isCreatureSpell);
+
     const parsedBlocks = normalizeCreatureSpellcastingBlocks(
       system.spellcastingBlocks,
-      spells as Spell[],
+      blockSpells,
     );
 
     const synced = syncCreatureSpellcastingUses(
-      spells as Spell[],
-      ensureCreatureSpellsInBlocks(spells as Spell[], parsedBlocks),
+      blockSpells,
+      ensureCreatureSpellsInBlocks(blockSpells, parsedBlocks),
     );
 
     system.spellcastingBlocks = synced.blocks;

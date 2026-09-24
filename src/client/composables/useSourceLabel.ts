@@ -4,8 +4,9 @@ import type { SourceDefinition } from '@vtt/shared';
 
 import { computed, toValue } from 'vue';
 
-import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 import { fallbackSourceDefinition } from '@vtt/shared/system/dnd.js';
+
+import { useSystemDataStore } from '../stores/systemDataStore';
 
 /**
  * Определение источника для записи.

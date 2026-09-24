@@ -10,9 +10,10 @@ import type {
   DamagePart,
   DamagePartTarget,
   DamageType,
+  SpellSaveType,
 } from '@vtt/shared';
 
-import type { ResolvedActorStats } from './activeEffectTypes.js';
+import type { ActiveEffect, ResolvedActorStats } from './activeEffectTypes.js';
 import type { ConditionRef } from './conditionKeys.js';
 import type { CreatureSpellcastingBlock } from './creatureSpellcasting.js';
 import type {
@@ -26,11 +27,14 @@ import type {
   DnDSceneEntity,
   Spell,
   SpellProjectiles,
+  SpellRollSource,
 } from './dndEntities.js';
+import type { HealKind } from './formulaTokens.js';
 import type { DnDAbilityScores } from './types.js';
 
 import { isActorEntity, isRecord } from '@vtt/shared';
 
+import { isCarrierEffect } from './activeEffectTypes.js';
 import {
   calculateAbilityModifier,
   getActorAbilityModifiers,
@@ -44,12 +48,23 @@ import {
 } from './creatureTypeGate.js';
 import { isDamageType } from './damageConstants.js';
 import { getSpellDamageParts } from './damageParts.js';
+import { formatDiceLetters } from './diceFormula.js';
 import {
   buildFormulaContext,
   substituteFormulaVariables,
 } from './formulaParser.js';
 import {
+  DAMAGE_TYPE_TOKEN_GLOBAL_REGEX,
+  detectFormulaDamageType,
+  detectFormulaHealKind,
+  hasDamageTypeToken,
+  hasHealToken,
+  stripDamageTypeTokens,
+  stripHealTokens,
+} from './formulaTokens.js';
+import {
   getSpellAttackBreakdown,
+  getSpellSaveDCBreakdown,
   parseSpellcastingSettings,
 } from './spellcastingSettings.js';
 
@@ -82,6 +97,89 @@ export function isSpell(value: unknown): value is Spell {
 }
 
 // ── Расчёт атаки ─────────────────────────────────────────────
+
+/**
+ * Разыгрывается ли настоящее заклинание, а не удар оружием, действие существа
+ * или предмет псевдо-заклинанием. Спасбросок от него — «против заклинания».
+ *
+ * @param spell - заклинание или псевдо-заклинание броска
+ * @returns `true` для настоящего заклинания
+ */
+export function isSpellRoll(spell: Spell): boolean {
+  return spell.rollSource === undefined;
+}
+
+/**
+ * Источники бросков, которые сами по себе не магия: удар оружием (приём,
+ * спасбросок оружия) и действие существа (дыхание, укус). «Магическое
+ * сопротивление» против них не помогает (PHB 2024: «заклинания и другие
+ * магические эффекты»).
+ */
+const MUNDANE_ROLL_SOURCES: ReadonlySet<SpellRollSource> = new Set([
+  'weapon',
+  'creatureAction',
+]);
+
+/**
+ * Навязан ли спасбросок броска магией: заклинание, магический предмет,
+ * применённое умение.
+ *
+ * @param spell - заклинание или псевдо-заклинание броска
+ * @returns `true` для магического броска
+ */
+export function isMagicRoll(spell: Spell): boolean {
+  return (
+    spell.rollSource === undefined
+    || !MUNDANE_ROLL_SOURCES.has(spell.rollSource)
+  );
+}
+
+/**
+ * Тип спасброска — характеристика, а не `none`. Сужает значение до
+ * `AbilityType` без приведения типов.
+ *
+ * @param saveType - тип спасброска заклинания, оружия или действия
+ * @returns `true`, если спасбросок есть
+ */
+export function isSaveAbility(
+  saveType: SpellSaveType | undefined,
+): saveType is AbilityType {
+  return saveType !== undefined && saveType !== 'none';
+}
+
+/** Поля псевдо-заклинания, которые задаёт источник броска */
+export type PseudoSpellFields = Pick<Spell, 'id' | 'name'>
+  & Required<Pick<Spell, 'rollSource'>>
+  & Partial<Spell>;
+
+/**
+ * Псевдо-заклинание броска не-заклинания: удар оружием, действие существа,
+ * применение предмета или эффекта идут тем же путём, что и заклинание.
+ * Общие поля — здесь, источник задаёт своё.
+ *
+ * @param fields - поля источника
+ * @returns псевдо-заклинание
+ */
+export function buildPseudoSpell(fields: PseudoSpellFields): Spell {
+  return {
+    level: 0,
+    school: 'evocation',
+    castingTimeValue: 1,
+    castingTimeUnit: 'action',
+    components: { verbal: false, somatic: false, material: false },
+    range: 0,
+    rangeUnit: 'ft',
+    durationValue: 0,
+    durationUnit: 'instantaneous',
+    concentration: false,
+    ritual: false,
+    targetType: 'creature',
+    deliveryType: 'touch',
+    saveType: 'none',
+    description: '',
+    ...fields,
+  };
+}
 
 /**
  * Определяет характеристику заклинания для актора.
@@ -168,15 +266,124 @@ export function resolveActorSpellcastingAbility(
 }
 
 /**
+ * Включённые эффекты записи для окна броска. Пусто и «нет вовсе» здесь значат
+ * разное: по наличию списка решают, звать ли оркестратор на попадании без
+ * частей урона, поэтому выключенные не просто отсеиваются — список из них
+ * целиком превращается в `undefined`.
+ *
+ * @param effects - эффекты записи (заклинания, действия, предмета)
+ * @returns включённые эффекты либо `undefined`, если их нет
+ */
+export function listEnabledEffects(
+  effects: readonly ActiveEffect[] | undefined,
+): ActiveEffect[] | undefined {
+  const enabled = (effects ?? []).filter((effect) => !effect.disabled);
+
+  return enabled.length > 0 ? enabled : undefined;
+}
+
+/**
+ * Эффекты заклинания, которые ложатся на самого заклинателя: включённые, без
+ * адресата или с `effectTarget: 'self'`. Эффекты «на цели» и «в зону» сюда не
+ * попадают — у них свои пути наложения.
+ *
+ * @param spell - заклинание
+ * @returns эффекты на заклинателя (может быть пусто)
+ */
+export function getCasterSpellEffects(
+  spell: Pick<Spell, 'activeEffects'>,
+): ActiveEffect[] {
+  return (spell.activeEffects ?? []).filter(
+    (effect) => !effect.disabled && isCarrierEffect(effect),
+  );
+}
+
+/**
+ * Эффекты заклинания, предназначенные ЦЕЛИ (`effectTarget: 'target'`). Когда
+ * их накладывать (попадание, провал спасброска), решает вызывающий.
+ *
+ * @param spell - заклинание
+ * @returns эффекты на цель (может быть пусто)
+ */
+export function getTargetSpellEffects(
+  spell: Pick<Spell, 'activeEffects'>,
+): ActiveEffect[] {
+  return (spell.activeEffects ?? []).filter(
+    (effect) => !effect.disabled && effect.effectTarget === 'target',
+  );
+}
+
+/**
+ * Эффекты заклинания, которые уходят в зону на месте шаблона
+ * (`effectTarget: 'zone'`).
+ *
+ * @param spell - заклинание
+ * @returns эффекты зоны (может быть пусто)
+ */
+export function getZoneSpellEffects(
+  spell: Pick<Spell, 'activeEffects'>,
+): ActiveEffect[] {
+  return (spell.activeEffects ?? []).filter(
+    (effect) => !effect.disabled && effect.effectTarget === 'zone',
+  );
+}
+
+/** Поля заклинания, от которых зависит его Сл */
+export type SpellSaveDCSource = Pick<
+  Spell,
+  'saveDC' | 'attackAbility' | 'spellcastingAbility'
+>;
+
+/**
+ * Своя Сл заклинания, не зависящая от заклинателя (жезл, свиток, предмет).
+ *
+ * @param spell - заклинание
+ * @returns Сл либо `undefined`, если её нет и Сл считается от заклинателя
+ */
+export function readSpellOwnSaveDC(
+  spell: Pick<Spell, 'saveDC'>,
+): number | undefined {
+  const { saveDC } = spell;
+
+  return typeof saveDC === 'number' && Number.isFinite(saveDC) && saveDC >= 1
+    ? Math.round(saveDC)
+    : undefined;
+}
+
+/** Сл заклинаний существа, у которого не задано заклинательство */
+export const DEFAULT_CREATURE_SPELL_SAVE_DC = 10;
+
+/**
+ * Сл спасброска заклинания существа. Своя Сл заклинания (жезл, свиток) главнее
+ * Сл блока заклинаний; у существа без заклинательства — Сл по умолчанию.
+ *
+ * @param spell - заклинание
+ * @param blockSaveDC - Сл блока заклинаний существа
+ * @returns сложность спасброска
+ */
+export function resolveCreatureSpellSaveDC(
+  spell: Pick<Spell, 'saveDC'>,
+  blockSaveDC: number | undefined,
+): number {
+  return (
+    readSpellOwnSaveDC(spell) ?? blockSaveDC ?? DEFAULT_CREATURE_SPELL_SAVE_DC
+  );
+}
+
+/**
  * Сл спасброска от КОНКРЕТНОГО заклинания.
  *
- * У листа Сл одна и считается от его заклинательной характеристики. Но у
- * заклинания может стоять своя («Посвящённый в магию» творит по той, что выбрал
- * игрок, а не по характеристике класса) — тогда меняется и Сл, иначе половина
- * расчёта шла бы от одной характеристики, а половина от другой.
+ * Своя Сл заклинания ({@link readSpellOwnSaveDC}) главнее всего: её задаёт
+ * предмет, а не персонаж. Иначе Сл берётся у листа. Но у заклинания может
+ * стоять своя характеристика («Посвящённый в магию» творит по той, что выбрал
+ * игрок, а не по характеристике класса) — тогда Сл пересчитывается от неё тем же
+ * расчётом, что у листа: `8 + бонус мастерства + модификатор` с настройкой
+ * листа. Прибавки активных эффектов переносятся как есть.
  *
- * Меняется ровно модификатор характеристики: всё остальное — бонус мастерства,
- * настройки листа, активные эффекты — уже посчитано в Сл листа и остаётся как есть.
+ * Своё число в настройке листа («Настроить заклинательство») — это число: от
+ * характеристики заклинания оно не меняется. У листа без заклинательной
+ * характеристики и без настройки Сл заклинания со своей характеристикой всё
+ * равно считается — прежде она выходила разницей модификаторов (Сл 2).
  *
  * @param actor - актор-владелец
  * @param spell - заклинание
@@ -185,21 +392,40 @@ export function resolveActorSpellcastingAbility(
  */
 export function resolveSpellSaveDC(
   actor: DnDActor,
-  spell: Spell,
+  spell: SpellSaveDCSource,
   resolvedStats: ResolvedActorStats,
 ): number {
-  const spellAbility = resolveSpellcastingAbility(actor, spell);
-  const sheetAbility = resolveActorSpellcastingAbility(actor);
+  const ownSaveDC = readSpellOwnSaveDC(spell);
 
-  if (spellAbility === sheetAbility) {
+  if (ownSaveDC !== undefined) {
+    return ownSaveDC;
+  }
+
+  const spellAbility = spell.attackAbility ?? spell.spellcastingAbility;
+  const sheetAbility = findSpellcastingAbility(actor);
+
+  if (spellAbility === undefined || spellAbility === sheetAbility) {
     return resolvedStats.spellSaveDC;
   }
 
-  const difference =
-    (resolvedStats.abilityMods[spellAbility] ?? 0)
-    - (resolvedStats.abilityMods[sheetAbility] ?? 0);
+  const settings = parseSpellcastingSettings(
+    actor.system.spellcastingSettings,
+  )?.saveDC;
 
-  return resolvedStats.spellSaveDC + difference;
+  const context = resolvedStats.abilityBonusContext;
+
+  const sheetValue =
+    getSpellSaveDCBreakdown({ ability: sheetAbility, settings, context })?.value
+    ?? 0;
+
+  // Всё, что эффекты прибавили к Сл листа, достаётся и заклинанию
+  const effectsDelta = resolvedStats.spellSaveDC - sheetValue;
+
+  const spellValue =
+    getSpellSaveDCBreakdown({ ability: spellAbility, settings, context })?.value
+    ?? 0;
+
+  return spellValue + effectsDelta;
 }
 
 /**
@@ -305,7 +531,7 @@ export interface ProjectileCountContext {
  * Возвращает снарядный режим заклинания.
  *
  * Источник истины — ТОЛЬКО явный блок `spell.projectiles`; `targetCount` —
- * информационное «число целей эффекта» и распределение по целям не включает.
+ * число разных целей эффекта и снарядный режим не включает.
  *
  * @param spell - заклинание
  * @returns снарядный режим или undefined (обычное заклинание)
@@ -365,6 +591,24 @@ export function getSpellProjectileCount(
   }
 
   return count;
+}
+
+/**
+ * Считает предел разных целей эффекта с учётом выбранной ячейки.
+ *
+ * @param spell - заклинание
+ * @param slotLevel - круг ячейки каста
+ * @returns наибольшее число разных целей эффекта
+ */
+export function getSpellEffectTargetCount(
+  spell: Spell,
+  slotLevel: number,
+): number {
+  return (
+    (spell.targetCount ?? 1)
+    + Math.max(0, slotLevel - spell.level)
+      * (spell.scaling?.additionalTargets ?? 0)
+  );
 }
 
 // ── Формулы урона ────────────────────────────────────────────
@@ -777,27 +1021,6 @@ export function resolveSpellDamageFormula(
   return substituteFormulaVariables(formula, context);
 }
 
-// ── Инлайн-токены типа урона (@dmg.<type>) и лечения (@heal) ─
-
-/** Регэксп инлайн-токена типа урона: `@dmg.fire`, `@dmg.cold` и т.п. */
-const DAMAGE_TYPE_TOKEN_REGEX = /@dmg\.([a-z]+)/i;
-
-/**
- * Вид лечения сегмента формулы: обычные хиты (`@heal`) или временные ХП
- * (`@heal.temp`). Временные ХП не суммируются с текущими — берётся большее.
- */
-export type HealKind = 'hp' | 'temp';
-
-/**
- * Регэксп инлайн-токена лечения: `@heal` (хиты) или `@heal.temp` (врем. ХП).
- * Лукэхед запрещает хвост (`@heal.spell` НЕ матчится и всплывёт ошибкой
- * парсера формул, а не молча станет лечением).
- */
-const HEAL_TOKEN_REGEX = /@heal(\.temp)?(?![\w.])/i;
-
-/** Глобальная версия {@link HEAL_TOKEN_REGEX} для вырезания токенов. */
-const HEAL_TOKEN_STRIP_REGEX = /@heal(\.temp)?(?![\w.])/gi;
-
 /** Сегмент формулы урона с привязанным типом (после разбора @dmg.<type>). */
 export interface TypedDamageSegment {
   /** Кубиковая формула сегмента (без токенов @dmg/@heal) */
@@ -815,50 +1038,13 @@ export interface TypedDamageSegment {
 }
 
 /**
- * Удаляет инлайн-токены лечения `@heal`/`@heal.temp` из формулы
- * (для отображения и legacy-путей, где формула идёт в роллер целиком).
- *
- * @param formula - формула с возможными токенами @heal
- * @returns формула без токенов @heal (лишние пробелы схлопнуты)
- */
-export function stripHealTokens(formula: string): string {
-  if (!formula || !HEAL_TOKEN_REGEX.test(formula)) {
-    return formula ?? '';
-  }
-
-  return formula
-    .replace(HEAL_TOKEN_STRIP_REGEX, '')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-}
-
-/**
- * Определяет вид лечения из первого инлайн-токена `@heal`/`@heal.temp`.
- *
- * Формула — единственный источник истины вида части (legacy-флаг
- * `DamagePart.isHealing` удалён).
- *
- * @param formula - формула с возможным токеном @heal
- * @returns вид лечения или null, если токена нет
- */
-export function detectFormulaHealKind(formula: string): HealKind | null {
-  const match = formula.match(HEAL_TOKEN_REGEX);
-
-  if (!match) {
-    return null;
-  }
-
-  return match[1] ? 'temp' : 'hp';
-}
-
-/**
  * Проверяет, лечит ли часть урона: токен `@heal`/`@heal.temp` в формуле.
  *
  * @param part - часть урона/лечения заклинания
  * @returns true если часть лечит (хиты или временные ХП)
  */
 export function damagePartIsHealing(part: DamagePart): boolean {
-  return HEAL_TOKEN_REGEX.test(part.formula);
+  return hasHealToken(part.formula);
 }
 
 /**
@@ -937,64 +1123,6 @@ export function getSpellPrimaryDamageType(
 }
 
 /**
- * Удаляет инлайн-токены типа урона `@dmg.<type>` из формулы (для отображения).
- *
- * @param formula - формула с возможными токенами @dmg
- * @returns формула без токенов @dmg (лишние пробелы схлопнуты)
- */
-export function stripDamageTypeTokens(formula: string): string {
-  if (!formula || !/@dmg\./i.test(formula)) {
-    return formula ?? '';
-  }
-
-  return formula
-    .replace(/@dmg\.[a-z]+/gi, '')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-}
-
-/**
- * Определяет тип урона из первого инлайн-токена `@dmg.<type>` в формуле.
- *
- * Используется как канонический источник типа части (формула — источник истины).
- *
- * @param formula - формула с возможным токеном @dmg
- * @returns тип урона (lowercase) или null, если токена нет
- */
-export function detectFormulaDamageType(formula: string): string | null {
-  const match = formula.match(DAMAGE_TYPE_TOKEN_REGEX);
-
-  return match ? match[1].toLowerCase() : null;
-}
-
-/**
- * Устанавливает/заменяет токен `@dmg.<type>` на ПЕРВОМ слагаемом формулы.
- *
- * Первое слагаемое — «базовое»; его тип задаёт тип всех последующих слагаемых
- * без собственного токена (см. поток типов в `splitFormulaByDamageType`).
- * Пустой `type` — удаляет токен с первого слагаемого.
- *
- * Примеры: `setFormulaDamageType("1к8", "fire")` → `"1к8@dmg.fire"`;
- * `setFormulaDamageType("1к8@dmg.fire + @mod.spell", "cold")`
- * → `"1к8@dmg.cold + @mod.spell"`.
- *
- * @param formula - исходная формула
- * @param type - тип урона (или пустая строка для удаления)
- * @returns формула с обновлённым токеном типа на первом слагаемом
- */
-export function setFormulaDamageType(formula: string, type: string): string {
-  const terms = formula.split('+').map((term) => term.trim());
-
-  const firstBase = (terms[0] ?? '')
-    .replace(DAMAGE_TYPE_TOKEN_REGEX, '')
-    .trim();
-
-  terms[0] = type ? `${firstBase}@dmg.${type}` : firstBase;
-
-  return terms.filter((term) => term.length > 0).join(' + ');
-}
-
-/**
  * Разбивает формулу урона на сегменты по инлайн-токенам вида:
  * `@dmg.<type>` (тип урона) и `@heal`/`@heal.temp` (лечение/временные ХП).
  *
@@ -1023,10 +1151,7 @@ export function splitFormulaByDamageType(
   formula: string,
   defaultType?: string,
 ): TypedDamageSegment[] {
-  if (
-    !formula
-    || (!/@dmg\./i.test(formula) && !HEAL_TOKEN_REGEX.test(formula))
-  ) {
+  if (!formula || (!hasDamageTypeToken(formula) && !hasHealToken(formula))) {
     return [{ formula: formula ?? '', type: defaultType }];
   }
 
@@ -1051,21 +1176,20 @@ export function splitFormulaByDamageType(
   let currentHealing: HealKind | undefined;
 
   for (const term of formula.split('+')) {
-    const healMatch = term.match(HEAL_TOKEN_REGEX);
-    const typeMatches = [...term.matchAll(/@dmg\.([a-z]+)/gi)];
+    const healKind = detectFormulaHealKind(term);
+    const typeMatches = [...term.matchAll(DAMAGE_TYPE_TOKEN_GLOBAL_REGEX)];
 
-    if (healMatch) {
-      currentHealing = healMatch[1] ? 'temp' : 'hp';
+    if (healKind) {
+      currentHealing = healKind;
       currentTypes = [];
     } else if (typeMatches.length > 0) {
       currentTypes = typeMatches.map((match) => match[1].toLowerCase());
       currentHealing = undefined;
     }
 
-    const cleaned = term
-      .replace(HEAL_TOKEN_STRIP_REGEX, '')
-      .replace(/@dmg\.[a-z]+/gi, '')
-      .trim();
+    // Слагаемое без токенов общие функции возвращают как есть (без trim),
+    // поэтому обрезка нужна и здесь.
+    const cleaned = stripDamageTypeTokens(stripHealTokens(term)).trim();
 
     if (cleaned.length === 0) {
       continue;
@@ -1133,9 +1257,11 @@ export function describeDamagePart(part: DamagePart): DamagePartInfo {
   );
 
   return {
-    formula: formatConditionalDamageDisplay(part.formula, (subFormula) =>
-      stripHealTokens(stripDamageTypeTokens(subFormula)),
-    ).replace(/(\d+)d(\d+)/gi, '$1к$2'),
+    formula: formatDiceLetters(
+      formatConditionalDamageDisplay(part.formula, (subFormula) =>
+        stripHealTokens(stripDamageTypeTokens(subFormula)),
+      ),
+    ),
     isHealing: segments.some((segment) => segment.healing !== undefined),
     isTemp: segments.some((segment) => segment.healing === 'temp'),
     types: [...new Set(typeList)],
@@ -1545,38 +1671,6 @@ export function calculateCreatureSpellcasting(
       0,
     ),
   };
-}
-
-/**
- * Эффективная сложность спасброска заклинаний существа.
- *
- * @param creature - существо
- * @returns DC спасброска или undefined
- */
-export function getCreatureSpellSaveDC(
-  creature: import('./dndEntities.js').DnDCreature,
-): number | undefined {
-  return calculateCreatureSpellcasting(
-    creature.system.spellcasting,
-    creature.system.abilities,
-    getCreatureProficiencyBonus(creature),
-  ).saveDC;
-}
-
-/**
- * Эффективный бонус к атаке заклинаниями существа.
- *
- * @param creature - существо
- * @returns бонус к атаке или undefined
- */
-export function getCreatureSpellAttackBonus(
-  creature: import('./dndEntities.js').DnDCreature,
-): number | undefined {
-  return calculateCreatureSpellcasting(
-    creature.system.spellcasting,
-    creature.system.abilities,
-    getCreatureProficiencyBonus(creature),
-  ).attackBonus;
 }
 
 /**

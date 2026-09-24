@@ -11,12 +11,16 @@
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { RollBonusEvaluator } from '../../../composables/rollBonusEvaluator';
   import type { ItemTransferPayload } from '../../../composables/useItemTransfer';
   import type {
     RolledSpellDamagePart,
     SpellDamagePartInput,
   } from '../../../composables/useSpellResolution';
-  import type { SheetRowStat } from '../sheetRowTypes';
+  import type {
+    EquipmentAmmunitionBadge,
+    SheetRowStat,
+  } from '../sheetRowTypes';
 
   import { computed, ref, toRef } from 'vue';
 
@@ -24,40 +28,67 @@
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useChatStore } from '@/stores/chatStore';
   import { useHotbarStore } from '@/stores/hotbarStore';
-  import { useTargetStore } from '@/stores/targetStore';
   import { useWorldStore } from '@/stores/worldStore';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import { formatItemCost } from '@vtt/shared';
   import {
     buildFormulaContext,
+    buildItemUseSpell,
     calculateWeaponAttackModifier,
     calculateWeaponDamageModifier,
     canSpendItemUses,
+    canUseItem,
     CURRENCY_OPTIONS,
     DEFAULT_CREATURE_SIZE,
     describeDamagePart,
     describeWeaponAttack,
     describeWeaponDamage,
     evaluateConditionalBonuses,
+    findLoadedAmmunition,
     formatWeaponDamageFormula,
+    getAttackBonusKey,
+    getAttackFlagCategory,
+    getDamageBonusKey,
     getWeaponPrimaryDamageType,
-    isDndSceneEntity,
-    resolveActorStats,
+    hasItemUseEffects,
+    isItemDepleted,
+    isSaveAbility,
+    listLoadableAmmunition,
+    loadWeaponAmmunition,
+    normalizeItemQuantity,
+    resolveWeaponSaveDc,
     setItemUsesCurrent,
+    spendAmmunition,
+    spendItemUse,
     spendItemUses,
     TOOL_CATEGORIES,
+    weaponUsesAmmunition,
+    withLoadedAmmunition,
   } from '@vtt/shared/system/dnd.js';
 
+  import { resolveTargetedAttackRollMode } from '../../../composables/attackRollMode';
+  import {
+    applyEffectSource,
+    prepareAmmunitionShot,
+  } from '../../../composables/effectActivationUse';
+  import { runWithEffectVariants } from '../../../composables/effectVariantChoice';
+  import { buildRollBonusEvaluator } from '../../../composables/rollBonusEvaluator';
   import { useBonusDamageParts } from '../../../composables/useBonusDamageParts';
   import { useCarryingCapacity } from '../../../composables/useCarryingCapacity';
   import { useResolvedStats } from '../../../composables/useResolvedStats';
   import { useSpellResolution } from '../../../composables/useSpellResolution';
   import { useWeaponIcon } from '../../../composables/useWeaponIcon';
   import { useWorldEntities } from '../../../composables/useWorldEntities';
+  import {
+    DND_MACRO_TYPES,
+    ITEM_USE_MACRO_ICON,
+  } from '../../../macros/constants';
+  import { useSystemDataStore } from '../../../stores/systemDataStore';
+  import { EFFECT_USE_LABELS } from '../../effect/constants';
   import ActorEquipmentRow from '../ActorEquipmentRow.vue';
   import CarryingCapacityModal from '../CarryingCapacityModal.vue';
   import {
     ACTOR_EQUIPMENT_TAB_LABELS,
+    EQUIPMENT_AMMUNITION_BADGE,
     EQUIPMENT_EQUIP_ACTION_LABELS,
     EQUIPMENT_MENU_LABELS,
     EQUIPMENT_STAT_HINTS,
@@ -165,7 +196,6 @@
 
   const systemDataStore = useSystemDataStore();
   const hotbarStore = useHotbarStore();
-  const targetStore = useTargetStore();
   const chatStore = useChatStore();
   const worldStore = useWorldStore();
 
@@ -334,11 +364,14 @@
     name: string;
     formula: string;
     attackModifier?: number;
+    evaluateBonusRollFormulas?: RollBonusEvaluator;
     evaluateBonuses?: (context: RollBonusContext) => {
       attackBonus: number;
       damageBonus: number;
     };
     initialRollMode: AttackRollMode;
+    /** С какой натуральной кости крит у этого оружия */
+    critThreshold?: number;
     incomingAttackType?: 'melee' | 'ranged' | 'spell';
     damageType?: string;
     /** Многочастный путь (бонус-части урона от Active Effects) */
@@ -348,6 +381,8 @@
     ) => SpellDamagePartInput[];
     onRollParts?: (parts: RolledSpellDamagePart[]) => void;
     onHit?: () => void;
+    /** Перед броском: тратит боеприпас выстрела */
+    beforeRoll?: () => boolean;
   }
 
   const rollConfig = ref<RollConfig>({
@@ -357,124 +392,129 @@
   });
 
   /**
-   * Открывает модалку броска урона для оружия
-   * @param weapon - оружие с формулой урона
+   * Открывает модалку броска урона для оружия. Оружие с боеприпасами, которые
+   * лист ведёт, стреляет боеприпасом: без него атаки нет, его бонус и эффекты
+   * идут в бросок, сам он тратится, когда бросок пошёл.
+   *
+   * @param sourceWeapon - оружие с формулой урона; эффекты — до выбора варианта
    */
-  function openRollModal(weapon: DnDGameItem): void {
-    if (!weapon.damageParts?.length) {
+  function openRollModal(sourceWeapon: DnDGameItem): void {
+    const shot = prepareAmmunitionShot(props.entity, sourceWeapon);
+
+    if (!shot) {
       return;
     }
 
-    // Оружие со спасброском: цель кидает спас, броска попадания нет.
-    const hasSave = !!weapon.saveType && weapon.saveType !== 'none';
+    const ammunitionId = shot.ammunition?.id;
 
-    const baseMod = calculateWeaponAttackModifier(
-      props.entity,
-      weapon,
-      resolvedStats.value,
-    );
+    runWithEffectVariants(shot.weapon, (weapon) => {
+      if (!weapon.damageParts?.length) {
+        return;
+      }
 
-    const weaponSaveDC = 8 + baseMod;
+      // Оружие со спасброском: цель кидает спас, броска попадания нет.
+      const hasSave = isSaveAbility(weapon.saveType);
 
-    const evaluateBonuses = (context: {
-      hasAdvantage: boolean;
-      hasDisadvantage: boolean;
-    }) => {
-      const attackKey =
-        weapon.rangeType === 'ranged' ? 'attack.ranged' : 'attack.melee';
+      const baseMod = calculateWeaponAttackModifier(
+        props.entity,
+        weapon,
+        resolvedStats.value,
+      );
 
-      const damageKey =
-        weapon.rangeType === 'ranged' ? 'damage.ranged' : 'damage.melee';
+      const weaponSaveDC = resolveWeaponSaveDc(baseMod);
 
-      // HP цели читается в момент броска — для условий target.hp.* («Убийца»)
-      const rollContext = { ...context, target: buildTargetHpContext() };
+      const attackKey = getAttackBonusKey(weapon.rangeType);
+      const damageKey = getDamageBonusKey(weapon.rangeType);
 
-      // Условный бонус может быть формулой (`@prof`, `@mod.dex`) — без
-      // контекста @-переменных она дала бы ноль
-      const formulaContext = buildFormulaContext(props.entity);
+      const evaluateBonuses = (context: {
+        hasAdvantage: boolean;
+        hasDisadvantage: boolean;
+      }) => {
+        // HP цели читается в момент броска — для условий target.hp.* («Убийца»)
+        const rollContext = {
+          ...context,
+          target: buildTargetHpContext(undefined, props.entity.id),
+          // Предмет броска: по нему работает «только этим предметом»
+          itemId: weapon.id,
+        };
 
-      return {
-        attackBonus: evaluateConditionalBonuses(
-          combinedEffects.value,
-          attackKey,
-          rollContext,
-          formulaContext,
-        ),
-        damageBonus: evaluateConditionalBonuses(
-          combinedEffects.value,
-          damageKey,
-          rollContext,
-          formulaContext,
-        ),
+        // Условный бонус может быть формулой (`@prof`, `@mod.dex`) — без
+        // контекста @-переменных она дала бы ноль
+        const formulaContext = buildFormulaContext(props.entity);
+
+        return {
+          attackBonus: evaluateConditionalBonuses(
+            combinedEffects.value,
+            attackKey,
+            rollContext,
+            formulaContext,
+          ),
+          damageBonus: evaluateConditionalBonuses(
+            combinedEffects.value,
+            damageKey,
+            rollContext,
+            formulaContext,
+          ),
+        };
       };
-    };
 
-    const targetActor = targetStore.getTargetActor();
+      const initialRollMode = resolveTargetedAttackRollMode(
+        props.entity,
+        getAttackFlagCategory(weapon.rangeType),
+      );
 
-    let targetFlags = new Set<string>();
+      // Единая со заклинаниями система урона: бросок ВСЕГДА идёт многочастным
+      // путём (части урона оружия + бонус-части эффектов). Состояние HP цели —
+      // для условных веток @target.full/@target.notFull.
+      const targetHp = buildTargetHpContext();
 
-    // Стор целей хоста отдаёт нейтральную сущность — D&D-форму подтверждает
-    // гвард, как и в остальных резолверах бросков
-    if (targetActor && isDndSceneEntity(targetActor)) {
-      targetFlags = resolveActorStats(targetActor).activeFlags;
-    }
+      const targetIsFull = targetHp
+        ? targetHp.currentHp >= targetHp.maxHp
+        : undefined;
 
-    const isAdvantage =
-      resolvedStats.value?.activeFlags.has('attack.advantage')
-      || targetFlags.has('attacksAgainst.advantage');
+      const weaponPartsSetup = buildWeaponRollSetup({
+        weapon,
+        actor: props.entity,
+        effects: combinedEffects.value,
+        resolvedStats: resolvedStats.value,
+        targetIsFull,
+        targetType: targetHp?.creatureType,
+      });
 
-    const isDisadvantage =
-      resolvedStats.value?.activeFlags.has('attack.disadvantage')
-      || targetFlags.has('attacksAgainst.disadvantage');
+      rollConfig.value = {
+        name: weapon.name,
+        formula: weaponPartsSetup.baseParts[0]?.formula ?? '',
+        attackModifier: hasSave ? undefined : baseMod,
+        evaluateBonusRollFormulas: hasSave
+          ? undefined
+          : buildRollBonusEvaluator(() => props.entity, attackKey),
+        evaluateBonuses,
+        initialRollMode,
+        critThreshold: resolvedStats.value?.critThreshold,
+        incomingAttackType: getAttackFlagCategory(weapon.rangeType),
+        damageType: getWeaponPrimaryDamageType(weapon),
+        damageParts: weaponPartsSetup.baseParts,
+        evaluateBonusDamageParts: weaponPartsSetup.evaluateBonusDamageParts,
+        onRollParts: (parts: RolledSpellDamagePart[]) =>
+          handleWeaponRollParts(
+            weaponPartsSetup.pseudoSpell,
+            parts,
+            weaponSaveDC,
+          ),
+        // Сбрасываем явно: `rollConfig` переиспользуется между бросками, и без
+        // этого обработчик от ПРЕДЫДУЩЕГО броска остался бы висеть на текущем.
+        onHit: undefined,
+        beforeRoll: ammunitionId
+          ? () => {
+              commitEquipment(spendAmmunition(inventory.value, ammunitionId));
 
-    let initialRollMode: AttackRollMode = 'normal';
+              return true;
+            }
+          : undefined,
+      };
 
-    if (isAdvantage && !isDisadvantage) {
-      initialRollMode = 'advantage';
-    } else if (isDisadvantage && !isAdvantage) {
-      initialRollMode = 'disadvantage';
-    }
-
-    // Единая со заклинаниями система урона: бросок ВСЕГДА идёт многочастным
-    // путём (части урона оружия + бонус-части эффектов). Состояние HP цели —
-    // для условных веток @target.full/@target.notFull.
-    const targetHp = buildTargetHpContext();
-
-    const targetIsFull = targetHp
-      ? targetHp.currentHp >= targetHp.maxHp
-      : undefined;
-
-    const weaponPartsSetup = buildWeaponRollSetup({
-      weapon,
-      actor: props.entity,
-      effects: combinedEffects.value,
-      resolvedStats: resolvedStats.value,
-      targetIsFull,
-      targetType: targetHp?.creatureType,
+      isRollModalOpen.value = true;
     });
-
-    rollConfig.value = {
-      name: weapon.name,
-      formula: weaponPartsSetup.baseParts[0]?.formula ?? '',
-      attackModifier: hasSave ? undefined : baseMod,
-      evaluateBonuses,
-      initialRollMode,
-      incomingAttackType: weapon.rangeType === 'ranged' ? 'ranged' : 'melee',
-      damageType: getWeaponPrimaryDamageType(weapon),
-      damageParts: weaponPartsSetup.baseParts,
-      evaluateBonusDamageParts: weaponPartsSetup.evaluateBonusDamageParts,
-      onRollParts: (parts: RolledSpellDamagePart[]) =>
-        handleWeaponRollParts(
-          weaponPartsSetup.pseudoSpell,
-          parts,
-          weaponSaveDC,
-        ),
-      // Сбрасываем явно: `rollConfig` переиспользуется между бросками, и без
-      // этого обработчик от ПРЕДЫДУЩЕГО броска остался бы висеть на текущем.
-      onHit: undefined,
-    };
-
-    isRollModalOpen.value = true;
   }
 
   /**
@@ -527,10 +567,31 @@
 
     startHotbarDrag(event, {
       id: weapon.id,
-      type: 'weapon-attack',
+      type: DND_MACRO_TYPES.weaponAttack,
       label: `${ACTOR_EQUIPMENT_TAB_LABELS.attackRollPrefix}${weapon.name}`,
       icon: hotbarIcon,
       ref: weapon.id,
+      actorId: props.entity.id,
+    });
+  }
+
+  /**
+   * Кладёт на панель быстрого доступа кнопку применения предмета — зелья,
+   * яда, свитка. Кончился предмет — кнопка гаснет, но остаётся.
+   * @param event - событие dragstart
+   * @param item - предмет с эффектами применения
+   */
+  function handleItemUseDragStart(event: DragEvent, item: DnDGameItem): void {
+    if (!props.allowHotbarDrag) {
+      return;
+    }
+
+    startHotbarDrag(event, {
+      id: item.id,
+      type: DND_MACRO_TYPES.itemUse,
+      label: `${EFFECT_USE_LABELS.hotbarPrefix}${item.name}`,
+      icon: ITEM_USE_MACRO_ICON,
+      ref: item.id,
       actorId: props.entity.id,
     });
   }
@@ -563,9 +624,12 @@
     event.dataTransfer.setData(GAME_ITEM_TRANSFER_MIME, transferPayload);
     event.dataTransfer.effectAllowed = 'copyMove';
 
-    // Для оружия с уроном — дополнительно hotbar drag
+    // Оружие с уроном ложится на панель атакой, предмет с эффектами
+    // применения — кнопкой «Использовать»
     if (item.type === 'weapon' && item.damageParts?.length) {
       handleWeaponDragStart(event, item);
+    } else if (hasItemUseEffects(item)) {
+      handleItemUseDragStart(event, item);
     }
   }
 
@@ -634,9 +698,17 @@
    * @param formId - ID модалки для закрытия
    */
   function saveEquipmentEdit(updatedItem: DnDGameItem, formId: string): void {
+    // Надет ли предмет и чем заряжено оружие — состояние листа, а не записи:
+    // форма его не знает, и правка его не сбрасывает
     const equipment = inventory.value.map((item) =>
       item.id === updatedItem.id
-        ? { ...updatedItem, equipped: item.equipped }
+        ? {
+            ...updatedItem,
+            equipped: item.equipped,
+            ...(item.loadedAmmunitionId
+              ? { loadedAmmunitionId: item.loadedAmmunitionId }
+              : {}),
+          }
         : item,
     );
 
@@ -711,18 +783,102 @@
   }
 
   /**
-   * Обновляет количество предмета
+   * Обновляет количество предмета; ноль оставляет предмет закончившимся
    * @param itemId - ID предмета
-   * @param newQuantity - новое количество (минимум 1)
+   * @param newQuantity - новое количество
    */
   function updateItemQuantity(itemId: string, newQuantity: number): void {
-    const clampedQuantity = Math.max(1, Math.floor(newQuantity));
+    const quantity = normalizeItemQuantity(newQuantity);
+
+    if (quantity === undefined) {
+      return;
+    }
 
     const equipment = inventory.value.map((item) =>
-      item.id === itemId ? { ...item, quantity: clampedQuantity } : item,
+      item.id === itemId ? { ...item, quantity } : item,
     );
 
     commitEquipment(equipment);
+  }
+
+  /**
+   * Заряжает оружие боеприпасом; повторный выбор заряженного снимает выбор —
+   * боеприпас снова подбирается по типу.
+   *
+   * @param weapon - оружие
+   * @param ammunitionId - выбранный боеприпас
+   */
+  function toggleLoadedAmmunition(
+    weapon: DnDGameItem,
+    ammunitionId: string,
+  ): void {
+    const next =
+      weapon.loadedAmmunitionId === ammunitionId ? undefined : ammunitionId;
+
+    commitEquipment(loadWeaponAmmunition(inventory.value, weapon.id, next));
+  }
+
+  /**
+   * Подменю «Боеприпасы» стрелкового оружия: расходуемые предметы инвентаря,
+   * отмечен тот, которым оружие выстрелит.
+   *
+   * @param weapon - оружие со свойством «Боеприпасы»
+   * @returns пункт меню с подменю
+   */
+  function buildAmmunitionMenu(weapon: DnDGameItem): DropdownMenuItem {
+    const loadable = listLoadableAmmunition(inventory.value, weapon);
+    const current = findLoadedAmmunition(inventory.value, weapon);
+
+    return {
+      label: EQUIPMENT_MENU_LABELS.ammunition,
+      icon: 'tabler:archery-arrow',
+      children:
+        loadable.length > 0
+          ? loadable.map((ammunition): DropdownMenuItem => ({
+              label: ammunition.name,
+              description: `${EQUIPMENT_MENU_LABELS.ammunitionQuantity}${ammunition.quantity}`,
+              type: 'checkbox',
+              checked: ammunition.id === current?.id,
+              onUpdateChecked: () =>
+                toggleLoadedAmmunition(weapon, ammunition.id),
+            }))
+          : [{ label: EQUIPMENT_MENU_LABELS.ammunitionEmpty, disabled: true }],
+    };
+  }
+
+  /**
+   * Значок боеприпаса стрелкового оружия: чем заряжено и сколько осталось,
+   * «Не заряжено», если зарядить есть чем, иначе значка нет.
+   *
+   * @param item - предмет снаряжения
+   * @returns значок либо `undefined`
+   */
+  function getAmmunitionBadge(
+    item: DnDGameItem,
+  ): EquipmentAmmunitionBadge | undefined {
+    if (!weaponUsesAmmunition(item)) {
+      return undefined;
+    }
+
+    const current = findLoadedAmmunition(inventory.value, item);
+
+    if (current) {
+      return {
+        label: `${current.name} · ${current.quantity}`,
+        hint: EQUIPMENT_AMMUNITION_BADGE.loadedHint,
+        color: isItemDepleted(current) ? 'error' : 'neutral',
+      };
+    }
+
+    if (listLoadableAmmunition(inventory.value, item).length === 0) {
+      return undefined;
+    }
+
+    return {
+      label: EQUIPMENT_AMMUNITION_BADGE.unloaded,
+      hint: EQUIPMENT_AMMUNITION_BADGE.unloadedHint,
+      color: 'warning',
+    };
   }
 
   /**
@@ -765,6 +921,25 @@
     );
 
     commitEquipment(equipment);
+  }
+
+  /**
+   * Применяет предмет: эффекты применения ложатся на персонажа или цель,
+   * предмет теряет заряд или единицу количества.
+   *
+   * @param item - предмет
+   */
+  function applyItemUse(item: DnDGameItem): void {
+    if (props.isReadOnly) {
+      return;
+    }
+
+    applyEffectSource(
+      buildItemUseSpell(item),
+      props.entity,
+      resolvedStats.value?.spellSaveDC ?? 0,
+      () => commitEquipment(spendItemUse(inventory.value, item.id)),
+    );
   }
 
   /**
@@ -815,12 +990,28 @@
       onSelect: () => toggleEquipped(item.id),
     });
 
+    // Применение — пункт предмета с эффектами «при применении»: зелье,
+    // свиток, масло. В режиме правки лист сохраняется кнопкой, и наложенное
+    // сохранение затёрло бы
+    if (hasItemUseEffects(item) && !props.isReadOnly) {
+      gameActions.push({
+        label: EFFECT_USE_LABELS.use,
+        icon: ITEM_USE_MACRO_ICON,
+        disabled: props.isEditMode || !canUseItem(item),
+        onSelect: () => applyItemUse(item),
+      });
+    }
+
     if (item.type === 'weapon' && item.damageParts?.length) {
       gameActions.push({
         label: EQUIPMENT_MENU_LABELS.attack,
         icon: 'tabler:sword',
         onSelect: () => openRollModal(item),
       });
+    }
+
+    if (weaponUsesAmmunition(item) && !props.isReadOnly) {
+      gameActions.push(buildAmmunitionMenu(item));
     }
 
     // Хват — не разовое действие, а способ пользоваться оружием: отметка в
@@ -1058,20 +1249,23 @@
     const stats: SheetRowStat[] = [];
 
     if (item.type === 'weapon' && item.damageParts?.length) {
+      // Числа — как у выстрела: бонус заряженного боеприпаса в счёте
+      const weapon = withLoadedAmmunition(inventory.value, item);
+
       stats.push(
         {
           key: 'attack',
           label: EQUIPMENT_STAT_LABELS.attack,
-          value: getWeaponAttackBonusLabel(item),
-          tooltip: weaponAttackHint(item),
+          value: getWeaponAttackBonusLabel(weapon),
+          tooltip: weaponAttackHint(weapon),
           accent: true,
           rollable: true,
         },
         {
           key: 'damage',
           label: EQUIPMENT_STAT_LABELS.damage,
-          value: weaponDamageFormulaLabel(item),
-          tooltip: weaponDamageHint(item),
+          value: weaponDamageFormulaLabel(weapon),
+          tooltip: weaponDamageHint(weapon),
           accent: true,
           rollable: true,
         },
@@ -1151,6 +1345,7 @@
         stats: getItemStats(item),
         menuItems: getItemMenuItems(item),
         isEquipBlocked: isEquipDisabled(item),
+        ammunition: getAmmunitionBadge(item),
       })),
     })),
   );
@@ -1347,6 +1542,7 @@
             :stats="row.stats"
             :menu-items="row.menuItems"
             :is-equip-blocked="row.isEquipBlocked"
+            :ammunition="row.ammunition"
             :is-edit-mode="isEditMode"
             @open="openDetailModal(row.item)"
             @toggle-equip="toggleEquipped(row.item.id)"
@@ -1383,14 +1579,18 @@
     :title="`${ACTOR_EQUIPMENT_TAB_LABELS.attackRollPrefix}${rollConfig.name}`"
     :roll-label="rollConfig.name"
     :attack-modifier="rollConfig.attackModifier"
+    :evaluate-bonus-roll-formulas="rollConfig.evaluateBonusRollFormulas"
     :evaluate-conditional-bonuses="rollConfig.evaluateBonuses"
     :initial-roll-mode="rollConfig.initialRollMode"
+    :crit-threshold="rollConfig.critThreshold"
     :incoming-attack-type="rollConfig.incomingAttackType"
     :damage-type="rollConfig.damageType"
     :damage-parts="rollConfig.damageParts"
     :evaluate-bonus-damage-parts="rollConfig.evaluateBonusDamageParts"
     :on-roll-parts="rollConfig.onRollParts"
     :on-hit="rollConfig.onHit"
+    :before-roll="rollConfig.beforeRoll"
+    :attacker-id="entity.id"
     :roll-button-text="ACTOR_EQUIPMENT_TAB_LABELS.attack"
   />
 </template>

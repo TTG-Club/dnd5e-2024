@@ -22,7 +22,7 @@ import type { Feature } from '@vtt/shared';
 import type { BackgroundDefinition } from './backgroundTypes.js';
 import type { CounterRecovery } from './classTypes.js';
 import type { DnDGameItem } from './dndEntities.js';
-import type { FeatData } from './featTypes.js';
+import type { FeatCounterDefinition, FeatData } from './featTypes.js';
 
 import { SENSE_LABELS } from './actorSenses.js';
 import { getConditionEntry } from './conditionTemplates.js';
@@ -202,7 +202,7 @@ function spellListLine(featData: FeatData): string | null {
 
       const conditions = [
         group.requiredLevel && group.requiredLevel > 1
-          ? `с ${group.requiredLevel} ур.`
+          ? fromLevelLabel(group.requiredLevel)
           : null,
         group.count?.trim() ? `выбрать ${group.count.trim()}` : null,
       ].filter(Boolean);
@@ -232,8 +232,9 @@ const COUNTER_RECOVERY_SUMMARY: Record<CounterRecovery, string> = {
 
 /**
  * Строка ресурсов черты: название и способ восстановления. Максимум показан
- * формулой источника, а не числом: у «Удачливого» он равен бонусу мастерства и
- * зависит от уровня конкретного персонажа, а сводка описывает саму черту.
+ * формулой источника либо ступенями, а не числом: у «Удачливого» он равен бонусу
+ * мастерства и зависит от уровня конкретного персонажа, а сводка описывает саму
+ * черту.
  */
 function countersLine(featData: FeatData): string | null {
   const counters = featData.counters ?? [];
@@ -244,10 +245,50 @@ function countersLine(featData: FeatData): string | null {
 
   const parts = counters.map(
     (counter) =>
-      `${counter.name} (${counter.max}${counterMinimumLine(counter.min)}, ${COUNTER_RECOVERY_SUMMARY[counter.recovery]})`,
+      `${counter.name} (${counterMaxLine(counter)}${counterMinimumLine(counter.min)}, ${COUNTER_RECOVERY_SUMMARY[counter.recovery]})`,
   );
 
   return `- **Ресурсы:** ${parts.join('; ')}`;
+}
+
+/**
+ * Максимум ресурса для сводки: ступени, если заданы, иначе формула.
+ *
+ * Ступени старше формулы — так их считает и лист, — поэтому показывать формулу
+ * рядом с ними значило бы описать число, которое ни на что не влияет. Первая
+ * ступень и есть уровень, с которого ресурс появляется.
+ *
+ * @param counter - определение ресурса
+ * @returns «с 3 ур. — 1, с 5 ур. — 2» либо формула максимума
+ */
+function counterMaxLine(counter: FeatCounterDefinition): string {
+  const steps = Object.entries(counter.progression ?? {})
+    .map(([level, value]) => ({ level: Number(level), value }))
+    .sort((stepA, stepB) => stepA.level - stepB.level);
+
+  if (steps.length === 0) {
+    return counter.max?.trim() || '0';
+  }
+
+  return steps
+    .map((step) =>
+      step.level > 1
+        ? `${fromLevelLabel(step.level)} — ${step.value}`
+        : `${step.value}`,
+    )
+    .join(', ');
+}
+
+/**
+ * Подпись уровня, с которого открывается дар: «с 3 ур.».
+ *
+ * Одна на всю сводку: заклинания, списки классов и ступени ресурсов читаются
+ * рядом, и разнобой в написании уровня бросался бы в глаза.
+ *
+ * @param level - уровень персонажа
+ */
+function fromLevelLabel(level: number): string {
+  return `с ${level} ур.`;
 }
 
 /**
@@ -490,7 +531,7 @@ function classSpellsLine(featData: FeatData): string | null {
     }
 
     if (group.requiredLevel && group.requiredLevel > 1) {
-      details.push(`с ${group.requiredLevel} ур.`);
+      details.push(fromLevelLabel(group.requiredLevel));
     }
 
     return details.length > 0 ? `${classes} (${details.join(', ')})` : classes;
@@ -522,7 +563,7 @@ export function buildFeatGrantsSummary(
       `- **Заклинания:** ${featData.grantedSpells
         .map((spell) =>
           spell.requiredLevel && spell.requiredLevel > 1
-            ? `${spell.name} (с ${spell.requiredLevel} ур.)`
+            ? `${spell.name} (${fromLevelLabel(spell.requiredLevel)})`
             : spell.name,
         )
         .join(', ')}`,

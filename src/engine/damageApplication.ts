@@ -16,9 +16,15 @@
  */
 
 import type { ActiveEffect, EffectOrigin } from './activeEffectTypes.js';
-import type { DamageApplyResult, DamageDefenseOutcome } from './damageUtils.js';
+import type { DamageHit } from './damageHits.js';
+import type {
+  DamageApplyResult,
+  DamageDefenseOutcome,
+  DamageDefenses,
+} from './damageUtils.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type { IncomingAttackContext } from './effectPipeline.js';
+import type { EffectTriggerUsageLedger } from './effectTriggerUsage.js';
 
 import { generateId, isRecord } from '@vtt/shared';
 
@@ -27,7 +33,17 @@ import {
   buildConditionActiveEffect,
   resolveEffectConditionKey,
 } from './conditionTemplates.js';
-import { applyDamageDefenses, applyHpChange } from './damageUtils.js';
+import {
+  parseDamageHitDetails,
+  parseDamageHits,
+  readDamageHits,
+  recordDamageHit,
+} from './damageHits.js';
+import {
+  applyDamageDefenses,
+  applyHpChange,
+  withoutIgnoredResistances,
+} from './damageUtils.js';
 import {
   isImmuneToCondition,
   mergeAppliedEffects,
@@ -38,7 +54,13 @@ import {
   getEntityConditionImmunities,
   resolveActorStats,
 } from './effectPipeline.js';
+import {
+  parseTriggerUsage,
+  readTriggerUsage,
+  writeTriggerUsage,
+} from './effectTriggerUsage.js';
 import { buildFormulaContext } from './formulaParser.js';
+import { limitEntityHealing } from './healingLimits.js';
 import {
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
@@ -47,13 +69,52 @@ import {
 } from './hitPoints.js';
 import { withInitializedDuration } from './turnEffects.js';
 
+/** Флаг «защиты от урона не действуют» */
+export const DEFENSES_SUPPRESSED_FLAG = 'defense.suppressAll';
+
+/** Защиты снятого флагом существа: ни сопротивлений, ни иммунитетов */
+const NO_DAMAGE_DEFENSES: DamageDefenses = {
+  resistances: new Set(),
+  immunities: new Set(),
+  vulnerabilities: new Set(),
+};
+
+/**
+ * Защиты цели от урона без сопротивлений, которые игнорирует урон атакующего
+ * («Сила могилы»).
+ *
+ * @param entity - цель
+ * @param ignoredResistances - типы урона, чьё сопротивление не действует; нет —
+ *   действуют все
+ * @returns защиты цели
+ */
+export function resolveTargetDamageDefenses(
+  entity: DnDSceneEntity,
+  ignoredResistances: readonly string[] | undefined,
+): DamageDefenses {
+  const stats = resolveActorStats(entity);
+
+  // «Защиты не действуют» («Изгоняющая кара»): сопротивления и иммунитеты цели
+  // сняты целиком, а не по одному типу
+  if (stats.activeFlags.has(DEFENSES_SUPPRESSED_FLAG)) {
+    return NO_DAMAGE_DEFENSES;
+  }
+
+  return withoutIgnoredResistances(stats.damageDefenses, ignoredResistances);
+}
+
 /**
  * Строит `ActiveEffect` для наложения на цель.
  *
- * Если эффект опознан как состояние D&D 5e — собирает полноценный
- * condition-эффект через общий хелпер `buildConditionActiveEffect`, СОХРАНЯЯ
- * авторскую длительность и цель применения (а не хардкодя «постоянно»).
- * Иначе — копирует эффект как есть с переданным `origin`.
+ * Эффект, опознанный как состояние D&D 5e, получает источник `condition` и
+ * ключ состояния — по ним лист и значок на токене узнают состояние. Нагрузка
+ * при этом берётся у АВТОРА эффекта: имя, модификаторы, флаги, повторный
+ * спасбросок и снятие после атаки. Раньше состояние пересобиралось из шаблона
+ * целиком, и «Отравлен с −2 к КД и спасброском в конце хода» ложился на цель
+ * голым «Отравлен». Из шаблона собирается только заготовка — эффект, у которого
+ * нет ни модификаторов, ни флагов (узнан по одному имени).
+ *
+ * Длительность и цель применения всегда авторские.
  *
  * @param effect - исходный эффект из действия/оружия
  * @param fallbackOrigin - origin для не-condition эффектов
@@ -78,13 +139,31 @@ function buildEffectForTarget(
     effectTarget: effect.effectTarget,
   });
 
-  return withInitializedDuration(
-    conditionEffect ?? {
+  if (!conditionEffect) {
+    return withInitializedDuration({
       ...effect,
       id: generateId('effect'),
       origin: fallbackOrigin,
-    },
-  );
+    });
+  }
+
+  const hasAuthorPayload = effect.changes.length > 0 || effect.flags.length > 0;
+
+  // Остальные поля автора (повторный спасбросок, урон каждый ход, снятие после
+  // атаки) переживают и заготовку: шаблон их не знает
+  return withInitializedDuration({
+    ...effect,
+    id: conditionEffect.id,
+    origin: conditionEffect.origin,
+    conditionKey,
+    description: effect.description || conditionEffect.description,
+    icon: effect.icon ?? conditionEffect.icon,
+    changes: hasAuthorPayload ? effect.changes : conditionEffect.changes,
+    flags: hasAuthorPayload ? effect.flags : conditionEffect.flags,
+    conditionImmunities:
+      effect.conditionImmunities ?? conditionEffect.conditionImmunities,
+    exhaustionLevel: effect.exhaustionLevel ?? conditionEffect.exhaustionLevel,
+  });
 }
 
 /**
@@ -92,10 +171,14 @@ function buildEffectForTarget(
  * (иммунитет/сопротивление/уязвимость) и правила временных ХП (урон снимает temp
  * первым, лечение их не трогает). Возвращает сводку изменения для UI/чата.
  *
+ * Урон записывается ударом в сущность (`recordDamageHit`): боевой снимок
+ * увезёт его на сервер, и там сработают «получил урон» и «хиты упали до 0».
+ *
  * @param entity - сущность-цель (обычно глубокая копия для безопасной WS-отправки)
  * @param amount - величина изменения ХП (положительное число)
  * @param isHealing - true = лечение (прибавить), false = урон (вычесть)
  * @param damageType - тип урона (для проверки защит); только для урона
+ * @param details - подробности удара от вызывающего: крит, кто бил
  * @returns сводка результата применения
  */
 export function applyTargetDamage(
@@ -103,6 +186,7 @@ export function applyTargetDamage(
   amount: number,
   isHealing: boolean,
   damageType?: string,
+  details?: unknown,
 ): DamageApplyResult {
   const hpBefore = resolveEntityCurrentHp(entity);
   const maxHp = resolveEntityMaxHp(entity);
@@ -110,14 +194,23 @@ export function applyTargetDamage(
   let finalAmount = amount;
   let defenseOutcome: DamageDefenseOutcome = 'normal';
 
+  // Запрет лечения: «не может восстанавливать хиты»
+  if (isHealing) {
+    finalAmount = limitEntityHealing(entity, {
+      hitPoints: amount,
+      temporary: 0,
+    }).hitPoints;
+  }
+
   // Учитываем защиты цели: иммунитет (урон 0), сопротивление (½), уязвимость (×2)
   if (!isHealing && damageType) {
-    const stats = resolveActorStats(entity);
-
     const defenseResult = applyDamageDefenses(
       amount,
       damageType,
-      stats.damageDefenses,
+      resolveTargetDamageDefenses(
+        entity,
+        parseDamageHitDetails(details).ignoredResistances,
+      ),
     );
 
     finalAmount = defenseResult.finalDamage;
@@ -139,6 +232,20 @@ export function applyTargetDamage(
     current: hpChange.hpAfter,
     temp: hpChange.tempAfter,
   });
+
+  if (!isHealing) {
+    const { critical, sourceId } = parseDamageHitDetails(details);
+
+    recordDamageHit(entity, {
+      amount: hpBefore + tempBefore - hpChange.hpAfter - hpChange.tempAfter,
+      // Урон по хитам без того, что сняли временные: на нуле хитов потеря
+      // ноль, а спасброски от смерти считают удар
+      dealt: finalAmount - (tempBefore - hpChange.tempAfter),
+      types: damageType ? [damageType] : [],
+      critical,
+      sourceId,
+    });
+  }
 
   return {
     actorName: entity.name,
@@ -204,6 +311,16 @@ export interface DndCombatState {
   hpTemp: number;
   /** Полный список активных эффектов цели после применения исхода боя */
   activeEffects: ActiveEffect[];
+  /**
+   * Счётчики лимитов срабатываний («не чаще раза в ход»): бросок атаки на
+   * клиенте расходует срабатывание. Нет поля — счётчики не трогаются.
+   */
+  effectUsage?: EffectTriggerUsageLedger;
+  /**
+   * Удары, от которых изменились хиты: по ним сервер прогоняет «получил урон»
+   * и «хиты упали до 0». Нет поля — событий урона нет (отмена, правка хитов).
+   */
+  damage?: DamageHit[];
 }
 
 /**
@@ -213,10 +330,16 @@ export interface DndCombatState {
  * @returns снимок боевого состояния
  */
 export function pickCombatState(entity: DnDSceneEntity): DndCombatState {
+  const damage = readDamageHits(entity);
+
   return {
     hpCurrent: resolveEntityCurrentHp(entity),
     hpTemp: resolveEntityTempHp(entity),
     activeEffects: entity.activeEffects ?? [],
+    ...(entity.system.effectUsage === undefined
+      ? {}
+      : { effectUsage: entity.system.effectUsage }),
+    ...(damage.length > 0 ? { damage: [...damage] } : {}),
   };
 }
 
@@ -240,7 +363,7 @@ export function applyCombatState(
     return false;
   }
 
-  const { hpCurrent, hpTemp, activeEffects } = state;
+  const { hpCurrent, hpTemp, activeEffects, effectUsage } = state;
 
   if (typeof hpCurrent !== 'number' || !Number.isFinite(hpCurrent)) {
     return false;
@@ -264,11 +387,28 @@ export function applyCombatState(
   const nextTemp = Math.max(0, Math.trunc(hpTemp));
   const nextEffects = parsedEffects.data;
 
+  // Счётчики лимитов — только если клиент их прислал: старый клиент их не
+  // знает, и снимок без поля не должен стирать счётчики сервера
+  const nextUsage =
+    effectUsage === undefined ? undefined : parseTriggerUsage(effectUsage);
+
+  const usageChanged =
+    nextUsage !== undefined
+    && JSON.stringify(readTriggerUsage(entity)) !== JSON.stringify(nextUsage);
+
+  // Удар по лежащему на нуле хитов ничего не меняет в хитах, но двигает
+  // серию спасбросков от смерти
+  const dealtOnly = parseDamageHits(state.damage).some(
+    (hit) => (hit.dealt ?? 0) > 0,
+  );
+
   const changed =
-    nextHp !== resolveEntityCurrentHp(entity)
+    dealtOnly
+    || nextHp !== resolveEntityCurrentHp(entity)
     || nextTemp !== resolveEntityTempHp(entity)
     || JSON.stringify(entity.activeEffects ?? [])
-      !== JSON.stringify(nextEffects);
+      !== JSON.stringify(nextEffects)
+    || usageChanged;
 
   if (!changed) {
     return false;
@@ -276,6 +416,10 @@ export function applyCombatState(
 
   writeEntityHitPoints(entity, { current: nextHp, temp: nextTemp });
   entity.activeEffects = nextEffects;
+
+  if (nextUsage !== undefined) {
+    writeTriggerUsage(entity, nextUsage);
+  }
 
   return true;
 }

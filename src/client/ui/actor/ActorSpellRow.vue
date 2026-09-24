@@ -8,6 +8,8 @@
 
   import { computed } from 'vue';
 
+  import { isSpellReady } from '@vtt/shared/system/dnd.js';
+
   import {
     SHEET_ROW_ARIA_LABELS,
     SPELL_BADGE_HINTS,
@@ -56,9 +58,7 @@
     () => props.spell.level > CANTRIP_LEVEL && !props.spell.alwaysPrepared,
   );
 
-  const isPrepared = computed(
-    () => Boolean(props.spell.prepared) || Boolean(props.spell.alwaysPrepared),
-  );
+  const isPrepared = computed(() => isSpellReady(props.spell));
 
   const preparedTooltip = computed(() => {
     if (props.spell.alwaysPrepared) {

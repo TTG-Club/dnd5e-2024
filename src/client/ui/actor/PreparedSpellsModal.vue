@@ -1,5 +1,7 @@
 <script setup lang="ts">
   import type {
+    DnDCustomBonus,
+    DnDCustomBonusContext,
     DnDPreparedLimit,
     PreparedKind,
   } from '@vtt/shared/system/dnd.js';
@@ -11,18 +13,13 @@
   import {
     getPreparedLimitBreakdown,
     normalizePreparedLimit,
-    PREPARED_LIMIT_BONUS_MAX,
-    PREPARED_LIMIT_BONUS_MIN,
     PREPARED_LIMIT_EMPTY_VALUE,
     PREPARED_LIMIT_MAX,
     PREPARED_LIMIT_MIN,
   } from '@vtt/shared/system/dnd.js';
 
-  import {
-    BONUS_INPUT_FORMAT_OPTIONS,
-    MODAL_BUTTON_LABELS,
-    PREPARED_SPELLS_LABELS,
-  } from './constants';
+  import { MODAL_BUTTON_LABELS, PREPARED_SPELLS_LABELS } from './constants';
+  import CustomBonusRows from './CustomBonusRows.vue';
   import { formatSignedNumber } from './utils/formatSignedNumber';
 
   interface Props {
@@ -33,6 +30,8 @@
     limit: DnDPreparedLimit;
     /** Число из таблиц классов; null — колонки нет */
     classValue: number | null;
+    /** Числа листа, от которых считается вклад своих бонусов */
+    context: DnDCustomBonusContext;
   }
 
   const props = defineProps<Props>();
@@ -73,7 +72,7 @@
 
   const draftCustom = ref(false);
   const draftValue = ref(PREPARED_LIMIT_MIN);
-  const draftBonus = ref(0);
+  const draftBonuses = ref<DnDCustomBonus[]>([]);
 
   /**
    * Черновик заводится при открытии: окно живёт во вкладке постоянно, и без
@@ -89,7 +88,10 @@
       }
 
       draftCustom.value = props.limit.custom !== null;
-      draftBonus.value = props.limit.bonus;
+
+      // Копии, а не сами бонусы листа: окно живёт до «Применить», и его
+      // правки не должны менять лист раньше времени
+      draftBonuses.value = props.limit.bonuses.map((bonus) => ({ ...bonus }));
 
       draftValue.value =
         props.limit.custom ?? props.classValue ?? PREPARED_LIMIT_MIN;
@@ -108,12 +110,16 @@
   /** Настройка из черновика — и для предпросмотра, и для сохранения */
   const draftLimit = computed<DnDPreparedLimit>(() => ({
     custom: draftCustom.value ? toFieldValue(draftValue.value) : null,
-    bonus: toFieldValue(draftBonus.value),
+    bonuses: draftBonuses.value,
   }));
 
   /** Разбор предпросмотра — той же утилитой, что и плитка вкладки */
   const breakdown = computed(() =>
-    getPreparedLimitBreakdown(props.classValue, draftLimit.value),
+    getPreparedLimitBreakdown(
+      props.classValue,
+      draftLimit.value,
+      props.context,
+    ),
   );
 
   /** Число класса: от черновика не зависит, его меняют уровень и класс */
@@ -129,7 +135,7 @@
       : String(breakdown.value.value),
   );
 
-  /** Бонус со знаком для строки предпросмотра */
+  /** Сумма бонусов со знаком для строки предпросмотра */
   const bonusLabel = computed(() => formatSignedNumber(breakdown.value.bonus));
 
   /** Отдаёт выправленную настройку наверх и закрывает окно */
@@ -146,7 +152,7 @@
     :draggable="false"
     :resizable="false"
     :blocking="true"
-    :min-width="420"
+    :min-width="440"
     :min-height="300"
     :title="labels.title"
     :z-index="Z_INDEX.MODAL_ELEVATED"
@@ -187,18 +193,18 @@
             <span class="text-toned tabular-nums">{{ classValueLabel }}</span>
           </div>
 
-          <div class="flex items-center justify-between gap-4">
-            <span class="text-sm text-toned">{{
-              PREPARED_SPELLS_LABELS.bonus
-            }}</span>
+          <!-- Свои бонусы: те же строки, что у инициативы и спасбросков, —
+            числом, модификатором характеристики или бонусом мастерства -->
+          <div class="space-y-3">
+            <span
+              class="text-[10px] font-bold tracking-wider text-muted uppercase"
+            >
+              {{ PREPARED_SPELLS_LABELS.bonusesTitle }}
+            </span>
 
-            <UInputNumber
-              v-model="draftBonus"
-              :min="PREPARED_LIMIT_BONUS_MIN"
-              :max="PREPARED_LIMIT_BONUS_MAX"
-              :format-options="BONUS_INPUT_FORMAT_OPTIONS"
-              size="sm"
-              class="w-40 shrink-0"
+            <CustomBonusRows
+              v-model="draftBonuses"
+              :context="context"
             />
           </div>
 

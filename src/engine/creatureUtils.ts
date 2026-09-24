@@ -11,6 +11,19 @@ import type { CreatureAction } from './creatureTypes.js';
 const ACTION_DESCRIPTION_PARAGRAPH_SEPARATOR = '\n\n';
 
 /**
+ * Требует ли действие существа спасбросок. Пустой `saveType` и `none` значат
+ * одно и то же — «спасброска нет»: старые записи пишут одно, окно правки
+ * другое. Правило нужно листу, окну действия и макросу хотбара сразу, поэтому
+ * живёт здесь, а не тремя копиями у них.
+ *
+ * @param action - действие существа
+ * @returns `true`, если по действию бросают спасбросок
+ */
+export function creatureActionHasSave(action: CreatureAction): boolean {
+  return !!action.saveType && action.saveType !== 'none';
+}
+
+/**
  * Объединяет абзацы описания действия существа в единую Markdown-строку.
  * @param action - действие существа
  * @returns описание действия в формате Markdown

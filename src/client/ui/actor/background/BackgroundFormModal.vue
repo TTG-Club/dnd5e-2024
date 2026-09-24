@@ -22,12 +22,6 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useItemsStore } from '@/stores/itemsStore';
-  import {
-    buildSpellLinkIndex,
-    findSpellInPacks,
-    linkGrantedSpellGroups,
-    loadSpellPacks,
-  } from '@/systems/dnd5e/composables/spellCompendium';
   import { generateId } from '@vtt/shared';
   import {
     ABILITY_OPTIONS,
@@ -40,6 +34,12 @@
     TOOLS_LABELS,
   } from '@vtt/shared/system/dnd.js';
 
+  import {
+    buildSpellLinkIndex,
+    findSpellInPacks,
+    linkGrantedSpellGroups,
+    loadSpellPacks,
+  } from '../../../composables/spellCompendium';
   import { useFeatChoiceFeats } from '../../../composables/useFeatChoiceFeats';
   import {
     BACKGROUND_FORM_LABELS,
@@ -842,7 +842,6 @@
               ref="effectRows"
               v-model="effects"
               modal-id="background-effect-form-modal"
-              hide-aura
             />
           </FormSection>
         </template>

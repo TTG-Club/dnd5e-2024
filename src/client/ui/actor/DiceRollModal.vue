@@ -2,10 +2,15 @@
   import type { DamageType } from '@vtt/shared';
   import type {
     AttackRollMode,
+    DamageHitDetails,
+    DndIncomingAttackContext,
     IncomingAttackContext,
+    RollContext,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { RollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import type {
+    ProjectileAttackContext,
     RolledSpellDamagePart,
     SpellDamagePartInput,
   } from '../../composables/useSpellResolution';
@@ -19,24 +24,33 @@
   import { useChatStore } from '@/stores/chatStore';
   import { useDiceRollerStore } from '@/stores/diceRollerStore';
   import { useTargetStore } from '@/stores/targetStore';
-  import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
   import {
     buildAttackFormula,
     CHOICE_DAMAGE_TYPE,
     doubleDiceInFormula,
     formatDamageDefenseSuffix,
+    getNaturalD20Roll,
     getShortDamageTypeLabel,
     isDamageType,
     performTwoStageAttack,
+    resolveEntityCreatureType,
     scaleDamageFormula,
   } from '@vtt/shared/system/dnd.js';
 
+  import { resolveAttackerIgnoredResistances } from '../../composables/spellResolutionShared';
+  import {
+    dispatchAttackRollTriggers,
+    reportAttackRoll,
+  } from '../../composables/useEffectTriggerEvents';
+  import { useWorldEntities } from '../../composables/useWorldEntities';
+  import { useSystemDataStore } from '../../stores/systemDataStore';
   import {
     DICE_ROLL_DEFAULT_BUTTON,
     DICE_ROLL_LABELS,
     DICE_ROLL_LOG_PREFIX,
     SPELL_DAMAGE_ROLL_BUTTON,
     SPELL_LEVEL_SUFFIX,
+    WILLING_SAVE_TOTAL,
   } from './constants';
 
   type RollVisibility = 'public' | 'gm' | 'private';
@@ -75,15 +89,29 @@
      */
     attackModifier?: number;
     /** Функция для вычисления условных бонусов в момент броска */
-    // eslint-disable-next-line vue/require-default-prop
+    // eslint-disable-next-line vue/require-default-prop -- отсутствие расчёта и означает «условных бонусов нет», пустышка по умолчанию это бы скрыла
     evaluateConditionalBonuses?: (context: {
       hasAdvantage: boolean;
       hasDisadvantage: boolean;
     }) => { attackBonus: number; damageBonus: number };
+    /** Кубиковые бонусы к атаке или стандартному d20-спасброску на момент броска. */
+    evaluateBonusRollFormulas?: RollBonusEvaluator;
+    /** Бонусы назначенных целей снарядов, собранные до расхода одноразовых эффектов. */
+    evaluateProjectileBonusRollFormulas?: (
+      context: RollContext,
+    ) => ReadonlyMap<string, readonly string[]>;
     initialRollMode?: AttackRollMode;
+    /** С какой натуральной кости атака — крит (у оружия Чемпиона 19) */
+    critThreshold?: number;
     /** Тип входящей атаки для расчёта условных бонусов к AC цели (melee/ranged/spell) */
     incomingAttackType?: IncomingAttackContext['attackType'];
     autoFail?: boolean;
+    /**
+     * Спасбросок можно не бросать: цель согласна. Кнопка есть у спасброска
+     * против эффекта, которому по правилам достаточно согласия цели
+     * («Согласная цель не совершает спасбросок»)
+     */
+    allowWilling?: boolean;
     /** Тип урона для расчета сопротивлений */
     damageType?: string;
     /** Сложность проверки/спасброска для вывода успеха или провала */
@@ -105,6 +133,12 @@
     ) => void;
     /** Коллбэк при любом успешном применении / броске. Передаёт итоговый урон и выбранный тип урона. */
     onRoll?: (damageTotal: number, resolvedDamageType?: string) => void;
+    /** Проверяет актуальность каста до расхода ячейки и применения эффектов. */
+    beforeRoll?: (
+      castLevel: number,
+      consumeSlot: boolean,
+      isPactSlot: boolean,
+    ) => boolean;
     /**
      * Части урона/лечения (многочастный путь). Если заданы — модалка катает
      * каждую часть, объединяет в один бросок и вызывает `onRollParts` с разбивкой
@@ -143,13 +177,13 @@
     /** Коллбэк при попадании атаки (вызывается даже если нет формулы урона). */
     onHit?: () => void;
     /**
-     * Коллбэк при совершении броска атаки (попадание ИЛИ промах). Вызывается
-     * ДО самого броска — режим (преим./помеха) к этому моменту уже зафиксирован
-     * в `attackRollMode`, а расход одноразовых эффектов «следующей атаки»
-     * (consumeOn) должен опередить эмит урона по цели. НЕ вызывается при отмене
+     * Кто атакует. На броске атаки (попадание ИЛИ промах) окно расходует
+     * срабатывания «следующей атаки» у атакующего и целей — ДО самого броска:
+     * режим (преим./помеха) уже зафиксирован в `attackRollMode`, а снятие
+     * эффекта должно опередить эмит урона по цели. Не расходуется при отмене
      * окна и при бросках без атаки (чистый урон / лечение / спасбросок).
      */
-    onAttackRolled?: () => void;
+    attackerId?: string;
     /**
      * Серия атак снарядов (Мистический заряд, Палящий луч): по кнопке модалка
      * НЕ катает ни атаку, ни урон сама, а отдаёт контекст броска (итоговый
@@ -157,10 +191,9 @@
      * вызывающему — тот выполняет бросок попадания для каждого снаряда и урон
      * за попадания (useSpellResolution.resolveSpellDamage → projectileAttack).
      */
-    onProjectileAttack?: (context: {
-      attackModifier: number;
-      rollMode: AttackRollMode;
-    }) => void;
+    onProjectileAttack?: (
+      context: Omit<ProjectileAttackContext, 'attackType'>,
+    ) => void;
     /** Если true — модалка НЕ применяет урон к цели (обработка делегирована вызывающему) */
     skipDamageApplication?: boolean;
     /** Если true — модалка НЕ отправляет результат в чат (вызывающий сам формирует сообщение) */
@@ -182,6 +215,8 @@
     isHealing: false,
     attackModifier: undefined,
     initialRollMode: 'normal',
+    evaluateBonusRollFormulas: undefined,
+    evaluateProjectileBonusRollFormulas: undefined,
     incomingAttackType: undefined,
     damageType: undefined,
     spellLevel: undefined,
@@ -190,18 +225,21 @@
     pactSlotLevel: 0,
     onSpellSlotConsume: undefined,
     onRoll: undefined,
+    beforeRoll: undefined,
     damageParts: undefined,
     onRollParts: undefined,
     evaluateBonusDamageParts: undefined,
     onCheckRoll: undefined,
     onCancel: undefined,
     onHit: undefined,
-    onAttackRolled: undefined,
+    attackerId: undefined,
+    critThreshold: undefined,
     onProjectileAttack: undefined,
     skipDamageApplication: false,
     skipChatMessage: false,
     skipRoll: false,
     targetDc: undefined,
+    allowWilling: false,
   });
 
   const emit = defineEmits<{
@@ -301,11 +339,21 @@
   /** Режим броска атаки (обычный / преимущество / помеха) */
   const attackRollMode = ref<AttackRollMode>('normal');
 
+  const { findCurrentDndEntity } = useWorldEntities();
+
   /** AC цели с учётом типа входящей атаки. Реактивен к смене цели, пока модалка открыта */
   const targetAc = computed(() => {
-    const attackContext: IncomingAttackContext | undefined =
+    const attacker = findCurrentDndEntity(props.attackerId);
+
+    // Ядро передаёт контекст системе как есть: тип атакующего едет в нём
+    const attackContext: DndIncomingAttackContext | undefined =
       props.incomingAttackType
-        ? { attackType: props.incomingAttackType }
+        ? {
+            attackType: props.incomingAttackType,
+            attackerCreatureType: attacker
+              ? resolveEntityCreatureType(attacker)
+              : undefined,
+          }
         : undefined;
 
     return targetStore.getTargetAc(attackContext);
@@ -362,6 +410,15 @@
     });
   });
 
+  /** Кубиковые бонусы не входят в числовой модификатор листа. */
+  const currentBonusRollFormulas = computed(
+    () =>
+      props.evaluateBonusRollFormulas?.({
+        hasAdvantage: attackRollMode.value === 'advantage',
+        hasDisadvantage: attackRollMode.value === 'disadvantage',
+      }) ?? [],
+  );
+
   /** Итоговая формула урона с учётом усиления на высших кругах */
   const effectiveFormula = computed(() => {
     if (
@@ -415,7 +472,11 @@
 
     const mod = baseMod + currentConditionalBonuses.value.attackBonus;
 
-    return buildAttackFormula(mod, attackRollMode.value);
+    return buildAttackFormula(
+      mod,
+      attackRollMode.value,
+      currentBonusRollFormulas.value,
+    );
   });
 
   /** В окне уже бросили — закрытие после этого отменой не считается */
@@ -482,10 +543,58 @@
   });
 
   /**
+   * Бросок атаки состоялся: срабатывания «следующей атаки» у атакующего и целей.
+   *
+   * @param projectile - серия снарядов (цели — назначенные цели снарядов)
+   * @returns цели броска — для сообщения серверу после урона
+   */
+  function announceAttackRoll(projectile: boolean): string[] {
+    return props.attackerId
+      ? dispatchAttackRollTriggers(props.attackerId, {
+          projectile,
+          rollMode: attackRollMode.value,
+          attackType: props.incomingAttackType,
+        })
+      : [];
+  }
+
+  /**
+   * Бросок атаки и его урон записаны: сервер выполнит срабатывания атаки со
+   * спасброском, уроном и действиями другой стороне.
+   *
+   * @param targetIds - цели броска
+   * @param landed - попал ли бросок; не задано — здесь это ещё неизвестно
+   */
+  function finishAttackRoll(
+    targetIds: readonly string[],
+    landed?: boolean,
+  ): void {
+    if (props.attackerId) {
+      reportAttackRoll(
+        props.attackerId,
+        targetIds,
+        attackRollMode.value,
+        landed,
+      );
+    }
+  }
+
+  /**
    * Выполняет бросок и отправляет результат в чат.
    * Если задан attackModifier и есть цель — выполняет двухэтапную атаку D&D 5e.
    */
   function performRoll() {
+    if (
+      props.beforeRoll
+      && !props.beforeRoll(
+        selectedSpellLevel.value,
+        consumeSpellSlot.value,
+        usePactSlot.value && consumeSpellSlot.value,
+      )
+    ) {
+      return;
+    }
+
     // Бросок пошёл — закрытие окна в `finally` отменой уже не будет
     hasRolled = true;
 
@@ -497,6 +606,18 @@
     chatStore.isGmOnlyRoll = rollType.value === 'gm';
 
     try {
+      // Фиксируем бонус до расхода одноразовых эффектов: он относится к этому броску.
+      const bonusDiceFormulas = props.skipRoll
+        ? []
+        : currentBonusRollFormulas.value;
+
+      const bonusDiceFormulasByTarget = props.onProjectileAttack
+        ? (props.evaluateProjectileBonusRollFormulas?.({
+            hasAdvantage: attackRollMode.value === 'advantage',
+            hasDisadvantage: attackRollMode.value === 'disadvantage',
+          }) ?? new Map<string, readonly string[]>())
+        : new Map<string, readonly string[]>();
+
       // --- Списание ячейки заклинания ---
       if (hasSpellCast.value && props.onSpellSlotConsume) {
         props.onSpellSlotConsume(
@@ -523,7 +644,7 @@
         // Расход одноразовых эффектов ДО броска: режим (преим./помеха) уже
         // зафиксирован в attackRollMode, а снятие эффекта должно опередить эмит
         // урона по цели — иначе два полных снапшота сущности гонятся.
-        props.onAttackRolled?.();
+        const projectileTargetIds = announceAttackRoll(true);
 
         props.onProjectileAttack({
           attackModifier:
@@ -531,7 +652,10 @@
             + bonusValue.value
             + currentConditionalBonuses.value.attackBonus,
           rollMode: attackRollMode.value,
+          bonusDiceFormulasByTarget,
         });
+
+        finishAttackRoll(projectileTargetIds);
 
         return;
       }
@@ -577,9 +701,15 @@
         if (attackTargetAc !== null) {
           // Расход одноразовых эффектов ДО броска (режим уже зафиксирован):
           // снятие должно опередить эмит урона по цели, без гонки снапшотов.
-          props.onAttackRolled?.();
+          const partsTargetIds = announceAttackRoll(false);
+
           // Атака: бросок попадания → части на попадании
-          performPartsAttackRoll(attackTargetAc, effectiveParts);
+          performPartsAttackRoll(
+            attackTargetAc,
+            effectiveParts,
+            bonusDiceFormulas,
+            partsTargetIds,
+          );
         } else {
           performPartsRoll(effectiveParts);
         }
@@ -589,19 +719,29 @@
 
       // --- Двухэтапная атака (D&D 5e) ---
       let damageTotal = 0;
+      let attackTargetIds: string[] | null = null;
+      let attackLanded: boolean | undefined;
 
       if (attackTargetAc !== null) {
         // Расход одноразовых эффектов ДО броска (режим уже зафиксирован):
         // снятие должно опередить эмит урона по цели, без гонки снапшотов.
-        props.onAttackRolled?.();
-        damageTotal = performAttackRoll(attackTargetAc);
+        attackTargetIds = announceAttackRoll(false);
+
+        const attack = performAttackRoll(attackTargetAc, bonusDiceFormulas);
+
+        damageTotal = attack.total;
+        attackLanded = attack.landed;
       } else {
         // Обычный бросок (лечение или без цели)
-        damageTotal = performSimpleRoll();
+        damageTotal = performSimpleRoll(bonusDiceFormulas);
       }
 
       if (props.onRoll) {
         props.onRoll(damageTotal, resolvedDamageType.value);
+      }
+
+      if (attackTargetIds) {
+        finishAttackRoll(attackTargetIds, attackLanded);
       }
     } catch (err) {
       console.error(DICE_ROLL_LOG_PREFIX, err);
@@ -620,18 +760,75 @@
   }
 
   /**
+   * Согласная цель: спасбросок не бросается и считается проваленным.
+   *
+   * По правилам согласие цели заменяет бросок целиком, поэтому здесь нет
+   * броска вовсе — в чат уходит строка о согласии, а ждущему результат
+   * отдаётся как провал с натуральной единицей.
+   */
+  function acceptWillingly(): void {
+    hasRolled = true;
+
+    if (!props.skipChatMessage) {
+      chatStore.sendMessage(
+        `${props.rollLabel}${DICE_ROLL_LABELS.outcomeWilling}`,
+        'text',
+      );
+    }
+
+    props.onCheckRoll?.({
+      total: WILLING_SAVE_TOTAL,
+      natural: WILLING_SAVE_TOTAL,
+      modifier: 0,
+      willing: true,
+    });
+
+    isOpen.value = false;
+  }
+
+  /**
+   * Подробности удара для событий урона цели: крит и кто бил.
+   *
+   * @param critical - удар критом
+   * @returns подробности удара
+   */
+  function buildHitDetails(critical: boolean): DamageHitDetails {
+    if (!props.attackerId) {
+      return { critical };
+    }
+
+    const ignoredResistances = resolveAttackerIgnoredResistances(
+      props.attackerId,
+    );
+
+    return ignoredResistances.length > 0
+      ? { critical, sourceId: props.attackerId, ignoredResistances }
+      : { critical, sourceId: props.attackerId };
+  }
+
+  /**
    * Двухэтапная атака: бросок попадания → бросок урона.
    * Делегирует всю логику в performTwoStageAttack из attackUtils.
    *
    * @param targetAc - класс доспеха цели
+   * @param bonusDiceFormulas - бонусы, зафиксированные до расхода эффектов
+   * @returns урон броска и попал ли он: попадание уходит серверу вместе с
+   *   событием броска — по нему работают части условия «атака попала»
    */
-  function performAttackRoll(targetAc: number): number {
+  function performAttackRoll(
+    targetAc: number,
+    bonusDiceFormulas: readonly string[],
+  ): { total: number; landed: boolean } {
     const attackMod =
       (props.attackModifier ?? 0)
       + bonusValue.value
       + currentConditionalBonuses.value.attackBonus;
 
-    const attackFormula = buildAttackFormula(attackMod, attackRollMode.value);
+    const attackFormula = buildAttackFormula(
+      attackMod,
+      attackRollMode.value,
+      bonusDiceFormulas,
+    );
 
     const targetName =
       targetStore.targetName ?? DICE_ROLL_LABELS.targetFallback;
@@ -655,11 +852,17 @@
         damageFormula: finalDamageFormula,
         targetActorId: targetStore.targetActorId,
         targetFlags: targetStore.getTargetFlags(),
+        critThreshold: props.critThreshold,
         damageType: resolvedDamageType.value,
       },
       (formula) => diceRollerStore.parseAndRoll(formula),
-      (damage, isHealing) =>
-        targetStore.applyToTarget(damage, isHealing, resolvedDamageType.value),
+      (damage, isHealing, critical) =>
+        targetStore.applyToTarget(
+          damage,
+          isHealing,
+          resolvedDamageType.value,
+          buildHitDetails(critical),
+        ),
     );
 
     chatStore.sendMessage(attackFormula, 'roll', attackOutput.attackRoll);
@@ -697,7 +900,10 @@
       });
     }
 
-    return attackOutput.damageRoll?.total ?? 0;
+    return {
+      total: attackOutput.damageRoll?.total ?? 0,
+      landed: attackOutput.attackResult.isHit,
+    };
   }
 
   /**
@@ -715,10 +921,10 @@
   /**
    * Обычный бросок (лечение или без цели)
    */
-  function performSimpleRoll(): number {
+  function performSimpleRoll(bonusDiceFormulas: readonly string[]): number {
     let formula: string;
 
-    /** Модификатор чистой d20-проверки — идёт в разбивку `onCheckRoll` */
+    /** Постоянная часть бонуса, к которой роллер добавит бонусные кости. */
     let checkModifier = 0;
 
     if (props.formula) {
@@ -741,7 +947,11 @@
         + bonusValue.value
         + currentConditionalBonuses.value.attackBonus;
 
-      formula = buildAttackFormula(checkModifier, attackRollMode.value);
+      formula = buildAttackFormula(
+        checkModifier,
+        attackRollMode.value,
+        bonusDiceFormulas,
+      );
     }
 
     const rollData = diceRollerStore.parseAndRoll(formula);
@@ -770,6 +980,7 @@
         rollData.total,
         props.isHealing,
         resolvedDamageType.value,
+        buildHitDetails(false),
       );
 
       if (result && !props.isHealing) {
@@ -803,14 +1014,14 @@
       chatStore.sendMessage(formula, 'roll', rollData);
     }
 
-    // Чистая d20-проверка: отдаём бросок в разбивке. Натуральная кость — итог
-    // минус модификатор: при преимуществе/помехе это оставленная кость, а
-    // сравнивать формулы бросков вызывающему не нужно.
+    // Бонусные кости влияют на итог, но не изменяют натуральную оставленную d20.
     if (!props.formula && props.onCheckRoll) {
+      const natural = getNaturalD20Roll(rollData);
+
       props.onCheckRoll({
         total: rollData.total,
-        natural: rollData.total - checkModifier,
-        modifier: checkModifier,
+        natural,
+        modifier: rollData.total - natural,
       });
     }
 
@@ -887,6 +1098,7 @@
         requiresDamage: part.requiresDamage,
         targetGate: part.targetGate,
         targetTypeGate: part.targetTypeGate,
+        critical: isCrit,
       });
     }
 
@@ -912,17 +1124,25 @@
    *
    * @param targetAc - класс доспеха цели
    * @param parts - части урона/лечения (включая бонус-части эффектов)
+   * @param bonusDiceFormulas - бонусы попадания, не влияющие на урон
+   * @param targetIds - цели броска — для сообщения серверу после урона
    */
   function performPartsAttackRoll(
     targetAc: number,
     parts: SpellDamagePartInput[],
+    bonusDiceFormulas: readonly string[],
+    targetIds: readonly string[],
   ): void {
     const attackMod =
       (props.attackModifier ?? 0)
       + bonusValue.value
       + currentConditionalBonuses.value.attackBonus;
 
-    const attackFormula = buildAttackFormula(attackMod, attackRollMode.value);
+    const attackFormula = buildAttackFormula(
+      attackMod,
+      attackRollMode.value,
+      bonusDiceFormulas,
+    );
 
     const targetName =
       targetStore.targetName ?? DICE_ROLL_LABELS.targetFallback;
@@ -937,6 +1157,7 @@
         targetName,
         targetActorId: targetStore.targetActorId,
         targetFlags: targetStore.getTargetFlags(),
+        critThreshold: props.critThreshold,
       },
       (formula) => diceRollerStore.parseAndRoll(formula),
     );
@@ -949,15 +1170,18 @@
 
     // На промахе урона нет
     if (!attackOutput.attackResult.isHit) {
+      finishAttackRoll(targetIds, false);
+
       return;
     }
 
     const isCrit = attackOutput.attackResult.isCriticalHit;
 
-    // Сначала показываем бросок атаки, затем по очереди — части урона
-    void waitForAttackDisplay().then(() =>
-      rollPartsSequentially(parts, isCrit),
-    );
+    // Сначала показываем бросок атаки, затем по очереди — части урона; сервер
+    // узнаёт о броске после урона
+    void waitForAttackDisplay()
+      .then(() => rollPartsSequentially(parts, isCrit))
+      .then(() => finishAttackRoll(targetIds, true));
   }
 </script>
 
@@ -1210,6 +1434,23 @@
             class="mr-2 h-5 w-5"
           />
           {{ effectiveRollButtonText }}
+        </UButton>
+
+        <!-- Согласная цель: спасбросок не бросается вовсе -->
+        <UButton
+          v-if="allowWilling"
+          color="neutral"
+          variant="soft"
+          size="md"
+          block
+          :title="DICE_ROLL_LABELS.willingHint"
+          @click.left.exact.prevent="acceptWillingly"
+        >
+          <UIcon
+            name="tabler:hand-stop"
+            class="mr-2 h-4 w-4"
+          />
+          {{ DICE_ROLL_LABELS.willing }}
         </UButton>
       </div>
     </template>

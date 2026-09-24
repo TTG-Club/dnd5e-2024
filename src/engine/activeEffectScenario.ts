@@ -1,0 +1,528 @@
+/**
+ * Живая сводка эффекта: одна-две фразы «что произойдёт» простыми словами.
+ *
+ * Сводка стоит в окне эффекта над всеми шагами и пересобирается на каждое
+ * изменение: автор сразу видит, что собрал — «При входе в зону: спасбросок
+ * Телосложения, Сл 13. Провал — 2к6 яд, «Отравлен» на 1 минуту. Успех —
+ * половина урона». В отличие от `describeActiveEffect`, фраза знает МЕСТО
+ * эффекта (зона, оружие, черта) и порядок событий: когда, какой спасбросок, что
+ * при провале и что при успехе.
+ */
+
+import type { ActiveEffect, EffectChange } from './activeEffectTypes.js';
+import type {
+  EffectFormContext,
+  EffectFormLayout,
+} from './effectFormLayout.js';
+import type { EffectTrigger } from './effectTriggerTypes.js';
+
+import {
+  describeConditionName,
+  describeEffectChange,
+  describeEffectChangeCondition,
+  describeEffectDamageParts,
+  describeEffectDuration,
+  describeEffectFlag,
+  formatEffectSaveDc,
+} from './activeEffectDescribe.js';
+import { DEFAULT_ACTIVATION_AMOUNT } from './activeEffectTypes.js';
+import { buildConditionActiveEffect } from './conditionTemplates.js';
+import { ABILITY_GENITIVE_LABELS } from './consts.js';
+import {
+  isEffectTriggerSupported,
+  readEffectSuccessOutcome,
+  resolveEffectFormLayout,
+} from './effectFormLayout.js';
+import {
+  describeEffectTrigger,
+  describeTriggerCondition,
+} from './effectTriggerDescribe.js';
+import { listEffectListTriggers } from './effectTriggers.js';
+import { LEGACY_TRIGGER_IDS } from './effectTriggerTypes.js';
+
+/** Подписи цели ауры в сводке */
+const AURA_TARGET_SCENARIO_LABELS = {
+  allies: 'союзники',
+  enemies: 'враги',
+  all: 'все существа',
+} as const;
+
+/** Когда срабатывает эффект «на носителе» — по месту окна */
+const CARRIER_MOMENT_LABELS: Record<EffectFormContext, string> = {
+  ownEffects: 'Пока эффект активен',
+  feature: 'Постоянно у персонажа',
+  item: 'Пока предмет надет',
+  weapon: 'Пока оружие экипировано',
+  spell: 'После сотворения — на заклинателе',
+  creatureAction: 'При использовании действия — на самом существе',
+  creatureTrait: 'Постоянно у существа',
+  zone: 'Пока существо в зоне',
+  condition: 'Пока действует состояние',
+  generic: 'Пока эффект активен',
+};
+
+/** Когда срабатывает эффект, который накладывается применением */
+const USE_MOMENT_LABELS = {
+  carrier: 'После применения — на применившем',
+  target: 'При применении — на выбранной цели',
+} as const;
+
+/** Когда действует эффект, который включают переключателем */
+const TOGGLE_MOMENT_LABEL = 'Пока эффект включён';
+
+/** Когда срабатывает эффект «на цели» — по месту окна */
+const TARGET_MOMENT_LABELS: Record<EffectFormContext, string> = {
+  ownEffects: 'При попадании',
+  feature: 'При попадании',
+  item: 'При попадании',
+  weapon: 'При попадании оружием',
+  spell: 'Когда заклинание задело цель',
+  creatureAction: 'Когда действие задело цель',
+  creatureTrait: 'При попадании',
+  zone: 'При попадании',
+  condition: 'При попадании',
+  generic: 'При попадании',
+};
+
+/** Когда срабатывает эффект зоны */
+const ZONE_MOMENT_LABELS = {
+  stay: 'Пока существо в зоне',
+  enter: 'При входе в зону',
+  exit: 'При выходе из зоны',
+} as const;
+
+/** Когда срабатывает эффект зоны, которую оставляет заклинание */
+const SPELL_ZONE_MOMENT_LABELS = {
+  stay: 'Пока существо в зоне заклинания',
+  enter: 'При входе в зону заклинания',
+  exit: 'При выходе из зоны заклинания',
+} as const;
+
+/** Начало фразы эффекта ауры — по моменту срабатывания */
+const AURA_MOMENT_PREFIXES = {
+  stay: 'Существам в ауре ',
+  enter: 'Когда существо входит в ауру ',
+  exit: 'Когда существо выходит из ауры ',
+} as const;
+
+/** Части фраз сводки */
+const SCENARIO_LABELS = {
+  variantPrefix: 'Вариант ',
+  variantSuffix: '. ',
+  landingConditionPrefix: ', если ',
+  rollConditionPrefix: ', только в бросках, где ',
+  auraWhileCapable: ', пока носитель дееспособен',
+  counterPrefix: ', тратит «',
+  counterSuffix: '»',
+  counterAmountPrefix: ' ×',
+  savePrefix: 'спасбросок ',
+  failurePrefix: 'Провал — ',
+  successPrefix: 'Успех — ',
+  nothing: 'ничего',
+  halfDamage: 'половина урона',
+  andJoiner: ' и ',
+  listJoiner: ', ',
+  emptyEffect: 'эффект пока ничего не делает',
+  immunitiesPrefix: 'иммунитет к состояниям: ',
+  actionSaveEffectAnyway: 'Эффект ложится и при успешном спасброске.',
+  actionSaveOnlyOnSuccess: ', если цель прошла спасбросок',
+  feetSuffix: ' фт',
+  more: 'и ещё',
+} as const;
+
+/**
+ * Подпись Сл 0 по месту окна: у действия существа это Сл действия, а не
+ * заклинателя.
+ */
+const SOURCE_SAVE_DC_LABELS: Partial<Record<EffectFormContext, string>> = {
+  creatureAction: 'Сл действия',
+  weapon: 'Сл оружия',
+};
+
+/** Сколько модификаторов и флагов называть поимённо, прежде чем сказать «и ещё» */
+const MAX_NAMED_MODIFIERS = 3;
+
+/**
+ * Подпись Сл спасброска в сводке.
+ *
+ * @param dc - сложность из эффекта
+ * @param context - место окна
+ * @returns подпись сложности
+ */
+function formatScenarioSaveDc(dc: number, context: EffectFormContext): string {
+  const sourceLabel = SOURCE_SAVE_DC_LABELS[context];
+
+  return dc === 0 && sourceLabel ? sourceLabel : formatEffectSaveDc(dc);
+}
+
+/**
+ * Фраза срабатывания так же, как в сводке окна: Сл 0 называется Сл источника
+ * этого места. Нужна плашке неработающих настроек — там срабатывание
+ * описывается отдельно от сводки.
+ *
+ * @param trigger - срабатывание
+ * @param context - место окна
+ * @returns фраза со строчной буквы либо пустая строка
+ */
+export function describeEffectTriggerInPlace(
+  trigger: EffectTrigger,
+  context: EffectFormContext,
+): string {
+  return describeEffectTrigger(trigger, {
+    formatDc: (dc) => formatScenarioSaveDc(dc, context),
+  });
+}
+
+/**
+ * Когда срабатывает эффект.
+ *
+ * @param effect - эффект
+ * @param layout - раскладка окна
+ * @returns начало фразы
+ */
+function describeMoment(
+  effect: ActiveEffect,
+  layout: EffectFormLayout,
+): string {
+  const mode = effect.activation?.mode;
+
+  const activation =
+    mode && layout.activationModes.includes(mode) ? mode : undefined;
+
+  if (activation === 'use' && layout.delivery !== 'aura') {
+    return layout.delivery === 'target'
+      ? USE_MOMENT_LABELS.target
+      : USE_MOMENT_LABELS.carrier;
+  }
+
+  if (activation === 'toggle' && layout.delivery === 'carrier') {
+    return TOGGLE_MOMENT_LABEL;
+  }
+
+  switch (layout.delivery) {
+    case 'zone':
+      return layout.context === 'spell'
+        ? SPELL_ZONE_MOMENT_LABELS[layout.trigger]
+        : ZONE_MOMENT_LABELS[layout.trigger];
+    case 'target':
+      return TARGET_MOMENT_LABELS[layout.context];
+    case 'aura': {
+      if (!effect.aura) {
+        return CARRIER_MOMENT_LABELS[layout.context];
+      }
+
+      const radius = effect.aura.radiusFormula ?? String(effect.aura.radius);
+
+      const capable = effect.aura.whileCapable
+        ? SCENARIO_LABELS.auraWhileCapable
+        : '';
+
+      return `${AURA_MOMENT_PREFIXES[layout.trigger]}${radius}${SCENARIO_LABELS.feetSuffix} (${AURA_TARGET_SCENARIO_LABELS[effect.aura.target]})${capable}`;
+    }
+    case 'carrier':
+    default:
+      return CARRIER_MOMENT_LABELS[layout.context];
+  }
+}
+
+/**
+ * Какой счётчик тратит применение или включение.
+ *
+ * @param effect - эффект
+ * @returns часть фразы либо пустая строка
+ */
+function describeActivationCounter(effect: ActiveEffect): string {
+  const counter = effect.activation?.counter;
+
+  if (!counter) {
+    return '';
+  }
+
+  const amount = effect.activation?.amount ?? DEFAULT_ACTIVATION_AMOUNT;
+
+  const amountText =
+    amount > DEFAULT_ACTIVATION_AMOUNT
+      ? `${SCENARIO_LABELS.counterAmountPrefix}${amount}`
+      : '';
+
+  return `${SCENARIO_LABELS.counterPrefix}${counter}${SCENARIO_LABELS.counterSuffix}${amountText}`;
+}
+
+/**
+ * Эффект состояния из шаблона — чтобы не перечислять то, что уже сказано его
+ * названием: «Отравленный» и так значит помеху на атаки.
+ *
+ * @param effect - эффект
+ * @returns эффект состояния либо `null`, если эффект состоянием не считается
+ */
+function conditionTemplateOf(effect: ActiveEffect): ActiveEffect | null {
+  if (!effect.conditionKey) {
+    return null;
+  }
+
+  return buildConditionActiveEffect(effect.conditionKey, {
+    exhaustionLevel: effect.exhaustionLevel,
+  });
+}
+
+/**
+ * Совпадают ли строки модификаторов по смыслу.
+ *
+ * @param left - строка
+ * @param right - строка
+ * @returns `true`, если ключ, режим, значение и условие одни и те же
+ */
+function isSameChange(left: EffectChange, right: EffectChange): boolean {
+  return (
+    left.key === right.key
+    && left.mode === right.mode
+    && left.value === right.value
+    && (left.condition ?? '') === (right.condition ?? '')
+  );
+}
+
+/**
+ * Называет модификаторы и флаги сверх состояния: первые поимённо, остальные
+ * числом.
+ *
+ * @param effect - эффект
+ * @param condition - эффект состояния, которым эффект считается
+ * @returns подписи
+ */
+function describeModifiers(
+  effect: ActiveEffect,
+  condition: ActiveEffect | null,
+): string[] {
+  const ownChanges = effect.changes.filter(
+    (change) =>
+      change.key !== ''
+      && change.value.trim() !== ''
+      && !condition?.changes.some((conditionChange) =>
+        isSameChange(conditionChange, change),
+      ),
+  );
+
+  const ownFlags = effect.flags.filter(
+    (flag) => !condition?.flags.includes(flag),
+  );
+
+  const named = [
+    ...ownChanges.map(describeEffectChange),
+    ...ownFlags.map(describeEffectFlag),
+  ];
+
+  if (named.length <= MAX_NAMED_MODIFIERS) {
+    return named;
+  }
+
+  const rest = named.length - MAX_NAMED_MODIFIERS;
+
+  return [
+    ...named.slice(0, MAX_NAMED_MODIFIERS),
+    `${SCENARIO_LABELS.more} ${rest}`,
+  ];
+}
+
+/**
+ * Показывается ли срабатывание в сводке этого места: старые поля — там, где их
+ * шаг работает, явные срабатывания — там, где они работают. Неработающее
+ * называет плашка, а сводка обещала бы то, чего не случится.
+ *
+ * @param trigger - срабатывание
+ * @param layout - раскладка окна
+ * @returns `true`, если срабатывание описывается
+ */
+function isTriggerShown(
+  trigger: EffectTrigger,
+  layout: EffectFormLayout,
+): boolean {
+  switch (trigger.id) {
+    case LEGACY_TRIGGER_IDS.recurringDamage:
+      return layout.showRecurringDamage;
+    case LEGACY_TRIGGER_IDS.recurringSave:
+      return layout.showRecurringSave;
+    case LEGACY_TRIGGER_IDS.consumeOn:
+      return layout.showConsumeOn;
+    default:
+      // Место без раскладки плашку не показывает — и сводка ничего не прячет
+      return (
+        layout.context === 'generic'
+        || isEffectTriggerSupported(trigger, layout)
+      );
+  }
+}
+
+/**
+ * Что эффект оставляет на том, на кого лёг: состояние, модификаторы, периодику
+ * и сроки. Урон срабатывания сюда не входит — он зависит от спасброска иначе.
+ *
+ * @param effect - эффект
+ * @param layout - раскладка окна
+ * @returns части фразы
+ */
+function describeLastingPayload(
+  effect: ActiveEffect,
+  layout: EffectFormLayout,
+): string[] {
+  const parts: string[] = [];
+  const condition = conditionTemplateOf(effect);
+
+  if (effect.conditionKey) {
+    parts.push(`«${describeConditionName(effect.conditionKey)}»`);
+  }
+
+  parts.push(...describeModifiers(effect, condition));
+
+  const ownImmunities = (effect.conditionImmunities ?? []).filter(
+    (immunity) => !condition?.conditionImmunities?.includes(immunity),
+  );
+
+  if (layout.showConditionImmunities && ownImmunities.length > 0) {
+    parts.push(
+      `${SCENARIO_LABELS.immunitiesPrefix}${ownImmunities
+        .map(describeConditionName)
+        .join(SCENARIO_LABELS.listJoiner)}`,
+    );
+  }
+
+  for (const trigger of listEffectListTriggers(effect)) {
+    if (!isTriggerShown(trigger, layout)) {
+      continue;
+    }
+
+    const phrase = describeEffectTriggerInPlace(trigger, layout.context);
+
+    if (phrase) {
+      parts.push(phrase);
+    }
+  }
+
+  const duration =
+    layout.showDuration && effect.duration.type !== 'permanent'
+      ? describeEffectDuration(effect.duration)
+      : null;
+
+  if (duration && parts.length > 0) {
+    parts.push(duration);
+  }
+
+  return parts;
+}
+
+/**
+ * Склеивает части в перечисление.
+ *
+ * @param parts - части
+ * @returns перечисление либо «ничего»
+ */
+function joinParts(parts: readonly string[]): string {
+  return parts.length > 0
+    ? parts.join(SCENARIO_LABELS.listJoiner)
+    : SCENARIO_LABELS.nothing;
+}
+
+/**
+ * Что даёт успешный спасбросок эффекта.
+ *
+ * @param effect - эффект
+ * @param damage - подпись урона срабатывания (пусто — урона нет)
+ * @param lasting - длящаяся нагрузка
+ * @returns фраза исхода
+ */
+function describeSuccess(
+  effect: ActiveEffect,
+  damage: string,
+  lasting: readonly string[],
+): string {
+  switch (readEffectSuccessOutcome(effect)) {
+    case 'halfDamage':
+      return SCENARIO_LABELS.halfDamage;
+    case 'halfDamageWithEffect':
+      return `${SCENARIO_LABELS.halfDamage}${SCENARIO_LABELS.andJoiner}${joinParts(lasting)}`;
+    case 'effectWithoutDamage':
+      return joinParts(lasting);
+    case 'onlyOnSuccess':
+      return joinParts(damage ? [damage, ...lasting] : lasting);
+    case 'nothing':
+    default:
+      return SCENARIO_LABELS.nothing;
+  }
+}
+
+/**
+ * Живая сводка эффекта для окна: когда срабатывает, какой спасбросок, что при
+ * провале и что при успехе — в той форме, в какой эффект сработает там, откуда
+ * открыто окно.
+ *
+ * @param effect - эффект в окне
+ * @param context - место окна
+ * @returns одна-две фразы
+ */
+export function describeEffectScenario(
+  effect: ActiveEffect,
+  context: EffectFormContext,
+): string {
+  const layout = resolveEffectFormLayout(context, effect);
+
+  const variant =
+    layout.showVariant && effect.variant
+      ? `${SCENARIO_LABELS.variantPrefix}«${effect.variant.label}»${SCENARIO_LABELS.variantSuffix}`
+      : '';
+
+  const condition =
+    layout.showLandingCondition && effect.landingCondition
+      ? `${SCENARIO_LABELS.landingConditionPrefix}${describeTriggerCondition(effect.landingCondition)}`
+      : '';
+
+  const counter = layout.showActivationCounter
+    ? describeActivationCounter(effect)
+    : '';
+
+  const rollCondition = effect.rollCondition
+    ? `${SCENARIO_LABELS.rollConditionPrefix}${describeEffectChangeCondition(effect.rollCondition).toLowerCase()}`
+    : '';
+
+  const moment = `${variant}${describeMoment(effect, layout)}${counter}${condition}${rollCondition}`;
+  const lasting = describeLastingPayload(effect, layout);
+
+  const damage =
+    layout.showTriggerDamage && effect.damageParts?.length
+      ? describeEffectDamageParts(effect.damageParts)
+      : '';
+
+  const everything = damage ? [damage, ...lasting] : lasting;
+
+  if (layout.showSave && effect.applySave) {
+    const { ability, dc } = effect.applySave;
+    const outcome = readEffectSuccessOutcome(effect);
+
+    const failure =
+      outcome === 'onlyOnSuccess'
+        ? SCENARIO_LABELS.nothing
+        : joinParts(everything);
+
+    return [
+      `${moment}: ${SCENARIO_LABELS.savePrefix}${ABILITY_GENITIVE_LABELS[ability]}, ${formatScenarioSaveDc(dc, context)}.`,
+      `${SCENARIO_LABELS.failurePrefix}${failure}.`,
+      `${SCENARIO_LABELS.successPrefix}${describeSuccess(effect, damage, lasting)}.`,
+    ].join(' ');
+  }
+
+  if (everything.length === 0) {
+    return `${moment}: ${SCENARIO_LABELS.emptyEffect}.`;
+  }
+
+  if (layout.successOutcomeForActionSave) {
+    switch (readEffectSuccessOutcome(effect)) {
+      case 'onlyOnSuccess':
+        return `${moment}${SCENARIO_LABELS.actionSaveOnlyOnSuccess}: ${joinParts(everything)}.`;
+      case 'effectWithoutDamage':
+      case 'halfDamageWithEffect':
+        return `${moment}: ${joinParts(everything)}. ${SCENARIO_LABELS.actionSaveEffectAnyway}`;
+      default:
+        break;
+    }
+  }
+
+  return `${moment}: ${joinParts(everything)}.`;
+}

@@ -50,7 +50,10 @@ import { fileURLToPath } from 'node:url';
 import { context } from 'esbuild';
 import { build as viteBuild } from 'vite';
 
-import { inspectClientBundle } from './lib/bundleChecks.mjs';
+import {
+  inspectClientBundle,
+  inspectServerBundle,
+} from './lib/bundleChecks.mjs';
 import { copyManifestAndData, isDataFile } from './lib/distAssets.mjs';
 import {
   assertDistComplete,
@@ -164,6 +167,9 @@ let serverChanged = false;
 let installedOnce = false;
 let syncTimer = null;
 
+/** Претензии стража к последней серверной сборке (см. `inspectServerBundle`). */
+let serverProblems = [];
+
 /** Подпись `dist/` последней УСТАНОВЛЕННОЙ сборки (см. {@link distSignature}). */
 let installedSignature = null;
 
@@ -238,9 +244,11 @@ function syncToApp() {
 
   // Негодный бандл в приложение не кладём: система молча не поднимется, и искать
   // причину придётся в devtools вместо этой строки.
-  const { problems } = inspectClientBundle(
-    readFileSync(path.join(DIST, 'client.js'), 'utf-8'),
-  );
+  const problems = [
+    ...inspectClientBundle(readFileSync(path.join(DIST, 'client.js'), 'utf-8'))
+      .problems,
+    ...serverProblems,
+  ];
 
   if (problems.length > 0) {
     log(
@@ -364,6 +372,8 @@ const serverContext = await context({
 
             return;
           }
+
+          serverProblems = inspectServerBundle(result.metafile, ROOT).problems;
 
           // Первую сборку сервером «изменением» не считаем — иначе при каждом
           // старте watch печаталось бы предупреждение о перезапуске VTTG.

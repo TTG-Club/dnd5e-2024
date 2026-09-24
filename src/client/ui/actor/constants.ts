@@ -15,14 +15,23 @@ import type {
 import type {
   AbilityDelimiter,
   ActiveEffectDetailSectionKey,
+  CarriedEffectSourceKind,
   CounterRecovery,
   CounterRestKey,
+  HitDie,
+  SkillInfluenceTone,
 } from '@vtt/shared/system/dnd.js';
 
 import {
   CUSTOM_SKILLS_MAX,
+  DEATH_SAVE_DC,
+  DEATH_SAVE_DOUBLE_FAILURE_ROLL,
+  DEATH_SAVE_REVIVE_ROLL,
+  DEATH_SAVE_REVIVED_HP,
   FEET_UNIT_LABEL,
   HIT_DICE_FORMULA_LETTER,
+  HIT_DIE_OPTIONS,
+  SAVING_THROW_REQUEST_TITLE_PARTS,
 } from '@vtt/shared/system/dnd.js';
 
 // Реэкспорт из единого shared-источника (производные от ABILITY_OPTIONS и SKILLS_LIST)
@@ -389,6 +398,19 @@ export const SPELL_DAMAGE_ROLL_BUTTON = 'Бросить урон';
  * существа, и расходиться им нельзя.
  */
 export const HIT_DIE_LETTER = HIT_DICE_FORMULA_LETTER;
+
+/**
+ * Кости хитов для выпадающих списков: набор берётся у движка, подпись — из
+ * буквы кости выше. Список один у окна хитов и у формы класса: собранный на
+ * месте, он разошёлся бы с правилами на первой же новой кости.
+ */
+export const HIT_DIE_SELECT_OPTIONS: ReadonlyArray<{
+  value: HitDie;
+  label: string;
+}> = HIT_DIE_OPTIONS.map((hitDie) => ({
+  value: hitDie,
+  label: `${HIT_DIE_LETTER}${hitDie}`,
+}));
 
 /**
  * Приписка уровня в значке записи: «3» + это = «3 ур.». Её печатают вкладка
@@ -1030,25 +1052,23 @@ export const SAVING_THROW_ABILITIES: Array<{
  * существа, и подписи в нём расходиться не должны.
  */
 export const SAVING_THROW_ROLL_LABELS = {
+  /**
+   * Подпись броска и сложность — те же части, что у подписи запроса,
+   * которую собирает и сервер (`rollPrefix`, `dcPrefix`, `dcSuffix`)
+   */
+  ...SAVING_THROW_REQUEST_TITLE_PARTS,
   /** Заголовок окна: дальше через двоеточие идёт название характеристики */
   titlePrefix: 'Спасбросок: ',
-  /** Подпись самого броска: дальше через пробел идёт характеристика */
-  rollPrefix: 'Спасбросок ',
   /** Надпись на кнопке броска */
   button: 'Бросить спасбросок',
   /** Разделитель между характеристикой и именем цели: «Ловкости — Арт» */
   nameSeparator: ' — ',
-  /** Сложность в заголовке окна: «… (DC 15)» */
-  dcPrefix: ' (DC ',
-  dcSuffix: ')',
   /**
    * Приставка заголовка, когда бросают ЗА адресата (ГМ или инициатор взял
    * чужой запрос на себя). Именительный падеж имени сохранён намеренно:
    * склонять имена персонажей неоткуда.
    */
   takeoverPrefix: 'За игрока: ',
-  /** Разделитель «чем бьют» и самого спасброска в подписи запроса */
-  sourceSeparator: ' — ',
   /** Хвост подписи броска в чате при успехе */
   successSuffix: ' ✓ Успех',
   /** Хвост подписи броска в чате при провале */
@@ -1058,16 +1078,6 @@ export const SAVING_THROW_ROLL_LABELS = {
    * сворачивается целиком. Впереди подставляется его название.
    */
   cancelledSuffix: ' — действие отменено: спасбросок не брошен',
-} as const;
-
-/**
- * Формулы спасброска по режиму броска. Своя запись кости (`вл1`/`ул1`) — она
- * уходит в чат текстом и должна остаться прежней.
- */
-export const SAVING_THROW_ROLL_FORMULAS = {
-  normal: '1к20',
-  advantage: '2к20вл1',
-  disadvantage: '2к20ул1',
 } as const;
 
 /** Подписи настройки спасбросков */
@@ -1108,6 +1118,27 @@ export const SKILL_GROUP_LABEL_CLASS =
  */
 export const HIGHLIGHTED_SKILL_ROW_CLASS =
   'bg-primary/10 ring-1 ring-primary/50 ring-inset';
+
+/** Значок строки навыка, на бросок которого сейчас что-то влияет */
+export const SKILL_INFLUENCE_ICON = 'tabler:sparkles';
+
+/**
+ * Цвет значка влияния: всё помогает — зелёный, всё мешает — красный,
+ * вперемешку — нейтральный синий. Смысл читается с первого взгляда, не
+ * наводя мышь.
+ */
+export const SKILL_INFLUENCE_TONE_CLASS: Record<SkillInfluenceTone, string> = {
+  positive: 'text-success',
+  negative: 'text-error',
+  neutral: 'text-info',
+};
+
+/** Подписи подсказки влияний на навык */
+export const SKILL_INFLUENCE_LABELS = {
+  title: 'Влияет на бросок',
+  separator: ' — ',
+  conditionPrefix: 'только: ',
+} as const;
 
 /** Подписи настройки навыков */
 export const SKILL_SETTINGS_LABELS = {
@@ -1169,7 +1200,7 @@ export const SPELL_FILTER_LABELS: Record<
   prepared: 'Подготовленные',
   preparedHint:
     'Оставить в списке только подготовленные заклинания; заговоры доступны всегда и остаются в нём',
-  cantrip: 'Зг',
+  cantrip: '0',
   cantripHint: 'Заговоры',
   properties: 'Свойства заклинания',
   propertiesHint: 'Отбор по свойствам: лечение, концентрация, ритуал',
@@ -1307,8 +1338,13 @@ export const EQUIPMENT_TYPE_ICONS: Record<string, string> = {
   'spell': 'tabler:sparkles',
 };
 
-/** Значок записи неизвестного типа */
-export const DEFAULT_EQUIPMENT_ICON = 'tabler:box';
+/**
+ * Значок записи неизвестного типа — когда типа нет в списке выше. У снаряжения
+ * заглушка своя, из движка (`getEquipmentCategoryIcon`): там она отвечает за
+ * категорию, а не за тип записи, и одно имя на две разные заглушки заставляло
+ * бы гадать, какая из них сработала.
+ */
+export const DEFAULT_ITEM_TYPE_ICON = 'tabler:box';
 
 /** Подпись типа дальности оружия — вторая часть подписи под названием */
 export const WEAPON_RANGE_TYPE_LABELS: Record<WeaponRangeType, string> = {
@@ -1368,20 +1404,34 @@ export const EQUIPMENT_EQUIP_ACTION_LABELS: Record<
 
 /** Значки состояния предмета рядом с названием */
 export const EQUIPMENT_BADGE_LABELS: Record<
-  'equipped' | 'twoHanded' | 'attuned' | 'attunementRequired',
+  'equipped' | 'twoHanded' | 'attuned' | 'attunementRequired' | 'depleted',
   string
 > = {
   equipped: 'Надет',
   twoHanded: 'Двуручный хват',
   attuned: 'Настроен',
   attunementRequired: 'Нужна настройка',
+  depleted: 'Закончились',
 };
+
+/** Значок боеприпаса у стрелкового оружия в строке снаряжения */
+export const EQUIPMENT_AMMUNITION_BADGE = {
+  unloaded: 'Не заряжено',
+  loadedHint:
+    'Выстрел тратит этот предмет. Сменить — правый клик по оружию → '
+    + '«Боеприпасы».',
+  unloadedHint:
+    'Выберите боеприпас: правый клик по оружию → «Боеприпасы». Пока оружие не '
+    + 'заряжено, выстрелы ничего не тратят.',
+} as const;
 
 /** Подсказки значков состояния предмета */
 export const EQUIPMENT_BADGE_HINTS: Record<
-  'twoHanded' | 'attuned' | 'attunementRequired',
+  'twoHanded' | 'attuned' | 'attunementRequired' | 'depleted',
   string
 > = {
+  depleted:
+    'Количество дошло до нуля: предмет не действует, не применяется и не бьёт, пока его не пополнят — кнопкой «+» или числом',
   twoHanded:
     'Универсальным оружием пользуются двуручным хватом: урон катится большей костью. Хват меняется в меню строки и снятия не боится',
   attuned: 'Персонаж настроен на предмет — свойства предмета работают',
@@ -1395,6 +1445,9 @@ export const EQUIPMENT_BADGE_HINTS: Record<
  */
 export const EQUIPMENT_MENU_LABELS: Record<
   | 'attack'
+  | 'ammunition'
+  | 'ammunitionQuantity'
+  | 'ammunitionEmpty'
   | 'twoHandedGrip'
   | 'attune'
   | 'unattune'
@@ -1403,6 +1456,10 @@ export const EQUIPMENT_MENU_LABELS: Record<
   string
 > = {
   attack: 'Атаковать',
+  /** Подменю стрелкового оружия: чем оно заряжено */
+  ammunition: 'Боеприпасы',
+  ammunitionQuantity: 'Осталось: ',
+  ammunitionEmpty: 'Нет расходуемых предметов',
   /** Отметка, а не действие: снята — оружием пользуются одной рукой */
   twoHandedGrip: 'Двуручный хват',
   attune: 'Настроить',
@@ -1571,6 +1628,12 @@ export const SPELL_FORM_LABELS = {
   attackBonus: 'Бонус к атаке',
   attackBonusHint:
     'Фиксированный модификатор сверх характеристики (напр. +1 от магии)',
+  /** Своя Сл заклинания */
+  ownSaveDc: 'Сл заклинания',
+  ownSaveDcAuto: 'От заклинателя',
+  ownSaveDcHint:
+    'Своё число — для заклинания из жезла, свитка или предмета: Сл не зависит '
+    + 'от персонажа. Её получат и эффекты заклинания, и зона.',
   /** Заголовок секции масштабирования уровневых заклинаний */
   scalingTitle: 'Масштабирование',
   scalingHint: 'Усиление при трате ячейки выше круга заклинания.',
@@ -1797,6 +1860,13 @@ export const SPECIES_FORM_DEFAULT_NAMES = {
  * `ITEM_FORM_LABELS`.
  */
 export const EQUIPMENT_FORM_LABELS = {
+  consumptionTitle: 'Расход',
+  consumable: 'Расходуемый',
+  consumableDescription:
+    'Тратится поштучно: зелье выпивают, свиток читают, стрелу выпускают. '
+    + 'Кончится — останется в инвентаре с нулём. Расходуемый предмет можно '
+    + 'зарядить в стрелковое оружие: правый клик по оружию на листе → '
+    + '«Боеприпасы».',
   editTitle: 'Редактировать снаряжение',
   createTitle: 'Создать снаряжение',
   namePlaceholder: 'Например, веревка или зелье',
@@ -2080,6 +2150,14 @@ export const TOKEN_SETTINGS_LABELS = {
     + 'смотрит туда же, куда стрелка направления токена на сцене.',
   darkvision: 'Тёмное зрение',
   darkvisionRangeHint: 'Дальность зрения в темноте в футах',
+  /**
+   * Итог тёмного зрения на сцене, когда его меняют эффекты: поле выше — база
+   * токена, а сцена видит базу вместе с эффектами, предметами и умениями
+   */
+  darkvisionScenePrefix: 'На сцене с эффектами, предметами и умениями: ',
+  darkvisionSceneSuffix: ' фт.',
+  /** Эффект дал тёмное зрение токену с выключенным зрением */
+  darkvisionSceneEnables: ' Зрение на сцене включают эффекты.',
   hintPrefix: 'Подсказка:',
   hintVision: 'Зрение: как далеко токен видит в дневном режиме',
   hintDarkvision:
@@ -2284,6 +2362,10 @@ export const FEAT_GRANTS_LABELS = {
   counterName: 'Название',
   counterNamePlaceholder: 'Очки удачи',
   counterShortName: 'Кратко',
+  counterKeyHint:
+    'Под этим ключом ресурс лежит на листе. Его вписывают в поле «Тратит '
+    + 'ресурс» у эффекта, который расходует заряды: у «Ярости» варвара — rage. '
+    + 'Латиницей, без пробелов; у ресурсов одной записи ключи не повторяются.',
   counterMax: 'Максимум',
   counterRecovery: 'Восстановление',
 
@@ -2530,6 +2612,12 @@ export const SPELL_CHOICE_LABELS = {
   countEqualsProficiencyBonus: 'По бонусу мастерства',
   countEqualsProficiencyBonusHint:
     'Количество равно бонусу мастерства и растёт вместе с ним.',
+  /** Та же отметка, что у выданных заклинаний, — только у одной порции выбора */
+  alwaysPrepared: GRANTED_SPELL_GROUPS_LABELS.alwaysPrepared,
+  alwaysPreparedHint:
+    'По умолчанию выбранное заклинание занимает место в числе класса наравне с '
+    + 'книгой. С отметкой оно всегда подготовлено, а заговор не входит в число '
+    + 'заговоров таблицы класса: «Чудотворец» жреца, «Договор гримуара» колдуна.',
   label: 'Подпись для игрока',
   labelPlaceholder: 'Выберите заговор из списка волшебника',
   /** Уточнение фильтра: школа и время накладывания нужны редким чертам */
@@ -2774,6 +2862,23 @@ export const ACTOR_FEATURES_TAB_LABELS = {
   featsTitle: 'Черты',
   featsDropHere: 'Перетащите сюда',
   featsEmpty: 'В данный момент черт нет',
+  /** Подсказка значка у особенности, которую можно вынести на панель */
+  hotbarHint:
+    'Включается переключателем: перетащите на панель быстрого доступа',
+  /** Раздел особенностей с переключателем — над остальными */
+  togglesTitle: 'Включаемые',
+} as const;
+
+/** Разделы списка особенностей: включаемые сверху, остальные под ними */
+export const FEATURE_GROUP_KEYS = {
+  toggles: 'toggles',
+  rest: 'rest',
+} as const;
+
+/** Пункт меню особенности с переключателем («Ярость») */
+export const FEATURE_TOGGLE_MENU_LABELS = {
+  on: 'Включить',
+  off: 'Выключить',
 } as const;
 
 /**
@@ -2811,20 +2916,31 @@ export const ACTOR_TAB_LABELS = {
 
 /**
  * Подписи вкладки эффектов. Вкладка одна и та же у листа персонажа и блока
- * эффектов существа: свои эффекты, эффекты от снаряжения и состояния у них
- * собраны одинаково.
+ * эффектов существа: свои эффекты, эффекты от снаряжения и особенностей и
+ * состояния у них собраны одинаково.
  */
 export const EFFECTS_TAB_LABELS = {
   customEmpty: 'Нет пользовательских эффектов',
-  fromEquipment: 'От снаряжения',
-  /** Значок строки: эффект пришёл не с листа, а с надетого предмета */
-  itemBadge: 'Предмет',
+  fromRecords: 'От снаряжения и особенностей',
+  /** Подсказка значка: переключателя у такой строки нет */
+  recordBadgeHint:
+    'Действует, пока есть источник. Выключить здесь нельзя — измените или '
+    + 'уберите предмет или особенность.',
   conditionsTitle: 'Состояния',
   /** Кнопка создания своего состояния прямо с листа (в режиме правки) */
   addCondition: 'Состояние',
   /** Подсказка кнопки, открывающей карточку состояния */
   conditionDetailHint: 'Открыть карточку состояния',
 } as const;
+
+/**
+ * Значок строки эффекта, пришедшего не с листа, а с вложенной записи: надетого
+ * предмета или особенности существа.
+ */
+export const CARRIED_EFFECT_BADGES: Record<CarriedEffectSourceKind, string> = {
+  item: 'Предмет',
+  trait: 'Особенность',
+};
 
 /** Подписи блока Истощения на листе */
 export const EXHAUSTION_BLOCK_LABELS = {
@@ -2948,6 +3064,9 @@ export const ITEM_EFFECTS_VIEW_LABELS = {
  */
 export const ACTIVE_EFFECT_OPEN_HINT = 'Посмотреть, что делает эффект';
 
+/** Кнопка метки концентрации: закончить каст вручную */
+export const CONCENTRATION_END_LABEL = 'Прервать концентрацию';
+
 /**
  * Цвет значка эффекта: у отключённого он гаснет. Списки эффектов и карточка
  * разбора красят значок одинаково — отключённый эффект должен читаться
@@ -2956,6 +3075,12 @@ export const ACTIVE_EFFECT_OPEN_HINT = 'Посмотреть, что делае�
 export const ACTIVE_EFFECT_ICON_CLASS = {
   active: 'text-primary',
   disabled: 'text-dimmed',
+} as const;
+
+/** Оформление строки своего эффекта: выключенный и перетаскиваемый на панель */
+export const ACTIVE_EFFECT_ROW_CLASS = {
+  disabled: 'opacity-50 grayscale',
+  draggable: 'cursor-grab',
 } as const;
 
 /** Подписи карточки просмотра активного эффекта */
@@ -2987,7 +3112,7 @@ export const ACTIVE_EFFECT_SECTION_ICONS: Record<
   damage: 'tabler:sword',
   recurringDamage: 'tabler:flame',
   recurringSave: 'tabler:refresh',
-  aura: 'tabler:circle-dotted',
+  aura: 'tabler:circle-dashed',
   areaTrigger: 'tabler:vector-triangle',
   application: 'tabler:target',
   duration: 'tabler:hourglass',
@@ -3099,10 +3224,31 @@ export const SPELL_CHOOSE_TARGET_LABELS = {
   empty: 'Нет доступных целей на сцене.',
 } as const;
 
+/** Префикс независимого окна применения заклинания. */
+export const SPELL_CAST_MODAL_KEY_PREFIX = 'spell-cast';
+
+/** Префикс окна распределения снарядов, привязанного к сессии карты. */
+export const PROJECTILE_MODAL_KEY_PREFIX = 'projectile';
+
+/** Префикс окна выбора разных целей заклинания-эффекта. */
+export const SPELL_TARGETS_MODAL_KEY_PREFIX = 'spell-targets';
+
 /**
- * Подписи окна раздачи снарядов по целям. Вопрос применения заклинания общий с
- * вкладкой заклинаний и берётся из `ACTOR_SPELLS_TAB_LABELS`.
+ * Режим окна распределения, в котором вместо снарядов выбираются разные цели
+ * эффекта заклинания.
  */
+export const SPELL_EFFECT_TARGET_MODE = 'effects';
+
+/** Подписи выбора разных целей заклинания-эффекта. */
+export const SPELL_EFFECT_TARGET_LABELS = {
+  assignedPrefix: 'Цели: ',
+  distinct: 'Можно выбрать меньше целей. Каждое существо — один раз.',
+  unavailable:
+    'Нельзя выбрать цели: нужна доступная сцена и управление заклинателем.',
+  changed: 'Цели или доступ изменились. Выберите цели заклинания заново.',
+} as const;
+
+/** Подписи распределения снарядов. */
 export const PROJECTILE_PROMPT_LABELS = {
   /** Счётчик розданных снарядов — дальше идут число и предел */
   assignedPrefix: 'Снаряды: ',
@@ -3222,11 +3368,27 @@ export const EQUIPMENT_CARD_LABELS = {
   error: 'Ошибка отображения карточки',
 } as const;
 
+/**
+ * Размеры окна особенности, px: в нём описание с редактором и вкладка
+ * эффектов, прежнее маленькое окно было тесным для обоих.
+ */
+export const ENTITY_EDIT_MODAL_SIZE = {
+  initialWidth: 760,
+  initialHeight: 640,
+  minWidth: 560,
+  minHeight: 480,
+} as const;
+
 /** Подписи окна добавления записи на лист */
 export const ENTITY_EDIT_LABELS = {
   title: 'Добавление сущности',
   chooseVariant: 'Выберите вариант',
   namePlaceholder: 'Например: Огненный шар, Зелье лечения...',
+  /** Значок раздела эффектов особенности */
+  effectsIcon: 'tabler:sparkles',
+  /** Подсказка раздела эффектов своей особенности */
+  effectsHint:
+    'Эффекты ложатся на лист вместе с особенностью и снимаются с ней. Эффект «включается переключателем» можно включать из списка особенностей и с панели быстрого доступа.',
 } as const;
 
 /** Подписи окна повышения уровня */
@@ -3241,6 +3403,12 @@ export const LEVEL_UP_LABELS = {
   /** Порог следующего уровня: между приставкой и единицей идёт само число опыта */
   nextLevelXpPrefix: 'Следующий уровень:',
   experienceUnit: 'XP',
+  experiencePlaceholder: '+150',
+  experienceHint:
+    '«+150» — добавить к текущему, «-50» — отнять, число — задать',
+  /** Итог ввода со знаком: между приставкой и единицей идёт само число опыта */
+  experienceResultPrefix: 'Станет:',
+  experienceInvalid: 'Не получается посчитать: только числа, «+» и «-»',
 } as const;
 
 /**
@@ -3562,6 +3730,11 @@ export const CLASS_COUNTERS_MODAL_LABELS = {
   namePlaceholder: 'Например, Очки чародейства',
   shortName: 'Кратко',
   shortNamePlaceholder: 'ОЧ',
+  keyHint:
+    'Под этим ключом ресурс тратит эффект: его вписывают в поле «Тратит '
+    + 'ресурс» — rage у «Ярости». Латиницей, без пробелов, у каждого ресурса '
+    + 'свой. У ресурса класса, черты или вида ключ задан записью и не меняется: '
+    + 'на него ссылаются её эффекты.',
   /** Единица счёта самих счётчиков — перед ней идёт их число */
   countUnit: 'шт.',
 } as const;
@@ -3573,6 +3746,10 @@ export const CLASS_COUNTERS_MODAL_LABELS = {
  * слова для одного поля читались бы как разные поля.
  */
 export const COUNTER_RESOURCE_LABELS = {
+  /** Ключ, по которому ресурс тратит эффект */
+  key: 'Ключ',
+  keyPlaceholder: 'rage',
+
   /** Ряд максимума */
   max: 'Максимум',
   maxSourceAria: 'От чего считается максимум',
@@ -3714,11 +3891,28 @@ export const PREPARED_SPELLS_LABELS = {
   useCustom: 'Использовать своё число',
   useCustomHint: 'Иначе число считается по таблице класса',
   fromTable: 'Число из таблицы класса',
-  bonus: 'Бонус к числу класса',
+  bonusesTitle: 'Бонусы к числу класса',
   hint:
     'Число берётся из таблицы класса компендиума на текущем уровне; у '
-    + 'мультикласса складывается по всем классам. Бонус прибавляется к нему — '
+    + 'мультикласса складывается по всем классам. Бонусы прибавляются к нему: '
+    + 'своим числом, модификатором характеристики или бонусом мастерства — '
     + 'например, от черты или предмета.',
+} as const;
+
+/** Подписи окна своих ячеек заклинаний */
+export const SPELL_SLOTS_LABELS = {
+  title: 'Ячейки заклинаний',
+  fromClass: 'Ячеек от класса',
+  bonus: 'Свои бонусы',
+  total: 'Всего ячеек',
+  reset: 'Убрать бонусы круга',
+  addBonus: 'Добавить бонус',
+  hint:
+    'Ячейки класса считаются по его таблице и растут с уровнем сами. Бонусы '
+    + 'ложатся сверху и остаются с повышением уровня: своим числом, '
+    + 'модификатором характеристики или бонусом мастерства. Так ячейки '
+    + 'получает и персонаж без класса-заклинателя — от черты, предмета или '
+    + 'решения мастера. Отрицательный бонус убирает ячейки класса.',
 } as const;
 
 /** Подписи окна грузоподъёмности */
@@ -3757,6 +3951,9 @@ export const WIZARD_OVERVIEW_LABELS = {
   innateFeatures: 'Врождённые особенности',
 } as const;
 
+/** Иконка значка подкласса рядом с классом в шапке листа */
+export const ACTOR_HEADER_SUBCLASS_ICON = 'tabler:hierarchy-2';
+
 /** Подписи шапки листа персонажа */
 export const ACTOR_HEADER_LABELS = {
   normalVision: 'Обычное зрение',
@@ -3766,6 +3963,8 @@ export const ACTOR_HEADER_LABELS = {
    * чувствует», и в одном списке их проще держать в голове.
    */
   telepathy: 'Телепатия',
+  /** Заголовок тултипа значка подкласса рядом с классом */
+  subclassTitle: 'Подкласс',
   /**
    * Пояснение к чувствам, помеченным звёздочкой. Приложение считает по зрению
    * токена только обычное и тёмное зрение, поэтому остальные пока показываются
@@ -3788,6 +3987,10 @@ export const ACTOR_HEADER_LABELS = {
   inspirationTake: 'Забрать вдохновение',
   inspirationGive: 'Дать вдохновение',
   inspiration: 'Вдохновение',
+  /** Окончание сообщения в чат — перед ним имя персонажа */
+  inspirationGainedSuffix: ' получает вдохновение',
+  /** Окончание сообщения в чат — перед ним имя персонажа */
+  inspirationLostSuffix: ' теряет вдохновение',
   namePlaceholder: 'Имя персонажа',
   createActor: 'Создать персонажа',
   tokenSettings: 'Настройки токена и прав',
@@ -3950,6 +4153,13 @@ export const CLASS_FEATURE_CHOICE_LABELS = {
  * варианта — они помечены именем самого варианта.
  */
 export const FEATURE_OPTION_SEPARATOR = ': ';
+
+/**
+ * Приставка id эффекта, заведённого в окне особенности. Id из формы уникален
+ * только внутри неё, а на листе рядом лежат эффекты классов, предметов и
+ * других особенностей.
+ */
+export const FEATURE_EFFECT_PREFIX = 'feature-effect:';
 
 /**
  * Разделитель класса и подкласса в происхождении записи на листе: «Колдун —
@@ -4356,6 +4566,10 @@ export const DICE_ROLL_LABELS = {
   tempAbsorbedPrefix: ' (врем. -',
   tempAbsorbedSuffix: ')',
   outcomeAutoFail: ' ✗ Провал (Автоматический)',
+  outcomeWilling: ' — согласная цель, спасбросок не бросается',
+  willing: 'Не сопротивляюсь',
+  willingHint:
+    'Согласная цель не совершает спасбросок: он считается проваленным',
   outcomeSuccess: ' ✓ Успех',
   outcomeFail: ' ✗ Провал',
 } as const;
@@ -4410,6 +4624,11 @@ export const ACTOR_SPELLS_TAB_LABELS = {
   addTitle: 'Заклинания компендиума',
   spellcastingSettings: 'Настроить заклинательство',
   preparedLimitSettings: 'Настроить предел подготовки',
+  /** Подсказка значка ячеек: до двоеточия, дальше — осталось из всего */
+  slotsHint: 'Ячейки заклинаний',
+  /** Хвост подсказки значка ячеек */
+  slotsHintSettings: 'нажмите, чтобы добавить или убрать ячейки',
+  slotsSettings: 'Настроить ячейки заклинаний',
   pact: 'Пакт',
   slotUsed: 'Использована',
   slotAvailable: 'Доступна',
@@ -4494,6 +4713,22 @@ export const DAMAGE_PART_LABELS = {
   targetNotFull: 'Неполное HP (@target.notFull)',
   /** Вкладка выбора типа существа цели: урон только по названным типам */
   creatureTypes: 'Тип существ',
+  /** Строка итога под формулой: что достанется цели при броске */
+  previewTitle: 'Итог',
+  previewHint:
+    'Так формулу бросит движок: кости, типы урона и условия — словами. '
+    + 'Бонусы, которые бросок добавляет сам (модификатор оружия, усиление '
+    + 'на высших кругах), сюда не входят.',
+  previewFullHp: 'Полное HP',
+  previewNotFullHp: 'Неполное HP',
+  previewHalfHp: 'HP не больше половины',
+  /** Ветка против типа существа: дописывается после названия типа */
+  previewTypeGateSuffix: ' — дополнительно',
+  previewUntyped: 'Без типа',
+  previewChoiceType: 'На выбор',
+  previewTempHp: 'Временные ХП',
+  /** Незнакомые движку токены: дальше идёт их список */
+  previewUnknown: 'Не распознано: ',
 } as const;
 
 /**
@@ -4782,7 +5017,17 @@ export const WEAPON_FORM_LABELS = {
   damageHint:
     'Модификатор характеристики и магический бонус добавляются к урону '
     + 'автоматически — в формуле указывайте только кости (напр. «1к8»).',
-  ammunitionType: 'Тип боеприпаса',
+  ammunitionTitle: 'Боеприпасы',
+  /** Как зарядить стрелковое оружие — текстом в блоке «Боеприпасы» */
+  ammunitionText:
+    'Оружие стреляет боеприпасами. Чем стрелять, выберите на листе: правый '
+    + 'клик по оружию → «Боеприпасы». Подойдёт любой расходуемый предмет '
+    + 'инвентаря — выстрел тратит одну штуку, а магический бонус и эффекты '
+    + 'боеприпаса идут в этот выстрел.',
+  ammunitionType: 'Подбирать по типу',
+  ammunitionTypeHelp:
+    'Пока оружие не заряжено, выстрел возьмёт боеприпас этого типа — так '
+    + 'работают стрелы и болты из компендиума.',
   /**
    * Тултип секции «Спасбросок»: механика оружия со спасброском
    * (Сл = 8 + показатель атаки, броска попадания нет).
@@ -4876,190 +5121,44 @@ export const ACTIVE_EFFECT_DEFAULTS = {
   changePriority: 20,
 } as const;
 
-/**
- * Подписи окна правки активного эффекта. Общие с другими формами (название,
- * описание, характеристика, сложность спасброска) берутся из
- * `FORM_FIELD_LABELS` и `FORM_TAB_LABELS`.
- */
-export const ACTIVE_EFFECT_FORM_LABELS = {
-  /** Заголовок окна правки: дальше дописывается название эффекта */
-  editTitlePrefix: 'Редактирование: ',
-  /**
-   * Заголовок окна создания. Это же слово стоит в названии нового эффекта:
-   * форма открывается уже заполненной, и заголовок повторяет её поле.
-   */
-  createTitle: ACTIVE_EFFECT_DEFAULTS.name,
-  tabExtra: 'Дополнительная',
-  conditionPreset: 'Шаблон состояния',
-  conditionPresetHint: 'Заполнит форму данными стандартного состояния D&D 5e',
-  icon: 'Иконка',
-  iconPlaceholder: `Напр: ${ACTIVE_EFFECT_DEFAULTS.icon}`,
-  aura: 'Аура',
-  auraOn: 'Включена',
-  auraOff: 'Нет',
-  status: 'Статус',
-  statusActive: 'Работает',
-  statusDisabled: 'Отключен',
-  generateDescription: 'Сгенерировать из настроек',
-  generateDescriptionHint:
-    'Заполнить описание автоматически из модификаторов, флагов и прочих '
-    + 'настроек эффекта',
-  descriptionPlaceholder: 'Краткое описание для тултипа и списка эффектов',
-  effectTarget: 'Цель эффекта',
-  effectTargetOnTarget: 'Цель',
-  effectTargetOnSelf: 'Себе',
-  effectTargetOnTargetHint: 'Накладывается на цель при попадании атакой.',
-  effectTargetOnSelfHint: 'Применяется к владельцу при экипировке.',
-  consumeOn: 'Снять эффект',
-  consumeOnNone: 'Нет',
-  consumeOnCarrierAttack: 'Своя атака',
-  consumeOnAttackOnCarrier: 'Атака по цели',
-  consumeOnHint:
-    '«Своя атака» / «Атака по цели»: эффект сгорает после первого же броска '
-    + 'атаки (помеха/преимущество ровно на одну атаку), не дожидаясь конца '
-    + 'длительности. «Нет» — живёт по длительности.',
-  durationType: 'Тип длительности',
-  durationValuePlaceholder: 'Количество',
-  durationPermanentHint: 'Действует вечно, пока не снят вручную.',
-  durationRoundsHint: 'Снижается автоматически каждый раунд в бою.',
-  durationTurnHint:
-    'Точно спадает на ходу носителя или источника (кастера) — «до конца моего '
-    + 'следующего хода», а не на границе раунда. Работает в бою.',
-  durationSpecialHint: 'Специальное событие, отслеживается Мастером.',
-  durationDefaultHint: 'Информационная подсказка, не пересчитывается.',
-  auraRadius: 'Радиус (фт)',
-  auraTarget: 'Цель ауры',
-  auraTargetAllies: 'Только союзники',
-  auraTargetEnemies: 'Только враги',
-  auraTargetAll: 'Все существа',
-  auraApplyToSelf: 'Применять к источнику',
-  auraVisible: 'Круг на сцене',
-  flagsTitle: 'Флаги (Состояния и иммунитеты)',
-  flagsEmpty: 'Нет активных флагов.',
-  flagPlaceholder: `Напр: ${ACTIVE_EFFECT_DEFAULTS.flag}`,
-  flagLibrary: 'Библиотека флагов',
-  flagRemove: 'Удалить флаг',
-  changesTitle: 'Модификаторы (Changes)',
-  changesEmpty: 'Нет активных модификаторов.',
-  changePreset: 'Готовые',
-  flagPresetHint:
-    'Выбрать флаг из списка — ключ подставится сам. Кнопка «Добавить» рядом '
-    + 'заводит пустую строку, как раньше.',
-  changePresetHint:
-    'Выбрать модификатор из списка — ключ, режим и значение подставятся сами. '
-    + 'Кнопка «Добавить» рядом заводит пустую строку, как раньше.',
-  changeKey: 'Ключ атрибута',
-  changeKeyPlaceholder: `Напр: ${ACTIVE_EFFECT_DEFAULTS.changeKey}`,
-  keyLibrary: 'Библиотека ключей',
-  changeMode: 'Режим',
-  changeValue: 'Значение',
-  changeValuePlaceholder: '+2, 1к4',
-  valueLibrary: 'Библиотека значений',
-  changeCondition: 'Условие',
-  changeConditionPlaceholder: 'roll.hasAdvantage',
-  conditionTemplates: 'Шаблоны условий',
-  changePriority: 'Пр-т',
-  changePriorityPlaceholder: `${ACTIVE_EFFECT_DEFAULTS.changePriority}`,
-  changePriorityHint: `Приоритет: меньше = раньше (дефолт ${ACTIVE_EFFECT_DEFAULTS.changePriority})`,
-  changeRemove: 'Удалить модификатор',
-  damageFormulaHint:
-    'Кроме плоского числа (+2), можно указать формулу костей — она бросается '
-    + 'отдельной частью урона: «2к6», тип через токен «2к6@dmg.fire», условие '
-    + 'по цели — «2к6@dmg.fire@target.full» (только при полном HP) или '
-    + '«@target.notFull» (только по раненой).',
-  modeAdd: 'Добавить (+)',
-  modeMultiply: 'Умножить (*)',
-  modeOverride: 'Перезаписать (=)',
-  modeUpgrade: 'Улучшить (Max)',
-  modeDowngrade: 'Ухудшить (Min)',
-  modeCustom: 'Пользовательский',
-  areaTrigger: 'Триггер области / ауры',
-  areaTriggerEnterHint:
-    'Разовая нагрузка (урон/статус) в момент входа в область/ауру. '
-    + 'Срабатывает на каждый вход.',
-  areaTriggerExitHint:
-    'Разовая нагрузка (урон/статус) в момент выхода из области/ауры.',
-  areaTriggerStayHint:
-    'Эффект висит на цели, пока она внутри области/ауры, и снимается при '
-    + 'выходе.',
-  applyHint:
-    'Срабатывает при наложении эффекта на цель (напр. при попадании атакой). '
-    + 'Для само-баффов можно оставить пустым.',
-  applySave: 'Спасбросок при наложении',
-  applySaveHint:
-    'При попадании цель совершает спасбросок — от результата зависят статус и '
-    + 'урон ниже.',
-  onSuccessNegate: 'Отменяет эффект',
-  onSuccessHalf: 'Половина урона',
-  applyOnSuccess: 'Накладывать эффект даже при успешном спасе',
-  applyOnSuccessHint:
-    'Состояние повиснет на цели, даже если она прошла спасбросок (свой выше '
-    + 'или спасбросок области у действия). Урон при успехе — по правилу '
-    + '«При успехе».',
-  applyOnSuccessOnly: 'Накладывать ТОЛЬКО при успешном спасе',
-  applyOnSuccessOnlyHint:
-    'Зеркало галочки выше: при провале эффект не накладывается вовсе. Нужно '
-    + 'заклинаниям с разными исходами — «Луч слабости» при успехе даёт помеху '
-    + 'на одну атаку, а при провале вешает свой, длительный эффект.',
-  conditionImmunitiesTitle: 'Иммунитет к состояниям',
-  conditionImmunitiesHint:
-    'Пока эффект активен, носитель не подхватывает эти состояния. Так вид или '
-    + 'черта выдают иммунитет: у актёров других мест для него нет.',
-  damageTitle: 'Урон при наложении',
-  damageHint:
-    'Наносится цели при наложении. Если включён спасбросок выше — урон '
-    + 'гейтится им (на успехе: нет урона либо половина).',
-  addDamage: 'Добавить урон',
-  recurringSave: 'Периодический спасбросок снимает эффект',
-  recurringSaveHint:
-    'Пока эффект активен, цель повторяет спасбросок и при успехе сбрасывает '
-    + 'его досрочно.',
-  recurringWhen: 'Когда',
-  timingEndOfTurn: 'В конце хода цели',
-  timingStartOfTurn: 'В начале хода цели',
-  recurringDamage: 'Периодический урон (каждый ход)',
-  recurringDamageHint:
-    'Пока эффект висит на цели, наносит урон каждый ход (напр. «Горение»). '
-    + 'Тикает в бою при смене хода.',
-  recurringDamageWhen: 'Когда наносится',
+/** Подписи блока спасбросков от смерти */
+export const DEATH_SAVES_BLOCK_LABELS = {
+  title: 'Спасброски от смерти',
+  successes: 'Успехи',
+  failures: 'Провалы',
+  roll: 'Бросить',
+  /** Числа — из правил движка, чтобы подсказка не разошлась с расчётом */
+  hint: `Сл ${DEATH_SAVE_DC} в начале своего хода; ${DEATH_SAVE_REVIVE_ROLL} — ${DEATH_SAVE_REVIVED_HP} хит, ${DEATH_SAVE_DOUBLE_FAILURE_ROLL} — два провала.`,
+  stable: 'Стабилен: больше не бросает, пока не получит урон.',
+  dead: 'Персонаж погиб.',
+  /** Заголовок и подпись окна броска */
+  rollTitle: 'Спасбросок от смерти',
 } as const;
 
-/** Размеры окна библиотеки подсказок эффекта */
-export const EFFECT_TEMPLATES_MODAL_SIZE = {
-  width: 400,
-  height: 500,
-  minWidth: 300,
-  minHeight: 400,
+/** Отметки серии спасбросков от смерти по порядку */
+export const DEATH_SAVE_MARK_KINDS = ['successes', 'failures'] as const;
+
+/** Какие отметки серии */
+export type DeathSaveMarkKind = (typeof DEATH_SAVE_MARK_KINDS)[number];
+
+/** Оформление отметки серии: пустая или поставленная */
+export const DEATH_SAVE_MARK_CLASS: Record<
+  DeathSaveMarkKind | 'empty',
+  string
+> = {
+  empty: 'border-default text-muted hover:border-primary',
+  successes: 'border-success bg-success/20 text-success',
+  failures: 'border-error bg-error/20 text-error',
+};
+
+/** Цвет строки состояния серии */
+export const DEATH_SAVE_STATUS_CLASS = {
+  dead: 'text-error',
+  alive: 'text-muted',
 } as const;
 
-/** Ключи окон библиотек подсказок в менеджере окон хоста */
-export const EFFECT_TEMPLATES_MODAL_IDS = {
-  key: 'effect-key-templates-modal',
-  value: 'effect-value-templates-modal',
-  flag: 'effect-flag-templates-modal',
-  condition: 'effect-condition-templates-modal',
-} as const;
+/** Слой плашек запросов хоста: сюда телепортируются плашки системы */
+export const HUD_PROMPTS_TELEPORT_TARGET = '#hud-prompts-container';
 
-/**
- * Подписи библиотек шаблонов активного эффекта. Окно у всех четырёх одно:
- * поиск сверху, список подсказок под ним — расходиться должны только слова,
- * которыми оно называет своё содержимое.
- *
- * Заголовки ключей, флагов и условий берутся у кнопок формы, которые эти окна
- * открывают: одна и та же библиотека не может называться по-разному в кнопке и
- * в шапке.
- */
-export const ACTIVE_EFFECT_TEMPLATES_LABELS = {
-  keyTitle: ACTIVE_EFFECT_FORM_LABELS.keyLibrary,
-  keySearchPlaceholder: 'Поиск по атрибутам...',
-  keyEmpty: 'Атрибуты не найдены',
-  valueTitle: 'Библиотека значений и формул',
-  valueSearchPlaceholder: 'Поиск по значениям...',
-  valueEmpty: 'Значения не найдены',
-  flagTitle: ACTIVE_EFFECT_FORM_LABELS.flagLibrary,
-  flagSearchPlaceholder: 'Поиск по флагам...',
-  flagEmpty: 'Флаги не найдены',
-  conditionTitle: ACTIVE_EFFECT_FORM_LABELS.conditionTemplates,
-  conditionSearchPlaceholder: 'Поиск по шаблонам...',
-  conditionEmpty: 'Шаблоны не найдены',
-} as const;
+/** Итог спасброска согласной цели: провал с натуральной единицей */
+export const WILLING_SAVE_TOTAL = 1;

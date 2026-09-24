@@ -1,6 +1,7 @@
-import type { AbilityType } from '@vtt/shared';
+import type { AbilityType, SceneEntity } from '@vtt/shared';
 import type {
   ActiveEffect,
+  AdjacentAllyState,
   CarrierContext,
   CreatureAction,
   CreatureCategory,
@@ -30,28 +31,36 @@ import { useTargetStore } from '@/stores/targetStore';
  * Используется тремя точками броска: вкладкой снаряжения листа персонажа,
  * хотбар-макросом `weapon-attack` и обоими путями каста заклинаний.
  */
-import { isActorEntity, isCreatureEntity } from '@vtt/shared';
 import {
+  buildCarrierContext,
   buildFormulaContext,
+  buildPseudoSpell,
   calculateWeaponDamageModifier,
   collectBonusDamageFormulas,
   describeDamagePart,
-  getCarrierArmorState,
+  entityHasWeaponMastery,
   getCreatureSpellMod,
+  getDamageBonusKey,
   getWeaponDamageParts,
   getWeaponPrimaryDamageType,
   hasBonusDamageFormulas,
   isDnDEffect,
   isDndSceneEntity,
+  listEnabledEffects,
+  listEntityMarkSources,
   resolveBonusDamageParts,
   resolveCreatureDamageParts,
   resolveCreatureSpellDamageParts,
   resolveDamagePartsForCast,
   resolveEntityCreatureType,
+  resolveEntityCurrentHp,
+  resolveEntityMaxHp,
   resolveSpellDamageFormula,
   substituteFormulaVariables,
   withFlatDamageBonus,
 } from '@vtt/shared/system/dnd.js';
+
+import { findAlliesAdjacentToTarget } from './targetAllyAdjacent';
 
 /** Контекст броска из модалки (фактический режим преимущества/помехи) */
 interface ModalRollContext {
@@ -178,13 +187,35 @@ interface SpellBonusEvaluatorOptions {
 }
 
 /**
- * Ключ бонусов урона по типу оружия.
+ * Разрешает @-переменные сегмента бонус-формулы. Сегмент без `@` разрешать
+ * нечего — он уходит как есть; невалидный не валит бросок, а пропускается с
+ * предупреждением: иначе в чат уехала бы строка формулы вместо числа.
  *
- * @param weapon - оружие
- * @returns `damage.ranged` для дальнобойного, иначе `damage.melee`
+ * @param subFormula - сегмент формулы бонус-урона
+ * @param source - чья это формула, для предупреждения («оружия», «существа»)
+ * @param resolve - разрешение сегмента в контексте своего пути броска
+ * @returns формула для роллера или пустая строка (пропуск сегмента)
  */
-function weaponDamageKey(weapon: DnDGameItem): EffectTargetKey {
-  return weapon.rangeType === 'ranged' ? 'damage.ranged' : 'damage.melee';
+function resolveBonusFormula(
+  subFormula: string,
+  source: string,
+  resolve: (formula: string) => string,
+): string {
+  if (!subFormula.includes('@')) {
+    return subFormula;
+  }
+
+  try {
+    return resolve(subFormula);
+  } catch (error) {
+    console.warn(
+      `[BonusDamageParts] Невалидная формула бонус-урона ${source}:`,
+      subFormula,
+      error,
+    );
+
+    return '';
+  }
 }
 
 /**
@@ -200,7 +231,11 @@ export function hasWeaponBonusDamage(
   weapon: DnDGameItem,
   effects: readonly ActiveEffect[],
 ): boolean {
-  return hasBonusDamageFormulas(effects, weaponDamageKey(weapon));
+  return hasBonusDamageFormulas(
+    effects,
+    getDamageBonusKey(weapon.rangeType),
+    weapon.id,
+  );
 }
 
 /**
@@ -252,14 +287,28 @@ export function useBonusDamageParts() {
   const targetStore = useTargetStore();
 
   /**
-   * HP текущей цели для условий `target.hp.*` (читается в момент вызова).
+   * Цель броска для условий `target.*` (читается в момент вызова): хиты, тип,
+   * метки и — если известен бросающий — союзник бросающего рядом с целью.
    *
-   * @returns текущее/максимальное HP цели или undefined (цели/HP нет)
+   * @param targetEntity - назначенная цель; без аргумента используется выбранный токен
+   * @param attackerId - бросающий; без него «союзник рядом» не считается
+   * @returns цель для условий или undefined (цели/HP нет)
    */
-  function buildTargetHpContext():
-    | { currentHp: number; maxHp: number; creatureType?: CreatureCategory }
+  function buildTargetHpContext(
+    targetEntity?: SceneEntity | null,
+    attackerId?: string,
+  ):
+    | {
+        currentHp: number;
+        maxHp: number;
+        creatureType?: CreatureCategory;
+        markedBy: string[];
+        entityId: string;
+        adjacentAllies?: readonly AdjacentAllyState[];
+      }
     | undefined {
-    const entity = targetStore.getTargetActor();
+    const entity =
+      targetEntity === undefined ? targetStore.getTargetActor() : targetEntity;
 
     if (!entity) {
       return undefined;
@@ -270,24 +319,20 @@ export function useBonusDamageParts() {
       return undefined;
     }
 
-    let hp: { current?: number; max?: number } | undefined;
-
-    if (isActorEntity(entity)) {
-      hp = entity.system.hitPoints;
-    } else if (isCreatureEntity(entity)) {
-      hp = entity.system.hitPoints;
-    }
-
-    if (!hp || hp.max === undefined) {
-      return undefined;
-    }
-
     return {
-      currentHp: hp.current ?? 0,
-      maxHp: hp.max,
+      entityId: entity.id,
+      // Союзник бросающего рядом с целью — для «Тактики стаи»; без бросающего
+      // считать не от кого
+      adjacentAllies: attackerId
+        ? findAlliesAdjacentToTarget(attackerId, entity.id)
+        : undefined,
+      currentHp: resolveEntityCurrentHp(entity),
+      maxHp: resolveEntityMaxHp(entity),
       // Тип цели — для условий `target.creatureType` и токенов `@target.type.*`:
       // читается с той же сущности, отдельного источника цели заводить незачем
       creatureType: resolveEntityCreatureType(entity),
+      // Кто пометил цель — для условия «цель помечена мной» (Метка охотника)
+      markedBy: listEntityMarkSources(entity),
     };
   }
 
@@ -304,26 +349,6 @@ export function useBonusDamageParts() {
     }
 
     return resolveEntityCreatureType(entity);
-  }
-
-  /**
-   * Свойства носителя эффектов для условий семейства `self.*`.
-   *
-   * Собирается целиком, а не одним типом существа: кость-формулы бонус-урона в
-   * плоские статы не попадают никогда, поэтому условие о доспехе оценивается
-   * только здесь — передай сюда меньше, и «+1к6, пока вы в доспехе» не сработал
-   * бы ни разу.
-   *
-   * @param carrier - носитель эффектов
-   * @returns свойства носителя для оценки условий
-   */
-  function buildCarrierContext(
-    carrier: DnDActor | DnDCreature,
-  ): CarrierContext {
-    return {
-      creatureType: resolveEntityCreatureType(carrier),
-      armor: getCarrierArmorState(carrier),
-    };
   }
 
   /**
@@ -353,8 +378,11 @@ export function useBonusDamageParts() {
     useTargetState: boolean,
     resolveFormula: (subFormula: string) => string,
     carrier: CarrierContext,
+    itemId?: string,
   ): SpellDamagePartInput[] {
-    const targetHp = useTargetState ? buildTargetHpContext() : undefined;
+    const targetHp = useTargetState
+      ? buildTargetHpContext(undefined, carrier.entityId)
+      : undefined;
 
     const rollContext: RollContext = {
       hasAdvantage: modalContext.hasAdvantage,
@@ -363,6 +391,8 @@ export function useBonusDamageParts() {
       // Кость-формулы с условием о носителе в плоские статы не попадают —
       // здесь эти условия и оцениваются
       self: carrier,
+      // Предмет броска: по нему работает «только этим предметом»
+      ...(itemId === undefined ? {} : { itemId }),
     };
 
     const formulas = collectBonusDamageFormulas(
@@ -397,32 +427,21 @@ export function useBonusDamageParts() {
     const { weapon, actor, effects, resolvedStats, targetIsFull, targetType } =
       options;
 
-    const damageKey = weaponDamageKey(weapon);
+    const damageKey = getDamageBonusKey(weapon.rangeType);
     const defaultType = getWeaponPrimaryDamageType(weapon);
 
-    const pseudoSpell: Spell = {
+    const pseudoSpell = buildPseudoSpell({
       id: `weapon-roll-${weapon.id}`,
       name: weapon.name,
-      level: 0,
-      school: 'evocation',
-      castingTimeValue: 1,
-      castingTimeUnit: 'action',
-      components: { verbal: false, somatic: false, material: false },
-      range: 0,
-      rangeUnit: 'ft',
-      durationValue: 0,
-      durationUnit: 'instantaneous',
-      concentration: false,
-      ritual: false,
-      targetType: 'creature',
+      rollSource: 'weapon',
+      weaponMastery: entityHasWeaponMastery(actor, weapon),
       deliveryType: weapon.rangeType === 'ranged' ? 'ranged' : 'melee',
       saveType: weapon.saveType ?? 'none',
       saveEffect: weapon.saveEffect,
       // Эффекты оружия (статус/доп.урон со своим applySave) обрабатывает
       // оркестратор per-target — тем же путём, что и у заклинаний/существ.
       activeEffects: weapon.activeEffects?.filter(isDnDEffect),
-      description: '',
-    };
+    });
 
     // Базовые части урона оружия через тот же резолвер, что и заклинания
     // (versatile-хват применён в getWeaponDamageParts; @-переменные, @dmg/@heal/
@@ -450,31 +469,12 @@ export function useBonusDamageParts() {
 
     const formulaContext = buildFormulaContext(actor);
 
-    /**
-     * Разрешает @-переменные сегмента бонус-формулы (напр. @mod.str).
-     * Невалидная формула не валит бросок — сегмент пропускается с warn
-     * (@mod.spell у оружия недоступен: нет контекста заклинания).
-     *
-     * @param subFormula - сегмент формулы бонус-урона
-     * @returns формула для роллера или пустая строка (пропуск сегмента)
-     */
-    function resolveFormula(subFormula: string): string {
-      if (!subFormula.includes('@')) {
-        return subFormula;
-      }
-
-      try {
-        return substituteFormulaVariables(subFormula, formulaContext);
-      } catch (error) {
-        console.warn(
-          '[BonusDamageParts] Невалидная формула бонус-урона оружия:',
-          subFormula,
-          error,
-        );
-
-        return '';
-      }
-    }
+    // Контекст тот же, что у основной формулы урона: @mod.<abil>, @prof,
+    // @level (@mod.spell у оружия недоступен — нет контекста заклинания)
+    const resolveFormula = (subFormula: string): string =>
+      resolveBonusFormula(subFormula, 'оружия', (formula) =>
+        substituteFormulaVariables(formula, formulaContext),
+      );
 
     const evaluateBonusDamageParts: BonusPartsEvaluator = (modalContext) =>
       collectParts(
@@ -485,6 +485,7 @@ export function useBonusDamageParts() {
         true,
         resolveFormula,
         buildCarrierContext(actor),
+        weapon.id,
       );
 
     return { baseParts, evaluateBonusDamageParts, pseudoSpell };
@@ -502,31 +503,11 @@ export function useBonusDamageParts() {
   ): BonusPartsEvaluator {
     const { spell, actor, effects, resolvedStats, multiTarget } = options;
 
-    /**
-     * Разрешает @-переменные сегмента через спелл-резолвер (@mod.spell и т.д.).
-     * Невалидная формула не валит каст — сегмент пропускается с warn.
-     *
-     * @param subFormula - сегмент формулы бонус-урона
-     * @returns формула для роллера или пустая строка (пропуск сегмента)
-     */
-    function resolveFormula(subFormula: string): string {
-      try {
-        return resolveSpellDamageFormula(
-          spell,
-          actor,
-          subFormula,
-          resolvedStats,
-        );
-      } catch (error) {
-        console.warn(
-          '[BonusDamageParts] Невалидная формула бонус-урона заклинания:',
-          subFormula,
-          error,
-        );
-
-        return '';
-      }
-    }
+    // Спелл-резолвер знает @mod.spell и сам снимает токены типа урона
+    const resolveFormula = (subFormula: string): string =>
+      resolveBonusFormula(subFormula, 'заклинания', (formula) =>
+        resolveSpellDamageFormula(spell, actor, formula, resolvedStats),
+      );
 
     return (modalContext) =>
       collectParts(
@@ -558,8 +539,7 @@ export function useBonusDamageParts() {
   ): CreatureRollSetup {
     const { action, creature, effects, targetIsFull, targetType } = options;
 
-    const damageKey: EffectTargetKey =
-      action.rangeType === 'ranged' ? 'damage.ranged' : 'damage.melee';
+    const damageKey = getDamageBonusKey(action.rangeType);
 
     const baseDamageParts = action.damageParts ?? [];
 
@@ -567,20 +547,10 @@ export function useBonusDamageParts() {
       ? describeDamagePart(baseDamageParts[0]).types[0]
       : undefined;
 
-    const pseudoSpell: Spell = {
+    const pseudoSpell = buildPseudoSpell({
       id: `creature-action-${creature.id}-${action.name}`,
       name: action.name,
-      level: 0,
-      school: 'evocation',
-      castingTimeValue: 1,
-      castingTimeUnit: 'action',
-      components: { verbal: false, somatic: false, material: false },
-      range: 0,
-      rangeUnit: 'ft',
-      durationValue: 0,
-      durationUnit: 'instantaneous',
-      concentration: false,
-      ritual: false,
+      rollSource: 'creatureAction',
       targetType: action.areaOfEffect ? 'area' : 'creature',
       deliveryType: action.rangeType === 'ranged' ? 'ranged' : 'melee',
       saveType: action.saveType ?? 'none',
@@ -588,9 +558,10 @@ export function useBonusDamageParts() {
       areaOfEffect: action.areaOfEffect,
       // Эффекты действия (статус/доп.урон со своим applySave) обрабатывает
       // оркестратор per-target — тем же путём, что и у заклинаний/оружия.
-      activeEffects: action.activeEffects,
-      description: '',
-    };
+      // Оркестратор разбирает эффекты действия по каждой задетой цели —
+      // выключенные до него не доходят
+      activeEffects: listEnabledEffects(action.activeEffects),
+    });
 
     // Базовые части через тот же движок сегментации (@dmg/@heal/@target),
     // что и заклинания/оружие — без инъекции модификатора характеристики.
@@ -603,31 +574,10 @@ export function useBonusDamageParts() {
 
     const formulaContext = buildFormulaContext(creature);
 
-    /**
-     * Разрешает @-переменные сегмента бонус-формулы эффекта существа.
-     * Невалидный токен (нет контекста заклинания) не валит бросок — сегмент
-     * пропускается с warn.
-     *
-     * @param subFormula - сегмент формулы бонус-урона
-     * @returns формула для роллера или пустая строка (пропуск сегмента)
-     */
-    function resolveFormula(subFormula: string): string {
-      if (!subFormula.includes('@')) {
-        return subFormula;
-      }
-
-      try {
-        return substituteFormulaVariables(subFormula, formulaContext);
-      } catch (error) {
-        console.warn(
-          '[BonusDamageParts] Невалидная формула бонус-урона существа:',
-          subFormula,
-          error,
-        );
-
-        return '';
-      }
-    }
+    const resolveFormula = (subFormula: string): string =>
+      resolveBonusFormula(subFormula, 'существа', (formula) =>
+        substituteFormulaVariables(formula, formulaContext),
+      );
 
     const evaluateBonusDamageParts: BonusPartsEvaluator = (modalContext) =>
       collectParts(
@@ -671,9 +621,15 @@ export function useBonusDamageParts() {
       ? describeDamagePart(baseDamageParts[0]).types[0]
       : undefined;
 
-    // Клон заклинания как псевдо-спелл: позволяет выставить activeEffects для
-    // save/area-пути, не мутируя сохранённое заклинание существа.
-    const pseudoSpell: Spell = { ...spell };
+    // Клон заклинания как псевдо-спелл: свои эффекты для save/area-пути, не
+    // трогая сохранённое заклинание существа. Эффекты всегда идут через
+    // оркестратор — он отбирает эффекты на цель, бросает их спасбросок и урон;
+    // прямое наложение при попадании кидало на цель ВСЕ эффекты (и «себе»)
+    // мимо спасброска
+    const pseudoSpell: Spell = {
+      ...spell,
+      activeEffects: listEnabledEffects(spell.activeEffects),
+    };
 
     const spellMod = getCreatureSpellMod(creature, spellcastingAbility);
 
@@ -687,32 +643,11 @@ export function useBonusDamageParts() {
 
     const formulaContext = buildFormulaContext(creature);
 
-    /**
-     * Разрешает @-переменные сегмента бонус-формулы эффекта существа.
-     *
-     * @param subFormula - сегмент формулы бонус-урона
-     * @returns формула для роллера или пустая строка (пропуск сегмента)
-     */
-    function resolveFormula(subFormula: string): string {
-      if (!subFormula.includes('@')) {
-        return subFormula;
-      }
-
-      try {
-        return substituteFormulaVariables(subFormula, {
-          ...formulaContext,
-          spellMod,
-        });
-      } catch (error) {
-        console.warn(
-          '[BonusDamageParts] Невалидная формула бонус-урона существа:',
-          subFormula,
-          error,
-        );
-
-        return '';
-      }
-    }
+    // У заклинания существа в контексте есть ещё и @mod.spell
+    const resolveFormula = (subFormula: string): string =>
+      resolveBonusFormula(subFormula, 'существа', (formula) =>
+        substituteFormulaVariables(formula, { ...formulaContext, spellMod }),
+      );
 
     const evaluateBonusDamageParts: BonusPartsEvaluator = (modalContext) =>
       collectParts(

@@ -20,8 +20,8 @@ import type {
 
 import { computed, ref, watch } from 'vue';
 
-import { useSystemDataStore } from '@/systems/dnd5e/stores/systemDataStore';
 import {
+  AMMUNITION_PROPERTY,
   damagePartIsHealing,
   DEFAULT_CURRENCY,
   FALLBACK_SOURCE_KEY,
@@ -35,6 +35,7 @@ import {
   WEAPON_MASTERIES,
 } from '@vtt/shared/system/dnd.js';
 
+import { useSystemDataStore } from '../stores/systemDataStore';
 import { useItemUsesForm } from './useItemUsesForm';
 
 /**
@@ -101,6 +102,7 @@ export function useWeaponForm(
   const damageCustomBonuses = ref<DnDCustomBonus[]>([]);
   const special = ref('');
   const ammunitionType = ref<AmmunitionType | ''>('');
+  const consumable = ref(false);
   const mastery = ref<string>(NO_SELECTION);
   const distanceUnit = ref<DistanceUnit>('ft');
   const sourceKey = ref<string | undefined>(FALLBACK_SOURCE_KEY);
@@ -181,6 +183,11 @@ export function useWeaponForm(
     })),
   );
 
+  /** Стреляет ли оружие боеприпасами */
+  const firesAmmunition = computed(() =>
+    selectedProperties.value.includes(AMMUNITION_PROPERTY),
+  );
+
   /** Опции режима владения */
   const proficiencyModeOptions = [
     { label: 'Автоматически', value: 'auto' as const },
@@ -254,6 +261,7 @@ export function useWeaponForm(
 
         special.value = weapon.special ?? '';
         ammunitionType.value = weapon.ammunitionType ?? '';
+        consumable.value = weapon.consumable ?? false;
         mastery.value = weapon.mastery ?? NO_SELECTION;
         distanceUnit.value = weapon.distanceUnit ?? 'ft';
         sourceKey.value = weapon.sourceKey ?? FALLBACK_SOURCE_KEY;
@@ -314,6 +322,7 @@ export function useWeaponForm(
         damageCustomBonuses.value = [];
         special.value = '';
         ammunitionType.value = '';
+        consumable.value = false;
         mastery.value = NO_SELECTION;
         distanceUnit.value = 'ft';
         sourceKey.value = FALLBACK_SOURCE_KEY;
@@ -357,6 +366,12 @@ export function useWeaponForm(
    */
   function toggleProperty(prop: WeaponProperty): void {
     const index = selectedProperties.value.indexOf(prop);
+
+    // Свойство «Боеприпасы» меняет смысл типа боеприпаса: «чем стреляет»
+    // против «что это за боеприпас» — старое значение не переносится
+    if (prop === AMMUNITION_PROPERTY) {
+      ammunitionType.value = '';
+    }
 
     if (index === -1) {
       selectedProperties.value.push(prop);
@@ -443,7 +458,8 @@ export function useWeaponForm(
       nameEn: nameEn.value.trim() || undefined,
       description: description.value,
       type: 'weapon',
-      quantity: 1,
+      // Стопка стрел и метательного оружия не сбрасывается правкой записи
+      quantity: weapon?.quantity ?? 1,
       weight: weight.value,
       cost:
         costValue.value > 0
@@ -487,9 +503,8 @@ export function useWeaponForm(
         ? damageCustomBonuses.value.map(toStoredCustomBonus)
         : undefined,
       special: special.value.trim() || undefined,
-      ammunitionType: selectedProperties.value.includes('ammunition')
-        ? ammunitionType.value || undefined
-        : undefined,
+      ammunitionType: ammunitionType.value || undefined,
+      consumable: consumable.value || undefined,
       sourceKey: sourceKey.value || undefined,
       source: source.value,
       isSRD: isSRD.value || undefined,
@@ -538,6 +553,8 @@ export function useWeaponForm(
     damageCustomBonuses,
     special,
     ammunitionType,
+    consumable,
+    firesAmmunition,
     mastery,
     distanceUnit,
     sourceKey,

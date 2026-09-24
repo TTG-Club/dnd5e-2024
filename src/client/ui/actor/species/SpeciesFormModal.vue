@@ -34,12 +34,6 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useItemsStore } from '@/stores/itemsStore';
-  import {
-    buildSpellLinkIndex,
-    findSpellInPacks,
-    linkGrantedSpellRefs,
-    loadSpellPacks,
-  } from '@/systems/dnd5e/composables/spellCompendium';
   import { generateId, isRecord, typedObjectEntries } from '@vtt/shared';
   import {
     CREATURE_SIZE_LABELS,
@@ -47,6 +41,12 @@
     slugify,
   } from '@vtt/shared/system/dnd.js';
 
+  import {
+    buildSpellLinkIndex,
+    findSpellInPacks,
+    linkGrantedSpellRefs,
+    loadSpellPacks,
+  } from '../../../composables/spellCompendium';
   import CompendiumRefPickerModal from '../CompendiumRefPickerModal.vue';
   import {
     COMPENDIUM_PICKER_LABELS,
@@ -1583,7 +1583,6 @@
               ref="effectRows"
               v-model="activeEffects"
               modal-id="species-effect-form-modal"
-              hide-aura
             />
           </FormSection>
         </template>

@@ -167,12 +167,6 @@ export const MIN_CREATURE_SPELL_COUNT = 1;
  */
 export const DEFAULT_CREATURE_SPELL_REST: CreatureSpellRestKind = 'longRest';
 
-/** Наименьший круг, которым существо накладывает заклинание */
-export const CREATURE_SPELL_CAST_LEVEL_MIN = 1;
-
-/** Наибольший круг, которым существо накладывает заклинание */
-export const CREATURE_SPELL_CAST_LEVEL_MAX = 9;
-
 /**
  * Число применений спрашивается у этой группы.
  *
@@ -607,6 +601,28 @@ export function hasCreatureSpellGroupUsesLeft(
   }
 
   return group.uses.current > 0;
+}
+
+/**
+ * Остались ли применения у заклинания существа: и у группы, из которой оно
+ * кастуется, и у него самого. Правило одно на лист и на макрос хотбара — иначе
+ * заклинание, кончившееся на листе, из хотбара кастовалось бы дальше.
+ *
+ * @param spell - заклинание существа
+ * @param placement - место заклинания в блоках; без него считается только своё
+ * @returns `true`, если каст возможен
+ */
+export function hasCreatureSpellUsesLeft(
+  spell: Spell,
+  placement: CreatureSpellPlacement | undefined,
+): boolean {
+  if (placement && !hasCreatureSpellGroupUsesLeft(placement.group)) {
+    return false;
+  }
+
+  return (
+    !spell.uses || spell.uses.recovery === 'atWill' || spell.uses.current > 0
+  );
 }
 
 /**

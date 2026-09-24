@@ -18,6 +18,8 @@
     SpellUsesRecovery,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { RollBonusEvaluator } from '../../composables/rollBonusEvaluator';
+  import type { SpellCasterSource } from '../../composables/spellCastCompletion';
   import type {
     RolledSpellDamagePart,
     SpellDamagePartInput,
@@ -39,7 +41,6 @@
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useChatStore } from '@/stores/chatStore';
   import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
-  import { useTargetStore } from '@/stores/targetStore';
   import { useWorldStore } from '@/stores/worldStore';
   import { generateId, isRecord } from '@vtt/shared';
   import {
@@ -56,11 +57,14 @@
     getCreatureSpellBlockAbility,
     getCreatureSpellcastingSpellCount,
     getCreatureSpellGroupRecovery,
+    getCreatureSpellMod,
     getCreatureSpellRollButtonText,
     getSpellAttackType,
     hasCreatureSpellGroupUsesLeft,
+    hasCreatureSpellUsesLeft,
     isCreatureSpellPoolMode,
     isSpell,
+    resolveCreatureSpellSaveDC,
     SPELL_DAMAGE_TEMPLATE_COLORS,
     SPELL_SCHOOL_LABELS,
     SPELL_TEMPLATE_DEFAULT_COLOR,
@@ -69,6 +73,14 @@
     syncCreatureSpellcastingUses,
   } from '@vtt/shared/system/dnd.js';
 
+  import { resolveTargetedAttackRollMode } from '../../composables/attackRollMode';
+  import { runWithEffectVariants } from '../../composables/effectVariantChoice';
+  import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
+  import {
+    completeSpellCast,
+    SPELL_CAST_KEY_PREFIX,
+  } from '../../composables/spellCastCompletion';
+  import { beginSpellCast } from '../../composables/spellCasts';
   import {
     findSpellInPacks,
     loadSpellPacks,
@@ -167,7 +179,6 @@
   const { openModal, getNextZIndex } = useModalManager();
   const toast = useToast();
   const chatStore = useChatStore();
-  const targetStore = useTargetStore();
   const worldStore = useWorldStore();
   const spellTemplateStore = useSpellTemplateStore();
 
@@ -1295,6 +1306,14 @@
   function openEditForm(spell: Spell): void {
     openModal('SpellFormModal', {
       spell,
+      // Существо творит по числам блока, где лежит заклинание
+      resolveCasterSaveDc: () =>
+        props.creature
+          ? calculateCreatureSpellBlockNumbers(
+              props.creature,
+              findPlacement(spell.id)?.block,
+            ).saveDC
+          : undefined,
       onSave: (updated: Spell) => {
         updateSpells(
           props.spells.map((entry) =>
@@ -1411,6 +1430,7 @@
     formula: string;
     rollButtonText: string;
     attackModifier?: number;
+    evaluateBonusRollFormulas?: RollBonusEvaluator;
     initialRollMode: AttackRollMode;
     incomingAttackType?: 'melee' | 'ranged' | 'spell';
     damageType?: string;
@@ -1476,62 +1496,59 @@
    * Запускает каст заклинания существа. Списывает применение (если есть), для
    * области сначала размещает шаблон у токена существа, затем открывает бросок.
    *
-   * @param spell - заклинание существа
+   * @param sourceSpell - заклинание существа; эффекты — до выбора варианта
    * @param placement - группа, из которой идёт каст
    */
-  function castSpell(spell: Spell, placement?: CreatureSpellPlacement): void {
-    if (props.isReadOnly) {
-      return;
-    }
+  function castSpell(
+    sourceSpell: Spell,
+    placement?: CreatureSpellPlacement,
+  ): void {
+    runWithEffectVariants(sourceSpell, (spell) => {
+      if (props.isReadOnly) {
+        return;
+      }
 
-    const creature = getCreatureEntity();
+      const creature = getCreatureEntity();
 
-    if (!creature) {
-      return;
-    }
+      if (!creature) {
+        return;
+      }
 
-    const isGroupEmpty =
-      placement !== undefined
-      && !hasCreatureSpellGroupUsesLeft(placement.group);
+      if (!hasCreatureSpellUsesLeft(spell, placement)) {
+        toast.add({
+          title: ACTOR_SPELLS_TAB_LABELS.noUsesTitle,
+          description:
+            ACTOR_SPELLS_TAB_LABELS.noUsesTextPrefix
+            + spell.name
+            + ACTOR_SPELLS_TAB_LABELS.noUsesTextSuffix,
+          color: 'warning',
+        });
 
-    const isSpellEmpty =
-      !!spell.uses
-      && spell.uses.recovery !== 'atWill'
-      && spell.uses.current <= 0;
+        return;
+      }
 
-    if (isGroupEmpty || isSpellEmpty) {
-      toast.add({
-        title: ACTOR_SPELLS_TAB_LABELS.noUsesTitle,
-        description:
-          ACTOR_SPELLS_TAB_LABELS.noUsesTextPrefix
-          + spell.name
-          + ACTOR_SPELLS_TAB_LABELS.noUsesTextSuffix,
-        color: 'warning',
-      });
+      consumeSpellUse(spell, placement);
 
-      return;
-    }
+      // Область: размещаем шаблон у токена существа, затем кидаем урон
+      if (spell.areaOfEffect) {
+        const color =
+          SPELL_DAMAGE_TEMPLATE_COLORS[spellPrimaryType(spell) ?? '']
+          ?? SPELL_TEMPLATE_DEFAULT_COLOR;
 
-    consumeSpellUse(spell, placement);
+        spellTemplateStore.requestPlacement(
+          spell.areaOfEffect,
+          color,
+          props.creatureId,
+          (templateId) =>
+            startSpellRoll(spell, creature, templateId, placement),
+          null,
+        );
 
-    // Область: размещаем шаблон у токена существа, затем кидаем урон
-    if (spell.areaOfEffect) {
-      const color =
-        SPELL_DAMAGE_TEMPLATE_COLORS[spellPrimaryType(spell) ?? '']
-        ?? SPELL_TEMPLATE_DEFAULT_COLOR;
+        return;
+      }
 
-      spellTemplateStore.requestPlacement(
-        spell.areaOfEffect,
-        color,
-        props.creatureId,
-        (templateId) => startSpellRoll(spell, creature, templateId, placement),
-        null,
-      );
-
-      return;
-    }
-
-    startSpellRoll(spell, creature, undefined, placement);
+      startSpellRoll(spell, creature, undefined, placement);
+    });
   }
 
   /**
@@ -1570,6 +1587,20 @@
       placement?.block,
     );
 
+    // Существо как заклинатель: Сл блока и модификатор его характеристики.
+    // Своя Сл заклинания (жезл, свиток) главнее Сл блока
+    const casterSource: SpellCasterSource = {
+      saveDc: resolveCreatureSpellSaveDC(spell, numbers.saveDC),
+      spellMod: getCreatureSpellMod(
+        creature,
+        getCreatureSpellBlockAbility(creature, placement?.block),
+      ),
+    };
+
+    const castKey = generateId(SPELL_CAST_KEY_PREFIX);
+
+    beginSpellCast(creature.id, spell, castKey, placement?.ref.castLevel);
+
     const setup = buildCreatureSpellRollSetup({
       spell,
       creature,
@@ -1582,23 +1613,22 @@
       ),
     });
 
-    // Эффекты заклинания: у атак — на цель при попадании; у спаса/области —
-    // через оркестратор по каждой задетой цели в зависимости от спаса.
-    const enabledEffects = spell.activeEffects?.filter(
-      (effect) => !effect.disabled,
-    );
-
-    let onHit: (() => void) | undefined;
-
-    if (!usesAttack) {
-      setup.pseudoSpell.activeEffects = enabledEffects?.length
-        ? enabledEffects
+    // Атака без частей урона: окно броска не зовёт `onRollParts`, и эффекты на
+    // попадании разбирает тот же оркестратор с пустым набором частей
+    const onHit =
+      usesAttack
+      && setup.baseParts.length === 0
+      && setup.pseudoSpell.activeEffects
+        ? () =>
+            applySpellParts(
+              creature,
+              setup.pseudoSpell,
+              [],
+              templateId,
+              casterSource,
+              castKey,
+            )
         : undefined;
-    } else if (enabledEffects?.length) {
-      onHit = () => {
-        targetStore.applyEffectsToTarget(enabledEffects, 'feature');
-      };
-    }
 
     const isHealing = spellIsHealing(spell);
 
@@ -1615,7 +1645,15 @@
       formula: setup.baseParts[0]?.formula ?? '',
       rollButtonText: getCreatureSpellRollButtonText(usesAttack, isHealing),
       attackModifier: usesAttack ? numbers.attackBonus : undefined,
-      initialRollMode: 'normal',
+      evaluateBonusRollFormulas: usesAttack
+        ? buildRollBonusEvaluator(
+            () => getCreatureEntity() ?? undefined,
+            'attack.spell',
+          )
+        : undefined,
+      initialRollMode: usesAttack
+        ? resolveTargetedAttackRollMode(creature, 'spell')
+        : 'normal',
       incomingAttackType: usesAttack ? attackType : undefined,
       damageType: spellPrimaryType(spell),
       isHealing,
@@ -1631,7 +1669,8 @@
           setup.pseudoSpell,
           parts,
           templateId,
-          numbers.saveDC,
+          casterSource,
+          castKey,
         ),
       onHit,
       // Отмена окна (крестик, Escape, конец сессии) обязана убрать шаблон: он
@@ -1653,14 +1692,17 @@
    * @param pseudoSpell - псевдо-заклинание (клон с activeEffects для спас/области)
    * @param parts - брошенные части урона
    * @param templateId - id размещённого AoE-шаблона (если был)
-   * @param saveDC - сложность спасброска блока
+   * @param casterSource - Сл блока и модификатор характеристики существа
+   * @param castKey - ключ каста: окно зовёт применение и по попаданию, и по
+   *   частям урона
    */
   function applySpellParts(
     creature: DnDCreature,
     pseudoSpell: Spell,
     parts: RolledSpellDamagePart[],
     templateId: string | undefined,
-    saveDC: number | undefined,
+    casterSource: SpellCasterSource,
+    castKey: string,
   ): void {
     const actors = getCurrentWorldEntities();
     const socket = chatStore.getSocket();
@@ -1677,7 +1719,7 @@
         {
           spell: pseudoSpell,
           damageTotal: 0,
-          spellSaveDC: saveDC ?? 10,
+          spellSaveDC: casterSource.saveDc,
           actors,
           socket,
           casterId: creature.id,
@@ -1686,6 +1728,16 @@
         { scene: worldStore.currentScene, cachedTemplate },
       );
     }
+
+    // Эффекты на самом существе, зона на месте шаблона, конец концентрации
+    completeSpellCast({
+      spell: pseudoSpell,
+      caster: getCreatureEntity() ?? creature,
+      source: casterSource,
+      template: cachedTemplate,
+      applyCasterEffects: true,
+      castKey,
+    });
 
     if (templateId) {
       spellTemplateStore.deleteTemplate(templateId);
@@ -1887,6 +1939,7 @@
       :title="rollConfig.title"
       :roll-label="rollConfig.name"
       :attack-modifier="rollConfig.attackModifier"
+      :evaluate-bonus-roll-formulas="rollConfig.evaluateBonusRollFormulas"
       :initial-roll-mode="rollConfig.initialRollMode"
       :incoming-attack-type="rollConfig.incomingAttackType"
       :damage-type="rollConfig.damageType"
@@ -1900,6 +1953,7 @@
       :on-roll-parts="rollConfig.onRollParts"
       :on-hit="rollConfig.onHit"
       :on-cancel="rollConfig.onCancel"
+      :attacker-id="creatureId"
     />
   </div>
 </template>
