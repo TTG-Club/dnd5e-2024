@@ -4,6 +4,7 @@
 
   import type {
     AttackRollMode,
+    AttackRollModeReasons,
     DnDCarryingCapacity,
     DnDCurrency,
     DnDGameItem,
@@ -65,7 +66,7 @@
     withLoadedAmmunition,
   } from '@vtt/shared/system/dnd.js';
 
-  import { resolveTargetedAttackRollMode } from '../../../composables/attackRollMode';
+  import { resolveTargetedAttackRoll } from '../../../composables/attackRollMode';
   import {
     applyEffectSource,
     prepareAmmunitionShot,
@@ -371,6 +372,8 @@
       damageBonus: number;
     };
     initialRollMode: AttackRollMode;
+    /** Откуда стартовый режим атаки — показывается в окне броска */
+    rollModeReasons?: AttackRollModeReasons;
     /** С какой натуральной кости крит у этого оружия */
     critThreshold?: number;
     incomingAttackType?: 'melee' | 'ranged' | 'spell';
@@ -459,7 +462,7 @@
         };
       };
 
-      const initialRollMode = resolveTargetedAttackRollMode(
+      const weaponAttackRoll = resolveTargetedAttackRoll(
         props.entity,
         getAttackFlagCategory(weapon.rangeType),
       );
@@ -490,7 +493,8 @@
           ? undefined
           : buildRollBonusEvaluator(() => props.entity, attackKey),
         evaluateBonuses,
-        initialRollMode,
+        initialRollMode: weaponAttackRoll.mode,
+        rollModeReasons: weaponAttackRoll.reasons,
         critThreshold: resolvedStats.value?.critThreshold,
         incomingAttackType: getAttackFlagCategory(weapon.rangeType),
         damageType: getWeaponPrimaryDamageType(weapon),
@@ -1584,6 +1588,7 @@
     :evaluate-bonus-roll-formulas="rollConfig.evaluateBonusRollFormulas"
     :evaluate-conditional-bonuses="rollConfig.evaluateBonuses"
     :initial-roll-mode="rollConfig.initialRollMode"
+    :roll-mode-reasons="rollConfig.rollModeReasons"
     :crit-threshold="rollConfig.critThreshold"
     :incoming-attack-type="rollConfig.incomingAttackType"
     :damage-type="rollConfig.damageType"

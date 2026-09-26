@@ -83,7 +83,10 @@ function createPorts(current) {
     getDamageBonusKey: engine.getDamageBonusKey,
     calculateWeaponAttackModifier: () => 5,
     getWeaponPrimaryDamageType: () => undefined,
-    resolveTargetedAttackRollMode: () => 'normal',
+    resolveTargetedAttackRoll: () => ({
+      mode: 'normal',
+      reasons: { advantage: [], disadvantage: [] },
+    }),
     prepareAmmunitionShot: (_entity, weapon) => ({ weapon }),
     spendShotAmmunition: () => {},
     isDndSceneEntity: () => true,
@@ -331,10 +334,13 @@ for (const entry of [
     const ports = createPorts(current);
     const categories = [];
 
-    ports.resolveTargetedAttackRollMode = (_attacker, category) => {
+    ports.resolveTargetedAttackRoll = (_attacker, category) => {
       categories.push(category);
 
-      return ROLL_MODE_BY_CATEGORY[category];
+      return {
+        mode: ROLL_MODE_BY_CATEGORY[category],
+        reasons: { advantage: [], disadvantage: [category] },
+      };
     };
 
     const handler = await loadHandler(entry[0], entry[1], ports);
@@ -353,6 +359,10 @@ for (const entry of [
         ports.rollConfig.value.initialRollMode,
         ROLL_MODE_BY_CATEGORY[rangeType],
       );
+
+      assert.deepEqual(ports.rollConfig.value.rollModeReasons.disadvantage, [
+        rangeType,
+      ]);
     }
 
     assert.deepEqual(categories, ['melee', 'ranged']);
@@ -367,8 +377,10 @@ for (const entry of [
     const current = { value: createEntity() };
     const ports = createPorts(current);
 
-    ports.resolveTargetedAttackRollMode = (_attacker, category) =>
-      ROLL_MODE_BY_CATEGORY[category];
+    ports.resolveTargetedAttackRoll = (_attacker, category) => ({
+      mode: ROLL_MODE_BY_CATEGORY[category],
+      reasons: { advantage: [], disadvantage: [] },
+    });
 
     const handler = await loadHandler(entry[0], entry[1], ports);
 

@@ -6,6 +6,7 @@ export * from './actorValidation.js';
 export * from './applyTimeFormulas.js';
 export * from './areaShift.js';
 export * from './armorState.js';
+export * from './attackRollModeReasons.js';
 export * from './attackUtils.js';
 export * from './auraMath.js';
 export * from './backgroundNormalize.js';

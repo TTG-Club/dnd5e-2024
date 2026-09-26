@@ -37,7 +37,13 @@ export interface SpellRangeCheckResult {
  * Общая обвязка для проверок дистанции оружия (`dnd5eMacros.ts`),
  * действий существ (`useCreatureRangeCheck.ts`) и заклинаний.
  *
- * @param attackerActorId - ID актора-атакующего (ищется его токен)
+ * Токенов у атакующего может быть несколько: мастер ставит одно существо на
+ * сцену несколько раз, и у всех копий общий id. Какая из них атакует, лист не
+ * знает, поэтому мерить надо от ближайшей к цели. Раньше брался первый
+ * попавшийся токен — атака «дальнего» гоблина давала помеху за дистанцию или
+ * «цель вне досягаемости», хотя бил тот, что стоит рядом.
+ *
+ * @param attackerActorId - ID актора-атакующего (ищутся его токены)
  * @param targetTokenId - ID токена-цели
  * @returns расстояние и единицы измерения, либо null (нет сцены / токенов)
  */
@@ -52,34 +58,45 @@ export function measureTokenDistanceOnScene(
     return null;
   }
 
-  const attackerToken = scene.tokens.find(
-    (token: Token) => token.actorId === attackerActorId,
-  );
-
   const targetToken = scene.tokens.find(
     (token: Token) => token.id === targetTokenId,
   );
 
-  if (!attackerToken || !targetToken) {
+  if (!targetToken) {
     return null;
   }
 
-  const distance = getTokenEdgeDistance(
-    {
-      ...attackerToken,
-      scale: resolveTokenScale(worldStore.currentWorld, attackerToken),
-    },
-    {
-      ...targetToken,
-      scale: resolveTokenScale(worldStore.currentWorld, targetToken),
-    },
-    scene.gridSettings,
-  );
+  const targetBounds = {
+    ...targetToken,
+    scale: resolveTokenScale(worldStore.currentWorld, targetToken),
+  };
+
+  // Сама цель в кандидаты не входит: гоблин может целиться в другую копию
+  // того же существа, и тогда «ближайший» оказался бы самой целью
+  const distances = scene.tokens
+    .filter(
+      (token: Token) =>
+        token.actorId === attackerActorId && token.id !== targetTokenId,
+    )
+    .map((token: Token) =>
+      getTokenEdgeDistance(
+        {
+          ...token,
+          scale: resolveTokenScale(worldStore.currentWorld, token),
+        },
+        targetBounds,
+        scene.gridSettings,
+      ),
+    );
+
+  if (distances.length === 0) {
+    return null;
+  }
 
   const units = scene.gridSettings.units ?? 'ft';
 
   return {
-    distance: Math.round(distance),
+    distance: Math.round(Math.min(...distances)),
     units,
     unitLabel: DISTANCE_UNIT_SHORT[units] ?? units,
   };

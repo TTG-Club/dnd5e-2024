@@ -5,6 +5,7 @@
   import type { MeasurementTemplate, SceneEntity } from '@vtt/shared';
   import type {
     AttackRollMode,
+    AttackRollModeReasons,
     CreatureAction,
     DnDCreature,
     Spell,
@@ -41,7 +42,7 @@
     SPELL_TEMPLATE_DEFAULT_COLOR,
   } from '@vtt/shared/system/dnd.js';
 
-  import { resolveTargetedAttackRollMode } from '../../composables/attackRollMode';
+  import { resolveTargetedAttackRoll } from '../../composables/attackRollMode';
   import {
     applyActionSelfEffects,
     hasActionSelfEffects,
@@ -301,6 +302,8 @@
     attackModifier?: number;
     evaluateBonusRollFormulas?: RollBonusEvaluator;
     initialRollMode: AttackRollMode;
+    /** Откуда стартовый режим атаки — показывается в окне броска */
+    rollModeReasons?: AttackRollModeReasons;
     incomingAttackType?: 'melee' | 'ranged' | 'spell';
     damageType?: string;
     damageParts: SpellDamagePartInput[];
@@ -466,6 +469,14 @@
     // Эффекты действия (статус/урон со своим applySave) обрабатывает
     // оркестратор per-target через `pseudoSpell.activeEffects` (выставлено в
     // buildCreatureRollSetup) — единый путь со заклинаниями и оружием.
+    const actionAttackRoll = usesSaveOrArea
+      ? undefined
+      : resolveTargetedAttackRoll(
+          creature,
+          getAttackFlagCategory(action.rangeType),
+          { forceDisadvantage: isDisadvantage },
+        );
+
     rollConfig.value = {
       title: usesSaveOrArea
         ? action.name
@@ -482,13 +493,8 @@
             () => getCreatureEntity() ?? undefined,
             getAttackBonusKey(action.rangeType),
           ),
-      initialRollMode: usesSaveOrArea
-        ? 'normal'
-        : resolveTargetedAttackRollMode(
-            creature,
-            getAttackFlagCategory(action.rangeType),
-            { forceDisadvantage: isDisadvantage },
-          ),
+      initialRollMode: actionAttackRoll?.mode ?? 'normal',
+      rollModeReasons: actionAttackRoll?.reasons,
       incomingAttackType: getAttackFlagCategory(action.rangeType),
       damageType: actionPrimaryType(action),
       damageParts: setup.baseParts,
@@ -988,6 +994,7 @@
       :attack-modifier="rollConfig.attackModifier"
       :evaluate-bonus-roll-formulas="rollConfig.evaluateBonusRollFormulas"
       :initial-roll-mode="rollConfig.initialRollMode"
+      :roll-mode-reasons="rollConfig.rollModeReasons"
       :incoming-attack-type="rollConfig.incomingAttackType"
       :damage-type="rollConfig.damageType"
       :roll-button-text="rollConfig.rollButtonText"

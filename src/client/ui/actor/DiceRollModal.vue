@@ -2,6 +2,7 @@
   import type { DamageType } from '@vtt/shared';
   import type {
     AttackRollMode,
+    AttackRollModeReasons,
     DamageHitDetails,
     DndIncomingAttackContext,
     IncomingAttackContext,
@@ -28,6 +29,7 @@
     buildAttackFormula,
     CHOICE_DAMAGE_TYPE,
     doubleDiceInFormula,
+    formatAttackRollModeReasons,
     formatDamageDefenseSuffix,
     getNaturalD20Roll,
     getShortDamageTypeLabel,
@@ -101,6 +103,11 @@
       context: RollContext,
     ) => ReadonlyMap<string, readonly string[]>;
     initialRollMode?: AttackRollMode;
+    /**
+     * Откуда стартовый режим атаки: состояния, эффекты, доспех, дистанция.
+     * Без них окно показывало помеху «без причины».
+     */
+    rollModeReasons?: AttackRollModeReasons;
     /** С какой натуральной кости атака — крит (у оружия Чемпиона 19) */
     critThreshold?: number;
     /** Тип входящей атаки для расчёта условных бонусов к AC цели (melee/ranged/spell) */
@@ -215,6 +222,7 @@
     isHealing: false,
     attackModifier: undefined,
     initialRollMode: 'normal',
+    rollModeReasons: undefined,
     evaluateBonusRollFormulas: undefined,
     evaluateProjectileBonusRollFormulas: undefined,
     incomingAttackType: undefined,
@@ -382,6 +390,16 @@
       && (hasAttackRoll.value
         || !props.formula
         || props.onProjectileAttack !== undefined),
+  );
+
+  /**
+   * Строки «Помеха: …» / «Преимущество: …» под режимом броска. Только у атаки
+   * по цели: причины посчитаны для неё.
+   */
+  const rollModeReasonLines = computed<string[]>(() =>
+    hasAttackRoll.value && props.rollModeReasons
+      ? formatAttackRollModeReasons(props.rollModeReasons)
+      : [],
   );
 
   /** Текст кнопки: атака без выбранной цели откатывается к броску урона */
@@ -1360,6 +1378,14 @@
               {{ DICE_ROLL_LABELS.rollModeDisadvantage }}
             </UButton>
           </div>
+
+          <p
+            v-for="line in rollModeReasonLines"
+            :key="line"
+            class="text-xs text-muted"
+          >
+            {{ line }}
+          </p>
         </div>
 
         <!-- Разделитель -->
