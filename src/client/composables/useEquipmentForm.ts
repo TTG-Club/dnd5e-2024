@@ -1,6 +1,5 @@
 import type {
   AmmunitionType,
-  EquipmentCategory,
   EquipmentCategoryDefinition,
   ItemRarity,
   SourceDefinition,
@@ -8,6 +7,7 @@ import type {
 import type {
   ActiveEffect,
   CurrencyType,
+  DnDEquipmentCategory,
   DnDGameItem,
 } from '@vtt/shared/system/dnd.js';
 
@@ -27,7 +27,7 @@ import { useItemUsesForm } from './useItemUsesForm';
  * Тип экипировки, с которым открывается форма создания, если вызвавший не
  * попросил другой. Лёгкая броня — самый частый случай.
  */
-const DEFAULT_CREATE_CATEGORY: EquipmentCategory = 'light';
+const DEFAULT_CREATE_CATEGORY: DnDEquipmentCategory = 'light';
 
 /**
  * Composable для логики формы доспеха.
@@ -46,7 +46,7 @@ const DEFAULT_CREATE_CATEGORY: EquipmentCategory = 'light';
 export function useEquipmentForm(
   getArmor: () => DnDGameItem | null,
   getIsOpen: () => boolean,
-  getCreateCategory: () => EquipmentCategory | undefined = () => undefined,
+  getCreateCategory: () => DnDEquipmentCategory | undefined = () => undefined,
   getCreateMagical: () => boolean | undefined = () => undefined,
 ) {
   // --- Reactive-поля формы ---
@@ -54,7 +54,7 @@ export function useEquipmentForm(
   const nameEn = ref('');
   const description = ref('');
   const baseType = ref('');
-  const equipmentCategory = ref<EquipmentCategory>('light');
+  const equipmentCategory = ref<DnDEquipmentCategory>('light');
   const baseArmorAC = ref(10);
   const maxDexBonus = ref<number | null>(null);
   const selectedEquipmentProperties = ref<string[]>([]);
