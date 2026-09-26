@@ -20,32 +20,16 @@ import type { DnDActor } from './dndEntities.js';
 import type { FormulaContext } from './formulaParser.js';
 import type { ActorCounterState, CounterRecoveryRule } from './types.js';
 
-import { calculateAbilityModifier } from './calculations.js';
-import { isAbilityType } from './consts.js';
+import { ABILITY_KEYS, isAbilityType } from './consts.js';
+import { resolveActorStats } from './effectPipeline.js';
 import {
   ABILITY_ABBREVIATIONS,
   buildFormulaContext,
+  COUNTER_FORMULA_TOKENS,
   evaluateFormula,
 } from './formulaParser.js';
 
 // ── Грамматика формулы максимума ─────────────────────────────
-
-/**
- * Токены формул листа. Тот же диалект понимают активные эффекты и количество
- * заклинаний ступени: второй диалект того же смысла разошёлся бы с первым.
- */
-export const COUNTER_FORMULA_TOKENS = {
-  /** Бонус мастерства */
-  proficiencyBonus: '@prof',
-  /** Уровень персонажа */
-  level: '@level',
-  /** Уровень в своём классе: ресурс класса растёт по его уровням */
-  classLevel: '@classLevel',
-  /** Приставка модификатора характеристики: `@mod.cha` */
-  abilityModifierPrefix: '@mod.',
-  /** Модификатор заклинательной характеристики */
-  spellAbilityModifier: '@mod.spell',
-} as const;
 
 /**
  * Тот же токен уровня в классе в нижнем регистре.
@@ -358,6 +342,11 @@ export function counterAbilityModifierFormula(ability: AbilityType): string {
 /**
  * Контекст формул листа с заполненным `@mod.spell`.
  *
+ * Характеристики и бонус мастерства берутся с учётом эффектов листа, а не
+ * голыми значениями: повышение от предыстории и черт живёт эффектом
+ * `ability.*`, и без него вдохновение барда с Харизмой 14 + 2 считалось бы от
+ * 14 — на заряд меньше, чем показывает плитка Харизмы того же листа.
+ *
  * Заклинательная характеристика берётся у первого заклинающего класса: у своего
  * ресурса листа спросить её больше негде, а у ресурса черты она уже посчитана
  * при выдаче (`buildFeatCounters`).
@@ -369,11 +358,23 @@ export function buildCounterFormulaContext(actor: DnDActor): FormulaContext {
     (entry) => entry.spellcastingAbility,
   )?.spellcastingAbility;
 
+  const stats = resolveActorStats(actor);
+
+  const abilities = Object.fromEntries(
+    ABILITY_KEYS.map((abilityKey) => [
+      abilityKey,
+      {
+        value: stats.abilities[abilityKey],
+        mod: stats.abilityMods[abilityKey],
+      },
+    ]),
+  );
+
   return {
     ...buildFormulaContext(actor),
-    spellMod: ability
-      ? calculateAbilityModifier(actor.system.abilities[ability] ?? 10)
-      : undefined,
+    abilities,
+    prof: stats.proficiencyBonus,
+    spellMod: ability ? stats.abilityMods[ability] : undefined,
   };
 }
 

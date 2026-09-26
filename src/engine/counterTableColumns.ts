@@ -26,10 +26,8 @@ import type {
 import type { FeatChoice } from './featTypes.js';
 
 import { calculateProficiencyBonus } from './calculations.js';
-import {
-  CLASS_LEVEL_TOKEN_LOWERCASE,
-  COUNTER_FORMULA_TOKENS,
-} from './counterResource.js';
+import { CLASS_LEVEL_TOKEN_LOWERCASE } from './counterResource.js';
+import { COUNTER_FORMULA_TOKENS } from './formulaParser.js';
 
 /** Наибольший уровень персонажа: дальше таблица прогрессии не идёт. */
 const MAX_LEVEL = 20;

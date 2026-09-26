@@ -107,6 +107,23 @@ export interface FormulaContext {
 export const EVENT_DAMAGE_VARIABLE = 'damage';
 
 /**
+ * Токены формул листа. Тот же диалект понимают активные эффекты и количество
+ * заклинаний ступени: второй диалект того же смысла разошёлся бы с первым.
+ */
+export const COUNTER_FORMULA_TOKENS = {
+  /** Бонус мастерства */
+  proficiencyBonus: '@prof',
+  /** Уровень персонажа */
+  level: '@level',
+  /** Уровень в своём классе: ресурс класса растёт по его уровням */
+  classLevel: '@classLevel',
+  /** Приставка модификатора характеристики: `@mod.cha` */
+  abilityModifierPrefix: '@mod.',
+  /** Модификатор заклинательной характеристики */
+  spellAbilityModifier: '@mod.spell',
+} as const;
+
+/**
  * Сокращённые коды характеристик → полные имена.
  *
  * Используется для синтаксиса `@mod.str` / `@str`.
