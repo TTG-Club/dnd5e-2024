@@ -104,6 +104,7 @@
   import { extractSpellFromGameItem } from '../utils/extractSpellFromGameItem';
   import { formatSignedNumber } from '../utils/formatSignedNumber';
   import { formatWeaponModifierParts } from '../utils/formatWeaponModifierParts';
+  import { getItemIcon } from '../utils/itemIcon';
 
   const props = defineProps<Props>();
 
@@ -590,7 +591,8 @@
       id: item.id,
       type: DND_MACRO_TYPES.itemUse,
       label: `${EFFECT_USE_LABELS.hotbarPrefix}${item.name}`,
-      icon: ITEM_USE_MACRO_ICON,
+      // Значок самого предмета, как в инвентаре, а не общий значок применения
+      icon: getItemIcon(item),
       ref: item.id,
       actorId: props.entity.id,
     });
