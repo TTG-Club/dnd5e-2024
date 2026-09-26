@@ -15,12 +15,12 @@ import type {
   ItemTypeMeta,
   ItemTypeProvider,
 } from '@/core/registries';
+import type { BaseGameItem, TypedWebSocketClient } from '@vtt/shared';
 import type {
-  BaseGameItem,
-  EquipmentCategory,
-  TypedWebSocketClient,
-} from '@vtt/shared';
-import type { DnDGameItem, Spell } from '@vtt/shared/system/dnd.js';
+  DnDEquipmentCategory,
+  DnDGameItem,
+  Spell,
+} from '@vtt/shared/system/dnd.js';
 
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
@@ -29,6 +29,7 @@ import {
   CONDITION_ITEM_TYPE,
   getEquipmentCategoryIcon,
   isDnDGameItem,
+  POTION_EQUIPMENT_CATEGORY,
 } from '@vtt/shared/system/dnd.js';
 
 import { useFeatModal } from './useFeatModal';
@@ -82,7 +83,7 @@ const ITEM_TYPE_CONFIG: Record<string, ItemTypeConfig> = {
  * Пункт нужен ровно затем, чтобы не создавать снаряжение и не менять ему тип
  * экипировки руками на вкладке «Подробнее» — безделушек в мире много.
  */
-const TRINKET_CATEGORY: EquipmentCategory = 'trinket';
+const TRINKET_CATEGORY: DnDEquipmentCategory = 'trinket';
 
 /**
  * Метаданные пункта «Безделушка» в меню создания.
@@ -96,6 +97,18 @@ const TRINKET_TYPE_META: ItemTypeMeta = {
   type: TRINKET_CATEGORY,
   icon: getEquipmentCategoryIcon(TRINKET_CATEGORY),
   label: 'Безделушка',
+};
+
+/**
+ * Метаданные пункта «Зелье» в меню создания. Псевдо-вид того же рода, что и
+ * {@link TRINKET_TYPE_META}: ключ пункта совпадает с ключом категории, запись
+ * сохраняется снаряжением и живёт в разделе «Снаряжение», только со значком
+ * зелья.
+ */
+const POTION_TYPE_META: ItemTypeMeta = {
+  type: POTION_EQUIPMENT_CATEGORY,
+  icon: getEquipmentCategoryIcon(POTION_EQUIPMENT_CATEGORY),
+  label: 'Зелье',
 };
 
 /**
@@ -126,9 +139,10 @@ const MAGIC_ITEM_TYPE_META: ItemTypeMeta = {
  */
 const EQUIPMENT_PRESETS: Record<
   string,
-  { category?: EquipmentCategory; magical?: boolean }
+  { category?: DnDEquipmentCategory; magical?: boolean }
 > = {
   [TRINKET_CATEGORY]: { category: TRINKET_CATEGORY },
+  [POTION_EQUIPMENT_CATEGORY]: { category: POTION_EQUIPMENT_CATEGORY },
   [MAGIC_ITEM_TYPE]: { magical: true },
 };
 
@@ -191,8 +205,9 @@ function isGameItemLike(value: unknown): value is DnDGameItem {
  * @returns реализация `ItemTypeProvider`
  */
 export function createDnd5eItemTypeProvider(): ItemTypeProvider {
-  // Псевдо-виды «Безделушка» и «Магический предмет» встают сразу за
-  // снаряжением: обе записи — снаряжение, и в меню создания пункты стоят рядом.
+  // Псевдо-виды «Безделушка», «Зелье» и «Магический предмет» встают сразу за
+  // снаряжением: все их записи — снаряжение, и в меню создания пункты стоят
+  // рядом.
   const types: ItemTypeMeta[] = Object.entries(ITEM_TYPE_CONFIG).flatMap(
     ([type, config]) => {
       const meta: ItemTypeMeta = {
@@ -202,7 +217,7 @@ export function createDnd5eItemTypeProvider(): ItemTypeProvider {
       };
 
       return type === 'equipment'
-        ? [meta, TRINKET_TYPE_META, MAGIC_ITEM_TYPE_META]
+        ? [meta, TRINKET_TYPE_META, POTION_TYPE_META, MAGIC_ITEM_TYPE_META]
         : [meta];
     },
   );
@@ -320,8 +335,8 @@ export function createDnd5eItemTypeProvider(): ItemTypeProvider {
       return;
     }
 
-    // Безделушка и магический предмет: та же форма снаряжения, но категория
-    // и/или свойство «магическое» проставлены заранее.
+    // Безделушка, зелье и магический предмет: та же форма снаряжения, но
+    // категория и/или свойство «магическое» проставлены заранее.
     const preset = EQUIPMENT_PRESETS[type];
 
     if (preset) {

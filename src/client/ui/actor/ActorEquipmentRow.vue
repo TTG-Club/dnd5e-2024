@@ -12,6 +12,7 @@
     getEquipmentCategoryIcon,
     hasItemUseEffects,
     isItemDepleted,
+    POTION_EQUIPMENT_CATEGORY,
   } from '@vtt/shared/system/dnd.js';
 
   import { ITEM_USE_MACRO_ICON } from '../../macros/constants';
@@ -70,10 +71,14 @@
    *
    * Предмет с эффектами применения (зелье, свиток, масло) берёт значок своей
    * кнопки на панели быстрого доступа: по категории зелье — «снаряжение
-   * приключенца» с рюкзаком, и в инвентаре его было не узнать.
+   * приключенца» с рюкзаком, и в инвентаре его было не узнать. Зелье с
+   * категорией «Зелье» узнаётся и так — у него значок своей категории.
    */
   const itemIcon = computed(() => {
-    if (hasItemUseEffects(props.item)) {
+    if (
+      hasItemUseEffects(props.item)
+      && props.item.equipmentCategory !== POTION_EQUIPMENT_CATEGORY
+    ) {
       return ITEM_USE_MACRO_ICON;
     }
 

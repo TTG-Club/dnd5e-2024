@@ -54,6 +54,12 @@
     "isArmor": false
   },
   {
+    "key": "potion",
+    "name": "Зелье",
+    "nameEn": "Potion",
+    "isArmor": false
+  },
+  {
     "key": "vehicle-equipment",
     "name": "Снаряжение транспорта",
     "nameEn": "Vehicle Equipment",

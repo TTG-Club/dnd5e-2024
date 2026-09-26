@@ -1,6 +1,9 @@
 <script setup lang="ts">
-  import type { EquipmentCategory } from '@vtt/shared';
-  import type { ActiveEffect, DnDGameItem } from '@vtt/shared/system/dnd.js';
+  import type {
+    ActiveEffect,
+    DnDEquipmentCategory,
+    DnDGameItem,
+  } from '@vtt/shared/system/dnd.js';
 
   import { computed, ref } from 'vue';
 
@@ -39,7 +42,7 @@
      * при создании: у правки тип берётся из самой записи. Так пункт меню
      * «Безделушка» открывает эту же форму, но уже безделушкой.
      */
-    createCategory?: EquipmentCategory;
+    createCategory?: DnDEquipmentCategory;
     /**
      * Отметить запись магической. Как и {@link createCategory}, работает только
      * при создании: так пункт меню «Магический предмет» открывает эту же форму,

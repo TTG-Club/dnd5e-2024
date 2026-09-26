@@ -10,10 +10,14 @@
  * `tests/effectTriggerBaseline.test.mjs` и `tests/effectSaves.test.mjs`.
  */
 
-import type { EffectDuration, EquipmentCategory } from '@vtt/shared';
+import type { EffectDuration } from '@vtt/shared';
 
 import type { ActiveEffect, EffectSaveTiming } from './activeEffectTypes.js';
-import type { DnDGameItem, DnDSceneEntity } from './dndEntities.js';
+import type {
+  DnDEquipmentCategory,
+  DnDGameItem,
+  DnDSceneEntity,
+} from './dndEntities.js';
 import type {
   EffectTempHpMode,
   EffectTrigger,
@@ -1180,7 +1184,7 @@ function resolveNextTempHp(
  * (плащ, сапоги, амулет). Их не роняют — доспех и щит снимают действием и
  * дольше, а кольцо с плащом в руках не держат.
  */
-const WORN_EQUIPMENT_CATEGORIES: ReadonlySet<EquipmentCategory> = new Set([
+const WORN_EQUIPMENT_CATEGORIES: ReadonlySet<DnDEquipmentCategory> = new Set([
   'light',
   'medium',
   'heavy',

@@ -8,14 +8,17 @@
 import type {
   AbilityType,
   ActorMovement,
-  EquipmentCategory,
   MovementType,
   SkillType,
   ToolCategory,
 } from '@vtt/shared';
 
 import type { ConditionKey, ConditionRef } from './conditionKeys.js';
-import type { DnDActor, SpellUsesRecovery } from './dndEntities.js';
+import type {
+  DnDActor,
+  DnDEquipmentCategory,
+  SpellUsesRecovery,
+} from './dndEntities.js';
 import type { CreatureSize } from './types.js';
 
 import { DEFAULT_CARRYING_CAPACITY } from './carryingCapacity.js';
@@ -532,6 +535,12 @@ export const RARITY_LABELS: Record<string, string> = Object.fromEntries(
 // Категории экипировки (Equipment Category)
 // ============================================================
 
+/**
+ * Категория снаряжения «Зелье». Своего типа записи у зелья нет: это обычное
+ * снаряжение, которое категория отличает значком и пунктом меню создания.
+ */
+export const POTION_EQUIPMENT_CATEGORY: DnDEquipmentCategory = 'potion';
+
 /** Иконка экипировки по умолчанию (Iconify, формат `tabler:*`) */
 export const DEFAULT_EQUIPMENT_ICON = 'tabler:shirt';
 
@@ -543,7 +552,7 @@ export const DEFAULT_EQUIPMENT_ICON = 'tabler:shirt';
  * этих ключей здесь намеренно нет.
  */
 export const EQUIPMENT_CATEGORY_ICONS: Partial<
-  Record<EquipmentCategory, string>
+  Record<DnDEquipmentCategory, string>
 > = {
   'shield': 'tabler:shield',
   'wand': 'tabler:wand',
@@ -552,6 +561,9 @@ export const EQUIPMENT_CATEGORY_ICONS: Partial<
   'clothing': 'tabler:shirt',
   'wondrous': 'tabler:sparkles',
   'food': 'tabler:meat',
+  // Круглая колба, а не прямая `tabler:flask`: та — значок применения
+  // предмета, и зелье с эффектами иначе не отличить от свитка или масла
+  'potion': 'tabler:flask-2',
   'adventurer-equipment': 'tabler:backpack',
 };
 
@@ -564,7 +576,7 @@ export const EQUIPMENT_CATEGORY_ICONS: Partial<
  * @returns имя иконки в формате `tabler:*`
  */
 export function getEquipmentCategoryIcon(
-  category: EquipmentCategory | undefined,
+  category: DnDEquipmentCategory | undefined,
   fallback: string = DEFAULT_EQUIPMENT_ICON,
 ): string {
   if (!category) {

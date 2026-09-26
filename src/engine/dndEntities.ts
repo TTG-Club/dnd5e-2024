@@ -87,6 +87,16 @@ export interface DnDCreature extends BaseCreature {
  */
 export type Creature = DnDCreature;
 /**
+ * Категория снаряжения D&D 2024 — нейтральный список ядра плюс категории,
+ * которые знает только система.
+ *
+ * «Зелье» своё: ядро категорию не проверяет и хранит строкой, а список в
+ * `@vtt/shared` — наследие встроенной системы, не контракт. Поэтому новая
+ * категория добавляется здесь, без правки ядра.
+ */
+export type DnDEquipmentCategory = EquipmentCategory | 'potion';
+
+/**
  * Предмет D&D 5e — наследует нейтральную базу `BaseGameItem` и добавляет
  * D&D-специфичную форму (оружие, снаряжение, черты, инструменты, предыстории,
  * заклинания, виды, классы). Зеркало `DnDActor`/`DnDCreature`. Ядро с этим
@@ -185,7 +195,7 @@ export interface DnDGameItem extends BaseGameItem {
   distanceUnit?: DistanceUnit;
   // --- Equipment-specific (только для type === 'equipment') ---
   /** Категория снаряжения (лёгкий доспех, средний, тяжёлый, щит, кольцо, жезл...) */
-  equipmentCategory?: EquipmentCategory;
+  equipmentCategory?: DnDEquipmentCategory;
   /** Базовый класс доспеха (для щита — бонус к КД, напр. 2) */
   baseArmorAC?: number;
   /** Максимальный бонус Ловкости к КД (null = без ограничений) */
