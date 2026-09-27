@@ -38,6 +38,7 @@ import {
   calculateWeaponDamageModifier,
   collectBonusDamageFormulas,
   describeDamagePart,
+  entityHasDamageStatus,
   entityHasWeaponMastery,
   getCreatureSpellMod,
   getDamageBonusKey,
@@ -367,7 +368,8 @@ export function useBonusDamageParts() {
    * @param defaultType - тип урона сегментов без токена @dmg
    * @param useTargetState - оценивать ли состояние единой цели (false для AoE/снарядов)
    * @param resolveFormula - резолвер @-переменных сегмента
-   * @param carrier - свойства носителя эффектов (для условий `self.*`)
+   * @param owner - бросающий: носитель эффектов (условия `self.*`) и владелец
+   *   состояний `@self.status.*` в формулах бонус-урона
    * @returns бонус-части урона
    */
   function collectParts(
@@ -377,9 +379,11 @@ export function useBonusDamageParts() {
     defaultType: string | undefined,
     useTargetState: boolean,
     resolveFormula: (subFormula: string) => string,
-    carrier: CarrierContext,
+    owner: DnDSceneEntity,
     itemId?: string,
   ): SpellDamagePartInput[] {
+    const carrier: CarrierContext = buildCarrierContext(owner);
+
     const targetHp = useTargetState
       ? buildTargetHpContext(undefined, carrier.entityId)
       : undefined;
@@ -411,6 +415,7 @@ export function useBonusDamageParts() {
       targetIsFull,
       resolveFormula,
       targetHp?.creatureType,
+      (status) => entityHasDamageStatus(owner, status),
     );
   }
 
@@ -484,7 +489,7 @@ export function useBonusDamageParts() {
         defaultType,
         true,
         resolveFormula,
-        buildCarrierContext(actor),
+        actor,
         weapon.id,
       );
 
@@ -517,7 +522,7 @@ export function useBonusDamageParts() {
         undefined,
         !multiTarget,
         resolveFormula,
-        buildCarrierContext(actor),
+        actor,
       );
   }
 
@@ -587,7 +592,7 @@ export function useBonusDamageParts() {
         defaultType,
         true,
         resolveFormula,
-        buildCarrierContext(creature),
+        creature,
       );
 
     return { baseParts, evaluateBonusDamageParts, pseudoSpell };
@@ -657,7 +662,7 @@ export function useBonusDamageParts() {
         defaultType,
         true,
         resolveFormula,
-        buildCarrierContext(creature),
+        creature,
       );
 
     return { baseParts, evaluateBonusDamageParts, pseudoSpell };

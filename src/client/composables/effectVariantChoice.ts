@@ -15,6 +15,7 @@ import {
 import {
   EFFECT_VARIANT_MODAL_KEY_PREFIX,
   EFFECT_VARIANT_PROMPT_LABELS,
+  EFFECT_VARIANT_PROMPT_MODAL,
 } from '../ui/effect/constants';
 
 /** Что бросают: заклинание, действие существа, оружие, предмет */
@@ -91,7 +92,7 @@ export function runWithEffectVariants<Source extends EffectVariantSource>(
     return;
   }
 
-  useModalManager().openModal('EffectVariantPromptModal', {
+  useModalManager().openModal(EFFECT_VARIANT_PROMPT_MODAL, {
     _modalKey: generateId(EFFECT_VARIANT_MODAL_KEY_PREFIX),
     sourceName: source.name,
     groups: chooseGroups,

@@ -1064,6 +1064,7 @@ export function useSpellResolution() {
             requiresDamage: false,
             targetGate: bonusPart.targetGate,
             targetTypeGate: bonusPart.targetTypeGate,
+            targetStatusGate: bonusPart.targetStatusGate,
           });
         }
 
@@ -1241,6 +1242,7 @@ export function useSpellResolution() {
             requiresDamage: false,
             targetGate: bonusPart.targetGate,
             targetTypeGate: bonusPart.targetTypeGate,
+            targetStatusGate: bonusPart.targetStatusGate,
           });
 
           grandTotal += bonusRoll.total;

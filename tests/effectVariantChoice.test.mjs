@@ -51,6 +51,7 @@ async function loadHelper() {
     }),
     generateId: (prefix) => `${prefix}_test`,
     EFFECT_VARIANT_MODAL_KEY_PREFIX: 'variant',
+    EFFECT_VARIANT_PROMPT_MODAL: 'EffectVariantPromptModal',
     EFFECT_VARIANT_PROMPT_LABELS: { chatSeparator: ': ', chatJoiner: ', ' },
     formatVariantChoices: (name, choices) =>
       Object.keys(choices).length > 0

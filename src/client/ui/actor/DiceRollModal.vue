@@ -1116,6 +1116,7 @@
         requiresDamage: part.requiresDamage,
         targetGate: part.targetGate,
         targetTypeGate: part.targetTypeGate,
+        targetStatusGate: part.targetStatusGate,
         critical: isCrit,
       });
     }

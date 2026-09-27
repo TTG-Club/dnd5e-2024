@@ -24,6 +24,7 @@ import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
 import { generateId } from '@vtt/shared';
 import {
   CREATURE_TYPE_LABELS,
+  DAMAGE_STATUS_PHRASE_PREFIXES,
   DAMAGE_TYPE_LABELS,
   damagePartNeedsOwnResolution,
   damageReachesTarget,
@@ -34,6 +35,7 @@ import {
   isMagicRoll,
   isSaveAbility,
   listIgnoredResistances,
+  readDamageStatusName,
   removesItselfOnApply,
   resolveActorStats,
   SAVE_TYPE_LABELS,
@@ -124,6 +126,8 @@ export interface SpellDamagePartInput {
   targetGate?: TargetHpGate;
   /** Гейт по типу существа цели (per-target ветка @target.type.<тип>) */
   targetTypeGate?: CreatureCategory;
+  /** Гейт по состоянию цели (per-target ветка @target.status.<ключ>) */
+  targetStatusGate?: string;
   /** Часть получает усиление высших кругов (слот-скейлинг) при броске */
   applySlotScaling?: boolean;
 }
@@ -154,6 +158,8 @@ export interface RolledSpellDamagePart {
   targetGate?: TargetHpGate;
   /** Гейт по типу существа цели (per-target ветка @target.type.<тип>) */
   targetTypeGate?: CreatureCategory;
+  /** Гейт по состоянию цели (per-target ветка @target.status.<ключ>) */
+  targetStatusGate?: string;
   /** Часть брошена критом: событиям урона цели нужен крит */
   critical?: boolean;
 }
@@ -264,7 +270,7 @@ export function partPassesTargetGate(
   part: RolledSpellDamagePart,
   entity: SceneEntity,
 ): boolean {
-  if (!part.targetGate && !part.targetTypeGate) {
+  if (!part.targetGate && !part.targetTypeGate && !part.targetStatusGate) {
     return true;
   }
 
@@ -287,16 +293,24 @@ export const TARGET_GATE_LABELS: Record<TargetHpGate, string> = {
  *
  * @param targetGate - гейт по состоянию HP (если есть)
  * @param targetTypeGate - гейт по типу существа (если есть)
+ * @param targetStatusGate - гейт по состоянию цели (если есть)
  * @returns суффикс вида « (по нежити, при полном HP)» или пустая строка
  */
 export function formatTargetGateSuffix(
   targetGate: TargetHpGate | undefined,
   targetTypeGate?: CreatureCategory,
+  targetStatusGate?: string,
 ): string {
   const parts: string[] = [];
 
   if (targetTypeGate) {
     parts.push(`по цели: ${CREATURE_TYPE_LABELS[targetTypeGate]}`);
+  }
+
+  if (targetStatusGate) {
+    parts.push(
+      `${DAMAGE_STATUS_PHRASE_PREFIXES.target}${readDamageStatusName(targetStatusGate)}`,
+    );
   }
 
   if (targetGate) {
@@ -587,6 +601,7 @@ export function formatRolledPartLine(
   const gateSuffix = formatTargetGateSuffix(
     rolledPart.targetGate,
     rolledPart.targetTypeGate,
+    rolledPart.targetStatusGate,
   );
 
   const diceBreakdown =

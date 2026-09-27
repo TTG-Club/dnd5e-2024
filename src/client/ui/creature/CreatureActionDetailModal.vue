@@ -1,5 +1,8 @@
 <script setup lang="ts">
-  import type { CreatureAction } from '@vtt/shared/system/dnd.js';
+  import type {
+    CreatureAction,
+    CreatureDamageAlternative,
+  } from '@vtt/shared/system/dnd.js';
 
   import { computed } from 'vue';
 
@@ -9,7 +12,10 @@
     AREA_SHAPE_LABELS,
     creatureActionHasSave,
     DEFAULT_REACH_FEET,
+    describeCreatureDamageCondition,
     getActionDescriptionMarkdown,
+    listCreatureDamageAlternatives,
+    readAlternativeShownParts,
     SAVE_EFFECT_OPTIONS,
     SAVE_TYPE_LABELS,
   } from '@vtt/shared/system/dnd.js';
@@ -22,6 +28,7 @@
   import {
     CREATURE_ACTION_DETAIL_LABELS,
     CREATURE_ACTION_MENU_LABELS,
+    CREATURE_DAMAGE_CHOICE_LABELS,
     CREATURE_RECHARGE_HINTS,
   } from './constants';
 
@@ -60,6 +67,40 @@
 
   /** Части урона/лечения действия (для общего DamagePartsSummary) */
   const damageParts = computed(() => props.action?.damageParts ?? []);
+
+  /**
+   * Подпись над вариантом урона: «или, если у атакующего: Окровавленный». Своя
+   * подпись варианта встаёт перед условием.
+   *
+   * @param alternative - вариант урона
+   * @returns подпись варианта
+   */
+  function formatAlternativeCaption(
+    alternative: CreatureDamageAlternative,
+  ): string {
+    const head = CREATURE_DAMAGE_CHOICE_LABELS.orPrefix.trim();
+
+    const ownLabel = alternative.label
+      ? `${CREATURE_DAMAGE_CHOICE_LABELS.labelOpen}${alternative.label}${CREATURE_DAMAGE_CHOICE_LABELS.labelClose}`
+      : '';
+
+    return `${head}${ownLabel}${CREATURE_DAMAGE_CHOICE_LABELS.conditionSeparator}${describeCreatureDamageCondition(
+      alternative,
+    )}`;
+  }
+
+  /**
+   * Урон «или» для показа: подпись с условием и части без состояний — условие
+   * уже названо в подписи.
+   */
+  const damageAlternatives = computed(() =>
+    (props.action ? listCreatureDamageAlternatives(props.action) : []).map(
+      (alternative) => ({
+        caption: formatAlternativeCaption(alternative),
+        shownParts: readAlternativeShownParts(alternative),
+      }),
+    ),
+  );
 
   /** Подпись типа броска (ближний/дальний бой) */
   const attackTypeLabel = computed(() =>
@@ -164,6 +205,7 @@
                 action.attackBonus !== undefined
                 || hasSave
                 || damageParts.length > 0
+                || damageAlternatives.length > 0
               "
               class="rounded-lg border border-default/50 bg-elevated/30 p-3"
             >
@@ -200,6 +242,19 @@
 
                 <!-- Урон / Лечение -->
                 <DamagePartsSummary :parts="damageParts" />
+
+                <!-- Урон «или»: каждый вариант со своим условием -->
+                <div
+                  v-for="(alternative, alternativeIndex) in damageAlternatives"
+                  :key="alternativeIndex"
+                  class="flex flex-col gap-1"
+                >
+                  <span class="text-xs text-dimmed">
+                    {{ alternative.caption }}
+                  </span>
+
+                  <DamagePartsSummary :parts="alternative.shownParts" />
+                </div>
               </div>
             </div>
 

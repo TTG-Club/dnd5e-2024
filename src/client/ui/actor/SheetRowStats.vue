@@ -10,7 +10,8 @@
     key: string;
     label: string;
     value: string;
-    tooltip: string;
+    /** Строки подсказки: перенос строки в `tooltip` плитки разбивает её */
+    tooltipLines: string[];
     rollable: boolean;
     containerClass: string;
     valueClass: string;
@@ -53,22 +54,25 @@
 
   /**
    * Дополняет плитку классами оформления — логика не должна жить в шаблоне.
+   * Подсказка идёт строками: длинная расшифровка («основной урон, или другой,
+   * если…») в одну строку растягивается во весь экран.
    *
    * @param stat - исходная плитка параметра
    * @returns плитка с разрешёнными классами и подсказкой
    */
   function decorateStat(stat: SheetRowStat): DecoratedStat {
     const classes = stat.accent ? ACCENT_STAT_CLASSES : PLAIN_STAT_CLASSES;
-    const tooltip = stat.tooltip ?? '';
     const rollable = Boolean(stat.rollable);
+
+    const lines = (stat.tooltip ?? '')
+      .split('\n')
+      .filter((line) => line.length > 0);
 
     return {
       key: stat.key,
       label: stat.label,
       value: stat.value,
-      tooltip: rollable
-        ? [tooltip, SHEET_ROLL_HINT_LABEL].filter(Boolean).join(' · ')
-        : tooltip,
+      tooltipLines: rollable ? [...lines, SHEET_ROLL_HINT_LABEL] : lines,
       rollable,
       containerClass: rollable
         ? `${classes.container} ${ROLL_STAT_CLASS}`
@@ -119,8 +123,7 @@
     <UTooltip
       v-for="(stat, index) in displayStats"
       :key="stat.key"
-      :text="stat.tooltip"
-      :disabled="!stat.tooltip"
+      :disabled="stat.tooltipLines.length === 0"
     >
       <!-- Плитка с броском — кнопка: атака и урон катят свою формулу -->
       <button
@@ -164,6 +167,17 @@
           {{ stat.label }}
         </span>
       </div>
+
+      <template #content>
+        <div class="flex flex-col gap-0.5">
+          <span
+            v-for="(line, lineIndex) in stat.tooltipLines"
+            :key="lineIndex"
+          >
+            {{ line }}
+          </span>
+        </div>
+      </template>
     </UTooltip>
   </div>
 </template>

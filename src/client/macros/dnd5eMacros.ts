@@ -105,6 +105,10 @@ import {
 
 import { resolveTargetedAttackRoll } from '../composables/attackRollMode';
 import {
+  launchCreatureAction,
+  runWithCreatureDamageChoice,
+} from '../composables/creatureDamageChoice';
+import {
   applyActionSelfEffects,
   applyEntityEffectUse,
   applyEntityItemUse,
@@ -1895,41 +1899,16 @@ function registerCreatureActionMacro(): void {
           }
         }
 
-        // Область: размещаем шаблон у токена существа, затем кидаем урон
-        if (action.areaOfEffect) {
-          const templateStore = useSpellTemplateStore();
-          const first = action.damageParts?.[0];
-
-          const primaryType = first
-            ? describeDamagePart(first).types[0]
-            : undefined;
-
-          const color =
-            SPELL_DAMAGE_TEMPLATE_COLORS[primaryType ?? '']
-            ?? SPELL_TEMPLATE_DEFAULT_COLOR;
-
-          templateStore.requestPlacement(
-            action.areaOfEffect,
-            color,
-            foundCreature.id,
-            (templateId) =>
-              openCreatureActionRoll(
-                foundCreature,
-                action,
-                isDisadvantage,
-                templateId,
-              ),
-            null,
-          );
-
-          return;
-        }
-
-        openCreatureActionRoll(
-          foundCreature,
-          action,
-          isDisadvantage,
-          undefined,
+        // Урон «или» — после проверки дистанции, до шаблона и окна броска
+        runWithCreatureDamageChoice(action, foundCreature, (chosen) =>
+          launchCreatureAction(chosen, foundCreature.id, (templateId) =>
+            openCreatureActionRoll(
+              foundCreature,
+              chosen,
+              isDisadvantage,
+              templateId,
+            ),
+          ),
         );
       });
     } catch (err) {

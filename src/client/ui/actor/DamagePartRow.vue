@@ -1,12 +1,15 @@
 <script setup lang="ts">
   import type { DamagePart, DamagePartTarget } from '@vtt/shared';
+  import type { StatusTokenSide } from '@vtt/shared/system/dnd.js';
 
   import { computed, nextTick, ref } from 'vue';
 
   import { typedObjectEntries } from '@vtt/shared';
   import {
+    buildStatusToken,
     CREATURE_CATEGORIES,
     damagePartIsHealing,
+    listSelectableConditions,
     targetTypeToken,
   } from '@vtt/shared/system/dnd.js';
 
@@ -37,6 +40,12 @@
        * добавляется автоматически — ручные `@mod.*` привели бы к двойному учёту.
        */
       hideModifiers?: boolean;
+      /**
+       * Считать состояния в формуле выполненными (итог под формулой). Так у
+       * варианта «или»: он берётся, только когда все его состояния есть, и
+       * ветка «без состояния» у него не бросается никогда.
+       */
+      assumeStatuses?: boolean;
     }>(),
     {
       includeSpellModifier: true,
@@ -44,6 +53,7 @@
       hideHealing: false,
       hideConditions: false,
       hideModifiers: false,
+      assumeStatuses: false,
     },
   );
 
@@ -120,12 +130,43 @@
   /** Ссылка на поле ввода формулы: у компонента поля читается его корневой узел */
   const inputRef = ref<{ $el?: Element } | null>(null);
 
-  /** Вкладки для ввода формулы (лечение/условия скрываются пропами) */
+  /** Кнопка-вставка токена в формулу */
+  type TokenButton = { label: string; value: string };
+
+  /**
+   * Вкладки для ввода формулы (лечение/условия скрываются пропами). Две
+   * вкладки состояний делят один слот: разница у них — только сторона токена
+   * и подсказка, их и несёт сама вкладка.
+   */
   type DamageTab = {
     label: string;
     slot:
-      'modifiers' | 'damageTypes' | 'healing' | 'conditions' | 'creatureTypes';
+      | 'modifiers'
+      | 'damageTypes'
+      | 'healing'
+      | 'conditions'
+      | 'statuses'
+      | 'creatureTypes';
+    /** Кнопки состояний стороны — у вкладки состояний */
+    statusButtons?: TokenButton[];
+    /** Подсказка под кнопками состояний */
+    statusHint?: string;
   };
+
+  /**
+   * Кнопки состояний стороны: канон и состояния мира. Список читается из
+   * реестра на каждый показ — состояние, заведённое за столом, появляется без
+   * перезагрузки.
+   *
+   * @param side - чьё состояние проверяет токен
+   * @returns подписи и токены кнопок
+   */
+  function buildStatusButtons(side: StatusTokenSide): TokenButton[] {
+    return listSelectableConditions().map((condition) => ({
+      label: condition.nameRu,
+      value: buildStatusToken(side, condition.key),
+    }));
+  }
 
   const tabsList = computed<DamageTab[]>(() => {
     const tabs: DamageTab[] = [
@@ -146,8 +187,20 @@
     if (!props.hideConditions) {
       tabs.push(
         { label: DAMAGE_PART_LABELS.conditions, slot: 'conditions' },
-        // Тип существа — такое же условие по цели, как и её хиты, поэтому
-        // прячется тем же пропом
+        // Состояния и тип существа — такие же условия на слагаемое, как хиты
+        // цели, поэтому прячутся тем же пропом
+        {
+          label: DAMAGE_PART_LABELS.targetStatuses,
+          slot: 'statuses',
+          statusButtons: buildStatusButtons('target'),
+          statusHint: DAMAGE_PART_LABELS.targetStatusesHint,
+        },
+        {
+          label: DAMAGE_PART_LABELS.selfStatuses,
+          slot: 'statuses',
+          statusButtons: buildStatusButtons('self'),
+          statusHint: DAMAGE_PART_LABELS.selfStatusesHint,
+        },
         {
           label: DAMAGE_PART_LABELS.creatureTypes,
           slot: 'creatureTypes',
@@ -270,6 +323,7 @@
         <DamageFormulaPreview
           :part="modelValue"
           :damage-type-options="damageTypeOptions"
+          :assume-statuses="assumeStatuses"
         />
       </div>
 
@@ -293,17 +347,21 @@
           v-if="versatilePart"
           :part="versatilePart"
           :damage-type-options="damageTypeOptions"
+          :assume-statuses="assumeStatuses"
         />
       </div>
 
-      <!-- Вкладки-помощники ввода формулы -->
+      <!-- Вкладки-помощники ввода формулы. Вкладок бывает семь, и в узком окне
+        они переносятся на вторую строку, а не режут подписи; полоса-указатель
+        при переносе съезжает, поэтому активную выделяет цвет текста -->
       <UTabs
         :items="tabsList"
         variant="link"
         class="w-full"
         :ui="{
-          list: 'border-b border-default mb-2',
-          trigger: 'justify-center py-1 text-xs',
+          list: 'border-b border-default mb-2 flex-wrap',
+          trigger: 'justify-center py-1 text-xs shrink-0',
+          indicator: 'hidden',
           content:
             'p-2 bg-elevated/20 rounded-lg border border-default/50 min-h-15',
         }"
@@ -365,6 +423,29 @@
               class="cursor-pointer font-medium"
               @click.left.exact.prevent="insertText(cond.value)"
             />
+          </div>
+        </template>
+
+        <!-- Слагаемое — только при состоянии цели или атакующего: сторону
+          несёт вкладка -->
+        <template #statuses="{ item }">
+          <div class="flex flex-col gap-2">
+            <div class="flex flex-wrap gap-1.5">
+              <UButton
+                v-for="status in item.statusButtons"
+                :key="status.value"
+                :label="status.label"
+                size="xs"
+                color="neutral"
+                variant="subtle"
+                class="cursor-pointer font-medium"
+                @click.left.exact.prevent="insertText(status.value)"
+              />
+            </div>
+
+            <p class="text-xs text-muted">
+              {{ item.statusHint }}
+            </p>
           </div>
         </template>
 

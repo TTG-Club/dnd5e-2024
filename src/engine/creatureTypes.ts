@@ -17,6 +17,7 @@ import type {
   SpellSaveType,
 } from '@vtt/shared';
 
+import type { CreatureDamageAlternative } from './creatureDamageAlternatives.js';
 import type { EffectTriggerUsageLedger } from './effectTriggerUsage.js';
 import type { StartingEquipmentItem } from './startingEquipment.js';
 import type {
@@ -101,6 +102,13 @@ export interface CreatureAction {
    * не используются.
    */
   damageParts?: DamagePart[];
+  /**
+   * Урон «или»: другие наборы частей урона, каждый со своим условием. Вариант
+   * ЗАМЕНЯЕТ `damageParts` целиком («2к4 + 1, или 1к4 + 1, если рой
+   * окровавлен»); из нескольких сработавших берётся первый по порядку. Выбор —
+   * `chooseCreatureActionDamage`.
+   */
+  damageAlternatives?: CreatureDamageAlternative[];
   /**
    * Тип спасброска цели (дыхательное оружие и т.п.): цель кидает спас вместо
    * того, чтобы по ней совершали бросок попадания. `none`/undefined — обычная

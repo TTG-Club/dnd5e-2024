@@ -30,6 +30,7 @@ import type {
 } from '@vtt/shared';
 
 import type {
+  BLOODIED_CONDITION_KEY,
   ConditionKey,
   ConditionRef,
   DEATH_CONDITION_KEY,
@@ -43,6 +44,7 @@ import { z } from 'zod';
 
 import { isRecord, typedObjectEntries } from '@vtt/shared';
 
+import { INCAPACITATED_CONDITION_KEY } from './conditionKeys.js';
 import {
   CONDITIONS,
   CREATURE_CATEGORIES,
@@ -805,12 +807,12 @@ export type SkillFlagKey = SkillAdvantageFlagKey | SkillDisadvantageFlagKey;
 /**
  * Состояние, против которого бывает преимущество или помеха на спасбросок.
  *
- * Метка смерти сюда не идёт: спасброска против неё не бывает — её ставит и
- * снимает запас хитов существа.
+ * Метка смерти и окровавленность сюда не идут: спасброска против них не
+ * бывает — их ставит и снимает запас хитов существа.
  */
 export type SaveConditionKey = Exclude<
   ConditionKey,
-  typeof DEATH_CONDITION_KEY
+  typeof DEATH_CONDITION_KEY | typeof BLOODIED_CONDITION_KEY
 >;
 
 /** Флаг преимущества на спасбросок против состояния. */
@@ -2022,6 +2024,36 @@ export function listLiveEffects(holder: {
 }
 
 /**
+ * Есть ли на сущности состояние. Недееспособность дают и другие состояния
+ * («Парализованный», «Ошеломлённый») — их флагом. Живёт рядом с
+ * `listLiveEffects`, а не в условиях срабатываний: её зовёт и проверка цели
+ * урона, и из условий срабатываний она вела бы в кольцо импортов.
+ *
+ * @param entity - сущность
+ * @param entity.activeEffects - эффекты сущности
+ * @param condition - ключ состояния
+ * @returns `true`, если состояние есть
+ */
+export function hasEntityCondition(
+  entity: { activeEffects?: readonly ActiveEffect[] },
+  condition: string,
+): boolean {
+  const effects = listLiveEffects(entity);
+
+  if (effects.some((effect) => effect.conditionKey === condition)) {
+    return true;
+  }
+
+  // Недееспособность ставят и другие состояния — своим флагом
+  return (
+    condition === INCAPACITATED_CONDITION_KEY
+    && effects.some((effect) =>
+      effect.flags.includes(INCAPACITATED_CONDITION_KEY),
+    )
+  );
+}
+
+/**
  * Флаг «Увёртливости» характеристики спасброска.
  *
  * @param ability - характеристика
@@ -2477,8 +2509,11 @@ const RecurringSaveSchema = z.object({
   timing: z.enum(EFFECT_SAVE_TIMINGS),
 });
 
-/** Zod-схема части урона эффекта (подмножество DamagePart) */
-const EffectDamagePartSchema = z.object({
+/**
+ * Zod-схема части урона (подмножество DamagePart). Общая для эффектов и урона
+ * «или» у действий существа: часть урона везде одна и та же.
+ */
+export const EffectDamagePartSchema = z.object({
   formula: z.string(),
   type: z.enum(DAMAGE_TYPES).optional(),
   target: z.enum(DAMAGE_PART_TARGETS).optional(),

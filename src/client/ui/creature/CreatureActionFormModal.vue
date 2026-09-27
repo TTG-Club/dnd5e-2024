@@ -8,6 +8,7 @@
   import type {
     ActiveEffect,
     CreatureAction,
+    CreatureDamageAlternative,
     CreatureRecharge,
     EffectFormContext,
   } from '@vtt/shared/system/dnd.js';
@@ -25,6 +26,7 @@
     buildActionDescription,
     getActionDescriptionMarkdown,
     getAreaSizeLabel,
+    listCreatureDamageAlternatives,
     SAVE_EFFECT_OPTIONS,
     SAVE_TYPE_OPTIONS,
   } from '@vtt/shared/system/dnd.js';
@@ -42,6 +44,7 @@
     CREATURE_ACTION_FORM_LABELS,
     CREATURE_RECHARGE_OPTIONS,
   } from './constants';
+  import CreatureDamageAlternativesEditor from './CreatureDamageAlternativesEditor.vue';
 
   type ActionMode = 'trait' | 'action';
 
@@ -101,6 +104,8 @@
     description: string;
     attackBonus: number | null;
     damageParts: DamagePart[];
+    /** Урон «или»: наборы, заменяющие основной урон по условию */
+    damageAlternatives: CreatureDamageAlternative[];
     saveType: SpellSaveType;
     saveDC: number | null;
     saveEffect: 'half' | 'none' | 'special';
@@ -129,6 +134,7 @@
     description: '',
     attackBonus: null,
     damageParts: [],
+    damageAlternatives: [],
     saveType: 'none',
     saveDC: null,
     saveEffect: 'half',
@@ -214,9 +220,12 @@
    * нет вовсе, и токен прочитался бы единицей — молча и не тем числом.
    */
   const damageFormulaInvalid = computed(() =>
-    form.damageParts.some((part) =>
-      /@(?:mod\.|prof|(?:class)?level)/i.test(part.formula),
-    ),
+    [
+      ...form.damageParts,
+      ...form.damageAlternatives.flatMap(
+        (alternative) => alternative.damageParts,
+      ),
+    ].some((part) => /@(?:mod\.|prof|(?:class)?level)/i.test(part.formula)),
   );
 
   // ── Инициализация формы ────────────────────────────────────────────────────
@@ -239,6 +248,13 @@
         form.damageParts = (action.damageParts ?? []).map((part) => ({
           ...part,
         }));
+
+        form.damageAlternatives = listCreatureDamageAlternatives(action).map(
+          (alternative) => ({
+            ...alternative,
+            damageParts: alternative.damageParts.map((part) => ({ ...part })),
+          }),
+        );
 
         form.saveType = action.saveType ?? 'none';
         form.saveDC = action.saveDC ?? null;
@@ -269,6 +285,7 @@
         form.description = '';
         form.attackBonus = null;
         form.damageParts = [];
+        form.damageAlternatives = [];
         form.saveType = 'none';
         form.saveDC = null;
         form.saveEffect = 'half';
@@ -356,6 +373,32 @@
 
   // ── Сохранение ─────────────────────────────────────────────────────────────
 
+  /**
+   * Урон «или» для сохранения: части без формулы отбрасываются, вариант без
+   * частей — целиком, пустая подпись не пишется.
+   */
+  function buildDamageAlternatives(): CreatureDamageAlternative[] {
+    return form.damageAlternatives.flatMap((alternative) => {
+      const damageParts = alternative.damageParts
+        .filter((part) => part.formula.trim().length > 0)
+        .map((part) => ({ ...part }));
+
+      if (damageParts.length === 0) {
+        return [];
+      }
+
+      const label = alternative.label?.trim();
+
+      return [
+        {
+          condition: alternative.condition,
+          ...(label ? { label } : {}),
+          damageParts,
+        },
+      ];
+    });
+  }
+
   /** Собирает CreatureAction из формы (чистый JSON: пустые значения не пишутся) */
   function buildAction(): CreatureAction {
     const result: CreatureAction = {
@@ -374,6 +417,12 @@
 
       if (cleanedParts.length > 0) {
         result.damageParts = cleanedParts;
+      }
+
+      const cleanedAlternatives = buildDamageAlternatives();
+
+      if (cleanedAlternatives.length > 0) {
+        result.damageAlternatives = cleanedAlternatives;
       }
 
       // Спасбросок ЗАМЕНЯЕТ бросок попадания: при наличии спаса бонус атаки
@@ -575,6 +624,14 @@
                   :allow-empty="true"
                 />
               </div>
+
+              <!-- Урон «или»: сразу под основным — он его и заменяет -->
+              <CreatureDamageAlternativesEditor
+                v-model="form.damageAlternatives"
+                :base-parts="form.damageParts"
+                :damage-type-options="damageTypeOptions"
+                :has-area="form.useArea"
+              />
 
               <!-- Спасбросок (заменяет бросок попадания) -->
               <div
