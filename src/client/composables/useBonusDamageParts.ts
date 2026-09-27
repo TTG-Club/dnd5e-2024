@@ -428,7 +428,7 @@ export function useBonusDamageParts() {
       options;
 
     const damageKey = getDamageBonusKey(weapon.rangeType);
-    const defaultType = getWeaponPrimaryDamageType(weapon);
+    const defaultType = getWeaponPrimaryDamageType(weapon, resolvedStats);
 
     const pseudoSpell = buildPseudoSpell({
       id: `weapon-roll-${weapon.id}`,
@@ -449,7 +449,7 @@ export function useBonusDamageParts() {
     const resolvedParts: SpellDamagePartInput[] = resolveDamagePartsForCast(
       pseudoSpell,
       actor,
-      getWeaponDamageParts(weapon),
+      getWeaponDamageParts(weapon, resolvedStats),
       resolvedStats,
       targetIsFull,
       targetType,

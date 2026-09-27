@@ -28,6 +28,8 @@ import type {
   EffectTargetKey,
   ResolvedActorStats,
   SenseType,
+  WeaponOverrideEntry,
+  WeaponOverrideKey,
 } from './activeEffectTypes.js';
 import type { ArmorConditionKind, CarrierArmorState } from './armorState.js';
 import type { CreatureCategory } from './creatureTypes.js';
@@ -57,12 +59,15 @@ import {
   isCarrierEffect,
   isEffectDormant,
   isSenseType,
+  isWeaponOverrideKey,
+  parseWeaponBaseTypeCondition,
   splitConditionParts,
   TARGET_ALLY_ADJACENT_CONDITION,
   TARGET_ALLY_WITH_CONDITION_PREFIX,
   TARGET_ALLY_WITHOUT_CONDITION_PREFIX,
   TARGET_ANY_ALLY_ADJACENT_CONDITION,
   TARGET_TYPE_CONDITION_PREFIX,
+  WEAPON_DAMAGE_DICE_KEY,
 } from './activeEffectTypes.js';
 import {
   armorConditionMatches,
@@ -98,6 +103,7 @@ import {
 } from './customBonuses.js';
 import { DEFENSIBLE_DAMAGE_TYPES } from './damageConstants.js';
 import { collectStaticDamageDefenses } from './damageUtils.js';
+import { resolveDiceCountExpressions } from './diceCountExpressions.js';
 import {
   buildFormulaContext,
   evaluateFormula,
@@ -119,6 +125,7 @@ import {
   getSkillSettingAbility,
   parseSkillSettings,
 } from './skills.js';
+import { bindSourceFormula } from './sourceFormulaBinding.js';
 import {
   getSpellSaveDCBreakdown,
   parseSpellcastingSettings,
@@ -359,6 +366,7 @@ export function prepareBaseData(
     attackBonuses: { melee: 0, ranged: 0, spell: 0 },
     damageBonuses: { melee: 0, ranged: 0, spell: 0 },
     abilityDamageBonuses: { melee: {}, ranged: {} },
+    weaponOverrides: [],
     spellSaveDC: 0,
     activeFlags: new Set<EffectFlagKey>(),
     damageDefenses: {
@@ -654,11 +662,11 @@ export function applyActiveEffects(
   const modifiedStats = cloneResolvedStats(baseStats);
 
   // Собираем все changes и сортируем по priority
-  const allChanges: Array<{ change: EffectChange; effectName: string }> = [];
+  const allChanges: Array<{ change: EffectChange; effect: ActiveEffect }> = [];
 
   for (const effect of effects) {
     for (const change of effect.changes) {
-      allChanges.push({ change, effectName: effect.name });
+      allChanges.push({ change, effect });
     }
 
     // Собираем flags
@@ -675,7 +683,23 @@ export function applyActiveEffects(
   // Применяем каждый change. Условия броска (преимущество, хиты цели, вид
   // входящей атаки) на листе не считаются — их оценивают в момент броска;
   // условие по типу носителя, наоборот, считается здесь: тип от броска не зависит
-  for (const { change } of allChanges) {
+  for (const { change, effect } of allChanges) {
+    // Замена свойства оружия — не число: каждое оружие выберет свою сам
+    if (isWeaponOverrideKey(change.key)) {
+      const entry = buildWeaponOverrideEntry(
+        change.key,
+        change,
+        effect,
+        formulaContext,
+      );
+
+      if (entry) {
+        modifiedStats.weaponOverrides.push(entry);
+      }
+
+      continue;
+    }
+
     // Бонус урона «при атаке Силой» — число листа, но своё у каждого оружия:
     // копится по характеристике, оружие берёт его в разборе своего урона
     const abilityScope = readAbilityDamageScope(change);
@@ -709,6 +733,65 @@ export function applyActiveEffects(
   }
 
   return modifiedStats;
+}
+
+/**
+ * Запись замены свойства оружия из строки `weapon.*`.
+ *
+ * Условие у такой строки допустимо только по виду оружия: оружие листа
+ * сверяется с ним само, а другие условия (бросок, цель) замене кости не
+ * подходят — строка с ними не применяется, как и любое непонятое условие.
+ * Несколько частей `&&` оставляют виды, названные во всех.
+ *
+ * Кость считается числами носителя здесь же: `@level` в ней — уровень того,
+ * кто бьёт. Эффект заклинания приходит уже с числами заклинателя (их
+ * подставляют при сотворении), и тогда подставлять нечего.
+ *
+ * @param key - ключ замены
+ * @param change - строка эффекта
+ * @param effect - эффект строки
+ * @param formulaContext - числа носителя
+ * @returns запись либо `undefined`, если строка неприменима
+ */
+function buildWeaponOverrideEntry(
+  key: WeaponOverrideKey,
+  change: EffectChange,
+  effect: ActiveEffect,
+  formulaContext: FormulaContext,
+): WeaponOverrideEntry | undefined {
+  const rawValue = change.value.trim();
+
+  const value =
+    key === WEAPON_DAMAGE_DICE_KEY
+      ? resolveDiceCountExpressions(bindSourceFormula(rawValue, formulaContext))
+      : rawValue;
+
+  if (!value) {
+    return undefined;
+  }
+
+  let baseTypes: string[] | undefined;
+
+  for (const part of splitConditionParts(change.condition ?? '')) {
+    const partTypes = parseWeaponBaseTypeCondition(part);
+
+    if (!partTypes) {
+      return undefined;
+    }
+
+    baseTypes = baseTypes
+      ? baseTypes.filter((baseType) => partTypes.includes(baseType))
+      : partTypes;
+  }
+
+  return {
+    key,
+    value,
+    baseTypes,
+    itemId: effect.carriedItemId,
+    priority: change.priority,
+    sourceName: effect.name,
+  };
 }
 
 /**
@@ -3233,6 +3316,7 @@ function cloneResolvedStats(stats: ResolvedActorStats): ResolvedActorStats {
       melee: { ...stats.abilityDamageBonuses.melee },
       ranged: { ...stats.abilityDamageBonuses.ranged },
     },
+    weaponOverrides: [...stats.weaponOverrides],
     spellSaveDC: stats.spellSaveDC,
     activeFlags: new Set(stats.activeFlags),
     damageDefenses: {

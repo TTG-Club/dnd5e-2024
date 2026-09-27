@@ -1592,12 +1592,15 @@
 
     // Существо как заклинатель: Сл блока и модификатор его характеристики.
     // Своя Сл заклинания (жезл, свиток) главнее Сл блока
+    const blockAbility = getCreatureSpellBlockAbility(
+      creature,
+      placement?.block,
+    );
+
     const casterSource: SpellCasterSource = {
       saveDc: resolveCreatureSpellSaveDC(spell, numbers.saveDC),
-      spellMod: getCreatureSpellMod(
-        creature,
-        getCreatureSpellBlockAbility(creature, placement?.block),
-      ),
+      spellMod: getCreatureSpellMod(creature, blockAbility),
+      spellAbility: blockAbility,
     };
 
     const castKey = generateId(SPELL_CAST_KEY_PREFIX);

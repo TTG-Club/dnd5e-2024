@@ -74,6 +74,10 @@ import {
   getProficiencyBonusBreakdown,
   parseProficiencySettings,
 } from './proficiencyBonus.js';
+import {
+  applyWeaponOverrideToDamageParts,
+  resolveWeaponOverride,
+} from './weaponOverrides.js';
 
 /**
  * Вычисляет модификатор характеристики
@@ -441,6 +445,17 @@ export function resolveWeaponAttackAbility(
   weapon: DnDGameItem,
   resolvedStats?: ResolvedActorStats,
 ): AbilityType {
+  // Замена от эффекта («Дубинка») сильнее и «Фехтовального», и своей
+  // характеристики оружия: правило заклинания прямо её называет
+  const overriddenAbility = resolveWeaponOverride(
+    weapon,
+    resolvedStats,
+  ).attackAbility;
+
+  if (overriddenAbility) {
+    return overriddenAbility;
+  }
+
   if (weapon.weaponProperties?.includes('finesse')) {
     const abilities = resolvedStats?.abilities ?? actor.system?.abilities;
 
@@ -477,6 +492,17 @@ export function resolveWeaponDamageAbility(
 ): AbilityType | null {
   if (weapon.damageAbility === 'none') {
     return null;
+  }
+
+  // Замена от эффекта идёт и в урон: «Дубинка» называет характеристику для
+  // атаки и урона разом
+  const overriddenAbility = resolveWeaponOverride(
+    weapon,
+    resolvedStats,
+  ).attackAbility;
+
+  if (overriddenAbility) {
+    return overriddenAbility;
   }
 
   // Ключ из записи мира сверяется так же, как у атаки
@@ -562,18 +588,33 @@ function getWeaponBonusContext(
  * @param abilityKey - ключ характеристики
  * @param actor - владелец оружия: актёр или существо
  * @param resolvedStats - итоговые статы из пайплайна (если посчитаны)
+ * @param weapon - оружие — чтобы назвать эффект, заменивший характеристику
  * @returns слагаемое характеристики
  */
 function getWeaponAbilityPart(
   abilityKey: AbilityType,
   actor: DnDSceneEntity,
   resolvedStats?: ResolvedActorStats,
+  weapon?: DnDGameItem,
 ): WeaponModifierPart {
   const abilities = resolvedStats?.abilities ?? actor.system?.abilities;
 
+  // Характеристику назначил эффект — в подписи видно, какой: иначе друид с
+  // посохом не поймёт, откуда в атаке взялась Мудрость
+  const override = weapon
+    ? resolveWeaponOverride(weapon, resolvedStats)
+    : undefined;
+
+  const overrideSource =
+    override?.attackAbility === abilityKey
+      ? override.sourceNames.join(', ')
+      : '';
+
   return {
     key: 'ability',
-    label: ABILITY_LABELS[abilityKey],
+    label: overrideSource
+      ? `${ABILITY_LABELS[abilityKey]} (${overrideSource})`
+      : ABILITY_LABELS[abilityKey],
     value: calculateAbilityModifier(abilities?.[abilityKey] ?? 10),
   };
 }
@@ -726,6 +767,7 @@ export function describeWeaponAttack(
       resolveWeaponAttackAbility(actor, weapon, resolvedStats),
       actor,
       resolvedStats,
+      weapon,
     ),
     {
       key: 'proficiency',
@@ -794,7 +836,7 @@ export function describeWeaponDamage(
   const abilityKey = resolveWeaponDamageAbility(actor, weapon, resolvedStats);
 
   if (abilityKey) {
-    parts.push(getWeaponAbilityPart(abilityKey, actor, resolvedStats));
+    parts.push(getWeaponAbilityPart(abilityKey, actor, resolvedStats, weapon));
   }
 
   parts.push(
@@ -889,18 +931,30 @@ export function isVersatileTwoHandedGrip(weapon: DnDGameItem): boolean {
  * задана `versatileFormula`, формула заменяется на неё (правило versatile
  * касается только базовых костей оружия).
  *
+ * Замены от эффектов («Дубинка»: кость к8, силовой урон) ложатся поверх хвата,
+ * когда переданы статы владельца.
+ *
  * @param weapon - оружие
+ * @param resolvedStats - итоговые статы владельца (для замен от эффектов)
  * @returns части урона (с применённым versatile-хватом); `[]` если урон не задан
  */
-export function getWeaponDamageParts(weapon: DnDGameItem): DamagePart[] {
+export function getWeaponDamageParts(
+  weapon: DnDGameItem,
+  resolvedStats?: ResolvedActorStats,
+): DamagePart[] {
   const parts = weapon.damageParts ?? [];
 
-  if (!isVersatileTwoHandedGrip(weapon)) {
-    return parts;
-  }
+  const gripParts = isVersatileTwoHandedGrip(weapon)
+    ? parts.map((part) =>
+        part.versatileFormula
+          ? { ...part, formula: part.versatileFormula }
+          : part,
+      )
+    : parts;
 
-  return parts.map((part) =>
-    part.versatileFormula ? { ...part, formula: part.versatileFormula } : part,
+  return applyWeaponOverrideToDamageParts(
+    gripParts,
+    resolveWeaponOverride(weapon, resolvedStats),
   );
 }
 
@@ -910,12 +964,14 @@ export function getWeaponDamageParts(weapon: DnDGameItem): DamagePart[] {
  * в формуле первой части (если есть), иначе поле `type` первой части.
  *
  * @param weapon - оружие
+ * @param resolvedStats - итоговые статы владельца (для замен от эффектов)
  * @returns тип урона первой части или undefined, если урон не задан
  */
 export function getWeaponPrimaryDamageType(
   weapon: DnDGameItem,
+  resolvedStats?: ResolvedActorStats,
 ): string | undefined {
-  const part = getWeaponDamageParts(weapon)[0];
+  const part = getWeaponDamageParts(weapon, resolvedStats)[0];
 
   if (!part) {
     return undefined;
@@ -927,13 +983,18 @@ export function getWeaponPrimaryDamageType(
 /**
  * Форматирует формулы урона оружия для отображения: формулы всех частей,
  * соединённые « + », без инлайн-токенов (`@dmg.*`/`@heal`) и с заменой латинской
- * `d` на кириллическую `к` (`1d8` → `1к8`). Versatile-хват не учитывается.
+ * `d` на кириллическую `к` (`1d8` → `1к8`). Хват двумя руками и замены от
+ * эффектов учитываются — через {@link getWeaponDamageParts}.
  *
  * @param weapon - оружие
+ * @param resolvedStats - итоговые статы владельца (для замен от эффектов)
  * @returns строка вида «1к8 + 1к6» или пустая строка, если урон не задан
  */
-export function formatWeaponDamageFormula(weapon: DnDGameItem): string {
-  return getWeaponDamageParts(weapon)
+export function formatWeaponDamageFormula(
+  weapon: DnDGameItem,
+  resolvedStats?: ResolvedActorStats,
+): string {
+  return getWeaponDamageParts(weapon, resolvedStats)
     .map((part) => {
       const withoutTokens = stripHealTokens(stripDamageTypeTokens(part.formula))
         .replace(/\s{2,}/g, ' ')

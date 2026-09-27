@@ -49,6 +49,7 @@
     getAttackBonusKey,
     getAttackFlagCategory,
     getDamageBonusKey,
+    getWeaponDamageParts,
     getWeaponPrimaryDamageType,
     hasItemUseEffects,
     isItemDepleted,
@@ -497,7 +498,7 @@
         rollModeReasons: weaponAttackRoll.reasons,
         critThreshold: resolvedStats.value?.critThreshold,
         incomingAttackType: getAttackFlagCategory(weapon.rangeType),
-        damageType: getWeaponPrimaryDamageType(weapon),
+        damageType: getWeaponPrimaryDamageType(weapon, resolvedStats.value),
         damageParts: weaponPartsSetup.baseParts,
         evaluateBonusDamageParts: weaponPartsSetup.evaluateBonusDamageParts,
         onRollParts: (parts: RolledSpellDamagePart[]) =>
@@ -1158,7 +1159,7 @@
    * @returns строка вида «4к6+4» / «1к8 + 1к6»
    */
   function weaponDamageFormulaLabel(weapon: DnDGameItem): string {
-    const base = formatWeaponDamageFormula(weapon);
+    const base = formatWeaponDamageFormula(weapon, resolvedStats.value);
 
     // Магический бонус входит в расчёт прибавки — отдельно его не добавляем
     const mod = calculateWeaponDamageModifier(
@@ -1186,7 +1187,7 @@
 
     let hasHealing = false;
 
-    for (const part of weapon.damageParts ?? []) {
+    for (const part of getWeaponDamageParts(weapon, resolvedStats.value)) {
       const info = describeDamagePart(part);
 
       for (const type of info.types) {

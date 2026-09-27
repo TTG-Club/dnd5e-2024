@@ -193,6 +193,60 @@ export const CONCENTRATION_SAVE_KEY = 'save.concentration';
 /** Ключ прибавки к спасброскам от смерти */
 export const DEATH_SAVE_KEY = 'deathSave';
 
+// ── Замены свойств оружия ─────────────────────────────────────
+
+/**
+ * Ключ замены кости урона оружия («Дубинка»: к8 вместо к6). Значение — кость
+ * формулой, число и грань костей можно задать выражением по уровню:
+ * `(1 + steps(@level, 17))к(8 + 2 * steps(@level, 5, 11) - 6 * steps(@level, 17))`.
+ */
+export const WEAPON_DAMAGE_DICE_KEY = 'weapon.damageDice';
+
+/**
+ * Ключ замены характеристики атаки и урона оружия. Значение — ключ
+ * характеристики либо {@link WEAPON_SPELL_ABILITY_VALUE}.
+ */
+export const WEAPON_ATTACK_ABILITY_KEY = 'weapon.attackAbility';
+
+/** Ключ замены типа урона оружия — ключ типа урона (`force`) */
+export const WEAPON_DAMAGE_TYPE_KEY = 'weapon.damageType';
+
+/**
+ * Значение «заклинательная характеристика наложившего». При сотворении оно
+ * заменяется ключом характеристики: на листе заклинателя уже не спросить, каким
+ * классом творили.
+ */
+export const WEAPON_SPELL_ABILITY_VALUE = 'spell';
+
+/** Подпись значения {@link WEAPON_SPELL_ABILITY_VALUE} */
+export const WEAPON_SPELL_ABILITY_LABEL = 'Заклинательная характеристика';
+
+/** Тип урона «Дубинки» во втором варианте */
+export const SHILLELAGH_DAMAGE_TYPE = 'force';
+
+/** Ключи, которые заменяют свойства оружия, а не прибавляют число */
+export type WeaponOverrideKey =
+  | typeof WEAPON_DAMAGE_DICE_KEY
+  | typeof WEAPON_ATTACK_ABILITY_KEY
+  | typeof WEAPON_DAMAGE_TYPE_KEY;
+
+const WEAPON_OVERRIDE_KEY_SET: ReadonlySet<string> = new Set([
+  WEAPON_DAMAGE_DICE_KEY,
+  WEAPON_ATTACK_ABILITY_KEY,
+  WEAPON_DAMAGE_TYPE_KEY,
+]);
+
+/**
+ * Заменяет ли ключ свойство оружия. Такие строки не числа: конвейер не считает
+ * их формулой, а складывает в `weaponOverrides` статов.
+ *
+ * @param key - ключ изменения
+ * @returns `true` для ключей `weapon.*`
+ */
+export function isWeaponOverrideKey(key: string): key is WeaponOverrideKey {
+  return WEAPON_OVERRIDE_KEY_SET.has(key);
+}
+
 /**
  * Типобезопасный ключ для числовых модификаций актора.
  *
@@ -225,6 +279,7 @@ export type EffectTargetKey =
   | 'damage.all'
   | 'damage.weapon'
   | 'attack.weapon'
+  | WeaponOverrideKey
   | 'creatureType';
 
 /**
@@ -322,6 +377,11 @@ export const EFFECT_TARGET_SUGGESTIONS: Array<{
   { value: 'damage.weapon', label: 'Урон: Только этим предметом' },
   { value: 'attack.weapon', label: 'Атака: Только этим предметом' },
 
+  // Замены свойств оружия («Дубинка»)
+  { value: WEAPON_DAMAGE_DICE_KEY, label: 'Оружие: кость урона' },
+  { value: WEAPON_ATTACK_ABILITY_KEY, label: 'Оружие: характеристика атаки' },
+  { value: WEAPON_DAMAGE_TYPE_KEY, label: 'Оружие: тип урона' },
+
   // Навыки
   { value: 'skill.acrobatics', label: 'Навык (Акробатика)' },
   { value: 'skill.animalHandling', label: 'Навык (Уход за животными)' },
@@ -390,6 +450,46 @@ export const CARRIER_ARMOR_CONDITION_PREFIX = 'self.armor === ';
  * («Ярость»: бонус урона только атакам Силой) и срабатываний.
  */
 export const ATTACK_ABILITY_CONDITION_PREFIX = 'attack.ability === ';
+
+/**
+ * Приставка условия «оружие этого вида» — для замен свойств оружия
+ * (`weapon.*`). В кавычках список ключей вида через запятую, подходит любой:
+ * `weapon.baseType === "club, quarterstaff"`. Список, а не `||`: словарь
+ * условий остаётся перечнем без разбора выражений.
+ */
+export const WEAPON_BASE_TYPE_CONDITION_PREFIX = 'weapon.baseType === ';
+
+/** Разделитель видов оружия внутри условия {@link WEAPON_BASE_TYPE_CONDITION_PREFIX} */
+const WEAPON_BASE_TYPE_SEPARATOR = ',';
+
+/**
+ * Виды оружия, названные условием `weapon.baseType === "club, quarterstaff"`.
+ *
+ * @param condition - часть условия
+ * @returns ключи видов либо `undefined`, если часть из другого семейства
+ */
+export function parseWeaponBaseTypeCondition(
+  condition: string,
+): string[] | undefined {
+  const trimmed = condition.trim();
+
+  if (!trimmed.startsWith(WEAPON_BASE_TYPE_CONDITION_PREFIX)) {
+    return undefined;
+  }
+
+  const baseTypes = trimmed
+    .slice(WEAPON_BASE_TYPE_CONDITION_PREFIX.length)
+    .trim()
+    .replace(/^["']|["']$/g, '')
+    .split(WEAPON_BASE_TYPE_SEPARATOR)
+    .map((baseType) => baseType.trim())
+    .filter((baseType) => baseType.length > 0);
+
+  return baseTypes.length > 0 ? baseTypes : undefined;
+}
+
+/** Условие «Дубинки»: дубинка или боевой посох */
+export const SHILLELAGH_WEAPON_CONDITION = `${WEAPON_BASE_TYPE_CONDITION_PREFIX}"club, quarterstaff"`;
 
 /** Приставка условия по типу ЦЕЛИ броска. */
 export const TARGET_TYPE_CONDITION_PREFIX = 'target.creatureType === ';
@@ -508,6 +608,14 @@ export const EFFECT_CONDITION_SUGGESTIONS: Array<{
   {
     value: `${ATTACK_ABILITY_CONDITION_PREFIX}"dexterity"`,
     label: 'Атака: Ловкостью (урон оружия)',
+  },
+
+  // === ВИД ОРУЖИЯ ===
+  // Только для замен свойств оружия (`weapon.*`): каждое оружие листа
+  // сверяется со списком само
+  {
+    value: SHILLELAGH_WEAPON_CONDITION,
+    label: 'Оружие: дубинка или боевой посох (Дубинка)',
   },
 
   // === ДОСПЕХ НОСИТЕЛЯ ===
@@ -2038,6 +2146,22 @@ export function isActiveEffect(value: unknown): value is ActiveEffect {
 
 // ── ResolvedActorStats ────────────────────────────────────────
 
+/** Замена свойства оружия, собранная конвейером из строки `weapon.*` */
+export interface WeaponOverrideEntry {
+  /** Что заменяется */
+  key: WeaponOverrideKey;
+  /** Новое значение строкой: кость, ключ характеристики или типа урона */
+  value: string;
+  /** Виды оружия из условия `weapon.baseType`; нет — любое оружие */
+  baseTypes?: string[];
+  /** Эффект лежит на самом предмете — замена только для него */
+  itemId?: string;
+  /** Порядок применения: при равном побеждает последняя */
+  priority: number;
+  /** Название эффекта — для подписи в разборе */
+  sourceName: string;
+}
+
 /**
  * Промежуточные «resolved» статы актора после прохождения пайплайна.
  *
@@ -2107,6 +2231,12 @@ export interface ResolvedActorStats {
     melee: Partial<Record<AbilityType, number>>;
     ranged: Partial<Record<AbilityType, number>>;
   };
+  /**
+   * Замены свойств оружия от эффектов («Дубинка»): кость, характеристика и тип
+   * урона. Лежат строками — каждое оружие листа выбирает свои по виду и
+   * предмету (`weaponOverrides.ts`).
+   */
+  weaponOverrides: WeaponOverrideEntry[];
   /** DC спасброска заклинаний */
   spellSaveDC: number;
   /** Активные булевые флаги от всех эффектов */

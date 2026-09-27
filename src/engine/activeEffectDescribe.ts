@@ -49,6 +49,7 @@ import {
   stripDamageTypeTokens,
   stripHealTokens,
 } from './formulaTokens.js';
+import { describeWeaponOverrideValue } from './weaponOverrides.js';
 
 /** Подпись ключа модификатора (`armorClass` → «Класс доспеха (AC)»). */
 const TARGET_LABELS = new Map(
@@ -219,6 +220,13 @@ function prettifyFormula(value: string): string {
  */
 export function describeChangeValue(change: EffectChange): string {
   const unit = change.key.startsWith('movement.') ? ' фт' : '';
+
+  // Характеристика и тип урона оружия — слова из списка, а не формула
+  const optionLabel = describeWeaponOverrideValue(change.key, change.value);
+
+  if (optionLabel) {
+    return `${EFFECT_CHANGE_MODE_LABELS[change.mode].toLowerCase()}: ${optionLabel}`;
+  }
 
   if (change.mode === 'add') {
     if (isNumeric(change.value)) {

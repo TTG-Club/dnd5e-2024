@@ -1,5 +1,6 @@
 /**
- * Число костей выражением: `(1 + steps(@classLevel, 7, 13, 18))к8`.
+ * Число и грань костей выражением: `(1 + steps(@classLevel, 7, 13, 18))к8`,
+ * `1к(8 + 2 * steps(@level, 5, 11))`.
  *
  * Правила растят урон числом костей по ступеням уровня — «Божественная
  * искра» бьёт 1к8 на 2 уровне жреца и 4к8 на 18-м. Кубиковый бросок понимает
@@ -8,13 +9,25 @@
  * заменяется числом. Формула остаётся строкой: справочник сайта хранит её без
  * новых полей.
  *
+ * Грань — то же самое после буквы кости: «Дубинка» растит не число костей, а
+ * их размер (к8 → к10 → к12 → 2к6).
+ *
  * @module system/dnd/diceCountExpressions
  */
 
 import { evaluateDetachedFormula } from './formulaParser.js';
 
-/** Буква кости сразу за закрывающей скобкой: `)к8`, `) d6` */
-const DICE_AFTER_PAREN = /\)\s*[кдd]\d/i;
+/**
+ * Буква кости сразу за закрывающей скобкой: `)к8`, `) d6`, `)к(` — грань
+ * тоже может быть выражением
+ */
+const DICE_AFTER_PAREN = /\)\s*[кдd]\s*[\d(]/i;
+
+/** Скобка грани сразу за числом и буквой кости: `1к(`, `2 d (` */
+const FACES_PAREN_AFTER_DICE = /\d\s*[кдd]\s*\(/i;
+
+/** Буква кости */
+const DICE_LETTER = /[кдd]/i;
 
 /** Буква имени функции перед открывающей скобкой: `steps(` */
 const FUNCTION_NAME_CHAR = /[a-z_]/i;
@@ -57,8 +70,83 @@ function findExpressionStart(
 }
 
 /**
- * Считает выражения числа костей: `(1 + steps(7, 7, 13, 18))к8 + 3` →
- * `2к8 + 3`. Выражение с неподставленным `@`-токеном и то, что не
+ * Конец выражения, которое открывает скобка на позиции `openIndex`.
+ *
+ * @param formula - формула
+ * @param openIndex - позиция открывающей скобки
+ * @returns позиция парной закрывающей скобки либо `undefined`
+ */
+function findExpressionEnd(
+  formula: string,
+  openIndex: number,
+): number | undefined {
+  let depth = 0;
+
+  for (let index = openIndex; index < formula.length; index++) {
+    const char = formula[index];
+
+    if (char === '(') {
+      depth++;
+    } else if (char === ')') {
+      depth--;
+    }
+
+    if (depth === 0) {
+      return index;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Считает выражения грани костей: `1к(8 + 2 * 1)` → `1к10`. Выражение, которое
+ * не считается, остаётся как есть; грань меньше единицы становится единицей.
+ *
+ * @param formula - формула с уже посчитанным числом костей
+ * @returns формула с числами граней
+ */
+function resolveDiceFaceExpressions(formula: string): string {
+  let result = formula;
+  let searchFrom = 0;
+
+  while (searchFrom < result.length) {
+    const match = FACES_PAREN_AFTER_DICE.exec(result.slice(searchFrom));
+
+    if (!match) {
+      break;
+    }
+
+    const openIndex = searchFrom + match.index + match[0].length - 1;
+    const closeIndex = findExpressionEnd(result, openIndex);
+
+    const faces =
+      closeIndex === undefined
+        ? undefined
+        : evaluateDetachedFormula(result.slice(openIndex, closeIndex + 1));
+
+    if (closeIndex === undefined || faces === undefined) {
+      searchFrom = openIndex + 1;
+
+      continue;
+    }
+
+    const dieFaces = String(Math.max(1, Math.floor(faces)));
+
+    // Пробел между буквой кости и скобкой уходит вместе с выражением
+    const letterEnd =
+      searchFrom + match.index + match[0].search(DICE_LETTER) + 1;
+
+    result = `${result.slice(0, letterEnd)}${dieFaces}${result.slice(closeIndex + 1)}`;
+    searchFrom = letterEnd + dieFaces.length;
+  }
+
+  return result;
+}
+
+/**
+ * Считает выражения числа и грани костей: `(1 + steps(7, 7, 13, 18))к8 + 3` →
+ * `2к8 + 3`, `1к(8 + 2)` → `1к10`. Выражение с неподставленным `@`-токеном и то, что не
  * считается, остаются как есть — бросок их пропустит, как и раньше.
  * Дробное число костей округляется вниз, отрицательное становится нулём.
  *
@@ -93,11 +181,11 @@ export function resolveDiceCountExpressions(formula: string): string {
     const dieCount = String(Math.max(0, Math.floor(count)));
 
     // Пробел между скобкой и буквой кости уходит вместе с выражением
-    const letterIndex = closeIndex + match[0].length - 2;
+    const letterIndex = closeIndex + match[0].search(DICE_LETTER);
 
     result = `${result.slice(0, start)}${dieCount}${result.slice(letterIndex)}`;
     searchFrom = start + dieCount.length;
   }
 
-  return result;
+  return resolveDiceFaceExpressions(result);
 }
