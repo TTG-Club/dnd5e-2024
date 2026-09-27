@@ -49,6 +49,7 @@ const bundle = await build({
       export { createPinia, setActivePinia } from 'pinia';
       export { createRenderer, nextTick } from 'vue';
       export { DEFAULT_ACTOR } from './src/engine/consts.ts';
+      export { SPELL_EFFECT_TARGET_LABELS } from './src/client/ui/actor/constants.ts';
       export { default as PromptModal } from './src/client/ui/actor/ProjectilePromptModal.vue';
     `,
     resolveDir: systemRoot,
@@ -928,6 +929,92 @@ for (const [changedField, changes] of [
     assert.deepEqual(caster.system.spellSlotsUsed, originalSlots);
   });
 }
+
+/**
+ * «Наставление»: эффект-вариант на каждый навык, выбирается один.
+ *
+ * @param {string[]} skills - ключи навыков в записи
+ * @returns {object} полная запись заклинания
+ */
+function guidanceSpell(skills) {
+  return {
+    ...bless,
+    id: 'guidance',
+    name: 'Наставление',
+    level: 0,
+    targetCount: undefined,
+    scaling: undefined,
+    range: 5,
+    activeEffects: skills.map((skill) => ({
+      id: `guidance-${skill}`,
+      name: `Наставление: ${skill}`,
+      effectTarget: 'target',
+      origin: 'spell',
+      changes: [
+        { key: `skill.${skill}`, mode: 'add', value: '1d4', priority: 20 },
+      ],
+      flags: [],
+      duration: { type: 'minutes', value: 1 },
+      variant: { group: 'guidance', label: skill },
+    })),
+  };
+}
+
+it('a spell narrowed to a chosen variant still matches its full record on the sheet', () => {
+  const caster = runtime.fixture.world.actors[0];
+  const fullSpell = guidanceSpell(['acrobatics', 'arcana', 'stealth']);
+
+  caster.spells = [{ ...fullSpell, prepared: true }];
+
+  // Так каст приходит из выбора варианта: остаётся один эффект группы
+  const chosenSpell = {
+    ...fullSpell,
+    activeEffects: fullSpell.activeEffects.filter(
+      (effect) => effect.variant.label === 'arcana',
+    ),
+  };
+
+  const selection = startSelection(chosenSpell);
+
+  selection.store.toggleTarget('ally');
+  assert.equal(selection.prompt.props.onConfirm(0), true);
+  assert.equal(selection.selected.targets.validate(), true);
+  selection.selected.targets.apply();
+
+  assert.deepEqual(
+    runtime.updates.map((entity) => [
+      entity.id,
+      entity.activeEffects.at(-1).changes[0].key,
+    ]),
+    [['ally', 'skill.arcana']],
+  );
+
+  assert.equal(
+    runtime.messages.some(
+      ([text]) => text === runtime.SPELL_EFFECT_TARGET_LABELS.changed,
+    ),
+    false,
+    'каст не отклонён',
+  );
+});
+
+it('a chosen variant removed from the record invalidates captured targets', () => {
+  const caster = runtime.fixture.world.actors[0];
+  const fullSpell = guidanceSpell(['acrobatics', 'arcana']);
+
+  caster.spells = [{ ...fullSpell, prepared: true }];
+
+  const selection = startSelection({
+    ...fullSpell,
+    activeEffects: [fullSpell.activeEffects[1]],
+  });
+
+  selection.store.toggleTarget('ally');
+  assert.equal(selection.prompt.props.onConfirm(0), true);
+
+  caster.spells = [{ ...guidanceSpell(['acrobatics']), prepared: true }];
+  assert.equal(selection.selected.targets.validate(), false);
+});
 
 it('spent spell uses do not invalidate already confirmed effects and preparation remains a resource gate', () => {
   const caster = runtime.fixture.world.actors[0];

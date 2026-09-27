@@ -14,6 +14,7 @@
   import { loadCompendiumKind } from '@/core/compendiumDataClient';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import {
+    addStartingCoins,
     calculateProficiencyBonus,
     collectFeatGrantedClassSpellRequests,
     collectFeatGrantedSpellSources,
@@ -80,6 +81,7 @@
     featChoiceSpells,
     selectedEquipmentIndex,
     selectedEquipmentItems,
+    selectedEquipmentCoins,
     wizardSteps: wizardStepKeys,
     canProceed,
     nextStep,
@@ -312,6 +314,13 @@
     if (granted.length > 0) {
       rootUpdates.equipment = [...(props.actor.equipment ?? []), ...granted];
     }
+
+    // Деньги варианта — в кошелёк: их показывают в карточке варианта, и без
+    // этого выбор «N зм вместо снаряжения» не давал ничего
+    systemUpdates.currency = addStartingCoins(
+      props.actor.system.currency,
+      selectedEquipmentCoins.value,
+    );
 
     emit('apply', systemUpdates, rootUpdates);
     emit('update:open', false);

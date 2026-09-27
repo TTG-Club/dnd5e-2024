@@ -85,7 +85,7 @@
     withFlatFormulaBonus,
   } from '@vtt/shared/system/dnd.js';
 
-  import { resolveTargetedAttackRollMode } from '../../../composables/attackRollMode';
+  import { resolveTargetedAttackRoll } from '../../../composables/attackRollMode';
   import { runWithEffectVariants } from '../../../composables/effectVariantChoice';
   import {
     buildRollBonusEvaluator,
@@ -2042,6 +2042,10 @@
       ? buildRollBonusEvaluator(() => props.actor, 'attack.spell')
       : undefined;
 
+    const spellAttackRoll = incomingAttackType
+      ? resolveTargetedAttackRoll(props.actor, 'spell')
+      : undefined;
+
     openModal('DiceRollModal', {
       '_modalKey': generateId(SPELL_CAST_MODAL_KEY_PREFIX),
       'title': `${ACTOR_SPELLS_TAB_LABELS.rollTitlePrefix}${spell.name}`,
@@ -2049,9 +2053,8 @@
       rollButtonText,
       'formula': resolvedDamageFormula,
       'attackModifier': incomingAttackType ? baseMod : undefined,
-      'initialRollMode': incomingAttackType
-        ? resolveTargetedAttackRollMode(props.actor, 'spell')
-        : 'normal',
+      'initialRollMode': spellAttackRoll?.mode ?? 'normal',
+      'rollModeReasons': spellAttackRoll?.reasons,
       'attackerId': props.actor.id,
       'evaluateBonusRollFormulas': hasProjectiles
         ? undefined

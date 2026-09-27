@@ -24,7 +24,10 @@
   import { computed, toRef } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
-  import { resolveActorStats } from '@vtt/shared/system/dnd.js';
+  import {
+    addStartingCoins,
+    resolveActorStats,
+  } from '@vtt/shared/system/dnd.js';
 
   import { useEntityDetailModals } from '../../../composables/useEntityDetailModals';
   import { useFeatChoiceFeats } from '../../../composables/useFeatChoiceFeats';
@@ -114,6 +117,7 @@
     availableSkills,
     alreadyProficientSkills,
     selectedEquipmentItems,
+    selectedEquipmentCoins,
     levelRows,
 
     wizardSteps,
@@ -302,6 +306,13 @@
     if (granted.length > 0) {
       rootUpdates.equipment = [...(props.actor.equipment ?? []), ...granted];
     }
+
+    // Деньги варианта — в кошелёк: их показывают в карточке варианта, и без
+    // этого выбор «N зм вместо снаряжения» не давал ничего
+    systemUpdates.currency = addStartingCoins(
+      props.actor.system.currency,
+      selectedEquipmentCoins.value,
+    );
 
     emit('apply', systemUpdates, rootUpdates);
     isOpen.value = false;

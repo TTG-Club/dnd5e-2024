@@ -4,6 +4,7 @@
 
   import type {
     AttackRollMode,
+    AttackRollModeReasons,
     DnDCarryingCapacity,
     DnDCurrency,
     DnDGameItem,
@@ -48,6 +49,7 @@
     getAttackBonusKey,
     getAttackFlagCategory,
     getDamageBonusKey,
+    getWeaponDamageParts,
     getWeaponPrimaryDamageType,
     hasItemUseEffects,
     isItemDepleted,
@@ -65,7 +67,7 @@
     withLoadedAmmunition,
   } from '@vtt/shared/system/dnd.js';
 
-  import { resolveTargetedAttackRollMode } from '../../../composables/attackRollMode';
+  import { resolveTargetedAttackRoll } from '../../../composables/attackRollMode';
   import {
     applyEffectSource,
     prepareAmmunitionShot,
@@ -104,6 +106,7 @@
   import { extractSpellFromGameItem } from '../utils/extractSpellFromGameItem';
   import { formatSignedNumber } from '../utils/formatSignedNumber';
   import { formatWeaponModifierParts } from '../utils/formatWeaponModifierParts';
+  import { getItemIcon } from '../utils/itemIcon';
 
   const props = defineProps<Props>();
 
@@ -370,6 +373,8 @@
       damageBonus: number;
     };
     initialRollMode: AttackRollMode;
+    /** Откуда стартовый режим атаки — показывается в окне броска */
+    rollModeReasons?: AttackRollModeReasons;
     /** С какой натуральной кости крит у этого оружия */
     critThreshold?: number;
     incomingAttackType?: 'melee' | 'ranged' | 'spell';
@@ -458,7 +463,7 @@
         };
       };
 
-      const initialRollMode = resolveTargetedAttackRollMode(
+      const weaponAttackRoll = resolveTargetedAttackRoll(
         props.entity,
         getAttackFlagCategory(weapon.rangeType),
       );
@@ -489,10 +494,11 @@
           ? undefined
           : buildRollBonusEvaluator(() => props.entity, attackKey),
         evaluateBonuses,
-        initialRollMode,
+        initialRollMode: weaponAttackRoll.mode,
+        rollModeReasons: weaponAttackRoll.reasons,
         critThreshold: resolvedStats.value?.critThreshold,
         incomingAttackType: getAttackFlagCategory(weapon.rangeType),
-        damageType: getWeaponPrimaryDamageType(weapon),
+        damageType: getWeaponPrimaryDamageType(weapon, resolvedStats.value),
         damageParts: weaponPartsSetup.baseParts,
         evaluateBonusDamageParts: weaponPartsSetup.evaluateBonusDamageParts,
         onRollParts: (parts: RolledSpellDamagePart[]) =>
@@ -590,7 +596,8 @@
       id: item.id,
       type: DND_MACRO_TYPES.itemUse,
       label: `${EFFECT_USE_LABELS.hotbarPrefix}${item.name}`,
-      icon: ITEM_USE_MACRO_ICON,
+      // Значок самого предмета, как в инвентаре, а не общий значок применения
+      icon: getItemIcon(item),
       ref: item.id,
       actorId: props.entity.id,
     });
@@ -1152,7 +1159,7 @@
    * @returns строка вида «4к6+4» / «1к8 + 1к6»
    */
   function weaponDamageFormulaLabel(weapon: DnDGameItem): string {
-    const base = formatWeaponDamageFormula(weapon);
+    const base = formatWeaponDamageFormula(weapon, resolvedStats.value);
 
     // Магический бонус входит в расчёт прибавки — отдельно его не добавляем
     const mod = calculateWeaponDamageModifier(
@@ -1180,7 +1187,7 @@
 
     let hasHealing = false;
 
-    for (const part of weapon.damageParts ?? []) {
+    for (const part of getWeaponDamageParts(weapon, resolvedStats.value)) {
       const info = describeDamagePart(part);
 
       for (const type of info.types) {
@@ -1582,6 +1589,7 @@
     :evaluate-bonus-roll-formulas="rollConfig.evaluateBonusRollFormulas"
     :evaluate-conditional-bonuses="rollConfig.evaluateBonuses"
     :initial-roll-mode="rollConfig.initialRollMode"
+    :roll-mode-reasons="rollConfig.rollModeReasons"
     :crit-threshold="rollConfig.critThreshold"
     :incoming-attack-type="rollConfig.incomingAttackType"
     :damage-type="rollConfig.damageType"

@@ -9,7 +9,7 @@
  * бросалась против нуля. Здесь один способ на все пути.
  */
 
-import type { MeasurementTemplate } from '@vtt/shared';
+import type { AbilityType, MeasurementTemplate } from '@vtt/shared';
 import type {
   ActiveEffect,
   DnDSceneEntity,
@@ -23,6 +23,7 @@ import { resolveGridCellSize } from '@vtt/shared';
 import {
   bindClassLevels,
   bindSourceEffectFormulas,
+  bindWeaponSpellAbility,
   buildConcentrationEffect,
   buildFormulaContext,
   buildSpellZoneDraft,
@@ -30,6 +31,7 @@ import {
   listConcentrationCastIds,
   mergeAppliedEffects,
   passesLandingCondition,
+  resolveSpellcastingAbility,
   stampSourceSaveDcs,
 } from '@vtt/shared/system/dnd.js';
 
@@ -51,6 +53,12 @@ export interface SpellCasterSource {
   saveDc: number;
   /** Модификатор заклинательной характеристики (`@mod.spell`) */
   spellMod?: number;
+  /**
+   * Заклинательная характеристика — для замены характеристики оружия
+   * («Дубинка»). Нет — берётся по заклинанию и листу; блок заклинаний
+   * существа называет свою, и её передают явно.
+   */
+  spellAbility?: AbilityType;
 }
 
 /** Приставка ключа каста (см. {@link SpellCastCompletionInput.castKey}) */
@@ -105,10 +113,16 @@ export function prepareCasterSpellEffects(
   // Уровень класса — по id умения, пока новые id наложения его не стёрли
   const classBound = bindClassLevels(casterEffects, caster);
 
+  const spellAbility =
+    source.spellAbility ?? resolveSpellcastingAbility(caster, spell);
+
   const prepared = instantiateSpellEffects([...classBound]).map((effect) =>
     stampEffectOnApply(
       stampSourceSaveDcs(
-        bindSourceEffectFormulas(effect, formulaContext),
+        bindWeaponSpellAbility(
+          bindSourceEffectFormulas(effect, formulaContext),
+          spellAbility,
+        ),
         source.saveDc,
       ),
       {

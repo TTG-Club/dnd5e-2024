@@ -415,7 +415,7 @@ describe('каталог: значения формулой', () => {
     );
   });
 
-  it('[V20] Число костей выражением: ступени уровня в формуле', () => {
+  it('[V20] Число и грань костей выражением: ступени уровня в формуле', () => {
     const ladder = [2, 6, 7, 12, 13, 17, 18, 20].map((level) =>
       engine.evaluateFormula(`1 + steps(${level}, 7, 13, 18)`, {
         ...engine.buildFormulaContext(createActor()),
@@ -439,6 +439,25 @@ describe('каталог: значения формулой', () => {
       engine.resolveDiceCountExpressions('(@classLevel)к8'),
       '(@classLevel)к8',
       'неподставленный токен не трогается — бросок пропустит часть, как раньше',
+    );
+
+    // Грань кости — тем же выражением: «Дубинка» растит размер кости
+    const shillelaghDice = (level) =>
+      engine.resolveDiceCountExpressions(
+        `(1 + steps(${level}, 17))к(8 + 2 * steps(${level}, 5, 11) - 6 * steps(${level}, 17))`,
+      );
+
+    assert.deepEqual([1, 5, 11, 17].map(shillelaghDice), [
+      '1к8',
+      '1к10',
+      '1к12',
+      '2к6',
+    ]);
+
+    assert.equal(
+      engine.resolveDiceCountExpressions('1 d (4 + 2) + 1к(@level)'),
+      '1 d6 + 1к(@level)',
+      'пробелы вокруг скобки грани не мешают, неподставленный токен не трогается',
     );
 
     const hero = withHp(createActor, 30);

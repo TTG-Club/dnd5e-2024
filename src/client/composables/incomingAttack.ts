@@ -58,6 +58,19 @@ function findDefender(
 }
 
 /**
+ * Действующие эффекты цели вместе с аурами — по ним называются причины
+ * преимущества и помехи «атак по носителю».
+ *
+ * @param targetEntityId - цель
+ * @returns эффекты; цели в мире нет — пусто
+ */
+export function listDefenderEffects(
+  targetEntityId: string,
+): readonly ActiveEffect[] {
+  return findDefender(targetEntityId)?.effects ?? [];
+}
+
+/**
  * Флаги цели, которые включает эта атака.
  *
  * @param attacker - атакующий

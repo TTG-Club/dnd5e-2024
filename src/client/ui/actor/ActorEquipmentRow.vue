@@ -8,23 +8,16 @@
 
   import { computed } from 'vue';
 
-  import {
-    getEquipmentCategoryIcon,
-    hasItemUseEffects,
-    isItemDepleted,
-    POTION_EQUIPMENT_CATEGORY,
-  } from '@vtt/shared/system/dnd.js';
+  import { isItemDepleted } from '@vtt/shared/system/dnd.js';
 
-  import { ITEM_USE_MACRO_ICON } from '../../macros/constants';
   import {
-    DEFAULT_ITEM_TYPE_ICON,
     EQUIPMENT_BADGE_HINTS,
     EQUIPMENT_BADGE_LABELS,
     EQUIPMENT_EQUIP_ACTION_LABELS,
-    EQUIPMENT_TYPE_ICONS,
     SHEET_ROW_ARIA_LABELS,
   } from './constants';
   import SheetRowStats from './SheetRowStats.vue';
+  import { getItemIcon } from './utils/itemIcon';
   import WeaponIcon from './WeaponIcon.vue';
 
   interface Props {
@@ -66,26 +59,8 @@
     'dragstart': [event: DragEvent];
   }>();
 
-  /**
-   * Значок предмета для не-оружия: у оружия его рисует `WeaponIcon`.
-   *
-   * Предмет с эффектами применения (зелье, свиток, масло) берёт значок своей
-   * кнопки на панели быстрого доступа: по категории зелье — «снаряжение
-   * приключенца» с рюкзаком, и в инвентаре его было не узнать. Зелье с
-   * категорией «Зелье» узнаётся и так — у него значок своей категории.
-   */
-  const itemIcon = computed(() => {
-    if (
-      hasItemUseEffects(props.item)
-      && props.item.equipmentCategory !== POTION_EQUIPMENT_CATEGORY
-    ) {
-      return ITEM_USE_MACRO_ICON;
-    }
-
-    return props.item.type === 'equipment'
-      ? getEquipmentCategoryIcon(props.item.equipmentCategory)
-      : (EQUIPMENT_TYPE_ICONS[props.item.type] ?? DEFAULT_ITEM_TYPE_ICON);
-  });
+  /** Значок предмета для не-оружия: у оружия его рисует `WeaponIcon` */
+  const itemIcon = computed(() => getItemIcon(props.item));
 
   /** Универсальное оружие: хват меняется пунктом меню */
   const isVersatile = computed(

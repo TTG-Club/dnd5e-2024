@@ -11,6 +11,8 @@
  * @module system/dnd/startingEquipment
  */
 
+import type { DnDCurrency } from './types.js';
+
 /**
  * Разделы компендиума, в которых живут предметы стартового снаряжения. Один
  * список на всех: по нему позиция и ищется при выдаче, и выбирается в форме.
@@ -68,4 +70,24 @@ export function hasGrantableEquipment(
   option: StartingEquipmentOption,
 ): boolean {
   return Boolean(option.items?.length) || Boolean(option.coins);
+}
+
+/**
+ * Кошелёк после стартовых денег выбранного варианта. Монеты варианта
+ * добавляются к тому, что уже есть, а не заменяют кошелёк: предыстория и
+ * класс дают деньги по отдельности, и вторые не должны стирать первые.
+ *
+ * @param currency - кошелёк персонажа до выдачи
+ * @param coins - золотые монеты варианта; не больше нуля — выдавать нечего
+ * @returns новый кошелёк; исходный не меняется
+ */
+export function addStartingCoins(
+  currency: DnDCurrency,
+  coins: number,
+): DnDCurrency {
+  if (coins <= 0) {
+    return currency;
+  }
+
+  return { ...currency, gp: currency.gp + Math.round(coins) };
 }

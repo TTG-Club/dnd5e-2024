@@ -69,22 +69,26 @@
     props.item ? JSON.stringify(props.item) : '',
   );
 
-  /** Части урона оружия (read-only сводка через общий DamagePartsSummary) */
+  const { resolvedStats } = useResolvedStats(toRef(() => props.actor));
+
+  /**
+   * Части урона оружия (read-only сводка через общий DamagePartsSummary). У
+   * владельца — с заменами от эффектов («Дубинка»: к8 вместо к6).
+   */
   const weaponDamageParts = computed(() =>
-    props.item ? getWeaponDamageParts(props.item) : [],
+    props.item ? getWeaponDamageParts(props.item, resolvedStats.value) : [],
   );
 
   /**
    * Versatile-формула первой части (двуручный хват) для показа: кости
-   * по-русски («1d10» → «1к10»). Пустая строка — хват не задан.
+   * по-русски («1d10» → «1к10»). Пустая строка — хват не задан или кость
+   * заменена эффектом, которому хват не важен.
    */
   const versatileLabel = computed(() => {
-    const formula = props.item?.damageParts?.[0]?.versatileFormula;
+    const formula = weaponDamageParts.value[0]?.versatileFormula;
 
     return formula ? formatDiceLetters(formula) : '';
   });
-
-  const { resolvedStats } = useResolvedStats(toRef(() => props.actor));
 
   /**
    * Разбор атаки и урона для владельца: итог со знаком и слагаемые строкой —

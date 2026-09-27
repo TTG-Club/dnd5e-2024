@@ -29,8 +29,8 @@ import type { DnDSceneEntity } from './dndEntities.js';
 import { isCreatureEntity } from '@vtt/shared';
 
 import { getClassLevels } from './classTypes.js';
-import { COUNTER_FORMULA_TOKENS } from './counterResource.js';
 import { resolveDiceCountExpressions } from './diceCountExpressions.js';
+import { COUNTER_FORMULA_TOKENS } from './formulaParser.js';
 import {
   mapTriggerDamageParts,
   someTriggerDamagePart,

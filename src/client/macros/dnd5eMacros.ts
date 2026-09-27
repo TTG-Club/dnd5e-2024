@@ -9,7 +9,6 @@ import type {
 } from '@vtt/shared';
 import type {
   ActiveEffect,
-  AttackRollMode,
   CreatureAction,
   CreatureSpellPlacement,
   DnDActor,
@@ -104,7 +103,7 @@ import {
   withFlatFormulaBonus,
 } from '@vtt/shared/system/dnd.js';
 
-import { resolveTargetedAttackRollMode } from '../composables/attackRollMode';
+import { resolveTargetedAttackRoll } from '../composables/attackRollMode';
 import {
   applyActionSelfEffects,
   applyEntityEffectUse,
@@ -645,7 +644,7 @@ export function registerDnd5eMacros(): void {
 
           const targetActor = targetStore.getTargetActor();
 
-          const initialRollMode = resolveTargetedAttackRollMode(
+          const weaponAttackRoll = resolveTargetedAttackRoll(
             foundActor,
             incomingAttackType,
             { forceDisadvantage: isDisadvantage },
@@ -733,7 +732,8 @@ export function registerDnd5eMacros(): void {
                   () => useWorldEntities().findCurrentDndEntity(foundActor.id),
                   attackKey,
                 ),
-            initialRollMode,
+            initialRollMode: weaponAttackRoll.mode,
+            rollModeReasons: weaponAttackRoll.reasons,
             critThreshold: resolvedStats.critThreshold,
             incomingAttackType,
             evaluateConditionalBonuses: (modalContext: {
@@ -765,7 +765,7 @@ export function registerDnd5eMacros(): void {
                 ),
               };
             },
-            damageType: getWeaponPrimaryDamageType(foundWeapon),
+            damageType: getWeaponPrimaryDamageType(foundWeapon, resolvedStats),
             damageParts: weaponPartsSetup.baseParts,
             evaluateBonusDamageParts: weaponPartsSetup.evaluateBonusDamageParts,
             // Эффекты «на цель» гейтит оркестратор (handleWeaponRollParts →
@@ -1428,9 +1428,9 @@ function openDiceRollForSpell(
       );
     }
 
-    const spellInitialRollMode: AttackRollMode = incomingAttackType
-      ? resolveTargetedAttackRollMode(actor, 'spell')
-      : 'normal';
+    const spellAttackRoll = incomingAttackType
+      ? resolveTargetedAttackRoll(actor, 'spell')
+      : undefined;
 
     const evaluateAttackBonusRollFormulas = incomingAttackType
       ? buildRollBonusEvaluator(
@@ -1459,7 +1459,8 @@ function openDiceRollForSpell(
               )
           : undefined,
       incomingAttackType,
-      initialRollMode: spellInitialRollMode,
+      initialRollMode: spellAttackRoll?.mode ?? 'normal',
+      rollModeReasons: spellAttackRoll?.reasons,
       isHealing: spellIsHealing(spell),
       damageType: getSpellPrimaryDamageType(spell),
       skipDamageApplication: shouldSkipModalDamage,
@@ -1980,9 +1981,9 @@ function openCreatureActionRoll(
   const first = action.damageParts?.[0];
   const damageType = first ? describeDamagePart(first).types[0] : undefined;
 
-  const actionRollMode: AttackRollMode = usesSaveOrArea
-    ? 'normal'
-    : resolveTargetedAttackRollMode(
+  const actionAttackRoll = usesSaveOrArea
+    ? undefined
+    : resolveTargetedAttackRoll(
         creature,
         getAttackFlagCategory(action.rangeType),
         { forceDisadvantage: isDisadvantage },
@@ -2000,7 +2001,8 @@ function openCreatureActionRoll(
           () => useWorldEntities().findCurrentDndEntity(creature.id),
           getAttackBonusKey(action.rangeType),
         ),
-    initialRollMode: actionRollMode,
+    initialRollMode: actionAttackRoll?.mode ?? 'normal',
+    rollModeReasons: actionAttackRoll?.reasons,
     incomingAttackType: getAttackFlagCategory(action.rangeType),
     damageType,
     damageParts: setup.baseParts,
@@ -2292,12 +2294,12 @@ function openCreatureSpellRoll(
 
   // Существо как заклинатель: Сл блока и модификатор его характеристики.
   // Своя Сл заклинания (жезл, свиток) главнее Сл блока
+  const blockAbility = getCreatureSpellBlockAbility(creature, placement?.block);
+
   const casterSource: SpellCasterSource = {
     saveDc: resolveCreatureSpellSaveDC(spell, numbers.saveDC),
-    spellMod: getCreatureSpellMod(
-      creature,
-      getCreatureSpellBlockAbility(creature, placement?.block),
-    ),
+    spellMod: getCreatureSpellMod(creature, blockAbility),
+    spellAbility: blockAbility,
   };
 
   const castKey = generateId(SPELL_CAST_KEY_PREFIX);
@@ -2325,9 +2327,9 @@ function openCreatureSpellRoll(
   // значения. Без круга секция не показывается — так же, как было до групп
   const castLevel = placement?.ref.castLevel;
 
-  const spellRollMode: AttackRollMode = usesAttack
-    ? resolveTargetedAttackRollMode(creature, 'spell')
-    : 'normal';
+  const spellAttackRoll = usesAttack
+    ? resolveTargetedAttackRoll(creature, 'spell')
+    : undefined;
 
   openModal('DiceRollModal', {
     title: usesAttack ? `Атака — ${spell.name}` : spell.name,
@@ -2341,7 +2343,8 @@ function openCreatureSpellRoll(
           'attack.spell',
         )
       : undefined,
-    initialRollMode: spellRollMode,
+    initialRollMode: spellAttackRoll?.mode ?? 'normal',
+    rollModeReasons: spellAttackRoll?.reasons,
     incomingAttackType: usesAttack ? attackType : undefined,
     damageType,
     isHealing,

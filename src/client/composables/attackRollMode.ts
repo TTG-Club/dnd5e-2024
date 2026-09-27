@@ -1,6 +1,7 @@
 import type {
   AttackFlagCategory,
   AttackRollMode,
+  AttackRollModeReasons,
   DnDSceneEntity,
 } from '@vtt/shared/system/dnd.js';
 
@@ -8,11 +9,16 @@ import { useTargetStore } from '@/stores/targetStore';
 import {
   buildCarrierContext,
   collectRollConditionFlags,
+  explainAttackRollMode,
   resolveActorStats,
   resolveAttackRollMode,
 } from '@vtt/shared/system/dnd.js';
 
-import { collectDefenderAttackFlags } from './incomingAttack';
+import {
+  buildIncomingAttackContext,
+  collectDefenderAttackFlags,
+  listDefenderEffects,
+} from './incomingAttack';
 import { useBonusDamageParts } from './useBonusDamageParts';
 import {
   collectEffectsWithAuras,
@@ -25,8 +31,16 @@ export interface TargetedAttackRollOptions {
   forceDisadvantage?: boolean;
 }
 
+/** Стартовый режим броска атаки и то, откуда он взялся */
+export interface TargetedAttackRoll {
+  /** Режим броска */
+  mode: AttackRollMode;
+  /** Источники преимущества и помехи — их показывает окно броска */
+  reasons: AttackRollModeReasons;
+}
+
 /**
- * Стартовый режим броска атаки по выбранной цели.
+ * Стартовый режим броска атаки по выбранной цели и его причины.
  *
  * Одна точка для всех путей атаки — лист и хотбар, оружие, заклинания, действия
  * и заклинания существа: флаги атакующего (свои и от аур на сцене, общие и
@@ -36,47 +50,70 @@ export interface TargetedAttackRollOptions {
  * условие выполнено в этой атаке: у атакующего — «Тактика стаи», у цели —
  * «Защита от добра и зла».
  *
+ * Причины считаются по тем же флагам, что и режим: окно броска называет
+ * источник помехи, а не просто включает её.
+ *
  * @param attacker - атакующая сущность
  * @param attackType - вид атаки
  * @param options - внешняя помеха
- * @returns режим броска
+ * @returns режим броска и его причины
  */
-export function resolveTargetedAttackRollMode(
+export function resolveTargetedAttackRoll(
   attacker: DnDSceneEntity,
   attackType: AttackFlagCategory,
   options: TargetedAttackRollOptions = {},
-): AttackRollMode {
+): TargetedAttackRoll {
   const ambientEffects = listAmbientEffects(attacker.id);
+  const attackerEffects = collectEffectsWithAuras(attacker);
 
   const target = useBonusDamageParts().buildTargetHpContext(
     undefined,
     attacker.id,
   );
 
-  const rollFlags = collectRollConditionFlags(
-    collectEffectsWithAuras(attacker),
-    {
-      hasAdvantage: false,
-      hasDisadvantage: false,
-      target,
-      self: buildCarrierContext(attacker),
-    },
-  );
+  const rollContext = {
+    hasAdvantage: false,
+    hasDisadvantage: false,
+    target,
+    self: buildCarrierContext(attacker),
+  };
+
+  const rollFlags = collectRollConditionFlags(attackerEffects, rollContext);
 
   const defenderFlags = target
     ? collectDefenderAttackFlags(attacker, target.entityId, attackType)
     : [];
 
-  return resolveAttackRollMode({
-    attackerFlags: new Set([
-      ...resolveActorStats(attacker, ambientEffects).activeFlags,
-      ...rollFlags,
-    ]),
-    attackType,
-    targetFlags: new Set([
-      ...useTargetStore().getTargetFlags(),
-      ...defenderFlags,
-    ]),
-    forceDisadvantage: options.forceDisadvantage,
-  });
+  const attackerFlags = new Set([
+    ...resolveActorStats(attacker, ambientEffects).activeFlags,
+    ...rollFlags,
+  ]);
+
+  const targetFlags = new Set([
+    ...useTargetStore().getTargetFlags(),
+    ...defenderFlags,
+  ]);
+
+  const isBeyondNormalRange = options.forceDisadvantage === true;
+
+  return {
+    mode: resolveAttackRollMode({
+      attackerFlags,
+      attackType,
+      targetFlags,
+      forceDisadvantage: isBeyondNormalRange,
+    }),
+    reasons: explainAttackRollMode({
+      attackType,
+      attackerFlags,
+      attackerEffects,
+      rollContext,
+      targetFlags,
+      targetEffects: target ? listDefenderEffects(target.entityId) : [],
+      incomingAttack: target
+        ? buildIncomingAttackContext(attacker, attackType)
+        : undefined,
+      isBeyondNormalRange,
+    }),
+  };
 }

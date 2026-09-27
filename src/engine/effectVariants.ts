@@ -91,6 +91,25 @@ export function pickEffectVariants(
 }
 
 /**
+ * Выбор, который уже сделан: по эффектам, оставшимся после
+ * `pickEffectVariants`, — у каждой группы ровно тот вариант, что уцелел. Нужен,
+ * чтобы сузить свежую запись заклинания тем же выбором и сравнить её с кастом:
+ * иначе полная запись никогда не совпала бы с суженной.
+ *
+ * @param effects - эффекты после выбора вариантов
+ * @returns выбранные варианты по группам
+ */
+export function readEffectVariantChoices(
+  effects: readonly ActiveEffect[],
+): EffectVariantChoices {
+  return Object.fromEntries(
+    effects.flatMap((effect) =>
+      effect.variant ? [[effect.variant.group, effect.variant.label]] : [],
+    ),
+  );
+}
+
+/**
  * Случайный вариант каждой случайной группы.
  *
  * @param groups - группы вариантов

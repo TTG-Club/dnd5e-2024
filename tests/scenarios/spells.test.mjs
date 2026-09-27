@@ -1210,3 +1210,229 @@ describe('каталог: условия атаки по носителю', () =
     );
   });
 });
+
+describe('каталог: заклинания, меняющие оружие', () => {
+  /** Условие «Дубинки»: дубинка или боевой посох */
+  const SHILLELAGH_WEAPONS = 'weapon.baseType === "club, quarterstaff"';
+
+  /** Кость «Дубинки» по уровню заклинателя */
+  const SHILLELAGH_DICE =
+    '(1 + steps(@level, 17))к(8 + 2 * steps(@level, 5, 11) - 6 * steps(@level, 17))';
+
+  /**
+   * Вариант «Дубинки»: кость и заклинательная характеристика, у «Силового» —
+   * ещё и тип урона.
+   *
+   * @param {string} label - подпись варианта
+   * @param {string} [damageType] - тип урона варианта
+   * @returns {object} эффект
+   */
+  const shillelagh = (label, damageType) =>
+    createEffect(`Дубинка: ${label}`, {
+      name: 'Дубинка',
+      effectTarget: 'self',
+      variant: { group: 'урон', label },
+      changes: [
+        change('weapon.damageDice', SHILLELAGH_DICE, {
+          mode: 'override',
+          condition: SHILLELAGH_WEAPONS,
+        }),
+        change('weapon.attackAbility', 'spell', {
+          mode: 'override',
+          condition: SHILLELAGH_WEAPONS,
+        }),
+        ...(damageType
+          ? [
+              change('weapon.damageType', damageType, {
+                mode: 'override',
+                condition: SHILLELAGH_WEAPONS,
+              }),
+            ]
+          : []),
+      ],
+    });
+
+  /**
+   * Друид с Мудростью 16 и Силой 8 — атака Силой дала бы −1.
+   *
+   * @param {number} level - уровень
+   * @returns {object} персонаж
+   */
+  const druid = (level) => {
+    const system = structuredClone(engine.DEFAULT_ACTOR.system);
+
+    return createActor({
+      system: {
+        ...system,
+        classes: [{ classKey: 'druid', level, spellcastingAbility: 'wisdom' }],
+        abilities: {
+          ...system.abilities,
+          strength: 8,
+          dexterity: 14,
+          wisdom: 16,
+        },
+      },
+    });
+  };
+
+  const staff = {
+    id: 'staff',
+    name: 'Боевой посох',
+    type: 'weapon',
+    baseType: 'quarterstaff',
+    rangeType: 'melee',
+    weaponProperties: ['versatile'],
+    twoHandedGrip: true,
+    damageParts: [
+      {
+        formula: '1d6@dmg.bludgeoning',
+        versatileFormula: '1d8@dmg.bludgeoning',
+      },
+    ],
+  };
+
+  const dagger = {
+    id: 'dagger',
+    name: 'Кинжал',
+    type: 'weapon',
+    baseType: 'dagger',
+    rangeType: 'melee',
+    weaponProperties: ['finesse'],
+    damageParts: [{ formula: '1d4', type: 'piercing' }],
+  };
+
+  /**
+   * Эффект, каким он ложится на заклинателя: числа и характеристика
+   * подставлены при сотворении.
+   *
+   * @param {object} effect - эффект заклинания
+   * @param {object} caster - заклинатель
+   * @returns {object} наложенный эффект
+   */
+  const landed = (effect, caster) =>
+    engine.bindWeaponSpellAbility(
+      engine.bindSourceEffectFormulas(
+        effect,
+        engine.buildFormulaContext(caster),
+      ),
+      'wisdom',
+    );
+
+  it('[S31] Дубинка: кость по уровню, заклинательная характеристика, силовой урон вариантом', () => {
+    const bludgeoning = shillelagh('Дробящий');
+    const force = shillelagh('Силовой', 'force');
+
+    authoredScenario(bludgeoning, 'spell');
+    authoredScenario(force, 'spell');
+
+    // Кость растёт с уровнем, хват двумя руками её не меняет
+    const diceByLevel = [3, 5, 11, 17].map((level) => {
+      const caster = druid(level);
+
+      const stats = engine.resolveActorStats({
+        ...caster,
+        activeEffects: [landed(bludgeoning, caster)],
+      });
+
+      return engine.formatWeaponDamageFormula(staff, stats);
+    });
+
+    assert.deepEqual(diceByLevel, ['1к8', '1к10', '1к12', '2к6']);
+
+    const caster = druid(3);
+
+    const withBludgeoning = {
+      ...caster,
+      activeEffects: [landed(bludgeoning, caster)],
+    };
+
+    const stats = engine.resolveActorStats(withBludgeoning);
+
+    // Атака и урон — Мудростью, и в разборе видно, чей это эффект
+    const attackAbility = engine
+      .describeWeaponAttack(withBludgeoning, staff, stats)
+      .find((part) => part.key === 'ability');
+
+    assert.deepEqual(
+      { label: attackAbility.label, value: attackAbility.value },
+      { label: 'Мудрость (Дубинка)', value: 3 },
+    );
+
+    assert.equal(
+      engine.resolveWeaponDamageAbility(withBludgeoning, staff, stats),
+      'wisdom',
+    );
+
+    assert.equal(
+      engine.getWeaponPrimaryDamageType(staff, stats),
+      'bludgeoning',
+      'вариант «Дробящий» тип не меняет',
+    );
+
+    // Кинжал не дубинка и не посох — остаётся при своих
+    assert.equal(engine.formatWeaponDamageFormula(dagger, stats), '1к4');
+
+    assert.equal(
+      engine.resolveWeaponAttackAbility(withBludgeoning, dagger, stats),
+      'dexterity',
+    );
+
+    // Вариант «Силовой» меняет тип урона посоха
+    const forceStats = engine.resolveActorStats({
+      ...caster,
+      activeEffects: [landed(force, caster)],
+    });
+
+    assert.deepEqual(engine.getWeaponDamageParts(staff, forceStats), [
+      { formula: '1к8@dmg.force' },
+    ]);
+
+    // Без эффекта — обычный посох двумя руками, удар Силой
+    const plainStats = engine.resolveActorStats(caster);
+
+    assert.equal(engine.formatWeaponDamageFormula(staff, plainStats), '1к8');
+
+    assert.equal(
+      engine.resolveWeaponAttackAbility(caster, staff, plainStats),
+      'strength',
+    );
+  });
+
+  it('[S31b] Замена оружия от предмета касается только его, «spell» без сотворения не действует', () => {
+    const enchantment = createEffect('Громовой посох', {
+      transfer: true,
+      changes: [
+        change('weapon.damageType', 'thunder', { mode: 'override' }),
+        change('weapon.attackAbility', 'spell', { mode: 'override' }),
+      ],
+    });
+
+    const enchantedStaff = {
+      ...staff,
+      equipped: true,
+      activeEffects: [enchantment],
+    };
+
+    const plainStaff = { ...staff, id: 'plain-staff', equipped: true };
+
+    const hero = { ...druid(3), equipment: [enchantedStaff, plainStaff] };
+    const stats = engine.resolveActorStats(hero);
+
+    assert.equal(
+      engine.getWeaponPrimaryDamageType(enchantedStaff, stats),
+      'thunder',
+    );
+
+    assert.equal(
+      engine.getWeaponPrimaryDamageType(plainStaff, stats),
+      'bludgeoning',
+      'второй посох эффекта не несёт',
+    );
+
+    assert.equal(
+      engine.resolveWeaponAttackAbility(hero, enchantedStaff, stats),
+      'strength',
+      'незаменённое «spell» оставляет характеристику оружия',
+    );
+  });
+});

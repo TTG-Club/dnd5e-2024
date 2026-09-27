@@ -14,6 +14,8 @@ import {
   hasAvailableSpellSlot,
   isDndSceneEntity,
   isSpellReady,
+  pickEffectVariants,
+  readEffectVariantChoices,
   resolveActorStats,
   spellHasDamage,
 } from '@vtt/shared/system/dnd.js';
@@ -250,6 +252,11 @@ export function requestSpellEffectTargets(
   const userId = worldStore.currentUser?.id;
   const spellDefinition = serializeEffectCastDefinition(spell);
 
+  // Каст приходит уже суженным до выбранных вариантов («Наставление:
+  // Акробатика»), а на листе лежит полная запись — сверять её надо суженной
+  // тем же выбором, иначе каст отклонялся бы всегда
+  const variantChoices = readEffectVariantChoices(spell.activeEffects ?? []);
+
   /** Читает актуальную сущность, включая существа и изменения других игроков. */
   function findEntity(entityId: string): DnDSceneEntity | undefined {
     const entity = findCurrentWorldEntity(entityId);
@@ -396,7 +403,13 @@ export function requestSpellEffectTargets(
 
       return (
         !!currentSpell
-        && serializeEffectCastDefinition(currentSpell) === spellDefinition
+        && serializeEffectCastDefinition({
+          ...currentSpell,
+          activeEffects: pickEffectVariants(
+            currentSpell.activeEffects ?? [],
+            variantChoices,
+          ),
+        }) === spellDefinition
       );
     }
 

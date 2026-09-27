@@ -27,7 +27,13 @@ import {
   EFFECT_CONDITION_SUGGESTIONS,
   EFFECT_TARGET_SUGGESTIONS,
   isEffectTargetKey,
+  SHILLELAGH_DAMAGE_TYPE,
+  SHILLELAGH_WEAPON_CONDITION,
   TARGET_TYPE_CONDITION_PREFIX,
+  WEAPON_ATTACK_ABILITY_KEY,
+  WEAPON_DAMAGE_DICE_KEY,
+  WEAPON_DAMAGE_TYPE_KEY,
+  WEAPON_SPELL_ABILITY_VALUE,
 } from './activeEffectTypes.js';
 
 /** Раздел меню модификаторов. */
@@ -41,9 +47,13 @@ export type EffectModifierGroup =
   | 'skills'
   | 'attack'
   | 'damage'
+  | 'weapon'
   | 'carrierType'
   | 'carrierArmor'
   | 'targetType';
+
+/** Приставка ключей замены свойств оружия */
+const WEAPON_KEY_PREFIX = 'weapon.';
 
 /** Подписи разделов меню. */
 const EFFECT_MODIFIER_GROUP_LABELS: Record<EffectModifierGroup, string> = {
@@ -56,6 +66,7 @@ const EFFECT_MODIFIER_GROUP_LABELS: Record<EffectModifierGroup, string> = {
   skills: 'Проверки и навыки',
   attack: 'Атака',
   damage: 'Урон',
+  weapon: 'Оружие: замены',
   carrierType: 'Условие: тип носителя',
   carrierArmor: 'Условие: доспех носителя',
   targetType: 'Условие: тип цели',
@@ -72,6 +83,7 @@ const GROUP_ORDER: readonly EffectModifierGroup[] = [
   'skills',
   'attack',
   'damage',
+  'weapon',
   'carrierType',
   'carrierArmor',
   'targetType',
@@ -165,6 +177,10 @@ function groupOfKey(key: string): EffectModifierGroup {
     return 'damage';
   }
 
+  if (key.startsWith(WEAPON_KEY_PREFIX)) {
+    return 'weapon';
+  }
+
   if (key.startsWith('movement.')) {
     return 'movement';
   }
@@ -206,6 +222,11 @@ function defaultModeOfKey(key: string): EffectChangeMode {
     return 'upgrade';
   }
 
+  // Кость, характеристику и тип урона оружия не прибавить — только заменить
+  if (key.startsWith(WEAPON_KEY_PREFIX)) {
+    return 'override';
+  }
+
   return 'add';
 }
 
@@ -231,6 +252,16 @@ function defaultValueOfGroup(group: EffectModifierGroup): string | undefined {
 
   return undefined;
 }
+
+/**
+ * Значение по умолчанию у ключей замены оружия: единица, которую форма
+ * подставляет прочим ключам, здесь не значит ничего.
+ */
+const WEAPON_KEY_DEFAULT_VALUES: Readonly<Record<string, string>> = {
+  [WEAPON_DAMAGE_DICE_KEY]: '1к8',
+  [WEAPON_ATTACK_ABILITY_KEY]: WEAPON_SPELL_ABILITY_VALUE,
+  [WEAPON_DAMAGE_TYPE_KEY]: SHILLELAGH_DAMAGE_TYPE,
+};
 
 /**
  * Комбинации, где важен не только ключ, но и значение: одним ключом их не
@@ -276,6 +307,29 @@ const READY_PRESETS: readonly EffectModifierPreset[] = [
     label: 'Полёт: равен скорости плавания',
     mode: 'upgrade',
     value: '@speed.swim',
+  },
+  // «Дубинка»: кость растёт по уровню заклинателя — к8, к10, к12, 2к6
+  {
+    key: WEAPON_DAMAGE_DICE_KEY,
+    label: 'Дубинка: кость к8 → 2к6 по уровню',
+    mode: 'override',
+    value:
+      '(1 + steps(@level, 17))к(8 + 2 * steps(@level, 5, 11) - 6 * steps(@level, 17))',
+    condition: SHILLELAGH_WEAPON_CONDITION,
+  },
+  {
+    key: WEAPON_ATTACK_ABILITY_KEY,
+    label: 'Дубинка: заклинательная характеристика',
+    mode: 'override',
+    value: WEAPON_SPELL_ABILITY_VALUE,
+    condition: SHILLELAGH_WEAPON_CONDITION,
+  },
+  {
+    key: WEAPON_DAMAGE_TYPE_KEY,
+    label: 'Дубинка: силовой урон',
+    mode: 'override',
+    value: SHILLELAGH_DAMAGE_TYPE,
+    condition: SHILLELAGH_WEAPON_CONDITION,
   },
 ];
 
@@ -383,7 +437,9 @@ function buildMenu(): EffectModifierMenuGroup[] {
             key: suggestion.value,
             label: suggestion.label,
             mode: defaultModeOfKey(suggestion.value),
-            value: defaultValueOfGroup(group),
+            value:
+              defaultValueOfGroup(group)
+              ?? WEAPON_KEY_DEFAULT_VALUES[suggestion.value],
           },
     );
 

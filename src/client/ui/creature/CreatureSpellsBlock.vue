@@ -9,6 +9,7 @@
   } from '@vtt/shared';
   import type {
     AttackRollMode,
+    AttackRollModeReasons,
     CreatureSpellcastingBlock,
     CreatureSpellGroup,
     CreatureSpellPlacement,
@@ -73,7 +74,7 @@
     syncCreatureSpellcastingUses,
   } from '@vtt/shared/system/dnd.js';
 
-  import { resolveTargetedAttackRollMode } from '../../composables/attackRollMode';
+  import { resolveTargetedAttackRoll } from '../../composables/attackRollMode';
   import { runWithEffectVariants } from '../../composables/effectVariantChoice';
   import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import {
@@ -1432,6 +1433,8 @@
     attackModifier?: number;
     evaluateBonusRollFormulas?: RollBonusEvaluator;
     initialRollMode: AttackRollMode;
+    /** Откуда стартовый режим атаки — показывается в окне броска */
+    rollModeReasons?: AttackRollModeReasons;
     incomingAttackType?: 'melee' | 'ranged' | 'spell';
     damageType?: string;
     isHealing: boolean;
@@ -1589,12 +1592,15 @@
 
     // Существо как заклинатель: Сл блока и модификатор его характеристики.
     // Своя Сл заклинания (жезл, свиток) главнее Сл блока
+    const blockAbility = getCreatureSpellBlockAbility(
+      creature,
+      placement?.block,
+    );
+
     const casterSource: SpellCasterSource = {
       saveDc: resolveCreatureSpellSaveDC(spell, numbers.saveDC),
-      spellMod: getCreatureSpellMod(
-        creature,
-        getCreatureSpellBlockAbility(creature, placement?.block),
-      ),
+      spellMod: getCreatureSpellMod(creature, blockAbility),
+      spellAbility: blockAbility,
     };
 
     const castKey = generateId(SPELL_CAST_KEY_PREFIX);
@@ -1637,6 +1643,10 @@
     // так же, как было до групп
     const castLevel = placement?.ref.castLevel;
 
+    const spellAttackRoll = usesAttack
+      ? resolveTargetedAttackRoll(creature, 'spell')
+      : undefined;
+
     rollConfig.value = {
       title: usesAttack
         ? CREATURE_ACTIONS_BLOCK_LABELS.attackRollPrefix + spell.name
@@ -1651,9 +1661,8 @@
             'attack.spell',
           )
         : undefined,
-      initialRollMode: usesAttack
-        ? resolveTargetedAttackRollMode(creature, 'spell')
-        : 'normal',
+      initialRollMode: spellAttackRoll?.mode ?? 'normal',
+      rollModeReasons: spellAttackRoll?.reasons,
       incomingAttackType: usesAttack ? attackType : undefined,
       damageType: spellPrimaryType(spell),
       isHealing,
@@ -1941,6 +1950,7 @@
       :attack-modifier="rollConfig.attackModifier"
       :evaluate-bonus-roll-formulas="rollConfig.evaluateBonusRollFormulas"
       :initial-roll-mode="rollConfig.initialRollMode"
+      :roll-mode-reasons="rollConfig.rollModeReasons"
       :incoming-attack-type="rollConfig.incomingAttackType"
       :damage-type="rollConfig.damageType"
       :is-healing="rollConfig.isHealing"

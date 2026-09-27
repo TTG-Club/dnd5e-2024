@@ -439,18 +439,28 @@ export function useBackgroundWizard(
   }
 
   /**
-   * Позиции выбранного варианта снаряжения. Пусто — выбирать было нечего или
-   * вариант не выбран; тогда мастер инвентарь не трогает.
+   * Выбранный вариант снаряжения. Нет варианта — выбирать было нечего или
+   * вариант не выбран; тогда мастер не трогает ни инвентарь, ни кошелёк.
    */
-  const selectedEquipmentItems = computed(() => {
+  const selectedEquipmentOption = computed(() => {
     const index = selectedEquipmentIndex.value;
 
     if (index === null) {
-      return [];
+      return undefined;
     }
 
-    return definition.value?.equipmentOptions?.[index]?.items ?? [];
+    return definition.value?.equipmentOptions?.[index];
   });
+
+  /** Позиции выбранного варианта; пусто — класть в инвентарь нечего */
+  const selectedEquipmentItems = computed(
+    () => selectedEquipmentOption.value?.items ?? [],
+  );
+
+  /** Золото выбранного варианта: «50 зм» вместо снаряжения или сдача к нему */
+  const selectedEquipmentCoins = computed(
+    () => selectedEquipmentOption.value?.coins ?? 0,
+  );
 
   /**
    * Применяет выбранные данные и формирует updates для актора.
@@ -849,6 +859,7 @@ export function useBackgroundWizard(
     featChoiceSpells,
     selectedEquipmentIndex,
     selectedEquipmentItems,
+    selectedEquipmentCoins,
     wizardSteps,
     canProceed,
     nextStep,

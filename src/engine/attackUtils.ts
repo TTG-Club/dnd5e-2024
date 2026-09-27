@@ -552,20 +552,49 @@ export function resolveAttackRollMode(
 ): AttackRollMode {
   const { attackerFlags, attackType, targetFlags, forceDisadvantage } = params;
 
-  const hasAdvantage =
-    attackerFlags.has('attack.advantage')
-    || attackerFlags.has(`attack.${attackType}.advantage`)
-    || (targetFlags?.has('attacksAgainst.advantage') ?? false)
-    || (targetFlags?.has(`attacksAgainst.${attackType}.advantage`) ?? false);
+  const hasFlagOfKind = (kind: AttackRollModeKind): boolean => {
+    const keys = listAttackRollModeFlags(kind, attackType);
 
-  const hasDisadvantage =
-    forceDisadvantage === true
-    || attackerFlags.has('attack.disadvantage')
-    || attackerFlags.has(`attack.${attackType}.disadvantage`)
-    || (targetFlags?.has('attacksAgainst.disadvantage') ?? false)
-    || (targetFlags?.has(`attacksAgainst.${attackType}.disadvantage`) ?? false);
+    return (
+      keys.attacker.some((flag) => attackerFlags.has(flag))
+      || keys.target.some((flag) => targetFlags?.has(flag) ?? false)
+    );
+  };
 
-  return combineRollMode(hasAdvantage, hasDisadvantage);
+  return combineRollMode(
+    hasFlagOfKind('advantage'),
+    forceDisadvantage === true || hasFlagOfKind('disadvantage'),
+  );
+}
+
+/** Сторона режима броска: преимущество или помеха */
+export type AttackRollModeKind = 'advantage' | 'disadvantage';
+
+/** Флаги, дающие атаке преимущество или помеху, по сторонам боя */
+export interface AttackRollModeFlags {
+  /** Флаги атакующего: общий и профильный по виду атаки */
+  attacker: string[];
+  /** Флаги цели «атаки по носителю»: общий и профильный */
+  target: string[];
+}
+
+/**
+ * Какие флаги дают атаке этого вида преимущество или помеху. Один список на
+ * расчёт режима и на объяснение, откуда режим взялся, — чтобы показанная
+ * причина и сам бросок не разошлись.
+ *
+ * @param kind - преимущество или помеха
+ * @param attackType - вид атаки
+ * @returns флаги атакующего и цели
+ */
+export function listAttackRollModeFlags(
+  kind: AttackRollModeKind,
+  attackType: AttackFlagCategory,
+): AttackRollModeFlags {
+  return {
+    attacker: [`attack.${kind}`, `attack.${attackType}.${kind}`],
+    target: [`attacksAgainst.${kind}`, `attacksAgainst.${attackType}.${kind}`],
+  };
 }
 
 /**

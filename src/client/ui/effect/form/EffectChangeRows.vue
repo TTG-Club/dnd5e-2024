@@ -31,14 +31,17 @@
     EFFECT_VALUE_SUGGESTIONS,
     getEffectChangeModeChoice,
     getEffectChangeShownValue,
+    getWeaponOverrideValueOptions,
     isDiceFormulaValue,
     isEffectModifierSubmenu,
     isEffectTargetKey,
     isNoOpEffectChange,
     isRollTimeDiceKey,
+    isWeaponOverrideKey,
     MAX_EFFECT_CHANGE_STEP,
     toStoredEffectChangeValue,
     validateFormula,
+    validateWeaponOverrideValue,
   } from '@vtt/shared/system/dnd.js';
 
   import {
@@ -89,6 +92,11 @@
   function valueError(change: EffectChange): string | undefined {
     if (change.key === '') {
       return undefined;
+    }
+
+    // Замена свойства оружия — не формула: кость или слово из списка
+    if (isWeaponOverrideKey(change.key)) {
+      return validateWeaponOverrideValue(change.key, change.value);
     }
 
     // Кость числом не считается: её катает бросок — если он у ключа вообще
@@ -178,6 +186,7 @@
           ? describeEffectChangeKey(change.key)
           : EFFECT_CHANGE_ROW_LABELS.keyPlaceholder,
         valueError: valueError(change),
+        valueOptions: getWeaponOverrideValueOptions(change.key),
         // «Вычесть» — только в форме: в данных это «Добавить» с минусом
         modeChoice: getEffectChangeModeChoice(change),
         shownValue: getEffectChangeShownValue(change),
@@ -563,7 +572,25 @@
 
       <UFormField :error="row.valueError">
         <div class="flex flex-col gap-1">
-          <div class="flex w-full items-center gap-1">
+          <UTooltip
+            v-if="row.valueOptions"
+            :text="EFFECT_CHANGE_ROW_LABELS.value"
+          >
+            <USelect
+              :model-value="row.change.value"
+              :items="row.valueOptions"
+              value-key="value"
+              size="sm"
+              class="w-full"
+              :portal="false"
+              @update:model-value="updateValue(row.index, $event)"
+            />
+          </UTooltip>
+
+          <div
+            v-else
+            class="flex w-full items-center gap-1"
+          >
             <UTooltip :text="EFFECT_CHANGE_ROW_LABELS.value">
               <div class="min-w-0 flex-1">
                 <UInput
