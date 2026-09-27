@@ -104,37 +104,38 @@
     class="w-full max-w-full bg-default/20 transition-colors"
     :class="blockClass"
   >
-    <div class="flex flex-col gap-2 px-2 pb-2">
-      <div class="flex items-center justify-between gap-2">
+    <!-- Колонка узкая: успехи и провалы строками, а не в одну линию — иначе блок вылезает за край -->
+    <div class="flex min-w-0 flex-col gap-2 px-2 pb-2">
+      <div class="flex flex-col gap-1.5">
         <div
           v-for="kind in DEATH_SAVE_MARK_KINDS"
           :key="kind"
-          class="flex items-center gap-1"
+          class="flex items-center justify-between gap-2"
         >
           <span
-            class="text-[10px] font-bold tracking-wider text-dimmed uppercase"
+            class="truncate text-[10px] font-bold tracking-wider text-dimmed uppercase"
           >
             {{ DEATH_SAVES_BLOCK_LABELS[kind] }}
           </span>
 
-          <button
-            v-for="index in MARK_INDEXES"
-            :key="index"
-            type="button"
-            class="size-5 cursor-pointer rounded-full border transition-colors"
-            :class="markClass(kind, index)"
-            :aria-label="`${DEATH_SAVES_BLOCK_LABELS[kind]} ${index}`"
-            :aria-pressed="index <= state[kind]"
-            @click.left.exact.prevent="handleMark(kind, index)"
-          />
+          <div class="flex shrink-0 items-center gap-1">
+            <button
+              v-for="index in MARK_INDEXES"
+              :key="index"
+              type="button"
+              class="size-5 cursor-pointer rounded-full border transition-colors"
+              :class="markClass(kind, index)"
+              :aria-label="`${DEATH_SAVES_BLOCK_LABELS[kind]} ${index}`"
+              :aria-pressed="index <= state[kind]"
+              @click.left.exact.prevent="handleMark(kind, index)"
+            />
+          </div>
         </div>
       </div>
 
-      <div
-        class="flex items-center justify-between gap-2 border-t border-default/50 pt-2"
-      >
+      <div class="flex flex-col gap-2 border-t border-default/50 pt-2">
         <p
-          class="text-xs"
+          class="text-xs break-words"
           :class="statusClass"
         >
           {{ status }}
@@ -146,6 +147,7 @@
           size="xs"
           color="error"
           variant="soft"
+          block
           :label="DEATH_SAVES_BLOCK_LABELS.roll"
           @click.left.exact.prevent="emit('roll')"
         />
