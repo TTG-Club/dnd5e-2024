@@ -2218,6 +2218,19 @@
                         {{ PINNED_SPELL_FEATURE_PREFIX
                         }}{{ getPinnedFeatureName(entry) }}
                       </UBadge>
+
+                      <!-- В режиме выбора нажатие на строку отмечает
+                        заклинание — карточку открывает отдельная кнопка -->
+                      <UButton
+                        v-if="isSelectionMode"
+                        icon="tabler:info-circle"
+                        color="neutral"
+                        variant="ghost"
+                        size="sm"
+                        class="shrink-0"
+                        :aria-label="COMPENDIUM_LABELS.spellDetail"
+                        @click.left.exact.prevent="openSpellDetail(entry)"
+                      />
                     </div>
                   </template>
 

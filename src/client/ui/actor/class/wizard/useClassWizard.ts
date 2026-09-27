@@ -989,14 +989,23 @@ export function useClassWizard(
   });
 
   /**
-   * Переоткрытые выборы пустыми дарами — для применения на листе: умение уже
-   * выдано, и повторить его владения и заклинания значило бы выдать их дважды.
+   * Переоткрытые выборы пустыми дарами — одни выборы: умение уже выдано, и
+   * повторить его владения и заклинания значило бы выдать их дважды. С
+   * названием умения или записи, которая спрашивает: им подписываются
+   * выбранные заклинания.
    */
-  const reopenedFeatData = computed<FeatData[]>(() =>
+  const reopenedGrantSources = computed<
+    { sourceName: string; featData: FeatData }[]
+  >(() =>
     reopenedChoiceSources.value.map((source) => ({
-      type: 'feat',
-      choices: source.choices,
+      sourceName: source.name,
+      featData: { type: 'feat', choices: source.choices },
     })),
+  );
+
+  /** Переоткрытые выборы пустыми дарами — для применения на листе */
+  const reopenedFeatData = computed<FeatData[]>(() =>
+    reopenedGrantSources.value.map((source) => source.featData),
   );
 
   /**
@@ -1571,56 +1580,6 @@ export function useClassWizard(
   );
 
   /**
-   * Заклинания, автоматически предоставляемые умениями на получаемом уровне:
-   * `grantedSpells` умений этого уровня плюс `grantedSpellsByLevel` ранее
-   * полученных умений (поуровневые списки доменов/клятв/покровителей).
-   * Подготовка и её исключения определяются источником выдачи.
-   */
-  const grantedSpellSources = computed((): GrantedSpellSource[] => {
-    const classDef = classDefinition.value;
-
-    if (!classDef) {
-      return [];
-    }
-
-    const allFeatures = [
-      ...classDef.features,
-      ...(activeSubclass.value?.features ?? []),
-    ];
-
-    // Заклинания черт, взятых уровнем, идут тем же путём, что и заклинания
-    // умений: «Посвящённый в магию» вместо повышения характеристик обязан
-    // положить свои заговоры в книгу
-    return [
-      ...collectGrantedSpellSourcesForClassLevel(allFeatures, nextLevel.value),
-      // Заклинания из блоков даров уровня — класса, подкласса, умений и
-      // выбранных вариантов: и выданные без выбора, и названные самим игроком
-      // («Договор Гримуара» даёт выбрать три заговора). Тем же кодом, что у
-      // черты: набор даров у них общий, и второй разбор разошёлся бы с первым.
-      // Повтор с заклинаниями умения выше не страшен — лист отсеивает их по
-      // названию
-      ...levelFeatDataSources.value.flatMap((source) =>
-        collectFeatGrantedSpellSources(
-          {
-            name: source.sourceName,
-            featData: source.featData,
-            choices: wizardState.featDataChoices,
-          },
-          actor.value,
-        ),
-      ),
-      ...chosenCompendiumFeats.value.flatMap((feat) =>
-        collectFeatGrantedSpellSources(feat, actor.value),
-      ),
-    ].map((source) => ({
-      ...source,
-      // Копия заклинания — из пака самой записи класса, если источник не
-      // назвал свой: одноимённые копии из соседних компендиумов остаются за бортом
-      packId: source.packId ?? packId.value,
-    }));
-  });
-
-  /**
    * Лист с уже применённым уровнем, который берут сейчас.
    *
    * Нужен выдаче «весь список класса, не выше доступного круга»: круг такой группы
@@ -1678,6 +1637,63 @@ export function useClassWizard(
       ...actor.value,
       system: { ...actor.value.system, classes },
     };
+  });
+
+  /**
+   * Заклинания, автоматически предоставляемые умениями на получаемом уровне:
+   * `grantedSpells` умений этого уровня плюс `grantedSpellsByLevel` ранее
+   * полученных умений (поуровневые списки доменов/клятв/покровителей).
+   * Подготовка и её исключения определяются источником выдачи.
+   */
+  const grantedSpellSources = computed((): GrantedSpellSource[] => {
+    const classDef = classDefinition.value;
+
+    if (!classDef) {
+      return [];
+    }
+
+    const allFeatures = [
+      ...classDef.features,
+      ...(activeSubclass.value?.features ?? []),
+    ];
+
+    // Заклинания черт, взятых уровнем, идут тем же путём, что и заклинания
+    // умений: «Посвящённый в магию» вместо повышения характеристик обязан
+    // положить свои заговоры в книгу
+    return [
+      ...collectGrantedSpellSourcesForClassLevel(allFeatures, nextLevel.value),
+      // Заклинания из блоков даров уровня — класса, подкласса, умений и
+      // выбранных вариантов: и выданные без выбора, и названные самим игроком
+      // («Договор Гримуара» даёт выбрать три заговора). Тем же кодом, что у
+      // черты: набор даров у них общий, и второй разбор разошёлся бы с первым.
+      // Повтор с заклинаниями умения выше не страшен — лист отсеивает их по
+      // названию.
+      // Вместе с ними — выборы прошлых умений и самой записи класса,
+      // открывшиеся этим уровнем: «ещё два заклинания в книгу» волшебника
+      // спрашивается именно так. Без них мастер показывал вопрос, а ответ на
+      // лист не доходил — игрок добирал заклинания вручную.
+      // Уровень доступа сверяется по листу С НОВЫМ уровнем: выбор, открытый
+      // ровно этим уровнем, по старому листу считался бы ещё закрытым
+      ...[...levelFeatDataSources.value, ...reopenedGrantSources.value].flatMap(
+        (source) =>
+          collectFeatGrantedSpellSources(
+            {
+              name: source.sourceName,
+              featData: source.featData,
+              choices: wizardState.featDataChoices,
+            },
+            pendingActor.value,
+          ),
+      ),
+      ...chosenCompendiumFeats.value.flatMap((feat) =>
+        collectFeatGrantedSpellSources(feat, pendingActor.value),
+      ),
+    ].map((source) => ({
+      ...source,
+      // Копия заклинания — из пака самой записи класса, если источник не
+      // назвал свой: одноимённые копии из соседних компендиумов остаются за бортом
+      packId: source.packId ?? packId.value,
+    }));
   });
 
   /**

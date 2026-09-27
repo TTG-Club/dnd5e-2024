@@ -37,6 +37,7 @@ import {
   expandClassSpellRequests,
   getTotalLevel,
   isFeatOwnedEffect,
+  normalizeSpellName,
   prepareTransferredFeatEffects,
   raiseTokenDarkvision,
   removeFeatChoiceSelections,
@@ -412,7 +413,7 @@ export function reapplyFeatToActor(
 
   // Уровень взятия переносим со старой версии: правка черты — не повторное её
   // получение, и прибавка к хитам от этого меняться не должна
-  return applyFeatToActor(
+  const applied = applyFeatToActor(
     intermediate,
     {
       ...updatedFeat,
@@ -424,4 +425,22 @@ export function reapplyFeatToActor(
     },
     resolvedSpells,
   );
+
+  // Отметку подготовки у заклинаний, оставшихся за чертой, переносим: снятие и
+  // повторная выдача ставят её заново по данным черты, и пересмотр выборов на
+  // новом уровне молча снимал подготовку, сделанную игроком
+  const preparedNames = new Set(
+    (actor.spells ?? [])
+      .filter((spell) => spell.prepared)
+      .map((spell) => normalizeSpellName(spell.name)),
+  );
+
+  return {
+    ...applied,
+    spells: applied.spells.map((spell) =>
+      !spell.prepared && preparedNames.has(normalizeSpellName(spell.name))
+        ? { ...spell, prepared: true }
+        : spell,
+    ),
+  };
 }
