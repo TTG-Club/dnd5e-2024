@@ -1547,19 +1547,28 @@ export function useClassWizard(
   );
 
   /**
-   * Позиции выбранного варианта стартового снаряжения. Пусто — вариант не
-   * выбран, выбран отказ или приехал без позиций; тогда мастер инвентарь
-   * не трогает.
+   * Выбранный вариант стартового снаряжения. Нет варианта — он не выбран или
+   * выбран отказ; тогда мастер не трогает ни инвентарь, ни кошелёк.
    */
-  const selectedEquipmentItems = computed(() => {
+  const selectedEquipmentOption = computed(() => {
     const index = wizardState.selectedEquipmentIndex;
 
     if (index === null || index === CLASS_EQUIPMENT_NONE_INDEX) {
-      return [];
+      return undefined;
     }
 
-    return classDefinition.value?.startingEquipment?.[index]?.items ?? [];
+    return classDefinition.value?.startingEquipment?.[index];
   });
+
+  /** Позиции выбранного варианта; пусто — класть в инвентарь нечего */
+  const selectedEquipmentItems = computed(
+    () => selectedEquipmentOption.value?.items ?? [],
+  );
+
+  /** Золото выбранного варианта: «150 зм» вместо снаряжения или сдача к нему */
+  const selectedEquipmentCoins = computed(
+    () => selectedEquipmentOption.value?.coins ?? 0,
+  );
 
   /**
    * Заклинания, автоматически предоставляемые умениями на получаемом уровне:
@@ -2783,6 +2792,7 @@ export function useClassWizard(
     availableSkills,
     alreadyProficientSkills,
     selectedEquipmentItems,
+    selectedEquipmentCoins,
     levelRows,
 
     // Шаги
