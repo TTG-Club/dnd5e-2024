@@ -37,11 +37,11 @@ import {
   buildPseudoSpell,
   calculateWeaponDamageModifier,
   collectBonusDamageFormulas,
-  describeDamagePart,
   entityHasDamageStatus,
   entityHasWeaponMastery,
   getCreatureSpellMod,
   getDamageBonusKey,
+  getDamagePartsPrimaryType,
   getWeaponDamageParts,
   getWeaponPrimaryDamageType,
   hasBonusDamageFormulas,
@@ -548,9 +548,7 @@ export function useBonusDamageParts() {
 
     const baseDamageParts = action.damageParts ?? [];
 
-    const defaultType = baseDamageParts[0]
-      ? describeDamagePart(baseDamageParts[0]).types[0]
-      : undefined;
+    const defaultType = getDamagePartsPrimaryType(baseDamageParts);
 
     const pseudoSpell = buildPseudoSpell({
       id: `creature-action-${creature.id}-${action.name}`,
@@ -622,9 +620,7 @@ export function useBonusDamageParts() {
 
     const baseDamageParts = spell.damageParts ?? [];
 
-    const defaultType = baseDamageParts[0]
-      ? describeDamagePart(baseDamageParts[0]).types[0]
-      : undefined;
+    const defaultType = getDamagePartsPrimaryType(baseDamageParts);
 
     // Клон заклинания как псевдо-спелл: свои эффекты для save/area-пути, не
     // трогая сохранённое заклинание существа. Эффекты всегда идут через

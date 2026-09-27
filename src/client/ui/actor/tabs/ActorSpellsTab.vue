@@ -51,6 +51,7 @@
     damagePartIsHealing,
     getAvailableSpellLevels,
     getClassPreparedValue,
+    getDamageTemplateColor,
     getPactSlotInfo,
     getPreparedLimitBreakdown,
     getSpellAttackBreakdown,
@@ -75,10 +76,8 @@
     resolveSpellcastingAbility,
     resolveSpellDamageFormula,
     resolveSpellSaveDC,
-    SPELL_DAMAGE_TEMPLATE_COLORS,
     SPELL_LEVEL_LABELS,
     SPELL_SCHOOL_LABELS,
-    SPELL_TEMPLATE_DEFAULT_COLOR,
     SPELL_USES_RECOVERY_LABELS,
     spellIsHealing,
     withFlatDamageBonus,
@@ -1517,9 +1516,9 @@
     if (spell.areaOfEffect) {
       const templateStore = useSpellTemplateStore();
 
-      const templateColor =
-        SPELL_DAMAGE_TEMPLATE_COLORS[getSpellPrimaryDamageType(spell) ?? '']
-        ?? SPELL_TEMPLATE_DEFAULT_COLOR;
+      const templateColor = getDamageTemplateColor(
+        getSpellPrimaryDamageType(spell),
+      );
 
       templateStore.requestPlacement(
         // Шаблон каста живёт до применения и снимается сам, поэтому размер ему

@@ -22,10 +22,10 @@ import {
   describeCreatureDamageCondition,
   describeDamagePart,
   entityHasDamageStatus,
+  getDamagePartsPrimaryType,
+  getDamageTemplateColor,
   isDndSceneEntity,
   readAlternativeShownParts,
-  SPELL_DAMAGE_TEMPLATE_COLORS,
-  SPELL_TEMPLATE_DEFAULT_COLOR,
 } from '@vtt/shared/system/dnd.js';
 
 import { useSystemDataStore } from '../stores/systemDataStore';
@@ -287,12 +287,9 @@ export function launchCreatureAction(
     return;
   }
 
-  const first = action.damageParts?.[0];
-  const primaryType = first ? describeDamagePart(first).types[0] : undefined;
-
-  const color =
-    SPELL_DAMAGE_TEMPLATE_COLORS[primaryType ?? '']
-    ?? SPELL_TEMPLATE_DEFAULT_COLOR;
+  const color = getDamageTemplateColor(
+    getDamagePartsPrimaryType(action.damageParts),
+  );
 
   useSpellTemplateStore().requestPlacement(
     action.areaOfEffect,

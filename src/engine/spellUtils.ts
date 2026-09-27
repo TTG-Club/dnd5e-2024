@@ -1321,6 +1321,22 @@ export function describeDamagePart(part: DamagePart): DamagePartInfo {
 }
 
 /**
+ * Основной тип урона набора частей (действия или заклинания существа):
+ * первый тип первой части. По нему выбирается цвет шаблона области и
+ * подпись броска.
+ *
+ * @param parts - части урона/лечения (могут отсутствовать)
+ * @returns ключ типа урона или undefined, если частей нет или первая — чистое лечение
+ */
+export function getDamagePartsPrimaryType(
+  parts: readonly DamagePart[] | undefined,
+): string | undefined {
+  const firstPart = parts?.[0];
+
+  return firstPart ? describeDamagePart(firstPart).types[0] : undefined;
+}
+
+/**
  * Гейт части по состоянию HP цели. `full`/`notFull` — из токенов
  * `@target.full`/`@target.notFull`; `halfOrLess` («Окровавлен», HP ≤ половины) —
  * из отложенного условия `target.hp.*` change-а бонус-урона, когда единой цели

@@ -54,7 +54,6 @@ import {
   consumeCreatureSpellGroupUse,
   creatureActionHasSave,
   damagePartIsHealing,
-  describeDamagePart,
   describeItemUseAvailability,
   describeWeaponAttackAvailability,
   evaluateConditionalBonuses,
@@ -67,6 +66,8 @@ import {
   getCreatureSpellMod,
   getCreatureSpellRollButtonText,
   getDamageBonusKey,
+  getDamagePartsPrimaryType,
+  getDamageTemplateColor,
   getPactSlotInfo,
   getSpellAttackType,
   getSpellDamageParts,
@@ -93,8 +94,6 @@ import {
   resolveSpellDamageFormula,
   resolveSpellSaveDC,
   resolveWeaponSaveDc,
-  SPELL_DAMAGE_TEMPLATE_COLORS,
-  SPELL_TEMPLATE_DEFAULT_COLOR,
   spellHasDamage,
   spellIsHealing,
   stripDescriptionRollMarkers,
@@ -956,9 +955,9 @@ function executeSpellCast(
   if (spell.areaOfEffect) {
     const templateStore = useSpellTemplateStore();
 
-    const templateColor =
-      SPELL_DAMAGE_TEMPLATE_COLORS[getSpellPrimaryDamageType(spell) ?? '']
-      ?? SPELL_TEMPLATE_DEFAULT_COLOR;
+    const templateColor = getDamageTemplateColor(
+      getSpellPrimaryDamageType(spell),
+    );
 
     templateStore.requestPlacement(
       {
@@ -1957,8 +1956,7 @@ function openCreatureActionRoll(
     targetType: targetHp?.creatureType,
   });
 
-  const first = action.damageParts?.[0];
-  const damageType = first ? describeDamagePart(first).types[0] : undefined;
+  const damageType = getDamagePartsPrimaryType(action.damageParts);
 
   const actionAttackRoll = usesSaveOrArea
     ? undefined
@@ -2186,15 +2184,10 @@ function registerCreatureSpellMacro(): void {
         // Область: размещаем шаблон у токена существа, затем кидаем урон
         if (spell.areaOfEffect) {
           const templateStore = useSpellTemplateStore();
-          const first = spell.damageParts?.[0];
 
-          const primaryType = first
-            ? describeDamagePart(first).types[0]
-            : undefined;
-
-          const color =
-            SPELL_DAMAGE_TEMPLATE_COLORS[primaryType ?? '']
-            ?? SPELL_TEMPLATE_DEFAULT_COLOR;
+          const color = getDamageTemplateColor(
+            getDamagePartsPrimaryType(spell.damageParts),
+          );
 
           templateStore.requestPlacement(
             spell.areaOfEffect,
@@ -2263,8 +2256,7 @@ function openCreatureSpellRoll(
   });
 
   const isHealing = spellIsHealing(spell);
-  const first = spell.damageParts?.[0];
-  const damageType = first ? describeDamagePart(first).types[0] : undefined;
+  const damageType = getDamagePartsPrimaryType(spell.damageParts);
 
   const numbers = calculateCreatureSpellBlockNumbers(
     creature,

@@ -33,10 +33,10 @@
     creatureActionHasSave,
     DEFAULT_REACH_FEET,
     describeCreatureDamageCondition,
-    describeDamagePart,
     getActionDescriptionMarkdown,
     getAttackBonusKey,
     getAttackFlagCategory,
+    getDamagePartsPrimaryType,
     isDndCreature,
     listCreatureDamageAlternatives,
     readAlternativeShownParts,
@@ -298,13 +298,6 @@
     };
   }
 
-  /** Основной тип урона действия (для цвета шаблона и подписи броска) */
-  function actionPrimaryType(action: CreatureAction): string | undefined {
-    const first = action.damageParts?.[0];
-
-    return first ? describeDamagePart(first).types[0] : undefined;
-  }
-
   /**
    * Проверяет, есть ли у действия боевые параметры (атака, урон или спасбросок)
    * @param action - действие
@@ -519,7 +512,7 @@
       initialRollMode: actionAttackRoll?.mode ?? 'normal',
       rollModeReasons: actionAttackRoll?.reasons,
       incomingAttackType: getAttackFlagCategory(action.rangeType),
-      damageType: actionPrimaryType(action),
+      damageType: getDamagePartsPrimaryType(action.damageParts),
       damageParts: setup.baseParts,
       evaluateBonusDamageParts: setup.evaluateBonusDamageParts,
       onRollParts: (parts: RolledSpellDamagePart[]) =>

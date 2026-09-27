@@ -52,7 +52,6 @@
     consumeCreatureSpellGroupUse,
     createEmptyCreatureSpellcastingBlock,
     createEmptyCreatureSpellGroup,
-    describeDamagePart,
     ensureCreatureSpellsInBlocks,
     findCreatureSpellPlacement,
     getCreatureSpellBlockAbility,
@@ -60,15 +59,15 @@
     getCreatureSpellGroupRecovery,
     getCreatureSpellMod,
     getCreatureSpellRollButtonText,
+    getDamagePartsPrimaryType,
+    getDamageTemplateColor,
     getSpellAttackType,
     hasCreatureSpellGroupUsesLeft,
     hasCreatureSpellUsesLeft,
     isCreatureSpellPoolMode,
     isSpell,
     resolveCreatureSpellSaveDC,
-    SPELL_DAMAGE_TEMPLATE_COLORS,
     SPELL_SCHOOL_LABELS,
-    SPELL_TEMPLATE_DEFAULT_COLOR,
     SPELL_USES_RECOVERY_LABELS,
     spellIsHealing,
     syncCreatureSpellcastingUses,
@@ -1488,13 +1487,6 @@
     return [...(world.actors ?? []), ...(world.creatures ?? [])];
   }
 
-  /** Основной тип урона заклинания (для цвета шаблона и подписи броска) */
-  function spellPrimaryType(spell: Spell): string | undefined {
-    const first = spell.damageParts?.[0];
-
-    return first ? describeDamagePart(first).types[0] : undefined;
-  }
-
   /**
    * Запускает каст заклинания существа. Списывает применение (если есть), для
    * области сначала размещает шаблон у токена существа, затем открывает бросок.
@@ -1534,9 +1526,9 @@
 
       // Область: размещаем шаблон у токена существа, затем кидаем урон
       if (spell.areaOfEffect) {
-        const color =
-          SPELL_DAMAGE_TEMPLATE_COLORS[spellPrimaryType(spell) ?? '']
-          ?? SPELL_TEMPLATE_DEFAULT_COLOR;
+        const color = getDamageTemplateColor(
+          getDamagePartsPrimaryType(spell.damageParts),
+        );
 
         spellTemplateStore.requestPlacement(
           spell.areaOfEffect,
@@ -1664,7 +1656,7 @@
       initialRollMode: spellAttackRoll?.mode ?? 'normal',
       rollModeReasons: spellAttackRoll?.reasons,
       incomingAttackType: usesAttack ? attackType : undefined,
-      damageType: spellPrimaryType(spell),
+      damageType: getDamagePartsPrimaryType(spell.damageParts),
       isHealing,
       damageParts: setup.baseParts,
       spellLevel: castLevel === undefined ? undefined : spell.level,

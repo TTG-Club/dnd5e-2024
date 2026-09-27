@@ -357,3 +357,17 @@ export const SPELL_DAMAGE_TEMPLATE_COLORS: Record<string, number> = {
 
 /** Цвет шаблона по умолчанию (если тип урона неизвестен) */
 export const SPELL_TEMPLATE_DEFAULT_COLOR = 0x6644ff;
+
+/**
+ * Цвет шаблона области по типу урона; для неизвестного или отсутствующего
+ * типа — {@link SPELL_TEMPLATE_DEFAULT_COLOR}.
+ *
+ * @param damageType - ключ типа урона
+ * @returns цвет шаблона (0xRRGGBB)
+ */
+export function getDamageTemplateColor(damageType: string | undefined): number {
+  return (
+    SPELL_DAMAGE_TEMPLATE_COLORS[damageType ?? '']
+    ?? SPELL_TEMPLATE_DEFAULT_COLOR
+  );
+}
