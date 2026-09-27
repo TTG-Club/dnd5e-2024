@@ -2906,13 +2906,19 @@ export function prepareDerivedData(
         continue;
       }
 
-      // Владение: baseType надетого предмета должен быть в списке владений.
+      // Владение: в списке есть сам доспех (baseType) или его категория.
+      // Список пишут двумя способами: мастер класса и окно владений — по
+      // доспехам («leather»), черты и дары уровней — категорией («light»).
       // Если baseType неизвестен (кастомный предмет) — не штрафуем.
       // Списка нет (существо) — владение не проверяется вовсе.
       if (
         armorProficiencies
         && item.baseType
         && !armorProficiencies.includes(item.baseType)
+        && !(
+          item.equipmentCategory
+          && armorProficiencies.includes(item.equipmentCategory)
+        )
       ) {
         lacksArmorProficiency = true;
       }
