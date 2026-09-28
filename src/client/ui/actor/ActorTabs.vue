@@ -225,6 +225,7 @@
         :is-drag-over="props.isEquipmentDragOver"
         show-currency
         show-carrying-capacity
+        show-add-button
         allow-hotbar-drag
         @update:equipment="handleEquipmentUpdate"
         @update:currency="handleCurrencyUpdate"

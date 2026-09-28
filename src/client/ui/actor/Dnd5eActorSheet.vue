@@ -50,6 +50,7 @@
     collectSpeciesFeatDataSources,
     computeSpeciesDarkvision,
     computeSpeciesMovement,
+    createInventoryItem,
     DEFAULT_ACTOR,
     getMulticlassProficiencies,
     getTotalLevel,
@@ -60,7 +61,6 @@
     isSkillType,
     isSpell,
     normalizeActor,
-    normalizeCompendiumItem,
     refreshFeatCounters,
     refreshSpeciesCounters,
     removeGrantedSpellsByFeatureNames,
@@ -1472,12 +1472,7 @@
           );
 
           if (!alreadyExists) {
-            const newItem: DnDGameItem = normalizeCompendiumItem({
-              ...parsedItem,
-              id: generateId('eq'),
-              isReadOnly: false,
-              equipped: false,
-            });
+            const newItem = createInventoryItem(parsedItem);
 
             localActor.value.equipment = [
               ...localActor.value.equipment,

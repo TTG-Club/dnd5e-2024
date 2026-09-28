@@ -10,7 +10,6 @@
     AttackRollMode,
     DnDCreature,
     DnDCustomBonusContext,
-    DnDGameItem,
     DnDSavingThrowSettings,
     DnDSkillSettings,
     RestType,
@@ -35,6 +34,7 @@
     applyCreatureRest,
     calculateAbilityModifier,
     CR_TABLE,
+    createInventoryItem,
     CREATURE_ENVIRONMENTS,
     CREATURE_HIT_DICE_RULE_KEYS,
     CREATURE_SIZE_TO_TOKEN_SCALE,
@@ -57,7 +57,6 @@
     isProficiencyLevel,
     isSpell,
     listConditions,
-    normalizeCompendiumItem,
     normalizeCreature,
     PASSIVE_SKILL_BASE,
     resolveAbilityCheckRollMode,
@@ -1354,12 +1353,7 @@
         return true;
       }
 
-      const newItem: DnDGameItem = normalizeCompendiumItem({
-        ...dropped,
-        id: generateId('eq'),
-        isReadOnly: false,
-        equipped: false,
-      });
+      const newItem = createInventoryItem(dropped);
 
       handleCreatureUpdate({ equipment: [...current, newItem] });
 

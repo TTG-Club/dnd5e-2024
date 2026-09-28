@@ -75,6 +75,7 @@ import {
   findEntitiesInArea,
 } from './auraMath.js';
 import { normalizeActor, normalizeCreature } from './calculations.js';
+import { resolveClassLabel } from './classLabels.js';
 import { CLASS_KEY_OPTIONS } from './classTypes.js';
 import {
   listConcentrationEffects,
@@ -1240,11 +1241,6 @@ function settleTurnEffects(
 /** Подписи типов существ по ключу (для форматтера компендиума) */
 const CREATURE_TYPE_LABELS: Record<string, string> = CREATURE_CATEGORIES;
 
-/** Подписи классов по ключу (для форматтера компендиума) */
-const CLASS_LABELS: Record<string, string> = Object.fromEntries(
-  CLASS_KEY_OPTIONS.map((option) => [option.value, option.label]),
-);
-
 /**
  * Парсит показатель опасности (ПО) в число для сортировки.
  * Пусто/«—» → -1 (идут первыми); поддерживает дроби «1/8», «1/4», «1/2».
@@ -1346,8 +1342,8 @@ const COMPENDIUM_VALUE_FORMATTERS: Record<string, CompendiumValueFormatter> = {
     sortKey: (value) => CREATURE_TYPE_LABELS[String(value)] ?? String(value),
   },
   spellClass: {
-    label: (value) => CLASS_LABELS[String(value)] ?? String(value),
-    sortKey: (value) => CLASS_LABELS[String(value)] ?? String(value),
+    label: (value) => resolveClassLabel(String(value)),
+    sortKey: (value) => resolveClassLabel(String(value)),
   },
 };
 
@@ -1497,7 +1493,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.104';
+  readonly version = '0.8.105';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.

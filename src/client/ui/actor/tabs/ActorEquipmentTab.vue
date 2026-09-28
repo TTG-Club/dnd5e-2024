@@ -18,6 +18,8 @@
     RolledSpellDamagePart,
     SpellDamagePartInput,
   } from '../../../composables/useSpellResolution';
+  import type { ItemSection } from '../compendiumFilters';
+  import type { PickedCompendiumEntry } from '../CompendiumRefPickerModal.vue';
   import type {
     EquipmentAmmunitionBadge,
     SheetRowStat,
@@ -25,6 +27,7 @@
 
   import { computed, ref, toRef } from 'vue';
 
+  import { loadCompendiumManifests } from '@/core/compendiumDataClient';
   import { startHotbarDrag } from '@/core/utils/hotbarDrag';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useChatStore } from '@/stores/chatStore';
@@ -38,6 +41,7 @@
     calculateWeaponDamageModifier,
     canSpendItemUses,
     canUseItem,
+    createInventoryItem,
     CURRENCY_OPTIONS,
     DEFAULT_CREATURE_SIZE,
     describeDamagePart,
@@ -52,6 +56,7 @@
     getWeaponDamageParts,
     getWeaponPrimaryDamageType,
     hasItemUseEffects,
+    isDnDGameItem,
     isItemDepleted,
     isSaveAbility,
     listLoadableAmmunition,
@@ -62,6 +67,7 @@
     spendAmmunition,
     spendItemUse,
     spendItemUses,
+    STARTING_EQUIPMENT_ITEM_KINDS,
     TOOL_CATEGORIES,
     weaponUsesAmmunition,
     withLoadedAmmunition,
@@ -76,6 +82,7 @@
   import { buildRollBonusEvaluator } from '../../../composables/rollBonusEvaluator';
   import { useBonusDamageParts } from '../../../composables/useBonusDamageParts';
   import { useCarryingCapacity } from '../../../composables/useCarryingCapacity';
+  import { useCompendiumWarmup } from '../../../composables/useCompendiumWarmup';
   import { useResolvedStats } from '../../../composables/useResolvedStats';
   import { useSpellResolution } from '../../../composables/useSpellResolution';
   import { useWeaponIcon } from '../../../composables/useWeaponIcon';
@@ -89,12 +96,19 @@
   import ActorEquipmentRow from '../ActorEquipmentRow.vue';
   import CarryingCapacityModal from '../CarryingCapacityModal.vue';
   import {
+    buildItemSectionFilterValue,
+    collectItemSections,
+    itemSectionFilterOrder,
+  } from '../compendiumFilters';
+  import CompendiumRefPickerModal from '../CompendiumRefPickerModal.vue';
+  import {
     ACTOR_EQUIPMENT_TAB_LABELS,
     EQUIPMENT_AMMUNITION_BADGE,
     EQUIPMENT_EQUIP_ACTION_LABELS,
     EQUIPMENT_MENU_LABELS,
     EQUIPMENT_STAT_HINTS,
     EQUIPMENT_STAT_LABELS,
+    FILTER_ROW_CONTROL_SIZE,
     GAME_ITEM_TRANSFER_MIME,
     SHEET_ROW_MENU_LABELS,
     WEAPON_RANGE_TYPE_LABELS,
@@ -156,6 +170,11 @@
      * у листа персонажа для этого своя проверка владельца выше по дереву
      */
     isReadOnly?: boolean;
+    /**
+     * Показывать кнопку «Добавить» — выбор предметов из компендиума. Там, где
+     * инвентарь пополняют только перетаскиванием (быстрое окно), её нет
+     */
+    showAddButton?: boolean;
   }
 
   /**
@@ -163,6 +182,11 @@
    * в быстром окне лист приезжает из стора хоста без нормализации
    */
   const inventory = computed<DnDGameItem[]>(() => props.entity.equipment ?? []);
+
+  /** Видна ли кнопка «Добавить»: чужой мешок только для чтения не пополняют */
+  const canAddItems = computed(
+    () => Boolean(props.showAddButton) && !props.isReadOnly,
+  );
 
   /**
    * Запрашивает у хозяина вкладки немедленное сохранение актёра — только вне
@@ -200,6 +224,14 @@
   const systemDataStore = useSystemDataStore();
   const hotbarStore = useHotbarStore();
   const chatStore = useChatStore();
+
+  // Записи для окна «Добавить» грузятся, пока игрок смотрит на вкладку
+  useCompendiumWarmup(
+    () => chatStore.getSocket(),
+    STARTING_EQUIPMENT_ITEM_KINDS,
+    () => canAddItems.value,
+  );
+
   const worldStore = useWorldStore();
 
   const { resolveSpellDamageWithParts } = useSpellResolution();
@@ -1392,6 +1424,64 @@
     triggerSaveIfNotEdit();
   }
 
+  // --- Добавление из компендиума ---
+
+  /** Открыто ли окно выбора предметов компендиума */
+  const isItemPickerOpen = ref(false);
+
+  /** Разделы предметов из манифестов компендиумов — для фильтра окна */
+  const itemSections = ref<ItemSection[]>([]);
+
+  /** Значение фильтра «Раздел» у записи окна */
+  const itemSectionFilterValue = computed(() =>
+    buildItemSectionFilterValue(itemSections.value),
+  );
+
+  /** Порядок разделов в фильтре окна — как в дереве компендиума */
+  const itemSectionOrder = computed(() =>
+    itemSectionFilterOrder(itemSections.value),
+  );
+
+  /**
+   * Открывает окно выбора предметов. Разделы подтягиваются следом: окно
+   * показывается сразу, а фильтр по разделам появляется, как только приедут
+   * манифесты (сервер держит их в памяти, так что ждать почти не приходится).
+   */
+  function openItemPicker(): void {
+    if (props.isReadOnly) {
+      return;
+    }
+
+    isItemPickerOpen.value = true;
+
+    const socket = chatStore.getSocket();
+
+    if (socket && itemSections.value.length === 0) {
+      void loadCompendiumManifests(socket).then((manifests) => {
+        itemSections.value = collectItemSections(manifests);
+      });
+    }
+  }
+
+  /**
+   * Кладёт выбранные в окне предметы в инвентарь — так же, как при
+   * перетаскивании из компендиума: каждая запись становится своей копией.
+   *
+   * @param picked - отмеченные записи
+   */
+  function addPickedItems(picked: PickedCompendiumEntry[]): void {
+    const added = picked
+      .map((pickedEntry) => pickedEntry.entry)
+      .filter(isDnDGameItem)
+      .map(createInventoryItem);
+
+    if (added.length === 0) {
+      return;
+    }
+
+    commitEquipment([...inventory.value, ...added]);
+  }
+
   // --- Кошелёк ---
 
   /** Открыта ли модалка редактирования валюты */
@@ -1455,15 +1545,18 @@
   <div class="flex min-h-50 flex-1 flex-col space-y-1">
     <!-- Переносимый вес + деньги / валюта (Вплотную к табам) -->
     <div
-      v-if="showCarryingCapacity || showCurrency"
+      v-if="showCarryingCapacity || showCurrency || canAddItems"
       class="mb-5 flex flex-col gap-2"
     >
-      <!-- Обёртка-flex: плитка занимает ширину по содержимому, а не всю строку -->
+      <!-- Обёртка-flex: плитка занимает ширину по содержимому, а не всю
+        строку. «Добавить» стоит в правом краю того же ряда — как на вкладке
+        заклинаний -->
       <div
-        v-if="showCarryingCapacity"
-        class="flex"
+        v-if="showCarryingCapacity || canAddItems"
+        class="flex items-center gap-2"
       >
         <SheetStatTile
+          v-if="showCarryingCapacity"
           :cells="carryingCapacityCells"
           :tooltip="ACTOR_EQUIPMENT_TAB_LABELS.carriedWeightHint"
           :aria-label="ACTOR_EQUIPMENT_TAB_LABELS.carryingCapacitySettings"
@@ -1471,6 +1564,18 @@
           :danger="isOverweight"
           @click="isCapacityModalOpen = true"
         />
+
+        <UButton
+          v-if="canAddItems"
+          icon="tabler:plus"
+          color="primary"
+          variant="soft"
+          :size="FILTER_ROW_CONTROL_SIZE"
+          class="ml-auto shrink-0"
+          @click.left.exact.prevent="openItemPicker"
+        >
+          {{ ACTOR_EQUIPMENT_TAB_LABELS.add }}
+        </UButton>
       </div>
 
       <!-- Высота строки та же, что у ряда отбора на других вкладках (28px,
@@ -1561,6 +1666,20 @@
       </div>
     </template>
   </div>
+
+  <!-- Предметы компендиума: слева компендиумы и разделы, справа записи с
+    поиском. Предметы мира окно показывает отдельным компендиумом -->
+  <CompendiumRefPickerModal
+    v-if="isItemPickerOpen"
+    v-model:open="isItemPickerOpen"
+    :socket="chatStore.getSocket()"
+    :kind="STARTING_EQUIPMENT_ITEM_KINDS"
+    :title="ACTOR_EQUIPMENT_TAB_LABELS.addTitle"
+    :filter-value="itemSectionFilterValue"
+    :filter-label="ACTOR_EQUIPMENT_TAB_LABELS.sectionFilter"
+    :filter-order="itemSectionOrder"
+    @select-entries="addPickedItems"
+  />
 
   <!-- Модалка настройки грузоподъёмности -->
   <CarryingCapacityModal

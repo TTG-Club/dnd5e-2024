@@ -25,7 +25,9 @@
   import { compendiumEntryKey, isRecord } from '@vtt/shared';
   import { WORLD_PACK_ID } from '@vtt/shared/system/dnd.js';
 
+  import { useProgressiveList } from '../../composables/useProgressiveList';
   import { useSourceLabels } from '../../composables/useSourceLabel';
+  import CompendiumPackList from './CompendiumPackList.vue';
   import {
     ALL_PACKS_ID,
     COMPENDIUM_LABELS,
@@ -37,6 +39,7 @@
     REF_PICKER_LABELS,
   } from './constants';
   import PickerListRow from './PickerListRow.vue';
+  import PickerSkeletonRows from './PickerSkeletonRows.vue';
   import { pickerRowId, sortPickerRowsByName } from './utils/pickerRows';
 
   /** Выбранная ссылка: чем запись адресуется и откуда она взята. */
@@ -44,6 +47,16 @@
     /** Ключ записи: `id` у черт и заклинаний, `key` у классов/видов/предысторий */
     url: string;
     name: string;
+    packId: string;
+    packName: string;
+  }
+
+  /**
+   * Выбранная запись целиком — для тех, кто кладёт на лист саму запись, а не
+   * ссылку на неё (предмет в инвентарь).
+   */
+  export interface PickedCompendiumEntry {
+    entry: CompendiumEntry;
     packId: string;
     packName: string;
   }
@@ -70,6 +83,8 @@
     sourceKey: string;
     /** Значение фильтра записи (напр. категория черты); пусто — не задано */
     filterValue: string;
+    /** Сама запись — уходит вызывающему вместе со ссылкой */
+    entry: CompendiumEntry;
   }
 
   /**
@@ -157,6 +172,8 @@
     'update:open': [value: boolean];
     /** Отмеченные записи подтверждены */
     'select': [refs: PickedCompendiumRef[]];
+    /** Те же отмеченные записи целиком — приходит вместе с `select` */
+    'select-entries': [entries: PickedCompendiumEntry[]];
   }>();
 
   /** Типы записей списком: проп принимает и один тип, и несколько. */
@@ -230,6 +247,7 @@
           ? entry.sourceKey
           : '',
       filterValue: props.filterValue?.(entry)?.trim() ?? '',
+      entry,
     };
   }
 
@@ -388,6 +406,13 @@
     });
   });
 
+  /** Строки, нарисованные сейчас: длинный список показывается порциями */
+  const {
+    visibleItems: renderedEntries,
+    hasMore: hasMoreEntries,
+    endMarker: entriesEndMarker,
+  } = useProgressiveList(visibleEntries);
+
   /** Отмеченные строки — по паре «пак + ключ» */
   const selectedRowIds = computed(
     () => new Set(selectedEntries.value.map((entry) => entry.rowId)),
@@ -458,31 +483,16 @@
       })),
     );
 
+    emit(
+      'select-entries',
+      selectedEntries.value.map((entry) => ({
+        entry: entry.entry,
+        packId: entry.packId,
+        packName: entry.packName,
+      })),
+    );
+
     emit('update:open', false);
-  }
-
-  /**
-   * Выбирает компендиум в левой колонке.
-   *
-   * @param packId - идентификатор пака (или псевдо-пака «все»)
-   */
-  function selectPack(packId: string): void {
-    selectedPackId.value = packId;
-  }
-
-  /**
-   * Оформление строки компендиума в левой колонке: выбранный подсвечен, прочие
-   * теплеют только под курсором.
-   *
-   * @param packId - идентификатор пака
-   */
-  function packButtonClass(packId: string): string {
-    const stateClass =
-      selectedPackId.value === packId
-        ? COMPENDIUM_PACK_BUTTON_SELECTED_CLASS
-        : COMPENDIUM_PACK_BUTTON_IDLE_CLASS;
-
-    return `${COMPENDIUM_PACK_BUTTON_CLASS} ${stateClass}`;
   }
 
   function handleModalClose(): void {
@@ -507,9 +517,13 @@
       // остаться одной строкой. Записи копируются — списки в кеше общие.
       const merged = new Map<string, PackKindEntries>();
 
-      for (const kind of kinds.value) {
-        const packsOfKind = await loadCompendiumKindByPack(socket, kind);
+      // Типы запрашиваются разом, а не по очереди: у предметов их три, и
+      // ожидание каждого по отдельности складывалось
+      const packsByKind = await Promise.all(
+        kinds.value.map((kind) => loadCompendiumKindByPack(socket, kind)),
+      );
 
+      for (const packsOfKind of packsByKind) {
         for (const pack of packsOfKind) {
           const known = merged.get(pack.packId);
 
@@ -575,29 +589,10 @@
             :ui="{ root: 'w-full' }"
           />
 
-          <button
-            type="button"
-            :class="packButtonClass(ALL_PACKS_ID)"
-            @click.left.exact.prevent="selectPack(ALL_PACKS_ID)"
-          >
-            <span class="truncate">
-              {{ COMPENDIUM_PICKER_LABELS.allPacks }}
-            </span>
-          </button>
-
-          <button
-            v-for="pack in packs"
-            :key="pack.packId"
-            type="button"
-            :class="packButtonClass(pack.packId)"
-            @click.left.exact.prevent="selectPack(pack.packId)"
-          >
-            <span class="truncate">{{ pack.packName }}</span>
-
-            <span class="shrink-0 text-xs text-dimmed">
-              {{ pack.entries.length }}
-            </span>
-          </button>
+          <CompendiumPackList
+            v-model="selectedPackId"
+            :packs="packs"
+          />
 
           <!-- Фильтр — под компендиумами той же колонкой: сначала выбирают,
             ОТКУДА берут запись, потом сужают, КАКУЮ именно -->
@@ -645,22 +640,14 @@
         <!-- Записи выбранного компендиума -->
         <div class="flex min-h-0 min-w-0 flex-1 flex-col">
           <div class="min-h-0 flex-1 overflow-y-auto px-2 py-2">
-            <div
-              v-if="isLoading"
-              class="flex items-center justify-center py-8"
-            >
-              <UIcon
-                name="tabler:loader-2"
-                class="animate-spin text-2xl text-muted"
-              />
-            </div>
+            <PickerSkeletonRows v-if="isLoading" />
 
             <div
               v-else-if="visibleEntries.length > 0"
               class="flex flex-col divide-y divide-accented/25"
             >
               <PickerListRow
-                v-for="entry in visibleEntries"
+                v-for="entry in renderedEntries"
                 :key="entry.rowId"
                 :name="entry.name"
                 :name-en="entry.nameEn"
@@ -668,6 +655,14 @@
                 :badge="entryBadge(entry)"
                 :selected="selectedRowIds.has(entry.rowId)"
                 @toggle="toggleSelection(entry)"
+              />
+
+              <!-- Метка конца показанной части: дойдя до неё, список
+                дорисовывает следующую порцию -->
+              <div
+                v-if="hasMoreEntries"
+                ref="entriesEndMarker"
+                class="h-px"
               />
             </div>
 

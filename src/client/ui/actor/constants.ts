@@ -138,6 +138,36 @@ export const COMPENDIUM_PICKER_CURRENT_TITLES: Record<
  */
 export const ALL_PACKS_ID = '__all__';
 
+/** Тип записей компендиума: заклинания */
+export const COMPENDIUM_SPELL_KIND = 'spell';
+
+/** Тип записей компендиума: определения классов */
+export const COMPENDIUM_CLASS_KIND = 'class';
+
+/**
+ * Типы записей компендиума, которые вкладка заклинаний грузит заранее для окна
+ * «Добавить»: сами заклинания и классы — ими подписан фильтр «Класс».
+ */
+export const SPELL_BROWSER_WARMUP_KINDS = [
+  COMPENDIUM_SPELL_KIND,
+  COMPENDIUM_CLASS_KIND,
+] as const;
+
+/** Строк в заглушке списка окна выбора, пока записи грузятся, — около экрана */
+export const PICKER_SKELETON_ROW_COUNT = 10;
+
+/**
+ * Ширины названий в заглушке списка, по кругу: строки одной ширины читаются
+ * полосой, а не списком.
+ */
+export const PICKER_SKELETON_NAME_WIDTH_CLASSES = [
+  'w-2/5',
+  'w-1/2',
+  'w-1/3',
+  'w-3/5',
+  'w-5/12',
+];
+
 /**
  * Подписи окна выбора вида/класса/предыстории из компендиума.
  *
@@ -3709,6 +3739,8 @@ export const SPELLCASTING_SETTINGS_LABELS = {
 export const COMPENDIUM_LABELS = {
   /** Секция заклинаний сверх списка класса — расширение от умений, черт и вида */
   pinnedSection: 'Сверх списка класса',
+  /** Заголовок выбора компендиума в колонке фильтров */
+  packsSection: 'Компендиум',
   searchPlaceholder: 'Поиск...',
   resetAll: 'Сбросить всё',
   dragHint:
@@ -4044,6 +4076,11 @@ export const ACTOR_EQUIPMENT_TAB_LABELS = {
   editCurrency: 'Редактировать валюту',
   dropHere: 'Перетащите сюда',
   attack: 'Атаковать',
+  /** Кнопка пополнения инвентаря и заголовок окна компендиума за ней */
+  add: 'Добавить',
+  addTitle: 'Снаряжение компендиума',
+  /** Заголовок фильтра окна: раздел компендиума (оружие, доспехи, зелья…) */
+  sectionFilter: 'Раздел',
 } as const;
 
 /** Подписи редактора умения класса */
