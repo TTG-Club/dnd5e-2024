@@ -50,6 +50,8 @@ async function loadHelper() {
       sendMessage: (text) => messages.push(text),
     }),
     generateId: (prefix) => `${prefix}_test`,
+    // Вопрос о типе урона на выбор — свой хелпер; здесь формул с выбором нет
+    runWithDamageTypeChoices: (source, proceed) => proceed(source),
     EFFECT_VARIANT_MODAL_KEY_PREFIX: 'variant',
     EFFECT_VARIANT_PROMPT_MODAL: 'EffectVariantPromptModal',
     EFFECT_VARIANT_PROMPT_LABELS: { chatSeparator: ': ', chatJoiner: ', ' },

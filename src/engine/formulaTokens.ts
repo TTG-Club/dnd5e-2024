@@ -10,8 +10,14 @@
  * подстановка переменных, — живёт в `spellUtils.ts`.
  */
 
-/** Регэксп инлайн-токена типа урона: `@dmg.fire`, `@dmg.cold` и т.п. */
-const DAMAGE_TYPE_TOKEN_REGEX = /@dmg\.([a-z]+)/i;
+/**
+ * Регэксп инлайн-токена типа урона: `@dmg.fire`, `@dmg.cold` и т.п.
+ *
+ * Лукэхед не даёт принять за тип начало токена «тип на выбор»
+ * (`@dmg.choice(fire,cold)`): без него `choice` стал бы типом урона, а
+ * скобка с вариантами — мусором в формуле.
+ */
+const DAMAGE_TYPE_TOKEN_REGEX = /@dmg\.([a-z]+)(?![a-z]|\s*\()/i;
 
 /**
  * Глобальная версия {@link DAMAGE_TYPE_TOKEN_REGEX}: все токены типа урона
@@ -19,7 +25,196 @@ const DAMAGE_TYPE_TOKEN_REGEX = /@dmg\.([a-z]+)/i;
  * Звать на ней `.test()`/`.exec()` нельзя: у глобального регэкспа они двигают
  * `lastIndex`, и следующий вызов начнёт поиск с середины строки.
  */
-export const DAMAGE_TYPE_TOKEN_GLOBAL_REGEX = /@dmg\.([a-z]+)/gi;
+export const DAMAGE_TYPE_TOKEN_GLOBAL_REGEX = /@dmg\.([a-z]+)(?![a-z]|\s*\()/gi;
+
+/**
+ * Токен «тип урона на выбор»: `@dmg.choice(acid,cold,fire)` — тип выбирает
+ * бросающий перед броском, `@dmg.random(acid,cold,fire)` — тип выпадает
+ * случайно с равными шансами. Варианты — ключи типов через запятую.
+ *
+ * Это не «урон всеми типами сразу», как несколько `@dmg.<тип>` подряд на
+ * одной кости: бросок получает ровно один тип из списка.
+ */
+const DAMAGE_TYPE_CHOICE_TOKEN_REGEX = /@dmg\.(choice|random)\s*\(([^()]*)\)/i;
+
+/** Глобальная версия {@link DAMAGE_TYPE_CHOICE_TOKEN_REGEX} — для замены и вырезания */
+const DAMAGE_TYPE_CHOICE_TOKEN_GLOBAL_REGEX =
+  /@dmg\.(choice|random)\s*\(([^()]*)\)/gi;
+
+/**
+ * Любой токен вида урона слагаемого — `@dmg.<тип>` или `@dmg.choice(…)` —
+ * в порядке записи.
+ */
+const DAMAGE_KIND_TOKEN_GLOBAL_REGEX =
+  /@dmg\.(?:(?:choice|random)\s*\([^()]*\)|[a-z]+(?![a-z]|\s*\())/gi;
+
+/** Как выбирается тип урона токена «на выбор» */
+export type DamageTypeChoiceMode = 'choose' | 'random';
+
+/** Ключевые слова токена «на выбор» по способу выбора */
+const DAMAGE_TYPE_CHOICE_KEYWORDS: Record<DamageTypeChoiceMode, string> = {
+  choose: 'choice',
+  random: 'random',
+};
+
+/** Тип урона на выбор, записанный токеном в формуле */
+export interface DamageTypeChoice {
+  /** Способ выбора: спросить бросающего или бросить случай */
+  mode: DamageTypeChoiceMode;
+  /** Ключи типов урона — варианты по порядку записи, без повторов */
+  options: string[];
+}
+
+/**
+ * Ключ типа на выбор: одинаковые списки у разных слагаемых и частей — один
+ * вопрос на бросок.
+ *
+ * @param choice - способ и варианты
+ * @returns ключ вида `choose:fire,cold`
+ */
+export function damageTypeChoiceKey(choice: DamageTypeChoice): string {
+  return `${choice.mode}:${choice.options.join(',')}`;
+}
+
+/**
+ * Типы на выбор без повторов по {@link damageTypeChoiceKey}: одинаковый
+ * список в нескольких местах — один вопрос на бросок.
+ *
+ * @param choices - типы на выбор, возможно с повторами
+ * @returns типы на выбор по порядку первого появления
+ */
+export function uniqueDamageTypeChoices(
+  choices: Iterable<DamageTypeChoice>,
+): DamageTypeChoice[] {
+  const unique = new Map<string, DamageTypeChoice>();
+
+  for (const choice of choices) {
+    const key = damageTypeChoiceKey(choice);
+
+    if (!unique.has(key)) {
+      unique.set(key, choice);
+    }
+  }
+
+  return [...unique.values()];
+}
+
+/**
+ * Разбирает варианты токена «на выбор»: ключи через запятую, регистр и
+ * пробелы не важны, повторы и пустые места выбрасываются.
+ *
+ * @param mode - способ выбора
+ * @param rawOptions - содержимое скобок токена
+ * @returns тип на выбор; без вариантов — `null`
+ */
+function parseDamageTypeChoice(
+  mode: DamageTypeChoiceMode,
+  rawOptions: string,
+): DamageTypeChoice | null {
+  const options = [
+    ...new Set(
+      rawOptions
+        .split(',')
+        .map((option) => option.trim().toLowerCase())
+        .filter((option) => option.length > 0),
+    ),
+  ];
+
+  return options.length > 0 ? { mode, options } : null;
+}
+
+/**
+ * Способ выбора по ключевому слову токена.
+ *
+ * @param keyword - `choice` или `random`
+ * @returns способ выбора
+ */
+function readChoiceMode(keyword: string): DamageTypeChoiceMode {
+  return keyword.toLowerCase() === DAMAGE_TYPE_CHOICE_KEYWORDS.random
+    ? 'random'
+    : 'choose';
+}
+
+/**
+ * Первый токен «тип урона на выбор» в слагаемом или формуле.
+ *
+ * @param formula - слагаемое или формула
+ * @returns тип на выбор либо `null`, если токена нет (или он без вариантов)
+ */
+export function readDamageTypeChoiceToken(
+  formula: string,
+): DamageTypeChoice | null {
+  const match = formula.match(DAMAGE_TYPE_CHOICE_TOKEN_REGEX);
+
+  return match
+    ? parseDamageTypeChoice(readChoiceMode(match[1]), match[2])
+    : null;
+}
+
+/**
+ * Все токены «тип урона на выбор» формулы по порядку записи.
+ *
+ * @param formula - формула
+ * @returns типы на выбор (повторы не схлопываются)
+ */
+export function listDamageTypeChoiceTokens(
+  formula: string,
+): DamageTypeChoice[] {
+  if (!formula) {
+    return [];
+  }
+
+  return [...formula.matchAll(DAMAGE_TYPE_CHOICE_TOKEN_GLOBAL_REGEX)].flatMap(
+    (match) => parseDamageTypeChoice(readChoiceMode(match[1]), match[2]) ?? [],
+  );
+}
+
+/**
+ * Есть ли в формуле токен «тип урона на выбор».
+ *
+ * @param formula - формула
+ * @returns true, если есть `@dmg.choice(…)` или `@dmg.random(…)`
+ */
+export function hasDamageTypeChoiceToken(formula: string): boolean {
+  return Boolean(formula) && DAMAGE_TYPE_CHOICE_TOKEN_REGEX.test(formula);
+}
+
+/**
+ * Собирает токен «тип урона на выбор».
+ *
+ * @param choice - способ и варианты
+ * @returns токен вида `@dmg.choice(fire,cold)`
+ */
+export function buildDamageTypeChoiceToken(choice: DamageTypeChoice): string {
+  return `@dmg.${DAMAGE_TYPE_CHOICE_KEYWORDS[choice.mode]}(${choice.options.join(',')})`;
+}
+
+/**
+ * Заменяет токены «на выбор» итогом выбора: `@dmg.choice(fire,cold)` →
+ * `@dmg.fire`. Токен, для которого `pick` ничего не вернул, остаётся как есть.
+ *
+ * @param formula - формула
+ * @param pick - выбранный тип по токену; `undefined` — не заменять
+ * @returns формула с выбранными типами
+ */
+export function replaceDamageTypeChoiceTokens(
+  formula: string,
+  pick: (choice: DamageTypeChoice) => string | undefined,
+): string {
+  if (!hasDamageTypeChoiceToken(formula)) {
+    return formula;
+  }
+
+  return formula.replace(
+    DAMAGE_TYPE_CHOICE_TOKEN_GLOBAL_REGEX,
+    (token, keyword: string, rawOptions: string) => {
+      const choice = parseDamageTypeChoice(readChoiceMode(keyword), rawOptions);
+      const picked = choice ? pick(choice) : undefined;
+
+      return picked ? `@dmg.${picked}` : token;
+    },
+  );
+}
 
 /**
  * Префикс инлайн-токена типа урона — дешёвая проверка «есть ли что снимать»
@@ -157,7 +352,8 @@ export function detectFormulaHealKind(formula: string): HealKind | null {
 }
 
 /**
- * Удаляет инлайн-токены типа урона `@dmg.<type>` из формулы (для отображения).
+ * Удаляет инлайн-токены типа урона `@dmg.<type>` и `@dmg.choice(…)` из
+ * формулы (для отображения).
  *
  * @param formula - формула с возможными токенами @dmg
  * @returns формула без токенов @dmg (лишние пробелы схлопнуты)
@@ -168,6 +364,7 @@ export function stripDamageTypeTokens(formula: string): string {
   }
 
   return formula
+    .replace(DAMAGE_TYPE_CHOICE_TOKEN_GLOBAL_REGEX, '')
     .replace(DAMAGE_TYPE_TOKEN_GLOBAL_REGEX, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
@@ -189,7 +386,7 @@ export function detectFormulaDamageType(formula: string): string | null {
 
 /**
  * Токены вида одного слагаемого: `@heal`/`@heal.temp` (лечение важнее урона,
- * как и при группировке) либо все его `@dmg.<тип>` подряд.
+ * как и при группировке) либо все его `@dmg.<тип>` и `@dmg.choice(…)` подряд.
  *
  * @param term - слагаемое формулы
  * @returns токены вида слагаемого или null, если их нет
@@ -201,7 +398,7 @@ function readTermKindTokens(term: string): string | null {
     return heal[0];
   }
 
-  const damage = [...term.matchAll(DAMAGE_TYPE_TOKEN_GLOBAL_REGEX)];
+  const damage = [...term.matchAll(DAMAGE_KIND_TOKEN_GLOBAL_REGEX)];
 
   return damage.length > 0 ? damage.map((match) => match[0]).join('') : null;
 }
@@ -214,8 +411,11 @@ function readTermKindTokens(term: string): string | null {
 const GATE_TOKEN_GLOBAL_REGEX =
   /@(?:target\.[a-z0-9.-]*[a-z0-9]|self\.status\.[a-z0-9][a-z0-9-]*)/gi;
 
-/** Любой инлайн-токен `@…` — снимается перед проверкой «есть ли в слагаемом кость» */
-const ANY_TOKEN_REGEX = /@[\w.-]+/g;
+/**
+ * Любой инлайн-токен `@…` — снимается перед проверкой «есть ли в слагаемом
+ * кость». Токен «на выбор» снимается вместе со скобкой вариантов.
+ */
+const ANY_TOKEN_REGEX = /@dmg\.(?:choice|random)\s*\([^()]*\)|@[\w.-]+/gi;
 
 /** Кость в слагаемом: `2к6`, `1d8`, `к20` */
 const DICE_IN_TERM_REGEX = /\d*\s*[кдd]\s*\d+/i;
@@ -355,7 +555,9 @@ export function spreadKindTokens(formula: string, hasOwnType = false): string {
 export function setFormulaDamageType(formula: string, type: string): string {
   const terms = splitFormulaTerms(formula).map((term) => term.trim());
 
+  // Выбранный тип заменяет и тип на выбор: у слагаемого вид один
   const firstBase = (terms[0] ?? '')
+    .replace(DAMAGE_TYPE_CHOICE_TOKEN_REGEX, '')
     .replace(DAMAGE_TYPE_TOKEN_REGEX, '')
     .trim();
 

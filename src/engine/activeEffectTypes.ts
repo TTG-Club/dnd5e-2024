@@ -756,6 +756,15 @@ export const EFFECT_VALUE_SUGGESTIONS: Array<{
   { value: '1к6@dmg.bludgeoning', label: 'Урон: Дробящий' },
   { value: '1к6@dmg.piercing', label: 'Урон: Колющий' },
   { value: '1к6@dmg.slashing', label: 'Урон: Рубящий' },
+  // Один тип из списка: несколько `@dmg.<тип>` подряд — это урон всеми сразу
+  {
+    value: '1к6@dmg.choice(fire,cold)',
+    label: 'Урон: тип на выбор бросающего (варианты через запятую)',
+  },
+  {
+    value: '1к6@dmg.random(fire,cold)',
+    label: 'Урон: тип случайно из списка (равные шансы)',
+  },
 
   // Лечение
   { value: '1к8@heal', label: 'Лечение (например, 1к8)' },

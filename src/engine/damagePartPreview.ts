@@ -14,7 +14,7 @@
 import type { DamagePart } from '@vtt/shared';
 
 import type { CreatureCategory } from './creatureTypes.js';
-import type { HealKind } from './formulaTokens.js';
+import type { DamageTypeChoice, HealKind } from './formulaTokens.js';
 import type { ResolvedDamagePartInput, TargetHpGate } from './spellUtils.js';
 
 import { FORMULA_VARIABLE_LABELS, isCreatureCategory } from './consts.js';
@@ -41,6 +41,8 @@ export interface DamagePreviewSegment {
   types: string[];
   /** Вид лечения; не задан — это урон */
   healing?: HealKind;
+  /** Тип урона на выбор (`@dmg.choice(…)`): тип решится перед броском */
+  typeChoice?: DamageTypeChoice;
 }
 
 /** Ветка итога: слагаемые, которые достаются цели при одном условии */
@@ -178,6 +180,15 @@ export function previewDamagePart(
 function toPreviewSegment(
   entry: ResolvedDamagePartInput,
 ): DamagePreviewSegment {
+  // Тип на выбор — не тип урона: плашкой идут его варианты
+  if (entry.typeChoice) {
+    return {
+      formula: entry.formula,
+      types: [],
+      typeChoice: entry.typeChoice,
+    };
+  }
+
   return {
     formula: entry.formula,
     types: entry.types ?? (entry.type ? [entry.type] : []),

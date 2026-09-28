@@ -4788,6 +4788,12 @@ export const DAMAGE_PART_LABELS = {
   previewTargetStatusPrefix: 'Цель: ',
   previewUntyped: 'Без типа',
   previewChoiceType: 'На выбор',
+  /** Тип урона на выбор (`@dmg.choice`): дальше идут варианты через «/» */
+  typeChoicePrefix: 'На выбор: ',
+  /** Тип урона случайно (`@dmg.random`): дальше идут варианты через «/» */
+  typeRandomPrefix: 'Случайно: ',
+  /** Разделитель вариантов типа урона на выбор */
+  typeChoiceSeparator: '/',
   previewTempHp: 'Временные ХП',
   /** Незнакомые движку токены: дальше идёт их список */
   previewUnknown: 'Не распознано: ',

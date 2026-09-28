@@ -28,17 +28,21 @@
   import {
     buildAttackFormula,
     CHOICE_DAMAGE_TYPE,
+    damageTypeChoiceKey,
     doubleDiceInFormula,
     formatAttackRollModeReasons,
     formatDamageDefenseSuffix,
     getNaturalD20Roll,
     getShortDamageTypeLabel,
     isDamageType,
+    listPartDamageTypeChoices,
     performTwoStageAttack,
     resolveEntityCreatureType,
     scaleDamageFormula,
+    settleDamageTypeChoices,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useDamageTypeLabel } from '../../composables/damageTypeChoice';
   import { resolveAttackerIgnoredResistances } from '../../composables/spellResolutionShared';
   import {
     dispatchAttackRollTriggers,
@@ -347,6 +351,63 @@
   /** Режим броска атаки (обычный / преимущество / помеха) */
   const attackRollMode = ref<AttackRollMode>('normal');
 
+  // --- Тип урона на выбор у частей (`@dmg.choice(…)`) ---
+  const getDamageTypeLabel = useDamageTypeLabel();
+
+  /** Выбранный тип по ключу списка вариантов; нет записи — первый вариант */
+  const partTypePicks = ref<Record<string, string>>({});
+
+  /**
+   * Типы на выбор, дошедшие до окна нерешёнными. Источник броска решает свои
+   * до окна (`runWithDamageTypeChoices`), сюда доходит остаток — бонус-урон
+   * собственных эффектов листа и бросок в обход вопроса. Бонус-части
+   * собираются по текущему режиму — так же, как их соберёт бросок.
+   * Случайные типы не спрашиваются: они выпадут при броске.
+   */
+  const partTypeChoiceRows = computed(() => {
+    if (!props.damageParts?.length) {
+      return [];
+    }
+
+    const bonusParts =
+      props.evaluateBonusDamageParts?.({
+        hasAdvantage: attackRollMode.value === 'advantage',
+        hasDisadvantage: attackRollMode.value === 'disadvantage',
+      }) ?? [];
+
+    return listPartDamageTypeChoices([...props.damageParts, ...bonusParts])
+      .filter((choice) => choice.mode === 'choose')
+      .map((choice) => {
+        const key = damageTypeChoiceKey(choice);
+
+        return {
+          key,
+          value: partTypePicks.value[key] ?? choice.options[0],
+          items: choice.options.map((option) => ({
+            label: getDamageTypeLabel(option),
+            value: option,
+          })),
+        };
+      });
+  });
+
+  /**
+   * Меняет выбранный тип у списка вариантов.
+   *
+   * @param key - ключ списка вариантов
+   * @param value - выбранный тип из селекта
+   */
+  function selectPartType(key: string, value: unknown): void {
+    if (typeof value === 'string') {
+      partTypePicks.value = { ...partTypePicks.value, [key]: value };
+    }
+  }
+
+  /** Итог выбора типов для броска: по строке окна — её значение */
+  function readPartTypePicks(): Map<string, string> {
+    return new Map(partTypeChoiceRows.value.map((row) => [row.key, row.value]));
+  }
+
   const { findCurrentDndEntity } = useWorldEntities();
 
   /** AC цели с учётом типа входящей атаки. Реактивен к смене цели, пока модалка открыта */
@@ -527,6 +588,7 @@
         bonusValue.value = 0;
         rollType.value = 'public';
         attackRollMode.value = props.initialRollMode;
+        partTypePicks.value = {};
 
         // Сброс стейта заклинания
         if (props.spellLevel !== undefined) {
@@ -693,7 +755,12 @@
             })
           : [];
 
-        const effectiveParts = [...props.damageParts, ...bonusParts];
+        // Тип на выбор решается до броска: выбранный в окне, у случайного —
+        // выпавший; дальше часть идёт обычным типом (защиты, чат)
+        const effectiveParts = settleDamageTypeChoices(
+          [...props.damageParts, ...bonusParts],
+          readPartTypePicks(),
+        );
 
         // Плоский условный бонус урона (evaluateConditionalBonuses) в
         // одночастном пути дописывается к формуле урона — сохраняем паритет,
@@ -1284,6 +1351,25 @@
             :items="damageTypeOptions"
             value-key="value"
             class="w-full"
+          />
+        </div>
+
+        <!-- Тип урона на выбор у частей (`@dmg.choice(…)`) -->
+        <div
+          v-for="row in partTypeChoiceRows"
+          :key="row.key"
+          class="space-y-2"
+        >
+          <span class="text-xs tracking-wider text-muted uppercase">
+            {{ DICE_ROLL_LABELS.damageType }}
+          </span>
+
+          <USelect
+            :model-value="row.value"
+            :items="row.items"
+            value-key="value"
+            class="w-full"
+            @update:model-value="selectPartType(row.key, $event)"
           />
         </div>
 

@@ -29,7 +29,7 @@ import type {
   SpellProjectiles,
   SpellRollSource,
 } from './dndEntities.js';
-import type { HealKind } from './formulaTokens.js';
+import type { DamageTypeChoice, HealKind } from './formulaTokens.js';
 import type { DnDAbilityScores } from './types.js';
 
 import { isActorEntity, isRecord } from '@vtt/shared';
@@ -47,7 +47,7 @@ import {
   parseTargetTypeToken,
   TARGET_TYPE_STRIP_REGEX,
 } from './creatureTypeGate.js';
-import { isDamageType } from './damageConstants.js';
+import { CHOICE_DAMAGE_TYPE, isDamageType } from './damageConstants.js';
 import { getSpellDamageParts } from './damageParts.js';
 import { entityHasDamageStatus } from './damageTargetGate.js';
 import { formatDiceLetters } from './diceFormula.js';
@@ -58,11 +58,13 @@ import {
 import {
   applyStatusConditionals,
   DAMAGE_TYPE_TOKEN_GLOBAL_REGEX,
+  damageTypeChoiceKey,
   detectFormulaDamageType,
   detectFormulaHealKind,
   hasDamageTypeToken,
   hasHealToken,
   hasStatusToken,
+  readDamageTypeChoiceToken,
   readStatusToken,
   splitByTargetStatus,
   splitFormulaTerms,
@@ -70,6 +72,7 @@ import {
   stripDamageTypeTokens,
   stripHealTokens,
   stripStatusTokens,
+  uniqueDamageTypeChoices,
 } from './formulaTokens.js';
 import {
   getSpellAttackBreakdown,
@@ -1115,6 +1118,12 @@ export interface TypedDamageSegment {
   types?: string[];
   /** Вид лечения сегмента (`@heal`/`@heal.temp`); undefined — сегмент урона */
   healing?: HealKind;
+  /**
+   * Тип урона на выбор (`@dmg.choice(…)`/`@dmg.random(…)`): тип сегмента —
+   * служебный `choice`, настоящий решается перед броском
+   * (`settleDamageTypeChoices`).
+   */
+  typeChoice?: DamageTypeChoice;
 }
 
 /**
@@ -1253,6 +1262,7 @@ export function splitFormulaByDamageType(
     type?: string;
     types?: string[];
     healing?: HealKind;
+    typeChoice?: DamageTypeChoice;
     terms: string[];
   }
 
@@ -1265,17 +1275,27 @@ export function splitFormulaByDamageType(
   // Слагаемое может нести НЕСКОЛЬКО токенов @dmg → несколько типов сразу.
   let currentTypes: string[] = defaultType ? [defaultType] : [];
   let currentHealing: HealKind | undefined;
+  // Тип на выбор — отдельный вид слагаемого: один тип из списка, а не все
+  // сразу. Рядом с ним простые `@dmg.<тип>` того же слагаемого не читаются
+  let currentChoice: DamageTypeChoice | undefined;
 
   for (const term of splitFormulaTerms(typedFormula)) {
     const healKind = detectFormulaHealKind(term);
+    const typeChoice = readDamageTypeChoiceToken(term);
     const typeMatches = [...term.matchAll(DAMAGE_TYPE_TOKEN_GLOBAL_REGEX)];
 
     if (healKind) {
       currentHealing = healKind;
       currentTypes = [];
+      currentChoice = undefined;
+    } else if (typeChoice) {
+      currentChoice = typeChoice;
+      currentTypes = [CHOICE_DAMAGE_TYPE];
+      currentHealing = undefined;
     } else if (typeMatches.length > 0) {
       currentTypes = typeMatches.map((match) => match[1].toLowerCase());
       currentHealing = undefined;
+      currentChoice = undefined;
     }
 
     // Слагаемое без токенов общие функции возвращают как есть (без trim),
@@ -1286,9 +1306,13 @@ export function splitFormulaByDamageType(
       continue;
     }
 
+    const choiceKey = currentChoice
+      ? `choice:${damageTypeChoiceKey(currentChoice)}`
+      : undefined;
+
     const key = currentHealing
       ? `heal:${currentHealing}`
-      : currentTypes.join('+') || DEFAULT_KEY;
+      : (choiceKey ?? (currentTypes.join('+') || DEFAULT_KEY));
 
     let group = groupByKey.get(key);
 
@@ -1297,6 +1321,7 @@ export function splitFormulaByDamageType(
         type: currentTypes[0],
         types: currentTypes.length > 1 ? [...currentTypes] : undefined,
         healing: currentHealing,
+        typeChoice: currentChoice,
         terms: [],
       };
 
@@ -1312,6 +1337,7 @@ export function splitFormulaByDamageType(
     type: group.type,
     types: group.types,
     healing: group.healing,
+    ...(group.typeChoice ? { typeChoice: group.typeChoice } : {}),
   }));
 }
 
@@ -1329,6 +1355,11 @@ export interface DamagePartInfo {
   isTemp: boolean;
   /** Уникальные типы урона части (ключи; пусто для чистого лечения) */
   types: string[];
+  /**
+   * Типы урона на выбор (`@dmg.choice(…)`) — по одному на токен, без
+   * повторов. В `types` их нет: это не «урон всеми типами», а один из них.
+   */
+  typeChoices: DamageTypeChoice[];
 }
 
 /**
@@ -1343,8 +1374,18 @@ export interface DamagePartInfo {
 export function describeDamagePart(part: DamagePart): DamagePartInfo {
   const segments = splitFormulaByDamageType(part.formula, part.type);
 
-  const typeList = segments.flatMap(
-    (segment) => segment.types ?? (segment.type ? [segment.type] : []),
+  const typeList = segments.flatMap((segment) => {
+    if (segment.typeChoice) {
+      return [];
+    }
+
+    return segment.types ?? (segment.type ? [segment.type] : []);
+  });
+
+  const typeChoices = uniqueDamageTypeChoices(
+    segments.flatMap((segment) =>
+      segment.typeChoice ? [segment.typeChoice] : [],
+    ),
   );
 
   return {
@@ -1358,6 +1399,7 @@ export function describeDamagePart(part: DamagePart): DamagePartInfo {
     isHealing: segments.some((segment) => segment.healing !== undefined),
     isTemp: segments.some((segment) => segment.healing === 'temp'),
     types: [...new Set(typeList)],
+    typeChoices,
   };
 }
 
@@ -1477,6 +1519,11 @@ export interface ResolvedDamagePartInput {
   type?: string;
   /** Все типы урона части, если их несколько (напр. рубящий+огонь) */
   types?: string[];
+  /**
+   * Тип урона на выбор (`@dmg.choice(…)`): `type` — служебный `choice`, а
+   * настоящий тип выбирается перед броском (`settleDamageTypeChoices`)
+   */
+  typeChoice?: DamageTypeChoice;
   /** Является ли часть лечением */
   isHealing: boolean;
   /**
@@ -2121,6 +2168,7 @@ export function expandDamageParts(
           formula: resolved,
           type: segment.healing ? undefined : segment.type,
           types: segment.healing ? undefined : segment.types,
+          ...(segment.typeChoice ? { typeChoice: segment.typeChoice } : {}),
           isHealing: segment.healing !== undefined,
           healTemp: segment.healing === 'temp' || undefined,
           target: part.target ?? 'selected',
@@ -2325,6 +2373,7 @@ export function resolveBonusDamageParts(
           formula: resolved,
           type: segment.healing ? undefined : segment.type,
           types: segment.healing ? undefined : segment.types,
+          ...(segment.typeChoice ? { typeChoice: segment.typeChoice } : {}),
           isHealing: segment.healing !== undefined,
           healTemp: segment.healing === 'temp' || undefined,
           target: 'selected',

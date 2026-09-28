@@ -1435,4 +1435,80 @@ describe('каталог: заклинания, меняющие оружие', 
       'незаменённое «spell» оставляет характеристику оружия',
     );
   });
+
+  it('[S32] Цветной шарик и Духовные стражи: тип урона на выбор до броска, эффект на цели — выбранным типом', () => {
+    const guardians = createEffect('Духовные стражи', {
+      effectTarget: 'target',
+      recurringDamage: {
+        damageParts: [{ formula: '3к8@dmg.choice(radiant,necrotic)' }],
+        timing: 'endOfTurn',
+      },
+    });
+
+    authoredScenario(guardians, 'spell');
+
+    const spell = {
+      id: 'chromatic-orb',
+      name: 'Цветной шарик',
+      damageParts: [
+        { formula: '3к8@dmg.choice(acid,cold,fire,lightning,poison,thunder)' },
+      ],
+      activeEffects: [guardians],
+    };
+
+    // Один вопрос на каждый список; случайных нет
+    assert.deepEqual(
+      engine.listSourceDamageTypeChoices(spell).map((choice) => choice.mode),
+      ['choose', 'choose'],
+    );
+
+    const picked = engine.applySourceDamageTypeChoices(
+      spell,
+      new Map([
+        ['choose:acid,cold,fire,lightning,poison,thunder', 'fire'],
+        ['choose:radiant,necrotic', 'necrotic'],
+      ]),
+    );
+
+    assert.deepEqual(
+      engine
+        .expandDamageParts(picked.damageParts, true, (formula) => formula)
+        .map((part) => [part.formula, part.type]),
+      [['3к8', 'fire']],
+    );
+
+    // Цель с сопротивлением излучению: некротический урон — целиком
+    const enemy = createCreature({ id: 'creature_orc' });
+
+    enemy.system.defenses = {
+      ...enemy.system.defenses,
+      resistances: ['radiant'],
+    };
+
+    const rolled = engine.rollEffectDamageParts(
+      picked.activeEffects[0].recurringDamage.damageParts,
+      engine.resolveActorStats(enemy),
+      enemy,
+      { rollFormula: () => ({ total: 12, values: [] }) },
+    );
+
+    assert.deepEqual(rolled.types, ['necrotic']);
+    assert.equal(rolled.total, 12);
+
+    const radiant = engine.applySourceDamageTypeChoices(
+      spell,
+      new Map([['choose:radiant,necrotic', 'radiant']]),
+    );
+
+    assert.equal(
+      engine.rollEffectDamageParts(
+        radiant.activeEffects[0].recurringDamage.damageParts,
+        engine.resolveActorStats(enemy),
+        enemy,
+        { rollFormula: () => ({ total: 12, values: [] }) },
+      ).total,
+      6,
+      'излучение — с сопротивлением',
+    );
+  });
 });

@@ -5,6 +5,7 @@
 
   import { describeDamagePart } from '@vtt/shared/system/dnd.js';
 
+  import { formatDamageTypeChoiceLabel } from '../../composables/damageTypeChoice';
   import { useSystemDataStore } from '../../stores/systemDataStore';
   import { DAMAGE_PART_LABELS } from './constants';
 
@@ -26,6 +27,11 @@
     return map;
   });
 
+  /** Название типа урона по ключу; незнакомый ключ — как есть */
+  function getTypeLabel(type: string): string {
+    return damageTypeMap.value.get(type) ?? type;
+  }
+
   /**
    * Части с готовыми подписями: «Урон»/«Лечение», формула без токенов и
    * локализованные типы (несколько — через « + »; временные ХП помечаются).
@@ -34,9 +40,12 @@
     props.parts.map((part) => {
       const info = describeDamagePart(part);
 
-      const labels = info.types.map(
-        (type) => damageTypeMap.value.get(type) ?? type,
-      );
+      const labels = [
+        ...info.types.map(getTypeLabel),
+        ...info.typeChoices.map((choice) =>
+          formatDamageTypeChoiceLabel(choice, getTypeLabel),
+        ),
+      ];
 
       if (info.isTemp) {
         labels.push(DAMAGE_PART_LABELS.temporaryHitPoints);

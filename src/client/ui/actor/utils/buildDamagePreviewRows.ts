@@ -18,6 +18,7 @@ import {
   readDamageStatusName,
 } from '@vtt/shared/system/dnd.js';
 
+import { formatDamageTypeChoiceLabel } from '../../../composables/damageTypeChoice';
 import { DAMAGE_PART_LABELS } from '../constants';
 
 /** Плашка слагаемого: тип урона или вид лечения */
@@ -94,6 +95,24 @@ function describeSegmentBadges(
 
   if (segment.healing === 'temp') {
     return [{ label: DAMAGE_PART_LABELS.previewTempHp, color: 'info' }];
+  }
+
+  // Тип на выбор: одна плашка с вариантами; незнакомый вариант — красный,
+  // как и незнакомый тип
+  if (segment.typeChoice) {
+    const hasUnknownOption = segment.typeChoice.options.some(
+      (option) => !typeLabels.has(option),
+    );
+
+    return [
+      {
+        label: formatDamageTypeChoiceLabel(
+          segment.typeChoice,
+          (option) => typeLabels.get(option) ?? option,
+        ),
+        color: hasUnknownOption ? 'error' : 'neutral',
+      },
+    ];
   }
 
   if (segment.types.length === 0) {
