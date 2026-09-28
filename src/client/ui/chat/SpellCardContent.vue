@@ -41,8 +41,10 @@
     return getSpellDamageParts(spell.value)
       .map((part) =>
         formatDiceLetters(
-          formatConditionalDamageDisplay(part.formula, (subFormula) =>
-            stripHealTokens(stripDamageTypeTokens(subFormula)),
+          formatConditionalDamageDisplay(
+            part.formula,
+            (subFormula) => stripHealTokens(stripDamageTypeTokens(subFormula)),
+            Boolean(part.type),
           ),
         ),
       )

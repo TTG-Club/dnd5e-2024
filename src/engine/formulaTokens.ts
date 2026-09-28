@@ -28,6 +28,43 @@ export const DAMAGE_TYPE_TOKEN_GLOBAL_REGEX = /@dmg\.([a-z]+)/gi;
 const DAMAGE_TYPE_TOKEN_PREFIX_REGEX = /@dmg\./i;
 
 /**
+ * Делит формулу на слагаемые верхнего уровня: по `+` вне скобок.
+ *
+ * `(1к8+3)@dmg.fire` — одно слагаемое: токен после скобки относится ко всей
+ * скобке, а простое деление по `+` оставило бы обрывки «(1к8» и «3)», и
+ * роллер их не разберёт. Слагаемые не обрезаются — `join('+')` собирает
+ * исходную строку обратно.
+ *
+ * @param formula - формула
+ * @returns слагаемые верхнего уровня
+ */
+export function splitFormulaTerms(formula: string): string[] {
+  const terms: string[] = [];
+
+  let depth = 0;
+  let current = '';
+
+  for (const char of formula) {
+    if (char === '(') {
+      depth++;
+    } else if (char === ')' && depth > 0) {
+      depth--;
+    }
+
+    if (char === '+' && depth === 0) {
+      terms.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+
+  terms.push(current);
+
+  return terms;
+}
+
+/**
  * Вид лечения сегмента формулы: обычные хиты (`@heal`) или временные ХП
  * (`@heal.temp`). Временные ХП не суммируются с текущими — берётся большее.
  */
@@ -151,6 +188,156 @@ export function detectFormulaDamageType(formula: string): string | null {
 }
 
 /**
+ * Токены вида одного слагаемого: `@heal`/`@heal.temp` (лечение важнее урона,
+ * как и при группировке) либо все его `@dmg.<тип>` подряд.
+ *
+ * @param term - слагаемое формулы
+ * @returns токены вида слагаемого или null, если их нет
+ */
+function readTermKindTokens(term: string): string | null {
+  const heal = term.match(HEAL_TOKEN_REGEX);
+
+  if (heal) {
+    return heal[0];
+  }
+
+  const damage = [...term.matchAll(DAMAGE_TYPE_TOKEN_GLOBAL_REGEX)];
+
+  return damage.length > 0 ? damage.map((match) => match[0]).join('') : null;
+}
+
+/**
+ * Токены-гейты слагаемого: условия по цели (`@target.full`,
+ * `@target.type.undead`, `@target.status.prone`) и по состоянию бросающего
+ * (`@self.status.bloodied`).
+ */
+const GATE_TOKEN_GLOBAL_REGEX =
+  /@(?:target\.[a-z0-9.-]*[a-z0-9]|self\.status\.[a-z0-9][a-z0-9-]*)/gi;
+
+/** Любой инлайн-токен `@…` — снимается перед проверкой «есть ли в слагаемом кость» */
+const ANY_TOKEN_REGEX = /@[\w.-]+/g;
+
+/** Кость в слагаемом: `2к6`, `1d8`, `к20` */
+const DICE_IN_TERM_REGEX = /\d*\s*[кдd]\s*\d+/i;
+
+/**
+ * Гейты слагаемого одной строкой — в том порядке, в каком они записаны.
+ *
+ * @param term - слагаемое формулы
+ * @returns токены-гейты подряд; пустая строка, если их нет
+ */
+function readTermGateTokens(term: string): string {
+  return [...term.matchAll(GATE_TOKEN_GLOBAL_REGEX)]
+    .map((match) => match[0])
+    .join('');
+}
+
+/**
+ * Есть ли в слагаемом кость — без учёта токенов (`@mod.dex` костью не считается).
+ *
+ * @param term - слагаемое формулы
+ * @returns true, если слагаемое бросает кость
+ */
+function isDiceTerm(term: string): boolean {
+  return DICE_IN_TERM_REGEX.test(term.replace(ANY_TOKEN_REGEX, ''));
+}
+
+/**
+ * Дописывает токены в конец слагаемого, сохраняя пробелы вокруг `+`.
+ *
+ * @param term - слагаемое формулы
+ * @param tokens - токены подряд
+ * @returns слагаемое с токенами
+ */
+function appendTermTokens(term: string, tokens: string): string {
+  return term.replace(/\s*$/, (tail) => `${tokens}${tail}`);
+}
+
+/**
+ * Раздаёт вид (и условия) слагаемым без своего вида по правилу «тип в конце
+ * блока».
+ *
+ * Формулы существ TTG Club пишут тип на ЧИСЛЕ в конце блока:
+ * `1к8+3@dmg.piercing + 2к6+1@dmg.poison` — «1к8 + 3 колющего и 2к6 + 1 яда».
+ * Кость блока токена не несёт, и при простом потоке слева направо 2к6 стала бы
+ * колющей. Поэтому слагаемое с видом БЕЗ кости (число, `@mod.*`, `@heal` на
+ * числе) закрывает свой блок: все слагаемые без вида после предыдущего
+ * слагаемого с видом получают его вид, а если у них нет своих условий — и его
+ * условия (`2к6+2@dmg.cold@target.status.prone` — условный блок целиком).
+ *
+ * Токен на КОСТИ (`2к6@dmg.fire`) — запись заклинаний: вид течёт от него
+ * вправо, назад он забирает только ведущие слагаемые формулы, и только вид.
+ * Число после такой кости (`3к8@dmg.force + 7 + 3к10@dmg.psychic`) остаётся
+ * с ней: вид у следующего блока на кости, а не на числе.
+ *
+ * Ведущие слагаемые (до первого вида) при заданном типе части (`hasOwnType`)
+ * не трогаются — они берут тип части: `1к8 + 2@dmg.fire` у рубящего оружия —
+ * рубящий 1к8 и 2 огнём.
+ *
+ * Раскладку по веткам (`@target.*`, `@self.status.*`) делать ПОСЛЕ этого
+ * вызова — ветка вырезает слагаемые, и без токена на месте кость ветки
+ * потеряла бы тип.
+ *
+ * Примеры: `3к6+3@dmg.force` → `3к6@dmg.force+3@dmg.force`;
+ * `1к8+3@heal` → `1к8@heal+3@heal`; формула без токенов вида — как есть.
+ *
+ * @param formula - формула части урона/лечения
+ * @param hasOwnType - у части свой тип: ведущие слагаемые берут его
+ * @returns формула, где у слагаемых блоков есть токен вида
+ */
+export function spreadKindTokens(formula: string, hasOwnType = false): string {
+  if (!formula || (!hasDamageTypeToken(formula) && !hasHealToken(formula))) {
+    return formula ?? '';
+  }
+
+  const terms = splitFormulaTerms(formula);
+  const result = [...terms];
+
+  // Начало текущего блока: первое слагаемое после предыдущего слагаемого с видом
+  let blockStart = 0;
+
+  for (const [index, term] of terms.entries()) {
+    const kindTokens = readTermKindTokens(term);
+
+    if (!kindTokens) {
+      continue;
+    }
+
+    const isLeading = blockStart === 0;
+    const closesBlock = !isDiceTerm(term);
+
+    // Ведущие слагаемые при типе части — его; токен на кости назад берёт
+    // только ведущие слагаемые и только вид
+    const claims = isLeading ? !hasOwnType : closesBlock;
+    const gateTokens = closesBlock ? readTermGateTokens(term) : '';
+    const claimFrom = blockStart;
+
+    blockStart = index + 1;
+
+    if (!claims) {
+      continue;
+    }
+
+    for (let claimed = claimFrom; claimed < index; claimed++) {
+      const claimedTerm = terms[claimed];
+
+      if (claimedTerm.trim().length === 0) {
+        continue;
+      }
+
+      const ownGates = readTermGateTokens(claimedTerm);
+
+      result[claimed] = appendTermTokens(
+        claimedTerm,
+        ownGates ? kindTokens : `${kindTokens}${gateTokens}`,
+      );
+    }
+  }
+
+  return result.join('+');
+}
+
+/**
  * Устанавливает/заменяет токен `@dmg.<type>` на ПЕРВОМ слагаемом формулы.
  *
  * Первое слагаемое — «базовое»; его тип задаёт тип всех последующих слагаемых
@@ -166,7 +353,7 @@ export function detectFormulaDamageType(formula: string): string | null {
  * @returns формула с обновлённым токеном типа на первом слагаемом
  */
 export function setFormulaDamageType(formula: string, type: string): string {
-  const terms = formula.split('+').map((term) => term.trim());
+  const terms = splitFormulaTerms(formula).map((term) => term.trim());
 
   const firstBase = (terms[0] ?? '')
     .replace(DAMAGE_TYPE_TOKEN_REGEX, '')
@@ -250,7 +437,7 @@ export function hasStatusToken(
   formula: string,
   side?: StatusTokenSide,
 ): boolean {
-  return formula.split('+').some((term) => {
+  return splitFormulaTerms(formula).some((term) => {
     const token = readStatusToken(term);
 
     return token !== null && (side === undefined || token.side === side);
@@ -296,7 +483,7 @@ export function applyStatusConditionals(
 
   const kept: string[] = [];
 
-  for (const rawTerm of formula.split('+')) {
+  for (const rawTerm of splitFormulaTerms(formula)) {
     const token = readStatusToken(rawTerm);
     const ownToken = token?.side === side ? token : null;
 
@@ -341,7 +528,7 @@ export function splitByTargetStatus(formula: string): TargetStatusBranch[] {
   const unconditional: string[] = [];
   const byStatus = new Map<string, string[]>();
 
-  for (const rawTerm of formula.split('+')) {
+  for (const rawTerm of splitFormulaTerms(formula)) {
     const token = readStatusToken(rawTerm);
 
     if (!token || token.side !== 'target') {

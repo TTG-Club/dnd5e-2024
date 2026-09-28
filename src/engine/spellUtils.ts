@@ -65,6 +65,8 @@ import {
   hasStatusToken,
   readStatusToken,
   splitByTargetStatus,
+  splitFormulaTerms,
+  spreadKindTokens,
   stripDamageTypeTokens,
   stripHealTokens,
   stripStatusTokens,
@@ -698,7 +700,7 @@ export function applyTargetTypeConditionals(
 
   const kept: string[] = [];
 
-  for (const rawTerm of formula.split('+')) {
+  for (const rawTerm of splitFormulaTerms(formula)) {
     if (!TARGET_TYPE_DETECT_ANY_REGEX.test(rawTerm)) {
       const term = rawTerm.trim();
 
@@ -744,7 +746,7 @@ export function splitByTargetTypeGate(formula: string): TargetTypeBranch[] {
   const unconditional: string[] = [];
   const byType = new Map<CreatureCategory, string[]>();
 
-  for (const rawTerm of formula.split('+')) {
+  for (const rawTerm of splitFormulaTerms(formula)) {
     if (!TARGET_TYPE_DETECT_ANY_REGEX.test(rawTerm)) {
       const term = rawTerm.trim();
 
@@ -817,7 +819,7 @@ export function applyTargetConditionals(
 
   const kept: string[] = [];
 
-  for (const rawTerm of formula.split('+')) {
+  for (const rawTerm of splitFormulaTerms(formula)) {
     const match = rawTerm.match(TARGET_CONDITION_DETECT_REGEX);
 
     if (!match) {
@@ -880,37 +882,55 @@ export function readDamageStatusName(status: string): string {
  * `"1к8@dmg.psychic@target.full + 1к12@dmg.lightning@target.notFull + @mod.spell"`
  * → `"1к8 или 1к12 + @mod.spell"`.
  *
+ * Условие на числе в конце блока относится ко всему блоку, как и при броске:
+ * `1к6+1@dmg.cold@target.status.prone` → «1к6 + 1 (цель: Лежащий ничком)».
+ *
  * @param formula - формула части (возможно с токенами @target)
  * @param resolveTerm - резолвер набора слагаемых в отображаемую строку
+ * @param hasOwnType - у части свой тип (ведущие слагаемые берут его, см.
+ *   `spreadKindTokens`)
  * @returns строка для отображения
  */
 export function formatConditionalDamageDisplay(
   formula: string,
   resolveTerm: (subFormula: string) => string,
+  hasOwnType = false,
 ): string {
   if (!formula || !/@(?:target|self)\./i.test(formula)) {
     return resolveTerm(stripTargetTokens(formula ?? ''));
   }
+
+  // Блоки раскладываются так же, как при броске, — иначе подпись условия
+  // досталась бы одному числу в конце блока, а кость показалась безусловной
+  const typedFormula = spreadKindTokens(formula, hasOwnType);
 
   const fullTerms: string[] = [];
   const notFullTerms: string[] = [];
   const commonTerms: string[] = [];
 
   // Слагаемые по состоянию — сверху остальных, с пометкой «чьё и какое»:
-  // «2к6 (цель: Лежащий ничком)»
-  const statusTerms: string[] = [];
+  // «2к6 (цель: Лежащий ничком)». Слагаемые одного условия идут под одной
+  // пометкой — блок `1к6+1` при условии показывается целиком
+  const statusTerms = new Map<string, { label: string; terms: string[] }>();
 
-  for (const rawTerm of formula.split('+')) {
+  for (const rawTerm of splitFormulaTerms(typedFormula)) {
     const match = rawTerm.match(TARGET_CONDITION_DETECT_REGEX);
     const status = readStatusToken(rawTerm);
 
     if (status) {
       const statusTerm = resolveTerm(stripTargetTokens(rawTerm)).trim();
+      const statusKey = `${status.side}:${status.status}`;
 
       if (statusTerm.length > 0) {
-        statusTerms.push(
-          `${statusTerm} (${STATUS_SIDE_LABELS[status.side]}: ${readDamageStatusName(status.status)})`,
-        );
+        const group = statusTerms.get(statusKey) ?? {
+          label: `${STATUS_SIDE_LABELS[status.side]}: ${readDamageStatusName(status.status)}`,
+          terms: [],
+        };
+
+        statusTerms.set(statusKey, {
+          ...group,
+          terms: [...group.terms, statusTerm],
+        });
       }
 
       continue;
@@ -952,7 +972,15 @@ export function formatConditionalDamageDisplay(
   const commonStr =
     commonTerms.length > 0 ? resolveTerm(commonTerms.join(' + ')).trim() : '';
 
-  return [branch, commonStr, ...statusTerms]
+  // Блок из нескольких слагаемых — в скобках: без них «1к6 + 1 + 1к6 + 1
+  // (цель: …)» не отличить от условия на одном числе
+  const statusStrs = [...statusTerms.values()].map(({ label, terms }) =>
+    terms.length > 1
+      ? `(${terms.join(' + ')}) (${label})`
+      : `${terms[0]} (${label})`,
+  );
+
+  return [branch, commonStr, ...statusStrs]
     .filter((piece) => piece.length > 0)
     .join(' + ');
 }
@@ -1181,7 +1209,11 @@ export function getSpellPrimaryDamageType(
  * Слагаемые верхнего уровня (разделённые `+`) группируются по виду с ПОТОКОМ
  * вида слева направо: токен `@dmg.cold` (или `@heal`) задаёт «текущий вид» для
  * своего слагаемого и всех последующих слагаемых без собственного токена.
- * Стартовое значение — `defaultType`. Токены вида взаимоисключающие: `@heal`
+ * Стартовое значение — `defaultType`; без него ведущие слагаемые до первого
+ * токена берут вид этого токена (`3к6+3@dmg.force` → сила целиком). Токен на
+ * числе закрывает свой блок: кость перед ним берёт его вид, даже если левее
+ * был другой (`1к8+3@dmg.piercing + 2к6+1@dmg.poison` — 2к6 ядом, см.
+ * `spreadKindTokens`). Токены вида взаимоисключающие: `@heal`
  * сбрасывает тип урона (сегмент лечения не типизирован), `@dmg` — лечение.
  * Токен вырезается из формулы (роллер его не видит), гейты `@target.*` и
  * вычитания остаются внутри слагаемого.
@@ -1191,6 +1223,9 @@ export function getSpellPrimaryDamageType(
  * - `"1к8@dmg.fire + @mod.spell"` → `[{"1к8 + @mod.spell", fire}]`
  * - `"2к4@heal + @mod.spell"` → `[{"2к4 + @mod.spell", heal:hp}]`
  * - `"1к8@dmg.fire + 2к4@heal.temp"` → `[{1к8, fire}, {2к4, heal:temp}]`
+ *
+ * Без defaultType: `"3к6+3@dmg.force"` → `[{"3к6 + 3", force}]`,
+ * `"1к8+3@dmg.piercing + 2к6+1@dmg.poison"` → `[{"1к8 + 3", piercing}, {"2к6 + 1", poison}]`.
  *
  * Если токенов нет — возвращается один сегмент с исходной формулой
  * (нулевое изменение для обычных формул).
@@ -1206,6 +1241,10 @@ export function splitFormulaByDamageType(
   if (!formula || (!hasDamageTypeToken(formula) && !hasHealToken(formula))) {
     return [{ formula: formula ?? '', type: defaultType }];
   }
+
+  // Без типа части ведущие слагаемые берут вид первого токена формулы
+  // (`3к6+3@dmg.force` — сила целиком), а не остаются безтиповыми
+  const typedFormula = spreadKindTokens(formula, Boolean(defaultType));
 
   /** Ключ-маркер для слагаемых без явного вида (базовый тип/лечение части). */
   const DEFAULT_KEY = ' default';
@@ -1227,7 +1266,7 @@ export function splitFormulaByDamageType(
   let currentTypes: string[] = defaultType ? [defaultType] : [];
   let currentHealing: HealKind | undefined;
 
-  for (const term of formula.split('+')) {
+  for (const term of splitFormulaTerms(typedFormula)) {
     const healKind = detectFormulaHealKind(term);
     const typeMatches = [...term.matchAll(DAMAGE_TYPE_TOKEN_GLOBAL_REGEX)];
 
@@ -1310,8 +1349,10 @@ export function describeDamagePart(part: DamagePart): DamagePartInfo {
 
   return {
     formula: formatDiceLetters(
-      formatConditionalDamageDisplay(part.formula, (subFormula) =>
-        stripHealTokens(stripDamageTypeTokens(subFormula)),
+      formatConditionalDamageDisplay(
+        part.formula,
+        (subFormula) => stripHealTokens(stripDamageTypeTokens(subFormula)),
+        Boolean(part.type),
       ),
     ),
     isHealing: segments.some((segment) => segment.healing !== undefined),
@@ -1951,8 +1992,7 @@ function buildSelfStatusBranches(
 
   const statuses = [
     ...new Set(
-      formula
-        .split('+')
+      splitFormulaTerms(formula)
         .map((term) => readStatusToken(term))
         .filter((token) => token?.side === 'self')
         .map((token) => token?.status ?? ''),
@@ -2023,7 +2063,12 @@ export function expandDamageParts(
 
     let scalingGroup = 0;
 
-    for (const selfBranch of buildSelfStatusBranches(part.formula, options)) {
+    // Вид блоков проставляется ДО ветвления: ветка по состоянию или хитам
+    // вырезает слагаемые, и кость без токена потеряла бы тип
+    // (`3к6+3@dmg.force + 2к6@dmg.force@target.status.prone`)
+    const typedFormula = spreadKindTokens(part.formula, Boolean(part.type));
+
+    for (const selfBranch of buildSelfStatusBranches(typedFormula, options)) {
       for (const hpBranch of buildTargetHpBranches(
         selfBranch.formula,
         targetIsFull,
@@ -2205,8 +2250,11 @@ export function resolveBonusDamageParts(
     conditionTypeGate,
   } of formulas) {
     // Состояние бросающего бонус-урону известно так же, как основному броску
+    // Вид блоков — до ветвления, как в `expandDamageParts`
+    const typedFormula = spreadKindTokens(rawFormula, Boolean(defaultType));
+
     const hpBranches = buildTargetHpBranches(
-      applyStatusConditionals(rawFormula, 'self', selfHasStatus),
+      applyStatusConditionals(typedFormula, 'self', selfHasStatus),
       targetIsFull,
     );
 
