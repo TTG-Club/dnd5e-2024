@@ -32,17 +32,24 @@
     collectActiveEffects,
     creatureActionHasSave,
     DEFAULT_REACH_FEET,
-    describeDamagePart,
+    describeCreatureDamageCondition,
     getActionDescriptionMarkdown,
     getAttackBonusKey,
     getAttackFlagCategory,
+    getDamagePartsPrimaryType,
     isDndCreature,
+    listCreatureDamageAlternatives,
+    readAlternativeShownParts,
     SAVE_TYPE_LABELS,
-    SPELL_DAMAGE_TEMPLATE_COLORS,
-    SPELL_TEMPLATE_DEFAULT_COLOR,
   } from '@vtt/shared/system/dnd.js';
 
   import { resolveTargetedAttackRoll } from '../../composables/attackRollMode';
+  import {
+    formatDamagePartsText,
+    launchCreatureAction,
+    runWithCreatureDamageChoice,
+    summarizeDamageParts,
+  } from '../../composables/creatureDamageChoice';
   import {
     applyActionSelfEffects,
     hasActionSelfEffects,
@@ -66,6 +73,7 @@
   import {
     CREATURE_ACTION_MENU_LABELS,
     CREATURE_ACTIONS_BLOCK_LABELS,
+    CREATURE_DAMAGE_CHOICE_LABELS,
     CREATURE_RANGE_TYPE_LABELS,
     CREATURE_ROW_ICONS,
     CREATURE_ROW_STAT_HINTS,
@@ -240,7 +248,9 @@
 
   /**
    * Сводка урона/лечения действия: формула (без токенов) и локализованные типы.
-   * Единая со заклинаниями/оружием система damageParts.
+   * Единая со заклинаниями/оружием система damageParts. Урон «или» пишется
+   * через косую черту («2к4 + 1 / 1к4 + 1»), а в подсказке — отдельными
+   * строками: набор и под ним условие.
    *
    * @param action - действие существа
    * @returns формула и подпись типов или null (нет частей урона)
@@ -248,27 +258,44 @@
   function actionDamageSummary(
     action: CreatureAction,
   ): { formula: string; typeLabel: string } | null {
-    const parts = action.damageParts ?? [];
+    const base = summarizeDamageParts(
+      action.damageParts ?? [],
+      getDamageTypeLabel,
+    );
 
-    if (parts.length === 0) {
-      return null;
+    const alternatives = listCreatureDamageAlternatives(action);
+
+    if (alternatives.length === 0) {
+      return base;
     }
 
-    const infos = parts.map((part) => describeDamagePart(part));
+    const formulas = [
+      base?.formula ?? CREATURE_DAMAGE_CHOICE_LABELS.noDamage,
+      ...alternatives.map(
+        (alternative) =>
+          summarizeDamageParts(
+            readAlternativeShownParts(alternative),
+            getDamageTypeLabel,
+          )?.formula ?? '',
+      ),
+    ];
 
-    const typeKeys = [...new Set(infos.flatMap((info) => info.types))];
+    const hints = alternatives.map(
+      (alternative) =>
+        `${CREATURE_DAMAGE_CHOICE_LABELS.orPrefix}${formatDamagePartsText(
+          readAlternativeShownParts(alternative),
+          getDamageTypeLabel,
+        )}${CREATURE_DAMAGE_CHOICE_LABELS.hintSeparator}${describeCreatureDamageCondition(
+          alternative,
+        )}`,
+    );
 
     return {
-      formula: infos.map((info) => info.formula).join(' + '),
-      typeLabel: typeKeys.map((key) => getDamageTypeLabel(key)).join(', '),
+      formula: formulas.join(CREATURE_DAMAGE_CHOICE_LABELS.formulaSeparator),
+      typeLabel: [base?.typeLabel ?? '', ...hints]
+        .filter((line) => line.length > 0)
+        .join(CREATURE_DAMAGE_CHOICE_LABELS.hintSeparator),
     };
-  }
-
-  /** Основной тип урона действия (для цвета шаблона и подписи броска) */
-  function actionPrimaryType(action: CreatureAction): string | undefined {
-    const first = action.damageParts?.[0];
-
-    return first ? describeDamagePart(first).types[0] : undefined;
   }
 
   /**
@@ -410,25 +437,14 @@
         }
       }
 
-      // Область: сначала размещаем шаблон у токена существа, затем кидаем урон
-      if (action.areaOfEffect) {
-        const color =
-          SPELL_DAMAGE_TEMPLATE_COLORS[actionPrimaryType(action) ?? '']
-          ?? SPELL_TEMPLATE_DEFAULT_COLOR;
-
-        spellTemplateStore.requestPlacement(
-          action.areaOfEffect,
-          color,
-          props.creatureId,
-          (templateId) =>
-            startActionRoll(action, creature, isDisadvantage, templateId),
-          null,
-        );
-
-        return;
-      }
-
-      startActionRoll(action, creature, isDisadvantage, undefined);
+      // Урон «или» выбирается после проверки дистанции (не спрашивать о
+      // промахе мимо досягаемости), но до шаблона и окна броска: окно получает
+      // уже выбранный набор частей
+      runWithCreatureDamageChoice(action, creature, (chosen) =>
+        launchCreatureAction(chosen, props.creatureId, (templateId) =>
+          startActionRoll(chosen, creature, isDisadvantage, templateId),
+        ),
+      );
     });
   }
 
@@ -496,7 +512,7 @@
       initialRollMode: actionAttackRoll?.mode ?? 'normal',
       rollModeReasons: actionAttackRoll?.reasons,
       incomingAttackType: getAttackFlagCategory(action.rangeType),
-      damageType: actionPrimaryType(action),
+      damageType: getDamagePartsPrimaryType(action.damageParts),
       damageParts: setup.baseParts,
       evaluateBonusDamageParts: setup.evaluateBonusDamageParts,
       onRollParts: (parts: RolledSpellDamagePart[]) =>

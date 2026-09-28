@@ -106,6 +106,12 @@ export const CONDITION_EFFECT_TEMPLATES: Record<
     ],
   },
 
+  bloodied: {
+    changes: [],
+    flags: [],
+    // Механики нет: на окровавленность ссылаются урон и умения
+  },
+
   charmed: {
     changes: [],
     flags: [],

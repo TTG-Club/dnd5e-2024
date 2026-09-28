@@ -15,9 +15,13 @@
     part: DamagePart;
     /** Опции типов урона: по ним ключ типа становится названием мира */
     damageTypeOptions: Array<{ label: string; value: string }>;
+    /** Считать состояния в формуле выполненными — у варианта «или» */
+    assumeStatuses?: boolean;
   }>();
 
-  const preview = computed(() => previewDamagePart(props.part));
+  const preview = computed(() =>
+    previewDamagePart(props.part, { assumeStatuses: props.assumeStatuses }),
+  );
 
   /** Названия типов урона мира по ключу */
   const typeLabels = computed<ReadonlyMap<string, string>>(

@@ -37,10 +37,11 @@ import {
   buildPseudoSpell,
   calculateWeaponDamageModifier,
   collectBonusDamageFormulas,
-  describeDamagePart,
+  entityHasDamageStatus,
   entityHasWeaponMastery,
   getCreatureSpellMod,
   getDamageBonusKey,
+  getDamagePartsPrimaryType,
   getWeaponDamageParts,
   getWeaponPrimaryDamageType,
   hasBonusDamageFormulas,
@@ -367,7 +368,8 @@ export function useBonusDamageParts() {
    * @param defaultType - тип урона сегментов без токена @dmg
    * @param useTargetState - оценивать ли состояние единой цели (false для AoE/снарядов)
    * @param resolveFormula - резолвер @-переменных сегмента
-   * @param carrier - свойства носителя эффектов (для условий `self.*`)
+   * @param owner - бросающий: носитель эффектов (условия `self.*`) и владелец
+   *   состояний `@self.status.*` в формулах бонус-урона
    * @returns бонус-части урона
    */
   function collectParts(
@@ -377,9 +379,11 @@ export function useBonusDamageParts() {
     defaultType: string | undefined,
     useTargetState: boolean,
     resolveFormula: (subFormula: string) => string,
-    carrier: CarrierContext,
+    owner: DnDSceneEntity,
     itemId?: string,
   ): SpellDamagePartInput[] {
+    const carrier: CarrierContext = buildCarrierContext(owner);
+
     const targetHp = useTargetState
       ? buildTargetHpContext(undefined, carrier.entityId)
       : undefined;
@@ -411,6 +415,7 @@ export function useBonusDamageParts() {
       targetIsFull,
       resolveFormula,
       targetHp?.creatureType,
+      (status) => entityHasDamageStatus(owner, status),
     );
   }
 
@@ -484,7 +489,7 @@ export function useBonusDamageParts() {
         defaultType,
         true,
         resolveFormula,
-        buildCarrierContext(actor),
+        actor,
         weapon.id,
       );
 
@@ -517,7 +522,7 @@ export function useBonusDamageParts() {
         undefined,
         !multiTarget,
         resolveFormula,
-        buildCarrierContext(actor),
+        actor,
       );
   }
 
@@ -543,9 +548,7 @@ export function useBonusDamageParts() {
 
     const baseDamageParts = action.damageParts ?? [];
 
-    const defaultType = baseDamageParts[0]
-      ? describeDamagePart(baseDamageParts[0]).types[0]
-      : undefined;
+    const defaultType = getDamagePartsPrimaryType(baseDamageParts);
 
     const pseudoSpell = buildPseudoSpell({
       id: `creature-action-${creature.id}-${action.name}`,
@@ -587,7 +590,7 @@ export function useBonusDamageParts() {
         defaultType,
         true,
         resolveFormula,
-        buildCarrierContext(creature),
+        creature,
       );
 
     return { baseParts, evaluateBonusDamageParts, pseudoSpell };
@@ -617,9 +620,7 @@ export function useBonusDamageParts() {
 
     const baseDamageParts = spell.damageParts ?? [];
 
-    const defaultType = baseDamageParts[0]
-      ? describeDamagePart(baseDamageParts[0]).types[0]
-      : undefined;
+    const defaultType = getDamagePartsPrimaryType(baseDamageParts);
 
     // Клон заклинания как псевдо-спелл: свои эффекты для save/area-пути, не
     // трогая сохранённое заклинание существа. Эффекты всегда идут через
@@ -657,7 +658,7 @@ export function useBonusDamageParts() {
         defaultType,
         true,
         resolveFormula,
-        buildCarrierContext(creature),
+        creature,
       );
 
     return { baseParts, evaluateBonusDamageParts, pseudoSpell };

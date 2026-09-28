@@ -16,11 +16,11 @@
   } from '@/core/entityUtils';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useWorldStore } from '@/stores/worldStore';
-  import { generateId, isActorEntity } from '@vtt/shared';
+  import { isActorEntity } from '@vtt/shared';
   import {
+    createInventoryItem,
     isDnDGameItem,
     isDndSceneEntity,
-    normalizeCompendiumItem,
   } from '@vtt/shared/system/dnd.js';
 
   import {
@@ -208,12 +208,7 @@
         return;
       }
 
-      const newItem: DnDGameItem = normalizeCompendiumItem({
-        ...parsedItem,
-        id: generateId('eq'),
-        isReadOnly: false,
-        equipped: false,
-      });
+      const newItem = createInventoryItem(parsedItem);
 
       localActor.value.equipment = [
         ...(localActor.value.equipment ?? []),

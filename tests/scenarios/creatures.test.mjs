@@ -1266,4 +1266,52 @@ describe('каталог: всем в радиусе', () => {
     // Без настройки фишка «враждебная» — союзник враждебной споры
     assert.deepEqual(pick('allies', spore), [packmate.id, unset.id]);
   });
+
+  it('[C23] Укусы роя: окровавленный рой бьёт вариантом «или»', () => {
+    // «20 (4к8 + 2) урона некротической энергией или 11 (2к8 + 2), если рой
+    // окровавлен» — основной урон и вариант с состоянием атакующего в формуле;
+    // окровавленность считается и по одним хитам
+    const bites = {
+      name: 'Рой хватающих рук',
+      damageParts: [{ formula: '4к8@dmg.necrotic + 2' }],
+      damageAlternatives: [
+        {
+          condition: 'ask',
+          damageParts: [
+            { formula: '2к8@dmg.necrotic@self.status.bloodied + 2' },
+          ],
+        },
+      ],
+    };
+
+    const attack = (hitPoints) => {
+      const swarm = withHp(
+        createCreature,
+        hitPoints,
+        { id: 'creature_swarm', name: 'Рой' },
+        20,
+      );
+
+      const choice = engine.chooseCreatureActionDamage(bites, {
+        selfHasStatus: (status) => engine.entityHasDamageStatus(swarm, status),
+      });
+
+      assert.equal(choice.kind, 'resolved', 'вопроса нет');
+
+      return engine
+        .resolveCreatureDamageParts(choice.option.damageParts, undefined, swarm)
+        .map((part) => [part.formula, part.type]);
+    };
+
+    assert.deepEqual(attack(20), [['4к8 + 2', 'necrotic']], 'полные хиты');
+    assert.deepEqual(attack(11), [['4к8 + 2', 'necrotic']], 'больше половины');
+
+    assert.deepEqual(
+      attack(10),
+      [['2к8 + 2', 'necrotic']],
+      'ровно половина — окровавлен',
+    );
+
+    assert.deepEqual(attack(1), [['2к8 + 2', 'necrotic']]);
+  });
 });

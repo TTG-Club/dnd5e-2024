@@ -25,9 +25,18 @@ export const DEATH_CONDITION_KEY = 'dead';
  */
 export const INCAPACITATED_CONDITION_KEY = 'incapacitated';
 
+/**
+ * Окровавленность («Bloodied» правил 2024): хитов не больше половины
+ * максимума. Сама по себе ничего не меняет — на неё ссылаются умения и урон
+ * существ («или 2к8 + 2, если рой окровавлен»). Значок ставят руками, а
+ * проверки урона считают окровавленным и по одним хитам — без значка.
+ */
+export const BLOODIED_CONDITION_KEY = 'bloodied';
+
 /** Полный список ключей состояний — единственный источник правды. */
 export const CONDITION_KEYS = [
   'blinded',
+  BLOODIED_CONDITION_KEY,
   'charmed',
   'deafened',
   'exhaustion',

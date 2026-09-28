@@ -26,11 +26,11 @@ import {
   ATTACK_ABILITY_CONDITION_PREFIX,
   CARRIER_TYPE_CONDITION_PREFIX,
   CONDITION_AND_SEPARATOR,
+  hasEntityCondition,
   listLiveEffects,
   splitConditionParts,
   TARGET_TYPE_CONDITION_PREFIX,
 } from './activeEffectTypes.js';
-import { INCAPACITATED_CONDITION_KEY } from './conditionKeys.js';
 import {
   CREATURE_SIZES,
   isAbilityType,
@@ -547,33 +547,6 @@ function hasEffectTagFromSource(
     sourceId !== undefined
     && listEffectTags(entity, tag).some(
       (effect) => effect.sourceActorId === sourceId,
-    )
-  );
-}
-
-/**
- * Есть ли на сущности состояние. Недееспособность дают и другие состояния
- * («Парализованный», «Ошеломлённый») — их флагом.
- *
- * @param entity - сущность
- * @param condition - ключ состояния
- * @returns `true`, если состояние есть
- */
-export function hasEntityCondition(
-  entity: DnDSceneEntity,
-  condition: string,
-): boolean {
-  const effects = listLiveEffects(entity);
-
-  if (effects.some((effect) => effect.conditionKey === condition)) {
-    return true;
-  }
-
-  // Недееспособность ставят и другие состояния — своим флагом
-  return (
-    condition === INCAPACITATED_CONDITION_KEY
-    && effects.some((effect) =>
-      effect.flags.includes(INCAPACITATED_CONDITION_KEY),
     )
   );
 }

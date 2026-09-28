@@ -15,6 +15,7 @@
     FEAT_CHOICE_TYPE_LABELS,
     getVisibleFeatChoices,
     isAppliedChoiceType,
+    normalizeSpellName,
     resolveFeatChoiceCount,
     resolveFeatChoicePool,
   } from '@vtt/shared/system/dnd.js';
@@ -22,6 +23,7 @@
   import { useFeatChoiceWeapons } from '../../../composables/useFeatChoiceWeapons';
   import ChoicePickerField from '../ChoicePickerField.vue';
   import { FEAT_CHOICES_LABELS } from '../constants';
+  import { compareSpellOptions } from '../utils/compareSpellOptions';
   import { spellCircleLabel } from '../utils/spellCircleLabel';
 
   /**
@@ -76,6 +78,22 @@
     () => new Map((props.spells ?? []).map((spell) => [spell.id, spell])),
   );
 
+  /**
+   * Заклинания, уже стоящие на листе, по нормализованному названию → отметка
+   * подготовки. Лист отсеивает повтор по названию, и взятое второй раз
+   * заклинание молча пропало бы вместе с выбором — поэтому такие варианты
+   * гаснут с пометкой, подготовлено ли заклинание.
+   */
+  const actorSpellPrepared = computed(
+    () =>
+      new Map(
+        (props.actor.spells ?? []).map((spell) => [
+          normalizeSpellName(spell.name),
+          Boolean(spell.prepared || spell.alwaysPrepared),
+        ]),
+      ),
+  );
+
   /** Выборы, которые спрашиваются сейчас: остальные ждут ответа про класс */
   const visible = computed(() =>
     getVisibleFeatChoices(props.choices, selections.value),
@@ -102,9 +120,15 @@
             : FEAT_CHOICES_LABELS.emptyPoolNoOptions,
         // Подпись у значения есть не всегда: у оружия и заклинаний её задаёт
         // сама черта, а у ключа словаря — справочник
-        options: pool.map<ChoicePickerOption>((option) =>
-          toPickerOption(option, spellById.value.get(option.value)),
-        ),
+        options: pool
+          .map<ChoicePickerOption>((option) =>
+            toPickerOption(
+              option,
+              spellById.value.get(option.value),
+              chosen(choice.key),
+            ),
+          )
+          .sort(compareSpellOptions),
         max: resolveFeatChoiceCount(choice, props.proficiencyBonus),
         // Предупреждение о ручной механике не для выбора списка класса: он
         // ничего и не должен применять — он лишь сужает следующий вопрос
@@ -118,18 +142,31 @@
    * Вариант выбора для окна. У заклинания к названию добавляются английское,
    * круг плашкой, книга-источник и сама запись: по ней окно открывает карточку.
    *
+   * Заклинание, которое уже есть на листе, гаснет с пометкой «на листе» или
+   * «подготовлено». Отмеченное в этом выборе не гаснет: пересмотр на отдыхе
+   * открывается с прошлыми ответами, и их должно быть можно снять.
+   *
    * @param option - значение пула
    * @param spell - запись заклинания, если значение оказалось его id
+   * @param selected - уже отмеченное в этом выборе
    */
   function toPickerOption(
     option: FeatChoiceOption,
     spell: Spell | undefined,
+    selected: ReadonlyArray<string>,
   ): ChoicePickerOption {
     const name = option.name ?? option.value;
 
     if (!spell) {
       return { value: option.value, name };
     }
+
+    const prepared = actorSpellPrepared.value.get(
+      normalizeSpellName(spell.name),
+    );
+
+    const isOnSheet =
+      prepared !== undefined && !selected.includes(option.value);
 
     return {
       value: option.value,
@@ -139,6 +176,14 @@
       sourceKey: spell.sourceKey,
       source: spell.source,
       spell,
+      ...(isOnSheet
+        ? {
+            disabled: true,
+            additional: prepared
+              ? FEAT_CHOICES_LABELS.spellPrepared
+              : FEAT_CHOICES_LABELS.spellOnSheet,
+          }
+        : {}),
     };
   }
 

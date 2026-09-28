@@ -27,6 +27,12 @@
        * Нужно заклинаниям/атакам/эффектам без урона.
        */
       allowEmpty?: boolean;
+      /**
+       * Считать состояния в формуле выполненными (итог под формулой). Так у
+       * варианта «или»: он берётся, только когда все его состояния есть, и
+       * ветка «без состояния» у него не бросается никогда.
+       */
+      assumeStatuses?: boolean;
     }>(),
     {
       includeSpellModifier: true,
@@ -36,6 +42,7 @@
       hideModifiers: false,
       addLabel: DAMAGE_PART_LABELS.add,
       allowEmpty: false,
+      assumeStatuses: false,
     },
   );
 
@@ -82,6 +89,7 @@
       :hide-healing="hideHealing"
       :hide-conditions="hideConditions"
       :hide-modifiers="hideModifiers"
+      :assume-statuses="assumeStatuses"
       @update:model-value="updatePart(partIndex, $event)"
       @remove="removePart(partIndex)"
     />

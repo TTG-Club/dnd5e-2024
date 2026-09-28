@@ -19,6 +19,8 @@ import type { AmmunitionType } from '@vtt/shared';
 
 import type { DnDGameItem, ItemUses, ItemUsesRecovery } from './dndEntities.js';
 
+import { generateId } from '@vtt/shared';
+
 /**
  * Синонимы типов боеприпасов.
  *
@@ -157,4 +159,21 @@ export function normalizeCompendiumItem(item: DnDGameItem): DnDGameItem {
   }
 
   return normalized;
+}
+
+/**
+ * Предмет инвентаря из записи компендиума или мира: своя копия с новым id,
+ * правимая и не надетая. Новый id нужен, чтобы две копии одной записи в мешке
+ * не путались, а снятый признак «только чтение» — чтобы её можно было править.
+ *
+ * @param item - предмет компендиума или мира
+ * @returns новый предмет инвентаря
+ */
+export function createInventoryItem(item: DnDGameItem): DnDGameItem {
+  return normalizeCompendiumItem({
+    ...item,
+    id: generateId('eq'),
+    isReadOnly: false,
+    equipped: false,
+  });
 }

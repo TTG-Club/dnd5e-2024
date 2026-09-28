@@ -15,6 +15,7 @@ import type {
 import {
   CHOICE_DAMAGE_TYPE,
   CREATURE_CATEGORIES,
+  readDamageStatusName,
 } from '@vtt/shared/system/dnd.js';
 
 import { DAMAGE_PART_LABELS } from '../constants';
@@ -112,6 +113,19 @@ function describeSegmentBadges(
  */
 function describeBranchCondition(branch: DamagePreviewBranch): string {
   const conditions: string[] = [];
+
+  // Слагаемые по состоянию ложатся сверху основы, как и ветки по типу
+  if (branch.selfStatusGate) {
+    conditions.push(
+      `${DAMAGE_PART_LABELS.previewSelfStatusPrefix}${readDamageStatusName(branch.selfStatusGate)}${DAMAGE_PART_LABELS.previewTypeGateSuffix}`,
+    );
+  }
+
+  if (branch.statusGate) {
+    conditions.push(
+      `${DAMAGE_PART_LABELS.previewTargetStatusPrefix}${readDamageStatusName(branch.statusGate)}${DAMAGE_PART_LABELS.previewTypeGateSuffix}`,
+    );
+  }
 
   if (branch.hpGate) {
     conditions.push(HP_GATE_LABELS[branch.hpGate]);

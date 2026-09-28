@@ -7,6 +7,8 @@
  * знанием о каждом из них.
  */
 
+import type { CompendiumManifest, CompendiumTreeNode } from '@vtt/shared';
+
 import { isRecord } from '@vtt/shared';
 import {
   SPELL_LEVEL_LABELS,
@@ -75,3 +77,89 @@ export function equipmentTypeFilterValue(entry: unknown): string | undefined {
 /** Порядок разделов в панели фильтра — тот же, что у списка разделов. */
 export const EQUIPMENT_TYPE_FILTER_ORDER: string[] =
   STARTING_EQUIPMENT_ITEM_KINDS.map((kind) => itemTypeLabel(kind) ?? kind);
+
+/** Раздел компендиума с предметами: ключ узла и его название («Доспехи»). */
+export interface ItemSection {
+  id: string;
+  name: string;
+}
+
+/**
+ * Разделы предметов из манифестов компендиумов — в порядке их деревьев, без
+ * повторов. Разделы задаёт сайт (оружие, доспехи, кольца, зелья…), и своего
+ * списка здесь не держим: он разошёлся бы с сайтом у первого же нового раздела.
+ *
+ * @param manifests - манифесты всех паков
+ * @returns разделы с предметами
+ */
+export function collectItemSections(
+  manifests: ReadonlyArray<CompendiumManifest>,
+): ItemSection[] {
+  const itemKinds: ReadonlySet<string> = new Set(STARTING_EQUIPMENT_ITEM_KINDS);
+  const sections = new Map<string, string>();
+
+  const walk = (nodes: ReadonlyArray<CompendiumTreeNode>): void => {
+    for (const node of nodes) {
+      if (
+        node.dataKind
+        && itemKinds.has(node.dataKind)
+        && !sections.has(node.id)
+      ) {
+        sections.set(node.id, node.name);
+      }
+
+      if (node.children) {
+        walk(node.children);
+      }
+    }
+  };
+
+  for (const manifest of manifests) {
+    walk(manifest.tree ?? []);
+  }
+
+  return [...sections].map(([id, name]) => ({ id, name }));
+}
+
+/**
+ * Фильтр по разделу предмета: название раздела компендиума, из которого запись
+ * приехала (поле `section` записи). У записи без раздела — предмета мира или
+ * пака, не знающего разделов, — подписью служит её тип («Оружие»).
+ *
+ * @param sections - разделы предметов из манифестов
+ * @returns значение фильтра для записи
+ */
+export function buildItemSectionFilterValue(
+  sections: ReadonlyArray<ItemSection>,
+): (entry: unknown) => string | undefined {
+  const nameById = new Map(
+    sections.map((section) => [section.id, section.name]),
+  );
+
+  return (entry) => {
+    const sectionName =
+      isRecord(entry) && typeof entry.section === 'string'
+        ? nameById.get(entry.section)
+        : undefined;
+
+    return sectionName ?? equipmentTypeFilterValue(entry);
+  };
+}
+
+/**
+ * Порядок разделов в панели фильтра: как в дереве компендиума, а подписи типов
+ * у записей без раздела — следом.
+ *
+ * @param sections - разделы предметов из манифестов
+ * @returns названия в порядке показа
+ */
+export function itemSectionFilterOrder(
+  sections: ReadonlyArray<ItemSection>,
+): string[] {
+  return [
+    ...new Set([
+      ...sections.map((section) => section.name),
+      ...EQUIPMENT_TYPE_FILTER_ORDER,
+    ]),
+  ];
+}

@@ -1,0 +1,492 @@
+import assert from 'node:assert/strict';
+
+import { describe, it } from 'vitest';
+
+import { loadEngineBundle } from './helpers/engineBundle.mjs';
+import { loadHandler } from './helpers/sourceHandler.mjs';
+
+const engine = await loadEngineBundle("export * from './src/engine/index.ts';");
+
+/** Укус химеры: 2к6 + 4 колющего */
+const BITE = [{ formula: '2к6+4', type: 'piercing' }];
+
+/** Укус химеры с преимуществом: 4к6 + 4 колющего */
+const ADVANTAGE_BITE = [{ formula: '4к6+4', type: 'piercing' }];
+
+/** Другой луч: 2к6 огнём */
+const FIRE_RAY = [{ formula: '2к6', type: 'fire' }];
+
+/** Случайность на самый край списка */
+const LAST_ROLL = 0.99;
+
+/** Укусы роя 2024: основной урон и вариант окровавленного роя */
+const SWARM = {
+  name: 'Рой хватающих рук',
+  damageParts: [{ formula: '4к8@dmg.necrotic + 2' }],
+  damageAlternatives: [
+    {
+      condition: 'ask',
+      damageParts: [{ formula: '2к8@dmg.necrotic@self.status.bloodied + 2' }],
+    },
+  ],
+};
+
+/**
+ * Действие химеры с вариантами урона.
+ *
+ * @param {object[]} alternatives - варианты урона
+ * @returns {object} действие существа
+ */
+function bite(alternatives) {
+  return {
+    name: 'Укус',
+    description: [],
+    attackBonus: 7,
+    damageParts: BITE,
+    damageAlternatives: alternatives,
+  };
+}
+
+describe('выбор урона «или» у действия существа', () => {
+  it('без вариантов атака идёт основным уроном', () => {
+    const choice = engine.chooseCreatureActionDamage({ damageParts: BITE });
+
+    assert.equal(choice.kind, 'resolved');
+    assert.equal(choice.option.damageParts, BITE);
+    assert.equal(choice.rolled, undefined, 'выбирать было не из чего');
+  });
+
+  it('вариант с состоянием в формуле берётся сам, когда состояние есть', () => {
+    const bloodied = engine.chooseCreatureActionDamage(SWARM, {
+      selfHasStatus: (status) => status === 'bloodied',
+    });
+
+    assert.equal(bloodied.kind, 'resolved');
+    assert.equal(bloodied.matched, true);
+
+    assert.equal(
+      bloodied.option.damageParts[0].formula,
+      '2к8@dmg.necrotic@self.status.bloodied + 2',
+    );
+  });
+
+  it('состояния нет — вариант выпадает, вопроса нет, идёт основной урон', () => {
+    const healthy = engine.chooseCreatureActionDamage(SWARM, {
+      selfHasStatus: () => false,
+    });
+
+    assert.equal(healthy.kind, 'resolved');
+    assert.equal(healthy.matched, undefined);
+    assert.equal(healthy.option.damageParts[0].formula, '4к8@dmg.necrotic + 2');
+  });
+
+  it('состояние цели без цели не выполнено', () => {
+    const mimic = bite([
+      {
+        condition: 'ask',
+        damageParts: [{ formula: '2к8@target.status.grappled + 3' }],
+      },
+    ]);
+
+    assert.equal(
+      engine.chooseCreatureActionDamage(mimic, {}).option.damageParts,
+      BITE,
+      'область или цель не выбрана',
+    );
+
+    assert.equal(
+      engine.chooseCreatureActionDamage(mimic, {
+        targetHasStatus: (status) => status === 'grappled',
+      }).matched,
+      true,
+    );
+  });
+
+  it('нужны все состояния варианта', () => {
+    const action = bite([
+      {
+        condition: 'ask',
+        damageParts: [
+          { formula: '1к8@self.status.bloodied' },
+          { formula: '1к6@target.status.prone' },
+        ],
+      },
+    ]);
+
+    assert.equal(
+      engine.chooseCreatureActionDamage(action, {
+        selfHasStatus: () => true,
+      }).option.damageParts,
+      BITE,
+      'цель не лежит',
+    );
+  });
+
+  it('из сработавших по состоянию берётся верхний', () => {
+    const choice = engine.chooseCreatureActionDamage(
+      bite([
+        { condition: 'ask', damageParts: FIRE_RAY },
+        {
+          condition: 'ask',
+          damageParts: [{ formula: '4к6+4@self.status.prone' }],
+        },
+        {
+          condition: 'random',
+          damageParts: [{ formula: '2к6@self.status.bloodied' }],
+        },
+      ]),
+      { selfHasStatus: () => true },
+    );
+
+    assert.equal(choice.kind, 'resolved');
+
+    assert.equal(
+      choice.option.damageParts[0].formula,
+      '4к6+4@self.status.prone',
+    );
+  });
+
+  it('варианты без состояний: «на выбор» — вопрос, основной урон первым', () => {
+    const choice = engine.chooseCreatureActionDamage(
+      bite([
+        {
+          condition: 'ask',
+          label: 'С преимуществом',
+          damageParts: ADVANTAGE_BITE,
+        },
+        // С состоянием, которого нет, — в вопрос не попадает
+        {
+          condition: 'ask',
+          damageParts: [{ formula: '1к4@self.status.bloodied' }],
+        },
+      ]),
+      { selfHasStatus: () => false },
+    );
+
+    assert.equal(choice.kind, 'ask');
+    assert.equal(choice.options.length, 2);
+    assert.equal(choice.options[0].damageParts, BITE);
+    assert.equal(choice.options[1].alternative.label, 'С преимуществом');
+  });
+
+  it('«случайно» выпадает само: основной и варианты равны', () => {
+    const action = bite([{ condition: 'random', damageParts: FIRE_RAY }]);
+
+    const first = engine.chooseCreatureActionDamage(action, {}, () => 0);
+    const last = engine.chooseCreatureActionDamage(action, {}, () => LAST_ROLL);
+
+    assert.equal(first.rolled, true);
+    assert.equal(first.option.damageParts, BITE);
+    assert.deepEqual(last.option.damageParts, FIRE_RAY);
+  });
+
+  it('случайность вне [0, 1) не выводит за список', () => {
+    const action = bite([{ condition: 'random', damageParts: FIRE_RAY }]);
+
+    assert.deepEqual(
+      engine.chooseCreatureActionDamage(action, {}, () => 1).option.damageParts,
+      FIRE_RAY,
+    );
+
+    assert.equal(
+      engine.chooseCreatureActionDamage(action, {}, () => -1).option
+        .damageParts,
+      BITE,
+    );
+  });
+
+  it('фраза условия: состояния из формулы либо способ выбора', () => {
+    assert.equal(
+      engine.describeCreatureDamageCondition(SWARM.damageAlternatives[0]),
+      'если у атакующего: Окровавленный',
+    );
+
+    assert.equal(
+      engine.describeCreatureDamageCondition({
+        condition: 'ask',
+        damageParts: [{ formula: '2к8@target.status.grappled' }],
+      }),
+      'если у цели: Схваченный',
+    );
+
+    assert.equal(
+      engine.describeCreatureDamageCondition({ condition: 'random' }),
+      'случайно',
+    );
+  });
+
+  it('битые варианты выпадают, соседние остаются', () => {
+    const action = bite([
+      // Способ прежней версии
+      { condition: 'selfStatus', status: 'bloodied', damageParts: FIRE_RAY },
+      { condition: 'ask', damageParts: [{ formula: '  ' }] },
+      { condition: 'ask' },
+      'мусор',
+      { condition: 'random', label: '  ', damageParts: FIRE_RAY },
+    ]);
+
+    const alternatives = engine.listCreatureDamageAlternatives(action);
+
+    assert.equal(alternatives.length, 1);
+    assert.equal(alternatives[0].condition, 'random');
+    assert.equal('label' in alternatives[0], false, 'пустая подпись не нужна');
+
+    assert.deepEqual(
+      engine.listCreatureDamageAlternatives({ damageAlternatives: 'нет' }),
+      [],
+    );
+  });
+
+  it('вариантов не больше предела', () => {
+    const many = Array.from({ length: 9 }, () => ({
+      condition: 'ask',
+      damageParts: FIRE_RAY,
+    }));
+
+    assert.equal(
+      engine.listCreatureDamageAlternatives(bite(many)).length,
+      engine.MAX_CREATURE_DAMAGE_ALTERNATIVES,
+    );
+  });
+
+  it('действие для броска несёт выбранный урон и без вариантов', () => {
+    const action = bite([{ condition: 'ask', damageParts: ADVANTAGE_BITE }]);
+
+    const chosen = engine.applyCreatureDamageOption(action, {
+      damageParts: ADVANTAGE_BITE,
+    });
+
+    assert.equal(chosen.damageParts, ADVANTAGE_BITE);
+    assert.equal(chosen.damageAlternatives, undefined);
+    assert.equal(chosen.attackBonus, 7, 'остальное действие не трогается');
+    assert.equal(action.damageParts, BITE, 'исходник не меняется');
+  });
+});
+
+/**
+ * Настоящий выбор урона при атаке с портами: плашка и чат записываются.
+ *
+ * @param {number} roll - что выпадет у случайного выбора
+ * @param {object} context - проверки состояний сторон
+ * @returns {Promise<object>} выбор и записи
+ */
+async function loadChoice(roll = 0, context = {}) {
+  const modals = [];
+  const messages = [];
+
+  const run = await loadHandler(
+    'src/client/composables/creatureDamageChoice.ts',
+    'runWithCreatureDamageChoice',
+    {
+      ...engine,
+      chooseCreatureActionDamage: (action, damageContext) =>
+        engine.chooseCreatureActionDamage(action, damageContext, () => roll),
+      buildDamageContext: () => context,
+      useSystemDataStore: () => ({ damageTypes: [] }),
+      useChatStore: () => ({ sendMessage: (text) => messages.push(text) }),
+      useModalManager: () => ({
+        openModal: (name, props) => modals.push({ name, props }),
+      }),
+      generateId: (prefix) => `${prefix}_test`,
+      formatOptionLabel: (option) =>
+        option.alternative?.label ?? option.damageParts[0].formula,
+      makeLabelsUnique: (labels) => labels,
+      readChoiceReason: (choice) => {
+        if (choice.matched) {
+          return choice.option.alternative;
+        }
+
+        return choice.rolled ? { condition: 'random' } : undefined;
+      },
+      CREATURE_DAMAGE_MODAL_KEY_PREFIX: 'creature-damage',
+      EFFECT_VARIANT_PROMPT_MODAL: 'EffectVariantPromptModal',
+      CREATURE_DAMAGE_CHOICE_LABELS: {
+        groupName: 'Урон',
+        chatSeparator: ': ',
+        reasonOpen: ' (',
+        reasonClose: ')',
+      },
+    },
+  );
+
+  return { run, modals, messages };
+}
+
+describe('атака действием с уроном «или»', () => {
+  it('без вариантов атака идёт сразу тем же действием', async () => {
+    const { run, modals, messages } = await loadChoice();
+    const action = { name: 'Коготь', damageParts: BITE };
+
+    let proceeded;
+
+    run(action, {}, (chosen) => {
+      proceeded = chosen;
+    });
+
+    assert.equal(proceeded, action);
+    assert.equal(modals.length, 0);
+    assert.equal(messages.length, 0);
+  });
+
+  it('сработавшее состояние называется в чате', async () => {
+    const { run, messages } = await loadChoice(0, {
+      selfHasStatus: (status) => status === 'bloodied',
+    });
+
+    let proceeded;
+
+    run(SWARM, {}, (chosen) => {
+      proceeded = chosen;
+    });
+
+    assert.equal(
+      proceeded.damageParts[0].formula,
+      '2к8@dmg.necrotic@self.status.bloodied + 2',
+    );
+
+    assert.deepEqual(messages, [
+      'Рой хватающих рук: 2к8@dmg.necrotic@self.status.bloodied + 2 (если у атакующего: Окровавленный)',
+    ]);
+  });
+
+  it('«случайно» бросает само и называет выпавшее в чате', async () => {
+    const { run, modals, messages } = await loadChoice(LAST_ROLL);
+
+    let proceeded;
+
+    run(
+      bite([{ condition: 'random', damageParts: FIRE_RAY }]),
+      {},
+      (chosen) => {
+        proceeded = chosen;
+      },
+    );
+
+    assert.equal(modals.length, 0);
+    assert.deepEqual(proceeded.damageParts, FIRE_RAY);
+    assert.deepEqual(messages, ['Укус: 2к6 (случайно)']);
+  });
+
+  it('вариант «на выбор» ждёт ответа плашки', async () => {
+    const { run, modals, messages } = await loadChoice();
+
+    let proceeded;
+
+    run(
+      bite([
+        {
+          condition: 'ask',
+          label: 'С преимуществом',
+          damageParts: ADVANTAGE_BITE,
+        },
+      ]),
+      {},
+      (chosen) => {
+        proceeded = chosen;
+      },
+    );
+
+    assert.equal(proceeded, undefined, 'до ответа атаки нет');
+    assert.equal(modals[0].name, 'EffectVariantPromptModal');
+
+    assert.deepEqual(modals[0].props.groups[0].labels, [
+      '2к6+4',
+      'С преимуществом',
+    ]);
+
+    modals[0].props.onConfirm({ Урон: 'С преимуществом' });
+
+    assert.deepEqual(proceeded.damageParts, ADVANTAGE_BITE);
+    assert.equal(proceeded.damageAlternatives, undefined);
+    assert.deepEqual(messages, ['Укус: С преимуществом']);
+  });
+});
+
+describe('окно действия сохраняет урон «или» чистым', () => {
+  it('пустые части и варианты не пишутся, подпись обрезается', async () => {
+    const form = {
+      damageAlternatives: [
+        {
+          condition: 'ask',
+          label: '  С преимуществом ',
+          damageParts: [
+            { formula: '4к6+4', type: 'piercing' },
+            { formula: '' },
+          ],
+        },
+        { condition: 'random', label: ' ', damageParts: [{ formula: ' ' }] },
+        { condition: 'random', label: '   ', damageParts: FIRE_RAY },
+      ],
+    };
+
+    const build = await loadHandler(
+      'src/client/ui/creature/CreatureActionFormModal.vue',
+      'buildDamageAlternatives',
+      { form },
+    );
+
+    // Обработчик собран в своей песочнице: сравниваем данные, а не прототипы
+    assert.deepEqual(JSON.parse(JSON.stringify(build())), [
+      {
+        condition: 'ask',
+        label: 'С преимуществом',
+        damageParts: [{ formula: '4к6+4', type: 'piercing' }],
+      },
+      { condition: 'random', damageParts: FIRE_RAY },
+    ]);
+  });
+});
+
+describe('показ варианта', () => {
+  it('состояния-условия не пишутся в формулу варианта', () => {
+    const [alternative] = engine.listCreatureDamageAlternatives(SWARM);
+
+    assert.deepEqual(
+      engine
+        .readAlternativeShownParts(alternative)
+        .map((part) => engine.describeDamagePart(part).formula),
+      ['2к8 + 2'],
+    );
+
+    // Для броска вариант не тронут: состояние в нём остаётся условием
+    assert.equal(
+      alternative.damageParts[0].formula,
+      '2к8@dmg.necrotic@self.status.bloodied + 2',
+    );
+  });
+});
+
+describe('способ «по формуле»', () => {
+  it('стоит у нового варианта', () => {
+    assert.equal(engine.DEFAULT_CREATURE_DAMAGE_CONDITION, 'formula');
+  });
+
+  it('без состояний в формуле вариант не берётся и не предлагается', () => {
+    const action = {
+      damageParts: BITE,
+      damageAlternatives: [{ condition: 'formula', damageParts: FIRE_RAY }],
+    };
+
+    const choice = engine.chooseCreatureActionDamage(action, {}, () => 0.99);
+
+    assert.equal(choice.kind, 'resolved');
+    assert.deepEqual(choice.option.damageParts, BITE);
+    assert.equal(choice.rolled, undefined);
+  });
+
+  it('с состоянием берётся сам, когда оно есть', () => {
+    const action = {
+      ...SWARM,
+      damageAlternatives: [
+        { ...SWARM.damageAlternatives[0], condition: 'formula' },
+      ],
+    };
+
+    const choice = engine.chooseCreatureActionDamage(action, {
+      selfHasStatus: (status) => status === 'bloodied',
+    });
+
+    assert.equal(choice.kind, 'resolved');
+    assert.equal(choice.matched, true);
+  });
+});

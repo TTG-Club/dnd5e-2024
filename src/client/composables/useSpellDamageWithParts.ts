@@ -218,7 +218,7 @@ export function useSpellDamageWithParts() {
       const description = chooseParts
         .map(
           (part) =>
-            `${getPartKindLabel(part)} ${part.formula}${formatTargetGateSuffix(part.targetGate, part.targetTypeGate)}`,
+            `${getPartKindLabel(part)} ${part.formula}${formatTargetGateSuffix(part.targetGate, part.targetTypeGate, part.targetStatusGate)}`,
         )
         .join(', ');
 
@@ -834,7 +834,7 @@ export function useSpellDamageWithParts() {
       }
 
       const contributions = partContributions.get(part);
-      const header = `${getPartKindLabel(part)}${formatTargetGateSuffix(part.targetGate, part.targetTypeGate)}`;
+      const header = `${getPartKindLabel(part)}${formatTargetGateSuffix(part.targetGate, part.targetTypeGate, part.targetStatusGate)}`;
 
       const diceBreakdown =
         part.values.length > 0 ? `[${part.values.join(', ')}] = ` : '';

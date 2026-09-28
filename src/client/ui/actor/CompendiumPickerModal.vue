@@ -38,9 +38,6 @@
   import {
     ALL_PACKS_ID,
     COMPENDIUM_LABELS,
-    COMPENDIUM_PACK_BUTTON_CLASS,
-    COMPENDIUM_PACK_BUTTON_IDLE_CLASS,
-    COMPENDIUM_PACK_BUTTON_SELECTED_CLASS,
     COMPENDIUM_PICKER_CURRENT_TITLES,
     COMPENDIUM_PICKER_LABELS,
     COMPENDIUM_PICKER_TITLES,
@@ -537,30 +534,6 @@
     }
   }
 
-  /**
-   * Выбирает компендиум в левой колонке.
-   *
-   * @param packId - идентификатор пака (или псевдо-пака «все»)
-   */
-  function selectPack(packId: string): void {
-    selectedPackId.value = packId;
-  }
-
-  /**
-   * Оформление строки компендиума в левой колонке: выбранный подсвечен, прочие
-   * теплеют только под курсором.
-   *
-   * @param packId - идентификатор пака
-   */
-  function packButtonClass(packId: string): string {
-    const stateClass =
-      selectedPackId.value === packId
-        ? COMPENDIUM_PACK_BUTTON_SELECTED_CLASS
-        : COMPENDIUM_PACK_BUTTON_IDLE_CLASS;
-
-    return `${COMPENDIUM_PACK_BUTTON_CLASS} ${stateClass}`;
-  }
-
   function handleModalClose(): void {
     emit('update:open', false);
   }
@@ -606,29 +579,10 @@
         <div
           class="flex w-52 shrink-0 flex-col gap-1 overflow-y-auto border-r border-accented/30 p-3"
         >
-          <button
-            type="button"
-            :class="packButtonClass(ALL_PACKS_ID)"
-            @click.left.exact.prevent="selectPack(ALL_PACKS_ID)"
-          >
-            <span class="truncate">
-              {{ COMPENDIUM_PICKER_LABELS.allPacks }}
-            </span>
-          </button>
-
-          <button
-            v-for="pack in packs"
-            :key="pack.packId"
-            type="button"
-            :class="packButtonClass(pack.packId)"
-            @click.left.exact.prevent="selectPack(pack.packId)"
-          >
-            <span class="truncate">{{ pack.packName }}</span>
-
-            <span class="shrink-0 text-xs text-dimmed">
-              {{ pack.entries.length }}
-            </span>
-          </button>
+          <CompendiumPackList
+            v-model="selectedPackId"
+            :packs="packs"
+          />
         </div>
 
         <!-- Записи выбранного компендиума -->

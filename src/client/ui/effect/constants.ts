@@ -681,6 +681,12 @@ export const EFFECT_VARIANT_SWITCH_MAX = 3;
 /** Приставка ключа плашки выбора варианта */
 export const EFFECT_VARIANT_MODAL_KEY_PREFIX = 'effect-variant';
 
+/**
+ * Имя плашки выбора варианта в реестре модалок. Плашку открывают и варианты
+ * эффектов, и урон «или» существа.
+ */
+export const EFFECT_VARIANT_PROMPT_MODAL = 'EffectVariantPromptModal';
+
 /** Подписи плашки выбора варианта и строки чата */
 export const EFFECT_VARIANT_PROMPT_LABELS = {
   titlePrefix: '«',

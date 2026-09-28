@@ -176,3 +176,203 @@ export function setFormulaDamageType(formula: string, type: string): string {
 
   return terms.filter((term) => term.length > 0).join(' + ');
 }
+
+// ── Состояния в формуле: слагаемое только при состоянии стороны ──
+
+/**
+ * Чьё состояние проверяет токен: `self` — того, кто бросает (атакующий,
+ * заклинатель, существо со своим действием), `target` — цели урона.
+ */
+export type StatusTokenSide = 'self' | 'target';
+
+/**
+ * Токены состояний: `@self.status.<ключ>` и `@target.status.<ключ>`, ключ —
+ * состояния из справочника (`prone`, `bloodied`, своё состояние мира). Как и
+ * `@target.full`, токен — гейт на своё слагаемое: «1к8 + 2к6@target.status.prone»
+ * добавляет 2к6, только если цель лежит ничком. Отрицания нет: «иначе другой
+ * урон» — это урон «или» действия, а не формула.
+ */
+const STATUS_TOKEN_REGEX = /@(self|target)\.status\.([a-z0-9][a-z0-9-]*)/i;
+
+/** Глобальная версия {@link STATUS_TOKEN_REGEX} — только для вырезания */
+const STATUS_TOKEN_STRIP_REGEX =
+  /\s*@(?:self|target)\.status\.[a-z0-9][a-z0-9-]*/gi;
+
+/** Токен состояния, найденный в слагаемом */
+export interface StatusToken {
+  /** Чьё состояние */
+  side: StatusTokenSide;
+  /** Ключ состояния */
+  status: string;
+}
+
+/**
+ * Собирает токен состояния.
+ *
+ * @param side - чьё состояние
+ * @param status - ключ состояния
+ * @returns токен вида `@target.status.prone`
+ */
+export function buildStatusToken(
+  side: StatusTokenSide,
+  status: string,
+): string {
+  return `@${side}.status.${status}`;
+}
+
+/**
+ * Первый токен состояния в слагаемом или формуле.
+ *
+ * @param formula - слагаемое или формула
+ * @returns токен либо `null`, если его нет
+ */
+export function readStatusToken(formula: string): StatusToken | null {
+  const match = formula.match(STATUS_TOKEN_REGEX);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    side: match[1].toLowerCase() === 'self' ? 'self' : 'target',
+    status: match[2].toLowerCase(),
+  };
+}
+
+/**
+ * Есть ли в формуле токен состояния нужной стороны.
+ *
+ * @param formula - формула части урона
+ * @param side - чьё состояние; не задано — любой стороны
+ * @returns true, если токен есть
+ */
+export function hasStatusToken(
+  formula: string,
+  side?: StatusTokenSide,
+): boolean {
+  return formula.split('+').some((term) => {
+    const token = readStatusToken(term);
+
+    return token !== null && (side === undefined || token.side === side);
+  });
+}
+
+/**
+ * Удаляет токены состояний из формулы (для показа).
+ *
+ * @param formula - формула с возможными токенами состояний
+ * @returns формула без них (лишние пробелы схлопнуты)
+ */
+export function stripStatusTokens(formula: string): string {
+  if (!formula || !STATUS_TOKEN_REGEX.test(formula)) {
+    return formula ?? '';
+  }
+
+  return formula
+    .replace(STATUS_TOKEN_STRIP_REGEX, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+/**
+ * Гасит слагаемые, чьего состояния у стороны нет, — ГЕЙТ НА СЛАГАЕМОЕ, как у
+ * `@target.full`. Слагаемое без токена этой стороны остаётся как есть; у
+ * оставленных токен снимается. Неактивное слагаемое удаляется целиком, а не
+ * зануляется: иначе хвост без типа прилип бы к пустому месту.
+ *
+ * @param formula - формула с токенами состояний
+ * @param side - чьи состояния известны
+ * @param hasStatus - есть ли у стороны состояние с этим ключом
+ * @returns формула с оставленными слагаемыми
+ */
+export function applyStatusConditionals(
+  formula: string,
+  side: StatusTokenSide,
+  hasStatus: (status: string) => boolean,
+): string {
+  if (!formula || !hasStatusToken(formula, side)) {
+    return formula ?? '';
+  }
+
+  const kept: string[] = [];
+
+  for (const rawTerm of formula.split('+')) {
+    const token = readStatusToken(rawTerm);
+    const ownToken = token?.side === side ? token : null;
+
+    if (ownToken && !hasStatus(ownToken.status)) {
+      continue;
+    }
+
+    const term = ownToken
+      ? rawTerm.replace(STATUS_TOKEN_STRIP_REGEX, '').trim()
+      : rawTerm.trim();
+
+    if (term.length > 0) {
+      kept.push(term);
+    }
+  }
+
+  return kept.join(' + ').trim();
+}
+
+/** Ветка формулы по состоянию цели */
+export interface TargetStatusBranch {
+  /** Состояние, при котором ветка достаётся цели; нет — любой цели */
+  status?: string;
+  /** Формула ветки со снятыми токенами состояний цели */
+  formula: string;
+}
+
+/**
+ * Раскладывает формулу по состояниям цели — цель неизвестна до нанесения
+ * урона. Слагаемые без токена — одна ветка для любой цели; слагаемые с
+ * состоянием — по ветке на состояние, сверху безусловной (как ветки по типу
+ * существа: не исключают друг друга, а добавляются «своим»).
+ *
+ * @param formula - формула с возможными токенами `@target.status.*`
+ * @returns ветки с непустыми формулами
+ */
+export function splitByTargetStatus(formula: string): TargetStatusBranch[] {
+  if (!formula || !hasStatusToken(formula, 'target')) {
+    return [{ formula: formula ?? '' }];
+  }
+
+  const unconditional: string[] = [];
+  const byStatus = new Map<string, string[]>();
+
+  for (const rawTerm of formula.split('+')) {
+    const token = readStatusToken(rawTerm);
+
+    if (!token || token.side !== 'target') {
+      const term = rawTerm.trim();
+
+      if (term.length > 0) {
+        unconditional.push(term);
+      }
+
+      continue;
+    }
+
+    const cleaned = rawTerm.replace(STATUS_TOKEN_STRIP_REGEX, '').trim();
+
+    if (cleaned.length === 0) {
+      continue;
+    }
+
+    byStatus.set(token.status, [
+      ...(byStatus.get(token.status) ?? []),
+      cleaned,
+    ]);
+  }
+
+  return [
+    ...(unconditional.length > 0
+      ? [{ formula: unconditional.join(' + ') }]
+      : []),
+    ...[...byStatus].map(([status, terms]) => ({
+      status,
+      formula: terms.join(' + '),
+    })),
+  ];
+}

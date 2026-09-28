@@ -75,6 +75,7 @@ import {
   isArmorConditionKind,
 } from './armorState.js';
 import {
+  calculateAbilityModifier,
   calculateProficiencyBonus,
   getProficiencyContribution,
   isProficiencyLevel,
@@ -2590,6 +2591,14 @@ function resolveDamageDefenses(
  * потолок и у актёра, и у существа с хитами из статблока, не подменяя сам
  * запас.
  *
+ * У персонажа сюда же входит Телосложение сверх листа. Запас листа считается
+ * по числу из листа (`calculateMaxHP`), а прибавки предыстории и повышения
+ * характеристик лежат эффектами — без этой добавки персонаж с Телосложением
+ * 14 из предыстории получал за уровень одну кость хитов. По правилам 2024
+ * модификатор Телосложения входит в хиты каждого уровня, и его рост поднимает
+ * максимум задним числом — поэтому разница модификаторов умножается на
+ * суммарный уровень, а не пишется в лист на повышении.
+ *
  * @param entity - актор или существо
  * @returns насколько эффекты меняют максимум хитов (может быть отрицательной)
  */
@@ -2597,8 +2606,23 @@ export function resolveMaxHitPointsDelta(
   entity: DnDActor | DnDCreature,
 ): number {
   const baseMax = resolveHitPointsMax(entity.system.hitPoints);
+  const stats = resolveActorStats(entity);
+  const effectsDelta = stats.hitPointsMax - baseMax;
 
-  return resolveActorStats(entity).hitPointsMax - baseMax;
+  // Хиты существа заданы статблоком целиком, уровней у него нет
+  if (isCreatureEntity(entity)) {
+    return effectsDelta;
+  }
+
+  const sheetConstitutionMod = calculateAbilityModifier(
+    entity.system.abilities?.constitution ?? 10,
+  );
+
+  const constitutionDelta =
+    (stats.abilityMods.constitution - sheetConstitutionMod)
+    * getTotalLevel(entity.system.classes);
+
+  return effectsDelta + constitutionDelta;
 }
 
 /**

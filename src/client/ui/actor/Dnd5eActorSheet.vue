@@ -50,6 +50,7 @@
     collectSpeciesFeatDataSources,
     computeSpeciesDarkvision,
     computeSpeciesMovement,
+    createInventoryItem,
     DEFAULT_ACTOR,
     getMulticlassProficiencies,
     getTotalLevel,
@@ -60,10 +61,10 @@
     isSkillType,
     isSpell,
     normalizeActor,
-    normalizeCompendiumItem,
     refreshFeatCounters,
     refreshSpeciesCounters,
     removeGrantedSpellsByFeatureNames,
+    resolveActorStats,
     resolveEntityMaxHp,
     resolveFeatChoicesToAsk,
   } from '@vtt/shared/system/dnd.js';
@@ -729,11 +730,15 @@
    */
   const featsAwaitingLeveledChoices = ref<FeatAwaitingChoices[] | null>(null);
 
-  /** Модификатор Телосложения актёра (для броска костей хитов) */
+  /**
+   * Модификатор Телосложения актёра для броска костей хитов — итоговый, с
+   * эффектами: прибавки предыстории и повышения характеристик лежат ими, и по
+   * числу листа кость хитов лечила бы меньше положенного
+   */
   const constitutionModifier = computed(() =>
-    calculateAbilityModifier(
-      localActor.value?.system.abilities?.constitution ?? 10,
-    ),
+    localActor.value
+      ? resolveActorStats(localActor.value).abilityMods.constitution
+      : 0,
   );
 
   /**
@@ -1467,12 +1472,7 @@
           );
 
           if (!alreadyExists) {
-            const newItem: DnDGameItem = normalizeCompendiumItem({
-              ...parsedItem,
-              id: generateId('eq'),
-              isReadOnly: false,
-              equipped: false,
-            });
+            const newItem = createInventoryItem(parsedItem);
 
             localActor.value.equipment = [
               ...localActor.value.equipment,
@@ -1763,6 +1763,12 @@
       return;
     }
 
+    // Потолок с эффектами ДО повышения: прибавка текущих хитов считается по
+    // нему, а не по записи листа — Телосложение от предыстории и повышения
+    // характеристик лежит эффектами, и его доля за новый уровень в запись не
+    // попадает
+    const previousMax = resolveEntityMaxHp(localActor.value);
+
     // Обновляем class/system data
     Object.assign(localActor.value.system, systemUpdates);
 
@@ -1777,13 +1783,15 @@
         localActor.value.system.abilities?.constitution ?? 10,
       );
 
-      const previousMax = localActor.value.system.hitPoints?.max ?? 0;
-      const newMax = calculateMaxHP(systemUpdates.classes, constitutionMod);
-      const hpGain = newMax - previousMax;
+      localActor.value.system.hitPoints = {
+        ...localActor.value.system.hitPoints,
+        max: calculateMaxHP(systemUpdates.classes, constitutionMod),
+      };
+
+      const hpGain = resolveEntityMaxHp(localActor.value) - previousMax;
 
       localActor.value.system.hitPoints = {
         ...localActor.value.system.hitPoints,
-        max: newMax,
         current: Math.max(
           1,
           (localActor.value.system.hitPoints?.current ?? 0) + hpGain,

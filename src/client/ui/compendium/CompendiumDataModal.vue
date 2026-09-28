@@ -44,21 +44,28 @@
     isRecord,
     systemRegistry,
   } from '@vtt/shared';
+  import { rememberCompendiumClassLabels } from '@vtt/shared/system/dnd.js';
 
   import { flattenPreferringBy } from '../../composables/useCompendiumCatalog';
+  import { useProgressiveList } from '../../composables/useProgressiveList';
   import {
     buildEquipmentItems,
     loadEquipmentIndex,
   } from '../../composables/useStartingEquipment';
+  import CompendiumPackList from '../actor/CompendiumPackList.vue';
   import {
+    ALL_PACKS_ID,
+    COMPENDIUM_CLASS_KIND,
     COMPENDIUM_LABELS,
     COMPENDIUM_PACK_BUTTON_CLASS,
     COMPENDIUM_PACK_BUTTON_IDLE_CLASS,
     COMPENDIUM_PACK_BUTTON_SELECTED_CLASS,
+    COMPENDIUM_SPELL_KIND,
     GRANTED_SPELL_FEATURE_PREFIX,
     PINNED_SPELL_FEATURE_PREFIX,
     SHEET_FILTER_LABELS,
   } from '../actor/constants';
+  import PickerSkeletonRows from '../actor/PickerSkeletonRows.vue';
 
   /** Запись существа в компендиуме */
   interface CompendiumCreatureEntry {
@@ -203,6 +210,24 @@
   const items = ref<CompendiumDataItem[]>([]);
 
   /**
+   * Записи типа по компендиумам — для выбора компендиума в левой колонке. Пусто,
+   * когда окно открыто на узле одного пака (`dataFile`): выбирать там не из чего.
+   */
+  const kindPacks = ref<CatalogPack<CompendiumDataItem>[]>([]);
+
+  /** Записи типа со всех компендиумов разом — режим «все компендиумы» */
+  const allKindItems = ref<CompendiumDataItem[]>([]);
+
+  /** Компендиум, чьи записи показаны; по умолчанию — все сразу */
+  const selectedPackId = ref<string>(ALL_PACKS_ID);
+
+  /**
+   * Показывать ли выбор компендиума: он нужен, только когда их два и больше —
+   * иначе выбор из одного пункта лишь занимает место.
+   */
+  const hasPackChoice = computed(() => kindPacks.value.length > 1);
+
+  /**
    * Пак каждой записи узла типа: записи разных паков лежат в одном списке, и
    * различить копии одной записи можно только по нему. Ключ — сама запись:
    * движок показа фильтрует и сортирует те же объекты, не копируя их.
@@ -245,6 +270,14 @@
   const selectedSpells = ref<Set<string>>(
     new Set(props.preselectedSpellIds ?? []),
   );
+
+  /**
+   * Отмеченные заклинания целиком, по id. Список на экране — записи одного
+   * компендиума, и после переключения на другой отмеченное в первом из него
+   * пропадает; подтверждение берёт записи отсюда, чтобы на лист ушла ровно та
+   * копия, которую отметили.
+   */
+  const pickedSpellById = new Map<string, Spell>();
 
   /** Активен ли режим выбора */
   const isSelectionMode = computed(
@@ -339,18 +372,33 @@
   function countCantripsInSelection(selectionIds: Set<string>): number {
     let count = 0;
 
-    for (const entry of items.value) {
-      if (
-        !isSeparator(entry)
-        && isSpellDataItem(entry)
-        && entry.level === 0
-        && selectionIds.has(entry.id)
-      ) {
+    for (const selectedId of selectionIds) {
+      if (findSpellById(selectedId)?.level === 0) {
         count++;
       }
     }
 
     return count;
+  }
+
+  /**
+   * Заклинание по id: сперва отмеченная копия, затем показанный список, затем
+   * все компендиумы — отмеченное могло остаться в компендиуме, который сейчас не
+   * показан.
+   *
+   * @param spellId - id заклинания
+   */
+  function findSpellById(spellId: string): Spell | undefined {
+    const picked = pickedSpellById.get(spellId);
+
+    if (picked) {
+      return picked;
+    }
+
+    const isWanted = (entry: CompendiumDataItem): entry is Spell =>
+      isSpellDataItem(entry) && entry.id === spellId;
+
+    return items.value.find(isWanted) ?? allKindItems.value.find(isWanted);
   }
 
   /** Количество выбранных заговоров (круг 0) */
@@ -407,17 +455,9 @@
       // При лимите = 1 автоматически отменяем предыдущий выбор той же категории
       if (limit === 1) {
         for (const selectedId of newSet) {
-          // Сужаем ДО чтения `id`: среди записей есть и разделители, и
-          // определения вида/класса — `id` есть не у всех.
-          const found = items.value.find(
-            (item) => isSpellDataItem(item) && item.id === selectedId,
-          );
+          const found = findSpellById(selectedId);
 
-          if (
-            found
-            && isSpellDataItem(found)
-            && (isCantrip ? found.level === 0 : found.level > 0)
-          ) {
+          if (found && (isCantrip ? found.level === 0 : found.level > 0)) {
             newSet.delete(selectedId);
           }
         }
@@ -435,6 +475,12 @@
       if (remaining > 0) {
         newSet.add(spell.id);
       }
+    }
+
+    if (newSet.has(spell.id)) {
+      pickedSpellById.set(spell.id, spell);
+    } else {
+      pickedSpellById.delete(spell.id);
     }
 
     selectedSpells.value = newSet;
@@ -498,12 +544,9 @@
       return;
     }
 
-    const chosen = items.value.filter(
-      (entry): entry is Spell =>
-        !isSeparator(entry)
-        && isSpellDataItem(entry)
-        && selectedSpells.value.has(entry.id),
-    );
+    const chosen = [...selectedSpells.value]
+      .map((spellId) => findSpellById(spellId))
+      .filter((spell): spell is Spell => spell !== undefined);
 
     emit('select-spells', chosen);
     emit('update:open', false);
@@ -583,6 +626,16 @@
 
     return [separator, ...pinned, ...rest];
   });
+
+  /**
+   * Записи, нарисованные сейчас: в справочнике их сотни, и каждая — карточка,
+   * поэтому список показывается порциями по мере прокрутки.
+   */
+  const {
+    visibleItems: renderedEntries,
+    hasMore: hasMoreEntries,
+    endMarker: entriesEndMarker,
+  } = useProgressiveList(visibleEntries);
 
   /**
    * Оформление строки фильтра — то же, что у компендиумов и видов дара в окнах
@@ -847,7 +900,10 @@
       });
     }
 
-    await tagEntriesWithPackOf(dataFile, loadedItems);
+    await Promise.all([
+      tagEntriesWithPackOf(dataFile, loadedItems),
+      loadClassLabelsFor(dataKind.value),
+    ]);
 
     // Пока ждали манифесты, узел могли сменить — ответ уже не про то, что показано
     if (dataFile !== props.dataFile) {
@@ -952,6 +1008,7 @@
     const [packs, manifests] = await Promise.all([
       loadCompendiumKindByPack(socket, kind),
       loadCompendiumManifests(socket),
+      loadClassLabelsFor(kind),
     ]);
 
     const view = findKindView(manifests, kind);
@@ -960,7 +1017,8 @@
       kindViewCache.set(kind, view);
     }
 
-    items.value = collectKindEntries(packs, kind);
+    allKindItems.value = collectKindEntries(packs, kind);
+    items.value = entriesOfPack(selectedPackId.value);
     kindView.value = view;
     loadedFile.value = kind;
     isLoading.value = false;
@@ -968,6 +1026,28 @@
     if (kind === CREATURE_KIND) {
       void warmEquipmentIndex();
     }
+  }
+
+  /**
+   * Подтягивает названия классов для фильтра «Класс» у заклинаний. Заклинание
+   * знает только ключ класса, а русское название класса не из книги игрока
+   * (изобретатель, классы премиум-паков) есть лишь в его записи. Ждать надо до
+   * показа списка: подписи фильтра движок показа считает по записям, и
+   * пришедшие позже названия он уже не увидел бы. Хост отдаёт классы из кеша.
+   *
+   * @param kind - тип записей окна
+   */
+  async function loadClassLabelsFor(kind: string): Promise<void> {
+    if (!props.socket || kind !== COMPENDIUM_SPELL_KIND) {
+      return;
+    }
+
+    const classPacks = await loadCompendiumKindByPack(
+      props.socket,
+      COMPENDIUM_CLASS_KIND,
+    );
+
+    rememberCompendiumClassLabels(classPacks.flatMap((pack) => pack.entries));
   }
 
   /**
@@ -1024,6 +1104,8 @@
       }),
     );
 
+    kindPacks.value = catalogPacks;
+
     for (const pack of catalogPacks) {
       for (const entry of pack.entries) {
         entryPacks.set(entry, { packId: pack.packId, packName: pack.packName });
@@ -1068,15 +1150,45 @@
   }
 
   /**
+   * Записи к показу для выбранного компендиума.
+   *
+   * @param packId - идентификатор пака или псевдо-пака «все»
+   */
+  function entriesOfPack(packId: string): CompendiumDataItem[] {
+    if (packId === ALL_PACKS_ID) {
+      return allKindItems.value;
+    }
+
+    return (
+      kindPacks.value.find((pack) => pack.packId === packId)?.entries ?? []
+    );
+  }
+
+  /**
+   * Выбирает компендиум в левой колонке. Фильтры и отметки остаются: выбор
+   * компендиума сужает список, а не начинает поиск заново.
+   *
+   * @param packId - идентификатор пака или псевдо-пака «все»
+   */
+  function selectPack(packId: string): void {
+    selectedPackId.value = packId;
+    items.value = entriesOfPack(packId);
+  }
+
+  /**
    * Подпись пака у строки — только когда та же запись есть и в другом паке: у
-   * единственной копии подпись лишняя.
+   * единственной копии подпись лишняя. Внутри одного компендиума повторов нет.
    *
    * @param entry - запись списка
    */
   function packLabelFor(entry: CompendiumDataItem): string | undefined {
     const key = entryKeyOf(entry);
 
-    if (key === undefined || !duplicatedKeys.value.has(key)) {
+    if (
+      selectedPackId.value !== ALL_PACKS_ID
+      || key === undefined
+      || !duplicatedKeys.value.has(key)
+    ) {
       return undefined;
     }
 
@@ -1790,6 +1902,10 @@
       if (oldValue && currentFile !== oldValue[1]) {
         loadedFile.value = '';
         items.value = [];
+        kindPacks.value = [];
+        allKindItems.value = [];
+        selectedPackId.value = ALL_PACKS_ID;
+        pickedSpellById.clear();
         searchQuery.value = '';
         resetFilters();
         selectedSpells.value = new Set();
@@ -1851,6 +1967,25 @@
             size="sm"
             :ui="{ root: 'w-full' }"
           />
+
+          <!-- Компендиум: откуда брать записи. Сначала выбирают, ОТКУДА, потом
+            сужают фильтрами, КАКИЕ именно, — как в окнах выбора -->
+          <div
+            v-if="hasPackChoice"
+            class="flex flex-col gap-1.5"
+          >
+            <span
+              class="text-xs font-semibold tracking-wider text-muted uppercase"
+            >
+              {{ COMPENDIUM_LABELS.packsSection }}
+            </span>
+
+            <CompendiumPackList
+              :model-value="selectedPackId"
+              :packs="kindPacks"
+              @update:model-value="selectPack"
+            />
+          </div>
 
           <!-- Секции фильтров -->
           <div
@@ -1977,16 +2112,11 @@
 
           <!-- Прокручиваемая область списка -->
           <div class="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-            <!-- Загрузка -->
-            <div
+            <!-- Загрузка: очертания строк на их месте -->
+            <PickerSkeletonRows
               v-if="isLoading"
-              class="flex items-center justify-center py-8"
-            >
-              <UIcon
-                name="tabler:loader-2"
-                class="animate-spin text-2xl text-muted"
-              />
-            </div>
+              class="pt-2"
+            />
 
             <!-- Список записей: строки разделены линией, как в окнах выбора.
               Собственная плашка строки снята пропом `flat` — вместе с
@@ -1996,7 +2126,7 @@
               class="flex flex-col divide-y divide-accented/25"
             >
               <template
-                v-for="(entry, index) in visibleEntries"
+                v-for="(entry, index) in renderedEntries"
                 :key="rowKey(entry, index)"
               >
                 <!-- Разделитель секции -->
@@ -2218,6 +2348,19 @@
                         {{ PINNED_SPELL_FEATURE_PREFIX
                         }}{{ getPinnedFeatureName(entry) }}
                       </UBadge>
+
+                      <!-- В режиме выбора нажатие на строку отмечает
+                        заклинание — карточку открывает отдельная кнопка -->
+                      <UButton
+                        v-if="isSelectionMode"
+                        icon="tabler:info-circle"
+                        color="neutral"
+                        variant="ghost"
+                        size="sm"
+                        class="shrink-0"
+                        :aria-label="COMPENDIUM_LABELS.spellDetail"
+                        @click.left.exact.prevent="openSpellDetail(entry)"
+                      />
                     </div>
                   </template>
 
@@ -2234,6 +2377,14 @@
                   </template>
                 </div>
               </template>
+
+              <!-- Метка конца показанной части: дойдя до неё, список
+                дорисовывает следующую порцию -->
+              <div
+                v-if="hasMoreEntries"
+                ref="entriesEndMarker"
+                class="h-px"
+              />
             </div>
 
             <!-- Нет результатов поиска -->

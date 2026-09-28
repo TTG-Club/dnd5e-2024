@@ -51,6 +51,7 @@
     damagePartIsHealing,
     getAvailableSpellLevels,
     getClassPreparedValue,
+    getDamageTemplateColor,
     getPactSlotInfo,
     getPreparedLimitBreakdown,
     getSpellAttackBreakdown,
@@ -75,10 +76,8 @@
     resolveSpellcastingAbility,
     resolveSpellDamageFormula,
     resolveSpellSaveDC,
-    SPELL_DAMAGE_TEMPLATE_COLORS,
     SPELL_LEVEL_LABELS,
     SPELL_SCHOOL_LABELS,
-    SPELL_TEMPLATE_DEFAULT_COLOR,
     SPELL_USES_RECOVERY_LABELS,
     spellIsHealing,
     withFlatDamageBonus,
@@ -116,6 +115,7 @@
     withFlatDamageBonusPart,
   } from '../../../composables/useBonusDamageParts';
   import { useClassCatalog } from '../../../composables/useClassCatalog';
+  import { useCompendiumWarmup } from '../../../composables/useCompendiumWarmup';
   import { collectEffectsWithAuras } from '../../../composables/useResolvedStats';
   import {
     getSpellMaxRangeOnScene,
@@ -131,6 +131,7 @@
     PROJECTILE_MODAL_KEY_PREFIX,
     SHEET_FILTER_LABELS,
     SHEET_ROW_MENU_LABELS,
+    SPELL_BROWSER_WARMUP_KINDS,
     SPELL_CAST_MODAL_KEY_PREFIX,
     SPELL_DAMAGE_ROLL_BUTTON,
     SPELL_FILTER_LABELS,
@@ -466,6 +467,10 @@
 
   /** Открыт ли компендиум заклинаний, из которого пополняют книгу */
   const isSpellBrowserOpen = ref(false);
+
+  // Заклинания и классы (подписи фильтра «Класс») для окна «Добавить» грузятся,
+  // пока игрок смотрит на вкладку
+  useCompendiumWarmup(() => getWorldSocket(), SPELL_BROWSER_WARMUP_KINDS);
 
   /**
    * Названия заклинаний листа: в окне они помечены изученными и повторно не
@@ -1517,9 +1522,9 @@
     if (spell.areaOfEffect) {
       const templateStore = useSpellTemplateStore();
 
-      const templateColor =
-        SPELL_DAMAGE_TEMPLATE_COLORS[getSpellPrimaryDamageType(spell) ?? '']
-        ?? SPELL_TEMPLATE_DEFAULT_COLOR;
+      const templateColor = getDamageTemplateColor(
+        getSpellPrimaryDamageType(spell),
+      );
 
       templateStore.requestPlacement(
         // Шаблон каста живёт до применения и снимается сам, поэтому размер ему

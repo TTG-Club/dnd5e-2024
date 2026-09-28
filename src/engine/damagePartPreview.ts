@@ -19,6 +19,7 @@ import type { ResolvedDamagePartInput, TargetHpGate } from './spellUtils.js';
 
 import { FORMULA_VARIABLE_LABELS, isCreatureCategory } from './consts.js';
 import { formatDiceFormula } from './diceFormula.js';
+import { stripStatusTokens } from './formulaTokens.js';
 import { expandDamageParts } from './spellUtils.js';
 
 /** @-переменная формулы (`@mod.spell`, `@prof`, …) */
@@ -44,6 +45,13 @@ export interface DamagePreviewSegment {
 
 /** Ветка итога: слагаемые, которые достаются цели при одном условии */
 export interface DamagePreviewBranch {
+  /** Состояние бросающего, при котором ветка бросается; нет — при любом */
+  selfStatusGate?: string;
+  /**
+   * Состояние цели, при котором ветка ей достаётся сверху безусловной; нет —
+   * любой цели
+   */
+  statusGate?: string;
   /** Условие по хитам цели; не задано — ветка для любой цели */
   hpGate?: TargetHpGate;
   /**
@@ -113,18 +121,34 @@ function readHealKind(entry: ResolvedDamagePartInput): HealKind | undefined {
  * Итог формулы части урона/лечения: что достанется цели при броске.
  *
  * Цель считается неизвестной, как у заклинания по площади: ветки по хитам
- * (`@target.full`/`@target.notFull`) и по типу существа (`@target.type.*`)
- * показываются все. Переменные не подставляются числами — у формы нет
+ * (`@target.full`/`@target.notFull`), по состоянию (`@target.status.*`) и по
+ * типу существа (`@target.type.*`) показываются все. Бросающего тоже нет,
+ * поэтому слагаемые по его состоянию (`@self.status.*`) идут своими ветками. Переменные не подставляются числами — у формы нет
  * владельца, — а называются словами. Бонусы, которые бросок добавляет сам
  * (модификатор оружия, усиление высших кругов), в формулу не входят и в итог
  * тоже.
  *
+ * У варианта «или» состояния в формуле — его условие: вариант берётся, только
+ * когда они все есть. Там `assumeStatuses` снимает их заранее, и итог
+ * показывает ровно то, что вариант бросит.
+ *
  * @param part - часть урона/лечения из редактора
+ * @param options - настройки итога
+ * @param options.assumeStatuses - считать состояния в формуле выполненными
  * @returns ветки итога и незнакомые движку токены
  */
-export function previewDamagePart(part: DamagePart): DamagePartPreview {
+export function previewDamagePart(
+  part: DamagePart,
+  options: { assumeStatuses?: boolean } = {},
+): DamagePartPreview {
+  const shown = options.assumeStatuses
+    ? { ...part, formula: stripStatusTokens(part.formula) }
+    : part;
+
   const branches = groupIntoBranches(
-    expandDamageParts([part], undefined, formatPreviewFormula),
+    expandDamageParts([shown], undefined, formatPreviewFormula, {
+      selfBranches: true,
+    }),
   );
 
   // Переменная без подписи осталась в формуле токеном — это и есть незнакомые
@@ -177,6 +201,8 @@ function groupIntoBranches(
 
     if (
       current
+      && current.selfStatusGate === entry.selfStatusGate
+      && current.statusGate === entry.targetStatusGate
       && current.hpGate === entry.targetGate
       && current.typeGate === entry.targetTypeGate
     ) {
@@ -189,6 +215,12 @@ function groupIntoBranches(
     return [
       ...branches,
       {
+        ...(entry.selfStatusGate
+          ? { selfStatusGate: entry.selfStatusGate }
+          : {}),
+        ...(entry.targetStatusGate
+          ? { statusGate: entry.targetStatusGate }
+          : {}),
         hpGate: entry.targetGate,
         typeGate: entry.targetTypeGate,
         segments: [segment],
@@ -201,10 +233,17 @@ function groupIntoBranches(
  * Ключ ветки без условия по хитам: по нему находятся одинаковые ветки.
  *
  * @param branch - ветка итога
- * @returns строка-ключ из типа цели и слагаемых
+ * @returns строка-ключ из состояний, типа цели и слагаемых
  */
 function readBranchKey(branch: DamagePreviewBranch): string {
-  return JSON.stringify([branch.typeGate ?? null, branch.segments]);
+  // Состояния в ключе: ветки разных состояний — разные броски, и схлопывать
+  // их между собой нельзя
+  return JSON.stringify([
+    branch.selfStatusGate ?? null,
+    branch.statusGate ?? null,
+    branch.typeGate ?? null,
+    branch.segments,
+  ]);
 }
 
 /**
@@ -252,7 +291,7 @@ function collapseHpIndependentBranches(
   });
 
   return [
-    ...collapsed.filter((branch) => !branch.typeGate),
-    ...collapsed.filter((branch) => branch.typeGate),
+    ...collapsed.filter((branch) => !branch.typeGate && !branch.statusGate),
+    ...collapsed.filter((branch) => branch.typeGate || branch.statusGate),
   ];
 }
