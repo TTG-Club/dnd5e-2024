@@ -151,6 +151,73 @@ export function detectFormulaDamageType(formula: string): string | null {
 }
 
 /**
+ * Токены вида одного слагаемого: `@heal`/`@heal.temp` (лечение важнее урона,
+ * как и при группировке) либо все его `@dmg.<тип>` подряд.
+ *
+ * @param term - слагаемое формулы
+ * @returns токены вида слагаемого или null, если их нет
+ */
+function readTermKindTokens(term: string): string | null {
+  const heal = term.match(HEAL_TOKEN_REGEX);
+
+  if (heal) {
+    return heal[0];
+  }
+
+  const damage = [...term.matchAll(DAMAGE_TYPE_TOKEN_GLOBAL_REGEX)];
+
+  return damage.length > 0 ? damage.map((match) => match[0]).join('') : null;
+}
+
+/**
+ * Распространяет вид первого токена формулы на ведущие слагаемые без вида.
+ *
+ * Формулы вида `3к6+3@dmg.force` пишут тип в КОНЦЕ слагаемого-числа, а кость
+ * перед ним токена не несёт. Без части со своим типом такие ведущие
+ * слагаемые остались бы безтиповыми (сопротивления к ним не применяются),
+ * поэтому токен(ы) вида первого слагаемого с видом — урона `@dmg.<тип>` или
+ * лечения `@heal`/`@heal.temp` — дописываются к каждому слагаемому ДО него.
+ * Дальше вид течёт слева направо как обычно.
+ *
+ * Звать, только когда у части нет своего типа: при заданном `part.type`
+ * ведущие слагаемые берут его. Раскладку по веткам (`@target.*`,
+ * `@self.status.*`) делать ПОСЛЕ этого вызова — ветка вырезает слагаемые, и
+ * без токена на месте ведущая кость ветки потеряла бы тип.
+ *
+ * Примеры: `3к6+3@dmg.force` → `3к6@dmg.force+3@dmg.force`;
+ * `1к8+3@heal` → `1к8@heal+3@heal`; формула без токенов вида — как есть.
+ *
+ * @param formula - формула части урона/лечения
+ * @returns формула, где у ведущих слагаемых есть токен вида
+ */
+export function spreadLeadingKindToken(formula: string): string {
+  if (!formula || (!hasDamageTypeToken(formula) && !hasHealToken(formula))) {
+    return formula ?? '';
+  }
+
+  const terms = formula.split('+');
+
+  const firstKindIndex = terms.findIndex(
+    (term) => readTermKindTokens(term) !== null,
+  );
+
+  const kindTokens =
+    firstKindIndex > 0 ? readTermKindTokens(terms[firstKindIndex]) : null;
+
+  if (!kindTokens) {
+    return formula;
+  }
+
+  return terms
+    .map((term, index) =>
+      index < firstKindIndex && term.trim().length > 0
+        ? term.replace(/\s*$/, (tail) => `${kindTokens}${tail}`)
+        : term,
+    )
+    .join('+');
+}
+
+/**
  * Устанавливает/заменяет токен `@dmg.<type>` на ПЕРВОМ слагаемом формулы.
  *
  * Первое слагаемое — «базовое»; его тип задаёт тип всех последующих слагаемых

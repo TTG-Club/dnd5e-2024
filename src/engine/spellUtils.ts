@@ -65,6 +65,7 @@ import {
   hasStatusToken,
   readStatusToken,
   splitByTargetStatus,
+  spreadLeadingKindToken,
   stripDamageTypeTokens,
   stripHealTokens,
   stripStatusTokens,
@@ -1181,7 +1182,9 @@ export function getSpellPrimaryDamageType(
  * Слагаемые верхнего уровня (разделённые `+`) группируются по виду с ПОТОКОМ
  * вида слева направо: токен `@dmg.cold` (или `@heal`) задаёт «текущий вид» для
  * своего слагаемого и всех последующих слагаемых без собственного токена.
- * Стартовое значение — `defaultType`. Токены вида взаимоисключающие: `@heal`
+ * Стартовое значение — `defaultType`; без него ведущие слагаемые до первого
+ * токена берут вид этого токена (`3к6+3@dmg.force` → сила целиком, см.
+ * `spreadLeadingKindToken`). Токены вида взаимоисключающие: `@heal`
  * сбрасывает тип урона (сегмент лечения не типизирован), `@dmg` — лечение.
  * Токен вырезается из формулы (роллер его не видит), гейты `@target.*` и
  * вычитания остаются внутри слагаемого.
@@ -1191,6 +1194,9 @@ export function getSpellPrimaryDamageType(
  * - `"1к8@dmg.fire + @mod.spell"` → `[{"1к8 + @mod.spell", fire}]`
  * - `"2к4@heal + @mod.spell"` → `[{"2к4 + @mod.spell", heal:hp}]`
  * - `"1к8@dmg.fire + 2к4@heal.temp"` → `[{1к8, fire}, {2к4, heal:temp}]`
+ *
+ * Без defaultType: `"3к6+3@dmg.force"` → `[{"3к6 + 3", force}]`,
+ * `"1к8+3@dmg.piercing + 2к6@dmg.poison"` → `[{"1к8 + 3", piercing}, {2к6, poison}]`.
  *
  * Если токенов нет — возвращается один сегмент с исходной формулой
  * (нулевое изменение для обычных формул).
@@ -1206,6 +1212,10 @@ export function splitFormulaByDamageType(
   if (!formula || (!hasDamageTypeToken(formula) && !hasHealToken(formula))) {
     return [{ formula: formula ?? '', type: defaultType }];
   }
+
+  // Без типа части ведущие слагаемые берут вид первого токена формулы
+  // (`3к6+3@dmg.force` — сила целиком), а не остаются безтиповыми
+  const typedFormula = defaultType ? formula : spreadLeadingKindToken(formula);
 
   /** Ключ-маркер для слагаемых без явного вида (базовый тип/лечение части). */
   const DEFAULT_KEY = ' default';
@@ -1227,7 +1237,7 @@ export function splitFormulaByDamageType(
   let currentTypes: string[] = defaultType ? [defaultType] : [];
   let currentHealing: HealKind | undefined;
 
-  for (const term of formula.split('+')) {
+  for (const term of typedFormula.split('+')) {
     const healKind = detectFormulaHealKind(term);
     const typeMatches = [...term.matchAll(DAMAGE_TYPE_TOKEN_GLOBAL_REGEX)];
 
@@ -2023,7 +2033,14 @@ export function expandDamageParts(
 
     let scalingGroup = 0;
 
-    for (const selfBranch of buildSelfStatusBranches(part.formula, options)) {
+    // Вид ведущих слагаемых проставляется ДО ветвления: ветка по состоянию
+    // или хитам вырезает слагаемые, и кость без токена потеряла бы тип
+    // (`3к6+3@dmg.force + 2к6@dmg.force@target.status.prone`)
+    const typedFormula = part.type
+      ? part.formula
+      : spreadLeadingKindToken(part.formula);
+
+    for (const selfBranch of buildSelfStatusBranches(typedFormula, options)) {
       for (const hpBranch of buildTargetHpBranches(
         selfBranch.formula,
         targetIsFull,
@@ -2205,8 +2222,13 @@ export function resolveBonusDamageParts(
     conditionTypeGate,
   } of formulas) {
     // Состояние бросающего бонус-урону известно так же, как основному броску
+    // Вид ведущих слагаемых — до ветвления, как в `expandDamageParts`
+    const typedFormula = defaultType
+      ? rawFormula
+      : spreadLeadingKindToken(rawFormula);
+
     const hpBranches = buildTargetHpBranches(
-      applyStatusConditionals(rawFormula, 'self', selfHasStatus),
+      applyStatusConditionals(typedFormula, 'self', selfHasStatus),
       targetIsFull,
     );
 
