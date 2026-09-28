@@ -34,6 +34,7 @@ import {
   CREATURE_DAMAGE_MODAL_KEY_PREFIX,
 } from '../ui/creature/constants';
 import { EFFECT_VARIANT_PROMPT_MODAL } from '../ui/effect/constants';
+import { formatDamageTypeChoiceLabel } from './damageTypeChoice';
 
 /** Способ «случайно» — для пометки выпавшего основного урона в чате */
 const RANDOM_CONDITION: CreatureDamageCondition = 'random';
@@ -82,9 +83,22 @@ export function summarizeDamageParts(
   const infos = parts.map((part) => describeDamagePart(part));
   const typeKeys = [...new Set(infos.flatMap((info) => info.types))];
 
+  const choiceLabels = [
+    ...new Set(
+      infos.flatMap((info) =>
+        info.typeChoices.map((choice) =>
+          formatDamageTypeChoiceLabel(choice, getTypeLabel),
+        ),
+      ),
+    ),
+  ];
+
   return {
     formula: infos.map((info) => info.formula).join(' + '),
-    typeLabel: typeKeys.map((key) => getTypeLabel(key)).join(', '),
+    typeLabel: [
+      ...typeKeys.map((key) => getTypeLabel(key)),
+      ...choiceLabels,
+    ].join(', '),
   };
 }
 

@@ -22,7 +22,7 @@ import type {
   EffectDuration,
   EffectSave,
 } from './activeEffectTypes.js';
-import type { HealKind } from './formulaTokens.js';
+import type { DamageTypeChoiceMode, HealKind } from './formulaTokens.js';
 
 import {
   AREA_TRIGGER_LABELS,
@@ -46,6 +46,7 @@ import {
   hasDamageTypeToken,
   hasHealToken,
   hasTargetToken,
+  readDamageTypeChoiceToken,
   stripDamageTypeTokens,
   stripHealTokens,
 } from './formulaTokens.js';
@@ -316,6 +317,36 @@ const DAMAGE_TARGET_LABELS: Record<string, string> = {
   notFull: 'по раненой цели',
 };
 
+/** Приставки типа урона на выбор в описании части: `@dmg.choice`/`@dmg.random` */
+const DAMAGE_TYPE_CHOICE_PREFIXES: Record<DamageTypeChoiceMode, string> = {
+  choose: 'на выбор: ',
+  random: 'случайно: ',
+};
+
+/**
+ * Подпись типа урона части: тип на выбор (`@dmg.choice`), поле `type` либо
+ * токен `@dmg.<тип>` в формуле.
+ *
+ * @param part - часть урона
+ * @param formula - формула части без крайних пробелов
+ * @returns подпись с ведущим пробелом; пустая строка — типа нет
+ */
+function describePartTypeLabel(part: DamagePart, formula: string): string {
+  const typeChoice = readDamageTypeChoiceToken(formula);
+
+  if (typeChoice) {
+    const options = typeChoice.options
+      .map((option) => getShortDamageTypeLabel(option))
+      .join('/');
+
+    return ` ${DAMAGE_TYPE_CHOICE_PREFIXES[typeChoice.mode]}${options}`;
+  }
+
+  const typeKey = part.type ?? detectFormulaDamageType(formula);
+
+  return typeKey ? ` ${getShortDamageTypeLabel(typeKey)}` : '';
+}
+
 /** Подписи лечения в описании части: `@heal` и `@heal.temp` */
 const HEAL_KIND_LABELS: Record<HealKind, string> = {
   hp: 'лечения',
@@ -337,9 +368,7 @@ export function describeEffectDamageParts(parts: DamagePart[]): string {
     .map((part) => {
       const formula = part.formula.trim();
 
-      // Тип урона: из поля type либо из токена @dmg.<type> в формуле
-      const typeKey = part.type ?? detectFormulaDamageType(formula);
-      const typeLabel = typeKey ? ` ${getShortDamageTypeLabel(typeKey)}` : '';
+      const typeLabel = describePartTypeLabel(part, formula);
       const healKind = detectFormulaHealKind(formula);
       const healLabel = healKind ? ` ${HEAL_KIND_LABELS[healKind]}` : '';
 

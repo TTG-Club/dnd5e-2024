@@ -74,6 +74,7 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { resolveTargetedAttackRoll } from '../../../composables/attackRollMode';
+  import { formatDamageTypeChoiceLabel } from '../../../composables/damageTypeChoice';
   import {
     applyEffectSource,
     prepareAmmunitionShot,
@@ -1216,6 +1217,10 @@
    */
   function weaponKindLabel(weapon: DnDGameItem): string {
     const types = new Set<string>();
+    const typeChoices = new Set<string>();
+
+    const getTypeLabel = (type: string): string =>
+      damageTypeMap.value.get(type) ?? type;
 
     let hasHealing = false;
 
@@ -1226,14 +1231,16 @@
         types.add(type);
       }
 
+      for (const choice of info.typeChoices) {
+        typeChoices.add(formatDamageTypeChoiceLabel(choice, getTypeLabel));
+      }
+
       if (info.isHealing) {
         hasHealing = true;
       }
     }
 
-    const labels = [...types].map(
-      (type) => damageTypeMap.value.get(type) ?? type,
-    );
+    const labels = [...[...types].map(getTypeLabel), ...typeChoices];
 
     if (hasHealing) {
       labels.push(ACTOR_EQUIPMENT_TAB_LABELS.healing);

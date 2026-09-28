@@ -11,6 +11,7 @@ import type {
   ActiveEffect,
   CreatureCategory,
   DamageDefenseOutcome,
+  DamageTypeChoice,
   ProjectileOutcome,
   SaveDamageDefense,
   Spell,
@@ -114,6 +115,11 @@ export interface SpellDamagePartInput {
   type?: string;
   /** Все типы урона части, если их несколько (напр. рубящий+огонь) */
   types?: string[];
+  /**
+   * Тип урона на выбор (`@dmg.choice(…)`), не решённый до окна: окно броска
+   * спрашивает его и ставит выбранный тип в `type`
+   */
+  typeChoice?: DamageTypeChoice;
   /** Является ли часть лечением */
   isHealing: boolean;
   /** Лечение временными ХП (`@heal.temp`): с текущими временными — большее */

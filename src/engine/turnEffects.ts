@@ -48,6 +48,7 @@ import {
 import { ABILITY_LABELS } from './consts.js';
 import { DAMAGE_TYPE_LABELS } from './damageConstants.js';
 import { damageReachesTarget } from './damageTargetGate.js';
+import { settleDamageTypeChoices } from './damageTypeChoice.js';
 import { applyHpChange, applyMultiTypeDamageDefenses } from './damageUtils.js';
 import { resolveDiceCountExpressions } from './diceCountExpressions.js';
 import { formatDiceFormula, rollDamageFormula } from './diceFormula.js';
@@ -932,11 +933,11 @@ export function rollEffectDamageParts(
     (part) => damageDealt === true || part.requiresDamage !== true,
   );
 
-  // Число костей выражением (`(2 + 1)к6`) бросок не понимает — считаем заранее
-  const segments = expandDamageParts(
-    gated,
-    undefined,
-    resolveDiceCountExpressions,
+  // Число костей выражением (`(2 + 1)к6`) бросок не понимает — считаем заранее.
+  // Тип на выбор, не решённый наложившим (эффект без источника), здесь
+  // спросить некого — он выпадает случайно
+  const segments = settleDamageTypeChoices(
+    expandDamageParts(gated, undefined, resolveDiceCountExpressions),
   ).filter(
     (segment) =>
       !segment.isHealing

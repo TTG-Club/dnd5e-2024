@@ -65,6 +65,7 @@ import {
   resolveEntityTempHp,
   resolveTargetDamageDefenses,
   scaleSaveDamage,
+  settleDamageTypeChoices,
   spellHasDamage,
   spellHealsTempHp,
   spellIsHealing,
@@ -1223,9 +1224,11 @@ export function useSpellResolution() {
         // К лечащим заклинаниям бонус-урон не применяется.
         const rolledBonusParts: RolledSpellDamagePart[] = [];
 
+        // Тип на выбор бонус-урона здесь не спросить (окно уже закрыто) —
+        // он выпадает случайно, но не остаётся без типа
         const bonusPartInputs = spellIsHealing(spell)
           ? []
-          : (options.bonusDamageParts ?? []);
+          : settleDamageTypeChoices(options.bonusDamageParts ?? []);
 
         for (const bonusPart of bonusPartInputs) {
           const bonusRoll = diceStore.parseAndRoll(bonusPart.formula);

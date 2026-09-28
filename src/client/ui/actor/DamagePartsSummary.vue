@@ -5,6 +5,7 @@
 
   import { describeDamagePart } from '@vtt/shared/system/dnd.js';
 
+  import { formatDamageTypeChoiceLabel } from '../../composables/damageTypeChoice';
   import { useSystemDataStore } from '../../stores/systemDataStore';
   import { DAMAGE_PART_LABELS } from './constants';
 
@@ -34,9 +35,15 @@
     props.parts.map((part) => {
       const info = describeDamagePart(part);
 
-      const labels = info.types.map(
-        (type) => damageTypeMap.value.get(type) ?? type,
-      );
+      const getTypeLabel = (type: string): string =>
+        damageTypeMap.value.get(type) ?? type;
+
+      const labels = [
+        ...info.types.map(getTypeLabel),
+        ...info.typeChoices.map((choice) =>
+          formatDamageTypeChoiceLabel(choice, getTypeLabel),
+        ),
+      ];
 
       if (info.isTemp) {
         labels.push(DAMAGE_PART_LABELS.temporaryHitPoints);

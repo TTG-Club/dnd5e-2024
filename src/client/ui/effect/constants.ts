@@ -697,6 +697,21 @@ export const EFFECT_VARIANT_PROMPT_LABELS = {
   chatJoiner: ', ',
 } as const;
 
+/** Приставка ключа плашки выбора типа урона (`@dmg.choice(…)`) */
+export const DAMAGE_TYPE_CHOICE_MODAL_KEY_PREFIX = 'damage-type-choice';
+
+/** Подписи выбора типа урона перед броском и строки чата */
+export const DAMAGE_TYPE_CHOICE_PROMPT_LABELS = {
+  /** Группа вопроса; при нескольких списках дописывается номер */
+  group: 'Тип урона',
+  groupNumberSeparator: ' ',
+  /** Строка чата: «Цветной шарик: тип урона — Огненный» */
+  chatSeparator: ': тип урона — ',
+  chatJoiner: ', ',
+  /** Пометка выпавшего случайно типа */
+  randomSuffix: ' (случайно)',
+} as const;
+
 /** Приставка ключа плашки выбора цели */
 export const EFFECT_TARGET_MODAL_KEY_PREFIX = 'effect-target';
 

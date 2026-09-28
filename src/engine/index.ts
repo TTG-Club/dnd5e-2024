@@ -40,6 +40,7 @@ export * from './damageHits.js';
 export * from './damagePartPreview.js';
 export * from './damageParts.js';
 export * from './damageTargetGate.js';
+export * from './damageTypeChoice.js';
 export * from './damageUtils.js';
 export * from './dataClone.js';
 export * from './deathSaves.js';
