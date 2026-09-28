@@ -77,6 +77,29 @@ export function damageTypeChoiceKey(choice: DamageTypeChoice): string {
 }
 
 /**
+ * Типы на выбор без повторов по {@link damageTypeChoiceKey}: одинаковый
+ * список в нескольких местах — один вопрос на бросок.
+ *
+ * @param choices - типы на выбор, возможно с повторами
+ * @returns типы на выбор по порядку первого появления
+ */
+export function uniqueDamageTypeChoices(
+  choices: Iterable<DamageTypeChoice>,
+): DamageTypeChoice[] {
+  const unique = new Map<string, DamageTypeChoice>();
+
+  for (const choice of choices) {
+    const key = damageTypeChoiceKey(choice);
+
+    if (!unique.has(key)) {
+      unique.set(key, choice);
+    }
+  }
+
+  return [...unique.values()];
+}
+
+/**
  * Разбирает варианты токена «на выбор»: ключи через запятую, регистр и
  * пробелы не важны, повторы и пустые места выбрасываются.
  *

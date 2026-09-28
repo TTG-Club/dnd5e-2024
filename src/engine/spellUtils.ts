@@ -72,6 +72,7 @@ import {
   stripDamageTypeTokens,
   stripHealTokens,
   stripStatusTokens,
+  uniqueDamageTypeChoices,
 } from './formulaTokens.js';
 import {
   getSpellAttackBreakdown,
@@ -1381,16 +1382,11 @@ export function describeDamagePart(part: DamagePart): DamagePartInfo {
     return segment.types ?? (segment.type ? [segment.type] : []);
   });
 
-  const typeChoices = new Map<string, DamageTypeChoice>();
-
-  for (const segment of segments) {
-    if (segment.typeChoice) {
-      typeChoices.set(
-        damageTypeChoiceKey(segment.typeChoice),
-        segment.typeChoice,
-      );
-    }
-  }
+  const typeChoices = uniqueDamageTypeChoices(
+    segments.flatMap((segment) =>
+      segment.typeChoice ? [segment.typeChoice] : [],
+    ),
+  );
 
   return {
     formula: formatDiceLetters(
@@ -1403,7 +1399,7 @@ export function describeDamagePart(part: DamagePart): DamagePartInfo {
     isHealing: segments.some((segment) => segment.healing !== undefined),
     isTemp: segments.some((segment) => segment.healing === 'temp'),
     types: [...new Set(typeList)],
-    typeChoices: [...typeChoices.values()],
+    typeChoices,
   };
 }
 

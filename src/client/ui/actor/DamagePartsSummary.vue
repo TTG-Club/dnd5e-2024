@@ -27,6 +27,11 @@
     return map;
   });
 
+  /** Название типа урона по ключу; незнакомый ключ — как есть */
+  function getTypeLabel(type: string): string {
+    return damageTypeMap.value.get(type) ?? type;
+  }
+
   /**
    * Части с готовыми подписями: «Урон»/«Лечение», формула без токенов и
    * локализованные типы (несколько — через « + »; временные ХП помечаются).
@@ -34,9 +39,6 @@
   const items = computed(() =>
     props.parts.map((part) => {
       const info = describeDamagePart(part);
-
-      const getTypeLabel = (type: string): string =>
-        damageTypeMap.value.get(type) ?? type;
 
       const labels = [
         ...info.types.map(getTypeLabel),

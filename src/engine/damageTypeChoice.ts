@@ -34,6 +34,7 @@ import {
   hasDamageTypeChoiceToken,
   listDamageTypeChoiceTokens,
   replaceDamageTypeChoiceTokens,
+  uniqueDamageTypeChoices,
 } from './formulaTokens.js';
 import { mapTriggerDamageParts } from './triggerDamageParts.js';
 
@@ -121,19 +122,7 @@ function listSourceFormulas(source: DamageTypeChoiceSource): string[] {
 export function listDamageTypeChoices(
   formulas: readonly string[],
 ): DamageTypeChoice[] {
-  const choices = new Map<string, DamageTypeChoice>();
-
-  for (const formula of formulas) {
-    for (const choice of listDamageTypeChoiceTokens(formula)) {
-      const key = damageTypeChoiceKey(choice);
-
-      if (!choices.has(key)) {
-        choices.set(key, choice);
-      }
-    }
-  }
-
-  return [...choices.values()];
+  return uniqueDamageTypeChoices(formulas.flatMap(listDamageTypeChoiceTokens));
 }
 
 /**
@@ -345,15 +334,9 @@ export function rollRandomDamageTypeChoices(
 export function listPartDamageTypeChoices(
   parts: readonly DamageTypeChoicePart[],
 ): DamageTypeChoice[] {
-  const choices = new Map<string, DamageTypeChoice>();
-
-  for (const part of parts) {
-    if (part.typeChoice) {
-      choices.set(damageTypeChoiceKey(part.typeChoice), part.typeChoice);
-    }
-  }
-
-  return [...choices.values()];
+  return uniqueDamageTypeChoices(
+    parts.flatMap((part) => (part.typeChoice ? [part.typeChoice] : [])),
+  );
 }
 
 /**
