@@ -27,7 +27,11 @@ import type { StatusToken } from './formulaTokens.js';
 import { z } from 'zod';
 
 import { EffectDamagePartSchema } from './activeEffectTypes.js';
-import { readStatusToken, stripStatusTokens } from './formulaTokens.js';
+import {
+  readStatusToken,
+  splitFormulaTerms,
+  stripStatusTokens,
+} from './formulaTokens.js';
 import { readDamageStatusName } from './spellUtils.js';
 
 /**
@@ -222,7 +226,7 @@ export function listAlternativeStatuses(
   const found = new Map<string, StatusToken>();
 
   for (const part of alternative.damageParts) {
-    for (const term of part.formula.split('+')) {
+    for (const term of splitFormulaTerms(part.formula)) {
       const token = readStatusToken(term);
 
       if (token) {

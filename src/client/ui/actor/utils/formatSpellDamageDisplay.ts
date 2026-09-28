@@ -60,7 +60,11 @@ export function formatSpellDamageDisplay(
       };
 
       const formula = formatDiceLetters(
-        formatConditionalDamageDisplay(part.formula, resolveTerm),
+        formatConditionalDamageDisplay(
+          part.formula,
+          resolveTerm,
+          Boolean(part.type),
+        ),
       );
 
       if (partIndex !== 0 || castLevel === undefined || !scalingDice) {

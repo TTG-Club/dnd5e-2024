@@ -143,3 +143,159 @@ describe('тип в конце слагаемого распространяет
     );
   });
 });
+
+/**
+ * Несколько типов в одной формуле. Токен на ЧИСЛЕ закрывает свой блок: кость
+ * перед ним берёт его тип, даже если левее уже был другой. Токен на КОСТИ —
+ * запись заклинаний: тип течёт от него вправо.
+ */
+describe('несколько типов урона в одной формуле', () => {
+  it('два блока «тип в конце» не путают кости', () => {
+    assert.deepEqual(split('1к8+3@dmg.piercing + 2к6+1@dmg.poison'), [
+      { formula: '1к8 + 3', type: 'piercing' },
+      { formula: '2к6 + 1', type: 'poison' },
+    ]);
+  });
+
+  it('три блока подряд — у каждого свой тип', () => {
+    assert.deepEqual(
+      split('1к4 + 1@dmg.fire + 1к4 + 1@dmg.cold + 1к4 + 1@dmg.acid'),
+      [
+        { formula: '1к4 + 1', type: 'fire' },
+        { formula: '1к4 + 1', type: 'cold' },
+        { formula: '1к4 + 1', type: 'acid' },
+      ],
+    );
+  });
+
+  it('тип на кости, дальше блок с типом в конце', () => {
+    assert.deepEqual(split('1к8@dmg.fire + 2к6 + 3@dmg.cold'), [
+      { formula: '1к8', type: 'fire' },
+      { formula: '2к6 + 3', type: 'cold' },
+    ]);
+  });
+
+  it('число после кости с типом остаётся с ней', () => {
+    assert.deepEqual(split('3к8@dmg.force+7+3к10@dmg.psychic'), [
+      { formula: '3к8 + 7', type: 'force' },
+      { formula: '3к10', type: 'psychic' },
+    ]);
+
+    assert.deepEqual(split('1к8@dmg.fire + 3'), [
+      { formula: '1к8 + 3', type: 'fire' },
+    ]);
+  });
+
+  it('токены на каждой кости — как записаны', () => {
+    assert.deepEqual(split('1к8 + 2к6@dmg.fire + 3@dmg.cold'), [
+      { formula: '1к8 + 2к6', type: 'fire' },
+      { formula: '3', type: 'cold' },
+    ]);
+  });
+
+  it('лечение в конце блока забирает свою кость', () => {
+    assert.deepEqual(split('2к6@dmg.fire + 1к8 + 3@heal'), [
+      { formula: '2к6', type: 'fire' },
+      { formula: '1к8 + 3', healing: 'hp' },
+    ]);
+  });
+
+  it('с типом части ведущая кость — его, следующие блоки — свои', () => {
+    assert.deepEqual(split('1к8+3@dmg.piercing + 2к6+1@dmg.poison', 'fire'), [
+      { formula: '1к8', type: 'fire' },
+      { formula: '3', type: 'piercing' },
+      { formula: '2к6 + 1', type: 'poison' },
+    ]);
+  });
+
+  it('условие на числе в конце блока — на весь блок', () => {
+    assert.deepEqual(
+      expand('1к8+3@dmg.fire + 2к6+2@dmg.cold@target.status.prone'),
+      [
+        { formula: '1к8 + 3', type: 'fire' },
+        { formula: '2к6 + 2', type: 'cold', targetStatusGate: 'prone' },
+      ],
+    );
+  });
+
+  it('гейт по хитам на числе в конце блока — на весь блок', () => {
+    assert.deepEqual(
+      expand('1к8+3@dmg.fire + 2к6+2@dmg.cold@target.notFull', true),
+      [{ formula: '1к8 + 3', type: 'fire' }],
+    );
+  });
+
+  it('бонус-урон эффекта делит блоки так же', () => {
+    const parts = engine.resolveBonusDamageParts(
+      [{ formula: '1к6+1@dmg.radiant + 1к4+1@dmg.fire' }],
+      undefined,
+      true,
+      (segment) => segment,
+    );
+
+    assert.deepEqual(
+      parts.map((part) => ({ formula: part.formula, type: part.type })),
+      [
+        { formula: '1к6 + 1', type: 'radiant' },
+        { formula: '1к4 + 1', type: 'fire' },
+      ],
+    );
+  });
+});
+
+describe('скобки в формуле — одно слагаемое', () => {
+  it('тип после скобки относится ко всей скобке', () => {
+    assert.deepEqual(split('(1к8+3)@dmg.fire', 'slashing'), [
+      { formula: '(1к8+3)', type: 'fire' },
+    ]);
+  });
+
+  it('формула роста по уровню не рвётся при типе части', () => {
+    assert.deepEqual(
+      split('(2 + steps(@classLevel, 9, 16))d6@heal.temp', 'fire'),
+      [{ formula: '(2 + steps(@classLevel, 9, 16))d6', healing: 'temp' }],
+    );
+  });
+
+  it('деление на слагаемые собирает исходную строку обратно', () => {
+    const formula = '(1к8 + 3)@dmg.fire + 2к6 + (1 + 1)';
+
+    assert.deepEqual(engine.splitFormulaTerms(formula), [
+      '(1к8 + 3)@dmg.fire ',
+      ' 2к6 ',
+      ' (1 + 1)',
+    ]);
+
+    assert.equal(engine.splitFormulaTerms(formula).join('+'), formula);
+  });
+});
+
+describe('подпись условия в строке урона', () => {
+  /** Показ без подстановки переменных: токены типа и лечения сняты */
+  function display(formula, type) {
+    return engine.describeDamagePart({ formula, type }).formula;
+  }
+
+  it('условие на числе в конце блока подписывает весь блок', () => {
+    assert.equal(
+      display('1к6+1@dmg.fire + 1к6+1@dmg.cold@target.status.prone'),
+      '1к6 + 1 + (1к6 + 1) (цель: Лежащий ничком)',
+    );
+  });
+
+  it('условие на кости подписывает только её', () => {
+    assert.equal(
+      display('3к6+3@dmg.force + 2к6@dmg.force@target.status.prone'),
+      '3к6 + 3 + 2к6 (цель: Лежащий ничком)',
+    );
+  });
+
+  it('разные условия — под своими подписями', () => {
+    assert.equal(
+      display(
+        '1к6+1@dmg.fire@target.status.prone + 1к4+1@dmg.cold@self.status.bloodied',
+      ),
+      '(1к6 + 1) (цель: Лежащий ничком) + (1к4 + 1) (атакующий: Окровавленный)',
+    );
+  });
+});
