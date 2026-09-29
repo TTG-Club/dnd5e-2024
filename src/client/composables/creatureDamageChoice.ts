@@ -27,6 +27,7 @@ import {
   getDamagePartsPrimaryType,
   getDamageTemplateColor,
   isDndSceneEntity,
+  listCreatureDamageAlternatives,
   readAlternativeShownParts,
 } from '@vtt/shared/system/dnd.js';
 
@@ -127,16 +128,57 @@ export function formatDamagePartsText(
 }
 
 /**
+ * Подпись основного урона в списке наборов — чтобы первая строка читалась
+ * таким же выбором, как варианты. Компендиум пишет «один тип на выбор»
+ * основным уроном первого типа и вариантами с названиями других типов
+ * («Холод», «Огонь»): если варианты отличаются от основного только типом,
+ * основной называется своим типом («Кислота»), иначе — «Основной урон».
+ *
+ * @param action - действие существа с вариантами
+ * @param getTypeLabel - название типа урона по ключу
+ * @returns подпись основного урона
+ */
+function readBaseOptionLabel(
+  action: Pick<CreatureAction, 'damageParts' | 'damageAlternatives'>,
+  getTypeLabel: (typeKey: string) => string,
+): string {
+  const baseParts = action.damageParts ?? [];
+  const base = summarizeDamageParts(baseParts, getTypeLabel);
+
+  // Тип на выбор у основного урона — уже не одно название, подпись не из него
+  const hasFixedTypes =
+    base !== null
+    && base.typeLabel.length > 0
+    && baseParts.every(
+      (part) => describeDamagePart(part).typeChoices.length === 0,
+    );
+
+  const onlyTypeDiffers =
+    hasFixedTypes
+    && listCreatureDamageAlternatives(action).every(
+      (alternative) =>
+        summarizeDamageParts(
+          readAlternativeShownParts(alternative),
+          getTypeLabel,
+        )?.formula === base.formula,
+    );
+
+  return onlyTypeDiffers ? base.typeLabel : CREATURE_DAMAGE_CHOICE_LABELS.base;
+}
+
+/**
  * Подпись набора в вопросе и в чате. Своя подпись варианта идёт впереди
  * формулы: по одной подписи не видно, сколько урона будет.
  *
  * @param option - набор урона
  * @param getTypeLabel - название типа урона по ключу
+ * @param baseLabel - подпись основного урона ({@link readBaseOptionLabel})
  * @returns подпись набора
  */
 function formatOptionLabel(
   option: CreatureDamageOption,
   getTypeLabel: (typeKey: string) => string,
+  baseLabel: string,
 ): string {
   const text = formatDamagePartsText(
     option.alternative
@@ -145,7 +187,7 @@ function formatOptionLabel(
     getTypeLabel,
   );
 
-  const ownLabel = option.alternative?.label;
+  const ownLabel = option.alternative ? option.alternative.label : baseLabel;
 
   return ownLabel
     ? `${ownLabel}${CREATURE_DAMAGE_CHOICE_LABELS.labelSeparator}${text}`
@@ -240,6 +282,8 @@ export function runWithCreatureDamageChoice(
     systemDataStore.damageTypes.find((entry) => entry.key === typeKey)?.name
     ?? typeKey;
 
+  const baseLabel = readBaseOptionLabel(action, getTypeLabel);
+
   if (choice.kind === 'resolved') {
     // Сработавшее состояние и выпавший набор называются в чате: иначе урон,
     // непохожий на прошлый бросок, выглядел бы ошибкой
@@ -247,7 +291,7 @@ export function runWithCreatureDamageChoice(
 
     if (reason) {
       useChatStore().sendMessage(
-        `${action.name}${CREATURE_DAMAGE_CHOICE_LABELS.chatSeparator}${formatOptionLabel(choice.option, getTypeLabel)}${CREATURE_DAMAGE_CHOICE_LABELS.reasonOpen}${describeCreatureDamageCondition(reason)}${CREATURE_DAMAGE_CHOICE_LABELS.reasonClose}`,
+        `${action.name}${CREATURE_DAMAGE_CHOICE_LABELS.chatSeparator}${formatOptionLabel(choice.option, getTypeLabel, baseLabel)}${CREATURE_DAMAGE_CHOICE_LABELS.reasonOpen}${describeCreatureDamageCondition(reason)}${CREATURE_DAMAGE_CHOICE_LABELS.reasonClose}`,
         'text',
       );
     }
@@ -258,7 +302,9 @@ export function runWithCreatureDamageChoice(
   }
 
   const labels = makeLabelsUnique(
-    choice.options.map((option) => formatOptionLabel(option, getTypeLabel)),
+    choice.options.map((option) =>
+      formatOptionLabel(option, getTypeLabel, baseLabel),
+    ),
   );
 
   const variants = choice.options.map((option, index) => ({

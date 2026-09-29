@@ -772,6 +772,11 @@ export const CREATURE_DAMAGE_ALTERNATIVE_LABELS = {
 export const CREATURE_DAMAGE_CHOICE_LABELS = {
   /** Набор без частей урона */
   noDamage: 'без урона',
+  /**
+   * Подпись основного урона в поле «Урон» окна броска, когда варианты
+   * отличаются от него не только типом: «Основной урон: 2к6 + 4 колющий»
+   */
+  base: 'Основной урон',
   labelSeparator: ': ',
   chatSeparator: ': ',
   /** Между строками подсказки к урону в строке листа */

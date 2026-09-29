@@ -7,10 +7,10 @@ import { loadHandler } from './helpers/sourceHandler.mjs';
 
 const engine = await loadEngineBundle("export * from './src/engine/index.ts';");
 
-/** Укус химеры: 2к6 + 4 колющего */
+/** Укус химеры: 2к6+4 колющего */
 const BITE = [{ formula: '2к6+4', type: 'piercing' }];
 
-/** Укус химеры с преимуществом: 4к6 + 4 колющего */
+/** Укус химеры с преимуществом: 4к6+4 колющего */
 const ADVANTAGE_BITE = [{ formula: '4к6+4', type: 'piercing' }];
 
 /** Другой луч: 2к6 огнём */
@@ -287,6 +287,7 @@ async function loadChoice(roll = 0, context = {}) {
       useModalManager: () => ({
         openModal: (name, props) => modals.push({ name, props }),
       }),
+      readBaseOptionLabel: () => undefined,
       formatOptionLabel: (option) =>
         option.alternative?.label ?? option.damageParts[0].formula,
       makeLabelsUnique: (labels) => labels,
@@ -401,6 +402,237 @@ describe('атака действием с уроном «или»', () => {
       [],
       'чат называет набор при броске, а не сейчас',
     );
+  });
+});
+
+/** Цветной плевок крылатого кобольда: один тип урона из пяти на выбор */
+const SPIT = {
+  name: 'Цветной плевок',
+  damageParts: [{ formula: '1к6+3@dmg.acid' }],
+  damageAlternatives: [
+    ['Холод', 'cold'],
+    ['Огонь', 'fire'],
+    ['Электричество', 'lightning'],
+    ['Яд', 'poison'],
+  ].map(([label, type]) => ({
+    condition: 'ask',
+    label,
+    damageParts: [{ formula: `1к6+3@dmg.${type}` }],
+  })),
+};
+
+/**
+ * Выбор урона при атаке с настоящими подписями наборов: сводка частей,
+ * подпись основного урона и уникальность — из исходника, названия типов — из
+ * справочника системы.
+ *
+ * @param {number} roll - что выпадет у случайного выбора
+ * @returns {Promise<object>} выбор и строки чата
+ */
+async function loadLabelledChoice(roll = 0) {
+  const source = 'src/client/composables/creatureDamageChoice.ts';
+  const messages = [];
+
+  const { CREATURE_DAMAGE_CHOICE_LABELS, damageTypes } = await loadEngineBundle(
+    `export { CREATURE_DAMAGE_CHOICE_LABELS } from './src/client/ui/creature/constants.ts';
+     export { default as damageTypes } from './src/engine/damage-types.json';`,
+  );
+
+  // Тип на выбор в этих действиях не пишется — его подпись не нужна
+  const summarizeDamageParts = await loadHandler(
+    source,
+    'summarizeDamageParts',
+    { ...engine, formatDamageTypeChoiceLabel: () => '' },
+  );
+
+  const formatDamagePartsText = await loadHandler(
+    source,
+    'formatDamagePartsText',
+    { summarizeDamageParts, CREATURE_DAMAGE_CHOICE_LABELS },
+  );
+
+  const ports = {
+    ...engine,
+    summarizeDamageParts,
+    formatDamagePartsText,
+    CREATURE_DAMAGE_CHOICE_LABELS,
+  };
+
+  const readBaseOptionLabel = await loadHandler(
+    source,
+    'readBaseOptionLabel',
+    ports,
+  );
+
+  const formatOptionLabel = await loadHandler(
+    source,
+    'formatOptionLabel',
+    ports,
+  );
+
+  const makeLabelsUnique = await loadHandler(source, 'makeLabelsUnique', ports);
+
+  const readChoiceReason = await loadHandler(source, 'readChoiceReason', {
+    RANDOM_CONDITION: 'random',
+  });
+
+  const run = await loadHandler(source, 'runWithCreatureDamageChoice', {
+    ...ports,
+    chooseCreatureActionDamage: (action, damageContext) =>
+      engine.chooseCreatureActionDamage(action, damageContext, () => roll),
+    buildDamageContext: () => ({}),
+    useSystemDataStore: () => ({ damageTypes }),
+    useChatStore: () => ({ sendMessage: (text) => messages.push(text) }),
+    readBaseOptionLabel,
+    formatOptionLabel,
+    makeLabelsUnique,
+    readChoiceReason,
+  });
+
+  return { run, messages };
+}
+
+/**
+ * Подписи наборов в поле «Урон» окна броска.
+ *
+ * @param {Function} run - выбор урона при атаке
+ * @param {object} action - действие существа
+ * @returns {string[]} подписи по порядку наборов
+ */
+function listVariantLabels(run, action) {
+  let labels = [];
+
+  run(action, {}, (_chosen, variants) => {
+    labels = variants.map((variant) => variant.label);
+  });
+
+  return labels;
+}
+
+describe('подпись основного урона в поле «Урон»', () => {
+  it('варианты отличаются только типом — основной назван своим типом', async () => {
+    const { run } = await loadLabelledChoice();
+
+    assert.deepEqual(listVariantLabels(run, SPIT), [
+      'Кислота: 1к6+3 кислота',
+      'Холод: 1к6+3 холод',
+      'Огонь: 1к6+3 огненный',
+      'Электричество: 1к6+3 молния',
+      'Яд: 1к6+3 яд',
+    ]);
+  });
+
+  it('варианты отличаются формулой — основной назван «Основной урон»', async () => {
+    const { run } = await loadLabelledChoice();
+
+    const labels = listVariantLabels(
+      run,
+      bite([
+        {
+          condition: 'ask',
+          label: 'С преимуществом',
+          damageParts: ADVANTAGE_BITE,
+        },
+      ]),
+    );
+
+    assert.deepEqual(labels, [
+      'Основной урон: 2к6+4 колющий',
+      'С преимуществом: 4к6+4 колющий',
+    ]);
+
+    // «Разбег»: тот же тип, но другие кости и лишняя часть
+    const charge = listVariantLabels(
+      run,
+      bite([
+        {
+          condition: 'ask',
+          label: 'Разбег',
+          damageParts: [...BITE, { formula: '2к6', type: 'piercing' }],
+        },
+      ]),
+    );
+
+    assert.equal(charge[0], 'Основной урон: 2к6+4 колющий');
+  });
+
+  it('хоть один вариант с другой формулой — подпись общая', async () => {
+    const { run } = await loadLabelledChoice();
+
+    const labels = listVariantLabels(
+      run,
+      bite([
+        {
+          condition: 'ask',
+          label: 'Огонь',
+          damageParts: [{ formula: '2к6+4@dmg.fire' }],
+        },
+        {
+          condition: 'ask',
+          label: 'С преимуществом',
+          damageParts: ADVANTAGE_BITE,
+        },
+      ]),
+    );
+
+    assert.equal(labels[0], 'Основной урон: 2к6+4 колющий');
+    assert.equal(labels[1], 'Огонь: 2к6+4 огненный');
+  });
+
+  it('подписи остаются уникальными', async () => {
+    const { run } = await loadLabelledChoice();
+
+    const labels = listVariantLabels(
+      run,
+      bite([{ condition: 'ask', label: 'Колющий', damageParts: BITE }]),
+    );
+
+    assert.deepEqual(labels, [
+      'Колющий: 2к6+4 колющий',
+      'Колющий: 2к6+4 колющий (2)',
+    ]);
+  });
+
+  it('без вариантов действие идёт как есть, подписей нет', async () => {
+    const { run, messages } = await loadLabelledChoice();
+    const action = { name: 'Коготь', damageParts: BITE };
+
+    let proceeded;
+    let proceededVariants;
+
+    run(action, {}, (chosen, variants) => {
+      proceeded = chosen;
+      proceededVariants = variants;
+    });
+
+    assert.equal(proceeded, action);
+    assert.equal(proceededVariants.length, 0);
+    assert.deepEqual(messages, []);
+  });
+
+  it('основной урон выпал случаем — в чате подпись и пометка «случайно»', async () => {
+    const { run, messages } = await loadLabelledChoice(0);
+
+    const random = {
+      ...SPIT,
+      damageAlternatives: SPIT.damageAlternatives.map((alternative) => ({
+        ...alternative,
+        condition: 'random',
+      })),
+    };
+
+    run(random, {}, () => {});
+
+    run(
+      bite([{ condition: 'random', damageParts: ADVANTAGE_BITE }]),
+      {},
+      () => {},
+    );
+
+    assert.deepEqual(messages, [
+      'Цветной плевок: Кислота: 1к6+3 кислота (случайно)',
+      'Укус: Основной урон: 2к6+4 колющий (случайно)',
+    ]);
   });
 });
 
