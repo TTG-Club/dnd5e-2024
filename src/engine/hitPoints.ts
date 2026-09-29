@@ -31,7 +31,10 @@ import type { DnDSceneEntity } from './dndEntities.js';
 
 import { isActorEntity, isCreatureEntity } from '@vtt/shared';
 
-import { resolveMaxHitPointsDelta } from './effectPipeline.js';
+import {
+  resolveMaxHitPointsDelta,
+  targetHpGateMatches,
+} from './effectPipeline.js';
 
 /**
  * Записанный в лист максимум хитов — БЕЗ активных эффектов.
@@ -140,4 +143,22 @@ export function writeEntityHitPoints(
     entity.system.hitPoints.current = hitPoints.current;
     entity.system.hitPoints.temp = hitPoints.temp;
   }
+}
+
+// ── Окровавленность ───────────────────────────────────────────
+
+/**
+ * Окровавлена ли сущность по хитам: не больше половины максимума («Bloodied»
+ * правил 2024). Без максимума хитов — нет: половины от нуля не бывает.
+ *
+ * @param entity - персонаж или существо
+ * @returns `true`, если хитов не больше половины
+ */
+export function isEntityBloodied(entity: DnDSceneEntity): boolean {
+  const maxHp = resolveEntityMaxHp(entity);
+
+  return (
+    maxHp > 0
+    && targetHpGateMatches('halfOrLess', resolveEntityCurrentHp(entity), maxHp)
+  );
 }

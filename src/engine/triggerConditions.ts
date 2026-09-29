@@ -31,6 +31,7 @@ import {
   splitConditionParts,
   TARGET_TYPE_CONDITION_PREFIX,
 } from './activeEffectTypes.js';
+import { BLOODIED_AUTO_APPLY } from './conditionKeys.js';
 import {
   CREATURE_SIZES,
   isAbilityType,
@@ -59,6 +60,7 @@ import {
 } from './effectTriggerTypes.js';
 import { isDndActor } from './entityGuards.js';
 import {
+  isEntityBloodied,
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
   resolveEntityTempHp,
@@ -439,7 +441,7 @@ const MAX_CONDITION_TEXT = 100;
 const FIXED_PARTS: Partial<Record<TriggerConditionKind, string>> = {
   damageCritical: 'damage.isCritical === true',
   damageNotCritical: 'damage.isCritical === false',
-  selfBloodied: 'self.hp.value <= (self.hp.max / 2)',
+  selfBloodied: BLOODIED_AUTO_APPLY,
   selfWounded: 'self.hp.value < self.hp.max',
   rollAdvantage: 'roll.hasAdvantage === true',
   rollDisadvantage: 'roll.hasDisadvantage === true',
@@ -778,6 +780,29 @@ export function listTriggerConditionKinds(
 }
 
 /**
+ * Части условия, которые зависят от источника эффекта: у правила состояния
+ * источника нет, и такая часть не выполнилась бы никогда.
+ */
+const SOURCE_BOUND_KINDS: ReadonlySet<TriggerConditionKind> = new Set([
+  'selfTagFromSource',
+  'selfTagFromSourceNot',
+  'sourceWithin',
+]);
+
+/**
+ * Виды условий о СОСТОЯНИИ сущности — без события и без источника: хиты,
+ * отметки, состояния, размер, тип. Из них собирается правило «вешать
+ * автоматически» у состояния (`autoConditions.ts`).
+ *
+ * @returns виды по порядку показа
+ */
+export function listStateConditionKinds(): TriggerConditionKind[] {
+  return TRIGGER_CONDITION_KINDS.filter(
+    (kind) => KIND_EVENTS[kind] === undefined && !SOURCE_BOUND_KINDS.has(kind),
+  );
+}
+
+/**
  * Контекст словаря модификаторов для события: носитель — субъект, цель —
  * другая сторона.
  *
@@ -840,11 +865,9 @@ function isConditionPartMet(
     case 'damageNotCritical':
       return damage !== undefined && !damage.critical;
     case 'selfBloodied':
-      return targetHpGateMatches(
-        'halfOrLess',
-        resolveEntityCurrentHp(entity),
-        resolveEntityMaxHp(entity),
-      );
+      // Без максимума хитов (текстовые хиты существа) окровавленности нет —
+      // иначе такое существо было бы окровавленным с момента появления
+      return isEntityBloodied(entity);
     case 'selfWounded':
       return targetHpGateMatches(
         'notFull',

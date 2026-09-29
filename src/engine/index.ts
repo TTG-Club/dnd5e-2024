@@ -9,6 +9,7 @@ export * from './armorState.js';
 export * from './attackRollModeReasons.js';
 export * from './attackUtils.js';
 export * from './auraMath.js';
+export * from './autoConditions.js';
 export * from './backgroundNormalize.js';
 export * from './backgroundTypes.js';
 export * from './calculations.js';

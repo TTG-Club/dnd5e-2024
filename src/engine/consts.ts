@@ -22,7 +22,7 @@ import type {
 import type { CreatureSize } from './types.js';
 
 import { DEFAULT_CARRYING_CAPACITY } from './carryingCapacity.js';
-import { DEATH_CONDITION_KEY } from './conditionKeys.js';
+import { BLOODIED_AUTO_APPLY, DEATH_CONDITION_KEY } from './conditionKeys.js';
 import { DEFAULT_PREPARED_LIMIT } from './preparedSpells.js';
 
 /** Общий предел бонусных костей одной d20-проверки; соответствует пределу группы клиентского роллера. */
@@ -710,6 +710,13 @@ export interface ConditionEntry {
    * описывает существо целиком, а не временную помеху, — «Мёртв».
    */
   overlay?: boolean;
+  /**
+   * Правило «вешать автоматически»: строка словаря условий
+   * (`triggerConditions.ts`). Пока правило выполняется, состояние висит на
+   * сущности, перестало — снимается (`autoConditions.ts`). Пустая строка или
+   * нет поля — только руками.
+   */
+  autoApply?: string;
 }
 
 /**
@@ -733,7 +740,8 @@ export const CONDITIONS: readonly ConditionEntry[] = [
     nameEn: 'Bloodied',
     icon: 'tabler:droplet',
     description:
-      'Хитов не больше половины максимума. Само по себе ничего не меняет — на него ссылаются умения и урон существ («или 2к8 + 2, если рой окровавлен»). Урон считает существо окровавленным и по хитам, без значка.',
+      'Хитов не больше половины максимума. Само по себе ничего не меняет — на него ссылаются умения и урон существ («или 2к8 + 2, если рой окровавлен»).',
+    autoApply: BLOODIED_AUTO_APPLY,
   },
   {
     key: 'charmed',

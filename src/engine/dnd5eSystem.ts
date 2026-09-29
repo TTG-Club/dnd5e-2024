@@ -74,6 +74,7 @@ import {
   calculateAmbientAuras as computeAmbientAuras,
   findEntitiesInArea,
 } from './auraMath.js';
+import { syncAutoAppliedConditions } from './autoConditions.js';
 import { normalizeActor, normalizeCreature } from './calculations.js';
 import { resolveClassLabel } from './classLabels.js';
 import { CLASS_KEY_OPTIONS } from './classTypes.js';
@@ -1493,7 +1494,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.110';
+  readonly version = '0.8.111';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -2359,24 +2360,37 @@ export class Dnd5eVttSystem implements VttSystem {
 
   /**
    * Нормализует полного актёра D&D на месте при загрузке (миграция формата).
+   *
+   * Здесь же пересчитываются состояния с правилом «вешать автоматически»
+   * (`autoConditions.ts`): Ядро прогоняет персонажа через этот метод на каждой
+   * записи, и значки сверяются с сущностью, каким бы путём она ни поменялась.
    */
   // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   normalizeActor(actor: BaseActor): void {
     normalizeActor(actor);
+
+    if (isDndSceneEntity(actor)) {
+      syncAutoAppliedConditions(actor);
+    }
   }
 
   /**
    * Выполняет нормализацию данных существа.
    *
-   * Здесь же пересчитывается метка смерти: Ядро прогоняет существо через этот
-   * метод при каждом изменении (создание и обновление на клиенте, загрузка мира
-   * на сервере), поэтому череп на токене появляется и снимается одинаково,
-   * какой бы путь ни поменял хиты.
+   * Здесь же пересчитываются метка смерти и состояния с правилом «вешать
+   * автоматически» (`autoConditions.ts`): Ядро
+   * прогоняет существо через этот метод при каждом изменении (создание и
+   * обновление на клиенте, загрузка мира на сервере), поэтому значки на токене
+   * появляются и снимаются одинаково, какой бы путь ни поменял хиты.
    */
   // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   normalizeCreature(creature: BaseCreature): void {
     normalizeCreature(creature);
     syncCreatureDeathCondition(creature);
+
+    if (isDndSceneEntity(creature)) {
+      syncAutoAppliedConditions(creature);
+    }
   }
 
   /**
