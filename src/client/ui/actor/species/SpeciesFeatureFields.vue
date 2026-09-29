@@ -195,6 +195,13 @@
         :count="feature.grantedSpells.length"
         :collapsible="false"
       >
+        <UCheckbox
+          v-model="feature.grantedSpellsAlwaysPrepared"
+          :label="SPECIES_FEATURE_LABELS.grantedSpellsAlwaysPrepared"
+          :description="SPECIES_FEATURE_LABELS.grantedSpellsAlwaysPreparedHint"
+          class="mb-2"
+        />
+
         <GrantedSpellsEditor
           v-model="feature.grantedSpells"
           :available-spells="availableSpells"

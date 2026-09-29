@@ -265,6 +265,58 @@ it('innate species spells keep their preparation exception at the source', () =>
   );
 });
 
+it('species editor keeps the innate preparation mark and writes only its removal', async () => {
+  const { loadHandler } = await import('./helpers/sourceHandler.mjs');
+  const editorPath = 'src/client/ui/actor/species/speciesEditorTypes.ts';
+
+  const read = await loadHandler(
+    editorPath,
+    'readGrantedSpellsAlwaysPrepared',
+    {},
+  );
+
+  const write = await loadHandler(
+    editorPath,
+    'writeGrantedSpellPreparation',
+    {},
+  );
+
+  assert.equal(read([]), true, 'new feature: innate magic by default');
+
+  assert.equal(
+    read([{ name: 'a' }, { name: 'b', alwaysPrepared: true }]),
+    true,
+  );
+
+  assert.equal(
+    read([{ name: 'a' }, { name: 'b', alwaysPrepared: false }]),
+    false,
+  );
+
+  assert.deepEqual(
+    Object.keys(write(true)),
+    [],
+    'checked mark is the species default',
+  );
+
+  assert.equal(write(false).alwaysPrepared, false);
+
+  // Снятая отметка доходит до выдачи: заклинание занимает подготовку
+  const sources = engine.collectSpeciesGrantedSpellSources({
+    features: [
+      {
+        name: 'Magic',
+        grantedSpells: [{ spellId: 'ordinary', ...write(false) }],
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    sources.map((source) => source.alwaysPrepared),
+    [false],
+  );
+});
+
 it('granted cantrips stay ready while book cantrips follow their mark once the sheet tracks them', () => {
   const granted = { ...createSpell('light', 0), grantedByFeature: 'Вид' };
   const book = createSpell('mage-hand', 0);

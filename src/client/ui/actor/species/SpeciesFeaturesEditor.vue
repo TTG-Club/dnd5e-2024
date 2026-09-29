@@ -59,6 +59,7 @@
       movement: createEmptyMovement(),
       darkvision: 0,
       grantedSpells: [],
+      grantedSpellsAlwaysPrepared: true,
       activeEffects: [],
       grants: createEmptyFeatGrants(),
       choices: [],
