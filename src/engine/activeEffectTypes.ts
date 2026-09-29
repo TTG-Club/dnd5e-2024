@@ -742,14 +742,15 @@ export const EFFECT_VALUE_SUGGESTIONS: Array<{
   { value: '@speed.climb', label: 'Скорость лазания листа' },
   { value: '@speed.burrow', label: 'Скорость копания листа' },
 
-  // Типы урона (с токенами)
-  { value: '1к6@dmg.fire', label: 'Урон: Огонь (например, 1к6)' },
-  { value: '1к6@dmg.cold', label: 'Урон: Холод' },
-  { value: '1к6@dmg.lightning', label: 'Урон: Электричество' },
-  { value: '1к6@dmg.thunder', label: 'Урон: Звук' },
-  { value: '1к6@dmg.acid', label: 'Урон: Кислота' },
-  { value: '1к6@dmg.poison', label: 'Урон: Яд' },
-  { value: '1к6@dmg.necrotic', label: 'Урон: Некроз' },
+  // Типы урона (с токенами). Названия — как в справочнике `damage-types.json`
+  // и на сайте: «Огонь» рядом с «Огненный» читался бы другим типом
+  { value: '1к6@dmg.fire', label: 'Урон: Огненный (например, 1к6)' },
+  { value: '1к6@dmg.cold', label: 'Урон: Холодный' },
+  { value: '1к6@dmg.lightning', label: 'Урон: Электрический' },
+  { value: '1к6@dmg.thunder', label: 'Урон: Звуковой' },
+  { value: '1к6@dmg.acid', label: 'Урон: Кислотный' },
+  { value: '1к6@dmg.poison', label: 'Урон: Ядовитый' },
+  { value: '1к6@dmg.necrotic', label: 'Урон: Некротический' },
   { value: '1к6@dmg.radiant', label: 'Урон: Излучение' },
   { value: '1к6@dmg.force', label: 'Урон: Силовое поле' },
   { value: '1к6@dmg.psychic', label: 'Урон: Психический' },

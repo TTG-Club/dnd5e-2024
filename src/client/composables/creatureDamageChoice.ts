@@ -68,7 +68,7 @@ export interface DamagePartsText {
 }
 
 /**
- * Сводка набора урона для строки листа и подписей выбора: «2к4 + 1» и «Яд».
+ * Сводка набора урона для строки листа и подписей выбора: «2к4 + 1» и «Ядовитый».
  *
  * @param parts - части урона
  * @param getTypeLabel - название типа урона по ключу
@@ -128,66 +128,92 @@ export function formatDamagePartsText(
 }
 
 /**
- * Подпись основного урона в списке наборов — чтобы первая строка читалась
- * таким же выбором, как варианты. Компендиум пишет «один тип на выбор»
- * основным уроном первого типа и вариантами с названиями других типов
- * («Холод», «Огонь»): если варианты отличаются от основного только типом,
- * основной называется своим типом («Кислота»), иначе — «Основной урон».
+ * Сводка набора, у которого типы урона постоянные: тип на выбор
+ * (`@dmg.choice(…)`) — не одно название, подписью набора он не станет.
  *
- * @param action - действие существа с вариантами
+ * @param parts - части урона
  * @param getTypeLabel - название типа урона по ключу
- * @returns подпись основного урона
+ * @returns сводка либо `null`, если частей нет или тип не постоянный
  */
-function readBaseOptionLabel(
-  action: Pick<CreatureAction, 'damageParts' | 'damageAlternatives'>,
+function summarizeFixedTypeParts(
+  parts: readonly DamagePart[],
   getTypeLabel: (typeKey: string) => string,
-): string {
-  const baseParts = action.damageParts ?? [];
-  const base = summarizeDamageParts(baseParts, getTypeLabel);
+): DamagePartsText | null {
+  const summary = summarizeDamageParts(parts, getTypeLabel);
 
-  // Тип на выбор у основного урона — уже не одно название, подпись не из него
-  const hasFixedTypes =
-    base !== null
-    && base.typeLabel.length > 0
-    && baseParts.every(
-      (part) => describeDamagePart(part).typeChoices.length === 0,
-    );
+  const isFixed =
+    summary !== null
+    && summary.typeLabel.length > 0
+    && parts.every((part) => describeDamagePart(part).typeChoices.length === 0);
 
-  const onlyTypeDiffers =
-    hasFixedTypes
-    && listCreatureDamageAlternatives(action).every(
-      (alternative) =>
-        summarizeDamageParts(
-          readAlternativeShownParts(alternative),
-          getTypeLabel,
-        )?.formula === base.formula,
-    );
-
-  return onlyTypeDiffers ? base.typeLabel : CREATURE_DAMAGE_CHOICE_LABELS.base;
+  return isFixed ? summary : null;
 }
 
 /**
- * Подпись набора в вопросе и в чате. Своя подпись варианта идёт впереди
- * формулы: по одной подписи не видно, сколько урона будет.
+ * Отличаются ли варианты от основного урона только типом. Так компендиум
+ * пишет «один тип на выбор»: основной урон — первым типом, варианты — теми же
+ * костями другого типа. Подписи таких вариантов пишут люди, и они расходятся
+ * со справочником («Огонь» при типе «Огненный»), поэтому набор называется
+ * типом из справочника, а не своей подписью.
+ *
+ * @param action - действие существа с вариантами
+ * @param getTypeLabel - название типа урона по ключу
+ * @returns `true`, если все наборы — те же кости другого типа
+ */
+function isTypeOnlyChoice(
+  action: Pick<CreatureAction, 'damageParts' | 'damageAlternatives'>,
+  getTypeLabel: (typeKey: string) => string,
+): boolean {
+  const base = summarizeFixedTypeParts(action.damageParts ?? [], getTypeLabel);
+
+  if (!base) {
+    return false;
+  }
+
+  return listCreatureDamageAlternatives(action).every(
+    (alternative) =>
+      summarizeFixedTypeParts(
+        readAlternativeShownParts(alternative),
+        getTypeLabel,
+      )?.formula === base.formula,
+  );
+}
+
+/**
+ * Подпись набора в вопросе и в чате: «подпись: формула», у основного урона
+ * тоже — иначе первая строка списка не читается таким же выбором. Если
+ * наборы отличаются только типом ({@link isTypeOnlyChoice}), подпись — тип
+ * из справочника, а формула идёт без типа: «Кислотный: 1к6+3». Иначе своя
+ * подпись варианта («С преимуществом») или «Основной урон» идёт впереди
+ * формулы с типом: по одной подписи не видно, сколько урона будет.
  *
  * @param option - набор урона
  * @param getTypeLabel - название типа урона по ключу
- * @param baseLabel - подпись основного урона ({@link readBaseOptionLabel})
+ * @param typeOnly - наборы отличаются только типом урона
  * @returns подпись набора
  */
 function formatOptionLabel(
   option: CreatureDamageOption,
   getTypeLabel: (typeKey: string) => string,
-  baseLabel: string,
+  typeOnly: boolean,
 ): string {
-  const text = formatDamagePartsText(
-    option.alternative
-      ? readAlternativeShownParts(option.alternative)
-      : option.damageParts,
-    getTypeLabel,
-  );
+  const parts = option.alternative
+    ? readAlternativeShownParts(option.alternative)
+    : option.damageParts;
 
-  const ownLabel = option.alternative ? option.alternative.label : baseLabel;
+  const typeSummary = typeOnly
+    ? summarizeFixedTypeParts(parts, getTypeLabel)
+    : null;
+
+  if (typeSummary) {
+    return `${typeSummary.typeLabel}${CREATURE_DAMAGE_CHOICE_LABELS.labelSeparator}${typeSummary.formula}`;
+  }
+
+  const text = formatDamagePartsText(parts, getTypeLabel);
+
+  const ownLabel = option.alternative
+    ? option.alternative.label
+    : CREATURE_DAMAGE_CHOICE_LABELS.base;
 
   return ownLabel
     ? `${ownLabel}${CREATURE_DAMAGE_CHOICE_LABELS.labelSeparator}${text}`
@@ -282,7 +308,7 @@ export function runWithCreatureDamageChoice(
     systemDataStore.damageTypes.find((entry) => entry.key === typeKey)?.name
     ?? typeKey;
 
-  const baseLabel = readBaseOptionLabel(action, getTypeLabel);
+  const typeOnly = isTypeOnlyChoice(action, getTypeLabel);
 
   if (choice.kind === 'resolved') {
     // Сработавшее состояние и выпавший набор называются в чате: иначе урон,
@@ -291,7 +317,7 @@ export function runWithCreatureDamageChoice(
 
     if (reason) {
       useChatStore().sendMessage(
-        `${action.name}${CREATURE_DAMAGE_CHOICE_LABELS.chatSeparator}${formatOptionLabel(choice.option, getTypeLabel, baseLabel)}${CREATURE_DAMAGE_CHOICE_LABELS.reasonOpen}${describeCreatureDamageCondition(reason)}${CREATURE_DAMAGE_CHOICE_LABELS.reasonClose}`,
+        `${action.name}${CREATURE_DAMAGE_CHOICE_LABELS.chatSeparator}${formatOptionLabel(choice.option, getTypeLabel, typeOnly)}${CREATURE_DAMAGE_CHOICE_LABELS.reasonOpen}${describeCreatureDamageCondition(reason)}${CREATURE_DAMAGE_CHOICE_LABELS.reasonClose}`,
         'text',
       );
     }
@@ -303,7 +329,7 @@ export function runWithCreatureDamageChoice(
 
   const labels = makeLabelsUnique(
     choice.options.map((option) =>
-      formatOptionLabel(option, getTypeLabel, baseLabel),
+      formatOptionLabel(option, getTypeLabel, typeOnly),
     ),
   );
 

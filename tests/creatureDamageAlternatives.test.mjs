@@ -287,7 +287,7 @@ async function loadChoice(roll = 0, context = {}) {
       useModalManager: () => ({
         openModal: (name, props) => modals.push({ name, props }),
       }),
-      readBaseOptionLabel: () => undefined,
+      isTypeOnlyChoice: () => false,
       formatOptionLabel: (option) =>
         option.alternative?.label ?? option.damageParts[0].formula,
       makeLabelsUnique: (labels) => labels,
@@ -423,7 +423,7 @@ const SPIT = {
 
 /**
  * Выбор урона при атаке с настоящими подписями наборов: сводка частей,
- * подпись основного урона и уникальность — из исходника, названия типов — из
+ * подписи наборов и уникальность — из исходника, названия типов — из
  * справочника системы.
  *
  * @param {number} roll - что выпадет у случайного выбора
@@ -458,16 +458,24 @@ async function loadLabelledChoice(roll = 0) {
     CREATURE_DAMAGE_CHOICE_LABELS,
   };
 
-  const readBaseOptionLabel = await loadHandler(
+  const summarizeFixedTypeParts = await loadHandler(
     source,
-    'readBaseOptionLabel',
+    'summarizeFixedTypeParts',
     ports,
+  );
+
+  const labelPorts = { ...ports, summarizeFixedTypeParts };
+
+  const isTypeOnlyChoice = await loadHandler(
+    source,
+    'isTypeOnlyChoice',
+    labelPorts,
   );
 
   const formatOptionLabel = await loadHandler(
     source,
     'formatOptionLabel',
-    ports,
+    labelPorts,
   );
 
   const makeLabelsUnique = await loadHandler(source, 'makeLabelsUnique', ports);
@@ -483,7 +491,7 @@ async function loadLabelledChoice(roll = 0) {
     buildDamageContext: () => ({}),
     useSystemDataStore: () => ({ damageTypes }),
     useChatStore: () => ({ sendMessage: (text) => messages.push(text) }),
-    readBaseOptionLabel,
+    isTypeOnlyChoice,
     formatOptionLabel,
     makeLabelsUnique,
     readChoiceReason,
@@ -509,17 +517,35 @@ function listVariantLabels(run, action) {
   return labels;
 }
 
-describe('подпись основного урона в поле «Урон»', () => {
-  it('варианты отличаются только типом — основной назван своим типом', async () => {
+describe('подписи наборов в поле «Урон»', () => {
+  it('отличаются только типом — все названы типом из справочника', async () => {
     const { run } = await loadLabelledChoice();
 
     assert.deepEqual(listVariantLabels(run, SPIT), [
-      'Кислота: 1к6+3 кислота',
-      'Холод: 1к6+3 холод',
-      'Огонь: 1к6+3 огненный',
-      'Электричество: 1к6+3 молния',
-      'Яд: 1к6+3 яд',
+      'Кислотный: 1к6+3',
+      'Холодный: 1к6+3',
+      'Огненный: 1к6+3',
+      'Электрический: 1к6+3',
+      'Ядовитый: 1к6+3',
     ]);
+  });
+
+  it('тип на выбор в варианте — не «только тип», подписи свои', async () => {
+    const { run } = await loadLabelledChoice();
+
+    const labels = listVariantLabels(run, {
+      ...SPIT,
+      damageAlternatives: [
+        {
+          condition: 'ask',
+          label: 'Стихия',
+          damageParts: [{ formula: '1к6+3@dmg.choice(cold,fire)' }],
+        },
+      ],
+    });
+
+    assert.equal(labels[0], 'Основной урон: 1к6+3 кислотный');
+    assert.match(labels[1], /^Стихия: 1к6\+3/);
   });
 
   it('варианты отличаются формулой — основной назван «Основной урон»', async () => {
@@ -587,10 +613,7 @@ describe('подпись основного урона в поле «Урон»'
       bite([{ condition: 'ask', label: 'Колющий', damageParts: BITE }]),
     );
 
-    assert.deepEqual(labels, [
-      'Колющий: 2к6+4 колющий',
-      'Колющий: 2к6+4 колющий (2)',
-    ]);
+    assert.deepEqual(labels, ['Колющий: 2к6+4', 'Колющий: 2к6+4 (2)']);
   });
 
   it('без вариантов действие идёт как есть, подписей нет', async () => {
@@ -630,7 +653,7 @@ describe('подпись основного урона в поле «Урон»'
     );
 
     assert.deepEqual(messages, [
-      'Цветной плевок: Кислота: 1к6+3 кислота (случайно)',
+      'Цветной плевок: Кислотный: 1к6+3 (случайно)',
       'Укус: Основной урон: 2к6+4 колющий (случайно)',
     ]);
   });
