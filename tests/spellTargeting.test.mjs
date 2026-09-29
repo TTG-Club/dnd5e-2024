@@ -727,6 +727,8 @@ for (const invalidate of [false, true]) {
         hasSpellCast: { value: true },
         rollType: { value: 'public' },
         resolvedDamageType: { value: undefined },
+        settleRollDamageTypeChoices: () => new Map(),
+        activeDamageVariant: { value: undefined },
         chatStore: { isPrivateRoll: false, isGmOnlyRoll: false },
         DICE_ROLL_LOG_PREFIX: 'test-cast',
       },

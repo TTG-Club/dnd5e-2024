@@ -1,6 +1,5 @@
 import type {
   ActiveEffect,
-  DamageTypeChoiceSource,
   EffectVariantChoices,
 } from '@vtt/shared/system/dnd.js';
 
@@ -18,13 +17,9 @@ import {
   EFFECT_VARIANT_PROMPT_LABELS,
   EFFECT_VARIANT_PROMPT_MODAL,
 } from '../ui/effect/constants';
-import { runWithDamageTypeChoices } from './damageTypeChoice';
 
-/**
- * Что бросают: заклинание, действие существа, оружие, предмет. Формулы урона
- * нужны вопросу о типе урона на выбор — он идёт следом за вариантами.
- */
-export interface EffectVariantSource extends DamageTypeChoiceSource {
+/** Что бросают: заклинание, действие существа, оружие, предмет */
+export interface EffectVariantSource {
   name: string;
   activeEffects?: ActiveEffect[];
 }
@@ -57,23 +52,19 @@ function formatVariantChoices(
  * Выбор человека чат не повторяет — у варианта своё имя эффекта, и итог
  * действия его уже называет; вторая строка была бы дублем.
  *
- * Следом, уже по выбранным эффектам, решается тип урона на выбор
- * (`@dmg.choice(…)`, {@link runWithDamageTypeChoices}): через эту функцию
- * идут все броски источников, и вопрос о типе не нужно звать в каждом.
+ * Тип урона на выбор (`@dmg.choice(…)`) решается позже, по выбранным
+ * эффектам: в окне броска (`requestDamageTypeChoice`), а где окна нет —
+ * плашкой (`runWithDamageTypeChoices`).
  *
  * @param source - заклинание, действие, оружие или предмет
- * @param onChosen - продолжение с выбранными эффектами и типами урона
+ * @param proceed - продолжение с выбранными эффектами
  */
 export function runWithEffectVariants<Source extends EffectVariantSource>(
   source: Source,
-  onChosen: (chosen: Source) => void,
+  proceed: (chosen: Source) => void,
 ): void {
   const effects = source.activeEffects ?? [];
   const groups = listEffectVariantGroups(effects);
-
-  const proceed = (chosen: Source): void => {
-    runWithDamageTypeChoices(chosen, onChosen);
-  };
 
   if (groups.length === 0) {
     proceed(source);

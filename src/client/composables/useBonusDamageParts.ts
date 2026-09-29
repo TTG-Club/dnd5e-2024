@@ -133,7 +133,7 @@ interface CreatureRollSetupOptions {
 }
 
 /** Результат сборки многочастного броска действия существа */
-interface CreatureRollSetup {
+export interface CreatureRollSetup {
   /** Базовые части урона действия (формулы существа, без инъекции модификатора) */
   baseParts: SpellDamagePartInput[];
   /** Roll-time сборщик бонус-частей от эффектов (для DiceRollModal) */

@@ -85,6 +85,12 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { resolveTargetedAttackRoll } from '../../../composables/attackRollMode';
+  import {
+    describeDamageVariantsStat,
+    requestDamageTypeChoiceFor,
+    runWithDamageTypeChoices,
+    useDamageTypeLabel,
+  } from '../../../composables/damageTypeChoice';
   import { runWithEffectVariants } from '../../../composables/effectVariantChoice';
   import {
     buildRollBonusEvaluator,
@@ -1173,6 +1179,9 @@
     return SPELL_SCHOOL_LABELS[spell.school] ?? '';
   }
 
+  /** Название типа урона по справочнику мира — для подсказки плитки */
+  const getDamageTypeLabel = useDamageTypeLabel();
+
   /**
    * Плитки строки заклинания: урон (катится по нажатию) и заряды у врождённых
    * заклинаний, которые ячеек не тратят.
@@ -1190,9 +1199,14 @@
         key: 'damage',
         label: SPELL_STAT_LABELS.damage,
         value: damage,
-        tooltip: SPELL_STAT_HINTS.damage,
         accent: true,
         rollable: true,
+        // Тип на выбор в плитке не пишется — значок и строки подсказки
+        ...describeDamageVariantsStat(
+          spell,
+          SPELL_STAT_HINTS.damage,
+          getDamageTypeLabel,
+        ),
       });
     }
 
@@ -1549,13 +1563,31 @@
 
   /**
    * Продолжает каст после размещения шаблона (или сразу, если AoE нет).
+   *
+   * @param sourceSpell - заклинание; тип урона на выбор в нём ещё не решён
+   * @param templateId - шаблон области на сцене
+   * @param lockedSpellLevel - круг, выбранный до окна
+   * @param effectTargets - цели эффекта, выбранные до окна
    */
   function continueSpellCast(
-    spell: Spell,
+    sourceSpell: Spell,
     templateId?: string,
     lockedSpellLevel?: number,
     effectTargets?: SpellEffectTargets,
   ): void {
+    // Тип урона на выбор спрашивает окно броска: в начале броска заклинание
+    // заменяется выбранным, и всё, что ложится после (урон, эффекты на цель,
+    // зона), идёт одним типом
+    let spell = sourceSpell;
+
+    const damageTypeChoice = requestDamageTypeChoiceFor(
+      sourceSpell,
+      sourceSpell,
+      (chosen) => {
+        spell = chosen;
+      },
+    );
+
     beginSpellCast(props.actor.id, spell, generateId(SPELL_CAST_KEY_PREFIX));
 
     // Заклинания с зарядами (врождённые/расовые) не тратят ячейки и не
@@ -1982,6 +2014,7 @@
           'rollButtonText': SPELL_MENU_LABELS.cast,
           'skipRoll': true,
           'beforeRoll': effectTargets?.validate ?? isCurrentProjectileCast,
+          damageTypeChoice,
           'spellLevel': lockedSpellLevel ?? spell.level,
           'availableSpellLevels': availableLevels,
           'pactSlotLevel': pactSlotInfo.value.level,
@@ -1992,35 +2025,39 @@
       } else {
         // Заговоры/врождённые без выбора ячейки (модалка не открывается):
         // эффекты применяем сразу при касте — на себя и/или на выбранную цель.
+        // Окна нет — тип урона на выбор эффектов спрашивает плашка
         window.removeEventListener('beforeunload', handleUnload);
-        applyCasterSpellEffects(spell);
 
-        applySpellTargetEffects(
-          spell,
-          spellTargetEffectsSource(spell),
-          effectTargets,
-        );
+        runWithDamageTypeChoices(spell, (chosen) => {
+          applyCasterSpellEffects(chosen);
 
-        // Шаблон «Тьмы» тифлинга раньше оставался на карте: каст применился
-        // сразу, а снимать его было некому
-        const templateStore = useSpellTemplateStore();
+          applySpellTargetEffects(
+            chosen,
+            spellTargetEffectsSource(chosen),
+            effectTargets,
+          );
 
-        const placedTemplate = templateId
-          ? templateStore.getPlacedTemplate(templateId)
-          : undefined;
+          // Шаблон «Тьмы» тифлинга раньше оставался на карте: каст применился
+          // сразу, а снимать его было некому
+          const templateStore = useSpellTemplateStore();
 
-        completeSpellCast({
-          spell,
-          caster: props.actor,
-          source: spellCasterSource(spell),
-          template: placedTemplate,
-          applyCasterEffects: false,
+          const placedTemplate = templateId
+            ? templateStore.getPlacedTemplate(templateId)
+            : undefined;
+
+          completeSpellCast({
+            spell: chosen,
+            caster: props.actor,
+            source: spellCasterSource(chosen),
+            template: placedTemplate,
+            applyCasterEffects: false,
+          });
+
+          if (templateId) {
+            templateStore.removePlacedTemplate(templateId);
+            templateStore.deleteTemplate(templateId);
+          }
         });
-
-        if (templateId) {
-          templateStore.removePlacedTemplate(templateId);
-          templateStore.deleteTemplate(templateId);
-        }
       }
 
       return;
@@ -2084,6 +2121,9 @@
         hasProjectiles && incomingAttackType
           ? handleProjectileAttackRoll
           : undefined,
+
+      // Тип урона на выбор: поле окна, итог — в заклинание до урона
+      damageTypeChoice,
 
       // Атакующее заклинание-эффект (без многочастного пути): эффекты на цель
       // вешаем по ПОПАДАНИЮ. Многочастные уронные заклинания накладывают их

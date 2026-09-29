@@ -287,7 +287,6 @@ async function loadChoice(roll = 0, context = {}) {
       useModalManager: () => ({
         openModal: (name, props) => modals.push({ name, props }),
       }),
-      generateId: (prefix) => `${prefix}_test`,
       formatOptionLabel: (option) =>
         option.alternative?.label ?? option.damageParts[0].formula,
       makeLabelsUnique: (labels) => labels,
@@ -298,10 +297,7 @@ async function loadChoice(roll = 0, context = {}) {
 
         return choice.rolled ? { condition: 'random' } : undefined;
       },
-      CREATURE_DAMAGE_MODAL_KEY_PREFIX: 'creature-damage',
-      EFFECT_VARIANT_PROMPT_MODAL: 'EffectVariantPromptModal',
       CREATURE_DAMAGE_CHOICE_LABELS: {
-        groupName: 'Урон',
         chatSeparator: ': ',
         reasonOpen: ' (',
         reasonClose: ')',
@@ -367,10 +363,11 @@ describe('атака действием с уроном «или»', () => {
     assert.deepEqual(messages, ['Укус: 2к6 (случайно)']);
   });
 
-  it('вариант «на выбор» ждёт ответа плашки', async () => {
+  it('вариант «на выбор» уходит в окно броска наборами, без плашки', async () => {
     const { run, modals, messages } = await loadChoice();
 
     let proceeded;
+    let proceededVariants;
 
     run(
       bite([
@@ -381,24 +378,29 @@ describe('атака действием с уроном «или»', () => {
         },
       ]),
       {},
-      (chosen) => {
+      (chosen, variants) => {
         proceeded = chosen;
+        proceededVariants = variants;
       },
     );
 
-    assert.equal(proceeded, undefined, 'до ответа атаки нет');
-    assert.equal(modals[0].name, 'EffectVariantPromptModal');
+    assert.equal(modals.length, 0, 'плашки нет — выбирают в окне');
 
-    assert.deepEqual(modals[0].props.groups[0].labels, [
-      '2к6+4',
-      'С преимуществом',
-    ]);
+    assert.deepEqual(
+      proceededVariants.map((variant) => variant.label),
+      ['2к6+4', 'С преимуществом'],
+    );
 
-    modals[0].props.onConfirm({ Урон: 'С преимуществом' });
-
-    assert.deepEqual(proceeded.damageParts, ADVANTAGE_BITE);
+    // Окно открывается с первым набором — основным уроном
+    assert.equal(proceeded, proceededVariants[0].action);
     assert.equal(proceeded.damageAlternatives, undefined);
-    assert.deepEqual(messages, ['Укус: С преимуществом']);
+    assert.deepEqual(proceededVariants[1].action.damageParts, ADVANTAGE_BITE);
+
+    assert.deepEqual(
+      messages,
+      [],
+      'чат называет набор при броске, а не сейчас',
+    );
   });
 });
 

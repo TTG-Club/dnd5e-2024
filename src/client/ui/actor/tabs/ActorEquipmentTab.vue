@@ -12,6 +12,7 @@
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { DamageTypeChoiceRequest } from '../../../composables/damageTypeChoice';
   import type { RollBonusEvaluator } from '../../../composables/rollBonusEvaluator';
   import type { ItemTransferPayload } from '../../../composables/useItemTransfer';
   import type {
@@ -60,6 +61,7 @@
     isItemDepleted,
     isSaveAbility,
     listLoadableAmmunition,
+    listSourceDamageTypeChoices,
     loadWeaponAmmunition,
     normalizeItemQuantity,
     resolveWeaponSaveDc,
@@ -74,7 +76,10 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { resolveTargetedAttackRoll } from '../../../composables/attackRollMode';
-  import { formatDamageTypeChoiceLabel } from '../../../composables/damageTypeChoice';
+  import {
+    formatDamageTypeChoiceLabel,
+    requestDamageTypeChoiceFor,
+  } from '../../../composables/damageTypeChoice';
   import {
     applyEffectSource,
     prepareAmmunitionShot,
@@ -104,6 +109,7 @@
   import CompendiumRefPickerModal from '../CompendiumRefPickerModal.vue';
   import {
     ACTOR_EQUIPMENT_TAB_LABELS,
+    DAMAGE_VARIANTS_STAT_ICON,
     EQUIPMENT_AMMUNITION_BADGE,
     EQUIPMENT_EQUIP_ACTION_LABELS,
     EQUIPMENT_MENU_LABELS,
@@ -421,6 +427,8 @@
     onHit?: () => void;
     /** Перед броском: тратит боеприпас выстрела */
     beforeRoll?: () => boolean;
+    /** Тип урона на выбор оружия — окно спрашивает его */
+    damageTypeChoice?: DamageTypeChoiceRequest;
   }
 
   const rollConfig = ref<RollConfig>({
@@ -519,6 +527,18 @@
         targetType: targetHp?.creatureType,
       });
 
+      // Тип урона на выбор спрашивает окно броска: части урона решает оно
+      // само, а эффекты оружия на цель получают тот же тип здесь
+      let weaponSpell = weaponPartsSetup.pseudoSpell;
+
+      const damageTypeChoice = requestDamageTypeChoiceFor(
+        weapon,
+        weaponPartsSetup.pseudoSpell,
+        (chosen) => {
+          weaponSpell = chosen;
+        },
+      );
+
       rollConfig.value = {
         name: weapon.name,
         formula: weaponPartsSetup.baseParts[0]?.formula ?? '',
@@ -535,11 +555,8 @@
         damageParts: weaponPartsSetup.baseParts,
         evaluateBonusDamageParts: weaponPartsSetup.evaluateBonusDamageParts,
         onRollParts: (parts: RolledSpellDamagePart[]) =>
-          handleWeaponRollParts(
-            weaponPartsSetup.pseudoSpell,
-            parts,
-            weaponSaveDC,
-          ),
+          handleWeaponRollParts(weaponSpell, parts, weaponSaveDC),
+        damageTypeChoice,
         // Сбрасываем явно: `rollConfig` переиспользуется между бросками, и без
         // этого обработчик от ПРЕДЫДУЩЕГО броска остался бы висеть на текущем.
         onHit: undefined,
@@ -1314,6 +1331,11 @@
           tooltip: weaponDamageHint(weapon),
           accent: true,
           rollable: true,
+          // Тип на выбор назван в подсказке, в плитке — только значок
+          icon:
+            listSourceDamageTypeChoices(weapon).length > 0
+              ? DAMAGE_VARIANTS_STAT_ICON
+              : undefined,
         },
       );
     } else if (item.type === 'equipment' && item.baseArmorAC) {
@@ -1724,6 +1746,7 @@
     :on-roll-parts="rollConfig.onRollParts"
     :on-hit="rollConfig.onHit"
     :before-roll="rollConfig.beforeRoll"
+    :damage-type-choice="rollConfig.damageTypeChoice"
     :attacker-id="entity.id"
     :roll-button-text="ACTOR_EQUIPMENT_TAB_LABELS.attack"
   />

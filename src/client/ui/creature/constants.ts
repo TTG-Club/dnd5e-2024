@@ -21,6 +21,8 @@ import {
   isCreatureSpellRestMode,
 } from '@vtt/shared/system/dnd.js';
 
+import { SHEET_ROW_TOOLTIP_LINE_BREAK } from '../actor/constants';
+
 /**
  * Подпись основы бонуса мастерства существа: у него нет уровней, и по правилам
  * бонус берётся из показателя опасности. Сам показатель дописывается на месте.
@@ -745,21 +747,14 @@ export const CREATURE_DAMAGE_ALTERNATIVE_LABELS = {
     + 'сработает.',
 } as const;
 
-/** Приставка ключа плашки выбора урона */
-export const CREATURE_DAMAGE_MODAL_KEY_PREFIX = 'creature-damage';
-
-/** Подписи выбора урона «или» при атаке: плашка, чат, строка листа */
+/** Подписи выбора урона «или» при атаке: окно броска, чат, строка листа */
 export const CREATURE_DAMAGE_CHOICE_LABELS = {
-  /** Имя группы в плашке выбора — одна группа, поэтому на плашке не видно */
-  groupName: 'Урон',
   /** Набор без частей урона */
   noDamage: 'без урона',
   labelSeparator: ': ',
   chatSeparator: ': ',
-  /** Между формулами основного урона и вариантов в строке листа */
-  formulaSeparator: ' / ',
   /** Между строками подсказки к урону в строке листа */
-  hintSeparator: '\n',
+  hintSeparator: SHEET_ROW_TOOLTIP_LINE_BREAK,
   /** Начало строки варианта в подсказке и карточке: «или 1к4 + 1 яд, …» */
   orPrefix: 'или ',
   /** Между набором и условием: «…, если рой окровавлен» */
@@ -770,7 +765,7 @@ export const CREATURE_DAMAGE_CHOICE_LABELS = {
   /** Своя подпись варианта в карточке действия: «или «С преимуществом», …» */
   labelOpen: ' «',
   labelClose: '»',
-  /** Повтор подписи в плашке выбора: «1к4 + 1 яд (2)» */
+  /** Повтор подписи в поле выбора окна: «1к4 + 1 яд (2)» */
   duplicateOpen: ' (',
   duplicateClose: ')',
 } as const;

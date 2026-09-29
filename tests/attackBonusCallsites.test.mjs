@@ -10,6 +10,19 @@ const engine = await loadEngineBundle(
 );
 
 const macroPath = 'src/client/macros/dnd5eMacros.ts';
+
+/** Настоящая сборка наборов урона действия: без вариантов «или» набор один */
+const buildCreatureRollVariants = await loadHandler(
+  'src/client/composables/creatureDamageChoice.ts',
+  'buildCreatureRollVariants',
+  {
+    requestDamageTypeChoice: () => undefined,
+    applySourceDamageTypeChoices: (source) => source,
+    getDamagePartsPrimaryType: () => undefined,
+    announceCreatureDamageVariant: () => {},
+  },
+);
+
 const resolverPath = 'src/client/composables/useSpellResolution.ts';
 const normalContext = { hasAdvantage: false, hasDisadvantage: false };
 
@@ -47,6 +60,7 @@ function createPorts(current) {
 
   const ports = {
     buildRollBonusEvaluator,
+    buildCreatureRollVariants,
     props: { entity: current.value, actor: current.value, isEditMode: false },
     rollConfig,
     isRollModalOpen: { value: false },

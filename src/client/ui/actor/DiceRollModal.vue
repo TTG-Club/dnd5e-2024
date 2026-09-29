@@ -9,13 +9,14 @@
     RollContext,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { DamageTypeChoiceRequest } from '../../composables/damageTypeChoice';
   import type { RollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import type {
     ProjectileAttackContext,
     RolledSpellDamagePart,
     SpellDamagePartInput,
   } from '../../composables/useSpellResolution';
-  import type { CheckRollResult } from './diceRollTypes';
+  import type { CheckRollResult, RollDamageVariant } from './diceRollTypes';
 
   import { promiseTimeout } from '@vueuse/core';
   import { computed, onBeforeUnmount, ref, watch } from 'vue';
@@ -38,11 +39,16 @@
     listPartDamageTypeChoices,
     performTwoStageAttack,
     resolveEntityCreatureType,
+    rollRandomDamageTypeChoices,
     scaleDamageFormula,
     settleDamageTypeChoices,
+    uniqueDamageTypeChoices,
   } from '@vtt/shared/system/dnd.js';
 
-  import { useDamageTypeLabel } from '../../composables/damageTypeChoice';
+  import {
+    announceDamageTypeChoices,
+    useDamageTypeLabel,
+  } from '../../composables/damageTypeChoice';
   import { resolveAttackerIgnoredResistances } from '../../composables/spellResolutionShared';
   import {
     dispatchAttackRollTriggers,
@@ -188,6 +194,18 @@
     /** Коллбэк при попадании атаки (вызывается даже если нет формулы урона). */
     onHit?: () => void;
     /**
+     * Тип урона на выбор у источника броска (`@dmg.choice(…)`): окно
+     * показывает поле «Тип урона» и в начале броска отдаёт итог — до урона,
+     * попадания и эффектов (`requestDamageTypeChoice`).
+     */
+    damageTypeChoice?: DamageTypeChoiceRequest;
+    /**
+     * Наборы урона на выбор (урон «или» у действия существа): окно показывает
+     * поле «Урон», и выбранный набор заменяет формулу, части, бонус-части,
+     * вопрос о типе и применение (`onRollParts`). Нет — урон из пропов.
+     */
+    damageVariants?: RollDamageVariant[];
+    /**
      * Кто атакует. На броске атаки (попадание ИЛИ промах) окно расходует
      * срабатывания «следующей атаки» у атакующего и целей — ДО самого броска:
      * режим (преим./помеха) уже зафиксирован в `attackRollMode`, а снятие
@@ -244,6 +262,8 @@
     onCheckRoll: undefined,
     onCancel: undefined,
     onHit: undefined,
+    damageTypeChoice: undefined,
+    damageVariants: undefined,
     attackerId: undefined,
     critThreshold: undefined,
     onProjectileAttack: undefined,
@@ -279,11 +299,81 @@
   const consumeSpellSlot = ref(true);
   const usePactSlot = ref(false);
 
+  // --- Урон «или»: набор урона выбирают в окне ---
+  /** Номер выбранного набора в `damageVariants` */
+  const selectedDamageVariantIndex = ref(0);
+
+  /** Выбранный набор урона; без наборов урон берётся из пропов */
+  const activeDamageVariant = computed<RollDamageVariant | undefined>(
+    () => props.damageVariants?.[selectedDamageVariantIndex.value],
+  );
+
+  /** Пункты поля «Урон» */
+  const damageVariantItems = computed(() =>
+    (props.damageVariants ?? []).map((variant, index) => ({
+      label: variant.label,
+      value: index,
+    })),
+  );
+
+  /**
+   * Меняет выбранный набор урона.
+   *
+   * @param value - номер набора из селекта
+   */
+  function selectDamageVariant(value: unknown): void {
+    if (typeof value === 'number') {
+      selectedDamageVariantIndex.value = value;
+    }
+  }
+
+  // Всё, что зависит от урона, берётся у выбранного набора, а без наборов —
+  // из пропов: остальной код окна наборов не различает
+  const rollFormula = computed(() =>
+    activeDamageVariant.value
+      ? activeDamageVariant.value.formula
+      : props.formula,
+  );
+
+  const rollFormulaDisplay = computed(() =>
+    activeDamageVariant.value ? undefined : props.formulaDisplay,
+  );
+
+  const rollDamageType = computed(() =>
+    activeDamageVariant.value
+      ? activeDamageVariant.value.damageType
+      : props.damageType,
+  );
+
+  const rollDamageParts = computed(() =>
+    activeDamageVariant.value
+      ? activeDamageVariant.value.damageParts
+      : props.damageParts,
+  );
+
+  const rollEvaluateBonusDamageParts = computed(() =>
+    activeDamageVariant.value
+      ? activeDamageVariant.value.evaluateBonusDamageParts
+      : props.evaluateBonusDamageParts,
+  );
+
+  const rollDamageTypeChoice = computed(() =>
+    activeDamageVariant.value
+      ? activeDamageVariant.value.damageTypeChoice
+      : props.damageTypeChoice,
+  );
+
+  const rollOnRollParts = computed(() =>
+    activeDamageVariant.value
+      ? activeDamageVariant.value.onRollParts
+      : props.onRollParts,
+  );
+
   // --- Стейт выбора типа урона ---
   const selectedChoiceDamageType = ref<DamageType>('fire');
 
   /** Нужен ли выбор типа урона (заклинания с damageType: 'choice') */
-  const isDamageTypeChoice = computed(() => props.damageType === 'choice');
+  const isDamageTypeChoice = computed(() => rollDamageType.value === 'choice');
 
   /** Итоговый тип урона: выбранный игроком или из пропа */
   const resolvedDamageType = computed(() => {
@@ -291,7 +381,7 @@
       return selectedChoiceDamageType.value;
     }
 
-    return props.damageType;
+    return rollDamageType.value;
   });
 
   /**
@@ -358,24 +448,27 @@
   const partTypePicks = ref<Record<string, string>>({});
 
   /**
-   * Типы на выбор, дошедшие до окна нерешёнными. Источник броска решает свои
-   * до окна (`runWithDamageTypeChoices`), сюда доходит остаток — бонус-урон
-   * собственных эффектов листа и бросок в обход вопроса. Бонус-части
-   * собираются по текущему режиму — так же, как их соберёт бросок.
-   * Случайные типы не спрашиваются: они выпадут при броске.
+   * Типы на выбор, о которых спрашивает окно: все списки источника
+   * (`damageTypeChoice` — его урон, эффекты на цель, зоны) и остаток частей
+   * урона — бонус-урон собственных эффектов листа. Бонус-части собираются по
+   * текущему режиму — так же, как их соберёт бросок. Одинаковый список —
+   * одно поле. Случайные типы не спрашиваются: они выпадут при броске.
    */
   const partTypeChoiceRows = computed(() => {
-    if (!props.damageParts?.length) {
-      return [];
-    }
+    const bonusParts = rollDamageParts.value?.length
+      ? (rollEvaluateBonusDamageParts.value?.({
+          hasAdvantage: attackRollMode.value === 'advantage',
+          hasDisadvantage: attackRollMode.value === 'disadvantage',
+        }) ?? [])
+      : [];
 
-    const bonusParts =
-      props.evaluateBonusDamageParts?.({
-        hasAdvantage: attackRollMode.value === 'advantage',
-        hasDisadvantage: attackRollMode.value === 'disadvantage',
-      }) ?? [];
-
-    return listPartDamageTypeChoices([...props.damageParts, ...bonusParts])
+    return uniqueDamageTypeChoices([
+      ...(rollDamageTypeChoice.value?.choices ?? []),
+      ...listPartDamageTypeChoices([
+        ...(rollDamageParts.value ?? []),
+        ...bonusParts,
+      ]),
+    ])
       .filter((choice) => choice.mode === 'choose')
       .map((choice) => {
         const key = damageTypeChoiceKey(choice);
@@ -403,9 +496,31 @@
     }
   }
 
-  /** Итог выбора типов для броска: по строке окна — её значение */
-  function readPartTypePicks(): Map<string, string> {
-    return new Map(partTypeChoiceRows.value.map((row) => [row.key, row.value]));
+  /**
+   * Решает типы на выбор в начале броска: поля окна — их значение, случайные
+   * списки источника выпадают здесь один раз. Итог уходит в чат и источнику
+   * (`damageTypeChoice.onChoose`) раньше урона, попадания и эффектов, а
+   * части урона этого броска решаются тем же итогом.
+   *
+   * @returns итог выбора для частей урона
+   */
+  function settleRollDamageTypeChoices(): Map<string, string> {
+    const request = rollDamageTypeChoice.value;
+
+    const picks = new Map([
+      ...rollRandomDamageTypeChoices(request?.choices ?? []),
+      ...partTypeChoiceRows.value.map((row): [string, string] => [
+        row.key,
+        row.value,
+      ]),
+    ]);
+
+    if (request) {
+      announceDamageTypeChoices(request.sourceName, request.choices, picks);
+      request.onChoose(picks);
+    }
+
+    return picks;
   }
 
   const { findCurrentDndEntity } = useWorldEntities();
@@ -449,7 +564,7 @@
     () =>
       !props.skipRoll
       && (hasAttackRoll.value
-        || !props.formula
+        || !rollFormula.value
         || props.onProjectileAttack !== undefined),
   );
 
@@ -502,22 +617,22 @@
   const effectiveFormula = computed(() => {
     if (
       !hasSpellCast.value
-      || !props.formula
+      || !rollFormula.value
       || !props.spellScalingDice
       || props.spellLevel === undefined
     ) {
-      return props.formula;
+      return rollFormula.value;
     }
 
     const levelDiff = selectedSpellLevel.value - props.spellLevel;
 
     if (levelDiff <= 0) {
-      return props.formula;
+      return rollFormula.value;
     }
 
     // Используем утилиту из shared
     return scaleDamageFormula(
-      props.formula,
+      rollFormula.value,
       props.spellScalingDice,
       props.spellLevel,
       selectedSpellLevel.value,
@@ -530,7 +645,7 @@
     // не затрагивая формулу броска. Масштабирование на высших кругах в этом
     // режиме не визуализируем — условные заклинания показываем как есть.
     const baseFormula =
-      props.formulaDisplay ?? effectiveFormula.value ?? props.formula;
+      rollFormulaDisplay.value ?? effectiveFormula.value ?? rollFormula.value;
 
     if (baseFormula && !hasAttackRoll.value) {
       // Это чистый бросок урона или кастомный бросок формулы,
@@ -589,6 +704,7 @@
         rollType.value = 'public';
         attackRollMode.value = props.initialRollMode;
         partTypePicks.value = {};
+        selectedDamageVariantIndex.value = 0;
 
         // Сброс стейта заклинания
         if (props.spellLevel !== undefined) {
@@ -678,6 +794,12 @@
     // Бросок пошёл — закрытие окна в `finally` отменой уже не будет
     hasRolled = true;
 
+    // Набор урона «или» и тип урона на выбор решаются первыми: чат и
+    // источник узнают их раньше, чем ляжет урон и эффекты
+    activeDamageVariant.value?.onSelect();
+
+    const damageTypePicks = settleRollDamageTypeChoices();
+
     // Сохраняем текущие значения и устанавливаем нужные
     const prevPrivate = chatStore.isPrivateRoll;
     const prevGmOnly = chatStore.isGmOnlyRoll;
@@ -744,22 +866,23 @@
       const attackTargetAc = hasAttackRoll.value ? targetAc.value : null;
 
       // --- Многочастный путь: один общий бросок всех частей ---
-      if (props.damageParts && props.damageParts.length > 0) {
+      const damageParts = rollDamageParts.value;
+
+      if (damageParts && damageParts.length > 0) {
         // Бонус-части урона от Active Effects собираются в момент броска:
         // условия (преимущество/помеха, HP цели) оцениваются по фактическому
         // режиму, выбранному в модалке.
-        const bonusParts = props.evaluateBonusDamageParts
-          ? props.evaluateBonusDamageParts({
-              hasAdvantage: attackRollMode.value === 'advantage',
-              hasDisadvantage: attackRollMode.value === 'disadvantage',
-            })
-          : [];
+        const bonusParts =
+          rollEvaluateBonusDamageParts.value?.({
+            hasAdvantage: attackRollMode.value === 'advantage',
+            hasDisadvantage: attackRollMode.value === 'disadvantage',
+          }) ?? [];
 
         // Тип на выбор решается до броска: выбранный в окне, у случайного —
         // выпавший; дальше часть идёт обычным типом (защиты, чат)
         const effectiveParts = settleDamageTypeChoices(
-          [...props.damageParts, ...bonusParts],
-          readPartTypePicks(),
+          [...damageParts, ...bonusParts],
+          damageTypePicks,
         );
 
         // Плоский условный бонус урона (evaluateConditionalBonuses) в
@@ -918,7 +1041,7 @@
     const targetName =
       targetStore.targetName ?? DICE_ROLL_LABELS.targetFallback;
 
-    // Прикрепляем условный бонус урона к формуле урона (props.formula), если он есть
+    // Прикрепляем условный бонус урона к формуле урона, если он есть
     const damageBonus = currentConditionalBonuses.value.damageBonus;
 
     let finalDamageFormula = effectiveFormula.value ?? '';
@@ -1012,7 +1135,7 @@
     /** Постоянная часть бонуса, к которой роллер добавит бонусные кости. */
     let checkModifier = 0;
 
-    if (props.formula) {
+    if (rollFormula.value) {
       // Суммируем введённый бонус пользователя + условный бонус на урон (если это бросок урона)
       // Если это просто "бросок формулы" не связанный с атакой (проверка хар-ки с кастомной формулой),
       // damageBonus будет 0 (т.к. targetKey будет attack.melee, а условия не выполнятся).
@@ -1100,7 +1223,7 @@
     }
 
     // Бонусные кости влияют на итог, но не изменяют натуральную оставленную d20.
-    if (!props.formula && props.onCheckRoll) {
+    if (!rollFormula.value && props.onCheckRoll) {
       const natural = getNaturalD20Roll(rollData);
 
       props.onCheckRoll({
@@ -1188,9 +1311,7 @@
       });
     }
 
-    if (props.onRollParts) {
-      props.onRollParts(rolled);
-    }
+    rollOnRollParts.value?.(rolled);
   }
 
   /**
@@ -1351,6 +1472,24 @@
             :items="damageTypeOptions"
             value-key="value"
             class="w-full"
+          />
+        </div>
+
+        <!-- Набор урона «или» у действия существа -->
+        <div
+          v-if="damageVariantItems.length > 0"
+          class="space-y-2"
+        >
+          <span class="text-xs tracking-wider text-muted uppercase">
+            {{ DICE_ROLL_LABELS.damageVariant }}
+          </span>
+
+          <USelect
+            :model-value="selectedDamageVariantIndex"
+            :items="damageVariantItems"
+            value-key="value"
+            class="w-full"
+            @update:model-value="selectDamageVariant"
           />
         </div>
 
