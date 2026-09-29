@@ -6,7 +6,7 @@ import { useChatStore } from '@/stores/chatStore';
 import { useProjectileStore } from '@/stores/projectileStore';
 import { useTargetStore } from '@/stores/targetStore';
 import { useWorldStore } from '@/stores/worldStore';
-import { generateId, isEntityOwner } from '@vtt/shared';
+import { generateId, isEntityOwner, isRecord } from '@vtt/shared';
 import {
   applyEffectsToEntity,
   getSpellAttackType,
@@ -364,7 +364,11 @@ export function requestSpellEffectTargets(
         (entry) => entry.id === spell.id,
       );
 
-      if (!currentSpell || !isSpellReady(currentSpell)) {
+      // Лист старого мира, чьи заговоры ещё не разобраны, держит их доступными
+      const cantripsTracked =
+        isRecord(caster.system) && caster.system.cantripsTracked === true;
+
+      if (!currentSpell || !isSpellReady(currentSpell, cantripsTracked)) {
         return false;
       }
 

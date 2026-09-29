@@ -137,6 +137,8 @@ export function useGrantedSpellsResolver(
           featureName: source.featureName,
           alwaysPrepared: source.alwaysPrepared,
           castingAbility: source.castingAbility,
+          grantKind: source.grantKind,
+          featureKey: source.featureKey,
         });
       }
     }
@@ -144,7 +146,11 @@ export function useGrantedSpellsResolver(
     return resolved;
   });
 
+  /** Каталог заклинаний уже загружен: пустой результат — это правда, а не ожидание */
+  const isLoaded = computed(() => compendiumSpells.value.length > 0);
+
   return {
     resolvedGrantedSpells,
+    isLoaded,
   };
 }

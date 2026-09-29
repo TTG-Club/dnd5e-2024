@@ -8,7 +8,12 @@
 
   import { computed } from 'vue';
 
-  import { isSpellReady } from '@vtt/shared/system/dnd.js';
+  import {
+    canTogglePrepared,
+    CANTRIP_SPELL_LEVEL,
+    isGrantedSpell,
+    isSpellReady,
+  } from '@vtt/shared/system/dnd.js';
 
   import {
     SHEET_ROW_ARIA_LABELS,
@@ -28,15 +33,18 @@
     stats?: SheetRowStat[];
     /** Пункты меню строки — общие для правой кнопки мыши и «⋮» */
     menuItems?: DropdownMenuItem[][];
+    /**
+     * Заговоры книги у актора уже отмечаются подготовкой. Нет — лист старый, и
+     * все его заговоры доступны, пока их не разобрали по колонке «Заговоры».
+     */
+    cantripsTracked?: boolean;
   }
-
-  /** Круг заговора: готовить его не нужно */
-  const CANTRIP_LEVEL = 0;
 
   const props = withDefaults(defineProps<Props>(), {
     subtitle: '',
     stats: () => [],
     menuItems: () => [],
+    cantripsTracked: true,
   });
 
   const emit = defineEmits<{
@@ -51,22 +59,25 @@
   }>();
 
   /**
-   * Подготовку переключают только у заклинаний круга выше заговора: заговор
-   * доступен всегда, а сигнатурное заклинание подкласса подготовлено само.
+   * Подготовку переключают у заклинаний и заговоров книги: выданный заговор и
+   * заклинание домена подготовлены сами.
    */
-  const canPrepare = computed(
-    () => props.spell.level > CANTRIP_LEVEL && !props.spell.alwaysPrepared,
+  const canPrepare = computed(() => canTogglePrepared(props.spell));
+
+  const isPrepared = computed(() =>
+    isSpellReady(props.spell, props.cantripsTracked),
   );
 
-  const isPrepared = computed(() => isSpellReady(props.spell));
-
   const preparedTooltip = computed(() => {
-    if (props.spell.alwaysPrepared) {
-      return SPELL_PREPARED_LABELS.always;
+    if (
+      props.spell.level === CANTRIP_SPELL_LEVEL
+      && isGrantedSpell(props.spell)
+    ) {
+      return SPELL_PREPARED_LABELS.grantedCantrip;
     }
 
-    if (props.spell.level === CANTRIP_LEVEL) {
-      return SPELL_PREPARED_LABELS.cantrip;
+    if (props.spell.alwaysPrepared) {
+      return SPELL_PREPARED_LABELS.always;
     }
 
     return isPrepared.value
@@ -124,8 +135,8 @@
           class="flex w-full min-w-0 items-center gap-3 @xl:w-auto @xl:flex-1"
         >
           <UTooltip :text="preparedTooltip">
-            <!-- Заговор и всегда подготовленное заклинание не переключаются:
-              им значок не кнопка, а метка состояния -->
+            <!-- Выданный заговор и всегда подготовленное заклинание не
+              переключаются: им значок не кнопка, а метка состояния -->
             <component
               :is="canPrepare ? 'button' : 'span'"
               :type="canPrepare ? 'button' : undefined"

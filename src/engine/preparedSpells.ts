@@ -17,21 +17,164 @@ import type { DnDPreparedLimit } from './types.js';
 
 import { CANTRIP_SPELL_LEVEL } from './spellTypes.js';
 
+/** Поля заклинания, от которых зависит его подготовка */
+type SpellPreparationFields = Pick<
+  Spell,
+  'level' | 'prepared' | 'alwaysPrepared' | 'grantedByFeature' | 'grantKind'
+>;
+
 /**
- * Проверяет доступность заклинания без изменения подготовки: известный заговор
- * доступен всегда, заклинание старшего круга — после подготовки либо по дару.
+ * Выдано ли заклинание записью — умением, видом, предысторией, чертой, — а не
+ * взято игроком в книгу.
+ *
+ * @param spell - заклинание листа
+ * @returns true — заклинание уходит вместе со своим источником
+ */
+export function isGrantedSpell(
+  spell: Pick<Spell, 'grantedByFeature'>,
+): boolean {
+  return Boolean(spell.grantedByFeature);
+}
+
+/**
+ * Идёт ли выданное заклинание в счёт колонок таблицы класса. Колонки говорят о
+ * заклинаниях самого класса, поэтому выданное видом, предысторией или чертой в
+ * счёт не идёт: иначе «Посвящённый в магию» съедал бы заговоры колдуна.
+ *
+ * Выданное до появления `grantKind` считается как прежде — по отметке
+ * подготовки: без неё оно шло в счёт, с ней — нет.
+ *
+ * @param spell - выданное заклинание
+ * @returns true — заклинание выдано умением класса
+ */
+function isClassGrant(spell: SpellPreparationFields): boolean {
+  return spell.grantKind === undefined || spell.grantKind === 'class';
+}
+
+/**
+ * Можно ли игроку снять и поставить подготовку. Заговор книги отмечается так же,
+ * как заклинание: игрок держит в книге весь список заговоров и отмечает свои.
+ * Выданный заговор и заклинание, которое готовить не нужно, подготовлены всегда.
+ *
+ * @param spell - заклинание листа
+ * @returns true — значок подготовки переключается
+ */
+export function canTogglePrepared(spell: SpellPreparationFields): boolean {
+  if (spell.level === CANTRIP_SPELL_LEVEL) {
+    return !isGrantedSpell(spell);
+  }
+
+  return !spell.alwaysPrepared;
+}
+
+/**
+ * Проверяет доступность заклинания без изменения подготовки. Выданный заговор
+ * доступен всегда, заговор книги — если отмечен, заклинание старшего круга —
+ * после подготовки либо по дару.
+ *
+ * Лист, чьи заговоры книги ещё не разобраны по отметкам (`cantripsTracked` у
+ * актора не взведён), держит их доступными все: раньше подготовки у заговоров
+ * не было, и прежняя отметка `false` ничего не значила.
  *
  * @param spell - заклинание из книги персонажа
+ * @param cantripsTracked - заговоры книги у актора уже отмечаются
  * @returns true — заклинание можно накладывать без подготовки
  */
 export function isSpellReady(
-  spell: Pick<Spell, 'level' | 'prepared' | 'alwaysPrepared'>,
+  spell: SpellPreparationFields,
+  cantripsTracked = true,
 ): boolean {
-  return (
-    spell.level === CANTRIP_SPELL_LEVEL
-    || Boolean(spell.prepared)
-    || Boolean(spell.alwaysPrepared)
-  );
+  if (spell.level === CANTRIP_SPELL_LEVEL) {
+    return isGrantedSpell(spell) || !cantripsTracked || spell.prepared === true;
+  }
+
+  return Boolean(spell.prepared) || Boolean(spell.alwaysPrepared);
+}
+
+/**
+ * Занимает ли заговор место в плитке «Заговоры»: отмеченный заговор книги и
+ * заговор, выданный умением класса (три заговора жреца с 1 уровня). Выданный с
+ * отметкой «Подготавливать не нужно» («Чудотворец»), видом, предысторией или
+ * чертой — сверх колонки таблицы класса.
+ *
+ * @param spell - заклинание листа
+ * @param cantripsTracked - заговоры книги у актора уже отмечаются
+ * @returns true — заговор идёт в счёт
+ */
+export function countsTowardCantrips(
+  spell: SpellPreparationFields,
+  cantripsTracked = true,
+): boolean {
+  if (spell.level !== CANTRIP_SPELL_LEVEL) {
+    return false;
+  }
+
+  if (!isGrantedSpell(spell)) {
+    return !cantripsTracked || spell.prepared === true;
+  }
+
+  return isClassGrant(spell) && !spell.alwaysPrepared;
+}
+
+/**
+ * Занимает ли заклинание 1+ круга место среди подготовленных: подготовленное
+ * заклинание книги и выданное умением класса, которое готовит сам игрок
+ * («весь список класса»). Выданное видом, предысторией или чертой места не
+ * занимает, как и заклинание домена.
+ *
+ * @param spell - заклинание листа
+ * @returns true — заклинание идёт в счёт подготовленных
+ */
+export function countsTowardPreparedSpells(
+  spell: SpellPreparationFields,
+): boolean {
+  if (spell.level === CANTRIP_SPELL_LEVEL || !spell.prepared) {
+    return false;
+  }
+
+  if (spell.alwaysPrepared) {
+    return false;
+  }
+
+  return !isGrantedSpell(spell) || isClassGrant(spell);
+}
+
+/**
+ * Отмечает заговоры книги, у которых отметки ещё нет, пока в колонке
+ * «Заговоры» остаётся место: так новый заговор сразу занимает свободное место,
+ * а у старых листов оживают прежние заговоры. Отмеченные остаются как есть, и
+ * лишний заговор сверх места остаётся неотмеченным — его выбирает игрок.
+ *
+ * @param spells - заклинания листа
+ * @param limit - число заговоров по таблице класса; null — предела нет
+ * @param isUnmarked - у заговора нет отметки (у старых листов — любой без `true`)
+ * @returns новый список заклинаний (исходный не мутируется)
+ */
+export function settleBookCantrips(
+  spells: Spell[],
+  limit: number | null,
+  isUnmarked: (spell: Spell) => boolean,
+): Spell[] {
+  let count = spells.filter((spell) => countsTowardCantrips(spell)).length;
+
+  return spells.map((spell) => {
+    if (
+      spell.level !== CANTRIP_SPELL_LEVEL
+      || isGrantedSpell(spell)
+      || spell.prepared === true
+      || !isUnmarked(spell)
+    ) {
+      return spell;
+    }
+
+    const prepared = limit === null || count < limit;
+
+    if (prepared) {
+      count += 1;
+    }
+
+    return { ...spell, prepared };
+  });
 }
 
 /** Вид подготовки: заклинания книги либо заговоры (свой счётчик) */

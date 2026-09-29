@@ -802,7 +802,11 @@ export function useBackgroundWizard(
       previousBackground,
     );
 
-    updatedSpells = appendGrantedSpells(updatedSpells, resolvedGrantedSpells);
+    updatedSpells = appendGrantedSpells(
+      updatedSpells,
+      resolvedGrantedSpells,
+      'background',
+    );
 
     // Сравнение по длине недостаточно: удаление и добавление могут совпасть
     // по количеству, поэтому дополнительно сверяем ссылки поэлементно

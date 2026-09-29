@@ -6,6 +6,7 @@
   import type {
     ActorClassEntry,
     ClassDefinition,
+    ClassFeature,
     DnDActor,
     DnDCustomBonusContext,
     DnDPreparedLimit,
@@ -30,7 +31,7 @@
   import type { SheetRowStat } from '../sheetRowTypes';
 
   import { useToast } from '@nuxt/ui/composables';
-  import { computed, ref } from 'vue';
+  import { computed, ref, watch } from 'vue';
 
   import { startHotbarDrag } from '@/core/utils/hotbarDrag';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
@@ -46,8 +47,11 @@
     applySpellSlotSettings,
     buildCasterTypeMap,
     calculateSpellAttackModifier,
+    canTogglePrepared,
     CANTRIP_SPELL_LEVEL,
     computeSpellSlots,
+    countsTowardCantrips,
+    countsTowardPreparedSpells,
     damagePartIsHealing,
     getAvailableSpellLevels,
     getClassPreparedValue,
@@ -62,6 +66,7 @@
     getSpellSaveDCBreakdown,
     getTotalLevel,
     isDndSceneEntity,
+    isGrantedSpell,
     isSpellReady,
     MAX_SPELL_SLOT_LEVEL,
     mergeAppliedEffects,
@@ -76,10 +81,12 @@
     resolveSpellcastingAbility,
     resolveSpellDamageFormula,
     resolveSpellSaveDC,
+    settleBookCantrips,
     SPELL_LEVEL_LABELS,
     SPELL_SCHOOL_LABELS,
     SPELL_USES_RECOVERY_LABELS,
     spellIsHealing,
+    syncClassGrantedSpells,
     withFlatDamageBonus,
     withFlatFormulaBonus,
   } from '@vtt/shared/system/dnd.js';
@@ -134,6 +141,8 @@
   import {
     ACTOR_SPELLS_TAB_LABELS,
     FILTER_ROW_CONTROL_SIZE,
+    GRANTED_CANTRIPS_GROUP_LABEL,
+    GRANTED_CANTRIPS_GROUP_LEVEL,
     PROJECTILE_MODAL_KEY_PREFIX,
     SHEET_FILTER_LABELS,
     SHEET_ROW_MENU_LABELS,
@@ -462,14 +471,24 @@
     () => preparedSpellsLimit.value.value ?? 0,
   );
 
-  /** Текущее количество подготовленных заклинаний */
-  const currentPreparedSpellsCount = computed(() => {
-    const spells = props.actor.spells ?? [];
+  /**
+   * Заговоры книги уже отмечаются подготовкой. У листа старого мира поля нет:
+   * пока вкладка не разобрала его заговоры по колонке «Заговоры», доступны все.
+   */
+  const cantripsTracked = computed(
+    () => props.actor.system?.cantripsTracked === true,
+  );
 
-    return spells.filter(
-      (spell) => spell.prepared && !spell.alwaysPrepared && spell.level > 0,
-    ).length;
-  });
+  /**
+   * Текущее количество подготовленных заклинаний: книга и выдача умений класса,
+   * которую готовит сам игрок. Заклинания домена, вида и черт места не занимают.
+   */
+  const currentPreparedSpellsCount = computed(
+    () =>
+      (props.actor.spells ?? []).filter((spell) =>
+        countsTowardPreparedSpells(spell),
+      ).length,
+  );
 
   /** Открыт ли компендиум заклинаний, из которого пополняют книгу */
   const isSpellBrowserOpen = ref(false);
@@ -514,34 +533,119 @@
   function addSpellsFromCompendium(spells: Spell[]): void {
     const known = new Set(knownSpellNames.value);
 
+    // Заговор приходит без отметки: ниже он сам займёт свободное место в
+    // колонке «Заговоры», а лишний останется неотмеченным
     const added = spells
       .filter((spell) => !known.has(spell.name))
       .map((spell) => ({
         ...spell,
         id: generateId('spell'),
-        prepared: false,
+        prepared: spell.level === CANTRIP_SPELL_LEVEL ? undefined : false,
       }));
 
     if (added.length === 0) {
       return;
     }
 
-    emit('update:actor', { spells: [...(props.actor.spells ?? []), ...added] });
+    const combined = [...(props.actor.spells ?? []), ...added];
+
+    emit('update:actor', {
+      spells: cantripsTracked.value
+        ? settleBookCantrips(
+            combined,
+            cantripsLimit.value.value,
+            (spell) => spell.prepared === undefined,
+          )
+        : combined,
+    });
+
     triggerSaveIfNotEdit();
   }
 
   /**
-   * Заговоры в книге. Отмечать их подготовку негде — заговор всегда при
-   * заклинателе, поэтому считаются все, а не только помеченные. Кроме тех, что
-   * готовить не нужно: они идут сверх колонки таблицы класса («Чудотворец»
-   * жреца, врождённые заговоры вида) — так же, как подготовленные заклинания
-   * книги не считают свои исключения.
+   * Заговоры в счёт колонки «Заговоры»: отмеченные в книге и выданные умениями
+   * класса. Выданные видом, предысторией, чертой и с отметкой «Подготавливать
+   * не нужно» («Чудотворец» жреца) идут сверх колонки.
    */
   const currentCantripsCount = computed(
     () =>
-      (props.actor.spells ?? []).filter(
-        (spell) => spell.level === CANTRIP_SPELL_LEVEL && !spell.alwaysPrepared,
+      (props.actor.spells ?? []).filter((spell) =>
+        countsTowardCantrips(spell, cantripsTracked.value),
       ).length,
+  );
+
+  /**
+   * Умения классов и подклассов персонажа — по ним выдачам на листе досылаются
+   * отметки, которых не было при выдаче. undefined — какой-то класс ещё не
+   * загружен, и сверять рано.
+   */
+  const actorClassFeatures = computed(() => {
+    const features: ClassFeature[] = [];
+
+    for (const entry of props.actor.system?.classes ?? []) {
+      const definition = classDefinitionOf(entry);
+
+      if (!definition) {
+        return undefined;
+      }
+
+      const subclass = entry.subclassKey
+        ? definition.subclasses.find(
+            (candidate) => candidate.key === entry.subclassKey,
+          )
+        : undefined;
+
+      features.push(...definition.features, ...(subclass?.features ?? []));
+    }
+
+    return features;
+  });
+
+  /**
+   * Чинит заклинания листа, легшие до нынешних правил подготовки:
+   * - заклинаниям умений класса досылается отметка «Подготавливать не нужно» —
+   *   выгрузка долго её теряла, и заклинания домена приходилось готовить;
+   * - заговоры книги старого листа разбираются по колонке «Заговоры»: раньше их
+   *   подготовки не было, а теперь неотмеченный заговор недоступен.
+   *
+   * Цикл обрывается сам: починенный лист чинить нечего, и второй проход ничего
+   * не меняет — отправки не будет.
+   */
+  watch(
+    [
+      () => props.actor.spells,
+      actorClassFeatures,
+      cantripsTracked,
+      () => cantripsLimit.value.value,
+    ],
+    ([spells, features, tracked, limit]) => {
+      if (!spells || !features) {
+        return;
+      }
+
+      const synced = syncClassGrantedSpells(spells, features);
+
+      if (tracked) {
+        if (synced !== spells) {
+          emit('update:actor', { spells: synced });
+          triggerSaveIfNotEdit();
+        }
+
+        return;
+      }
+
+      emit('update:actor', {
+        spells: settleBookCantrips(
+          synced,
+          limit,
+          (spell) => spell.prepared !== true,
+        ),
+        system: { ...props.actor.system, cantripsTracked: true },
+      });
+
+      triggerSaveIfNotEdit();
+    },
+    { immediate: true },
   );
 
   /**
@@ -912,7 +1016,7 @@
         return false;
       }
 
-      if (filterPrepared.value && !isSpellReady(spell)) {
+      if (filterPrepared.value && !isSpellReady(spell, cantripsTracked.value)) {
         return false;
       }
 
@@ -957,11 +1061,19 @@
     const spells = filteredSpells.value;
     const grouped = new Map<number, Spell[]>();
 
+    // Выданные заговоры — от вида, черты, предыстории, умений класса — стоят
+    // своей группой: они подготовлены всегда, а среди заговоров остаётся книга,
+    // из которой игрок отмечает свои
     for (const spell of spells) {
-      const existing = grouped.get(spell.level) ?? [];
+      const groupLevel =
+        spell.level === CANTRIP_SPELL_LEVEL && isGrantedSpell(spell)
+          ? GRANTED_CANTRIPS_GROUP_LEVEL
+          : spell.level;
+
+      const existing = grouped.get(groupLevel) ?? [];
 
       existing.push(spell);
-      grouped.set(spell.level, existing);
+      grouped.set(groupLevel, existing);
     }
 
     for (const level of groupSlotLevels.value) {
@@ -988,7 +1100,10 @@
 
       return {
         level,
-        label: SPELL_LEVEL_LABELS[level] ?? `${level}${SPELL_LEVEL_SUFFIX}`,
+        label:
+          level === GRANTED_CANTRIPS_GROUP_LEVEL
+            ? GRANTED_CANTRIPS_GROUP_LABEL
+            : (SPELL_LEVEL_LABELS[level] ?? `${level}${SPELL_LEVEL_SUFFIX}`),
         spells: levelSpells,
         max,
         used,
@@ -1140,24 +1255,26 @@
   function updatePrepared(spellId: string, prepared: boolean): void {
     const currentSpells = props.actor.spells ?? [];
 
-    if (prepared && maxPreparedSpells.value > 0) {
-      const spell = currentSpells.find(
-        (existingSpell) => existingSpell.id === spellId,
-      );
+    const spell = currentSpells.find(
+      (existingSpell) => existingSpell.id === spellId,
+    );
 
-      if (
-        spell
-        && !spell.alwaysPrepared
-        && currentPreparedSpellsCount.value >= maxPreparedSpells.value
-      ) {
-        toast.add({
-          title: ACTOR_SPELLS_TAB_LABELS.limitTitle,
-          description: `${ACTOR_SPELLS_TAB_LABELS.limitTextPrefix}${maxPreparedSpells.value}${ACTOR_SPELLS_TAB_LABELS.limitTextSuffix}`,
-          color: 'warning',
-        });
+    if (prepared && spell && isOverPreparedLimit(spell)) {
+      const isCantrip = spell.level === CANTRIP_SPELL_LEVEL;
 
-        return;
-      }
+      toast.add({
+        title: isCantrip
+          ? ACTOR_SPELLS_TAB_LABELS.cantripLimitTitle
+          : ACTOR_SPELLS_TAB_LABELS.limitTitle,
+        description: `${
+          isCantrip
+            ? ACTOR_SPELLS_TAB_LABELS.cantripLimitTextPrefix
+            : ACTOR_SPELLS_TAB_LABELS.limitTextPrefix
+        }${preparedLimitOf(spell)}${ACTOR_SPELLS_TAB_LABELS.limitTextSuffix}`,
+        color: 'warning',
+      });
+
+      return;
     }
 
     const newSpells = currentSpells.map((spell) =>
@@ -1166,6 +1283,44 @@
 
     emit('update:actor', { spells: newSpells });
     triggerSaveIfNotEdit();
+  }
+
+  /**
+   * Предел, в который упирается отметка заклинания: у заговора — колонка
+   * «Заговоры», у заклинания — «Подг. закл.». 0 — предела нет.
+   *
+   * @param spell - отмечаемое заклинание
+   */
+  function preparedLimitOf(spell: Spell): number {
+    return spell.level === CANTRIP_SPELL_LEVEL
+      ? (cantripsLimit.value.value ?? 0)
+      : maxPreparedSpells.value;
+  }
+
+  /**
+   * Займёт ли отметка место сверх предела. Заклинание, которое в счёт не идёт
+   * (выданное видом, чертой, домен), отмечается без оглядки на предел.
+   *
+   * @param spell - отмечаемое заклинание
+   * @returns true — место кончилось
+   */
+  function isOverPreparedLimit(spell: Spell): boolean {
+    const limit = preparedLimitOf(spell);
+    const marked = { ...spell, prepared: true };
+
+    if (spell.level === CANTRIP_SPELL_LEVEL) {
+      return (
+        limit > 0
+        && countsTowardCantrips(marked)
+        && currentCantripsCount.value >= limit
+      );
+    }
+
+    return (
+      limit > 0
+      && countsTowardPreparedSpells(marked)
+      && currentPreparedSpellsCount.value >= limit
+    );
   }
 
   /**
@@ -1239,14 +1394,14 @@
   function getSpellMenuItems(spell: Spell): DropdownMenuItem[][] {
     const gameActions: DropdownMenuItem[] = [];
 
-    // Подготовка — отметка, а не действие: у заговора и сигнатурного
-    // заклинания подкласса её нет, они готовы всегда
-    if (spell.level > CANTRIP_SPELL_LEVEL && !spell.alwaysPrepared) {
+    // Подготовка — отметка, а не действие: у выданного заговора и заклинания
+    // домена её нет, они готовы всегда
+    if (canTogglePrepared(spell)) {
       gameActions.push({
         label: SPELL_MENU_LABELS.prepared,
         icon: 'tabler:wand',
         type: 'checkbox',
-        checked: Boolean(spell.prepared),
+        checked: isSpellReady(spell, cantripsTracked.value),
         onUpdateChecked: (checked: boolean) =>
           updatePrepared(spell.id, checked),
       });
@@ -1310,7 +1465,7 @@
 
   /** Переключает подготовку заклинания из строки списка */
   function toggleSpellPrepared(spell: Spell): void {
-    updatePrepared(spell.id, !spell.prepared);
+    updatePrepared(spell.id, !isSpellReady(spell, cantripsTracked.value));
   }
 
   /**
@@ -2445,6 +2600,7 @@
         :subtitle="row.subtitle"
         :stats="row.stats"
         :menu-items="row.menuItems"
+        :cantrips-tracked="cantripsTracked"
         @open="openSpellDetail(row.spell)"
         @cast="castSpell(row.spell)"
         @toggle-prepared="toggleSpellPrepared(row.spell)"

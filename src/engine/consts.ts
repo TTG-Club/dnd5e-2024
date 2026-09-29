@@ -665,6 +665,7 @@ export const DEFAULT_ACTOR: Omit<DnDActor, 'id'> = {
     carryingCapacity: { ...DEFAULT_CARRYING_CAPACITY },
     preparedSpells: { ...DEFAULT_PREPARED_LIMIT },
     preparedCantrips: { ...DEFAULT_PREPARED_LIMIT },
+    cantripsTracked: true,
     spellSlotsUsed: [0, 0, 0, 0, 0, 0, 0, 0, 0],
     pactSlotsUsed: 0,
     classCounters: [],

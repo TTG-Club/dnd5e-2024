@@ -13,7 +13,7 @@ import type {
 } from '@vtt/shared';
 
 import type { ActiveEffect } from './activeEffectTypes.js';
-import type { FeatData } from './featTypes.js';
+import type { FeatData, FeatGrantedClassSpells } from './featTypes.js';
 import type { StartingEquipmentOption } from './startingEquipment.js';
 
 import { isRecord } from '@vtt/shared';
@@ -312,7 +312,10 @@ export interface ClassFeature {
   /**
    * ID заклинаний компендиума, которые умение предоставляет автоматически
    * (напр. «Избранный враг» следопыта даёт «Метку охотника»).
-   * Такие заклинания всегда подготовлены и не тратят лимит ручного выбора.
+   * Готовить ли их, решает отметка «Подготавливать не нужно» в
+   * `featData` (`grantedSpellsAlwaysPrepared` и отметки ссылок): заклинания
+   * домена подготовлены всегда, а заклинания книги некроманта готовят наравне
+   * с остальными.
    */
   grantedSpells?: string[];
   /**
@@ -322,6 +325,14 @@ export interface ClassFeature {
    * («3 уровень: …, 5 уровень: …»). Правила те же, что у `grantedSpells`.
    */
   grantedSpellsByLevel?: Record<string, string[]>;
+  /**
+   * Списки классов, которые умение выдаёт целиком («Использование заклинаний»
+   * чародея: все заклинания доступных кругов). Полем умения, а не блоком даров:
+   * мастер класса спрашивает, класть ли список целиком или выбрать из него
+   * самому, — лист, который так спросить не умеет, этого поля не читает.
+   * Уровень открытия группы — уровень КЛАССА.
+   */
+  grantedClassSpells?: FeatGrantedClassSpells[];
   /**
    * Активные эффекты умения: то, что меняет числа листа готовой формулой.
    *

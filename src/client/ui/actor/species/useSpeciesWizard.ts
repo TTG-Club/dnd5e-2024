@@ -1154,7 +1154,11 @@ export function useSpeciesWizard(
       appliedFeatureNames.has(resolved.featureName),
     );
 
-    updatedSpells = appendGrantedSpells(updatedSpells, applicableGrantedSpells);
+    updatedSpells = appendGrantedSpells(
+      updatedSpells,
+      applicableGrantedSpells,
+      'species',
+    );
 
     // Сравнение по длине недостаточно: удаление и добавление могут совпасть
     // по количеству, поэтому дополнительно сверяем ссылки поэлементно

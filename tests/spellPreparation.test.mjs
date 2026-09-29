@@ -265,8 +265,17 @@ it('innate species spells keep their preparation exception at the source', () =>
   );
 });
 
-it('known cantrips remain ready without preparation flags', () => {
-  assert.equal(engine.isSpellReady(createSpell('light', 0)), true);
+it('granted cantrips stay ready while book cantrips follow their mark once the sheet tracks them', () => {
+  const granted = { ...createSpell('light', 0), grantedByFeature: 'Вид' };
+  const book = createSpell('mage-hand', 0);
+
+  assert.equal(engine.isSpellReady(granted), true);
+  assert.equal(engine.isSpellReady(book), false);
+  assert.equal(engine.isSpellReady({ ...book, prepared: true }), true);
+  // Старый лист: прежняя отметка `false` у заговора ничего не значила
+  assert.equal(engine.isSpellReady({ ...book, prepared: false }, false), true);
+  assert.equal(engine.canTogglePrepared(book), true);
+  assert.equal(engine.canTogglePrepared(granted), false);
   assert.equal(engine.isSpellReady(createSpell('magic-missile')), false);
 
   assert.equal(
@@ -395,14 +404,19 @@ const preparationHarnessBundle = await build({
         const { props, computed, engine, resolveClassDefinition, emit,
           triggerSaveIfNotEdit, toast, ACTOR_SPELLS_TAB_LABELS,
           resolvedStats } = context;
-        const { CANTRIP_SPELL_LEVEL, getClassPreparedValue, getPreparedLimitBreakdown } = engine;
+        const { CANTRIP_SPELL_LEVEL, getClassPreparedValue, getPreparedLimitBreakdown,
+          countsTowardCantrips, countsTowardPreparedSpells, isSpellReady } = engine;
         ${[
           'classDefinitionOf',
           'spellcastingBonusContext',
           'preparedSpellsLimit',
+          'cantripsLimit',
           'maxPreparedSpells',
+          'cantripsTracked',
           'currentPreparedSpellsCount',
           'currentCantripsCount',
+          'preparedLimitOf',
+          'isOverPreparedLimit',
           'updatePrepared',
           'toggleSpellPrepared',
         ]
@@ -411,8 +425,8 @@ const preparationHarnessBundle = await build({
         return { toggleSpellPrepared, currentPreparedSpellsCount, currentCantripsCount, maxPreparedSpells };
       }
       export function createRowHarness(context) {
-        const { props, computed, isSpellReady, emit } = context;
-        ${['CANTRIP_LEVEL', 'canPrepare', 'isPrepared', 'handlePreparedToggle']
+        const { props, computed, isSpellReady, canTogglePrepared, emit } = context;
+        ${['canPrepare', 'isPrepared', 'handlePreparedToggle']
           .map((name) => componentDeclaration(spellRow, name))
           .join('\n')}
         return { canPrepare, isPrepared, handlePreparedToggle };
@@ -522,6 +536,7 @@ function createPreparationFixture() {
       props: { spell },
       computed,
       isSpellReady: engine.isSpellReady,
+      canTogglePrepared: engine.canTogglePrepared,
       emit: (eventName) => {
         assert.equal(eventName, 'toggle-prepared');
         tab.toggleSpellPrepared(spell);
@@ -868,13 +883,13 @@ it('the spell filter and row use the shared readiness rule and the template keep
 
   assert.ok(
     componentDeclaration(spellsTab, 'filteredSpells').includes(
-      '!isSpellReady(spell)',
+      '!isSpellReady(spell, cantripsTracked.value)',
     ),
   );
 
   assert.ok(
     componentDeclaration(spellRow, 'isPrepared').includes(
-      'isSpellReady(props.spell)',
+      'isSpellReady(props.spell, props.cantripsTracked)',
     ),
   );
 

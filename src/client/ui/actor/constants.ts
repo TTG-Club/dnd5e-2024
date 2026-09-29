@@ -1539,14 +1539,36 @@ export const SPELL_STAT_HINTS: Record<'damage' | 'usesEmpty', string> = {
  * подготовленное заклинание не переключаются: значок у них только горит.
  */
 export const SPELL_PREPARED_LABELS: Record<
-  'prepare' | 'unprepare' | 'always' | 'cantrip',
+  'prepare' | 'unprepare' | 'always' | 'grantedCantrip',
   string
 > = {
   prepare: 'Подготовить',
   unprepare: 'Снять подготовку',
   always: 'Всегда подготовлено',
-  cantrip: 'Заговор доступен всегда — готовить его не нужно',
+  grantedCantrip: 'Выданный заговор подготовлен всегда',
 };
+
+/** Группа выданных заговоров во вкладке заклинаний: вид, черта, предыстория, умения класса */
+export const GRANTED_CANTRIPS_GROUP_LABEL = 'Выданные заговоры';
+
+/** Ключ группы выданных заговоров: стоит перед заговорами книги */
+export const GRANTED_CANTRIPS_GROUP_LEVEL = -1;
+
+/** Шаг мастера класса «весь список класса или свои заклинания» */
+export const CLASS_SPELL_LIST_LABELS = {
+  title: 'Заклинания списка класса',
+  allLabel: 'Весь список сразу',
+  allDescriptionPrefix: 'На лист лягут все доступные заклинания списка: ',
+  chosenLabel: 'Выбрать самому',
+  chosenDescription:
+    'На лист лягут только выбранные. Добрать можно при повышении уровня или во вкладке заклинаний.',
+  pickerTitle: 'Заклинания из списка класса',
+  pickerExplanation:
+    'Выбранные ложатся на лист неподготовленными — подготовку отмечаете сами.',
+  preparedHintPrefix: 'По таблице класса на этом уровне подготавливают: ',
+  emptyPool: 'Все заклинания списка уже есть на листе',
+  loadingPool: 'Список заклинаний загружается…',
+} as const;
 
 /** Значки заклинания рядом с названием — буквой, ряд от них не растёт */
 export const SPELL_BADGE_LABELS: Record<'concentration' | 'ritual', string> = {
@@ -4672,7 +4694,8 @@ export const ACTOR_SPELLS_TAB_LABELS = {
   prepared: 'Подгот.',
   preparedHint: 'Подготовлено заклинаний',
   cantrips: 'Заговоры',
-  cantripsHint: 'Заговоров в книге',
+  cantripsHint:
+    'Заговоры в счёт таблицы класса: отмеченные в книге и выданные умениями класса',
   /** Хвост подсказки плитки, у которой таблица класса предела не задаёт */
   tileHintNoLimit: 'Таблица класса числа не даёт — нажмите, чтобы задать своё',
   /** Связка между отмеченным числом и пределом в подсказке плитки */
@@ -4683,6 +4706,9 @@ export const ACTOR_SPELLS_TAB_LABELS = {
   /** Хвост сообщения о пределе: перед скобкой идёт само число */
   limitTextPrefix: 'Вы не можете подготовить больше заклинаний (',
   limitTextSuffix: ').',
+  /** Предел колонки «Заговоры»: заговоры книги отмечаются, как заклинания */
+  cantripLimitTitle: 'Лимит заговоров',
+  cantripLimitTextPrefix: 'Вы не можете подготовить больше заговоров (',
   noUsesTitle: 'Нет зарядов',
   noUsesTextPrefix: 'У «',
   noUsesTextSuffix: '» не осталось зарядов — нужен отдых.',

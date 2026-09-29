@@ -10,7 +10,8 @@
 
 import type { AbilityType } from '@vtt/shared';
 
-import type { Spell } from './dndEntities.js';
+import type { Spell, SpellGrantKind } from './dndEntities.js';
+import type { FeatGrantedClassSpells } from './featTypes.js';
 import type { GrantedSpellRef } from './speciesTypes.js';
 
 import { generateId } from '@vtt/shared';
@@ -44,6 +45,13 @@ export interface GrantedSpellSource {
    * характеристика листа (класс-заклинатель).
    */
   castingAbility?: AbilityType;
+  /** Чем выдано: не задано — решает тот, кто кладёт заклинание на лист */
+  grantKind?: SpellGrantKind;
+  /**
+   * Ключ умения-источника. Названия умений класса и подкласса могут совпасть, а
+   * ответ игрока в мастере привязан к конкретному умению.
+   */
+  featureKey?: string;
 }
 
 /**
@@ -78,6 +86,10 @@ export interface ClassSpellListRequest {
   alwaysPrepared?: boolean;
   /** Заклинательная характеристика умения-источника */
   castingAbility?: AbilityType;
+  /** Чем выдано (см. {@link GrantedSpellSource.grantKind}) */
+  grantKind?: SpellGrantKind;
+  /** Ключ умения-источника (см. {@link GrantedSpellSource.featureKey}) */
+  featureKey?: string;
 }
 
 /** Заклинания одного пака — вход разворота списков классов. */
@@ -96,6 +108,10 @@ export interface ResolvedGrantedSpell {
   alwaysPrepared?: boolean;
   /** Заклинательная характеристика умения-источника */
   castingAbility?: AbilityType;
+  /** Чем выдано (см. {@link GrantedSpellSource.grantKind}) */
+  grantKind?: SpellGrantKind;
+  /** Ключ умения-источника (см. {@link GrantedSpellSource.featureKey}) */
+  featureKey?: string;
 }
 
 // ── Утилиты ───────────────────────────────────────────────────
@@ -146,6 +162,7 @@ export interface LeveledFeatureWithGrantedSpells extends FeatureWithGrantedSpell
   featData?: {
     grantedSpells?: GrantedSpellRef[];
     grantedSpellsAlwaysPrepared?: boolean;
+    spellcastingAbility?: AbilityType;
   };
 }
 
@@ -208,12 +225,116 @@ export function collectGrantedSpellSourcesForClassLevel(
         alwaysPrepared:
           group?.alwaysPrepared
           ?? feature.featData?.grantedSpellsAlwaysPrepared,
-        castingAbility: group?.spellcastingAbility,
+        castingAbility:
+          group?.spellcastingAbility ?? feature.featData?.spellcastingAbility,
+        grantKind: 'class',
       });
     }
   }
 
   return sources;
+}
+
+/** Умение класса, способное выдать списки классов целиком */
+export interface FeatureWithClassSpellLists {
+  /** Ключ умения: по нему мастер помнит ответ игрока */
+  key: string;
+  /** Название умения — источник выдачи на листе */
+  name: string;
+  /** Уровень класса, на котором умение получается */
+  level?: number;
+  /** Списки классов полем умения (выгрузка сайта, редактор системы) */
+  grantedClassSpells?: FeatGrantedClassSpells[];
+  /** Блоб даров: у записей мира, сохранённых раньше, списки лежат в нём */
+  featData?: { grantedClassSpells?: FeatGrantedClassSpells[] };
+}
+
+/**
+ * Что уровень класса открывает в списках классов одного умения: мастер
+ * спрашивает, класть ли их на лист целиком или выбрать из них самому.
+ */
+export interface ClassSpellListOffer {
+  /** Ключ умения */
+  featureKey: string;
+  /** Название умения — источник выдачи на листе */
+  featureName: string;
+  /** Запросы, по которым компендиум даст заклинания предложения */
+  requests: ClassSpellListRequest[];
+}
+
+/**
+ * Списки классов, которые умения открывают на получаемом уровне класса.
+ *
+ * Группа открывается на своём уровне КЛАССА (пусто — вместе с умением). Группа
+ * «не выше доступного круга» открывается ещё и всякий раз, когда уровень даёт
+ * новый круг ячеек, — её список растёт вместе с персонажем. Уже известные
+ * заклинания отсеивает тот, кто показывает предложение: по названию, как и вся
+ * выдача.
+ *
+ * @param features - умения класса и активного подкласса
+ * @param classLevel - получаемый уровень класса
+ * @param slotLevels - наибольший круг ячеек до уровня и после него
+ * @param slotLevels.before - до получения уровня
+ * @param slotLevels.after - после получения уровня
+ * @returns предложения по умениям; умения без открывшихся групп пропущены
+ */
+export function collectClassSpellListOffers(
+  features: ReadonlyArray<FeatureWithClassSpellLists>,
+  classLevel: number,
+  slotLevels: { before: number; after: number },
+): ClassSpellListOffer[] {
+  const offers: ClassSpellListOffer[] = [];
+
+  for (const feature of features) {
+    const gainedAtLevel = feature.level ?? 1;
+
+    if (gainedAtLevel > classLevel) {
+      continue;
+    }
+
+    const groups =
+      feature.grantedClassSpells ?? feature.featData?.grantedClassSpells ?? [];
+
+    const requests: ClassSpellListRequest[] = [];
+
+    for (const group of groups) {
+      const opensAt = group.requiredLevel ?? gainedAtLevel;
+      const classKeys = group.classKeys.filter(Boolean);
+
+      if (opensAt > classLevel || classKeys.length === 0) {
+        continue;
+      }
+
+      const newSlotCircle =
+        group.fromSlots && slotLevels.after > slotLevels.before;
+
+      if (opensAt !== classLevel && !newSlotCircle) {
+        continue;
+      }
+
+      requests.push({
+        classKeys,
+        featureName: feature.name,
+        spellPackIds: group.spellPackIds,
+        level: group.level,
+        maxLevel: group.fromSlots ? slotLevels.after : group.maxLevel,
+        alwaysPrepared: group.alwaysPrepared,
+        castingAbility: group.spellcastingAbility,
+        grantKind: 'class',
+        featureKey: feature.key,
+      });
+    }
+
+    if (requests.length > 0) {
+      offers.push({
+        featureKey: feature.key,
+        featureName: feature.name,
+        requests,
+      });
+    }
+  }
+
+  return offers;
 }
 
 /**
@@ -277,6 +398,8 @@ export function expandClassSpellRequests(
           packId: pack.packId,
           alwaysPrepared: request.alwaysPrepared,
           castingAbility: request.castingAbility,
+          grantKind: request.grantKind,
+          featureKey: request.featureKey,
         });
       }
     }
@@ -334,11 +457,13 @@ export function normalizeSpellName(name: string): string {
  *
  * @param existingSpells - текущий список заклинаний актора
  * @param grantedSpells - granted-заклинания с умениями-источниками
+ * @param defaultGrantKind - чем выдано, если источник этого не назвал сам
  * @returns новый список заклинаний (исходный не мутируется)
  */
 export function appendGrantedSpells(
   existingSpells: Spell[],
   grantedSpells: ResolvedGrantedSpell[],
+  defaultGrantKind?: SpellGrantKind,
 ): Spell[] {
   const result = [...existingSpells];
 
@@ -349,6 +474,8 @@ export function appendGrantedSpells(
   for (const granted of grantedSpells) {
     const normalizedName = normalizeSpellName(granted.spell.name);
 
+    // Заклинание, которое игрок положил в книгу сам, остаётся его: сделай его
+    // выданным — и откат источника унёс бы запись игрока с листа
     if (existingNames.has(normalizedName)) {
       continue;
     }
@@ -358,6 +485,7 @@ export function appendGrantedSpells(
     // API и редактор опускают выключенный флаг. Только явное исключение
     // источника освобождает выданное заклинание от подготовки.
     const alwaysPrepared = granted.alwaysPrepared ?? false;
+    const grantKind = granted.grantKind ?? defaultGrantKind;
 
     result.push({
       ...granted.spell,
@@ -368,10 +496,91 @@ export function appendGrantedSpells(
         ? { attackAbility: granted.castingAbility }
         : {}),
       grantedByFeature: granted.featureName,
+      ...(grantKind ? { grantKind } : {}),
     });
   }
 
   return result;
+}
+
+/**
+ * Досылает заклинаниям, выданным умениями класса, то, чего при выдаче не было:
+ * источник «умение класса» и отметку «Подготавливать не нужно». Выгрузка
+ * компендиума долго теряла отметку у умений класса, и заклинания домена легли
+ * на листы как обычные — их приходилось готовить.
+ *
+ * Отметка только ставится, но не снимается: заклинание, которое игрок держит
+ * подготовленным по старой выдаче, не должно внезапно потребовать подготовки.
+ *
+ * Сверка идёт по названиям: другой связи у заклинания листа нет — id
+ * компендиума при выдаче не сохраняется, а источник записан названием умения
+ * (тем же ключом работают и повтор выдачи, и её откат). Неоднозначное название
+ * не угадывается: умение, чьё название повторяется, пропускается, а ссылка с
+ * повторяющимся названием уступает отметке всей выдачи умения.
+ *
+ * @param spells - заклинания листа
+ * @param features - умения классов и подклассов персонажа
+ * @returns новый список заклинаний; без изменений — тот же массив
+ */
+export function syncClassGrantedSpells(
+  spells: Spell[],
+  features: ReadonlyArray<LeveledFeatureWithGrantedSpells>,
+): Spell[] {
+  const featureByName = new Map<string, LeveledFeatureWithGrantedSpells>();
+  const ambiguousNames = new Set<string>();
+
+  for (const feature of features) {
+    if (featureByName.has(feature.name)) {
+      ambiguousNames.add(feature.name);
+    } else {
+      featureByName.set(feature.name, feature);
+    }
+  }
+
+  for (const name of ambiguousNames) {
+    featureByName.delete(name);
+  }
+
+  let changed = false;
+
+  const synced = spells.map((spell): Spell => {
+    const feature = spell.grantedByFeature
+      ? featureByName.get(spell.grantedByFeature)
+      : undefined;
+
+    if (!feature || (spell.grantKind && spell.grantKind !== 'class')) {
+      return spell;
+    }
+
+    const spellName = normalizeSpellName(spell.name);
+
+    const references = (feature.featData?.grantedSpells ?? []).filter(
+      (entry) => normalizeSpellName(entry.name) === spellName,
+    );
+
+    const reference = references.length === 1 ? references[0] : undefined;
+
+    const alwaysPrepared =
+      reference?.alwaysPrepared
+      ?? feature.featData?.grantedSpellsAlwaysPrepared;
+
+    const needsKind = spell.grantKind === undefined;
+    const needsPrepared = alwaysPrepared === true && !spell.alwaysPrepared;
+
+    if (!needsKind && !needsPrepared) {
+      return spell;
+    }
+
+    changed = true;
+
+    return {
+      ...spell,
+      grantKind: 'class',
+      ...(needsPrepared ? { alwaysPrepared: true, prepared: true } : {}),
+    };
+  });
+
+  return changed ? synced : spells;
 }
 
 /**

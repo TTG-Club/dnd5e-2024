@@ -272,7 +272,11 @@ export function applyFeatToActor(
     actor,
   );
 
-  const spells = appendGrantedSpells(actor.spells ?? [], resolvedSpells);
+  const spells = appendGrantedSpells(
+    actor.spells ?? [],
+    resolvedSpells,
+    'feat',
+  );
 
   const transferred = prepareTransferredFeatEffects(
     featureId,
