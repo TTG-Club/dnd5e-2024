@@ -312,6 +312,34 @@ export function effectVariantGroupName(group: readonly ActiveEffect[]): string {
   return group.length > 1 && first.variant ? first.variant.group : first.name;
 }
 
+/** Что показывает плашка выбора варианта переключателя */
+export interface EffectToggleChoice {
+  /** Название переключателя */
+  name: string;
+  /** Варианты — включёнными копиями */
+  activeEffects: ActiveEffect[];
+}
+
+/**
+ * Выбор варианта переключателя («Ярость диких земель»: Медведь, Орёл, Волк).
+ *
+ * Варианты лежат на листе выключенными, а выбор варианта выключенные эффекты
+ * пропускает — поэтому в выбор они идут включёнными копиями. Id у копий
+ * прежние: включается по нему эффект листа, а не копия.
+ *
+ * @param group - эффекты одного переключателя (см.
+ *   {@link collectEffectToggleGroup})
+ * @returns название и варианты для выбора
+ */
+export function buildEffectToggleChoice(
+  group: readonly ActiveEffect[],
+): EffectToggleChoice {
+  return {
+    name: effectVariantGroupName(group),
+    activeEffects: group.map((effect) => ({ ...effect, disabled: false })),
+  };
+}
+
 /**
  * Псевдо-заклинание применения эффекта листа («Применить») вместе с его
  * вариантами: окно выбора варианта видит все варианты группы, а дальность

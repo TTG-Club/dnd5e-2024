@@ -493,6 +493,27 @@ describe('каталог: классы и черты', () => {
 
     assert.equal(engine.effectVariantGroupName(group), 'Ярость диких земель');
 
+    // Варианты на листе выключены — выбор всё равно видит все три
+    const choice = engine.buildEffectToggleChoice(group);
+
+    assert.equal(choice.name, 'Ярость диких земель');
+
+    assert.deepEqual(
+      engine
+        .listEffectVariantGroups(choice.activeEffects)
+        .map((entry) => [entry.group, entry.labels]),
+      [['Ярость диких земель', ['Медведь', 'Орёл', 'Волк']]],
+      'выключенные шаблоны листа попадают в выбор',
+    );
+
+    assert.deepEqual(
+      choice.activeEffects.map((effect) => effect.id),
+      [bear.id, eagle.id, wolf.id],
+      'включается эффект листа по прежнему id',
+    );
+
+    assert.equal(bear.disabled, true, 'эффект листа не тронут');
+
     const withBear = engine.activateEffectOnEntity(
       createActor({
         activeEffects: [{ ...rage, disabled: false }, bear, eagle, wolf],

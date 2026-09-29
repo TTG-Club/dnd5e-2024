@@ -21,9 +21,9 @@ import { useChatStore } from '@/stores/chatStore';
 import { isActorEntity } from '@vtt/shared';
 import {
   activateEffectOnEntity,
+  buildEffectToggleChoice,
   canPayActivation,
   collectEffectToggleGroup,
-  effectVariantGroupName,
   payActivation,
 } from '@vtt/shared/system/dnd.js';
 
@@ -137,16 +137,13 @@ export function toggleEntityEffect(entityId: string, effectId: string): void {
     return;
   }
 
-  runWithEffectVariants(
-    { name: effectVariantGroupName(group), activeEffects: group },
-    (chosen) => {
-      const [picked] = chosen.activeEffects;
+  runWithEffectVariants(buildEffectToggleChoice(group), (chosen) => {
+    const [picked] = chosen.activeEffects;
 
-      if (picked) {
-        switchOnEntityEffect(entityId, picked.id);
-      }
-    },
-  );
+    if (picked) {
+      switchOnEntityEffect(entityId, picked.id);
+    }
+  });
 }
 
 /**
