@@ -3223,6 +3223,10 @@ export const ABILITY_SETTINGS_LABELS = {
 /** Подписи окна правки валюты */
 export const CURRENCY_MODAL_LABELS = {
   title: 'Валюта',
+  hint: '«+15» — добавить к текущему, «-3» — отнять, число — задать',
+  /** Итог ввода со знаком: после приставки идёт само число монет */
+  resultPrefix: '=',
+  invalid: 'Только числа, «+» и «-»',
 } as const;
 
 /**

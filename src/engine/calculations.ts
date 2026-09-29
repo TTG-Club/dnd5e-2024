@@ -45,6 +45,8 @@ import {
   ABILITY_KEYS,
   ABILITY_LABELS,
   CREATURE_SIZE_TO_TOKEN_SCALE,
+  CURRENCY_AMOUNT_MAX,
+  CURRENCY_AMOUNT_MIN,
   DEFAULT_CREATURE_SIZE,
   EXPERIENCE_TABLE,
   isAbilityType,
@@ -232,19 +234,46 @@ export function calculateExperienceForNextLevel(currentLevel: number): number {
 }
 
 /**
- * Ввод опыта: цепочка целых чисел через `+`/`-` — «300», «+150», «+100+50-20».
- * Типографский минус (`−`) и пробелы приводятся заранее, в самом шаблоне их нет.
+ * Ввод количества со знаком: цепочка целых чисел через `+`/`-` — «300»,
+ * «+150», «+100+50-20». Типографский минус (`−`) и пробелы приводятся заранее,
+ * в самом шаблоне их нет.
  */
-const EXPERIENCE_INPUT_PATTERN = /^[+-]?\d+(?:[+-]\d+)*$/;
+const SIGNED_AMOUNT_INPUT_PATTERN = /^[+-]?\d+(?:[+-]\d+)*$/;
 
-/** Отдельные слагаемые ввода опыта вместе со знаком */
-const EXPERIENCE_TERM_PATTERN = /[+-]?\d+/g;
+/** Отдельные слагаемые ввода вместе со знаком */
+const SIGNED_AMOUNT_TERM_PATTERN = /[+-]?\d+/g;
 
 /**
- * Считает опыт по вводу в поле, как поле хитов у фишки: число без знака —
- * точное значение, со знаком — сдвиг от текущего опыта. Слагаемых может быть
+ * Считает количество по вводу в поле, как поле хитов у фишки: число без знака —
+ * точное значение, со знаком — сдвиг от текущего. Слагаемых может быть
  * несколько («+100+50» — два боя за сессию), знак первого решает, от чего
- * считать. Опыт не уходит ниже нуля.
+ * считать. Границы не накладываются — это дело вызывающего.
+ *
+ * @param input - строка из поля
+ * @param currentAmount - значение сейчас, основа для сдвига
+ * @returns итог или `undefined`, если ввод не разобрать
+ */
+export function resolveSignedAmountInput(
+  input: string,
+  currentAmount: number,
+): number | undefined {
+  const normalized = input.replaceAll('−', '-').replaceAll(/\s/g, '');
+
+  if (!SIGNED_AMOUNT_INPUT_PATTERN.test(normalized)) {
+    return undefined;
+  }
+
+  const isRelative = normalized.startsWith('+') || normalized.startsWith('-');
+
+  return (normalized.match(SIGNED_AMOUNT_TERM_PATTERN) ?? []).reduce(
+    (total, term) => total + Number.parseInt(term, 10),
+    isRelative ? currentAmount : 0,
+  );
+}
+
+/**
+ * Считает опыт по вводу в поле (см. `resolveSignedAmountInput`). Опыт не
+ * уходит ниже нуля.
  *
  * @param input - строка из поля опыта
  * @param currentExperience - опыт персонажа сейчас, основа для сдвига
@@ -254,20 +283,30 @@ export function resolveExperienceInput(
   input: string,
   currentExperience: number,
 ): number | undefined {
-  const normalized = input.replaceAll('−', '-').replaceAll(/\s/g, '');
+  const sum = resolveSignedAmountInput(input, currentExperience);
 
-  if (!EXPERIENCE_INPUT_PATTERN.test(normalized)) {
-    return undefined;
-  }
+  return sum === undefined ? undefined : Math.max(0, sum);
+}
 
-  const isRelative = normalized.startsWith('+') || normalized.startsWith('-');
+/**
+ * Считает количество монет одного вида по вводу в поле кошелька
+ * (см. `resolveSignedAmountInput`): «+15» — получили, «-3» — потратили.
+ * Итог прижимается к границам кошелька: потратить больше, чем есть, значит
+ * остаться с нулём, а не с долгом.
+ *
+ * @param input - строка из поля монет
+ * @param currentAmount - монет этого вида сейчас, основа для сдвига
+ * @returns итоговое количество или `undefined`, если ввод не разобрать
+ */
+export function resolveCurrencyAmountInput(
+  input: string,
+  currentAmount: number,
+): number | undefined {
+  const sum = resolveSignedAmountInput(input, currentAmount);
 
-  const sum = (normalized.match(EXPERIENCE_TERM_PATTERN) ?? []).reduce(
-    (total, term) => total + Number.parseInt(term, 10),
-    isRelative ? currentExperience : 0,
-  );
-
-  return Math.max(0, sum);
+  return sum === undefined
+    ? undefined
+    : Math.min(CURRENCY_AMOUNT_MAX, Math.max(CURRENCY_AMOUNT_MIN, sum));
 }
 
 /**
