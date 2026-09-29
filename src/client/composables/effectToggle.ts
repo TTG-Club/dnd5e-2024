@@ -130,8 +130,13 @@ export function toggleEntityEffect(entityId: string, effectId: string): void {
   // Не хватить может только ресурса: без счётчика включение бесплатно, а
   // при горящем включении («Ярость» класса) смена на вариант — тоже.
   // Ресурс у вариантов общий — он входит в ключ группы
-  if (!canSwitchOnEffect(readEntityCounters(entity), effects, effect)) {
-    warnNoCounter(effect.activation?.counter ?? '');
+  const counterKey = effect.activation?.counter;
+
+  if (
+    counterKey
+    && !canSwitchOnEffect(readEntityCounters(entity), effects, effect)
+  ) {
+    warnNoCounter(counterKey);
 
     return;
   }

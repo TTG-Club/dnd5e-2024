@@ -17,6 +17,7 @@
   import {
     DEFAULT_ACTIVATION_AMOUNT,
     DEFAULT_EFFECT_VARIANT_PICK,
+    isToggleActivatedEffect,
     MIN_ACTIVATION_RANGE,
     writeEffectDelivery,
     writeEffectTrigger,
@@ -115,8 +116,8 @@
   });
 
   /** Имя включения — только у переключателя: применение ничего не держит */
-  const showActivationExclusive = computed(
-    () => activationChoice.value === 'toggle',
+  const showActivationExclusive = computed(() =>
+    isToggleActivatedEffect(effect.value),
   );
 
   const activationAmount = computed({
