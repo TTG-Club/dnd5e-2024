@@ -449,3 +449,45 @@ describe('выбор у источника броска', () => {
     );
   });
 });
+
+describe('строка урона: кнопки типа на выбор и случайного', async () => {
+  const { loadHandler } = await import('./helpers/sourceHandler.mjs');
+
+  const buildToken = await loadHandler(
+    'src/client/ui/actor/utils/damageTypeChoiceToken.ts',
+    'buildPickedDamageTypeChoiceToken',
+    {
+      buildDamageTypeChoiceToken: engine.buildDamageTypeChoiceToken,
+      DAMAGE_TYPE_CHOICE_MIN_OPTIONS: 2,
+    },
+  );
+
+  const ORDER = ['acid', 'cold', 'fire', 'lightning'];
+
+  it('токен «на выбор» — в порядке справочника, а не отметки', () => {
+    assert.equal(
+      buildToken('choose', ['fire', 'acid'], ORDER),
+      '@dmg.choice(acid,fire)',
+    );
+  });
+
+  it('токен «случайно» разбирается броском как случайный', () => {
+    const token = buildToken('random', ['cold', 'lightning'], ORDER);
+
+    assert.equal(token, '@dmg.random(cold,lightning)');
+
+    assert.deepEqual(engine.listDamageTypeChoices([`1к6${token}`]), [
+      { mode: 'random', options: ['cold', 'lightning'] },
+    ]);
+  });
+
+  it('из одного типа выбирать нечего — токена нет', () => {
+    assert.equal(buildToken('choose', ['fire'], ORDER), null);
+
+    assert.equal(
+      buildToken('choose', ['fire', 'unknown'], ORDER),
+      null,
+      'незнакомый справочнику тип не считается',
+    );
+  });
+});

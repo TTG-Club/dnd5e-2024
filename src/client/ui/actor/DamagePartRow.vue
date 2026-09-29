@@ -1,6 +1,9 @@
 <script setup lang="ts">
   import type { DamagePart, DamagePartTarget } from '@vtt/shared';
-  import type { StatusTokenSide } from '@vtt/shared/system/dnd.js';
+  import type {
+    DamageTypeChoiceMode,
+    StatusTokenSide,
+  } from '@vtt/shared/system/dnd.js';
 
   import { computed, nextTick, ref } from 'vue';
 
@@ -13,9 +16,13 @@
     targetTypeToken,
   } from '@vtt/shared/system/dnd.js';
 
-  import { DAMAGE_PART_LABELS } from './constants';
+  import {
+    DAMAGE_PART_LABELS,
+    DAMAGE_TYPE_CHOICE_MIN_OPTIONS,
+  } from './constants';
   import DamageFormulaPreview from './DamageFormulaPreview.vue';
   import FormSection from './FormSection.vue';
+  import { buildPickedDamageTypeChoiceToken } from './utils/damageTypeChoiceToken';
 
   const props = withDefaults(
     defineProps<{
@@ -143,6 +150,7 @@
     slot:
       | 'modifiers'
       | 'damageTypes'
+      | 'damageTypeChoice'
       | 'healing'
       | 'conditions'
       | 'statuses'
@@ -171,6 +179,7 @@
   const tabsList = computed<DamageTab[]>(() => {
     const tabs: DamageTab[] = [
       { label: DAMAGE_PART_LABELS.damageType, slot: 'damageTypes' },
+      { label: DAMAGE_PART_LABELS.typeChoiceTab, slot: 'damageTypeChoice' },
     ];
 
     if (!props.hideModifiers) {
@@ -253,6 +262,41 @@
   const creatureTypeButtons = typedObjectEntries(CREATURE_CATEGORIES).map(
     ([value, label]) => ({ value, label }),
   );
+
+  /** Типы урона, из которых собирается токен «на выбор» или «случайно» */
+  const choiceTypes = ref<string[]>([]);
+
+  /** Токен «на выбор» имеет смысл от двух типов: из одного выбирать нечего */
+  const canInsertTypeChoice = computed(
+    () => choiceTypes.value.length >= DAMAGE_TYPE_CHOICE_MIN_OPTIONS,
+  );
+
+  /** Кнопки способа выбора типа: спросить бросающего или бросить случай */
+  const typeChoiceButtons: Array<{
+    label: string;
+    mode: DamageTypeChoiceMode;
+  }> = [
+    { label: DAMAGE_PART_LABELS.typeChoiceChoose, mode: 'choose' },
+    { label: DAMAGE_PART_LABELS.typeChoiceRandom, mode: 'random' },
+  ];
+
+  /**
+   * Вставляет токен типа урона на выбор (`@dmg.choice(…)`) или случайного
+   * (`@dmg.random(…)`) из отмеченных типов.
+   *
+   * @param mode - способ выбора типа
+   */
+  function insertTypeChoice(mode: DamageTypeChoiceMode): void {
+    const token = buildPickedDamageTypeChoiceToken(
+      mode,
+      choiceTypes.value,
+      props.damageTypeOptions.map((option) => option.value),
+    );
+
+    if (token) {
+      insertText(token);
+    }
+  }
 
   const conditionButtons = [
     { label: DAMAGE_PART_LABELS.targetFull, value: '@target.full' },
@@ -351,7 +395,7 @@
         />
       </div>
 
-      <!-- Вкладки-помощники ввода формулы. Вкладок бывает семь, и в узком окне
+      <!-- Вкладки-помощники ввода формулы. Вкладок бывает восемь, и в узком окне
         они переносятся на вторую строку, а не режут подписи; полоса-указатель
         при переносе съезжает, поэтому активную выделяет цвет текста -->
       <UTabs
@@ -393,6 +437,41 @@
               class="cursor-pointer font-medium"
               @click.left.exact.prevent="insertText(`@dmg.${typeOpt.value}`)"
             />
+          </div>
+        </template>
+
+        <!-- Один тип из списка: несколько «@dmg.<тип>» подряд — это урон
+          всеми сразу, а токен на выбор бросает ровно один -->
+        <template #damageTypeChoice>
+          <div class="flex flex-col gap-2">
+            <div class="flex flex-wrap items-end gap-2">
+              <USelectMenu
+                v-model="choiceTypes"
+                :items="damageTypeOptions"
+                value-key="value"
+                label-key="label"
+                multiple
+                size="xs"
+                :placeholder="DAMAGE_PART_LABELS.typeChoicePlaceholder"
+                class="min-w-56 flex-1"
+              />
+
+              <UButton
+                v-for="button in typeChoiceButtons"
+                :key="button.mode"
+                :label="button.label"
+                size="xs"
+                color="neutral"
+                variant="subtle"
+                class="cursor-pointer font-medium"
+                :disabled="!canInsertTypeChoice"
+                @click.left.exact.prevent="insertTypeChoice(button.mode)"
+              />
+            </div>
+
+            <p class="text-xs text-muted">
+              {{ DAMAGE_PART_LABELS.typeChoiceHint }}
+            </p>
           </div>
         </template>
 
