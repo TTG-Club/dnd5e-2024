@@ -6,6 +6,7 @@ import type { AppliedFeatFeature } from './feat/featApply';
 import { z } from 'zod';
 
 import {
+  effectToggleGroupKey,
   isClassEffect,
   isToggleActivatedEffect,
   withActivationDefaults,
@@ -130,8 +131,11 @@ export function listFeatureEffects(
 }
 
 /**
- * Включаемый эффект строки особенности — только если такой один: какой из
- * двух включать кнопкой, угадывать нельзя.
+ * Включаемый эффект строки особенности — только если он определяется
+ * однозначно: какой из двух включать кнопкой, угадывать нельзя. Варианты
+ * одного переключателя («Ярость диких земель»: Медведь, Орёл, Волк) — одна
+ * кнопка: отдаётся включённый вариант, а если выключены все — первый, и
+ * вариант спросят при включении.
  *
  * @param actor - персонаж
  * @param feature - строка особенности
@@ -146,7 +150,24 @@ export function findFeatureToggleEffect(
     isToggleActivatedEffect,
   );
 
-  return toggles.length === 1 ? toggles[0] : undefined;
+  const [first] = toggles;
+
+  if (!first) {
+    return undefined;
+  }
+
+  const groupKey = effectToggleGroupKey(first);
+
+  const isOneSwitch =
+    toggles.length === 1
+    || (groupKey !== undefined
+      && toggles.every((effect) => effectToggleGroupKey(effect) === groupKey));
+
+  if (!isOneSwitch) {
+    return undefined;
+  }
+
+  return toggles.find((effect) => !effect.disabled) ?? first;
 }
 
 /** Эффекты листа и ссылка особенности на свои эффекты после правки */

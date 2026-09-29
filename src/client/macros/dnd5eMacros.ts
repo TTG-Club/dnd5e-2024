@@ -52,6 +52,7 @@ import {
   canPayActivation,
   checkRange,
   collectActiveEffects,
+  collectEffectToggleGroup,
   consumeCreatureSpellGroupUse,
   creatureActionHasSave,
   damagePartIsHealing,
@@ -469,13 +470,19 @@ function executeItemUse(macro: HotbarMacro): void {
  */
 function resolveFeatureToggleSlot(macro: HotbarMacro): MacroSlotState {
   const owner = useWorldEntities().findCurrentDndEntity(macro.actorId);
-  const effect = owner?.activeEffects?.find((entry) => entry.id === macro.ref);
+  const effects = owner?.activeEffects ?? [];
+  const effect = effects.find((entry) => entry.id === macro.ref);
 
   if (!owner || !effect) {
     return { disabled: true, hint: FEATURE_TOGGLE_SLOT_LABELS.missingHint };
   }
 
-  if (!effect.disabled) {
+  // Слот варианта горит, когда включён любой вариант его переключателя
+  const isOn = collectEffectToggleGroup(effects, effect).some(
+    (entry) => !entry.disabled,
+  );
+
+  if (isOn) {
     return {
       badge: FEATURE_TOGGLE_SLOT_LABELS.activeBadge,
       hint: FEATURE_TOGGLE_SLOT_LABELS.activeHint,

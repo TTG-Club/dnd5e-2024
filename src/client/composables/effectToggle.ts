@@ -22,11 +22,14 @@ import { isActorEntity } from '@vtt/shared';
 import {
   activateEffectOnEntity,
   canPayActivation,
+  collectEffectToggleGroup,
+  effectVariantGroupName,
   payActivation,
 } from '@vtt/shared/system/dnd.js';
 
 import { useSystemToastStore } from '../stores/systemToastStore';
 import { EFFECT_USE_LABELS } from '../ui/effect/constants';
+import { runWithEffectVariants } from './effectVariantChoice';
 import { resolveCombatRound } from './encounterTurn';
 import { stampEffectOnApply } from './spellResolutionShared';
 import { useWorldEntities } from './useWorldEntities';
@@ -87,30 +90,42 @@ export function warnNoCounter(counterKey: string): void {
 /**
  * Включает выключенный эффект сущности мира или выключает включённый.
  *
+ * Варианты одного переключателя («Ярость диких земель»: Медведь, Орёл, Волк)
+ * — одна кнопка: включён любой из них — выключаются все, выключены все —
+ * вариант выбирают плашкой (или бросают случайно), и включается он один.
+ *
  * @param entityId - сущность
  * @param effectId - эффект
  */
 export function toggleEntityEffect(entityId: string, effectId: string): void {
   const socket = useChatStore().getSocket();
   const entity = useWorldEntities().findCurrentDndEntity(entityId);
-  const effect = entity?.activeEffects?.find((entry) => entry.id === effectId);
+  const effects = entity?.activeEffects ?? [];
+  const effect = effects.find((entry) => entry.id === effectId);
 
   if (!socket || !entity || !effect) {
     return;
   }
 
-  if (!effect.disabled) {
+  const group = collectEffectToggleGroup(effects, effect);
+
+  const switchedOnIds = new Set(
+    group.filter((entry) => !entry.disabled).map((entry) => entry.id),
+  );
+
+  if (switchedOnIds.size > 0) {
     emitEntityCombatState(socket, {
       ...entity,
-      activeEffects: (entity.activeEffects ?? []).map((entry) =>
-        entry.id === effectId ? { ...entry, disabled: true } : entry,
+      activeEffects: effects.map((entry) =>
+        switchedOnIds.has(entry.id) ? { ...entry, disabled: true } : entry,
       ),
     });
 
     return;
   }
 
-  // Не хватить может только ресурса: без счётчика включение бесплатно
+  // Не хватить может только ресурса: без счётчика включение бесплатно.
+  // Ресурс у вариантов общий — он входит в ключ группы
   const counterKey = effect.activation?.counter;
 
   if (
@@ -119,6 +134,35 @@ export function toggleEntityEffect(entityId: string, effectId: string): void {
   ) {
     warnNoCounter(counterKey);
 
+    return;
+  }
+
+  runWithEffectVariants(
+    { name: effectVariantGroupName(group), activeEffects: group },
+    (chosen) => {
+      const [picked] = chosen.activeEffects;
+
+      if (picked) {
+        switchOnEntityEffect(entityId, picked.id);
+      }
+    },
+  );
+}
+
+/**
+ * Включает эффект: тратит ресурс и будит срабатывания «при включении».
+ * Сущность перечитывается — между нажатием и выбором варианта она могла
+ * измениться.
+ *
+ * @param entityId - сущность
+ * @param effectId - включаемый эффект
+ */
+function switchOnEntityEffect(entityId: string, effectId: string): void {
+  const socket = useChatStore().getSocket();
+  const entity = useWorldEntities().findCurrentDndEntity(entityId);
+  const effect = entity?.activeEffects?.find((entry) => entry.id === effectId);
+
+  if (!socket || !entity || !effect) {
     return;
   }
 

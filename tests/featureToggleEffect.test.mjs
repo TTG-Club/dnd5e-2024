@@ -13,7 +13,7 @@ import { loadHandler } from './helpers/sourceHandler.mjs';
 
 // Движок собирается один раз на файл, до тестов
 const engine = await loadEngineBundle(
-  "export * from './src/engine/classEffectScope.ts'; export * from './src/engine/activeEffectTypes.ts';",
+  "export * from './src/engine/classEffectScope.ts'; export * from './src/engine/activeEffectTypes.ts'; export * from './src/engine/effectActivation.ts';",
 );
 
 const resolverPath = 'src/client/ui/actor/featureEffects.ts';
@@ -50,6 +50,7 @@ async function loadLinkReader() {
 async function loadResolver() {
   const ports = {
     ...SEPARATORS,
+    effectToggleGroupKey: engine.effectToggleGroupKey,
     isClassEffect: engine.isClassEffect,
     isToggleActivatedEffect: engine.isToggleActivatedEffect,
     readFeatureEffectIds: await loadLinkReader(),
@@ -245,6 +246,56 @@ describe('эффект строки особенности', () => {
       }),
       undefined,
       'строка вида классовые эффекты не ищет',
+    );
+  });
+});
+
+describe('варианты одного переключателя у строки особенности', () => {
+  it('одна кнопка: включённый вариант, иначе первый; чужие группы — ничего', async () => {
+    const find = await loadResolver();
+
+    const aspect = (label, group = 'Ярость диких земель') => ({
+      ...classEffect(
+        'barbarian',
+        `wild-${label}`,
+        `Ярость диких земель: ${label}`,
+      ),
+      originId: 'barbarian',
+      variant: { group, label },
+    });
+
+    const bear = aspect('Медведь');
+    const eagle = aspect('Орёл');
+    const wolf = aspect('Волк');
+
+    const feature = {
+      name: 'Ярость диких земель',
+      grantedBy: 'Варвар — Путь Дикого сердца',
+      featureType: 'subclass',
+      effectIds: [bear.id, eagle.id, wolf.id],
+    };
+
+    assert.equal(
+      find(barbarian([bear, eagle, wolf]), feature)?.id,
+      bear.id,
+      'всё выключено — первый вариант, выбор спросят при включении',
+    );
+
+    assert.equal(
+      find(barbarian([bear, { ...eagle, disabled: false }, wolf]), feature)?.id,
+      eagle.id,
+      'кнопка показывает включённый вариант',
+    );
+
+    const stray = aspect('Сокол', 'Сила дикой природы');
+
+    assert.equal(
+      find(barbarian([bear, stray]), {
+        ...feature,
+        effectIds: [bear.id, stray.id],
+      }),
+      undefined,
+      'варианты разных групп — два переключателя, не угадываем',
     );
   });
 });
