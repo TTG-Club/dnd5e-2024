@@ -19,34 +19,15 @@
  * @module system/dnd/autoConditions
  */
 
-import type { ActiveEffect } from './activeEffectTypes.js';
 import type { ConditionRef } from './conditionKeys.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 
 import {
   buildConditionActiveEffect,
+  isOwnConditionEffect,
   listConditions,
-  resolveEffectConditionKey,
 } from './conditionTemplates.js';
 import { isTriggerConditionMet } from './triggerConditions.js';
-
-/**
- * Несёт ли эффект состояние самой сущности. Аура, которая раздаёт состояние
- * другим, не в счёт: её снимать нельзя, и носителя она не метит.
- *
- * @param effect - активный эффект сущности
- * @param conditionKey - ключ состояния
- * @returns `true`, если эффект — это состояние на самой сущности
- */
-function isOwnConditionEffect(
-  effect: ActiveEffect,
-  conditionKey: ConditionRef,
-): boolean {
-  return (
-    !(effect.aura && !effect.aura.applyToSelf)
-    && resolveEffectConditionKey(effect) === conditionKey
-  );
-}
 
 /**
  * Приводит одно состояние с правилом в соответствие с сущностью. МУТИРУЕТ её.

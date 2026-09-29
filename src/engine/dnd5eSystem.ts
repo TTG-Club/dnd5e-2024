@@ -85,6 +85,7 @@ import {
 import {
   buildConditionActiveEffect,
   getConditionEntry,
+  isOwnConditionEffect,
   listConditions,
   resolveEffectConditionKey,
 } from './conditionTemplates.js';
@@ -1494,7 +1495,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.111';
+  readonly version = '0.8.112';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -2431,11 +2432,7 @@ export class Dnd5eVttSystem implements VttSystem {
   ): boolean {
     return activeEffects
       .filter(isActiveEffect)
-      .some(
-        (effect) =>
-          !(effect.aura && !effect.aura.applyToSelf)
-          && resolveEffectConditionKey(effect) === conditionKey,
-      );
+      .some((effect) => isOwnConditionEffect(effect, conditionKey));
   }
 
   /**

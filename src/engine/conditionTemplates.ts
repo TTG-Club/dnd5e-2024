@@ -715,6 +715,24 @@ export function resolveEffectConditionKey(
   return entry?.key;
 }
 
+/**
+ * Несёт ли эффект состояние самой сущности. Аура, которая раздаёт состояние
+ * другим, не в счёт: носителя она не метит.
+ *
+ * @param effect - активный эффект сущности
+ * @param conditionKey - ключ состояния
+ * @returns `true`, если эффект — это состояние на самой сущности
+ */
+export function isOwnConditionEffect(
+  effect: ActiveEffect,
+  conditionKey: ConditionRef,
+): boolean {
+  return (
+    !(effect.aura && !effect.aura.applyToSelf)
+    && resolveEffectConditionKey(effect) === conditionKey
+  );
+}
+
 // ── Сборка эффекта состояния ──────────────────────────────────
 
 /** Опции сборки ActiveEffect для состояния */
