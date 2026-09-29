@@ -107,6 +107,18 @@
     set: (counter: string) => updateActivation({ counter }),
   });
 
+  // Пустое поле — переключатель сам по себе: имя снимается, а не пишется ""
+  const activationExclusive = computed({
+    get: () => effect.value.activation?.exclusive ?? '',
+    set: (exclusive: string) =>
+      updateActivation({ exclusive: exclusive.trim() ? exclusive : undefined }),
+  });
+
+  /** Имя включения — только у переключателя: применение ничего не держит */
+  const showActivationExclusive = computed(
+    () => activationChoice.value === 'toggle',
+  );
+
   const activationAmount = computed({
     get: () => effect.value.activation?.amount ?? DEFAULT_ACTIVATION_AMOUNT,
     set: (amount: number | null) => {
@@ -328,6 +340,26 @@
         <UInputNumber
           v-model="activationAmount"
           :min="DEFAULT_ACTIVATION_AMOUNT"
+          size="sm"
+          class="w-full"
+        />
+      </UFormField>
+
+      <UFormField
+        v-if="showActivationExclusive"
+        class="w-56"
+      >
+        <template #label>
+          <span class="flex items-center gap-1">
+            {{ EFFECT_ACTIVATION_COUNTER_LABELS.exclusive }}
+
+            <FieldHint :text="EFFECT_ACTIVATION_COUNTER_LABELS.exclusiveHint" />
+          </span>
+        </template>
+
+        <UInput
+          v-model="activationExclusive"
+          :placeholder="EFFECT_ACTIVATION_COUNTER_LABELS.exclusivePlaceholder"
           size="sm"
           class="w-full"
         />

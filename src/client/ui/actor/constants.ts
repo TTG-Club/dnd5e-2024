@@ -2996,6 +2996,8 @@ export const ACTOR_TAB_LABELS = {
  */
 export const EFFECTS_TAB_LABELS = {
   customEmpty: 'Нет пользовательских эффектов',
+  /** Между именем группы переключателя и горящим вариантом в строке */
+  variantSeparator: ' · ',
   fromRecords: 'От снаряжения и особенностей',
   /** Подсказка значка: переключателя у такой строки нет */
   recordBadgeHint:

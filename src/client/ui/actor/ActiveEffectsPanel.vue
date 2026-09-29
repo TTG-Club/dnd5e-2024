@@ -14,8 +14,10 @@
   каналом, потому что срабатывания меняют и хиты.
 
   Варианты одного применения («Божественная искра»: лечение, некротическая
-  энергия, излучение) в просмотре идут одной строкой с именем группы: выбор
-  варианта — при применении. В правке видны все — у каждого свои кнопки.
+  энергия, излучение) и одного переключателя («Ярость диких земель»: Медведь,
+  Орёл, Волк) в просмотре идут одной строкой с именем группы: выбор
+  варианта — при применении или включении. У горящего переключателя строка —
+  его горящий вариант. В правке видны все — у каждого свои кнопки.
 
   Строку с применением или переключателем можно перетащить на панель быстрого
   доступа, если лист это разрешил.
@@ -39,12 +41,12 @@
   import { useItemsStore } from '@/stores/itemsStore';
   import { getActiveSocket } from '@/system-runtime/activeSocket';
   import {
-    activateEffectOnEntity,
     advanceEffectStage,
     buildEffectGroupUseSpell,
     buildRuntimeConditionRecord,
     canAdvanceEffectStage,
     canPayActivation,
+    collectEffectToggleGroup,
     collectEffectUseGroup,
     describeEscapeUnavailable,
     dnd5eSystemInstance,
@@ -64,9 +66,9 @@
 
   import { applyEffectSource } from '../../composables/effectActivationUse';
   import { runEffectEscape } from '../../composables/effectEscapeAction';
+  import { toggleEntityEffect } from '../../composables/effectToggle';
   import { resolveCombatRound } from '../../composables/encounterTurn';
   import { requestEndCasts } from '../../composables/spellCasts';
-  import { stampEffectOnApply } from '../../composables/spellResolutionShared';
   import { useActiveEffectModal } from '../../composables/useActiveEffectModal';
   import { useEntityActiveEffects } from '../../composables/useEntityActiveEffects';
   import {
@@ -197,49 +199,24 @@
   }
 
   /**
-   * Переключает эффект. Переключаемый эффект на листе в просмотре при
-   * включении тратит ресурс и будит срабатывания «При включении»; в правке —
-   * просто переключается, как любой.
+   * Переключает эффект. Переключатель на листе в просмотре идёт тем же путём,
+   * что строка особенности и панель быстрого доступа: варианты — одна кнопка
+   * с выбором при включении, ресурс тратит только включение с нуля, а смена
+   * внутри горящего включения — нет. В правке эффект просто переключается,
+   * как любой.
    *
    * @param effect - эффект строки
    */
   function switchEffect(effect: ActiveEffect): void {
     const { owner } = props;
-    const socket = getActiveSocket();
 
-    if (
-      !isToggleActivatedEffect(effect)
-      || !effect.disabled
-      || props.isEditMode
-      || !owner
-      || !socket
-    ) {
+    if (!isToggleActivatedEffect(effect) || props.isEditMode || !owner) {
       toggleEffectStatus(effect);
 
       return;
     }
 
-    if (!canPayActivation(props.counters, effect.activation)) {
-      warnNoCounter(effect);
-
-      return;
-    }
-
-    payEffectActivation(effect);
-
-    emitEntityCombatState(
-      socket,
-      activateEffectOnEntity(
-        owner,
-        effect.id,
-        (activated) =>
-          stampEffectOnApply(activated, {
-            carrierId: owner.id,
-            sourceId: owner.id,
-          }),
-        resolveCombatRound(),
-      ),
-    );
+    toggleEntityEffect(owner.id, effect.id);
   }
 
   /**
@@ -270,14 +247,54 @@
   }
 
   /**
-   * Первая ли это строка своей группы вариантов. В просмотре остальные
-   * варианты строк не получают: применяются они кнопкой первой.
+   * Группа вариантов, которую строка эффекта представляет в просмотре:
+   * варианты одного применения или одного переключателя.
+   *
+   * @param effect - эффект
+   * @returns эффекты группы (сам эффект — если группы нет)
+   */
+  function collectRowGroup(effect: ActiveEffect): ActiveEffect[] {
+    return isToggleActivatedEffect(effect)
+      ? collectEffectToggleGroup(props.effects, effect)
+      : collectEffectUseGroup(props.effects, effect);
+  }
+
+  /**
+   * Представляет ли эффект свою группу вариантов. В просмотре группа — одна
+   * строка: у переключателя это горящий вариант (его и видно, и выключают),
+   * иначе первый по листу; остальные варианты строк не получают.
    *
    * @param effect - эффект
    * @returns `true`, если строку показывать
    */
   function isGroupLead(effect: ActiveEffect): boolean {
-    return collectEffectUseGroup(props.effects, effect)[0]?.id === effect.id;
+    const group = collectRowGroup(effect);
+
+    // Шаблоны применения лежат выключенными все — у них строка всегда первая
+    const burning = isToggleActivatedEffect(effect)
+      ? group.find((entry) => !entry.disabled)
+      : undefined;
+
+    return (burning ?? group[0])?.id === effect.id;
+  }
+
+  /**
+   * Подпись строки в просмотре: имя группы вариантов, а у горящего варианта
+   * переключателя — ещё и выбранный вариант.
+   *
+   * @param effect - эффект строки
+   * @returns подпись
+   */
+  function formatRowName(effect: ActiveEffect): string {
+    const group = collectRowGroup(effect);
+    const name = effectVariantGroupName(group);
+
+    return group.length > 1
+      && isToggleActivatedEffect(effect)
+      && !effect.disabled
+      && effect.variant
+      ? `${name}${EFFECTS_TAB_LABELS.variantSeparator}${effect.variant.label}`
+      : name;
   }
 
   /**
@@ -330,11 +347,7 @@
 
         return {
           effect,
-          name: props.isEditMode
-            ? effect.name
-            : effectVariantGroupName(
-                collectEffectUseGroup(props.effects, effect),
-              ),
+          name: props.isEditMode ? effect.name : formatRowName(effect),
           canDrag: canDragToHotbar(effect),
           rowClass: effectRowClass(effect),
           stageLabel: formatEffectStageLabel(effect),
