@@ -21,7 +21,10 @@ import type {
   ResolvedActorStats,
 } from './activeEffectTypes.js';
 import type { ConditionRef } from './conditionKeys.js';
-import type { CreatureAction } from './creatureTypes.js';
+import type {
+  CreatureAction,
+  CreatureActionRangeType,
+} from './creatureTypes.js';
 import type { DamageApplyResult } from './damageUtils.js';
 import type { DnDGameItem, Spell } from './dndEntities.js';
 import type { EffectTriggerSaveMode } from './effectTriggerTypes.js';
@@ -45,6 +48,14 @@ import {
 
 /** Досягаемость по умолчанию в футах (рукопашные атаки и заклинания касания) */
 export const DEFAULT_REACH_FEET = 5;
+
+/**
+ * Дальность оружия или действия существа. «Рукопашная или дальнобойная»
+ * (`meleeOrRanged`) без выбора вида считается рукопашной — так она работала
+ * до выбора при броске; сам бросок идёт уже выбранным видом
+ * (`withCreatureActionAttackKind`).
+ */
+export type AttackRangeType = WeaponRangeType | CreatureActionRangeType;
 
 /**
  * Форма d20-проверки, достаточная для натуральной кости: первая группа костей —
@@ -113,7 +124,7 @@ export function getNaturalD20Roll(rollData: DiceRollData): number {
  * @returns `attack.ranged` для дальнобойного, иначе `attack.melee`
  */
 export function getAttackBonusKey(
-  rangeType: WeaponRangeType | undefined,
+  rangeType: AttackRangeType | undefined,
 ): EffectTargetKey {
   return rangeType === 'ranged' ? 'attack.ranged' : 'attack.melee';
 }
@@ -125,7 +136,7 @@ export function getAttackBonusKey(
  * @returns `ranged` для дальнобойного, иначе `melee`
  */
 export function getAttackFlagCategory(
-  rangeType: WeaponRangeType | undefined,
+  rangeType: AttackRangeType | undefined,
 ): AttackFlagCategory {
   return rangeType === 'ranged' ? 'ranged' : 'melee';
 }
@@ -170,7 +181,7 @@ export function resolveWeaponSaveDc(attackModifier: number): number {
  * @returns `damage.ranged` для дальнобойного, иначе `damage.melee`
  */
 export function getDamageBonusKey(
-  rangeType: WeaponRangeType | undefined,
+  rangeType: AttackRangeType | undefined,
 ): EffectTargetKey {
   return rangeType === 'ranged' ? 'damage.ranged' : 'damage.melee';
 }
@@ -983,6 +994,9 @@ export function checkRange(
  * Логика идентична checkRange для оружия:
  * - ranged: проверяет normal/long дистанцию, помеха при превышении нормальной
  * - melee: проверяет reach (по умолчанию 5)
+ * - meleeOrRanged без выбранного вида: в досягаемости — как рукопашная, дальше
+ *   — как дальнобойная (обычно вид выбран до проверки, и сюда приходит
+ *   `melee` либо `ranged`)
  *
  * @param action - действие существа
  * @param distance - расстояние до цели
@@ -992,6 +1006,17 @@ export function checkCreatureActionRange(
   action: CreatureAction,
   distance: number,
 ): { allowed: boolean; disadvantage: boolean } {
+  if (action.rangeType === 'meleeOrRanged') {
+    const meleeCheck = checkCreatureActionRange(
+      { ...action, rangeType: 'melee' },
+      distance,
+    );
+
+    return meleeCheck.allowed
+      ? meleeCheck
+      : checkCreatureActionRange({ ...action, rangeType: 'ranged' }, distance);
+  }
+
   if (action.rangeType === 'ranged' && action.range) {
     const normalRange = action.range.normal;
     const longRange = action.range.long ?? normalRange;

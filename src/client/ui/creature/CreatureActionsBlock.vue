@@ -46,6 +46,7 @@
     SAVE_TYPE_LABELS,
   } from '@vtt/shared/system/dnd.js';
 
+  import { runCreatureActionChoices } from '../../composables/attackKindChoice';
   import { resolveTargetedAttackRoll } from '../../composables/attackRollMode';
   import {
     buildCreatureRollVariants,
@@ -59,7 +60,6 @@
     applyActionSelfEffects,
     hasActionSelfEffects,
   } from '../../composables/effectActivationUse';
-  import { runWithEffectVariants } from '../../composables/effectVariantChoice';
   import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import { discardSpellTemplate } from '../../composables/spellResolutionShared';
   import { useBonusDamageParts } from '../../composables/useBonusDamageParts';
@@ -74,6 +74,10 @@
     SPELL_DAMAGE_ROLL_BUTTON,
   } from '../actor/constants';
   import DiceRollModal from '../actor/DiceRollModal.vue';
+  import {
+    formatAttackRange,
+    formatMeleeOrRangedDistances,
+  } from '../actor/utils/formatAttackDistances';
   import { formatSignedNumber } from '../actor/utils/formatSignedNumber';
   import { checkCreatureActionRangeOnScene } from './composables/useCreatureRangeCheck';
   import {
@@ -397,7 +401,7 @@
    * @param sourceAction - действие существа; эффекты — до выбора варианта
    */
   function openRollModal(sourceAction: CreatureAction): void {
-    runWithEffectVariants(sourceAction, (action) => {
+    runCreatureActionChoices(sourceAction, props.creatureId, (action) => {
       // Действие без броска только накладывает эффекты на само существо;
       // окна броска нет — тип урона на выбор эффектов спрашивает плашка
       if (!hasAttackParams(action)) {
@@ -739,7 +743,8 @@
    * так же, как подпись предмета на листе персонажа, — категория и вид записи.
    *
    * @param action - запись существа
-   * @returns подпись вида «Ближний бой, досягаемость 10 фт.»
+   * @returns подпись вида «Ближний бой, досягаемость 10 фт.» или
+   *   «Рукопашная или дальнобойная, 5 фт. / 30/120 фт.»
    */
   function getActionSubtitle(action: CreatureAction): string {
     const unit = DISTANCE_UNIT_SHORT[action.distanceUnit ?? 'ft'];
@@ -758,14 +763,20 @@
 
     const kind = CREATURE_RANGE_TYPE_LABELS[action.rangeType];
 
+    if (action.rangeType === 'meleeOrRanged') {
+      return `${kind}, ${formatMeleeOrRangedDistances({
+        reach: action.reach ?? DEFAULT_REACH_FEET,
+        range: action.range,
+        unitLabel: unit,
+      })}`;
+    }
+
     if (action.rangeType === 'ranged') {
       if (!action.range) {
         return kind;
       }
 
-      const long = action.range.long ? `/${action.range.long}` : '';
-
-      return `${kind}, ${action.range.normal}${long} ${unit}`;
+      return `${kind}, ${formatAttackRange(action.range, unit)}`;
     }
 
     return `${kind}${CREATURE_ACTIONS_BLOCK_LABELS.reachPrefix}${action.reach ?? DEFAULT_REACH_FEET} ${unit}`;

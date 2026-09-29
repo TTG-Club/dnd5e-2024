@@ -8,6 +8,7 @@
   import type {
     ActiveEffect,
     CreatureAction,
+    CreatureActionRangeType,
     CreatureDamageAlternative,
     CreatureRecharge,
     EffectFormContext,
@@ -120,7 +121,7 @@
     rangeNormal: number;
     rangeLong: number;
     distanceUnit: DistanceUnit;
-    rangeType: 'melee' | 'ranged';
+    rangeType: CreatureActionRangeType;
     activeEffects: ActiveEffect[];
     /**
      * `none` — перезарядки нет. Ключом, а не пустой строкой: `USelect` на
@@ -199,8 +200,24 @@
     })),
   );
 
-  /** Дальнобойная дистанция активна только для ranged-типа */
-  const isRangeEnabled = computed(() => form.rangeType === 'ranged');
+  /**
+   * Варианты типа атаки. «Рукопашная или дальнобойная» — атака с обеими
+   * дальностями сразу, вид выбирается при броске.
+   */
+  const rangeTypeItems: { label: string; value: CreatureActionRangeType }[] = [
+    { label: CREATURE_ACTION_FORM_LABELS.rangeTypeMelee, value: 'melee' },
+    { label: CREATURE_ACTION_FORM_LABELS.rangeTypeRanged, value: 'ranged' },
+    {
+      label: CREATURE_ACTION_FORM_LABELS.rangeTypeMeleeOrRanged,
+      value: 'meleeOrRanged',
+    },
+  ];
+
+  /** Досягаемость нужна рукопашной атаке и «рукопашной или дальнобойной» */
+  const isReachEnabled = computed(() => form.rangeType !== 'ranged');
+
+  /** Дистанция нужна дальнобойной атаке и «рукопашной или дальнобойной» */
+  const isRangeEnabled = computed(() => form.rangeType !== 'melee');
 
   /** Подпись поля основного размера области (радиус либо размер стороны) */
   const areaSizeLabel = computed(() => getAreaSizeLabel(form.areaShape));
@@ -462,9 +479,12 @@
       result.rangeType = form.rangeType;
       result.distanceUnit = form.distanceUnit;
 
-      if (form.rangeType === 'melee') {
+      // «Рукопашная или дальнобойная» хранит обе дальности сразу
+      if (isReachEnabled.value) {
         result.reach = form.reach;
-      } else if (form.rangeNormal > 0) {
+      }
+
+      if (isRangeEnabled.value && form.rangeNormal > 0) {
         result.range = { normal: form.rangeNormal };
 
         if (form.rangeLong > 0) {
@@ -577,16 +597,7 @@
                 <UFormField :label="FORM_FIELD_LABELS.attackType">
                   <USelect
                     v-model="form.rangeType"
-                    :items="[
-                      {
-                        label: CREATURE_ACTION_FORM_LABELS.rangeTypeMelee,
-                        value: 'melee',
-                      },
-                      {
-                        label: CREATURE_ACTION_FORM_LABELS.rangeTypeRanged,
-                        value: 'ranged',
-                      },
-                    ]"
+                    :items="rangeTypeItems"
                     value-key="value"
                     class="w-full"
                     :portal="false"
@@ -786,6 +797,7 @@
                       type="number"
                       :min="5"
                       :step="5"
+                      :disabled="!isReachEnabled"
                       class="w-full"
                     />
                   </UFormField>
@@ -812,6 +824,13 @@
                     />
                   </UFormField>
                 </div>
+
+                <p
+                  v-if="form.rangeType === 'meleeOrRanged'"
+                  class="mt-2 text-xs text-dimmed"
+                >
+                  {{ CREATURE_ACTION_FORM_LABELS.meleeOrRangedHint }}
+                </p>
               </div>
             </div>
           </template>

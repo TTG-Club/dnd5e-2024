@@ -103,6 +103,10 @@ import {
   withFlatFormulaBonus,
 } from '@vtt/shared/system/dnd.js';
 
+import {
+  runCreatureActionChoices,
+  runWeaponAttackChoices,
+} from '../composables/attackKindChoice';
 import { resolveTargetedAttackRoll } from '../composables/attackRollMode';
 import {
   buildCreatureRollVariants,
@@ -601,7 +605,7 @@ export function registerDnd5eMacros(): void {
 
         const ammunitionId = shot.ammunition?.id;
 
-        runWithEffectVariants(shot.weapon, (foundWeapon) => {
+        runWeaponAttackChoices(shot.weapon, result.actor.id, (foundWeapon) => {
           const foundActor = result.actor;
 
           // resolvedStats для @mod.* в формулах частей и статического урона
@@ -1894,7 +1898,7 @@ function registerCreatureActionMacro(): void {
         return;
       }
 
-      runWithEffectVariants(foundAction, (action) => {
+      runCreatureActionChoices(foundAction, foundCreature.id, (action) => {
         const hasAttackParams = !!(
           action.attackBonus !== undefined
           || action.damageParts?.length

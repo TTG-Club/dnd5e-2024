@@ -15,6 +15,7 @@ import type {
 import type {
   AbilityDelimiter,
   ActiveEffectDetailSectionKey,
+  AttackKind,
   CarriedEffectSourceKind,
   CounterRecovery,
   CounterRestKey,
@@ -1380,6 +1381,24 @@ export const DEFAULT_ITEM_TYPE_ICON = 'tabler:box';
 export const WEAPON_RANGE_TYPE_LABELS: Record<WeaponRangeType, string> = {
   melee: 'Рукопашное оружие',
   ranged: 'Дальнобойное оружие',
+};
+
+/**
+ * Подпись метательного рукопашного оружия — им и бьют, и бросают. Встаёт
+ * вместо «Рукопашное оружие» в подписи под названием.
+ */
+export const WEAPON_THROWN_RANGE_LABEL = 'Рукопашное или метательное';
+
+/** Варианты вопроса «Удар / Бросок» перед атакой метательным оружием */
+export const WEAPON_ATTACK_KIND_LABELS: Record<AttackKind, string> = {
+  melee: 'Удар',
+  ranged: 'Бросок',
+};
+
+/** Выбранный вид атаки оружием в строке чата */
+export const WEAPON_ATTACK_KIND_CHAT_LABELS: Record<AttackKind, string> = {
+  melee: 'удар (рукопашная атака)',
+  ranged: 'бросок (дальнобойная атака)',
 };
 
 /**
@@ -5096,6 +5115,11 @@ export const WEAPON_FORM_LABELS = {
     'Досягаемость — для рукопашных атак; свойство «Досягаемость» поднимает её '
     + 'до 10 фт. Поля дистанции доступны только дальнобойному или '
     + 'метательному оружию.',
+  /** Пояснение под дальностями рукопашного метательного оружия */
+  thrownRangeHint:
+    'Метательное: досягаемость — для удара, дистанция — для броска. Перед '
+    + 'атакой спросит «Удар / Бросок»; цель за досягаемостью — сразу бросок. '
+    + 'Бросок — дальнобойная атака той же характеристикой, что и удар.',
   /**
    * Тултип секции «Магическое»: куда идёт магический бонус
    * (`getWeaponMagicParts` входит в разбор и атаки, и урона).
@@ -5166,6 +5190,8 @@ export const WEAPON_FORM_LABELS = {
     'Прибавки сверх правил: черта, домашнее правило, предмет. Идут и в '
     + 'число на листе, и в настоящий бросок.',
   attackTotal: 'Итог атаки',
+  /** Итог атаки броском у метательного оружия — под итогом удара */
+  thrownAttackPrefix: 'Бросок:',
   damageTotal: 'Итог урона',
   previewHint: 'Расчёт для текущего листа — у другого владельца он свой.',
 } as const;

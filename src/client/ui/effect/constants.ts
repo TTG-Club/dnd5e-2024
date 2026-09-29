@@ -712,6 +712,19 @@ export const DAMAGE_TYPE_CHOICE_PROMPT_LABELS = {
   randomSuffix: ' (случайно)',
 } as const;
 
+/** Приставка ключа плашки выбора вида атаки (рукопашная или дальнобойная) */
+export const ATTACK_KIND_MODAL_KEY_PREFIX = 'attack-kind';
+
+/** Подписи выбора вида атаки перед броском и строки чата */
+export const ATTACK_KIND_PROMPT_LABELS = {
+  /** Группа вопроса */
+  group: 'Вид атаки',
+  /** Строка чата: «Метательное копьё: бросок (дальнобойная атака)» */
+  chatSeparator: ': ',
+  /** Пометка вида, выбранного без вопроса — другой цель не достаёт */
+  byDistanceSuffix: ' — по расстоянию до цели',
+} as const;
+
 /** Приставка ключа плашки выбора цели */
 export const EFFECT_TARGET_MODAL_KEY_PREFIX = 'effect-target';
 

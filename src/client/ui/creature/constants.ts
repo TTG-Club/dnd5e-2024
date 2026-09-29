@@ -8,6 +8,7 @@
  */
 
 import type {
+  AttackKind,
   CreatureAction,
   CreatureRecharge,
   CreatureSpellGroup,
@@ -86,6 +87,19 @@ export const CREATURE_RANGE_TYPE_LABELS: Record<
 > = {
   melee: 'Ближний бой',
   ranged: 'Дальний бой',
+  meleeOrRanged: 'Рукопашная или дальнобойная',
+};
+
+/** Варианты вопроса перед атакой «рукопашная или дальнобойная» */
+export const CREATURE_ATTACK_KIND_LABELS: Record<AttackKind, string> = {
+  melee: 'Рукопашная',
+  ranged: 'Дальнобойная',
+};
+
+/** Выбранный вид атаки действием существа в строке чата */
+export const CREATURE_ATTACK_KIND_CHAT_LABELS: Record<AttackKind, string> = {
+  melee: 'рукопашная атака',
+  ranged: 'дальнобойная атака',
 };
 
 /**
@@ -528,6 +542,8 @@ export const CREATURE_ACTION_DETAIL_LABELS = {
   rangePrefix: 'Дальность:',
   reachPrefix: 'Досягаемость:',
   rechargePrefix: 'Перезарядка:',
+  /** Вид броска записи «рукопашная или дальнобойная» */
+  attackMeleeOrRanged: 'Рукопашная или дальнобойная атака',
 } as const;
 
 /** Подписи боевого блока листа существа */
@@ -698,6 +714,11 @@ export const CREATURE_ACTION_FORM_LABELS = {
   rechargeNone: 'Без перезарядки',
   rangeTypeMelee: 'Ближний бой',
   rangeTypeRanged: 'Дальний бой',
+  rangeTypeMeleeOrRanged: 'Рукопашная или дальнобойная',
+  /** Пояснение под дальностями «рукопашной или дальнобойной» атаки */
+  meleeOrRangedHint:
+    'Досягаемость — для рукопашной атаки, дистанция — для дальнобойной. Вид '
+    + 'атаки выбирается при броске; цель за досягаемостью — сразу дальнобойная.',
   attackBonus: '+ к попаданию',
   damageTitle: 'Урон / лечение',
   damageHint:

@@ -162,6 +162,43 @@ for (const rangeType of ['melee', 'ranged']) {
   });
 }
 
+for (const kind of ['melee', 'ranged']) {
+  it(`actual equipment sheet rolls a thrown weapon as the chosen ${kind} attack`, async () => {
+    const current = { value: createEntity() };
+    const ports = createPorts(current);
+    const asked = [];
+
+    // Вопрос «Удар / Бросок» отвечен: дальше бросок идёт выбранным видом
+    ports.runWeaponAttackChoices = (weapon, attackerId, proceed) => {
+      asked.push(attackerId);
+      proceed({ ...weapon, rangeType: kind });
+    };
+
+    const handler = await loadHandler(
+      'src/client/ui/actor/tabs/ActorEquipmentTab.vue',
+      'openRollModal',
+      ports,
+    );
+
+    handler({
+      name: 'Javelin',
+      rangeType: 'melee',
+      weaponProperties: ['thrown'],
+      range: { normal: 30, long: 120 },
+      damageParts: [{ formula: '1d6' }],
+    });
+
+    assert.deepEqual(asked, ['caster'], 'вопрос задан от владельца оружия');
+
+    assert.deepEqual(
+      ports.rollConfig.value.evaluateBonusRollFormulas(normalContext),
+      current.value.bonuses[`attack.${kind}`],
+    );
+
+    assert.equal(ports.rollConfig.value.incomingAttackType, kind);
+  });
+}
+
 it('actual openRollModal shoots the ammunition and spends it when the roll goes', async () => {
   const current = { value: createEntity() };
   const ports = createPorts(current);
@@ -1047,4 +1084,63 @@ it('attack roll bonuses add the target defences against this attack', async () =
     [],
     'у спасброска защит цели нет',
   );
+});
+
+it('actual creature action sheet checks distance with the chosen attack kind', async () => {
+  const creature = createEntity();
+  const checked = [];
+  const rolled = [];
+  const messages = [];
+
+  const ports = {
+    props: { creatureId: 'goblin' },
+    targetStore: { targetTokenId: 'target' },
+    chatStore: { sendMessage: (text) => messages.push(text) },
+    CREATURE_ACTIONS_BLOCK_LABELS: {
+      outOfRangePrefix: '⛔ ',
+      outOfRangeMiddle: ': ',
+      outOfRangeSuffix: '',
+    },
+    hasAttackParams: () => true,
+    getCreatureEntity: () => creature,
+    // Вопрос о виде отвечен «дальнобойная»
+    runCreatureActionChoices: (action, creatureId, proceed) => {
+      assert.equal(creatureId, 'goblin');
+      proceed({ ...action, rangeType: 'ranged' });
+    },
+    checkCreatureActionRangeOnScene: (action) => {
+      checked.push(action.rangeType);
+
+      return {
+        allowed: true,
+        disadvantage: true,
+        distance: 60,
+        unitLabel: 'ft',
+      };
+    },
+    runWithCreatureDamageChoice: (action, _creature, proceed) =>
+      proceed(action, undefined),
+    launchCreatureAction: (_action, _creatureId, proceed) => proceed(undefined),
+    startActionRoll: (action, _creature, isDisadvantage) =>
+      rolled.push({ rangeType: action.rangeType, isDisadvantage }),
+  };
+
+  const handler = await loadHandler(
+    'src/client/ui/creature/CreatureActionsBlock.vue',
+    'openRollModal',
+    ports,
+  );
+
+  handler({
+    name: 'Javelin',
+    attackBonus: 4,
+    rangeType: 'meleeOrRanged',
+    reach: 5,
+    range: { normal: 30, long: 120 },
+    damageParts: [{ formula: '1d6+2' }],
+  });
+
+  assert.deepEqual(checked, ['ranged']);
+  assert.deepEqual(rolled, [{ rangeType: 'ranged', isDisadvantage: true }]);
+  assert.deepEqual(messages, []);
 });

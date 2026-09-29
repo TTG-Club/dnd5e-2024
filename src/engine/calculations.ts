@@ -62,6 +62,7 @@ import {
   normalizeCreatureSpellcastingBlocks,
   syncCreatureSpellcastingUses,
 } from './creatureSpellcasting.js';
+import { normalizeCreatureActionRangeType } from './creatureUtils.js';
 import { getCustomBonusValue, parseCustomBonuses } from './customBonuses.js';
 import { formatDiceLetters } from './diceFormula.js';
 import {
@@ -411,7 +412,8 @@ export function resolveWeaponProficiency(
  * По правилам D&D 5e дальнобойное оружие (луки, арбалеты) бьёт от Ловкости,
  * рукопашное — от Силы. Метательное рукопашное (`thrown`) остаётся на Силе:
  * у него `rangeType` — `melee`, а Ловкость подключается только свойством
- * «Фехтовальное», которое обрабатывается отдельно.
+ * «Фехтовальное», которое обрабатывается отдельно. Брошенное, оно атакует
+ * дальнобойной атакой, но Силу сохраняет (`withWeaponAttackKind`).
  *
  * @param rangeType - тип оружия по дальности
  * @returns ключ характеристики для атаки и урона
@@ -795,8 +797,10 @@ export function describeWeaponAttack(
 /**
  * Бонус урона эффектов «при атаке характеристикой» для этого оружия: берётся
  * по характеристике атаки — «Ярость» идёт секире Силой, но не рапире, которой
- * бьют через Ловкость. Метательное оружие остаётся рукопашным и бьёт Силой —
- * бонус ему тоже идёт, как и по правилам.
+ * бьют через Ловкость. Метательное оружие ударом идёт веткой рукопашного
+ * урона, а брошенное — дальнобойного (вид выбран до броска,
+ * `withWeaponAttackKind`): бонус, записанный только на рукопашный урон, броску
+ * не идёт.
  *
  * @param actor - владелец оружия
  * @param weapon - оружие
@@ -1478,6 +1482,42 @@ export function normalizeActor(actor: BaseActor): void {
 }
 
 /**
+ * Приводит тип дальности всех записей боевого блока существа к канону:
+ * компендиум TTG Club может прислать «рукопашную или дальнобойную» и в
+ * написании перечисления сайта (`MELEE_OR_RANGE`). Незнакомое значение не
+ * трогается — см. `normalizeCreatureActionRangeType`.
+ *
+ * @param system - `system` существа (мутабельная запись)
+ */
+function normalizeCreatureActionRangeTypes(
+  system: Record<string, unknown>,
+): void {
+  const legendary = isRecord(system.legendary) ? system.legendary : {};
+  const lair = isRecord(system.lair) ? system.lair : {};
+
+  const lists = [
+    system.traits,
+    system.actions,
+    system.bonusActions,
+    system.reactions,
+    legendary.actions,
+    lair.effects,
+  ];
+
+  for (const list of lists) {
+    if (!Array.isArray(list)) {
+      continue;
+    }
+
+    for (const action of list) {
+      if (isRecord(action) && action.rangeType !== undefined) {
+        action.rangeType = normalizeCreatureActionRangeType(action.rangeType);
+      }
+    }
+  }
+}
+
+/**
  * Нормализует объект существа: если данные отсутствуют или неполные,
  * заполняет значениями по умолчанию.
  *
@@ -1639,6 +1679,8 @@ export function normalizeCreature(creature: BaseCreature): void {
   if (typeof system.customEnvironments !== 'string') {
     system.customEnvironments = '';
   }
+
+  normalizeCreatureActionRangeTypes(system);
 
   // Нормализация movement: если отсутствует (legacy-существа) — дефолт 30 фт.
   if (!isRecord(system.movement)) {

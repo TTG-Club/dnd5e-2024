@@ -34,7 +34,7 @@
   import { useChatStore } from '@/stores/chatStore';
   import { useHotbarStore } from '@/stores/hotbarStore';
   import { useWorldStore } from '@/stores/worldStore';
-  import { formatItemCost } from '@vtt/shared';
+  import { DISTANCE_UNIT_SHORT, formatItemCost } from '@vtt/shared';
   import {
     buildFormulaContext,
     buildItemUseSpell,
@@ -45,6 +45,7 @@
     createInventoryItem,
     CURRENCY_OPTIONS,
     DEFAULT_CREATURE_SIZE,
+    DEFAULT_REACH_FEET,
     describeDamagePart,
     describeWeaponAttack,
     describeWeaponDamage,
@@ -60,6 +61,7 @@
     isDnDGameItem,
     isItemDepleted,
     isSaveAbility,
+    isThrowableMeleeWeapon,
     listLoadableAmmunition,
     listSourceDamageTypeChoices,
     loadWeaponAmmunition,
@@ -75,6 +77,7 @@
     withLoadedAmmunition,
   } from '@vtt/shared/system/dnd.js';
 
+  import { runWeaponAttackChoices } from '../../../composables/attackKindChoice';
   import { resolveTargetedAttackRoll } from '../../../composables/attackRollMode';
   import {
     formatDamageTypeChoiceLabel,
@@ -84,7 +87,6 @@
     applyEffectSource,
     prepareAmmunitionShot,
   } from '../../../composables/effectActivationUse';
-  import { runWithEffectVariants } from '../../../composables/effectVariantChoice';
   import { buildRollBonusEvaluator } from '../../../composables/rollBonusEvaluator';
   import { useBonusDamageParts } from '../../../composables/useBonusDamageParts';
   import { useCarryingCapacity } from '../../../composables/useCarryingCapacity';
@@ -119,12 +121,14 @@
     GAME_ITEM_TRANSFER_MIME,
     SHEET_ROW_MENU_LABELS,
     WEAPON_RANGE_TYPE_LABELS,
+    WEAPON_THROWN_RANGE_LABEL,
     WEIGHT_UNIT_LABEL,
   } from '../constants';
   import CurrencyModal from '../CurrencyModal.vue';
   import DiceRollModal from '../DiceRollModal.vue';
   import SheetStatTile from '../SheetStatTile.vue';
   import { extractSpellFromGameItem } from '../utils/extractSpellFromGameItem';
+  import { formatMeleeOrRangedDistances } from '../utils/formatAttackDistances';
   import { formatSignedNumber } from '../utils/formatSignedNumber';
   import { formatWeaponModifierParts } from '../utils/formatWeaponModifierParts';
   import { getItemIcon } from '../utils/itemIcon';
@@ -453,7 +457,7 @@
 
     const ammunitionId = shot.ammunition?.id;
 
-    runWithEffectVariants(shot.weapon, (weapon) => {
+    runWeaponAttackChoices(shot.weapon, props.entity.id, (weapon) => {
       if (!weapon.damageParts?.length) {
         return;
       }
@@ -1275,6 +1279,22 @@
    * @returns подпись вида «Воинское оружие, Рукопашное оружие»
    */
   function getItemSubtitle(item: DnDGameItem): string {
+    // Метательное рукопашное: им и бьют, и бросают — видны обе дальности
+    if (item.type === 'weapon' && isThrowableMeleeWeapon(item)) {
+      const distances = formatMeleeOrRangedDistances({
+        reach: item.reach ?? DEFAULT_REACH_FEET,
+        range: item.range,
+        unitLabel: DISTANCE_UNIT_SHORT[item.distanceUnit ?? 'ft'],
+      });
+
+      return [
+        getWeaponCategoryLabel(item.baseType),
+        `${WEAPON_THROWN_RANGE_LABEL}, ${distances}`,
+      ]
+        .filter(Boolean)
+        .join(', ');
+    }
+
     if (item.type === 'weapon') {
       const parts = [
         getWeaponCategoryLabel(item.baseType),

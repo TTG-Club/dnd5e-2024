@@ -76,6 +76,13 @@ export type CreatureAlignment =
  */
 export type CreatureRecharge = 'd3' | 'd4' | 'd5' | 'd6' | 'slr' | 'lr';
 
+/**
+ * Тип дальности действия существа. `meleeOrRanged` — «Бросок рукопашной или
+ * дальнобойной атаки»: у записи есть и досягаемость, и дистанция, а вид
+ * атаки выбирается при броске (`listCreatureActionAttackKinds`).
+ */
+export type CreatureActionRangeType = 'melee' | 'ranged' | 'meleeOrRanged';
+
 /** Именованный блок текста: черта, действие, реакция и т.д. */
 export interface CreatureAction {
   /** Название действия/черты */
@@ -125,14 +132,22 @@ export interface CreatureAction {
    * задетые цели (тот же движок, что у AoE-заклинаний).
    */
   areaOfEffect?: SpellAreaOfEffect;
-  /** Досягаемость ближнего боя (в единицах distanceUnit, по умолчанию 5) */
+  /**
+   * Досягаемость ближнего боя (в единицах distanceUnit, по умолчанию 5) — у
+   * `melee` и `meleeOrRanged`
+   */
   reach?: number;
-  /** Дальность (только для ranged): нормальная и максимальная */
+  /**
+   * Дальность — у `ranged` и `meleeOrRanged`: нормальная и максимальная
+   */
   range?: { normal: number; long?: number };
   /** Единица измерения расстояния (по умолчанию ft) */
   distanceUnit?: DistanceUnit;
-  /** Тип дальности: ближний или дальний */
-  rangeType?: 'melee' | 'ranged';
+  /**
+   * Тип дальности: ближний, дальний или «рукопашная или дальнобойная»
+   * (метательное копьё, «Потусторонний удар»). Нет поля — ближний, как было.
+   */
+  rangeType?: CreatureActionRangeType;
 
   // ── Эффекты ────────────────────────────────────────────────────────────
 
