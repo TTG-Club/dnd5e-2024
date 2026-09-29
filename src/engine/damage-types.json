@@ -21,27 +21,27 @@
   },
   {
     "key": "cold",
-    "name": "Холод",
+    "name": "Холодный",
     "nameEn": "Cold"
   },
   {
     "key": "lightning",
-    "name": "Молния",
+    "name": "Электрический",
     "nameEn": "Lightning"
   },
   {
     "key": "thunder",
-    "name": "Гром",
+    "name": "Звуковой",
     "nameEn": "Thunder"
   },
   {
     "key": "poison",
-    "name": "Яд",
+    "name": "Ядовитый",
     "nameEn": "Poison"
   },
   {
     "key": "acid",
-    "name": "Кислота",
+    "name": "Кислотный",
     "nameEn": "Acid"
   },
   {
@@ -56,7 +56,7 @@
   },
   {
     "key": "force",
-    "name": "Силовой",
+    "name": "Силовое поле",
     "nameEn": "Force"
   },
   {

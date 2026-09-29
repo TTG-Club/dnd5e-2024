@@ -7,17 +7,19 @@ import type {
   CreatureDamageContext,
   CreatureDamageOption,
   DnDCreature,
-  EffectVariantChoices,
-  EffectVariantGroup,
+  Spell,
 } from '@vtt/shared/system/dnd.js';
 
-import { useModalManager } from '@/shared_ui/composables/useModalManager';
+import type { RollDamageVariant } from '../ui/actor/diceRollTypes';
+import type { CreatureRollSetup } from './useBonusDamageParts';
+import type { RolledSpellDamagePart } from './useSpellResolution';
+
 import { useChatStore } from '@/stores/chatStore';
 import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
 import { useTargetStore } from '@/stores/targetStore';
-import { generateId } from '@vtt/shared';
 import {
   applyCreatureDamageOption,
+  applySourceDamageTypeChoices,
   chooseCreatureActionDamage,
   describeCreatureDamageCondition,
   describeDamagePart,
@@ -25,16 +27,16 @@ import {
   getDamagePartsPrimaryType,
   getDamageTemplateColor,
   isDndSceneEntity,
+  listCreatureDamageAlternatives,
   readAlternativeShownParts,
 } from '@vtt/shared/system/dnd.js';
 
 import { useSystemDataStore } from '../stores/systemDataStore';
+import { CREATURE_DAMAGE_CHOICE_LABELS } from '../ui/creature/constants';
 import {
-  CREATURE_DAMAGE_CHOICE_LABELS,
-  CREATURE_DAMAGE_MODAL_KEY_PREFIX,
-} from '../ui/creature/constants';
-import { EFFECT_VARIANT_PROMPT_MODAL } from '../ui/effect/constants';
-import { formatDamageTypeChoiceLabel } from './damageTypeChoice';
+  formatDamageTypeChoiceLabel,
+  requestDamageTypeChoice,
+} from './damageTypeChoice';
 
 /** Способ «случайно» — для пометки выпавшего основного урона в чате */
 const RANDOM_CONDITION: CreatureDamageCondition = 'random';
@@ -66,7 +68,7 @@ export interface DamagePartsText {
 }
 
 /**
- * Сводка набора урона для строки листа и подписей выбора: «2к4 + 1» и «Яд».
+ * Сводка набора урона для строки листа и подписей выбора: «2к4 + 1» и «Ядовитый».
  *
  * @param parts - части урона
  * @param getTypeLabel - название типа урона по ключу
@@ -126,25 +128,92 @@ export function formatDamagePartsText(
 }
 
 /**
- * Подпись набора в вопросе и в чате. Своя подпись варианта идёт впереди
- * формулы: по одной подписи не видно, сколько урона будет.
+ * Сводка набора, у которого типы урона постоянные: тип на выбор
+ * (`@dmg.choice(…)`) — не одно название, подписью набора он не станет.
+ *
+ * @param parts - части урона
+ * @param getTypeLabel - название типа урона по ключу
+ * @returns сводка либо `null`, если частей нет или тип не постоянный
+ */
+function summarizeFixedTypeParts(
+  parts: readonly DamagePart[],
+  getTypeLabel: (typeKey: string) => string,
+): DamagePartsText | null {
+  const summary = summarizeDamageParts(parts, getTypeLabel);
+
+  const isFixed =
+    summary !== null
+    && summary.typeLabel.length > 0
+    && parts.every((part) => describeDamagePart(part).typeChoices.length === 0);
+
+  return isFixed ? summary : null;
+}
+
+/**
+ * Отличаются ли варианты от основного урона только типом. Так компендиум
+ * пишет «один тип на выбор»: основной урон — первым типом, варианты — теми же
+ * костями другого типа. Подписи таких вариантов пишут люди, и они расходятся
+ * со справочником («Огонь» при типе «Огненный»), поэтому набор называется
+ * типом из справочника, а не своей подписью.
+ *
+ * @param action - действие существа с вариантами
+ * @param getTypeLabel - название типа урона по ключу
+ * @returns `true`, если все наборы — те же кости другого типа
+ */
+function isTypeOnlyChoice(
+  action: Pick<CreatureAction, 'damageParts' | 'damageAlternatives'>,
+  getTypeLabel: (typeKey: string) => string,
+): boolean {
+  const base = summarizeFixedTypeParts(action.damageParts ?? [], getTypeLabel);
+
+  if (!base) {
+    return false;
+  }
+
+  return listCreatureDamageAlternatives(action).every(
+    (alternative) =>
+      summarizeFixedTypeParts(
+        readAlternativeShownParts(alternative),
+        getTypeLabel,
+      )?.formula === base.formula,
+  );
+}
+
+/**
+ * Подпись набора в вопросе и в чате: «подпись: формула», у основного урона
+ * тоже — иначе первая строка списка не читается таким же выбором. Если
+ * наборы отличаются только типом ({@link isTypeOnlyChoice}), подпись — тип
+ * из справочника, а формула идёт без типа: «Кислотный: 1к6+3». Иначе своя
+ * подпись варианта («С преимуществом») или «Основной урон» идёт впереди
+ * формулы с типом: по одной подписи не видно, сколько урона будет.
  *
  * @param option - набор урона
  * @param getTypeLabel - название типа урона по ключу
+ * @param typeOnly - наборы отличаются только типом урона
  * @returns подпись набора
  */
 function formatOptionLabel(
   option: CreatureDamageOption,
   getTypeLabel: (typeKey: string) => string,
+  typeOnly: boolean,
 ): string {
-  const text = formatDamagePartsText(
-    option.alternative
-      ? readAlternativeShownParts(option.alternative)
-      : option.damageParts,
-    getTypeLabel,
-  );
+  const parts = option.alternative
+    ? readAlternativeShownParts(option.alternative)
+    : option.damageParts;
 
-  const ownLabel = option.alternative?.label;
+  const typeSummary = typeOnly
+    ? summarizeFixedTypeParts(parts, getTypeLabel)
+    : null;
+
+  if (typeSummary) {
+    return `${typeSummary.typeLabel}${CREATURE_DAMAGE_CHOICE_LABELS.labelSeparator}${typeSummary.formula}`;
+  }
+
+  const text = formatDamagePartsText(parts, getTypeLabel);
+
+  const ownLabel = option.alternative
+    ? option.alternative.label
+    : CREATURE_DAMAGE_CHOICE_LABELS.base;
 
   return ownLabel
     ? `${ownLabel}${CREATURE_DAMAGE_CHOICE_LABELS.labelSeparator}${text}`
@@ -196,24 +265,34 @@ function buildDamageContext(
   };
 }
 
+/** Вариант урона «или», который выбирают в окне броска */
+export interface CreatureDamageVariant {
+  /** Подпись в окне и в строке чата: «С преимуществом: 4к6 + 4 колющий» */
+  label: string;
+  /** Действие с уроном этого варианта */
+  action: CreatureAction;
+}
+
 /**
- * Выполняет атаку действием с выбранным уроном «или». Сработало состояние —
- * атака идёт вариантом, и чат говорит почему; «на выбор» — плашка спрашивает
- * бросающего; «случайно» — набор выпадает сам, и чат называет, какой; без
- * вариантов действие идёт как есть и сразу. Закрытая без выбора плашка
- * отменяет атаку — так же, как у вариантов эффектов.
+ * Выполняет атаку действием с уроном «или». Сработало состояние — атака идёт
+ * вариантом, и чат говорит почему; «случайно» — набор выпадает сам, и чат
+ * называет, какой; без вариантов действие идёт как есть. «На выбор» решается
+ * в окне броска: атака идёт с первым набором (основной урон), а все наборы
+ * уходят в `variants` — окно показывает поле «Урон» и в начале броска
+ * называет выбранный в чате ({@link announceCreatureDamageVariant}).
  *
  * @param action - действие существа (после выбора вариантов эффектов)
  * @param creature - атакующее существо
- * @param proceed - продолжение атаки с выбранным уроном
+ * @param proceed - продолжение атаки: действие и наборы для окна (пусто —
+ *   выбирать в окне нечего)
  */
 export function runWithCreatureDamageChoice(
   action: CreatureAction,
   creature: DnDCreature,
-  proceed: (chosen: CreatureAction) => void,
+  proceed: (chosen: CreatureAction, variants: CreatureDamageVariant[]) => void,
 ): void {
   if (!action.damageAlternatives?.length) {
-    proceed(action);
+    proceed(action, []);
 
     return;
   }
@@ -229,7 +308,7 @@ export function runWithCreatureDamageChoice(
     systemDataStore.damageTypes.find((entry) => entry.key === typeKey)?.name
     ?? typeKey;
 
-  const chatPrefix = `${action.name}${CREATURE_DAMAGE_CHOICE_LABELS.chatSeparator}`;
+  const typeOnly = isTypeOnlyChoice(action, getTypeLabel);
 
   if (choice.kind === 'resolved') {
     // Сработавшее состояние и выпавший набор называются в чате: иначе урон,
@@ -238,45 +317,50 @@ export function runWithCreatureDamageChoice(
 
     if (reason) {
       useChatStore().sendMessage(
-        `${chatPrefix}${formatOptionLabel(choice.option, getTypeLabel)}${CREATURE_DAMAGE_CHOICE_LABELS.reasonOpen}${describeCreatureDamageCondition(reason)}${CREATURE_DAMAGE_CHOICE_LABELS.reasonClose}`,
+        `${action.name}${CREATURE_DAMAGE_CHOICE_LABELS.chatSeparator}${formatOptionLabel(choice.option, getTypeLabel, typeOnly)}${CREATURE_DAMAGE_CHOICE_LABELS.reasonOpen}${describeCreatureDamageCondition(reason)}${CREATURE_DAMAGE_CHOICE_LABELS.reasonClose}`,
         'text',
       );
     }
 
-    proceed(applyCreatureDamageOption(action, choice.option));
+    proceed(applyCreatureDamageOption(action, choice.option), []);
 
     return;
   }
 
   const labels = makeLabelsUnique(
-    choice.options.map((option) => formatOptionLabel(option, getTypeLabel)),
+    choice.options.map((option) =>
+      formatOptionLabel(option, getTypeLabel, typeOnly),
+    ),
   );
 
-  const group: EffectVariantGroup = {
-    group: CREATURE_DAMAGE_CHOICE_LABELS.groupName,
-    pick: 'choose',
-    labels,
-  };
+  const variants = choice.options.map((option, index) => ({
+    label: labels[index] ?? '',
+    action: applyCreatureDamageOption(action, option),
+  }));
 
-  const finish = (choices: EffectVariantChoices): void => {
-    const pickedIndex = labels.indexOf(choices[group.group] ?? '');
-    const picked = choice.options[pickedIndex];
+  const [firstVariant] = variants;
 
-    if (!picked) {
-      return;
-    }
+  if (!firstVariant) {
+    return;
+  }
 
-    useChatStore().sendMessage(`${chatPrefix}${labels[pickedIndex]}`, 'text');
-    proceed(applyCreatureDamageOption(action, picked));
-  };
+  proceed(firstVariant.action, variants);
+}
 
-  // Плашка та же, что у вариантов эффектов: один вопрос «какой вариант?»
-  useModalManager().openModal(EFFECT_VARIANT_PROMPT_MODAL, {
-    _modalKey: generateId(CREATURE_DAMAGE_MODAL_KEY_PREFIX),
-    sourceName: action.name,
-    groups: [group],
-    onConfirm: finish,
-  });
+/**
+ * Пишет в чат выбранный в окне набор урона «или»: «Укус: С преимуществом».
+ *
+ * @param actionName - имя действия
+ * @param variant - выбранный набор
+ */
+export function announceCreatureDamageVariant(
+  actionName: string,
+  variant: CreatureDamageVariant,
+): void {
+  useChatStore().sendMessage(
+    `${actionName}${CREATURE_DAMAGE_CHOICE_LABELS.chatSeparator}${variant.label}`,
+    'text',
+  );
 }
 
 /**
@@ -312,4 +396,65 @@ export function launchCreatureAction(
     (templateId) => openRoll(templateId),
     null,
   );
+}
+
+/**
+ * Наборы урона для окна броска действия существа. Без урона «или» набор один —
+ * само действие; с ним — по набору на вариант, и окно показывает поле «Урон».
+ *
+ * У каждого набора всё своё: части урона, бонус-части, вопрос о типе урона на
+ * выбор и применение. Выбранный в окне тип подставляется и в действие (его
+ * эффекты на себя), и в псевдо-заклинание (эффекты на цель).
+ *
+ * @param action - действие с уроном первого набора
+ * @param variants - наборы урона «или»; пусто — выбирать нечего
+ * @param buildSetup - части и псевдо-заклинание броска по действию
+ * @param apply - применение брошенных частей: действие, псевдо-заклинание, части
+ * @returns наборы для окна; первый — тот, что выбран при открытии
+ */
+export function buildCreatureRollVariants(
+  action: CreatureAction,
+  variants: readonly CreatureDamageVariant[],
+  buildSetup: (variantAction: CreatureAction) => CreatureRollSetup,
+  apply: (
+    chosenAction: CreatureAction,
+    actionSpell: Spell,
+    parts: RolledSpellDamagePart[],
+  ) => void,
+): RollDamageVariant[] {
+  const damageSets =
+    variants.length > 0 ? variants : [{ label: action.name, action }];
+
+  return damageSets.map((variant) => {
+    const setup = buildSetup(variant.action);
+
+    let chosenAction = variant.action;
+    let actionSpell = setup.pseudoSpell;
+
+    const damageTypeChoice = requestDamageTypeChoice(
+      variant.action,
+      (picks) => {
+        chosenAction = applySourceDamageTypeChoices(variant.action, picks);
+        actionSpell = applySourceDamageTypeChoices(setup.pseudoSpell, picks);
+      },
+    );
+
+    return {
+      label: variant.label,
+      formula: setup.baseParts[0]?.formula ?? '',
+      damageType: getDamagePartsPrimaryType(variant.action.damageParts),
+      damageParts: setup.baseParts,
+      evaluateBonusDamageParts: setup.evaluateBonusDamageParts,
+      damageTypeChoice,
+      onRollParts: (parts) => {
+        apply(chosenAction, actionSpell, parts);
+      },
+      // Выбор человека называется в чате; без вариантов называть нечего
+      onSelect: () => {
+        if (variants.length > 0) {
+          announceCreatureDamageVariant(action.name, variant);
+        }
+      },
+    };
+  });
 }

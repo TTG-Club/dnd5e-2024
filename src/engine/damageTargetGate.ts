@@ -20,7 +20,11 @@ import { hasEntityCondition } from './activeEffectTypes.js';
 import { BLOODIED_CONDITION_KEY } from './conditionKeys.js';
 import { resolveEntityCreatureType } from './creatureTypeGate.js';
 import { targetHpGateMatches } from './effectPipeline.js';
-import { resolveEntityCurrentHp, resolveEntityMaxHp } from './hitPoints.js';
+import {
+  isEntityBloodied,
+  resolveEntityCurrentHp,
+  resolveEntityMaxHp,
+} from './hitPoints.js';
 
 /** Гейты ветки урона: по состоянию хитов цели и по её типу существа. */
 export interface DamageTargetGates {
@@ -72,26 +76,11 @@ export function damageReachesTarget(
 }
 
 /**
- * Окровавлена ли сущность по хитам: не больше половины максимума («Bloodied»
- * правил 2024). Без максимума хитов — нет: половины от нуля не бывает.
- *
- * @param entity - персонаж или существо
- * @returns `true`, если хитов не больше половины
- */
-export function isEntityBloodied(entity: DnDSceneEntity): boolean {
-  const maxHp = resolveEntityMaxHp(entity);
-
-  return (
-    maxHp > 0
-    && targetHpGateMatches('halfOrLess', resolveEntityCurrentHp(entity), maxHp)
-  );
-}
-
-/**
  * Есть ли у сущности состояние — для условий урона (`@target.status.*`,
  * `@self.status.*`, урон «или» по состоянию). «Окровавленный» считается и по
- * значку, и по одним хитам: значок ставят руками, а правило 2024 года —
- * про хиты, и забытый значок не должен менять урон.
+ * значку, и по одним хитам: правило значка мастер может поменять или выключить
+ * в «Мастерской», а правило 2024 года — про хиты, и урон существ от этого
+ * меняться не должен.
  *
  * @param entity - персонаж или существо
  * @param status - ключ состояния

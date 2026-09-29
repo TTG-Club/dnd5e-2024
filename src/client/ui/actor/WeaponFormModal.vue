@@ -20,8 +20,10 @@
     formatWeaponDamageFormula,
     getActorAbilityModifiers,
     getEntityProficiencyBonus,
+    isThrowableMeleeWeapon,
     RARITY_OPTIONS,
     sumWeaponModifierParts,
+    withWeaponAttackKind,
   } from '@vtt/shared/system/dnd.js';
 
   import { useResolvedStats } from '../../composables/useResolvedStats';
@@ -207,6 +209,33 @@
   /** Итог атаки со знаком */
   const attackTotalLabel = computed(() =>
     formatSignedNumber(sumWeaponModifierParts(attackModifierParts.value)),
+  );
+
+  /**
+   * Метательное рукопашное: им и бьют, и бросают — форма показывает поля
+   * броска и итог атаки броском рядом с ударом
+   */
+  const isThrowableMelee = computed(() =>
+    isThrowableMeleeWeapon(draftWeapon.value),
+  );
+
+  /**
+   * Итог атаки броском: дальнобойная атака той же характеристикой, но свои
+   * бонусы `attack.ranged` у неё другие, чем у удара. Пусто — не метательное
+   * или считать не от кого.
+   */
+  const thrownAttackTotalLabel = computed(() =>
+    isThrowableMelee.value && props.actor
+      ? formatSignedNumber(
+          sumWeaponModifierParts(
+            describeWeaponAttack(
+              props.actor,
+              withWeaponAttackKind(draftWeapon.value, 'ranged'),
+              resolvedStats.value,
+            ),
+          ),
+        )
+      : '',
   );
 
   /** Итог урона: кости оружия и статическая прибавка (как в строке листа) */
@@ -624,6 +653,13 @@
                   />
                 </UFormField>
               </div>
+
+              <p
+                v-if="isThrowableMelee"
+                class="mt-2 text-xs text-dimmed"
+              >
+                {{ WEAPON_FORM_LABELS.thrownRangeHint }}
+              </p>
             </FormSection>
 
             <!-- Блок «Магическое» (раскрывается при нажатии badge) -->
@@ -771,6 +807,14 @@
                   class="mt-0.5 text-xs text-dimmed"
                 >
                   {{ attackDetails }}
+                </div>
+
+                <div
+                  v-if="thrownAttackTotalLabel"
+                  class="mt-0.5 text-xs text-toned"
+                >
+                  {{ WEAPON_FORM_LABELS.thrownAttackPrefix }}
+                  {{ thrownAttackTotalLabel }}
                 </div>
 
                 <p class="mt-1 text-[10px] text-dimmed">

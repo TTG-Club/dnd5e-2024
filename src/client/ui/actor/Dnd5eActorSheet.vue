@@ -1836,7 +1836,12 @@
     }
 
     const before = localActor.value.spells?.length ?? 0;
-    const spells = appendGrantedSpells(localActor.value.spells ?? [], resolved);
+
+    const spells = appendGrantedSpells(
+      localActor.value.spells ?? [],
+      resolved,
+      'feat',
+    );
 
     if (spells.length > before) {
       localActor.value.spells = spells;

@@ -22,7 +22,7 @@ import { computed } from 'vue';
 import { useItemsStore } from '@/stores/itemsStore';
 import {
   CONDITION_ITEM_TYPE,
-  parseConditionRecord,
+  parseWorldConditionRecords,
   setWorldConditionsSource,
 } from '@vtt/shared/system/dnd.js';
 
@@ -45,19 +45,11 @@ let worldConditions: ComputedRef<WorldConditionDefinition[]> | null = null;
  * @returns вычисляемый список состояний мира
  */
 function ensureWorldConditions(): ComputedRef<WorldConditionDefinition[]> {
-  worldConditions ??= computed(() => {
-    const parsed: WorldConditionDefinition[] = [];
-
-    for (const item of useItemsStore().itemsByType(CONDITION_ITEM_TYPE)) {
-      const definition = parseConditionRecord(item);
-
-      if (definition) {
-        parsed.push(definition);
-      }
-    }
-
-    return parsed;
-  });
+  worldConditions ??= computed(() =>
+    parseWorldConditionRecords(
+      useItemsStore().itemsByType(CONDITION_ITEM_TYPE),
+    ),
+  );
 
   return worldConditions;
 }

@@ -110,6 +110,21 @@ export async function loadHandler(relativePath, name, ports, macro = false) {
   // тесты подменяют порты уже после загрузки обработчика
   ports.runWithEffectVariants ??= (source, proceed) => proceed(source);
 
+  // Вид атаки «рукопашная или дальнобойная» так же проходной: фикстуры
+  // атакуют одним видом, и вопрос не задаётся
+  ports.runWeaponAttackChoices ??= (source, _attackerId, proceed) =>
+    proceed(source);
+
+  ports.runCreatureActionChoices ??= (source, _attackerId, proceed) =>
+    proceed(source);
+
+  // Тип урона на выбор так же проходной: у фикстур токенов `@dmg.choice(…)`
+  // нет, и окну вопрос не отдаётся, а плашка пропускает действие сразу
+  ports.requestDamageTypeChoice ??= () => undefined;
+  ports.requestDamageTypeChoiceFor ??= () => undefined;
+  ports.runWithDamageTypeChoices ??= (source, proceed) => proceed(source);
+  ports.applySourceDamageTypeChoices ??= (source) => source;
+
   return runInNewContext(
     `${compiled.outputText}\n${expression ? 'execute' : name}`,
     ports,

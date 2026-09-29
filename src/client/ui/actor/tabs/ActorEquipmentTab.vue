@@ -12,6 +12,7 @@
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { DamageTypeChoiceRequest } from '../../../composables/damageTypeChoice';
   import type { RollBonusEvaluator } from '../../../composables/rollBonusEvaluator';
   import type { ItemTransferPayload } from '../../../composables/useItemTransfer';
   import type {
@@ -33,7 +34,7 @@
   import { useChatStore } from '@/stores/chatStore';
   import { useHotbarStore } from '@/stores/hotbarStore';
   import { useWorldStore } from '@/stores/worldStore';
-  import { formatItemCost } from '@vtt/shared';
+  import { DISTANCE_UNIT_SHORT, formatItemCost } from '@vtt/shared';
   import {
     buildFormulaContext,
     buildItemUseSpell,
@@ -44,6 +45,7 @@
     createInventoryItem,
     CURRENCY_OPTIONS,
     DEFAULT_CREATURE_SIZE,
+    DEFAULT_REACH_FEET,
     describeDamagePart,
     describeWeaponAttack,
     describeWeaponDamage,
@@ -59,7 +61,9 @@
     isDnDGameItem,
     isItemDepleted,
     isSaveAbility,
+    isThrowableMeleeWeapon,
     listLoadableAmmunition,
+    listSourceDamageTypeChoices,
     loadWeaponAmmunition,
     normalizeItemQuantity,
     resolveWeaponSaveDc,
@@ -73,13 +77,16 @@
     withLoadedAmmunition,
   } from '@vtt/shared/system/dnd.js';
 
+  import { runWeaponAttackChoices } from '../../../composables/attackKindChoice';
   import { resolveTargetedAttackRoll } from '../../../composables/attackRollMode';
-  import { formatDamageTypeChoiceLabel } from '../../../composables/damageTypeChoice';
+  import {
+    formatDamageTypeChoiceLabel,
+    requestDamageTypeChoiceFor,
+  } from '../../../composables/damageTypeChoice';
   import {
     applyEffectSource,
     prepareAmmunitionShot,
   } from '../../../composables/effectActivationUse';
-  import { runWithEffectVariants } from '../../../composables/effectVariantChoice';
   import { buildRollBonusEvaluator } from '../../../composables/rollBonusEvaluator';
   import { useBonusDamageParts } from '../../../composables/useBonusDamageParts';
   import { useCarryingCapacity } from '../../../composables/useCarryingCapacity';
@@ -104,6 +111,7 @@
   import CompendiumRefPickerModal from '../CompendiumRefPickerModal.vue';
   import {
     ACTOR_EQUIPMENT_TAB_LABELS,
+    DAMAGE_VARIANTS_STAT_ICON,
     EQUIPMENT_AMMUNITION_BADGE,
     EQUIPMENT_EQUIP_ACTION_LABELS,
     EQUIPMENT_MENU_LABELS,
@@ -113,12 +121,14 @@
     GAME_ITEM_TRANSFER_MIME,
     SHEET_ROW_MENU_LABELS,
     WEAPON_RANGE_TYPE_LABELS,
+    WEAPON_THROWN_RANGE_LABEL,
     WEIGHT_UNIT_LABEL,
   } from '../constants';
   import CurrencyModal from '../CurrencyModal.vue';
   import DiceRollModal from '../DiceRollModal.vue';
   import SheetStatTile from '../SheetStatTile.vue';
   import { extractSpellFromGameItem } from '../utils/extractSpellFromGameItem';
+  import { formatMeleeOrRangedDistances } from '../utils/formatAttackDistances';
   import { formatSignedNumber } from '../utils/formatSignedNumber';
   import { formatWeaponModifierParts } from '../utils/formatWeaponModifierParts';
   import { getItemIcon } from '../utils/itemIcon';
@@ -421,6 +431,8 @@
     onHit?: () => void;
     /** Перед броском: тратит боеприпас выстрела */
     beforeRoll?: () => boolean;
+    /** Тип урона на выбор оружия — окно спрашивает его */
+    damageTypeChoice?: DamageTypeChoiceRequest;
   }
 
   const rollConfig = ref<RollConfig>({
@@ -445,7 +457,7 @@
 
     const ammunitionId = shot.ammunition?.id;
 
-    runWithEffectVariants(shot.weapon, (weapon) => {
+    runWeaponAttackChoices(shot.weapon, props.entity.id, (weapon) => {
       if (!weapon.damageParts?.length) {
         return;
       }
@@ -519,6 +531,18 @@
         targetType: targetHp?.creatureType,
       });
 
+      // Тип урона на выбор спрашивает окно броска: части урона решает оно
+      // само, а эффекты оружия на цель получают тот же тип здесь
+      let weaponSpell = weaponPartsSetup.pseudoSpell;
+
+      const damageTypeChoice = requestDamageTypeChoiceFor(
+        weapon,
+        weaponPartsSetup.pseudoSpell,
+        (chosen) => {
+          weaponSpell = chosen;
+        },
+      );
+
       rollConfig.value = {
         name: weapon.name,
         formula: weaponPartsSetup.baseParts[0]?.formula ?? '',
@@ -535,11 +559,8 @@
         damageParts: weaponPartsSetup.baseParts,
         evaluateBonusDamageParts: weaponPartsSetup.evaluateBonusDamageParts,
         onRollParts: (parts: RolledSpellDamagePart[]) =>
-          handleWeaponRollParts(
-            weaponPartsSetup.pseudoSpell,
-            parts,
-            weaponSaveDC,
-          ),
+          handleWeaponRollParts(weaponSpell, parts, weaponSaveDC),
+        damageTypeChoice,
         // Сбрасываем явно: `rollConfig` переиспользуется между бросками, и без
         // этого обработчик от ПРЕДЫДУЩЕГО броска остался бы висеть на текущем.
         onHit: undefined,
@@ -1258,6 +1279,22 @@
    * @returns подпись вида «Воинское оружие, Рукопашное оружие»
    */
   function getItemSubtitle(item: DnDGameItem): string {
+    // Метательное рукопашное: им и бьют, и бросают — видны обе дальности
+    if (item.type === 'weapon' && isThrowableMeleeWeapon(item)) {
+      const distances = formatMeleeOrRangedDistances({
+        reach: item.reach ?? DEFAULT_REACH_FEET,
+        range: item.range,
+        unitLabel: DISTANCE_UNIT_SHORT[item.distanceUnit ?? 'ft'],
+      });
+
+      return [
+        getWeaponCategoryLabel(item.baseType),
+        `${WEAPON_THROWN_RANGE_LABEL}, ${distances}`,
+      ]
+        .filter(Boolean)
+        .join(', ');
+    }
+
     if (item.type === 'weapon') {
       const parts = [
         getWeaponCategoryLabel(item.baseType),
@@ -1314,6 +1351,11 @@
           tooltip: weaponDamageHint(weapon),
           accent: true,
           rollable: true,
+          // Тип на выбор назван в подсказке, в плитке — только значок
+          icon:
+            listSourceDamageTypeChoices(weapon).length > 0
+              ? DAMAGE_VARIANTS_STAT_ICON
+              : undefined,
         },
       );
     } else if (item.type === 'equipment' && item.baseArmorAC) {
@@ -1724,6 +1766,7 @@
     :on-roll-parts="rollConfig.onRollParts"
     :on-hit="rollConfig.onHit"
     :before-roll="rollConfig.beforeRoll"
+    :damage-type-choice="rollConfig.damageTypeChoice"
     :attacker-id="entity.id"
     :roll-button-text="ACTOR_EQUIPMENT_TAB_LABELS.attack"
   />

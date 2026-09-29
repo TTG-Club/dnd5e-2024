@@ -102,11 +102,32 @@
     ),
   );
 
-  /** Подпись типа броска (ближний/дальний бой) */
-  const attackTypeLabel = computed(() =>
-    props.action?.rangeType === 'ranged'
+  /** Подпись типа броска (ближний, дальний или любой из двух) */
+  const attackTypeLabel = computed(() => {
+    const rangeType = props.action?.rangeType;
+
+    if (rangeType === 'meleeOrRanged') {
+      return CREATURE_ACTION_DETAIL_LABELS.attackMeleeOrRanged;
+    }
+
+    return rangeType === 'ranged'
       ? SPELL_DETAIL_LABELS.attackRanged
-      : SPELL_DETAIL_LABELS.attackMelee,
+      : SPELL_DETAIL_LABELS.attackMelee;
+  });
+
+  /** Показывать досягаемость: рукопашная и «рукопашная или дальнобойная» */
+  const showReach = computed(
+    () =>
+      props.action?.rangeType === 'melee'
+      || props.action?.rangeType === 'meleeOrRanged',
+  );
+
+  /** Дистанция: у дальнобойной и «рукопашной или дальнобойной» */
+  const shownRange = computed(() =>
+    props.action?.rangeType === 'ranged'
+    || props.action?.rangeType === 'meleeOrRanged'
+      ? props.action.range
+      : undefined,
   );
 
   /** Бонус к попаданию со знаком (напр. «+5», «−1»), пусто если не задан */
@@ -292,29 +313,31 @@
                 </span>
               </div>
 
-              <div v-else-if="action.rangeType === 'ranged' && action.range">
-                <span class="text-xs text-dimmed"
-                  >{{ CREATURE_ACTION_DETAIL_LABELS.rangePrefix }}
-                </span>
+              <template v-else>
+                <div v-if="showReach">
+                  <span class="text-xs text-dimmed"
+                    >{{ CREATURE_ACTION_DETAIL_LABELS.reachPrefix }}
+                  </span>
 
-                <span class="text-highlighted">
-                  {{ action.range.normal
-                  }}<template v-if="action.range.long"
-                    >/{{ action.range.long }}</template
-                  >
-                  {{ distanceUnitLabel }}
-                </span>
-              </div>
+                  <span class="text-highlighted">
+                    {{ reachValue }} {{ distanceUnitLabel }}
+                  </span>
+                </div>
 
-              <div v-else-if="action.rangeType === 'melee'">
-                <span class="text-xs text-dimmed"
-                  >{{ CREATURE_ACTION_DETAIL_LABELS.reachPrefix }}
-                </span>
+                <div v-if="shownRange">
+                  <span class="text-xs text-dimmed"
+                    >{{ CREATURE_ACTION_DETAIL_LABELS.rangePrefix }}
+                  </span>
 
-                <span class="text-highlighted">
-                  {{ reachValue }} {{ distanceUnitLabel }}
-                </span>
-              </div>
+                  <span class="text-highlighted">
+                    {{ shownRange.normal
+                    }}<template v-if="shownRange.long"
+                      >/{{ shownRange.long }}</template
+                    >
+                    {{ distanceUnitLabel }}
+                  </span>
+                </div>
+              </template>
             </div>
 
             <!-- Описание -->

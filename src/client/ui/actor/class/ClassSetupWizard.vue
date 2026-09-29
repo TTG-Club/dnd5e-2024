@@ -7,25 +7,30 @@
    * - Level Up: ХП → Умения → ASI (при необходимости)
    * - Мультикласс: ХП → Владения (сокращённые) → Навыки → Умения
    *
-   * Заклинания мастер не спрашивает: вопрос задаёт та запись, которая его
-   * задала, — умение или сам класс, — и стоит он в её строке на шаге умений.
-   * Таблица класса числами не спрашивает, а показывает норму на листе.
+   * Заклинания мастер спрашивает там, где их спрашивает запись: выбор умения
+   * или самого класса стоит в его строке на шаге умений, а список класса,
+   * который умение выдаёт целиком, — своим шагом «Заклинания»: весь список
+   * сразу или выбрать самому. Таблица класса числами не спрашивает, а
+   * показывает норму на листе.
    */
   import type { SkillType, TypedWebSocketClient } from '@vtt/shared';
   import type {
     ClassDefinition,
     DnDAbilityScores,
     DnDActor,
+    GrantedSpellSource,
     HitPointMethod,
   } from '@vtt/shared/system/dnd.js';
 
   import type { WizardAsiState } from './wizard';
+  import type { ClassSpellListMode } from './wizard/useClassWizard';
 
   import { computed, toRef } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import {
     addStartingCoins,
+    normalizeSpellName,
     resolveActorStats,
   } from '@vtt/shared/system/dnd.js';
 
@@ -40,8 +45,10 @@
     WIZARD_SKELETON_STEPS,
   } from '../constants';
   import { useClassWizard } from './wizard';
+  import { CLASS_SPELL_LIST_DEFAULT_MODE } from './wizard/useClassWizard';
   import WizardStepAsi from './wizard/WizardStepAsi.vue';
   import WizardStepClassEquipment from './wizard/WizardStepClassEquipment.vue';
+  import WizardStepClassSpellList from './wizard/WizardStepClassSpellList.vue';
   import WizardStepFeatures from './wizard/WizardStepFeatures.vue';
   import WizardStepHitPoints from './wizard/WizardStepHitPoints.vue';
   import WizardStepProficiencies from './wizard/WizardStepProficiencies.vue';
@@ -133,6 +140,8 @@
     featChoiceProficiencyBonus,
     grantedSpellSources,
     grantedClassSpellRequests,
+    classSpellListOffers,
+    preparedSpellsAtLevel,
 
     nextStep,
     prevStep,
@@ -152,6 +161,98 @@
     grantedSpellSources,
     grantedClassSpellRequests,
   );
+
+  /** Запросы всех списков класса, открытых уровнем, — из них собирается пул выбора */
+  const classSpellListRequests = computed(() =>
+    classSpellListOffers.value.flatMap((offer) => offer.requests),
+  );
+
+  /** Без поимённой выдачи: пул предложений собирается только по спискам классов */
+  const noGrantedSources = computed((): GrantedSpellSource[] => []);
+
+  const {
+    resolvedGrantedSpells: classSpellListCatalog,
+    isLoaded: isClassSpellListLoaded,
+  } = useGrantedSpellsResolver(
+    toRef(props, 'socket'),
+    noGrantedSources,
+    classSpellListRequests,
+  );
+
+  /** Названия заклинаний листа — известное в пул предложения не идёт */
+  const knownSpellNames = computed(
+    () =>
+      new Set(
+        (props.actor.spells ?? []).map((spell) =>
+          normalizeSpellName(spell.name),
+        ),
+      ),
+  );
+
+  /** Пул списков класса без того, что персонаж уже знает */
+  const classSpellListPool = computed(() =>
+    classSpellListCatalog.value.filter(
+      (granted) =>
+        !knownSpellNames.value.has(normalizeSpellName(granted.spell.name)),
+    ),
+  );
+
+  /**
+   * Что ляжет на лист из списков класса: весь пул умения либо выбранное из него.
+   */
+  const classSpellListGrants = computed(() =>
+    classSpellListOffers.value.flatMap((offer) => {
+      const offered = classSpellListPool.value.filter(
+        (granted) => granted.featureKey === offer.featureKey,
+      );
+
+      const mode =
+        wizardState.classSpellListModes[offer.featureKey]
+        ?? CLASS_SPELL_LIST_DEFAULT_MODE;
+
+      if (mode === 'all') {
+        return offered;
+      }
+
+      const picked = new Set(
+        wizardState.classSpellListPicks[offer.featureKey] ?? [],
+      );
+
+      return offered.filter((granted) => picked.has(granted.spell.id));
+    }),
+  );
+
+  /**
+   * Записывает, как умение кладёт список класса.
+   *
+   * @param featureKey - ключ умения
+   * @param mode - весь список или выбор
+   */
+  function handleClassSpellListModeUpdate(
+    featureKey: string,
+    mode: ClassSpellListMode,
+  ): void {
+    wizardState.classSpellListModes = {
+      ...wizardState.classSpellListModes,
+      [featureKey]: mode,
+    };
+  }
+
+  /**
+   * Записывает заклинания, выбранные из списка класса.
+   *
+   * @param featureKey - ключ умения
+   * @param spellIds - id заклинаний компендиума
+   */
+  function handleClassSpellListPicksUpdate(
+    featureKey: string,
+    spellIds: string[],
+  ): void {
+    wizardState.classSpellListPicks = {
+      ...wizardState.classSpellListPicks,
+      [featureKey]: spellIds,
+    };
+  }
 
   /**
    * Каталог заклинаний для выборов уровня: «Договор Гримуара» даёт выбрать три
@@ -291,9 +392,10 @@
    * родителю через событие `apply` и закрывает модальное окно.
    */
   async function handleComplete(): Promise<void> {
-    const { systemUpdates, rootUpdates } = buildUpdates(
-      resolvedGrantedSpells.value,
-    );
+    const { systemUpdates, rootUpdates } = buildUpdates([
+      ...resolvedGrantedSpells.value,
+      ...classSpellListGrants.value,
+    ]);
 
     // Стартовое снаряжение — отдельным шагом после сборки: позиции надо
     // сопоставить с компендиумом, а это асинхронно
@@ -483,6 +585,19 @@
             @update:feat-selections="handleFeatSelectionsUpdate"
             @update:feature-skills="handleFeatureSkillsUpdate"
             @open-spell="openSpellDetail"
+          />
+
+          <!-- Списки класса: целиком или выбрать самому -->
+          <WizardStepClassSpellList
+            v-if="activeStepKey === 'classSpellList'"
+            :offers="classSpellListOffers"
+            :pool="classSpellListPool"
+            :loading="!isClassSpellListLoaded"
+            :modes="wizardState.classSpellListModes"
+            :picks="wizardState.classSpellListPicks"
+            :prepared-value="preparedSpellsAtLevel"
+            @update:mode="handleClassSpellListModeUpdate"
+            @update:picks="handleClassSpellListPicksUpdate"
           />
 
           <!-- ASI -->

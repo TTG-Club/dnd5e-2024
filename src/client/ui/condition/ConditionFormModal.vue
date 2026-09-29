@@ -23,9 +23,11 @@
     buildRuntimeConditionRecord,
     DEFAULT_CONDITION_ICON,
     describeActiveEffect,
+    getConditionEntry,
     isCanonConditionKey,
     isConditionTemplateLocked,
     listRuntimeConditions,
+    listStateConditionKinds,
     mintConditionKey,
     readConditionSystemData,
   } from '@vtt/shared/system/dnd.js';
@@ -35,6 +37,7 @@
     SCROLLABLE_DROPDOWN_UI,
   } from '../actor/constants';
   import ActiveEffectFormModal from '../effect/ActiveEffectFormModal.vue';
+  import EffectTriggerConditionPicker from '../effect/form/EffectTriggerConditionPicker.vue';
   import ConditionBadge from './ConditionBadge.vue';
   import {
     CONDITION_EFFECT_MODAL_ID,
@@ -81,6 +84,8 @@
   const icon = ref(DEFAULT_CONDITION_ICON);
   const overlay = ref(false);
   const effect = ref<ActiveEffect | null>(null);
+  /** Правило «вешать автоматически»; нет — только руками */
+  const autoApply = ref<string | undefined>(undefined);
   const isEffectModalOpen = ref(false);
   const effectModalZIndex = ref<number | undefined>(undefined);
   const isAssetBrowserOpen = ref(false);
@@ -171,8 +176,12 @@
       readConditionSystemData(record)?.icon ?? DEFAULT_CONDITION_ICON;
 
     overlay.value = readConditionSystemData(record)?.overlay ?? false;
+    autoApply.value = readConditionSystemData(record)?.autoApply || undefined;
     effect.value = record.activeEffects?.[0] ?? null;
   }
+
+  /** Части правила «вешать автоматически»: только о виде самой сущности. */
+  const stateConditionKinds = listStateConditionKinds();
 
   /** Разбор эффекта человеческим языком — тот же, что в карточке эффекта. */
   const effectSummary = computed(() =>
@@ -220,6 +229,13 @@
     presetKey.value = null;
     icon.value = systemData?.icon ?? DEFAULT_CONDITION_ICON;
     overlay.value = systemData?.overlay ?? false;
+
+    // Правило берётся из справочника, а не из записи: правка канона без своего
+    // правила наследует канонное, и форма обязана показать именно его
+    autoApply.value = systemData
+      ? getConditionEntry(systemData.conditionKey)?.autoApply || undefined
+      : undefined;
+
     effect.value = props.item?.activeEffects?.[0] ?? null;
   }
 
@@ -296,6 +312,9 @@
         image: image.value,
         icon: icon.value,
         overlay: overlay.value,
+        // Пустое правило у правки канона пишется пустой строкой: без поля
+        // запись унаследовала бы правило канона, а его как раз выключили
+        autoApply: autoApply.value ?? (isCanonEdit.value ? '' : undefined),
         effect: effect.value,
       }),
     );
@@ -533,6 +552,21 @@
             class="mt-1.5 text-xs text-dimmed italic"
           >
             {{ CONDITION_FORM_LABELS.effectHint }}
+          </p>
+        </div>
+
+        <!-- Правило «вешать автоматически» -->
+        <div class="rounded-lg border border-default/50 bg-elevated/30 p-3">
+          <EffectTriggerConditionPicker
+            v-model:condition="autoApply"
+            :kinds="stateConditionKinds"
+            :known-tags="[]"
+            :title="CONDITION_FORM_LABELS.autoApply"
+            :empty-text="CONDITION_FORM_LABELS.autoApplyEmpty"
+          />
+
+          <p class="mt-1.5 text-xs text-dimmed italic">
+            {{ CONDITION_FORM_LABELS.autoApplyHint }}
           </p>
         </div>
 

@@ -1,3 +1,9 @@
+import type { DamageTypeChoiceRequest } from '../../composables/damageTypeChoice';
+import type {
+  RolledSpellDamagePart,
+  SpellDamagePartInput,
+} from '../../composables/useSpellResolution';
+
 /**
  * Результат чистой d20-проверки из окна броска — в разбивке.
  *
@@ -18,4 +24,31 @@ export interface CheckRollResult {
    * Числа выше тогда условные — по ним исход не считают
    */
   willing?: true;
+}
+
+/**
+ * Набор урона, который выбирают в окне броска (урон «или» у действия
+ * существа). Всё, что зависит от урона, у набора своё: формула, части, бонус,
+ * вопрос о типе урона и применение.
+ */
+export interface RollDamageVariant {
+  /** Подпись в поле «Урон» */
+  label: string;
+  /** Формула для показа и одночастного пути */
+  formula: string;
+  /** Основной тип урона набора */
+  damageType?: string;
+  /** Части урона набора */
+  damageParts: SpellDamagePartInput[];
+  /** Бонус-части эффектов в момент броска */
+  evaluateBonusDamageParts?: (context: {
+    hasAdvantage: boolean;
+    hasDisadvantage: boolean;
+  }) => SpellDamagePartInput[];
+  /** Тип урона на выбор в наборе */
+  damageTypeChoice?: DamageTypeChoiceRequest;
+  /** Применение брошенных частей */
+  onRollParts: (parts: RolledSpellDamagePart[]) => void;
+  /** Набор выбран — зовётся в начале броска (строка чата) */
+  onSelect: () => void;
 }

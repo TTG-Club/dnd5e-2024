@@ -262,6 +262,7 @@ it('actual save modal reports natural d20 and complete bonus without adding d4 t
     attackRollMode: { value: 'advantage' },
     resolvedDamageType: { value: undefined },
     effectiveFormula: { value: undefined },
+    rollFormula: { value: undefined },
     targetStore: {},
     buildAttackFormula: engine.buildAttackFormula,
     getNaturalD20Roll: engine.getNaturalD20Roll,
@@ -284,7 +285,7 @@ it('actual save modal reports natural d20 and complete bonus without adding d4 t
   assert.equal(formulas[0], '2к20kh1+5+1d4');
   assert.equal(checks[0].natural, 16);
   assert.equal(checks[0].modifier, 9);
-  ports.props.formula = '1к8+3';
+  ports.rollFormula.value = '1к8+3';
   ports.effectiveFormula.value = '1к8+3';
   performSimpleRoll(['1d4']);
   assert.equal(formulas[1], '1к8+3');
@@ -323,6 +324,8 @@ it('actual cast snapshots attack dice before consumeOn and forwards them to proj
       bonusValue: { value: 0 },
       currentConditionalBonuses: { value: { attackBonus: 0, damageBonus: 0 } },
       currentBonusRollFormulas: bonuses,
+      settleRollDamageTypeChoices: () => new Map(),
+      activeDamageVariant: { value: undefined },
       isOpen: { value: true },
       chatStore: { isPrivateRoll: false, isGmOnlyRoll: false },
       DICE_ROLL_LOG_PREFIX: 'test-roll',

@@ -37,6 +37,7 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { EFFECT_USE_LABELS } from '../ui/effect/constants';
+import { runWithDamageTypeChoices } from './damageTypeChoice';
 import {
   payEntityActivation,
   readEntityCounters,
@@ -62,8 +63,9 @@ export interface AmmunitionShot {
 }
 
 /**
- * Применяет эффекты псевдо-заклинания применения: сначала выбор варианта,
- * затем проверка цели, расход и наложение.
+ * Применяет эффекты псевдо-заклинания применения: сначала выбор варианта и
+ * типа урона на выбор (окна броска здесь нет — спрашивает плашка), затем
+ * проверка цели, расход и наложение.
  *
  * @param spell - псевдо-заклинание применения
  * @param user - кто применяет
@@ -77,27 +79,29 @@ export function applyEffectSource(
   saveDc: number,
   spend: () => void,
 ): void {
-  runWithEffectVariants(spell, (chosen) => {
-    if (getTargetSpellEffects(chosen).length === 0) {
-      spend();
-      // Что сделало применение, пишут список наложенного, разбор цели и исход
-      // срабатываний — отдельная строка «применяет» их бы только повторяла
-      applyCasterSpellEffectsToEntity(chosen, user, { saveDc });
+  runWithEffectVariants(spell, (variant) => {
+    runWithDamageTypeChoices(variant, (chosen) => {
+      if (getTargetSpellEffects(chosen).length === 0) {
+        spend();
+        // Что сделало применение, пишут список наложенного, разбор цели и исход
+        // срабатываний — отдельная строка «применяет» их бы только повторяла
+        applyCasterSpellEffectsToEntity(chosen, user, { saveDc });
 
-      return;
-    }
+        return;
+      }
 
-    // Получателя выбирают на карте — себя или другого: «Зелье лечения» с
-    // доставкой «На цели при применении» и пьют, и вливают одним эффектом
-    chooseUseTarget(chosen, user, (targetId) => {
-      spend();
-      applyCasterSpellEffectsToEntity(chosen, user, { saveDc });
+      // Получателя выбирают на карте — себя или другого: «Зелье лечения» с
+      // доставкой «На цели при применении» и пьют, и вливают одним эффектом
+      chooseUseTarget(chosen, user, (targetId) => {
+        spend();
+        applyCasterSpellEffectsToEntity(chosen, user, { saveDc });
 
-      applySpellTargetEffects(
-        chosen,
-        { casterId: user.id, spellSaveDC: saveDc },
-        createChosenEffectTargets(chosen, user.id, [targetId]),
-      );
+        applySpellTargetEffects(
+          chosen,
+          { casterId: user.id, spellSaveDC: saveDc },
+          createChosenEffectTargets(chosen, user.id, [targetId]),
+        );
+      });
     });
   });
 }

@@ -45,6 +45,8 @@ import {
   ABILITY_KEYS,
   ABILITY_LABELS,
   CREATURE_SIZE_TO_TOKEN_SCALE,
+  CURRENCY_AMOUNT_MAX,
+  CURRENCY_AMOUNT_MIN,
   DEFAULT_CREATURE_SIZE,
   EXPERIENCE_TABLE,
   isAbilityType,
@@ -62,6 +64,7 @@ import {
   normalizeCreatureSpellcastingBlocks,
   syncCreatureSpellcastingUses,
 } from './creatureSpellcasting.js';
+import { normalizeCreatureActionRangeType } from './creatureUtils.js';
 import { getCustomBonusValue, parseCustomBonuses } from './customBonuses.js';
 import { formatDiceLetters } from './diceFormula.js';
 import {
@@ -231,19 +234,46 @@ export function calculateExperienceForNextLevel(currentLevel: number): number {
 }
 
 /**
- * Ввод опыта: цепочка целых чисел через `+`/`-` — «300», «+150», «+100+50-20».
- * Типографский минус (`−`) и пробелы приводятся заранее, в самом шаблоне их нет.
+ * Ввод количества со знаком: цепочка целых чисел через `+`/`-` — «300»,
+ * «+150», «+100+50-20». Типографский минус (`−`) и пробелы приводятся заранее,
+ * в самом шаблоне их нет.
  */
-const EXPERIENCE_INPUT_PATTERN = /^[+-]?\d+(?:[+-]\d+)*$/;
+const SIGNED_AMOUNT_INPUT_PATTERN = /^[+-]?\d+(?:[+-]\d+)*$/;
 
-/** Отдельные слагаемые ввода опыта вместе со знаком */
-const EXPERIENCE_TERM_PATTERN = /[+-]?\d+/g;
+/** Отдельные слагаемые ввода вместе со знаком */
+const SIGNED_AMOUNT_TERM_PATTERN = /[+-]?\d+/g;
 
 /**
- * Считает опыт по вводу в поле, как поле хитов у фишки: число без знака —
- * точное значение, со знаком — сдвиг от текущего опыта. Слагаемых может быть
+ * Считает количество по вводу в поле, как поле хитов у фишки: число без знака —
+ * точное значение, со знаком — сдвиг от текущего. Слагаемых может быть
  * несколько («+100+50» — два боя за сессию), знак первого решает, от чего
- * считать. Опыт не уходит ниже нуля.
+ * считать. Границы не накладываются — это дело вызывающего.
+ *
+ * @param input - строка из поля
+ * @param currentAmount - значение сейчас, основа для сдвига
+ * @returns итог или `undefined`, если ввод не разобрать
+ */
+export function resolveSignedAmountInput(
+  input: string,
+  currentAmount: number,
+): number | undefined {
+  const normalized = input.replaceAll('−', '-').replaceAll(/\s/g, '');
+
+  if (!SIGNED_AMOUNT_INPUT_PATTERN.test(normalized)) {
+    return undefined;
+  }
+
+  const isRelative = normalized.startsWith('+') || normalized.startsWith('-');
+
+  return (normalized.match(SIGNED_AMOUNT_TERM_PATTERN) ?? []).reduce(
+    (total, term) => total + Number.parseInt(term, 10),
+    isRelative ? currentAmount : 0,
+  );
+}
+
+/**
+ * Считает опыт по вводу в поле (см. `resolveSignedAmountInput`). Опыт не
+ * уходит ниже нуля.
  *
  * @param input - строка из поля опыта
  * @param currentExperience - опыт персонажа сейчас, основа для сдвига
@@ -253,20 +283,30 @@ export function resolveExperienceInput(
   input: string,
   currentExperience: number,
 ): number | undefined {
-  const normalized = input.replaceAll('−', '-').replaceAll(/\s/g, '');
+  const sum = resolveSignedAmountInput(input, currentExperience);
 
-  if (!EXPERIENCE_INPUT_PATTERN.test(normalized)) {
-    return undefined;
-  }
+  return sum === undefined ? undefined : Math.max(0, sum);
+}
 
-  const isRelative = normalized.startsWith('+') || normalized.startsWith('-');
+/**
+ * Считает количество монет одного вида по вводу в поле кошелька
+ * (см. `resolveSignedAmountInput`): «+15» — получили, «-3» — потратили.
+ * Итог прижимается к границам кошелька: потратить больше, чем есть, значит
+ * остаться с нулём, а не с долгом.
+ *
+ * @param input - строка из поля монет
+ * @param currentAmount - монет этого вида сейчас, основа для сдвига
+ * @returns итоговое количество или `undefined`, если ввод не разобрать
+ */
+export function resolveCurrencyAmountInput(
+  input: string,
+  currentAmount: number,
+): number | undefined {
+  const sum = resolveSignedAmountInput(input, currentAmount);
 
-  const sum = (normalized.match(EXPERIENCE_TERM_PATTERN) ?? []).reduce(
-    (total, term) => total + Number.parseInt(term, 10),
-    isRelative ? currentExperience : 0,
-  );
-
-  return Math.max(0, sum);
+  return sum === undefined
+    ? undefined
+    : Math.min(CURRENCY_AMOUNT_MAX, Math.max(CURRENCY_AMOUNT_MIN, sum));
 }
 
 /**
@@ -411,7 +451,8 @@ export function resolveWeaponProficiency(
  * По правилам D&D 5e дальнобойное оружие (луки, арбалеты) бьёт от Ловкости,
  * рукопашное — от Силы. Метательное рукопашное (`thrown`) остаётся на Силе:
  * у него `rangeType` — `melee`, а Ловкость подключается только свойством
- * «Фехтовальное», которое обрабатывается отдельно.
+ * «Фехтовальное», которое обрабатывается отдельно. Брошенное, оно атакует
+ * дальнобойной атакой, но Силу сохраняет (`withWeaponAttackKind`).
  *
  * @param rangeType - тип оружия по дальности
  * @returns ключ характеристики для атаки и урона
@@ -795,8 +836,10 @@ export function describeWeaponAttack(
 /**
  * Бонус урона эффектов «при атаке характеристикой» для этого оружия: берётся
  * по характеристике атаки — «Ярость» идёт секире Силой, но не рапире, которой
- * бьют через Ловкость. Метательное оружие остаётся рукопашным и бьёт Силой —
- * бонус ему тоже идёт, как и по правилам.
+ * бьют через Ловкость. Метательное оружие ударом идёт веткой рукопашного
+ * урона, а брошенное — дальнобойного (вид выбран до броска,
+ * `withWeaponAttackKind`): бонус, записанный только на рукопашный урон, броску
+ * не идёт.
  *
  * @param actor - владелец оружия
  * @param weapon - оружие
@@ -1478,6 +1521,42 @@ export function normalizeActor(actor: BaseActor): void {
 }
 
 /**
+ * Приводит тип дальности всех записей боевого блока существа к канону:
+ * компендиум TTG Club может прислать «рукопашную или дальнобойную» и в
+ * написании перечисления сайта (`MELEE_OR_RANGE`). Незнакомое значение не
+ * трогается — см. `normalizeCreatureActionRangeType`.
+ *
+ * @param system - `system` существа (мутабельная запись)
+ */
+function normalizeCreatureActionRangeTypes(
+  system: Record<string, unknown>,
+): void {
+  const legendary = isRecord(system.legendary) ? system.legendary : {};
+  const lair = isRecord(system.lair) ? system.lair : {};
+
+  const lists = [
+    system.traits,
+    system.actions,
+    system.bonusActions,
+    system.reactions,
+    legendary.actions,
+    lair.effects,
+  ];
+
+  for (const list of lists) {
+    if (!Array.isArray(list)) {
+      continue;
+    }
+
+    for (const action of list) {
+      if (isRecord(action) && action.rangeType !== undefined) {
+        action.rangeType = normalizeCreatureActionRangeType(action.rangeType);
+      }
+    }
+  }
+}
+
+/**
  * Нормализует объект существа: если данные отсутствуют или неполные,
  * заполняет значениями по умолчанию.
  *
@@ -1639,6 +1718,8 @@ export function normalizeCreature(creature: BaseCreature): void {
   if (typeof system.customEnvironments !== 'string') {
     system.customEnvironments = '';
   }
+
+  normalizeCreatureActionRangeTypes(system);
 
   // Нормализация movement: если отсутствует (legacy-существа) — дефолт 30 фт.
   if (!isRecord(system.movement)) {

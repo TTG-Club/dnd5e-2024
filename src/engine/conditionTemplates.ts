@@ -307,12 +307,16 @@ let cachedRuntimeConditions: RuntimeCondition[] = [];
  * Собирает справочную запись состояния из определения мира.
  *
  * @param definition - состояние, заведённое в мире
+ * @param canonAutoApply - правило канона, которое правка без своего правила
+ *   наследует
  * @returns справочная часть состояния
  */
 function toConditionEntry(
   definition: WorldConditionDefinition,
+  canonAutoApply?: string,
 ): ConditionEntry {
   return {
+    autoApply: definition.autoApply ?? canonAutoApply,
     key: definition.key,
     nameRu: definition.nameRu,
     nameEn: definition.nameEn ?? definition.nameRu,
@@ -371,7 +375,7 @@ export function listRuntimeConditions(): RuntimeCondition[] {
     }
 
     return {
-      entry: toConditionEntry(override),
+      entry: toConditionEntry(override, entry.autoApply),
       template: TEMPLATE_LOCKED_KEYS.includes(entry.key)
         ? canonTemplate
         : {
@@ -709,6 +713,24 @@ export function resolveEffectConditionKey(
   );
 
   return entry?.key;
+}
+
+/**
+ * Несёт ли эффект состояние самой сущности. Аура, которая раздаёт состояние
+ * другим, не в счёт: носителя она не метит.
+ *
+ * @param effect - активный эффект сущности
+ * @param conditionKey - ключ состояния
+ * @returns `true`, если эффект — это состояние на самой сущности
+ */
+export function isOwnConditionEffect(
+  effect: ActiveEffect,
+  conditionKey: ConditionRef,
+): boolean {
+  return (
+    !(effect.aura && !effect.aura.applyToSelf)
+    && resolveEffectConditionKey(effect) === conditionKey
+  );
 }
 
 // ── Сборка эффекта состояния ──────────────────────────────────

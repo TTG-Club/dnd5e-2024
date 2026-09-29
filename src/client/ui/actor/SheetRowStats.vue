@@ -3,13 +3,18 @@
 
   import { computed } from 'vue';
 
-  import { SHEET_ROLL_HINT_LABEL } from './constants';
+  import {
+    SHEET_ROLL_HINT_LABEL,
+    SHEET_ROW_TOOLTIP_LINE_BREAK,
+  } from './constants';
 
   /** Плитка параметра с уже разрешёнными классами оформления */
   interface DecoratedStat {
     key: string;
     label: string;
     value: string;
+    /** Значок рядом со значением */
+    icon?: string;
     /** Строки подсказки: перенос строки в `tooltip` плитки разбивает её */
     tooltipLines: string[];
     rollable: boolean;
@@ -65,13 +70,14 @@
     const rollable = Boolean(stat.rollable);
 
     const lines = (stat.tooltip ?? '')
-      .split('\n')
+      .split(SHEET_ROW_TOOLTIP_LINE_BREAK)
       .filter((line) => line.length > 0);
 
     return {
       key: stat.key,
       label: stat.label,
       value: stat.value,
+      icon: stat.icon,
       tooltipLines: rollable ? [...lines, SHEET_ROLL_HINT_LABEL] : lines,
       rollable,
       containerClass: rollable
@@ -135,10 +141,16 @@
         @click.left.exact.prevent.stop="handleRoll(index)"
       >
         <span
-          class="text-xs font-bold"
+          class="flex items-center gap-0.5 text-xs font-bold"
           :class="stat.valueClass"
         >
           {{ stat.value }}
+
+          <UIcon
+            v-if="stat.icon"
+            :name="stat.icon"
+            class="size-3"
+          />
         </span>
 
         <span
@@ -154,10 +166,16 @@
         :class="[STAT_LAYOUT_CLASSES, stat.containerClass]"
       >
         <span
-          class="text-xs font-bold"
+          class="flex items-center gap-0.5 text-xs font-bold"
           :class="stat.valueClass"
         >
           {{ stat.value }}
+
+          <UIcon
+            v-if="stat.icon"
+            :name="stat.icon"
+            class="size-3"
+          />
         </span>
 
         <span

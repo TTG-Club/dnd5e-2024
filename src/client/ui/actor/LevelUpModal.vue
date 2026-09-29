@@ -15,6 +15,7 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { LEVEL_UP_LABELS, MODAL_BUTTON_LABELS } from './constants';
+  import { selectInputOnFocus } from './utils/selectInputOnFocus';
 
   interface Props {
     open: boolean;
@@ -138,16 +139,6 @@
     emit('remove-class', pendingRemoveKey.value);
     pendingRemoveKey.value = null;
     isOpen.value = false;
-  }
-
-  /**
-   * Выделяет весь опыт при входе в поле: чаще всего опыт добавляют, и «+150»
-   * должно заменить старое число, а не дописаться к нему.
-   */
-  function selectExperienceInput(event: FocusEvent) {
-    if (event.target instanceof HTMLInputElement) {
-      event.target.select();
-    }
   }
 
   /**
@@ -345,7 +336,7 @@
               :ui="{
                 base: 'bg-inverted/5 text-highlighted rounded-lg px-3 py-2 focus:bg-inverted/10 transition-colors tabular-nums',
               }"
-              @focus="selectExperienceInput"
+              @focus="selectInputOnFocus"
               @keydown.enter.prevent="applyLevelUp"
             />
 

@@ -659,9 +659,31 @@ function recordGrantedSpellGroups(
   return groups;
 }
 
+/**
+ * Блоб даров умения без списков классов. Пустой после этого блоб не пишется.
+ *
+ * @param featData - собранный блоб даров
+ * @returns блоб без `grantedClassSpells` либо `undefined`
+ */
+function withoutClassLists(featData: FeatData): FeatData | undefined {
+  const { grantedClassSpells: _classLists, ...rest } = featData;
+
+  return Object.keys(rest).some((key) => key !== 'type') ? rest : undefined;
+}
+
 /** Разворачивает умение класса в редактируемые поля. */
 export function toEditableFeature(feature: ClassFeature): EditableClassFeature {
-  const grants = featDataToGrants(feature.featData);
+  // Списки классов лежат полем умения; у записей мира, сохранённых раньше, —
+  // в блобе даров. Форма показывает их одинаково
+  const grants = featDataToGrants(
+    feature.grantedClassSpells
+      ? {
+          type: 'feat',
+          ...feature.featData,
+          grantedClassSpells: feature.grantedClassSpells,
+        }
+      : feature.featData,
+  );
 
   // Выдача умения показывается из полей записи: в блобе лежит её же копия — так
   // кладёт выгрузка сайта, — и вместе они удвоили бы список. Списки классов,
@@ -1136,7 +1158,16 @@ export function buildFeature(
   // идут их ступени. Здесь их надо снять, иначе они уехали бы двумя копиями
   // Выдача уезжает и полями записи, и блобом — ровно как её кладёт выгрузка
   // сайта: лист читает оба пути и схлопывает повтор по названию заклинания
-  const featData = buildFeatData({ ...feature.grants, counters: [] });
+  const builtFeatData = buildFeatData({ ...feature.grants, counters: [] });
+
+  // Списки классов целиком уезжают полем умения, как их кладёт выгрузка сайта:
+  // мастер класса спрашивает по ним «весь список или выбрать самому», а из блоба
+  // даров их выдал бы без спроса
+  if (builtFeatData?.grantedClassSpells) {
+    built.grantedClassSpells = builtFeatData.grantedClassSpells;
+  }
+
+  const featData = builtFeatData ? withoutClassLists(builtFeatData) : undefined;
 
   if (featData) {
     built.featData = featData;

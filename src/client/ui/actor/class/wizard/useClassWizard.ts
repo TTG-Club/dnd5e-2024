@@ -18,6 +18,7 @@ import type {
   ClassFeatureChoice,
   ClassFeatureSkillChoice,
   ClassOptionGrant,
+  ClassSpellListOffer,
   ClassSpellListRequest,
   DnDActor,
   FeatChoice,
@@ -27,6 +28,7 @@ import type {
   GrantedSpellSource,
   HitPointMethod,
   ResolvedGrantedSpell,
+  SpellGrantKind,
 } from '@vtt/shared/system/dnd.js';
 
 import type { AppliedFeatFeature, CompendiumFeat } from '../../feat/featApply';
@@ -42,6 +44,7 @@ import {
   calculateProficiencyBonus,
   collectClassCounterDefinitions,
   collectClassOptionGrants,
+  collectClassSpellListOffers,
   collectFeatChoiceProficiencies,
   collectFeatGrantedClassSpellRequests,
   collectFeatGrantedSpellSources,
@@ -53,6 +56,8 @@ import {
   featChoicePendingCount,
   findScalingParentFeature,
   getAllClassFeatures,
+  getClassPreparedValue,
+  getMaxSpellSlotLevel,
   getMulticlassProficiencies,
   getTotalLevel,
   getVisibleFeatChoices,
@@ -103,6 +108,7 @@ export type WizardStepKey =
   | 'proficiencies'
   | 'skills'
   | 'features'
+  | 'classSpellList'
   | 'equipment'
   | 'asi';
 
@@ -170,7 +176,23 @@ export interface WizardState {
    * код черты.
    */
   featDataChoices: Record<string, string[]>;
+  /**
+   * Как умение кладёт на лист открывшиеся списки класса: целиком либо только
+   * выбранное игроком. Ключ — ключ умения; нет ответа — выбор самому.
+   */
+  classSpellListModes: Record<string, ClassSpellListMode>;
+  /** Заклинания, выбранные из списков класса: ключ умения → id компендиума */
+  classSpellListPicks: Record<string, string[]>;
 }
+
+/** Как умение кладёт на лист список класса: целиком или только выбранное */
+export type ClassSpellListMode = 'all' | 'chosen';
+
+/**
+ * Режим списка класса, пока игрок не ответил: выбор самому. Весь список
+ * чародея — десятки заклинаний, и класть его без спроса не стоит.
+ */
+export const CLASS_SPELL_LIST_DEFAULT_MODE: ClassSpellListMode = 'chosen';
 
 /** Умение класса с указанием источника (базовый класс или подкласс) */
 export interface WizardFeatureItem extends ClassFeature {
@@ -280,6 +302,7 @@ const STEP_DEFINITIONS: Record<WizardStepKey, Omit<WizardStepItem, 'value'>> = {
   proficiencies: { title: 'Владения' },
   skills: { title: 'Навыки' },
   features: { title: 'Умения' },
+  classSpellList: { title: 'Заклинания' },
   equipment: { title: 'Снаряжение' },
   asi: { title: 'Характеристики' },
 };
@@ -290,6 +313,50 @@ const STEP_DEFINITIONS: Record<WizardStepKey, Omit<WizardStepItem, 'value'>> = {
  * иначе заняла бы его строку.
  */
 const OWN_GRANTS_ROW_PREFIX = 'own:';
+
+/**
+ * Помечает выдачу уровня выдачей умения класса: колонки таблицы класса
+ * считают только её.
+ *
+ * @param grant - источник или запрос выдачи
+ * @returns тот же источник с видом выдачи
+ */
+function asClassGrant<T extends { grantKind?: SpellGrantKind }>(grant: T): T {
+  return { ...grant, grantKind: grant.grantKind ?? 'class' };
+}
+
+/**
+ * Помечает выдачу черты, взятой уровнем: её заклинания идут сверх колонок
+ * таблицы класса.
+ *
+ * @param grant - источник или запрос выдачи
+ * @returns тот же источник с видом выдачи
+ */
+function asFeatGrant<T extends { grantKind?: SpellGrantKind }>(grant: T): T {
+  return { ...grant, grantKind: grant.grantKind ?? 'feat' };
+}
+
+/**
+ * Блоб даров умения класса без выдачи, которую ведут поля самого умения.
+ *
+ * Перечень выдаёт `grantedSpells`/`grantedSpellsByLevel` умения по уровню
+ * КЛАССА, а в блобе лежит его копия с отметками подготовки: выданная блобом, она
+ * открывалась бы по уровню персонажа, и у мультикласса заклинания домена
+ * приходили бы раньше срока. Списки классов спрашивает свой шаг мастера — из
+ * блоба они легли бы на лист без спроса.
+ *
+ * @param featData - дары умения
+ * @returns дары без перечня и списков классов
+ */
+function withoutFeatureSpellGrants(featData: FeatData): FeatData {
+  const {
+    grantedSpells: _grantedSpells,
+    grantedClassSpells: _grantedClassSpells,
+    ...rest
+  } = featData;
+
+  return rest;
+}
 
 /** Владения актора — то, что дары уровня правят. */
 type WizardProficiencies = DnDActor['system']['proficiencies'];
@@ -635,6 +702,8 @@ export function useClassWizard(
     },
     toolProficiencies: [],
     featDataChoices: {},
+    classSpellListModes: {},
+    classSpellListPicks: {},
   });
 
   /** Активный ключ подкласса (выбранный ранее или на текущем шаге) */
@@ -1105,7 +1174,9 @@ export function useClassWizard(
         collected.push({
           sourceKey: feature.key,
           sourceName: feature.name,
-          featData: openedFeatData(feature.featData, nextLevel.value),
+          featData: withoutFeatureSpellGrants(
+            openedFeatData(feature.featData, nextLevel.value),
+          ),
         });
       }
     }
@@ -1683,10 +1754,12 @@ export function useClassWizard(
               choices: wizardState.featDataChoices,
             },
             pendingActor.value,
-          ),
+          ).map(asClassGrant),
       ),
       ...chosenCompendiumFeats.value.flatMap((feat) =>
-        collectFeatGrantedSpellSources(feat, pendingActor.value),
+        collectFeatGrantedSpellSources(feat, pendingActor.value).map(
+          asFeatGrant,
+        ),
       ),
     ].map((source) => ({
       ...source,
@@ -1712,10 +1785,12 @@ export function useClassWizard(
             choices: wizardState.featDataChoices,
           },
           pendingActor.value,
-        ),
+        ).map(asClassGrant),
       ),
       ...chosenCompendiumFeats.value.flatMap((feat) =>
-        collectFeatGrantedClassSpellRequests(feat, pendingActor.value),
+        collectFeatGrantedClassSpellRequests(feat, pendingActor.value).map(
+          asFeatGrant,
+        ),
       ),
     ].map((request) => ({
       ...request,
@@ -1724,6 +1799,60 @@ export function useClassWizard(
       preferredPackId: request.preferredPackId ?? packId.value,
     })),
   );
+
+  /**
+   * Списки классов, которые умения открывают этим уровнем: мастер спрашивает по
+   * каждому умению, класть список целиком или выбрать из него самому.
+   *
+   * Круг «по ячейкам» сравнивается до и после уровня: новый круг ячеек снова
+   * открывает такой список, хотя его умение получено давно.
+   */
+  const classSpellListOffers = computed((): ClassSpellListOffer[] => {
+    const classDef = classDefinition.value;
+
+    if (!classDef) {
+      return [];
+    }
+
+    const offers = collectClassSpellListOffers(
+      [...classDef.features, ...(activeSubclass.value?.features ?? [])],
+      nextLevel.value,
+      {
+        before: getMaxSpellSlotLevel(actor.value),
+        after: getMaxSpellSlotLevel(pendingActor.value),
+      },
+    );
+
+    // Список класса собирается из пака самой записи класса — как и остальная
+    // выдача мастера
+    return offers.map((offer) => ({
+      ...offer,
+      requests: offer.requests.map((request) => ({
+        ...request,
+        preferredPackId: request.preferredPackId ?? packId.value,
+      })),
+    }));
+  });
+
+  /**
+   * Сколько заклинаний этот класс готовит на получаемом уровне по своей
+   * таблице — подсказка к выбору из списка класса. null — колонки нет.
+   */
+  const preparedSpellsAtLevel = computed((): number | null => {
+    const classDef = classDefinition.value;
+
+    if (!classDef) {
+      return null;
+    }
+
+    return getClassPreparedValue(
+      (pendingActor.value.system.classes ?? []).filter(
+        (entry) => entry.classKey === classDef.key,
+      ),
+      () => classDef,
+      'spells',
+    );
+  });
 
   /** Требуется ли выбор подкласса на этом уровне */
   const hasSubclassSelection = computed(() => {
@@ -1855,6 +1984,15 @@ export function useClassWizard(
       steps.push({ value: 'features', ...STEP_DEFINITIONS.features });
     }
 
+    // Списки класса — после умений: подкласс, выбранный там, сам может открыть
+    // свой список
+    if (classSpellListOffers.value.length > 0) {
+      steps.push({
+        value: 'classSpellList',
+        ...STEP_DEFINITIONS.classSpellList,
+      });
+    }
+
     // Стартовое снаряжение берут один раз — при взятии класса на 1 уровне
     if (isFirstClass.value && (classDef.startingEquipment?.length ?? 0) > 0) {
       steps.push({ value: 'equipment', ...STEP_DEFINITIONS.equipment });
@@ -1975,6 +2113,8 @@ export function useClassWizard(
     wizardState.featDataChoices = {};
     wizardState.asi = { mode: 'asi', abilityIncreases: {}, featKey: null };
     wizardState.toolProficiencies = [];
+    wizardState.classSpellListModes = {};
+    wizardState.classSpellListPicks = {};
   }
 
   // Класс приходит и ПОСЛЕ открытия: мастер открывается со скелетоном, пока
@@ -2827,6 +2967,8 @@ export function useClassWizard(
     featChoiceProficiencyBonus,
     grantedSpellSources,
     grantedClassSpellRequests,
+    classSpellListOffers,
+    preparedSpellsAtLevel,
 
     // Навигация
     nextStep,

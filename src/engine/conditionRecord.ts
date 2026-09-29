@@ -43,6 +43,9 @@ const ConditionSystemDataSchema = z.object({
   conditionKey: z.string().min(1),
   icon: z.string().min(1).optional(),
   overlay: z.boolean().optional(),
+  // Правило «вешать автоматически». Нет поля — у правки канона действует
+  // правило канона; пустая строка — правило выключено
+  autoApply: z.string().optional(),
 });
 
 /** Системные данные записи состояния. */
@@ -119,8 +122,23 @@ export function parseConditionRecord(
     customImage: image.length > 0 ? image : undefined,
     description,
     overlay: systemData.overlay,
+    autoApply: systemData.autoApply,
     template: parseConditionTemplate(item.activeEffects),
   };
+}
+
+/**
+ * Разбирает состояния из записей мира: чужие типы и битые записи пропускаются.
+ *
+ * @param items - записи мира (любых типов)
+ * @returns определения состояний мира
+ */
+export function parseWorldConditionRecords(
+  items: readonly unknown[],
+): WorldConditionDefinition[] {
+  return items
+    .map(parseConditionRecord)
+    .filter((definition) => definition !== null);
 }
 
 /**
@@ -170,6 +188,8 @@ export interface ConditionRecordInput {
   icon?: string;
   /** Рисовать значок крупно поверх всей фишки */
   overlay?: boolean;
+  /** Правило «вешать автоматически»; пустая строка — только руками */
+  autoApply?: string;
   /** Эффект состояния (без эффекта состояние — чистая метка) */
   effect: ActiveEffect | null;
 }
@@ -208,6 +228,7 @@ export function buildConditionRecord(input: ConditionRecordInput): DnDGameItem {
       conditionKey: input.conditionKey,
       icon: input.icon,
       overlay: input.overlay,
+      autoApply: input.autoApply,
     },
   };
 }
@@ -240,6 +261,7 @@ export function buildRuntimeConditionRecord(
     image: condition.entry.customImage,
     icon: condition.entry.icon,
     overlay: condition.entry.overlay,
+    autoApply: condition.entry.autoApply,
     effect: buildConditionActiveEffect(condition.entry.key),
   });
 }

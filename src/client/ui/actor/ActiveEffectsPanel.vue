@@ -48,7 +48,7 @@
     collectEffectUseGroup,
     describeEscapeUnavailable,
     dnd5eSystemInstance,
-    effectUseGroupName,
+    effectVariantGroupName,
     formatEffectEscapeLabel,
     formatEffectStageLabel,
     hasEffectActiveAction,
@@ -332,7 +332,9 @@
           effect,
           name: props.isEditMode
             ? effect.name
-            : effectUseGroupName(collectEffectUseGroup(props.effects, effect)),
+            : effectVariantGroupName(
+                collectEffectUseGroup(props.effects, effect),
+              ),
           canDrag: canDragToHotbar(effect),
           rowClass: effectRowClass(effect),
           stageLabel: formatEffectStageLabel(effect),

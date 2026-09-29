@@ -49,7 +49,12 @@
 
   const props = defineProps<{
     /** Событие срабатывания: от него зависят доступные части */
-    event: EffectTriggerEvent;
+    event?: EffectTriggerEvent;
+    /**
+     * Доступные части списком — вместо события. Правилу состояния события нет:
+     * ему годятся только части о виде сущности (`listStateConditionKinds`)
+     */
+    kinds?: readonly TriggerConditionKind[];
     /** Отметки, которые ставит этот эффект: условие по отметке их предлагает */
     knownTags: readonly string[];
     /** Заголовок; нет — «Условие» */
@@ -301,8 +306,17 @@
     );
   }
 
+  /** Части, которые можно добавить: заданные списком либо по событию */
+  const availableKinds = computed<readonly TriggerConditionKind[]>(() => {
+    if (props.kinds) {
+      return props.kinds;
+    }
+
+    return props.event ? listTriggerConditionKinds(props.event) : [];
+  });
+
   const addItems = computed<DropdownMenuItem[]>(() =>
-    listTriggerConditionKinds(props.event).map((kind) => ({
+    availableKinds.value.map((kind) => ({
       label: EFFECT_TRIGGER_CONDITION_KIND_LABELS[kind],
       onSelect: () => addPart(kind),
     })),

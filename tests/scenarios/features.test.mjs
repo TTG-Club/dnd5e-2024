@@ -386,7 +386,7 @@ describe('каталог: классы и черты', () => {
       'тот же ресурс без группы — отдельное применение',
     );
 
-    assert.equal(engine.effectUseGroupName(group), 'Божественная искра');
+    assert.equal(engine.effectVariantGroupName(group), 'Божественная искра');
 
     const spell = engine.buildEffectGroupUseSpell(group);
 
@@ -443,6 +443,104 @@ describe('каталог: классы и черты', () => {
     );
 
     assert.equal(healing?.values.length, 2, 'брошено две к8');
+  });
+
+  it('[F20] Ярость диких земель: варианты одного переключателя', () => {
+    const aspect = (label, overrides = {}) =>
+      createEffect(engine.buildClassEffectId('barbarian', `wild-${label}`), {
+        name: `Ярость диких земель: ${label}`,
+        origin: 'feature',
+        originId: 'barbarian',
+        disabled: true,
+        activation: { mode: 'toggle' },
+        variant: { group: 'Ярость диких земель', label },
+        duration: { type: 'minutes', value: 10 },
+        ...overrides,
+      });
+
+    const bear = aspect('Медведь', { flags: ['resistance.slashing'] });
+    const eagle = aspect('Орёл');
+    const wolf = aspect('Волк');
+
+    const rage = createEffect(engine.buildClassEffectId('barbarian', 'rage'), {
+      name: 'Ярость',
+      origin: 'feature',
+      originId: 'barbarian',
+      disabled: true,
+      activation: { mode: 'toggle', counter: 'rage' },
+    });
+
+    const sheet = [rage, bear, eagle, wolf];
+    const group = engine.collectEffectToggleGroup(sheet, eagle);
+
+    assert.deepEqual(
+      group.map((effect) => effect.id),
+      [bear.id, eagle.id, wolf.id],
+      'варианты — один переключатель, в порядке листа',
+    );
+
+    assert.deepEqual(
+      engine.collectEffectToggleGroup(sheet, rage),
+      [rage],
+      'переключатель без группы — сам по себе',
+    );
+
+    assert.deepEqual(
+      engine.collectEffectUseGroup(sheet, bear),
+      [bear],
+      'группы применения и переключателя не смешиваются',
+    );
+
+    assert.equal(engine.effectVariantGroupName(group), 'Ярость диких земель');
+
+    // Варианты на листе выключены — выбор всё равно видит все три
+    const choice = engine.buildEffectToggleChoice(group);
+
+    assert.equal(choice.name, 'Ярость диких земель');
+
+    assert.deepEqual(
+      engine
+        .listEffectVariantGroups(choice.activeEffects)
+        .map((entry) => [entry.group, entry.labels]),
+      [['Ярость диких земель', ['Медведь', 'Орёл', 'Волк']]],
+      'выключенные шаблоны листа попадают в выбор',
+    );
+
+    assert.deepEqual(
+      choice.activeEffects.map((effect) => effect.id),
+      [bear.id, eagle.id, wolf.id],
+      'включается эффект листа по прежнему id',
+    );
+
+    assert.equal(bear.disabled, true, 'эффект листа не тронут');
+
+    const withBear = engine.activateEffectOnEntity(
+      createActor({
+        activeEffects: [{ ...rage, disabled: false }, bear, eagle, wolf],
+      }),
+      bear.id,
+    );
+
+    const withEagle = engine.activateEffectOnEntity(withBear, eagle.id);
+
+    assert.deepEqual(
+      withEagle.activeEffects.map((effect) => [effect.name, effect.disabled]),
+      [
+        ['Ярость', false],
+        ['Ярость диких земель: Медведь', true],
+        ['Ярость диких земель: Орёл', false],
+        ['Ярость диких земель: Волк', true],
+      ],
+      'включён один вариант; ярость без группы не тронута',
+    );
+
+    const layout = engine.resolveEffectFormLayout('feature', bear);
+
+    assert.equal(
+      layout.showVariant,
+      true,
+      'вариант переключателя не мёртвое поле',
+    );
   });
 
   it('[F17] Аура защиты: радиус растёт с уровнем и гаснет у недееспособного', () => {

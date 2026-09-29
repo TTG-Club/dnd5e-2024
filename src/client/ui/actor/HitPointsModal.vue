@@ -127,6 +127,36 @@
    */
   const sheetMaxTotal = computed(() => editHp.max + effectsMaxBonus.value);
 
+  /** Подпись поля максимума: с эффектами в нём не итог, а запас листа */
+  const maxFieldLabel = computed(() =>
+    hasSheetTotal.value
+      ? HIT_POINTS_LABELS.totalWithoutEffects
+      : HIT_POINTS_LABELS.total,
+  );
+
+  /**
+   * Текущие хиты в границах итогового максимума (с эффектами) — рукой их выше
+   * не поднять, как и лечением: сверх максимума бывают только временные хиты,
+   * у них своё поле.
+   */
+  const boundedCurrentHitPoints = computed(() =>
+    Math.min(Math.max(0, editHp.current), Math.max(0, sheetMaxTotal.value)),
+  );
+
+  /**
+   * Правка текущих хитов. Срез до максимума — при уходе из поля и при
+   * «Применить», а не на каждой цифре: набирая «87», человек проходит через
+   * «8», и срез на лету не давал бы набрать число больше одной цифры.
+   */
+  function handleCurrentInput(value: unknown): void {
+    editHp.current = Number(value);
+  }
+
+  /** Уход из поля текущих хитов: набранное сверх максимума срезается */
+  function handleCurrentBlur(): void {
+    editHp.current = boundedCurrentHitPoints.value;
+  }
+
   /** Разбор итога: какие эффекты двигают максимум хитов и насколько */
   const sheetTotalTooltip = computed(() => {
     const lines: string[] = [HIT_POINTS_LABELS.sheetTotalHint];
@@ -230,8 +260,9 @@
 
   /** Применяет изменения очков здоровья и костей хитов */
   function applyHitPoints() {
+    // Максимум могли опустить уже после текущих хитов — срез и здесь
     emit('apply', {
-      current: editHp.current,
+      current: boundedCurrentHitPoints.value,
       max: editHp.max,
       temp: editHp.temp,
       classes: editClasses.value,
@@ -268,8 +299,10 @@
               :model-value="editHp.current"
               type="number"
               :min="0"
+              :max="sheetMaxTotal"
               size="lg"
-              @update:model-value="editHp.current = Number($event)"
+              @update:model-value="handleCurrentInput"
+              @blur="handleCurrentBlur"
             />
           </div>
 
@@ -279,7 +312,7 @@
             <span
               class="text-[10px] font-bold tracking-wider text-muted uppercase"
             >
-              {{ HIT_POINTS_LABELS.total }}
+              {{ maxFieldLabel }}
             </span>
 
             <UInput

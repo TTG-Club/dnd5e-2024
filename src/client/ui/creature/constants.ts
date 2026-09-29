@@ -8,6 +8,7 @@
  */
 
 import type {
+  AttackKind,
   CreatureAction,
   CreatureRecharge,
   CreatureSpellGroup,
@@ -20,6 +21,8 @@ import {
   isCreatureSpellPoolMode,
   isCreatureSpellRestMode,
 } from '@vtt/shared/system/dnd.js';
+
+import { SHEET_ROW_TOOLTIP_LINE_BREAK } from '../actor/constants';
 
 /**
  * Подпись основы бонуса мастерства существа: у него нет уровней, и по правилам
@@ -84,6 +87,19 @@ export const CREATURE_RANGE_TYPE_LABELS: Record<
 > = {
   melee: 'Ближний бой',
   ranged: 'Дальний бой',
+  meleeOrRanged: 'Рукопашная или дальнобойная',
+};
+
+/** Варианты вопроса перед атакой «рукопашная или дальнобойная» */
+export const CREATURE_ATTACK_KIND_LABELS: Record<AttackKind, string> = {
+  melee: 'Рукопашная',
+  ranged: 'Дальнобойная',
+};
+
+/** Выбранный вид атаки действием существа в строке чата */
+export const CREATURE_ATTACK_KIND_CHAT_LABELS: Record<AttackKind, string> = {
+  melee: 'рукопашная атака',
+  ranged: 'дальнобойная атака',
 };
 
 /**
@@ -526,6 +542,8 @@ export const CREATURE_ACTION_DETAIL_LABELS = {
   rangePrefix: 'Дальность:',
   reachPrefix: 'Досягаемость:',
   rechargePrefix: 'Перезарядка:',
+  /** Вид броска записи «рукопашная или дальнобойная» */
+  attackMeleeOrRanged: 'Рукопашная или дальнобойная атака',
 } as const;
 
 /** Подписи боевого блока листа существа */
@@ -696,6 +714,11 @@ export const CREATURE_ACTION_FORM_LABELS = {
   rechargeNone: 'Без перезарядки',
   rangeTypeMelee: 'Ближний бой',
   rangeTypeRanged: 'Дальний бой',
+  rangeTypeMeleeOrRanged: 'Рукопашная или дальнобойная',
+  /** Пояснение под дальностями «рукопашной или дальнобойной» атаки */
+  meleeOrRangedHint:
+    'Досягаемость — для рукопашной атаки, дистанция — для дальнобойной. Вид '
+    + 'атаки выбирается при броске; цель за досягаемостью — сразу дальнобойная.',
   attackBonus: '+ к попаданию',
   damageTitle: 'Урон / лечение',
   damageHint:
@@ -745,21 +768,19 @@ export const CREATURE_DAMAGE_ALTERNATIVE_LABELS = {
     + 'сработает.',
 } as const;
 
-/** Приставка ключа плашки выбора урона */
-export const CREATURE_DAMAGE_MODAL_KEY_PREFIX = 'creature-damage';
-
-/** Подписи выбора урона «или» при атаке: плашка, чат, строка листа */
+/** Подписи выбора урона «или» при атаке: окно броска, чат, строка листа */
 export const CREATURE_DAMAGE_CHOICE_LABELS = {
-  /** Имя группы в плашке выбора — одна группа, поэтому на плашке не видно */
-  groupName: 'Урон',
   /** Набор без частей урона */
   noDamage: 'без урона',
+  /**
+   * Подпись основного урона в поле «Урон» окна броска, когда варианты
+   * отличаются от него не только типом: «Основной урон: 2к6+4 колющий»
+   */
+  base: 'Основной урон',
   labelSeparator: ': ',
   chatSeparator: ': ',
-  /** Между формулами основного урона и вариантов в строке листа */
-  formulaSeparator: ' / ',
   /** Между строками подсказки к урону в строке листа */
-  hintSeparator: '\n',
+  hintSeparator: SHEET_ROW_TOOLTIP_LINE_BREAK,
   /** Начало строки варианта в подсказке и карточке: «или 1к4 + 1 яд, …» */
   orPrefix: 'или ',
   /** Между набором и условием: «…, если рой окровавлен» */
@@ -770,7 +791,7 @@ export const CREATURE_DAMAGE_CHOICE_LABELS = {
   /** Своя подпись варианта в карточке действия: «или «С преимуществом», …» */
   labelOpen: ' «',
   labelClose: '»',
-  /** Повтор подписи в плашке выбора: «1к4 + 1 яд (2)» */
+  /** Повтор подписи в поле выбора окна: «1к4 + 1 яд (2)» */
   duplicateOpen: ' (',
   duplicateClose: ')',
 } as const;

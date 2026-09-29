@@ -20,6 +20,7 @@ import type {
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
+import type { CreatureDamageVariant } from '../composables/creatureDamageChoice';
 import type { SpellCasterSource } from '../composables/spellCastCompletion';
 import type { SpellEffectTargets } from '../composables/spellEffectTargeting';
 import type {
@@ -51,6 +52,7 @@ import {
   canPayActivation,
   checkRange,
   collectActiveEffects,
+  collectEffectToggleGroup,
   consumeCreatureSpellGroupUse,
   creatureActionHasSave,
   damagePartIsHealing,
@@ -102,11 +104,20 @@ import {
   withFlatFormulaBonus,
 } from '@vtt/shared/system/dnd.js';
 
+import {
+  runCreatureActionChoices,
+  runWeaponAttackChoices,
+} from '../composables/attackKindChoice';
 import { resolveTargetedAttackRoll } from '../composables/attackRollMode';
 import {
+  buildCreatureRollVariants,
   launchCreatureAction,
   runWithCreatureDamageChoice,
 } from '../composables/creatureDamageChoice';
+import {
+  requestDamageTypeChoiceFor,
+  runWithDamageTypeChoices,
+} from '../composables/damageTypeChoice';
 import {
   applyActionSelfEffects,
   applyEntityEffectUse,
@@ -137,6 +148,7 @@ import {
 } from '../composables/spellEffectTargeting';
 import {
   castNeedsMultiPart,
+  castReachesTargets,
   discardSpellTemplate,
   getTargetSpellEffects,
   postSpellEffectsMessage,
@@ -458,13 +470,19 @@ function executeItemUse(macro: HotbarMacro): void {
  */
 function resolveFeatureToggleSlot(macro: HotbarMacro): MacroSlotState {
   const owner = useWorldEntities().findCurrentDndEntity(macro.actorId);
-  const effect = owner?.activeEffects?.find((entry) => entry.id === macro.ref);
+  const effects = owner?.activeEffects ?? [];
+  const effect = effects.find((entry) => entry.id === macro.ref);
 
   if (!owner || !effect) {
     return { disabled: true, hint: FEATURE_TOGGLE_SLOT_LABELS.missingHint };
   }
 
-  if (!effect.disabled) {
+  // Слот варианта горит, когда включён любой вариант его переключателя
+  const isOn = collectEffectToggleGroup(effects, effect).some(
+    (entry) => !entry.disabled,
+  );
+
+  if (isOn) {
     return {
       badge: FEATURE_TOGGLE_SLOT_LABELS.activeBadge,
       hint: FEATURE_TOGGLE_SLOT_LABELS.activeHint,
@@ -594,7 +612,7 @@ export function registerDnd5eMacros(): void {
 
         const ammunitionId = shot.ammunition?.id;
 
-        runWithEffectVariants(shot.weapon, (foundWeapon) => {
+        runWeaponAttackChoices(shot.weapon, result.actor.id, (foundWeapon) => {
           const foundActor = result.actor;
 
           // resolvedStats для @mod.* в формулах частей и статического урона
@@ -675,6 +693,18 @@ export function registerDnd5eMacros(): void {
             targetType: buildTargetTypeContext(),
           });
 
+          // Тип урона на выбор спрашивает окно броска: части урона решает оно
+          // само, а эффекты оружия на цель получают тот же тип здесь
+          let weaponSpell = weaponPartsSetup.pseudoSpell;
+
+          const damageTypeChoice = requestDamageTypeChoiceFor(
+            foundWeapon,
+            weaponPartsSetup.pseudoSpell,
+            (chosen) => {
+              weaponSpell = chosen;
+            },
+          );
+
           /**
            * Применяет брошенные части урона оружия через многочастный оркестратор
            * (защиты по типу на каждую часть, per-target гейты, спасбросок оружия,
@@ -708,7 +738,7 @@ export function registerDnd5eMacros(): void {
 
             void resolveSpellDamageWithParts(
               {
-                spell: weaponPartsSetup.pseudoSpell,
+                spell: weaponSpell,
                 damageTotal: 0,
                 spellSaveDC: weaponSaveDC,
                 actors,
@@ -775,6 +805,7 @@ export function registerDnd5eMacros(): void {
             // resolveSpellDamageWithParts по applySave/приземлению). Прямого onHit
             // нет — он вешал эффект на каждое попадание мимо спасброска.
             onRollParts: handleWeaponRollParts,
+            damageTypeChoice,
             // Расход одноразовых эффектов «следующей атаки» (Злая насмешка и т.п.)
             attackerId: foundActor.id,
             // Боеприпас тратится, когда бросок пошёл, а не при открытии окна
@@ -1020,16 +1051,22 @@ function executeSpellCast(
 /**
  * Открывает DiceRollModal для заклинания.
  *
- * @param spell - заклинание
+ * @param sourceSpell - заклинание; тип урона на выбор в нём ещё не решён
  * @param actor - актор-владелец
  * @param cachedTemplate - кэшированные данные шаблона для определения целей
+ * @param lockedSpellLevel - круг, выбранный до окна
  */
 function openDiceRollForSpell(
-  spell: import('@vtt/shared/system/dnd.js').Spell,
+  sourceSpell: Spell,
   actor: DnDActor,
   cachedTemplate?: MeasurementTemplate,
   lockedSpellLevel?: number,
 ): void {
+  // Тип урона на выбор спрашивает окно броска: в начале броска заклинание
+  // заменяется выбранным, и всё, что ложится после (урон, эффекты на цель,
+  // зона), идёт одним типом
+  let spell = sourceSpell;
+
   // Проверяем наличие снарядов (до открытия модалки): число снарядов зависит
   // от контекста каста — круга ячейки (уровневые) или уровня персонажа (заговоры)
   const casterLevel = getTotalLevel(actor.system?.classes);
@@ -1074,6 +1111,14 @@ function openDiceRollForSpell(
     };
 
     const castKey = generateId(SPELL_CAST_KEY_PREFIX);
+
+    const damageTypeChoice = requestDamageTypeChoiceFor(
+      sourceSpell,
+      sourceSpell,
+      (chosen) => {
+        spell = chosen;
+      },
+    );
 
     beginSpellCast(actor.id, spell, castKey);
 
@@ -1470,6 +1515,7 @@ function openDiceRollForSpell(
       skipChatMessage: hasProjectiles,
       onRoll: handleSpellRoll,
       beforeRoll: isCurrentProjectileCast,
+      damageTypeChoice,
 
       // Атакующее заклинание-эффект (без многочастного пути): эффекты на цель
       // вешаем по ПОПАДАНИЮ. Многочастные уронные накладывают их сами.
@@ -1598,7 +1644,7 @@ function openDiceRollForSpell(
  * эмитов). Эффекты с effectTarget 'target' ложатся на цели, выбранные для
  * этого каста, а без них — на выбранную цель.
  *
- * @param spell - заклинание
+ * @param sourceSpell - заклинание; тип урона на выбор в нём ещё не решён
  * @param actor - актор-заклинатель
  * @param lockedSpellLevel - зафиксированный круг (если задан)
  * @param effectTargets - цели эффекта, выбранные перед кастом; их актуальность
@@ -1607,12 +1653,16 @@ function openDiceRollForSpell(
  * зона («Туманное облако», «Тьма»)
  */
 function castBuffSpellMacro(
-  spell: Spell,
+  sourceSpell: Spell,
   actor: DnDActor,
   lockedSpellLevel?: number,
   effectTargets?: SpellEffectTargets,
   cachedTemplate?: MeasurementTemplate,
 ): void {
+  // Тип урона на выбор эффектов спрашивает окно выбора круга: в начале броска
+  // заклинание заменяется выбранным до наложения эффектов
+  let spell = sourceSpell;
+
   const isInnate = !!spell.uses;
   const casterStats = resolveActorStats(actor);
 
@@ -1679,6 +1729,13 @@ function castBuffSpellMacro(
       rollButtonText: SPELL_MENU_LABELS.cast,
       skipRoll: true,
       beforeRoll: effectTargets?.validate,
+      damageTypeChoice: requestDamageTypeChoiceFor(
+        sourceSpell,
+        sourceSpell,
+        (chosen) => {
+          spell = chosen;
+        },
+      ),
       spellLevel: lockedSpellLevel ?? spell.level,
       availableSpellLevels: computeAvailableLevels(
         lockedSpellLevel,
@@ -1759,33 +1816,39 @@ function castBuffSpellMacro(
     return;
   }
 
-  // Заговоры/врождённые — без ячеек: применяем эффекты (на себя и/или на цель)
-  const worldId = worldStore.connectionState.currentWorldId;
-  const casterEffects = prepareEffects();
+  // Заговоры/врождённые — без ячеек и без окна: тип урона на выбор эффектов
+  // спрашивает плашка, затем эффекты ложатся (на себя и/или на цель)
+  runWithDamageTypeChoices(sourceSpell, (chosen) => {
+    // Эффекты готовятся по `spell` — он уже с выбранным типом
+    spell = chosen;
 
-  if (worldId && casterEffects.length > 0) {
-    const socket = chatStore.getSocket();
-    const updatedActor: DnDActor = JSON.parse(JSON.stringify(actor));
+    const worldId = worldStore.connectionState.currentWorldId;
+    const casterEffects = prepareEffects();
 
-    appendEffects(updatedActor, casterEffects);
+    if (worldId && casterEffects.length > 0) {
+      const socket = chatStore.getSocket();
+      const updatedActor: DnDActor = JSON.parse(JSON.stringify(actor));
 
-    worldStore.updateActor(worldId, actor.id, {
-      activeEffects: updatedActor.activeEffects,
-    });
+      appendEffects(updatedActor, casterEffects);
 
-    if (socket) {
-      emitEntityUpdate(socket, updatedActor);
+      worldStore.updateActor(worldId, actor.id, {
+        activeEffects: updatedActor.activeEffects,
+      });
+
+      if (socket) {
+        emitEntityUpdate(socket, updatedActor);
+      }
     }
-  }
 
-  applySpellTargetEffects(spell, targetEffectsSource, effectTargets);
+    applySpellTargetEffects(chosen, targetEffectsSource, effectTargets);
 
-  completeSpellCast({
-    spell,
-    caster: actor,
-    source: casterSource,
-    template: cachedTemplate,
-    applyCasterEffects: false,
+    completeSpellCast({
+      spell: chosen,
+      caster: actor,
+      source: casterSource,
+      template: cachedTemplate,
+      applyCasterEffects: false,
+    });
   });
 }
 
@@ -1842,7 +1905,7 @@ function registerCreatureActionMacro(): void {
         return;
       }
 
-      runWithEffectVariants(foundAction, (action) => {
+      runCreatureActionChoices(foundAction, foundCreature.id, (action) => {
         const hasAttackParams = !!(
           action.attackBonus !== undefined
           || action.damageParts?.length
@@ -1862,7 +1925,10 @@ function registerCreatureActionMacro(): void {
             'text',
           );
 
-          applyActionSelfEffects(action, foundCreature.id);
+          // Окна броска нет — тип урона на выбор эффектов спрашивает плашка
+          runWithDamageTypeChoices(action, (chosenAction) => {
+            applyActionSelfEffects(chosenAction, foundCreature.id);
+          });
 
           return;
         }
@@ -1899,13 +1965,14 @@ function registerCreatureActionMacro(): void {
         }
 
         // Урон «или» — после проверки дистанции, до шаблона и окна броска
-        runWithCreatureDamageChoice(action, foundCreature, (chosen) =>
+        runWithCreatureDamageChoice(action, foundCreature, (chosen, variants) =>
           launchCreatureAction(chosen, foundCreature.id, (templateId) =>
             openCreatureActionRoll(
               foundCreature,
               chosen,
               isDisadvantage,
               templateId,
+              variants,
             ),
           ),
         );
@@ -1926,12 +1993,14 @@ function registerCreatureActionMacro(): void {
  * @param action - действие существа
  * @param isDisadvantage - стартовать с помехой (проверка дистанции)
  * @param templateId - id размещённого AoE-шаблона (если действие с областью)
+ * @param variants - наборы урона «или» на выбор в окне; пусто — набор один
  */
 function openCreatureActionRoll(
   creature: DnDCreature,
   action: CreatureAction,
   isDisadvantage: boolean,
   templateId: string | undefined,
+  variants: readonly CreatureDamageVariant[] = [],
 ): void {
   const { openModal } = useModalManager();
 
@@ -1948,15 +2017,33 @@ function openCreatureActionRoll(
     ? targetHp.currentHp >= targetHp.maxHp
     : undefined;
 
-  const setup = buildCreatureRollSetup({
+  // У каждого набора урона «или» свои части, тип урона на выбор и применение
+  const rollVariants = buildCreatureRollVariants(
     action,
-    creature,
-    effects,
-    targetIsFull,
-    targetType: targetHp?.creatureType,
-  });
+    variants,
+    (variantAction) =>
+      buildCreatureRollSetup({
+        action: variantAction,
+        creature,
+        effects,
+        targetIsFull,
+        targetType: targetHp?.creatureType,
+      }),
+    (chosenAction, actionSpell, parts) =>
+      applyCreatureActionParts(
+        creature,
+        chosenAction,
+        actionSpell,
+        parts,
+        templateId,
+      ),
+  );
 
-  const damageType = getDamagePartsPrimaryType(action.damageParts);
+  const [primary] = rollVariants;
+
+  if (!primary) {
+    return;
+  }
 
   const actionAttackRoll = usesSaveOrArea
     ? undefined
@@ -1970,7 +2057,7 @@ function openCreatureActionRoll(
     title: usesSaveOrArea ? action.name : `Атака — ${action.name}`,
     rollLabel: action.name,
     rollButtonText: usesSaveOrArea ? 'Бросить урон' : 'Атаковать',
-    formula: setup.baseParts[0]?.formula ?? '',
+    formula: primary.formula,
     attackModifier: usesSaveOrArea ? undefined : action.attackBonus,
     evaluateBonusRollFormulas: usesSaveOrArea
       ? undefined
@@ -1981,17 +2068,12 @@ function openCreatureActionRoll(
     initialRollMode: actionAttackRoll?.mode ?? 'normal',
     rollModeReasons: actionAttackRoll?.reasons,
     incomingAttackType: getAttackFlagCategory(action.rangeType),
-    damageType,
-    damageParts: setup.baseParts,
-    evaluateBonusDamageParts: setup.evaluateBonusDamageParts,
-    onRollParts: (parts: RolledSpellDamagePart[]) =>
-      applyCreatureActionParts(
-        creature,
-        action,
-        setup.pseudoSpell,
-        parts,
-        templateId,
-      ),
+    damageType: primary.damageType,
+    damageParts: primary.damageParts,
+    evaluateBonusDamageParts: primary.evaluateBonusDamageParts,
+    onRollParts: primary.onRollParts,
+    damageTypeChoice: primary.damageTypeChoice,
+    damageVariants: variants.length > 0 ? rollVariants : undefined,
     onCancel: templateId ? () => discardSpellTemplate(templateId) : undefined,
     // Расход одноразовых эффектов «следующей атаки» на броске атаки существа
     attackerId: creature.id,
@@ -2277,6 +2359,36 @@ function openCreatureSpellRoll(
 
   beginSpellCast(creature.id, spell, castKey, placement?.ref.castLevel);
 
+  // Ни урона, ни атаки — окну броска катить нечего, и применение оно не
+  // зовёт: эффекты заклинания не ложились вовсе. Применяем сразу, как лист
+  // персонажа, — тип урона на выбор спросит плашка
+  if (!usesAttack && setup.baseParts.length === 0) {
+    runWithDamageTypeChoices(setup.pseudoSpell, (chosen) => {
+      applyCreatureSpellParts(
+        creature,
+        chosen,
+        [],
+        templateId,
+        casterSource,
+        castKey,
+      );
+    });
+
+    return;
+  }
+
+  // Тип урона на выбор спрашивает окно броска: части урона решает оно само,
+  // а эффекты заклинания и зона получают тот же тип здесь
+  let castSpell = setup.pseudoSpell;
+
+  const damageTypeChoice = requestDamageTypeChoiceFor(
+    spell,
+    setup.pseudoSpell,
+    (chosen) => {
+      castSpell = chosen;
+    },
+  );
+
   // Атака без частей урона: окно броска не зовёт `onRollParts`, и эффекты на
   // попадании разбирает тот же оркестратор с пустым набором частей
   const onHit =
@@ -2286,7 +2398,7 @@ function openCreatureSpellRoll(
       ? () =>
           applyCreatureSpellParts(
             creature,
-            setup.pseudoSpell,
+            castSpell,
             [],
             templateId,
             casterSource,
@@ -2328,13 +2440,14 @@ function openCreatureSpellRoll(
     onRollParts: (parts: RolledSpellDamagePart[]) =>
       applyCreatureSpellParts(
         creature,
-        setup.pseudoSpell,
+        castSpell,
         parts,
         templateId,
         casterSource,
         castKey,
       ),
     onHit,
+    damageTypeChoice,
     onCancel: templateId ? () => discardSpellTemplate(templateId) : undefined,
     // Расход одноразовых эффектов «следующей атаки» на броске атаки существа
     attackerId: creature.id,
@@ -2382,7 +2495,11 @@ function applyCreatureSpellParts(
     templateStore.removePlacedTemplate(templateId);
   }
 
-  if (actors.length > 0) {
+  // Цели нечего получить — ни урона, ни эффекта («Щит» только на себя):
+  // оркестратор писал бы в чат «цель не выбрана» к касту, который удался
+  const reachesTargets = castReachesTargets(pseudoSpell, parts.length);
+
+  if (actors.length > 0 && reachesTargets) {
     const { resolveSpellDamageWithParts } = useSpellResolution();
 
     void resolveSpellDamageWithParts(

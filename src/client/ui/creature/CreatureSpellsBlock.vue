@@ -19,6 +19,7 @@
     SpellUsesRecovery,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { DamageTypeChoiceRequest } from '../../composables/damageTypeChoice';
   import type { RollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import type { SpellCasterSource } from '../../composables/spellCastCompletion';
   import type {
@@ -74,6 +75,12 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { resolveTargetedAttackRoll } from '../../composables/attackRollMode';
+  import {
+    describeDamageVariantsStat,
+    requestDamageTypeChoiceFor,
+    runWithDamageTypeChoices,
+    useDamageTypeLabel,
+  } from '../../composables/damageTypeChoice';
   import { runWithEffectVariants } from '../../composables/effectVariantChoice';
   import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import {
@@ -85,7 +92,10 @@
     findSpellInPacks,
     loadSpellPacks,
   } from '../../composables/spellCompendium';
-  import { discardSpellTemplate } from '../../composables/spellResolutionShared';
+  import {
+    castReachesTargets,
+    discardSpellTemplate,
+  } from '../../composables/spellResolutionShared';
   import { useBonusDamageParts } from '../../composables/useBonusDamageParts';
   import { useExpandedRows } from '../../composables/useExpandedRows';
   import { useSpellResolution } from '../../composables/useSpellResolution';
@@ -442,6 +452,9 @@
     return school ? `${school} · ${spellRef.note}` : spellRef.note;
   }
 
+  /** Название типа урона по справочнику мира — для подсказки плитки */
+  const getDamageTypeLabel = useDamageTypeLabel();
+
   /**
    * Плитки строки заклинания: урон (катится по нажатию), заряды и круг
    * наложения. Те же поля, что и у строки заклинания на листе персонажа.
@@ -465,9 +478,14 @@
         key: 'damage',
         label: SPELL_STAT_LABELS.damage,
         value: damage,
-        tooltip: SPELL_STAT_HINTS.damage,
         accent: true,
         rollable: !props.isReadOnly,
+        // Тип на выбор в плитке не пишется — значок и строки подсказки
+        ...describeDamageVariantsStat(
+          spell,
+          SPELL_STAT_HINTS.damage,
+          getDamageTypeLabel,
+        ),
       });
     }
 
@@ -1450,6 +1468,8 @@
     onHit?: () => void;
     /** Окно закрыли, не бросив: снимает со сцены размещённый AoE-шаблон */
     onCancel?: () => void;
+    /** Тип урона на выбор заклинания — окно спрашивает его */
+    damageTypeChoice?: DamageTypeChoiceRequest;
   }
 
   const rollConfig = ref<SpellRollConfig>({
@@ -1611,6 +1631,36 @@
       ),
     });
 
+    // Ни урона, ни атаки — окну броска катить нечего, и применение оно не
+    // зовёт: «Невидимость» беса кидала пустой кубик, а эффект не ложился.
+    // Применяем сразу, как лист персонажа, — тип урона на выбор спросит плашка
+    if (!usesAttack && setup.baseParts.length === 0) {
+      runWithDamageTypeChoices(setup.pseudoSpell, (chosen) => {
+        applySpellParts(
+          creature,
+          chosen,
+          [],
+          templateId,
+          casterSource,
+          castKey,
+        );
+      });
+
+      return;
+    }
+
+    // Тип урона на выбор спрашивает окно броска: части урона решает оно само,
+    // а эффекты заклинания и зона получают тот же тип здесь
+    let castSpell = setup.pseudoSpell;
+
+    const damageTypeChoice = requestDamageTypeChoiceFor(
+      spell,
+      setup.pseudoSpell,
+      (chosen) => {
+        castSpell = chosen;
+      },
+    );
+
     // Атака без частей урона: окно броска не зовёт `onRollParts`, и эффекты на
     // попадании разбирает тот же оркестратор с пустым набором частей
     const onHit =
@@ -1620,7 +1670,7 @@
         ? () =>
             applySpellParts(
               creature,
-              setup.pseudoSpell,
+              castSpell,
               [],
               templateId,
               casterSource,
@@ -1667,13 +1717,14 @@
       onRollParts: (parts: RolledSpellDamagePart[]) =>
         applySpellParts(
           creature,
-          setup.pseudoSpell,
+          castSpell,
           parts,
           templateId,
           casterSource,
           castKey,
         ),
       onHit,
+      damageTypeChoice,
       // Отмена окна (крестик, Escape, конец сессии) обязана убрать шаблон: он
       // размещается ДО броска, и без этого отменённый каст оставлял область
       // висеть на карте до перезагрузки сцены
@@ -1715,7 +1766,11 @@
       spellTemplateStore.removePlacedTemplate(templateId);
     }
 
-    if (actors.length > 0 && socket) {
+    // Цели нечего получить — ни урона, ни эффекта («Щит» только на себя):
+    // оркестратор писал бы в чат «цель не выбрана» к касту, который удался
+    const reachesTargets = castReachesTargets(pseudoSpell, parts.length);
+
+    if (actors.length > 0 && socket && reachesTargets) {
       void resolveSpellDamageWithParts(
         {
           spell: pseudoSpell,
@@ -1955,6 +2010,7 @@
       :on-roll-parts="rollConfig.onRollParts"
       :on-hit="rollConfig.onHit"
       :on-cancel="rollConfig.onCancel"
+      :damage-type-choice="rollConfig.damageTypeChoice"
       :attacker-id="creatureId"
     />
   </div>

@@ -116,8 +116,8 @@ export interface SpellDamagePartInput {
   /** Все типы урона части, если их несколько (напр. рубящий+огонь) */
   types?: string[];
   /**
-   * Тип урона на выбор (`@dmg.choice(…)`), не решённый до окна: окно броска
-   * спрашивает его и ставит выбранный тип в `type`
+   * Тип урона на выбор (`@dmg.choice(…)`): окно броска спрашивает его и
+   * ставит выбранный тип в `type`
    */
   typeChoice?: DamageTypeChoice;
   /** Является ли часть лечением */
@@ -427,6 +427,21 @@ export function targetEffectsNeedResolution(spell: Spell): boolean {
       || (effect.damageParts?.length ?? 0) > 0
       || hasSourceTurnSaveDc(effect),
   );
+}
+
+/**
+ * Достаётся ли цели хоть что-то от каста — часть урона/лечения или эффект.
+ *
+ * Нет — оркестратор звать незачем: целей он не найдёт и напишет в чат «цель
+ * не выбрана» к касту, который удался («Щит» ложится только на заклинателя).
+ * Одна проверка на лист существа и хотбар, чтобы каст с них не разошёлся.
+ *
+ * @param spell - заклинание каста (псевдо-заклинание с эффектами)
+ * @param partsCount - сколько частей урона/лечения брошено
+ * @returns `true`, если цели есть что получить
+ */
+export function castReachesTargets(spell: Spell, partsCount: number): boolean {
+  return partsCount > 0 || getTargetSpellEffects(spell).length > 0;
 }
 
 /**

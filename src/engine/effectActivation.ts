@@ -22,6 +22,7 @@ import type { ActorCounterState } from './types.js';
 
 import {
   DEFAULT_ACTIVATION_AMOUNT,
+  isToggleActivatedEffect,
   isUseActivatedEffect,
 } from './activeEffectTypes.js';
 import { cloneEntityData } from './dataClone.js';
@@ -199,7 +200,34 @@ export function buildItemUseSpell(item: DnDGameItem): Spell {
  * @returns ключ либо `undefined`, если эффект не вариант применения
  */
 export function effectUseGroupKey(effect: ActiveEffect): string | undefined {
-  if (!isUseActivatedEffect(effect) || !effect.variant) {
+  return isUseActivatedEffect(effect)
+    ? buildVariantGroupKey(effect)
+    : undefined;
+}
+
+/**
+ * Ключ группы вариантов переключателя: эффекты листа с одним ключом —
+ * варианты ОДНОГО включения («Ярость диких земель»: Медведь, Орёл, Волк).
+ * Переключатель у них один, вариант выбирается при включении, и включён
+ * всегда не больше одного. Состав ключа — как у применения.
+ *
+ * @param effect - эффект листа
+ * @returns ключ либо `undefined`, если эффект не вариант переключателя
+ */
+export function effectToggleGroupKey(effect: ActiveEffect): string | undefined {
+  return isToggleActivatedEffect(effect)
+    ? buildVariantGroupKey(effect)
+    : undefined;
+}
+
+/**
+ * Ключ группы вариантов из класса, ресурса и группы варианта.
+ *
+ * @param effect - эффект листа
+ * @returns ключ либо `undefined`, если у эффекта нет варианта
+ */
+function buildVariantGroupKey(effect: ActiveEffect): string | undefined {
+  if (!effect.variant) {
     return undefined;
   }
 
@@ -208,6 +236,31 @@ export function effectUseGroupKey(effect: ActiveEffect): string | undefined {
     effect.activation?.counter ?? '',
     effect.variant.group,
   ].join(EFFECT_USE_GROUP_KEY_SEPARATOR);
+}
+
+/**
+ * Эффекты листа с тем же ключом группы, что у эффекта, — в порядке листа.
+ * Эффект без группы — сам по себе.
+ *
+ * @param effects - эффекты листа
+ * @param effect - эффект
+ * @param keyOf - ключ группы эффекта
+ * @returns эффекты группы
+ */
+function collectVariantGroup(
+  effects: readonly ActiveEffect[],
+  effect: ActiveEffect,
+  keyOf: (entry: ActiveEffect) => string | undefined,
+): ActiveEffect[] {
+  const key = keyOf(effect);
+
+  if (key === undefined) {
+    return [effect];
+  }
+
+  const group = effects.filter((entry) => keyOf(entry) === key);
+
+  return group.length > 0 ? group : [effect];
 }
 
 /**
@@ -223,25 +276,33 @@ export function collectEffectUseGroup(
   effects: readonly ActiveEffect[],
   effect: ActiveEffect,
 ): ActiveEffect[] {
-  const key = effectUseGroupKey(effect);
-
-  if (key === undefined) {
-    return [effect];
-  }
-
-  const group = effects.filter((entry) => effectUseGroupKey(entry) === key);
-
-  return group.length > 0 ? group : [effect];
+  return collectVariantGroup(effects, effect, effectUseGroupKey);
 }
 
 /**
- * Название применения группы: у нескольких вариантов — имя группы
- * («Божественная искра»), у одного эффекта — его собственное.
+ * Все варианты того же переключателя, что и эффект, — в порядке листа. Эффект
+ * без группы — сам по себе.
  *
- * @param group - эффекты одного применения
- * @returns название для кнопки, чата и панели быстрого доступа
+ * @param effects - эффекты листа
+ * @param effect - переключаемый эффект
+ * @returns эффекты одного переключателя
  */
-export function effectUseGroupName(group: readonly ActiveEffect[]): string {
+export function collectEffectToggleGroup(
+  effects: readonly ActiveEffect[],
+  effect: ActiveEffect,
+): ActiveEffect[] {
+  return collectVariantGroup(effects, effect, effectToggleGroupKey);
+}
+
+/**
+ * Название группы вариантов применения или переключателя: у нескольких
+ * вариантов — имя группы («Божественная искра»), у одного эффекта — его
+ * собственное.
+ *
+ * @param group - эффекты одного применения или переключателя
+ * @returns название для кнопки, чата, плашки выбора и панели быстрого доступа
+ */
+export function effectVariantGroupName(group: readonly ActiveEffect[]): string {
   const [first] = group;
 
   if (!first) {
@@ -249,6 +310,34 @@ export function effectUseGroupName(group: readonly ActiveEffect[]): string {
   }
 
   return group.length > 1 && first.variant ? first.variant.group : first.name;
+}
+
+/** Что показывает плашка выбора варианта переключателя */
+export interface EffectToggleChoice {
+  /** Название переключателя */
+  name: string;
+  /** Варианты — включёнными копиями */
+  activeEffects: ActiveEffect[];
+}
+
+/**
+ * Выбор варианта переключателя («Ярость диких земель»: Медведь, Орёл, Волк).
+ *
+ * Варианты лежат на листе выключенными, а выбор варианта выключенные эффекты
+ * пропускает — поэтому в выбор они идут включёнными копиями. Id у копий
+ * прежние: включается по нему эффект листа, а не копия.
+ *
+ * @param group - эффекты одного переключателя (см.
+ *   {@link collectEffectToggleGroup})
+ * @returns название и варианты для выбора
+ */
+export function buildEffectToggleChoice(
+  group: readonly ActiveEffect[],
+): EffectToggleChoice {
+  return {
+    name: effectVariantGroupName(group),
+    activeEffects: group.map((effect) => ({ ...effect, disabled: false })),
+  };
 }
 
 /**
@@ -273,7 +362,7 @@ export function buildEffectGroupUseSpell(
 
   return buildUseSpell({
     id: first?.id ?? '',
-    name: effectUseGroupName(group),
+    name: effectVariantGroupName(group),
     effects: listUseEffects(
       group.map((effect) => ({ ...effect, disabled: false })),
     ),
@@ -699,7 +788,8 @@ function settleOwnEffectTriggers(
 /**
  * Сущность после включения эффекта: сам эффект включён и подготовлен (точная
  * длительность хода отсчитывается от включения), его срабатывания «при
- * включении» выполнены — урон и лечение уже в хитах копии.
+ * включении» выполнены — урон и лечение уже в хитах копии. Вариант
+ * переключателя включается один: включённый соседний вариант выключается.
  *
  * @param entity - сущность из стора (не мутируется)
  * @param effectId - включаемый эффект
@@ -714,10 +804,21 @@ export function activateEffectOnEntity(
   combatRound?: number,
 ): DnDSceneEntity {
   const activated = cloneEntityData(entity);
+  const effects = activated.activeEffects ?? [];
+  const switched = effects.find((entry) => entry.id === effectId);
+  const siblingKey = switched ? effectToggleGroupKey(switched) : undefined;
 
-  activated.activeEffects = (activated.activeEffects ?? []).map((entry) =>
-    entry.id === effectId ? prepare({ ...entry, disabled: false }) : entry,
-  );
+  activated.activeEffects = effects.map((entry) => {
+    if (entry.id === effectId) {
+      return prepare({ ...entry, disabled: false });
+    }
+
+    return siblingKey !== undefined
+      && !entry.disabled
+      && effectToggleGroupKey(entry) === siblingKey
+      ? { ...entry, disabled: true }
+      : entry;
+  });
 
   settleOwnEffectTriggers(
     activated,
