@@ -381,11 +381,14 @@ function normalizeDraftActivation(
   );
 
   const range = Math.trunc(parseFormNumber(activation.range) ?? 0);
+  const exclusive = activation.exclusive?.trim() || undefined;
 
   return {
     mode: activation.mode,
     counter,
     amount: counter && amount > DEFAULT_ACTIVATION_AMOUNT ? amount : undefined,
+    // Имя включения — только у переключателя: применение ничего не держит
+    ...(activation.mode === 'toggle' && exclusive ? { exclusive } : {}),
     // Дальность — только у применения: переключатель ни на кого не ложится
     ...(activation.mode === 'use' && range >= MIN_ACTIVATION_RANGE
       ? { range }

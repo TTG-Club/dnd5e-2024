@@ -73,7 +73,11 @@
   import ModifierRowsEditor from '../feat/ModifierRowsEditor.vue';
   import FormSection from '../FormSection.vue';
   import SourceField from '../SourceField.vue';
-  import { MOVEMENT_AXES } from './speciesEditorTypes';
+  import {
+    MOVEMENT_AXES,
+    readGrantedSpellsAlwaysPrepared,
+    writeGrantedSpellPreparation,
+  } from './speciesEditorTypes';
   import SpeciesFeaturesEditor from './SpeciesFeaturesEditor.vue';
 
   defineOptions({ inheritAttrs: false });
@@ -793,6 +797,9 @@
         spellId: spell.spellId,
         packId: spell.packId,
       })),
+      grantedSpellsAlwaysPrepared: readGrantedSpellsAlwaysPrepared(
+        feature.grantedSpells ?? [],
+      ),
       activeEffects: (feature.activeEffects ?? []).map((effect) => ({
         ...effect,
       })),
@@ -846,6 +853,7 @@
         name: spell.name.trim(),
         ...(spell.spellId ? { spellId: spell.spellId } : {}),
         ...(spell.packId ? { packId: spell.packId } : {}),
+        ...writeGrantedSpellPreparation(fields.grantedSpellsAlwaysPrepared),
       }));
 
     if (grantedSpells.length > 0) {

@@ -897,6 +897,36 @@ describe('применение и включение', () => {
       'у переключателя дальности нет',
     );
 
+    assert.equal(
+      normalize({ mode: 'toggle', counter: 'rage', exclusive: ' Ярость ' })
+        .exclusive,
+      'Ярость',
+      'имя включения переключателя пишется без пробелов по краям',
+    );
+
+    assert.equal(
+      normalize({ mode: 'toggle', counter: 'rage', exclusive: '  ' }).exclusive,
+      undefined,
+      'пустое имя включения не пишется',
+    );
+
+    assert.equal(
+      normalize({ mode: 'use', counter: 'rage', exclusive: 'Ярость' })
+        .exclusive,
+      undefined,
+      'у применения имени включения нет',
+    );
+
+    assert.equal(
+      engine.ActiveEffectSchema.parse(
+        createEffect({
+          activation: { mode: 'toggle', counter: 'rage', exclusive: 'Ярость' },
+        }),
+      ).activation.exclusive,
+      'Ярость',
+      'разбор записи имя включения сохраняет',
+    );
+
     assert.equal(normalize(undefined), undefined);
   });
 

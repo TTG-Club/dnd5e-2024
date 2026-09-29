@@ -221,6 +221,114 @@ export function effectToggleGroupKey(effect: ActiveEffect): string | undefined {
 }
 
 /**
+ * Ключ включения по имени из данных (`activation.exclusive`): ресурс и имя.
+ * Ресурс в ключе — чтобы смена не переводила включение на чужой ресурс
+ * бесплатно.
+ *
+ * @param effect - эффект листа
+ * @returns ключ либо `undefined`, если у переключателя нет имени включения
+ */
+function buildExclusiveActivationKey(effect: ActiveEffect): string | undefined {
+  const exclusive = effect.activation?.exclusive;
+
+  if (!isToggleActivatedEffect(effect) || !exclusive) {
+    return undefined;
+  }
+
+  return [effect.activation?.counter ?? '', exclusive].join(
+    EFFECT_USE_GROUP_KEY_SEPARATOR,
+  );
+}
+
+/**
+ * Одно ли это включение: варианты одного переключателя («Ярость диких
+ * земель») или переключатели с одним именем включения и одним ресурсом
+ * («Ярость» класса и её копии в умениях подклассов). Одно включение горит
+ * одним эффектом, а смена эффекта внутри него ресурс не тратит.
+ *
+ * Без пометки переключатели на общем ресурсе независимы: «Гнев моря» тратит
+ * использование Дикой формы, но горит вместе с ней.
+ *
+ * @param first - переключатель
+ * @param second - другой переключатель
+ * @returns `true`, если это одно включение
+ */
+export function isSameEffectActivation(
+  first: ActiveEffect,
+  second: ActiveEffect,
+): boolean {
+  const variantKey = effectToggleGroupKey(first);
+
+  if (variantKey !== undefined && variantKey === effectToggleGroupKey(second)) {
+    return true;
+  }
+
+  const exclusiveKey = buildExclusiveActivationKey(first);
+
+  return (
+    exclusiveKey !== undefined
+    && exclusiveKey === buildExclusiveActivationKey(second)
+  );
+}
+
+/**
+ * Горящий эффект того же включения, что и переключатель, — кроме него самого.
+ *
+ * @param effects - эффекты листа
+ * @param effect - включаемый переключатель
+ * @returns горящий эффект либо `undefined`, если включение не горит
+ */
+export function findBurningActivationPeer(
+  effects: readonly ActiveEffect[],
+  effect: ActiveEffect,
+): ActiveEffect | undefined {
+  return effects.find(
+    (entry) =>
+      entry.id !== effect.id
+      && !entry.disabled
+      && isSameEffectActivation(effect, entry),
+  );
+}
+
+/**
+ * Тратит ли включение ресурс. Включение с нуля тратит; смена эффекта внутри
+ * горящего включения (другой вариант, копия «Ярости» подкласса) — нет: это
+ * то же самое включение.
+ *
+ * @param effects - эффекты листа
+ * @param effect - включаемый переключатель
+ * @returns `true`, если ресурс нужно списать
+ */
+export function needsActivationPayment(
+  effects: readonly ActiveEffect[],
+  effect: ActiveEffect,
+): boolean {
+  return (
+    effect.activation?.counter !== undefined
+    && findBurningActivationPeer(effects, effect) === undefined
+  );
+}
+
+/**
+ * Можно ли включить переключатель: ресурса хватает или тратить не нужно.
+ *
+ * @param counters - счётчики листа
+ * @param effects - эффекты листа
+ * @param effect - включаемый переключатель
+ * @returns `true`, если включение возможно
+ */
+export function canSwitchOnEffect(
+  counters: readonly ActorCounterState[],
+  effects: readonly ActiveEffect[],
+  effect: ActiveEffect,
+): boolean {
+  return (
+    !needsActivationPayment(effects, effect)
+    || canPayActivation(counters, effect.activation)
+  );
+}
+
+/**
  * Ключ группы вариантов из класса, ресурса и группы варианта.
  *
  * @param effect - эффект листа
@@ -788,8 +896,9 @@ function settleOwnEffectTriggers(
 /**
  * Сущность после включения эффекта: сам эффект включён и подготовлен (точная
  * длительность хода отсчитывается от включения), его срабатывания «при
- * включении» выполнены — урон и лечение уже в хитах копии. Вариант
- * переключателя включается один: включённый соседний вариант выключается.
+ * включении» выполнены — урон и лечение уже в хитах копии. Одно включение
+ * горит одним эффектом: горящий эффект того же включения (соседний вариант,
+ * другая копия «Ярости») выключается.
  *
  * @param entity - сущность из стора (не мутируется)
  * @param effectId - включаемый эффект
@@ -806,16 +915,15 @@ export function activateEffectOnEntity(
   const activated = cloneEntityData(entity);
   const effects = activated.activeEffects ?? [];
   const switched = effects.find((entry) => entry.id === effectId);
-  const siblingKey = switched ? effectToggleGroupKey(switched) : undefined;
 
   activated.activeEffects = effects.map((entry) => {
     if (entry.id === effectId) {
       return prepare({ ...entry, disabled: false });
     }
 
-    return siblingKey !== undefined
+    return switched
       && !entry.disabled
-      && effectToggleGroupKey(entry) === siblingKey
+      && isSameEffectActivation(switched, entry)
       ? { ...entry, disabled: true }
       : entry;
   });

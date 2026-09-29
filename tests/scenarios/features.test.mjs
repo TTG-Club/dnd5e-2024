@@ -452,7 +452,7 @@ describe('каталог: классы и черты', () => {
         origin: 'feature',
         originId: 'barbarian',
         disabled: true,
-        activation: { mode: 'toggle' },
+        activation: { mode: 'toggle', counter: 'rage' },
         variant: { group: 'Ярость диких земель', label },
         duration: { type: 'minutes', value: 10 },
         ...overrides,
@@ -531,7 +531,148 @@ describe('каталог: классы и черты', () => {
         ['Ярость диких земель: Орёл', false],
         ['Ярость диких земель: Волк', true],
       ],
-      'включён один вариант; ярость без группы не тронута',
+      'включён один вариант; ярость без группы и без имени включения не тронута',
+    );
+
+    // Включение с тратой ресурса — как у кнопок листа и панели: платит только
+    // включение с нуля, смена внутри горящего включения бесплатна
+    const switchOn = ({ entity, rage: left }, effectId) => {
+      const effect = entity.activeEffects.find(
+        (entry) => entry.id === effectId,
+      );
+
+      assert.ok(
+        engine.canSwitchOnEffect(
+          [{ counterKey: 'rage', current: left, max: 3 }],
+          entity.activeEffects,
+          effect,
+        ),
+        `«${effect.name}» можно включить`,
+      );
+
+      return {
+        entity: engine.activateEffectOnEntity(entity, effectId),
+        rage: engine.needsActivationPayment(entity.activeEffects, effect)
+          ? left - 1
+          : left,
+      };
+    };
+
+    const switchOff = ({ entity, rage: left }) => ({
+      entity: {
+        ...entity,
+        activeEffects: entity.activeEffects.map((effect) => ({
+          ...effect,
+          disabled: true,
+        })),
+      },
+      rage: left,
+    });
+
+    const burning = ({ entity }) =>
+      entity.activeEffects
+        .filter((effect) => !effect.disabled)
+        .map((effect) => effect.name);
+
+    const onAspect = switchOn(
+      { entity: createActor({ activeEffects: sheet }), rage: 3 },
+      bear.id,
+    );
+
+    assert.equal(onAspect.rage, 2, 'включение варианта тратит 1');
+
+    const swapped = switchOn(onAspect, eagle.id);
+
+    assert.equal(swapped.rage, 2, 'смена варианта — без траты');
+    assert.deepEqual(burning(swapped), ['Ярость диких земель: Орёл']);
+
+    // Без имени включения «Ярость» класса — сама по себе: это не ошибка
+    // данных, а общий ресурс («Гнев моря» горит вместе с Дикой формой)
+    const apart = switchOn(swapped, rage.id);
+
+    assert.equal(apart.rage, 1, 'без имени включения — своя трата');
+    assert.equal(burning(apart).length, 2, 'и горят обе');
+
+    // С именем включения копии «Ярости» — одно включение
+    const named = (effect) => ({
+      ...effect,
+      activation: { ...effect.activation, exclusive: 'Ярость' },
+    });
+
+    const namedSheet = [rage, bear, eagle, wolf].map(named);
+
+    const namedAspect = switchOn(
+      { entity: createActor({ activeEffects: namedSheet }), rage: 3 },
+      bear.id,
+    );
+
+    assert.equal(namedAspect.rage, 2, 'включение с нуля тратит 1');
+
+    const namedSwap = switchOn(namedAspect, wolf.id);
+
+    assert.equal(namedSwap.rage, 2, 'смена варианта — без траты');
+
+    const classRage = switchOn(namedSwap, rage.id);
+
+    assert.equal(
+      classRage.rage,
+      2,
+      '«Ярость» класса при горящем варианте — без траты',
+    );
+
+    assert.deepEqual(burning(classRage), ['Ярость'], 'вариант погас');
+
+    const backToAspect = switchOn(classRage, eagle.id);
+
+    assert.equal(backToAspect.rage, 2, 'и обратно на вариант — без траты');
+    assert.deepEqual(burning(backToAspect), ['Ярость диких земель: Орёл']);
+
+    const again = switchOn(switchOff(backToAspect), bear.id);
+
+    assert.equal(again.rage, 1, 'выключение и новое включение — снова 1');
+
+    assert.equal(
+      engine.canSwitchOnEffect(
+        [{ counterKey: 'rage', current: 0, max: 3 }],
+        again.entity.activeEffects,
+        again.entity.activeEffects.find((effect) => effect.id === rage.id),
+      ),
+      true,
+      'смена при нуле ярости доступна: тратить нечего',
+    );
+
+    assert.equal(
+      engine.canSwitchOnEffect(
+        [{ counterKey: 'rage', current: 0, max: 3 }],
+        switchOff(again).entity.activeEffects,
+        rage,
+      ),
+      false,
+      'включение с нуля при нуле ярости — нельзя',
+    );
+
+    // Одно имя на разных ресурсах — не одно включение: смена не переводит
+    // включение на чужой ресурс бесплатно
+    const otherCounter = {
+      ...named(rage),
+      id: 'other-counter-rage',
+      activation: {
+        mode: 'toggle',
+        counter: 'wild-shape',
+        exclusive: 'Ярость',
+      },
+    };
+
+    assert.equal(
+      engine.isSameEffectActivation(named(rage), otherCounter),
+      false,
+      'ресурс входит в ключ включения',
+    );
+
+    assert.match(
+      authoredScenario(named(rage), 'feature'),
+      /одно включение «Ярость»/,
+      'имя включения видно в сводке окна',
     );
 
     const layout = engine.resolveEffectFormLayout('feature', bear);

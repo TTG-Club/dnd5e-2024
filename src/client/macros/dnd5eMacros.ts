@@ -49,7 +49,7 @@ import {
   calculateCreatureSpellBlockNumbers,
   calculateSpellAttackModifier,
   calculateWeaponAttackModifier,
-  canPayActivation,
+  canSwitchOnEffect,
   checkRange,
   collectActiveEffects,
   collectEffectToggleGroup,
@@ -494,7 +494,8 @@ function resolveFeatureToggleSlot(macro: HotbarMacro): MacroSlotState {
 
 /**
  * Слот эффекта, который тратит ресурс листа: остаток ресурса в углу, без
- * ресурса кнопка гаснет.
+ * ресурса кнопка гаснет — кроме смены внутри горящего включения: она
+ * бесплатна.
  *
  * @param owner - владелец эффекта
  * @param effect - эффект с применением или переключателем
@@ -513,7 +514,7 @@ function describeActivationSlot(
 
   return {
     ...(counter ? { badge: String(counter.current) } : {}),
-    ...(canPayActivation(counters, effect.activation)
+    ...(canSwitchOnEffect(counters, owner.activeEffects ?? [], effect)
       ? {}
       : { disabled: true, hint: FEATURE_TOGGLE_SLOT_LABELS.noCounterHint }),
   };

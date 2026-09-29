@@ -4,6 +4,8 @@
  *
  * Включение делает то же, что переключатель на вкладке «Эффекты»: тратит
  * ресурс листа, включает эффект и будит его срабатывания «при включении».
+ * Одно включение горит одним эффектом: включение другого варианта или копии
+ * «Ярости» при горящем включении его сменяет и ресурс не тратит.
  * Ресурс и эффект уходят разными каналами: боевой канал несёт хиты и эффекты,
  * а счётчики листа в него не входят — их пишет обычное сохранение сущности.
  * Порядок важен: сначала ресурс, потом эффект — полное сохранение несёт и
@@ -22,8 +24,9 @@ import { isActorEntity } from '@vtt/shared';
 import {
   activateEffectOnEntity,
   buildEffectToggleChoice,
-  canPayActivation,
+  canSwitchOnEffect,
   collectEffectToggleGroup,
+  needsActivationPayment,
   payActivation,
 } from '@vtt/shared/system/dnd.js';
 
@@ -124,13 +127,14 @@ export function toggleEntityEffect(entityId: string, effectId: string): void {
     return;
   }
 
-  // Не хватить может только ресурса: без счётчика включение бесплатно.
+  // Не хватить может только ресурса: без счётчика включение бесплатно, а
+  // при горящем включении («Ярость» класса) смена на вариант — тоже.
   // Ресурс у вариантов общий — он входит в ключ группы
   const counterKey = effect.activation?.counter;
 
   if (
     counterKey
-    && !canPayActivation(readEntityCounters(entity), effect.activation)
+    && !canSwitchOnEffect(readEntityCounters(entity), effects, effect)
   ) {
     warnNoCounter(counterKey);
 
@@ -147,7 +151,8 @@ export function toggleEntityEffect(entityId: string, effectId: string): void {
 }
 
 /**
- * Включает эффект: тратит ресурс и будит срабатывания «при включении».
+ * Включает эффект: тратит ресурс (если включение не горит) и будит
+ * срабатывания «при включении».
  * Сущность перечитывается — между нажатием и выбором варианта она могла
  * измениться.
  *
@@ -163,7 +168,10 @@ function switchOnEntityEffect(entityId: string, effectId: string): void {
     return;
   }
 
-  const paid = payEntityActivation(entity, effect);
+  // Смена эффекта внутри горящего включения — то же включение, без траты
+  const paid = needsActivationPayment(entity.activeEffects ?? [], effect)
+    ? payEntityActivation(entity, effect)
+    : entity;
 
   if (paid !== entity) {
     emitEntityUpdate(socket, paid);

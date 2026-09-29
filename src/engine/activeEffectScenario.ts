@@ -25,7 +25,10 @@ import {
   describeEffectFlag,
   formatEffectSaveDc,
 } from './activeEffectDescribe.js';
-import { DEFAULT_ACTIVATION_AMOUNT } from './activeEffectTypes.js';
+import {
+  DEFAULT_ACTIVATION_AMOUNT,
+  isToggleActivatedEffect,
+} from './activeEffectTypes.js';
 import { buildConditionActiveEffect } from './conditionTemplates.js';
 import { ABILITY_GENITIVE_LABELS } from './consts.js';
 import {
@@ -115,6 +118,8 @@ const SCENARIO_LABELS = {
   counterPrefix: ', тратит «',
   counterSuffix: '»',
   counterAmountPrefix: ' ×',
+  exclusivePrefix: ', одно включение «',
+  exclusiveSuffix: '»',
   savePrefix: 'спасбросок ',
   failurePrefix: 'Провал — ',
   successPrefix: 'Успех — ',
@@ -246,6 +251,20 @@ function describeActivationCounter(effect: ActiveEffect): string {
       : '';
 
   return `${SCENARIO_LABELS.counterPrefix}${counter}${SCENARIO_LABELS.counterSuffix}${amountText}`;
+}
+
+/**
+ * Имя включения переключателя: с ним копии «Ярости» горят по одной.
+ *
+ * @param effect - эффект
+ * @returns часть фразы либо пустая строка
+ */
+function describeActivationExclusive(effect: ActiveEffect): string {
+  const exclusive = effect.activation?.exclusive;
+
+  return exclusive && isToggleActivatedEffect(effect)
+    ? `${SCENARIO_LABELS.exclusivePrefix}${exclusive}${SCENARIO_LABELS.exclusiveSuffix}`
+    : '';
 }
 
 /**
@@ -475,7 +494,7 @@ export function describeEffectScenario(
       : '';
 
   const counter = layout.showActivationCounter
-    ? describeActivationCounter(effect)
+    ? `${describeActivationCounter(effect)}${describeActivationExclusive(effect)}`
     : '';
 
   const rollCondition = effect.rollCondition

@@ -1413,6 +1413,14 @@ export interface EffectActivation {
   /** Сколько тратится со счётчика; нет — одна единица */
   amount?: number;
   /**
+   * Имя включения у переключателя: переключатели владельца с одним ресурсом и
+   * одним именем — одно включение («Ярость» класса и её копии в умениях
+   * подклассов). Пока горит один, включение другого его гасит и ресурс не
+   * тратит. Нет — переключатель сам по себе (варианты одной группы — одно
+   * включение и без имени)
+   */
+  exclusive?: string;
+  /**
    * Дальность применения «на цель» в футах: «Божественная искра» — на
    * существо в пределах 30 фт. Нет — касание, и цель дальше 5 фт игрок
    * берёт только с разрешения ведущего.
@@ -2763,6 +2771,13 @@ const EffectActivationSchema = z.object({
     coerceOptionalNumber,
     z.number().int().min(1).optional().catch(undefined),
   ),
+  exclusive: z
+    .string()
+    .trim()
+    .min(1)
+    .max(MAX_ACTIVATION_COUNTER_LENGTH)
+    .optional()
+    .catch(undefined),
   range: z.preprocess(
     coerceOptionalNumber,
     z.number().int().min(MIN_ACTIVATION_RANGE).optional().catch(undefined),
