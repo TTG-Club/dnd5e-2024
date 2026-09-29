@@ -107,6 +107,7 @@ import {
   launchCreatureAction,
   runWithCreatureDamageChoice,
 } from '../composables/creatureDamageChoice';
+import { runWithDamageTypeChoices } from '../composables/damageTypeChoice';
 import {
   applyActionSelfEffects,
   applyEntityEffectUse,
@@ -137,6 +138,7 @@ import {
 } from '../composables/spellEffectTargeting';
 import {
   castNeedsMultiPart,
+  castReachesTargets,
   discardSpellTemplate,
   getTargetSpellEffects,
   postSpellEffectsMessage,
@@ -2277,6 +2279,24 @@ function openCreatureSpellRoll(
 
   beginSpellCast(creature.id, spell, castKey, placement?.ref.castLevel);
 
+  // Ни урона, ни атаки — окну броска катить нечего, и применение оно не
+  // зовёт: эффекты заклинания не ложились вовсе. Применяем сразу, как лист
+  // персонажа, — тип урона на выбор спросит плашка
+  if (!usesAttack && setup.baseParts.length === 0) {
+    runWithDamageTypeChoices(setup.pseudoSpell, (chosen) => {
+      applyCreatureSpellParts(
+        creature,
+        chosen,
+        [],
+        templateId,
+        casterSource,
+        castKey,
+      );
+    });
+
+    return;
+  }
+
   // Атака без частей урона: окно броска не зовёт `onRollParts`, и эффекты на
   // попадании разбирает тот же оркестратор с пустым набором частей
   const onHit =
@@ -2382,7 +2402,11 @@ function applyCreatureSpellParts(
     templateStore.removePlacedTemplate(templateId);
   }
 
-  if (actors.length > 0) {
+  // Цели нечего получить — ни урона, ни эффекта («Щит» только на себя):
+  // оркестратор писал бы в чат «цель не выбрана» к касту, который удался
+  const reachesTargets = castReachesTargets(pseudoSpell, parts.length);
+
+  if (actors.length > 0 && reachesTargets) {
     const { resolveSpellDamageWithParts } = useSpellResolution();
 
     void resolveSpellDamageWithParts(

@@ -74,6 +74,7 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { resolveTargetedAttackRoll } from '../../composables/attackRollMode';
+  import { runWithDamageTypeChoices } from '../../composables/damageTypeChoice';
   import { runWithEffectVariants } from '../../composables/effectVariantChoice';
   import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import {
@@ -85,7 +86,10 @@
     findSpellInPacks,
     loadSpellPacks,
   } from '../../composables/spellCompendium';
-  import { discardSpellTemplate } from '../../composables/spellResolutionShared';
+  import {
+    castReachesTargets,
+    discardSpellTemplate,
+  } from '../../composables/spellResolutionShared';
   import { useBonusDamageParts } from '../../composables/useBonusDamageParts';
   import { useExpandedRows } from '../../composables/useExpandedRows';
   import { useSpellResolution } from '../../composables/useSpellResolution';
@@ -1611,6 +1615,24 @@
       ),
     });
 
+    // Ни урона, ни атаки — окну броска катить нечего, и применение оно не
+    // зовёт: «Невидимость» беса кидала пустой кубик, а эффект не ложился.
+    // Применяем сразу, как лист персонажа, — тип урона на выбор спросит плашка
+    if (!usesAttack && setup.baseParts.length === 0) {
+      runWithDamageTypeChoices(setup.pseudoSpell, (chosen) => {
+        applySpellParts(
+          creature,
+          chosen,
+          [],
+          templateId,
+          casterSource,
+          castKey,
+        );
+      });
+
+      return;
+    }
+
     // Атака без частей урона: окно броска не зовёт `onRollParts`, и эффекты на
     // попадании разбирает тот же оркестратор с пустым набором частей
     const onHit =
@@ -1715,7 +1737,11 @@
       spellTemplateStore.removePlacedTemplate(templateId);
     }
 
-    if (actors.length > 0 && socket) {
+    // Цели нечего получить — ни урона, ни эффекта («Щит» только на себя):
+    // оркестратор писал бы в чат «цель не выбрана» к касту, который удался
+    const reachesTargets = castReachesTargets(pseudoSpell, parts.length);
+
+    if (actors.length > 0 && socket && reachesTargets) {
       void resolveSpellDamageWithParts(
         {
           spell: pseudoSpell,

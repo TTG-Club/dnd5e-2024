@@ -42,7 +42,7 @@ const bundle = await build({
   stdin: {
     contents: `
       export * from './src/client/composables/spellEffectTargeting.ts';
-      export { castNeedsMultiPart, targetEffectsNeedResolution } from './src/client/composables/spellResolutionShared.ts';
+      export { castNeedsMultiPart, castReachesTargets, targetEffectsNeedResolution } from './src/client/composables/spellResolutionShared.ts';
       export { getSpellEffectTargetCount } from './src/engine/spellUtils.ts';
       export * from 'test:host';
       export { useProjectileStore } from '@/stores/projectileStore';
@@ -481,6 +481,29 @@ for (const [scenario, invalidate] of [
     assert.equal(runtime.updates.length, 0);
   });
 }
+
+it('a cast reaches targets only with rolled parts or target effects: self-only Shield skips the orchestrator', () => {
+  const shield = {
+    ...bless,
+    id: 'shield',
+    activeEffects: [{ ...bless.activeEffects[0], effectTarget: 'self' }],
+  };
+
+  assert.equal(runtime.castReachesTargets(bless, 0), true);
+  assert.equal(runtime.castReachesTargets(shield, 0), false);
+  assert.equal(runtime.castReachesTargets(shield, 1), true);
+
+  assert.equal(
+    runtime.castReachesTargets(
+      {
+        ...bless,
+        activeEffects: [{ ...bless.activeEffects[0], disabled: true }],
+      },
+      0,
+    ),
+    false,
+  );
+});
 
 it('effects with their own damage go through the orchestrator: one write with damage and effect', async () => {
   const venom = {
