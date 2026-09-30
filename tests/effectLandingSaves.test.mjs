@@ -39,6 +39,8 @@ async function loadSaveFilter() {
 
   return loadHandler(resolutionPath, 'listLandingEffectsWithOwnSave', {
     listEffectsWithOwnSave,
+    // Числа наложившего подставляет путь клиента; здесь их нет
+    bindTargetEffectsToCaster: (effects) => effects,
     isDndSceneEntity: engine.isDndSceneEntity,
     passesLandingCondition: engine.passesLandingCondition,
     buildLandingContext: () => ({ source: createActor() }),

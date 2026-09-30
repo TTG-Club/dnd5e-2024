@@ -14,6 +14,7 @@
  */
 
 import type { ActiveEffect, EffectSaveTiming } from './activeEffectTypes.js';
+import type { SaveDcSource } from './effectSaveDc.js';
 import type {
   EffectTrigger,
   EffectTriggerAction,
@@ -193,11 +194,25 @@ export function readEffectLandingTrigger(
           save: {
             ability: effect.applySave.ability,
             dc: effect.applySave.dc,
+            ...pickSaveDcFormula(effect.applySave),
           },
         }
       : {}),
     actions,
   };
+}
+
+/**
+ * Формула Сл старого поля для срабатывания — только если она есть: пустое
+ * поле в данных не пишется.
+ *
+ * @param save - Сл старого поля
+ * @returns поле формулы либо ничего
+ */
+function pickSaveDcFormula(
+  save: SaveDcSource,
+): Pick<SaveDcSource, 'dcFormula'> {
+  return save.dcFormula ? { dcFormula: save.dcFormula } : {};
 }
 
 /**
@@ -263,7 +278,15 @@ function readLegacyListTriggers(effect: ActiveEffect): EffectTrigger[] {
     triggers.push({
       id: LEGACY_TRIGGER_IDS.recurringDamage,
       event: turnTriggerEventOf(recurringDamage.timing),
-      ...(save ? { save: { ability: save.ability, dc: save.dc } } : {}),
+      ...(save
+        ? {
+            save: {
+              ability: save.ability,
+              dc: save.dc,
+              ...pickSaveDcFormula(save),
+            },
+          }
+        : {}),
       actions: [
         {
           type: 'damage',
@@ -279,7 +302,11 @@ function readLegacyListTriggers(effect: ActiveEffect): EffectTrigger[] {
     triggers.push({
       id: LEGACY_TRIGGER_IDS.recurringSave,
       event: turnTriggerEventOf(recurringSave.timing),
-      save: { ability: recurringSave.ability, dc: recurringSave.dc },
+      save: {
+        ability: recurringSave.ability,
+        dc: recurringSave.dc,
+        ...pickSaveDcFormula(recurringSave),
+      },
       actions: [{ type: 'removeSelf', on: 'saved' }],
     });
   }

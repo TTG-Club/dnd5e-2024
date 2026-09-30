@@ -36,6 +36,8 @@ import {
   itemEffectsActive,
   resolveChangeValue,
 } from './effectPipeline.js';
+import { listEffectSaveDcs } from './effectSaveDc.js';
+import { buildOwnerSaveDcContext } from './effectSaveDcOwner.js';
 import {
   hasPresenceTriggers,
   upgradeStaySaveEffect,
@@ -173,8 +175,12 @@ export function collectAllAuraEffects(entity: DnDSceneEntity): ActiveEffect[] {
   }
 
   // Так же и прочие числа источника: «Аура защиты» даёт союзникам модификатор
-  // Харизмы паладина, а пайплайн получателя прочёл бы в `@mod.cha` свою
-  const sourceContext = buildFormulaContext(entity);
+  // Харизмы паладина, а пайплайн получателя прочёл бы в `@mod.cha` свою; Сл
+  // ауры формулой — Сл носителя («@spellDc»)
+  const sourceContext = buildOwnerSaveDcContext(
+    entity,
+    shaped.flatMap(listEffectSaveDcs).map((save) => save.dcFormula),
+  );
 
   return shaped.map((effect) =>
     bindSourceEffectFormulas(effect, sourceContext),

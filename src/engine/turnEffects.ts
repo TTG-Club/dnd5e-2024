@@ -59,6 +59,7 @@ import {
   collectBonusRollFormulas,
   resolveActorStats,
 } from './effectPipeline.js';
+import { resolveSaveDc } from './effectSaveDcOwner.js';
 import { resetTriggerUsage } from './effectTriggerUsage.js';
 import { buildFormulaContext } from './formulaParser.js';
 import { limitEntityHealing } from './healingLimits.js';
@@ -586,7 +587,9 @@ export function buildApplySaveSpec(
   return {
     effectName: effect.name,
     ability: applySave.ability,
-    dc: applySave.dc,
+    // Эффект зоны и ауры получил числа владельца при сборе — формула уже
+    // число либо ждёт того, чего здесь нет
+    dc: resolveSaveDc(applySave),
     ...resolveEffectMagicCircumstances(effect),
     againstCondition: effect.conditionKey,
     ...(applySave.allowWilling ? { allowWilling: true } : {}),

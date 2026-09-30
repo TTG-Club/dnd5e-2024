@@ -534,12 +534,13 @@ export const EFFECT_TRIGGER_AREA_TARGET_OPTIONS: ReadonlyArray<
   { value: 'allWithSelf', label: EFFECT_TRIGGER_AREA_LABELS.allWithSelf },
 ];
 
-/** Режимы поля Сл: Сл источника или своё число */
+/** Режимы поля Сл: Сл источника, своё число или формула */
 export const SAVE_DC_FIELD_MODE_OPTIONS: ReadonlyArray<
   EffectSegmentOption<SaveDcFieldMode>
 > = [
   { value: 'auto', label: SAVE_DC_FIELD_MODE_LABELS.auto },
   { value: 'manual', label: SAVE_DC_FIELD_MODE_LABELS.manual },
+  { value: 'formula', label: SAVE_DC_FIELD_MODE_LABELS.formula },
 ];
 
 /** Разделитель источника Сл и её числа в режиме «Авто» («Сл заклинателя · 15») */

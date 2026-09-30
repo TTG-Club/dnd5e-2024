@@ -25,11 +25,13 @@ import type { DamagePart } from '@vtt/shared';
 
 import type { ActiveEffect, EffectChange } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
+import type { SaveDcSource } from './effectSaveDc.js';
 
 import { isCreatureEntity } from '@vtt/shared';
 
 import { getClassLevels } from './classTypes.js';
 import { resolveDiceCountExpressions } from './diceCountExpressions.js';
+import { listEffectSaveDcs, mapEffectSaveDcs } from './effectSaveDc.js';
 import { COUNTER_FORMULA_TOKENS } from './formulaParser.js';
 import {
   mapTriggerDamageParts,
@@ -178,13 +180,28 @@ function effectUsesClassLevel(effect: ActiveEffect): boolean {
     )
     || hasToken(effect.aura?.radiusFormula)
     || someTriggerDamagePart(effect.triggers, partUsesClassLevel)
+    || listEffectSaveDcs(effect).some((save) => hasToken(save.dcFormula))
   );
+}
+
+/** Подставляет уровень класса в Сл формулой */
+function bindSaveDc<Save extends SaveDcSource>(
+  save: Save,
+  classLevel: number,
+): Save {
+  return save.dcFormula !== undefined && hasToken(save.dcFormula)
+    ? { ...save, dcFormula: bindFormula(save.dcFormula, classLevel) }
+    : save;
 }
 
 /** Собирает копию эффекта с подставленным уровнем класса */
 function bindEffect(effect: ActiveEffect, classLevel: number): ActiveEffect {
+  const saveBound = mapEffectSaveDcs(effect, (save) =>
+    bindSaveDc(save, classLevel),
+  );
+
   return {
-    ...effect,
+    ...saveBound,
     changes: effect.changes.map((change) => bindChange(change, classLevel)),
     ...(effect.damageParts === undefined
       ? {}
@@ -193,12 +210,12 @@ function bindEffect(effect: ActiveEffect, classLevel: number): ActiveEffect {
             bindDamagePart(part, classLevel),
           ),
         }),
-    ...(effect.recurringDamage === undefined
+    ...(saveBound.recurringDamage === undefined
       ? {}
       : {
           recurringDamage: {
-            ...effect.recurringDamage,
-            damageParts: effect.recurringDamage.damageParts.map((part) =>
+            ...saveBound.recurringDamage,
+            damageParts: saveBound.recurringDamage.damageParts.map((part) =>
               bindDamagePart(part, classLevel),
             ),
           },
@@ -211,10 +228,10 @@ function bindEffect(effect: ActiveEffect, classLevel: number): ActiveEffect {
             radiusFormula: bindFormula(effect.aura.radiusFormula, classLevel),
           },
         }),
-    ...(effect.triggers === undefined
+    ...(saveBound.triggers === undefined
       ? {}
       : {
-          triggers: effect.triggers.map((trigger) =>
+          triggers: saveBound.triggers.map((trigger) =>
             mapTriggerDamageParts(trigger, (part) =>
               bindDamagePart(part, classLevel),
             ),

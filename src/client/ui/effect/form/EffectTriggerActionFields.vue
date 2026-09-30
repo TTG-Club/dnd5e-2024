@@ -197,6 +197,7 @@
   function updateRecurringSave(patch: {
     ability?: AbilityType;
     dc?: number;
+    dcFormula?: string;
     timing?: EffectSaveTiming;
   }): void {
     const current = action.value;
@@ -822,7 +823,10 @@
         :auto-allowed="acceptsSourceSaveDc"
         :auto-label="EFFECT_SOURCE_DC_LABELS[layout.context]"
         :auto-value="sourceSaveDc"
+        :formula="action.recurringSave.dcFormula"
+        formula-allowed
         @update:model-value="updateRecurringSave({ dc: $event })"
+        @update:formula="updateRecurringSave({ dcFormula: $event })"
       />
 
       <UFormField

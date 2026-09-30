@@ -81,6 +81,7 @@ import {
   listTraitEffects,
   resolveActorStats,
 } from './effectPipeline.js';
+import { resolveSaveDc } from './effectSaveDcOwner.js';
 import { advanceEffectStage, formatEffectStageLabel } from './effectStages.js';
 import {
   isClientAttackRollTrigger,
@@ -224,8 +225,12 @@ export interface TriggerSaveEvent {
 }
 
 /**
- * Сл спасброска срабатывания: формулой от урона события, если она есть и
- * событие несёт урон, иначе число.
+ * Сл спасброска срабатывания: формулой, если она есть и посчиталась, иначе
+ * число.
+ *
+ * Формула считается по бросающему как по владельцу: срабатывание, которое
+ * достаётся другому, получает числа владельца раньше
+ * (`bindTriggerSourceSaveDcs`), и у него осталась разве что `@damage`.
  *
  * @param save - спасбросок срабатывания
  * @param event - кто бросает и данные события
@@ -235,23 +240,7 @@ export function resolveTriggerSaveDc(
   save: EffectTriggerSave,
   event?: TriggerSaveEvent,
 ): number {
-  const damage = event?.eventData.damage;
-
-  if (!save.dcFormula || !event || !damage) {
-    return save.dc;
-  }
-
-  try {
-    const value = evaluateFormula(save.dcFormula, {
-      ...buildFormulaContext(event.entity),
-      event: { damage: damage.amount },
-    });
-
-    return Number.isFinite(value) ? Math.max(1, Math.trunc(value)) : save.dc;
-  } catch {
-    // Автор ошибся в формуле — спасбросок всё равно бросается, против числа
-    return save.dc;
-  }
+  return resolveSaveDc(save, event?.entity, event?.eventData.damage?.amount);
 }
 
 /** Кость автоматического успеха спасброска — условная */

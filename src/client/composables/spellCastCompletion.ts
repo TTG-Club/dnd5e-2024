@@ -108,6 +108,7 @@ export function prepareCasterSpellEffects(
   const formulaContext = {
     ...buildFormulaContext(caster),
     spellMod: source.spellMod,
+    spellSaveDc: source.saveDc,
   };
 
   // Уровень класса — по id умения, пока новые id наложения его не стёрли

@@ -14,6 +14,7 @@ import type {
   EffectFormContext,
   EffectFormLayout,
 } from './effectFormLayout.js';
+import type { SaveDcSource } from './effectSaveDc.js';
 import type { EffectTrigger } from './effectTriggerTypes.js';
 
 import {
@@ -150,14 +151,19 @@ const MAX_NAMED_MODIFIERS = 3;
 /**
  * Подпись Сл спасброска в сводке.
  *
- * @param dc - сложность из эффекта
+ * @param save - Сл из эффекта
  * @param context - место окна
  * @returns подпись сложности
  */
-function formatScenarioSaveDc(dc: number, context: EffectFormContext): string {
+function formatScenarioSaveDc(
+  save: SaveDcSource,
+  context: EffectFormContext,
+): string {
   const sourceLabel = SOURCE_SAVE_DC_LABELS[context];
 
-  return dc === 0 && sourceLabel ? sourceLabel : formatEffectSaveDc(dc);
+  return save.dc === 0 && !save.dcFormula && sourceLabel
+    ? sourceLabel
+    : formatEffectSaveDc(save);
 }
 
 /**
@@ -174,7 +180,7 @@ export function describeEffectTriggerInPlace(
   context: EffectFormContext,
 ): string {
   return describeEffectTrigger(trigger, {
-    formatDc: (dc) => formatScenarioSaveDc(dc, context),
+    formatDc: (save) => formatScenarioSaveDc(save, context),
   });
 }
 
@@ -512,7 +518,7 @@ export function describeEffectScenario(
   const everything = damage ? [damage, ...lasting] : lasting;
 
   if (layout.showSave && effect.applySave) {
-    const { ability, dc } = effect.applySave;
+    const { ability } = effect.applySave;
     const outcome = readEffectSuccessOutcome(effect);
 
     const failure =
@@ -521,7 +527,7 @@ export function describeEffectScenario(
         : joinParts(everything);
 
     return [
-      `${moment}: ${SCENARIO_LABELS.savePrefix}${ABILITY_GENITIVE_LABELS[ability]}, ${formatScenarioSaveDc(dc, context)}.`,
+      `${moment}: ${SCENARIO_LABELS.savePrefix}${ABILITY_GENITIVE_LABELS[ability]}, ${formatScenarioSaveDc(effect.applySave, context)}.`,
       `${SCENARIO_LABELS.failurePrefix}${failure}.`,
       `${SCENARIO_LABELS.successPrefix}${describeSuccess(effect, damage, lasting)}.`,
     ].join(' ');

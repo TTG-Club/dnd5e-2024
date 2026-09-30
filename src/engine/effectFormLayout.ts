@@ -47,6 +47,7 @@ import {
   SOURCE_SAVE_DC,
 } from './activeEffectTypes.js';
 import { hasLastingEffectPayload } from './effectAutomation.js';
+import { mapEffectSaveDcs } from './effectSaveDc.js';
 import { applyEffectStage, resolveEffectStageIndex } from './effectStages.js';
 import {
   createEffectTriggerId,
@@ -1050,13 +1051,13 @@ function resolveDraftRecipient(
 }
 
 /**
- * Считается ли Сл спасброска формулой от данных события — у событий урона есть
- * `@damage`.
+ * Читает ли Сл формулой урон события — у событий урона есть `@damage`. Сама
+ * Сл формулой (по владельцу эффекта) есть у любого события.
  *
  * @param event - событие
- * @returns `true`, если формула Сл работает
+ * @returns `true`, если в формуле Сл работает `@damage`
  */
-export function triggerEventAcceptsDcFormula(
+export function triggerEventAcceptsDamageDc(
   event: EffectTriggerEvent,
 ): boolean {
   return DAMAGE_DATA_TRIGGER_EVENTS.includes(event);
@@ -1860,7 +1861,7 @@ function normalizeDraftTriggers(
   const normalized = (triggers ?? [])
     .map((trigger) => ({
       ...trigger,
-      // Получатель и Сл формулой — только у событий, где они работают
+      // Получатель — только у событий, где он работает
       recipient: resolveDraftRecipient(trigger),
       area:
         resolveDraftRecipient(trigger) === AREA_TRIGGER_RECIPIENT
@@ -1892,9 +1893,6 @@ function normalizeDraftTriggers(
         ? {
             ...trigger.save,
             dc: clampSaveDc(trigger.save.dc, minDc),
-            dcFormula: triggerEventAcceptsDcFormula(trigger.event)
-              ? trigger.save.dcFormula?.trim() || undefined
-              : undefined,
           }
         : undefined,
       limit: trigger.limit
@@ -1967,7 +1965,7 @@ export function normalizeEffectDraft(
       ? true
       : effect.disabled;
 
-  return {
+  const normalized: ActiveEffect = {
     ...effect,
     disabled,
     name: effect.name.trim(),
@@ -2039,4 +2037,10 @@ export function normalizeEffectDraft(
       : undefined,
     escape: normalizeDraftEscape(effect.escape, layout.minSaveDc),
   };
+
+  // Пустая формула Сл — её отсутствие: спасбросок остаётся с числом
+  return mapEffectSaveDcs(normalized, (save) => ({
+    ...save,
+    dcFormula: save.dcFormula?.trim() || undefined,
+  }));
 }

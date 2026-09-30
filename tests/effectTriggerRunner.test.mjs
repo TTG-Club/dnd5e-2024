@@ -775,7 +775,7 @@ describe('отметки', () => {
 
   it('сводка называет отметку и условие по ней', () => {
     const [regeneration, struck] = createTroll().activeEffects[0].triggers;
-    const options = { formatDc: String };
+    const options = { formatDc: ({ dc }) => String(dc) };
 
     assert.equal(
       engine.describeEffectTrigger(regeneration, options),

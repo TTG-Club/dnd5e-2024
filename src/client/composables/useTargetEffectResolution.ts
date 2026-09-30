@@ -126,6 +126,9 @@ function buildLandingContext(input: TargetEffectsInput): EffectLandingContext {
  * гоблина), спасброска не требует: бросок ничего бы не решал, а у чужой цели
  * ещё и дёргал бы владельца запросом.
  *
+ * Числа наложившего подставлены: Сл формулой («8 + @prof + @mod.wis» у
+ * «Ошеломляющего удара») — его, а не цели.
+ *
  * @param input - заклинание, цель, кастер
  * @returns эффекты, у которых нужно спросить спасбросок
  */
@@ -133,7 +136,12 @@ function listLandingEffectsWithOwnSave(
   input: TargetEffectsInput,
 ): ActiveEffect[] {
   const { entity } = input;
-  const effects = listEffectsWithOwnSave(input.spell);
+
+  const effects = bindTargetEffectsToCaster(
+    listEffectsWithOwnSave(input.spell),
+    input.spell,
+    input.casterId,
+  );
 
   if (!isDndSceneEntity(entity)) {
     return effects;

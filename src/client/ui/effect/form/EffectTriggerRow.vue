@@ -1,7 +1,7 @@
 <!--
   Строка списка «Срабатывания»: когда → спасбросок → что сделать → сколько раз.
   Что доступно, решает движок по месту окна: события — `layout.triggerEvents`,
-  действия — `listTriggerActionTypes`, Сл формулой — `triggerEventAcceptsDcFormula`.
+  действия — `listTriggerActionTypes`, Сл формулой — `triggerEventAcceptsDamageDc`.
 -->
 <script setup lang="ts">
   // Корневой вход `@nuxt/ui` типов компонентов не отдаёт — берём из подпути
@@ -50,6 +50,7 @@
     DEFAULT_TRIGGER_RECIPIENT,
     DEFAULT_TRIGGER_REST_TYPE,
     DEFAULT_TRIGGER_TURN_OWNER,
+    EVENT_DAMAGE_TOKEN,
     isTurnTriggerEvent,
     layoutAcceptsSourceSaveDc,
     listTriggerActionTypes,
@@ -60,12 +61,11 @@
     MIN_TRIGGER_CHOICE_COUNT,
     MIN_TRIGGER_LIMIT_MAX,
     resolveTriggerActionGate,
-    triggerEventAcceptsDcFormula,
+    triggerEventAcceptsDamageDc,
     triggerEventHasConditionKey,
     triggerEventHasPathFeet,
     triggerEventHasRestType,
     triggerEventHasRole,
-    validateFormula,
   } from '@vtt/shared/system/dnd.js';
 
   import { SCROLLABLE_DROPDOWN_UI } from '../../actor/constants';
@@ -154,7 +154,7 @@
   );
 
   const acceptsDcFormula = computed(() =>
-    triggerEventAcceptsDcFormula(trigger.value.event),
+    triggerEventAcceptsDamageDc(trigger.value.event),
   );
 
   const hasOtherParty = computed(() =>
@@ -257,7 +257,8 @@
   });
 
   /**
-   * Спасбросок без формулы Сл, если новое событие её не знает.
+   * Спасбросок без формулы Сл, если она читает урон события, а новое событие
+   * урона не несёт: формула по владельцу работает у любого события.
    *
    * @param save - спасбросок строки
    * @param nextEvent - новое событие
@@ -267,9 +268,12 @@
     save: NonNullable<EffectTrigger['save']>,
     nextEvent: EffectTriggerEvent,
   ): NonNullable<EffectTrigger['save']> {
-    const { dcFormula: _formula, ...rest } = save;
+    const { dcFormula, ...rest } = save;
 
-    return triggerEventAcceptsDcFormula(nextEvent) ? save : rest;
+    return triggerEventAcceptsDamageDc(nextEvent)
+      || !dcFormula?.includes(EVENT_DAMAGE_TOKEN)
+      ? save
+      : rest;
   }
 
   // Получатель по умолчанию в данных не пишется
@@ -375,23 +379,12 @@
   });
 
   const dcFormula = computed({
-    get: () => trigger.value.save?.dcFormula ?? '',
-    set: (next: string | number) => {
-      if (!trigger.value.save) {
-        return;
+    get: () => trigger.value.save?.dcFormula,
+    set: (formula: string | undefined) => {
+      if (trigger.value.save) {
+        update({ save: { ...trigger.value.save, dcFormula: formula } });
       }
-
-      const { dcFormula: _formula, ...rest } = trigger.value.save;
-      const formula = String(next).trim();
-
-      update({ save: formula ? { ...rest, dcFormula: formula } : rest });
     },
-  });
-
-  const dcFormulaError = computed(() => {
-    const formula = trigger.value.save?.dcFormula;
-
-    return formula ? validateFormula(formula).error : undefined;
   });
 
   const condition = computed({
@@ -962,26 +955,14 @@
 
       <SaveDcField
         v-model="saveDc"
+        v-model:formula="dcFormula"
         :label="EFFECT_TRIGGER_ROW_LABELS.saveDc"
         :auto-allowed="acceptsSourceSaveDc"
         :auto-label="EFFECT_SOURCE_DC_LABELS[layout.context]"
         :auto-value="sourceSaveDc"
+        formula-allowed
+        :accepts-damage="acceptsDcFormula"
       />
-
-      <UFormField
-        v-if="acceptsDcFormula"
-        :label="EFFECT_TRIGGER_ROW_LABELS.dcFormula"
-        :hint="EFFECT_TRIGGER_ROW_LABELS.dcFormulaHint"
-        :error="dcFormulaError"
-        class="w-72"
-      >
-        <UInput
-          v-model="dcFormula"
-          :placeholder="EFFECT_TRIGGER_ROW_LABELS.dcFormulaPlaceholder"
-          size="sm"
-          class="w-full"
-        />
-      </UFormField>
     </div>
 
     <template v-if="trigger.save">

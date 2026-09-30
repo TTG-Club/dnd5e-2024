@@ -1501,6 +1501,8 @@ export interface EffectEscapeCheck {
   skill: SkillType;
   /** Сложность; 0 — Сл источника */
   dc: number;
+  /** Сл формулой по наложившему: «8 + @prof + @mod.str» захвата */
+  dcFormula?: string;
 }
 
 /** Самая длинная подпись ступени */
@@ -1573,6 +1575,13 @@ export interface EffectSave {
   ability: AbilityType;
   /** Сложность спасброска */
   dc: number;
+  /**
+   * Сл формулой по владельцу эффекта: «8 + @prof + @mod.str», «@spellDc» — Сл
+   * его заклинаний. Считается по тому, чей это эффект: у наложенного на
+   * другого — числами наложившего при наложении, у своего — по носителю в
+   * момент броска. Не посчиталась — `dc`.
+   */
+  dcFormula?: string;
   /** Эффект успешного спасброска */
   onSuccess: EffectSaveOutcome;
   /**
@@ -1603,6 +1612,13 @@ export interface RecurringSave {
   ability: AbilityType;
   /** Сложность спасброска (`0` = подставить Сл кастера при наложении) */
   dc: number;
+  /**
+   * Сл формулой по владельцу эффекта: «8 + @prof + @mod.str», «@spellDc» — Сл
+   * его заклинаний. Считается по тому, чей это эффект: у наложенного на
+   * другого — числами наложившего при наложении, у своего — по носителю в
+   * момент броска. Не посчиталась — `dc`.
+   */
+  dcFormula?: string;
   /** Момент броска */
   timing: EffectSaveTiming;
 }
@@ -2512,11 +2528,27 @@ const MAX_MOVE_COST_FEET = 200;
 /** Zod-схема сложности спасброска: число, в том числе набранное строкой */
 const EffectSaveDcSchema = z.preprocess(coerceOptionalNumber, z.number().int());
 
+/** Самая длинная формула Сл */
+export const MAX_SAVE_DC_FORMULA_LENGTH = 200;
+
+/**
+ * Zod-схема Сл формулой: пустая или слишком длинная отбрасывается, спасбросок
+ * остаётся с числом.
+ */
+const SaveDcFormulaSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(MAX_SAVE_DC_FORMULA_LENGTH)
+  .optional()
+  .catch(undefined);
+
 /** Zod-схема спасброска при наложении эффекта */
 const EffectSaveSchema = z.object({
   allowWilling: z.literal(true).optional().catch(undefined),
   ability: z.enum(SAVE_ABILITY_VALUES),
   dc: EffectSaveDcSchema,
+  dcFormula: SaveDcFormulaSchema,
   onSuccess: z.enum(['negate', 'half']),
 });
 
@@ -2524,6 +2556,7 @@ const EffectSaveSchema = z.object({
 const RecurringSaveSchema = z.object({
   ability: z.enum(SAVE_ABILITY_VALUES),
   dc: EffectSaveDcSchema,
+  dcFormula: SaveDcFormulaSchema,
   timing: z.enum(EFFECT_SAVE_TIMINGS),
 });
 
@@ -2552,8 +2585,8 @@ export const ACTIVE_EFFECT_ID_PREFIX = 'ae';
 /** Самый длинный id каста — как у черновика области ядра */
 const MAX_CAST_ID_LENGTH = 64;
 
-/** Самая длинная формула Сл срабатывания */
-const MAX_TRIGGER_DC_FORMULA_LENGTH = 200;
+/** Самая длинная формула действия срабатывания: урон максимума, хиты */
+const MAX_TRIGGER_FORMULA_LENGTH = 200;
 
 /** Больше правил режима у одного спасброска не бывает */
 const MAX_SAVE_MODE_RULES = 8;
@@ -2563,13 +2596,7 @@ const EffectTriggerSaveSchema = z.object({
   ability: z.enum(SAVE_ABILITY_VALUES),
   dc: EffectSaveDcSchema,
   mode: z.enum(EFFECT_TRIGGER_SAVE_MODES).optional().catch(undefined),
-  dcFormula: z
-    .string()
-    .trim()
-    .min(1)
-    .max(MAX_TRIGGER_DC_FORMULA_LENGTH)
-    .optional()
-    .catch(undefined),
+  dcFormula: SaveDcFormulaSchema,
   modeIf: z
     .array(
       z.object({
@@ -2609,7 +2636,7 @@ const EFFECT_TRIGGER_PLAIN_ACTION_SCHEMAS = [
   }),
   z.object({
     type: z.literal('reduceMaxHp'),
-    amount: z.string().trim().min(1).max(MAX_TRIGGER_DC_FORMULA_LENGTH),
+    amount: z.string().trim().min(1).max(MAX_TRIGGER_FORMULA_LENGTH),
     endsOnRest: z
       .enum(EFFECT_TRIGGER_MAX_HP_REST_ENDS)
       .optional()
@@ -2624,7 +2651,7 @@ const EFFECT_TRIGGER_PLAIN_ACTION_SCHEMAS = [
   }),
   z.object({
     type: z.literal('tempHp'),
-    amount: z.string().trim().min(1).max(MAX_TRIGGER_DC_FORMULA_LENGTH),
+    amount: z.string().trim().min(1).max(MAX_TRIGGER_FORMULA_LENGTH),
     mode: z.enum(EFFECT_TEMP_HP_MODES).optional().catch(undefined),
     on: EffectTriggerGateSchema,
   }),
@@ -2721,7 +2748,7 @@ const EFFECT_TRIGGER_PLAIN_ACTION_SCHEMAS = [
       .string()
       .trim()
       .min(1)
-      .max(MAX_TRIGGER_DC_FORMULA_LENGTH)
+      .max(MAX_TRIGGER_FORMULA_LENGTH)
       .optional()
       .catch(undefined),
     on: EffectTriggerGateSchema,
@@ -2946,6 +2973,7 @@ const EffectFlagsSchema = z
 const EffectEscapeCheckSchema = z.object({
   skill: z.string().refine(isSkillType),
   dc: EffectSaveDcSchema,
+  dcFormula: SaveDcFormulaSchema,
 });
 
 /** Zod-схема действия «вырваться» */

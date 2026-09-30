@@ -1135,11 +1135,11 @@ describe('список «Срабатывания»', () => {
       '«хиты становятся» — только когда хиты упали до 0',
     );
 
-    assert.equal(engine.triggerEventAcceptsDcFormula('damageTaken'), true);
-    assert.equal(engine.triggerEventAcceptsDcFormula('turnEnd'), false);
+    assert.equal(engine.triggerEventAcceptsDamageDc('damageTaken'), true);
+    assert.equal(engine.triggerEventAcceptsDamageDc('turnEnd'), false);
     assert.equal(engine.triggerEventHasOtherParty('damageTaken'), true);
     assert.equal(engine.triggerEventHasOtherParty('hpZero'), false);
-    assert.equal(engine.triggerEventAcceptsDcFormula('applied'), true);
+    assert.equal(engine.triggerEventAcceptsDamageDc('applied'), true);
     assert.equal(engine.triggerEventHasOtherParty('applied'), true);
 
     const zone = layoutOf('zone');

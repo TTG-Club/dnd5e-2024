@@ -101,10 +101,19 @@ export interface FormulaContext {
    * срабатывания. Вне события токен — ошибка формулы.
    */
   event?: { damage: number };
+  /**
+   * Сл заклинаний владельца формулы — токен `@spellDc`. Им пишется Сл умения
+   * «равна Сл ваших заклинаний» (аура, умение подкласса). Заполняется только
+   * там, где формула Сл считается по владельцу: вне этого токен — ошибка.
+   */
+  spellSaveDc?: number;
 }
 
 /** Переменная урона события в Сл срабатывания */
 export const EVENT_DAMAGE_VARIABLE = 'damage';
+
+/** Переменная Сл заклинаний владельца в формуле Сл */
+export const SPELL_SAVE_DC_VARIABLE = 'spellDc';
 
 /**
  * Токены формул листа. Тот же диалект понимают активные эффекты и количество
@@ -558,6 +567,7 @@ function evaluateNode(node: AstNode, context: FormulaContext): number {
  * - prof → context.prof
  * - level → context.level
  * - classLevel → context.classLevel, иначе context.level
+ * - spellDc → context.spellSaveDc (Сл заклинаний владельца)
  * - target.full / target.notFull → 1/0 по состоянию цели
  *
  * @param variablePath - путь переменной (без @)
@@ -593,6 +603,16 @@ function resolveVariable(
       }
 
       return context.event.damage;
+    }
+
+    if (simpleKey === SPELL_SAVE_DC_VARIABLE) {
+      if (context.spellSaveDc === undefined) {
+        throw new FormulaError(
+          `@${simpleKey} есть только в Сл, которую считают по владельцу`,
+        );
+      }
+
+      return context.spellSaveDc;
     }
 
     // Короткий код характеристики @int → значение (16), парно к @mod.int (мод)

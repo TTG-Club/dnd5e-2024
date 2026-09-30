@@ -41,6 +41,7 @@ import {
   formatEffectRequesterLabel,
   settleEffectSaveOutcome,
 } from './effectSaveAcquisition.js';
+import { bindTriggerSourceSaveDcs } from './effectSaveDcOwner.js';
 import { describeTriggerActions } from './effectTriggerDescribe.js';
 import {
   applyEntryEffect,
@@ -712,7 +713,11 @@ function settleChoiceRecipient(
   recipient: DnDSceneEntity,
   target: ChoiceAnswerTarget,
 ): DeferredEffectOutcome {
-  const source = narrowChoiceSource(target.source, false);
+  // Сл формулой — по субъекту, на котором эффект, а не по выбранному
+  const source = bindTriggerSourceSaveDcs(
+    narrowChoiceSource(target.source, false),
+    subject,
+  );
 
   if (source.trigger.actions.length === 0) {
     return unchangedOutcome([]);

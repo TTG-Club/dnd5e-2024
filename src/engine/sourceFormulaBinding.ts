@@ -8,6 +8,10 @@
  * рукой, его токены превращаются в числа — остальные (`@dmg.*`, `@heal`,
  * `@target.*`, `@speed.*`) остаются: они относятся к цели и броску.
  *
+ * Так же и Сл спасбросков эффекта формулой («8 + @prof + @mod.str» варвара,
+ * «@spellDc» ауры): у наложенного эффекта это Сл НАЛОЖИВШЕГО, и формула без
+ * оставшихся `@`-токенов сразу становится числом (см. `effectSaveDc.ts`).
+ *
  * Числа источника идут и в урон и лечение срабатываний: «Божественная искра»
  * лечит `1к8 + @mod.wis` жреца срабатыванием «при наложении», и сервер,
  * получив формулу с `@`, её просто пропустил бы. Число костей выражением
@@ -21,10 +25,16 @@ import type { DamagePart } from '@vtt/shared';
 
 import type { ActiveEffect, EffectChange } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
+import type { SaveDcSource } from './effectSaveDc.js';
 import type { FormulaContext } from './formulaParser.js';
 
 import { bindClassLevels } from './classEffectScope.js';
 import { resolveDiceCountExpressions } from './diceCountExpressions.js';
+import {
+  evaluateSaveDcFormula,
+  listEffectSaveDcs,
+  mapEffectSaveDcs,
+} from './effectSaveDc.js';
 import { evaluateFormula, formatFormulaNumber } from './formulaParser.js';
 import {
   mapTriggerDamageParts,
@@ -33,10 +43,11 @@ import {
 
 /**
  * Токены, которые принадлежат источнику: модификаторы и значения
- * характеристик, модификатор заклинания, бонус мастерства, уровни.
+ * характеристик, модификатор заклинания, бонус мастерства, уровни, Сл
+ * заклинаний.
  */
 const SOURCE_TOKEN_PATTERN =
-  /@(?:mod\.(?:str|dex|con|int|wis|cha|spell)|prof|classLevel|level|str|dex|con|int|wis|cha)\b/g;
+  /@(?:mod\.(?:str|dex|con|int|wis|cha|spell)|prof|classLevel|level|spellDc|str|dex|con|int|wis|cha)\b/g;
 
 /** Тот же токен — для проверки наличия, без позиции поиска у глобального */
 const SOURCE_TOKEN_PROBE = new RegExp(SOURCE_TOKEN_PATTERN.source, 'u');
@@ -102,6 +113,34 @@ function bindDamagePart(part: DamagePart, context: FormulaContext): DamagePart {
   };
 }
 
+/**
+ * Подставляет числа источника в Сл формулой. Не осталось `@`-токенов — Сл
+ * становится числом, и формулу больше некому читать; остался `@damage` —
+ * формула ждёт события.
+ *
+ * @param save - Сл спасброска
+ * @param context - контекст источника
+ * @returns Сл с числами источника
+ */
+export function bindSaveDcFormula<Save extends SaveDcSource>(
+  save: Save,
+  context: FormulaContext,
+): Save {
+  if (save.dcFormula === undefined || !hasSourceToken(save.dcFormula)) {
+    return save;
+  }
+
+  const formula = bindSourceFormula(save.dcFormula, context);
+
+  const value = formula.includes('@')
+    ? undefined
+    : evaluateSaveDcFormula(formula, context);
+
+  return value === undefined
+    ? { ...save, dcFormula: formula }
+    : { ...save, dc: value, dcFormula: undefined };
+}
+
 /** Есть ли токен источника в части урона */
 function partUsesSourceTokens(part: DamagePart): boolean {
   return hasSourceToken(part.formula) || hasSourceToken(part.versatileFormula);
@@ -147,6 +186,19 @@ export function effectUsesSourceFormulas(
     || partsUseSourceTokens(effect.damageParts)
     || partsUseSourceTokens(effect.recurringDamage?.damageParts)
     || someTriggerDamagePart(effect.triggers, partUsesSourceTokens)
+    || effectUsesSourceSaveDcs(effect)
+  );
+}
+
+/**
+ * Есть ли у эффекта Сл формулой с токенами источника.
+ *
+ * @param effect - эффект
+ * @returns `true`, если в Сл есть что подставлять
+ */
+function effectUsesSourceSaveDcs(effect: ActiveEffect): boolean {
+  return listEffectSaveDcs(effect).some((save) =>
+    hasSourceToken(save.dcFormula),
   );
 }
 
@@ -170,8 +222,13 @@ export function bindSourceEffectFormulas(
 
   const { changes = true } = options;
 
+  // Сл — всегда по источнику, как урон: это его умение, а не цели
+  const saveBound = effectUsesSourceSaveDcs(effect)
+    ? mapEffectSaveDcs(effect, (save) => bindSaveDcFormula(save, context))
+    : effect;
+
   return {
-    ...effect,
+    ...saveBound,
     // Проверка на `undefined`, а не на токен: она сужает тип, а формула без
     // токена и так возвращается из `bindSourceFormula` как есть
     ...(effect.savedRoll === undefined
@@ -192,20 +249,20 @@ export function bindSourceEffectFormulas(
             bindDamagePart(part, context),
           ),
         }),
-    ...(effect.recurringDamage === undefined
+    ...(saveBound.recurringDamage === undefined
       ? {}
       : {
           recurringDamage: {
-            ...effect.recurringDamage,
-            damageParts: effect.recurringDamage.damageParts.map((part) =>
+            ...saveBound.recurringDamage,
+            damageParts: saveBound.recurringDamage.damageParts.map((part) =>
               bindDamagePart(part, context),
             ),
           },
         }),
-    ...(effect.triggers === undefined
+    ...(saveBound.triggers === undefined
       ? {}
       : {
-          triggers: effect.triggers.map((trigger) =>
+          triggers: saveBound.triggers.map((trigger) =>
             mapTriggerDamageParts(trigger, (part) =>
               bindDamagePart(part, context),
             ),

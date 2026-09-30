@@ -9,6 +9,7 @@
 
 import type { EffectDuration } from '@vtt/shared';
 
+import type { SaveDcSource } from './effectSaveDc.js';
 import type {
   EffectTempHpMode,
   EffectTrigger,
@@ -32,6 +33,7 @@ import {
   describeEffectChangeCondition,
   describeEffectDamageParts,
   describeEffectDuration,
+  formatEffectSaveDc,
 } from './activeEffectDescribe.js';
 import {
   ABILITY_GENITIVE_LABELS,
@@ -163,7 +165,6 @@ const TRIGGER_LABELS = {
   nextStage: 'эффект переходит на следующую ступень',
   actionJoiner: ', ',
   endCast: 'каст заканчивается',
-  dcFormulaPrefix: 'Сл = ',
   damageVariable: 'урон',
   recipientOther: ', на другую сторону',
   recipientSource: ', на наложившего',
@@ -309,8 +310,8 @@ const REST_UNTIL_LABELS: Record<EffectTriggerRestType, string> = {
 
 /** Настройки фразы */
 export interface EffectTriggerDescribeOptions {
-  /** Подпись Сл (0 — Сл источника по месту окна) */
-  formatDc: (dc: number) => string;
+  /** Подпись Сл (0 — Сл источника по месту окна, формула — словами) */
+  formatDc: (save: SaveDcSource) => string;
 }
 
 /**
@@ -491,14 +492,14 @@ function describeAction(
         return condition;
       }
 
-      const { ability, dc, timing } = action.recurringSave;
+      const { ability, timing } = action.recurringSave;
 
       const moment =
         timing === 'startOfTurn'
           ? TRIGGER_LABELS.startOfTurn
           : TRIGGER_LABELS.endOfTurn;
 
-      return `${condition} (${TRIGGER_LABELS.recurringSavePrefix}${ABILITY_GENITIVE_LABELS[ability]} ${options.formatDc(dc)}${moment}${TRIGGER_LABELS.recurringSaveSuffix})`;
+      return `${condition} (${TRIGGER_LABELS.recurringSavePrefix}${ABILITY_GENITIVE_LABELS[ability]} ${options.formatDc(action.recurringSave)}${moment}${TRIGGER_LABELS.recurringSaveSuffix})`;
     }
     case 'applyTag':
       return withDurationSuffix(
@@ -652,16 +653,16 @@ function describeLegacyShape(
     const { save } = trigger;
 
     const saveClause = save
-      ? ` (${TRIGGER_LABELS.savePrefix}${ABILITY_GENITIVE_LABELS[save.ability]}, ${options.formatDc(save.dc)}${TRIGGER_LABELS.damageSaveSuccess}${RECURRING_DAMAGE_SUCCESS_LABELS[action.halfOnSave ? 'half' : 'negate']})`
+      ? ` (${TRIGGER_LABELS.savePrefix}${ABILITY_GENITIVE_LABELS[save.ability]}, ${options.formatDc(save)}${TRIGGER_LABELS.damageSaveSuccess}${RECURRING_DAMAGE_SUCCESS_LABELS[action.halfOnSave ? 'half' : 'negate']})`
       : '';
 
     return `${TRIGGER_LABELS.everyTurnPrefix}${damage}${timing}${saveClause}`;
   }
 
   if (kind === 'recurringSave' && trigger.save) {
-    const { ability, dc } = trigger.save;
+    const { ability } = trigger.save;
 
-    return `${TRIGGER_LABELS.recurringSavePrefix}${ABILITY_GENITIVE_LABELS[ability]} ${options.formatDc(dc)}${timing}${TRIGGER_LABELS.recurringSaveSuffix}`;
+    return `${TRIGGER_LABELS.recurringSavePrefix}${ABILITY_GENITIVE_LABELS[ability]} ${options.formatDc(trigger.save)}${timing}${TRIGGER_LABELS.recurringSaveSuffix}`;
   }
 
   if (kind === 'consumeOn' && trigger.role) {
@@ -734,11 +735,9 @@ export function describeEffectTrigger(
     return `${moment}: ${describeOutcomeActions(trigger, false, options)}${limit}`;
   }
 
-  const { ability, dc, dcFormula, mode } = trigger.save;
+  const { ability, mode } = trigger.save;
 
-  const dcLabel = dcFormula
-    ? `${TRIGGER_LABELS.dcFormulaPrefix}${dcFormula.replaceAll(`@${EVENT_DAMAGE_VARIABLE}`, TRIGGER_LABELS.damageVariable)}`
-    : options.formatDc(dc);
+  const dcLabel = options.formatDc(trigger.save);
 
   return [
     `${moment}: ${TRIGGER_LABELS.savePrefix}${ABILITY_GENITIVE_LABELS[ability]}${describeSaveMode(mode)}, ${dcLabel}`,
@@ -759,7 +758,7 @@ export function describeEffectTrigger(
  */
 export function describeTriggerActions(trigger: EffectTrigger): string {
   return trigger.actions
-    .map((action) => describeAction(action, { formatDc: (dc) => String(dc) }))
+    .map((action) => describeAction(action, { formatDc: formatEffectSaveDc }))
     .filter((text) => text.length > 0)
     .join(TRIGGER_LABELS.actionJoiner);
 }

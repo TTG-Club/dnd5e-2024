@@ -22,6 +22,7 @@ import type {
   EffectDuration,
   EffectSave,
 } from './activeEffectTypes.js';
+import type { SaveDcSource } from './effectSaveDc.js';
 import type { DamageTypeChoiceMode, HealKind } from './formulaTokens.js';
 
 import {
@@ -142,14 +143,18 @@ function isNumeric(value: string): boolean {
 }
 
 /**
- * Подпись Сл спасброска: `0` у эффектов заклинаний и действий — «Сл
- * заклинателя».
+ * Подпись Сл спасброска: формула словами («Сл 8 + бонус мастерства + мод.
+ * Силы»), `0` у эффектов заклинаний и действий — «Сл заклинателя».
  *
- * @param dc - сложность из эффекта
+ * @param save - Сл из эффекта
  * @returns подпись сложности
  */
-export function formatEffectSaveDc(dc: number): string {
-  return dc === 0 ? 'Сл заклинателя' : `Сл ${dc}`;
+export function formatEffectSaveDc(save: SaveDcSource): string {
+  if (save.dcFormula) {
+    return `Сл ${prettifyFormula(save.dcFormula)}`;
+  }
+
+  return save.dc === 0 ? 'Сл заклинателя' : `Сл ${save.dc}`;
 }
 
 /** Что даёт успешный спасбросок против урона каждый ход */
@@ -169,7 +174,7 @@ const RECURRING_DAMAGE_SAVE_SUCCESS_LABELS: Record<
  * @returns подпись
  */
 export function describeRecurringDamageSave(save: EffectSave): string {
-  return `спасбросок (${ABILITY_LABELS[save.ability]}, ${formatEffectSaveDc(save.dc)}), ${RECURRING_DAMAGE_SAVE_SUCCESS_LABELS[save.onSuccess]}`;
+  return `спасбросок (${ABILITY_LABELS[save.ability]}, ${formatEffectSaveDc(save)}), ${RECURRING_DAMAGE_SAVE_SUCCESS_LABELS[save.onSuccess]}`;
 }
 
 /**
@@ -479,7 +484,7 @@ export function describeActiveEffect(effect: ActiveEffect): string {
         : 'при успехе эффект отменяется';
 
     clauses.push(
-      `спасбросок (${ability}, ${formatEffectSaveDc(effect.applySave.dc)}), ${onSuccess}`,
+      `спасбросок (${ability}, ${formatEffectSaveDc(effect.applySave)}), ${onSuccess}`,
     );
   }
 
@@ -522,7 +527,7 @@ export function describeActiveEffect(effect: ActiveEffect): string {
         : 'в конце хода';
 
     clauses.push(
-      `повторный спасбросок (${ability}, ${formatEffectSaveDc(effect.recurringSave.dc)}) ${timing} снимает эффект`,
+      `повторный спасбросок (${ability}, ${formatEffectSaveDc(effect.recurringSave)}) ${timing} снимает эффект`,
     );
   }
 
@@ -684,7 +689,7 @@ function applySaveLines(effect: ActiveEffect): string[] {
         : 'при успехе эффект отменяется';
 
     lines.push(
-      `${ability}, ${formatEffectSaveDc(effect.applySave.dc)} — ${onSuccess}`,
+      `${ability}, ${formatEffectSaveDc(effect.applySave)} — ${onSuccess}`,
     );
   }
 
@@ -824,7 +829,7 @@ export function buildActiveEffectDetails(
       lines: effect.recurringSave
         ? [
             `${ABILITY_LABELS[effect.recurringSave.ability]}, ${formatEffectSaveDc(
-              effect.recurringSave.dc,
+              effect.recurringSave,
             )} ${
               effect.recurringSave.timing === 'startOfTurn'
                 ? 'в начале хода'

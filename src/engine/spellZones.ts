@@ -118,7 +118,10 @@ function buildZoneEffect(
   };
 
   return stampSourceSaveDcs(
-    bindSourceEffectFormulas(prepared, options.formulaContext),
+    bindSourceEffectFormulas(prepared, {
+      ...options.formulaContext,
+      spellSaveDc: options.saveDc,
+    }),
     options.saveDc,
   );
 }

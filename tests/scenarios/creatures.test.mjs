@@ -747,7 +747,7 @@ describe('каталог: существа', () => {
 
     const scenario = authoredScenario(fortitude, 'creatureTrait');
 
-    assert.match(scenario, /Сл = 5 \+ урон/);
+    assert.match(scenario, /Сл 5 \+ урон события/);
 
     const system = new engine.Dnd5eVttSystem();
 

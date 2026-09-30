@@ -157,6 +157,17 @@
       }
     },
   });
+
+  const escapeDcFormula = computed({
+    get: () => effect.value.escape?.check?.dcFormula,
+    set: (dcFormula: string | undefined) => {
+      const check = effect.value.escape?.check;
+
+      if (check) {
+        updateEscape({ check: { ...check, dcFormula } });
+      }
+    },
+  });
 </script>
 
 <template>
@@ -227,6 +238,8 @@
 
         <SaveDcField
           v-model="escapeDc"
+          v-model:formula="escapeDcFormula"
+          formula-allowed
           :label="EFFECT_ESCAPE_SECTION_LABELS.dc"
           :auto-allowed="autoDcAllowed"
           :auto-label="EFFECT_SOURCE_DC_LABELS[layout.context]"

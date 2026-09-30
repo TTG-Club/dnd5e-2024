@@ -2,6 +2,9 @@
  * Числа наложившего в эффектах «на цель»: урон и лечение эффекта считаются
  * по тому, кто его накладывает, а не по цели.
  *
+ * Сл спасброска формулой («8 + @prof + @mod.wis» монаха) — тоже числа
+ * наложившего.
+ *
  * Без подстановки сервер пропускает часть урона с `@`: «Божественная искра»
  * `1к8 + @mod.wis` не лечила бы вовсе, «Героизм» не давал бы временных хитов.
  * Подставлять приходится на клиенте и в момент наложения — наложивший может
@@ -16,7 +19,8 @@ import type {
 
 import {
   bindTargetEffectsToSource,
-  buildFormulaContext,
+  buildOwnerSaveDcContext,
+  listEffectSaveDcs,
   resolveActorStats,
   resolveSpellcastingAbility,
 } from '@vtt/shared/system/dnd.js';
@@ -58,8 +62,13 @@ export function bindTargetEffectsToCaster(
     return [...effects];
   }
 
+  // Сл формулой — по наложившему: «@spellDc» у умения — Сл его заклинаний
+  const saveDcFormulas = effects
+    .flatMap(listEffectSaveDcs)
+    .map((save) => save.dcFormula);
+
   return bindTargetEffectsToSource(effects, caster, {
-    ...buildFormulaContext(caster),
+    ...buildOwnerSaveDcContext(caster, saveDcFormulas),
     spellMod: resolveCasterSpellMod(caster, spell),
   });
 }

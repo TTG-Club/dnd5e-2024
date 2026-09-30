@@ -283,14 +283,29 @@ export const EFFECT_SOURCE_DC_LABELS: Partial<
   generic: 'Сл источника',
 };
 
-/** Режим поля Сл: подставить Сл источника или задать своё число */
-export type SaveDcFieldMode = 'auto' | 'manual';
+/**
+ * Режим поля Сл: подставить Сл источника, задать своё число или формулу по
+ * владельцу эффекта
+ */
+export type SaveDcFieldMode = 'auto' | 'manual' | 'formula';
 
 /** Подписи режимов поля Сл */
 export const SAVE_DC_FIELD_MODE_LABELS: Record<SaveDcFieldMode, string> = {
   auto: 'Авто',
   manual: 'Вручную',
+  formula: 'Формулой',
 };
+
+/** Подписи поля Сл формулой */
+export const SAVE_DC_FORMULA_LABELS = {
+  placeholder: '8 + @prof + @mod.str',
+  /** Какие токены считаются и по кому */
+  hint:
+    'По владельцу эффекта: @prof, @mod.str … @mod.cha, @spellDc — Сл его '
+    + 'заклинаний. Кому эффект достаётся, числа не меняет.',
+  /** Добавка подсказки у события урона */
+  damageHint: ' @damage — урон события.',
+} as const;
 
 /** Заголовок выбора «при успехе» спасброска самого заклинания или действия */
 export const EFFECT_ACTION_SAVE_SUCCESS_TITLES: Partial<

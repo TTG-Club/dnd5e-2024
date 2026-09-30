@@ -25,6 +25,7 @@ import type { EffectActionCost } from './effectTriggerTypes.js';
 
 import { DEFAULT_ESCAPE_OUTCOME, SOURCE_SAVE_DC } from './activeEffectTypes.js';
 import { SKILLS_LABELS } from './consts.js';
+import { resolveSaveDc } from './effectSaveDcOwner.js';
 import {
   actionCostTakesFeet,
   DEFAULT_EFFECT_MOVE_COST_FEET,
@@ -66,11 +67,14 @@ export const EFFECT_ESCAPE_OUTCOME_LABELS: Record<EffectEscapeOutcome, string> =
  * @returns сложность либо `null`, если её неоткуда взять
  */
 export function resolveEffectEscapeDc(escape: EffectEscape): number | null {
-  const dc = escape.check?.dc;
+  const { check } = escape;
 
-  if (dc === undefined) {
+  if (check === undefined) {
     return null;
   }
+
+  // Сл формулой получила числа наложившего при наложении
+  const dc = resolveSaveDc(check);
 
   return dc > SOURCE_SAVE_DC ? dc : null;
 }

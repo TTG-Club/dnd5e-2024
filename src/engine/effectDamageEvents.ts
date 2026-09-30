@@ -58,6 +58,7 @@ import {
   settleEffectSaveOutcome,
   shouldRequestEffectSave,
 } from './effectSaveAcquisition.js';
+import { bindTriggerSourceSaveDcs } from './effectSaveDcOwner.js';
 import {
   admitTrigger,
   buildTriggerSaveSpec,
@@ -533,7 +534,7 @@ function runTriggerEventSource(
  *
  * @param subject - субъект: на нём эффект
  * @param recipient - получатель
- * @param source - срабатывание с источником
+ * @param subjectSource - срабатывание с источником, как его видит субъект
  * @param eventData - данные события
  * @param options - с чем прогоняются события
  * @param result - общий итог (пополняется)
@@ -543,13 +544,16 @@ function runTriggerEventSource(
 function settleTriggerForRecipient(
   subject: DnDSceneEntity,
   recipient: DnDSceneEntity,
-  source: EffectTriggerSource,
+  subjectSource: EffectTriggerSource,
   eventData: TriggerEventData,
   options: TriggerEventOptions,
   result: DamageEventsResult,
   continuation?: DamageEventsContinuation,
 ): 'settled' | 'deferred' {
   const { requestRoll } = options;
+
+  // Сл формулой — по субъекту, на котором эффект, а не по бросающему
+  const source = bindTriggerSourceSaveDcs(subjectSource, subject);
 
   const ambientEffects =
     recipient === subject ? (options.ambientEffects ?? []) : [];

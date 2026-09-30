@@ -127,6 +127,11 @@
     set: (dc: number) => updateSave({ dc }),
   });
 
+  const saveDcFormula = computed({
+    get: () => effect.value.applySave?.dcFormula,
+    set: (dcFormula: string | undefined) => updateSave({ dcFormula }),
+  });
+
   const allowWilling = computed({
     get: () => effect.value.applySave?.allowWilling === true,
     set: (enabled: boolean) => {
@@ -177,6 +182,8 @@
 
       <SaveDcField
         v-model="saveDc"
+        v-model:formula="saveDcFormula"
+        formula-allowed
         :label="FORM_FIELD_LABELS.saveDc"
         :auto-allowed="acceptsSourceSaveDc"
         :auto-label="EFFECT_SOURCE_DC_LABELS[layout.context]"
