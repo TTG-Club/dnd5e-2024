@@ -148,4 +148,40 @@ describe('итог формулы части урона', () => {
   it('пустая формула — пустой итог', () => {
     assert.deepEqual(preview('   ').branches, []);
   });
+
+  it('выражение в скобках перед видом — словами и без предупреждения', () => {
+    const cases = [
+      ['(5)@heal', '5', 'hp'],
+      ['(5 * (@castLevel - 1))@heal', '5 × (круг ячейки − 1)', 'hp'],
+      ['(@classLevel)@heal.temp', 'уровень в классе', 'temp'],
+      ['(2 * @classLevel)@heal', '2 × уровень в классе', 'hp'],
+      [
+        'floor(@classLevel / 2)@heal',
+        '(уровень в классе / 2, с округлением вниз)',
+        'hp',
+      ],
+    ];
+
+    for (const [formula, shown, healing] of cases) {
+      const result = preview(formula);
+
+      assert.deepEqual(
+        result.branches[0].segments.map((segment) => [
+          segment.formula,
+          segment.healing,
+        ]),
+        [[shown, healing]],
+        formula,
+      );
+
+      assert.deepEqual(result.unrollable, [], formula);
+    }
+
+    assert.deepEqual(preview('(@prof)@dmg.choice(fire,cold)').unrollable, []);
+    assert.deepEqual(preview('(@castLevel)к10@dmg.radiant').unrollable, []);
+  });
+
+  it('слагаемое, которое бросок движка не посчитает, — в предупреждении', () => {
+    assert.deepEqual(preview('2 * 1к6@dmg.fire + 3').unrollable, ['2*1к6 + 3']);
+  });
 });

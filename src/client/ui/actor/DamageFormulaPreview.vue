@@ -39,8 +39,15 @@
     preview.value.unknownTokens.join(', '),
   );
 
+  const unrollableLabel = computed<string>(() =>
+    preview.value.unrollable.join(', '),
+  );
+
   const isVisible = computed<boolean>(
-    () => rows.value.length > 0 || unknownTokensLabel.value.length > 0,
+    () =>
+      rows.value.length > 0
+      || unknownTokensLabel.value.length > 0
+      || unrollableLabel.value.length > 0,
   );
 </script>
 
@@ -110,6 +117,13 @@
         class="text-error"
       >
         {{ DAMAGE_PART_LABELS.previewUnknown }}{{ unknownTokensLabel }}
+      </p>
+
+      <p
+        v-if="unrollableLabel"
+        class="text-error"
+      >
+        {{ DAMAGE_PART_LABELS.previewUnrollable }}{{ unrollableLabel }}
       </p>
     </div>
   </div>

@@ -18,12 +18,23 @@ import type { DamageTypeChoice, HealKind } from './formulaTokens.js';
 import type { ResolvedDamagePartInput, TargetHpGate } from './spellUtils.js';
 
 import { FORMULA_VARIABLE_LABELS, isCreatureCategory } from './consts.js';
-import { formatDiceFormula } from './diceFormula.js';
+import { resolveDiceCountExpressions } from './diceCountExpressions.js';
+import { formatDiceFormula, isRollableFormula } from './diceFormula.js';
+import { renderReadableFormula } from './formulaParser.js';
 import { stripStatusTokens } from './formulaTokens.js';
 import { expandDamageParts } from './spellUtils.js';
 
 /** @-переменная формулы (`@mod.spell`, `@prof`, …) */
 const VARIABLE_TOKEN_REGEX = /@[a-z][\w.]*/gi;
+
+/** Кость в формуле: `2к6`, `1d8`, `(@castLevel)к10` */
+const DICE_IN_FORMULA_REGEX = /[\d)]\s*[кдd]\s*[\d(]/i;
+
+/**
+ * Число вместо переменной при проверке «посчитает ли бросок»: каст и источник
+ * подставят свои числа, и важна только форма формулы.
+ */
+const SAMPLE_VARIABLE_VALUE = '1';
 
 /** Токен типа цели с захватом типа — для поиска опечаток в нём */
 const TARGET_TYPE_TOKEN_REGEX = /@target\.type\.([a-z]+)\b/gi;
@@ -71,6 +82,12 @@ export interface DamagePartPreview {
   branches: DamagePreviewBranch[];
   /** Токены, которых движок не знает: при броске они уронят формулу или пропадут */
   unknownTokens: string[];
+  /**
+   * Слагаемые, которые бросок движка не посчитает (`2 * 1к6`), — словами.
+   * Срабатывания, ходы и зоны катает движок, и такое слагаемое там молча
+   * пропало бы.
+   */
+  unrollable: string[];
 }
 
 /**
@@ -85,9 +102,43 @@ export interface DamagePartPreview {
  * @returns формула для чтения человеком
  */
 function formatPreviewFormula(formula: string): string {
-  return formatDiceFormula(formula).replace(
-    VARIABLE_TOKEN_REGEX,
-    (token) => VARIABLE_LABELS.get(token) ?? token,
+  // Арифметика без костей — словами, как подпись модификатора:
+  // `(5 * (@castLevel - 1))` читается «5 × (круг ячейки − 1)», а не склейкой
+  // без пробелов
+  const readable = DICE_IN_FORMULA_REGEX.test(formula)
+    ? null
+    : renderReadableFormula(formula, labelVariable);
+
+  return (
+    readable
+    ?? formatDiceFormula(formula).replace(VARIABLE_TOKEN_REGEX, labelVariable)
+  );
+}
+
+/**
+ * Подпись переменной формулы; незнакомая остаётся токеном — по нему итог
+ * находит токены, которых движок не знает.
+ *
+ * @param token - токен переменной
+ * @returns подпись либо сам токен
+ */
+function labelVariable(token: string): string {
+  return VARIABLE_LABELS.get(token) ?? token;
+}
+
+/**
+ * Посчитает ли бросок движка слагаемое: переменные заменяются числом (их
+ * подставит каст или источник), число костей выражением считается, как перед
+ * настоящим броском.
+ *
+ * @param formula - формула слагаемого после развёртки, с переменными
+ * @returns `true`, если бросок учтёт слагаемое целиком
+ */
+function isSegmentRollable(formula: string): boolean {
+  return isRollableFormula(
+    resolveDiceCountExpressions(
+      formula.replace(VARIABLE_TOKEN_REGEX, SAMPLE_VARIABLE_VALUE),
+    ),
   );
 }
 
@@ -153,6 +204,13 @@ export function previewDamagePart(
     }),
   );
 
+  const unrollable = expandDamageParts([shown], undefined, String, {
+    selfBranches: true,
+  })
+    .map((entry) => entry.formula)
+    .filter((formula) => !isSegmentRollable(formula))
+    .map(formatPreviewFormula);
+
   // Переменная без подписи осталась в формуле токеном — это и есть незнакомые
   const leftoverTokens = branches.flatMap((branch) =>
     branch.segments.flatMap(
@@ -168,6 +226,7 @@ export function previewDamagePart(
         ...leftoverTokens,
       ]),
     ],
+    unrollable: [...new Set(unrollable)],
   };
 }
 

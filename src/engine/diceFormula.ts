@@ -229,6 +229,28 @@ function parseDiceTerm(body: string): DiceFormulaTerm | undefined {
 }
 
 /**
+ * Посчитает ли бросок движка формулу целиком: каждое слагаемое — кость или
+ * арифметика без костей. Слагаемое, которое бросок не понимает (`2 * 1к6`,
+ * `1к20kh1`), он молча пропускает, поэтому редактору нужно сказать о нём
+ * заранее.
+ *
+ * @param formula - формула без `@`-токенов
+ * @returns `true`, если бросок учтёт все слагаемые
+ */
+export function isRollableFormula(formula: string): boolean {
+  const terms = splitFormulaTerms(formula);
+
+  return (
+    terms.length > 0
+    && terms.every(
+      (term) =>
+        parseDiceTerm(term.body) !== undefined
+        || evaluateFlatTerm(term.body) !== undefined,
+    )
+  );
+}
+
+/**
  * Первое кубиковое слагаемое формулы: «4к10 + 4» → 4 кости по 10 граней.
  *
  * @param formula - формула без `@`-токенов
