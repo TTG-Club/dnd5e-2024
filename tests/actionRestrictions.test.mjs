@@ -300,4 +300,46 @@ describe('ограничения действий', () => {
       'без флага ничего не пишется',
     );
   });
+
+  it('удар оружием — действие: после бонусного под «Замедлением» недоступен', () => {
+    const slow = createEffect('Замедление', {
+      flags: ['actions.oneActionOrBonus'],
+    });
+
+    const target = createActor({ activeEffects: [slow] });
+
+    assert.equal(engine.resolveWeaponAttackBlock(target), null);
+
+    const struck = {
+      ...target,
+      system: {
+        ...target.system,
+        effectUsage: engine.recordActionSpend(
+          target,
+          engine.WEAPON_ATTACK_COST,
+        ),
+      },
+    };
+
+    assert.equal(
+      engine.formatActionCostBlock(
+        engine.resolveActionCostBlock(struck, 'bonus'),
+      ),
+      'Бонусное действие недоступно: Замедление',
+      'удар тратит действие хода',
+    );
+
+    const bonusSpent = {
+      ...target,
+      system: {
+        ...target.system,
+        effectUsage: engine.recordActionSpend(target, 'bonus'),
+      },
+    };
+
+    assert.equal(
+      engine.resolveWeaponAttackBlock(bonusSpent),
+      'Действие недоступно: Замедление',
+    );
+  });
 });

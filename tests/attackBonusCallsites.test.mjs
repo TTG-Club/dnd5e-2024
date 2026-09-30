@@ -65,6 +65,12 @@ function createPorts(current) {
     // Запретов трат хода у существа нет, трата хода не пишется
     sectionBlock: { value: null },
     spendSectionTurn: () => {},
+    // Удар оружием персонажа тоже не под запретом; трата хода не пишется
+    resolveWeaponAttackBlock: () => null,
+    refuseBlockedMacro: (reason) => reason !== null,
+    recordEntityActionSpend: () => {},
+    WEAPON_ATTACK_COST: 'action',
+    toast: { add: () => {} },
     rollConfig,
     isRollModalOpen: { value: false },
     getCreatureEntity: () => current.value,
@@ -243,9 +249,12 @@ it('actual openRollModal shoots the ammunition and spends it when the roll goes'
   shot = { weapon };
   handler(weapon);
 
-  assert.equal(
-    ports.rollConfig.value.beforeRoll,
-    undefined,
+  // Бросок пошёл — трата хода пишется всегда, а боеприпаса без учёта нет
+  assert.equal(ports.rollConfig.value.beforeRoll(), true);
+
+  assert.deepEqual(
+    committed,
+    [['quiver', 'spent:arrows']],
     'учёта нет — тратить нечего',
   );
 

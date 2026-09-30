@@ -102,11 +102,13 @@ import {
   resolveSpellcastingAbility,
   resolveSpellDamageFormula,
   resolveSpellSaveDC,
+  resolveWeaponAttackBlock,
   resolveWeaponSaveDc,
   spellHasDamage,
   spellIsHealing,
   stripDescriptionRollMarkers,
   targetHpGateMatches,
+  WEAPON_ATTACK_COST,
   withFlatDamageBonus,
   withFlatFormulaBonus,
 } from '@vtt/shared/system/dnd.js';
@@ -631,6 +633,17 @@ export function registerDnd5eMacros(): void {
           return;
         }
 
+        if (
+          refuseBlockedMacro(
+            resolveWeaponAttackBlock(
+              result.actor,
+              listAmbientEffects(result.actor.id),
+            ),
+          )
+        ) {
+          return;
+        }
+
         // Стрелковое оружие стреляет боеприпасом, если лист их ведёт
         const shot = prepareAmmunitionShot(result.actor, result.weapon);
 
@@ -836,14 +849,17 @@ export function registerDnd5eMacros(): void {
             damageTypeChoice,
             // Расход одноразовых эффектов «следующей атаки» (Злая насмешка и т.п.)
             attackerId: foundActor.id,
-            // Боеприпас тратится, когда бросок пошёл, а не при открытии окна
-            beforeRoll: ammunitionId
-              ? () => {
-                  spendShotAmmunition(foundActor.id, ammunitionId);
+            // Боеприпас и действие хода тратятся, когда бросок пошёл, а не
+            // при открытии окна
+            beforeRoll: () => {
+              if (ammunitionId) {
+                spendShotAmmunition(foundActor.id, ammunitionId);
+              }
 
-                  return true;
-                }
-              : undefined,
+              recordEntityActionSpend(foundActor.id, WEAPON_ATTACK_COST);
+
+              return true;
+            },
           });
         });
       } catch (err) {

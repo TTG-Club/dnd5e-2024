@@ -456,6 +456,34 @@ export function resolveSpellCastBlock(
   );
 }
 
+/**
+ * Трата хода удара оружием персонажа. Удар — действие «Атака»: второй удар
+ * лёгким оружием бонусным действием лист отдельно не различает.
+ */
+export const WEAPON_ATTACK_COST: RestrictedActionCost = 'action';
+
+/**
+ * Почему персонаж не может ударить оружием прямо сейчас — лист и горячая
+ * панель: недееспособен или ход уже потрачен на бонусное действие под
+ * «Замедлением».
+ *
+ * @param entity - кто бьёт
+ * @param ambientEffects - ауры чужих токенов, накрывающие его
+ * @returns причина словами либо `null`, если удар доступен
+ */
+export function resolveWeaponAttackBlock(
+  entity: DnDSceneEntity,
+  ambientEffects: readonly ActiveEffect[] = [],
+): string | null {
+  const block = resolveActionCostBlock(
+    entity,
+    WEAPON_ATTACK_COST,
+    ambientEffects,
+  );
+
+  return block ? formatActionCostBlock(block) : null;
+}
+
 /** Раздел статблока существа, у которого своя трата хода */
 export type CreatureActionSectionKey =
   'actions' | 'bonusActions' | 'reactions' | 'legendary';

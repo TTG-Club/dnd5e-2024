@@ -26,6 +26,7 @@
     SheetRowStat,
   } from '../sheetRowTypes';
 
+  import { useToast } from '@nuxt/ui/composables';
   import { computed, ref, toRef } from 'vue';
 
   import { loadCompendiumManifests } from '@/core/compendiumDataClient';
@@ -66,6 +67,7 @@
     listSourceDamageTypeChoices,
     loadWeaponAmmunition,
     normalizeItemQuantity,
+    resolveWeaponAttackBlock,
     resolveWeaponSaveDc,
     setItemUsesCurrent,
     spendAmmunition,
@@ -73,10 +75,12 @@
     spendItemUses,
     STARTING_EQUIPMENT_ITEM_KINDS,
     TOOL_CATEGORIES,
+    WEAPON_ATTACK_COST,
     weaponUsesAmmunition,
     withLoadedAmmunition,
   } from '@vtt/shared/system/dnd.js';
 
+  import { recordEntityActionSpend } from '../../../composables/actionSpend';
   import { runWeaponAttackChoices } from '../../../composables/attackKindChoice';
   import { resolveTargetedAttackRoll } from '../../../composables/attackRollMode';
   import {
@@ -91,7 +95,10 @@
   import { useBonusDamageParts } from '../../../composables/useBonusDamageParts';
   import { useCarryingCapacity } from '../../../composables/useCarryingCapacity';
   import { useCompendiumWarmup } from '../../../composables/useCompendiumWarmup';
-  import { useResolvedStats } from '../../../composables/useResolvedStats';
+  import {
+    listAmbientEffects,
+    useResolvedStats,
+  } from '../../../composables/useResolvedStats';
   import { useSpellResolution } from '../../../composables/useSpellResolution';
   import { useWeaponIcon } from '../../../composables/useWeaponIcon';
   import { useWorldEntities } from '../../../composables/useWorldEntities';
@@ -134,6 +141,9 @@
   import { getItemIcon } from '../utils/itemIcon';
 
   const props = defineProps<Props>();
+
+  // Уведомления берутся в setup: в обработчике клика `useToast()` не работает
+  const toast = useToast();
 
   const { resolvedStats, combinedEffects } = useResolvedStats(
     toRef(() => props.entity),
@@ -449,6 +459,22 @@
    * @param sourceWeapon - оружие с формулой урона; эффекты — до выбора варианта
    */
   function openRollModal(sourceWeapon: DnDGameItem): void {
+    // Запрет трат хода («Замедление» после бонусного действия) — до окна
+    const blocked = resolveWeaponAttackBlock(
+      props.entity,
+      listAmbientEffects(props.entity.id),
+    );
+
+    if (blocked) {
+      toast.add({
+        title: ACTOR_EQUIPMENT_TAB_LABELS.attackBlockedTitle,
+        description: blocked,
+        color: 'warning',
+      });
+
+      return;
+    }
+
     const shot = prepareAmmunitionShot(props.entity, sourceWeapon);
 
     if (!shot) {
@@ -564,13 +590,16 @@
         // Сбрасываем явно: `rollConfig` переиспользуется между бросками, и без
         // этого обработчик от ПРЕДЫДУЩЕГО броска остался бы висеть на текущем.
         onHit: undefined,
-        beforeRoll: ammunitionId
-          ? () => {
-              commitEquipment(spendAmmunition(inventory.value, ammunitionId));
+        // Бросок пошёл: тратятся боеприпас и действие хода
+        beforeRoll: () => {
+          if (ammunitionId) {
+            commitEquipment(spendAmmunition(inventory.value, ammunitionId));
+          }
 
-              return true;
-            }
-          : undefined,
+          recordEntityActionSpend(props.entity.id, WEAPON_ATTACK_COST);
+
+          return true;
+        },
       };
 
       isRollModalOpen.value = true;

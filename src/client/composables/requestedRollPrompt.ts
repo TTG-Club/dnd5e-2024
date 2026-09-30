@@ -218,11 +218,18 @@ export function promptRequestedRoll(
 
   // Авто-спасброски: владелец не хочет окна на каждый спас — бросаем сразу,
   // бросок уходит в чат от его имени, инициатор получает готовый результат.
-  // Провал владелец может превратить в успех, пока инициатор ждёт ответа
+  // Провал владелец может превратить в успех, пока инициатор ждёт ответа.
+  // Запрос без управляющих в сети получают все ведущие: ответил один — у
+  // остальных вопрос закрывается, ресурс не тратится
   if (resolveAutoSaves(entity)) {
-    answerWithSaveOverride(target, rollSavingThrow(target), (final) => {
-      reply.answer(final);
-    });
+    answerWithSaveOverride(
+      target,
+      rollSavingThrow(target),
+      (final) => {
+        reply.answer(final);
+      },
+      reply.onCancelled,
+    );
 
     return true;
   }
@@ -236,9 +243,14 @@ export function promptRequestedRoll(
         takeover: request.takeover,
         onResult: (result) => {
           settle(() => {
-            answerWithSaveOverride(target, result, (final) => {
-              reply.answer(final);
-            });
+            answerWithSaveOverride(
+              target,
+              result,
+              (final) => {
+                reply.answer(final);
+              },
+              reply.onCancelled,
+            );
           });
         },
         onCancel: () => {

@@ -53,6 +53,13 @@ export type SaveOverrideTarget = Pick<
 >;
 
 /**
+ * Подписка на снятие чужого запроса (`RequestedRollReply.onCancelled`).
+ * Запрос «ведущему» получают все ведущие в сети: ответил один — у остальных
+ * вопрос закрывается без траты.
+ */
+export type SaveOverrideCancelSubscriber = (handler: () => void) => void;
+
+/**
  * Управляет ли текущий пользователь носителем: ведущий — любым, игрок — своим.
  *
  * @param entity - носитель
@@ -75,6 +82,7 @@ function controlsEntity(entity: DnDSceneEntity): boolean {
  * @param ability - характеристика спасброска
  * @param available - чем платить и сколько осталось
  * @param sourceName - что бросали, для заголовка
+ * @param onCancelled - подписка на снятие запроса, если спрашивают по нему
  * @returns `true`, если выбрали «преуспеть»
  */
 function askLocally(
@@ -82,8 +90,9 @@ function askLocally(
   ability: AbilityType,
   available: AvailableSaveOverride,
   sourceName: string | undefined,
+  onCancelled: SaveOverrideCancelSubscriber | undefined,
 ): Promise<boolean> {
-  const { openModal } = useModalManager();
+  const { openModal, closeModal } = useModalManager();
 
   return new Promise((resolve) => {
     const modalId = openModal('EffectQuestionPromptModal', {
@@ -106,7 +115,15 @@ function askLocally(
     // Окно не открылось — провал остаётся провалом, действие не висит
     if (!modalId) {
       resolve(false);
+
+      return;
     }
+
+    // Запрос сняли (ответил другой ведущий, истёк срок) — решать уже нечего
+    onCancelled?.(() => {
+      resolve(false);
+      closeModal(modalId);
+    });
   });
 }
 
@@ -199,11 +216,13 @@ export function needsSaveOverrideOffer(
  * @param target - кто бросал и что
  * @param result - итог броска
  * @param answer - ответ инициатору
+ * @param onCancelled - подписка на снятие запроса, по которому бросали
  */
 export function answerWithSaveOverride(
   target: SaveOverrideTarget,
   result: SavingThrowResult,
   answer: (final: SavingThrowResult) => void,
+  onCancelled?: SaveOverrideCancelSubscriber,
 ): void {
   if (!needsSaveOverrideOffer(target.entity, result)) {
     answer(result);
@@ -211,7 +230,7 @@ export function answerWithSaveOverride(
     return;
   }
 
-  void offerSaveOverride(target, result).then(answer);
+  void offerSaveOverride(target, result, onCancelled).then(answer);
 }
 
 /**
@@ -221,11 +240,13 @@ export function answerWithSaveOverride(
  *
  * @param target - кто бросал и что
  * @param result - итог броска
+ * @param onCancelled - подписка на снятие запроса, по которому бросали
  * @returns итог — успех, если заплатили
  */
 export async function offerSaveOverride(
   target: SaveOverrideTarget,
   result: SavingThrowResult,
+  onCancelled?: SaveOverrideCancelSubscriber,
 ): Promise<SavingThrowResult> {
   const { entity, ability, sourceName } = target;
 
@@ -240,7 +261,13 @@ export async function offerSaveOverride(
   }
 
   if (controlsEntity(entity)) {
-    const accepted = await askLocally(entity, ability, available, sourceName);
+    const accepted = await askLocally(
+      entity,
+      ability,
+      available,
+      sourceName,
+      onCancelled,
+    );
 
     if (!accepted) {
       return result;

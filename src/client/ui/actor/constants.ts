@@ -4122,6 +4122,8 @@ export const NAME_EDIT_LABELS = {
 
 /** Подписи вкладки снаряжения листа персонажа */
 export const ACTOR_EQUIPMENT_TAB_LABELS = {
+  /** Заголовок отказа: удар под запретом трат хода */
+  attackBlockedTitle: 'Сейчас не ударить',
   weaponsSimple: 'Простое оружие',
   weaponsMartial: 'Воинское оружие',
   sectionWeapons: 'Оружие',
