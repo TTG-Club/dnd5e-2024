@@ -53,6 +53,7 @@
     countsTowardCantrips,
     countsTowardPreparedSpells,
     damagePartIsHealing,
+    findSpellCastBlock,
     getAvailableSpellLevels,
     getClassPreparedValue,
     getDamageTemplateColor,
@@ -77,6 +78,7 @@
     PREPARED_LIMIT_EMPTY_VALUE,
     resolveActorStats,
     resolveDamagePartsForCast,
+    resolveEntityActionBlocks,
     resolveEntityCreatureType,
     resolveSpellcastingAbility,
     resolveSpellDamageFormula,
@@ -129,7 +131,10 @@
   } from '../../../composables/useBonusDamageParts';
   import { useClassCatalog } from '../../../composables/useClassCatalog';
   import { useCompendiumWarmup } from '../../../composables/useCompendiumWarmup';
-  import { collectEffectsWithAuras } from '../../../composables/useResolvedStats';
+  import {
+    collectEffectsWithAuras,
+    listAmbientEffects,
+  } from '../../../composables/useResolvedStats';
   import {
     getSpellMaxRangeOnScene,
     isSpellCastBlockedByRange,
@@ -265,6 +270,11 @@
 
   /** Resolved stats для отображения Spell Save DC и бонуса атаки */
   const resolvedStats = computed(() => resolveActorStats(props.actor));
+
+  /** Запреты трат хода — одним расчётом на весь список заклинаний */
+  const actionBlocks = computed(() =>
+    resolveEntityActionBlocks(props.actor, listAmbientEffects(props.actor.id)),
+  );
 
   /**
    * Заклинатель как источник чисел эффектов: Сл и модификатор характеристики
@@ -1526,6 +1536,19 @@
    * @param sourceSpell - заклинание для каста; эффекты — до выбора варианта
    */
   function castSpell(sourceSpell: Spell): void {
+    // Запрет трат хода («Электрошок» — нет реакций) — до выбора варианта
+    const blocked = findSpellCastBlock(actionBlocks.value, sourceSpell);
+
+    if (blocked) {
+      toast.add({
+        title: ACTOR_SPELLS_TAB_LABELS.castBlockedTitle,
+        description: blocked,
+        color: 'warning',
+      });
+
+      return;
+    }
+
     runWithEffectVariants(sourceSpell, (spell) => {
       // Заклинания с зарядами (врождённые/расовые) не тратят ячейки: проверяем
       // только заряды, без проверки доступных ячеек заклинаний.
@@ -2601,6 +2624,7 @@
         :stats="row.stats"
         :menu-items="row.menuItems"
         :cantrips-tracked="cantripsTracked"
+        :cast-blocked-reason="findSpellCastBlock(actionBlocks, row.spell)"
         @open="openSpellDetail(row.spell)"
         @cast="castSpell(row.spell)"
         @toggle-prepared="toggleSpellPrepared(row.spell)"

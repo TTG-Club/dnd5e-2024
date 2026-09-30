@@ -51,6 +51,7 @@ import type {
 
 import { generateId } from '@vtt/shared';
 
+import { resolveActionCostBlock } from './actionRestrictions.js';
 import {
   ACTIVE_EFFECT_ID_PREFIX,
   isEffectDormant,
@@ -201,6 +202,9 @@ export function admitTrigger(
       sourceId: source.effect.sourceActorId,
     })
     && triggerChanceHolds(source.trigger)
+    // Реакцию и бонусное действие под запретом не тратят: срабатывание не
+    // выполняется и лимит не расходует
+    && resolveActionCostBlock(entity, source.trigger.cost) === null
     && takeTriggerUse(entity, source.scope, source.trigger, inCombat)
     && (!source.instance || takeEffectCharge(entity, source.effect.id))
   );

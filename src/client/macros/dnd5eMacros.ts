@@ -59,6 +59,8 @@ import {
   describeItemUseAvailability,
   describeWeaponAttackAvailability,
   evaluateConditionalBonuses,
+  findCreatureActionSection,
+  findCreatureSectionBlock,
   findCreatureSpellPlacement,
   formatConditionalDamageDisplay,
   getAttackBonusKey,
@@ -89,9 +91,11 @@ import {
   resolveActorStats,
   resolveCreatureSpellSaveDC,
   resolveDamagePartsForCast,
+  resolveEntityActionBlocks,
   resolveEntityCreatureType,
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
+  resolveSpellCastBlock,
   resolveSpellcastingAbility,
   resolveSpellDamageFormula,
   resolveSpellSaveDC,
@@ -562,6 +566,21 @@ function executeFeatureToggle(macro: HotbarMacro): void {
 }
 
 /**
+ * Отказ с панели: слот нажали, а трата хода под запретом («Реакция
+ * недоступна: Электрошок»). Причина уходит строкой в чат — окна у панели нет.
+ *
+ * @param reason - причина запрета либо `null`
+ * @returns `true`, если действие отменено
+ */
+function refuseBlockedMacro(reason: string | null): boolean {
+  if (reason) {
+    useChatStore().sendMessage(`⛔ ${reason}`, 'text');
+  }
+
+  return reason !== null;
+}
+
+/**
  * Регистрирует все D&D 5e macro executor'ы в macroRegistry.
  * Вызывается один раз при монтировании сцены.
  */
@@ -841,6 +860,18 @@ export function registerDnd5eMacros(): void {
       if (!result) {
         console.warn('[Hotbar] Заклинание не найдено:', macro.ref);
 
+        return;
+      }
+
+      if (
+        refuseBlockedMacro(
+          resolveSpellCastBlock(
+            result.actor,
+            result.spell,
+            listAmbientEffects(result.actor.id),
+          ),
+        )
+      ) {
         return;
       }
 
@@ -1906,6 +1937,23 @@ function registerCreatureActionMacro(): void {
         return;
       }
 
+      const section = findCreatureActionSection(foundCreature, foundAction);
+
+      if (
+        section
+        && refuseBlockedMacro(
+          findCreatureSectionBlock(
+            resolveEntityActionBlocks(
+              foundCreature,
+              listAmbientEffects(foundCreature.id),
+            ),
+            section,
+          ),
+        )
+      ) {
+        return;
+      }
+
       runCreatureActionChoices(foundAction, foundCreature.id, (action) => {
         const hasAttackParams = !!(
           action.attackBonus !== undefined
@@ -2240,6 +2288,18 @@ function registerCreatureSpellMacro(): void {
       if (!foundSpell) {
         console.warn('[Hotbar] Заклинание не найдено в существе:', macro.ref);
 
+        return;
+      }
+
+      if (
+        refuseBlockedMacro(
+          resolveSpellCastBlock(
+            foundCreature,
+            foundSpell,
+            listAmbientEffects(foundCreature.id),
+          ),
+        )
+      ) {
         return;
       }
 

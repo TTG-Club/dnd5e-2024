@@ -44,6 +44,7 @@ export type EffectFlagGroup =
   | 'saveAutoFail'
   | 'damageDefense'
   | DamageDefenseKind
+  | 'restrictions'
   | 'other';
 
 /**
@@ -58,6 +59,7 @@ const EFFECT_FLAG_GROUP_LABELS: Record<EffectFlagGroup, string> = {
   saves: 'Спасброски',
   saveAutoFail: 'Автопровалы спасбросков',
   damageDefense: 'Защиты от урона',
+  restrictions: 'Ограничения действий',
   other: 'Прочее',
   ...DAMAGE_DEFENSE_KIND_LABELS,
 };
@@ -71,6 +73,7 @@ const GROUP_ORDER: readonly EffectFlagGroup[] = [
   'saveAutoFail',
   'skills',
   'damageDefense',
+  'restrictions',
   'other',
 ];
 
@@ -113,6 +116,9 @@ function damageDefenseKindOfFlag(key: string): DamageDefenseKind | undefined {
   return DAMAGE_DEFENSE_KINDS.find((kind) => key.startsWith(`${kind}.`));
 }
 
+/** Приставки флагов раздела «Ограничения действий» */
+const RESTRICTION_FLAG_PREFIXES: readonly string[] = ['actions.'];
+
 /**
  * Раздел, к которому относится флаг. Определяется приставкой ключа — так новый
  * флаг попадает в меню сам, без правки этого файла.
@@ -145,6 +151,10 @@ function groupOfFlag(key: string): EffectFlagGroup {
 
   if (key.startsWith('skill.')) {
     return 'skills';
+  }
+
+  if (RESTRICTION_FLAG_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+    return 'restrictions';
   }
 
   return damageDefenseKindOfFlag(key) ?? 'other';

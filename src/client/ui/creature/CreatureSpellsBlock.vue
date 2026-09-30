@@ -68,6 +68,7 @@
     isCreatureSpellPoolMode,
     isSpell,
     resolveCreatureSpellSaveDC,
+    resolveSpellCastBlock,
     SPELL_SCHOOL_LABELS,
     SPELL_USES_RECOVERY_LABELS,
     spellIsHealing,
@@ -98,6 +99,7 @@
   } from '../../composables/spellResolutionShared';
   import { useBonusDamageParts } from '../../composables/useBonusDamageParts';
   import { useExpandedRows } from '../../composables/useExpandedRows';
+  import { listAmbientEffects } from '../../composables/useResolvedStats';
   import { useSpellResolution } from '../../composables/useSpellResolution';
   import {
     SPELL_LEVEL_FILTER_ORDER,
@@ -1526,6 +1528,23 @@
       const creature = getCreatureEntity();
 
       if (!creature) {
+        return;
+      }
+
+      // Запрет трат хода («Электрошок» — нет реакций): причина — плашкой
+      const blocked = resolveSpellCastBlock(
+        creature,
+        spell,
+        listAmbientEffects(creature.id),
+      );
+
+      if (blocked) {
+        toast.add({
+          title: ACTOR_SPELLS_TAB_LABELS.castBlockedTitle,
+          description: blocked,
+          color: 'warning',
+        });
+
         return;
       }
 

@@ -625,6 +625,9 @@ it('the actual actor-sheet cast handler opens Bless targets before ordinary conf
     'castSpell',
     {
       props: { actor },
+      // Запретов трат хода у заклинателя нет
+      actionBlocks: { value: { byCost: {} } },
+      findSpellCastBlock: () => null,
       getCastableSpellLevels: () => [1, 2],
       needsSpellEffectTargets: runtime.needsSpellEffectTargets,
       requestSpellEffectTargets: runtime.requestSpellEffectTargets,
@@ -662,6 +665,9 @@ it('the actual hotbar spell executor opens the same target selection and passes 
       console,
       isDnDActorEntity: (entity) => entity?.entityType === 'actor',
       findSpell: () => ({ spell: bless, actor }),
+      refuseBlockedMacro: () => false,
+      resolveSpellCastBlock: () => null,
+      listAmbientEffects: () => [],
       getAvailableSpellLevels: () => [1, 2],
       // Свои бонусы к ячейкам считаются от итоговых статов заклинателя
       resolveActorStats: () => ({ abilityBonusContext: {} }),

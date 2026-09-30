@@ -22,6 +22,7 @@ async function loadEscape() {
     {
       getSkillCheckBonusKeys: engine.getSkillCheckBonusKeys,
       canEscapeEffect: engine.canEscapeEffect,
+      describeEscapeUnavailable: engine.describeEscapeUnavailable,
       formatEffectEscapeLabel: engine.formatEffectEscapeLabel,
       getSkillSetting: engine.getSkillSetting,
       getSkillSettingAbility: engine.getSkillSettingAbility,

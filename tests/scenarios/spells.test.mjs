@@ -1552,4 +1552,23 @@ describe('каталог: заклинания, меняющие оружие', 
       '3к10@dmg.radiant',
     );
   });
+
+  it('[S34] Электрошок: цель без реакций до своего хода', () => {
+    const shock = createEffect('Электрошок', {
+      effectTarget: 'target',
+      flags: ['actions.noReaction'],
+      duration: { type: 'turn', value: 1 },
+    });
+
+    authoredScenario(shock, 'spell');
+
+    const target = createActor({ activeEffects: [shock] });
+
+    assert.equal(
+      engine.resolveSpellCastBlock(target, { castingTimeUnit: 'reaction' }),
+      'Реакция недоступна: Электрошок',
+    );
+
+    assert.equal(engine.resolveActionCostBlock(target, 'action'), null);
+  });
 });

@@ -51,6 +51,7 @@
     describeEscapeUnavailable,
     dnd5eSystemInstance,
     effectVariantGroupName,
+    formatActionCostBlock,
     formatEffectEscapeLabel,
     formatEffectStageLabel,
     hasEffectActiveAction,
@@ -58,8 +59,10 @@
     isToggleActivatedEffect,
     isUseActivatedEffect,
     listCarriedEffectEntries,
+    listEffectActiveActions,
     listSelectableConditions,
     payActivation,
+    resolveActionCostBlock,
     resolveActorStats,
     runEffectActiveAction,
   } from '@vtt/shared/system/dnd.js';
@@ -409,6 +412,21 @@
       return;
     }
 
+    // Действие ценой «Реакция» под «Электрошоком» не совершить: причину
+    // показывают, а не глотают
+    const [action] = listEffectActiveActions(effect);
+    const block = resolveActionCostBlock(owner, action?.cost);
+
+    if (block) {
+      toast.add({
+        title: formatActiveActionLabel(effect),
+        description: formatActionCostBlock(block),
+        color: 'warning',
+      });
+
+      return;
+    }
+
     emitEntityCombatState(
       socket,
       runEffectActiveAction(owner, effect.id, resolveCombatRound()),
@@ -442,7 +460,7 @@
     }
 
     // Причину отказа показывают, а не глотают: иначе кнопка молча не работает
-    const unavailable = describeEscapeUnavailable(effect);
+    const unavailable = describeEscapeUnavailable(effect, owner);
 
     if (unavailable !== null) {
       toast.add({

@@ -1,3 +1,4 @@
+export * from './actionRestrictions.js';
 export * from './activeEffectDescribe.js';
 export * from './activeEffectScenario.js';
 export * from './activeEffectTypes.js';

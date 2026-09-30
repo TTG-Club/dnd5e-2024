@@ -4718,6 +4718,7 @@ export const ACTOR_SPELLS_TAB_LABELS = {
   cantripLimitTitle: 'Лимит заговоров',
   cantripLimitTextPrefix: 'Вы не можете подготовить больше заговоров (',
   noUsesTitle: 'Нет зарядов',
+  castBlockedTitle: 'Сейчас не наложить',
   noUsesTextPrefix: 'У «',
   noUsesTextSuffix: '» не осталось зарядов — нужен отдых.',
   noSlotsTitle: 'Недоступно',

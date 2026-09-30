@@ -32,6 +32,11 @@
     canUse?: boolean;
     /** Строку можно перетащить на хотбар */
     canDrag?: boolean;
+    /**
+     * Почему запись сейчас не совершить («Реакция недоступна: Электрошок»):
+     * подсказка значка называет причину, а бросок отвечает плашкой
+     */
+    blockedReason?: string | null;
   }
 
   const props = withDefaults(defineProps<Props>(), {
@@ -40,6 +45,16 @@
     menuItems: () => [],
     canUse: false,
     canDrag: false,
+    blockedReason: null,
+  });
+
+  /** Подсказка значка: причина запрета главнее «Совершить» */
+  const useTooltip = computed(() => {
+    if (!props.canUse) {
+      return undefined;
+    }
+
+    return props.blockedReason ?? CREATURE_ACTION_MENU_LABELS.use;
   });
 
   const emit = defineEmits<{
@@ -106,9 +121,7 @@
         <div
           class="flex w-full min-w-0 items-center gap-3 @xl:w-auto @xl:flex-1"
         >
-          <UTooltip
-            :text="canUse ? CREATURE_ACTION_MENU_LABELS.use : undefined"
-          >
+          <UTooltip :text="useTooltip">
             <!-- Пассивной особенности значок не кнопка, а метка: бросать у неё
               нечего -->
             <component

@@ -21,9 +21,18 @@ import type {
   EffectEscapeActor,
   EffectEscapeOutcome,
 } from './activeEffectTypes.js';
+import type { DnDSceneEntity } from './dndEntities.js';
 import type { EffectActionCost } from './effectTriggerTypes.js';
 
-import { DEFAULT_ESCAPE_OUTCOME, SOURCE_SAVE_DC } from './activeEffectTypes.js';
+import {
+  formatActionCostBlock,
+  resolveActionCostBlock,
+} from './actionRestrictions.js';
+import {
+  DEFAULT_ESCAPE_ACTOR,
+  DEFAULT_ESCAPE_OUTCOME,
+  SOURCE_SAVE_DC,
+} from './activeEffectTypes.js';
 import { SKILLS_LABELS } from './consts.js';
 import { resolveSaveDc } from './effectSaveDcOwner.js';
 import {
@@ -98,19 +107,37 @@ export function canEscapeEffect(effect: ActiveEffect): boolean {
 }
 
 /**
- * Почему кнопка «вырваться» не действует.
+ * Почему кнопка «вырваться» не действует. С носителем — ещё и запрет цены:
+ * под «Электрошоком» реакцией не вырваться (`actionRestrictions.ts`). Цену
+ * «существа рядом» платит помощник, не носитель, — её запрет носителя не
+ * касается.
  *
  * @param effect - эффект
+ * @param entity - носитель, если известен
  * @returns причина либо `null`, если кнопка действует
  */
-export function describeEscapeUnavailable(effect: ActiveEffect): string | null {
-  if (!effect.escape || canEscapeEffect(effect)) {
+export function describeEscapeUnavailable(
+  effect: ActiveEffect,
+  entity?: DnDSceneEntity,
+): string | null {
+  const { escape } = effect;
+
+  if (!escape) {
     return null;
   }
 
-  return effect.disabled
-    ? 'эффект выключен'
-    : 'Сл источника неизвестна — проверка не против чего бросать';
+  if (!canEscapeEffect(effect)) {
+    return effect.disabled
+      ? 'эффект выключен'
+      : 'Сл источника неизвестна — проверка не против чего бросать';
+  }
+
+  const block =
+    entity && (escape.by ?? DEFAULT_ESCAPE_ACTOR) === 'self'
+      ? resolveActionCostBlock(entity, escape.cost)
+      : null;
+
+  return block ? formatActionCostBlock(block) : null;
 }
 
 /**

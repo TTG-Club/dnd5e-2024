@@ -940,6 +940,8 @@ export type EffectFlagKey =
   | 'hitPoints.maxReductionBlocked'
   | 'attacksAgainst.forceCritical'
   | 'movement.teleportBlocked'
+  | 'actions.noReaction'
+  | 'actions.noBonusAction'
   | 'rest.noBenefit.short'
   | 'rest.noBenefit.long'
   | DamageDefenseFlagKey
@@ -1048,6 +1050,10 @@ const BASE_EFFECT_FLAG_LABELS: Record<
   'mark.bySource':
     'Метка наложившего: его условие «цель помечена мной» (Метка охотника, Сглаз)',
   'incapacitated': 'Недееспособен (Не может совершать действия/реакции)',
+
+  // Ограничения действий (`actionRestrictions.ts`)
+  'actions.noReaction': 'Не может совершать реакции',
+  'actions.noBonusAction': 'Не может совершать бонусные действия',
   'initiative.advantage': 'Преимущество на бросок инициативы',
   'initiative.disadvantage': 'Помеха на бросок инициативы',
   'vision.blinded': 'Ослеплен (Ничего не видит, автопровал проверок зрения)',

@@ -7,6 +7,7 @@
     AttackRollMode,
     AttackRollModeReasons,
     CreatureAction,
+    CreatureActionSection,
     DnDCreature,
     Spell,
   } from '@vtt/shared/system/dnd.js';
@@ -21,6 +22,7 @@
   import type { RollDamageVariant } from '../actor/diceRollTypes';
   import type { SheetRowStat } from '../actor/sheetRowTypes';
 
+  import { useToast } from '@nuxt/ui/composables';
   import { computed, ref } from 'vue';
 
   import { startHotbarDrag } from '@/core/utils/hotbarDrag';
@@ -36,6 +38,7 @@
     creatureActionHasSave,
     DEFAULT_REACH_FEET,
     describeCreatureDamageCondition,
+    findCreatureSectionBlock,
     getActionDescriptionMarkdown,
     getAttackBonusKey,
     getAttackFlagCategory,
@@ -43,6 +46,7 @@
     listCreatureDamageAlternatives,
     listSourceDamageTypeChoices,
     readAlternativeShownParts,
+    resolveEntityActionBlocks,
     SAVE_TYPE_LABELS,
   } from '@vtt/shared/system/dnd.js';
 
@@ -63,6 +67,7 @@
   import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import { discardSpellTemplate } from '../../composables/spellResolutionShared';
   import { useBonusDamageParts } from '../../composables/useBonusDamageParts';
+  import { listAmbientEffects } from '../../composables/useResolvedStats';
   import { useSpellResolution } from '../../composables/useSpellResolution';
   import { useSystemDataStore } from '../../stores/systemDataStore';
   import {
@@ -81,6 +86,7 @@
   import { formatSignedNumber } from '../actor/utils/formatSignedNumber';
   import { checkCreatureActionRangeOnScene } from './composables/useCreatureRangeCheck';
   import {
+    CREATURE_ACTION_BLOCKED_TITLE,
     CREATURE_ACTION_MENU_LABELS,
     CREATURE_ACTIONS_BLOCK_LABELS,
     CREATURE_DAMAGE_CHOICE_LABELS,
@@ -125,6 +131,12 @@
      * кнопка уезжает в общий ряд отбора, а заголовок не нужен вовсе.
      */
     showHeader?: boolean;
+    /**
+     * Раздел статблока: по нему видно, чем существо платит за запись, —
+     * реакции гаснут под «Электрошоком». Нет — трата хода не проверяется
+     * (особенности)
+     */
+    section?: CreatureActionSection;
   }
 
   const props = withDefaults(defineProps<Props>(), {
@@ -137,12 +149,30 @@
     creatureName: undefined,
     search: '',
     showHeader: true,
+    section: undefined,
   });
 
   const emit = defineEmits<{
     'update': [actions: CreatureAction[]];
     'update:legendaryCount': [count: number];
   }>();
+
+  const toast = useToast();
+
+  /** Почему записи раздела сейчас не совершить; `null` — можно */
+  const sectionBlock = computed(() => {
+    const { section } = props;
+    const creature = section ? getCreatureEntity() : null;
+
+    if (!section || !creature) {
+      return null;
+    }
+
+    return findCreatureSectionBlock(
+      resolveEntityActionBlocks(creature, listAmbientEffects(creature.id)),
+      section,
+    );
+  });
 
   const systemDataStore = useSystemDataStore();
   const chatStore = useChatStore();
@@ -401,6 +431,17 @@
    * @param sourceAction - действие существа; эффекты — до выбора варианта
    */
   function openRollModal(sourceAction: CreatureAction): void {
+    // Запрет трат хода («Электрошок» — нет реакций): причина — плашкой
+    if (sectionBlock.value) {
+      toast.add({
+        title: CREATURE_ACTION_BLOCKED_TITLE,
+        description: sectionBlock.value,
+        color: 'warning',
+      });
+
+      return;
+    }
+
     runCreatureActionChoices(sourceAction, props.creatureId, (action) => {
       // Действие без броска только накладывает эффекты на само существо;
       // окна броска нет — тип урона на выбор эффектов спрашивает плашка
@@ -1033,6 +1074,7 @@
           :menu-items="row.menuItems"
           :can-use="row.canUse"
           :can-drag="row.canDrag"
+          :blocked-reason="sectionBlock"
           @open="handleActionClick(row.action, row.index)"
           @use="openRollModal(row.action)"
           @dragstart="handleDragStart($event, row.action)"

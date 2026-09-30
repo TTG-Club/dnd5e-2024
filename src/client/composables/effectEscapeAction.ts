@@ -5,6 +5,7 @@ import type { CheckRollResult } from '../ui/actor/diceRollTypes';
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import {
   canEscapeEffect,
+  describeEscapeUnavailable,
   formatEffectEscapeLabel,
   getSkillCheckBonusKeys,
   getSkillSetting,
@@ -49,7 +50,11 @@ export function runEffectEscape(options: EffectEscapeOptions): boolean {
   const { escape } = effect;
 
   // Выключенный эффект не держит — вырываться не из чего
-  if (!escape || !canEscapeEffect(effect)) {
+  if (
+    !escape
+    || !canEscapeEffect(effect)
+    || describeEscapeUnavailable(effect, entity) !== null
+  ) {
     return false;
   }
 

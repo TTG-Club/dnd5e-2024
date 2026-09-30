@@ -33,6 +33,9 @@ export const CREATURE_PROFICIENCY_RULE_TITLE = 'По опасности';
 /** Подсказка плитки скорости, когда существо не двигается вовсе */
 export const CREATURE_MOVEMENT_EMPTY = 'Существо не двигается';
 
+/** Заголовок плашки, когда запись раздела сейчас не совершить */
+export const CREATURE_ACTION_BLOCKED_TITLE = 'Сейчас не совершить';
+
 /** Раздел вкладки «Действия»: свой список внутри одной сущности */
 export type CreatureActionSectionKey =
   'actions' | 'bonusActions' | 'reactions' | 'legendary';
