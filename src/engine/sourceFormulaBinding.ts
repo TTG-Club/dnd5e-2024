@@ -35,7 +35,12 @@ import {
   listEffectSaveDcs,
   mapEffectSaveDcs,
 } from './effectSaveDc.js';
-import { evaluateFormula, formatFormulaNumber } from './formulaParser.js';
+import { bindEffectToken, effectUsesToken } from './effectTokenBinding.js';
+import {
+  CAST_LEVEL_VARIABLE,
+  evaluateFormula,
+  formatFormulaNumber,
+} from './formulaParser.js';
 import {
   mapTriggerDamageParts,
   someTriggerDamagePart,
@@ -48,6 +53,9 @@ import {
  */
 const SOURCE_TOKEN_PATTERN =
   /@(?:mod\.(?:str|dex|con|int|wis|cha|spell)|prof|classLevel|level|spellDc|str|dex|con|int|wis|cha)\b/g;
+
+/** Токен круга ячейки каста */
+const CAST_LEVEL_TOKEN = `@${CAST_LEVEL_VARIABLE}`;
 
 /** Тот же токен — для проверки наличия, без позиции поиска у глобального */
 const SOURCE_TOKEN_PROBE = new RegExp(SOURCE_TOKEN_PATTERN.source, 'u');
@@ -126,11 +134,11 @@ export function bindSaveDcFormula<Save extends SaveDcSource>(
   save: Save,
   context: FormulaContext,
 ): Save {
-  if (save.dcFormula === undefined || !hasSourceToken(save.dcFormula)) {
+  if (!saveDcNeedsBinding(save)) {
     return save;
   }
 
-  const formula = bindSourceFormula(save.dcFormula, context);
+  const formula = bindSourceFormula(save.dcFormula ?? '', context);
 
   const value = formula.includes('@')
     ? undefined
@@ -139,6 +147,21 @@ export function bindSaveDcFormula<Save extends SaveDcSource>(
   return value === undefined
     ? { ...save, dcFormula: formula }
     : { ...save, dc: value, dcFormula: undefined };
+}
+
+/**
+ * Есть ли что делать с Сл формулой при наложении: подставить числа источника
+ * или, если токенов уже нет (круг ячейки подставлен раньше), сделать её
+ * числом.
+ *
+ * @param save - Сл спасброска
+ * @returns `true`, если формулу надо подставить или посчитать
+ */
+function saveDcNeedsBinding(save: SaveDcSource): boolean {
+  return (
+    save.dcFormula !== undefined
+    && (hasSourceToken(save.dcFormula) || !save.dcFormula.includes('@'))
+  );
 }
 
 /** Есть ли токен источника в части урона */
@@ -163,6 +186,16 @@ export interface SourceBindingOptions {
    * умолчанию — подставлять.
    */
   changes?: boolean;
+}
+
+/**
+ * Есть ли в эффекте круг ячейки — число, которое ставит только каст.
+ *
+ * @param effect - эффект
+ * @returns `true`, если эффект читает `@castLevel`
+ */
+export function effectUsesCastLevel(effect: ActiveEffect): boolean {
+  return effectUsesToken(effect, CAST_LEVEL_TOKEN);
 }
 
 /**
@@ -197,25 +230,30 @@ export function effectUsesSourceFormulas(
  * @returns `true`, если в Сл есть что подставлять
  */
 function effectUsesSourceSaveDcs(effect: ActiveEffect): boolean {
-  return listEffectSaveDcs(effect).some((save) =>
-    hasSourceToken(save.dcFormula),
-  );
+  return listEffectSaveDcs(effect).some(saveDcNeedsBinding);
 }
 
 /**
  * Копия эффекта с числами источника в модификаторах, уроне и лечении
- * срабатываний.
+ * срабатываний, с кругом ячейки каста во всех формулах.
  *
- * @param effect - эффект
+ * @param sourceEffect - эффект
  * @param context - контекст источника
  * @param options - что подставлять кроме урона и лечения
  * @returns исходный эффект, если подставлять нечего, иначе копия
  */
 export function bindSourceEffectFormulas(
-  effect: ActiveEffect,
+  sourceEffect: ActiveEffect,
   context: FormulaContext,
   options: SourceBindingOptions = {},
 ): ActiveEffect {
+  // Круг ячейки — число каста, а не носителя: он подставляется во ВСЕ формулы
+  // эффекта, в модификаторы цели тоже («Подмога» поднимает хиты цели по кругу)
+  const effect =
+    context.castLevel === undefined
+      ? sourceEffect
+      : bindEffectToken(sourceEffect, CAST_LEVEL_TOKEN, context.castLevel);
+
   if (!effectUsesSourceFormulas(effect, options)) {
     return effect;
   }

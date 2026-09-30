@@ -67,6 +67,7 @@ export * from './effectSaveAcquisition.js';
 export * from './effectSaveDc.js';
 export * from './effectSaveDcOwner.js';
 export * from './effectStages.js';
+export * from './effectTokenBinding.js';
 export * from './effectTriggerDescribe.js';
 export * from './effectTriggerRunner.js';
 export * from './effectTriggers.js';

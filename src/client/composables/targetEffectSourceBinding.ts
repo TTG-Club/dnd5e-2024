@@ -25,6 +25,7 @@ import {
   resolveSpellcastingAbility,
 } from '@vtt/shared/system/dnd.js';
 
+import { resolveSpellCastLevel } from './spellCasts';
 import { listAmbientEffects } from './useResolvedStats';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -69,6 +70,8 @@ export function bindTargetEffectsToCaster(
 
   return bindTargetEffectsToSource(effects, caster, {
     ...buildOwnerSaveDcContext(caster, saveDcFormulas),
+    // Круг ячейки — «Подмога» поднимает хиты цели по кругу каста
+    castLevel: resolveSpellCastLevel(caster.id, spell),
     spellMod: resolveCasterSpellMod(caster, spell),
   });
 }

@@ -1511,4 +1511,45 @@ describe('каталог: заклинания, меняющие оружие', 
       'излучение — с сопротивлением',
     );
   });
+
+  it('[S33] Подмога и Лунный луч: числа растут от круга ячейки', () => {
+    const aid = createEffect('Подмога', {
+      effectTarget: 'target',
+      changes: [change('hitPoints.max', '5 * (@castLevel - 1)')],
+      duration: { type: 'hours', value: 8 },
+    });
+
+    authoredScenario(aid, 'spell');
+
+    const context = (castLevel) => ({
+      ...engine.buildFormulaContext(createActor()),
+      castLevel,
+    });
+
+    const [aidAt2, aidAt5] = [2, 5].map(
+      (castLevel) =>
+        engine.bindTargetEffectsToSource(
+          [aid],
+          createActor(),
+          context(castLevel),
+        )[0].changes[0].value,
+    );
+
+    assert.equal(aidAt2, '5 * (2 - 1)');
+    assert.equal(aidAt5, '5 * (5 - 1)');
+
+    const beam = createEffect('Лунный луч', {
+      effectTarget: 'zone',
+      recurringDamage: {
+        damageParts: [{ formula: '(@castLevel)к10@dmg.radiant' }],
+        timing: 'startOfTurn',
+      },
+    });
+
+    assert.equal(
+      engine.bindSourceEffectFormulas(beam, context(3)).recurringDamage
+        .damageParts[0].formula,
+      '3к10@dmg.radiant',
+    );
+  });
 });

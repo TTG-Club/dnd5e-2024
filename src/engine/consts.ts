@@ -156,6 +156,7 @@ export const FORMULA_VARIABLE_LABELS: Readonly<Record<string, string>> = {
   '@speed.burrow': 'скорость копания',
   '@damage': 'урон события',
   '@spellDc': 'Сл заклинаний',
+  '@castLevel': 'круг ячейки',
   '@roll': 'сохранённый бросок',
 };
 

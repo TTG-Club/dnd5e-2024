@@ -109,6 +109,7 @@ export function prepareCasterSpellEffects(
     ...buildFormulaContext(caster),
     spellMod: source.spellMod,
     spellSaveDc: source.saveDc,
+    castLevel: resolveSpellCastLevel(caster.id, spell),
   };
 
   // Уровень класса — по id умения, пока новые id наложения его не стёрли
@@ -242,6 +243,7 @@ export function requestSpellZone(
     formulaContext: {
       ...buildFormulaContext(caster),
       spellMod: source.spellMod,
+      castLevel: resolveSpellCastLevel(caster.id, spell),
     },
     gridSize: resolveGridCellSize(scene.gridSettings),
     castId: resolveSpellCastId(caster.id, spell),

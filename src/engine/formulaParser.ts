@@ -107,6 +107,13 @@ export interface FormulaContext {
    * там, где формула Сл считается по владельцу: вне этого токен — ошибка.
    */
   spellSaveDc?: number;
+  /**
+   * Круг ячейки каста — токен `@castLevel`: «Лунный луч» `(@castLevel)к10`,
+   * «Подмога» `5 * (@castLevel - 1)`. Подставляется числом при касте
+   * (`sourceFormulaBinding`) и дальше живёт в эффекте; вне каста токен —
+   * ошибка формулы.
+   */
+  castLevel?: number;
 }
 
 /** Переменная урона события в Сл срабатывания */
@@ -114,6 +121,9 @@ export const EVENT_DAMAGE_VARIABLE = 'damage';
 
 /** Переменная Сл заклинаний владельца в формуле Сл */
 export const SPELL_SAVE_DC_VARIABLE = 'spellDc';
+
+/** Переменная круга ячейки каста */
+export const CAST_LEVEL_VARIABLE = 'castLevel';
 
 /**
  * Токены формул листа. Тот же диалект понимают активные эффекты и количество
@@ -568,6 +578,7 @@ function evaluateNode(node: AstNode, context: FormulaContext): number {
  * - level → context.level
  * - classLevel → context.classLevel, иначе context.level
  * - spellDc → context.spellSaveDc (Сл заклинаний владельца)
+ * - castLevel → context.castLevel (круг ячейки каста)
  * - target.full / target.notFull → 1/0 по состоянию цели
  *
  * @param variablePath - путь переменной (без @)
@@ -603,6 +614,16 @@ function resolveVariable(
       }
 
       return context.event.damage;
+    }
+
+    if (simpleKey === CAST_LEVEL_VARIABLE) {
+      if (context.castLevel === undefined) {
+        throw new FormulaError(
+          `@${simpleKey} есть только у эффекта заклинания: круг ставит каст`,
+        );
+      }
+
+      return context.castLevel;
     }
 
     if (simpleKey === SPELL_SAVE_DC_VARIABLE) {
