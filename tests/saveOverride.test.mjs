@@ -207,3 +207,26 @@ describe('провал в успех: поле эффекта', () => {
     );
   });
 });
+
+describe('провал в успех: броски сервера', () => {
+  it('существо с авто-спасбросками и ресурсом бросает запросом владельцу', () => {
+    const requestRoll = () => Promise.resolve({ status: 'noRecipient' });
+    const creature = boss();
+
+    creature.autoSaves = true;
+
+    assert.equal(engine.shouldRequestEffectSave(creature, requestRoll), true);
+
+    const plain = createCreature({ id: 'creature_goblin' });
+
+    plain.autoSaves = true;
+
+    assert.equal(
+      engine.shouldRequestEffectSave(plain, requestRoll),
+      false,
+      'без ресурса сервер бросает сам, как раньше',
+    );
+
+    assert.equal(engine.shouldRequestEffectSave(creature, undefined), false);
+  });
+});
