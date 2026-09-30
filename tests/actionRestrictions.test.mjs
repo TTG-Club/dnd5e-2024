@@ -98,7 +98,13 @@ describe('ограничения действий', () => {
 
     assert.deepEqual(
       group?.items.map((item) => item.key),
-      ['actions.noReaction', 'actions.noBonusAction'],
+      [
+        'actions.noReaction',
+        'actions.noBonusAction',
+        'spellcasting.blocked',
+        'spellcasting.noVerbal',
+        'concentration.blocked',
+      ],
     );
   });
 
@@ -154,5 +160,86 @@ describe('ограничения действий', () => {
     );
 
     assert.equal(engine.describeEscapeUnavailable(net, createActor()), null);
+  });
+
+  it('колдовство: общий запрет, вербальный компонент и концентрация', () => {
+    const silence = createEffect('Тишина', {
+      flags: ['spellcasting.noVerbal'],
+    });
+
+    const rage = createEffect('Ярость', {
+      flags: ['spellcasting.blocked', 'concentration.blocked'],
+    });
+
+    const shout = { components: { verbal: true }, castingTimeUnit: 'action' };
+
+    const gesture = {
+      components: { verbal: false },
+      castingTimeUnit: 'action',
+    };
+
+    const silenced = createActor({ activeEffects: [silence] });
+
+    assert.equal(
+      engine.resolveSpellCastBlock(silenced, shout),
+      'Заклинание с вербальным компонентом недоступно: Тишина',
+    );
+
+    assert.equal(engine.resolveSpellCastBlock(silenced, gesture), null);
+
+    assert.equal(
+      engine.resolveSpellCastBlock(
+        createActor({ activeEffects: [rage] }),
+        gesture,
+      ),
+      'Заклинания недоступны: Ярость',
+    );
+
+    const focused = createActor({
+      activeEffects: [
+        createEffect('Нельзя думать', { flags: ['concentration.blocked'] }),
+      ],
+    });
+
+    assert.equal(
+      engine.resolveSpellCastBlock(focused, {
+        ...gesture,
+        concentration: true,
+      }),
+      'Концентрация недоступна: Нельзя думать',
+    );
+
+    assert.equal(engine.resolveSpellCastBlock(focused, gesture), null);
+  });
+
+  it('запрет концентрации прерывает текущую концентрацию при записи снимка', () => {
+    const mark = engine.buildConcentrationEffect({
+      spell: {
+        name: 'Благословение',
+        durationUnit: 'minute',
+        durationValue: 1,
+      },
+      casterId: 'actor_hero',
+      castId: 'cast_bless',
+    });
+
+    const rage = createEffect('Ярость', { flags: ['concentration.blocked'] });
+    const hero = createActor({ activeEffects: [mark] });
+
+    assert.deepEqual(engine.listBlockedConcentrationCasts(hero), []);
+
+    const raging = structuredClone(hero);
+
+    raging.activeEffects = [...raging.activeEffects, rage];
+
+    const ended = [];
+
+    new engine.Dnd5eVttSystem().settleCombatState(
+      hero,
+      engine.pickCombatState(raging),
+      { endCasts: (casterId, castIds) => ended.push([casterId, castIds]) },
+    );
+
+    assert.deepEqual(ended, [['actor_hero', ['cast_bless']]]);
   });
 });

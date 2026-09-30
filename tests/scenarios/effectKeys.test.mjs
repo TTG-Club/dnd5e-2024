@@ -369,11 +369,41 @@ describe('каталог: ключи и флаги', () => {
     );
   });
 
+  it('[K11] Запрет колдовать и концентрироваться: Ярость, Тишина', () => {
+    const rage = createEffect('Ярость', {
+      flags: ['spellcasting.blocked', 'concentration.blocked'],
+      activation: { mode: 'toggle', counter: 'rage', exclusive: 'Ярость' },
+    });
+
+    authoredScenario(rage, 'feature');
+
+    const barbarian = createActor({ activeEffects: [rage] });
+
+    assert.equal(
+      engine.resolveSpellCastBlock(barbarian, {
+        castingTimeUnit: 'action',
+        components: { verbal: false },
+      }),
+      'Заклинания недоступны: Ярость',
+    );
+
+    const silence = createEffect('Тишина', {
+      flags: ['spellcasting.noVerbal'],
+    });
+
+    assert.equal(
+      engine.resolveSpellCastBlock(createActor({ activeEffects: [silence] }), {
+        components: { verbal: false },
+      }),
+      null,
+      'без вербального компонента колдовать можно',
+    );
+  });
+
   // Пробелы каталога: этим ключам нужны либо чувства и свет в расчёте сцены,
   // либо размер фишки — это хозяйство ядра, системе их не посчитать
   it.todo('[K08] Смена размера меняет фишку и грузоподъёмность');
   it.todo('[K10] Выданные чувства участвуют в расчёте видимости');
-  it.todo('[K11] Запрет колдовать');
   it.todo('[K12] Выданная атака в списке действий');
   it.todo('[K13] Временное владение навыком');
 });

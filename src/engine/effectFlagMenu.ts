@@ -117,7 +117,11 @@ function damageDefenseKindOfFlag(key: string): DamageDefenseKind | undefined {
 }
 
 /** Приставки флагов раздела «Ограничения действий» */
-const RESTRICTION_FLAG_PREFIXES: readonly string[] = ['actions.'];
+const RESTRICTION_FLAG_PREFIXES: readonly string[] = [
+  'actions.',
+  'spellcasting.',
+  'concentration.',
+];
 
 /**
  * Раздел, к которому относится флаг. Определяется приставкой ключа — так новый

@@ -11,6 +11,15 @@
  * - `incapacitated` (Недееспособный и всё, что его включает) — нет ни
  *   действий, ни бонусных действий, ни реакций.
  *
+ * Колдовство — те же ограничения, только по заклинанию, а не по трате:
+ * - `spellcasting.blocked` — нельзя накладывать заклинания (Ярость,
+ *   Газообразная форма, Силовая клетка изнутри);
+ * - `spellcasting.noVerbal` — нельзя заклинания с вербальным компонентом
+ *   (Тишина, кляп);
+ * - `concentration.blocked` — нельзя концентрироваться: заклинания с
+ *   концентрацией не накладываются, а текущая концентрация прерывается, как
+ *   только запрет начал действовать (`settleCombatState`).
+ *
  * Где читается: срабатывание с ценой «Реакция» или «Бонусное действие» не
  * выполняется (`admitTrigger`), заклинание с таким временем накладывания,
  * реакция существа и «вырваться» с такой ценой не начинаются, кнопки гаснут с
@@ -28,6 +37,7 @@ import type { DnDCreature, DnDSceneEntity, Spell } from './dndEntities.js';
 import type { EffectActionCost } from './effectTriggerTypes.js';
 
 import { EFFECT_FLAG_LABELS } from './activeEffectTypes.js';
+import { listConcentrationCastIds } from './concentration.js';
 import { INCAPACITATED_CONDITION_KEY } from './conditionKeys.js';
 import { collectActiveEffects, resolveActorStats } from './effectPipeline.js';
 
@@ -37,7 +47,43 @@ export const ACTION_RESTRICTION_FLAGS = {
   noReaction: 'actions.noReaction',
   /** Нет бонусных действий */
   noBonusAction: 'actions.noBonusAction',
+  /** Нельзя накладывать заклинания */
+  noSpellcasting: 'spellcasting.blocked',
+  /** Нельзя заклинания с вербальным компонентом */
+  noVerbal: 'spellcasting.noVerbal',
+  /** Нельзя концентрироваться */
+  noConcentration: 'concentration.blocked',
 } as const satisfies Record<string, EffectFlagKey>;
+
+/** Запрет колдовства: что запрещено и чем */
+type SpellcastingRestriction = 'all' | 'verbal' | 'concentration';
+
+/** Флаг каждого запрета колдовства */
+const SPELLCASTING_RESTRICTION_FLAGS: Record<
+  SpellcastingRestriction,
+  EffectFlagKey
+> = {
+  all: ACTION_RESTRICTION_FLAGS.noSpellcasting,
+  verbal: ACTION_RESTRICTION_FLAGS.noVerbal,
+  concentration: ACTION_RESTRICTION_FLAGS.noConcentration,
+};
+
+/** Начало причины запрета колдовства */
+const SPELLCASTING_RESTRICTION_PREFIXES: Record<
+  SpellcastingRestriction,
+  string
+> = {
+  all: 'Заклинания недоступны',
+  verbal: 'Заклинание с вербальным компонентом недоступно',
+  concentration: 'Концентрация недоступна',
+};
+
+/** Запреты колдовства по порядку: общий главнее частных */
+const SPELLCASTING_RESTRICTIONS: readonly SpellcastingRestriction[] = [
+  'all',
+  'verbal',
+  'concentration',
+];
 
 /** Трата, которую ограничение может запретить */
 export type RestrictedActionCost = Extract<
@@ -194,7 +240,7 @@ const CASTING_TIME_COSTS: Partial<
  * @returns трата либо `undefined` (минуты, часы, время не задано)
  */
 export function resolveSpellCastCost(
-  spell: Pick<Spell, 'castingTimeUnit'>,
+  spell: SpellCastBlockSource,
 ): RestrictedActionCost | undefined {
   return spell.castingTimeUnit
     ? CASTING_TIME_COSTS[spell.castingTimeUnit]
@@ -208,6 +254,8 @@ export function resolveSpellCastCost(
 export interface EntityActionBlocks {
   /** Причина запрета по трате хода */
   byCost: Partial<Record<RestrictedActionCost, string>>;
+  /** Причина запрета колдовства по виду запрета */
+  spellcasting: Partial<Record<SpellcastingRestriction, string>>;
 }
 
 /**
@@ -223,24 +271,44 @@ export function resolveEntityActionBlocks(
 ): EntityActionBlocks {
   const flags = resolveActorStats(entity, ambientEffects).activeFlags;
   const byCost: Partial<Record<RestrictedActionCost, string>> = {};
+  const spellcasting: Partial<Record<SpellcastingRestriction, string>> = {};
 
   // Эффекты для имени причины собираются, только если запрет есть
   let effects: readonly ActiveEffect[] | null = null;
+
+  /**
+   * Имя того, что запрещает, — по флагу.
+   *
+   * @param flag - флаг запрета
+   * @returns имя эффекта либо подпись флага
+   */
+  const sourceOf = (flag: EffectFlagKey): string => {
+    effects ??= [...collectActiveEffects(entity), ...ambientEffects];
+
+    return nameFlagSource(effects, flag);
+  };
 
   for (const cost of RESTRICTED_ACTION_COSTS) {
     const flag = findBlockingFlag(flags, cost);
 
     if (flag) {
-      effects ??= [...collectActiveEffects(entity), ...ambientEffects];
-
       byCost[cost] = formatActionCostBlock({
         cost,
-        sourceName: nameFlagSource(effects, flag),
+        sourceName: sourceOf(flag),
       });
     }
   }
 
-  return { byCost };
+  for (const restriction of SPELLCASTING_RESTRICTIONS) {
+    const flag = SPELLCASTING_RESTRICTION_FLAGS[restriction];
+
+    if (flags.has(flag)) {
+      spellcasting[restriction] =
+        `${SPELLCASTING_RESTRICTION_PREFIXES[restriction]}: ${sourceOf(flag)}`;
+    }
+  }
+
+  return { byCost, spellcasting };
 }
 
 /**
@@ -252,12 +320,28 @@ export function resolveEntityActionBlocks(
  */
 export function findSpellCastBlock(
   blocks: EntityActionBlocks,
-  spell: Pick<Spell, 'castingTimeUnit'>,
+  spell: SpellCastBlockSource,
 ): string | null {
+  const { spellcasting } = blocks;
+
+  const byRestriction =
+    spellcasting.all
+    ?? (spell.components?.verbal ? spellcasting.verbal : undefined)
+    ?? (spell.concentration ? spellcasting.concentration : undefined);
+
+  if (byRestriction) {
+    return byRestriction;
+  }
+
   const cost = resolveSpellCastCost(spell);
 
   return (cost && blocks.byCost[cost]) || null;
 }
+
+/** Что заклинания читает проверка каста */
+export type SpellCastBlockSource = Partial<
+  Pick<Spell, 'castingTimeUnit' | 'components' | 'concentration'>
+>;
 
 /**
  * Почему носитель не может начать накладывание прямо сейчас — одна точка на
@@ -270,7 +354,7 @@ export function findSpellCastBlock(
  */
 export function resolveSpellCastBlock(
   entity: DnDSceneEntity,
-  spell: Pick<Spell, 'castingTimeUnit'>,
+  spell: SpellCastBlockSource,
   ambientEffects: readonly ActiveEffect[] = [],
 ): string | null {
   return findSpellCastBlock(
@@ -335,4 +419,28 @@ export function findCreatureActionSection(
   ];
 
   return sections.find(([, actions]) => actions.includes(action))?.[0];
+}
+
+/**
+ * Касты, которые носитель держит концентрацией, хотя концентрироваться ему
+ * сейчас нельзя: запрет начал действовать («Ярость» включилась) — текущая
+ * концентрация прерывается.
+ *
+ * @param entity - носитель
+ * @returns id кастов, которые надо закончить; пусто — прерывать нечего
+ */
+export function listBlockedConcentrationCasts(
+  entity: DnDSceneEntity,
+): string[] {
+  const castIds = listConcentrationCastIds(entity.activeEffects);
+
+  if (castIds.length === 0) {
+    return [];
+  }
+
+  return resolveActorStats(entity).activeFlags.has(
+    ACTION_RESTRICTION_FLAGS.noConcentration,
+  )
+    ? castIds
+    : [];
 }

@@ -60,6 +60,7 @@ import type {
 
 import { getHealthCondition, HEALTH_CONDITIONS, isRecord } from '@vtt/shared';
 
+import { listBlockedConcentrationCasts } from './actionRestrictions.js';
 import {
   ActiveEffectsArraySchema,
   isActiveEffect,
@@ -1497,7 +1498,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.131';
+  readonly version = '0.8.132';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -2214,6 +2215,14 @@ export class Dnd5eVttSystem implements VttSystem {
 
     // Подъём хитов закрывает серию спасбросков от смерти, падение — начинает
     syncDeathSavesWithHp(entity, hpBefore);
+
+    // Запрет концентрации начал действовать («Ярость» включилась) — текущая
+    // концентрация прерывается сразу, а не на следующем уроне
+    const blockedCasts = listBlockedConcentrationCasts(entity);
+
+    if (blockedCasts.length > 0) {
+      context?.endCasts?.(entity.id, blockedCasts);
+    }
 
     const newEffectIds = new Set(
       (entity.activeEffects ?? [])
