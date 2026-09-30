@@ -39,7 +39,6 @@ import {
   readDamageStatusName,
   removesItselfOnApply,
   resolveActorStats,
-  resolveEntityCreatureType,
   SAVE_TYPE_LABELS,
   stampAppliedEffect,
   withInitializedDuration,
@@ -398,13 +397,9 @@ export function stampEffectOnApply(
 
   // Тип наложившего едет вместе с ним: по нему спасбросок против эффекта
   // включает «Защиту от зла и добра», даже когда бросает сервер
-  const source = parties.sourceId
-    ? useWorldEntities().findCurrentDndEntity(parties.sourceId)
-    : undefined;
-
-  const sourceCreatureType = source
-    ? resolveEntityCreatureType(source)
-    : undefined;
+  const sourceCreatureType = useWorldEntities().findEntityCreatureType(
+    parties.sourceId,
+  );
 
   const stamped = stampAppliedEffect(
     sourceCreatureType ? { ...effect, sourceCreatureType } : effect,

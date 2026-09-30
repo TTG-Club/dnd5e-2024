@@ -1552,9 +1552,6 @@
       return;
     }
 
-    // «Замедление»: после каста действием бонусное в этот ход недоступно
-    recordEntityActionSpend(props.actor.id, resolveSpellCastCost(sourceSpell));
-
     runWithEffectVariants(sourceSpell, (spell) => {
       // Заклинания с зарядами (врождённые/расовые) не тратят ячейки: проверяем
       // только заряды, без проверки доступных ячеек заклинаний.
@@ -1583,6 +1580,10 @@
 
         return;
       }
+
+      // «Замедление»: каст точно идёт — после действия бонусное в этот ход
+      // недоступно; отказ по зарядам и ячейкам трату не тратит
+      recordEntityActionSpend(props.actor.id, resolveSpellCastCost(spell));
 
       if (needsSpellEffectTargets(spell)) {
         requestSpellEffectTargets(

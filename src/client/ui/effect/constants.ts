@@ -670,7 +670,6 @@ export const EFFECT_ACTIVATION_CHOICE_HINTS: Record<
     + 'эффект выключается.',
 };
 
-/** Подписи ресурса применения */
 /** Подписи раздела «Свет» */
 export const EFFECT_LIGHT_LABELS = {
   toggle: 'Носитель излучает свет',
@@ -703,7 +702,10 @@ export const EFFECT_LIGHT_ANIMATION_LABELS: Record<
   strobe: 'Вспышки',
 };
 
-/** Новый блок «провал в успех»: три раза до долгого отдыха — как у «Легендарного сопротивления» */
+/**
+ * Новый блок «провал в успех»: три раза до долгого отдыха — как у
+ * «Легендарного сопротивления»
+ */
 export const DEFAULT_SAVE_OVERRIDE: EffectSaveOverride = {
   limit: { max: 3, per: 'longRest' },
 };
@@ -729,6 +731,7 @@ export const SAVE_OVERRIDE_PERIOD_LABELS: Record<SaveOverridePeriod, string> = {
   longRest: 'долгого отдыха (день)',
 };
 
+/** Подписи ресурса применения */
 export const EFFECT_ACTIVATION_COUNTER_LABELS = {
   counter: 'Тратит ресурс',
   counterPlaceholder: 'Ключ ресурса, например rage',

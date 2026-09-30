@@ -62,8 +62,9 @@ function createPorts(current) {
     buildRollBonusEvaluator,
     buildCreatureRollVariants,
     props: { entity: current.value, actor: current.value, isEditMode: false },
-    // Запретов трат хода у существа нет
+    // Запретов трат хода у существа нет, трата хода не пишется
     sectionBlock: { value: null },
+    spendSectionTurn: () => {},
     rollConfig,
     isRollModalOpen: { value: false },
     getCreatureEntity: () => current.value,
@@ -1097,6 +1098,7 @@ it('actual creature action sheet checks distance with the chosen attack kind', a
   const ports = {
     props: { creatureId: 'goblin' },
     sectionBlock: { value: null },
+    spendSectionTurn: () => {},
     targetStore: { targetTokenId: 'target' },
     chatStore: { sendMessage: (text) => messages.push(text) },
     CREATURE_ACTIONS_BLOCK_LABELS: {

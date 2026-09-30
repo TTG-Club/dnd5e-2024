@@ -426,6 +426,19 @@
   }
 
   /**
+   * Отмечает трату хода раздела («Замедление»): зовётся, когда действие
+   * точно идёт, — отказ по дистанции её не тратит.
+   */
+  function spendSectionTurn(): void {
+    if (props.section) {
+      recordEntityActionSpend(
+        props.creatureId,
+        resolveCreatureSectionCost(props.section),
+      );
+    }
+  }
+
+  /**
    * Открывает модалку броска для действия. Атаки идут с броском попадания,
    * действия со спасброском/областью — без него (цель кидает спас). Перед
    * прямой атакой проверяется дистанция; для области сначала размещается шаблон.
@@ -444,13 +457,6 @@
       return;
     }
 
-    if (props.section) {
-      recordEntityActionSpend(
-        props.creatureId,
-        resolveCreatureSectionCost(props.section),
-      );
-    }
-
     runCreatureActionChoices(sourceAction, props.creatureId, (action) => {
       // Действие без броска только накладывает эффекты на само существо;
       // окна броска нет — тип урона на выбор эффектов спрашивает плашка
@@ -458,6 +464,8 @@
         const creatureId = props.creatureId;
 
         if (creatureId) {
+          spendSectionTurn();
+
           runWithDamageTypeChoices(action, (chosenAction) => {
             applyActionSelfEffects(chosenAction, creatureId);
           });
@@ -502,6 +510,9 @@
           isDisadvantage = true;
         }
       }
+
+      // Отказ по дистанции трату хода не тратит
+      spendSectionTurn();
 
       // Урон «или» решается после проверки дистанции (не спрашивать о
       // промахе мимо досягаемости): состояние и случай — сразу, выбор

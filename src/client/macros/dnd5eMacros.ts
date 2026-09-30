@@ -881,11 +881,6 @@ export function registerDnd5eMacros(): void {
         return;
       }
 
-      recordEntityActionSpend(
-        result.actor.id,
-        resolveSpellCastCost(result.spell),
-      );
-
       runWithEffectVariants(result.spell, (spell) => {
         const { actor } = result;
 
@@ -909,6 +904,9 @@ export function registerDnd5eMacros(): void {
 
           return;
         }
+
+        // Трата хода — когда каст точно идёт: отказ по ячейкам её не тратит
+        recordEntityActionSpend(actor.id, resolveSpellCastCost(spell));
 
         if (needsSpellEffectTargets(spell)) {
           requestSpellEffectTargets(
@@ -1965,12 +1963,15 @@ function registerCreatureActionMacro(): void {
         return;
       }
 
-      if (section) {
-        recordEntityActionSpend(
-          foundCreature.id,
-          resolveCreatureSectionCost(section),
-        );
-      }
+      /** Трата хода раздела — когда действие точно идёт */
+      const spendTurn = (): void => {
+        if (section) {
+          recordEntityActionSpend(
+            foundCreature.id,
+            resolveCreatureSectionCost(section),
+          );
+        }
+      };
 
       runCreatureActionChoices(foundAction, foundCreature.id, (action) => {
         const hasAttackParams = !!(
@@ -1991,6 +1992,8 @@ function registerCreatureActionMacro(): void {
             `<b>${action.name}</b><br/>${description}`,
             'text',
           );
+
+          spendTurn();
 
           // Окна броска нет — тип урона на выбор эффектов спрашивает плашка
           runWithDamageTypeChoices(action, (chosenAction) => {
@@ -2030,6 +2033,9 @@ function registerCreatureActionMacro(): void {
             isDisadvantage = true;
           }
         }
+
+        // Отказ по дистанции трату хода не тратит
+        spendTurn();
 
         // Урон «или» — после проверки дистанции, до шаблона и окна броска
         runWithCreatureDamageChoice(action, foundCreature, (chosen, variants) =>

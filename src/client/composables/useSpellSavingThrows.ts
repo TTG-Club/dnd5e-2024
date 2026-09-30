@@ -32,11 +32,11 @@ import {
   getNaturalD20Roll,
   isDndSceneEntity,
   listSavingThrowBonusKeys,
+  NO_SOURCE_ADJUSTMENTS,
   parseNaturalD20Roll,
   parseSavingThrowResult,
   resolveActorStats,
   resolveAutoSaves,
-  resolveEntityCreatureType,
   resolveSaveSourceAdjustments,
   resolveSavingThrowModifier,
   resolveSavingThrowRollMode,
@@ -201,12 +201,15 @@ function getActorSaveInfo(
   const stats = resolveActorStats(entity);
 
   // «Защита от зла и добра»: эффекты с условием об источнике спасброска
-  const sourceAdjustments = resolveSaveSourceAdjustments(
-    collectEffectsWithAuras(entity),
-    saveAbility,
-    options,
-    buildFormulaContext(entity),
-  );
+  // Эффекты с аурами собираются только по нужде — тип источника известен
+  const sourceAdjustments = options.sourceCreatureType
+    ? resolveSaveSourceAdjustments(
+        collectEffectsWithAuras(entity),
+        saveAbility,
+        options,
+        buildFormulaContext(entity),
+      )
+    : NO_SOURCE_ADJUSTMENTS;
 
   const modifier =
     resolveSavingThrowModifier(stats, saveAbility, options)
@@ -258,9 +261,7 @@ function resolveTargetSourceType(
     return target.sourceCreatureType;
   }
 
-  const source = useWorldEntities().findCurrentDndEntity(target.sourceEntityId);
-
-  return source ? resolveEntityCreatureType(source) : undefined;
+  return useWorldEntities().findEntityCreatureType(target.sourceEntityId);
 }
 
 /**

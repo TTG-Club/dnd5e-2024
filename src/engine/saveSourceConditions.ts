@@ -38,7 +38,10 @@ export interface SaveSourceAdjustments {
 }
 
 /** Источник неизвестен — прибавлять нечего */
-const NO_SOURCE_ADJUSTMENTS: SaveSourceAdjustments = { flags: [], bonus: 0 };
+export const NO_SOURCE_ADJUSTMENTS: SaveSourceAdjustments = {
+  flags: [],
+  bonus: 0,
+};
 
 /** Обстоятельства спасброска, которые читает поправка по источнику */
 export interface SaveSourceCircumstances {
