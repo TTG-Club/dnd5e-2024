@@ -28,6 +28,7 @@ import {
   applyMultiTypeDamageDefenses,
   findTokensInTemplate,
   formatDamageDefenseSuffix,
+  formatDiceFormula,
   getSpellSaveCondition,
   isDndSceneEntity,
   isSpellRoll,
@@ -843,7 +844,10 @@ export function useSpellDamageWithParts() {
       if (!contributions || contributions.length === 0) {
         if (results.length === 0) {
           messageLines.push(header);
-          messageLines.push(`→ ${part.formula} ${diceBreakdown}${part.amount}`);
+
+          messageLines.push(
+            `→ ${formatDiceFormula(part.formula)} ${diceBreakdown}${part.amount}`,
+          );
         }
 
         continue;
@@ -866,7 +870,7 @@ export function useSpellDamageWithParts() {
       for (const contribution of visibleContributions) {
         const defenseSuffix = formatDamageDefenseSuffix(contribution.outcome);
 
-        let line = `→ ${contribution.entityName}: ${part.formula} ${diceBreakdown}${sign}${contribution.applied}${hpSuffix}${defenseSuffix}`;
+        let line = `→ ${contribution.entityName}: ${formatDiceFormula(part.formula)} ${diceBreakdown}${sign}${contribution.applied}${hpSuffix}${defenseSuffix}`;
 
         const effects = effectsByEntity.get(contribution.entityId);
 
@@ -907,7 +911,7 @@ export function useSpellDamageWithParts() {
         messageLines.push(`${damageLine.typeLabel} (эффект)`);
 
         messageLines.push(
-          `→ ${result.actorName}: ${damageLine.formula} ${breakdown}-${damageLine.applied} HP${formatDamageDefenseSuffix(damageLine.outcome)}`,
+          `→ ${result.actorName}: ${formatDiceFormula(damageLine.formula)} ${breakdown}-${damageLine.applied} HP${formatDamageDefenseSuffix(damageLine.outcome)}`,
         );
       }
     }

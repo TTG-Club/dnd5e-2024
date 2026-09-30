@@ -366,14 +366,29 @@ export function formatDiceLetters(formula: string): string {
  * значит можно привести и русскую `д` (`2д6`), и запись без числа костей
  * (`d6`). Показу, который строку не разбирает, такая свобода опасна.
  *
+ * Арифметика без костей показывается числом, как её посчитает бросок:
+ * `1к6 + (5 * (2 - 1))` — «1к6 + 5». Слагаемое с `@`-переменной не
+ * считается и остаётся записью.
+ *
  * @param formula - формула без `@`-токенов
  * @returns формула для показа
  */
 export function formatDiceFormula(formula: string): string {
   return splitFormulaTerms(formula)
-    .map(
-      (term, index) =>
-        `${formatTermSign(term.sign, index === 0)}${term.body.replace(/^(\d*)[кдd]/i, '$1к')}`,
-    )
+    .map((term, index) => {
+      const isFirst = index === 0;
+
+      const flat = parseDiceTerm(term.body)
+        ? undefined
+        : evaluateFlatTerm(term.body);
+
+      if (flat !== undefined) {
+        const signed = term.sign * flat;
+
+        return `${formatTermSign(signed < 0 ? -1 : 1, isFirst)}${Math.abs(signed)}`;
+      }
+
+      return `${formatTermSign(term.sign, isFirst)}${term.body.replace(/^(\d*)[кдd]/i, '$1к')}`;
+    })
     .join('');
 }

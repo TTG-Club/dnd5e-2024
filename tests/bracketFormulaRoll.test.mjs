@@ -131,6 +131,28 @@ describe('бросок движка: арифметика в слагаемом'
   });
 });
 
+describe('чат: формула броска — числами, без токенов', () => {
+  it('арифметика показывается числом, скобка с костями раскрыта', () => {
+    assert.equal(engine.formatDiceFormula('1к6 + (5 * (2 - 1))'), '1к6 + 5');
+    assert.equal(engine.formatDiceFormula('(1d8 + 3)'), '1к8 + 3');
+    assert.equal(engine.formatDiceFormula('1к6 + (-2)'), '1к6 - 2');
+  });
+
+  it('кубики лечения срабатывания в чате: формула и итог', () => {
+    const healing = withRandom([MIN_ROLL], () =>
+      healOf('(1к4 + (2 * 3))@heal'),
+    );
+
+    assert.equal(healing.healed, 7);
+
+    const [roll] = engine.buildEffectDiceRolls('Волк', [], [healing]);
+
+    assert.equal(roll.formula, '1к4 + 6');
+    assert.equal(roll.total, 7);
+    assert.ok(!roll.label.includes('@'), roll.label);
+  });
+});
+
 describe('срабатывание: выражение в скобках перед видом', () => {
   it('без скобок и в скобках — одно и то же', () => {
     assert.equal(healOf('5@heal').healed, 5);
