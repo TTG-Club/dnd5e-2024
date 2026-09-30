@@ -46,6 +46,7 @@ import type {
   EffectTriggerSourceKind,
 } from './effectTriggerRunner.js';
 import type { EffectTriggerArea } from './effectTriggerTypes.js';
+import type { DndEntityLight } from './entityLight.js';
 import type { DndEntityVision } from './entityVision.js';
 import type { AreaEffectsSyncResult } from './positionalEffects.js';
 import type { SystemClientEvent } from './systemClientEvents.js';
@@ -147,6 +148,7 @@ import {
 } from './effectTriggerRunner.js';
 import { isLegacyTrigger, listEffectEventTriggers } from './effectTriggers.js';
 import { isDndSceneEntity } from './entityGuards.js';
+import { resolveEntityLight as resolveEntityLightImpl } from './entityLight.js';
 import { resolveEntityVision as resolveEntityVisionImpl } from './entityVision.js';
 import { buildFeatGrantsSummary } from './featGrantsSummary.js';
 import { validateFormula } from './formulaParser.js';
@@ -1495,7 +1497,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.130';
+  readonly version = '0.8.131';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -2145,6 +2147,19 @@ export class Dnd5eVttSystem implements VttSystem {
   resolveEntityVision(entity: SceneEntity): DndEntityVision | undefined {
     return isDndSceneEntity(entity)
       ? resolveEntityVisionImpl(entity)
+      : undefined;
+  }
+
+  /**
+   * Свет сущности по правилам D&D — самый сильный свет действующих эффектов
+   * поверх света фишки. Хук для сцены приложения по образцу
+   * `resolveEntityVision`: ядро его пока не зовёт (README § «Чего не хватает»,
+   * п. 33), и сцена видит только свет фишки.
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук для ядра: вызывается на экземпляре системы
+  resolveEntityLight(entity: SceneEntity): DndEntityLight | undefined {
+    return isDndSceneEntity(entity)
+      ? resolveEntityLightImpl(entity)
       : undefined;
   }
 

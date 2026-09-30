@@ -20,6 +20,7 @@ import type {
   ActiveEffect,
   EffectChange,
   EffectDuration,
+  EffectLight,
   EffectSave,
   EffectSaveOverride,
   SaveOverridePeriod,
@@ -579,6 +580,11 @@ export function describeActiveEffect(effect: ActiveEffect): string {
     clauses.push(describeSaveOverride(effect.saveOverride));
   }
 
+  // 10b. Свет носителя
+  if (effect.light) {
+    clauses.push(describeEffectLight(effect.light));
+  }
+
   // 11. Только при успешном спасброске уровня действия
   if (effect.applyOnSuccessOnly) {
     clauses.push('только при успешном спасброске');
@@ -605,6 +611,23 @@ export function describeActiveEffect(effect: ActiveEffect): string {
   const capitalized = capitalize(text);
 
   return capitalized.endsWith('.') ? capitalized : `${capitalized}.`;
+}
+
+/**
+ * Свет эффекта словами: «излучает яркий свет 20 фт и тусклый ещё 20 фт».
+ *
+ * @param light - свет эффекта
+ * @returns фраза со строчной буквы
+ */
+export function describeEffectLight(light: EffectLight): string {
+  const parts = [
+    ...(light.bright > 0 ? [`яркий свет ${light.bright} фт`] : []),
+    ...(light.dim > 0
+      ? [`тусклый ${light.bright > 0 ? 'ещё ' : ''}${light.dim} фт`]
+      : []),
+  ];
+
+  return `излучает ${parts.join(' и ')}`;
 }
 
 /** Период своего счётчика «провал в успех» — родительным падежом */

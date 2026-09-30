@@ -55,6 +55,7 @@
     EffectFormStep,
     EffectHeaderFields,
     EffectInertFieldsNotice,
+    EffectLightSection,
     EffectModifiersStep,
     EffectSaveOverrideSection,
     EffectSaveStep,
@@ -384,6 +385,8 @@
               v-if="layout.showSaveOverride"
               v-model:effect="draft"
             />
+
+            <EffectLightSection v-model:effect="draft" />
           </EffectFormStep>
 
           <EffectFormStep

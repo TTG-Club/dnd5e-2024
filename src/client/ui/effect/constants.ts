@@ -17,6 +17,8 @@ import type {
   EffectDelivery,
   EffectFormContext,
   EffectFormStep,
+  EffectLight,
+  EffectLightAnimation,
   EffectSaveUnavailableReason,
   EffectSuccessOutcome,
   EffectTriggerEvent,
@@ -667,6 +669,38 @@ export const EFFECT_ACTIVATION_CHOICE_HINTS: Record<
 };
 
 /** Подписи ресурса применения */
+/** Подписи раздела «Свет» */
+export const EFFECT_LIGHT_LABELS = {
+  toggle: 'Носитель излучает свет',
+  toggleHint:
+    'Пока эффект действует: «Корона света», светящееся оружие. Несколько '
+    + 'эффектов света не складываются — светит сильнейший.',
+  bright: 'Яркий, фт',
+  dim: 'Тусклый ещё, фт',
+  dimHint:
+    'Тусклый свет за ярким — как в тексте правил: «и тусклый ещё на 20 фт».',
+  color: 'Цвет',
+  animation: 'Анимация',
+  sceneHint:
+    'На сцене свет появится, когда ядро VTTG начнёт спрашивать свет у '
+    + 'системы; до тех пор он виден в описании эффекта.',
+} as const;
+
+/** Свет нового эффекта: яркий 20 фт и тусклый ещё 20 — как у факела */
+export const DEFAULT_EFFECT_LIGHT: EffectLight = { bright: 20, dim: 20 };
+
+/** Подписи анимаций света эффекта */
+export const EFFECT_LIGHT_ANIMATION_LABELS: Record<
+  EffectLightAnimation,
+  string
+> = {
+  none: 'Ровный',
+  pulse: 'Пульсирует',
+  flicker: 'Мерцает',
+  torch: 'Как факел',
+  strobe: 'Вспышки',
+};
+
 /** Подписи раздела «Провал в успех» */
 export const EFFECT_SAVE_OVERRIDE_LABELS = {
   toggle: 'Провал спасброска — вместо этого успех',

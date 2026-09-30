@@ -24,6 +24,7 @@ import {
   describeEffectDamageParts,
   describeEffectDuration,
   describeEffectFlag,
+  describeEffectLight,
   describeSaveOverride,
   formatEffectSaveDc,
 } from './activeEffectDescribe.js';
@@ -413,6 +414,10 @@ function describeLastingPayload(
 
   if (layout.showSaveOverride && effect.saveOverride) {
     parts.push(describeSaveOverride(effect.saveOverride));
+  }
+
+  if (effect.light) {
+    parts.push(describeEffectLight(effect.light));
   }
 
   for (const trigger of listEffectListTriggers(effect)) {

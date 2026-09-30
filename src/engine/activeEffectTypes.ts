@@ -1695,6 +1695,39 @@ export interface EffectCharges {
   endsWhenEmpty?: true;
 }
 
+/** Анимации света эффекта — те же, что у света фишки ядра */
+export const EFFECT_LIGHT_ANIMATIONS = [
+  'none',
+  'pulse',
+  'flicker',
+  'torch',
+  'strobe',
+] as const;
+
+/** Анимация света эффекта */
+export type EffectLightAnimation = (typeof EFFECT_LIGHT_ANIMATIONS)[number];
+
+/** Дальше этого радиуса свет эффекта не бывает, фт */
+export const MAX_EFFECT_LIGHT_FEET = 1000;
+
+/**
+ * Свет, который излучает носитель, пока эффект действует («Корона света»:
+ * яркий 30 фт и тусклый ещё 30). Считает `entityLight.ts`.
+ */
+export interface EffectLight {
+  /** Радиус яркого света, фт */
+  bright: number;
+  /**
+   * Тусклый свет ЗА ярким, фт — как в тексте правил: «и тусклый ещё на 20
+   * фт». Дальний край света — `bright + dim`
+   */
+  dim: number;
+  /** Цвет `#rrggbb`; нет — белый */
+  color?: string;
+  /** Анимация; нет — ровный свет */
+  animation?: EffectLightAnimation;
+}
+
 /** На какой отдых восстанавливается «провал в успех» своим счётчиком */
 export const SAVE_OVERRIDE_PERIODS = ['shortRest', 'longRest'] as const;
 
@@ -1888,6 +1921,9 @@ export interface ActiveEffect extends BaseActiveEffect {
    * предлагают преуспеть, пока ресурс не кончился.
    */
   saveOverride?: EffectSaveOverride;
+
+  /** Свет, который излучает носитель, пока эффект действует */
+  light?: EffectLight;
 
   /**
    * Сохранённый бросок: формула, которую бросают ОДИН раз — при наложении.
@@ -2511,6 +2547,26 @@ export const EffectChargesSchema = z.object({
   endsWhenEmpty: z.literal(true).optional().catch(undefined),
 });
 
+/** Радиус света эффекта в футах */
+const EffectLightFeetSchema = z.number().min(0).max(MAX_EFFECT_LIGHT_FEET);
+
+/**
+ * Zod-схема света эффекта: свет без радиуса отбрасывается, неверный цвет —
+ * белый.
+ */
+const EffectLightSchema = z
+  .object({
+    bright: EffectLightFeetSchema,
+    dim: EffectLightFeetSchema,
+    color: z
+      .string()
+      .regex(/^#[\da-f]{6}$/i)
+      .optional()
+      .catch(undefined),
+    animation: z.enum(EFFECT_LIGHT_ANIMATIONS).optional().catch(undefined),
+  })
+  .refine((light) => light.bright + light.dim > 0);
+
 /**
  * Zod-схема «провал в успех»: блок без счётчика и без ресурса платить нечем —
  * отбрасывается целиком.
@@ -3111,6 +3167,7 @@ export const ActiveEffectSchema = z.object({
   conditionLocked: z.literal(true).optional().catch(undefined),
   charges: EffectChargesSchema.optional().catch(undefined),
   saveOverride: EffectSaveOverrideSchema.optional().catch(undefined),
+  light: EffectLightSchema.optional().catch(undefined),
   savedRoll: z.string().trim().min(1).optional().catch(undefined),
   savedRollValue: z.preprocess(
     coerceOptionalNumber,
