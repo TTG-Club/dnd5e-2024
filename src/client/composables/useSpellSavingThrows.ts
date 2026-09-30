@@ -41,6 +41,7 @@ import {
 
 import { SAVING_THROW_ROLL_LABELS } from '../ui/actor/constants';
 import { buildRollBonusEvaluator } from './rollBonusEvaluator';
+import { offerSaveOverride } from './saveOverrideOffer';
 import {
   determineRollMode,
   formatSavingThrowRollLabel,
@@ -454,14 +455,16 @@ export function useSpellSavingThrows() {
    * @param target - цель спасброска
    * @returns промис с результатом или `null`, если окно закрыли
    */
-  function resolveSavingThrowLocally(
+  async function resolveSavingThrowLocally(
     target: SavingThrowTarget,
   ): Promise<SavingThrowResult | null> {
-    if (resolveAutoSaves(target.entity)) {
-      return Promise.resolve(rollSavingThrow(target));
-    }
+    const result = resolveAutoSaves(target.entity)
+      ? rollSavingThrow(target)
+      : await requestManualSavingThrow(target);
 
-    return requestManualSavingThrow(target);
+    // Провал можно превратить в успех («Легендарное сопротивление») — до того,
+    // как по итогу лягут урон и эффекты
+    return result ? offerSaveOverride(target, result) : null;
   }
 
   /**

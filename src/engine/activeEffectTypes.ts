@@ -1689,6 +1689,30 @@ export interface EffectCharges {
   endsWhenEmpty?: true;
 }
 
+/** На какой отдых восстанавливается «провал в успех» своим счётчиком */
+export const SAVE_OVERRIDE_PERIODS = ['shortRest', 'longRest'] as const;
+
+/** Период своего счётчика «провал в успех»: день — это долгий отдых */
+export type SaveOverridePeriod = (typeof SAVE_OVERRIDE_PERIODS)[number];
+
+/** Больше раз за период «провал в успех» не бывает */
+export const MAX_SAVE_OVERRIDE_USES = 20;
+
+/**
+ * «Провал спасброска — вместо этого успех» за ресурс: «Легендарное
+ * сопротивление» (3/день), черты и предметы игроков. Носитель, проваливший
+ * спасбросок, может потратить единицу и преуспеть.
+ *
+ * Платит своим счётчиком носителя (`limit`: N раз до отдыха) либо ресурсом
+ * листа (`counter`, как у применения). Задано оба — платит ресурс листа.
+ */
+export interface EffectSaveOverride {
+  /** Своим счётчиком: N раз за период */
+  limit?: { max: number; per: SaveOverridePeriod };
+  /** Ресурс листа (`system.classCounters`), тратится по единице */
+  counter?: string;
+}
+
 /**
  * Active Effect — полная D&D 5e структура. Наследует нейтральную
  * `BaseActiveEffect` (кросс-катные поля: id/имя/иконка/провенанс/длительность/
@@ -1851,6 +1875,13 @@ export interface ActiveEffect extends BaseActiveEffect {
    * чужого токена и у эффекта зоны своего экземпляра нет, и тратить нечего.
    */
   charges?: EffectCharges;
+
+  /**
+   * «Провал спасброска — вместо этого успех» за ресурс
+   * (`saveOverride.ts`): после проваленного спасброска владельцу носителя
+   * предлагают преуспеть, пока ресурс не кончился.
+   */
+  saveOverride?: EffectSaveOverride;
 
   /**
    * Сохранённый бросок: формула, которую бросают ОДИН раз — при наложении.
@@ -2475,6 +2506,23 @@ export const EffectChargesSchema = z.object({
 });
 
 /**
+ * Zod-схема «провал в успех»: блок без счётчика и без ресурса платить нечем —
+ * отбрасывается целиком.
+ */
+const EffectSaveOverrideSchema = z
+  .object({
+    limit: z
+      .object({
+        max: z.number().int().min(1).max(MAX_SAVE_OVERRIDE_USES),
+        per: z.enum(SAVE_OVERRIDE_PERIODS),
+      })
+      .optional()
+      .catch(undefined),
+    counter: z.string().trim().min(1).max(100).optional().catch(undefined),
+  })
+  .refine((value) => value.limit !== undefined || value.counter !== undefined);
+
+/**
  * Zod-схема для валидации EffectDuration.
  */
 export const EffectDurationSchema = z.object({
@@ -3056,6 +3104,7 @@ export const ActiveEffectSchema = z.object({
   ),
   conditionLocked: z.literal(true).optional().catch(undefined),
   charges: EffectChargesSchema.optional().catch(undefined),
+  saveOverride: EffectSaveOverrideSchema.optional().catch(undefined),
   savedRoll: z.string().trim().min(1).optional().catch(undefined),
   savedRollValue: z.preprocess(
     coerceOptionalNumber,

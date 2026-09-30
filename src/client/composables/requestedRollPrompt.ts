@@ -4,6 +4,7 @@ import type {
 } from '@/core/systems/uiSystemRegistry';
 import type {
   EffectPromptRequestPayload,
+  SaveOverrideRequestPayload,
   TargetChoiceRequestPayload,
 } from '@vtt/shared/system/dnd.js';
 
@@ -11,12 +12,22 @@ import type { SavingThrowTarget } from './useSpellSavingThrows';
 
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import {
+  buildSaveOverrideOptions,
+  findSaveOverride,
+  formatSaveOverrideQuestion,
   parseEffectPromptRequestPayload,
+  parseSaveOverrideRequestPayload,
   parseSavingThrowRequestPayload,
   parseTargetChoiceRequestPayload,
   resolveAutoSaves,
+  SAVE_OVERRIDE_ACCEPT,
+  SAVE_OVERRIDE_DECLINE,
 } from '@vtt/shared/system/dnd.js';
 
+import {
+  answerWithSaveOverride,
+  spendEntitySaveOverride,
+} from './saveOverrideOffer';
 import { useSpellSavingThrows } from './useSpellSavingThrows';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -166,6 +177,13 @@ export function promptRequestedRoll(
     return promptEffectQuestion(request, reply, question);
   }
 
+  // Ведущего спрашивают, превратить ли провал его существа в успех
+  const override = parseSaveOverrideRequestPayload(request.payload);
+
+  if (override) {
+    return promptSaveOverride(request, reply, override);
+  }
+
   const payload = parseSavingThrowRequestPayload(request.payload);
 
   // Чужая форма нагрузки (другой вид броска, другая система) — не наше дело
@@ -198,9 +216,12 @@ export function promptRequestedRoll(
   };
 
   // Авто-спасброски: владелец не хочет окна на каждый спас — бросаем сразу,
-  // бросок уходит в чат от его имени, инициатор получает готовый результат
+  // бросок уходит в чат от его имени, инициатор получает готовый результат.
+  // Провал владелец может превратить в успех, пока инициатор ждёт ответа
   if (resolveAutoSaves(entity)) {
-    reply.answer(rollSavingThrow(target));
+    answerWithSaveOverride(target, rollSavingThrow(target), (final) => {
+      reply.answer(final);
+    });
 
     return true;
   }
@@ -213,7 +234,11 @@ export function promptRequestedRoll(
         modalKey,
         takeover: request.takeover,
         onResult: (result) => {
-          settle(() => reply.answer(result));
+          settle(() => {
+            answerWithSaveOverride(target, result, (final) => {
+              reply.answer(final);
+            });
+          });
         },
         onCancel: () => {
           settle(() => reply.decline());
@@ -261,6 +286,70 @@ function promptTargetChoice(
         },
       }),
     REQUEST_MODAL_FAILURES.choice,
+  );
+
+  return true;
+}
+
+/**
+ * Спрашивает ведущего, превратить ли проваленный спасбросок его существа в
+ * успех. Чем платить и сколько осталось, считается здесь, по живой сущности:
+ * между броском и вопросом её могли поменять. Согласие списывает ресурс тут же —
+ * писать в существо ведущего вправе только он.
+ *
+ * @param request - запрос от ядра
+ * @param reply - ответ инициатору
+ * @param payload - разобранная нагрузка вопроса
+ * @returns `true`, если запрос взят; `false` — сущности в мире нет
+ */
+function promptSaveOverride(
+  request: RequestedRollPrompt,
+  reply: RequestedRollReply,
+  payload: SaveOverrideRequestPayload,
+): boolean {
+  const entity = useWorldEntities().findCurrentDndEntity(request.entityId);
+
+  if (!entity) {
+    return false;
+  }
+
+  const available = findSaveOverride(entity);
+
+  if (!available) {
+    reply.answer({ optionId: SAVE_OVERRIDE_DECLINE });
+
+    return true;
+  }
+
+  const { openModal } = useModalManager();
+
+  openTrackedRequestModal(
+    request,
+    reply,
+    (settle, modalKey) =>
+      openModal('EffectQuestionPromptModal', {
+        _modalKey: modalKey,
+        question: formatSaveOverrideQuestion(
+          entity.name,
+          payload.ability,
+          available.source.label,
+        ),
+        options: buildSaveOverrideOptions(available.remaining),
+        sourceName: payload.sourceName,
+        onAnswer: (optionId: string) => {
+          settle(() => {
+            if (optionId === SAVE_OVERRIDE_ACCEPT) {
+              spendEntitySaveOverride(entity, available);
+            }
+
+            reply.answer({ optionId });
+          });
+        },
+        onCancel: () => {
+          settle(() => reply.decline());
+        },
+      }),
+    REQUEST_MODAL_FAILURES.question,
   );
 
   return true;

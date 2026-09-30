@@ -712,6 +712,12 @@ export const CREATURE_ACTION_FORM_LABELS = {
   recharge: 'Перезарядка',
   /** Выбор «перезарядки нет»: запись доступна без ограничений */
   rechargeNone: 'Без перезарядки',
+  saveSuccessPerDay: 'Провал спасброска → успех, раз в день',
+  saveSuccessPerDayPlaceholder: 'Нет',
+  saveSuccessPerDayHint:
+    '«Легендарное сопротивление (3/день)»: провалив спасбросок, существо '
+    + 'может преуспеть — ведущий решает в окне после броска. Счёт '
+    + 'восстанавливает долгий отдых.',
   rangeTypeMelee: 'Ближний бой',
   rangeTypeRanged: 'Дальний бой',
   rangeTypeMeleeOrRanged: 'Рукопашная или дальнобойная',

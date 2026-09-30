@@ -110,7 +110,7 @@ const bundle = await build({
             '@/shared_ui/composables/useModalManager':
               'import { modalManager } from "test:host"; export const useModalManager = () => modalManager;',
             '@/core/entityUtils':
-              'export { emitEntityCombatState } from "test:host"; export const resolveTokenScale = (_world, token) => token.scale; export const collectWorldEntities = (world) => [...(world?.actors ?? []), ...(world?.creatures ?? [])]; export const findEntityInWorld = (world, entityId) => collectWorldEntities(world).find((entity) => entity.id === entityId);',
+              'export { emitEntityCombatState } from "test:host"; export const emitEntityUpdate = () => {}; export const resolveTokenScale = (_world, token) => token.scale; export const collectWorldEntities = (world) => [...(world?.actors ?? []), ...(world?.creatures ?? [])]; export const findEntityInWorld = (world, entityId) => collectWorldEntities(world).find((entity) => entity.id === entityId);',
           };
 
           if (!(request.path in exports)) {

@@ -45,6 +45,7 @@ import type {
   EffectTurnAnchor,
   EffectTurnTiming,
   EffectVariantPick,
+  SaveOverridePeriod,
   TriggerAttackKind,
 } from '@vtt/shared/system/dnd.js';
 
@@ -91,6 +92,7 @@ import {
   MIN_REVIVE_HP,
   MIN_SPELL_SLOT_LEVEL,
   PATH_AREA_SHIFT_KINDS,
+  SAVE_OVERRIDE_PERIODS,
   SKILLS_LABELS,
   TRIGGER_ATTACK_KIND_PHRASES,
   TRIGGER_ATTACK_KINDS,
@@ -122,6 +124,7 @@ import {
   EFFECT_USE_DELIVERY_LABELS,
   EFFECT_VARIANT_PICK_LABELS,
   SAVE_DC_FIELD_MODE_LABELS,
+  SAVE_OVERRIDE_PERIOD_LABELS,
   ZONE_TRIGGER_LABELS,
 } from './constants';
 import {
@@ -864,6 +867,14 @@ export const EFFECT_TRIGGER_SAVE_MODE_OPTIONS: ReadonlyArray<
 > = SAVE_MODE_CHOICES.map((mode) => ({
   value: mode,
   label: EFFECT_TRIGGER_SAVE_MODE_LABELS[mode],
+}));
+
+/** Варианты периода своего счётчика «провал в успех» */
+export const SAVE_OVERRIDE_PERIOD_OPTIONS: ReadonlyArray<
+  EffectSegmentOption<SaveOverridePeriod>
+> = SAVE_OVERRIDE_PERIODS.map((period) => ({
+  value: period,
+  label: SAVE_OVERRIDE_PERIOD_LABELS[period],
 }));
 
 /** Варианты момента повторного спасброска */

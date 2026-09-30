@@ -21,6 +21,7 @@ import type {
   EffectTriggerEvent,
   EffectVariantPick,
   InertEffectField,
+  SaveOverridePeriod,
 } from '@vtt/shared/system/dnd.js';
 
 import { SUBTRACT_MODE_CHOICE } from '@vtt/shared/system/dnd.js';
@@ -541,6 +542,7 @@ export const EFFECT_INERT_FIELDS_LABELS = {
 /** Названия неработающих настроек — заголовки строк плашки */
 export const EFFECT_INERT_FIELD_NAMES: Record<InertEffectField, string> = {
   charges: 'Заряды',
+  saveOverride: 'Провал в успех',
   activation: 'Применение или включение',
   landingCondition: 'Условие наложения',
   variant: 'Вариант',
@@ -564,6 +566,9 @@ export const EFFECT_INERT_FIELD_NAMES: Record<InertEffectField, string> = {
  */
 export const EFFECT_INERT_FIELD_REASONS: Record<InertEffectField, string> = {
   charges: 'Заряды тратят срабатывания, а здесь эффект их не выполняет.',
+  saveOverride:
+    'Провал превращает в успех носитель эффекта, а здесь эффект на носителе '
+    + 'не лежит.',
   activation: 'Такого способа включения здесь нет.',
   landingCondition:
     'Условие проверяется, когда эффект накладывают, а отсюда его не '
@@ -647,6 +652,27 @@ export const EFFECT_ACTIVATION_CHOICE_HINTS: Record<
 };
 
 /** Подписи ресурса применения */
+/** Подписи раздела «Провал в успех» */
+export const EFFECT_SAVE_OVERRIDE_LABELS = {
+  toggle: 'Провал спасброска — вместо этого успех',
+  toggleHint:
+    'После проваленного спасброска владельцу носителя предлагают преуспеть '
+    + '(«Легендарное сопротивление»), пока есть чем заплатить.',
+  times: 'Раз',
+  per: 'До',
+  counter: 'Или тратит ресурс',
+  counterPlaceholder: 'Ключ ресурса листа',
+  counterHint:
+    'Ключ ресурса листа персонажа, например luck. Задан — тратится он по '
+    + 'единице, а счёт «раз до отдыха» не ведётся.',
+} as const;
+
+/** Подписи периода своего счётчика «провал в успех» */
+export const SAVE_OVERRIDE_PERIOD_LABELS: Record<SaveOverridePeriod, string> = {
+  shortRest: 'короткого отдыха',
+  longRest: 'долгого отдыха (день)',
+};
+
 export const EFFECT_ACTIVATION_COUNTER_LABELS = {
   counter: 'Тратит ресурс',
   counterPlaceholder: 'Ключ ресурса, например rage',

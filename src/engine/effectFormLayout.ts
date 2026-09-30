@@ -152,6 +152,7 @@ export type InertEffectField =
   | 'duration'
   | 'conditionImmunities'
   | 'charges'
+  | 'saveOverride'
   | 'triggers';
 
 /** Вид действия срабатывания */
@@ -263,6 +264,11 @@ export interface EffectFormLayout {
    * и он ложится экземпляром на существо: заряд списывают из самого эффекта
    */
   showCharges: boolean;
+  /**
+   * «Провал спасброска — вместо этого успех» за ресурс. Работает там, где
+   * эффект действует на своего носителя: его читает сбор эффектов носителя
+   */
+  showSaveOverride: boolean;
   /** Минимальная Сл спасброска (0 — «Сл источника») */
   minSaveDc: number;
   /** Есть где появиться зоне на месте шаблона (у заклинания есть область) */
@@ -882,6 +888,9 @@ export function resolveEffectFormLayout(
     // Заряд списывают из экземпляра эффекта, и списывать его должно чему:
     // срабатывания в этом месте обязаны работать
     showCharges: livesOnItsOwn && triggerList.triggerEvents.length > 0,
+    showSaveOverride:
+      isGeneric
+      || (delivery === 'carrier' && DAMAGE_EVENT_CONTEXTS.has(context)),
     minSaveDc: acceptsSourceSaveDc(context, delivery, isUsed)
       ? SOURCE_MIN_SAVE_DC
       : FIXED_MIN_SAVE_DC,
@@ -1692,6 +1701,10 @@ export function listInertEffectFields(
     ['variant', !layout.showVariant && effect.variant !== undefined],
     ['duration', !layout.showDuration && effect.duration.type !== 'permanent'],
     ['charges', !layout.showCharges && effect.charges !== undefined],
+    [
+      'saveOverride',
+      !layout.showSaveOverride && effect.saveOverride !== undefined,
+    ],
     [
       'conditionImmunities',
       !layout.showConditionImmunities

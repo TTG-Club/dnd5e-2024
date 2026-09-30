@@ -34,7 +34,7 @@ export interface GmApprovalParties {
  * @param userId - пользователь
  * @returns `true` для ведущего
  */
-function isGameMasterUser(userId: string): boolean {
+export function isGameMasterUser(userId: string): boolean {
   return (
     useWorldStore().currentWorld?.users.some(
       (user) => user.id === userId && user.role === 'admin',

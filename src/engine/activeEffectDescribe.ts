@@ -21,6 +21,8 @@ import type {
   EffectChange,
   EffectDuration,
   EffectSave,
+  EffectSaveOverride,
+  SaveOverridePeriod,
 } from './activeEffectTypes.js';
 import type { SaveDcSource } from './effectSaveDc.js';
 import type { DamageTypeChoiceMode, HealKind } from './formulaTokens.js';
@@ -552,6 +554,11 @@ export function describeActiveEffect(effect: ActiveEffect): string {
     clauses.push(`иммунитет к состояниям: ${names}`);
   }
 
+  // 10a. Провал спасброска — вместо этого успех
+  if (effect.saveOverride) {
+    clauses.push(describeSaveOverride(effect.saveOverride));
+  }
+
   // 11. Только при успешном спасброске уровня действия
   if (effect.applyOnSuccessOnly) {
     clauses.push('только при успешном спасброске');
@@ -578,6 +585,35 @@ export function describeActiveEffect(effect: ActiveEffect): string {
   const capitalized = capitalize(text);
 
   return capitalized.endsWith('.') ? capitalized : `${capitalized}.`;
+}
+
+/** Период своего счётчика «провал в успех» — родительным падежом */
+const SAVE_OVERRIDE_PERIOD_TEXT: Record<SaveOverridePeriod, string> = {
+  shortRest: 'короткого',
+  longRest: 'долгого',
+};
+
+/**
+ * «Провал в успех» словами: «провал спасброска — вместо этого успех, 3 раза
+ * до долгого отдыха» или «… за ресурс «luck»».
+ *
+ * @param override - блок эффекта
+ * @returns фраза со строчной буквы
+ */
+export function describeSaveOverride(override: EffectSaveOverride): string {
+  const head = 'провал спасброска — вместо этого успех';
+
+  if (override.counter) {
+    return `${head} за ресурс «${override.counter}»`;
+  }
+
+  if (!override.limit) {
+    return head;
+  }
+
+  const { max, per } = override.limit;
+
+  return `${head}, ${max} ${pluralize(max, ['раз', 'раза', 'раз'])} до ${SAVE_OVERRIDE_PERIOD_TEXT[per]} отдыха`;
 }
 
 // ── Разбор эффекта разделами (карточка просмотра) ─────────────

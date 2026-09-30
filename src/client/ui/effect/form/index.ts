@@ -9,6 +9,7 @@ export { default as EffectFormStep } from './EffectFormStep.vue';
 export { default as EffectHeaderFields } from './EffectHeaderFields.vue';
 export { default as EffectInertFieldsNotice } from './EffectInertFieldsNotice.vue';
 export { default as EffectModifiersStep } from './EffectModifiersStep.vue';
+export { default as EffectSaveOverrideSection } from './EffectSaveOverrideSection.vue';
 export { default as EffectSaveStep } from './EffectSaveStep.vue';
 export { default as EffectScenarioSummary } from './EffectScenarioSummary.vue';
 export { default as EffectStagesSection } from './EffectStagesSection.vue';

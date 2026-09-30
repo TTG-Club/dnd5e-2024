@@ -56,6 +56,7 @@
     EffectHeaderFields,
     EffectInertFieldsNotice,
     EffectModifiersStep,
+    EffectSaveOverrideSection,
     EffectSaveStep,
     EffectScenarioSummary,
     EffectStagesSection,
@@ -377,6 +378,11 @@
               v-if="layout.showStages"
               v-model:effect="draft"
               :show-priority-field="showPriorityField"
+            />
+
+            <EffectSaveOverrideSection
+              v-if="layout.showSaveOverride"
+              v-model:effect="draft"
             />
           </EffectFormStep>
 

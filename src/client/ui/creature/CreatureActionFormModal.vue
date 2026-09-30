@@ -28,6 +28,7 @@
     getActionDescriptionMarkdown,
     getAreaSizeLabel,
     listCreatureDamageAlternatives,
+    MAX_SAVE_OVERRIDE_USES,
     SAVE_EFFECT_OPTIONS,
     SAVE_TYPE_OPTIONS,
   } from '@vtt/shared/system/dnd.js';
@@ -129,6 +130,8 @@
      * соседние поля спасброска, где «нет» тоже отдельный ключ.
      */
     recharge: CreatureRecharge | 'none';
+    /** «Провал в успех» раз в день — только у черты; пусто — нет */
+    saveSuccessPerDay: number | null;
   }>({
     name: '',
     nameEn: '',
@@ -153,6 +156,7 @@
     rangeType: 'melee',
     activeEffects: [],
     recharge: 'none',
+    saveSuccessPerDay: null,
   });
 
   /** Список перезарядки для формы: выбор «перезарядки нет» идёт первым */
@@ -296,6 +300,7 @@
           : [];
 
         form.recharge = action.recharge ?? 'none';
+        form.saveSuccessPerDay = action.saveSuccessPerDay ?? null;
       } else {
         form.name = '';
         form.nameEn = '';
@@ -320,6 +325,7 @@
         form.rangeType = 'melee';
         form.activeEffects = [];
         form.recharge = 'none';
+        form.saveSuccessPerDay = null;
       }
     },
     { immediate: true },
@@ -505,6 +511,15 @@
       result.recharge = form.recharge;
     }
 
+    // Счётчик «провал в успех» ведёт движок (`saveOverride.ts`) — только у черты
+    if (
+      props.mode === 'trait'
+      && form.saveSuccessPerDay !== null
+      && form.saveSuccessPerDay > 0
+    ) {
+      result.saveSuccessPerDay = form.saveSuccessPerDay;
+    }
+
     return result;
   }
 
@@ -576,6 +591,22 @@
                   label-key="label"
                   class="w-full"
                   :portal="false"
+                />
+              </UFormField>
+
+              <UFormField
+                v-if="mode === 'trait'"
+                :label="CREATURE_ACTION_FORM_LABELS.saveSuccessPerDay"
+                :help="CREATURE_ACTION_FORM_LABELS.saveSuccessPerDayHint"
+              >
+                <UInputNumber
+                  v-model="form.saveSuccessPerDay"
+                  :min="0"
+                  :max="MAX_SAVE_OVERRIDE_USES"
+                  :placeholder="
+                    CREATURE_ACTION_FORM_LABELS.saveSuccessPerDayPlaceholder
+                  "
+                  class="w-32"
                 />
               </UFormField>
 
