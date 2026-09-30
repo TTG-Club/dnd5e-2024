@@ -89,6 +89,7 @@ import {
   mergeAppliedEffects,
   pickCantripTierParts,
   resolveActorStats,
+  resolveCreatureSectionCost,
   resolveCreatureSpellSaveDC,
   resolveDamagePartsForCast,
   resolveEntityActionBlocks,
@@ -96,6 +97,7 @@ import {
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
   resolveSpellCastBlock,
+  resolveSpellCastCost,
   resolveSpellcastingAbility,
   resolveSpellDamageFormula,
   resolveSpellSaveDC,
@@ -108,6 +110,7 @@ import {
   withFlatFormulaBonus,
 } from '@vtt/shared/system/dnd.js';
 
+import { recordEntityActionSpend } from '../composables/actionSpend';
 import {
   runCreatureActionChoices,
   runWeaponAttackChoices,
@@ -877,6 +880,11 @@ export function registerDnd5eMacros(): void {
       ) {
         return;
       }
+
+      recordEntityActionSpend(
+        result.actor.id,
+        resolveSpellCastCost(result.spell),
+      );
 
       runWithEffectVariants(result.spell, (spell) => {
         const { actor } = result;
@@ -1957,6 +1965,13 @@ function registerCreatureActionMacro(): void {
         return;
       }
 
+      if (section) {
+        recordEntityActionSpend(
+          foundCreature.id,
+          resolveCreatureSectionCost(section),
+        );
+      }
+
       runCreatureActionChoices(foundAction, foundCreature.id, (action) => {
         const hasAttackParams = !!(
           action.attackBonus !== undefined
@@ -2326,6 +2341,7 @@ function registerCreatureSpellMacro(): void {
         }
 
         consumeCreatureSpellUse(foundCreature, spell, placement);
+        recordEntityActionSpend(foundCreature.id, resolveSpellCastCost(spell));
 
         // Область: размещаем шаблон у токена существа, затем кидаем урон
         if (spell.areaOfEffect) {

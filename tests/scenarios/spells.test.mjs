@@ -1593,4 +1593,27 @@ describe('каталог: заклинания, меняющие оружие', 
 
     assert.equal(engine.resolveActionCostBlock(target, 'action'), null);
   });
+
+  it('[S34b] Замедление: за ход действие или бонусное, не оба', () => {
+    const slow = createEffect('Замедление', {
+      effectTarget: 'target',
+      flags: ['actions.noReaction', 'actions.oneActionOrBonus'],
+      duration: { type: 'minutes', value: 1 },
+    });
+
+    authoredScenario(slow, 'spell');
+
+    const target = createActor({ activeEffects: [slow] });
+
+    const acted = {
+      ...target,
+      system: {
+        ...target.system,
+        effectUsage: engine.recordActionSpend(target, 'bonus'),
+      },
+    };
+
+    assert.notEqual(engine.resolveActionCostBlock(acted, 'action'), null);
+    assert.notEqual(engine.resolveActionCostBlock(target, 'reaction'), null);
+  });
 });

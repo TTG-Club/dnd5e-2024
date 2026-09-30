@@ -101,6 +101,7 @@ describe('ограничения действий', () => {
       [
         'actions.noReaction',
         'actions.noBonusAction',
+        'actions.oneActionOrBonus',
         'spellcasting.blocked',
         'spellcasting.noVerbal',
         'concentration.blocked',
@@ -241,5 +242,62 @@ describe('ограничения действий', () => {
     );
 
     assert.deepEqual(ended, [['actor_hero', ['cast_bless']]]);
+  });
+
+  it('«Замедление»: после действия бонусное недоступно и наоборот, ход обнуляет', () => {
+    const slow = createEffect('Замедление', {
+      flags: ['actions.noReaction', 'actions.oneActionOrBonus'],
+    });
+
+    const target = createActor({ activeEffects: [slow] });
+
+    assert.equal(engine.resolveActionCostBlock(target, 'bonus'), null);
+
+    assert.equal(
+      engine.recordActionSpend(target, 'reaction'),
+      undefined,
+      'реакцию счёт не ведёт',
+    );
+
+    const acted = {
+      ...target,
+      system: {
+        ...target.system,
+        effectUsage: engine.recordActionSpend(target, 'action'),
+      },
+    };
+
+    assert.equal(
+      engine.formatActionCostBlock(
+        engine.resolveActionCostBlock(acted, 'bonus'),
+      ),
+      'Бонусное действие недоступно: Замедление',
+    );
+
+    assert.equal(engine.resolveActionCostBlock(acted, 'action'), null);
+
+    assert.equal(
+      engine.findSpellCastBlock(engine.resolveEntityActionBlocks(acted), {
+        castingTimeUnit: 'bonus-action',
+      }),
+      'Бонусное действие недоступно: Замедление',
+    );
+
+    // Конец хода обнуляет счётчики периода «ход»
+    const nextTurn = {
+      ...acted,
+      system: {
+        ...acted.system,
+        effectUsage: engine.pruneTriggerUsage(acted, ['turn']),
+      },
+    };
+
+    assert.equal(engine.resolveActionCostBlock(nextTurn, 'bonus'), null);
+
+    assert.equal(
+      engine.recordActionSpend(createActor(), 'action'),
+      undefined,
+      'без флага ничего не пишется',
+    );
   });
 });

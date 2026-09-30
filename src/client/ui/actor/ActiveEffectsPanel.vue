@@ -67,6 +67,7 @@
     runEffectActiveAction,
   } from '@vtt/shared/system/dnd.js';
 
+  import { recordEntityActionSpend } from '../../composables/actionSpend';
   import { applyEffectSource } from '../../composables/effectActivationUse';
   import { runEffectEscape } from '../../composables/effectEscapeAction';
   import { toggleEntityEffect } from '../../composables/effectToggle';
@@ -426,6 +427,8 @@
 
       return;
     }
+
+    recordEntityActionSpend(owner.id, action?.cost);
 
     emitEntityCombatState(
       socket,

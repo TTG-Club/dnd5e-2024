@@ -80,6 +80,7 @@
     resolveDamagePartsForCast,
     resolveEntityActionBlocks,
     resolveEntityCreatureType,
+    resolveSpellCastCost,
     resolveSpellcastingAbility,
     resolveSpellDamageFormula,
     resolveSpellSaveDC,
@@ -93,6 +94,7 @@
     withFlatFormulaBonus,
   } from '@vtt/shared/system/dnd.js';
 
+  import { recordEntityActionSpend } from '../../../composables/actionSpend';
   import { resolveTargetedAttackRoll } from '../../../composables/attackRollMode';
   import {
     describeDamageVariantsStat,
@@ -1549,6 +1551,9 @@
 
       return;
     }
+
+    // «Замедление»: после каста действием бонусное в этот ход недоступно
+    recordEntityActionSpend(props.actor.id, resolveSpellCastCost(sourceSpell));
 
     runWithEffectVariants(sourceSpell, (spell) => {
       // Заклинания с зарядами (врождённые/расовые) не тратят ячейки: проверяем

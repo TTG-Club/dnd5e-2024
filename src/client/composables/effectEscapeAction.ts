@@ -5,6 +5,7 @@ import type { CheckRollResult } from '../ui/actor/diceRollTypes';
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import {
   canEscapeEffect,
+  DEFAULT_ESCAPE_ACTOR,
   describeEscapeUnavailable,
   formatEffectEscapeLabel,
   getSkillCheckBonusKeys,
@@ -21,6 +22,7 @@ import {
   EFFECT_ESCAPE_LABELS,
   EFFECT_ESCAPE_MODAL_KEY_PREFIX,
 } from '../ui/effect/constants';
+import { recordEntityActionSpend } from './actionSpend';
 import { buildRollBonusEvaluator } from './rollBonusEvaluator';
 
 /** Что нужно действию «вырваться» */
@@ -56,6 +58,11 @@ export function runEffectEscape(options: EffectEscapeOptions): boolean {
     || describeEscapeUnavailable(effect, entity) !== null
   ) {
     return false;
+  }
+
+  // «Замедление»: вырваться действием — значит бонусного в этот ход уже нет
+  if ((escape.by ?? DEFAULT_ESCAPE_ACTOR) === DEFAULT_ESCAPE_ACTOR) {
+    recordEntityActionSpend(entity.id, escape.cost);
   }
 
   const removals = listEffectEscapeRemovals(effect, entity.activeEffects ?? []);

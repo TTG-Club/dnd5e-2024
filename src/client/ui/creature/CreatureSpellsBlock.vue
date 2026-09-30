@@ -69,12 +69,14 @@
     isSpell,
     resolveCreatureSpellSaveDC,
     resolveSpellCastBlock,
+    resolveSpellCastCost,
     SPELL_SCHOOL_LABELS,
     SPELL_USES_RECOVERY_LABELS,
     spellIsHealing,
     syncCreatureSpellcastingUses,
   } from '@vtt/shared/system/dnd.js';
 
+  import { recordEntityActionSpend } from '../../composables/actionSpend';
   import { resolveTargetedAttackRoll } from '../../composables/attackRollMode';
   import {
     describeDamageVariantsStat,
@@ -1562,6 +1564,7 @@
       }
 
       consumeSpellUse(spell, placement);
+      recordEntityActionSpend(creature.id, resolveSpellCastCost(spell));
 
       // Область: размещаем шаблон у токена существа, затем кидаем урон
       if (spell.areaOfEffect) {

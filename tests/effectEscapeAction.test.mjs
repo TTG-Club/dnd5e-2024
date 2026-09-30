@@ -23,6 +23,9 @@ async function loadEscape() {
       getSkillCheckBonusKeys: engine.getSkillCheckBonusKeys,
       canEscapeEffect: engine.canEscapeEffect,
       describeEscapeUnavailable: engine.describeEscapeUnavailable,
+      DEFAULT_ESCAPE_ACTOR: engine.DEFAULT_ESCAPE_ACTOR,
+      // Вне боя трата хода не пишется
+      recordEntityActionSpend: () => {},
       formatEffectEscapeLabel: engine.formatEffectEscapeLabel,
       getSkillSetting: engine.getSkillSetting,
       getSkillSettingAbility: engine.getSkillSettingAbility,

@@ -628,6 +628,8 @@ it('the actual actor-sheet cast handler opens Bless targets before ordinary conf
       // Запретов трат хода у заклинателя нет
       actionBlocks: { value: { byCost: {} } },
       findSpellCastBlock: () => null,
+      recordEntityActionSpend: () => {},
+      resolveSpellCastCost: () => undefined,
       getCastableSpellLevels: () => [1, 2],
       needsSpellEffectTargets: runtime.needsSpellEffectTargets,
       requestSpellEffectTargets: runtime.requestSpellEffectTargets,
@@ -667,6 +669,8 @@ it('the actual hotbar spell executor opens the same target selection and passes 
       findSpell: () => ({ spell: bless, actor }),
       refuseBlockedMacro: () => false,
       resolveSpellCastBlock: () => null,
+      recordEntityActionSpend: () => {},
+      resolveSpellCastCost: () => undefined,
       listAmbientEffects: () => [],
       getAvailableSpellLevels: () => [1, 2],
       // Свои бонусы к ячейкам считаются от итоговых статов заклинателя

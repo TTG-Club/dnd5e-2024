@@ -950,6 +950,7 @@ export type EffectFlagKey =
   | 'movement.teleportBlocked'
   | 'actions.noReaction'
   | 'actions.noBonusAction'
+  | 'actions.oneActionOrBonus'
   | 'spellcasting.blocked'
   | 'spellcasting.noVerbal'
   | 'concentration.blocked'
@@ -1065,6 +1066,8 @@ const BASE_EFFECT_FLAG_LABELS: Record<
   // Ограничения действий (`actionRestrictions.ts`)
   'actions.noReaction': 'Не может совершать реакции',
   'actions.noBonusAction': 'Не может совершать бонусные действия',
+  'actions.oneActionOrBonus':
+    'За ход — действие или бонусное действие, не оба (Замедление)',
   'spellcasting.blocked': 'Не может накладывать заклинания',
   'spellcasting.noVerbal':
     'Не может накладывать заклинания с вербальным компонентом',

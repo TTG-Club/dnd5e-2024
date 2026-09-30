@@ -46,10 +46,12 @@
     listCreatureDamageAlternatives,
     listSourceDamageTypeChoices,
     readAlternativeShownParts,
+    resolveCreatureSectionCost,
     resolveEntityActionBlocks,
     SAVE_TYPE_LABELS,
   } from '@vtt/shared/system/dnd.js';
 
+  import { recordEntityActionSpend } from '../../composables/actionSpend';
   import { runCreatureActionChoices } from '../../composables/attackKindChoice';
   import { resolveTargetedAttackRoll } from '../../composables/attackRollMode';
   import {
@@ -440,6 +442,13 @@
       });
 
       return;
+    }
+
+    if (props.section) {
+      recordEntityActionSpend(
+        props.creatureId,
+        resolveCreatureSectionCost(props.section),
+      );
     }
 
     runCreatureActionChoices(sourceAction, props.creatureId, (action) => {

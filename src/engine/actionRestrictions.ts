@@ -9,7 +9,12 @@
  *   медного дракона);
  * - `actions.noBonusAction` — нет бонусных действий;
  * - `incapacitated` (Недееспособный и всё, что его включает) — нет ни
- *   действий, ни бонусных действий, ни реакций.
+ *   действий, ни бонусных действий, ни реакций;
+ * - `actions.oneActionOrBonus` — за ход действие ИЛИ бонусное действие
+ *   («Замедление»): трата хода пишется в счётчики хода носителя
+ *   (`system.effectUsage`, период «ход» — их обнуляет конец хода), и после
+ *   одной траты вторая недоступна. Пишется только в бою и только у носителя с
+ *   этим флагом (`recordActionSpend`).
  *
  * Колдовство — те же ограничения, только по заклинанию, а не по трате:
  * - `spellcasting.blocked` — нельзя накладывать заклинания (Ярость,
@@ -35,11 +40,13 @@ import type { ActiveEffect, EffectFlagKey } from './activeEffectTypes.js';
 import type { CreatureAction } from './creatureTypes.js';
 import type { DnDCreature, DnDSceneEntity, Spell } from './dndEntities.js';
 import type { EffectActionCost } from './effectTriggerTypes.js';
+import type { EffectTriggerUsageLedger } from './effectTriggerUsage.js';
 
 import { EFFECT_FLAG_LABELS } from './activeEffectTypes.js';
 import { listConcentrationCastIds } from './concentration.js';
 import { INCAPACITATED_CONDITION_KEY } from './conditionKeys.js';
 import { collectActiveEffects, resolveActorStats } from './effectPipeline.js';
+import { readTriggerUsage } from './effectTriggerUsage.js';
 
 /** Флаги ограничения действий */
 export const ACTION_RESTRICTION_FLAGS = {
@@ -47,6 +54,8 @@ export const ACTION_RESTRICTION_FLAGS = {
   noReaction: 'actions.noReaction',
   /** Нет бонусных действий */
   noBonusAction: 'actions.noBonusAction',
+  /** За ход — действие или бонусное действие, не оба */
+  oneActionOrBonus: 'actions.oneActionOrBonus',
   /** Нельзя накладывать заклинания */
   noSpellcasting: 'spellcasting.blocked',
   /** Нельзя заклинания с вербальным компонентом */
@@ -156,6 +165,89 @@ function findBlockingFlag(
   return undefined;
 }
 
+/** Трата хода, которую считает «действие или бонусное» */
+type TurnSpendCost = Extract<RestrictedActionCost, 'action' | 'bonus'>;
+
+/** Ключи счётчиков трат хода в общих счётчиках носителя */
+const TURN_SPEND_KEYS: Record<TurnSpendCost, string> = {
+  action: 'turnSpend|action',
+  bonus: 'turnSpend|bonus',
+};
+
+/** Какая трата запрещает какую: действие — бонусное, бонусное — действие */
+const OTHER_TURN_SPEND: Record<TurnSpendCost, TurnSpendCost> = {
+  action: 'bonus',
+  bonus: 'action',
+};
+
+/**
+ * Считается ли трата в «действие или бонусное».
+ *
+ * @param cost - трата
+ * @returns `true` для действия и бонусного действия
+ */
+function isTurnSpendCost(cost: RestrictedActionCost): cost is TurnSpendCost {
+  return cost === 'action' || cost === 'bonus';
+}
+
+/**
+ * Флаг «действие или бонусное», если он запрещает трату: в этот ход уже была
+ * другая из двух.
+ *
+ * @param entity - носитель
+ * @param flags - действующие флаги
+ * @param cost - трата
+ * @returns флаг либо `undefined`
+ */
+function findTurnSpendBlock(
+  entity: DnDSceneEntity,
+  flags: ReadonlySet<string>,
+  cost: RestrictedActionCost,
+): EffectFlagKey | undefined {
+  const flag = ACTION_RESTRICTION_FLAGS.oneActionOrBonus;
+
+  if (!isTurnSpendCost(cost) || !flags.has(flag)) {
+    return undefined;
+  }
+
+  const spent =
+    readTriggerUsage(entity)[TURN_SPEND_KEYS[OTHER_TURN_SPEND[cost]]];
+
+  return spent ? flag : undefined;
+}
+
+/**
+ * Счётчики носителя после траты хода — для записи боевым каналом. Пишется
+ * только там, где трату считают: у носителя с флагом «действие или
+ * бонусное» и только действие или бонусное действие.
+ *
+ * @param entity - носитель
+ * @param cost - трата
+ * @returns новые счётчики либо `undefined`, если записывать нечего
+ */
+export function recordActionSpend(
+  entity: DnDSceneEntity,
+  cost: EffectActionCost | undefined,
+): EffectTriggerUsageLedger | undefined {
+  if (
+    !isRestrictedActionCost(cost)
+    || !isTurnSpendCost(cost)
+    || !resolveActorStats(entity).activeFlags.has(
+      ACTION_RESTRICTION_FLAGS.oneActionOrBonus,
+    )
+  ) {
+    return undefined;
+  }
+
+  const ledger = readTriggerUsage(entity);
+  const key = TURN_SPEND_KEYS[cost];
+
+  return {
+    ...ledger,
+    [key]: { used: (ledger[key]?.used ?? 0) + 1, per: 'turn' },
+  };
+}
+
 /**
  * Имя эффекта, давшего флаг, — для причины на кнопке. Флаг из ауры чужого
  * токена в своих эффектах не найдётся — тогда причина называется флагом.
@@ -194,10 +286,10 @@ export function resolveActionCostBlock(
     return null;
   }
 
-  const flag = findBlockingFlag(
-    resolveActorStats(entity, ambientEffects).activeFlags,
-    cost,
-  );
+  const flags = resolveActorStats(entity, ambientEffects).activeFlags;
+
+  const flag =
+    findBlockingFlag(flags, cost) ?? findTurnSpendBlock(entity, flags, cost);
 
   if (!flag) {
     return null;
@@ -289,7 +381,8 @@ export function resolveEntityActionBlocks(
   };
 
   for (const cost of RESTRICTED_ACTION_COSTS) {
-    const flag = findBlockingFlag(flags, cost);
+    const flag =
+      findBlockingFlag(flags, cost) ?? findTurnSpendBlock(entity, flags, cost);
 
     if (flag) {
       byCost[cost] = formatActionCostBlock({
@@ -381,6 +474,18 @@ const CREATURE_SECTION_COSTS: Record<
   reactions: 'reaction',
   legendary: 'action',
 };
+
+/**
+ * Трата хода у раздела статблока.
+ *
+ * @param section - раздел статблока
+ * @returns трата
+ */
+export function resolveCreatureSectionCost(
+  section: CreatureActionSectionKey,
+): RestrictedActionCost {
+  return CREATURE_SECTION_COSTS[section];
+}
 
 /**
  * Почему существо не может совершить действие этого раздела статблока — по
