@@ -21,6 +21,7 @@ import type {
   EffectEscapeOutcome,
   EffectFormContext,
   EffectFormLayout,
+  EffectLightAnimation,
   EffectNotifyTarget,
   EffectRestoreKind,
   EffectSaveTiming,
@@ -70,6 +71,7 @@ import {
   EFFECT_ESCAPE_ACTORS,
   EFFECT_ESCAPE_OUTCOME_LABELS,
   EFFECT_ESCAPE_OUTCOMES,
+  EFFECT_LIGHT_ANIMATIONS,
   EFFECT_NOTIFY_TARGETS,
   EFFECT_RESTORE_KINDS,
   EFFECT_SAVE_TIMINGS,
@@ -116,6 +118,7 @@ import {
   EFFECT_DELIVERY_ICONS,
   EFFECT_DELIVERY_LABELS,
   EFFECT_DURATION_STEP_LABELS,
+  EFFECT_LIGHT_ANIMATION_LABELS,
   EFFECT_PERMANENT_ACTIVATION,
   EFFECT_SPELL_ZONE_DELIVERY_HINT,
   EFFECT_SUCCESS_OUTCOME_OPTIONS,
@@ -867,6 +870,14 @@ export const EFFECT_TRIGGER_SAVE_MODE_OPTIONS: ReadonlyArray<
 > = SAVE_MODE_CHOICES.map((mode) => ({
   value: mode,
   label: EFFECT_TRIGGER_SAVE_MODE_LABELS[mode],
+}));
+
+/** Варианты анимации света эффекта */
+export const EFFECT_LIGHT_ANIMATION_OPTIONS: ReadonlyArray<
+  EffectSegmentOption<EffectLightAnimation>
+> = EFFECT_LIGHT_ANIMATIONS.map((animation) => ({
+  value: animation,
+  label: EFFECT_LIGHT_ANIMATION_LABELS[animation],
 }));
 
 /** Варианты периода своего счётчика «провал в успех» */

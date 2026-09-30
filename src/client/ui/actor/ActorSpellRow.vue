@@ -57,6 +57,14 @@
     () => props.castBlockedReason ?? SPELL_MENU_LABELS.cast,
   );
 
+  /** Погасшая кнопка каста — нейтральным цветом */
+  const castButtonColor = computed(() =>
+    props.castBlockedReason ? 'neutral' : 'primary',
+  );
+
+  /** Кнопка каста под запретом: для читалок экрана */
+  const isCastBlocked = computed(() => Boolean(props.castBlockedReason));
+
   const emit = defineEmits<{
     /** Открыть описание заклинания */
     'open': [];
@@ -260,11 +268,11 @@
           <UTooltip :text="castTooltip">
             <UButton
               icon="tabler:sparkles"
-              :color="castBlockedReason ? 'neutral' : 'primary'"
+              :color="castButtonColor"
               variant="ghost"
               size="xs"
               square
-              :aria-disabled="castBlockedReason ? true : undefined"
+              :aria-disabled="isCastBlocked"
               :aria-label="`${SPELL_MENU_LABELS.cast}: ${spell.name}`"
               @click.left.exact.prevent.stop="handleCast"
             />

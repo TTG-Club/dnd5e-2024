@@ -364,7 +364,7 @@ export function resolveSpellCastBlock(
 }
 
 /** Раздел статблока существа, у которого своя трата хода */
-export type CreatureActionSection =
+export type CreatureActionSectionKey =
   'actions' | 'bonusActions' | 'reactions' | 'legendary';
 
 /**
@@ -373,7 +373,7 @@ export type CreatureActionSection =
  * действием.
  */
 const CREATURE_SECTION_COSTS: Record<
-  CreatureActionSection,
+  CreatureActionSectionKey,
   RestrictedActionCost
 > = {
   actions: 'action',
@@ -392,7 +392,7 @@ const CREATURE_SECTION_COSTS: Record<
  */
 export function findCreatureSectionBlock(
   blocks: EntityActionBlocks,
-  section: CreatureActionSection,
+  section: CreatureActionSectionKey,
 ): string | null {
   return blocks.byCost[CREATURE_SECTION_COSTS[section]] ?? null;
 }
@@ -408,10 +408,10 @@ export function findCreatureSectionBlock(
 export function findCreatureActionSection(
   creature: DnDCreature,
   action: CreatureAction,
-): CreatureActionSection | undefined {
+): CreatureActionSectionKey | undefined {
   const { system } = creature;
 
-  const sections: [CreatureActionSection, readonly CreatureAction[]][] = [
+  const sections: [CreatureActionSectionKey, readonly CreatureAction[]][] = [
     ['actions', system.actions ?? []],
     ['bonusActions', system.bonusActions ?? []],
     ['reactions', system.reactions ?? []],

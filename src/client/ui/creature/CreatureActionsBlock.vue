@@ -7,7 +7,7 @@
     AttackRollMode,
     AttackRollModeReasons,
     CreatureAction,
-    CreatureActionSection,
+    CreatureActionSectionKey,
     DnDCreature,
     Spell,
   } from '@vtt/shared/system/dnd.js';
@@ -136,7 +136,7 @@
      * реакции гаснут под «Электрошоком». Нет — трата хода не проверяется
      * (особенности)
      */
-    section?: CreatureActionSection;
+    section?: CreatureActionSectionKey;
   }
 
   const props = withDefaults(defineProps<Props>(), {

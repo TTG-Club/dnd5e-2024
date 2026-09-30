@@ -15,15 +15,13 @@
   import { MAX_SAVE_OVERRIDE_USES } from '@vtt/shared/system/dnd.js';
 
   import FieldHint from '../../actor/FieldHint.vue';
-  import { EFFECT_SAVE_OVERRIDE_LABELS } from '../constants';
+  import {
+    DEFAULT_SAVE_OVERRIDE,
+    EFFECT_SAVE_OVERRIDE_LABELS,
+  } from '../constants';
   import { SAVE_OVERRIDE_PERIOD_OPTIONS } from '../effectFormOptions';
 
   const effect = defineModel<ActiveEffect>('effect', { required: true });
-
-  /** Новый блок: три раза до долгого отдыха — как у «Легендарного сопротивления» */
-  const DEFAULT_SAVE_OVERRIDE: EffectSaveOverride = {
-    limit: { max: 3, per: 'longRest' },
-  };
 
   /**
    * Записывает блок; пустой (ни счётчика, ни ресурса) не пишется вовсе.

@@ -19,6 +19,7 @@ import type {
   EffectFormStep,
   EffectLight,
   EffectLightAnimation,
+  EffectSaveOverride,
   EffectSaveUnavailableReason,
   EffectSuccessOutcome,
   EffectTriggerEvent,
@@ -699,6 +700,11 @@ export const EFFECT_LIGHT_ANIMATION_LABELS: Record<
   flicker: 'Мерцает',
   torch: 'Как факел',
   strobe: 'Вспышки',
+};
+
+/** Новый блок «провал в успех»: три раза до долгого отдыха — как у «Легендарного сопротивления» */
+export const DEFAULT_SAVE_OVERRIDE: EffectSaveOverride = {
+  limit: { max: 3, per: 'longRest' },
 };
 
 /** Подписи раздела «Провал в успех» */

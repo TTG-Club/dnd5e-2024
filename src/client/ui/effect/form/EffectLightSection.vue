@@ -4,6 +4,8 @@
   (`entityLight.ts`).
 -->
 <script setup lang="ts">
+  import type { WritableComputedRef } from 'vue';
+
   import type {
     ActiveEffect,
     EffectLight,
@@ -14,23 +16,14 @@
 
   import {
     DEFAULT_EFFECT_LIGHT_COLOR,
-    EFFECT_LIGHT_ANIMATIONS,
     MAX_EFFECT_LIGHT_FEET,
   } from '@vtt/shared/system/dnd.js';
 
   import FieldHint from '../../actor/FieldHint.vue';
-  import {
-    DEFAULT_EFFECT_LIGHT,
-    EFFECT_LIGHT_ANIMATION_LABELS,
-    EFFECT_LIGHT_LABELS,
-  } from '../constants';
+  import { DEFAULT_EFFECT_LIGHT, EFFECT_LIGHT_LABELS } from '../constants';
+  import { EFFECT_LIGHT_ANIMATION_OPTIONS } from '../effectFormOptions';
 
   const effect = defineModel<ActiveEffect>('effect', { required: true });
-
-  const animationOptions = EFFECT_LIGHT_ANIMATIONS.map((animation) => ({
-    value: animation,
-    label: EFFECT_LIGHT_ANIMATION_LABELS[animation],
-  }));
 
   /**
    * Правит свет эффекта.
@@ -61,7 +54,9 @@
    * @param field - яркий или тусклый
    * @returns модель поля
    */
-  function radiusModel(field: 'bright' | 'dim') {
+  function radiusModel(
+    field: 'bright' | 'dim',
+  ): WritableComputedRef<number, number | null> {
     return computed({
       get: () => effect.value.light?.[field] ?? 0,
       set: (feet: number | null) => updateLight({ [field]: feet ?? 0 }),
@@ -166,7 +161,7 @@
       >
         <USelect
           v-model="animation"
-          :items="animationOptions"
+          :items="EFFECT_LIGHT_ANIMATION_OPTIONS"
           value-key="value"
           size="sm"
           class="w-full"

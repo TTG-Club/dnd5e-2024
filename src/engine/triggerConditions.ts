@@ -25,11 +25,13 @@ import type { SceneOffset } from './forcedMovement.js';
 import {
   ATTACK_ABILITY_CONDITION_PREFIX,
   CARRIER_TYPE_CONDITION_PREFIX,
+  CARRIER_TYPE_NOT_CONDITION_PREFIX,
   CONDITION_AND_SEPARATOR,
   hasEntityCondition,
   listLiveEffects,
   splitConditionParts,
   TARGET_TYPE_CONDITION_PREFIX,
+  TARGET_TYPE_NOT_CONDITION_PREFIX,
 } from './activeEffectTypes.js';
 import { BLOODIED_AUTO_APPLY } from './conditionKeys.js';
 import {
@@ -39,6 +41,7 @@ import {
   isCreatureSize,
   normalizeCreatureSize,
 } from './consts.js';
+import { CREATURE_TYPE_LIST_SEPARATOR } from './creatureTypeCondition.js';
 import { resolveEntityCreatureType } from './creatureTypeGate.js';
 import { isDamageType } from './damageConstants.js';
 import {
@@ -352,7 +355,7 @@ const PARAMETRIC_PARTS: Partial<
     parameter: 'creatureType',
   },
   selfCreatureTypeNot: {
-    prefix: 'self.creatureType !== ',
+    prefix: CARRIER_TYPE_NOT_CONDITION_PREFIX,
     parameter: 'creatureType',
   },
   otherCreatureType: {
@@ -360,7 +363,7 @@ const PARAMETRIC_PARTS: Partial<
     parameter: 'creatureType',
   },
   otherCreatureTypeNot: {
-    prefix: 'target.creatureType !== ',
+    prefix: TARGET_TYPE_NOT_CONDITION_PREFIX,
     parameter: 'creatureType',
   },
   selfTag: { prefix: 'self.tag === ', parameter: 'tag' },
@@ -490,6 +493,17 @@ function isConditionNumber(value: string): boolean {
 }
 
 /**
+ * Значение части «тип существа» из списка типов — в той же записи, что у
+ * условий модификаторов (`writeCreatureTypeCondition`).
+ *
+ * @param types - ключи типов
+ * @returns значение части
+ */
+export function joinCreatureTypeList(types: readonly string[]): string {
+  return types.join(`${CREATURE_TYPE_LIST_SEPARATOR} `);
+}
+
+/**
  * Типы списка из значения части «тип существа»: `"undead, fiend"`. Пустой
  * список — не список: такая часть не разбирается.
  *
@@ -498,7 +512,7 @@ function isConditionNumber(value: string): boolean {
  */
 export function splitCreatureTypeList(value: string): string[] {
   return value
-    .split(',')
+    .split(CREATURE_TYPE_LIST_SEPARATOR)
     .map((type) => type.trim())
     .filter((type) => type.length > 0);
 }

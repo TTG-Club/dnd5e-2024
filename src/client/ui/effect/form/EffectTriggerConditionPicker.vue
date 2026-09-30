@@ -26,6 +26,7 @@
     getTriggerConditionParameter,
     isDamageType,
     isEffectTag,
+    joinCreatureTypeList,
     listTriggerConditionKinds,
     MIN_TAG_COUNT_THRESHOLD,
     normalizeTagCountThreshold,
@@ -290,7 +291,7 @@
    */
   function updatePartTypes(index: number, types: string[]): void {
     if (types.length > 0) {
-      updatePartValue(index, types.join(', '));
+      updatePartValue(index, joinCreatureTypeList(types));
     }
   }
 

@@ -496,6 +496,12 @@ export const SHILLELAGH_WEAPON_CONDITION = `${WEAPON_BASE_TYPE_CONDITION_PREFIX}
 /** Приставка условия по типу ЦЕЛИ броска. */
 export const TARGET_TYPE_CONDITION_PREFIX = 'target.creatureType === ';
 
+/** Приставка условия «носитель не этого типа» (список — `creatureTypeCondition.ts`) */
+export const CARRIER_TYPE_NOT_CONDITION_PREFIX = 'self.creatureType !== ';
+
+/** Приставка условия «цель не этого типа» */
+export const TARGET_TYPE_NOT_CONDITION_PREFIX = 'target.creatureType !== ';
+
 /** Приставка условия по типу АТАКУЮЩЕГО — у защитного эффекта. */
 export const INCOMING_ATTACKER_TYPE_CONDITION_PREFIX =
   'incoming.attackerCreatureType === ';

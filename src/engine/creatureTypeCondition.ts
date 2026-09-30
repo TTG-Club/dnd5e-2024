@@ -46,8 +46,8 @@ export interface CreatureTypeCondition {
   negate: boolean;
 }
 
-/** Разделитель типов внутри кавычек */
-const TYPE_LIST_SEPARATOR = ',';
+/** Разделитель типов внутри кавычек — общий для всего словаря условий */
+export const CREATURE_TYPE_LIST_SEPARATOR = ',';
 
 /** Оператор «из списка» */
 const IN_OPERATOR = '===';
@@ -89,7 +89,7 @@ export function parseCreatureTypeCondition(
     .slice(operator.length)
     .trim()
     .replace(QUOTES_PATTERN, '')
-    .split(TYPE_LIST_SEPARATOR)
+    .split(CREATURE_TYPE_LIST_SEPARATOR)
     .map((type) => type.trim().toLowerCase())
     .filter((type) => type.length > 0);
 
@@ -118,7 +118,7 @@ export function writeCreatureTypeCondition(
 ): string {
   const operator = condition.negate ? NOT_IN_OPERATOR : IN_OPERATOR;
 
-  return `${subject} ${operator} "${condition.types.join(`${TYPE_LIST_SEPARATOR} `)}"`;
+  return `${subject} ${operator} "${condition.types.join(`${CREATURE_TYPE_LIST_SEPARATOR} `)}"`;
 }
 
 /**
@@ -187,4 +187,17 @@ export function parseAnyCreatureTypeCondition(
   }
 
   return undefined;
+}
+
+/**
+ * Субъект условия по типу, если значение — это он сам: пункт списка
+ * «Действует», у которого типы выбираются вторым полем.
+ *
+ * @param value - значение пункта
+ * @returns субъект либо `undefined`, если пункт о другом
+ */
+export function findCreatureTypeConditionSubject(
+  value: string,
+): CreatureTypeConditionSubject | undefined {
+  return CREATURE_TYPE_CONDITION_SUBJECTS.find((subject) => subject === value);
 }

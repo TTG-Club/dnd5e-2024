@@ -339,11 +339,11 @@ npm run release -- 0.2.5     # явный номер
 
 | Часть | Сколько | Где список |
 |---|---|---|
-| Ключи изменений (`changes`) | 61 | `EFFECT_TARGET_SUGGESTIONS` |
+| Ключи изменений (`changes`) | 64 | `EFFECT_TARGET_SUGGESTIONS` |
 | Режимы изменения | 6 | `EFFECT_CHANGE_MODE_LABELS` |
-| Флаги | 200 | `EFFECT_FLAG_LABELS` |
-| Условия | 93 | `EFFECT_CONDITION_SUGGESTIONS` |
-| Подсказки значений | 32 | `EFFECT_VALUE_SUGGESTIONS` |
+| Флаги | 205 | `EFFECT_FLAG_LABELS` |
+| Условия | 98 | `EFFECT_CONDITION_SUGGESTIONS` |
+| Подсказки значений | 35 | `EFFECT_VALUE_SUGGESTIONS` |
 
 Ключи по группам: `ability.*` (6), `save.*` (6 и `save.concentration` — только
 спасброски концентрации), `skill.*` (18), `abilityCheck` (все проверки

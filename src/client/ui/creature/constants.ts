@@ -10,6 +10,7 @@
 import type {
   AttackKind,
   CreatureAction,
+  CreatureActionSectionKey,
   CreatureRecharge,
   CreatureSpellGroup,
   CreatureSpellRestKind,
@@ -37,8 +38,7 @@ export const CREATURE_MOVEMENT_EMPTY = 'Существо не двигается
 export const CREATURE_ACTION_BLOCKED_TITLE = 'Сейчас не совершить';
 
 /** Раздел вкладки «Действия»: свой список внутри одной сущности */
-export type CreatureActionSectionKey =
-  'actions' | 'bonusActions' | 'reactions' | 'legendary';
+export type { CreatureActionSectionKey };
 
 /** Раздел вкладки «Действия»: заголовок списка и подпись чипа отбора */
 export interface CreatureActionSection {

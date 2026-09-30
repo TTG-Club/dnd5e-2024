@@ -13,7 +13,6 @@
     ActiveEffect,
     ConditionRef,
     CreatureCategory,
-    CreatureTypeConditionSubject,
     EffectChange,
     EffectFlagKey,
     EffectFormLayout,
@@ -31,6 +30,7 @@
     describeConditionName,
     describeEffectChangeCondition,
     EFFECT_CONDITION_SUGGESTIONS,
+    findCreatureTypeConditionSubject,
     isAdjacentAllyCondition,
     parseAnyCreatureTypeCondition,
     TARGET_ALLY_ADJACENT_CONDITION,
@@ -98,21 +98,6 @@
       : parseAnyCreatureTypeCondition(effect.value.rollCondition),
   );
 
-  /**
-   * Пункт списка «Действует» — о ком условие по типу: сам список типов
-   * выбирается вторым полем.
-   *
-   * @param value - значение пункта
-   * @returns субъект либо `undefined`, если пункт о другом
-   */
-  function typeConditionSubjectOf(
-    value: string,
-  ): CreatureTypeConditionSubject | undefined {
-    return CREATURE_TYPE_CONDITION_SUBJECTS.find(
-      (subject) => subject === value,
-    );
-  }
-
   // Условие из записи, которого нет в словаре подсказок (составное), тоже
   // видно в списке — иначе поле выглядело бы пустым. Условия о союзнике рядом
   // и о типе существа в списке одним пунктом: какой союзник и какие типы,
@@ -178,7 +163,7 @@
       );
     },
     set: (value: string) => {
-      const subject = typeConditionSubjectOf(value);
+      const subject = findCreatureTypeConditionSubject(value);
 
       // Пункт о типе: список типов выбирается вторым полем, и повторный
       // выбор того же пункта его не сбрасывает

@@ -574,7 +574,10 @@ function executeFeatureToggle(macro: HotbarMacro): void {
  */
 function refuseBlockedMacro(reason: string | null): boolean {
   if (reason) {
-    useChatStore().sendMessage(`⛔ ${reason}`, 'text');
+    useChatStore().sendMessage(
+      `${MACRO_MESSAGE_LABELS.blockedPrefix}${reason}`,
+      'text',
+    );
   }
 
   return reason !== null;

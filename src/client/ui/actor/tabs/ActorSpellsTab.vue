@@ -1493,6 +1493,7 @@
         subtitle: getSpellSubtitle(spell),
         stats: getSpellStats(spell),
         menuItems: getSpellMenuItems(spell),
+        castBlockedReason: findSpellCastBlock(actionBlocks.value, spell),
       })),
     })),
   );
@@ -2624,7 +2625,7 @@
         :stats="row.stats"
         :menu-items="row.menuItems"
         :cantrips-tracked="cantripsTracked"
-        :cast-blocked-reason="findSpellCastBlock(actionBlocks, row.spell)"
+        :cast-blocked-reason="row.castBlockedReason"
         @open="openSpellDetail(row.spell)"
         @cast="castSpell(row.spell)"
         @toggle-prepared="toggleSpellPrepared(row.spell)"
