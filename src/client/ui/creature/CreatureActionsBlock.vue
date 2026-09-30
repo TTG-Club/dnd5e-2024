@@ -466,6 +466,14 @@
         if (creatureId) {
           spendSectionTurn();
 
+          // Записи без броска и эффектов («Ловкий побег») накладывать нечего:
+          // что существо сделало, показывает её карточка в чате
+          if (!hasActionSelfEffects(action)) {
+            shareActionToChat(action);
+
+            return;
+          }
+
           runWithDamageTypeChoices(action, (chosenAction) => {
             applyActionSelfEffects(chosenAction, creatureId);
           });
@@ -703,21 +711,46 @@
   }
 
   /**
-   * Можно ли запустить бросок действия прямо из строки (есть боевые параметры,
-   * не компендиум, известно существо-источник).
+   * Можно ли совершить запись прямо из строки: не компендиум, известно
+   * существо-источник, и есть что делать — бросок, эффекты на себя или трата
+   * хода раздела статблока. Последнее даёт кнопку и записи без броска
+   * («Ловкий побег»): иначе её бонусное действие не отметить, и «Замедление»
+   * пропустило бы после неё удар.
+   *
    * @param action - действие существа
+   * @returns `true`, если запись можно совершить
    */
   function canUseAction(action: CreatureAction): boolean {
     return (
       !props.isReadOnly
       && !!props.creatureId
-      && (hasAttackParams(action) || hasActionSelfEffects(action))
+      && (hasAttackParams(action)
+        || hasActionSelfEffects(action)
+        || props.section !== undefined)
     );
+  }
+
+  /**
+   * Подпись применения записи: «Атаковать» — только у атаки; спасбросок и
+   * запись без броска «Используют».
+   *
+   * @param action - действие существа
+   * @returns подпись кнопки или пункта меню
+   */
+  function getUseLabel(action: CreatureAction): string {
+    return hasAttackParams(action) && !creatureActionHasSave(action)
+      ? CREATURE_ACTION_MENU_LABELS.attack
+      : CREATURE_ACTION_MENU_LABELS.use;
   }
 
   /** Показывать ли кнопку «Атаковать» в модалке просмотра действия */
   const canAttackFromDetail = computed(
     () => !!detailAction.value && canUseAction(detailAction.value),
+  );
+
+  /** Подпись кнопки применения в модалке просмотра */
+  const detailUseLabel = computed(() =>
+    detailAction.value ? getUseLabel(detailAction.value) : undefined,
   );
 
   /**
@@ -912,9 +945,7 @@
     if (canUseAction(action)) {
       groups.push([
         {
-          label: creatureActionHasSave(action)
-            ? CREATURE_ACTION_MENU_LABELS.use
-            : CREATURE_ACTION_MENU_LABELS.attack,
+          label: getUseLabel(action),
           icon: 'tabler:swords',
           onSelect: () => openRollModal(action),
         },
@@ -1139,6 +1170,7 @@
       :action="detailAction ?? null"
       :mode="mode"
       :show-attack-button="canAttackFromDetail"
+      :attack-button-label="detailUseLabel"
       @attack="handleDetailAttack"
     />
   </div>

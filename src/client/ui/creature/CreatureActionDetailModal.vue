@@ -47,7 +47,16 @@
     positionOffset?: number;
     /** Показывать кнопку «Атаковать» (только когда действие можно применить) */
     showAttackButton?: boolean;
+    /**
+     * Подпись кнопки применения: «Атаковать» у атаки, «Использовать» у
+     * спасброска и действия без броска («Ловкий побег»)
+     */
+    attackButtonLabel?: string;
   }>();
+
+  const attackTooltip = computed(
+    () => props.attackButtonLabel ?? CREATURE_ACTION_MENU_LABELS.attack,
+  );
 
   const emit = defineEmits<{
     'update:open': [value: boolean];
@@ -203,7 +212,7 @@
     <template #header-extra>
       <UTooltip
         v-if="showAttackButton"
-        :text="CREATURE_ACTION_MENU_LABELS.attack"
+        :text="attackTooltip"
       >
         <UButton
           icon="tabler:swords"
