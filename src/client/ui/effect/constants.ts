@@ -9,6 +9,7 @@ import type { SkillType } from '@vtt/shared';
 import type {
   AreaEffectTrigger,
   ConditionKey,
+  CreatureCategory,
   EffectActionCost,
   EffectActivationMode,
   EffectChangeModeChoice,
@@ -290,6 +291,9 @@ export const EFFECT_SOURCE_DC_LABELS: Partial<
  */
 export type SaveDcFieldMode = 'auto' | 'manual' | 'formula';
 
+/** Тип, с которого начинается новое условие броска о типе существа */
+export const DEFAULT_CONDITION_CREATURE_TYPE: CreatureCategory = 'humanoid';
+
 /** Подписи режимов поля Сл */
 export const SAVE_DC_FIELD_MODE_LABELS: Record<SaveDcFieldMode, string> = {
   auto: 'Авто',
@@ -432,6 +436,17 @@ export const EFFECT_MODIFIERS_STEP_LABELS = {
     'Кость бросается ОДИН раз — когда эффект ложится. Результат подставляется '
     + 'вместо @roll во все формулы эффекта и дальше не меняется: урон каждый '
     + 'ход будет одним и тем же числом, а не новой костью при каждом тике.',
+  creatureTypesTitle: 'Типы существ',
+  creatureTypesHint:
+    'Условие выполняется, если тип любой из выбранных: «Защита от зла и '
+    + 'добра» — аберрация, небожитель, элементаль, фея, исчадие, нежить.',
+  creatureTypesExcept: 'Кроме этих типов',
+  /** Пункты списка «Действует»: тип существа выбирается вторым полем */
+  creatureTypeConditionLabels: {
+    'self.creatureType': 'Носитель — существо типа…',
+    'target.creatureType': 'Цель — существо типа…',
+    'incoming.attackerCreatureType': 'Защита: атакующий — существо типа…',
+  },
   adjacentAllyTitle: 'Какой союзник',
   adjacentAllyHint:
     'По правилам 2024 «Тактика стаи» не считает недееспособного союзника: '

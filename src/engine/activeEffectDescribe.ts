@@ -40,6 +40,10 @@ import {
 } from './activeEffectTypes.js';
 import { getConditionEntry } from './conditionTemplates.js';
 import { ABILITY_LABELS, FORMULA_VARIABLE_LABELS } from './consts.js';
+import {
+  describeCreatureTypeCondition,
+  parseAnyCreatureTypeCondition,
+} from './creatureTypeCondition.js';
 import { getShortDamageTypeLabel } from './damageConstants.js';
 import { isDiceFormulaValue } from './effectPipeline.js';
 import { renderReadableFormula } from './formulaParser.js';
@@ -314,7 +318,23 @@ export function describeEffectChange(change: EffectChange): string {
  */
 export function describeEffectChangeCondition(condition: string): string {
   return splitConditionParts(condition)
-    .map((part) => CONDITION_LABELS.get(part) ?? part)
+    .map((part) => {
+      const label = CONDITION_LABELS.get(part);
+
+      if (label) {
+        return label;
+      }
+
+      // Список типов и «не из списка» в словаре подсказок поимённо не лежат
+      const typeCondition = parseAnyCreatureTypeCondition(part);
+
+      return typeCondition
+        ? describeCreatureTypeCondition(
+            typeCondition.subject,
+            typeCondition.condition,
+          )
+        : part;
+    })
     .join(' и ');
 }
 

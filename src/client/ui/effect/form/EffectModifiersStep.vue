@@ -12,6 +12,8 @@
   import type {
     ActiveEffect,
     ConditionRef,
+    CreatureCategory,
+    CreatureTypeConditionSubject,
     EffectChange,
     EffectFlagKey,
     EffectFormLayout,
@@ -24,17 +26,22 @@
     ADJACENT_ALLY_CONDITION_OPTIONS,
     applyConditionPresetToEffect,
     buildConditionActiveEffect,
+    CREATURE_CATEGORY_OPTIONS,
+    CREATURE_TYPE_CONDITION_SUBJECTS,
     describeConditionName,
     describeEffectChangeCondition,
     EFFECT_CONDITION_SUGGESTIONS,
     isAdjacentAllyCondition,
+    parseAnyCreatureTypeCondition,
     TARGET_ALLY_ADJACENT_CONDITION,
+    writeCreatureTypeCondition,
   } from '@vtt/shared/system/dnd.js';
 
   import { SCROLLABLE_DROPDOWN_UI } from '../../actor/constants';
   import FieldHint from '../../actor/FieldHint.vue';
   import {
     CONDITION_PRESET_ICON,
+    DEFAULT_CONDITION_CREATURE_TYPE,
     EFFECT_MODIFIERS_STEP_LABELS,
     EFFECT_ROLL_CONDITION_ALWAYS,
   } from '../constants';
@@ -84,14 +91,38 @@
       && isAdjacentAllyCondition(effect.value.rollCondition),
   );
 
+  /** Условие броска о типе существа: о ком и какие типы */
+  const typeCondition = computed(() =>
+    effect.value.rollCondition === undefined
+      ? undefined
+      : parseAnyCreatureTypeCondition(effect.value.rollCondition),
+  );
+
+  /**
+   * Пункт списка «Действует» — о ком условие по типу: сам список типов
+   * выбирается вторым полем.
+   *
+   * @param value - значение пункта
+   * @returns субъект либо `undefined`, если пункт о другом
+   */
+  function typeConditionSubjectOf(
+    value: string,
+  ): CreatureTypeConditionSubject | undefined {
+    return CREATURE_TYPE_CONDITION_SUBJECTS.find(
+      (subject) => subject === value,
+    );
+  }
+
   // Условие из записи, которого нет в словаре подсказок (составное), тоже
   // видно в списке — иначе поле выглядело бы пустым. Условия о союзнике рядом
-  // в списке одним пунктом: какой союзник, выбирается вторым полем
+  // и о типе существа в списке одним пунктом: какой союзник и какие типы,
+  // выбирается вторым полем
   const rollConditionOptions = computed(() => {
     const current = effect.value.rollCondition;
 
     const known =
       current === undefined
+      || typeCondition.value !== undefined
       || EFFECT_CONDITION_SUGGESTIONS.some(
         (suggestion) => suggestion.value === current,
       );
@@ -109,8 +140,16 @@
           return [{ ...suggestion, label: ADJACENT_ALLY_CONDITION_LABEL }];
         }
 
-        return isAdjacentAllyCondition(suggestion.value) ? [] : [suggestion];
+        return isAdjacentAllyCondition(suggestion.value)
+          || parseAnyCreatureTypeCondition(suggestion.value)
+          ? []
+          : [suggestion];
       }),
+      ...CREATURE_TYPE_CONDITION_SUBJECTS.map((subject) => ({
+        value: subject,
+        label:
+          EFFECT_MODIFIERS_STEP_LABELS.creatureTypeConditionLabels[subject],
+      })),
     ];
   });
 
@@ -127,11 +166,35 @@
   }
 
   const rollCondition = computed({
-    get: () =>
-      hasAdjacentAllyCondition.value
-        ? TARGET_ALLY_ADJACENT_CONDITION
-        : (effect.value.rollCondition ?? EFFECT_ROLL_CONDITION_ALWAYS),
+    get: () => {
+      if (hasAdjacentAllyCondition.value) {
+        return TARGET_ALLY_ADJACENT_CONDITION;
+      }
+
+      return (
+        typeCondition.value?.subject
+        ?? effect.value.rollCondition
+        ?? EFFECT_ROLL_CONDITION_ALWAYS
+      );
+    },
     set: (value: string) => {
+      const subject = typeConditionSubjectOf(value);
+
+      // Пункт о типе: список типов выбирается вторым полем, и повторный
+      // выбор того же пункта его не сбрасывает
+      if (subject) {
+        if (typeCondition.value?.subject !== subject) {
+          writeRollCondition(
+            writeCreatureTypeCondition(subject, {
+              types: [DEFAULT_CONDITION_CREATURE_TYPE],
+              negate: false,
+            }),
+          );
+        }
+
+        return;
+      }
+
       // Повторный выбор пункта о союзнике не сбрасывает выбранного союзника
       if (
         value === TARGET_ALLY_ADJACENT_CONDITION
@@ -142,6 +205,41 @@
 
       writeRollCondition(value);
     },
+  });
+
+  /**
+   * Записывает условие о типе с новыми типами или отрицанием. Пустой список
+   * не пишется: условие без типов не разобралось бы обратно.
+   *
+   * @param patch - что меняется
+   * @param patch.types - типы списка
+   * @param patch.negate - «кроме этих»
+   */
+  function writeTypeCondition(patch: {
+    types?: CreatureCategory[];
+    negate?: boolean;
+  }): void {
+    const current = typeCondition.value;
+
+    if (!current) {
+      return;
+    }
+
+    const next = { ...current.condition, ...patch };
+
+    if (next.types.length > 0) {
+      writeRollCondition(writeCreatureTypeCondition(current.subject, next));
+    }
+  }
+
+  const conditionTypes = computed({
+    get: () => typeCondition.value?.condition.types ?? [],
+    set: (types: CreatureCategory[]) => writeTypeCondition({ types }),
+  });
+
+  const conditionTypesNegated = computed({
+    get: () => typeCondition.value?.condition.negate ?? false,
+    set: (negate: boolean) => writeTypeCondition({ negate }),
   });
 
   const adjacentAllyCondition = computed({
@@ -329,6 +427,36 @@
         :placeholder="EFFECT_MODIFIERS_STEP_LABELS.savedRollPlaceholder"
         class="w-full"
       />
+    </UFormField>
+
+    <UFormField
+      v-if="typeCondition"
+      class="min-w-56 flex-1"
+    >
+      <template #label>
+        <span class="flex items-center gap-1">
+          {{ EFFECT_MODIFIERS_STEP_LABELS.creatureTypesTitle }}
+
+          <FieldHint :text="EFFECT_MODIFIERS_STEP_LABELS.creatureTypesHint" />
+        </span>
+      </template>
+
+      <div class="flex flex-wrap items-center gap-3">
+        <USelectMenu
+          v-model="conditionTypes"
+          :items="CREATURE_CATEGORY_OPTIONS"
+          value-key="value"
+          label-key="label"
+          multiple
+          class="min-w-56 flex-1"
+          :portal="false"
+        />
+
+        <USwitch
+          v-model="conditionTypesNegated"
+          :label="EFFECT_MODIFIERS_STEP_LABELS.creatureTypesExcept"
+        />
+      </div>
     </UFormField>
 
     <UFormField

@@ -179,11 +179,13 @@ export const TRIGGER_CONDITION_KINDS = [
   'selfBloodied',
   'selfWounded',
   'selfCreatureType',
+  'selfCreatureTypeNot',
   'selfTag',
   'selfTagNot',
   'rollAdvantage',
   'rollDisadvantage',
   'otherCreatureType',
+  'otherCreatureTypeNot',
   'otherMarkedBySelf',
   'selfHpAtMost',
   'selfHpAtLeast',
@@ -220,10 +222,12 @@ export const TRIGGER_CONDITION_KINDS = [
  * - `damageType` / `damageTypeNot` — урон этого типа / без этого типа;
  * - `damageCritical` / `damageNotCritical` — крит / не крит;
  * - `selfBloodied` / `selfWounded` — у носителя не больше половины хитов / хиты не полные;
- * - `selfCreatureType` — тип носителя;
+ * - `selfCreatureType` / `selfCreatureTypeNot` — тип носителя из списка / не
+ *   из списка («нежить или исчадие» — `"undead, fiend"`);
  * - `selfTag` / `selfTagNot` — на носителе есть / нет отметки;
  * - `rollAdvantage` / `rollDisadvantage` — атака с преимуществом / помехой;
- * - `otherCreatureType` — тип другой стороны;
+ * - `otherCreatureType` / `otherCreatureTypeNot` — тип другой стороны из
+ *   списка / не из списка;
  * - `otherMarkedBySelf` — другая сторона помечена носителем;
  * - `selfHpAtMost` / `selfHpAtLeast` — хитов у носителя не больше / не меньше N;
  * - `selfSizeAtMost` / `selfSizeAtLeast` — размер носителя не больше / не меньше;
@@ -296,11 +300,13 @@ const KIND_EVENTS: Record<
   selfBloodied: undefined,
   selfWounded: undefined,
   selfCreatureType: undefined,
+  selfCreatureTypeNot: undefined,
   selfTag: undefined,
   selfTagNot: undefined,
   rollAdvantage: ['attackRoll'],
   rollDisadvantage: ['attackRoll'],
   otherCreatureType: OTHER_CONDITION_EVENTS,
+  otherCreatureTypeNot: OTHER_CONDITION_EVENTS,
   otherMarkedBySelf: ['attackRoll'],
   selfHpAtMost: undefined,
   selfHpAtLeast: undefined,
@@ -345,8 +351,16 @@ const PARAMETRIC_PARTS: Partial<
     prefix: CARRIER_TYPE_CONDITION_PREFIX,
     parameter: 'creatureType',
   },
+  selfCreatureTypeNot: {
+    prefix: 'self.creatureType !== ',
+    parameter: 'creatureType',
+  },
   otherCreatureType: {
     prefix: TARGET_TYPE_CONDITION_PREFIX,
+    parameter: 'creatureType',
+  },
+  otherCreatureTypeNot: {
+    prefix: 'target.creatureType !== ',
     parameter: 'creatureType',
   },
   selfTag: { prefix: 'self.tag === ', parameter: 'tag' },
@@ -476,6 +490,20 @@ function isConditionNumber(value: string): boolean {
 }
 
 /**
+ * Типы списка из значения части «тип существа»: `"undead, fiend"`. Пустой
+ * список — не список: такая часть не разбирается.
+ *
+ * @param value - значение части
+ * @returns ключи типов по порядку
+ */
+export function splitCreatureTypeList(value: string): string[] {
+  return value
+    .split(',')
+    .map((type) => type.trim())
+    .filter((type) => type.length > 0);
+}
+
+/**
  * Годится ли значение для части условия.
  *
  * @param parameter - что выбирается
@@ -489,8 +517,9 @@ function isParameterValue(
   switch (parameter) {
     case 'damageType':
       return isDamageType(value);
+    // Список типов через запятую: «нежить или исчадие»
     case 'creatureType':
-      return isCreatureCategory(value);
+      return splitCreatureTypeList(value).every(isCreatureCategory);
     case 'number':
       return isConditionNumber(value);
     case 'size':

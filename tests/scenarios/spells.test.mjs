@@ -1132,7 +1132,8 @@ describe('каталог: условия атаки по носителю', () =
     const ward = createEffect('Защита от добра и зла', {
       effectTarget: 'target',
       flags: ['attacksAgainst.disadvantage'],
-      rollCondition: 'incoming.attackerCreatureType === "fiend"',
+      rollCondition:
+        'incoming.attackerCreatureType === "aberration, celestial, elemental, fey, fiend, undead"',
     });
 
     authoredScenario(ward, 'spell');
@@ -1160,7 +1161,9 @@ describe('каталог: условия атаки по носителю', () =
       });
 
     assert.equal(modeOf('fiend'), 'disadvantage');
+    assert.equal(modeOf('undead'), 'disadvantage');
     assert.equal(modeOf('humanoid'), 'normal');
+    assert.equal(modeOf(undefined), 'normal', 'тип неизвестен — не применяем');
   });
 
   it('[S29] Защита от клинков: атакующий вычитает 1к4', () => {

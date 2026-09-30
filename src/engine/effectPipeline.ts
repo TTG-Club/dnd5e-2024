@@ -51,11 +51,9 @@ import {
   ATTACK_ABILITY_CONDITION_PREFIX,
   ATTACKS_AGAINST_KEY,
   CARRIER_ARMOR_CONDITION_PREFIX,
-  CARRIER_TYPE_CONDITION_PREFIX,
   CONCENTRATION_SAVE_KEY,
   DEATH_SAVE_KEY,
   DEFAULT_CRIT_THRESHOLD,
-  INCOMING_ATTACKER_TYPE_CONDITION_PREFIX,
   isCarrierEffect,
   isEffectDormant,
   isSenseType,
@@ -66,7 +64,6 @@ import {
   TARGET_ALLY_WITH_CONDITION_PREFIX,
   TARGET_ALLY_WITHOUT_CONDITION_PREFIX,
   TARGET_ANY_ALLY_ADJACENT_CONDITION,
-  TARGET_TYPE_CONDITION_PREFIX,
   WEAPON_DAMAGE_DICE_KEY,
 } from './activeEffectTypes.js';
 import {
@@ -87,7 +84,6 @@ import {
   ABILITY_KEYS,
   BASE_UNARMORED_AC,
   isAbilityType,
-  isCreatureCategory,
   isMovementType,
   isSkillType,
   MAX_ROLL_BONUS_DICE,
@@ -95,6 +91,10 @@ import {
   MOVEMENT_KEYS,
   SKILLS_LIST,
 } from './consts.js';
+import {
+  creatureTypeConditionHolds,
+  parseCreatureTypeCondition,
+} from './creatureTypeCondition.js';
 import { resolveEntityCreatureType } from './creatureTypeGate.js';
 import {
   getCustomBonusesValue,
@@ -1017,32 +1017,6 @@ export function targetHpGateMatches(
 // ── Условия по типу существа ──────────────────────────────────
 
 /**
- * Тип существа, названный условием с указанной приставкой.
- *
- * Условие пишется как `self.creatureType === "humanoid"` — в кавычках, как и
- * остальные закрытые условия движка (`incoming.attackType === "melee"`).
- *
- * @param condition - строка условия
- * @param prefix - приставка семейства условий
- * @returns тип существа либо undefined (условие другого семейства/неизвестный тип)
- */
-function parseTypeCondition(
-  condition: string,
-  prefix: string,
-): CreatureCategory | undefined {
-  const trimmed = condition.trim();
-
-  if (!trimmed.startsWith(prefix)) {
-    return undefined;
-  }
-
-  const quoted = trimmed.slice(prefix.length).trim();
-  const value = quoted.replace(/^["']|["']$/g, '');
-
-  return isCreatureCategory(value) ? value : undefined;
-}
-
-/**
  * Вид доспеха, названный условием `self.armor === "heavy"`.
  *
  * @param condition - строка условия
@@ -1071,7 +1045,7 @@ function parseArmorCondition(
  */
 function isCarrierConditionPart(part: string): boolean {
   return (
-    part.startsWith(CARRIER_TYPE_CONDITION_PREFIX)
+    parseCreatureTypeCondition(part, 'self.creatureType') !== undefined
     || part.startsWith(CARRIER_ARMOR_CONDITION_PREFIX)
   );
 }
@@ -1114,9 +1088,12 @@ function carrierConditionPartMatches(
     return armorConditionMatches(wantedArmor, carrier?.armor);
   }
 
-  const wantedType = parseTypeCondition(part, CARRIER_TYPE_CONDITION_PREFIX);
+  const typeCondition = parseCreatureTypeCondition(part, 'self.creatureType');
 
-  return wantedType !== undefined && wantedType === carrier?.creatureType;
+  return (
+    typeCondition !== undefined
+    && creatureTypeConditionHolds(typeCondition, carrier?.creatureType)
+  );
 }
 
 /**
@@ -1310,13 +1287,10 @@ export function evaluateConditionPart(
   }
 
   // Тип цели
-  const wantedTargetType = parseTypeCondition(
-    trimmed,
-    TARGET_TYPE_CONDITION_PREFIX,
-  );
+  const targetType = parseCreatureTypeCondition(trimmed, 'target.creatureType');
 
-  if (wantedTargetType !== undefined) {
-    return target?.creatureType === wantedTargetType;
+  if (targetType !== undefined) {
+    return creatureTypeConditionHolds(targetType, target?.creatureType);
   }
 
   // Неизвестное условие — не применяем
@@ -1324,18 +1298,28 @@ export function evaluateConditionPart(
 }
 
 /**
- * Тип цели, названный условием `target.creatureType` (если это оно).
+ * Типы цели, названные условием `target.creatureType === "…"` (если это оно).
  *
- * Нужен для отложенной per-target оценки, когда единой цели на броске нет, —
- * так же, как {@link targetHpGateForCondition} для условий по хитам.
+ * Нужны для отложенной per-target оценки, когда единой цели на броске нет, —
+ * так же, как {@link targetHpGateForCondition} для условий по хитам. Цель
+ * одного типа проходит ровно одну ветку списка, поэтому список раскладывается
+ * по веткам без задвоения. «Не из списка» веткой не выразить: такое условие
+ * без единой цели не выполняется.
  *
  * @param condition - строка условия
- * @returns тип существа или undefined (условие не про тип цели)
+ * @returns типы либо `undefined` (условие не про тип цели или с отрицанием)
  */
-function targetTypeGateForCondition(
+function targetTypeGatesForCondition(
   condition: string,
-): CreatureCategory | undefined {
-  return parseTypeCondition(condition, TARGET_TYPE_CONDITION_PREFIX);
+): CreatureCategory[] | undefined {
+  const typeCondition = parseCreatureTypeCondition(
+    condition,
+    'target.creatureType',
+  );
+
+  return typeCondition && !typeCondition.negate
+    ? typeCondition.types
+    : undefined;
 }
 
 /**
@@ -1387,14 +1371,17 @@ function evaluateDefensiveConditionPart(
     return attackContext.attackType === 'spell';
   }
 
-  const attackerType = parseTypeCondition(
+  const attackerType = parseCreatureTypeCondition(
     trimmed,
-    INCOMING_ATTACKER_TYPE_CONDITION_PREFIX,
+    'incoming.attackerCreatureType',
   );
 
   return (
     attackerType !== undefined
-    && attackerType === attackContext.attackerCreatureType
+    && creatureTypeConditionHolds(
+      attackerType,
+      attackContext.attackerCreatureType,
+    )
   );
 }
 
@@ -2162,11 +2149,16 @@ export function collectBonusDamageFormulas(
           continue;
         }
 
-        const conditionTypeGate = targetTypeGateForCondition(change.condition);
+        const conditionTypeGates = targetTypeGatesForCondition(
+          change.condition,
+        );
 
-        if (conditionTypeGate && rollContext.target === undefined) {
-          // Условие по типу цели без единой цели: тем же приёмом откладываем
-          formulas.push({ formula: change.value, conditionTypeGate });
+        if (conditionTypeGates && rollContext.target === undefined) {
+          // Условие по типу цели без единой цели: тем же приёмом откладываем,
+          // по ветке на тип списка — цель одного типа пройдёт ровно одну
+          for (const conditionTypeGate of conditionTypeGates) {
+            formulas.push({ formula: change.value, conditionTypeGate });
+          }
 
           continue;
         }

@@ -72,6 +72,7 @@ import {
   DEFAULT_TAG_COUNT_THRESHOLD,
   isTriggerAttackKind,
   readTriggerConditionParts,
+  splitCreatureTypeList,
 } from './triggerConditions.js';
 
 /** Что даёт успех спасброска против урона каждый ход */
@@ -329,12 +330,16 @@ const TRIGGER_CONDITION_PHRASES: Record<
   selfBloodied: () => 'у носителя не больше половины хитов',
   selfWounded: () => 'носитель ранен',
   selfCreatureType: (value) => `носитель — ${describeCreatureType(value)}`,
+  selfCreatureTypeNot: (value) =>
+    `носитель — ${describeCreatureTypeNot(value)}`,
   selfTag: (value) => `на носителе отметка «${value}»`,
   selfTagNot: (value) => `на носителе нет отметки «${value}»`,
   rollAdvantage: () => 'атака с преимуществом',
   rollDisadvantage: () => 'атака с помехой',
   otherCreatureType: (value) =>
     `другая сторона — ${describeCreatureType(value)}`,
+  otherCreatureTypeNot: (value) =>
+    `другая сторона — ${describeCreatureTypeNot(value)}`,
   otherMarkedBySelf: () => 'другая сторона помечена носителем',
   selfHpAtMost: (value) => `у носителя не больше ${value} хитов`,
   selfHpAtLeast: (value) => `у носителя не меньше ${value} хитов`,
@@ -426,7 +431,26 @@ function describeCreatureSize(value: string): string {
  * @returns подпись либо ключ
  */
 function describeCreatureType(value: string): string {
-  return isCreatureCategory(value) ? CREATURE_CATEGORIES[value] : value;
+  return splitCreatureTypeList(value)
+    .map((type) =>
+      isCreatureCategory(type) ? CREATURE_CATEGORIES[type] : type,
+    )
+    .join(' или ');
+}
+
+/**
+ * Типы «не из списка» словами: «не нежить и не исчадие».
+ *
+ * @param value - список типов через запятую
+ * @returns подпись
+ */
+function describeCreatureTypeNot(value: string): string {
+  return splitCreatureTypeList(value)
+    .map(
+      (type) =>
+        `не ${isCreatureCategory(type) ? CREATURE_CATEGORIES[type] : type}`,
+    )
+    .join(' и ');
 }
 
 /**

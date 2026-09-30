@@ -33,6 +33,7 @@ export * from './counterTableColumns.js';
 export * from './creatureDamageAlternatives.js';
 export * from './creatureHitDice.js';
 export * from './creatureSpellcasting.js';
+export * from './creatureTypeCondition.js';
 export * from './creatureTypeGate.js';
 export * from './creatureTypes.js';
 export * from './creatureUtils.js';
