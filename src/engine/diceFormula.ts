@@ -78,8 +78,25 @@ interface SignedFormulaTerm {
 /** Знак, после которого `+`/`−` — знак числа, а не новое слагаемое: `2*-3` */
 const OPERATOR_BEFORE_SIGN_REGEX = /[*/(,]/;
 
-/** Кость где-то внутри выражения: `(1к8+3)` */
-const DICE_INSIDE_REGEX = /\d[кдd]\d/i;
+/**
+ * Кость где-то в выражении, в том числе с числом или гранью выражением:
+ * `(1к8+3)`, `(@castLevel)к10`, `1к(8 + 2)`
+ */
+const DICE_IN_EXPRESSION_REGEX = /[\d)]\s*[кдd]\s*[\d(]/i;
+
+/** Слагаемое — просто число, считать нечего */
+const PLAIN_NUMBER_REGEX = /^\d+$/;
+
+/**
+ * Есть ли в формуле кость. Арифметика без костей считается числом и
+ * показывается словами, формула с костью — бросается.
+ *
+ * @param formula - формула, возможно с `@`-переменными
+ * @returns `true`, если в формуле есть кость
+ */
+export function formulaHasDice(formula: string): boolean {
+  return DICE_IN_EXPRESSION_REGEX.test(formula);
+}
 
 /**
  * Делит формулу на слагаемые со знаком по `+`/`−` вне скобок: `(5*(2-1))` —
@@ -179,7 +196,7 @@ function splitFormulaTerms(formula: string): SignedFormulaTerm[] {
   return splitTopLevelTerms(formula).flatMap((term) => {
     const inner = unwrapParentheses(term.body);
 
-    if (inner === undefined || !DICE_INSIDE_REGEX.test(inner)) {
+    if (inner === undefined || !formulaHasDice(inner)) {
       return [term];
     }
 
@@ -198,7 +215,7 @@ function splitFormulaTerms(formula: string): SignedFormulaTerm[] {
  * @returns число либо `undefined`, если слагаемое не посчитать
  */
 function evaluateFlatTerm(body: string): number | undefined {
-  if (/^\d+$/.test(body)) {
+  if (PLAIN_NUMBER_REGEX.test(body)) {
     return Number.parseInt(body, 10);
   }
 
@@ -226,6 +243,17 @@ function parseDiceTerm(body: string): DiceFormulaTerm | undefined {
     count: Number.parseInt(diceMatch[1], 10),
     sides: Number.parseInt(diceMatch[2], 10),
   };
+}
+
+/**
+ * Число со знаком в строке формулы: «- 2» вместо «+ -2».
+ *
+ * @param signed - число с уже учтённым знаком слагаемого
+ * @param isFirst - первое ли слагаемое
+ * @returns запись числа
+ */
+function formatSignedNumber(signed: number, isFirst: boolean): string {
+  return `${formatTermSign(signed < 0 ? -1 : 1, isFirst)}${Math.abs(signed)}`;
 }
 
 /**
@@ -328,13 +356,8 @@ export function rollDamageFormula(formula: string): {
     const flat = evaluateFlatTerm(term.body);
 
     if (flat !== undefined) {
-      const signed = term.sign * flat;
-
-      total += signed;
-
-      detailParts.push(
-        `${formatTermSign(signed < 0 ? -1 : 1, index === 0)}${Math.abs(signed)}`,
-      );
+      total += term.sign * flat;
+      detailParts.push(formatSignedNumber(term.sign * flat, index === 0));
     }
   }
 
@@ -383,9 +406,7 @@ export function formatDiceFormula(formula: string): string {
         : evaluateFlatTerm(term.body);
 
       if (flat !== undefined) {
-        const signed = term.sign * flat;
-
-        return `${formatTermSign(signed < 0 ? -1 : 1, isFirst)}${Math.abs(signed)}`;
+        return formatSignedNumber(term.sign * flat, isFirst);
       }
 
       return `${formatTermSign(term.sign, isFirst)}${term.body.replace(/^(\d*)[кдd]/i, '$1к')}`;

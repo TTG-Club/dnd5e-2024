@@ -7,6 +7,7 @@ import {
   createCreature,
   createEffect,
   engine,
+  MIN_ROLL,
   withHp,
   withRandom,
 } from './scenarios/_fixtures.mjs';
@@ -18,9 +19,6 @@ import {
  * `(5)` давало ноль, `(5 * (2 - 1))` — минус единицу, и урон или лечение
  * срабатывания молча пропадали.
  */
-
-/** Случай, при котором любая кость выпадает единицей */
-const MIN_ROLL = 0;
 
 /**
  * Срабатывание «при наложении» с одной частью урона.

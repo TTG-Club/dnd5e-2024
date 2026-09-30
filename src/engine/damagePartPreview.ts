@@ -19,16 +19,17 @@ import type { ResolvedDamagePartInput, TargetHpGate } from './spellUtils.js';
 
 import { FORMULA_VARIABLE_LABELS, isCreatureCategory } from './consts.js';
 import { resolveDiceCountExpressions } from './diceCountExpressions.js';
-import { formatDiceFormula, isRollableFormula } from './diceFormula.js';
+import {
+  formatDiceFormula,
+  formulaHasDice,
+  isRollableFormula,
+} from './diceFormula.js';
 import { renderReadableFormula } from './formulaParser.js';
 import { stripStatusTokens } from './formulaTokens.js';
 import { expandDamageParts } from './spellUtils.js';
 
 /** @-переменная формулы (`@mod.spell`, `@prof`, …) */
 const VARIABLE_TOKEN_REGEX = /@[a-z][\w.]*/gi;
-
-/** Кость в формуле: `2к6`, `1d8`, `(@castLevel)к10` */
-const DICE_IN_FORMULA_REGEX = /[\d)]\s*[кдd]\s*[\d(]/i;
 
 /**
  * Число вместо переменной при проверке «посчитает ли бросок»: каст и источник
@@ -105,7 +106,7 @@ function formatPreviewFormula(formula: string): string {
   // Арифметика без костей — словами, как подпись модификатора:
   // `(5 * (@castLevel - 1))` читается «5 × (круг ячейки − 1)», а не склейкой
   // без пробелов
-  const readable = DICE_IN_FORMULA_REGEX.test(formula)
+  const readable = formulaHasDice(formula)
     ? null
     : renderReadableFormula(formula, labelVariable);
 
@@ -124,6 +125,16 @@ function formatPreviewFormula(formula: string): string {
  */
 function labelVariable(token: string): string {
   return VARIABLE_LABELS.get(token) ?? token;
+}
+
+/**
+ * Формула слагаемого как есть — развёртке без подстановки.
+ *
+ * @param formula - формула слагаемого
+ * @returns та же формула
+ */
+function keepFormula(formula: string): string {
+  return formula;
 }
 
 /**
@@ -204,7 +215,8 @@ export function previewDamagePart(
     }),
   );
 
-  const unrollable = expandDamageParts([shown], undefined, String, {
+  // Проверка идёт по формуле с переменными: словами её уже не разобрать
+  const unrollable = expandDamageParts([shown], undefined, keepFormula, {
     selfBranches: true,
   })
     .map((entry) => entry.formula)
