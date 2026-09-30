@@ -355,6 +355,9 @@ export function buildTriggerSaveSpec(
     ...(effect.concentration
       ? { againstMagic: false, againstConcentration: true }
       : resolveEffectMagicCircumstances(effect)),
+    ...(effect.sourceCreatureType
+      ? { sourceCreatureType: effect.sourceCreatureType }
+      : {}),
   };
 
   return triggerHasEffects(trigger)

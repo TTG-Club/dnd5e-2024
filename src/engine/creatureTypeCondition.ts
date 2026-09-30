@@ -12,7 +12,9 @@
  * - `self.creatureType !== "construct, undead"` — носитель не конструкт и не
  *   нежить;
  * - `incoming.attackerCreatureType === "aberration, celestial"` — атакует
- *   аберрация или небожитель.
+ *   аберрация или небожитель;
+ * - `source.creatureType === "fiend, undead"` — спасбросок вызвал исчадие или
+ *   нежить («Защита от зла и добра»: преимущество на такие спасброски).
  *
  * Одиночный тип (`=== "undead"`) — тот же список из одного. Разбор один на
  * все места словаря условий: модификаторы, условие броска эффекта (бонусы,
@@ -32,6 +34,7 @@ export const CREATURE_TYPE_CONDITION_SUBJECTS = [
   'self.creatureType',
   'target.creatureType',
   'incoming.attackerCreatureType',
+  'source.creatureType',
 ] as const;
 
 /** О ком условие по типу существа */
@@ -144,6 +147,7 @@ const SUBJECT_LABELS: Record<CreatureTypeConditionSubject, string> = {
   'self.creatureType': 'Носитель',
   'target.creatureType': 'Цель',
   'incoming.attackerCreatureType': 'Защита: атакующий',
+  'source.creatureType': 'Источник спасброска',
 };
 
 /**

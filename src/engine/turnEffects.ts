@@ -26,6 +26,7 @@ import type {
   ResolvedActorStats,
 } from './activeEffectTypes.js';
 import type { ConditionRef } from './conditionKeys.js';
+import type { CreatureCategory } from './creatureTypes.js';
 import type { DamageDefenseOutcome } from './damageUtils.js';
 import type { RolledDiceGroup, RolledFormula } from './diceFormula.js';
 import type { DnDSceneEntity } from './dndEntities.js';
@@ -69,6 +70,10 @@ import {
   resolveEntityTempHp,
   writeEntityHitPoints,
 } from './hitPoints.js';
+import {
+  resolveSaveSourceAdjustments,
+  withExtraFlags,
+} from './saveSourceConditions.js';
 import { expandDamageParts } from './spellUtils.js';
 
 /** Период лимита, который заканчивается с концом хода */
@@ -520,6 +525,11 @@ export interface SavingThrowCircumstances {
   againstConcentration?: boolean;
   /** Преимущество или помеха самого спасброска */
   mode?: EffectTriggerSaveMode;
+  /**
+   * Тип того, кто вызвал спасбросок, — для эффектов с условием
+   * `source.creatureType` («Защита от зла и добра»)
+   */
+  sourceCreatureType?: CreatureCategory;
 }
 
 /**
@@ -593,6 +603,9 @@ export function buildApplySaveSpec(
     ...resolveEffectMagicCircumstances(effect),
     againstCondition: effect.conditionKey,
     ...(applySave.allowWilling ? { allowWilling: true } : {}),
+    ...(effect.sourceCreatureType
+      ? { sourceCreatureType: effect.sourceCreatureType }
+      : {}),
   };
 }
 
@@ -650,12 +663,22 @@ export function rollEffectSavingThrow(
     return { roll: 1, total: 1, passed: false };
   }
 
-  const modifier = resolveSavingThrowModifier(stats, ability, circumstances);
+  // «Защита от зла и добра»: эффекты с условием об источнике спасброска
+  const sourceAdjustments = resolveSaveSourceAdjustments(
+    context.effects,
+    ability,
+    circumstances ?? {},
+    context.formulaContext,
+  );
+
+  const modifier =
+    resolveSavingThrowModifier(stats, ability, circumstances)
+    + sourceAdjustments.bonus;
 
   // Те же обстоятельства, что и у спасброска на клиенте: иначе серверный и
   // клиентский бросок одного эффекта давали бы разное преимущество
   const rollMode = resolveSavingThrowRollMode({
-    flags: activeFlags,
+    flags: withExtraFlags(activeFlags, sourceAdjustments.flags),
     ability,
     againstMagic: circumstances?.againstMagic,
     againstSpell: circumstances?.againstSpell,
@@ -687,7 +710,14 @@ export function rollEffectSavingThrow(
     collectBonusRollFormulas(
       context.effects,
       bonusKey,
-      { hasAdvantage, hasDisadvantage, self: context.self },
+      {
+        hasAdvantage,
+        hasDisadvantage,
+        self: context.self,
+        ...(circumstances?.sourceCreatureType
+          ? { source: { creatureType: circumstances.sourceCreatureType } }
+          : {}),
+      },
       context.formulaContext,
     ),
   );

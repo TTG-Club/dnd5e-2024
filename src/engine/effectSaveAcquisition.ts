@@ -34,6 +34,10 @@ import {
 } from './effectPipeline.js';
 import { findSaveOverride } from './saveOverride.js';
 import {
+  resolveSaveSourceAdjustments,
+  withExtraFlags,
+} from './saveSourceConditions.js';
+import {
   formatSavingThrowRequestTitle,
   isRollRequestAnswered,
   parseSavingThrowResult,
@@ -154,9 +158,17 @@ function buildEffectSaveFallbackFormula(
   spec: EffectSaveSpec,
 ): string | undefined {
   const stats = resolveActorStats(entity);
+  const context = buildEffectSavingThrowContext(entity);
+
+  const sourceAdjustments = resolveSaveSourceAdjustments(
+    context.effects,
+    spec.ability,
+    spec,
+    context.formulaContext,
+  );
 
   const rollMode = resolveSavingThrowRollMode({
-    flags: stats.activeFlags,
+    flags: withExtraFlags(stats.activeFlags, sourceAdjustments.flags),
     ability: spec.ability,
     againstMagic: spec.againstMagic,
     againstSpell: spec.againstSpell,
@@ -165,10 +177,9 @@ function buildEffectSaveFallbackFormula(
     againstConcentration: spec.againstConcentration,
   });
 
-  const context = buildEffectSavingThrowContext(entity);
-
   const formula = buildAttackFormula(
-    resolveSavingThrowModifier(stats, spec.ability, spec),
+    resolveSavingThrowModifier(stats, spec.ability, spec)
+      + sourceAdjustments.bonus,
     rollMode,
     listSavingThrowBonusKeys(spec.ability, spec).flatMap((bonusKey) =>
       collectBonusRollFormulas(
@@ -211,6 +222,9 @@ export function buildEffectSaveRollRequest(
     ...(spec.mode ? { mode: spec.mode } : {}),
     ...(spec.allowWilling ? { allowWilling: true } : {}),
     sourceName: spec.effectName,
+    ...(spec.sourceCreatureType
+      ? { sourceCreatureType: spec.sourceCreatureType }
+      : {}),
   };
 
   return {

@@ -31,6 +31,7 @@ import {
   listConcentrationCastIds,
   mergeAppliedEffects,
   passesLandingCondition,
+  resolveEntityCreatureType,
   resolveSpellcastingAbility,
   stampSourceSaveDcs,
 } from '@vtt/shared/system/dnd.js';
@@ -239,6 +240,7 @@ export function requestSpellZone(
     spell,
     template,
     casterId: caster.id,
+    casterCreatureType: resolveEntityCreatureType(caster),
     saveDc: source.saveDc,
     formulaContext: {
       ...buildFormulaContext(caster),

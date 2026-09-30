@@ -104,6 +104,7 @@ export * from './proficiencyBonus.js';
 export * from './restEngine.js';
 export * from './saveDamage.js';
 export * from './saveOverride.js';
+export * from './saveSourceConditions.js';
 export * from './savingThrowRequest.js';
 export * from './savingThrows.js';
 export * from './skillEffectInfluences.js';

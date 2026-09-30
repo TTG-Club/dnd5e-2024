@@ -8,11 +8,6 @@
  * prepareBaseData → applyActiveEffects → prepareDerivedData
  */
 
-// `AreaEffectTrigger`, `BaseActiveEffect`, `EffectAura`, `EffectDuration`,
-// `EffectDurationType`, `EffectTurnAnchor`, `EffectTurnTiming` — нейтральные
-// контрактные типы эффекта (провенанс, длительность, аура, триггер области, база
-// `BaseActiveEffect`): они живут в ядре системного контракта (`../contracts/*`),
-// D&D наследует базу и реэкспортит формы для своих потребителей.
 import type {
   AbilityType,
   AreaEffectTrigger,
@@ -35,6 +30,12 @@ import type {
   ConditionRef,
   DEATH_CONDITION_KEY,
 } from './conditionKeys.js';
+// `AreaEffectTrigger`, `BaseActiveEffect`, `EffectAura`, `EffectDuration`,
+// `EffectDurationType`, `EffectTurnAnchor`, `EffectTurnTiming` — нейтральные
+// контрактные типы эффекта (провенанс, длительность, аура, триггер области, база
+// `BaseActiveEffect`): они живут в ядре системного контракта (`../contracts/*`),
+// D&D наследует базу и реэкспортит формы для своих потребителей.
+import type { CreatureCategory } from './creatureTypes.js';
 import type { DnDCustomBonusContext } from './customBonuses.js';
 import type { EffectChangeStep } from './effectChangeSteps.js';
 import type { EffectActionCost, EffectTrigger } from './effectTriggerTypes.js';
@@ -48,6 +49,7 @@ import { INCAPACITATED_CONDITION_KEY } from './conditionKeys.js';
 import {
   CONDITIONS,
   CREATURE_CATEGORIES,
+  isCreatureCategory,
   isSkillType,
   SELECTABLE_CONDITIONS,
   SKILLS_LABELS,
@@ -1798,6 +1800,13 @@ export interface ActiveEffect extends BaseActiveEffect {
    */
   sourceActorId?: string;
 
+  /**
+   * Тип существа наложившего — ставится вместе с `sourceActorId`: по нему
+   * спасбросок против этого эффекта включает эффекты с условием
+   * `source.creatureType`, даже когда бросает сервер и наложившего не спросить
+   */
+  sourceCreatureType?: CreatureCategory;
+
   /** Переносится ли эффект с предмета на актора при экипировке */
   transfer: boolean;
 
@@ -3144,6 +3153,10 @@ export const ActiveEffectSchema = z.object({
   origin: z.enum(EFFECT_ORIGIN_VALUES).catch('manual'),
   originId: z.string().optional(),
   sourceActorId: z.string().optional(),
+  sourceCreatureType: z
+    .custom<CreatureCategory>(isCreatureCategory)
+    .optional()
+    .catch(undefined),
   transfer: z.boolean().catch(false),
   duration: EffectDurationSchema.catch({ type: 'permanent' }),
   changes: EffectChangesSchema.catch([]),

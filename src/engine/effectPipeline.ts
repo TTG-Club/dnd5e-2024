@@ -893,6 +893,12 @@ export interface RollContext {
    * бонус-урона, которые в статы не попадают никогда.
    */
   self?: CarrierContext;
+  /**
+   * Тот, кто вызвал бросок, — у спасброска: заклинатель, существо, наложивший
+   * эффект. Для условий `source.creatureType`; нет — такие условия не
+   * выполняются.
+   */
+  source?: { creatureType?: CreatureCategory };
 }
 
 /**
@@ -1291,6 +1297,15 @@ export function evaluateConditionPart(
 
   if (targetType !== undefined) {
     return creatureTypeConditionHolds(targetType, target?.creatureType);
+  }
+
+  const sourceType = parseCreatureTypeCondition(trimmed, 'source.creatureType');
+
+  if (sourceType !== undefined) {
+    return creatureTypeConditionHolds(
+      sourceType,
+      rollContext.source?.creatureType,
+    );
   }
 
   // Неизвестное условие — не применяем

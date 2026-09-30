@@ -213,6 +213,7 @@ export function promptRequestedRoll(
     mode: payload.mode,
     allowWilling: payload.allowWilling,
     sourceName: payload.sourceName,
+    sourceCreatureType: payload.sourceCreatureType,
   };
 
   // Авто-спасброски: владелец не хочет окна на каждый спас — бросаем сразу,

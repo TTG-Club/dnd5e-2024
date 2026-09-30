@@ -1166,6 +1166,25 @@ describe('каталог: условия атаки по носителю', () =
     assert.equal(modeOf(undefined), 'normal', 'тип неизвестен — не применяем');
   });
 
+  it('[S28b] Защита от добра и зла: преимущество на спасброски от этих типов', () => {
+    const ward = createEffect('Защита от добра и зла (спасброски)', {
+      effectTarget: 'target',
+      flags: ['save.advantage'],
+      rollCondition:
+        'source.creatureType === "aberration, celestial, elemental, fey, fiend, undead"',
+    });
+
+    authoredScenario(ward, 'spell');
+
+    const adjustments = (sourceCreatureType) =>
+      engine.resolveSaveSourceAdjustments([ward], 'charisma', {
+        sourceCreatureType,
+      }).flags;
+
+    assert.deepEqual(adjustments('undead'), ['save.advantage']);
+    assert.deepEqual(adjustments('humanoid'), []);
+  });
+
   it('[S29] Защита от клинков: атакующий вычитает 1к4', () => {
     const bladeWard = createEffect('Защита от клинков', {
       changes: [change('attacksAgainst', '-1d4')],

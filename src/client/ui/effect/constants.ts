@@ -449,6 +449,7 @@ export const EFFECT_MODIFIERS_STEP_LABELS = {
     'self.creatureType': 'Носитель — существо типа…',
     'target.creatureType': 'Цель — существо типа…',
     'incoming.attackerCreatureType': 'Защита: атакующий — существо типа…',
+    'source.creatureType': 'Спасбросок вызвало существо типа…',
   },
   adjacentAllyTitle: 'Какой союзник',
   adjacentAllyHint:

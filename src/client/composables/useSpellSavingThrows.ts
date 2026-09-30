@@ -6,6 +6,7 @@ import type {
 } from '@vtt/shared';
 import type {
   ConditionRef,
+  CreatureCategory,
   SavingThrowCircumstances,
   SavingThrowRequestPayload,
   SavingThrowResult,
@@ -26,6 +27,7 @@ import {
 } from '@vtt/shared';
 import {
   buildAttackFormula,
+  buildFormulaContext,
   formatSavingThrowRequestTitle,
   getNaturalD20Roll,
   isDndSceneEntity,
@@ -34,9 +36,12 @@ import {
   parseSavingThrowResult,
   resolveActorStats,
   resolveAutoSaves,
+  resolveEntityCreatureType,
+  resolveSaveSourceAdjustments,
   resolveSavingThrowModifier,
   resolveSavingThrowRollMode,
   SAVING_THROW_REQUEST_KIND,
+  withExtraFlags,
 } from '@vtt/shared/system/dnd.js';
 
 import { SAVING_THROW_ROLL_LABELS } from '../ui/actor/constants';
@@ -47,6 +52,7 @@ import {
   formatSavingThrowRollLabel,
   formatSavingThrowTitle,
 } from './spellResolutionShared';
+import { collectEffectsWithAuras } from './useResolvedStats';
 import { useWorldEntities } from './useWorldEntities';
 
 /** Префикс сообщений композабла в консоли */
@@ -89,6 +95,11 @@ export interface SavingThrowTarget {
   sourceEntityId?: string;
   /** Чем бьют («Огненный шар», «Укус») — в подпись запроса у адресата */
   sourceName?: string;
+  /**
+   * Тип того, кто вызвал спасбросок. Нет — берётся по `sourceEntityId`; у
+   * запроса приезжает в нагрузке, адресат считает тем же числом
+   */
+  sourceCreatureType?: CreatureCategory;
   /**
    * Согласная цель вправе не бросать: в окне появится «Не сопротивляюсь».
    * Решает владелец цели — тот, кто накладывает, только разрешает.
@@ -189,13 +200,23 @@ function getActorSaveInfo(
 
   const stats = resolveActorStats(entity);
 
-  const modifier = resolveSavingThrowModifier(stats, saveAbility, options);
+  // «Защита от зла и добра»: эффекты с условием об источнике спасброска
+  const sourceAdjustments = resolveSaveSourceAdjustments(
+    collectEffectsWithAuras(entity),
+    saveAbility,
+    options,
+    buildFormulaContext(entity),
+  );
+
+  const modifier =
+    resolveSavingThrowModifier(stats, saveAbility, options)
+    + sourceAdjustments.bonus;
 
   // `againstMagic` приходит от вызывающего: Мантия сопротивления заклинаниям
   // должна сработать на спасброске от заклинания и промолчать на спасброске
   // от яда. Через сеть флаг едет в нагрузке запроса — у адресата тот же счёт.
   const rollMode = resolveSavingThrowRollMode({
-    flags: stats.activeFlags,
+    flags: withExtraFlags(stats.activeFlags, sourceAdjustments.flags),
     ability: saveAbility,
     againstMagic: options.againstMagic,
     againstSpell: options.againstSpell,
@@ -225,6 +246,24 @@ function getActorSaveInfo(
 }
 
 /**
+ * Тип того, кто вызвал спасбросок: задан — он, иначе по сущности-источнику.
+ *
+ * @param target - цель спасброска
+ * @returns тип либо `undefined`, если источник неизвестен
+ */
+function resolveTargetSourceType(
+  target: SavingThrowTarget,
+): CreatureCategory | undefined {
+  if (target.sourceCreatureType) {
+    return target.sourceCreatureType;
+  }
+
+  const source = useWorldEntities().findCurrentDndEntity(target.sourceEntityId);
+
+  return source ? resolveEntityCreatureType(source) : undefined;
+}
+
+/**
  * Считает данные спасброска цели по её контексту.
  *
  * @param target - цель спасброска
@@ -237,6 +276,7 @@ function resolveTargetSaveInfo(target: SavingThrowTarget): ActorSaveInfo {
     againstCondition: target.againstCondition,
     againstConcentration: target.againstConcentration,
     mode: target.mode,
+    sourceCreatureType: resolveTargetSourceType(target),
   });
 }
 
@@ -262,6 +302,7 @@ function buildRollRequestOptions(
     ...(target.mode ? { mode: target.mode } : {}),
     ...(target.allowWilling ? { allowWilling: true } : {}),
     sourceName: target.sourceName,
+    sourceCreatureType: resolveTargetSourceType(target),
   };
 
   return {
