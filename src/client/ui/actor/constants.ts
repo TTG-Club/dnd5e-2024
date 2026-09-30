@@ -1646,6 +1646,10 @@ export const SPELL_FORM_LABELS = {
     + 'не влияет — за них отвечает «Способ применения».',
   targetCount: 'Кол-во целей',
   scalingTargets: 'Доп. целей за круг',
+  scalingAreaSize: 'Рост области за круг',
+  scalingAreaSizeHint:
+    'На сколько растёт размер области за каждый круг ячейки выше базового: '
+    + '«Туманное облако» — 20. Круг тогда выбирают до шаблона.',
   projectilesTitle: 'Снаряды',
   projectilesEnable: 'Использовать снаряды',
   projectilesHint:
@@ -4622,6 +4626,7 @@ export const SPELL_DETAIL_LABELS = {
   higherLevels: 'На высших кругах',
   scalingDamagePrefix: 'Урон:',
   scalingTargetsPrefix: 'Цели:',
+  scalingAreaSizePrefix: 'Область за круг:',
   classesPrefix: 'Классы:',
   /** Приставка добавки снарядов за круг ячейки */
   projectilesPerSlotPrefix: ' (+',

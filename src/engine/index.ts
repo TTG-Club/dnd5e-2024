@@ -116,6 +116,7 @@ export * from './speciesGrants.js';
 export * from './speciesLineage.js';
 export * from './speciesSize.js';
 export * from './speciesTypes.js';
+export * from './spellAreaScaling.js';
 export * from './spellcastingSettings.js';
 export * from './spellSlotTable.js';
 export * from './spellTypes.js';

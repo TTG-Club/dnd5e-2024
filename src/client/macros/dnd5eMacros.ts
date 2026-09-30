@@ -96,6 +96,7 @@ import {
   resolveEntityCreatureType,
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
+  resolveSpellAreaAtLevel,
   resolveSpellCastBlock,
   resolveSpellCastCost,
   resolveSpellcastingAbility,
@@ -111,6 +112,7 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { recordEntityActionSpend } from '../composables/actionSpend';
+import { chooseAreaCastLevel } from '../composables/areaCastLevelChoice';
 import {
   runCreatureActionChoices,
   runWeaponAttackChoices,
@@ -944,7 +946,10 @@ export function registerDnd5eMacros(): void {
 
         // Если есть область действия — пропускаем зелёный prompt, сразу начинаем применять
         if (spell.areaOfEffect) {
-          executeSpellCast(spell, actor);
+          // Область растёт от круга — круг до шаблона, иначе сразу шаблон
+          chooseAreaCastLevel(spell, availableLevels, (castLevel) => {
+            executeSpellCast(spell, actor, castLevel);
+          });
 
           return;
         }
@@ -1033,7 +1038,8 @@ function executeSpellCast(
 
     templateStore.requestPlacement(
       {
-        ...spell.areaOfEffect,
+        ...(resolveSpellAreaAtLevel(spell, lockedSpellLevel)
+          ?? spell.areaOfEffect),
         resizable: spell.areaOfEffect.resizable ?? false,
       },
       templateColor,
@@ -2357,8 +2363,10 @@ function registerCreatureSpellMacro(): void {
             getDamagePartsPrimaryType(spell.damageParts),
           );
 
+          // Круг наложения группы растит область так же, как ячейка персонажа
           templateStore.requestPlacement(
-            spell.areaOfEffect,
+            resolveSpellAreaAtLevel(spell, placement?.ref.castLevel)
+              ?? spell.areaOfEffect,
             color,
             foundCreature.id,
             (templateId) =>

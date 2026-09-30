@@ -147,6 +147,7 @@
     hasScaling,
     scalingAdditionalDice,
     scalingAdditionalTargets,
+    scalingAdditionalAreaSize,
     scalingDescription,
     cantripScalingTiers,
     addCantripTier,
@@ -908,6 +909,19 @@
                     <UInput
                       v-model.number="areaSize"
                       type="number"
+                      class="w-full"
+                    />
+                  </UFormField>
+
+                  <UFormField
+                    v-if="level > 0"
+                    :label="SPELL_FORM_LABELS.scalingAreaSize"
+                    :help="SPELL_FORM_LABELS.scalingAreaSizeHint"
+                  >
+                    <UInput
+                      v-model.number="scalingAdditionalAreaSize"
+                      type="number"
+                      :min="0"
                       class="w-full"
                     />
                   </UFormField>

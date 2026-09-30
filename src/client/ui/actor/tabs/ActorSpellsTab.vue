@@ -80,6 +80,7 @@
     resolveDamagePartsForCast,
     resolveEntityActionBlocks,
     resolveEntityCreatureType,
+    resolveSpellAreaAtLevel,
     resolveSpellCastCost,
     resolveSpellcastingAbility,
     resolveSpellDamageFormula,
@@ -95,6 +96,7 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { recordEntityActionSpend } from '../../../composables/actionSpend';
+  import { chooseAreaCastLevel } from '../../../composables/areaCastLevelChoice';
   import { resolveTargetedAttackRoll } from '../../../composables/attackRollMode';
   import {
     describeDamageVariantsStat,
@@ -1621,7 +1623,10 @@
 
       // Ветка 1: Если есть область действия — пропускаем зелёный prompt, сразу начинаем применять (появится шаблон на курсоре)
       if (spell.areaOfEffect) {
-        proceedWithCastSpell(spell);
+        // Область растёт от круга — круг до шаблона, иначе сразу шаблон
+        chooseAreaCastLevel(spell, availableLevels, (castLevel) => {
+          proceedWithCastSpell(spell, castLevel);
+        });
 
         return;
       }
@@ -1731,7 +1736,8 @@
         // растягиваемым, и один и тот же конус вёл себя по-разному с листа и с
         // горячей панели.
         {
-          ...spell.areaOfEffect,
+          ...(resolveSpellAreaAtLevel(spell, lockedSpellLevel)
+            ?? spell.areaOfEffect),
           resizable: spell.areaOfEffect.resizable ?? false,
         },
         templateColor,

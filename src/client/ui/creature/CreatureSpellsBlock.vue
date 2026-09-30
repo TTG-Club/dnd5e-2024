@@ -68,6 +68,7 @@
     isCreatureSpellPoolMode,
     isSpell,
     resolveCreatureSpellSaveDC,
+    resolveSpellAreaAtLevel,
     resolveSpellCastBlock,
     resolveSpellCastCost,
     SPELL_SCHOOL_LABELS,
@@ -1572,8 +1573,10 @@
           getDamagePartsPrimaryType(spell.damageParts),
         );
 
+        // Круг наложения группы растит область так же, как ячейка персонажа
         spellTemplateStore.requestPlacement(
-          spell.areaOfEffect,
+          resolveSpellAreaAtLevel(spell, placement?.ref.castLevel)
+            ?? spell.areaOfEffect,
           color,
           props.creatureId,
           (templateId) =>

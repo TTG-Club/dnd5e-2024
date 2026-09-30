@@ -154,6 +154,8 @@ export function useSpellForm(
   const hasScaling = ref(false);
   const scalingAdditionalDice = ref('');
   const scalingAdditionalTargets = ref(0);
+  /** Рост области за круг ячейки — живёт в секции области, как цели в своей */
+  const scalingAdditionalAreaSize = ref(0);
   const scalingDescription = ref('');
   /** Поуровневые тиры масштабирования заговора (полный набор частей на уровень) */
   const cantripScalingTiers = ref<CantripScalingTier[]>([]);
@@ -311,10 +313,15 @@ export function useSpellForm(
           hasScaling.value = true;
           scalingAdditionalDice.value = spell.scaling.additionalDice ?? '';
           scalingAdditionalTargets.value = spell.scaling.additionalTargets ?? 0;
+
+          scalingAdditionalAreaSize.value =
+            spell.scaling.additionalAreaSize ?? 0;
+
           scalingDescription.value = spell.scaling.description ?? '';
         } else {
           hasScaling.value = false;
           scalingAdditionalTargets.value = 0;
+          scalingAdditionalAreaSize.value = 0;
         }
 
         cantripScalingTiers.value = (spell.cantripScalingTiers ?? []).map(
@@ -393,6 +400,7 @@ export function useSpellForm(
         hasScaling.value = false;
         scalingAdditionalDice.value = '';
         scalingAdditionalTargets.value = 0;
+        scalingAdditionalAreaSize.value = 0;
         scalingDescription.value = '';
         cantripScalingTiers.value = [];
 
@@ -499,8 +507,9 @@ export function useSpellForm(
   }
 
   /**
-   * Готовит блок масштабирования уровневого заклинания. «Доп. целей за круг»
-   * живёт в секции целей и не зависит от галочки «Усиление» (та отвечает за
+   * Готовит блок масштабирования уровневого заклинания. «Доп. целей за круг» и
+   * «Рост области за круг» живут в секциях целей и области и не зависят от
+   * галочки «Усиление» (та отвечает за
    * кости и описание); у снарядных заклинаний рост целей задаёт
    * `projectiles.perSlotLevel`, поэтому поле подавляется.
    */
@@ -514,6 +523,12 @@ export function useSpellForm(
         ? scalingAdditionalTargets.value
         : undefined;
 
+    // Рост области — только у заклинания с областью, как и сама область
+    const additionalAreaSize =
+      targetType.value === 'area' && scalingAdditionalAreaSize.value > 0
+        ? scalingAdditionalAreaSize.value
+        : undefined;
+
     const additionalDice = hasScaling.value
       ? scalingAdditionalDice.value || undefined
       : undefined;
@@ -525,6 +540,7 @@ export function useSpellForm(
     if (
       additionalDice === undefined
       && additionalTargets === undefined
+      && additionalAreaSize === undefined
       && scalingText === undefined
     ) {
       return undefined;
@@ -533,6 +549,7 @@ export function useSpellForm(
     return {
       additionalDice,
       additionalTargets,
+      additionalAreaSize,
       description: scalingText,
     };
   }
@@ -695,6 +712,7 @@ export function useSpellForm(
     hasScaling,
     scalingAdditionalDice,
     scalingAdditionalTargets,
+    scalingAdditionalAreaSize,
     scalingDescription,
     cantripScalingTiers,
     addCantripTier,
