@@ -108,8 +108,11 @@ export const EFFECT_ESCAPE_FIELD_LABELS = {
   addFailDamage: 'Добавить урон',
 } as const;
 
-/** Значение «ничего» в выборе состояния после освобождения */
-export const NO_ESCAPE_AFTERMATH = '';
+/**
+ * Значение «ничего» в выборе состояния после освобождения. Не пустая строка:
+ * пункт списка с пустым значением выпадающий список не принимает.
+ */
+export const NO_ESCAPE_AFTERMATH = 'none';
 
 /** Новая часть урона за неудачную попытку: единица, как у капкана */
 export const NEW_ESCAPE_FAIL_DAMAGE = { formula: '1' } as const;
