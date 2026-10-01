@@ -35,7 +35,6 @@
   import { useToast } from '@nuxt/ui/composables';
   import { computed, ref } from 'vue';
 
-  import { emitEntityCombatState } from '@/core/entityUtils';
   import { startHotbarDrag } from '@/core/utils/hotbarDrag';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useItemsStore } from '@/stores/itemsStore';
@@ -64,14 +63,15 @@
     payActivation,
     resolveActionCostBlock,
     resolveActorStats,
-    runEffectActiveAction,
   } from '@vtt/shared/system/dnd.js';
 
-  import { recordEntityActionSpend } from '../../composables/actionSpend';
   import { applyEffectSource } from '../../composables/effectActivationUse';
+  import { runEntityEffectAction } from '../../composables/effectActiveAction';
   import { runEffectEscape } from '../../composables/effectEscapeAction';
-  import { toggleEntityEffect } from '../../composables/effectToggle';
-  import { resolveCombatRound } from '../../composables/encounterTurn';
+  import {
+    payEntityActivation,
+    toggleEntityEffect,
+  } from '../../composables/effectToggle';
   import { requestEndCasts } from '../../composables/spellCasts';
   import { useActiveEffectModal } from '../../composables/useActiveEffectModal';
   import { useEntityActiveEffects } from '../../composables/useEntityActiveEffects';
@@ -247,6 +247,8 @@
       owner,
       resolveActorStats(owner).spellSaveDC,
       () => payEffectActivation(effect),
+      // С ценой ресурсом счётчик применения уходит тем же сохранением
+      { spendOn: (paidUser) => payEntityActivation(paidUser, effect) },
     );
   }
 
@@ -401,15 +403,15 @@
 
   /**
    * Запускает действие действующего эффекта: его срабатывания «При действии»
-   * идут боевым каналом — они меняют и хиты.
+   * идут боевым каналом — они меняют и хиты; цена ресурсом и сводка в чат —
+   * в `runEntityEffectAction`.
    *
    * @param effect - эффект строки
    */
   function runActiveAction(effect: ActiveEffect): void {
     const { owner } = props;
-    const socket = getActiveSocket();
 
-    if (!owner || !socket) {
+    if (!owner) {
       return;
     }
 
@@ -428,12 +430,7 @@
       return;
     }
 
-    recordEntityActionSpend(owner.id, action?.cost);
-
-    emitEntityCombatState(
-      socket,
-      runEffectActiveAction(owner, effect.id, resolveCombatRound()),
-    );
+    runEntityEffectAction(owner.id, effect.id);
   }
 
   /**

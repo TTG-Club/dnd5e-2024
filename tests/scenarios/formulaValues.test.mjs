@@ -478,6 +478,59 @@ describe('каталог: значения формулой', () => {
   it.todo('[V14] Лимит, общий на весь каст');
   it.todo('[V15] Токен «сколько существ в радиусе»');
   it.todo('[V16] Токен «нанесённый урон»');
-  it.todo('[V17] Кости хитов как стоимость каста');
+
+  it('[V17] Кости хитов как стоимость каста', () => {
+    // Цена каста живёт в эффекте заклинания (`pay`), бросок потраченных костей
+    // — токеном `@paid.hitDiceRoll` в уроне самого заклинания
+    const consumption = {
+      name: 'Истощение',
+      damageParts: [{ formula: '@paid.hitDiceRoll', type: 'necrotic' }],
+      activeEffects: [
+        createEffect('Истощение', {
+          effectTarget: 'target',
+          pay: [{ kind: 'hitDice' }],
+          duration: { type: 'hours', value: 1 },
+          recurringSave: {
+            ability: 'constitution',
+            dc: engine.SOURCE_SAVE_DC,
+            timing: 'endOfTurn',
+          },
+          triggers: [
+            {
+              id: 'trigger_drain',
+              event: 'turnEnd',
+              actions: [
+                {
+                  type: 'damage',
+                  parts: [{ formula: '@paid.hitDiceRoll', type: 'necrotic' }],
+                },
+              ],
+            },
+          ],
+        }),
+      ],
+    };
+
+    const paid = engine.bindSourcePaid(consumption, {
+      hitDice: 1,
+      hitDie: 8,
+      hitDiceRoll: 5,
+    });
+
+    assert.equal(paid.damageParts[0].formula, '5');
+
+    assert.equal(
+      paid.activeEffects[0].triggers[0].actions[0].parts[0].formula,
+      '5',
+      'тот же бросок бьёт на каждом ходу — кость заново не катается',
+    );
+
+    assert.deepEqual(paid.activeEffects[0].paid, {
+      hitDice: 1,
+      hitDie: 8,
+      hitDiceRoll: 5,
+    });
+  });
+
   it.todo('[V18] Апкаст меняет срок и концентрацию');
 });

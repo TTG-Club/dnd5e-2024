@@ -40,11 +40,13 @@ import {
   ABILITY_LABELS,
   CREATURE_CATEGORIES,
   CREATURE_SIZE_LABELS,
+  FORMULA_VARIABLE_LABELS,
   isAbilityType,
   isCreatureCategory,
   isCreatureSize,
 } from './consts.js';
 import { getShortDamageTypeLabel } from './damageConstants.js';
+import { describeEffectPay } from './effectPayTypes.js';
 import {
   classifyLegacyTrigger,
   isTurnTriggerEvent,
@@ -181,6 +183,10 @@ const TRIGGER_LABELS = {
   nothing: 'ничего',
   listJoiner: ', ',
   clauseJoiner: '; ',
+  payPrefix: ', цена: ',
+  restoreAmountPrefix: ' ×',
+  restoreSetPrefix: ' становится ',
+  setHpFormulaPrefix: 'хиты становятся ',
   limitPrefix: ', не чаще ',
   limitOnce: 'одного раза',
   limitTimes: ' раз',
@@ -190,6 +196,26 @@ const TRIGGER_LABELS = {
   saveModeAdvantage: ' с преимуществом',
   saveModeDisadvantage: ' с помехой',
 } as const;
+
+/** Сколько возвращает «Вернуть ресурс» без поля `amount` — в фразе */
+const DEFAULT_RESTORE_AMOUNT_TEXT = '1';
+
+/** Токен формулы: `@prof`, `@mod.wis`, `@paid.slotLevel` */
+const FORMULA_TOKEN_PATTERN = /@[a-z][\w.]*/gi;
+
+/**
+ * Формула действия для фразы: токены — подписями («круг потраченной ячейки»),
+ * а не сырым `@paid.slotLevel`.
+ *
+ * @param formula - формула действия
+ * @returns формула словами
+ */
+function prettifyActionFormula(formula: string): string {
+  return formula.replaceAll(
+    FORMULA_TOKEN_PATTERN,
+    (token) => FORMULA_VARIABLE_LABELS[token] ?? token,
+  );
+}
 
 /** Как двигает действие «Переместить» — в фразе */
 const MOVE_KIND_PHRASES: Record<EffectTriggerMoveKind, string> = {
@@ -540,10 +566,15 @@ function describeAction(
 
       return `${TRIGGER_LABELS.maxHpPrefix}${amount}${endsOnRest === MAX_HP_REDUCTION_NEVER_ENDS ? '' : REST_UNTIL_LABELS[endsOnRest]}`;
     }
-    case 'setHp':
-      return action.toMax
-        ? TRIGGER_LABELS.setHpMax
+    case 'setHp': {
+      if (action.toMax) {
+        return TRIGGER_LABELS.setHpMax;
+      }
+
+      return action.formula
+        ? `${TRIGGER_LABELS.setHpFormulaPrefix}${prettifyActionFormula(action.formula)}`
         : `${TRIGGER_LABELS.setHpPrefix}${action.value}`;
+    }
     case 'tempHp':
       return `${TEMP_HP_PHRASES[action.mode ?? DEFAULT_TEMP_HP_MODE]}${action.amount}`;
     case 'removeCondition':
@@ -558,10 +589,22 @@ function describeAction(
         : `${TRIGGER_LABELS.revivePrefix}${action.hp ?? MIN_REVIVE_HP}`;
     case 'dropHeld':
       return TRIGGER_LABELS.dropHeld;
-    case 'restore':
-      return action.what === 'spellSlot'
-        ? `${TRIGGER_LABELS.restoreSlotPrefix}${action.level ?? MIN_SPELL_SLOT_LEVEL}`
-        : `${TRIGGER_LABELS.restoreCounterPrefix}«${action.counter ?? ''}»`;
+    case 'restore': {
+      if (action.what === 'spellSlot') {
+        return `${TRIGGER_LABELS.restoreSlotPrefix}${action.level ?? MIN_SPELL_SLOT_LEVEL}`;
+      }
+
+      const counter = `«${action.counter ?? ''}»`;
+
+      const amount =
+        action.amount === undefined ? '' : prettifyActionFormula(action.amount);
+
+      if (action.set) {
+        return `${counter}${TRIGGER_LABELS.restoreSetPrefix}${amount || DEFAULT_RESTORE_AMOUNT_TEXT}`;
+      }
+
+      return `${TRIGGER_LABELS.restoreCounterPrefix}${counter}${amount ? `${TRIGGER_LABELS.restoreAmountPrefix}${amount}` : ''}`;
+    }
     case 'dispel':
       return `${TRIGGER_LABELS.dispelPrefix}${action.maxLevel}`;
     case 'grantInspiration':
@@ -711,6 +754,18 @@ function describeSaveMode(mode: EffectTriggerSaveMode | undefined): string {
 }
 
 /**
+ * Цена ресурсом срабатывания.
+ *
+ * @param trigger - срабатывание
+ * @returns продолжение фразы либо пустая строка
+ */
+function describeTriggerPay(trigger: EffectTrigger): string {
+  return trigger.pay
+    ? `${TRIGGER_LABELS.payPrefix}${describeEffectPay(trigger.pay)}`
+    : '';
+}
+
+/**
  * Лимит «не чаще N раз за период».
  *
  * @param trigger - срабатывание
@@ -753,7 +808,7 @@ export function describeEffectTrigger(
   const recipient = describeTriggerRecipient(trigger);
 
   const moment = `${describeMoment(trigger)}${condition}${recipient}`;
-  const limit = describeLimit(trigger);
+  const limit = `${describeTriggerPay(trigger)}${describeLimit(trigger)}`;
 
   if (!trigger.save) {
     return `${moment}: ${describeOutcomeActions(trigger, false, options)}${limit}`;

@@ -34,6 +34,7 @@ import {
   LEGACY_TRIGGER_IDS,
   MOVEMENT_TRIGGER_EVENTS,
   PRESENCE_TRIGGER_EVENTS,
+  triggerAsksPermission,
   TURN_TRIGGER_EVENTS,
 } from './effectTriggerTypes.js';
 import { resolveHalfDamageScale } from './saveDamage.js';
@@ -471,8 +472,8 @@ const SERVER_TRIGGER_ACTIONS: ReadonlySet<EffectTriggerAction['type']> =
 
 /**
  * Выполняется ли срабатывание броска атаки на клиенте до броска: без
- * спасброска, урона, конца каста и действий другой стороне — только снятие и
- * наложения на субъекте. Такое снятие должно опередить урон атаки, иначе два
+ * спасброска, вопроса человеку, урона, конца каста и действий другой стороне —
+ * только снятие и наложения на субъекте. Такое снятие должно опередить урон атаки, иначе два
  * снимка сущности гонятся. Остальное выполняет сервер после броска
  * (`settleAttackRollTriggers`).
  *
@@ -482,6 +483,8 @@ const SERVER_TRIGGER_ACTIONS: ReadonlySet<EffectTriggerAction['type']> =
 export function isClientAttackRollTrigger(trigger: EffectTrigger): boolean {
   return (
     !trigger.save
+    // Вопрос человеку (согласие, реакция, цена ресурсом) задаёт сервер
+    && !triggerAsksPermission(trigger)
     && (trigger.recipient ?? DEFAULT_TRIGGER_RECIPIENT) === 'subject'
     && trigger.actions.every(
       (action) => !SERVER_TRIGGER_ACTIONS.has(action.type),
@@ -541,6 +544,7 @@ function isPlainTrigger(trigger: EffectTrigger): boolean {
     // Цены, вопроса человеку и шанса срабатывания у старых полей нет
     && trigger.cost === undefined
     && trigger.ask === undefined
+    && trigger.pay === undefined
     && trigger.chancePercent === undefined
     && isPlainTriggerSave(trigger.save)
   );

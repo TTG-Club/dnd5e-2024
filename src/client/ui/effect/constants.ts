@@ -576,6 +576,7 @@ export const EFFECT_INERT_FIELD_NAMES: Record<InertEffectField, string> = {
   consumeOn: 'Снятие после атаки',
   duration: 'Длительность',
   conditionImmunities: 'Иммунитет к состояниям',
+  pay: 'Цена ресурсом',
   triggers: 'Срабатывания',
 };
 
@@ -612,6 +613,9 @@ export const EFFECT_INERT_FIELD_REASONS: Record<InertEffectField, string> = {
     + 'сам.',
   consumeOn:
     'Снимается после атаки только эффект, который лежит на существе сам.',
+  pay:
+    'Цену платит тот, кто применяет, включает или колдует, а этот эффект '
+    + 'действует постоянно — платить некому.',
   duration:
     'Здесь эффект действует, пока есть источник: срок не отсчитывается.',
   conditionImmunities: 'Иммунитет отсюда не действует.',

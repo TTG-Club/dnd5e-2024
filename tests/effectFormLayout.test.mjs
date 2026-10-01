@@ -1246,13 +1246,28 @@ describe('список «Срабатывания»', () => {
       'у черты существа наложившего нет',
     );
 
-    for (const context of ['feature', 'item']) {
-      assert.deepEqual(
-        layoutOf(context).triggerEvents,
-        ['damageTaken', 'hpZero', 'healed'],
-        `${context}: эффект слышит урон по носителю`,
-      );
-    }
+    assert.deepEqual(
+      layoutOf('item').triggerEvents,
+      ['damageTaken', 'hpZero', 'healed'],
+      'item: эффект слышит урон по носителю',
+    );
+
+    // Эффект умения скопирован на персонажа и слышит его поступки: атаку,
+    // путь, отдых. Снять сам себя он не может — это сняло бы выданную черту
+    const feature = layoutOf('feature');
+
+    assert.deepEqual(feature.triggerEvents, [
+      'attackRoll',
+      'damageTaken',
+      'hpZero',
+      'healed',
+      'conditionLost',
+      'downedOther',
+      'moved',
+      'rest',
+    ]);
+
+    assert.equal(feature.triggerActions.includes('removeSelf'), false);
 
     assert.deepEqual(layoutOf('condition').triggerEvents, []);
   });
@@ -1758,5 +1773,59 @@ describe('живая сводка эффекта', () => {
       `Пока эффект активен: ${engine.describeEffectFlag('attack.advantage')}, `
         + 'снимается после своей атаки.',
     );
+  });
+});
+
+describe('цена ресурсом в окне', () => {
+  it('цена есть там, где эффект кто-то запускает: каст, применение, включение', () => {
+    assert.equal(layoutOf('spell').showPay, true);
+    assert.equal(layoutOf('feature').showPay, false, 'постоянный эффект');
+
+    assert.equal(
+      layoutOf('feature', { activation: { mode: 'use' } }).showPay,
+      true,
+    );
+
+    assert.equal(
+      layoutOf('feature', { activation: { mode: 'toggle' } }).showPay,
+      true,
+    );
+
+    assert.equal(
+      layoutOf('item', { activation: { mode: 'use' } }).showPay,
+      true,
+    );
+
+    assert.equal(layoutOf('creatureTrait').showPay, false);
+  });
+
+  it('цена у постоянного эффекта — неработающее поле, его можно убрать', () => {
+    const effect = createEffect({ pay: [{ kind: 'hitDice' }] });
+    const layout = engine.resolveEffectFormLayout('feature', effect);
+
+    assert.deepEqual(engine.listInertEffectFields(effect, layout), ['pay']);
+
+    assert.equal(
+      engine.clearInertEffectFields(effect, ['pay'], 'feature').pay,
+      undefined,
+    );
+  });
+
+  it('черновик цены: пустые формулы и платёж без ключа счётчика не пишутся', () => {
+    assert.deepEqual(
+      engine.normalizeDraftPay([
+        { kind: 'counter', counter: '  ', amount: '2' },
+        { kind: 'counter', counter: ' grit ', amount: ' 6 ', max: '' },
+        { kind: 'hitDice', amount: '', max: ' @castLevel ' },
+        { kind: 'spellSlot', minLevel: 4 },
+      ]),
+      [
+        { kind: 'counter', counter: 'grit', amount: '6', max: undefined },
+        { kind: 'hitDice', amount: undefined, max: '@castLevel' },
+        { kind: 'spellSlot', minLevel: 4 },
+      ],
+    );
+
+    assert.equal(engine.normalizeDraftPay([]), undefined);
   });
 });

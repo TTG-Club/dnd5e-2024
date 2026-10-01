@@ -1,6 +1,7 @@
 <script setup lang="ts">
   import type {
     ActorClassEntry,
+    HitDiceSpendRules,
     ManualHitDieGroup,
     ShortRestHitDiceResult,
   } from '@vtt/shared/system/dnd.js';
@@ -11,7 +12,11 @@
   import { Z_INDEX } from '@/shared_ui/consts';
   import { useChatStore } from '@/stores/chatStore';
   import { useDiceRollerStore } from '@/stores/diceRollerStore';
-  import { getHitDiceGroups, spendHitDice } from '@vtt/shared/system/dnd.js';
+  import {
+    getHitDiceGroups,
+    lowHitDiceBonus,
+    spendHitDice,
+  } from '@vtt/shared/system/dnd.js';
 
   import {
     ACTOR_LEFT_PANEL_LABELS,
@@ -38,11 +43,22 @@
     maxHitPoints: number;
     /** Модификатор Телосложения (прибавляется к каждой потраченной кости) */
     conMod: number;
+    /**
+     * Как черты владельца меняют трату костей хитов: максимум вместо броска,
+     * «1 и 2 как 3», бесплатная первая кость. Те же правила читает цена
+     * ресурсом (`engine/effectPay.ts`)
+     */
+    hitDiceRules?: HitDiceSpendRules;
   }
 
   const props = withDefaults(defineProps<Props>(), {
     classes: () => [],
     manualHitDice: () => [],
+    hitDiceRules: () => ({
+      maximize: false,
+      lowAsThree: false,
+      freeDie: false,
+    }),
   });
 
   const emit = defineEmits<{
@@ -96,13 +112,17 @@
       : SHORT_REST_LABELS.finish,
   );
 
-  /** Формула броска выбранных костей (напр. «2к10 + 1к8 + 4») */
+  /**
+   * Формула броска выбранных костей (напр. «2к10 + 1к8 + 4»). Под правилом
+   * «максимум вместо броска» кости не бросаются — в формулу идёт их максимум.
+   */
   const rollFormula = computed(() => {
     const diceParts = hitDiceGroups.value
       .filter((group) => (pending[group.die] ?? 0) > 0)
-      .map(
-        (group) =>
-          `${pending[group.die]}${ACTOR_LEFT_PANEL_LABELS.hitDieLetter}${group.die}`,
+      .map((group) =>
+        props.hitDiceRules.maximize
+          ? String((pending[group.die] ?? 0) * group.die)
+          : `${pending[group.die]}${ACTOR_LEFT_PANEL_LABELS.hitDieLetter}${group.die}`,
       );
 
     if (diceParts.length === 0) {
@@ -163,7 +183,13 @@
     if (totalPending.value > 0 && rollFormula.value) {
       const rollData = diceRollerStore.parseAndRoll(rollFormula.value);
 
-      const healed = Math.max(0, rollData.total);
+      // «1 и 2 считаются как 3»: роллер приложения этого правила не знает —
+      // сумма поправляется по выпавшим значениям
+      const lowBonus = props.hitDiceRules.lowAsThree
+        ? lowHitDiceBonus(rollData.dice.flatMap((group) => group.values))
+        : 0;
+
+      const healed = Math.max(0, rollData.total + lowBonus);
 
       newCurrent = Math.min(
         props.maxHitPoints,
@@ -176,9 +202,16 @@
 
       chatStore.sendMessage(rollFormula.value, 'roll', rollData);
 
+      // «Первая кость после отдыха не тратится»: одна из костей этого отдыха
+      // даёт лечение, но не списывается
+      let freeDice = props.hitDiceRules.freeDie ? 1 : 0;
+
       // Иммутабельно списываем выбранные кости каждого размера по очереди
       for (const group of hitDiceGroups.value) {
-        const count = pending[group.die] ?? 0;
+        const picked = pending[group.die] ?? 0;
+        const count = Math.max(0, picked - freeDice);
+
+        freeDice = Math.max(0, freeDice - picked);
 
         if (count > 0) {
           const spent = spendHitDice(

@@ -136,6 +136,7 @@ import {
   prepareAmmunitionShot,
   spendShotAmmunition,
 } from '../composables/effectActivationUse';
+import { runWithSpellCastPay } from '../composables/effectPayChoice';
 import {
   readEntityCounters,
   toggleEntityEffect,
@@ -932,7 +933,15 @@ export function registerDnd5eMacros(): void {
             actor.id,
             availableLevels,
             (level, targets) => {
-              castBuffSpellMacro(spell, actor, level, targets);
+              runWithMacroCastPay(
+                spell,
+                actor,
+                level,
+                availableLevels,
+                (paidSpell, _castLevel, paidActor) => {
+                  castBuffSpellMacro(paidSpell, paidActor, level, targets);
+                },
+              );
             },
           );
 
@@ -964,7 +973,7 @@ export function registerDnd5eMacros(): void {
         if (spell.areaOfEffect) {
           // Область растёт от круга — круг до шаблона, иначе сразу шаблон
           chooseAreaCastLevel(spell, availableLevels, (castLevel) => {
-            executeSpellCast(spell, actor, castLevel);
+            executeSpellCast(spell, actor, castLevel, availableLevels);
           });
 
           return;
@@ -989,7 +998,7 @@ export function registerDnd5eMacros(): void {
             availableSpellLevels: availableLevels,
             onConfirm: (selectedLevel: number) => {
               // Передаем зафиксированный уровень заклинания в executeSpellCast
-              executeSpellCast(spell, actor, selectedLevel);
+              executeSpellCast(spell, actor, selectedLevel, availableLevels);
             },
           });
 
@@ -1010,7 +1019,7 @@ export function registerDnd5eMacros(): void {
               color: 'primary',
               onClick: () => {
                 promptStore.removePrompt(promptId);
-                executeSpellCast(spell, actor);
+                executeSpellCast(spell, actor, undefined, availableLevels);
               },
             },
             {
@@ -1034,13 +1043,82 @@ export function registerDnd5eMacros(): void {
 }
 
 /**
- * Выполняет каст заклинания после подтверждения в Action Prompt.
+ * Оплачивает цену каста сверх ячейки («потратьте две Кости Хитов, иначе
+ * заклинание провалится») и продолжает каст оплаченным заклинанием. Лист
+ * дальше берётся уже оплаченный: ячейку каст списывает с него, и прежняя
+ * запись вернула бы потраченное.
+ *
+ * @param spell - заклинание; цена ещё не оплачена
+ * @param actor - актор-владелец
+ * @param lockedSpellLevel - круг, выбранный раньше
+ * @param availableLevels - круги, которыми можно наложить
+ * @param proceed - продолжение каста: заклинание, круг и лист после оплаты
+ */
+function runWithMacroCastPay(
+  spell: Spell,
+  actor: DnDActor,
+  lockedSpellLevel: number | undefined,
+  availableLevels: readonly number[],
+  proceed: (
+    paidSpell: Spell,
+    castLevel: number | undefined,
+    paidActor: DnDActor,
+  ) => void,
+): void {
+  runWithSpellCastPay(
+    spell,
+    actor,
+    {
+      ...(lockedSpellLevel === undefined
+        ? {}
+        : { lockedLevel: lockedSpellLevel }),
+      availableLevels,
+    },
+    (paidSpell, castLevel, paidCaster) => {
+      proceed(
+        paidSpell,
+        castLevel,
+        isDnDActorEntity(paidCaster) ? paidCaster : actor,
+      );
+    },
+  );
+}
+
+/**
+ * Выполняет каст заклинания после подтверждения в Action Prompt: сначала цена
+ * сверх ячейки, затем сам каст.
+ *
+ * @param sourceSpell - заклинание
+ * @param sourceActor - актор-владелец
+ * @param lockedLevel - круг, выбранный раньше
+ * @param availableLevels - круги, которыми можно наложить
+ */
+function executeSpellCast(
+  sourceSpell: Spell,
+  sourceActor: DnDActor,
+  lockedLevel: number | undefined,
+  availableLevels: readonly number[],
+): void {
+  runWithMacroCastPay(
+    sourceSpell,
+    sourceActor,
+    lockedLevel,
+    availableLevels,
+    (paidSpell, castLevel, paidActor) => {
+      executePaidSpellCast(paidSpell, paidActor, castLevel);
+    },
+  );
+}
+
+/**
+ * Выполняет оплаченный каст: шаблон области либо сразу окно броска.
  *
  * @param spell - заклинание
  * @param actor - актор-владелец
+ * @param lockedSpellLevel - круг, выбранный раньше
  */
-function executeSpellCast(
-  spell: import('@vtt/shared/system/dnd.js').Spell,
+function executePaidSpellCast(
+  spell: Spell,
   actor: DnDActor,
   lockedSpellLevel?: number,
 ): void {
@@ -1084,8 +1162,15 @@ function executeSpellCast(
                 templateStore.removePlacedTemplate(templateId);
                 // Удаляем визуальный шаблон с карты
                 templateStore.deleteTemplate(templateId);
-                // Открываем окно кубиков для броска урона/атаки
-                openDiceRollForSpell(spell, actor, cachedTemplate);
+
+                // Открываем окно кубиков для броска урона/атаки. Круг,
+                // выбранный до шаблона, закрепляется и в окне
+                openDiceRollForSpell(
+                  spell,
+                  actor,
+                  cachedTemplate,
+                  lockedSpellLevel,
+                );
               },
             },
             {

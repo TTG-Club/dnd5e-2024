@@ -105,6 +105,7 @@ import {
 import { DEFENSIBLE_DAMAGE_TYPES } from './damageConstants.js';
 import { collectStaticDamageDefenses } from './damageUtils.js';
 import { resolveDiceCountExpressions } from './diceCountExpressions.js';
+import { bindLivePaid } from './effectPaidTokens.js';
 import {
   buildFormulaContext,
   evaluateFormula,
@@ -572,7 +573,9 @@ export function collectActiveEffects(
         continue; // Эффект-аура генерируется, но на самого себя не действует
       }
 
-      collectedEffects.push(effect);
+      // Потраченное при включении (`@paid.*`) — в формулы включённого
+      // переключателя; у эффекта без оплаты это тот же объект
+      collectedEffects.push(bindLivePaid(effect));
     }
   }
 

@@ -40,6 +40,7 @@ import type {
   DamageEventsResult,
   TriggerEventOptions,
 } from './effectDamageEvents.js';
+import type { TriggerSourcePreparer } from './effectPay.js';
 import type { IncomingAttackContext } from './effectPipeline.js';
 import type {
   DeferredTurnTrigger,
@@ -55,7 +56,6 @@ import type {
   SceneMoveOptions,
   TurnDamageOutcome,
   TurnHealingOutcome,
-  TurnSaveOutcome,
 } from './turnEffects.js';
 
 import { getHealthCondition, HEALTH_CONDITIONS, isRecord } from '@vtt/shared';
@@ -182,6 +182,7 @@ import {
   decrementActorEffectDurations,
   expireTurnEffects as expireEntityTurnEffects,
   formatEffectsSummary,
+  formatEntrySaveStatus,
   formatRecurringSaveStatus,
   formatTurnEffectsMessage,
   resolveTurnSummaryLabel,
@@ -314,16 +315,6 @@ const REJECTED_COMBAT_STATE: SystemCombatStateResult = {
   changed: false,
   chatSummary: null,
 };
-
-/**
- * Итог спасброска при входе в зону или ауру в сводке чата.
- *
- * @param save - исход спасброска
- * @returns подпись итога
- */
-function formatEntrySaveStatus(save: TurnSaveOutcome): string {
-  return save.passed ? '✓ спас' : '✗ провал';
-}
 
 /**
  * Сводка отложенного исхода зоны, ауры или события для чата.
@@ -642,6 +633,7 @@ function toAreaLister(
  * @param requestRoll - запрос от ядра
  * @param listEntitiesInArea - поиск соседей по сцене
  * @param answerOptions - опции наложения этой границы хода
+ * @param prepare - подготовка срабатывания по ответу (оплата цены)
  * @returns отложенное срабатывание; `null`, если выбирать не из кого
  */
 function requestTurnTriggerChoice(
@@ -653,6 +645,7 @@ function requestTurnTriggerChoice(
     area: EffectTriggerArea,
   ) => DnDSceneEntity[],
   answerOptions: EntryEffectOptions,
+  prepare?: TriggerSourcePreparer,
 ): EngineDeferredTrigger | null {
   const { choice } = turnTrigger.trigger;
 
@@ -668,6 +661,7 @@ function requestTurnTriggerChoice(
     requestRoll,
     formatEffectRequesterLabel(turnTrigger.effect.name),
     answerOptions,
+    prepare,
   );
 }
 
@@ -1175,15 +1169,18 @@ function settleTurnEffects(
             turnTrigger,
             requestRoll,
             formatEffectRequesterLabel(turnTrigger.effect.name),
-            answerOptions,
-            () =>
-              requestTurnTriggerChoice(
-                entity,
-                turnTrigger,
-                requestRoll,
-                listEntitiesInArea,
-                answerOptions,
-              ),
+            {
+              effectOptions: answerOptions,
+              buildChoiceRequest: (prepare) =>
+                requestTurnTriggerChoice(
+                  entity,
+                  turnTrigger,
+                  requestRoll,
+                  listEntitiesInArea,
+                  answerOptions,
+                  prepare,
+                ),
+            },
           );
         }
 
@@ -1527,7 +1524,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.148';
+  readonly version = '0.8.149';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.

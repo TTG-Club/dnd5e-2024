@@ -17,6 +17,10 @@ import type {
   Spell,
   SpellRollSource,
 } from './dndEntities.js';
+import type {
+  SelfTriggerOptions,
+  SelfTriggerReport,
+} from './effectTriggerRunner.js';
 import type { EffectTrigger } from './effectTriggerTypes.js';
 import type { ActorCounterState } from './types.js';
 
@@ -34,6 +38,11 @@ import {
 import { listEffectEventTriggers } from './effectTriggers.js';
 import { canSpendItemUses, isItemDepleted, spendItemUses } from './itemUses.js';
 import { buildPseudoSpell } from './spellUtils.js';
+import {
+  appendEffectsSummaryNotes,
+  formatEffectsSummary,
+  formatEntrySaveStatus,
+} from './turnEffects.js';
 
 /** Свойство оружия, стреляющего боеприпасами */
 export const AMMUNITION_PROPERTY = 'ammunition';
@@ -77,7 +86,23 @@ export function canUseItem(item: DnDGameItem): boolean {
     return false;
   }
 
-  return canSpendItemUses(item) && !isItemDepleted(item);
+  return (
+    (canSpendItemUses(item) || hasPricedItemUse(item)) && !isItemDepleted(item)
+  );
+}
+
+/**
+ * Есть ли у предмета свойство со своей ценой в зарядах («первое слово —
+ * бесплатно»): хватит ли зарядов, решает цена выбранного свойства, а не
+ * обычный расход применения.
+ *
+ * @param item - предмет
+ * @returns `true`, если хоть одно свойство платит зарядами само
+ */
+export function hasPricedItemUse(item: DnDGameItem): boolean {
+  return listUseEffects(item.activeEffects).some((effect) =>
+    (effect.pay ?? []).some((price) => price.kind === 'itemUses'),
+  );
 }
 
 /**
@@ -141,7 +166,7 @@ export function describeItemUseAvailability(
   }
 
   if (item.uses) {
-    return canSpendItemUses(item)
+    return canSpendItemUses(item) || hasPricedItemUse(item)
       ? { remaining: item.uses.current }
       : { blocked: 'noUses', remaining: item.uses.current };
   }
@@ -866,13 +891,13 @@ export function payActivation(
  * @param copy - копия сущности (меняется)
  * @param effectId - эффект
  * @param listTriggers - какие срабатывания эффекта выполнять
- * @param combatRound - номер идущего раунда: расписание «на раунде N»
+ * @param options - раунд боя, выбор цены и сбор сводки
  */
 function settleOwnEffectTriggers(
   copy: DnDSceneEntity,
   effectId: string,
   listTriggers: (effect: ActiveEffect) => EffectTrigger[],
-  combatRound: number | undefined,
+  options: SelfTriggerOptions,
 ): void {
   const effect = (copy.activeEffects ?? []).find(
     (entry) => entry.id === effectId,
@@ -889,7 +914,7 @@ function settleOwnEffectTriggers(
       EFFECT_TRIGGER_SOURCE_KINDS.instance,
       listTriggers,
     ),
-    combatRound,
+    options,
   );
 }
 
@@ -904,6 +929,7 @@ function settleOwnEffectTriggers(
  * @param effectId - включаемый эффект
  * @param prepare - подготовка включённого эффекта
  * @param combatRound - номер идущего раунда: расписание «на раунде N»
+ * @param options - выбор цены срабатываний и сбор сводки для чата
  * @returns копия сущности для боевого канала
  */
 export function activateEffectOnEntity(
@@ -911,6 +937,7 @@ export function activateEffectOnEntity(
   effectId: string,
   prepare: (effect: ActiveEffect) => ActiveEffect = (switched) => switched,
   combatRound?: number,
+  options: Omit<SelfTriggerOptions, 'combatRound'> = {},
 ): DnDSceneEntity {
   const activated = cloneEntityData(entity);
   const effects = activated.activeEffects ?? [];
@@ -932,7 +959,7 @@ export function activateEffectOnEntity(
     activated,
     effectId,
     (effect) => listEffectEventTriggers(effect, 'activate'),
-    combatRound,
+    { ...options, combatRound },
   );
 
   return activated;
@@ -981,21 +1008,72 @@ export function hasEffectActiveAction(effect: ActiveEffect): boolean {
  * @param entity - сущность из стора (не мутируется)
  * @param effectId - эффект, чьё действие запускают
  * @param combatRound - номер идущего раунда: расписание «на раунде N»
+ * @param options - выбор цены срабатываний и сбор сводки для чата
  * @returns копия сущности для боевого канала
  */
 export function runEffectActiveAction(
   entity: DnDSceneEntity,
   effectId: string,
   combatRound?: number,
+  options: Omit<SelfTriggerOptions, 'combatRound'> = {},
 ): DnDSceneEntity {
   const acted = cloneEntityData(entity);
 
-  settleOwnEffectTriggers(
-    acted,
-    effectId,
-    listEffectActiveActions,
+  settleOwnEffectTriggers(acted, effectId, listEffectActiveActions, {
+    ...options,
     combatRound,
-  );
+  });
 
   return acted;
+}
+
+/** Подпись момента в сводке срабатываний кнопки и переключателя */
+const SELF_TRIGGER_SUMMARY_LABEL = 'действие';
+
+/**
+ * Сводка срабатываний, выполненных на самой сущности, — для чата: урон,
+ * лечение, спасброски и строки «Сообщить». Сервер такую сводку собирает сам, а
+ * кнопку «При действии» и переключатель выполняет клиент — без этой строки
+ * сообщение срабатывания до чата не доходило.
+ *
+ * @param entityName - имя сущности
+ * @param report - что собрали срабатывания
+ * @returns строка для чата либо `null`, если сообщать нечего
+ */
+export function formatSelfTriggerReport(
+  entityName: string,
+  report: SelfTriggerReport,
+): string | null {
+  const damageOutcomes = report.results.flatMap((result) =>
+    result.damageOutcome ? [result.damageOutcome] : [],
+  );
+
+  const healingOutcomes = report.results.flatMap((result) =>
+    result.healingOutcome ? [result.healingOutcome] : [],
+  );
+
+  const saveOutcomes = report.results.flatMap((result) =>
+    result.saveOutcome ? [result.saveOutcome] : [],
+  );
+
+  const hasOutcomes =
+    damageOutcomes.length > 0
+    || healingOutcomes.length > 0
+    || saveOutcomes.length > 0;
+
+  return appendEffectsSummaryNotes(
+    hasOutcomes
+      ? formatEffectsSummary(
+          entityName,
+          SELF_TRIGGER_SUMMARY_LABEL,
+          damageOutcomes,
+          saveOutcomes,
+          formatEntrySaveStatus,
+          healingOutcomes,
+        )
+      : null,
+    entityName,
+    SELF_TRIGGER_SUMMARY_LABEL,
+    report.notes,
+  );
 }

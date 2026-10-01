@@ -119,6 +119,18 @@ export const EFFECT_TRIGGER_ROW_LABELS = {
   restoreLevel: 'Круг',
   restoreCounter: 'Ключ ресурса',
   restoreAmount: 'Сколько',
+  restoreAmountPlaceholder: '1',
+  restoreAmountHint:
+    'Число или формула: 2, @paid.slotLevel, max(1, @mod.wis). Пусто — одна единица.',
+  restoreSet: 'Установить в это число',
+  restoreSetHint:
+    'Счётчик не прибавляется, а становится этим числом: новая трата заменяет прежний запас.',
+  setHpFormula: 'Хиты формулой',
+  setHpFormulaHint:
+    'Вместо числа: 5 * @paid.slotLevel, 2 * @classLevel. Пусто — число слева.',
+  durationFormula: 'Срок формулой',
+  durationFormulaHint:
+    'Число раундов формулой: @paid.hitDice, 1к4, @mod.con. Бросается один раз, при наложении. Пусто — срок слева.',
   dispelMaxLevel: 'До какого круга',
   dispelWithoutLevel: 'И то, у чего круг неизвестен',
   endCastWhose: 'Чей каст',

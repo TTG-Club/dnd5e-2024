@@ -245,6 +245,37 @@ export function takeTriggerUse(
   return true;
 }
 
+/**
+ * Пройдёт ли срабатывание по лимиту — без отметки в счётчике. Так проверяют
+ * срабатывание, которое сперва спросит человека: лимит тратит согласие, а не
+ * вопрос ({@link takeTriggerUse} — уже по ответу).
+ *
+ * @param entity - субъект
+ * @param scope - источник эффекта
+ * @param trigger - срабатывание
+ * @param inCombat - идёт ли у субъекта бой
+ * @returns `true`, если лимит не исчерпан
+ */
+export function canTakeTriggerUse(
+  entity: DnDSceneEntity,
+  scope: string,
+  trigger: EffectTrigger,
+  inCombat = true,
+): boolean {
+  const limit = resolveTriggerLimit(trigger);
+
+  if (!limit || (!inCombat && COMBAT_LIMIT_PERIODS.includes(limit.per))) {
+    return true;
+  }
+
+  const key = buildTriggerUsageKey(
+    trigger.limit ? scope : REACTION_USAGE_SCOPE,
+    { ...trigger, limit },
+  );
+
+  return !isTriggerLimitReached(entity, key, limit);
+}
+
 /** Какие периоды лимита заканчивает отдых */
 const REST_LIMIT_PERIODS: Record<
   RestType,
@@ -307,6 +338,25 @@ export function resetTriggerUsage(
   writeTriggerUsage(entity, kept ?? {});
 
   return true;
+}
+
+/**
+ * Остались ли у эффекта заряды — без траты: проверка срабатывания, которое
+ * сперва спросит человека.
+ *
+ * @param entity - субъект
+ * @param effectId - эффект, чьё срабатывание идёт
+ * @returns `true`, если зарядов нет вовсе или они ещё есть
+ */
+export function hasEffectCharge(
+  entity: DnDSceneEntity,
+  effectId: string,
+): boolean {
+  const charges = entity.activeEffects?.find(
+    (effect) => effect.id === effectId,
+  )?.charges;
+
+  return !charges || charges.current > 0;
 }
 
 /**

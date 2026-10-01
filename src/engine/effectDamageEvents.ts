@@ -46,11 +46,13 @@ import { isEffectDormant, listLiveEffects } from './activeEffectTypes.js';
 import {
   formatEffectNotes,
   ignoreRejectedRollRequest,
+  requestTriggerAsk,
   requestTriggerChoice,
   snapshotTriggerSource,
   toDeferredEffectOutcome,
   unchangedOutcome,
 } from './deferredEffectSaves.js';
+import { settleUnaskedTriggerPay } from './effectPay.js';
 import { listEquippedItemEffects, listTraitEffects } from './effectPipeline.js';
 import {
   buildEffectSaveRollRequest,
@@ -76,6 +78,7 @@ import {
   DEFAULT_TRIGGER_RECIPIENT,
   MAX_TRIGGER_PATH_REPEATS,
   SOURCE_TRIGGER_RECIPIENT,
+  triggerAsksPermission,
 } from './effectTriggerTypes.js';
 import { resolveEntityCurrentHp } from './hitPoints.js';
 import { listChoiceCandidates } from './triggerChoice.js';
@@ -432,7 +435,7 @@ function resolveTriggerRecipients(
  * и бросок атаки — у них разные только данные события.
  *
  * @param subject - субъект: на нём эффект
- * @param source - срабатывание с источником
+ * @param rawSource - срабатывание с источником
  * @param rawEventData - данные события: урон, бросок, другая сторона
  * @param options - с чем прогоняются события
  * @param result - общий итог (пополняется)
@@ -441,7 +444,7 @@ function resolveTriggerRecipients(
  */
 function runTriggerEventSource(
   subject: DnDSceneEntity,
-  source: EffectTriggerSource,
+  rawSource: EffectTriggerSource,
   rawEventData: TriggerEventData,
   options: TriggerEventOptions,
   result: DamageEventsResult,
@@ -452,33 +455,113 @@ function runTriggerEventSource(
 
   const recipients = resolveTriggerRecipients(
     subject,
-    source,
+    rawSource,
     eventData,
     options,
   );
 
   // Эффект, снятый раньше в этой же серии, больше не срабатывает
   const removed =
-    source.instance
+    rawSource.instance
     && !(subject.activeEffects ?? []).some(
-      (effect) => effect.id === source.effect.id,
+      (effect) => effect.id === rawSource.effect.id,
     );
 
   if (recipients.length === 0 || removed) {
     return 'skipped';
   }
 
-  if (!admitTrigger(subject, source, eventData, options.inCombat)) {
+  const { requestRoll } = options;
+  const { choice } = rawSource.trigger;
+
+  const choosesRecipients =
+    rawSource.trigger.recipient === CHOICE_TRIGGER_RECIPIENT
+    && choice !== undefined;
+
+  // Срабатывание, которое спросит человека, лимит тратит уже по согласию
+  const asks = triggerAsksPermission(rawSource.trigger) && Boolean(requestRoll);
+
+  if (!admitTrigger(subject, rawSource, eventData, options.inCombat, asks)) {
     return 'skipped';
+  }
+
+  /** Опции наложения ответа человека: те же, что у броска сервера */
+  const answerOptions: EntryEffectOptions = {
+    ambientEffects: options.ambientEffects ?? [],
+    activeTurnActorId: options.activeTurnActorId,
+    endCast: options.endCast,
+    eventDamage: eventData.damage?.amount,
+    surroundings: options.surroundings,
+    moveToken: options.moveToken,
+    moveArea: options.moveArea,
+  };
+
+  // «Спрашивать разрешения», цена «Реакция» и цена ресурсом: срабатывание
+  // ждёт согласия владельца — и уже по нему выбирает цель и платит
+  if (asks && requestRoll) {
+    const requesterLabel = formatEffectRequesterLabel(rawSource.effect.name);
+
+    const asked = requestTriggerAsk(
+      subject,
+      rawSource,
+      requestRoll,
+      requesterLabel,
+      {
+        effectOptions: answerOptions,
+        inCombat: options.inCombat,
+        ...(choosesRecipients && choice
+          ? {
+              buildChoiceRequest: (prepare) =>
+                requestTriggerChoice(
+                  subject,
+                  rawSource,
+                  recipients,
+                  choice,
+                  requestRoll,
+                  requesterLabel,
+                  answerOptions,
+                  prepare,
+                ),
+            }
+          : { recipients }),
+        ...(continuation
+          ? {
+              finish: (liveSubject, outcome) =>
+                withContinuation(outcome, continuation(liveSubject)),
+            }
+          : {}),
+      },
+    );
+
+    // Цена не по карману — срабатывание молчит
+    if (!asked) {
+      return 'skipped';
+    }
+
+    result.deferred.push(asked);
+
+    return 'deferred';
+  }
+
+  // Спросить некого: цена без выбора списывается сама, иначе срабатывание не
+  // состоится
+  const prepared = settleUnaskedTriggerPay(subject, rawSource);
+
+  if (!prepared) {
+    return 'skipped';
+  }
+
+  const { source } = prepared;
+
+  if (prepared.notes.length > 0) {
+    result.changed = true;
+    result.notes.push(...prepared.notes);
   }
 
   // Получатель «по выбору»: кто именно, решает человек — всё срабатывание
   // ждёт ответа, а найденные кандидаты уходят в запрос
-  if (
-    source.trigger.recipient === CHOICE_TRIGGER_RECIPIENT
-    && source.trigger.choice
-  ) {
-    if (!options.requestRoll) {
+  if (choosesRecipients && choice) {
+    if (!requestRoll) {
       return 'skipped';
     }
 
@@ -486,15 +569,10 @@ function runTriggerEventSource(
       subject,
       source,
       recipients,
-      source.trigger.choice,
-      options.requestRoll,
+      choice,
+      requestRoll,
       formatEffectRequesterLabel(source.effect.name),
-      {
-        ambientEffects: options.ambientEffects ?? [],
-        activeTurnActorId: options.activeTurnActorId,
-        endCast: options.endCast,
-        eventDamage: eventData.damage?.amount,
-      },
+      answerOptions,
     );
 
     if (!deferred) {

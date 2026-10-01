@@ -39,6 +39,7 @@ import {
   readEffectSuccessOutcome,
   resolveEffectFormLayout,
 } from './effectFormLayout.js';
+import { describeEffectPay } from './effectPayTypes.js';
 import {
   describeEffectTrigger,
   describeTriggerCondition,
@@ -121,6 +122,7 @@ const SCENARIO_LABELS = {
   counterPrefix: ', тратит «',
   counterSuffix: '»',
   counterAmountPrefix: ' ×',
+  payPrefix: ', цена: ',
   exclusivePrefix: ', одно включение «',
   exclusiveSuffix: '»',
   savePrefix: 'спасбросок ',
@@ -513,11 +515,16 @@ export function describeEffectScenario(
     ? `${describeActivationCounter(effect)}${describeActivationExclusive(effect)}`
     : '';
 
+  const pay =
+    layout.showPay && effect.pay
+      ? `${SCENARIO_LABELS.payPrefix}${describeEffectPay(effect.pay)}`
+      : '';
+
   const rollCondition = effect.rollCondition
     ? `${SCENARIO_LABELS.rollConditionPrefix}${describeEffectChangeCondition(effect.rollCondition).toLowerCase()}`
     : '';
 
-  const moment = `${variant}${describeMoment(effect, layout)}${counter}${condition}${rollCondition}`;
+  const moment = `${variant}${describeMoment(effect, layout)}${counter}${pay}${condition}${rollCondition}`;
   const lasting = describeLastingPayload(effect, layout);
 
   const damage =

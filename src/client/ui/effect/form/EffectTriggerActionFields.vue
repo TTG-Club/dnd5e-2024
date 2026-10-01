@@ -551,6 +551,62 @@
   }
 
   /**
+   * Меняет «сколько вернуть»: число или формула; пусто — одна единица.
+   *
+   * @param value - введённая формула
+   */
+  function updateRestoreAmount(value: string | number): void {
+    const amount = String(value).trim();
+
+    if (action.value.type === 'restore') {
+      action.value = { ...action.value, amount: amount || undefined };
+    }
+  }
+
+  const restoreSet = computed({
+    get: () => action.value.type === 'restore' && action.value.set === true,
+    set: (enabled: boolean) => {
+      if (action.value.type === 'restore') {
+        action.value = { ...action.value, set: enabled ? true : undefined };
+      }
+    },
+  });
+
+  /**
+   * Меняет хиты формулой у «Хиты становятся»; пусто — число действия.
+   *
+   * @param value - введённая формула
+   */
+  function updateSetHpFormula(value: string | number): void {
+    const formula = String(value).trim();
+
+    if (action.value.type === 'setHp') {
+      action.value = { ...action.value, formula: formula || undefined };
+    }
+  }
+
+  /** Срок состояния или отметки формулой; пусто — срок числом */
+  const durationFormula = computed(() =>
+    action.value.type === 'applyCondition' || action.value.type === 'applyTag'
+      ? (action.value.durationFormula ?? '')
+      : '',
+  );
+
+  /**
+   * Меняет срок состояния или отметки формулой; пусто — срок числом.
+   *
+   * @param value - введённая формула
+   */
+  function updateDurationFormula(value: string | number): void {
+    const formula = String(value).trim();
+    const current = action.value;
+
+    if (current.type === 'applyCondition' || current.type === 'applyTag') {
+      action.value = { ...current, durationFormula: formula || undefined };
+    }
+  }
+
+  /**
    * Меняет ключ ресурса листа. Пустой ключ не пишется: без него возвращать
    * нечего.
    *
@@ -778,6 +834,23 @@
           @update:model-value="updateRounds"
         />
       </UFormField>
+
+      <UFormField class="w-48">
+        <template #label>
+          <span class="flex items-center gap-1">
+            {{ EFFECT_TRIGGER_ROW_LABELS.durationFormula }}
+
+            <FieldHint :text="EFFECT_TRIGGER_ROW_LABELS.durationFormulaHint" />
+          </span>
+        </template>
+
+        <UInput
+          :model-value="durationFormula"
+          size="sm"
+          class="w-full"
+          @update:model-value="updateDurationFormula"
+        />
+      </UFormField>
     </div>
 
     <USwitch
@@ -916,6 +989,26 @@
       />
     </UFormField>
 
+    <UFormField
+      v-if="!action.toMax"
+      class="w-56"
+    >
+      <template #label>
+        <span class="flex items-center gap-1">
+          {{ EFFECT_TRIGGER_ROW_LABELS.setHpFormula }}
+
+          <FieldHint :text="EFFECT_TRIGGER_ROW_LABELS.setHpFormulaHint" />
+        </span>
+      </template>
+
+      <UInput
+        :model-value="action.formula ?? ''"
+        size="sm"
+        class="w-full"
+        @update:model-value="updateSetHpFormula"
+      />
+    </UFormField>
+
     <USwitch
       v-model="setHpToMax"
       :label="EFFECT_TRIGGER_ROW_LABELS.setHpToMax"
@@ -963,6 +1056,23 @@
         size="sm"
         class="w-full"
         @update:model-value="updateRounds"
+      />
+    </UFormField>
+
+    <UFormField class="w-48">
+      <template #label>
+        <span class="flex items-center gap-1">
+          {{ EFFECT_TRIGGER_ROW_LABELS.durationFormula }}
+
+          <FieldHint :text="EFFECT_TRIGGER_ROW_LABELS.durationFormulaHint" />
+        </span>
+      </template>
+
+      <UInput
+        :model-value="durationFormula"
+        size="sm"
+        class="w-full"
+        @update:model-value="updateDurationFormula"
       />
     </UFormField>
 
@@ -1172,6 +1282,32 @@
         @update:model-value="updateRestoreCounter"
       />
     </UFormField>
+
+    <UFormField class="w-44">
+      <template #label>
+        <span class="flex items-center gap-1">
+          {{ EFFECT_TRIGGER_ROW_LABELS.restoreAmount }}
+
+          <FieldHint :text="EFFECT_TRIGGER_ROW_LABELS.restoreAmountHint" />
+        </span>
+      </template>
+
+      <UInput
+        :model-value="action.amount ?? ''"
+        :placeholder="EFFECT_TRIGGER_ROW_LABELS.restoreAmountPlaceholder"
+        size="sm"
+        class="w-full"
+        @update:model-value="updateRestoreAmount"
+      />
+    </UFormField>
+
+    <USwitch
+      v-if="action.what === 'counter'"
+      v-model="restoreSet"
+      class="self-end"
+      :label="EFFECT_TRIGGER_ROW_LABELS.restoreSet"
+      :description="EFFECT_TRIGGER_ROW_LABELS.restoreSetHint"
+    />
   </div>
 
   <div

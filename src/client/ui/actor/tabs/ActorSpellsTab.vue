@@ -10,6 +10,7 @@
     DnDActor,
     DnDCustomBonusContext,
     DnDPreparedLimit,
+    DnDSceneEntity,
     DnDSpellSlotSettings,
     PreparedKind,
     RollContext,
@@ -42,7 +43,7 @@
   import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
   import { useTargetStore } from '@/stores/targetStore';
   import { useWorldStore } from '@/stores/worldStore';
-  import { generateId, isRecord } from '@vtt/shared';
+  import { generateId, isActorEntity, isRecord } from '@vtt/shared';
   import {
     applySpellSlotSettings,
     buildCasterTypeMap,
@@ -104,6 +105,7 @@
     runWithDamageTypeChoices,
     useDamageTypeLabel,
   } from '../../../composables/damageTypeChoice';
+  import { runWithSpellCastPay } from '../../../composables/effectPayChoice';
   import { runWithEffectVariants } from '../../../composables/effectVariantChoice';
   import {
     buildRollBonusEvaluator,
@@ -1713,8 +1715,57 @@
     triggerSaveIfNotEdit();
   }
 
-  /** Продолжает подтверждённый каст с зафиксированными целями эффекта. */
+  /**
+   * Записывает лист после оплаты цены каста: ресурсы листа и предметы — тем же
+   * сохранением листа, что и ячейка, чтобы оно оплату не затёрло.
+   *
+   * @param paidCaster - заклинатель со списанными ресурсами
+   */
+  function commitPaidCaster(paidCaster: DnDSceneEntity): void {
+    if (!isActorEntity(paidCaster)) {
+      return;
+    }
+
+    emit('update:actor', {
+      system: paidCaster.system,
+      equipment: paidCaster.equipment,
+    });
+
+    triggerSaveIfNotEdit();
+  }
+
+  /**
+   * Продолжает подтверждённый каст: сначала цена сверх ячейки («потратьте две
+   * Кости Хитов, иначе заклинание провалится»), затем сам каст — уже с
+   * потраченным в формулах заклинания и его эффектов.
+   *
+   * @param sourceSpell - заклинание; цена ещё не оплачена
+   * @param lockedSpellLevel - круг, выбранный до окна
+   * @param effectTargets - цели эффекта, выбранные до окна
+   */
   function proceedWithCastSpell(
+    sourceSpell: Spell,
+    lockedSpellLevel?: number,
+    effectTargets?: SpellEffectTargets,
+  ): void {
+    runWithSpellCastPay(
+      sourceSpell,
+      props.actor,
+      {
+        ...(lockedSpellLevel === undefined
+          ? {}
+          : { lockedLevel: lockedSpellLevel }),
+        availableLevels: getCastableSpellLevels(sourceSpell),
+        commit: commitPaidCaster,
+      },
+      (spell, castLevel) => {
+        proceedWithPaidCast(spell, castLevel, effectTargets);
+      },
+    );
+  }
+
+  /** Продолжает оплаченный каст с зафиксированными целями эффекта. */
+  function proceedWithPaidCast(
     spell: Spell,
     lockedSpellLevel?: number,
     effectTargets?: SpellEffectTargets,

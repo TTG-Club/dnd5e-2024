@@ -37,6 +37,7 @@ import type {
 import type { CreatureCategory } from './creatureTypes.js';
 import type { DnDCustomBonusContext } from './customBonuses.js';
 import type { EffectChangeStep } from './effectChangeSteps.js';
+import type { EffectPaid, EffectPay } from './effectPayTypes.js';
 import type { EffectActionCost, EffectTrigger } from './effectTriggerTypes.js';
 import type { EffectVariantPick } from './effectVariants.js';
 
@@ -67,6 +68,7 @@ import {
   EFFECT_CHANGE_STEP_PERIODS,
   MAX_EFFECT_CHANGE_STEP,
 } from './effectChangeSteps.js';
+import { EffectPaidSchema, EffectPaySchema } from './effectPayTypes.js';
 import {
   EFFECT_ACTION_COSTS,
   EFFECT_CAST_OWNERS,
@@ -1212,6 +1214,9 @@ export type EffectFlagKey =
   | 'concentration.blocked'
   | 'rest.noBenefit.short'
   | 'rest.noBenefit.long'
+  | 'hitDice.maximize'
+  | 'hitDice.lowAsThree'
+  | 'hitDice.firstFree'
   | DamageDefenseFlagKey
   | SkillFlagKey
   | SaveVsConditionFlagKey
@@ -1343,6 +1348,12 @@ const BASE_EFFECT_FLAG_LABELS: Record<
   'movement.teleportBlocked': 'Не может телепортироваться',
   'rest.noBenefit.short': 'Короткий отдых не приносит пользы',
   'rest.noBenefit.long': 'Продолжительный отдых не приносит пользы',
+
+  // Кости хитов: читают и короткий отдых, и цена ресурсом (`effectPay.ts`)
+  'hitDice.maximize': 'Кости хитов: максимум вместо броска',
+  'hitDice.lowAsThree': 'Кости хитов: выпавшие 1 и 2 считаются как 3',
+  'hitDice.firstFree':
+    'Кости хитов: первая после продолжительного отдыха не тратится',
 
   // Лечение
   'healing.blocked': 'Не может восстанавливать хиты',
@@ -2170,6 +2181,23 @@ export interface ActiveEffect extends BaseActiveEffect {
   activation?: EffectActivation;
 
   /**
+   * Цена ресурсом: что тратит тот, кто применяет, включает или колдует, —
+   * ячейку, кости хитов, счётчик листа, заряды предмета, вдохновение. У
+   * эффекта заклинания это цена каста сверх ячейки («потратьте две Кости
+   * Хитов, иначе заклинание провалится»), у применения и переключателя — цена
+   * кнопки. Не хватает ресурса — применение, включение и каст не состоятся.
+   * Считает {@link module:system/dnd/effectPay}.
+   */
+  pay?: EffectPay;
+
+  /**
+   * Что потрачено ценой: числа токенов `@paid.*`. Проставляется при оплате и
+   * живёт у наложенного или включённого эффекта, как круг каста: по нему
+   * считаются формулы эффекта и его срабатываний, пока он действует.
+   */
+  paid?: EffectPaid;
+
+  /**
    * Каст заклинания, к которому относится эффект: общий у эффектов заклинателя,
    * целей и зоны одного каста. Конец каста снимает их все.
    */
@@ -2980,6 +3008,15 @@ const MAX_CAST_ID_LENGTH = 64;
 /** Самая длинная формула действия срабатывания: урон максимума, хиты */
 const MAX_TRIGGER_FORMULA_LENGTH = 200;
 
+/**
+ * Zod-схема формулы действия срабатывания. Число из старых данных («вернуть 2
+ * единицы») читается как формула из одного числа.
+ */
+const TriggerFormulaSchema = z.preprocess(
+  (value) => (typeof value === 'number' ? String(value) : value),
+  z.string().trim().min(1).max(MAX_TRIGGER_FORMULA_LENGTH),
+);
+
 /** Больше правил режима у одного спасброска не бывает */
 const MAX_SAVE_MODE_RULES = 8;
 
@@ -3023,6 +3060,7 @@ const EFFECT_TRIGGER_PLAIN_ACTION_SCHEMAS = [
     tag: z.string().regex(EFFECT_TAG_PATTERN),
     label: z.string().min(1).optional().catch(undefined),
     duration: EffectDurationSchema.optional().catch(undefined),
+    durationFormula: TriggerFormulaSchema.optional().catch(undefined),
     stack: z.literal(true).optional().catch(undefined),
     on: EffectTriggerGateSchema,
   }),
@@ -3038,6 +3076,7 @@ const EFFECT_TRIGGER_PLAIN_ACTION_SCHEMAS = [
   z.object({
     type: z.literal('setHp'),
     value: z.preprocess(coerceOptionalNumber, z.number().int().min(0)),
+    formula: TriggerFormulaSchema.optional().catch(undefined),
     toMax: z.literal(true).optional().catch(undefined),
     on: EffectTriggerGateSchema,
   }),
@@ -3083,10 +3122,8 @@ const EFFECT_TRIGGER_PLAIN_ACTION_SCHEMAS = [
       .max(MAX_ACTIVATION_COUNTER_LENGTH)
       .optional()
       .catch(undefined),
-    amount: z.preprocess(
-      coerceOptionalNumber,
-      z.number().int().min(1).optional().catch(undefined),
-    ),
+    amount: TriggerFormulaSchema.optional().catch(undefined),
+    set: z.literal(true).optional().catch(undefined),
     on: EffectTriggerGateSchema,
   }),
   z.object({
@@ -3154,6 +3191,7 @@ const applyConditionActionShape = {
   type: z.literal('applyCondition'),
   conditionKey: z.string().min(1),
   duration: EffectDurationSchema.optional().catch(undefined),
+  durationFormula: TriggerFormulaSchema.optional().catch(undefined),
   recurringSave: RecurringSaveSchema.optional().catch(undefined),
   locked: z.literal(true).optional().catch(undefined),
   endsOnExit: z.literal(true).optional().catch(undefined),
@@ -3278,6 +3316,7 @@ const effectTriggerShape = {
   ),
   ask: z.literal(true).optional().catch(undefined),
   asker: z.enum(EFFECT_TRIGGER_CHOOSERS).optional().catch(undefined),
+  pay: EffectPaySchema,
   chancePercent: z.preprocess(
     coerceOptionalNumber,
     z
@@ -3438,6 +3477,8 @@ export const ActiveEffectSchema = z.object({
   landingCondition: z.string().trim().min(1).optional().catch(undefined),
   variant: EffectVariantSchema.optional().catch(undefined),
   activation: EffectActivationSchema.optional().catch(undefined),
+  pay: EffectPaySchema,
+  paid: EffectPaidSchema,
   rollCondition: z.string().trim().min(1).optional().catch(undefined),
   castId: z.string().min(1).max(MAX_CAST_ID_LENGTH).optional().catch(undefined),
   castLevel: z.preprocess(

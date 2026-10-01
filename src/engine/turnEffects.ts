@@ -1400,6 +1400,16 @@ export function formatRecurringSaveStatus(save: TurnSaveOutcome): string {
 }
 
 /**
+ * Итог спасброска при входе в зону или ауру в сводке чата.
+ *
+ * @param save - исход спасброска
+ * @returns подпись итога
+ */
+export function formatEntrySaveStatus(save: TurnSaveOutcome): string {
+  return save.passed ? '✓ спас' : '✗ провал';
+}
+
+/**
  * Первая строка сводки сработавших эффектов.
  *
  * @param entityName - имя сущности

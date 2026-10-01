@@ -4,6 +4,7 @@ import {
   formatConditionalDamageDisplay,
   formatDiceLetters,
   getSpellDamageParts,
+  labelPaidTokens,
   resolveActorStats,
   resolveSpellDamageFormula,
   scaleDamageFormula,
@@ -52,7 +53,9 @@ export function formatSpellDamageDisplay(
       // Инлайн-токены @dmg.<type> — это метки типа, не переменные роллера;
       // убираем их до подстановки @-переменных (иначе resolveVariable падает).
       const resolveTerm = (subFormula: string): string => {
-        const baseFormula = stripDamageTypeTokens(subFormula);
+        // Потраченное ценой (`@paid.*`) до каста неизвестно: показывается
+        // подписью, а не падает неизвестной переменной
+        const baseFormula = labelPaidTokens(stripDamageTypeTokens(subFormula));
 
         return actor && stats
           ? resolveSpellDamageFormula(spell, actor, baseFormula, stats)

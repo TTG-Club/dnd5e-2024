@@ -25,8 +25,10 @@ import {
   canPayActivation,
   canUseItem,
   collectEffectUseGroup,
+  collectSourcePay,
   findWeaponAmmunition,
   getCasterSpellEffects,
+  hasItemUsesPrice,
   isItemDepleted,
   isUseActivatedEffect,
   resolveActorStats,
@@ -38,6 +40,7 @@ import {
 
 import { EFFECT_USE_LABELS } from '../ui/effect/constants';
 import { runWithDamageTypeChoices } from './damageTypeChoice';
+import { runWithSourcePay } from './effectPayChoice';
 import {
   payEntityActivation,
   readEntityCounters,
@@ -62,46 +65,103 @@ export interface AmmunitionShot {
   ammunition?: DnDGameItem;
 }
 
+/** Расход источника вместе с ценой ресурсом — одним сохранением */
+export interface EffectSourceSpend {
+  /** Предмет, с которого пришёл эффект: с него берётся цена «заряды предмета» */
+  itemId?: string;
+  /**
+   * Прежний расход источника (счётчик применения, заряд или единица
+   * количества) поверх уже оплаченной сущности. Оплата цены и расход уходят
+   * одним сохранением: два подряд затёрли бы друг друга — стор обновляется
+   * только ответом сервера.
+   *
+   * @param paidUser - применивший после оплаты цены
+   * @param itemUsesPaid - цена сама списала заряды предмета: обычный расход
+   *   зарядов она заменяет
+   * @returns применивший после расхода
+   */
+  spendOn?: (paidUser: DnDSceneEntity, itemUsesPaid: boolean) => DnDSceneEntity;
+}
+
 /**
  * Применяет эффекты псевдо-заклинания применения: сначала выбор варианта и
  * типа урона на выбор (окна броска здесь нет — спрашивает плашка), затем
- * проверка цели, расход и наложение.
+ * проверка цели, цена ресурсом, расход и наложение.
  *
  * @param spell - псевдо-заклинание применения
  * @param user - кто применяет
  * @param saveDc - Сл применившего: ею заменяется Сл 0 эффекта
- * @param spend - расход источника; зовётся до наложения, чтобы сохранение
- *   листа не затёрло наложенные эффекты
+ * @param spend - расход источника без цены ресурсом; зовётся до наложения,
+ *   чтобы сохранение листа не затёрло наложенные эффекты
+ * @param withPay - расход источника вместе с ценой ресурсом
  */
 export function applyEffectSource(
   spell: Spell,
   user: DnDSceneEntity,
   saveDc: number,
   spend: () => void,
+  withPay: EffectSourceSpend = {},
 ): void {
   runWithEffectVariants(spell, (variant) => {
     runWithDamageTypeChoices(variant, (chosen) => {
+      /**
+       * Оплата, расход и наложение — когда цель уже известна: отказ от выбора
+       * цели ничего не тратит.
+       *
+       * @param targetId - получатель эффектов «на цели»; нет — их нет
+       */
+      const settle = (targetId?: string): void => {
+        const itemUsesPaid = hasItemUsesPrice(
+          collectSourcePay(chosen.activeEffects),
+        );
+
+        runWithSourcePay(
+          chosen,
+          user,
+          {
+            ...(withPay.itemId === undefined ? {} : { itemId: withPay.itemId }),
+            commit: (paidUser) => {
+              const socket = useChatStore().getSocket();
+
+              if (socket) {
+                emitEntityUpdate(
+                  socket,
+                  withPay.spendOn?.(paidUser, itemUsesPaid) ?? paidUser,
+                );
+              }
+            },
+          },
+          (paidSource, paid) => {
+            // Расход с ценой уже ушёл одним сохранением вместе с оплатой
+            if (!paid || !withPay.spendOn) {
+              spend();
+            }
+
+            // Что сделало применение, пишут список наложенного, разбор цели и
+            // исход срабатываний — отдельная строка «применяет» их бы только
+            // повторяла
+            applyCasterSpellEffectsToEntity(paidSource, user, { saveDc });
+
+            if (targetId !== undefined) {
+              applySpellTargetEffects(
+                paidSource,
+                { casterId: user.id, spellSaveDC: saveDc },
+                createChosenEffectTargets(paidSource, user.id, [targetId]),
+              );
+            }
+          },
+        );
+      };
+
       if (getTargetSpellEffects(chosen).length === 0) {
-        spend();
-        // Что сделало применение, пишут список наложенного, разбор цели и исход
-        // срабатываний — отдельная строка «применяет» их бы только повторяла
-        applyCasterSpellEffectsToEntity(chosen, user, { saveDc });
+        settle();
 
         return;
       }
 
       // Получателя выбирают на карте — себя или другого: «Зелье лечения» с
       // доставкой «На цели при применении» и пьют, и вливают одним эффектом
-      chooseUseTarget(chosen, user, (targetId) => {
-        spend();
-        applyCasterSpellEffectsToEntity(chosen, user, { saveDc });
-
-        applySpellTargetEffects(
-          chosen,
-          { casterId: user.id, spellSaveDC: saveDc },
-          createChosenEffectTargets(chosen, user.id, [targetId]),
-        );
-      });
+      chooseUseTarget(chosen, user, settle);
     });
   });
 }
@@ -289,6 +349,7 @@ export function applyEntityEffectUse(entityId: string, effectId: string): void {
         emitEntityUpdate(socket, paid);
       }
     },
+    { spendOn: (paidUser) => payEntityActivation(paidUser, effect) },
   );
 }
 
@@ -316,5 +377,27 @@ export function applyEntityItemUse(entityId: string, itemId: string): void {
       updateEntityEquipment(entityId, (equipment) =>
         spendItemUse(equipment, itemId),
       ),
+    buildItemUseSpend(itemId),
   );
+}
+
+/**
+ * Расход применения предмета вместе с ценой ресурсом: цена «заряды предмета»
+ * заменяет обычный заряд, остальное (единица количества расходуемого, заряд
+ * при другой цене) списывается как всегда.
+ *
+ * @param itemId - предмет
+ * @returns расход для {@link applyEffectSource}
+ */
+export function buildItemUseSpend(itemId: string): EffectSourceSpend {
+  return {
+    itemId,
+    spendOn: (paidUser, itemUsesPaid) =>
+      itemUsesPaid
+        ? paidUser
+        : {
+            ...paidUser,
+            equipment: spendItemUse(paidUser.equipment ?? [], itemId),
+          },
+  };
 }

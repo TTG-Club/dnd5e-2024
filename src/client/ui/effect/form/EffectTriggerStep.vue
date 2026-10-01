@@ -9,6 +9,7 @@
     DndEffectAura,
     EffectActivation,
     EffectFormLayout,
+    EffectPay,
     EffectVariantPick,
   } from '@vtt/shared/system/dnd.js';
 
@@ -45,6 +46,8 @@
     EFFECT_VARIANT_PICK_OPTIONS,
     findTrigger,
   } from '../effectFormOptions';
+  import { EFFECT_PAY_FIELD_LABELS } from '../payLabels';
+  import EffectPayFields from './EffectPayFields.vue';
   import EffectTriggerConditionPicker from './EffectTriggerConditionPicker.vue';
 
   const props = defineProps<{
@@ -134,6 +137,13 @@
     get: () => effect.value.activation?.range ?? null,
     set: (range: number | null) =>
       updateActivation({ range: range === null ? undefined : range }),
+  });
+
+  const pay = computed({
+    get: () => effect.value.pay,
+    set: (next: EffectPay | undefined) => {
+      effect.value = { ...effect.value, pay: next };
+    },
   });
 
   const deliveryOptions = computed(() => buildDeliveryOptions(props.layout));
@@ -388,6 +398,14 @@
       />
     </UFormField>
   </div>
+
+  <!-- Цена ресурсом: у заклинания это цена каста сверх ячейки, у применения и
+    переключателя — цена кнопки -->
+  <EffectPayFields
+    v-if="layout.showPay"
+    v-model="pay"
+    :hint="EFFECT_PAY_FIELD_LABELS.hintEffect"
+  />
 
   <div
     v-if="showDeliveryChoice"

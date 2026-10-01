@@ -16,6 +16,7 @@ import type { AbilityType, DamagePart, EffectDuration } from '@vtt/shared';
 
 import type { RecurringSave } from './activeEffectTypes.js';
 import type { ConditionRef } from './conditionKeys.js';
+import type { EffectPay } from './effectPayTypes.js';
 
 /** События, на которые срабатывание реагирует уже сейчас */
 export const EFFECT_TRIGGER_EVENTS = [
@@ -539,6 +540,12 @@ export interface EffectTriggerApplyConditionAction {
   conditionKey: ConditionRef;
   duration?: EffectDuration;
   /**
+   * Срок формулой — число единиц срока `duration`: «невидим на число раундов,
+   * равное числу потраченных Костей Хитов» (`@paid.hitDice`). Бросается один
+   * раз, при наложении, как срок формулой у самого эффекта.
+   */
+  durationFormula?: string;
+  /**
    * Состояние спадает, когда существо выходит из зоны, которая его наложила
    * («Опутанность спадает, как только выйдешь из Паутины»). Работает только у
    * зоны: у срабатывания вне зоны выходить не из чего.
@@ -599,6 +606,8 @@ export interface EffectTriggerApplyTagAction {
   label?: string;
   /** Срок; нет — до начала следующего хода носителя */
   duration?: EffectDuration;
+  /** Срок формулой — число единиц срока `duration` */
+  durationFormula?: string;
   /**
    * Счётчик: повторная отметка тем же ключом прибавляет ступень, а не
    * заменяет прежнюю («три провала — окаменение»). Условие
@@ -626,6 +635,12 @@ export interface EffectTriggerReduceMaxHpAction {
 export interface EffectTriggerSetHpAction {
   type: 'setHp';
   value: number;
+  /**
+   * Хиты формулой вместо числа: «хиты становятся равны 5 × круг потраченной
+   * ячейки» (`5 * @paid.slotLevel`), «удвоенному уровню следопыта». Считается
+   * по получателю; не посчиталась — берётся `value`.
+   */
+  formula?: string;
   /** Полный запас хитов вместо числа: «восстанавливает все хиты» */
   toMax?: true;
   on?: EffectTriggerActionGate;
@@ -783,8 +798,16 @@ export interface EffectTriggerRestoreAction {
   level?: number;
   /** Ключ счётчика листа — у `counter` */
   counter?: string;
-  /** Сколько вернуть; нет — одну единицу */
-  amount?: number;
+  /**
+   * Сколько вернуть: число или формула (`@paid.slotLevel`, `max(1, @mod.wis)`);
+   * нет — одну единицу. Считается по получателю
+   */
+  amount?: string;
+  /**
+   * Установить счётчик в это число, а не прибавить: «новая трата ячейки
+   * заменяет прежние Очки мутации». Только у `counter`
+   */
+  set?: true;
   on?: EffectTriggerActionGate;
 }
 
@@ -993,6 +1016,14 @@ export interface EffectTrigger {
   ask?: true;
   /** У кого спрашивать; нет — у носителя эффекта */
   asker?: EffectTriggerChooser;
+  /**
+   * Цена ресурсом: что тратит носитель эффекта, чтобы срабатывание
+   * состоялось, — ячейку, кости хитов, счётчик листа. Ресурс — решение
+   * человека, поэтому срабатывание с ценой спрашивает владельца так же, как
+   * цена «Реакция»; отказ и нехватка ресурса срабатывание отменяют.
+   * Потраченное подставляется в формулы действий токенами `@paid.*`.
+   */
+  pay?: EffectPay;
 }
 
 /**
@@ -1027,17 +1058,21 @@ export type LegacyTriggerKind = Exclude<
 >;
 
 /**
- * Спрашивают ли разрешения перед срабатыванием: явная галочка или цена
- * «Реакция».
+ * Спрашивают ли разрешения перед срабатыванием: явная галочка, цена
+ * «Реакция» или цена ресурсом.
  *
- * Реакция — ресурс человека: тратить её за него движок не вправе, поэтому
- * цена «Реакция» сама по себе делает срабатывание добровольным.
+ * Реакция и ресурсы листа — ресурс человека: тратить их за него движок не
+ * вправе, поэтому такая цена сама по себе делает срабатывание добровольным.
  *
  * @param trigger - срабатывание
  * @returns `true`, если перед срабатыванием спрашивают
  */
 export function triggerAsksPermission(
-  trigger: Pick<EffectTrigger, 'ask' | 'cost'>,
+  trigger: Pick<EffectTrigger, 'ask' | 'cost' | 'pay'>,
 ): boolean {
-  return trigger.ask === true || trigger.cost === 'reaction';
+  return (
+    trigger.ask === true
+    || trigger.cost === 'reaction'
+    || trigger.pay !== undefined
+  );
 }

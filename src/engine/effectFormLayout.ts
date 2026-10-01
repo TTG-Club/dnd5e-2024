@@ -26,6 +26,7 @@ import type {
   EffectSave,
   EffectSaveOutcome,
 } from './activeEffectTypes.js';
+import type { EffectPay, EffectPrice } from './effectPayTypes.js';
 import type {
   EffectTrigger,
   EffectTriggerAction,
@@ -47,6 +48,7 @@ import {
   SOURCE_SAVE_DC,
 } from './activeEffectTypes.js';
 import { hasLastingEffectPayload } from './effectAutomation.js';
+import { priceHasAmount } from './effectPayTypes.js';
 import { mapEffectSaveDcs } from './effectSaveDc.js';
 import { applyEffectStage, resolveEffectStageIndex } from './effectStages.js';
 import {
@@ -153,6 +155,7 @@ export type InertEffectField =
   | 'conditionImmunities'
   | 'charges'
   | 'saveOverride'
+  | 'pay'
   | 'triggers';
 
 /** Вид действия срабатывания */
@@ -237,6 +240,12 @@ export interface EffectFormLayout {
   activationModes: readonly EffectActivationMode[];
   /** Применение или включение тратит счётчик листа */
   showActivationCounter: boolean;
+  /**
+   * Цена ресурсом: её платит тот, кто применяет, включает или колдует, —
+   * поэтому она есть у заклинания, применения и переключателя. Эффект,
+   * который действует постоянно, никто не «запускает», и платить некому
+   */
+  showPay: boolean;
   /**
    * Дальность применения «на цель»: эффект накладывается применением, и
    * цель можно выбрать дальше касания
@@ -842,6 +851,11 @@ export function resolveEffectFormLayout(
     // заклинание действует, действием можешь…»
     hasActiveAction: context === 'spell' && livesOnItsOwn,
     hasStages: livesOnItsOwn,
+    // Эффект умения скопирован на персонажа и действует вместе с ним: его
+    // срабатывания слышат атаку, путь и отдых носителя. Снять сам себя он не
+    // может — это сняло бы выданную черту
+    actsWithCarrier:
+      livesOnItsOwn || (delivery === 'carrier' && context === 'feature'),
   });
 
   return {
@@ -879,6 +893,7 @@ export function resolveEffectFormLayout(
     showActivationCounter:
       effect.activation !== undefined
       && ACTIVATION_COUNTER_CONTEXTS.has(context),
+    showPay: isGeneric || context === 'spell' || isUsed || isToggled,
     showActivationRange: isUsed,
     useActivated: isUsed,
     showStatusToggle: !(isUsed && ACTIVATION_COUNTER_CONTEXTS.has(context)),
@@ -905,9 +920,10 @@ const TURN_OWNERS_SUBJECT: readonly EffectTriggerTurnOwner[] = ['subject'];
  * Что умеет список «Срабатывания» в месте окна. Правила сверены с рантаймом:
  * ход — там, где эффект тикает на существе (`processTurnEffects`), вход и выход
  * — у зоны и ауры (`syncActorAreaEffects`, `applyAuraTriggerEffects`), бросок
- * атаки — у эффекта, лежащего на
- * существе (`runAttackRollTriggers`). Снять эффект можно только лежащий на
- * существе: черту, ауру чужого токена и зону срабатывание не снимает.
+ * атаки — у эффекта, лежащего на существе (`runAttackRollTriggers`,
+ * `settleAttackRollTriggers`), в том числе у эффекта умения, скопированного на
+ * персонажа. Снять эффект можно только лежащий на существе сам: черту, умение,
+ * ауру чужого токена и зону срабатывание не снимает.
  *
  * Ход наложившего выбирается у эффекта, который кто-то накладывает; у черты
  * существа наложившего нет.
@@ -926,6 +942,8 @@ const TURN_OWNERS_SUBJECT: readonly EffectTriggerTurnOwner[] = ['subject'];
  * @param place.hasActiveAction - у действующего эффекта бывает своя кнопка
  *   действия («действием можешь переместить сферу»)
  * @param place.hasStages - у эффекта бывают ступени
+ * @param place.actsWithCarrier - эффект лежит на живом носителе и слышит его
+ *   поступки: атаку, путь, отдых, снятое состояние
  * @returns события, действия и выбор хода списка
  */
 function resolveTriggerListLayout(place: {
@@ -939,6 +957,7 @@ function resolveTriggerListLayout(place: {
   switchesOn: boolean;
   hasActiveAction: boolean;
   hasStages: boolean;
+  actsWithCarrier: boolean;
 }): Pick<
   EffectFormLayout,
   'triggerEvents' | 'triggerActions' | 'triggerTurnOwners'
@@ -952,18 +971,18 @@ function resolveTriggerListLayout(place: {
       : []),
     ...(ticks ? TURN_TRIGGER_EVENTS : []),
     ...(place.hasPresence ? PRESENCE_TRIGGER_EVENTS : []),
-    ...(place.canRemoveSelf ? (['attackRoll'] as const) : []),
+    ...(place.actsWithCarrier ? (['attackRoll'] as const) : []),
     ...(place.hearsDamage ? DAMAGE_TRIGGER_EVENTS : []),
     // Лечат того, у кого меняются хиты, — там же, где слышен урон
     ...(place.hearsDamage ? HEALING_TRIGGER_EVENTS : []),
     // «Состояние снялось» и «свалил цель» — про живого носителя, который
     // действует и с которого что-то снимают
-    ...(place.canRemoveSelf ? CONDITION_LOST_TRIGGER_EVENTS : []),
-    ...(place.canRemoveSelf ? OWN_DEED_TRIGGER_EVENTS : []),
+    ...(place.actsWithCarrier ? CONDITION_LOST_TRIGGER_EVENTS : []),
+    ...(place.actsWithCarrier ? OWN_DEED_TRIGGER_EVENTS : []),
     // «Прошёл N футов» — про носителя, у которого есть фишка и путь
-    ...(place.canRemoveSelf ? MOVEMENT_TRIGGER_EVENTS : []),
+    ...(place.actsWithCarrier ? MOVEMENT_TRIGGER_EVENTS : []),
     ...(place.endsWithCast ? (['castEnd'] as const) : []),
-    ...(place.canRemoveSelf ? (['rest'] as const) : []),
+    ...(place.actsWithCarrier ? (['rest'] as const) : []),
   ];
 
   if (triggerEvents.length === 0) {
@@ -1694,6 +1713,7 @@ export function listInertEffectFields(
       !layout.showRecurringSave && effect.recurringSave !== undefined,
     ],
     ['consumeOn', !layout.showConsumeOn && effect.consumeOn !== undefined],
+    ['pay', !layout.showPay && effect.pay !== undefined],
     [
       'landingCondition',
       !layout.showLandingCondition && effect.landingCondition !== undefined,
@@ -1860,6 +1880,50 @@ function normalizeDraftChoice(
 }
 
 /**
+ * Цена для записи: формулы без пробелов по краям, пустая формула — отсутствием
+ * поля (одна единица), платёж счётчиком без ключа не пишется вовсе — разбор
+ * записи его всё равно отбросит. Пустая цена — отсутствием поля.
+ *
+ * @param pay - цена из черновика
+ * @returns цена либо `undefined`
+ */
+export function normalizeDraftPay(
+  pay: EffectPay | undefined,
+): EffectPay | undefined {
+  const prices = (pay ?? []).flatMap((price): EffectPrice[] => {
+    if (!priceHasAmount(price)) {
+      return [price];
+    }
+
+    const amount = price.amount?.trim() || undefined;
+    const max = price.max?.trim() || undefined;
+
+    if (price.kind !== 'counter') {
+      return [{ kind: price.kind, amount, max }];
+    }
+
+    const counter = price.counter.trim();
+
+    return counter ? [{ kind: 'counter', counter, amount, max }] : [];
+  });
+
+  return prices.length > 0 ? prices : undefined;
+}
+
+/**
+ * Поле цены срабатывания для записи: пустая цена — без поля вовсе, чтобы у
+ * срабатывания без цены не появлялся пустой ключ.
+ *
+ * @param pay - цена из черновика
+ * @returns поле `pay` либо ничего
+ */
+function withDraftPay(pay: EffectPay | undefined): { pay?: EffectPay } {
+  const normalized = normalizeDraftPay(pay);
+
+  return normalized ? { pay: normalized } : {};
+}
+
+/**
  * Явные срабатывания для записи: без действий — не пишутся (разбор записи их
  * всё равно отбросит), Сл — не ниже допустимой, лимит — от одного раза.
  *
@@ -1872,8 +1936,9 @@ function normalizeDraftTriggers(
   minDc: number,
 ): EffectTrigger[] | undefined {
   const normalized = (triggers ?? [])
-    .map((trigger) => ({
+    .map(({ pay: draftPay, ...trigger }) => ({
       ...trigger,
+      ...withDraftPay(draftPay),
       // Получатель — только у событий, где он работает
       recipient: resolveDraftRecipient(trigger),
       area:
@@ -1988,6 +2053,7 @@ export function normalizeEffectDraft(
     charges: normalizeDraftCharges(effect.charges),
     durationFormula: effect.durationFormula?.trim() || undefined,
     activation: normalizeDraftActivation(effect.activation),
+    pay: normalizeDraftPay(effect.pay),
     variant:
       effect.variant && variantGroup && variantLabel
         ? { ...effect.variant, group: variantGroup, label: variantLabel }

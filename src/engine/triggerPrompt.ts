@@ -33,7 +33,7 @@ export const EFFECT_PROMPT_REQUEST_KIND = 'effectPrompt';
 const MAX_PROMPT_TEXT_LENGTH = 300;
 
 /** Больше вариантов ответа в одном вопросе не предлагают */
-const MAX_PROMPT_OPTIONS = 12;
+export const MAX_PROMPT_OPTIONS = 12;
 
 /** Вариант ответа: что показывает окно и что вернётся инициатору */
 const effectPromptOptionSchema = z.object({

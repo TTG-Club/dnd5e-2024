@@ -89,6 +89,7 @@
   } from '../../../composables/damageTypeChoice';
   import {
     applyEffectSource,
+    buildItemUseSpend,
     prepareAmmunitionShot,
   } from '../../../composables/effectActivationUse';
   import { buildRollBonusEvaluator } from '../../../composables/rollBonusEvaluator';
@@ -1029,6 +1030,7 @@
       props.entity,
       resolvedStats.value?.spellSaveDC ?? 0,
       () => commitEquipment(spendItemUse(inventory.value, item.id)),
+      buildItemUseSpend(item.id),
     );
   }
 

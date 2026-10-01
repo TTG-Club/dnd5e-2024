@@ -46,6 +46,7 @@ import {
   parseAnyCreatureTypeCondition,
 } from './creatureTypeCondition.js';
 import { getShortDamageTypeLabel } from './damageConstants.js';
+import { describeEffectPaid, describeEffectPay } from './effectPayTypes.js';
 import { isDiceFormulaValue } from './effectPipeline.js';
 import { renderReadableFormula } from './formulaParser.js';
 import {
@@ -725,6 +726,12 @@ const EFFECT_ACTIVATION_DETAIL_LABELS = {
   toggle: 'Включается переключателем',
 } as const;
 
+/** Цена ресурсом и потраченное — в разделе «Применение» карточки */
+const EFFECT_PAY_DETAIL_LABELS = {
+  pay: 'цена: ',
+  paid: 'потрачено: ',
+} as const;
+
 /**
  * Строки длительности для карточки: в отличие от однострочного описания,
  * здесь длительность есть всегда — «постоянно» тоже ответ. Остаток раундов
@@ -817,6 +824,18 @@ function applicationLines(effect: ActiveEffect): string[] {
 
   if (effect.activation) {
     lines.push(EFFECT_ACTIVATION_DETAIL_LABELS[effect.activation.mode]);
+  }
+
+  if (effect.pay) {
+    lines.push(
+      `${EFFECT_PAY_DETAIL_LABELS.pay}${describeEffectPay(effect.pay)}`,
+    );
+  }
+
+  const paid = describeEffectPaid(effect.paid);
+
+  if (paid) {
+    lines.push(`${EFFECT_PAY_DETAIL_LABELS.paid}${paid}`);
   }
 
   if (effect.effectTarget === 'target') {

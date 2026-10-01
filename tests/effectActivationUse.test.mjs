@@ -6,7 +6,7 @@ import { loadEngineBundle } from './helpers/engineBundle.mjs';
 import { loadHandler } from './helpers/sourceHandler.mjs';
 
 const engine = await loadEngineBundle(
-  "export * from './src/engine/effectActivation.ts'; export * from './src/engine/spellUtils.ts';",
+  "export * from './src/engine/effectActivation.ts'; export * from './src/engine/spellUtils.ts'; export * from './src/engine/effectPay.ts';",
 );
 
 const helperPath = 'src/client/composables/effectActivationUse.ts';
@@ -45,6 +45,11 @@ async function loadApply({ chosenTargetId }) {
 
   const apply = await loadHandler(helperPath, 'applyEffectSource', {
     getTargetSpellEffects: engine.getTargetSpellEffects,
+    collectSourcePay: engine.collectSourcePay,
+    hasItemUsesPrice: engine.hasItemUsesPrice,
+    // Цены у фикстур нет: оплата проходная, расход идёт прежним путём
+    runWithSourcePay: (source, payer, _options, proceed) =>
+      proceed(source, false, payer),
     chooseUseTarget: (spell, user, proceed) => {
       steps.push(['choose', user.id]);
 
@@ -367,7 +372,19 @@ it('кнопка панели применяет предмет владельц
 
   const owner = { id: 'hero', name: 'Hero', equipment: [potion] };
 
+  const buildItemUseSpend = await loadHandler(helperPath, 'buildItemUseSpend', {
+    spendItemUse: engine.spendItemUse,
+  });
+
+  // Цена «заряды предмета» заменяет обычный расход, любая другая — нет
+  const spendWithPay = buildItemUseSpend('potion');
+
+  assert.equal(spendWithPay.itemId, 'potion');
+  assert.equal(spendWithPay.spendOn(owner, true), owner);
+  assert.equal(spendWithPay.spendOn(owner, false).equipment[0].quantity, 0);
+
   const useItem = await loadHandler(helperPath, 'applyEntityItemUse', {
+    buildItemUseSpend,
     useWorldEntities: () => ({
       findCurrentDndEntity: (entityId) =>
         entityId === owner.id ? owner : undefined,
@@ -479,4 +496,40 @@ it('в список наложенного не входят эффекты, к�
   );
 
   assert.deepEqual(sent, ['Dust: Invisible']);
+});
+
+it('цена ресурсом: оплата и прежний расход идут одним сохранением', async () => {
+  const steps = [];
+  const paidUser = { id: 'hero', name: 'Hero', paid: true };
+
+  const apply = await loadHandler(helperPath, 'applyEffectSource', {
+    getTargetSpellEffects: engine.getTargetSpellEffects,
+    collectSourcePay: engine.collectSourcePay,
+    hasItemUsesPrice: engine.hasItemUsesPrice,
+    runWithSourcePay: (source, payer, options, proceed) => {
+      options.commit(paidUser);
+      proceed(source, true, paidUser);
+    },
+    useChatStore: () => ({ getSocket: () => ({}) }),
+    emitEntityUpdate: (_socket, entity) => steps.push(['save', entity]),
+    applyCasterSpellEffectsToEntity: () => steps.push(['self']),
+  });
+
+  const gem = engine.buildItemUseSpell({
+    id: 'gem',
+    name: 'Gem',
+    activeEffects: [
+      usableEffect('Flash', { pay: [{ kind: 'itemUses', amount: '5' }] }),
+    ],
+  });
+
+  apply(gem, hero, 13, () => steps.push(['spend']), {
+    itemId: 'gem',
+    spendOn: (user, itemUsesPaid) => ({ ...user, itemUsesPaid }),
+  });
+
+  assert.deepEqual(steps, [
+    ['save', { ...paidUser, itemUsesPaid: true }],
+    ['self'],
+  ]);
 });

@@ -11,6 +11,7 @@
   import type { AbilityType } from '@vtt/shared';
   import type {
     EffectFormLayout,
+    EffectPay,
     EffectTrigger,
     EffectTriggerAction,
     EffectTriggerActionGate,
@@ -89,6 +90,7 @@
     EFFECT_TRIGGER_SAVE_MODE_OPTIONS,
     triggerEventHasRecipientChoice,
   } from '../effectFormOptions';
+  import { EFFECT_PAY_FIELD_LABELS } from '../payLabels';
   import {
     EFFECT_TRIGGER_ACTION_ICONS,
     EFFECT_TRIGGER_ACTION_LABELS,
@@ -101,6 +103,7 @@
     EFFECT_TRIGGER_TURN_OWNER_LABELS,
   } from '../triggerLabels';
   import EffectActionCostFields from './EffectActionCostFields.vue';
+  import EffectPayFields from './EffectPayFields.vue';
   import EffectTriggerActionFields from './EffectTriggerActionFields.vue';
   import EffectTriggerConditionPicker from './EffectTriggerConditionPicker.vue';
   import SaveDcField from './SaveDcField.vue';
@@ -698,6 +701,11 @@
       }),
   });
 
+  const pay = computed({
+    get: () => trigger.value.pay,
+    set: (next: EffectPay | undefined) => update({ pay: next }),
+  });
+
   const asker = computed({
     get: () => trigger.value.asker ?? DEFAULT_TRIGGER_CHOOSER,
     set: (next: EffectTriggerChooser) =>
@@ -1188,5 +1196,10 @@
         />
       </UFormField>
     </div>
+
+    <EffectPayFields
+      v-model="pay"
+      :hint="EFFECT_PAY_FIELD_LABELS.hintTrigger"
+    />
   </div>
 </template>

@@ -22,6 +22,7 @@ import type { ActiveEffect } from './activeEffectTypes.js';
 import type { AuraSourceToken, TriggerAuraHit } from './auraMath.js';
 import type { EngineDeferredTrigger } from './deferredEffectSaves.js';
 import type { DnDSceneEntity } from './dndEntities.js';
+import type { TriggerSourcePreparer } from './effectPay.js';
 import type { EffectTriggerSource } from './effectTriggerRunner.js';
 import type { ChoiceCandidateOptions } from './triggerChoice.js';
 import type {
@@ -52,6 +53,7 @@ import {
   requestTriggerAsk,
   requestTriggerChoice,
 } from './deferredEffectSaves.js';
+import { settleUnaskedTriggerPay } from './effectPay.js';
 import {
   formatAuraRequesterLabel,
   formatZoneRequesterLabel,
@@ -270,12 +272,15 @@ export function runPresenceTriggerSources(
   const eventData = withCombatRound({}, context.combatRound);
 
   for (const source of sources) {
-    if (!admitTrigger(entity, source, eventData, context.inCombat)) {
+    // Срабатывание, которое спросит человека, лимит тратит уже по согласию
+    const asks = triggerAsksPermission(source.trigger) && Boolean(requestRoll);
+
+    if (!admitTrigger(entity, source, eventData, context.inCombat, asks)) {
       continue;
     }
 
     // Счётчик лимита записан на сущность — её надо сохранить
-    if (source.trigger.limit) {
+    if (source.trigger.limit && !asks) {
       outcome.changed = true;
     }
 
@@ -284,9 +289,12 @@ export function runPresenceTriggerSources(
     /**
      * Вопрос «кого задеть» этого срабатывания.
      *
+     * @param prepare - подготовка срабатывания по ответу (оплата цены)
      * @returns отложенное срабатывание; `null`, если выбирать не из кого
      */
-    const buildChoiceRequest = (): EngineDeferredTrigger | null => {
+    const buildChoiceRequest = (
+      prepare?: TriggerSourcePreparer,
+    ): EngineDeferredTrigger | null => {
       if (
         source.trigger.recipient !== CHOICE_TRIGGER_RECIPIENT
         || !choice
@@ -305,24 +313,40 @@ export function runPresenceTriggerSources(
         requestRoll,
         requesterLabel,
         effectOptions,
+        prepare,
       );
     };
 
     // «Спрашивать разрешения»: пока человек не согласился, срабатывание не
     // выполняется — ни урон, ни выбор цели
-    if (triggerAsksPermission(source.trigger) && requestRoll) {
-      outcome.deferred.push(
-        requestTriggerAsk(
-          entity,
-          source,
-          requestRoll,
-          requesterLabel,
-          effectOptions,
-          buildChoiceRequest,
-        ),
+    if (asks && requestRoll) {
+      const asked = requestTriggerAsk(
+        entity,
+        source,
+        requestRoll,
+        requesterLabel,
+        { effectOptions, buildChoiceRequest, inCombat: context.inCombat },
       );
 
+      // Цена не по карману — срабатывание молчит
+      if (asked) {
+        outcome.deferred.push(asked);
+      }
+
       continue;
+    }
+
+    // Спросить некого: цена без выбора списывается сама, иначе срабатывание
+    // не состоится
+    const prepared = settleUnaskedTriggerPay(entity, source);
+
+    if (!prepared) {
+      continue;
+    }
+
+    if (prepared.notes.length > 0) {
+      outcome.changed = true;
+      outcome.notes.push(...prepared.notes);
     }
 
     // Получатель «по выбору»: кого задеть, решает человек — срабатывание ждёт
@@ -341,14 +365,16 @@ export function runPresenceTriggerSources(
       continue;
     }
 
+    const paidSource = prepared.source;
+
     if (
-      source.trigger.save
-      && triggerSaveNeedsRoll(source.trigger, entity, eventData)
+      paidSource.trigger.save
+      && triggerSaveNeedsRoll(paidSource.trigger, entity, eventData)
       && shouldRequestEffectSave(entity, requestRoll)
     ) {
       const request = requestPresenceTriggerSave(
         entity,
-        source,
+        paidSource,
         requestRoll,
         requesterLabel,
         eventData,
@@ -364,14 +390,14 @@ export function runPresenceTriggerSources(
 
     const save = rollTriggerSave(
       entity,
-      source,
+      paidSource,
       effectOptions.ambientEffects,
       eventData,
     );
 
     recordEntryResult(
       outcome,
-      settlePresenceTrigger(entity, source, save, {
+      settlePresenceTrigger(entity, paidSource, save, {
         ...effectOptions,
         collectNote: (note) => outcome.notes.push(note),
       }),

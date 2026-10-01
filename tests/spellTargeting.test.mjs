@@ -681,6 +681,9 @@ it('the actual hotbar spell executor opens the same target selection and passes 
       castBuffSpellMacro: (spell, caster, level, targets) => {
         continued = { spell, caster, level, targets };
       },
+      // Цены сверх ячейки у фикстуры нет: оплата проходная
+      runWithMacroCastPay: (spell, caster, level, _levels, proceed) =>
+        proceed(spell, level, caster),
     },
     true,
   );

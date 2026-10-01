@@ -67,6 +67,7 @@
     resolveActorStats,
     resolveEntityMaxHp,
     resolveFeatChoicesToAsk,
+    resolveHitDiceSpendRules,
   } from '@vtt/shared/system/dnd.js';
 
   import { useClassCatalog } from '../../composables/useClassCatalog';
@@ -735,6 +736,11 @@
    * эффектами: прибавки предыстории и повышения характеристик лежат ими, и по
    * числу листа кость хитов лечила бы меньше положенного
    */
+  /** Как черты меняют трату костей хитов на коротком отдыхе */
+  const hitDiceSpendRules = computed(() =>
+    localActor.value ? resolveHitDiceSpendRules(localActor.value) : undefined,
+  );
+
   const constitutionModifier = computed(() =>
     localActor.value
       ? resolveActorStats(localActor.value).abilityMods.constitution
@@ -2736,6 +2742,7 @@
     :current-hit-points="localActor.system.hitPoints.current"
     :max-hit-points="resolveEntityMaxHp(localActor)"
     :con-mod="constitutionModifier"
+    :hit-dice-rules="hitDiceSpendRules"
     @apply="handleShortRestApply"
   />
 
