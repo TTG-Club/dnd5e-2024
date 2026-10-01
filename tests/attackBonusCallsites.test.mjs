@@ -66,12 +66,15 @@ function createPorts(current) {
     blockOf: () => null,
     spendSectionTurn: () => {},
     isCreatureAttackAction: () => true,
-    // Удар оружием персонажа тоже не под запретом; трата хода не пишется
-    resolveWeaponAttackBlock: () => null,
+    // Удар оружием персонажа тоже не под запретом: идёт действием «Атака»;
+    // трата хода не пишется
+    runWithWeaponAttackCost: (_entity, _weaponName, _refuse, proceed) =>
+      proceed('action'),
     refuseBlockedMacro: (reason) => reason !== null,
+    refuseWeaponAttack: () => {},
     recordEntityActionSpend: () => {},
     warnOpportunityAttack: () => {},
-    WEAPON_ATTACK_COST: 'action',
+    isEntityOwnTurn: () => true,
     toast: { add: () => {} },
     rollConfig,
     isRollModalOpen: { value: false },

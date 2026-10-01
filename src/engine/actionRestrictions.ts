@@ -23,7 +23,13 @@
  *   ледяного дьявола — этот флаг вместе с `actions.noBonusAction`;
  * - `actions.oneAttackPerAction` — действием «Атака» только одна атака за ход,
  *   сколько бы их ни давала «Дополнительная атака»: первая атака оружием или
- *   действием статблока пишется в счётчик хода, вторая недоступна;
+ *   действием статблока пишется в счётчик хода, вторая недоступна. Считается
+ *   только атака ДЕЙСТВИЕМ: удар бонусным действием и реакцией счётчик не
+ *   двигает и под запрет не попадает. Цену удара даёт обстановка
+ *   (`resolveAttackCost`): вне своего хода удар — реакция, в свой ход —
+ *   действие «Атака»; у существа цену называет раздел статблока, персонаж
+ *   удар бонусным действием объявляет сам (`planWeaponAttack`) — своего поля
+ *   цены у оружия нет;
  * - `actions.noOpportunityAttack` — нет провоцированных атак, остальные
  *   реакции доступны («Электрошок» 2024). Отдельного действия «провоцированная
  *   атака» у системы нет — это удар вне своего хода, и запрет о нём
@@ -223,6 +229,32 @@ const TURN_SPEND_KEYS: Record<TurnSpendCost, string> = {
 /** Ключ счётчика атак действием «Атака» за ход */
 const ATTACK_SPEND_KEY = 'turnSpend|attack';
 
+/** Трата, которой совершается действие «Атака» */
+const ATTACK_ACTION_COST: RestrictedActionCost = 'action';
+
+/** Трата, которой бьют вне своего хода */
+const OFF_TURN_ATTACK_COST: RestrictedActionCost = 'reaction';
+
+/**
+ * Чем на деле совершается атака. Действием бьют только в свой ход: удар вне
+ * хода — провоцированная атака или заготовленное действие, то есть реакция.
+ * Бонусное действие и реакция остаются собой.
+ *
+ * @param cost - трата, которой атака названа (раздел статблока, выбор
+ *   бьющего)
+ * @param isOwnTurn - идёт ли ход атакующего; вне боя хода нет — считается
+ *   своим
+ * @returns трата, которую атака тратит
+ */
+export function resolveAttackCost(
+  cost: RestrictedActionCost,
+  isOwnTurn: boolean,
+): RestrictedActionCost {
+  return cost === ATTACK_ACTION_COST && !isOwnTurn
+    ? OFF_TURN_ATTACK_COST
+    : cost;
+}
+
 /** Правило «за ход одно из»: флаг и траты, из которых доступна одна */
 interface ExclusiveSpendRule {
   /** Флаг правила */
@@ -337,7 +369,10 @@ function findAttackSpendBlock(
 
 /** Что ещё известно о трате хода */
 export interface ActionSpendOptions {
-  /** Трата — атака действием «Атака»: её считает «одна атака за ход» */
+  /**
+   * Трата — атака. «Одна атака за ход» считает её, только когда она совершена
+   * действием: удар бонусным действием и реакцией — не действие «Атака»
+   */
   attack?: boolean;
   /** Ауры чужих токенов, накрывающие носителя */
   ambientEffects?: readonly ActiveEffect[];
@@ -346,7 +381,7 @@ export interface ActionSpendOptions {
 /**
  * Счётчики носителя после траты хода — для записи боевым каналом. Пишется
  * только там, где трату считают: у носителя с правилом «за ход одно из» — трата
- * из его набора, у носителя с «одной атакой» — атака.
+ * из его набора, у носителя с «одной атакой» — атака действием.
  *
  * @param entity - носитель
  * @param cost - трата
@@ -371,6 +406,7 @@ export function recordActionSpend(
       ? [TURN_SPEND_KEYS[cost]]
       : []),
     ...(options.attack === true
+    && cost === ATTACK_ACTION_COST
     && flags.has(ACTION_RESTRICTION_FLAGS.oneAttackPerAction)
       ? [ATTACK_SPEND_KEY]
       : []),
@@ -746,27 +782,101 @@ export function resolveSpellCastBlock(
 }
 
 /**
- * Трата хода удара оружием персонажа. Удар — действие «Атака»: второй удар
- * лёгким оружием бонусным действием лист отдельно не различает.
+ * Трата хода удара оружием персонажа, пока о нём ничего не известно: действие
+ * «Атака». Своего поля цены у оружия нет — вне хода удар считается реакцией
+ * (`resolveAttackCost`), а бонусным действием его объявляет сам бьющий
+ * (`planWeaponAttack`).
  */
-export const WEAPON_ATTACK_COST: RestrictedActionCost = 'action';
+export const WEAPON_ATTACK_COST: RestrictedActionCost = ATTACK_ACTION_COST;
+
+/** Трата, которой персонаж объявляет удар вместо действия «Атака» */
+export const WEAPON_DECLARED_ATTACK_COST: RestrictedActionCost = 'bonus';
 
 /**
- * Почему персонаж не может ударить оружием прямо сейчас — лист и горячая
- * панель: недееспособен, ход уже потрачен на бонусное действие под
- * «Замедлением» или единственная атака хода уже была.
+ * Причина запрета атаки этой тратой — по собранным запретам: запрет самой
+ * траты либо, у атаки действием, вторая атака под «одной атакой за ход».
+ *
+ * @param blocks - запреты носителя
+ * @param cost - чем совершается атака
+ * @returns причина словами либо `null`, если атака доступна
+ */
+function findAttackBlock(
+  blocks: EntityActionBlocks,
+  cost: RestrictedActionCost,
+): string | null {
+  return (
+    blocks.byCost[cost]
+    ?? (cost === ATTACK_ACTION_COST ? blocks.attack : undefined)
+    ?? null
+  );
+}
+
+/**
+ * Почему персонаж не может ударить оружием этой тратой прямо сейчас:
+ * недееспособен, ход уже потрачен на бонусное действие под «Замедлением» или
+ * единственная атака действием «Атака» уже была. Удару бонусным действием и
+ * реакцией «одна атака за ход» не мешает.
  *
  * @param entity - кто бьёт
  * @param ambientEffects - ауры чужих токенов, накрывающие его
+ * @param cost - чем совершается удар; по умолчанию — действием «Атака»
  * @returns причина словами либо `null`, если удар доступен
  */
 export function resolveWeaponAttackBlock(
   entity: DnDSceneEntity,
   ambientEffects: readonly ActiveEffect[] = [],
+  cost: RestrictedActionCost = WEAPON_ATTACK_COST,
 ): string | null {
-  const blocks = resolveEntityActionBlocks(entity, ambientEffects);
+  return findAttackBlock(
+    resolveEntityActionBlocks(entity, ambientEffects),
+    cost,
+  );
+}
 
-  return blocks.byCost[WEAPON_ATTACK_COST] ?? blocks.attack ?? null;
+/** Как пойдёт удар оружием персонажа */
+export interface WeaponAttackPlan {
+  /** Чем удар совершается: действием «Атака», вне своего хода — реакцией */
+  cost: RestrictedActionCost;
+  /** Почему удар этой тратой недоступен; `null` — доступен */
+  blocked: string | null;
+  /**
+   * Удар можно объявить бонусным действием: мешает ему только «одна атака за
+   * ход», а бонусное действие у бьющего есть
+   */
+  canDeclareBonus: boolean;
+}
+
+/**
+ * Решает, чем персонаж бьёт оружием и можно ли это сейчас — лист и горячая
+ * панель. У оружия нет поля цены, поэтому в свой ход удар — действие «Атака»,
+ * вне хода — реакция. Когда единственная атака действием уже была
+ * («Замедление», «Изувечен»), удар не гаснет молча: бьющий может объявить его
+ * бонусным действием (второе лёгкое оружие, «Мастер древкового оружия», удар
+ * без оружия монаха) — отличить такой удар от действия «Атака» сама система
+ * не может.
+ *
+ * @param entity - кто бьёт
+ * @param isOwnTurn - идёт ли его ход; вне боя хода нет — считается своим
+ * @param ambientEffects - ауры чужих токенов, накрывающие его
+ * @returns трата, причина запрета и можно ли объявить бонусное действие
+ */
+export function planWeaponAttack(
+  entity: DnDSceneEntity,
+  isOwnTurn: boolean,
+  ambientEffects: readonly ActiveEffect[] = [],
+): WeaponAttackPlan {
+  const blocks = resolveEntityActionBlocks(entity, ambientEffects);
+  const cost = resolveAttackCost(WEAPON_ATTACK_COST, isOwnTurn);
+  const blocked = findAttackBlock(blocks, cost);
+
+  return {
+    cost,
+    blocked,
+    canDeclareBonus:
+      blocked !== null
+      && blocks.byCost[cost] === undefined
+      && findAttackBlock(blocks, WEAPON_DECLARED_ATTACK_COST) === null,
+  };
 }
 
 /**
@@ -855,24 +965,49 @@ export function isCreatureAttackAction(
 }
 
 /**
- * Почему существо не может совершить ЭТО действие статблока: запрет раздела
- * либо вторая атака под «одной атакой за ход».
+ * Чем существо совершает запись статблока: трата раздела, а у атаки из
+ * «Действий» вне своего хода — реакция (провоцированная атака бьёт той же
+ * записью).
+ *
+ * @param section - раздел статблока
+ * @param action - запись статблока
+ * @param isOwnTurn - идёт ли ход существа; вне боя хода нет — считается своим
+ * @returns трата
+ */
+export function resolveCreatureActionCost(
+  section: CreatureActionSectionKey,
+  action: Pick<CreatureAction, 'attackBonus'>,
+  isOwnTurn: boolean,
+): RestrictedActionCost {
+  const cost = CREATURE_SECTION_COSTS[section];
+
+  return isCreatureAttackAction(section, action)
+    ? resolveAttackCost(cost, isOwnTurn)
+    : cost;
+}
+
+/**
+ * Почему существо не может совершить ЭТО действие статблока: запрет траты
+ * либо вторая атака действием под «одной атакой за ход». Атака из «Действий»
+ * вне своего хода — реакция: её гасит запрет реакций, а «одна атака» — нет.
  *
  * @param blocks - запреты существа
  * @param section - раздел статблока
  * @param action - запись статблока
+ * @param isOwnTurn - идёт ли ход существа; вне боя хода нет — считается своим
  * @returns причина словами либо `null`, если действие доступно
  */
 export function findCreatureActionBlock(
   blocks: EntityActionBlocks,
   section: CreatureActionSectionKey,
   action: Pick<CreatureAction, 'attackBonus'>,
+  isOwnTurn = true,
 ): string | null {
-  return (
-    findCreatureSectionBlock(blocks, section)
-    ?? (isCreatureAttackAction(section, action) ? blocks.attack : undefined)
-    ?? null
-  );
+  const cost = resolveCreatureActionCost(section, action, isOwnTurn);
+
+  return isCreatureAttackAction(section, action)
+    ? findAttackBlock(blocks, cost)
+    : (blocks.byCost[cost] ?? null);
 }
 
 /**

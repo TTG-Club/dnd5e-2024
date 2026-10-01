@@ -37,6 +37,17 @@ export function isEntityInCombat(entityId: string): boolean {
 }
 
 /**
+ * Идёт ли сейчас ход сущности. Вне боя хода нет — он считается своим: там
+ * действуют, когда хотят.
+ *
+ * @param entityId - сущность
+ * @returns `true` в свой ход и вне боя
+ */
+export function isEntityOwnTurn(entityId: string): boolean {
+  return !isEntityInCombat(entityId) || resolveActiveTurnActorId() === entityId;
+}
+
+/**
  * Какой раунд идёт в бою — для правил по расписанию «на раунде N».
  *
  * Как и на сервере: номер есть только у активного и уже начатого боя.

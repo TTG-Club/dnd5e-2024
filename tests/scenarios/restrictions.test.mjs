@@ -247,6 +247,39 @@ describe('каталог: ограничения действий и колдо�
       'бонусное действие флаг не трогает',
     );
 
+    // Правило — про действие «Атака»: удар бонусным действием (второе лёгкое
+    // оружие) и реакцией (провоцированная атака) флаг не гасит и не считает
+    assert.equal(engine.resolveWeaponAttackBlock(struck, [], 'bonus'), null);
+    assert.equal(engine.resolveWeaponAttackBlock(struck, [], 'reaction'), null);
+
+    for (const cost of ['bonus', 'reaction']) {
+      assert.equal(
+        engine.recordActionSpend(fighter, cost, { attack: true }),
+        undefined,
+        `удар тратой «${cost}» в счёт атак не идёт`,
+      );
+    }
+
+    // У оружия нет поля цены: в свой ход удар — действие «Атака», второй
+    // бьющий может объявить бонусным действием; вне своего хода удар — реакция
+    assert.deepEqual(engine.planWeaponAttack(fighter, true), {
+      cost: 'action',
+      blocked: null,
+      canDeclareBonus: false,
+    });
+
+    assert.deepEqual(engine.planWeaponAttack(struck, true), {
+      cost: 'action',
+      blocked: 'Вторая атака за ход недоступна: Изувечен',
+      canDeclareBonus: true,
+    });
+
+    assert.deepEqual(engine.planWeaponAttack(struck, false), {
+      cost: 'reaction',
+      blocked: null,
+      canDeclareBonus: false,
+    });
+
     // Не атака (заклинание действием) счётчик атак не двигает
     assert.equal(engine.recordActionSpend(fighter, 'action'), undefined);
 
@@ -278,6 +311,24 @@ describe('каталог: ограничения действий и колдо�
       engine.findCreatureActionBlock(blocks, 'actions', { name: 'Рёв' }),
       null,
       'действие без броска попадания — не атака',
+    );
+
+    // Провоцированная атака существа — та же запись «Действий» вне его хода:
+    // это реакция, «одна атака» её не гасит
+    assert.equal(
+      engine.findCreatureActionBlock(blocks, 'actions', bite, false),
+      null,
+    );
+
+    assert.equal(
+      engine.resolveCreatureActionCost('actions', bite, false),
+      'reaction',
+    );
+
+    assert.equal(
+      engine.resolveCreatureActionCost('actions', { name: 'Рёв' }, false),
+      'action',
+      'не атака вне хода остаётся действием раздела',
     );
 
     // Конец хода обнуляет счёт

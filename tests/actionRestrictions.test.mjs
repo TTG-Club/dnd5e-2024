@@ -91,6 +91,94 @@ describe('ограничения действий', () => {
     assert.equal(engine.admitTrigger(free, source, {}, true), true);
   });
 
+  it('удар вне своего хода — реакция: его гасит запрет реакций, а не действий', () => {
+    assert.equal(engine.resolveAttackCost('action', true), 'action');
+    assert.equal(engine.resolveAttackCost('action', false), 'reaction');
+    assert.equal(engine.resolveAttackCost('bonus', false), 'bonus');
+
+    const shocked = createActor({ activeEffects: [SHOCKING_GRASP] });
+
+    assert.equal(engine.planWeaponAttack(shocked, true).blocked, null);
+
+    assert.deepEqual(engine.planWeaponAttack(shocked, false), {
+      cost: 'reaction',
+      blocked: 'Реакция недоступна: Электрошок',
+      canDeclareBonus: false,
+    });
+
+    const bite = { name: 'Укус', attackBonus: 5 };
+
+    const blocks = engine.resolveEntityActionBlocks(
+      createCreature({ activeEffects: [SHOCKING_GRASP] }),
+    );
+
+    assert.equal(
+      engine.findCreatureActionBlock(blocks, 'actions', bite, true),
+      null,
+    );
+
+    assert.equal(
+      engine.findCreatureActionBlock(blocks, 'actions', bite, false),
+      'Реакция недоступна: Электрошок',
+    );
+  });
+
+  it('под «Замедлением» второй удар бонусным действием не объявить: действие уже потрачено', () => {
+    const slow = createEffect('Замедление', {
+      flags: [
+        'actions.noReaction',
+        'actions.oneActionOrBonus',
+        'actions.oneAttackPerAction',
+      ],
+    });
+
+    const slowed = createActor({ activeEffects: [slow] });
+
+    const struck = {
+      ...slowed,
+      system: {
+        ...slowed.system,
+        effectUsage: engine.recordActionSpend(slowed, 'action', {
+          attack: true,
+        }),
+      },
+    };
+
+    assert.deepEqual(engine.planWeaponAttack(struck, true), {
+      cost: 'action',
+      blocked: 'Вторая атака за ход недоступна: Замедление',
+      canDeclareBonus: false,
+    });
+
+    // Одна «одна атака» без запрета бонусного действия — объявить можно
+    const maimed = createActor({
+      activeEffects: [
+        createEffect('Изувечен', { flags: ['actions.oneAttackPerAction'] }),
+      ],
+    });
+
+    const maimedStruck = {
+      ...maimed,
+      system: {
+        ...maimed.system,
+        effectUsage: engine.recordActionSpend(maimed, 'action', {
+          attack: true,
+        }),
+      },
+    };
+
+    assert.equal(
+      engine.planWeaponAttack(maimedStruck, true).canDeclareBonus,
+      true,
+    );
+
+    // Объявленный бонусным действием удар счёт атак не двигает
+    assert.equal(
+      engine.recordActionSpend(maimedStruck, 'bonus', { attack: true }),
+      undefined,
+    );
+  });
+
   it('флаги — в разделе меню «Ограничения действий»', () => {
     const group = engine.EFFECT_FLAG_MENU.find(
       (entry) => entry.group === 'restrictions',

@@ -69,7 +69,6 @@
     loadWeaponAmmunition,
     normalizeItemQuantity,
     resolveEffectUseCost,
-    resolveWeaponAttackBlock,
     resolveWeaponSaveDc,
     setItemUsesCurrent,
     spendAmmunition,
@@ -77,13 +76,13 @@
     spendItemUses,
     STARTING_EQUIPMENT_ITEM_KINDS,
     TOOL_CATEGORIES,
-    WEAPON_ATTACK_COST,
     weaponUsesAmmunition,
     withLoadedAmmunition,
   } from '@vtt/shared/system/dnd.js';
 
   import {
     recordEntityActionSpend,
+    runWithWeaponAttackCost,
     warnOpportunityAttack,
   } from '../../../composables/actionSpend';
   import { runWeaponAttackChoices } from '../../../composables/attackKindChoice';
@@ -105,10 +104,7 @@
   import { useBonusDamageParts } from '../../../composables/useBonusDamageParts';
   import { useCarryingCapacity } from '../../../composables/useCarryingCapacity';
   import { useCompendiumWarmup } from '../../../composables/useCompendiumWarmup';
-  import {
-    listAmbientEffects,
-    useResolvedStats,
-  } from '../../../composables/useResolvedStats';
+  import { useResolvedStats } from '../../../composables/useResolvedStats';
   import { useSpellResolution } from '../../../composables/useSpellResolution';
   import { useWeaponIcon } from '../../../composables/useWeaponIcon';
   import { useWorldEntities } from '../../../composables/useWorldEntities';
@@ -473,154 +469,160 @@
    * @param sourceWeapon - оружие с формулой урона; эффекты — до выбора варианта
    */
   function openRollModal(sourceWeapon: DnDGameItem): void {
-    // Запрет трат хода («Замедление» после бонусного действия) — до окна
-    const blocked = resolveWeaponAttackBlock(
+    // Запрет трат хода («Замедление» после бонусного действия) — до окна;
+    // там же решается, чем удар совершается
+    runWithWeaponAttackCost(
       props.entity,
-      listAmbientEffects(props.entity.id),
-    );
+      sourceWeapon.name,
+      refuseWeaponAttack,
+      (attackCost) => {
+        const shot = prepareAmmunitionShot(props.entity, sourceWeapon);
 
-    if (blocked) {
-      toast.add({
-        title: ACTOR_EQUIPMENT_TAB_LABELS.attackBlockedTitle,
-        description: blocked,
-        color: 'warning',
-      });
+        if (!shot) {
+          return;
+        }
 
-      return;
-    }
+        const ammunitionId = shot.ammunition?.id;
 
-    const shot = prepareAmmunitionShot(props.entity, sourceWeapon);
-
-    if (!shot) {
-      return;
-    }
-
-    const ammunitionId = shot.ammunition?.id;
-
-    runWeaponAttackChoices(shot.weapon, props.entity.id, (weapon) => {
-      if (!weapon.damageParts?.length) {
-        return;
-      }
-
-      // Оружие со спасброском: цель кидает спас, броска попадания нет.
-      const hasSave = isSaveAbility(weapon.saveType);
-
-      const baseMod = calculateWeaponAttackModifier(
-        props.entity,
-        weapon,
-        resolvedStats.value,
-      );
-
-      const weaponSaveDC = resolveWeaponSaveDc(baseMod);
-
-      const attackKey = getAttackBonusKey(weapon.rangeType);
-      const damageKey = getDamageBonusKey(weapon.rangeType);
-
-      const evaluateBonuses = (context: {
-        hasAdvantage: boolean;
-        hasDisadvantage: boolean;
-      }) => {
-        // HP цели читается в момент броска — для условий target.hp.* («Убийца»)
-        const rollContext = {
-          ...context,
-          target: buildTargetHpContext(undefined, props.entity.id),
-          // Предмет броска: по нему работает «только этим предметом»
-          itemId: weapon.id,
-        };
-
-        // Условный бонус может быть формулой (`@prof`, `@mod.dex`) — без
-        // контекста @-переменных она дала бы ноль
-        const formulaContext = buildFormulaContext(props.entity);
-
-        return {
-          attackBonus: evaluateConditionalBonuses(
-            combinedEffects.value,
-            attackKey,
-            rollContext,
-            formulaContext,
-          ),
-          damageBonus: evaluateConditionalBonuses(
-            combinedEffects.value,
-            damageKey,
-            rollContext,
-            formulaContext,
-          ),
-        };
-      };
-
-      const weaponAttackRoll = resolveTargetedAttackRoll(
-        props.entity,
-        getAttackFlagCategory(weapon.rangeType),
-      );
-
-      // Единая со заклинаниями система урона: бросок ВСЕГДА идёт многочастным
-      // путём (части урона оружия + бонус-части эффектов). Состояние HP цели —
-      // для условных веток @target.full/@target.notFull.
-      const targetHp = buildTargetHpContext();
-
-      const targetIsFull = targetHp
-        ? targetHp.currentHp >= targetHp.maxHp
-        : undefined;
-
-      const weaponPartsSetup = buildWeaponRollSetup({
-        weapon,
-        actor: props.entity,
-        effects: combinedEffects.value,
-        resolvedStats: resolvedStats.value,
-        targetIsFull,
-        targetType: targetHp?.creatureType,
-      });
-
-      // Тип урона на выбор спрашивает окно броска: части урона решает оно
-      // само, а эффекты оружия на цель получают тот же тип здесь
-      let weaponSpell = weaponPartsSetup.pseudoSpell;
-
-      const damageTypeChoice = requestDamageTypeChoiceFor(
-        weapon,
-        weaponPartsSetup.pseudoSpell,
-        (chosen) => {
-          weaponSpell = chosen;
-        },
-      );
-
-      rollConfig.value = {
-        name: weapon.name,
-        formula: weaponPartsSetup.baseParts[0]?.formula ?? '',
-        attackModifier: hasSave ? undefined : baseMod,
-        evaluateBonusRollFormulas: hasSave
-          ? undefined
-          : buildRollBonusEvaluator(() => props.entity, attackKey),
-        evaluateBonuses,
-        initialRollMode: weaponAttackRoll.mode,
-        rollModeReasons: weaponAttackRoll.reasons,
-        critThreshold: resolveTargetedCritThreshold(
-          props.entity,
-          resolvedStats.value?.critThreshold,
-        ),
-        incomingAttackType: getAttackFlagCategory(weapon.rangeType),
-        damageType: getWeaponPrimaryDamageType(weapon, resolvedStats.value),
-        damageParts: weaponPartsSetup.baseParts,
-        evaluateBonusDamageParts: weaponPartsSetup.evaluateBonusDamageParts,
-        onRollParts: (parts: RolledSpellDamagePart[]) =>
-          handleWeaponRollParts(weaponSpell, parts, weaponSaveDC),
-        damageTypeChoice,
-        // Сбрасываем явно: `rollConfig` переиспользуется между бросками, и без
-        // этого обработчик от ПРЕДЫДУЩЕГО броска остался бы висеть на текущем.
-        onHit: undefined,
-        // Бросок пошёл: тратятся боеприпас и действие хода
-        beforeRoll: () => {
-          if (ammunitionId) {
-            commitEquipment(spendAmmunition(inventory.value, ammunitionId));
+        runWeaponAttackChoices(shot.weapon, props.entity.id, (weapon) => {
+          if (!weapon.damageParts?.length) {
+            return;
           }
 
-          recordEntityActionSpend(props.entity.id, WEAPON_ATTACK_COST, true);
-          warnOpportunityAttack(props.entity.id);
+          // Оружие со спасброском: цель кидает спас, броска попадания нет.
+          const hasSave = isSaveAbility(weapon.saveType);
 
-          return true;
-        },
-      };
+          const baseMod = calculateWeaponAttackModifier(
+            props.entity,
+            weapon,
+            resolvedStats.value,
+          );
 
-      isRollModalOpen.value = true;
+          const weaponSaveDC = resolveWeaponSaveDc(baseMod);
+
+          const attackKey = getAttackBonusKey(weapon.rangeType);
+          const damageKey = getDamageBonusKey(weapon.rangeType);
+
+          const evaluateBonuses = (context: {
+            hasAdvantage: boolean;
+            hasDisadvantage: boolean;
+          }) => {
+            // HP цели читается в момент броска — для условий target.hp.* («Убийца»)
+            const rollContext = {
+              ...context,
+              target: buildTargetHpContext(undefined, props.entity.id),
+              // Предмет броска: по нему работает «только этим предметом»
+              itemId: weapon.id,
+            };
+
+            // Условный бонус может быть формулой (`@prof`, `@mod.dex`) — без
+            // контекста @-переменных она дала бы ноль
+            const formulaContext = buildFormulaContext(props.entity);
+
+            return {
+              attackBonus: evaluateConditionalBonuses(
+                combinedEffects.value,
+                attackKey,
+                rollContext,
+                formulaContext,
+              ),
+              damageBonus: evaluateConditionalBonuses(
+                combinedEffects.value,
+                damageKey,
+                rollContext,
+                formulaContext,
+              ),
+            };
+          };
+
+          const weaponAttackRoll = resolveTargetedAttackRoll(
+            props.entity,
+            getAttackFlagCategory(weapon.rangeType),
+          );
+
+          // Единая со заклинаниями система урона: бросок ВСЕГДА идёт многочастным
+          // путём (части урона оружия + бонус-части эффектов). Состояние HP цели —
+          // для условных веток @target.full/@target.notFull.
+          const targetHp = buildTargetHpContext();
+
+          const targetIsFull = targetHp
+            ? targetHp.currentHp >= targetHp.maxHp
+            : undefined;
+
+          const weaponPartsSetup = buildWeaponRollSetup({
+            weapon,
+            actor: props.entity,
+            effects: combinedEffects.value,
+            resolvedStats: resolvedStats.value,
+            targetIsFull,
+            targetType: targetHp?.creatureType,
+          });
+
+          // Тип урона на выбор спрашивает окно броска: части урона решает оно
+          // само, а эффекты оружия на цель получают тот же тип здесь
+          let weaponSpell = weaponPartsSetup.pseudoSpell;
+
+          const damageTypeChoice = requestDamageTypeChoiceFor(
+            weapon,
+            weaponPartsSetup.pseudoSpell,
+            (chosen) => {
+              weaponSpell = chosen;
+            },
+          );
+
+          rollConfig.value = {
+            name: weapon.name,
+            formula: weaponPartsSetup.baseParts[0]?.formula ?? '',
+            attackModifier: hasSave ? undefined : baseMod,
+            evaluateBonusRollFormulas: hasSave
+              ? undefined
+              : buildRollBonusEvaluator(() => props.entity, attackKey),
+            evaluateBonuses,
+            initialRollMode: weaponAttackRoll.mode,
+            rollModeReasons: weaponAttackRoll.reasons,
+            critThreshold: resolveTargetedCritThreshold(
+              props.entity,
+              resolvedStats.value?.critThreshold,
+            ),
+            incomingAttackType: getAttackFlagCategory(weapon.rangeType),
+            damageType: getWeaponPrimaryDamageType(weapon, resolvedStats.value),
+            damageParts: weaponPartsSetup.baseParts,
+            evaluateBonusDamageParts: weaponPartsSetup.evaluateBonusDamageParts,
+            onRollParts: (parts: RolledSpellDamagePart[]) =>
+              handleWeaponRollParts(weaponSpell, parts, weaponSaveDC),
+            damageTypeChoice,
+            // Сбрасываем явно: `rollConfig` переиспользуется между бросками, и без
+            // этого обработчик от ПРЕДЫДУЩЕГО броска остался бы висеть на текущем.
+            onHit: undefined,
+            // Бросок пошёл: тратятся боеприпас и действие хода
+            beforeRoll: () => {
+              if (ammunitionId) {
+                commitEquipment(spendAmmunition(inventory.value, ammunitionId));
+              }
+
+              recordEntityActionSpend(props.entity.id, attackCost, true);
+              warnOpportunityAttack(props.entity.id);
+
+              return true;
+            },
+          };
+
+          isRollModalOpen.value = true;
+        });
+      },
+    );
+  }
+
+  /**
+   * Говорит, почему удар сейчас недоступен.
+   *
+   * @param reason - причина запрета
+   */
+  function refuseWeaponAttack(reason: string): void {
+    toast.add({
+      title: ACTOR_EQUIPMENT_TAB_LABELS.attackBlockedTitle,
+      description: reason,
+      color: 'warning',
     });
   }
 

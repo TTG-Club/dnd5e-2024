@@ -71,6 +71,7 @@
     hasActionSelfEffects,
     hasActionUseEffects,
   } from '../../composables/effectActivationUse';
+  import { isEntityOwnTurn } from '../../composables/encounterTurn';
   import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import { discardSpellTemplate } from '../../composables/spellResolutionShared';
   import { useBonusDamageParts } from '../../composables/useBonusDamageParts';
@@ -175,9 +176,14 @@
       : null;
   });
 
+  /** Идёт ли ход существа: вне своего хода атака из «Действий» — реакция */
+  const isOwnTurn = computed(
+    () => props.creatureId === undefined || isEntityOwnTurn(props.creatureId),
+  );
+
   /**
-   * Почему запись раздела сейчас не совершить: запрет раздела либо вторая
-   * атака под «одной атакой за ход».
+   * Почему запись раздела сейчас не совершить: запрет траты либо вторая
+   * атака действием под «одной атакой за ход».
    *
    * @param action - запись статблока
    * @returns причина словами либо `null`, если действие доступно
@@ -186,7 +192,12 @@
     const { section } = props;
 
     return section && actionBlocks.value
-      ? findCreatureActionBlock(actionBlocks.value, section, action)
+      ? findCreatureActionBlock(
+          actionBlocks.value,
+          section,
+          action,
+          isOwnTurn.value,
+        )
       : null;
   }
 

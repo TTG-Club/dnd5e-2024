@@ -9,31 +9,38 @@
  * конце хода. У носителя без флага и вне боя ничего не пишется. Перемещение
  * пишет сервер сам — он его и видит.
  *
- * Здесь же предупреждение об ударе вне своего хода носителю без
- * провоцированных атак («Электрошок»).
+ * Здесь же цена удара оружием (действие «Атака», вне своего хода — реакция,
+ * по слову бьющего — бонусное действие) и предупреждение об ударе вне своего
+ * хода носителю без провоцированных атак («Электрошок»).
  */
 
 import type {
   DnDSceneEntity,
   EffectActionCost,
+  RestrictedActionCost,
 } from '@vtt/shared/system/dnd.js';
 
 import { emitEntityCombatState } from '@/core/entityUtils';
+import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
 import {
   formatActionCostBlock,
+  isRestrictedActionCost,
+  planWeaponAttack,
   recordActionSpend,
   resolveActionCostBlock,
+  resolveAttackCost,
   resolveOpportunityAttackWarning,
+  WEAPON_DECLARED_ATTACK_COST,
 } from '@vtt/shared/system/dnd.js';
 
 import { useSystemToastStore } from '../stores/systemToastStore';
-import { OPPORTUNITY_ATTACK_WARNING_LABELS } from '../ui/effect/constants';
 import {
-  isEntityInCombat,
-  resolveActiveTurnActorId,
-  resolveCombatRound,
-} from './encounterTurn';
+  EFFECT_QUESTION_PROMPT_MODAL,
+  OPPORTUNITY_ATTACK_WARNING_LABELS,
+  WEAPON_ATTACK_COST_PROMPT_LABELS,
+} from '../ui/effect/constants';
+import { isEntityOwnTurn, resolveCombatRound } from './encounterTurn';
 import { listAmbientEffects } from './useResolvedStats';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -75,8 +82,9 @@ export function warnActionCostBlocked(
  *
  * @param entityId - кто тратит
  * @param cost - что тратит; нет — трата не считается
- * @param attack - трата — атака действием «Атака» (удар оружием, атака из
- *   раздела «Действия» статблока): её считает «одна атака за ход»
+ * @param attack - трата — атака (удар оружием, атака из раздела «Действия»
+ *   статблока). Вне своего хода атака действием — реакция; «одна атака за
+ *   ход» считает только атаку действием
  */
 export function recordEntityActionSpend(
   entityId: string | undefined,
@@ -90,8 +98,14 @@ export function recordEntityActionSpend(
 
   const entity = useWorldEntities().findCurrentDndEntity(entityId);
 
+  // Удар вне своего хода — реакция: ни действием, ни атакой хода не считается
+  const spendCost =
+    entity && attack && isRestrictedActionCost(cost)
+      ? resolveAttackCost(cost, isEntityOwnTurn(entity.id))
+      : cost;
+
   const ledger = entity
-    ? recordActionSpend(entity, cost, {
+    ? recordActionSpend(entity, spendCost, {
         attack,
         ambientEffects: listAmbientEffects(entity.id),
       })
@@ -110,6 +124,64 @@ export function recordEntityActionSpend(
 }
 
 /**
+ * Решает, чем персонаж бьёт оружием, и пускает удар дальше. В свой ход удар —
+ * действие «Атака», вне хода — реакция. Под «одной атакой за ход» второй удар
+ * не гаснет молча: своего поля цены у оружия нет, поэтому бьющего спрашивают,
+ * не бонусным ли действием он бьёт, — ответ уходит в чат. Закрытая плашка
+ * отменяет удар.
+ *
+ * @param entity - кто бьёт
+ * @param weaponName - чем бьёт: заголовок вопроса и строка чата
+ * @param refuse - удар запрещён: причина словами
+ * @param proceed - удар идёт: чем он совершается
+ */
+export function runWithWeaponAttackCost(
+  entity: DnDSceneEntity,
+  weaponName: string,
+  refuse: (reason: string) => void,
+  proceed: (cost: RestrictedActionCost) => void,
+): void {
+  const plan = planWeaponAttack(
+    entity,
+    isEntityOwnTurn(entity.id),
+    listAmbientEffects(entity.id),
+  );
+
+  if (plan.blocked === null) {
+    proceed(plan.cost);
+
+    return;
+  }
+
+  if (!plan.canDeclareBonus) {
+    refuse(plan.blocked);
+
+    return;
+  }
+
+  useModalManager().openModal(EFFECT_QUESTION_PROMPT_MODAL, {
+    allowMultiple: true,
+    question: `${plan.blocked}${WEAPON_ATTACK_COST_PROMPT_LABELS.questionSuffix}`,
+    options: [
+      {
+        id: WEAPON_DECLARED_ATTACK_COST,
+        label: WEAPON_ATTACK_COST_PROMPT_LABELS.bonus,
+      },
+    ],
+    sourceName: weaponName,
+    onAnswer: () => {
+      useChatStore().sendMessage(
+        `${weaponName}${WEAPON_ATTACK_COST_PROMPT_LABELS.chatSuffix}`,
+        'text',
+      );
+
+      proceed(WEAPON_DECLARED_ATTACK_COST);
+    },
+    onCancel: () => {},
+  });
+}
+
+/**
  * Предупреждает об ударе вне своего хода, если носителю запрещены
  * провоцированные атаки. Удар не отменяет: вне хода бьют и по заготовленному
  * действию — решает стол.
@@ -118,7 +190,7 @@ export function recordEntityActionSpend(
  */
 export function warnOpportunityAttack(entityId: string): void {
   // Вне боя и в свой ход провоцированных атак не бывает
-  if (!isEntityInCombat(entityId) || resolveActiveTurnActorId() === entityId) {
+  if (isEntityOwnTurn(entityId)) {
     return;
   }
 
