@@ -225,12 +225,15 @@ export function dispatchAttackRollTriggers(
  * @param rollMode - режим броска атаки
  * @param landed - попал ли бросок; не задано — к этому времени неизвестно
  *   (серия снарядов: броски делает вызывающий уже после события)
+ * @param critical - попадание критическое: урон срабатываний цели этой атаки
+ *   удвоит кости
  */
 export function reportAttackRoll(
   attackerId: string,
   targetIds: readonly string[],
   rollMode: AttackRollMode,
   landed?: boolean,
+  critical = false,
 ): void {
   const attacker = findDndWorldEntity(attackerId);
 
@@ -247,7 +250,7 @@ export function reportAttackRoll(
 
   if (needsServer) {
     emitSystemClientEvent(
-      buildAttackRollEvent(attackerId, targetIds, rollMode, landed),
+      buildAttackRollEvent(attackerId, targetIds, rollMode, landed, critical),
     );
   }
 }

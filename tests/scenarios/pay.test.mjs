@@ -207,6 +207,38 @@ describe('каталог: цена ресурсом', () => {
       80 - 32,
       'ячейка 3 круга: 4к8',
     );
+
+    // Критическое попадание удваивает кости кары, как урон самой атаки: число
+    // костей считается после подстановки круга ячейки
+    const critWarlock = hero({ classes: [WARLOCK] }, [smite]);
+    const critTroll = withHp(createCreature, 80);
+    const critRequest = createRequestRoll();
+
+    const critResult = engine.settleAttackRollTriggers(
+      critWarlock,
+      'attacker',
+      {
+        other: critTroll,
+        roll: {},
+        landed: true,
+        critical: true,
+        inCombat: true,
+        requestRoll: critRequest.requestRoll,
+      },
+    );
+
+    critRequest.answer(answered('yes'));
+
+    const critOutcome = (await critResult.deferred[0].resolution)(critWarlock);
+    const critDealt = await critOutcome.deferred[0].resolution;
+
+    withRandom([MAX_ROLL], () => critDealt(critTroll));
+
+    assert.equal(
+      engine.resolveEntityCurrentHp(critTroll),
+      80 - 64,
+      'крит: 8к8',
+    );
   });
 
   it('[PY03] Быстрое восстановление: две цены сразу — кость хитов и использование', () => {

@@ -42,6 +42,11 @@ const AttackRollEventSchema = z.object({
    * части условия о попадании НЕ выполняются, как у всякой части без данных.
    */
   landed: z.boolean().optional(),
+  /**
+   * Попадание критическое: урон срабатываний, идущий цели этой атаки, удваивает
+   * кости. Поля нет — не крит (и у клиентов старше поля)
+   */
+  critical: z.boolean().optional(),
 });
 
 /** Сколько сущностей накрывает один шаблон кнопки «При действии» */
@@ -108,6 +113,7 @@ export function buildEndCastsEvent(
  * @param targetIds - цели
  * @param rollMode - режим броска
  * @param landed - попал ли бросок; не задано — к этому времени неизвестно
+ * @param critical - попадание критическое; пишется только у попавшего броска
  * @returns событие для `system:client-event`
  */
 export function buildAttackRollEvent(
@@ -115,6 +121,7 @@ export function buildAttackRollEvent(
   targetIds: readonly string[],
   rollMode: AttackRollMode,
   landed?: boolean,
+  critical = false,
 ): SystemClientEvent {
   return {
     type: 'attackRoll',
@@ -122,6 +129,7 @@ export function buildAttackRollEvent(
     targetIds: [...targetIds],
     rollMode,
     ...(landed === undefined ? {} : { landed }),
+    ...(landed === true && critical ? { critical } : {}),
   };
 }
 

@@ -759,10 +759,12 @@
    *
    * @param targetIds - цели броска
    * @param landed - попал ли бросок; не задано — здесь это ещё неизвестно
+   * @param critical - попадание критическое
    */
   function finishAttackRoll(
     targetIds: readonly string[],
     landed?: boolean,
+    critical = false,
   ): void {
     if (props.attackerId) {
       reportAttackRoll(
@@ -770,6 +772,7 @@
         targetIds,
         attackRollMode.value,
         landed,
+        critical,
       );
     }
   }
@@ -928,6 +931,7 @@
       let damageTotal = 0;
       let attackTargetIds: string[] | null = null;
       let attackLanded: boolean | undefined;
+      let attackCritical = false;
 
       if (attackTargetAc !== null) {
         // Расход одноразовых эффектов ДО броска (режим уже зафиксирован):
@@ -938,6 +942,7 @@
 
         damageTotal = attack.total;
         attackLanded = attack.landed;
+        attackCritical = attack.critical;
       } else {
         // Обычный бросок (лечение или без цели)
         damageTotal = performSimpleRoll(bonusDiceFormulas);
@@ -948,7 +953,7 @@
       }
 
       if (attackTargetIds) {
-        finishAttackRoll(attackTargetIds, attackLanded);
+        finishAttackRoll(attackTargetIds, attackLanded, attackCritical);
       }
     } catch (err) {
       console.error(DICE_ROLL_LOG_PREFIX, err);
@@ -1019,13 +1024,14 @@
    *
    * @param targetAc - класс доспеха цели
    * @param bonusDiceFormulas - бонусы, зафиксированные до расхода эффектов
-   * @returns урон броска и попал ли он: попадание уходит серверу вместе с
-   *   событием броска — по нему работают части условия «атака попала»
+   * @returns урон броска, попал ли он и критически ли: попадание и крит уходят
+   *   серверу вместе с событием броска — по ним работают части условия «атака
+   *   попала» и удвоение костей урона срабатываний
    */
   function performAttackRoll(
     targetAc: number,
     bonusDiceFormulas: readonly string[],
-  ): { total: number; landed: boolean } {
+  ): { total: number; landed: boolean; critical: boolean } {
     const attackMod =
       (props.attackModifier ?? 0)
       + bonusValue.value
@@ -1110,6 +1116,7 @@
     return {
       total: attackOutput.damageRoll?.total ?? 0,
       landed: attackOutput.attackResult.isHit,
+      critical: attackOutput.attackResult.isCriticalHit,
     };
   }
 
@@ -1387,7 +1394,7 @@
     // узнаёт о броске после урона
     void waitForAttackDisplay()
       .then(() => rollPartsSequentially(parts, isCrit))
-      .then(() => finishAttackRoll(targetIds, true));
+      .then(() => finishAttackRoll(targetIds, true, isCrit));
   }
 </script>
 

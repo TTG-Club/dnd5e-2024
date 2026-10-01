@@ -530,6 +530,8 @@ export function resolveTriggerActionScale(
  * @param trigger - срабатывание
  * @param passed - пройден ли спасбросок
  * @param stats - resolved-статы субъекта (защиты от урона)
+ * @param critical - субъект — цель атаки, попавшей критически: кости урона
+ *   удваиваются
  * @returns исход урона либо `null`
  */
 export function rollTriggerDamage(
@@ -538,6 +540,7 @@ export function rollTriggerDamage(
   trigger: EffectTrigger,
   passed: boolean,
   stats: ReturnType<typeof resolveActorStats>,
+  critical = false,
 ): TurnDamageOutcome | null {
   let outcome: TurnDamageOutcome | null = null;
 
@@ -562,6 +565,7 @@ export function rollTriggerDamage(
 
     const rolled = rollEffectDamage(effect.name, action.parts, stats, entity, {
       scale,
+      critical,
     });
 
     if (!rolled) {
@@ -2786,6 +2790,8 @@ export function settleTriggerOutcome(
     source.trigger,
     passed,
     stats,
+    // Крит атаки удваивает кости только её цели
+    options.criticalTargetId === recipient.id,
   );
 
   if (damage) {

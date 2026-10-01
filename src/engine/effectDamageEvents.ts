@@ -586,6 +586,7 @@ function runTriggerEventSource(
     activeTurnActorId: options.activeTurnActorId,
     endCast: options.endCast,
     eventDamage: eventData.damage?.amount,
+    criticalTargetId: eventData.attack?.criticalTargetId,
     surroundings: options.surroundings,
     moveToken: options.moveToken,
     moveArea: options.moveArea,
@@ -739,6 +740,7 @@ function settleTriggerForRecipient(
     activeTurnActorId: options.activeTurnActorId,
     endCast: options.endCast,
     eventDamage: eventData.damage?.amount,
+    criticalTargetId: eventData.attack?.criticalTargetId,
     surroundings: options.surroundings,
     moveToken: options.moveToken,
     moveArea: options.moveArea,
@@ -1018,6 +1020,8 @@ export interface AttackRollEventOptions extends TriggerEventOptions {
    * снарядов), и части условия «попала» / «промахнулась» не выполняются обе
    */
   landed?: boolean;
+  /** Попадание критическое: урон срабатывания цели атаки удваивает кости */
+  critical?: boolean;
 }
 
 /**
@@ -1070,12 +1074,26 @@ export function settleAttackRollTriggers(
 ): DamageEventsResult {
   const result = createDamageEventsResult();
 
+  // Цель атаки: у атакующего это другая сторона, у цели — она сама
+  const attackTarget = role === 'attacker' ? options.other : subject;
+
+  const criticalTargetId =
+    options.landed === true && options.critical === true
+      ? attackTarget?.id
+      : undefined;
+
   const eventData: TriggerEventData = {
     other: options.other,
     roll: options.roll,
     ...(options.landed === undefined
       ? {}
-      : { attack: { kinds: [], landed: options.landed } }),
+      : {
+          attack: {
+            kinds: [],
+            landed: options.landed,
+            ...(criticalTargetId === undefined ? {} : { criticalTargetId }),
+          },
+        }),
   };
 
   for (const source of listAttackRollSources(subject, role, 'server')) {

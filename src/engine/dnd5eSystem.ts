@@ -999,6 +999,7 @@ function settleAttackRollEvent(
         hasDisadvantage: event.rollMode === 'disadvantage',
       },
       ...(event.landed === undefined ? {} : { landed: event.landed }),
+      ...(event.critical === true ? { critical: true } : {}),
     });
 
     const subject = outcomeOf(side.subject);
@@ -1605,7 +1606,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.158';
+  readonly version = '0.8.159';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.

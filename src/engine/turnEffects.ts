@@ -43,6 +43,7 @@ import type { SaveSourceTraits } from './saveSourceTraits.js';
 import { isToggleActivatedEffect } from './activeEffectTypes.js';
 import { stampApplyTimeFormulas } from './applyTimeFormulas.js';
 import {
+  doubleDiceInFormula,
   listSavingThrowBonusKeys,
   resolveSavingThrowModifier,
   resolveSavingThrowRollMode,
@@ -875,6 +876,12 @@ export interface EffectDamageRollOptions {
    * своего урона не знает, лишнего не наносит.
    */
   damageDealt?: boolean;
+  /**
+   * Урон идёт цели атаки, попавшей критически: кости удваиваются по тому же
+   * правилу, что у урона самой атаки (`doubleDiceInFormula`), плоские прибавки
+   * — нет
+   */
+  critical?: boolean;
 }
 
 /** Одна часть урона эффекта после доли и защит — строка чата */
@@ -1012,7 +1019,12 @@ export function rollEffectDamageParts(
   entity: DnDSceneEntity,
   options: EffectDamageRollOptions = {},
 ): EffectDamageRoll {
-  const { scale = 1, rollFormula = rollDamageFormula, damageDealt } = options;
+  const {
+    scale = 1,
+    rollFormula = rollDamageFormula,
+    damageDealt,
+    critical = false,
+  } = options;
 
   const gated = damageParts.filter(
     (part) => damageDealt === true || part.requiresDamage !== true,
@@ -1027,12 +1039,19 @@ export function rollEffectDamageParts(
       undefined,
       resolveDiceCountExpressions,
     ),
-  ).filter(
-    (segment) =>
-      !segment.isHealing
-      && !segment.formula.includes('@')
-      && damageReachesTarget(segment, entity),
-  );
+  )
+    .filter(
+      (segment) =>
+        !segment.isHealing
+        && !segment.formula.includes('@')
+        && damageReachesTarget(segment, entity),
+    )
+    // Крит удваивает кости уже посчитанного числа: `(1 + 2)к8` — это `6к8`
+    .map((segment) =>
+      critical
+        ? { ...segment, formula: doubleDiceInFormula(segment.formula) }
+        : segment,
+    );
 
   const rolls = segments.map((segment) => rollFormula(segment.formula));
 
@@ -1140,6 +1159,12 @@ export interface EntryEffectOptions extends SceneMoveOptions {
   endCast?: (effect: ActiveEffect) => void;
   /** Урон события: `@damage` действия «Максимум хитов уменьшается» */
   eventDamage?: number;
+  /**
+   * Цель атаки, по которой попали критически (событие броска атаки): урон
+   * срабатывания, идущий ей, удваивает кости, как урон самой атаки. Другим
+   * получателям и лечению крит ничего не даёт
+   */
+  criticalTargetId?: string;
   /**
    * Не привязывать наложенное к касту: наложения «когда заклинание
    * заканчивается» переживают сам каст.
