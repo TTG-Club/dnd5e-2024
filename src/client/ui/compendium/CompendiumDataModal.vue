@@ -44,7 +44,10 @@
     isRecord,
     systemRegistry,
   } from '@vtt/shared';
-  import { rememberCompendiumClassLabels } from '@vtt/shared/system/dnd.js';
+  import {
+    COMPENDIUM_CREATURE_KIND,
+    rememberCompendiumClassLabels,
+  } from '@vtt/shared/system/dnd.js';
 
   import { flattenPreferringBy } from '../../composables/useCompendiumCatalog';
   import { useProgressiveList } from '../../composables/useProgressiveList';
@@ -87,7 +90,7 @@
   }
 
   /** Канонический тип записей существ в компендиуме */
-  const CREATURE_KIND = 'creature';
+  const CREATURE_KIND = COMPENDIUM_CREATURE_KIND;
 
   /**
    * Настройка показа по типу записей, узнанная из манифеста. Общая на все окна

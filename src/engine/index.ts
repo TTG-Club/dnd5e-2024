@@ -22,6 +22,7 @@ export * from './classFeatureOptions.js';
 export * from './classLabels.js';
 export * from './classLineage.js';
 export * from './classTypes.js';
+export * from './compendiumEntry.js';
 export * from './concentration.js';
 export * from './conditionKeys.js';
 export * from './conditionRecord.js';

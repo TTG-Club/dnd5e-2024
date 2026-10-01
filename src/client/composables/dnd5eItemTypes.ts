@@ -159,6 +159,17 @@ export function itemTypeLabel(type: string): string | undefined {
 }
 
 /**
+ * Значок типа предмета. Тот же словарь, что и у {@link itemTypeLabel}: значок
+ * вида записей в «Мастерской» и значок раздела своего компендиума — один.
+ *
+ * @param type - тип предмета (`weapon`, `equipment`, `tool`, …)
+ * @returns значок либо `undefined` у незнакомого типа
+ */
+export function itemTypeIcon(type: string): string | undefined {
+  return ITEM_TYPE_CONFIG[type]?.icon;
+}
+
+/**
  * Формирует имя модалки по типу и действию (`weapon`+`FormModal`→`WeaponFormModal`).
  *
  * @param type - тип предмета

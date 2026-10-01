@@ -24,6 +24,8 @@ import type {
 } from '@vtt/shared/system/dnd.js';
 
 import {
+  COMPENDIUM_CLASS_KIND,
+  COMPENDIUM_SPELL_KIND,
   CUSTOM_SKILLS_MAX,
   DEATH_SAVE_DC,
   DEATH_SAVE_DOUBLE_FAILURE_ROLL,
@@ -139,11 +141,9 @@ export const COMPENDIUM_PICKER_CURRENT_TITLES: Record<
  */
 export const ALL_PACKS_ID = '__all__';
 
-/** Тип записей компендиума: заклинания */
-export const COMPENDIUM_SPELL_KIND = 'spell';
-
-/** Тип записей компендиума: определения классов */
-export const COMPENDIUM_CLASS_KIND = 'class';
+// Типы записей компендиума заданы движком — здесь они только переэкспортируются
+// для окон листа, чтобы строка типа существовала в системе один раз.
+export { COMPENDIUM_CLASS_KIND, COMPENDIUM_SPELL_KIND };
 
 /**
  * Типы записей компендиума, которые вкладка заклинаний грузит заранее для окна
