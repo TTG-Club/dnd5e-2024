@@ -49,7 +49,6 @@ import { isCreatureEntity, isRecord } from '@vtt/shared';
 import {
   ABILITY_CHECK_KEY,
   ATTACK_ABILITY_CONDITION_PREFIX,
-  ATTACK_REACH_KEY,
   ATTACKS_AGAINST_KEY,
   CARRIER_ARMOR_CONDITION_PREFIX,
   CONCENTRATION_SAVE_KEY,
@@ -59,6 +58,7 @@ import {
   INCOMING_ATTACKER_NOT_SOURCE_CONDITION,
   isCarrierEffect,
   isEffectDormant,
+  isOffSheetChangeKey,
   isSenseType,
   isWeaponOverrideKey,
   parseWeaponBaseTypeCondition,
@@ -69,7 +69,6 @@ import {
   TARGET_ANY_ALLY_ADJACENT_CONDITION,
   TARGET_IS_SOURCE_CONDITION,
   TARGET_NOT_SOURCE_CONDITION,
-  TEMP_HP_GAIN_KEY,
   WEAPON_DAMAGE_DICE_KEY,
 } from './activeEffectTypes.js';
 import {
@@ -187,16 +186,6 @@ const DERIVED_TARGET_KEYS: ReadonlySet<string> = new Set([
 
 /** Префиксы производных ключей: у спасбросков и навыков их по шесть и восемнадцать */
 const DERIVED_TARGET_PREFIXES: readonly string[] = ['save.', 'skill.'];
-
-/**
- * Ключи прибавок события: конвейер статов их пропускает. Список повторяет
- * `offSheetChanges.ts` — тот модуль сам зависит от конвейера, и взять набор
- * оттуда значило бы замкнуть импорты.
- */
-const OFF_SHEET_CHANGE_KEYS: ReadonlySet<string> = new Set([
-  TEMP_HP_GAIN_KEY,
-  ATTACK_REACH_KEY,
-]);
 
 /**
  * Производный ли ключ, то есть считается ли он по правилам в Фазе 3.
@@ -748,8 +737,9 @@ export function applyActiveEffects(
       continue;
     }
 
-    // Прибавки события (временные хиты, досягаемость) считаются не на листе
-    if (OFF_SHEET_CHANGE_KEYS.has(change.key)) {
+    // Строки события (временные хиты, досягаемость, тип урона заклинаний)
+    // считаются не на листе
+    if (isOffSheetChangeKey(change.key)) {
       continue;
     }
 

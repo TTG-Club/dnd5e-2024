@@ -35,6 +35,12 @@ import {
 } from './activeEffectTypes.js';
 import { BLOODIED_AUTO_APPLY } from './conditionKeys.js';
 import {
+  CHOICE_TOKEN_PREFIX,
+  readChoiceKey,
+  splitConditionList,
+  stripListQuotes,
+} from './conditionSyntax.js';
+import {
   CREATURE_SIZES,
   isAbilityType,
   isCreatureCategory,
@@ -381,6 +387,9 @@ const KIND_EVENTS: Record<
   otherIsSourceSide: OTHER_CONDITION_EVENTS,
 };
 
+/** Приставка части «тип урона события из списка» */
+const DAMAGE_TYPE_CONDITION_PREFIX = 'damage.type === ';
+
 /** Части условия со значением: приставка строки и что выбирается */
 const PARAMETRIC_PARTS: Partial<
   Record<
@@ -388,7 +397,7 @@ const PARAMETRIC_PARTS: Partial<
     { prefix: string; parameter: TriggerConditionParameter }
   >
 > = {
-  damageType: { prefix: 'damage.type === ', parameter: 'damageType' },
+  damageType: { prefix: DAMAGE_TYPE_CONDITION_PREFIX, parameter: 'damageType' },
   damageTypeNot: { prefix: 'damage.type !== ', parameter: 'damageType' },
   selfCreatureType: {
     prefix: CARRIER_TYPE_CONDITION_PREFIX,
@@ -433,7 +442,7 @@ const PARAMETRIC_PARTS: Partial<
   },
   // Значение — ключ выбора владельца: в строке оно стоит токеном
   // `@choice.<ключ>` (см. `CHOSEN_PARTS`)
-  damageTypeChosen: { prefix: 'damage.type === ', parameter: 'text' },
+  damageTypeChosen: { prefix: DAMAGE_TYPE_CONDITION_PREFIX, parameter: 'text' },
   otherCreatureTypeChosen: {
     prefix: TARGET_TYPE_CONDITION_PREFIX,
     parameter: 'text',
@@ -462,12 +471,6 @@ const CHOSEN_PARTS: readonly TriggerConditionKind[] = [
   'damageTypeChosen',
   'otherCreatureTypeChosen',
 ];
-
-/** Начало токена выбора владельца в значении части */
-const CHOICE_VALUE_PREFIX = '@choice.';
-
-/** Значение части целиком — токен выбора владельца */
-const CHOICE_VALUE_PATTERN = /^@choice\.([\w#:-]+)$/;
 
 /**
  * Счётчик отметок строкой: `self.tagCount["провал"] >= 3`. Ключ в квадратных
@@ -549,9 +552,6 @@ const FIXED_PARTS: Partial<Record<TriggerConditionKind, string>> = {
   movementForced: 'move.forced === true',
 };
 
-/** Кавычки вокруг значения в строке условия */
-const QUOTES_PATTERN = /^["']|["']$/g;
-
 /** Целое неотрицательное число строкой */
 const WHOLE_NUMBER_PATTERN = /^\d+$/;
 
@@ -586,10 +586,7 @@ export function joinCreatureTypeList(types: readonly string[]): string {
  * @returns ключи типов по порядку
  */
 export function splitCreatureTypeList(value: string): string[] {
-  return value
-    .split(CREATURE_TYPE_LIST_SEPARATOR)
-    .map((type) => type.trim())
-    .filter((type) => type.length > 0);
+  return splitConditionList(value);
 }
 
 /**
@@ -761,7 +758,7 @@ export function buildTriggerConditionPart(part: TriggerConditionPart): string {
 
   // Выбор владельца — токеном на месте списка
   if (CHOSEN_PARTS.includes(part.kind)) {
-    return `${parametric.prefix}"${CHOICE_VALUE_PREFIX}${part.value ?? ''}"`;
+    return `${parametric.prefix}"${CHOICE_TOKEN_PREFIX}${part.value ?? ''}"`;
   }
 
   // Число пишется без кавычек: `self.hp.value <= 50`
@@ -809,15 +806,13 @@ export function parseTriggerConditionPart(
   for (const kind of CHOSEN_PARTS) {
     const prefix = PARAMETRIC_PARTS[kind]?.prefix;
 
-    const choice =
+    const choiceKey =
       prefix !== undefined && trimmed.startsWith(prefix)
-        ? CHOICE_VALUE_PATTERN.exec(
-            trimmed.slice(prefix.length).trim().replace(QUOTES_PATTERN, ''),
-          )
-        : null;
+        ? readChoiceKey(stripListQuotes(trimmed.slice(prefix.length)))
+        : undefined;
 
-    if (choice) {
-      return { kind, value: choice[1] };
+    if (choiceKey !== undefined) {
+      return { kind, value: choiceKey };
     }
   }
 
@@ -831,10 +826,7 @@ export function parseTriggerConditionPart(
       : PARAMETRIC_PARTS[kind];
 
     if (parametric && trimmed.startsWith(parametric.prefix)) {
-      const value = trimmed
-        .slice(parametric.prefix.length)
-        .trim()
-        .replace(QUOTES_PATTERN, '');
+      const value = stripListQuotes(trimmed.slice(parametric.prefix.length));
 
       return isParameterValue(parametric.parameter, value)
         ? { kind, value }

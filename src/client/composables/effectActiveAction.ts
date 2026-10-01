@@ -7,16 +7,10 @@
  * чат. Сервер такую сводку собирает сам, клиенту её приходится писать руками.
  */
 
-import type { EffectUseArea } from '@vtt/shared/system/dnd.js';
-
 import { useChatStore } from '@/stores/chatStore';
-import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
-import { useWorldStore } from '@/stores/worldStore';
-import { resolveGridCellSize } from '@vtt/shared';
 import {
   bindLivePaid,
   buildEffectActionEvent,
-  findTokensInTemplate,
   formatSelfTriggerReport,
   listEffectActiveActions,
   listEffectSelfActions,
@@ -24,10 +18,12 @@ import {
   planEffectPay,
   resolveEffectActionTemplate,
   runEffectActiveAction,
+  toUseAreaOfEffect,
   usesPaidHitDiceRoll,
 } from '@vtt/shared/system/dnd.js';
 
 import { recordEntityActionSpend } from './actionSpend';
+import { placeAreaTemplate } from './areaTemplateTargets';
 import {
   choosePayOptions,
   emitActedEntity,
@@ -36,53 +32,6 @@ import {
 import { resolveCombatRound } from './encounterTurn';
 import { emitSystemClientEvent } from './systemClientEvents';
 import { useWorldEntities } from './useWorldEntities';
-
-/** Цвет шаблона кнопки «При действии»: у действия типа урона может не быть */
-const ACTION_TEMPLATE_COLOR = 0x8b5cf6;
-
-/**
- * Ставит на карту шаблон кнопки «При действии» и отдаёт тех, кого он накрыл.
- * Шаблон после этого снимается: он нужен только для выбора получателей.
- *
- * @param entityId - носитель эффекта: от его фишки ставится шаблон
- * @param area - форма и размер шаблона
- * @param proceed - продолжение со списком накрытых сущностей
- */
-function placeActionTemplate(
-  entityId: string,
-  area: EffectUseArea,
-  proceed: (targetIds: string[]) => void,
-): void {
-  const templateStore = useSpellTemplateStore();
-
-  templateStore.requestPlacement(
-    { ...area, unit: 'ft', resizable: false },
-    ACTION_TEMPLATE_COLOR,
-    entityId,
-    (templateId) => {
-      // Данные шаблона забираются до его снятия: по ним считаются получатели
-      const template = templateStore.getPlacedTemplate(templateId);
-
-      templateStore.removePlacedTemplate(templateId);
-      templateStore.deleteTemplate(templateId);
-
-      const scene = useWorldStore().currentScene;
-
-      if (!template || !scene) {
-        return;
-      }
-
-      const targetIds = findTokensInTemplate(
-        template,
-        scene.tokens ?? [],
-        resolveGridCellSize(scene.gridSettings),
-      ).flatMap((token) => (token.actorId ? [token.actorId] : []));
-
-      proceed([...new Set(targetIds)]);
-    },
-    null,
-  );
-}
 
 /**
  * Запускает действие действующего эффекта сущности мира: цена срабатывания,
@@ -134,11 +83,17 @@ export function runEntityEffectAction(
       return;
     }
 
-    placeActionTemplate(entityId, template, (targetIds) => {
-      emitSystemClientEvent(
-        buildEffectActionEvent(entityId, effectId, targetIds),
-      );
-    });
+    // Шаблон ставится от фишки носителя, без предела расстояния
+    placeAreaTemplate(
+      toUseAreaOfEffect(template),
+      entityId,
+      null,
+      (targetIds) => {
+        emitSystemClientEvent(
+          buildEffectActionEvent(entityId, effectId, targetIds),
+        );
+      },
+    );
   };
 
   /**

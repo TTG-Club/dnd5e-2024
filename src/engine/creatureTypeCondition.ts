@@ -36,6 +36,13 @@ import type { CreatureCategory } from './creatureTypes.js';
 
 import { typedObjectEntries } from '@vtt/shared';
 
+import {
+  CHOICE_TOKEN_PREFIX,
+  CONDITION_LIST_SEPARATOR,
+  readChoiceKey,
+  splitQuotedList,
+  stripListQuotes,
+} from './conditionSyntax.js';
 import { CREATURE_CATEGORIES, isCreatureCategory } from './consts.js';
 
 /** Типы существ с названиями — для чтения типа по названию */
@@ -66,12 +73,6 @@ export interface CreatureTypeCondition {
   choiceKey?: string;
 }
 
-/** Список типов целиком — токен выбора владельца */
-const CHOICE_LIST_PATTERN = /^@choice\.([\w#:-]+)$/;
-
-/** Начало токена выбора владельца в списке типов */
-const CHOICE_LIST_PREFIX = '@choice.';
-
 /**
  * Ключ типа по записи в списке: сам ключ либо название типа.
  *
@@ -89,16 +90,13 @@ function readCreatureCategory(text: string): CreatureCategory | undefined {
 }
 
 /** Разделитель типов внутри кавычек — общий для всего словаря условий */
-export const CREATURE_TYPE_LIST_SEPARATOR = ',';
+export const CREATURE_TYPE_LIST_SEPARATOR = CONDITION_LIST_SEPARATOR;
 
 /** Оператор «из списка» */
 const IN_OPERATOR = '===';
 
 /** Оператор «не из списка» */
 const NOT_IN_OPERATOR = '!==';
-
-/** Кавычки вокруг списка */
-const QUOTES_PATTERN = /^["']|["']$/g;
 
 /**
  * Разбирает часть условия по типу существа.
@@ -127,19 +125,16 @@ export function parseCreatureTypeCondition(
     return undefined;
   }
 
-  const list = rest.slice(operator.length).trim().replace(QUOTES_PATTERN, '');
+  const list = stripListQuotes(rest.slice(operator.length));
   const negate = operator === NOT_IN_OPERATOR;
-  const choice = CHOICE_LIST_PATTERN.exec(list.trim());
+  const choiceKey = readChoiceKey(list);
 
   // Список — выбор владельца, который лист ещё не подставил
-  if (choice) {
-    return { types: [], negate, choiceKey: choice[1] };
+  if (choiceKey !== undefined) {
+    return { types: [], negate, choiceKey };
   }
 
-  const rawTypes = list
-    .split(CREATURE_TYPE_LIST_SEPARATOR)
-    .map((type) => type.trim().toLowerCase())
-    .filter((type) => type.length > 0);
+  const rawTypes = splitQuotedList(list);
 
   const types = rawTypes.flatMap((type) => readCreatureCategory(type) ?? []);
 
@@ -166,7 +161,7 @@ export function writeCreatureTypeCondition(
   const operator = condition.negate ? NOT_IN_OPERATOR : IN_OPERATOR;
 
   const list = condition.choiceKey
-    ? `${CHOICE_LIST_PREFIX}${condition.choiceKey}`
+    ? `${CHOICE_TOKEN_PREFIX}${condition.choiceKey}`
     : condition.types.join(`${CREATURE_TYPE_LIST_SEPARATOR} `);
 
   return `${subject} ${operator} "${list}"`;

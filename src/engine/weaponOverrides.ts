@@ -24,7 +24,7 @@ import type {
 import type { DnDGameItem } from './dndEntities.js';
 
 import {
-  isWeaponOverrideKey,
+  isOptionValueKey,
   SPELL_DAMAGE_TYPE_KEY,
   WEAPON_ATTACK_ABILITY_KEY,
   WEAPON_DAMAGE_DICE_KEY,
@@ -277,14 +277,38 @@ export function getWeaponOverrideValueOptions(
     ];
   }
 
-  if (key === WEAPON_DAMAGE_TYPE_KEY || key === SPELL_DAMAGE_TYPE_KEY) {
-    return Object.entries(DAMAGE_TYPE_LABELS).map(([value, label]) => ({
-      value,
-      label,
-    }));
+  if (key === WEAPON_DAMAGE_TYPE_KEY) {
+    return listDamageTypeOptions();
   }
 
   return undefined;
+}
+
+/**
+ * Типы урона пунктами выбора.
+ *
+ * @returns пункты по справочнику типов урона
+ */
+function listDamageTypeOptions(): WeaponOverrideValueOption[] {
+  return Object.entries(DAMAGE_TYPE_LABELS).map(([value, label]) => ({
+    value,
+    label,
+  }));
+}
+
+/**
+ * Значения на выбор у строки, чьё значение — слово из списка: замены свойств
+ * оружия и тип урона заклинаний.
+ *
+ * @param key - ключ строки эффекта
+ * @returns пункты выбора либо `undefined`, если значение набирают сами
+ */
+export function getChangeValueOptions(
+  key: string,
+): readonly WeaponOverrideValueOption[] | undefined {
+  return key === SPELL_DAMAGE_TYPE_KEY
+    ? listDamageTypeOptions()
+    : getWeaponOverrideValueOptions(key);
 }
 
 /** Ошибки значения замены оружия */
@@ -297,21 +321,22 @@ const WEAPON_OVERRIDE_VALUE_ERRORS = {
 const DICE_LETTER_PATTERN = /[кдd]/i;
 
 /**
- * Ошибка значения замены свойства оружия — подписью под полем окна эффекта.
+ * Ошибка значения строки, которое задают словом из списка или костью (замена
+ * свойства оружия, тип урона заклинаний), — подписью под полем окна эффекта.
  *
  * @param key - ключ строки
  * @param value - значение строки
  * @returns текст ошибки либо `undefined`
  */
-export function validateWeaponOverrideValue(
+export function validateChangeOptionValue(
   key: string,
   value: string,
 ): string | undefined {
-  if (!isWeaponOverrideKey(key)) {
+  if (!isOptionValueKey(key)) {
     return undefined;
   }
 
-  const options = getWeaponOverrideValueOptions(key);
+  const options = getChangeValueOptions(key);
 
   if (options) {
     return options.some((option) => option.value === value.trim())
@@ -325,18 +350,18 @@ export function validateWeaponOverrideValue(
 }
 
 /**
- * Подпись значения замены из списка («Заклинательная характеристика»,
- * «Силовой урон»).
+ * Подпись значения из списка («Заклинательная характеристика», «Силовой
+ * урон») у замены свойства оружия и типа урона заклинаний.
  *
  * @param key - ключ строки
  * @param value - значение строки
  * @returns подпись либо `undefined`, если значение не из списка
  */
-export function describeWeaponOverrideValue(
+export function describeChangeOptionValue(
   key: string,
   value: string,
 ): string | undefined {
-  return getWeaponOverrideValueOptions(key)?.find(
+  return getChangeValueOptions(key)?.find(
     (option) => option.value === value.trim(),
   )?.label;
 }

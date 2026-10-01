@@ -23,6 +23,7 @@ import type { ActorCounterState, CounterRecoveryRule } from './types.js';
 import { ABILITY_KEYS, isAbilityType } from './consts.js';
 import { resolveActorStats } from './effectPipeline.js';
 import {
+  ABILITY_ABBREVIATION_BY_KEY,
   ABILITY_ABBREVIATIONS,
   buildFormulaContext,
   COUNTER_FORMULA_TOKENS,
@@ -113,14 +114,6 @@ export const COUNTER_SHORT_REST_ONE_AMOUNT = 1;
  * читает и редактор класса, и редактор черты, и окно ресурсов листа.
  */
 export const COUNTER_MINIMUM_MAX = 20;
-
-/** Сокращение характеристики для формулы (`charisma` → `cha`). */
-const ABILITY_ABBREVIATION_BY_KEY: Record<string, string> = Object.fromEntries(
-  Object.entries(ABILITY_ABBREVIATIONS).map(([abbreviation, ability]) => [
-    ability,
-    abbreviation,
-  ]),
-);
 
 /**
  * Зажимает значение в границы.

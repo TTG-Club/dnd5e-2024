@@ -303,6 +303,23 @@ const AUTO_SAVE_SUCCESS_ROLL = 20;
 const AUTO_SAVE_FAILURE_ROLL = 1;
 
 /**
+ * Режим спасброска из пары «преимущество / помеха»: вместе они гасят друг
+ * друга.
+ *
+ * @param advantage - есть преимущество
+ * @param disadvantage - есть помеха
+ * @returns режим либо `undefined`, если бросок обычный
+ */
+function toSaveMode(
+  advantage: boolean,
+  disadvantage: boolean,
+): EffectTriggerSaveMode | undefined {
+  const mode = combineRollMode(advantage, disadvantage);
+
+  return mode === 'normal' ? undefined : mode;
+}
+
+/**
  * Режим спасброска срабатывания: постоянный вместе с теми, что дают
  * выполненные условия.
  *
@@ -332,29 +349,10 @@ function resolveTriggerSaveMode(
       .map((rule) => rule.mode),
   ];
 
-  const mode = combineRollMode(
+  return toSaveMode(
     modes.includes('advantage'),
     modes.includes('disadvantage'),
   );
-
-  return mode === 'normal' ? undefined : mode;
-}
-
-/**
- * Режим спасброска из пары «преимущество / помеха»: вместе они гасят друг
- * друга.
- *
- * @param advantage - есть преимущество
- * @param disadvantage - есть помеха
- * @returns режим либо `undefined`, если бросок обычный
- */
-function toSaveMode(
-  advantage: boolean,
-  disadvantage: boolean,
-): EffectTriggerSaveMode | undefined {
-  const mode = combineRollMode(advantage, disadvantage);
-
-  return mode === 'normal' ? undefined : mode;
 }
 
 /** Флаг «урон носителя — спасбросок концентрации цели с помехой» */

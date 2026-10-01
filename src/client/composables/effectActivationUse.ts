@@ -20,9 +20,7 @@ import type {
 
 import { emitEntityUpdate } from '@/core/entityUtils';
 import { useChatStore } from '@/stores/chatStore';
-import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
-import { useWorldStore } from '@/stores/worldStore';
-import { generateId, resolveGridCellSize } from '@vtt/shared';
+import { generateId } from '@vtt/shared';
 import {
   buildEffectGroupUseSpell,
   buildItemUseSpell,
@@ -31,15 +29,12 @@ import {
   canUseItem,
   collectEffectUseGroup,
   collectSourcePay,
-  findTokensInTemplate,
   findWeaponAmmunition,
-  formatActionCostBlock,
   getCasterSpellEffects,
   hasItemUsesPrice,
   isItemDepleted,
   isUseActivatedEffect,
   listSaveDcSkills,
-  resolveActionCostBlock,
   resolveActorStats,
   resolveEffectUseCost,
   SKILLS_LABELS,
@@ -50,9 +45,9 @@ import {
   withAmmunition,
 } from '@vtt/shared/system/dnd.js';
 
-import { useSystemToastStore } from '../stores/systemToastStore';
 import { EFFECT_USE_LABELS } from '../ui/effect/constants';
-import { recordEntityActionSpend } from './actionSpend';
+import { recordEntityActionSpend, warnActionCostBlocked } from './actionSpend';
+import { placeAreaTemplate } from './areaTemplateTargets';
 import { runWithDamageTypeChoices } from './damageTypeChoice';
 import { runWithSourcePay } from './effectPayChoice';
 import {
@@ -78,9 +73,6 @@ import { getTargetSpellEffects } from './spellResolutionShared';
 import { listAmbientEffects } from './useResolvedStats';
 import { getSpellMaxRangeOnScene } from './useSceneRangeCheck';
 import { useWorldEntities } from './useWorldEntities';
-
-/** Цвет шаблона области применения: нейтральный, у применения типа урона нет */
-const USE_AREA_TEMPLATE_COLOR = 0x8b5cf6;
 
 /** Приставка ключа окна проверки навыка, итог которой служит Сл */
 const SKILL_DC_MODAL_KEY_PREFIX = 'effect-skill-dc:';
@@ -114,56 +106,6 @@ export interface EffectSourceSpend {
    * не пускает, сделанная — пишется в счёт хода
    */
   cost?: EffectActivationCost;
-}
-
-/**
- * Ставит на карту шаблон области применения и отдаёт тех, кого он накрыл.
- * Шаблон после этого снимается: он нужен только для выбора целей и зоны.
- *
- * @param source - псевдо-заклинание применения с областью
- * @param user - кто применяет
- * @param proceed - продолжение: сущности под шаблоном и сам шаблон
- */
-function placeUseArea(
-  source: Spell,
-  user: DnDSceneEntity,
-  proceed: (targetIds: string[], template: MeasurementTemplate) => void,
-): void {
-  const { areaOfEffect } = source;
-
-  if (!areaOfEffect) {
-    return;
-  }
-
-  const templateStore = useSpellTemplateStore();
-
-  templateStore.requestPlacement(
-    areaOfEffect,
-    USE_AREA_TEMPLATE_COLOR,
-    user.id,
-    (templateId) => {
-      // Данные шаблона забираются до его снятия: по ним считаются цели
-      const template = templateStore.getPlacedTemplate(templateId);
-
-      templateStore.removePlacedTemplate(templateId);
-      templateStore.deleteTemplate(templateId);
-
-      const scene = useWorldStore().currentScene;
-
-      if (!template || !scene) {
-        return;
-      }
-
-      const targetIds = findTokensInTemplate(
-        template,
-        scene.tokens ?? [],
-        resolveGridCellSize(scene.gridSettings),
-      ).flatMap((token) => (token.actorId ? [token.actorId] : []));
-
-      proceed([...new Set(targetIds)], template);
-    },
-    getSpellMaxRangeOnScene(source),
-  );
 }
 
 /**
@@ -242,19 +184,13 @@ export function applyEffectSource(
   withPay: EffectSourceSpend = {},
 ): void {
   // Запрет траты хода («нет бонусных действий») — до всякого выбора
-  const blocked = resolveActionCostBlock(
-    user,
-    withPay.cost,
-    listAmbientEffects(user.id),
-  );
-
-  if (blocked) {
-    useSystemToastStore().add({
-      title: `${EFFECT_USE_LABELS.blockedTitle}: ${spell.name}`,
-      description: formatActionCostBlock(blocked),
-      color: 'warning',
-    });
-
+  if (
+    warnActionCostBlocked(
+      user,
+      withPay.cost,
+      `${EFFECT_USE_LABELS.blockedTitle}: ${spell.name}`,
+    )
+  ) {
     return;
   }
 
@@ -352,7 +288,12 @@ export function applyEffectSource(
 
       // Область: шаблон на карте вместо выбора одной цели
       if (chosen.areaOfEffect) {
-        placeUseArea(chosen, user, settle);
+        placeAreaTemplate(
+          chosen.areaOfEffect,
+          user.id,
+          getSpellMaxRangeOnScene(chosen),
+          settle,
+        );
 
         return;
       }

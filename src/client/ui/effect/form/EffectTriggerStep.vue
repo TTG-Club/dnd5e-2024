@@ -26,6 +26,7 @@
     isToggleActivatedEffect,
     MAX_EFFECT_USE_AREA_SIZE,
     MIN_ACTIVATION_RANGE,
+    useAreaHasWidth,
     writeEffectDelivery,
     writeEffectTrigger,
   } from '@vtt/shared/system/dnd.js';
@@ -144,7 +145,6 @@
     },
   });
 
-  // Пустое поле — касание: дальность снимается, а не становится нулём
   // Трата хода на применение или включение: «нет» — ход не тратится
   const activationCost = computed({
     get: () => effect.value.activation?.cost ?? NO_ACTIVATION_COST,
@@ -154,6 +154,11 @@
       });
     },
   });
+
+  /** Ширина — только у линии */
+  const activationAreaHasWidth = computed(() =>
+    useAreaHasWidth(effect.value.activation?.area?.shape),
+  );
 
   // Концентрация применения: снятая отметка не пишется вовсе
   const activationConcentration = computed({
@@ -526,7 +531,7 @@
         </UFormField>
 
         <UFormField
-          v-if="effect.activation.area?.shape === 'ray'"
+          v-if="activationAreaHasWidth"
           :label="EFFECT_ACTIVATION_EXTRA_LABELS.areaWidth"
           class="w-28"
         >

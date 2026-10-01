@@ -18,6 +18,7 @@
     DEFAULT_EFFECT_SAVE_ABILITY,
     isSkillType,
     layoutAcceptsSourceSaveDc,
+    normalizeAltAbilities,
     readEffectSuccessOutcome,
     writeEffectSaveEnabled,
     writeEffectSuccessOutcome,
@@ -30,15 +31,13 @@
     EFFECT_SAVE_STEP_LABELS,
     EFFECT_SAVE_UNAVAILABLE_HINTS,
     EFFECT_SOURCE_DC_LABELS,
+    NO_DC_SKILL,
   } from '../constants';
   import {
     buildSuccessOutcomeOptions,
     EFFECT_ESCAPE_SKILL_OPTIONS,
   } from '../effectFormOptions';
   import SaveDcField from './SaveDcField.vue';
-
-  /** Значение «обычная Сл» в выборе навыка для Сл от проверки */
-  const NO_DC_SKILL = 'none';
 
   const props = defineProps<{
     /** Раскладка окна */
@@ -134,11 +133,9 @@
   const saveAltAbilities = computed({
     get: () => effect.value.applySave?.altAbilities ?? [],
     set: (abilities: AbilityType[]) => {
-      const others = abilities.filter(
-        (ability) => ability !== saveAbility.value,
-      );
-
-      updateSave({ altAbilities: others.length > 0 ? others : undefined });
+      updateSave({
+        altAbilities: normalizeAltAbilities(saveAbility.value, abilities),
+      });
     },
   });
 

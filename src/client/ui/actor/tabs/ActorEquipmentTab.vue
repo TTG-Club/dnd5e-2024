@@ -119,6 +119,7 @@
   import { useSystemDataStore } from '../../../stores/systemDataStore';
   import {
     EFFECT_USE_LABELS,
+    ITEM_TOGGLE_ICONS,
     ITEM_TOGGLE_LABELS,
   } from '../../effect/constants';
   import ActorEquipmentRow from '../ActorEquipmentRow.vue';
@@ -1116,7 +1117,7 @@
       for (const toggle of listItemToggles(item)) {
         gameActions.push({
           label: `${toggle.on ? ITEM_TOGGLE_LABELS.switchOff : ITEM_TOGGLE_LABELS.switchOn}${toggle.effect.name}`,
-          icon: toggle.on ? 'tabler:toggle-right' : 'tabler:toggle-left',
+          icon: toggle.on ? ITEM_TOGGLE_ICONS.on : ITEM_TOGGLE_ICONS.off,
           disabled: props.isEditMode,
           onSelect: () =>
             toggleEntityItemEffect(props.entity.id, item.id, toggle.effect.id),

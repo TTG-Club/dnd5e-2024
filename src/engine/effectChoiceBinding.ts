@@ -45,22 +45,23 @@ import { isActorEntity, isRecord } from '@vtt/shared';
 
 import { ActiveEffectSchema } from './activeEffectTypes.js';
 import { isClassOptionChoiceKey } from './classFeatureOptions.js';
+import {
+  CHOICE_TOKEN_GLOBAL_PATTERN,
+  CHOICE_TOKEN_PREFIX,
+} from './conditionSyntax.js';
 import { effectUsesToken } from './effectTokenBinding.js';
 import { resolveChosenAbilities } from './featChoices.js';
 import {
   FEAT_ORIGIN_PREFIX,
   resolveFeatSpellcastingAbility,
 } from './featGrants.js';
-import { ABILITY_ABBREVIATIONS } from './formulaParser.js';
-
-/** Начало токена выбора: дальше — ключ выбора */
-export const CHOICE_TOKEN_PREFIX = '@choice.';
+import {
+  ABILITY_ABBREVIATION_BY_KEY,
+  COUNTER_FORMULA_TOKENS,
+} from './formulaParser.js';
 
 /** Токен модификатора характеристики, выбранной в черте эффекта */
 export const FEAT_ABILITY_MOD_TOKEN = '@mod.feat';
-
-/** Токен выбора целиком: ключ — буквы, цифры, `-`, `_`, `#`, `:` */
-const CHOICE_TOKEN_PATTERN = /@choice\.([\w#:-]+)/g;
 
 /** Токен модификатора черты целиком: `@mod.feature` — не он */
 const FEAT_ABILITY_MOD_PATTERN = /@mod\.feat\b/g;
@@ -181,18 +182,6 @@ function findOwningFeature(
 }
 
 /**
- * Сокращение характеристики для токена `@mod.<сокращение>`.
- *
- * @param ability - характеристика
- * @returns сокращение либо `undefined`
- */
-function abilityAbbreviation(ability: string): string | undefined {
-  return Object.entries(ABILITY_ABBREVIATIONS).find(
-    ([, full]) => full === ability,
-  )?.[0];
-}
-
-/**
  * Токен модификатора характеристики, выбранной в черте: заклинательная
  * характеристика черты либо первая повышенная ею.
  *
@@ -210,9 +199,13 @@ function resolveFeatAbilityToken(
     resolveFeatSpellcastingAbility(feature)
     ?? resolveChosenAbilities(feature.featData, feature.choices)[0];
 
-  const abbreviation = ability ? abilityAbbreviation(ability) : undefined;
+  const abbreviation = ability
+    ? ABILITY_ABBREVIATION_BY_KEY[ability]
+    : undefined;
 
-  return abbreviation ? `@mod.${abbreviation}` : undefined;
+  return abbreviation
+    ? `${COUNTER_FORMULA_TOKENS.abilityModifierPrefix}${abbreviation}`
+    : undefined;
 }
 
 /**
@@ -328,7 +321,7 @@ function bindEffectChoices(
   const text = JSON.stringify(effect);
 
   const replaced = text
-    .replaceAll(CHOICE_TOKEN_PATTERN, (token, key: string) => {
+    .replaceAll(CHOICE_TOKEN_GLOBAL_PATTERN, (token, key: string) => {
       const values = (feature?.choices?.[key] ?? answers[key] ?? []).filter(
         (value) => SAFE_CHOICE_VALUE_PATTERN.test(value),
       );

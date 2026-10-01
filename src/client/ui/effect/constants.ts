@@ -30,7 +30,13 @@ import type {
   SaveOverridePeriod,
 } from '@vtt/shared/system/dnd.js';
 
-import { SUBTRACT_MODE_CHOICE } from '@vtt/shared/system/dnd.js';
+import {
+  AREA_SHAPE_LABELS,
+  EFFECT_ACTION_COST_LABELS,
+  EFFECT_ACTIVATION_COSTS,
+  EFFECT_USE_AREA_SHAPES,
+  SUBTRACT_MODE_CHOICE,
+} from '@vtt/shared/system/dnd.js';
 
 import {
   ACTIVE_EFFECT_DEFAULTS,
@@ -493,9 +499,10 @@ export const EFFECT_ACTIVATION_COST_OPTIONS: ReadonlyArray<{
   label: string;
 }> = [
   { value: NO_ACTIVATION_COST, label: 'Не тратит ход' },
-  { value: 'action', label: 'Действие' },
-  { value: 'bonus', label: 'Бонусное действие' },
-  { value: 'reaction', label: 'Реакция' },
+  ...EFFECT_ACTIVATION_COSTS.map((value) => ({
+    value,
+    label: EFFECT_ACTION_COST_LABELS[value],
+  })),
 ];
 
 /** Значение «одна цель» в выборе области применения */
@@ -504,16 +511,22 @@ export const NO_USE_AREA = 'none';
 /** Форма области применения в выборе: настоящая либо «одна цель» */
 export type EffectUseAreaChoice = EffectUseAreaShape | typeof NO_USE_AREA;
 
+/** Формы области применения пунктами выбора — подписи общие с заклинаниями */
+const USE_AREA_SHAPE_OPTIONS: ReadonlyArray<{
+  value: EffectUseAreaChoice;
+  label: string;
+}> = EFFECT_USE_AREA_SHAPES.map((value) => ({
+  value,
+  label: AREA_SHAPE_LABELS[value],
+}));
+
 /** Варианты области применения */
 export const EFFECT_USE_AREA_OPTIONS: ReadonlyArray<{
   value: EffectUseAreaChoice;
   label: string;
 }> = [
   { value: NO_USE_AREA, label: 'Нет — одна цель' },
-  { value: 'cone', label: 'Конус' },
-  { value: 'circle', label: 'Сфера' },
-  { value: 'ray', label: 'Линия' },
-  { value: 'rect', label: 'Куб' },
+  ...USE_AREA_SHAPE_OPTIONS,
 ];
 
 /** Варианты области получателей у кнопки «При действии» */
@@ -522,11 +535,17 @@ export const EFFECT_TRIGGER_TEMPLATE_OPTIONS: ReadonlyArray<{
   label: string;
 }> = [
   { value: NO_USE_AREA, label: 'Радиус от носителя' },
-  { value: 'cone', label: 'Конус' },
-  { value: 'circle', label: 'Сфера' },
-  { value: 'ray', label: 'Линия' },
-  { value: 'rect', label: 'Куб' },
+  ...USE_AREA_SHAPE_OPTIONS,
 ];
+
+/** Значение «обычная Сл» в выборе навыка для Сл от проверки */
+export const NO_DC_SKILL = 'none';
+
+/** Значки пунктов меню предмета с переключателем: включён и выключен */
+export const ITEM_TOGGLE_ICONS = {
+  on: 'tabler:toggle-right',
+  off: 'tabler:toggle-left',
+} as const;
 
 /** Размер новой области применения, фт */
 export const DEFAULT_USE_AREA_SIZE = 15;
@@ -547,6 +566,12 @@ export const EFFECT_ACTIVATION_EXTRA_LABELS = {
   concentrationHint:
     'Как у заклинания: применивший получает метку концентрации, прежняя '
     + 'концентрация кончается, а с концом этой снимается всё наложенное.',
+} as const;
+
+/** Подписи предупреждения об ударе вне своего хода */
+export const OPPORTUNITY_ATTACK_WARNING_LABELS = {
+  title: 'Удар вне своего хода',
+  suffix: '. Если это не провоцированная атака — продолжайте.',
 } as const;
 
 /** Подписи пунктов меню предмета с переключателем */

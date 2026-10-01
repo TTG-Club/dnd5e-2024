@@ -110,6 +110,14 @@ import { EFFECT_VARIANT_PICKS } from './effectVariants.js';
 import { buildStatusToken } from './formulaTokens.js';
 import { parseEachValid } from './lenientParse.js';
 import {
+  SOURCE_DAMAGE_TYPE_CONDITION_PREFIX,
+  SOURCE_SPELL_SCHOOL_CONDITION_PREFIX,
+} from './saveSourceTraits.js';
+import {
+  CARRIER_SPECIES_CONDITION_PREFIX,
+  CARRIER_SPECIES_NOT_CONDITION_PREFIX,
+} from './speciesCondition.js';
+import {
   MAX_SPELL_SLOT_LEVEL,
   MIN_SPELL_SLOT_LEVEL,
 } from './spellSlotTable.js';
@@ -230,8 +238,8 @@ export const WEAPON_DAMAGE_TYPE_KEY = 'weapon.damageType';
  * Ключ «тип урона своих заклинаний — на выбор»: значение — ключ типа урона
  * (`psychic`). При касте заклинания с уроном носитель выбирает, оставить тип
  * заклинания или взять этот («Психические заклинания», «Арканный некроз»).
- * Заменой оружия не является, но устроен так же: значение — слово из списка,
- * а не формула (`spellDamageRetype.ts`).
+ * Значение — слово из списка, а не формула, и на листе у строки числа нет: её
+ * читает каст (`spellDamageRetype.ts`).
  */
 export const SPELL_DAMAGE_TYPE_KEY = 'spell.damageType';
 
@@ -252,14 +260,12 @@ export const SHILLELAGH_DAMAGE_TYPE = 'force';
 export type WeaponOverrideKey =
   | typeof WEAPON_DAMAGE_DICE_KEY
   | typeof WEAPON_ATTACK_ABILITY_KEY
-  | typeof WEAPON_DAMAGE_TYPE_KEY
-  | typeof SPELL_DAMAGE_TYPE_KEY;
+  | typeof WEAPON_DAMAGE_TYPE_KEY;
 
 const WEAPON_OVERRIDE_KEY_SET: ReadonlySet<string> = new Set([
   WEAPON_DAMAGE_DICE_KEY,
   WEAPON_ATTACK_ABILITY_KEY,
   WEAPON_DAMAGE_TYPE_KEY,
-  SPELL_DAMAGE_TYPE_KEY,
 ]);
 
 /**
@@ -287,6 +293,38 @@ export const TEMP_HP_GAIN_KEY = 'tempHp.gain';
  * атаку» задаёт срок эффекта или его снятие после броска атаки.
  */
 export const ATTACK_REACH_KEY = 'attack.reach';
+
+/**
+ * Ключи строк, которых нет на листе: их читает не конвейер статов, а тот, кому
+ * они нужны в свой момент — выдача временных хитов, проверка расстояния
+ * атаки, каст заклинания.
+ */
+const OFF_SHEET_CHANGE_KEYS: ReadonlySet<string> = new Set([
+  TEMP_HP_GAIN_KEY,
+  ATTACK_REACH_KEY,
+  SPELL_DAMAGE_TYPE_KEY,
+]);
+
+/**
+ * Считается ли строка в момент события, а не на листе.
+ *
+ * @param key - ключ строки эффекта
+ * @returns `true`, если конвейер статов строку пропускает
+ */
+export function isOffSheetChangeKey(key: string): boolean {
+  return OFF_SHEET_CHANGE_KEYS.has(key);
+}
+
+/**
+ * Задаётся ли значение строки словом из списка или костью, а не формулой:
+ * замены свойств оружия и тип урона заклинаний.
+ *
+ * @param key - ключ строки эффекта
+ * @returns `true`, если значение формулой не проверяют
+ */
+export function isOptionValueKey(key: string): boolean {
+  return isWeaponOverrideKey(key) || key === SPELL_DAMAGE_TYPE_KEY;
+}
 
 /**
  * Типобезопасный ключ для числовых модификаций актора.
@@ -324,7 +362,8 @@ export type EffectTargetKey =
   | 'creatureType'
   | 'creatureType.extra'
   | typeof TEMP_HP_GAIN_KEY
-  | typeof ATTACK_REACH_KEY;
+  | typeof ATTACK_REACH_KEY
+  | typeof SPELL_DAMAGE_TYPE_KEY;
 
 /**
  * Ключ строки модификатора: известный ключ движка либо ПУСТАЯ строка — «ключ
@@ -867,12 +906,12 @@ export const EFFECT_CONDITION_SUGGESTIONS: readonly EffectLibrarySuggestion[] =
       EFFECT_CONDITION_SECTIONS.saveSource,
       [
         {
-          value: 'source.spellSchool === "divination"',
+          value: `${SOURCE_SPELL_SCHOOL_CONDITION_PREFIX}"divination"`,
           label:
             'Спасбросок: от заклинания школы… (ключ школы; список через запятую)',
         },
         {
-          value: 'source.damageType === "fire, radiant"',
+          value: `${SOURCE_DAMAGE_TYPE_CONDITION_PREFIX}"fire, radiant"`,
           label:
             'Спасбросок: от источника с уроном типа… (ключи типов через запятую)',
         },
@@ -886,12 +925,12 @@ export const EFFECT_CONDITION_SUGGESTIONS: readonly EffectLibrarySuggestion[] =
       EFFECT_CONDITION_SECTIONS.carrierSpecies,
       [
         {
-          value: 'self.species === "эльф"',
+          value: `${CARRIER_SPECIES_CONDITION_PREFIX}"эльф"`,
           label:
             'Носитель: вида… (впишите вид или подтип; список через запятую)',
         },
         {
-          value: 'self.species !== "дварф, дуэргар"',
+          value: `${CARRIER_SPECIES_NOT_CONDITION_PREFIX}"дварф, дуэргар"`,
           label: 'Носитель: не вида… («Пояс дварфов»: не дварф и не дуэргар)',
         },
       ],
@@ -1902,6 +1941,21 @@ export const EFFECT_USE_AREA_SHAPES = [
 
 /** Форма области применения */
 export type EffectUseAreaShape = (typeof EFFECT_USE_AREA_SHAPES)[number];
+
+/** Форма области, у которой есть ширина, — линия */
+const USE_AREA_SHAPE_WITH_WIDTH: EffectUseAreaShape = 'ray';
+
+/**
+ * Есть ли у формы области ширина: её задают только линии.
+ *
+ * @param shape - форма области
+ * @returns `true` для линии
+ */
+export function useAreaHasWidth(
+  shape: EffectUseAreaShape | undefined,
+): boolean {
+  return shape === USE_AREA_SHAPE_WITH_WIDTH;
+}
 
 /** Самая большая область применения, фт */
 export const MAX_EFFECT_USE_AREA_SIZE = 1000;
@@ -3693,7 +3747,6 @@ const EffectVariantSchema = z.object({
   pick: z.enum(EFFECT_VARIANT_PICKS).optional().catch(undefined),
 });
 
-/** Zod-схема применения или включения эффекта */
 /**
  * Zod-схема области применения: шаблон на карте. Негодная область
  * выбрасывается целиком — применение остаётся с выбором одной цели.
@@ -3713,6 +3766,7 @@ const EffectUseAreaSchema = z
   .optional()
   .catch(undefined);
 
+/** Zod-схема применения или включения эффекта */
 const EffectActivationSchema = z.object({
   mode: z.enum(EFFECT_ACTIVATION_MODES),
   counter: z

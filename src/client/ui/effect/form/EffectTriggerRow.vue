@@ -64,12 +64,14 @@
     MIN_TRIGGER_CHANCE_PERCENT,
     MIN_TRIGGER_CHOICE_COUNT,
     MIN_TRIGGER_LIMIT_MAX,
+    normalizeAltAbilities,
     resolveTriggerActionGate,
     triggerEventAcceptsDamageDc,
     triggerEventHasConditionKey,
     triggerEventHasPathFeet,
     triggerEventHasRestType,
     triggerEventHasRole,
+    useAreaHasWidth,
   } from '@vtt/shared/system/dnd.js';
 
   import { SCROLLABLE_DROPDOWN_UI } from '../../actor/constants';
@@ -390,6 +392,11 @@
       }),
   });
 
+  /** Ширина шаблона — только у линии */
+  const templateHasWidth = computed(() =>
+    useAreaHasWidth(trigger.value.area?.template?.shape),
+  );
+
   /** Шаблон ставит нажавший кнопку — он есть только у события «При действии» */
   const acceptsAreaTemplate = computed(
     () => trigger.value.event === 'activate',
@@ -541,14 +548,10 @@
     get: () => trigger.value.save?.altAbilities ?? [],
     set: (abilities: AbilityType[]) => {
       if (trigger.value.save) {
-        const others = abilities.filter(
-          (ability) => ability !== saveAbility.value,
-        );
-
         update({
           save: {
             ...trigger.value.save,
-            altAbilities: others.length > 0 ? others : undefined,
+            altAbilities: normalizeAltAbilities(saveAbility.value, abilities),
           },
         });
       }
@@ -915,7 +918,7 @@
           </UFormField>
 
           <UFormField
-            v-if="trigger.area?.template?.shape === 'ray'"
+            v-if="templateHasWidth"
             :label="EFFECT_ACTIVATION_EXTRA_LABELS.areaWidth"
             class="w-28"
           >

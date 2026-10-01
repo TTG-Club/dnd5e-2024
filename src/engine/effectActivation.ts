@@ -247,6 +247,25 @@ export function resolveEffectUseConcentration(
   );
 }
 
+/**
+ * Область применения шаблоном заклинания: размер в футах задаёт запись,
+ * растягивать его при размещении нельзя.
+ *
+ * @param area - область применения или шаблон срабатывания
+ * @returns область в форме заклинания
+ */
+export function toUseAreaOfEffect(
+  area: EffectUseArea,
+): NonNullable<Spell['areaOfEffect']> {
+  return {
+    shape: area.shape,
+    size: area.size,
+    ...(area.width === undefined ? {} : { width: area.width }),
+    unit: 'ft',
+    resizable: false,
+  };
+}
+
 /** Единицы срока заклинания по сроку эффекта зоны */
 const ZONE_DURATION_UNITS: Partial<
   Record<EffectDurationType, Spell['durationUnit']>
@@ -637,15 +656,7 @@ export function buildUseSpell(source: EffectUseSource): Spell {
     // Область — шаблон на карте, как у заклинания; размер задаёт запись
     ...(source.area
       ? {
-          areaOfEffect: {
-            shape: source.area.shape,
-            size: source.area.size,
-            ...(source.area.width === undefined
-              ? {}
-              : { width: source.area.width }),
-            unit: 'ft',
-            resizable: false,
-          },
+          areaOfEffect: toUseAreaOfEffect(source.area),
           ...resolveUseZoneDuration(source.effects),
         }
       : {}),
@@ -1250,7 +1261,7 @@ export function resolveEffectActionTemplate(
 }
 
 /** Подпись момента в сводке срабатываний кнопки и переключателя */
-const SELF_TRIGGER_SUMMARY_LABEL = 'действие';
+export const SELF_TRIGGER_SUMMARY_LABEL = 'действие';
 
 /**
  * Сводка срабатываний, выполненных на самой сущности, — для чата: урон,

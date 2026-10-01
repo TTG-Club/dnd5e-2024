@@ -49,6 +49,7 @@ import {
   MIN_ACTIVATION_RANGE,
   parseFormNumber,
   SOURCE_SAVE_DC,
+  useAreaHasWidth,
 } from './activeEffectTypes.js';
 import { hasLastingEffectPayload } from './effectAutomation.js';
 import { EffectCastRuleSchema } from './effectCastRuleTypes.js';
@@ -456,7 +457,7 @@ function normalizeDraftUseArea(
   return {
     shape: area.shape,
     size,
-    ...(area.shape === 'ray' && width >= 1 ? { width } : {}),
+    ...(useAreaHasWidth(area.shape) && width >= 1 ? { width } : {}),
   };
 }
 

@@ -18,19 +18,15 @@ import type {
 import { emitEntityUpdate } from '@/core/entityUtils';
 import { useChatStore } from '@/stores/chatStore';
 import {
-  formatActionCostBlock,
   isDnDEffect,
   isToggleActivatedEffect,
-  resolveActionCostBlock,
   switchItemToggle,
   usesPaidHitDiceRoll,
 } from '@vtt/shared/system/dnd.js';
 
-import { useSystemToastStore } from '../stores/systemToastStore';
 import { ITEM_TOGGLE_LABELS } from '../ui/effect/constants';
-import { recordEntityActionSpend } from './actionSpend';
+import { recordEntityActionSpend, warnActionCostBlocked } from './actionSpend';
 import { runWithEffectPay } from './effectPayChoice';
-import { listAmbientEffects } from './useResolvedStats';
 import { useWorldEntities } from './useWorldEntities';
 
 /**
@@ -102,19 +98,13 @@ export function toggleEntityItemEffect(
 
   const cost = effect.activation?.cost;
 
-  const blocked = resolveActionCostBlock(
-    entity,
-    cost,
-    listAmbientEffects(entityId),
-  );
-
-  if (blocked) {
-    useSystemToastStore().add({
-      title: `${ITEM_TOGGLE_LABELS.blockedTitle}: ${effect.name}`,
-      description: formatActionCostBlock(blocked),
-      color: 'warning',
-    });
-
+  if (
+    warnActionCostBlocked(
+      entity,
+      cost,
+      `${ITEM_TOGGLE_LABELS.blockedTitle}: ${effect.name}`,
+    )
+  ) {
     return;
   }
 

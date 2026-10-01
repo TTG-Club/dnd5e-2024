@@ -22,6 +22,7 @@ import type { DamagePart } from '@vtt/shared';
 import type { ActiveEffect } from './activeEffectTypes.js';
 import type { CantripScalingTier } from './dndEntities.js';
 
+import { splitQuotedList } from './conditionSyntax.js';
 import { DAMAGE_TYPE_TOKEN_GLOBAL_REGEX } from './formulaTokens.js';
 
 /** Приставка условия «спасбросок вызвало заклинание школы из списка» */
@@ -29,12 +30,6 @@ export const SOURCE_SPELL_SCHOOL_CONDITION_PREFIX = 'source.spellSchool === ';
 
 /** Приставка условия «источник спасброска наносит урон типа из списка» */
 export const SOURCE_DAMAGE_TYPE_CONDITION_PREFIX = 'source.damageType === ';
-
-/** Разделитель значений списка */
-const LIST_SEPARATOR = ',';
-
-/** Кавычки вокруг списка */
-const QUOTES_PATTERN = /^["']|["']$/g;
 
 /** Сведения об источнике спасброска, кроме типа существа */
 export interface SaveSourceTraits {
@@ -112,21 +107,6 @@ export function hasSaveSourceTraits(traits: SaveSourceTraits): boolean {
 }
 
 /**
- * Значения списка условия: без кавычек и пустых, в нижнем регистре.
- *
- * @param text - список после приставки
- * @returns значения
- */
-function splitList(text: string): string[] {
-  return text
-    .trim()
-    .replace(QUOTES_PATTERN, '')
-    .split(LIST_SEPARATOR)
-    .map((value) => value.trim().toLowerCase())
-    .filter((value) => value.length > 0);
-}
-
-/**
  * Выполняется ли часть условия об источнике спасброска.
  *
  * @param part - часть условия
@@ -140,7 +120,7 @@ export function saveSourceConditionHolds(
   source: { spellSchool?: string; damageTypes?: readonly string[] } | undefined,
 ): boolean | undefined {
   if (part.startsWith(SOURCE_SPELL_SCHOOL_CONDITION_PREFIX)) {
-    const schools = splitList(
+    const schools = splitQuotedList(
       part.slice(SOURCE_SPELL_SCHOOL_CONDITION_PREFIX.length),
     );
 
@@ -151,7 +131,7 @@ export function saveSourceConditionHolds(
   }
 
   if (part.startsWith(SOURCE_DAMAGE_TYPE_CONDITION_PREFIX)) {
-    const types = splitList(
+    const types = splitQuotedList(
       part.slice(SOURCE_DAMAGE_TYPE_CONDITION_PREFIX.length),
     );
 
@@ -177,7 +157,7 @@ export function describeSaveSourceCondition(
   describeType: (key: string) => string,
 ): string | undefined {
   if (part.startsWith(SOURCE_SPELL_SCHOOL_CONDITION_PREFIX)) {
-    const schools = splitList(
+    const schools = splitQuotedList(
       part.slice(SOURCE_SPELL_SCHOOL_CONDITION_PREFIX.length),
     );
 
@@ -185,7 +165,7 @@ export function describeSaveSourceCondition(
   }
 
   if (part.startsWith(SOURCE_DAMAGE_TYPE_CONDITION_PREFIX)) {
-    const types = splitList(
+    const types = splitQuotedList(
       part.slice(SOURCE_DAMAGE_TYPE_CONDITION_PREFIX.length),
     );
 

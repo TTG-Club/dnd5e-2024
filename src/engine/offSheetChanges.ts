@@ -4,7 +4,7 @@
  * при проверке расстояния атаки.
  *
  * Такая строка эффекта — обычная прибавка (`add`) с формулой, но числа на
- * листе у неё нет: конвейер статов её пропускает ({@link isOffSheetKey}), а
+ * листе у неё нет: конвейер статов её пропускает (`isOffSheetChangeKey`), а
  * читает тот, кому она нужна ({@link sumOffSheetChange}).
  *
  * @module system/dnd/offSheetChanges
@@ -12,28 +12,10 @@
 
 import type { DnDSceneEntity } from './dndEntities.js';
 
-import { ATTACK_REACH_KEY, TEMP_HP_GAIN_KEY } from './activeEffectTypes.js';
+import { ATTACK_REACH_KEY } from './activeEffectTypes.js';
+import { DEFAULT_REACH_FEET } from './attackUtils.js';
 import { collectActiveEffects } from './effectPipeline.js';
 import { buildFormulaContext, evaluateFormula } from './formulaParser.js';
-
-/** Досягаемость рукопашной атаки по умолчанию, футы */
-const DEFAULT_REACH = 5;
-
-/** Ключи прибавок, которые считаются в момент события */
-const OFF_SHEET_KEYS: ReadonlySet<string> = new Set([
-  TEMP_HP_GAIN_KEY,
-  ATTACK_REACH_KEY,
-]);
-
-/**
- * Считается ли строка в момент события, а не на листе.
- *
- * @param key - ключ строки эффекта
- * @returns `true` для прибавок события
- */
-export function isOffSheetKey(key: string): boolean {
-  return OFF_SHEET_KEYS.has(key);
-}
 
 /**
  * Сумма прибавок события по ключу со всех действующих эффектов сущности.
@@ -87,6 +69,6 @@ export function withMeleeReachBonus<Source extends { reach?: number }>(
     ? source
     : {
         ...source,
-        reach: Math.max(0, (source.reach ?? DEFAULT_REACH) + bonus),
+        reach: Math.max(0, (source.reach ?? DEFAULT_REACH_FEET) + bonus),
       };
 }

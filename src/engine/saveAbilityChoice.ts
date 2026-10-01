@@ -37,6 +37,23 @@ export function listSaveAbilities(save: SaveAbilityChoice): AbilityType[] {
 }
 
 /**
+ * Характеристики на выбор для записи: без основной характеристики спасброска
+ * (она названа отдельно) и без пустого списка — поле тогда не пишется.
+ *
+ * @param ability - основная характеристика спасброска
+ * @param abilities - отмеченные автором характеристики
+ * @returns список для поля `altAbilities` либо `undefined`
+ */
+export function normalizeAltAbilities(
+  ability: AbilityType,
+  abilities: readonly AbilityType[],
+): AbilityType[] | undefined {
+  const others = abilities.filter((candidate) => candidate !== ability);
+
+  return others.length > 0 ? others : undefined;
+}
+
+/**
  * Характеристика, которой бросающий совершит спасбросок: лучшая из названных.
  *
  * @param entity - кто бросает; нет — берётся первая по записи

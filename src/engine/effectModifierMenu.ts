@@ -266,10 +266,11 @@ function defaultValueOfGroup(group: EffectModifierGroup): string | undefined {
 const SPELL_DAMAGE_TYPE_DEFAULT = 'psychic';
 
 /**
- * Значение по умолчанию у ключей замены оружия: единица, которую форма
- * подставляет прочим ключам, здесь не значит ничего.
+ * Значение по умолчанию у ключей, чьё значение — кость или слово из списка
+ * (замены оружия, тип урона заклинаний): единица, которую форма подставляет
+ * прочим ключам, здесь не значит ничего.
  */
-const WEAPON_KEY_DEFAULT_VALUES: Readonly<Record<string, string>> = {
+const OPTION_KEY_DEFAULT_VALUES: Readonly<Record<string, string>> = {
   [WEAPON_DAMAGE_DICE_KEY]: '1к8',
   [WEAPON_ATTACK_ABILITY_KEY]: WEAPON_SPELL_ABILITY_VALUE,
   [WEAPON_DAMAGE_TYPE_KEY]: SHILLELAGH_DAMAGE_TYPE,
@@ -504,7 +505,7 @@ function buildMenu(): EffectModifierMenuGroup[] {
             mode: defaultModeOfKey(suggestion.value),
             value:
               defaultValueOfGroup(group)
-              ?? WEAPON_KEY_DEFAULT_VALUES[suggestion.value],
+              ?? OPTION_KEY_DEFAULT_VALUES[suggestion.value],
           },
     );
 

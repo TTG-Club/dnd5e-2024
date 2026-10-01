@@ -48,7 +48,8 @@ async function loadApply({ chosenTargetId }) {
     collectSourcePay: engine.collectSourcePay,
     hasItemUsesPrice: engine.hasItemUsesPrice,
     // Запрета траты хода и области у фикстур нет
-    resolveActionCostBlock: () => null,
+    warnActionCostBlocked: () => false,
+    EFFECT_USE_LABELS: { blockedTitle: 'Нельзя применить' },
     listAmbientEffects: () => [],
     recordEntityActionSpend: () => {},
     requestSpellZone: () => false,
@@ -516,7 +517,8 @@ it('цена ресурсом: оплата и прежний расход ид�
     collectSourcePay: engine.collectSourcePay,
     hasItemUsesPrice: engine.hasItemUsesPrice,
     // Запрета траты хода и области у фикстур нет
-    resolveActionCostBlock: () => null,
+    warnActionCostBlocked: () => false,
+    EFFECT_USE_LABELS: { blockedTitle: 'Нельзя применить' },
     listAmbientEffects: () => [],
     recordEntityActionSpend: () => {},
     requestSpellZone: () => false,

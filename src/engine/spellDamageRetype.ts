@@ -21,7 +21,7 @@ import type { DnDSceneEntity } from './dndEntities.js';
 import { SPELL_DAMAGE_TYPE_KEY } from './activeEffectTypes.js';
 import { isDefensibleDamageType } from './damageConstants.js';
 import { mapSourceDamageParts } from './damageTypeChoice.js';
-import { resolveActorStats } from './effectPipeline.js';
+import { collectActiveEffects } from './effectPipeline.js';
 import { addDamageTypeAlternatives } from './formulaTokens.js';
 
 /**
@@ -31,15 +31,16 @@ import { addDamageTypeAlternatives } from './formulaTokens.js';
  * @returns ключи типов без повторов; пусто, если таких эффектов нет
  */
 export function listSpellDamageRetypes(caster: DnDSceneEntity): string[] {
-  const { weaponOverrides } = resolveActorStats(caster);
+  const types = collectActiveEffects(caster).flatMap((effect) =>
+    effect.changes.flatMap((change) => {
+      const type = change.value.trim();
 
-  const types = weaponOverrides
-    .filter(
-      (entry) =>
-        entry.key === SPELL_DAMAGE_TYPE_KEY
-        && isDefensibleDamageType(entry.value),
-    )
-    .map((entry) => entry.value);
+      return change.key === SPELL_DAMAGE_TYPE_KEY
+        && isDefensibleDamageType(type)
+        ? [type]
+        : [];
+    }),
+  );
 
   return [...new Set(types)];
 }

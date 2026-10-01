@@ -25,6 +25,7 @@
     ADJACENT_ALLY_CONDITION_OPTIONS,
     applyConditionPresetToEffect,
     buildConditionActiveEffect,
+    CHOICE_KEY_PATTERN,
     CREATURE_CATEGORY_OPTIONS,
     CREATURE_TYPE_CONDITION_SUBJECTS,
     describeConditionName,
@@ -58,9 +59,6 @@
     /** Показывать приоритет у всех модификаторов */
     showPriorityField: boolean;
   }>();
-
-  /** Ключ выбора владельца: буквы, цифры, `-`, `_`, `#`, `:` */
-  const CHOICE_KEY_PATTERN = /^[\w#:-]+$/;
 
   const effect = defineModel<ActiveEffect>('effect', { required: true });
 

@@ -13,16 +13,22 @@
  * провоцированных атак («Электрошок»).
  */
 
-import type { EffectActionCost } from '@vtt/shared/system/dnd.js';
+import type {
+  DnDSceneEntity,
+  EffectActionCost,
+} from '@vtt/shared/system/dnd.js';
 
 import { emitEntityCombatState } from '@/core/entityUtils';
 import { useChatStore } from '@/stores/chatStore';
 import {
+  formatActionCostBlock,
   recordActionSpend,
+  resolveActionCostBlock,
   resolveOpportunityAttackWarning,
 } from '@vtt/shared/system/dnd.js';
 
 import { useSystemToastStore } from '../stores/systemToastStore';
+import { OPPORTUNITY_ATTACK_WARNING_LABELS } from '../ui/effect/constants';
 import {
   isEntityInCombat,
   resolveActiveTurnActorId,
@@ -31,11 +37,38 @@ import {
 import { listAmbientEffects } from './useResolvedStats';
 import { useWorldEntities } from './useWorldEntities';
 
-/** Подписи предупреждения об ударе вне своего хода */
-const OPPORTUNITY_ATTACK_WARNING_LABELS = {
-  title: 'Удар вне своего хода',
-  suffix: '. Если это не провоцированная атака — продолжайте.',
-} as const;
+/**
+ * Предупреждает о запрещённой трате хода («нет бонусных действий», «нет
+ * реакций») и говорит, пускать ли действие дальше.
+ *
+ * @param entity - кто тратит
+ * @param cost - что тратит; нет — запрещать нечего
+ * @param title - заголовок предупреждения: что именно не пустили
+ * @returns `true`, если трата запрещена и действие надо остановить
+ */
+export function warnActionCostBlocked(
+  entity: DnDSceneEntity,
+  cost: EffectActionCost | undefined,
+  title: string,
+): boolean {
+  const blocked = resolveActionCostBlock(
+    entity,
+    cost,
+    listAmbientEffects(entity.id),
+  );
+
+  if (!blocked) {
+    return false;
+  }
+
+  useSystemToastStore().add({
+    title,
+    description: formatActionCostBlock(blocked),
+    color: 'warning',
+  });
+
+  return true;
+}
 
 /**
  * Отмечает трату хода носителя.

@@ -182,6 +182,15 @@ export const ABILITY_ABBREVIATIONS: Readonly<Record<string, string>> = {
   cha: 'charisma',
 };
 
+/** Сокращение характеристики для формулы по её ключу (`charisma` → `cha`) */
+export const ABILITY_ABBREVIATION_BY_KEY: Readonly<Record<string, string>> =
+  Object.fromEntries(
+    Object.entries(ABILITY_ABBREVIATIONS).map(([abbreviation, ability]) => [
+      ability,
+      abbreviation,
+    ]),
+  );
+
 /** Результат валидации формулы */
 export interface FormulaValidationResult {
   /** Валидна ли формула */

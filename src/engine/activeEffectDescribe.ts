@@ -72,7 +72,7 @@ import {
 import { describeSaveAbilities } from './saveAbilityChoice.js';
 import { describeSaveSourceCondition } from './saveSourceTraits.js';
 import { AREA_SHAPE_LABELS, SPELL_SCHOOL_OPTIONS } from './spellTypes.js';
-import { describeWeaponOverrideValue } from './weaponOverrides.js';
+import { describeChangeOptionValue } from './weaponOverrides.js';
 
 /** Подпись ключа модификатора (`armorClass` → «Класс доспеха (AC)»). */
 const TARGET_LABELS = new Map(
@@ -249,7 +249,7 @@ export function describeChangeValue(change: EffectChange): string {
   const unit = change.key.startsWith('movement.') ? ' фт' : '';
 
   // Характеристика и тип урона оружия — слова из списка, а не формула
-  const optionLabel = describeWeaponOverrideValue(change.key, change.value);
+  const optionLabel = describeChangeOptionValue(change.key, change.value);
 
   if (optionLabel) {
     return `${EFFECT_CHANGE_MODE_LABELS[change.mode].toLowerCase()}: ${optionLabel}`;

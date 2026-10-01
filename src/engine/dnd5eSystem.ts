@@ -129,6 +129,7 @@ import {
   requestTurnTriggerSave,
 } from './deferredEffectSaves.js';
 import { rollDamageFormula as rollDamageFormulaImpl } from './diceFormula.js';
+import { SELF_TRIGGER_SUMMARY_LABEL } from './effectActivation.js';
 import {
   settleAppliedEvents,
   settleAttackRollTriggers,
@@ -1040,9 +1041,6 @@ function settleAttackRollEvent(
     }));
 }
 
-/** Подпись момента в сводке срабатываний кнопки «При действии» */
-const EFFECT_ACTION_SUMMARY_LABEL = 'действие';
-
 /**
  * Кнопка «При действии» с действиями другим: нажать её вправе только тот, кто
  * управляет носителем. Получатели — те, кого накрыл шаблон нажавшего (список
@@ -1089,14 +1087,14 @@ function settleEffectActionEvent(
     subject,
     events,
     hpBefore,
-    EFFECT_ACTION_SUMMARY_LABEL,
+    SELF_TRIGGER_SUMMARY_LABEL,
     context,
   );
 
   const { related } = toDamageEventsTriggerResult(
     subject,
     events,
-    EFFECT_ACTION_SUMMARY_LABEL,
+    SELF_TRIGGER_SUMMARY_LABEL,
   );
 
   return [{ entity: subject, ...own }, ...(related ?? [])];
@@ -1607,7 +1605,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.154';
+  readonly version = '0.8.155';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.

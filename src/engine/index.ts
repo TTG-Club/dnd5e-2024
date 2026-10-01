@@ -27,6 +27,7 @@ export * from './concentration.js';
 export * from './conditionKeys.js';
 export * from './conditionRecord.js';
 export * from './conditionRegistry.js';
+export * from './conditionSyntax.js';
 export * from './conditionTemplates.js';
 export * from './consts.js';
 export * from './counterResource.js';

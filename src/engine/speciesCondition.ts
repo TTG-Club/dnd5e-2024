@@ -27,6 +27,8 @@ import type { DnDSceneEntity } from './dndEntities.js';
 
 import { isCreatureEntity } from '@vtt/shared';
 
+import { splitConditionList, splitQuotedList } from './conditionSyntax.js';
+
 /** Приставка условия «вид носителя из списка» */
 export const CARRIER_SPECIES_CONDITION_PREFIX = 'self.species === ';
 
@@ -38,12 +40,6 @@ export const TARGET_SPECIES_CONDITION_PREFIX = 'target.species === ';
 
 /** Приставка условия «вид другой стороны не из списка» */
 export const TARGET_SPECIES_NOT_CONDITION_PREFIX = 'target.species !== ';
-
-/** Разделитель названий в списке и в подтипе статблока */
-const SPECIES_LIST_SEPARATOR = ',';
-
-/** Кавычки вокруг списка */
-const QUOTES_PATTERN = /^["']|["']$/g;
 
 /** Разобранное условие по виду */
 export interface SpeciesCondition {
@@ -60,10 +56,7 @@ export interface SpeciesCondition {
  * @returns названия
  */
 export function splitSpeciesList(text: string): string[] {
-  return text
-    .split(SPECIES_LIST_SEPARATOR)
-    .map((name) => name.trim().toLowerCase())
-    .filter((name) => name.length > 0);
+  return splitConditionList(text).map((name) => name.toLowerCase());
 }
 
 /**
@@ -110,9 +103,7 @@ export function parseCarrierSpeciesCondition(
     return undefined;
   }
 
-  const names = splitSpeciesList(
-    trimmed.slice(prefix.length).trim().replace(QUOTES_PATTERN, ''),
-  );
+  const names = splitQuotedList(trimmed.slice(prefix.length));
 
   return names.length > 0
     ? { names, negate: prefix === CARRIER_SPECIES_NOT_CONDITION_PREFIX }
