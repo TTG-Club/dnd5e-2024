@@ -488,6 +488,10 @@ function withSourceRelation(
  * `@dmg.event` становится типом урона события («направить урон того же
  * типа»). Вне события урона токен остаётся, и часть идёт без типа.
  *
+ * Зовётся до вопроса человеку: срабатывание с ценой «реакция», галочкой
+ * «спрашивать» или ценой ресурсом уносит тип в свой снимок, и урон после
+ * согласия идёт с ним — защиты получателя его видят.
+ *
  * @param source - срабатывание с источником
  * @param eventData - данные события
  * @returns срабатывание с типом события либо то же срабатывание
@@ -552,18 +556,22 @@ function runTriggerEventSource(
     options,
   );
 
+  // Данные события привязываются до развилки «спросить человека или нет»:
+  // после согласия срабатывание выполняется тем же, чем выполнилось бы сразу
+  const eventSource = bindEventDamageType(rawSource, eventData);
+
   const recipients = resolveTriggerRecipients(
     subject,
-    rawSource,
+    eventSource,
     eventData,
     options,
   );
 
   // Эффект, снятый раньше в этой же серии, больше не срабатывает
   const removed =
-    rawSource.instance
+    eventSource.instance
     && !(subject.activeEffects ?? []).some(
-      (effect) => effect.id === rawSource.effect.id,
+      (effect) => effect.id === eventSource.effect.id,
     );
 
   if (recipients.length === 0 || removed) {
@@ -571,16 +579,17 @@ function runTriggerEventSource(
   }
 
   const { requestRoll } = options;
-  const { choice } = rawSource.trigger;
+  const { choice } = eventSource.trigger;
 
   const choosesRecipients =
-    rawSource.trigger.recipient === CHOICE_TRIGGER_RECIPIENT
+    eventSource.trigger.recipient === CHOICE_TRIGGER_RECIPIENT
     && choice !== undefined;
 
   // Срабатывание, которое спросит человека, лимит тратит уже по согласию
-  const asks = triggerAsksPermission(rawSource.trigger) && Boolean(requestRoll);
+  const asks =
+    triggerAsksPermission(eventSource.trigger) && Boolean(requestRoll);
 
-  if (!admitTrigger(subject, rawSource, eventData, options.inCombat, asks)) {
+  if (!admitTrigger(subject, eventSource, eventData, options.inCombat, asks)) {
     return 'skipped';
   }
 
@@ -590,20 +599,22 @@ function runTriggerEventSource(
     activeTurnActorId: options.activeTurnActorId,
     endCast: options.endCast,
     eventDamage: eventData.damage?.amount,
+    eventData,
     criticalTargetId: eventData.attack?.criticalTargetId,
     surroundings: options.surroundings,
     moveToken: options.moveToken,
     moveArea: options.moveArea,
+    movementOffset: eventData.movement?.offset,
   };
 
   // «Спрашивать разрешения», цена «Реакция» и цена ресурсом: срабатывание
   // ждёт согласия владельца — и уже по нему выбирает цель и платит
   if (asks && requestRoll) {
-    const requesterLabel = formatEffectRequesterLabel(rawSource.effect.name);
+    const requesterLabel = formatEffectRequesterLabel(eventSource.effect.name);
 
     const asked = requestTriggerAsk(
       subject,
-      rawSource,
+      eventSource,
       requestRoll,
       requesterLabel,
       {
@@ -614,7 +625,7 @@ function runTriggerEventSource(
               buildChoiceRequest: (prepare) =>
                 requestTriggerChoice(
                   subject,
-                  rawSource,
+                  eventSource,
                   recipients,
                   choice,
                   requestRoll,
@@ -645,10 +656,7 @@ function runTriggerEventSource(
 
   // Спросить некого: цена без выбора списывается сама, иначе срабатывание не
   // состоится
-  const prepared = settleUnaskedTriggerPay(
-    subject,
-    bindEventDamageType(rawSource, eventData),
-  );
+  const prepared = settleUnaskedTriggerPay(subject, eventSource);
 
   if (!prepared) {
     return 'skipped';

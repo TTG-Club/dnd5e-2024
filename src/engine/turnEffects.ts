@@ -39,6 +39,7 @@ import type {
 import type { SceneOffset } from './forcedMovement.js';
 import type { FormulaContext } from './formulaParser.js';
 import type { SaveSourceTraits } from './saveSourceTraits.js';
+import type { TriggerEventData } from './triggerConditions.js';
 
 import { isToggleActivatedEffect } from './activeEffectTypes.js';
 import { stampApplyTimeFormulas } from './applyTimeFormulas.js';
@@ -1194,6 +1195,12 @@ export interface EntryEffectOptions extends SceneMoveOptions {
   endCast?: (effect: ActiveEffect) => void;
   /** Урон события: `@damage` действия «Максимум хитов уменьшается» */
   eventDamage?: number;
+  /**
+   * Данные события срабатывания, выполняемого по ответу человека: спасбросок
+   * получателя после согласия или выбора цели считает по ним Сл формулой
+   * (`@damage`), режим «если…» и автоматический исход — как бросок без вопроса
+   */
+  eventData?: TriggerEventData;
   /**
    * Цель атаки, по которой попали критически (событие броска атаки): урон
    * срабатывания, идущий ей, удваивает кости, как урон самой атаки. Другим

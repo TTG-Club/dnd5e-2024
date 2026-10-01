@@ -764,7 +764,12 @@ function applyAskedTrigger(
   const result = settlePresenceTrigger(
     entity,
     source,
-    rollTriggerSave(entity, source, options.ambientEffects ?? []),
+    rollTriggerSave(
+      entity,
+      source,
+      options.ambientEffects ?? [],
+      options.eventData,
+    ),
     { ...options, collectNote: (note) => notes.push(note) },
   );
 
@@ -997,7 +1002,8 @@ function settleTriggerRecipient(
       subject,
       recipient,
       source,
-      rollTriggerSave(recipient, source),
+      // Данные события — те же, что у броска без вопроса: Сл от урона события
+      rollTriggerSave(recipient, source, [], effectOptions.eventData),
       { ...effectOptions, collectNote: (note) => notes.push(note) },
     ),
     notes,
@@ -1047,6 +1053,13 @@ export function settleTriggerRecipients(
   // ответ известен. Эффект субъекта живая запись получателя не снимет
   const foreignSource = { ...recipientSource, instance: false };
 
+  // Ауры, накрывающие субъекта, — его защиты, а не получателя: без вопроса
+  // они другой стороне тоже не достаются
+  const foreignOptions: EntryEffectOptions = {
+    ...effectOptions,
+    ambientEffects: [],
+  };
+
   const deferred = recipients
     .filter((recipient) => recipient.id !== subject.id)
     .map((recipient) => ({
@@ -1057,7 +1070,7 @@ export function settleTriggerRecipients(
           liveRecipient,
           liveRecipient,
           foreignSource,
-          effectOptions,
+          foreignOptions,
         ),
       ),
     }));
