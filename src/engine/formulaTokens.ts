@@ -216,6 +216,15 @@ export function replaceDamageTypeChoiceTokens(
   );
 }
 
+/** Начало инлайн-токена типа урона: дальше — ключ типа */
+export const DAMAGE_TYPE_TOKEN_PREFIX = '@dmg.';
+
+/**
+ * Токен «тип только что полученного урона» в уроне срабатывания: при событии
+ * урона заменяется типом урона события (`effectDamageEvents`).
+ */
+export const EVENT_DAMAGE_TYPE_TOKEN = '@dmg.event';
+
 /**
  * Префикс инлайн-токена типа урона — дешёвая проверка «есть ли что снимать»
  * до полного разбора формулы.
@@ -535,6 +544,87 @@ export function spreadKindTokens(formula: string, hasOwnType = false): string {
   }
 
   return result.join('+');
+}
+
+/**
+ * Варианты типа с добавленными: свой тип первым, добавленные — по порядку,
+ * без повторов.
+ *
+ * @param own - свои варианты
+ * @param extras - добавленные типы
+ * @returns токен «на выбор»; `undefined`, если добавлять нечего
+ */
+function buildAlternativeToken(
+  own: readonly string[],
+  extras: readonly string[],
+): string | undefined {
+  const options = [...new Set([...own, ...extras])];
+
+  return options.length > own.length
+    ? buildDamageTypeChoiceToken({ mode: 'choose', options })
+    : undefined;
+}
+
+/**
+ * Делает тип урона формулы выбором «свой или один из добавленных»: «можете
+ * изменить тип урона заклинания на психическую энергию».
+ *
+ * `@dmg.fire` становится `@dmg.choice(fire,psychic)`, уже записанный выбор
+ * получает новые варианты, слагаемое без токена берёт тип части. Лечение,
+ * случайный тип и слагаемое без типа вовсе не трогаются. Вопрос потом задаёт
+ * обычный разбор «типа на выбор».
+ *
+ * @param formula - формула части урона
+ * @param ownType - тип части (поле `type`), если он есть
+ * @param extras - добавленные типы
+ * @returns формула с выбором либо та же формула
+ */
+export function addDamageTypeAlternatives(
+  formula: string,
+  ownType: string | undefined,
+  extras: readonly string[],
+): string {
+  if (!formula || extras.length === 0) {
+    return formula;
+  }
+
+  return splitFormulaTerms(spreadKindTokens(formula, Boolean(ownType)))
+    .map((term) => {
+      if (hasHealToken(term) || term.trim().length === 0) {
+        return term;
+      }
+
+      if (hasDamageTypeChoiceToken(term)) {
+        return term.replace(
+          DAMAGE_TYPE_CHOICE_TOKEN_GLOBAL_REGEX,
+          (token, keyword: string, rawOptions: string) => {
+            const choice = parseDamageTypeChoice(
+              readChoiceMode(keyword),
+              rawOptions,
+            );
+
+            return choice?.mode === 'choose'
+              ? (buildAlternativeToken(choice.options, extras) ?? token)
+              : token;
+          },
+        );
+      }
+
+      if (DAMAGE_TYPE_TOKEN_REGEX.test(term)) {
+        return term.replace(
+          DAMAGE_TYPE_TOKEN_GLOBAL_REGEX,
+          (token, type: string) =>
+            buildAlternativeToken([type.toLowerCase()], extras) ?? token,
+        );
+      }
+
+      const alternative = ownType
+        ? buildAlternativeToken([ownType], extras)
+        : undefined;
+
+      return alternative ? appendTermTokens(term, alternative) : term;
+    })
+    .join('+');
 }
 
 /**

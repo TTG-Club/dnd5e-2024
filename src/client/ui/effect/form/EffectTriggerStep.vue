@@ -155,6 +155,14 @@
     },
   });
 
+  // Концентрация применения: снятая отметка не пишется вовсе
+  const activationConcentration = computed({
+    get: () => effect.value.activation?.concentration === true,
+    set: (concentration: boolean) => {
+      updateActivation({ concentration: concentration ? true : undefined });
+    },
+  });
+
   // Область применения: «нет» — одна цель по выбору
   const activationAreaShape = computed({
     get: () => effect.value.activation?.area?.shape ?? NO_USE_AREA,
@@ -530,6 +538,15 @@
             class="w-full"
           />
         </UFormField>
+
+        <div class="flex items-center gap-1 pb-1.5">
+          <UCheckbox
+            v-model="activationConcentration"
+            :label="EFFECT_ACTIVATION_EXTRA_LABELS.concentration"
+          />
+
+          <FieldHint :text="EFFECT_ACTIVATION_EXTRA_LABELS.concentrationHint" />
+        </div>
       </template>
     </div>
   </div>

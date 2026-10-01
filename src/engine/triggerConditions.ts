@@ -155,6 +155,12 @@ export interface TriggerEventData {
   other?: DnDSceneEntity;
   /** Кто наложил эффект, чьё срабатывание проверяется */
   sourceId?: string;
+  /**
+   * Союзник ли другая сторона наложившему эффект: отношение фишек знает только
+   * сцена. Нет поля — неизвестно, и «наложивший или его союзник» выполняется
+   * лишь для самого наложившего
+   */
+  otherAlliedToSource?: boolean;
   /** Наложение ударом оружия: атакующий владеет его приёмом */
   weaponMastery?: boolean;
   /** Ключи состояний, снятых этим снимком — у события «состояние снялось» */
@@ -232,6 +238,8 @@ export const TRIGGER_CONDITION_KINDS = [
   'otherSpeciesNot',
   'damageTypeChosen',
   'otherCreatureTypeChosen',
+  'selfHpMaxAtMost',
+  'otherIsSourceSide',
 ] as const;
 
 /**
@@ -277,7 +285,10 @@ export const TRIGGER_CONDITION_KINDS = [
  * - `damageTypeChosen` — урон одного из типов, выбранных владельцем эффекта
  *   (`@choice.<ключ>`, `effectChoiceBinding.ts`);
  * - `otherCreatureTypeChosen` — тип другой стороны из выбора владельца
- *   («существо из вашего Гримуара»).
+ *   («существо из вашего Гримуара»);
+ * - `selfHpMaxAtMost` — максимум хитов носителя не больше N;
+ * - `otherIsSourceSide` — другая сторона — наложивший эффект или его союзник
+ *   («пока вы или ваши союзники не нанесёте ей урон»).
  */
 export type TriggerConditionKind = (typeof TRIGGER_CONDITION_KINDS)[number];
 
@@ -366,6 +377,8 @@ const KIND_EVENTS: Record<
   otherSpeciesNot: OTHER_CONDITION_EVENTS,
   damageTypeChosen: DAMAGE_DATA_TRIGGER_EVENTS,
   otherCreatureTypeChosen: OTHER_CONDITION_EVENTS,
+  selfHpMaxAtMost: undefined,
+  otherIsSourceSide: OTHER_CONDITION_EVENTS,
 };
 
 /** Части условия со значением: приставка строки и что выбирается */
@@ -397,6 +410,7 @@ const PARAMETRIC_PARTS: Partial<
   selfTagNot: { prefix: 'self.tag !== ', parameter: 'tag' },
   selfHpAtMost: { prefix: 'self.hp.value <= ', parameter: 'number' },
   selfHpAtLeast: { prefix: 'self.hp.value >= ', parameter: 'number' },
+  selfHpMaxAtMost: { prefix: 'self.hp.max <= ', parameter: 'number' },
   selfSizeAtMost: { prefix: 'self.size <= ', parameter: 'size' },
   selfSizeAtLeast: { prefix: 'self.size >= ', parameter: 'size' },
   selfCondition: { prefix: 'self.condition === ', parameter: 'condition' },
@@ -527,6 +541,7 @@ const FIXED_PARTS: Partial<Record<TriggerConditionKind, string>> = {
   selfTempHpZero: 'self.hp.temp === 0',
   selfGrounded: 'self.grounded === true',
   otherIsSource: 'target.isSource === true',
+  otherIsSourceSide: 'target.isSourceSide === true',
   otherBloodied: 'target.hp.value <= (target.hp.max / 2)',
   attackLanded: 'attack.landed === true',
   attackMissed: 'attack.landed === false',
@@ -996,6 +1011,8 @@ function isConditionPartMet(
       return resolveEntityCurrentHp(entity) <= Number(part.value);
     case 'selfHpAtLeast':
       return resolveEntityCurrentHp(entity) >= Number(part.value);
+    case 'selfHpMaxAtMost':
+      return resolveEntityMaxHp(entity) <= Number(part.value);
     case 'selfSizeAtMost':
       return (
         sizeRank(normalizeCreatureSize(entity.system.size))
@@ -1060,6 +1077,15 @@ function isConditionPartMet(
         other !== undefined
         && eventData.sourceId !== undefined
         && other.id === eventData.sourceId
+      );
+    // Союзник ли другая сторона наложившему, знает только сцена: без её
+    // ответа часть выполняется лишь для самого наложившего
+    case 'otherIsSourceSide':
+      return (
+        other !== undefined
+        && eventData.sourceId !== undefined
+        && (other.id === eventData.sourceId
+          || eventData.otherAlliedToSource === true)
       );
     case 'otherBloodied':
       return (

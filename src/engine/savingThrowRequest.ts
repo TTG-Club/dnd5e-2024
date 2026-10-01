@@ -179,6 +179,16 @@ export const savingThrowRequestPayloadSchema = z.object({
     .custom<CreatureCategory>(isCreatureCategory)
     .optional()
     .catch(undefined),
+  /**
+   * Школа заклинания, вызвавшего спасбросок: у адресата включает эффекты с
+   * условием `source.spellSchool`
+   */
+  sourceSpellSchool: z.string().optional().catch(undefined),
+  /**
+   * Типы урона того, что вызвало спасбросок: у адресата включают эффекты с
+   * условием `source.damageType`
+   */
+  sourceDamageTypes: z.array(z.string()).optional().catch(undefined),
 });
 
 /** Нагрузка запроса спасброска (форма — `savingThrowRequestPayloadSchema`) */

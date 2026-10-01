@@ -113,6 +113,17 @@
     },
   });
 
+  // «Складывается с одноимёнными»: снятая отметка не пишется вовсе
+  const stackable = computed({
+    get: () => effect.value.stackable === true,
+    set: (enabled: boolean) => {
+      effect.value = {
+        ...effect.value,
+        stackable: enabled ? true : undefined,
+      };
+    },
+  });
+
   const turnAnchor = computed({
     get: () => effect.value.duration.turnAnchor ?? 'carrier',
     set: (anchor: EffectTurnAnchor) => {
@@ -198,6 +209,14 @@
         </UTooltip>
       </template>
     </div>
+
+    <UTooltip :text="EFFECT_DURATION_STEP_LABELS.stackableHint">
+      <USwitch
+        v-model="stackable"
+        :label="EFFECT_DURATION_STEP_LABELS.stackable"
+        size="sm"
+      />
+    </UTooltip>
 
     <p class="text-xs text-muted">
       {{ durationDescription }}

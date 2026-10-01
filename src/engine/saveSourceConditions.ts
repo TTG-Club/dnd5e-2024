@@ -22,12 +22,14 @@ import type { AbilityType } from '@vtt/shared';
 import type { ActiveEffect } from './activeEffectTypes.js';
 import type { CreatureCategory } from './creatureTypes.js';
 import type { FormulaContext } from './formulaParser.js';
+import type { SaveSourceTraits } from './saveSourceTraits.js';
 
 import { listSavingThrowBonusKeys } from './attackUtils.js';
 import {
   collectRollConditionFlags,
   evaluateConditionalBonuses,
 } from './effectPipeline.js';
+import { hasSaveSourceTraits } from './saveSourceTraits.js';
 
 /** Что источник спасброска добавляет к нему */
 export interface SaveSourceAdjustments {
@@ -44,7 +46,7 @@ export const NO_SOURCE_ADJUSTMENTS: SaveSourceAdjustments = {
 };
 
 /** Обстоятельства спасброска, которые читает поправка по источнику */
-export interface SaveSourceCircumstances {
+export interface SaveSourceCircumstances extends SaveSourceTraits {
   /** Тип того, кто вызвал спасбросок */
   sourceCreatureType?: CreatureCategory;
   /** Спасбросок концентрации: своя прибавка тоже в счёте */
@@ -52,13 +54,28 @@ export interface SaveSourceCircumstances {
 }
 
 /**
+ * Известно ли об источнике спасброска хоть что-то: без этого эффекты с
+ * условием об источнике перебирать незачем.
+ *
+ * @param circumstances - обстоятельства спасброска
+ * @returns `true`, если назван тип существа, школа или типы урона
+ */
+export function hasSaveSource(circumstances: SaveSourceCircumstances): boolean {
+  return (
+    circumstances.sourceCreatureType !== undefined
+    || hasSaveSourceTraits(circumstances)
+  );
+}
+
+/**
  * Флаги и прибавка спасброска от эффектов с условием об его источнике.
  *
  * @param effects - действующие эффекты бросающего (с аурами карты)
  * @param ability - характеристика спасброска
- * @param circumstances - тип источника и концентрация
+ * @param circumstances - источник (тип существа, школа, типы урона) и
+ *   концентрация
  * @param formulaContext - контекст формул бросающего, если значения — формулы
- * @returns флаги и прибавка; без типа источника — пусто
+ * @returns флаги и прибавка; без сведений об источнике — пусто
  */
 export function resolveSaveSourceAdjustments(
   effects: readonly ActiveEffect[],
@@ -68,7 +85,7 @@ export function resolveSaveSourceAdjustments(
 ): SaveSourceAdjustments {
   const { sourceCreatureType } = circumstances;
 
-  if (!sourceCreatureType) {
+  if (!hasSaveSource(circumstances)) {
     return NO_SOURCE_ADJUSTMENTS;
   }
 
@@ -77,7 +94,11 @@ export function resolveSaveSourceAdjustments(
   const rollContext = {
     hasAdvantage: false,
     hasDisadvantage: false,
-    source: { creatureType: sourceCreatureType },
+    source: {
+      creatureType: sourceCreatureType,
+      spellSchool: circumstances.sourceSpellSchool,
+      damageTypes: circumstances.sourceDamageTypes,
+    },
   };
 
   const bonus = listSavingThrowBonusKeys(ability, circumstances).reduce(

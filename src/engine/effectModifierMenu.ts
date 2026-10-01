@@ -33,6 +33,7 @@ import {
   RAGE_DAMAGE_BONUS_FORMULA,
   SHILLELAGH_DAMAGE_TYPE,
   SHILLELAGH_WEAPON_CONDITION,
+  SPELL_DAMAGE_TYPE_KEY,
   TARGET_TYPE_CONDITION_PREFIX,
   WEAPON_ATTACK_ABILITY_KEY,
   WEAPON_DAMAGE_DICE_KEY,
@@ -229,8 +230,9 @@ function defaultModeOfKey(key: string): EffectChangeMode {
     return 'upgrade';
   }
 
-  // Кость, характеристику и тип урона оружия не прибавить — только заменить
-  if (key.startsWith(WEAPON_KEY_PREFIX)) {
+  // Кость, характеристику и тип урона оружия не прибавить — только заменить;
+  // тип урона заклинаний — тоже слово из списка, а не число
+  if (key.startsWith(WEAPON_KEY_PREFIX) || key === SPELL_DAMAGE_TYPE_KEY) {
     return 'override';
   }
 
@@ -260,6 +262,9 @@ function defaultValueOfGroup(group: EffectModifierGroup): string | undefined {
   return undefined;
 }
 
+/** Тип урона по умолчанию у строки «тип урона заклинаний на выбор» */
+const SPELL_DAMAGE_TYPE_DEFAULT = 'psychic';
+
 /**
  * Значение по умолчанию у ключей замены оружия: единица, которую форма
  * подставляет прочим ключам, здесь не значит ничего.
@@ -268,6 +273,7 @@ const WEAPON_KEY_DEFAULT_VALUES: Readonly<Record<string, string>> = {
   [WEAPON_DAMAGE_DICE_KEY]: '1к8',
   [WEAPON_ATTACK_ABILITY_KEY]: WEAPON_SPELL_ABILITY_VALUE,
   [WEAPON_DAMAGE_TYPE_KEY]: SHILLELAGH_DAMAGE_TYPE,
+  [SPELL_DAMAGE_TYPE_KEY]: SPELL_DAMAGE_TYPE_DEFAULT,
 };
 
 /**

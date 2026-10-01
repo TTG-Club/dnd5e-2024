@@ -760,6 +760,7 @@ function expireWithConcentration(
   expire: (entity: DnDSceneEntity) => boolean,
 ): boolean {
   const before = listConcentrationEffects(entity.activeEffects);
+  const effectsBefore = entity.activeEffects ?? [];
   const changed = expire(entity);
 
   const remaining = new Set(
@@ -774,7 +775,22 @@ function expireWithConcentration(
     }
   }
 
-  return changed;
+  if (!changed) {
+    return false;
+  }
+
+  // «Состояние снялось» — и когда оно кончилось по сроку: «после окончания
+  // испуга невосприимчив к Ужасающему облику на 24 часа». Граница срока
+  // отдаёт ядру только «изменилось ли», поэтому срабатывание делает то, что
+  // остаётся на самом носителе (отметка, снятие, эффект); спасбросок бросает
+  // сервер, строки в чат и действия другим сторонам здесь не уходят
+  settleConditionLostEvents(
+    entity,
+    listLostConditions(effectsBefore, entity.activeEffects ?? []),
+    { ...buildTriggerEventOptions(entity, context), requestRoll: undefined },
+  );
+
+  return true;
 }
 
 /**
@@ -1591,7 +1607,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.153';
+  readonly version = '0.8.154';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.

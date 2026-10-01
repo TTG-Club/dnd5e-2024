@@ -42,7 +42,10 @@ import type {
   TurnSaveOutcome,
 } from './turnEffects.js';
 
+import { withTokenDisposition } from '@vtt/shared';
+
 import { isEffectDormant, listLiveEffects } from './activeEffectTypes.js';
+import { getRelativeDisposition } from './auraMath.js';
 import {
   formatEffectNotes,
   ignoreRejectedRollRequest,
@@ -81,9 +84,15 @@ import {
   SOURCE_TRIGGER_RECIPIENT,
   triggerAsksPermission,
 } from './effectTriggerTypes.js';
+import { findSceneToken } from './forcedMovement.js';
+import {
+  DAMAGE_TYPE_TOKEN_PREFIX,
+  EVENT_DAMAGE_TYPE_TOKEN,
+} from './formulaTokens.js';
 import { resolveEntityCurrentHp } from './hitPoints.js';
 import { listChoiceCandidates } from './triggerChoice.js';
 import { withCombatRound } from './triggerConditions.js';
+import { mapTriggerDamageParts } from './triggerDamageParts.js';
 
 /** С чем прогоняются срабатывания событий с другой стороной */
 export interface TriggerEventOptions extends SceneMoveOptions {
@@ -431,6 +440,86 @@ function resolveTriggerRecipients(
 }
 
 /**
+ * Данные события с отношением другой стороны к наложившему эффект: союзник ли
+ * она ему. Считается по фишкам сцены; без сцены или без одной из фишек
+ * отношение неизвестно, и поле не ставится.
+ *
+ * @param eventData - данные события
+ * @param sourceId - кто наложил эффект
+ * @param options - с чем прогоняются события
+ * @returns данные события с отношением либо те же данные
+ */
+function withSourceRelation(
+  eventData: TriggerEventData,
+  sourceId: string | undefined,
+  options: TriggerEventOptions,
+): TriggerEventData {
+  const { other } = eventData;
+  const { surroundings } = options;
+
+  if (!other || !sourceId || !surroundings) {
+    return eventData;
+  }
+
+  const source = options.getEntity?.(sourceId);
+  const sourceToken = findSceneToken(surroundings, sourceId);
+  const otherToken = findSceneToken(surroundings, other.id);
+
+  if (!sourceToken || !otherToken) {
+    return eventData;
+  }
+
+  return {
+    ...eventData,
+    otherAlliedToSource:
+      getRelativeDisposition(
+        withTokenDisposition(sourceToken, source),
+        withTokenDisposition(otherToken, other),
+      ) === 'ally',
+  };
+}
+
+/**
+ * Тип только что полученного урона — в части урона срабатывания: токен
+ * `@dmg.event` становится типом урона события («направить урон того же
+ * типа»). Вне события урона токен остаётся, и часть идёт без типа.
+ *
+ * @param source - срабатывание с источником
+ * @param eventData - данные события
+ * @returns срабатывание с типом события либо то же срабатывание
+ */
+function bindEventDamageType(
+  source: EffectTriggerSource,
+  eventData: TriggerEventData,
+): EffectTriggerSource {
+  const [eventType] = eventData.damage?.types ?? [];
+
+  if (
+    !eventType
+    || !source.trigger.actions.some(
+      (action) =>
+        action.type === 'damage'
+        && action.parts.some((part) =>
+          part.formula.includes(EVENT_DAMAGE_TYPE_TOKEN),
+        ),
+    )
+  ) {
+    return source;
+  }
+
+  return {
+    ...source,
+    trigger: mapTriggerDamageParts(source.trigger, (part) => ({
+      ...part,
+      formula: part.formula.replaceAll(
+        EVENT_DAMAGE_TYPE_TOKEN,
+        `${DAMAGE_TYPE_TOKEN_PREFIX}${eventType}`,
+      ),
+    })),
+  };
+}
+
+/**
  * Одно срабатывание события с другой стороной: получатель, условие и лимит,
  * спасбросок на сервере или запросом игроку, действия. Одно на события урона
  * и бросок атаки — у них разные только данные события.
@@ -451,8 +540,13 @@ function runTriggerEventSource(
   result: DamageEventsResult,
   continuation?: DamageEventsContinuation,
 ): TriggerEventRun {
-  // Раунд — общий на всю серию: его знает ядро, а не построитель события
-  const eventData = withCombatRound(rawEventData, options.combatRound);
+  // Раунд — общий на всю серию: его знает ядро, а не построитель события.
+  // Союзник ли другая сторона наложившему — знает сцена
+  const eventData = withSourceRelation(
+    withCombatRound(rawEventData, options.combatRound),
+    rawSource.effect.sourceActorId,
+    options,
+  );
 
   const recipients = resolveTriggerRecipients(
     subject,
@@ -546,7 +640,10 @@ function runTriggerEventSource(
 
   // Спросить некого: цена без выбора списывается сама, иначе срабатывание не
   // состоится
-  const prepared = settleUnaskedTriggerPay(subject, rawSource);
+  const prepared = settleUnaskedTriggerPay(
+    subject,
+    bindEventDamageType(rawSource, eventData),
+  );
 
   if (!prepared) {
     return 'skipped';

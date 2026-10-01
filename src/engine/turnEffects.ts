@@ -38,6 +38,7 @@ import type {
 } from './effectTriggerTypes.js';
 import type { SceneOffset } from './forcedMovement.js';
 import type { FormulaContext } from './formulaParser.js';
+import type { SaveSourceTraits } from './saveSourceTraits.js';
 
 import { isToggleActivatedEffect } from './activeEffectTypes.js';
 import { stampApplyTimeFormulas } from './applyTimeFormulas.js';
@@ -62,7 +63,11 @@ import {
 } from './effectPipeline.js';
 import { resolveSaveDc } from './effectSaveDcOwner.js';
 import { resetTriggerUsage } from './effectTriggerUsage.js';
-import { buildFormulaContext } from './formulaParser.js';
+import {
+  buildFormulaContext,
+  evaluateFormula,
+  formatFormulaNumber,
+} from './formulaParser.js';
 import { limitEntityHealing } from './healingLimits.js';
 import {
   resolveEntityCurrentHp,
@@ -517,7 +522,7 @@ export interface EffectSavingThrowContext {
  * Обстоятельства спасброска: от них зависят флаги преимущества вроде
  * «Мантии сопротивления заклинаниям» или «преимущество против Испуга».
  */
-export interface SavingThrowCircumstances {
+export interface SavingThrowCircumstances extends SaveSourceTraits {
   /** Спасбросок навязан магией */
   againstMagic: boolean;
   /** Спасбросок навязан именно заклинанием */
@@ -937,6 +942,48 @@ function scaleDamageTotals(totals: readonly number[], scale: number): number[] {
 }
 
 /**
+ * Токены получателя урона: число его отметок, временные хиты и непотраченные
+ * кости хитов. В уроне срабатывания их считает сам получатель — «1к8 за
+ * каждую Точку давления на цели», «получает урон, равный оставшимся временным
+ * хитам».
+ */
+const RECIPIENT_TOKEN_PATTERN =
+  /@(?:tag\.\w+|hp\.temp|hitDice\.left)(?![\w.])/g;
+
+/** Тот же шаблон — для проверки наличия, без позиции поиска у глобального */
+const RECIPIENT_TOKEN_PROBE = new RegExp(RECIPIENT_TOKEN_PATTERN.source, 'u');
+
+/**
+ * Часть урона с числами получателя вместо его токенов. Остальные токены не
+ * трогаются: часть с ними бросок по-прежнему пропустит.
+ *
+ * @param part - часть урона
+ * @param entity - получатель урона
+ * @returns исходная часть, если токенов получателя нет, иначе копия
+ */
+function bindRecipientTokens(
+  part: DamagePart,
+  entity: DnDSceneEntity,
+): DamagePart {
+  if (!RECIPIENT_TOKEN_PROBE.test(part.formula)) {
+    return part;
+  }
+
+  const context = buildFormulaContext(entity);
+
+  return {
+    ...part,
+    formula: part.formula.replace(RECIPIENT_TOKEN_PATTERN, (token) => {
+      try {
+        return formatFormulaNumber(evaluateFormula(token, context));
+      } catch {
+        return token;
+      }
+    }),
+  };
+}
+
+/**
  * Катает урон нагрузки `DamagePart[]` по частям: кости, доля спасброска, затем
  * защиты цели (по правилам сопротивление применяется после прочих изменений).
  * Сегментирует части (`@dmg.<type>`); лечащие части и контекстные `@`-формулы
@@ -975,7 +1022,11 @@ export function rollEffectDamageParts(
   // Тип на выбор, не решённый наложившим (эффект без источника), здесь
   // спросить некого — он выпадает случайно
   const segments = settleDamageTypeChoices(
-    expandDamageParts(gated, undefined, resolveDiceCountExpressions),
+    expandDamageParts(
+      gated.map((part) => bindRecipientTokens(part, entity)),
+      undefined,
+      resolveDiceCountExpressions,
+    ),
   ).filter(
     (segment) =>
       !segment.isHealing

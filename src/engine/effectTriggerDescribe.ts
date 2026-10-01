@@ -375,6 +375,7 @@ const TRIGGER_CONDITION_PHRASES: Record<
   otherMarkedBySelf: () => 'другая сторона помечена носителем',
   selfHpAtMost: (value) => `у носителя не больше ${value} хитов`,
   selfHpAtLeast: (value) => `у носителя не меньше ${value} хитов`,
+  selfHpMaxAtMost: (value) => `максимум хитов носителя не больше ${value}`,
   selfSizeAtMost: (value) =>
     `носитель размером не больше «${describeCreatureSize(value)}»`,
   selfSizeAtLeast: (value) =>
@@ -403,6 +404,7 @@ const TRIGGER_CONDITION_PHRASES: Record<
   selfAbilityAtLeast: (value, amount) =>
     `${describeAbilityName(value)} носителя не меньше ${amount}`,
   otherIsSource: () => 'другая сторона — тот, кто наложил эффект',
+  otherIsSourceSide: () => 'другая сторона — наложивший эффект или его союзник',
   otherBloodied: () => 'у другой стороны не больше половины хитов',
   otherHpAtMost: (value) => `у другой стороны не больше ${value} хитов`,
   damageAtLeast: (value) => `урон не меньше ${value}`,

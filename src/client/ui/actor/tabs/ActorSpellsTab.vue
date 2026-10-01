@@ -88,6 +88,7 @@
     resolveSpellcastingAbility,
     resolveSpellDamageFormula,
     resolveSpellSaveDC,
+    retypeCasterSpellDamage,
     settleBookCantrips,
     SPELL_LEVEL_LABELS,
     SPELL_SCHOOL_LABELS,
@@ -1564,162 +1565,166 @@
       return;
     }
 
-    runWithEffectVariants(sourceSpell, (spell) => {
-      // Заклинания с зарядами (врождённые/расовые) не тратят ячейки: проверяем
-      // только заряды, без проверки доступных ячеек заклинаний.
-      if (
-        spell.uses
-        && spell.uses.recovery !== 'atWill'
-        && spell.uses.current <= 0
-      ) {
-        toast.add({
-          title: ACTOR_SPELLS_TAB_LABELS.noUsesTitle,
-          description: `${ACTOR_SPELLS_TAB_LABELS.noUsesTextPrefix}${spell.name}${ACTOR_SPELLS_TAB_LABELS.noUsesTextSuffix}`,
-          color: 'warning',
-        });
+    // «Можете изменить тип урона заклинания» — тип становится выбором
+    runWithEffectVariants(
+      retypeCasterSpellDamage(sourceSpell, props.actor),
+      (spell) => {
+        // Заклинания с зарядами (врождённые/расовые) не тратят ячейки: проверяем
+        // только заряды, без проверки доступных ячеек заклинаний.
+        if (
+          spell.uses
+          && spell.uses.recovery !== 'atWill'
+          && spell.uses.current <= 0
+        ) {
+          toast.add({
+            title: ACTOR_SPELLS_TAB_LABELS.noUsesTitle,
+            description: `${ACTOR_SPELLS_TAB_LABELS.noUsesTextPrefix}${spell.name}${ACTOR_SPELLS_TAB_LABELS.noUsesTextSuffix}`,
+            color: 'warning',
+          });
 
-        return;
-      }
+          return;
+        }
 
-      const availableLevels = getCastableSpellLevels(spell);
+        const availableLevels = getCastableSpellLevels(spell);
 
-      // Ячейки есть, но все под запретом круга — причина словами
-      const levelBlock =
-        availableLevels.length === 0
-          ? findCastLevelBlock(
-              actionBlocks.value,
-              spell,
-              getAvailableSpellLevels(
-                props.actor,
-                spell.level,
-                MAX_SPELL_SLOT_LEVEL,
-                spellcastingBonusContext.value,
-              ),
-            )
-          : null;
+        // Ячейки есть, но все под запретом круга — причина словами
+        const levelBlock =
+          availableLevels.length === 0
+            ? findCastLevelBlock(
+                actionBlocks.value,
+                spell,
+                getAvailableSpellLevels(
+                  props.actor,
+                  spell.level,
+                  MAX_SPELL_SLOT_LEVEL,
+                  spellcastingBonusContext.value,
+                ),
+              )
+            : null;
 
-      if (levelBlock) {
-        toast.add({
-          title: ACTOR_SPELLS_TAB_LABELS.castBlockedTitle,
-          description: levelBlock,
-          color: 'warning',
-        });
+        if (levelBlock) {
+          toast.add({
+            title: ACTOR_SPELLS_TAB_LABELS.castBlockedTitle,
+            description: levelBlock,
+            color: 'warning',
+          });
 
-        return;
-      }
+          return;
+        }
 
-      if (!spell.uses && spell.level > 0 && availableLevels.length === 0) {
-        toast.add({
-          title: ACTOR_SPELLS_TAB_LABELS.noSlotsTitle,
-          description: `${ACTOR_SPELLS_TAB_LABELS.noSlotsTextPrefix}${spell.level}${ACTOR_SPELLS_TAB_LABELS.noSlotsTextSuffix}`,
-          color: 'error',
-        });
+        if (!spell.uses && spell.level > 0 && availableLevels.length === 0) {
+          toast.add({
+            title: ACTOR_SPELLS_TAB_LABELS.noSlotsTitle,
+            description: `${ACTOR_SPELLS_TAB_LABELS.noSlotsTextPrefix}${spell.level}${ACTOR_SPELLS_TAB_LABELS.noSlotsTextSuffix}`,
+            color: 'error',
+          });
 
-        return;
-      }
+          return;
+        }
 
-      // «Замедление»: каст точно идёт — после действия бонусное в этот ход
-      // недоступно; отказ по зарядам и ячейкам трату не тратит
-      recordEntityActionSpend(props.actor.id, resolveSpellCastCost(spell));
+        // «Замедление»: каст точно идёт — после действия бонусное в этот ход
+        // недоступно; отказ по зарядам и ячейкам трату не тратит
+        recordEntityActionSpend(props.actor.id, resolveSpellCastCost(spell));
 
-      if (needsSpellEffectTargets(spell)) {
-        requestSpellEffectTargets(
-          spell,
-          props.actor.id,
-          availableLevels,
-          (level, targets) => {
-            proceedWithCastSpell(spell, level, targets);
-          },
-        );
+        if (needsSpellEffectTargets(spell)) {
+          requestSpellEffectTargets(
+            spell,
+            props.actor.id,
+            availableLevels,
+            (level, targets) => {
+              proceedWithCastSpell(spell, level, targets);
+            },
+          );
 
-        return;
-      }
+          return;
+        }
 
-      // Снарядный режим: число снарядов зависит от контекста каста
-      // (заговоры — от уровня персонажа, уровневые — от круга ячейки)
-      const casterLevel = getTotalLevel(props.actor.system?.classes);
+        // Снарядный режим: число снарядов зависит от контекста каста
+        // (заговоры — от уровня персонажа, уровневые — от круга ячейки)
+        const casterLevel = getTotalLevel(props.actor.system?.classes);
 
-      const baseProjectileCount = getSpellProjectileCount(spell, {
-        slotLevel: availableLevels[0] ?? spell.level,
-        casterLevel,
-      });
-
-      const hasProjectiles = baseProjectileCount > 1 && !spell.areaOfEffect;
-
-      // Проверка дистанции каста до выбранной цели (только одиночная цель:
-      // у AoE и снарядов собственные механики таргетинга)
-      if (
-        !spell.areaOfEffect
-        && !hasProjectiles
-        && isSpellCastBlockedByRange(spell, props.actor.id)
-      ) {
-        return;
-      }
-
-      // Ветка 1: Если есть область действия — пропускаем зелёный prompt, сразу начинаем применять (появится шаблон на курсоре)
-      if (spell.areaOfEffect) {
-        // Область растёт от круга — круг до шаблона, иначе сразу шаблон
-        chooseAreaCastLevel(spell, availableLevels, (castLevel) => {
-          proceedWithCastSpell(spell, castLevel);
-        });
-
-        return;
-      }
-
-      if (hasProjectiles) {
-        // Запускаем режим выбора целей (снарядов) с отдельным промптом
-        const projectileStore = useProjectileStore();
-
-        projectileStore.startTargeting(
-          spell.projectiles?.targetDistribution ?? null,
-          baseProjectileCount,
-          (tokenId) =>
-            !isSpellTargetBlockedByRange(spell, props.actor.id, tokenId),
-        );
-
-        openModal('ProjectilePromptModal', {
-          _modalKey: `${PROJECTILE_MODAL_KEY_PREFIX}-${projectileStore.sessionId}`,
-          targetingSessionId: projectileStore.sessionId,
-          spell,
+        const baseProjectileCount = getSpellProjectileCount(spell, {
+          slotLevel: availableLevels[0] ?? spell.level,
           casterLevel,
-          availableSpellLevels: availableLevels,
-          onConfirm: (selectedLevel: number) => {
-            proceedWithCastSpell(spell, selectedLevel);
-          },
         });
 
-        return;
-      }
+        const hasProjectiles = baseProjectileCount > 1 && !spell.areaOfEffect;
 
-      // Ветка 2: Обычные заклинания — сначала спрашиваем подтверждение через зелёный prompt
-      const promptStore = useActionPromptStore();
-      const promptId = `spell-cast-${spell.id}`;
+        // Проверка дистанции каста до выбранной цели (только одиночная цель:
+        // у AoE и снарядов собственные механики таргетинга)
+        if (
+          !spell.areaOfEffect
+          && !hasProjectiles
+          && isSpellCastBlockedByRange(spell, props.actor.id)
+        ) {
+          return;
+        }
 
-      promptStore.addPrompt({
-        id: promptId,
-        icon: 'tabler:wand',
-        title: `${ACTOR_SPELLS_TAB_LABELS.castConfirmPrefix}${spell.name}${ACTOR_SPELLS_TAB_LABELS.castConfirmSuffix}`,
-        color: 'neutral',
-        actions: [
-          {
-            icon: 'tabler:check',
-            color: 'primary',
-            onClick: () => {
-              promptStore.removePrompt(promptId);
-              proceedWithCastSpell(spell);
+        // Ветка 1: Если есть область действия — пропускаем зелёный prompt, сразу начинаем применять (появится шаблон на курсоре)
+        if (spell.areaOfEffect) {
+          // Область растёт от круга — круг до шаблона, иначе сразу шаблон
+          chooseAreaCastLevel(spell, availableLevels, (castLevel) => {
+            proceedWithCastSpell(spell, castLevel);
+          });
+
+          return;
+        }
+
+        if (hasProjectiles) {
+          // Запускаем режим выбора целей (снарядов) с отдельным промптом
+          const projectileStore = useProjectileStore();
+
+          projectileStore.startTargeting(
+            spell.projectiles?.targetDistribution ?? null,
+            baseProjectileCount,
+            (tokenId) =>
+              !isSpellTargetBlockedByRange(spell, props.actor.id, tokenId),
+          );
+
+          openModal('ProjectilePromptModal', {
+            _modalKey: `${PROJECTILE_MODAL_KEY_PREFIX}-${projectileStore.sessionId}`,
+            targetingSessionId: projectileStore.sessionId,
+            spell,
+            casterLevel,
+            availableSpellLevels: availableLevels,
+            onConfirm: (selectedLevel: number) => {
+              proceedWithCastSpell(spell, selectedLevel);
             },
-          },
-          {
-            icon: 'tabler:x',
-            color: 'neutral',
-            variant: 'ghost',
-            onClick: () => {
-              promptStore.removePrompt(promptId);
+          });
+
+          return;
+        }
+
+        // Ветка 2: Обычные заклинания — сначала спрашиваем подтверждение через зелёный prompt
+        const promptStore = useActionPromptStore();
+        const promptId = `spell-cast-${spell.id}`;
+
+        promptStore.addPrompt({
+          id: promptId,
+          icon: 'tabler:wand',
+          title: `${ACTOR_SPELLS_TAB_LABELS.castConfirmPrefix}${spell.name}${ACTOR_SPELLS_TAB_LABELS.castConfirmSuffix}`,
+          color: 'neutral',
+          actions: [
+            {
+              icon: 'tabler:check',
+              color: 'primary',
+              onClick: () => {
+                promptStore.removePrompt(promptId);
+                proceedWithCastSpell(spell);
+              },
             },
-          },
-        ],
-      });
-    });
+            {
+              icon: 'tabler:x',
+              color: 'neutral',
+              variant: 'ghost',
+              onClick: () => {
+                promptStore.removePrompt(promptId);
+              },
+            },
+          ],
+        });
+      },
+    );
   }
 
   /**

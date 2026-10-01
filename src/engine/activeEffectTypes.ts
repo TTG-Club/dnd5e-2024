@@ -227,6 +227,15 @@ export const WEAPON_ATTACK_ABILITY_KEY = 'weapon.attackAbility';
 export const WEAPON_DAMAGE_TYPE_KEY = 'weapon.damageType';
 
 /**
+ * Ключ «тип урона своих заклинаний — на выбор»: значение — ключ типа урона
+ * (`psychic`). При касте заклинания с уроном носитель выбирает, оставить тип
+ * заклинания или взять этот («Психические заклинания», «Арканный некроз»).
+ * Заменой оружия не является, но устроен так же: значение — слово из списка,
+ * а не формула (`spellDamageRetype.ts`).
+ */
+export const SPELL_DAMAGE_TYPE_KEY = 'spell.damageType';
+
+/**
  * Значение «заклинательная характеристика наложившего». При сотворении оно
  * заменяется ключом характеристики: на листе заклинателя уже не спросить, каким
  * классом творили.
@@ -243,12 +252,14 @@ export const SHILLELAGH_DAMAGE_TYPE = 'force';
 export type WeaponOverrideKey =
   | typeof WEAPON_DAMAGE_DICE_KEY
   | typeof WEAPON_ATTACK_ABILITY_KEY
-  | typeof WEAPON_DAMAGE_TYPE_KEY;
+  | typeof WEAPON_DAMAGE_TYPE_KEY
+  | typeof SPELL_DAMAGE_TYPE_KEY;
 
 const WEAPON_OVERRIDE_KEY_SET: ReadonlySet<string> = new Set([
   WEAPON_DAMAGE_DICE_KEY,
   WEAPON_ATTACK_ABILITY_KEY,
   WEAPON_DAMAGE_TYPE_KEY,
+  SPELL_DAMAGE_TYPE_KEY,
 ]);
 
 /**
@@ -261,6 +272,21 @@ const WEAPON_OVERRIDE_KEY_SET: ReadonlySet<string> = new Set([
 export function isWeaponOverrideKey(key: string): key is WeaponOverrideKey {
   return WEAPON_OVERRIDE_KEY_SET.has(key);
 }
+
+/**
+ * Ключ прибавки к получаемым временным хитам: «+5 к получаемым временным
+ * хитам». Считается при каждой выдаче (`healingLimits.withTempHpGainBonus`),
+ * а не на листе.
+ */
+export const TEMP_HP_GAIN_KEY = 'tempHp.gain';
+
+/**
+ * Ключ прибавки к досягаемости рукопашных атак носителя, в футах: «увеличить
+ * досягаемость этой атаки на 10 футов». Считается при проверке расстояния
+ * атаки (`offSheetChanges.withMeleeReachBonus`), а не на листе; «на одну
+ * атаку» задаёт срок эффекта или его снятие после броска атаки.
+ */
+export const ATTACK_REACH_KEY = 'attack.reach';
 
 /**
  * Типобезопасный ключ для числовых модификаций актора.
@@ -296,7 +322,9 @@ export type EffectTargetKey =
   | 'attack.weapon'
   | WeaponOverrideKey
   | 'creatureType'
-  | 'creatureType.extra';
+  | 'creatureType.extra'
+  | typeof TEMP_HP_GAIN_KEY
+  | typeof ATTACK_REACH_KEY;
 
 /**
  * Ключ строки модификатора: известный ключ движка либо ПУСТАЯ строка — «ключ
@@ -329,6 +357,14 @@ export const EFFECT_TARGET_SUGGESTIONS: Array<{
   },
 
   // Тип существа: его читают гейты урона «только по нежити» и условия
+  {
+    value: TEMP_HP_GAIN_KEY,
+    label: 'Прибавка к получаемым временным хитам',
+  },
+  {
+    value: ATTACK_REACH_KEY,
+    label: 'Досягаемость рукопашных атак, фт',
+  },
   { value: 'creatureType', label: 'Тип существа' },
   {
     value: 'creatureType.extra',
@@ -401,6 +437,10 @@ export const EFFECT_TARGET_SUGGESTIONS: Array<{
   { value: WEAPON_DAMAGE_DICE_KEY, label: 'Оружие: кость урона' },
   { value: WEAPON_ATTACK_ABILITY_KEY, label: 'Оружие: характеристика атаки' },
   { value: WEAPON_DAMAGE_TYPE_KEY, label: 'Оружие: тип урона' },
+  {
+    value: SPELL_DAMAGE_TYPE_KEY,
+    label: 'Заклинания: тип урона на выбор при касте',
+  },
 
   // Навыки
   { value: 'skill.acrobatics', label: 'Навык (Акробатика)' },
@@ -644,6 +684,7 @@ export const EFFECT_CONDITION_SECTIONS = {
   effectSource: 'Наложивший эффект',
   adjacentAlly: 'Союзник рядом с целью',
   defense: 'Защита: входящая атака',
+  saveSource: 'Источник спасброска',
   carrierSpecies: 'Вид носителя',
   carrierType: 'Тип носителя',
   targetType: 'Тип цели',
@@ -819,6 +860,24 @@ export const EFFECT_CONDITION_SUGGESTIONS: readonly EffectLibrarySuggestion[] =
         ),
       ],
       'Для КД и «Атак по носителю»: проверяется, когда атакуют носителя.',
+    ),
+
+    // Образцы: школу и типы урона автор вписывает свои, список — через запятую
+    ...inLibrarySection(
+      EFFECT_CONDITION_SECTIONS.saveSource,
+      [
+        {
+          value: 'source.spellSchool === "divination"',
+          label:
+            'Спасбросок: от заклинания школы… (ключ школы; список через запятую)',
+        },
+        {
+          value: 'source.damageType === "fire, radiant"',
+          label:
+            'Спасбросок: от источника с уроном типа… (ключи типов через запятую)',
+        },
+      ],
+      ROLL_CONDITION_HINT,
     ),
 
     // Вид персонажа или подтип статблока — свободным названием, список через
@@ -1284,6 +1343,8 @@ export type EffectFlagKey =
   | 'vision.invisible'
   | 'defense.critImmunity'
   | 'defense.suppressAll'
+  | 'defense.suppressResistances'
+  | 'damage.concentrationDisadvantage'
   | 'healing.blocked'
   | 'healing.tempBlocked'
   | 'hitPoints.maxReductionBlocked'
@@ -1461,6 +1522,10 @@ const BASE_EFFECT_FLAG_LABELS: Record<
   'defense.critImmunity': 'Защита: Иммунитет к критическим попаданиям',
   'defense.suppressAll':
     'Защиты от урона не действуют (сопротивления и иммунитеты сняты)',
+  'defense.suppressResistances':
+    'Сопротивления урону не действуют (иммунитеты остаются)',
+  'damage.concentrationDisadvantage':
+    'Урон носителя: спасбросок концентрации цели с помехой',
   'hitPoints.maxReductionBlocked': 'Максимум хитов нельзя уменьшать',
   'attacksAgainst.forceCritical': 'Попадание по этому существу — крит',
   'movement.teleportBlocked': 'Не может телепортироваться',
@@ -1892,6 +1957,13 @@ export interface EffectActivation {
    * конусе 30 футов»). Только у применения
    */
   area?: EffectUseArea;
+  /**
+   * Применение требует концентрации, как заклинание («Дар медузы»:
+   * «необходимо концентрироваться»): применивший получает метку концентрации,
+   * прежняя концентрация кончается, а с концом этой снимается наложенное.
+   * Только у применения
+   */
+  concentration?: true;
 }
 
 /**
@@ -2611,6 +2683,13 @@ export interface ActiveEffect extends BaseActiveEffect {
    * до конца его ближайшего хода.
    */
   turnCurrent?: true;
+
+  /**
+   * Складывается с одноимёнными: повторное наложение не заменяет прежнее, а
+   * ложится рядом («урон кумулятивный», «каждое попадание — ещё −1 к КД»).
+   * Без поля действует общее правило: одноимённый эффект обновляется.
+   */
+  stackable?: true;
 
   /**
    * Правило каста носителя, пока эффект на нём: лимит круга ячейки и провал
@@ -3660,6 +3739,7 @@ const EffectActivationSchema = z.object({
   ),
   cost: z.enum(EFFECT_ACTIVATION_COSTS).optional().catch(undefined),
   area: EffectUseAreaSchema,
+  concentration: z.literal(true).optional().catch(undefined),
 });
 
 /** Zod-схема лимита срабатывания */
@@ -3879,6 +3959,7 @@ export const ActiveEffectSchema = z.object({
   escape: EffectEscapeSchema.optional().catch(undefined),
   castRule: EffectCastRuleSchema,
   turnCurrent: z.literal(true).optional().catch(undefined),
+  stackable: z.literal(true).optional().catch(undefined),
   stages: z
     .array(EffectStageSchema)
     .max(MAX_EFFECT_STAGES)

@@ -25,6 +25,7 @@ import type { DnDGameItem } from './dndEntities.js';
 
 import {
   isWeaponOverrideKey,
+  SPELL_DAMAGE_TYPE_KEY,
   WEAPON_ATTACK_ABILITY_KEY,
   WEAPON_DAMAGE_DICE_KEY,
   WEAPON_DAMAGE_TYPE_KEY,
@@ -276,7 +277,7 @@ export function getWeaponOverrideValueOptions(
     ];
   }
 
-  if (key === WEAPON_DAMAGE_TYPE_KEY) {
+  if (key === WEAPON_DAMAGE_TYPE_KEY || key === SPELL_DAMAGE_TYPE_KEY) {
     return Object.entries(DAMAGE_TYPE_LABELS).map(([value, label]) => ({
       value,
       label,

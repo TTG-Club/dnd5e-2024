@@ -65,10 +65,11 @@
     runWithCreatureDamageChoice,
     summarizeDamageParts,
   } from '../../composables/creatureDamageChoice';
-  import { runWithDamageTypeChoices } from '../../composables/damageTypeChoice';
   import {
     applyActionSelfEffects,
+    applyActionUseEffects,
     hasActionSelfEffects,
+    hasActionUseEffects,
   } from '../../composables/effectActivationUse';
   import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import { discardSpellTemplate } from '../../composables/spellResolutionShared';
@@ -476,8 +477,9 @@
     }
 
     runCreatureActionChoices(sourceAction, props.creatureId, (action) => {
-      // Действие без броска только накладывает эффекты на само существо;
-      // окна броска нет — тип урона на выбор эффектов спрашивает плашка
+      // Действие без броска только накладывает эффекты — на само существо
+      // или на выбранную цель; окна броска нет — тип урона на выбор эффектов
+      // спрашивает плашка
       if (!hasAttackParams(action)) {
         const creatureId = props.creatureId;
 
@@ -486,15 +488,15 @@
 
           // Записи без броска и эффектов («Ловкий побег») накладывать нечего:
           // что существо сделало, показывает её карточка в чате
-          if (!hasActionSelfEffects(action)) {
+          if (!hasActionUseEffects(action)) {
             shareActionToChat(action);
 
             return;
           }
 
-          runWithDamageTypeChoices(action, (chosenAction) => {
-            applyActionSelfEffects(chosenAction, creatureId);
-          });
+          // Эффекты «на цель» у действия без броска: получателя выбирают на
+          // карте, как у применяемого умения
+          applyActionUseEffects(action, creatureId);
         }
 
         return;

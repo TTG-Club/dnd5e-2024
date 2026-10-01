@@ -41,6 +41,7 @@ import {
   buildAttackLabel,
   collectActiveEffects,
   damagePartIsHealing,
+  describeSpellSaveSource,
   detectFormulaDamageType,
   doubleDiceInFormula,
   evaluateDefensiveACBonus,
@@ -414,6 +415,7 @@ export function useSpellResolution() {
         againstSpell: isSpellRoll(spell),
         sourceEntityId: context.casterId,
         sourceName: spell.name,
+        ...describeSpellSaveSource(spell),
       });
 
       finalDamage = scaleSaveDamage(
@@ -691,6 +693,7 @@ export function useSpellResolution() {
             againstSpell: isSpellRoll(spell),
             sourceEntityId: context.casterId,
             sourceName: spell.name,
+            ...describeSpellSaveSource(spell),
           })),
         )
       : null;

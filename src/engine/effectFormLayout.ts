@@ -428,6 +428,10 @@ function normalizeDraftActivation(
     ...(activation.cost ? { cost: activation.cost } : {}),
     // Область — тоже только у применения
     ...(activation.mode === 'use' && area ? { area } : {}),
+    // Концентрация — у применения: переключатель держится сам
+    ...(activation.mode === 'use' && activation.concentration
+      ? { concentration: true }
+      : {}),
   };
 }
 
@@ -888,8 +892,11 @@ export function resolveEffectFormLayout(
       || isOnTarget,
     hasSource: !isTickingCarrier,
     endsWithCast: context === 'spell' && livesOnItsOwn,
-    // Применённая копия тоже «ложится»: зелье лечит при наложении
-    landsOnTarget: isOnTarget || isUsed,
+    // Применённая копия тоже «ложится»: зелье лечит при наложении. Эффект
+    // заклинания на самом заклинателе уходит тем же боевым снимком, что и
+    // эффект на цели, — «при наложении» слышит и он («Связь с иным планом»)
+    landsOnTarget:
+      isOnTarget || isUsed || (context === 'spell' && delivery === 'carrier'),
     switchesOn: isToggled,
     // Действующее заклинание на существе несёт свою кнопку действия: «пока
     // заклинание действует, действием можешь…»

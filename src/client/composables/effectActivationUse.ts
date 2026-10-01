@@ -22,7 +22,7 @@ import { emitEntityUpdate } from '@/core/entityUtils';
 import { useChatStore } from '@/stores/chatStore';
 import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
 import { useWorldStore } from '@/stores/worldStore';
-import { resolveGridCellSize } from '@vtt/shared';
+import { generateId, resolveGridCellSize } from '@vtt/shared';
 import {
   buildEffectGroupUseSpell,
   buildItemUseSpell,
@@ -65,8 +65,11 @@ import { runWithEffectVariants } from './effectVariantChoice';
 import { openSkillCheckModal } from './skillCheckRoll';
 import {
   applyCasterSpellEffectsToEntity,
+  releaseConcentration,
   requestSpellZone,
+  SPELL_CAST_KEY_PREFIX,
 } from './spellCastCompletion';
+import { beginSpellCast } from './spellCasts';
 import {
   applySpellTargetEffects,
   createChosenEffectTargets,
@@ -298,6 +301,15 @@ export function applyEffectSource(
             // Применение точно идёт — трата хода в счёт («Замедление»)
             recordEntityActionSpend(user.id, withPay.cost);
 
+            // Применение с концентрацией — свой каст: прежняя концентрация
+            // кончается, новая метка ляжет вместе с эффектами применившего
+            if (paidSource.concentration) {
+              const castId = generateId(SPELL_CAST_KEY_PREFIX);
+
+              beginSpellCast(user.id, paidSource, castId);
+              releaseConcentration(user, castId);
+            }
+
             // Что сделало применение, пишут список наложенного, разбор цели и
             // исход срабатываний — отдельная строка «применяет» их бы только
             // повторяла
@@ -370,6 +382,54 @@ export function hasActionSelfEffects(
   action: Pick<CreatureAction, 'activeEffects'>,
 ): boolean {
   return getCasterSpellEffects(action).length > 0;
+}
+
+/**
+ * Есть ли у действия существа без броска что накладывать: эффекты «на себя»
+ * или «на цель».
+ *
+ * @param action - действие
+ * @returns `true`, если действие накладывает эффекты
+ */
+export function hasActionUseEffects(
+  action: Pick<CreatureAction, 'activeEffects'>,
+): boolean {
+  return (
+    hasActionSelfEffects(action) || getTargetSpellEffects(action).length > 0
+  );
+}
+
+/**
+ * Применяет действие существа без броска, урона и спасброска: эффекты «на
+ * себя» ложатся на существо, для эффектов «на цель» выбирается получатель на
+ * карте — тем же разбором, что у применяемого умения («условие при наложении
+ * + спасбросок в срабатывании»). Тип урона на выбор и варианты спрашивает сам
+ * разбор.
+ *
+ * @param action - действие существа
+ * @param creatureId - существо
+ */
+export function applyActionUseEffects(
+  action: Pick<CreatureAction, 'name' | 'activeEffects' | 'saveDC'>,
+  creatureId: string,
+): void {
+  const creature = useWorldEntities().findCurrentDndEntity(creatureId);
+
+  if (!creature || !hasActionUseEffects(action)) {
+    return;
+  }
+
+  applyEffectSource(
+    buildUseSpell({
+      id: `${creatureId}-${action.name}`,
+      name: action.name,
+      effects: action.activeEffects ?? [],
+      rollSource: 'creatureAction',
+    }),
+    creature,
+    action.saveDC ?? 0,
+    () => {},
+  );
 }
 
 /**

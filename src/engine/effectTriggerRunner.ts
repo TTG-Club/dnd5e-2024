@@ -68,6 +68,10 @@ import {
   getEntityExhaustionLevel,
 } from './conditionTemplates.js';
 import {
+  resolveEntityCreatureType,
+  resolveEntityExtraCreatureTypes,
+} from './creatureTypeGate.js';
+import {
   findFirstDiceTerm,
   formatDiceFormula,
   rollDamageFormula,
@@ -81,6 +85,8 @@ import { advanceEffectChangeSteps } from './effectChangeSteps.js';
 import { bindLivePaid } from './effectPaidTokens.js';
 import { payTriggerPrice, settleUnaskedTriggerPay } from './effectPay.js';
 import {
+  collectActiveEffects,
+  collectRollConditionFlags,
   getEntityConditionImmunities,
   listTraitEffects,
   resolveActorStats,
@@ -127,6 +133,7 @@ import {
   evaluateFormula,
   substituteFormulaVariables,
 } from './formulaParser.js';
+import { withTempHpGainBonus } from './healingLimits.js';
 import {
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
@@ -334,6 +341,58 @@ function resolveTriggerSaveMode(
 }
 
 /**
+ * Режим спасброска из пары «преимущество / помеха»: вместе они гасят друг
+ * друга.
+ *
+ * @param advantage - есть преимущество
+ * @param disadvantage - есть помеха
+ * @returns режим либо `undefined`, если бросок обычный
+ */
+function toSaveMode(
+  advantage: boolean,
+  disadvantage: boolean,
+): EffectTriggerSaveMode | undefined {
+  const mode = combineRollMode(advantage, disadvantage);
+
+  return mode === 'normal' ? undefined : mode;
+}
+
+/** Флаг «урон носителя — спасбросок концентрации цели с помехой» */
+export const CONCENTRATION_DISADVANTAGE_FLAG =
+  'damage.concentrationDisadvantage';
+
+/**
+ * Даёт ли нанёсший урон помеху на спасбросок концентрации: флаг на нём самом,
+ * безусловный либо с условием о цели («существо из вашего Гримуара»).
+ *
+ * @param attacker - кто нанёс урон
+ * @param victim - кто бросает спасбросок концентрации
+ * @returns `true`, если спасбросок идёт с помехой
+ */
+function imposesConcentrationDisadvantage(
+  attacker: DnDSceneEntity,
+  victim: DnDSceneEntity,
+): boolean {
+  if (
+    resolveActorStats(attacker).activeFlags.has(CONCENTRATION_DISADVANTAGE_FLAG)
+  ) {
+    return true;
+  }
+
+  return collectRollConditionFlags(collectActiveEffects(attacker), {
+    hasAdvantage: false,
+    hasDisadvantage: false,
+    target: {
+      currentHp: resolveEntityCurrentHp(victim),
+      maxHp: resolveEntityMaxHp(victim),
+      creatureType: resolveEntityCreatureType(victim),
+      extraCreatureTypes: resolveEntityExtraCreatureTypes(victim),
+      entityId: victim.id,
+    },
+  }).includes(CONCENTRATION_DISADVANTAGE_FLAG);
+}
+
+/**
  * Автоматический исход спасброска срабатывания: провал главнее успеха —
  * «автопровал» состояний и здесь считается первым.
  *
@@ -385,7 +444,16 @@ export function buildTriggerSaveSpec(
     return null;
   }
 
-  const mode = resolveTriggerSaveMode(trigger.save, event);
+  const ownMode = resolveTriggerSaveMode(trigger.save, event);
+
+  // «Наносите урон существу, поддерживающему концентрацию, — оно совершает
+  // спасбросок концентрации с помехой»: помеху даёт тот, кто нанёс урон
+  const mode =
+    effect.concentration
+    && event?.eventData.other
+    && imposesConcentrationDisadvantage(event.eventData.other, event.entity)
+      ? toSaveMode(ownMode === 'advantage', true)
+      : ownMode;
 
   // Спасбросок концентрации — не против магии: «Мантия сопротивления
   // заклинаниям» его не облегчает, «Боевой заклинатель» — да
@@ -1213,10 +1281,10 @@ function applyTempHpAction(
   action: EffectTriggerTempHpAction,
   options: EntryEffectOptions,
 ): boolean {
-  const amount = resolveActionAmount(
+  // «+5 к получаемым временным хитам» — и к выданным срабатыванием
+  const amount = withTempHpGainBonus(
     entity,
-    action.amount,
-    options.eventDamage,
+    resolveActionAmount(entity, action.amount, options.eventDamage),
   );
 
   const current = resolveEntityTempHp(entity);

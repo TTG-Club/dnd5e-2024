@@ -114,7 +114,32 @@ export interface FormulaContext {
    * ошибка формулы.
    */
   castLevel?: number;
+  /**
+   * Непотраченные кости хитов листа — токен `@hitDice.left`: «отдать половину
+   * оставшихся Костей хитов» — `ceil(@hitDice.left / 2)`. У существа — ноль.
+   */
+  hitDiceLeft?: number;
+  /**
+   * Текущие временные хиты — токен `@hp.temp`: «теряет оставшиеся временные
+   * хиты и получает столько же урона».
+   */
+  tempHp?: number;
+  /**
+   * Сколько отметок каждого ключа лежит на сущности — токен `@tag.<ключ>`:
+   * «1к8 за каждую Точку давления» — `(@tag.pressure)к8`. Ключ в токене —
+   * латиницей, цифрами и `_`.
+   */
+  tags?: Readonly<Record<string, number>>;
 }
+
+/** Переменная непотраченных костей хитов листа */
+export const HIT_DICE_LEFT_VARIABLE = 'hitDice.left';
+
+/** Переменная текущих временных хитов */
+export const TEMP_HP_VARIABLE = 'hp.temp';
+
+/** Начало переменной числа отметок: дальше — ключ отметки */
+export const TAG_COUNT_VARIABLE = 'tag';
 
 /** Переменная урона события в Сл срабатывания */
 export const EVENT_DAMAGE_VARIABLE = 'damage';
@@ -223,6 +248,12 @@ export class FormulaError extends Error {
 /** Функция ступеней: `steps(значение, порог1, порог2, …)` */
 const STEPS_FUNCTION = 'steps';
 
+/** Функция чётности: `even(число)` — 1 у чётного, 0 у нечётного */
+const EVEN_FUNCTION = 'even';
+
+/** Функция нечётности: `odd(число)` — 1 у нечётного, 0 у чётного */
+const ODD_FUNCTION = 'odd';
+
 /** Поддерживаемые функции */
 const SUPPORTED_FUNCTIONS = new Set([
   'min',
@@ -231,6 +262,8 @@ const SUPPORTED_FUNCTIONS = new Set([
   'ceil',
   'abs',
   STEPS_FUNCTION,
+  EVEN_FUNCTION,
+  ODD_FUNCTION,
 ]);
 
 /** Приоритет операторов */
@@ -685,6 +718,21 @@ function resolveVariable(
     );
   }
 
+  // Непотраченные кости хитов листа
+  if (variablePath === HIT_DICE_LEFT_VARIABLE) {
+    return context.hitDiceLeft ?? 0;
+  }
+
+  // Текущие временные хиты
+  if (variablePath === TEMP_HP_VARIABLE) {
+    return context.tempHp ?? 0;
+  }
+
+  // Число отметок на сущности: отметки нет — ноль, а не ошибка
+  if (parts[0] === TAG_COUNT_VARIABLE && parts.length === 2) {
+    return context.tags?.[parts[1]] ?? 0;
+  }
+
   // Скорости листа: @speed.walk, @speed.fly, @speed.climb, @speed.swim,
   // @speed.burrow. Ими эффект выражает «полёт равен скорости ходьбы»
   if (parts[0] === 'speed' && parts.length === 2) {
@@ -822,6 +870,18 @@ function evaluateFunction(funcName: string, args: number[]): number {
       return Math.abs(args[0]);
     case STEPS_FUNCTION:
       return countReachedSteps(args);
+    // Развилка по выпавшему числу: «чётное — временные хиты, нечётное — урон»
+    // пишется множителем `@paid.hitDiceRoll * even(@paid.hitDiceRoll)`
+    case EVEN_FUNCTION:
+    case ODD_FUNCTION: {
+      if (args.length !== 1) {
+        throw new FormulaError(`${funcName}() требует ровно 1 аргумент`);
+      }
+
+      const isEven = Math.abs(Math.trunc(args[0])) % 2 === 0;
+
+      return isEven === (funcName === EVEN_FUNCTION) ? 1 : 0;
+    }
     default:
       throw new FormulaError(`Неизвестная функция: ${funcName}()`);
   }
@@ -986,7 +1046,79 @@ export function buildFormulaContext(
     level,
     classLevels,
     movement: readMovement(actor),
+    hitDiceLeft: countHitDiceLeft(actor),
+    tempHp: readTempHp(actor),
+    tags: countTags(actor),
   };
+}
+
+/**
+ * Непотраченные кости хитов листа: по каждому классу — уровень минус
+ * потраченные.
+ *
+ * @param actor - персонаж или существо
+ * @returns число костей; у существа — ноль
+ */
+function countHitDiceLeft(
+  actor:
+    | import('./dndEntities.js').DnDActor
+    | import('./dndEntities.js').DnDCreature,
+): number {
+  if (!isActorEntity(actor)) {
+    return 0;
+  }
+
+  return (actor.system.classes ?? []).reduce(
+    (total, entry) =>
+      total + Math.max(0, entry.level - (entry.hitDiceUsed ?? 0)),
+    0,
+  );
+}
+
+/**
+ * Текущие временные хиты сущности.
+ *
+ * @param actor - персонаж или существо
+ * @returns временные хиты; поля нет — ноль
+ */
+function readTempHp(
+  actor:
+    | import('./dndEntities.js').DnDActor
+    | import('./dndEntities.js').DnDCreature,
+): number {
+  const temp = actor.system.hitPoints?.temp;
+
+  return typeof temp === 'number' ? Math.max(0, temp) : 0;
+}
+
+/**
+ * Сколько отметок каждого ключа лежит на сущности: у отметки-счётчика — число
+ * ступеней. Выключенные отметки не считаются.
+ *
+ * @param actor - персонаж или существо
+ * @returns ключ отметки → число
+ */
+function countTags(
+  actor:
+    | import('./dndEntities.js').DnDActor
+    | import('./dndEntities.js').DnDCreature,
+): Record<string, number> {
+  const counts: Record<string, number> = {};
+
+  for (const effect of actor.activeEffects ?? []) {
+    const { tag } = effect;
+
+    if (typeof tag === 'string' && effect.disabled !== true) {
+      const stacks =
+        'tagStacks' in effect && typeof effect.tagStacks === 'number'
+          ? effect.tagStacks
+          : 1;
+
+      counts[tag] = (counts[tag] ?? 0) + stacks;
+    }
+  }
+
+  return counts;
 }
 
 /**
@@ -1182,6 +1314,8 @@ const READABLE_FUNCTION_TEMPLATES: Readonly<Record<string, string>> = {
   min: 'меньшее из ({0}; {1})',
   max: 'большее из ({0}; {1})',
   abs: '|{0}|',
+  even: '(1, если {0} чётное, иначе 0)',
+  odd: '(1, если {0} нечётное, иначе 0)',
 };
 
 /** Знаки операторов в читаемой записи: минус и умножение — типографские */

@@ -628,6 +628,7 @@ it('the actual actor-sheet cast handler opens Bless targets before ordinary conf
       // Запретов трат хода у заклинателя нет
       actionBlocks: { value: { byCost: {} } },
       findSpellCastBlock: () => null,
+      retypeCasterSpellDamage: (spell) => spell,
       recordEntityActionSpend: () => {},
       resolveSpellCastCost: () => undefined,
       getCastableSpellLevels: () => [1, 2],
@@ -672,6 +673,7 @@ it('the actual hotbar spell executor opens the same target selection and passes 
       recordEntityActionSpend: () => {},
       resolveSpellCastCost: () => undefined,
       listAmbientEffects: () => [],
+      retypeCasterSpellDamage: (spell) => spell,
       getAvailableSpellLevels: () => [1, 2],
       // Лимита круга ячейки у заклинателя нет
       limitEntityCastLevels: (_actor, _spell, levels) => levels,

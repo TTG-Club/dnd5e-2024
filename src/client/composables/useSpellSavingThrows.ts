@@ -7,6 +7,7 @@ import type {
 import type {
   ConditionRef,
   CreatureCategory,
+  SaveSourceTraits,
   SavingThrowCircumstances,
   SavingThrowRequestPayload,
   SavingThrowResult,
@@ -30,6 +31,7 @@ import {
   buildFormulaContext,
   formatSavingThrowRequestTitle,
   getNaturalD20Roll,
+  hasSaveSource,
   isDndSceneEntity,
   listSavingThrowBonusKeys,
   NO_SOURCE_ADJUSTMENTS,
@@ -62,7 +64,7 @@ const SAVING_THROW_LOG_PREFIX = '[SavingThrow]';
  * Цель спасброска и всё, что нужно, чтобы его разрешить, — своим броском или
  * запросом владельцу.
  */
-export interface SavingThrowTarget {
+export interface SavingThrowTarget extends SaveSourceTraits {
   /** Сущность, которая бросает */
   entity: SceneEntity;
   /** Характеристика спасброска */
@@ -202,7 +204,7 @@ function getActorSaveInfo(
 
   // «Защита от зла и добра»: эффекты с условием об источнике спасброска
   // Эффекты с аурами собираются только по нужде — тип источника известен
-  const sourceAdjustments = options.sourceCreatureType
+  const sourceAdjustments = hasSaveSource(options)
     ? resolveSaveSourceAdjustments(
         collectEffectsWithAuras(entity),
         saveAbility,
@@ -278,6 +280,8 @@ function resolveTargetSaveInfo(target: SavingThrowTarget): ActorSaveInfo {
     againstConcentration: target.againstConcentration,
     mode: target.mode,
     sourceCreatureType: resolveTargetSourceType(target),
+    sourceSpellSchool: target.sourceSpellSchool,
+    sourceDamageTypes: target.sourceDamageTypes,
   });
 }
 
@@ -304,6 +308,13 @@ function buildRollRequestOptions(
     ...(target.allowWilling ? { allowWilling: true } : {}),
     sourceName: target.sourceName,
     sourceCreatureType: resolveTargetSourceType(target),
+    // Школа и типы урона источника едут к адресату: счёт у него тот же
+    ...(target.sourceSpellSchool
+      ? { sourceSpellSchool: target.sourceSpellSchool }
+      : {}),
+    ...(target.sourceDamageTypes
+      ? { sourceDamageTypes: target.sourceDamageTypes }
+      : {}),
   };
 
   return {

@@ -198,6 +198,8 @@ export interface EffectUseSource {
   range?: number;
   /** Область применения: шаблон на карте вместо выбора одной цели */
   area?: EffectUseArea;
+  /** Применение требует концентрации */
+  concentration?: boolean;
 }
 
 /**
@@ -227,6 +229,22 @@ export function resolveEffectUseCost(
   return (effects ?? []).find(
     (effect) => isUseActivatedEffect(effect) && effect.activation?.cost,
   )?.activation?.cost;
+}
+
+/**
+ * Требует ли применение группы эффектов концентрации: хватает одного эффекта
+ * с такой отметкой.
+ *
+ * @param effects - эффекты применения с признаком применения
+ * @returns `true`, если применение держится концентрацией
+ */
+export function resolveEffectUseConcentration(
+  effects: readonly ActiveEffect[] | undefined,
+): boolean {
+  return (effects ?? []).some(
+    (effect) =>
+      isUseActivatedEffect(effect) && effect.activation?.concentration === true,
+  );
 }
 
 /** Единицы срока заклинания по сроку эффекта зоны */
@@ -287,6 +305,7 @@ export function buildItemUseSpell(item: DnDGameItem): Spell {
     effects: listUseEffects(item.activeEffects),
     rollSource: 'item',
     ...(area ? { area } : {}),
+    concentration: resolveEffectUseConcentration(item.activeEffects),
   });
 }
 
@@ -582,6 +601,7 @@ export function buildEffectGroupUseSpell(
     rollSource: 'effect',
     ...(ranges.length > 0 ? { range: Math.max(...ranges) } : {}),
     ...(area ? { area } : {}),
+    concentration: resolveEffectUseConcentration(group),
   });
 }
 
@@ -608,6 +628,8 @@ export function buildUseSpell(source: EffectUseSource): Spell {
     name: source.name,
     rollSource: source.rollSource,
     activeEffects: source.effects,
+    // Концентрация применения — как у заклинания: метка у применившего
+    ...(source.concentration ? { concentration: true } : {}),
     // Дальность без атаки: так её читает проверка дистанции цели
     ...(source.range === undefined
       ? {}

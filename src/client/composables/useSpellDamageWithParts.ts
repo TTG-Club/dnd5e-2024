@@ -26,6 +26,7 @@ import { generateId, resolveGridCellSize } from '@vtt/shared';
 import {
   applyHpChange,
   applyMultiTypeDamageDefenses,
+  describeSpellSaveSource,
   findTokensInTemplate,
   formatDamageDefenseSuffix,
   formatDiceFormula,
@@ -414,6 +415,7 @@ export function useSpellDamageWithParts() {
           againstSpell: isSpellRoll(spell),
           sourceEntityId: context.casterId,
           sourceName: spell.name,
+          ...describeSpellSaveSource(spell),
         })),
       );
 
@@ -539,6 +541,12 @@ export function useSpellDamageWithParts() {
       types: string[] | undefined,
       save: SavingThrowResult | undefined,
     ): { final: number; outcome: DamageDefenseOutcome } {
+      // Вычет из урона («минус кость к урону атак носителя») — не урон:
+      // защиты цели и спасбросок его не меняют, он просто уменьшает итог
+      if (amount < 0) {
+        return { final: amount, outcome: 'normal' };
+      }
+
       let scaledDamage = scaleSaveDamage(
         amount,
         spell.saveEffect,
@@ -747,8 +755,12 @@ export function useSpellDamageWithParts() {
     const effectDamageByEntity = new Map<string, EffectDamageLine[]>();
 
     for (const accumulator of accumulators.values()) {
-      let totalDamage =
-        accumulator.damageBase + (gateOpen ? accumulator.damageGated : 0);
+      // «Минус кость к урону атак носителя» (строка урона со знаком минус)
+      // может перебить урон целиком — ниже нуля он не опускается
+      let totalDamage = Math.max(
+        0,
+        accumulator.damageBase + (gateOpen ? accumulator.damageGated : 0),
+      );
 
       const totalHeal =
         accumulator.healBase + (gateOpen ? accumulator.healGated : 0);

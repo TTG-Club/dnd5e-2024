@@ -70,7 +70,8 @@ import {
   stripHealTokens,
 } from './formulaTokens.js';
 import { describeSaveAbilities } from './saveAbilityChoice.js';
-import { AREA_SHAPE_LABELS } from './spellTypes.js';
+import { describeSaveSourceCondition } from './saveSourceTraits.js';
+import { AREA_SHAPE_LABELS, SPELL_SCHOOL_OPTIONS } from './spellTypes.js';
 import { describeWeaponOverrideValue } from './weaponOverrides.js';
 
 /** Подпись ключа модификатора (`armorClass` → «Класс доспеха (AC)»). */
@@ -323,6 +324,18 @@ export function describeEffectChange(change: EffectChange): string {
 }
 
 /**
+ * Название школы заклинаний по ключу; незнакомый ключ отдаётся как есть.
+ *
+ * @param key - ключ школы (`divination`)
+ * @returns название в нижнем регистре
+ */
+function describeSpellSchoolKey(key: string): string {
+  const found = SPELL_SCHOOL_OPTIONS.find((option) => option.value === key);
+
+  return found ? found.label.toLowerCase() : key;
+}
+
+/**
  * Подпись условия, в том числе составного: части, соединённые `&&`, читаются
  * как «… и …». Незнакомая часть отдаётся кодом — лучше показать автору
  * непонятную строку, чем скрыть от него условие целиком.
@@ -333,6 +346,18 @@ export function describeEffectChange(change: EffectChange): string {
 export function describeEffectChangeCondition(condition: string): string {
   return splitConditionParts(condition)
     .map((part) => {
+      // Школа и типы урона источника спасброска — свои значения автора:
+      // раньше словаря, иначе образец из подсказок отдал бы свою подпись
+      const sourceLabel = describeSaveSourceCondition(
+        part,
+        describeSpellSchoolKey,
+        getShortDamageTypeLabel,
+      );
+
+      if (sourceLabel) {
+        return sourceLabel;
+      }
+
       const label = CONDITION_LABELS.get(part);
 
       if (label) {
@@ -751,7 +776,11 @@ const EFFECT_ACTIVATION_EXTRA_DETAIL_LABELS = {
   cost: 'трата хода: ',
   area: 'область: ',
   feet: ' фт',
+  concentration: 'требует концентрации',
 } as const;
+
+/** Строка карточки эффекта, который складывается с одноимёнными */
+const EFFECT_STACKABLE_DETAIL_LABEL = 'складывается с одноимёнными';
 
 /** Цена ресурсом и потраченное — в разделе «Применение» карточки */
 const EFFECT_PAY_DETAIL_LABELS = {
@@ -910,7 +939,11 @@ function applicationLines(effect: ActiveEffect): string[] {
   if (effect.activation) {
     lines.push(EFFECT_ACTIVATION_DETAIL_LABELS[effect.activation.mode]);
 
-    const { cost, area } = effect.activation;
+    const { cost, area, concentration } = effect.activation;
+
+    if (concentration) {
+      lines.push(EFFECT_ACTIVATION_EXTRA_DETAIL_LABELS.concentration);
+    }
 
     if (cost) {
       lines.push(
@@ -1057,7 +1090,10 @@ export function buildActiveEffectDetails(
     { key: 'application', lines: applicationLines(effect) },
     {
       key: 'duration',
-      lines: durationLines(effect.duration, effect.turnCurrent === true),
+      lines: [
+        ...durationLines(effect.duration, effect.turnCurrent === true),
+        ...(effect.stackable ? [EFFECT_STACKABLE_DETAIL_LABEL] : []),
+      ],
     },
   ];
 

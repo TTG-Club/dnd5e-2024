@@ -106,6 +106,7 @@ import {
   resolveSpellSaveDC,
   resolveWeaponAttackBlock,
   resolveWeaponSaveDc,
+  retypeCasterSpellDamage,
   spellHasDamage,
   spellIsHealing,
   stripDescriptionRollMarkers,
@@ -140,6 +141,7 @@ import {
 } from '../composables/damageTypeChoice';
 import {
   applyActionSelfEffects,
+  applyActionUseEffects,
   applyEntityEffectUse,
   applyEntityItemUse,
   prepareAmmunitionShot,
@@ -919,144 +921,148 @@ export function registerDnd5eMacros(): void {
         return;
       }
 
-      runWithEffectVariants(result.spell, (spell) => {
-        const { actor } = result;
+      runWithEffectVariants(
+        retypeCasterSpellDamage(result.spell, result.actor),
+        (spell) => {
+          const { actor } = result;
 
-        const availableLevels =
-          spell.level > 0
-            ? limitEntityCastLevels(
-                actor,
-                spell,
-                getAvailableSpellLevels(
+          const availableLevels =
+            spell.level > 0
+              ? limitEntityCastLevels(
                   actor,
-                  spell.level,
-                  MAX_SPELL_SLOT_LEVEL,
-                  resolveActorStats(actor).abilityBonusContext,
-                ),
-                listAmbientEffects(actor.id),
-              )
-            : [0];
+                  spell,
+                  getAvailableSpellLevels(
+                    actor,
+                    spell.level,
+                    MAX_SPELL_SLOT_LEVEL,
+                    resolveActorStats(actor).abilityBonusContext,
+                  ),
+                  listAmbientEffects(actor.id),
+                )
+              : [0];
 
-        if (spell.level > 0 && availableLevels.length === 0) {
-          const chatStore = useChatStore();
+          if (spell.level > 0 && availableLevels.length === 0) {
+            const chatStore = useChatStore();
 
-          chatStore.sendMessage(
-            `${CREATURE_ACTIONS_BLOCK_LABELS.outOfRangePrefix}${spell.name}${MACRO_MESSAGE_LABELS.noSlotsMiddle}${spell.level}${ACTOR_SPELLS_TAB_LABELS.noSlotsTextSuffix}`,
-            'text',
-          );
+            chatStore.sendMessage(
+              `${CREATURE_ACTIONS_BLOCK_LABELS.outOfRangePrefix}${spell.name}${MACRO_MESSAGE_LABELS.noSlotsMiddle}${spell.level}${ACTOR_SPELLS_TAB_LABELS.noSlotsTextSuffix}`,
+              'text',
+            );
 
-          return;
-        }
+            return;
+          }
 
-        // Трата хода — когда каст точно идёт: отказ по ячейкам её не тратит
-        recordEntityActionSpend(actor.id, resolveSpellCastCost(spell));
+          // Трата хода — когда каст точно идёт: отказ по ячейкам её не тратит
+          recordEntityActionSpend(actor.id, resolveSpellCastCost(spell));
 
-        if (needsSpellEffectTargets(spell)) {
-          requestSpellEffectTargets(
-            spell,
-            actor.id,
-            availableLevels,
-            (level, targets) => {
-              runWithMacroCastPay(
-                spell,
-                actor,
-                level,
-                availableLevels,
-                (paidSpell, _castLevel, paidActor) => {
-                  castBuffSpellMacro(paidSpell, paidActor, level, targets);
-                },
-              );
-            },
-          );
+          if (needsSpellEffectTargets(spell)) {
+            requestSpellEffectTargets(
+              spell,
+              actor.id,
+              availableLevels,
+              (level, targets) => {
+                runWithMacroCastPay(
+                  spell,
+                  actor,
+                  level,
+                  availableLevels,
+                  (paidSpell, _castLevel, paidActor) => {
+                    castBuffSpellMacro(paidSpell, paidActor, level, targets);
+                  },
+                );
+              },
+            );
 
-          return;
-        }
+            return;
+          }
 
-        // Снарядный режим: число снарядов зависит от контекста каста
-        // (заговоры — от уровня персонажа, уровневые — от круга ячейки)
-        const casterLevel = getTotalLevel(actor.system?.classes);
+          // Снарядный режим: число снарядов зависит от контекста каста
+          // (заговоры — от уровня персонажа, уровневые — от круга ячейки)
+          const casterLevel = getTotalLevel(actor.system?.classes);
 
-        const baseProjectileCount = getSpellProjectileCount(spell, {
-          slotLevel: availableLevels[0] ?? spell.level,
-          casterLevel,
-        });
-
-        const hasProjectiles = baseProjectileCount > 1 && !spell.areaOfEffect;
-
-        // Проверка дистанции каста до выбранной цели (только одиночная цель:
-        // у AoE и снарядов собственные механики таргетинга)
-        if (
-          !spell.areaOfEffect
-          && !hasProjectiles
-          && isSpellCastBlockedByRange(spell, actor.id)
-        ) {
-          return;
-        }
-
-        // Если есть область действия — пропускаем зелёный prompt, сразу начинаем применять
-        if (spell.areaOfEffect) {
-          // Область растёт от круга — круг до шаблона, иначе сразу шаблон
-          chooseAreaCastLevel(spell, availableLevels, (castLevel) => {
-            executeSpellCast(spell, actor, castLevel, availableLevels);
-          });
-
-          return;
-        }
-
-        if (hasProjectiles) {
-          // Запускаем режим выбора целей (снарядов) с отдельным промптом
-          const { openModal } = useModalManager();
-          const projectileStore = useProjectileStore();
-
-          projectileStore.startTargeting(
-            spell.projectiles?.targetDistribution ?? null,
-            baseProjectileCount,
-            (tokenId) => !isSpellTargetBlockedByRange(spell, actor.id, tokenId),
-          );
-
-          openModal('ProjectilePromptModal', {
-            _modalKey: `${PROJECTILE_MODAL_KEY_PREFIX}-${projectileStore.sessionId}`,
-            targetingSessionId: projectileStore.sessionId,
-            spell,
+          const baseProjectileCount = getSpellProjectileCount(spell, {
+            slotLevel: availableLevels[0] ?? spell.level,
             casterLevel,
-            availableSpellLevels: availableLevels,
-            onConfirm: (selectedLevel: number) => {
-              // Передаем зафиксированный уровень заклинания в executeSpellCast
-              executeSpellCast(spell, actor, selectedLevel, availableLevels);
-            },
           });
 
-          return;
-        }
+          const hasProjectiles = baseProjectileCount > 1 && !spell.areaOfEffect;
 
-        const promptStore = useActionPromptStore();
-        const promptId = `spell-cast-${spell.id}-${Date.now()}`;
+          // Проверка дистанции каста до выбранной цели (только одиночная цель:
+          // у AoE и снарядов собственные механики таргетинга)
+          if (
+            !spell.areaOfEffect
+            && !hasProjectiles
+            && isSpellCastBlockedByRange(spell, actor.id)
+          ) {
+            return;
+          }
 
-        promptStore.addPrompt({
-          id: promptId,
-          icon: 'tabler:wand',
-          title: `Применить заклинание: ${spell.name}?`,
-          color: 'neutral',
-          actions: [
-            {
-              icon: 'tabler:check',
-              color: 'primary',
-              onClick: () => {
-                promptStore.removePrompt(promptId);
-                executeSpellCast(spell, actor, undefined, availableLevels);
+          // Если есть область действия — пропускаем зелёный prompt, сразу начинаем применять
+          if (spell.areaOfEffect) {
+            // Область растёт от круга — круг до шаблона, иначе сразу шаблон
+            chooseAreaCastLevel(spell, availableLevels, (castLevel) => {
+              executeSpellCast(spell, actor, castLevel, availableLevels);
+            });
+
+            return;
+          }
+
+          if (hasProjectiles) {
+            // Запускаем режим выбора целей (снарядов) с отдельным промптом
+            const { openModal } = useModalManager();
+            const projectileStore = useProjectileStore();
+
+            projectileStore.startTargeting(
+              spell.projectiles?.targetDistribution ?? null,
+              baseProjectileCount,
+              (tokenId) =>
+                !isSpellTargetBlockedByRange(spell, actor.id, tokenId),
+            );
+
+            openModal('ProjectilePromptModal', {
+              _modalKey: `${PROJECTILE_MODAL_KEY_PREFIX}-${projectileStore.sessionId}`,
+              targetingSessionId: projectileStore.sessionId,
+              spell,
+              casterLevel,
+              availableSpellLevels: availableLevels,
+              onConfirm: (selectedLevel: number) => {
+                // Передаем зафиксированный уровень заклинания в executeSpellCast
+                executeSpellCast(spell, actor, selectedLevel, availableLevels);
               },
-            },
-            {
-              icon: 'tabler:x',
-              color: 'neutral',
-              variant: 'ghost',
-              onClick: () => {
-                promptStore.removePrompt(promptId);
+            });
+
+            return;
+          }
+
+          const promptStore = useActionPromptStore();
+          const promptId = `spell-cast-${spell.id}-${Date.now()}`;
+
+          promptStore.addPrompt({
+            id: promptId,
+            icon: 'tabler:wand',
+            title: `Применить заклинание: ${spell.name}?`,
+            color: 'neutral',
+            actions: [
+              {
+                icon: 'tabler:check',
+                color: 'primary',
+                onClick: () => {
+                  promptStore.removePrompt(promptId);
+                  executeSpellCast(spell, actor, undefined, availableLevels);
+                },
               },
-            },
-          ],
-        });
-      });
+              {
+                icon: 'tabler:x',
+                color: 'neutral',
+                variant: 'ghost',
+                onClick: () => {
+                  promptStore.removePrompt(promptId);
+                },
+              },
+            ],
+          });
+        },
+      );
     } catch (err) {
       console.error('[Hotbar] Ошибка выполнения spell-cast:', err);
     }
@@ -2145,10 +2151,9 @@ function registerCreatureActionMacro(): void {
 
           spendTurn();
 
-          // Окна броска нет — тип урона на выбор эффектов спрашивает плашка
-          runWithDamageTypeChoices(action, (chosenAction) => {
-            applyActionSelfEffects(chosenAction, foundCreature.id);
-          });
+          // Окна броска нет — тип урона на выбор эффектов спрашивает плашка;
+          // для эффектов «на цель» получателя выбирают на карте
+          applyActionUseEffects(action, foundCreature.id);
 
           return;
         }
@@ -2477,67 +2482,78 @@ function registerCreatureSpellMacro(): void {
         return;
       }
 
-      runWithEffectVariants(foundSpell, (spell) => {
-        const chatStore = useChatStore();
+      runWithEffectVariants(
+        retypeCasterSpellDamage(foundSpell, foundCreature),
+        (spell) => {
+          const chatStore = useChatStore();
 
-        // Группа, из которой идёт каст: её числа, круг наложения и общий счётчик
-        // применений главнее чисел самого существа
-        const placement = findCreatureSpellPlacement(
-          foundCreature.system.spellcastingBlocks,
-          spell.id,
-        );
-
-        if (!hasCreatureSpellUsesLeft(spell, placement)) {
-          chatStore.sendMessage(
-            `⛔ ${spell.name}: не осталось зарядов — нужен отдых.`,
-            'text',
+          // Группа, из которой идёт каст: её числа, круг наложения и общий счётчик
+          // применений главнее чисел самого существа
+          const placement = findCreatureSpellPlacement(
+            foundCreature.system.spellcastingBlocks,
+            spell.id,
           );
 
-          return;
-        }
-
-        recordEntityActionSpend(foundCreature.id, resolveSpellCastCost(spell));
-
-        /** Списывает применение заклинания */
-        const spendUse = (): void => {
-          consumeCreatureSpellUse(foundCreature, spell, placement);
-        };
-
-        // Провал каста («Замедление», «Слово силы: Боль»): применение
-        // тратится, только если так велит правило
-        runWithCastFailure(spell, foundCreature, { loseUse: spendUse }, () => {
-          spendUse();
-
-          // Область: размещаем шаблон у токена существа, затем кидаем урон
-          if (spell.areaOfEffect) {
-            const templateStore = useSpellTemplateStore();
-
-            const color = getDamageTemplateColor(
-              getDamagePartsPrimaryType(spell.damageParts),
-            );
-
-            // Круг наложения группы растит область так же, как ячейка персонажа
-            templateStore.requestPlacement(
-              resolveSpellAreaAtLevel(spell, placement?.ref.castLevel)
-                ?? spell.areaOfEffect,
-              color,
-              foundCreature.id,
-              (templateId) =>
-                openCreatureSpellRoll(
-                  foundCreature,
-                  spell,
-                  templateId,
-                  placement,
-                ),
-              null,
+          if (!hasCreatureSpellUsesLeft(spell, placement)) {
+            chatStore.sendMessage(
+              `⛔ ${spell.name}: не осталось зарядов — нужен отдых.`,
+              'text',
             );
 
             return;
           }
 
-          openCreatureSpellRoll(foundCreature, spell, undefined, placement);
-        });
-      });
+          recordEntityActionSpend(
+            foundCreature.id,
+            resolveSpellCastCost(spell),
+          );
+
+          /** Списывает применение заклинания */
+          const spendUse = (): void => {
+            consumeCreatureSpellUse(foundCreature, spell, placement);
+          };
+
+          // Провал каста («Замедление», «Слово силы: Боль»): применение
+          // тратится, только если так велит правило
+          runWithCastFailure(
+            spell,
+            foundCreature,
+            { loseUse: spendUse },
+            () => {
+              spendUse();
+
+              // Область: размещаем шаблон у токена существа, затем кидаем урон
+              if (spell.areaOfEffect) {
+                const templateStore = useSpellTemplateStore();
+
+                const color = getDamageTemplateColor(
+                  getDamagePartsPrimaryType(spell.damageParts),
+                );
+
+                // Круг наложения группы растит область так же, как ячейка персонажа
+                templateStore.requestPlacement(
+                  resolveSpellAreaAtLevel(spell, placement?.ref.castLevel)
+                    ?? spell.areaOfEffect,
+                  color,
+                  foundCreature.id,
+                  (templateId) =>
+                    openCreatureSpellRoll(
+                      foundCreature,
+                      spell,
+                      templateId,
+                      placement,
+                    ),
+                  null,
+                );
+
+                return;
+              }
+
+              openCreatureSpellRoll(foundCreature, spell, undefined, placement);
+            },
+          );
+        },
+      );
     } catch (err) {
       console.error('[Hotbar] Ошибка выполнения creature-spell:', err);
     }

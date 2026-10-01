@@ -133,6 +133,8 @@ export const ABILITY_OPTIONS: ReadonlyArray<{
  * же переменная не называлась в двух местах по-разному.
  */
 export const FORMULA_VARIABLE_LABELS: Readonly<Record<string, string>> = {
+  '@hitDice.left': 'непотраченные кости хитов',
+  '@hp.temp': 'текущие временные хиты',
   '@mod.spell': 'мод. закл. характеристики',
   '@mod.str': 'мод. Силы',
   '@mod.dex': 'мод. Ловкости',

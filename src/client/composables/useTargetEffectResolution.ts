@@ -10,6 +10,7 @@ import type {
 
 import { useDiceRollerStore } from '@/stores/diceRollerStore';
 import {
+  describeSpellSaveSource,
   getEntityConditionImmunities,
   hasLastingEffectPayload,
   isDndSceneEntity,
@@ -277,6 +278,7 @@ export function useTargetEffectResolution() {
         allowWilling: effect.applySave.allowWilling,
         sourceEntityId: input.casterId,
         sourceName: effect.name,
+        ...describeSpellSaveSource(input.spell),
       });
 
       // Окно спасброска эффекта закрыли — вызывающий сворачивает всё действие
@@ -316,6 +318,7 @@ export function useTargetEffectResolution() {
           againstSpell: isSpellRoll(input.spell),
           sourceEntityId: input.casterId,
           sourceName: effect.name,
+          ...describeSpellSaveSource(input.spell),
         }),
       );
     }

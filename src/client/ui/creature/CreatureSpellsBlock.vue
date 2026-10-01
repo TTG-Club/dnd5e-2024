@@ -71,6 +71,7 @@
     resolveSpellAreaAtLevel,
     resolveSpellCastBlock,
     resolveSpellCastCost,
+    retypeCasterSpellDamage,
     SPELL_SCHOOL_LABELS,
     SPELL_USES_RECOVERY_LABELS,
     spellIsHealing,
@@ -1524,82 +1525,87 @@
     sourceSpell: Spell,
     placement?: CreatureSpellPlacement,
   ): void {
-    runWithEffectVariants(sourceSpell, (spell) => {
-      if (props.isReadOnly) {
-        return;
-      }
+    runWithEffectVariants(
+      props.creature
+        ? retypeCasterSpellDamage(sourceSpell, props.creature)
+        : sourceSpell,
+      (spell) => {
+        if (props.isReadOnly) {
+          return;
+        }
 
-      const creature = getCreatureEntity();
+        const creature = getCreatureEntity();
 
-      if (!creature) {
-        return;
-      }
+        if (!creature) {
+          return;
+        }
 
-      // Запрет трат хода («Электрошок» — нет реакций): причина — плашкой
-      const blocked = resolveSpellCastBlock(
-        creature,
-        spell,
-        listAmbientEffects(creature.id),
-      );
+        // Запрет трат хода («Электрошок» — нет реакций): причина — плашкой
+        const blocked = resolveSpellCastBlock(
+          creature,
+          spell,
+          listAmbientEffects(creature.id),
+        );
 
-      if (blocked) {
-        toast.add({
-          title: ACTOR_SPELLS_TAB_LABELS.castBlockedTitle,
-          description: blocked,
-          color: 'warning',
-        });
-
-        return;
-      }
-
-      if (!hasCreatureSpellUsesLeft(spell, placement)) {
-        toast.add({
-          title: ACTOR_SPELLS_TAB_LABELS.noUsesTitle,
-          description:
-            ACTOR_SPELLS_TAB_LABELS.noUsesTextPrefix
-            + spell.name
-            + ACTOR_SPELLS_TAB_LABELS.noUsesTextSuffix,
-          color: 'warning',
-        });
-
-        return;
-      }
-
-      recordEntityActionSpend(creature.id, resolveSpellCastCost(spell));
-
-      /** Списывает применение заклинания */
-      const spendUse = (): void => {
-        consumeSpellUse(spell, placement);
-      };
-
-      // Провал каста («Замедление», «Слово силы: Боль»): применение тратится,
-      // только если так велит правило
-      runWithCastFailure(spell, creature, { loseUse: spendUse }, () => {
-        spendUse();
-
-        // Область: размещаем шаблон у токена существа, затем кидаем урон
-        if (spell.areaOfEffect) {
-          const color = getDamageTemplateColor(
-            getDamagePartsPrimaryType(spell.damageParts),
-          );
-
-          // Круг наложения группы растит область так же, как ячейка персонажа
-          spellTemplateStore.requestPlacement(
-            resolveSpellAreaAtLevel(spell, placement?.ref.castLevel)
-              ?? spell.areaOfEffect,
-            color,
-            props.creatureId,
-            (templateId) =>
-              startSpellRoll(spell, creature, templateId, placement),
-            null,
-          );
+        if (blocked) {
+          toast.add({
+            title: ACTOR_SPELLS_TAB_LABELS.castBlockedTitle,
+            description: blocked,
+            color: 'warning',
+          });
 
           return;
         }
 
-        startSpellRoll(spell, creature, undefined, placement);
-      });
-    });
+        if (!hasCreatureSpellUsesLeft(spell, placement)) {
+          toast.add({
+            title: ACTOR_SPELLS_TAB_LABELS.noUsesTitle,
+            description:
+              ACTOR_SPELLS_TAB_LABELS.noUsesTextPrefix
+              + spell.name
+              + ACTOR_SPELLS_TAB_LABELS.noUsesTextSuffix,
+            color: 'warning',
+          });
+
+          return;
+        }
+
+        recordEntityActionSpend(creature.id, resolveSpellCastCost(spell));
+
+        /** Списывает применение заклинания */
+        const spendUse = (): void => {
+          consumeSpellUse(spell, placement);
+        };
+
+        // Провал каста («Замедление», «Слово силы: Боль»): применение тратится,
+        // только если так велит правило
+        runWithCastFailure(spell, creature, { loseUse: spendUse }, () => {
+          spendUse();
+
+          // Область: размещаем шаблон у токена существа, затем кидаем урон
+          if (spell.areaOfEffect) {
+            const color = getDamageTemplateColor(
+              getDamagePartsPrimaryType(spell.damageParts),
+            );
+
+            // Круг наложения группы растит область так же, как ячейка персонажа
+            spellTemplateStore.requestPlacement(
+              resolveSpellAreaAtLevel(spell, placement?.ref.castLevel)
+                ?? spell.areaOfEffect,
+              color,
+              props.creatureId,
+              (templateId) =>
+                startSpellRoll(spell, creature, templateId, placement),
+              null,
+            );
+
+            return;
+          }
+
+          startSpellRoll(spell, creature, undefined, placement);
+        });
+      },
+    );
   }
 
   /**

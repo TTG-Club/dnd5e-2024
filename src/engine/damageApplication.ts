@@ -15,6 +15,8 @@
  * @module system/dnd/damageApplication
  */
 
+import type { DefensibleDamageType } from '@vtt/shared';
+
 import type { ActiveEffect, EffectOrigin } from './activeEffectTypes.js';
 import type { DamageHit } from './damageHits.js';
 import type {
@@ -72,6 +74,9 @@ import { withInitializedDuration } from './turnEffects.js';
 /** Флаг «защиты от урона не действуют» */
 export const DEFENSES_SUPPRESSED_FLAG = 'defense.suppressAll';
 
+/** Флаг «сопротивления урону не действуют» — иммунитеты остаются */
+export const RESISTANCES_SUPPRESSED_FLAG = 'defense.suppressResistances';
+
 /** Защиты снятого флагом существа: ни сопротивлений, ни иммунитетов */
 const NO_DAMAGE_DEFENSES: DamageDefenses = {
   resistances: new Set(),
@@ -100,7 +105,13 @@ export function resolveTargetDamageDefenses(
     return NO_DAMAGE_DEFENSES;
   }
 
-  return withoutIgnoredResistances(stats.damageDefenses, ignoredResistances);
+  // «Теряет все сопротивления урону» («Увядающая кара»): иммунитеты и
+  // уязвимости остаются
+  const defenses = stats.activeFlags.has(RESISTANCES_SUPPRESSED_FLAG)
+    ? { ...stats.damageDefenses, resistances: new Set<DefensibleDamageType>() }
+    : stats.damageDefenses;
+
+  return withoutIgnoredResistances(defenses, ignoredResistances);
 }
 
 /**

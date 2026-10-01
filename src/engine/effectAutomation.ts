@@ -48,8 +48,18 @@ function effectIdentityKey(effect: ActiveEffect): string {
     return 'concentration';
   }
 
+  // «Складывается с одноимёнными»: каждое наложение — само по себе
+  if (effect.stackable) {
+    return `instance:${effect.id}`;
+  }
+
   if (effect.tag) {
-    return `tag:${effect.tag}`;
+    // Отметка «от наложившего» у каждого наложившего своя: «невосприимчив к
+    // Ужасающему облику ЭТОГО привидения» не должна стирать такую же отметку
+    // от другого. Счётчик ступеней и отметка без наложившего — общие
+    return effect.sourceActorId && effect.tagStacks === undefined
+      ? `tag:${effect.tag}:${effect.sourceActorId}`
+      : `tag:${effect.tag}`;
   }
 
   return effect.conditionKey
