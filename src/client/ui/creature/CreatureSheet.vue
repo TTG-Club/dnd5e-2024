@@ -12,6 +12,7 @@
     DnDCustomBonusContext,
     DnDSavingThrowSettings,
     DnDSkillSettings,
+    RestTriggerOptions,
     RestType,
     Spell,
   } from '@vtt/shared/system/dnd.js';
@@ -66,6 +67,7 @@
     withExhaustionLevel,
   } from '@vtt/shared/system/dnd.js';
 
+  import { runRestWithTriggers } from '../../composables/restTriggerPrompt';
   import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import { useItemTransfer } from '../../composables/useItemTransfer';
   import { useResolvedStats } from '../../composables/useResolvedStats';
@@ -1232,15 +1234,23 @@
 
   /**
    * Применяет отдых к существу: восстанавливает заряды заклинаний (долгий
-   * отдых — также хиты), затем сохраняет.
+   * отдых — также хиты), выполняет срабатывания «после отдыха» по ответам
+   * владельца, затем сохраняет.
    * @param restType - тип отдыха
+   * @param triggerOptions - ответы владельца и сбор сводки срабатываний
    */
-  function handleRest(restType: RestType): void {
+  function finishRest(
+    restType: RestType,
+    triggerOptions: RestTriggerOptions,
+  ): void {
+    // Лист перечитывается: пока владелец отвечал на вопросы, он мог измениться
     if (!localCreature.value) {
       return;
     }
 
-    handleCreatureUpdate(applyCreatureRest(localCreature.value, restType));
+    handleCreatureUpdate(
+      applyCreatureRest(localCreature.value, restType, triggerOptions),
+    );
 
     toast.add({
       title: restType === 'long' ? REST_LABELS.long : REST_LABELS.short,
@@ -1250,6 +1260,24 @@
           : CREATURE_SHEET_LABELS.shortRestDone,
       color: 'success',
     });
+  }
+
+  /**
+   * Отдых существа: сперва владельца спрашивают о срабатываниях «после
+   * отдыха» с ценой или согласием, затем идёт сам отдых.
+   * @param restType - тип отдыха
+   */
+  function handleRest(restType: RestType): void {
+    if (!localCreature.value) {
+      return;
+    }
+
+    void runRestWithTriggers(
+      localCreature.value,
+      restType,
+      {},
+      (triggerOptions) => finishRest(restType, triggerOptions),
+    );
   }
 
   /** Тащат ли на лист предмет — для подсветки зоны приёма во вкладке */

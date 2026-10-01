@@ -1265,19 +1265,24 @@ export function resolveEffectActionTemplate(
 /** Подпись момента в сводке срабатываний кнопки и переключателя */
 export const SELF_TRIGGER_SUMMARY_LABEL = 'действие';
 
+/** Подпись момента в сводке срабатываний «после отдыха» */
+export const REST_TRIGGER_SUMMARY_LABEL = 'после отдыха';
+
 /**
  * Сводка срабатываний, выполненных на самой сущности, — для чата: урон,
  * лечение, спасброски и строки «Сообщить». Сервер такую сводку собирает сам, а
- * кнопку «При действии» и переключатель выполняет клиент — без этой строки
- * сообщение срабатывания до чата не доходило.
+ * кнопку «При действии», переключатель и отдых выполняет клиент — без этой
+ * строки сообщение срабатывания до чата не доходило.
  *
  * @param entityName - имя сущности
  * @param report - что собрали срабатывания
+ * @param whenLabel - подпись момента: «действие», «после отдыха»
  * @returns строка для чата либо `null`, если сообщать нечего
  */
 export function formatSelfTriggerReport(
   entityName: string,
   report: SelfTriggerReport,
+  whenLabel: string = SELF_TRIGGER_SUMMARY_LABEL,
 ): string | null {
   const damageOutcomes = report.results.flatMap((result) =>
     result.damageOutcome ? [result.damageOutcome] : [],
@@ -1300,7 +1305,7 @@ export function formatSelfTriggerReport(
     hasOutcomes
       ? formatEffectsSummary(
           entityName,
-          SELF_TRIGGER_SUMMARY_LABEL,
+          whenLabel,
           damageOutcomes,
           saveOutcomes,
           formatEntrySaveStatus,
@@ -1308,7 +1313,7 @@ export function formatSelfTriggerReport(
         )
       : null,
     entityName,
-    SELF_TRIGGER_SUMMARY_LABEL,
+    whenLabel,
     report.notes,
   );
 }

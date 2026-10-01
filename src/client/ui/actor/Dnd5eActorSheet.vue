@@ -13,6 +13,7 @@
     DnDGameItem,
     FeatAwaitingChoices,
     LongRestOptions,
+    RestTriggerOptions,
     RestType,
     ShortRestHitDiceResult,
     SpeciesDefinition,
@@ -68,8 +69,10 @@
     resolveEntityMaxHp,
     resolveFeatChoicesToAsk,
     resolveHitDiceSpendRules,
+    spendShortRestHitDice,
   } from '@vtt/shared/system/dnd.js';
 
+  import { runRestWithTriggers } from '../../composables/restTriggerPrompt';
   import { useClassCatalog } from '../../composables/useClassCatalog';
   import { useCompendiumCatalog } from '../../composables/useCompendiumCatalog';
   import { useItemTransfer } from '../../composables/useItemTransfer';
@@ -767,11 +770,13 @@
   }
 
   /**
-   * Завершает продолжительный отдых: восстанавливает хиты, ячейки, заряды и
-   * кости хитов (половину по правилам или все — по выбору в модалке).
-   * @param options - параметры долгого отдыха из модалки
+   * Применяет продолжительный отдых: восстанавливает хиты, ячейки, заряды и
+   * кости хитов (половину по правилам или все — по выбору в модалке), затем
+   * выполняет срабатывания «после отдыха» по ответам владельца.
+   * @param options - параметры долгого отдыха из модалки и ответы владельца
    */
-  function handleLongRestApply(options: LongRestOptions): void {
+  function finishLongRest(options: LongRestOptions): void {
+    // Лист перечитывается: пока владелец отвечал на вопросы, он мог измениться
     if (!localActor.value) {
       return;
     }
@@ -795,8 +800,54 @@
   }
 
   /**
-   * Завершает короткий отдых: накладывает результат броска костей хитов
-   * (лечение + потраченные кости) на восстановление коротких ресурсов.
+   * Завершает продолжительный отдых: сперва владельца спрашивают о
+   * срабатываниях «после отдыха» с ценой или согласием, затем идёт сам отдых.
+   * @param options - параметры долгого отдыха из модалки
+   */
+  function handleLongRestApply(options: LongRestOptions): void {
+    if (!localActor.value) {
+      return;
+    }
+
+    void runRestWithTriggers(
+      localActor.value,
+      'long',
+      options,
+      (triggerOptions) => finishLongRest({ ...options, ...triggerOptions }),
+    );
+  }
+
+  /**
+   * Применяет короткий отдых: накладывает результат броска костей хитов
+   * (лечение + потраченные кости) на восстановление коротких ресурсов, затем
+   * выполняет срабатывания «после отдыха» по ответам владельца.
+   * @param result - результат броска костей хитов из модалки
+   * @param triggerOptions - ответы владельца и сбор сводки срабатываний
+   */
+  function finishShortRest(
+    result: ShortRestHitDiceResult,
+    triggerOptions: RestTriggerOptions,
+  ): void {
+    // Лист перечитывается: пока владелец отвечал на вопросы, он мог измениться
+    if (!localActor.value) {
+      return;
+    }
+
+    handleActorUpdate(
+      applyShortRestWithHitDice(localActor.value, result, triggerOptions),
+    );
+
+    toast.add({
+      title: REST_LABELS.short,
+      description: ACTOR_SHEET_LABELS.shortRestDone,
+      color: 'success',
+    });
+  }
+
+  /**
+   * Завершает короткий отдых: сперва владельца спрашивают о срабатываниях
+   * «после отдыха» — по листу с уже потраченными костями хитов, — затем идёт
+   * сам отдых.
    * @param result - результат броска костей хитов из модалки
    */
   function handleShortRestApply(result: ShortRestHitDiceResult): void {
@@ -804,13 +855,12 @@
       return;
     }
 
-    handleActorUpdate(applyShortRestWithHitDice(localActor.value, result));
-
-    toast.add({
-      title: REST_LABELS.short,
-      description: ACTOR_SHEET_LABELS.shortRestDone,
-      color: 'success',
-    });
+    void runRestWithTriggers(
+      spendShortRestHitDice(localActor.value, result),
+      'short',
+      {},
+      (triggerOptions) => finishShortRest(result, triggerOptions),
+    );
   }
 
   function toggleEditMode() {

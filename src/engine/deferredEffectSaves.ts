@@ -17,6 +17,7 @@ import type { PayOption, PayPlan, TriggerSourcePreparer } from './effectPay.js';
 import type {
   DeferredTurnTrigger,
   EffectTriggerSource,
+  SelfTriggerAnswers,
 } from './effectTriggerRunner.js';
 import type {
   EffectTrigger,
@@ -25,7 +26,9 @@ import type {
 } from './effectTriggerTypes.js';
 import type { TriggerEventData } from './triggerConditions.js';
 import type {
+  EffectPromptAsker,
   EffectPromptOption,
+  EffectPromptReply,
   EffectPromptRequestPayload,
 } from './triggerPrompt.js';
 import type {
@@ -56,12 +59,14 @@ import {
 import { bindTriggerSourceSaveDcs } from './effectSaveDcOwner.js';
 import { describeTriggerActions } from './effectTriggerDescribe.js';
 import {
+  admitTrigger,
   applyEntryEffect,
   applyTriggerEffectActions,
   buildTriggerSaveSpec,
   removeEffectsById,
   rollTriggerDamage,
   rollTriggerSave,
+  selfTriggerKey,
   settlePresenceTrigger,
   settleTriggerOutcome,
   takeTriggerAdmission,
@@ -71,6 +76,7 @@ import {
   listEffectListTriggers,
   turnTriggerEventOf,
 } from './effectTriggers.js';
+import { triggerAsksPermission } from './effectTriggerTypes.js';
 import { bindOwnEffectFormulas } from './ownEffectFormulas.js';
 import {
   formatTargetChoiceRequestTitle,
@@ -86,7 +92,9 @@ import {
   EFFECT_PROMPT_REQUEST_KIND,
   formatEffectPromptTitle,
   MAX_PROMPT_OPTIONS,
-  readPromptAnswer,
+  readPromptReply,
+  toEffectPromptReply,
+  TRIGGER_ASK_CHAT_NOTES,
 } from './triggerPrompt.js';
 import {
   appendEffectsSummaryNotes,
@@ -546,14 +554,6 @@ export function requestPresenceTriggerSave(
   );
 }
 
-/** Заметки в сводку чата о том, чем кончился вопрос человеку */
-export const TRIGGER_ASK_CHAT_NOTES = {
-  declined: 'срабатывание отменено — согласия нет',
-  timeout: 'нет ответа — срабатывание отменено',
-  payGone: 'платить уже нечем — срабатывание отменено',
-  limitGone: 'уже использовано — срабатывание отменено',
-} as const;
-
 /**
  * Строка чата о срабатывании, которое к моменту ответа уже не выполнить:
  * платить стало нечем либо лимит исчерпан.
@@ -656,7 +656,7 @@ function buildPayPromptOptions(
 async function askAboutTrigger(
   source: EffectTriggerSource,
   plan: PayPlan | null,
-  ask: (payload: EffectPromptRequestPayload) => Promise<RollRequestOutcome>,
+  ask: EffectPromptAsker,
 ): Promise<TriggerAskAnswer> {
   const base = buildTriggerAskPayload(source);
 
@@ -667,21 +667,21 @@ async function askAboutTrigger(
   /**
    * Статус несостоявшегося ответа.
    *
-   * @param outcome - исход запроса
+   * @param reply - ответ человека
    * @returns молчание или отказ
    */
-  const refusalOf = (outcome: RollRequestOutcome): TriggerAskAnswer => ({
-    status: outcome.status === 'timeout' ? 'timeout' : 'declined',
+  const refusalOf = (reply: EffectPromptReply): TriggerAskAnswer => ({
+    status: reply.timedOut ? 'timeout' : 'declined',
   });
 
   if (choices.length === 0) {
-    const outcome = await ask(base);
+    const reply = await ask(base);
 
     if (
-      readPromptAnswer(outcome, EFFECT_PROMPT_CONFIRM_OPTIONS)
+      readPromptReply(reply, EFFECT_PROMPT_CONFIRM_OPTIONS)
       !== EFFECT_PROMPT_CONFIRM.yes
     ) {
-      return refusalOf(outcome);
+      return refusalOf(reply);
     }
 
     const picks = plan ? defaultPayPicks(plan) : null;
@@ -702,22 +702,72 @@ async function askAboutTrigger(
   for (const entry of choices) {
     const options = buildPayPromptOptions(entry.options);
 
-    const outcome = await ask({
+    const reply = await ask({
       ...base,
       question: TRIGGER_ASK_QUESTIONS.payChoice,
       options,
     });
 
-    const answer = readPromptAnswer(outcome, options);
+    const answer = readPromptReply(reply, options);
 
     if (answer === null || answer === EFFECT_PROMPT_CONFIRM.no) {
-      return refusalOf(outcome);
+      return refusalOf(reply);
     }
 
     pickIds.add(answer);
   }
 
   return { status: 'confirmed', pickIds };
+}
+
+/**
+ * Спрашивает владельца о срабатываниях, которые выполняются на самой сущности
+ * без сервера («после отдыха»): согласие и, у цены с выбором, чем платить.
+ * Порядок тот же, что у срабатываний сервера: условие и лимит → разбор цены →
+ * при нехватке вопроса нет → вопрос. Списание и действия идут следом, уже по
+ * ответам (`settleSelfTriggerSources`).
+ *
+ * Срабатывание без вопроса сюда не попадает. Срабатывание, чья цена не по
+ * карману, тоже: спрашивать не о чем, а строку об отмене оно напишет само.
+ *
+ * @param entity - сущность в том состоянии, в котором срабатывания выполнятся
+ * @param sources - срабатывания с источниками
+ * @param ask - кто задаёт вопрос человеку
+ * @returns ответы: по ключу срабатывания — выбранные варианты цены
+ */
+export async function askSelfTriggers(
+  entity: DnDSceneEntity,
+  sources: readonly EffectTriggerSource[],
+  ask: EffectPromptAsker,
+): Promise<SelfTriggerAnswers> {
+  const answers = new Map<string, ReadonlySet<string>>();
+
+  for (const source of sources) {
+    if (
+      !triggerAsksPermission(source.trigger)
+      || !admitTrigger(entity, source, {}, undefined, true)
+    ) {
+      continue;
+    }
+
+    const { pay } = source.trigger;
+
+    const plan = pay
+      ? planEffectPay(entity, pay, buildTriggerPayContext(source))
+      : null;
+
+    if (plan && plan.shortfall !== null) {
+      continue;
+    }
+
+    const answer = await askAboutTrigger(source, plan, ask);
+
+    if (answer.status === 'confirmed') {
+      answers.set(selfTriggerKey(source), answer.pickIds ?? new Set());
+    }
+  }
+
+  return answers;
 }
 
 /** Чем дополняется вопрос срабатывания */
@@ -851,7 +901,7 @@ export function requestTriggerAsk(
       requesterLabel,
       title: formatEffectPromptTitle(snapshot.effect.name),
       payload,
-    }),
+    }).then((outcome) => toEffectPromptReply(outcome, payload.options)),
   ).then(
     (answer): DeferredEffectApply | Promise<DeferredEffectApply | null> => {
       if (answer.status !== 'confirmed') {

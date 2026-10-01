@@ -19,6 +19,7 @@ import type {
   DnDGameItem,
   DnDSceneEntity,
 } from './dndEntities.js';
+import type { PreparedTriggerSource } from './effectPay.js';
 import type { CarriedEffectSourceKind } from './effectPipeline.js';
 import type {
   EffectTempHpMode,
@@ -85,7 +86,12 @@ import {
 } from './effectAutomation.js';
 import { advanceEffectChangeSteps } from './effectChangeSteps.js';
 import { bindLivePaid } from './effectPaidTokens.js';
-import { payTriggerPrice, settleUnaskedTriggerPay } from './effectPay.js';
+import {
+  buildTriggerPayContext,
+  payTriggerPrice,
+  planEffectPay,
+  settleUnaskedTriggerPay,
+} from './effectPay.js';
 import {
   collectActiveEffects,
   collectRollConditionFlags,
@@ -151,6 +157,7 @@ import {
   isTriggerConditionMet,
   withCombatRound,
 } from './triggerConditions.js';
+import { TRIGGER_ASK_CHAT_NOTES } from './triggerPrompt.js';
 import {
   applyDamageToEntity,
   applyTurnHealing,
@@ -2805,6 +2812,59 @@ export interface SelfTriggerReport {
   results: EntryEffectResult[];
 }
 
+/**
+ * Ответы владельца на вопросы срабатываний, заданные заранее: ключ
+ * срабатывания ({@link selfTriggerKey}) — выбранные варианты цены; у
+ * срабатывания без цены набор пустой. Нет ключа — согласия нет.
+ */
+export type SelfTriggerAnswers = ReadonlyMap<string, ReadonlySet<string>>;
+
+/**
+ * Ключ срабатывания в ответах владельца: источник эффекта и срабатывание.
+ *
+ * @param source - срабатывание с источником
+ * @returns ключ
+ */
+export function selfTriggerKey(source: EffectTriggerSource): string {
+  return `${source.scope}|${source.trigger.id}`;
+}
+
+/**
+ * Цена срабатывания, о котором владельца спросили заранее: списывается по его
+ * ответу. Цена не по карману, согласия нет или выбранного варианта уже не
+ * стало — срабатывание не состоится, и об этом есть строка сводки.
+ *
+ * @param entity - субъект (меняется)
+ * @param source - срабатывание с источником
+ * @param pickIds - ответ владельца; нет — согласия не было
+ * @returns срабатывание с числами либо строка сводки — почему оно отменено
+ */
+function settleAnsweredTriggerPay(
+  entity: DnDSceneEntity,
+  source: EffectTriggerSource,
+  pickIds: ReadonlySet<string> | undefined,
+): PreparedTriggerSource | string {
+  const { pay } = source.trigger;
+  const { name } = source.effect;
+
+  const shortfall = pay
+    ? planEffectPay(entity, pay, buildTriggerPayContext(source)).shortfall
+    : null;
+
+  if (shortfall !== null) {
+    return `${name}: ${TRIGGER_ASK_CHAT_NOTES.unaffordable} (${shortfall})`;
+  }
+
+  if (!pickIds) {
+    return `${name}: ${TRIGGER_ASK_CHAT_NOTES.declined}`;
+  }
+
+  return (
+    payTriggerPrice(entity, source, pickIds)
+    ?? `${name}: ${TRIGGER_ASK_CHAT_NOTES.payGone}`
+  );
+}
+
 /** С чем выполняются срабатывания на самой сущности */
 export interface SelfTriggerOptions {
   /** Номер идущего раунда: расписание «на раунде N» */
@@ -2814,6 +2874,14 @@ export interface SelfTriggerOptions {
    * цена без выбора списывается сама, а цена с выбором срабатывание отменяет
    */
   payPickIds?: ReadonlySet<string>;
+  /**
+   * Ответы владельца на вопросы срабатываний. Поле задано — срабатывание,
+   * которое спрашивает разрешения (галочка «спрашивать», цена «Реакция», цена
+   * ресурсом), выполняется только по ответу: без него оно отменяется со
+   * строкой в сводку, а не идёт молча и бесплатно. Так идёт «после отдыха».
+   * Нет поля — согласием служит само нажатие («При действии», включение)
+   */
+  answers?: SelfTriggerAnswers;
   /** Куда складывать исходы и строки сводки; нет — они не нужны */
   report?: SelfTriggerReport;
 }
@@ -2822,6 +2890,9 @@ export interface SelfTriggerOptions {
  * Выполняет срабатывания на самой сущности без второй стороны и без окна
  * броска: условие и лимит, цена ресурсом, спасбросок броском системы,
  * действия. Так идут «при включении», «При действии» и «после отдыха».
+ *
+ * У «после отдыха» согласием нажатие не служит: владельца спрашивают заранее
+ * (`askSelfTriggers`), и сюда приходят его ответы (`options.answers`).
  *
  * @param entity - субъект (меняется)
  * @param sources - срабатывания с источниками
@@ -2832,12 +2903,16 @@ export function settleSelfTriggerSources(
   sources: readonly EffectTriggerSource[],
   options: SelfTriggerOptions = {},
 ): void {
-  const { report, payPickIds } = options;
+  const { report, payPickIds, answers } = options;
 
   for (const source of sources) {
-    // Лимит и заряд срабатывание с ценой тратит после оплаты: не хватило
-    // ресурса — «раз в ход» остаётся
-    const pays = source.trigger.pay !== undefined;
+    // О срабатывании спросили владельца заранее: решает его ответ
+    const answered =
+      answers !== undefined && triggerAsksPermission(source.trigger);
+
+    // Лимит и заряд срабатывание с ценой или вопросом тратит после оплаты и
+    // согласия: не хватило ресурса или отказались — «раз в ход» остаётся
+    const holds = source.trigger.pay !== undefined || answered;
 
     if (
       !admitTrigger(
@@ -2845,17 +2920,36 @@ export function settleSelfTriggerSources(
         source,
         withCombatRound({}, options.combatRound),
         undefined,
-        pays,
+        holds,
       )
     ) {
       continue;
     }
 
-    const prepared = payPickIds
-      ? payTriggerPrice(entity, source, payPickIds)
-      : settleUnaskedTriggerPay(entity, source);
+    let prepared: PreparedTriggerSource | null;
 
-    if (!prepared || (pays && !takeTriggerAdmission(entity, source))) {
+    if (answered) {
+      const settled = settleAnsweredTriggerPay(
+        entity,
+        source,
+        answers.get(selfTriggerKey(source)),
+      );
+
+      // Отменённое срабатывание видно в сводке: молча оно не пропадает
+      if (typeof settled === 'string') {
+        report?.notes.push(settled);
+
+        continue;
+      }
+
+      prepared = settled;
+    } else {
+      prepared = payPickIds
+        ? payTriggerPrice(entity, source, payPickIds)
+        : settleUnaskedTriggerPay(entity, source);
+    }
+
+    if (!prepared || (holds && !takeTriggerAdmission(entity, source))) {
       continue;
     }
 

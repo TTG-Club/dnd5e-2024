@@ -147,9 +147,9 @@ describe('события о поступках носителя: предмет�
     const rested = markingEffect({ event: 'rest', restType: 'long' });
     const hero = createActor({ equipment: [wornItem([rested])] });
 
-    assert.equal(engine.resolveRestTriggerEffects(hero, 'short'), undefined);
+    assert.equal(engine.applyActorRest(hero, 'short').activeEffects, undefined);
 
-    const effects = engine.resolveRestTriggerEffects(hero, 'long');
+    const effects = engine.applyActorRest(hero, 'long').activeEffects;
 
     assert.equal(
       effects?.some((effect) => effect.tag === MARK_TAG),
@@ -160,10 +160,10 @@ describe('события о поступках носителя: предмет�
     assert.equal(isMarked(hero), false);
 
     assert.equal(
-      engine.resolveRestTriggerEffects(
+      engine.applyActorRest(
         createActor({ equipment: [wornItem([rested], { equipped: false })] }),
         'long',
-      ),
+      ).activeEffects,
       undefined,
     );
   });
