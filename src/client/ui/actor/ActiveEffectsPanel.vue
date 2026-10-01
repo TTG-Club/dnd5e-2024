@@ -32,6 +32,8 @@
     DnDSceneEntity,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { EscapeHelpOffer } from '../../composables/effectEscapeAction';
+
   import { useToast } from '@nuxt/ui/composables';
   import { computed, ref } from 'vue';
 
@@ -47,8 +49,6 @@
     canPayActivation,
     collectEffectToggleGroup,
     collectEffectUseGroup,
-    describeEscapeUnavailable,
-    dnd5eSystemInstance,
     effectVariantGroupName,
     formatActionCostBlock,
     formatEffectEscapeLabel,
@@ -67,7 +67,11 @@
 
   import { applyEffectSource } from '../../composables/effectActivationUse';
   import { runEntityEffectAction } from '../../composables/effectActiveAction';
-  import { runEffectEscape } from '../../composables/effectEscapeAction';
+  import {
+    listEscapeHelpOffers,
+    runEffectEscape,
+    runEscapeAs,
+  } from '../../composables/effectEscapeAction';
   import {
     payEntityActivation,
     toggleEntityEffect,
@@ -89,6 +93,7 @@
     EFFECT_STAGE_LABELS,
     EFFECT_USE_LABELS,
   } from '../effect/constants';
+  import { EFFECT_ESCAPE_HELP_LABELS } from '../effect/escapeLabels';
   import { formatActiveActionLabel } from '../effect/utils/activeActionLabel';
   import {
     ACTIVE_EFFECT_DEFAULTS,
@@ -459,30 +464,35 @@
       return;
     }
 
-    // Причину отказа показывают, а не глотают: иначе кнопка молча не работает
-    const unavailable = describeEscapeUnavailable(effect, owner);
+    // Кто действует, каким навыком и чем кончилось — в `runEffectEscape`:
+    // исход уходит боевым каналом, лист обновится ответом сервера
+    runEffectEscape(owner.id, effect.id);
+  }
 
-    if (unavailable !== null) {
-      toast.add({
-        title: EFFECT_ESCAPE_LABELS.hint,
-        description: `${EFFECT_ESCAPE_LABELS.unavailablePrefix}${unavailable}`,
-        color: 'warning',
+  /**
+   * Чем владелец листа может помочь тем, кто рядом: помощник действует со
+   * своего листа, не открывая чужой. В правке листа подсказок нет.
+   */
+  const escapeHelpOffers = computed<EscapeHelpOffer[]>(() =>
+    props.owner && !props.isEditMode
+      ? listEscapeHelpOffers(props.owner.id)
+      : [],
+  );
+
+  /**
+   * Помогает соседу вырваться: проверку бросает владелец листа своим навыком.
+   *
+   * @param offer - эффект соседа
+   */
+  function helpEscape(offer: EscapeHelpOffer): void {
+    const { owner } = props;
+
+    if (owner) {
+      runEscapeAs(offer.carrier, offer.effect, {
+        entity: owner,
+        role: 'adjacent',
       });
-
-      return;
     }
-
-    runEffectEscape({
-      entity: owner,
-      effect,
-      flags: dnd5eSystemInstance.getEntityActiveFlags(owner),
-      onEscaped: (effectIds) => {
-        emit(
-          'update:effects',
-          props.effects.filter((entry) => !effectIds.includes(entry.id)),
-        );
-      },
-    });
   }
 
   const effectModalId = 'active-effect-form-modal';
@@ -855,6 +865,33 @@
           {{ CARRIED_EFFECT_BADGES[entry.sourceKind] }}
         </span>
       </button>
+    </div>
+  </div>
+
+  <!-- Помочь рядом: эффекты соседей, из которых им можно помочь выбраться -->
+  <div
+    v-if="escapeHelpOffers.length > 0"
+    class="mt-5 flex flex-col"
+  >
+    <h3
+      class="mb-1 text-xs font-semibold tracking-wider text-muted uppercase"
+      :title="EFFECT_ESCAPE_HELP_LABELS.hint"
+    >
+      {{ EFFECT_ESCAPE_HELP_LABELS.title }}
+    </h3>
+
+    <div class="flex flex-wrap gap-1.5">
+      <UButton
+        v-for="offer in escapeHelpOffers"
+        :key="`${offer.carrier.id}-${offer.effect.id}`"
+        :icon="EFFECT_ESCAPE_HELP_LABELS.icon"
+        :label="offer.label"
+        :title="EFFECT_ESCAPE_HELP_LABELS.hint"
+        size="xs"
+        variant="soft"
+        color="warning"
+        @click.left.exact.prevent="helpEscape(offer)"
+      />
     </div>
   </div>
 

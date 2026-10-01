@@ -20,6 +20,7 @@ import type {
   ActiveEffect,
   EffectChange,
   EffectDuration,
+  EffectEscape,
   EffectLight,
   EffectSave,
   EffectSaveOverride,
@@ -30,6 +31,7 @@ import type { DamageTypeChoiceMode, HealKind } from './formulaTokens.js';
 
 import {
   AREA_TRIGGER_LABELS,
+  DEFAULT_ESCAPE_ACTOR,
   EFFECT_ATTACK_TRIGGER_LABELS,
   EFFECT_CHANGE_MODE_LABELS,
   EFFECT_CONDITION_SUGGESTIONS,
@@ -46,6 +48,13 @@ import {
   parseAnyCreatureTypeCondition,
 } from './creatureTypeCondition.js';
 import { getShortDamageTypeLabel } from './damageConstants.js';
+import {
+  describeEscapeChecks,
+  EFFECT_ESCAPE_ACTOR_LABELS,
+  EFFECT_ESCAPE_ROLL_MODE_LABELS,
+  formatEffectActionCost,
+  listEscapeChecks,
+} from './effectEscape.js';
 import { describeEffectPaid, describeEffectPay } from './effectPayTypes.js';
 import { isDiceFormulaValue } from './effectPipeline.js';
 import { renderReadableFormula } from './formulaParser.js';
@@ -732,6 +741,57 @@ const EFFECT_PAY_DETAIL_LABELS = {
   paid: 'потрачено: ',
 } as const;
 
+/** Части фразы о действии «вырваться» */
+const ESCAPE_DETAIL_LABELS = {
+  prefix: 'можно вырваться: ',
+  noCheck: 'без проверки',
+  unknownDc: 'проверка против Сл источника',
+  aftermathPrefix: '; после освобождения — «',
+  aftermathSuffix: '»',
+  failDamagePrefix: '; при провале — ',
+  partJoiner: ', ',
+} as const;
+
+/**
+ * Действие «вырваться» словами: кто действует, чем платит, какой проверкой и
+ * что бывает после.
+ *
+ * @param escape - блок действия
+ * @returns фраза для карточки эффекта
+ */
+export function describeEffectEscape(escape: EffectEscape): string {
+  const checks = listEscapeChecks(escape);
+
+  let check: string = ESCAPE_DETAIL_LABELS.noCheck;
+
+  if (escape.check) {
+    check =
+      checks.length > 0
+        ? describeEscapeChecks(checks)
+        : ESCAPE_DETAIL_LABELS.unknownDc;
+  }
+
+  const mode = escape.check?.mode
+    ? EFFECT_ESCAPE_ROLL_MODE_LABELS[escape.check.mode].toLowerCase()
+    : '';
+
+  const parts = [
+    EFFECT_ESCAPE_ACTOR_LABELS[escape.by ?? DEFAULT_ESCAPE_ACTOR].toLowerCase(),
+    formatEffectActionCost(escape.cost, escape.moveCostFeet).toLowerCase(),
+    mode ? `${check} (${mode})` : check,
+  ];
+
+  const aftermath = escape.onSuccessApply
+    ? `${ESCAPE_DETAIL_LABELS.aftermathPrefix}${describeConditionName(escape.onSuccessApply)}${ESCAPE_DETAIL_LABELS.aftermathSuffix}`
+    : '';
+
+  const failDamage = escape.onFailDamage?.length
+    ? `${ESCAPE_DETAIL_LABELS.failDamagePrefix}${describeEffectDamageParts(escape.onFailDamage)}`
+    : '';
+
+  return `${ESCAPE_DETAIL_LABELS.prefix}${parts.join(ESCAPE_DETAIL_LABELS.partJoiner)}${aftermath}${failDamage}`;
+}
+
 /**
  * Строки длительности для карточки: в отличие от однострочного описания,
  * здесь длительность есть всегда — «постоянно» тоже ответ. Остаток раундов
@@ -836,6 +896,10 @@ function applicationLines(effect: ActiveEffect): string[] {
 
   if (paid) {
     lines.push(`${EFFECT_PAY_DETAIL_LABELS.paid}${paid}`);
+  }
+
+  if (effect.escape) {
+    lines.push(describeEffectEscape(effect.escape));
   }
 
   if (effect.effectTarget === 'target') {

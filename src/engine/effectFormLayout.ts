@@ -23,6 +23,7 @@ import type {
   EffectAura,
   EffectCharges,
   EffectEscape,
+  EffectEscapeCheck,
   EffectSave,
   EffectSaveOutcome,
 } from './activeEffectTypes.js';
@@ -30,6 +31,7 @@ import type { EffectPay, EffectPrice } from './effectPayTypes.js';
 import type {
   EffectTrigger,
   EffectTriggerAction,
+  EffectTriggerApplyConditionAction,
   EffectTriggerChoice,
   EffectTriggerEvent,
   EffectTriggerSave,
@@ -1911,6 +1913,29 @@ export function normalizeDraftPay(
 }
 
 /**
+ * Действие «наложить состояние» для записи: вложенные срабатывания, «вырваться»
+ * и флаги наложенного состояния — без пустых полей.
+ *
+ * @param action - действие из окна
+ * @param minDc - минимум Сл места
+ * @returns действие для сохранения
+ */
+function normalizeDraftConditionAction(
+  action: EffectTriggerApplyConditionAction,
+  minDc: number,
+): EffectTriggerApplyConditionAction {
+  const { escape: draftEscape, flags: draftFlags, ...rest } = action;
+  const escape = normalizeDraftEscape(draftEscape, minDc);
+
+  return {
+    ...rest,
+    triggers: normalizeNestedTriggers(action.triggers),
+    ...(escape ? { escape } : {}),
+    ...(draftFlags?.length ? { flags: draftFlags } : {}),
+  };
+}
+
+/**
  * Поле цены срабатывания для записи: пустая цена — без поля вовсе, чтобы у
  * срабатывания без цены не появлялся пустой ключ.
  *
@@ -1964,7 +1989,7 @@ function normalizeDraftTriggers(
         )
         .map((action) =>
           action.type === 'applyCondition'
-            ? { ...action, triggers: normalizeNestedTriggers(action.triggers) }
+            ? normalizeDraftConditionAction(action, minDc)
             : action,
         ),
       save: trigger.save
@@ -2006,12 +2031,57 @@ function normalizeDraftEscape(
     return undefined;
   }
 
+  const onFailDamage = (escape.onFailDamage ?? []).filter(
+    (part) => part.formula.trim().length > 0,
+  );
+
   return {
     ...escape,
     label: escape.label?.trim() || undefined,
     check: escape.check
-      ? { ...escape.check, dc: clampSaveDc(escape.check.dc, minSaveDc) }
+      ? normalizeDraftEscapeCheck(escape.check, minSaveDc)
       : undefined,
+    onSuccessApply: escape.onSuccessApply || undefined,
+    onFailDamage: onFailDamage.length > 0 ? onFailDamage : undefined,
+  };
+}
+
+/**
+ * Проверка «вырваться» к виду данных: первый навык списка — он же `skill`
+ * (по нему проверку читают версии системы без списка), своя Сл навыка — от
+ * единицы, список из одного навыка без своих настроек — отсутствием поля.
+ *
+ * @param check - проверка из окна
+ * @param minSaveDc - наименьшая Сл места окна
+ * @returns проверка для сохранения
+ */
+function normalizeDraftEscapeCheck(
+  check: EffectEscapeCheck,
+  minSaveDc: number,
+): EffectEscapeCheck {
+  const skills = (check.skills ?? []).map((option) => {
+    const dc = Math.trunc(parseFormNumber(option.dc) ?? 0);
+    const label = option.label?.trim();
+
+    return {
+      skill: option.skill,
+      ...(dc >= 1 ? { dc } : {}),
+      ...(option.by ? { by: option.by } : {}),
+      ...(label ? { label } : {}),
+    };
+  });
+
+  const [first] = skills;
+
+  const isPlain =
+    skills.length <= 1 && (!first || Object.keys(first).length === 1);
+
+  return {
+    ...check,
+    skill: first?.skill ?? check.skill,
+    dc: clampSaveDc(check.dc, minSaveDc),
+    skills: isPlain ? undefined : skills,
+    mode: check.mode || undefined,
   };
 }
 

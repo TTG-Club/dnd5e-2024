@@ -151,14 +151,17 @@ function hasSourceTriggerSaveDc(effect: ActiveEffect): boolean {
       trigger.save?.dc === 0
       || trigger.actions.some(
         (action) =>
-          action.type === 'applyCondition' && action.recurringSave?.dc === 0,
+          action.type === 'applyCondition'
+          && (action.recurringSave?.dc === 0
+            // «Вырваться» наложенного состояния ждёт ту же Сл источника
+            || action.escape?.check?.dc === 0),
       ),
   );
 }
 
 /**
- * Срабатывание со Сл источника: в спасброске и в повторном спасброске
- * наложенного состояния.
+ * Срабатывание со Сл источника: в спасброске, в повторном спасброске
+ * наложенного состояния и в его проверке «вырваться».
  *
  * @param trigger - срабатывание
  * @param sourceDc - Сл источника
@@ -178,17 +181,36 @@ function stampTriggerSaveDc(
           },
         }
       : {}),
-    actions: trigger.actions.map((action) =>
-      action.type === 'applyCondition' && action.recurringSave
-        ? {
-            ...action,
-            recurringSave: {
-              ...action.recurringSave,
-              dc: resolveEffectSaveDc(action.recurringSave.dc, sourceDc),
-            },
-          }
-        : action,
-    ),
+    actions: trigger.actions.map((action) => {
+      if (action.type !== 'applyCondition') {
+        return action;
+      }
+
+      const { recurringSave, escape } = action;
+
+      return {
+        ...action,
+        ...(recurringSave
+          ? {
+              recurringSave: {
+                ...recurringSave,
+                dc: resolveEffectSaveDc(recurringSave.dc, sourceDc),
+              },
+            }
+          : {}),
+        ...(escape?.check
+          ? {
+              escape: {
+                ...escape,
+                check: {
+                  ...escape.check,
+                  dc: resolveEffectSaveDc(escape.check.dc, sourceDc),
+                },
+              },
+            }
+          : {}),
+      };
+    }),
   };
 }
 

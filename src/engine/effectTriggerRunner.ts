@@ -1014,6 +1014,12 @@ function buildActionStatus(
         : {}),
       // Запертое состояние снимает только то, что его наложило
       ...(action.locked ? { conditionLocked: true as const } : {}),
+      // «Вырваться» у состояния, которое кладёт срабатывание: кнопка — на нём
+      ...(action.escape ? { escape: action.escape } : {}),
+      // Флаги сверх самого состояния: «пока отравлена — без реакций»
+      ...(action.flags?.length
+        ? { flags: [...new Set([...condition.flags, ...action.flags])] }
+        : {}),
       // «Спадает при выходе из зоны»: без зоны выходить не из чего, и пометка
       // не ставится — состояние живёт обычным сроком
       ...(action.endsOnExit && options.sourceAreaId

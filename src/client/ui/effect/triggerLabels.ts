@@ -118,6 +118,12 @@ export const EFFECT_TRIGGER_ROW_LABELS = {
   restoreWhat: 'Что вернуть',
   restoreLevel: 'Круг',
   restoreCounter: 'Ключ ресурса',
+  conditionEscapeToggle: 'Из состояния можно вырваться',
+  conditionEscapeHint:
+    'У наложенного состояния на листе появится кнопка действия: «опутан… может действием совершить проверку Силы (Атлетика)».',
+  conditionFlags: 'Правила, пока состояние лежит',
+  conditionFlagsHint:
+    'Особые правила сверх самого состояния: «пока цель отравлена, она не может совершать реакции». Снимаются вместе с состоянием.',
   restoreAmount: 'Сколько',
   restoreAmountPlaceholder: '1',
   restoreAmountHint:

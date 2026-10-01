@@ -1217,6 +1217,11 @@ export type EffectFlagKey =
   | 'hitDice.maximize'
   | 'hitDice.lowAsThree'
   | 'hitDice.firstFree'
+  | 'escape.advantage'
+  | 'escape.disadvantage'
+  | 'escape.advantage.grappled'
+  | 'escape.disadvantage.grappled'
+  | 'grapple.escapeDisadvantage'
   | DamageDefenseFlagKey
   | SkillFlagKey
   | SaveVsConditionFlagKey
@@ -1354,6 +1359,16 @@ const BASE_EFFECT_FLAG_LABELS: Record<
   'hitDice.lowAsThree': 'Кости хитов: выпавшие 1 и 2 считаются как 3',
   'hitDice.firstFree':
     'Кости хитов: первая после продолжительного отдыха не тратится',
+
+  // «Вырваться» (`effectEscape.ts`)
+  'escape.advantage': 'Преимущество на проверки, чтобы вырваться',
+  'escape.disadvantage': 'Помеха на проверки, чтобы вырваться',
+  'escape.advantage.grappled':
+    'Преимущество на проверки, чтобы вырваться из захвата (Схваченный)',
+  'escape.disadvantage.grappled':
+    'Помеха на проверки, чтобы вырваться из захвата (Схваченный)',
+  'grapple.escapeDisadvantage':
+    'Из захвата носителя вырываются с помехой (Схваченный, наложенный им)',
 
   // Лечение
   'healing.blocked': 'Не может восстанавливать хиты',
@@ -1740,10 +1755,28 @@ export interface DndEffectAura extends EffectAura {
 export const SOURCE_SAVE_DC = 0;
 
 /** Кто может действовать, чтобы снять эффект */
-export const EFFECT_ESCAPE_ACTORS = ['self', 'adjacent'] as const;
+export const EFFECT_ESCAPE_ACTORS = ['self', 'adjacent', 'any'] as const;
 
-/** Носитель эффекта или существо рядом с ним */
+/**
+ * Носитель эффекта, существо рядом с ним или любой из них («цель или существо
+ * в пределах досягаемости могут действием…»)
+ */
 export type EffectEscapeActor = (typeof EFFECT_ESCAPE_ACTORS)[number];
+
+/** В какой роли существо действует, чтобы снять эффект */
+export const EFFECT_ESCAPE_ROLES = ['self', 'adjacent'] as const;
+
+/** Действует сам носитель или существо рядом с ним */
+export type EffectEscapeRole = (typeof EFFECT_ESCAPE_ROLES)[number];
+
+/** Режим броска проверки «вырваться», заданный самим эффектом */
+export const EFFECT_ESCAPE_ROLL_MODES = ['advantage', 'disadvantage'] as const;
+
+/** Преимущество или помеха на проверку «вырваться» */
+export type EffectEscapeRollMode = (typeof EFFECT_ESCAPE_ROLL_MODES)[number];
+
+/** Больше навыков на выбор у одной проверки «вырваться» не бывает */
+export const MAX_ESCAPE_SKILLS = 6;
 
 /** Кто действует без поля `by`: сам носитель */
 export const DEFAULT_ESCAPE_ACTOR: EffectEscapeActor = 'self';
@@ -1783,18 +1816,57 @@ export interface EffectEscape {
   check?: EffectEscapeCheck;
   /** Что даёт успех; нет — снимается сам эффект */
   onSuccess?: EffectEscapeOutcome;
+  /**
+   * Состояние, которое носитель получает после освобождения: «при успехе цель
+   * извлекается и получает состояние лежащий ничком»
+   */
+  onSuccessApply?: ConditionRef;
+  /**
+   * Урон носителю при провале проверки: «каждая неудачная проверка наносит
+   * пойманному 1 колющий урон»
+   */
+  onFailDamage?: DamagePart[];
   /** Подпись кнопки; нет — «Вырваться» */
+  label?: string;
+}
+
+/**
+ * Навык на выбор у проверки «вырваться»: правило захвата 2024 — «Атлетика или
+ * Акробатика», у кандалов у каждого навыка своя Сл, у водного элементаля сам
+ * схваченный бросает любой из двух, а сосед — только Атлетику.
+ */
+export interface EffectEscapeSkillOption {
+  /** Навык проверки */
+  skill: SkillType;
+  /** Своя Сл этого навыка; нет — Сл проверки */
+  dc?: number;
+  /** Кому навык доступен; нет — всем, кто может действовать */
+  by?: EffectEscapeRole;
+  /** Подпись варианта: «воровскими инструментами» */
   label?: string;
 }
 
 /** Проверка навыка, снимающая эффект */
 export interface EffectEscapeCheck {
-  /** Навык проверки */
+  /**
+   * Навык проверки. При списке `skills` — его первый навык: по этому полю
+   * проверку читают версии системы, которые списка не знают
+   */
   skill: SkillType;
   /** Сложность; 0 — Сл источника */
   dc: number;
   /** Сл формулой по наложившему: «8 + @prof + @mod.str» захвата */
   dcFormula?: string;
+  /**
+   * Навыки на выбор того, кто вырывается. Нет поля — один навык `skill`.
+   */
+  skills?: EffectEscapeSkillOption[];
+  /**
+   * Преимущество или помеха самой проверки: «проверки для освобождения от
+   * этого состояния совершаются с помехой» (Мимик). Складывается с флагами
+   * бросающего по обычному правилу — преимущество и помеха гасятся
+   */
+  mode?: EffectEscapeRollMode;
 }
 
 /** Самая длинная подпись ступени */
@@ -3186,6 +3258,111 @@ const EFFECT_TRIGGER_PLAIN_ACTION_SCHEMAS = [
   z.object({ type: z.literal('removeSelf'), on: EffectTriggerGateSchema }),
 ] as const;
 
+/** Zod-схема футов перемещения, которыми платят цену `move` */
+const MoveCostFeetSchema = z.preprocess(
+  coerceOptionalNumber,
+  z.number().int().min(0).max(MAX_MOVE_COST_FEET).optional().catch(undefined),
+);
+
+/**
+ * Проверяет, что строка — известный флаг эффекта.
+ *
+ * Набор ключей закрыт и берётся из `EFFECT_FLAG_LABELS` — того же объекта, по
+ * которому строится список в UI-подборщике флагов
+ * (`ActiveEffectSuggestionsModal` в `ActiveEffectFormModal`). Так проверка и
+ * список вариантов не могут разойтись: новый флаг добавляется в одном месте.
+ *
+ * @param value - произвольная строка флага
+ * @returns `true`, если такой флаг известен движку
+ */
+export function isEffectFlagKey(value: string): value is EffectFlagKey {
+  return Object.hasOwn(EFFECT_FLAG_LABELS, value);
+}
+
+/**
+ * Zod-схема списка флагов эффекта.
+ *
+ * Неизвестные флаги ОТБРАСЫВАЮТСЯ, а не роняют разбор. Строгий вариант был
+ * опасен: `ActiveEffectsArraySchema` разбирается целиком, поэтому один
+ * хоумбрю-флаг из старого мира (или введённый в поле флага руками) отменял
+ * разбор ВСЕГО списка эффектов — `validateActor` бросал, и лист переставал
+ * сохраняться, а `applyCombatState` молча отказывался записывать урон.
+ * Отброшенный флаг и раньше ничего не делал: движок сверяет флаги по этому же
+ * списку, так что потери поведения нет — только потеря сохранения ушла.
+ */
+const EffectFlagsSchema = z
+  .array(z.string())
+  .transform((flags) => flags.filter(isEffectFlagKey));
+
+/**
+ * Zod-схема навыка на выбор у проверки «вырваться». Навык строкой — тот же
+ * вариант без своей Сл: так список пишут руками.
+ */
+const EffectEscapeSkillOptionSchema = z.preprocess(
+  (value) => (typeof value === 'string' ? { skill: value } : value),
+  z.object({
+    skill: z.custom<SkillType>(
+      (value) => typeof value === 'string' && isSkillType(value),
+    ),
+    dc: z.preprocess(
+      coerceOptionalNumber,
+      z.number().int().min(1).optional().catch(undefined),
+    ),
+    by: z.enum(EFFECT_ESCAPE_ROLES).optional().catch(undefined),
+    label: z
+      .string()
+      .trim()
+      .min(1)
+      .max(MAX_EFFECT_STAGE_LABEL_LENGTH)
+      .optional()
+      .catch(undefined),
+  }),
+);
+
+/**
+ * Zod-схема списка навыков проверки «вырваться»: негодный навык выбрасывается
+ * один, пустой список — отсутствием поля.
+ */
+const EffectEscapeSkillsSchema = z
+  .array(z.unknown())
+  .transform((rawSkills): EffectEscapeSkillOption[] | undefined => {
+    const skills = parseEachValid(
+      EffectEscapeSkillOptionSchema,
+      rawSkills,
+    ).slice(0, MAX_ESCAPE_SKILLS);
+
+    return skills.length > 0 ? skills : undefined;
+  })
+  .optional()
+  .catch(undefined);
+
+/** Zod-схема проверки навыка, снимающей эффект */
+const EffectEscapeCheckSchema = z.object({
+  skill: z.string().refine(isSkillType),
+  dc: EffectSaveDcSchema,
+  dcFormula: SaveDcFormulaSchema,
+  skills: EffectEscapeSkillsSchema,
+  mode: z.enum(EFFECT_ESCAPE_ROLL_MODES).optional().catch(undefined),
+});
+
+/** Zod-схема действия «вырваться» */
+const EffectEscapeSchema = z.object({
+  by: z.enum(EFFECT_ESCAPE_ACTORS).optional().catch(undefined),
+  cost: z.enum(EFFECT_ACTION_COSTS).optional().catch(undefined),
+  moveCostFeet: MoveCostFeetSchema,
+  check: EffectEscapeCheckSchema.optional().catch(undefined),
+  onSuccess: z.enum(EFFECT_ESCAPE_OUTCOMES).optional().catch(undefined),
+  onSuccessApply: z.string().min(1).optional().catch(undefined),
+  onFailDamage: z.array(EffectDamagePartSchema).optional().catch(undefined),
+  label: z
+    .string()
+    .trim()
+    .min(1)
+    .max(MAX_EFFECT_STAGE_LABEL_LENGTH)
+    .optional()
+    .catch(undefined),
+});
+
 /** Поля наложения состояния без собственных срабатываний */
 const applyConditionActionShape = {
   type: z.literal('applyCondition'),
@@ -3195,6 +3372,8 @@ const applyConditionActionShape = {
   recurringSave: RecurringSaveSchema.optional().catch(undefined),
   locked: z.literal(true).optional().catch(undefined),
   endsOnExit: z.literal(true).optional().catch(undefined),
+  escape: EffectEscapeSchema.optional().catch(undefined),
+  flags: EffectFlagsSchema.optional().catch(undefined),
   on: EffectTriggerGateSchema,
 } as const;
 
@@ -3240,12 +3419,6 @@ const EffectActivationSchema = z.object({
     z.number().int().min(MIN_ACTIVATION_RANGE).optional().catch(undefined),
   ),
 });
-
-/** Zod-схема футов перемещения, которыми платят цену `move` */
-const MoveCostFeetSchema = z.preprocess(
-  coerceOptionalNumber,
-  z.number().int().min(0).max(MAX_MOVE_COST_FEET).optional().catch(undefined),
-);
 
 /** Zod-схема лимита срабатывания */
 const EffectTriggerLimitSchema = z.object({
@@ -3369,59 +3542,6 @@ const EffectTriggerSchema = z.object({
 const EffectTriggersSchema = z
   .array(z.unknown())
   .transform((rawTriggers) => parseEachValid(EffectTriggerSchema, rawTriggers));
-
-/**
- * Проверяет, что строка — известный флаг эффекта.
- *
- * Набор ключей закрыт и берётся из `EFFECT_FLAG_LABELS` — того же объекта, по
- * которому строится список в UI-подборщике флагов
- * (`ActiveEffectSuggestionsModal` в `ActiveEffectFormModal`). Так проверка и
- * список вариантов не могут разойтись: новый флаг добавляется в одном месте.
- *
- * @param value - произвольная строка флага
- * @returns `true`, если такой флаг известен движку
- */
-export function isEffectFlagKey(value: string): value is EffectFlagKey {
-  return Object.hasOwn(EFFECT_FLAG_LABELS, value);
-}
-
-/**
- * Zod-схема списка флагов эффекта.
- *
- * Неизвестные флаги ОТБРАСЫВАЮТСЯ, а не роняют разбор. Строгий вариант был
- * опасен: `ActiveEffectsArraySchema` разбирается целиком, поэтому один
- * хоумбрю-флаг из старого мира (или введённый в поле флага руками) отменял
- * разбор ВСЕГО списка эффектов — `validateActor` бросал, и лист переставал
- * сохраняться, а `applyCombatState` молча отказывался записывать урон.
- * Отброшенный флаг и раньше ничего не делал: движок сверяет флаги по этому же
- * списку, так что потери поведения нет — только потеря сохранения ушла.
- */
-const EffectFlagsSchema = z
-  .array(z.string())
-  .transform((flags) => flags.filter(isEffectFlagKey));
-
-/** Zod-схема проверки навыка, снимающей эффект */
-const EffectEscapeCheckSchema = z.object({
-  skill: z.string().refine(isSkillType),
-  dc: EffectSaveDcSchema,
-  dcFormula: SaveDcFormulaSchema,
-});
-
-/** Zod-схема действия «вырваться» */
-const EffectEscapeSchema = z.object({
-  by: z.enum(EFFECT_ESCAPE_ACTORS).optional().catch(undefined),
-  cost: z.enum(EFFECT_ACTION_COSTS).optional().catch(undefined),
-  moveCostFeet: MoveCostFeetSchema,
-  check: EffectEscapeCheckSchema.optional().catch(undefined),
-  onSuccess: z.enum(EFFECT_ESCAPE_OUTCOMES).optional().catch(undefined),
-  label: z
-    .string()
-    .trim()
-    .min(1)
-    .max(MAX_EFFECT_STAGE_LABEL_LENGTH)
-    .optional()
-    .catch(undefined),
-});
 
 /** Zod-схема ступени эффекта */
 const EffectStageSchema = z.object({

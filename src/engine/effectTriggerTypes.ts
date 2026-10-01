@@ -14,7 +14,11 @@
 
 import type { AbilityType, DamagePart, EffectDuration } from '@vtt/shared';
 
-import type { RecurringSave } from './activeEffectTypes.js';
+import type {
+  EffectEscape,
+  EffectFlagKey,
+  RecurringSave,
+} from './activeEffectTypes.js';
 import type { ConditionRef } from './conditionKeys.js';
 import type { EffectPay } from './effectPayTypes.js';
 
@@ -571,6 +575,18 @@ export interface EffectTriggerApplyConditionAction {
    * снятия заклинанием).
    */
   locked?: true;
+  /**
+   * Действие, снимающее наложенное состояние: «опутан… может действием
+   * совершить проверку Силы (Атлетика) со Сл ваших заклинаний» у состояния,
+   * которое кладёт аура. Кнопка «Вырваться» появляется у состояния на листе
+   */
+  escape?: EffectEscape;
+  /**
+   * Флаги сверх самого состояния: «пока цель отравлена, она совершает либо
+   * действие, либо бонусное действие и не может совершать реакции» — у
+   * «Отравленного», который кладёт аура. Действуют, пока состояние лежит
+   */
+  flags?: EffectFlagKey[];
   on?: EffectTriggerActionGate;
 }
 

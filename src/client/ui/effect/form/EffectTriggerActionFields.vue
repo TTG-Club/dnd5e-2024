@@ -8,6 +8,8 @@
   import type {
     ConditionRef,
     EffectCastOwner,
+    EffectEscape,
+    EffectFlagKey,
     EffectFormLayout,
     EffectNotifyTarget,
     EffectRestoreKind,
@@ -32,6 +34,7 @@
     createDefaultEffectSave,
     createEffectTriggerId,
     DEFAULT_CAST_OWNER,
+    DEFAULT_EFFECT_SAVE_DC,
     DEFAULT_NESTED_TRIGGER_EVENT,
     DEFAULT_NOTIFY_TARGET,
     DEFAULT_RESTORE_KIND,
@@ -49,11 +52,16 @@
     MIN_SPELL_SLOT_LEVEL,
     NESTED_TRIGGER_EVENTS,
     PATH_AREA_SHIFT_KINDS,
+    SOURCE_SAVE_DC,
   } from '@vtt/shared/system/dnd.js';
 
   import { useSystemDataStore } from '../../../stores/systemDataStore';
   import DamagePartsEditor from '../../actor/DamagePartsEditor.vue';
-  import { EFFECT_SOURCE_DC_LABELS } from '../constants';
+  import {
+    EFFECT_SOURCE_DC_LABELS,
+    NEW_ESCAPE_CHECK_SKILL,
+    NEW_ESCAPE_COST,
+  } from '../constants';
   import {
     ANY_CONDITION_KEY,
     buildAreaShiftKindOptions,
@@ -76,6 +84,8 @@
     EFFECT_TRIGGER_EVENT_LABELS,
     EFFECT_TRIGGER_ROW_LABELS,
   } from '../triggerLabels';
+  import EffectEscapeFields from './EffectEscapeFields.vue';
+  import EffectFlagRows from './EffectFlagRows.vue';
   import SaveDcField from './SaveDcField.vue';
 
   const props = defineProps<{
@@ -681,6 +691,63 @@
     },
   });
 
+  /** Блок «вырваться» наложенного состояния; нет — кнопки у состояния нет */
+  const conditionEscape = computed(() =>
+    action.value.type === 'applyCondition' ? action.value.escape : undefined,
+  );
+
+  const hasConditionEscape = computed({
+    get: () => conditionEscape.value !== undefined,
+    set: (enabled: boolean) => {
+      if (action.value.type !== 'applyCondition') {
+        return;
+      }
+
+      const { escape: _escape, ...rest } = action.value;
+
+      action.value = enabled
+        ? {
+            ...rest,
+            escape: {
+              cost: NEW_ESCAPE_COST,
+              check: {
+                skill: NEW_ESCAPE_CHECK_SKILL,
+                dc: acceptsSourceSaveDc.value
+                  ? SOURCE_SAVE_DC
+                  : DEFAULT_EFFECT_SAVE_DC,
+              },
+            },
+          }
+        : rest;
+    },
+  });
+
+  /**
+   * Записывает блок «вырваться» наложенного состояния.
+   *
+   * @param escape - блок действия
+   */
+  function updateConditionEscape(escape: EffectEscape): void {
+    if (action.value.type === 'applyCondition') {
+      action.value = { ...action.value, escape };
+    }
+  }
+
+  /** Флаги сверх самого состояния: действуют, пока оно лежит */
+  const conditionFlags = computed({
+    get: () =>
+      action.value.type === 'applyCondition' ? (action.value.flags ?? []) : [],
+    set: (flags: EffectFlagKey[]) => {
+      if (action.value.type !== 'applyCondition') {
+        return;
+      }
+
+      const { flags: _flags, ...rest } = action.value;
+
+      action.value = flags.length > 0 ? { ...rest, flags } : rest;
+    },
+  });
+
   const conditionLocked = computed({
     get: () =>
       action.value.type === 'applyCondition' && action.value.locked === true,
@@ -858,6 +925,31 @@
       :label="EFFECT_TRIGGER_ROW_LABELS.conditionLocked"
       :description="EFFECT_TRIGGER_ROW_LABELS.conditionLockedHint"
     />
+
+    <USwitch
+      v-model="hasConditionEscape"
+      :label="EFFECT_TRIGGER_ROW_LABELS.conditionEscapeToggle"
+      :description="EFFECT_TRIGGER_ROW_LABELS.conditionEscapeHint"
+    />
+
+    <EffectEscapeFields
+      v-if="conditionEscape"
+      :model-value="conditionEscape"
+      :auto-dc-allowed="acceptsSourceSaveDc"
+      :auto-label="EFFECT_SOURCE_DC_LABELS[layout.context]"
+      :source-save-dc="sourceSaveDc"
+      @update:model-value="updateConditionEscape"
+    />
+
+    <div class="flex flex-col gap-1">
+      <div class="flex items-center gap-1 text-xs font-medium text-toned">
+        {{ EFFECT_TRIGGER_ROW_LABELS.conditionFlags }}
+
+        <FieldHint :text="EFFECT_TRIGGER_ROW_LABELS.conditionFlagsHint" />
+      </div>
+
+      <EffectFlagRows v-model:flags="conditionFlags" />
+    </div>
 
     <USwitch
       v-if="canEndOnZoneExit"

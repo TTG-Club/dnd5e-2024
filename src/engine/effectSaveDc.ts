@@ -164,6 +164,10 @@ function mapActionSaveDcs<Action extends EffectTriggerAction>(
     ...(action.recurringSave
       ? { recurringSave: mapSave(action.recurringSave) }
       : {}),
+    // «Вырваться» наложенного состояния — та же Сл источника, что у спасброска
+    ...(action.escape?.check
+      ? { escape: { ...action.escape, check: mapSave(action.escape.check) } }
+      : {}),
     ...(action.triggers
       ? {
           triggers: action.triggers.map((nested) =>
@@ -231,6 +235,7 @@ export function listTriggerSaveDcs(
       action.type === 'applyCondition'
         ? [
             ...(action.recurringSave ? [action.recurringSave] : []),
+            ...(action.escape?.check ? [action.escape.check] : []),
             ...('triggers' in action ? (action.triggers ?? []) : []).flatMap(
               listTriggerSaveDcs,
             ),
