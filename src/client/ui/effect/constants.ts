@@ -886,10 +886,16 @@ export const EFFECT_ADVANCED_LABELS = {
 
 /** Размеры окна библиотеки подсказок эффекта */
 export const EFFECT_TEMPLATES_MODAL_SIZE = {
-  width: 400,
-  height: 500,
+  width: 460,
+  height: 560,
   minWidth: 300,
   minHeight: 400,
+} as const;
+
+/** Вид кнопки раздела в библиотеке подсказок: выбранный и нет */
+export const SUGGESTION_SECTION_BUTTON = {
+  active: { color: 'primary', variant: 'soft' },
+  idle: { color: 'neutral', variant: 'ghost' },
 } as const;
 
 /** Ключи окон библиотек подсказок в менеджере окон хоста */
@@ -921,6 +927,8 @@ export const ACTIVE_EFFECT_TEMPLATES_LABELS = {
   conditionTitle: EFFECT_CHANGE_ROW_LABELS.conditionLibrary,
   conditionSearchPlaceholder: 'Поиск по шаблонам...',
   conditionEmpty: 'Шаблоны не найдены',
+  /** Кнопка «все разделы» над списком */
+  allSections: 'Все',
 } as const;
 
 /** Подписи применения эффектов, предметов и боеприпасов */

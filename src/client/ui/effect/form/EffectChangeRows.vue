@@ -27,7 +27,7 @@
     describeEffectChangeValueHint,
     EFFECT_CONDITION_SUGGESTIONS,
     EFFECT_MODIFIER_MENU,
-    EFFECT_TARGET_SUGGESTIONS,
+    EFFECT_TARGET_LIBRARY,
     EFFECT_VALUE_SUGGESTIONS,
     getEffectChangeModeChoice,
     getEffectChangeShownValue,
@@ -737,7 +737,7 @@
     :title="ACTIVE_EFFECT_TEMPLATES_LABELS.keyTitle"
     :search-placeholder="ACTIVE_EFFECT_TEMPLATES_LABELS.keySearchPlaceholder"
     :empty-label="ACTIVE_EFFECT_TEMPLATES_LABELS.keyEmpty"
-    :items="EFFECT_TARGET_SUGGESTIONS"
+    :items="EFFECT_TARGET_LIBRARY"
     :modal-id="EFFECT_TEMPLATES_MODAL_IDS.key"
     @select="applyLibraryValue('key', $event)"
   />

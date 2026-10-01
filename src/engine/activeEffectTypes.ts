@@ -25,7 +25,6 @@ import type {
 } from '@vtt/shared';
 
 import type {
-  BLOODIED_CONDITION_KEY,
   ConditionKey,
   ConditionRef,
   DEATH_CONDITION_KEY,
@@ -45,12 +44,17 @@ import { z } from 'zod';
 
 import { isRecord, typedObjectEntries } from '@vtt/shared';
 
-import { INCAPACITATED_CONDITION_KEY } from './conditionKeys.js';
+import {
+  BLOODIED_CONDITION_KEY,
+  INCAPACITATED_CONDITION_KEY,
+} from './conditionKeys.js';
 import {
   CONDITIONS,
   CREATURE_CATEGORIES,
   isCreatureCategory,
   isSkillType,
+  MOVEMENT_KEYS,
+  MOVEMENT_LABELS,
   SELECTABLE_CONDITIONS,
   SKILLS_LABELS,
 } from './consts.js';
@@ -97,6 +101,7 @@ import {
   MIN_TRIGGER_PATH_FEET,
 } from './effectTriggerTypes.js';
 import { EFFECT_VARIANT_PICKS } from './effectVariants.js';
+import { buildStatusToken } from './formulaTokens.js';
 import { parseEachValid } from './lenientParse.js';
 import {
   MAX_SPELL_SLOT_LEVEL,
@@ -594,200 +599,451 @@ export function splitConditionParts(condition: string): string[] {
     .filter((part) => part.length > 0);
 }
 
-export const EFFECT_CONDITION_SUGGESTIONS: Array<{
+/** Разделы библиотеки условий — в порядке показа */
+export const EFFECT_CONDITION_SECTIONS = {
+  roll: 'Бросок и атака',
+  armor: 'Доспех носителя',
+  targetHp: 'Хиты цели',
+  targetMark: 'Метка цели',
+  adjacentAlly: 'Союзник рядом с целью',
+  defense: 'Защита: входящая атака',
+  carrierType: 'Тип носителя',
+  targetType: 'Тип цели',
+} as const;
+
+/** Пояснение к условиям, которые считаются по листу, без броска */
+const SHEET_CONDITION_HINT =
+  'Считается по листу: прибавка входит в постоянные числа (КД, скорость).';
+
+/** Пояснение к условиям броска: на числа листа они не влияют */
+const ROLL_CONDITION_HINT =
+  'Проверяется в момент броска; в числа листа строка не входит.';
+
+/**
+ * Подсказки условия строки: ровно те условия, которые движок умеет
+ * вычислить (см. описание словаря выше), — по разделам библиотеки.
+ */
+export const EFFECT_CONDITION_SUGGESTIONS: readonly EffectLibrarySuggestion[] =
+  [
+    ...inLibrarySection(
+      EFFECT_CONDITION_SECTIONS.roll,
+      [
+        {
+          value: 'roll.hasAdvantage === true',
+          label: 'Бросок: уже идёт с преимуществом',
+        },
+        {
+          value: 'roll.hasDisadvantage === true',
+          label: 'Бросок: уже идёт с помехой',
+        },
+        // Бонус урона оружия считается по характеристике, которой оно бьёт:
+        // на листе он виден у каждого оружия своим, а в бросок идёт из того же
+        // счёта
+        {
+          value: `${ATTACK_ABILITY_CONDITION_PREFIX}"strength"`,
+          label: 'Атака: Силой (урон оружия)',
+          hint: 'Урон Ярости: только удары Силой.',
+        },
+        {
+          value: `${ATTACK_ABILITY_CONDITION_PREFIX}"dexterity"`,
+          label: 'Атака: Ловкостью (урон оружия)',
+        },
+        // Только для замен свойств оружия (`weapon.*`): каждое оружие листа
+        // сверяется со списком само
+        {
+          value: SHILLELAGH_WEAPON_CONDITION,
+          label: 'Оружие: дубинка или боевой посох (Дубинка)',
+          hint: 'Для замен «Оружие: …». Виды — ключами через запятую в кавычках.',
+        },
+      ],
+      ROLL_CONDITION_HINT,
+    ),
+
+    // Считаются по самому листу, без броска: прибавка с таким условием
+    // попадает в постоянные числа (КД «Обороны» видно в блоке защиты, а не
+    // только в бою)
+    ...inLibrarySection(
+      EFFECT_CONDITION_SECTIONS.armor,
+      [
+        { value: 'self.armor === "any"', label: 'Носитель: в доспехе (любом)' },
+        { value: 'self.armor === "none"', label: 'Носитель: без доспеха' },
+        {
+          value: 'self.armor === "light"',
+          label: 'Носитель: в лёгком доспехе',
+        },
+        {
+          value: 'self.armor === "medium"',
+          label: 'Носитель: в среднем доспехе',
+        },
+        {
+          value: 'self.armor === "heavy"',
+          label: 'Носитель: в тяжёлом доспехе',
+        },
+        { value: 'self.armor === "shield"', label: 'Носитель: со щитом' },
+        { value: 'self.armor === "noShield"', label: 'Носитель: без щита' },
+        {
+          value: `${CARRIER_ARMOR_CONDITION_PREFIX}"none" ${CONDITION_AND_SEPARATOR} ${CARRIER_ARMOR_CONDITION_PREFIX}"noShield"`,
+          label: 'Носитель: без доспеха и без щита',
+          hint:
+            `Условия соединяются «${CONDITION_AND_SEPARATOR}» — нужны все сразу. `
+            + '«Или» и отрицаний нет.',
+        },
+      ],
+      SHEET_CONDITION_HINT,
+    ),
+
+    ...inLibrarySection(
+      EFFECT_CONDITION_SECTIONS.targetHp,
+      [
+        {
+          value: 'target.hp.value === target.hp.max',
+          label: 'Цель: с полными хитами (Убийца)',
+        },
+        {
+          value: 'target.hp.value < target.hp.max',
+          label: 'Цель: ранена (неполные хиты)',
+        },
+        {
+          value: 'target.hp.value <= (target.hp.max / 2)',
+          label: 'Цель: не больше половины хитов (Окровавлен)',
+        },
+      ],
+      ROLL_CONDITION_HINT,
+    ),
+
+    ...inLibrarySection(
+      EFFECT_CONDITION_SECTIONS.targetMark,
+      [
+        {
+          value: 'target.markedBySelf',
+          label: 'Цель помечена мной (Метка охотника, Сглаз)',
+        },
+      ],
+      ROLL_CONDITION_HINT,
+    ),
+
+    ...inLibrarySection(
+      EFFECT_CONDITION_SECTIONS.adjacentAlly,
+      ADJACENT_ALLY_CONDITION_OPTIONS.map((option) => ({
+        value: option.value,
+        label: `${ADJACENT_ALLY_CONDITION_LABEL} — ${option.label}`,
+      })),
+      ROLL_CONDITION_HINT,
+    ),
+
+    // Входящая атака: КД, «Атаки по носителю» и условие броска эффекта
+    ...inLibrarySection(
+      EFFECT_CONDITION_SECTIONS.defense,
+      [
+        {
+          value: 'incoming.attackType === "melee"',
+          label: 'Защита: от рукопашных атак',
+        },
+        {
+          value: 'incoming.attackType === "ranged"',
+          label: 'Защита: от дальнобойных атак',
+        },
+        {
+          value: 'incoming.attackType === "spell"',
+          label: 'Защита: от атак заклинаниями',
+        },
+        ...typedObjectEntries(CREATURE_CATEGORIES).map(
+          ([creatureType, label]) => ({
+            value: `${INCOMING_ATTACKER_TYPE_CONDITION_PREFIX}"${creatureType}"`,
+            label: `Защита: атакующий — ${label}`,
+          }),
+        ),
+      ],
+      'Для КД и «Атак по носителю»: проверяется, когда атакуют носителя.',
+    ),
+
+    // Собираются по справочнику, а не переписаны руками: список типов один
+    // на всю систему, и вручную повторённый разошёлся бы с ним при первой же
+    // правке
+    ...inLibrarySection(
+      EFFECT_CONDITION_SECTIONS.carrierType,
+      typedObjectEntries(CREATURE_CATEGORIES).map(([creatureType, label]) => ({
+        value: `${CARRIER_TYPE_CONDITION_PREFIX}"${creatureType}"`,
+        label: `Носитель: ${label}`,
+      })),
+      SHEET_CONDITION_HINT,
+    ),
+    ...inLibrarySection(
+      EFFECT_CONDITION_SECTIONS.targetType,
+      typedObjectEntries(CREATURE_CATEGORIES).map(([creatureType, label]) => ({
+        value: `${TARGET_TYPE_CONDITION_PREFIX}"${creatureType}"`,
+        label: `Цель: ${label}`,
+      })),
+      ROLL_CONDITION_HINT,
+    ),
+  ];
+
+/**
+ * Строка библиотеки подсказок формы эффекта: значение, условие или ключ.
+ *
+ * Раздел и пояснение нужны автору, который придумывает эффект сам: по одному
+ * названию `@castLevel` не понять, что он живёт только у заклинаний, а
+ * `steps(…)` без примера не найти вовсе.
+ */
+export interface EffectLibrarySuggestion {
+  /** Что подставится в поле */
   value: string;
+  /** Название строки */
+  label: string;
+  /** Раздел библиотеки — подпись, по которой строки собираются вместе */
+  section: string;
+  /** Где работает и как дописать под себя; нет — хватает названия */
+  hint?: string;
+}
+
+/** Строка раздела до того, как ей назначен раздел */
+type SectionEntry = Omit<EffectLibrarySuggestion, 'section'>;
+
+/**
+ * Проставляет раздел строкам одного раздела — чтобы не повторять его в
+ * каждой строке списка.
+ *
+ * @param section - подпись раздела
+ * @param entries - строки раздела
+ * @param sharedHint - пояснение для строк, у которых своего нет
+ * @returns строки библиотеки
+ */
+function inLibrarySection(
+  section: string,
+  entries: readonly SectionEntry[],
+  sharedHint?: string,
+): EffectLibrarySuggestion[] {
+  return entries.map((entry) => {
+    const hint = entry.hint ?? sharedHint;
+
+    return hint ? { ...entry, section, hint } : { ...entry, section };
+  });
+}
+
+/**
+ * Урон Ярости PHB 2024: +2, с 9-го уровня варвара +3, с 16-го +4. Общий для
+ * библиотеки значений и меню «Готовые» — пример ступеней `steps(…)`.
+ */
+export const RAGE_DAMAGE_BONUS_FORMULA = '2 + steps(@classLevel, 9, 16)';
+
+/** Разделы библиотеки значений — в порядке показа */
+export const EFFECT_VALUE_SECTIONS = {
+  sheet: 'Числа листа',
+  scaling: 'Рост по уровню и функции',
+  dice: 'Кости',
+  speeds: 'Скорости листа',
+  damageType: 'Урон: тип',
+  damageGate: 'Урон: только если…',
+  healing: 'Лечение',
+  spell: 'Заклинание и эффект',
+} as const;
+
+/** Пояснение к токенам-гейтам урона: гасят своё слагаемое */
+const DAMAGE_GATE_HINT =
+  'Только в уроне. Гасит своё слагаемое: в «1к8 + 2к6@…» 2к6 добавятся, '
+  + 'только если условие выполнено.';
+
+/**
+ * Типы урона библиотеки значений. Названия — как в справочнике
+ * `damage-types.json` и на сайте: «Огонь» рядом с «Огненный» читался бы
+ * другим типом.
+ */
+const VALUE_DAMAGE_TYPES: ReadonlyArray<{
+  damageType: DefensibleDamageType;
   label: string;
 }> = [
-  // === БРОСКИ ===
-  {
-    value: 'roll.hasAdvantage === true',
-    label: 'Бросок: уже идёт с преимуществом',
-  },
-  {
-    value: 'roll.hasDisadvantage === true',
-    label: 'Бросок: уже идёт с помехой',
-  },
-
-  // === ХАРАКТЕРИСТИКА АТАКИ ===
-  // Бонус урона оружия считается по характеристике, которой оно бьёт: на
-  // листе он виден у каждого оружия своим, а в бросок идёт из того же счёта
-  {
-    value: `${ATTACK_ABILITY_CONDITION_PREFIX}"strength"`,
-    label: 'Атака: Силой (урон оружия)',
-  },
-  {
-    value: `${ATTACK_ABILITY_CONDITION_PREFIX}"dexterity"`,
-    label: 'Атака: Ловкостью (урон оружия)',
-  },
-
-  // === ВИД ОРУЖИЯ ===
-  // Только для замен свойств оружия (`weapon.*`): каждое оружие листа
-  // сверяется со списком само
-  {
-    value: SHILLELAGH_WEAPON_CONDITION,
-    label: 'Оружие: дубинка или боевой посох (Дубинка)',
-  },
-
-  // === ДОСПЕХ НОСИТЕЛЯ ===
-  // Считаются по самому листу, без броска: прибавка с таким условием попадает
-  // в постоянные числа (КД «Обороны» видно в блоке защиты, а не только в бою).
-  {
-    value: 'self.armor === "any"',
-    label: 'Носитель: в доспехе (любом)',
-  },
-  {
-    value: 'self.armor === "none"',
-    label: 'Носитель: без доспеха',
-  },
-  {
-    value: 'self.armor === "light"',
-    label: 'Носитель: в лёгком доспехе',
-  },
-  {
-    value: 'self.armor === "medium"',
-    label: 'Носитель: в среднем доспехе',
-  },
-  {
-    value: 'self.armor === "heavy"',
-    label: 'Носитель: в тяжёлом доспехе',
-  },
-  {
-    value: 'self.armor === "shield"',
-    label: 'Носитель: со щитом',
-  },
-  {
-    value: 'self.armor === "noShield"',
-    label: 'Носитель: без щита',
-  },
-
-  // === ХИТЫ ЦЕЛИ ===
-  {
-    value: 'target.hp.value === target.hp.max',
-    label: 'Цель: с полными хитами (Убийца)',
-  },
-  {
-    value: 'target.hp.value < target.hp.max',
-    label: 'Цель: ранена (неполные хиты)',
-  },
-  {
-    value: 'target.hp.value <= (target.hp.max / 2)',
-    label: 'Цель: не больше половины хитов (Окровавлен)',
-  },
-
-  // === МЕТКА ЦЕЛИ ===
-  {
-    value: 'target.markedBySelf',
-    label: 'Цель помечена мной (Метка охотника, Сглаз)',
-  },
-  ...ADJACENT_ALLY_CONDITION_OPTIONS.map((option) => ({
-    value: option.value,
-    label: `${ADJACENT_ALLY_CONDITION_LABEL} — ${option.label}`,
-  })),
-
-  // === ЗАЩИТА ===
-  // Входящая атака: КД, «Атаки по носителю» и условие броска эффекта
-  {
-    value: 'incoming.attackType === "melee"',
-    label: 'Защита: от рукопашных атак',
-  },
-  {
-    value: 'incoming.attackType === "ranged"',
-    label: 'Защита: от дальнобойных атак',
-  },
-  {
-    value: 'incoming.attackType === "spell"',
-    label: 'Защита: от атак заклинаниями',
-  },
-  ...typedObjectEntries(CREATURE_CATEGORIES).map(([creatureType, label]) => ({
-    value: `${INCOMING_ATTACKER_TYPE_CONDITION_PREFIX}"${creatureType}"`,
-    label: `Защита: атакующий — ${label}`,
-  })),
-
-  // === ТИП СУЩЕСТВА ===
-  // Собираются по справочнику, а не переписаны руками: список типов один на всю
-  // систему, и вручную повторённый разошёлся бы с ним при первой же правке
-  ...typedObjectEntries(CREATURE_CATEGORIES).map(([creatureType, label]) => ({
-    value: `self.creatureType === "${creatureType}"`,
-    label: `Носитель: ${label}`,
-  })),
-  ...typedObjectEntries(CREATURE_CATEGORIES).map(([creatureType, label]) => ({
-    value: `target.creatureType === "${creatureType}"`,
-    label: `Цель: ${label}`,
-  })),
+  { damageType: 'fire', label: 'Огненный' },
+  { damageType: 'cold', label: 'Холодный' },
+  { damageType: 'lightning', label: 'Электрический' },
+  { damageType: 'thunder', label: 'Звуковой' },
+  { damageType: 'acid', label: 'Кислотный' },
+  { damageType: 'poison', label: 'Ядовитый' },
+  { damageType: 'necrotic', label: 'Некротический' },
+  { damageType: 'radiant', label: 'Излучение' },
+  { damageType: 'force', label: 'Силовое поле' },
+  { damageType: 'psychic', label: 'Психический' },
+  { damageType: 'bludgeoning', label: 'Дробящий' },
+  { damageType: 'piercing', label: 'Колющий' },
+  { damageType: 'slashing', label: 'Рубящий' },
 ];
 
 /**
- * Популярные формулы, типы урона, лечение и переменные для подсказок значения эффекта.
+ * Подсказки значения модификатора — всё, что понимает формула движка:
+ * переменные листа, функции, кости, токены урона и лечения.
+ *
+ * Каждая строка обязана проходить проверку поля значения хотя бы у одного
+ * ключа: пример, который форма подсветит ошибкой, хуже отсутствия примера.
  */
-export const EFFECT_VALUE_SUGGESTIONS: Array<{
-  value: string;
-  label: string;
-}> = [
-  // Характеристики и модификаторы
-  { value: '@mod.spell', label: 'Модификатор заклинательной характеристики' },
-  { value: '@mod.str', label: 'Модификатор Силы' },
-  { value: '@mod.dex', label: 'Модификатор Ловкости' },
-  { value: '@mod.con', label: 'Модификатор Телосложения' },
-  { value: '@mod.int', label: 'Модификатор Интеллекта' },
-  { value: '@mod.wis', label: 'Модификатор Мудрости' },
-  { value: '@mod.cha', label: 'Модификатор Харизмы' },
-  { value: '@prof', label: 'Бонус мастерства актора (@prof)' },
-  { value: '@level', label: 'Общий уровень персонажа (@level)' },
-  {
-    value: '@classLevel',
-    label: 'Уровень в классе умения (@classLevel; у своего эффекта — общий)',
-  },
+export const EFFECT_VALUE_SUGGESTIONS: readonly EffectLibrarySuggestion[] = [
+  ...inLibrarySection(EFFECT_VALUE_SECTIONS.sheet, [
+    { value: '@mod.str', label: 'Модификатор Силы' },
+    { value: '@mod.dex', label: 'Модификатор Ловкости' },
+    { value: '@mod.con', label: 'Модификатор Телосложения' },
+    { value: '@mod.int', label: 'Модификатор Интеллекта' },
+    { value: '@mod.wis', label: 'Модификатор Мудрости' },
+    { value: '@mod.cha', label: 'Модификатор Харизмы' },
+    {
+      value: '@str',
+      label: 'Значение характеристики (@str, @dex, @con, @int, @wis, @cha)',
+      hint: 'Само значение (16), а не модификатор (+3).',
+    },
+    { value: '@prof', label: 'Бонус мастерства' },
+    { value: '@level', label: 'Общий уровень персонажа' },
+    {
+      value: '@classLevel',
+      label: 'Уровень в классе умения',
+      hint:
+        'У умения класса — уровень в этом классе: у мультиклассера он меньше '
+        + 'общего. У своего эффекта — общий уровень.',
+    },
+  ]),
 
-  // Кость к броску: катается в самом броске атаки, спасброска, проверки или
-  // навыка. Вычитается той же строкой со знаком минус — отдельной подсказки
+  ...inLibrarySection(EFFECT_VALUE_SECTIONS.scaling, [
+    {
+      value: RAGE_DAMAGE_BONUS_FORMULA,
+      label: 'Ступени: +2, с 9-го уровня +3, с 16-го +4 (урон Ярости)',
+      hint:
+        'steps(значение, порог1, порог2, …) — сколько порогов значение уже '
+        + 'прошло. Пороги — по возрастанию.',
+    },
+    {
+      value: 'floor(@level / 2)',
+      label: 'Половина уровня, округление вниз',
+      hint: 'floor — вниз, ceil — вверх. Деление без них даёт дробь.',
+    },
+    { value: 'ceil(@level / 2)', label: 'Половина уровня, округление вверх' },
+    {
+      value: 'max(1, @mod.cha)',
+      label: 'Не меньше 1: модификатор Харизмы, минимум 1',
+      hint: 'max(a, b) — большее из чисел, min(a, b) — меньшее.',
+    },
+    { value: 'min(@level, 10)', label: 'Не больше 10: уровень, но не выше' },
+    {
+      value: '@prof * 2',
+      label: 'Арифметика: удвоенный бонус мастерства',
+      hint: 'Можно + − * / и скобки: «(@level + 1) / 2».',
+    },
+    { value: 'abs(@mod.str)', label: 'Число без знака (модуль)' },
+  ]),
+
+  // Вычитается кость той же строкой со знаком минус — отдельной подсказки
   // «−1к4» нет, это было бы то же самое
-  { value: '1к4', label: 'Кость к броску' },
+  ...inLibrarySection(EFFECT_VALUE_SECTIONS.dice, [
+    {
+      value: '1к4',
+      label: 'Кость к броску',
+      hint:
+        'Бросается заново в каждой атаке, спасброске, проверке или уроне. '
+        + 'В числах листа (КД, скорость) кости не работают. Режим — '
+        + '«Добавить» или «Вычесть».',
+    },
+    {
+      value: '2к6',
+      label: 'Дополнительный урон костями',
+      hint:
+        'Урон без типа получает тип оружия или заклинания. Свой тип — в '
+        + `разделе «${EFFECT_VALUE_SECTIONS.damageType}».`,
+    },
+  ]),
 
-  // Скорости листа: ими задаётся «полёт равен скорости ходьбы»
-  { value: '@speed.walk', label: 'Скорость ходьбы листа' },
-  { value: '@speed.fly', label: 'Скорость полёта листа' },
-  { value: '@speed.swim', label: 'Скорость плавания листа' },
-  { value: '@speed.climb', label: 'Скорость лазания листа' },
-  { value: '@speed.burrow', label: 'Скорость копания листа' },
+  // Ими задаётся «полёт равен скорости ходьбы»
+  ...inLibrarySection(
+    EFFECT_VALUE_SECTIONS.speeds,
+    MOVEMENT_KEYS.map((movementType) => ({
+      value: `@speed.${movementType}`,
+      label: `Скорость: ${MOVEMENT_LABELS[movementType]}`,
+    })),
+    'Режим «Не меньше» у другой скорости: «полёт равен ходьбе».',
+  ),
 
-  // Типы урона (с токенами). Названия — как в справочнике `damage-types.json`
-  // и на сайте: «Огонь» рядом с «Огненный» читался бы другим типом
-  { value: '1к6@dmg.fire', label: 'Урон: Огненный (например, 1к6)' },
-  { value: '1к6@dmg.cold', label: 'Урон: Холодный' },
-  { value: '1к6@dmg.lightning', label: 'Урон: Электрический' },
-  { value: '1к6@dmg.thunder', label: 'Урон: Звуковой' },
-  { value: '1к6@dmg.acid', label: 'Урон: Кислотный' },
-  { value: '1к6@dmg.poison', label: 'Урон: Ядовитый' },
-  { value: '1к6@dmg.necrotic', label: 'Урон: Некротический' },
-  { value: '1к6@dmg.radiant', label: 'Урон: Излучение' },
-  { value: '1к6@dmg.force', label: 'Урон: Силовое поле' },
-  { value: '1к6@dmg.psychic', label: 'Урон: Психический' },
-  { value: '1к6@dmg.bludgeoning', label: 'Урон: Дробящий' },
-  { value: '1к6@dmg.piercing', label: 'Урон: Колющий' },
-  { value: '1к6@dmg.slashing', label: 'Урон: Рубящий' },
-  // Один тип из списка: несколько `@dmg.<тип>` подряд — это урон всеми сразу
-  {
-    value: '1к6@dmg.choice(fire,cold)',
-    label: 'Урон: тип на выбор бросающего (варианты через запятую)',
-  },
-  {
-    value: '1к6@dmg.random(fire,cold)',
-    label: 'Урон: тип случайно из списка (равные шансы)',
-  },
+  ...inLibrarySection(
+    EFFECT_VALUE_SECTIONS.damageType,
+    [
+      ...VALUE_DAMAGE_TYPES.map(({ damageType, label }) => ({
+        value: `1к6@dmg.${damageType}`,
+        label,
+      })),
+      // Один тип из списка: несколько `@dmg.<тип>` подряд — урон всеми сразу
+      {
+        value: '1к6@dmg.choice(fire,cold)',
+        label: 'Тип на выбор бросающего',
+        hint: 'Варианты через запятую; перед броском спросят, какой.',
+      },
+      {
+        value: '1к6@dmg.random(fire,cold)',
+        label: 'Тип случайно из списка',
+        hint: 'Шансы равные; выпавший тип попадёт в чат.',
+      },
+      {
+        value: '1к6@dmg.fire + 1к6@dmg.cold',
+        label: 'Два типа сразу',
+        hint: 'Каждое слагаемое — своим типом.',
+      },
+    ],
+    'Тип пишется после кости: «2к6@dmg.fire». Кость меняйте под себя.',
+  ),
 
-  // Лечение
-  { value: '1к8@heal', label: 'Лечение (например, 1к8)' },
-  { value: '1к8@heal.temp', label: 'Временные хиты (Temp HP)' },
+  ...inLibrarySection(
+    EFFECT_VALUE_SECTIONS.damageGate,
+    [
+      { value: '1к6@target.full', label: 'Цель с полными хитами' },
+      { value: '1к6@target.notFull', label: 'Цель ранена' },
+      {
+        value: '1к6@target.type.undead',
+        label: 'Цель — существо типа (здесь нежить)',
+        hint: `${DAMAGE_GATE_HINT} Тип — ключом: undead, fiend, dragon…`,
+      },
+      {
+        value: `1к6${buildStatusToken('target', 'prone')}`,
+        label: 'Цель в состоянии (здесь Ничком)',
+        hint: `${DAMAGE_GATE_HINT} Состояние — ключом: prone, restrained…`,
+      },
+      {
+        value: `1к6${buildStatusToken('self', BLOODIED_CONDITION_KEY)}`,
+        label: 'Бросающий в состоянии (здесь Окровавлен)',
+      },
+    ],
+    DAMAGE_GATE_HINT,
+  ),
 
-  // Условия по цели в формуле
-  {
-    value: '1к6@target.full',
-    label: 'Формула: Урон только при полном HP цели',
-  },
-  {
-    value: '1к6@target.notFull',
-    label: 'Формула: Урон только по раненой цели',
-  },
+  ...inLibrarySection(EFFECT_VALUE_SECTIONS.healing, [
+    {
+      value: '1к8@heal',
+      label: 'Лечение',
+      hint: 'Восстанавливает хиты вместо урона.',
+    },
+    {
+      value: '1к8@heal.temp',
+      label: 'Временные хиты',
+      hint: 'С имеющимися не складываются — остаётся большее.',
+    },
+  ]),
+
+  ...inLibrarySection(EFFECT_VALUE_SECTIONS.spell, [
+    {
+      value: '@mod.spell',
+      label: 'Модификатор заклинательной характеристики',
+      hint: 'Только у эффекта заклинания.',
+    },
+    {
+      value: '(@castLevel)к10',
+      label: 'Круг ячейки: костей столько, каков круг (Лунный луч)',
+      hint:
+        '@castLevel — круг, которым сотворили. Только у эффекта заклинания: '
+        + 'число подставляется при касте.',
+    },
+    {
+      value: '5 * (@castLevel - 1)',
+      label: 'Круг ячейки: прибавка за каждый круг выше 1-го (Подмога)',
+    },
+    {
+      value: '@roll',
+      label: 'Сохранённый бросок',
+      hint:
+        'Число из поля «Сохранённый бросок»: кость бросается один раз, когда '
+        + 'эффект ложится, и дальше не меняется.',
+    },
+  ]),
 ];
 
 // ── Ключи булевых флагов ──────────────────────────────────────

@@ -19,7 +19,10 @@
  * @module system/dnd/effectFlagMenu
  */
 
-import type { EffectFlagKey } from './activeEffectTypes.js';
+import type {
+  EffectFlagKey,
+  EffectLibrarySuggestion,
+} from './activeEffectTypes.js';
 import type { DamageDefenseKind } from './damageConstants.js';
 
 import { typedObjectEntries } from '@vtt/shared';
@@ -235,3 +238,32 @@ function buildFlagMenu(): EffectFlagMenuGroup[] {
  * Считается один раз: список флагов статичен.
  */
 export const EFFECT_FLAG_MENU: readonly EffectFlagMenuGroup[] = buildFlagMenu();
+
+/**
+ * Строки библиотеки флагов одного раздела меню; вложенные разделы (виды
+ * защиты от урона) становятся разделами библиотеки сами.
+ *
+ * @param group - раздел меню
+ * @returns строки библиотеки
+ */
+function librarySectionOf(
+  group: EffectFlagMenuGroup,
+): EffectLibrarySuggestion[] {
+  return [
+    // Полная подпись, а не короткая пункта меню: в поиске «Огненный урон»
+    // без «Сопротивление» не отличить от иммунитета
+    ...group.items.map((item) => ({
+      value: item.key,
+      label: EFFECT_FLAG_LABELS[item.key],
+      section: group.label,
+    })),
+    ...(group.groups ?? []).flatMap(librarySectionOf),
+  ];
+}
+
+/**
+ * Библиотека особых правил теми же разделами, что и меню «Готовые»: одна
+ * раскладка на оба входа.
+ */
+export const EFFECT_FLAG_LIBRARY: readonly EffectLibrarySuggestion[] =
+  EFFECT_FLAG_MENU.flatMap(librarySectionOf);
