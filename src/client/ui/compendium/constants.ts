@@ -119,3 +119,16 @@ export const COMPENDIUM_SECTION_VIEWS: Readonly<
     ],
   },
 };
+
+/** Подписи правки записей своего компендиума в окне раздела. */
+export const COMPENDIUM_AUTHORING_LABELS = {
+  create: 'Создать',
+  createTooltip: 'Создать запись в этом разделе',
+  failedTitle: 'Не удалось сохранить',
+  wrongKind: 'Запись другого типа — в этот раздел её сохранить нельзя.',
+  unreadable: 'Запись не удалось открыть для правки: у неё незнакомая форма.',
+  deleteTitle: 'Удалить запись?',
+  deleteText: 'Запись будет удалена из компендиума. Отменить это нельзя.',
+  deleteCancel: 'Отмена',
+  deleteConfirm: 'Удалить',
+} as const;

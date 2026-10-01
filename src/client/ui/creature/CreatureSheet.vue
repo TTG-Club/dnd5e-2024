@@ -147,15 +147,27 @@
       activeEffects?: DnDCreature['activeEffects'];
       [key: string]: unknown;
     };
+    /**
+     * Лист правит не существо мира, а черновик: каждое сохранение уходит сюда,
+     * а в мир не пишется ничего. Так правят запись существа в своём
+     * компендиуме: `initialData` — запись (у новой её нет), `creatureId` и
+     * `creatures` не задаются.
+     */
+    draftSave?: (creature: DnDCreature) => void;
   }
 
   const props = defineProps<Props>();
 
   const worldStore = useWorldStore();
 
-  /** Режим только просмотр (компендиум, без сокета) */
+  /**
+   * Режим только просмотр (компендиум, без сокета). Черновик своего
+   * компендиума — не просмотр: его правят, просто сохранение идёт в `draftSave`.
+   */
   const isReadOnly = computed(
-    () => !props.socket || (!props.creatures && !!props.initialData),
+    () =>
+      !props.socket
+      || (!props.creatures && !!props.initialData && !props.draftSave),
   );
 
   const emit = defineEmits<{
@@ -218,6 +230,18 @@
   const isDirty = ref(false);
   const isSaving = ref(false);
   const isCreated = ref(false);
+
+  /**
+   * Лист создаёт новое существо, а не правит готовое. Черновик записи
+   * компендиума с данными (`initialData`) — уже готовое существо, хотя
+   * идентификатора мира у него нет.
+   */
+  const isCreating = computed(
+    () =>
+      !props.creatureId
+      && !isCreated.value
+      && !(props.draftSave && props.initialData),
+  );
 
   /** Актуальное существо из хоста: локальный черновик не определяет права. */
   const storeCreature = computed(() => {
@@ -505,7 +529,9 @@
 
     emit('update:creature', localCreature.value);
 
-    if (props.socket && props.creatureId) {
+    if (props.draftSave) {
+      props.draftSave(JSON.parse(JSON.stringify(localCreature.value)));
+    } else if (props.socket && props.creatureId) {
       props.socket.emit(
         'creature:updated',
         withoutEntityOwnership(localCreature.value),
@@ -1019,7 +1045,12 @@
     try {
       requireSocket(props.socket);
 
-      if (props.creatureId) {
+      const wasCreating = isCreating.value;
+
+      if (props.draftSave) {
+        props.draftSave(JSON.parse(JSON.stringify(localCreature.value)));
+        isCreated.value = true;
+      } else if (props.creatureId) {
         props.socket!.emit(
           'creature:updated',
           withoutEntityOwnership(localCreature.value),
@@ -1038,10 +1069,9 @@
 
       toast.add({
         title: CREATURE_SHEET_LABELS.savedTitle,
-        description:
-          props.creatureId || isCreated.value
-            ? CREATURE_SHEET_LABELS.savedUpdated
-            : CREATURE_SHEET_LABELS.savedCreated,
+        description: wasCreating
+          ? CREATURE_SHEET_LABELS.savedCreated
+          : CREATURE_SHEET_LABELS.savedUpdated,
         color: 'success',
       });
 
@@ -1287,7 +1317,9 @@
     // В режиме правки жест не принимается: у отправителя предмет уходит сразу и
     // на сервер, а здесь правки копятся до «Сохранить» — «Отмена» стёрла бы
     // предмет уже после того, как его отдали, и он пропал бы у обоих
-    if (isEditMode.value || !localCreature.value) {
+    // Черновик своего компендиума предмет не принимает: у отправителя он ушёл бы
+    // из мира насовсем — в запись компендиума, а не к существу на столе
+    if (isEditMode.value || !localCreature.value || props.draftSave) {
       return false;
     }
 
@@ -1639,7 +1671,7 @@
         <CreatureHeader
           :creature="localCreature"
           :is-edit-mode="isEditMode"
-          :is-creating="!props.creatureId && !isCreated"
+          :is-creating="isCreating"
           :can-edit="canControl && !isReadOnly"
           @update="handleCreatureUpdate"
           @update:system="handleSystemUpdate"

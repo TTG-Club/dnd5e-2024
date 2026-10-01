@@ -21,6 +21,10 @@
     challengeRating?: string;
     /** Показать кнопку «Скопировать» в ПКМ-меню */
     showCopy?: boolean;
+    /** Показать «Редактировать» в ПКМ-меню (запись своего компендиума) */
+    showEdit?: boolean;
+    /** Показать «Удалить» в ПКМ-меню (запись своего компендиума) */
+    showDelete?: boolean;
     /** Картинка токена — вместо значка в строке списка */
     imageUrl?: string;
     /** Ключ источника-книги — бейджем справа в строке списка */
@@ -92,6 +96,8 @@
     :pos-y="menuY"
     :show-copy="showCopy"
     :copy-label="CREATURE_LIST_ITEM_LABELS.copyTarget"
+    :show-edit="showEdit"
+    :show-delete="showDelete"
     @action="handleAction"
     @close="closeMenu"
   />

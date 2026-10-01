@@ -166,3 +166,111 @@ describe('существо мира в запись компендиума', () 
     });
   });
 });
+
+describe('запись компендиума в предмет для формы правки', () => {
+  it('оружие возвращается предметом с ключом записи вместо мирового id', () => {
+    const item = engine.compendiumEntryToWorldItem('weapon', {
+      id: 'flame-blade-compendium-pack',
+      type: 'weapon',
+      name: 'Огненный меч',
+      description: '',
+      quantity: 1,
+      weight: 3,
+      cost: '',
+      rarity: 'rare',
+      originId: 'item_1',
+    });
+
+    assert.equal(item.id, 'flame-blade-compendium-pack');
+    assert.equal(item.equipped, false);
+    assert.equal(item.isReadOnly, false);
+    assert.equal(item.name, 'Огненный меч');
+  });
+
+  it('правка формой и обратно даёт ту же запись', () => {
+    const entry = {
+      type: 'weapon',
+      name: 'Огненный меч',
+      nameEn: 'Flame Blade',
+      description: '<p>Горит</p>',
+      quantity: 1,
+      weight: 3,
+      cost: '50 зм',
+      rarity: 'rare',
+      sourceKey: 'hb',
+    };
+
+    const item = engine.compendiumEntryToWorldItem('weapon', {
+      ...entry,
+      id: 'flame-blade-compendium-pack',
+    });
+
+    assert.deepEqual(engine.worldItemToCompendiumEntry('weapon', item), entry);
+  });
+
+  it('заклинание оборачивается в предмет с вложенным определением', () => {
+    const item = engine.compendiumEntryToWorldItem('spell', {
+      id: 'fireball-compendium-pack',
+      type: 'spell',
+      name: 'Огненный шар',
+      description: 'Взрыв',
+      level: 3,
+      school: 'evocation',
+      sourceKey: 'hb',
+    });
+
+    assert.equal(item.type, 'spell');
+    assert.equal(item.id, 'fireball-compendium-pack');
+    assert.equal(item.name, 'Огненный шар');
+    assert.equal(item.spellData.level, 3);
+    assert.equal(item.spellData.id, 'fireball-compendium-pack');
+  });
+
+  it('класс и вид оборачиваются, ключ определения остаётся', () => {
+    const classItem = engine.compendiumEntryToWorldItem('class', {
+      type: 'class',
+      key: 'witch-ab12',
+      name: 'Ведьма',
+      hitDie: 8,
+    });
+
+    assert.equal(classItem.id, 'witch-ab12');
+    assert.equal(classItem.classData.key, 'witch-ab12');
+
+    const speciesItem = engine.compendiumEntryToWorldItem('species', {
+      type: 'species',
+      key: 'catfolk-cd34',
+      name: 'Табакси',
+      creatureType: 'humanoid',
+    });
+
+    assert.equal(speciesItem.speciesData.key, 'catfolk-cd34');
+  });
+
+  it('запись чужого типа и запись незнакомой формы не открываются', () => {
+    assert.equal(
+      engine.compendiumEntryToWorldItem('weapon', {
+        id: 'x',
+        type: 'equipment',
+        name: 'Щит',
+      }),
+      null,
+    );
+
+    assert.equal(
+      engine.compendiumEntryToWorldItem('spell', {
+        type: 'spell',
+        name: 'Без круга',
+      }),
+      null,
+    );
+
+    assert.equal(
+      engine.compendiumEntryToWorldItem('class', {
+        key: 'no-type',
+        name: 'Без типа',
+      }),
+      null,
+    );
+  });
+});

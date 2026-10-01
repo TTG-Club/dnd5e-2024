@@ -16,6 +16,13 @@
 import type { BaseCreature } from '@vtt/shared';
 
 import type { DnDGameItem } from './dndEntities.js';
+import type { SpeciesDefinition } from './speciesTypes.js';
+
+import { isRecord } from '@vtt/shared';
+
+import { isClassDefinition } from './classTypes.js';
+import { isDnDGameItem } from './itemSchemas.js';
+import { isSpell } from './spellUtils.js';
 
 /** Запись компендиума в виде, готовом к сохранению. */
 export type CompendiumEntryDraft = Record<string, unknown>;
@@ -154,4 +161,109 @@ export function worldCreatureToCompendiumEntry(
     spells: 'spells' in creature ? creature.spells : undefined,
     equipment: 'equipment' in creature ? creature.equipment : undefined,
   };
+}
+
+/**
+ * Проверяет, что запись — определение вида: ключ, по которому вид находит лист,
+ * и тип существа, без которого вид не применить.
+ *
+ * @param value - запись компендиума
+ * @returns `true`, если запись похожа на определение вида
+ */
+function isSpeciesEntry(value: unknown): value is SpeciesDefinition {
+  return (
+    isRecord(value)
+    && typeof value.key === 'string'
+    && typeof value.name === 'string'
+    && 'creatureType' in value
+  );
+}
+
+/**
+ * Читает необязательную строку записи.
+ *
+ * @param entry - запись компендиума
+ * @param field - имя поля
+ * @returns значение поля либо `undefined`, если его нет или оно не строка
+ */
+function readEntryText(
+  entry: CompendiumEntryDraft,
+  field: string,
+): string | undefined {
+  const value = entry[field];
+
+  return typeof value === 'string' ? value : undefined;
+}
+
+/**
+ * Собирает предмет-обёртку для определения из компендиума — в том виде, в каком
+ * его ждут формы заклинания, класса и вида.
+ *
+ * @param kind - тип записей раздела
+ * @param entry - запись компендиума
+ * @param entryKey - ключ записи; пустой у записи, которой ещё нет в разделе
+ * @returns общие поля предмета-обёртки
+ */
+function buildDefinitionWrapper(
+  kind: string,
+  entry: CompendiumEntryDraft,
+  entryKey: string,
+): DnDGameItem {
+  return {
+    id: entryKey,
+    name: readEntryText(entry, 'name') ?? '',
+    nameEn: readEntryText(entry, 'nameEn'),
+    description: readEntryText(entry, 'description') ?? '',
+    type: kind,
+    quantity: 1,
+    weight: 0,
+    cost: '',
+    rarity: 'common',
+    equipped: false,
+    sourceKey: readEntryText(entry, 'sourceKey'),
+    isSRD: entry.isSRD === true,
+    isReadOnly: false,
+  };
+}
+
+/**
+ * Превращает запись своего компендиума в предмет для формы правки — в ту же
+ * форму, которой правят записи «Мастерской». Обратно к
+ * {@link worldItemToCompendiumEntry}: сохранённое формой проходит через него и
+ * возвращается записью.
+ *
+ * @param kind - тип записей раздела (`dataKind`)
+ * @param entry - запись компендиума
+ * @returns предмет для формы либо `null`, если запись не разобрать
+ */
+export function compendiumEntryToWorldItem(
+  kind: string,
+  entry: CompendiumEntryDraft,
+): DnDGameItem | null {
+  const entryKey =
+    readEntryText(entry, 'id') ?? readEntryText(entry, 'key') ?? '';
+
+  if (kind === COMPENDIUM_SPELL_KIND) {
+    const spell = { ...entry, id: entryKey };
+
+    return isSpell(spell)
+      ? { ...buildDefinitionWrapper(kind, entry, entryKey), spellData: spell }
+      : null;
+  }
+
+  if (kind === COMPENDIUM_CLASS_KIND) {
+    return isClassDefinition(entry)
+      ? { ...buildDefinitionWrapper(kind, entry, entryKey), classData: entry }
+      : null;
+  }
+
+  if (kind === COMPENDIUM_SPECIES_KIND) {
+    return isSpeciesEntry(entry)
+      ? { ...buildDefinitionWrapper(kind, entry, entryKey), speciesData: entry }
+      : null;
+  }
+
+  const item = { ...entry, id: entryKey, equipped: false, isReadOnly: false };
+
+  return isDnDGameItem(item) && item.type === kind ? item : null;
 }

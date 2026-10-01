@@ -30,7 +30,7 @@ import {
   COMPENDIUM_ITEM_SECTION_KINDS,
   COMPENDIUM_SECTION_FALLBACK_ICON,
   COMPENDIUM_SECTION_VIEWS,
-} from './constants';
+} from '../../ui/compendium/constants';
 
 /**
  * Собирает запись раздела из записи «Мастерской».
