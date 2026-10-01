@@ -3,6 +3,7 @@
  * показывает свой список.
  */
 
+import type { CompendiumFilterField } from '@/core/registries';
 import type { CompendiumView } from '@vtt/shared';
 
 import {
@@ -118,6 +119,128 @@ export const COMPENDIUM_SECTION_VIEWS: Readonly<
       },
     ],
   },
+};
+
+/** Параметр «Редкость» — общий для оружия, снаряжения и инструментов. */
+const RARITY_FILTER_FIELD: CompendiumFilterField = {
+  label: 'Редкость',
+  type: 'enum',
+  path: 'rarity',
+  format: 'itemRarity',
+  style: 'list',
+  groupable: true,
+};
+
+/** Параметр «Магический» — общий для оружия и снаряжения. */
+const MAGICAL_FILTER_FIELD: CompendiumFilterField = {
+  label: 'Магический',
+  type: 'toggle',
+  path: 'isMagical',
+  icon: 'tabler:sparkles',
+  color: 'primary',
+};
+
+/**
+ * Параметры записи, которые мастер может вынести в фильтры раздела. Только те,
+ * чьи значения система умеет подписать по-русски: фильтр по сырому ключу
+ * (`evocation`, `very-rare`) мастеру ничего не скажет.
+ *
+ * Идентификаторы `level` и `class` у заклинаний — те, которыми окно выбора
+ * заклинаний само выставляет фильтры по кругу и классу.
+ */
+export const COMPENDIUM_SECTION_FILTER_FIELDS: Readonly<
+  Record<string, readonly CompendiumFilterField[] | undefined>
+> = {
+  [COMPENDIUM_SPELL_KIND]: [
+    {
+      id: 'level',
+      label: 'Круг',
+      type: 'enum',
+      path: 'level',
+      format: 'spellLevel',
+      style: 'badges',
+      groupable: true,
+    },
+    {
+      label: 'Школа магии',
+      type: 'enum',
+      path: 'school',
+      format: 'spellSchool',
+      style: 'list',
+      groupable: true,
+    },
+    {
+      id: 'class',
+      label: 'Класс',
+      type: 'enum',
+      path: 'classKeys',
+      format: 'spellClass',
+      style: 'list',
+    },
+    {
+      label: 'Лечение',
+      type: 'toggle',
+      predicate: 'spellHealing',
+      icon: 'tabler:heart-filled',
+      color: 'success',
+    },
+    {
+      label: 'Концентрация',
+      type: 'toggle',
+      path: 'concentration',
+      icon: 'tabler:eye',
+      color: 'warning',
+    },
+    {
+      label: 'Ритуал',
+      type: 'toggle',
+      path: 'ritual',
+      icon: 'tabler:book',
+      color: 'info',
+    },
+  ],
+  [COMPENDIUM_CREATURE_KIND]: [
+    {
+      id: 'cr',
+      label: 'Показатель опасности',
+      type: 'enum',
+      path: 'system.challengeRating',
+      format: 'challengeRating',
+      style: 'badges',
+      groupable: true,
+    },
+    {
+      id: 'type',
+      label: 'Тип',
+      type: 'enum',
+      path: 'system.type',
+      format: 'creatureType',
+      style: 'list',
+      groupable: true,
+    },
+    {
+      label: 'Размер',
+      type: 'enum',
+      path: 'system.size',
+      format: 'creatureSize',
+      style: 'list',
+      groupable: true,
+    },
+  ],
+  feat: [
+    {
+      id: 'category',
+      label: 'Категория',
+      type: 'enum',
+      path: 'category',
+      format: 'string',
+      style: 'list',
+      groupable: true,
+    },
+  ],
+  weapon: [RARITY_FILTER_FIELD, MAGICAL_FILTER_FIELD],
+  equipment: [RARITY_FILTER_FIELD, MAGICAL_FILTER_FIELD],
+  tool: [RARITY_FILTER_FIELD],
 };
 
 /** Подписи правки записей своего компендиума в окне раздела. */

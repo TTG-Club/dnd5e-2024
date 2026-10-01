@@ -29,6 +29,7 @@ import {
   COMPENDIUM_CREATURE_SECTION,
   COMPENDIUM_ITEM_SECTION_KINDS,
   COMPENDIUM_SECTION_FALLBACK_ICON,
+  COMPENDIUM_SECTION_FILTER_FIELDS,
   COMPENDIUM_SECTION_VIEWS,
 } from '../../ui/compendium/constants';
 
@@ -80,6 +81,7 @@ function buildItemSectionKind(kind: string): CompendiumKindRegistration {
     label: itemTypeLabel(kind) ?? kind,
     icon: itemTypeIcon(kind) ?? COMPENDIUM_SECTION_FALLBACK_ICON,
     defaultView: COMPENDIUM_SECTION_VIEWS[kind],
+    filterFields: [...(COMPENDIUM_SECTION_FILTER_FIELDS[kind] ?? [])],
     toEntry: (source) => itemSourceToEntry(kind, source),
   };
 }
@@ -95,6 +97,9 @@ export function register(api: ClientSystemAPI): void {
     label: COMPENDIUM_CREATURE_SECTION.label,
     icon: COMPENDIUM_CREATURE_SECTION.icon,
     defaultView: COMPENDIUM_SECTION_VIEWS[COMPENDIUM_CREATURE_KIND],
+    filterFields: [
+      ...(COMPENDIUM_SECTION_FILTER_FIELDS[COMPENDIUM_CREATURE_KIND] ?? []),
+    ],
     toEntry: creatureSourceToEntry,
   });
 }

@@ -94,7 +94,9 @@ import {
 import {
   BASE_UNARMORED_AC,
   CREATURE_CATEGORIES,
+  CREATURE_SIZE_LABELS,
   DEFAULT_ACTOR,
+  RARITY_LABELS,
 } from './consts.js';
 import {
   applyCombatState as applyCombatStateImpl,
@@ -165,6 +167,7 @@ import {
   runPresenceTriggerSources,
   syncActorAreaEffects,
 } from './positionalEffects.js';
+import { SPELL_SCHOOL_LABELS } from './spellTypes.js';
 import { damagePartIsHealing } from './spellUtils.js';
 import { parseSystemClientEvent } from './systemClientEvents.js';
 import { isPointInTemplate as isPointInTemplateGeometry } from './templateGeometry.js';
@@ -1318,6 +1321,29 @@ function warnUnreadableEntity(entity: SceneEntity): void {
 }
 
 /**
+ * Форматтер значений, у которых есть словарь подписей. Порядок вариантов —
+ * порядок словаря: размеры идут от крошечного к громадному, редкость — от
+ * обычной к артефакту, а не по алфавиту подписей.
+ *
+ * @param labels - подписи значений в порядке показа
+ * @returns форматтер для фильтров и разделителей списка
+ */
+function buildLabelFormatter(
+  labels: Readonly<Record<string, string>>,
+): CompendiumValueFormatter {
+  const order = Object.keys(labels);
+
+  return {
+    label: (value) => labels[String(value)] ?? String(value),
+    sortKey: (value) => {
+      const index = order.indexOf(String(value));
+
+      return index === -1 ? order.length : index;
+    },
+  };
+}
+
+/**
  * Форматтеры значений компендиума D&D по имени формата. Управляют подписью
  * и сортировкой опций фильтров и заголовков разделов в обобщённом движке
  * отображения (`useCompendiumView`).
@@ -1350,6 +1376,9 @@ const COMPENDIUM_VALUE_FORMATTERS: Record<string, CompendiumValueFormatter> = {
     label: (value) => resolveClassLabel(String(value)),
     sortKey: (value) => resolveClassLabel(String(value)),
   },
+  spellSchool: buildLabelFormatter(SPELL_SCHOOL_LABELS),
+  creatureSize: buildLabelFormatter(CREATURE_SIZE_LABELS),
+  itemRarity: buildLabelFormatter(RARITY_LABELS),
 };
 
 /**
