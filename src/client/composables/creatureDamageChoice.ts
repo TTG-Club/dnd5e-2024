@@ -6,6 +6,7 @@ import type {
   CreatureDamageCondition,
   CreatureDamageContext,
   CreatureDamageOption,
+  DamageSetDisplay,
   DnDCreature,
   Spell,
 } from '@vtt/shared/system/dnd.js';
@@ -21,6 +22,7 @@ import {
   applyCreatureDamageOption,
   applySourceDamageTypeChoices,
   chooseCreatureActionDamage,
+  combineDamagePartDisplays,
   describeCreatureDamageCondition,
   describeDamagePart,
   entityHasDamageStatus,
@@ -62,8 +64,7 @@ function readChoiceReason(
 }
 
 /** Сводка набора урона: формула без токенов и подпись типов */
-export interface DamagePartsText {
-  formula: string;
+export interface DamagePartsText extends DamageSetDisplay {
   typeLabel: string;
 }
 
@@ -96,7 +97,7 @@ export function summarizeDamageParts(
   ];
 
   return {
-    formula: infos.map((info) => info.formula).join(' + '),
+    ...combineDamagePartDisplays(infos),
     typeLabel: [
       ...typeKeys.map((key) => getTypeLabel(key)),
       ...choiceLabels,

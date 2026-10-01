@@ -48,9 +48,6 @@ it('без прибавки, заговор и заклинание без об�
   );
 });
 
-it('вариант выбора круга называет размер области', () => {
-  assert.equal(
-    engine.formatAreaCastLevelOption(FOG_CLOUD, 2, 'фт'),
-    'Круг 2 — 40 фт',
-  );
+it('пункт выбора круга называет размер области', () => {
+  assert.equal(engine.formatAreaSizeAtLevel(FOG_CLOUD, 2, 'фт'), '40 фт');
 });

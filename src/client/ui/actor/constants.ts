@@ -3363,6 +3363,21 @@ export const PROJECTILE_PROMPT_LABELS = {
 } as const;
 
 /**
+ * Имя плашки выбора круга до каста в реестре модалок. Её открывает всё, чему
+ * круг нужен раньше окна броска: область, растущая от круга, и цена, которая
+ * от него считается.
+ */
+export const SPELL_CAST_LEVEL_PROMPT_MODAL = 'SpellCastLevelPromptModal';
+
+/** Подписи плашки выбора круга до каста */
+export const SPELL_CAST_LEVEL_PROMPT_LABELS = {
+  /** Между кругом и тем, что он даёт: «3-й круг — 40 фт» */
+  detailSeparator: ' — ',
+  confirm: 'Наложить этим кругом',
+  cancel: 'Отменить каст',
+} as const;
+
+/**
  * Подписи блока выдачи владения инструментами. Блок общий для мастеров класса и
  * предыстории: текст компендиума они разбирают одинаково.
  */
@@ -4664,6 +4679,8 @@ export const DICE_ROLL_LABELS = {
     'Из-за наложенных состояний (например, Парализованный) этот спасбросок '
     + 'будет автоматически провален.',
   spellLevel: 'Круг заклинания',
+  /** Под списком кругов, когда круг закреплён до окна (плашкой, выбором целей) */
+  spellLevelLocked: 'Круг выбран ранее — здесь его не изменить',
   consumeSlot: 'Тратить ячейку заклинаний',
   usePactSlot: 'Использовать ячейку Пакта (Warlock)',
   scalingPrefix: 'Усиление:',
@@ -4814,6 +4831,16 @@ export const DAMAGE_TYPE_CHOICE_MIN_OPTIONS = 2;
  * видны в подсказке
  */
 export const DAMAGE_VARIANTS_STAT_ICON = 'tabler:arrows-split';
+
+/**
+ * Значок плитки урона, к которому бывает добавка по условию («+1к8, если
+ * атакующий окровавлен»): в плитке — урон, который бросается всегда, а добавки
+ * перечислены в подсказке
+ */
+export const DAMAGE_BONUS_STAT_ICON = 'tabler:circle-plus';
+
+/** Начало строки добавки по условию в подсказке: «+ 1к8 (атакующий: …)» */
+export const DAMAGE_BONUS_LINE_PREFIX = '+ ';
 
 export const DAMAGE_PART_LABELS = {
   /** Заголовок строки: дальше дописывается её номер */
@@ -5343,6 +5370,14 @@ export const DEATH_SAVE_STATUS_CLASS = {
 
 /** Слой плашек запросов хоста: сюда телепортируются плашки системы */
 export const HUD_PROMPTS_TELEPORT_TARGET = '#hud-prompts-container';
+
+/**
+ * Оформление плашки запроса над сценой — одно на все плашки системы (вопрос,
+ * выбор варианта, цели, оплата, круг, снаряды): вид у них общий, и расходиться
+ * он не должен. Появление — общая анимация `hudPromptTransition.css`.
+ */
+export const HUD_PROMPT_PANEL_CLASS =
+  'pointer-events-auto flex w-95 max-w-full flex-col gap-3 rounded-xl border border-default/50 bg-default/90 px-4 py-3 text-highlighted shadow-xl ring-accented backdrop-blur-sm';
 
 /** Итог спасброска согласной цели: провал с натуральной единицей */
 export const WILLING_SAVE_TOTAL = 1;

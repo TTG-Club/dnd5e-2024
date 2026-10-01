@@ -24,6 +24,7 @@ import type { DnDCustomBonusContext } from './customBonuses.js';
 import type {
   DnDActor,
   DnDCreature,
+  DnDGameItem,
   DnDSceneEntity,
   Spell,
   SpellProjectiles,
@@ -40,6 +41,7 @@ import {
   getActorAbilityModifiers,
   getActorProficiencyBonus,
   getCreatureProficiencyBonus,
+  getWeaponDamageParts,
 } from './calculations.js';
 import { getConditionEntry } from './conditionTemplates.js';
 import { isAbilityType, SPELL_SAVE_DC_BASE } from './consts.js';
@@ -899,8 +901,51 @@ export function formatConditionalDamageDisplay(
   resolveTerm: (subFormula: string) => string,
   hasOwnType = false,
 ): string {
+  const { base, conditional } = splitConditionalDamageDisplay(
+    formula,
+    resolveTerm,
+    hasOwnType,
+  );
+
+  return [base, ...conditional].filter((piece) => piece.length > 0).join(' + ');
+}
+
+/** Показ формулы, разложенный на постоянное и на добавки по условию */
+export interface ConditionalDamageDisplay {
+  /**
+   * То, что бросается всегда: ветки `@target.full` через «или» и общие
+   * слагаемые. Пусто — вся формула под условием
+   */
+  base: string;
+  /**
+   * Добавки по состоянию стороны, каждая со своей пометкой: «1к8 (атакующий:
+   * Окровавленный)»
+   */
+  conditional: string[];
+}
+
+/**
+ * Раскладывает показ формулы на постоянную часть и добавки по состоянию
+ * стороны. Плитке строки листа нужна только постоянная часть: добавок может
+ * быть сколько угодно, и в плитку они не помещаются — их место в подсказке.
+ * Склеенный показ даёт {@link formatConditionalDamageDisplay}.
+ *
+ * @param formula - формула части (возможно с токенами @target)
+ * @param resolveTerm - резолвер набора слагаемых в отображаемую строку
+ * @param hasOwnType - у части свой тип (ведущие слагаемые берут его, см.
+ *   `spreadKindTokens`)
+ * @returns постоянная часть и добавки по условию
+ */
+export function splitConditionalDamageDisplay(
+  formula: string,
+  resolveTerm: (subFormula: string) => string,
+  hasOwnType = false,
+): ConditionalDamageDisplay {
   if (!formula || !/@(?:target|self)\./i.test(formula)) {
-    return resolveTerm(stripTargetTokens(formula ?? ''));
+    return {
+      base: resolveTerm(stripTargetTokens(formula ?? '')),
+      conditional: [],
+    };
   }
 
   // Блоки раскладываются так же, как при броске, — иначе подпись условия
@@ -983,9 +1028,10 @@ export function formatConditionalDamageDisplay(
       : `${terms[0]} (${label})`,
   );
 
-  return [branch, commonStr, ...statusStrs]
-    .filter((piece) => piece.length > 0)
-    .join(' + ');
+  return {
+    base: [branch, commonStr].filter((piece) => piece.length > 0).join(' + '),
+    conditional: statusStrs,
+  };
 }
 
 /**
@@ -1349,6 +1395,16 @@ export interface DamagePartInfo {
    * @-переменные НЕ подставляются (это «определение», не каст).
    */
   formula: string;
+  /**
+   * То же без добавок по состоянию стороны — то, что бросается всегда. Пусто,
+   * если вся часть под условием
+   */
+  baseFormula: string;
+  /**
+   * Добавки по состоянию стороны с пометкой: «1к8 (атакующий: Окровавленный)».
+   * В `formula` они тоже есть — здесь отдельно, для подсказки
+   */
+  conditionalFormulas: string[];
   /** Является ли часть лечением */
   isHealing: boolean;
   /** Лечение временными ХП (`@heal.temp`) */
@@ -1388,19 +1444,99 @@ export function describeDamagePart(part: DamagePart): DamagePartInfo {
     ),
   );
 
+  const display = splitConditionalDamageDisplay(
+    part.formula,
+    (subFormula) => stripHealTokens(stripDamageTypeTokens(subFormula)),
+    Boolean(part.type),
+  );
+
+  const baseFormula = formatDiceLetters(display.base);
+
+  const conditionalFormulas = display.conditional.map((piece) =>
+    formatDiceLetters(piece),
+  );
+
   return {
-    formula: formatDiceLetters(
-      formatConditionalDamageDisplay(
-        part.formula,
-        (subFormula) => stripHealTokens(stripDamageTypeTokens(subFormula)),
-        Boolean(part.type),
-      ),
-    ),
+    formula: [baseFormula, ...conditionalFormulas]
+      .filter((piece) => piece.length > 0)
+      .join(' + '),
+    baseFormula,
+    conditionalFormulas,
     isHealing: segments.some((segment) => segment.healing !== undefined),
     isTemp: segments.some((segment) => segment.healing === 'temp'),
     types: [...new Set(typeList)],
     typeChoices,
   };
+}
+
+/** Показ набора урона: целиком и разложенный для плитки строки листа */
+export interface DamageSetDisplay {
+  /** Весь набор одной строкой, с добавками по условию; пусто — урона нет */
+  formula: string;
+  /**
+   * То, что бросается всегда, — для плитки. У набора целиком под условием
+   * постоянной части нет, и тут тот же полный текст
+   */
+  baseFormula: string;
+  /** Добавки по условию: «1к8 (атакующий: Окровавленный)» — для подсказки */
+  conditionalFormulas: string[];
+}
+
+/** Показ одной части: постоянное и добавки по условию */
+export type DamagePartDisplay = Pick<
+  DamagePartInfo,
+  'baseFormula' | 'conditionalFormulas'
+>;
+
+/**
+ * Склеивает показ частей в показ набора. Плитка строки листа — оружия,
+ * заклинания, действия существа — показывает только постоянный урон: добавок по
+ * условию может быть сколько угодно, их место в подсказке. Набор целиком под
+ * условием остаётся в плитке полным текстом — иначе она была бы пустой.
+ *
+ * @param parts - показ частей по порядку
+ * @returns показ набора
+ */
+export function combineDamagePartDisplays(
+  parts: readonly DamagePartDisplay[],
+): DamageSetDisplay {
+  const formula = parts
+    .flatMap((part) => [part.baseFormula, ...part.conditionalFormulas])
+    .filter((piece) => piece.length > 0)
+    .join(' + ');
+
+  const baseFormula = parts
+    .map((part) => part.baseFormula)
+    .filter((piece) => piece.length > 0)
+    .join(' + ');
+
+  return {
+    formula,
+    baseFormula: baseFormula || formula,
+    conditionalFormulas: baseFormula
+      ? parts.flatMap((part) => part.conditionalFormulas)
+      : [],
+  };
+}
+
+/**
+ * Показ урона оружия для плитки строки листа: постоянный урон и добавки по
+ * условию отдельно. Хват двумя руками и замены от эффектов учитываются — через
+ * `getWeaponDamageParts`.
+ *
+ * @param weapon - оружие
+ * @param resolvedStats - итоговые статы владельца (для замен от эффектов)
+ * @returns показ урона оружия
+ */
+export function describeWeaponDamageDisplay(
+  weapon: DnDGameItem,
+  resolvedStats?: ResolvedActorStats,
+): DamageSetDisplay {
+  return combineDamagePartDisplays(
+    getWeaponDamageParts(weapon, resolvedStats).map((part) =>
+      describeDamagePart(part),
+    ),
+  );
 }
 
 /**

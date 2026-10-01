@@ -30,8 +30,7 @@ export const EFFECT_PAY_PROMPT_LABELS = {
   chatJoiner: '; ',
   shortfallTitle: 'Цена не по карману',
   /** Вопрос о круге до оплаты: количество цены растёт от круга */
-  castLevelQuestion: 'Каким кругом накладываете?',
-  castLevelOptionPrefix: 'Круг ',
+  castLevelQuestion: 'Каким кругом накладывать? От круга зависит цена.',
 } as const;
 
 /** Подписи вида цены в окне эффекта */

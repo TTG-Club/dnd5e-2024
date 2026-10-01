@@ -260,8 +260,8 @@ export function parseSaveOverrideRequestPayload(
 export const SAVE_OVERRIDE_LABELS = {
   /** Заголовок запроса в плашках ядра */
   requestTitle: 'Провал в успех',
-  /** Кнопка согласия; дальше — остаток */
-  accept: 'Преуспеть вместо провала',
+  /** Кнопка согласия: что это замена провала и сколько осталось — в вопросе */
+  accept: 'Преуспеть',
   /** Кнопка отказа */
   decline: 'Оставить провал',
   remainingPrefix: ' (осталось ',
@@ -277,39 +277,31 @@ export const SAVE_OVERRIDE_ACCEPT = 'accept';
 export const SAVE_OVERRIDE_DECLINE = 'decline';
 
 /**
- * Варианты ответа: согласие называет остаток — «Преуспеть вместо провала
- * (осталось 3)».
- *
- * @param remaining - сколько раз ещё можно, считая этот
- * @returns варианты для окна вопроса
+ * Варианты ответа. Остаток назван в вопросе, а не на кнопке: с ним кнопки не
+ * помещались в одну строку плашки.
  */
-export function buildSaveOverrideOptions(
-  remaining: number,
-): EffectPromptOption[] {
-  return [
-    {
-      id: SAVE_OVERRIDE_ACCEPT,
-      label: `${SAVE_OVERRIDE_LABELS.accept}${SAVE_OVERRIDE_LABELS.remainingPrefix}${remaining}${SAVE_OVERRIDE_LABELS.remainingSuffix}`,
-    },
-    { id: SAVE_OVERRIDE_DECLINE, label: SAVE_OVERRIDE_LABELS.decline },
-  ];
-}
+export const SAVE_OVERRIDE_OPTIONS: readonly EffectPromptOption[] = [
+  { id: SAVE_OVERRIDE_ACCEPT, label: SAVE_OVERRIDE_LABELS.accept },
+  { id: SAVE_OVERRIDE_DECLINE, label: SAVE_OVERRIDE_LABELS.decline },
+];
 
 /**
  * Вопрос владельцу: «Аболет проваливает спасбросок Мудрости. Легендарное
- * сопротивление: преуспеть вместо провала?»
+ * сопротивление (осталось 3): преуспеть вместо провала?»
  *
  * @param entityName - кто провалил
  * @param ability - характеристика спасброска
  * @param label - чем платит
+ * @param remaining - сколько раз ещё можно, считая этот
  * @returns текст вопроса
  */
 export function formatSaveOverrideQuestion(
   entityName: string,
   ability: AbilityType,
   label: string,
+  remaining: number,
 ): string {
-  return `${entityName} проваливает спасбросок ${ABILITY_GENITIVE_LABELS[ability]}. ${label}: преуспеть вместо провала?`;
+  return `${entityName} проваливает спасбросок ${ABILITY_GENITIVE_LABELS[ability]}. ${label}${SAVE_OVERRIDE_LABELS.remainingPrefix}${remaining}${SAVE_OVERRIDE_LABELS.remainingSuffix}: преуспеть вместо провала?`;
 }
 
 /**

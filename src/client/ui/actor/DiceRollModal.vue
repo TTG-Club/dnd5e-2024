@@ -139,6 +139,12 @@
     spellLevel?: number;
     /** Массив Доступных уровней заклинаний. Если передан, селект предложит только их. */
     availableSpellLevels?: number[];
+    /**
+     * Круг закреплён до окна (плашка круга, выбор целей или снарядов): под него
+     * уже посчитаны область, цена или число целей. Список кругов остаётся на
+     * месте, но выключен и подписан — круг выбирают в одном месте, а не в двух.
+     */
+    spellLevelLocked?: boolean;
     /** Данные для масштабирования урона при усилении */
     spellScalingDice?: string;
     /** Уровень Pact-слота (warlock). Если > 0, показываем чекбокс */
@@ -251,6 +257,7 @@
     damageType: undefined,
     spellLevel: undefined,
     availableSpellLevels: () => [],
+    spellLevelLocked: false,
     spellScalingDice: undefined,
     pactSlotLevel: 0,
     onSpellSlotConsume: undefined,
@@ -1435,8 +1442,16 @@
             :items="spellLevelItems"
             value-key="value"
             class="w-full"
+            :disabled="spellLevelLocked"
             @change="usePactSlot = false"
           />
+
+          <p
+            v-if="spellLevelLocked"
+            class="text-xs text-dimmed"
+          >
+            {{ DICE_ROLL_LABELS.spellLevelLocked }}
+          </p>
 
           <UCheckbox
             v-model="consumeSpellSlot"

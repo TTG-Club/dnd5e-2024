@@ -50,9 +50,9 @@
     describeDamagePart,
     describeWeaponAttack,
     describeWeaponDamage,
+    describeWeaponDamageDisplay,
     evaluateConditionalBonuses,
     findLoadedAmmunition,
-    formatWeaponDamageFormula,
     getAttackBonusKey,
     getAttackFlagCategory,
     getDamageBonusKey,
@@ -91,8 +91,10 @@
     resolveTargetedCritThreshold,
   } from '../../../composables/attackRollMode';
   import {
+    formatDamageBonusLines,
     formatDamageTypeChoiceLabel,
     requestDamageTypeChoiceFor,
+    resolveDamageStatIcon,
   } from '../../../composables/damageTypeChoice';
   import {
     applyEffectSource,
@@ -128,7 +130,6 @@
   import CompendiumRefPickerModal from '../CompendiumRefPickerModal.vue';
   import {
     ACTOR_EQUIPMENT_TAB_LABELS,
-    DAMAGE_VARIANTS_STAT_ICON,
     EQUIPMENT_AMMUNITION_BADGE,
     EQUIPMENT_EQUIP_ACTION_LABELS,
     EQUIPMENT_MENU_LABELS,
@@ -137,6 +138,7 @@
     FILTER_ROW_CONTROL_SIZE,
     GAME_ITEM_TRANSFER_MIME,
     SHEET_ROW_MENU_LABELS,
+    SHEET_ROW_TOOLTIP_LINE_BREAK,
     WEAPON_RANGE_TYPE_LABELS,
     WEAPON_THROWN_RANGE_LABEL,
     WEIGHT_UNIT_LABEL,
@@ -1270,6 +1272,34 @@
   }
 
   /**
+   * Подсказка и значок плитки урона оружия. Добавки по условию («+1к8, если
+   * атакующий окровавлен») идут строками после основной подсказки; значок
+   * говорит, что у урона есть ещё что-то — тип на выбор либо такая добавка.
+   *
+   * @param weapon - оружие
+   * @returns подсказка и значок плитки урона
+   */
+  function weaponDamageStatExtras(
+    weapon: DnDGameItem,
+  ): Pick<SheetRowStat, 'tooltip' | 'icon'> {
+    const bonusLines = formatDamageBonusLines(
+      describeWeaponDamageDisplay(weapon, resolvedStats.value)
+        .conditionalFormulas,
+    );
+
+    return {
+      tooltip: [weaponDamageHint(weapon), ...bonusLines].join(
+        SHEET_ROW_TOOLTIP_LINE_BREAK,
+      ),
+      // Тип на выбор назван в подсказке, в плитке — только значок
+      icon: resolveDamageStatIcon(
+        listSourceDamageTypeChoices(weapon).length > 0,
+        bonusLines.length > 0,
+      ),
+    };
+  }
+
+  /**
    * Формула урона оружия для бейджа — симметрично заклинаниям: кости без
    * инлайн-токенов + вложенный модификатор характеристики/магии (как «4к6+4»).
    *
@@ -1277,7 +1307,11 @@
    * @returns строка вида «4к6+4» / «1к8 + 1к6»
    */
   function weaponDamageFormulaLabel(weapon: DnDGameItem): string {
-    const base = formatWeaponDamageFormula(weapon, resolvedStats.value);
+    // Добавки по условию в плитку не идут — они в подсказке
+    const base = describeWeaponDamageDisplay(
+      weapon,
+      resolvedStats.value,
+    ).baseFormula;
 
     // Магический бонус входит в расчёт прибавки — отдельно его не добавляем
     const mod = calculateWeaponDamageModifier(
@@ -1412,14 +1446,9 @@
           key: 'damage',
           label: EQUIPMENT_STAT_LABELS.damage,
           value: weaponDamageFormulaLabel(weapon),
-          tooltip: weaponDamageHint(weapon),
           accent: true,
           rollable: true,
-          // Тип на выбор назван в подсказке, в плитке — только значок
-          icon:
-            listSourceDamageTypeChoices(weapon).length > 0
-              ? DAMAGE_VARIANTS_STAT_ICON
-              : undefined,
+          ...weaponDamageStatExtras(weapon),
         },
       );
     } else if (item.type === 'equipment' && item.baseArmorAC) {

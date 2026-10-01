@@ -128,7 +128,7 @@
   import DiceRollModal from '../actor/DiceRollModal.vue';
   import FilterChip from '../actor/FilterChip.vue';
   import FilterResetButton from '../actor/FilterResetButton.vue';
-  import { formatSpellDamageDisplay } from '../actor/utils/formatSpellDamageDisplay';
+  import { describeSpellDamageDisplay } from '../actor/utils/formatSpellDamageDisplay';
   import {
     CREATURE_ACTIONS_BLOCK_LABELS,
     CREATURE_EMPTY_LABELS,
@@ -476,22 +476,24 @@
   ): SheetRowStat[] {
     const stats: SheetRowStat[] = [];
 
-    const damage = formatSpellDamageDisplay(spell, {
+    const damage = describeSpellDamageDisplay(spell, {
       castLevel: spellRef?.castLevel,
     });
 
-    if (damage) {
+    if (damage.formula) {
       stats.push({
         key: 'damage',
         label: SPELL_STAT_LABELS.damage,
-        value: damage,
+        value: damage.baseFormula,
         accent: true,
         rollable: !props.isReadOnly,
-        // Тип на выбор в плитке не пишется — значок и строки подсказки
+        // Добавки по условию и тип на выбор в плитке не пишутся — значок и
+        // строки подсказки
         ...describeDamageVariantsStat(
           spell,
           SPELL_STAT_HINTS.damage,
           getDamageTypeLabel,
+          damage.conditionalFormulas,
         ),
       });
     }

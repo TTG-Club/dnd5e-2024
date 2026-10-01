@@ -473,10 +473,26 @@ describe('плитка урона в строке листа', () => {
       },
     );
 
+    const formatDamageBonusLines = await loadHandler(
+      composablePath,
+      'formatDamageBonusLines',
+      { DAMAGE_BONUS_LINE_PREFIX: '+ ' },
+    );
+
+    const resolveDamageStatIcon = await loadHandler(
+      composablePath,
+      'resolveDamageStatIcon',
+      {
+        DAMAGE_VARIANTS_STAT_ICON: 'variants-icon',
+        DAMAGE_BONUS_STAT_ICON: 'bonus-icon',
+      },
+    );
+
     return loadHandler(composablePath, 'describeDamageVariantsStat', {
       describeSourceDamageTypeChoices,
+      formatDamageBonusLines,
+      resolveDamageStatIcon,
       SHEET_ROW_TOOLTIP_LINE_BREAK: '\n',
-      DAMAGE_VARIANTS_STAT_ICON: 'variants-icon',
     });
   }
 
@@ -504,5 +520,20 @@ describe('плитка урона в строке листа', () => {
 
     assert.equal(stat.icon, undefined);
     assert.equal(stat.tooltip, 'Урон заклинания');
+  });
+
+  it('добавка по условию — свой значок и строка в подсказке', async () => {
+    const describeStat = await loadStat();
+
+    const stat = describeStat(
+      { damageParts: [{ formula: '1к6+3@dmg.acid' }] },
+      'Урон заклинания',
+      (typeKey) => typeKey,
+      ['2к6 (цель: Лежащий ничком)'],
+    );
+
+    assert.equal(stat.icon, 'bonus-icon');
+
+    assert.equal(stat.tooltip, 'Урон заклинания\n+ 2к6 (цель: Лежащий ничком)');
   });
 });

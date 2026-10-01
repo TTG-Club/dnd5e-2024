@@ -28,7 +28,6 @@ import { emitEntityUpdate } from '@/core/entityUtils';
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
 import {
-  buildSaveOverrideOptions,
   findSaveOverride,
   formatSaveOverrideChatLine,
   formatSaveOverrideQuestion,
@@ -37,6 +36,7 @@ import {
   parseEffectPromptResult,
   SAVE_OVERRIDE_ACCEPT,
   SAVE_OVERRIDE_LABELS,
+  SAVE_OVERRIDE_OPTIONS,
   SAVE_OVERRIDE_REQUEST_KIND,
   spendSaveOverride,
   withRequestSource,
@@ -84,8 +84,12 @@ function askLocally(
         entity.name,
         ability,
         available.source.label,
+        available.remaining,
       ),
-      options: buildSaveOverrideOptions(available.remaining),
+      options: SAVE_OVERRIDE_OPTIONS,
+      // Закрыть без ответа — то же «оставить провал»: крестик был бы третьей
+      // кнопкой с тем же смыслом
+      hideCancel: true,
       sourceName,
       onAnswer: (optionId: string) => {
         resolve(optionId === SAVE_OVERRIDE_ACCEPT);

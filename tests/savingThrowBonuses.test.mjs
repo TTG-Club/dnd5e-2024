@@ -644,7 +644,15 @@ it('провал владелец может превратить в успех 
   const prompt = runtime.fixture.prompts.at(-1);
 
   assert.equal(prompt.component, 'EffectQuestionPromptModal');
-  assert.match(prompt.props.options[0].label, /осталось 3/);
+  // Остаток — в вопросе; кнопок две, и крестика нет: отказ уже среди них
+  assert.match(prompt.props.question, /осталось 3/);
+
+  assert.deepEqual(
+    prompt.props.options.map((option) => option.label),
+    ['Преуспеть', 'Оставить провал'],
+  );
+
+  assert.equal(prompt.props.hideCancel, true);
 
   prompt.props.onAnswer('accept');
 

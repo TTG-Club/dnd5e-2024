@@ -68,27 +68,25 @@ export function resolveSpellAreaAtLevel(
 
 /** Подписи выбора круга до шаблона */
 export const AREA_CAST_LEVEL_LABELS = {
-  optionPrefix: 'Круг ',
-  optionSeparator: ' — ',
   question: 'Каким кругом накладывать? От круга растёт область.',
 } as const;
 
 /**
- * Вариант выбора круга: «Круг 3 — 40 фт».
+ * Размер области на этом круге для пункта выбора круга: «40 фт». Сам круг
+ * пункт подписывает так же, как остальные списки кругов, — здесь только то,
+ * чем круги различаются.
  *
  * @param spell - заклинание
  * @param castLevel - круг ячейки
  * @param unitLabel - подпись единицы области
- * @returns подпись варианта
+ * @returns размер области с единицей
  */
-export function formatAreaCastLevelOption(
+export function formatAreaSizeAtLevel(
   spell: SpellAreaScalingSource,
   castLevel: number,
   unitLabel: string,
 ): string {
   const size = resolveSpellAreaAtLevel(spell, castLevel)?.size ?? 0;
 
-  const { optionPrefix, optionSeparator } = AREA_CAST_LEVEL_LABELS;
-
-  return `${optionPrefix}${castLevel}${optionSeparator}${size} ${unitLabel}`;
+  return `${size} ${unitLabel}`;
 }

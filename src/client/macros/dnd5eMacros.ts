@@ -1751,6 +1751,7 @@ function openDiceRollForSpell(
         actor,
         resolvedStats,
       ),
+      spellLevelLocked: lockedSpellLevel !== undefined,
       spellScalingDice: spell.scaling?.additionalDice,
       pactSlotLevel,
       onSpellSlotConsume: (
@@ -1939,6 +1940,7 @@ function castBuffSpellMacro(
         actor,
         casterStats,
       ),
+      spellLevelLocked: lockedSpellLevel !== undefined,
       pactSlotLevel: pactInfo.level,
       onSpellSlotConsume: (
         castLevel: number,

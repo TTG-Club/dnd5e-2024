@@ -66,6 +66,10 @@
     summarizeDamageParts,
   } from '../../composables/creatureDamageChoice';
   import {
+    formatDamageBonusLines,
+    resolveDamageStatIcon,
+  } from '../../composables/damageTypeChoice';
+  import {
     applyActionSelfEffects,
     applyActionUseEffects,
     hasActionSelfEffects,
@@ -316,29 +320,38 @@
   /**
    * Сводка урона/лечения действия: формула (без токенов) и локализованные типы.
    * Единая со заклинаниями/оружием система damageParts. Плитка всегда
-   * компактна — в ней формула основного урона, а есть ли варианты (урон «или»,
-   * тип на выбор), говорит значок; сами варианты — в подсказке отдельными
-   * строками: набор и под ним условие. Так строка выглядит одинаково, как бы
-   * ни был записан выбор.
+   * компактна — в ней формула урона, который бросается всегда. Добавки по
+   * условию («+1к8, если атакующий окровавлен») и варианты (урон «или», тип на
+   * выбор) в плитку не пишутся: их может быть сколько угодно. О них говорит
+   * значок, а сами они — в подсказке отдельными строками. Так строка выглядит
+   * одинаково, как бы ни был записан урон.
    *
    * @param action - действие существа
-   * @returns формула, подпись типов и есть ли варианты; null — нет частей урона
+   * @returns формула плитки, строки подсказки и значок; null — нет частей урона
    */
   function actionDamageSummary(
     action: CreatureAction,
-  ): { formula: string; typeLabel: string; hasVariants: boolean } | null {
+  ): { formula: string; tooltip: string; icon?: string } | null {
     const base = summarizeDamageParts(
       action.damageParts ?? [],
       getDamageTypeLabel,
     );
+
+    const bonusLines = formatDamageBonusLines(base?.conditionalFormulas ?? []);
 
     const alternatives = listCreatureDamageAlternatives(action);
 
     if (alternatives.length === 0) {
       return base
         ? {
-            ...base,
-            hasVariants: listSourceDamageTypeChoices(action).length > 0,
+            formula: base.baseFormula,
+            tooltip: [base.typeLabel, ...bonusLines]
+              .filter((line) => line.length > 0)
+              .join(CREATURE_DAMAGE_CHOICE_LABELS.hintSeparator),
+            icon: resolveDamageStatIcon(
+              listSourceDamageTypeChoices(action).length > 0,
+              bonusLines.length > 0,
+            ),
           }
         : null;
     }
@@ -354,11 +367,11 @@
     );
 
     return {
-      formula: base?.formula ?? CREATURE_DAMAGE_CHOICE_LABELS.noDamage,
-      typeLabel: [base?.typeLabel ?? '', ...hints]
+      formula: base?.baseFormula ?? CREATURE_DAMAGE_CHOICE_LABELS.noDamage,
+      tooltip: [base?.typeLabel ?? '', ...bonusLines, ...hints]
         .filter((line) => line.length > 0)
         .join(CREATURE_DAMAGE_CHOICE_LABELS.hintSeparator),
-      hasVariants: true,
+      icon: DAMAGE_VARIANTS_STAT_ICON,
     };
   }
 
@@ -951,10 +964,10 @@
         key: 'damage',
         label: CREATURE_ROW_STAT_LABELS.damage,
         value: damage.formula,
-        tooltip: damage.typeLabel,
+        tooltip: damage.tooltip,
         accent: true,
         rollable,
-        icon: damage.hasVariants ? DAMAGE_VARIANTS_STAT_ICON : undefined,
+        icon: damage.icon,
       });
     }
 

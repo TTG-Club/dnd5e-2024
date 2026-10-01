@@ -12,7 +12,6 @@ import type { SavingThrowTarget } from './useSpellSavingThrows';
 
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import {
-  buildSaveOverrideOptions,
   findSaveOverride,
   formatSaveOverrideQuestion,
   parseEffectPromptRequestPayload,
@@ -22,6 +21,7 @@ import {
   resolveAutoSaves,
   SAVE_OVERRIDE_ACCEPT,
   SAVE_OVERRIDE_DECLINE,
+  SAVE_OVERRIDE_OPTIONS,
 } from '@vtt/shared/system/dnd.js';
 
 import { EFFECT_QUESTION_PROMPT_MODAL } from '../ui/effect/constants';
@@ -349,8 +349,11 @@ function promptSaveOverride(
           entity.name,
           payload.ability,
           available.source.label,
+          available.remaining,
         ),
-        options: buildSaveOverrideOptions(available.remaining),
+        options: SAVE_OVERRIDE_OPTIONS,
+        // Закрыть без ответа — то же «оставить провал»
+        hideCancel: true,
         sourceName: payload.sourceName,
         onAnswer: (optionId: string) => {
           settle(() => {

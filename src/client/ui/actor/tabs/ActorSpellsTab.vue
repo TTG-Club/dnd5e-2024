@@ -179,7 +179,7 @@
   import SpellSlotsModal from '../SpellSlotsModal.vue';
   import { getFilterChipClass } from '../utils/filterChipClass';
   import { formatSignedNumber } from '../utils/formatSignedNumber';
-  import { formatSpellDamageDisplay } from '../utils/formatSpellDamageDisplay';
+  import { describeSpellDamageDisplay } from '../utils/formatSpellDamageDisplay';
 
   const props = defineProps<{
     actor: DnDActor;
@@ -1366,20 +1366,22 @@
   function getSpellStats(spell: Spell): SheetRowStat[] {
     const stats: SheetRowStat[] = [];
 
-    const damage = formatSpellDamageDisplay(spell, { actor: props.actor });
+    const damage = describeSpellDamageDisplay(spell, { actor: props.actor });
 
-    if (damage) {
+    if (damage.formula) {
       stats.push({
         key: 'damage',
         label: SPELL_STAT_LABELS.damage,
-        value: damage,
+        value: damage.baseFormula,
         accent: true,
         rollable: true,
-        // Тип на выбор в плитке не пишется — значок и строки подсказки
+        // Добавки по условию и тип на выбор в плитке не пишутся — значок и
+        // строки подсказки
         ...describeDamageVariantsStat(
           spell,
           SPELL_STAT_HINTS.damage,
           getDamageTypeLabel,
+          damage.conditionalFormulas,
         ),
       });
     }
@@ -2299,6 +2301,7 @@
           damageTypeChoice,
           'spellLevel': lockedSpellLevel ?? spell.level,
           'availableSpellLevels': availableLevels,
+          'spellLevelLocked': lockedSpellLevel !== undefined,
           'pactSlotLevel': pactSlotInfo.value.level,
           'onSpellSlotConsume': slotConsumer,
           'onRoll': handleRollConfirm,
@@ -2428,6 +2431,7 @@
       'spellLevel':
         lockedSpellLevel ?? (spell.level > 0 ? spell.level : undefined),
       'availableSpellLevels': availableLevels,
+      'spellLevelLocked': lockedSpellLevel !== undefined,
       'spellScalingDice': spell.scaling?.additionalDice,
       'pactSlotLevel': hasPactSlots.value ? pactSlotInfo.value.level : 0,
       'onSpellSlotConsume': slotConsumer,

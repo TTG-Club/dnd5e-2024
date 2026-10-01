@@ -42,12 +42,12 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { useSystemToastStore } from '../stores/systemToastStore';
-import { EFFECT_QUESTION_PROMPT_MODAL } from '../ui/effect/constants';
 import {
   EFFECT_PAY_MODAL_KEY_PREFIX,
   EFFECT_PAY_PROMPT_LABELS,
   EFFECT_PAY_PROMPT_MODAL,
 } from '../ui/effect/payLabels';
+import { askCastLevel } from './castLevelPrompt';
 import { useWorldEntities } from './useWorldEntities';
 
 /** Что и чем оплачивают */
@@ -259,7 +259,8 @@ export function runWithSourcePay<Source extends PayableSource>(
  * заклинание провалится») и продолжает каст оплаченным заклинанием.
  *
  * Количество цены, которое растёт от круга (`@castLevel`), требует круг до
- * оплаты: его спрашивают плашкой, и дальше каст идёт уже этим кругом.
+ * оплаты: его спрашивают плашкой со списком кругов (`castLevelPrompt.ts`), и
+ * дальше каст идёт уже этим кругом.
  *
  * @param spell - заклинание
  * @param caster - заклинатель

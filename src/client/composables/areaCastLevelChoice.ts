@@ -1,22 +1,21 @@
 /**
  * Круг ячейки до шаблона — у заклинания, чья область растёт от круга
  * («Туманное облако»). Поставленный шаблон ядро не растягивает, поэтому круг
- * спрашивается раньше: плашка с вариантами «Круг 3 — 40 фт», дальше шаблон
- * ставится нужного размера, а окно броска закрепляет тот же круг
+ * спрашивается раньше: плашка со списком кругов «3-й круг — 40 фт», дальше
+ * шаблон ставится нужного размера, а окно броска закрепляет тот же круг
  * (`engine/spellAreaScaling.ts`).
  */
 
 import type { Spell } from '@vtt/shared/system/dnd.js';
 
-import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { DISTANCE_UNIT_SHORT } from '@vtt/shared';
 import {
   AREA_CAST_LEVEL_LABELS,
-  formatAreaCastLevelOption,
+  formatAreaSizeAtLevel,
   spellAreaScalesWithLevel,
 } from '@vtt/shared/system/dnd.js';
 
-import { EFFECT_QUESTION_PROMPT_MODAL } from '../ui/effect/constants';
+import { askCastLevel } from './castLevelPrompt';
 
 /**
  * Выбирает круг до шаблона, если от него растёт область; иначе продолжает
@@ -50,17 +49,12 @@ export function chooseAreaCastLevel(
 
   const unitLabel = DISTANCE_UNIT_SHORT[areaOfEffect.unit] ?? areaOfEffect.unit;
 
-  useModalManager().openModal(EFFECT_QUESTION_PROMPT_MODAL, {
-    allowMultiple: true,
-    question: AREA_CAST_LEVEL_LABELS.question,
-    options: availableLevels.map((castLevel) => ({
-      id: String(castLevel),
-      label: formatAreaCastLevelOption(spell, castLevel, unitLabel),
-    })),
+  askCastLevel({
     sourceName: spell.name,
-    onAnswer: (optionId: string) => {
-      proceed(Number(optionId));
-    },
-    onCancel: () => {},
+    question: AREA_CAST_LEVEL_LABELS.question,
+    levels: availableLevels,
+    describeLevel: (castLevel) =>
+      formatAreaSizeAtLevel(spell, castLevel, unitLabel),
+    onChoose: proceed,
   });
 }
