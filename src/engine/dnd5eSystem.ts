@@ -135,6 +135,7 @@ import {
   settleConditionLostEvents,
   settleDamageEvents,
   settleDownedOtherEvents,
+  settleEffectActionEvents,
   settleHealingEvents,
   settleMovementEvents,
 } from './effectDamageEvents.js';
@@ -1023,6 +1024,68 @@ function settleAttackRollEvent(
     }));
 }
 
+/** Подпись момента в сводке срабатываний кнопки «При действии» */
+const EFFECT_ACTION_SUMMARY_LABEL = 'действие';
+
+/**
+ * Кнопка «При действии» с действиями другим: нажать её вправе только тот, кто
+ * управляет носителем. Получатели — те, кого накрыл шаблон нажавшего (список
+ * прислал клиент), либо соседи по радиусу, которых сцена знает сама; отбор
+ * «союзники / враги» в обоих случаях делает сервер.
+ *
+ * @param event - событие кнопки
+ * @param context - возможности ядра и права отправителя
+ * @returns исход по носителю и по каждому задетому
+ */
+function settleEffectActionEvent(
+  event: Extract<SystemClientEvent, { type: 'effectAction' }>,
+  context: SystemClientEventContext,
+): SystemRelatedTriggerResult[] {
+  const subject = toDndEntityResolver(context.getEntity)(event.entityId);
+
+  if (!subject || !context.canControl(subject)) {
+    return [];
+  }
+
+  const options = buildTriggerEventOptions(subject, context);
+  const covered = event.targetIds ? new Set(event.targetIds) : undefined;
+  const hpBefore = resolveEntityCurrentHp(subject);
+
+  const events = settleEffectActionEvents(subject, event.effectId, {
+    ...options,
+    listEntitiesInArea: (entity, area) => {
+      // Без шаблона — обычный радиус от фишки носителя
+      if (!area.template || !covered) {
+        return options.listEntitiesInArea?.(entity, area) ?? [];
+      }
+
+      // Под шаблоном: отношение считается по всей сцене, а круг получателей
+      // — тот, что прислал нажавший
+      return findEntitiesInArea(
+        context.getSceneSurroundings?.(entity),
+        { ...area, radius: Number.POSITIVE_INFINITY },
+        entity,
+      ).filter((found) => covered.has(found.id));
+    },
+  });
+
+  const own = toEntityTriggerResult(
+    subject,
+    events,
+    hpBefore,
+    EFFECT_ACTION_SUMMARY_LABEL,
+    context,
+  );
+
+  const { related } = toDamageEventsTriggerResult(
+    subject,
+    events,
+    EFFECT_ACTION_SUMMARY_LABEL,
+  );
+
+  return [{ entity: subject, ...own }, ...(related ?? [])];
+}
+
 /** Подпись снятых эффектов закончившегося каста в чате */
 const CAST_ENDED_SUMMARY_PREFIX = 'Каст закончился — сняты: ';
 
@@ -1528,7 +1591,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.152';
+  readonly version = '0.8.153';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -1814,8 +1877,8 @@ export class Dnd5eVttSystem implements VttSystem {
 
   /**
    * Событие правил от клиента: «прервать концентрацию» — закончить каст может
-   * только тот, кто управляет заклинателем; бросок атаки — срабатывания, которые
-   * выполняет сервер.
+   * только тот, кто управляет заклинателем; бросок атаки и кнопка «При
+   * действии» — срабатывания, которые выполняет сервер.
    */
   // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   handleClientEvent(
@@ -1830,6 +1893,10 @@ export class Dnd5eVttSystem implements VttSystem {
 
     if (event.type === 'attackRoll') {
       return settleAttackRollEvent(event, context);
+    }
+
+    if (event.type === 'effectAction') {
+      return settleEffectActionEvent(event, context);
     }
 
     const caster = context.getEntity(event.casterId);

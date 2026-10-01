@@ -155,6 +155,7 @@ const TRIGGER_LABELS = {
   setHpPrefix: 'хиты становятся ',
   setHpMax: 'хиты восстанавливаются полностью',
   removeConditionPrefix: 'снимается состояние ',
+  moveUpToPrefix: 'до ',
   removeConditionFromTypes: ', наложенное существом типа: ',
   removeAllConditions: 'снимаются все состояния',
   kill: 'получатель умирает',
@@ -225,6 +226,8 @@ const MOVE_KIND_PHRASES: Record<EffectTriggerMoveKind, string> = {
   push: 'отталкивает на ',
   pull: 'притягивает на ',
   teleport: 'переносит на ',
+  bring: 'переносит вплотную к опоре',
+  choose: 'отталкивает или притягивает (на выбор применившего) на ',
 };
 
 /** Как сдвигается зона — в фразе */
@@ -620,11 +623,18 @@ function describeAction(
       return `${TRIGGER_LABELS.restoreCounterPrefix}${counter}${amount ? `${TRIGGER_LABELS.restoreAmountPrefix}${amount}` : ''}`;
     }
     case 'dispel':
-      return `${TRIGGER_LABELS.dispelPrefix}${action.maxLevel}`;
+      return `${TRIGGER_LABELS.dispelPrefix}${
+        action.maxLevelFormula
+          ? prettifyActionFormula(action.maxLevelFormula)
+          : action.maxLevel
+      }`;
     case 'grantInspiration':
       return TRIGGER_LABELS.grantInspiration;
     case 'move':
-      return `${MOVE_KIND_PHRASES[action.kind]}${action.distance}${TRIGGER_LABELS.moveSuffix}`;
+      // Перенос вплотную расстояния не читает
+      return action.kind === 'bring'
+        ? MOVE_KIND_PHRASES.bring
+        : `${MOVE_KIND_PHRASES[action.kind]}${action.upTo ? TRIGGER_LABELS.moveUpToPrefix : ''}${action.distance}${TRIGGER_LABELS.moveSuffix}`;
     case 'moveArea':
       return action.kind === 'follow'
         ? AREA_SHIFT_PHRASES.follow

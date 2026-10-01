@@ -102,6 +102,17 @@
     },
   });
 
+  // «До конца ТЕКУЩЕГО хода»: эффект, наложенный в ход якоря, кончается с ним
+  const turnCurrent = computed({
+    get: () => effect.value.turnCurrent === true,
+    set: (enabled: boolean) => {
+      effect.value = {
+        ...effect.value,
+        turnCurrent: enabled ? true : undefined,
+      };
+    },
+  });
+
   const turnAnchor = computed({
     get: () => effect.value.duration.turnAnchor ?? 'carrier',
     set: (anchor: EffectTurnAnchor) => {
@@ -174,6 +185,17 @@
           class="w-48"
           :portal="false"
         />
+
+        <UTooltip
+          v-if="turnTiming === 'end'"
+          :text="EFFECT_DURATION_STEP_LABELS.turnCurrentHint"
+        >
+          <USwitch
+            v-model="turnCurrent"
+            :label="EFFECT_DURATION_STEP_LABELS.turnCurrent"
+            size="sm"
+          />
+        </UTooltip>
       </template>
     </div>
 

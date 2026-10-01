@@ -63,6 +63,7 @@
     payActivation,
     resolveActionCostBlock,
     resolveActorStats,
+    resolveEffectUseCost,
   } from '@vtt/shared/system/dnd.js';
 
   import { applyEffectSource } from '../../composables/effectActivationUse';
@@ -247,13 +248,18 @@
       return;
     }
 
+    const group = collectEffectUseGroup(props.effects, effect);
+
     applyEffectSource(
-      buildEffectGroupUseSpell(collectEffectUseGroup(props.effects, effect)),
+      buildEffectGroupUseSpell(group),
       owner,
       resolveActorStats(owner).spellSaveDC,
       () => payEffectActivation(effect),
       // С ценой ресурсом счётчик применения уходит тем же сохранением
-      { spendOn: (paidUser) => payEntityActivation(paidUser, effect) },
+      {
+        spendOn: (paidUser) => payEntityActivation(paidUser, effect),
+        cost: resolveEffectUseCost(group),
+      },
     );
   }
 

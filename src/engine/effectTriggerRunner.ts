@@ -1510,6 +1510,14 @@ function dispelEntityCasts(
 ): boolean {
   const effects = entity.activeEffects ?? [];
 
+  // Круг формулой («не выше круга вашей ячейки») — числом к этому времени:
+  // `@castLevel` подставлен при касте. Не посчиталась — круг числом
+  const byFormula = action.maxLevelFormula
+    ? resolveActionAmount(entity, action.maxLevelFormula, options.eventDamage)
+    : 0;
+
+  const maxLevel = byFormula > 0 ? byFormula : action.maxLevel;
+
   const dispelled = effects.filter((effect) => {
     if (effect.castId === undefined) {
       return false;
@@ -1517,7 +1525,7 @@ function dispelEntityCasts(
 
     return effect.castLevel === undefined
       ? action.withoutLevel === true
-      : effect.castLevel <= action.maxLevel;
+      : effect.castLevel <= maxLevel;
   });
 
   return endEntityCastEffects(entity, dispelled, options);

@@ -25,8 +25,10 @@
     EffectTriggerRestType,
     EffectTriggerSaveMode,
     EffectTriggerTurnOwner,
+    EffectUseArea,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { EffectUseAreaChoice } from '../constants';
   import type {
     EffectTriggerDamageGateChoice,
     EffectTriggerSaveModeChoice,
@@ -55,6 +57,7 @@
     isTurnTriggerEvent,
     layoutAcceptsSourceSaveDc,
     listTriggerActionTypes,
+    MAX_EFFECT_USE_AREA_SIZE,
     MAX_TRIGGER_CHANCE_PERCENT,
     MAX_TRIGGER_CHOICE_COUNT,
     MAX_TRIGGER_PATH_FEET,
@@ -70,9 +73,14 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { SCROLLABLE_DROPDOWN_UI } from '../../actor/constants';
+  import FieldHint from '../../actor/FieldHint.vue';
   import {
+    DEFAULT_USE_AREA_SIZE,
+    EFFECT_ACTIVATION_EXTRA_LABELS,
     EFFECT_AURA_RADIUS_STEP,
     EFFECT_SOURCE_DC_LABELS,
+    EFFECT_TRIGGER_TEMPLATE_OPTIONS,
+    NO_USE_AREA,
   } from '../constants';
   import {
     ANY_CONDITION_KEY,
@@ -375,10 +383,69 @@
     set: (target: EffectTriggerAreaTarget) =>
       update({
         area: {
+          ...trigger.value.area,
           radius: trigger.value.area?.radius ?? DEFAULT_TRIGGER_AREA_RADIUS,
           target: target === DEFAULT_TRIGGER_AREA_TARGET ? undefined : target,
         },
       }),
+  });
+
+  /** Шаблон ставит нажавший кнопку — он есть только у события «При действии» */
+  const acceptsAreaTemplate = computed(
+    () => trigger.value.event === 'activate',
+  );
+
+  /**
+   * Записывает шаблон области получателей.
+   *
+   * @param template - шаблон; нет — получатели по радиусу от носителя
+   */
+  function updateAreaTemplate(template: EffectUseArea | undefined): void {
+    update({
+      area: {
+        ...trigger.value.area,
+        radius: trigger.value.area?.radius ?? DEFAULT_TRIGGER_AREA_RADIUS,
+        template,
+      },
+    });
+  }
+
+  // Шаблон вместо радиуса: «нет» — радиус от фишки носителя
+  const areaTemplateShape = computed({
+    get: () => trigger.value.area?.template?.shape ?? NO_USE_AREA,
+    set: (shape: EffectUseAreaChoice) => {
+      updateAreaTemplate(
+        shape === NO_USE_AREA
+          ? undefined
+          : {
+              ...trigger.value.area?.template,
+              shape,
+              size: trigger.value.area?.template?.size ?? DEFAULT_USE_AREA_SIZE,
+            },
+      );
+    },
+  });
+
+  const areaTemplateSize = computed({
+    get: () => trigger.value.area?.template?.size ?? DEFAULT_USE_AREA_SIZE,
+    set: (size: number | null) => {
+      const template = trigger.value.area?.template;
+
+      if (template && size !== null) {
+        updateAreaTemplate({ ...template, size });
+      }
+    },
+  });
+
+  const areaTemplateWidth = computed({
+    get: () => trigger.value.area?.template?.width ?? null,
+    set: (width: number | null) => {
+      const template = trigger.value.area?.template;
+
+      if (template) {
+        updateAreaTemplate({ ...template, width: width ?? undefined });
+      }
+    },
   });
 
   const dcFormula = computed({
@@ -813,7 +880,57 @@
       </UFormField>
 
       <template v-if="isAreaRecipient">
+        <template v-if="acceptsAreaTemplate">
+          <UFormField class="w-52">
+            <template #label>
+              <span class="flex items-center gap-1">
+                {{ EFFECT_TRIGGER_AREA_LABELS.template }}
+
+                <FieldHint :text="EFFECT_TRIGGER_AREA_LABELS.templateHint" />
+              </span>
+            </template>
+
+            <USelect
+              v-model="areaTemplateShape"
+              :items="[...EFFECT_TRIGGER_TEMPLATE_OPTIONS]"
+              value-key="value"
+              size="sm"
+              class="w-full"
+              :portal="false"
+            />
+          </UFormField>
+
+          <UFormField
+            v-if="trigger.area?.template"
+            :label="EFFECT_ACTIVATION_EXTRA_LABELS.areaSize"
+            class="w-28"
+          >
+            <UInputNumber
+              v-model="areaTemplateSize"
+              :min="1"
+              :max="MAX_EFFECT_USE_AREA_SIZE"
+              size="sm"
+              class="w-full"
+            />
+          </UFormField>
+
+          <UFormField
+            v-if="trigger.area?.template?.shape === 'ray'"
+            :label="EFFECT_ACTIVATION_EXTRA_LABELS.areaWidth"
+            class="w-28"
+          >
+            <UInputNumber
+              v-model="areaTemplateWidth"
+              :min="1"
+              :max="MAX_EFFECT_USE_AREA_SIZE"
+              size="sm"
+              class="w-full"
+            />
+          </UFormField>
+        </template>
+
         <UFormField
+          v-if="!trigger.area?.template"
           :label="EFFECT_TRIGGER_AREA_LABELS.radius"
           class="w-28"
         >

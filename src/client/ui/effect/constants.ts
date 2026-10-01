@@ -11,6 +11,7 @@ import type {
   ConditionKey,
   CreatureCategory,
   EffectActionCost,
+  EffectActivationCost,
   EffectActivationMode,
   EffectChangeModeChoice,
   EffectChangeStepPeriod,
@@ -23,6 +24,7 @@ import type {
   EffectSaveUnavailableReason,
   EffectSuccessOutcome,
   EffectTriggerEvent,
+  EffectUseAreaShape,
   EffectVariantPick,
   InertEffectField,
   SaveOverridePeriod,
@@ -478,6 +480,78 @@ export const EFFECT_MODIFIERS_STEP_LABELS = {
   immunitiesPlaceholder: 'Состояния...',
 } as const;
 
+/** Значение «ход не тратится» в выборе траты хода применения */
+export const NO_ACTIVATION_COST = 'none';
+
+/** Трата хода применения в выборе: настоящая либо «ход не тратится» */
+export type EffectActivationCostChoice =
+  EffectActivationCost | typeof NO_ACTIVATION_COST;
+
+/** Варианты траты хода на применение и включение */
+export const EFFECT_ACTIVATION_COST_OPTIONS: ReadonlyArray<{
+  value: EffectActivationCostChoice;
+  label: string;
+}> = [
+  { value: NO_ACTIVATION_COST, label: 'Не тратит ход' },
+  { value: 'action', label: 'Действие' },
+  { value: 'bonus', label: 'Бонусное действие' },
+  { value: 'reaction', label: 'Реакция' },
+];
+
+/** Значение «одна цель» в выборе области применения */
+export const NO_USE_AREA = 'none';
+
+/** Форма области применения в выборе: настоящая либо «одна цель» */
+export type EffectUseAreaChoice = EffectUseAreaShape | typeof NO_USE_AREA;
+
+/** Варианты области применения */
+export const EFFECT_USE_AREA_OPTIONS: ReadonlyArray<{
+  value: EffectUseAreaChoice;
+  label: string;
+}> = [
+  { value: NO_USE_AREA, label: 'Нет — одна цель' },
+  { value: 'cone', label: 'Конус' },
+  { value: 'circle', label: 'Сфера' },
+  { value: 'ray', label: 'Линия' },
+  { value: 'rect', label: 'Куб' },
+];
+
+/** Варианты области получателей у кнопки «При действии» */
+export const EFFECT_TRIGGER_TEMPLATE_OPTIONS: ReadonlyArray<{
+  value: EffectUseAreaChoice;
+  label: string;
+}> = [
+  { value: NO_USE_AREA, label: 'Радиус от носителя' },
+  { value: 'cone', label: 'Конус' },
+  { value: 'circle', label: 'Сфера' },
+  { value: 'ray', label: 'Линия' },
+  { value: 'rect', label: 'Куб' },
+];
+
+/** Размер новой области применения, фт */
+export const DEFAULT_USE_AREA_SIZE = 15;
+
+/** Подписи полей траты хода и области применения */
+export const EFFECT_ACTIVATION_EXTRA_LABELS = {
+  cost: 'Трата хода',
+  costHint:
+    '«Бонусным действием произнесите командное слово». Запрещённая трата '
+    + '(«нет бонусных действий») кнопку не пускает; сделанная идёт в счёт хода.',
+  area: 'Область',
+  areaHint:
+    'Шаблон на карте вместо выбора одной цели: эффекты «на цели» получают '
+    + 'все, кого он накрыл, эффект «в зону» остаётся зоной на его месте.',
+  areaSize: 'Размер, фт',
+  areaWidth: 'Ширина, фт',
+} as const;
+
+/** Подписи пунктов меню предмета с переключателем */
+export const ITEM_TOGGLE_LABELS = {
+  switchOn: 'Включить: ',
+  switchOff: 'Выключить: ',
+  blockedTitle: 'Нельзя включить',
+} as const;
+
 /** Подписи строки модификатора */
 export const EFFECT_CHANGE_ROW_LABELS = {
   keyPlaceholder: 'Что меняется',
@@ -531,6 +605,9 @@ export const EFFECT_FLAG_ROW_LABELS = {
 
 /** Подписи шага «Длительность» */
 export const EFFECT_DURATION_STEP_LABELS = {
+  turnCurrent: 'До конца текущего хода',
+  turnCurrentHint:
+    'Эффект, наложенный в ход того, по чьему ходу считается срок, обычно живёт до конца его СЛЕДУЮЩЕГО хода. Включите — и он кончится с концом этого же хода («скорость 0 до конца текущего хода»).',
   durationTitle: 'Сколько держится',
   valuePlaceholder: 'Сколько',
   formulaToggle: 'Формулой',
@@ -811,6 +888,9 @@ export const EFFECT_VARIANT_MODAL_KEY_PREFIX = 'effect-variant';
  */
 export const EFFECT_VARIANT_PROMPT_MODAL = 'EffectVariantPromptModal';
 
+/** Имя плашки вопроса человеку с закрытым списком ответов */
+export const EFFECT_QUESTION_PROMPT_MODAL = 'EffectQuestionPromptModal';
+
 /** Подписи плашки выбора варианта и строки чата */
 export const EFFECT_VARIANT_PROMPT_LABELS = {
   titlePrefix: '«',
@@ -881,6 +961,7 @@ export const EFFECT_TARGET_PROMPT_LABELS = {
 export const EFFECT_VARIANT_PICK_LABELS: Record<EffectVariantPick, string> = {
   choose: 'Выбирает бросающий',
   random: 'Случайно',
+  multi: 'Бросающий выбирает один или несколько',
 };
 
 /** Подписи сворачиваемого раздела «Описание» */
@@ -955,6 +1036,8 @@ export const EFFECT_USE_LABELS = {
   noUsesTitle: 'Нечего применить',
   noUsesText: 'Заряды или количество кончились.',
   noCounterTitle: 'Не хватает ресурса',
+  /** Заголовок отказа: трата хода под запретом */
+  blockedTitle: 'Нельзя применить',
   /** Разделитель названия эффекта и навыка в окне проверки для Сл */
   skillDcTitleSeparator: ' — проверка для Сл: ',
   /** Кнопка броска проверки, итог которой станет Сл */

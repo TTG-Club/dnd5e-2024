@@ -10,13 +10,21 @@
  * переключателем, который тратит счётчик и будит срабатывания «при включении».
  */
 
-import type { ActiveEffect, EffectActivation } from './activeEffectTypes.js';
+import type { EffectDurationType } from '@vtt/shared';
+
+import type {
+  ActiveEffect,
+  EffectActivation,
+  EffectActivationCost,
+  EffectUseArea,
+} from './activeEffectTypes.js';
 import type {
   DnDGameItem,
   DnDSceneEntity,
   Spell,
   SpellRollSource,
 } from './dndEntities.js';
+import type { EffectPaid } from './effectPayTypes.js';
 import type {
   SelfTriggerOptions,
   SelfTriggerReport,
@@ -26,6 +34,7 @@ import type { ActorCounterState } from './types.js';
 
 import {
   DEFAULT_ACTIVATION_AMOUNT,
+  isDnDEffect,
   isToggleActivatedEffect,
   isUseActivatedEffect,
 } from './activeEffectTypes.js';
@@ -36,6 +45,7 @@ import {
   settleSelfTriggerSources,
 } from './effectTriggerRunner.js';
 import { listEffectEventTriggers } from './effectTriggers.js';
+import { isServerActiveAction } from './effectTriggerTypes.js';
 import { canSpendItemUses, isItemDepleted, spendItemUses } from './itemUses.js';
 import { buildPseudoSpell } from './spellUtils.js';
 import {
@@ -186,6 +196,71 @@ export interface EffectUseSource {
   rollSource: SpellRollSource;
   /** Дальность применения «на цель» в футах; нет — касание */
   range?: number;
+  /** Область применения: шаблон на карте вместо выбора одной цели */
+  area?: EffectUseArea;
+}
+
+/**
+ * Область применения группы эффектов: первая заданная. У вариантов одного
+ * применения область общая — шаблон ставят один раз.
+ *
+ * @param effects - эффекты применения с признаком применения
+ * @returns область либо `undefined`
+ */
+export function resolveEffectUseArea(
+  effects: readonly ActiveEffect[] | undefined,
+): EffectUseArea | undefined {
+  return (effects ?? []).find(
+    (effect) => isUseActivatedEffect(effect) && effect.activation?.area,
+  )?.activation?.area;
+}
+
+/**
+ * Трата хода на применение группы эффектов: первая заданная.
+ *
+ * @param effects - эффекты применения с признаком применения
+ * @returns трата либо `undefined`, если применение хода не тратит
+ */
+export function resolveEffectUseCost(
+  effects: readonly ActiveEffect[] | undefined,
+): EffectActivationCost | undefined {
+  return (effects ?? []).find(
+    (effect) => isUseActivatedEffect(effect) && effect.activation?.cost,
+  )?.activation?.cost;
+}
+
+/** Единицы срока заклинания по сроку эффекта зоны */
+const ZONE_DURATION_UNITS: Partial<
+  Record<EffectDurationType, Spell['durationUnit']>
+> = {
+  rounds: 'round',
+  minutes: 'minute',
+  hours: 'hour',
+};
+
+/**
+ * Срок псевдо-заклинания по сроку его эффекта «в зону»: зона на месте шаблона
+ * живёт столько, сколько записано у эффекта («горит 2 раунда»). Без такого
+ * эффекта применение мгновенное.
+ *
+ * @param effects - эффекты применения
+ * @returns поля срока псевдо-заклинания
+ */
+function resolveUseZoneDuration(
+  effects: readonly ActiveEffect[],
+): Partial<Pick<Spell, 'durationUnit' | 'durationValue'>> {
+  const zone = effects.find((effect) => effect.effectTarget === 'zone');
+
+  if (!zone) {
+    return {};
+  }
+
+  const unit = ZONE_DURATION_UNITS[zone.duration.type];
+
+  // Срок без счёта раундов (особый, до отдыха) — зона до снятия вручную
+  return unit
+    ? { durationUnit: unit, durationValue: zone.duration.value ?? 1 }
+    : { durationUnit: 'special', durationValue: 0 };
 }
 
 /**
@@ -204,11 +279,14 @@ const USE_SPELL_ID_PREFIX = 'use-';
  * @returns псевдо-заклинание
  */
 export function buildItemUseSpell(item: DnDGameItem): Spell {
+  const area = resolveEffectUseArea(item.activeEffects);
+
   return buildUseSpell({
     id: item.id,
     name: item.name,
     effects: listUseEffects(item.activeEffects),
     rollSource: 'item',
+    ...(area ? { area } : {}),
   });
 }
 
@@ -493,6 +571,8 @@ export function buildEffectGroupUseSpell(
     effect.activation?.range === undefined ? [] : [effect.activation.range],
   );
 
+  const area = resolveEffectUseArea(group);
+
   return buildUseSpell({
     id: first?.id ?? '',
     name: effectVariantGroupName(group),
@@ -501,6 +581,7 @@ export function buildEffectGroupUseSpell(
     ),
     rollSource: 'effect',
     ...(ranges.length > 0 ? { range: Math.max(...ranges) } : {}),
+    ...(area ? { area } : {}),
   });
 }
 
@@ -531,7 +612,87 @@ export function buildUseSpell(source: EffectUseSource): Spell {
     ...(source.range === undefined
       ? {}
       : { range: source.range, rangeUnit: 'ft', deliveryType: 'none' }),
+    // Область — шаблон на карте, как у заклинания; размер задаёт запись
+    ...(source.area
+      ? {
+          areaOfEffect: {
+            shape: source.area.shape,
+            size: source.area.size,
+            ...(source.area.width === undefined
+              ? {}
+              : { width: source.area.width }),
+            unit: 'ft',
+            resizable: false,
+          },
+          ...resolveUseZoneDuration(source.effects),
+        }
+      : {}),
   });
+}
+
+/** Переключатели предмета: эффекты, которые включают и выключают */
+export interface ItemToggleEntry {
+  /** Эффект-переключатель */
+  effect: ActiveEffect;
+  /** Включён ли он сейчас */
+  on: boolean;
+}
+
+/**
+ * Переключатели предмета — пункты его меню («Язык пламени»: зажечь и
+ * погасить).
+ *
+ * @param item - предмет
+ * @returns переключатели по порядку записи
+ */
+export function listItemToggles(
+  item: Pick<DnDGameItem, 'activeEffects'>,
+): ItemToggleEntry[] {
+  return (item.activeEffects ?? []).flatMap((effect) =>
+    isDnDEffect(effect) && isToggleActivatedEffect(effect)
+      ? [{ effect, on: effect.disabled !== true }]
+      : [],
+  );
+}
+
+/**
+ * Инвентарь с включённым или выключенным переключателем предмета. Выключенный
+ * забывает потраченное при включении — следующее включение заплатит заново.
+ *
+ * @param equipment - инвентарь
+ * @param itemId - предмет
+ * @param effectId - переключатель
+ * @param on - включить или выключить
+ * @param paid - потраченное ценой при включении
+ * @returns новый инвентарь; предмета или эффекта нет — прежний
+ */
+export function switchItemToggle(
+  equipment: readonly DnDGameItem[],
+  itemId: string,
+  effectId: string,
+  on: boolean,
+  paid?: EffectPaid,
+): DnDGameItem[] {
+  return equipment.map((item) =>
+    item.id === itemId
+      ? {
+          ...item,
+          activeEffects: (item.activeEffects ?? []).map((effect) => {
+            if (effect.id !== effectId || !isDnDEffect(effect)) {
+              return effect;
+            }
+
+            const { paid: _paid, ...rest } = effect;
+
+            return {
+              ...rest,
+              disabled: !on,
+              ...(on && paid ? { paid } : {}),
+            };
+          }),
+        }
+      : item,
+  );
 }
 
 /**
@@ -1019,12 +1180,51 @@ export function runEffectActiveAction(
 ): DnDSceneEntity {
   const acted = cloneEntityData(entity);
 
-  settleOwnEffectTriggers(acted, effectId, listEffectActiveActions, {
+  // Действия другим (всем в радиусе, наложившему) выполняет сервер
+  settleOwnEffectTriggers(acted, effectId, listEffectSelfActions, {
     ...options,
     combatRound,
   });
 
   return acted;
+}
+
+/**
+ * Срабатывания «При действии», которые клиент выполняет на самом носителе.
+ *
+ * @param effect - эффект носителя
+ * @returns срабатывания; пусто — на носителе выполнять нечего
+ */
+export function listEffectSelfActions(effect: ActiveEffect): EffectTrigger[] {
+  return listEffectActiveActions(effect).filter(
+    (trigger) => !isServerActiveAction(trigger),
+  );
+}
+
+/**
+ * Срабатывания «При действии», чьи действия достаются другим: их выполняет
+ * сервер по событию правил от клиента.
+ *
+ * @param effect - эффект носителя
+ * @returns срабатывания; пусто — серверу выполнять нечего
+ */
+export function listEffectServerActions(effect: ActiveEffect): EffectTrigger[] {
+  return listEffectActiveActions(effect).filter(isServerActiveAction);
+}
+
+/**
+ * Шаблон, который кнопка «При действии» ставит на карту: первый заданный у её
+ * срабатываний.
+ *
+ * @param effect - эффект носителя
+ * @returns шаблон либо `undefined`, если получатели — по радиусу
+ */
+export function resolveEffectActionTemplate(
+  effect: ActiveEffect,
+): EffectUseArea | undefined {
+  return listEffectServerActions(effect).find(
+    (trigger) => trigger.area?.template,
+  )?.area?.template;
 }
 
 /** Подпись момента в сводке срабатываний кнопки и переключателя */

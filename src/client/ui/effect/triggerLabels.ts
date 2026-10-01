@@ -109,6 +109,9 @@ export const EFFECT_TRIGGER_ROW_LABELS = {
   autoOutcomeEmpty: 'Без условия — спасбросок бросается как обычно.',
   moveKind: 'Как двигать',
   moveDistance: 'Футов',
+  moveUpTo: 'До стольких футов — выбирает применивший',
+  moveUpToHint:
+    '«Переместить на расстояние до 10 футов»: применившего спросят, на сколько, с шагом в клетку и вариантом «не двигать». Где спросить некого — на все футы.',
   moveFrom: 'От кого',
   moveHint: 'Ядро ставит фишку; препятствия не учитываются',
   areaShiftKind: 'Куда',
@@ -142,6 +145,10 @@ export const EFFECT_TRIGGER_ROW_LABELS = {
   durationFormulaHint:
     'Число раундов формулой: @paid.hitDice, 1к4, @mod.con. Бросается один раз, при наложении. Пусто — срок слева.',
   dispelMaxLevel: 'До какого круга',
+  dispelMaxLevelFormula: 'Круг формулой',
+  dispelMaxLevelFormulaHint:
+    '«Не выше круга ячейки, которую вы используете» — @castLevel. Пусто — круг числом.',
+  dispelMaxLevelFormulaPlaceholder: '@castLevel',
   dispelWithoutLevel: 'И то, у чего круг неизвестен',
   endCastWhose: 'Чей каст',
   conditionEndsOnExit: 'Спадает при выходе из зоны',
@@ -253,6 +260,11 @@ export const EFFECT_TRIGGER_RECIPIENT_LABELS: Record<
 /** Подписи полей «всем в радиусе» */
 export const EFFECT_TRIGGER_AREA_LABELS = {
   radius: 'Радиус, фт',
+  template: 'Область',
+  templateHint:
+    'Шаблон, который ставит на карту нажавший кнопку: «выдохнуть 15-футовый '
+    + 'конус». Действия достаются тем, кого он накрыл. Без шаблона — всем в '
+    + 'радиусе от фишки носителя.',
   target: 'Кого',
   alliesWithSelf: 'Союзников и носителя',
   allWithSelf: 'Всех и носителя',
@@ -541,6 +553,8 @@ export const EFFECT_TRIGGER_MOVE_KIND_LABELS: Record<
   push: 'Оттолкнуть',
   pull: 'Притянуть',
   teleport: 'Перенести',
+  bring: 'Перенести вплотную к опоре',
+  choose: 'Оттолкнуть или притянуть — на выбор применившего',
 };
 
 /** Подписи того, как сдвигается зона действием «Сдвинуть зону» */

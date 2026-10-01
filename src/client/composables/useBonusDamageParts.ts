@@ -47,6 +47,7 @@ import {
   hasBonusDamageFormulas,
   isDnDEffect,
   isDndSceneEntity,
+  isUseActivatedEffect,
   listEnabledEffects,
   listEntityMarkSources,
   resolveBonusDamageParts,
@@ -449,7 +450,10 @@ export function useBonusDamageParts() {
       saveEffect: weapon.saveEffect,
       // Эффекты оружия (статус/доп.урон со своим applySave) обрабатывает
       // оркестратор per-target — тем же путём, что и у заклинаний/существ.
-      activeEffects: weapon.activeEffects?.filter(isDnDEffect),
+      // Применяемый эффект оружия — кнопка предмета, а не свойство удара
+      activeEffects: weapon.activeEffects
+        ?.filter(isDnDEffect)
+        .filter((effect) => !isUseActivatedEffect(effect)),
     });
 
     // Базовые части урона оружия через тот же резолвер, что и заклинания

@@ -9,16 +9,20 @@
  * касания — с разрешения ведущего), тем же разбором, что и у заклинаний.
  */
 
-import type { SkillType } from '@vtt/shared';
+import type { MeasurementTemplate, SkillType } from '@vtt/shared';
 import type {
   CreatureAction,
   DnDGameItem,
   DnDSceneEntity,
+  EffectActivationCost,
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
 import { emitEntityUpdate } from '@/core/entityUtils';
 import { useChatStore } from '@/stores/chatStore';
+import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
+import { useWorldStore } from '@/stores/worldStore';
+import { resolveGridCellSize } from '@vtt/shared';
 import {
   buildEffectGroupUseSpell,
   buildItemUseSpell,
@@ -27,13 +31,17 @@ import {
   canUseItem,
   collectEffectUseGroup,
   collectSourcePay,
+  findTokensInTemplate,
   findWeaponAmmunition,
+  formatActionCostBlock,
   getCasterSpellEffects,
   hasItemUsesPrice,
   isItemDepleted,
   isUseActivatedEffect,
   listSaveDcSkills,
+  resolveActionCostBlock,
   resolveActorStats,
+  resolveEffectUseCost,
   SKILLS_LABELS,
   spendAmmunition,
   spendItemUse,
@@ -42,7 +50,9 @@ import {
   withAmmunition,
 } from '@vtt/shared/system/dnd.js';
 
+import { useSystemToastStore } from '../stores/systemToastStore';
 import { EFFECT_USE_LABELS } from '../ui/effect/constants';
+import { recordEntityActionSpend } from './actionSpend';
 import { runWithDamageTypeChoices } from './damageTypeChoice';
 import { runWithSourcePay } from './effectPayChoice';
 import {
@@ -53,14 +63,21 @@ import {
 import { chooseUseTarget } from './effectUseTargetChoice';
 import { runWithEffectVariants } from './effectVariantChoice';
 import { openSkillCheckModal } from './skillCheckRoll';
-import { applyCasterSpellEffectsToEntity } from './spellCastCompletion';
+import {
+  applyCasterSpellEffectsToEntity,
+  requestSpellZone,
+} from './spellCastCompletion';
 import {
   applySpellTargetEffects,
   createChosenEffectTargets,
 } from './spellEffectTargeting';
 import { getTargetSpellEffects } from './spellResolutionShared';
 import { listAmbientEffects } from './useResolvedStats';
+import { getSpellMaxRangeOnScene } from './useSceneRangeCheck';
 import { useWorldEntities } from './useWorldEntities';
+
+/** Цвет шаблона области применения: нейтральный, у применения типа урона нет */
+const USE_AREA_TEMPLATE_COLOR = 0x8b5cf6;
 
 /** Приставка ключа окна проверки навыка, итог которой служит Сл */
 const SKILL_DC_MODAL_KEY_PREFIX = 'effect-skill-dc:';
@@ -89,6 +106,61 @@ export interface EffectSourceSpend {
    * @returns применивший после расхода
    */
   spendOn?: (paidUser: DnDSceneEntity, itemUsesPaid: boolean) => DnDSceneEntity;
+  /**
+   * Трата хода на применение: запрещённая («нет бонусных действий») применение
+   * не пускает, сделанная — пишется в счёт хода
+   */
+  cost?: EffectActivationCost;
+}
+
+/**
+ * Ставит на карту шаблон области применения и отдаёт тех, кого он накрыл.
+ * Шаблон после этого снимается: он нужен только для выбора целей и зоны.
+ *
+ * @param source - псевдо-заклинание применения с областью
+ * @param user - кто применяет
+ * @param proceed - продолжение: сущности под шаблоном и сам шаблон
+ */
+function placeUseArea(
+  source: Spell,
+  user: DnDSceneEntity,
+  proceed: (targetIds: string[], template: MeasurementTemplate) => void,
+): void {
+  const { areaOfEffect } = source;
+
+  if (!areaOfEffect) {
+    return;
+  }
+
+  const templateStore = useSpellTemplateStore();
+
+  templateStore.requestPlacement(
+    areaOfEffect,
+    USE_AREA_TEMPLATE_COLOR,
+    user.id,
+    (templateId) => {
+      // Данные шаблона забираются до его снятия: по ним считаются цели
+      const template = templateStore.getPlacedTemplate(templateId);
+
+      templateStore.removePlacedTemplate(templateId);
+      templateStore.deleteTemplate(templateId);
+
+      const scene = useWorldStore().currentScene;
+
+      if (!template || !scene) {
+        return;
+      }
+
+      const targetIds = findTokensInTemplate(
+        template,
+        scene.tokens ?? [],
+        resolveGridCellSize(scene.gridSettings),
+      ).flatMap((token) => (token.actorId ? [token.actorId] : []));
+
+      proceed([...new Set(targetIds)], template);
+    },
+    getSpellMaxRangeOnScene(source),
+  );
 }
 
 /**
@@ -166,15 +238,37 @@ export function applyEffectSource(
   spend: () => void,
   withPay: EffectSourceSpend = {},
 ): void {
+  // Запрет траты хода («нет бонусных действий») — до всякого выбора
+  const blocked = resolveActionCostBlock(
+    user,
+    withPay.cost,
+    listAmbientEffects(user.id),
+  );
+
+  if (blocked) {
+    useSystemToastStore().add({
+      title: `${EFFECT_USE_LABELS.blockedTitle}: ${spell.name}`,
+      description: formatActionCostBlock(blocked),
+      color: 'warning',
+    });
+
+    return;
+  }
+
   runWithEffectVariants(spell, (variant) => {
     runWithDamageTypeChoices(variant, (chosen) => {
       /**
        * Оплата, расход и наложение источника с уже известной Сл.
        *
        * @param source - источник после проверки навыка
-       * @param targetId - получатель эффектов «на цели»; нет — их нет
+       * @param targetIds - получатели эффектов «на цели»; пусто — их нет
+       * @param template - шаблон области применения: на его месте — зона
        */
-      const settleChecked = (source: Spell, targetId?: string): void => {
+      const settleChecked = (
+        source: Spell,
+        targetIds: readonly string[],
+        template?: MeasurementTemplate,
+      ): void => {
         const itemUsesPaid = hasItemUsesPrice(
           collectSourcePay(source.activeEffects),
         );
@@ -201,17 +295,26 @@ export function applyEffectSource(
               spend();
             }
 
+            // Применение точно идёт — трата хода в счёт («Замедление»)
+            recordEntityActionSpend(user.id, withPay.cost);
+
             // Что сделало применение, пишут список наложенного, разбор цели и
             // исход срабатываний — отдельная строка «применяет» их бы только
             // повторяла
             applyCasterSpellEffectsToEntity(paidSource, user, { saveDc });
 
-            if (targetId !== undefined) {
+            if (targetIds.length > 0) {
               applySpellTargetEffects(
                 paidSource,
                 { casterId: user.id, spellSaveDC: saveDc },
-                createChosenEffectTargets(paidSource, user.id, [targetId]),
+                createChosenEffectTargets(paidSource, user.id, targetIds),
               );
+            }
+
+            // Эффект «в зону» остаётся зоной на месте шаблона («Масло» горит
+            // два раунда); без него запрос ничего не делает
+            if (template) {
+              requestSpellZone(paidSource, user, { saveDc }, template);
             }
           },
         );
@@ -221,25 +324,38 @@ export function applyEffectSource(
        * Оплата, расход и наложение — когда цель уже известна: отказ от выбора
        * цели ничего не тратит.
        *
-       * @param targetId - получатель эффектов «на цели»; нет — их нет
+       * @param targetIds - получатели эффектов «на цели»; пусто — их нет
+       * @param template - шаблон области применения
        */
-      const settle = (targetId?: string): void => {
+      const settle = (
+        targetIds: readonly string[],
+        template?: MeasurementTemplate,
+      ): void => {
         // Сл от проверки навыка применившего — до оплаты: закрытое окно
         // проверки ничего не тратит
-        runWithSkillCheckDc(chosen, user, targetId !== undefined, (checked) => {
-          settleChecked(checked, targetId);
+        runWithSkillCheckDc(chosen, user, targetIds.length > 0, (checked) => {
+          settleChecked(checked, targetIds, template);
         });
       };
 
+      // Область: шаблон на карте вместо выбора одной цели
+      if (chosen.areaOfEffect) {
+        placeUseArea(chosen, user, settle);
+
+        return;
+      }
+
       if (getTargetSpellEffects(chosen).length === 0) {
-        settle();
+        settle([]);
 
         return;
       }
 
       // Получателя выбирают на карте — себя или другого: «Зелье лечения» с
       // доставкой «На цели при применении» и пьют, и вливают одним эффектом
-      chooseUseTarget(chosen, user, settle);
+      chooseUseTarget(chosen, user, (targetId) => {
+        settle(targetId === undefined ? [] : [targetId]);
+      });
     });
   });
 }
@@ -409,8 +525,10 @@ export function applyEntityEffectUse(entityId: string, effectId: string): void {
     return;
   }
 
+  const group = collectEffectUseGroup(effects, effect);
+
   applyEffectSource(
-    buildEffectGroupUseSpell(collectEffectUseGroup(effects, effect)),
+    buildEffectGroupUseSpell(group),
     entity,
     resolveActorStats(entity, listAmbientEffects(entity.id)).spellSaveDC,
     () => {
@@ -427,7 +545,10 @@ export function applyEntityEffectUse(entityId: string, effectId: string): void {
         emitEntityUpdate(socket, paid);
       }
     },
-    { spendOn: (paidUser) => payEntityActivation(paidUser, effect) },
+    {
+      spendOn: (paidUser) => payEntityActivation(paidUser, effect),
+      cost: resolveEffectUseCost(group),
+    },
   );
 }
 
@@ -455,7 +576,7 @@ export function applyEntityItemUse(entityId: string, itemId: string): void {
       updateEntityEquipment(entityId, (equipment) =>
         spendItemUse(equipment, itemId),
       ),
-    buildItemUseSpend(itemId),
+    buildItemUseSpend(itemId, resolveEffectUseCost(item.activeEffects)),
   );
 }
 
@@ -465,11 +586,16 @@ export function applyEntityItemUse(entityId: string, itemId: string): void {
  * при другой цене) списывается как всегда.
  *
  * @param itemId - предмет
+ * @param cost - трата хода на применение предмета
  * @returns расход для {@link applyEffectSource}
  */
-export function buildItemUseSpend(itemId: string): EffectSourceSpend {
+export function buildItemUseSpend(
+  itemId: string,
+  cost?: EffectActivationCost,
+): EffectSourceSpend {
   return {
     itemId,
+    ...(cost ? { cost } : {}),
     spendOn: (paidUser, itemUsesPaid) =>
       itemUsesPaid
         ? paidUser

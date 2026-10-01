@@ -619,10 +619,11 @@ describe('неработающие поля', () => {
       actions: [{ type: 'removeSelf' }],
     };
 
-    // Черту включают переключателем, у предмета его нет
+    // Черту и предмет включают переключателем, у черты существа его нет
     for (const [context, switches] of [
       ['feature', ['toggle']],
-      ['item', []],
+      ['item', ['toggle']],
+      ['creatureTrait', []],
     ]) {
       const effect = createEffect({ triggers: [toggleTrigger] });
 
@@ -781,8 +782,9 @@ describe('получатель «всем в радиусе»', () => {
 });
 
 describe('применение и включение', () => {
-  it('способы по месту окна: предмет применяют, умение ещё и включают', () => {
-    assert.deepEqual(layoutOf('item').activationModes, ['use']);
+  it('способы по месту окна: предмет, оружие и умение применяют и включают', () => {
+    assert.deepEqual(layoutOf('item').activationModes, ['use', 'toggle']);
+    assert.deepEqual(layoutOf('weapon').activationModes, ['use', 'toggle']);
     assert.deepEqual(layoutOf('feature').activationModes, ['use', 'toggle']);
     assert.deepEqual(layoutOf('ownEffects').activationModes, ['use', 'toggle']);
     assert.deepEqual(layoutOf('spell').activationModes, []);
@@ -851,15 +853,25 @@ describe('применение и включение', () => {
 
   it('применение не для этого места — неработающее поле', () => {
     const toggled = createEffect({ activation: { mode: 'toggle' } });
-    const layout = engine.resolveEffectFormLayout('item', toggled);
+    const layout = engine.resolveEffectFormLayout('creatureTrait', toggled);
 
     assert.deepEqual(engine.listInertEffectFields(toggled, layout), [
       'activation',
     ]);
 
     assert.equal(
-      engine.clearInertEffectFields(toggled, ['activation'], 'item').activation,
+      engine.clearInertEffectFields(toggled, ['activation'], 'creatureTrait')
+        .activation,
       undefined,
+    );
+
+    // У предмета переключатель работает: «Язык пламени» зажигают и гасят
+    assert.deepEqual(
+      engine.listInertEffectFields(
+        toggled,
+        engine.resolveEffectFormLayout('item', toggled),
+      ),
+      [],
     );
   });
 

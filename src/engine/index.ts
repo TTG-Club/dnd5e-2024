@@ -68,6 +68,7 @@ export * from './effectEscape.js';
 export * from './effectFlagMenu.js';
 export * from './effectFormLayout.js';
 export * from './effectModifierMenu.js';
+export * from './effectMoveChoice.js';
 export * from './effectPaidTokens.js';
 export * from './effectPay.js';
 export * from './effectPayTypes.js';

@@ -70,6 +70,7 @@ import {
   stripHealTokens,
 } from './formulaTokens.js';
 import { describeSaveAbilities } from './saveAbilityChoice.js';
+import { AREA_SHAPE_LABELS } from './spellTypes.js';
 import { describeWeaponOverrideValue } from './weaponOverrides.js';
 
 /** Подпись ключа модификатора (`armorClass` → «Класс доспеха (AC)»). */
@@ -435,10 +436,12 @@ export function describeEffectDamageParts(parts: DamagePart[]): string {
  * Описывает длительность: «на 1 раунд», «постоянно».
  *
  * @param duration - длительность эффекта
+ * @param turnCurrent - срок по ходу кончается с концом ТЕКУЩЕГО хода якоря
  * @returns подпись либо `null`, если сказать нечего («особое», пустое число)
  */
 export function describeEffectDuration(
   duration: EffectDuration,
+  turnCurrent = false,
 ): string | null {
   switch (duration.type) {
     case 'permanent':
@@ -471,7 +474,10 @@ export function describeEffectDuration(
           ? 'источника'
           : 'носителя';
 
-      return `до ${when} следующего хода ${whose}`;
+      // «До конца текущего хода»: наложенный в ход якоря кончается с ним
+      const which = turnCurrent && when === 'конца' ? 'текущего' : 'следующего';
+
+      return `до ${when} ${which} хода ${whose}`;
     }
     case 'special':
     default:
@@ -608,7 +614,10 @@ export function describeActiveEffect(effect: ActiveEffect): string {
   }
 
   // 13. Длительность (добавляем в конце, если есть что описывать)
-  const duration = describeEffectDuration(effect.duration);
+  const duration = describeEffectDuration(
+    effect.duration,
+    effect.turnCurrent === true,
+  );
 
   if (duration && clauses.length > 0) {
     clauses.push(duration);
@@ -737,6 +746,13 @@ const EFFECT_ACTIVATION_DETAIL_LABELS = {
   toggle: 'Включается переключателем',
 } as const;
 
+/** Трата хода и область применения */
+const EFFECT_ACTIVATION_EXTRA_DETAIL_LABELS = {
+  cost: 'трата хода: ',
+  area: 'область: ',
+  feet: ' фт',
+} as const;
+
 /** Цена ресурсом и потраченное — в разделе «Применение» карточки */
 const EFFECT_PAY_DETAIL_LABELS = {
   pay: 'цена: ',
@@ -800,9 +816,13 @@ export function describeEffectEscape(escape: EffectEscape): string {
  * показывается отдельно: он живёт на конкретном наложении эффекта, а не в его
  * настройке.
  */
-function durationLines(duration: EffectDuration): string[] {
+function durationLines(
+  duration: EffectDuration,
+  turnCurrent: boolean,
+): string[] {
   const lines = [
-    describeEffectDuration(duration) ?? EFFECT_DURATION_LABELS[duration.type],
+    describeEffectDuration(duration, turnCurrent)
+      ?? EFFECT_DURATION_LABELS[duration.type],
   ];
 
   // Остаток минут и часов тоже в раундах: в бою они тикают раундами
@@ -889,6 +909,20 @@ function applicationLines(effect: ActiveEffect): string[] {
 
   if (effect.activation) {
     lines.push(EFFECT_ACTIVATION_DETAIL_LABELS[effect.activation.mode]);
+
+    const { cost, area } = effect.activation;
+
+    if (cost) {
+      lines.push(
+        `${EFFECT_ACTIVATION_EXTRA_DETAIL_LABELS.cost}${formatEffectActionCost(cost).toLowerCase()}`,
+      );
+    }
+
+    if (area) {
+      lines.push(
+        `${EFFECT_ACTIVATION_EXTRA_DETAIL_LABELS.area}${AREA_SHAPE_LABELS[area.shape].toLowerCase()} ${area.size}${EFFECT_ACTIVATION_EXTRA_DETAIL_LABELS.feet}`,
+      );
+    }
   }
 
   if (effect.pay) {
@@ -1021,7 +1055,10 @@ export function buildActiveEffectDetails(
         : [],
     },
     { key: 'application', lines: applicationLines(effect) },
-    { key: 'duration', lines: durationLines(effect.duration) },
+    {
+      key: 'duration',
+      lines: durationLines(effect.duration, effect.turnCurrent === true),
+    },
   ];
 
   return sections

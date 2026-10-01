@@ -11,6 +11,11 @@
 
   import { computed, ref } from 'vue';
 
+  import {
+    joinVariantChoice,
+    splitVariantChoice,
+  } from '@vtt/shared/system/dnd.js';
+
   import { HUD_PROMPTS_TELEPORT_TARGET } from '../actor/constants';
   import {
     EFFECT_VARIANT_PROMPT_LABELS,
@@ -45,6 +50,32 @@
     ),
   );
 
+  /**
+   * Выбранные варианты группы, где можно взять несколько.
+   *
+   * @param group - ключ группы
+   * @returns подписи выбранных вариантов
+   */
+  function selectedOf(group: string): string[] {
+    return splitVariantChoice(choices.value[group]);
+  }
+
+  /**
+   * Меняет выбор в группе с несколькими вариантами. Пустой выбор не пишется:
+   * хотя бы один вариант взять надо.
+   *
+   * @param group - ключ группы
+   * @param labels - выбранные варианты
+   */
+  function selectVariants(group: string, labels: string[]): void {
+    const known = props.groups.find((entry) => entry.group === group)?.labels;
+    const picked = (known ?? []).filter((label) => labels.includes(label));
+
+    if (picked.length > 0) {
+      choices.value = { ...choices.value, [group]: joinVariantChoice(picked) };
+    }
+  }
+
   const title = computed(
     () =>
       `${EFFECT_VARIANT_PROMPT_LABELS.titlePrefix}${props.sourceName}${EFFECT_VARIANT_PROMPT_LABELS.titleSuffix}`,
@@ -62,7 +93,10 @@
       group: group.group,
       label: showGroupLabels.value ? group.group : undefined,
       items: group.labels.map((label) => ({ label, value: label })),
-      asSwitch: group.labels.length <= EFFECT_VARIANT_SWITCH_MAX,
+      multi: group.pick === 'multi',
+      asSwitch:
+        group.pick !== 'multi'
+        && group.labels.length <= EFFECT_VARIANT_SWITCH_MAX,
     })),
   );
 
@@ -128,6 +162,18 @@
             color="primary"
             class="w-full"
             @update:model-value="selectVariant(row.group, $event)"
+          />
+
+          <USelect
+            v-else-if="row.multi"
+            :model-value="selectedOf(row.group)"
+            :items="row.items"
+            value-key="value"
+            multiple
+            size="md"
+            class="w-full"
+            :portal="false"
+            @update:model-value="selectVariants(row.group, $event)"
           />
 
           <USelect

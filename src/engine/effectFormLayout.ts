@@ -26,6 +26,7 @@ import type {
   EffectEscapeCheck,
   EffectSave,
   EffectSaveOutcome,
+  EffectUseArea,
 } from './activeEffectTypes.js';
 import type { EffectPay, EffectPrice } from './effectPayTypes.js';
 import type {
@@ -313,17 +314,25 @@ const CONTEXT_DELIVERIES: Record<EffectFormContext, readonly EffectDelivery[]> =
  */
 const USE_DELIVERIES: readonly EffectDelivery[] = ['carrier', 'target', 'aura'];
 
+/** Доставки применения с областью: ещё и зона на месте шаблона */
+const USE_AREA_DELIVERIES: readonly EffectDelivery[] = [
+  ...USE_DELIVERIES,
+  'zone',
+];
+
 /**
- * Способы применения и включения по месту окна. Предмет применяют (зелье,
- * стрела) — включать его нечем, он работает, пока надет. Эффект листа и умения
- * применяют кнопкой или включают переключателем.
+ * Способы применения и включения по месту окна. Эффект листа, умения и
+ * предмета применяют кнопкой или включают переключателем.
  */
 const CONTEXT_ACTIVATION_MODES: Partial<
   Record<EffectFormContext, readonly EffectActivationMode[]>
 > = {
   ownEffects: EFFECT_ACTIVATION_MODES,
   feature: EFFECT_ACTIVATION_MODES,
-  item: ['use'],
+  // Предмет применяют (зелье, стрела) и включают («Язык пламени» пылает по
+  // командному слову) — пунктами меню предмета
+  item: EFFECT_ACTIVATION_MODES,
+  weapon: EFFECT_ACTIVATION_MODES,
   generic: EFFECT_ACTIVATION_MODES,
 };
 
@@ -374,9 +383,12 @@ function resolveContextDeliveries(
   effect: ActiveEffect,
   context: EffectFormContext,
 ): readonly EffectDelivery[] {
-  return isUsedInContext(effect, context)
-    ? USE_DELIVERIES
-    : CONTEXT_DELIVERIES[context];
+  if (!isUsedInContext(effect, context)) {
+    return CONTEXT_DELIVERIES[context];
+  }
+
+  // Применение с областью может оставить зону на месте шаблона
+  return effect.activation?.area ? USE_AREA_DELIVERIES : USE_DELIVERIES;
 }
 
 /**
@@ -401,6 +413,7 @@ function normalizeDraftActivation(
 
   const range = Math.trunc(parseFormNumber(activation.range) ?? 0);
   const exclusive = activation.exclusive?.trim() || undefined;
+  const area = normalizeDraftUseArea(activation.area);
 
   return {
     mode: activation.mode,
@@ -412,6 +425,34 @@ function normalizeDraftActivation(
     ...(activation.mode === 'use' && range >= MIN_ACTIVATION_RANGE
       ? { range }
       : {}),
+    ...(activation.cost ? { cost: activation.cost } : {}),
+    // Область — тоже только у применения
+    ...(activation.mode === 'use' && area ? { area } : {}),
+  };
+}
+
+/**
+ * Область применения для записи: без размера области нет, ширина — только у
+ * линии.
+ *
+ * @param area - область из черновика
+ * @returns область либо `undefined`
+ */
+function normalizeDraftUseArea(
+  area: EffectUseArea | undefined,
+): EffectUseArea | undefined {
+  const size = Math.trunc(parseFormNumber(area?.size) ?? 0);
+
+  if (!area || size < 1) {
+    return undefined;
+  }
+
+  const width = Math.trunc(parseFormNumber(area.width) ?? 0);
+
+  return {
+    shape: area.shape,
+    size,
+    ...(area.shape === 'ray' && width >= 1 ? { width } : {}),
   };
 }
 

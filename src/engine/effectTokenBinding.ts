@@ -196,6 +196,10 @@ function listActionFormulas(action: EffectTriggerAction): string[] {
       return action.roll === undefined
         ? [action.text]
         : [action.text, action.roll];
+    case 'dispel':
+      return action.maxLevelFormula === undefined
+        ? []
+        : [action.maxLevelFormula];
     default:
       return [];
   }
@@ -239,6 +243,10 @@ function mapActionFormulas(
         text: bind(action.text),
         ...(action.roll === undefined ? {} : { roll: bind(action.roll) }),
       };
+    case 'dispel':
+      return action.maxLevelFormula === undefined
+        ? action
+        : { ...action, maxLevelFormula: bind(action.maxLevelFormula) };
     default:
       return action;
   }

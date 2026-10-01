@@ -76,6 +76,7 @@ import { listEffectEventTriggers } from './effectTriggers.js';
 import {
   CHOICE_TRIGGER_RECIPIENT,
   DEFAULT_TRIGGER_RECIPIENT,
+  isServerActiveAction,
   MAX_TRIGGER_PATH_REPEATS,
   SOURCE_TRIGGER_RECIPIENT,
   triggerAsksPermission,
@@ -982,6 +983,41 @@ export function settleAttackRollTriggers(
 
   for (const source of listAttackRollSources(subject, role, 'server')) {
     runTriggerEventSource(subject, source, eventData, options, result);
+  }
+
+  return result;
+}
+
+/**
+ * Кнопка «При действии»: срабатывания эффекта, чьи действия достаются другим
+ * — всем в радиусе, тем, кого накрыл шаблон нажавшего, или наложившему.
+ * Действия самому носителю выполняет клиент (`runEffectActiveAction`).
+ *
+ * @param subject - носитель эффекта (мутируется)
+ * @param effectId - эффект с кнопкой
+ * @param options - с чем прогоняются события
+ * @returns итог: субъект и другие стороны
+ */
+export function settleEffectActionEvents(
+  subject: DnDSceneEntity,
+  effectId: string,
+  options: TriggerEventOptions,
+): DamageEventsResult {
+  const result = createDamageEventsResult();
+
+  const effects = listLiveEffects(subject).filter(
+    (effect) => effect.id === effectId,
+  );
+
+  const sources = buildTriggerSources(
+    effects,
+    EFFECT_TRIGGER_SOURCE_KINDS.instance,
+    (effect) =>
+      listEffectEventTriggers(effect, 'activate').filter(isServerActiveAction),
+  );
+
+  for (const source of sources) {
+    runTriggerEventSource(subject, source, {}, options, result);
   }
 
   return result;

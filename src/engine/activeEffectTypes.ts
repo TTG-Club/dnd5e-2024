@@ -1821,6 +1821,40 @@ export const MIN_ACTIVATION_RANGE = 1;
 /** Способ применения или включения эффекта */
 export type EffectActivationMode = (typeof EFFECT_ACTIVATION_MODES)[number];
 
+/** Чем платят ходом за применение или включение */
+export const EFFECT_ACTIVATION_COSTS = ['action', 'bonus', 'reaction'] as const;
+
+/** Трата хода на применение или включение: действие, бонусное, реакция */
+export type EffectActivationCost = (typeof EFFECT_ACTIVATION_COSTS)[number];
+
+/** Формы области применения — те же, что у шаблона заклинания */
+export const EFFECT_USE_AREA_SHAPES = [
+  'cone',
+  'circle',
+  'ray',
+  'rect',
+] as const;
+
+/** Форма области применения */
+export type EffectUseAreaShape = (typeof EFFECT_USE_AREA_SHAPES)[number];
+
+/** Самая большая область применения, фт */
+export const MAX_EFFECT_USE_AREA_SIZE = 1000;
+
+/**
+ * Область применения эффекта: шаблон, который применивший ставит на карту, как
+ * у заклинания с областью. Эффекты «на цели» получают все, кого шаблон накрыл;
+ * эффект «в зону» остаётся зоной на месте шаблона.
+ */
+export interface EffectUseArea {
+  /** Форма: конус, сфера, линия или куб */
+  shape: EffectUseAreaShape;
+  /** Размер в футах: длина конуса и линии, радиус сферы, сторона куба */
+  size: number;
+  /** Ширина линии в футах */
+  width?: number;
+}
+
 /** Применение или включение эффекта */
 export interface EffectActivation {
   /** Накладывается применением или включается переключателем */
@@ -1846,6 +1880,18 @@ export interface EffectActivation {
    * берёт только с разрешения ведущего.
    */
   range?: number;
+  /**
+   * Трата хода: «бонусным действием произнесите командное слово». Запрещённая
+   * трата («нет бонусных действий») применение и включение не пускает, а
+   * сделанная — пишется в счёт хода («Замедление»). Выключение ничего не
+   * стоит. Нет — ход не тратится
+   */
+  cost?: EffectActivationCost;
+  /**
+   * Область применения: шаблон на карте вместо выбора одной цели («выдохом в
+   * конусе 30 футов»). Только у применения
+   */
+  area?: EffectUseArea;
 }
 
 /**
@@ -2556,6 +2602,15 @@ export interface ActiveEffect extends BaseActiveEffect {
    * листа. Без поля кнопки нет.
    */
   escape?: EffectEscape;
+
+  /**
+   * Срок по ходу — до конца ТЕКУЩЕГО хода: «скорость 0 до конца текущего
+   * хода», «до конца вашего хода». Эффект, наложенный в ход якоря, обычно
+   * живёт до конца его СЛЕДУЮЩЕГО хода (`turnSkipFirst`); с этим полем он
+   * кончается с концом этого же хода. Наложенный вне хода якоря — как всегда:
+   * до конца его ближайшего хода.
+   */
+  turnCurrent?: true;
 
   /**
    * Правило каста носителя, пока эффект на нём: лимит круга ячейки и провал
@@ -3362,6 +3417,13 @@ const EFFECT_TRIGGER_PLAIN_ACTION_SCHEMAS = [
       coerceOptionalNumber,
       z.number().int().min(CANTRIP_SPELL_LEVEL).max(MAX_SPELL_SLOT_LEVEL),
     ),
+    maxLevelFormula: z
+      .string()
+      .trim()
+      .min(1)
+      .max(MAX_TRIGGER_FORMULA_LENGTH)
+      .optional()
+      .catch(undefined),
     withoutLevel: z.literal(true).optional().catch(undefined),
     on: EffectTriggerGateSchema,
   }),
@@ -3376,6 +3438,7 @@ const EFFECT_TRIGGER_PLAIN_ACTION_SCHEMAS = [
       coerceOptionalNumber,
       z.number().int().min(0).max(MAX_TRIGGER_MOVE_DISTANCE),
     ),
+    upTo: z.literal(true).optional().catch(undefined),
     from: z.enum(EFFECT_TRIGGER_MOVE_ORIGINS).optional().catch(undefined),
     on: EffectTriggerGateSchema,
   }),
@@ -3552,6 +3615,25 @@ const EffectVariantSchema = z.object({
 });
 
 /** Zod-схема применения или включения эффекта */
+/**
+ * Zod-схема области применения: шаблон на карте. Негодная область
+ * выбрасывается целиком — применение остаётся с выбором одной цели.
+ */
+const EffectUseAreaSchema = z
+  .object({
+    shape: z.enum(EFFECT_USE_AREA_SHAPES),
+    size: z.preprocess(
+      coerceOptionalNumber,
+      z.number().min(1).max(MAX_EFFECT_USE_AREA_SIZE),
+    ),
+    width: z.preprocess(
+      coerceOptionalNumber,
+      z.number().min(1).max(MAX_EFFECT_USE_AREA_SIZE).optional(),
+    ),
+  })
+  .optional()
+  .catch(undefined);
+
 const EffectActivationSchema = z.object({
   mode: z.enum(EFFECT_ACTIVATION_MODES),
   counter: z
@@ -3576,6 +3658,8 @@ const EffectActivationSchema = z.object({
     coerceOptionalNumber,
     z.number().int().min(MIN_ACTIVATION_RANGE).optional().catch(undefined),
   ),
+  cost: z.enum(EFFECT_ACTIVATION_COSTS).optional().catch(undefined),
+  area: EffectUseAreaSchema,
 });
 
 /** Zod-схема лимита срабатывания */
@@ -3626,6 +3710,7 @@ const effectTriggerShape = {
     .object({
       radius: z.preprocess(coerceOptionalNumber, z.number().min(0)),
       target: z.enum(EFFECT_TRIGGER_AREA_TARGETS).optional().catch(undefined),
+      template: EffectUseAreaSchema,
     })
     .optional()
     .catch(undefined),
@@ -3793,6 +3878,7 @@ export const ActiveEffectSchema = z.object({
   exhaustionLevel: z.number().int().min(0).optional(),
   escape: EffectEscapeSchema.optional().catch(undefined),
   castRule: EffectCastRuleSchema,
+  turnCurrent: z.literal(true).optional().catch(undefined),
   stages: z
     .array(EffectStageSchema)
     .max(MAX_EFFECT_STAGES)

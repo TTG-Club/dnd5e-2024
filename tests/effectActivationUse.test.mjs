@@ -47,6 +47,11 @@ async function loadApply({ chosenTargetId }) {
     getTargetSpellEffects: engine.getTargetSpellEffects,
     collectSourcePay: engine.collectSourcePay,
     hasItemUsesPrice: engine.hasItemUsesPrice,
+    // Запрета траты хода и области у фикстур нет
+    resolveActionCostBlock: () => null,
+    listAmbientEffects: () => [],
+    recordEntityActionSpend: () => {},
+    requestSpellZone: () => false,
     // Сл от проверки навыка у фикстур нет: применение идёт сразу
     runWithSkillCheckDc: (source, _user, _hasTarget, proceed) =>
       proceed(source),
@@ -394,6 +399,7 @@ it('кнопка панели применяет предмет владельц
     }),
     canUseItem: engine.canUseItem,
     buildItemUseSpell: engine.buildItemUseSpell,
+    resolveEffectUseCost: engine.resolveEffectUseCost,
     spendItemUse: engine.spendItemUse,
     resolveActorStats: () => ({ spellSaveDC: 14 }),
     listAmbientEffects: () => [],
@@ -509,6 +515,11 @@ it('цена ресурсом: оплата и прежний расход ид�
     getTargetSpellEffects: engine.getTargetSpellEffects,
     collectSourcePay: engine.collectSourcePay,
     hasItemUsesPrice: engine.hasItemUsesPrice,
+    // Запрета траты хода и области у фикстур нет
+    resolveActionCostBlock: () => null,
+    listAmbientEffects: () => [],
+    recordEntityActionSpend: () => {},
+    requestSpellZone: () => false,
     // Сл от проверки навыка у фикстур нет: применение идёт сразу
     runWithSkillCheckDc: (source, _user, _hasTarget, proceed) =>
       proceed(source),

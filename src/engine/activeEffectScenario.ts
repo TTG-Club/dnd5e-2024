@@ -439,7 +439,7 @@ function describeLastingPayload(
 
   const duration =
     layout.showDuration && effect.duration.type !== 'permanent'
-      ? describeEffectDuration(effect.duration)
+      ? describeEffectDuration(effect.duration, effect.turnCurrent === true)
       : null;
 
   if (duration && parts.length > 0) {

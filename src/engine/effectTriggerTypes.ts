@@ -17,6 +17,7 @@ import type { AbilityType, DamagePart, EffectDuration } from '@vtt/shared';
 import type {
   EffectEscape,
   EffectFlagKey,
+  EffectUseArea,
   RecurringSave,
 } from './activeEffectTypes.js';
 import type { ConditionRef } from './conditionKeys.js';
@@ -249,18 +250,51 @@ export interface EffectTriggerArea {
   radius: number;
   /** Кого задевает; нет — всех, кроме субъекта */
   target?: EffectTriggerAreaTarget;
+  /**
+   * Шаблон вместо радиуса: конус, линия, сфера или куб, который ставит на
+   * карту нажавший кнопку «При действии» («выдохнуть 15-футовый конус»).
+   * Получатели — те, кого шаблон накрыл. Только у события «При действии»:
+   * у остальных шаблон ставить некому, и действует радиус
+   */
+  template?: EffectUseArea;
 }
 
 /**
  * События с получателем «всем в радиусе»: их выполняет сервер со сценой в
- * контексте — урон, «0 хитов», наложение, бросок атаки.
+ * контексте — урон, «0 хитов», наложение, бросок атаки и кнопка «При
+ * действии» (её получателей клиент передаёт серверу событием правил).
  */
 export const AREA_RECIPIENT_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
   'damageTaken',
   'hpZero',
   'applied',
   'attackRoll',
+  'activate',
 ];
+
+/** Получатели срабатывания, которых знает только сервер со сценой */
+const SERVER_ACTION_RECIPIENTS: readonly EffectTriggerRecipient[] = [
+  'area',
+  'source',
+];
+
+/**
+ * Выполняет ли срабатывание «При действии» сервер: его действия достаются
+ * другим — всем в радиусе, тем, кого накрыл шаблон, или наложившему. Действия
+ * самому носителю выполняет клиент.
+ *
+ * @param trigger - срабатывание
+ * @param trigger.recipient - кому достаются действия
+ * @returns `true`, если срабатывание уходит на сервер
+ */
+export function isServerActiveAction(trigger: {
+  recipient?: EffectTriggerRecipient;
+}): boolean {
+  return (
+    trigger.recipient !== undefined
+    && SERVER_ACTION_RECIPIENTS.includes(trigger.recipient)
+  );
+}
 
 /**
  * События, на которые реагирует наложенное состояние. Оно живёт своей жизнью
@@ -851,6 +885,11 @@ export interface EffectTriggerDispelAction {
   type: 'dispel';
   /** До какого круга снимать */
   maxLevel: number;
+  /**
+   * Круг формулой: «заклинания не выше круга ячейки, которую вы используете» —
+   * `@castLevel`. Считается при срабатывании; не посчиталась — `maxLevel`
+   */
+  maxLevelFormula?: string;
   /** Снимать и то, у чего круг неизвестен */
   withoutLevel?: true;
   on?: EffectTriggerActionGate;
@@ -878,9 +917,20 @@ export const MAX_TRIGGER_PATH_FEET = 500;
 export const MAX_TRIGGER_PATH_REPEATS = 100;
 
 /** Как двигает действие «Переместить» */
-export const EFFECT_TRIGGER_MOVE_KINDS = ['push', 'pull', 'teleport'] as const;
+export const EFFECT_TRIGGER_MOVE_KINDS = [
+  'push',
+  'pull',
+  'teleport',
+  'bring',
+  'choose',
+] as const;
 
-/** Толчок от опоры, притягивание к ней или перенос по тому же направлению */
+/**
+ * Толчок от опоры, притягивание к ней, перенос по тому же направлению, перенос
+ * вплотную к опоре (`bring`: «телепортируется в незанятое пространство в
+ * пределах 5 футов от вас») или «к опоре или от неё» на выбор применившего
+ * (`choose`, см. `effectMoveChoice.ts`)
+ */
 export type EffectTriggerMoveKind = (typeof EFFECT_TRIGGER_MOVE_KINDS)[number];
 
 /** Как двигает новое действие «Переместить»: толчком */
@@ -913,8 +963,13 @@ export const MAX_TRIGGER_MOVE_DISTANCE = 500;
 export interface EffectTriggerMoveAction {
   type: 'move';
   kind: EffectTriggerMoveKind;
-  /** На сколько футов */
+  /** На сколько футов; у переноса вплотную не читается */
   distance: number;
+  /**
+   * Расстояние «до N»: сколько футов, выбирает применивший (с шагом в клетку
+   * и «не двигать»). Где спросить некого — на все N
+   */
+  upTo?: true;
   /** От кого считать направление; нет — от наложившего эффект */
   from?: EffectTriggerMoveOrigin;
   on?: EffectTriggerActionGate;

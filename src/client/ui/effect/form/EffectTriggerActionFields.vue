@@ -426,6 +426,32 @@
     },
   });
 
+  // Расстояние «до N»: сколько футов, выбирает применивший
+  const moveUpTo = computed({
+    get: () => action.value.type === 'move' && action.value.upTo === true,
+    set: (enabled: boolean) => {
+      if (action.value.type === 'move') {
+        action.value = { ...action.value, upTo: enabled ? true : undefined };
+      }
+    },
+  });
+
+  // Круг рассеивания формулой: пустая строка — круг числом
+  const dispelFormula = computed({
+    get: () =>
+      action.value.type === 'dispel'
+        ? (action.value.maxLevelFormula ?? '')
+        : '',
+    set: (formula: string | number) => {
+      if (action.value.type === 'dispel') {
+        action.value = {
+          ...action.value,
+          maxLevelFormula: String(formula).trim() || undefined,
+        };
+      }
+    },
+  });
+
   /**
    * Меняет расстояние перемещения.
    *
@@ -1281,6 +1307,7 @@
     </UFormField>
 
     <UFormField
+      v-if="action.kind !== 'bring'"
       :label="EFFECT_TRIGGER_ROW_LABELS.moveDistance"
       class="w-28"
     >
@@ -1292,6 +1319,17 @@
         @update:model-value="updateMoveDistance"
       />
     </UFormField>
+
+    <UTooltip
+      v-if="action.kind !== 'bring'"
+      :text="EFFECT_TRIGGER_ROW_LABELS.moveUpToHint"
+    >
+      <USwitch
+        v-model="moveUpTo"
+        class="mt-7"
+        :label="EFFECT_TRIGGER_ROW_LABELS.moveUpTo"
+      />
+    </UTooltip>
 
     <UFormField
       :label="EFFECT_TRIGGER_ROW_LABELS.moveFrom"
@@ -1464,6 +1502,21 @@
         size="sm"
         class="w-full"
         @update:model-value="updateDispelLevel"
+      />
+    </UFormField>
+
+    <UFormField
+      :label="EFFECT_TRIGGER_ROW_LABELS.dispelMaxLevelFormula"
+      :help="EFFECT_TRIGGER_ROW_LABELS.dispelMaxLevelFormulaHint"
+      class="w-56"
+    >
+      <UInput
+        v-model="dispelFormula"
+        :placeholder="
+          EFFECT_TRIGGER_ROW_LABELS.dispelMaxLevelFormulaPlaceholder
+        "
+        size="sm"
+        class="w-full"
       />
     </UFormField>
 

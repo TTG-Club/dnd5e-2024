@@ -28,19 +28,23 @@ import {
   canSwitchOnEffect,
   collectEffectToggleGroup,
   findBurningActivationPeer,
+  formatActionCostBlock,
   formatSelfTriggerReport,
   needsActivationPayment,
   payActivation,
+  resolveActionCostBlock,
   stampEffectPaid,
   usesPaidHitDiceRoll,
 } from '@vtt/shared/system/dnd.js';
 
 import { useSystemToastStore } from '../stores/systemToastStore';
-import { EFFECT_USE_LABELS } from '../ui/effect/constants';
+import { EFFECT_USE_LABELS, ITEM_TOGGLE_LABELS } from '../ui/effect/constants';
+import { recordEntityActionSpend } from './actionSpend';
 import { emitActedEntity, runWithEffectPay } from './effectPayChoice';
 import { runWithEffectVariants } from './effectVariantChoice';
 import { resolveCombatRound } from './encounterTurn';
 import { stampEffectOnApply } from './spellResolutionShared';
+import { listAmbientEffects } from './useResolvedStats';
 import { useWorldEntities } from './useWorldEntities';
 
 /**
@@ -147,6 +151,23 @@ export function toggleEntityEffect(entityId: string, effectId: string): void {
     return;
   }
 
+  // Запрет траты хода («нет бонусных действий») — до выбора варианта
+  const blocked = resolveActionCostBlock(
+    entity,
+    effect.activation?.cost,
+    listAmbientEffects(entityId),
+  );
+
+  if (blocked) {
+    useSystemToastStore().add({
+      title: `${ITEM_TOGGLE_LABELS.blockedTitle}: ${effect.name}`,
+      description: formatActionCostBlock(blocked),
+      color: 'warning',
+    });
+
+    return;
+  }
+
   runWithEffectVariants(buildEffectToggleChoice(group), (chosen) => {
     const [picked] = chosen.activeEffects;
 
@@ -219,6 +240,9 @@ function switchOnEntityEffect(entityId: string, effectId: string): void {
     );
 
     emitActedEntity(paidEntity, activated);
+
+    // Включение состоялось — трата хода в счёт («Замедление»)
+    recordEntityActionSpend(entityId, effect.activation?.cost);
 
     const summary = formatSelfTriggerReport(entity.name, report);
 

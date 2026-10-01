@@ -1,6 +1,7 @@
 /**
  * События правил, которые случаются на клиенте и уходят на сервер ядром
- * (`system:client-event`): «прервать концентрацию», бросок атаки. Форма одна
+ * (`system:client-event`): «прервать концентрацию», бросок атаки, кнопка «При
+ * действии» с действиями другим. Форма одна
  * на клиент и сервер; сервер проверяет её Zod-ом — событие пришло по сети.
  */
 
@@ -43,10 +44,29 @@ const AttackRollEventSchema = z.object({
   landed: z.boolean().optional(),
 });
 
+/** Сколько сущностей накрывает один шаблон кнопки «При действии» */
+const MAX_ACTION_TARGETS = 64;
+
+/**
+ * Zod-схема события «нажата кнопка „При действии“»: сервер выполнит её
+ * срабатывания, чьи действия достаются другим.
+ */
+const EffectActionEventSchema = z.object({
+  type: z.literal('effectAction'),
+  entityId: z.string().min(1),
+  effectId: z.string().min(1),
+  /**
+   * Кого накрыл шаблон, поставленный нажавшим. Поля нет — шаблона у кнопки
+   * нет, и получатели считаются по радиусу от фишки носителя
+   */
+  targetIds: z.array(z.string().min(1)).max(MAX_ACTION_TARGETS).optional(),
+});
+
 /** Zod-схема события правил от клиента */
 const SystemClientEventSchema = z.discriminatedUnion('type', [
   EndCastsEventSchema,
   AttackRollEventSchema,
+  EffectActionEventSchema,
 ]);
 
 /** Событие правил от клиента */
@@ -102,5 +122,27 @@ export function buildAttackRollEvent(
     targetIds: [...targetIds],
     rollMode,
     ...(landed === undefined ? {} : { landed }),
+  };
+}
+
+/**
+ * Событие «нажата кнопка „При действии“»: сервер выполнит срабатывания, чьи
+ * действия достаются другим (всем в радиусе, под шаблоном, наложившему).
+ *
+ * @param entityId - носитель эффекта
+ * @param effectId - эффект с кнопкой
+ * @param targetIds - кого накрыл шаблон; нет — получатели по радиусу
+ * @returns событие для `system:client-event`
+ */
+export function buildEffectActionEvent(
+  entityId: string,
+  effectId: string,
+  targetIds?: readonly string[],
+): SystemClientEvent {
+  return {
+    type: 'effectAction',
+    entityId,
+    effectId,
+    ...(targetIds ? { targetIds: [...targetIds] } : {}),
   };
 }

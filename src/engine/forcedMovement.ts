@@ -18,7 +18,11 @@ import type { GridSettings, SystemSceneSurroundings, Token } from '@vtt/shared';
 
 import type { EffectTriggerMoveAction } from './effectTriggerTypes.js';
 
-import { getTokenAnchor, resolveGridPixelsPerUnit } from '@vtt/shared';
+import {
+  getTokenAnchor,
+  resolveGridCellSize,
+  resolveGridPixelsPerUnit,
+} from '@vtt/shared';
 
 import { DEFAULT_TRIGGER_MOVE_ORIGIN } from './effectTriggerTypes.js';
 
@@ -94,6 +98,39 @@ export interface ForcedMoveScene {
 /** Флаг «не может телепортироваться» */
 export const TELEPORT_BLOCKED_FLAG = 'movement.teleportBlocked';
 
+/** Виды перемещения, которые считаются телепортацией */
+const TELEPORT_MOVE_KINDS: readonly EffectTriggerMoveAction['kind'][] = [
+  'teleport',
+  'bring',
+];
+
+/**
+ * На сколько пикселей фишка идёт к опоре, чтобы встать к ней вплотную: центры
+ * расходятся на полуразмеры обеих фишек. Уже стоит вплотную — ноль.
+ *
+ * @param scene - кого двигают и к кому
+ * @param targetAnchor - центр фишки, которую двигают
+ * @param originAnchor - центр опоры
+ * @returns шаг в пикселях
+ */
+function resolveBringStep(
+  scene: ForcedMoveScene,
+  targetAnchor: ScenePosition,
+  originAnchor: ScenePosition,
+): number {
+  const { target, origin, gridSettings } = scene;
+  const cell = resolveGridCellSize(gridSettings);
+
+  const reach = (((target.scale ?? 1) + (origin.scale ?? 1)) * cell) / 2;
+
+  const length = Math.hypot(
+    targetAnchor.x - originAnchor.x,
+    targetAnchor.y - originAnchor.y,
+  );
+
+  return Math.max(0, length - reach);
+}
+
 /**
  * Куда встанет фишка после принудительного перемещения.
  *
@@ -115,26 +152,38 @@ export function resolveForcedMovePosition(
 ): ScenePosition | null {
   const { target, origin, gridSettings } = scene;
   const perFoot = resolveGridPixelsPerUnit(gridSettings);
+  const isBring = action.kind === 'bring';
 
-  if (perFoot <= 0 || action.distance <= 0) {
+  if (perFoot <= 0 || (!isBring && action.distance <= 0)) {
     return null;
   }
 
   // «Не может телепортироваться» («Цепи Белета»): перенос не состоится, а
   // толчок и притягивание — обычное перемещение, их запрет не касается
   if (
-    action.kind === 'teleport'
+    TELEPORT_MOVE_KINDS.includes(action.kind)
     && scene.targetFlags?.has(TELEPORT_BLOCKED_FLAG) === true
   ) {
     return null;
   }
 
-  const offset = shiftAlongLine(
-    resolveTokenAnchor(target, gridSettings),
-    resolveTokenAnchor(origin, gridSettings),
-    action.distance * perFoot,
-    action.kind === 'pull',
-  );
+  const targetAnchor = resolveTokenAnchor(target, gridSettings);
+  const originAnchor = resolveTokenAnchor(origin, gridSettings);
+
+  const offset = isBring
+    ? shiftAlongLine(
+        targetAnchor,
+        originAnchor,
+        resolveBringStep(scene, targetAnchor, originAnchor),
+        true,
+      )
+    : shiftAlongLine(
+        targetAnchor,
+        originAnchor,
+        action.distance * perFoot,
+        // «На выбор» без выбора (спросить было некого) толкает от опоры
+        action.kind === 'pull',
+      );
 
   return offset ? { x: target.x + offset.dx, y: target.y + offset.dy } : null;
 }

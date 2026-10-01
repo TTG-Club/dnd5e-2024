@@ -237,8 +237,10 @@ export function stampTurnDuration(
       ? (context.sourceId ?? context.carrierId)
       : context.carrierId;
 
+  // «До конца ТЕКУЩЕГО хода» (`turnCurrent`): первая граница — та самая
   const skipFirst =
     timing === 'end'
+    && effect.turnCurrent !== true
     && context.activeTurnActorId != null
     && anchorId === context.activeTurnActorId;
 

@@ -63,10 +63,12 @@
     isItemDepleted,
     isSaveAbility,
     isThrowableMeleeWeapon,
+    listItemToggles,
     listLoadableAmmunition,
     listSourceDamageTypeChoices,
     loadWeaponAmmunition,
     normalizeItemQuantity,
+    resolveEffectUseCost,
     resolveWeaponAttackBlock,
     resolveWeaponSaveDc,
     setItemUsesCurrent,
@@ -98,6 +100,7 @@
     buildItemUseSpend,
     prepareAmmunitionShot,
   } from '../../../composables/effectActivationUse';
+  import { toggleEntityItemEffect } from '../../../composables/itemEffectToggle';
   import { buildRollBonusEvaluator } from '../../../composables/rollBonusEvaluator';
   import { useBonusDamageParts } from '../../../composables/useBonusDamageParts';
   import { useCarryingCapacity } from '../../../composables/useCarryingCapacity';
@@ -114,7 +117,10 @@
     ITEM_USE_MACRO_ICON,
   } from '../../../macros/constants';
   import { useSystemDataStore } from '../../../stores/systemDataStore';
-  import { EFFECT_USE_LABELS } from '../../effect/constants';
+  import {
+    EFFECT_USE_LABELS,
+    ITEM_TOGGLE_LABELS,
+  } from '../../effect/constants';
   import ActorEquipmentRow from '../ActorEquipmentRow.vue';
   import CarryingCapacityModal from '../CarryingCapacityModal.vue';
   import {
@@ -1040,7 +1046,7 @@
       props.entity,
       resolvedStats.value?.spellSaveDC ?? 0,
       () => commitEquipment(spendItemUse(inventory.value, item.id)),
-      buildItemUseSpend(item.id),
+      buildItemUseSpend(item.id, resolveEffectUseCost(item.activeEffects)),
     );
   }
 
@@ -1102,6 +1108,20 @@
         disabled: props.isEditMode || !canUseItem(item),
         onSelect: () => applyItemUse(item),
       });
+    }
+
+    // Переключатели предмета: «Язык пламени» зажигают и гасят командным
+    // словом. В режиме правки лист сохраняется кнопкой — как и применение
+    if (!props.isReadOnly) {
+      for (const toggle of listItemToggles(item)) {
+        gameActions.push({
+          label: `${toggle.on ? ITEM_TOGGLE_LABELS.switchOff : ITEM_TOGGLE_LABELS.switchOn}${toggle.effect.name}`,
+          icon: toggle.on ? 'tabler:toggle-right' : 'tabler:toggle-left',
+          disabled: props.isEditMode,
+          onSelect: () =>
+            toggleEntityItemEffect(props.entity.id, item.id, toggle.effect.id),
+        });
+      }
     }
 
     if (item.type === 'weapon' && item.damageParts?.length) {
