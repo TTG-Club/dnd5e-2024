@@ -30,6 +30,7 @@
     setActorDragPayload,
   } from '@/core/actorDragState';
   import { getChatService } from '@/core/api/chatService';
+  import { ClientHooks } from '@/core/clientHooks';
   import {
     loadCompendiumKindByPack,
     loadCompendiumManifests,
@@ -277,6 +278,13 @@
   const kindView = ref<CompendiumView | undefined>(
     props.dataKind ? kindViewCache.get(props.dataKind) : undefined,
   );
+
+  /**
+   * Настройка показа узла, перечитанная после правки. Проп `view` — снимок на
+   * момент открытия окна: мастер меняет вид раздела своего компендиума, не
+   * закрывая окна, и без перечитывания оно осталось бы в старом макете.
+   */
+  const refreshedView = ref<CompendiumView | undefined>();
 
   const isLoading = ref(false);
   const loadedFile = ref('');
@@ -607,7 +615,7 @@
     resetFilters,
     setEnumSelection,
   } = useCompendiumView({
-    view: () => props.view ?? kindView.value,
+    view: () => refreshedView.value ?? props.view ?? kindView.value,
     items,
     searchQuery,
   });
@@ -969,6 +977,34 @@
   }
 
   /**
+   * Узел дерева манифеста с таким ключом.
+   *
+   * @param nodes - узлы дерева
+   * @param dataFile - искомый ключ узла
+   * @returns узел либо `undefined`, если его нет в дереве
+   */
+  function findNodeByDataFile(
+    nodes: ReadonlyArray<CompendiumTreeNode>,
+    dataFile: string,
+  ): CompendiumTreeNode | undefined {
+    for (const node of nodes) {
+      if (node.dataFile === dataFile) {
+        return node;
+      }
+
+      const nested = node.children
+        ? findNodeByDataFile(node.children, dataFile)
+        : undefined;
+
+      if (nested) {
+        return nested;
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
    * Есть ли в дереве манифеста узел с таким ключом.
    *
    * @param nodes - узлы дерева
@@ -978,11 +1014,45 @@
     nodes: ReadonlyArray<CompendiumTreeNode>,
     dataFile: string,
   ): boolean {
-    return nodes.some(
-      (node) =>
-        node.dataFile === dataFile
-        || (node.children ? treeHasDataFile(node.children, dataFile) : false),
-    );
+    return findNodeByDataFile(nodes, dataFile) !== undefined;
+  }
+
+  /**
+   * Перечитывает настройку показа раздела своего компендиума: её меняют окном
+   * «Вид раздела», пока это окно открыто. У остальных паков вид за сессию не
+   * меняется, и перечитывать его незачем.
+   */
+  async function refreshSectionView(): Promise<void> {
+    const socket = props.socket;
+    const dataFile = props.dataFile;
+
+    if (!socket || !dataFile || !props.authoring) {
+      return;
+    }
+
+    const manifests = await loadCompendiumManifests(socket);
+
+    // Пока ждали манифесты, узел могли сменить — ответ уже не про этот раздел
+    if (dataFile !== props.dataFile) {
+      return;
+    }
+
+    for (const manifest of manifests) {
+      const node = findNodeByDataFile(manifest.tree ?? [], dataFile);
+
+      if (node) {
+        refreshedView.value = node.view;
+
+        return;
+      }
+    }
+  }
+
+  /** Просит приложение открыть настройку вида этого раздела */
+  function configureSectionView(): void {
+    if (props.authoring) {
+      ClientHooks.callAll('compendium:configure-section-view', props.authoring);
+    }
   }
 
   /**
@@ -1946,6 +2016,7 @@
   function handleCompendiumUpdated(): void {
     if (props.open && props.dataFile) {
       reloadEntries();
+      void refreshSectionView();
     }
   }
 
@@ -1969,6 +2040,7 @@
     ([isOpen, currentFile], oldValue) => {
       // Если файл сменился — сбрасываем кеш и данные
       if (oldValue && currentFile !== oldValue[1]) {
+        refreshedView.value = undefined;
         loadedFile.value = '';
         items.value = [];
         kindPacks.value = [];
@@ -2017,6 +2089,23 @@
     @update:open="emit('update:open', $event)"
     @bring-to-front="emit('bring-to-front')"
   >
+    <!-- Свой компендиум, открытый для правки: настройка вида раздела -->
+    <template
+      v-if="authoring"
+      #header-actions
+    >
+      <UTooltip :text="COMPENDIUM_AUTHORING_LABELS.configureView">
+        <UButton
+          icon="tabler:settings"
+          color="neutral"
+          variant="ghost"
+          size="sm"
+          :aria-label="COMPENDIUM_AUTHORING_LABELS.configureView"
+          @click.left.exact.prevent="configureSectionView"
+        />
+      </UTooltip>
+    </template>
+
     <template #body>
       <!-- Layout: сайдбар + контент для заклинаний и существ, обычный для остального -->
       <div

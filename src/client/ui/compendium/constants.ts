@@ -247,6 +247,7 @@ export const COMPENDIUM_SECTION_FILTER_FIELDS: Readonly<
 export const COMPENDIUM_AUTHORING_LABELS = {
   create: 'Создать',
   createTooltip: 'Создать запись в этом разделе',
+  configureView: 'Настроить вид раздела',
   failedTitle: 'Не удалось сохранить',
   wrongKind: 'Запись другого типа — в этот раздел её сохранить нельзя.',
   unreadable: 'Запись не удалось открыть для правки: у неё незнакомая форма.',
