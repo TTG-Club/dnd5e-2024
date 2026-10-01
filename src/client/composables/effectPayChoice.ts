@@ -322,33 +322,28 @@ export function runWithSpellCastPay<Source extends PayableSource>(
     return;
   }
 
-  useModalManager().openModal(EFFECT_QUESTION_PROMPT_MODAL, {
-    allowMultiple: true,
-    question: EFFECT_PAY_PROMPT_LABELS.castLevelQuestion,
-    options: availableLevels.map((castLevel) => ({
-      id: String(castLevel),
-      label: `${EFFECT_PAY_PROMPT_LABELS.castLevelOptionPrefix}${castLevel}`,
-    })),
+  askCastLevel({
     sourceName: spell.name,
-    onAnswer: (optionId: string) => {
-      payAtLevel(Number(optionId));
-    },
-    onCancel: () => {},
+    question: EFFECT_PAY_PROMPT_LABELS.castLevelQuestion,
+    levels: availableLevels,
+    onChoose: payAtLevel,
   });
 }
 
 /**
  * Пишет в чат сводку срабатываний, выполненных на самой сущности (кнопка «При
- * действии», включение переключателя); без строк сводки ничего не шлёт.
+ * действии», включение переключателя, отдых); без строк сводки ничего не шлёт.
  *
  * @param entityName - имя сущности
  * @param report - что собрали срабатывания
+ * @param whenLabel - подпись момента; нет — «действие»
  */
 export function sendSelfTriggerReport(
   entityName: string,
   report: SelfTriggerReport,
+  whenLabel?: string,
 ): void {
-  const summary = formatSelfTriggerReport(entityName, report);
+  const summary = formatSelfTriggerReport(entityName, report, whenLabel);
 
   if (summary) {
     useChatStore().sendMessage(summary, 'text');

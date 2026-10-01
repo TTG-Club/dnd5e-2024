@@ -20,14 +20,13 @@ import type {
 } from '@vtt/shared/system/dnd.js';
 
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
-import { useChatStore } from '@/stores/chatStore';
 import {
   askRestTriggers,
-  formatSelfTriggerReport,
   REST_TRIGGER_SUMMARY_LABEL,
 } from '@vtt/shared/system/dnd.js';
 
 import { EFFECT_QUESTION_PROMPT_MODAL } from '../ui/effect/constants';
+import { sendSelfTriggerReport } from './effectPayChoice';
 
 /**
  * Вопрос срабатывания плашкой стола. Закрытая плашка — отказ.
@@ -83,13 +82,5 @@ export async function runRestWithTriggers(
 
   apply({ triggerAnswers, triggerReport });
 
-  const summary = formatSelfTriggerReport(
-    entity.name,
-    triggerReport,
-    REST_TRIGGER_SUMMARY_LABEL,
-  );
-
-  if (summary) {
-    useChatStore().sendMessage(summary, 'text');
-  }
+  sendSelfTriggerReport(entity.name, triggerReport, REST_TRIGGER_SUMMARY_LABEL);
 }
