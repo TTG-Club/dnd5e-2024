@@ -673,6 +673,8 @@ it('the actual hotbar spell executor opens the same target selection and passes 
       resolveSpellCastCost: () => undefined,
       listAmbientEffects: () => [],
       getAvailableSpellLevels: () => [1, 2],
+      // Лимита круга ячейки у заклинателя нет
+      limitEntityCastLevels: (_actor, _spell, levels) => levels,
       // Свои бонусы к ячейкам считаются от итоговых статов заклинателя
       resolveActorStats: () => ({ abilityBonusContext: {} }),
       MAX_SPELL_SLOT_LEVEL: 9,

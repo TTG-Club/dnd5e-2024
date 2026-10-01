@@ -48,6 +48,7 @@
   } from './constants';
   import {
     EffectAdvancedSection,
+    EffectCastRuleSection,
     EffectDamageStep,
     EffectDescriptionSection,
     EffectDurationStep,
@@ -384,6 +385,12 @@
             <EffectSaveOverrideSection
               v-if="layout.showSaveOverride"
               v-model:effect="draft"
+            />
+
+            <EffectCastRuleSection
+              v-model:effect="draft"
+              :layout="layout"
+              :source-save-dc="sourceSaveDc"
             />
 
             <EffectLightSection v-model:effect="draft" />

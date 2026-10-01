@@ -80,7 +80,10 @@
     withLoadedAmmunition,
   } from '@vtt/shared/system/dnd.js';
 
-  import { recordEntityActionSpend } from '../../../composables/actionSpend';
+  import {
+    recordEntityActionSpend,
+    warnOpportunityAttack,
+  } from '../../../composables/actionSpend';
   import { runWeaponAttackChoices } from '../../../composables/attackKindChoice';
   import { resolveTargetedAttackRoll } from '../../../composables/attackRollMode';
   import {
@@ -597,7 +600,8 @@
             commitEquipment(spendAmmunition(inventory.value, ammunitionId));
           }
 
-          recordEntityActionSpend(props.entity.id, WEAPON_ATTACK_COST);
+          recordEntityActionSpend(props.entity.id, WEAPON_ATTACK_COST, true);
+          warnOpportunityAttack(props.entity.id);
 
           return true;
         },

@@ -79,6 +79,7 @@
 
   import { recordEntityActionSpend } from '../../composables/actionSpend';
   import { resolveTargetedAttackRoll } from '../../composables/attackRollMode';
+  import { runWithCastFailure } from '../../composables/castFailure';
   import {
     describeDamageVariantsStat,
     requestDamageTypeChoiceFor,
@@ -1564,30 +1565,40 @@
         return;
       }
 
-      consumeSpellUse(spell, placement);
       recordEntityActionSpend(creature.id, resolveSpellCastCost(spell));
 
-      // Область: размещаем шаблон у токена существа, затем кидаем урон
-      if (spell.areaOfEffect) {
-        const color = getDamageTemplateColor(
-          getDamagePartsPrimaryType(spell.damageParts),
-        );
+      /** Списывает применение заклинания */
+      const spendUse = (): void => {
+        consumeSpellUse(spell, placement);
+      };
 
-        // Круг наложения группы растит область так же, как ячейка персонажа
-        spellTemplateStore.requestPlacement(
-          resolveSpellAreaAtLevel(spell, placement?.ref.castLevel)
-            ?? spell.areaOfEffect,
-          color,
-          props.creatureId,
-          (templateId) =>
-            startSpellRoll(spell, creature, templateId, placement),
-          null,
-        );
+      // Провал каста («Замедление», «Слово силы: Боль»): применение тратится,
+      // только если так велит правило
+      runWithCastFailure(spell, creature, { loseUse: spendUse }, () => {
+        spendUse();
 
-        return;
-      }
+        // Область: размещаем шаблон у токена существа, затем кидаем урон
+        if (spell.areaOfEffect) {
+          const color = getDamageTemplateColor(
+            getDamagePartsPrimaryType(spell.damageParts),
+          );
 
-      startSpellRoll(spell, creature, undefined, placement);
+          // Круг наложения группы растит область так же, как ячейка персонажа
+          spellTemplateStore.requestPlacement(
+            resolveSpellAreaAtLevel(spell, placement?.ref.castLevel)
+              ?? spell.areaOfEffect,
+            color,
+            props.creatureId,
+            (templateId) =>
+              startSpellRoll(spell, creature, templateId, placement),
+            null,
+          );
+
+          return;
+        }
+
+        startSpellRoll(spell, creature, undefined, placement);
+      });
     });
   }
 

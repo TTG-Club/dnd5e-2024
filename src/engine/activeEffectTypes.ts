@@ -22,6 +22,7 @@ import type {
   EffectTurnTiming,
   MovementType,
   SkillType,
+  SpellSchool,
 } from '@vtt/shared';
 
 import type {
@@ -36,6 +37,7 @@ import type {
 // D&D наследует базу и реэкспортит формы для своих потребителей.
 import type { CreatureCategory } from './creatureTypes.js';
 import type { DnDCustomBonusContext } from './customBonuses.js';
+import type { EffectCastRule } from './effectCastRuleTypes.js';
 import type { EffectChangeStep } from './effectChangeSteps.js';
 import type { EffectPaid, EffectPay } from './effectPayTypes.js';
 import type { EffectActionCost, EffectTrigger } from './effectTriggerTypes.js';
@@ -64,6 +66,7 @@ import {
   DAMAGE_TYPE_LABELS,
   DAMAGE_TYPES,
 } from './damageConstants.js';
+import { EffectCastRuleSchema } from './effectCastRuleTypes.js';
 import {
   EFFECT_CHANGE_STEP_PERIODS,
   MAX_EFFECT_CHANGE_STEP,
@@ -109,7 +112,7 @@ import {
   MAX_SPELL_SLOT_LEVEL,
   MIN_SPELL_SLOT_LEVEL,
 } from './spellSlotTable.js';
-import { CANTRIP_SPELL_LEVEL } from './spellTypes.js';
+import { CANTRIP_SPELL_LEVEL, SPELL_SCHOOL_LABELS } from './spellTypes.js';
 
 export type {
   AreaEffectTrigger,
@@ -1125,6 +1128,9 @@ export type DamageIgnoreResistanceFlagKey =
 export type SaveVsConditionFlagKey =
   SaveVsConditionAdvantageFlagKey | SaveVsConditionDisadvantageFlagKey;
 
+/** Флаг «нельзя накладывать заклинания школы»: по одному на школу магии */
+export type SpellSchoolBlockFlagKey = `spellcasting.noSchool.${SpellSchool}`;
+
 /**
  * Нечисловые эффекты: помеха, преимущество, иммунитеты.
  *
@@ -1209,8 +1215,13 @@ export type EffectFlagKey =
   | 'actions.noReaction'
   | 'actions.noBonusAction'
   | 'actions.oneActionOrBonus'
+  | 'actions.oneOfMoveActionBonus'
+  | 'actions.oneAttackPerAction'
+  | 'actions.noOpportunityAttack'
   | 'spellcasting.blocked'
   | 'spellcasting.noVerbal'
+  | 'spellcasting.noMagicAction'
+  | SpellSchoolBlockFlagKey
   | 'concentration.blocked'
   | 'rest.noBenefit.short'
   | 'rest.noBenefit.long'
@@ -1227,6 +1238,16 @@ export type EffectFlagKey =
   | SaveVsConditionFlagKey
   | SaveEvasionFlagKey
   | DamageIgnoreResistanceFlagKey;
+
+/**
+ * Подпись флага «нельзя накладывать заклинания школы».
+ *
+ * @param school - школа магии
+ * @returns подпись
+ */
+function schoolBlockLabel(school: SpellSchool): string {
+  return `Не может накладывать заклинания школы «${SPELL_SCHOOL_LABELS[school]}»`;
+}
 
 /**
  * Локализованные названия статических флагов (без генерируемых семейств).
@@ -1334,9 +1355,24 @@ const BASE_EFFECT_FLAG_LABELS: Record<
   'actions.noBonusAction': 'Не может совершать бонусные действия',
   'actions.oneActionOrBonus':
     'За ход — действие или бонусное действие, не оба (Замедление)',
+  'actions.oneOfMoveActionBonus':
+    'За ход — одно из трёх: перемещение, действие или бонусное действие',
+  'actions.oneAttackPerAction': 'Действием «Атака» — только одна атака за ход',
+  'actions.noOpportunityAttack':
+    'Не может совершать провоцированные атаки (остальные реакции доступны)',
   'spellcasting.blocked': 'Не может накладывать заклинания',
   'spellcasting.noVerbal':
     'Не может накладывать заклинания с вербальным компонентом',
+  'spellcasting.noMagicAction':
+    'Не может совершать действие «Магия» (заклинания действием)',
+  'spellcasting.noSchool.abjuration': schoolBlockLabel('abjuration'),
+  'spellcasting.noSchool.conjuration': schoolBlockLabel('conjuration'),
+  'spellcasting.noSchool.divination': schoolBlockLabel('divination'),
+  'spellcasting.noSchool.enchantment': schoolBlockLabel('enchantment'),
+  'spellcasting.noSchool.evocation': schoolBlockLabel('evocation'),
+  'spellcasting.noSchool.illusion': schoolBlockLabel('illusion'),
+  'spellcasting.noSchool.necromancy': schoolBlockLabel('necromancy'),
+  'spellcasting.noSchool.transmutation': schoolBlockLabel('transmutation'),
   'concentration.blocked':
     'Не может концентрироваться (текущая концентрация прерывается)',
   'initiative.advantage': 'Преимущество на бросок инициативы',
@@ -2431,6 +2467,12 @@ export interface ActiveEffect extends BaseActiveEffect {
    * листа. Без поля кнопки нет.
    */
   escape?: EffectEscape;
+
+  /**
+   * Правило каста носителя, пока эффект на нём: лимит круга ячейки и провал
+   * каста шансом или спасброском (`effectCastRule.ts`).
+   */
+  castRule?: EffectCastRule;
 
   /**
    * Ступени эффекта: каждая со своими `changes` и `flags`. Перевод на
@@ -3634,6 +3676,7 @@ export const ActiveEffectSchema = z.object({
   conditionImmunities: z.array(z.string().min(1)).optional(),
   exhaustionLevel: z.number().int().min(0).optional(),
   escape: EffectEscapeSchema.optional().catch(undefined),
+  castRule: EffectCastRuleSchema,
   stages: z
     .array(EffectStageSchema)
     .max(MAX_EFFECT_STAGES)

@@ -59,8 +59,8 @@ import {
   describeItemUseAvailability,
   describeWeaponAttackAvailability,
   evaluateConditionalBonuses,
+  findCreatureActionBlock,
   findCreatureActionSection,
-  findCreatureSectionBlock,
   findCreatureSpellPlacement,
   formatConditionalDamageDisplay,
   getAttackBonusKey,
@@ -81,10 +81,12 @@ import {
   getWeaponPrimaryDamageType,
   hasCreatureSpellUsesLeft,
   hasTargetToken,
+  isCreatureAttackAction,
   isCreatureSpellPoolMode,
   isDndSceneEntity,
   isSaveAbility,
   isUseActivatedEffect,
+  limitEntityCastLevels,
   MAX_SPELL_SLOT_LEVEL,
   mergeAppliedEffects,
   pickCantripTierParts,
@@ -113,13 +115,17 @@ import {
   withFlatFormulaBonus,
 } from '@vtt/shared/system/dnd.js';
 
-import { recordEntityActionSpend } from '../composables/actionSpend';
+import {
+  recordEntityActionSpend,
+  warnOpportunityAttack,
+} from '../composables/actionSpend';
 import { chooseAreaCastLevel } from '../composables/areaCastLevelChoice';
 import {
   runCreatureActionChoices,
   runWeaponAttackChoices,
 } from '../composables/attackKindChoice';
 import { resolveTargetedAttackRoll } from '../composables/attackRollMode';
+import { runWithCastFailure } from '../composables/castFailure';
 import {
   buildCreatureRollVariants,
   launchCreatureAction,
@@ -363,11 +369,17 @@ function computeAvailableLevels(
   }
 
   if (spellLevel > 0) {
-    return getAvailableSpellLevels(
+    // «Не может использовать ячейки 7-го круга и выше» сужает выбор круга
+    return limitEntityCastLevels(
       actor,
-      spellLevel,
-      MAX_SPELL_SLOT_LEVEL,
-      resolvedStats.abilityBonusContext,
+      { level: spellLevel },
+      getAvailableSpellLevels(
+        actor,
+        spellLevel,
+        MAX_SPELL_SLOT_LEVEL,
+        resolvedStats.abilityBonusContext,
+      ),
+      listAmbientEffects(actor.id),
     );
   }
 
@@ -857,7 +869,8 @@ export function registerDnd5eMacros(): void {
                 spendShotAmmunition(foundActor.id, ammunitionId);
               }
 
-              recordEntityActionSpend(foundActor.id, WEAPON_ATTACK_COST);
+              recordEntityActionSpend(foundActor.id, WEAPON_ATTACK_COST, true);
+              warnOpportunityAttack(foundActor.id);
 
               return true;
             },
@@ -905,11 +918,16 @@ export function registerDnd5eMacros(): void {
 
         const availableLevels =
           spell.level > 0
-            ? getAvailableSpellLevels(
+            ? limitEntityCastLevels(
                 actor,
-                spell.level,
-                MAX_SPELL_SLOT_LEVEL,
-                resolveActorStats(actor).abilityBonusContext,
+                spell,
+                getAvailableSpellLevels(
+                  actor,
+                  spell.level,
+                  MAX_SPELL_SLOT_LEVEL,
+                  resolveActorStats(actor).abilityBonusContext,
+                ),
+                listAmbientEffects(actor.id),
               )
             : [0];
 
@@ -1043,8 +1061,9 @@ export function registerDnd5eMacros(): void {
 }
 
 /**
- * Оплачивает цену каста сверх ячейки («потратьте две Кости Хитов, иначе
- * заклинание провалится») и продолжает каст оплаченным заклинанием. Лист
+ * Проверяет провал каста по правилам эффектов заклинателя, затем оплачивает
+ * цену каста сверх ячейки («потратьте две Кости Хитов, иначе заклинание
+ * провалится») и продолжает каст оплаченным заклинанием. Лист
  * дальше берётся уже оплаченный: ячейку каст списывает с него, и прежняя
  * запись вернула бы потраченное.
  *
@@ -1065,23 +1084,28 @@ function runWithMacroCastPay(
     paidActor: DnDActor,
   ) => void,
 ): void {
-  runWithSpellCastPay(
-    spell,
-    actor,
-    {
-      ...(lockedSpellLevel === undefined
-        ? {}
-        : { lockedLevel: lockedSpellLevel }),
-      availableLevels,
-    },
-    (paidSpell, castLevel, paidCaster) => {
-      proceed(
-        paidSpell,
-        castLevel,
-        isDnDActorEntity(paidCaster) ? paidCaster : actor,
-      );
-    },
-  );
+  const castOptions = {
+    ...(lockedSpellLevel === undefined
+      ? {}
+      : { lockedLevel: lockedSpellLevel }),
+    availableLevels,
+  };
+
+  // Провал каста («Замедление», «Слово силы: Боль») — до оплаты
+  runWithCastFailure(spell, actor, castOptions, () => {
+    runWithSpellCastPay(
+      spell,
+      actor,
+      castOptions,
+      (paidSpell, castLevel, paidCaster) => {
+        proceed(
+          paidSpell,
+          castLevel,
+          isDnDActorEntity(paidCaster) ? paidCaster : actor,
+        );
+      },
+    );
+  });
 }
 
 /**
@@ -2058,25 +2082,38 @@ function registerCreatureActionMacro(): void {
       if (
         section
         && refuseBlockedMacro(
-          findCreatureSectionBlock(
+          findCreatureActionBlock(
             resolveEntityActionBlocks(
               foundCreature,
               listAmbientEffects(foundCreature.id),
             ),
             section,
+            foundAction,
           ),
         )
       ) {
         return;
       }
 
-      /** Трата хода раздела — когда действие точно идёт */
-      const spendTurn = (): void => {
+      /** Атака действием «Атака»: её считает «одна атака за ход» */
+      const isAttack = isCreatureAttackAction(section, foundAction);
+
+      /**
+       * Трата хода раздела — когда действие точно идёт.
+       *
+       * @param withRoll - действие идёт с броском: атака считается атакой
+       */
+      const spendTurn = (withRoll = false): void => {
         if (section) {
           recordEntityActionSpend(
             foundCreature.id,
             resolveCreatureSectionCost(section),
+            withRoll && isAttack,
           );
+        }
+
+        if (withRoll && isAttack) {
+          warnOpportunityAttack(foundCreature.id);
         }
       };
 
@@ -2142,7 +2179,7 @@ function registerCreatureActionMacro(): void {
         }
 
         // Отказ по дистанции трату хода не тратит
-        spendTurn();
+        spendTurn(true);
 
         // Урон «или» — после проверки дистанции, до шаблона и окна броска
         runWithCreatureDamageChoice(action, foundCreature, (chosen, variants) =>
@@ -2453,37 +2490,47 @@ function registerCreatureSpellMacro(): void {
           return;
         }
 
-        consumeCreatureSpellUse(foundCreature, spell, placement);
         recordEntityActionSpend(foundCreature.id, resolveSpellCastCost(spell));
 
-        // Область: размещаем шаблон у токена существа, затем кидаем урон
-        if (spell.areaOfEffect) {
-          const templateStore = useSpellTemplateStore();
+        /** Списывает применение заклинания */
+        const spendUse = (): void => {
+          consumeCreatureSpellUse(foundCreature, spell, placement);
+        };
 
-          const color = getDamageTemplateColor(
-            getDamagePartsPrimaryType(spell.damageParts),
-          );
+        // Провал каста («Замедление», «Слово силы: Боль»): применение
+        // тратится, только если так велит правило
+        runWithCastFailure(spell, foundCreature, { loseUse: spendUse }, () => {
+          spendUse();
 
-          // Круг наложения группы растит область так же, как ячейка персонажа
-          templateStore.requestPlacement(
-            resolveSpellAreaAtLevel(spell, placement?.ref.castLevel)
-              ?? spell.areaOfEffect,
-            color,
-            foundCreature.id,
-            (templateId) =>
-              openCreatureSpellRoll(
-                foundCreature,
-                spell,
-                templateId,
-                placement,
-              ),
-            null,
-          );
+          // Область: размещаем шаблон у токена существа, затем кидаем урон
+          if (spell.areaOfEffect) {
+            const templateStore = useSpellTemplateStore();
 
-          return;
-        }
+            const color = getDamageTemplateColor(
+              getDamagePartsPrimaryType(spell.damageParts),
+            );
 
-        openCreatureSpellRoll(foundCreature, spell, undefined, placement);
+            // Круг наложения группы растит область так же, как ячейка персонажа
+            templateStore.requestPlacement(
+              resolveSpellAreaAtLevel(spell, placement?.ref.castLevel)
+                ?? spell.areaOfEffect,
+              color,
+              foundCreature.id,
+              (templateId) =>
+                openCreatureSpellRoll(
+                  foundCreature,
+                  spell,
+                  templateId,
+                  placement,
+                ),
+              null,
+            );
+
+            return;
+          }
+
+          openCreatureSpellRoll(foundCreature, spell, undefined, placement);
+        });
       });
     } catch (err) {
       console.error('[Hotbar] Ошибка выполнения creature-spell:', err);

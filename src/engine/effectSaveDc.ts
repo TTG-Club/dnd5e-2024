@@ -192,8 +192,14 @@ export function mapEffectSaveDcs(
   effect: ActiveEffect,
   mapSave: SaveDcMapper,
 ): ActiveEffect {
-  const { applySave, recurringSave, recurringDamage, escape, triggers } =
-    effect;
+  const {
+    applySave,
+    recurringSave,
+    recurringDamage,
+    escape,
+    castRule,
+    triggers,
+  } = effect;
 
   return {
     ...effect,
@@ -209,6 +215,10 @@ export function mapEffectSaveDcs(
       : {}),
     ...(escape?.check
       ? { escape: { ...escape, check: mapSave(escape.check) } }
+      : {}),
+    // Спасбросок при попытке каста — Сл наложившего, как у повторного
+    ...(castRule?.failSave
+      ? { castRule: { ...castRule, failSave: mapSave(castRule.failSave) } }
       : {}),
     ...(triggers
       ? {
@@ -258,6 +268,7 @@ export function listEffectSaveDcs(effect: ActiveEffect): SaveDcSource[] {
     ...(effect.recurringSave ? [effect.recurringSave] : []),
     ...(effect.recurringDamage?.save ? [effect.recurringDamage.save] : []),
     ...(effect.escape?.check ? [effect.escape.check] : []),
+    ...(effect.castRule?.failSave ? [effect.castRule.failSave] : []),
     ...(effect.triggers ?? []).flatMap(listTriggerSaveDcs),
   ];
 }

@@ -63,12 +63,14 @@ function createPorts(current) {
     buildCreatureRollVariants,
     props: { entity: current.value, actor: current.value, isEditMode: false },
     // Запретов трат хода у существа нет, трата хода не пишется
-    sectionBlock: { value: null },
+    blockOf: () => null,
     spendSectionTurn: () => {},
+    isCreatureAttackAction: () => true,
     // Удар оружием персонажа тоже не под запретом; трата хода не пишется
     resolveWeaponAttackBlock: () => null,
     refuseBlockedMacro: (reason) => reason !== null,
     recordEntityActionSpend: () => {},
+    warnOpportunityAttack: () => {},
     WEAPON_ATTACK_COST: 'action',
     toast: { add: () => {} },
     rollConfig,
@@ -1106,8 +1108,10 @@ it('actual creature action sheet checks distance with the chosen attack kind', a
 
   const ports = {
     props: { creatureId: 'goblin' },
-    sectionBlock: { value: null },
+    blockOf: () => null,
     spendSectionTurn: () => {},
+    isCreatureAttackAction: () => true,
+    warnOpportunityAttack: () => {},
     targetStore: { targetTokenId: 'target' },
     chatStore: { sendMessage: (text) => messages.push(text) },
     CREATURE_ACTIONS_BLOCK_LABELS: {

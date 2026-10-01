@@ -40,6 +40,7 @@ import { isActorEntity, isCreatureEntity } from '@vtt/shared';
 
 import { isHitDie } from './classTypes.js';
 import { cloneEntityData } from './dataClone.js';
+import { resolveSlotLevelLimit } from './effectCastRule.js';
 import { bindTriggerPaid } from './effectPaidTokens.js';
 import {
   DEFAULT_PRICE_AMOUNT,
@@ -50,7 +51,7 @@ import {
   pluralizePrice,
   priceHasAmount,
 } from './effectPayTypes.js';
-import { resolveActorStats } from './effectPipeline.js';
+import { collectActiveEffects, resolveActorStats } from './effectPipeline.js';
 import {
   consumeTriggerUse,
   isTriggerLimitReached,
@@ -357,8 +358,18 @@ function listSlotOptions(
   price: Extract<EffectPrice, { kind: 'spellSlot' }>,
   index: number,
 ): PayOption[] {
-  const minLevel = price.minLevel ?? MIN_SPELL_SLOT_LEVEL;
-  const maxLevel = Math.max(minLevel, price.maxLevel ?? MAX_SPELL_SLOT_LEVEL);
+  const priceMin = price.minLevel ?? MIN_SPELL_SLOT_LEVEL;
+
+  // «Не может использовать ячейки 7-го круга и выше» — запрет и на плату ими
+  const limit = resolveSlotLevelLimit(collectActiveEffects(payer));
+
+  const minLevel = Math.max(priceMin, limit.min?.level ?? MIN_SPELL_SLOT_LEVEL);
+
+  const maxLevel = Math.min(
+    Math.max(priceMin, price.maxLevel ?? MAX_SPELL_SLOT_LEVEL),
+    limit.max?.level ?? MAX_SPELL_SLOT_LEVEL,
+  );
+
   const options: PayOption[] = [];
 
   /**

@@ -14,13 +14,33 @@
  *   («Замедление»): трата хода пишется в счётчики хода носителя
  *   (`system.effectUsage`, период «ход» — их обнуляет конец хода), и после
  *   одной траты вторая недоступна. Пишется только в бою и только у носителя с
- *   этим флагом (`recordActionSpend`).
+ *   этим флагом (`recordActionSpend`);
+ * - `actions.oneOfMoveActionBonus` — за ход одно из трёх: перемещение, действие
+ *   или бонусное действие («Психическая плеть Таши»). Тот же счёт трат, только
+ *   в наборе есть перемещение: его пишет сервер, когда фишка носителя прошла
+ *   путь в свой ход (`recordActionSpend` с тратой `move`), а запас хода после
+ *   действия обнуляется (`isTurnMovementSpent`). «Перемещение или действие»
+ *   ледяного дьявола — этот флаг вместе с `actions.noBonusAction`;
+ * - `actions.oneAttackPerAction` — действием «Атака» только одна атака за ход,
+ *   сколько бы их ни давала «Дополнительная атака»: первая атака оружием или
+ *   действием статблока пишется в счётчик хода, вторая недоступна;
+ * - `actions.noOpportunityAttack` — нет провоцированных атак, остальные
+ *   реакции доступны («Электрошок» 2024). Отдельного действия «провоцированная
+ *   атака» у системы нет — это удар вне своего хода, и запрет о нём
+ *   предупреждает, а не гасит кнопку: вне хода бьют и по заготовленному
+ *   действию.
  *
  * Колдовство — те же ограничения, только по заклинанию, а не по трате:
  * - `spellcasting.blocked` — нельзя накладывать заклинания (Ярость,
  *   Газообразная форма, Силовая клетка изнутри);
  * - `spellcasting.noVerbal` — нельзя заклинания с вербальным компонентом
  *   (Тишина, кляп);
+ * - `spellcasting.noMagicAction` — нельзя действие «Магия»: заклинания со
+ *   временем накладывания «действие» недоступны, бонусным действием и реакцией
+ *   — можно («Цепи сдерживания магов»);
+ * - `spellcasting.noSchool.<школа>` — нельзя заклинания одной школы;
+ * - правило каста эффекта (`castRule`, `effectCastRule.ts`) — ячейки не выше и
+ *   не ниже круга;
  * - `concentration.blocked` — нельзя концентрироваться: заклинания с
  *   концентрацией не накладываются, а текущая концентрация прерывается, как
  *   только запрет начал действовать (`settleCombatState`).
@@ -34,9 +54,13 @@
  * @module system/dnd/actionRestrictions
  */
 
-import type { SpellCastingTimeUnit } from '@vtt/shared';
+import type { SpellCastingTimeUnit, SpellSchool } from '@vtt/shared';
 
-import type { ActiveEffect, EffectFlagKey } from './activeEffectTypes.js';
+import type {
+  ActiveEffect,
+  EffectFlagKey,
+  SpellSchoolBlockFlagKey,
+} from './activeEffectTypes.js';
 import type { CreatureAction } from './creatureTypes.js';
 import type { DnDCreature, DnDSceneEntity, Spell } from './dndEntities.js';
 import type { EffectActionCost } from './effectTriggerTypes.js';
@@ -45,8 +69,14 @@ import type { EffectTriggerUsageLedger } from './effectTriggerUsage.js';
 import { EFFECT_FLAG_LABELS } from './activeEffectTypes.js';
 import { listConcentrationCastIds } from './concentration.js';
 import { INCAPACITATED_CONDITION_KEY } from './conditionKeys.js';
+import {
+  filterCastLevels,
+  resolveSlotLevelLimit,
+  spellUsesSlot,
+} from './effectCastRule.js';
 import { collectActiveEffects, resolveActorStats } from './effectPipeline.js';
 import { readTriggerUsage } from './effectTriggerUsage.js';
+import { SPELL_SCHOOL_LABELS } from './spellTypes.js';
 
 /** Флаги ограничения действий */
 export const ACTION_RESTRICTION_FLAGS = {
@@ -56,16 +86,25 @@ export const ACTION_RESTRICTION_FLAGS = {
   noBonusAction: 'actions.noBonusAction',
   /** За ход — действие или бонусное действие, не оба */
   oneActionOrBonus: 'actions.oneActionOrBonus',
+  /** За ход — одно из трёх: перемещение, действие или бонусное действие */
+  oneOfMoveActionBonus: 'actions.oneOfMoveActionBonus',
+  /** Действием «Атака» — только одна атака за ход */
+  oneAttackPerAction: 'actions.oneAttackPerAction',
+  /** Нет провоцированных атак */
+  noOpportunityAttack: 'actions.noOpportunityAttack',
   /** Нельзя накладывать заклинания */
   noSpellcasting: 'spellcasting.blocked',
   /** Нельзя заклинания с вербальным компонентом */
   noVerbal: 'spellcasting.noVerbal',
+  /** Нельзя действие «Магия»: заклинания действием */
+  noMagicAction: 'spellcasting.noMagicAction',
   /** Нельзя концентрироваться */
   noConcentration: 'concentration.blocked',
 } as const satisfies Record<string, EffectFlagKey>;
 
 /** Запрет колдовства: что запрещено и чем */
-type SpellcastingRestriction = 'all' | 'verbal' | 'concentration';
+type SpellcastingRestriction =
+  'all' | 'verbal' | 'concentration' | 'magicAction';
 
 /** Флаг каждого запрета колдовства */
 const SPELLCASTING_RESTRICTION_FLAGS: Record<
@@ -75,6 +114,7 @@ const SPELLCASTING_RESTRICTION_FLAGS: Record<
   all: ACTION_RESTRICTION_FLAGS.noSpellcasting,
   verbal: ACTION_RESTRICTION_FLAGS.noVerbal,
   concentration: ACTION_RESTRICTION_FLAGS.noConcentration,
+  magicAction: ACTION_RESTRICTION_FLAGS.noMagicAction,
 };
 
 /** Начало причины запрета колдовства */
@@ -85,6 +125,7 @@ const SPELLCASTING_RESTRICTION_PREFIXES: Record<
   all: 'Заклинания недоступны',
   verbal: 'Заклинание с вербальным компонентом недоступно',
   concentration: 'Концентрация недоступна',
+  magicAction: 'Действие «Магия» недоступно',
 };
 
 /** Запреты колдовства по порядку: общий главнее частных */
@@ -92,6 +133,7 @@ const SPELLCASTING_RESTRICTIONS: readonly SpellcastingRestriction[] = [
   'all',
   'verbal',
   'concentration',
+  'magicAction',
 ];
 
 /** Трата, которую ограничение может запретить */
@@ -165,34 +207,68 @@ function findBlockingFlag(
   return undefined;
 }
 
-/** Трата хода, которую считает «действие или бонусное» */
-type TurnSpendCost = Extract<RestrictedActionCost, 'action' | 'bonus'>;
+/**
+ * Трата хода, которую считают правила «за ход одно из»: к действию и
+ * бонусному действию добавляется перемещение.
+ */
+type TurnSpendCost = Extract<EffectActionCost, 'action' | 'bonus' | 'move'>;
 
 /** Ключи счётчиков трат хода в общих счётчиках носителя */
 const TURN_SPEND_KEYS: Record<TurnSpendCost, string> = {
   action: 'turnSpend|action',
   bonus: 'turnSpend|bonus',
+  move: 'turnSpend|move',
 };
 
-/** Какая трата запрещает какую: действие — бонусное, бонусное — действие */
-const OTHER_TURN_SPEND: Record<TurnSpendCost, TurnSpendCost> = {
-  action: 'bonus',
-  bonus: 'action',
-};
+/** Ключ счётчика атак действием «Атака» за ход */
+const ATTACK_SPEND_KEY = 'turnSpend|attack';
+
+/** Правило «за ход одно из»: флаг и траты, из которых доступна одна */
+interface ExclusiveSpendRule {
+  /** Флаг правила */
+  flag: EffectFlagKey;
+  /** Траты, из которых за ход доступна одна */
+  costs: readonly TurnSpendCost[];
+}
+
+/** Правила «за ход одно из» */
+const EXCLUSIVE_SPEND_RULES: readonly ExclusiveSpendRule[] = [
+  {
+    flag: ACTION_RESTRICTION_FLAGS.oneActionOrBonus,
+    costs: ['action', 'bonus'],
+  },
+  {
+    flag: ACTION_RESTRICTION_FLAGS.oneOfMoveActionBonus,
+    costs: ['move', 'action', 'bonus'],
+  },
+];
 
 /**
- * Считается ли трата в «действие или бонусное».
+ * Считается ли трата в правилах «за ход одно из».
  *
  * @param cost - трата
- * @returns `true` для действия и бонусного действия
+ * @returns `true` для действия, бонусного действия и перемещения
  */
-function isTurnSpendCost(cost: RestrictedActionCost): cost is TurnSpendCost {
-  return cost === 'action' || cost === 'bonus';
+function isTurnSpendCost(
+  cost: EffectActionCost | undefined,
+): cost is TurnSpendCost {
+  return cost === 'action' || cost === 'bonus' || cost === 'move';
 }
 
 /**
- * Флаг «действие или бонусное», если он запрещает трату: в этот ход уже была
- * другая из двух.
+ * Была ли в этот ход трата.
+ *
+ * @param ledger - счётчики носителя
+ * @param key - ключ счётчика траты
+ * @returns `true`, если трата записана
+ */
+function wasSpent(ledger: EffectTriggerUsageLedger, key: string): boolean {
+  return (ledger[key]?.used ?? 0) > 0;
+}
+
+/**
+ * Флаг «за ход одно из», если он запрещает трату: в этот ход уже была другая
+ * трата из его набора.
  *
  * @param entity - носитель
  * @param flags - действующие флаги
@@ -202,50 +278,115 @@ function isTurnSpendCost(cost: RestrictedActionCost): cost is TurnSpendCost {
 function findTurnSpendBlock(
   entity: DnDSceneEntity,
   flags: ReadonlySet<string>,
-  cost: RestrictedActionCost,
+  cost: EffectActionCost,
 ): EffectFlagKey | undefined {
-  const flag = ACTION_RESTRICTION_FLAGS.oneActionOrBonus;
-
-  if (!isTurnSpendCost(cost) || !flags.has(flag)) {
+  if (!isTurnSpendCost(cost)) {
     return undefined;
   }
 
-  const spent =
-    readTriggerUsage(entity)[TURN_SPEND_KEYS[OTHER_TURN_SPEND[cost]]];
+  const rules = EXCLUSIVE_SPEND_RULES.filter(
+    (rule) => flags.has(rule.flag) && rule.costs.includes(cost),
+  );
 
-  return spent ? flag : undefined;
+  if (rules.length === 0) {
+    return undefined;
+  }
+
+  const ledger = readTriggerUsage(entity);
+
+  return rules.find((rule) =>
+    rule.costs.some(
+      (other) => other !== cost && wasSpent(ledger, TURN_SPEND_KEYS[other]),
+    ),
+  )?.flag;
+}
+
+/**
+ * Потрачен ли ход носителя так, что перемещаться ему уже нельзя: под «одним
+ * из трёх» он совершил действие или бонусное действие.
+ *
+ * @param entity - носитель
+ * @param flags - действующие флаги носителя
+ * @returns `true`, если перемещение в этот ход недоступно
+ */
+export function isTurnMovementSpent(
+  entity: DnDSceneEntity,
+  flags: ReadonlySet<string>,
+): boolean {
+  return findTurnSpendBlock(entity, flags, 'move') !== undefined;
+}
+
+/**
+ * Флаг «одна атака», если он запрещает удар: атака действием «Атака» в этот
+ * ход уже была.
+ *
+ * @param entity - носитель
+ * @param flags - действующие флаги
+ * @returns флаг либо `undefined`
+ */
+function findAttackSpendBlock(
+  entity: DnDSceneEntity,
+  flags: ReadonlySet<string>,
+): EffectFlagKey | undefined {
+  const flag = ACTION_RESTRICTION_FLAGS.oneAttackPerAction;
+
+  return flags.has(flag) && wasSpent(readTriggerUsage(entity), ATTACK_SPEND_KEY)
+    ? flag
+    : undefined;
+}
+
+/** Что ещё известно о трате хода */
+export interface ActionSpendOptions {
+  /** Трата — атака действием «Атака»: её считает «одна атака за ход» */
+  attack?: boolean;
+  /** Ауры чужих токенов, накрывающие носителя */
+  ambientEffects?: readonly ActiveEffect[];
 }
 
 /**
  * Счётчики носителя после траты хода — для записи боевым каналом. Пишется
- * только там, где трату считают: у носителя с флагом «действие или
- * бонусное» и только действие или бонусное действие.
+ * только там, где трату считают: у носителя с правилом «за ход одно из» — трата
+ * из его набора, у носителя с «одной атакой» — атака.
  *
  * @param entity - носитель
  * @param cost - трата
+ * @param options - атака ли это и ауры на носителе
  * @returns новые счётчики либо `undefined`, если записывать нечего
  */
 export function recordActionSpend(
   entity: DnDSceneEntity,
   cost: EffectActionCost | undefined,
+  options: ActionSpendOptions = {},
 ): EffectTriggerUsageLedger | undefined {
-  if (
-    !isRestrictedActionCost(cost)
-    || !isTurnSpendCost(cost)
-    || !resolveActorStats(entity).activeFlags.has(
-      ACTION_RESTRICTION_FLAGS.oneActionOrBonus,
-    )
-  ) {
+  if (!isTurnSpendCost(cost)) {
     return undefined;
   }
 
-  const ledger = readTriggerUsage(entity);
-  const key = TURN_SPEND_KEYS[cost];
+  const flags = resolveActorStats(entity, options.ambientEffects).activeFlags;
 
-  return {
-    ...ledger,
-    [key]: { used: (ledger[key]?.used ?? 0) + 1, per: 'turn' },
-  };
+  const keys = [
+    ...(EXCLUSIVE_SPEND_RULES.some(
+      (rule) => flags.has(rule.flag) && rule.costs.includes(cost),
+    )
+      ? [TURN_SPEND_KEYS[cost]]
+      : []),
+    ...(options.attack === true
+    && flags.has(ACTION_RESTRICTION_FLAGS.oneAttackPerAction)
+      ? [ATTACK_SPEND_KEY]
+      : []),
+  ];
+
+  if (keys.length === 0) {
+    return undefined;
+  }
+
+  const ledger = { ...readTriggerUsage(entity) };
+
+  for (const key of keys) {
+    ledger[key] = { used: (ledger[key]?.used ?? 0) + 1, per: 'turn' };
+  }
+
+  return ledger;
 }
 
 /**
@@ -348,6 +489,84 @@ export interface EntityActionBlocks {
   byCost: Partial<Record<RestrictedActionCost, string>>;
   /** Причина запрета колдовства по виду запрета */
   spellcasting: Partial<Record<SpellcastingRestriction, string>>;
+  /** Причина запрета заклинаний школы */
+  schools: Partial<Record<SpellSchool, string>>;
+  /** Какими ячейками носитель может колдовать: не выше и не ниже круга */
+  slotLevels: SlotLevelBlocks;
+  /** Почему недоступна вторая атака действием «Атака» */
+  attack?: string;
+  /** Почему недоступны провоцированные атаки */
+  opportunityAttack?: string;
+}
+
+/** Лимит круга ячейки с причиной */
+export interface SlotLevelBlocks {
+  /** Самый высокий доступный круг ячейки */
+  max?: number;
+  /** Причина лимита сверху */
+  maxReason?: string;
+  /** Самый низкий доступный круг ячейки */
+  min?: number;
+  /** Причина лимита снизу */
+  minReason?: string;
+}
+
+/** Начала причин остальных запретов */
+const RESTRICTION_REASON_PREFIXES = {
+  school: 'Заклинания школы недоступны',
+  slotAbove: 'Ячейки выше круга недоступны',
+  slotBelow: 'Ячейки ниже круга недоступны',
+  attack: 'Вторая атака за ход недоступна',
+  opportunityAttack: 'Провоцированные атаки недоступны',
+} as const;
+
+/**
+ * Флаг запрета заклинаний школы.
+ *
+ * @param school - школа магии
+ * @returns ключ флага
+ */
+function schoolBlockFlag(school: SpellSchool): SpellSchoolBlockFlagKey {
+  return `spellcasting.noSchool.${school}`;
+}
+
+/** Школы магии — для обхода флагов запрета */
+const SPELL_SCHOOLS: readonly SpellSchool[] = [
+  'abjuration',
+  'conjuration',
+  'divination',
+  'enchantment',
+  'evocation',
+  'illusion',
+  'necromancy',
+  'transmutation',
+];
+
+/**
+ * Лимит круга ячейки с причинами — по правилам каста эффектов носителя.
+ *
+ * @param effects - действующие эффекты носителя и ауры на нём
+ * @returns лимит; пустой — ограничений нет
+ */
+function resolveSlotLevelBlocks(
+  effects: readonly ActiveEffect[],
+): SlotLevelBlocks {
+  const { max, min } = resolveSlotLevelLimit(effects);
+
+  return {
+    ...(max
+      ? {
+          max: max.level,
+          maxReason: `${RESTRICTION_REASON_PREFIXES.slotAbove} (${max.level}): ${max.sourceName}`,
+        }
+      : {}),
+    ...(min
+      ? {
+          min: min.level,
+          minReason: `${RESTRICTION_REASON_PREFIXES.slotBelow} (${min.level}): ${min.sourceName}`,
+        }
+      : {}),
+  };
 }
 
 /**
@@ -364,9 +583,10 @@ export function resolveEntityActionBlocks(
   const flags = resolveActorStats(entity, ambientEffects).activeFlags;
   const byCost: Partial<Record<RestrictedActionCost, string>> = {};
   const spellcasting: Partial<Record<SpellcastingRestriction, string>> = {};
+  const schools: Partial<Record<SpellSchool, string>> = {};
 
-  // Эффекты для имени причины собираются, только если запрет есть
-  let effects: readonly ActiveEffect[] | null = null;
+  // Правила каста лежат на самих эффектах — их читают по списку
+  const effects = [...collectActiveEffects(entity), ...ambientEffects];
 
   /**
    * Имя того, что запрещает, — по флагу.
@@ -374,11 +594,8 @@ export function resolveEntityActionBlocks(
    * @param flag - флаг запрета
    * @returns имя эффекта либо подпись флага
    */
-  const sourceOf = (flag: EffectFlagKey): string => {
-    effects ??= [...collectActiveEffects(entity), ...ambientEffects];
-
-    return nameFlagSource(effects, flag);
-  };
+  const sourceOf = (flag: EffectFlagKey): string =>
+    nameFlagSource(effects, flag);
 
   for (const cost of RESTRICTED_ACTION_COSTS) {
     const flag =
@@ -401,7 +618,81 @@ export function resolveEntityActionBlocks(
     }
   }
 
-  return { byCost, spellcasting };
+  for (const school of SPELL_SCHOOLS) {
+    const flag = schoolBlockFlag(school);
+
+    if (flags.has(flag)) {
+      schools[school] =
+        `${RESTRICTION_REASON_PREFIXES.school} («${SPELL_SCHOOL_LABELS[school]}»): ${sourceOf(flag)}`;
+    }
+  }
+
+  const attackFlag = findAttackSpendBlock(entity, flags);
+  const opportunityFlag = ACTION_RESTRICTION_FLAGS.noOpportunityAttack;
+
+  return {
+    byCost,
+    spellcasting,
+    schools,
+    slotLevels: resolveSlotLevelBlocks(effects),
+    ...(attackFlag
+      ? {
+          attack: `${RESTRICTION_REASON_PREFIXES.attack}: ${sourceOf(attackFlag)}`,
+        }
+      : {}),
+    ...(flags.has(opportunityFlag)
+      ? {
+          opportunityAttack: `${RESTRICTION_REASON_PREFIXES.opportunityAttack}: ${sourceOf(opportunityFlag)}`,
+        }
+      : {}),
+  };
+}
+
+/**
+ * Круги, которыми носитель может наложить заклинание под лимитом круга
+ * ячейки. Заговорам и заклинаниям с зарядами лимит не мешает.
+ *
+ * @param blocks - запреты носителя
+ * @param spell - заклинание
+ * @param levels - круги, которыми наложить можно по ячейкам
+ * @returns разрешённые круги
+ */
+export function limitCastLevels(
+  blocks: EntityActionBlocks,
+  spell: SpellCastBlockSource,
+  levels: readonly number[],
+): number[] {
+  return filterCastLevels(blocks.slotLevels, spell, levels);
+}
+
+/**
+ * Почему под лимитом круга ячейки заклинание не наложить ни одним из кругов.
+ *
+ * @param blocks - запреты носителя
+ * @param spell - заклинание
+ * @param levels - круги, которыми наложить можно по ячейкам
+ * @returns причина словами либо `null`, если хоть один круг разрешён
+ */
+export function findCastLevelBlock(
+  blocks: EntityActionBlocks,
+  spell: SpellCastBlockSource,
+  levels: readonly number[],
+): string | null {
+  if (
+    levels.length === 0
+    || limitCastLevels(blocks, spell, levels).length > 0
+  ) {
+    return null;
+  }
+
+  const { max, maxReason, minReason } = blocks.slotLevels;
+
+  // Все круги выше лимита — причина сверху, иначе снизу
+  return (
+    (max !== undefined && levels.every((level) => level > max)
+      ? maxReason
+      : (minReason ?? maxReason)) ?? null
+  );
 }
 
 /**
@@ -417,10 +708,20 @@ export function findSpellCastBlock(
 ): string | null {
   const { spellcasting } = blocks;
 
+  const { max, maxReason } = blocks.slotLevels;
+
   const byRestriction =
     spellcasting.all
     ?? (spell.components?.verbal ? spellcasting.verbal : undefined)
-    ?? (spell.concentration ? spellcasting.concentration : undefined);
+    ?? (spell.concentration ? spellcasting.concentration : undefined)
+    ?? (spell.castingTimeUnit === 'action'
+      ? spellcasting.magicAction
+      : undefined)
+    ?? (spell.school ? blocks.schools[spell.school] : undefined)
+    // Круг самого заклинания выше лимита: понизить его нельзя
+    ?? (max !== undefined && spellUsesSlot(spell) && (spell.level ?? 0) > max
+      ? maxReason
+      : undefined);
 
   if (byRestriction) {
     return byRestriction;
@@ -433,7 +734,15 @@ export function findSpellCastBlock(
 
 /** Что заклинания читает проверка каста */
 export type SpellCastBlockSource = Partial<
-  Pick<Spell, 'castingTimeUnit' | 'components' | 'concentration'>
+  Pick<
+    Spell,
+    | 'castingTimeUnit'
+    | 'components'
+    | 'concentration'
+    | 'school'
+    | 'level'
+    | 'uses'
+  >
 >;
 
 /**
@@ -464,8 +773,8 @@ export const WEAPON_ATTACK_COST: RestrictedActionCost = 'action';
 
 /**
  * Почему персонаж не может ударить оружием прямо сейчас — лист и горячая
- * панель: недееспособен или ход уже потрачен на бонусное действие под
- * «Замедлением».
+ * панель: недееспособен, ход уже потрачен на бонусное действие под
+ * «Замедлением» или единственная атака хода уже была.
  *
  * @param entity - кто бьёт
  * @param ambientEffects - ауры чужих токенов, накрывающие его
@@ -475,13 +784,33 @@ export function resolveWeaponAttackBlock(
   entity: DnDSceneEntity,
   ambientEffects: readonly ActiveEffect[] = [],
 ): string | null {
-  const block = resolveActionCostBlock(
-    entity,
-    WEAPON_ATTACK_COST,
-    ambientEffects,
-  );
+  const blocks = resolveEntityActionBlocks(entity, ambientEffects);
 
-  return block ? formatActionCostBlock(block) : null;
+  return blocks.byCost[WEAPON_ATTACK_COST] ?? blocks.attack ?? null;
+}
+
+/**
+ * Предупреждение об ударе вне своего хода носителю без провоцированных атак.
+ * Не запрет: вне хода бьют и по заготовленному действию — решает стол.
+ *
+ * @param entity - кто бьёт
+ * @param ambientEffects - ауры чужих токенов, накрывающие его
+ * @returns текст предупреждения либо `null`, если запрета нет
+ */
+export function resolveOpportunityAttackWarning(
+  entity: DnDSceneEntity,
+  ambientEffects: readonly ActiveEffect[] = [],
+): string | null {
+  const flag = ACTION_RESTRICTION_FLAGS.noOpportunityAttack;
+
+  if (!resolveActorStats(entity, ambientEffects).activeFlags.has(flag)) {
+    return null;
+  }
+
+  return `${RESTRICTION_REASON_PREFIXES.opportunityAttack}: ${nameFlagSource(
+    [...collectActiveEffects(entity), ...ambientEffects],
+    flag,
+  )}`;
 }
 
 /** Раздел статблока существа, у которого своя трата хода */
@@ -528,6 +857,42 @@ export function findCreatureSectionBlock(
   section: CreatureActionSectionKey,
 ): string | null {
   return blocks.byCost[CREATURE_SECTION_COSTS[section]] ?? null;
+}
+
+/**
+ * Атака ли это действием «Атака»: запись раздела «Действия» с броском
+ * попадания. Бонусные действия, реакции и легендарные действия — не она.
+ *
+ * @param section - раздел статблока
+ * @param action - запись статблока
+ * @returns `true` для атаки из раздела «Действия»
+ */
+export function isCreatureAttackAction(
+  section: CreatureActionSectionKey | undefined,
+  action: Pick<CreatureAction, 'attackBonus'>,
+): boolean {
+  return section === 'actions' && action.attackBonus !== undefined;
+}
+
+/**
+ * Почему существо не может совершить ЭТО действие статблока: запрет раздела
+ * либо вторая атака под «одной атакой за ход».
+ *
+ * @param blocks - запреты существа
+ * @param section - раздел статблока
+ * @param action - запись статблока
+ * @returns причина словами либо `null`, если действие доступно
+ */
+export function findCreatureActionBlock(
+  blocks: EntityActionBlocks,
+  section: CreatureActionSectionKey,
+  action: Pick<CreatureAction, 'attackBonus'>,
+): string | null {
+  return (
+    findCreatureSectionBlock(blocks, section)
+    ?? (isCreatureAttackAction(section, action) ? blocks.attack : undefined)
+    ?? null
+  );
 }
 
 /**

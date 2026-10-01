@@ -54,6 +54,7 @@
     countsTowardCantrips,
     countsTowardPreparedSpells,
     damagePartIsHealing,
+    findCastLevelBlock,
     findSpellCastBlock,
     getAvailableSpellLevels,
     getClassPreparedValue,
@@ -70,6 +71,7 @@
     isDndSceneEntity,
     isGrantedSpell,
     isSpellReady,
+    limitCastLevels,
     MAX_SPELL_SLOT_LEVEL,
     mergeAppliedEffects,
     parsePreparedLimit,
@@ -99,6 +101,7 @@
   import { recordEntityActionSpend } from '../../../composables/actionSpend';
   import { chooseAreaCastLevel } from '../../../composables/areaCastLevelChoice';
   import { resolveTargetedAttackRoll } from '../../../composables/attackRollMode';
+  import { runWithCastFailure } from '../../../composables/castFailure';
   import {
     describeDamageVariantsStat,
     requestDamageTypeChoiceFor,
@@ -1526,11 +1529,16 @@
     }
 
     if (spell.level > 0) {
-      return getAvailableSpellLevels(
-        props.actor,
-        spell.level,
-        MAX_SPELL_SLOT_LEVEL,
-        spellcastingBonusContext.value,
+      // «Не может использовать ячейки 7-го круга и выше» сужает выбор круга
+      return limitCastLevels(
+        actionBlocks.value,
+        spell,
+        getAvailableSpellLevels(
+          props.actor,
+          spell.level,
+          MAX_SPELL_SLOT_LEVEL,
+          spellcastingBonusContext.value,
+        ),
       );
     }
 
@@ -1574,6 +1582,31 @@
       }
 
       const availableLevels = getCastableSpellLevels(spell);
+
+      // Ячейки есть, но все под запретом круга — причина словами
+      const levelBlock =
+        availableLevels.length === 0
+          ? findCastLevelBlock(
+              actionBlocks.value,
+              spell,
+              getAvailableSpellLevels(
+                props.actor,
+                spell.level,
+                MAX_SPELL_SLOT_LEVEL,
+                spellcastingBonusContext.value,
+              ),
+            )
+          : null;
+
+      if (levelBlock) {
+        toast.add({
+          title: ACTOR_SPELLS_TAB_LABELS.castBlockedTitle,
+          description: levelBlock,
+          color: 'warning',
+        });
+
+        return;
+      }
 
       if (!spell.uses && spell.level > 0 && availableLevels.length === 0) {
         toast.add({
@@ -1735,7 +1768,8 @@
   }
 
   /**
-   * Продолжает подтверждённый каст: сначала цена сверх ячейки («потратьте две
+   * Продолжает подтверждённый каст: сначала проверка провала каста, затем цена
+   * сверх ячейки («потратьте две
    * Кости Хитов, иначе заклинание провалится»), затем сам каст — уже с
    * потраченным в формулах заклинания и его эффектов.
    *
@@ -1748,20 +1782,26 @@
     lockedSpellLevel?: number,
     effectTargets?: SpellEffectTargets,
   ): void {
-    runWithSpellCastPay(
-      sourceSpell,
-      props.actor,
-      {
-        ...(lockedSpellLevel === undefined
-          ? {}
-          : { lockedLevel: lockedSpellLevel }),
-        availableLevels: getCastableSpellLevels(sourceSpell),
-        commit: commitPaidCaster,
-      },
-      (spell, castLevel) => {
-        proceedWithPaidCast(spell, castLevel, effectTargets);
-      },
-    );
+    const castOptions = {
+      ...(lockedSpellLevel === undefined
+        ? {}
+        : { lockedLevel: lockedSpellLevel }),
+      availableLevels: getCastableSpellLevels(sourceSpell),
+      commit: commitPaidCaster,
+    };
+
+    // Провал каста («Замедление», «Слово силы: Боль») — до оплаты: неудавшееся
+    // заклинание цену сверх ячейки не берёт
+    runWithCastFailure(sourceSpell, props.actor, castOptions, () => {
+      runWithSpellCastPay(
+        sourceSpell,
+        props.actor,
+        castOptions,
+        (spell, castLevel) => {
+          proceedWithPaidCast(spell, castLevel, effectTargets);
+        },
+      );
+    });
   }
 
   /** Продолжает оплаченный каст с зафиксированными целями эффекта. */
@@ -1844,12 +1884,7 @@
     } else if (isInnate) {
       availableLevels = [spell.level];
     } else if (spell.level > 0) {
-      availableLevels = getAvailableSpellLevels(
-        props.actor,
-        spell.level,
-        MAX_SPELL_SLOT_LEVEL,
-        spellcastingBonusContext.value,
-      );
+      availableLevels = getCastableSpellLevels(spell);
     }
 
     // Снарядный режим: число снарядов зависит от контекста каста

@@ -230,6 +230,8 @@ export function hasSourceTurnSaveDc(effect: ActiveEffect): boolean {
     // Проверка действия «вырваться» ждёт того же: кнопку нажмут потом, когда
     // источника уже не спросишь
     || effect.escape?.check?.dc === 0
+    // Спасбросок при попытке каста бросят позже — тоже без источника под рукой
+    || effect.castRule?.failSave?.dc === 0
     || hasSourceTriggerSaveDc(effect)
   );
 }
@@ -254,7 +256,7 @@ export function stampSourceTurnSaveDc(
   const { recurringSave, recurringDamage, triggers } = effect;
 
   return {
-    ...stampEscapeDc(effect, sourceDc),
+    ...stampCastRuleDc(stampEscapeDc(effect, sourceDc), sourceDc),
     recurringSave: recurringSave
       ? {
           ...recurringSave,
@@ -329,6 +331,31 @@ function stampEscapeDc(effect: ActiveEffect, sourceDc: number): ActiveEffect {
     escape: {
       ...effect.escape,
       check: { ...check, dc: resolveEffectSaveDc(check.dc, sourceDc) },
+    },
+  };
+}
+
+/**
+ * Проставляет Сл источника в спасбросок правила каста («Слово силы: Боль»:
+ * спасбросок Телосложения против Сл наложившего при попытке колдовать).
+ *
+ * @param effect - эффект заклинания или действия
+ * @param sourceDc - Сл спасброска источника
+ * @returns исходный эффект либо копия с проставленной Сл
+ */
+function stampCastRuleDc(effect: ActiveEffect, sourceDc: number): ActiveEffect {
+  const { castRule } = effect;
+  const failSave = castRule?.failSave;
+
+  if (!castRule || failSave?.dc !== 0) {
+    return effect;
+  }
+
+  return {
+    ...effect,
+    castRule: {
+      ...castRule,
+      failSave: { ...failSave, dc: resolveEffectSaveDc(failSave.dc, sourceDc) },
     },
   };
 }

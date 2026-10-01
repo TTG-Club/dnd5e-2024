@@ -38,10 +38,11 @@
     creatureActionHasSave,
     DEFAULT_REACH_FEET,
     describeCreatureDamageCondition,
-    findCreatureSectionBlock,
+    findCreatureActionBlock,
     getActionDescriptionMarkdown,
     getAttackBonusKey,
     getAttackFlagCategory,
+    isCreatureAttackAction,
     isDndCreature,
     listCreatureDamageAlternatives,
     listSourceDamageTypeChoices,
@@ -51,7 +52,10 @@
     SAVE_TYPE_LABELS,
   } from '@vtt/shared/system/dnd.js';
 
-  import { recordEntityActionSpend } from '../../composables/actionSpend';
+  import {
+    recordEntityActionSpend,
+    warnOpportunityAttack,
+  } from '../../composables/actionSpend';
   import { runCreatureActionChoices } from '../../composables/attackKindChoice';
   import { resolveTargetedAttackRoll } from '../../composables/attackRollMode';
   import {
@@ -161,20 +165,29 @@
 
   const toast = useToast();
 
-  /** Почему записи раздела сейчас не совершить; `null` — можно */
-  const sectionBlock = computed(() => {
-    const { section } = props;
-    const creature = section ? getCreatureEntity() : null;
+  /** Запреты существа — одним расчётом на весь раздел; `null` — раздела нет */
+  const actionBlocks = computed(() => {
+    const creature = props.section ? getCreatureEntity() : null;
 
-    if (!section || !creature) {
-      return null;
-    }
-
-    return findCreatureSectionBlock(
-      resolveEntityActionBlocks(creature, listAmbientEffects(creature.id)),
-      section,
-    );
+    return creature
+      ? resolveEntityActionBlocks(creature, listAmbientEffects(creature.id))
+      : null;
   });
+
+  /**
+   * Почему запись раздела сейчас не совершить: запрет раздела либо вторая
+   * атака под «одной атакой за ход».
+   *
+   * @param action - запись статблока
+   * @returns причина словами либо `null`, если действие доступно
+   */
+  function blockOf(action: CreatureAction): string | null {
+    const { section } = props;
+
+    return section && actionBlocks.value
+      ? findCreatureActionBlock(actionBlocks.value, section, action)
+      : null;
+  }
 
   const systemDataStore = useSystemDataStore();
   const chatStore = useChatStore();
@@ -428,12 +441,15 @@
   /**
    * Отмечает трату хода раздела («Замедление»): зовётся, когда действие
    * точно идёт, — отказ по дистанции её не тратит.
+   *
+   * @param action - действие с броском: атаку считает «одна атака за ход»
    */
-  function spendSectionTurn(): void {
+  function spendSectionTurn(action?: CreatureAction): void {
     if (props.section) {
       recordEntityActionSpend(
         props.creatureId,
         resolveCreatureSectionCost(props.section),
+        action !== undefined && isCreatureAttackAction(props.section, action),
       );
     }
   }
@@ -447,10 +463,12 @@
    */
   function openRollModal(sourceAction: CreatureAction): void {
     // Запрет трат хода («Электрошок» — нет реакций): причина — плашкой
-    if (sectionBlock.value) {
+    const blocked = blockOf(sourceAction);
+
+    if (blocked) {
       toast.add({
         title: CREATURE_ACTION_BLOCKED_TITLE,
-        description: sectionBlock.value,
+        description: blocked,
         color: 'warning',
       });
 
@@ -520,7 +538,12 @@
       }
 
       // Отказ по дистанции трату хода не тратит
-      spendSectionTurn();
+      spendSectionTurn(action);
+
+      // Удар вне своего хода при запрете провоцированных атак — предупреждение
+      if (props.creatureId && isCreatureAttackAction(props.section, action)) {
+        warnOpportunityAttack(props.creatureId);
+      }
 
       // Урон «или» решается после проверки дистанции (не спрашивать о
       // промахе мимо досягаемости): состояние и случай — сразу, выбор
@@ -1125,7 +1148,7 @@
           :menu-items="row.menuItems"
           :can-use="row.canUse"
           :can-drag="row.canDrag"
-          :blocked-reason="sectionBlock"
+          :blocked-reason="blockOf(row.action)"
           @open="handleActionClick(row.action, row.index)"
           @use="openRollModal(row.action)"
           @dragstart="handleDragStart($event, row.action)"

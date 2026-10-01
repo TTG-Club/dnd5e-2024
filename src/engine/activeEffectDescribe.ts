@@ -48,6 +48,7 @@ import {
   parseAnyCreatureTypeCondition,
 } from './creatureTypeCondition.js';
 import { getShortDamageTypeLabel } from './damageConstants.js';
+import { describeCastRule } from './effectCastRule.js';
 import {
   describeEscapeChecks,
   EFFECT_ESCAPE_ACTOR_LABELS,
@@ -872,6 +873,9 @@ function auraLines(effect: ActiveEffect): string[] {
   return lines;
 }
 
+/** Начало строки правила каста в карточке эффекта */
+const CAST_RULE_DETAIL_PREFIX = 'Колдовство носителя — ';
+
 /**
  * Строки раздела «Применение»: на кого ложится, переносится ли, когда спадает.
  *
@@ -900,6 +904,14 @@ function applicationLines(effect: ActiveEffect): string[] {
 
   if (effect.escape) {
     lines.push(describeEffectEscape(effect.escape));
+  }
+
+  if (effect.castRule) {
+    lines.push(
+      ...describeCastRule(effect.castRule).map(
+        (line) => `${CAST_RULE_DETAIL_PREFIX}${line}`,
+      ),
+    );
   }
 
   if (effect.effectTarget === 'target') {

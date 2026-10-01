@@ -60,7 +60,11 @@ import type {
 
 import { getHealthCondition, HEALTH_CONDITIONS, isRecord } from '@vtt/shared';
 
-import { listBlockedConcentrationCasts } from './actionRestrictions.js';
+import {
+  isTurnMovementSpent,
+  listBlockedConcentrationCasts,
+  recordActionSpend,
+} from './actionRestrictions.js';
 import {
   ActiveEffectsArraySchema,
   isActiveEffect,
@@ -1524,7 +1528,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.150';
+  readonly version = '0.8.151';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -1970,6 +1974,24 @@ export class Dnd5eVttSystem implements VttSystem {
     }
 
     const hpBefore = resolveEntityCurrentHp(entity);
+    const options = buildTriggerEventOptions(entity, context);
+
+    // «За ход одно из трёх»: своё перемещение в свой ход — трата хода, после
+    // него действие и бонусное действие недоступны. Толчок и телепорт
+    // правилами — не оно
+    const moveSpend =
+      !movement.forced
+      && movement.distance > 0
+      && options.inCombat
+      && options.activeTurnActorId === entity.id
+        ? recordActionSpend(entity, 'move', {
+            ambientEffects: options.ambientEffects,
+          })
+        : undefined;
+
+    if (moveSpend) {
+      entity.system.effectUsage = moveSpend;
+    }
 
     const events = settleMovementEvents(
       entity,
@@ -1981,16 +2003,18 @@ export class Dnd5eVttSystem implements VttSystem {
           dy: movement.to.y - movement.from.y,
         },
       },
-      buildTriggerEventOptions(entity, context),
+      options,
     );
 
-    const own = toEntityTriggerResult(
+    const settled = toEntityTriggerResult(
       entity,
       events,
       hpBefore,
       MOVEMENT_SUMMARY_LABEL,
       context,
     );
+
+    const own = moveSpend ? { ...settled, changed: true } : settled;
 
     // Действия, отданные другим («урон тому, кто рядом»), уходят в мир
     // другими сторонами — снимок пишет только перемещённая сущность
@@ -2086,9 +2110,16 @@ export class Dnd5eVttSystem implements VttSystem {
       return 0;
     }
 
-    return resolveTotalMovementSpeed(
-      resolveActorStats(entity, collectDndAmbientEffects(ambientEffects)),
+    const stats = resolveActorStats(
+      entity,
+      collectDndAmbientEffects(ambientEffects),
     );
+
+    // «За ход одно из трёх»: после действия или бонусного действия
+    // перемещаться в этот ход уже нельзя
+    return isTurnMovementSpent(entity, stats.activeFlags)
+      ? 0
+      : resolveTotalMovementSpeed(stats);
   }
 
   /**
@@ -2118,10 +2149,15 @@ export class Dnd5eVttSystem implements VttSystem {
       return null;
     }
 
-    const { movement } = resolveActorStats(
+    const { movement, activeFlags } = resolveActorStats(
       entity,
       collectDndAmbientEffects(ambientEffects),
     );
+
+    // Ход потрачен на действие под «одним из трёх» — запаса хода нет
+    if (isTurnMovementSpent(entity, activeFlags)) {
+      return { base: 0, extended: 0 };
+    }
 
     const base =
       movement.walk

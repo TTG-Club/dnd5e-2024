@@ -50,6 +50,7 @@ import {
   SOURCE_SAVE_DC,
 } from './activeEffectTypes.js';
 import { hasLastingEffectPayload } from './effectAutomation.js';
+import { EffectCastRuleSchema } from './effectCastRuleTypes.js';
 import { priceHasAmount } from './effectPayTypes.js';
 import { mapEffectSaveDcs } from './effectSaveDc.js';
 import { applyEffectStage, resolveEffectStageIndex } from './effectStages.js';
@@ -2185,6 +2186,8 @@ export function normalizeEffectDraft(
       ? resolveEffectStageIndex(effect)
       : undefined,
     escape: normalizeDraftEscape(effect.escape, layout.minSaveDc),
+    // Пустое правило каста — его отсутствие; разбор сам выбрасывает негодное
+    castRule: EffectCastRuleSchema.parse(effect.castRule),
   };
 
   // Пустая формула Сл — её отсутствие: спасбросок остаётся с числом

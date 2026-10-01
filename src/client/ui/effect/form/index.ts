@@ -1,4 +1,5 @@
 export { default as EffectAdvancedSection } from './EffectAdvancedSection.vue';
+export { default as EffectCastRuleSection } from './EffectCastRuleSection.vue';
 export { default as EffectChangeRows } from './EffectChangeRows.vue';
 export { default as EffectDamageStep } from './EffectDamageStep.vue';
 export { default as EffectDescriptionSection } from './EffectDescriptionSection.vue';
