@@ -328,6 +328,7 @@ export function resolveRestTriggerEffects(
       listLiveEffects(rested),
       EFFECT_TRIGGER_SOURCE_KINDS.instance,
       restTriggersOf,
+      rested,
     ),
   );
 

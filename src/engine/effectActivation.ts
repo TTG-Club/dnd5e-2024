@@ -1108,6 +1108,7 @@ function settleOwnEffectTriggers(
       [effect],
       EFFECT_TRIGGER_SOURCE_KINDS.instance,
       listTriggers,
+      copy,
     ),
     options,
   );

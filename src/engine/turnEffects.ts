@@ -882,6 +882,32 @@ export interface EffectDamageRollOptions {
    * — нет
    */
   critical?: boolean;
+  /** Куда сообщить о слагаемом, которое бросок пропустил */
+  reportSkipped?: SkippedFormulaReporter;
+}
+
+/**
+ * Получатель пропущенного слагаемого урона или лечения: в формуле остался
+ * `@`-токен, который никто не подставил, и бросок её не считает. Молча терять
+ * такое слагаемое нельзя — вызывающий пишет о нём в сводку чата.
+ */
+export type SkippedFormulaReporter = (formula: string) => void;
+
+/** Начало строки сводки о пропущенном слагаемом: дальше — формула */
+const SKIPPED_FORMULA_NOTE = 'не посчитано автоматически — ';
+
+/**
+ * Строка сводки о слагаемом урона или лечения, которое бросок пропустил.
+ *
+ * @param effectName - эффект, чьё срабатывание бросали
+ * @param formula - пропущенное слагаемое
+ * @returns строка для сводки чата
+ */
+export function formatSkippedFormulaNote(
+  effectName: string,
+  formula: string,
+): string {
+  return `${effectName}: ${SKIPPED_FORMULA_NOTE}${formula}`;
 }
 
 /** Одна часть урона эффекта после доли и защит — строка чата */
@@ -1024,6 +1050,7 @@ export function rollEffectDamageParts(
     rollFormula = rollDamageFormula,
     damageDealt,
     critical = false,
+    reportSkipped,
   } = options;
 
   const gated = damageParts.filter(
@@ -1033,18 +1060,26 @@ export function rollEffectDamageParts(
   // Число костей выражением (`(2 + 1)к6`) бросок не понимает — считаем заранее.
   // Тип на выбор, не решённый наложившим (эффект без источника), здесь
   // спросить некого — он выпадает случайно
-  const segments = settleDamageTypeChoices(
+  const damaging = settleDamageTypeChoices(
     expandDamageParts(
       gated.map((part) => bindRecipientTokens(part, entity)),
       undefined,
       resolveDiceCountExpressions,
     ),
-  )
+  ).filter((segment) => !segment.isHealing);
+
+  if (reportSkipped) {
+    for (const segment of damaging) {
+      if (segment.formula.includes('@')) {
+        reportSkipped(segment.formula);
+      }
+    }
+  }
+
+  const segments = damaging
     .filter(
       (segment) =>
-        !segment.isHealing
-        && !segment.formula.includes('@')
-        && damageReachesTarget(segment, entity),
+        !segment.formula.includes('@') && damageReachesTarget(segment, entity),
     )
     // Крит удваивает кости уже посчитанного числа: `(1 + 2)к8` — это `6к8`
     .map((segment) =>
@@ -1202,11 +1237,13 @@ export interface EntryEffectResult {
  *
  * @param effectName - название эффекта (для подписи)
  * @param damageParts - части урона эффекта
+ * @param reportSkipped - куда сообщить о слагаемом, которое не посчиталось
  * @returns исход лечения либо `null`, если лечащих частей нет
  */
 export function rollEffectHealing(
   effectName: string,
   damageParts: DamagePart[],
+  reportSkipped?: SkippedFormulaReporter,
 ): TurnHealingOutcome | null {
   const segments = expandDamageParts(
     damageParts,
@@ -1221,7 +1258,13 @@ export function rollEffectHealing(
   const rolls: RolledFormula[] = [];
 
   for (const segment of segments) {
-    if (!segment.isHealing || segment.formula.includes('@')) {
+    if (!segment.isHealing) {
+      continue;
+    }
+
+    if (segment.formula.includes('@')) {
+      reportSkipped?.(segment.formula);
+
       continue;
     }
 

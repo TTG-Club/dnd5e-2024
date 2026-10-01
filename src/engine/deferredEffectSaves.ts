@@ -71,6 +71,7 @@ import {
   listEffectListTriggers,
   turnTriggerEventOf,
 } from './effectTriggers.js';
+import { bindOwnEffectFormulas } from './ownEffectFormulas.js';
 import {
   formatTargetChoiceRequestTitle,
   readChoiceAnswer,
@@ -357,9 +358,14 @@ function applyTurnTriggerAnswer(
   target: TurnTriggerAnswerTarget,
   outcome: RollRequestOutcome,
 ): DeferredEffectOutcome {
+  const found = entity.activeEffects?.find(
+    (entry) => entry.id === target.effectId,
+  );
+
+  // Живой эффект найден заново — числа владельца подставляются заново тоже;
+  // снимок черты и ауры их уже несёт
   const effect =
-    target.snapshot
-    ?? entity.activeEffects?.find((entry) => entry.id === target.effectId);
+    target.snapshot ?? (found && bindOwnEffectFormulas([found], entity)[0]);
 
   const event = turnTriggerEventOf(target.timing);
 
@@ -389,6 +395,8 @@ function applyTurnTriggerAnswer(
     scope: target.scope,
   };
 
+  const skippedNotes: string[] = [];
+
   const damage =
     target.stage === 'damage'
       ? rollTriggerDamage(
@@ -397,6 +405,7 @@ function applyTurnTriggerAnswer(
           trigger,
           save.passed,
           resolveActorStats(entity),
+          { collectNote: (note) => skippedNotes.push(note) },
         )
       : null;
 
@@ -422,7 +431,10 @@ function applyTurnTriggerAnswer(
     damageOutcomes: damage ? [damage] : [],
     healingOutcomes: [],
     saveOutcomes: [save],
-    notes: formatEffectNotes(target.spec, acquisition.note),
+    notes: [
+      ...formatEffectNotes(target.spec, acquisition.note),
+      ...skippedNotes,
+    ],
   };
 }
 

@@ -43,6 +43,7 @@ import type {
   EffectSaveSpec,
   EntryEffectOptions,
   EntryEffectResult,
+  SkippedFormulaReporter,
   TurnDamageOutcome,
   TurnEffectsOptions,
   TurnEffectsResult,
@@ -140,6 +141,7 @@ import {
   resolveEntityTempHp,
   writeEntityHitPoints,
 } from './hitPoints.js';
+import { bindOwnEffectFormulas } from './ownEffectFormulas.js';
 import { pickSaveAbility } from './saveAbilityChoice.js';
 import { MIN_SPELL_SLOT_LEVEL } from './spellSlotTable.js';
 import {
@@ -152,6 +154,7 @@ import {
   applyTurnHealing,
   buildApplySaveSpec,
   buildEffectSavingThrowContext,
+  formatSkippedFormulaNote,
   resolveEffectMagicCircumstances,
   restoreEntityHitPoints,
   rollEffectDamage,
@@ -521,6 +524,36 @@ export function resolveTriggerActionScale(
   );
 }
 
+/** Что известно броску урона и лечения срабатывания */
+export interface TriggerRollOptions {
+  /**
+   * Субъект — цель атаки, попавшей критически: кости урона удваиваются
+   */
+  critical?: boolean;
+  /**
+   * Куда писать строки сводки: слагаемое с неподставленным `@`-токеном бросок
+   * пропускает, и молча терять его нельзя
+   */
+  collectNote?: (note: string) => void;
+}
+
+/**
+ * Получатель пропущенных слагаемых срабатывания: превращает их в строки
+ * сводки с именем эффекта.
+ *
+ * @param effect - эффект срабатывания
+ * @param collectNote - куда писать строки сводки; нет — сообщать некому
+ * @returns получатель либо `undefined`
+ */
+function toSkippedReporter(
+  effect: ActiveEffect,
+  collectNote: ((note: string) => void) | undefined,
+): SkippedFormulaReporter | undefined {
+  return collectNote
+    ? (formula) => collectNote(formatSkippedFormulaNote(effect.name, formula))
+    : undefined;
+}
+
 /**
  * Катает урон срабатывания по исходу спасброска; урон не применяется —
  * вызывающий списывает хиты одним изменением.
@@ -530,8 +563,7 @@ export function resolveTriggerActionScale(
  * @param trigger - срабатывание
  * @param passed - пройден ли спасбросок
  * @param stats - resolved-статы субъекта (защиты от урона)
- * @param critical - субъект — цель атаки, попавшей критически: кости урона
- *   удваиваются
+ * @param options - крит атаки и куда сообщить о непосчитанном слагаемом
  * @returns исход урона либо `null`
  */
 export function rollTriggerDamage(
@@ -540,7 +572,7 @@ export function rollTriggerDamage(
   trigger: EffectTrigger,
   passed: boolean,
   stats: ReturnType<typeof resolveActorStats>,
-  critical = false,
+  options: TriggerRollOptions = {},
 ): TurnDamageOutcome | null {
   let outcome: TurnDamageOutcome | null = null;
 
@@ -565,7 +597,8 @@ export function rollTriggerDamage(
 
     const rolled = rollEffectDamage(effect.name, action.parts, stats, entity, {
       scale,
-      critical,
+      critical: options.critical,
+      reportSkipped: toSkippedReporter(effect, options.collectNote),
     });
 
     if (!rolled) {
@@ -592,17 +625,25 @@ export function rollTriggerDamage(
  *
  * @param effect - эффект
  * @param trigger - срабатывание
+ * @param collectNote - куда писать о слагаемом, которое не посчиталось
  * @returns исход лечения либо `null`
  */
 export function rollTriggerHealing(
   effect: ActiveEffect,
   trigger: EffectTrigger,
+  collectNote?: (note: string) => void,
 ): TurnHealingOutcome | null {
   const parts = trigger.actions.flatMap((action) =>
     action.type === 'damage' ? action.parts : [],
   );
 
-  return parts.length > 0 ? rollEffectHealing(effect.name, parts) : null;
+  return parts.length > 0
+    ? rollEffectHealing(
+        effect.name,
+        parts,
+        toSkippedReporter(effect, collectNote),
+      )
+    : null;
 }
 
 /**
@@ -715,17 +756,29 @@ export const EFFECT_TRIGGER_SOURCE_KINDS = {
 /**
  * Срабатывания эффектов одного вида источника.
  *
+ * Свои эффекты носителя (его эффекты, надетые предметы, черты существа)
+ * получают его числа и выборы в формулах и условиях срабатываний
+ * (`bindOwnEffectFormulas`): постоянный эффект никто не накладывал, и
+ * подставить их больше некому. Ауре чужого токена числа её носителя подставил
+ * сбор аур — владельца у такого вызова нет.
+ *
  * @param effects - эффекты
  * @param kind - откуда эффекты у субъекта
  * @param triggersOf - какие срабатывания эффекта нужны
+ * @param owner - носитель, он же владелец эффектов; нет — числа уже подставлены
  * @returns срабатывания с источником
  */
 export function buildTriggerSources(
   effects: readonly ActiveEffect[],
   kind: EffectTriggerSourceKind,
   triggersOf: (effect: ActiveEffect) => readonly EffectTrigger[],
+  owner?: DnDSceneEntity,
 ): EffectTriggerSource[] {
-  return effects.flatMap((rawEffect) => {
+  // Подставлять есть смысл только там, где на это событие что-то сработает
+  const listening = effects.filter((effect) => triggersOf(effect).length > 0);
+  const bound = owner ? bindOwnEffectFormulas(listening, owner) : listening;
+
+  return bound.flatMap((rawEffect) => {
     // Потраченное при включении (`@paid.*`) — в формулы срабатываний: у
     // эффекта без оплаты это тот же объект
     const effect = bindLivePaid(rawEffect);
@@ -2018,11 +2071,13 @@ export function processTurnEffects(
       entity.activeEffects ?? [],
       EFFECT_TRIGGER_SOURCE_KINDS.instance,
       turnTriggersOf,
+      entity,
     ),
     ...buildTriggerSources(
       listTraitEffects(entity),
       EFFECT_TRIGGER_SOURCE_KINDS.trait,
       turnTriggersOf,
+      entity,
     ),
     // Аура «пока внутри» срабатывает на ходу того, кто в ней стоит
     ...buildTriggerSources(
@@ -2253,6 +2308,15 @@ export function processTurnEffects(
   let healedTotal = 0;
   let tempHpGranted = 0;
 
+  /**
+   * Строка сводки хода: слагаемое, которое бросок не посчитал.
+   *
+   * @param note - строка сводки
+   */
+  const collectTurnNote = (note: string): void => {
+    result.notes.push(note);
+  };
+
   // 1. Урон и лечение
   for (const source of sources) {
     const { effect, trigger, ambient, instance } = source;
@@ -2269,7 +2333,7 @@ export function processTurnEffects(
       continue;
     }
 
-    const healing = rollTriggerHealing(effect, trigger);
+    const healing = rollTriggerHealing(effect, trigger, collectTurnNote);
 
     if (healing) {
       result.healingOutcomes.push(healing);
@@ -2327,6 +2391,7 @@ export function processTurnEffects(
       trigger,
       save?.passed ?? false,
       stats,
+      { collectNote: collectTurnNote },
     );
 
     if (damage) {
@@ -2494,6 +2559,7 @@ export function applyEntryEffect(
     source.trigger,
     passed,
     stats,
+    { collectNote: options.collectNote },
   );
 
   if (rolled) {
@@ -2790,15 +2856,22 @@ export function settleTriggerOutcome(
     source.trigger,
     passed,
     stats,
-    // Крит атаки удваивает кости только её цели
-    options.criticalTargetId === recipient.id,
+    {
+      // Крит атаки удваивает кости только её цели
+      critical: options.criticalTargetId === recipient.id,
+      collectNote: options.collectNote,
+    },
   );
 
   if (damage) {
     applyDamageToEntity(recipient, damage.total);
   }
 
-  const healing = rollTriggerHealing(source.effect, source.trigger);
+  const healing = rollTriggerHealing(
+    source.effect,
+    source.trigger,
+    options.collectNote,
+  );
 
   const restored = healing
     ? restoreEntityHitPoints(recipient, healing.healed, healing.tempHp)
@@ -2886,6 +2959,7 @@ export function listAttackRollSources(
           (trigger.role ?? DEFAULT_TRIGGER_ATTACK_ROLE) === role
           && isClientAttackRollTrigger(trigger) === (place === 'client'),
       ),
+    entity,
   );
 }
 

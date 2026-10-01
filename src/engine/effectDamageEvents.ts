@@ -208,16 +208,19 @@ function listDamageEventSources(
       own,
       EFFECT_TRIGGER_SOURCE_KINDS.instance,
       eventTriggersOf,
+      entity,
     ),
     ...buildTriggerSources(
       listEquippedItemEffects(entity),
       EFFECT_TRIGGER_SOURCE_KINDS.item,
       eventTriggersOf,
+      entity,
     ),
     ...buildTriggerSources(
       listTraitEffects(entity),
       EFFECT_TRIGGER_SOURCE_KINDS.trait,
       eventTriggersOf,
+      entity,
     ),
     ...buildTriggerSources(
       ambient,
@@ -1055,6 +1058,7 @@ function listOwnEventSources(
     listLiveEffects(entity),
     EFFECT_TRIGGER_SOURCE_KINDS.instance,
     (effect) => listEffectEventTriggers(effect, event),
+    entity,
   );
 }
 
@@ -1129,6 +1133,7 @@ export function settleEffectActionEvents(
     EFFECT_TRIGGER_SOURCE_KINDS.instance,
     (effect) =>
       listEffectEventTriggers(effect, 'activate').filter(isServerActiveAction),
+    subject,
   );
 
   for (const source of sources) {
