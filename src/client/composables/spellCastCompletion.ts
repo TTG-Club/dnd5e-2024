@@ -21,7 +21,7 @@ import { useChatStore } from '@/stores/chatStore';
 import { useWorldStore } from '@/stores/worldStore';
 import { resolveGridCellSize } from '@vtt/shared';
 import {
-  bindClassLevels,
+  bindOwnerTokens,
   bindSourceEffectFormulas,
   bindWeaponSpellAbility,
   buildConcentrationEffect,
@@ -114,7 +114,7 @@ export function prepareCasterSpellEffects(
   };
 
   // Уровень класса — по id умения, пока новые id наложения его не стёрли
-  const classBound = bindClassLevels(casterEffects, caster);
+  const classBound = bindOwnerTokens(casterEffects, caster);
 
   const spellAbility =
     source.spellAbility ?? resolveSpellcastingAbility(caster, spell);

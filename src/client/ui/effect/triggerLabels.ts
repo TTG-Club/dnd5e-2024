@@ -68,6 +68,10 @@ export const EFFECT_TRIGGER_ROW_LABELS = {
   turnOf: 'Чей ход',
   saveToggle: 'Спасбросок',
   saveAbility: 'Характеристика',
+  saveAltAbilities: 'Или характеристика (на выбор бросающего)',
+  removeConditionFromTypes: 'Наложено существом типа',
+  removeConditionFromTypesHint:
+    'Снимаются только состояния, наложенные существами этих типов («Рассеивание добра и зла»). Пусто — кем бы ни было наложено',
   saveDc: 'Сл',
   actionsTitle: 'Что сделать',
   actionsEmpty:
@@ -448,7 +452,13 @@ export const EFFECT_TRIGGER_CONDITION_KIND_LABELS: Record<
   sourceWeaponMastery: 'Атакующий владеет приёмом этого оружия',
   selfTempHpZero: 'У носителя нет временных хитов',
   selfGrounded: 'Носитель не летит',
-  selfSpecies: 'Вид носителя',
+  selfSpecies: 'Вид носителя (или подтип; список через запятую)',
+  selfSpeciesNot: 'Вид носителя — не из списка',
+  otherSpecies: 'Вид другой стороны (или подтип; список через запятую)',
+  otherSpeciesNot: 'Вид другой стороны — не из списка',
+  damageTypeChosen: 'Урон типа из выбора владельца (ключ выбора)',
+  otherCreatureTypeChosen:
+    'Другая сторона — тип из выбора владельца (ключ выбора)',
   selfAbilityAtMost: 'У носителя характеристика не больше',
   selfAbilityAtLeast: 'У носителя характеристика не меньше',
   otherIsSource: 'Другая сторона — тот, кто наложил эффект',

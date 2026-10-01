@@ -19,6 +19,7 @@ import {
   collectIncomingAttackFlags,
   collectIncomingAttackRollFormulas,
   resolveEntityCreatureType,
+  resolveEntityExtraCreatureTypes,
 } from '@vtt/shared/system/dnd.js';
 
 import { collectEffectsWithAuras } from './useResolvedStats';
@@ -37,7 +38,9 @@ export function buildIncomingAttackContext(
 ): DndIncomingAttackContext {
   return {
     attackType,
+    attackerId: attacker.id,
     attackerCreatureType: resolveEntityCreatureType(attacker),
+    attackerExtraCreatureTypes: resolveEntityExtraCreatureTypes(attacker),
   };
 }
 

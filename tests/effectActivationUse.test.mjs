@@ -47,6 +47,9 @@ async function loadApply({ chosenTargetId }) {
     getTargetSpellEffects: engine.getTargetSpellEffects,
     collectSourcePay: engine.collectSourcePay,
     hasItemUsesPrice: engine.hasItemUsesPrice,
+    // Сл от проверки навыка у фикстур нет: применение идёт сразу
+    runWithSkillCheckDc: (source, _user, _hasTarget, proceed) =>
+      proceed(source),
     // Цены у фикстур нет: оплата проходная, расход идёт прежним путём
     runWithSourcePay: (source, payer, _options, proceed) =>
       proceed(source, false, payer),
@@ -506,6 +509,9 @@ it('цена ресурсом: оплата и прежний расход ид�
     getTargetSpellEffects: engine.getTargetSpellEffects,
     collectSourcePay: engine.collectSourcePay,
     hasItemUsesPrice: engine.hasItemUsesPrice,
+    // Сл от проверки навыка у фикстур нет: применение идёт сразу
+    runWithSkillCheckDc: (source, _user, _hasTarget, proceed) =>
+      proceed(source),
     runWithSourcePay: (source, payer, options, proceed) => {
       options.commit(paidUser);
       proceed(source, true, paidUser);

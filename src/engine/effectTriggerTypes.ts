@@ -20,6 +20,7 @@ import type {
   RecurringSave,
 } from './activeEffectTypes.js';
 import type { ConditionRef } from './conditionKeys.js';
+import type { CreatureCategory } from './creatureTypes.js';
 import type { EffectPay } from './effectPayTypes.js';
 
 /** События, на которые срабатывание реагирует уже сейчас */
@@ -491,6 +492,11 @@ export interface EffectTriggerSaveModeRule {
 /** Спасбросок срабатывания; Сл 0 — Сл источника, как у остальных полей */
 export interface EffectTriggerSave {
   ability: AbilityType;
+  /**
+   * Ещё характеристики на выбор бросающего: «спасбросок Силы или Ловкости» —
+   * бросается лучшей из названных (`saveAbilityChoice.ts`)
+   */
+  altAbilities?: AbilityType[];
   dc: number;
   /** Преимущество или помеха самого спасброска */
   mode?: EffectTriggerSaveMode;
@@ -743,6 +749,12 @@ export interface EffectTriggerRemoveConditionAction {
   type: 'removeCondition';
   /** Какое состояние; нет — все состояния получателя */
   conditionKey?: ConditionRef;
+  /**
+   * Только состояния, наложенные существами этих типов: «перестаёт быть
+   * очарованной или испуганной такими существами» («Рассеивание добра и
+   * зла»). Нет поля — кем бы ни было наложено
+   */
+  fromCreatureTypes?: CreatureCategory[];
   on?: EffectTriggerActionGate;
 }
 

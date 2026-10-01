@@ -38,7 +38,6 @@
     isDamageType,
     listPartDamageTypeChoices,
     performTwoStageAttack,
-    resolveEntityCreatureType,
     rollRandomDamageTypeChoices,
     scaleDamageFormula,
     settleDamageTypeChoices,
@@ -49,6 +48,7 @@
     announceDamageTypeChoices,
     useDamageTypeLabel,
   } from '../../composables/damageTypeChoice';
+  import { buildIncomingAttackContext } from '../../composables/incomingAttack';
   import { resolveAttackerIgnoredResistances } from '../../composables/spellResolutionShared';
   import {
     dispatchAttackRollTriggers,
@@ -533,10 +533,9 @@
     const attackContext: DndIncomingAttackContext | undefined =
       props.incomingAttackType
         ? {
-            attackType: props.incomingAttackType,
-            attackerCreatureType: attacker
-              ? resolveEntityCreatureType(attacker)
-              : undefined,
+            ...(attacker
+              ? buildIncomingAttackContext(attacker, props.incomingAttackType)
+              : { attackType: props.incomingAttackType }),
           }
         : undefined;
 

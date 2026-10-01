@@ -309,7 +309,7 @@ export function requestEntryEffect(
 
   return requestPresenceSave(
     entity,
-    buildApplySaveSpec(snapshot, effect.applySave),
+    buildApplySaveSpec(snapshot, effect.applySave, entity),
     requestRoll,
     requesterLabel,
     options,

@@ -63,6 +63,7 @@ import {
   getVisibleFeatChoices,
   hasAbilityImprovementAtLevel,
   isAsiFeatureInClass,
+  isClassOptionChoiceKey,
   isCounterOfDefinition,
   isFeatPickChoice,
   isForeignSubclassCounter,
@@ -929,6 +930,29 @@ export function useClassWizard(
    * @param grant - дары выбранного варианта
    * @returns ответы варианта; пусто — вариант ни о чём не спрашивал
    */
+  /**
+   * Ответы игрока на выборы самого класса, подкласса и их умений — поле записи
+   * класса. Ответы вариантов умений сюда не идут: они лежат на записи варианта.
+   * По ним эффекты умений читают выбор токеном `@choice.<ключ>` («Гримуар
+   * монстров»: умения подкласса смотрят типы, выбранные в базовом классе).
+   *
+   * @param previous - ответы прошлых уровней
+   * @returns поле `choiceAnswers` либо пусто, если ответов нет
+   */
+  function classChoiceAnswersField(
+    previous: Record<string, string[]> | undefined,
+  ): { choiceAnswers?: Record<string, string[]> } {
+    const answers: Record<string, string[]> = { ...previous };
+
+    for (const [key, values] of Object.entries(wizardState.featDataChoices)) {
+      if (!isClassOptionChoiceKey(key) && values.length > 0) {
+        answers[key] = [...values];
+      }
+    }
+
+    return Object.keys(answers).length > 0 ? { choiceAnswers: answers } : {};
+  }
+
   function optionChoiceAnswers(
     grant: ClassOptionGrant,
   ): Record<string, string[]> {
@@ -2190,6 +2214,7 @@ export function useClassWizard(
           classes[existingIndex].featureChoices,
           wizardState.featureChoices,
         ),
+        ...classChoiceAnswersField(classes[existingIndex].choiceAnswers),
         ...(effectiveSpellcasting && !classes[existingIndex].spellcastingAbility
           ? {
               spellcastingAbility: effectiveSpellcasting.ability,
@@ -2216,6 +2241,7 @@ export function useClassWizard(
         ],
         chosenSkills: [...wizardState.selectedSkills],
         featureChoices: { ...wizardState.featureChoices },
+        ...classChoiceAnswersField(undefined),
         ...(effectiveSpellcasting
           ? {
               spellcastingAbility: effectiveSpellcasting.ability,

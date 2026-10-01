@@ -28,7 +28,7 @@ import {
   isEffectDormant,
   listLiveEffects,
 } from './activeEffectTypes.js';
-import { bindClassLevels } from './classEffectScope.js';
+import { bindOwnerTokens } from './classEffectScope.js';
 import { INCAPACITATED_CONDITION_KEY } from './conditionKeys.js';
 import { resolveEffectConditionKey } from './conditionTemplates.js';
 import {
@@ -161,7 +161,7 @@ export function collectAllAuraEffects(entity: DnDSceneEntity): ActiveEffect[] {
 
   // Уровень класса подставляется по ИСТОЧНИКУ ауры: аура умения класса несёт
   // уровень того, кто её излучает, а не того, кто в неё попал
-  const classBound = bindClassLevels(
+  const classBound = bindOwnerTokens(
     // Старая аура «пока внутри» со спасброском срабатывает на входе: иначе она
     // ложилась бы на каждого в радиусе без броска
     allEffects.map(upgradeStaySaveEffect),

@@ -59,6 +59,9 @@
     showPriorityField: boolean;
   }>();
 
+  /** Ключ выбора владельца: буквы, цифры, `-`, `_`, `#`, `:` */
+  const CHOICE_KEY_PATTERN = /^[\w#:-]+$/;
+
   const effect = defineModel<ActiveEffect>('effect', { required: true });
 
   /**
@@ -203,6 +206,7 @@
   function writeTypeCondition(patch: {
     types?: CreatureCategory[];
     negate?: boolean;
+    choiceKey?: string;
   }): void {
     const current = typeCondition.value;
 
@@ -212,14 +216,41 @@
 
     const next = { ...current.condition, ...patch };
 
-    if (next.types.length > 0) {
+    if (next.types.length > 0 || next.choiceKey) {
       writeRollCondition(writeCreatureTypeCondition(current.subject, next));
     }
   }
 
   const conditionTypes = computed({
     get: () => typeCondition.value?.condition.types ?? [],
-    set: (types: CreatureCategory[]) => writeTypeCondition({ types }),
+    // Свой список типов отменяет ссылку на выбор владельца
+    set: (types: CreatureCategory[]) =>
+      writeTypeCondition({ types, choiceKey: undefined }),
+  });
+
+  /**
+   * Ключ выбора владельца, из которого берутся типы: «существа из вашего
+   * Гримуара». Пустой ключ возвращает свой список типов.
+   */
+  const conditionChoiceKey = computed({
+    get: () => typeCondition.value?.condition.choiceKey ?? '',
+    set: (value: string | number) => {
+      const key = String(value).trim();
+
+      if (key === '') {
+        writeTypeCondition({
+          types: [DEFAULT_CONDITION_CREATURE_TYPE],
+          choiceKey: undefined,
+        });
+
+        return;
+      }
+
+      // Негодный ключ не пишется: условие с ним не разобралось бы обратно
+      if (CHOICE_KEY_PATTERN.test(key)) {
+        writeTypeCondition({ types: [], choiceKey: key });
+      }
+    },
   });
 
   const conditionTypesNegated = computed({
@@ -434,6 +465,7 @@
           label-key="label"
           multiple
           class="min-w-56 flex-1"
+          :disabled="conditionChoiceKey !== ''"
           :portal="false"
         />
 
@@ -441,6 +473,14 @@
           v-model="conditionTypesNegated"
           :label="EFFECT_MODIFIERS_STEP_LABELS.creatureTypesExcept"
         />
+
+        <UTooltip :text="EFFECT_MODIFIERS_STEP_LABELS.creatureTypesChoiceHint">
+          <UInput
+            v-model="conditionChoiceKey"
+            :placeholder="EFFECT_MODIFIERS_STEP_LABELS.creatureTypesChoice"
+            class="w-56"
+          />
+        </UTooltip>
       </div>
     </UFormField>
 

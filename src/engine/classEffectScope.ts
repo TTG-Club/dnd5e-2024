@@ -27,6 +27,7 @@ import type { DnDSceneEntity } from './dndEntities.js';
 import { isCreatureEntity } from '@vtt/shared';
 
 import { getClassLevels } from './classTypes.js';
+import { bindOwnerChoices } from './effectChoiceBinding.js';
 import { bindEffectToken, effectUsesToken } from './effectTokenBinding.js';
 import { COUNTER_FORMULA_TOKENS } from './formulaParser.js';
 
@@ -141,4 +142,23 @@ export function bindClassLevels(
       ? effect
       : bindEffectToken(effect, CLASS_LEVEL_TOKEN, classLevel);
   });
+}
+
+/**
+ * Подставляет в эффекты всё, что знает только их владелец: уровень своего
+ * класса (`@classLevel`) и сделанные на листе выборы (`@choice.<ключ>`,
+ * `@mod.feat` — `effectChoiceBinding.ts`). Одна точка на все места, где эффекты
+ * владельца собираются: свои эффекты, ауры, эффекты «на цель».
+ *
+ * @param effects - собранные эффекты владельца
+ * @param entity - владелец
+ * @returns эффекты с подставленными числами и выборами
+ */
+export function bindOwnerTokens(
+  effects: readonly ActiveEffect[],
+  entity: DnDSceneEntity,
+): readonly ActiveEffect[] {
+  // Выборы — первыми: подстановка уровня класса делает копии эффектов, а
+  // выборы ищутся и запоминаются по самим записям листа
+  return bindClassLevels(bindOwnerChoices(effects, entity), entity);
 }

@@ -54,6 +54,8 @@ import {
   CONCENTRATION_SAVE_KEY,
   DEATH_SAVE_KEY,
   DEFAULT_CRIT_THRESHOLD,
+  INCOMING_ATTACKER_IS_SOURCE_CONDITION,
+  INCOMING_ATTACKER_NOT_SOURCE_CONDITION,
   isCarrierEffect,
   isEffectDormant,
   isSenseType,
@@ -64,6 +66,8 @@ import {
   TARGET_ALLY_WITH_CONDITION_PREFIX,
   TARGET_ALLY_WITHOUT_CONDITION_PREFIX,
   TARGET_ANY_ALLY_ADJACENT_CONDITION,
+  TARGET_IS_SOURCE_CONDITION,
+  TARGET_NOT_SOURCE_CONDITION,
   WEAPON_DAMAGE_DICE_KEY,
 } from './activeEffectTypes.js';
 import {
@@ -77,7 +81,7 @@ import {
   getProficiencyContribution,
   isProficiencyLevel,
 } from './calculations.js';
-import { bindClassLevels } from './classEffectScope.js';
+import { bindOwnerTokens } from './classEffectScope.js';
 import { getTotalLevel } from './classTypes.js';
 import { INCAPACITATED_CONDITION_KEY } from './conditionKeys.js';
 import {
@@ -95,7 +99,10 @@ import {
   creatureTypeConditionHolds,
   parseCreatureTypeCondition,
 } from './creatureTypeCondition.js';
-import { resolveEntityCreatureType } from './creatureTypeGate.js';
+import {
+  resolveEntityCreatureType,
+  resolveEntityExtraCreatureTypes,
+} from './creatureTypeGate.js';
 import {
   getCustomBonusesValue,
   parseAbilityBonuses,
@@ -128,6 +135,11 @@ import {
   parseSkillSettings,
 } from './skills.js';
 import { bindSourceFormula } from './sourceFormulaBinding.js';
+import {
+  listEntitySpeciesNames,
+  parseCarrierSpeciesCondition,
+  speciesConditionHolds,
+} from './speciesCondition.js';
 import {
   getSpellSaveDCBreakdown,
   parseSpellcastingSettings,
@@ -585,10 +597,10 @@ export function collectActiveEffects(
     ...listCarriedEffectEntries(actor).map((entry) => entry.effect),
   );
 
-  // Уровень своего класса — в формулы умений класса. Здесь, в единственной
+  // Уровень своего класса и выборы листа — в формулы и условия. Здесь, в единственной
   // точке сбора: дальше эффекты расходятся по статам листа, бонус-частям урона
   // и подписям, и подставлять число у каждого потребителя пришлось бы заново
-  return bindClassLevels(dropSuppressedConditions(collectedEffects), actor);
+  return bindOwnerTokens(dropSuppressedConditions(collectedEffects), actor);
 }
 
 /**
@@ -878,6 +890,8 @@ export interface RollContext {
     currentHp: number;
     maxHp: number;
     creatureType?: CreatureCategory;
+    /** Дополнительные типы цели — наравне с основным */
+    extraCreatureTypes?: readonly CreatureCategory[];
     /** Кто пометил цель (`mark.bySource`) — для условия `target.markedBySelf` */
     markedBy?: readonly string[];
     /** Сущность цели — защитные эффекты цели в броске атаки */
@@ -902,6 +916,28 @@ export interface RollContext {
    * выполняются.
    */
   source?: { creatureType?: CreatureCategory };
+  /**
+   * Кто наложил эффект, чьё условие сейчас оценивается, — для
+   * `target.isSource`. Ставит сам перебор эффектов ({@link scopeRollContext}):
+   * у каждого эффекта наложивший свой.
+   */
+  effectSourceId?: string;
+}
+
+/**
+ * Контекст броска для условий одного эффекта: с его наложившим.
+ *
+ * @param rollContext - контекст броска
+ * @param effect - эффект, чьи условия оцениваются
+ * @returns тот же контекст либо копия с наложившим этого эффекта
+ */
+function scopeRollContext(
+  rollContext: RollContext,
+  effect: Pick<ActiveEffect, 'sourceActorId'>,
+): RollContext {
+  return rollContext.effectSourceId === effect.sourceActorId
+    ? rollContext
+    : { ...rollContext, effectSourceId: effect.sourceActorId };
 }
 
 /**
@@ -916,6 +952,10 @@ export interface CarrierContext {
   entityId?: string;
   /** Тип существа — для `self.creatureType === "..."` */
   creatureType?: CreatureCategory;
+  /** Дополнительные типы существа — наравне с основным */
+  extraCreatureTypes?: readonly CreatureCategory[];
+  /** Вид персонажа или подтип статблока — для `self.species === "..."` */
+  speciesNames?: readonly string[];
   /** Надетый доспех и щит — для `self.armor === "..."` */
   armor?: CarrierArmorState;
 }
@@ -923,12 +963,14 @@ export interface CarrierContext {
 /**
  * Собирает свойства носителя для условий эффектов на листе и во время броска.
  * @param carrier - персонаж или существо, несущее эффект
- * @returns тип существа и состояние надетого доспеха
+ * @returns тип существа, вид и состояние надетого доспеха
  */
 export function buildCarrierContext(carrier: DnDSceneEntity): CarrierContext {
   return {
     entityId: carrier.id,
     creatureType: resolveEntityCreatureType(carrier),
+    extraCreatureTypes: resolveEntityExtraCreatureTypes(carrier),
+    speciesNames: listEntitySpeciesNames(carrier),
     armor: getCarrierArmorState(carrier),
   };
 }
@@ -943,6 +985,10 @@ export function buildCarrierContext(carrier: DnDSceneEntity): CarrierContext {
 export interface DndIncomingAttackContext extends IncomingAttackContext {
   /** Тип атакующего — для `incoming.attackerCreatureType === "…"` */
   attackerCreatureType?: CreatureCategory;
+  /** Дополнительные типы атакующего — наравне с основным */
+  attackerExtraCreatureTypes?: readonly CreatureCategory[];
+  /** Кто атакует — для `incoming.attackerIsSource` */
+  attackerId?: string;
 }
 
 /** Бросок без преимущества и помехи — для условий, где броска ещё нет */
@@ -1056,6 +1102,7 @@ function isCarrierConditionPart(part: string): boolean {
   return (
     parseCreatureTypeCondition(part, 'self.creatureType') !== undefined
     || part.startsWith(CARRIER_ARMOR_CONDITION_PREFIX)
+    || parseCarrierSpeciesCondition(part) !== undefined
   );
 }
 
@@ -1097,11 +1144,25 @@ function carrierConditionPartMatches(
     return armorConditionMatches(wantedArmor, carrier?.armor);
   }
 
+  const speciesCondition = parseCarrierSpeciesCondition(part);
+
+  if (speciesCondition !== undefined) {
+    // Вид известен только с носителем: без него считать нечем
+    return (
+      carrier?.speciesNames !== undefined
+      && speciesConditionHolds(speciesCondition, carrier.speciesNames)
+    );
+  }
+
   const typeCondition = parseCreatureTypeCondition(part, 'self.creatureType');
 
   return (
     typeCondition !== undefined
-    && creatureTypeConditionHolds(typeCondition, carrier?.creatureType)
+    && creatureTypeConditionHolds(
+      typeCondition,
+      carrier?.creatureType,
+      carrier?.extraCreatureTypes,
+    )
   );
 }
 
@@ -1281,6 +1342,22 @@ export function evaluateConditionPart(
     return Boolean(selfId && target?.markedBy?.includes(selfId));
   }
 
+  // Цель броска — тот, кто наложил этот эффект, либо не он. Без цели или
+  // без наложившего данных нет: часть не выполняется
+  if (
+    trimmed === TARGET_IS_SOURCE_CONDITION
+    || trimmed === TARGET_NOT_SOURCE_CONDITION
+  ) {
+    const targetId = target?.entityId;
+    const sourceId = rollContext.effectSourceId;
+
+    return (
+      targetId !== undefined
+      && sourceId !== undefined
+      && (targetId === sourceId) === (trimmed === TARGET_IS_SOURCE_CONDITION)
+    );
+  }
+
   const hpGate = TARGET_HP_CONDITION_GATES[trimmed];
 
   if (hpGate) {
@@ -1299,7 +1376,11 @@ export function evaluateConditionPart(
   const targetType = parseCreatureTypeCondition(trimmed, 'target.creatureType');
 
   if (targetType !== undefined) {
-    return creatureTypeConditionHolds(targetType, target?.creatureType);
+    return creatureTypeConditionHolds(
+      targetType,
+      target?.creatureType,
+      target?.extraCreatureTypes,
+    );
   }
 
   const sourceType = parseCreatureTypeCondition(trimmed, 'source.creatureType');
@@ -1350,33 +1431,54 @@ function targetTypeGatesForCondition(
  *
  * @param condition - строка условия
  * @param attackContext - контекст входящей атаки
+ * @param effectSourceId - кто наложил эффект с этим условием
  * @returns true если условие выполняется
  */
 function evaluateDefensiveCondition(
   condition: string,
   attackContext: DndIncomingAttackContext,
+  effectSourceId?: string,
 ): boolean {
   const parts = splitConditionParts(condition);
 
   return (
     parts.length > 0
     && parts.every((part) =>
-      evaluateDefensiveConditionPart(part, attackContext),
+      evaluateDefensiveConditionPart(part, attackContext, effectSourceId),
     )
   );
 }
 
 /**
- * Одна часть защитного условия: вид входящей атаки или тип атакующего.
+ * Одна часть защитного условия: вид входящей атаки, тип атакующего или «атакует
+ * (не) наложивший эффект».
  *
  * @param trimmed - часть условия
  * @param attackContext - контекст входящей атаки
+ * @param effectSourceId - кто наложил эффект с этим условием
  * @returns true если часть выполняется
  */
 function evaluateDefensiveConditionPart(
   trimmed: string,
   attackContext: DndIncomingAttackContext,
+  effectSourceId?: string,
 ): boolean {
+  // Атакует тот, кто наложил этот эффект, либо не он. Без атакующего или без
+  // наложившего данных нет: часть не выполняется
+  if (
+    trimmed === INCOMING_ATTACKER_IS_SOURCE_CONDITION
+    || trimmed === INCOMING_ATTACKER_NOT_SOURCE_CONDITION
+  ) {
+    const { attackerId } = attackContext;
+
+    return (
+      attackerId !== undefined
+      && effectSourceId !== undefined
+      && (attackerId === effectSourceId)
+        === (trimmed === INCOMING_ATTACKER_IS_SOURCE_CONDITION)
+    );
+  }
+
   if (trimmed === 'incoming.attackType === "ranged"') {
     return attackContext.attackType === 'ranged';
   }
@@ -1399,6 +1501,7 @@ function evaluateDefensiveConditionPart(
     && creatureTypeConditionHolds(
       attackerType,
       attackContext.attackerCreatureType,
+      attackContext.attackerExtraCreatureTypes,
     )
   );
 }
@@ -1451,7 +1554,10 @@ function rollConditionHolds(
 ): boolean {
   return (
     effect.rollCondition === undefined
-    || evaluateCondition(effect.rollCondition, rollContext)
+    || evaluateCondition(
+      effect.rollCondition,
+      scopeRollContext(rollContext, effect),
+    )
   );
 }
 
@@ -1471,7 +1577,11 @@ function listIncomingAttackEffects(
     (effect) =>
       !isEffectDormant(effect)
       && (effect.rollCondition === undefined
-        || evaluateDefensiveCondition(effect.rollCondition, attackContext)),
+        || evaluateDefensiveCondition(
+          effect.rollCondition,
+          attackContext,
+          effect.sourceActorId,
+        )),
   );
 }
 
@@ -1494,6 +1604,70 @@ export function collectRollConditionFlags(
       ? effect.flags
       : [],
   );
+}
+
+/** Ключ строки изменения с порогом крита */
+const CRIT_THRESHOLD_KEY: EffectTargetKey = 'critThreshold';
+
+/**
+ * Порог крита в этом броске. Порог листа уже учёл строки без условия и с
+ * условием о носителе; здесь добавляются строки, чьё условие — о броске:
+ * «крит на 19–20 по существам из вашего Гримуара» (`target.creatureType`).
+ * Порог только понижается: из нескольких действует самый низкий.
+ *
+ * @param effects - эффекты бросающего (с аурами карты)
+ * @param sheetThreshold - порог листа
+ * @param rollContext - контекст броска с целью
+ * @param formulaContext - контекст формул бросающего
+ * @returns порог крита для броска
+ */
+export function resolveRollCritThreshold(
+  effects: readonly ActiveEffect[],
+  sheetThreshold: number,
+  rollContext: RollContext,
+  formulaContext?: FormulaContext,
+): number {
+  let threshold = sheetThreshold;
+
+  for (const effect of effects) {
+    if (isEffectDormant(effect) || !rollConditionHolds(effect, rollContext)) {
+      continue;
+    }
+
+    const rollOnly = isRollOnlyEffect(effect);
+
+    for (const change of effect.changes) {
+      if (change.key !== CRIT_THRESHOLD_KEY) {
+        continue;
+      }
+
+      // Строка без условия и с условием о носителе уже сидит в пороге листа
+      if (
+        !rollOnly
+        && (!change.condition || isCarrierCondition(change.condition))
+      ) {
+        continue;
+      }
+
+      if (
+        change.condition
+        && !evaluateCondition(
+          change.condition,
+          scopeRollContext(rollContext, effect),
+        )
+      ) {
+        continue;
+      }
+
+      const value = resolveConditionalValue(change.value, formulaContext);
+
+      if (value > 0) {
+        threshold = Math.min(threshold, value);
+      }
+    }
+  }
+
+  return threshold;
 }
 
 /**
@@ -1534,7 +1708,11 @@ export function collectIncomingAttackRollFormulas(
       changes: effect.changes.flatMap((change) =>
         change.key === ATTACKS_AGAINST_KEY
         && (!change.condition
-          || evaluateDefensiveCondition(change.condition, attackContext))
+          || evaluateDefensiveCondition(
+            change.condition,
+            attackContext,
+            effect.sourceActorId,
+          ))
           ? [{ ...change, condition: undefined }]
           : [],
       ),
@@ -1579,7 +1757,11 @@ export function evaluateDefensiveACBonus(
 
       if (
         !change.condition
-        || evaluateDefensiveCondition(change.condition, attackContext)
+        || evaluateDefensiveCondition(
+          change.condition,
+          attackContext,
+          effect.sourceActorId,
+        )
       ) {
         bonus += resolveConditionalValue(change.value, formulaContext);
       }
@@ -1757,7 +1939,12 @@ export function evaluateConditionalBonuses(
         continue;
       }
 
-      if (evaluateCondition(change.condition, rollContext)) {
+      if (
+        evaluateCondition(
+          change.condition,
+          scopeRollContext(rollContext, effect),
+        )
+      ) {
         bonus += resolveConditionalValue(change.value, formulaContext);
       }
     }
@@ -1983,7 +2170,10 @@ export function collectBonusRollFormulas(
         || change.mode !== 'add'
         || (!flatAllowed && !isDiceFormulaValue(change.value))
         || (change.condition
-          && !evaluateCondition(change.condition, rollContext))
+          && !evaluateCondition(
+            change.condition,
+            scopeRollContext(rollContext, effect),
+          ))
       ) {
         continue;
       }
@@ -2183,7 +2373,12 @@ export function collectBonusDamageFormulas(
 
         // Условие носителя здесь, наоборот, ОЦЕНИВАЕТСЯ: кость-формулы в
         // плоские статы не попадают никогда, и задвоения быть не может
-        if (!evaluateCondition(change.condition, rollContext)) {
+        if (
+          !evaluateCondition(
+            change.condition,
+            scopeRollContext(rollContext, effect),
+          )
+        ) {
           continue;
         }
       }
@@ -2650,18 +2845,29 @@ export function resolveMaxHitPointsDelta(
  * @param entity - актор или существо
  * @param ambientEffects - ауры чужих токенов, накрывающие сущность («Аура
  *   отваги» даёт иммунитет к Испугу всем союзникам в ней)
+ * @param sourceCreatureType - тип того, кто накладывает состояние: по нему
+ *   включаются иммунитеты «только от существ этих типов» («Защита от зла и
+ *   добра»). Нет — такие иммунитеты не действуют
  * @returns ключи состояний, к которым сущность иммунна (может быть пустым)
  */
 export function getEntityConditionImmunities(
   entity: DnDSceneEntity,
   ambientEffects: readonly ActiveEffect[] = [],
+  sourceCreatureType?: CreatureCategory,
 ): readonly string[] {
   const fromEffects: string[] = [];
 
   // Отключённые эффекты, предметы вне экипировки и эффекты «в цель» отсеяны
   // сбором — второй проверки здесь не нужно
   for (const effect of [...collectActiveEffects(entity), ...ambientEffects]) {
-    for (const conditionKey of effect.conditionImmunities ?? []) {
+    if (
+      !effect.conditionImmunities?.length
+      || !sourceImmunityHolds(effect, sourceCreatureType)
+    ) {
+      continue;
+    }
+
+    for (const conditionKey of effect.conditionImmunities) {
       fromEffects.push(conditionKey);
     }
   }
@@ -2671,6 +2877,43 @@ export function getEntityConditionImmunities(
   }
 
   return fromEffects;
+}
+
+/**
+ * Действует ли иммунитет эффекта против того, кто накладывает состояние.
+ *
+ * Иммунитет эффекта с условием об источнике (`source.creatureType === "…"`) —
+ * «не может получить состояния очарованный или испуганный от таких существ»:
+ * он действует, только когда накладывает существо нужного типа. У остальных
+ * эффектов иммунитет действует всегда, как и раньше.
+ *
+ * @param effect - эффект с иммунитетами
+ * @param sourceCreatureType - тип накладывающего; нет — источник неизвестен
+ * @returns `true`, если иммунитет действует
+ */
+function sourceImmunityHolds(
+  effect: ActiveEffect,
+  sourceCreatureType: CreatureCategory | undefined,
+): boolean {
+  const { rollCondition } = effect;
+
+  if (
+    rollCondition === undefined
+    || !splitConditionParts(rollCondition).some(
+      (part) =>
+        parseCreatureTypeCondition(part, 'source.creatureType') !== undefined,
+    )
+  ) {
+    return true;
+  }
+
+  return (
+    sourceCreatureType !== undefined
+    && evaluateCondition(rollCondition, {
+      ...NEUTRAL_ROLL_CONTEXT,
+      source: { creatureType: sourceCreatureType },
+    })
+  );
 }
 
 /**

@@ -9,6 +9,7 @@
  * касания — с разрешения ведущего), тем же разбором, что и у заклинаний.
  */
 
+import type { SkillType } from '@vtt/shared';
 import type {
   CreatureAction,
   DnDGameItem,
@@ -31,9 +32,12 @@ import {
   hasItemUsesPrice,
   isItemDepleted,
   isUseActivatedEffect,
+  listSaveDcSkills,
   resolveActorStats,
+  SKILLS_LABELS,
   spendAmmunition,
   spendItemUse,
+  stampSkillCheckDc,
   tracksWeaponAmmunition,
   withAmmunition,
 } from '@vtt/shared/system/dnd.js';
@@ -48,6 +52,7 @@ import {
 } from './effectToggle';
 import { chooseUseTarget } from './effectUseTargetChoice';
 import { runWithEffectVariants } from './effectVariantChoice';
+import { openSkillCheckModal } from './skillCheckRoll';
 import { applyCasterSpellEffectsToEntity } from './spellCastCompletion';
 import {
   applySpellTargetEffects,
@@ -56,6 +61,9 @@ import {
 import { getTargetSpellEffects } from './spellResolutionShared';
 import { listAmbientEffects } from './useResolvedStats';
 import { useWorldEntities } from './useWorldEntities';
+
+/** Приставка ключа окна проверки навыка, итог которой служит Сл */
+const SKILL_DC_MODAL_KEY_PREFIX = 'effect-skill-dc:';
 
 /** Выстрел с учётом боеприпаса */
 export interface AmmunitionShot {
@@ -84,6 +92,62 @@ export interface EffectSourceSpend {
 }
 
 /**
+ * Бросает проверки навыка применившего, итог которых служит Сл спасброска
+ * эффектов «на цели» (`applySave.dcSkill`), и продолжает применение с этой Сл.
+ * Без таких эффектов и без цели продолжение идёт сразу.
+ *
+ * @param source - псевдо-заклинание применения
+ * @param user - кто применяет
+ * @param hasTarget - есть ли получатель эффектов «на цели»
+ * @param proceed - продолжение с источником, у которого Сл уже число
+ */
+function runWithSkillCheckDc(
+  source: Spell,
+  user: DnDSceneEntity,
+  hasTarget: boolean,
+  proceed: (source: Spell) => void,
+): void {
+  const skills = hasTarget
+    ? listSaveDcSkills(getTargetSpellEffects(source))
+    : [];
+
+  /**
+   * Проверки по очереди: у каждой своё окно.
+   *
+   * @param current - источник с уже записанными Сл
+   * @param rest - навыки, которые ещё не бросали
+   */
+  const rollNext = (current: Spell, rest: readonly SkillType[]): void => {
+    const [skill, ...others] = rest;
+
+    if (skill === undefined) {
+      proceed(current);
+
+      return;
+    }
+
+    openSkillCheckModal(user, skill, {
+      modalKey: `${SKILL_DC_MODAL_KEY_PREFIX}${source.id}:${skill}`,
+      title: `${source.name}${EFFECT_USE_LABELS.skillDcTitleSeparator}${SKILLS_LABELS[skill]}`,
+      rollButtonText: EFFECT_USE_LABELS.skillDcRollButton,
+      onRoll: (result) => {
+        rollNext(
+          {
+            ...current,
+            activeEffects: (current.activeEffects ?? []).map((effect) =>
+              stampSkillCheckDc(effect, skill, result.total),
+            ),
+          },
+          others,
+        );
+      },
+    });
+  };
+
+  rollNext(source, skills);
+}
+
+/**
  * Применяет эффекты псевдо-заклинания применения: сначала выбор варианта и
  * типа урона на выбор (окна броска здесь нет — спрашивает плашка), затем
  * проверка цели, цена ресурсом, расход и наложение.
@@ -105,18 +169,18 @@ export function applyEffectSource(
   runWithEffectVariants(spell, (variant) => {
     runWithDamageTypeChoices(variant, (chosen) => {
       /**
-       * Оплата, расход и наложение — когда цель уже известна: отказ от выбора
-       * цели ничего не тратит.
+       * Оплата, расход и наложение источника с уже известной Сл.
        *
+       * @param source - источник после проверки навыка
        * @param targetId - получатель эффектов «на цели»; нет — их нет
        */
-      const settle = (targetId?: string): void => {
+      const settleChecked = (source: Spell, targetId?: string): void => {
         const itemUsesPaid = hasItemUsesPrice(
-          collectSourcePay(chosen.activeEffects),
+          collectSourcePay(source.activeEffects),
         );
 
         runWithSourcePay(
-          chosen,
+          source,
           user,
           {
             ...(withPay.itemId === undefined ? {} : { itemId: withPay.itemId }),
@@ -151,6 +215,20 @@ export function applyEffectSource(
             }
           },
         );
+      };
+
+      /**
+       * Оплата, расход и наложение — когда цель уже известна: отказ от выбора
+       * цели ничего не тратит.
+       *
+       * @param targetId - получатель эффектов «на цели»; нет — их нет
+       */
+      const settle = (targetId?: string): void => {
+        // Сл от проверки навыка применившего — до оплаты: закрытое окно
+        // проверки ничего не тратит
+        runWithSkillCheckDc(chosen, user, targetId !== undefined, (checked) => {
+          settleChecked(checked, targetId);
+        });
       };
 
       if (getTargetSpellEffects(chosen).length === 0) {

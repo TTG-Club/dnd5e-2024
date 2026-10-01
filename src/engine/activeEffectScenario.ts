@@ -33,7 +33,7 @@ import {
   isToggleActivatedEffect,
 } from './activeEffectTypes.js';
 import { buildConditionActiveEffect } from './conditionTemplates.js';
-import { ABILITY_GENITIVE_LABELS } from './consts.js';
+import { SKILLS_LABELS } from './consts.js';
 import {
   isEffectTriggerSupported,
   readEffectSuccessOutcome,
@@ -46,6 +46,7 @@ import {
 } from './effectTriggerDescribe.js';
 import { listEffectListTriggers } from './effectTriggers.js';
 import { LEGACY_TRIGGER_IDS } from './effectTriggerTypes.js';
+import { describeSaveAbilitiesGenitive } from './saveAbilityChoice.js';
 
 /** Подписи цели ауры в сводке */
 const AURA_TARGET_SCENARIO_LABELS = {
@@ -114,6 +115,8 @@ const AURA_MOMENT_PREFIXES = {
 
 /** Части фраз сводки */
 const SCENARIO_LABELS = {
+  dcSkillPrefix: ' (при применении — итог проверки: ',
+  dcSkillSuffix: ')',
   variantPrefix: 'Вариант ',
   variantSuffix: '. ',
   landingConditionPrefix: ', если ',
@@ -535,7 +538,7 @@ export function describeEffectScenario(
   const everything = damage ? [damage, ...lasting] : lasting;
 
   if (layout.showSave && effect.applySave) {
-    const { ability } = effect.applySave;
+    const abilities = describeSaveAbilitiesGenitive(effect.applySave);
     const outcome = readEffectSuccessOutcome(effect);
 
     const failure =
@@ -544,7 +547,7 @@ export function describeEffectScenario(
         : joinParts(everything);
 
     return [
-      `${moment}: ${SCENARIO_LABELS.savePrefix}${ABILITY_GENITIVE_LABELS[ability]}, ${formatScenarioSaveDc(effect.applySave, context)}.`,
+      `${moment}: ${SCENARIO_LABELS.savePrefix}${abilities}, ${formatScenarioSaveDc(effect.applySave, context)}${effect.applySave.dcSkill ? `${SCENARIO_LABELS.dcSkillPrefix}${SKILLS_LABELS[effect.applySave.dcSkill]}${SCENARIO_LABELS.dcSkillSuffix}` : ''}.`,
       `${SCENARIO_LABELS.failurePrefix}${failure}.`,
       `${SCENARIO_LABELS.successPrefix}${describeSuccess(effect, damage, lasting)}.`,
     ].join(' ');

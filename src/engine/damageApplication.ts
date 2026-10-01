@@ -279,13 +279,20 @@ export function applyEffectsToEntity(
   // состояниям эффект не накладывается.
   const conditionImmunities = getEntityConditionImmunities(entity);
 
-  // Иммунные состояния отсеиваем
+  // Иммунные состояния отсеиваем. Иммунитет «только от существ этих типов»
+  // считается по тому, кто накладывает, — у каждого эффекта он свой
   const applicableEffects = effects.filter((effect) => {
     const conditionKey = resolveEffectConditionKey(effect);
 
-    return !(
-      conditionKey && isImmuneToCondition(conditionImmunities, conditionKey)
-    );
+    if (!conditionKey) {
+      return true;
+    }
+
+    const immunities = effect.sourceCreatureType
+      ? getEntityConditionImmunities(entity, [], effect.sourceCreatureType)
+      : conditionImmunities;
+
+    return !isImmuneToCondition(immunities, conditionKey);
   });
 
   // Один и тот же статус не стакается: повтор ЗАМЕНЯЕТ прежний (5e 2024);

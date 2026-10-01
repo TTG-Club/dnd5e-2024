@@ -13,6 +13,7 @@
 import type { EffectDuration } from '@vtt/shared';
 
 import type { ActiveEffect, EffectSaveTiming } from './activeEffectTypes.js';
+import type { CreatureCategory } from './creatureTypes.js';
 import type {
   DnDEquipmentCategory,
   DnDGameItem,
@@ -132,6 +133,7 @@ import {
   resolveEntityTempHp,
   writeEntityHitPoints,
 } from './hitPoints.js';
+import { pickSaveAbility } from './saveAbilityChoice.js';
 import { MIN_SPELL_SLOT_LEVEL } from './spellSlotTable.js';
 import {
   countEffectTag,
@@ -389,7 +391,8 @@ export function buildTriggerSaveSpec(
   // заклинаниям» его не облегчает, «Боевой заклинатель» — да
   const base = {
     effectName: effect.name,
-    ability: trigger.save.ability,
+    // «Сила или Ловкость»: бросающий берёт лучшую из названных
+    ability: pickSaveAbility(event?.entity, trigger.save),
     dc: resolveTriggerSaveDc(trigger.save, event),
     ...(mode ? { mode } : {}),
     ...(effect.concentration
@@ -1115,13 +1118,19 @@ function advanceCarrierStage(
  * (`applyCondition.locked`) так не снимается: его снимает только то, что его
  * наложило.
  *
+ * Список типов сужает снятие до состояний, наложенных существами этих типов
+ * («перестаёт быть очарованной или испуганной такими существами»): тип
+ * наложившего записан на эффекте при наложении, без него состояние остаётся.
+ *
  * @param entity - получатель (меняется)
  * @param conditionKey - какое состояние; нет - все
+ * @param fromCreatureTypes - только наложенные существами этих типов
  * @returns `true`, если что-то сняли
  */
 function removeEntityConditions(
   entity: DnDSceneEntity,
   conditionKey: string | undefined,
+  fromCreatureTypes?: readonly CreatureCategory[],
 ): boolean {
   const effects = entity.activeEffects ?? [];
 
@@ -1129,7 +1138,11 @@ function removeEntityConditions(
     (effect) =>
       effect.conditionKey === undefined
       || effect.conditionLocked === true
-      || (conditionKey !== undefined && effect.conditionKey !== conditionKey),
+      || (conditionKey !== undefined && effect.conditionKey !== conditionKey)
+      || (fromCreatureTypes !== undefined
+        && fromCreatureTypes.length > 0
+        && (effect.sourceCreatureType === undefined
+          || !fromCreatureTypes.includes(effect.sourceCreatureType))),
   );
 
   if (kept.length === effects.length) {
@@ -1712,7 +1725,12 @@ export function applyTriggerEffectActions(
     }
 
     if (action.type === 'removeCondition') {
-      applied = removeEntityConditions(entity, action.conditionKey) || applied;
+      applied =
+        removeEntityConditions(
+          entity,
+          action.conditionKey,
+          action.fromCreatureTypes,
+        ) || applied;
 
       continue;
     }
@@ -1768,7 +1786,12 @@ export function applyTriggerEffectActions(
     const blocked =
       status?.conditionKey !== undefined
       && isImmuneToCondition(
-        getEntityConditionImmunities(entity, options.ambientEffects ?? []),
+        getEntityConditionImmunities(
+          entity,
+          options.ambientEffects ?? [],
+          // Кто наложил эффект со срабатыванием — тот и накладывает состояние
+          source.effect.sourceCreatureType,
+        ),
         status.conditionKey,
       );
 
@@ -2423,7 +2446,7 @@ export function resolveEntryEffect(
   const saveOutcome = effect.applySave
     ? rollEffectSaveOutcome(
         entity,
-        buildApplySaveSpec(effect, effect.applySave),
+        buildApplySaveSpec(effect, effect.applySave, entity),
         options.ambientEffects,
       )
     : null;

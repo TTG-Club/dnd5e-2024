@@ -16,6 +16,13 @@
  * - `source.creatureType === "fiend, undead"` — спасбросок вызвал исчадие или
  *   нежить («Защита от зла и добра»: преимущество на такие спасброски).
  *
+ * Список может быть не записан заранее, а взят из выбора владельца эффекта:
+ * `target.creatureType === "@choice.monster-manual"` — типы, выбранные в
+ * «Гримуаре монстров». Токен подставляет лист владельца
+ * (`effectChoiceBinding.ts`); пока он не подставлен, условие не выполняется.
+ * Тип в списке пишется ключом (`undead`) либо названием («Нежить») — так
+ * значения выбора читаются, как бы их ни записал автор выбора.
+ *
  * Одиночный тип (`=== "undead"`) — тот же список из одного. Разбор один на
  * все места словаря условий: модификаторы, условие броска эффекта (бонусы,
  * преимущество и помеха), защиту от входящей атаки, срабатывания и отбор
@@ -27,7 +34,12 @@
 
 import type { CreatureCategory } from './creatureTypes.js';
 
+import { typedObjectEntries } from '@vtt/shared';
+
 import { CREATURE_CATEGORIES, isCreatureCategory } from './consts.js';
+
+/** Типы существ с названиями — для чтения типа по названию */
+const CREATURE_CATEGORY_ENTRIES = typedObjectEntries(CREATURE_CATEGORIES);
 
 /** О ком условие: носитель, цель броска или атакующий у защиты */
 export const CREATURE_TYPE_CONDITION_SUBJECTS = [
@@ -47,6 +59,33 @@ export interface CreatureTypeCondition {
   types: CreatureCategory[];
   /** «Не из списка» */
   negate: boolean;
+  /**
+   * Ключ выбора владельца, из которого берётся список (`@choice.<ключ>`).
+   * Задан — список ещё не подставлен, и условие не выполняется
+   */
+  choiceKey?: string;
+}
+
+/** Список типов целиком — токен выбора владельца */
+const CHOICE_LIST_PATTERN = /^@choice\.([\w#:-]+)$/;
+
+/** Начало токена выбора владельца в списке типов */
+const CHOICE_LIST_PREFIX = '@choice.';
+
+/**
+ * Ключ типа по записи в списке: сам ключ либо название типа.
+ *
+ * @param text - запись списка в нижнем регистре
+ * @returns ключ типа либо `undefined`, если тип незнакомый
+ */
+function readCreatureCategory(text: string): CreatureCategory | undefined {
+  if (isCreatureCategory(text)) {
+    return text;
+  }
+
+  return CREATURE_CATEGORY_ENTRIES.find(
+    ([, label]) => label.toLowerCase() === text,
+  )?.[0];
 }
 
 /** Разделитель типов внутри кавычек — общий для всего словаря условий */
@@ -88,24 +127,29 @@ export function parseCreatureTypeCondition(
     return undefined;
   }
 
-  const rawTypes = rest
-    .slice(operator.length)
-    .trim()
-    .replace(QUOTES_PATTERN, '')
+  const list = rest.slice(operator.length).trim().replace(QUOTES_PATTERN, '');
+  const negate = operator === NOT_IN_OPERATOR;
+  const choice = CHOICE_LIST_PATTERN.exec(list.trim());
+
+  // Список — выбор владельца, который лист ещё не подставил
+  if (choice) {
+    return { types: [], negate, choiceKey: choice[1] };
+  }
+
+  const rawTypes = list
     .split(CREATURE_TYPE_LIST_SEPARATOR)
     .map((type) => type.trim().toLowerCase())
     .filter((type) => type.length > 0);
 
+  const types = rawTypes.flatMap((type) => readCreatureCategory(type) ?? []);
+
   // Незнакомый тип делает непонятым всё условие: молча выкинутый тип сузил
   // бы список, и условие срабатывало бы не там, где задумано
-  if (rawTypes.length === 0 || !rawTypes.every(isCreatureCategory)) {
+  if (rawTypes.length === 0 || types.length !== rawTypes.length) {
     return undefined;
   }
 
-  return {
-    types: [...new Set(rawTypes.filter(isCreatureCategory))],
-    negate: operator === NOT_IN_OPERATOR,
-  };
+  return { types: [...new Set(types)], negate };
 }
 
 /**
@@ -121,25 +165,38 @@ export function writeCreatureTypeCondition(
 ): string {
   const operator = condition.negate ? NOT_IN_OPERATOR : IN_OPERATOR;
 
-  return `${subject} ${operator} "${condition.types.join(`${CREATURE_TYPE_LIST_SEPARATOR} `)}"`;
+  const list = condition.choiceKey
+    ? `${CHOICE_LIST_PREFIX}${condition.choiceKey}`
+    : condition.types.join(`${CREATURE_TYPE_LIST_SEPARATOR} `);
+
+  return `${subject} ${operator} "${list}"`;
 }
 
 /**
- * Выполняется ли условие для типа существа.
+ * Выполняется ли условие для типа существа. Дополнительные типы («получаете
+ * тип существа цели в дополнение к собственному») считаются наравне с основным:
+ * «из списка» — подходит любой из типов, «не из списка» — не подходит ни один.
  *
  * @param condition - условие
  * @param creatureType - тип существа; нет — данных нет
+ * @param extraTypes - дополнительные типы существа
  * @returns `true`, если выполняется
  */
 export function creatureTypeConditionHolds(
   condition: CreatureTypeCondition,
   creatureType: CreatureCategory | undefined,
+  extraTypes: readonly CreatureCategory[] = [],
 ): boolean {
-  if (creatureType === undefined) {
+  // Список из выбора владельца не подставлен — данных для условия нет
+  if (creatureType === undefined || condition.choiceKey !== undefined) {
     return false;
   }
 
-  return condition.types.includes(creatureType) !== condition.negate;
+  const inList = [creatureType, ...extraTypes].some((type) =>
+    condition.types.includes(type),
+  );
+
+  return inList !== condition.negate;
 }
 
 /** Кто назван в подписи условия */
@@ -149,6 +206,12 @@ const SUBJECT_LABELS: Record<CreatureTypeConditionSubject, string> = {
   'incoming.attackerCreatureType': 'Защита: атакующий',
   'source.creatureType': 'Источник спасброска',
 };
+
+/** Подписи списка, взятого из выбора владельца */
+const CHOICE_LIST_LABELS = {
+  in: 'тип из выбора владельца',
+  not: 'тип не из выбора владельца',
+} as const;
 
 /**
  * Условие словами: «Цель: Нежить или Исчадие», «Носитель: не Конструкт и не
@@ -162,6 +225,12 @@ export function describeCreatureTypeCondition(
   subject: CreatureTypeConditionSubject,
   condition: CreatureTypeCondition,
 ): string {
+  if (condition.choiceKey) {
+    return `${SUBJECT_LABELS[subject]} — ${
+      condition.negate ? CHOICE_LIST_LABELS.not : CHOICE_LIST_LABELS.in
+    } (${condition.choiceKey})`;
+  }
+
   const names = condition.types.map((type) => CREATURE_CATEGORIES[type]);
 
   const list = condition.negate

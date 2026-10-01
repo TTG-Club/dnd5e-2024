@@ -8,10 +8,13 @@ import type {
 import { useTargetStore } from '@/stores/targetStore';
 import {
   buildCarrierContext,
+  buildFormulaContext,
   collectRollConditionFlags,
+  DEFAULT_CRIT_THRESHOLD,
   explainAttackRollMode,
   resolveActorStats,
   resolveAttackRollMode,
+  resolveRollCritThreshold,
 } from '@vtt/shared/system/dnd.js';
 
 import {
@@ -116,4 +119,38 @@ export function resolveTargetedAttackRoll(
       isBeyondNormalRange,
     }),
   };
+}
+
+/**
+ * Порог крита атаки по выбранной цели: порог листа и строки эффектов с
+ * условием о цели («крит на 19–20 по существам из вашего Гримуара»).
+ *
+ * @param attacker - атакующая сущность
+ * @param sheetThreshold - порог листа; нет — порог по правилам
+ * @returns порог крита для окна броска
+ */
+export function resolveTargetedCritThreshold(
+  attacker: DnDSceneEntity,
+  sheetThreshold: number | undefined,
+): number | undefined {
+  const target = useBonusDamageParts().buildTargetHpContext(
+    undefined,
+    attacker.id,
+  );
+
+  if (!target) {
+    return sheetThreshold;
+  }
+
+  return resolveRollCritThreshold(
+    collectEffectsWithAuras(attacker),
+    sheetThreshold ?? DEFAULT_CRIT_THRESHOLD,
+    {
+      hasAdvantage: false,
+      hasDisadvantage: false,
+      target,
+      self: buildCarrierContext(attacker),
+    },
+    buildFormulaContext(attacker),
+  );
 }

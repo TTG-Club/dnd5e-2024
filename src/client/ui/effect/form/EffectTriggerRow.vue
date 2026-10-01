@@ -469,6 +469,25 @@
     },
   });
 
+  // Ещё характеристики на выбор бросающего: «спасбросок Силы или Ловкости»
+  const saveAltAbilities = computed({
+    get: () => trigger.value.save?.altAbilities ?? [],
+    set: (abilities: AbilityType[]) => {
+      if (trigger.value.save) {
+        const others = abilities.filter(
+          (ability) => ability !== saveAbility.value,
+        );
+
+        update({
+          save: {
+            ...trigger.value.save,
+            altAbilities: others.length > 0 ? others : undefined,
+          },
+        });
+      }
+    },
+  });
+
   const saveDc = computed({
     get: () => trigger.value.save?.dc ?? props.layout.minSaveDc,
     set: (dc: number) => {
@@ -941,6 +960,21 @@
           v-model="saveAbility"
           :items="ABILITY_OPTIONS"
           value-key="value"
+          size="sm"
+          class="w-full"
+          :portal="false"
+        />
+      </UFormField>
+
+      <UFormField
+        :label="EFFECT_TRIGGER_ROW_LABELS.saveAltAbilities"
+        class="w-56"
+      >
+        <USelect
+          v-model="saveAltAbilities"
+          :items="ABILITY_OPTIONS"
+          value-key="value"
+          multiple
           size="sm"
           class="w-full"
           :portal="false"

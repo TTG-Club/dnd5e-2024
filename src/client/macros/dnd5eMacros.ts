@@ -124,7 +124,10 @@ import {
   runCreatureActionChoices,
   runWeaponAttackChoices,
 } from '../composables/attackKindChoice';
-import { resolveTargetedAttackRoll } from '../composables/attackRollMode';
+import {
+  resolveTargetedAttackRoll,
+  resolveTargetedCritThreshold,
+} from '../composables/attackRollMode';
 import { runWithCastFailure } from '../composables/castFailure';
 import {
   buildCreatureRollVariants,
@@ -821,7 +824,10 @@ export function registerDnd5eMacros(): void {
                 ),
             initialRollMode: weaponAttackRoll.mode,
             rollModeReasons: weaponAttackRoll.reasons,
-            critThreshold: resolvedStats.critThreshold,
+            critThreshold: resolveTargetedCritThreshold(
+              foundActor,
+              resolvedStats.critThreshold,
+            ),
             incomingAttackType,
             evaluateConditionalBonuses: (modalContext: {
               hasAdvantage: boolean;

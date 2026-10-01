@@ -653,6 +653,14 @@ export interface ActorClassEntry {
    * строкой; читать их полагается через {@link toFeatureChoiceKeys}.
    */
   featureChoices: Record<string, string[]>;
+  /**
+   * Ответы игрока на выборы самого класса, подкласса и их умений
+   * (`featData.choices`): ключ выбора → значения. «Гримуар монстров» — два типа
+   * существ под ключом `monster-manual`. По ним эффекты умений читают выбор
+   * токеном `@choice.<ключ>` (`effectChoiceBinding.ts`). У записей, сделанных
+   * до появления поля, его нет — выбор надо сделать заново.
+   */
+  choiceAnswers?: Record<string, string[]>;
   /** Характеристика заклинателя (копия из ClassDefinition.spellcasting.ability) */
   spellcastingAbility?: AbilityType;
   /** Тип заклинателя (копия из ClassDefinition.spellcasting.type) */

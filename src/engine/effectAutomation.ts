@@ -8,6 +8,8 @@
  * от пайплайна эффектов: цикла не возникает.
  */
 
+import type { SkillType } from '@vtt/shared';
+
 import type { ActiveEffect } from './activeEffectTypes.js';
 import type { ConditionRef } from './conditionKeys.js';
 import type { EffectTrigger } from './effectTriggerTypes.js';
@@ -360,6 +362,9 @@ function stampCastRuleDc(effect: ActiveEffect, sourceDc: number): ActiveEffect {
   };
 }
 
+/** Наименьшая Сл из проверки навыка: Сл 0 значила бы «Сл источника» */
+const MIN_SKILL_CHECK_DC = 1;
+
 /** Результат вычисления применимости эффекта к цели */
 export interface EffectApplication {
   /** Вешать ли эффект-состояние на цель */
@@ -427,5 +432,57 @@ export function resolveEffectApplication(
       gates.halfOnSave,
       defense,
     ),
+  };
+}
+
+/**
+ * Навыки, итог проверки которых служит Сл спасброска эффектов источника
+ * (`applySave.dcSkill`): «спасбросок Мудрости со Сл, равной результату вашей
+ * проверки Запугивания».
+ *
+ * @param effects - эффекты, которые источник накладывает на цель
+ * @returns навыки без повторов; пусто — Сл обычная
+ */
+export function listSaveDcSkills(
+  effects: readonly ActiveEffect[],
+): SkillType[] {
+  return [
+    ...new Set(
+      effects.flatMap((effect) =>
+        effect.applySave?.dcSkill ? [effect.applySave.dcSkill] : [],
+      ),
+    ),
+  ];
+}
+
+/**
+ * Записывает итог проверки навыка Сл спасброска эффектов, которые её ждут.
+ * Сл не меньше единицы: отрицательный итог проверки спасбросок не отменяет.
+ *
+ * @param effect - эффект источника
+ * @param skill - навык проверки
+ * @param total - итог проверки применившего
+ * @returns исходный эффект либо копия с Сл из проверки
+ */
+export function stampSkillCheckDc(
+  effect: ActiveEffect,
+  skill: SkillType,
+  total: number,
+): ActiveEffect {
+  const { applySave } = effect;
+
+  if (applySave?.dcSkill !== skill) {
+    return effect;
+  }
+
+  return {
+    ...effect,
+    applySave: {
+      ...applySave,
+      dc: Math.max(MIN_SKILL_CHECK_DC, Math.trunc(total)),
+      // Формула уступает проверке: Сл уже число
+      dcFormula: undefined,
+      dcSkill: undefined,
+    },
   };
 }

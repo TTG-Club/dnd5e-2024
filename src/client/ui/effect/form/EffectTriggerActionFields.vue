@@ -33,6 +33,7 @@
     CANTRIP_SPELL_LEVEL,
     createDefaultEffectSave,
     createEffectTriggerId,
+    CREATURE_CATEGORY_OPTIONS,
     DEFAULT_CAST_OWNER,
     DEFAULT_EFFECT_SAVE_DC,
     DEFAULT_NESTED_TRIGGER_EVENT,
@@ -44,6 +45,7 @@
     DEFAULT_TRIGGER_MOVE_KIND,
     DEFAULT_TRIGGER_MOVE_ORIGIN,
     DEFAULT_TRIGGER_REST_TYPE,
+    isCreatureCategory,
     isEffectTag,
     layoutAcceptsSourceSaveDc,
     listNestedTriggerActionTypes,
@@ -483,6 +485,24 @@
         action.value = {
           ...action.value,
           conditionKey: next === ANY_CONDITION_KEY ? undefined : next,
+        };
+      }
+    },
+  });
+
+  // Пустой список значит «кем бы ни было наложено»
+  const removedFromTypes = computed({
+    get: () =>
+      action.value.type === 'removeCondition'
+        ? (action.value.fromCreatureTypes ?? [])
+        : [],
+    set: (types: string[]) => {
+      if (action.value.type === 'removeCondition') {
+        const known = types.filter(isCreatureCategory);
+
+        action.value = {
+          ...action.value,
+          fromCreatureTypes: known.length > 0 ? known : undefined,
         };
       }
     },
@@ -1289,21 +1309,48 @@
     </UFormField>
   </div>
 
-  <UFormField
+  <div
     v-else-if="action.type === 'removeCondition'"
-    :label="EFFECT_TRIGGER_ROW_LABELS.condition"
-    class="w-64"
+    class="flex flex-wrap items-end gap-3"
   >
-    <USelectMenu
-      v-model="removedCondition"
-      :items="removableConditionItems"
-      value-key="value"
-      label-key="label"
-      size="sm"
-      class="w-full"
-      :portal="false"
-    />
-  </UFormField>
+    <UFormField
+      :label="EFFECT_TRIGGER_ROW_LABELS.condition"
+      class="w-64"
+    >
+      <USelectMenu
+        v-model="removedCondition"
+        :items="removableConditionItems"
+        value-key="value"
+        label-key="label"
+        size="sm"
+        class="w-full"
+        :portal="false"
+      />
+    </UFormField>
+
+    <UFormField class="w-72">
+      <template #label>
+        <span class="flex items-center gap-1">
+          {{ EFFECT_TRIGGER_ROW_LABELS.removeConditionFromTypes }}
+
+          <FieldHint
+            :text="EFFECT_TRIGGER_ROW_LABELS.removeConditionFromTypesHint"
+          />
+        </span>
+      </template>
+
+      <USelectMenu
+        v-model="removedFromTypes"
+        :items="CREATURE_CATEGORY_OPTIONS"
+        value-key="value"
+        label-key="label"
+        multiple
+        size="sm"
+        class="w-full"
+        :portal="false"
+      />
+    </UFormField>
+  </div>
 
   <div
     v-else-if="action.type === 'revive'"

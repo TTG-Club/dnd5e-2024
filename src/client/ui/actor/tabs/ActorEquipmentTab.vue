@@ -85,7 +85,10 @@
     warnOpportunityAttack,
   } from '../../../composables/actionSpend';
   import { runWeaponAttackChoices } from '../../../composables/attackKindChoice';
-  import { resolveTargetedAttackRoll } from '../../../composables/attackRollMode';
+  import {
+    resolveTargetedAttackRoll,
+    resolveTargetedCritThreshold,
+  } from '../../../composables/attackRollMode';
   import {
     formatDamageTypeChoiceLabel,
     requestDamageTypeChoiceFor,
@@ -583,7 +586,10 @@
         evaluateBonuses,
         initialRollMode: weaponAttackRoll.mode,
         rollModeReasons: weaponAttackRoll.reasons,
-        critThreshold: resolvedStats.value?.critThreshold,
+        critThreshold: resolveTargetedCritThreshold(
+          props.entity,
+          resolvedStats.value?.critThreshold,
+        ),
         incomingAttackType: getAttackFlagCategory(weapon.rangeType),
         damageType: getWeaponPrimaryDamageType(weapon, resolvedStats.value),
         damageParts: weaponPartsSetup.baseParts,

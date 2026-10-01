@@ -87,6 +87,13 @@ async function loadEscape({ flags = new Set(), holderFlags, pick = 0 } = {}) {
   ports.chooseOne = await loadHandler(helperPath, 'chooseOne', ports);
   ports.formatModifier = await loadHandler(helperPath, 'formatModifier', ports);
 
+  // Окно проверки навыка — общее с Сл от проверки (`skillCheckRoll.ts`)
+  ports.openSkillCheckModal = await loadHandler(
+    'src/client/composables/skillCheckRoll.ts',
+    'openSkillCheckModal',
+    { ...ports, SKILL_ROLL_LABEL_SEPARATOR: ' — ' },
+  );
+
   ports.rollEscapeCheck = await loadHandler(
     helperPath,
     'rollEscapeCheck',

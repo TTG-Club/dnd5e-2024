@@ -69,6 +69,7 @@ import {
   stripDamageTypeTokens,
   stripHealTokens,
 } from './formulaTokens.js';
+import { describeSaveAbilities } from './saveAbilityChoice.js';
 import { describeWeaponOverrideValue } from './weaponOverrides.js';
 
 /** Подпись ключа модификатора (`armorClass` → «Класс доспеха (AC)»). */
@@ -510,7 +511,7 @@ export function describeActiveEffect(effect: ActiveEffect): string {
 
   // 4. Спасбросок при наложении
   if (effect.applySave) {
-    const ability = ABILITY_LABELS[effect.applySave.ability];
+    const ability = describeSaveAbilities(effect.applySave);
 
     const onSuccess =
       effect.applySave.onSuccess === 'half'
@@ -828,7 +829,7 @@ function applySaveLines(effect: ActiveEffect): string[] {
   const lines: string[] = [];
 
   if (effect.applySave) {
-    const ability = ABILITY_LABELS[effect.applySave.ability];
+    const ability = describeSaveAbilities(effect.applySave);
 
     const onSuccess =
       effect.applySave.onSuccess === 'half'

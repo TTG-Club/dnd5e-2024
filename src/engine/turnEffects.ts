@@ -70,6 +70,7 @@ import {
   resolveEntityTempHp,
   writeEntityHitPoints,
 } from './hitPoints.js';
+import { pickSaveAbility } from './saveAbilityChoice.js';
 import {
   resolveSaveSourceAdjustments,
   withExtraFlags,
@@ -593,10 +594,12 @@ export function resolveEffectMagicCircumstances(
 export function buildApplySaveSpec(
   effect: ActiveEffect,
   applySave: NonNullable<ActiveEffect['applySave']>,
+  entity?: DnDSceneEntity,
 ): EffectSaveSpec {
   return {
     effectName: effect.name,
-    ability: applySave.ability,
+    // «Сила или Ловкость»: бросающий берёт лучшую из названных
+    ability: pickSaveAbility(entity, applySave),
     // Эффект зоны и ауры получил числа владельца при сборе — формула уже
     // число либо ждёт того, чего здесь нет
     dc: resolveSaveDc(applySave),

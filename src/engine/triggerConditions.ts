@@ -42,7 +42,10 @@ import {
   normalizeCreatureSize,
 } from './consts.js';
 import { CREATURE_TYPE_LIST_SEPARATOR } from './creatureTypeCondition.js';
-import { resolveEntityCreatureType } from './creatureTypeGate.js';
+import {
+  resolveEntityCreatureType,
+  resolveEntityExtraCreatureTypes,
+} from './creatureTypeGate.js';
 import { isDamageType } from './damageConstants.js';
 import {
   buildCarrierContext,
@@ -61,13 +64,19 @@ import {
   OTHER_PARTY_TRIGGER_EVENTS,
   OWN_DEED_TRIGGER_EVENTS,
 } from './effectTriggerTypes.js';
-import { isDndActor } from './entityGuards.js';
 import {
   isEntityBloodied,
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
   resolveEntityTempHp,
 } from './hitPoints.js';
+import {
+  CARRIER_SPECIES_CONDITION_PREFIX,
+  CARRIER_SPECIES_NOT_CONDITION_PREFIX,
+  entitySpeciesInList,
+  TARGET_SPECIES_CONDITION_PREFIX,
+  TARGET_SPECIES_NOT_CONDITION_PREFIX,
+} from './speciesCondition.js';
 
 /** Урон, от которого сработало событие */
 export interface TriggerDamageData {
@@ -218,6 +227,11 @@ export const TRIGGER_CONDITION_KINDS = [
   'combatRoundAtLeast',
   'movementOwn',
   'movementForced',
+  'selfSpeciesNot',
+  'otherSpecies',
+  'otherSpeciesNot',
+  'damageTypeChosen',
+  'otherCreatureTypeChosen',
 ] as const;
 
 /**
@@ -255,7 +269,15 @@ export const TRIGGER_CONDITION_KINDS = [
  * - `combatRoundIs` / `combatRoundAtLeast` — идёт раунд боя N / раунд не
  *   раньше N (расписание «на втором раунде», «с третьего раунда»);
  * - `movementOwn` / `movementForced` — носитель шёл сам / его переставили
- *   правила (толчок, притягивание, телепортация).
+ *   правила (толчок, притягивание, телепортация);
+ * - `selfSpeciesNot` — вид носителя не из списка («не эльф»: вид персонажа или
+ *   подтип статблока, `speciesCondition.ts`);
+ * - `otherSpecies` / `otherSpeciesNot` — вид другой стороны из списка / не из
+ *   списка;
+ * - `damageTypeChosen` — урон одного из типов, выбранных владельцем эффекта
+ *   (`@choice.<ключ>`, `effectChoiceBinding.ts`);
+ * - `otherCreatureTypeChosen` — тип другой стороны из выбора владельца
+ *   («существо из вашего Гримуара»).
  */
 export type TriggerConditionKind = (typeof TRIGGER_CONDITION_KINDS)[number];
 
@@ -339,6 +361,11 @@ const KIND_EVENTS: Record<
   combatRoundAtLeast: COMBAT_ROUND_TRIGGER_EVENTS,
   movementOwn: MOVEMENT_TRIGGER_EVENTS,
   movementForced: MOVEMENT_TRIGGER_EVENTS,
+  selfSpeciesNot: undefined,
+  otherSpecies: OTHER_CONDITION_EVENTS,
+  otherSpeciesNot: OTHER_CONDITION_EVENTS,
+  damageTypeChosen: DAMAGE_DATA_TRIGGER_EVENTS,
+  otherCreatureTypeChosen: OTHER_CONDITION_EVENTS,
 };
 
 /** Части условия со значением: приставка строки и что выбирается */
@@ -380,7 +407,23 @@ const PARAMETRIC_PARTS: Partial<
     prefix: 'self.tagFromSource !== ',
     parameter: 'tag',
   },
-  selfSpecies: { prefix: 'self.species === ', parameter: 'text' },
+  selfSpecies: { prefix: CARRIER_SPECIES_CONDITION_PREFIX, parameter: 'text' },
+  selfSpeciesNot: {
+    prefix: CARRIER_SPECIES_NOT_CONDITION_PREFIX,
+    parameter: 'text',
+  },
+  otherSpecies: { prefix: TARGET_SPECIES_CONDITION_PREFIX, parameter: 'text' },
+  otherSpeciesNot: {
+    prefix: TARGET_SPECIES_NOT_CONDITION_PREFIX,
+    parameter: 'text',
+  },
+  // Значение — ключ выбора владельца: в строке оно стоит токеном
+  // `@choice.<ключ>` (см. `CHOSEN_PARTS`)
+  damageTypeChosen: { prefix: 'damage.type === ', parameter: 'text' },
+  otherCreatureTypeChosen: {
+    prefix: TARGET_TYPE_CONDITION_PREFIX,
+    parameter: 'text',
+  },
   otherHpAtMost: { prefix: 'target.hp.value <= ', parameter: 'number' },
   damageAtLeast: { prefix: 'damage.amount >= ', parameter: 'number' },
   sourceWithin: { prefix: 'source.distance <= ', parameter: 'number' },
@@ -394,6 +437,23 @@ const PARAMETRIC_PARTS: Partial<
   combatRoundIs: { prefix: 'combat.round === ', parameter: 'number' },
   combatRoundAtLeast: { prefix: 'combat.round >= ', parameter: 'number' },
 };
+
+/**
+ * Части, чьё значение — выбор владельца эффекта: в строке на месте списка
+ * стоит токен `@choice.<ключ>`, и лист владельца заменяет его выбранным
+ * (`effectChoiceBinding.ts`). После замены часть читается обычной — списком
+ * типов; до неё не выполняется.
+ */
+const CHOSEN_PARTS: readonly TriggerConditionKind[] = [
+  'damageTypeChosen',
+  'otherCreatureTypeChosen',
+];
+
+/** Начало токена выбора владельца в значении части */
+const CHOICE_VALUE_PREFIX = '@choice.';
+
+/** Значение части целиком — токен выбора владельца */
+const CHOICE_VALUE_PATTERN = /^@choice\.([\w#:-]+)$/;
 
 /**
  * Счётчик отметок строкой: `self.tagCount["провал"] >= 3`. Ключ в квадратных
@@ -529,8 +589,10 @@ function isParameterValue(
   value: string,
 ): boolean {
   switch (parameter) {
+    // Список типов через запятую: «огонь или холод» — так читается и
+    // подставленный выбор владельца
     case 'damageType':
-      return isDamageType(value);
+      return splitCreatureTypeList(value).every(isDamageType);
     // Список типов через запятую: «нежить или исчадие»
     case 'creatureType':
       return splitCreatureTypeList(value).every(isCreatureCategory);
@@ -627,32 +689,6 @@ function isEntityGrounded(entity: DnDSceneEntity): boolean {
 }
 
 /**
- * Совпадает ли вид существа с названием или ключом. Сравнение без учёта
- * регистра и крайних пробелов: вид пишется от руки, а в записи он лежит и
- * ключом, и названием.
- *
- * @param entity - сущность
- * @param species - название или ключ вида
- * @returns `true`, если вид совпал
- */
-function matchesEntitySpecies(
-  entity: DnDSceneEntity,
-  species: string,
-): boolean {
-  // Вид есть только у персонажа: у существа его роль играет статблок
-  if (!isDndActor(entity)) {
-    return false;
-  }
-
-  const own = entity.system.species;
-  const wanted = species.trim().toLowerCase();
-
-  return [own?.speciesKey, own?.speciesName].some(
-    (value) => value?.trim().toLowerCase() === wanted,
-  );
-}
-
-/**
  * Номер размера по порядку от крошечного.
  *
  * @param size - размер
@@ -708,6 +744,11 @@ export function buildTriggerConditionPart(part: TriggerConditionPart): string {
     return FIXED_PARTS[part.kind] ?? '';
   }
 
+  // Выбор владельца — токеном на месте списка
+  if (CHOSEN_PARTS.includes(part.kind)) {
+    return `${parametric.prefix}"${CHOICE_VALUE_PREFIX}${part.value ?? ''}"`;
+  }
+
   // Число пишется без кавычек: `self.hp.value <= 50`
   return parametric.parameter === 'number'
     ? `${parametric.prefix}${part.value ?? '0'}`
@@ -749,12 +790,30 @@ export function parseTriggerConditionPart(
       : null;
   }
 
+  // Список из выбора владельца — раньше обычных частей с той же приставкой
+  for (const kind of CHOSEN_PARTS) {
+    const prefix = PARAMETRIC_PARTS[kind]?.prefix;
+
+    const choice =
+      prefix !== undefined && trimmed.startsWith(prefix)
+        ? CHOICE_VALUE_PATTERN.exec(
+            trimmed.slice(prefix.length).trim().replace(QUOTES_PATTERN, ''),
+          )
+        : null;
+
+    if (choice) {
+      return { kind, value: choice[1] };
+    }
+  }
+
   for (const kind of TRIGGER_CONDITION_KINDS) {
     if (FIXED_PARTS[kind] === trimmed) {
       return { kind };
     }
 
-    const parametric = PARAMETRIC_PARTS[kind];
+    const parametric = CHOSEN_PARTS.includes(kind)
+      ? undefined
+      : PARAMETRIC_PARTS[kind];
 
     if (parametric && trimmed.startsWith(parametric.prefix)) {
       const value = trimmed
@@ -869,6 +928,7 @@ function buildTriggerRollContext(
             currentHp: resolveEntityCurrentHp(other),
             maxHp: resolveEntityMaxHp(other),
             creatureType: resolveEntityCreatureType(other),
+            extraCreatureTypes: resolveEntityExtraCreatureTypes(other),
             markedBy: listEntityMarkSources(other),
           },
         }
@@ -900,9 +960,20 @@ function isConditionPartMet(
 
   switch (part.kind) {
     case 'damageType':
-      return damageTypes.includes(part.value ?? '');
+      return splitCreatureTypeList(part.value ?? '').some((type) =>
+        damageTypes.includes(type),
+      );
     case 'damageTypeNot':
-      return damage !== undefined && !damageTypes.includes(part.value ?? '');
+      return (
+        damage !== undefined
+        && !splitCreatureTypeList(part.value ?? '').some((type) =>
+          damageTypes.includes(type),
+        )
+      );
+    // Выбор владельца не подставлен: списка нет, часть не выполняется
+    case 'damageTypeChosen':
+    case 'otherCreatureTypeChosen':
+      return false;
     case 'damageCritical':
       return damage?.critical === true;
     case 'damageNotCritical':
@@ -963,7 +1034,17 @@ function isConditionPartMet(
     case 'selfGrounded':
       return isEntityGrounded(entity);
     case 'selfSpecies':
-      return matchesEntitySpecies(entity, part.value ?? '');
+      return entitySpeciesInList(entity, part.value ?? '');
+    case 'selfSpeciesNot':
+      return !entitySpeciesInList(entity, part.value ?? '');
+    case 'otherSpecies':
+      return (
+        other !== undefined && entitySpeciesInList(other, part.value ?? '')
+      );
+    case 'otherSpeciesNot':
+      return (
+        other !== undefined && !entitySpeciesInList(other, part.value ?? '')
+      );
     case 'selfAbilityAtMost':
       return (
         resolveEntityAbilityScore(entity, part.value ?? '')

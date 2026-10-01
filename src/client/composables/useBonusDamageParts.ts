@@ -55,6 +55,7 @@ import {
   resolveDamagePartsForCast,
   resolveEntityCreatureType,
   resolveEntityCurrentHp,
+  resolveEntityExtraCreatureTypes,
   resolveEntityMaxHp,
   resolveSpellDamageFormula,
   substituteFormulaVariables,
@@ -303,6 +304,7 @@ export function useBonusDamageParts() {
         currentHp: number;
         maxHp: number;
         creatureType?: CreatureCategory;
+        extraCreatureTypes: CreatureCategory[];
         markedBy: string[];
         entityId: string;
         adjacentAllies?: readonly AdjacentAllyState[];
@@ -332,6 +334,8 @@ export function useBonusDamageParts() {
       // Тип цели — для условий `target.creatureType` и токенов `@target.type.*`:
       // читается с той же сущности, отдельного источника цели заводить незачем
       creatureType: resolveEntityCreatureType(entity),
+      // Дополнительные типы цели считаются наравне с основным
+      extraCreatureTypes: resolveEntityExtraCreatureTypes(entity),
       // Кто пометил цель — для условия «цель помечена мной» (Метка охотника)
       markedBy: listEntityMarkSources(entity),
     };

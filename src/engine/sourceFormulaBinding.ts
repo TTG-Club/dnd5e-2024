@@ -28,7 +28,7 @@ import type { DnDSceneEntity } from './dndEntities.js';
 import type { SaveDcSource } from './effectSaveDc.js';
 import type { FormulaContext } from './formulaParser.js';
 
-import { bindClassLevels } from './classEffectScope.js';
+import { bindOwnerTokens } from './classEffectScope.js';
 import { resolveDiceCountExpressions } from './diceCountExpressions.js';
 import {
   evaluateSaveDcFormula,
@@ -329,7 +329,7 @@ export function bindTargetEffectsToSource(
   source: DnDSceneEntity,
   context: FormulaContext,
 ): ActiveEffect[] {
-  return bindClassLevels(effects, source).map((effect) =>
+  return bindOwnerTokens(effects, source).map((effect) =>
     bindSourceEffectFormulas(effect, context, { changes: false }),
   );
 }

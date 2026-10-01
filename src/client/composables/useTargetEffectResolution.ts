@@ -1,4 +1,4 @@
-import type { DamagePart, SceneEntity } from '@vtt/shared';
+import type { AbilityType, DamagePart, SceneEntity } from '@vtt/shared';
 import type {
   ActiveEffect,
   DamageDefenseOutcome,
@@ -18,6 +18,7 @@ import {
   isMagicRoll,
   isSpellRoll,
   passesLandingCondition,
+  pickSaveAbility,
   resolveActorStats,
   resolveEffectApplication,
   resolveEffectSaveDc,
@@ -155,6 +156,24 @@ function listLandingEffectsWithOwnSave(
 }
 
 /**
+ * Характеристика спасброска эффекта у этой цели: «Сила или Ловкость» — лучшая
+ * из названных. Сущность без данных системы бросает первой по записи.
+ *
+ * @param entity - цель
+ * @param applySave - спасбросок эффекта
+ * @returns характеристика
+ */
+function pickTargetSaveAbility(
+  entity: SceneEntity,
+  applySave: NonNullable<ActiveEffect['applySave']>,
+): AbilityType {
+  return pickSaveAbility(
+    isDndSceneEntity(entity) ? entity : undefined,
+    applySave,
+  );
+}
+
+/**
  * Разбор эффектов, которые заклинание, оружие или действие накладывает на
  * цель: спасброски эффектов, урон эффектов и то, что остаётся висеть на цели.
  *
@@ -251,7 +270,7 @@ export function useTargetEffectResolution() {
 
       const saveResult = await resolveSavingThrowForTarget({
         entity: input.entity,
-        ability: effect.applySave.ability,
+        ability: pickTargetSaveAbility(input.entity, effect.applySave),
         dc: resolveEffectSaveDc(effect.applySave.dc, input.spellSaveDC),
         againstCondition: effect.conditionKey,
         againstSpell: isSpellRoll(input.spell),
@@ -291,7 +310,7 @@ export function useTargetEffectResolution() {
         effect.id,
         rollSavingThrow({
           entity: input.entity,
-          ability: effect.applySave.ability,
+          ability: pickTargetSaveAbility(input.entity, effect.applySave),
           dc: resolveEffectSaveDc(effect.applySave.dc, input.spellSaveDC),
           againstCondition: effect.conditionKey,
           againstSpell: isSpellRoll(input.spell),
@@ -328,8 +347,13 @@ export function useTargetEffectResolution() {
     // для спасброска заклинания «приземлилось» = цель его провалила.
     const landed = spell.saveType === 'none' || !landingSave?.passed;
 
+    // Иммунитет «только от существ этих типов» считается по заклинателю
     const immunities = isDndSceneEntity(entity)
-      ? getEntityConditionImmunities(entity)
+      ? getEntityConditionImmunities(
+          entity,
+          [],
+          useWorldEntities().findEntityCreatureType(casterId),
+        )
       : [];
 
     // Флаги цели — для «Увёртливости» на спасброске эффекта

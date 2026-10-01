@@ -16,6 +16,7 @@
   import {
     ABILITY_OPTIONS,
     DEFAULT_EFFECT_SAVE_ABILITY,
+    isSkillType,
     layoutAcceptsSourceSaveDc,
     readEffectSuccessOutcome,
     writeEffectSaveEnabled,
@@ -23,14 +24,21 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { FORM_FIELD_LABELS } from '../../actor/constants';
+  import FieldHint from '../../actor/FieldHint.vue';
   import {
     EFFECT_ACTION_SAVE_SUCCESS_TITLES,
     EFFECT_SAVE_STEP_LABELS,
     EFFECT_SAVE_UNAVAILABLE_HINTS,
     EFFECT_SOURCE_DC_LABELS,
   } from '../constants';
-  import { buildSuccessOutcomeOptions } from '../effectFormOptions';
+  import {
+    buildSuccessOutcomeOptions,
+    EFFECT_ESCAPE_SKILL_OPTIONS,
+  } from '../effectFormOptions';
   import SaveDcField from './SaveDcField.vue';
+
+  /** Значение «обычная Сл» в выборе навыка для Сл от проверки */
+  const NO_DC_SKILL = 'none';
 
   const props = defineProps<{
     /** Раскладка окна */
@@ -122,6 +130,32 @@
     set: (ability: AbilityType) => updateSave({ ability }),
   });
 
+  // Ещё характеристики на выбор цели: «спасбросок Силы или Ловкости»
+  const saveAltAbilities = computed({
+    get: () => effect.value.applySave?.altAbilities ?? [],
+    set: (abilities: AbilityType[]) => {
+      const others = abilities.filter(
+        (ability) => ability !== saveAbility.value,
+      );
+
+      updateSave({ altAbilities: others.length > 0 ? others : undefined });
+    },
+  });
+
+  // Сл — итог проверки навыка применившего: пусто — обычная Сл
+  const saveDcSkill = computed({
+    get: () => effect.value.applySave?.dcSkill ?? NO_DC_SKILL,
+    set: (skill: string) => {
+      updateSave({ dcSkill: isSkillType(skill) ? skill : undefined });
+    },
+  });
+
+  /** Навыки для Сл от проверки: «обычная Сл» первым пунктом */
+  const dcSkillItems = [
+    { value: NO_DC_SKILL, label: EFFECT_SAVE_STEP_LABELS.dcSkillNone },
+    ...EFFECT_ESCAPE_SKILL_OPTIONS,
+  ];
+
   const saveDc = computed({
     get: () => effect.value.applySave?.dc ?? props.layout.minSaveDc,
     set: (dc: number) => updateSave({ dc }),
@@ -180,6 +214,26 @@
         />
       </UFormField>
 
+      <UFormField class="w-56">
+        <template #label>
+          <span class="flex items-center gap-1">
+            {{ EFFECT_SAVE_STEP_LABELS.altAbilities }}
+
+            <FieldHint :text="EFFECT_SAVE_STEP_LABELS.altAbilitiesHint" />
+          </span>
+        </template>
+
+        <USelect
+          v-model="saveAltAbilities"
+          :items="ABILITY_OPTIONS"
+          value-key="value"
+          multiple
+          size="sm"
+          class="w-full"
+          :portal="false"
+        />
+      </UFormField>
+
       <SaveDcField
         v-model="saveDc"
         v-model:formula="saveDcFormula"
@@ -189,6 +243,28 @@
         :auto-label="EFFECT_SOURCE_DC_LABELS[layout.context]"
         :auto-value="sourceSaveDc"
       />
+
+      <UFormField
+        v-if="layout.useActivated"
+        class="w-64"
+      >
+        <template #label>
+          <span class="flex items-center gap-1">
+            {{ EFFECT_SAVE_STEP_LABELS.dcSkill }}
+
+            <FieldHint :text="EFFECT_SAVE_STEP_LABELS.dcSkillHint" />
+          </span>
+        </template>
+
+        <USelect
+          v-model="saveDcSkill"
+          :items="dcSkillItems"
+          value-key="value"
+          size="sm"
+          class="w-full"
+          :portal="false"
+        />
+      </UFormField>
 
       <USwitch
         v-model="allowWilling"

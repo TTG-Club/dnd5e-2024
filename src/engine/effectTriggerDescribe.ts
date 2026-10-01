@@ -69,10 +69,12 @@ import {
   SOURCE_TRIGGER_RECIPIENT,
 } from './effectTriggerTypes.js';
 import { EVENT_DAMAGE_VARIABLE } from './formulaParser.js';
+import { describeSaveAbilitiesGenitive } from './saveAbilityChoice.js';
 import { MIN_SPELL_SLOT_LEVEL } from './spellSlotTable.js';
 import {
   DEFAULT_TAG_COUNT_THRESHOLD,
   isTriggerAttackKind,
+  joinCreatureTypeList,
   readTriggerConditionParts,
   splitCreatureTypeList,
 } from './triggerConditions.js';
@@ -153,6 +155,7 @@ const TRIGGER_LABELS = {
   setHpPrefix: 'хиты становятся ',
   setHpMax: 'хиты восстанавливаются полностью',
   removeConditionPrefix: 'снимается состояние ',
+  removeConditionFromTypes: ', наложенное существом типа: ',
   removeAllConditions: 'снимаются все состояния',
   kill: 'получатель умирает',
   revivePrefix: 'получатель возвращается к жизни с ',
@@ -386,6 +389,12 @@ const TRIGGER_CONDITION_PHRASES: Record<
   selfTempHpZero: () => 'у носителя нет временных хитов',
   selfGrounded: () => 'носитель не летит',
   selfSpecies: (value) => `вид носителя — «${value}»`,
+  selfSpeciesNot: (value) => `вид носителя — не «${value}»`,
+  otherSpecies: (value) => `вид другой стороны — «${value}»`,
+  otherSpeciesNot: (value) => `вид другой стороны — не «${value}»`,
+  damageTypeChosen: (value) => `урон типа из выбора владельца (${value})`,
+  otherCreatureTypeChosen: (value) =>
+    `другая сторона — тип из выбора владельца (${value})`,
   selfAbilityAtMost: (value, amount) =>
     `${describeAbilityName(value)} носителя не больше ${amount}`,
   selfAbilityAtLeast: (value, amount) =>
@@ -577,10 +586,15 @@ function describeAction(
     }
     case 'tempHp':
       return `${TEMP_HP_PHRASES[action.mode ?? DEFAULT_TEMP_HP_MODE]}${action.amount}`;
-    case 'removeCondition':
-      return action.conditionKey
+    case 'removeCondition': {
+      const removed = action.conditionKey
         ? `${TRIGGER_LABELS.removeConditionPrefix}«${describeConditionName(action.conditionKey)}»`
         : TRIGGER_LABELS.removeAllConditions;
+
+      return action.fromCreatureTypes?.length
+        ? `${removed}${TRIGGER_LABELS.removeConditionFromTypes}${describeCreatureType(joinCreatureTypeList(action.fromCreatureTypes))}`
+        : removed;
+    }
     case 'kill':
       return TRIGGER_LABELS.kill;
     case 'revive':
@@ -720,7 +734,7 @@ function describeLegacyShape(
     const { save } = trigger;
 
     const saveClause = save
-      ? ` (${TRIGGER_LABELS.savePrefix}${ABILITY_GENITIVE_LABELS[save.ability]}, ${options.formatDc(save)}${TRIGGER_LABELS.damageSaveSuccess}${RECURRING_DAMAGE_SUCCESS_LABELS[action.halfOnSave ? 'half' : 'negate']})`
+      ? ` (${TRIGGER_LABELS.savePrefix}${describeSaveAbilitiesGenitive(save)}, ${options.formatDc(save)}${TRIGGER_LABELS.damageSaveSuccess}${RECURRING_DAMAGE_SUCCESS_LABELS[action.halfOnSave ? 'half' : 'negate']})`
       : '';
 
     return `${TRIGGER_LABELS.everyTurnPrefix}${damage}${timing}${saveClause}`;

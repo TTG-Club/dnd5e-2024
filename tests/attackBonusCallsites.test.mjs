@@ -108,6 +108,8 @@ function createPorts(current) {
     getDamageBonusKey: engine.getDamageBonusKey,
     calculateWeaponAttackModifier: () => 5,
     getWeaponPrimaryDamageType: () => undefined,
+    // Порог крита по цели — тот же, что у листа
+    resolveTargetedCritThreshold: (_attacker, threshold) => threshold,
     resolveTargetedAttackRoll: () => ({
       mode: 'normal',
       reasons: { advantage: [], disadvantage: [] },
@@ -843,6 +845,7 @@ it('projectile attack bonuses follow each assigned target instead of the unrelat
       isActorEntity: (entity) => entity.entityType === 'actor',
       isCreatureEntity: (entity) => entity.entityType === 'creature',
       resolveEntityCreatureType: () => 'humanoid',
+      resolveEntityExtraCreatureTypes: () => [],
     },
   );
 
@@ -987,6 +990,7 @@ it('the shared target context reads creature average HP through the combat HP he
       ...engine,
       isDndSceneEntity: () => true,
       resolveEntityCreatureType: () => 'humanoid',
+      resolveEntityExtraCreatureTypes: () => [],
       targetStore: { getTargetActor: () => null },
     },
   );
@@ -1000,6 +1004,7 @@ it('the shared target context reads creature average HP through the combat HP he
       currentHp: 12,
       maxHp: 12,
       creatureType: 'humanoid',
+      extraCreatureTypes: [],
       markedBy: [],
     },
   );
@@ -1013,6 +1018,7 @@ it('the shared target context reads creature average HP through the combat HP he
       currentHp: 5,
       maxHp: 12,
       creatureType: 'humanoid',
+      extraCreatureTypes: [],
       markedBy: [],
     },
   );
@@ -1034,6 +1040,7 @@ it('the shared target context asks for an adjacent ally only when the attacker i
       ...engine,
       isDndSceneEntity: () => true,
       resolveEntityCreatureType: () => 'humanoid',
+      resolveEntityExtraCreatureTypes: () => [],
       targetStore: { getTargetActor: () => target },
       findAlliesAdjacentToTarget: (attackerId, targetId) => {
         asked.push([attackerId, targetId]);

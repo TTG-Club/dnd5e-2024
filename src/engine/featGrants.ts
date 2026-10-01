@@ -317,8 +317,9 @@ export function isFeatOwnedEffect(
  * @param feat - черта с дарами и ответами игрока
  * @param feat.featData - блоб даров черты
  * @param feat.choices - ответы игрока: ключ выбора → значения
+ * @returns характеристика либо `undefined`, если черта её не задаёт
  */
-function resolveFeatSpellcastingAbility(feat: {
+export function resolveFeatSpellcastingAbility(feat: {
   featData?: FeatData | null;
   choices?: Record<string, string[]>;
 }): AbilityType | undefined {

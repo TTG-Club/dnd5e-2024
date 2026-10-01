@@ -54,6 +54,7 @@ import {
 import {
   CONDITIONS,
   CREATURE_CATEGORIES,
+  isAbilityType,
   isCreatureCategory,
   isSkillType,
   MOVEMENT_KEYS,
@@ -294,7 +295,8 @@ export type EffectTargetKey =
   | 'damage.weapon'
   | 'attack.weapon'
   | WeaponOverrideKey
-  | 'creatureType';
+  | 'creatureType'
+  | 'creatureType.extra';
 
 /**
  * Ключ строки модификатора: известный ключ движка либо ПУСТАЯ строка — «ключ
@@ -328,6 +330,10 @@ export const EFFECT_TARGET_SUGGESTIONS: Array<{
 
   // Тип существа: его читают гейты урона «только по нежити» и условия
   { value: 'creatureType', label: 'Тип существа' },
+  {
+    value: 'creatureType.extra',
+    label: 'Тип существа: ещё один, в дополнение к своему',
+  },
 
   // Критические попадания
   {
@@ -519,6 +525,31 @@ export const INCOMING_ATTACKER_TYPE_CONDITION_PREFIX =
   'incoming.attackerCreatureType === ';
 
 /**
+ * Условие «цель броска — тот, кто наложил этот эффект»: «помеха на броски
+ * атаки против вас» у эффекта на противнике.
+ */
+export const TARGET_IS_SOURCE_CONDITION = 'target.isSource === true';
+
+/**
+ * Условие «цель броска — НЕ тот, кто наложил этот эффект»: «помеха атакам по
+ * целям, отличным от вас» («Непристойный жест», «Угрожающее присутствие»).
+ */
+export const TARGET_NOT_SOURCE_CONDITION = 'target.isSource === false';
+
+/**
+ * Условие защитного эффекта «атакует тот, кто наложил этот эффект».
+ */
+export const INCOMING_ATTACKER_IS_SOURCE_CONDITION =
+  'incoming.attackerIsSource === true';
+
+/**
+ * Условие защитного эффекта «атакует НЕ тот, кто наложил этот эффект»:
+ * «преимущество на атаки по цели для всех, кроме вас».
+ */
+export const INCOMING_ATTACKER_NOT_SOURCE_CONDITION =
+  'incoming.attackerIsSource === false';
+
+/**
  * Условие «рядом с целью мой дееспособный союзник» («Тактика стаи» PHB 2024:
  * союзник в 5 фт от цели без состояния «Недееспособный»).
  */
@@ -610,8 +641,10 @@ export const EFFECT_CONDITION_SECTIONS = {
   armor: 'Доспех носителя',
   targetHp: 'Хиты цели',
   targetMark: 'Метка цели',
+  effectSource: 'Наложивший эффект',
   adjacentAlly: 'Союзник рядом с целью',
   defense: 'Защита: входящая атака',
+  carrierSpecies: 'Вид носителя',
   carrierType: 'Тип носителя',
   targetType: 'Тип цели',
 } as const;
@@ -727,6 +760,23 @@ export const EFFECT_CONDITION_SUGGESTIONS: readonly EffectLibrarySuggestion[] =
       ROLL_CONDITION_HINT,
     ),
 
+    // Эффект лежит на противнике, а условие — о том, кто его наложил
+    ...inLibrarySection(
+      EFFECT_CONDITION_SECTIONS.effectSource,
+      [
+        {
+          value: TARGET_IS_SOURCE_CONDITION,
+          label: 'Цель — тот, кто наложил этот эффект («помеха атакам по вам»)',
+        },
+        {
+          value: TARGET_NOT_SOURCE_CONDITION,
+          label:
+            'Цель — не тот, кто наложил этот эффект («помеха атакам не по вам»)',
+        },
+      ],
+      ROLL_CONDITION_HINT,
+    ),
+
     ...inLibrarySection(
       EFFECT_CONDITION_SECTIONS.adjacentAlly,
       ADJACENT_ALLY_CONDITION_OPTIONS.map((option) => ({
@@ -752,6 +802,15 @@ export const EFFECT_CONDITION_SUGGESTIONS: readonly EffectLibrarySuggestion[] =
           value: 'incoming.attackType === "spell"',
           label: 'Защита: от атак заклинаниями',
         },
+        {
+          value: INCOMING_ATTACKER_IS_SOURCE_CONDITION,
+          label: 'Защита: атакует тот, кто наложил этот эффект',
+        },
+        {
+          value: INCOMING_ATTACKER_NOT_SOURCE_CONDITION,
+          label:
+            'Защита: атакует не тот, кто наложил этот эффект («все, кроме вас»)',
+        },
         ...typedObjectEntries(CREATURE_CATEGORIES).map(
           ([creatureType, label]) => ({
             value: `${INCOMING_ATTACKER_TYPE_CONDITION_PREFIX}"${creatureType}"`,
@@ -760,6 +819,24 @@ export const EFFECT_CONDITION_SUGGESTIONS: readonly EffectLibrarySuggestion[] =
         ),
       ],
       'Для КД и «Атак по носителю»: проверяется, когда атакуют носителя.',
+    ),
+
+    // Вид персонажа или подтип статблока — свободным названием, список через
+    // запятую. Образцы: название автор вписывает своё
+    ...inLibrarySection(
+      EFFECT_CONDITION_SECTIONS.carrierSpecies,
+      [
+        {
+          value: 'self.species === "эльф"',
+          label:
+            'Носитель: вида… (впишите вид или подтип; список через запятую)',
+        },
+        {
+          value: 'self.species !== "дварф, дуэргар"',
+          label: 'Носитель: не вида… («Пояс дварфов»: не дварф и не дуэргар)',
+        },
+      ],
+      SHEET_CONDITION_HINT,
     ),
 
     // Собираются по справочнику, а не переписаны руками: список типов один
@@ -1982,6 +2059,18 @@ export interface EffectSave {
    * момент броска. Не посчиталась — `dc`.
    */
   dcFormula?: string;
+  /**
+   * Ещё характеристики на выбор цели: «спасбросок Силы или Ловкости». Цель
+   * бросает лучшей из названных (`saveAbilityChoice.ts`)
+   */
+  altAbilities?: AbilityType[];
+  /**
+   * Сл — итог проверки навыка применившего: «совершите проверку Харизмы
+   * (Запугивание); спасбросок Мудрости со Сл, равной результату вашей
+   * проверки». Проверку бросает применивший при применении эффекта; `dc`
+   * остаётся запасным числом там, где проверки нет (каст заклинания)
+   */
+  dcSkill?: SkillType;
   /** Эффект успешного спасброска */
   onSuccess: EffectSaveOutcome;
   /**
@@ -3077,12 +3166,33 @@ const SaveDcFormulaSchema = z
   .optional()
   .catch(undefined);
 
+/** Больше характеристик на выбор у одного спасброска не бывает */
+export const MAX_SAVE_ALT_ABILITIES = 5;
+
+/**
+ * Zod-схема характеристик на выбор бросающего: чужая характеристика
+ * выбрасывается одна, пустой список — целиком.
+ */
+const SaveAltAbilitiesSchema = z
+  .array(z.string())
+  .transform((abilities) => {
+    const known = abilities
+      .filter(isAbilityType)
+      .slice(0, MAX_SAVE_ALT_ABILITIES);
+
+    return known.length > 0 ? known : undefined;
+  })
+  .optional()
+  .catch(undefined);
+
 /** Zod-схема спасброска при наложении эффекта */
 const EffectSaveSchema = z.object({
   allowWilling: z.literal(true).optional().catch(undefined),
   ability: z.enum(SAVE_ABILITY_VALUES),
+  altAbilities: SaveAltAbilitiesSchema,
   dc: EffectSaveDcSchema,
   dcFormula: SaveDcFormulaSchema,
+  dcSkill: z.string().refine(isSkillType).optional().catch(undefined),
   onSuccess: z.enum(['negate', 'half']),
 });
 
@@ -3137,6 +3247,7 @@ const MAX_SAVE_MODE_RULES = 8;
 /** Zod-схема спасброска срабатывания */
 const EffectTriggerSaveSchema = z.object({
   ability: z.enum(SAVE_ABILITY_VALUES),
+  altAbilities: SaveAltAbilitiesSchema,
   dc: EffectSaveDcSchema,
   mode: z.enum(EFFECT_TRIGGER_SAVE_MODES).optional().catch(undefined),
   dcFormula: SaveDcFormulaSchema,
@@ -3203,6 +3314,11 @@ const EFFECT_TRIGGER_PLAIN_ACTION_SCHEMAS = [
   z.object({
     type: z.literal('removeCondition'),
     conditionKey: z.string().min(1).optional().catch(undefined),
+    fromCreatureTypes: z
+      .array(z.string())
+      .transform((types) => types.filter(isCreatureCategory))
+      .optional()
+      .catch(undefined),
     on: EffectTriggerGateSchema,
   }),
   z.object({ type: z.literal('kill'), on: EffectTriggerGateSchema }),

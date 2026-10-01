@@ -33,19 +33,14 @@ import {
   describeEscapeUnavailable,
   escapeAllowsRole,
   formatEffectEscapeLabel,
-  getSkillCheckBonusKeys,
-  getSkillSetting,
-  getSkillSettingAbility,
   listEffectEscapeRemovals,
   listEscapeChecks,
   mergeAppliedEffects,
-  resolveAbilityCheckRollMode,
   resolveActorStats,
   resolveEntityCurrentHp,
   resolveEntityTempHp,
   resolveEscapeRollMode,
   rollDamageFormula,
-  SKILLS_LABELS,
   stripDamageTypeTokens,
 } from '@vtt/shared/system/dnd.js';
 
@@ -57,8 +52,7 @@ import {
 import { EFFECT_ESCAPE_PROMPT_LABELS } from '../ui/effect/escapeLabels';
 import { recordEntityActionSpend } from './actionSpend';
 import { isGameMasterUser } from './gmApprovalRequest';
-import { buildRollBonusEvaluator } from './rollBonusEvaluator';
-import { listAmbientEffects } from './useResolvedStats';
+import { openSkillCheckModal } from './skillCheckRoll';
 import { useWorldEntities } from './useWorldEntities';
 
 /** В пределах скольких футов от носителя стоит «существо рядом» */
@@ -312,43 +306,26 @@ function rollEscapeCheck(
 ): void {
   const { entity } = actor;
   const { skill, dc } = check;
-  const stats = resolveActorStats(entity, listAmbientEffects(entity.id));
-
-  // Характеристику навыка берут из настройки листа, как при броске навыка на
-  // листе: Атлетику переводят на Телосложение — и флаги читаются по нему
-  const ability = getSkillSettingAbility(
-    getSkillSetting(entity.system.skillSettings, skill),
-    skill,
-  );
 
   // Флаг того, кто держит («из вашего захвата высвобождаются с помехой»),
   // читается с наложившего эффект — если он ещё в мире
   const holder = useWorldEntities().findCurrentDndEntity(effect.sourceActorId);
 
-  const title = `${formatEffectEscapeLabel(effect)}${EFFECT_ESCAPE_LABELS.titleSeparator}${entity.name}`;
-
-  useModalManager().openModal('DiceRollModal', {
-    _modalKey: `${EFFECT_ESCAPE_MODAL_KEY_PREFIX}${effect.id}`,
-    title,
-    rollLabel: `${SKILLS_LABELS[skill]}${EFFECT_ESCAPE_LABELS.titleSeparator}${entity.name}`,
+  openSkillCheckModal(entity, skill, {
+    modalKey: `${EFFECT_ESCAPE_MODAL_KEY_PREFIX}${effect.id}`,
+    title: `${formatEffectEscapeLabel(effect)}${EFFECT_ESCAPE_LABELS.titleSeparator}${entity.name}`,
     rollButtonText: EFFECT_ESCAPE_LABELS.rollButton,
-    modifier: stats.skills[skill],
-    evaluateBonusRollFormulas: buildRollBonusEvaluator(
-      () => entity,
-      getSkillCheckBonusKeys(skill),
-    ),
-    initialRollMode: resolveEscapeRollMode({
-      checkMode: resolveAbilityCheckRollMode({
-        flags: stats.activeFlags,
-        ability,
-        skill,
-      }),
-      effect,
-      flags: stats.activeFlags,
-      ...(holder ? { holderFlags: resolveActorStats(holder).activeFlags } : {}),
-    }),
     targetDc: dc,
-    onCheckRoll: (result: CheckRollResult) => {
+    resolveMode: (checkMode, flags) =>
+      resolveEscapeRollMode({
+        checkMode,
+        effect,
+        flags,
+        ...(holder
+          ? { holderFlags: resolveActorStats(holder).activeFlags }
+          : {}),
+      }),
+    onRoll: (result: CheckRollResult) => {
       settleEscape(carrier.id, effect, result.total >= dc);
     },
   });
