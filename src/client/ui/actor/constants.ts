@@ -227,6 +227,14 @@ export const COMPENDIUM_PACK_BUTTON_CLASS =
 export const LIST_ROW_FLAT_CLASS = 'px-2 hover:bg-primary/10';
 
 /**
+ * Оформление круглой кнопки в шапке окна: настройки, свернуть, закрыть. Одно на
+ * лист персонажа, лист существа и окно раздела компендиума — кнопки шапки
+ * означают везде одно и то же и не должны выглядеть по-разному.
+ */
+export const HEADER_ROUND_BUTTON_CLASS =
+  'flex h-8 w-8 items-center justify-center rounded-full border border-default/50 bg-elevated/30 text-muted transition-colors hover:bg-accented/50 hover:text-highlighted';
+
+/**
  * Та же строка на листе персонажа: там она стоит порознь с соседями, и без
  * плашки её не отличить от фона.
  */

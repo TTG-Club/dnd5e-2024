@@ -68,14 +68,12 @@
     COMPENDIUM_PACK_BUTTON_SELECTED_CLASS,
     COMPENDIUM_SPELL_KIND,
     GRANTED_SPELL_FEATURE_PREFIX,
+    HEADER_ROUND_BUTTON_CLASS,
     PINNED_SPELL_FEATURE_PREFIX,
     SHEET_FILTER_LABELS,
   } from '../actor/constants';
   import PickerSkeletonRows from '../actor/PickerSkeletonRows.vue';
-  import {
-    COMPENDIUM_AUTHORING_LABELS,
-    COMPENDIUM_HEADER_BUTTON_CLASS,
-  } from './constants';
+  import { COMPENDIUM_AUTHORING_LABELS } from './constants';
 
   /** Запись существа в компендиуме */
   interface CompendiumCreatureEntry {
@@ -1041,7 +1039,7 @@
     }
 
     for (const manifest of manifests) {
-      const node = findNodeByDataFile(manifest.tree ?? [], dataFile);
+      const node = findNodeByDataFile(manifest.tree, dataFile);
 
       if (node) {
         refreshedView.value = node.view;
@@ -2101,7 +2099,7 @@
         существа: действие одно — «настроить», и выглядеть оно должно одинаково -->
       <button
         type="button"
-        :class="COMPENDIUM_HEADER_BUTTON_CLASS"
+        :class="HEADER_ROUND_BUTTON_CLASS"
         :title="COMPENDIUM_AUTHORING_LABELS.configureView"
         :aria-label="COMPENDIUM_AUTHORING_LABELS.configureView"
         @click.left.exact.prevent="configureSectionView"
