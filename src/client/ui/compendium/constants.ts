@@ -243,6 +243,13 @@ export const COMPENDIUM_SECTION_FILTER_FIELDS: Readonly<
   tool: [RARITY_FILTER_FIELD],
 };
 
+/**
+ * Оформление круглой кнопки в шапке окна раздела — то же, что у кнопок шапки
+ * листа персонажа и существа (`ActorHeader`, `CreatureHeader`).
+ */
+export const COMPENDIUM_HEADER_BUTTON_CLASS =
+  'flex h-8 w-8 items-center justify-center rounded-full border border-default/50 bg-elevated/30 text-muted transition-colors hover:bg-accented/50 hover:text-highlighted';
+
 /** Подписи правки записей своего компендиума в окне раздела. */
 export const COMPENDIUM_AUTHORING_LABELS = {
   create: 'Создать',

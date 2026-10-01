@@ -72,7 +72,10 @@
     SHEET_FILTER_LABELS,
   } from '../actor/constants';
   import PickerSkeletonRows from '../actor/PickerSkeletonRows.vue';
-  import { COMPENDIUM_AUTHORING_LABELS } from './constants';
+  import {
+    COMPENDIUM_AUTHORING_LABELS,
+    COMPENDIUM_HEADER_BUTTON_CLASS,
+  } from './constants';
 
   /** Запись существа в компендиуме */
   interface CompendiumCreatureEntry {
@@ -2094,16 +2097,20 @@
       v-if="authoring"
       #header-actions
     >
-      <UTooltip :text="COMPENDIUM_AUTHORING_LABELS.configureView">
-        <UButton
-          icon="tabler:settings"
-          color="neutral"
-          variant="ghost"
-          size="sm"
-          :aria-label="COMPENDIUM_AUTHORING_LABELS.configureView"
-          @click.left.exact.prevent="configureSectionView"
+      <!-- Та же круглая кнопка-шестерёнка, что в шапке листа персонажа и
+        существа: действие одно — «настроить», и выглядеть оно должно одинаково -->
+      <button
+        type="button"
+        :class="COMPENDIUM_HEADER_BUTTON_CLASS"
+        :title="COMPENDIUM_AUTHORING_LABELS.configureView"
+        :aria-label="COMPENDIUM_AUTHORING_LABELS.configureView"
+        @click.left.exact.prevent="configureSectionView"
+      >
+        <UIcon
+          name="tabler:settings-filled"
+          class="h-4 w-4"
         />
-      </UTooltip>
+      </button>
     </template>
 
     <template #body>
