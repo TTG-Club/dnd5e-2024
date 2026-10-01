@@ -19,6 +19,7 @@ import type {
   DnDGameItem,
   DnDSceneEntity,
 } from './dndEntities.js';
+import type { CarriedEffectSourceKind } from './effectPipeline.js';
 import type {
   EffectTempHpMode,
   EffectTrigger,
@@ -89,6 +90,7 @@ import {
   collectActiveEffects,
   collectRollConditionFlags,
   getEntityConditionImmunities,
+  listCarriedEffectEntries,
   listTraitEffects,
   resolveActorStats,
 } from './effectPipeline.js';
@@ -791,6 +793,49 @@ export function buildTriggerSources(
       scope: kind.scopeOf(effect),
     }));
   });
+}
+
+/** Вид источника срабатываний у вложенной записи носителя */
+const CARRIED_TRIGGER_SOURCE_KINDS: Record<
+  CarriedEffectSourceKind,
+  EffectTriggerSourceKind
+> = {
+  item: EFFECT_TRIGGER_SOURCE_KINDS.item,
+  trait: EFFECT_TRIGGER_SOURCE_KINDS.trait,
+};
+
+/**
+ * Срабатывания события на всём, что действует вместе с носителем: его
+ * собственные эффекты, надетые и настроенные предметы, черты существа. Так
+ * собираются события о поступках носителя — бросок атаки, отдых, лечение,
+ * путь, снятое состояние, поверженная цель: постоянный эффект предмета слышит
+ * их так же, как эффект умения. Снять себя и потратить заряд может только
+ * эффект, лежащий на носителе сам; у предмета и черты снимать нечего.
+ *
+ * @param entity - носитель
+ * @param triggersOf - какие срабатывания эффекта нужны
+ * @returns срабатывания с источником: свои эффекты, затем предметы и черты
+ */
+export function listCarrierEventSources(
+  entity: DnDSceneEntity,
+  triggersOf: (effect: ActiveEffect) => readonly EffectTrigger[],
+): EffectTriggerSource[] {
+  return [
+    ...buildTriggerSources(
+      listLiveEffects(entity),
+      EFFECT_TRIGGER_SOURCE_KINDS.instance,
+      triggersOf,
+      entity,
+    ),
+    ...listCarriedEffectEntries(entity).flatMap((entry) =>
+      buildTriggerSources(
+        [entry.effect],
+        CARRIED_TRIGGER_SOURCE_KINDS[entry.sourceKind],
+        triggersOf,
+        entity,
+      ),
+    ),
+  ];
 }
 
 /**
@@ -2937,8 +2982,9 @@ export interface AttackRollTriggersResult {
 export type AttackRollTriggerPlace = 'client' | 'server';
 
 /**
- * Срабатывания броска атаки стороны на её собственных эффектах: те, что клиент
- * выполняет до броска, либо те, что после броска выполняет сервер.
+ * Срабатывания броска атаки стороны на её эффектах, надетых предметах и
+ * чертах: те, что клиент выполняет до броска, либо те, что после броска
+ * выполняет сервер.
  *
  * @param entity - сторона атаки
  * @param role - атакующий или цель
@@ -2950,16 +2996,12 @@ export function listAttackRollSources(
   role: EffectTriggerAttackRole,
   place: AttackRollTriggerPlace,
 ): EffectTriggerSource[] {
-  return buildTriggerSources(
-    listLiveEffects(entity),
-    EFFECT_TRIGGER_SOURCE_KINDS.instance,
-    (effect) =>
-      listEffectEventTriggers(effect, 'attackRoll').filter(
-        (trigger) =>
-          (trigger.role ?? DEFAULT_TRIGGER_ATTACK_ROLE) === role
-          && isClientAttackRollTrigger(trigger) === (place === 'client'),
-      ),
-    entity,
+  return listCarrierEventSources(entity, (effect) =>
+    listEffectEventTriggers(effect, 'attackRoll').filter(
+      (trigger) =>
+        (trigger.role ?? DEFAULT_TRIGGER_ATTACK_ROLE) === role
+        && isClientAttackRollTrigger(trigger) === (place === 'client'),
+    ),
   );
 }
 

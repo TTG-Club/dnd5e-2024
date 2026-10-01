@@ -70,6 +70,7 @@ import {
   buildTriggerSources,
   EFFECT_TRIGGER_SOURCE_KINDS,
   listAttackRollSources,
+  listCarrierEventSources,
   rollTriggerSave,
   settleTriggerOutcome,
   toTriggerSaveOutcome,
@@ -1043,8 +1044,9 @@ export function hasServerAttackRollTriggers(
 }
 
 /**
- * Срабатывания события на эффектах самой сущности: у событий лечения,
- * перемещения, снятия состояния и «свалил цель» других источников нет.
+ * Срабатывания события на всём, что действует вместе с сущностью: её эффекты,
+ * надетые предметы, черты существа. Так собираются события лечения,
+ * перемещения, снятия состояния и «свалил цель» — аур чужих токенов у них нет.
  *
  * @param entity - сущность
  * @param event - событие
@@ -1054,11 +1056,8 @@ function listOwnEventSources(
   entity: DnDSceneEntity,
   event: EffectTriggerEvent,
 ): EffectTriggerSource[] {
-  return buildTriggerSources(
-    listLiveEffects(entity),
-    EFFECT_TRIGGER_SOURCE_KINDS.instance,
-    (effect) => listEffectEventTriggers(effect, event),
-    entity,
+  return listCarrierEventSources(entity, (effect) =>
+    listEffectEventTriggers(effect, event),
   );
 }
 

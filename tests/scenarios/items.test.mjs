@@ -1131,6 +1131,102 @@ describe('каталог: оружие', () => {
 });
 
 describe('каталог: проверки и заклинания', () => {
+  it('[I19] Вспышка оружия: постоянный эффект предмета слышит атаку владельца', () => {
+    // «Когда вы попадаете атакой, цель получает дополнительно 1к6 урона
+    // излучением» — свойство предмета, а не кнопка: эффект действует, пока
+    // предмет надет и настроен
+    const flare = createEffect('Вспышка', {
+      triggers: [
+        {
+          id: 'trigger_flare',
+          event: 'attackRoll',
+          role: 'attacker',
+          recipient: 'other',
+          condition: 'attack.landed === true',
+          limit: { max: 1, per: 'turn' },
+          actions: [
+            { type: 'damage', parts: [{ formula: '1к6', type: 'radiant' }] },
+          ],
+        },
+      ],
+    });
+
+    authoredScenario(flare, 'item');
+
+    const attuned = { magicAttunement: 'required', isAttuned: true };
+
+    const hero = createActor({
+      equipment: [wornItem('blade', [flare], attuned)],
+    });
+
+    const foe = withHp(createCreature, 30);
+
+    const strike = () =>
+      withRandom([MAX_ROLL], () =>
+        engine.settleAttackRollTriggers(hero, 'attacker', {
+          other: foe,
+          roll: {},
+          landed: true,
+          critical: true,
+          inCombat: true,
+        }),
+      );
+
+    strike();
+
+    assert.equal(
+      engine.resolveEntityCurrentHp(foe),
+      30 - 12,
+      'крит удваивает кости и у срабатывания предмета',
+    );
+
+    strike();
+
+    assert.equal(engine.resolveEntityCurrentHp(foe), 18, 'раз в ход');
+
+    // Без настройки предмет молчит
+    const dormant = createActor({
+      equipment: [wornItem('blade', [flare], { ...attuned, isAttuned: false })],
+    });
+
+    assert.equal(
+      engine.hasServerAttackRollTriggers(dormant, 'attacker'),
+      false,
+    );
+  });
+
+  it('[I20] Свежая кровь: постоянный эффект предмета слышит отдых владельца', () => {
+    // «После продолжительного отдыха в этом доспехе вы получаете…» — событие
+    // «после отдыха» у эффекта надетого предмета
+    const freshBlood = createEffect('Свежая кровь', {
+      triggers: [
+        {
+          id: 'trigger_fresh_blood',
+          event: 'rest',
+          restType: 'long',
+          actions: [{ type: 'applyTag', tag: 'freshBlood' }],
+        },
+      ],
+    });
+
+    authoredScenario(freshBlood, 'item');
+
+    const hero = createActor({ equipment: [wornItem('armor', [freshBlood])] });
+
+    assert.equal(
+      engine.applyActorRest(hero, 'short').activeEffects,
+      undefined,
+      'короткий отдых срабатывание «после долгого» не будит',
+    );
+
+    assert.equal(
+      engine
+        .applyActorRest(hero, 'long')
+        .activeEffects.some((effect) => effect.tag === 'freshBlood'),
+      true,
+    );
+  });
+
   it('[I12] Камень удачи: +1 ко всем проверкам характеристик и спасброскам', () => {
     const stone = createEffect('Камень удачи', {
       changes: [

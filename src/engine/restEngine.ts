@@ -27,7 +27,6 @@ import type {
 import type { FormulaContext } from './formulaParser.js';
 import type { ActorCounterState, DnDActorSystem } from './types.js';
 
-import { listLiveEffects } from './activeEffectTypes.js';
 import {
   EXHAUSTION_LONG_REST_RECOVERY,
   getEntityExhaustionLevel,
@@ -44,8 +43,7 @@ import { restoreCreatureSpellGroupUses } from './creatureSpellcasting.js';
 import { cloneEntityData } from './dataClone.js';
 import { resolveActorStats } from './effectPipeline.js';
 import {
-  buildTriggerSources,
-  EFFECT_TRIGGER_SOURCE_KINDS,
+  listCarrierEventSources,
   settleSelfTriggerSources,
 } from './effectTriggerRunner.js';
 import { listEffectEventTriggers } from './effectTriggers.js';
@@ -314,9 +312,8 @@ export function resolveRestTriggerEffects(
       ),
     );
 
-  if (
-    !listLiveEffects(entity).some((effect) => restTriggersOf(effect).length > 0)
-  ) {
+  // Отдых слышат и надетые предметы, и черты существа — как эффект умения
+  if (listCarrierEventSources(entity, restTriggersOf).length === 0) {
     return undefined;
   }
 
@@ -324,12 +321,7 @@ export function resolveRestTriggerEffects(
 
   settleSelfTriggerSources(
     rested,
-    buildTriggerSources(
-      listLiveEffects(rested),
-      EFFECT_TRIGGER_SOURCE_KINDS.instance,
-      restTriggersOf,
-      rested,
-    ),
+    listCarrierEventSources(rested, restTriggersOf),
   );
 
   return rested.activeEffects ?? [];

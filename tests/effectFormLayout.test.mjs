@@ -1219,12 +1219,18 @@ describe('список «Срабатывания»', () => {
 
     const trait = layoutOf('creatureTrait');
 
+    // Черта действует вместе с существом: слышит и его атаку, путь, отдых
     assert.deepEqual(trait.triggerEvents, [
       'turnStart',
       'turnEnd',
+      'attackRoll',
       'damageTaken',
       'hpZero',
       'healed',
+      'conditionLost',
+      'downedOther',
+      'moved',
+      'rest',
     ]);
 
     assert.deepEqual(trait.triggerActions, [
@@ -1258,10 +1264,33 @@ describe('список «Срабатывания»', () => {
       'у черты существа наложившего нет',
     );
 
+    // Постоянный эффект надетого предмета слышит то же, что эффект умения:
+    // урон по носителю и его поступки — атаку, путь, отдых
     assert.deepEqual(
       layoutOf('item').triggerEvents,
-      ['damageTaken', 'hpZero', 'healed'],
-      'item: эффект слышит урон по носителю',
+      [
+        'attackRoll',
+        'damageTaken',
+        'hpZero',
+        'healed',
+        'conditionLost',
+        'downedOther',
+        'moved',
+        'rest',
+      ],
+      'item: эффект слышит урон по носителю и его поступки',
+    );
+
+    assert.equal(
+      layoutOf('item').triggerActions.includes('removeSelf'),
+      false,
+      'свойство предмета срабатывание не снимает',
+    );
+
+    // Эффект оружия «на владельце» — такой же эффект предмета в руке
+    assert.deepEqual(
+      layoutOf('weapon', { effectTarget: 'self' }).triggerEvents,
+      ['attackRoll', 'conditionLost', 'downedOther', 'moved', 'rest'],
     );
 
     // Эффект умения скопирован на персонажа и слышит его поступки: атаку,
