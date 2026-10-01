@@ -895,7 +895,7 @@
 
             <USelect
               v-model="areaTemplateShape"
-              :items="[...EFFECT_TRIGGER_TEMPLATE_OPTIONS]"
+              :items="EFFECT_TRIGGER_TEMPLATE_OPTIONS"
               value-key="value"
               size="sm"
               class="w-full"

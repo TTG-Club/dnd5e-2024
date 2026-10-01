@@ -3,7 +3,7 @@
  * окне эффекта.
  */
 
-import type { EffectPriceKind } from '@vtt/shared/system/dnd.js';
+import type { EffectPrice, EffectPriceKind } from '@vtt/shared/system/dnd.js';
 
 import { EFFECT_PRICE_KINDS } from '@vtt/shared/system/dnd.js';
 
@@ -84,3 +84,20 @@ export const EFFECT_PAY_FIELD_LABELS = {
     'Заряды предмета, с которого пришёл эффект. Заменяет обычный расход применения: 0 — свойство зарядов не тратит.',
   inspirationHint: 'Тратит героическое вдохновение.',
 } as const;
+
+/** Пояснение к виду цены без своих полей: что и откуда спишется */
+export const EFFECT_PRICE_KIND_NOTES: Partial<Record<EffectPriceKind, string>> =
+  {
+    itemUses: EFFECT_PAY_FIELD_LABELS.itemUsesHint,
+    inspiration: EFFECT_PAY_FIELD_LABELS.inspirationHint,
+  };
+
+/**
+ * Новый платёж выбранного вида с полями по умолчанию.
+ *
+ * @param kind - вид цены
+ * @returns платёж
+ */
+export function createEffectPrice(kind: EffectPriceKind): EffectPrice {
+  return kind === 'counter' ? { kind, counter: '' } : { kind };
+}

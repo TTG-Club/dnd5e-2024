@@ -20,7 +20,7 @@ import type { ActiveEffect } from './activeEffectTypes.js';
 import type { EffectPaid } from './effectPayTypes.js';
 import type { EffectTrigger } from './effectTriggerTypes.js';
 
-import { FORMULA_VARIABLE_LABELS } from './consts.js';
+import { labelFormulaVariables } from './consts.js';
 import { resolveDiceCountExpressions } from './diceCountExpressions.js';
 import {
   EFFECT_PAID_FIELDS,
@@ -88,10 +88,7 @@ export function bindPaidFormula(formula: string, paid: EffectPaid): string {
  */
 export function labelPaidTokens(formula: string): string {
   return hasPaidToken(formula)
-    ? formula.replace(
-        PAID_TOKEN_PATTERN,
-        (token) => FORMULA_VARIABLE_LABELS[token] ?? token,
-      )
+    ? labelFormulaVariables(formula, PAID_TOKEN_PATTERN)
     : formula;
 }
 

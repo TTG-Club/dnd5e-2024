@@ -23,6 +23,12 @@ import type { AbilityType } from '@vtt/shared';
 import { z } from 'zod';
 
 import {
+  coerceOptionalNumber,
+  SAVE_ABILITY_VALUES,
+  SaveDcFormulaSchema,
+  SOURCE_SAVE_DC,
+} from './effectSchemaParts.js';
+import {
   MAX_SPELL_SLOT_LEVEL,
   MIN_SPELL_SLOT_LEVEL,
 } from './spellSlotTable.js';
@@ -72,38 +78,12 @@ export interface EffectCastRule {
 /** Самый большой шанс провала — наверняка */
 export const MAX_CAST_FAIL_CHANCE = 100;
 
-/** Самая длинная формула Сл правила каста */
-const MAX_CAST_RULE_DC_FORMULA_LENGTH = 200;
-
-/** Характеристики спасброска правила каста */
-const CAST_RULE_SAVE_ABILITIES = [
-  'strength',
-  'dexterity',
-  'constitution',
-  'intelligence',
-  'wisdom',
-  'charisma',
-] as const;
-
-/**
- * Пустое поле окна — «не задано», а не ноль.
- *
- * @param value - значение поля
- * @returns значение либо `undefined` у пустого
- */
-function emptyToUndefined(value: unknown): unknown {
-  if (value === '' || value === null) {
-    return undefined;
-  }
-
-  return typeof value === 'string' && value.trim() !== ''
-    ? Number(value)
-    : value;
-}
+/** Самый малый шанс провала: нулевой шанс — правила нет */
+export const MIN_CAST_FAIL_CHANCE = 1;
 
 /** Zod-схема круга ячейки в правиле каста */
 const CastRuleSlotLevelSchema = z.preprocess(
-  emptyToUndefined,
+  coerceOptionalNumber,
   z
     .number()
     .int()
@@ -115,15 +95,9 @@ const CastRuleSlotLevelSchema = z.preprocess(
 
 /** Zod-схема спасброска заклинателя при попытке каста */
 const CastRuleSaveSchema = z.object({
-  ability: z.enum(CAST_RULE_SAVE_ABILITIES),
-  dc: z.preprocess(emptyToUndefined, z.number().int().min(0)),
-  dcFormula: z
-    .string()
-    .trim()
-    .min(1)
-    .max(MAX_CAST_RULE_DC_FORMULA_LENGTH)
-    .optional()
-    .catch(undefined),
+  ability: z.enum(SAVE_ABILITY_VALUES),
+  dc: z.preprocess(coerceOptionalNumber, z.number().int().min(SOURCE_SAVE_DC)),
+  dcFormula: SaveDcFormulaSchema,
 });
 
 /**
@@ -150,11 +124,11 @@ export const EffectCastRuleSchema = z
     maxSlotLevel: CastRuleSlotLevelSchema,
     minSlotLevel: CastRuleSlotLevelSchema,
     failChance: z.preprocess(
-      emptyToUndefined,
+      coerceOptionalNumber,
       z
         .number()
         .int()
-        .min(1)
+        .min(MIN_CAST_FAIL_CHANCE)
         .max(MAX_CAST_FAIL_CHANCE)
         .optional()
         .catch(undefined),

@@ -19,6 +19,7 @@ import type {
   EffectTriggerSource,
 } from './effectTriggerRunner.js';
 import type {
+  EffectTrigger,
   EffectTriggerAction,
   EffectTriggerChoice,
 } from './effectTriggerTypes.js';
@@ -541,6 +542,21 @@ export const TRIGGER_ASK_CHAT_NOTES = {
   limitGone: 'уже использовано — срабатывание отменено',
 } as const;
 
+/**
+ * Строка чата о срабатывании, которое к моменту ответа уже не выполнить:
+ * платить стало нечем либо лимит исчерпан.
+ *
+ * @param effectName - название эффекта
+ * @param trigger - срабатывание
+ * @returns строка для сводки
+ */
+function formatAdmissionGoneNote(
+  effectName: string,
+  trigger: Pick<EffectTrigger, 'pay'>,
+): string {
+  return `${effectName}: ${trigger.pay ? TRIGGER_ASK_CHAT_NOTES.payGone : TRIGGER_ASK_CHAT_NOTES.limitGone}`;
+}
+
 /** Вопросы срабатывания: обычный, о расходе реакции и о цене ресурсом */
 export const TRIGGER_ASK_QUESTIONS = {
   plain: 'Пустить срабатывание в ход?',
@@ -858,7 +874,7 @@ export function requestTriggerAsk(
           return finished(
             liveSubject,
             unchangedOutcome([
-              `${snapshot.effect.name}: ${snapshot.trigger.pay ? TRIGGER_ASK_CHAT_NOTES.payGone : TRIGGER_ASK_CHAT_NOTES.limitGone}`,
+              formatAdmissionGoneNote(snapshot.effect.name, snapshot.trigger),
             ]),
           );
         }
@@ -1077,7 +1093,7 @@ function applyChoiceAnswer(
 
   if (!prepared) {
     return unchangedOutcome([
-      `${effectName}: ${target.source.trigger.pay ? TRIGGER_ASK_CHAT_NOTES.payGone : TRIGGER_ASK_CHAT_NOTES.limitGone}`,
+      formatAdmissionGoneNote(effectName, target.source.trigger),
     ]);
   }
 

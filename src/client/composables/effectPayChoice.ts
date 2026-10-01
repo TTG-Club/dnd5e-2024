@@ -20,6 +20,7 @@ import type {
   PayContext,
   PayPlan,
   PaySettlement,
+  SelfTriggerReport,
 } from '@vtt/shared/system/dnd.js';
 
 import { emitEntityCombatState, emitEntityUpdate } from '@/core/entityUtils';
@@ -30,6 +31,7 @@ import {
   bindSourcePaid,
   collectSourcePay,
   defaultPayPicks,
+  formatSelfTriggerReport,
   payNeedsChoice,
   payUsesCastLevel,
   planEffectPay,
@@ -40,6 +42,7 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { useSystemToastStore } from '../stores/systemToastStore';
+import { EFFECT_QUESTION_PROMPT_MODAL } from '../ui/effect/constants';
 import {
   EFFECT_PAY_MODAL_KEY_PREFIX,
   EFFECT_PAY_PROMPT_LABELS,
@@ -318,7 +321,7 @@ export function runWithSpellCastPay<Source extends PayableSource>(
     return;
   }
 
-  useModalManager().openModal('EffectQuestionPromptModal', {
+  useModalManager().openModal(EFFECT_QUESTION_PROMPT_MODAL, {
     allowMultiple: true,
     question: EFFECT_PAY_PROMPT_LABELS.castLevelQuestion,
     options: availableLevels.map((castLevel) => ({
@@ -331,6 +334,24 @@ export function runWithSpellCastPay<Source extends PayableSource>(
     },
     onCancel: () => {},
   });
+}
+
+/**
+ * Пишет в чат сводку срабатываний, выполненных на самой сущности (кнопка «При
+ * действии», включение переключателя); без строк сводки ничего не шлёт.
+ *
+ * @param entityName - имя сущности
+ * @param report - что собрали срабатывания
+ */
+export function sendSelfTriggerReport(
+  entityName: string,
+  report: SelfTriggerReport,
+): void {
+  const summary = formatSelfTriggerReport(entityName, report);
+
+  if (summary) {
+    useChatStore().sendMessage(summary, 'text');
+  }
 }
 
 /**

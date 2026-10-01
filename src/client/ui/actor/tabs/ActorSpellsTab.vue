@@ -102,14 +102,13 @@
   import { recordEntityActionSpend } from '../../../composables/actionSpend';
   import { chooseAreaCastLevel } from '../../../composables/areaCastLevelChoice';
   import { resolveTargetedAttackRoll } from '../../../composables/attackRollMode';
-  import { runWithCastFailure } from '../../../composables/castFailure';
+  import { runWithCastFailureAndPay } from '../../../composables/castFailure';
   import {
     describeDamageVariantsStat,
     requestDamageTypeChoiceFor,
     runWithDamageTypeChoices,
     useDamageTypeLabel,
   } from '../../../composables/damageTypeChoice';
-  import { runWithSpellCastPay } from '../../../composables/effectPayChoice';
   import { runWithEffectVariants } from '../../../composables/effectVariantChoice';
   import {
     buildRollBonusEvaluator,
@@ -1518,6 +1517,21 @@
   }
 
   /**
+   * Круги, на которые у актора остались ячейки, — до запретов эффектов.
+   *
+   * @param spell - заклинание
+   * @returns круги не ниже круга заклинания
+   */
+  function getSlotSpellLevels(spell: Spell): number[] {
+    return getAvailableSpellLevels(
+      props.actor,
+      spell.level,
+      MAX_SPELL_SLOT_LEVEL,
+      spellcastingBonusContext.value,
+    );
+  }
+
+  /**
    * Доступные круги для каста. У заклинаний с зарядами (врождённые/расовые)
    * круг фиксирован и ячейки не тратятся; у обычных — доступные ячейки
    * (или [0] для заговоров).
@@ -1534,12 +1548,7 @@
       return limitCastLevels(
         actionBlocks.value,
         spell,
-        getAvailableSpellLevels(
-          props.actor,
-          spell.level,
-          MAX_SPELL_SLOT_LEVEL,
-          spellcastingBonusContext.value,
-        ),
+        getSlotSpellLevels(spell),
       );
     }
 
@@ -1593,12 +1602,7 @@
             ? findCastLevelBlock(
                 actionBlocks.value,
                 spell,
-                getAvailableSpellLevels(
-                  props.actor,
-                  spell.level,
-                  MAX_SPELL_SLOT_LEVEL,
-                  spellcastingBonusContext.value,
-                ),
+                getSlotSpellLevels(spell),
               )
             : null;
 
@@ -1795,18 +1799,14 @@
       commit: commitPaidCaster,
     };
 
-    // Провал каста («Замедление», «Слово силы: Боль») — до оплаты: неудавшееся
-    // заклинание цену сверх ячейки не берёт
-    runWithCastFailure(sourceSpell, props.actor, castOptions, () => {
-      runWithSpellCastPay(
-        sourceSpell,
-        props.actor,
-        castOptions,
-        (spell, castLevel) => {
-          proceedWithPaidCast(spell, castLevel, effectTargets);
-        },
-      );
-    });
+    runWithCastFailureAndPay(
+      sourceSpell,
+      props.actor,
+      castOptions,
+      (spell, castLevel) => {
+        proceedWithPaidCast(spell, castLevel, effectTargets);
+      },
+    );
   }
 
   /** Продолжает оплаченный каст с зафиксированными целями эффекта. */

@@ -169,6 +169,34 @@ export const FORMULA_VARIABLE_LABELS: Readonly<Record<string, string>> = {
   '@paid.itemUses': 'потрачено зарядов',
 };
 
+/** Токен формулы: `@prof`, `@mod.wis`, `@paid.slotLevel` */
+const FORMULA_VARIABLE_TOKEN_PATTERN = /@[a-z][\w.]*/gi;
+
+/**
+ * Подпись переменной формулы (`@prof` → «бонус мастерства»).
+ *
+ * @param token - переменная с `@`
+ * @returns подпись; незнакомая переменная отдаётся как есть
+ */
+export function labelFormulaVariable(token: string): string {
+  return FORMULA_VARIABLE_LABELS[token] ?? token;
+}
+
+/**
+ * Формула с подписями вместо токенов: «круг потраченной ячейки», а не сырой
+ * `@paid.slotLevel`. Числа, кости и незнакомые токены остаются как есть.
+ *
+ * @param formula - формула
+ * @param pattern - какие токены заменять; по умолчанию — все
+ * @returns формула словами
+ */
+export function labelFormulaVariables(
+  formula: string,
+  pattern: RegExp = FORMULA_VARIABLE_TOKEN_PATTERN,
+): string {
+  return formula.replaceAll(pattern, labelFormulaVariable);
+}
+
 // ============================================================
 // Навыки → Характеристики (Skills → Abilities)
 // ============================================================
@@ -1488,3 +1516,6 @@ export function normalizeSpellUsesRecovery(
 
   return 'atWill';
 }
+
+/** Буква кости в записи формулы хитов существа: «2к8» */
+export const HIT_DICE_FORMULA_LETTER = 'к';

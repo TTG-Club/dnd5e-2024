@@ -24,6 +24,7 @@ import {
   SAVE_OVERRIDE_DECLINE,
 } from '@vtt/shared/system/dnd.js';
 
+import { EFFECT_QUESTION_PROMPT_MODAL } from '../ui/effect/constants';
 import {
   answerWithSaveOverride,
   spendEntitySaveOverride,
@@ -342,7 +343,7 @@ function promptSaveOverride(
     request,
     reply,
     (settle, modalKey) =>
-      openModal('EffectQuestionPromptModal', {
+      openModal(EFFECT_QUESTION_PROMPT_MODAL, {
         _modalKey: modalKey,
         question: formatSaveOverrideQuestion(
           entity.name,
@@ -393,7 +394,7 @@ function promptEffectQuestion(
     request,
     reply,
     (settle, modalKey) =>
-      openModal('EffectQuestionPromptModal', {
+      openModal(EFFECT_QUESTION_PROMPT_MODAL, {
         _modalKey: modalKey,
         question: payload.question,
         options: payload.options,

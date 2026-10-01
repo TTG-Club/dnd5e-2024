@@ -32,10 +32,10 @@
     ABILITY_OPTIONS,
     CANTRIP_SPELL_LEVEL,
     createDefaultEffectSave,
+    createDefaultEscape,
     createEffectTriggerId,
     CREATURE_CATEGORY_OPTIONS,
     DEFAULT_CAST_OWNER,
-    DEFAULT_EFFECT_SAVE_DC,
     DEFAULT_NESTED_TRIGGER_EVENT,
     DEFAULT_NOTIFY_TARGET,
     DEFAULT_RESTORE_KIND,
@@ -54,16 +54,11 @@
     MIN_SPELL_SLOT_LEVEL,
     NESTED_TRIGGER_EVENTS,
     PATH_AREA_SHIFT_KINDS,
-    SOURCE_SAVE_DC,
   } from '@vtt/shared/system/dnd.js';
 
   import { useSystemDataStore } from '../../../stores/systemDataStore';
   import DamagePartsEditor from '../../actor/DamagePartsEditor.vue';
-  import {
-    EFFECT_SOURCE_DC_LABELS,
-    NEW_ESCAPE_CHECK_SKILL,
-    NEW_ESCAPE_COST,
-  } from '../constants';
+  import { EFFECT_SOURCE_DC_LABELS } from '../constants';
   import {
     ANY_CONDITION_KEY,
     buildAreaShiftKindOptions,
@@ -754,15 +749,7 @@
       action.value = enabled
         ? {
             ...rest,
-            escape: {
-              cost: NEW_ESCAPE_COST,
-              check: {
-                skill: NEW_ESCAPE_CHECK_SKILL,
-                dc: acceptsSourceSaveDc.value
-                  ? SOURCE_SAVE_DC
-                  : DEFAULT_EFFECT_SAVE_DC,
-              },
-            },
+            escape: createDefaultEscape(acceptsSourceSaveDc.value),
           }
         : rest;
     },

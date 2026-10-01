@@ -23,6 +23,7 @@ import type {
 import { ABILITY_GENITIVE_LABELS } from './consts.js';
 import { MAX_CAST_FAIL_CHANCE } from './effectCastRuleTypes.js';
 import { collectActiveEffects } from './effectPipeline.js';
+import { SOURCE_SAVE_DC } from './effectSchemaParts.js';
 import { CANTRIP_SPELL_LEVEL } from './spellTypes.js';
 
 /** Лимит круга ячейки и эффект, который его дал */
@@ -303,7 +304,7 @@ export function describeCastRule(rule: EffectCastRule): string[] {
 
   const save = rule.failSave
     ? `${chance ? CAST_RULE_LABELS.both : ''}${CAST_RULE_LABELS.savePrefix}${ABILITY_GENITIVE_LABELS[rule.failSave.ability]}${
-        rule.failSave.dc > 0
+        rule.failSave.dc > SOURCE_SAVE_DC
           ? `${CAST_RULE_LABELS.saveDc}${rule.failSave.dc}`
           : CAST_RULE_LABELS.saveSourceDc
       }`
@@ -376,4 +377,49 @@ export function formatCastFailureMessage(
       ? CAST_FAILURE_MESSAGE_LABELS.losesSlot
       : CAST_FAILURE_MESSAGE_LABELS.keepsSlot
   }`;
+}
+
+/** Что правило о потерянной ячейке читает у заклинания */
+export interface LostSlotSpell {
+  /** Круг заклинания; нет — заговор */
+  level?: number;
+  /** Заклинание с зарядами ячеек не тратит */
+  uses?: unknown;
+}
+
+/** С какими кругами идёт каст */
+export interface LostSlotOptions {
+  /** Круг, выбранный раньше (область, снаряды, цели) */
+  lockedLevel?: number;
+  /** Круги, которыми можно наложить */
+  availableLevels?: readonly number[];
+}
+
+/**
+ * Круг ячейки, которую сжигает провал каста: выбранный заранее либо наименьший
+ * доступный — провал случается до выбора круга в окне броска. Заговор и
+ * заклинание с зарядами ячейки не тратят.
+ *
+ * @param spell - заклинание
+ * @param options - с чем идёт каст
+ * @returns круг либо `undefined`, если ячейки у каста нет
+ */
+export function resolveLostCastSlotLevel(
+  spell: LostSlotSpell,
+  options: LostSlotOptions,
+): number | undefined {
+  if (
+    spell.uses
+    || (spell.level ?? CANTRIP_SPELL_LEVEL) <= CANTRIP_SPELL_LEVEL
+  ) {
+    return undefined;
+  }
+
+  const levels = (options.availableLevels ?? []).filter(
+    (level) => level > CANTRIP_SPELL_LEVEL,
+  );
+
+  return (
+    options.lockedLevel ?? (levels.length > 0 ? Math.min(...levels) : undefined)
+  );
 }

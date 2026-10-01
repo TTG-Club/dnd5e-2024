@@ -39,7 +39,7 @@ import {
   readEffectSuccessOutcome,
   resolveEffectFormLayout,
 } from './effectFormLayout.js';
-import { describeEffectPay } from './effectPayTypes.js';
+import { describeEffectPay, EFFECT_PRICE_LABELS } from './effectPayTypes.js';
 import {
   describeEffectTrigger,
   describeTriggerCondition,
@@ -125,7 +125,6 @@ const SCENARIO_LABELS = {
   counterPrefix: ', тратит «',
   counterSuffix: '»',
   counterAmountPrefix: ' ×',
-  payPrefix: ', цена: ',
   exclusivePrefix: ', одно включение «',
   exclusiveSuffix: '»',
   savePrefix: 'спасбросок ',
@@ -520,7 +519,7 @@ export function describeEffectScenario(
 
   const pay =
     layout.showPay && effect.pay
-      ? `${SCENARIO_LABELS.payPrefix}${describeEffectPay(effect.pay)}`
+      ? `${EFFECT_PRICE_LABELS.payClausePrefix}${describeEffectPay(effect.pay)}`
       : '';
 
   const rollCondition = effect.rollCondition

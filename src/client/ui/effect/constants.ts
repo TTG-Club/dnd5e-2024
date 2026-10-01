@@ -5,12 +5,10 @@
  * кнопки окна) живут в `ui/actor/constants.ts` и берутся оттуда.
  */
 
-import type { SkillType } from '@vtt/shared';
 import type {
   AreaEffectTrigger,
   ConditionKey,
   CreatureCategory,
-  EffectActionCost,
   EffectActivationCost,
   EffectActivationMode,
   EffectChangeModeChoice,
@@ -494,7 +492,7 @@ export type EffectActivationCostChoice =
   EffectActivationCost | typeof NO_ACTIVATION_COST;
 
 /** Варианты траты хода на применение и включение */
-export const EFFECT_ACTIVATION_COST_OPTIONS: ReadonlyArray<{
+export const EFFECT_ACTIVATION_COST_OPTIONS: Array<{
   value: EffectActivationCostChoice;
   label: string;
 }> = [
@@ -521,7 +519,7 @@ const USE_AREA_SHAPE_OPTIONS: ReadonlyArray<{
 }));
 
 /** Варианты области применения */
-export const EFFECT_USE_AREA_OPTIONS: ReadonlyArray<{
+export const EFFECT_USE_AREA_OPTIONS: Array<{
   value: EffectUseAreaChoice;
   label: string;
 }> = [
@@ -530,7 +528,7 @@ export const EFFECT_USE_AREA_OPTIONS: ReadonlyArray<{
 ];
 
 /** Варианты области получателей у кнопки «При действии» */
-export const EFFECT_TRIGGER_TEMPLATE_OPTIONS: ReadonlyArray<{
+export const EFFECT_TRIGGER_TEMPLATE_OPTIONS: Array<{
   value: EffectUseAreaChoice;
   label: string;
 }> = [
@@ -1142,12 +1140,6 @@ export const EFFECT_USE_GM_VERDICT_TOASTS = {
 
 /** Сколько получателей у применения предмета или эффекта: один */
 export const EFFECT_USE_TARGET_COUNT = 1;
-
-/** Цена нового действия «вырваться»: правила обычно просят действие */
-export const NEW_ESCAPE_COST: EffectActionCost = 'action';
-
-/** Навык проверки нового действия «вырваться» */
-export const NEW_ESCAPE_CHECK_SKILL: SkillType = 'athletics';
 
 /** Приставка ключа окна броска «вырваться»: дальше идёт идентификатор эффекта */
 export const EFFECT_ESCAPE_MODAL_KEY_PREFIX = 'effect-escape:';

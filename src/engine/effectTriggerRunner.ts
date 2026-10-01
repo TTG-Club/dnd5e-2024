@@ -1438,6 +1438,47 @@ function restoreEntityResource(
 }
 
 /**
+ * Меняет счётчик листа: новое значение считает вызывающий, а в пределах от
+ * нуля до максимума его держит эта функция.
+ *
+ * @param entity - получатель (меняется)
+ * @param counterKey - ключ счётчика; нет - менять нечего
+ * @param nextOf - новое значение по прежнему
+ * @returns `true`, если счётчик изменился
+ */
+function updateEntityCounter(
+  entity: DnDSceneEntity,
+  counterKey: string | undefined,
+  nextOf: (current: number) => number,
+): boolean {
+  const counters = entity.system.classCounters;
+
+  if (!counterKey || !Array.isArray(counters)) {
+    return false;
+  }
+
+  let changed = false;
+
+  entity.system.classCounters = counters.map((counter) => {
+    if (counter.counterKey !== counterKey) {
+      return counter;
+    }
+
+    const next = Math.min(counter.max, Math.max(0, nextOf(counter.current)));
+
+    if (next === counter.current) {
+      return counter;
+    }
+
+    changed = true;
+
+    return { ...counter, current: next };
+  });
+
+  return changed;
+}
+
+/**
  * Возвращает единицы счётчика листа.
  *
  * @param entity - получатель (меняется)
@@ -1450,28 +1491,9 @@ function restoreEntityCounter(
   counterKey: string | undefined,
   amount: number,
 ): boolean {
-  const counters = entity.system.classCounters;
-
-  if (!counterKey || !Array.isArray(counters) || amount <= 0) {
-    return false;
-  }
-
-  let changed = false;
-
-  entity.system.classCounters = counters.map((counter) => {
-    if (counter.counterKey !== counterKey || counter.current >= counter.max) {
-      return counter;
-    }
-
-    changed = true;
-
-    return {
-      ...counter,
-      current: Math.min(counter.max, counter.current + amount),
-    };
-  });
-
-  return changed;
+  return amount > 0
+    ? updateEntityCounter(entity, counterKey, (current) => current + amount)
+    : false;
 }
 
 /**
@@ -1488,27 +1510,7 @@ function setEntityCounter(
   counterKey: string | undefined,
   value: number,
 ): boolean {
-  const counters = entity.system.classCounters;
-
-  if (!counterKey || !Array.isArray(counters)) {
-    return false;
-  }
-
-  let changed = false;
-
-  entity.system.classCounters = counters.map((counter) => {
-    const next = Math.min(counter.max, Math.max(0, value));
-
-    if (counter.counterKey !== counterKey || counter.current === next) {
-      return counter;
-    }
-
-    changed = true;
-
-    return { ...counter, current: next };
-  });
-
-  return changed;
+  return updateEntityCounter(entity, counterKey, () => value);
 }
 
 /**

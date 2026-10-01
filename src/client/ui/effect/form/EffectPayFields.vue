@@ -23,8 +23,10 @@
 
   import FieldHint from '../../actor/FieldHint.vue';
   import {
+    createEffectPrice,
     EFFECT_PAY_FIELD_LABELS,
     EFFECT_PAY_ROW_ICONS,
+    EFFECT_PRICE_KIND_NOTES,
     EFFECT_PRICE_KIND_OPTIONS,
   } from '../payLabels';
 
@@ -49,19 +51,9 @@
     pay.value = next.length > 0 ? next : undefined;
   }
 
-  /**
-   * Новый платёж выбранного вида с полями по умолчанию.
-   *
-   * @param kind - вид цены
-   * @returns платёж
-   */
-  function createPrice(kind: EffectPriceKind): EffectPrice {
-    return kind === 'counter' ? { kind, counter: '' } : { kind };
-  }
-
   /** Добавляет платёж */
   function addPrice(): void {
-    write([...prices.value, createPrice(DEFAULT_EFFECT_PRICE_KIND)]);
+    write([...prices.value, createEffectPrice(DEFAULT_EFFECT_PRICE_KIND)]);
   }
 
   /**
@@ -91,7 +83,7 @@
    */
   function selectKind(index: number, kind: EffectPriceKind): void {
     if (prices.value[index]?.kind !== kind) {
-      replacePrice(index, createPrice(kind));
+      replacePrice(index, createEffectPrice(kind));
     }
   }
 
@@ -173,29 +165,14 @@
       hasAmount: priceHasAmount(price),
       amount: priceHasAmount(price) ? (price.amount ?? '') : '',
       max: priceHasAmount(price) ? (price.max ?? '') : '',
+      isCounter: price.kind === 'counter',
       isSlot: price.kind === 'spellSlot',
       minLevel: price.kind === 'spellSlot' ? (price.minLevel ?? null) : null,
       maxLevel: price.kind === 'spellSlot' ? (price.maxLevel ?? null) : null,
       pact: price.kind === 'spellSlot' && price.pact === true,
-      note: resolveKindNote(price.kind),
+      note: EFFECT_PRICE_KIND_NOTES[price.kind] ?? '',
     })),
   );
-
-  /**
-   * Пояснение к виду цены без своих полей.
-   *
-   * @param kind - вид цены
-   * @returns пояснение либо пустая строка
-   */
-  function resolveKindNote(kind: EffectPriceKind): string {
-    if (kind === 'itemUses') {
-      return EFFECT_PAY_FIELD_LABELS.itemUsesHint;
-    }
-
-    return kind === 'inspiration'
-      ? EFFECT_PAY_FIELD_LABELS.inspirationHint
-      : '';
-  }
 </script>
 
 <template>
@@ -228,7 +205,7 @@
         </UFormField>
 
         <UFormField
-          v-if="row.kind === 'counter'"
+          v-if="row.isCounter"
           :label="EFFECT_PAY_FIELD_LABELS.counter"
           class="w-56"
         >

@@ -28,7 +28,6 @@ import {
   canSwitchOnEffect,
   collectEffectToggleGroup,
   findBurningActivationPeer,
-  formatSelfTriggerReport,
   needsActivationPayment,
   payActivation,
   stampEffectPaid,
@@ -38,7 +37,11 @@ import {
 import { useSystemToastStore } from '../stores/systemToastStore';
 import { EFFECT_USE_LABELS, ITEM_TOGGLE_LABELS } from '../ui/effect/constants';
 import { recordEntityActionSpend, warnActionCostBlocked } from './actionSpend';
-import { emitActedEntity, runWithEffectPay } from './effectPayChoice';
+import {
+  emitActedEntity,
+  runWithEffectPay,
+  sendSelfTriggerReport,
+} from './effectPayChoice';
 import { runWithEffectVariants } from './effectVariantChoice';
 import { resolveCombatRound } from './encounterTurn';
 import { stampEffectOnApply } from './spellResolutionShared';
@@ -235,11 +238,7 @@ function switchOnEntityEffect(entityId: string, effectId: string): void {
     // Включение состоялось — трата хода в счёт («Замедление»)
     recordEntityActionSpend(entityId, effect.activation?.cost);
 
-    const summary = formatSelfTriggerReport(entity.name, report);
-
-    if (summary) {
-      useChatStore().sendMessage(summary, 'text');
-    }
+    sendSelfTriggerReport(entity.name, report);
   };
 
   if (!pay) {

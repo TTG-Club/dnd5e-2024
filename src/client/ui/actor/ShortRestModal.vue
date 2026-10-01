@@ -13,13 +13,15 @@
   import { useChatStore } from '@/stores/chatStore';
   import { useDiceRollerStore } from '@/stores/diceRollerStore';
   import {
+    formatHitDiceRollTerm,
     getHitDiceGroups,
+    listHitDiceCharges,
     lowHitDiceBonus,
+    NO_HIT_DICE_SPEND_RULES,
     spendHitDice,
   } from '@vtt/shared/system/dnd.js';
 
   import {
-    ACTOR_LEFT_PANEL_LABELS,
     DICE_ROLL_LABELS,
     HIT_DIE_LETTER,
     HIT_POINTS_LABELS,
@@ -54,11 +56,7 @@
   const props = withDefaults(defineProps<Props>(), {
     classes: () => [],
     manualHitDice: () => [],
-    hitDiceRules: () => ({
-      maximize: false,
-      lowAsThree: false,
-      freeDie: false,
-    }),
+    hitDiceRules: () => NO_HIT_DICE_SPEND_RULES,
   });
 
   const emit = defineEmits<{
@@ -97,6 +95,14 @@
     props.conMod >= 0 ? `+${props.conMod}` : `−${Math.abs(props.conMod)}`,
   );
 
+  /** Выбранные к трате кости по граням */
+  const pendingPicks = computed(() =>
+    hitDiceGroups.value.map((group) => ({
+      die: group.die,
+      count: pending[group.die] ?? 0,
+    })),
+  );
+
   /** Суммарно выбрано костей к трате */
   const totalPending = computed(() =>
     hitDiceGroups.value.reduce(
@@ -117,13 +123,9 @@
    * «максимум вместо броска» кости не бросаются — в формулу идёт их максимум.
    */
   const rollFormula = computed(() => {
-    const diceParts = hitDiceGroups.value
-      .filter((group) => (pending[group.die] ?? 0) > 0)
-      .map((group) =>
-        props.hitDiceRules.maximize
-          ? String((pending[group.die] ?? 0) * group.die)
-          : `${pending[group.die]}${ACTOR_LEFT_PANEL_LABELS.hitDieLetter}${group.die}`,
-      );
+    const diceParts = pendingPicks.value
+      .filter((pick) => pick.count > 0)
+      .map((pick) => formatHitDiceRollTerm(pick, props.hitDiceRules.maximize));
 
     if (diceParts.length === 0) {
       return '';
@@ -204,26 +206,22 @@
 
       // «Первая кость после отдыха не тратится»: одна из костей этого отдыха
       // даёт лечение, но не списывается
-      let freeDice = props.hitDiceRules.freeDie ? 1 : 0;
+      const charges = listHitDiceCharges(
+        pendingPicks.value,
+        props.hitDiceRules.freeDie,
+      );
 
-      // Иммутабельно списываем выбранные кости каждого размера по очереди
-      for (const group of hitDiceGroups.value) {
-        const picked = pending[group.die] ?? 0;
-        const count = Math.max(0, picked - freeDice);
+      // Иммутабельно списываем кости каждого размера по очереди
+      for (const charge of charges) {
+        const spent = spendHitDice(
+          charge.die,
+          charge.count,
+          updatedClasses,
+          updatedManualHitDice,
+        );
 
-        freeDice = Math.max(0, freeDice - picked);
-
-        if (count > 0) {
-          const spent = spendHitDice(
-            group.die,
-            count,
-            updatedClasses,
-            updatedManualHitDice,
-          );
-
-          updatedClasses = spent.classes;
-          updatedManualHitDice = spent.manualHitDice;
-        }
+        updatedClasses = spent.classes;
+        updatedManualHitDice = spent.manualHitDice;
       }
     }
 

@@ -40,13 +40,13 @@ import {
   ABILITY_LABELS,
   CREATURE_CATEGORIES,
   CREATURE_SIZE_LABELS,
-  FORMULA_VARIABLE_LABELS,
   isAbilityType,
   isCreatureCategory,
   isCreatureSize,
+  labelFormulaVariables,
 } from './consts.js';
 import { getShortDamageTypeLabel } from './damageConstants.js';
-import { describeEffectPay } from './effectPayTypes.js';
+import { describeEffectPay, EFFECT_PRICE_LABELS } from './effectPayTypes.js';
 import {
   classifyLegacyTrigger,
   isTurnTriggerEvent,
@@ -187,7 +187,6 @@ const TRIGGER_LABELS = {
   nothing: 'ничего',
   listJoiner: ', ',
   clauseJoiner: '; ',
-  payPrefix: ', цена: ',
   restoreAmountPrefix: ' ×',
   restoreSetPrefix: ' становится ',
   setHpFormulaPrefix: 'хиты становятся ',
@@ -203,23 +202,6 @@ const TRIGGER_LABELS = {
 
 /** Сколько возвращает «Вернуть ресурс» без поля `amount` — в фразе */
 const DEFAULT_RESTORE_AMOUNT_TEXT = '1';
-
-/** Токен формулы: `@prof`, `@mod.wis`, `@paid.slotLevel` */
-const FORMULA_TOKEN_PATTERN = /@[a-z][\w.]*/gi;
-
-/**
- * Формула действия для фразы: токены — подписями («круг потраченной ячейки»),
- * а не сырым `@paid.slotLevel`.
- *
- * @param formula - формула действия
- * @returns формула словами
- */
-function prettifyActionFormula(formula: string): string {
-  return formula.replaceAll(
-    FORMULA_TOKEN_PATTERN,
-    (token) => FORMULA_VARIABLE_LABELS[token] ?? token,
-  );
-}
 
 /** Как двигает действие «Переместить» — в фразе */
 const MOVE_KIND_PHRASES: Record<EffectTriggerMoveKind, string> = {
@@ -586,7 +568,7 @@ function describeAction(
       }
 
       return action.formula
-        ? `${TRIGGER_LABELS.setHpFormulaPrefix}${prettifyActionFormula(action.formula)}`
+        ? `${TRIGGER_LABELS.setHpFormulaPrefix}${labelFormulaVariables(action.formula)}`
         : `${TRIGGER_LABELS.setHpPrefix}${action.value}`;
     }
     case 'tempHp':
@@ -616,7 +598,7 @@ function describeAction(
       const counter = `«${action.counter ?? ''}»`;
 
       const amount =
-        action.amount === undefined ? '' : prettifyActionFormula(action.amount);
+        action.amount === undefined ? '' : labelFormulaVariables(action.amount);
 
       if (action.set) {
         return `${counter}${TRIGGER_LABELS.restoreSetPrefix}${amount || DEFAULT_RESTORE_AMOUNT_TEXT}`;
@@ -627,7 +609,7 @@ function describeAction(
     case 'dispel':
       return `${TRIGGER_LABELS.dispelPrefix}${
         action.maxLevelFormula
-          ? prettifyActionFormula(action.maxLevelFormula)
+          ? labelFormulaVariables(action.maxLevelFormula)
           : action.maxLevel
       }`;
     case 'grantInspiration':
@@ -787,7 +769,7 @@ function describeSaveMode(mode: EffectTriggerSaveMode | undefined): string {
  */
 function describeTriggerPay(trigger: EffectTrigger): string {
   return trigger.pay
-    ? `${TRIGGER_LABELS.payPrefix}${describeEffectPay(trigger.pay)}`
+    ? `${EFFECT_PRICE_LABELS.payClausePrefix}${describeEffectPay(trigger.pay)}`
     : '';
 }
 

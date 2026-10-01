@@ -7,11 +7,9 @@
  * чат. Сервер такую сводку собирает сам, клиенту её приходится писать руками.
  */
 
-import { useChatStore } from '@/stores/chatStore';
 import {
   bindLivePaid,
   buildEffectActionEvent,
-  formatSelfTriggerReport,
   listEffectActiveActions,
   listEffectSelfActions,
   listEffectServerActions,
@@ -27,6 +25,7 @@ import { placeAreaTemplate } from './areaTemplateTargets';
 import {
   choosePayOptions,
   emitActedEntity,
+  sendSelfTriggerReport,
   warnPayShortfall,
 } from './effectPayChoice';
 import { resolveCombatRound } from './encounterTurn';
@@ -122,11 +121,7 @@ export function runEntityEffectAction(
 
     emitActedEntity(current, acted);
 
-    const summary = formatSelfTriggerReport(current.name, report);
-
-    if (summary) {
-      useChatStore().sendMessage(summary, 'text');
-    }
+    sendSelfTriggerReport(current.name, report);
 
     runServerActions();
   };

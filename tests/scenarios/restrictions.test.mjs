@@ -104,11 +104,6 @@ describe('каталог: ограничения действий и колдо�
       'Провоцированные атаки недоступны: Электрошок',
     );
 
-    assert.equal(
-      engine.resolveEntityActionBlocks(target).opportunityAttack,
-      'Провоцированные атаки недоступны: Электрошок',
-    );
-
     assert.equal(engine.resolveOpportunityAttackWarning(createActor()), null);
 
     assert.equal(

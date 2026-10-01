@@ -27,8 +27,6 @@ import { getRollRequestService } from '@/core/api/rollRequestService';
 import { emitEntityUpdate } from '@/core/entityUtils';
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
-import { useWorldStore } from '@/stores/worldStore';
-import { isEntityOwner } from '@vtt/shared';
 import {
   buildSaveOverrideOptions,
   findSaveOverride,
@@ -44,7 +42,8 @@ import {
   withRequestSource,
 } from '@vtt/shared/system/dnd.js';
 
-import { isGameMasterUser } from './gmApprovalRequest';
+import { EFFECT_QUESTION_PROMPT_MODAL } from '../ui/effect/constants';
+import { controlsEntityAsUser, isGameMasterUser } from './gmApprovalRequest';
 
 /** Кто бросал и что — то, что нужно вопросу */
 export type SaveOverrideTarget = Pick<
@@ -58,22 +57,6 @@ export type SaveOverrideTarget = Pick<
  * вопрос закрывается без траты.
  */
 export type SaveOverrideCancelSubscriber = (handler: () => void) => void;
-
-/**
- * Управляет ли текущий пользователь носителем: ведущий — любым, игрок — своим.
- *
- * @param entity - носитель
- * @returns `true`, если решать и тратить вправе он сам
- */
-function controlsEntity(entity: DnDSceneEntity): boolean {
-  const userId = useWorldStore().connectionState.loggedAsUserId;
-
-  if (!userId) {
-    return false;
-  }
-
-  return isGameMasterUser(userId) || isEntityOwner(entity, userId);
-}
 
 /**
  * Спрашивает текущего пользователя окном вопроса.
@@ -95,7 +78,7 @@ function askLocally(
   const { openModal, closeModal } = useModalManager();
 
   return new Promise((resolve) => {
-    const modalId = openModal('EffectQuestionPromptModal', {
+    const modalId = openModal(EFFECT_QUESTION_PROMPT_MODAL, {
       allowMultiple: true,
       question: formatSaveOverrideQuestion(
         entity.name,
@@ -260,7 +243,7 @@ export async function offerSaveOverride(
     return result;
   }
 
-  if (controlsEntity(entity)) {
+  if (controlsEntityAsUser(entity)) {
     const accepted = await askLocally(
       entity,
       ability,

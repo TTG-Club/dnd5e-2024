@@ -46,6 +46,8 @@ import {
   DEFAULT_PRICE_AMOUNT,
   describeEffectPrice,
   EFFECT_PRICE_LABELS,
+  formatPriceHitDice,
+  formatPriceSlot,
   PAID_TOKEN_PREFIX,
   paidTokenOf,
   pluralizePrice,
@@ -250,30 +252,6 @@ function formatCounterName(payer: DnDSceneEntity, counterKey: string): string {
   return `«${counter?.name ?? counterKey}»`;
 }
 
-/**
- * Подпись костей хитов: «2 кости хитов (к10)».
- *
- * @param amount - сколько костей
- * @param die - грань
- * @returns подпись
- */
-function formatHitDice(amount: number, die: number): string {
-  return `${amount} ${pluralizePrice(amount, EFFECT_PRICE_LABELS.hitDiceForms)} (к${die})`;
-}
-
-/**
- * Подпись ячейки: «ячейка 3 круга», «ячейка договора 3 круга».
- *
- * @param level - круг
- * @param pact - ячейка договора
- * @returns подпись
- */
-function formatSlot(level: number, pact: boolean): string {
-  const name = pact ? EFFECT_PRICE_LABELS.pactSlot : EFFECT_PRICE_LABELS.slot;
-
-  return `${name} ${level}${EFFECT_PRICE_LABELS.slotLevelSuffix}`;
-}
-
 /** Группа костей хитов платящего: грань и сколько костей можно потратить */
 interface PayerHitDice {
   die: number;
@@ -338,7 +316,7 @@ function listHitDiceOptions(
           id: `${index}:${amount}:${group.die}`,
           amount,
           die: group.die,
-          label: formatHitDice(amount, group.die),
+          label: formatPriceHitDice(amount, group.die),
         })),
     ),
   ];
@@ -384,7 +362,7 @@ function listSlotOptions(
       id: `${index}:${level}${pact ? ':pact' : ''}`,
       amount: level,
       ...(pact ? { pact } : {}),
-      label: `${formatSlot(level, pact)}${suffix}`,
+      label: `${formatPriceSlot(level, pact)}${suffix}`,
     });
   };
 
@@ -610,6 +588,13 @@ export interface HitDiceSpendRules {
   freeDie: boolean;
 }
 
+/** Правила траты костей хитов без черт: бросок как есть, все кости тратятся */
+export const NO_HIT_DICE_SPEND_RULES: HitDiceSpendRules = {
+  maximize: false,
+  lowAsThree: false,
+  freeDie: false,
+};
+
 /**
  * Правила траты костей хитов владельца: одни на короткий отдых и на цену
  * ресурсом — их дают флаги `hitDice.*` действующих эффектов.
@@ -799,7 +784,7 @@ function settleHitDice(
   paid.hitDie = die;
 
   const head = [
-    formatHitDice(option.amount, die),
+    formatPriceHitDice(option.amount, die),
     charged < option.amount ? SETTLE_LABELS.freeDie : '',
     isActorEntity(payer) ? '' : SETTLE_LABELS.untracked,
   ].join('');
@@ -1043,17 +1028,6 @@ export function withSheetResources(
 }
 
 /**
- * Есть ли в цене платёж зарядами предмета: он заменяет обычный расход
- * применения предмета.
- *
- * @param pay - цена
- * @returns `true`, если цена сама списывает заряды
- */
-export function hasItemUsesPrice(pay: EffectPay | undefined): boolean {
-  return (pay ?? []).some((price) => price.kind === 'itemUses');
-}
-
-/**
  * Читает ли цена круг каста: тогда круг надо знать до оплаты.
  *
  * @param pay - цена
@@ -1192,7 +1166,7 @@ export function payTriggerPrice(
     notes:
       settlement.notes.length > 0
         ? [
-            `${source.effect.name} — ${SETTLE_LABELS.paid}: ${settlement.notes.join('; ')}`,
+            `${source.effect.name} — ${SETTLE_LABELS.paid}: ${settlement.notes.join(EFFECT_PRICE_LABELS.paidJoiner)}`,
           ]
         : [],
   };

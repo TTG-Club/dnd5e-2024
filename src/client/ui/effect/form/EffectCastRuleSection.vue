@@ -11,6 +11,7 @@
   import type { AbilityType } from '@vtt/shared';
   import type {
     ActiveEffect,
+    CastRuleSave,
     EffectCastRule,
     EffectFormLayout,
   } from '@vtt/shared/system/dnd.js';
@@ -25,6 +26,7 @@
     layoutAcceptsSourceSaveDc,
     MAX_CAST_FAIL_CHANCE,
     MAX_SPELL_SLOT_LEVEL,
+    MIN_CAST_FAIL_CHANCE,
     MIN_SPELL_SLOT_LEVEL,
     SOURCE_SAVE_DC,
   } from '@vtt/shared/system/dnd.js';
@@ -106,37 +108,33 @@
     },
   });
 
+  /**
+   * Меняет поля спасброска при попытке каста; без спасброска менять нечего.
+   *
+   * @param patch - новые поля спасброска
+   */
+  function updateFailSave(patch: Partial<CastRuleSave>): void {
+    if (rule.value.failSave) {
+      writeRule({
+        ...rule.value,
+        failSave: { ...rule.value.failSave, ...patch },
+      });
+    }
+  }
+
   const failSaveAbility = computed({
     get: () => rule.value.failSave?.ability ?? NEW_CAST_RULE_SAVE_ABILITY,
-    set: (ability: AbilityType) => {
-      if (rule.value.failSave) {
-        writeRule({
-          ...rule.value,
-          failSave: { ...rule.value.failSave, ability },
-        });
-      }
-    },
+    set: (ability: AbilityType) => updateFailSave({ ability }),
   });
 
   const failSaveDc = computed({
     get: () => rule.value.failSave?.dc ?? DEFAULT_EFFECT_SAVE_DC,
-    set: (dc: number) => {
-      if (rule.value.failSave) {
-        writeRule({ ...rule.value, failSave: { ...rule.value.failSave, dc } });
-      }
-    },
+    set: (dc: number) => updateFailSave({ dc }),
   });
 
   const failSaveDcFormula = computed({
     get: () => rule.value.failSave?.dcFormula,
-    set: (dcFormula: string | undefined) => {
-      if (rule.value.failSave) {
-        writeRule({
-          ...rule.value,
-          failSave: { ...rule.value.failSave, dcFormula },
-        });
-      }
-    },
+    set: (dcFormula: string | undefined) => updateFailSave({ dcFormula }),
   });
 
   /** Есть ли у правила провал: без него компонент и ячейка ничего не значат */
@@ -221,7 +219,7 @@
 
           <UInputNumber
             v-model="failChance"
-            :min="1"
+            :min="MIN_CAST_FAIL_CHANCE"
             :max="MAX_CAST_FAIL_CHANCE"
             size="sm"
             class="w-full"
@@ -274,7 +272,7 @@
         >
           <USelect
             v-model="failComponent"
-            :items="[...CAST_RULE_COMPONENT_OPTIONS]"
+            :items="CAST_RULE_COMPONENT_OPTIONS"
             value-key="value"
             size="sm"
             class="w-full"

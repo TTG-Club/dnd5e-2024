@@ -467,7 +467,7 @@
 
         <USelect
           v-model="activationCost"
-          :items="[...EFFECT_ACTIVATION_COST_OPTIONS]"
+          :items="EFFECT_ACTIVATION_COST_OPTIONS"
           value-key="value"
           size="sm"
           class="w-full"
@@ -508,7 +508,7 @@
 
           <USelect
             v-model="activationAreaShape"
-            :items="[...EFFECT_USE_AREA_OPTIONS]"
+            :items="EFFECT_USE_AREA_OPTIONS"
             value-key="value"
             size="sm"
             class="w-full"
@@ -545,9 +545,10 @@
         </UFormField>
 
         <div class="flex items-center gap-1 pb-1.5">
-          <UCheckbox
+          <USwitch
             v-model="activationConcentration"
             :label="EFFECT_ACTIVATION_EXTRA_LABELS.concentration"
+            size="sm"
           />
 
           <FieldHint :text="EFFECT_ACTIVATION_EXTRA_LABELS.concentrationHint" />

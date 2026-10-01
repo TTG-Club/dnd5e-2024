@@ -19,19 +19,18 @@
   import { computed } from 'vue';
 
   import {
-    DEFAULT_EFFECT_SAVE_DC,
+    createDefaultEscapeCheck,
     DEFAULT_ESCAPE_ACTOR,
     DEFAULT_ESCAPE_OUTCOME,
     MAX_ESCAPE_SKILLS,
+    MIN_ESCAPE_SKILL_DC,
+    NEW_ESCAPE_CHECK_SKILL,
     SOURCE_SAVE_DC,
   } from '@vtt/shared/system/dnd.js';
 
   import { useSystemDataStore } from '../../../stores/systemDataStore';
   import FieldHint from '../../actor/FieldHint.vue';
-  import {
-    EFFECT_ESCAPE_SECTION_LABELS,
-    NEW_ESCAPE_CHECK_SKILL,
-  } from '../constants';
+  import { EFFECT_ESCAPE_SECTION_LABELS } from '../constants';
   import {
     buildConditionItems,
     buildDamageTypeItems,
@@ -46,6 +45,8 @@
     ESCAPE_SKILL_ROLE_ANY,
     ESCAPE_SKILL_ROLE_OPTIONS,
     ESCAPE_SKILL_ROW_ICONS,
+    NEW_ESCAPE_FAIL_DAMAGE,
+    NO_ESCAPE_AFTERMATH,
   } from '../escapeLabels';
   import EffectActionCostFields from './EffectActionCostFields.vue';
   import SaveDcField from './SaveDcField.vue';
@@ -62,9 +63,6 @@
   /** Блок действия «вырваться» */
   const escape = defineModel<EffectEscape>({ required: true });
 
-  /** Значение «ничего» в выборе состояния после освобождения */
-  const NO_AFTERMATH = '';
-
   const systemDataStore = useSystemDataStore();
 
   const damageTypeOptions = computed(() =>
@@ -75,7 +73,7 @@
   const aftermathItems = computed(() => [
     {
       label: EFFECT_ESCAPE_FIELD_LABELS.onSuccessApplyNone,
-      value: NO_AFTERMATH,
+      value: NO_ESCAPE_AFTERMATH,
     },
     ...buildConditionItems(),
   ]);
@@ -87,17 +85,6 @@
    */
   function update(patch: Partial<EffectEscape>): void {
     escape.value = { ...escape.value, ...patch };
-  }
-
-  /**
-   * Сложность новой проверки: где есть источник — его Сл («Авто»), иначе своё
-   * число. Ноль там, где источника нет, был бы мёртвым полем: сохранение всё
-   * равно подняло бы его до наименьшей допустимой Сл.
-   *
-   * @returns сложность новой проверки
-   */
-  function defaultCheckDc(): number {
-    return props.autoDcAllowed ? SOURCE_SAVE_DC : DEFAULT_EFFECT_SAVE_DC;
   }
 
   /**
@@ -138,7 +125,7 @@
     set: (enabled: boolean) =>
       update({
         check: enabled
-          ? { skill: NEW_ESCAPE_CHECK_SKILL, dc: defaultCheckDc() }
+          ? createDefaultEscapeCheck(props.autoDcAllowed)
           : undefined,
       }),
   });
@@ -247,7 +234,9 @@
    * @param value - введённая Сл
    */
   function updateSkillDc(index: number, value: number | null): void {
-    updateSkill(index, { dc: value === null || value < 1 ? undefined : value });
+    updateSkill(index, {
+      dc: value === null || value < MIN_ESCAPE_SKILL_DC ? undefined : value,
+    });
   }
 
   /**
@@ -290,9 +279,11 @@
   );
 
   const aftermath = computed({
-    get: () => escape.value.onSuccessApply ?? NO_AFTERMATH,
+    get: () => escape.value.onSuccessApply ?? NO_ESCAPE_AFTERMATH,
     set: (next: ConditionRef) =>
-      update({ onSuccessApply: next === NO_AFTERMATH ? undefined : next }),
+      update({
+        onSuccessApply: next === NO_ESCAPE_AFTERMATH ? undefined : next,
+      }),
   });
 
   const failDamage = computed(() => escape.value.onFailDamage ?? []);
@@ -308,7 +299,7 @@
 
   /** Добавляет часть урона при провале */
   function addFailDamage(): void {
-    writeFailDamage([...failDamage.value, { formula: '1' }]);
+    writeFailDamage([...failDamage.value, { ...NEW_ESCAPE_FAIL_DAMAGE }]);
   }
 
   /**
@@ -425,7 +416,7 @@
         >
           <UInputNumber
             :model-value="row.dc"
-            :min="1"
+            :min="MIN_ESCAPE_SKILL_DC"
             :placeholder="EFFECT_ESCAPE_FIELD_LABELS.skillDcPlaceholder"
             size="sm"
             class="w-full"
@@ -578,7 +569,7 @@
 
         <UButton
           :icon="ESCAPE_SKILL_ROW_ICONS.remove"
-          :aria-label="EFFECT_ESCAPE_FIELD_LABELS.removeSkill"
+          :aria-label="EFFECT_ESCAPE_FIELD_LABELS.removeFailDamage"
           color="neutral"
           variant="ghost"
           size="sm"

@@ -24,12 +24,12 @@ import { emitEntityCombatState, resolveTokenScale } from '@/core/entityUtils';
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
 import { useWorldStore } from '@/stores/worldStore';
-import { getTokenEdgeDistance, isEntityOwner } from '@vtt/shared';
+import { getTokenEdgeDistance } from '@vtt/shared';
 import {
-  applyTargetDamage,
+  applyDamagePartsToCopy,
   buildEscapeAftermath,
   canEscapeEffect,
-  cloneEntityData,
+  DEFAULT_REACH_FEET,
   describeEscapeUnavailable,
   escapeAllowsRole,
   formatEffectEscapeLabel,
@@ -37,26 +37,21 @@ import {
   listEscapeChecks,
   mergeAppliedEffects,
   resolveActorStats,
-  resolveEntityCurrentHp,
-  resolveEntityTempHp,
   resolveEscapeRollMode,
-  rollDamageFormula,
-  stripDamageTypeTokens,
 } from '@vtt/shared/system/dnd.js';
 
 import { useSystemToastStore } from '../stores/systemToastStore';
+import { formatSignedNumber } from '../ui/actor/utils/formatSignedNumber';
 import {
   EFFECT_ESCAPE_LABELS,
   EFFECT_ESCAPE_MODAL_KEY_PREFIX,
+  EFFECT_QUESTION_PROMPT_MODAL,
 } from '../ui/effect/constants';
 import { EFFECT_ESCAPE_PROMPT_LABELS } from '../ui/effect/escapeLabels';
 import { recordEntityActionSpend } from './actionSpend';
-import { isGameMasterUser } from './gmApprovalRequest';
+import { controlsEntityAsUser } from './gmApprovalRequest';
 import { openSkillCheckModal } from './skillCheckRoll';
 import { useWorldEntities } from './useWorldEntities';
-
-/** В пределах скольких футов от носителя стоит «существо рядом» */
-const ESCAPE_HELPER_REACH_FEET = 5;
 
 /** Кто действует, чтобы снять эффект */
 export interface EscapeActor {
@@ -67,19 +62,17 @@ export interface EscapeActor {
 }
 
 /**
- * Управляет ли текущий пользователь существом: ведущий — любым, игрок — своим.
+ * Показывает, почему «вырваться» сейчас нельзя: причину не глотают — иначе
+ * кнопка молча не работает.
  *
- * @param entity - существо
- * @returns `true`, если действовать им вправе он
+ * @param reason - причина словами
  */
-function controlsEntity(entity: DnDSceneEntity): boolean {
-  const userId = useWorldStore().connectionState.loggedAsUserId;
-
-  if (!userId) {
-    return false;
-  }
-
-  return isGameMasterUser(userId) || isEntityOwner(entity, userId);
+function warnEscapeUnavailable(reason: string): void {
+  useSystemToastStore().add({
+    title: EFFECT_ESCAPE_LABELS.hint,
+    description: `${EFFECT_ESCAPE_LABELS.unavailablePrefix}${reason}`,
+    color: 'warning',
+  });
 }
 
 /**
@@ -159,13 +152,13 @@ export function listEscapeActors(
   }
 
   const self: EscapeActor[] =
-    canEscapeEffect(effect, 'self') && controlsEntity(carrier)
+    canEscapeEffect(effect, 'self') && controlsEntityAsUser(carrier)
       ? [{ entity: carrier, role: 'self' }]
       : [];
 
   const helpers: EscapeActor[] = canEscapeEffect(effect, 'adjacent')
-    ? listEntitiesNear(carrier.id, ESCAPE_HELPER_REACH_FEET)
-        .filter(controlsEntity)
+    ? listEntitiesNear(carrier.id, DEFAULT_REACH_FEET)
+        .filter(controlsEntityAsUser)
         .map((entity) => ({ entity, role: 'adjacent' }))
     : [];
 
@@ -199,7 +192,7 @@ function chooseOne<Option>(
     return;
   }
 
-  useModalManager().openModal('EffectQuestionPromptModal', {
+  useModalManager().openModal(EFFECT_QUESTION_PROMPT_MODAL, {
     allowMultiple: true,
     question,
     options: options.map((option, index) => ({
@@ -265,26 +258,14 @@ function settleEscape(
   }
 
   // Урон «при провале» пишется ударами в копию: боевой снимок увезёт их на
-  // сервер, и там сработают события урона
-  const hurt = cloneEntityData(carrier);
+  // сервер, и там сработают события урона. В чат идёт снятое на деле — после
+  // защит цели и вместе с временными хитами
+  const hurt = applyDamagePartsToCopy(carrier, parts);
 
-  for (const part of parts) {
-    const { total } = rollDamageFormula(stripDamageTypeTokens(part.formula));
-
-    applyTargetDamage(hurt, Math.max(0, total), false, part.type);
-  }
-
-  emitEntityCombatState(socket, hurt);
-
-  // Сколько сняло на деле — после защит цели и вместе с временными хитами
-  const total =
-    resolveEntityCurrentHp(carrier)
-    + resolveEntityTempHp(carrier)
-    - resolveEntityCurrentHp(hurt)
-    - resolveEntityTempHp(hurt);
+  emitEntityCombatState(socket, hurt.entity);
 
   useChatStore().sendMessage(
-    `${effect.name}${EFFECT_ESCAPE_PROMPT_LABELS.failDamageMiddle}${carrier.name}${EFFECT_ESCAPE_PROMPT_LABELS.failDamageSuffix}${total}`,
+    `${effect.name}${EFFECT_ESCAPE_PROMPT_LABELS.failDamageMiddle}${carrier.name}${EFFECT_ESCAPE_PROMPT_LABELS.failDamageSuffix}${hurt.dealt}`,
     'text',
   );
 }
@@ -355,11 +336,7 @@ export function runEscapeAs(
   const unavailable = describeEscapeUnavailable(effect, actor.entity);
 
   if (unavailable !== null) {
-    useSystemToastStore().add({
-      title: EFFECT_ESCAPE_LABELS.hint,
-      description: `${EFFECT_ESCAPE_LABELS.unavailablePrefix}${unavailable}`,
-      color: 'warning',
-    });
+    warnEscapeUnavailable(unavailable);
 
     return false;
   }
@@ -378,7 +355,7 @@ export function runEscapeAs(
     EFFECT_ESCAPE_PROMPT_LABELS.skillQuestion,
     effect.name,
     listEscapeChecks(escape, actor.role).map((check) => ({
-      label: `${check.label}${EFFECT_ESCAPE_PROMPT_LABELS.modifierPrefix}${formatModifier(stats.skills[check.skill])}${EFFECT_ESCAPE_PROMPT_LABELS.modifierSuffix}`,
+      label: `${check.label}${EFFECT_ESCAPE_PROMPT_LABELS.modifierPrefix}${formatSignedNumber(stats.skills[check.skill])}${EFFECT_ESCAPE_PROMPT_LABELS.modifierSuffix}`,
       value: check,
     })),
     (check) => {
@@ -388,16 +365,6 @@ export function runEscapeAs(
   );
 
   return true;
-}
-
-/**
- * Модификатор со знаком: «+5», «−1».
- *
- * @param modifier - модификатор
- * @returns запись со знаком
- */
-function formatModifier(modifier: number): string {
-  return modifier >= 0 ? `+${modifier}` : `−${Math.abs(modifier)}`;
 }
 
 /**
@@ -425,11 +392,7 @@ export function runEffectEscape(carrierId: string, effectId: string): boolean {
         ? EFFECT_ESCAPE_PROMPT_LABELS.noActor
         : EFFECT_ESCAPE_PROMPT_LABELS.noHelper);
 
-    useSystemToastStore().add({
-      title: EFFECT_ESCAPE_LABELS.hint,
-      description: `${EFFECT_ESCAPE_LABELS.unavailablePrefix}${reason}`,
-      color: 'warning',
-    });
+    warnEscapeUnavailable(reason);
 
     return false;
   }
@@ -471,14 +434,13 @@ export interface EscapeHelpOffer {
  * @returns предложения помощи; нет сцены или соседей — пусто
  */
 export function listEscapeHelpOffers(helperId: string): EscapeHelpOffer[] {
-  return listEntitiesNear(helperId, ESCAPE_HELPER_REACH_FEET).flatMap(
-    (carrier) =>
-      (carrier.activeEffects ?? [])
-        .filter((effect) => canEscapeEffect(effect, 'adjacent'))
-        .map((effect) => ({
-          carrier,
-          effect,
-          label: `${carrier.name}${EFFECT_ESCAPE_LABELS.titleSeparator}${formatEffectEscapeLabel(effect)}`,
-        })),
+  return listEntitiesNear(helperId, DEFAULT_REACH_FEET).flatMap((carrier) =>
+    (carrier.activeEffects ?? [])
+      .filter((effect) => canEscapeEffect(effect, 'adjacent'))
+      .map((effect) => ({
+        carrier,
+        effect,
+        label: `${carrier.name}${EFFECT_ESCAPE_LABELS.titleSeparator}${formatEffectEscapeLabel(effect)}`,
+      })),
   );
 }

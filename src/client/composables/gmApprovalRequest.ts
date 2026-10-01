@@ -8,12 +8,14 @@
  */
 
 import type {
+  DnDSceneEntity,
   GmApprovalRequest,
   GmApprovalVerdict,
 } from '@vtt/shared/system/dnd.js';
 
 import { getRollRequestService } from '@/core/api/rollRequestService';
 import { useWorldStore } from '@/stores/worldStore';
+import { isEntityOwner } from '@vtt/shared';
 import {
   buildGmApprovalPayload,
   formatGmApprovalTitle,
@@ -40,6 +42,22 @@ export function isGameMasterUser(userId: string): boolean {
       (user) => user.id === userId && user.role === 'admin',
     ) ?? false
   );
+}
+
+/**
+ * Управляет ли текущий пользователь существом: ведущий — любым, игрок — своим.
+ *
+ * @param entity - существо
+ * @returns `true`, если действовать им и тратить его ресурсы вправе он
+ */
+export function controlsEntityAsUser(entity: DnDSceneEntity): boolean {
+  const userId = useWorldStore().connectionState.loggedAsUserId;
+
+  if (!userId) {
+    return false;
+  }
+
+  return isGameMasterUser(userId) || isEntityOwner(entity, userId);
 }
 
 /**

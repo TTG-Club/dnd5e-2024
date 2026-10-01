@@ -18,6 +18,7 @@
 
 import { z } from 'zod';
 
+import { HIT_DICE_FORMULA_LETTER } from './consts.js';
 import { parseEachValid } from './lenientParse.js';
 import {
   MAX_SPELL_SLOT_LEVEL,
@@ -166,12 +167,24 @@ export function paidTokenOf(field: EffectPaidField): string {
   return `${PAID_TOKEN_PREFIX}${field}`;
 }
 
-/** Zod-схема формулы количества: число тоже приводится к строке */
-const PriceFormulaSchema = z
-  .preprocess(
+/**
+ * Zod-схема формулы строкой: число из старых данных («вернуть 2 единицы»)
+ * читается как формула из одного числа.
+ *
+ * @param maxLength - предел длины формулы
+ * @returns схема непустой строки-формулы
+ */
+export function formulaTextSchema(
+  maxLength: number,
+): z.ZodType<string, z.ZodTypeDef, unknown> {
+  return z.preprocess(
     (value) => (typeof value === 'number' ? String(value) : value),
-    z.string().trim().min(1).max(MAX_PRICE_TEXT_LENGTH),
-  )
+    z.string().trim().min(1).max(maxLength),
+  );
+}
+
+/** Zod-схема формулы количества: число тоже приводится к строке */
+const PriceFormulaSchema = formulaTextSchema(MAX_PRICE_TEXT_LENGTH)
   .optional()
   .catch(undefined);
 
@@ -272,6 +285,8 @@ export const EFFECT_PRICE_LABELS = {
   inspiration: 'героическое вдохновение',
   payJoiner: ' и ',
   paidJoiner: '; ',
+  payTitle: 'цена: ',
+  payClausePrefix: ', цена: ',
   paidRollPrefix: ', бросок ',
   paidCounterForms: ['единица счётчика', 'единицы счётчика', 'единиц счётчика'],
 } as const;
@@ -397,6 +412,43 @@ export function describeEffectPay(
 }
 
 /**
+ * Подпись костей хитов: «2 кости хитов (к10)»; без грани — «2 кости хитов».
+ *
+ * @param amount - сколько костей
+ * @param die - грань, если известна
+ * @returns подпись
+ */
+export function formatPriceHitDice(amount: number, die?: number): string {
+  const dice = `${amount} ${pluralizePrice(amount, EFFECT_PRICE_LABELS.hitDiceForms)}`;
+
+  return die ? `${dice} (${HIT_DICE_FORMULA_LETTER}${die})` : dice;
+}
+
+/**
+ * Подпись ячейки: «ячейка 3 круга», «ячейка договора 3 круга».
+ *
+ * @param level - круг
+ * @param pact - ячейка договора
+ * @returns подпись
+ */
+export function formatPriceSlot(level: number, pact: boolean): string {
+  const name = pact ? EFFECT_PRICE_LABELS.pactSlot : EFFECT_PRICE_LABELS.slot;
+
+  return `${name} ${level}${EFFECT_PRICE_LABELS.slotLevelSuffix}`;
+}
+
+/**
+ * Есть ли в цене платёж зарядами предмета: он заменяет обычный расход
+ * применения предмета.
+ *
+ * @param pay - цена
+ * @returns `true`, если цена сама списывает заряды
+ */
+export function hasItemUsesPrice(pay: EffectPay | undefined): boolean {
+  return (pay ?? []).some((price) => price.kind === 'itemUses');
+}
+
+/**
  * Потраченное словами — для карточки эффекта: «ячейка 3 круга; 2 кости хитов
  * (к10), бросок 11».
  *
@@ -411,21 +463,16 @@ export function describeEffectPaid(paid: EffectPaid | undefined): string {
   const parts: string[] = [];
 
   if (paid.slotLevel !== undefined) {
-    parts.push(
-      `${EFFECT_PRICE_LABELS.slot} ${paid.slotLevel}${EFFECT_PRICE_LABELS.slotLevelSuffix}`,
-    );
+    parts.push(formatPriceSlot(paid.slotLevel, false));
   }
 
   if (paid.hitDice) {
-    const dice = `${paid.hitDice} ${pluralizePrice(paid.hitDice, EFFECT_PRICE_LABELS.hitDiceForms)}`;
-    const die = paid.hitDie ? ` (к${paid.hitDie})` : '';
-
     const roll =
       paid.hitDiceRoll === undefined
         ? ''
         : `${EFFECT_PRICE_LABELS.paidRollPrefix}${paid.hitDiceRoll}`;
 
-    parts.push(`${dice}${die}${roll}`);
+    parts.push(`${formatPriceHitDice(paid.hitDice, paid.hitDie)}${roll}`);
   }
 
   if (paid.counter) {

@@ -39,6 +39,7 @@ import {
   isUseActivatedEffect,
 } from './activeEffectTypes.js';
 import { cloneEntityData } from './dataClone.js';
+import { hasItemUsesPrice } from './effectPayTypes.js';
 import {
   buildTriggerSources,
   EFFECT_TRIGGER_SOURCE_KINDS,
@@ -111,7 +112,7 @@ export function canUseItem(item: DnDGameItem): boolean {
  */
 export function hasPricedItemUse(item: DnDGameItem): boolean {
   return listUseEffects(item.activeEffects).some((effect) =>
-    (effect.pay ?? []).some((price) => price.kind === 'itemUses'),
+    hasItemUsesPrice(effect.pay),
   );
 }
 

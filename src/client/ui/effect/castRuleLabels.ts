@@ -5,6 +5,8 @@
 import type { AbilityType } from '@vtt/shared';
 import type { CastRuleComponent } from '@vtt/shared/system/dnd.js';
 
+import { CAST_RULE_COMPONENTS } from '@vtt/shared/system/dnd.js';
+
 /** Подписи раздела */
 export const EFFECT_CAST_RULE_LABELS = {
   toggle: 'Мешает носителю колдовать',
@@ -35,15 +37,23 @@ export const CAST_RULE_ANY_COMPONENT = 'any';
 export type CastRuleComponentChoice =
   CastRuleComponent | typeof CAST_RULE_ANY_COMPONENT;
 
+/** Названия компонентов заклинания в выборе */
+const CAST_RULE_COMPONENT_LABELS: Record<CastRuleComponent, string> = {
+  verbal: 'Вербальный',
+  somatic: 'Соматический',
+  material: 'Материальный',
+};
+
 /** Варианты выбора компонента */
-export const CAST_RULE_COMPONENT_OPTIONS: ReadonlyArray<{
+export const CAST_RULE_COMPONENT_OPTIONS: Array<{
   value: CastRuleComponentChoice;
   label: string;
 }> = [
   { value: CAST_RULE_ANY_COMPONENT, label: 'Любое заклинание' },
-  { value: 'verbal', label: 'Вербальный' },
-  { value: 'somatic', label: 'Соматический' },
-  { value: 'material', label: 'Материальный' },
+  ...CAST_RULE_COMPONENTS.map((value) => ({
+    value,
+    label: CAST_RULE_COMPONENT_LABELS[value],
+  })),
 ];
 
 /** Характеристика спасброска нового правила: Телосложение — самая частая */

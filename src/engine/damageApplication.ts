@@ -15,7 +15,7 @@
  * @module system/dnd/damageApplication
  */
 
-import type { DefensibleDamageType } from '@vtt/shared';
+import type { DamagePart, DefensibleDamageType } from '@vtt/shared';
 
 import type { ActiveEffect, EffectOrigin } from './activeEffectTypes.js';
 import type { DamageHit } from './damageHits.js';
@@ -46,6 +46,8 @@ import {
   applyHpChange,
   withoutIgnoredResistances,
 } from './damageUtils.js';
+import { cloneEntityData } from './dataClone.js';
+import { rollDamageFormula } from './diceFormula.js';
 import {
   isImmuneToCondition,
   mergeAppliedEffects,
@@ -62,6 +64,7 @@ import {
   writeTriggerUsage,
 } from './effectTriggerUsage.js';
 import { buildFormulaContext } from './formulaParser.js';
+import { stripDamageTypeTokens } from './formulaTokens.js';
 import { limitEntityHealing } from './healingLimits.js';
 import {
   resolveEntityCurrentHp,
@@ -483,4 +486,43 @@ export function getEntityActiveFlags(
   entity: DnDSceneEntity,
 ): ReadonlySet<string> {
   return resolveActorStats(entity).activeFlags;
+}
+
+/** Сущность после урона частями и сколько хитов он снял на деле */
+export interface DamagedEntityCopy<Entity extends DnDSceneEntity> {
+  /** Копия сущности с нанесённым уроном */
+  entity: Entity;
+  /** Снято хитов после защит цели, вместе с временными */
+  dealt: number;
+}
+
+/**
+ * Бросает части урона и наносит их КОПИИ сущности: исходная не меняется.
+ * Нужна клиенту, которому нельзя править сущность мира на месте («урон за
+ * неудачную попытку вырваться»): копию увозит боевой снимок.
+ *
+ * @param entity - кто получает урон
+ * @param parts - части урона
+ * @returns копия с уроном и снятые хиты
+ */
+export function applyDamagePartsToCopy<Entity extends DnDSceneEntity>(
+  entity: Entity,
+  parts: readonly DamagePart[],
+): DamagedEntityCopy<Entity> {
+  const hurt = cloneEntityData(entity);
+
+  for (const part of parts) {
+    const rolled = rollDamageFormula(stripDamageTypeTokens(part.formula));
+
+    applyTargetDamage(hurt, Math.max(0, rolled.total), false, part.type);
+  }
+
+  return {
+    entity: hurt,
+    dealt:
+      resolveEntityCurrentHp(entity)
+      + resolveEntityTempHp(entity)
+      - resolveEntityCurrentHp(hurt)
+      - resolveEntityTempHp(hurt),
+  };
 }

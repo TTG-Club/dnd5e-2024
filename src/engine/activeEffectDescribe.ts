@@ -42,7 +42,11 @@ import {
   splitConditionParts,
 } from './activeEffectTypes.js';
 import { getConditionEntry } from './conditionTemplates.js';
-import { ABILITY_LABELS, FORMULA_VARIABLE_LABELS } from './consts.js';
+import {
+  ABILITY_LABELS,
+  labelFormulaVariable,
+  labelFormulaVariables,
+} from './consts.js';
 import {
   describeCreatureTypeCondition,
   parseAnyCreatureTypeCondition,
@@ -56,7 +60,11 @@ import {
   formatEffectActionCost,
   listEscapeChecks,
 } from './effectEscape.js';
-import { describeEffectPaid, describeEffectPay } from './effectPayTypes.js';
+import {
+  describeEffectPaid,
+  describeEffectPay,
+  EFFECT_PRICE_LABELS,
+} from './effectPayTypes.js';
 import { isDiceFormulaValue } from './effectPipeline.js';
 import { renderReadableFormula } from './formulaParser.js';
 import {
@@ -199,16 +207,6 @@ export function describeRecurringDamageSave(save: EffectSave): string {
 }
 
 /**
- * Подпись переменной формулы (`@prof` → «бонус мастерства»).
- *
- * @param token - переменная с `@`
- * @returns подпись; незнакомая переменная отдаётся как есть
- */
-function labelFormulaVariable(token: string): string {
-  return FORMULA_VARIABLE_LABELS[token] ?? token;
-}
-
-/**
  * Формула словами. Чистая арифметика разбирается парсером — функции
  * `floor`/`min` читаются словами, а не кодом; формула с токенами урона
  * описывается как часть урона; кости с переменными — заменой токенов.
@@ -231,7 +229,7 @@ function prettifyFormula(value: string): string {
     return describeEffectDamageParts([{ formula: value }]);
   }
 
-  return value.replace(/@[a-z.]+/gi, labelFormulaVariable);
+  return labelFormulaVariables(value);
 }
 
 /**
@@ -784,7 +782,7 @@ const EFFECT_STACKABLE_DETAIL_LABEL = 'складывается с одноим�
 
 /** Цена ресурсом и потраченное — в разделе «Применение» карточки */
 const EFFECT_PAY_DETAIL_LABELS = {
-  pay: 'цена: ',
+  pay: EFFECT_PRICE_LABELS.payTitle,
   paid: 'потрачено: ',
 } as const;
 

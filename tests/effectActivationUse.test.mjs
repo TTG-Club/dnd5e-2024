@@ -6,7 +6,7 @@ import { loadEngineBundle } from './helpers/engineBundle.mjs';
 import { loadHandler } from './helpers/sourceHandler.mjs';
 
 const engine = await loadEngineBundle(
-  "export * from './src/engine/effectActivation.ts'; export * from './src/engine/spellUtils.ts'; export * from './src/engine/effectPay.ts';",
+  "export * from './src/engine/effectActivation.ts'; export * from './src/engine/spellUtils.ts'; export * from './src/engine/effectPay.ts'; export * from './src/engine/effectPayTypes.ts';",
 );
 
 const helperPath = 'src/client/composables/effectActivationUse.ts';

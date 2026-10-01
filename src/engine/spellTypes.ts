@@ -29,7 +29,7 @@ export const SPELL_SCHOOL_LABELS: Record<SpellSchool, string> = {
 };
 
 /** Школы магии в порядке показа */
-const SPELL_SCHOOL_KEYS: readonly SpellSchool[] = [
+export const SPELL_SCHOOL_KEYS: readonly SpellSchool[] = [
   'abjuration',
   'conjuration',
   'divination',

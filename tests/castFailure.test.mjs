@@ -26,6 +26,8 @@ async function loadCastFailure({ roll = 100, save = { passed: true } } = {}) {
     CANTRIP_SPELL_LEVEL: engine.CANTRIP_SPELL_LEVEL,
     formatCastFailureMessage: engine.formatCastFailureMessage,
     listCastFailureChecks: engine.listCastFailureChecks,
+    resolveLostCastSlotLevel: engine.resolveLostCastSlotLevel,
+    SOURCE_SAVE_DC: engine.SOURCE_SAVE_DC,
     rollCastFailChance: (chance) => ({ roll, failed: roll <= chance }),
     listAmbientEffects: () => [],
     useChatStore: () => ({
@@ -40,12 +42,6 @@ async function loadCastFailure({ roll = 100, save = { passed: true } } = {}) {
       },
     }),
   };
-
-  ports.resolveLostSlotLevel = await loadHandler(
-    helperPath,
-    'resolveLostSlotLevel',
-    ports,
-  );
 
   ports.settleCastFailure = await loadHandler(
     helperPath,

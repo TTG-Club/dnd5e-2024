@@ -17,15 +17,18 @@ import type {
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
+import type { PayableSource } from './effectPayChoice';
+
 import { useChatStore } from '@/stores/chatStore';
 import {
-  CANTRIP_SPELL_LEVEL,
   formatCastFailureMessage,
   listCastFailureChecks,
+  resolveLostCastSlotLevel,
   rollCastFailChance,
+  SOURCE_SAVE_DC,
 } from '@vtt/shared/system/dnd.js';
 
-import { runWithEffectPay } from './effectPayChoice';
+import { runWithEffectPay, runWithSpellCastPay } from './effectPayChoice';
 import { listAmbientEffects } from './useResolvedStats';
 import { useSpellSavingThrows } from './useSpellSavingThrows';
 
@@ -50,34 +53,6 @@ export interface CastFailureOptions {
 }
 
 /**
- * Круг ячейки, которую тратит проваленный каст: выбранный раньше либо
- * наименьший доступный. Заговор и заклинание с зарядами ячейку не тратят.
- *
- * @param spell - заклинание
- * @param options - с чем идёт каст
- * @returns круг либо `undefined`, если ячейки у каста нет
- */
-function resolveLostSlotLevel(
-  spell: CastFailureSource,
-  options: CastFailureOptions,
-): number | undefined {
-  if (
-    spell.uses
-    || (spell.level ?? CANTRIP_SPELL_LEVEL) <= CANTRIP_SPELL_LEVEL
-  ) {
-    return undefined;
-  }
-
-  const levels = (options.availableLevels ?? []).filter(
-    (level) => level > CANTRIP_SPELL_LEVEL,
-  );
-
-  return (
-    options.lockedLevel ?? (levels.length > 0 ? Math.min(...levels) : undefined)
-  );
-}
-
-/**
  * Сообщает о провале каста и списывает ячейку, если так велит правило.
  *
  * @param spell - заклинание
@@ -95,7 +70,9 @@ function settleCastFailure(
   const loseUse = losesSlot ? options.loseUse : undefined;
 
   const slotLevel =
-    losesSlot && !loseUse ? resolveLostSlotLevel(spell, options) : undefined;
+    losesSlot && !loseUse
+      ? resolveLostCastSlotLevel(spell, options)
+      : undefined;
 
   useChatStore().sendMessage(
     formatCastFailureMessage(
@@ -147,7 +124,7 @@ async function runCastFailureCheck(
 
   // Сл 0 — Сл источника, которую не проставили: спасбросок против нуля прошёл
   // бы у кого угодно, его не бросают
-  if (!check.save || check.save.dc <= 0) {
+  if (!check.save || check.save.dc <= SOURCE_SAVE_DC) {
     return null;
   }
 
@@ -217,4 +194,32 @@ export function runWithCastFailure(
   };
 
   void runChecks();
+}
+
+/**
+ * Каст заклинания листа от проверки провала до оплаты: сперва провал
+ * («Замедление», «Слово силы: Боль») — неудавшееся заклинание цену сверх
+ * ячейки не берёт, — затем цена ресурсом, затем сам каст.
+ *
+ * @param spell - заклинание
+ * @param caster - заклинатель
+ * @param options - закреплённый круг, доступные круги и запись оплаты
+ * @param proceed - продолжение каста: оплаченное заклинание, закреплённый
+ *   круг и заклинатель после оплаты
+ */
+export function runWithCastFailureAndPay<
+  Source extends CastFailureSource & PayableSource,
+>(
+  spell: Source,
+  caster: DnDSceneEntity,
+  options: CastFailureOptions & { availableLevels: readonly number[] },
+  proceed: (
+    paidSpell: Source,
+    lockedLevel: number | undefined,
+    paidCaster: DnDSceneEntity,
+  ) => void,
+): void {
+  runWithCastFailure(spell, caster, options, () => {
+    runWithSpellCastPay(spell, caster, options, proceed);
+  });
 }

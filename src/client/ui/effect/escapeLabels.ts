@@ -10,6 +10,7 @@ import type {
 } from '@vtt/shared/system/dnd.js';
 
 import {
+  DEFAULT_REACH_FEET,
   EFFECT_ESCAPE_ROLES,
   EFFECT_ESCAPE_ROLL_MODE_LABELS,
   EFFECT_ESCAPE_ROLL_MODES,
@@ -24,7 +25,7 @@ export const EFFECT_ESCAPE_PROMPT_LABELS = {
   modifierPrefix: ' (бросок ',
   modifierSuffix: ')',
   noActor: 'этим существом управляете не вы',
-  noHelper: 'рядом (в 5 фт) нет вашего существа, которое может помочь',
+  noHelper: `рядом (в ${DEFAULT_REACH_FEET} фт) нет вашего существа, которое может помочь`,
   /** Строка чата: «Капкан: провал — Гримли получает урон: 1» */
   failDamageMiddle: ': провал — ',
   failDamageSuffix: ' получает урон: ',
@@ -33,7 +34,7 @@ export const EFFECT_ESCAPE_PROMPT_LABELS = {
 /** Подписи блока помощи соседям на вкладке «Эффекты» */
 export const EFFECT_ESCAPE_HELP_LABELS = {
   title: 'Помочь рядом',
-  hint: 'Эффекты существ в 5 футах, из которых им можно помочь выбраться',
+  hint: `Эффекты существ в ${DEFAULT_REACH_FEET} футах, из которых им можно помочь выбраться`,
   icon: 'tabler:hand-grab',
 } as const;
 
@@ -86,6 +87,7 @@ export const EFFECT_ESCAPE_FIELD_LABELS = {
     'Вырывающийся выбирает один из навыков: правило захвата 2024 — «Атлетика или Акробатика». Своя Сл — если у навыка она другая (кандалы: Ловкость рук 20, Атлетика 25).',
   addSkill: 'Добавить навык',
   removeSkill: 'Убрать навык',
+  removeFailDamage: 'Убрать урон',
   skillDc: 'Своя Сл',
   skillDcPlaceholder: 'Как у проверки',
   skillRole: 'Кому доступен',
@@ -105,3 +107,9 @@ export const EFFECT_ESCAPE_FIELD_LABELS = {
   onFailDamageType: 'Тип',
   addFailDamage: 'Добавить урон',
 } as const;
+
+/** Значение «ничего» в выборе состояния после освобождения */
+export const NO_ESCAPE_AFTERMATH = '';
+
+/** Новая часть урона за неудачную попытку: единица, как у капкана */
+export const NEW_ESCAPE_FAIL_DAMAGE = { formula: '1' } as const;

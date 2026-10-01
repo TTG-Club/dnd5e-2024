@@ -72,7 +72,16 @@ import {
   EFFECT_CHANGE_STEP_PERIODS,
   MAX_EFFECT_CHANGE_STEP,
 } from './effectChangeSteps.js';
-import { EffectPaidSchema, EffectPaySchema } from './effectPayTypes.js';
+import {
+  EffectPaidSchema,
+  EffectPaySchema,
+  formulaTextSchema,
+} from './effectPayTypes.js';
+import {
+  coerceOptionalNumber,
+  SAVE_ABILITY_VALUES,
+  SaveDcFormulaSchema,
+} from './effectSchemaParts.js';
 import {
   EFFECT_ACTION_COSTS,
   EFFECT_CAST_OWNERS,
@@ -2036,9 +2045,6 @@ export interface DndEffectAura extends EffectAura {
   whileCapable?: true;
 }
 
-/** Сл в данных, которая значит «Сл источника» (поле показывает «Авто») */
-export const SOURCE_SAVE_DC = 0;
-
 /** Кто может действовать, чтобы снять эффект */
 export const EFFECT_ESCAPE_ACTORS = ['self', 'adjacent', 'any'] as const;
 
@@ -3131,45 +3137,11 @@ export const MAX_CHANGES_PER_EFFECT = 40;
 
 // ── Zod-схемы для валидации ───────────────────────────────────
 
-/**
- * Читает число из поля формы: число как есть, строку с числом — числом.
- *
- * Поле ввода числа отдаёт пустую строку, когда его очистили, а без
- * модификатора `.number` — строку с числом.
- *
- * @param value - значение поля ввода
- * @returns число либо `undefined` для пустого, нечислового ввода и `NaN`
- */
-export function parseFormNumber(value: unknown): number | undefined {
-  if (typeof value === 'number') {
-    return Number.isFinite(value) ? value : undefined;
-  }
-
-  if (typeof value !== 'string') {
-    return undefined;
-  }
-
-  const trimmed = value.trim();
-  const parsed = Number(trimmed);
-
-  return trimmed === '' || !Number.isFinite(parsed) ? undefined : parsed;
-}
-
-/**
- * Приводит числовое поле формы к числу до проверки схемой.
- *
- * Строгая схема на строке из поля ввода падала, и разбор отбрасывал куда
- * больше, чем одно поле: все модификаторы эффекта или его длительность целиком.
- *
- * @param value - значение поля как пришло
- * @returns число, `undefined` для пустого или нечислового ввода, либо исходное
- *   значение, если это не строка и не число
- */
-function coerceOptionalNumber(value: unknown): unknown {
-  return typeof value === 'number' || typeof value === 'string'
-    ? parseFormNumber(value)
-    : value;
-}
+export {
+  MAX_SAVE_DC_FORMULA_LENGTH,
+  parseFormNumber,
+  SOURCE_SAVE_DC,
+} from './effectSchemaParts.js';
 
 /**
  * Zod-схема для валидации EffectChange.
@@ -3320,16 +3292,6 @@ export const EffectAuraSchema = z.object({
   whileCapable: z.literal(true).optional().catch(undefined),
 });
 
-/** Характеристики спасброска (для Zod-валидации эффекта) */
-const SAVE_ABILITY_VALUES = [
-  'strength',
-  'dexterity',
-  'constitution',
-  'intelligence',
-  'wisdom',
-  'charisma',
-] as const;
-
 /** Самый длинный ключ счётчика применения */
 const MAX_ACTIVATION_COUNTER_LENGTH = 100;
 
@@ -3338,21 +3300,6 @@ const MAX_MOVE_COST_FEET = 200;
 
 /** Zod-схема сложности спасброска: число, в том числе набранное строкой */
 const EffectSaveDcSchema = z.preprocess(coerceOptionalNumber, z.number().int());
-
-/** Самая длинная формула Сл */
-export const MAX_SAVE_DC_FORMULA_LENGTH = 200;
-
-/**
- * Zod-схема Сл формулой: пустая или слишком длинная отбрасывается, спасбросок
- * остаётся с числом.
- */
-const SaveDcFormulaSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(MAX_SAVE_DC_FORMULA_LENGTH)
-  .optional()
-  .catch(undefined);
 
 /** Больше характеристик на выбор у одного спасброска не бывает */
 export const MAX_SAVE_ALT_ABILITIES = 5;
@@ -3424,10 +3371,7 @@ const MAX_TRIGGER_FORMULA_LENGTH = 200;
  * Zod-схема формулы действия срабатывания. Число из старых данных («вернуть 2
  * единицы») читается как формула из одного числа.
  */
-const TriggerFormulaSchema = z.preprocess(
-  (value) => (typeof value === 'number' ? String(value) : value),
-  z.string().trim().min(1).max(MAX_TRIGGER_FORMULA_LENGTH),
-);
+const TriggerFormulaSchema = formulaTextSchema(MAX_TRIGGER_FORMULA_LENGTH);
 
 /** Больше правил режима у одного спасброска не бывает */
 const MAX_SAVE_MODE_RULES = 8;
@@ -3648,6 +3592,9 @@ const EffectFlagsSchema = z
   .array(z.string())
   .transform((flags) => flags.filter(isEffectFlagKey));
 
+/** Наименьшая своя Сл навыка: меньше — у навыка Сл проверки */
+export const MIN_ESCAPE_SKILL_DC = 1;
+
 /**
  * Zod-схема навыка на выбор у проверки «вырваться». Навык строкой — тот же
  * вариант без своей Сл: так список пишут руками.
@@ -3660,7 +3607,7 @@ const EffectEscapeSkillOptionSchema = z.preprocess(
     ),
     dc: z.preprocess(
       coerceOptionalNumber,
-      z.number().int().min(1).optional().catch(undefined),
+      z.number().int().min(MIN_ESCAPE_SKILL_DC).optional().catch(undefined),
     ),
     by: z.enum(EFFECT_ESCAPE_ROLES).optional().catch(undefined),
     label: z

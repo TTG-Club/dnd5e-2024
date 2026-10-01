@@ -199,6 +199,26 @@ const COMBAT_LIMIT_PERIODS: readonly EffectTriggerLimitPeriod[] = [
 ];
 
 /**
+ * Ключ счётчика лимита срабатывания. Счётчик реакции общий у всех эффектов
+ * носителя, поэтому источник у него не эффект, а сам носитель.
+ *
+ * @param scope - источник эффекта
+ * @param trigger - срабатывание
+ * @param limit - действующий лимит срабатывания
+ * @returns ключ счётчика
+ */
+function resolveTriggerUsageKey(
+  scope: string,
+  trigger: EffectTrigger,
+  limit: EffectTriggerLimit,
+): string {
+  return buildTriggerUsageKey(trigger.limit ? scope : REACTION_USAGE_SCOPE, {
+    ...trigger,
+    limit,
+  });
+}
+
+/**
  * Проверяет лимит и, если срабатывать можно, отмечает срабатывание.
  *
  * Вне боя лимит хода и раунда не ограничивает: сбросить его некому, и зона,
@@ -229,12 +249,7 @@ export function takeTriggerUse(
     return true;
   }
 
-  // Счётчик реакции общий у всех эффектов носителя, поэтому источник у него
-  // не эффект, а сам носитель
-  const key = buildTriggerUsageKey(
-    trigger.limit ? scope : REACTION_USAGE_SCOPE,
-    { ...trigger, limit },
-  );
+  const key = resolveTriggerUsageKey(scope, trigger, limit);
 
   if (isTriggerLimitReached(entity, key, limit)) {
     return false;
@@ -268,12 +283,11 @@ export function canTakeTriggerUse(
     return true;
   }
 
-  const key = buildTriggerUsageKey(
-    trigger.limit ? scope : REACTION_USAGE_SCOPE,
-    { ...trigger, limit },
+  return !isTriggerLimitReached(
+    entity,
+    resolveTriggerUsageKey(scope, trigger, limit),
+    limit,
   );
-
-  return !isTriggerLimitReached(entity, key, limit);
 }
 
 /** Какие периоды лимита заканчивает отдых */

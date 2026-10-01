@@ -27,6 +27,8 @@ async function loadEscape({ flags = new Set(), holderFlags, pick = 0 } = {}) {
 
   const ports = {
     getSkillCheckBonusKeys: engine.getSkillCheckBonusKeys,
+    formatSignedNumber: (value) =>
+      value < 0 ? `−${Math.abs(value)}` : `+${value}`,
     canEscapeEffect: engine.canEscapeEffect,
     describeEscapeUnavailable: engine.describeEscapeUnavailable,
     escapeAllowsRole: engine.escapeAllowsRole,
@@ -39,6 +41,7 @@ async function loadEscape({ flags = new Set(), holderFlags, pick = 0 } = {}) {
     getSkillSettingAbility: engine.getSkillSettingAbility,
     resolveAbilityCheckRollMode: engine.resolveAbilityCheckRollMode,
     SKILLS_LABELS: engine.SKILLS_LABELS,
+    EFFECT_QUESTION_PROMPT_MODAL: 'EffectQuestionPromptModal',
     listAmbientEffects: () => [],
     resolveActorStats: (entity) => ({
       skills: { athletics: 3, acrobatics: 5, medicine: 1 },
@@ -85,7 +88,12 @@ async function loadEscape({ flags = new Set(), holderFlags, pick = 0 } = {}) {
   };
 
   ports.chooseOne = await loadHandler(helperPath, 'chooseOne', ports);
-  ports.formatModifier = await loadHandler(helperPath, 'formatModifier', ports);
+
+  ports.warnEscapeUnavailable = await loadHandler(
+    helperPath,
+    'warnEscapeUnavailable',
+    ports,
+  );
 
   // Окно проверки навыка — общее с Сл от проверки (`skillCheckRoll.ts`)
   ports.openSkillCheckModal = await loadHandler(

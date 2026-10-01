@@ -34,6 +34,7 @@ import {
   getActorAbilityModifiers,
   getCreatureProficiencyBonus,
 } from './calculations.js';
+import { HIT_DICE_FORMULA_LETTER } from './consts.js';
 import {
   getCustomBonusesValue,
   parseAbilityBonuses,
@@ -50,9 +51,6 @@ export const CREATURE_HIT_DIE_BY_SIZE: Record<CreatureSize, CreatureHitDie> = {
   huge: 12,
   gargantuan: 20,
 };
-
-/** Буква кости в записи формулы хитов существа: «2к8» */
-export const HIT_DICE_FORMULA_LETTER = 'к';
 
 /** Число костей хитов у существа, пока его никто не задал */
 export const DEFAULT_CREATURE_HIT_DICE_COUNT = 1;

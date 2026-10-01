@@ -17,16 +17,13 @@
   import { computed } from 'vue';
 
   import {
-    DEFAULT_EFFECT_SAVE_DC,
+    createDefaultEscape,
     layoutAcceptsSourceSaveDc,
-    SOURCE_SAVE_DC,
   } from '@vtt/shared/system/dnd.js';
 
   import {
     EFFECT_ESCAPE_SECTION_LABELS,
     EFFECT_SOURCE_DC_LABELS,
-    NEW_ESCAPE_CHECK_SKILL,
-    NEW_ESCAPE_COST,
   } from '../constants';
   import EffectEscapeFields from './EffectEscapeFields.vue';
 
@@ -42,28 +39,12 @@
   /** «Авто» доступно там, где Сл источника вообще бывает */
   const autoDcAllowed = computed(() => layoutAcceptsSourceSaveDc(props.layout));
 
-  /**
-   * Новый блок действия: действием и с проверкой Атлетики против Сл источника
-   * (где он есть) или своей.
-   *
-   * @returns блок действия
-   */
-  function createEscape(): EffectEscape {
-    return {
-      cost: NEW_ESCAPE_COST,
-      check: {
-        skill: NEW_ESCAPE_CHECK_SKILL,
-        dc: autoDcAllowed.value ? SOURCE_SAVE_DC : DEFAULT_EFFECT_SAVE_DC,
-      },
-    };
-  }
-
   const hasEscape = computed({
     get: () => effect.value.escape !== undefined,
     set: (enabled: boolean) => {
       effect.value = {
         ...effect.value,
-        escape: enabled ? createEscape() : undefined,
+        escape: enabled ? createDefaultEscape(autoDcAllowed.value) : undefined,
       };
     },
   });

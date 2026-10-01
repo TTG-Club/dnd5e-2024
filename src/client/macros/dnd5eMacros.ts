@@ -129,7 +129,10 @@ import {
   resolveTargetedAttackRoll,
   resolveTargetedCritThreshold,
 } from '../composables/attackRollMode';
-import { runWithCastFailure } from '../composables/castFailure';
+import {
+  runWithCastFailure,
+  runWithCastFailureAndPay,
+} from '../composables/castFailure';
 import {
   buildCreatureRollVariants,
   launchCreatureAction,
@@ -147,7 +150,6 @@ import {
   prepareAmmunitionShot,
   spendShotAmmunition,
 } from '../composables/effectActivationUse';
-import { runWithSpellCastPay } from '../composables/effectPayChoice';
 import {
   readEntityCounters,
   toggleEntityEffect,
@@ -1103,21 +1105,18 @@ function runWithMacroCastPay(
     availableLevels,
   };
 
-  // Провал каста («Замедление», «Слово силы: Боль») — до оплаты
-  runWithCastFailure(spell, actor, castOptions, () => {
-    runWithSpellCastPay(
-      spell,
-      actor,
-      castOptions,
-      (paidSpell, castLevel, paidCaster) => {
-        proceed(
-          paidSpell,
-          castLevel,
-          isDnDActorEntity(paidCaster) ? paidCaster : actor,
-        );
-      },
-    );
-  });
+  runWithCastFailureAndPay(
+    spell,
+    actor,
+    castOptions,
+    (paidSpell, castLevel, paidCaster) => {
+      proceed(
+        paidSpell,
+        castLevel,
+        isDnDActorEntity(paidCaster) ? paidCaster : actor,
+      );
+    },
+  );
 }
 
 /**

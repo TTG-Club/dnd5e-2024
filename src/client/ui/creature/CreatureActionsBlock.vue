@@ -1040,6 +1040,7 @@
         menuItems: getActionMenuItems(action, index),
         canUse: canUseAction(action),
         canDrag: !props.isEditMode && !!props.creatureId,
+        blockedReason: blockOf(action),
       }));
   });
 
@@ -1150,7 +1151,7 @@
           :menu-items="row.menuItems"
           :can-use="row.canUse"
           :can-drag="row.canDrag"
-          :blocked-reason="blockOf(row.action)"
+          :blocked-reason="row.blockedReason"
           @open="handleActionClick(row.action, row.index)"
           @use="openRollModal(row.action)"
           @dragstart="handleDragStart($event, row.action)"

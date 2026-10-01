@@ -16,6 +16,8 @@ import {
   spellAreaScalesWithLevel,
 } from '@vtt/shared/system/dnd.js';
 
+import { EFFECT_QUESTION_PROMPT_MODAL } from '../ui/effect/constants';
+
 /**
  * Выбирает круг до шаблона, если от него растёт область; иначе продолжает
  * сразу, без закреплённого круга (его выберут в окне броска, как всегда).
@@ -48,7 +50,7 @@ export function chooseAreaCastLevel(
 
   const unitLabel = DISTANCE_UNIT_SHORT[areaOfEffect.unit] ?? areaOfEffect.unit;
 
-  useModalManager().openModal('EffectQuestionPromptModal', {
+  useModalManager().openModal(EFFECT_QUESTION_PROMPT_MODAL, {
     allowMultiple: true,
     question: AREA_CAST_LEVEL_LABELS.question,
     options: availableLevels.map((castLevel) => ({

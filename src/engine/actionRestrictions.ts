@@ -76,7 +76,7 @@ import {
 } from './effectCastRule.js';
 import { collectActiveEffects, resolveActorStats } from './effectPipeline.js';
 import { readTriggerUsage } from './effectTriggerUsage.js';
-import { SPELL_SCHOOL_LABELS } from './spellTypes.js';
+import { SPELL_SCHOOL_KEYS, SPELL_SCHOOL_LABELS } from './spellTypes.js';
 
 /** Флаги ограничения действий */
 export const ACTION_RESTRICTION_FLAGS = {
@@ -495,8 +495,6 @@ export interface EntityActionBlocks {
   slotLevels: SlotLevelBlocks;
   /** Почему недоступна вторая атака действием «Атака» */
   attack?: string;
-  /** Почему недоступны провоцированные атаки */
-  opportunityAttack?: string;
 }
 
 /** Лимит круга ячейки с причиной */
@@ -529,18 +527,6 @@ const RESTRICTION_REASON_PREFIXES = {
 function schoolBlockFlag(school: SpellSchool): SpellSchoolBlockFlagKey {
   return `spellcasting.noSchool.${school}`;
 }
-
-/** Школы магии — для обхода флагов запрета */
-const SPELL_SCHOOLS: readonly SpellSchool[] = [
-  'abjuration',
-  'conjuration',
-  'divination',
-  'enchantment',
-  'evocation',
-  'illusion',
-  'necromancy',
-  'transmutation',
-];
 
 /**
  * Лимит круга ячейки с причинами — по правилам каста эффектов носителя.
@@ -618,7 +604,7 @@ export function resolveEntityActionBlocks(
     }
   }
 
-  for (const school of SPELL_SCHOOLS) {
+  for (const school of SPELL_SCHOOL_KEYS) {
     const flag = schoolBlockFlag(school);
 
     if (flags.has(flag)) {
@@ -628,7 +614,6 @@ export function resolveEntityActionBlocks(
   }
 
   const attackFlag = findAttackSpendBlock(entity, flags);
-  const opportunityFlag = ACTION_RESTRICTION_FLAGS.noOpportunityAttack;
 
   return {
     byCost,
@@ -638,11 +623,6 @@ export function resolveEntityActionBlocks(
     ...(attackFlag
       ? {
           attack: `${RESTRICTION_REASON_PREFIXES.attack}: ${sourceOf(attackFlag)}`,
-        }
-      : {}),
-    ...(flags.has(opportunityFlag)
-      ? {
-          opportunityAttack: `${RESTRICTION_REASON_PREFIXES.opportunityAttack}: ${sourceOf(opportunityFlag)}`,
         }
       : {}),
   };

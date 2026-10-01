@@ -13,7 +13,7 @@
  * (`positionalEffects`), тики хода (`turnEffects`).
  */
 
-import type { AbilityType } from '@vtt/shared';
+import type { AbilityType, SkillType } from '@vtt/shared';
 
 import type {
   ActiveEffect,
@@ -30,6 +30,7 @@ import type {
 } from './activeEffectTypes.js';
 import type { EffectPay, EffectPrice } from './effectPayTypes.js';
 import type {
+  EffectActionCost,
   EffectTrigger,
   EffectTriggerAction,
   EffectTriggerApplyConditionAction,
@@ -47,6 +48,7 @@ import {
   isUseActivatedEffect,
   MAX_EFFECT_CHARGES,
   MIN_ACTIVATION_RANGE,
+  MIN_ESCAPE_SKILL_DC,
   parseFormNumber,
   SOURCE_SAVE_DC,
   useAreaHasWidth,
@@ -1628,6 +1630,42 @@ export function createDefaultEffectSave(
   return { ability: DEFAULT_EFFECT_SAVE_ABILITY, dc: defaultSaveDc(layout) };
 }
 
+/** Цена нового действия «вырваться»: правила обычно просят действие */
+const NEW_ESCAPE_COST: EffectActionCost = 'action';
+
+/** Навык проверки нового действия «вырваться» */
+export const NEW_ESCAPE_CHECK_SKILL: SkillType = 'athletics';
+
+/**
+ * Проверка нового действия «вырваться». Сложность — Сл источника («Авто»)
+ * там, где источник есть, иначе своё число: ноль без источника был бы мёртвым
+ * полем — сохранение всё равно подняло бы его до наименьшей допустимой Сл.
+ *
+ * @param autoDcAllowed - у места окна бывает Сл источника
+ * @returns проверка навыка
+ */
+export function createDefaultEscapeCheck(
+  autoDcAllowed: boolean,
+): EffectEscapeCheck {
+  return {
+    skill: NEW_ESCAPE_CHECK_SKILL,
+    dc: autoDcAllowed ? SOURCE_SAVE_DC : DEFAULT_EFFECT_SAVE_DC,
+  };
+}
+
+/**
+ * Новое действие «вырваться»: действием, проверкой навыка.
+ *
+ * @param autoDcAllowed - у места окна бывает Сл источника
+ * @returns блок действия
+ */
+export function createDefaultEscape(autoDcAllowed: boolean): EffectEscape {
+  return {
+    cost: NEW_ESCAPE_COST,
+    check: createDefaultEscapeCheck(autoDcAllowed),
+  };
+}
+
 /**
  * Включает или выключает спасбросок эффекта.
  *
@@ -2115,7 +2153,7 @@ function normalizeDraftEscapeCheck(
 
     return {
       skill: option.skill,
-      ...(dc >= 1 ? { dc } : {}),
+      ...(dc >= MIN_ESCAPE_SKILL_DC ? { dc } : {}),
       ...(option.by ? { by: option.by } : {}),
       ...(label ? { label } : {}),
     };
