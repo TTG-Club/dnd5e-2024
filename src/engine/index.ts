@@ -140,6 +140,7 @@ export * from './spellUtils.js';
 export * from './spellZones.js';
 export * from './startingEquipment.js';
 export * from './systemClientEvents.js';
+export * from './takenFeats.js';
 export * from './templateGeometry.js';
 export * from './terrainCost.js';
 export * from './toolProficiency.js';

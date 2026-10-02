@@ -137,6 +137,7 @@
     canProceed,
     preparedFeatChoices,
     asiFeatChoice,
+    asiTakenFeat,
     featChoiceProficiencyBonus,
     grantedSpellSources,
     grantedClassSpellRequests,
@@ -268,6 +269,13 @@
     toRef(props, 'packId'),
   );
 
+  /** Ответы черты, взятой вместо повышения характеристик, на её вопросы */
+  const asiFeatOwnAnswers = computed(() =>
+    asiTakenFeat.value
+      ? (wizardState.featOwnChoices[asiTakenFeat.value.answersKey] ?? {})
+      : {},
+  );
+
   /** Заголовок модального окна */
   const modalTitle = computed(() => {
     if (isFirstClass.value) {
@@ -357,6 +365,22 @@
    */
   function handleFeatSelectionsUpdate(selections: Record<string, string[]>) {
     wizardState.featDataChoices = selections;
+  }
+
+  /**
+   * Сохраняет ответы взятой уровнем черты на её собственные вопросы.
+   *
+   * @param answersKey - ключ ответов черты
+   * @param answers - ответы черты: ключ выбора → значения
+   */
+  function handleFeatOwnAnswersUpdate(
+    answersKey: string,
+    answers: Record<string, string[]>,
+  ) {
+    wizardState.featOwnChoices = {
+      ...wizardState.featOwnChoices,
+      [answersKey]: answers,
+    };
   }
 
   /**
@@ -569,6 +593,7 @@
             :rows="levelRows"
             :feature-choices="wizardState.featureChoices"
             :feat-selections="wizardState.featDataChoices"
+            :feat-own-answers="wizardState.featOwnChoices"
             :feature-skills="wizardState.selectedFeatureSkills"
             :has-subclass-selection="hasSubclassSelection"
             :subclasses="classDefinition.subclasses"
@@ -583,6 +608,7 @@
             @update:subclass-key="wizardState.subclassKey = $event"
             @update:feat-selection="handleFeatSelection"
             @update:feat-selections="handleFeatSelectionsUpdate"
+            @update:feat-own-answers="handleFeatOwnAnswersUpdate"
             @update:feature-skills="handleFeatureSkillsUpdate"
             @open-spell="openSpellDetail"
           />
@@ -608,7 +634,12 @@
             :feats="compendiumFeats"
             :actor="actor"
             :feat-choice="asiFeatChoice"
+            :taken-feat="asiTakenFeat"
+            :feat-own-answers="asiFeatOwnAnswers"
+            :proficiency-bonus="featChoiceProficiencyBonus"
+            :spells="featChoiceSpells"
             @update:asi-state="handleAsiUpdate"
+            @update:feat-own-answers="handleFeatOwnAnswersUpdate"
           />
         </div>
       </div>

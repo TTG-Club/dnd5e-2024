@@ -29,6 +29,8 @@ import type {
   HitPointMethod,
   ResolvedGrantedSpell,
   SpellGrantKind,
+  TakenFeat,
+  TakenFeatAnswers,
 } from '@vtt/shared/system/dnd.js';
 
 import type { AppliedFeatFeature, CompendiumFeat } from '../../feat/featApply';
@@ -41,6 +43,7 @@ import {
   appendGrantedSpells,
   buildCounterFormulaContext,
   buildFeatGrantEffect,
+  buildTakenFeat,
   calculateProficiencyBonus,
   collectClassCounterDefinitions,
   collectClassOptionGrants,
@@ -67,6 +70,7 @@ import {
   isCounterOfDefinition,
   isFeatPickChoice,
   isForeignSubclassCounter,
+  isTakenFeatAnswered,
   newClassFeatureChoicesAt,
   openClassFeatureChoices,
   prepareFeatChoices,
@@ -79,6 +83,7 @@ import {
   SKILLS_LIST,
   toFeatureChoiceKeys,
   withCounterMinimum,
+  withTakenFeatAnswers,
 } from '@vtt/shared/system/dnd.js';
 
 import { useFeatChoiceWeapons } from '../../../../composables/useFeatChoiceWeapons';
@@ -178,6 +183,15 @@ export interface WizardState {
    */
   featDataChoices: Record<string, string[]>;
   /**
+   * Ответы на СОБСТВЕННЫЕ вопросы черт, которые уровень кладёт на лист: ключ
+   * ответов черты ({@link WizardTakenFeat.answersKey}) → ответы черты.
+   *
+   * Отдельно от `featDataChoices`: там ответы дарам класса, а это ответы другой
+   * записи — самой черты, — и лягут они на неё же. В одном словаре ключи бы
+   * столкнулись: выбор характеристики у двух черт называется одинаково.
+   */
+  featOwnChoices: TakenFeatAnswers;
+  /**
    * Как умение кладёт на лист открывшиеся списки класса: целиком либо только
    * выбранное игроком. Ключ — ключ умения; нет ответа — выбор самому.
    */
@@ -239,6 +253,19 @@ export interface WizardFeatPick {
 }
 
 /**
+ * Черта, которую уровень кладёт на лист, вместе с её собственными вопросами:
+ * взятая вместо повышения характеристик, выбранная в умении или выданная
+ * дарами без выбора. Без ответов она легла бы на лист пустой.
+ */
+export interface WizardTakenFeat extends TakenFeat<CompendiumFeat> {
+  /**
+   * Строка уровня, в которой черту взяли: там же спрашиваются её вопросы.
+   * `null` — черта вместо повышения характеристик, её спрашивает свой шаг.
+   */
+  rowKey: string | null;
+}
+
+/**
  * Строка уровня: карточка умения со всем, что оно спрашивает и даёт.
  *
  * Всё, о чём спрашивает уровень, лежит в строке того, кто спрашивает: игрок
@@ -272,6 +299,8 @@ export interface WizardLevelRow {
   choices: FeatChoice[];
   /** Выборы черты: пул из компендиума черт, поэтому пикер у них свой */
   featPicks: FeatChoice[];
+  /** Взятые в этой строке черты, которым есть что спросить */
+  featQuestions: WizardTakenFeat[];
   /** Навык от самого умения (легаси-поле записи); null — не спрашивает */
   skillChoice: ClassFeatureSkillChoice | null;
 }
@@ -314,6 +343,23 @@ const STEP_DEFINITIONS: Record<WizardStepKey, Omit<WizardStepItem, 'value'>> = {
  * иначе заняла бы его строку.
  */
 const OWN_GRANTS_ROW_PREFIX = 'own:';
+
+/**
+ * Откуда уровень берёт черту — начало ключа её ответов. Места разведены:
+ * одна и та же черта, взятая в умении и вместо повышения характеристик,
+ * отвечает на свои вопросы дважды и по-разному.
+ */
+const TAKEN_FEAT_PLACE = {
+  /** Вместо повышения характеристик */
+  asi: 'asi',
+  /** Выбором черты в умении: дальше идёт ключ выбора */
+  pick: 'pick:',
+  /** Дарами записи без выбора: дальше идёт ключ строки уровня */
+  grant: 'grant:',
+} as const;
+
+/** Разделитель ключа ответов взятой черты: место и сама черта */
+const TAKEN_FEAT_KEY_SEPARATOR = '::';
 
 /**
  * Помечает выдачу уровня выдачей умения класса: колонки таблицы класса
@@ -703,6 +749,7 @@ export function useClassWizard(
     },
     toolProficiencies: [],
     featDataChoices: {},
+    featOwnChoices: {},
     classSpellListModes: {},
     classSpellListPicks: {},
   });
@@ -1367,6 +1414,209 @@ export function useClassWizard(
   });
 
   /**
+   * Лист с уже применённым уровнем, который берут сейчас.
+   *
+   * Нужен выдаче «весь список класса, не выше доступного круга»: круг такой группы
+   * считается по ячейкам, а настоящий лист уровня ещё не получил — по нему список
+   * отстал бы ровно на тот уровень, ради которого мастера и открыли. Ячейки —
+   * единственное, что здесь считается, поэтому и подменяются только уровень класса и
+   * его тип заклинательства.
+   */
+  const pendingActor = computed((): DnDActor => {
+    const classDef = classDefinition.value;
+
+    if (!classDef) {
+      return actor.value;
+    }
+
+    const spellcasting =
+      classDef.spellcasting ?? activeSubclass.value?.spellcasting ?? null;
+
+    const classes = [...(actor.value.system.classes ?? [])];
+
+    const existingIndex = classes.findIndex(
+      (entry) => entry.classKey === classDef.key,
+    );
+
+    if (existingIndex === -1) {
+      classes.push({
+        classKey: classDef.key,
+        ...(packId.value ? { packId: packId.value } : {}),
+        className: classDef.name,
+        level: 1,
+        subclassKey: wizardState.subclassKey || null,
+        hitDie: classDef.hitDie,
+        hitDiceUsed: 0,
+        hitPointsGained: [],
+        chosenSkills: [],
+        featureChoices: {},
+        ...(spellcasting
+          ? {
+              spellcastingAbility: spellcasting.ability,
+              casterType: spellcasting.type,
+            }
+          : {}),
+      });
+    } else {
+      classes[existingIndex] = {
+        ...classes[existingIndex],
+        level: nextLevel.value,
+        ...(spellcasting && !classes[existingIndex].casterType
+          ? { casterType: spellcasting.type }
+          : {}),
+      };
+    }
+
+    return {
+      ...actor.value,
+      system: { ...actor.value.system, classes },
+    };
+  });
+
+  /**
+   * Черты, которые дары уровня выдают без выбора, со строкой уровня своего
+   * источника: вопросы такой черты спрашиваются в строке того, кто её дал.
+   * Строки — те же, что у выборов даров ({@link featChoiceGroups}).
+   */
+  const grantedFeatsByRow = computed<{ rowKey: string; featId: string }[]>(
+    () => {
+      const classDef = classDefinition.value;
+
+      if (!classDef) {
+        return [];
+      }
+
+      const granted: { rowKey: string; featId: string }[] = [];
+
+      /**
+       * Добавляет черты, выданные записью, её строкой.
+       *
+       * @param rowKey - ключ строки уровня
+       * @param featData - дары записи
+       */
+      const push = (rowKey: string, featData: FeatData | undefined): void => {
+        for (const feat of featData?.grantedFeats ?? []) {
+          granted.push({ rowKey, featId: feat.featId });
+        }
+      };
+
+      if (nextLevel.value === 1) {
+        push(`${OWN_GRANTS_ROW_PREFIX}${classDef.key}`, classDef.featData);
+      }
+
+      const subclassDef = activeSubclass.value;
+
+      if (wizardState.subclassKey && subclassDef) {
+        push(
+          `${OWN_GRANTS_ROW_PREFIX}${subclassDef.key}`,
+          subclassDef.featData,
+        );
+      }
+
+      for (const feature of levelFeatures.value) {
+        if (!feature.isInformationalOnly) {
+          push(feature.key, feature.featData);
+        }
+      }
+
+      for (const grant of selectedOptionGrants.value) {
+        push(grant.featureKey, grant.featData);
+      }
+
+      return granted;
+    },
+  );
+
+  /**
+   * Черты, которые уровень кладёт на лист, вместе с их собственными вопросами:
+   * выбранные в умениях, взятая вместо повышения характеристик и выданные
+   * дарами без выбора. Неизвестные ключи пропускаются — черта могла уехать из
+   * компендиума вместе с паком.
+   *
+   * Вопросы — те же, что задаёт окно выбора при перетаскивании черты на лист,
+   * и считаются по листу с уже взятым уровнем: им открываются ступени выборов.
+   */
+  const takenFeats = computed<WizardTakenFeat[]>(() => {
+    const classDef = classDefinition.value;
+    const taken: WizardTakenFeat[] = [];
+
+    /**
+     * Добавляет взятую черту.
+     *
+     * @param rowKey - строка уровня; `null` — шаг характеристик
+     * @param place - откуда черта взята: часть ключа её ответов
+     * @param featId - ключ черты компендиума
+     */
+    const push = (
+      rowKey: string | null,
+      place: string,
+      featId: string,
+    ): void => {
+      const feat = compendiumFeats.value.find((entry) => entry.id === featId);
+
+      if (feat) {
+        taken.push({
+          ...buildTakenFeat(
+            `${place}${TAKEN_FEAT_KEY_SEPARATOR}${featId}`,
+            feat,
+            pendingActor.value,
+          ),
+          rowKey,
+        });
+      }
+    };
+
+    for (const [rowKey, picks] of Object.entries(featPicksByRow.value)) {
+      for (const choice of picks) {
+        for (const featId of wizardState.featDataChoices[choice.key] ?? []) {
+          push(rowKey, `${TAKEN_FEAT_PLACE.pick}${choice.key}`, featId);
+        }
+      }
+    }
+
+    if (
+      classDef
+      && hasAbilityImprovementAtLevel(classDef, nextLevel.value)
+      && wizardState.asi.mode === 'feat'
+      && wizardState.asi.featKey
+    ) {
+      push(null, TAKEN_FEAT_PLACE.asi, wizardState.asi.featKey);
+    }
+
+    for (const granted of grantedFeatsByRow.value) {
+      push(
+        granted.rowKey,
+        `${TAKEN_FEAT_PLACE.grant}${granted.rowKey}`,
+        granted.featId,
+      );
+    }
+
+    return taken;
+  });
+
+  /** Черта, взятая вместо повышения характеристик; `null` — не взята */
+  const asiTakenFeat = computed<WizardTakenFeat | null>(
+    () => takenFeats.value.find((taken) => taken.rowKey === null) ?? null,
+  );
+
+  /**
+   * Отвечены ли собственные вопросы взятой черты. Каталог заклинаний сюда не
+   * идёт: пока он не загружен, пул пуст и требование остаётся полным — так же,
+   * как у выборов даров уровня.
+   *
+   * @param taken - взятая уровнем черта
+   */
+  function isFeatAnswered(taken: WizardTakenFeat): boolean {
+    return isTakenFeatAnswered(
+      taken,
+      wizardState.featOwnChoices,
+      pendingActor.value,
+      { weapons: weaponOptions.value },
+      featChoiceProficiencyBonus.value,
+    );
+  }
+
+  /**
    * Выбор черты умения повышения характеристик: им сужается пул на шаге
    * характеристик в режиме «Взять черту». `null` — умение описано одним
    * флагом, и пул берётся по правилу листа.
@@ -1452,22 +1702,32 @@ export function useClassWizard(
      * @param row - заготовка строки без выборов
      */
     const push = (
-      row: Omit<WizardLevelRow, 'pick' | 'choices' | 'featPicks'>,
+      row: Omit<
+        WizardLevelRow,
+        'pick' | 'choices' | 'featPicks' | 'featQuestions'
+      >,
     ): void => {
       const pick = picks.find((entry) => entry.featureKey === row.key) ?? null;
       const choices = visibleChoicesByRow.value[row.key] ?? [];
       const featPicks = featPicksByRow.value[row.key] ?? [];
 
+      // Черта, выданная дарами записи без выбора, тоже спрашивает своё — и
+      // спросить её больше негде, кроме строки того, кто её дал
+      const featQuestions = takenFeats.value.filter(
+        (taken) => taken.rowKey === row.key && taken.ownChoices.length > 0,
+      );
+
       if (
         row.isOwnGrants
         && !choices.length
         && !featPicks.length
+        && !featQuestions.length
         && !row.skillChoice
       ) {
         return;
       }
 
-      rows.push({ ...row, pick, choices, featPicks });
+      rows.push({ ...row, pick, choices, featPicks, featQuestions });
     };
 
     for (const feature of levelFeatures.value) {
@@ -1602,38 +1862,24 @@ export function useClassWizard(
   );
 
   /**
-   * Ключи черт компендиума, которые уровень кладёт на лист: выбранные в умениях,
-   * взятая вместо повышения характеристик и выданные умениями без выбора.
+   * Записи компендиума для взятых уровнем черт — уже с ответами игрока на их
+   * собственные вопросы: применяет их тот же код, что и черту, перетащенную на
+   * лист, и без ответов «Телекинетик» лёг бы без прибавки и характеристики.
    */
-  const chosenFeatIds = computed<string[]>(() => {
-    const classDef = classDefinition.value;
-
-    const asiFeatKey =
-      classDef
-      && hasAbilityImprovementAtLevel(classDef, nextLevel.value)
-      && wizardState.asi.mode === 'feat'
-        ? wizardState.asi.featKey
-        : null;
-
-    return [
-      ...featPickChoices.value.flatMap(
-        ({ choice }) => wizardState.featDataChoices[choice.key] ?? [],
-      ),
-      ...(asiFeatKey ? [asiFeatKey] : []),
-      ...levelFeatData.value.flatMap((data) =>
-        (data.grantedFeats ?? []).map((feat) => feat.featId),
-      ),
-    ];
-  });
-
-  /** Записи компендиума для взятых уровнем черт; неизвестные ключи пропускаются */
   const chosenCompendiumFeats = computed<CompendiumFeat[]>(() =>
-    chosenFeatIds.value.flatMap((featId) => {
-      const feat = compendiumFeats.value.find((entry) => entry.id === featId);
-
-      return feat ? [feat] : [];
-    }),
+    takenFeats.value.map((taken) =>
+      withTakenFeatAnswers(taken, wizardState.featOwnChoices),
+    ),
   );
+
+  /**
+   * Выборы уровня и собственные выборы взятых им черт одним списком — по нему
+   * грузится каталог заклинаний для полей выбора.
+   */
+  const allPreparedFeatChoices = computed<FeatChoice[]>(() => [
+    ...preparedFeatChoices.value,
+    ...takenFeats.value.flatMap((taken) => taken.ownChoices),
+  ]);
 
   /** Навыки, названные умениями этого уровня, одним списком */
   const chosenFeatureSkills = computed<SkillType[]>(() =>
@@ -1673,66 +1919,6 @@ export function useClassWizard(
   const selectedEquipmentCoins = computed(
     () => selectedEquipmentOption.value?.coins ?? 0,
   );
-
-  /**
-   * Лист с уже применённым уровнем, который берут сейчас.
-   *
-   * Нужен выдаче «весь список класса, не выше доступного круга»: круг такой группы
-   * считается по ячейкам, а настоящий лист уровня ещё не получил — по нему список
-   * отстал бы ровно на тот уровень, ради которого мастера и открыли. Ячейки —
-   * единственное, что здесь считается, поэтому и подменяются только уровень класса и
-   * его тип заклинательства.
-   */
-  const pendingActor = computed((): DnDActor => {
-    const classDef = classDefinition.value;
-
-    if (!classDef) {
-      return actor.value;
-    }
-
-    const spellcasting =
-      classDef.spellcasting ?? activeSubclass.value?.spellcasting ?? null;
-
-    const classes = [...(actor.value.system.classes ?? [])];
-
-    const existingIndex = classes.findIndex(
-      (entry) => entry.classKey === classDef.key,
-    );
-
-    if (existingIndex === -1) {
-      classes.push({
-        classKey: classDef.key,
-        ...(packId.value ? { packId: packId.value } : {}),
-        className: classDef.name,
-        level: 1,
-        subclassKey: wizardState.subclassKey || null,
-        hitDie: classDef.hitDie,
-        hitDiceUsed: 0,
-        hitPointsGained: [],
-        chosenSkills: [],
-        featureChoices: {},
-        ...(spellcasting
-          ? {
-              spellcastingAbility: spellcasting.ability,
-              casterType: spellcasting.type,
-            }
-          : {}),
-      });
-    } else {
-      classes[existingIndex] = {
-        ...classes[existingIndex],
-        level: nextLevel.value,
-        ...(spellcasting && !classes[existingIndex].casterType
-          ? { casterType: spellcasting.type }
-          : {}),
-      };
-    }
-
-    return {
-      ...actor.value,
-      system: { ...actor.value.system, classes },
-    };
-  });
 
   /**
    * Заклинания, автоматически предоставляемые умениями на получаемом уровне:
@@ -2075,11 +2261,19 @@ export function useClassWizard(
           variantsChosen
           && areFeatChoicesComplete.value
           && areFeatureSkillsComplete.value
+          // Черта, взятая в умении, спрашивает своё здесь же
+          && takenFeats.value
+            .filter((taken) => taken.rowKey !== null)
+            .every(isFeatAnswered)
         );
       }
       case 'asi': {
         if (wizardState.asi.mode === 'feat') {
-          return wizardState.asi.featKey !== null;
+          // Черта выбрана и на её собственные вопросы отвечено: окно выбора
+          // у перетащенной черты обязательно, и здесь правило то же
+          return (
+            asiTakenFeat.value !== null && isFeatAnswered(asiTakenFeat.value)
+          );
         }
 
         // Сумма прибавок должна быть ровно 2
@@ -2135,6 +2329,7 @@ export function useClassWizard(
     wizardState.subclassKey = null;
     wizardState.featureChoices = {};
     wizardState.featDataChoices = {};
+    wizardState.featOwnChoices = {};
     wizardState.asi = { mode: 'asi', abilityIncreases: {}, featKey: null };
     wizardState.toolProficiencies = [];
     wizardState.classSpellListModes = {};
@@ -2987,9 +3182,10 @@ export function useClassWizard(
     // Состояние
     wizardState,
     canProceed,
-    preparedFeatChoices,
+    preparedFeatChoices: allPreparedFeatChoices,
     featPickChoices,
     asiFeatChoice,
+    asiTakenFeat,
     featChoiceProficiencyBonus,
     grantedSpellSources,
     grantedClassSpellRequests,

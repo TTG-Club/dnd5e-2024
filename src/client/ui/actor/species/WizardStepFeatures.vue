@@ -13,6 +13,7 @@
   import type {
     SpeciesFeatDataSourceView,
     SpeciesFeatPick,
+    SpeciesGrantedFeat,
     SpeciesWizardState,
   } from './useSpeciesWizard';
 
@@ -46,6 +47,8 @@
     featChoiceSpells: ReadonlyArray<Spell>;
     /** Выборы черты в дарах — их спрашивает пикер компендиума */
     featPicks: SpeciesFeatPick[];
+    /** Черты, выданные дарами без выбора, которым есть что спросить */
+    grantedFeatQuestions: SpeciesGrantedFeat[];
     /** Черты компендиума — пул этих выборов */
     featChoiceFeats: ReadonlyArray<CompendiumFeat>;
   }>();
@@ -114,11 +117,24 @@
     pick: SpeciesFeatPick,
     answers: Record<string, string[]>,
   ): void {
+    updateFeatAnswers(pick.pickKey, answers);
+  }
+
+  /**
+   * Записывает ответы черты на её собственные вопросы под её ключом ответов.
+   *
+   * @param answersKey - ключ ответов черты
+   * @param answers - ответы черты: ключ выбора → выбранные значения
+   */
+  function updateFeatAnswers(
+    answersKey: string,
+    answers: Record<string, string[]>,
+  ): void {
     emit('update:state', {
       ...props.state,
       featPickAnswers: {
         ...props.state.featPickAnswers,
-        [pick.pickKey]: answers,
+        [answersKey]: answers,
       },
     });
   }
@@ -356,6 +372,27 @@
         :spells="featChoiceSpells"
         :model-value="state.featPickAnswers[pick.pickKey] ?? {}"
         @update:model-value="updateFeatPickAnswers(pick, $event)"
+      />
+    </div>
+
+    <!-- Собственные вопросы черт, выданных дарами без выбора: без ответов
+      такая черта легла бы на лист пустой — так же, как выбранная -->
+    <div
+      v-for="granted in grantedFeatQuestions"
+      :key="granted.answersKey"
+      class="flex flex-col gap-3 rounded-lg border border-default/50 bg-elevated/30 p-4"
+    >
+      <span class="font-medium text-primary">
+        {{ SPECIES_WIZARD_LABELS.featDataChoicesPrefix }}{{ granted.feat.name }}
+      </span>
+
+      <FeatChoicesFields
+        :choices="granted.ownChoices"
+        :actor="actor"
+        :proficiency-bonus="proficiencyBonus"
+        :spells="featChoiceSpells"
+        :model-value="state.featPickAnswers[granted.answersKey] ?? {}"
+        @update:model-value="updateFeatAnswers(granted.answersKey, $event)"
       />
     </div>
   </div>

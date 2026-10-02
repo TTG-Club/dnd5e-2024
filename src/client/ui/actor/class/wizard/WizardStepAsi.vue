@@ -11,13 +11,19 @@
     DnDAbilityScores,
     DnDActor,
     FeatChoice,
+    Spell,
   } from '@vtt/shared/system/dnd.js';
 
-  import type { CompendiumFeat, WizardAsiState } from './useClassWizard';
+  import type {
+    CompendiumFeat,
+    WizardAsiState,
+    WizardTakenFeat,
+  } from './useClassWizard';
 
   import { computed } from 'vue';
 
-  import { WIZARD_ASI_LABELS } from '../../constants';
+  import { CLASS_WIZARD_LABELS, WIZARD_ASI_LABELS } from '../../constants';
+  import FeatChoicesFields from '../../feat/FeatChoicesFields.vue';
   import WizardFeatPicker from '../../feat/WizardFeatPicker.vue';
   import { ABILITY_LABELS } from './constants';
 
@@ -30,11 +36,34 @@
     actor: DnDActor;
     /** Выбор черты из даров умения; null — пул по правилу листа */
     featChoice: FeatChoice | null;
+    /** Взятая черта с её собственными вопросами; null — черта не выбрана */
+    takenFeat: WizardTakenFeat | null;
+    /** Ответы на собственные вопросы взятой черты: ключ выбора → значения */
+    featOwnAnswers: Record<string, string[]>;
+    /** Бонус мастерства: от него зависит количество у части выборов */
+    proficiencyBonus: number;
+    /** Заклинания каталога — пул выбора заклинания */
+    spells?: ReadonlyArray<Spell>;
   }>();
 
   const emit = defineEmits<{
     'update:asiState': [state: WizardAsiState];
+    'update:featOwnAnswers': [
+      answersKey: string,
+      answers: Record<string, string[]>,
+    ];
   }>();
+
+  /**
+   * Записывает ответы взятой черты на её собственные вопросы.
+   *
+   * @param answers - ключ выбора → выбранные значения
+   */
+  function updateFeatOwnAnswers(answers: Record<string, string[]>): void {
+    if (props.takenFeat) {
+      emit('update:featOwnAnswers', props.takenFeat.answersKey, answers);
+    }
+  }
 
   /** Список всех характеристик */
   const ABILITY_KEYS: AbilityType[] = [
@@ -265,6 +294,28 @@
         :model-value="asiState.featKey"
         @update:model-value="setFeatKey"
       />
+
+      <!-- Собственные вопросы взятой черты — те же, что в окне выбора при
+        перетаскивании её на лист: без ответов «Телекинетик» лёг бы без
+        прибавки и характеристики -->
+      <div
+        v-if="takenFeat?.ownChoices.length"
+        class="flex flex-col gap-2 rounded-md border border-default/50 bg-elevated/30 p-3"
+      >
+        <span class="text-sm font-medium text-toned">
+          {{ CLASS_WIZARD_LABELS.featOwnChoicesPrefix
+          }}{{ takenFeat.feat.name }}
+        </span>
+
+        <FeatChoicesFields
+          :model-value="featOwnAnswers"
+          :choices="takenFeat.ownChoices"
+          :actor="actor"
+          :proficiency-bonus="proficiencyBonus"
+          :spells="spells"
+          @update:model-value="updateFeatOwnAnswers"
+        />
+      </div>
     </div>
   </div>
 </template>

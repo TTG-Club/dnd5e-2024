@@ -76,6 +76,7 @@
     subspeciesOptions,
     featDataSources,
     featPickChoices,
+    grantedFeatQuestions,
     needsCompendiumFeats,
     proficiencyBonus,
     buildUpdates,
@@ -108,6 +109,7 @@
   const allPreparedFeatChoices = computed(() => [
     ...featDataSources.value.flatMap((source) => source.preparedChoices),
     ...featPickChoices.value.flatMap((pick) => pick.ownChoices),
+    ...grantedFeatQuestions.value.flatMap((granted) => granted.ownChoices),
   ]);
 
   /** Заклинания каталога для выборов даров (заговор эльфа и подобные) */
@@ -257,6 +259,7 @@
             :feat-data-sources="featDataSources"
             :feat-choice-spells="featChoiceSpells"
             :feat-picks="featPickChoices"
+            :granted-feat-questions="grantedFeatQuestions"
             :feat-choice-feats="featChoiceFeats"
           />
         </div>

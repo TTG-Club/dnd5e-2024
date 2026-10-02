@@ -20,6 +20,7 @@
     ResolvedGrantedSpell,
     Spell,
     SubclassDefinition,
+    TakenFeatAnswers,
   } from '@vtt/shared/system/dnd.js';
 
   import type { ChoicePickerOption } from '../../ChoicePickerModal.vue';
@@ -31,6 +32,7 @@
   import {
     featChoicePendingCount,
     isSkillType,
+    isTakenFeatAnswered,
     SKILLS_LIST,
   } from '@vtt/shared/system/dnd.js';
 
@@ -59,6 +61,8 @@
     featureChoices: Record<string, string[]>;
     /** Ответы на выборы даров: ключ выбора → значения */
     featSelections: Record<string, string[]>;
+    /** Ответы на собственные вопросы черт, взятых уровнем */
+    featOwnAnswers: TakenFeatAnswers;
     /** Навыки, названные умениями: ключ строки → навыки */
     featureSkills: Record<string, SkillType[]>;
     hasSubclassSelection?: boolean;
@@ -82,6 +86,10 @@
     'update:subclassKey': [key: string];
     'update:featSelection': [key: string, featId: string | null];
     'update:featSelections': [selections: Record<string, string[]>];
+    'update:featOwnAnswers': [
+      answersKey: string,
+      answers: Record<string, string[]>,
+    ];
     'update:featureSkills': [rowKey: string, skills: SkillType[]];
     'open-spell': [spell: Spell];
   }>();
@@ -168,7 +176,19 @@
         ? 1
         : 0;
 
-    return variants + choices + featPicks + skills;
+    // Взятая здесь черта, которая ждёт ответа на свои вопросы
+    const featQuestions = row.featQuestions.filter(
+      (taken) =>
+        !isTakenFeatAnswered(
+          taken,
+          props.featOwnAnswers,
+          props.actor,
+          { spells: props.spells, weapons: weaponOptions.value },
+          props.proficiencyBonus,
+        ),
+    ).length;
+
+    return variants + choices + featPicks + featQuestions + skills;
   }
 
   /**
@@ -182,7 +202,11 @@
     row: WizardLevelRow,
   ): { label: string; color: 'warning' | 'success' } | null {
     const asksAnything =
-      row.pick || row.choices.length || row.featPicks.length || row.skillChoice;
+      row.pick
+      || row.choices.length
+      || row.featPicks.length
+      || row.featQuestions.length
+      || row.skillChoice;
 
     if (!asksAnything) {
       return null;
@@ -439,6 +463,30 @@
           :model-value="selectedFeatId(choice.key)"
           @update:model-value="emit('update:featSelection', choice.key, $event)"
         />
+
+        <!-- Собственные вопросы черт, взятых в этой строке (выбором или
+          дарами записи): те же, что в окне выбора при перетаскивании черты
+          на лист. Без ответов черта легла бы на лист пустой -->
+        <div
+          v-for="taken in row.featQuestions"
+          :key="taken.answersKey"
+          class="flex flex-col gap-2 rounded-md border border-default/50 bg-elevated/30 p-3"
+        >
+          <span class="text-sm font-medium text-toned">
+            {{ CLASS_WIZARD_LABELS.featOwnChoicesPrefix }}{{ taken.feat.name }}
+          </span>
+
+          <FeatChoicesFields
+            :model-value="featOwnAnswers[taken.answersKey] ?? {}"
+            :choices="taken.ownChoices"
+            :actor="actor"
+            :proficiency-bonus="proficiencyBonus"
+            :spells="spells"
+            @update:model-value="
+              emit('update:featOwnAnswers', taken.answersKey, $event)
+            "
+          />
+        </div>
 
         <!-- Заклинания, выданные записью: снять их нельзя, читать — можно -->
         <div
