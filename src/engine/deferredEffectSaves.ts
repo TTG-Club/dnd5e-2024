@@ -43,10 +43,11 @@ import type {
 import {
   buildTriggerPayContext,
   defaultPayPicks,
+  describePayPlan,
   payTriggerPrice,
   planEffectPay,
 } from './effectPay.js';
-import { describeEffectPay } from './effectPayTypes.js';
+import { describeEffectPay, EFFECT_PRICE_LABELS } from './effectPayTypes.js';
 import {
   resolveActorStats,
   resolveTotalMovementSpeed,
@@ -574,8 +575,13 @@ export const TRIGGER_ASK_QUESTIONS = {
   plain: 'Пустить срабатывание в ход?',
   reaction: 'Потратить реакцию?',
   pay: 'Заплатить цену?',
+  /** Цена и реакция сразу: «вспышка оружия — реакцией, 1 заряд» */
+  reactionPay: 'Потратить реакцию и заплатить цену?',
   payChoice: 'Чем заплатить?',
 } as const;
+
+/** Реакция в перечне цены: вопрос «чем заплатить» её сам не называет */
+const PAY_SUMMARY_REACTION = 'реакция';
 
 /** Подпись отказа платить в вопросе с выбором платежа */
 const PAY_DECLINE_LABEL = 'Не платить';
@@ -587,17 +593,35 @@ const PAY_SUMMARY_PREFIX = 'Цена: ';
  * Строит вопрос «да / нет» перед срабатыванием: подпись, варианты и краткое
  * описание того, что случится по согласию.
  *
+ * Цена называется по листу платящего: счётчик — как на листе, количество —
+ * числом (`describePayPlan`). Реакция в цене названа всегда — и рядом с ценой
+ * ресурсом.
+ *
  * @param source - срабатывание с источником
+ * @param payer - кто платит; с разбором цены даёт подписи по его листу
+ * @param plan - разбор цены платящего; `null` — цены нет
  * @returns нагрузка вопроса
  */
 function buildTriggerAskPayload(
   source: EffectTriggerSource,
+  payer: DnDSceneEntity,
+  plan: PayPlan | null,
 ): EffectPromptRequestPayload {
   const actions = describeTriggerActions(source.trigger);
   const { pay, cost } = source.trigger;
+  const spendsReaction = cost === 'reaction';
+
+  const priceText = pay
+    ? [
+        spendsReaction ? PAY_SUMMARY_REACTION : '',
+        plan ? describePayPlan(payer, plan) : describeEffectPay(pay),
+      ]
+        .filter((part) => part.length > 0)
+        .join(EFFECT_PRICE_LABELS.payJoiner)
+    : '';
 
   const summary = [
-    pay ? `${PAY_SUMMARY_PREFIX}${describeEffectPay(pay)}` : '',
+    priceText ? `${PAY_SUMMARY_PREFIX}${priceText}` : '',
     actions,
   ]
     .filter((part) => part.length > 0)
@@ -606,8 +630,10 @@ function buildTriggerAskPayload(
   let question: string = TRIGGER_ASK_QUESTIONS.plain;
 
   if (pay) {
-    question = TRIGGER_ASK_QUESTIONS.pay;
-  } else if (cost === 'reaction') {
+    question = spendsReaction
+      ? TRIGGER_ASK_QUESTIONS.reactionPay
+      : TRIGGER_ASK_QUESTIONS.pay;
+  } else if (spendsReaction) {
     question = TRIGGER_ASK_QUESTIONS.reaction;
   }
 
@@ -649,16 +675,18 @@ function buildPayPromptOptions(
  * вопрос служит и согласием: отдельного «да / нет» перед выбором нет.
  *
  * @param source - снимок срабатывания с источником
+ * @param payer - кто платит: по его листу называется цена
  * @param plan - разбор цены; `null` — цены нет
  * @param ask - отправка одного вопроса
  * @returns чем кончился вопрос
  */
 async function askAboutTrigger(
   source: EffectTriggerSource,
+  payer: DnDSceneEntity,
   plan: PayPlan | null,
   ask: EffectPromptAsker,
 ): Promise<TriggerAskAnswer> {
-  const base = buildTriggerAskPayload(source);
+  const base = buildTriggerAskPayload(source, payer, plan);
 
   const choices = (plan?.prices ?? []).filter(
     (entry) => entry.options.length > 1,
@@ -760,7 +788,7 @@ export async function askSelfTriggers(
       continue;
     }
 
-    const answer = await askAboutTrigger(source, plan, ask);
+    const answer = await askAboutTrigger(source, entity, plan, ask);
 
     if (answer.status === 'confirmed') {
       answers.set(selfTriggerKey(source), answer.pickIds ?? new Set());
@@ -895,7 +923,7 @@ export function requestTriggerAsk(
     outcome: DeferredEffectOutcome,
   ): DeferredEffectOutcome => (finish ? finish(liveSubject, outcome) : outcome);
 
-  const resolution = askAboutTrigger(snapshot, plan, (payload) =>
+  const resolution = askAboutTrigger(snapshot, subject, plan, (payload) =>
     requestRoll({
       entityId: askerId,
       requesterLabel,

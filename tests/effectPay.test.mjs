@@ -542,6 +542,57 @@ describe('цена ресурсом: срабатывания', () => {
     });
   }
 
+  it('вопрос о цене: счётчик назван как на листе, количество числом, реакция названа', () => {
+    // «Ослепляющая вспышка»: реакцией, заряд умения и половина оставшихся
+    // костей хитов — формулой
+    const flash = createEffect('Ослепляющая вспышка', {
+      triggers: [
+        {
+          id: 'flash',
+          event: 'attackRoll',
+          role: 'attacker',
+          recipient: 'other',
+          cost: 'reaction',
+          pay: [
+            { kind: 'counter', counter: GRIT, amount: '1' },
+            { kind: 'hitDice', amount: 'ceil(@hitDice.left / 2)' },
+          ],
+          actions: [{ type: 'damage', parts: [{ formula: '1к8' }] }],
+        },
+      ],
+    });
+
+    const fighter = hero(
+      {
+        classes: [FIGHTER],
+        classCounters: [{ ...counter(GRIT, 2), name: 'Очки удали' }],
+      },
+      { activeEffects: [flash] },
+    );
+
+    const { requests, requestRoll } = createRequestRoll();
+
+    engine.settleAttackRollTriggers(fighter, 'attacker', {
+      other: withHp(createCreature, 60),
+      roll: {},
+      landed: true,
+      inCombat: true,
+      requestRoll,
+    });
+
+    const [{ payload }] = requests;
+
+    assert.equal(payload.question, engine.TRIGGER_ASK_QUESTIONS.reactionPay);
+
+    assert.match(
+      payload.effectSummary,
+      /^Цена: реакция и «Очки удали»: 1 и 3 кости хитов \(к10\)/,
+      'пять костей воина: половина вверх — три, числом, а не формулой',
+    );
+
+    assert.doesNotMatch(payload.effectSummary, /grit|ceil|@hitDice/);
+  });
+
   it('цена на броске атаки: вопрос владельцу, по согласию — ячейка и урон цели', async () => {
     const warlock = hero(
       { classes: [WARLOCK] },

@@ -243,13 +243,24 @@ function listAffordableAmounts(
  * @returns название в кавычках
  */
 function formatCounterName(payer: DnDSceneEntity, counterKey: string): string {
+  return `«${readCounterName(payer, counterKey)}»`;
+}
+
+/**
+ * Название счётчика платящего как на листе; счётчика нет — его ключ.
+ *
+ * @param payer - платящий
+ * @param counterKey - ключ счётчика
+ * @returns название без кавычек
+ */
+function readCounterName(payer: DnDSceneEntity, counterKey: string): string {
   const counter = isActorEntity(payer)
     ? payer.system.classCounters.find(
         (entry) => entry.counterKey === counterKey,
       )
     : undefined;
 
-  return `«${counter?.name ?? counterKey}»`;
+  return counter?.name ?? counterKey;
 }
 
 /** Группа костей хитов платящего: грань и сколько костей можно потратить */
@@ -551,6 +562,30 @@ export function planEffectPay(
         ? `${SETTLE_LABELS.shortfallPrefix}${missing.join(', ')}`
         : null,
   };
+}
+
+/**
+ * Цена словами по листу платящего — для вопроса перед срабатыванием: счётчик
+ * назван как на листе, а не ключом, количество — посчитанное число, а не
+ * формула («3 кости хитов (к12)» вместо `ceil(@hitDice.left / 2)`). Платёж с
+ * выбором описывается общими словами — что именно, человек выберет следом.
+ *
+ * @param payer - платящий
+ * @param plan - разбор его цены
+ * @returns цена словами
+ */
+export function describePayPlan(payer: DnDSceneEntity, plan: PayPlan): string {
+  return plan.prices
+    .map(({ price, options }) => {
+      const [only] = options;
+
+      return options.length === 1 && only
+        ? only.label
+        : describeEffectPrice(price, (counterKey) =>
+            readCounterName(payer, counterKey),
+          );
+    })
+    .join(EFFECT_PRICE_LABELS.payJoiner);
 }
 
 /**
