@@ -45,6 +45,7 @@ async function loadApply({ chosenTargetId }) {
 
   const apply = await loadHandler(helperPath, 'applyEffectSource', {
     getTargetSpellEffects: engine.getTargetSpellEffects,
+    settleUseSpellArea: engine.settleUseSpellArea,
     collectSourcePay: engine.collectSourcePay,
     hasItemUsesPrice: engine.hasItemUsesPrice,
     // Запрета траты хода и области у фикстур нет
@@ -514,6 +515,7 @@ it('цена ресурсом: оплата и прежний расход ид�
 
   const apply = await loadHandler(helperPath, 'applyEffectSource', {
     getTargetSpellEffects: engine.getTargetSpellEffects,
+    settleUseSpellArea: engine.settleUseSpellArea,
     collectSourcePay: engine.collectSourcePay,
     hasItemUsesPrice: engine.hasItemUsesPrice,
     // Запрета траты хода и области у фикстур нет

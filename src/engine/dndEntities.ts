@@ -39,7 +39,7 @@ import type {
   WeaponRangeType,
 } from '@vtt/shared';
 
-import type { ActiveEffect } from './activeEffectTypes.js';
+import type { ActiveEffect, EffectUseArea } from './activeEffectTypes.js';
 import type {
   BackgroundAbilityGrant,
   BackgroundEquipmentOption,
@@ -458,6 +458,13 @@ export interface Spell {
   // --- Область воздействия ---
   /** Область воздействия (если null — заклинание одиночной цели) */
   areaOfEffect?: SpellAreaOfEffect;
+  /**
+   * Области вариантов применения по id эффекта — только у псевдо-заклинания
+   * применения (`buildUseSpell`), в данные не пишется. Шаблон ставят по
+   * области ВЫБРАННОГО варианта: у «луча» камня сияния области нет, у
+   * «вспышки» — конус
+   */
+  useEffectAreas?: Record<string, EffectUseArea>;
   // --- Цели ---
   /** Тип цели */
   targetType: SpellTargetType;

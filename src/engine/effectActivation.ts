@@ -199,6 +199,8 @@ export interface EffectUseSource {
   range?: number;
   /** Область применения: шаблон на карте вместо выбора одной цели */
   area?: EffectUseArea;
+  /** Области эффектов по id: шаблон — по выбранному варианту */
+  effectAreas?: Record<string, EffectUseArea>;
   /** Применение требует концентрации */
   concentration?: boolean;
 }
@@ -216,6 +218,28 @@ export function resolveEffectUseArea(
   return (effects ?? []).find(
     (effect) => isUseActivatedEffect(effect) && effect.activation?.area,
   )?.activation?.area;
+}
+
+/**
+ * Области эффектов применения по id эффекта: у вариантов одного применения
+ * область своя («луч» — одна цель, «вспышка» — конус), и шаблон ставят по
+ * выбранному варианту.
+ *
+ * @param effects - эффекты применения с признаком применения
+ * @returns области по id либо `undefined`, если областей нет
+ */
+function collectEffectUseAreas(
+  effects: readonly ActiveEffect[] | undefined,
+): Record<string, EffectUseArea> | undefined {
+  const areas = Object.fromEntries(
+    (effects ?? []).flatMap((effect) =>
+      isUseActivatedEffect(effect) && effect.activation?.area
+        ? [[effect.id, effect.activation.area]]
+        : [],
+    ),
+  );
+
+  return Object.keys(areas).length > 0 ? areas : undefined;
 }
 
 /**
@@ -318,6 +342,7 @@ const USE_SPELL_ID_PREFIX = 'use-';
  */
 export function buildItemUseSpell(item: DnDGameItem): Spell {
   const area = resolveEffectUseArea(item.activeEffects);
+  const effectAreas = collectEffectUseAreas(item.activeEffects);
 
   return buildUseSpell({
     id: item.id,
@@ -325,6 +350,7 @@ export function buildItemUseSpell(item: DnDGameItem): Spell {
     effects: listUseEffects(item.activeEffects),
     rollSource: 'item',
     ...(area ? { area } : {}),
+    ...(effectAreas ? { effectAreas } : {}),
     concentration: resolveEffectUseConcentration(item.activeEffects),
   });
 }
@@ -611,6 +637,7 @@ export function buildEffectGroupUseSpell(
   );
 
   const area = resolveEffectUseArea(group);
+  const effectAreas = collectEffectUseAreas(group);
 
   return buildUseSpell({
     id: first?.id ?? '',
@@ -621,6 +648,7 @@ export function buildEffectGroupUseSpell(
     rollSource: 'effect',
     ...(ranges.length > 0 ? { range: Math.max(...ranges) } : {}),
     ...(area ? { area } : {}),
+    ...(effectAreas ? { effectAreas } : {}),
     concentration: resolveEffectUseConcentration(group),
   });
 }
@@ -661,7 +689,41 @@ export function buildUseSpell(source: EffectUseSource): Spell {
           ...resolveUseZoneDuration(source.effects),
         }
       : {}),
+    ...(source.effectAreas ? { useEffectAreas: source.effectAreas } : {}),
   });
+}
+
+/**
+ * Псевдо-заклинание применения после выбора варианта: область — у выбранного
+ * варианта, а не первая из заданных в группе. Иначе «луч» камня сияния
+ * требовал поставить конус «вспышки». Выбранный вариант без своей области —
+ * применение без шаблона, с выбором цели.
+ *
+ * @param chosen - псевдо-заклинание с эффектами выбранных вариантов
+ * @returns псевдо-заклинание с областью выбранного варианта
+ */
+export function settleUseSpellArea<Source extends Spell>(
+  chosen: Source,
+): Source {
+  const areas = chosen.useEffectAreas;
+
+  if (!areas) {
+    return chosen;
+  }
+
+  const effects = chosen.activeEffects?.filter(isDnDEffect) ?? [];
+  const areaEffect = effects.find((effect) => areas[effect.id] !== undefined);
+  const area = areaEffect ? areas[areaEffect.id] : undefined;
+
+  if (!area) {
+    return { ...chosen, areaOfEffect: undefined };
+  }
+
+  return {
+    ...chosen,
+    areaOfEffect: toUseAreaOfEffect(area),
+    ...resolveUseZoneDuration(effects),
+  };
 }
 
 /** Переключатели предмета: эффекты, которые включают и выключают */

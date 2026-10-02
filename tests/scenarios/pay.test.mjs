@@ -714,7 +714,13 @@ describe('каталог: цена ресурсом', () => {
       ['Ослепляющая вспышка', '5'],
     ].map(([label, amount]) =>
       createEffect(`Камень сияния: ${label}`, {
-        activation: { mode: 'use' },
+        // Конус — только у вспышки: луч бьёт одну цель
+        activation: {
+          mode: 'use',
+          ...(label === 'Ослепляющая вспышка'
+            ? { area: { shape: 'cone', size: 30 } }
+            : {}),
+        },
         variant: { group: 'Камень сияния', label },
         pay: [{ kind: 'itemUses', amount }],
         flags: ['vision.blinded'],
@@ -763,6 +769,33 @@ describe('каталог: цена ресурсом', () => {
       true,
       'пустой камень всё ещё светит: первое слово заряда не тратит',
     );
+
+    // Шаблон области — у выбранного варианта, а не первый заданный в группе
+    const useSpell = engine.buildItemUseSpell(gem);
+
+    const chosenArea = (label) =>
+      engine.settleUseSpellArea({
+        ...useSpell,
+        activeEffects: useSpell.activeEffects.filter(
+          (effect) => effect.variant.label === label,
+        ),
+      }).areaOfEffect;
+
+    assert.equal(
+      useSpell.areaOfEffect.shape,
+      'cone',
+      'до выбора — область группы',
+    );
+
+    assert.equal(chosenArea('Ослепляющий луч'), undefined, 'луч — одна цель');
+    assert.equal(chosenArea('Свет'), undefined);
+
+    assert.deepEqual(chosenArea('Ослепляющая вспышка'), {
+      shape: 'cone',
+      size: 30,
+      unit: 'ft',
+      resizable: false,
+    });
   });
 
   it('[PY12] Покров крови: срок формулой — число раундов по потраченным костям', () => {

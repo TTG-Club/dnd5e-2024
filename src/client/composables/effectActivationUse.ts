@@ -37,6 +37,7 @@ import {
   listSaveDcSkills,
   resolveActorStats,
   resolveEffectUseCost,
+  settleUseSpellArea,
   SKILLS_LABELS,
   spendAmmunition,
   spendItemUse,
@@ -195,7 +196,8 @@ export function applyEffectSource(
   }
 
   runWithEffectVariants(spell, (variant) => {
-    runWithDamageTypeChoices(variant, (chosen) => {
+    // Область — у выбранного варианта: «луч» шаблона «вспышки» не требует
+    runWithDamageTypeChoices(settleUseSpellArea(variant), (chosen) => {
       /**
        * Оплата, расход и наложение источника с уже известной Сл.
        *
