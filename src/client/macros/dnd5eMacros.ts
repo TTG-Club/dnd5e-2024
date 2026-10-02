@@ -15,61 +15,34 @@ import type {
 } from '@vtt/shared/system/dnd.js';
 
 import type { SpellCasterPort } from '../composables/spellCastFlow';
-import type { RolledSpellDamagePart } from '../composables/useSpellResolution';
 
 import { registerMacro } from '@/core/registries/macroRegistry';
-import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
-import { useTargetStore } from '@/stores/targetStore';
-import { useWorldStore } from '@/stores/worldStore';
 /**
  * Регистрация макро-executor'ов, специфичных для D&D 5e.
  * Вся боевая логика (бросок атаки, двухэтапная атака, криты, урон) вынесена
  * в attackUtils.ts, а здесь остаётся только оркестрация и контекст выполнения макроса.
  */
 import {
-  buildResolvedFormulaContext,
-  calculateWeaponAttackModifier,
   canSwitchOnEffect,
-  checkRange,
   collectEffectToggleGroup,
   consumeCreatureSpellGroupUse,
   describeItemUseAvailability,
   describeWeaponAttackAvailability,
-  evaluateConditionalBonuses,
   findCreatureActionSection,
   findCreatureSpellPlacement,
-  getAttackBonusKey,
-  getAttackFlagCategory,
-  getDamageBonusKey,
-  getWeaponPrimaryDamageType,
   isCreatureSpellPoolMode,
-  isSaveAbility,
-  isTargetAtFullHp,
   isUseActivatedEffect,
-  resolveActorStats,
-  resolveWeaponSaveDc,
   stripDescriptionRollMarkers,
   withSpentSpellSlot,
   withSpentSpellUse,
 } from '@vtt/shared/system/dnd.js';
 
-import {
-  recordEntityActionSpend,
-  runWithWeaponAttackCost,
-} from '../composables/actionSpend';
-import { runWeaponAttackChoices } from '../composables/attackKindChoice';
-import {
-  resolveTargetedAttackRoll,
-  resolveTargetedCritThreshold,
-} from '../composables/attackRollMode';
 import { startCreatureAction } from '../composables/creatureActionRoll';
 import { startCreatureSpellCast } from '../composables/creatureSpellCast';
-import { requestDamageTypeChoiceFor } from '../composables/damageTypeChoice';
 import {
   applyEntityEffectUse,
   applyEntityItemUse,
-  prepareAmmunitionShot,
   spendShotAmmunition,
 } from '../composables/effectActivationUse';
 import {
@@ -77,21 +50,9 @@ import {
   toggleEntityEffect,
 } from '../composables/effectToggle';
 import { changeEntitySheet } from '../composables/entitySheetWrite';
-import { buildRollBonusEvaluator } from '../composables/rollBonusEvaluator';
 import { startSpellCast } from '../composables/spellCastFlow';
-import { useBonusDamageParts } from '../composables/useBonusDamageParts';
-import {
-  collectEffectsWithAuras,
-  listAmbientEffects,
-} from '../composables/useResolvedStats';
-import { measureTokenDistanceOnScene } from '../composables/useSceneRangeCheck';
-import { useSpellResolution } from '../composables/useSpellResolution';
 import { useWorldEntities } from '../composables/useWorldEntities';
-import {
-  ACTOR_SPELLS_TAB_LABELS,
-  SPELL_DAMAGE_ROLL_BUTTON,
-} from '../ui/actor/constants';
-import { CREATURE_ACTIONS_BLOCK_LABELS } from '../ui/creature/constants';
+import { startWeaponAttack } from '../composables/weaponAttackRoll';
 import {
   DND_MACRO_TYPES,
   EFFECT_USE_SLOT_LABELS,
@@ -114,24 +75,6 @@ function isDnDCreatureEntity(
   entity: SceneEntity | null,
 ): entity is DnDCreature {
   return entity !== null && entity.entityType === 'creature';
-}
-
-/**
- * Сообщение чата о цели вне досягаемости.
- *
- * @param name - оружие или действие
- * @param check - расстояние до цели
- * @param check.distance - расстояние
- * @param check.unitLabel - единица расстояния
- * @returns строка чата
- */
-function formatOutOfRangeMessage(
-  name: string,
-  check: { distance: number; unitLabel: string },
-): string {
-  const labels = CREATURE_ACTIONS_BLOCK_LABELS;
-
-  return `${labels.outOfRangePrefix}${name}${labels.outOfRangeMiddle}${check.distance} ${check.unitLabel}${labels.outOfRangeSuffix}`;
 }
 
 /**
@@ -205,42 +148,6 @@ function findSpell(
   }
 
   return null;
-}
-
-/**
- * Проверяет дистанцию между атакующим и целью на текущей сцене.
- *
- * @param weapon - оружие для атаки
- * @param attackerActorId - ID актора-атакующего
- * @param targetTokenId - ID токена-цели
- * @returns результат проверки дистанции или null
- */
-function checkWeaponRangeOnScene(
-  weapon: DnDGameItem,
-  attackerActorId: string,
-  targetTokenId: string,
-): {
-  allowed: boolean;
-  disadvantage: boolean;
-  distance: number;
-  unitLabel: string;
-} | null {
-  const measurement = measureTokenDistanceOnScene(
-    attackerActorId,
-    targetTokenId,
-  );
-
-  if (!measurement) {
-    return null;
-  }
-
-  const rangeResult = checkRange(weapon, measurement.distance);
-
-  return {
-    ...rangeResult,
-    distance: measurement.distance,
-    unitLabel: measurement.unitLabel,
-  };
 }
 
 /**
@@ -437,9 +344,6 @@ export function registerDnd5eMacros(): void {
     DND_MACRO_TYPES.weaponAttack,
     (macro, context) => {
       try {
-        const chatStore = useChatStore();
-        const targetStore = useTargetStore();
-
         const actorEntity = isDnDActorEntity(context.actor)
           ? context.actor
           : null;
@@ -459,252 +363,19 @@ export function registerDnd5eMacros(): void {
           return;
         }
 
-        // Запрет трат хода и чем удар совершается — до выстрела и окна
-        runWithWeaponAttackCost(
-          result.actor,
-          result.weapon.name,
-          refuseBlockedMacro,
-          (attackCost) => {
-            // Стрелковое оружие стреляет боеприпасом, если лист их ведёт
-            const shot = prepareAmmunitionShot(result.actor, result.weapon);
+        // Удар — общим путём удара, тем же, что у вкладки снаряжения:
+        // атакующий читается из мира, боеприпас — помощником записи листа,
+        // отказ — в чат
+        const attackerId = result.actor.id;
 
-            if (!shot) {
-              return;
-            }
-
-            const ammunitionId = shot.ammunition?.id;
-
-            runWeaponAttackChoices(
-              shot.weapon,
-              result.actor.id,
-              (foundWeapon) => {
-                const foundActor = result.actor;
-
-                // resolvedStats для @mod.* в формулах частей и статического урона
-                const ambientEffects = listAmbientEffects(foundActor.id);
-
-                const resolvedStats = resolveActorStats(
-                  foundActor,
-                  ambientEffects,
-                );
-
-                // --- Проверка дистанции ---
-                let isDisadvantage = false;
-
-                if (targetStore.targetTokenId && foundActor.id) {
-                  const rangeCheck = checkWeaponRangeOnScene(
-                    foundWeapon,
-                    foundActor.id,
-                    targetStore.targetTokenId,
-                  );
-
-                  if (rangeCheck && !rangeCheck.allowed) {
-                    chatStore.sendMessage(
-                      formatOutOfRangeMessage(foundWeapon.name, rangeCheck),
-                      'text',
-                    );
-
-                    return;
-                  }
-
-                  if (rangeCheck?.disadvantage) {
-                    isDisadvantage = true;
-                  }
-                }
-
-                const combinedEffects = collectEffectsWithAuras(foundActor);
-
-                const attackKey = getAttackBonusKey(foundWeapon.rangeType);
-                const damageKey = getDamageBonusKey(foundWeapon.rangeType);
-
-                const baseMod = calculateWeaponAttackModifier(
-                  foundActor,
-                  foundWeapon,
-                  resolvedStats,
-                );
-
-                // Оружие со спасброском: цель кидает спас, броска попадания нет
-                const hasSave = isSaveAbility(foundWeapon.saveType);
-                const weaponSaveDC = resolveWeaponSaveDc(baseMod);
-
-                const incomingAttackType = getAttackFlagCategory(
-                  foundWeapon.rangeType,
-                );
-
-                const targetActor = targetStore.getTargetActor();
-
-                const weaponAttackRoll = resolveTargetedAttackRoll(
-                  foundActor,
-                  incomingAttackType,
-                  { forceDisadvantage: isDisadvantage },
-                );
-
-                const { openModal } = useModalManager();
-
-                const {
-                  buildWeaponRollSetup,
-                  buildTargetHpContext,
-                  buildTargetTypeContext,
-                } = useBonusDamageParts();
-
-                // Единая со заклинаниями система урона: бросок ВСЕГДА идёт многочастным
-                // путём (части урона оружия + бонус-части эффектов). Состояние HP цели
-                // нужно для условных веток @target.full/@target.notFull.
-                const targetIsFull = isTargetAtFullHp(targetActor);
-
-                const weaponPartsSetup = buildWeaponRollSetup({
-                  weapon: foundWeapon,
-                  actor: foundActor,
-                  effects: combinedEffects,
-                  resolvedStats,
-                  targetIsFull,
-                  targetType: buildTargetTypeContext(),
-                });
-
-                // Тип урона на выбор спрашивает окно броска: части урона решает оно
-                // само, а эффекты оружия на цель получают тот же тип здесь
-                let weaponSpell = weaponPartsSetup.pseudoSpell;
-
-                const damageTypeChoice = requestDamageTypeChoiceFor(
-                  foundWeapon,
-                  weaponPartsSetup.pseudoSpell,
-                  (chosen) => {
-                    weaponSpell = chosen;
-                  },
-                );
-
-                /**
-                 * Применяет брошенные части урона оружия через многочастный оркестратор
-                 * (защиты по типу на каждую часть, per-target гейты, спасбросок оружия,
-                 * единый HP-апдейт).
-                 *
-                 * @param parts - брошенные части урона
-                 */
-                function handleWeaponRollParts(
-                  parts: RolledSpellDamagePart[],
-                ): void {
-                  const worldStore = useWorldStore();
-                  const socket = chatStore.getSocket();
-                  const worldId = worldStore.connectionState.currentWorldId;
-
-                  if (!worldId || !socket) {
-                    return;
-                  }
-
-                  const world = worldStore.worlds.find(
-                    (worldEntry) => worldEntry.id === worldId,
-                  );
-
-                  const actors = [
-                    ...(world?.actors ?? []),
-                    ...(world?.creatures ?? []),
-                  ];
-
-                  if (actors.length === 0) {
-                    return;
-                  }
-
-                  const { resolveSpellDamageWithParts } = useSpellResolution();
-
-                  void resolveSpellDamageWithParts(
-                    {
-                      spell: weaponSpell,
-                      damageTotal: 0,
-                      spellSaveDC: weaponSaveDC,
-                      actors,
-                      socket,
-                      casterId: foundActor.id,
-                    },
-                    parts,
-                    { scene: worldStore.currentScene },
-                  );
-                }
-
-                openModal('DiceRollModal', {
-                  title: `${CREATURE_ACTIONS_BLOCK_LABELS.attackRollPrefix}${foundWeapon.name}`,
-                  rollLabel: foundWeapon.name,
-                  rollButtonText: hasSave
-                    ? SPELL_DAMAGE_ROLL_BUTTON
-                    : ACTOR_SPELLS_TAB_LABELS.attackRoll,
-                  // Формула для отображения (бросок идёт многочастным путём по damageParts)
-                  formula: weaponPartsSetup.baseParts[0]?.formula ?? '',
-                  attackModifier: hasSave ? undefined : baseMod,
-                  evaluateBonusRollFormulas: hasSave
-                    ? undefined
-                    : buildRollBonusEvaluator(
-                        () =>
-                          useWorldEntities().findCurrentDndEntity(
-                            foundActor.id,
-                          ),
-                        attackKey,
-                      ),
-                  initialRollMode: weaponAttackRoll.mode,
-                  rollModeReasons: weaponAttackRoll.reasons,
-                  critThreshold: resolveTargetedCritThreshold(
-                    foundActor,
-                    resolvedStats.critThreshold,
-                  ),
-                  incomingAttackType,
-                  evaluateConditionalBonuses: (modalContext: {
-                    hasAdvantage: boolean;
-                    hasDisadvantage: boolean;
-                  }) => {
-                    // HP цели читается в момент броска — для условий target.hp.*
-                    const rollContext = {
-                      ...modalContext,
-                      target: buildTargetHpContext(undefined, foundActor.id),
-                    };
-
-                    // Условный бонус может быть формулой (`@prof`, `@mod.dex`) — без
-                    // контекста @-переменных она дала бы ноль
-                    const formulaContext =
-                      buildResolvedFormulaContext(foundActor);
-
-                    return {
-                      attackBonus: evaluateConditionalBonuses(
-                        combinedEffects,
-                        attackKey,
-                        rollContext,
-                        formulaContext,
-                      ),
-                      damageBonus: evaluateConditionalBonuses(
-                        combinedEffects,
-                        damageKey,
-                        rollContext,
-                        formulaContext,
-                      ),
-                    };
-                  },
-                  damageType: getWeaponPrimaryDamageType(
-                    foundWeapon,
-                    resolvedStats,
-                  ),
-                  damageParts: weaponPartsSetup.baseParts,
-                  evaluateBonusDamageParts:
-                    weaponPartsSetup.evaluateBonusDamageParts,
-                  // Эффекты «на цель» гейтит оркестратор (handleWeaponRollParts →
-                  // resolveSpellDamageWithParts по applySave/приземлению). Прямого onHit
-                  // нет — он вешал эффект на каждое попадание мимо спасброска.
-                  onRollParts: handleWeaponRollParts,
-                  damageTypeChoice,
-                  // Расход одноразовых эффектов «следующей атаки» (Злая насмешка и т.п.)
-                  attackerId: foundActor.id,
-                  // Боеприпас и действие хода тратятся, когда бросок пошёл, а не
-                  // при открытии окна
-                  beforeRoll: () => {
-                    if (ammunitionId) {
-                      spendShotAmmunition(foundActor.id, ammunitionId);
-                    }
-
-                    recordEntityActionSpend(foundActor.id, attackCost, true);
-
-                    return true;
-                  },
-                });
-              },
-            );
-          },
-        );
+        startWeaponAttack(result.weapon, {
+          attackerId,
+          readAttacker: () =>
+            useWorldEntities().findCurrentDndEntity(attackerId),
+          spendAmmunition: (ammunitionId) =>
+            spendShotAmmunition(attackerId, ammunitionId),
+          refuse: refuseBlockedMacro,
+        });
       } catch (err) {
         console.error('[Hotbar] Ошибка выполнения weapon-attack:', err);
       }

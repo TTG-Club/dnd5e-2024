@@ -74,9 +74,10 @@ it('окно броска атаки везде получает атакующ�
   }
 
   // Окно одно на лист и горячую панель — у каста персонажа
-  // (`spellCastFlow.ts`), заклинания существа (`creatureSpellCast.ts`) и
-  // действия существа (`creatureActionRoll.ts`)
-  assert.ok(attackModals >= 5, `окон атаки найдено ${attackModals}`);
+  // (`spellCastFlow.ts`), заклинания и действия существа
+  // (`creatureSpellCast.ts`, `creatureActionRoll.ts`) и удара оружием
+  // (`weaponAttackRoll.ts`)
+  assert.ok(attackModals >= 4, `окон атаки найдено ${attackModals}`);
   assert.deepEqual(missing, []);
 });
 

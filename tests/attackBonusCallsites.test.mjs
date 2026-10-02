@@ -147,6 +147,7 @@ function createPorts(current) {
     spellIsHealing: () => false,
     CREATURE_ACTIONS_BLOCK_LABELS: { attackRollPrefix: 'Attack ' },
     ACTOR_SPELLS_TAB_LABELS: { attackRoll: 'Roll attack' },
+    ACTOR_EQUIPMENT_TAB_LABELS: { attackRollPrefix: 'Attack ' },
     CREATURE_ACTION_MENU_LABELS: { attack: 'attack' },
     SPELL_DAMAGE_ROLL_BUTTON: 'roll',
   };
@@ -154,16 +155,50 @@ function createPorts(current) {
   return ports;
 }
 
+/** Удар оружием: вкладка снаряжения и горячая панель — один путь */
+const weaponAttackPath = 'src/client/composables/weaponAttackRoll.ts';
+
+/**
+ * Вход удара для теста: атакующий — сущность мира.
+ *
+ * @param {{ value: object }} current - сущность мира
+ * @param {object} overrides - подмены порта
+ * @returns {object} порт удара
+ */
+function createWeaponPort(current, overrides = {}) {
+  return {
+    attackerId: current.value.id,
+    readAttacker: () => current.value,
+    spendAmmunition: () => {},
+    refuse: () => {},
+    ...overrides,
+  };
+}
+
+/**
+ * Настоящий общий удар оружием на портах теста.
+ *
+ * @param {object} ports - окружение
+ * @param {object} port - вход удара
+ * @returns {Promise<Function>} удар оружием
+ */
+async function loadWeaponAttack(ports, port) {
+  ports.openWeaponAttackRoll = await loadHandler(
+    weaponAttackPath,
+    'openWeaponAttackRoll',
+    ports,
+  );
+
+  const start = await loadHandler(weaponAttackPath, 'startWeaponAttack', ports);
+
+  return (weapon) => start(weapon, port);
+}
+
 for (const rangeType of ['melee', 'ranged']) {
-  it(`actual equipment sheet forwards only ${rangeType} attack dice and keeps the source reactive`, async () => {
+  it(`actual weapon attack forwards only ${rangeType} attack dice and keeps the source reactive`, async () => {
     const current = { value: createEntity() };
     const ports = createPorts(current);
-
-    const handler = await loadHandler(
-      'src/client/ui/actor/tabs/ActorEquipmentTab.vue',
-      'openRollModal',
-      ports,
-    );
+    const handler = await loadWeaponAttack(ports, createWeaponPort(current));
 
     const weapon = {
       name: 'Weapon',
@@ -178,7 +213,7 @@ for (const rangeType of ['melee', 'ranged']) {
       current.value.bonuses[`attack.${rangeType}`],
     );
 
-    ports.props.entity = { ...current.value, bonuses: {} };
+    current.value = { ...current.value, bonuses: {} };
 
     assert.deepEqual(
       ports.rollConfig.value.evaluateBonusRollFormulas(normalContext),
@@ -191,7 +226,7 @@ for (const rangeType of ['melee', 'ranged']) {
 }
 
 for (const kind of ['melee', 'ranged']) {
-  it(`actual equipment sheet rolls a thrown weapon as the chosen ${kind} attack`, async () => {
+  it(`actual weapon attack rolls a thrown weapon as the chosen ${kind} attack`, async () => {
     const current = { value: createEntity() };
     const ports = createPorts(current);
     const asked = [];
@@ -202,11 +237,7 @@ for (const kind of ['melee', 'ranged']) {
       proceed({ ...weapon, rangeType: kind });
     };
 
-    const handler = await loadHandler(
-      'src/client/ui/actor/tabs/ActorEquipmentTab.vue',
-      'openRollModal',
-      ports,
-    );
+    const handler = await loadWeaponAttack(ports, createWeaponPort(current));
 
     handler({
       name: 'Javelin',
@@ -227,7 +258,7 @@ for (const kind of ['melee', 'ranged']) {
   });
 }
 
-it('actual openRollModal shoots the ammunition and spends it when the roll goes', async () => {
+it('actual weapon attack shoots the ammunition and spends it when the roll goes', async () => {
   const current = { value: createEntity() };
   const ports = createPorts(current);
   const committed = [];
@@ -244,19 +275,19 @@ it('actual openRollModal shoots the ammunition and spends it when the roll goes'
   };
 
   ports.prepareAmmunitionShot = () => shot;
-  ports.inventory = { value: ['quiver'] };
-  ports.spendAmmunition = (inventory, id) => [...inventory, `spent:${id}`];
-  ports.commitEquipment = (equipment) => committed.push(equipment);
 
   ports.buildWeaponRollSetup = (options) => ({
     ...createRollSetup(),
     pseudoSpell: { magicBonus: options.weapon.magicBonus },
   });
 
-  const handler = await loadHandler(
-    'src/client/ui/actor/tabs/ActorEquipmentTab.vue',
-    'openRollModal',
+  // Вход тратит боеприпас своей записью: лист — сохранением листа, панель —
+  // записью листа сущности мира
+  const handler = await loadWeaponAttack(
     ports,
+    createWeaponPort(current, {
+      spendAmmunition: (id) => committed.push(['quiver', `spent:${id}`]),
+    }),
   );
 
   handler(weapon);
@@ -390,9 +421,14 @@ const ROLL_MODE_BY_CATEGORY = {
 
 for (const entry of [
   [
-    'src/client/ui/actor/tabs/ActorEquipmentTab.vue',
-    'openRollModal',
-    (weapon) => [weapon],
+    weaponAttackPath,
+    'openWeaponAttackRoll',
+    (weapon, attacker) => [
+      weapon,
+      attacker,
+      { attackerId: attacker.id, readAttacker: () => attacker },
+      { isDisadvantage: false, beforeRoll: () => true },
+    ],
   ],
   [
     creatureActionPath,
@@ -734,6 +770,17 @@ it('registered weapon macro selects melee/ranged dice from the fresh actor and o
     isTargetAtFullHp: () => undefined,
     console: { warn: assert.fail, error: assert.fail },
   });
+
+  // Макрос зовёт общий удар — он тот же, что у вкладки снаряжения
+  ports.spendShotAmmunition = () => {};
+
+  await loadWeaponAttack(ports, undefined);
+
+  ports.startWeaponAttack = await loadHandler(
+    weaponAttackPath,
+    'startWeaponAttack',
+    ports,
+  );
 
   const handler = await loadHandler(
     macroPath,

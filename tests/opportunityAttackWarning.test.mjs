@@ -89,7 +89,9 @@ it('в свой ход предупреждения нет', async () => {
 });
 
 it('лист и горячая панель второй раз после броска не предупреждают', async () => {
+  // Лист и горячая панель бьют общим путём удара
   for (const path of [
+    'src/client/composables/weaponAttackRoll.ts',
     'src/client/ui/actor/tabs/ActorEquipmentTab.vue',
     'src/client/macros/dnd5eMacros.ts',
   ]) {
