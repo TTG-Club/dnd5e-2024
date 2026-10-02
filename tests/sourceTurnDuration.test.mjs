@@ -84,7 +84,7 @@ function createEncounter({ boundariesForAll = false } = {}) {
 
     system.runTurnEffects(entities.get(endingId), 'endOfTurn', context);
 
-    for (const entity of entities.values()) {
+    for (const entity of boundaryEntities()) {
       system.runSourceTurnEffects(entity, endingId, 'endOfTurn', context);
     }
 
@@ -111,7 +111,7 @@ function createEncounter({ boundariesForAll = false } = {}) {
 
     system.runTurnEffects(entities.get(startingId), 'startOfTurn', context);
 
-    for (const entity of entities.values()) {
+    for (const entity of boundaryEntities()) {
       system.runSourceTurnEffects(entity, startingId, 'startOfTurn', context);
     }
 
@@ -428,5 +428,44 @@ describe('срок «ход наложившего»', () => {
     // Точная граница: конец следующего хода наложившего
     encounter.nextTurn();
     assert.equal(carries(encounter, OUTSIDER_ID, 'Испуг'), false);
+  });
+
+  it('ядро разносит границы всем — срок по своему ходу у носителя вне боя идёт раундами', () => {
+    const encounter = createEncounter({ boundariesForAll: true });
+
+    encounter.advanceTo(HERO_ID);
+    encounter.advanceTo(HERO_ID);
+
+    // Своего хода у зрителя нет: «до конца его следующего хода» ждать нечего
+    land(
+      encounter,
+      OUTSIDER_ID,
+      HERO_ID,
+      createEffect('Оглушение', {
+        flags: ['attack.disadvantage'],
+        duration: { type: 'turn', turnAnchor: 'carrier', turnTiming: 'end' },
+      }),
+    );
+
+    // Наложивший тоже вне боя: его ход не наступит
+    land(
+      encounter,
+      OUTSIDER_ID,
+      OUTSIDER_ID,
+      createEffect('Сосредоточение', {
+        flags: ['attack.advantage'],
+        duration: { type: 'turn', turnAnchor: 'source', turnTiming: 'end' },
+      }),
+    );
+
+    // Ходы участников такие эффекты не трогают
+    encounter.nextTurn();
+    assert.equal(carries(encounter, OUTSIDER_ID, 'Оглушение'), true);
+    assert.equal(carries(encounter, OUTSIDER_ID, 'Сосредоточение'), true);
+
+    // Новый раунд служит границей хода
+    encounter.advanceTo(HERO_ID);
+    assert.equal(carries(encounter, OUTSIDER_ID, 'Оглушение'), false);
+    assert.equal(carries(encounter, OUTSIDER_ID, 'Сосредоточение'), false);
   });
 });

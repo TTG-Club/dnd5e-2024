@@ -1607,7 +1607,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.176';
+  readonly version = '0.8.177';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -1766,8 +1766,9 @@ export class Dnd5eVttSystem implements VttSystem {
   private readonly pendingTurnSaveKeys = new Set<string>();
 
   /**
-   * Разносит ли ядро границы ходов и сущностям вне боя. Пока нет — их точные
-   * turn-эффекты истекают по границе раунда (`decrementEffectDurations`)
+   * Разносит ли ядро границы ходов и сущностям вне боя. Пока нет — все их
+   * turn-эффекты истекают по границе раунда (`decrementEffectDurations`); когда
+   * да — только те, чей ход не наступит (свой или наложившего вне боя)
    */
   private outsidersGetTurnBoundaries = false;
 
@@ -1833,8 +1834,9 @@ export class Dnd5eVttSystem implements VttSystem {
       return false;
     }
 
-    // Ядро принесло границу хода сущности вне боя — значит, разносит их всем,
-    // и подмена границей раунда больше не нужна (иначе срок шёл бы дважды)
+    // Ядро принесло границу хода сущности вне боя — значит, разносит их всем:
+    // эффект, который ждёт хода участника, истекает точно, и раунд его больше
+    // не трогает (иначе срок шёл бы дважды)
     if (!participantIds.has(entity.id)) {
       this.outsidersGetTurnBoundaries = true;
     }
@@ -1848,9 +1850,10 @@ export class Dnd5eVttSystem implements VttSystem {
    * Уменьшает длительность (в раундах) всех эффектов на сущности, снимая
    * истёкшие. Истёкшая метка концентрации заканчивает свой каст.
    *
-   * У сущности вне боя новый раунд служит и границей хода: границы ходов ядро
-   * разносит только участникам, и эффект «до конца следующего хода
-   * наложившего» на ней иначе не истёк бы никогда.
+   * У сущности вне боя новый раунд служит и границей хода: своего хода у неё
+   * нет, и эффект «до конца следующего хода» на ней иначе не истёк бы никогда.
+   * Эффект, который ждёт хода наложившего-участника, раунд не трогает, если
+   * ядро приносит границы ходов и сущностям вне боя: он истекает точно.
    */
   decrementEffectDurations(
     entity: SceneEntity,
@@ -1863,15 +1866,28 @@ export class Dnd5eVttSystem implements VttSystem {
     // Без ответа ядра «в бою ли сущность» границу раунда за ход не считаем:
     // участнику боя его ходы придут сами
     const isOutsider =
-      !this.outsidersGetTurnBoundaries
-      && context?.isInCombat !== undefined
-      && !context.isInCombat(entity);
+      context?.isInCombat !== undefined && !context.isInCombat(entity);
+
+    /**
+     * В бою ли сущность с таким id — по живой записи мира.
+     *
+     * @param entityId - id сущности
+     * @returns `true`, если она участник идущего боя
+     */
+    const isCombatantId = (entityId: string): boolean => {
+      const other = context?.getEntity?.(entityId);
+
+      return other !== undefined && context?.isInCombat?.(other) === true;
+    };
 
     return expireWithConcentration(entity, context, (carrier) => {
       const roundsChanged = decrementActorEffectDurations(carrier);
 
       const turnsChanged = isOutsider
-        ? expireOutsiderTurnEffects(carrier)
+        ? expireOutsiderTurnEffects(
+            carrier,
+            this.outsidersGetTurnBoundaries ? isCombatantId : undefined,
+          )
         : false;
 
       return roundsChanged || turnsChanged;

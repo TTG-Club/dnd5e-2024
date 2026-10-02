@@ -311,6 +311,29 @@ function passTurnBoundary(effect: ActiveEffect): ActiveEffect[] {
 }
 
 /**
+ * Наложивший, чьего хода эффект ждёт, — если этот ход вообще наступит. Без
+ * `sourceActorId` (эффект наложен по пути без контекста кастера) и когда
+ * наложившего нет в бою (не добавляли либо удалили после смерти) ждать нечего:
+ * эффект висел бы до конца сессии.
+ *
+ * @param effect - turn-эффект
+ * @param isInCombat - участвует ли сущность с таким id в бою
+ * @returns id наложившего либо `undefined`, если якорь не он или он не в бою
+ */
+function resolveReachableSourceId(
+  effect: ActiveEffect,
+  isInCombat: (entityId: string) => boolean,
+): string | undefined {
+  const sourceId = effect.sourceActorId;
+
+  return (effect.duration.turnAnchor ?? 'carrier') === 'source'
+    && sourceId !== undefined
+    && isInCombat(sourceId)
+    ? sourceId
+    : undefined;
+}
+
+/**
  * Снимает с сущности точные turn-эффекты, чья граница хода наступила. Должна
  * вызываться на старте/в конце хода участника `turnActorId` для КАЖДОГО
  * участника энкаунтера (источник-якорь живёт на чужой сущности).
@@ -349,21 +372,13 @@ export function expireTurnEffects(
       return [effect];
     }
 
-    const anchor = duration.turnAnchor ?? 'carrier';
-
     // Якорь источника годится, только если ход источника вообще наступит:
-    // без `sourceActorId` (эффект наложен по пути без контекста кастера) и
-    // когда источника нет в бою (не добавляли либо удалили после смерти) якорь
-    // деградирует к носителю. Иначе эффект ждал бы хода, которого не будет, и
-    // висел бы до конца сессии.
-    const sourceId = effect.sourceActorId;
-
-    const hasReachableSource =
-      anchor === 'source'
-      && sourceId !== undefined
-      && (participantIds?.has(sourceId) ?? true);
-
-    const anchorId = hasReachableSource ? sourceId : entity.id;
+    // иначе он деградирует к носителю
+    const anchorId =
+      resolveReachableSourceId(
+        effect,
+        (entityId) => participantIds?.has(entityId) ?? true,
+      ) ?? entity.id;
 
     if (anchorId !== turnActorId) {
       return [effect]; // граница не нашего якоря
@@ -380,25 +395,40 @@ export function expireTurnEffects(
 /**
  * Точные turn-эффекты сущности, которой в бою нет, — на границе раунда.
  *
- * Границы ходов ядро разносит только участникам боя: до сущности вне
- * инициативы ни конец хода наложившего, ни её собственный ход не доходят, и
- * эффект «до конца следующего хода наложившего» висел бы на ней вечно. Раунд
- * же идёт у всех, поэтому для неё граница хода — новый раунд: первая снимает
- * пропуск «хода наложения», следующая — сам эффект. Расхождение с точным
- * сроком — меньше раунда.
+ * Своего хода у сущности вне инициативы нет, и эффект «до конца её следующего
+ * хода» (или хода наложившего, которого в бою тоже нет) висел бы на ней вечно.
+ * Раунд же идёт у всех, поэтому для неё граница хода — новый раунд: первая
+ * снимает пропуск «хода наложения», следующая — сам эффект. Расхождение с
+ * точным сроком — меньше раунда.
+ *
+ * Эффект, который ждёт хода наложившего-участника, истекает точно — на границе
+ * этого хода, если ядро приносит её и сущностям вне боя. Тогда передаётся
+ * `isInCombat`, и раунд такой эффект не трогает (иначе срок шёл бы дважды).
+ * Без `isInCombat` (ядро разносит границы только участникам) раунд служит
+ * границей всем turn-эффектам сущности.
  *
  * @param entity - сущность вне боя (мутируется)
+ * @param isInCombat - участвует ли сущность с таким id в бою; без него ни один
+ *   якорь не считается достижимым
  * @returns `true`, если эффекты изменились
  */
-export function expireOutsiderTurnEffects(entity: DnDSceneEntity): boolean {
+export function expireOutsiderTurnEffects(
+  entity: DnDSceneEntity,
+  isInCombat?: (entityId: string) => boolean,
+): boolean {
   const effects = entity.activeEffects ?? [];
 
-  if (!effects.some((effect) => effect.duration.type === 'turn')) {
+  const waitsForRound = (effect: ActiveEffect): boolean =>
+    effect.duration.type === 'turn'
+    && (isInCombat === undefined
+      || resolveReachableSourceId(effect, isInCombat) === undefined);
+
+  if (!effects.some(waitsForRound)) {
     return false;
   }
 
   entity.activeEffects = effects.flatMap((effect) =>
-    effect.duration.type === 'turn' ? passTurnBoundary(effect) : [effect],
+    waitsForRound(effect) ? passTurnBoundary(effect) : [effect],
   );
 
   return true;
