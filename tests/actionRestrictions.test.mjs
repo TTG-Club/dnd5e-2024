@@ -172,10 +172,24 @@ describe('ограничения действий', () => {
       true,
     );
 
-    // Объявленный бонусным действием удар счёт атак не двигает
+    // Объявленный бонусным действием удар счёт атак не двигает, но само
+    // бонусное действие потрачено: третий удар так же объявить нельзя
+    const declared = engine.recordActionSpend(maimedStruck, 'bonus', {
+      attack: true,
+    });
+
+    assert.equal(declared['turnSpend|attack'].used, 1);
+    assert.equal(declared['turnSpend|bonus'].used, 1);
+
     assert.equal(
-      engine.recordActionSpend(maimedStruck, 'bonus', { attack: true }),
-      undefined,
+      engine.planWeaponAttack(
+        {
+          ...maimedStruck,
+          system: { ...maimedStruck.system, effectUsage: declared },
+        },
+        true,
+      ).canDeclareBonus,
+      false,
     );
   });
 

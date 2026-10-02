@@ -226,6 +226,9 @@ const TURN_SPEND_KEYS: Record<TurnSpendCost, string> = {
   move: 'turnSpend|move',
 };
 
+/** Трата, которой объявляют второй удар под «одной атакой за ход» */
+const BONUS_ACTION_COST: TurnSpendCost = 'bonus';
+
 /** Ключ счётчика атак действием «Атака» за ход */
 const ATTACK_SPEND_KEY = 'turnSpend|attack';
 
@@ -399,15 +402,19 @@ export function recordActionSpend(
 
   const flags = resolveActorStats(entity, options.ambientEffects).activeFlags;
 
-  const keys = [
-    ...(EXCLUSIVE_SPEND_RULES.some(
+  const oneAttack = flags.has(ACTION_RESTRICTION_FLAGS.oneAttackPerAction);
+
+  // Под «одной атакой за ход» бонусное действие тоже считают: второй удар
+  // объявляют бонусным действием, и оно у бьющего одно на ход
+  const countsCost =
+    EXCLUSIVE_SPEND_RULES.some(
       (rule) => flags.has(rule.flag) && rule.costs.includes(cost),
     )
-      ? [TURN_SPEND_KEYS[cost]]
-      : []),
-    ...(options.attack === true
-    && cost === ATTACK_ACTION_COST
-    && flags.has(ACTION_RESTRICTION_FLAGS.oneAttackPerAction)
+    || (oneAttack && cost === BONUS_ACTION_COST);
+
+  const keys = [
+    ...(countsCost ? [TURN_SPEND_KEYS[cost]] : []),
+    ...(options.attack === true && cost === ATTACK_ACTION_COST && oneAttack
       ? [ATTACK_SPEND_KEY]
       : []),
   ];
@@ -875,7 +882,12 @@ export function planWeaponAttack(
     canDeclareBonus:
       blocked !== null
       && blocks.byCost[cost] === undefined
-      && findAttackBlock(blocks, WEAPON_DECLARED_ATTACK_COST) === null,
+      && findAttackBlock(blocks, WEAPON_DECLARED_ATTACK_COST) === null
+      // Бонусное действие одно на ход: объявить им можно один удар
+      && !wasSpent(
+        readTriggerUsage(entity),
+        TURN_SPEND_KEYS[BONUS_ACTION_COST],
+      ),
   };
 }
 

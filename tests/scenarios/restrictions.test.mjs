@@ -252,13 +252,18 @@ describe('каталог: ограничения действий и колдо�
     assert.equal(engine.resolveWeaponAttackBlock(struck, [], 'bonus'), null);
     assert.equal(engine.resolveWeaponAttackBlock(struck, [], 'reaction'), null);
 
-    for (const cost of ['bonus', 'reaction']) {
-      assert.equal(
-        engine.recordActionSpend(fighter, cost, { attack: true }),
-        undefined,
-        `удар тратой «${cost}» в счёт атак не идёт`,
-      );
-    }
+    assert.equal(
+      engine.recordActionSpend(fighter, 'reaction', { attack: true }),
+      undefined,
+      'удар реакцией в счёт хода не идёт',
+    );
+
+    // Удар бонусным действием атакой действием не считается, но само
+    // бонусное действие потрачено
+    assert.deepEqual(
+      Object.keys(engine.recordActionSpend(fighter, 'bonus', { attack: true })),
+      ['turnSpend|bonus'],
+    );
 
     // У оружия нет поля цены: в свой ход удар — действие «Атака», второй
     // бьющий может объявить бонусным действием; вне своего хода удар — реакция
@@ -277,6 +282,16 @@ describe('каталог: ограничения действий и колдо�
     assert.deepEqual(engine.planWeaponAttack(struck, false), {
       cost: 'reaction',
       blocked: null,
+      canDeclareBonus: false,
+    });
+
+    // Бонусное действие одно на ход: объявив им второй удар, третий так же
+    // объявить уже нельзя
+    const struckTwice = spent(struck, 'bonus', { attack: true });
+
+    assert.deepEqual(engine.planWeaponAttack(struckTwice, true), {
+      cost: 'action',
+      blocked: 'Вторая атака за ход недоступна: Изувечен',
       canDeclareBonus: false,
     });
 
