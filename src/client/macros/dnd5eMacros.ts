@@ -30,7 +30,6 @@ import type {
   SpellDamagePartInput,
 } from '../composables/useSpellResolution';
 
-import { emitEntityUpdate } from '@/core/entityUtils';
 import { registerMacro } from '@/core/registries/macroRegistry';
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useActionPromptStore } from '@/stores/actionPromptStore';
@@ -157,6 +156,7 @@ import {
 } from '../composables/effectToggle';
 import { runWithEffectVariants } from '../composables/effectVariantChoice';
 import { isEntityOwnTurn } from '../composables/encounterTurn';
+import { changeEntitySheet } from '../composables/entitySheetWrite';
 import {
   buildRollBonusEvaluator,
   collectProjectileRollBonuses,
@@ -1774,22 +1774,14 @@ function spendMacroSpellSlot(
     return;
   }
 
-  const worldStore = useWorldStore();
-  const worldId = worldStore.connectionState.currentWorldId;
-  const caster = useWorldEntities().findCurrentDndEntity(actorId);
-
-  if (!worldId || !caster || !isDnDActorEntity(caster)) {
-    return;
-  }
-
-  const system = withSpentSpellSlot(caster.system, castLevel, isPactSlot);
-  const socket = useChatStore().getSocket();
-
-  worldStore.updateActor(worldId, actorId, { system });
-
-  if (socket) {
-    emitEntityUpdate(socket, { ...caster, system });
-  }
+  changeEntitySheet(actorId, (caster) =>
+    isDnDActorEntity(caster)
+      ? {
+          ...caster,
+          system: withSpentSpellSlot(caster.system, castLevel, isPactSlot),
+        }
+      : null,
+  );
 }
 
 /**
@@ -2328,47 +2320,41 @@ function consumeCreatureSpellUse(
     return;
   }
 
-  const worldStore = useWorldStore();
-  const chatStore = useChatStore();
-  const worldId = worldStore.connectionState.currentWorldId;
+  // Существо перечитывается в момент записи: копия, захваченная до окна,
+  // вернула бы хиты и эффекты, изменённые сервером за это время
+  changeEntitySheet(creature.id, (current) => {
+    if (!isDnDCreatureEntity(current)) {
+      return null;
+    }
 
-  if (!worldId) {
-    return;
-  }
+    if (isPool && placement) {
+      return {
+        ...current,
+        system: {
+          ...current.system,
+          spellcastingBlocks: consumeCreatureSpellGroupUse(
+            current.system.spellcastingBlocks ?? [],
+            placement.group.id,
+          ),
+        },
+      };
+    }
 
-  const patch: Partial<DnDCreature> = {};
-
-  if (isPool && placement) {
-    patch.system = {
-      ...creature.system,
-      spellcastingBlocks: consumeCreatureSpellGroupUse(
-        creature.system.spellcastingBlocks ?? [],
-        placement.group.id,
+    return {
+      ...current,
+      spells: (current.spells ?? []).map((entry) =>
+        entry.id === spell.id && entry.uses
+          ? {
+              ...entry,
+              uses: {
+                ...entry.uses,
+                current: Math.max(0, entry.uses.current - 1),
+              },
+            }
+          : entry,
       ),
     };
-  } else {
-    patch.spells = (creature.spells ?? []).map((entry) =>
-      entry.id === spell.id && entry.uses
-        ? {
-            ...entry,
-            uses: {
-              ...entry.uses,
-              current: Math.max(0, entry.uses.current - 1),
-            },
-          }
-        : entry,
-    );
-  }
-
-  worldStore.updateCreature(worldId, creature.id, patch);
-
-  const socket = chatStore.getSocket();
-
-  if (socket) {
-    const updatedCreature: DnDCreature = { ...creature, ...patch };
-
-    emitEntityUpdate(socket, updatedCreature);
-  }
+  });
 }
 
 /**

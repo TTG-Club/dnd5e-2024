@@ -19,7 +19,6 @@ import type {
   EffectPaid,
 } from '@vtt/shared/system/dnd.js';
 
-import { emitEntityUpdate } from '@/core/entityUtils';
 import { useChatStore } from '@/stores/chatStore';
 import { isActorEntity } from '@vtt/shared';
 import {
@@ -32,6 +31,7 @@ import {
   payActivation,
   stampEffectPaid,
   usesPaidHitDiceRoll,
+  withSheetResources,
 } from '@vtt/shared/system/dnd.js';
 
 import { useSystemToastStore } from '../stores/systemToastStore';
@@ -45,6 +45,7 @@ import {
 import { runWithEffectVariants } from './effectVariantChoice';
 import { resolveCombatRound } from './encounterTurn';
 import { changeEntityCombatState } from './entityCombatWrite';
+import { changeEntitySheet } from './entitySheetWrite';
 import { stampEffectOnApply } from './spellResolutionShared';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -248,7 +249,9 @@ function switchOnEntityEffect(entityId: string, effectId: string): void {
       : entity;
 
     if (paidEntity !== entity) {
-      emitEntityUpdate(socket, paidEntity);
+      changeEntitySheet(entityId, (current) =>
+        withSheetResources(current, paidEntity),
+      );
     }
 
     activate(paidEntity);
@@ -271,7 +274,12 @@ function switchOnEntityEffect(entityId: string, effectId: string): void {
           ? payEntityActivation(settled, effect)
           : settled;
 
-        emitEntityUpdate(socket, paidEntity);
+        const spent = paidEntity;
+
+        // Цена спрошена у человека: ресурсы переносятся на свежую сущность
+        changeEntitySheet(entityId, (current) =>
+          withSheetResources(current, spent),
+        );
       },
     },
     (paid) => {

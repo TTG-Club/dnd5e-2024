@@ -24,10 +24,10 @@ import type {
 import type { SavingThrowTarget } from './useSpellSavingThrows';
 
 import { getRollRequestService } from '@/core/api/rollRequestService';
-import { emitEntityUpdate } from '@/core/entityUtils';
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
 import {
+  cloneEntityData,
   findSaveOverride,
   formatSaveOverrideChatLine,
   formatSaveOverrideQuestion,
@@ -43,6 +43,7 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { EFFECT_QUESTION_PROMPT_MODAL } from '../ui/effect/constants';
+import { changeEntitySheet } from './entitySheetWrite';
 import { controlsEntityAsUser, isGameMasterUser } from './gmApprovalRequest';
 
 /** Кто бросал и что — то, что нужно вопросу */
@@ -125,17 +126,16 @@ export function spendEntitySaveOverride(
   available: AvailableSaveOverride,
 ): void {
   const chatStore = useChatStore();
-  const socket = chatStore.getSocket();
 
-  if (socket) {
-    emitEntityUpdate(socket, {
-      ...entity,
-      system: {
-        ...entity.system,
-        ...spendSaveOverride(entity, available.source),
-      },
-    });
-  }
+  // Носитель перечитывается: списание зовётся посреди разбора спасброска, и
+  // копия разбора старше хитов и эффектов сервера
+  changeEntitySheet(entity.id, (current) => {
+    const spent = cloneEntityData(current);
+
+    Object.assign(spent.system, spendSaveOverride(current, available.source));
+
+    return spent;
+  });
 
   chatStore.sendMessage(
     formatSaveOverrideChatLine(

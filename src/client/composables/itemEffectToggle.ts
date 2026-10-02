@@ -15,18 +15,18 @@ import type {
   EffectPaid,
 } from '@vtt/shared/system/dnd.js';
 
-import { emitEntityUpdate } from '@/core/entityUtils';
-import { useChatStore } from '@/stores/chatStore';
 import {
   isDnDEffect,
   isToggleActivatedEffect,
   switchItemToggle,
   usesPaidHitDiceRoll,
+  withSheetResources,
 } from '@vtt/shared/system/dnd.js';
 
 import { ITEM_TOGGLE_LABELS } from '../ui/effect/constants';
 import { recordEntityActionSpend, warnActionCostBlocked } from './actionSpend';
 import { runWithEffectPay } from './effectPayChoice';
+import { changeEntitySheet } from './entitySheetWrite';
 import { useWorldEntities } from './useWorldEntities';
 
 /**
@@ -45,14 +45,8 @@ function commitItemToggle(
   on: boolean,
   paid?: EffectPaid,
 ): void {
-  const socket = useChatStore().getSocket();
-
-  if (!socket) {
-    return;
-  }
-
   // Новый объект: живую запись стора меняет только ответ сервера
-  const updated: DnDSceneEntity = {
+  const toggled: DnDSceneEntity = {
     ...entity,
     equipment: switchItemToggle(
       entity.equipment ?? [],
@@ -63,7 +57,11 @@ function commitItemToggle(
     ),
   };
 
-  emitEntityUpdate(socket, updated);
+  // Оплата могла пройти через вопросы: ресурсы и предметы переносятся на
+  // свежую сущность, хиты и эффекты остаются её
+  changeEntitySheet(entity.id, (current) =>
+    withSheetResources(current, toggled),
+  );
 }
 
 /**

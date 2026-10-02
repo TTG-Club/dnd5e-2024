@@ -23,7 +23,6 @@ import type {
   SelfTriggerReport,
 } from '@vtt/shared/system/dnd.js';
 
-import { emitEntityUpdate } from '@/core/entityUtils';
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
 import { generateId } from '@vtt/shared';
@@ -49,6 +48,7 @@ import {
 } from '../ui/effect/payLabels';
 import { askCastLevel } from './castLevelPrompt';
 import { sendComputedCombatState } from './entityCombatWrite';
+import { changeEntitySheet } from './entitySheetWrite';
 import { useWorldEntities } from './useWorldEntities';
 
 /** Что и чем оплачивают */
@@ -101,11 +101,11 @@ function commitPaySettlement(
   if (request.commit) {
     request.commit(settlement.entity);
   } else {
-    const socket = useChatStore().getSocket();
-
-    if (socket) {
-      emitEntityUpdate(socket, settlement.entity);
-    }
+    // Оплата прошла через вопросы человеку: ресурсы переносятся на свежую
+    // сущность, хиты и эффекты остаются её
+    changeEntitySheet(request.payer.id, (current) =>
+      withSheetResources(current, settlement.entity),
+    );
   }
 
   if (settlement.notes.length > 0) {
@@ -364,16 +364,12 @@ export function emitActedEntity(
   before: DnDSceneEntity,
   acted: DnDSceneEntity,
 ): void {
-  const socket = useChatStore().getSocket();
-
-  if (!socket) {
-    return;
-  }
-
   // Сначала ресурсы, потом эффекты: полное сохранение, пришедшее вторым,
-  // вернуло бы эффекты прежними
+  // вернуло бы эффекты прежними. Ресурсы ложатся на свежую сущность
   if (sheetResourcesDiffer(before, acted)) {
-    emitEntityUpdate(socket, withSheetResources(before, acted));
+    changeEntitySheet(acted.id, (current) =>
+      withSheetResources(current, acted),
+    );
   }
 
   sendComputedCombatState(before, acted);

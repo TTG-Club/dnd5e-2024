@@ -561,8 +561,11 @@ it('цена ресурсом: оплата и прежний расход ид�
       options.commit(paidUser);
       proceed(source, true, paidUser);
     },
-    useChatStore: () => ({ getSocket: () => ({}) }),
-    emitEntityUpdate: (_socket, entity) => steps.push(['save', entity]),
+    // Запись листа перечитывает сущность и переносит на неё ресурсы
+    // оплаченной копии; у фикстуры перенос — сама копия
+    changeEntitySheet: (entityId, change) =>
+      steps.push(['save', entityId, change(hero)]),
+    withSheetResources: (_current, spent) => spent,
     completeSpellCast: () => {
       steps.push(['self']);
 
@@ -585,7 +588,7 @@ it('цена ресурсом: оплата и прежний расход ид�
   });
 
   assert.deepEqual(steps, [
-    ['save', { ...paidUser, itemUsesPaid: true }],
+    ['save', 'hero', { ...paidUser, itemUsesPaid: true }],
     ['self'],
   ]);
 });

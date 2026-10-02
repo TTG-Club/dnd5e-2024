@@ -18,7 +18,6 @@ import type {
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
-import { emitEntityUpdate } from '@/core/entityUtils';
 import { useChatStore } from '@/stores/chatStore';
 import { generateId } from '@vtt/shared';
 import {
@@ -45,6 +44,7 @@ import {
   tracksWeaponAmmunition,
   UNRESOLVED_SAVE_DC_LABELS,
   withAmmunition,
+  withSheetResources,
 } from '@vtt/shared/system/dnd.js';
 
 import { EFFECT_USE_LABELS } from '../ui/effect/constants';
@@ -59,6 +59,7 @@ import {
 } from './effectToggle';
 import { chooseUseTarget } from './effectUseTargetChoice';
 import { runWithEffectVariants } from './effectVariantChoice';
+import { changeEntitySheet } from './entitySheetWrite';
 import { openSkillCheckModal } from './skillCheckRoll';
 import {
   afterSpellCast,
@@ -239,14 +240,14 @@ export function applyEffectSource(
           {
             ...(withPay.itemId === undefined ? {} : { itemId: withPay.itemId }),
             commit: (paidUser) => {
-              const socket = useChatStore().getSocket();
+              const spent =
+                withPay.spendOn?.(paidUser, itemUsesPaid) ?? paidUser;
 
-              if (socket) {
-                emitEntityUpdate(
-                  socket,
-                  withPay.spendOn?.(paidUser, itemUsesPaid) ?? paidUser,
-                );
-              }
+              // Оплата прошла через вопросы человеку: ресурсы переносятся на
+              // свежую сущность, хиты и эффекты остаются её
+              changeEntitySheet(user.id, (current) =>
+                withSheetResources(current, spent),
+              );
             },
           },
           (paidSource, paid) => {
@@ -488,20 +489,11 @@ function updateEntityEquipment(
   entityId: string,
   change: (equipment: readonly DnDGameItem[]) => DnDGameItem[],
 ): void {
-  const socket = useChatStore().getSocket();
-  const entity = useWorldEntities().findCurrentDndEntity(entityId);
-
-  if (!socket || !entity) {
-    return;
-  }
-
   // Новый объект: живую запись стора меняет только ответ сервера
-  const updated: DnDSceneEntity = {
+  changeEntitySheet(entityId, (entity) => ({
     ...entity,
     equipment: change(entity.equipment ?? []),
-  };
-
-  emitEntityUpdate(socket, updated);
+  }));
 }
 
 /**
@@ -560,18 +552,9 @@ export function applyEntityEffectUse(entityId: string, effectId: string): void {
     entity,
     resolveActorStats(entity, listAmbientEffects(entity.id)).spellSaveDC,
     () => {
-      const socket = useChatStore().getSocket();
-      const current = worldEntities.findCurrentDndEntity(entityId);
-
-      if (!socket || !current) {
-        return;
-      }
-
-      const paid = payEntityActivation(current, effect);
-
-      if (paid !== current) {
-        emitEntityUpdate(socket, paid);
-      }
+      changeEntitySheet(entityId, (current) =>
+        payEntityActivation(current, effect),
+      );
     },
     {
       spendOn: (paidUser) => payEntityActivation(paidUser, effect),
