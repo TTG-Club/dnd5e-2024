@@ -11,7 +11,7 @@
 
 import type { AbilityType, SkillType } from '@vtt/shared';
 
-import type { CounterRecovery } from './classTypes.js';
+import type { CounterDefinitionExtras, CounterRecovery } from './classTypes.js';
 import type { ConditionKey } from './conditionKeys.js';
 import type { DamageDefenseKind } from './damageConstants.js';
 import type { DamageDefenseEntry, GrantedSpellRef } from './speciesTypes.js';
@@ -644,7 +644,7 @@ export interface FeatSpellListExpansion {
  * и обязан расти вместе с ним, либо ступенями — первая ступень и есть уровень,
  * с которого ресурс появляется.
  */
-export interface FeatCounterDefinition {
+export interface FeatCounterDefinition extends CounterDefinitionExtras {
   /** Стабильный ключ ресурса в пределах черты */
   key: string;
   /** Название на листе («Очки удачи») */

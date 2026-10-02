@@ -15,10 +15,17 @@
 
 import type { AbilityType } from '@vtt/shared';
 
-import type { CounterRecovery } from './classTypes.js';
+import type {
+  CounterDefinitionExtras,
+  CounterRecovery,
+  CounterRecoveryMode,
+  CounterRecoveryRule,
+} from './classTypes.js';
 import type { DnDActor } from './dndEntities.js';
 import type { FormulaContext } from './formulaParser.js';
-import type { ActorCounterState, CounterRecoveryRule } from './types.js';
+import type { ActorCounterState } from './types.js';
+
+import { isRecord } from '@vtt/shared';
 
 import { ABILITY_KEYS, isAbilityType } from './consts.js';
 import { resolveActorStats } from './effectPipeline.js';
@@ -701,6 +708,153 @@ const ONE_CHARGE_RECOVERY: CounterRecoveryRule = {
   mode: 'amount',
   amount: COUNTER_SHORT_REST_ONE_AMOUNT,
 };
+
+/** Режимы правила отдыха: по ним проверяется правило из записи */
+const COUNTER_RECOVERY_MODES: readonly CounterRecoveryMode[] = [
+  'none',
+  'all',
+  'amount',
+];
+
+/**
+ * Правило отдыха из записи ресурса. Записи приходят из компендиума и из
+ * мастерской как есть, поэтому правило проверяется: незнакомый режим — правила
+ * нет, а число зарядов меньше единицы поднимается до неё.
+ *
+ * @param value - правило из записи
+ * @returns правило либо `undefined`, если оно не задано или не читается
+ */
+function readCounterRecoveryRule(
+  value: unknown,
+): CounterRecoveryRule | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const mode = COUNTER_RECOVERY_MODES.find((entry) => entry === value.mode);
+
+  if (!mode) {
+    return undefined;
+  }
+
+  const amount =
+    typeof value.amount === 'number' && Number.isFinite(value.amount)
+      ? Math.max(COUNTER_RECOVERY_AMOUNT_MIN, Math.round(value.amount))
+      : COUNTER_RECOVERY_AMOUNT_MIN;
+
+  return { mode, amount };
+}
+
+/**
+ * Отдых ресурса из его определения — полями счётчика на листе. Раздельные
+ * правила едут на лист вместе с откатом одним словом: отдых читает их первыми
+ * ({@link getCounterRecoveryRules}), и ресурс, которому оба отдыха ничего не
+ * возвращают, остаётся пустым и после продолжительного.
+ *
+ * @param definition - определение ресурса: класса, черты, вида
+ * @returns поля отдыха для состояния счётчика
+ */
+export function counterDefinitionRest(
+  definition: CounterDefinitionExtras & { recovery: CounterRecovery },
+): Pick<ActorCounterState, 'recovery' | 'shortRest' | 'longRest'> {
+  const shortRest = readCounterRecoveryRule(definition.shortRest);
+  const longRest = readCounterRecoveryRule(definition.longRest);
+
+  return {
+    recovery: definition.recovery,
+    ...(shortRest ? { shortRest } : {}),
+    ...(longRest ? { longRest } : {}),
+  };
+}
+
+/**
+ * Откат ресурса одним выбором формы: слово отката либо «отдых ничего не
+ * возвращает». Четвёртого слова у {@link CounterRecovery} нет — такой ресурс
+ * записывается раздельными правилами с режимом `none`.
+ */
+export type CounterRecoveryChoice = CounterRecovery | 'none';
+
+/** Выбор формы «отдых ничего не возвращает» */
+export const COUNTER_RECOVERY_CHOICE_NONE = 'none';
+
+/** Откат ресурса в форме: выбор и правила записи, которые форма не правит */
+export interface CounterRecoveryForm {
+  /** Выбор в поле «Восстановление» */
+  choice: CounterRecoveryChoice;
+  /**
+   * Раздельные правила записи, которые одним выбором не сказать («два заряда
+   * коротким, все продолжительным»): форма несёт их как есть, чтобы открытие и
+   * сохранение записи не упростило отдых ресурса молча.
+   */
+  customRest?: Pick<CounterDefinitionExtras, 'shortRest' | 'longRest'>;
+}
+
+/**
+ * Откат ресурса записи — выбором формы.
+ *
+ * @param definition - определение ресурса
+ * @returns выбор и, если правила записи им не выражаются, сами правила
+ */
+export function readCounterRecoveryForm(
+  definition: CounterDefinitionExtras & { recovery?: CounterRecovery },
+): CounterRecoveryForm {
+  const { recovery, shortRest, longRest } = counterDefinitionRest({
+    ...definition,
+    recovery: definition.recovery ?? 'long',
+  });
+
+  if (!shortRest && !longRest) {
+    return { choice: recovery ?? 'long' };
+  }
+
+  // Задано хоть одно правило — недостающее читается как «ничего»
+  const isNone =
+    (shortRest?.mode ?? 'none') === 'none'
+    && (longRest?.mode ?? 'none') === 'none';
+
+  return isNone
+    ? { choice: COUNTER_RECOVERY_CHOICE_NONE }
+    : {
+        choice: recovery ?? 'long',
+        customRest: {
+          ...(shortRest ? { shortRest } : {}),
+          ...(longRest ? { longRest } : {}),
+        },
+      };
+}
+
+/**
+ * Откат ресурса из выбора формы — полями определения.
+ *
+ * @param form - выбор формы и несённые ею правила записи
+ * @returns слово отката и, если нужны, раздельные правила
+ */
+export function buildCounterRecoveryForm(
+  form: CounterRecoveryForm,
+): CounterDefinitionExtras & { recovery: CounterRecovery } {
+  if (form.choice === COUNTER_RECOVERY_CHOICE_NONE) {
+    // Слово — ближайшее для потребителей, которые правил ещё не читают
+    return { recovery: 'long', shortRest: NO_RECOVERY, longRest: NO_RECOVERY };
+  }
+
+  return { recovery: form.choice, ...form.customRest };
+}
+
+/**
+ * Значение только что заведённого счётчика: полный, а у ресурса «появляется
+ * пустым» — ноль. «Очки мутации» набирают тратой ячейки: полный счётчик у
+ * нового персонажа был бы подарком, которого правило не даёт.
+ *
+ * @param definition - определение ресурса
+ * @param max - посчитанный максимум
+ * @returns текущее значение нового счётчика
+ */
+export function initialCounterCurrent(
+  definition: CounterDefinitionExtras,
+  max: number,
+): number {
+  return definition.startsEmpty === true ? COUNTER_COUNT_MIN : max;
+}
 
 /**
  * Правила восстановления счётчика по видам отдыха.

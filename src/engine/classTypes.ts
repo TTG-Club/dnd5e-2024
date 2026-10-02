@@ -92,6 +92,41 @@ export type HitPointMethod = 'roll' | 'average' | 'max' | 'custom';
  */
 export type CounterRecovery = 'short' | 'long' | 'short-one';
 
+/** Сколько зарядов возвращает отдых: ничего, все или заданное число */
+export type CounterRecoveryMode = 'none' | 'all' | 'amount';
+
+/** Восстановление счётчика на одном виде отдыха */
+export interface CounterRecoveryRule {
+  mode: CounterRecoveryMode;
+  /** Число возвращаемых зарядов; учитывается только при режиме `amount` */
+  amount: number;
+}
+
+/**
+ * Отдых и первое значение ресурса сверх отката одним словом — общее у счётчика
+ * класса и ресурса записи (черта, вид, умение).
+ *
+ * Одним словом {@link CounterRecovery} не сказать «отдых ничего не возвращает»:
+ * продолжительный отдых у него возвращает всё всегда. Ресурс, который набирают
+ * действием, а не отдыхом («Очки мутации» — от потраченной ячейки), описывается
+ * раздельными правилами с режимом `none` и появляется пустым.
+ */
+export interface CounterDefinitionExtras {
+  /**
+   * Что возвращает короткий отдых. Задано хоть одно из двух правил — отдых
+   * читается по ним (недостающее — «ничего»), а {@link CounterRecovery} не
+   * читается вовсе: так же, как у счётчика на листе и как на сайте.
+   */
+  shortRest?: CounterRecoveryRule;
+  /** Что возвращает продолжительный отдых; см. {@link shortRest} */
+  longRest?: CounterRecoveryRule;
+  /**
+   * Ресурс появляется на листе пустым (0 из максимума), а не полным. Нет или
+   * `false` — как раньше, полным.
+   */
+  startsEmpty?: boolean;
+}
+
 // ── Счётчики классовых ресурсов ──────────────────────────────
 
 /**
@@ -101,7 +136,7 @@ export type CounterRecovery = 'short' | 'long' | 'short-one';
  * и который восстанавливается после короткого или продолжительного отдыха.
  * Примеры: очки чародейства, кости превосходства, очки духа, ярость.
  */
-export interface ClassCounterDefinition {
+export interface ClassCounterDefinition extends CounterDefinitionExtras {
   /** Уникальный ключ (напр. 'sorcery-points', 'superiority-dice') */
   key: string;
   /** Название на русском */

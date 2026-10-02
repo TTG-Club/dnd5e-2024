@@ -17,7 +17,7 @@ import type {
   ActiveEffectDetailSectionKey,
   AttackKind,
   CarriedEffectSourceKind,
-  CounterRecovery,
+  CounterRecoveryChoice,
   CounterRestKey,
   HitDie,
   SkillInfluenceTone,
@@ -26,6 +26,7 @@ import type {
 import {
   COMPENDIUM_CLASS_KIND,
   COMPENDIUM_SPELL_KIND,
+  COUNTER_RECOVERY_CHOICE_NONE,
   CUSTOM_SKILLS_MAX,
   DEATH_SAVE_DC,
   DEATH_SAVE_DOUBLE_FAILURE_ROLL,
@@ -2437,6 +2438,13 @@ export const FEAT_GRANTS_LABELS = {
     + 'написать («на 3-м два заряда, на 7-м три»). Указывайте только уровни, '
     + 'где значение МЕНЯЕТСЯ. Пока есть хоть одна ступень, поле максимума не '
     + 'считается; уберите все ступени — и максимум снова пойдёт от источника.',
+  counterStartsEmpty: 'Появляется пустым',
+  counterStartsEmptyHint:
+    'Новый ресурс на листе стоит на нуле, а не на максимуме: его набирают '
+    + 'действием (эффект «вернуть ресурс»), а не получают вместе с умением.',
+  counterCustomRestHint:
+    'Отдых этого ресурса записан раздельными правилами (короткий и '
+    + 'продолжительный отдельно) — действуют они. Новый выбор здесь их заменит.',
   counterShowInTable: 'Указать в таблице',
   counterShowInTableHint:
     'Добавляет ресурс колонкой в таблицу прогрессии класса. Ряд по уровням '
@@ -4604,7 +4612,7 @@ export const CLASS_COUNTERS_LABELS = {
  * свои завели бы третье название одного и того же отдыха.
  */
 export const COUNTER_RECOVERY_OPTIONS: ReadonlyArray<{
-  value: CounterRecovery;
+  value: CounterRecoveryChoice;
   label: string;
 }> = [
   { value: 'short', label: REST_LABELS.short },
@@ -4613,6 +4621,9 @@ export const COUNTER_RECOVERY_OPTIONS: ReadonlyArray<{
     value: 'short-one',
     label: 'Один заряд на коротком, все на продолжительном',
   },
+  // Ресурс, который набирают действием («Очки мутации» — от потраченной
+  // ячейки): ни короткий, ни продолжительный отдых его не возвращают
+  { value: COUNTER_RECOVERY_CHOICE_NONE, label: 'Отдых не восстанавливает' },
 ];
 
 /** Наибольший уровень персонажа: дальше таблица прогрессии не идёт. */

@@ -41,7 +41,9 @@ import { getTotalLevel } from './classTypes.js';
 import { ABILITY_OPTIONS, isAbilityType } from './consts.js';
 import {
   COUNTER_COUNT_MIN,
+  counterDefinitionRest,
   evaluateCounterMaxFormula,
+  initialCounterCurrent,
   progressionCounterMax,
   withCounterMinimum,
 } from './counterResource.js';
@@ -1039,18 +1041,19 @@ export function buildFeatCounters(
       );
 
       // Потраченное бережём только у ресурса, который уже был: «0 из 0» ничего
-      // не тратило, и появившийся на новой ступени заряд обязан прийти целым
+      // не тратило, и появившийся на новой ступени заряд обязан прийти целым —
+      // либо пустым, если так записан сам ресурс
       const current =
         previous && previous.max > COUNTER_COUNT_MIN
           ? Math.min(previous.current, max)
-          : max;
+          : initialCounterCurrent(definition, max);
 
       return {
         counterKey: definition.key,
         featureId: feat.id,
         name: definition.name,
         shortName: definition.shortName,
-        recovery: definition.recovery,
+        ...counterDefinitionRest(definition),
         // Формула и граница живут на счётчике: отдых пересчитывает максимум по
         // ним, не заглядывая в определение черты. У ступеней формулы нет —
         // отдых берёт посчитанный максимум как есть, как и у счётчика класса

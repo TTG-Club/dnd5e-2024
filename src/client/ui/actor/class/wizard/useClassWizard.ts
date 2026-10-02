@@ -54,6 +54,7 @@ import {
   collectGrantedSpellSourcesForClassLevel,
   COUNTER_FORMULA_TOKENS,
   counterAbilityModifierFormula,
+  counterDefinitionRest,
   evaluateCounterMaxFormula,
   expandChoiceScaling,
   featChoicePendingCount,
@@ -65,6 +66,7 @@ import {
   getTotalLevel,
   getVisibleFeatChoices,
   hasAbilityImprovementAtLevel,
+  initialCounterCurrent,
   isAsiFeatureInClass,
   isClassOptionChoiceKey,
   isCounterOfDefinition,
@@ -2523,6 +2525,21 @@ export function useClassWizard(
 
           existingCounter.recovery ??= counterDef.recovery;
 
+          // Раздельные правила отдыха появились у определения позже: счётчик,
+          // заведённый до них и не настроенный игроком, получает их здесь.
+          // Свои правила игрока не трогаем
+          if (!existingCounter.shortRest && !existingCounter.longRest) {
+            const { shortRest, longRest } = counterDefinitionRest(counterDef);
+
+            if (shortRest) {
+              existingCounter.shortRest = shortRest;
+            }
+
+            if (longRest) {
+              existingCounter.longRest = longRest;
+            }
+          }
+
           // Нижняя граница появилась у счётчика позже: у записей, добавленных
           // до неё, её нет вовсе
           existingCounter.min ??= counterDef.min;
@@ -2559,7 +2576,9 @@ export function useClassWizard(
           // недоступен или сопоставление по ключу не сработает.
           name: counterDef.name,
           shortName: counterDef.shortName,
-          recovery: counterDef.recovery,
+          // Отдых — словом и раздельными правилами записи: ресурсу, которому
+          // отдых ничего не возвращает, слова для этого нет
+          ...counterDefinitionRest(counterDef),
           // Нижняя граница живёт на счётчике: её читают и панель ресурсов, и
           // отдых
           ...(counterDef.min ? { min: counterDef.min } : {}),
@@ -2570,7 +2589,8 @@ export function useClassWizard(
           // сумму уровней мультиклассера. Теперь уровень назван своим именем
           // (`@classLevel`), и лист считает его по классу счётчика сам
           ...(maxFormula ? { maxFormula } : {}),
-          current: maxValue,
+          // Полный, а у ресурса «появляется пустым» — ноль
+          current: initialCounterCurrent(counterDef, maxValue),
           max: maxValue,
         });
       }
