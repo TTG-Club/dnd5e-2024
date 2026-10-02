@@ -6,10 +6,12 @@ import { loadEngineBundle } from './helpers/engineBundle.mjs';
 import { loadHandler } from './helpers/sourceHandler.mjs';
 
 const engine = await loadEngineBundle(
-  "export * from './src/engine/attackUtils.ts'; export * from './src/engine/effectPipeline.ts'; export * from './src/engine/consts.ts'; export * from './src/engine/formulaParser.ts'; export * from './src/engine/resolvedFormulaContext.ts'; export * from './src/engine/hitPoints.ts'; export { isSaveAbility } from './src/engine/spellUtils.ts'; export { creatureActionHasSave } from './src/engine/creatureUtils.ts';",
+  "export * from './src/engine/attackUtils.ts'; export * from './src/engine/effectPipeline.ts'; export * from './src/engine/consts.ts'; export * from './src/engine/formulaParser.ts'; export * from './src/engine/resolvedFormulaContext.ts'; export * from './src/engine/spellCastPlan.ts'; export * from './src/engine/hitPoints.ts'; export { isSaveAbility } from './src/engine/spellUtils.ts'; export { creatureActionHasSave } from './src/engine/creatureUtils.ts';",
 );
 
 const macroPath = 'src/client/macros/dnd5eMacros.ts';
+
+const creatureSpellPath = 'src/client/composables/creatureSpellCast.ts';
 
 /** Настоящая сборка наборов урона действия: без вариантов «или» набор один */
 const buildCreatureRollVariants = await loadHandler(
@@ -90,7 +92,10 @@ function createPorts(current) {
     resolvedStats: { value: { activeFlags: new Set() } },
     combinedEffects: { value: [] },
     targetStore: { getTargetActor: () => null },
-    useTargetStore: () => ({ getTargetFlags: () => new Set() }),
+    useTargetStore: () => ({
+      getTargetFlags: () => new Set(),
+      getTargetActor: () => null,
+    }),
     useModalManager: () => ({
       openModal: (_name, props) => {
         rollConfig.value = props;
@@ -123,6 +128,11 @@ function createPorts(current) {
     creatureActionHasSave: engine.creatureActionHasSave,
     getDamagePartsPrimaryType: () => undefined,
     getSpellAttackType: (spell) => spell.deliveryType,
+    // Общий разбор заклинания существа: существо из мира, вид каста — план
+    readCreature: () => current.value,
+    resolveSpellCastPlan: engine.resolveSpellCastPlan,
+    isTargetAtFullHp: () => undefined,
+    resolveEntityCreatureType: () => undefined,
     calculateCreatureSpellBlockNumbers: () => ({ attackBonus: 5, saveDC: 13 }),
     getCreatureSpellBlockAbility: () => 'wisdom',
     getCreatureSpellMod: () => 2,
@@ -327,10 +337,8 @@ for (const entry of [
   });
 }
 
-for (const entry of [
-  ['src/client/ui/creature/CreatureSpellsBlock.vue', 'startSpellRoll', false],
-  [macroPath, 'openCreatureSpellRoll', true],
-]) {
+// Лист существа и горячая панель кастуют одним разбором существа
+for (const entry of [[creatureSpellPath, 'openCreatureSpellRoll', false]]) {
   it(`actual ${entry[1]} applies only attack.spell and follows effect changes`, async () => {
     const current = { value: createEntity() };
     const ports = createPorts(current);
@@ -437,10 +445,8 @@ for (const entry of [
   });
 }
 
-for (const entry of [
-  ['src/client/ui/creature/CreatureSpellsBlock.vue', 'startSpellRoll', false],
-  [macroPath, 'openCreatureSpellRoll', true],
-]) {
+// Лист существа и горячая панель кастуют одним разбором существа
+for (const entry of [[creatureSpellPath, 'openCreatureSpellRoll', false]]) {
   it(`actual ${entry[1]} takes the spell roll mode of the shared attack helper`, async () => {
     const current = { value: createEntity() };
     const ports = createPorts(current);

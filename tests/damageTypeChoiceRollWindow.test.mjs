@@ -259,6 +259,13 @@ function createPorts(applied) {
       reasons: { advantage: [], disadvantage: [] },
     }),
     getSpellAttackType: (spell) => spell.deliveryType,
+    // Общий разбор заклинания существа: вид каста — план движка
+    resolveSpellCastPlan: engine.resolveSpellCastPlan,
+    useTargetStore: () => ({ getTargetActor: () => null }),
+    isTargetAtFullHp: () => undefined,
+    isDndSceneEntity: () => false,
+    resolveEntityCreatureType: () => undefined,
+    readCreature: () => undefined,
     calculateCreatureSpellBlockNumbers: () => ({ attackBonus: 5, saveDC: 13 }),
     getCreatureSpellBlockAbility: () => 'wisdom',
     getCreatureSpellMod: () => 2,
@@ -335,9 +342,13 @@ describe('выбор из окна доходит до эффектов исто
     });
   }
 
+  // Лист существа и горячая панель кастуют одним разбором существа
   for (const [path, name, creatureFirst] of [
-    ['src/client/ui/creature/CreatureSpellsBlock.vue', 'startSpellRoll', false],
-    [macroPath, 'openCreatureSpellRoll', true],
+    [
+      'src/client/composables/creatureSpellCast.ts',
+      'openCreatureSpellRoll',
+      false,
+    ],
   ]) {
     it(`${name}: эффект заклинания на цель ложится выбранным типом`, async () => {
       const applied = [];

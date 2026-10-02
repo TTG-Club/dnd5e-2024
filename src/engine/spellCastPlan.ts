@@ -66,6 +66,17 @@ export interface SpellCastPlanInput {
   isInnate: boolean;
   /** Каст лёг шаблоном на карту */
   hasTemplate: boolean;
+  /**
+   * Тип броска атаки, если его решает вызывающий: у существа заклинание со
+   * спасброском или областью броска попадания не делает. `null` — атаки нет.
+   * Нет поля — по заклинанию (`getSpellAttackType`)
+   */
+  attackType?: 'melee' | 'ranged' | null;
+  /**
+   * Каст с окном броска всегда идёт многочастным путём: у заклинания существа
+   * части урона катит окно, одной общей формулы у него нет
+   */
+  forceMultiPart?: boolean;
 }
 
 /** Решение о касте — одно на все входы */
@@ -201,7 +212,11 @@ export function resolveSpellCastPlan(input: SpellCastPlanInput): SpellCastPlan {
   const { spell, damageParts, hasProjectiles, hasBonusDamage, isInnate } =
     input;
 
-  const attackType = getSpellAttackType(spell);
+  const attackType =
+    input.attackType === undefined
+      ? getSpellAttackType(spell)
+      : (input.attackType ?? undefined);
+
   const hasDamage = damageParts.length > 0;
   const hasTargetEffects = getTargetSpellEffects(spell).length > 0;
   const needsSave = spell.saveType !== 'none';
@@ -238,13 +253,15 @@ export function resolveSpellCastPlan(input: SpellCastPlanInput): SpellCastPlan {
     ...shared,
     window: 'roll',
     rollKind: resolveRollKind(attackType, damageParts),
-    flow: resolveRollFlow({
-      spell,
-      damageParts,
-      hasProjectiles,
-      hasBonusDamage,
-      attackType,
-    }),
+    flow: input.forceMultiPart
+      ? 'multiPart'
+      : resolveRollFlow({
+          spell,
+          damageParts,
+          hasProjectiles,
+          hasBonusDamage,
+          attackType,
+        }),
   };
 }
 

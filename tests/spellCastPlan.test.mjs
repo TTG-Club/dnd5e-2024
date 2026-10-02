@@ -24,7 +24,7 @@ const engine = await loadEngineBundle(`
 
 const SHEET_PATH = 'src/client/ui/actor/tabs/ActorSpellsTab.vue';
 const MACRO_PATH = 'src/client/macros/dnd5eMacros.ts';
-const CREATURE_PATH = 'src/client/ui/creature/CreatureSpellsBlock.vue';
+const CREATURE_PATH = 'src/client/composables/creatureSpellCast.ts';
 const FLOW_PATH = 'src/client/composables/spellCastFlow.ts';
 
 /** Эффект «на цель» без своего спасброска и урона */
@@ -351,42 +351,44 @@ it('окно каста решает план — в общем разборе �
   }
 });
 
-it('условие «без окна» существа совпадает с планом каста', async () => {
+it('каст существа решает окно тем же планом, с правилом атаки существа', async () => {
   const source = await readSource(CREATURE_PATH);
 
-  // Условие существа — то, что проверяется ниже
-  assert.match(
-    source,
-    /const usesAttack = attackType !== undefined && !usesSaveOrArea;/u,
-  );
-
-  assert.match(source, /if \(!usesAttack && setup\.baseParts\.length === 0\)/u);
+  // Своего условия «без окна» у существа больше нет — решает план
+  assert.match(source, /resolveSpellCastPlan\(/u);
+  assert.match(source, /plan\.window !== 'roll'/u);
+  assert.match(source, /forceMultiPart: true/u);
 
   for (const row of TABLE.filter((entry) => !entry.input.hasProjectiles)) {
     const castSpell = row.input.spell;
-    const attackType = engine.getSpellAttackType(castSpell);
 
+    // Правило существа: со спасброском или областью броска попадания нет
     const usesSaveOrArea =
       (!!castSpell.saveType && castSpell.saveType !== 'none')
       || !!castSpell.areaOfEffect;
 
-    const usesAttack = attackType !== undefined && !usesSaveOrArea;
+    const attackType = usesSaveOrArea
+      ? null
+      : (engine.getSpellAttackType(castSpell) ?? null);
 
-    const creatureSkipsWindow =
-      !usesAttack && row.input.damageParts.length === 0;
-
-    // У существа нет ячеек: его заклинания — как врождённые
     const plan = engine.resolveSpellCastPlan({
       ...PLAIN,
       ...row.input,
       isInnate: true,
+      attackType,
+      forceMultiPart: true,
     });
 
+    // Прежнее условие существа «без окна» и план совпадают
     assert.equal(
-      creatureSkipsWindow,
       plan.window !== 'roll',
+      attackType === null && row.input.damageParts.length === 0,
       `существо и план разошлись: ${row.title}`,
     );
+
+    if (plan.window === 'roll') {
+      assert.equal(plan.flow, 'multiPart', row.title);
+    }
   }
 });
 
