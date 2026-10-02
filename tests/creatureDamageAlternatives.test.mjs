@@ -332,8 +332,11 @@ describe('атака действием с уроном «или»', () => {
 
     let proceeded;
 
-    run(SWARM, {}, (chosen) => {
+    run(SWARM, {}, (chosen, _variants, announceChoice) => {
       proceeded = chosen;
+      // Строку чата отправляет продолжение — когда окно открылось
+      assert.equal(messages.length, 0);
+      announceChoice();
     });
 
     assert.equal(
@@ -354,8 +357,9 @@ describe('атака действием с уроном «или»', () => {
     run(
       bite([{ condition: 'random', damageParts: FIRE_RAY }]),
       {},
-      (chosen) => {
+      (chosen, _variants, announceChoice) => {
         proceeded = chosen;
+        announceChoice();
       },
     );
 
@@ -644,12 +648,21 @@ describe('подписи наборов в поле «Урон»', () => {
       })),
     };
 
-    run(random, {}, () => {});
+    /**
+     * Окно открылось — строка чата уходит.
+     *
+     * @param {object} _chosen - действие
+     * @param {object[]} _variants - наборы
+     * @param {() => void} announceChoice - строка чата
+     */
+    const opened = (_chosen, _variants, announceChoice) => announceChoice();
+
+    run(random, {}, opened);
 
     run(
       bite([{ condition: 'random', damageParts: ADVANTAGE_BITE }]),
       {},
-      () => {},
+      opened,
     );
 
     assert.deepEqual(messages, [

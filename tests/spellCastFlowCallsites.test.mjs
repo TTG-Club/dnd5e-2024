@@ -89,7 +89,7 @@ describe('храповик: разбор каста — только в общи
         const code = readCode(path);
 
         return (
-          /openModal\(\s*'DiceRollModal'/u.test(code)
+          /openDiceRollWindow\(/u.test(code)
           && /availableSpellLevels/u.test(code)
         );
       })
@@ -105,7 +105,6 @@ describe('храповик: разбор каста — только в общи
 const constants = await loadEngineBundle(`
   export {
     ACTOR_SPELLS_TAB_LABELS,
-    SPELL_CAST_MODAL_KEY_PREFIX,
     SPELL_MENU_LABELS,
     SPELL_ROLL_BUTTON_LABELS,
   } from './src/client/ui/actor/constants.ts';
@@ -127,6 +126,9 @@ const FLOW_FUNCTIONS = [
   'settleSpellRollParts',
   'settleSpellProjectileAttack',
   'settleNoRollSpellCast',
+  'settleSpellCastWindowOpen',
+  'commitSpellCastStart',
+  'spendSpellCastTurn',
 ];
 
 /**
@@ -134,9 +136,11 @@ const FLOW_FUNCTIONS = [
  * сторы, окна и разбор целей — журналом.
  *
  * @param {object} target - выбранная цель
+ * @param {boolean} [windowOpens] - открывает ли менеджер окно: `false` — окно
+ *   с тем же ключом уже есть, менеджер вернул `null`
  * @returns {Promise<object>} окружение и журнал
  */
-async function loadFlow(target) {
+async function loadFlow(target, windowOpens = true) {
   const log = [];
   const modals = [];
 
@@ -147,6 +151,8 @@ async function loadFlow(target) {
     generateId: (prefix) => `${prefix}_${modals.length}_${log.length}`,
     SPELL_CAST_KEY_PREFIX: 'cast',
     beginSpellCast: () => {},
+    // Трата хода — когда каст состоялся (окно открылось или каст применён)
+    recordEntityActionSpend: () => log.push('turn'),
     setSpellCastLevel: () => {},
     useBonusDamageParts: () => ({
       hasSpellBonusDamage: () => false,
@@ -175,11 +181,15 @@ async function loadFlow(target) {
     useSpellTemplateStore: () => ({
       getPlacedTemplate: (templateId) => ({ id: templateId }),
       removePlacedTemplate() {},
-      deleteTemplate() {},
+      deleteTemplate: (templateId) => log.push(`template:delete:${templateId}`),
     }),
     window: { addEventListener() {}, removeEventListener() {} },
     useModalManager: () => ({
-      openModal: (_name, props) => modals.push(props),
+      openModal: (_name, props) => {
+        modals.push(props);
+
+        return windowOpens ? props._modalKey : null;
+      },
     }),
     // Разбор целей ждёт доведения каста — настоящим промисом
     afterSpellCast: (completion, proceed) => {
@@ -350,6 +360,9 @@ describe('матрица: вход × вид каста', () => {
           assert.ok(props.formula, `${form.title}: формула окна`);
         }
 
+        // Ход тратится, когда окно открылось; ячейка — броском окна
+        assert.deepEqual(log, ['turn']);
+
         // Окно: ячейка, затем применение
         props.onSpellSlotConsume?.(form.spell.level, true, false);
 
@@ -362,7 +375,7 @@ describe('матрица: вход × вид каста', () => {
         await Promise.resolve();
         await Promise.resolve();
 
-        const expectedLog = [`slot:${form.spell.level}`, 'complete'];
+        const expectedLog = ['turn', `slot:${form.spell.level}`, 'complete'];
 
         if (form.expected.targets) {
           expectedLog.push(form.expected.targets);
@@ -406,7 +419,30 @@ describe('матрица: вход × вид каста', () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    assert.deepEqual(log, ['slot:1', 'complete', 'targets:apply']);
+    assert.deepEqual(log, ['turn', 'slot:1', 'complete', 'targets:apply']);
+  });
+
+  it('окно не открылось — ход и заряд не тратятся, шаблон убран', async () => {
+    const target = createCreature();
+    const { ports, log, modals } = await loadFlow(target, false);
+
+    ports.openSpellCastWindow(
+      {
+        id: 'fireball',
+        name: 'Огненный шар',
+        level: 3,
+        saveType: 'dexterity',
+        deliveryType: 'self',
+        areaOfEffect: { type: 'sphere', size: 20 },
+        uses: { max: 1, recovery: 'longRest' },
+        damageParts: [{ formula: '8к6', type: 'fire' }],
+      },
+      createPort(createWizard(), log),
+      { template: { id: 'tpl' }, lockedLevel: 3 },
+    );
+
+    assert.equal(modals.length, 1, 'окно просили открыть');
+    assert.deepEqual(log, ['template:delete:tpl']);
   });
 
   it('заговор без урона — без окна, сразу доведение и цели', async () => {
@@ -429,6 +465,6 @@ describe('матрица: вход × вид каста', () => {
     await Promise.resolve();
 
     assert.equal(modals.length, 0);
-    assert.deepEqual(log, ['complete', 'targets:noRoll']);
+    assert.deepEqual(log, ['turn', 'complete', 'targets:noRoll']);
   });
 });

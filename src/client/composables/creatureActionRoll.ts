@@ -21,7 +21,6 @@ import type { CreatureDamageVariant } from './creatureDamageChoice';
 import type { CreatureRollSetup } from './useBonusDamageParts';
 import type { RolledSpellDamagePart } from './useSpellResolution';
 
-import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
 import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
 import { useTargetStore } from '@/stores/targetStore';
@@ -54,6 +53,7 @@ import {
   runDamagelessCreatureAction,
   runWithCreatureDamageChoice,
 } from './creatureDamageChoice';
+import { openDiceRollWindow } from './diceRollWindow';
 import {
   applyActionSelfEffects,
   applyActionUseEffects,
@@ -219,21 +219,30 @@ export function startCreatureAction(
       isDisadvantage = Boolean(rangeCheck?.disadvantage);
     }
 
-    // Отказ по дистанции трату хода не тратит
-    spendCreatureActionTurn(port, action);
-
     // Урон «или» решается после проверки дистанции: состояние и случай —
     // сразу, выбор человека — полем «Урон» в окне броска
-    runWithCreatureDamageChoice(action, creature, (chosen, variants) =>
-      launchCreatureAction(chosen, creature.id, (templateId) =>
-        openCreatureActionRoll(
-          chosen,
-          creature,
-          isDisadvantage,
-          templateId,
-          variants,
-        ),
-      ),
+    runWithCreatureDamageChoice(
+      action,
+      creature,
+      (chosen, variants, announceChoice) =>
+        launchCreatureAction(chosen, creature.id, (templateId) => {
+          // Ход и строка чата — когда действие состоялось: отказ по
+          // дистанции и неоткрывшееся окно хода не тратят, шаблон убирается
+          if (
+            openCreatureActionRoll(
+              chosen,
+              creature,
+              isDisadvantage,
+              templateId,
+              variants,
+            )
+          ) {
+            spendCreatureActionTurn(port, action);
+            announceChoice();
+          } else if (templateId) {
+            discardSpellTemplate(templateId);
+          }
+        }),
     );
   });
 }
@@ -248,6 +257,8 @@ export function startCreatureAction(
  * @param isDisadvantage - стартовать с помехой (проверка дистанции)
  * @param templateId - размещённый шаблон области
  * @param variants - наборы урона «или» на выбор в окне; пусто — набор один
+ * @returns `true` — действие состоялось: окно открылось или действие без
+ *   урона применено сразу
  */
 export function openCreatureActionRoll(
   action: CreatureAction,
@@ -255,7 +266,7 @@ export function openCreatureActionRoll(
   isDisadvantage: boolean,
   templateId: string | undefined,
   variants: readonly CreatureDamageVariant[] = [],
-): void {
+): boolean {
   const { buildCreatureRollSetup, buildTargetHpContext } =
     useBonusDamageParts();
 
@@ -315,7 +326,7 @@ export function openCreatureActionRoll(
   const [primary] = rollVariants;
 
   if (!primary) {
-    return;
+    return false;
   }
 
   // Спасбросок или область без урона: бросать существу нечего — цели
@@ -328,7 +339,7 @@ export function openCreatureActionRoll(
       applyParts,
     )
   ) {
-    return;
+    return true;
   }
 
   const actionAttackRoll = usesSaveOrArea
@@ -339,7 +350,7 @@ export function openCreatureActionRoll(
         { forceDisadvantage: isDisadvantage },
       );
 
-  useModalManager().openModal('DiceRollModal', {
+  const opened = openDiceRollWindow({
     title: usesSaveOrArea
       ? action.name
       : `${CREATURE_ACTIONS_BLOCK_LABELS.attackRollPrefix}${action.name}`,
@@ -369,6 +380,8 @@ export function openCreatureActionRoll(
     // Расход одноразовых эффектов «следующей атаки» на броске атаки существа
     attackerId: creature.id,
   });
+
+  return opened !== null;
 }
 
 /**

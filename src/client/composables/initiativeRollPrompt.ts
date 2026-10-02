@@ -10,6 +10,7 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { INITIATIVE_ROLL_LABELS } from '../ui/actor/constants';
+import { openDiceRollWindow } from './diceRollWindow';
 
 /**
  * Открывает окно броска инициативы за участника боя — то же `DiceRollModal`,
@@ -34,7 +35,7 @@ export function promptInitiativeRoll(
   onRolled: (result: InitiativeRollPromptResult) => void,
   onCancelled: (closeWindow: () => void) => void,
 ): boolean {
-  const { openModal, closeModal, modals } = useModalManager();
+  const { closeModal, modals } = useModalManager();
   const modalKey = `initiative:${entity.id}`;
 
   const modifier = dnd5eSystemInstance.getInitiativeModifier(entity);
@@ -47,24 +48,26 @@ export function promptInitiativeRoll(
   // кого открыто окно, ни за кого ушёл бросок в чат
   const nameSuffix = `${INITIATIVE_ROLL_LABELS.nameSeparator}${entity.name}`;
 
-  const modalId = openModal('DiceRollModal', {
-    // Ключ окна — по участнику: мастер бросает за нескольких подряд, и окна
-    // должны стоять рядом, а повторный клик по тому же участнику — поднимать
-    // уже открытое окно, а не плодить второе
-    _modalKey: modalKey,
-    title: `${INITIATIVE_ROLL_LABELS.title}${nameSuffix}`,
-    rollLabel: `${INITIATIVE_ROLL_LABELS.rollLabel}${nameSuffix}`,
-    rollButtonText: INITIATIVE_ROLL_LABELS.button,
-    modifier,
-    initialRollMode,
-    onCheckRoll: (result: CheckRollResult) => {
-      onRolled({
-        roll: result.natural,
-        modifier: result.modifier,
-        announced: true,
-      });
+  // Ключ окна — по участнику: мастер бросает за нескольких подряд, и окна
+  // должны стоять рядом, а повторный клик по тому же участнику — поднимать
+  // уже открытое окно, а не плодить второе
+  const modalId = openDiceRollWindow(
+    {
+      title: `${INITIATIVE_ROLL_LABELS.title}${nameSuffix}`,
+      rollLabel: `${INITIATIVE_ROLL_LABELS.rollLabel}${nameSuffix}`,
+      rollButtonText: INITIATIVE_ROLL_LABELS.button,
+      modifier,
+      initialRollMode,
+      onCheckRoll: (result: CheckRollResult) => {
+        onRolled({
+          roll: result.natural,
+          modifier: result.modifier,
+          announced: true,
+        });
+      },
     },
-  });
+    modalKey,
+  );
 
   onCancelled(() => {
     // Окно того же участника могло быть открыто раньше: менеджер вернул null и

@@ -3338,8 +3338,8 @@ export const SPELL_CHOOSE_TARGET_LABELS = {
   empty: 'Нет доступных целей на сцене.',
 } as const;
 
-/** Префикс независимого окна применения заклинания. */
-export const SPELL_CAST_MODAL_KEY_PREFIX = 'spell-cast';
+/** Префикс ключа окна броска: у каждого открытия своё окно (`diceRollWindow.ts`) */
+export const DICE_ROLL_MODAL_KEY_PREFIX = 'dice-roll';
 
 /** Префикс окна распределения снарядов, привязанного к сессии карты. */
 export const PROJECTILE_MODAL_KEY_PREFIX = 'projectile';

@@ -50,6 +50,11 @@ export interface CastFailureOptions {
    * проваленный каст с потерей ячейки списывает его
    */
   loseUse?: () => void;
+  /**
+   * Трата хода. Ход тратится, когда каст состоялся: окно открылось, каст
+   * применён сразу — или сорвался: сорвавшийся каст действие тоже тратит
+   */
+  spendTurn?: () => void;
 }
 
 /**
@@ -84,6 +89,7 @@ function settleCastFailure(
     'text',
   );
 
+  options.spendTurn?.();
   loseUse?.();
 
   if (slotLevel === undefined) {

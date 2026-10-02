@@ -23,7 +23,6 @@ import type { SpellCasterSource } from './spellCastCompletion';
 import type { SpellCastRefusal } from './spellCastFlow';
 import type { RolledSpellDamagePart } from './useSpellResolution';
 
-import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
 import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
 import { useTargetStore } from '@/stores/targetStore';
@@ -62,6 +61,7 @@ import {
   requestDamageTypeChoiceFor,
   runWithDamageTypeChoices,
 } from './damageTypeChoice';
+import { openDiceRollWindow } from './diceRollWindow';
 import { runWithEffectVariants } from './effectVariantChoice';
 import { buildRollBonusEvaluator } from './rollBonusEvaluator';
 import {
@@ -100,7 +100,8 @@ function readCreature(creatureId: string): DnDCreature | undefined {
 
 /**
  * Начинает каст заклинания существа: замена типа урона, запрет трат хода,
- * заряды, трата хода, провал каста и применение, шаблон области — и окно.
+ * заряды, провал каста, шаблон области — и окно. Ход и применение тратятся,
+ * когда каст состоялся: окно открылось, каст применён сразу или сорвался.
  *
  * @param sourceSpell - заклинание существа; варианты эффектов не выбраны
  * @param placement - группа, из которой идёт каст: её числа, круг наложения
@@ -146,34 +147,55 @@ export function startCreatureSpellCast(
         return;
       }
 
-      recordEntityActionSpend(creature.id, resolveSpellCastCost(spell));
-
       /** Списывает применение заклинания */
       const spendUse = (): void => port.spendUse(spell, placement);
 
-      // Провал каста («Замедление», «Слово силы: Боль»): применение тратится,
-      // только если так велит правило
-      runWithCastFailure(spell, creature, { loseUse: spendUse }, () => {
-        spendUse();
+      /** «Замедление»: после действия бонусное в этот ход недоступно */
+      const spendTurn = (): void =>
+        recordEntityActionSpend(creature.id, resolveSpellCastCost(spell));
 
-        if (!spell.areaOfEffect) {
-          openCreatureSpellRoll(spell, creature, undefined, placement);
-
-          return;
+      /**
+       * Окно с шаблоном или без: открылось — тратятся ход и применение; нет
+       * — шаблон убирается.
+       *
+       * @param templateId - размещённый шаблон области
+       */
+      const openRoll = (templateId: string | undefined): void => {
+        if (openCreatureSpellRoll(spell, creature, templateId, placement)) {
+          spendTurn();
+          spendUse();
+        } else if (templateId) {
+          discardSpellTemplate(templateId);
         }
+      };
 
-        // Область: шаблон у фишки существа, затем окно. Круг наложения группы
-        // растит область так же, как ячейка персонажа
-        useSpellTemplateStore().requestPlacement(
-          resolveSpellAreaAtLevel(spell, placement?.ref.castLevel)
-            ?? spell.areaOfEffect,
-          getDamageTemplateColor(getDamagePartsPrimaryType(spell.damageParts)),
-          creature.id,
-          (templateId) =>
-            openCreatureSpellRoll(spell, creature, templateId, placement),
-          null,
-        );
-      });
+      // Провал каста («Замедление», «Слово силы: Боль»): ход тратится,
+      // применение — только если так велит правило
+      runWithCastFailure(
+        spell,
+        creature,
+        { loseUse: spendUse, spendTurn },
+        () => {
+          if (!spell.areaOfEffect) {
+            openRoll(undefined);
+
+            return;
+          }
+
+          // Область: шаблон у фишки существа, затем окно. Круг наложения
+          // группы растит область так же, как ячейка персонажа
+          useSpellTemplateStore().requestPlacement(
+            resolveSpellAreaAtLevel(spell, placement?.ref.castLevel)
+              ?? spell.areaOfEffect,
+            getDamageTemplateColor(
+              getDamagePartsPrimaryType(spell.damageParts),
+            ),
+            creature.id,
+            openRoll,
+            null,
+          );
+        },
+      );
     },
   );
 }
@@ -188,13 +210,14 @@ export function startCreatureSpellCast(
  * @param creature - существо-источник
  * @param templateId - размещённый шаблон области
  * @param placement - группа, из которой идёт каст
+ * @returns `true` — каст состоялся (окно открылось или каст применён сразу)
  */
 export function openCreatureSpellRoll(
   spell: Spell,
   creature: DnDCreature,
   templateId: string | undefined,
   placement: CreatureSpellPlacement | undefined,
-): void {
+): boolean {
   // Существо не атакует заклинанием со спасброском или областью
   const usesSaveOrArea =
     (!!spell.saveType && spell.saveType !== 'none') || !!spell.areaOfEffect;
@@ -270,7 +293,7 @@ export function openCreatureSpellRoll(
       );
     });
 
-    return;
+    return true;
   }
 
   // Тип урона на выбор спрашивает окно броска: части урона решает оно само,
@@ -311,7 +334,7 @@ export function openCreatureSpellRoll(
       castKey,
     );
 
-  useModalManager().openModal('DiceRollModal', {
+  const opened = openDiceRollWindow({
     title: usesAttack
       ? `${CREATURE_ACTIONS_BLOCK_LABELS.attackRollPrefix}${spell.name}`
       : spell.name,
@@ -346,6 +369,8 @@ export function openCreatureSpellRoll(
     // Расход одноразовых эффектов «следующей атаки» на броске атаки существа
     attackerId: creature.id,
   });
+
+  return opened !== null;
 }
 
 /**

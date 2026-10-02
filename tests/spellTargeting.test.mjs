@@ -864,8 +864,8 @@ it('closing an obsolete cast window preserves the new Bless session and removes 
  * @param {object} overrides - подмены портов
  * @returns {Promise<Function>} openSpellCastWindow
  */
-function loadCastWindow(overrides) {
-  return loadHandler(FLOW_PATH, 'openSpellCastWindow', {
+async function loadCastWindow(overrides) {
+  const ports = {
     resolveActorStats: () => ({ damageBonuses: { spell: 0 }, abilityMods: {} }),
     generateId: (prefix) => `${prefix}_${randomUUID()}`,
     SPELL_CAST_KEY_PREFIX: 'cast',
@@ -893,11 +893,20 @@ function loadCastWindow(overrides) {
     buildSpellSlotProps: () => ({ spellLevel: 1, availableSpellLevels: [1] }),
     ACTOR_SPELLS_TAB_LABELS: { rollTitlePrefix: 'Заклинание — ' },
     SPELL_MENU_LABELS: { cast: 'Применить' },
-    SPELL_CAST_MODAL_KEY_PREFIX: 'spell-cast',
     settleNoRollSpellCast: () => {},
     window: { addEventListener() {}, removeEventListener() {} },
+    // Ход и заряд тратятся, когда каст состоялся: здесь их не пишут
+    commitSpellCastStart: () => {},
     ...overrides,
-  });
+  };
+
+  ports.settleSpellCastWindowOpen = await loadHandler(
+    FLOW_PATH,
+    'settleSpellCastWindowOpen',
+    ports,
+  );
+
+  return loadHandler(FLOW_PATH, 'openSpellCastWindow', ports);
 }
 
 it('the actual modal manager keeps a new Bless cast independent from an unfinished projectile roll', async () => {

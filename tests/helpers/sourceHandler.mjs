@@ -132,6 +132,17 @@ export async function loadHandler(relativePath, name, ports, macro = false) {
   // с уроном разбор отвечает «нет» и окно открывается как раньше
   ports.runDamagelessCreatureAction ??= () => false;
 
+  // Окно броска открывает один помощник: тестам с подменённым менеджером окон
+  // он даётся настоящим поверх их менеджера (импорт здесь, а не наверху:
+  // модуль помощника сам собирается этим загрузчиком)
+  if (ports.useModalManager && !('openDiceRollWindow' in ports)) {
+    const { bindOpenDiceRollWindow } = await import('./diceRollWindow.mjs');
+
+    ports.openDiceRollWindow = bindOpenDiceRollWindow(() =>
+      ports.useModalManager(),
+    );
+  }
+
   return runInNewContext(
     `${compiled.outputText}\n${expression ? 'execute' : name}`,
     ports,

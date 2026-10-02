@@ -81,7 +81,6 @@ import {
 import {
   ACTOR_SPELLS_TAB_LABELS,
   PROJECTILE_MODAL_KEY_PREFIX,
-  SPELL_CAST_MODAL_KEY_PREFIX,
   SPELL_MENU_LABELS,
   SPELL_ROLL_BUTTON_LABELS,
 } from '../ui/actor/constants';
@@ -93,6 +92,7 @@ import {
   requestDamageTypeChoiceFor,
   runWithDamageTypeChoices,
 } from './damageTypeChoice';
+import { openDiceRollWindow } from './diceRollWindow';
 import { runWithEffectVariants } from './effectVariantChoice';
 import {
   buildRollBonusEvaluator,
@@ -302,8 +302,9 @@ export function findSpellCastRefusal(
 
 /**
  * Начинает каст: запрет трат хода, замена типа урона заклинания, заряды и
- * ячейки, трата хода, затем выбор целей эффекта, снарядов, круга области или
- * подтверждение — и дальше оплата и окно.
+ * ячейки, затем выбор целей эффекта, снарядов, круга области или
+ * подтверждение — и дальше оплата и окно. Ход и заряд тратятся, когда каст
+ * состоялся (окно открылось, каст применён сразу или сорвался).
  *
  * @param sourceSpell - заклинание; варианты эффектов ещё не выбраны
  * @param port - заклинатель
@@ -345,10 +346,6 @@ export function startSpellCast(
 
         return;
       }
-
-      // «Замедление»: каст точно идёт — после действия бонусное в этот ход
-      // недоступно; отказ по зарядам и ячейкам трату не тратит
-      recordEntityActionSpend(caster.id, resolveSpellCastCost(spell));
 
       chooseSpellCastTargets(spell, caster, port, availableLevels);
     },
@@ -495,6 +492,7 @@ export function proceedWithSpellCast(
       ...(lockedLevel === undefined ? {} : { lockedLevel }),
       availableLevels: resolveCastableSpellLevels(caster, sourceSpell),
       ...(port.commitPaid ? { commit: port.commitPaid } : {}),
+      spendTurn: () => spendSpellCastTurn(sourceSpell, port),
     },
     (spell, castLevel) => {
       proceedWithPaidSpellCast(spell, port, castLevel, effectTargets);
@@ -503,7 +501,37 @@ export function proceedWithSpellCast(
 }
 
 /**
- * Оплаченный каст: заряд заклинания с зарядами, шаблон области — и окно.
+ * Трата хода кастом. «Замедление»: после действия бонусное в этот ход
+ * недоступно; отказ по зарядам и ячейкам, отменённый выбор целей и шаблона
+ * ход не тратят.
+ *
+ * @param spell - заклинание
+ * @param port - заклинатель
+ */
+function spendSpellCastTurn(spell: Spell, port: SpellCasterPort): void {
+  recordEntityActionSpend(port.casterId, resolveSpellCastCost(spell));
+}
+
+/**
+ * Каст состоялся — окно открылось или каст применён сразу: тратится ход и
+ * заряд заклинания с откатом (врождённого) — один раз на каст. До этого
+ * момента ничего необратимого: окно, которое не открылось, ход и заряд не
+ * съедает.
+ *
+ * @param spell - заклинание
+ * @param port - заклинатель
+ */
+function commitSpellCastStart(spell: Spell, port: SpellCasterPort): void {
+  spendSpellCastTurn(spell, port);
+
+  if (spell.uses && spell.uses.recovery !== 'atWill') {
+    port.spendUse(spell);
+  }
+}
+
+/**
+ * Оплаченный каст: шаблон области — и окно; ход и заряд тратит окно, когда
+ * откроется.
  *
  * @param spell - заклинание (оплачено)
  * @param port - заклинатель
@@ -516,11 +544,6 @@ function proceedWithPaidSpellCast(
   lockedLevel?: number,
   effectTargets?: SpellEffectTargets,
 ): void {
-  // Заряд заклинания с откатом (врождённого) — один раз на каст, до окна
-  if (spell.uses && spell.uses.recovery !== 'atWill') {
-    port.spendUse(spell);
-  }
-
   if (!spell.areaOfEffect) {
     openSpellCastWindow(spell, port, { lockedLevel, effectTargets });
 
@@ -901,6 +924,28 @@ export function settleNoRollSpellCast(session: SpellCastSession): void {
 }
 
 /**
+ * Итог открытия окна каста: открылось — каст состоялся (ход, заряд); нет —
+ * каст убирается, как при закрытии окна (шаблон, выбор снарядов).
+ *
+ * @param modalId - id окна; `null` — не открылось
+ * @param spell - заклинание
+ * @param port - заклинатель
+ * @param closeWindow - обработчик закрытия окна
+ */
+function settleSpellCastWindowOpen(
+  modalId: string | null,
+  spell: Spell,
+  port: SpellCasterPort,
+  closeWindow: (isOpen: boolean) => void,
+): void {
+  if (modalId) {
+    commitSpellCastStart(spell, port);
+  } else {
+    closeWindow(false);
+  }
+}
+
+/**
  * Окно каста — единственное место, где для заклинания персонажа собираются
  * свойства `DiceRollModal`: план решает, открыть ли окно броска, окно выбора
  * круга или применить каст сразу.
@@ -1046,6 +1091,8 @@ export function openSpellCastWindow(
   // Каст без окна броска: заговор и врождённое — сразу, уровневое — окном
   // выбора круга
   if (plan.window === 'none') {
+    commitSpellCastStart(sourceSpell, port);
+
     runWithDamageTypeChoices(sourceSpell, (chosen) => {
       session.state.spell = chosen;
       settleNoRollSpellCast(session);
@@ -1074,8 +1121,7 @@ export function openSpellCastWindow(
   const slotProps = buildSpellSlotProps(session, caster, lockedLevel);
 
   if (plan.window === 'confirm') {
-    useModalManager().openModal('DiceRollModal', {
-      '_modalKey': generateId(SPELL_CAST_MODAL_KEY_PREFIX),
+    const confirmOpened = openDiceRollWindow({
       'title': `${ACTOR_SPELLS_TAB_LABELS.rollTitlePrefix}${sourceSpell.name}`,
       'rollLabel': sourceSpell.name,
       'rollButtonText': SPELL_MENU_LABELS.cast,
@@ -1089,6 +1135,13 @@ export function openSpellCastWindow(
       },
       'onUpdate:open': handleModalClose,
     });
+
+    settleSpellCastWindowOpen(
+      confirmOpened,
+      sourceSpell,
+      port,
+      handleModalClose,
+    );
 
     return session;
   }
@@ -1122,8 +1175,7 @@ export function openSpellCastWindow(
       )
     : [];
 
-  useModalManager().openModal('DiceRollModal', {
-    '_modalKey': generateId(SPELL_CAST_MODAL_KEY_PREFIX),
+  const rollOpened = openDiceRollWindow({
     'title': `${ACTOR_SPELLS_TAB_LABELS.rollTitlePrefix}${sourceSpell.name}`,
     'rollLabel': sourceSpell.name,
     'rollButtonText': SPELL_ROLL_BUTTON_LABELS[plan.rollKind ?? 'damage'],
@@ -1197,6 +1249,8 @@ export function openSpellCastWindow(
     'beforeRoll': isCurrentProjectileCast,
     'onUpdate:open': handleModalClose,
   });
+
+  settleSpellCastWindowOpen(rollOpened, sourceSpell, port, handleModalClose);
 
   return session;
 }

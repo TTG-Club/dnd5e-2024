@@ -17,7 +17,6 @@ import type { CheckRollResult } from '../ui/actor/diceRollTypes';
 import type { ActorSaveInfo } from './spellResolutionShared';
 
 import { getRollRequestService } from '@/core/api/rollRequestService';
-import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
 import { useDiceRollerStore } from '@/stores/diceRollerStore';
 import { useWorldStore } from '@/stores/worldStore';
@@ -47,6 +46,7 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { SAVING_THROW_ROLL_LABELS } from '../ui/actor/constants';
+import { openDiceRollWindow } from './diceRollWindow';
 import { buildRollBonusEvaluator } from './rollBonusEvaluator';
 import { offerSaveOverride } from './saveOverrideOffer';
 import {
@@ -380,7 +380,6 @@ export function useSpellSavingThrows() {
   const diceRollerStore = useDiceRollerStore();
   const chatStore = useChatStore();
   const worldStore = useWorldStore();
-  const { openModal } = useModalManager();
 
   /**
    * Открывает окно спасброска — одно на оба применения: свой бросок и бросок
@@ -403,40 +402,43 @@ export function useSpellSavingThrows() {
       target.dc,
     );
 
-    return openModal('DiceRollModal', {
-      ...(options.modalKey
-        ? { _modalKey: options.modalKey }
-        : { allowMultiple: true }),
-      title: options.takeover
-        ? `${SAVING_THROW_ROLL_LABELS.takeoverPrefix}${title}`
-        : title,
-      rollLabel: formatSavingThrowRollLabel(target.ability, target.entity.name),
-      rollButtonText: SAVING_THROW_ROLL_LABELS.button,
-      modifier: info.modifier,
-      initialRollMode: determineRollMode(
-        info.hasAdvantage,
-        info.hasDisadvantage,
-      ),
-      autoFail: info.autoFail,
-      allowWilling: target.allowWilling === true,
-      targetDc: target.dc,
-      evaluateBonusRollFormulas: info.evaluateBonusRollFormulas,
-      onCheckRoll: (result: CheckRollResult) => {
-        const outcome = buildSavingThrowResult(
-          result.total,
-          result.natural,
-          info,
-          target.dc,
-        );
+    return openDiceRollWindow(
+      {
+        title: options.takeover
+          ? `${SAVING_THROW_ROLL_LABELS.takeoverPrefix}${title}`
+          : title,
+        rollLabel: formatSavingThrowRollLabel(
+          target.ability,
+          target.entity.name,
+        ),
+        rollButtonText: SAVING_THROW_ROLL_LABELS.button,
+        modifier: info.modifier,
+        initialRollMode: determineRollMode(
+          info.hasAdvantage,
+          info.hasDisadvantage,
+        ),
+        autoFail: info.autoFail,
+        allowWilling: target.allowWilling === true,
+        targetDc: target.dc,
+        evaluateBonusRollFormulas: info.evaluateBonusRollFormulas,
+        onCheckRoll: (result: CheckRollResult) => {
+          const outcome = buildSavingThrowResult(
+            result.total,
+            result.natural,
+            info,
+            target.dc,
+          );
 
-        // Согласие — провал при любой Сл: при Сл 1 условная единица иначе
-        // «прошла» бы спасбросок
-        options.onResult(
-          result.willing ? { ...outcome, passed: false } : outcome,
-        );
+          // Согласие — провал при любой Сл: при Сл 1 условная единица иначе
+          // «прошла» бы спасбросок
+          options.onResult(
+            result.willing ? { ...outcome, passed: false } : outcome,
+          );
+        },
+        onCancel: options.onCancel,
       },
-      onCancel: options.onCancel,
-    });
+      options.modalKey,
+    );
   }
 
   /**

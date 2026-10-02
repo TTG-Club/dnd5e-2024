@@ -286,16 +286,27 @@ export interface CreatureDamageVariant {
  *
  * @param action - действие существа (после выбора вариантов эффектов)
  * @param creature - атакующее существо
- * @param proceed - продолжение атаки: действие и наборы для окна (пусто —
- *   выбирать в окне нечего)
+ * Строку чата о решённом наборе продолжение отправляет само
+ * (`announceChoice`) — когда окно броска открылось: действие, которое не
+ * состоялось, в чат не пишется.
+ *
+ * @param proceed - продолжение атаки: действие, наборы для окна (пусто —
+ *   выбирать в окне нечего) и отправка строки чата о выбранном наборе
  */
 export function runWithCreatureDamageChoice(
   action: CreatureAction,
   creature: DnDCreature,
-  proceed: (chosen: CreatureAction, variants: CreatureDamageVariant[]) => void,
+  proceed: (
+    chosen: CreatureAction,
+    variants: CreatureDamageVariant[],
+    announceChoice: () => void,
+  ) => void,
 ): void {
+  /** Решённого набора нет — сказать в чате нечего */
+  const silent = (): void => {};
+
   if (!action.damageAlternatives?.length) {
-    proceed(action, []);
+    proceed(action, [], silent);
 
     return;
   }
@@ -318,14 +329,19 @@ export function runWithCreatureDamageChoice(
     // непохожий на прошлый бросок, выглядел бы ошибкой
     const reason = readChoiceReason(choice);
 
-    if (reason) {
-      useChatStore().sendMessage(
-        `${action.name}${CREATURE_DAMAGE_CHOICE_LABELS.chatSeparator}${formatOptionLabel(choice.option, getTypeLabel, typeOnly)}${CREATURE_DAMAGE_CHOICE_LABELS.reasonOpen}${describeCreatureDamageCondition(reason)}${CREATURE_DAMAGE_CHOICE_LABELS.reasonClose}`,
-        'text',
-      );
-    }
+    const announceChoice = reason
+      ? () =>
+          useChatStore().sendMessage(
+            `${action.name}${CREATURE_DAMAGE_CHOICE_LABELS.chatSeparator}${formatOptionLabel(choice.option, getTypeLabel, typeOnly)}${CREATURE_DAMAGE_CHOICE_LABELS.reasonOpen}${describeCreatureDamageCondition(reason)}${CREATURE_DAMAGE_CHOICE_LABELS.reasonClose}`,
+            'text',
+          )
+      : silent;
 
-    proceed(applyCreatureDamageOption(action, choice.option), []);
+    proceed(
+      applyCreatureDamageOption(action, choice.option),
+      [],
+      announceChoice,
+    );
 
     return;
   }
@@ -347,7 +363,7 @@ export function runWithCreatureDamageChoice(
     return;
   }
 
-  proceed(firstVariant.action, variants);
+  proceed(firstVariant.action, variants, silent);
 }
 
 /**

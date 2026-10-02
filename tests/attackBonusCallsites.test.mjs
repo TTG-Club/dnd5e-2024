@@ -1194,10 +1194,10 @@ it('actual creature action entry checks distance with the chosen attack kind', a
       };
     },
     runWithCreatureDamageChoice: (action, _creature, proceed) =>
-      proceed(action, undefined),
+      proceed(action, undefined, () => {}),
     launchCreatureAction: (_action, _creatureId, proceed) => proceed(undefined),
     openCreatureActionRoll: (action, _creature, isDisadvantage) =>
-      rolled.push({ rangeType: action.rangeType, isDisadvantage }),
+      rolled.push({ rangeType: action.rangeType, isDisadvantage }) > 0,
   };
 
   // Лист существа и горячая панель зовут один вход действия

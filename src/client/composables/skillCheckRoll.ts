@@ -13,7 +13,6 @@ import type { AttackRollMode, DnDSceneEntity } from '@vtt/shared/system/dnd.js';
 
 import type { CheckRollResult } from '../ui/actor/diceRollTypes';
 
-import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import {
   getSkillCheckBonusKeys,
   getSkillSetting,
@@ -23,6 +22,7 @@ import {
   SKILLS_LABELS,
 } from '@vtt/shared/system/dnd.js';
 
+import { openDiceRollWindow } from './diceRollWindow';
 import { buildRollBonusEvaluator } from './rollBonusEvaluator';
 import { listAmbientEffects } from './useResolvedStats';
 
@@ -82,19 +82,21 @@ export function openSkillCheckModal(
     skill,
   });
 
-  useModalManager().openModal('DiceRollModal', {
-    _modalKey: options.modalKey,
-    title: options.title,
-    rollLabel: `${SKILLS_LABELS[skill]}${SKILL_ROLL_LABEL_SEPARATOR}${entity.name}`,
-    rollButtonText: options.rollButtonText,
-    modifier: stats.skills[skill],
-    evaluateBonusRollFormulas: buildRollBonusEvaluator(
-      () => entity,
-      getSkillCheckBonusKeys(skill),
-    ),
-    initialRollMode:
-      options.resolveMode?.(checkMode, stats.activeFlags) ?? checkMode,
-    ...(options.targetDc === undefined ? {} : { targetDc: options.targetDc }),
-    onCheckRoll: options.onRoll,
-  });
+  openDiceRollWindow(
+    {
+      title: options.title,
+      rollLabel: `${SKILLS_LABELS[skill]}${SKILL_ROLL_LABEL_SEPARATOR}${entity.name}`,
+      rollButtonText: options.rollButtonText,
+      modifier: stats.skills[skill],
+      evaluateBonusRollFormulas: buildRollBonusEvaluator(
+        () => entity,
+        getSkillCheckBonusKeys(skill),
+      ),
+      initialRollMode:
+        options.resolveMode?.(checkMode, stats.activeFlags) ?? checkMode,
+      ...(options.targetDc === undefined ? {} : { targetDc: options.targetDc }),
+      onCheckRoll: options.onRoll,
+    },
+    options.modalKey,
+  );
 }

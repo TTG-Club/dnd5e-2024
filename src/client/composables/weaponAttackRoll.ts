@@ -20,7 +20,6 @@ import type {
 
 import type { RolledSpellDamagePart } from './useSpellResolution';
 
-import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
 import { useTargetStore } from '@/stores/targetStore';
 import { useWorldStore } from '@/stores/worldStore';
@@ -55,6 +54,7 @@ import {
   resolveTargetedCritThreshold,
 } from './attackRollMode';
 import { requestDamageTypeChoiceFor } from './damageTypeChoice';
+import { openDiceRollWindow } from './diceRollWindow';
 import { prepareAmmunitionShot } from './effectActivationUse';
 import { buildRollBonusEvaluator } from './rollBonusEvaluator';
 import { useBonusDamageParts } from './useBonusDamageParts';
@@ -257,7 +257,7 @@ export function openWeaponAttackRoll(
     },
   );
 
-  useModalManager().openModal('DiceRollModal', {
+  openDiceRollWindow({
     title: `${ACTOR_EQUIPMENT_TAB_LABELS.attackRollPrefix}${weapon.name}`,
     rollLabel: weapon.name,
     rollButtonText: hasSave
