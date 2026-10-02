@@ -92,7 +92,7 @@ import {
 } from './formulaTokens.js';
 import { resolveEntityCurrentHp } from './hitPoints.js';
 import { listChoiceCandidates } from './triggerChoice.js';
-import { withCombatRound } from './triggerConditions.js';
+import { isTriggerConditionMet, withCombatRound } from './triggerConditions.js';
 import { mapTriggerDamageParts } from './triggerDamageParts.js';
 
 /** С чем прогоняются срабатывания событий с другой стороной */
@@ -484,6 +484,42 @@ function withSourceRelation(
 }
 
 /**
+ * Тип урона события для токена `@dmg.event`. У удара двумя типами одним
+ * броском (жало: колющий и яд) это тот тип, который прошёл условие
+ * срабатывания («урон выбранного типа»), а не первый в ударе: иначе
+ * «Перенаправление энергии» отвечало колющим на яд. Без условия или когда
+ * условие проходит только сочетанием типов — первый, как раньше.
+ *
+ * @param subject - субъект срабатывания
+ * @param source - срабатывание с источником
+ * @param eventData - данные события
+ * @returns тип урона события либо `undefined`, если удара не было
+ */
+function pickEventDamageType(
+  subject: DnDSceneEntity,
+  source: EffectTriggerSource,
+  eventData: TriggerEventData,
+): string | undefined {
+  const { damage } = eventData;
+  const types = damage?.types ?? [];
+  const [firstType] = types;
+
+  if (!damage || types.length < 2 || !source.trigger.condition?.trim()) {
+    return firstType;
+  }
+
+  return (
+    types.find((type) =>
+      isTriggerConditionMet(subject, source.trigger, {
+        ...eventData,
+        damage: { ...damage, types: [type] },
+        sourceId: source.effect.sourceActorId,
+      }),
+    ) ?? firstType
+  );
+}
+
+/**
  * Тип только что полученного урона — в части урона срабатывания: токен
  * `@dmg.event` становится типом урона события («направить урон того же
  * типа»). Вне события урона токен остаётся, и часть идёт без типа.
@@ -492,26 +528,29 @@ function withSourceRelation(
  * «спрашивать» или ценой ресурсом уносит тип в свой снимок, и урон после
  * согласия идёт с ним — защиты получателя его видят.
  *
+ * @param subject - субъект срабатывания: по нему читается условие
  * @param source - срабатывание с источником
  * @param eventData - данные события
  * @returns срабатывание с типом события либо то же срабатывание
  */
 function bindEventDamageType(
+  subject: DnDSceneEntity,
   source: EffectTriggerSource,
   eventData: TriggerEventData,
 ): EffectTriggerSource {
-  const [eventType] = eventData.damage?.types ?? [];
+  const usesEventType = source.trigger.actions.some(
+    (action) =>
+      action.type === 'damage'
+      && action.parts.some((part) =>
+        part.formula.includes(EVENT_DAMAGE_TYPE_TOKEN),
+      ),
+  );
 
-  if (
-    !eventType
-    || !source.trigger.actions.some(
-      (action) =>
-        action.type === 'damage'
-        && action.parts.some((part) =>
-          part.formula.includes(EVENT_DAMAGE_TYPE_TOKEN),
-        ),
-    )
-  ) {
+  const eventType = usesEventType
+    ? pickEventDamageType(subject, source, eventData)
+    : undefined;
+
+  if (!eventType) {
     return source;
   }
 
@@ -558,7 +597,7 @@ function runTriggerEventSource(
 
   // Данные события привязываются до развилки «спросить человека или нет»:
   // после согласия срабатывание выполняется тем же, чем выполнилось бы сразу
-  const eventSource = bindEventDamageType(rawSource, eventData);
+  const eventSource = bindEventDamageType(subject, rawSource, eventData);
 
   const recipients = resolveTriggerRecipients(
     subject,

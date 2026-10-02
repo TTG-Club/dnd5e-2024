@@ -205,6 +205,65 @@ describe('данные события после вопроса человеку
     });
   });
 
+  it('удар двумя типами: отвечают тем типом, что прошёл условие', async () => {
+    // Жало скорпиона: колющий и яд одним броском. «Перенаправление энергии»
+    // слушает яд — и отвечать должно ядом, а не первым типом удара
+    const redirectMixed = async (condition, immunity) => {
+      const attacker = withHp(createCreature, ATTACKER_MAX_HP, {
+        id: ATTACKER_ID,
+        activeEffects: [createEffect('ward', { flags: [immunity] })],
+      });
+
+      const hero = createHero({
+        recipient: 'other',
+        actions: REDIRECT_ACTIONS,
+        ...(condition ? { condition } : {}),
+      });
+
+      const result = engine.settleDamageEvents(
+        hero,
+        [
+          {
+            amount: 6,
+            types: ['piercing', 'poison'],
+            critical: false,
+            sourceId: ATTACKER_ID,
+          },
+        ],
+        {
+          hpBefore: HERO_MAX_HP,
+          getEntity: (entityId) =>
+            entityId === ATTACKER_ID ? attacker : undefined,
+          listEntitiesInArea: () => [attacker],
+        },
+      );
+
+      await settleDeferred(result.deferred, [hero, attacker]);
+
+      return engine.resolveEntityCurrentHp(attacker);
+    };
+
+    const poisonOnly = 'damage.type === "poison, fire"';
+
+    assert.equal(
+      await redirectMixed(poisonOnly, 'immunity.poison'),
+      ATTACKER_MAX_HP,
+      'ответ идёт ядом — иммунитет к яду его гасит',
+    );
+
+    assert.equal(
+      await redirectMixed(poisonOnly, 'immunity.piercing'),
+      ATTACKER_MAX_HP - REDIRECT_DAMAGE,
+      'колющим ответ не идёт',
+    );
+
+    // Без условия — первый тип удара, как раньше
+    assert.equal(
+      await redirectMixed(undefined, 'immunity.piercing'),
+      ATTACKER_MAX_HP,
+    );
+  });
+
   it('после согласия тип урона события тот же: реакция, «спрашивать», цена ресурсом', async () => {
     const asking = [
       { patch: { cost: 'reaction' }, sheet: {} },
