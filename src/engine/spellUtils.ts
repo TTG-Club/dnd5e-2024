@@ -2632,3 +2632,27 @@ export function getSpellSaveCondition(spell: Spell): ConditionRef | undefined {
 
   return carrier?.conditionKey;
 }
+
+/**
+ * Заклинания листа с одним потраченным зарядом заклинания: у заклинания с
+ * откатом (врождённого, расового) заряд уменьшается, ниже нуля не уходит.
+ * Список не меняется — возвращается новый. Один расчёт на лист персонажа,
+ * горячую панель и заклинания существа.
+ *
+ * @param spells - заклинания листа
+ * @param spellId - потраченное заклинание
+ * @returns новый список заклинаний
+ */
+export function withSpentSpellUse(
+  spells: readonly Spell[],
+  spellId: string,
+): Spell[] {
+  return spells.map((entry) =>
+    entry.id === spellId && entry.uses
+      ? {
+          ...entry,
+          uses: { ...entry.uses, current: Math.max(0, entry.uses.current - 1) },
+        }
+      : entry,
+  );
+}

@@ -532,82 +532,66 @@ it('macro source lookup reads a replaced entity and returns no stale source afte
   assert.equal(lookup('caster'), undefined);
 });
 
-for (const relativePath of [
-  'src/client/ui/actor/tabs/ActorSpellsTab.vue',
-  macroPath,
-]) {
-  it(`actual projectile callback in ${relativePath} preserves the captured bonus formulas`, async () => {
-    let forwarded;
-    let finishedCasts = 0;
+it('actual projectile callback of the shared cast flow preserves the captured bonus formulas', async () => {
+  let forwarded;
+  let finishedCasts = 0;
 
-    const entity = createEntity();
+  const entity = createEntity();
 
-    const worldStore = {
-      currentScene: { tokens: [] },
-      connectionState: { currentWorldId: 'world' },
-      worlds: [{ id: 'world', actors: [entity] }],
-    };
-
-    const handler = await loadHandler(
-      relativePath,
-      'handleProjectileAttackRoll',
-      {
-        spell: { name: 'Ray' },
-        actor: entity,
-        props: { actor: entity },
-        incomingAttackType: 'ranged',
-        castPlan: { attackType: 'ranged' },
-        isApplied: false,
-        window: { removeEventListener() {} },
-        handleUnload() {},
-        worldStore,
-        getCurrentWorldEntities: () => [entity],
-        getWorldSocket: () => ({}),
-        useChatStore: () => ({ getSocket: () => ({}) }),
-        evaluateSpellBonusParts: undefined,
-        withFlatDamageBonusPart: (parts) => parts,
-        spellIsHealing: () => false,
-        flatSpellDamageBonus: 0,
+  // Лист и горячая панель зовут один обработчик общего разбора каста
+  const handler = await loadHandler(
+    'src/client/composables/spellCastFlow.ts',
+    'settleSpellProjectileAttack',
+    {
+      markSpellCastApplied: (session) => {
+        session.state.applied = true;
+      },
+      withFlatDamageBonusPart: (parts) => parts,
+      spellIsHealing: () => false,
+      useChatStore: () => ({ getSocket: () => ({}) }),
+      useWorldEntities: () => ({ getCurrentWorldEntities: () => [entity] }),
+      useWorldStore: () => ({ currentScene: { tokens: [] } }),
+      targetEffectsSourceOf: () => ({ casterId: entity.id, spellSaveDC: 13 }),
+      useSpellResolution: () => ({
         resolveSpellDamage: (_context, options) => {
           forwarded = options.projectileAttack;
         },
-        resolveSpellSaveDC: () => 13,
-        spellSaveDc: 13,
-        resolvedStats: { spellSaveDC: 13, value: {} },
-        resolvedDamageFormula: '1d6',
-        useWorldEntities: () => ({ getCurrentWorldEntities: () => [entity] }),
-        // Доведение каста: у листа и у горячей панели оно названо по-своему
-        finishSpellCast: () => {
-          finishedCasts += 1;
+      }),
+      finishSpellCast: () => {
+        finishedCasts += 1;
 
-          return Promise.resolve();
-        },
-        finishCast: () => {
-          finishedCasts += 1;
-
-          return Promise.resolve();
-        },
-        // Разбор целей ждёт доведения каста; здесь — сразу
-        afterSpellCast: (_completion, proceed) => proceed(),
+        return Promise.resolve();
       },
-    );
+      // Разбор целей ждёт доведения каста; здесь — сразу
+      afterSpellCast: (_completion, proceed) => proceed(),
+    },
+  );
 
-    const formulas = new Map([['target', Object.freeze(['1d4'])]]);
+  const session = {
+    port: { casterId: entity.id },
+    plan: { attackType: 'ranged' },
+    resolvedDamageFormula: '1d6',
+    flatSpellDamageBonus: 0,
+    evaluateSpellBonusParts: undefined,
+    state: { spell: { name: 'Ray' }, attackLanded: false, applied: false },
+  };
 
-    handler({
-      attackModifier: 5,
-      rollMode: 'advantage',
-      bonusDiceFormulasByTarget: formulas,
-    });
+  const formulas = new Map([['target', Object.freeze(['1d4'])]]);
 
-    assert.equal(forwarded.bonusDiceFormulasByTarget, formulas);
-    assert.equal(forwarded.rollMode, 'advantage');
-
-    // Серия снарядов доводит каст: конец прежней концентрации и эффекты на
-    // заклинателе раньше оставались без неё
-    assert.equal(finishedCasts, 1);
+  handler(session, {
+    attackModifier: 5,
+    rollMode: 'advantage',
+    bonusDiceFormulasByTarget: formulas,
   });
-}
+
+  assert.equal(forwarded.bonusDiceFormulasByTarget, formulas);
+  assert.equal(forwarded.rollMode, 'advantage');
+
+  // Серия снарядов доводит каст: конец прежней концентрации и эффекты на
+  // заклинателе раньше оставались без неё
+  assert.equal(finishedCasts, 1);
+  assert.equal(session.state.applied, true);
+});
 
 it('actual projectile series rolls attack bonus per beam and preserves natural critical rules under advantage', async () => {
   const first = { id: 'first', name: 'First', armorClass: 17 };
@@ -746,7 +730,7 @@ it('registered weapon macro selects melee/ranged dice from the fresh actor and o
     findWeapon: () => ({ actor: current.value, weapon }),
     isDnDEffect: () => true,
     combineEffectsWithAmbient: () => [],
-    isTargetFullHp: () => undefined,
+    isTargetAtFullHp: () => undefined,
     console: { warn: assert.fail, error: assert.fail },
   });
 

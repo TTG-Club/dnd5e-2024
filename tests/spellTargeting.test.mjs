@@ -13,6 +13,9 @@ import { loadHandler } from './helpers/sourceHandler.mjs';
 
 const systemRoot = fileURLToPath(new URL('../', import.meta.url));
 
+/** Общий разбор каста персонажа — лист и горячая панель */
+const FLOW_PATH = 'src/client/composables/spellCastFlow.ts';
+
 const require = createRequire(join(systemRoot, 'package.json'));
 const { parse, compileScript } = require('@vue/compiler-sfc');
 const { build } = require('esbuild');
@@ -628,32 +631,37 @@ it('final cast checks fresh regular or pact resources and respects disabled slot
   assert.equal(selection.selected.targets.validate(1, false, false), false);
 });
 
-it('the actual actor-sheet cast handler opens Bless targets before ordinary confirmation', async () => {
+it('the shared cast entry opens Bless targets before ordinary confirmation and continues with them', async () => {
   const actor = runtime.fixture.world.actors[0];
 
   let continued;
 
-  const castSpell = await loadHandler(
-    'src/client/ui/actor/tabs/ActorSpellsTab.vue',
-    'castSpell',
+  const chooseSpellCastTargets = await loadHandler(
+    FLOW_PATH,
+    'chooseSpellCastTargets',
     {
-      props: { actor },
-      // Запретов трат хода у заклинателя нет
-      actionBlocks: { value: { byCost: {} } },
-      findSpellCastBlock: () => null,
-      retypeCasterSpellDamage: (spell) => spell,
-      recordEntityActionSpend: () => {},
-      resolveSpellCastCost: () => undefined,
-      getCastableSpellLevels: () => [1, 2],
       needsSpellEffectTargets: runtime.needsSpellEffectTargets,
       requestSpellEffectTargets: runtime.requestSpellEffectTargets,
-      proceedWithCastSpell: (spell, level, targets) => {
+      proceedWithSpellCast: (spell, _port, level, targets) => {
         continued = { spell, level, targets };
       },
     },
   );
 
-  castSpell(bless);
+  const startSpellCast = await loadHandler(FLOW_PATH, 'startSpellCast', {
+    // Запретов трат хода у заклинателя нет
+    resolveEntityActionBlocks: () => ({ byCost: {} }),
+    listAmbientEffects: () => [],
+    findSpellCastBlock: () => null,
+    retypeCasterSpellDamage: (spell) => spell,
+    resolveCastableSpellLevels: () => [1, 2],
+    findSpellCastRefusal: () => null,
+    recordEntityActionSpend: () => {},
+    resolveSpellCastCost: () => undefined,
+    chooseSpellCastTargets,
+  });
+
+  startSpellCast(bless, { casterId: actor.id, readCaster: () => actor });
 
   const prompt = runtime.prompts.at(-1);
 
@@ -661,62 +669,12 @@ it('the actual actor-sheet cast handler opens Bless targets before ordinary conf
   runtime.useProjectileStore().toggleTarget('enemy');
   prompt.props.onConfirm(1);
   assert.equal(continued.spell.id, bless.id);
+  assert.equal(continued.level, 1);
   continued.targets.apply();
 
   assert.deepEqual(
     runtime.updates.map((entity) => entity.id),
     ['enemy'],
-  );
-});
-
-it('the actual hotbar spell executor opens the same target selection and passes it to buff resolution', async () => {
-  const actor = runtime.fixture.world.actors[0];
-
-  let continued;
-
-  const castMacro = await loadHandler(
-    'src/client/macros/dnd5eMacros.ts',
-    'spell-cast',
-    {
-      console,
-      isDnDActorEntity: (entity) => entity?.entityType === 'actor',
-      findSpell: () => ({ spell: bless, actor }),
-      refuseBlockedMacro: () => false,
-      resolveSpellCastBlock: () => null,
-      recordEntityActionSpend: () => {},
-      resolveSpellCastCost: () => undefined,
-      listAmbientEffects: () => [],
-      retypeCasterSpellDamage: (spell) => spell,
-      getAvailableSpellLevels: () => [1, 2],
-      // Лимита круга ячейки у заклинателя нет
-      limitEntityCastLevels: (_actor, _spell, levels) => levels,
-      // Свои бонусы к ячейкам считаются от итоговых статов заклинателя
-      resolveActorStats: () => ({ abilityBonusContext: {} }),
-      MAX_SPELL_SLOT_LEVEL: 9,
-      needsSpellEffectTargets: runtime.needsSpellEffectTargets,
-      requestSpellEffectTargets: runtime.requestSpellEffectTargets,
-      castBuffSpellMacro: (spell, caster, level, targets) => {
-        continued = { spell, caster, level, targets };
-      },
-      // Цены сверх ячейки у фикстуры нет: оплата проходная
-      runWithMacroCastPay: (spell, caster, level, _levels, proceed) =>
-        proceed(spell, level, caster),
-    },
-    true,
-  );
-
-  castMacro({ ref: 'bless' }, { actor, actors: [actor] });
-
-  const prompt = runtime.prompts.at(-1);
-
-  assert.equal(prompt.props.targetMode, 'effects');
-  runtime.useProjectileStore().toggleTarget('ally');
-  prompt.props.onConfirm(1);
-  continued.targets.apply();
-
-  assert.deepEqual(
-    runtime.updates.map((entity) => entity.id),
-    ['ally'],
   );
 });
 
@@ -794,65 +752,13 @@ it('a scene change or unmount cancels unfinished selection without applying effe
   assert.equal(runtime.updates.length, 0);
 });
 
-for (const relativePath of [
-  'src/client/ui/actor/tabs/ActorSpellsTab.vue',
-  'src/client/macros/dnd5eMacros.ts',
-]) {
-  it(`obsolete projectile DiceRoll cannot consume a slot after Bless starts (${relativePath})`, async () => {
-    const projectileStore = runtime.useProjectileStore();
-
-    projectileStore.startTargeting(null, 3);
-
-    const isCurrentProjectileCast = await loadHandler(
-      relativePath,
-      'isCurrentProjectileCast',
-      {
-        hasProjectiles: true,
-        projectileStore,
-        createProjectileCastValidator: runtime.createProjectileCastValidator,
-      },
-    );
-
-    assert.equal(isCurrentProjectileCast(), true);
-
-    const selection = startSelection();
-
-    selection.store.toggleTarget('ally');
-    assert.equal(isCurrentProjectileCast(), false);
-    let consumed = 0;
-
-    const performRoll = await loadHandler(
-      'src/client/ui/actor/DiceRollModal.vue',
-      'performRoll',
-      {
-        hasRolled: false,
-        props: {
-          beforeRoll: isCurrentProjectileCast,
-          onSpellSlotConsume: () => {
-            consumed += 1;
-          },
-        },
-        selectedSpellLevel: { value: 1 },
-        consumeSpellSlot: { value: true },
-        usePactSlot: { value: false },
-      },
-    );
-
-    performRoll();
-    assert.equal(consumed, 0);
-    assert.equal(selection.store.isActive, true);
-    assert.equal(selection.store.assignedProjectilesCount, 1);
-  });
-}
-
-it('closing an obsolete actor-sheet DiceRoll preserves the new Bless session and removes its unload listener', async () => {
-  const relativePath = 'src/client/ui/actor/tabs/ActorSpellsTab.vue';
+it('obsolete projectile DiceRoll of the shared cast window cannot consume a slot after Bless starts', async () => {
   const projectileStore = runtime.useProjectileStore();
 
   projectileStore.startTargeting(null, 3);
 
   const isCurrentProjectileCast = await loadHandler(
-    relativePath,
+    FLOW_PATH,
     'isCurrentProjectileCast',
     {
       hasProjectiles: true,
@@ -861,17 +767,72 @@ it('closing an obsolete actor-sheet DiceRoll preserves the new Bless session and
     },
   );
 
-  const handleUnload = await loadHandler(relativePath, 'handleUnload', {
-    isApplied: false,
+  assert.equal(isCurrentProjectileCast(), true);
+
+  const selection = startSelection();
+
+  selection.store.toggleTarget('ally');
+  assert.equal(isCurrentProjectileCast(), false);
+  let consumed = 0;
+
+  const performRoll = await loadHandler(
+    'src/client/ui/actor/DiceRollModal.vue',
+    'performRoll',
+    {
+      hasRolled: false,
+      props: {
+        beforeRoll: isCurrentProjectileCast,
+        onSpellSlotConsume: () => {
+          consumed += 1;
+        },
+      },
+      selectedSpellLevel: { value: 1 },
+      consumeSpellSlot: { value: true },
+      usePactSlot: { value: false },
+    },
+  );
+
+  performRoll();
+  assert.equal(consumed, 0);
+  assert.equal(selection.store.isActive, true);
+  assert.equal(selection.store.assignedProjectilesCount, 1);
+});
+
+it('closing an obsolete cast window preserves the new Bless session and removes its unload listener', async () => {
+  const projectileStore = runtime.useProjectileStore();
+
+  projectileStore.startTargeting(null, 3);
+
+  const isCurrentProjectileCast = await loadHandler(
+    FLOW_PATH,
+    'isCurrentProjectileCast',
+    {
+      hasProjectiles: true,
+      projectileStore,
+      createProjectileCastValidator: runtime.createProjectileCastValidator,
+    },
+  );
+
+  const abandonSpellCast = await loadHandler(FLOW_PATH, 'abandonSpellCast', {
+    useSpellTemplateStore: () => ({ deleteTemplate() {} }),
+    useProjectileStore: runtime.useProjectileStore,
+  });
+
+  const session = {
     hasProjectiles: true,
+    template: undefined,
+    state: { applied: false },
+  };
+
+  const handleUnload = await loadHandler(FLOW_PATH, 'handleUnload', {
+    abandonSpellCast,
+    session,
     isCurrentProjectileCast,
-    projectileStore,
-    templateId: undefined,
   });
 
   const removed = [];
 
-  const handleModalClose = await loadHandler(relativePath, 'handleModalClose', {
+  const handleModalClose = await loadHandler(FLOW_PATH, 'handleModalClose', {
     handleUnload,
     window: {
       removeEventListener: (...argumentsList) => removed.push(argumentsList),
@@ -896,6 +857,49 @@ it('closing an obsolete actor-sheet DiceRoll preserves the new Bless session and
   );
 });
 
+/**
+ * Настоящее окно каста общего разбора с подменённым расчётом чисел: тестам
+ * окна важно, какое окно открылось и что оно проверяет перед расходом.
+ *
+ * @param {object} overrides - подмены портов
+ * @returns {Promise<Function>} openSpellCastWindow
+ */
+function loadCastWindow(overrides) {
+  return loadHandler(FLOW_PATH, 'openSpellCastWindow', {
+    resolveActorStats: () => ({ damageBonuses: { spell: 0 }, abilityMods: {} }),
+    generateId: (prefix) => `${prefix}_${randomUUID()}`,
+    SPELL_CAST_KEY_PREFIX: 'cast',
+    beginSpellCast: () => {},
+    getTotalLevel: () => 1,
+    getSpellProjectileCount: () => 0,
+    pickCantripTierParts: () => undefined,
+    getSpellDamageParts: (spell) => spell.damageParts ?? [],
+    useBonusDamageParts: () => ({
+      hasSpellBonusDamage: () => false,
+      buildSpellBonusEvaluator: () => undefined,
+    }),
+    collectEffectsWithAuras: () => [],
+    resolveSpellCastPlan: runtime.resolveSpellCastPlan,
+    useTargetStore: () => ({ getTargetActor: () => null }),
+    isTargetAtFullHp: () => undefined,
+    isDndSceneEntity: () => false,
+    resolveEntityCreatureType: () => undefined,
+    resolveSpellDamageFormula: () => '',
+    withFlatFormulaBonus: (formula) => formula,
+    spellIsHealing: () => false,
+    useProjectileStore: runtime.useProjectileStore,
+    createProjectileCastValidator: runtime.createProjectileCastValidator,
+    abandonSpellCast: () => {},
+    buildSpellSlotProps: () => ({ spellLevel: 1, availableSpellLevels: [1] }),
+    ACTOR_SPELLS_TAB_LABELS: { rollTitlePrefix: 'Заклинание — ' },
+    SPELL_MENU_LABELS: { cast: 'Применить' },
+    SPELL_CAST_MODAL_KEY_PREFIX: 'spell-cast',
+    settleNoRollSpellCast: () => {},
+    window: { addEventListener() {}, removeEventListener() {} },
+    ...overrides,
+  });
+}
+
 it('the actual modal manager keeps a new Bless cast independent from an unfinished projectile roll', async () => {
   const managerPath =
     '../vttg/packages/client/src/shared_ui/composables/useModalManager.ts';
@@ -918,47 +922,28 @@ it('the actual modal manager keeps a new Bless cast independent from an unfinish
   selection.store.toggleTarget('ally');
   selection.prompt.props.onConfirm(1);
 
-  const castBuff = await loadHandler(
-    'src/client/macros/dnd5eMacros.ts',
-    'castBuffSpellMacro',
-    {
-      // Расход ячейки пишет запись эффектов заклинателя — её зовёт каст
-      completeSpellCast: (input) => input.landCasterEffects?.([]),
-      beginSpellCast: () => {},
-      resolveSpellcastingAbility: () => 'wisdom',
-      resolveActorStats: () => ({ abilityMods: {} }),
-      resolveSpellSaveDC: () => 13,
-      useWorldStore: () => runtime.worldStore,
-      useChatStore: () => runtime.chatStore,
-      useModalManager: () => ({ openModal }),
-      getPactSlotInfo: () => ({ level: 0 }),
-      resolveSpellCastPlan: runtime.resolveSpellCastPlan,
-      computeAvailableLevels: () => [1],
-      SPELL_MENU_LABELS: { cast: 'Применить' },
-      SPELL_CAST_MODAL_KEY_PREFIX: 'spell-cast',
-      SPELL_CAST_KEY_PREFIX: 'cast',
-      generateId: () => randomUUID(),
-    },
-  );
+  const openSpellCastWindow = await loadCastWindow({
+    useModalManager: () => ({ openModal }),
+  });
 
-  castBuff(
-    bless,
-    runtime.fixture.world.actors[0],
-    1,
-    selection.selected.targets,
-  );
+  const actor = runtime.fixture.world.actors[0];
+  const port = { casterId: actor.id, readCaster: () => actor };
+
+  openSpellCastWindow(bless, port, {
+    lockedLevel: 1,
+    effectTargets: selection.selected.targets,
+  });
 
   assert.equal(modals.value.length, 2);
   assert.equal(modals.value[0].props.beforeRoll(), false);
   assert.equal(modals.value[1].props.beforeRoll(1, true, false), true);
   assert.equal(modals.value[1].props.rollLabel, bless.name);
+  assert.equal(modals.value[1].props.skipRoll, true);
 
-  castBuff(
-    bless,
-    runtime.fixture.world.actors[0],
-    1,
-    selection.selected.targets,
-  );
+  openSpellCastWindow(bless, port, {
+    lockedLevel: 1,
+    effectTargets: selection.selected.targets,
+  });
 
   assert.equal(modals.value.length, 3);
 });
@@ -1117,69 +1102,44 @@ for (const [kind, instantSpell] of [
   ['cantrip', { ...bless, level: 0 }],
   ['innate', { ...bless, uses: { max: 1, current: 1, recovery: 'longRest' } }],
 ]) {
-  it(`the actual instant ${kind} cast releases its unload listener without opening a roll window`, async () => {
+  it(`the actual instant ${kind} cast applies without a roll window and leaves no unload listener`, async () => {
     const listeners = new Set();
 
     let appliedTargets = 0;
 
-    const continueSpellCast = await loadHandler(
-      'src/client/ui/actor/tabs/ActorSpellsTab.vue',
-      'continueSpellCast',
-      {
-        props: { actor: runtime.fixture.world.actors[0] },
-        createSpellSlotConsumer: () => () => {},
-        getTotalLevel: () => 1,
-        getSpellProjectileCount: () => 0,
-        useProjectileStore: runtime.useProjectileStore,
-        createProjectileCastValidator: runtime.createProjectileCastValidator,
-        targetStore: { getTargetActor: () => null },
-        isRecord: () => false,
-        isDndSceneEntity: () => false,
-        pickCantripTierParts: () => [],
-        getSpellDamageParts: () => [],
-        resolvedStats: { value: { damageBonuses: { spell: 0 } } },
-        spellIsHealing: () => false,
-        withFlatFormulaBonus: (formula) => formula,
-        resolveSpellDamageFormula: () => '',
-        collectEffectsWithAuras: () => [],
-        hasSpellBonusDamage: () => false,
-        resolveSpellCastPlan: runtime.resolveSpellCastPlan,
-        spellTargetEffectsSource: () => ({
-          casterId: 'caster',
-          spellSaveDC: 13,
-        }),
-        finishSpellCast: () => Promise.resolve(),
-        afterSpellCast: (_completion, proceed) => proceed(),
-        settleNoRollSpellTargets: runtime.settleNoRollSpellTargets,
-        beginSpellCast: () => {},
-        generateId: (prefix) => `${prefix}_test`,
-        SPELL_CAST_KEY_PREFIX: 'cast',
-        useSpellTemplateStore: () => ({
-          getPlacedTemplate: () => undefined,
-          removePlacedTemplate() {},
-          deleteTemplate() {},
-        }),
+    const openSpellCastWindow = await loadCastWindow({
+      useModalManager: () => ({
         openModal: () =>
           assert.fail('Instant cast must not open a dice window'),
-        window: {
-          addEventListener: (event, listener) => {
-            assert.equal(event, 'beforeunload');
-            listeners.add(listener);
-          },
-          removeEventListener: (event, listener) => {
-            assert.equal(event, 'beforeunload');
-            listeners.delete(listener);
-          },
+      }),
+      settleNoRollSpellCast: (session) => session.effectTargets.apply(),
+      window: {
+        addEventListener: (event, listener) => {
+          assert.equal(event, 'beforeunload');
+          listeners.add(listener);
+        },
+        removeEventListener: (event, listener) => {
+          assert.equal(event, 'beforeunload');
+          listeners.delete(listener);
         },
       },
-    );
+    });
+
+    const actor = runtime.fixture.world.actors[0];
 
     for (let i = 0; i < 2; i++) {
-      continueSpellCast(instantSpell, undefined, instantSpell.level, {
-        apply: () => {
-          appliedTargets++;
+      openSpellCastWindow(
+        instantSpell,
+        { casterId: actor.id, readCaster: () => actor },
+        {
+          lockedLevel: instantSpell.level,
+          effectTargets: {
+            apply: () => {
+              appliedTargets++;
+            },
+          },
         },
-      });
+      );
 
       assert.equal(listeners.size, 0);
     }

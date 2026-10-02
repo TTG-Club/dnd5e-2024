@@ -2,7 +2,6 @@
   // Корневой вход `@nuxt/ui` — это Nuxt-модуль, типы компонентов он не отдаёт
   import type { DropdownMenuItem } from '@nuxt/ui/components/DropdownMenu.vue';
 
-  import type { MeasurementTemplate, SceneEntity } from '@vtt/shared';
   import type {
     ActorClassEntry,
     ClassDefinition,
@@ -13,21 +12,11 @@
     DnDSceneEntity,
     DnDSpellSlotSettings,
     PreparedKind,
-    RollContext,
     Spell,
     SpellSaveDCSource,
   } from '@vtt/shared/system/dnd.js';
 
-  import type { SpellCasterSource } from '../../../composables/spellCastCompletion';
-  import type {
-    SpellEffectTargets,
-    SpellTargetEffectsSource,
-  } from '../../../composables/spellEffectTargeting';
-  import type {
-    ProjectileAttackContext,
-    RolledSpellDamagePart,
-    SpellDamagePartInput,
-  } from '../../../composables/useSpellResolution';
+  import type { SpellCasterPort } from '../../../composables/spellCastFlow';
   import type { SpellPropertyFilterKey } from '../constants';
   import type { SheetRowStat } from '../sheetRowTypes';
 
@@ -36,117 +25,52 @@
 
   import { startHotbarDrag } from '@/core/utils/hotbarDrag';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
-  import { useActionPromptStore } from '@/stores/actionPromptStore';
   import { useChatStore } from '@/stores/chatStore';
   import { useHotbarStore } from '@/stores/hotbarStore';
-  import { useProjectileStore } from '@/stores/projectileStore';
-  import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
-  import { useTargetStore } from '@/stores/targetStore';
-  import { useWorldStore } from '@/stores/worldStore';
-  import { generateId, isActorEntity, isRecord } from '@vtt/shared';
+  import { generateId, isActorEntity } from '@vtt/shared';
   import {
     applySpellSlotSettings,
     buildCasterTypeMap,
-    calculateSpellAttackModifier,
     canTogglePrepared,
     CANTRIP_SPELL_LEVEL,
     computeSpellSlots,
     countsTowardCantrips,
     countsTowardPreparedSpells,
     damagePartIsHealing,
-    findCastLevelBlock,
     findSpellCastBlock,
-    getAvailableSpellLevels,
     getClassPreparedValue,
-    getDamageTemplateColor,
     getPactSlotInfo,
     getPreparedLimitBreakdown,
     getSpellAttackBreakdown,
     getSpellDamageParts,
-    getSpellPrimaryDamageType,
-    getSpellProjectileCount,
     getSpellSaveDCBreakdown,
-    getTotalLevel,
-    isDndSceneEntity,
     isGrantedSpell,
     isSpellReady,
-    limitCastLevels,
-    MAX_SPELL_SLOT_LEVEL,
     parsePreparedLimit,
     parseSpellcastingSettings,
     parseSpellSlotSettings,
-    pickCantripTierParts,
     PREPARED_LIMIT_EMPTY_VALUE,
     resolveActorStats,
-    resolveDamagePartsForCast,
     resolveEntityActionBlocks,
-    resolveEntityCreatureType,
-    resolvePlannedDamageTotal,
-    resolveSpellAreaAtLevel,
-    resolveSpellCastCost,
-    resolveSpellcastingAbility,
-    resolveSpellCastPlan,
-    resolveSpellDamageFormula,
     resolveSpellSaveDC,
-    retypeCasterSpellDamage,
     settleBookCantrips,
     SPELL_LEVEL_LABELS,
     SPELL_SCHOOL_LABELS,
     SPELL_USES_RECOVERY_LABELS,
-    spellIsHealing,
     syncClassGrantedSpells,
-    withFlatDamageBonus,
-    withFlatFormulaBonus,
+    withSpentSpellSlot,
+    withSpentSpellUse,
   } from '@vtt/shared/system/dnd.js';
 
-  import { recordEntityActionSpend } from '../../../composables/actionSpend';
-  import { chooseAreaCastLevel } from '../../../composables/areaCastLevelChoice';
-  import { resolveTargetedAttackRoll } from '../../../composables/attackRollMode';
-  import { runWithCastFailureAndPay } from '../../../composables/castFailure';
   import {
     describeDamageVariantsStat,
     formatDamageTileFormula,
-    requestDamageTypeChoiceFor,
-    runWithDamageTypeChoices,
     useDamageTypeLabel,
   } from '../../../composables/damageTypeChoice';
-  import { runWithEffectVariants } from '../../../composables/effectVariantChoice';
-  import {
-    buildRollBonusEvaluator,
-    collectProjectileRollBonuses,
-  } from '../../../composables/rollBonusEvaluator';
-  import {
-    afterSpellCast,
-    completeSpellCast,
-    SPELL_CAST_KEY_PREFIX,
-  } from '../../../composables/spellCastCompletion';
-  import {
-    beginSpellCast,
-    setSpellCastLevel,
-  } from '../../../composables/spellCasts';
-  import {
-    applySpellTargetEffects,
-    createProjectileCastValidator,
-    needsSpellEffectTargets,
-    requestSpellEffectTargets,
-    settleNoRollSpellTargets,
-  } from '../../../composables/spellEffectTargeting';
-  import {
-    useBonusDamageParts,
-    withFlatDamageBonusPart,
-  } from '../../../composables/useBonusDamageParts';
+  import { startSpellCast } from '../../../composables/spellCastFlow';
   import { useClassCatalog } from '../../../composables/useClassCatalog';
   import { useCompendiumWarmup } from '../../../composables/useCompendiumWarmup';
-  import {
-    collectEffectsWithAuras,
-    listAmbientEffects,
-  } from '../../../composables/useResolvedStats';
-  import {
-    getSpellMaxRangeOnScene,
-    isSpellCastBlockedByRange,
-    isSpellTargetBlockedByRange,
-  } from '../../../composables/useSceneRangeCheck';
-  import { useSpellResolution } from '../../../composables/useSpellResolution';
+  import { listAmbientEffects } from '../../../composables/useResolvedStats';
   import CompendiumDataModal from '../../compendium/CompendiumDataModal.vue';
   import ActorSpellRow from '../ActorSpellRow.vue';
   import {
@@ -154,17 +78,14 @@
     FILTER_ROW_CONTROL_SIZE,
     GRANTED_CANTRIPS_GROUP_LABEL,
     GRANTED_CANTRIPS_GROUP_LEVEL,
-    PROJECTILE_MODAL_KEY_PREFIX,
     SHEET_FILTER_LABELS,
     SHEET_ROW_MENU_LABELS,
     SPELL_BROWSER_WARMUP_KINDS,
-    SPELL_CAST_MODAL_KEY_PREFIX,
     SPELL_FILTER_LABELS,
     SPELL_LEVEL_SUFFIX,
     SPELL_MENU_LABELS,
     SPELL_MIME,
     SPELL_PROPERTY_FILTERS,
-    SPELL_ROLL_BUTTON_LABELS,
     SPELL_STAT_HINTS,
     SPELL_STAT_LABELS,
   } from '../constants';
@@ -205,34 +126,13 @@
   // Уведомления берутся в setup: в обработчике клика `useToast()` уже не
   // работает — Vue молча глушит его, и сообщение «нет ячеек» не появлялось
   const toast = useToast();
-  const worldStore = useWorldStore();
   const chatStore = useChatStore();
-  const targetStore = useTargetStore();
 
-  const { resolveSpellDamage, resolveSpellDamageWithParts } =
-    useSpellResolution();
-
-  const { hasSpellBonusDamage, buildSpellBonusEvaluator } =
-    useBonusDamageParts();
-
-  function getCurrentWorldEntities(): SceneEntity[] {
-    const worldId = worldStore.connectionState.currentWorldId;
-
-    if (!worldId) {
-      return [];
-    }
-
-    const world = worldStore.worlds.find(
-      (worldEntry) => worldEntry.id === worldId,
-    );
-
-    if (!world) {
-      return [];
-    }
-
-    return [...(world.actors ?? []), ...(world.creatures ?? [])];
-  }
-
+  /**
+   * Сокет мира — для окна компендиума и его прогрева.
+   *
+   * @returns сокет или `null`
+   */
   function getWorldSocket() {
     return chatStore.getSocket();
   }
@@ -246,60 +146,6 @@
   const actionBlocks = computed(() =>
     resolveEntityActionBlocks(props.actor, listAmbientEffects(props.actor.id)),
   );
-
-  /**
-   * Заклинатель как источник чисел эффектов: Сл и модификатор характеристики
-   * именно этого заклинания.
-   *
-   * @param spell - заклинание
-   * @returns Сл и модификатор
-   */
-  function spellCasterSource(spell: Spell): SpellCasterSource {
-    return {
-      saveDc: resolveSpellSaveDC(props.actor, spell, resolvedStats.value),
-      spellMod:
-        resolvedStats.value.abilityMods[
-          resolveSpellcastingAbility(props.actor, spell)
-        ],
-    };
-  }
-
-  /**
-   * Доводит каст с листа: конец прежней концентрации, эффекты на заклинателе
-   * (боевым снимком — как с горячей панели), зона на месте шаблона. Один вход
-   * на все пути каста — обычный, многочастный, серия снарядов, каст без
-   * броска. Ячейку лист к этому времени уже записал (окно списывает её до
-   * броска), а цели разбираются после промиса.
-   *
-   * @param spell - заклинание каста
-   * @param template - размещённый шаблон области
-   * @returns выполняется, когда эффекты прежнего каста сняты
-   */
-  function finishSpellCast(
-    spell: Spell,
-    template?: MeasurementTemplate | null,
-  ): Promise<void> {
-    return completeSpellCast({
-      spell,
-      caster: props.actor,
-      source: spellCasterSource(spell),
-      template,
-    });
-  }
-
-  /**
-   * Кто накладывает эффекты заклинания на цель: Сл 0 эффекта и его спасбросок
-   * считаются от заклинателя.
-   *
-   * @param spell - заклинание
-   * @returns заклинатель и Сл спасброска заклинания
-   */
-  function spellTargetEffectsSource(spell: Spell): SpellTargetEffectsSource {
-    return {
-      casterId: props.actor.id,
-      spellSaveDC: resolveSpellSaveDC(props.actor, spell, resolvedStats.value),
-    };
-  }
 
   /** Базовая характеристика заклинаний актора (с учетом классов) */
   const baseSpellcastingAbility = computed(() => {
@@ -1504,243 +1350,55 @@
   }
 
   /**
-   * Круги, на которые у актора остались ячейки, — до запретов эффектов.
+   * Заклинатель-лист для общего разбора каста: читается черновик листа, ячейка,
+   * заряд и оплата пишутся сохранением листа (иначе следующее сохранение
+   * черновика их затёрло бы), отказ — уведомлением.
    *
-   * @param spell - заклинание
-   * @returns круги не ниже круга заклинания
+   * @returns порт заклинателя
    */
-  function getSlotSpellLevels(spell: Spell): number[] {
-    return getAvailableSpellLevels(
-      props.actor,
-      spell.level,
-      MAX_SPELL_SLOT_LEVEL,
-      spellcastingBonusContext.value,
-    );
+  function createSheetCasterPort(): SpellCasterPort {
+    return {
+      casterId: props.actor.id,
+      readCaster: () => props.actor,
+      spendSlot: (castLevel, isPactSlot) => {
+        emit('update:actor', {
+          system: withSpentSpellSlot(props.actor.system, castLevel, isPactSlot),
+        });
+
+        triggerSaveIfNotEdit();
+      },
+      spendUse: consumeSpellUse,
+      commitPaid: commitPaidCaster,
+      refuse: (_spell, refusal) => {
+        toast.add({
+          title: refusal.title,
+          description: refusal.description,
+          color: 'warning',
+        });
+      },
+    };
   }
 
   /**
-   * Доступные круги для каста. У заклинаний с зарядами (врождённые/расовые)
-   * круг фиксирован и ячейки не тратятся; у обычных — доступные ячейки
-   * (или [0] для заговоров).
-   * @param spell - заклинание
-   * @returns массив доступных кругов
-   */
-  function getCastableSpellLevels(spell: Spell): number[] {
-    if (spell.uses) {
-      return [spell.level];
-    }
-
-    if (spell.level > 0) {
-      // «Не может использовать ячейки 7-го круга и выше» сужает выбор круга
-      return limitCastLevels(
-        actionBlocks.value,
-        spell,
-        getSlotSpellLevels(spell),
-      );
-    }
-
-    return [0];
-  }
-
-  /**
-   * Запускает процесс каста заклинания.
-   * Отправляет карточку в чат и открывает DiceRollModal с секцией выбора круга.
+   * Запускает каст заклинания — общим разбором каста, тем же, что у горячей
+   * панели.
+   *
    * @param sourceSpell - заклинание для каста; эффекты — до выбора варианта
    */
   function castSpell(sourceSpell: Spell): void {
-    // Запрет трат хода («Электрошок» — нет реакций) — до выбора варианта
-    const blocked = findSpellCastBlock(actionBlocks.value, sourceSpell);
-
-    if (blocked) {
-      toast.add({
-        title: ACTOR_SPELLS_TAB_LABELS.castBlockedTitle,
-        description: blocked,
-        color: 'warning',
-      });
-
-      return;
-    }
-
-    // «Можете изменить тип урона заклинания» — тип становится выбором
-    runWithEffectVariants(
-      retypeCasterSpellDamage(sourceSpell, props.actor),
-      (spell) => {
-        // Заклинания с зарядами (врождённые/расовые) не тратят ячейки: проверяем
-        // только заряды, без проверки доступных ячеек заклинаний.
-        if (
-          spell.uses
-          && spell.uses.recovery !== 'atWill'
-          && spell.uses.current <= 0
-        ) {
-          toast.add({
-            title: ACTOR_SPELLS_TAB_LABELS.noUsesTitle,
-            description: `${ACTOR_SPELLS_TAB_LABELS.noUsesTextPrefix}${spell.name}${ACTOR_SPELLS_TAB_LABELS.noUsesTextSuffix}`,
-            color: 'warning',
-          });
-
-          return;
-        }
-
-        const availableLevels = getCastableSpellLevels(spell);
-
-        // Ячейки есть, но все под запретом круга — причина словами
-        const levelBlock =
-          availableLevels.length === 0
-            ? findCastLevelBlock(
-                actionBlocks.value,
-                spell,
-                getSlotSpellLevels(spell),
-              )
-            : null;
-
-        if (levelBlock) {
-          toast.add({
-            title: ACTOR_SPELLS_TAB_LABELS.castBlockedTitle,
-            description: levelBlock,
-            color: 'warning',
-          });
-
-          return;
-        }
-
-        if (!spell.uses && spell.level > 0 && availableLevels.length === 0) {
-          toast.add({
-            title: ACTOR_SPELLS_TAB_LABELS.noSlotsTitle,
-            description: `${ACTOR_SPELLS_TAB_LABELS.noSlotsTextPrefix}${spell.level}${ACTOR_SPELLS_TAB_LABELS.noSlotsTextSuffix}`,
-            color: 'error',
-          });
-
-          return;
-        }
-
-        // «Замедление»: каст точно идёт — после действия бонусное в этот ход
-        // недоступно; отказ по зарядам и ячейкам трату не тратит
-        recordEntityActionSpend(props.actor.id, resolveSpellCastCost(spell));
-
-        if (needsSpellEffectTargets(spell)) {
-          requestSpellEffectTargets(
-            spell,
-            props.actor.id,
-            availableLevels,
-            (level, targets) => {
-              proceedWithCastSpell(spell, level, targets);
-            },
-          );
-
-          return;
-        }
-
-        // Снарядный режим: число снарядов зависит от контекста каста
-        // (заговоры — от уровня персонажа, уровневые — от круга ячейки)
-        const casterLevel = getTotalLevel(props.actor.system?.classes);
-
-        const baseProjectileCount = getSpellProjectileCount(spell, {
-          slotLevel: availableLevels[0] ?? spell.level,
-          casterLevel,
-        });
-
-        const hasProjectiles = baseProjectileCount > 1 && !spell.areaOfEffect;
-
-        // Проверка дистанции каста до выбранной цели (только одиночная цель:
-        // у AoE и снарядов собственные механики таргетинга)
-        if (
-          !spell.areaOfEffect
-          && !hasProjectiles
-          && isSpellCastBlockedByRange(spell, props.actor.id)
-        ) {
-          return;
-        }
-
-        // Ветка 1: Если есть область действия — пропускаем зелёный prompt, сразу начинаем применять (появится шаблон на курсоре)
-        if (spell.areaOfEffect) {
-          // Область растёт от круга — круг до шаблона, иначе сразу шаблон
-          chooseAreaCastLevel(spell, availableLevels, (castLevel) => {
-            proceedWithCastSpell(spell, castLevel);
-          });
-
-          return;
-        }
-
-        if (hasProjectiles) {
-          // Запускаем режим выбора целей (снарядов) с отдельным промптом
-          const projectileStore = useProjectileStore();
-
-          projectileStore.startTargeting(
-            spell.projectiles?.targetDistribution ?? null,
-            baseProjectileCount,
-            (tokenId) =>
-              !isSpellTargetBlockedByRange(spell, props.actor.id, tokenId),
-          );
-
-          openModal('ProjectilePromptModal', {
-            _modalKey: `${PROJECTILE_MODAL_KEY_PREFIX}-${projectileStore.sessionId}`,
-            targetingSessionId: projectileStore.sessionId,
-            spell,
-            casterLevel,
-            availableSpellLevels: availableLevels,
-            onConfirm: (selectedLevel: number) => {
-              proceedWithCastSpell(spell, selectedLevel);
-            },
-          });
-
-          return;
-        }
-
-        // Ветка 2: Обычные заклинания — сначала спрашиваем подтверждение через зелёный prompt
-        const promptStore = useActionPromptStore();
-        const promptId = `spell-cast-${spell.id}`;
-
-        promptStore.addPrompt({
-          id: promptId,
-          icon: 'tabler:wand',
-          title: `${ACTOR_SPELLS_TAB_LABELS.castConfirmPrefix}${spell.name}${ACTOR_SPELLS_TAB_LABELS.castConfirmSuffix}`,
-          color: 'neutral',
-          actions: [
-            {
-              icon: 'tabler:check',
-              color: 'primary',
-              onClick: () => {
-                promptStore.removePrompt(promptId);
-                proceedWithCastSpell(spell);
-              },
-            },
-            {
-              icon: 'tabler:x',
-              color: 'neutral',
-              variant: 'ghost',
-              onClick: () => {
-                promptStore.removePrompt(promptId);
-              },
-            },
-          ],
-        });
-      },
-    );
+    startSpellCast(sourceSpell, createSheetCasterPort());
   }
 
   /**
-   * Списывает один заряд заклинания с откатом (recovery !== 'atWill').
-   * Заклинания без зарядов и «по желанию» не изменяются.
+   * Списывает один заряд заклинания с откатом.
+   *
    * @param spell - заклинание
    */
   function consumeSpellUse(spell: Spell): void {
-    if (!spell.uses || spell.uses.recovery === 'atWill') {
-      return;
-    }
+    emit('update:actor', {
+      spells: withSpentSpellUse(props.actor.spells ?? [], spell.id),
+    });
 
-    const newSpells = (props.actor.spells ?? []).map((entry) =>
-      entry.id === spell.id && entry.uses
-        ? {
-            ...entry,
-            uses: {
-              ...entry.uses,
-              current: Math.max(0, entry.uses.current - 1),
-            },
-          }
-        : entry,
-    );
-
-    emit('update:actor', { spells: newSpells });
     triggerSaveIfNotEdit();
   }
 
@@ -1761,706 +1419,6 @@
     });
 
     triggerSaveIfNotEdit();
-  }
-
-  /**
-   * Продолжает подтверждённый каст: сначала проверка провала каста, затем цена
-   * сверх ячейки («потратьте две
-   * Кости Хитов, иначе заклинание провалится»), затем сам каст — уже с
-   * потраченным в формулах заклинания и его эффектов.
-   *
-   * @param sourceSpell - заклинание; цена ещё не оплачена
-   * @param lockedSpellLevel - круг, выбранный до окна
-   * @param effectTargets - цели эффекта, выбранные до окна
-   */
-  function proceedWithCastSpell(
-    sourceSpell: Spell,
-    lockedSpellLevel?: number,
-    effectTargets?: SpellEffectTargets,
-  ): void {
-    const castOptions = {
-      ...(lockedSpellLevel === undefined
-        ? {}
-        : { lockedLevel: lockedSpellLevel }),
-      availableLevels: getCastableSpellLevels(sourceSpell),
-      commit: commitPaidCaster,
-    };
-
-    runWithCastFailureAndPay(
-      sourceSpell,
-      props.actor,
-      castOptions,
-      (spell, castLevel) => {
-        proceedWithPaidCast(spell, castLevel, effectTargets);
-      },
-    );
-  }
-
-  /** Продолжает оплаченный каст с зафиксированными целями эффекта. */
-  function proceedWithPaidCast(
-    spell: Spell,
-    lockedSpellLevel?: number,
-    effectTargets?: SpellEffectTargets,
-  ): void {
-    // Списываем заряд заклинания с откатом (врождённые/расовые) единожды на каст
-    consumeSpellUse(spell);
-
-    // Если есть область действия — сначала размещаем шаблон на сцене
-    if (spell.areaOfEffect) {
-      const templateStore = useSpellTemplateStore();
-
-      const templateColor = getDamageTemplateColor(
-        getSpellPrimaryDamageType(spell),
-      );
-
-      templateStore.requestPlacement(
-        // Шаблон каста живёт до применения и снимается сам, поэтому размер ему
-        // задаёт запись, а не игрок: без явного `false` он оставался бы
-        // растягиваемым, и один и тот же конус вёл себя по-разному с листа и с
-        // горячей панели.
-        {
-          ...(resolveSpellAreaAtLevel(spell, lockedSpellLevel)
-            ?? spell.areaOfEffect),
-          resizable: spell.areaOfEffect.resizable ?? false,
-        },
-        templateColor,
-        props.actor.id,
-        (templateId) => continueSpellCast(spell, templateId, lockedSpellLevel),
-        getSpellMaxRangeOnScene(spell),
-      );
-
-      return;
-    }
-
-    continueSpellCast(spell, undefined, lockedSpellLevel, effectTargets);
-  }
-
-  /**
-   * Продолжает каст после размещения шаблона (или сразу, если AoE нет).
-   *
-   * @param sourceSpell - заклинание; тип урона на выбор в нём ещё не решён
-   * @param templateId - шаблон области на сцене
-   * @param lockedSpellLevel - круг, выбранный до окна
-   * @param effectTargets - цели эффекта, выбранные до окна
-   */
-  function continueSpellCast(
-    sourceSpell: Spell,
-    templateId?: string,
-    lockedSpellLevel?: number,
-    effectTargets?: SpellEffectTargets,
-  ): void {
-    // Тип урона на выбор спрашивает окно броска: в начале броска заклинание
-    // заменяется выбранным, и всё, что ложится после (урон, эффекты на цель,
-    // зона), идёт одним типом
-    let spell = sourceSpell;
-
-    const damageTypeChoice = requestDamageTypeChoiceFor(
-      sourceSpell,
-      sourceSpell,
-      (chosen) => {
-        spell = chosen;
-      },
-    );
-
-    beginSpellCast(props.actor.id, spell, generateId(SPELL_CAST_KEY_PREFIX));
-
-    // Заклинания с зарядами (врождённые/расовые) не тратят ячейки и не
-    // апкастятся: круг фиксирован, коллбэк списания ячейки не передаётся.
-    const isInnate = !!spell.uses;
-    const slotConsumer = isInnate ? undefined : createSpellSlotConsumer(spell);
-
-    let availableLevels = [0];
-
-    if (lockedSpellLevel !== undefined) {
-      availableLevels = [lockedSpellLevel];
-    } else if (isInnate) {
-      availableLevels = [spell.level];
-    } else if (spell.level > 0) {
-      availableLevels = getCastableSpellLevels(spell);
-    }
-
-    // Снарядный режим: число снарядов зависит от контекста каста
-    // (заговоры — от уровня персонажа, уровневые — от круга ячейки)
-    const casterLevel = getTotalLevel(props.actor.system?.classes);
-
-    const projectileCount = getSpellProjectileCount(spell, {
-      slotLevel: lockedSpellLevel ?? spell.level,
-      casterLevel,
-    });
-
-    const hasProjectiles =
-      projectileCount > 1 && !spell.areaOfEffect && templateId === undefined;
-
-    const projectileStore = useProjectileStore();
-
-    const isCurrentProjectileCast =
-      createProjectileCastValidator(hasProjectiles);
-
-    // Состояние HP выбранной цели для токенов @target.full/@target.notFull.
-    // Для AoE / без цели — undefined: части раскладываются на гейт-ветки
-    // (targetGate), и оркестратор выбирает ветку по HP каждой цели (per-target).
-    const targetEntity = spell.areaOfEffect
-      ? null
-      : targetStore.getTargetActor();
-
-    // `system` ядра — непрозрачная запись: хиты читаются полем за полем
-    const rawTargetHp = targetEntity?.system.hitPoints;
-    const targetHp = isRecord(rawTargetHp) ? rawTargetHp : undefined;
-
-    const targetIsFull =
-      typeof targetHp?.max === 'number'
-        ? (typeof targetHp.current === 'number' ? targetHp.current : 0)
-          >= targetHp.max
-        : undefined;
-
-    // Тип цели — для токенов @target.type.<тип>. Как и состояние хитов, читается
-    // только у одиночной цели: у области тип проверяется по каждой цели отдельно
-    const targetType =
-      targetEntity && isDndSceneEntity(targetEntity)
-        ? resolveEntityCreatureType(targetEntity)
-        : undefined;
-
-    // Масштабирование заговора: на пороге уровня тир целиком заменяет базовые
-    // части урона (см. cantripScalingTiers). Авто-умножение кубиков отключено.
-    const spellDamageParts =
-      spell.level === 0
-        ? (pickCantripTierParts(spell, casterLevel)
-          ?? getSpellDamageParts(spell))
-        : getSpellDamageParts(spell);
-
-    /** Плоский бонус эффектов к урону заклинаниями (`damage.spell`) */
-    const flatSpellDamageBonus = resolvedStats.value?.damageBonuses.spell ?? 0;
-
-    // Снарядам бонус в формулу не вливается — она катается на каждый снаряд;
-    // им он едет отдельной бонус-частью ниже (см. withFlatDamageBonusPart)
-    const formulaFlatBonus =
-      hasProjectiles || spellIsHealing(spell) ? 0 : flatSpellDamageBonus;
-
-    // Legacy одиночная формула (снаряды/одночастный путь): первая часть, с
-    // разрешёнными @-переменными (@dmg-токены снимаются внутри resolve).
-    const resolvedDamageFormula = withFlatFormulaBonus(
-      resolveSpellDamageFormula(
-        spell,
-        props.actor,
-        spellDamageParts[0]?.formula ?? '',
-        resolvedStats.value,
-        targetIsFull,
-        targetType,
-      ),
-      formulaFlatBonus,
-    );
-
-    // --- Многочастный путь (несколько частей / нестандартный таргетинг) ---
-    // Включая заклинания-атаки: модалка делает бросок попадания, затем части.
-    // Исключены только снаряды (своя логика распределения).
-
-    // Кость-формулы бонус-урона заклинаний (damage.spell) в Active Effects
-    // катаются отдельными частями — каст идёт многочастным путём даже для
-    // одночастного заклинания. Учитываются и ambient-эффекты аур на карте
-    // (напр. аура союзника, дающая бонус-урон заклинаниям).
-    const spellEffects = collectEffectsWithAuras(props.actor);
-
-    const hasBonusDamage = hasSpellBonusDamage(spellEffects);
-
-    // Вид каста — одним решением на все входы: окно, кнопка и путь применения
-    const castPlan = resolveSpellCastPlan({
-      spell,
-      damageParts: spellDamageParts,
-      hasProjectiles,
-      hasBonusDamage,
-      isInnate,
-      hasTemplate: templateId !== undefined,
-    });
-
-    // Есть ли у заклинания эффекты на цель (effectTarget 'target') — нужно для
-    // резолва заклинаний без урона, чья задача — повесить эффект на цель.
-    const hasSpellTargetEffects = castPlan.hasTargetEffects;
-
-    const useMultiPart = castPlan.flow === 'multiPart';
-
-    // Плоский бонус эффектов к урону заклинаниями (`damage.spell`) вливается в
-    // первую урон-часть — так же, как статический бонус оружия
-    const resolvedParts: SpellDamagePartInput[] = useMultiPart
-      ? withFlatDamageBonus(
-          resolveDamagePartsForCast(
-            spell,
-            props.actor,
-            spellDamageParts,
-            resolvedStats.value,
-            targetIsFull,
-            targetType,
-          ),
-          flatSpellDamageBonus,
-        )
-      : [];
-
-    // Roll-time сборщик бонус-частей: условия (преимущество/помеха, HP цели)
-    // оцениваются в момент броска по фактическому режиму из модалки.
-    // Снаряды остаются на одноформульном пути, но бонус-части получают:
-    // они катаются один раз на каст и применяются каждой задетой цели
-    // (per-target гейты, см. resolveSpellDamage).
-    const evaluateSpellBonusParts =
-      useMultiPart || (hasProjectiles && hasBonusDamage)
-        ? buildSpellBonusEvaluator({
-            spell,
-            actor: props.actor,
-            effects: spellEffects,
-            resolvedStats: resolvedStats.value,
-            multiTarget: castPlan.multiTarget,
-          })
-        : undefined;
-
-    let isApplied = false;
-
-    const handleUnload = () => {
-      if (!isApplied && templateId) {
-        const templateStore = useSpellTemplateStore();
-
-        templateStore.deleteTemplate(templateId);
-      }
-
-      if (!isApplied && hasProjectiles && isCurrentProjectileCast()) {
-        projectileStore.stopTargeting();
-      }
-    };
-
-    window.addEventListener('beforeunload', handleUnload);
-
-    const handleModalClose = (isOpen: boolean) => {
-      if (!isOpen) {
-        window.removeEventListener('beforeunload', handleUnload);
-
-        handleUnload();
-      }
-    };
-
-    /**
-     * Попадание атаки заклинанием-эффектом: эффекты на цель ложатся после
-     * доведения каста — окно сообщает о попадании раньше, чем зовёт `onRoll`.
-     */
-    let attackLanded = false;
-
-    /**
-     * Общий обработчик подтверждения броска: доводит каст (конец прежней
-     * концентрации, эффекты на заклинателе, зона) и разбирает цели, когда
-     * сервер снял эффекты прежнего каста.
-     */
-    function handleRollConfirm(
-      rolledTotal: number,
-      chosenDamageType?: string,
-    ): void {
-      // Окно без частей урона катит проверку, а не урон: её итог в разбор не идёт
-      const damageTotal = resolvePlannedDamageTotal(castPlan, rolledTotal);
-
-      isApplied = true;
-      window.removeEventListener('beforeunload', handleUnload);
-
-      let cachedTemplate = null;
-
-      if (templateId) {
-        const templateStore = useSpellTemplateStore();
-
-        cachedTemplate = templateStore.getPlacedTemplate(templateId);
-        // Очищаем кэш (данные уже сохранены в cachedTemplate)
-        templateStore.removePlacedTemplate(templateId);
-      }
-
-      // Конец прежней концентрации, самобафф (эффекты с effectTarget 'self',
-      // напр. Щит; без таких эффектов — ничего) и зона на месте шаблона — до
-      // разбора целей: окно спасброска не должно видеть эффект прежнего каста
-      afterSpellCast(finishSpellCast(spell, cachedTemplate), () => {
-        // Автоматическая обработка целей (спасброски, авто-попадание). Эффекты
-        // на цель без урона тоже требуют резолва: у save-заклинаний нужно
-        // кинуть спасбросок и наложить эффект при провале — поэтому пускаем
-        // резолв и при наличии target-эффектов, даже когда урона нет.
-        if (
-          castPlan.needsTargetResolution
-          && (damageTotal > 0 || hasSpellTargetEffects)
-        ) {
-          // Цели читаются после ожидания: эффекты прежнего каста уже сняты
-          const actors = getCurrentWorldEntities();
-          const socket = getWorldSocket();
-
-          if (actors.length > 0 && socket) {
-            // Бонус-части для снарядов собираются здесь (в момент
-            // подтверждения броска): снаряды autoHit — броска атаки нет,
-            // поэтому преимущество/помеха не определены (false); HP-условия
-            // отложены в per-target гейты. Плоский бонус заклинаниям едет
-            // здесь же отдельной частью: она катается один раз на каст, а не
-            // на каждый снаряд
-            const projectileBonusParts = hasProjectiles
-              ? withFlatDamageBonusPart(
-                  evaluateSpellBonusParts?.({
-                    hasAdvantage: false,
-                    hasDisadvantage: false,
-                  }) ?? [],
-                  spellIsHealing(spell) ? 0 : flatSpellDamageBonus,
-                )
-              : undefined;
-
-            resolveSpellDamage(
-              {
-                spell,
-                damageTotal,
-                spellSaveDC: resolveSpellSaveDC(
-                  props.actor,
-                  spell,
-                  resolvedStats.value,
-                ),
-                actors,
-                socket,
-                overrideDamageType: chosenDamageType,
-                casterId: props.actor.id,
-              },
-              {
-                hasProjectiles,
-                resolvedDamageFormula,
-                scene: worldStore.currentScene,
-                cachedTemplate,
-                bonusDamageParts: projectileBonusParts,
-              },
-            );
-          }
-        }
-
-        // Эффекты на цель (effectTarget 'target') без броска атаки и без
-        // спасброска — автоприменение (напр. бафф союзника касанием); у
-        // атакующих — по попаданию; save-заклинания вешают их внутри
-        // resolveSpellDamage выше.
-        if (
-          hasSpellTargetEffects
-          && !castPlan.needsSave
-          && (!castPlan.attackType || attackLanded)
-        ) {
-          applySpellTargetEffects(
-            spell,
-            spellTargetEffectsSource(spell),
-            castPlan.attackType ? undefined : effectTargets,
-          );
-        }
-      });
-
-      // Удаляем визуальный шаблон с карты (всегда, вне зависимости от результата)
-      if (templateId) {
-        const templateStore = useSpellTemplateStore();
-
-        templateStore.deleteTemplate(templateId);
-      }
-    }
-
-    /**
-     * Обработчик многочастного броска: доводит каст и применяет части через
-     * оркестратор.
-     */
-    function handleRollPartsConfirm(parts: RolledSpellDamagePart[]): void {
-      isApplied = true;
-      window.removeEventListener('beforeunload', handleUnload);
-
-      let cachedTemplate = null;
-
-      if (templateId) {
-        const templateStore = useSpellTemplateStore();
-
-        cachedTemplate = templateStore.getPlacedTemplate(templateId);
-        templateStore.removePlacedTemplate(templateId);
-      }
-
-      // Многочастный бросок тоже доводит каст: эффекты на заклинателе здесь
-      // раньше не накладывались вовсе (окно зовёт только onRollParts)
-      afterSpellCast(finishSpellCast(spell, cachedTemplate), () => {
-        const actors = getCurrentWorldEntities();
-        const socket = getWorldSocket();
-
-        if (actors.length === 0 || !socket) {
-          return;
-        }
-
-        void resolveSpellDamageWithParts(
-          {
-            spell,
-            damageTotal: 0,
-            spellSaveDC: resolveSpellSaveDC(
-              props.actor,
-              spell,
-              resolvedStats.value,
-            ),
-            actors,
-            socket,
-            casterId: props.actor.id,
-          },
-          parts,
-          { scene: worldStore.currentScene, cachedTemplate },
-        );
-      });
-
-      if (templateId) {
-        const templateStore = useSpellTemplateStore();
-
-        templateStore.deleteTemplate(templateId);
-      }
-    }
-
-    /**
-     * Обработчик серии атак снарядов (Мистический заряд, Палящий луч):
-     * модалка отдаёт контекст броска, по броску попадания на каждый снаряд
-     * выполняет resolveSpellDamage. Бонус-части эффектов собираются с
-     * фактическим режимом преимущества/помехи и катаются на каждое попадание.
-     */
-    function handleProjectileAttackRoll(
-      rollContext: Omit<ProjectileAttackContext, 'attackType'>,
-    ): void {
-      const projectileAttackType = castPlan.attackType;
-
-      if (!projectileAttackType) {
-        return;
-      }
-
-      isApplied = true;
-      window.removeEventListener('beforeunload', handleUnload);
-
-      // Серия атак (Мистический заряд, Палящий луч): каждый луч — СВОЙ бросок
-      // атаки и свой бросок урона, поэтому плоский бонус получает каждый из
-      // них. Правило «один раз к броску» тут и соблюдается: бросков несколько.
-      // Отличие от автопопаданий (Волшебная стрела) — там бросок урона один на
-      // каст, и бонус там начисляется однократно.
-      const projectileBonusParts = withFlatDamageBonusPart(
-        evaluateSpellBonusParts?.({
-          hasAdvantage: rollContext.rollMode === 'advantage',
-          hasDisadvantage: rollContext.rollMode === 'disadvantage',
-        }) ?? [],
-        spellIsHealing(spell) ? 0 : flatSpellDamageBonus,
-      );
-
-      // Серия снарядов тоже доводит каст: окно зовёт только этот обработчик,
-      // и прежняя концентрация с эффектами на заклинателе оставались без него
-      afterSpellCast(finishSpellCast(spell), () => {
-        const actors = getCurrentWorldEntities();
-        const socket = getWorldSocket();
-
-        if (actors.length === 0 || !socket) {
-          return;
-        }
-
-        resolveSpellDamage(
-          {
-            spell,
-            damageTotal: 0,
-            spellSaveDC: resolveSpellSaveDC(
-              props.actor,
-              spell,
-              resolvedStats.value,
-            ),
-            actors,
-            socket,
-            casterId: props.actor.id,
-          },
-          {
-            hasProjectiles: true,
-            resolvedDamageFormula,
-            scene: worldStore.currentScene,
-            projectileAttack: {
-              attackModifier: rollContext.attackModifier,
-              rollMode: rollContext.rollMode,
-              bonusDiceFormulasByTarget: rollContext.bonusDiceFormulasByTarget,
-              attackType: projectileAttackType,
-            },
-            bonusDamageParts: projectileBonusParts,
-          },
-        );
-      });
-    }
-
-    /** Нужно ли пропустить автоприменение урона в модалке */
-    const shouldSkipAutoApply = castPlan.needsTargetResolution;
-
-    // Без урона и без РЕАЛЬНОГО броска атаки — окна броска нет (план каста):
-    // уровневому заклинанию — окно выбора круга, заговору и врождённому —
-    // применение сразу
-    if (castPlan.window !== 'roll') {
-      // Уровневому нужно списать ячейку (врождённые — заряд уже списан в
-      // proceedWithCastSpell, ячейка не тратится)
-      if (castPlan.window === 'confirm') {
-        openModal('DiceRollModal', {
-          '_modalKey': generateId(SPELL_CAST_MODAL_KEY_PREFIX),
-          'title': `${ACTOR_SPELLS_TAB_LABELS.rollTitlePrefix}${spell.name}`,
-          'rollLabel': spell.name,
-          'rollButtonText': SPELL_MENU_LABELS.cast,
-          'skipRoll': true,
-          'beforeRoll': effectTargets?.validate ?? isCurrentProjectileCast,
-          damageTypeChoice,
-          'spellLevel': lockedSpellLevel ?? spell.level,
-          'availableSpellLevels': availableLevels,
-          'spellLevelLocked': lockedSpellLevel !== undefined,
-          'pactSlotLevel': pactSlotInfo.value.level,
-          'onSpellSlotConsume': slotConsumer,
-          'onRoll': handleRollConfirm,
-          'onUpdate:open': handleModalClose,
-        });
-      } else {
-        // Заговоры/врождённые без выбора ячейки (модалка не открывается):
-        // эффекты применяем сразу при касте — на себя и/или на выбранную цель.
-        // Окна нет — тип урона на выбор эффектов спрашивает плашка
-        window.removeEventListener('beforeunload', handleUnload);
-
-        runWithDamageTypeChoices(spell, (chosen) => {
-          // Шаблон «Тьмы» тифлинга раньше оставался на карте: каст применился
-          // сразу, а снимать его было некому
-          const templateStore = useSpellTemplateStore();
-
-          const placedTemplate = templateId
-            ? templateStore.getPlacedTemplate(templateId)
-            : undefined;
-
-          afterSpellCast(finishSpellCast(chosen, placedTemplate), () => {
-            settleNoRollSpellTargets(chosen, spellTargetEffectsSource(chosen), {
-              effectTargets,
-              template: placedTemplate,
-            });
-          });
-
-          if (templateId) {
-            templateStore.removePlacedTemplate(templateId);
-            templateStore.deleteTemplate(templateId);
-          }
-        });
-      }
-
-      return;
-    }
-
-    // Атака / урон / лечение. Тип атаки — общий хелпер getSpellAttackType
-    // (melee/ranged без autoHit); будет ли реально бросок попадания, решает
-    // DiceRollModal по наличию выбранной цели в момент броска.
-    const incomingAttackType = castPlan.attackType;
-
-    const baseMod = incomingAttackType
-      ? calculateSpellAttackModifier(props.actor, spell, resolvedStats.value)
-      : 0;
-
-    const rollButtonText =
-      SPELL_ROLL_BUTTON_LABELS[castPlan.rollKind ?? 'damage'];
-
-    const evaluateAttackBonusRollFormulas = incomingAttackType
-      ? buildRollBonusEvaluator(() => props.actor, 'attack.spell')
-      : undefined;
-
-    const spellAttackRoll = incomingAttackType
-      ? resolveTargetedAttackRoll(props.actor, 'spell')
-      : undefined;
-
-    openModal('DiceRollModal', {
-      '_modalKey': generateId(SPELL_CAST_MODAL_KEY_PREFIX),
-      'title': `${ACTOR_SPELLS_TAB_LABELS.rollTitlePrefix}${spell.name}`,
-      'rollLabel': spell.name,
-      rollButtonText,
-      'formula': resolvedDamageFormula,
-      'attackModifier': incomingAttackType ? baseMod : undefined,
-      'initialRollMode': spellAttackRoll?.mode ?? 'normal',
-      'rollModeReasons': spellAttackRoll?.reasons,
-      'attackerId': props.actor.id,
-      'evaluateBonusRollFormulas': hasProjectiles
-        ? undefined
-        : evaluateAttackBonusRollFormulas,
-      'evaluateProjectileBonusRollFormulas':
-        hasProjectiles && evaluateAttackBonusRollFormulas
-          ? (context: RollContext) =>
-              collectProjectileRollBonuses(
-                context,
-                evaluateAttackBonusRollFormulas,
-              )
-          : undefined,
-      incomingAttackType,
-      'isHealing': spellIsHealing(spell),
-      'damageType': getSpellPrimaryDamageType(spell),
-      'skipDamageApplication': shouldSkipAutoApply,
-      'skipChatMessage': hasProjectiles,
-
-      // Атакующие снаряды: модалка отдаёт контекст, серию бросков выполняет
-      // resolveSpellDamage (бросок попадания на каждый снаряд)
-      'onProjectileAttack':
-        hasProjectiles && incomingAttackType
-          ? handleProjectileAttackRoll
-          : undefined,
-
-      // Тип урона на выбор: поле окна, итог — в заклинание до урона
-      damageTypeChoice,
-
-      // Атакующее заклинание-эффект (без многочастного пути): эффекты на цель
-      // вешаем по ПОПАДАНИЮ — попадание запоминается, а эффекты ложатся в
-      // handleRollConfirm после доведения каста. Многочастные уронные
-      // заклинания накладывают их сами в resolveSpellDamageWithParts.
-      'onHit':
-        incomingAttackType && hasSpellTargetEffects && !useMultiPart
-          ? () => {
-              attackLanded = true;
-            }
-          : undefined,
-
-      // Многочастный путь (если активен) — модалка катает части и зовёт onRollParts
-      'damageParts': useMultiPart ? resolvedParts : undefined,
-      'onRollParts': useMultiPart ? handleRollPartsConfirm : undefined,
-      // Снарядам бонус-части катает resolveSpellDamage, а не модалка
-      'evaluateBonusDamageParts': useMultiPart
-        ? evaluateSpellBonusParts
-        : undefined,
-
-      // Секция круга заклинания
-      'spellLevel':
-        lockedSpellLevel ?? (spell.level > 0 ? spell.level : undefined),
-      'availableSpellLevels': availableLevels,
-      'spellLevelLocked': lockedSpellLevel !== undefined,
-      'spellScalingDice': spell.scaling?.additionalDice,
-      'pactSlotLevel': hasPactSlots.value ? pactSlotInfo.value.level : 0,
-      'onSpellSlotConsume': slotConsumer,
-      'onRoll': handleRollConfirm,
-      'beforeRoll': isCurrentProjectileCast,
-      'onUpdate:open': handleModalClose,
-    });
-  }
-
-  /**
-   * Коллбэк списания ячейки для каста заклинания. Выбранный круг запоминается
-   * как круг каста: эффекты ложатся позже, а по кругу «Рассеивание магии»
-   * решает, снимается ли каст.
-   *
-   * @param spell - заклинание каста
-   * @returns коллбэк окна броска
-   */
-  function createSpellSlotConsumer(
-    spell: Spell,
-  ): (castLevel: number, consumeSlot: boolean, isPactSlot: boolean) => void {
-    return (castLevel, consumeSlot, isPactSlot) => {
-      setSpellCastLevel(props.actor.id, spell, castLevel);
-      handleSpellSlotConsume(castLevel, consumeSlot, isPactSlot);
-    };
-  }
-
-  /**
-   * Списание ячейки заклинания.
-   * Вызывается из DiceRollModal при подтверждении броска.
-   *
-   * @param castLevel - выбранный круг
-   * @param consumeSlot - тратить ли ячейку
-   * @param isPactSlot - использовать Pact-ячейку
-   */
-  function handleSpellSlotConsume(
-    castLevel: number,
-    consumeSlot: boolean,
-    isPactSlot: boolean,
-  ): void {
-    if (!consumeSlot || castLevel <= 0) {
-      return;
-    }
-
-    if (isPactSlot) {
-      updatePactUsedSlots((props.actor.system?.pactSlotsUsed ?? 0) + 1);
-    } else {
-      const index = castLevel - 1;
-      const newUsed = [...usedSlots.value];
-
-      newUsed[index] = (newUsed[index] ?? 0) + 1;
-      updateUsedSlots(newUsed);
-    }
   }
 </script>
 

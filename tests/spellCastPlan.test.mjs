@@ -25,6 +25,7 @@ const engine = await loadEngineBundle(`
 const SHEET_PATH = 'src/client/ui/actor/tabs/ActorSpellsTab.vue';
 const MACRO_PATH = 'src/client/macros/dnd5eMacros.ts';
 const CREATURE_PATH = 'src/client/ui/creature/CreatureSpellsBlock.vue';
+const FLOW_PATH = 'src/client/composables/spellCastFlow.ts';
 
 /** Эффект «на цель» без своего спасброска и урона */
 const TARGET_EFFECT = {
@@ -316,11 +317,16 @@ function readSource(relativePath) {
   return readFile(join(systemRoot, relativePath), 'utf8');
 }
 
-for (const relativePath of [SHEET_PATH, MACRO_PATH]) {
-  it(`${relativePath}: окно каста решает план, своего условия окна нет`, async () => {
-    const source = await readSource(relativePath);
+it('окно каста решает план — в общем разборе каста, своего условия окна нет нигде', async () => {
+  const flow = await readSource(FLOW_PATH);
 
-    assert.match(source, /resolveSpellCastPlan\(/u);
+  assert.match(flow, /resolveSpellCastPlan\(/u);
+
+  // «Бросить урон» собирается только из плана
+  assert.match(flow, /SPELL_ROLL_BUTTON_LABELS\[plan\.rollKind/u);
+
+  for (const relativePath of [SHEET_PATH, MACRO_PATH, FLOW_PATH]) {
+    const source = await readSource(relativePath);
 
     // Прежние собственные условия окна
     assert.doesNotMatch(source, /spellHasDamage\(spell\)\s*\|\|/u);
@@ -333,12 +339,17 @@ for (const relativePath of [SHEET_PATH, MACRO_PATH]) {
 
     assert.doesNotMatch(source, /needsAutoResolution\(/u);
     assert.doesNotMatch(source, /castNeedsMultiPart\(/u);
-
-    // «Бросить урон» собирается только из плана
     assert.doesNotMatch(source, /'Бросить урон'/u);
-    assert.doesNotMatch(source, /rollButtonText = SPELL_DAMAGE_ROLL_BUTTON/u);
-  });
-}
+  }
+
+  // Лист и горячая панель своего окна каста не собирают — зовут общий разбор
+  for (const relativePath of [SHEET_PATH, MACRO_PATH]) {
+    const source = await readSource(relativePath);
+
+    assert.match(source, /startSpellCast\(/u);
+    assert.doesNotMatch(source, /resolveSpellCastPlan\(/u);
+  }
+});
 
 it('условие «без окна» существа совпадает с планом каста', async () => {
   const source = await readSource(CREATURE_PATH);
@@ -380,94 +391,53 @@ it('условие «без окна» существа совпадает с п
 });
 
 /**
- * Порты общего обработчика подтверждения окна: мир с одной сущностью и запись
- * вызова разбора.
+ * Каст с открытым окном и журнал вызовов разбора целей.
  *
- * @param {object} castPlan - план каста
- * @returns {{ ports: object, calls: object[] }} порты и вызовы разбора
+ * @param {object} plan - план каста
+ * @returns {{ session: object, calls: number[], ports: object }} каст, журнал и порты
  */
-function createRollPorts(castPlan) {
+function createRollSession(plan) {
   const calls = [];
-  const entity = { id: 'caster', name: 'Заклинатель' };
-
-  const worldStore = {
-    currentScene: { id: 'scene' },
-    connectionState: { currentWorldId: 'world' },
-    worlds: [{ id: 'world', actors: [entity], creatures: [] }],
-  };
 
   return {
     calls,
+    session: {
+      port: { casterId: 'caster' },
+      plan,
+      state: { spell: HOLD_PERSON, attackLanded: false, applied: false },
+    },
     ports: {
-      castPlan,
-      spell: HOLD_PERSON,
-      actor: entity,
-      props: { actor: entity },
-      hasProjectiles: false,
-      hasSpellTargetEffects: true,
-      isApplied: false,
-      templateId: undefined,
-      cachedTemplate: undefined,
-      effectTargets: undefined,
-      window: { removeEventListener() {} },
-      handleUnload() {},
-      worldStore,
-      useChatStore: () => ({ getSocket: () => ({}) }),
-      getCurrentWorldEntities: () => [entity],
-      getWorldSocket: () => ({}),
-      resolveSpellSaveDC: () => 13,
-      resolvedStats: { value: {} },
-      spellSaveDc: 13,
-      resolvedDamageFormula: '',
-      evaluateSpellBonusParts: undefined,
-      withFlatDamageBonusPart: (parts) => parts,
-      spellIsHealing: () => false,
-      flatSpellDamageBonus: 0,
+      markSpellCastApplied: (session) => {
+        session.state.applied = true;
+      },
       resolvePlannedDamageTotal: engine.resolvePlannedDamageTotal,
-      finishCast: () => Promise.resolve(),
+      claimCastTemplate: () => null,
       finishSpellCast: () => Promise.resolve(),
       afterSpellCast: (_completion, proceed) => proceed(),
-      useWorldEntities: () => ({ getCurrentWorldEntities: () => [entity] }),
-      attackLanded: false,
       applySpellTargetEffects() {},
-      spellTargetEffectsSource: () => ({ casterId: 'caster', spellSaveDC: 13 }),
-      resolveSpellDamage: (context) => {
-        calls.push(context.damageTotal);
-      },
+      targetEffectsSourceOf: () => ({ casterId: 'caster', spellSaveDC: 13 }),
+      resolveSpellTargets: (_session, damageTotal) => calls.push(damageTotal),
     },
   };
 }
 
-for (const [relativePath, name] of [
-  [MACRO_PATH, 'handleSpellRoll'],
-  [SHEET_PATH, 'handleRollConfirm'],
-]) {
-  it(`${name}: итог окна без частей урона уходит в разбор нулём`, async () => {
-    const withoutDamage = createRollPorts({
-      hasDamage: false,
+it('подтверждение окна: итог без частей урона уходит в разбор нулём', async () => {
+  for (const [hasDamage, expected] of [
+    [false, 0],
+    [true, 17],
+  ]) {
+    const { session, calls, ports } = createRollSession({
+      hasDamage,
       needsTargetResolution: true,
       needsSave: true,
+      hasTargetEffects: true,
     });
 
-    const handler = await loadHandler(relativePath, name, withoutDamage.ports);
+    const settle = await loadHandler(FLOW_PATH, 'settleSpellRoll', ports);
 
     // Окно без формулы катило бы d20: 17 — итог проверки, а не урон
-    handler(17);
-    assert.deepEqual(withoutDamage.calls, [0]);
-
-    const withDamage = createRollPorts({
-      hasDamage: true,
-      needsTargetResolution: true,
-      needsSave: true,
-    });
-
-    const damageHandler = await loadHandler(
-      relativePath,
-      name,
-      withDamage.ports,
-    );
-
-    damageHandler(17);
-    assert.deepEqual(withDamage.calls, [17]);
-  });
-}
+    settle(session, 17);
+    assert.deepEqual(calls, [expected]);
+    assert.equal(session.state.applied, true);
+  }
+});
