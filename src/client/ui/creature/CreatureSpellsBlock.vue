@@ -91,6 +91,7 @@
   import { runWithEffectVariants } from '../../composables/effectVariantChoice';
   import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import {
+    afterSpellCast,
     completeSpellCast,
     SPELL_CAST_KEY_PREFIX,
   } from '../../composables/spellCastCompletion';
@@ -1801,9 +1802,6 @@
     casterSource: SpellCasterSource,
     castKey: string,
   ): void {
-    const actors = getCurrentWorldEntities();
-    const socket = chatStore.getSocket();
-
     let cachedTemplate: MeasurementTemplate | null = null;
 
     if (templateId) {
@@ -1811,33 +1809,45 @@
       spellTemplateStore.removePlacedTemplate(templateId);
     }
 
-    // Цели нечего получить — ни урона, ни эффекта («Щит» только на себя):
-    // оркестратор писал бы в чат «цель не выбрана» к касту, который удался
-    const reachesTargets = castReachesTargets(pseudoSpell, parts.length);
+    // Конец прежней концентрации, эффекты на самом существе, зона на месте
+    // шаблона — затем цели, когда эффекты прежнего каста сняты
+    afterSpellCast(
+      completeSpellCast({
+        spell: pseudoSpell,
+        caster: getCreatureEntity() ?? creature,
+        source: casterSource,
+        template: cachedTemplate,
+        castKey,
+      }),
+      () => {
+        const actors = getCurrentWorldEntities();
+        const socket = chatStore.getSocket();
 
-    if (actors.length > 0 && socket && reachesTargets) {
-      void resolveSpellDamageWithParts(
-        {
-          spell: pseudoSpell,
-          damageTotal: 0,
-          spellSaveDC: casterSource.saveDc,
-          actors,
-          socket,
-          casterId: creature.id,
-        },
-        parts,
-        { scene: worldStore.currentScene, cachedTemplate },
-      );
-    }
+        // Цели нечего получить — ни урона, ни эффекта («Щит» только на
+        // себя): оркестратор писал бы в чат «цель не выбрана» к касту,
+        // который удался
+        if (
+          actors.length === 0
+          || !socket
+          || !castReachesTargets(pseudoSpell, parts.length)
+        ) {
+          return;
+        }
 
-    // Эффекты на самом существе, зона на месте шаблона, конец концентрации
-    completeSpellCast({
-      spell: pseudoSpell,
-      caster: getCreatureEntity() ?? creature,
-      source: casterSource,
-      template: cachedTemplate,
-      castKey,
-    });
+        void resolveSpellDamageWithParts(
+          {
+            spell: pseudoSpell,
+            damageTotal: 0,
+            spellSaveDC: casterSource.saveDc,
+            actors,
+            socket,
+            casterId: creature.id,
+          },
+          parts,
+          { scene: worldStore.currentScene, cachedTemplate },
+        );
+      },
+    );
 
     if (templateId) {
       spellTemplateStore.deleteTemplate(templateId);

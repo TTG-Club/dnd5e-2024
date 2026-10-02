@@ -80,7 +80,6 @@ import {
   getTotalLevel,
   getWeaponPrimaryDamageType,
   hasCreatureSpellUsesLeft,
-  hasLandingTrigger,
   hasTargetToken,
   isCreatureAttackAction,
   isCreatureSpellPoolMode,
@@ -89,7 +88,6 @@ import {
   isUseActivatedEffect,
   limitEntityCastLevels,
   MAX_SPELL_SLOT_LEVEL,
-  mergeAppliedEffects,
   pickCantripTierParts,
   resolveActorStats,
   resolveCreatureSectionCost,
@@ -114,6 +112,7 @@ import {
   targetHpGateMatches,
   withFlatDamageBonus,
   withFlatFormulaBonus,
+  withSpentSpellSlot,
 } from '@vtt/shared/system/dnd.js';
 
 import {
@@ -163,8 +162,8 @@ import {
   collectProjectileRollBonuses,
 } from '../composables/rollBonusEvaluator';
 import {
+  afterSpellCast,
   completeSpellCast,
-  landCasterEventEffects,
   SPELL_CAST_KEY_PREFIX,
 } from '../composables/spellCastCompletion';
 import { beginSpellCast, setSpellCastLevel } from '../composables/spellCasts';
@@ -178,7 +177,6 @@ import {
 import {
   castReachesTargets,
   discardSpellTemplate,
-  postSpellEffectsMessage,
 } from '../composables/spellResolutionShared';
 import {
   useBonusDamageParts,
@@ -1341,8 +1339,10 @@ function openDiceRollForSpell(
     /**
      * Доводит каст: конец прежней концентрации, эффекты на заклинателе, зона на
      * месте шаблона. Ключ отсекает повторное применение того же каста.
+     *
+     * @returns выполняется, когда эффекты прежнего каста сняты
      */
-    const finishCast = (): void => {
+    const finishCast = (): Promise<void> =>
       completeSpellCast({
         spell,
         caster: useWorldEntities().findCurrentDndEntity(actor.id) ?? actor,
@@ -1350,7 +1350,12 @@ function openDiceRollForSpell(
         template: cachedTemplate,
         castKey,
       });
-    };
+
+    /**
+     * Попадание атаки заклинанием-эффектом: эффекты на цель ложатся после
+     * доведения каста — окно сообщает о попадании раньше, чем зовёт `onRoll`.
+     */
+    let attackLanded = false;
 
     // Выбранная цель (если есть) — для @target-токенов. Кидать ли бросок
     // атаки, решает DiceRollModal по наличию цели в момент броска: без цели
@@ -1450,41 +1455,32 @@ function openDiceRollForSpell(
           })
         : undefined;
 
-    /** Обработчик многочастного броска: применяет части через оркестратор. */
+    /**
+     * Обработчик многочастного броска: доводит каст и применяет части через
+     * оркестратор, когда эффекты прежнего каста сняты.
+     */
     function handleSpellRollParts(parts: RolledSpellDamagePart[]): void {
-      finishCast();
+      afterSpellCast(finishCast(), () => {
+        const socket = useChatStore().getSocket();
+        const actors = useWorldEntities().getCurrentWorldEntities();
 
-      const scene = worldStore.currentScene;
-      const chatStore = useChatStore();
-      const socket = chatStore.getSocket();
-      const worldId = worldStore.connectionState.currentWorldId;
+        if (!socket || actors.length === 0) {
+          return;
+        }
 
-      if (!worldId || !socket) {
-        return;
-      }
-
-      const world = worldStore.worlds.find(
-        (worldEntry) => worldEntry.id === worldId,
-      );
-
-      const actors = [...(world?.actors ?? []), ...(world?.creatures ?? [])];
-
-      if (actors.length === 0) {
-        return;
-      }
-
-      void resolveSpellDamageWithParts(
-        {
-          spell,
-          damageTotal: 0,
-          spellSaveDC: spellSaveDc,
-          actors,
-          socket,
-          casterId: actor.id,
-        },
-        parts,
-        { scene, cachedTemplate },
-      );
+        void resolveSpellDamageWithParts(
+          {
+            spell,
+            damageTotal: 0,
+            spellSaveDC: spellSaveDc,
+            actors,
+            socket,
+            casterId: actor.id,
+          },
+          parts,
+          { scene: worldStore.currentScene, cachedTemplate },
+        );
+      });
     }
 
     const incomingAttackType = castPlan.attackType;
@@ -1519,7 +1515,8 @@ function openDiceRollForSpell(
       createProjectileCastValidator(hasProjectiles);
 
     /**
-     * Обработчик подтверждения броска — применяет урон к целям.
+     * Обработчик подтверждения броска: доводит каст и разбирает цели, когда
+     * эффекты прежнего каста сняты.
      */
     function handleSpellRoll(
       rolledTotal: number,
@@ -1528,68 +1525,66 @@ function openDiceRollForSpell(
       // Окно без частей урона катит проверку, а не урон: её итог в разбор не идёт
       const damageTotal = resolvePlannedDamageTotal(castPlan, rolledTotal);
 
-      finishCast();
+      afterSpellCast(finishCast(), () => {
+        // Эффекты на цель по попаданию атаки — после доведения каста
+        if (attackLanded) {
+          applySpellTargetEffects(spell, {
+            casterId: actor.id,
+            spellSaveDC: spellSaveDc,
+          });
+        }
 
-      // Эффекты на цель без урона тоже требуют резолва (спасбросок у
-      // save-заклинаний), поэтому пускаем резолв и при наличии target-эффектов.
-      if (
-        !castPlan.needsTargetResolution
-        || (damageTotal <= 0 && !hasSpellTargetEffects)
-      ) {
-        return;
-      }
+        // Эффекты на цель без урона тоже требуют резолва (спасбросок у
+        // save-заклинаний), поэтому пускаем резолв и при наличии target-эффектов.
+        if (
+          !castPlan.needsTargetResolution
+          || (damageTotal <= 0 && !hasSpellTargetEffects)
+        ) {
+          return;
+        }
 
-      const scene = worldStore.currentScene;
-      const chatStore = useChatStore();
-      const socket = chatStore.getSocket();
+        const socket = useChatStore().getSocket();
 
-      const worldId = worldStore.connectionState.currentWorldId;
+        // Цели читаются после ожидания: эффекты прежнего каста уже сняты
+        const actors = useWorldEntities().getCurrentWorldEntities();
 
-      if (!worldId) {
-        return;
-      }
+        if (actors.length === 0 || !socket) {
+          return;
+        }
 
-      const world = worldStore.worlds.find(
-        (worldEntry) => worldEntry.id === worldId,
-      );
+        // Бонус-части для снарядов собираются здесь (в момент подтверждения
+        // броска): снаряды autoHit — броска атаки нет, поэтому преимущество/
+        // помеха не определены (false); HP-условия отложены в per-target гейты.
+        // Плоский бонус заклинаниям едет здесь же отдельной частью: она
+        // катается один раз на каст, а не на каждый снаряд
+        const projectileBonusParts = hasProjectiles
+          ? withFlatDamageBonusPart(
+              evaluateSpellBonusParts?.({
+                hasAdvantage: false,
+                hasDisadvantage: false,
+              }) ?? [],
+              spellIsHealing(spell) ? 0 : flatSpellDamageBonus,
+            )
+          : undefined;
 
-      const actors = [...(world?.actors ?? []), ...(world?.creatures ?? [])];
-
-      if (actors.length === 0 || !socket) {
-        return;
-      }
-
-      const context = {
-        spell,
-        damageTotal,
-        spellSaveDC: spellSaveDc,
-        actors,
-        socket,
-        casterId: actor.id,
-        overrideDamageType: chosenDamageType,
-      };
-
-      // Бонус-части для снарядов собираются здесь (в момент подтверждения
-      // броска): снаряды autoHit — броска атаки нет, поэтому преимущество/
-      // помеха не определены (false); HP-условия отложены в per-target гейты.
-      // Плоский бонус заклинаниям едет здесь же отдельной частью: она катается
-      // один раз на каст, а не на каждый снаряд
-      const projectileBonusParts = hasProjectiles
-        ? withFlatDamageBonusPart(
-            evaluateSpellBonusParts?.({
-              hasAdvantage: false,
-              hasDisadvantage: false,
-            }) ?? [],
-            spellIsHealing(spell) ? 0 : flatSpellDamageBonus,
-          )
-        : undefined;
-
-      resolveSpellDamage(context, {
-        hasProjectiles,
-        resolvedDamageFormula,
-        scene,
-        cachedTemplate,
-        bonusDamageParts: projectileBonusParts,
+        resolveSpellDamage(
+          {
+            spell,
+            damageTotal,
+            spellSaveDC: spellSaveDc,
+            actors,
+            socket,
+            casterId: actor.id,
+            overrideDamageType: chosenDamageType,
+          },
+          {
+            hasProjectiles,
+            resolvedDamageFormula,
+            scene: worldStore.currentScene,
+            cachedTemplate,
+            bonusDamageParts: projectileBonusParts,
+          },
+        );
       });
     }
 
@@ -1606,28 +1601,6 @@ function openDiceRollForSpell(
         return;
       }
 
-      const scene = worldStore.currentScene;
-      const chatStore = useChatStore();
-      const socket = chatStore.getSocket();
-      const worldId = worldStore.connectionState.currentWorldId;
-
-      if (!worldId || !socket) {
-        return;
-      }
-
-      const world = worldStore.worlds.find(
-        (worldEntry) => worldEntry.id === worldId,
-      );
-
-      const actors = [...(world?.actors ?? []), ...(world?.creatures ?? [])];
-
-      if (actors.length === 0) {
-        return;
-      }
-
-      // Серия снарядов тоже доводит каст: окно зовёт только этот обработчик
-      finishCast();
-
       // Серия атак (Мистический заряд, Палящий луч): каждый луч — СВОЙ бросок
       // атаки и свой бросок урона, поэтому плоский бонус получает каждый из
       // них. Правило «один раз к броску» тут и соблюдается: бросков несколько.
@@ -1641,28 +1614,38 @@ function openDiceRollForSpell(
         spellIsHealing(spell) ? 0 : flatSpellDamageBonus,
       );
 
-      resolveSpellDamage(
-        {
-          spell,
-          damageTotal: 0,
-          spellSaveDC: spellSaveDc,
-          actors,
-          socket,
-          casterId: actor.id,
-        },
-        {
-          hasProjectiles: true,
-          resolvedDamageFormula,
-          scene,
-          projectileAttack: {
-            attackModifier: rollContext.attackModifier,
-            rollMode: rollContext.rollMode,
-            bonusDiceFormulasByTarget: rollContext.bonusDiceFormulasByTarget,
-            attackType: incomingAttackType,
+      // Серия снарядов тоже доводит каст: окно зовёт только этот обработчик
+      afterSpellCast(finishCast(), () => {
+        const socket = useChatStore().getSocket();
+        const actors = useWorldEntities().getCurrentWorldEntities();
+
+        if (!socket || actors.length === 0) {
+          return;
+        }
+
+        resolveSpellDamage(
+          {
+            spell,
+            damageTotal: 0,
+            spellSaveDC: spellSaveDc,
+            actors,
+            socket,
+            casterId: actor.id,
           },
-          bonusDamageParts: projectileBonusParts,
-        },
-      );
+          {
+            hasProjectiles: true,
+            resolvedDamageFormula,
+            scene: worldStore.currentScene,
+            projectileAttack: {
+              attackModifier: rollContext.attackModifier,
+              rollMode: rollContext.rollMode,
+              bonusDiceFormulasByTarget: rollContext.bonusDiceFormulasByTarget,
+              attackType: incomingAttackType,
+            },
+            bonusDamageParts: projectileBonusParts,
+          },
+        );
+      });
     }
 
     const spellAttackRoll = incomingAttackType
@@ -1707,14 +1690,13 @@ function openDiceRollForSpell(
       damageTypeChoice,
 
       // Атакующее заклинание-эффект (без многочастного пути): эффекты на цель
-      // вешаем по ПОПАДАНИЮ. Многочастные уронные накладывают их сами.
+      // вешаем по ПОПАДАНИЮ — попадание запоминается, эффекты ложатся в
+      // handleSpellRoll после доведения каста. Многочастные накладывают сами.
       onHit:
         incomingAttackType && hasSpellTargetEffects && !useMultiPart
-          ? () =>
-              applySpellTargetEffects(spell, {
-                casterId: actor.id,
-                spellSaveDC: spellSaveDc,
-              })
+          ? () => {
+              attackLanded = true;
+            }
           : undefined,
 
       // Расход одноразовых эффектов «следующей атаки» на броске атаки заклинанием
@@ -1753,64 +1735,7 @@ function openDiceRollForSpell(
         isPactSlot: boolean,
       ) => {
         setSpellCastLevel(actor.id, spell, castLevel);
-
-        if (!consumeSlot || castLevel <= 0) {
-          return;
-        }
-
-        const worldId = worldStore.connectionState.currentWorldId;
-
-        if (!worldId) {
-          return;
-        }
-
-        const chatStore = useChatStore();
-        const socket = chatStore.getSocket();
-
-        // Deep clone для отправки через сокет без реактивных прокси
-        const updatedActor: DnDActor = JSON.parse(JSON.stringify(actor));
-
-        if (isPactSlot) {
-          const newPactUsed = (actor.system?.pactSlotsUsed ?? 0) + 1;
-
-          const pactUpdate: Partial<DnDActor> = {
-            system: {
-              ...actor.system,
-              pactSlotsUsed: newPactUsed,
-            },
-          };
-
-          worldStore.updateActor(worldId, actor.id, pactUpdate);
-
-          if (updatedActor.system) {
-            updatedActor.system.pactSlotsUsed = newPactUsed;
-          }
-        } else {
-          const index = castLevel - 1;
-
-          const newUsed = [
-            ...(actor.system?.spellSlotsUsed ?? [0, 0, 0, 0, 0, 0, 0, 0, 0]),
-          ];
-
-          newUsed[index] = (newUsed[index] ?? 0) + 1;
-
-          const slotUpdate: Partial<DnDActor> = {
-            system: {
-              ...actor.system,
-              spellSlotsUsed: newUsed,
-            },
-          };
-
-          worldStore.updateActor(worldId, actor.id, slotUpdate);
-
-          if (updatedActor.system) {
-            updatedActor.system.spellSlotsUsed = newUsed;
-          }
-        }
-
-        if (socket) {
-          emitEntityUpdate(socket, updatedActor);
-        }
+        spendMacroSpellSlot(actor.id, castLevel, consumeSlot, isPactSlot);
       },
     });
   } else {
@@ -1823,6 +1748,47 @@ function openDiceRollForSpell(
       undefined,
       cachedTemplate,
     );
+  }
+}
+
+/**
+ * Списывает ячейку каста с горячей панели. Заклинатель читается из мира в
+ * момент списания: окно броска открыто долго, и копия, захваченная при его
+ * открытии, вернула бы хиты и эффекты, изменённые сервером за это время.
+ *
+ * Пишется ДО доведения каста: после конца прежней концентрации полной записи
+ * сущности в том же действии быть не должно.
+ *
+ * @param actorId - заклинатель
+ * @param castLevel - круг ячейки
+ * @param consumeSlot - тратить ли ячейку
+ * @param isPactSlot - ячейка договора
+ */
+function spendMacroSpellSlot(
+  actorId: string,
+  castLevel: number,
+  consumeSlot: boolean,
+  isPactSlot: boolean,
+): void {
+  if (!consumeSlot || castLevel <= 0) {
+    return;
+  }
+
+  const worldStore = useWorldStore();
+  const worldId = worldStore.connectionState.currentWorldId;
+  const caster = useWorldEntities().findCurrentDndEntity(actorId);
+
+  if (!worldId || !caster || !isDnDActorEntity(caster)) {
+    return;
+  }
+
+  const system = withSpentSpellSlot(caster.system, castLevel, isPactSlot);
+  const socket = useChatStore().getSocket();
+
+  worldStore.updateActor(worldId, actorId, { system });
+
+  if (socket) {
+    emitEntityUpdate(socket, { ...caster, system });
   }
 }
 
@@ -1870,46 +1836,8 @@ function castBuffSpellMacro(
     spellSaveDC: casterSource.saveDc,
   };
 
-  const worldStore = useWorldStore();
-  const chatStore = useChatStore();
-
-  /**
-   * Добавляет эффекты заклинания к клону актёра и шлёт анонс в чат. Эффекты
-   * со срабатыванием «при наложении» в клон не идут: событие наложения сервер
-   * видит только в боевом снимке — их отправляют следом, после обновления
-   * сущности (`landCasterEventEffects`).
-   *
-   * @param target - клон актёра-заклинателя для отправки
-   * @param casterEffects - готовые эффекты на заклинателя
-   * @returns эффекты, которые нужно отправить боевым снимком
-   */
-  const appendEffects = (
-    target: DnDActor,
-    casterEffects: ActiveEffect[],
-  ): ActiveEffect[] => {
-    if (casterEffects.length === 0) {
-      return [];
-    }
-
-    if (!target.activeEffects) {
-      target.activeEffects = [];
-    }
-
-    // Само-баффы не стакаются: повтор ЗАМЕНЯЕТ/обновляет прежний (5e 2024).
-    // Копии уже с Сл и точной длительностью хода заклинателя
-    target.activeEffects = mergeAppliedEffects(
-      target.activeEffects,
-      casterEffects.filter((effect) => !hasLandingTrigger(effect)),
-    );
-
-    postSpellEffectsMessage(spell.name, [actor.name], casterEffects);
-
-    return casterEffects.filter(hasLandingTrigger);
-  };
-
   // Окно решает план каста: у пути без броска урона и атаки нет. Уровневые
-  // (не врождённые) — окно выбора круга; списание ячейки и эффекты — одним
-  // обновлением сущности.
+  // (не врождённые) — окно выбора круга.
   const castWindow = resolveSpellCastPlan({
     spell,
     damageParts: [],
@@ -1953,75 +1881,32 @@ function castBuffSpellMacro(
       ) => {
         setSpellCastLevel(actor.id, spell, castLevel);
 
-        const worldId = worldStore.connectionState.currentWorldId;
+        // Ячейка — до доведения каста: после конца прежней концентрации
+        // полной записи сущности в этом действии нет
+        spendMacroSpellSlot(actor.id, castLevel, consumeSlot, isPactSlot);
 
-        if (!worldId) {
-          return;
-        }
+        // Между выбором целей и ячейки лист мог измениться на другом клиенте:
+        // заклинатель читается из мира
+        const caster =
+          useWorldEntities().findCurrentDndEntity(actor.id) ?? actor;
 
-        const socket = chatStore.getSocket();
-
-        // Между выбором целей и ячейки лист мог измениться на другом клиенте.
-        const latestEntity = useWorldEntities().findCurrentDndEntity(actor.id);
-
-        const castingActor =
-          effectTargets && latestEntity?.entityType === 'actor'
-            ? latestEntity
-            : actor;
-
-        const updatedActor: DnDActor = JSON.parse(JSON.stringify(castingActor));
-
-        if (consumeSlot && castLevel > 0 && updatedActor.system) {
-          if (isPactSlot) {
-            updatedActor.system.pactSlotsUsed =
-              (castingActor.system?.pactSlotsUsed ?? 0) + 1;
-          } else {
-            const index = castLevel - 1;
-
-            const newUsed = [
-              ...(castingActor.system?.spellSlotsUsed ?? [
-                0, 0, 0, 0, 0, 0, 0, 0, 0,
-              ]),
-            ];
-
-            newUsed[index] = (newUsed[index] ?? 0) + 1;
-            updatedActor.system.spellSlotsUsed = newUsed;
-          }
-        }
-
-        // Эффекты готовит каст — в момент наложения (круг каста известен
-        // только после выбора ячейки) и после конца прежней концентрации:
-        // запись ниже меняет заклинателя в сторе на месте
-        completeSpellCast({
-          spell,
-          caster: castingActor,
-          source: casterSource,
-          template: cachedTemplate,
-          landCasterEffects: (casterEffects) => {
-            const eventEffects = appendEffects(updatedActor, casterEffects);
-
-            // Локальный стор + сервер одним полным обновлением сущности
-            worldStore.updateActor(worldId, actor.id, {
-              system: updatedActor.system,
-              activeEffects: updatedActor.activeEffects,
+        // Конец прежней концентрации, эффекты на заклинателе и зона — затем
+        // цели: спасбросок без урона бросает цель тем же разбором, что на
+        // листе, когда эффекты прежнего каста сняты
+        afterSpellCast(
+          completeSpellCast({
+            spell,
+            caster,
+            source: casterSource,
+            template: cachedTemplate,
+          }),
+          () => {
+            settleNoRollSpellTargets(spell, targetEffectsSource, {
+              effectTargets,
+              template: cachedTemplate,
             });
-
-            if (socket) {
-              emitEntityUpdate(socket, updatedActor);
-            }
-
-            // Следом за обновлением: иначе оно затёрло бы исход срабатывания
-            landCasterEventEffects(updatedActor, eventEffects);
           },
-        });
-
-        // Эффекты на выбранную цель (effectTarget 'target') — отдельной
-        // сущности, отдельным обновлением (без гонки с апдейтом кастера).
-        // Спасбросок без урона бросает цель — тем же разбором, что на листе
-        settleNoRollSpellTargets(spell, targetEffectsSource, {
-          effectTargets,
-          template: cachedTemplate,
-        });
+        );
       },
     });
 
@@ -2034,39 +1919,20 @@ function castBuffSpellMacro(
     // Анонс эффектов называет `spell` — он уже с выбранным типом
     spell = chosen;
 
-    completeSpellCast({
-      spell: chosen,
-      caster: actor,
-      source: casterSource,
-      template: cachedTemplate,
-      landCasterEffects: (casterEffects) => {
-        const worldId = worldStore.connectionState.currentWorldId;
-
-        if (!worldId || casterEffects.length === 0) {
-          return;
-        }
-
-        const socket = chatStore.getSocket();
-        const updatedActor: DnDActor = JSON.parse(JSON.stringify(actor));
-
-        const eventEffects = appendEffects(updatedActor, casterEffects);
-
-        worldStore.updateActor(worldId, actor.id, {
-          activeEffects: updatedActor.activeEffects,
+    afterSpellCast(
+      completeSpellCast({
+        spell: chosen,
+        caster: useWorldEntities().findCurrentDndEntity(actor.id) ?? actor,
+        source: casterSource,
+        template: cachedTemplate,
+      }),
+      () => {
+        settleNoRollSpellTargets(chosen, targetEffectsSource, {
+          effectTargets,
+          template: cachedTemplate,
         });
-
-        if (socket) {
-          emitEntityUpdate(socket, updatedActor);
-        }
-
-        landCasterEventEffects(updatedActor, eventEffects);
       },
-    });
-
-    settleNoRollSpellTargets(chosen, targetEffectsSource, {
-      effectTargets,
-      template: cachedTemplate,
-    });
+    );
   });
 }
 
@@ -2807,16 +2673,13 @@ function applyCreatureSpellParts(
   castKey: string,
 ): void {
   const worldStore = useWorldStore();
-  const chatStore = useChatStore();
-  const socket = chatStore.getSocket();
-  const worldId = worldStore.connectionState.currentWorldId;
 
-  if (!worldId || !socket) {
+  if (
+    !worldStore.connectionState.currentWorldId
+    || !useChatStore().getSocket()
+  ) {
     return;
   }
-
-  const world = worldStore.worlds.find((entry) => entry.id === worldId);
-  const actors = [...(world?.actors ?? []), ...(world?.creatures ?? [])];
 
   const templateStore = useSpellTemplateStore();
 
@@ -2827,35 +2690,46 @@ function applyCreatureSpellParts(
     templateStore.removePlacedTemplate(templateId);
   }
 
-  // Цели нечего получить — ни урона, ни эффекта («Щит» только на себя):
-  // оркестратор писал бы в чат «цель не выбрана» к касту, который удался
-  const reachesTargets = castReachesTargets(pseudoSpell, parts.length);
+  // Конец прежней концентрации, эффекты на самом существе, зона на месте
+  // шаблона — затем цели, когда эффекты прежнего каста сняты
+  afterSpellCast(
+    completeSpellCast({
+      spell: pseudoSpell,
+      caster: useWorldEntities().findCurrentDndEntity(creature.id) ?? creature,
+      source: casterSource,
+      template: cachedTemplate,
+      castKey,
+    }),
+    () => {
+      const socket = useChatStore().getSocket();
+      const actors = useWorldEntities().getCurrentWorldEntities();
 
-  if (actors.length > 0 && reachesTargets) {
-    const { resolveSpellDamageWithParts } = useSpellResolution();
+      // Цели нечего получить — ни урона, ни эффекта («Щит» только на себя):
+      // оркестратор писал бы в чат «цель не выбрана» к касту, который удался
+      if (
+        !socket
+        || actors.length === 0
+        || !castReachesTargets(pseudoSpell, parts.length)
+      ) {
+        return;
+      }
 
-    void resolveSpellDamageWithParts(
-      {
-        spell: pseudoSpell,
-        damageTotal: 0,
-        spellSaveDC: casterSource.saveDc,
-        actors,
-        socket,
-        casterId: creature.id,
-      },
-      parts,
-      { scene: worldStore.currentScene, cachedTemplate },
-    );
-  }
+      const { resolveSpellDamageWithParts } = useSpellResolution();
 
-  // Эффекты на самом существе, зона на месте шаблона, конец концентрации
-  completeSpellCast({
-    spell: pseudoSpell,
-    caster: useWorldEntities().findCurrentDndEntity(creature.id) ?? creature,
-    source: casterSource,
-    template: cachedTemplate,
-    castKey,
-  });
+      void resolveSpellDamageWithParts(
+        {
+          spell: pseudoSpell,
+          damageTotal: 0,
+          spellSaveDC: casterSource.saveDc,
+          actors,
+          socket,
+          casterId: creature.id,
+        },
+        parts,
+        { scene: worldStore.currentScene, cachedTemplate },
+      );
+    },
+  );
 
   if (templateId) {
     templateStore.deleteTemplate(templateId);

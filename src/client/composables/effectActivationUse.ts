@@ -61,9 +61,9 @@ import { chooseUseTarget } from './effectUseTargetChoice';
 import { runWithEffectVariants } from './effectVariantChoice';
 import { openSkillCheckModal } from './skillCheckRoll';
 import {
+  afterSpellCast,
   applyCasterSpellEffectsToEntity,
-  releaseConcentration,
-  requestSpellZone,
+  completeSpellCast,
   SPELL_CAST_KEY_PREFIX,
 } from './spellCastCompletion';
 import { beginSpellCast } from './spellCasts';
@@ -261,30 +261,36 @@ export function applyEffectSource(
             // Применение с концентрацией — свой каст: прежняя концентрация
             // кончается, новая метка ляжет вместе с эффектами применившего
             if (paidSource.concentration) {
-              const castId = generateId(SPELL_CAST_KEY_PREFIX);
-
-              beginSpellCast(user.id, paidSource, castId);
-              releaseConcentration(user, castId);
-            }
-
-            // Что сделало применение, пишут список наложенного, разбор цели и
-            // исход срабатываний — отдельная строка «применяет» их бы только
-            // повторяла
-            applyCasterSpellEffectsToEntity(paidSource, user, { saveDc });
-
-            if (targetIds.length > 0) {
-              applySpellTargetEffects(
+              beginSpellCast(
+                user.id,
                 paidSource,
-                { casterId: user.id, spellSaveDC: saveDc },
-                createChosenEffectTargets(paidSource, user.id, targetIds),
+                generateId(SPELL_CAST_KEY_PREFIX),
               );
             }
 
-            // Эффект «в зону» остаётся зоной на месте шаблона («Масло» горит
-            // два раунда); без него запрос ничего не делает
-            if (template) {
-              requestSpellZone(paidSource, user, { saveDc }, template);
-            }
+            // Тот же финал, что у каста заклинания: конец прежней
+            // концентрации, эффекты применившего, зона на месте шаблона
+            // («Масло» горит два раунда) — затем цели, когда эффекты прежнего
+            // каста сняты. Что сделало применение, пишут список наложенного,
+            // разбор цели и исход срабатываний — отдельная строка «применяет»
+            // их бы только повторяла
+            afterSpellCast(
+              completeSpellCast({
+                spell: paidSource,
+                caster: user,
+                source: { saveDc },
+                template,
+              }),
+              () => {
+                if (targetIds.length > 0) {
+                  applySpellTargetEffects(
+                    paidSource,
+                    { casterId: user.id, spellSaveDC: saveDc },
+                    createChosenEffectTargets(paidSource, user.id, targetIds),
+                  );
+                }
+              },
+            );
           },
         );
       };

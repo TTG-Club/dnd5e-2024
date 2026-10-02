@@ -59,7 +59,6 @@ async function loadApply({ chosenTargetId, unresolvedSaveDc = null }) {
     EFFECT_USE_LABELS: { blockedTitle: 'Нельзя применить' },
     listAmbientEffects: () => [],
     recordEntityActionSpend: () => {},
-    requestSpellZone: () => false,
     // Сл от проверки навыка у фикстур нет: применение идёт сразу
     runWithSkillCheckDc: (source, _user, _hasTarget, proceed) =>
       proceed(source),
@@ -76,8 +75,13 @@ async function loadApply({ chosenTargetId, unresolvedSaveDc = null }) {
     createChosenEffectTargets: (spell, casterId, entityIds) => ({
       entityIds,
     }),
-    applyCasterSpellEffectsToEntity: (spell) =>
-      steps.push(['self', engine.getCasterSpellEffects(spell).length]),
+    // Финал — общий путь каста: эффекты на себя, затем цели после ожидания
+    completeSpellCast: ({ spell }) => {
+      steps.push(['self', engine.getCasterSpellEffects(spell).length]);
+
+      return Promise.resolve();
+    },
+    afterSpellCast: (_completion, proceed) => proceed(),
     applySpellTargetEffects: (spell, source, targets) =>
       steps.push([
         'target',
@@ -550,7 +554,6 @@ it('цена ресурсом: оплата и прежний расход ид�
     EFFECT_USE_LABELS: { blockedTitle: 'Нельзя применить' },
     listAmbientEffects: () => [],
     recordEntityActionSpend: () => {},
-    requestSpellZone: () => false,
     // Сл от проверки навыка у фикстур нет: применение идёт сразу
     runWithSkillCheckDc: (source, _user, _hasTarget, proceed) =>
       proceed(source),
@@ -560,7 +563,12 @@ it('цена ресурсом: оплата и прежний расход ид�
     },
     useChatStore: () => ({ getSocket: () => ({}) }),
     emitEntityUpdate: (_socket, entity) => steps.push(['save', entity]),
-    applyCasterSpellEffectsToEntity: () => steps.push(['self']),
+    completeSpellCast: () => {
+      steps.push(['self']);
+
+      return Promise.resolve();
+    },
+    afterSpellCast: (_completion, proceed) => proceed(),
   });
 
   const gem = engine.buildItemUseSpell({

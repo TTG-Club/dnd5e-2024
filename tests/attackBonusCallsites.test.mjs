@@ -575,13 +575,20 @@ for (const relativePath of [
         spellSaveDc: 13,
         resolvedStats: { spellSaveDC: 13, value: {} },
         resolvedDamageFormula: '1d6',
+        useWorldEntities: () => ({ getCurrentWorldEntities: () => [entity] }),
         // Доведение каста: у листа и у горячей панели оно названо по-своему
         finishSpellCast: () => {
           finishedCasts += 1;
+
+          return Promise.resolve();
         },
         finishCast: () => {
           finishedCasts += 1;
+
+          return Promise.resolve();
         },
+        // Разбор целей ждёт доведения каста; здесь — сразу
+        afterSpellCast: (_completion, proceed) => proceed(),
       },
     );
 

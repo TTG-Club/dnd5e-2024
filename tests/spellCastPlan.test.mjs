@@ -424,8 +424,11 @@ function createRollPorts(castPlan) {
       spellIsHealing: () => false,
       flatSpellDamageBonus: 0,
       resolvePlannedDamageTotal: engine.resolvePlannedDamageTotal,
-      finishCast() {},
-      finishSpellCast() {},
+      finishCast: () => Promise.resolve(),
+      finishSpellCast: () => Promise.resolve(),
+      afterSpellCast: (_completion, proceed) => proceed(),
+      useWorldEntities: () => ({ getCurrentWorldEntities: () => [entity] }),
+      attackLanded: false,
       applySpellTargetEffects() {},
       spellTargetEffectsSource: () => ({ casterId: 'caster', spellSaveDC: 13 }),
       resolveSpellDamage: (context) => {

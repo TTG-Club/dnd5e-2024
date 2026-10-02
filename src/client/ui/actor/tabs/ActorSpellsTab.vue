@@ -4,7 +4,6 @@
 
   import type { MeasurementTemplate, SceneEntity } from '@vtt/shared';
   import type {
-    ActiveEffect,
     ActorClassEntry,
     ClassDefinition,
     ClassFeature,
@@ -68,13 +67,11 @@
     getSpellProjectileCount,
     getSpellSaveDCBreakdown,
     getTotalLevel,
-    hasLandingTrigger,
     isDndSceneEntity,
     isGrantedSpell,
     isSpellReady,
     limitCastLevels,
     MAX_SPELL_SLOT_LEVEL,
-    mergeAppliedEffects,
     parsePreparedLimit,
     parseSpellcastingSettings,
     parseSpellSlotSettings,
@@ -119,8 +116,8 @@
     collectProjectileRollBonuses,
   } from '../../../composables/rollBonusEvaluator';
   import {
+    afterSpellCast,
     completeSpellCast,
-    landCasterEventEffects,
     SPELL_CAST_KEY_PREFIX,
   } from '../../../composables/spellCastCompletion';
   import {
@@ -134,7 +131,6 @@
     requestSpellEffectTargets,
     settleNoRollSpellTargets,
   } from '../../../composables/spellEffectTargeting';
-  import { postSpellEffectsMessage } from '../../../composables/spellResolutionShared';
   import {
     useBonusDamageParts,
     withFlatDamageBonusPart,
@@ -241,60 +237,6 @@
     return chatStore.getSocket();
   }
 
-  /**
-   * Накладывает эффекты заклинания на самого заклинателя (в том числе его
-   * ауру): эффект добавляется в `activeEffects` актёра тем же partial-апдейтом,
-   * что и заклинания/ячейки (родитель сливает по верхним ключам, не затирая
-   * параллельные изменения), и анонсируется в чат. Сл и числа заклинателя
-   * подставлены, одноимённый эффект обновляется, а не стакается.
-   *
-   * Эффект со срабатыванием «при наложении» («Связь с иным планом»: спасбросок,
-   * урон и состояние) идёт боевым снимком: сохранение листа сервер событием
-   * наложения не считает, и срабатывание молчало. Снимок уходит после
-   * сохранений листа этого каста — иначе они затёрли бы исход срабатывания
-   * прежней копией эффектов.
-   *
-   * Эффекты готовит и отдаёт сюда общий путь каста — после конца прежней
-   * концентрации: запись ниже меняет лист на месте, и новая метка концентрации
-   * заменяет старую.
-   *
-   * @param spell - заклинание
-   * @param casterEffects - готовые эффекты на заклинателя
-   */
-  function landCasterSpellEffects(
-    spell: Spell,
-    casterEffects: ActiveEffect[],
-  ): void {
-    if (casterEffects.length === 0) {
-      return;
-    }
-
-    const eventEffects = casterEffects.filter(hasLandingTrigger);
-
-    const sheetEffects = casterEffects.filter(
-      (effect) => !hasLandingTrigger(effect),
-    );
-
-    if (sheetEffects.length > 0) {
-      emit('update:actor', {
-        activeEffects: mergeAppliedEffects(
-          props.actor.activeEffects ?? [],
-          sheetEffects,
-        ),
-      });
-
-      triggerSaveIfNotEdit();
-    }
-
-    postSpellEffectsMessage(spell.name, [props.actor.name], casterEffects);
-
-    if (eventEffects.length > 0) {
-      // Заклинатель читается в момент отправки: к этому времени лист уже
-      // записал расход ячейки и остальные эффекты каста
-      setTimeout(() => landCasterEventEffects(props.actor, eventEffects), 0);
-    }
-  }
-
   const isSettingsModalOpen = ref(false);
 
   /** Resolved stats для отображения Spell Save DC и бонуса атаки */
@@ -324,23 +266,24 @@
 
   /**
    * Доводит каст с листа: конец прежней концентрации, эффекты на заклинателе
-   * (своим сохранением листа), зона на месте шаблона. Один вход на все пути
-   * каста — обычный, многочастный, серия снарядов, каст без броска.
+   * (боевым снимком — как с горячей панели), зона на месте шаблона. Один вход
+   * на все пути каста — обычный, многочастный, серия снарядов, каст без
+   * броска. Ячейку лист к этому времени уже записал (окно списывает её до
+   * броска), а цели разбираются после промиса.
    *
    * @param spell - заклинание каста
    * @param template - размещённый шаблон области
+   * @returns выполняется, когда эффекты прежнего каста сняты
    */
   function finishSpellCast(
     spell: Spell,
     template?: MeasurementTemplate | null,
-  ): void {
-    completeSpellCast({
+  ): Promise<void> {
+    return completeSpellCast({
       spell,
       caster: props.actor,
       source: spellCasterSource(spell),
       template,
-      landCasterEffects: (casterEffects) =>
-        landCasterSpellEffects(spell, casterEffects),
     });
   }
 
@@ -2092,8 +2035,15 @@
     };
 
     /**
-     * Общий обработчик подтверждения броска.
-     * Транслирует шаблон на сервер и запускает обработку целей.
+     * Попадание атаки заклинанием-эффектом: эффекты на цель ложатся после
+     * доведения каста — окно сообщает о попадании раньше, чем зовёт `onRoll`.
+     */
+    let attackLanded = false;
+
+    /**
+     * Общий обработчик подтверждения броска: доводит каст (конец прежней
+     * концентрации, эффекты на заклинателе, зона) и разбирает цели, когда
+     * сервер снял эффекты прежнего каста.
      */
     function handleRollConfirm(
       rolledTotal: number,
@@ -2115,77 +2065,80 @@
         templateStore.removePlacedTemplate(templateId);
       }
 
-      // Автоматическая обработка целей (спасброски, авто-попадание). Эффекты
-      // на цель без урона тоже требуют резолва: у save-заклинаний нужно кинуть
-      // спасбросок и наложить эффект при провале — поэтому пускаем резолв и при
-      // наличии target-эффектов, даже когда урона нет.
-      if (
-        castPlan.needsTargetResolution
-        && (damageTotal > 0 || hasSpellTargetEffects)
-      ) {
-        const scene = worldStore.currentScene;
-        const actors = getCurrentWorldEntities();
-        const socket = getWorldSocket();
-
-        if (actors.length > 0 && socket) {
-          const context = {
-            spell,
-            damageTotal,
-            spellSaveDC: resolveSpellSaveDC(
-              props.actor,
-              spell,
-              resolvedStats.value,
-            ),
-            actors,
-            socket,
-            overrideDamageType: chosenDamageType,
-            casterId: props.actor.id,
-          };
-
-          // Бонус-части для снарядов собираются здесь (в момент подтверждения
-          // броска): снаряды autoHit — броска атаки нет, поэтому преимущество/
-          // помеха не определены (false); HP-условия отложены в per-target гейты.
-          // Плоский бонус заклинаниям едет здесь же отдельной частью: она
-          // катается один раз на каст, а не на каждый снаряд
-          const projectileBonusParts = hasProjectiles
-            ? withFlatDamageBonusPart(
-                evaluateSpellBonusParts?.({
-                  hasAdvantage: false,
-                  hasDisadvantage: false,
-                }) ?? [],
-                spellIsHealing(spell) ? 0 : flatSpellDamageBonus,
-              )
-            : undefined;
-
-          resolveSpellDamage(context, {
-            hasProjectiles,
-            resolvedDamageFormula,
-            scene,
-            cachedTemplate,
-            bonusDamageParts: projectileBonusParts,
-          });
-        }
-      }
-
       // Конец прежней концентрации, самобафф (эффекты с effectTarget 'self',
-      // напр. Щит; без таких эффектов — ничего) и зона на месте шаблона
-      finishSpellCast(spell, cachedTemplate);
+      // напр. Щит; без таких эффектов — ничего) и зона на месте шаблона — до
+      // разбора целей: окно спасброска не должно видеть эффект прежнего каста
+      afterSpellCast(finishSpellCast(spell, cachedTemplate), () => {
+        // Автоматическая обработка целей (спасброски, авто-попадание). Эффекты
+        // на цель без урона тоже требуют резолва: у save-заклинаний нужно
+        // кинуть спасбросок и наложить эффект при провале — поэтому пускаем
+        // резолв и при наличии target-эффектов, даже когда урона нет.
+        if (
+          castPlan.needsTargetResolution
+          && (damageTotal > 0 || hasSpellTargetEffects)
+        ) {
+          // Цели читаются после ожидания: эффекты прежнего каста уже сняты
+          const actors = getCurrentWorldEntities();
+          const socket = getWorldSocket();
 
-      // Эффекты на цель (effectTarget 'target') без броска атаки и без
-      // спасброска — автоприменение (напр. бафф союзника касанием): вешаем
-      // сразу. Атакующие заклинания вешают их по попаданию (onHit модалки),
-      // save-заклинания — внутри resolveSpellDamage выше.
-      if (
-        hasSpellTargetEffects
-        && !castPlan.needsSave
-        && !castPlan.attackType
-      ) {
-        applySpellTargetEffects(
-          spell,
-          spellTargetEffectsSource(spell),
-          effectTargets,
-        );
-      }
+          if (actors.length > 0 && socket) {
+            // Бонус-части для снарядов собираются здесь (в момент
+            // подтверждения броска): снаряды autoHit — броска атаки нет,
+            // поэтому преимущество/помеха не определены (false); HP-условия
+            // отложены в per-target гейты. Плоский бонус заклинаниям едет
+            // здесь же отдельной частью: она катается один раз на каст, а не
+            // на каждый снаряд
+            const projectileBonusParts = hasProjectiles
+              ? withFlatDamageBonusPart(
+                  evaluateSpellBonusParts?.({
+                    hasAdvantage: false,
+                    hasDisadvantage: false,
+                  }) ?? [],
+                  spellIsHealing(spell) ? 0 : flatSpellDamageBonus,
+                )
+              : undefined;
+
+            resolveSpellDamage(
+              {
+                spell,
+                damageTotal,
+                spellSaveDC: resolveSpellSaveDC(
+                  props.actor,
+                  spell,
+                  resolvedStats.value,
+                ),
+                actors,
+                socket,
+                overrideDamageType: chosenDamageType,
+                casterId: props.actor.id,
+              },
+              {
+                hasProjectiles,
+                resolvedDamageFormula,
+                scene: worldStore.currentScene,
+                cachedTemplate,
+                bonusDamageParts: projectileBonusParts,
+              },
+            );
+          }
+        }
+
+        // Эффекты на цель (effectTarget 'target') без броска атаки и без
+        // спасброска — автоприменение (напр. бафф союзника касанием); у
+        // атакующих — по попаданию; save-заклинания вешают их внутри
+        // resolveSpellDamage выше.
+        if (
+          hasSpellTargetEffects
+          && !castPlan.needsSave
+          && (!castPlan.attackType || attackLanded)
+        ) {
+          applySpellTargetEffects(
+            spell,
+            spellTargetEffectsSource(spell),
+            castPlan.attackType ? undefined : effectTargets,
+          );
+        }
+      });
 
       // Удаляем визуальный шаблон с карты (всегда, вне зависимости от результата)
       if (templateId) {
@@ -2196,7 +2149,8 @@
     }
 
     /**
-     * Обработчик многочастного броска: применяет части через оркестратор.
+     * Обработчик многочастного броска: доводит каст и применяет части через
+     * оркестратор.
      */
     function handleRollPartsConfirm(parts: RolledSpellDamagePart[]): void {
       isApplied = true;
@@ -2211,11 +2165,16 @@
         templateStore.removePlacedTemplate(templateId);
       }
 
-      const scene = worldStore.currentScene;
-      const actors = getCurrentWorldEntities();
-      const socket = getWorldSocket();
+      // Многочастный бросок тоже доводит каст: эффекты на заклинателе здесь
+      // раньше не накладывались вовсе (окно зовёт только onRollParts)
+      afterSpellCast(finishSpellCast(spell, cachedTemplate), () => {
+        const actors = getCurrentWorldEntities();
+        const socket = getWorldSocket();
 
-      if (actors.length > 0 && socket) {
+        if (actors.length === 0 || !socket) {
+          return;
+        }
+
         void resolveSpellDamageWithParts(
           {
             spell,
@@ -2230,13 +2189,9 @@
             casterId: props.actor.id,
           },
           parts,
-          { scene, cachedTemplate },
+          { scene: worldStore.currentScene, cachedTemplate },
         );
-      }
-
-      // Многочастный бросок тоже доводит каст: эффекты на заклинателе здесь
-      // раньше не накладывались вовсе (окно зовёт только onRollParts)
-      finishSpellCast(spell, cachedTemplate);
+      });
 
       if (templateId) {
         const templateStore = useSpellTemplateStore();
@@ -2263,18 +2218,6 @@
       isApplied = true;
       window.removeEventListener('beforeunload', handleUnload);
 
-      const scene = worldStore.currentScene;
-      const actors = getCurrentWorldEntities();
-      const socket = getWorldSocket();
-
-      if (actors.length === 0 || !socket) {
-        return;
-      }
-
-      // Серия снарядов тоже доводит каст: окно зовёт только этот обработчик,
-      // и прежняя концентрация с эффектами на заклинателе оставались без него
-      finishSpellCast(spell);
-
       // Серия атак (Мистический заряд, Палящий луч): каждый луч — СВОЙ бросок
       // атаки и свой бросок урона, поэтому плоский бонус получает каждый из
       // них. Правило «один раз к броску» тут и соблюдается: бросков несколько.
@@ -2288,32 +2231,43 @@
         spellIsHealing(spell) ? 0 : flatSpellDamageBonus,
       );
 
-      resolveSpellDamage(
-        {
-          spell,
-          damageTotal: 0,
-          spellSaveDC: resolveSpellSaveDC(
-            props.actor,
+      // Серия снарядов тоже доводит каст: окно зовёт только этот обработчик,
+      // и прежняя концентрация с эффектами на заклинателе оставались без него
+      afterSpellCast(finishSpellCast(spell), () => {
+        const actors = getCurrentWorldEntities();
+        const socket = getWorldSocket();
+
+        if (actors.length === 0 || !socket) {
+          return;
+        }
+
+        resolveSpellDamage(
+          {
             spell,
-            resolvedStats.value,
-          ),
-          actors,
-          socket,
-          casterId: props.actor.id,
-        },
-        {
-          hasProjectiles: true,
-          resolvedDamageFormula,
-          scene,
-          projectileAttack: {
-            attackModifier: rollContext.attackModifier,
-            rollMode: rollContext.rollMode,
-            bonusDiceFormulasByTarget: rollContext.bonusDiceFormulasByTarget,
-            attackType: projectileAttackType,
+            damageTotal: 0,
+            spellSaveDC: resolveSpellSaveDC(
+              props.actor,
+              spell,
+              resolvedStats.value,
+            ),
+            actors,
+            socket,
+            casterId: props.actor.id,
           },
-          bonusDamageParts: projectileBonusParts,
-        },
-      );
+          {
+            hasProjectiles: true,
+            resolvedDamageFormula,
+            scene: worldStore.currentScene,
+            projectileAttack: {
+              attackModifier: rollContext.attackModifier,
+              rollMode: rollContext.rollMode,
+              bonusDiceFormulasByTarget: rollContext.bonusDiceFormulasByTarget,
+              attackType: projectileAttackType,
+            },
+            bonusDamageParts: projectileBonusParts,
+          },
+        );
+      });
     }
 
     /** Нужно ли пропустить автоприменение урона в модалке */
@@ -2357,11 +2311,11 @@
             ? templateStore.getPlacedTemplate(templateId)
             : undefined;
 
-          finishSpellCast(chosen, placedTemplate);
-
-          settleNoRollSpellTargets(chosen, spellTargetEffectsSource(chosen), {
-            effectTargets,
-            template: placedTemplate,
+          afterSpellCast(finishSpellCast(chosen, placedTemplate), () => {
+            settleNoRollSpellTargets(chosen, spellTargetEffectsSource(chosen), {
+              effectTargets,
+              template: placedTemplate,
+            });
           });
 
           if (templateId) {
@@ -2432,12 +2386,14 @@
       damageTypeChoice,
 
       // Атакующее заклинание-эффект (без многочастного пути): эффекты на цель
-      // вешаем по ПОПАДАНИЮ. Многочастные уронные заклинания накладывают их
-      // сами в resolveSpellDamageWithParts, поэтому onHit для них не нужен.
+      // вешаем по ПОПАДАНИЮ — попадание запоминается, а эффекты ложатся в
+      // handleRollConfirm после доведения каста. Многочастные уронные
+      // заклинания накладывают их сами в resolveSpellDamageWithParts.
       'onHit':
         incomingAttackType && hasSpellTargetEffects && !useMultiPart
-          ? () =>
-              applySpellTargetEffects(spell, spellTargetEffectsSource(spell))
+          ? () => {
+              attackLanded = true;
+            }
           : undefined,
 
       // Многочастный путь (если активен) — модалка катает части и зовёт onRollParts

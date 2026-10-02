@@ -645,3 +645,35 @@ export function getPactSlotInfo(
 
   return { max: pactInfo.count, level: pactInfo.level };
 }
+
+/** Сколько кругов ячеек у персонажа: счётчик потраченных — по одному на круг */
+const SPELL_SLOT_LEVEL_COUNT = 9;
+
+/**
+ * Лист заклинателя с одной потраченной ячейкой: обычной выбранного круга или
+ * ячейкой договора. Лист не меняется — возвращается новый.
+ *
+ * @param system - данные листа персонажа
+ * @param castLevel - круг ячейки (1–9)
+ * @param isPactSlot - тратится ячейка договора
+ * @returns данные листа с потраченной ячейкой
+ */
+export function withSpentSpellSlot<
+  System extends Pick<DnDActor['system'], 'spellSlotsUsed' | 'pactSlotsUsed'>,
+>(system: System, castLevel: number, isPactSlot: boolean): System {
+  if (isPactSlot) {
+    return { ...system, pactSlotsUsed: (system.pactSlotsUsed ?? 0) + 1 };
+  }
+
+  const used = Array.from(
+    { length: SPELL_SLOT_LEVEL_COUNT },
+    (_unused, index) => system.spellSlotsUsed?.[index] ?? 0,
+  );
+
+  return {
+    ...system,
+    spellSlotsUsed: used.map((count, index) =>
+      index === castLevel - 1 ? count + 1 : count,
+    ),
+  };
+}
