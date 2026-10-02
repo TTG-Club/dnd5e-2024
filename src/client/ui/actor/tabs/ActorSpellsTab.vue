@@ -2114,6 +2114,7 @@
             actors,
             socket,
             overrideDamageType: chosenDamageType,
+            casterId: props.actor.id,
           };
 
           // Бонус-части для снарядов собираются здесь (в момент подтверждения
@@ -2286,6 +2287,7 @@
           ),
           actors,
           socket,
+          casterId: props.actor.id,
         },
         {
           hasProjectiles: true,
