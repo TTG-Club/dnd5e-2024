@@ -250,6 +250,49 @@ describe('каталог: события срабатываний', () => {
     );
   });
 
+  it('[E06b] «Раз в ход» на броске атаки: урон того же удара расход не откатывает', () => {
+    const system = new engine.Dnd5eVttSystem();
+
+    const focus = createEffect('Сосредоточенный удар', {
+      triggers: [
+        {
+          id: 'trigger_focus',
+          event: 'attackRoll',
+          actions: [{ type: 'applyCondition', conditionKey: 'prone' }],
+          limit: { max: 1, per: 'turn' },
+        },
+      ],
+    });
+
+    const server = withHp(createActor, 30, { activeEffects: [focus] });
+
+    // Стор клиента: ответ сервера на расход ещё не пришёл
+    const store = structuredClone(server);
+
+    // Окно броска расходует срабатывание на копии и шлёт снимок
+    const rolled = structuredClone(store);
+
+    engine.recordCombatBaseline(rolled, rolled);
+    engine.runAttackRollTriggers(rolled, 'attacker', { inCombat: true });
+    system.settleCombatState(server, engine.pickCombatState(rolled));
+
+    // Урон того же удара собран из стора — журнал в нём прежний
+    const damaged = structuredClone(store);
+
+    engine.recordCombatBaseline(damaged, damaged);
+    engine.writeEntityHitPoints(damaged, { current: 25, temp: 0 });
+    system.settleCombatState(server, engine.pickCombatState(damaged));
+
+    assert.equal(engine.resolveEntityCurrentHp(server), 25);
+
+    assert.equal(
+      engine.runAttackRollTriggers(server, 'attacker', { inCombat: true })
+        .usageChanged,
+      false,
+      'второй удар в том же ходу лимит не обходит',
+    );
+  });
+
   it('[E07] «Атака попала» и «атака промахнулась» — части условия', () => {
     const landed = engine.writeTriggerCondition([{ kind: 'attackLanded' }]);
     const missed = engine.writeTriggerCondition([{ kind: 'attackMissed' }]);
