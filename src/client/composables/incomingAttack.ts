@@ -15,14 +15,16 @@ import type {
 } from '@vtt/shared/system/dnd.js';
 
 import {
-  buildResolvedFormulaContext,
   collectIncomingAttackFlags,
   collectIncomingAttackRollFormulas,
   resolveEntityCreatureType,
   resolveEntityExtraCreatureTypes,
 } from '@vtt/shared/system/dnd.js';
 
-import { collectEffectsWithAuras } from './useResolvedStats';
+import {
+  buildEntityFormulaContext,
+  collectEffectsWithAuras,
+} from './useResolvedStats';
 import { useWorldEntities } from './useWorldEntities';
 
 /**
@@ -115,7 +117,7 @@ export function collectDefenderRollFormulas(
     ? collectIncomingAttackRollFormulas(
         found.effects,
         buildIncomingAttackContext(attacker, attackType),
-        buildResolvedFormulaContext(found.defender),
+        buildEntityFormulaContext(found.defender),
       )
     : [];
 }

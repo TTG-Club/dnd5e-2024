@@ -155,19 +155,39 @@ describe('порядок расчёта', () => {
     assert.equal(stats.abilities.wisdom, 14);
   });
 
-  it('прочие строки листа читают характеристики уже с изменениями', () => {
-    const actor = raisedCharisma('effect');
-    const before = engine.resolveActorStats(actor).movement.walk;
+  // README § «Токены формул», порядок расчёта: второй проход видит изменения
+  // характеристик эффектами (шаг 2), а свои бонусы листа (шаг 3) ложатся в
+  // Фазе 3 — строка листа их ещё не видит
+  for (const [way, expectedMod] of [
+    ['effect', 3],
+    ['abilityBonuses', 2],
+  ]) {
+    it(`прочие строки листа читают характеристики после шага 2: ${way}`, () => {
+      const actor = raisedCharisma(way);
+      const before = engine.resolveActorStats(actor).movement.walk;
 
-    actor.activeEffects = [
-      ...actor.activeEffects,
-      createEffect('stride', {
-        changes: [change('movement.walk', '@mod.cha')],
-      }),
-    ];
+      actor.activeEffects = [
+        ...actor.activeEffects,
+        createEffect('stride', {
+          changes: [change('movement.walk', '@mod.cha')],
+        }),
+      ];
 
-    assert.equal(engine.resolveActorStats(actor).movement.walk, before + 3);
-  });
+      assert.equal(
+        engine.resolveActorStats(actor).movement.walk,
+        before + expectedMod,
+      );
+
+      // Сл и прочее вне листа — от итогов шага 4 обоими способами
+      assert.equal(
+        engine.evaluateFormula(
+          SAVE_DC_FORMULA,
+          engine.buildResolvedFormulaContext(actor),
+        ),
+        13,
+      );
+    });
+  }
 
   it('существо: бонус мастерства и модификаторы — как раньше', () => {
     const creature = createCreature();
@@ -212,6 +232,15 @@ describe('вызовы контекста формул', () => {
       .sort();
 
     assert.deepEqual(callers, [...RAW_CONTEXT_FILES].sort());
+  });
+
+  it('клиент строит контекст формул одним помощником — с аурами карты', () => {
+    const callers = listSystemSources()
+      .filter((path) => toSystemPath(path).startsWith('src/client/'))
+      .filter((path) => /\bbuildResolvedFormulaContext\(/u.test(readCode(path)))
+      .map(toSystemPath);
+
+    assert.deepEqual(callers, ['src/client/composables/useResolvedStats.ts']);
   });
 
   it('конвейер не зовёт итоговый контекст', () => {

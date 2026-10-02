@@ -23,7 +23,6 @@ import { useChatStore } from '@/stores/chatStore';
 import { useTargetStore } from '@/stores/targetStore';
 import { useWorldStore } from '@/stores/worldStore';
 import {
-  buildResolvedFormulaContext,
   calculateWeaponAttackModifier,
   checkRange,
   evaluateConditionalBonuses,
@@ -60,6 +59,7 @@ import {
 import { buildRollBonusEvaluator } from './rollBonusEvaluator';
 import { useBonusDamageParts } from './useBonusDamageParts';
 import {
+  buildEntityFormulaContext,
   collectEffectsWithAuras,
   listAmbientEffects,
 } from './useResolvedStats';
@@ -323,9 +323,7 @@ export function openWeaponAttackRoll(
 
       // Условный бонус может быть формулой (`@prof`, `@mod.dex`) — от
       // итоговых чисел атакующего
-      const formulaContext = buildResolvedFormulaContext(attacker, {
-        stats: resolvedStats,
-      });
+      const formulaContext = buildEntityFormulaContext(attacker, resolvedStats);
 
       return {
         attackBonus: evaluateConditionalBonuses(

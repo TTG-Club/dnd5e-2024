@@ -24,7 +24,6 @@ import {
   bindSourceEffectFormulas,
   bindWeaponSpellAbility,
   buildConcentrationEffect,
-  buildResolvedFormulaContext,
   buildSpellZoneDraft,
   getCasterSpellEffects,
   listConcentrationCastIds,
@@ -48,6 +47,7 @@ import {
   postSpellEffectsMessage,
   stampEffectOnApply,
 } from './spellResolutionShared';
+import { buildEntityFormulaContext } from './useResolvedStats';
 
 /** Заклинатель как источник чисел эффекта */
 export interface SpellCasterSource {
@@ -108,7 +108,7 @@ export function prepareCasterSpellEffects(
   }
 
   const formulaContext = {
-    ...buildResolvedFormulaContext(caster),
+    ...buildEntityFormulaContext(caster),
     spellMod: source.spellMod,
     spellSaveDc: source.saveDc,
     castLevel: resolveSpellCastLevel(caster.id, spell),
@@ -265,7 +265,7 @@ export function requestSpellZone(
     casterCreatureType: resolveEntityCreatureType(caster),
     saveDc: source.saveDc,
     formulaContext: {
-      ...buildResolvedFormulaContext(caster),
+      ...buildEntityFormulaContext(caster),
       spellMod: source.spellMod,
       castLevel: resolveSpellCastLevel(caster.id, spell),
     },

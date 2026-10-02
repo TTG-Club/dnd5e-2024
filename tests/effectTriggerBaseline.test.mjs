@@ -343,6 +343,40 @@ describe('фиксация: расход эффекта на броске ата
       'вторая атака в том же ходу лимит не обходит',
     );
   });
+
+  it('«снять после атаки по цели»: эффект действует на сам этот удар и снимается после него', async () => {
+    const { settle, world, emitted } = await loadSettle();
+    const system = new engine.Dnd5eVttSystem();
+
+    // Сопротивление огню до следующей атаки по носителю
+    const ward = createEffect('ward', {
+      flags: ['resistance.fire'],
+      consumeOn: 'attackOnCarrier',
+    });
+
+    const hero = woundedHero({ activeEffects: [ward] });
+    const server = structuredClone(hero);
+    const hpBefore = engine.resolveEntityCurrentHp(hero);
+
+    world.set(hero.id, hero);
+
+    // Окно броска расходует эффект цели до броска
+    settle({ entityId: hero.id, role: 'target' }, 'normal');
+    system.settleCombatState(server, engine.pickCombatState(emitted[0]));
+    assert.deepEqual(server.activeEffects, [], 'на сервере эффект снят');
+
+    // Урон этой атаки оркестратор считает по сущности стора — эффект ещё
+    // на ней: сопротивление действует на этот удар
+    const damaged = structuredClone(hero);
+
+    system.applyDamageToEntity(damaged, 10, false, 'fire');
+    assert.equal(engine.resolveEntityCurrentHp(damaged), hpBefore - 5);
+
+    // Снимок урона снятого эффекта не возвращает
+    system.settleCombatState(server, engine.pickCombatState(damaged));
+    assert.equal(engine.resolveEntityCurrentHp(server), hpBefore - 5);
+    assert.deepEqual(server.activeEffects, []);
+  });
 });
 
 describe('фиксация: разовое срабатывание при входе и попадании', () => {

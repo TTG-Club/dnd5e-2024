@@ -917,6 +917,9 @@ it('projectile attack bonuses follow each assigned target instead of the unrelat
       },
     }),
     useResolvedStats: () => ({ combinedEffects: effects }),
+    // Контекст формул клиента — итоговые числа листа с аурами карты
+    buildEntityFormulaContext: (entity) =>
+      engine.buildResolvedFormulaContext(entity),
     useBonusDamageParts: () => ({ buildTargetHpContext }),
     getAttackFlagCategoryOfKeys: () => undefined,
     withAdjacentAllies: (target) => target,
@@ -1135,7 +1138,7 @@ it('attack roll bonuses add the target defences against this attack', async () =
       }),
       useResolvedStats: () => ({ combinedEffects: { value: [] } }),
       buildCarrierContext: (entity) => ({ entityId: entity.id }),
-      buildResolvedFormulaContext: () => ({}),
+      buildEntityFormulaContext: () => ({}),
       useBonusDamageParts: () => ({
         buildTargetHpContext: (_entity, attackerId) => ({
           entityId: 'warded',

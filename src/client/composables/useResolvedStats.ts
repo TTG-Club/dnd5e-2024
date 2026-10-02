@@ -5,6 +5,7 @@ import type {
   DnDActor,
   DnDCreature,
   DnDSceneEntity,
+  FormulaContext,
   ResolvedActorStats,
 } from '@vtt/shared/system/dnd.js';
 
@@ -13,6 +14,7 @@ import { computed } from 'vue';
 import { useAuraStore } from '@/stores/auraStore';
 import { systemRegistry } from '@vtt/shared';
 import {
+  buildResolvedFormulaContext,
   collectActiveEffects,
   combineEffectsWithAmbient,
   isActiveEffect,
@@ -43,6 +45,28 @@ export function collectEffectsWithAuras(
   return combineEffectsWithAmbient(
     collectActiveEffects(entity),
     listAmbientEffects(entity.id),
+  );
+}
+
+/**
+ * Контекст формул сущности на клиенте — от итоговых чисел листа вместе с
+ * аурами карты, как их показывает сам лист. Аура, поднявшая характеристику,
+ * меняет и Сл, и урон формулой: без неё бросок разошёлся бы с листом.
+ *
+ * Готовые числа (`stats`) передаёт тот, кто их уже посчитал, — с теми же
+ * аурами ({@link listAmbientEffects}).
+ *
+ * @param entity - персонаж или существо
+ * @param stats - уже посчитанные числа листа с аурами
+ * @returns контекст формул
+ */
+export function buildEntityFormulaContext(
+  entity: DnDActor | DnDCreature,
+  stats?: ResolvedActorStats,
+): FormulaContext {
+  return buildResolvedFormulaContext(
+    entity,
+    stats ? { stats } : { ambientEffects: listAmbientEffects(entity.id) },
   );
 }
 

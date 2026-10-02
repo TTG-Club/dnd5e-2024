@@ -34,7 +34,6 @@ import { useTargetStore } from '@/stores/targetStore';
 import {
   buildCarrierContext,
   buildPseudoSpell,
-  buildResolvedFormulaContext,
   calculateWeaponDamageModifier,
   collectBonusDamageFormulas,
   entityHasDamageStatus,
@@ -64,6 +63,7 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { findAlliesAdjacentToTarget } from './targetAllyAdjacent';
+import { buildEntityFormulaContext } from './useResolvedStats';
 
 /** Контекст броска из модалки (фактический режим преимущества/помехи) */
 interface ModalRollContext {
@@ -480,9 +480,7 @@ export function useBonusDamageParts() {
 
     const baseParts = withFlatDamageBonus(resolvedParts, flatDamageMod);
 
-    const formulaContext = buildResolvedFormulaContext(actor, {
-      stats: resolvedStats,
-    });
+    const formulaContext = buildEntityFormulaContext(actor, resolvedStats);
 
     // Контекст тот же, что у основной формулы урона: @mod.<abil>, @prof,
     // @level (@mod.spell у оружия недоступен — нет контекста заклинания)
@@ -585,7 +583,7 @@ export function useBonusDamageParts() {
       targetType,
     );
 
-    const formulaContext = buildResolvedFormulaContext(creature);
+    const formulaContext = buildEntityFormulaContext(creature);
 
     const resolveFormula = (subFormula: string): string =>
       resolveBonusFormula(subFormula, 'существа', (formula) =>
@@ -652,7 +650,7 @@ export function useBonusDamageParts() {
       targetType,
     );
 
-    const formulaContext = buildResolvedFormulaContext(creature);
+    const formulaContext = buildEntityFormulaContext(creature);
 
     // У заклинания существа в контексте есть ещё и @mod.spell
     const resolveFormula = (subFormula: string): string =>

@@ -27,7 +27,6 @@ import {
 } from '@vtt/shared';
 import {
   buildAttackFormula,
-  buildResolvedFormulaContext,
   formatSavingThrowRequestTitle,
   getNaturalD20Roll,
   hasSaveSource,
@@ -54,7 +53,10 @@ import {
   formatSavingThrowRollLabel,
   formatSavingThrowTitle,
 } from './spellResolutionShared';
-import { collectEffectsWithAuras } from './useResolvedStats';
+import {
+  buildEntityFormulaContext,
+  collectEffectsWithAuras,
+} from './useResolvedStats';
 import { useWorldEntities } from './useWorldEntities';
 
 /** Префикс сообщений композабла в консоли */
@@ -209,7 +211,7 @@ function getActorSaveInfo(
         collectEffectsWithAuras(entity),
         saveAbility,
         options,
-        buildResolvedFormulaContext(entity, { stats }),
+        buildEntityFormulaContext(entity),
       )
     : NO_SOURCE_ADJUSTMENTS;
 
