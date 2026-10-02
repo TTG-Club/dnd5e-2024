@@ -4,6 +4,7 @@ import { describe, it } from 'vitest';
 
 import {
   authoredScenario,
+  CELL_SIZE,
   createActor,
   createEffect,
   createToken,
@@ -454,6 +455,61 @@ describe('каталог: действия срабатываний', () => {
     );
 
     assert.equal(moves[0].position.y, surroundings.token.y, 'по прямой');
+  });
+
+  it('[A12d] Толчок наискось ставит фишку в клетку, а не мимо сетки', () => {
+    // «Телекинетический толчок» на 5 футов по диагонали: по прямой между
+    // центрами это 0,7 клетки по каждой оси — фишка вставала мимо сетки
+    const scene = {
+      target: createToken('actor_victim', 3, 3),
+      origin: createToken('actor_caster', 2, 2),
+      gridSettings: GRID,
+    };
+
+    assert.deepEqual(
+      engine.resolveForcedMovePosition(
+        { type: 'move', kind: 'push', distance: 5 },
+        scene,
+      ),
+      { x: 4 * CELL_SIZE, y: 4 * CELL_SIZE },
+      '5 футов наискось — одна клетка по диагонали',
+    );
+
+    assert.deepEqual(
+      engine.resolveForcedMovePosition(
+        { type: 'move', kind: 'push', distance: 10 },
+        scene,
+      ),
+      { x: 5 * CELL_SIZE, y: 5 * CELL_SIZE },
+      '10 футов наискось — две клетки по диагонали',
+    );
+
+    assert.deepEqual(
+      engine.resolveForcedMovePosition(
+        { type: 'move', kind: 'pull', distance: 5 },
+        { ...scene, target: createToken('actor_victim', 5, 4) },
+      ),
+      { x: 4 * CELL_SIZE, y: 3 * CELL_SIZE },
+      'притягивание под углом тоже попадает в клетку',
+    );
+
+    // Прямой толчок прежний, а счёт по обычной длине диагональ не растягивает
+    assert.deepEqual(
+      engine.resolveForcedMovePosition(
+        { type: 'move', kind: 'push', distance: 10 },
+        { ...scene, target: createToken('actor_victim', 4, 2) },
+      ),
+      { x: 6 * CELL_SIZE, y: 2 * CELL_SIZE },
+    );
+
+    assert.deepEqual(
+      engine.resolveForcedMovePosition(
+        { type: 'move', kind: 'push', distance: 10 },
+        { ...scene, gridSettings: { ...GRID, diagonalRule: 'euclidean' } },
+      ),
+      { x: 4 * CELL_SIZE, y: 4 * CELL_SIZE },
+      'по правилу обычной длины 10 футов наискось — 1,4 клетки, то есть одна',
+    );
   });
 
   it('[A12b] Притягивание не проносит цель сквозь того, кто тянет', () => {
