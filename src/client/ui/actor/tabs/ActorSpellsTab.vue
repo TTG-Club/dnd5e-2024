@@ -68,6 +68,7 @@
     getSpellProjectileCount,
     getSpellSaveDCBreakdown,
     getTotalLevel,
+    hasLandingTrigger,
     isDndSceneEntity,
     isGrantedSpell,
     isSpellReady,
@@ -116,6 +117,7 @@
   } from '../../../composables/rollBonusEvaluator';
   import {
     completeSpellCast,
+    landCasterEventEffects,
     prepareCasterSpellEffects,
     SPELL_CAST_KEY_PREFIX,
   } from '../../../composables/spellCastCompletion';
@@ -250,6 +252,12 @@
    * параллельные изменения), и анонсируется в чат. Сл и числа заклинателя
    * подставлены, одноимённый эффект обновляется, а не стакается.
    *
+   * Эффект со срабатыванием «при наложении» («Связь с иным планом»: спасбросок,
+   * урон и состояние) идёт боевым снимком: сохранение листа сервер событием
+   * наложения не считает, и срабатывание молчало. Снимок уходит после
+   * сохранений листа этого каста — иначе они затёрли бы исход срабатывания
+   * прежней копией эффектов.
+   *
    * @param spell - заклинание
    */
   function applyCasterSpellEffects(spell: Spell): void {
@@ -263,16 +271,30 @@
       return;
     }
 
-    emit('update:actor', {
-      activeEffects: mergeAppliedEffects(
-        props.actor.activeEffects ?? [],
-        casterEffects,
-      ),
-    });
+    const eventEffects = casterEffects.filter(hasLandingTrigger);
 
-    triggerSaveIfNotEdit();
+    const sheetEffects = casterEffects.filter(
+      (effect) => !hasLandingTrigger(effect),
+    );
+
+    if (sheetEffects.length > 0) {
+      emit('update:actor', {
+        activeEffects: mergeAppliedEffects(
+          props.actor.activeEffects ?? [],
+          sheetEffects,
+        ),
+      });
+
+      triggerSaveIfNotEdit();
+    }
 
     postSpellEffectsMessage(spell.name, [props.actor.name], casterEffects);
+
+    if (eventEffects.length > 0) {
+      // Заклинатель читается в момент отправки: к этому времени лист уже
+      // записал расход ячейки и остальные эффекты каста
+      setTimeout(() => landCasterEventEffects(props.actor, eventEffects), 0);
+    }
   }
 
   const isSettingsModalOpen = ref(false);

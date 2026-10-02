@@ -81,6 +81,7 @@ import {
   getTotalLevel,
   getWeaponPrimaryDamageType,
   hasCreatureSpellUsesLeft,
+  hasLandingTrigger,
   hasTargetToken,
   isCreatureAttackAction,
   isCreatureSpellPoolMode,
@@ -163,6 +164,7 @@ import {
 } from '../composables/rollBonusEvaluator';
 import {
   completeSpellCast,
+  landCasterEventEffects,
   prepareCasterSpellEffects,
   SPELL_CAST_KEY_PREFIX,
 } from '../composables/spellCastCompletion';
@@ -1888,17 +1890,21 @@ function castBuffSpellMacro(
   const chatStore = useChatStore();
 
   /**
-   * Добавляет эффекты заклинания к клону актёра и шлёт анонс в чат.
+   * Добавляет эффекты заклинания к клону актёра и шлёт анонс в чат. Эффекты
+   * со срабатыванием «при наложении» в клон не идут: событие наложения сервер
+   * видит только в боевом снимке — их отправляют следом, после обновления
+   * сущности (`landCasterEventEffects`).
    *
    * @param target - клон актёра-заклинателя для отправки
    * @param casterEffects - готовые эффекты на заклинателя
+   * @returns эффекты, которые нужно отправить боевым снимком
    */
   const appendEffects = (
     target: DnDActor,
     casterEffects: ActiveEffect[],
-  ): void => {
+  ): ActiveEffect[] => {
     if (casterEffects.length === 0) {
-      return;
+      return [];
     }
 
     if (!target.activeEffects) {
@@ -1909,10 +1915,12 @@ function castBuffSpellMacro(
     // Копии уже с Сл и точной длительностью хода заклинателя
     target.activeEffects = mergeAppliedEffects(
       target.activeEffects,
-      casterEffects,
+      casterEffects.filter((effect) => !hasLandingTrigger(effect)),
     );
 
     postSpellEffectsMessage(spell.name, [actor.name], casterEffects);
+
+    return casterEffects.filter(hasLandingTrigger);
   };
 
   // Уровневые (не врождённые): окно выбора круга. Списание ячейки и эффекты —
@@ -1987,7 +1995,7 @@ function castBuffSpellMacro(
           }
         }
 
-        appendEffects(updatedActor, prepareEffects());
+        const eventEffects = appendEffects(updatedActor, prepareEffects());
 
         // Локальный стор + сервер одним полным обновлением сущности
         worldStore.updateActor(worldId, actor.id, {
@@ -1998,6 +2006,9 @@ function castBuffSpellMacro(
         if (socket) {
           emitEntityUpdate(socket, updatedActor);
         }
+
+        // Следом за обновлением: иначе оно затёрло бы исход срабатывания
+        landCasterEventEffects(updatedActor, eventEffects);
 
         // Эффекты на выбранную цель (effectTarget 'target') — отдельной
         // сущности, отдельным обновлением (без гонки с апдейтом кастера).
@@ -2029,7 +2040,7 @@ function castBuffSpellMacro(
       const socket = chatStore.getSocket();
       const updatedActor: DnDActor = JSON.parse(JSON.stringify(actor));
 
-      appendEffects(updatedActor, casterEffects);
+      const eventEffects = appendEffects(updatedActor, casterEffects);
 
       worldStore.updateActor(worldId, actor.id, {
         activeEffects: updatedActor.activeEffects,
@@ -2038,6 +2049,8 @@ function castBuffSpellMacro(
       if (socket) {
         emitEntityUpdate(socket, updatedActor);
       }
+
+      landCasterEventEffects(updatedActor, eventEffects);
     }
 
     applySpellTargetEffects(chosen, targetEffectsSource, effectTargets);

@@ -175,6 +175,36 @@ export function applyCasterSpellEffectsToEntity(
 }
 
 /**
+ * Кладёт на заклинателя эффекты со срабатыванием «при наложении» боевым
+ * снимком: событие наложения сервер видит только в нём («Связь с иным
+ * планом»: спасбросок, урон и состояние срабатывания). Лист персонажа пишет
+ * остальные самобаффы своим сохранением, а эти — сюда.
+ *
+ * @param caster - заклинатель с текущими эффектами
+ * @param effects - готовые эффекты «на себя» с событием наложения
+ */
+export function landCasterEventEffects(
+  caster: DnDSceneEntity,
+  effects: readonly ActiveEffect[],
+): void {
+  const socket = useChatStore().getSocket();
+
+  if (effects.length === 0 || !socket) {
+    return;
+  }
+
+  // Клон: живую запись стора меняет только ответ сервера
+  const updatedCaster: DnDSceneEntity = JSON.parse(JSON.stringify(caster));
+
+  updatedCaster.activeEffects = mergeAppliedEffects(
+    updatedCaster.activeEffects ?? [],
+    effects,
+  );
+
+  emitEntityCombatState(socket, updatedCaster);
+}
+
+/**
  * Заканчивает прежнюю концентрацию заклинателя: новая концентрация
  * заканчивает старую. Касты с меткой заканчивает сервер — со всеми их
  * эффектами и зонами; зоны без каста (созданные до меток) снимаются здесь.
