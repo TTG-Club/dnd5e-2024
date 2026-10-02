@@ -236,6 +236,27 @@ export function canEscapeEffect(
   );
 }
 
+/**
+ * Может ли существо помочь вырваться из эффекта как «существо рядом».
+ *
+ * Тот, кто эффект наложил, помощником не считается: он его держит. Иначе
+ * ведущему, который управляет всеми, среди помощников предлагалось бы само
+ * существо, схватившее носителя, — бросать проверку против собственной Сл.
+ * Носитель, наложивший эффект на себя, вырывается сам — в роли носителя.
+ *
+ * @param effect - эффект с блоком «вырваться»
+ * @param helperId - существо рядом с носителем
+ * @returns `true`, если существо вправе помочь
+ */
+export function canHelpEscapeEffect(
+  effect: ActiveEffect,
+  helperId: string,
+): boolean {
+  return (
+    canEscapeEffect(effect, 'adjacent') && effect.sourceActorId !== helperId
+  );
+}
+
 /** Что влияет на режим броска проверки «вырваться» */
 export interface EscapeRollModeParams {
   /** Режим проверки навыка по флагам бросающего (`resolveAbilityCheckRollMode`) */

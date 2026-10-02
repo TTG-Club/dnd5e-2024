@@ -133,6 +133,98 @@ function grappled(overrides = {}) {
 }
 
 const hero = { id: 'hero', name: 'Hero', system: {}, activeEffects: [] };
+
+/**
+ * Настоящие списки «кто действует» и «чем помочь рядом» на выдуманной сцене.
+ *
+ * @param {object[]} nearby - кто стоит в пределах касания
+ * @returns {Promise<object>} списки
+ */
+async function loadEscapeLists(nearby) {
+  const ports = {
+    canEscapeEffect: engine.canEscapeEffect,
+    canHelpEscapeEffect: engine.canHelpEscapeEffect,
+    formatEffectEscapeLabel: engine.formatEffectEscapeLabel,
+    DEFAULT_REACH_FEET: engine.DEFAULT_REACH_FEET,
+    EFFECT_ESCAPE_LABELS: { titleSeparator: ' — ' },
+    listEntitiesNear: () => nearby,
+    // Ведущий управляет всеми
+    controlsEntityAsUser: () => true,
+  };
+
+  return {
+    listEscapeActors: await loadHandler(helperPath, 'listEscapeActors', {
+      ...ports,
+    }),
+    listEscapeHelpOffers: await loadHandler(
+      helperPath,
+      'listEscapeHelpOffers',
+      { ...ports },
+    ),
+  };
+}
+
+it('наложивший эффект в помощники «вырваться» не предлагается', async () => {
+  const plant = { id: 'plant', name: 'Plant', system: {}, activeEffects: [] };
+
+  const friend = {
+    id: 'friend',
+    name: 'Friend',
+    system: {},
+    activeEffects: [],
+  };
+
+  const pod = grappled({
+    id: 'pod',
+    name: 'В стручке',
+    sourceActorId: plant.id,
+    escape: { by: 'adjacent', check: { skill: 'athletics', dc: 13 } },
+  });
+
+  const victim = { ...hero, activeEffects: [pod] };
+
+  const fromVictim = await loadEscapeLists([plant, friend]);
+
+  assert.equal(
+    fromVictim
+      .listEscapeActors(victim, pod)
+      .map((actor) => `${actor.entity.id}:${actor.role}`)
+      .join(),
+    'friend:adjacent',
+    'у ведущего в списке «кто действует» самого растения нет',
+  );
+
+  const fromHelper = await loadEscapeLists([victim]);
+
+  assert.equal(
+    fromHelper.listEscapeHelpOffers(plant.id).length,
+    0,
+    'на листе растения помощи со своим стручком нет',
+  );
+
+  assert.equal(
+    fromHelper.listEscapeHelpOffers(friend.id).length,
+    1,
+    'сосед помочь может',
+  );
+});
+
+it('носитель, наложивший эффект на себя, вырывается сам', async () => {
+  const tangled = grappled({
+    sourceActorId: hero.id,
+    escape: { by: 'any', check: { skill: 'athletics', dc: 13 } },
+  });
+
+  const { listEscapeActors } = await loadEscapeLists([]);
+
+  assert.equal(
+    listEscapeActors({ ...hero, activeEffects: [tangled] }, tangled)
+      .map((actor) => actor.role)
+      .join(),
+    'self',
+  );
+});
+
 const friend = { id: 'friend', name: 'Friend', system: {}, activeEffects: [] };
 
 /** Действует сам носитель */

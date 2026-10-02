@@ -29,6 +29,7 @@ import {
   applyDamagePartsToCopy,
   buildEscapeAftermath,
   canEscapeEffect,
+  canHelpEscapeEffect,
   DEFAULT_REACH_FEET,
   describeEscapeUnavailable,
   escapeAllowsRole,
@@ -136,6 +137,7 @@ export function listEntitiesNear(
 /**
  * Кто может действовать, чтобы снять эффект, из тех, кем управляет текущий
  * пользователь: сам носитель и существа рядом с ним — по настройке эффекта.
+ * Наложивший эффект в помощники не идёт (`canHelpEscapeEffect`).
  *
  * @param carrier - носитель эффекта
  * @param effect - эффект с блоком «вырваться»
@@ -158,7 +160,11 @@ export function listEscapeActors(
 
   const helpers: EscapeActor[] = canEscapeEffect(effect, 'adjacent')
     ? listEntitiesNear(carrier.id, DEFAULT_REACH_FEET)
-        .filter(controlsEntityAsUser)
+        .filter(
+          (entity) =>
+            canHelpEscapeEffect(effect, entity.id)
+            && controlsEntityAsUser(entity),
+        )
         .map((entity) => ({ entity, role: 'adjacent' }))
     : [];
 
@@ -428,7 +434,7 @@ export interface EscapeHelpOffer {
 /**
  * Чем существо может помочь тем, кто рядом: эффекты соседей, из которых
  * вправе вырывать «существо рядом». Так помощник действует со своего листа, не
- * открывая чужой.
+ * открывая чужой. Эффекты, которые существо наложило само, не предлагаются.
  *
  * @param helperId - помощник
  * @returns предложения помощи; нет сцены или соседей — пусто
@@ -436,7 +442,7 @@ export interface EscapeHelpOffer {
 export function listEscapeHelpOffers(helperId: string): EscapeHelpOffer[] {
   return listEntitiesNear(helperId, DEFAULT_REACH_FEET).flatMap((carrier) =>
     (carrier.activeEffects ?? [])
-      .filter((effect) => canEscapeEffect(effect, 'adjacent'))
+      .filter((effect) => canHelpEscapeEffect(effect, helperId))
       .map((effect) => ({
         carrier,
         effect,
