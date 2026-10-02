@@ -894,7 +894,6 @@ export function registerDnd5eMacros(): void {
                     }
 
                     recordEntityActionSpend(foundActor.id, attackCost, true);
-                    warnOpportunityAttack(foundActor.id);
 
                     return true;
                   },

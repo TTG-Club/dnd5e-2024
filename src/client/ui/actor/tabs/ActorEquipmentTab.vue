@@ -83,7 +83,6 @@
   import {
     recordEntityActionSpend,
     runWithWeaponAttackCost,
-    warnOpportunityAttack,
   } from '../../../composables/actionSpend';
   import { runWeaponAttackChoices } from '../../../composables/attackKindChoice';
   import {
@@ -603,7 +602,6 @@
               }
 
               recordEntityActionSpend(props.entity.id, attackCost, true);
-              warnOpportunityAttack(props.entity.id);
 
               return true;
             },

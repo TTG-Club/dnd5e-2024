@@ -461,7 +461,7 @@ d20, а не по сумме с бонусной костью. Для «Благ
 | `spellcasting.blocked`, `spellcasting.noVerbal`, `concentration.blocked` | заклинание (все, с вербальным компонентом, с концентрацией) не накладывается, кнопка гаснет с причиной; запрет концентрации прерывает текущую | `actionRestrictions.ts`, `settleCombatState` |
 | `actions.oneOfMoveActionBonus` | за ход одно из трёх: перемещение, действие или бонусное действие; после действия запас хода нулевой, после своего перемещения действие гаснет | `actionRestrictions.ts`, `applyMovementEffects`, `getTotalMovementSpeed` |
 | `actions.oneAttackPerAction` | действием «Атака» — одна атака за ход: второй удар оружием действием и вторая атака из «Действий» статблока гаснут с причиной; удар бонусным действием и реакцией не считается. Второй удар персонаж может объявить бонусным действием — один раз за ход: объявленное бонусное действие пишется в счёт хода (`planWeaponAttack`) | `actionRestrictions.ts` |
-| `actions.noOpportunityAttack` | провоцированных атак нет, остальные реакции доступны: удар вне своего хода — предупреждение | `resolveOpportunityAttackWarning` |
+| `actions.noOpportunityAttack` | провоцированных атак нет, остальные реакции доступны: удар вне своего хода — предупреждение до окна броска (у персонажа — `runWithWeaponAttackCost`, у существа — при запуске действия) | `resolveOpportunityAttackWarning` |
 | `spellcasting.noMagicAction`, `spellcasting.noSchool.<школа>` | заклинание действием / заклинание школы не накладывается, кнопка гаснет с причиной | `actionRestrictions.ts` |
 
 **Ограничения действий** (`engine/actionRestrictions.ts`) — одна модель: флаг
