@@ -89,8 +89,20 @@ const bundle = await build({
           return { path: request.path, namespace: 'host-api' };
         });
 
+        // Уведомления Nuxt UI отдаёт хост: разбор целей предупреждает ими о
+        // непосчитанной Сл, а сам пакет вне приложения не собирается
+        builder.onResolve(
+          { filter: /^@nuxt\/ui\/composables$/ },
+          (request) => ({
+            path: request.path,
+            namespace: 'host-api',
+          }),
+        );
+
         builder.onLoad({ filter: /.*/, namespace: 'host-api' }, (request) => {
           const exports = {
+            '@nuxt/ui/composables':
+              'export const useToast = () => ({ add: () => {} });',
             '@/stores/targetStore':
               'export const useTargetStore = () => ({ targetTokenId: null });',
             '@/stores/spellTemplateStore':

@@ -38,12 +38,18 @@ function usableEffect(name, overrides = {}) {
  * @param {object} options - кого выберут получателем
  * @param {string | null} options.chosenTargetId - выбранный; `null` — плашку
  *   закрыли или рядом никого
+ * @param {object | null} options.unresolvedSaveDc - Сл спасброска эффекта «на
+ *   цель», которую не из чего посчитать; нет — Сл считается
  * @returns {Promise<object>} хелпер и журнал
  */
-async function loadApply({ chosenTargetId }) {
+async function loadApply({ chosenTargetId, unresolvedSaveDc = null }) {
   const steps = [];
 
   const apply = await loadHandler(helperPath, 'applyEffectSource', {
+    findUnresolvedTargetSaveDc: () => unresolvedSaveDc,
+    warnUnresolvedSaveDc: (sourceName, problem, outcomeSuffix) =>
+      steps.push(['warn', sourceName, problem.formula, outcomeSuffix]),
+    UNRESOLVED_SAVE_DC_LABELS: { notAppliedSuffix: ' — отменено' },
     getTargetSpellEffects: engine.getTargetSpellEffects,
     settleUseSpellArea: engine.settleUseSpellArea,
     collectSourcePay: engine.collectSourcePay,
@@ -130,6 +136,27 @@ it('эффект на цель уходит выбранному получат�
     ['spend'],
     ['self', 0],
     ['target', 'hero', 15, ['goblin']],
+  ]);
+});
+
+it('сл не посчитана: ни выбора цели, ни расхода — только предупреждение', async () => {
+  const { apply, steps } = await loadApply({
+    chosenTargetId: 'goblin',
+    unresolvedSaveDc: {
+      problem: { formula: '8 + 2 + @mod.feat', tokens: ['@mod.feat'] },
+    },
+  });
+
+  const shove = engine.buildItemUseSpell({
+    id: 'shove',
+    name: 'Shove',
+    activeEffects: [usableEffect('Shoved', { effectTarget: 'target' })],
+  });
+
+  apply(shove, hero, 0, () => steps.push(['spend']));
+
+  assert.deepEqual(steps, [
+    ['warn', 'Shove', '8 + 2 + @mod.feat', ' — отменено'],
   ]);
 });
 

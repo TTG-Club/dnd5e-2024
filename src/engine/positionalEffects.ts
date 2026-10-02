@@ -59,6 +59,11 @@ import {
   formatZoneRequesterLabel,
   shouldRequestEffectSave,
 } from './effectSaveAcquisition.js';
+import { resolveSaveDc } from './effectSaveDcOwner.js';
+import {
+  findUnresolvedSaveDc,
+  formatUnresolvedSaveDcNote,
+} from './effectSaveDcProblem.js';
 import {
   admitTrigger,
   listPresenceTriggerSources,
@@ -229,6 +234,18 @@ function runEntryEffect(
   const outcome = createPresenceOutcome();
   const { requestRoll, requesterLabel, effectOptions } = context;
 
+  // Сл не из чего посчитать — бросок против нуля был бы успехом у любого:
+  // эффект не срабатывает, а в сводке видно почему
+  const unresolvedDc = effect.applySave
+    ? findUnresolvedSaveDc(effect.applySave, resolveSaveDc(effect.applySave))
+    : null;
+
+  if (unresolvedDc) {
+    outcome.notes.push(formatUnresolvedSaveDcNote(effect.name, unresolvedDc));
+
+    return outcome;
+  }
+
   // Спасбросок бросает игрок — срабатывание ждёт его ответа
   if (effect.applySave && shouldRequestEffectSave(entity, requestRoll)) {
     const trigger = requestEntryEffect(
@@ -275,7 +292,11 @@ export function runPresenceTriggerSources(
     // Срабатывание, которое спросит человека, лимит тратит уже по согласию
     const asks = triggerAsksPermission(source.trigger) && Boolean(requestRoll);
 
-    if (!admitTrigger(entity, source, eventData, context.inCombat, asks)) {
+    if (
+      !admitTrigger(entity, source, eventData, context.inCombat, asks, (note) =>
+        outcome.notes.push(note),
+      )
+    ) {
       continue;
     }
 

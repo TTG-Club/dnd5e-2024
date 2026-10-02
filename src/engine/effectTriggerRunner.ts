@@ -21,6 +21,7 @@ import type {
 } from './dndEntities.js';
 import type { PreparedTriggerSource } from './effectPay.js';
 import type { CarriedEffectSourceKind } from './effectPipeline.js';
+import type { UnresolvedSaveDc } from './effectSaveDcProblem.js';
 import type {
   EffectTempHpMode,
   EffectTrigger,
@@ -100,7 +101,14 @@ import {
   listTraitEffects,
   resolveActorStats,
 } from './effectPipeline.js';
-import { resolveSaveDc } from './effectSaveDcOwner.js';
+import {
+  bindTriggerSourceSaveDcs,
+  resolveSaveDc,
+} from './effectSaveDcOwner.js';
+import {
+  findUnresolvedSaveDc,
+  formatUnresolvedSaveDcNote,
+} from './effectSaveDcProblem.js';
 import { advanceEffectStage, formatEffectStageLabel } from './effectStages.js';
 import {
   isClientAttackRollTrigger,
@@ -211,11 +219,17 @@ export interface DeferredTurnTrigger extends EffectTriggerSource {
  * проверяет: их тратит согласие ({@link takeTriggerAdmission}), а не вопрос —
  * иначе отказ съедал бы «раз в ход» и реакцию раунда.
  *
+ * Срабатывание со спасброском, чью Сл не из чего посчитать, не выполняется:
+ * бросок против нуля был бы успехом у любого. Об отказе пишется строка в
+ * сводку — молча такое срабатывание не пропадает; лимит и заряд оно не тратит.
+ *
  * @param entity - субъект срабатывания
  * @param source - срабатывание с источником
  * @param eventData - данные события для условия
  * @param inCombat - идёт ли у субъекта бой (лимит хода и раунда)
  * @param hold - только проверить лимит и заряд, не тратя их
+ * @param collectNote - куда писать, почему срабатывание пропущено; нет —
+ *   сообщать некому
  * @returns `true`, если срабатывание выполняется
  */
 export function admitTrigger(
@@ -224,6 +238,7 @@ export function admitTrigger(
   eventData: TriggerEventData = {},
   inCombat?: boolean,
   hold = false,
+  collectNote?: (note: string) => void,
 ): boolean {
   // Порядок проверок — от самой дешёвой отмены к самой дорогой: невыполненное
   // условие не должно тратить ни «раз в ход», ни заряд эффекта
@@ -241,6 +256,14 @@ export function admitTrigger(
     return false;
   }
 
+  const unresolvedDc = findUnresolvedTriggerSaveDc(entity, source, eventData);
+
+  if (unresolvedDc) {
+    collectNote?.(formatUnresolvedSaveDcNote(source.effect.name, unresolvedDc));
+
+    return false;
+  }
+
   if (hold) {
     return (
       canTakeTriggerUse(entity, source.scope, source.trigger, inCombat)
@@ -249,6 +272,40 @@ export function admitTrigger(
   }
 
   return takeTriggerAdmission(entity, source, inCombat);
+}
+
+/**
+ * Сл спасброска срабатывания, которую не из чего посчитать.
+ *
+ * Считается так же, как её посчитает бросок: формула — по субъекту, на
+ * котором эффект (`bindTriggerSourceSaveDcs`), остаток — по данным события.
+ * Спасбросок с готовым исходом («автоматический провал, если…») Сл не читает.
+ *
+ * @param entity - субъект срабатывания
+ * @param source - срабатывание с источником
+ * @param eventData - данные события
+ * @returns что не посчиталось либо `null`
+ */
+function findUnresolvedTriggerSaveDc(
+  entity: DnDSceneEntity,
+  source: EffectTriggerSource,
+  eventData: TriggerEventData,
+): UnresolvedSaveDc | null {
+  if (
+    !source.trigger.save
+    || !triggerSaveNeedsRoll(source.trigger, entity, eventData)
+  ) {
+    return null;
+  }
+
+  const { save } = bindTriggerSourceSaveDcs(source, entity).trigger;
+
+  return save
+    ? findUnresolvedSaveDc(
+        save,
+        resolveTriggerSaveDc(save, { entity, eventData }),
+      )
+    : null;
 }
 
 /**
@@ -2198,6 +2255,7 @@ export function processTurnEffects(
         buildTurnEventData(source, options),
         undefined,
         asks,
+        (note) => result.notes.push(note),
       )
     ) {
       blockedTriggers.add(source.trigger);
@@ -2921,6 +2979,7 @@ export function settleSelfTriggerSources(
         withCombatRound({}, options.combatRound),
         undefined,
         holds,
+        report ? (note) => report.notes.push(note) : undefined,
       )
     ) {
       continue;

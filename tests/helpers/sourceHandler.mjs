@@ -125,6 +125,9 @@ export async function loadHandler(relativePath, name, ports, macro = false) {
   ports.runWithDamageTypeChoices ??= (source, proceed) => proceed(source);
   ports.applySourceDamageTypeChoices ??= (source) => source;
 
+  // Сл спасброска у фикстур считается: проверка непосчитанной Сл проходная
+  ports.findUnresolvedTargetSaveDc ??= () => null;
+
   // Действие существа «спасбросок без урона» идёт мимо окна броска: у фикстур
   // с уроном разбор отвечает «нет» и окно открывается как раньше
   ports.runDamagelessCreatureAction ??= () => false;

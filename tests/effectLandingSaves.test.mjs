@@ -43,6 +43,7 @@ async function loadSaveFilter() {
     bindTargetEffectsToCaster: (effects) => effects,
     isDndSceneEntity: engine.isDndSceneEntity,
     passesLandingCondition: engine.passesLandingCondition,
+    findUnresolvedApplySaveDc: engine.findUnresolvedApplySaveDc,
     buildLandingContext: () => ({ source: createActor() }),
   });
 }

@@ -43,6 +43,7 @@ import {
   spendItemUse,
   stampSkillCheckDc,
   tracksWeaponAmmunition,
+  UNRESOLVED_SAVE_DC_LABELS,
   withAmmunition,
 } from '@vtt/shared/system/dnd.js';
 
@@ -71,6 +72,10 @@ import {
   createChosenEffectTargets,
 } from './spellEffectTargeting';
 import { getTargetSpellEffects } from './spellResolutionShared';
+import {
+  findUnresolvedTargetSaveDc,
+  warnUnresolvedSaveDc,
+} from './unresolvedSaveDc';
 import { listAmbientEffects } from './useResolvedStats';
 import { getSpellMaxRangeOnScene } from './useSceneRangeCheck';
 import { useWorldEntities } from './useWorldEntities';
@@ -198,6 +203,20 @@ export function applyEffectSource(
   runWithEffectVariants(spell, (variant) => {
     // Область — у выбранного варианта: «луч» шаблона «вспышки» не требует
     runWithDamageTypeChoices(settleUseSpellArea(variant), (chosen) => {
+      // Сл спасброска не из чего посчитать — бросок против нуля прошёл бы
+      // любой. Останавливаемся до выбора цели и оплаты: ничего не потрачено
+      const unresolved = findUnresolvedTargetSaveDc(chosen, user.id, saveDc);
+
+      if (unresolved) {
+        warnUnresolvedSaveDc(
+          chosen.name,
+          unresolved.problem,
+          UNRESOLVED_SAVE_DC_LABELS.notAppliedSuffix,
+        );
+
+        return;
+      }
+
       /**
        * Оплата, расход и наложение источника с уже известной Сл.
        *

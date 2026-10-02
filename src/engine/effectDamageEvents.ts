@@ -628,7 +628,16 @@ function runTriggerEventSource(
   const asks =
     triggerAsksPermission(eventSource.trigger) && Boolean(requestRoll);
 
-  if (!admitTrigger(subject, eventSource, eventData, options.inCombat, asks)) {
+  if (
+    !admitTrigger(
+      subject,
+      eventSource,
+      eventData,
+      options.inCombat,
+      asks,
+      (note) => result.notes.push(note),
+    )
+  ) {
     return 'skipped';
   }
 

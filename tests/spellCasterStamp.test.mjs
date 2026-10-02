@@ -170,6 +170,7 @@ async function loadResolution(entities) {
       hasLastingEffectPayload: engine.hasLastingEffectPayload,
       isImmuneToCondition: engine.isImmuneToCondition,
       stampSourceTurnSaveDc: engine.stampSourceTurnSaveDc,
+      findUnresolvedApplySaveDc: engine.findUnresolvedApplySaveDc,
     },
   );
 

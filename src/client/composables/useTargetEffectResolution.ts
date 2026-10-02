@@ -11,6 +11,7 @@ import type {
 import { useDiceRollerStore } from '@/stores/diceRollerStore';
 import {
   describeSpellSaveSource,
+  findUnresolvedApplySaveDc,
   getEntityConditionImmunities,
   hasLastingEffectPayload,
   isDndSceneEntity,
@@ -25,6 +26,7 @@ import {
   resolveEffectSaveDc,
   rollEffectDamageParts,
   stampSourceTurnSaveDc,
+  UNRESOLVED_SAVE_DC_LABELS,
 } from '@vtt/shared/system/dnd.js';
 
 import { resolveCombatRound } from './encounterTurn';
@@ -35,6 +37,7 @@ import {
   stampEffectOnApply,
 } from './spellResolutionShared';
 import { bindTargetEffectsToCaster } from './targetEffectSourceBinding';
+import { warnUnresolvedSaveDc } from './unresolvedSaveDc';
 import { useSpellSavingThrows } from './useSpellSavingThrows';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -135,6 +138,9 @@ function buildLandingContext(input: TargetEffectsInput): EffectLandingContext {
  * Числа наложившего подставлены: Сл формулой («8 + @prof + @mod.wis» у
  * «Ошеломляющего удара») — его, а не цели.
  *
+ * Эффект, чью Сл не из чего посчитать, тоже не спрашивают: бросок против нуля
+ * прошёл бы любой. Такой эффект не ложится вовсе (`collectTargetEffects`).
+ *
  * @param input - заклинание, цель, кастер
  * @returns эффекты, у которых нужно спросить спасбросок
  */
@@ -147,6 +153,8 @@ function listLandingEffectsWithOwnSave(
     listEffectsWithOwnSave(input.spell),
     input.spell,
     input.casterId,
+  ).filter(
+    (effect) => findUnresolvedApplySaveDc(effect, input.spellSaveDC) === null,
   );
 
   if (!isDndSceneEntity(entity)) {
@@ -387,6 +395,20 @@ export function useTargetEffectResolution() {
     );
 
     for (const effect of landingEffects) {
+      // Сл спасброска эффекта не посчиталась: его не бросали, и «провалом»
+      // это не считается — эффект не ложится и не бьёт, а человек видит почему
+      const unresolvedDc = findUnresolvedApplySaveDc(effect, spellSaveDC);
+
+      if (unresolvedDc) {
+        warnUnresolvedSaveDc(
+          spell.name,
+          unresolvedDc,
+          UNRESOLVED_SAVE_DC_LABELS.effectSkippedSuffix,
+        );
+
+        continue;
+      }
+
       const application = resolveEffectApplication(effect, {
         landed,
         applySaveSucceeded: effectSaves.get(effect.id)?.passed,
