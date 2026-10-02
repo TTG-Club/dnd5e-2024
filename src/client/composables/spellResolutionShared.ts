@@ -52,14 +52,6 @@ export {
   isSaveAbility,
 } from '@vtt/shared/system/dnd.js';
 
-// Вид каста решает движок (`spellCastPlan`); прежние имена отсюда — до
-// перевода всех путей каста на общий разбор
-export {
-  castNeedsMultiPart,
-  castReachesTargets,
-  targetEffectsNeedResolution,
-} from '@vtt/shared/system/dnd.js';
-
 /** Результат спасброска одной цели */
 export interface SpellTargetResult {
   /** Имя актора-цели */

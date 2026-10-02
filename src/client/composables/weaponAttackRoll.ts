@@ -4,12 +4,11 @@
  * Раньше вкладка снаряжения (`ActorEquipmentTab.vue`: `openRollModal`,
  * `handleWeaponRollParts`) и горячая панель (макрос атаки оружием в
  * `dnd5eMacros.ts`) держали по своей копии удара, и копии разошлись: лист не
- * проверял дистанцию до цели (дальнобойный удар вплотную шёл без помехи,
+ * проверял дистанцию до цели (удар на дальней дистанции шёл без помехи,
  * удар за пределом — без отказа), панель не передавала предмет броска в
  * условные бонусы («только этим предметом» с панели не срабатывало), а
- * полные хиты цели считала иначе, чем лист. Здесь один путь; входы
- * различаются портом ({@link WeaponAttackPort}): откуда читать атакующего, как
- * потратить боеприпас и как отказать.
+ * полные хиты цели считала иначе, чем лист. Здесь один путь; порт у входов
+ * один ({@link createWeaponAttackPort}), различается только отказ.
  */
 
 import type {
@@ -43,7 +42,6 @@ import {
   ACTOR_SPELLS_TAB_LABELS,
   SPELL_DAMAGE_ROLL_BUTTON,
 } from '../ui/actor/constants';
-import { CREATURE_ACTIONS_BLOCK_LABELS } from '../ui/creature/constants';
 import {
   recordEntityActionSpend,
   runWithWeaponAttackCost,
@@ -65,7 +63,10 @@ import {
   collectEffectsWithAuras,
   listAmbientEffects,
 } from './useResolvedStats';
-import { measureTokenDistanceOnScene } from './useSceneRangeCheck';
+import {
+  announceOutOfReach,
+  measureTokenDistanceOnScene,
+} from './useSceneRangeCheck';
 import { useSpellResolution } from './useSpellResolution';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -181,8 +182,8 @@ export function startWeaponAttack(
           return;
         }
 
-        // Дистанция до выбранной цели: за пределом — отказ, на дальней
-        // дистанции или вплотную у дальнобойного — помеха
+        // Дистанция до выбранной цели (`checkRange`): за пределом — отказ, на
+        // дальней дистанции — помеха
         const { targetTokenId } = useTargetStore();
 
         const rangeCheck = targetTokenId
@@ -190,10 +191,7 @@ export function startWeaponAttack(
           : null;
 
         if (rangeCheck && !rangeCheck.allowed) {
-          useChatStore().sendMessage(
-            `${CREATURE_ACTIONS_BLOCK_LABELS.outOfRangePrefix}${weapon.name}${CREATURE_ACTIONS_BLOCK_LABELS.outOfRangeMiddle}${rangeCheck.distance} ${rangeCheck.unitLabel}${CREATURE_ACTIONS_BLOCK_LABELS.outOfRangeSuffix}`,
-            'text',
-          );
+          announceOutOfReach(weapon.name, rangeCheck);
 
           return;
         }

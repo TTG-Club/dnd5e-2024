@@ -10,9 +10,13 @@ import type {
   DnDCreature,
   DnDGameItem,
   DnDSceneEntity,
+  Spell,
 } from '@vtt/shared/system/dnd.js';
 
-import type { SpellCasterPort } from '../composables/spellCastFlow';
+import type {
+  SpellCasterPort,
+  SpellCastRefusal,
+} from '../composables/spellCastFlow';
 
 import { registerMacro } from '@/core/registries/macroRegistry';
 import { useChatStore } from '@/stores/chatStore';
@@ -416,12 +420,21 @@ export function registerDnd5eMacros(): void {
  * @returns порт заклинателя
  */
 function createHotbarCasterPort(actorId: string): SpellCasterPort {
-  return createSpellCasterPort(actorId, (spell, refusal) => {
-    useChatStore().sendMessage(
-      `${MACRO_MESSAGE_LABELS.blockedPrefix}${spell.name}: ${refusal.description}`,
-      'text',
-    );
-  });
+  return createSpellCasterPort(actorId, refuseSpellInChat);
+}
+
+/**
+ * Отказ каста с горячей панели — строкой «⛔ <заклинание>: <причина>» в чат.
+ * Причина заклинание не называет: его называет эта строка.
+ *
+ * @param spell - заклинание
+ * @param refusal - почему каст не начался
+ */
+function refuseSpellInChat(spell: Spell, refusal: SpellCastRefusal): void {
+  useChatStore().sendMessage(
+    `${MACRO_MESSAGE_LABELS.blockedPrefix}${spell.name}: ${refusal.description}`,
+    'text',
+  );
 }
 
 /**
@@ -555,12 +568,7 @@ function registerCreatureSpellMacro(): void {
       startCreatureSpellCast(
         foundSpell,
         placement,
-        createCreatureSpellCasterPort(foundCreature.id, (spell, refusal) => {
-          useChatStore().sendMessage(
-            `${MACRO_MESSAGE_LABELS.blockedPrefix}${spell.name}: ${refusal.description}`,
-            'text',
-          );
-        }),
+        createCreatureSpellCasterPort(foundCreature.id, refuseSpellInChat),
       );
     } catch (err) {
       console.error('[Hotbar] Ошибка выполнения creature-spell:', err);

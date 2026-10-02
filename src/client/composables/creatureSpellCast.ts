@@ -219,7 +219,7 @@ export function startCreatureSpellCast(
       if (!hasCreatureSpellUsesLeft(spell, placement)) {
         port.refuse(spell, {
           title: ACTOR_SPELLS_TAB_LABELS.noUsesTitle,
-          description: `${ACTOR_SPELLS_TAB_LABELS.noUsesTextPrefix}${spell.name}${ACTOR_SPELLS_TAB_LABELS.noUsesTextSuffix}`,
+          description: ACTOR_SPELLS_TAB_LABELS.noUsesText,
         });
 
         return;
@@ -472,21 +472,23 @@ export function applyCreatureSpellParts(
   casterSource: SpellCasterSource,
   castKey: string,
 ): void {
-  const creature = readCreature(creatureId);
-
-  if (!creature) {
-    return;
-  }
-
   const templateStore = useSpellTemplateStore();
 
   const cachedTemplate = templateId
     ? (templateStore.getPlacedTemplate(templateId) ?? null)
     : null;
 
+  // Шаблон снимается раньше всего: существо могло уйти из мира, пока окно
+  // было открыто, и шаблон не должен остаться на карте
   if (templateId) {
     templateStore.removePlacedTemplate(templateId);
     templateStore.deleteTemplate(templateId);
+  }
+
+  const creature = readCreature(creatureId);
+
+  if (!creature) {
+    return;
   }
 
   afterSpellCast(

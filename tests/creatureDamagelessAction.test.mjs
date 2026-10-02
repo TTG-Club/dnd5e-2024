@@ -108,6 +108,8 @@ async function createPorts() {
     }),
     buildCreatureRollSetup: buildSetup,
     buildTargetHpContext: () => undefined,
+    isTargetAtFullHp: engine.isTargetAtFullHp,
+    useTargetStore: () => ({ getTargetActor: () => null }),
     buildRollBonusEvaluator: () => () => [],
     getCreatureEntity: () => undefined,
     useWorldEntities: () => ({ findCurrentDndEntity: () => undefined }),

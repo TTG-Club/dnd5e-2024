@@ -3338,6 +3338,22 @@ export const SPELL_CHOOSE_TARGET_LABELS = {
   empty: 'Нет доступных целей на сцене.',
 } as const;
 
+/**
+ * Строки чата о цели вне досягаемости: значок, название и разбор расстояния.
+ * Одни на удар оружием, действие существа и заклинание
+ * (`useSceneRangeCheck.ts`).
+ */
+export const OUT_OF_RANGE_LABELS = {
+  prefix: '⛔ ',
+  /** Удар и действие: дальше идёт расстояние до цели */
+  outOfReach: ': цель вне досягаемости (',
+  /** Заклинание: дальше идёт расстояние до цели */
+  outOfSpellRange: ': цель вне дистанции (до цели ',
+  /** Предел заклинания — показывается, чтобы расстояние не читалось требованием */
+  spellRangePrefix: ', дистанция заклинания — ',
+  close: ')',
+} as const;
+
 /** Префикс ключа окна броска: у каждого открытия своё окно (`diceRollWindow.ts`) */
 export const DICE_ROLL_MODAL_KEY_PREFIX = 'dice-roll';
 
@@ -4802,8 +4818,11 @@ export const ACTOR_SPELLS_TAB_LABELS = {
   cantripLimitTextPrefix: 'Вы не можете подготовить больше заговоров (',
   noUsesTitle: 'Нет зарядов',
   castBlockedTitle: 'Сейчас не наложить',
-  noUsesTextPrefix: 'У «',
-  noUsesTextSuffix: '» не осталось зарядов — нужен отдых.',
+  /**
+   * Причина отказа без названия заклинания: его называет вход — панель
+   * строкой «⛔ <заклинание>: <причина>», лист — у самой кнопки
+   */
+  noUsesText: 'Не осталось зарядов — нужен отдых.',
   noSlotsTitle: 'Недоступно',
   noSlotsTextPrefix: 'У вас нет доступных ячеек заклинаний ',
   noSlotsTextSuffix: ' круга или выше.',

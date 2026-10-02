@@ -25,6 +25,7 @@
     describeCreatureDamageCondition,
     findCreatureActionBlock,
     getActionDescriptionMarkdown,
+    hasCreatureActionRoll,
     isDndCreature,
     listCreatureDamageAlternatives,
     listSourceDamageTypeChoices,
@@ -33,10 +34,7 @@
     SAVE_TYPE_LABELS,
   } from '@vtt/shared/system/dnd.js';
 
-  import {
-    hasCreatureActionRoll,
-    startCreatureAction,
-  } from '../../composables/creatureActionRoll';
+  import { startCreatureAction } from '../../composables/creatureActionRoll';
   import {
     formatDamagePartsText,
     summarizeDamageParts,

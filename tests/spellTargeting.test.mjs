@@ -45,7 +45,7 @@ const bundle = await build({
   stdin: {
     contents: `
       export * from './src/client/composables/spellEffectTargeting.ts';
-      export { castNeedsMultiPart, castReachesTargets, targetEffectsNeedResolution } from './src/client/composables/spellResolutionShared.ts';
+      export { castNeedsMultiPart, castReachesTargets, targetEffectsNeedResolution } from './src/engine/spellCastPlan.ts';
       export { getSpellEffectTargetCount } from './src/engine/spellUtils.ts';
       export { resolveSpellCastPlan } from './src/engine/spellCastPlan.ts';
       export * from 'test:host';

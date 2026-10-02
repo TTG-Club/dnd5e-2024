@@ -69,7 +69,6 @@ import {
   settleDamageTypeChoices,
   spellHealsTempHp,
   spellIsHealing,
-  spellNeedsTargetResolution,
   toRollerFormula,
   withInitializedDuration,
   writeEntityHitPoints,
@@ -223,23 +222,6 @@ export function useSpellResolution() {
 
   const { collectTargetEffects, resolveEffectSaves, rollEffectSaves } =
     useTargetEffectResolution();
-
-  /**
-   * Определяет, нужна ли автоматическая обработка целей для этого заклинания.
-   *
-   * Снарядный режим зависит от контекста каста (число снарядов считается от
-   * круга ячейки / уровня персонажа — `getSpellProjectileCount`), поэтому
-   * вызывающий передаёт его готовым флагом. При одном снаряде (напр.
-   * Мистический заряд до 5 уровня) каст идёт обычным одиночным путём.
-   *
-   * @param spell - заклинание
-   * @param hasProjectiles - активен ли снарядный режим для этого каста
-   * @returns true если заклинание требует автоматической обработки целей
-   */
-  function needsAutoResolution(spell: Spell, hasProjectiles = false): boolean {
-    // Решение одно на все пути каста — в движке, вместе с видом каста
-    return spellNeedsTargetResolution(spell, hasProjectiles);
-  }
 
   /**
    * Применяет урон и эффекты к одной сущности.
@@ -1188,8 +1170,9 @@ export function useSpellResolution() {
    *
    * Инкапсулирует общую логику обоих путей каста (хотбар-макрос и лист
    * персонажа): снаряды (каждый — отдельный бросок), AoE-шаблон или одиночная
-   * цель. Вызывающий код отвечает за гейт `needsAutoResolution(spell) &&
-   * damageTotal > 0`, построение `context` и жизненный цикл шаблона.
+   * цель. Вызывающий код отвечает за гейт (план каста движка,
+   * `spellNeedsTargetResolution`), построение `context` и жизненный цикл
+   * шаблона.
    *
    * @param context - контекст разрешения (заклинание, урон, цели, сокет)
    * @param options - параметры каста (снаряды, формула, сцена, кэш шаблона)
@@ -1413,7 +1396,6 @@ export function useSpellResolution() {
   }
 
   return {
-    needsAutoResolution,
     resolveSpellTargets,
     resolveSpellDamage,
     resolveSpellDamageWithParts,

@@ -89,14 +89,17 @@ const BREATH = {
  * Окружение действия существа: окно броска открывается или нет.
  *
  * @param {boolean} windowOpens - вернёт ли менеджер окно
+ * @param {object | null} [creature] - существо мира; `null` — ушло из мира
  * @returns {Promise<object>} вход действия и журнал
  */
-async function loadCreatureAction(windowOpens) {
+async function loadCreatureAction(windowOpens, creature = WOLF) {
   const log = [];
 
   const ports = {
     log,
-    readCreature: () => WOLF,
+    readCreature: () => creature ?? undefined,
+    CREATURE_ACTION_BLOCKED_TITLE: 'Сейчас не совершить',
+    CREATURE_ACTION_MISSING_REASON: 'нет в мире',
     findCreatureActionBlock: () => null,
     resolveEntityActionBlocks: () => [],
     listAmbientEffects: () => [],
@@ -142,11 +145,11 @@ async function loadCreatureAction(windowOpens) {
     SPELL_DAMAGE_ROLL_BUTTON: 'Урон',
   };
 
-  for (const name of [
-    'hasCreatureActionRoll',
-    'spendCreatureActionTurn',
-    'openCreatureActionRoll',
-  ]) {
+  ports.hasCreatureActionRoll = engine.hasCreatureActionRoll;
+  ports.isTargetAtFullHp = engine.isTargetAtFullHp;
+  ports.resolveCreatureActionSaveDc = engine.resolveCreatureActionSaveDc;
+
+  for (const name of ['spendCreatureActionTurn', 'openCreatureActionRoll']) {
     ports[name] = await loadHandler(CREATURE_ACTION_PATH, name, ports);
   }
 
@@ -162,7 +165,7 @@ async function loadCreatureAction(windowOpens) {
       start(action, {
         creatureId: WOLF.id,
         section: 'actions',
-        refuse: () => log.push('refuse'),
+        refuse: (_title, reason) => log.push(`refuse:${reason}`),
         announce: () => log.push('announce'),
       }),
   };
@@ -183,6 +186,14 @@ describe('действие существа: необратимое — посл
     start(BREATH);
 
     assert.deepEqual(log, ['template:place', 'turn', 'chat:или']);
+  });
+
+  it('существа нет в мире — вход говорит почему, а не молчит', async () => {
+    const { log, start } = await loadCreatureAction(true, null);
+
+    start(BREATH);
+
+    assert.deepEqual(log, ['refuse:нет в мире']);
   });
 });
 

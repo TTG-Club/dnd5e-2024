@@ -31,8 +31,11 @@ import {
   findCreatureActionBlock,
   getAttackBonusKey,
   getAttackFlagCategory,
+  hasCreatureActionRoll,
   isCreatureAttackAction,
   isDndCreature,
+  isTargetAtFullHp,
+  resolveCreatureActionSaveDc,
   resolveCreatureSectionCost,
   resolveEntityActionBlocks,
 } from '@vtt/shared/system/dnd.js';
@@ -42,6 +45,7 @@ import { checkCreatureActionRangeOnScene } from '../ui/creature/composables/useC
 import {
   CREATURE_ACTION_BLOCKED_TITLE,
   CREATURE_ACTION_MENU_LABELS,
+  CREATURE_ACTION_MISSING_REASON,
   CREATURE_ACTIONS_BLOCK_LABELS,
 } from '../ui/creature/constants';
 import { recordEntityActionSpend, warnOpportunityAttack } from './actionSpend';
@@ -64,6 +68,7 @@ import { buildRollBonusEvaluator } from './rollBonusEvaluator';
 import { discardSpellTemplate } from './spellResolutionShared';
 import { useBonusDamageParts } from './useBonusDamageParts';
 import { listAmbientEffects } from './useResolvedStats';
+import { announceOutOfReach } from './useSceneRangeCheck';
 import { useSpellResolution } from './useSpellResolution';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -97,20 +102,6 @@ function readCreature(creatureId: string): DnDCreature | undefined {
   const entity = useWorldEntities().findCurrentDndEntity(creatureId);
 
   return entity && isDndCreature(entity) ? entity : undefined;
-}
-
-/**
- * Есть ли у действия что бросать: атака, урон или спасбросок.
- *
- * @param action - действие
- * @returns `true`, если действие идёт окном броска
- */
-export function hasCreatureActionRoll(action: CreatureAction): boolean {
-  return (
-    action.attackBonus !== undefined
-    || (action.damageParts?.length ?? 0) > 0
-    || creatureActionHasSave(action)
-  );
 }
 
 /**
@@ -155,6 +146,8 @@ export function startCreatureAction(
   const creature = readCreature(port.creatureId);
 
   if (!creature) {
+    port.refuse(CREATURE_ACTION_BLOCKED_TITLE, CREATURE_ACTION_MISSING_REASON);
+
     return;
   }
 
@@ -208,10 +201,7 @@ export function startCreatureAction(
       );
 
       if (rangeCheck && !rangeCheck.allowed) {
-        useChatStore().sendMessage(
-          `${CREATURE_ACTIONS_BLOCK_LABELS.outOfRangePrefix}${action.name}${CREATURE_ACTIONS_BLOCK_LABELS.outOfRangeMiddle}${rangeCheck.distance} ${rangeCheck.unitLabel}${CREATURE_ACTIONS_BLOCK_LABELS.outOfRangeSuffix}`,
-          'text',
-        );
+        announceOutOfReach(action.name, rangeCheck);
 
         return;
       }
@@ -276,9 +266,11 @@ export function openCreatureActionRoll(
   // Хиты цели для @target.* — только у одиночной цели (не у области)
   const targetHp = action.areaOfEffect ? undefined : buildTargetHpContext();
 
-  const targetIsFull = targetHp
-    ? targetHp.currentHp >= targetHp.maxHp
-    : undefined;
+  // Полные хиты — тем же правилом, что у заклинаний и оружия (с эффектами на
+  // максимум)
+  const targetIsFull = action.areaOfEffect
+    ? undefined
+    : isTargetAtFullHp(useTargetStore().getTargetActor());
 
   /**
    * Части и псевдо-заклинание броска по действию.
@@ -419,7 +411,7 @@ export function applyCreatureActionParts(
       {
         spell: pseudoSpell,
         damageTotal: 0,
-        spellSaveDC: action.saveDC ?? 10,
+        spellSaveDC: resolveCreatureActionSaveDc(action),
         actors,
         socket,
         casterId: creatureId,

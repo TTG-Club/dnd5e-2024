@@ -20,6 +20,7 @@ import {
   readEffectVariantChoices,
   resolveActorStats,
   spellHasDamage,
+  targetEffectsNeedResolution,
 } from '@vtt/shared/system/dnd.js';
 
 import {
@@ -33,7 +34,6 @@ import {
   getTargetSpellEffects,
   postSpellEffectsMessage,
   stampEffectOnApply,
-  targetEffectsNeedResolution,
 } from './spellResolutionShared';
 import { bindTargetEffectsToCaster } from './targetEffectSourceBinding';
 import { isSpellTargetBlockedByRange } from './useSceneRangeCheck';

@@ -316,7 +316,7 @@ export function findSpellCastRefusal(
   ) {
     return {
       title: ACTOR_SPELLS_TAB_LABELS.noUsesTitle,
-      description: `${ACTOR_SPELLS_TAB_LABELS.noUsesTextPrefix}${spell.name}${ACTOR_SPELLS_TAB_LABELS.noUsesTextSuffix}`,
+      description: ACTOR_SPELLS_TAB_LABELS.noUsesText,
     };
   }
 

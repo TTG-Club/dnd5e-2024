@@ -328,6 +328,28 @@ async function loadCastEnvironment(entities, { windowOpens = true } = {}) {
 }
 
 /**
+ * Окружение макросов горячей панели: ошибка внутри макроса роняет тест, а не
+ * уходит в консоль.
+ *
+ * @param {object} env - окружение
+ * @returns {Promise<object>} порты макросов
+ */
+async function loadMacroPorts(env) {
+  const ports = {
+    ...env.ports,
+    console: { warn: assert.fail, error: assert.fail },
+  };
+
+  ports.refuseSpellInChat = await loadHandler(
+    MACROS_PATH,
+    'refuseSpellInChat',
+    ports,
+  );
+
+  return ports;
+}
+
+/**
  * Входы каста персонажа и существа: настоящие обработчики листа и горячей
  * панели на одном окружении.
  */
@@ -359,7 +381,7 @@ const ENTRIES = {
    * @returns {Promise<(spell: object) => void>} каст
    */
   async hotbar(env, caster) {
-    const ports = { ...env.ports };
+    const ports = await loadMacroPorts(env);
 
     ports.createHotbarCasterPort = await loadHandler(
       MACROS_PATH,
@@ -410,7 +432,7 @@ const ENTRIES = {
     const macro = await loadHandler(
       MACROS_PATH,
       'creature-spell',
-      env.ports,
+      await loadMacroPorts(env),
       true,
     );
 

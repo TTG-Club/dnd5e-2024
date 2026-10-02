@@ -27,6 +27,38 @@ export function creatureActionHasSave(action: CreatureAction): boolean {
 }
 
 /**
+ * Сл спасброска действия существа, у которого своя Сл не задана: базовая Сл
+ * 10, как у проверки без указанной сложности.
+ */
+export const CREATURE_ACTION_FALLBACK_SAVE_DC = 10;
+
+/**
+ * Сл спасброска действия существа.
+ *
+ * @param action - действие существа
+ * @returns своя Сл действия либо {@link CREATURE_ACTION_FALLBACK_SAVE_DC}
+ */
+export function resolveCreatureActionSaveDc(action: CreatureAction): number {
+  return action.saveDC ?? CREATURE_ACTION_FALLBACK_SAVE_DC;
+}
+
+/**
+ * Есть ли у действия существа что бросать: атака, урон или спасбросок.
+ * Правило нужно и входу действия (окно или применение сразу), и листу
+ * существа (значок броска в строке), поэтому живёт здесь.
+ *
+ * @param action - действие
+ * @returns `true`, если действие идёт окном броска
+ */
+export function hasCreatureActionRoll(action: CreatureAction): boolean {
+  return (
+    action.attackBonus !== undefined
+    || (action.damageParts?.length ?? 0) > 0
+    || creatureActionHasSave(action)
+  );
+}
+
+/**
  * Объединяет абзацы описания действия существа в единую Markdown-строку.
  * @param action - действие существа
  * @returns описание действия в формате Markdown

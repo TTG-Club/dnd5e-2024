@@ -8,6 +8,8 @@ import { useWorldStore } from '@/stores/worldStore';
 import { DISTANCE_UNIT_SHORT, getTokenEdgeDistance } from '@vtt/shared';
 import { checkSpellRange, getSpellMaxRange } from '@vtt/shared/system/dnd.js';
 
+import { OUT_OF_RANGE_LABELS } from '../ui/actor/constants';
+
 /** Результат измерения дистанции между токенами на сцене */
 export interface SceneTokenDistance {
   /** Округлённое расстояние между краями токенов (в единицах сцены) */
@@ -185,14 +187,33 @@ export function isSpellTargetBlockedByRange(
   const maxRangeSuffix =
     rangeCheck.maxRange === null
       ? ''
-      : `, дистанция заклинания — ${rangeCheck.maxRange} ${rangeCheck.unitLabel}`;
+      : `${OUT_OF_RANGE_LABELS.spellRangePrefix}${rangeCheck.maxRange} ${rangeCheck.unitLabel}`;
 
   useChatStore().sendMessage(
-    `⛔ ${spell.name}: цель вне дистанции (до цели ${rangeCheck.distance} ${rangeCheck.unitLabel}${maxRangeSuffix})`,
+    `${OUT_OF_RANGE_LABELS.prefix}${spell.name}${OUT_OF_RANGE_LABELS.outOfSpellRange}${rangeCheck.distance} ${rangeCheck.unitLabel}${maxRangeSuffix}${OUT_OF_RANGE_LABELS.close}`,
     'text',
   );
 
   return true;
+}
+
+/**
+ * Удар оружием или действие существа не достаёт до цели: строка в чат. Одна
+ * на оба пути — вкладку снаряжения, лист существа и горячую панель.
+ *
+ * @param sourceName - чем бьют
+ * @param measurement - расстояние до цели
+ * @param measurement.distance - расстояние
+ * @param measurement.unitLabel - единица
+ */
+export function announceOutOfReach(
+  sourceName: string,
+  measurement: { distance: number; unitLabel: string },
+): void {
+  useChatStore().sendMessage(
+    `${OUT_OF_RANGE_LABELS.prefix}${sourceName}${OUT_OF_RANGE_LABELS.outOfReach}${measurement.distance} ${measurement.unitLabel}${OUT_OF_RANGE_LABELS.close}`,
+    'text',
+  );
 }
 
 /**
