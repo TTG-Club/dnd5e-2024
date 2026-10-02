@@ -23,6 +23,7 @@ import type {
 import type { CreatureDamageVariant } from '../composables/creatureDamageChoice';
 import type { SpellCasterSource } from '../composables/spellCastCompletion';
 import type { SpellEffectTargets } from '../composables/spellEffectTargeting';
+import type { CreatureRollSetup } from '../composables/useBonusDamageParts';
 import type {
   ProjectileAttackContext,
   RolledSpellDamagePart,
@@ -135,6 +136,7 @@ import {
 import {
   buildCreatureRollVariants,
   launchCreatureAction,
+  runDamagelessCreatureAction,
   runWithCreatureDamageChoice,
 } from '../composables/creatureDamageChoice';
 import {
@@ -2260,31 +2262,64 @@ function openCreatureActionRoll(
     ? targetHp.currentHp >= targetHp.maxHp
     : undefined;
 
+  /**
+   * Части и псевдо-заклинание броска по действию.
+   *
+   * @param variantAction - действие набора урона
+   * @returns данные броска
+   */
+  const buildSetup = (variantAction: CreatureAction): CreatureRollSetup =>
+    buildCreatureRollSetup({
+      action: variantAction,
+      creature,
+      effects,
+      targetIsFull,
+      targetType: targetHp?.creatureType,
+    });
+
+  /**
+   * Применение брошенных частей набора.
+   *
+   * @param chosenAction - действие с решённым типом урона
+   * @param actionSpell - его псевдо-заклинание
+   * @param parts - брошенные части; у действия без урона — пусто
+   */
+  const applyParts = (
+    chosenAction: CreatureAction,
+    actionSpell: Spell,
+    parts: RolledSpellDamagePart[],
+  ): void =>
+    applyCreatureActionParts(
+      creature,
+      chosenAction,
+      actionSpell,
+      parts,
+      templateId,
+    );
+
   // У каждого набора урона «или» свои части, тип урона на выбор и применение
   const rollVariants = buildCreatureRollVariants(
     action,
     variants,
-    (variantAction) =>
-      buildCreatureRollSetup({
-        action: variantAction,
-        creature,
-        effects,
-        targetIsFull,
-        targetType: targetHp?.creatureType,
-      }),
-    (chosenAction, actionSpell, parts) =>
-      applyCreatureActionParts(
-        creature,
-        chosenAction,
-        actionSpell,
-        parts,
-        templateId,
-      ),
+    buildSetup,
+    applyParts,
   );
 
   const [primary] = rollVariants;
 
   if (!primary) {
+    return;
+  }
+
+  // Спасбросок или область без урона: окна броска нет — как на листе существа
+  if (
+    runDamagelessCreatureAction(
+      action,
+      rollVariants,
+      (chosenAction) => buildSetup(chosenAction).pseudoSpell,
+      applyParts,
+    )
+  ) {
     return;
   }
 

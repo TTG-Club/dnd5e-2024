@@ -23,6 +23,7 @@ import {
   applySourceDamageTypeChoices,
   chooseCreatureActionDamage,
   combineDamagePartDisplays,
+  creatureActionHasSave,
   describeCreatureDamageCondition,
   describeDamagePart,
   entityHasDamageStatus,
@@ -38,6 +39,7 @@ import { CREATURE_DAMAGE_CHOICE_LABELS } from '../ui/creature/constants';
 import {
   formatDamageTypeChoiceLabel,
   requestDamageTypeChoice,
+  runWithDamageTypeChoices,
 } from './damageTypeChoice';
 
 /** Способ «случайно» — для пометки выпавшего основного урона в чате */
@@ -458,4 +460,45 @@ export function buildCreatureRollVariants(
       },
     };
   });
+}
+
+/**
+ * Применяет действие со спасброском или областью, у которого нет урона
+ * («Пленяющий стручок», «Господство над разумом», «Ужасающий облик» с уроном
+ * в эффекте): бросать существу нечего, поэтому окна броска нет — цели
+ * спасаются сами, эффекты ложатся по исходу. Раньше такое действие открывало
+ * окно без частей урона: в чат уходил голый к20, а применение не звалось.
+ *
+ * Тип урона «на выбор» у эффектов спрашивает плашка — окна, которое задало бы
+ * вопрос, здесь нет.
+ *
+ * @param action - действие существа с выбранным уроном
+ * @param rollVariants - наборы урона, собранные для окна броска
+ * @param buildSpell - псевдо-заклинание действия для разбора целей
+ * @param apply - применение: действие, псевдо-заклинание и брошенные части
+ * @returns `true`, если действие без урона и ушло на применение
+ */
+export function runDamagelessCreatureAction(
+  action: CreatureAction,
+  rollVariants: readonly RollDamageVariant[],
+  buildSpell: (chosenAction: CreatureAction) => Spell,
+  apply: (
+    chosenAction: CreatureAction,
+    actionSpell: Spell,
+    parts: RolledSpellDamagePart[],
+  ) => void,
+): boolean {
+  const hasDamage = rollVariants.some(
+    (variant) => (variant.damageParts ?? []).length > 0,
+  );
+
+  if (hasDamage || !(creatureActionHasSave(action) || action.areaOfEffect)) {
+    return false;
+  }
+
+  runWithDamageTypeChoices(action, (chosenAction) => {
+    apply(chosenAction, buildSpell(chosenAction), []);
+  });
+
+  return true;
 }

@@ -125,6 +125,10 @@ export async function loadHandler(relativePath, name, ports, macro = false) {
   ports.runWithDamageTypeChoices ??= (source, proceed) => proceed(source);
   ports.applySourceDamageTypeChoices ??= (source) => source;
 
+  // Действие существа «спасбросок без урона» идёт мимо окна броска: у фикстур
+  // с уроном разбор отвечает «нет» и окно открывается как раньше
+  ports.runDamagelessCreatureAction ??= () => false;
+
   return runInNewContext(
     `${compiled.outputText}\n${expression ? 'execute' : name}`,
     ports,
