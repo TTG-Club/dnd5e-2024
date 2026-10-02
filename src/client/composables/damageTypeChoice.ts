@@ -31,6 +31,7 @@ import { useSystemDataStore } from '../stores/systemDataStore';
 import {
   DAMAGE_BONUS_LINE_PREFIX,
   DAMAGE_BONUS_STAT_ICON,
+  DAMAGE_NO_CONSTANT_LABEL,
   DAMAGE_PART_LABELS,
   DAMAGE_VARIANTS_STAT_ICON,
   SHEET_ROW_TOOLTIP_LINE_BREAK,
@@ -93,6 +94,30 @@ export function formatDamageBonusLines(
   return conditionalFormulas.map(
     (formula) => `${DAMAGE_BONUS_LINE_PREFIX}${formula}`,
   );
+}
+
+/**
+ * Текст плитки урона: урон, который бросается всегда, вместе со статической
+ * прибавкой. У набора целиком под условием постоянных костей нет: тогда в
+ * плитке одна прибавка («+3»), а без неё — короткая заглушка. Полный текст
+ * добавок в плитку не идёт никогда: «2к10 (цель: Исчадие) + 2к10 (цель:
+ * Нежить)» выдавливал название из строки — добавки читают в подсказке.
+ *
+ * @param baseFormula - постоянная часть урона; пусто — её нет
+ * @param modifier - статическая прибавка (характеристика, магический бонус)
+ * @returns текст плитки
+ */
+export function formatDamageTileFormula(
+  baseFormula: string,
+  modifier = 0,
+): string {
+  const signed = modifier > 0 ? `+${modifier}` : `${modifier}`;
+
+  if (baseFormula.length === 0) {
+    return modifier === 0 ? DAMAGE_NO_CONSTANT_LABEL : signed;
+  }
+
+  return modifier === 0 ? baseFormula : `${baseFormula}${signed}`;
 }
 
 /**

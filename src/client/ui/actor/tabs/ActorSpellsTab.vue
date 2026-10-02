@@ -107,6 +107,7 @@
   import { runWithCastFailureAndPay } from '../../../composables/castFailure';
   import {
     describeDamageVariantsStat,
+    formatDamageTileFormula,
     requestDamageTypeChoiceFor,
     runWithDamageTypeChoices,
     useDamageTypeLabel,
@@ -1418,7 +1419,7 @@
       stats.push({
         key: 'damage',
         label: SPELL_STAT_LABELS.damage,
-        value: damage.baseFormula,
+        value: formatDamageTileFormula(damage.baseFormula),
         accent: true,
         rollable: true,
         // Добавки по условию и тип на выбор в плитке не пишутся — значок и

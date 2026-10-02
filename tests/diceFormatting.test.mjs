@@ -155,11 +155,17 @@ describe('плитка урона заклинания: добавка по ус
     assert.deepEqual(display.conditionalFormulas, []);
   });
 
-  it('урон целиком под условием остаётся в плитке', () => {
+  it('урон целиком под условием: постоянной части нет, добавка — в подсказке', () => {
     const display = describeSpell(['2d6@dmg.cold@target.status.prone']);
 
-    assert.equal(display.baseFormula, display.formula);
-    assert.deepEqual(display.conditionalFormulas, []);
+    // Плитка ставит короткую заглушку (formatDamageTileFormula), а не текст
+    // добавки: длинный он выдавливал бы название из строки
+    assert.equal(display.baseFormula, '');
+    assert.equal(display.formula, '2к6 (цель: Лежащий ничком)');
+
+    assert.deepEqual(display.conditionalFormulas, [
+      '2к6 (цель: Лежащий ничком)',
+    ]);
   });
 
   it('усиление круга дописывается к постоянной части, а не к добавке', () => {

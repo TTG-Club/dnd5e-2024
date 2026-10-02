@@ -281,13 +281,41 @@ describe('состояния в показе формулы', () => {
     ]);
   });
 
-  it('набор целиком под условием остаётся в плитке полным текстом', () => {
+  it('набор целиком под условием: постоянной части нет, добавки — отдельно', () => {
     const display = engine.combineDamagePartDisplays([
       { baseFormula: '', conditionalFormulas: ['1к8 (цель: Лежащий ничком)'] },
     ]);
 
-    assert.equal(display.baseFormula, '1к8 (цель: Лежащий ничком)');
-    assert.deepEqual(display.conditionalFormulas, []);
+    assert.equal(display.baseFormula, '');
+    assert.equal(display.formula, '1к8 (цель: Лежащий ничком)');
+
+    assert.deepEqual(display.conditionalFormulas, [
+      '1к8 (цель: Лежащий ничком)',
+    ]);
+  });
+
+  it('оружие без своей основы («Святой мститель»): в плитке нет текста добавок', () => {
+    const display = engine.describeWeaponDamageDisplay({
+      itemType: 'weapon',
+      damageParts: [
+        {
+          formula:
+            '2d10@dmg.radiant@target.type.fiend'
+            + ' + 2d10@dmg.radiant@target.type.undead',
+          target: 'selected',
+        },
+      ],
+    });
+
+    assert.equal(display.baseFormula, '');
+
+    assert.deepEqual(display.conditionalFormulas, [
+      '2к10 (цель: Исчадие)',
+      '2к10 (цель: Нежить)',
+    ]);
+
+    // Полный показ (карточка чата) добавки по-прежнему называет
+    assert.equal(display.formula, '2к10 (цель: Исчадие) + 2к10 (цель: Нежить)');
   });
 
   it('итог под формулой выносит состояние атакующего отдельной веткой', () => {

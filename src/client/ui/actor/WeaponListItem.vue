@@ -8,6 +8,7 @@
 
   import {
     formatDamageBonusLines,
+    formatDamageTileFormula,
     resolveDamageStatIcon,
   } from '../../composables/damageTypeChoice';
   import { useContextMenu } from '../../composables/useContextMenu';
@@ -65,19 +66,21 @@
    * Урон для бейджа — как в плитке строки листа: только то, что бросается
    * всегда. Добавки по условию («+ 2к6 (цель: Исчадие)») в узкую строку списка
    * не помещаются: о них говорит значок, а сами они — в подсказке бейджа.
+   * Оружие без постоянного урона («Святой мститель»: одни добавки по типу
+   * цели) получает короткую заглушку — иначе бейдж выдавил бы название.
    */
   const damageBadge = computed(() => {
     const display = describeWeaponDamageDisplay(props.item);
     const bonusLines = formatDamageBonusLines(display.conditionalFormulas);
 
     return {
-      formula: display.baseFormula,
+      formula: formatDamageTileFormula(display.baseFormula),
       icon: resolveDamageStatIcon(false, bonusLines.length > 0),
       hint:
         bonusLines.length > 0
-          ? [display.baseFormula, ...bonusLines].join(
-              SHEET_ROW_TOOLTIP_LINE_BREAK,
-            )
+          ? [display.baseFormula, ...bonusLines]
+              .filter((line) => line.length > 0)
+              .join(SHEET_ROW_TOOLTIP_LINE_BREAK)
           : undefined,
     };
   });

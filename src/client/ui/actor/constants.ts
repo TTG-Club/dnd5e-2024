@@ -4850,6 +4850,12 @@ export const DAMAGE_BONUS_STAT_ICON = 'tabler:circle-plus';
 /** Начало строки добавки по условию в подсказке: «+ 1к8 (атакующий: …)» */
 export const DAMAGE_BONUS_LINE_PREFIX = '+ ';
 
+/**
+ * Заглушка плитки урона без постоянной части: весь урон — добавки по условию,
+ * они перечислены в подсказке, а плитка остаётся короткой
+ */
+export const DAMAGE_NO_CONSTANT_LABEL = '—';
+
 export const DAMAGE_PART_LABELS = {
   /** Заголовок строки: дальше дописывается её номер */
   partPrefix: 'Часть ',

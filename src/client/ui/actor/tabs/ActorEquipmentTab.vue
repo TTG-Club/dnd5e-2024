@@ -91,6 +91,7 @@
   } from '../../../composables/attackRollMode';
   import {
     formatDamageBonusLines,
+    formatDamageTileFormula,
     formatDamageTypeChoiceLabel,
     requestDamageTypeChoiceFor,
     resolveDamageStatIcon,
@@ -1318,11 +1319,7 @@
       resolvedStats.value,
     );
 
-    if (mod === 0) {
-      return base;
-    }
-
-    return `${base}${mod > 0 ? '+' : ''}${mod}`;
+    return formatDamageTileFormula(base, mod);
   }
 
   /**

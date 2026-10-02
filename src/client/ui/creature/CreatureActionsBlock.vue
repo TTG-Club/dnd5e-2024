@@ -69,6 +69,7 @@
   } from '../../composables/creatureDamageChoice';
   import {
     formatDamageBonusLines,
+    formatDamageTileFormula,
     resolveDamageStatIcon,
   } from '../../composables/damageTypeChoice';
   import {
@@ -346,7 +347,7 @@
     if (alternatives.length === 0) {
       return base
         ? {
-            formula: base.baseFormula,
+            formula: formatDamageTileFormula(base.baseFormula),
             tooltip: [base.typeLabel, ...bonusLines]
               .filter((line) => line.length > 0)
               .join(CREATURE_DAMAGE_CHOICE_LABELS.hintSeparator),
@@ -369,7 +370,9 @@
     );
 
     return {
-      formula: base?.baseFormula ?? CREATURE_DAMAGE_CHOICE_LABELS.noDamage,
+      formula: base
+        ? formatDamageTileFormula(base.baseFormula)
+        : CREATURE_DAMAGE_CHOICE_LABELS.noDamage,
       tooltip: [base?.typeLabel ?? '', ...bonusLines, ...hints]
         .filter((line) => line.length > 0)
         .join(CREATURE_DAMAGE_CHOICE_LABELS.hintSeparator),

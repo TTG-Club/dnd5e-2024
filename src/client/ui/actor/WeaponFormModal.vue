@@ -26,6 +26,7 @@
     withWeaponAttackKind,
   } from '@vtt/shared/system/dnd.js';
 
+  import { formatDamageTileFormula } from '../../composables/damageTypeChoice';
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import {
     DAMAGE_ABILITY_INHERIT,
@@ -241,14 +242,10 @@
   /** Итог урона: кости оружия и статическая прибавка (как в строке листа) */
   const damageTotalLabel = computed(() => {
     // Добавки по условию в итог не идут: он повторяет плитку строки листа
-    const base = describeWeaponDamageDisplay(draftWeapon.value).baseFormula;
-    const modifier = sumWeaponModifierParts(damageModifierParts.value);
-
-    if (modifier === 0) {
-      return base;
-    }
-
-    return `${base}${modifier > 0 ? '+' : ''}${modifier}`;
+    return formatDamageTileFormula(
+      describeWeaponDamageDisplay(draftWeapon.value).baseFormula,
+      sumWeaponModifierParts(damageModifierParts.value),
+    );
   });
 
   /** Расшифровка атаки одной строкой */
