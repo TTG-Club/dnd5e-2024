@@ -75,6 +75,7 @@ import {
   normalizeActorData as normalizeDndActorData,
   validateActorData as validateDndActorData,
 } from './actorValidation.js';
+import { shapeAuraCondition } from './auraCondition.js';
 import {
   collectAllAuraEffects,
   calculateAmbientAuras as computeAmbientAuras,
@@ -1607,7 +1608,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.190';
+  readonly version = '0.8.191';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -2173,6 +2174,21 @@ export class Dnd5eVttSystem implements VttSystem {
   // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   rollDamageFormula(formula: string): { total: number; values: number[] } {
     return rollDamageFormulaImpl(formula);
+  }
+
+  /**
+   * Последнее слово системы о форме условия ауры (VTTG 0.9.601+): ядро кладёт
+   * накрытому эффект ауры целиком, а действовать у него должны только числа,
+   * флаги и их условия — остальное система берёт из списка аур, и по обоим
+   * спискам оно сработало бы дважды. Старое ядро хук не зовёт и кладёт
+   * урезанную запись, как раньше.
+   *
+   * @param condition - условие, собранное ядром из эффекта ауры
+   * @returns условие для `activeEffects` накрытого
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  shapeAuraCondition(condition: BaseActiveEffect): BaseActiveEffect {
+    return isDnDEffect(condition) ? shapeAuraCondition(condition) : condition;
   }
 
   /**

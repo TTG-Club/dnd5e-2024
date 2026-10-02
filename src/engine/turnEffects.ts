@@ -61,6 +61,7 @@ import {
   buildCarrierContext,
   collectActiveEffects,
   collectBonusRollFormulas,
+  combineEffectsWithAmbient,
   resolveActorStats,
 } from './effectPipeline.js';
 import { resolveSaveDc } from './effectSaveDcOwner.js';
@@ -694,7 +695,12 @@ export function buildApplySaveSpec(
 /**
  * Собирает контекст один раз для серии спасбросков текущей сущности.
  *
+ * Ауры входят без дублей одноимённых — тем же правилом, что в числах листа:
+ * аура с флагами лежит на сущности ещё и условием, и её кость к спасброску
+ * («+1к4») иначе бросалась бы дважды.
+ *
  * @param entity - сущность, которая бросает
+ * @param ambientEffects - ауры чужих токенов
  * @returns эффекты и свойства носителя для бонусных кубиков
  */
 export function buildEffectSavingThrowContext(
@@ -702,7 +708,10 @@ export function buildEffectSavingThrowContext(
   ambientEffects: readonly ActiveEffect[] = [],
 ): EffectSavingThrowContext {
   return {
-    effects: [...collectActiveEffects(entity), ...ambientEffects],
+    effects: combineEffectsWithAmbient(
+      collectActiveEffects(entity),
+      ambientEffects,
+    ),
     formulaContext: buildFormulaContext(entity),
     self: buildCarrierContext(entity),
   };
