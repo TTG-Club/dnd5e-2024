@@ -771,4 +771,60 @@ describe('каталог: «вырваться» по правилам 2024', ()
       'флаги действуют, пока состояние лежит',
     );
   });
+
+  it('[Q16] Состояние с «вырваться»: снятие плиткой будит «когда снимается»', () => {
+    // Иллитид, «Щупальца»: «схвачена (Сл освобождения 14) и ошеломлена до
+    // конца захвата». Плитка листа снимает «Схваченного» боевым снимком —
+    // тем же каналом, что и успех «вырваться»
+    const grapple = createEffect('Схваченный', {
+      conditionKey: 'grappled',
+      escape: {
+        cost: 'action',
+        check: {
+          skill: 'athletics',
+          dc: DC,
+          skills: [{ skill: 'athletics' }, { skill: 'acrobatics' }],
+        },
+      },
+    });
+
+    const stun = createEffect('Ошеломлённый', {
+      conditionKey: 'stunned',
+      triggers: [
+        {
+          id: 'trigger_grapple_end',
+          event: 'conditionLost',
+          conditionKey: 'grappled',
+          actions: [{ type: 'removeSelf' }],
+        },
+      ],
+    });
+
+    authoredScenario(grapple, 'creatureAction');
+    authoredScenario(stun, 'creatureAction');
+
+    assert.equal(
+      engine.formatEffectEscapeLabel(grapple),
+      `Вырваться: Атлетика или Акробатика Сл ${DC}`,
+      'подпись кнопки над сеткой состояний — та же, что в строке эффекта',
+    );
+
+    const hero = withHp(createActor, 30, { activeEffects: [grapple, stun] });
+    const snapshot = structuredClone(hero);
+
+    snapshot.activeEffects = snapshot.activeEffects.filter(
+      (effect) => effect.conditionKey !== 'grappled',
+    );
+
+    new engine.Dnd5eVttSystem().settleCombatState(
+      hero,
+      engine.pickCombatState(snapshot),
+    );
+
+    assert.deepEqual(
+      hero.activeEffects,
+      [],
+      'с захватом ушёл и «Ошеломлённый»',
+    );
+  });
 });

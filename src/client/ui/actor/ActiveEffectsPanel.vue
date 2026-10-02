@@ -79,7 +79,10 @@
   } from '../../composables/effectToggle';
   import { requestEndCasts } from '../../composables/spellCasts';
   import { useActiveEffectModal } from '../../composables/useActiveEffectModal';
-  import { useEntityActiveEffects } from '../../composables/useEntityActiveEffects';
+  import {
+    removeEntityCondition,
+    useEntityActiveEffects,
+  } from '../../composables/useEntityActiveEffects';
   import {
     DND_MACRO_TYPES,
     EFFECT_USE_MACRO_ICON,
@@ -158,6 +161,7 @@
 
   const {
     customEffects,
+    conditionEscapeEffects,
     isConditionActive,
     toggleCondition,
     saveEffect,
@@ -473,6 +477,40 @@
     // Кто действует, каким навыком и чем кончилось — в `runEffectEscape`:
     // исход уходит боевым каналом, лист обновится ответом сервера
     runEffectEscape(owner.id, effect.id);
+  }
+
+  /**
+   * Кнопки «вырваться» у эффектов-состояний: строки у «Схваченного» нет — его
+   * показывает плитка, — поэтому кнопка стоит над сеткой состояний. Подпись
+   * начинается с имени эффекта: захватов от разных существ может быть два.
+   */
+  const conditionEscapeRows = computed(() =>
+    conditionEscapeEffects.value.map((effect) => ({
+      effect,
+      label: `${effect.name}${EFFECT_ESCAPE_LABELS.titleSeparator}${formatEffectEscapeLabel(effect)}`,
+    })),
+  );
+
+  /**
+   * Плитка состояния. Снятие в просмотре идёт боевым каналом: сервер будит
+   * срабатывания «когда состояние снимается» — как при «вырваться». В правке
+   * и без сущности мира меняется черновик листа, как раньше.
+   *
+   * @param key - ключ состояния
+   */
+  function handleConditionTile(key: ConditionRef): void {
+    const { owner } = props;
+
+    if (
+      owner
+      && !props.isEditMode
+      && isConditionActive(key)
+      && removeEntityCondition(owner.id, key)
+    ) {
+      return;
+    }
+
+    toggleCondition(key);
   }
 
   /**
@@ -911,6 +949,25 @@
       </h3>
     </div>
 
+    <!-- Вырваться из состояния: у плитки своей кнопки нет -->
+    <div
+      v-if="conditionEscapeRows.length > 0"
+      class="mb-2 flex flex-wrap gap-1.5"
+    >
+      <UButton
+        v-for="{ effect, label } in conditionEscapeRows"
+        :key="effect.id"
+        icon="tabler:lock-open"
+        size="xs"
+        variant="soft"
+        color="warning"
+        :label="label"
+        :title="EFFECT_ESCAPE_LABELS.hint"
+        :disabled="isEditMode || !owner"
+        @click.left.exact.prevent="escapeEffect(effect)"
+      />
+    </div>
+
     <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
       <UPopover
         v-for="condition in gridConditions"
@@ -923,7 +980,7 @@
           <button
             type="button"
             class="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
-            @click.left.exact.prevent="toggleCondition(condition.key)"
+            @click.left.exact.prevent="handleConditionTile(condition.key)"
           >
             <span
               v-if="condition.customImage"

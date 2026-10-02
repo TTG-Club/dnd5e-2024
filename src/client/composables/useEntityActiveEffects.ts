@@ -4,12 +4,16 @@ import type { ActiveEffect, ConditionRef } from '@vtt/shared/system/dnd.js';
 
 import { computed } from 'vue';
 
+import { emitEntityCombatState } from '@/core/entityUtils';
+import { useChatStore } from '@/stores/chatStore';
 import {
   buildConditionActiveEffect,
   isEffectDormant,
   resolveEffectConditionKey,
   withInitializedDuration,
 } from '@vtt/shared/system/dnd.js';
+
+import { useWorldEntities } from './useWorldEntities';
 
 /** Что нужно хуку: откуда читать эффекты и куда отдавать изменённый список */
 export interface EntityActiveEffectsOptions {
@@ -22,6 +26,90 @@ export interface EntityActiveEffectsOptions {
    * немедленное сохранение.
    */
   onChange: (effects: ActiveEffect[]) => void;
+}
+
+/**
+ * Свой ли это эффект для листа — со строкой в списке, а не плиткой состояния.
+ * Признак — опознанный ключ состояния, а не источник: длящуюся нагрузку
+ * области движок тоже помечает `condition`, и по источнику она пропала бы с
+ * листа совсем. Эффект с применением или включением — всегда свой, даже с
+ * состоянием внутри: у него кнопка или переключатель.
+ *
+ * @param effect - эффект сущности
+ * @returns `true`, если эффект показывают строкой
+ */
+function isCustomEffect(effect: ActiveEffect): boolean {
+  return (
+    effect.activation !== undefined
+    || resolveEffectConditionKey(effect) === undefined
+  );
+}
+
+/**
+ * Эффекты-состояния с действием «вырваться». Строки у них нет — их показывает
+ * плитка состояния, — а кнопка нужна: «Схваченный» от щупальца снимают
+ * проверкой, и без кнопки носителю нечем её начать.
+ *
+ * @param effects - эффекты сущности
+ * @returns действующие эффекты-состояния с блоком «вырваться»
+ */
+export function listConditionEscapeEffects(
+  effects: readonly ActiveEffect[],
+): ActiveEffect[] {
+  return effects.filter(
+    (effect) =>
+      effect.escape !== undefined
+      && !effect.disabled
+      && !isCustomEffect(effect),
+  );
+}
+
+/**
+ * Список эффектов без наложенного состояния. Шаблоны применения и включения с
+ * этим состоянием — не наложенное состояние, плитка их не снимает.
+ *
+ * @param effects - эффекты сущности
+ * @param key - ключ снимаемого состояния
+ * @returns эффекты, которые остаются
+ */
+export function dropConditionEffects(
+  effects: readonly ActiveEffect[],
+  key: ConditionRef,
+): ActiveEffect[] {
+  return effects.filter(
+    (effect) =>
+      effect.activation !== undefined
+      || resolveEffectConditionKey(effect) !== key,
+  );
+}
+
+/**
+ * Снимает состояние с сущности мира боевым каналом — тем же, каким его
+ * снимает «вырваться»: сервер видит, какое состояние ушло, и будит
+ * срабатывания «когда состояние снимается» («Ошеломлённый» иллитида уходит
+ * вместе с захватом). Простое сохранение листа их не разбудило бы.
+ *
+ * @param entityId - сущность
+ * @param key - ключ снимаемого состояния
+ * @returns `true`, если снятие ушло; нет соединения или сущности — `false`
+ */
+export function removeEntityCondition(
+  entityId: string,
+  key: ConditionRef,
+): boolean {
+  const socket = useChatStore().getSocket();
+  const entity = useWorldEntities().findCurrentDndEntity(entityId);
+
+  if (!socket || !entity) {
+    return false;
+  }
+
+  emitEntityCombatState(socket, {
+    ...entity,
+    activeEffects: dropConditionEffects(entity.activeEffects ?? [], key),
+  });
+
+  return true;
 }
 
 /**
@@ -40,17 +128,15 @@ export interface EntityActiveEffectsOptions {
 export function useEntityActiveEffects(options: EntityActiveEffectsOptions) {
   /**
    * Свои эффекты — всё, что не является стандартным состоянием: состояния
-   * показывает своя сетка. Признак — опознанный ключ состояния, а не источник:
-   * длящуюся нагрузку области движок тоже помечает `condition`, и по источнику
-   * она пропала бы с листа совсем. Эффект с применением или включением —
-   * всегда свой, даже со состоянием внутри: у него кнопка или переключатель.
+   * показывает своя сетка.
    */
   const customEffects = computed<ActiveEffect[]>(() =>
-    options.effects.value.filter(
-      (effect) =>
-        effect.activation !== undefined
-        || resolveEffectConditionKey(effect) === undefined,
-    ),
+    options.effects.value.filter(isCustomEffect),
+  );
+
+  /** Эффекты-состояния, из которых можно вырваться: кнопки над сеткой */
+  const conditionEscapeEffects = computed<ActiveEffect[]>(() =>
+    listConditionEscapeEffects(options.effects.value),
   );
 
   /**
@@ -101,15 +187,7 @@ export function useEntityActiveEffects(options: EntityActiveEffectsOptions) {
     const currentEffects = options.effects.value;
 
     if (isConditionActive(key)) {
-      // Шаблоны применения и включения с этим состоянием — не наложенное
-      // состояние, плитка их не снимает
-      options.onChange(
-        currentEffects.filter(
-          (effect) =>
-            effect.activation !== undefined
-            || resolveEffectConditionKey(effect) !== key,
-        ),
-      );
+      options.onChange(dropConditionEffects(currentEffects, key));
 
       return;
     }
@@ -173,6 +251,7 @@ export function useEntityActiveEffects(options: EntityActiveEffectsOptions) {
 
   return {
     customEffects,
+    conditionEscapeEffects,
     activeConditionKeys,
     isConditionActive,
     toggleCondition,
