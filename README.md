@@ -561,7 +561,11 @@ d20, а не по сумме с бонусной костью. Для «Благ
   `abjuration`, `conjuration`, `divination`, `enchantment`, `evocation`,
   `illusion`, `necromancy`, `transmutation`.
 - **Правило каста** (`castRule` эффекта, `engine/effectCastRule.ts`) — то, что
-  требует чисел. Читается с эффектов носителя и с аур на нём.
+  требует чисел. Читается с эффектов носителя и с аур на нём. Правило каста —
+  длящаяся нагрузка (`hasLastingEffectPayload`): эффект, у которого кроме него
+  ничего нет, ложится на цель; так же — эффект только с `escape`,
+  `conditionImmunities`, `suppressConditions`, `light`, `saveOverride`,
+  `stages` или `exhaustionLevel`.
   - `maxSlotLevel` / `minSlotLevel` — ячейки не выше / не ниже круга («не может
     использовать ячейки 7-го круга и выше» — `maxSlotLevel: 6`). Заклинание
     круга выше лимита гаснет с причиной, выбор круга сужается

@@ -424,6 +424,12 @@ describe('каталог: ограничения действий и колдо�
 
     authoredScenario(spear, 'creatureAction');
 
+    assert.equal(
+      engine.hasLastingEffectPayload(spear),
+      true,
+      'правило каста — длящаяся нагрузка: эффект остаётся на цели',
+    );
+
     const wizard = createActor({ activeEffects: [spear] });
 
     wizard.system = { ...wizard.system, classes: [WIZARD] };

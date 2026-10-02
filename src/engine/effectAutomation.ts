@@ -120,6 +120,13 @@ export function mergeAppliedEffects(
  * `activeEffects` цели. Эффект, у которого есть только срабатывание «урон
  * снимает эффект», без этого на цель не попал бы вовсе.
  *
+ * Нагрузка — любое поле, которое действует, пока эффект лежит: правило каста
+ * («ячейки 7-го круга и выше недоступны»), «вырваться», иммунитет к
+ * состояниям и их подавление, свет, подмена спасброска, ступени, степень
+ * истощения. Эффект с одним таким полем раньше молча отбрасывался при
+ * наложении. Цена (`pay`), применение (`activation`) и аура сюда не входят:
+ * сами по себе они ничего не делают — им нужна строка, флаг или срабатывание.
+ *
  * @param effect - накладываемый эффект
  * @returns `true`, если у эффекта есть длящаяся нагрузка
  */
@@ -132,6 +139,14 @@ export function hasLastingEffectPayload(effect: ActiveEffect): boolean {
     || effect.recurringSave !== undefined
     || (effect.triggers?.length ?? 0) > 0
     || effect.tag !== undefined
+    || effect.castRule !== undefined
+    || effect.escape !== undefined
+    || (effect.conditionImmunities?.length ?? 0) > 0
+    || (effect.suppressConditions?.length ?? 0) > 0
+    || effect.light !== undefined
+    || effect.saveOverride !== undefined
+    || (effect.stages?.length ?? 0) > 0
+    || effect.exhaustionLevel !== undefined
   );
 }
 
