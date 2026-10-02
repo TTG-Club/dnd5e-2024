@@ -3351,7 +3351,20 @@ export const SPELL_EFFECT_TARGET_LABELS = {
   unavailable:
     'Нельзя выбрать цели: нужна доступная сцена и управление заклинателем.',
   changed: 'Цели или доступ изменились. Выберите цели заклинания заново.',
+  /** Отказы каста с выбранными целями — причиной, а не общей фразой */
+  spellChanged:
+    'Заклинание на листе изменилось или убрано. Выберите цели заклинания заново.',
+  notPrepared:
+    'Заклинание не подготовлено — отметьте подготовку на листе, чтобы наложить его.',
+  noUses: 'У заклинания не осталось зарядов.',
+  noSlot: 'Нет свободной ячейки выбранного круга.',
 } as const;
+
+/** Причина отказа каста с выбранными целями — ключ подписи отказа */
+export type SpellEffectTargetProblem = Extract<
+  keyof typeof SPELL_EFFECT_TARGET_LABELS,
+  'changed' | 'spellChanged' | 'notPrepared' | 'noUses' | 'noSlot'
+>;
 
 /** Подписи распределения снарядов. */
 export const PROJECTILE_PROMPT_LABELS = {

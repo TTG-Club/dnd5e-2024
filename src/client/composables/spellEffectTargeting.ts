@@ -1,5 +1,7 @@
 import type { DnDSceneEntity, Spell } from '@vtt/shared/system/dnd.js';
 
+import type { SpellEffectTargetProblem } from '../ui/actor/constants';
+
 import { emitEntityCombatState } from '@/core/entityUtils';
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
@@ -348,39 +350,47 @@ export function requestSpellEffectTargets(
 
     let applied = false;
 
-    /** Проверяет актуальное заклинание и остаток выбранного вида ячеек. */
-    function hasResources(
+    /**
+     * Проверяет актуальное заклинание и остаток выбранного вида ячеек.
+     *
+     * @returns чего не хватает; `null` — каст оплатить есть чем
+     */
+    function findResourceProblem(
       castLevel: number,
       consumeSlot: boolean,
       isPactSlot: boolean,
-    ): boolean {
+    ): SpellEffectTargetProblem | null {
       const caster = findEntity(casterId);
 
       if (!caster || caster.entityType !== 'actor') {
-        return false;
+        return 'changed';
       }
 
       const currentSpell = caster.spells?.find(
         (entry) => entry.id === spell.id,
       );
 
+      if (!currentSpell) {
+        return 'spellChanged';
+      }
+
       // Лист старого мира, чьи заговоры ещё не разобраны, держит их доступными
       const cantripsTracked =
         isRecord(caster.system) && caster.system.cantripsTracked === true;
 
-      if (!currentSpell || !isSpellReady(currentSpell, cantripsTracked)) {
-        return false;
+      if (!isSpellReady(currentSpell, cantripsTracked)) {
+        return 'notPrepared';
       }
 
       if (currentSpell.uses) {
-        return (
-          currentSpell.uses.recovery === 'atWill'
+        return currentSpell.uses.recovery === 'atWill'
           || currentSpell.uses.current > 0
-        );
+          ? null
+          : 'noUses';
       }
 
       if (!consumeSlot || castLevel === 0) {
-        return true;
+        return null;
       }
 
       // Свои бонусы к ячейкам считаются от итоговых статов — как на вкладке
@@ -390,7 +400,9 @@ export function requestSpellEffectTargets(
         castLevel,
         isPactSlot,
         resolveActorStats(caster).abilityBonusContext,
-      );
+      )
+        ? null
+        : 'noSlot';
     }
 
     /** Отменяет старый каст, если запись заклинания заменили или изменили. */
@@ -417,20 +429,10 @@ export function requestSpellEffectTargets(
       );
     }
 
-    /** Не позволяет потратить ячейку на удалённую, подменённую или недоступную цель. */
-    function validate(
-      castLevel?: number,
-      consumeSlot = false,
-      isPactSlot = false,
-    ): boolean {
-      const valid =
-        !applied
-        && hasCastContext()
-        && hasCurrentSpellDefinition()
-        && (castLevel === undefined
-          || (castLevel === slotLevel
-            && hasResources(castLevel, consumeSlot, isPactSlot)))
-        && chosenTargets.length > 0
+    /** Выбранные цели на месте, свои и по-прежнему доступны заклинанию. */
+    function hasCurrentTargets(): boolean {
+      return (
+        chosenTargets.length > 0
         && chosenTargets.length <= getSpellEffectTargetCount(spell, slotLevel)
         && chosenTargets.every(
           (chosen) =>
@@ -440,13 +442,59 @@ export function requestSpellEffectTargets(
                 token.id === chosen.tokenId
                 && token.actorId === chosen.entityId,
             ),
-        );
+        )
+      );
+    }
 
-      if (!valid) {
-        chatStore.sendMessage(SPELL_EFFECT_TARGET_LABELS.changed, 'text');
+    /**
+     * Почему каст с выбранными целями больше не действителен. Причина названа
+     * своя: неподготовленное заклинание раньше отказывало фразой про цели, и
+     * игрок выбирал их заново без толку.
+     *
+     * @returns причина отказа; `null` — каст в силе
+     */
+    function findProblem(
+      castLevel: number | undefined,
+      consumeSlot: boolean,
+      isPactSlot: boolean,
+    ): SpellEffectTargetProblem | null {
+      if (applied || !hasCastContext()) {
+        return 'changed';
       }
 
-      return valid;
+      if (!hasCurrentSpellDefinition()) {
+        return 'spellChanged';
+      }
+
+      if (castLevel !== undefined && castLevel !== slotLevel) {
+        return 'changed';
+      }
+
+      const resourceProblem =
+        castLevel === undefined
+          ? null
+          : findResourceProblem(castLevel, consumeSlot, isPactSlot);
+
+      if (resourceProblem) {
+        return resourceProblem;
+      }
+
+      return hasCurrentTargets() ? null : 'changed';
+    }
+
+    /** Не позволяет потратить ячейку на удалённую, подменённую или недоступную цель. */
+    function validate(
+      castLevel?: number,
+      consumeSlot = false,
+      isPactSlot = false,
+    ): boolean {
+      const problem = findProblem(castLevel, consumeSlot, isPactSlot);
+
+      if (problem) {
+        chatStore.sendMessage(SPELL_EFFECT_TARGET_LABELS[problem], 'text');
+      }
+
+      return problem === null;
     }
 
     /**

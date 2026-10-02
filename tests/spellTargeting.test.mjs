@@ -1087,10 +1087,25 @@ it('spent spell uses do not invalidate already confirmed effects and preparation
   selection.prompt.props.onConfirm(1);
   assert.equal(selection.selected.targets.validate(1, false, false), true);
   caster.spells[0].prepared = false;
+  runtime.messages.length = 0;
   assert.equal(selection.selected.targets.validate(1, false, false), false);
+
+  // Причина отказа названа своя, а не «цели изменились»: цели на месте
+  assert.deepEqual(
+    runtime.messages.map(([text]) => text),
+    [runtime.SPELL_EFFECT_TARGET_LABELS.notPrepared],
+  );
+
   caster.spells[0].prepared = true;
   caster.spells[0].uses.current = 0;
+  runtime.messages.length = 0;
   assert.equal(selection.selected.targets.validate(1, false, false), false);
+
+  assert.deepEqual(
+    runtime.messages.map(([text]) => text),
+    [runtime.SPELL_EFFECT_TARGET_LABELS.noUses],
+  );
+
   assert.equal(selection.selected.targets.validate(), true);
   selection.selected.targets.apply();
   assert.equal(runtime.updates.length, 1);
