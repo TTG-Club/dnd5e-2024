@@ -63,7 +63,6 @@
     getPactSlotInfo,
     getPreparedLimitBreakdown,
     getSpellAttackBreakdown,
-    getSpellAttackType,
     getSpellDamageParts,
     getSpellPrimaryDamageType,
     getSpellProjectileCount,
@@ -85,9 +84,11 @@
     resolveDamagePartsForCast,
     resolveEntityActionBlocks,
     resolveEntityCreatureType,
+    resolvePlannedDamageTotal,
     resolveSpellAreaAtLevel,
     resolveSpellCastCost,
     resolveSpellcastingAbility,
+    resolveSpellCastPlan,
     resolveSpellDamageFormula,
     resolveSpellSaveDC,
     retypeCasterSpellDamage,
@@ -131,12 +132,9 @@
     createProjectileCastValidator,
     needsSpellEffectTargets,
     requestSpellEffectTargets,
+    settleNoRollSpellTargets,
   } from '../../../composables/spellEffectTargeting';
-  import {
-    castNeedsMultiPart,
-    getTargetSpellEffects,
-    postSpellEffectsMessage,
-  } from '../../../composables/spellResolutionShared';
+  import { postSpellEffectsMessage } from '../../../composables/spellResolutionShared';
   import {
     useBonusDamageParts,
     withFlatDamageBonusPart,
@@ -165,12 +163,12 @@
     SHEET_ROW_MENU_LABELS,
     SPELL_BROWSER_WARMUP_KINDS,
     SPELL_CAST_MODAL_KEY_PREFIX,
-    SPELL_DAMAGE_ROLL_BUTTON,
     SPELL_FILTER_LABELS,
     SPELL_LEVEL_SUFFIX,
     SPELL_MENU_LABELS,
     SPELL_MIME,
     SPELL_PROPERTY_FILTERS,
+    SPELL_ROLL_BUTTON_LABELS,
     SPELL_STAT_HINTS,
     SPELL_STAT_LABELS,
   } from '../constants';
@@ -215,11 +213,8 @@
   const chatStore = useChatStore();
   const targetStore = useTargetStore();
 
-  const {
-    needsAutoResolution,
-    resolveSpellDamage,
-    resolveSpellDamageWithParts,
-  } = useSpellResolution();
+  const { resolveSpellDamage, resolveSpellDamageWithParts } =
+    useSpellResolution();
 
   const { hasSpellBonusDamage, buildSpellBonusEvaluator } =
     useBonusDamageParts();
@@ -2024,16 +2019,21 @@
 
     const hasBonusDamage = hasSpellBonusDamage(spellEffects);
 
-    // Есть ли у заклинания эффекты на цель (effectTarget 'target') — нужно для
-    // резолва заклинаний без урона, чья задача — повесить эффект на цель.
-    const hasSpellTargetEffects = getTargetSpellEffects(spell).length > 0;
-
-    const useMultiPart = castNeedsMultiPart({
+    // Вид каста — одним решением на все входы: окно, кнопка и путь применения
+    const castPlan = resolveSpellCastPlan({
       spell,
       damageParts: spellDamageParts,
       hasProjectiles,
       hasBonusDamage,
+      isInnate,
+      hasTemplate: templateId !== undefined,
     });
+
+    // Есть ли у заклинания эффекты на цель (effectTarget 'target') — нужно для
+    // резолва заклинаний без урона, чья задача — повесить эффект на цель.
+    const hasSpellTargetEffects = castPlan.hasTargetEffects;
+
+    const useMultiPart = castPlan.flow === 'multiPart';
 
     // Плоский бонус эффектов к урону заклинаниями (`damage.spell`) вливается в
     // первую урон-часть — так же, как статический бонус оружия
@@ -2063,10 +2063,7 @@
             actor: props.actor,
             effects: spellEffects,
             resolvedStats: resolvedStats.value,
-            multiTarget:
-              spell.areaOfEffect !== undefined
-              || templateId !== undefined
-              || hasProjectiles,
+            multiTarget: castPlan.multiTarget,
           })
         : undefined;
 
@@ -2099,9 +2096,12 @@
      * Транслирует шаблон на сервер и запускает обработку целей.
      */
     function handleRollConfirm(
-      damageTotal: number,
+      rolledTotal: number,
       chosenDamageType?: string,
     ): void {
+      // Окно без частей урона катит проверку, а не урон: её итог в разбор не идёт
+      const damageTotal = resolvePlannedDamageTotal(castPlan, rolledTotal);
+
       isApplied = true;
       window.removeEventListener('beforeunload', handleUnload);
 
@@ -2120,7 +2120,7 @@
       // спасбросок и наложить эффект при провале — поэтому пускаем резолв и при
       // наличии target-эффектов, даже когда урона нет.
       if (
-        needsAutoResolution(spell, hasProjectiles)
+        castPlan.needsTargetResolution
         && (damageTotal > 0 || hasSpellTargetEffects)
       ) {
         const scene = worldStore.currentScene;
@@ -2177,8 +2177,8 @@
       // save-заклинания — внутри resolveSpellDamage выше.
       if (
         hasSpellTargetEffects
-        && spell.saveType === 'none'
-        && !getSpellAttackType(spell)
+        && !castPlan.needsSave
+        && !castPlan.attackType
       ) {
         applySpellTargetEffects(
           spell,
@@ -2254,7 +2254,7 @@
     function handleProjectileAttackRoll(
       rollContext: Omit<ProjectileAttackContext, 'attackType'>,
     ): void {
-      const projectileAttackType = getSpellAttackType(spell);
+      const projectileAttackType = castPlan.attackType;
 
       if (!projectileAttackType) {
         return;
@@ -2317,16 +2317,15 @@
     }
 
     /** Нужно ли пропустить автоприменение урона в модалке */
-    const shouldSkipAutoApply = needsAutoResolution(spell, hasProjectiles);
+    const shouldSkipAutoApply = castPlan.needsTargetResolution;
 
-    // Для заговоров и заклинаний без урона и без РЕАЛЬНОГО броска атаки — только
-    // карточка (выбор круга + применение эффектов). getSpellAttackType === undefined
-    // при автопопадании/лечении/не-атакующей доставке: тогда бросок не нужен, даже
-    // если тип атаки melee/ranged (автопопадание = попадаем без броска).
-    if (spellDamageParts.length === 0 && !getSpellAttackType(spell)) {
-      // Для не-заговоров всё равно нужно списать ячейку (врождённые — заряд уже
-      // списан в proceedWithCastSpell, ячейка не тратится)
-      if (spell.level > 0 && !isInnate) {
+    // Без урона и без РЕАЛЬНОГО броска атаки — окна броска нет (план каста):
+    // уровневому заклинанию — окно выбора круга, заговору и врождённому —
+    // применение сразу
+    if (castPlan.window !== 'roll') {
+      // Уровневому нужно списать ячейку (врождённые — заряд уже списан в
+      // proceedWithCastSpell, ячейка не тратится)
+      if (castPlan.window === 'confirm') {
         openModal('DiceRollModal', {
           '_modalKey': generateId(SPELL_CAST_MODAL_KEY_PREFIX),
           'title': `${ACTOR_SPELLS_TAB_LABELS.rollTitlePrefix}${spell.name}`,
@@ -2360,11 +2359,10 @@
 
           finishSpellCast(chosen, placedTemplate);
 
-          applySpellTargetEffects(
-            chosen,
-            spellTargetEffectsSource(chosen),
+          settleNoRollSpellTargets(chosen, spellTargetEffectsSource(chosen), {
             effectTargets,
-          );
+            template: placedTemplate,
+          });
 
           if (templateId) {
             templateStore.removePlacedTemplate(templateId);
@@ -2379,19 +2377,14 @@
     // Атака / урон / лечение. Тип атаки — общий хелпер getSpellAttackType
     // (melee/ranged без autoHit); будет ли реально бросок попадания, решает
     // DiceRollModal по наличию выбранной цели в момент броска.
-    const incomingAttackType = getSpellAttackType(spell);
+    const incomingAttackType = castPlan.attackType;
 
     const baseMod = incomingAttackType
       ? calculateSpellAttackModifier(props.actor, spell, resolvedStats.value)
       : 0;
 
-    let rollButtonText: string = SPELL_DAMAGE_ROLL_BUTTON;
-
-    if (incomingAttackType) {
-      rollButtonText = ACTOR_SPELLS_TAB_LABELS.attackRoll;
-    } else if (spellDamageParts.some((part) => damagePartIsHealing(part))) {
-      rollButtonText = ACTOR_SPELLS_TAB_LABELS.healing;
-    }
+    const rollButtonText =
+      SPELL_ROLL_BUTTON_LABELS[castPlan.rollKind ?? 'damage'];
 
     const evaluateAttackBonusRollFormulas = incomingAttackType
       ? buildRollBonusEvaluator(() => props.actor, 'attack.spell')

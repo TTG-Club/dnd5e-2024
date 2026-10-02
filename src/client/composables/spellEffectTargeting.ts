@@ -1,3 +1,4 @@
+import type { MeasurementTemplate } from '@vtt/shared';
 import type { DnDSceneEntity, Spell } from '@vtt/shared/system/dnd.js';
 
 import type { SpellEffectTargetProblem } from '../ui/actor/constants';
@@ -37,6 +38,7 @@ import {
 import { bindTargetEffectsToCaster } from './targetEffectSourceBinding';
 import { isSpellTargetBlockedByRange } from './useSceneRangeCheck';
 import { useSpellDamageWithParts } from './useSpellDamageWithParts';
+import { useSpellResolution } from './useSpellResolution';
 import { useWorldEntities } from './useWorldEntities';
 
 /**
@@ -650,4 +652,58 @@ export function applySpellTargetEffects(
   if (targetName) {
     postSpellEffectsMessage(spell.name, [targetName], targetEffects);
   }
+}
+
+/**
+ * Разбирает цели каста без окна броска (`flow: 'effectsOnly'` плана каста):
+ * спасбросок заклинания без урона («Удержание личности») бросает цель — через
+ * тот же оркестратор, что и у уронных заклинаний, с нулём урона; без
+ * спасброска эффекты на цель ложатся `applySpellTargetEffects`. Один путь на
+ * лист и горячую панель: раньше панель катила такому касту d20 и отдавала
+ * итог в разбор как урон, а лист у врождённого заклинания спасбросок не
+ * спрашивал вовсе.
+ *
+ * @param spell - заклинание каста
+ * @param source - заклинатель и его Сл спасброска
+ * @param options - цели и шаблон каста
+ * @param options.effectTargets - цели, зафиксированные при выборе
+ * @param options.template - шаблон области: цели спасброска — в нём
+ */
+export function settleNoRollSpellTargets(
+  spell: Spell,
+  source: SpellTargetEffectsSource,
+  options: {
+    effectTargets?: SpellEffectTargets;
+    template?: MeasurementTemplate | null;
+  } = {},
+): void {
+  if (spell.saveType === 'none') {
+    applySpellTargetEffects(spell, source, options.effectTargets);
+
+    return;
+  }
+
+  const socket = useChatStore().getSocket();
+  const actors = useWorldEntities().getCurrentWorldEntities();
+
+  if (getTargetSpellEffects(spell).length === 0 || !socket || !actors.length) {
+    return;
+  }
+
+  useSpellResolution().resolveSpellDamage(
+    {
+      spell,
+      damageTotal: 0,
+      spellSaveDC: source.spellSaveDC,
+      actors,
+      socket,
+      casterId: source.casterId,
+    },
+    {
+      hasProjectiles: false,
+      resolvedDamageFormula: '',
+      scene: useWorldStore().currentScene,
+      cachedTemplate: options.template ?? null,
+    },
+  );
 }

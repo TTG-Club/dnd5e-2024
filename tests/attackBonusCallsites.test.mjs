@@ -556,7 +556,7 @@ for (const relativePath of [
         actor: entity,
         props: { actor: entity },
         incomingAttackType: 'ranged',
-        getSpellAttackType: () => 'ranged',
+        castPlan: { attackType: 'ranged' },
         isApplied: false,
         window: { removeEventListener() {} },
         handleUnload() {},

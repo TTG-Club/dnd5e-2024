@@ -1,6 +1,5 @@
 import type {
   AbilityType,
-  DamagePart,
   DamagePartTarget,
   MeasurementTemplate,
   SceneEntity,
@@ -27,11 +26,7 @@ import {
   CREATURE_TYPE_LABELS,
   DAMAGE_STATUS_PHRASE_PREFIXES,
   DAMAGE_TYPE_LABELS,
-  damagePartNeedsOwnResolution,
   damageReachesTarget,
-  getSpellAttackType,
-  getTargetSpellEffects,
-  hasSourceTurnSaveDc,
   isDndSceneEntity,
   isMagicRoll,
   isSaveAbility,
@@ -55,6 +50,14 @@ export {
   getTargetSpellEffects,
   getZoneSpellEffects,
   isSaveAbility,
+} from '@vtt/shared/system/dnd.js';
+
+// Вид каста решает движок (`spellCastPlan`); прежние имена отсюда — до
+// перевода всех путей каста на общий разбор
+export {
+  castNeedsMultiPart,
+  castReachesTargets,
+  targetEffectsNeedResolution,
 } from '@vtt/shared/system/dnd.js';
 
 /** Результат спасброска одной цели */
@@ -423,81 +426,6 @@ export function stampEffectOnApply(
     castId,
     ...(castLevel === undefined ? {} : { castLevel }),
   };
-}
-
-/**
- * Нужен ли эффектам на цель разбор оркестратором, а не прямое наложение: свой
- * спасбросок, урон эффекта или повторный спасбросок с Сл 0 («Сл заклинателя»).
- * Прямое наложение ничего из этого не умеет — эффект лёг бы без броска, без
- * урона, а повторный спасбросок против Сл 0 проходился бы всегда.
- *
- * @param spell - заклинание
- * @returns `true`, если хоть один эффект на цель требует разбора
- */
-export function targetEffectsNeedResolution(spell: Spell): boolean {
-  return getTargetSpellEffects(spell).some(
-    (effect) =>
-      effect.applySave !== undefined
-      || (effect.damageParts?.length ?? 0) > 0
-      || hasSourceTurnSaveDc(effect),
-  );
-}
-
-/**
- * Достаётся ли цели хоть что-то от каста — часть урона/лечения или эффект.
- *
- * Нет — оркестратор звать незачем: целей он не найдёт и напишет в чат «цель
- * не выбрана» к касту, который удался («Щит» ложится только на заклинателя).
- * Одна проверка на лист существа и хотбар, чтобы каст с них не разошёлся.
- *
- * @param spell - заклинание каста (псевдо-заклинание с эффектами)
- * @param partsCount - сколько частей урона/лечения брошено
- * @returns `true`, если цели есть что получить
- */
-export function castReachesTargets(spell: Spell, partsCount: number): boolean {
-  return partsCount > 0 || getTargetSpellEffects(spell).length > 0;
-}
-
-/**
- * Идёт ли каст многочастным путём — когда части урона и эффекты ложатся ОДНОЙ
- * записью, а не одной общей формулой в модалке.
- *
- * Снаряды всегда остаются на одноформульном пути. Многочастный путь нужен,
- * когда есть бонус-урон, частей больше одной, хоть одной части нужен свой
- * разбор, либо это атака с уроном, чьим эффектам на цель нужен разбор: по
- * попаданию (`onHit`) разбор ждал бы окна спасброска эффекта, а урон модалки
- * успевал бы записаться раньше и затирался бы.
- *
- * Одна функция на лист и хотбар: разойдись это решение — один и тот же каст
- * с листа и с хотбара пошёл бы разными путями.
- *
- * @param context - заклинание, его части урона и признаки каста
- * @param context.spell - заклинание каста
- * @param context.damageParts - части урона/лечения заклинания
- * @param context.hasProjectiles - каст идёт снарядами (их путь одноформульный)
- * @param context.hasBonusDamage - эффекты дают бонус-урон к этому касту
- * @returns true, если каст идёт многочастным путём
- */
-export function castNeedsMultiPart(context: {
-  spell: Spell;
-  damageParts: DamagePart[];
-  hasProjectiles: boolean;
-  hasBonusDamage: boolean;
-}): boolean {
-  const { spell, damageParts, hasProjectiles, hasBonusDamage } = context;
-
-  if (hasProjectiles) {
-    return false;
-  }
-
-  return (
-    hasBonusDamage
-    || damageParts.length > 1
-    || (damageParts.length > 0
-      && getSpellAttackType(spell) !== undefined
-      && targetEffectsNeedResolution(spell))
-    || damageParts.some(damagePartNeedsOwnResolution)
-  );
 }
 
 /**

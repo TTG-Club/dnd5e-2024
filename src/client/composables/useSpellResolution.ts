@@ -68,9 +68,9 @@ import {
   resolveTargetDamageDefenses,
   scaleSaveDamage,
   settleDamageTypeChoices,
-  spellHasDamage,
   spellHealsTempHp,
   spellIsHealing,
+  spellNeedsTargetResolution,
   toRollerFormula,
   withInitializedDuration,
   writeEntityHitPoints,
@@ -237,22 +237,8 @@ export function useSpellResolution() {
    * @returns true если заклинание требует автоматической обработки целей
    */
   function needsAutoResolution(spell: Spell, hasProjectiles = false): boolean {
-    // Есть спасбросок -> нужно прокинуть
-    if (spell.saveType !== 'none') {
-      return true;
-    }
-
-    // Auto-hit -> нужно применить урон без бросков
-    if (spell.autoHit && spellHasDamage(spell)) {
-      return true;
-    }
-
-    // Распределение снарядов по целям — применение через resolveSpellDamage
-    if (hasProjectiles) {
-      return true;
-    }
-
-    return false;
+    // Решение одно на все пути каста — в движке, вместе с видом каста
+    return spellNeedsTargetResolution(spell, hasProjectiles);
   }
 
   /**

@@ -56,7 +56,6 @@ import {
   collectEffectToggleGroup,
   consumeCreatureSpellGroupUse,
   creatureActionHasSave,
-  damagePartIsHealing,
   describeItemUseAvailability,
   describeWeaponAttackAvailability,
   evaluateConditionalBonuses,
@@ -100,15 +99,16 @@ import {
   resolveEntityCreatureType,
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
+  resolvePlannedDamageTotal,
   resolveSpellAreaAtLevel,
   resolveSpellCastBlock,
   resolveSpellCastCost,
   resolveSpellcastingAbility,
+  resolveSpellCastPlan,
   resolveSpellDamageFormula,
   resolveSpellSaveDC,
   resolveWeaponSaveDc,
   retypeCasterSpellDamage,
-  spellHasDamage,
   spellIsHealing,
   stripDescriptionRollMarkers,
   targetHpGateMatches,
@@ -173,12 +173,11 @@ import {
   createProjectileCastValidator,
   needsSpellEffectTargets,
   requestSpellEffectTargets,
+  settleNoRollSpellTargets,
 } from '../composables/spellEffectTargeting';
 import {
-  castNeedsMultiPart,
   castReachesTargets,
   discardSpellTemplate,
-  getTargetSpellEffects,
   postSpellEffectsMessage,
 } from '../composables/spellResolutionShared';
 import {
@@ -203,6 +202,7 @@ import {
   SPELL_CAST_MODAL_KEY_PREFIX,
   SPELL_DAMAGE_ROLL_BUTTON,
   SPELL_MENU_LABELS,
+  SPELL_ROLL_BUTTON_LABELS,
 } from '../ui/actor/constants';
 import { checkCreatureActionRangeOnScene } from '../ui/creature/composables/useCreatureRangeCheck';
 import { CREATURE_ACTIONS_BLOCK_LABELS } from '../ui/creature/constants';
@@ -1277,23 +1277,41 @@ function openDiceRollForSpell(
   const hasProjectiles =
     projectileCount > 1 && !spell.areaOfEffect && !cachedTemplate;
 
-  // Окно броска открываем, если есть урон/лечение, РЕАЛЬНЫЙ бросок атаки
-  // (getSpellAttackType === undefined при автопопадании — тогда броска нет даже
-  // у melee/ranged доставки) или спасбросок. Иначе — путь самобаффа/наложения
-  // эффекта без броска (castBuffSpellMacro).
-  if (
-    spellHasDamage(spell)
-    || getSpellAttackType(spell)
-    || spell.saveType !== 'none'
-  ) {
+  // Масштабирование заговора: на пороге уровня тир целиком заменяет базовые
+  // части урона (см. cantripScalingTiers). Авто-умножение кубиков отключено.
+  const spellDamageParts =
+    spell.level === 0
+      ? (pickCantripTierParts(spell, casterLevel) ?? getSpellDamageParts(spell))
+      : getSpellDamageParts(spell);
+
+  // Кость-формулы бонус-урона заклинаний (damage.spell) в Active Effects
+  // катаются отдельными частями — каст идёт многочастным путём даже для
+  // одночастного заклинания. Учитываются и ambient-эффекты аур на карте
+  // (напр. аура союзника, дающая бонус-урон заклинаниям).
+  const { hasSpellBonusDamage, buildSpellBonusEvaluator } =
+    useBonusDamageParts();
+
+  const spellEffects = collectEffectsWithAuras(actor);
+
+  // Вид каста — одним решением на все входы: окно, кнопка и путь применения
+  const castPlan = resolveSpellCastPlan({
+    spell,
+    damageParts: spellDamageParts,
+    hasProjectiles,
+    hasBonusDamage: hasSpellBonusDamage(spellEffects),
+    isInnate: !!spell.uses,
+    hasTemplate: cachedTemplate !== undefined,
+  });
+
+  // Окно броска — только когда у каста есть урон/лечение или РЕАЛЬНЫЙ бросок
+  // атаки. Спасбросок без урона бросает цель, а не заклинатель: такой каст
+  // идёт путём без броска (castBuffSpellMacro), как и с листа
+  if (castPlan.window === 'roll') {
     const { openModal } = useModalManager();
     const worldStore = useWorldStore();
 
-    const {
-      needsAutoResolution,
-      resolveSpellDamage,
-      resolveSpellDamageWithParts,
-    } = useSpellResolution();
+    const { resolveSpellDamage, resolveSpellDamageWithParts } =
+      useSpellResolution();
 
     // Итоговые статы с учётом Active Effects — нужны и для @mod.spell в формуле
     // урона (внешние бонусы к стату), и для бонуса атаки заклинанием.
@@ -1355,14 +1373,6 @@ function openDiceRollForSpell(
         ? undefined
         : resolveEntityCreatureType(selectedTargetActor);
 
-    // Масштабирование заговора: на пороге уровня тир целиком заменяет базовые
-    // части урона (см. cantripScalingTiers). Авто-умножение кубиков отключено.
-    const spellDamageParts =
-      spell.level === 0
-        ? (pickCantripTierParts(spell, casterLevel)
-          ?? getSpellDamageParts(spell))
-        : getSpellDamageParts(spell);
-
     // Legacy одиночная формула (снаряды/одночастный путь): первая часть, с
     // разрешёнными @-переменными (@dmg-токены снимаются внутри resolve).
     const firstPartFormula = spellDamageParts[0]?.formula ?? '';
@@ -1403,26 +1413,10 @@ function openDiceRollForSpell(
     // Включая заклинания-атаки: модалка делает бросок попадания, затем части.
     // Исключены только снаряды (своя логика распределения).
 
-    // Кость-формулы бонус-урона заклинаний (damage.spell) в Active Effects
-    // катаются отдельными частями — каст идёт многочастным путём даже для
-    // одночастного заклинания. Учитываются и ambient-эффекты аур на карте
-    // (напр. аура союзника, дающая бонус-урон заклинаниям).
-    const { hasSpellBonusDamage, buildSpellBonusEvaluator } =
-      useBonusDamageParts();
-
-    const spellEffects = collectEffectsWithAuras(actor);
-
-    const hasBonusDamage = hasSpellBonusDamage(spellEffects);
-
     // Эффекты заклинания, предназначенные цели (effectTarget 'target')
-    const hasSpellTargetEffects = getTargetSpellEffects(spell).length > 0;
+    const hasSpellTargetEffects = castPlan.hasTargetEffects;
 
-    const useMultiPart = castNeedsMultiPart({
-      spell,
-      damageParts: spellDamageParts,
-      hasProjectiles,
-      hasBonusDamage,
-    });
+    const useMultiPart = castPlan.flow === 'multiPart';
 
     // Плоский бонус эффектов к урону заклинаниями (`damage.spell`) вливается в
     // первую урон-часть — так же, как статический бонус оружия
@@ -1446,16 +1440,13 @@ function openDiceRollForSpell(
     // они катаются один раз на каст и применяются каждой задетой цели
     // (per-target гейты, см. resolveSpellDamage).
     const evaluateSpellBonusParts =
-      useMultiPart || (hasProjectiles && hasBonusDamage)
+      useMultiPart || (hasProjectiles && hasSpellBonusDamage(spellEffects))
         ? buildSpellBonusEvaluator({
             spell,
             actor,
             effects: spellEffects,
             resolvedStats,
-            multiTarget:
-              spell.areaOfEffect !== undefined
-              || cachedTemplate !== undefined
-              || hasProjectiles,
+            multiTarget: castPlan.multiTarget,
           })
         : undefined;
 
@@ -1496,7 +1487,7 @@ function openDiceRollForSpell(
       );
     }
 
-    const incomingAttackType = getSpellAttackType(spell);
+    const incomingAttackType = castPlan.attackType;
 
     // Полный бонус атаки заклинанием: мод характеристики (итоговый) +
     // мастерство + attack.spell + доп. бонус заклинания.
@@ -1504,16 +1495,11 @@ function openDiceRollForSpell(
       ? calculateSpellAttackModifier(actor, spell, resolvedStats)
       : 0;
 
-    let rollButtonText = 'Бросить урон';
-
-    if (incomingAttackType) {
-      rollButtonText = 'Бросить атаку';
-    } else if (spellDamageParts.some((part) => damagePartIsHealing(part))) {
-      rollButtonText = 'Лечение';
-    }
+    const rollButtonText =
+      SPELL_ROLL_BUTTON_LABELS[castPlan.rollKind ?? 'damage'];
 
     /** Нужно ли пропустить автоприменение урона в модалке (обработка делегирована resolveSpellTargets) */
-    const shouldSkipModalDamage = needsAutoResolution(spell, hasProjectiles);
+    const shouldSkipModalDamage = castPlan.needsTargetResolution;
 
     // Определяем наличие и уровень Pact-слота
     const pactInfo = getPactSlotInfo(actor.system?.classes ?? []);
@@ -1536,15 +1522,18 @@ function openDiceRollForSpell(
      * Обработчик подтверждения броска — применяет урон к целям.
      */
     function handleSpellRoll(
-      damageTotal: number,
+      rolledTotal: number,
       chosenDamageType?: string,
     ): void {
+      // Окно без частей урона катит проверку, а не урон: её итог в разбор не идёт
+      const damageTotal = resolvePlannedDamageTotal(castPlan, rolledTotal);
+
       finishCast();
 
       // Эффекты на цель без урона тоже требуют резолва (спасбросок у
       // save-заклинаний), поэтому пускаем резолв и при наличии target-эффектов.
       if (
-        !needsAutoResolution(spell, hasProjectiles)
+        !castPlan.needsTargetResolution
         || (damageTotal <= 0 && !hasSpellTargetEffects)
       ) {
         return;
@@ -1918,9 +1907,19 @@ function castBuffSpellMacro(
     return casterEffects.filter(hasLandingTrigger);
   };
 
-  // Уровневые (не врождённые): окно выбора круга. Списание ячейки и эффекты —
-  // одним обновлением сущности.
-  if (spell.level > 0 && !isInnate) {
+  // Окно решает план каста: у пути без броска урона и атаки нет. Уровневые
+  // (не врождённые) — окно выбора круга; списание ячейки и эффекты — одним
+  // обновлением сущности.
+  const castWindow = resolveSpellCastPlan({
+    spell,
+    damageParts: [],
+    hasProjectiles: false,
+    hasBonusDamage: false,
+    isInnate,
+    hasTemplate: cachedTemplate !== undefined,
+  }).window;
+
+  if (castWindow === 'confirm') {
     const { openModal } = useModalManager();
     const pactInfo = getPactSlotInfo(actor.system?.classes ?? []);
 
@@ -2018,7 +2017,11 @@ function castBuffSpellMacro(
 
         // Эффекты на выбранную цель (effectTarget 'target') — отдельной
         // сущности, отдельным обновлением (без гонки с апдейтом кастера).
-        applySpellTargetEffects(spell, targetEffectsSource, effectTargets);
+        // Спасбросок без урона бросает цель — тем же разбором, что на листе
+        settleNoRollSpellTargets(spell, targetEffectsSource, {
+          effectTargets,
+          template: cachedTemplate,
+        });
       },
     });
 
@@ -2060,7 +2063,10 @@ function castBuffSpellMacro(
       },
     });
 
-    applySpellTargetEffects(chosen, targetEffectsSource, effectTargets);
+    settleNoRollSpellTargets(chosen, targetEffectsSource, {
+      effectTargets,
+      template: cachedTemplate,
+    });
   });
 }
 
@@ -2346,7 +2352,7 @@ function openCreatureActionRoll(
   openModal('DiceRollModal', {
     title: usesSaveOrArea ? action.name : `Атака — ${action.name}`,
     rollLabel: action.name,
-    rollButtonText: usesSaveOrArea ? 'Бросить урон' : 'Атаковать',
+    rollButtonText: usesSaveOrArea ? SPELL_DAMAGE_ROLL_BUTTON : 'Атаковать',
     formula: primary.formula,
     attackModifier: usesSaveOrArea ? undefined : action.attackBonus,
     evaluateBonusRollFormulas: usesSaveOrArea

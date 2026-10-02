@@ -134,6 +134,7 @@ export * from './speciesSize.js';
 export * from './speciesTypes.js';
 export * from './spellAreaScaling.js';
 export * from './spellcastingSettings.js';
+export * from './spellCastPlan.js';
 export * from './spellDamageRetype.js';
 export * from './spellSlotTable.js';
 export * from './spellTypes.js';

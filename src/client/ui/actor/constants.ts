@@ -21,6 +21,7 @@ import type {
   CounterRestKey,
   HitDie,
   SkillInfluenceTone,
+  SpellCastRollKind,
 } from '@vtt/shared/system/dnd.js';
 
 import {
@@ -4828,6 +4829,17 @@ export const ACTOR_SPELLS_TAB_LABELS = {
   slotAvailable: 'Доступна',
   empty: 'У данного персонажа пока нет заклинаний.',
 } as const;
+
+/**
+ * Надпись кнопки окна броска заклинания по виду броска из плана каста
+ * (`resolveSpellCastPlan`). Одна таблица на лист и горячую панель: «Бросить
+ * урон» появляется только там, где у каста есть урон.
+ */
+export const SPELL_ROLL_BUTTON_LABELS = {
+  attack: ACTOR_SPELLS_TAB_LABELS.attackRoll,
+  damage: SPELL_DAMAGE_ROLL_BUTTON,
+  healing: ACTOR_SPELLS_TAB_LABELS.healing,
+} as const satisfies Record<SpellCastRollKind, string>;
 
 /**
  * Подписи левой колонки листа персонажа: хиты, кости хитов, подсказка класса

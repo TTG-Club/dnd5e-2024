@@ -44,6 +44,7 @@ const bundle = await build({
       export * from './src/client/composables/spellEffectTargeting.ts';
       export { castNeedsMultiPart, castReachesTargets, targetEffectsNeedResolution } from './src/client/composables/spellResolutionShared.ts';
       export { getSpellEffectTargetCount } from './src/engine/spellUtils.ts';
+      export { resolveSpellCastPlan } from './src/engine/spellCastPlan.ts';
       export * from 'test:host';
       export { useProjectileStore } from '@/stores/projectileStore';
       export { createPinia, setActivePinia } from 'pinia';
@@ -931,6 +932,7 @@ it('the actual modal manager keeps a new Bless cast independent from an unfinish
       useChatStore: () => runtime.chatStore,
       useModalManager: () => ({ openModal }),
       getPactSlotInfo: () => ({ level: 0 }),
+      resolveSpellCastPlan: runtime.resolveSpellCastPlan,
       computeAvailableLevels: () => [1],
       SPELL_MENU_LABELS: { cast: 'Применить' },
       SPELL_CAST_MODAL_KEY_PREFIX: 'spell-cast',
@@ -1141,17 +1143,13 @@ for (const [kind, instantSpell] of [
         resolveSpellDamageFormula: () => '',
         collectEffectsWithAuras: () => [],
         hasSpellBonusDamage: () => false,
-        getTargetSpellEffects: (spell) => spell.activeEffects,
-        targetEffectsNeedResolution: runtime.targetEffectsNeedResolution,
-        castNeedsMultiPart: runtime.castNeedsMultiPart,
+        resolveSpellCastPlan: runtime.resolveSpellCastPlan,
         spellTargetEffectsSource: () => ({
           casterId: 'caster',
           spellSaveDC: 13,
         }),
-        needsAutoResolution: () => false,
-        getSpellAttackType: () => undefined,
         finishSpellCast() {},
-        applySpellTargetEffects: runtime.applySpellTargetEffects,
+        settleNoRollSpellTargets: runtime.settleNoRollSpellTargets,
         beginSpellCast: () => {},
         generateId: (prefix) => `${prefix}_test`,
         SPELL_CAST_KEY_PREFIX: 'cast',
