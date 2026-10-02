@@ -27,7 +27,10 @@ import type {
 } from './damageUtils.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type { IncomingAttackContext } from './effectPipeline.js';
-import type { EffectTriggerUsageLedger } from './effectTriggerUsage.js';
+import type {
+  EffectTriggerUsageLedger,
+  TriggerUsageChanges,
+} from './effectTriggerUsage.js';
 
 import { generateId, isRecord } from '@vtt/shared';
 
@@ -36,7 +39,7 @@ import {
   applyEffectChanges,
   diffEffects,
   EffectChangesSchema,
-  readEffectsBaseline,
+  readCombatBaseline,
 } from './combatEffectChanges.js';
 import {
   buildConditionActiveEffect,
@@ -66,8 +69,11 @@ import {
   resolveActorStats,
 } from './effectPipeline.js';
 import {
+  applyTriggerUsageChanges,
+  diffTriggerUsage,
   parseTriggerUsage,
   readTriggerUsage,
+  TriggerUsageChangesSchema,
   writeTriggerUsage,
 } from './effectTriggerUsage.js';
 import { stripDamageTypeTokens } from './formulaTokens.js';
@@ -350,10 +356,18 @@ export interface DndCombatState {
    */
   effectChanges?: EffectChanges;
   /**
-   * Счётчики лимитов срабатываний («не чаще раза в ход»): бросок атаки на
-   * клиенте расходует срабатывание. Нет поля — счётчики не трогаются.
+   * Счётчики лимитов срабатываний («не чаще раза в ход») целиком. Остаётся
+   * для старого сервера: разницу журнала он не знает. Нет поля — счётчики не
+   * трогаются.
    */
   effectUsage?: EffectTriggerUsageLedger;
+  /**
+   * Разница журнала относительно копии: расход приращением, сброс снятием
+   * ключа. Есть поле — сервер сливает его со СВОИМ журналом, а `effectUsage`
+   * не берёт: расход «раз в ход», записанный после копии, иначе откатился бы
+   * и лимит сработал бы второй раз. Нет поля — полная замена, как раньше.
+   */
+  effectUsageChanges?: TriggerUsageChanges;
   /**
    * Удары, от которых изменились хиты: по ним сервер прогоняет «получил урон»
    * и «хиты упали до 0». Нет поля — событий урона нет (отмена, правка хитов).
@@ -370,15 +384,23 @@ export interface DndCombatState {
 export function pickCombatState(entity: DnDSceneEntity): DndCombatState {
   const damage = readDamageHits(entity);
   const activeEffects = entity.activeEffects ?? [];
-  const baseline = readEffectsBaseline(entity);
+  const baseline = readCombatBaseline(entity);
 
   return {
     hpCurrent: resolveEntityCurrentHp(entity),
     hpTemp: resolveEntityTempHp(entity),
     activeEffects,
+    // Разница журнала — всегда, когда есть основа, даже пустая: без неё
+    // сервер взял бы журнал копии целиком
     ...(baseline === undefined
       ? {}
-      : { effectChanges: diffEffects(baseline, activeEffects) }),
+      : {
+          effectChanges: diffEffects(baseline.activeEffects, activeEffects),
+          effectUsageChanges: diffTriggerUsage(
+            baseline.effectUsage,
+            readTriggerUsage(entity),
+          ),
+        }),
     ...(entity.system.effectUsage === undefined
       ? {}
       : { effectUsage: entity.system.effectUsage }),
@@ -441,10 +463,17 @@ export function applyCombatState(
     return false;
   }
 
-  // Счётчики лимитов — только если клиент их прислал: старый клиент их не
-  // знает, и снимок без поля не должен стирать счётчики сервера
-  const nextUsage =
-    effectUsage === undefined ? undefined : parseTriggerUsage(effectUsage);
+  const nextUsage = resolveNextTriggerUsage(
+    readTriggerUsage(entity),
+    effectUsage,
+    state.effectUsageChanges,
+  );
+
+  // Негодная разница журнала — снимок отвергнут, как и с негодной разницей
+  // эффектов
+  if (nextUsage === null) {
+    return false;
+  }
 
   const usageChanged =
     nextUsage !== undefined
@@ -476,6 +505,34 @@ export function applyCombatState(
   }
 
   return true;
+}
+
+/**
+ * Журнал срабатываний, который ляжет на сервере: разница от клиента, слитая с
+ * журналом сервера, либо (без разницы) журнал снимка целиком.
+ *
+ * @param current - журнал сущности на сервере
+ * @param fullLedger - поле `effectUsage` снимка
+ * @param rawChanges - поле `effectUsageChanges` снимка
+ * @returns новый журнал; `undefined` — журнал не трогается (старый клиент
+ *   его не прислал); `null` — разница негодна
+ */
+function resolveNextTriggerUsage(
+  current: EffectTriggerUsageLedger,
+  fullLedger: unknown,
+  rawChanges: unknown,
+): EffectTriggerUsageLedger | null | undefined {
+  if (rawChanges === undefined) {
+    // Счётчики целиком — только если клиент их прислал: снимок без поля не
+    // должен стирать счётчики сервера
+    return fullLedger === undefined ? undefined : parseTriggerUsage(fullLedger);
+  }
+
+  const parsedChanges = TriggerUsageChangesSchema.safeParse(rawChanges);
+
+  return parsedChanges.success
+    ? applyTriggerUsageChanges(current, parsedChanges.data)
+    : null;
 }
 
 /**

@@ -52,7 +52,7 @@ function oldCastEffect(id) {
 function clientCopy(entity) {
   const copy = structuredClone(entity);
 
-  engine.recordEffectsBaseline(copy, copy.activeEffects ?? []);
+  engine.recordCombatBaseline(copy, copy);
 
   return copy;
 }
@@ -254,7 +254,7 @@ describe('помощник записи боевого состояния', () =
     const changeEntityCombatState = await loadChangeEntityCombatState({
       findEntity: (entityId) => world.get(entityId),
       emitted,
-      recordEffectsBaseline: engine.recordEffectsBaseline,
+      recordCombatBaseline: engine.recordCombatBaseline,
     });
 
     const stale = withHp(createCreature, TARGET_HP, {
@@ -282,7 +282,7 @@ describe('помощник записи боевого состояния', () =
     assert.equal(emitted[0], sent);
     assert.notEqual(sent, fresh, 'запись стора не отправляется');
 
-    assert.deepEqual(engine.readEffectsBaseline(sent), []);
+    assert.deepEqual(engine.readCombatBaseline(sent).activeEffects, []);
 
     assert.deepEqual(
       engine.pickCombatState(sent).effectChanges.add.map((effect) => effect.id),

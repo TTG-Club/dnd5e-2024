@@ -10,8 +10,9 @@
  * только разделы листа, а стор правится тут же: следующая запись в том же
  * тике не возьмёт прежнее.
  *
- * Хиты и эффекты этим путём не меняются — их несёт боевой снимок
- * (`entityCombatWrite.ts`), который сервер сливает со своим состоянием.
+ * Хиты, эффекты и журнал срабатываний этим путём не меняются — их несёт
+ * боевой снимок (`entityCombatWrite.ts`), который сервер сливает со своим
+ * состоянием.
  */
 
 import type { DnDSceneEntity } from '@vtt/shared/system/dnd.js';
@@ -21,10 +22,19 @@ import { useChatStore } from '@/stores/chatStore';
 import { useWorldStore } from '@/stores/worldStore';
 import { isActorEntity, isCreatureEntity } from '@vtt/shared';
 import {
+  applyTriggerUsageChanges,
+  diffTriggerUsage,
+  hasTriggerUsageChanges,
+  readTriggerUsage,
   resolveEntityCurrentHp,
   resolveEntityTempHp,
+  withTriggerUsage,
 } from '@vtt/shared/system/dnd.js';
 
+import {
+  changeEntityCombatState,
+  readSentTriggerUsage,
+} from './entityCombatWrite';
 import { useWorldEntities } from './useWorldEntities';
 
 /**
@@ -57,10 +67,16 @@ function keepsCombatState(
  * прошла через вопросы человеку), переносятся на свежую сущность
  * `withSheetResources(current, spent)`.
  *
+ * Журнал срабатываний (`system.effectUsage`) — боевое состояние, как хиты и
+ * эффекты: из преобразования он в полную запись не попадает. Запись несёт
+ * журнал, посланный последним боевым снимком (`readSentTriggerUsage`), а
+ * расход, который сделало преобразование, уходит следом боевым снимком
+ * разницей — сервер прибавит его к своему журналу.
+ *
  * @param entityId - сущность
  * @param change - новая сущность от свежей: НОВЫЙ объект с теми же хитами и
  *   эффектами; `null` — ничего не писать
- * @returns отправленная сущность; нет соединения, сущности, изменения или
+ * @returns записанная сущность; нет соединения, сущности, изменения или
  *   преобразование тронуло хиты и эффекты — `null`
  */
 export function changeEntitySheet(
@@ -76,13 +92,13 @@ export function changeEntitySheet(
     return null;
   }
 
-  const next = change(current);
+  const changed = change(current);
 
-  if (!next || next === current) {
+  if (!changed || changed === current) {
     return null;
   }
 
-  if (!keepsCombatState(current, next)) {
+  if (!keepsCombatState(current, changed)) {
     console.error(
       `[entitySheetWrite] ${current.name}: хиты и эффекты меняет боевой снимок, а не запись листа`,
     );
@@ -90,21 +106,47 @@ export function changeEntitySheet(
     return null;
   }
 
-  // Стор — сразу: следующая запись в том же тике читает уже новые разделы.
-  // Разделы листа — переменной: базовый тип актёра ядра инвентаря не знает
-  const sections = {
-    system: next.system,
-    equipment: next.equipment,
-    spells: next.spells,
-  };
+  const usageChanges = diffTriggerUsage(
+    readTriggerUsage(current),
+    readTriggerUsage(changed),
+  );
 
-  if (isActorEntity(next)) {
-    worldStore.updateActor(worldId, next.id, sections);
-  } else if (isCreatureEntity(next)) {
-    worldStore.updateCreature(worldId, next.id, sections);
+  const sentLedger = readSentTriggerUsage(current);
+  const next = withTriggerUsage(changed, sentLedger);
+
+  // Изменился только журнал — полной записи нечего нести
+  const sheetChanged =
+    JSON.stringify(next)
+    !== JSON.stringify(withTriggerUsage(current, sentLedger));
+
+  if (sheetChanged) {
+    // Стор — сразу: следующая запись в том же тике читает уже новые разделы.
+    // Разделы листа — переменной: базовый тип актёра ядра инвентаря не знает
+    const sections = {
+      system: next.system,
+      equipment: next.equipment,
+      spells: next.spells,
+    };
+
+    if (isActorEntity(next)) {
+      worldStore.updateActor(worldId, next.id, sections);
+    } else if (isCreatureEntity(next)) {
+      worldStore.updateCreature(worldId, next.id, sections);
+    }
+
+    emitEntityUpdate(socket, next);
   }
 
-  emitEntityUpdate(socket, next);
+  // Расход журнала — после полной записи: сервер обрабатывает сообщения
+  // клиента по порядку и прибавит его к журналу, который запись оставила
+  if (hasTriggerUsageChanges(usageChanges)) {
+    changeEntityCombatState(next.id, (fresh) =>
+      withTriggerUsage(
+        fresh,
+        applyTriggerUsageChanges(readTriggerUsage(fresh), usageChanges),
+      ),
+    );
+  }
 
   return next;
 }

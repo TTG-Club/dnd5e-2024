@@ -57,6 +57,9 @@ import { collectActiveEffects, resolveActorStats } from './effectPipeline.js';
 import {
   consumeTriggerUse,
   isTriggerLimitReached,
+  mergeTriggerUsageSpend,
+  readTriggerUsage,
+  writeTriggerUsage,
 } from './effectTriggerUsage.js';
 import { CAST_LEVEL_VARIABLE, evaluateFormula } from './formulaParser.js';
 import { getHitDiceGroups, spendHitDice } from './hitDiceUtils.js';
@@ -976,6 +979,12 @@ export function settleEffectPay(
  * хитов, ячейки, вдохновение, заряды предметов и отметку бесплатной кости.
  * Эффекты и хиты не трогаются — их в это время меняет само срабатывание.
  *
+ * Журнал срабатываний не копируется: платящий мог быть снят раньше, и его
+ * журнал вернул бы сброшенное или стёр израсходованное после. С живого
+ * журнала ничего не снимается — по каждому ключу берётся большее
+ * (`mergeTriggerUsageSpend`), и трата оплаты (отметка бесплатной кости)
+ * ложится сверху.
+ *
  * @param live - живая сущность (меняется)
  * @param settled - платящий после оплаты
  */
@@ -984,7 +993,11 @@ export function applyPaySettlement(
   settled: DnDSceneEntity,
 ): void {
   live.equipment = settled.equipment;
-  live.system.effectUsage = settled.system.effectUsage;
+
+  writeTriggerUsage(
+    live,
+    mergeTriggerUsageSpend(readTriggerUsage(live), readTriggerUsage(settled)),
+  );
 
   if (!isActorEntity(live) || !isActorEntity(settled)) {
     return;

@@ -26,8 +26,8 @@ import type { SavingThrowTarget } from './useSpellSavingThrows';
 import { getRollRequestService } from '@/core/api/rollRequestService';
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
+import { isActorEntity } from '@vtt/shared';
 import {
-  cloneEntityData,
   findSaveOverride,
   formatSaveOverrideChatLine,
   formatSaveOverrideQuestion,
@@ -40,6 +40,7 @@ import {
   SAVE_OVERRIDE_REQUEST_KIND,
   spendSaveOverride,
   withRequestSource,
+  withTriggerUsage,
 } from '@vtt/shared/system/dnd.js';
 
 import { EFFECT_QUESTION_PROMPT_MODAL } from '../ui/effect/constants';
@@ -130,11 +131,18 @@ export function spendEntitySaveOverride(
   // Носитель перечитывается: списание зовётся посреди разбора спасброска, и
   // копия разбора старше хитов и эффектов сервера
   changeEntitySheet(entity.id, (current) => {
-    const spent = cloneEntityData(current);
+    const { effectUsage, classCounters } = spendSaveOverride(
+      current,
+      available.source,
+    );
 
-    Object.assign(spent.system, spendSaveOverride(current, available.source));
+    const spent = effectUsage
+      ? withTriggerUsage(current, effectUsage)
+      : current;
 
-    return spent;
+    return classCounters && isActorEntity(spent)
+      ? { ...spent, system: { ...spent.system, classCounters } }
+      : spent;
   });
 
   chatStore.sendMessage(

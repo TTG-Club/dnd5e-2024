@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { it } from 'vitest';
 
 import { listSystemSources, toSystemPath } from './helpers/clientSources.mjs';
+import { loadEntityWrites } from './helpers/combatWrite.mjs';
 import { systemRoot } from './helpers/engineBundle.mjs';
-import { loadHandler } from './helpers/sourceHandler.mjs';
 
 /**
  * Запись сущности на сервер — только через помощники записи.
@@ -114,50 +114,11 @@ it('горячая панель не шлёт копию, снятую до ок
  * @returns {Promise<object>} помощник и журнал отправок
  */
 async function loadSheetWrite(world) {
-  const emitted = [];
-  const errors = [];
+  const { changeEntitySheet, updated, errors } = await loadEntityWrites({
+    world,
+  });
 
-  /**
-   * Правка стора хоста: раздел заменяется в живой записи.
-   *
-   * @param {string} _worldId - мир
-   * @param {string} entityId - сущность
-   * @param {object} patch - разделы
-   */
-  function updateEntity(_worldId, entityId, patch) {
-    world.set(entityId, { ...world.get(entityId), ...patch });
-  }
-
-  const changeEntitySheet = await loadHandler(
-    SHEET_WRITE_FILE,
-    'changeEntitySheet',
-    {
-      useWorldStore: () => ({
-        connectionState: { currentWorldId: 'world' },
-        updateActor: updateEntity,
-        updateCreature: updateEntity,
-      }),
-      useChatStore: () => ({ getSocket: () => ({}) }),
-      useWorldEntities: () => ({
-        findCurrentDndEntity: (entityId) => world.get(entityId),
-      }),
-      isActorEntity: (entity) => entity.entityType === 'actor',
-      isCreatureEntity: (entity) => entity.entityType === 'creature',
-      keepsCombatState: await loadHandler(
-        SHEET_WRITE_FILE,
-        'keepsCombatState',
-        {
-          resolveEntityCurrentHp: (entity) => entity.system.hitPoints.current,
-          resolveEntityTempHp: (entity) => entity.system.hitPoints.temp,
-          JSON,
-        },
-      ),
-      emitEntityUpdate: (_socket, entity) => emitted.push(entity),
-      console: { error: (message) => errors.push(message) },
-    },
-  );
-
-  return { changeEntitySheet, emitted, errors };
+  return { changeEntitySheet, emitted: updated, errors };
 }
 
 /**

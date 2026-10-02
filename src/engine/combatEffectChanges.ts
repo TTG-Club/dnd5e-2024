@@ -1,6 +1,6 @@
 /**
- * Разница эффектов в боевом снимке: что клиент добавил, изменил и снял, — а не
- * список целиком.
+ * Разница в боевом снимке: какие эффекты клиент добавил, изменил и снял и что
+ * израсходовал в журнале срабатываний, — а не список и журнал целиком.
  *
  * Клиент считает новый список эффектов от своей копии сущности. Между копией и
  * записью сервер мог список уже изменить: конец прежнего каста снял эффекты с
@@ -8,12 +8,17 @@
  * вернул бы снятое и стёр легшее. Разница сливается со списком СЕРВЕРА:
  * снятое сервером не воскресает, легшее на сервере остаётся.
  *
+ * Журнал срабатываний (`system.effectUsage`) едет так же: расход «раз в ход»,
+ * записанный сервером после копии, снимок от этой копии не откатывает
+ * (`diffTriggerUsage` / `applyTriggerUsageChanges`).
+ *
  * Модуль без правил: основу пишут хуки системы и клиентский помощник записи,
  * снимок (`damageApplication.ts`) её читает, сервер сливает.
  */
 
 import type { ActiveEffect } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
+import type { EffectTriggerUsageLedger } from './effectTriggerUsage.js';
 
 import { z } from 'zod';
 
@@ -22,6 +27,7 @@ import {
   MAX_EFFECTS_PER_ACTOR,
 } from './activeEffectTypes.js';
 import { mergeAppliedEffects } from './effectAutomation.js';
+import { readTriggerUsage } from './effectTriggerUsage.js';
 
 /** Сколько снятых эффектов принимает один снимок — не больше, чем их бывает */
 const MAX_REMOVED_EFFECT_IDS = MAX_EFFECTS_PER_ACTOR;
@@ -48,41 +54,52 @@ export const EffectChangesSchema = z.object({
     .max(MAX_REMOVED_EFFECT_IDS),
 });
 
-/**
- * Основа копии: список эффектов, от которого клиент считал новый. Ключ — сама
- * копия: клиент клонирует сущность на каждую запись, и основа живёт ровно
- * столько, сколько копия.
- */
-const recordedBaselines = new WeakMap<DnDSceneEntity, ActiveEffect[]>();
+/** Основа копии: боевое состояние, от которого клиент считал новое */
+export interface CombatBaseline {
+  /** Эффекты сущности до правки */
+  activeEffects: readonly ActiveEffect[];
+  /** Журнал срабатываний до правки */
+  effectUsage: EffectTriggerUsageLedger;
+}
 
 /**
- * Запоминает, от какого списка эффектов клиент считает новый список копии.
- * Первая запись побеждает: копия могла пройти несколько правок (урон, затем
- * эффекты), а основа — то, что было до первой.
+ * Основы копий. Ключ — сама копия: клиент клонирует сущность на каждую
+ * запись, и основа живёт ровно столько, сколько копия.
+ */
+const recordedBaselines = new WeakMap<DnDSceneEntity, CombatBaseline>();
+
+/**
+ * Запоминает, от какого боевого состояния (эффекты и журнал срабатываний)
+ * клиент считает новое состояние копии. Первая запись побеждает: копия могла
+ * пройти несколько правок (урон, затем эффекты), а основа — то, что было до
+ * первой.
  *
  * @param entityCopy - копия сущности, которая уйдёт боевым снимком
- * @param baseEffects - эффекты сущности до правки
+ * @param base - сущность до правки (может быть самой копией до правки)
  */
-export function recordEffectsBaseline(
+export function recordCombatBaseline(
   entityCopy: DnDSceneEntity,
-  baseEffects: readonly ActiveEffect[],
+  base: DnDSceneEntity,
 ): void {
   if (recordedBaselines.has(entityCopy)) {
     return;
   }
 
-  recordedBaselines.set(entityCopy, [...baseEffects]);
+  recordedBaselines.set(entityCopy, {
+    activeEffects: [...(base.activeEffects ?? [])],
+    effectUsage: readTriggerUsage(base),
+  });
 }
 
 /**
  * Основа копии, если её записали.
  *
  * @param entityCopy - копия сущности
- * @returns эффекты до правки; нет записи — `undefined`
+ * @returns боевое состояние до правки; нет записи — `undefined`
  */
-export function readEffectsBaseline(
+export function readCombatBaseline(
   entityCopy: DnDSceneEntity,
-): readonly ActiveEffect[] | undefined {
+): Readonly<CombatBaseline> | undefined {
   return recordedBaselines.get(entityCopy);
 }
 

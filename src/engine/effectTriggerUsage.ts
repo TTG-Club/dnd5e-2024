@@ -110,6 +110,132 @@ export function parseTriggerUsage(raw: unknown): EffectTriggerUsageLedger {
   );
 }
 
+/** Предел длины ключа счётчика в разнице журнала */
+const MAX_USAGE_KEY_LENGTH = 512;
+
+/** Сколько ключей принимает одна разница журнала */
+const MAX_USAGE_CHANGE_KEYS = 256;
+
+/**
+ * Изменения журнала срабатываний относительно копии, от которой их считал
+ * клиент.
+ *
+ * Расход — приращением, а не итоговым числом: два расхода одного лимита из
+ * разных копий складываются, а не затирают друг друга. Сброс периода —
+ * снятием ключа.
+ */
+export interface TriggerUsageChanges {
+  /** Сколько срабатываний добавилось по ключу (`used` — приращение) */
+  spend: EffectTriggerUsageLedger;
+  /** Ключи основы, которых в итоге нет */
+  removeKeys: string[];
+}
+
+/** Zod-схема разницы журнала из боевого снимка клиента */
+export const TriggerUsageChangesSchema = z.object({
+  spend: z
+    .record(
+      z.string().min(1).max(MAX_USAGE_KEY_LENGTH),
+      TriggerUsageEntrySchema,
+    )
+    .refine(
+      (spend) => Object.keys(spend).length <= MAX_USAGE_CHANGE_KEYS,
+      'Слишком много ключей в разнице журнала',
+    ),
+  removeKeys: z
+    .array(z.string().min(1).max(MAX_USAGE_KEY_LENGTH))
+    .max(MAX_USAGE_CHANGE_KEYS),
+});
+
+/**
+ * Разница двух журналов: что израсходовано и что сброшено.
+ *
+ * Число, ставшее меньше (такого правила нет, но данные недоверенные),
+ * выражается снятием ключа и новым расходом с нуля.
+ *
+ * @param base - журнал, от которого считали
+ * @param next - посчитанный журнал
+ * @returns приращения и снятые ключи
+ */
+export function diffTriggerUsage(
+  base: EffectTriggerUsageLedger,
+  next: EffectTriggerUsageLedger,
+): TriggerUsageChanges {
+  const removeKeys = Object.keys(base).filter(
+    (key) => !(key in next) || next[key].used < base[key].used,
+  );
+
+  const spend = Object.fromEntries(
+    Object.entries(next).flatMap(([key, entry]) => {
+      const before = removeKeys.includes(key) ? 0 : (base[key]?.used ?? 0);
+      const added = entry.used - before;
+
+      return added > 0 ? [[key, { used: added, per: entry.per }]] : [];
+    }),
+  );
+
+  return { spend, removeKeys };
+}
+
+/**
+ * Есть ли в разнице журнала хоть что-то.
+ *
+ * @param changes - разница
+ * @returns `true`, если есть расход или сброс
+ */
+export function hasTriggerUsageChanges(changes: TriggerUsageChanges): boolean {
+  return changes.removeKeys.length > 0 || Object.keys(changes.spend).length > 0;
+}
+
+/**
+ * Сливает разницу с журналом сервера: снятые ключи убираются, расход
+ * прибавляется к тому, что сервер уже насчитал.
+ *
+ * @param current - журнал сущности на сервере (не мутируется)
+ * @param changes - разница от клиента
+ * @returns новый журнал
+ */
+export function applyTriggerUsageChanges(
+  current: EffectTriggerUsageLedger,
+  changes: TriggerUsageChanges,
+): EffectTriggerUsageLedger {
+  const removed = new Set(changes.removeKeys);
+
+  const kept = Object.fromEntries(
+    Object.entries(current).filter(([key]) => !removed.has(key)),
+  );
+
+  return Object.entries(changes.spend).reduce<EffectTriggerUsageLedger>(
+    (ledger, [key, entry]) => ({
+      ...ledger,
+      [key]: { used: (ledger[key]?.used ?? 0) + entry.used, per: entry.per },
+    }),
+    kept,
+  );
+}
+
+/**
+ * Журнал с расходом из другой копии сущности: по каждому ключу — большее из
+ * двух чисел. Копия, снятая раньше, ничего не снимает и не уменьшает: сброс и
+ * расход, записанные сервером после неё, остаются.
+ *
+ * @param current - журнал свежей сущности
+ * @param spent - журнал копии после траты
+ * @returns новый журнал
+ */
+export function mergeTriggerUsageSpend(
+  current: EffectTriggerUsageLedger,
+  spent: EffectTriggerUsageLedger,
+): EffectTriggerUsageLedger {
+  return Object.entries(spent).reduce<EffectTriggerUsageLedger>(
+    (ledger, [key, entry]) =>
+      entry.used > (ledger[key]?.used ?? 0)
+        ? { ...ledger, [key]: entry }
+        : ledger,
+    { ...current },
+  );
+}
+
 /**
  * Записывает счётчики субъекту; пустые не хранятся.
  *
@@ -122,6 +248,27 @@ export function writeTriggerUsage(
 ): void {
   entity.system.effectUsage =
     Object.keys(ledger).length > 0 ? ledger : undefined;
+}
+
+/**
+ * Сущность с другим журналом — новым объектом: запись стора хоста на месте не
+ * меняется.
+ *
+ * @param entity - сущность
+ * @param ledger - журнал
+ * @returns новая сущность; пустой журнал не хранится
+ */
+export function withTriggerUsage<Entity extends DnDSceneEntity>(
+  entity: Entity,
+  ledger: EffectTriggerUsageLedger,
+): Entity {
+  return {
+    ...entity,
+    system: {
+      ...entity.system,
+      effectUsage: Object.keys(ledger).length > 0 ? ledger : undefined,
+    },
+  };
 }
 
 /**

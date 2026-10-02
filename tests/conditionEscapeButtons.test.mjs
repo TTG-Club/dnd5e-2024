@@ -58,7 +58,7 @@ async function loadHelpers(entity) {
     changeEntityCombatState: await loadChangeEntityCombatState({
       findEntity: () => entity,
       emitted,
-      recordEffectsBaseline: engine.recordEffectsBaseline,
+      recordCombatBaseline: engine.recordCombatBaseline,
     }),
   };
 

@@ -131,7 +131,7 @@ const bundle = await build({
             '@/stores/auraStore':
               'import { fixture } from "test:host"; export const useAuraStore = () => ({ getAmbientEffectsForActor: () => fixture.ambient });',
             '@/core/entityUtils':
-              'export const emitEntityUpdate = () => {}; export const collectWorldEntities = world => world?.actors ?? []; export const findEntityInWorld = (world, id) => world?.actors.find(entity => entity.id === id);',
+              'export const emitEntityUpdate = () => {}; export const emitEntityCombatState = () => {}; export const collectWorldEntities = world => world?.actors ?? []; export const findEntityInWorld = (world, id) => world?.actors.find(entity => entity.id === id);',
           };
 
           if (!(request.path in modules)) {

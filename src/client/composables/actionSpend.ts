@@ -23,7 +23,6 @@ import type {
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
 import {
-  cloneEntityData,
   formatActionCostBlock,
   isRestrictedActionCost,
   planWeaponAttack,
@@ -32,6 +31,7 @@ import {
   resolveAttackCost,
   resolveOpportunityAttackWarning,
   WEAPON_DECLARED_ATTACK_COST,
+  withTriggerUsage,
 } from '@vtt/shared/system/dnd.js';
 
 import { useSystemToastStore } from '../stores/systemToastStore';
@@ -109,16 +109,8 @@ export function recordEntityActionSpend(
       ambientEffects: listAmbientEffects(entity.id),
     });
 
-    if (!ledger) {
-      return null;
-    }
-
-    // Копия: живую запись стора меняет только ответ сервера
-    const spent = cloneEntityData(entity);
-
-    spent.system.effectUsage = ledger;
-
-    return spent;
+    // Новый объект: живую запись стора меняет только ответ сервера
+    return ledger ? withTriggerUsage(entity, ledger) : null;
   });
 }
 

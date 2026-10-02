@@ -9,17 +9,100 @@
  * концентрации, записанная листом, пропадала под снимком без неё.
  *
  * Здесь сущность берётся свежей в момент записи, преобразование выполняется
- * над ней, а копия уходит с основой — снимок несёт разницу эффектов, и сервер
- * сливает её со своим списком (`combatEffectChanges.ts`).
+ * над ней, а копия уходит с основой — снимок несёт разницу эффектов и журнала
+ * срабатываний, и сервер сливает её со своим состоянием
+ * (`combatEffectChanges.ts`).
+ *
+ * Журнал, посланный снимком, помнится до ответа сервера
+ * ({@link readSentTriggerUsage}): полная запись листа в том же тике берёт его
+ * отсюда, а не из стора, где расхода ещё нет, — иначе она вернула бы серверу
+ * прежний журнал.
  */
 
-import type { DnDSceneEntity } from '@vtt/shared/system/dnd.js';
+import type {
+  DnDSceneEntity,
+  EffectTriggerUsageLedger,
+} from '@vtt/shared/system/dnd.js';
 
 import { emitEntityCombatState } from '@/core/entityUtils';
 import { useChatStore } from '@/stores/chatStore';
-import { recordEffectsBaseline } from '@vtt/shared/system/dnd.js';
+import {
+  applyTriggerUsageChanges,
+  diffTriggerUsage,
+  hasTriggerUsageChanges,
+  readTriggerUsage,
+  recordCombatBaseline,
+} from '@vtt/shared/system/dnd.js';
 
 import { useWorldEntities } from './useWorldEntities';
+
+/** Журнал, посланный боевым снимком, пока сервер его не вернул */
+interface SentTriggerUsage {
+  /**
+   * Раздел `system` записи стора в момент отправки. Ответ сервера заменяет
+   * раздел целиком (`Object.assign` стора хоста), и другой объект значит:
+   * стор догнал сервер, помнить больше нечего
+   */
+  storeSystem: DnDSceneEntity['system'];
+  /** Журнал после всех посланных снимков */
+  ledger: EffectTriggerUsageLedger;
+}
+
+/** Посланные журналы по id сущности */
+const sentTriggerUsage = new Map<string, SentTriggerUsage>();
+
+/**
+ * Журнал сущности с расходом, который ушёл боевым снимком, но в стор ещё не
+ * вернулся. Его берёт полная запись листа: она заменяет сущность целиком, и
+ * журнал из стора стёр бы только что посланный расход.
+ *
+ * @param storeEntity - запись стора
+ * @returns журнал для записи
+ */
+export function readSentTriggerUsage(
+  storeEntity: DnDSceneEntity,
+): EffectTriggerUsageLedger {
+  const sent = sentTriggerUsage.get(storeEntity.id);
+
+  if (sent && sent.storeSystem === storeEntity.system) {
+    return sent.ledger;
+  }
+
+  sentTriggerUsage.delete(storeEntity.id);
+
+  return readTriggerUsage(storeEntity);
+}
+
+/**
+ * Запоминает расход журнала, ушедший снимком: поверх журнала, ещё не
+ * вернувшегося от сервера, — два снимка в одном тике складываются.
+ *
+ * @param storeEntity - запись стора
+ * @param base - сущность, от которой считали снимок
+ * @param sent - отправленная копия
+ */
+function rememberSentTriggerUsage(
+  storeEntity: DnDSceneEntity,
+  base: DnDSceneEntity,
+  sent: DnDSceneEntity,
+): void {
+  const changes = diffTriggerUsage(
+    readTriggerUsage(base),
+    readTriggerUsage(sent),
+  );
+
+  if (!hasTriggerUsageChanges(changes)) {
+    return;
+  }
+
+  sentTriggerUsage.set(storeEntity.id, {
+    storeSystem: storeEntity.system,
+    ledger: applyTriggerUsageChanges(
+      readSentTriggerUsage(storeEntity),
+      changes,
+    ),
+  });
+}
 
 /**
  * Меняет боевое состояние сущности мира: хиты, эффекты, счётчики
@@ -55,9 +138,10 @@ export function changeEntityCombatState(
   // бы эту запись и испортила следующую
   const next = changed === current ? { ...changed } : changed;
 
-  // Основа — список свежей сущности: от него и считалось преобразование
-  recordEffectsBaseline(next, current.activeEffects ?? []);
+  // Основа — свежая сущность: от неё и считалось преобразование
+  recordCombatBaseline(next, current);
   emitEntityCombatState(socket, next);
+  rememberSentTriggerUsage(current, current, next);
 
   return next;
 }
@@ -67,7 +151,7 @@ export function changeEntityCombatState(
  * прошло через вопросы человеку, и пересчитать его над свежей сущностью
  * нельзя — срабатывания уже бросили кости. Эффекты уходят разницей «основа →
  * копия», и сервер сливает её со своим списком: изменённое им за время
- * вопросов не откатывается.
+ * вопросов не откатывается; журнал срабатываний — так же.
  *
  * Где преобразование можно выполнить в момент записи — только
  * {@link changeEntityCombatState}.
@@ -86,8 +170,14 @@ export function sendComputedCombatState(
     return false;
   }
 
-  recordEffectsBaseline(computed, base.activeEffects ?? []);
+  recordCombatBaseline(computed, base);
   emitEntityCombatState(socket, computed);
+
+  const storeEntity = useWorldEntities().findCurrentDndEntity(computed.id);
+
+  if (storeEntity) {
+    rememberSentTriggerUsage(storeEntity, base, computed);
+  }
 
   return true;
 }
