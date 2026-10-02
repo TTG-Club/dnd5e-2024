@@ -45,7 +45,10 @@ import {
   writeEntityHitPoints,
 } from '@vtt/shared/system/dnd.js';
 
-import { SPELL_NO_TARGETS_LABELS } from '../ui/actor/constants';
+import {
+  DAMAGE_DEDUCTION_LABELS,
+  SPELL_NO_TARGETS_LABELS,
+} from '../ui/actor/constants';
 import {
   buildSaveDamageDefense,
   formatSaveCancelledMessage,
@@ -842,11 +845,31 @@ export function useSpellDamageWithParts() {
     // Перебираем части В ПОРЯДКЕ заклинания/оружия (пропускаем нулевые —
     // например, не сработавшие условные ветки @target.full/@target.notFull).
     for (const part of parts) {
-      if (part.amount <= 0) {
+      if (part.amount === 0) {
         continue;
       }
 
       const contributions = partContributions.get(part);
+
+      // Вычет из урона («−1к8 к урону атак носителя») — своей строкой: без
+      // неё в чате стоял бы полный урон, а хитов снялось бы меньше
+      if (part.amount < 0) {
+        if (!part.isHealing && contributions && contributions.length > 0) {
+          const rolledValues =
+            part.values.length > 0 ? `[${part.values.join(', ')}] = ` : '';
+
+          messageLines.push(DAMAGE_DEDUCTION_LABELS.header);
+
+          for (const contribution of contributions) {
+            messageLines.push(
+              `→ ${contribution.entityName}: ${formatDiceFormula(part.formula)} ${rolledValues}${contribution.applied}`,
+            );
+          }
+        }
+
+        continue;
+      }
+
       const header = `${getPartKindLabel(part)}${formatTargetGateSuffix(part.targetGate, part.targetTypeGate, part.targetStatusGate)}`;
 
       const diceBreakdown =

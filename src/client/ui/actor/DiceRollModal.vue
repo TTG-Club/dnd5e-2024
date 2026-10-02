@@ -36,11 +36,13 @@
     getNaturalD20Roll,
     getShortDamageTypeLabel,
     isDamageType,
+    isDeductionFormula,
     listPartDamageTypeChoices,
     performTwoStageAttack,
     rollRandomDamageTypeChoices,
     scaleDamageFormula,
     settleDamageTypeChoices,
+    toRollerFormula,
     uniqueDamageTypeChoices,
   } from '@vtt/shared/system/dnd.js';
 
@@ -1287,12 +1289,13 @@
         );
       }
 
-      // Крит удваивает кубики (кроме лечащих частей)
-      if (isCrit && !part.isHealing) {
+      // Крит удваивает кубики урона — не лечения и не вычета из урона
+      if (isCrit && !part.isHealing && !isDeductionFormula(formula)) {
         formula = doubleDiceInFormula(formula);
       }
 
-      const rollData = diceRollerStore.parseAndRoll(formula);
+      // Вычет («−1к8 к урону») роллер читает только с нулём впереди
+      const rollData = diceRollerStore.parseAndRoll(toRollerFormula(formula));
 
       // Анимируем эту часть и ждём её завершения — следующая полетит после
       if (use3d) {

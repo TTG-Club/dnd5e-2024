@@ -53,6 +53,7 @@ import {
   getSpellDamageParts,
   getSpellPrimaryDamageType,
   getSpellSaveCondition,
+  isDeductionFormula,
   isDndSceneEntity,
   isSpellRoll,
   limitEntityHealing,
@@ -70,6 +71,7 @@ import {
   spellHasDamage,
   spellHealsTempHp,
   spellIsHealing,
+  toRollerFormula,
   withInitializedDuration,
   writeEntityHitPoints,
 } from '@vtt/shared/system/dnd.js';
@@ -1049,11 +1051,15 @@ export function useSpellResolution() {
 
         // Бонус-части эффектов — отдельный бросок на каждое попадание
         for (const bonusPart of bonusPartInputs) {
-          const bonusFormula = attackResult.isCriticalHit
-            ? doubleDiceInFormula(bonusPart.formula)
-            : bonusPart.formula;
+          // Вычет из урона крит не удваивает: это не кости урона
+          const bonusFormula =
+            attackResult.isCriticalHit && !isDeductionFormula(bonusPart.formula)
+              ? doubleDiceInFormula(bonusPart.formula)
+              : bonusPart.formula;
 
-          const bonusRoll = diceStore.parseAndRoll(bonusFormula);
+          const bonusRoll = diceStore.parseAndRoll(
+            toRollerFormula(bonusFormula),
+          );
 
           damageGrandTotal += bonusRoll.total;
           damageDiceGroups.push(...bonusRoll.dice);
@@ -1234,7 +1240,9 @@ export function useSpellResolution() {
           : settleDamageTypeChoices(options.bonusDamageParts ?? []);
 
         for (const bonusPart of bonusPartInputs) {
-          const bonusRoll = diceStore.parseAndRoll(bonusPart.formula);
+          const bonusRoll = diceStore.parseAndRoll(
+            toRollerFormula(bonusPart.formula),
+          );
 
           allDiceGroups.push(...bonusRoll.dice);
 

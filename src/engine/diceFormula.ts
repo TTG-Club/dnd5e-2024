@@ -30,6 +30,33 @@ import { evaluateDetachedFormula } from './formulaParser.js';
 /** Регэксп одного кубикового слагаемого: `2к6`, `1д8`, `3d10` */
 const DICE_TERM_REGEX = /^(\d+)[кдd](\d+)$/i;
 
+/** Знак, с которого начинается формула-вычет */
+const DEDUCTION_SIGN = '-';
+
+/**
+ * Вычет из урона — формула части, которая начинается с минуса: строка
+ * `damage.all` со значением `-1к8` («Ослабляющий выстрел»). Это не урон:
+ * критическое попадание её кости не удваивает.
+ *
+ * @param formula - формула части урона
+ * @returns `true`, если часть уменьшает урон
+ */
+export function isDeductionFormula(formula: string): boolean {
+  return formula.trim().startsWith(DEDUCTION_SIGN);
+}
+
+/**
+ * Формула для роллера клиента. Его разбор читает ведущий минус перед костью
+ * как «минус одна кость» и не бросает ничего: `-1к8` давало ноль, и вычет из
+ * урона молча пропадал. С нулём впереди та же формула — обычное вычитание.
+ *
+ * @param formula - формула части урона
+ * @returns формула, которую роллер бросает верно
+ */
+export function toRollerFormula(formula: string): string {
+  return isDeductionFormula(formula) ? `0${formula.trim()}` : formula;
+}
+
 /**
  * Латинская буква кости внутри готовой строки: `1d8` → `1к8`.
  *
