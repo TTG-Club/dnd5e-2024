@@ -88,11 +88,14 @@ export async function loadChangeEntityCombatState({
  * @param {(copy: object, base: object) => void} [options.recordCombatBaseline] -
  *   запись основы из того же движка, которым тест читает снимок: основа живёт
  *   в WeakMap движка
+ * @param {(kind: 'update' | 'combat', entity: object) => void} [options.onSend] -
+ *   каждая отправка по порядку: полная запись или боевой снимок
  * @returns {Promise<object>} помощники, журналы отправок и ошибок
  */
 export async function loadEntityWrites({
   world,
   recordCombatBaseline = () => {},
+  onSend = () => {},
 }) {
   const findEntity = (entityId) => world.get(entityId);
   const emitted = [];
@@ -100,9 +103,17 @@ export async function loadEntityWrites({
   const errors = [];
   const sent = await loadSentTriggerUsage(findEntity);
 
+  // Журнал снимков с вызовом onSend на каждую отправку
+  const combatLog = {
+    push: (entity) => {
+      emitted.push(entity);
+      onSend('combat', entity);
+    },
+  };
+
   const changeEntityCombatState = await loadChangeEntityCombatState({
     findEntity,
-    emitted,
+    emitted: combatLog,
     recordCombatBaseline,
     sent,
   });
@@ -135,7 +146,10 @@ export async function loadEntityWrites({
       useWorldEntities: () => ({ findCurrentDndEntity: findEntity }),
       isActorEntity: (entity) => entity.entityType === 'actor',
       isCreatureEntity: (entity) => entity.entityType === 'creature',
-      emitEntityUpdate: (_socket, entity) => updated.push(entity),
+      emitEntityUpdate: (_socket, entity) => {
+        updated.push(entity);
+        onSend('update', entity);
+      },
       console: { error: (message) => errors.push(message) },
       JSON,
     },
