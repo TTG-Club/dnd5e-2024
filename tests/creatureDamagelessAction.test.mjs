@@ -8,8 +8,8 @@ import { loadHandler } from './helpers/sourceHandler.mjs';
 const engine = await loadEngineBundle("export * from './src/engine/index.ts';");
 
 const composablePath = 'src/client/composables/creatureDamageChoice.ts';
-const sheetPath = 'src/client/ui/creature/CreatureActionsBlock.vue';
-const macroPath = 'src/client/macros/dnd5eMacros.ts';
+/** Действие существа: лист и горячая панель — один путь */
+const creatureActionPath = 'src/client/composables/creatureActionRoll.ts';
 
 /** Состояние на цель: ложится по провалу спасброска действия */
 const PARALYZED = {
@@ -133,11 +133,11 @@ describe('действие существа со спасброском и бе�
   const creature = { id: 'plant', name: 'Растение-похититель' };
 
   for (const [path, name, creatureFirst] of [
-    [sheetPath, 'startActionRoll', false],
-    [macroPath, 'openCreatureActionRoll', true],
+    // Лист существа и горячая панель совершают действие одним путём
+    [creatureActionPath, 'openCreatureActionRoll', false],
   ]) {
     /**
-     * Запускает настоящий обработчик листа или горячей панели.
+     * Запускает настоящий общий обработчик листа и горячей панели.
      *
      * @param {object} action - действие существа
      * @param {string | undefined} templateId - шаблон области
@@ -198,8 +198,8 @@ describe('действие существа со спасброском и бе�
       assert.equal(config.damageParts.length, 1);
       assert.equal(typeof config.onRollParts, 'function');
 
-      // Лист открывает своё окно флагом, горячая панель — менеджером окон
-      assert.equal(opened, !creatureFirst);
+      // Окно открывает менеджер окон — у листа и горячей панели одинаково
+      assert.equal(opened, false);
     });
   }
 });

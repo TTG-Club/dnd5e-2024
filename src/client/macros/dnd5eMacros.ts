@@ -2,11 +2,7 @@ import type {
   MacroExecutionContext,
   MacroSlotState,
 } from '@/core/registries/macroRegistry';
-import type {
-  HotbarMacro,
-  MeasurementTemplate,
-  SceneEntity,
-} from '@vtt/shared';
+import type { HotbarMacro, SceneEntity } from '@vtt/shared';
 import type {
   ActiveEffect,
   CreatureAction,
@@ -18,15 +14,12 @@ import type {
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
-import type { CreatureDamageVariant } from '../composables/creatureDamageChoice';
 import type { SpellCasterPort } from '../composables/spellCastFlow';
-import type { CreatureRollSetup } from '../composables/useBonusDamageParts';
 import type { RolledSpellDamagePart } from '../composables/useSpellResolution';
 
 import { registerMacro } from '@/core/registries/macroRegistry';
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
-import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
 import { useTargetStore } from '@/stores/targetStore';
 import { useWorldStore } from '@/stores/worldStore';
 /**
@@ -39,28 +32,22 @@ import {
   calculateWeaponAttackModifier,
   canSwitchOnEffect,
   checkRange,
-  collectActiveEffects,
   collectEffectToggleGroup,
   consumeCreatureSpellGroupUse,
-  creatureActionHasSave,
   describeItemUseAvailability,
   describeWeaponAttackAvailability,
   evaluateConditionalBonuses,
-  findCreatureActionBlock,
   findCreatureActionSection,
   findCreatureSpellPlacement,
   getAttackBonusKey,
   getAttackFlagCategory,
   getDamageBonusKey,
   getWeaponPrimaryDamageType,
-  isCreatureAttackAction,
   isCreatureSpellPoolMode,
   isSaveAbility,
   isTargetAtFullHp,
   isUseActivatedEffect,
   resolveActorStats,
-  resolveCreatureSectionCost,
-  resolveEntityActionBlocks,
   resolveWeaponSaveDc,
   stripDescriptionRollMarkers,
   withSpentSpellSlot,
@@ -70,27 +57,16 @@ import {
 import {
   recordEntityActionSpend,
   runWithWeaponAttackCost,
-  warnOpportunityAttack,
 } from '../composables/actionSpend';
-import {
-  runCreatureActionChoices,
-  runWeaponAttackChoices,
-} from '../composables/attackKindChoice';
+import { runWeaponAttackChoices } from '../composables/attackKindChoice';
 import {
   resolveTargetedAttackRoll,
   resolveTargetedCritThreshold,
 } from '../composables/attackRollMode';
-import {
-  buildCreatureRollVariants,
-  launchCreatureAction,
-  runDamagelessCreatureAction,
-  runWithCreatureDamageChoice,
-} from '../composables/creatureDamageChoice';
+import { startCreatureAction } from '../composables/creatureActionRoll';
 import { startCreatureSpellCast } from '../composables/creatureSpellCast';
 import { requestDamageTypeChoiceFor } from '../composables/damageTypeChoice';
 import {
-  applyActionSelfEffects,
-  applyActionUseEffects,
   applyEntityEffectUse,
   applyEntityItemUse,
   prepareAmmunitionShot,
@@ -100,11 +76,9 @@ import {
   readEntityCounters,
   toggleEntityEffect,
 } from '../composables/effectToggle';
-import { isEntityOwnTurn } from '../composables/encounterTurn';
 import { changeEntitySheet } from '../composables/entitySheetWrite';
 import { buildRollBonusEvaluator } from '../composables/rollBonusEvaluator';
 import { startSpellCast } from '../composables/spellCastFlow';
-import { discardSpellTemplate } from '../composables/spellResolutionShared';
 import { useBonusDamageParts } from '../composables/useBonusDamageParts';
 import {
   collectEffectsWithAuras,
@@ -117,7 +91,6 @@ import {
   ACTOR_SPELLS_TAB_LABELS,
   SPELL_DAMAGE_ROLL_BUTTON,
 } from '../ui/actor/constants';
-import { checkCreatureActionRangeOnScene } from '../ui/creature/composables/useCreatureRangeCheck';
 import { CREATURE_ACTIONS_BLOCK_LABELS } from '../ui/creature/constants';
 import {
   DND_MACRO_TYPES,
@@ -829,6 +802,24 @@ function collectCreatureActions(
 }
 
 /**
+ * Запись существа без броска и без эффектов с горячей панели: что существо
+ * сделало, — описанием в чат. Чат кнопок бросков не рисует, поэтому марки
+ * `{@roll …}` снимаются.
+ *
+ * @param action - запись статблока
+ */
+function announceCreatureAction(action: CreatureAction): void {
+  const description = action.description
+    ? stripDescriptionRollMarkers(action.description.join(' '))
+    : '';
+
+  useChatStore().sendMessage(
+    `<b>${action.name}</b><br/>${description}`,
+    'text',
+  );
+}
+
+/**
  * Регистрирует executor для макроса типа `creature-action`.
  * Вызывается из `registerDnd5eMacros` при инициализации сцены.
  */
@@ -862,319 +853,20 @@ function registerCreatureActionMacro(): void {
         return;
       }
 
-      const section = findCreatureActionSection(foundCreature, foundAction);
-
-      if (
-        section
-        && refuseBlockedMacro(
-          findCreatureActionBlock(
-            resolveEntityActionBlocks(
-              foundCreature,
-              listAmbientEffects(foundCreature.id),
-            ),
-            section,
-            foundAction,
-            isEntityOwnTurn(foundCreature.id),
-          ),
-        )
-      ) {
-        return;
-      }
-
-      /** Атака действием «Атака»: её считает «одна атака за ход» */
-      const isAttack = isCreatureAttackAction(section, foundAction);
-
-      /**
-       * Трата хода раздела — когда действие точно идёт.
-       *
-       * @param withRoll - действие идёт с броском: атака считается атакой
-       */
-      const spendTurn = (withRoll = false): void => {
-        if (section) {
-          recordEntityActionSpend(
-            foundCreature.id,
-            resolveCreatureSectionCost(section),
-            withRoll && isAttack,
-          );
-        }
-
-        if (withRoll && isAttack) {
-          warnOpportunityAttack(foundCreature.id);
-        }
-      };
-
-      runCreatureActionChoices(foundAction, foundCreature.id, (action) => {
-        const hasAttackParams = !!(
-          action.attackBonus !== undefined
-          || action.damageParts?.length
-          || isSaveAbility(action.saveType)
-        );
-
-        if (!hasAttackParams) {
-          const chatStore = useChatStore();
-
-          // Чат кнопок бросков не рисует — марка `{@roll …}` ушла бы со скобками.
-          const description = action.description
-            ? stripDescriptionRollMarkers(action.description.join(' '))
-            : '';
-
-          chatStore.sendMessage(
-            `<b>${action.name}</b><br/>${description}`,
-            'text',
-          );
-
-          spendTurn();
-
-          // Окна броска нет — тип урона на выбор эффектов спрашивает плашка;
-          // для эффектов «на цель» получателя выбирают на карте
-          applyActionUseEffects(action, foundCreature.id);
-
-          return;
-        }
-
-        const targetStore = useTargetStore();
-        const chatStore = useChatStore();
-
-        // --- Проверка дистанции (только для прямых атак; область — шаблоном) ---
-        let isDisadvantage = false;
-
-        if (
-          !action.areaOfEffect
-          && targetStore.targetTokenId
-          && foundCreature.id
-        ) {
-          const rangeCheck = checkCreatureActionRangeOnScene(
-            action,
-            foundCreature.id,
-            targetStore.targetTokenId,
-          );
-
-          if (rangeCheck && !rangeCheck.allowed) {
-            chatStore.sendMessage(
-              formatOutOfRangeMessage(action.name, rangeCheck),
-              'text',
-            );
-
-            return;
-          }
-
-          if (rangeCheck?.disadvantage) {
-            isDisadvantage = true;
-          }
-        }
-
-        // Отказ по дистанции трату хода не тратит
-        spendTurn(true);
-
-        // Урон «или» — после проверки дистанции, до шаблона и окна броска
-        runWithCreatureDamageChoice(action, foundCreature, (chosen, variants) =>
-          launchCreatureAction(chosen, foundCreature.id, (templateId) =>
-            openCreatureActionRoll(
-              foundCreature,
-              chosen,
-              isDisadvantage,
-              templateId,
-              variants,
-            ),
-          ),
-        );
+      // Действие — общим путём действия существа, тем же, что у листа
+      // существа: отказ — в чат, запись без броска и эффектов — описанием
+      startCreatureAction(foundAction, {
+        creatureId: foundCreature.id,
+        section: findCreatureActionSection(foundCreature, foundAction),
+        refuse: (_title, reason) => {
+          refuseBlockedMacro(reason);
+        },
+        announce: announceCreatureAction,
       });
     } catch (err) {
       console.error('[Hotbar] Ошибка выполнения creature-action:', err);
     }
   });
-}
-
-/**
- * Открывает DiceRollModal для действия существа (многочастный путь, единая со
- * заклинаниями/оружием система урона). Атаки — с броском попадания и эффектами
- * на цель при попадании; спасброски/область — без броска попадания, спасброски
- * и эффекты применяются оркестратором по каждой задетой цели.
- *
- * @param creature - существо-источник
- * @param action - действие существа
- * @param isDisadvantage - стартовать с помехой (проверка дистанции)
- * @param templateId - id размещённого AoE-шаблона (если действие с областью)
- * @param variants - наборы урона «или» на выбор в окне; пусто — набор один
- */
-function openCreatureActionRoll(
-  creature: DnDCreature,
-  action: CreatureAction,
-  isDisadvantage: boolean,
-  templateId: string | undefined,
-  variants: readonly CreatureDamageVariant[] = [],
-): void {
-  const { openModal } = useModalManager();
-
-  const { buildCreatureRollSetup, buildTargetHpContext } =
-    useBonusDamageParts();
-
-  const usesSaveOrArea = creatureActionHasSave(action) || !!action.areaOfEffect;
-
-  const effects = collectActiveEffects(creature);
-
-  const targetHp = action.areaOfEffect ? undefined : buildTargetHpContext();
-
-  const targetIsFull = targetHp
-    ? targetHp.currentHp >= targetHp.maxHp
-    : undefined;
-
-  /**
-   * Части и псевдо-заклинание броска по действию.
-   *
-   * @param variantAction - действие набора урона
-   * @returns данные броска
-   */
-  const buildSetup = (variantAction: CreatureAction): CreatureRollSetup =>
-    buildCreatureRollSetup({
-      action: variantAction,
-      creature,
-      effects,
-      targetIsFull,
-      targetType: targetHp?.creatureType,
-    });
-
-  /**
-   * Применение брошенных частей набора.
-   *
-   * @param chosenAction - действие с решённым типом урона
-   * @param actionSpell - его псевдо-заклинание
-   * @param parts - брошенные части; у действия без урона — пусто
-   */
-  const applyParts = (
-    chosenAction: CreatureAction,
-    actionSpell: Spell,
-    parts: RolledSpellDamagePart[],
-  ): void =>
-    applyCreatureActionParts(
-      creature,
-      chosenAction,
-      actionSpell,
-      parts,
-      templateId,
-    );
-
-  // У каждого набора урона «или» свои части, тип урона на выбор и применение
-  const rollVariants = buildCreatureRollVariants(
-    action,
-    variants,
-    buildSetup,
-    applyParts,
-  );
-
-  const [primary] = rollVariants;
-
-  if (!primary) {
-    return;
-  }
-
-  // Спасбросок или область без урона: окна броска нет — как на листе существа
-  if (
-    runDamagelessCreatureAction(
-      action,
-      rollVariants,
-      (chosenAction) => buildSetup(chosenAction).pseudoSpell,
-      applyParts,
-    )
-  ) {
-    return;
-  }
-
-  const actionAttackRoll = usesSaveOrArea
-    ? undefined
-    : resolveTargetedAttackRoll(
-        creature,
-        getAttackFlagCategory(action.rangeType),
-        { forceDisadvantage: isDisadvantage },
-      );
-
-  openModal('DiceRollModal', {
-    title: usesSaveOrArea ? action.name : `Атака — ${action.name}`,
-    rollLabel: action.name,
-    rollButtonText: usesSaveOrArea ? SPELL_DAMAGE_ROLL_BUTTON : 'Атаковать',
-    formula: primary.formula,
-    attackModifier: usesSaveOrArea ? undefined : action.attackBonus,
-    evaluateBonusRollFormulas: usesSaveOrArea
-      ? undefined
-      : buildRollBonusEvaluator(
-          () => useWorldEntities().findCurrentDndEntity(creature.id),
-          getAttackBonusKey(action.rangeType),
-        ),
-    initialRollMode: actionAttackRoll?.mode ?? 'normal',
-    rollModeReasons: actionAttackRoll?.reasons,
-    incomingAttackType: getAttackFlagCategory(action.rangeType),
-    damageType: primary.damageType,
-    damageParts: primary.damageParts,
-    evaluateBonusDamageParts: primary.evaluateBonusDamageParts,
-    onRollParts: primary.onRollParts,
-    damageTypeChoice: primary.damageTypeChoice,
-    damageVariants: variants.length > 0 ? rollVariants : undefined,
-    onCancel: templateId ? () => discardSpellTemplate(templateId) : undefined,
-    // Расход одноразовых эффектов «следующей атаки» на броске атаки существа
-    attackerId: creature.id,
-  });
-}
-
-/**
- * Применяет брошенные части урона действия существа через многочастный
- * оркестратор (спасброски целей, защиты по типу, AoE-шаблон, единый HP-апдейт).
- *
- * @param creature - существо-источник (casterId)
- * @param action - действие (источник DC спасброска)
- * @param pseudoSpell - псевдо-заклинание действия
- * @param parts - брошенные части урона
- * @param templateId - id размещённого AoE-шаблона (если был)
- */
-function applyCreatureActionParts(
-  creature: DnDCreature,
-  action: CreatureAction,
-  pseudoSpell: import('@vtt/shared/system/dnd.js').Spell,
-  parts: RolledSpellDamagePart[],
-  templateId: string | undefined,
-): void {
-  const worldStore = useWorldStore();
-  const chatStore = useChatStore();
-  const socket = chatStore.getSocket();
-  const worldId = worldStore.connectionState.currentWorldId;
-
-  if (!worldId || !socket) {
-    return;
-  }
-
-  const world = worldStore.worlds.find((entry) => entry.id === worldId);
-  const actors = [...(world?.actors ?? []), ...(world?.creatures ?? [])];
-
-  const templateStore = useSpellTemplateStore();
-
-  let cachedTemplate: MeasurementTemplate | null = null;
-
-  if (templateId) {
-    cachedTemplate = templateStore.getPlacedTemplate(templateId) ?? null;
-    templateStore.removePlacedTemplate(templateId);
-  }
-
-  if (actors.length > 0) {
-    const { resolveSpellDamageWithParts } = useSpellResolution();
-
-    void resolveSpellDamageWithParts(
-      {
-        spell: pseudoSpell,
-        damageTotal: 0,
-        spellSaveDC: action.saveDC ?? 10,
-        actors,
-        socket,
-        casterId: creature.id,
-      },
-      parts,
-      { scene: worldStore.currentScene, cachedTemplate },
-    );
-  }
-
-  if (templateId) {
-    templateStore.deleteTemplate(templateId);
-  }
-
-  applyActionSelfEffects(action, creature.id);
 }
 
 /**

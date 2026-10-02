@@ -13,7 +13,6 @@ import { engine } from './scenarios/_fixtures.mjs';
 
 const modalPath = 'src/client/ui/actor/DiceRollModal.vue';
 const composablePath = 'src/client/composables/damageTypeChoice.ts';
-const macroPath = 'src/client/macros/dnd5eMacros.ts';
 
 const FIRE_OR_COLD = { mode: 'choose', options: ['fire', 'cold'] };
 const RANDOM_ACID_OR_THUNDER = { mode: 'random', options: ['acid', 'thunder'] };
@@ -294,12 +293,12 @@ describe('выбор из окна доходит до эффектов исто
   const creature = { id: 'dragon', name: 'Дракон' };
 
   for (const [path, name, creatureFirst] of [
+    // Лист существа и горячая панель совершают действие одним путём
     [
-      'src/client/ui/creature/CreatureActionsBlock.vue',
-      'startActionRoll',
+      'src/client/composables/creatureActionRoll.ts',
+      'openCreatureActionRoll',
       false,
     ],
-    [macroPath, 'openCreatureActionRoll', true],
   ]) {
     it(`${name}: эффект действия на цель ложится выбранным типом`, async () => {
       const applied = [];
@@ -396,12 +395,12 @@ describe('урон «или» выбирают в окне броска', () => 
   }
 
   for (const [path, name, creatureFirst] of [
+    // Лист существа и горячая панель совершают действие одним путём
     [
-      'src/client/ui/creature/CreatureActionsBlock.vue',
-      'startActionRoll',
+      'src/client/composables/creatureActionRoll.ts',
+      'openCreatureActionRoll',
       false,
     ],
-    [macroPath, 'openCreatureActionRoll', true],
   ]) {
     it(`${name}: у каждого набора свой урон, выбранный называется в чате`, async () => {
       announcedVariants.length = 0;
@@ -450,8 +449,8 @@ describe('урон «или» выбирают в окне броска', () => 
     const ports = createPorts(applied);
 
     const handler = await loadHandler(
-      'src/client/ui/creature/CreatureActionsBlock.vue',
-      'startActionRoll',
+      'src/client/composables/creatureActionRoll.ts',
+      'openCreatureActionRoll',
       ports,
     );
 

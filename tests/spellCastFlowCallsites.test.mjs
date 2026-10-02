@@ -27,8 +27,8 @@ const CREATURE_FLOW_PATH = 'src/client/composables/creatureSpellCast.ts';
 
 /**
  * Кому разрешён вызов. Определения функций и общий разбор — навсегда;
- * отмеченные «5.5» — действия существ и атака оружием, их копии «лист против
- * панели» ещё не сведены.
+ * отмеченные «5.5» — атака оружием: её копии «лист против панели» ещё не
+ * сведены.
  */
 const ALLOWED_CALLERS = {
   'resolveSpellDamage(': [
@@ -41,12 +41,12 @@ const ALLOWED_CALLERS = {
     CREATURE_FLOW_PATH,
     'src/client/composables/spellEffectTargeting.ts',
     'src/client/composables/useSpellDamageWithParts.ts',
-    // 5.5: действие существа и атака оружием с горячей панели
+    // Действие существа: лист и горячая панель — один путь
+    'src/client/composables/creatureActionRoll.ts',
+    // 5.5: атака оружием с горячей панели
     'src/client/macros/dnd5eMacros.ts',
     // 5.5: атака оружием с листа персонажа
     'src/client/ui/actor/tabs/ActorEquipmentTab.vue',
-    // 5.5: действие существа с листа существа
-    'src/client/ui/creature/CreatureActionsBlock.vue',
   ],
   'completeSpellCast(': [
     FLOW_PATH,

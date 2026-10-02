@@ -13,6 +13,8 @@ const macroPath = 'src/client/macros/dnd5eMacros.ts';
 
 const creatureSpellPath = 'src/client/composables/creatureSpellCast.ts';
 
+const creatureActionPath = 'src/client/composables/creatureActionRoll.ts';
+
 /** Настоящая сборка наборов урона действия: без вариантов «или» набор один */
 const buildCreatureRollVariants = await loadHandler(
   'src/client/composables/creatureDamageChoice.ts',
@@ -286,10 +288,8 @@ it('actual openRollModal shoots the ammunition and spends it when the roll goes'
   );
 });
 
-for (const entry of [
-  ['src/client/ui/creature/CreatureActionsBlock.vue', 'startActionRoll', false],
-  [macroPath, 'openCreatureActionRoll', true],
-]) {
+// Лист существа и горячая панель совершают действие одним путём
+for (const entry of [[creatureActionPath, 'openCreatureActionRoll', false]]) {
   it(`actual ${entry[1]} uses current creature effects and disables attack dice for saving-throw actions`, async () => {
     const current = { value: createEntity() };
     const ports = createPorts(current);
@@ -395,14 +395,9 @@ for (const entry of [
     (weapon) => [weapon],
   ],
   [
-    'src/client/ui/creature/CreatureActionsBlock.vue',
-    'startActionRoll',
-    (action, creature) => [action, creature, false, undefined],
-  ],
-  [
-    macroPath,
+    creatureActionPath,
     'openCreatureActionRoll',
-    (action, creature) => [creature, action, false, undefined],
+    (action, creature) => [action, creature, false, undefined],
   ],
 ]) {
   it(`actual ${entry[1]} takes the roll mode of the shared attack helper`, async () => {
@@ -1119,27 +1114,23 @@ it('attack roll bonuses add the target defences against this attack', async () =
   );
 });
 
-it('actual creature action sheet checks distance with the chosen attack kind', async () => {
-  const creature = createEntity();
+it('actual creature action entry checks distance with the chosen attack kind', async () => {
+  const creature = { ...createEntity(), id: 'goblin' };
   const checked = [];
   const rolled = [];
   const messages = [];
 
   const ports = {
-    props: { creatureId: 'goblin' },
-    blockOf: () => null,
-    spendSectionTurn: () => {},
-    isCreatureAttackAction: () => true,
-    warnOpportunityAttack: () => {},
-    targetStore: { targetTokenId: 'target' },
-    chatStore: { sendMessage: (text) => messages.push(text) },
+    readCreature: () => creature,
+    spendCreatureActionTurn: () => {},
+    useTargetStore: () => ({ targetTokenId: 'target' }),
+    useChatStore: () => ({ sendMessage: (text) => messages.push(text) }),
     CREATURE_ACTIONS_BLOCK_LABELS: {
       outOfRangePrefix: '⛔ ',
       outOfRangeMiddle: ': ',
       outOfRangeSuffix: '',
     },
-    hasAttackParams: () => true,
-    getCreatureEntity: () => creature,
+    hasCreatureActionRoll: () => true,
     // Вопрос о виде отвечен «дальнобойная»
     runCreatureActionChoices: (action, creatureId, proceed) => {
       assert.equal(creatureId, 'goblin');
@@ -1158,24 +1149,28 @@ it('actual creature action sheet checks distance with the chosen attack kind', a
     runWithCreatureDamageChoice: (action, _creature, proceed) =>
       proceed(action, undefined),
     launchCreatureAction: (_action, _creatureId, proceed) => proceed(undefined),
-    startActionRoll: (action, _creature, isDisadvantage) =>
+    openCreatureActionRoll: (action, _creature, isDisadvantage) =>
       rolled.push({ rangeType: action.rangeType, isDisadvantage }),
   };
 
+  // Лист существа и горячая панель зовут один вход действия
   const handler = await loadHandler(
-    'src/client/ui/creature/CreatureActionsBlock.vue',
-    'openRollModal',
+    creatureActionPath,
+    'startCreatureAction',
     ports,
   );
 
-  handler({
-    name: 'Javelin',
-    attackBonus: 4,
-    rangeType: 'meleeOrRanged',
-    reach: 5,
-    range: { normal: 30, long: 120 },
-    damageParts: [{ formula: '1d6+2' }],
-  });
+  handler(
+    {
+      name: 'Javelin',
+      attackBonus: 4,
+      rangeType: 'meleeOrRanged',
+      reach: 5,
+      range: { normal: 30, long: 120 },
+      damageParts: [{ formula: '1d6+2' }],
+    },
+    { creatureId: 'goblin', section: undefined },
+  );
 
   assert.deepEqual(checked, ['ranged']);
   assert.deepEqual(rolled, [{ rangeType: 'ranged', isDisadvantage: true }]);
