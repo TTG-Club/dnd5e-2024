@@ -187,6 +187,7 @@ import {
   buildEffectDiceRolls,
   decrementActorEffectDurations,
   expireTurnEffects as expireEntityTurnEffects,
+  expireOutsiderTurnEffects,
   formatEffectsSummary,
   formatEntrySaveStatus,
   formatRecurringSaveStatus,
@@ -1606,7 +1607,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.168';
+  readonly version = '0.8.169';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -1765,6 +1766,12 @@ export class Dnd5eVttSystem implements VttSystem {
   private readonly pendingTurnSaveKeys = new Set<string>();
 
   /**
+   * Разносит ли ядро границы ходов и сущностям вне боя. Пока нет — их точные
+   * turn-эффекты истекают по границе раунда (`decrementEffectDurations`)
+   */
+  private outsidersGetTurnBoundaries = false;
+
+  /**
    * Уничтожение системы (серверный lifecycle): ожидания ответов остановленного
    * мира забываются.
    */
@@ -1815,7 +1822,6 @@ export class Dnd5eVttSystem implements VttSystem {
    * эффект «до конца хода кастера», которого нет в трекере инициативы, ждал бы
    * хода, который не наступит, — такой якорь деградирует к носителю.
    */
-  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   expireTurnEffects(
     entity: SceneEntity,
     turnActorId: string,
@@ -1827,6 +1833,12 @@ export class Dnd5eVttSystem implements VttSystem {
       return false;
     }
 
+    // Ядро принесло границу хода сущности вне боя — значит, разносит их всем,
+    // и подмена границей раунда больше не нужна (иначе срок шёл бы дважды)
+    if (!participantIds.has(entity.id)) {
+      this.outsidersGetTurnBoundaries = true;
+    }
+
     return expireWithConcentration(entity, context, (carrier) =>
       expireEntityTurnEffects(carrier, turnActorId, timing, participantIds),
     );
@@ -1835,8 +1847,11 @@ export class Dnd5eVttSystem implements VttSystem {
   /**
    * Уменьшает длительность (в раундах) всех эффектов на сущности, снимая
    * истёкшие. Истёкшая метка концентрации заканчивает свой каст.
+   *
+   * У сущности вне боя новый раунд служит и границей хода: границы ходов ядро
+   * разносит только участникам, и эффект «до конца следующего хода
+   * наложившего» на ней иначе не истёк бы никогда.
    */
-  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   decrementEffectDurations(
     entity: SceneEntity,
     context?: SystemTriggerContext,
@@ -1845,11 +1860,22 @@ export class Dnd5eVttSystem implements VttSystem {
       return false;
     }
 
-    return expireWithConcentration(
-      entity,
-      context,
-      decrementActorEffectDurations,
-    );
+    // Без ответа ядра «в бою ли сущность» границу раунда за ход не считаем:
+    // участнику боя его ходы придут сами
+    const isOutsider =
+      !this.outsidersGetTurnBoundaries
+      && context?.isInCombat !== undefined
+      && !context.isInCombat(entity);
+
+    return expireWithConcentration(entity, context, (carrier) => {
+      const roundsChanged = decrementActorEffectDurations(carrier);
+
+      const turnsChanged = isOutsider
+        ? expireOutsiderTurnEffects(carrier)
+        : false;
+
+      return roundsChanged || turnsChanged;
+    });
   }
 
   /**

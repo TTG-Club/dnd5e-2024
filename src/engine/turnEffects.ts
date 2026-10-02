@@ -282,6 +282,35 @@ export function stampAppliedEffect(
 }
 
 /**
+ * Эффект после своей границы хода: первая граница «хода наложения» только
+ * снимает пропуск, следующая — снимает эффект (переключаемый — выключает).
+ *
+ * @param effect - turn-эффект, чья граница наступила
+ * @returns эффект после границы либо пусто, если он снят
+ */
+function passTurnBoundary(effect: ActiveEffect): ActiveEffect[] {
+  const { duration } = effect;
+
+  if (duration.turnSkipFirst) {
+    // Пропускаем первую границу (ход наложения), снимаем флаг — эффект живёт.
+    return [{ ...effect, duration: { ...duration, turnSkipFirst: false } }];
+  }
+
+  // Переключаемый эффект по истечении выключается, а не уходит с листа
+  if (isToggleActivatedEffect(effect)) {
+    return [
+      {
+        ...effect,
+        disabled: true,
+        duration: { ...duration, turnSkipFirst: undefined },
+      },
+    ];
+  }
+
+  return []; // граница «следующего» хода — снимаем эффект
+}
+
+/**
  * Снимает с сущности точные turn-эффекты, чья граница хода наступила. Должна
  * вызываться на старте/в конце хода участника `turnActorId` для КАЖДОГО
  * участника энкаунтера (источник-якорь живёт на чужой сущности).
@@ -342,26 +371,37 @@ export function expireTurnEffects(
 
     changed = true;
 
-    if (duration.turnSkipFirst) {
-      // Пропускаем первую границу (ход наложения), снимаем флаг — эффект живёт.
-      return [{ ...effect, duration: { ...duration, turnSkipFirst: false } }];
-    }
-
-    // Переключаемый эффект по истечении выключается, а не уходит с листа
-    if (isToggleActivatedEffect(effect)) {
-      return [
-        {
-          ...effect,
-          disabled: true,
-          duration: { ...duration, turnSkipFirst: undefined },
-        },
-      ];
-    }
-
-    return []; // граница «следующего» хода — снимаем эффект
+    return passTurnBoundary(effect);
   });
 
   return changed;
+}
+
+/**
+ * Точные turn-эффекты сущности, которой в бою нет, — на границе раунда.
+ *
+ * Границы ходов ядро разносит только участникам боя: до сущности вне
+ * инициативы ни конец хода наложившего, ни её собственный ход не доходят, и
+ * эффект «до конца следующего хода наложившего» висел бы на ней вечно. Раунд
+ * же идёт у всех, поэтому для неё граница хода — новый раунд: первая снимает
+ * пропуск «хода наложения», следующая — сам эффект. Расхождение с точным
+ * сроком — меньше раунда.
+ *
+ * @param entity - сущность вне боя (мутируется)
+ * @returns `true`, если эффекты изменились
+ */
+export function expireOutsiderTurnEffects(entity: DnDSceneEntity): boolean {
+  const effects = entity.activeEffects ?? [];
+
+  if (!effects.some((effect) => effect.duration.type === 'turn')) {
+    return false;
+  }
+
+  entity.activeEffects = effects.flatMap((effect) =>
+    effect.duration.type === 'turn' ? passTurnBoundary(effect) : [effect],
+  );
+
+  return true;
 }
 
 /** Исход одного повторного спасброска эффекта (начало/конец хода) */
