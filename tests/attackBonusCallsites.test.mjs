@@ -6,7 +6,7 @@ import { loadEngineBundle } from './helpers/engineBundle.mjs';
 import { loadHandler } from './helpers/sourceHandler.mjs';
 
 const engine = await loadEngineBundle(
-  "export * from './src/engine/attackUtils.ts'; export * from './src/engine/effectPipeline.ts'; export * from './src/engine/consts.ts'; export * from './src/engine/formulaParser.ts'; export * from './src/engine/hitPoints.ts'; export { isSaveAbility } from './src/engine/spellUtils.ts'; export { creatureActionHasSave } from './src/engine/creatureUtils.ts';",
+  "export * from './src/engine/attackUtils.ts'; export * from './src/engine/effectPipeline.ts'; export * from './src/engine/consts.ts'; export * from './src/engine/formulaParser.ts'; export * from './src/engine/resolvedFormulaContext.ts'; export * from './src/engine/hitPoints.ts'; export { isSaveAbility } from './src/engine/spellUtils.ts'; export { creatureActionHasSave } from './src/engine/creatureUtils.ts';",
 );
 
 const macroPath = 'src/client/macros/dnd5eMacros.ts';
@@ -1097,7 +1097,7 @@ it('attack roll bonuses add the target defences against this attack', async () =
       }),
       useResolvedStats: () => ({ combinedEffects: { value: [] } }),
       buildCarrierContext: (entity) => ({ entityId: entity.id }),
-      buildFormulaContext: () => ({}),
+      buildResolvedFormulaContext: () => ({}),
       useBonusDamageParts: () => ({
         buildTargetHpContext: (_entity, attackerId) => ({
           entityId: 'warded',

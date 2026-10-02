@@ -15,7 +15,7 @@ import type {
 } from '@vtt/shared/system/dnd.js';
 
 import {
-  buildFormulaContext,
+  buildResolvedFormulaContext,
   collectIncomingAttackFlags,
   collectIncomingAttackRollFormulas,
   resolveEntityCreatureType,
@@ -115,7 +115,7 @@ export function collectDefenderRollFormulas(
     ? collectIncomingAttackRollFormulas(
         found.effects,
         buildIncomingAttackContext(attacker, attackType),
-        buildFormulaContext(found.defender),
+        buildResolvedFormulaContext(found.defender),
       )
     : [];
 }

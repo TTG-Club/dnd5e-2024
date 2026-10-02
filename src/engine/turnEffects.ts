@@ -78,6 +78,7 @@ import {
   resolveEntityTempHp,
   writeEntityHitPoints,
 } from './hitPoints.js';
+import { buildResolvedFormulaContext } from './resolvedFormulaContext.js';
 import { pickSaveAbility } from './saveAbilityChoice.js';
 import {
   resolveSaveSourceAdjustments,
@@ -712,7 +713,9 @@ export function buildEffectSavingThrowContext(
       collectActiveEffects(entity),
       ambientEffects,
     ),
-    formulaContext: buildFormulaContext(entity),
+    // Числа листа — итоговые: «+мод. Мудрости» к спасброску читает то, что
+    // показывает лист
+    formulaContext: buildResolvedFormulaContext(entity, { ambientEffects }),
     self: buildCarrierContext(entity),
   };
 }
@@ -1082,6 +1085,8 @@ function bindRecipientTokens(
     return part;
   }
 
+  // Числа получателя — отметки, временные хиты, кости хитов: характеристик
+  // среди них нет, и итоговые числа листа здесь считать незачем
   const context = buildFormulaContext(entity);
 
   return {

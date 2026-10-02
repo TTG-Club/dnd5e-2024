@@ -36,7 +36,6 @@ import type { ActorCounterState } from './types.js';
 import { generateId } from '@vtt/shared';
 
 import { withActivationDefaults } from './activeEffectTypes.js';
-import { calculateAbilityModifier } from './calculations.js';
 import { getTotalLevel } from './classTypes.js';
 import { ABILITY_OPTIONS, isAbilityType } from './consts.js';
 import {
@@ -53,7 +52,7 @@ import {
   openFeatChoicesAtLevel,
 } from './featChoices.js';
 import { hasSpellcastingFeature } from './featPrerequisites.js';
-import { buildFormulaContext } from './formulaParser.js';
+import { buildResolvedFormulaContext } from './resolvedFormulaContext.js';
 import { getMaxSpellSlotLevel } from './spellSlotTable.js';
 
 /**
@@ -1013,12 +1012,16 @@ export function buildFeatCounters(
 
   const characterLevel = getTotalLevel(actor.system.classes);
 
+  // Итоговые числа листа: максимум по бонусу мастерства и модификатору —
+  // тот же, что показывает лист
+  const resolvedContext = buildResolvedFormulaContext(actor);
+
   const context = {
-    ...buildFormulaContext(actor),
+    ...resolvedContext,
     // `@mod.spell` в максимуме («Вознесение лича» — по заклинательной
     // характеристике): вне контекста заклинания движок его не знает, а у черты
     // характеристика есть — своя, спрошенная у игрока либо от класса
-    spellMod: featSpellcastingModifier(feat, actor),
+    spellMod: featSpellcastingModifier(feat, actor, resolvedContext),
   };
 
   return definitions
@@ -1101,10 +1104,12 @@ function featCounterFormulaMax(
  * @param feat.featData - блоб даров черты
  * @param feat.choices - ответы игрока: ключ выбора → значения
  * @param actor - лист персонажа
+ * @param context - итоговые числа листа
  */
 function featSpellcastingModifier(
   feat: { featData?: FeatData | null; choices?: Record<string, string[]> },
   actor: DnDActor,
+  context: FormulaContext,
 ): number | undefined {
   const casterClass = (actor.system.classes ?? []).find(
     (entry) => entry.spellcastingAbility,
@@ -1117,7 +1122,8 @@ function featSpellcastingModifier(
     return undefined;
   }
 
-  return calculateAbilityModifier(actor.system.abilities[ability] ?? 10);
+  // Итоговый модификатор листа, а не сырого значения записи
+  return context.abilities[ability]?.mod;
 }
 
 /**

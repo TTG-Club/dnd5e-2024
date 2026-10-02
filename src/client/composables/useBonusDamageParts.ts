@@ -33,8 +33,8 @@ import { useTargetStore } from '@/stores/targetStore';
  */
 import {
   buildCarrierContext,
-  buildFormulaContext,
   buildPseudoSpell,
+  buildResolvedFormulaContext,
   calculateWeaponDamageModifier,
   collectBonusDamageFormulas,
   entityHasDamageStatus,
@@ -480,7 +480,9 @@ export function useBonusDamageParts() {
 
     const baseParts = withFlatDamageBonus(resolvedParts, flatDamageMod);
 
-    const formulaContext = buildFormulaContext(actor);
+    const formulaContext = buildResolvedFormulaContext(actor, {
+      stats: resolvedStats,
+    });
 
     // Контекст тот же, что у основной формулы урона: @mod.<abil>, @prof,
     // @level (@mod.spell у оружия недоступен — нет контекста заклинания)
@@ -583,7 +585,7 @@ export function useBonusDamageParts() {
       targetType,
     );
 
-    const formulaContext = buildFormulaContext(creature);
+    const formulaContext = buildResolvedFormulaContext(creature);
 
     const resolveFormula = (subFormula: string): string =>
       resolveBonusFormula(subFormula, 'существа', (formula) =>
@@ -650,7 +652,7 @@ export function useBonusDamageParts() {
       targetType,
     );
 
-    const formulaContext = buildFormulaContext(creature);
+    const formulaContext = buildResolvedFormulaContext(creature);
 
     // У заклинания существа в контексте есть ещё и @mod.spell
     const resolveFormula = (subFormula: string): string =>

@@ -45,7 +45,7 @@ import { useWorldStore } from '@/stores/worldStore';
  */
 import { generateId, isRecord } from '@vtt/shared';
 import {
-  buildFormulaContext,
+  buildResolvedFormulaContext,
   calculateCreatureSpellBlockNumbers,
   calculateSpellAttackModifier,
   calculateWeaponAttackModifier,
@@ -852,7 +852,8 @@ export function registerDnd5eMacros(): void {
 
                     // Условный бонус может быть формулой (`@prof`, `@mod.dex`) — без
                     // контекста @-переменных она дала бы ноль
-                    const formulaContext = buildFormulaContext(foundActor);
+                    const formulaContext =
+                      buildResolvedFormulaContext(foundActor);
 
                     return {
                       attackBonus: evaluateConditionalBonuses(

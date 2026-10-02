@@ -15,7 +15,8 @@ import type { DnDSceneEntity } from './dndEntities.js';
 import { ATTACK_REACH_KEY } from './activeEffectTypes.js';
 import { DEFAULT_REACH_FEET } from './attackUtils.js';
 import { collectActiveEffects } from './effectPipeline.js';
-import { buildFormulaContext, evaluateFormula } from './formulaParser.js';
+import { evaluateFormula } from './formulaParser.js';
+import { buildResolvedFormulaContext } from './resolvedFormulaContext.js';
 
 /**
  * Сумма прибавок события по ключу со всех действующих эффектов сущности.
@@ -36,7 +37,7 @@ export function sumOffSheetChange(entity: DnDSceneEntity, key: string): number {
     return 0;
   }
 
-  const context = buildFormulaContext(entity);
+  const context = buildResolvedFormulaContext(entity);
 
   const total = changes.reduce((sum, change) => {
     try {

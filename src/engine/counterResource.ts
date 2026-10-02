@@ -27,15 +27,15 @@ import type { ActorCounterState } from './types.js';
 
 import { z } from 'zod';
 
-import { ABILITY_KEYS, isAbilityType } from './consts.js';
+import { isAbilityType } from './consts.js';
 import { resolveActorStats } from './effectPipeline.js';
 import {
   ABILITY_ABBREVIATION_BY_KEY,
   ABILITY_ABBREVIATIONS,
-  buildFormulaContext,
   COUNTER_FORMULA_TOKENS,
   evaluateFormula,
 } from './formulaParser.js';
+import { buildResolvedFormulaContext } from './resolvedFormulaContext.js';
 
 // ── Грамматика формулы максимума ─────────────────────────────
 
@@ -360,20 +360,8 @@ export function buildCounterFormulaContext(actor: DnDActor): FormulaContext {
 
   const stats = resolveActorStats(actor);
 
-  const abilities = Object.fromEntries(
-    ABILITY_KEYS.map((abilityKey) => [
-      abilityKey,
-      {
-        value: stats.abilities[abilityKey],
-        mod: stats.abilityMods[abilityKey],
-      },
-    ]),
-  );
-
   return {
-    ...buildFormulaContext(actor),
-    abilities,
-    prof: stats.proficiencyBonus,
+    ...buildResolvedFormulaContext(actor, { stats }),
     spellMod: ability ? stats.abilityMods[ability] : undefined,
   };
 }

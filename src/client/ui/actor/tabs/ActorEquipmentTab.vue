@@ -37,8 +37,8 @@
   import { useWorldStore } from '@/stores/worldStore';
   import { DISTANCE_UNIT_SHORT, formatItemCost } from '@vtt/shared';
   import {
-    buildFormulaContext,
     buildItemUseSpell,
+    buildResolvedFormulaContext,
     calculateWeaponAttackModifier,
     calculateWeaponDamageModifier,
     canSpendItemUses,
@@ -519,7 +519,7 @@
 
             // Условный бонус может быть формулой (`@prof`, `@mod.dex`) — без
             // контекста @-переменных она дала бы ноль
-            const formulaContext = buildFormulaContext(props.entity);
+            const formulaContext = buildResolvedFormulaContext(props.entity);
 
             return {
               attackBonus: evaluateConditionalBonuses(

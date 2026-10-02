@@ -26,7 +26,12 @@ import { isActorEntity } from '@vtt/shared';
 
 import { calculateProficiencyBonus } from './calculations.js';
 import { getClassLevels, getTotalLevel } from './classTypes.js';
-import { isCreatureCategory, isMovementType, MOVEMENT_KEYS } from './consts.js';
+import {
+  ABILITY_KEYS,
+  isCreatureCategory,
+  isMovementType,
+  MOVEMENT_KEYS,
+} from './consts.js';
 import {
   DEFAULT_PROFICIENCY_BONUS,
   getProficiencyBonusBreakdown,
@@ -1058,6 +1063,44 @@ export function buildFormulaContext(
     hitDiceLeft: countHitDiceLeft(actor),
     tempHp: readTempHp(actor),
     tags: countTags(actor),
+  };
+}
+
+/**
+ * Контекст формул с итоговыми числами листа: характеристики, их модификаторы
+ * и бонус мастерства — те, что показывает лист, а не сырые значения записи.
+ *
+ * Правило порядка расчёта (README, § «Токены формул»): изменения самих
+ * характеристик считаются от сырых чисел — здесь круг размыкается; всё
+ * остальное (КД формулой, Сл, урон, цена, максимум счётчика) — от итоговых.
+ *
+ * @param context - контекст листа ({@link buildFormulaContext})
+ * @param stats - итоговые числа листа
+ * @param stats.abilities - итоговые значения характеристик
+ * @param stats.abilityMods - итоговые модификаторы
+ * @param stats.proficiencyBonus - итоговый бонус мастерства
+ * @returns контекст с итоговыми числами
+ */
+export function withResolvedSheetNumbers(
+  context: FormulaContext,
+  stats: {
+    abilities: Readonly<Record<AbilityType, number>>;
+    abilityMods: Readonly<Record<AbilityType, number>>;
+    proficiencyBonus: number;
+  },
+): FormulaContext {
+  return {
+    ...context,
+    abilities: Object.fromEntries(
+      ABILITY_KEYS.map((abilityKey) => [
+        abilityKey,
+        {
+          value: stats.abilities[abilityKey],
+          mod: stats.abilityMods[abilityKey],
+        },
+      ]),
+    ),
+    prof: stats.proficiencyBonus,
   };
 }
 

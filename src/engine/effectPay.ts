@@ -58,12 +58,9 @@ import {
   consumeTriggerUse,
   isTriggerLimitReached,
 } from './effectTriggerUsage.js';
-import {
-  buildFormulaContext,
-  CAST_LEVEL_VARIABLE,
-  evaluateFormula,
-} from './formulaParser.js';
+import { CAST_LEVEL_VARIABLE, evaluateFormula } from './formulaParser.js';
 import { getHitDiceGroups, spendHitDice } from './hitDiceUtils.js';
+import { buildResolvedFormulaContext } from './resolvedFormulaContext.js';
 import {
   computeActorSpellSlots,
   getPactSlotInfo,
@@ -528,7 +525,7 @@ export function planEffectPay(
   context: PayContext = {},
 ): PayPlan {
   const formulaContext: FormulaContext = {
-    ...buildFormulaContext(payer),
+    ...buildResolvedFormulaContext(payer),
     ...(context.castLevel === undefined
       ? {}
       : { castLevel: context.castLevel }),

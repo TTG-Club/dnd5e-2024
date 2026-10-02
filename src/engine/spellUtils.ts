@@ -57,10 +57,7 @@ import { CHOICE_DAMAGE_TYPE, isDamageType } from './damageConstants.js';
 import { getSpellDamageParts } from './damageParts.js';
 import { entityHasDamageStatus } from './damageTargetGate.js';
 import { formatDiceLetters } from './diceFormula.js';
-import {
-  buildFormulaContext,
-  substituteFormulaVariables,
-} from './formulaParser.js';
+import { substituteFormulaVariables } from './formulaParser.js';
 import {
   applyStatusConditionals,
   DAMAGE_TYPE_TOKEN_GLOBAL_REGEX,
@@ -80,6 +77,7 @@ import {
   stripStatusTokens,
   uniqueDamageTypeChoices,
 } from './formulaTokens.js';
+import { buildResolvedFormulaContext } from './resolvedFormulaContext.js';
 import {
   getSpellAttackBreakdown,
   getSpellSaveDCBreakdown,
@@ -1146,46 +1144,20 @@ export function resolveSpellDamageFormula(
     return formula;
   }
 
-  const context = buildFormulaContext(actor);
+  // Итоговые числа листа — переданные готовыми или посчитанные здесь: и
+  // @mod.<характеристика>, и @<характеристика>, и @prof читают то, что
+  // показывает лист. Без готовых чисел раньше брались сырые значения записи
+  const context = buildResolvedFormulaContext(
+    actor,
+    resolvedStats ? { stats: resolvedStats } : {},
+  );
+
   const spellAbility = resolveSpellcastingAbility(actor, spell);
 
-  // С resolvedStats модификаторы учитывают внешние бонусы (Active Effects),
-  // поэтому переопределяем как @mod.spell, так и @mod.<характеристика>.
-  if (resolvedStats) {
-    const abilities: AbilityType[] = [
-      'strength',
-      'dexterity',
-      'constitution',
-      'intelligence',
-      'wisdom',
-      'charisma',
-    ];
-
-    for (const ability of abilities) {
-      const mod = resolvedStats.abilityMods[ability];
-
-      if (mod !== undefined) {
-        context.abilities[ability] = {
-          value:
-            resolvedStats.abilities[ability]
-            ?? context.abilities[ability].value,
-          mod,
-        };
-      }
-    }
-
-    context.spellMod =
-      resolvedStats.abilityMods[spellAbility]
-      ?? calculateAbilityModifier(
-        actor.system?.abilities?.[spellAbility] ?? 10,
-      );
-  } else {
-    context.spellMod = calculateAbilityModifier(
-      actor.system?.abilities?.[spellAbility] ?? 10,
-    );
-  }
-
-  return substituteFormulaVariables(formula, context);
+  return substituteFormulaVariables(formula, {
+    ...context,
+    spellMod: context.abilities[spellAbility]?.mod ?? 0,
+  });
 }
 
 /** Сегмент формулы урона с привязанным типом (после разбора @dmg.<type>). */
@@ -1898,7 +1870,7 @@ export function resolveCreatureDamageParts(
       try {
         return substituteFormulaVariables(
           formula,
-          buildFormulaContext(creature),
+          buildResolvedFormulaContext(creature),
         );
       } catch {
         return formula;
@@ -2108,7 +2080,7 @@ export function resolveCreatureSpellDamageParts(
   spellMod: number,
   targetType?: CreatureCategory,
 ): ResolvedDamagePartInput[] {
-  const context = { ...buildFormulaContext(creature), spellMod };
+  const context = { ...buildResolvedFormulaContext(creature), spellMod };
 
   return expandDamageParts(
     parts,

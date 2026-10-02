@@ -47,7 +47,7 @@ import {
   areaTargetRelation,
 } from './effectTriggerTypes.js';
 import { isDndSceneEntity } from './entityGuards.js';
-import { buildFormulaContext } from './formulaParser.js';
+import { buildResolvedFormulaContext } from './resolvedFormulaContext.js';
 import {
   bindSourceEffectFormulas,
   effectUsesSourceFormulas,
@@ -205,7 +205,10 @@ function shapeEntityAuras(
   const incapacitated = needsStats && isEntityIncapacitated(entity);
 
   const needsFormulas = auras.some((effect) => effect.aura?.radiusFormula);
-  const formulaContext = needsFormulas ? buildFormulaContext(entity) : null;
+
+  const formulaContext = needsFormulas
+    ? buildResolvedFormulaContext(entity)
+    : null;
 
   return auras.flatMap((effect) => {
     const { aura } = effect;

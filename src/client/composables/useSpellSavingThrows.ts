@@ -28,7 +28,7 @@ import {
 } from '@vtt/shared';
 import {
   buildAttackFormula,
-  buildFormulaContext,
+  buildResolvedFormulaContext,
   formatSavingThrowRequestTitle,
   getNaturalD20Roll,
   hasSaveSource,
@@ -209,7 +209,7 @@ function getActorSaveInfo(
         collectEffectsWithAuras(entity),
         saveAbility,
         options,
-        buildFormulaContext(entity),
+        buildResolvedFormulaContext(entity, { stats }),
       )
     : NO_SOURCE_ADJUSTMENTS;
 

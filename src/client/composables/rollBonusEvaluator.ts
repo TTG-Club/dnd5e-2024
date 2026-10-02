@@ -10,7 +10,7 @@ import { useProjectileStore } from '@/stores/projectileStore';
 import { useWorldStore } from '@/stores/worldStore';
 import {
   buildCarrierContext,
-  buildFormulaContext,
+  buildResolvedFormulaContext,
   collectBonusRollFormulas,
   getAttackFlagCategoryOfKeys,
   isDndSceneEntity,
@@ -83,7 +83,7 @@ export function buildRollBonusEvaluator(
       self: buildCarrierContext(entity),
     };
 
-    const formulaContext = buildFormulaContext(entity);
+    const formulaContext = buildResolvedFormulaContext(entity);
     const targetEntityId = rollContext.target?.entityId;
 
     const ownFormulas = keys.flatMap((targetKey) =>

@@ -22,7 +22,7 @@ import {
   mapTriggerSaveDcs,
   saveDcFormulaUsesSpellDc,
 } from './effectSaveDc.js';
-import { buildFormulaContext } from './formulaParser.js';
+import { buildResolvedFormulaContext } from './resolvedFormulaContext.js';
 import { bindSaveDcFormula } from './sourceFormulaBinding.js';
 import {
   calculateCreatureSpellBlockNumbers,
@@ -60,7 +60,9 @@ export function buildOwnerSaveDcContext(
   owner: DnDSceneEntity,
   formulas: readonly (string | undefined)[],
 ): FormulaContext {
-  const context = buildFormulaContext(owner);
+  // Итоговые числа листа: черта «+1 к Харизме» живёт эффектом, и Сл
+  // «8 + @prof + @mod.feat» читает ту Харизму, что показывает лист
+  const context = buildResolvedFormulaContext(owner);
 
   return formulas.some(saveDcFormulaUsesSpellDc)
     ? { ...context, spellSaveDc: resolveEntitySpellSaveDc(owner) }

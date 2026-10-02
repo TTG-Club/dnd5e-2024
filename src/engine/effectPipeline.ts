@@ -118,6 +118,7 @@ import {
   buildFormulaContext,
   evaluateFormula,
   substituteFormulaVariables,
+  withResolvedSheetNumbers,
 } from './formulaParser.js';
 import { isItemWorn } from './itemUses.js';
 import {
@@ -155,6 +156,12 @@ export type { IncomingAttackContext };
 
 /** Все ключи навыков в порядке итерации */
 const SKILL_KEYS: readonly SkillType[] = SKILLS_LIST.map((skill) => skill.key);
+
+/**
+ * Приставка строки, меняющей саму характеристику: такие строки считаются
+ * первым проходом, от сырых чисел
+ */
+const ABILITY_CHANGE_PREFIX = 'ability.';
 
 /** Вид атаки/урона, к которому эффект даёт бонус */
 type BonusScope = keyof ResolvedActorStats['attackBonuses'];
@@ -698,10 +705,57 @@ export function applyActiveEffects(
     (itemA, itemB) => itemA.change.priority - itemB.change.priority,
   );
 
+  // Два прохода. Изменения самих характеристик (`ability.*`) считаются от
+  // сырых чисел — здесь круг размыкается: «Сила += мод. Мудрости» и «Мудрость
+  // += мод. Силы» не зависят друг от друга. Всё остальное — от характеристик
+  // уже с этими изменениями: «+мод. Харизмы» у поднятой чертой Харизмы
+  // читает то число, что показывает лист
+  const isAbilityChange = (key: string): boolean =>
+    key.startsWith(ABILITY_CHANGE_PREFIX)
+    && isAbilityType(key.slice(ABILITY_CHANGE_PREFIX.length));
+
+  applyChangesPass(
+    modifiedStats,
+    allChanges.filter(({ change }) => isAbilityChange(change.key)),
+    formulaContext,
+    carrier,
+  );
+
+  refreshAbilityModifiers(modifiedStats);
+
+  applyChangesPass(
+    modifiedStats,
+    allChanges.filter(({ change }) => !isAbilityChange(change.key)),
+    // Бонус мастерства здесь ещё листа (его итог — в Фазе 3)
+    withResolvedSheetNumbers(formulaContext, {
+      abilities: modifiedStats.abilities,
+      abilityMods: modifiedStats.abilityMods,
+      proficiencyBonus: formulaContext.prof,
+    }),
+    carrier,
+  );
+
+  return modifiedStats;
+}
+
+/**
+ * Один проход строк эффектов по статам листа.
+ *
+ * @param modifiedStats - статы (меняются на месте: это клон этого расчёта)
+ * @param changes - строки прохода в порядке приоритета
+ * @param formulaContext - числа, от которых считаются формулы прохода
+ * @param carrier - свойства носителя для условий семейства `self.*`
+ */
+function applyChangesPass(
+  modifiedStats: ResolvedActorStats,
+  changes: ReadonlyArray<{ change: EffectChange; effect: ActiveEffect }>,
+  formulaContext: FormulaContext,
+  carrier: CarrierContext | undefined,
+): void {
   // Применяем каждый change. Условия броска (преимущество, хиты цели, вид
   // входящей атаки) на листе не считаются — их оценивают в момент броска;
   // условие по типу носителя, наоборот, считается здесь: тип от броска не зависит
-  for (const { change, effect } of allChanges) {
+  for (const { change, effect } of changes) {
     // Замена свойства оружия — не число: каждое оружие выберет свою сам
     if (isWeaponOverrideKey(change.key)) {
       const entry = buildWeaponOverrideEntry(
@@ -755,8 +809,6 @@ export function applyActiveEffects(
 
     applyChange(modifiedStats, change, formulaContext);
   }
-
-  return modifiedStats;
 }
 
 /**
@@ -3079,6 +3131,14 @@ export function prepareDerivedData(
     );
   }
 
+  // Всё ниже — спасброски, навыки, КД формулой, Сл — считается от итоговых
+  // чисел листа: характеристики уже с эффектами и своими бонусами. Бонус
+  // мастерства выше считался от чисел до прибавок — он и есть размыкание
+  const derivedFormulaContext = withResolvedSheetNumbers(
+    formulaContext,
+    derivedStats,
+  );
+
   // Числа, от которых считаются свои бонусы листа. Собираются один раз и
   // передаются во все расчёты ниже: бонус берёт отсюда либо модификатор своей
   // характеристики, либо бонус мастерства
@@ -3139,7 +3199,7 @@ export function prepareDerivedData(
       `save.${abilityKey}`,
       ruleSave,
       derivedChanges,
-      formulaContext,
+      derivedFormulaContext,
     );
   }
 
@@ -3149,7 +3209,7 @@ export function prepareDerivedData(
     CONCENTRATION_SAVE_KEY,
     0,
     derivedChanges,
-    formulaContext,
+    derivedFormulaContext,
   );
 
   // Спасбросок от смерти характеристики не имеет — только прибавки
@@ -3158,7 +3218,7 @@ export function prepareDerivedData(
     DEATH_SAVE_KEY,
     0,
     derivedChanges,
-    formulaContext,
+    derivedFormulaContext,
   );
 
   // 5. Навыки. Прибавка ко всем проверкам характеристик входит и в навык:
@@ -3168,7 +3228,7 @@ export function prepareDerivedData(
     ABILITY_CHECK_KEY,
     0,
     derivedChanges,
-    formulaContext,
+    derivedFormulaContext,
   );
 
   const skillSettings = parseSkillSettings(
@@ -3216,7 +3276,7 @@ export function prepareDerivedData(
       getSkillEffectKey(skillKey),
       ruleSkill,
       derivedChanges,
-      formulaContext,
+      derivedFormulaContext,
     );
   }
 
@@ -3238,7 +3298,7 @@ export function prepareDerivedData(
     'initiative',
     ruleInitiative,
     derivedChanges,
-    formulaContext,
+    derivedFormulaContext,
   );
 
   // 7. Класс доспеха (AC)
@@ -3400,7 +3460,7 @@ export function prepareDerivedData(
     'armorClass',
     ruleArmorClass,
     derivedChanges,
-    formulaContext,
+    derivedFormulaContext,
   );
 
   // 8. Spell Save DC (8 + бонус мастерства + мод. характеристики заклинателя)
@@ -3422,7 +3482,7 @@ export function prepareDerivedData(
       'spellSaveDC',
       spellSaveDC.value,
       derivedChanges,
-      formulaContext,
+      derivedFormulaContext,
     );
   }
 

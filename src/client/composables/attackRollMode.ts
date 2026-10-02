@@ -8,7 +8,7 @@ import type {
 import { useTargetStore } from '@/stores/targetStore';
 import {
   buildCarrierContext,
-  buildFormulaContext,
+  buildResolvedFormulaContext,
   collectRollConditionFlags,
   DEFAULT_CRIT_THRESHOLD,
   explainAttackRollMode,
@@ -151,6 +151,6 @@ export function resolveTargetedCritThreshold(
       target,
       self: buildCarrierContext(attacker),
     },
-    buildFormulaContext(attacker),
+    buildResolvedFormulaContext(attacker),
   );
 }

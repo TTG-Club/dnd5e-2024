@@ -70,7 +70,6 @@ import {
   readTriggerUsage,
   writeTriggerUsage,
 } from './effectTriggerUsage.js';
-import { buildFormulaContext } from './formulaParser.js';
 import { stripDamageTypeTokens } from './formulaTokens.js';
 import { limitEntityHealing } from './healingLimits.js';
 import {
@@ -79,6 +78,7 @@ import {
   resolveEntityTempHp,
   writeEntityHitPoints,
 } from './hitPoints.js';
+import { buildResolvedFormulaContext } from './resolvedFormulaContext.js';
 import { withInitializedDuration } from './turnEffects.js';
 
 /** Флаг «защиты от урона не действуют» */
@@ -530,7 +530,7 @@ export function getEntityArmorClass(
     totalAC += evaluateDefensiveACBonus(
       effects,
       attackContext,
-      buildFormulaContext(entity),
+      buildResolvedFormulaContext(entity, { stats }),
     );
   }
 

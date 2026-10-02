@@ -146,7 +146,6 @@ import {
   resolveForcedMovePosition,
 } from './forcedMovement.js';
 import {
-  buildFormulaContext,
   evaluateFormula,
   substituteFormulaVariables,
 } from './formulaParser.js';
@@ -158,6 +157,7 @@ import {
   writeEntityHitPoints,
 } from './hitPoints.js';
 import { bindOwnEffectFormulas } from './ownEffectFormulas.js';
+import { buildResolvedFormulaContext } from './resolvedFormulaContext.js';
 import { pickSaveAbility } from './saveAbilityChoice.js';
 import { MIN_SPELL_SLOT_LEVEL } from './spellSlotTable.js';
 import {
@@ -1079,7 +1079,7 @@ function resolveActionAmount(
   eventDamage: number | undefined,
 ): number {
   const formulaContext = {
-    ...buildFormulaContext(entity),
+    ...buildResolvedFormulaContext(entity),
     event: { damage: eventDamage ?? 0 },
   };
 

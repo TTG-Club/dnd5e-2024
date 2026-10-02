@@ -24,7 +24,7 @@ import {
   bindSourceEffectFormulas,
   bindWeaponSpellAbility,
   buildConcentrationEffect,
-  buildFormulaContext,
+  buildResolvedFormulaContext,
   buildSpellZoneDraft,
   getCasterSpellEffects,
   listConcentrationCastIds,
@@ -108,7 +108,7 @@ export function prepareCasterSpellEffects(
   }
 
   const formulaContext = {
-    ...buildFormulaContext(caster),
+    ...buildResolvedFormulaContext(caster),
     spellMod: source.spellMod,
     spellSaveDc: source.saveDc,
     castLevel: resolveSpellCastLevel(caster.id, spell),
@@ -265,7 +265,7 @@ export function requestSpellZone(
     casterCreatureType: resolveEntityCreatureType(caster),
     saveDc: source.saveDc,
     formulaContext: {
-      ...buildFormulaContext(caster),
+      ...buildResolvedFormulaContext(caster),
       spellMod: source.spellMod,
       castLevel: resolveSpellCastLevel(caster.id, spell),
     },
