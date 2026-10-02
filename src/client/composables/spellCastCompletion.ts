@@ -154,54 +154,42 @@ export function applyCasterSpellEffectsToEntity(
   source: SpellCasterSource,
 ): void {
   const prepared = prepareCasterSpellEffects(spell, caster, source);
-  const chatStore = useChatStore();
-  const socket = chatStore.getSocket();
 
-  if (prepared.length === 0 || !socket) {
+  if (prepared.length === 0 || !landCasterEventEffects(caster, prepared)) {
     return;
   }
-
-  // Клон: живую запись стора меняет только ответ сервера
-  const updatedCaster: DnDSceneEntity = JSON.parse(JSON.stringify(caster));
-
-  updatedCaster.activeEffects = mergeAppliedEffects(
-    updatedCaster.activeEffects ?? [],
-    prepared,
-  );
-
-  emitEntityCombatState(socket, updatedCaster);
 
   postSpellEffectsMessage(spell.name, [caster.name], prepared);
 }
 
 /**
- * Кладёт на заклинателя эффекты со срабатыванием «при наложении» боевым
- * снимком: событие наложения сервер видит только в нём («Связь с иным
- * планом»: спасбросок, урон и состояние срабатывания). Лист персонажа пишет
- * остальные самобаффы своим сохранением, а эти — сюда.
+ * Кладёт готовые эффекты на заклинателя боевым снимком. Эффекту со
+ * срабатыванием «при наложении» другой путь не годится: событие наложения
+ * сервер видит только в снимке («Связь с иным планом»: спасбросок, урон и
+ * состояние срабатывания). Лист персонажа пишет остальные самобаффы своим
+ * сохранением, а такие — сюда.
  *
  * @param caster - заклинатель с текущими эффектами
- * @param effects - готовые эффекты «на себя» с событием наложения
+ * @param effects - готовые эффекты «на себя»
+ * @returns `true`, если снимок ушёл; нет эффектов или соединения — `false`
  */
 export function landCasterEventEffects(
   caster: DnDSceneEntity,
   effects: readonly ActiveEffect[],
-): void {
+): boolean {
   const socket = useChatStore().getSocket();
 
   if (effects.length === 0 || !socket) {
-    return;
+    return false;
   }
 
-  // Клон: живую запись стора меняет только ответ сервера
-  const updatedCaster: DnDSceneEntity = JSON.parse(JSON.stringify(caster));
+  // Копия: живую запись стора меняет только ответ сервера
+  emitEntityCombatState(socket, {
+    ...caster,
+    activeEffects: mergeAppliedEffects(caster.activeEffects ?? [], effects),
+  });
 
-  updatedCaster.activeEffects = mergeAppliedEffects(
-    updatedCaster.activeEffects ?? [],
-    effects,
-  );
-
-  emitEntityCombatState(socket, updatedCaster);
+  return true;
 }
 
 /**
